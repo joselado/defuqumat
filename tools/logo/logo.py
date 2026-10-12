@@ -8,27 +8,35 @@
     $B -b --factory-startup --python tools/logo/logo.py -- build --mesh docs/logo/mesh \\
         --blend logo.blend              # the scene, to open by hand
 
-``render`` writes ``defuqumat-icon.png`` (``--icon-size``, 1024), ``defuqumat-banner.png``
-and ``defuqumat-banner-dark.png`` (four times ``--size`` by ``--size``, 2400 by 600, the
-wordmark dark for a light background and light for a dark one); the 256 and 64 px
-icons are pillow downsamples of the first. The defaults of every dial are the
+``render`` writes ``defuqumat-icon.png`` (``--icon-size``, 1024) and
+``defuqumat-banner.png`` (four times ``--size`` by ``--size``, 2400 by 600); the 256 and
+64 px icons are pillow downsamples of the first. The defaults of every dial are the
 values that made the committed logo, so a bare ``render`` regenerates it.
 
 The scene is a deterministic function of the files in ``--mesh`` (``surface_m.ply``,
 ``surface_m_low.ply``, ``arrows.npz``, ``atoms.json``, written by ``compute.py mesh``)
 and of the dials below: the Cr t2g shell as an isosurface of |m| of the CrI3
 monolayer (plans/logo.md), the Cr moment as one arrow, on each iodine a
-translucent cloud of the antiparallel density with a small arrow of the field,
-the atoms and the Cr to I bonds, and the wordmark. The icon is one CrI6
-octahedron (centred on a Cr, a disc of 6.5 bohr, no wordmark, since at 64 px the
-name is noise); the banner the honeycomb ring of six (a hexagon centre, 11.5
-bohr) beside the wordmark. One Blender unit is ten bohr.
+translucent cloud of the antiparallel density, a field of direction arrows where
+``m`` leans more than ``--field-tilt`` degrees off the axis (the region around each
+iodine where it turns over), the atoms and the Cr to I bonds, and the wordmark.
+The icon is one CrI6 octahedron (centred on a Cr, a disc of 6.5 bohr, no wordmark,
+since at 64 px the name is noise). The banner is a strip of the honeycomb with the
+wordmark in front of it, pearl bevelled type lit by the scene and the honeycomb
+softened by the camera's depth of field: the big letters spell ``defuqumat`` on one
+baseline and each word's completion sits small beside them in italic, ``nsity``
+and ``antum`` above, ``nctional`` and ``erials`` below, so the line reads both the
+name and "density functional quantum materials" (``--wordmark acronym``; ``plain``
+is the name alone; ``--banner-layout beside`` puts the ring of six to the left
+instead). One Blender unit is ten bohr.
 
 Dials: ``--camera icon|banner``, ``--arrows atoms+field|all|atoms|field|surface|none``
-with ``--field-sign neg|both``, ``--colour mz|tilt``, ``--text 0|1`` and
-``--text-colour dark|light``, ``--shell 0|1``, ``--surface m|n``, ``--centre``,
-``--radius``, ``--cr-radius``, ``--elev-icon``, ``--elev-banner``, ``--cloud-reach``,
-``--lobe-reach``, ``--engine``, ``--samples``, ``--view Standard|AgX``, ``--size``.
+with ``--field-sign``, ``--field-style direction|magnitude``, ``--field-tilt``,
+``--field-thin``, ``--colour mz|tilt``, ``--text 0|1``, ``--text-style glossy|metal|flat``,
+``--font`` and ``--font-small`` (presets or files), ``--wordmark``, ``--banner-layout``,
+``--dof`` (f-stop), ``--shell 0|1``, ``--surface m|n``, ``--centre``, ``--radius``,
+``--cr-radius``, ``--elev-icon``, ``--elev-banner``, ``--cloud-reach``, ``--lobe-reach``,
+``--engine``, ``--samples``, ``--view Standard|AgX``, ``--size``, ``--icon-size``.
 """
 import argparse
 import json
@@ -42,7 +50,16 @@ import numpy as np
 from mathutils import Matrix, Vector
 
 SCALE = 0.1  # Blender units per bohr
-FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+FONTS = {
+    "dejavu": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "garamond": "/usr/share/fonts/truetype/ebgaramond/EBGaramond12-Regular.ttf",
+    "garamond-italic": "/usr/share/fonts/truetype/ebgaramond/EBGaramond12-Italic.ttf",
+    "garamond-bold": "/usr/share/fonts/truetype/ebgaramond/EBGaramond12-Bold.ttf",
+    "gentium-italic": "/usr/share/fonts/truetype/gentiumplus/GentiumBookPlus-BoldItalic.ttf",
+    "besley": "/usr/share/fonts/truetype/besley/Besley-Bold.ttf",
+    "comfortaa": "/usr/share/fonts/truetype/comfortaa/Comfortaa-Bold.ttf",
+}
+FONT = FONTS["garamond-italic"]
 
 PALETTE = {
     "surface": (0.93, 0.30, 0.06, 1.0),   # the lobes of |m|: warm orange
@@ -51,7 +68,9 @@ PALETTE = {
     "I": (0.55, 0.30, 0.75, 1.0),          # iodine violet
     "bond": (0.45, 0.45, 0.50, 1.0),
     "shell": (0.25, 0.45, 0.95, 1.0),      # the antiparallel cloud on the iodine
-    "text": (0.10, 0.10, 0.12, 1.0),       # the wordmark, as an emission (flat) colour
+    "text": (0.10, 0.10, 0.12, 1.0),       # the wordmark when flat (an emission colour)
+    "text_glossy": (0.93, 0.93, 0.96, 1.0), # the wordmark as pearl, lit by the scene
+    "arrow_mid": (0.86, 0.86, 0.88, 1.0),  # an arrow in the plane
     "arrow_lo": (0.10, 0.35, 0.90, 1.0),   # m_z down, or no tilt
     "arrow_hi": (0.95, 0.15, 0.10, 1.0),   # m_z up, or the largest tilt
 }
@@ -281,7 +300,7 @@ def add_atoms(atoms, centre, radius):
             for sym in set(syms.values())}
 
 
-def arrow_mesh(length, shaft=0.022, head=0.055, head_frac=0.38, segments=16):
+def arrow_mesh(length, shaft=0.011, head=0.030, head_frac=0.34, segments=24):
     """Vertices and faces of one arrow along +z, numpy; the shaft from 0 to
     (1 - head_frac) length, the head to ``length``."""
     L1 = length * (1 - head_frac)
@@ -305,17 +324,40 @@ def arrow_mesh(length, shaft=0.022, head=0.055, head_frac=0.38, segments=16):
     return verts, faces
 
 
+def _thin_points(points, spacing):
+    """A greedy subset of ``points`` no two of which are closer than ``spacing``."""
+    keep, cells = [], {}
+    inv = 1.0 / spacing
+    for idx, p in enumerate(points):
+        key = tuple(np.floor(p * inv).astype(int))
+        close = any(np.linalg.norm(points[q] - p) < spacing
+                    for d1 in (-1, 0, 1) for d2 in (-1, 0, 1) for d3 in (-1, 0, 1)
+                    for q in cells.get((key[0] + d1, key[1] + d2, key[2] + d3), ()))
+        if not close:
+            keep.append(idx)
+            cells.setdefault(key, []).append(idx)
+    return np.array(keep, dtype=int)
+
+
 def add_arrows(arrows, centre, radius, which, colour_by, length_scale, atom_scale=2.4,
-               field_sign="neg"):
+               field_sign="neg", field_style="direction", i_arrow=0.6, field_thin=0.0,
+               field_tilt=15.0):
     groups = []
     if which in ("all", "surface"):
         groups.append(("surface", arrows["surface_points"], arrows["surface_m"], 1.0))
     if which in ("all", "field", "atoms+field"):
         pts, m = arrows["grid_points"], arrows["grid_m"]
+        if field_tilt > 0:
+            # only where m leans away from the axis by more than field_tilt
+            # degrees: the arrows that show the turning, not the parallel ones
+            nrm = np.linalg.norm(m, axis=1) + 1e-30
+            lean = np.degrees(np.arccos(np.clip(np.abs(m[:, 2]) / nrm, 0, 1)))
+            pts, m = pts[lean > field_tilt], m[lean > field_tilt]
+        if field_thin > 0:
+            keep = _thin_points((np.asarray(pts) - centre) * SCALE, field_thin)
+            pts, m = pts[keep], m[keep]
         if field_sign == "neg":
-            # only where m points against the Cr moment: the induced iodine
-            # moment, the one place the field arrows say something the atom
-            # arrows do not; the parallel ones near the Cr are clutter
+            # only where m points against the Cr moment
             pts, m = pts[m[:, 2] < 0], m[m[:, 2] < 0]
         groups.append(("field", pts, m, 1.0))
     if which in ("all", "atoms", "atoms+field"):
@@ -329,7 +371,8 @@ def add_arrows(arrows, centre, radius, which, colour_by, length_scale, atom_scal
         nrm = np.linalg.norm(m, axis=1) + 1e-12
         tilt_max = max(tilt_max, float(np.degrees(np.arccos(np.clip(np.abs(m[:, 2]) / nrm, -1, 1))).max()))
     print(f"  arrows: |m| max {m_max:.4f}, largest tilt from z {tilt_max:.2f} degrees")
-    lo, hi = np.array(PALETTE["arrow_lo"]), np.array(PALETTE["arrow_hi"])
+    lo, mid, hi = (np.array(PALETTE["arrow_lo"]), np.array(PALETTE["arrow_mid"]),
+                   np.array(PALETTE["arrow_hi"]))
     for name, pts, m, _ in groups:
         pts = (np.asarray(pts) - centre) * SCALE
         inside = np.hypot(pts[:, 0], pts[:, 1]) < radius * SCALE
@@ -342,9 +385,17 @@ def add_arrows(arrows, centre, radius, which, colour_by, length_scale, atom_scal
             nrm = np.linalg.norm(mv)
             if nrm < 1e-9:
                 continue
-            length = length_scale * (0.5 + 0.5 * nrm / m_max)
-            if name == "atoms":
-                length = length_scale * atom_scale * nrm / m_max
+            if name == "field":
+                # a direction field: every arrow the same length, so the eye
+                # reads where m turns rather than how small it is there
+                length = length_scale * (0.55 if field_style == "direction"
+                                         else 0.5 + 0.5 * nrm / m_max)
+            elif name == "atoms":
+                is_cr = nrm > 0.5 * m_max
+                length = (length_scale * atom_scale * nrm / m_max if is_cr
+                          else length_scale * i_arrow)   # the iodine's at a fixed length
+            else:
+                length = length_scale * (0.5 + 0.5 * nrm / m_max)
             v, f = arrow_mesh(length)
             R = rotation_to(mv)
             v = v @ R.T + p
@@ -353,7 +404,7 @@ def add_arrows(arrows, centre, radius, which, colour_by, length_scale, atom_scal
                 w = tilt / tilt_max
             else:
                 w = 0.5 * (1 + mv[2] / nrm)
-            col = lo * (1 - w) + hi * w
+            col = (lo * (1 - 2 * w) + mid * 2 * w) if w < 0.5 else (mid * (2 - 2 * w) + hi * (2 * w - 1))
             verts_all.append(v)
             faces_all += [tuple(i + base for i in face) for face in f]
             cols_all.append(np.tile(col, (len(v), 1)))
@@ -373,29 +424,88 @@ def add_arrows(arrows, centre, radius, which, colour_by, length_scale, atom_scal
         print(f"  arrows {name}: {len(pts)} inside the disc")
 
 
-def add_text(text, camera, distance, offset, size):
-    curve = bpy.data.curves.new("wordmark", type="FONT")
-    curve.body = text
+def text_material(style, size_hint=1.0):
+    if style == "flat":
+        mat = material("text", (0, 0, 0, 1), roughness=1.0)
+        bsdf = mat.node_tree.nodes["Principled BSDF"]
+        _set_input(bsdf, "Emission Color", PALETTE["text"])   # flat, lit by itself
+        _set_input(bsdf, "Emission Strength", 1.0)
+        return mat
+    # pearl letters with a bevelled edge, lit by the scene's lights like
+    # everything else in it, so they belong to the picture
+    mat = material("text", PALETTE["text_glossy"], roughness=0.22,
+                   metallic=0.15 if style == "glossy" else 0.9)
+    _set_input(mat.node_tree.nodes["Principled BSDF"], "Coat Weight", 1.0)
+    return mat
+
+
+def text_curve(name, body, size, font, style, align="LEFT"):
+    curve = bpy.data.curves.new(name, type="FONT")
+    curve.body = body
     curve.size = size
-    curve.extrude = 0.02 * size
-    curve.bevel_depth = 0.004 * size
-    curve.align_x = "LEFT"
+    curve.align_x = align
     curve.align_y = "CENTER"
-    if os.path.exists(FONT):
-        curve.font = bpy.data.fonts.load(FONT)
-    mat = material("text", (0, 0, 0, 1), roughness=1.0)
-    bsdf = mat.node_tree.nodes["Principled BSDF"]
-    _set_input(bsdf, "Emission Color", PALETTE["text"])   # flat, lit by itself
-    _set_input(bsdf, "Emission Strength", 1.0)
-    ob = new_object("wordmark", curve, mat)
+    if os.path.exists(font):
+        curve.font = bpy.data.fonts.load(font, check_existing=True)
+    if style == "flat":
+        curve.extrude, curve.bevel_depth = 0.02 * size, 0.004 * size
+    else:
+        curve.extrude, curve.bevel_depth, curve.bevel_resolution = 0.07 * size, 0.018 * size, 4
+    return curve
+
+
+def text_width(body, size, font):
+    """The advance width of ``body`` at ``size`` in ``font``, from a throwaway
+    text object's evaluated bounding box."""
+    curve = text_curve("measure", body, size, font, "flat")
+    ob = bpy.data.objects.new("measure", curve)
+    bpy.context.scene.collection.objects.link(ob)
+    bpy.context.view_layer.update()
+    width = ob.dimensions.x
+    bpy.data.objects.remove(ob)
+    bpy.data.curves.remove(curve)
+    return width
+
+
+# the name read as its words: the big letters spell it on one baseline, and each
+# word's completion sits small beside them, above and below in turn
+WORDS = [("de", "nsity", "up"), ("fu", "nctional", "down"),
+         ("qu", "antum", "up"), ("mat", "erials", "down")]
+
+
+def add_text(text, camera, distance, offset, size, style="glossy", align="LEFT",
+             wordmark="acronym", font_small=None):
+    cam_matrix = Matrix.Translation(camera.location) @ camera.rotation_euler.to_matrix().to_4x4()
+    root = bpy.data.objects.new("wordmark", None)
+    bpy.context.scene.collection.objects.link(root)
+    root.rotation_euler = camera.rotation_euler
     # billboard: the camera's orientation, placed in its frame (the camera's
     # matrix_world is not evaluated yet in a scene built this way, so it is
     # assembled from the location and the rotation set above)
-    ob.rotation_euler = camera.rotation_euler
-    cam_matrix = Matrix.Translation(camera.location) @ camera.rotation_euler.to_matrix().to_4x4()
-    local = Vector((offset[0], offset[1], -distance))
-    ob.location = cam_matrix @ local
-    return ob
+    root.location = cam_matrix @ Vector((offset[0], offset[1], -distance))
+    mat = text_material(style)
+    if wordmark == "plain":
+        ob = new_object("wordmark_text", text_curve("wordmark", text, size, FONT, style, align), mat)
+        ob.parent = root
+        return root
+    small_font = font_small or FONT
+    small = 0.34 * size
+    big = "".join(w for w, _, _ in WORDS)
+    total = text_width(big, size, FONT)
+    x0 = -total / 2 if align == "CENTER" else 0.0
+    ob = new_object("wordmark_big", text_curve("wordmark_big", big, size, FONT, style), mat)
+    ob.parent = root
+    ob.location = (x0, 0.0, 0.0)
+    prefix = ""
+    for word, rest, where in WORDS:
+        prefix += word
+        x = x0 + text_width(prefix, size, FONT) + 0.03 * size
+        y = 0.54 * size if where == "up" else -0.40 * size
+        ob = new_object(f"wordmark_{word}", text_curve(f"wordmark_{word}", rest, small,
+                                                      small_font, style), mat)
+        ob.parent = root
+        ob.location = (x, y, 0.0)
+    return root
 
 
 def add_lights_and_world():
@@ -421,7 +531,8 @@ def add_lights_and_world():
         ob.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
 
 
-def add_camera(kind, extent, elev_icon=58.0, elev_banner=40.0, with_text=True):
+def add_camera(kind, extent, elev_icon=58.0, elev_banner=40.0, with_text=True,
+               layout="behind"):
     """An orthographic camera whose frame is computed from the clip radius: the
     icon is a square 2.4 extents wide with the structure in its middle; the banner
     is four times as wide as high, the structure in its left square and the
@@ -435,6 +546,11 @@ def add_camera(kind, extent, elev_icon=58.0, elev_banner=40.0, with_text=True):
     if kind == "icon":
         h = 2.2 * extent
         elev, w, shift = math.radians(elev_icon), h, 0.0
+    elif layout == "behind":
+        # the disc fills the width, the camera sees a strip of it behind the letters
+        w = 2.0 * extent
+        h = w / 4
+        elev, shift = math.radians(elev_banner), 0.0
     else:
         elev, w, shift = math.radians(elev_banner), 4 * h, (4 * h) / 2 - h / 2
     cam.ortho_scale = w
@@ -456,19 +572,23 @@ def add_camera(kind, extent, elev_icon=58.0, elev_banner=40.0, with_text=True):
     return ob, dist, (w, h)
 
 
-def place_text(cam, dist, frame, kind, extent):
-    """The wordmark in the camera's frame: under the structure for the icon,
-    in the right three quarters for the banner."""
+def place_text(cam, dist, frame, kind, extent, style="glossy", layout="behind",
+               wordmark="acronym", font_small=None):
+    """The wordmark in the camera's frame: under the structure for the icon;
+    for the banner either in the right three quarters (``beside``) or across the
+    middle in front of the honeycomb (``behind``), a little nearer the camera
+    than the structure so it stands in front of it."""
     w, h = frame
-    if kind == "banner":
-        size = 0.40 * h
-        x = -w / 2 + 1.06 * h
-        y = -0.08 * h
+    big = 0.52 * h if wordmark == "acronym" else 0.62 * h
+    if kind == "banner" and layout == "behind":
+        add_text("defuqumat", cam, dist - 1.2 * extent, (0.0, -0.06 * h), big,
+                 style, align="CENTER", wordmark=wordmark, font_small=font_small)
+    elif kind == "banner":
+        add_text("defuqumat", cam, dist, (-w / 2 + 1.06 * h, -0.08 * h), 0.36 * h, style,
+                 wordmark=wordmark, font_small=font_small)
     else:
-        size = 0.17 * h
-        x = -0.5 * w + 0.06 * h
-        y = -0.5 * h + 0.14 * h
-    add_text("defuqumat", cam, dist, (x, y), size)
+        add_text("defuqumat", cam, dist, (-0.5 * w + 0.06 * h, -0.5 * h + 0.14 * h),
+                 0.15 * h, style, wordmark=wordmark, font_small=font_small)
 
 
 # ---------------------------------------------------------------------------
@@ -483,11 +603,16 @@ def resolve_kind(args, kind):
     if args.text is None:
         args.text = 0 if kind == "icon" else 1
     if args.centre == "auto":
-        args.centre = "cr" if kind == "icon" else "lattice"
+        args.centre = ("cr" if kind == "icon"
+                       else "patch" if args.banner_layout == "behind" else "lattice")
     if args.radius is None:
         args.radius = args.icon_radius if kind == "icon" else args.banner_radius
+    if kind == "banner" and args.banner_layout == "behind" and args.centre == "patch":
+        pass
     if args.lobe_reach is None:
         args.lobe_reach = 0.4 if kind == "icon" else 0.0
+    if args.field_thin is None:
+        args.field_thin = 0.0 if kind == "icon" else 0.22
     return args
 
 
@@ -507,15 +632,25 @@ def build_scene(args):
         add_surface(low, centre, args.radius, PALETTE["shell"], name="shell", faint=True,
                     anchors=placed.get("I"), reach=args.cloud_reach)
     add_arrows(arrows, centre, args.radius, args.arrows, args.colour, args.arrow_length,
-               args.atom_arrow, args.field_sign)
+               args.atom_arrow, args.field_sign, args.field_style, args.i_arrow,
+               args.field_thin, args.field_tilt)
     add_lights_and_world()
     extent = args.radius * SCALE
     cam, dist, frame = add_camera(args.camera, extent, args.elev_icon, args.elev_banner,
-                                  bool(args.text))
+                                  bool(args.text), args.banner_layout)
+    if args.dof > 0 and args.camera == "banner" and args.banner_layout == "behind":
+        # focus on the wordmark's plane, in front of the structure, and let the
+        # honeycomb soften behind it
+        cam.data.dof.use_dof = True
+        cam.data.dof.focus_distance = dist - 1.2 * extent
+        cam.data.dof.aperture_fstop = args.dof
     if args.text:
+        global FONT
+        FONT = FONTS.get(args.font, args.font)
         PALETTE["text"] = {"dark": (0.10, 0.10, 0.12, 1.0),
                            "light": (0.88, 0.88, 0.90, 1.0)}[args.text_colour]
-        place_text(cam, dist, frame, args.camera, extent)
+        place_text(cam, dist, frame, args.camera, extent, args.text_style, args.banner_layout,
+                   args.wordmark, FONTS.get(args.font_small, args.font_small))
     scene.render.film_transparent = True
     scene.view_settings.view_transform = args.view
     scene.view_settings.look = "None"
@@ -558,8 +693,28 @@ def main():
     p.add_argument("--camera", choices=("icon", "banner"), default="icon")
     p.add_argument("--arrows", choices=("all", "atoms", "atoms+field", "field", "surface", "none"),
                    default="atoms+field")
-    p.add_argument("--field-sign", choices=("neg", "both"), default="neg",
+    p.add_argument("--field-sign", choices=("neg", "both"), default="both",
                    help="field arrows only where m is antiparallel to the Cr moment, or everywhere")
+    p.add_argument("--field-style", choices=("direction", "magnitude"), default="direction",
+                   help="field arrows all one length (the direction of m) or scaled by |m|")
+    p.add_argument("--field-thin", type=float, default=None,
+                   help="minimum distance between field arrows, Blender units "
+                        "(default none for the icon, 0.22 for the banner)")
+    p.add_argument("--field-tilt", type=float, default=15.0,
+                   help="draw a field arrow only where m leans more than this from z, degrees")
+    p.add_argument("--dof", type=float, default=2.4,
+                   help="f-stop of the banner camera's depth of field, 0 for none")
+    p.add_argument("--i-arrow", type=float, default=0.6,
+                   help="length of an iodine's atom arrow in units of --arrow-length")
+    p.add_argument("--font", default="garamond",
+                   help="the big letters: a preset (%s) or a font file" % ", ".join(FONTS))
+    p.add_argument("--font-small", default="garamond-italic",
+                   help="the words' completions, a preset or a font file")
+    p.add_argument("--wordmark", choices=("acronym", "plain"), default="acronym",
+                   help="the name with its words' completions above and below, or alone")
+    p.add_argument("--text-style", choices=("glossy", "metal", "flat"), default="glossy")
+    p.add_argument("--banner-layout", choices=("behind", "beside"), default="behind",
+                   help="the wordmark in front of the honeycomb, or beside it")
     p.add_argument("--colour", choices=("mz", "tilt"), default="mz")
     p.add_argument("--arrow-length", type=float, default=0.26, help="Blender units")
     p.add_argument("--centre", choices=("auto", "lattice", "patch", "cr"), default="auto",
@@ -568,7 +723,8 @@ def main():
     p.add_argument("--radius", type=float, default=None,
                    help="clip disc, bohr (default: --icon-radius or --banner-radius by camera)")
     p.add_argument("--icon-radius", type=float, default=6.5)
-    p.add_argument("--banner-radius", type=float, default=11.5)
+    p.add_argument("--banner-radius", type=float, default=18.0,
+                   help="bohr; 18 for the behind layout (the 3x3 patch is 39 wide), 11.5 beside")
     p.add_argument("--text", type=int, default=None,
                    help="draw the wordmark (default: on the banner, not on the icon)")
     p.add_argument("--text-colour", choices=("dark", "light"), default="dark",
@@ -605,12 +761,10 @@ def main():
         # the icon and the banner, each its own scene (its own centre and disc)
         os.makedirs(args.out, exist_ok=True)
         import copy
-        for kind, name, w, h, colour in (
-                ("icon", "defuqumat-icon.png", args.icon_size, args.icon_size, "dark"),
-                ("banner", "defuqumat-banner.png", 4 * args.size, args.size, "dark"),
-                ("banner", "defuqumat-banner-dark.png", 4 * args.size, args.size, "light")):
+        for kind, name, w, h in (
+                ("icon", "defuqumat-icon.png", args.icon_size, args.icon_size),
+                ("banner", "defuqumat-banner.png", 4 * args.size, args.size)):
             a = resolve_kind(copy.copy(args), kind)
-            a.text_colour = colour
             scene = build_scene(a)
             render(scene, a, w, h, os.path.abspath(os.path.join(args.out, name)))
 

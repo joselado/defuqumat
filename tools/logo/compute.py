@@ -340,8 +340,18 @@ def run_mesh(args):
     g3 = np.arange(z0 / N[2], z1 / N[2], step / c_len)
     grid_frac = np.array(np.meshgrid(g1, g2, g3, indexing="ij")).reshape(3, -1).T
     grid_m = sample(m_f, grid_frac)
-    strong = np.linalg.norm(grid_m, axis=1) > args.floor * mag_f.max()
+    # the field arrows live in the band where the direction of m turns: on this
+    # cell m is along z to a degree or two wherever |m| is above a few per cent
+    # of its maximum, and swings through the plane between 0.05 and 2 per cent,
+    # the region around each iodine where it changes sign
+    nrm = np.linalg.norm(grid_m, axis=1)
+    strong = (nrm > args.floor * mag_f.max()) & (nrm < args.ceiling * mag_f.max())
     grid_pts, grid_m = grid_frac[strong] @ at, grid_m[strong]
+    cos = grid_m[:, 2] / (np.linalg.norm(grid_m, axis=1) + 1e-30)
+    tilt = np.degrees(np.arccos(np.clip(np.abs(cos), 0, 1)))
+    print(f"  field arrows: {len(grid_pts)} in the band ({args.floor:.4f}, {args.ceiling:.3f}) "
+          f"of max |m|; tilt from z mean {tilt.mean():.1f}, max {tilt.max():.1f} deg; "
+          f"{np.mean(cos < 0):.0%} antiparallel")
 
     # one arrow per atom: the result's own site moments (report_mag's spheres),
     # with a sphere integral on the fine grid printed beside them as a check
@@ -422,10 +432,12 @@ def main(argv=None):
     g.add_argument("--tile", type=int, default=3, help="cells per side of the patch")
     g.add_argument("--arrow-spacing", type=float, default=1.5,
                    help="minimum distance between surface arrows, angstrom")
-    g.add_argument("--grid-spacing", type=float, default=1.4,
+    g.add_argument("--grid-spacing", type=float, default=1.0,
                    help="spacing of the field arrows, angstrom")
-    g.add_argument("--floor", type=float, default=0.004,
+    g.add_argument("--floor", type=float, default=0.0005,
                    help="field arrows only where |m| exceeds this fraction of its maximum")
+    g.add_argument("--ceiling", type=float, default=0.02,
+                   help="and stays below this fraction: the band where the direction turns")
     g.add_argument("--radius-cr", type=float, default=1.2, help="sphere for the Cr moment, angstrom")
     g.add_argument("--radius-i", type=float, default=1.2, help="sphere for the I moment, angstrom")
     g.add_argument("--bond-cutoff", type=float, default=3.0, help="Cr-I bond cutoff, angstrom")

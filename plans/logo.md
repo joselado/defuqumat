@@ -3,13 +3,11 @@
 Written 2026-10-12 on `master` as a plan, reviewed by a fable subagent the same day, run
 the same day; the first two parts are the plan as it was carried out, and "What was
 measured" is the record. The deliverables are `docs/logo/defuqumat-icon.png` (1024 px, no
-wordmark, with 256 and 64 px copies), `docs/logo/defuqumat-banner.png` and
-`defuqumat-banner-dark.png` (2400 by 600, the wordmark dark for a light background and
-light for a dark one), the input `docs/logo/cri3.in`, the SCF log `docs/logo/data/scf.log`,
+wordmark, with 256 and 64 px copies) and `docs/logo/defuqumat-banner.png` (2400 by 600,
+the wordmark in pearl type across a strip of the honeycomb), the input `docs/logo/cri3.in`, the SCF log `docs/logo/data/scf.log`,
 and under `tools/logo/` the four files `compute.py`, `logo.py`, `run_scf_d22.sh` and
 `symmetry_ab.sh`, whose defaults are the values that made the pictures. The README shows
-the two banners through a `picture` element by colour scheme, and the title page of
-`docs/features.tex` the 256 px icon. The saved density (62 MB) and the meshes it cuts are
+the banner, and the title page of `docs/features.tex` the 256 px icon. The saved density (62 MB) and the meshes it cuts are
 regenerable and stay out of git.
 
 ## What was verified on this workstation before starting
@@ -145,8 +143,49 @@ six such octahedra beside the wordmark.
   stand. (`ab.log` and the two `.npz` are in `/l/ladovj1/review/logo/` on D22.)
 - **Rendering** on this CPU (fourteen cores, Cycles): a 512 px draft at 64 samples 8 s,
   the 2048 by 512 banner 19 s; the finals at 256 samples, the 1024 px icon 87.8 s (98.4 with
-  the wordmark it no longer carries), the 600 px icon 27.1 s, each 2400 by 600 banner 52 to
-  53 s; a 16-sample EEVEE draft of either about 2 s. The mesh step 18 s.
+  the wordmark it no longer carries), the 600 px icon 27.1 s, the 2400 by 600 banner 52 s without and 324 s with the depth
+  of field and the pearl type of the second pass (the icon 86.7 s there); a 16-sample
+  EEVEE draft of either about 2 s. The mesh step 18 s.
+
+## The second pass, 2026-10-12, from the owner's four remarks on the first
+
+The first pictures drew the remarks that the letters should be more artistic, that the
+image and the letters should blend, that the arrows were too round, and that the
+noncollinearity could not be seen; with them came the wordmark's idea, that the name reads
+as its words. What changed:
+
+- **The wordmark reads both ways.** The big letters spell `defuqumat` on one baseline and
+  each word's completion sits small in italic beside its letters, above and below in turn
+  (`nsity`, `nctional`, `antum`, `erials`), so the line is the name and "density
+  functional quantum materials" at once. The big letters are EB Garamond regular (the
+  owner's pick from a sheet of Garamond regular, Garamond bold and Besley; GFS
+  Baskerville has no Latin lowercase), the completions EB Garamond italic, at 0.34 of the
+  big size, 0.54 of it above the baseline and 0.40 below (under the descender of the `q`).
+  Blender's text objects have no advance width, so each completion's `x` is the evaluated
+  bounding box of a throwaway text object holding the prefix.
+- **The letters are in the scene.** Pearl type (`Coat Weight` 1, roughness 0.22, a bevel of
+  0.018 of the size, extruded 0.07), lit by the scene's lights, in a plane 1.2 extents
+  nearer the camera than the honeycomb, and the banner is now a strip of the honeycomb
+  (centred on the patch middle, a disc of 18 bohr, the frame 2 extents wide) with the
+  wordmark across it; the camera's depth of field (f/2.4, focused on the wordmark's plane)
+  softens the honeycomb behind. f/0.6 was tried first and turned it into a colour wash.
+- **The arrows are slim**: shaft radius 0.011 and head 0.030 Blender units (0.022 and 0.055
+  before), the head 0.34 of the length, 24 segments.
+- **The noncollinearity is drawn where it is.** On this cell `m` is along z to a degree or
+  two wherever `|m|` is above a few per cent of its maximum (Cr by symmetry, the iodine's
+  1.25 degrees), so no arrow on an atom or a lobe can show it. Where `m` turns is the band
+  between 0.05 and 2 per cent of the maximum around each iodine, where it changes sign:
+  measured on the saved density, the tilt from z has a mean of 1.1 degrees above 3 per
+  cent, 3.1 degrees (max 18) between 0.3 and 1 per cent, 7.9 degrees (90th percentile 17,
+  max 66) between 0.1 and 0.3 per cent, and 16 degrees (max 90) between 0.05 and 0.1 per
+  cent. The field arrows are therefore sampled on a 1 angstrom grid in that band (1319 in
+  the 3x3 patch, mean tilt 7.4 degrees, 54 per cent antiparallel), drawn at one length
+  (a direction field) and only where the tilt exceeds 15 degrees (23 inside the icon's
+  disc, thinned to 0.22 units apart on the banner), coloured blue through grey to red by
+  `cos(m, z)`. The honest caption is that the arrows show the direction of a magnetization
+  of a fraction of a per cent of the Cr peak.
+- **The dark-background twin of the banner is gone**: the pearl letters are lit, not
+  coloured, so one banner serves both themes, and the README is back to one image.
 
 ## What can go wrong, and did
 
