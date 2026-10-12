@@ -23,10 +23,9 @@ iodine where it turns over), the atoms and the Cr to I bonds, and the wordmark.
 The icon is one CrI6 octahedron (centred on a Cr, a disc of 6.5 bohr, no wordmark,
 since at 64 px the name is noise). The banner is a strip of the honeycomb with the
 wordmark in front of it, pearl bevelled type lit by the scene and the honeycomb
-softened by the camera's depth of field: the big letters spell ``defuqumat`` on one
-baseline and each word's completion sits small beside them in italic, ``nsity``
-and ``antum`` above, ``nctional`` and ``erials`` below, so the line reads both the
-name and "density functional quantum materials" (``--wordmark acronym``; ``plain``
+softened by the camera's depth of field: the line "density functional quantum
+materials" on one baseline, each word's first letters at the full size and the rest
+at half of it in italic, so the big letters read ``defuqumat`` through the line (``--wordmark acronym``; ``plain``
 is the name alone; ``--banner-layout beside`` puts the ring of six to the left
 instead). One Blender unit is ten bohr.
 
@@ -419,8 +418,8 @@ def add_arrows(arrows, centre, radius, which, colour_by, length_scale, atom_scal
             attr.data[i].color = c.tolist()
         smooth(me)
         new_object(f"arrows_{name}", me,
-                   material(f"arrows_{name}", (1, 1, 1, 1), roughness=0.3,
-                            metallic=0.2, vertex_color="col"))
+                   material(f"arrows_{name}", (1, 1, 1, 1), roughness=0.65,
+                            metallic=0.0, vertex_color="col"))   # matte, not mirror-like
         print(f"  arrows {name}: {len(pts)} inside the disc")
 
 
@@ -467,8 +466,8 @@ def text_width(body, size, font):
     return width
 
 
-# the name read as its words: the big letters spell it on one baseline, and each
-# word's completion sits small beside them, above and below in turn
+# the name read as its words: one line, each word's first letters big and the
+# rest small, so the big letters spell the name
 WORDS = [("de", "nsity", "up"), ("fu", "nctional", "down"),
          ("qu", "antum", "up"), ("mat", "erials", "down")]
 
@@ -489,22 +488,23 @@ def add_text(text, camera, distance, offset, size, style="glossy", align="LEFT",
         ob.parent = root
         return root
     small_font = font_small or FONT
-    small = 0.34 * size
-    big = "".join(w for w, _, _ in WORDS)
-    total = text_width(big, size, FONT)
+    small = 0.50 * size
+    gap = 0.22 * size
+    # one line, "density functional quantum materials", each word's first
+    # letters big and the rest small on the same baseline, so the big letters
+    # read "defuqumat" through the line
+    pieces, x = [], 0.0
+    for word, rest, _ in WORDS:
+        pieces.append((word, size, FONT, x)); x += text_width(word, size, FONT) + 0.02 * size
+        pieces.append((rest, small, small_font, x)); x += text_width(rest, small, small_font) + gap
+    total = x - gap
     x0 = -total / 2 if align == "CENTER" else 0.0
-    ob = new_object("wordmark_big", text_curve("wordmark_big", big, size, FONT, style), mat)
-    ob.parent = root
-    ob.location = (x0, 0.0, 0.0)
-    prefix = ""
-    for word, rest, where in WORDS:
-        prefix += word
-        x = x0 + text_width(prefix, size, FONT) + 0.03 * size
-        y = 0.54 * size if where == "up" else -0.40 * size
-        ob = new_object(f"wordmark_{word}", text_curve(f"wordmark_{word}", rest, small,
-                                                      small_font, style), mat)
+    for i, (body, sz, font, xi) in enumerate(pieces):
+        curve = text_curve(f"wordmark_{i}", body, sz, font, style)
+        curve.align_y = "BOTTOM_BASELINE"
+        ob = new_object(f"wordmark_{i}", curve, mat)
         ob.parent = root
-        ob.location = (x, y, 0.0)
+        ob.location = (x0 + xi, -0.3 * size, 0.0)
     return root
 
 
@@ -579,7 +579,7 @@ def place_text(cam, dist, frame, kind, extent, style="glossy", layout="behind",
     middle in front of the honeycomb (``behind``), a little nearer the camera
     than the structure so it stands in front of it."""
     w, h = frame
-    big = 0.52 * h if wordmark == "acronym" else 0.62 * h
+    big = 0.46 * h if wordmark == "acronym" else 0.62 * h
     if kind == "banner" and layout == "behind":
         add_text("defuqumat", cam, dist - 1.2 * extent, (0.0, -0.06 * h), big,
                  style, align="CENTER", wordmark=wordmark, font_small=font_small)
@@ -710,7 +710,7 @@ def main():
                    help="the big letters: a preset (%s) or a font file" % ", ".join(FONTS))
     p.add_argument("--font-small", default="garamond-italic",
                    help="the words' completions, a preset or a font file")
-    p.add_argument("--wordmark", choices=("acronym", "plain"), default="acronym",
+    p.add_argument("--wordmark", choices=("acronym", "plain"), default="plain",
                    help="the name with its words' completions above and below, or alone")
     p.add_argument("--text-style", choices=("glossy", "metal", "flat"), default="glossy")
     p.add_argument("--banner-layout", choices=("behind", "beside"), default="behind",

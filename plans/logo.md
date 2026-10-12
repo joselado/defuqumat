@@ -154,13 +154,16 @@ image and the letters should blend, that the arrows were too round, and that the
 noncollinearity could not be seen; with them came the wordmark's idea, that the name reads
 as its words. What changed:
 
-- **The wordmark reads both ways.** The big letters spell `defuqumat` on one baseline and
-  each word's completion sits small in italic beside its letters, above and below in turn
-  (`nsity`, `nctional`, `antum`, `erials`), so the line is the name and "density
-  functional quantum materials" at once. The big letters are EB Garamond regular (the
+- **The wordmark is the name alone** (the owner, third pass, after two forms of the
+  name read as its words; `--wordmark acronym` keeps the inline form), and the arrows are
+  matte (roughness 0.65, no metallic term), since the glossy ones read as mirrors.
+- **The wordmark read both ways, in the second pass.** The line is "density functional quantum materials"
+  set in one row on one baseline, each word's first letters (`de`, `fu`, `qu`, `mat`) at
+  the full size and the rest of the word at half of it in italic, so the big letters read
+  `defuqumat` through the line. (A first form put the completions above and below the
+  big letters; the owner asked for one line.) The big letters are EB Garamond regular (the
   owner's pick from a sheet of Garamond regular, Garamond bold and Besley; GFS
-  Baskerville has no Latin lowercase), the completions EB Garamond italic, at 0.34 of the
-  big size, 0.54 of it above the baseline and 0.40 below (under the descender of the `q`).
+  Baskerville has no Latin lowercase), the completions EB Garamond italic at 0.50 of the big size, a gap of 0.22 between words.
   Blender's text objects have no advance width, so each completion's `x` is the evaluated
   bounding box of a throwaway text object holding the prefix.
 - **The letters are in the scene.** Pearl type (`Coat Weight` 1, roughness 0.22, a bevel of
