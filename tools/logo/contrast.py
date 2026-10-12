@@ -10,7 +10,10 @@ is above a half, the surround is a ring around them ``--ring`` of the height wid
 the median relative luminance of the letters and of the ring, their WCAG contrast
 ratio (L1 + 0.05) / (L2 + 0.05) with L1 the brighter, and the share of letter pixels
 whose own luminance is at least a ratio of 3 (the WCAG level for large text) from
-the ring's median. ``--json`` prints the figures as JSON instead.
+the ring's median. ``--json`` prints the figures as JSON instead. On the committed
+banner, which carries its own background (``background.py``), the two themes give the
+same figure, since the theme no longer reaches the letters; the two rows differ only
+for a transparent render (``logo.py ... --background none``).
 """
 import argparse
 import json

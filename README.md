@@ -1,7 +1,4 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/logo/defuqumat-banner-dark.png">
-  <img alt="defuqumat, density functional quantum materials: the magnetization density of a CrI3 monolayer, computed by the code itself" src="docs/logo/defuqumat-banner.png">
-</picture>
+<img alt="defuqumat, density functional quantum materials: the magnetization density of a CrI3 monolayer, computed by the code itself" src="docs/logo/defuqumat-banner.png">
 
 # defuqumat
 

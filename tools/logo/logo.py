@@ -8,11 +8,12 @@
     $B -b --factory-startup --python tools/logo/logo.py -- build --mesh docs/logo/mesh \\
         --blend logo.blend              # the scene, to open by hand
 
-``render`` writes ``defuqumat-icon.png`` (``--icon-size``, 1024), ``defuqumat-banner.png``
-(four times ``--size`` by ``--size``, 2400 by 600, graphite letters for GitHub's light
-theme) and ``defuqumat-banner-dark.png`` (the same with pearl letters, for its dark
-theme; the README picks by ``prefers-color-scheme``); the 256 and 64 px icons are pillow
-downsamples of the first. The defaults of every dial are the
+``render`` writes ``defuqumat-icon.png`` (``--icon-size``, 1024, transparent) and
+``defuqumat-banner.png`` (four times ``--size`` by ``--size``, 2400 by 600, pearl letters
+on GitHub's dark grey: the banner is rendered on a transparent film and
+``background.py`` then puts ``--background`` behind it, ``0d1117`` by default and
+``none`` to keep the film, so the one picture serves both of GitHub's themes); the 256
+and 64 px icons are pillow downsamples of the first. The defaults of every dial are the
 values that made the committed logo, so a bare ``render`` regenerates it.
 
 The scene is a deterministic function of the files in ``--mesh`` (``surface_m.ply``,
@@ -31,9 +32,9 @@ mapped once across the whole word, its crests narrowed to pale blue lines with a
 slight relief) and the honeycomb softened by the camera's depth of field
 (``--wordmark acronym`` is the line "density functional quantum materials" with
 each word's first letters big; ``--banner-layout beside`` puts the ring of six to
-the left instead; ``--text-colour light`` is the pearl twin). One Blender unit is
-ten bohr. ``--mask-only`` draws the wordmark alone, the letter mask that
-``contrast.py`` measures the two themes' legibility with.
+the left instead; ``--text-colour dark`` is the graphite version of the letters, the
+one a light background wants). One Blender unit is ten bohr. ``--mask-only`` draws the
+wordmark alone, the letter mask that ``contrast.py`` measures the legibility with.
 
 Dials: ``--camera icon|banner``, ``--arrows atoms+field|all|atoms|field|surface|none``
 with ``--field-sign``, ``--field-style direction|magnitude``, ``--field-tilt``,
@@ -43,7 +44,8 @@ wave|dark|glossy|metal|flat``, ``--text-colour dark|light``, ``--text-size``,
 ``--font`` and ``--font-small`` (presets or files), ``--wordmark``, ``--banner-layout``,
 ``--dof`` (f-stop), ``--shell 0|1``, ``--surface m|n``, ``--centre``, ``--radius``,
 ``--cr-radius``, ``--elev-icon``, ``--elev-banner``, ``--cloud-reach``, ``--lobe-reach``,
-``--engine``, ``--samples``, ``--view Standard|AgX``, ``--size``, ``--icon-size``.
+``--engine``, ``--samples``, ``--view Standard|AgX``, ``--size``, ``--icon-size``,
+``--background`` (hex or none).
 """
 import argparse
 import json
@@ -843,8 +845,11 @@ def main():
                    help="bohr; 18 for the behind layout (the 3x3 patch is 39 wide), 11.5 beside")
     p.add_argument("--text", type=int, default=None,
                    help="draw the wordmark (default: on the banner, not on the icon)")
-    p.add_argument("--text-colour", choices=("dark", "light"), default="dark",
-                   help="graphite letters for a light background, pearl ones for a dark one")
+    p.add_argument("--text-colour", choices=("dark", "light"), default="light",
+                   help="pearl letters for the dark background, graphite ones for a light one")
+    p.add_argument("--background", default="0d1117",
+                   help="hex colour background.py puts behind the rendered banner; none keeps "
+                        "the transparent film")
     p.add_argument("--shell", type=int, default=1,
                    help="draw the faint low-level surface coloured by cos(m, z)")
     p.add_argument("--atom-arrow", type=float, default=2.4,
@@ -877,14 +882,29 @@ def main():
         # the icon and the banner, each its own scene (its own centre and disc)
         os.makedirs(args.out, exist_ok=True)
         import copy
-        for kind, name, w, h, tone in (
-                ("icon", "defuqumat-icon.png", args.icon_size, args.icon_size, "dark"),
-                ("banner", "defuqumat-banner.png", 4 * args.size, args.size, "dark"),
-                ("banner", "defuqumat-banner-dark.png", 4 * args.size, args.size, "light")):
+        for kind, name, w, h in (
+                ("icon", "defuqumat-icon.png", args.icon_size, args.icon_size),
+                ("banner", "defuqumat-banner.png", 4 * args.size, args.size)):
             a = resolve_kind(copy.copy(args), kind)
-            a.text_colour = tone
             scene = build_scene(a)
-            render(scene, a, w, h, os.path.abspath(os.path.join(args.out, name)))
+            path = os.path.abspath(os.path.join(args.out, name))
+            render(scene, a, w, h, path)
+            if kind == "banner" and args.background.lower() != "none":
+                put_background(path, args.background)
+
+
+def put_background(path, colour):
+    """Run background.py (pillow, in the system python3, not in Blender's) on the
+    rendered banner, in place."""
+    import shutil
+    import subprocess
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "background.py")
+    python = shutil.which("python3")
+    cmd = [python or "python3", "-I", script, path, "--colour", colour.lstrip("#")]
+    if python is None:
+        print("no python3 on PATH; run by hand: " + " ".join(cmd))
+        return
+    print(subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip())
 
 
 if __name__ == "__main__":

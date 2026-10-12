@@ -3,15 +3,15 @@
 Written 2026-10-12 on `master` as a plan, reviewed by a fable subagent the same day, run
 the same day; the first two parts are the plan as it was carried out, and "What was
 measured" is the record. The deliverables are `docs/logo/defuqumat-icon.png` (1024 px, no
-wordmark, with 256 and 64 px copies), `docs/logo/defuqumat-banner.png` (2400 by 600, the
-wordmark in dark pearl type carrying a plane wave, across a strip of the honeycomb, for
-GitHub's light theme) and
-`docs/logo/defuqumat-banner-dark.png` (the same with pearl letters, for its dark theme),
-the input `docs/logo/cri3.in`, the SCF log `docs/logo/data/scf.log`, and under
-`tools/logo/` the five files `compute.py`, `logo.py`, `contrast.py`, `run_scf_d22.sh` and
-`symmetry_ab.sh`, whose defaults are the values that made the pictures. The README shows
-the banner, and the title page of `docs/features.tex` the 256 px icon. The saved density (62 MB) and the meshes it cuts are
-regenerable and stay out of git.
+wordmark, with 256 and 64 px copies) and `docs/logo/defuqumat-banner.png` (2400 by 600,
+the wordmark in pearl type carrying a plane wave, across a strip of the honeycomb, on
+GitHub's dark grey, which the banner carries itself so that one picture serves both of
+GitHub's themes), the input `docs/logo/cri3.in`, the SCF log `docs/logo/data/scf.log`,
+and under `tools/logo/` the six files `compute.py`, `logo.py`, `background.py`,
+`contrast.py`, `run_scf_d22.sh` and `symmetry_ab.sh`, whose defaults are the values that
+made the pictures. The README shows the banner, and the title page of
+`docs/features.tex` the 256 px icon. The saved density (62 MB) and the meshes it cuts
+are regenerable and stay out of git.
 
 ## What was verified on this workstation before starting
 
@@ -299,7 +299,41 @@ stand.
   graphite letters **3.53 on light** (56 per cent of letter pixels at 3 or above, down
   from 3.93 and 77 per cent with the moire, the crests being the brighter pixels), the
   pearl ones **7.07 on dark** (98 per cent). The other theme fails as before (1.02 and
-  1.98), which the README's `<picture>` element avoids.
+  1.98), which the README's `<picture>` element avoided until the sixth pass below put
+  the dark grey into the banner itself.
+
+## The sixth pass, 2026-10-12, one banner that carries its background
+
+The owner saw the fifth pass's two finals composited on their themes and kept the dark
+one, so one banner now serves both of GitHub's themes by carrying its background: the
+pearl letters with the wave, rendered on the transparent film as before, and
+`tools/logo/background.py` puts GitHub's dark grey `#0d1117` behind them (`logo.py
+render` runs it on the banner it writes; `--background` is the colour and `none` keeps
+the film). The graphite letters stay a dial (`--text-colour dark`); the light-theme
+banner, its twin file and the README's `<picture>` element are gone, and the README is
+one `<img>` again.
+
+- **Which space the background goes on in.** A browser blends a transparent PNG onto
+  the page in display (sRGB) space, pixel by pixel, and that is what the owner saw and
+  approved; a blend in linear light is the right sum of two lights, and on this banner
+  the two differ: 481135 of the 1440000 pixels, a third, are partly transparent (the
+  depth-of-field halos around the honeycomb and the soft edges of the clouds), and the
+  linear blend moves them by up to 64 of 255 (mean 13) from the approved picture. So
+  the blend is the display-space one, in pillow in the anaconda interpreter rather than
+  in Blender's compositor, which blends in linear light. The committed banner is the
+  fifth pass's transparent twin blended this way, no new render; downsampled to the
+  1200 by 300 of the composite the owner saw, it is at most 13 of 255 and on average
+  0.2 apart, which is the resampling filter.
+- **The check**: **7.07 on both themes** (98 per cent of letter pixels at 3 or above,
+  10th percentile 4.00), the fifth pass's dark-theme figure, now also the light-theme
+  one, since the theme no longer reaches the letters. The file is 8-bit RGB, 1.05 MB
+  against the 6.5 MB of the 16-bit transparent twin.
+- **A bare `render` reproduces it**: run into a scratch directory after the edit
+  (Cycles, 256 samples, this CPU; the icon 78.0 s, the banner 255.5 s plus the blend),
+  the icon is pixel-identical to the committed one and the banner has 15 of its
+  1440000 pixels 1 of 255 apart, the rest equal, which is the render's own last-bit
+  noise under the denoiser rather than the blend. The committed files are the ones
+  made from the fifth pass's render, not this check's.
 
 ## What can go wrong, and did
 
