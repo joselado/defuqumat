@@ -1,5 +1,5 @@
 ! **The four-cell cobalt helix of `co-helix4-nosoc.in`, in its one-atom cell**, by
-! the generalized Bloch theorem: the source density of `ORIENTATION-NEXT.md` step 2.
+! the generalized Bloch theorem: the source density of `notes/ORIENTATION-NEXT.md` step 2.
 !
 ! The tetragonal cell of `co-tetragonal-anisotropy-sr.in` with `spiral_q` a quarter
 ! of the reciprocal vector along c, so the moment turns by 90 degrees from one cell

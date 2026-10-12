@@ -467,7 +467,7 @@ def test_a_single_k_point_is_the_same_computation_under_the_new_default():
 
 def test_the_pair_axis_has_a_budget_on_a_card_and_the_band_dial_on_a_cpu(
         monkeypatch):
-    """``GPU-MEMORY-NEXT.md`` item 12: ``chi_0``'s pairs are not the bands.
+    """``notes/GPU-MEMORY-NEXT.md`` item 12: ``chi_0``'s pairs are not the bands.
 
     On a card the band dial's default is every band, which for the pair axis
     is every occupied-empty pair's FFT box at once. So there the default is a

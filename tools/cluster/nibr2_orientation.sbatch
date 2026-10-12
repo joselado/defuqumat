@@ -1,5 +1,5 @@
 #!/bin/bash
-# Which plane the NiBr2 helix lies in (P122, `ORIENTATION-NEXT.md` step 5):
+# Which plane the NiBr2 helix lies in (P122, `notes/ORIENTATION-NEXT.md` step 5):
 # `tools/cluster/nibr2_orientation.py`, Route A from two starts and Route C from
 # one, on the three-cell supercell with the coupling, one GPU each.
 #

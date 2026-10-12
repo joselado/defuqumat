@@ -1,7 +1,7 @@
-"""GPU.md Phase 0 -- first contact: does it run, and does it give the same number?
+"""notes/GPU.md Phase 0 -- first contact: does it run, and does it give the same number?
 
 One SCF, one case, one setting of each batching dial, with the five checks
-``GPU.md`` names run in the order it names them and written to JSON. There is
+``notes/GPU.md`` names run in the order it names them and written to JSON. There is
 nothing GPU-specific in here beyond the reporting: the *same* script is the CPU
 baseline, run on a CPU node, which is the whole point -- §2.3's metric is GPU
 defuqumat against CPU defuqumat on the same input and the same code, so the two
@@ -16,7 +16,7 @@ or a path to a ``pw.x`` input.
 **Both dials are set explicitly and there is no default here**, deliberately.
 ``defuqumat/batching.py`` reads ``DEFUQUMAT_K_BATCH`` and ``DEFUQUMAT_BAND_BATCH``
 *at import time* and defaults both to one, which is what a cache wants and what
-a GPU does not (``GPU.md`` §1) -- so this script sets both into the environment
+a GPU does not (``notes/GPU.md`` §1) -- so this script sets both into the environment
 before defuqumat is imported and refuses to run without being told.
 
 What each check answers, and what its failure means:
@@ -24,7 +24,7 @@ What each check answers, and what its failure means:
 1. ``fp64`` -- x64 is asserted on a device array rather than trusted, because
    its failure mode is a plausible number rather than a crash; and the fp64/fp32
    rate is measured on the two kernels this code is actually made of, a matmul
-   and a batched 3D FFT. That ratio is the datum ``GPU.md`` Phase 3's rank waits
+   and a batched 3D FFT. That ratio is the datum ``notes/GPU.md`` Phase 3's rank waits
    on.
 2. ``energy`` -- the total energy against the committed reference where one
    exists, and against the paired CPU run through the JSON.
@@ -331,7 +331,7 @@ def _bits(array) -> str:
 
     **Not** Python's ``hash``, which is salted per process: a fingerprint that
     changes with ``PYTHONHASHSEED`` compares fine inside one run and is
-    meaningless the moment it is written to JSON. GPU.md check 5 is literally
+    meaningless the moment it is written to JSON. notes/GPU.md check 5 is literally
     "run the identical *job* twice and diff bit for bit", which is two
     submissions -- and two submissions is what catches the failure one process
     cannot, a compilation that is not itself reproducible.
@@ -404,7 +404,7 @@ def main(argv=None) -> int:
     import defuqumat  # noqa: F401  -- sets jax_enable_x64 before any array exists
 
     record = {"dials": dials, "provenance": provenance()}
-    print(f"# defuqumat GPU.md phase 0 -- {case.name}")
+    print(f"# defuqumat notes/GPU.md phase 0 -- {case.name}")
     print(f"# {record['provenance']['device_kind']} x{record['provenance']['device_count']}"
           f" ({record['provenance']['platform']}), jax {record['provenance']['jax']}")
     print(f"# dials: k_batch={dials['k_batch']} band_batch={dials['band_batch']}")

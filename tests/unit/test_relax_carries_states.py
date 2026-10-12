@@ -15,7 +15,7 @@ iterations, which belongs to the measurement against ``pw.x``:
 * the relaxation's own frame holds no second reference while the step runs
   (the states are popped into the call, ``result`` is dropped), and the span is
   gone from ``run_scf``'s frame by its first diagonalisation, which is the
-  ``MEMORY-AUDIT.md`` A2 lifetime ``test_retention.py`` guards for the result;
+  ``notes/MEMORY-AUDIT.md`` A2 lifetime ``test_retention.py`` guards for the result;
 * a variable-cell relaxation carries them in its frozen basis and not when the
   basis is rebuilt at every step (``treinit_gvectors``);
 * and the one that guards the physics: a step whose occupied manifold changes

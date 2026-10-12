@@ -1,7 +1,7 @@
 #!/bin/bash
 # Do P58's force-theorem anisotropy and P59's local-TF mixer run on a GPU?
 #
-# GPU.md Phase 0's two questions asked of the work added since it was written.
+# notes/GPU.md Phase 0's two questions asked of the work added since it was written.
 # `tools/gpu/p59_check.py` is the same script the CPU reference was produced
 # with, so the deliverable is a JSON pair to diff -- not a speedup.
 #

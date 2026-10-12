@@ -1,12 +1,12 @@
 """The frozen-state force and stress, a k-chunk at a time.
 
-``GPU-MEMORY-NEXT.md`` item 3. The force and the stress are ``jax.grad`` of the
+``notes/GPU-MEMORY-NEXT.md`` item 3. The force and the stress are ``jax.grad`` of the
 frozen energy (:func:`~defuqumat.forces.energy.energy_at`), and a single ``grad``
 puts the whole k axis on one tape: every k-point's states, projectors and
 per-k tables are live for the backward pass at once, which is the SCF's
 whole-set working set coming back after memory mode took it away -- and a
 streamed store (a numpy array in host memory) has to cross to the device whole
-to be differentiated at all. ``MEMORY-AUDIT.md`` §8 records why the k dial is
+to be differentiated at all. ``notes/MEMORY-AUDIT.md`` §8 records why the k dial is
 inert under reverse mode: a ``lax.map`` stacks every chunk's residuals for the
 backward pass.
 

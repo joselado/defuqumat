@@ -1,6 +1,6 @@
 """Which of the four directions a noncollinear SCF is still moving in.
 
-``MAGNETISM-NEXT.md`` F2 reframes "the magnet takes twice the iterations
+``notes/MAGNETISM-NEXT.md`` F2 reframes "the magnet takes twice the iterations
 ``pw.x`` takes" as a question about the *spectrum* of the map the mixer damps
 rather than about the mixer: a density error ``e`` comes back as
 ``(1 - beta) e + beta J e`` with ``J = chi_0 K``, and ``J`` goes wrong at both

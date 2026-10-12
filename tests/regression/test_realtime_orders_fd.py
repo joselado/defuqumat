@@ -1,6 +1,6 @@
 """The third order of the current by nested ``jvp`` against a finite difference of full runs.
 
-``HARMONICS-NEXT.md``'s ladder item 5: the same propagation run at the field
+``notes/HARMONICS-NEXT.md``'s ladder item 5: the same propagation run at the field
 amplitudes ``lam = +-h, +-2h`` and differenced,
 
     J^(3) ~ ([J(2h) - J(-2h)] - 2 [J(h) - J(-h)]) / (12 h^3) = J^(3) + 5 h^2 J^(5) + ...,

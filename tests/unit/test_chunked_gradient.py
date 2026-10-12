@@ -1,6 +1,6 @@
 """The force and the stress walked a k-chunk at a time.
 
-``GPU-MEMORY-NEXT.md`` item 3 (:mod:`defuqumat.forces.chunked`). One ``grad`` of
+``notes/GPU-MEMORY-NEXT.md`` item 3 (:mod:`defuqumat.forces.chunked`). One ``grad`` of
 the frozen energy tapes the whole k axis; the chunked route splits the energy
 into a separable part and a global part of the whole sums (``becsum``, the
 smooth density, ``ns``) and pulls the global gradient back through each chunk.

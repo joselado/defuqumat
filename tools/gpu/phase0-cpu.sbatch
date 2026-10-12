@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 0, CPU half: the baseline the GPU number is quoted against.
+# notes/GPU.md Phase 0, CPU half: the baseline the GPU number is quoted against.
 #
 # This is the SAME driver on the SAME cases at the SAME dial settings as
 # phase0-gpu.sbatch. That is the entire point of §2.3's metric -- GPU defuqumat
@@ -49,7 +49,7 @@ source "$WORK/venv/bin/activate"
 
 # Its own cache: a CPU kernel and a GPU kernel are different compilations, and
 # giving the two jobs one directory would also be the concurrent-writer case
-# GPU.md flags as unverified on this filesystem. One writer each, no question.
+# notes/GPU.md flags as unverified on this filesystem. One writer each, no question.
 export MKL_NUM_THREADS=1
 export OMP_NUM_THREADS=1
 export DEFUQUMAT_CACHE_DIR="$WORK/cache-cpu"

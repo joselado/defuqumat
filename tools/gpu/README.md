@@ -1,20 +1,20 @@
 # The GPU jobs: first contact, and the response path
 
-`GPU.md` is the roadmap and `PLAN.md` P10 the phase entry; this directory is the
+`notes/GPU.md` is the roadmap and `PLAN.md` P10 the phase entry; this directory is the
 thin path Phase 0 asks for — **one job, run by hand, not gated on P34 being
-built** — and, since 2026-08-26, Phase 5's counterpart for the response. Read `GPU.md` §2 first: it is what decides how these
+built** — and, since 2026-08-26, Phase 5's counterpart for the response. Read `notes/GPU.md` §2 first: it is what decides how these
 scripts are shaped, and above all that *nothing here is a port*. JAX already
 emits GPU code from this source. What is missing is evidence.
 
 | file | what it is |
 |---|---|
-| `phase0.py` | the driver: one case, one setting of each dial, GPU.md's five checks, one JSON |
+| `phase0.py` | the driver: one case, one setting of each dial, notes/GPU.md's five checks, one JSON |
 | `phase0-gpu.sbatch` | the GPU job |
 | `phase0-cpu.sbatch` | **the same driver on a CPU node** — §2.3's baseline, and a separate job because CPU-only work does not belong on a GPU partition |
 | `phase0_compare.py` | pairs the two sets of JSON and reads the checks off them |
 | `phase5.py` | **the response driver**: one property per process, its derivative mode, its working set and its value |
 | `phase5-gpu.sbatch` | the GPU job for the response path |
-| `phase5-cpu.sbatch` | the same driver on a CPU node — §2.3's baseline, *and* GPU.md §4 item 3's tape measurement, which needs no card |
+| `phase5-cpu.sbatch` | the same driver on a CPU node — §2.3's baseline, *and* notes/GPU.md §4 item 3's tape measurement, which needs no card |
 | `davidson_profile.py` | **inside** a Davidson step: the parts of one, at a case's own shapes, on either platform — Phase 1 one level in |
 | `davidson-gpu.sbatch`, `davidson-cpu.sbatch` | that profile on a card and on four pinned Milan cores; the GPU half also re-runs the sweep's own invocation, so the sweep's committed ms/iteration is the before column |
 | `phase5-si10-gpu.sbatch`, `phase5-si10-cpu.sbatch` | the response on a **ten-atom** cell, which is what the first Phase 5 run said it owed; the CPU half also carries the unexplained `alas-raman` diagnostic |
@@ -136,7 +136,7 @@ decoration:
   If the two runs differ, the determinism policy is settled **before** any GPU
   number is called validated.
 * **`fp64 slowdown`** — measured on a matmul and a batched 3D FFT, which is what
-  the Davidson subspace algebra and `h_psi` are actually made of. `GPU.md`
+  the Davidson subspace algebra and `h_psi` are actually made of. `notes/GPU.md`
   Phase 3's *rank* waits on this datum: if fp64 runs at about half of fp32,
   float32's ceiling is roughly 2x and that phase belongs after Phase 4.
 * **`peak GB`** — from JAX's own allocator accounting, never `nvidia-smi`, which

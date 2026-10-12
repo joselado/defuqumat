@@ -1054,7 +1054,7 @@ def _tetragonal_states_at_45_degrees():
 def test_the_orientation_torque_contains_the_plane_torque():
     """Three components on the same states, and P60's number is one of them.
 
-    ``ORIENTATION-NEXT.md`` step 1. The moment turning in the ``(z, x)`` plane is
+    ``notes/ORIENTATION-NEXT.md`` step 1. The moment turning in the ``(z, x)`` plane is
     a turn about ``y``, so ``torque_at_angle`` must be the ``y`` component of the
     vector, on the same states, to round-off: the two build the same potential
     through two different parameterisations of the same rotation. The
@@ -1288,7 +1288,7 @@ def test_without_the_coupling_the_torque_on_a_texture_vanishes():
 def test_the_orientation_relaxes_onto_the_easy_axis():
     """Tetragonal cobalt from an oblique start lands on ``c``, the easy axis.
 
-    ``ORIENTATION-NEXT.md`` step 3. Started 51.6 degrees from ``c`` with every
+    ``notes/ORIENTATION-NEXT.md`` step 3. Started 51.6 degrees from ``c`` with every
     component of the torque live, the BFGS in the rotation vector converges on
     ``c``, which P60 and P87 both have as the easy axis. The curvature there is
     the second number: one eigenvalue is the turn about the moment, which moves
@@ -1325,7 +1325,7 @@ def _oblique_coupled_cobalt():
 def test_turning_the_moments_inside_the_scf_converges_on_the_easy_axis():
     """Route C: the run with the coupling converges on ``c`` instead of wandering.
 
-    ``ORIENTATION-NEXT.md`` step 4. Seeded 45 degrees off ``c``, the plain SCF
+    ``notes/ORIENTATION-NEXT.md`` step 4. Seeded 45 degrees off ``c``, the plain SCF
     does not converge in 100 iterations: the angle wanders between 36 and 54
     degrees and ``dr2`` between 1e-8 and 2e-5 while the per-iteration torque
     sits at -3.3e-5 Ry per radian, which is ``-K1`` of the relaxed anisotropy

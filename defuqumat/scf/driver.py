@@ -638,7 +638,7 @@ def _mix(mixer, rho, rho_out, becsum_in, becsum_out, ns_in=None, ns_out=None,
     fit under Anderson (``PLAN.md`` P113), not because it is wrong.
 
     Two costs to state. The history doubles for a meta run, one dense-grid array
-    per entry becoming two (``MEMORY-AUDIT.md`` D3, where the Anderson history
+    per entry becoming two (``notes/MEMORY-AUDIT.md`` D3, where the Anderson history
     is already unmodelled), and the checkpointed mixer doubles with it. And
     ``tau`` makes one more host round trip per iteration, which this function
     already pays for the density.
@@ -1044,7 +1044,7 @@ def _projector_core(pseudos, structure, cell, smooth, planewaves, kpoints,
     the gathered factors -- is live for the whole k-set at once, and on
     eight-atom silicon at 20 Ry and 216 k-points that took the device from
     12.1 to 71.1 MB to leave a 19.7 MB core behind; no stage of the SCF comes
-    back up to it (``GPU-MEMORY-NEXT.md`` item 6). Chunked, each piece is
+    back up to it (``notes/GPU-MEMORY-NEXT.md`` item 6). Chunked, each piece is
     built on the device and parked on the host, and the assembled columns go
     to the device once, so the device holds the core plus one chunk's
     transient. Only for a host-side build: a strain, a ``kcart`` or a spiral
@@ -1719,7 +1719,7 @@ class SCFResult:
     #: ``integral of B[rho_in] x m_out`` at the last iteration, in Ry per
     #: radian: the torque on a rigid rotation of the whole texture, which is
     #: ``-dE/dw`` of the Harris-Foulkes energy and, near self-consistency, of the
-    #: total (``ORIENTATION-NEXT.md`` Route C). **A run with spin-orbit coupling
+    #: total (``notes/ORIENTATION-NEXT.md`` Route C). **A run with spin-orbit coupling
     #: can reach ``conv_thr`` with it far from zero**, because the orientation is
     #: a soft mode ``dr2`` does not see; it is recorded per iteration in
     #: :attr:`history` too. Zero by rotation invariance without the coupling, to
@@ -3730,7 +3730,7 @@ class Calculation:
             # 1.61 against 0.42 on ``bn-ldau-noncol``. Scanned, the table is
             # rebuilt a chunk at a time for every contraction and again in the
             # backward pass, which made BN's warm stress 6.2-7.3 s against 2.55
-            # (``GPU-MEMORY-NEXT.md`` item 15). That is the two modes' trade, so
+            # (``notes/GPU-MEMORY-NEXT.md`` item 15). That is the two modes' trade, so
             # the mode decides; the CPU default is ``speed``, and every
             # validated stress on record stays on the route it was taken with.
             # A cell already on the tabulated route stays on it.
@@ -4019,7 +4019,7 @@ class Calculation:
         mode's band batch. Both are re-resolved here from the same requests at
         ``nbnd``: speed mode falls back to memory mode when the solve would not
         fit, and memory mode's batch is re-chosen from the card
-        (``GPU-MEMORY-NEXT.md``, "The dials are sized for the SCF's bands").
+        (``notes/GPU-MEMORY-NEXT.md``, "The dials are sized for the SCF's bands").
 
         Returns ``self`` when nothing changes -- on a CPU, for a band count no
         larger than the SCF's, and wherever the caller set the dials -- and
@@ -4103,7 +4103,7 @@ class Calculation:
         share of the whole sum, not a renormalised one.
 
         This is the primitive the streamed consumers that need a *Calculation*
-        rather than a slice of arrays wait on (``GPU-MEMORY-NEXT.md`` items 2
+        rather than a slice of arrays wait on (``notes/GPU-MEMORY-NEXT.md`` items 2
         and 6): a velocity operator's ``jvp`` over ``at_kcart``, or a
         Sternheimer solve, on one chunk of k-points at a time, without
         rebuilding every k-point's projector core per chunk.
@@ -4404,7 +4404,7 @@ class Calculation:
                 # route ``at_strain`` takes in memory mode made ``dE/dq``'s global
                 # tape *larger* on the one augmented spiral sized for it -- bcc
                 # iron, ``nh = 18``, ``ngm = 6963``: 834 MB scanned against 262
-                # MB stored (``GPU-MEMORY-NEXT.md`` item 15).
+                # MB stored (``notes/GPU-MEMORY-NEXT.md`` item 15).
                 #
                 # **On the frozen laboratory sphere**, :attr:`spiral_dense` as
                 # it was built at this calculation's own ``q``: which G-vectors
@@ -4635,7 +4635,7 @@ class Calculation:
         if rows is None and symmetrize and is_host_store(wavefunctions):
             # A streamed store (``SCFResult.wavefunctions`` in memory mode on a
             # card) is walked a chunk at a time rather than put on the device
-            # whole (``GPU-MEMORY-NEXT.md`` item 4); the sum is the same.
+            # whole (``notes/GPU-MEMORY-NEXT.md`` item 4); the sum is the same.
             return stream_becsum(self, wavefunctions, weights)
         # The whole k-set passes the projectors themselves, which a lazy set
         # rebuilds per k inside the sum rather than stacking (item 7).
@@ -5220,7 +5220,7 @@ class Calculation:
         what ``SCFResult.wavefunctions`` is in memory mode on a card -- is
         walked a chunk at a time (:func:`~defuqumat.scf.streaming.stream_densities`)
         rather than moved to the device whole, and the density is the same to
-        round-off (``GPU-MEMORY-NEXT.md`` item 4).
+        round-off (``notes/GPU-MEMORY-NEXT.md`` item 4).
         """
         if is_host_store(wavefunctions):
             return stream_densities(self, wavefunctions, weights,
@@ -6088,7 +6088,7 @@ class Calculation:
         angular character: a state no atomic orbital of the dataset carries is
         then unreachable, because the residual correction cannot leave a
         subspace the Hamiltonian preserves. That was a converged, plausible,
-        0.20 Ry wrong answer (``GAPS.md`` §2c).
+        0.20 Ry wrong answer (``notes/GAPS.md`` §2c).
         :meth:`_starts_from_spin_angle_functions` is the guard.
         """
         if self.spiral:
@@ -6661,7 +6661,7 @@ def _streamed_onecenter_torque(calculation, becsum_in, becsum_out, meta_c,
                                store, weights) -> np.ndarray:
     """:func:`_onecenter_torque` through the output states, a k-chunk at a time.
 
-    A streamed store is not moved to the device whole (``GPU-MEMORY-NEXT.md``
+    A streamed store is not moved to the device whole (``notes/GPU-MEMORY-NEXT.md``
     item 4). The turned ``becsum`` is ``becsum_in + becsum(U(w) psi) -
     becsum_out``, a sum over k in its ``w`` dependence, so the torque is the
     pairing's gradient in the turned ``becsum``, ``g``, taken once at ``w = 0``,
@@ -7585,7 +7585,7 @@ def run_scf(
 
     scheme = calculation.system.occupations
     if mixing_mode.lower() in PRECONDITIONED and scheme in ("fixed", "from_input"):
-        # ``VACUUM-MIXING-NEXT.md``: a Thomas-Fermi screening length derived from
+        # ``notes/VACUUM-MIXING-NEXT.md``: a Thomas-Fermi screening length derived from
         # the charge is a property an insulator does not have, and the screened
         # long wavelengths are then slowed rather than helped.
         warnings.warn(
@@ -7598,7 +7598,7 @@ def run_scf(
         )
 
     if mixing_mode.lower() in LDOS_DEPENDENT and scheme.startswith("tetrahedra"):
-        # Measured and not settled (``VACUUM-MIXING-NEXT.md``): with a Gaussian of
+        # Measured and not settled (``notes/VACUUM-MIXING-NEXT.md``): with a Gaussian of
         # 0.01 Ry in place of a width the method does not have, the aluminium slab
         # under tetrahedra_opt did not converge in 200 iterations, and neither did
         # plain anderson, so the combination has no number behind it.
@@ -7648,7 +7648,7 @@ def run_scf(
             )
 
     previous_energy, history = None, []
-    # Route C's diagnostic (``ORIENTATION-NEXT.md``, P122): the torque on a rigid
+    # Route C's diagnostic (``notes/ORIENTATION-NEXT.md``, P122): the torque on a rigid
     # rotation of the input texture, ``integral of B[rho_in] x m_out``. Every
     # iteration has just done the force theorem's calculation with ``rho_in`` as
     # the frozen density, so this is the gradient of the Harris-Foulkes energy in
@@ -8276,7 +8276,7 @@ def run_scf(
                 becsum_state, becsum_out
             )
             if residual_split:
-                # ``MAGNETISM-NEXT.md`` F2 Option 0: which of the four
+                # ``notes/MAGNETISM-NEXT.md`` F2 Option 0: which of the four
                 # directions the run is still moving in. Off by default and
                 # feeding nothing -- it is read from the same ``rho_out - rho``
                 # the mixer is about to be handed, and ``accuracy`` above is
@@ -8724,7 +8724,7 @@ def run_scf(
                 # diagonalisation starts from. ``tau`` is a scalar and needs no
                 # turn. The static GGA axis stays where it is: for a collinear
                 # texture ``sign(m . u)`` is right for any axis not perpendicular
-                # to the moment (``ORIENTATION-NEXT.md`` Route C).
+                # to the moment (``notes/ORIENTATION-NEXT.md`` Route C).
                 turn = rotation_matrix(step)
                 shapes = [tuple(np.shape(rho))] + [
                     tuple(np.shape(b)) for b in becsum_state if b is not None]
@@ -8743,7 +8743,7 @@ def run_scf(
                 if calculation.is_paw:
                     # Turned on the host; a streamed store stays there and the
                     # density and ``becsum`` walk it a chunk at a time
-                    # (``GPU-MEMORY-NEXT.md`` item 4).
+                    # (``notes/GPU-MEMORY-NEXT.md`` item 4).
                     if pooled:
                         # Each pool turns its own rows; ``becsum`` and the
                         # density are sums over k, reduced before they are

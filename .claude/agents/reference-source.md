@@ -37,7 +37,7 @@ defuqumat repository root. Read-only; never modify anything under it.
 - `src/` is the source. The manual is `docs/elk.pdf` - a PDF, so read it with the Read
   tool's `pages` argument rather than grepping it. Elk exposes most quantities as a
   numbered **task** rather than an input flag, so the task list is where to start.
-- **Start with `ELK-FEATURES.md` in the defuqumat repository root.** It is this project's
+- **Start with `notes/ELK-FEATURES.md` in the defuqumat repository root.** It is this project's
   own survey of Elk's tasks against QE 7.5, it is plain text, and it will often answer
   the question outright. Confirm a hit against `src/` before reporting it - the survey is
   a summary and can be behind the source.

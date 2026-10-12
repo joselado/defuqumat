@@ -1,6 +1,6 @@
 """The optical conductivity tensor, the Kerr angle and the anomalous Hall effect.
 
-``PLAN.md`` P51, and the fourth entry taken from ``ELK-FEATURES.md``: Elk's
+``PLAN.md`` P51, and the fourth entry taken from ``notes/ELK-FEATURES.md``: Elk's
 tasks 121 (``dielectric.f90``) and 122 (``moke.f90``). What it computes is the
 whole complex tensor
 

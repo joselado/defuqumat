@@ -1,7 +1,7 @@
 #!/bin/bash
 # The third harmonic on one H100: its time against the CPU arm (thg-cpu.sbatch), and its tests.
 #
-# GPU.md §2.3's metric: card defuqumat against CPU defuqumat, the same commit and the same input,
+# notes/GPU.md §2.3's metric: card defuqumat against CPU defuqumat, the same commit and the same input,
 # per k-point and step, compilation its own line (tools/realtime/thg_timing.py). Two-atom
 # silicon at 12 Ry, chi^(3)(-3w; w, w, w) at 1.55 eV along [100], 0.2 eV, 450 steps a period:
 #

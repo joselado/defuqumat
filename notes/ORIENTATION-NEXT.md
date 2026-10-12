@@ -386,7 +386,7 @@ with it the magnetic group, moves during the run.
    invariant under a global spin rotation, so the `soc_scale = 0` torque is zero whatever
    the basis. In an ultracell the torque is therefore converged in `nbnd` against a
    supercell before it is believed.
-6. **The unit-cell route to the spiral plane**, which is `SPIRAL-SOC-NEXT.md` step 2 with
+6. **The unit-cell route to the spiral plane**, which is `notes/SPIRAL-SOC-NEXT.md` step 2 with
    `R` as the coordinate. For a spiral the Dzyaloshinskii-Moriya energy is first order in
    the coupling and linear in the plane normal, so it is the leading orientation
    dependence, where for a collinear magnet P120 measured the first-order term at 0.3 per

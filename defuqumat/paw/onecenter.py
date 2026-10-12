@@ -115,7 +115,7 @@ class PawSpecies(eqx.Module):
     kept here, three times over for a fully-relativistic dataset: 295.2 MB each
     for ``Pt.rel-pbe-n-kjpaw_psl`` (``nh = 34``, ``nlm = 25``, ``mesh =
     1277``), most of the one-atom spin-orbit PAW platinum peak
-    (``GPU-MEMORY-NEXT.md`` item 18).
+    (``notes/GPU-MEMORY-NEXT.md`` item 18).
     """
 
     #: ``(nlm, nh, nh)`` ``C_lm,ij``: the expansion of ``Y_i Y_j`` on the
@@ -821,7 +821,7 @@ def _kinetic_tensor(waves, bcoef, r, iraug):
     derivative = _np.asarray(
         radial_derivative(jnp.asarray(radial), jnp.asarray(r))
     )                                                          # dR_i/dr
-    # **Factored, not formed** (``GPU-MEMORY-NEXT.md`` item 18's meta-GGA
+    # **Factored, not formed** (``notes/GPU-MEMORY-NEXT.md`` item 18's meta-GGA
     # half). Each term is a coefficient table times a product of two per-channel
     # radial functions, so ``tau_lm`` is contracted from the factors and no
     # ``(nh, nh, nlm, mesh)`` array exists: the radial term's ``r^2`` goes on

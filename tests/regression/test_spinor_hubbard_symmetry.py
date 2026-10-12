@@ -6,7 +6,7 @@ is in SU(2), represents the rotation it claims to, and is a representation of
 the group up to sign. **None of that says the driver routes an occupation
 matrix through it.** That distinction is not hypothetical here -- ``promote_ns``
 was right in every element while every spinor resume was silently collinear, and
-an array-algebra test passed the whole time (``MAGNETISM-NEXT.md`` §5).
+an array-algebra test passed the whole time (``notes/MAGNETISM-NEXT.md`` §5).
 
 So this file is end to end, and the statement is the one a symmetrisation
 exists to make: **the wedge and the closed grid are the same calculation**. Run

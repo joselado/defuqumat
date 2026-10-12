@@ -1,6 +1,6 @@
 """The strain response walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_strain`). The same
+``notes/GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_strain`). The same
 re-diagonalised states are handed to :func:`~defuqumat.response.strain.
 strain_response` once as a device array (the whole route) and once as a host
 store (the walk), and every field of the result is compared: the response

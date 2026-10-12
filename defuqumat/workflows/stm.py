@@ -178,7 +178,7 @@ def run_stm(
 
     # The caller's own calculation, when handed one, is used on its own k-set or
     # moved to ``kpoints`` rather than a second one built beside it
-    # (``GPU-MEMORY-NEXT.md`` item 20); ``resolve`` remembers which branch the
+    # (``notes/GPU-MEMORY-NEXT.md`` item 20); ``resolve`` remembers which branch the
     # k-set asked for, since a moved calculation carries it and ``kpoints``
     # comes back ``None``.
     resolve = kpoints is not None
@@ -360,7 +360,7 @@ def run_sts(
         kpoints = whole_grid(system, grid, shift)
     # The caller's own calculation, when handed one, is used on its own k-set or
     # moved to ``kpoints`` rather than a second one built beside it
-    # (``GPU-MEMORY-NEXT.md`` item 20); ``resolve`` remembers which branch the
+    # (``notes/GPU-MEMORY-NEXT.md`` item 20); ``resolve`` remembers which branch the
     # k-set asked for, since a moved calculation carries it and ``kpoints``
     # comes back ``None``.
     resolve = kpoints is not None

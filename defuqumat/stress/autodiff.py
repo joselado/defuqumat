@@ -52,7 +52,7 @@ def autodiff_stress(calculation, state: FrozenState) -> jnp.ndarray:
     """
     if wants_chunks(calculation, state):
         # Memory mode, or a state in host memory: the k axis is walked rather
-        # than taped whole (``GPU-MEMORY-NEXT.md`` item 3).
+        # than taped whole (``notes/GPU-MEMORY-NEXT.md`` item 3).
         require_a_differentiable_cell(calculation)
         gradient = chunked_gradient(calculation, state, "strain", _zero())[1]
     else:

@@ -383,7 +383,7 @@ def test_the_ultrasoft_refusal_names_the_term_and_not_the_pseudopotentials(
     **The words it pins changed three times and every reason is worth
     keeping.** On 2026-09-19 it stopped blaming a missing strain term in
     ``response/strain.py``, which P41 had written and ``test_electrostriction``
-    pins at 4.6e-4 (``AUDIT-2026-09-18.md`` ``drift.3``). On 2026-09-20 the
+    pins at 4.6e-4 (``notes/AUDIT-2026-09-18.md`` ``drift.3``). On 2026-09-20 the
     ultrasoft half of the refusal was **lifted** above eight divisions, leaving
     a condition on the mesh. On 2026-10-11 the mesh condition went too (the
     user's decision, ``OPEN.md`` Part XIII item 3): at a converged cutoff the

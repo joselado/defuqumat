@@ -284,7 +284,7 @@ def fixed_density_states(
     # one up front from the accuracy of the density the bands are computed in.
     ethr = max(ETHR_MIN, 0.1 * min(1.0e-2, conv_thr / max(1.0, calculation.nelec)))
     # **A caller that wants only the energies, where the store streams, never
-    # stacks the states** (``GPU-MEMORY-NEXT.md`` item 1): each chunk's solve is
+    # stacks the states** (``notes/GPU-MEMORY-NEXT.md`` item 1): each chunk's solve is
     # discarded as it returns, which is ``c_bands_nscf``, so the device peak
     # stops following the length of the path or the mesh. ``wfc_store`` is
     # resolved through the calculation's memory mode, as the SCF resolves it;
@@ -478,7 +478,7 @@ def kset_blocks(calculation, kpoints):
     """``(blocks, widths)`` to walk a derived k-set a block at a time, or ``None``.
 
     **A long derived k-set is built a block at a time in memory mode**
-    (``GPU-MEMORY-NEXT.md`` item 6). A band path moved onto with ``at_kpoints``
+    (``notes/GPU-MEMORY-NEXT.md`` item 6). A band path moved onto with ``at_kpoints``
     holds every point's per-k tables on the device while its solve walks the
     points in chunks: 1.65 MB per point on the NbSe2 monolayer, 1.4 GB on an
     800-point path. Where the store streams and the tables would pass
@@ -514,7 +514,7 @@ def threaded_calculation(calculation, system, kpoints, k_batch):
     Calculation` moves it to the k-set it needs with ``at_kpoints`` -- which
     shares every k-independent array, the augmentation table and the PAW
     tables among them, and follows the caller's memory mode -- instead of
-    building a second one beside it (``GPU-MEMORY-NEXT.md`` item 20). What
+    building a second one beside it (``notes/GPU-MEMORY-NEXT.md`` item 20). What
     comes back is ready for :func:`fixed_density_states`: ``kpoints = None``,
     the moved calculation's own system and chunk size. A spin spiral cannot be
     moved to another k-set that way, and a calculation of ``None`` is left to

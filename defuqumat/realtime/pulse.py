@@ -30,7 +30,7 @@ with a phase and a chirp, a polynomial ramp, a step), the ``sin^2`` envelope of
 the high-harmonic literature, and the adiabatic switch-on
 ``exp(eta t) cos(w t)`` on ``[-T, 0]`` that turns the perturbative orders of the
 current into response functions at complex frequencies
-(``HARMONICS-NEXT.md``, "The physics"). Each is behind a name registry
+(``notes/HARMONICS-NEXT.md``, "The physics"). Each is behind a name registry
 (:func:`get_pulse`), and :class:`Sum` superposes any of them.
 """
 
@@ -246,7 +246,7 @@ class Adiabatic(Pulse):
     complex frequencies ``m w + i n eta``, so ``eta`` is a broadening per photon
     and a unitary evolution needs no invented dephasing. ``T`` is
     ``eta_t / eta``, and ``exp(-eta T)`` sets the relative size of the start
-    transient, which does not decay (``HARMONICS-NEXT.md``, "The claim the plan
+    transient, which does not decay (``notes/HARMONICS-NEXT.md``, "The claim the plan
     rests on").
     """
 

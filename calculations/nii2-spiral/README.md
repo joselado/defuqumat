@@ -179,7 +179,7 @@ k-points, `npwx = 6014`, a 25 x 25 x 162 grid.
 ## What has *not* been established
 
 * **No calibration run.** `--k-batch 8` and `--time=1-00:00:00` are sized to be
-  generous, not measured; `GPU.md` has nothing above ten atoms on a single
+  generous, not measured; `notes/GPU.md` has nothing above ten atoms on a single
   k-point, and this is 81 k-points of two-component spinors.
 * **No supercell check** at `q = M` yet.
 * The moment above is measured at `ecutwfc = 30` on a 2x2x1 grid, not at the

@@ -1,6 +1,6 @@
 """The stored augmentation table is real, and its phase belongs to the pair.
 
-``GPU-MEMORY-NEXT.md`` item 19. ``Q_ij(G) = sum_LM (-i)^L ap(LM,i,j) Y_LM(G)
+``notes/GPU-MEMORY-NEXT.md`` item 19. ``Q_ij(G) = sum_LM (-i)^L ap(LM,i,j) Y_LM(G)
 Q^L_ij(|G|)`` and ``ap`` vanishes unless ``l_i + l_j + L`` is even, so
 ``Q_ij(G) = (-i)^(l_i + l_j) R_ij(G)`` with ``R`` real. The stored table is ``R``
 and the phase is folded in where it is read. The standard is the old complex

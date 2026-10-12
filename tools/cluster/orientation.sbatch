@@ -1,6 +1,6 @@
 #!/bin/bash
 # The orientation torque and relaxation on the four-cell cobalt helix (P122,
-# `ORIENTATION-NEXT.md` steps 2 and 3): `tools/cluster/orientation_helix.py`.
+# `notes/ORIENTATION-NEXT.md` steps 2 and 3): `tools/cluster/orientation_helix.py`.
 #
 # Two tasks, one process each so that each peak is its own:
 #   0  checks: the torque at an oblique orientation, its central difference

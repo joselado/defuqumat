@@ -1,5 +1,5 @@
 ! **Two iron moments held 90 degrees apart, with no spin-orbit coupling**: the
-! robust magnet `MAGNETISM-NEXT.md` item B asked for, on which a per-atom
+! robust magnet `notes/MAGNETISM-NEXT.md` item B asked for, on which a per-atom
 ! feedback field can be told apart from a penalty (`PLAN.md` P108).
 !
 ! Simple cubic with iron at 0 and (1/2, 1/2, 1/2), which is bcc iron in its

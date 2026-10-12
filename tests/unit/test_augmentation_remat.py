@@ -1,6 +1,6 @@
 """The tabulated augmentation scan must not stack its residuals.
 
-`MEMORY-AUDIT.md` A1. The tabulated route rebuilds ``Q_ij(G)`` a chunk at a time
+`notes/MEMORY-AUDIT.md` A1. The tabulated route rebuilds ``Q_ij(G)`` a chunk at a time
 inside a ``lax.scan``, which is what keeps the dense table off the *forward*
 working set (P73). Under ``jax.grad`` that saving evaporates unless the body is
 rematted: ``build(gcart_chunk)`` is a known value while the other factor is not,
@@ -113,7 +113,7 @@ def test_the_charge_scan_does_not_stack_its_factors():
                         (f"{NAT},{CHUNK}", "the atom phases")):
         assert shape not in stacked, (
             f"{what} is stacked as a scan residual ({NCHUNKS}, {shape}); the "
-            f"body's @jax.checkpoint has been lost (MEMORY-AUDIT.md A1)")
+            f"body's @jax.checkpoint has been lost (notes/MEMORY-AUDIT.md A1)")
 
 
 def test_the_integral_scan_does_not_stack_its_factors():
@@ -135,7 +135,7 @@ def test_the_integral_scan_does_not_stack_its_factors():
     stacked = _stacked_leading(text)
     assert f"{NBETA},{NBETA},{NL},{CHUNK}" not in stacked, (
         "the radial table is stacked as a scan residual in _tabulated_integrals "
-        "(MEMORY-AUDIT.md A1)")
+        "(notes/MEMORY-AUDIT.md A1)")
     assert f"{NBETA},{NBETA},{CHUNK}" not in stacked
     assert f"{CHUNK},{NL * NL}" not in stacked
 

@@ -1,6 +1,6 @@
 """What the dielectric response adds to a streamed SCF's device peak, per k-mesh.
 
-``GPU-MEMORY-NEXT.md`` item 2. A streamed SCF (memory mode, ``k_batch`` smaller
+``notes/GPU-MEMORY-NEXT.md`` item 2. A streamed SCF (memory mode, ``k_batch`` smaller
 than the mesh) keeps its wavefunctions in host memory and one chunk on the card;
 the response stack then has to hold its own first-order states, and this
 measures how much of the card that costs, mesh by mesh, so the before and after

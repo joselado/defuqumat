@@ -17,7 +17,7 @@
 > falls to one k-point's 2.55 GB -- but the `natomwfc x npol x N_smooth` box block P74's
 > dump names at 42.32 GB is *per k-point* and is untouched, because both presets keep the
 > band block whole; sizing the band dial per calculation is the next item
-> (`GPU-MEMORY-NEXT.md`). **A13** is closed on the streamed path: `becsum` there takes each
+> (`notes/GPU-MEMORY-NEXT.md`). **A13** is closed on the streamed path: `becsum` there takes each
 > chunk's projectors from `Calculation.projectors_at`, built from the core, where the
 > whole-set call still materialises `vkb` on a `rebuild` set. None of the three has been
 > measured on the NiBr2 slab itself; the numbers here are the audit's own arithmetic.
@@ -299,7 +299,7 @@ bracketed the SCF.
 
 ---
 
-**Extended 2026-09-28** (`GPU-MEMORY-NEXT.md` item 21): the same two drops -- `result =
+**Extended 2026-09-28** (`notes/GPU-MEMORY-NEXT.md` item 21): the same two drops -- `result =
 None` at the top of the loop body, and the previous `Calculation` released once its last
 reader has run -- are now in `run_vc_relax`'s loop (`del previous` after `_advance`, which
 matters more there because under a stress `at_cell` goes through `at_strain` and carries its
@@ -823,7 +823,7 @@ CPU than the present one. Measurement, allocating nothing:
 
 ---
 
-### A10. The bootstrap Dyson loop iterates every frequency when its kernel reads one, and broadcasts `nw` identical copies of `fxc` **[done 2026-09-29, `1298ae5`, as `GPU-MEMORY-NEXT.md` item 12, with the static-kernel gate asked for here]**
+### A10. The bootstrap Dyson loop iterates every frequency when its kernel reads one, and broadcasts `nw` identical copies of `fxc` **[done 2026-09-29, `1298ae5`, as `notes/GPU-MEMORY-NEXT.md` item 12, with the static-kernel gate asked for here]**
 
 **Site.** `defuqumat/tddft/dyson.py:122-126`. Per pass, all `(nw, nm, nm)` complex: `fxc` (`:122`),
 `fxc_x = fxc @ x` (`:125`), the `eps0 - fxc_x` temporary, `jnp.linalg.inv(...)`, `x @ inv` and the
@@ -949,7 +949,7 @@ makes XLA's own cross-boundary rematerialisation less likely rather than more.
 
 ---
 
-### A12. `PawSpecies.density_ae`/`density_ps` materialise a rank-1 outer product: 553 MB per PAW species that `sizing.py` reports as zero **[done 2026-09-28, `62b95fb`, the meta-GGA kinetic maps in `246f355`: factored as `GPU-MEMORY-NEXT.md` item 18]**
+### A12. `PawSpecies.density_ae`/`density_ps` materialise a rank-1 outer product: 553 MB per PAW species that `sizing.py` reports as zero **[done 2026-09-28, `62b95fb`, the meta-GGA kinetic maps in `246f355`: factored as `notes/GPU-MEMORY-NEXT.md` item 18]**
 
 > **Half of this is fixed, 2026-09-13, and it is not the half the entry is about.** These
 > two arrays were not only large, they were **constants** of every compiled force and
@@ -1307,7 +1307,7 @@ instrument `PERFORMANCE.md:4370` used for `pair_batch`.
 
 ---
 
-### A15. `sum_band` vmaps the spin axis, so both LSDA channels' real-space boxes are in flight at once **[open, re-checked 2026-10-03; the band budget of `GPU-MEMORY-NEXT.md` item 9 does not size this stage either]**
+### A15. `sum_band` vmaps the spin axis, so both LSDA channels' real-space boxes are in flight at once **[open, re-checked 2026-10-03; the band budget of `notes/GPU-MEMORY-NEXT.md` item 9 does not size this stage either]**
 
 **Site.** `defuqumat/scf/density.py:109`, `:118` and `:180` — `jax.vmap(channel)(psi, weights)`. Under
 that vmap every intermediate inside `channel` gains a leading spin axis by construction, so
@@ -1445,7 +1445,7 @@ calculator with an empty cache.
 
 ## 4. (c) One measurement from decidable
 
-### C1. Forward-mode stress. The measurement that looks like it rules forward mode out does not **[closed by `GPU-MEMORY-NEXT.md` item 16's verdict of 2026-09-29, after the chunked stress and the radial remat]**
+### C1. Forward-mode stress. The measurement that looks like it rules forward mode out does not **[closed by `notes/GPU-MEMORY-NEXT.md` item 16's verdict of 2026-09-29, after the chunked stress and the radial remat]**
 
 `stress/autodiff.py:66-78` caches `jax.jit(jax.grad(strained_energy))` — a single reverse pass over
 everything `at_strain` rebuilds (`kinetic` at driver.py:2406, the projector core at `:2411`,

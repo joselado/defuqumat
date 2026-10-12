@@ -1,6 +1,6 @@
 """P51: the optical conductivity tensor, the Kerr angle and the anomalous Hall effect.
 
-Elk's tasks 121 and 122, the fourth entry taken from ``ELK-FEATURES.md``. There
+Elk's tasks 121 and 122, the fourth entry taken from ``notes/ELK-FEATURES.md``. There
 is no reference output to compare against -- ``pw.x``'s ``epsilon.x`` forms the
 tensor but computes no conductivity and no Kerr angle, and builds its dipole
 from momentum matrix elements, which is the one construction ``CLAUDE.md``

@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU-SPEED-NEXT.md section 4b: what memory mode costs on a data-centre card, and which half of it.
+# notes/GPU-SPEED-NEXT.md section 4b: what memory mode costs on a data-centre card, and which half of it.
 #
 # On an H200 (job 20644012, PERFORMANCE.md "The stall check on a data-centre card") memory mode took
 # 106.3 ms an iteration on 64-atom silicon against speed mode's 54.1, for 4 per cent less device memory,

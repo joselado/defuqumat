@@ -1,6 +1,6 @@
 """The Sternheimer response of a spin-polarized system (``nspin = 2``).
 
-``GAPS.md`` section 3 called this "the single widest guard": one refusal in
+``notes/GAPS.md`` section 3 called this "the single widest guard": one refusal in
 :func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime` blocked
 *every* response quantity for *every* spin-polarized system, and the reason it
 gave was an occupied-band count. The count is per spin channel now
@@ -8,7 +8,7 @@ gave was an occupied-band count. The count is per spin channel now
 for free by doubling ``nks`` in LSDA -- there each channel is a separate
 k-point and ``setup_nbnd_occ`` writes its own ``nbnd_occ(ik)``.
 
-**The anchors here are QE-free**, in the order ``NEXT-SESSION.md`` asks for:
+**The anchors here are QE-free**, in the order ``notes/NEXT-SESSION.md`` asks for:
 
 1. ``chi_0`` against a central difference of the density, for a spin-polarized
    *metal* (``h-chain-afm``) and for a spin-polarized *insulator*
@@ -642,7 +642,7 @@ def test_an_unflagged_quantity_still_refuses_nspin_two():
 
 
 def test_a_potential_only_functional_is_refused_by_name():
-    """The free half of this pass (``GAPS.md`` section 3, part (a)).
+    """The free half of this pass (``notes/GAPS.md`` section 3, part (a)).
 
     A meta-GGA whose *potential* is written down and whose energy does not exist
     reached the response stack and surfaced as ``v_of_rho`` asking for a ``tau``

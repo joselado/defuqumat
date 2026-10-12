@@ -7,7 +7,7 @@ A 128 x 128 Hermitian pair with a spectrum from -5 to 40 and an overlap of condi
 ``scipy.linalg.eigh``; prints the largest error in the lowest 32 eigenvalues and the spread under
 1e-16 perturbations of the input. **The pairs are random, which is its limit**: on them the card and a
 CPU were within a factor of two, and the Davidson pair, with its parked 3e4 diagonal, is what differed
-(``GPU-SPEED-NEXT.md`` item 4 is to run this on a matrix with that structure).
+(``notes/GPU-SPEED-NEXT.md`` item 4 is to run this on a matrix with that structure).
 """
 import os, sys, warnings
 warnings.filterwarnings("ignore")

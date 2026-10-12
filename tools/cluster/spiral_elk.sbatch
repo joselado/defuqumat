@@ -1,7 +1,7 @@
 #!/bin/bash
 # Elk's own basis convergence on the spin-spiral hydrogen chain -- the last
 # untested candidate for the factor of five between the two codes' `E(q) - E(0)`
-# (`PLAN.md` P86, `MAGNETISM-NEXT.md` item E).
+# (`PLAN.md` P86, `notes/MAGNETISM-NEXT.md` item E).
 #
 # **What is already excluded, and by measurement rather than argument.** The
 # k-grid is worth nothing: the defuqumat scan at `1 1 4/8/16/32` converges by 8 and

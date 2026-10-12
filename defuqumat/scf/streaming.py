@@ -156,7 +156,7 @@ def is_host_store(wavefunctions) -> bool:
     streamed fixed-density solve that keeps its states returns. A consumer that
     reads the states whole should walk it with :func:`~defuqumat.batching.k_chunks`
     rather than ``jnp.asarray`` it, which puts the whole set back on the device
-    (``GPU-MEMORY-NEXT.md`` item 4).
+    (``notes/GPU-MEMORY-NEXT.md`` item 4).
     """
     return isinstance(wavefunctions, np.ndarray) and wavefunctions.ndim == 4
 
@@ -244,7 +244,7 @@ def stream_diagonalize(calculation, hamiltonians, nbnd: int, store: np.ndarray,
             # The chunk's starting block is donated to the solve, which writes
             # its states into the same buffer; the host store still holds the
             # block, which is what a robust retry is handed instead
-            # (``GPU-MEMORY-NEXT.md`` item 11).
+            # (``notes/GPU-MEMORY-NEXT.md`` item 11).
             energies, states, taken, stuck = calculation.eigensolver(
                 hamiltonian, nbnd, rows_to_device(array, positions, spin), threshold,
                 k_batch=calculation.k_batch, return_steps=True,

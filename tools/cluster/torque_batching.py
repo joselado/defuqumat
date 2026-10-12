@@ -1,6 +1,6 @@
 """What the magnetic torque's k dial is worth, in the answer and in the peak.
 
-``AUDIT-2026-09-18.md`` hole.1: the torque's band energy walked the k axis with
+``notes/AUDIT-2026-09-18.md`` hole.1: the torque's band energy walked the k axis with
 a Python loop *inside the function ``jax.grad`` differentiates*, so the backward
 pass held one real-space block per k-point **simultaneously** -- the array
 ``SpinorHamiltonian._local_block``'s own docstring sizes at

@@ -1,7 +1,7 @@
-"""GPU.md Phase 5 -- the response path: does the property *fit*, and does it match?
+"""notes/GPU.md Phase 5 -- the response path: does the property *fit*, and does it match?
 
 Everything `phase0.py` measures is the ground state. This is the other half, and
-`GPU.md` §5 says why it is a phase of its own rather than a line in Phase 1:
+`notes/GPU.md` §5 says why it is a phase of its own rather than a line in Phase 1:
 ``CLAUDE.md``'s "Why JAX" lists autodiff response as reason **one** and the GPU
 as reason two, so a GPU roadmap that stops at the SCF has scoped out P24 through
 P28, P35 and P36 -- the dielectric tensor, the Born charges, the phonons, the
@@ -26,7 +26,7 @@ larger of the two twice.
 
 It is the *same* script on both platforms, for `phase0.py`'s reason -- §2.3's
 metric is GPU defuqumat against CPU defuqumat on the same input and the same code,
-so the two sides must not be two scripts. On a CPU it answers `GPU.md` §4 item 3
+so the two sides must not be two scripts. On a CPU it answers `notes/GPU.md` §4 item 3
 ("Phase 5's tape measurement, per property -- the number that says whether the
 response path fits on a card at all, and it needs no card to obtain"); on a GPU
 it is the phase itself.
@@ -234,7 +234,7 @@ PROPERTIES: dict[str, Property] = {
 # -------------------------------------------------------------------- the run
 
 def _parameters(system, calculation, pseudos, result) -> dict:
-    """The terms `GPU.md` §2.4 says a working set must be quoted against.
+    """The terms `notes/GPU.md` §2.4 says a working set must be quoted against.
 
     A GB figure on one cell is not the number that decides the phase; a GB
     figure beside `ngm`, `npwx`, `nk` and `nbnd` is, because it extrapolates.
@@ -359,7 +359,7 @@ def run_property(case: Path, name: str, threshold: float, repeats: int,
 def _determinism(runs: list[dict]) -> dict:
     """The same property twice in one process, compared bit for bit.
 
-    `GPU.md` Phase 0 check 5's question, asked of the response path: the scatter
+    `notes/GPU.md` Phase 0 check 5's question, asked of the response path: the scatter
     into the FFT box is the same one, and a response evaluates it many more
     times than an SCF iteration does.
     """
@@ -460,7 +460,7 @@ def main(argv=None) -> int:
                 "source": ("explicit" if len(dials) == 2 else
                            "mixed" if dials else "platform default")}
     record = {"dials": resolved, "provenance": provenance()}
-    print(f"# defuqumat GPU.md phase 5 -- {case.name}, {arguments.property}")
+    print(f"# defuqumat notes/GPU.md phase 5 -- {case.name}, {arguments.property}")
     print(f"# {record['provenance']['device_kind']} "
           f"({record['provenance']['platform']}), jax {record['provenance']['jax']}")
     print(f"# dials: {record['dials']}")

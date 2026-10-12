@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 1 -- where the time actually goes, on the cells that show it.
+# notes/GPU.md Phase 1 -- where the time actually goes, on the cells that show it.
 #
 # Phase 0 measured whole SCF iterations and found 5.44x on `al10-metal`, which
 # has ten k-points. That left the question it could not answer: **how much of

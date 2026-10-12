@@ -1,7 +1,7 @@
 #!/bin/bash
 # Does Elk's own per-atom fixed spin direction hold two iron moments at 90 degrees?
 #
-# `MAGNETISM-NEXT.md` item B. This code's transcription of `bfieldfsm.f90`
+# `notes/MAGNETISM-NEXT.md` item B. This code's transcription of `bfieldfsm.f90`
 # (`'atomic fsm direction'`, Elk's `fsmtype = -2`) runs away on the two-atom
 # canted iron cell at every fixed gain from 0.0025 to 0.04, and the vector
 # penalty holds it (0.39 degrees per site in 76 iterations). The question that

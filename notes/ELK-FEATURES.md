@@ -72,7 +72,7 @@ for a nonlocal pseudopotential, whose projector at `k + G + kappa` is not linear
 the field of `tdinit.f90`, the polar-vector average of the current of
 `timestep.f90`, and task 481's dielectric function from a kick; the propagation is
 the occupied states on the full plane-wave sphere under `H(k + kappa(t))`
-(`HARMONICS-NEXT.md`). Elk has no `chi^(3)`.
+(`notes/HARMONICS-NEXT.md`). Elk has no `chi^(3)`.
 
 **The second-harmonic row was in the *rejected* table until P54 and was wrong
 there**, which is worth recording because the reasoning that put it there is

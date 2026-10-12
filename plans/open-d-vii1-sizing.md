@@ -12,7 +12,7 @@ was withdrawn the same day by the A/B it predicted (jobs 20252129 against 202445
 byte-identical per-iteration peaks with and without the guard). What survives from that cell
 is the eigensolver's own buffer, 23.18 GiB at `david 2 / band_batch 16`, measured twice
 independently (20 per cent above the fit), and the arena read of 57.24 GB in use at the
-instant of the failing request. `MEMORY-AUDIT.md` A17 adds that the stage-peak numbers in the
+instant of the failing request. `notes/MEMORY-AUDIT.md` A17 adds that the stage-peak numbers in the
 record came from a patch that was never committed, and that the same commit and dials read
 65.47 GB on an A100 and 76.51 GB on an H100, an 11.03 GB offset nobody has named.
 
@@ -64,7 +64,7 @@ Three findings.
    same card (one k-point, `david 2`, band batch 16) and its temp buffer is **1.45 GiB**,
    the fit's 1.444 to 0.4 per cent, with 0.27 GB of arguments and outputs. So about **0.68
    GiB of the stage is outside that executable and inside `Calculation.diagonalize`**: the
-   next bracket goes there. One candidate is named and not measured, `MEMORY-AUDIT.md` A16's
+   next bracket goes there. One candidate is named and not measured, `notes/MEMORY-AUDIT.md` A16's
    spin slice and restack (`psi0[spin]` sliced, solved, `jnp.stack`-ed, on the device-store
    path), whose copies of a 0.19 GiB set would be of the right size; that is one equation in
    several unknowns and is evidence of nothing until a bracket holds it.

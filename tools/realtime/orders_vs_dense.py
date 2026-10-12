@@ -1,6 +1,6 @@
 """The perturbative orders by nested jvp through the propagation, against the dense hierarchy.
 
-``HARMONICS-NEXT.md``'s ladder item 3, the check of ``tools/realtime/toy_orders.py``
+``notes/HARMONICS-NEXT.md``'s ladder item 3, the check of ``tools/realtime/toy_orders.py``
 carried to the code: on zincblende AlAs at a cutoff chosen small for it, the
 orders J_(n,m) of the current under ``kappa = lam exp(eta t) cos(w t) e`` from
 :func:`defuqumat.realtime.orders.propagate_orders`, against

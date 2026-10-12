@@ -1,7 +1,7 @@
 #!/bin/bash
 # Which of the two piezoelectric routes is the unconverged one.
 #
-# The calibration cell disagreed (`AUDIT-2026-09-18.md` `drift.3`, `OPEN.md`
+# The calibration cell disagreed (`notes/AUDIT-2026-09-18.md` `drift.3`, `OPEN.md`
 # Part XIII item 3): on norm-conserving AlAs the response route gives
 # -0.763786 C/m^2 and a Berry-phase finite difference gives -0.661386, 13.4 per
 # cent low, and the ultrasoft cell reads 15.7 per cent. The step is not the

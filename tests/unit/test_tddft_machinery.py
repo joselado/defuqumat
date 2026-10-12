@@ -250,7 +250,7 @@ def test_the_pair_densities_are_bounded_by_the_pair_dial():
 def test_the_frequency_dial_bounds_the_assembly_and_does_not_move_it():
     """``chi_0``'s per-k assembly, whole axis against chunks of frequencies.
 
-    ``GPU-MEMORY-NEXT.md`` item 12. The whole-axis ``einsum`` is contracted
+    ``notes/GPU-MEMORY-NEXT.md`` item 12. The whole-axis ``einsum`` is contracted
     through ``v_pa conj(v_pb)`` whenever ``nw`` exceeds ``nm`` -- a ``(2 npairs,
     nm, nm)`` block -- and a chunk forms only its own frequencies'
     pair-weighted ``(2 npairs, nm)`` blocks. Two assertions, the two halves of

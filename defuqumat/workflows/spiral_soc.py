@@ -196,7 +196,7 @@ def spiral_spin_orbit_energy(
     means.
 
     ``calculation`` is the spiral's own, used rather than a second one built
-    beside it (``GPU-MEMORY-NEXT.md`` item 20); ``k_batch`` is then its.
+    beside it (``notes/GPU-MEMORY-NEXT.md`` item 20); ``k_batch`` is then its.
     """
     from defuqumat.workflows.anisotropy import _first_order_operator
     from defuqumat.workflows.nscf import fixed_density_states
@@ -256,7 +256,7 @@ def spiral_expectation(calculation, wavefunctions, weights, delta_d) -> tuple:
 
     # Every quantity is a sum over k, so the k axis is walked a chunk at a
     # time: one chunk's states and projectors on the device, never a streamed
-    # store or the whole-k ``vkb`` stacked (``GPU-MEMORY-NEXT.md`` items 4, 7).
+    # store or the whole-k ``vkb`` stacked (``notes/GPU-MEMORY-NEXT.md`` items 4, 7).
     by_k = np.empty((nk, 3))
     dropped = np.zeros(2, dtype=complex)
     for rows, live in k_chunks(nk, calculation.k_batch):

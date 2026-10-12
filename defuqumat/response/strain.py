@@ -84,7 +84,7 @@ ultrasoft and 4.7e-4 for PAW on the ``(0,0)`` strain against the norm-conserving
 control's 1.9e-4. The refusal outlived the thing it refused, which matters twice
 over: a refusal nobody can trip is a refusal nobody checks, and the six extra
 ``(nspin, nk, nbnd, ndim)`` blocks this path allocates went unsized because the
-docstring said the path did not exist* (``MEMORY-AUDIT.md`` §6.6, A6(i)).
+docstring said the path did not exist* (``notes/MEMORY-AUDIT.md`` §6.6, A6(i)).
 """
 
 from __future__ import annotations

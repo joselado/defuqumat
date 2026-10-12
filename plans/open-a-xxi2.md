@@ -55,7 +55,7 @@ magnetic channel of the plain SCF on this cell, and Route C inherits it.
 
 So the stall gets worse with a finer mesh and goes away with a wider smearing, which is what a
 Stoner-enhanced longitudinal response does near nickel's Fermi-level peak in the density of
-states (`MAGNETISM-NEXT.md` F2, the second direction: `chi_0/(1 - I chi_0)`, with nothing
+states (`notes/MAGNETISM-NEXT.md` F2, the second direction: `chi_0/(1 - I chi_0)`, with nothing
 conditioning it), and is not what a coarse-mesh sampling artefact does.
 
 **No `pw.x` reference could be taken on D22.** The serial `pw.x` 7.5 copied there

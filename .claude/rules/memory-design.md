@@ -2,8 +2,8 @@
 paths:
   - "defuqumat/**"
   - "tests/**"
-  - "MEMORY-AUDIT.md"
-  - "GPU-MEMORY-NEXT.md"
+  - "notes/MEMORY-AUDIT.md"
+  - "notes/GPU-MEMORY-NEXT.md"
 ---
 
 *Moved out of `CLAUDE.md` verbatim on 2026-10-08; it loads only when files matching the paths above are read. The text is binding exactly as it was.*
@@ -92,5 +92,5 @@ store). Both scan bodies are rematted (`pseudo/augmentation.py`), which takes
 `bismuthene-soc-small`'s force tape from **2.32 GiB to 0.99 GiB** measured by the
 compiler's own `memory_analysis()`, with the force and stress unchanged to one ulp. The
 lesson is the general one: **a forward-path memory fix is not a derivative memory fix, and
-on this code the derivative is where the peak is.** `MEMORY-AUDIT.md` is where the rest of
+on this code the derivative is where the peak is.** `notes/MEMORY-AUDIT.md` is where the rest of
 that audit lives.

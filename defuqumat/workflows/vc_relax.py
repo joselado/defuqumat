@@ -306,7 +306,7 @@ def run_vc_relax(
     for index in range(1, nstep + 1):
         # The last step's result holds its wavefunctions and must not be live
         # under this step's SCF, force and stress: ``run_relax``'s line, for the
-        # reason given there (`MEMORY-AUDIT.md` A2). The carried states are
+        # reason given there (`notes/MEMORY-AUDIT.md` A2). The carried states are
         # popped into the call with ``pw.x``'s ``atomic+random`` factor on them
         # and released by ``run_scf`` after its first Rayleigh-Ritz, also as
         # there, where :func:`~defuqumat.workflows.relax._randomized` says why
@@ -397,7 +397,7 @@ def run_vc_relax(
     # builds a *fifth* and runs an SCF from scratch beside them. ``relaxed`` has
     # already taken the only thing any of them is needed for, which is
     # ``current.system``, so the names are dropped here rather than at the end
-    # of the function. Sized at **18 GB** on a 45-atom slab (`MEMORY-AUDIT.md`
+    # of the function. Sized at **18 GB** on a 45-atom slab (`notes/MEMORY-AUDIT.md`
     # A3); it costs nothing, because nothing below reads a *calculation* -- the
     # ``final_scf`` block reads the relaxed **System**, which is what ``relaxed``
     # already holds, and it is written against that rather than against

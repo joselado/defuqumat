@@ -12,7 +12,7 @@ each the solution of
 harmonic ``M`` is the sum over the ordered pairs of components with
 ``p = N - n1 - n2 >= 0`` and ``M = -m1 + (2s - p) + m2`` of
 ``binom(p, s)/(p! 2^p) <c_(n1,m1)| d_kappa h_p |c_(n2,m2)>``, weighted by the
-occupation (``HARMONICS-NEXT.md``, "The third harmonic as a spectrum"). This is
+occupation (``notes/HARMONICS-NEXT.md``, "The third harmonic as a spectrum"). This is
 :func:`~defuqumat.realtime.dense.dense_orders` with the dense solve replaced, so
 that it reaches the whole plane-wave sphere at production cutoffs and a
 frequency costs nine solves per band and k-point (``c^(1)_{+-1}``,

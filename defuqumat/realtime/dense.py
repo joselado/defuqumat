@@ -10,7 +10,7 @@ steady-state component of each occupied state under the adiabatic field
 with ``h_p = d^p H(k + x e)/dx^p`` at ``x = 0``, and the current along ``e`` is
 the sum over the components of total order ``N`` of ``c^dagger h_(p+1) c`` with
 the same weights and the selection ``M = -m1 + (2s - p) + m2``
-(``HARMONICS-NEXT.md``, "The third harmonic as a spectrum"). The response of
+(``notes/HARMONICS-NEXT.md``, "The third harmonic as a spectrum"). The response of
 order ``N`` is then ``exp(N eta t) sum_M J_(N,M) exp(-i M w t)``, which is what
 the real-time route's nested ``jvp`` projects out
 (:mod:`defuqumat.realtime.orders`).

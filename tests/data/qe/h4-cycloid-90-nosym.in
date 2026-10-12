@@ -9,7 +9,7 @@
 ! `CLAUDE.md`'s trap list rests on it -- a chirality projected on `q` is
 ! identically zero for a cycloid and *maximal* for a helix, so a reader who took
 ! this file as the cycloid case would get the opposite of the null they wanted.
-! The filename is referenced by tests, `PLAN.md` and `MAGNETISM-NEXT.md` and is
+! The filename is referenced by tests, `PLAN.md` and `notes/MAGNETISM-NEXT.md` and is
 ! left alone; what is corrected is the claim.
 !
 ! The same four-hydrogen 90-degree helix, run with no symmetry at all, so the

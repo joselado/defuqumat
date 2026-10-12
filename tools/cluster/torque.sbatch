@@ -1,5 +1,5 @@
 #!/bin/bash
-# What the magnetic torque's k dial is worth (`AUDIT-2026-09-18.md` hole.1):
+# What the magnetic torque's k dial is worth (`notes/AUDIT-2026-09-18.md` hole.1):
 # the same torque taken with the whole k axis on the tape and one k-point at a
 # time, on a bulk cell and on a slab.
 #

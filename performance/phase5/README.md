@@ -1,4 +1,4 @@
-# GPU.md Phase 5: the raw records
+# notes/GPU.md Phase 5: the raw records
 
 One JSON per (side, case, property), written by `tools/gpu/phase5.py`. The
 tables built from them are in `PERFORMANCE.md` under "What each response

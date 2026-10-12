@@ -1,6 +1,6 @@
 """chi^(3)(-3w; w, w, w) of silicon by the real-time route: one platform's time, and its check.
 
-The card-against-CPU measurement of ``GPU.md`` §2.3 for the third harmonic:
+The card-against-CPU measurement of ``notes/GPU.md`` §2.3 for the third harmonic:
 the same input, the same commit and the same number of steps on both sides,
 the CPU side pinned to the core count its job states, compilation its own
 line. Two-atom silicon (``tests/data/qe/si2-symmetric.in``, ``Si.pz-vbc``) at

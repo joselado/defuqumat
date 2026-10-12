@@ -93,7 +93,7 @@ def run_conductivity(
     # first pay for three times the bands at every k-point.
     # The caller's own calculation, when handed one, is used on its own k-set or
     # moved to ``kpoints`` rather than a second one built beside it, so it
-    # follows the caller's memory mode (``GPU-MEMORY-NEXT.md`` item 20).
+    # follows the caller's memory mode (``notes/GPU-MEMORY-NEXT.md`` item 20).
     calculation, system, kpoints, k_batch = threaded_calculation(
         calculation, system, kpoints, k_batch)
     if kpoints is not None:

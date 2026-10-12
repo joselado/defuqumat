@@ -95,7 +95,7 @@ cores need eleven seconds for. **The two axes move together or not at all**:
 looping bands multiplies the per-band launches by ``nk``, so ``_platform_default``
 answers for both dials at once rather than per axis.
 
-``GPU.md`` §5's rule is that a platform-dependent choice is "a dial with a
+``notes/GPU.md`` §5's rule is that a platform-dependent choice is "a dial with a
 per-platform default and both settings tested", never a rewrite -- so nothing
 here changes on a CPU, both ends stay reachable everywhere, and the order of
 precedence is unchanged: an explicit argument beats
@@ -218,7 +218,7 @@ every bracketed number in this file a lower bound. An unbracketed run (job
 bracketed ``20257133``: the ``block_until_ready`` pairs change nothing and no
 figure here is a lower bound. **The 76.51 is real but is an H100 reading**, so
 the slack above is an A100 statement and the ``rebuild`` saving is
-card-dependent. ``MEMORY-AUDIT.md`` A17 has both.
+card-dependent. ``notes/MEMORY-AUDIT.md`` A17 has both.
 
 ``Device.memory_stats()`` is the instrument, and it **works on the backend this
 question lives on**. Every bracket quoted above is that call --
@@ -315,7 +315,7 @@ diagonalise once, so there is no span between two solves to park across. Where
 the store streams they solve a chunk at a time from scratch instead
 (:mod:`defuqumat.scf.streaming`): a caller that wants energies drops each
 chunk's states as they come back, and one that keeps them gets a numpy store,
-which the consumers walk a chunk at a time (``GPU-MEMORY-NEXT.md`` items 1
+which the consumers walk a chunk at a time (``notes/GPU-MEMORY-NEXT.md`` items 1
 and 4).
 """
 
@@ -888,7 +888,7 @@ def resolve_fft_layout(requested: str = "default") -> str:
     transforming columns the sphere does not touch. The default is ``sticks`` on
     every platform: the margin on a CPU is thin (1.13x on eight atoms of
     silicon, 1.02x on sixteen) and the comparison on a card has not been taken
-    (``GPU.md`` section 2.2, Phase 2), so nothing follows the platform until it
+    (``notes/GPU.md`` section 2.2, Phase 2), so nothing follows the platform until it
     is. The two are the same transform summed in a different order, so a result
     moves by round-off and no more.
     """
@@ -963,7 +963,7 @@ def resolve_pair_batch(requested: int | None | str = "default", *,
     :func:`resolve_band_batch` reads them, and on a CPU the platform default is
     the band dial's (one). On an accelerator the band dial would say "all",
     and here that is ``npairs`` boxes -- so the default is the largest chunk
-    whose boxes fit :data:`PAIR_BUDGET_BYTES` (``GPU-MEMORY-NEXT.md`` item 12),
+    whose boxes fit :data:`PAIR_BUDGET_BYTES` (``notes/GPU-MEMORY-NEXT.md`` item 12),
     ``None`` when that is every pair. The chunk never changes the answer.
     """
     if requested != "default" or _from_environment(
@@ -977,8 +977,8 @@ def resolve_pair_batch(requested: int | None | str = "default", *,
 
 
 #: What a sum-over-states spectrum's **frequency** axis may hold in flight on an
-#: accelerator when nothing chose a chunk (``GPU-MEMORY-NEXT.md`` item 12,
-#: ``MEMORY-AUDIT.md`` A10). The frequencies are independent -- ``chi_0`` is a
+#: accelerator when nothing chose a chunk (``notes/GPU-MEMORY-NEXT.md`` item 12,
+#: ``notes/MEMORY-AUDIT.md`` A10). The frequencies are independent -- ``chi_0`` is a
 #: sum of per-frequency weights on the same pair vectors, and the Dyson
 #: equation is one matrix solve per frequency -- so a chunk bounds the
 #: per-frequency temporaries and never moves a number beyond round-off. Not
@@ -1267,7 +1267,7 @@ def upload(array):
     For a consumer that takes a streamed store, or a band slice of one, whole.
     On a card ``jnp.asarray`` of a host array peaks at twice its size on the
     device and ``jax.device_put`` of a contiguous one at once
-    (``GPU-MEMORY-NEXT.md``, 2026-09-29), so a numpy array goes through
+    (``notes/GPU-MEMORY-NEXT.md``, 2026-09-29), so a numpy array goes through
     ``device_put`` after ``np.ascontiguousarray``, which is a host copy only
     where the array is a strided view such as ``store[..., :nbnd, :]``. The
     values are the same bytes either way. A JAX array or a tracer goes through

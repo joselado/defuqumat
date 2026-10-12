@@ -1,6 +1,6 @@
 """The strain response, a k-chunk at a time.
 
-``GPU-MEMORY-NEXT.md`` item 2, after the field response
+``notes/GPU-MEMORY-NEXT.md`` item 2, after the field response
 (:mod:`defuqumat.response.chunked`) and the phonons
 (:mod:`defuqumat.response.chunked_phonon`). :func:`~defuqumat.response.strain.
 strain_response` holds, for each of the six independent strains, a bare

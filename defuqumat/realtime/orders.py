@@ -6,7 +6,7 @@ expanding the current, ``J(t) = sum_n lam^n J^(n)(t)`` with
 that exists, the propagation of :mod:`defuqumat.realtime.propagate`, so it is
 taken by forward-mode differentiation through every step rather than by
 fitting runs at several amplitudes, and the orders come out separated exactly
-rather than up to the next order in the field (``HARMONICS-NEXT.md``, "The
+rather than up to the next order in the field (``notes/HARMONICS-NEXT.md``, "The
 physics").
 
 With the adiabatic switch-on ``a(t) = exp(eta t) cos(w t)`` on ``[-T, 0]``

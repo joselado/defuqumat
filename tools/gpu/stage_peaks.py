@@ -1,6 +1,6 @@
 """Where a run's device peak is set: the size estimate against the allocator, stage by stage.
 
-``OPEN.md`` Part VII item 1 and ``MEMORY-AUDIT.md`` A17: the stage-peak numbers in
+``OPEN.md`` Part VII item 1 and ``notes/MEMORY-AUDIT.md`` A17: the stage-peak numbers in
 the record came from a ``DEFUQUMAT_STAGE_PEAKS`` patch that was never committed. This
 is that instrument, in the repository. It prints :meth:`Calculator.estimate`'s
 report, builds the ``Calculation``, inventories the live device arrays by shape,

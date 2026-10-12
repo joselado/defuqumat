@@ -523,7 +523,7 @@ def run_relax(
         # steps' wavefunctions coexist at the peak. Sized at 7.7 GB together
         # with ``previous`` below on a 45-atom slab, which is what makes a
         # relaxation there 40.0 GB where its own SCF is 32.3 on a 39 GB machine
-        # (`MEMORY-AUDIT.md` A2). Dropping it costs nothing -- the body rebinds
+        # (`notes/MEMORY-AUDIT.md` A2). Dropping it costs nothing -- the body rebinds
         # it immediately, ``RelaxStep`` keeps no reference to it, and the
         # post-loop ``RelaxResult`` reads whatever the last iteration left.
         #

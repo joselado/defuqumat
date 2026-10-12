@@ -11,7 +11,7 @@
 ! 2x2x2 rather than 4x4x4: what is being compared is a projection at fixed
 ! states, so the k-set only has to be the same one on both sides.
 !
-! **This input found a wrong answer and is kept as its regression** (GAPS.md
+! **This input found a wrong answer and is kept as its regression** (notes/GAPS.md
 ! section 2c, closed 2026-09-04). An unshifted even grid contains nonzero
 ! time-reversal-invariant momenta, where an eigenvector can be *exactly*
 ! orthogonal to every atomic starting orbital; this code built the doubled

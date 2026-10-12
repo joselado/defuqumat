@@ -343,7 +343,7 @@ def walk_projectors(vkb, nk: int, spiral: bool = False):
     ``vkb`` is the ``(nk, npwx, nkb)`` array or a
     :class:`~defuqumat.pseudo.projectors.Projectors`. A **lazy** set is walked by
     index and rebuilt one k-point at a time (``at_k``, ``init_us_2`` inside the
-    k loop), so the whole-k array is never formed (``GPU-MEMORY-NEXT.md`` item
+    k loop), so the whole-k array is never formed (``notes/GPU-MEMORY-NEXT.md`` item
     7); a stored set is walked as its array. ``fetch(operand[ik])`` is the
     ``(npwx, nkb)`` block, or for a spiral the ``(2, npwx, nkb)`` pair of rows
     ``(ik, ik + nk)`` -- the up component's sphere and the down one's.

@@ -19,7 +19,7 @@ This file is the loop, the schema and the report.
   Both are pinned to one CPU by affinity mask, because XLA sizes its thread
   pool from that mask and ignores ``OMP_NUM_THREADS`` -- without the pinning the
   comparison flatters this code by the core count.
-* ``gpu`` is a different metric and ``GPU.md`` §2.3 fixes it: defuqumat on one GPU
+* ``gpu`` is a different metric and ``notes/GPU.md`` §2.3 fixes it: defuqumat on one GPU
   against *defuqumat on CPU*, same code, same input, **per SCF iteration**, with
   compile time reported as its own column rather than amortised away. A GPU
   number put against single-core QE would be meaningless in the same way the
@@ -540,14 +540,14 @@ def _table_a(by_case: dict, names: list[str]) -> list[str]:
 
 
 def _table_b(by_case: dict, names: list[str]) -> list[str]:
-    """GPU.md 2.3's metric: one GPU against this code on CPU, per SCF iteration."""
+    """notes/GPU.md 2.3's metric: one GPU against this code on CPU, per SCF iteration."""
     rows = [n for n in names if (by_case[n].get("gpu") or {}).get("ok")]
     if not rows:
         return []
     lines = [
         "  B. defuqumat on one GPU against defuqumat on one CPU core -- the same code and",
         "     the same input, per SCF iteration. Compile time is its own column and is",
-        "     never amortised into the speedup (GPU.md 2.3). The CPU leg runs one",
+        "     never amortised into the speedup (notes/GPU.md 2.3). The CPU leg runs one",
         "     k-point at a time and the GPU leg batches the k axis, which is what each",
         "     machine wants; that dial setting is in the record.",
         "",

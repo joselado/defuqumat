@@ -342,7 +342,7 @@ and the Hartree energy is quadratic in it, so a sum of per-chunk gradients is no
 gradient. The peak is **11.4 GB** on the one-atom oxygen chain at `ecutrho = 200` with
 four k-points, against a few hundred megabytes for the SCF it follows, and it scales with
 the dense G set: the same gradient at `ecutrho = 400` does not fit in 20 GB. That is the
-practical gate on this feature and it is `MEMORY-AUDIT.md`'s kind of number rather than
+practical gate on this feature and it is `notes/MEMORY-AUDIT.md`'s kind of number rather than
 a refusal.
 
 ### 1f. A source-free exchange-correlation field with a PAW dataset
@@ -420,7 +420,7 @@ is not: a **fully-relativistic** file carries the two `j` of a shell as two sepa
 `PP_CHI` entries, so the scalar count already has `2l+1` for each of them, and doubling
 each with both spins gives `4(2l+1)` columns where the spin-angle set has `sum (2j+1) =
 2(2l+1)`. That is 22 against 12 on `Pt.rel-pz-n-rrkjus`, and it is the same over-count
-`_as_spinors`'s own docstring records as a 0.20 Ry wrong answer in `wfcinit` (`GAPS.md`
+`_as_spinors`'s own docstring records as a 0.20 Ry wrong answer in `wfcinit` (`notes/GAPS.md`
 2c). An over-complete set whose extra columns differ from the kept ones only by a radial
 function is not a decomposition anyone should read a moment off, and a Löwdin `O^{-1/2}`
 of it is worse than the refusal.
@@ -474,7 +474,7 @@ of the cross-`Q` overlap is `N delta_{QQ'}`. What was missing was one term used 
 the matrix element, the density's `becsum`, and PAW's one-centre terms per copy -- and it is
 the resident table displaced by `Q' - Q`, the **ket's** wavevector minus the bra's.
 
-**The sign in this entry's derivation sentence was wrong** and `PAW-MODES-NEXT.md` §8 had
+**The sign in this entry's derivation sentence was wrong** and `notes/PAW-MODES-NEXT.md` §8 had
 already flagged the disagreement: the formula line said the displacement is `Q' - Q`, which is
 right, and the sentence after it said `build_augmentation(shift = Q - Q')`, which is not. The
 guard's comment on `master` had `Q' - Q` throughout and was the consistent one. `Q' - Q` is
@@ -572,7 +572,7 @@ compared **absolute** directions against the seed with a 25 degree threshold and
 *ordering*, so the invariant to compare is the **step**, which survives any rotation. The
 siblings: a projected pitch read as a bent texture when the plane had tilted
 (`PLAN.md` P88 stage 8), and "three self-consistent solutions" counted on the same flat
-manifold without aligning them (`MAGNETISM-NEXT.md`). The rule is rule D4's, one object up:
+manifold without aligning them (`notes/MAGNETISM-NEXT.md`). The rule is rule D4's, one object up:
 the gauge here is a rigid spin rotation rather than a multiplet's basis, so **assert on
 differences and never on directions**.
 

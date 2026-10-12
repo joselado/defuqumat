@@ -212,7 +212,7 @@ def test_the_suite_widens_the_mask_that_the_package_narrows():
 
 
 def test_the_device_pool_is_widened_unless_something_else_set_it(monkeypatch):
-    """``GPU-MEMORY-NEXT.md`` item 23: 0.9 of the card, and nothing overridden."""
+    """``notes/GPU-MEMORY-NEXT.md`` item 23: 0.9 of the card, and nothing overridden."""
     for name in ("XLA_CLIENT_MEM_FRACTION", "XLA_PYTHON_CLIENT_MEM_FRACTION",
                  "DEFUQUMAT_MEM_FRACTION"):
         monkeypatch.delenv(name, raising=False)

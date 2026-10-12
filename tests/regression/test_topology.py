@@ -136,7 +136,7 @@ def test_silicon_has_no_berry_curvature(case):
 @pytest.mark.slow
 @pytest.mark.parametrize("case", ["alas-berry.in", "alas-piezo-tiny.in"])
 def test_a_plane_walked_a_column_at_a_time_is_the_whole_plane(case):
-    """``GPU-MEMORY-NEXT.md`` item 5, on real states: the streamed Chern route.
+    """``notes/GPU-MEMORY-NEXT.md`` item 5, on real states: the streamed Chern route.
 
     Zincblende has no inversion centre, so -- unlike silicon above -- its
     Berry flux is **nonzero** pointwise (odd in ``k``, which is why the Chern

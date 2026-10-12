@@ -1,6 +1,6 @@
 """P52: the Fermi-surface nesting function, Elk's task 105.
 
-The fifth entry taken from ``ELK-FEATURES.md``, and the one whose validation
+The fifth entry taken from ``notes/ELK-FEATURES.md``, and the one whose validation
 closes entirely inside the package -- which is what that file says to look for.
 There is no ``pw.x`` reference at all (``nesting`` occurs nowhere in ``PW/src``
 or ``PP/src``), and Elk's own number is an all-electron Fermi surface, so it is
@@ -166,7 +166,7 @@ def test_the_hydrogen_chain_nests_at_the_spirals_wavevector():
     basis-set jump in ``E(q)`` that phase measures, not a disagreement).
     Nesting predicts the pitch from the paramagnet's Fermi surface geometry;
     the relaxation finds it in the magnetic energy. Agreement is the check
-    neither can make alone, and it is the pairing ``ELK-FEATURES.md`` singles
+    neither can make alone, and it is the pairing ``notes/ELK-FEATURES.md`` singles
     out for this entry.
 
     The peak is also **99.8 per cent of the Cauchy-Schwarz bound** ``N(0)``,

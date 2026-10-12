@@ -1,4 +1,4 @@
-"""Pair the GPU and CPU phase-0 records and read GPU.md's checks off them.
+"""Pair the GPU and CPU phase-0 records and read notes/GPU.md's checks off them.
 
     python3 tools/gpu/phase0_compare.py out/gpu-*.json --against out/cpu-*.json
 
@@ -117,7 +117,7 @@ def main(argv=None) -> int:
         low, high = min(values), max(values)
         spread = f"{low:.2f}x" if high - low < 0.05 else f"{low:.2f}-{high:.2f}x"
         print(f"{kernel.replace('_fp64_slowdown', ''):>24} fp64 is {spread} fp32 "
-              f"over {len(values)} records -- GPU.md check 1, and what Phase 3's rank "
+              f"over {len(values)} records -- notes/GPU.md check 1, and what Phase 3's rank "
               f"waits on")
 
     if failures:

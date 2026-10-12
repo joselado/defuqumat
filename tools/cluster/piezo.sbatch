@@ -1,7 +1,7 @@
 #!/bin/bash
 # `e_14` by this package's response route and by Elk's, on a norm-conserving
 # cell and on an ultrasoft one -- the measurement the piezoelectric tensor's
-# dataset refusal needs before it can be lifted (`AUDIT-2026-09-18.md` drift.3).
+# dataset refusal needs before it can be lifted (`notes/AUDIT-2026-09-18.md` drift.3).
 #
 # Two array tasks rather than two submissions, and they are deliberately the
 # *same* script on two cells: the norm-conserving one is the calibration of the

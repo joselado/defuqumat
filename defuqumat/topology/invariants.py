@@ -134,7 +134,7 @@ def chern_number(
     choice is the stacking axis at ``offset = 0``, which is the default.
 
     ``stream`` walks the plane a column at a time instead of diagonalising it
-    whole (the module docstring; ``GPU-MEMORY-NEXT.md`` item 5). ``None`` asks
+    whole (the module docstring; ``notes/GPU-MEMORY-NEXT.md`` item 5). ``None`` asks
     the source -- ``source.streams``, true for a plane-wave source in memory
     mode on a card and absent (so false) for a model. The two routes take the
     same overlaps on states solved at the same k-points, so a Chern number is

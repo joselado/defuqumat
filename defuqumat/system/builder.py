@@ -1364,7 +1364,7 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         # what runs is an unpolarized calculation with spinor wavefunctions --
         # converged, successful, and not the calculation the angles asked for.
         #
-        # ``pw.x`` is silent on this input. `GAPS.md` records the sibling case
+        # ``pw.x`` is silent on this input. `notes/GAPS.md` records the sibling case
         # (a field in a nonmagnetic noncollinear run) as closed by a named
         # refusal on the reasoning that QE's silence is the worse of the two
         # behaviours, and this is that reasoning applied to the case that has

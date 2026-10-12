@@ -2,7 +2,7 @@
 
     taskset -c 0,2,4,6 python3 tools/parallel/band_groups.py benchmarks/si64-1k-ecut30.in 1 4
 
-Phase 4's cheap experiment (``PARALLEL-NEXT.local.md``): a band group without
+Phase 4's cheap experiment (``notes/PARALLEL-NEXT.local.md``): a band group without
 any communication. ``map_bands`` walks the bands one at a time in a single
 ``lax.map``; here the bands are cut into ``G`` contiguous groups, each walked by
 its own ``lax.map`` inside the same jitted function, so the groups are

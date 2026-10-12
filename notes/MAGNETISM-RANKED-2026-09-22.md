@@ -4,14 +4,14 @@
 
 A snapshot of the open magnetism items on 2026-09-22, in one list ordered by what a wrong
 or missing answer costs, with the weight on the runs this project actually does, which are
-noncollinear magnets and spirals on ultrasoft and PAW datasets. `MAGNETISM-NEXT.md` is the
+noncollinear magnets and spirals on ultrasoft and PAW datasets. `notes/MAGNETISM-NEXT.md` is the
 sized queue with the reasoning behind each item and its first step; this file is the
 ranking alone, one entry per item, so that a session picking something up starts from the
 order rather than re-deriving it. Where the two disagree on a number, this file is the
-later one, and the last section says where `MAGNETISM-NEXT.md` has drifted.
+later one, and the last section says where `notes/MAGNETISM-NEXT.md` has drifted.
 
 Each entry gives the physics first, then where it stands, then what it needs. Phase numbers
-refer to `PLAN.md` §3, letters and Q-numbers to `MAGNETISM-NEXT.md`.
+refer to `PLAN.md` §3, letters and Q-numbers to `notes/MAGNETISM-NEXT.md`.
 
 ## What the top four now say (worked 2026-09-22, same day)
 
@@ -95,7 +95,7 @@ P105), and nothing else.
    the `(4, 2, 2)` ultracell grid, has not been done. That grid has three converged
    solutions, so the run must report which state each option lands in rather than an
    iteration count. Elk's adaptive mixer is in and is the largest single number the item
-   has (`HANDOFF-adaptive-mixer.local.md`).
+   has (`notes/HANDOFF-adaptive-mixer.local.md`).
 
 5. **Phonons of a spinor, and everything above them** (item A). P81's spinor Sternheimer
    solve has one assembly opted in, the electric-field one (`response/efield.py`,
@@ -200,10 +200,10 @@ P105), and nothing else.
     `new_ns`'s channel swap and has no committed benchmark; the `pw.x` force for P77a's
     bare-`|m|` guard; the Elk timing pairs for the spiral (pinned, one core, idle) and for
     the adaptive mixer; and the NiI2 surface's own checks in
-    `HANDOFF-nii2-spiral.local.md` (cutoff at 80 against 100 Ry, a supercell point at
+    `notes/HANDOFF-nii2-spiral.local.md` (cutoff at 80 against 100 Ry, a supercell point at
     `q = M`, the moment at production settings).
 
-## Where `MAGNETISM-NEXT.md` has drifted since its last commit (2026-09-17)
+## Where `notes/MAGNETISM-NEXT.md` has drifted since its last commit (2026-09-17)
 
 - Item A still lists `set_int3_nc` as open; P98 closed it, 9.528810788 against `ph.x`'s
   9.528846009 on fully relativistic ultrasoft AlAs.

@@ -34,7 +34,7 @@ source term, so a 2n+1 expression with two field labels has nothing to build
 no such problem. It needs the interband dipole ``r^a_nm = -i v^a_nm / w_nm``,
 which is *exact* for an eigenstate of the full ``H(k)`` -- no truncation, and
 the reason a plane-wave code has no counterpart to Wannier90's ``AA_R``. So
-this follows P53's route and not P35's, and `NONLINEAR.md` §7 says so.
+this follows P53's route and not P35's, and `notes/NONLINEAR.md` §7 says so.
 
 **The momentum matrix element is the wrong operator and this code never forms
 one.** ``[H, r] = p`` only for a *local* Hamiltonian; with a nonlocal

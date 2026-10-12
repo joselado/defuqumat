@@ -1,6 +1,6 @@
 # Measurements left by the review of 2026-09-25
 
-The review of the five single-session commits (`AUDIT-2026-09-25.md`) and the two phases
+The review of the five single-session commits (`notes/AUDIT-2026-09-25.md`) and the two phases
 that followed it (`PLAN.md` P117 and P118) closed everything that was an edit. What is
 left is below, and every item on it is a run: each says what it settles, the input and the
 call, the number that decides it, and what it costs. They are ordered by what a wrong

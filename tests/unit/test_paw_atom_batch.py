@@ -1,6 +1,6 @@
 """PAW's one-centre reverse pass must stay flat in the number of atoms.
 
-`MEMORY-AUDIT.md` A4. Every atom's one-centre pass is live at once inside one
+`notes/MEMORY-AUDIT.md` A4. Every atom's one-centre pass is live at once inside one
 differentiated region -- the sphere's XC quadrature is ``(nspin, nx, mesh)`` and
 the spin-polarized kernel takes two inner ``jax.grad``s of its own, so the
 residuals are a reverse pass inside a reverse pass. Measured on a
@@ -90,7 +90,7 @@ def test_the_one_centre_tape_does_not_grow_with_the_sublattice(pseudo_dir):
         f"{many / 2**20:.1f} MB at {MANY}, which is the linear scaling the chunk "
         f"and the remat exist to remove. Either the @jax.checkpoint or the "
         f"map_axis over atoms has been lost -- neither works without the other "
-        f"(MEMORY-AUDIT.md A4)"
+        f"(notes/MEMORY-AUDIT.md A4)"
     )
 
 

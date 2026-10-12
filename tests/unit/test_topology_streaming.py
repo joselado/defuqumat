@@ -1,6 +1,6 @@
 """A Chern number and an orbital magnetization walked across the mesh.
 
-``GPU-MEMORY-NEXT.md`` item 5. Both quantities are built from overlaps between
+``notes/GPU-MEMORY-NEXT.md`` item 5. Both quantities are built from overlaps between
 neighbouring k-points, and both used to diagonalise their whole mesh at once.
 Streamed, a plane mesh is diagonalised a column at a time and a volume mesh a
 plane at a time, with only the link phases (or the per-k terms) kept.

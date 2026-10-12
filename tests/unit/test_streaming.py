@@ -304,7 +304,7 @@ def test_a_host_store_is_read_a_chunk_at_a_time():
     What a streamed SCF hands back is a host array, and the consumers after
     it -- an STM image, a windowed structure factor, a relaxation's density
     extrapolation, a projected DOS, the site moments -- walk it a chunk at a
-    time instead of moving it to the device whole (``GPU-MEMORY-NEXT.md``
+    time instead of moving it to the device whole (``notes/GPU-MEMORY-NEXT.md``
     item 4). The same states in both forms, a short last chunk at
     ``k_batch = 3``: round-off.
     """

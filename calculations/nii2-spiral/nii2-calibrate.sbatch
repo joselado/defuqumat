@@ -9,7 +9,7 @@
 # stopped after ten iterations is not a number.
 #
 # Why it exists rather than going straight to the array: the sweep's --time and
-# --k-batch are both guesses until one q has run on this hardware. GPU.md's rule
+# --k-batch are both guesses until one q has run on this hardware. notes/GPU.md's rule
 # is that a dial is set by hand in a measurement and the platform default is not
 # inherited, and its own numbers stop at ten silicon atoms on a single k-point --
 # nothing there covers 81 k-points of two-component spinors.

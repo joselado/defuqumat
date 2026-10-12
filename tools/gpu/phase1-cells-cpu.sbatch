@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 1, CPU half -- the baseline the GPU per-stage split is read
+# notes/GPU.md Phase 1, CPU half -- the baseline the GPU per-stage split is read
 # against. Same script, same cases, same dials, four pinned EPYC Milan cores.
 #
 # Phase 0 measured whole SCF iterations and found 5.44x on `al10-metal`, which

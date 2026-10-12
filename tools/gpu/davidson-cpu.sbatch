@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 1, continued -- the CPU half: the baseline the GPU is quoted
+# notes/GPU.md Phase 1, continued -- the CPU half: the baseline the GPU is quoted
 # against, on a *stated* core count.
 #
 # The SAME script on the SAME cases as davidson-gpu.sbatch, for §2.3's reason:

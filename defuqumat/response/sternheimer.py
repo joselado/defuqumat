@@ -234,7 +234,7 @@ THRESHOLD = 1.0e-11
 #: eigensolver returned is arbitrary, so ``P_c`` is built for an arbitrary
 #: subspace of a degenerate shell and the answer is a property of the
 #: eigensolver rather than of the density. It is the same multivaluedness the
-#: *residual* solver is diagnosed for (``GAPS.md`` section 3, the closed
+#: *residual* solver is diagnosed for (``notes/GAPS.md`` section 3, the closed
 #: ``occupations = 'fixed'`` + ``nspin = 2`` entry), one layer up.
 #:
 #: **And it fails silently, which is why this is a refusal and not a warning.**
@@ -1411,7 +1411,7 @@ def _nint(value) -> int:
     ``_fixed_occupations_spin`` fills ``int(floor(count + 1/2))`` bands, so the
     two disagree at exactly a half electron. That happens: an **odd** electron
     count with an **even** ``tot_magnetization`` gives a half-integer ``nelup``,
-    and QE rounds it up rather than refusing (``GAPS.md`` section 3). Using
+    and QE rounds it up rather than refusing (``notes/GAPS.md`` section 3). Using
     ``round`` here would build a mask one band shallower than the weights the
     density was made with, in exactly that case and no other.
     """

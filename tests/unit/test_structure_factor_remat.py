@@ -1,6 +1,6 @@
 """The per-atom structure factor must not survive into the backward pass.
 
-`MEMORY-AUDIT.md` A5. Both sites compute ``e^{-i G . tau_a}`` for every atom,
+`notes/MEMORY-AUDIT.md` A5. Both sites compute ``e^{-i G . tau_a}`` for every atom,
 and ``exp``'s VJP is ``ans * t`` -- it saves its own output. So the ``(nat, ngm)``
 complex array is a residual of **every** derivative that moves an atom or strains
 the cell, which is every force, every stress, every phonon column and every Born
@@ -84,7 +84,7 @@ def test_the_species_structure_factor_does_not_tape_its_per_atom_array():
         f"the (ngm, nat) structure factor is saved for the backward pass: the "
         f"tape is {tape / 2**20:.2f} MB against {PER_ATOM_BYTES / 2**20:.2f} MB "
         f"for one copy of it. _structure_factors_at's @jax.checkpoint has been "
-        f"lost -- that is 2.55 GB on a 45-atom slab (MEMORY-AUDIT.md A5)"
+        f"lost -- that is 2.55 GB on a 45-atom slab (notes/MEMORY-AUDIT.md A5)"
     )
 
 
@@ -104,7 +104,7 @@ def test_the_atom_phases_do_not_tape_their_own_output():
         f"the (nat, ngm) atom phases are saved for the backward pass: the tape "
         f"is {tape / 2**20:.2f} MB against {PER_ATOM_BYTES / 2**20:.2f} MB for "
         f"one copy. _atom_phases' @jax.checkpoint has been lost "
-        f"(MEMORY-AUDIT.md A5)"
+        f"(notes/MEMORY-AUDIT.md A5)"
     )
 
 

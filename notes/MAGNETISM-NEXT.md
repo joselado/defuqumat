@@ -2,7 +2,7 @@
 
 ## What this file is
 
-The forward-looking half of `NONCOLLINEAR.md`. That file is an **audit** — a snapshot of
+The forward-looking half of `notes/NONCOLLINEAR.md`. That file is an **audit** — a snapshot of
 what was true on 2026-09-12 at commit `314d676`, kept whole because the reasoning behind
 each finding is why its fix has the shape it does. This one is the **queue**: what is still
 open after P77–P79, ordered by what a wrong or missing answer costs, with the first concrete
@@ -14,7 +14,7 @@ Where the other files fit (`CLAUDE.md` has the full table):
 | question | file |
 |---|---|
 | what a phase found, and what it was measured at | `PLAN.md` §3 |
-| the audit that produced this list, with the full reasoning per item | `NONCOLLINEAR.md` |
+| the audit that produced this list, with the full reasoning per item | `notes/NONCOLLINEAR.md` |
 | what is known to be broken, and what to do about it | `OPEN.md` |
 | what a feature refuses, and how a user reaches it | `docs/features.tex` |
 | **what to do next about magnetism, and what it costs** | this file |
@@ -22,11 +22,11 @@ Where the other files fit (`CLAUDE.md` has the full table):
 **Every item below is a phase unless it says otherwise.** That is the honest sizing and it
 is the reason none of them was opened in the session that closed the rest: each needs new
 physics, a new external reference, or a measurement that takes a machine rather than an
-afternoon. Section numbers in brackets are `NONCOLLINEAR.md`'s own item numbers, kept so
+afternoon. Section numbers in brackets are `notes/NONCOLLINEAR.md`'s own item numbers, kept so
 the two files can be read against each other.
 
 **File and line references go stale.** Function names are given wherever possible;
-re-`grep` anything before trusting it, which is the same warning `NONCOLLINEAR.md` carries
+re-`grep` anything before trusting it, which is the same warning `notes/NONCOLLINEAR.md` carries
 about its own.
 
 ---
@@ -940,7 +940,7 @@ wrong about the mechanism. The backward-pass cost was not `_qrad_kernel`'s inter
 was the `lax.scan` **stacking its residuals**, so the dense table came back on the tape at
 `>= 2 GiB` by construction. Both scan bodies are now rematted, and
 `bismuthene-soc-small`'s force tape goes **2.32 GiB -> 0.99 GiB** by the compiler's own
-`memory_analysis()` (`PERFORMANCE.md`, `MEMORY-AUDIT.md` A1).
+`memory_analysis()` (`PERFORMANCE.md`, `notes/MEMORY-AUDIT.md` A1).
 
 **What is still owed here** is the item's original ask: an end-to-end spinor force on
 `bismuthene-soc` itself, which is the cell P46 recorded as not running at all. The tape is
@@ -1028,7 +1028,7 @@ them.
 
 ## 3. Questions that need something run, not something written
 
-These are `NONCOLLINEAR.md` §6's open questions, with the ones P77–P79 answered removed.
+These are `notes/NONCOLLINEAR.md` §6's open questions, with the ones P77–P79 answered removed.
 None is a phase; each is one or a few runs, and several are an afternoon.
 
 **Q1 — has a *vector* texture ever survived an SCF? Yes; closed by P80.** The pair is

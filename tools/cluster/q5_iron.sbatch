@@ -1,7 +1,7 @@
 #!/bin/bash
 # The external number an augmented spinor with several non-parallel moments has
-# never had -- `MAGNETISM-NEXT.md` Q5, ranked first in
-# `MAGNETISM-RANKED-2026-09-22.md` because every production texture in this
+# never had -- `notes/MAGNETISM-NEXT.md` Q5, ranked first in
+# `notes/MAGNETISM-RANKED-2026-09-22.md` because every production texture in this
 # project runs on exactly that combination and nothing in it has ever been
 # compared with another code.
 #

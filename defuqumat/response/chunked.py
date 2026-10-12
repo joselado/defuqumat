@@ -1,6 +1,6 @@
 """The response to an electric field, a k-chunk at a time.
 
-``GPU-MEMORY-NEXT.md`` item 2. The field response
+``notes/GPU-MEMORY-NEXT.md`` item 2. The field response
 (:func:`~defuqumat.response.efield.dielectric_tensor`) holds, besides the ground
 state's occupied block, three bare perturbations ``P_c r_a|psi>`` and three
 first-order wavefunctions ``dpsi_a`` for the whole of the loop -- each a

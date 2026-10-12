@@ -1,4 +1,4 @@
-"""Turning the moments inside the SCF loop: ``ORIENTATION-NEXT.md`` Route C.
+"""Turning the moments inside the SCF loop: ``notes/ORIENTATION-NEXT.md`` Route C.
 
 **Why a run with spin-orbit coupling needs this.** The orientation of a magnetic
 texture is an electronic degree of freedom, so an SCF with the coupling is free

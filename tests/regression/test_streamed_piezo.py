@@ -1,6 +1,6 @@
 """The piezoelectric tensor walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2. The differentiated route
+``notes/GPU-MEMORY-NEXT.md`` item 2. The differentiated route
 (:func:`~defuqumat.response.piezo.clamped_ion_piezoelectric`) is one ``jvp`` of the
 stress along each field response, and with the whole k axis on one tape it was
 recorded at 31.5 GiB of temporaries on ultrasoft AlAs at 64 k-points

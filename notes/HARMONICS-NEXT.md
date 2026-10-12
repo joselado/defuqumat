@@ -186,7 +186,7 @@ field enters to first order exactly and $A^2$ is a phase. A pseudopotential proj
 $\mathbf k+\mathbf G+\boldsymbol\kappa$ is not linear in $\boldsymbol\kappa$, so the same
 construction in a band basis would be an approximation in the field on top of a
 truncation in the bands, with nothing to check it against. The truncation alone is
-severe in the velocity gauge: `NONLINEAR.md` measured the shift current's intermediate
+severe in the velocity gauge: `notes/NONLINEAR.md` measured the shift current's intermediate
 sum at 0.52 of its value at 120 bands of 158, and a truncated velocity-gauge response is
 known to diverge at low frequency (arXiv:1710.01300). Propagating the occupied states on
 the full sphere has neither problem, it reuses the Hamiltonian application that every
@@ -455,7 +455,7 @@ The validation is a ladder and the order is the point of it:
 2. $J^{(2)}$ against `get_shg` on `alas-shg.in`. This cannot be done on silicon, where
    the second order is zero by inversion and agreement would be about a residue. It pins
    the factors of $1/2$ and $1/4$ of the cosine, $J=\partial_tP$, and the normalisation
-   of $\chi^{(2)}$, which `NONLINEAR.md` records as ambiguous by a factor of two between
+   of $\chi^{(2)}$, which `notes/NONLINEAR.md` records as ambiguous by a factor of two between
    papers. Three things keep this from being an identity and each is stated in the
    test. `second_harmonic` evaluates at $z=\omega-i\eta$ in both denominators
    (`response/shg.py:493`), which is the per-photon convention of the adiabatic
@@ -526,7 +526,7 @@ $\eta=0.1$ eV on a spectrum 400 eV wide has not been timed here. The operators $
 nonlocal, since the kinetic energy is quadratic, and are two more `jvp` of the function
 `apply_second` already differentiates twice.
 
-What it needs is the solver `NONLINEAR.md` has named as the missing machine since P35: a
+What it needs is the solver `notes/NONLINEAR.md` has named as the missing machine since P35: a
 linear solve with $H-\epsilon-z$ for complex $z$, which is indefinite and not Hermitian,
 where the projected conjugate gradients of the Sternheimer stack do not apply. With
 $\eta>0$ the operator is normal and its smallest singular value is $n\eta$, so a shifted
@@ -790,10 +790,10 @@ state on both sides, with the statement that Elk's step diagonalises a matrix in
 basis and ours applies the Hamiltonian in plane waves, and that the comparison is per
 femtosecond at each code's converged step.
 
-Edits elsewhere that go with it: `NONLINEAR.md`'s statement that $\chi^{(3)}$ needs a
+Edits elsewhere that go with it: `notes/NONLINEAR.md`'s statement that $\chi^{(3)}$ needs a
 second-order wavefunction is a statement about the Sternheimer stack and gets a dated
 correction of the kind that file already carries for the shift current;
-`ELK-FEATURES.md` has no rows for tasks 450 to 481; and the README's "Not yet" loses
+`notes/ELK-FEATURES.md` has no rows for tasks 450 to 481; and the README's "Not yet" loses
 real-time propagation. Before any module is written the plan goes to a review by a
 subagent with the decisive files named, as every phase-sized feature here does.
 

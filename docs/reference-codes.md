@@ -10,7 +10,7 @@ and phase references are kept here where the README carries one sentence.
 
 The vendored Quantum ESPRESSO 7.5 tree is under
 `quantum_espresso/qe-7.5-ReleasePack/qe-7.5/`; Elk's task list is §5.127 of
-`docs/elk_manual.txt` and `ELK-FEATURES.md` surveys it against QE 7.5.
+`docs/elk_manual.txt` and `notes/ELK-FEATURES.md` surveys it against QE 7.5.
 
 ## The notes
 
@@ -132,7 +132,7 @@ the scattering problem between two semi-infinite crystalline leads with the
 current along one axis, and returns one conductance per energy for that
 junction. It has no point contact and therefore no map: nothing in it is a
 function of where a tip is, which is the whole output here. Elk has neither: no
-task in its list computes a conductance, and `ELK-FEATURES.md` records none.
+task in its list computes a conductance, and `notes/ELK-FEATURES.md` records none.
 
 **17. Which k-points the tunnelling current comes out of, blank in both.** That
 is a claim about two sources rather than a gap in the search. `pw.x` has nothing

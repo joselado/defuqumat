@@ -1,6 +1,6 @@
 """Route C's pieces, before any SCF: the stepper, the spinor turn, the mixer's history.
 
-``ORIENTATION-NEXT.md`` Route C turns the input density after every mix. What
+``notes/ORIENTATION-NEXT.md`` Route C turns the input density after every mix. What
 can be checked without a Hamiltonian is that each piece turns what it should and
 nothing else: the spin-1/2 rotation turns a spinor's magnetization by the same
 matrix the density is turned by, the mixer is equivariant under a common turn of

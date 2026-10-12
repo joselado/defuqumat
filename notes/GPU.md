@@ -35,7 +35,7 @@ store streamed from host RAM) is the accelerator default and grows by about 0.2 
 k-point on eight-atom silicon where `'speed'` grows by 33 (45 against 2080 MB at 64
 k-points, 1.6x the time; 1.81x to 1.85x on the RTX A2000 with the Davidson steps equal, almost all
 of it the one k-point per call, `PERFORMANCE.md`, "Memory mode on a k-mesh"), and `'speed'` falls
-back to `'memory'` when its estimate would not fit. `PERFORMANCE.md`'s "Two memory modes" entry has the tables; `GPU-MEMORY-NEXT.md` is
+back to `'memory'` when its estimate would not fit. `PERFORMANCE.md`'s "Two memory modes" entry has the tables; `notes/GPU-MEMORY-NEXT.md` is
 the list of what is left. §4a's regression set can now be rerun here, on this card, without
 a cluster job -- which also means the test gate must be run with `JAX_PLATFORMS=cpu` from
 that environment, since on the card the defaults differ.
@@ -586,7 +586,7 @@ process topology that changes the code rather than its speed: one process holdin
 local devices, or `jax.distributed` across Slurm tasks. Decide that before writing the
 mesh, not after.
 
-**It buys time, not memory per device** (`GPU-MEMORY-NEXT.md` item 25, 2026-09-29). Once the
+**It buys time, not memory per device** (`notes/GPU-MEMORY-NEXT.md` item 25, 2026-09-29). Once the
 SCF streams (`memory_mode = 'memory'`), sharding the k axis divides the *wall clock* by
 `ndev` and leaves each device's peak where it was: every device replicates the
 k-independent set -- the augmentation table, the PAW tensors, the dense-grid fields, which

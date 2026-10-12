@@ -1,4 +1,4 @@
-"""Section 2 of ``GAPS.md``: the physics works and the plumbing could not say so.
+"""Section 2 of ``notes/GAPS.md``: the physics works and the plumbing could not say so.
 
 Where ``test_sibling_refusals`` collects combinations that should have stopped
 and did not, and ``test_state_across_boundaries`` collects state that failed to

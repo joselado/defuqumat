@@ -1007,7 +1007,7 @@ def ultrasoft_position(calculation, hamiltonians, states, position, dipole,
     """
     batch = calculation.k_batch
     # One k-point's projectors at a time, built rather than sliced on a lazy
-    # set: the whole-k ``vkb`` is never formed here (``GPU-MEMORY-NEXT.md``
+    # set: the whole-k ``vkb`` is never formed here (``notes/GPU-MEMORY-NEXT.md``
     # item 7).
     projectors = calculation.projectors
     dipole = dipole.astype(projectors.dtype)

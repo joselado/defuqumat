@@ -2,7 +2,7 @@
 
 The field is carried as a wavevector, ``kappa(t) = A(t)/c``, and the
 Hamiltonian at time ``t`` is ``H(k + kappa(t))`` on the plane-wave sphere built
-for ``k`` (``HARMONICS-NEXT.md``). :mod:`~defuqumat.realtime.pulse` holds the
+for ``k`` (``notes/HARMONICS-NEXT.md``). :mod:`~defuqumat.realtime.pulse` holds the
 fields, :mod:`~defuqumat.realtime.propagators` the time steps,
 :mod:`~defuqumat.realtime.radial` the table the projectors at ``k + kappa`` are
 built from, :mod:`~defuqumat.realtime.propagate` the driver and the current, and

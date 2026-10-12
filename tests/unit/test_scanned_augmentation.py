@@ -1,6 +1,6 @@
 """The exact scanned augmentation table: the stored table's numbers, not its storage.
 
-``GPU-MEMORY-NEXT.md`` item 15. Under a strain the stored route assembles the
+``notes/GPU-MEMORY-NEXT.md`` item 15. Under a strain the stored route assembles the
 whole ``(nh, nh, ngm)`` array on the gradient's tape; the scanned route rebuilds
 it a chunk at a time with :class:`~defuqumat.pseudo.augmentation.ExactRadial` --
 the radial integral itself, not the interpolated table -- so its charge, its

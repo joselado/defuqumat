@@ -207,7 +207,7 @@ class Mixer:
         the densities', which it does for an affine map ``x -> R x + c``: a
         residual is a difference of two densities and sees ``R`` alone.
 
-        The in-loop rotation of ``ORIENTATION-NEXT.md`` Route C turns the input
+        The in-loop rotation of ``notes/ORIENTATION-NEXT.md`` Route C turns the input
         density between iterations, and a history left in the old frame is
         extrapolated back towards it. A mixer that can carry its history across
         a common linear map overrides this; the default is to reset, which costs
@@ -385,7 +385,7 @@ class AndersonMixer(Mixer):
         residual **5.2 times** larger at the median iteration and 32 times at
         the worst; the density block alone, fitted flat, is within 1.3 of it.
         That is the flat-against-``1/G^2`` difference item F in
-        ``MAGNETISM-NEXT.md`` suspected, measured to be the smaller of the two
+        ``notes/MAGNETISM-NEXT.md`` suspected, measured to be the smaller of the two
         by a factor of four at the median. See ``PLAN.md`` P107.
 
         The excluded block is still combined with the same coefficients, which
@@ -692,7 +692,7 @@ class AdaptiveMixer(Mixer):
     coupling, so the residual has no component along that rotation at all and the
     manifold has to be traversed rather than descended; twisting them slowly costs
     only the spin-wave energy ``D q^2``, which vanishes as the cell grows.
-    ``MAGNETISM-NEXT.md`` item F2 is the full account of which directions those
+    ``notes/MAGNETISM-NEXT.md`` item F2 is the full account of which directions those
     are and what else is on offer for them.
 
     **The whole packed vector adapts, one step length per entry**, so ``becsum``
@@ -1335,14 +1335,14 @@ LDOS_DEPENDENT = {"ldos"}
 #: wavelengths the preconditioner exists for; and its iteration cap. 1e-3 and
 #: 1e-4 gave the same SCF count on all nine cells measured (the aluminium slab at
 #: 32 and 64 bohr of vacuum, the cobalt film at three, NbSe2 at two, graphene),
-#: 1e-3 with 12 to 25 per cent fewer applications (``VACUUM-MIXING-NEXT.md``).
+#: 1e-3 with 12 to 25 per cent fewer applications (``notes/VACUUM-MIXING-NEXT.md``).
 #: The prototype's GMRES, stopped in a Kerker-weighted norm that is loosest on the
 #: long wavelengths, lost seven iterations on NbSe2 at 1e-2.
 LDOS_TOL, LDOS_MAXITER = 1.0e-3, 200
 
 #: The smallest width of the Gaussian the LDOS is built with, in Ry
 #: (``Calculation.ldos_weights``): ``max(degauss, LDOS_SIGMA_MIN)``. Zero, so the
-#: run's own width: the cobalt film of ``VACUUM-MIXING-NEXT.md`` (cold smearing at
+#: run's own width: the cobalt film of ``notes/VACUUM-MIXING-NEXT.md`` (cold smearing at
 #: ``degauss = 0.005`` on 12x12) took 20 iterations at 0.005, 0.01 and 0.02 alike.
 LDOS_SIGMA_MIN = 0.0
 
@@ -1517,7 +1517,7 @@ def ldos_preconditioner(gvectors, cell, shape, beta=0.7):
     leaves the plain step. It is QE's ``local-TF`` with the charge ``rho(r)``
     replaced by the states at ``e_F``, which is the property that separates a
     metal from a dense insulator and that ``local-TF`` cannot see
-    (``VACUUM-MIXING-NEXT.md``). The second term of ``chi0~`` keeps the electron
+    (``notes/VACUUM-MIXING-NEXT.md``). The second term of ``chi0~`` keeps the electron
     count: ``eps~ f`` integrates to the integral of ``f``.
 
     **How it is solved.** ``chi0~`` is self-adjoint, and with ``D >= 0`` it is

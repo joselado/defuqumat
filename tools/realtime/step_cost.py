@@ -1,6 +1,6 @@
 """What one real-time step costs, split into its parts, and the frozen sphere's error.
 
-The first stage of ``HARMONICS-NEXT.md`` ("Measure before building"): on a
+The first stage of ``notes/HARMONICS-NEXT.md`` ("Measure before building"): on a
 silicon cell at one k-point, warm medians of
 
 * the projector rebuild at ``k + kappa`` (``Calculation.at_kcart`` on a

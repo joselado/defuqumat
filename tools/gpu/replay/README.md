@@ -1,7 +1,7 @@
 # Replaying a Davidson call: finding why two machines take different numbers of steps
 
 Written 2026-10-01 for the card's endgame stall (`PERFORMANCE.md`, "The endgame on a card is a
-stall"; `GPU-SPEED-NEXT.md`). Run everything from the repository root, one process per
+stall"; `notes/GPU-SPEED-NEXT.md`). Run everything from the repository root, one process per
 configuration, with `DEFUQUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` and the host pinned
 (`taskset -c 0-3`) the way `tools/parallel/gpu_scan.sh` does, and nothing else on the card.
 

@@ -593,7 +593,7 @@ def _force_theorem(system, pseudos, density, direction, nbnd, conv_thr, k_batch,
 
     # The states are read only by the projected decomposition; without it the
     # solve keeps the energies alone and, where the store streams, never stacks
-    # the states (``GPU-MEMORY-NEXT.md`` item 1).
+    # the states (``notes/GPU-MEMORY-NEXT.md`` item 1).
     calculation, system, eigenvalues, wavefunctions = fixed_density_states(
         system, pseudos, rotated, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
         becsum=rotated_becsum, keep_states=bool(projected),
@@ -802,7 +802,7 @@ def _project_band_energy(calculation, system, eigenvalues, wg, wavefunctions, ef
     spinors = calculation._as_spinors(atomic)  # (nk, 2 n, 2 npwx)
 
     # One k-point's states on the device at a time: a streamed store is a host
-    # array and is not moved across whole (``GPU-MEMORY-NEXT.md`` item 4), and
+    # array and is not moved across whole (``notes/GPU-MEMORY-NEXT.md`` item 4), and
     # each k-point crosses through ``device_put`` at its own size
     # (:func:`~defuqumat.batching.upload`).
     psi = wavefunctions[0]  # (nk, nbnd, 2 npwx)
@@ -1168,7 +1168,7 @@ def frozen_expectation(
     delta_d, delta_qq = _first_order_operator(calculation, total)
     # A sum over k, walked a chunk at a time: one chunk's projectors and states
     # on the device, never the whole-k ``vkb`` or a streamed store stacked
-    # (``GPU-MEMORY-NEXT.md`` items 4 and 7), a host store's rows crossing as a
+    # (``notes/GPU-MEMORY-NEXT.md`` items 4 and 7), a host store's rows crossing as a
     # view (``store_rows``). Padded rows carry zero weight.
     wg, eigenvalues = np.asarray(wg), np.asarray(eigenvalues)
     energy = 0.0
@@ -1790,7 +1790,7 @@ def relax_orientation(
 ) -> RelaxedOrientation:
     """Turn the whole texture until the torque on it vanishes: the easy orientation.
 
-    ``ORIENTATION-NEXT.md`` Route A, the relaxation. Each step is
+    ``notes/ORIENTATION-NEXT.md`` Route A, the relaxation. Each step is
     :func:`run_orientation_torque` at the current orientation, one
     diagonalisation with the coupling at the frozen source density turned
     rigidly, and the free energy and torque it returns go to the same BFGS the

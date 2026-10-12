@@ -175,7 +175,7 @@ __all__ = [
 #: -- and ``|r^{c;a}|`` there is **9.2e6 bohr^2** against a mesh median of
 #: 4.4e3, which put a spike in the spectrum at 6.84 eV that moved by two orders
 #: of magnitude between a 4x4x4, a 6x6x6 and an 8x8x8 mesh. **The tensor was
-#: exactly ``-43m`` throughout**, to five figures, which is `NONLINEAR.md` §5's
+#: exactly ``-43m`` throughout**, to five figures, which is `notes/NONLINEAR.md` §5's
 #: warning arriving once more: the symmetry checks do not see this.
 DEGENERACY_TOL = 1.0e-8
 

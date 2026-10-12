@@ -34,7 +34,7 @@ def autodiff_forces(calculation, state: FrozenState) -> jnp.ndarray:
     positions = calculation.system.structure.positions
     if wants_chunks(calculation, state):
         # Memory mode, or a state in host memory: the k axis is walked rather
-        # than taped whole (``GPU-MEMORY-NEXT.md`` item 3).
+        # than taped whole (``notes/GPU-MEMORY-NEXT.md`` item 3).
         return -chunked_gradient(calculation, state, "positions", positions)[1]
     gradient, geometry = _energy_gradient(calculation)
     return -gradient(positions, state, hoisted(calculation), geometry)

@@ -3,7 +3,7 @@
 ``Calculation.at_rows`` slices every array with a k index and shares every
 other one, so that a consumer which needs a *Calculation* for one chunk of
 k-points -- a velocity operator's ``jvp``, a Sternheimer solve -- gets exactly
-what the whole set would give at those points (``GPU-MEMORY-NEXT.md`` items 2
+what the whole set would give at those points (``notes/GPU-MEMORY-NEXT.md`` items 2
 and 6). The standard is bit-identity where the arithmetic is the same
 expression on the same numbers, and round-off where a ``jvp`` over a shorter
 axis regroups a sum.

@@ -270,7 +270,7 @@ def test_the_calculator_hands_the_spectra_its_own_calculation(
 ):
     """No second ``Calculation`` beside the calculator's, and the solve uses its.
 
-    ``GPU-MEMORY-NEXT.md`` item 20. A second build shares nothing with the
+    ``notes/GPU-MEMORY-NEXT.md`` item 20. A second build shares nothing with the
     first, and it is built without the calculator's ``memory_mode``, so a
     speed-mode calculator's spectrum used to run in the platform's default
     mode without saying so.

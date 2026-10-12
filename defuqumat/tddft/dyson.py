@@ -37,7 +37,7 @@ converged to: the same ``F``, the same history and the same ``eps^-1`` to
 round-off, for one matrix solve per pass instead of ``nw``, and without ``nw``
 copies of ``F``. The final screening walks the frequencies ``w_batch`` at a
 time (:func:`~defuqumat.batching.resolve_w_batch`), so only one chunk's
-temporaries are in flight (``GPU-MEMORY-NEXT.md`` item 12, ``MEMORY-AUDIT.md``
+temporaries are in flight (``notes/GPU-MEMORY-NEXT.md`` item 12, ``notes/MEMORY-AUDIT.md``
 A10); the physics still costs one ``chi_0``.
 """
 

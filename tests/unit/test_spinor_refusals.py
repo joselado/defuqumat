@@ -15,7 +15,7 @@ and the other two need one iteration, which is enough to have a
 reason this file is cheap -- the expensive part of the sibling file is the
 physics, and a refusal has none.
 
-``GAPS.md`` §4 is the argument for the file existing: almost every gap that
+``notes/GAPS.md`` §4 is the argument for the file existing: almost every gap that
 sweep found was *the same guard missing from a sibling entry point*, and the
 general answer it asks for is to enumerate the paths that reach a refusal and
 assert it fires on each. This is that, for the one phase that lifted a refusal

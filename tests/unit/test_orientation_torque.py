@@ -1,6 +1,6 @@
 """The rotation of a whole texture, before any Hamiltonian sees it.
 
-``ORIENTATION-NEXT.md`` Route A turns every spin by one rotation ``R`` and takes
+``notes/ORIENTATION-NEXT.md`` Route A turns every spin by one rotation ``R`` and takes
 the torque for the three generators at once. What can be checked without a
 diagonalisation is checked here: that the rotation keeps what it must (the
 charge, ``|m|`` at every point, the angles between moments), that on a collinear

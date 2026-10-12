@@ -1,6 +1,6 @@
 """The third derivatives of the energy, a k-chunk at a time.
 
-``GPU-MEMORY-NEXT.md`` item 2, its last piece. Electrostriction's
+``notes/GPU-MEMORY-NEXT.md`` item 2, its last piece. Electrostriction's
 ``d(eps)/d(strain)`` (:func:`~defuqumat.response.electrostriction.
 susceptibility_strain_derivative`) and the Raman tensors' ``d(eps)/d(tau)``
 (:func:`~defuqumat.response.nonlinear.susceptibility_displacement_derivative`)

@@ -11,7 +11,7 @@
 # runs comes first and is in the JSON even if the second one meets the 30-minute limit.
 #
 # Prediction, written before it runs. September's runtime requests at these dials were 23.18
-# GiB on the A100 and 33.44 GiB on the H100 (MEMORY-AUDIT.md A16); their difference, 10.26 GiB
+# GiB on the A100 and 33.44 GiB on the H100 (notes/MEMORY-AUDIT.md A16); their difference, 10.26 GiB
 # = 11.02 GB, is A17's card offset to two digits. The fit's second coefficient has fallen from
 # 6.20 to 4.20 since (sizing.py), so:
 #   temp on the A100 about 19.4 GiB (23.18 - 3.8), device store;

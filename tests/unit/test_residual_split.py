@@ -1,6 +1,6 @@
 """The five-way residual split, and the trip tests its rotation bin needs.
 
-``MAGNETISM-NEXT.md`` F2 says the obvious definition of the rotation bin -- the
+``notes/MAGNETISM-NEXT.md`` F2 says the obvious definition of the rotation bin -- the
 ``Q = 0`` transverse component of the residual -- is a null that cannot be told
 from a pass, because every compensated texture has ``m_{Q = 0} = 0`` and a rigid
 rotation leaves it zero. The generator projection is the replacement, and the

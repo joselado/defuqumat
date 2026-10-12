@@ -321,7 +321,7 @@ def load_state(path, system=None, calculation=None, strict: bool = True, rows=No
         # result's are a host array already, and a resume that streams slices
         # them a chunk at a time (``stream_start``), so putting the whole set on
         # the device here was a transient of the whole store at iteration 1 --
-        # 12.10 GB on the NiBr2 slab (``GPU-MEMORY-NEXT.md`` item 8). Whatever
+        # 12.10 GB on the NiBr2 slab (``notes/GPU-MEMORY-NEXT.md`` item 8). Whatever
         # reads them whole brings them across itself. (Chosen when each array
         # is read, not converted afterwards: a device copy made first and
         # replaced is the same transient, and was, on the first try.)

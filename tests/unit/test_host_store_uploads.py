@@ -4,7 +4,7 @@
 store that can be a host numpy array: where the store streams, an SCF and
 ``fixed_density_states(keep_states=True)`` hand the states back that way, and
 ``jnp.asarray`` of a host array peaks at twice its size on a card where
-``jax.device_put`` of a contiguous one peaks at once (``GPU-MEMORY-NEXT.md``,
+``jax.device_put`` of a contiguous one peaks at once (``notes/GPU-MEMORY-NEXT.md``,
 2026-09-29). Two of the sites take the whole k axis and are reached by a host
 store: the band velocities, on a streamed ground state or a streamed NSCF (the
 effective mass's included), and the dielectric tensor asked for its internals,

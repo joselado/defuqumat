@@ -1,6 +1,6 @@
 """Inside a Davidson step: what the subspace algebra actually costs.
 
-`GPU.md` Phase 1 profiled the SCF by *stage* -- ``h_psi`` 6.8-17.9x, Davidson
+`notes/GPU.md` Phase 1 profiled the SCF by *stage* -- ``h_psi`` 6.8-17.9x, Davidson
 3.9-13.5x, ``v_of_rho`` 0.74-1.3x -- and named what it could not resolve at that
 granularity:
 
@@ -443,7 +443,7 @@ def main(argv=None) -> int:
                   "band_batch": str(batching.DEFAULT_BAND_BATCH),
                   "given": dials or None},
     }
-    print(f"# defuqumat GPU.md phase 1 -- inside a Davidson step, {case.name}")
+    print(f"# defuqumat notes/GPU.md phase 1 -- inside a Davidson step, {case.name}")
     print(f"# {record['provenance']['device_kind']} "
           f"({record['provenance']['platform']}), jax {record['provenance']['jax']}")
 

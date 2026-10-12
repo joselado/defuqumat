@@ -7,7 +7,7 @@ runs. Four items of that audit are being taken separately and are not tracked he
 nothing below is about them; the numbering starts at 5 because that is where the audit's
 own list continues.
 
-`AUGMENTATION-NEXT.md` is the wider file, covering ultrasoft and PAW together, and every
+`notes/AUGMENTATION-NEXT.md` is the wider file, covering ultrasoft and PAW together, and every
 entry below points into it rather than restating it. The split between the two is that
 this file is about the modes a PAW dataset cannot be run in, which is a different
 question from which terms an augmentation charge is missing: four of the seven items
@@ -19,13 +19,13 @@ ultrasoft rather than behind it is outside the numbering, at the end.
 
 Every entry was written after opening the guard and reading the code around it, and each
 one says what was read. That is not a habit worth stating for its own sake: it is the one
-correction `AUGMENTATION-NEXT.md` has had to make five times, every time from writing an
+correction `notes/AUGMENTATION-NEXT.md` has had to make five times, every time from writing an
 entry off the refusal's message and not off the code, and every time in the direction of
 making the work look like something other than what it is. Where a claim below could not
 be confirmed from the code, the entry says so instead of repeating what it was told.
 
 Guards are named by their function and their file and never by a line number, because the
-line numbers in `AUGMENTATION-NEXT.md` have already gone stale once.
+line numbers in `notes/AUGMENTATION-NEXT.md` have already gone stale once.
 
 Three things to know before reading the tests quoted below.
 
@@ -53,7 +53,7 @@ Three things to know before reading the tests quoted below.
 augmentation spheres, `adddvepsi_us`'s `dpqq`, and `kubo_from_matrices` is handed only
 `dh` and `ds` and has nowhere to put it. The correction depends on `A` rather than on
 `S = A^dagger A`, so no arrangement of `dS/dk` can supply it: `U(k) A` leaves `S` alone
-and moves the physical states. Section 2 of `AUGMENTATION-NEXT.md` has the derivation and
+and moves the physical states. Section 2 of `notes/AUGMENTATION-NEXT.md` has the derivation and
 the model measurement, which is 18 per cent of the curvature's scale on a Haldane model
 where the exact answer is free, and 0.010 of the Chern number.
 
@@ -65,7 +65,7 @@ it tests `calculation.augmentation is not None`, so PAW and ultrasoft refuse tog
 itself is not unreachable on any dataset; what is unreachable is the smooth `Omega(k)`
 map from the sum over states, the optical conductivity and the shift current.
 
-**One number in `AUGMENTATION-NEXT.md` section 2 is the wrong quantity.** It says the
+**One number in `notes/AUGMENTATION-NEXT.md` section 2 is the wrong quantity.** It says the
 ultrasoft dielectric constant of `response/efield.py` is 8e-6 from `ph.x`. The module
 docstring gives **14.325321 against 14.325270** on ultrasoft silicon, which is 3.6e-6
 relative, with 14.320211 against 14.320177 on PAW and 5.756059 against 5.756182 on
@@ -94,7 +94,7 @@ third one would take, `Calculation._as_spinors` and `Calculation._spinor_overlap
 `scf/driver.py`.
 
 **`int3` as a 2x2 matrix in spin space**, which is QE's `set_int3_nc`. ✅ **DONE
-2026-09-17**, `PLAN.md` P98 and `AUGMENTATION-NEXT.md` §1d.
+2026-09-17**, `PLAN.md` P98 and `notes/AUGMENTATION-NEXT.md` §1d.
 
 The hypothesis this entry flagged -- "that the recombination is the whole of it, which the
 comment asserts and nothing measures" -- was right to flag and wrong in both directions.
@@ -110,7 +110,7 @@ fully-relativistic ultrasoft AlAs. What is left of the entry is written at the e
 sandwich, and no committed cell distinguishes the two orders.
 
 **`qq_so` in the matrix orthonormality multipliers of a spinor force.** ✅ **DONE
-2026-09-17**, `AUGMENTATION-NEXT.md` §3c and `PLAN.md` P98. `Lambda` does *not* carry a
+2026-09-17**, `notes/AUGMENTATION-NEXT.md` §3c and `PLAN.md` P98. `Lambda` does *not* carry a
 spin pair, which is where this entry (and the guard it was read off) was wrong: it
 multiplies the band pair and both states are whole spinors, so only the augmentation half
 changes and it takes `qq_so`. The Born charges of a fully-relativistic ultrasoft cell
@@ -122,7 +122,7 @@ Born assembly came with it, all of them broadcast failures rather than wrong num
 `calculation.projectors.qq is not None`, which is worth knowing because it is neither
 `is_ultrasoft` nor `is_paw`: what it refuses is a fully-relativistic dataset carrying an
 augmentation charge of any kind, and a fully-relativistic norm-conserving one has `S = 1`
-and is exact. `AUGMENTATION-NEXT.md` section 1i has the route, which is
+and is exact. `notes/AUGMENTATION-NEXT.md` section 1i has the route, which is
 `Calculation._as_spinors` orthogonalised against `_spinor_overlap` as
 `workflows/anisotropy.py` already does, and both of those exist. The open question is not
 the code, it is what to validate against: section 1i says neither `projwfc.x` nor Elk's
@@ -158,7 +158,7 @@ since gone.
 
 **Size, as a hypothesis.** A phase, and the work is the derivation rather than the code.
 The caution that applies to this entry more than to any other here is
-`AUGMENTATION-NEXT.md`'s last one: a gap sized on silicon is a gap sized on a
+`notes/AUGMENTATION-NEXT.md`'s last one: a gap sized on silicon is a gap sized on a
 centrosymmetric crystal, and this one has never been run on a polar cell.
 
 ## 8. The ultracell. ✅ DONE in all three spin regimes.
@@ -171,7 +171,7 @@ for the density, and PAW's one-centre terms per copy.
 
 **The sign this entry flagged was the live question and it is settled.** The displacement is
 the **ket's** wavevector minus the bra's, `Q' - Q`, which is what the guard's comment on
-`master` said and what `AUGMENTATION-NEXT.md` §1k's derivation sentence had backwards. It was
+`master` said and what `notes/AUGMENTATION-NEXT.md` §1k's derivation sentence had backwards. It was
 settled by running the other spelling rather than by reading: the induced density's error
 stalls at 6.7e-2 where the right one falls to 3.7e-3, and the total energy goes 2.6e-5 Ry
 **below** the four-atom supercell's, which the nested-basis bound forbids. §1k is corrected.
@@ -312,7 +312,7 @@ halved. The reason is the same for both datasets: `addusdens` and `newd` need th
 `fact = 2` over the augmentation charge, and `Q_ij(G)` is tabulated on the dense set,
 which is a half sphere here too.
 
-**The substitution is not where `AUGMENTATION-NEXT.md` puts it.** Its excluded list
+**The substitution is not where `notes/AUGMENTATION-NEXT.md` puts it.** Its excluded list
 credits `pseudo/augmentation.py`. What is there is `build_augmentation`'s hard
 `NotImplementedError` on `gvectors.gamma_only`, which is a backstop a normal
 `Calculation` never reaches, because the gate has already turned the storage off before

@@ -920,7 +920,7 @@ in a cell with vacuum the longest wavelength along the normal, $2\pi/c$, is a mo
 the vacuum, whose dielectric eigenvalue is 1: damping it only slows the iteration, and
 by more the longer the cell. \code{local-TF} screens less in the vacuum but still
 screens any dense layer as a metal. Iterations at 16 and 64 bohr of vacuum, each cell
-at its own \code{conv\_thr} and $\beta$ (\code{VACUUM-MIXING-NEXT.md}):
+at its own \code{conv\_thr} and $\beta$ (\code{notes/VACUUM-MIXING-NEXT.md}):
 \begin{center}
 \begin{tabular}{lrrrr}
 \toprule
@@ -4054,7 +4054,7 @@ approaches completeness, so a production band count carries a few per cent that
 no symmetry check sees --- \code{truncation} is the in-run estimate and is taken
 over the top \emph{quarter} of the bands, because dropping one band reports
 5.3e-5 where the error is 4 per cent. The route that would remove it is written
-down in \code{NONLINEAR.md}: the two sums are a Sternheimer solve rather than a
+down in \code{notes/NONLINEAR.md}: the two sums are a Sternheimer solve rather than a
 spectral sum, and what stops it being taken is that the operator to invert is
 indefinite. \code{band\_cut\_gap} carries the same warning it does for the
 conductivity.
@@ -8922,7 +8922,7 @@ that tolerance, not hidden.
   committed, each with a \code{.md} export beside it
 \item \code{PERFORMANCE.md} --- the running performance log, CPU and GPU
 \item \code{PLAN.md} --- the architecture, the phase breakdown, the trap catalogue
-\item \code{GPU.md} --- the GPU roadmap
+\item \code{notes/GPU.md} --- the GPU roadmap
 \end{itemize}
 
 \end{document}

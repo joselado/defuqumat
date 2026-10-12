@@ -1,6 +1,6 @@
 """The dynamical matrix at ``Gamma``, a k-chunk at a time.
 
-``GPU-MEMORY-NEXT.md`` item 2, its second piece after the field response
+``notes/GPU-MEMORY-NEXT.md`` item 2, its second piece after the field response
 (:mod:`defuqumat.response.chunked`). :func:`~defuqumat.response.phonon.
 dynamical_matrix` holds, for its ``P = 3 len(atoms)`` perturbations, a bare
 perturbation ``(dH/du - eps dS/du)|psi>`` and a first-order state ``dpsi`` each --

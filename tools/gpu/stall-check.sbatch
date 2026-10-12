@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU-SPEED-NEXT.md item 1: the card's Davidson stall, and the float32 band tier, on a production card.
+# notes/GPU-SPEED-NEXT.md item 1: the card's Davidson stall, and the float32 band tier, on a production card.
 #
 # Everything about the stall and its fix was measured on one float32 card, D22's RTX A2000
 # (float64 at 1/70 of float32). Three questions only a data-centre card answers:
@@ -13,7 +13,7 @@
 #   3. What is a float32 band side worth per iteration on a card whose float64 is fast? The
 #      A2000 ran a whole 64-atom SCF to conv_thr 1e-7 4.2x to 4.6x faster, 6.3x to 6.9x an
 #      iteration over 9 iterations against 6 (PERFORMANCE.md, "The band side in single
-#      precision"); GPU.md Phase 3 ranks the tier by this number.
+#      precision"); notes/GPU.md Phase 3 ranks the tier by this number.
 #
 # Not submitted by any tool here (CLAUDE.local.md): submit it by hand, from the checkout the
 # job should run, after `sbatch --test-only` has accepted the partition and the limits.

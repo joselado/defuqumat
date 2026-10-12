@@ -121,7 +121,7 @@ DIRECTION_ONLY = frozenset({"atomic direction", "atomic texture",
 #: the names again**: a caller that built its own tuple left ``atomic texture``
 #: out of it, and the omission surfaced as an ``AttributeError`` on ``None``
 #: inside the first potential build rather than as a refusal at input
-#: (`NONCOLLINEAR.md` item 8).
+#: (`notes/NONCOLLINEAR.md` item 8).
 ATOM_RESOLVED = frozenset({"atomic", "atomic direction", "atomic texture",
                           "atomic fsm", "atomic fsm direction"})
 

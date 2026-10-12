@@ -292,7 +292,7 @@ def run_spiral_scan(
             of this system, moved to each wavevector with ``at_spiral_q``
             rather than a second one built beside it -- it keeps the caller's
             memory mode and shares its k-independent tables
-            (``GPU-MEMORY-NEXT.md`` item 20). ``Calculator.get_spiral_scan``
+            (``notes/GPU-MEMORY-NEXT.md`` item 20). ``Calculator.get_spiral_scan``
             passes its own.
     """
     wavevectors = np.asarray(wavevectors, dtype=float).reshape(-1, 3)
@@ -317,7 +317,7 @@ def run_spiral_scan(
     energies, moments, converged, results, slopes = [], [], [], [], []
     for q in wavevectors:
         # The last point's result and Calculation must not be live under this
-        # point's setup and SCF (`MEMORY-AUDIT.md` A2); ``results`` keeps the
+        # point's setup and SCF (`notes/MEMORY-AUDIT.md` A2); ``results`` keeps the
         # result when it was asked for, and nothing else reads either.
         calculation = result = None
         calculation = base.at_spiral_q(q, widths=widths)
@@ -651,7 +651,7 @@ def relax_spiral_q(
 
     for index in range(1, nstep + 1):
         # The last step's result must not be live under this step's SCF
-        # (`MEMORY-AUDIT.md` A2); ``density`` is the only thing carried over.
+        # (`notes/MEMORY-AUDIT.md` A2); ``density`` is the only thing carried over.
         result = None
         result = run_scf(
             calculation.system,

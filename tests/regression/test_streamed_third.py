@@ -1,6 +1,6 @@
 """The third derivatives walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_third`). The
+``notes/GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_third`). The
 same re-diagonalised states give the field response twice, once whole and once
 walked with its stores in host memory, and the same tangents (the whole route's
 strain or displacement response) are handed to the whole route's third

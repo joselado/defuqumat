@@ -10,7 +10,7 @@ built for ``k`` and is never rebuilt. For a norm-conserving dataset that is the
 whole coupling to the field: the kinetic energy becomes ``|k+G+kappa|^2`` and
 the projectors are evaluated at ``k+G+kappa``, since the gauge factor
 ``exp(-i kappa.R)`` cancels between the two projectors of one atom. Nothing is
-expanded in the field and no empty state is needed (``HARMONICS-NEXT.md``,
+expanded in the field and no empty state is needed (``notes/HARMONICS-NEXT.md``,
 "The physics").
 
 **The current is the derivative of the band energy with respect to kappa at
@@ -115,7 +115,7 @@ class RealTimeResult:
         dt: the step, Hartree atomic units.
         effective_cutoff: ``(sqrt(ecutwfc) - kappa_max)^2`` in Ry, the cutoff of
             the frozen sphere along the field at the largest shift
-            (``HARMONICS-NEXT.md``, "The frozen sphere under a large shift").
+            (``notes/HARMONICS-NEXT.md``, "The frozen sphere under a large shift").
     """
 
     times: np.ndarray
@@ -167,7 +167,7 @@ class RealTimeResult:
 
 
 def require_a_realtime_regime(calculation) -> None:
-    """Refuse, by name, every regime whose missing term is known (``HARMONICS-NEXT.md``).
+    """Refuse, by name, every regime whose missing term is known (``notes/HARMONICS-NEXT.md``).
 
     Collinear spin, spinors (spin-orbit coupling and noncollinear magnetism)
     and ultrasoft and PAW datasets run (``PLAN.md`` P139 to P141): the first is

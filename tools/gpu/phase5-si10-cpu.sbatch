@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 5, continued -- the CPU half: the baseline, and one diagnostic
+# notes/GPU.md Phase 5, continued -- the CPU half: the baseline, and one diagnostic
 # that PERFORMANCE.md records as unexplained and not run.
 #
 # The SAME script on the SAME cases as phase5-si10-gpu.sbatch, on a *stated*

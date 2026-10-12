@@ -200,7 +200,7 @@ def _windowed_density(system, pseudos, result, window, k_batch,
             "empty and the density would be zero"
         )
     # The SCF's own calculation when it is handed one, rather than a second
-    # with its own augmentation table (``GPU-MEMORY-NEXT.md`` item 20).
+    # with its own augmentation table (``notes/GPU-MEMORY-NEXT.md`` item 20).
     if calculation is None:
         calculation = Calculation(system, pseudos, k_batch=k_batch)
     return calculation.density(result.wavefunctions, weights * inside)

@@ -878,7 +878,7 @@ def build_plane_wave_states(
         projectors = calculation.projectors
         if projectors.is_lazy and not keep_projectors:
             # One k-point's projectors built at a time rather than the whole-k
-            # ``vkb`` stacked (``GPU-MEMORY-NEXT.md`` item 7).
+            # ``vkb`` stacked (``notes/GPU-MEMORY-NEXT.md`` item 7).
             becp = _lazy_becp(coefficients, projectors, npol, calculation.k_batch)
         else:
             becp = jax.vmap(lambda c, v: _project(c, v, npol))(

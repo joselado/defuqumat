@@ -105,14 +105,14 @@ __all__ = ["FrozenState", "frozen_energy", "energy_at", "reject_spinors", "rejec
 #: (``OPEN.md`` Part I item 2).
 #:
 #: (The two ``PawSpecies`` tensors no longer exist in that form: since
-#: ``GPU-MEMORY-NEXT.md`` item 18 they are factored into radial pair tables and
+#: ``notes/GPU-MEMORY-NEXT.md`` item 18 they are factored into radial pair tables and
 #: Gaunt coefficients of a few MB, so the hoisting now matters for ``qgm``.)
 #:
 #: Both are ``equinox`` modules and therefore pytrees, so they cross the
 #: boundary as ordinary arguments. ``None`` is kept as ``None`` so that a
 #: norm-conserving run has a stable pytree structure and does not retrace.
 #:
-#: **The per-k tables go the same way** (``GPU-MEMORY-NEXT.md`` item 17): the
+#: **The per-k tables go the same way** (``notes/GPU-MEMORY-NEXT.md`` item 17): the
 #: projector core's columns and ``k+G``, ``|k+G|^2``, the FFT indices and
 #: ``k + G`` for a meta-GGA are ``nk npwx``-sized, so once the two above were
 #: arguments they were the largest constants left -- 2.8 MB of the force's 2.9
@@ -745,7 +745,7 @@ def _kinetic_energy(psi, kinetic, weights, gamma_only: bool = False):
     **``density`` below costs a real ``(nspin, nk, nbnd, ndim)`` array of the
     compiled stress's temp arena -- 1.10 GB at 45-atom spinor scale, a 50 per
     cent surcharge on ``psi`` -- and three ways of not paying it have been
-    measured and are all worse or equal** (`MEMORY-AUDIT.md` A11,
+    measured and are all worse or equal** (`notes/MEMORY-AUDIT.md` A11,
     `PERFORMANCE.md`). ``jax.checkpoint`` here removes the residual from the
     *jaxpr* and moves ``temp_size_in_bytes`` by **zero bytes**, because the
     backward pass has to form the same array to contract it against ``weights``

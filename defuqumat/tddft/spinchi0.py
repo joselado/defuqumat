@@ -420,7 +420,7 @@ def state_projections(calculation, coefficients):
     projectors = calculation.projectors
     if projectors.is_lazy:
         # One k-point's projectors built at a time rather than the whole-k
-        # ``vkb`` stacked (``GPU-MEMORY-NEXT.md`` item 7).
+        # ``vkb`` stacked (``notes/GPU-MEMORY-NEXT.md`` item 7).
         return map_k(
             lambda ik: _project(coefficients[ik], projectors.at_k(ik), npol),
             jnp.arange(coefficients.shape[0]), batch=calculation.k_batch)

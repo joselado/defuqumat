@@ -11,7 +11,7 @@ the exchange-correlation potential frozen, the Dyson route's ``rpa``) or the
 Hartree plus exchange-correlation potential of the ground state's functional
 (``'hxc'``, the adiabatic functional: the ALDA for an LDA run, the Dyson
 route's ``alda``). ``rho0`` is the density of the propagated states at the
-start (``HARMONICS-NEXT.md``, "Updating the potential in time").
+start (``notes/HARMONICS-NEXT.md``, "Updating the potential in time").
 
 **The difference form is required, not a convenience.** The states come from a
 fixed-density solve at the ground state's density on the k-set the run

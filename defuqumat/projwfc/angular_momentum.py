@@ -373,7 +373,7 @@ def _site_density_matrix(calculation, result, projectors, channels,
         """One block's states of one channel on the device, ``(rows, nbnd, ndim)``."""
         if host:
             # A streamed store crosses a block at a time rather than whole
-            # (``GPU-MEMORY-NEXT.md`` item 4).
+            # (``notes/GPU-MEMORY-NEXT.md`` item 4).
             return rows_to_device(psi, rows, channel)
         states = jnp.asarray(psi)[channel]
         return states if whole else states[jnp.asarray(rows)]

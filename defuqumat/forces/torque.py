@@ -44,7 +44,7 @@ too. So ``dE_total/dtheta = dE_band/dtheta`` exactly, which is the force
 theorem's own statement one derivative down.
 
 **The torque as a vector: every spin turned by one rotation**
-(``ORIENTATION-NEXT.md``, Route A). The angle above turns a collinear moment in
+(``notes/ORIENTATION-NEXT.md``, Route A). The angle above turns a collinear moment in
 one plane. :func:`orientation_torque` turns a whole texture by a rotation ``R``,
 ``m(r) -> R m(r)`` with the charge kept, and returns ``-dF/dw`` for the three
 generators at once, ``w`` being the rotation vector about the current
@@ -427,7 +427,7 @@ def orientation_torque(calculation, states, weights, texture, base,
 def frozen_generators(density, phase: bool = True, tolerance: float = 1.0e-3) -> np.ndarray:
     """The rotations a texture's orientation relaxation should not move along, ``(k, 3)``.
 
-    Read from the moment tensor ``M_ab = integral of m_a m_b`` (``ORIENTATION-NEXT.md``,
+    Read from the moment tensor ``M_ab = integral of m_a m_b`` (``notes/ORIENTATION-NEXT.md``,
     the coordinate): a **collinear** texture (the two smaller eigenvalues below
     ``tolerance`` of the largest) returns its axis, the turn about which moves
     nothing; a **coplanar** one (the smallest below it) returns its plane's

@@ -3,7 +3,7 @@
 #
 # The CPU half of qe64-gpu.sbatch. **pw.x is run at 1, 4, 16 and 32 cores** and
 # every number is reported with its core count, because a GPU quoted against an
-# unstated CPU baseline is the flattering comparison GPU.md §2.3 exists to
+# unstated CPU baseline is the flattering comparison notes/GPU.md §2.3 exists to
 # prevent. One core is the project's own canonical metric; four matches the
 # defuqumat CPU baseline used all through this work; 16 and 32 are what someone
 # would actually launch for a 64-atom cell.
@@ -14,7 +14,7 @@
 #
 # QE 7.2 from the cluster module, not the 7.5 vendored in this repo (which is
 # not on the cluster -- it is gitignored). The SCF core is materially the same;
-# the version is recorded beside the number, per GPU.md §4a.
+# the version is recorded beside the number, per notes/GPU.md §4a.
 #
 # ---- #SBATCH ----
 # partition  batch-milan: 128 cores per node, so a 32-core task fits on one node

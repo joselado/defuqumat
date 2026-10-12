@@ -13,7 +13,7 @@ The identities are what actually pin the assembly, and each catches something
 the others cannot:
 
 * **``-43m``.** AlAs is zincblende, so only ``xyz`` and its five permutations
-  may survive. It is a weak check on its own -- `NONLINEAR.md` §5 records the
+  may survive. It is a weak check on its own -- `notes/NONLINEAR.md` §5 records the
   tensor coming out exactly the crystal's class three separate times while
   being wrong -- but it is instant and it is the one that fails loudly when a
   cartesian label is transposed.

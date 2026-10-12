@@ -338,7 +338,7 @@ def test_a_single_k_point_run_saves_exactly_nothing():
 
 
 # --------------------------------------------------------------------------
-# the dial survives a moved calculation (GPU-MEMORY-NEXT.md, 2026-09-28)
+# the dial survives a moved calculation (notes/GPU-MEMORY-NEXT.md, 2026-09-28)
 
 def _from(path, which, extra=""):
     with warnings.catch_warnings():
@@ -408,7 +408,7 @@ K_POINTS automatic
 def test_a_chunked_core_build_is_the_one_shot_core(pseudo_dir, monkeypatch):
     """Memory mode builds the projector core a few k-points at a time.
 
-    ``GPU-MEMORY-NEXT.md`` item 6: the one-shot build holds every intermediate
+    ``notes/GPU-MEMORY-NEXT.md`` item 6: the one-shot build holds every intermediate
     for the whole k-set and was the setup's peak. Chunked, each k-point's
     columns are its own arithmetic, so the core -- at setup and after
     ``at_kpoints`` -- is the one-shot core to round-off; the budget is forced
@@ -476,7 +476,7 @@ def test_a_chunked_core_on_a_spiral_is_the_one_shot_core(monkeypatch):
 def test_becsum_rebuilds_a_lazy_set_per_k(path, monkeypatch):
     """``becsum`` over the whole k-set walks a lazy set one k-point at a time.
 
-    ``GPU-MEMORY-NEXT.md`` item 7: the SCF's ``becsum`` and the response's
+    ``notes/GPU-MEMORY-NEXT.md`` item 7: the SCF's ``becsum`` and the response's
     raw one read the whole-k ``vkb``, which a lazy set built in full on every
     call. The values are the stored route's; and the whole-k property is made
     to fail for a lazy set during the call, so the test fails if the branch

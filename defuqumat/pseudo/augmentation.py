@@ -108,7 +108,7 @@ class AugmentationCharge(eqx.Module):
     holds ``R`` -- half the bytes of the complex table (1.12 GB for a
     fully-relativistic bismuth dataset) -- and ``pair_phase`` holds ``p``; the
     consumers put the phase on the small side of each contraction, so no
-    complex ``(nh, nh, ngm)`` array is ever formed (``GPU-MEMORY-NEXT.md`` item
+    complex ``(nh, nh, ngm)`` array is ever formed (``notes/GPU-MEMORY-NEXT.md`` item
     19). The same holds for a displaced table: ``G + b`` is still a real
     vector. What is dropped is the wrong-parity part of ``ap``, which the
     matrix inverse that builds it leaves at round-off rather than at zero.
@@ -523,7 +523,7 @@ class ExactRadial(eqx.Module):
     interpolation error -- under a strain (:meth:`~defuqumat.scf.driver.
     Calculation.at_strain`), where the stored route assembled the whole
     ``(nh, nh, ngm)`` array on the gradient's tape: 4.15 GiB of temporaries on
-    ``bismuthene-soc-small``'s stress (``GPU-MEMORY-NEXT.md`` item 15). The
+    ``bismuthene-soc-small``'s stress (``notes/GPU-MEMORY-NEXT.md`` item 15). The
     radial part is :func:`radial_augmentation_transforms`' own arithmetic on a
     chunk of ``|G|`` -- same pairs, same ``_qrad_kernel`` -- so a chunk of the
     scanned table is that chunk of the stored one.
@@ -590,7 +590,7 @@ AUG_DQ = 0.01
 #:
 #: **It is compared with the complex table's size**, ``nh^2 ngm`` complex,
 #: although what a stored route keeps is the real half of it
-#: (``GPU-MEMORY-NEXT.md`` item 19): the route each cell takes is the one it
+#: (``notes/GPU-MEMORY-NEXT.md`` item 19): the route each cell takes is the one it
 #: took before the table went real, and a stored table sits at half this.
 AUG_MAX_BYTES = 2 * 1024**3
 
@@ -1418,7 +1418,7 @@ def _assemble_qgm(coefficients, ylm, radial, beta_of, nl):
 def _atom_phases(gcart, positions):
     """``e^{-i G . tau_a}`` for every atom, ``(nat, ngm)``.
 
-    **Rematted for the reason ``_structure_factors_at`` is** (`MEMORY-AUDIT.md`
+    **Rematted for the reason ``_structure_factors_at`` is** (`notes/MEMORY-AUDIT.md`
     A5): ``exp``'s VJP saves its own output, so this ``(nat, ngm)`` array is a
     residual of every derivative that moves the atoms or strains the cell.
 

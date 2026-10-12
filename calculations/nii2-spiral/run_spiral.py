@@ -149,7 +149,7 @@ def main() -> None:
                          "spinor bands is not a setting to inherit blindly")
     # No --band-batch: it is not one of Calculator.SHARED_OPTIONS and a
     # Calculator refuses it by name, so a flag here would only fail a job late.
-    # The band dial follows the platform, and GPU.md's measurement is that the
+    # The band dial follows the platform, and notes/GPU.md's measurement is that the
     # two axes move together or not at all -- k batched with bands looped is
     # worse than either end.
     ap.add_argument("--conv-thr", type=float, default=1.0e-8)
@@ -170,7 +170,7 @@ def main() -> None:
 
     from defuqumat import Calculator
 
-    # GPU.md Phase 0, check 1: x64 is asserted on the device rather than
+    # notes/GPU.md Phase 0, check 1: x64 is asserted on the device rather than
     # trusted, because its failure mode is a plausible number and a platform
     # change is exactly when a config assumption stops holding.
     probe = jax.numpy.zeros(1)
@@ -307,7 +307,7 @@ def _peak_device_bytes(jax):
 
     XLA preallocates a large fraction of the card on first use, so reading the
     pool reports the card and not the working set -- a wrong number rather than
-    a failed check, which is the worse of the two outcomes (GPU.md Phase 0,
+    a failed check, which is the worse of the two outcomes (notes/GPU.md Phase 0,
     check 4). ``peak_bytes_in_use`` is the working set.
     """
     try:

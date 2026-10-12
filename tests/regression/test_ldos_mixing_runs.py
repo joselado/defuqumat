@@ -1,6 +1,6 @@
 """``mixing_mode = 'ldos'`` on the cells that motivated it, run to convergence.
 
-The measurement is ``VACUUM-MIXING-NEXT.md``: a metal film beside vacuum is where
+The measurement is ``notes/VACUUM-MIXING-NEXT.md``: a metal film beside vacuum is where
 plain Anderson, Kerker and ``local-TF`` slow down as the vacuum grows, and where the
 LDOS preconditioner does not. Each test states its count as measured and asserts a
 bound a few iterations above it, since an iteration count is a property of one code

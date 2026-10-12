@@ -112,7 +112,7 @@ _limit_thread_pool()
 #: The share of an accelerator's memory JAX's allocator pool may take when
 #: nothing else has set it. JAX's own default is 0.75, which on a 6 GB card is
 #: a 4.76 GB pool; 0.9 gives about 0.95 GB more there, and a large cell dies at
-#: the pool's edge rather than the card's (``GPU-MEMORY-NEXT.md`` item 23).
+#: the pool's edge rather than the card's (``notes/GPU-MEMORY-NEXT.md`` item 23).
 DEFAULT_DEVICE_FRACTION = 0.9
 
 

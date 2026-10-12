@@ -6,7 +6,7 @@
 # `6 6 6` and `8 8 8` against a Berry-phase value that stays inside 0.7 per cent
 # across four string meshes and two ground states. So the 15.7 per cent measured
 # on the *ultrasoft* cell was taken at the same `4 4 4` and measures this
-# k-error rather than the dataset, and `AUDIT-2026-09-18.md` `drift.3` cannot
+# k-error rather than the dataset, and `notes/AUDIT-2026-09-18.md` `drift.3` cannot
 # close until the ultrasoft response is run at a converged mesh.
 #
 #   0  the calibration cell one rung further, `10^3`, 1000 points. The response

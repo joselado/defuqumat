@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 5, continued: the response path on a cell that is not two atoms.
+# notes/GPU.md Phase 5, continued: the response path on a cell that is not two atoms.
 #
 # The first Phase 5 run answered feasibility and found that **the mode decides
 # the speedup**: a Sternheimer solve got 1.0x from an H200 while a reverse-mode

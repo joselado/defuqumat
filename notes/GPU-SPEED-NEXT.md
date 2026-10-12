@@ -2,8 +2,8 @@
 
 A to-do list, written 2026-10-01 on branch `pools-next` (merged to `master` the same day), right after
 P125 (`PLAN.md`; `PERFORMANCE.md`, "The endgame on a card is a stall"). It says what is open about
-speed on an accelerator, what each item needs first, and how to measure it. `GPU-MEMORY-NEXT.md` is
-the memory half; `GPU.md` is the older roadmap, whose Phase 1 and Phase 2 paragraphs carry dated notes
+speed on an accelerator, what each item needs first, and how to measure it. `notes/GPU-MEMORY-NEXT.md` is
+the memory half; `notes/GPU.md` is the older roadmap, whose Phase 1 and Phase 2 paragraphs carry dated notes
 where this work corrected them.
 
 **Where the work stands.** The card's endgame stall is fixed at its cause: the Davidson subspace solve
@@ -78,11 +78,11 @@ workstation's CPU. Running it on D22 is `review/card_gate.sh`, which leaves out 
 The open items split by what they need. **A float64 card**, so a Triton job the user approves: the
 A100-class profile (item 5; `nsys` is not on the GPU nodes and `module spider nsight` has not been
 tried), the dials of item 6 (the FFT layout, `DEFUQUMAT_HOST_EIGH_ROWS`, a band batch that follows the cell
-size, and the radial chunk's 8 MB, `GPU-MEMORY-NEXT.md`'s fourth start item), the slab's step count and
+size, and the radial chunk's 8 MB, `notes/GPU-MEMORY-NEXT.md`'s fourth start item), the slab's step count and
 the V100's `k=all, b=1` reading (both item 7). **D22 alone**: the batched field solve (item 7, first
-bullet), the float32 tier's setup cast (item 7, `GPU-MEMORY-NEXT.md` item 26), the lowest-`nbnd` subspace
+bullet), the float32 tier's setup cast (item 7, `notes/GPU-MEMORY-NEXT.md` item 26), the lowest-`nbnd` subspace
 `eigh` through `syevdx` (item 7; nothing in `defuqumat/` calls `syevdx` or `subset_by_index`), and the
-memory tail of `GPU-MEMORY-NEXT.md`'s start list.
+memory tail of `notes/GPU-MEMORY-NEXT.md`'s start list.
 
 Three facts about the batched field solve, read off the code after P127. `_WholeField.respond` still
 solves the three directions one after another (`response/efield.py:620`, one `solver.solve` per axis).
@@ -110,7 +110,7 @@ table of the stall entry (the card's `eigh` against the live block alone), then 
 default memory mode with `nsys profile -t cuda`, then `kern_cats.py`. **Measure:** steps in the last two
 iterations at each factor, the share of kernel time in the elementwise chain and the dense solve (the
 A100 forecast in `PERFORMANCE.md` says those come first once float64 is fast), and whether the 13x
-`conv_thr` entry of `GPU.md` Phase 1 (V100) was this.
+`conv_thr` entry of `notes/GPU.md` Phase 1 (V100) was this.
 
 ## 2, 3 and 4. The margin, the test, and why the device `eigh` differs -- closed 2026-10-01 evening
 
@@ -253,15 +253,15 @@ XLA command buffers (a null here: `--xla_gpu_enable_command_buffer` with `WHILE,
   Davidson step; `lax.linalg.eigh(..., subset_by_index=)` raises `NotImplementedError` on CPU and GPU in
   jax 0.11, so it needs a custom call to `cusolver`'s `syevdx`.
 * **Old GPU readings without step counts.** Every section of `PERFORMANCE.md` before the stall entry
-  that holds a card time, and Phases 0, 1 and 5 of `GPU.md`, now open with a dated marking paragraph
+  that holds a card time, and Phases 0, 1 and 5 of `notes/GPU.md`, now open with a dated marking paragraph
   (2026-10-01): a stall only adds steps, so such a time is an upper bound and a card-against-CPU ratio
   a lower bound on the card's advantage, while a ratio between two card arms can be wrong either way.
   The two A/B readings a default rests on are the GTX 1060's memory-against-speed table (the "1.6x the
-  time" of `GPU.md`'s opening) and the V100's `k=all, b=1` 2075 ms (`CLAUDE.md`'s reason that corner is
+  time" of `notes/GPU.md`'s opening) and the V100's `k=all, b=1` 2075 ms (`CLAUDE.md`'s reason that corner is
   in neither preset); the first is re-measured on the A2000 in `PERFORMANCE.md`, "Memory mode on a
   k-mesh, re-measured with the steps beside it" (1.81x and 1.85x, steps equal), the second needs a
   float64 card.
-* **The float32 tier** (`GPU-MEMORY-NEXT.md` item 26): the first blocker is named (setup arrays built
+* **The float32 tier** (`notes/GPU-MEMORY-NEXT.md` item 26): the first blocker is named (setup arrays built
   from the radial tables ignore the precision policy, so `H|psi>` comes back complex128 into a
   complex64 basis). On the development cards it is the lever (a `4096^2` product 10.9 ms against 756);
   on a production card its ceiling is about 2x plus halving every device array. Not started.

@@ -1,9 +1,9 @@
 #!/bin/bash
-# GPU.md Phase 0, GPU half: first contact with a real device.
+# notes/GPU.md Phase 0, GPU half: first contact with a real device.
 #
 # The deliverable of this job is not a speedup. It is a job that runs and a
 # number that matches -- so it runs `tools/gpu/phase0.py`, which encodes
-# GPU.md's five checks, and writes one JSON per (case, dial setting).
+# notes/GPU.md's five checks, and writes one JSON per (case, dial setting).
 #
 # Its pair is phase0-cpu.sbatch, which runs the SAME script on a CPU node.
 # That is deliberate and is §2.3's metric: GPU defuqumat against CPU defuqumat,
@@ -60,7 +60,7 @@ source "$WORK/venv/bin/activate"
 # Not what the sibling dmrgpy job sets. XLA preallocating the bulk of the device
 # is what a single-tenant job WANTS -- it avoids fragmentation over a long SCF --
 # and PREALLOCATE=false is for the case where another framework shares the card.
-# Nothing shares this one. GPU.md §3, Phase 0.
+# Nothing shares this one. notes/GPU.md §3, Phase 0.
 unset XLA_PYTHON_CLIENT_PREALLOCATE
 
 export MKL_NUM_THREADS=1

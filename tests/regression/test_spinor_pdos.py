@@ -173,7 +173,7 @@ def _cases(*names):
 
 PAW = ("pt-soc-paw", "pt-soc-paw-nosym")
 #: The ultrasoft twin, whose ``PP_QIJ`` carries no ``L`` decomposition. It was
-#: excluded while ``GAPS.md`` §2c stood: its ground state at an unshifted grid
+#: excluded while ``notes/GAPS.md`` §2c stood: its ground state at an unshifted grid
 #: was 0.20 Ry out, so there was nothing right to project. The defect was in the
 #: *starting wavefunctions* rather than in the augmentation charge, and both
 #: kinds run here now.

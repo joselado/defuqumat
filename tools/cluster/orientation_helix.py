@@ -1,6 +1,6 @@
 """The orientation torque and relaxation on the four-cell cobalt helix (P122).
 
-``ORIENTATION-NEXT.md`` steps 2 and 3 on the noncollinear cell: the helix
+``notes/ORIENTATION-NEXT.md`` steps 2 and 3 on the noncollinear cell: the helix
 converged without spin-orbit coupling in its one-atom cell by the generalized
 Bloch theorem (``tests/data/qe/co-helix4-spiral.in``), unfolded onto the four-cell
 supercell (``unfold_spiral_density``), then turned rigidly and diagonalised once

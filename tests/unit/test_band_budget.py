@@ -1,6 +1,6 @@
 """The band batch is resolved once, carried everywhere, and chosen from the card.
 
-``GPU-MEMORY-NEXT.md`` item 9. Memory mode bounds what grows with the k-mesh;
+``notes/GPU-MEMORY-NEXT.md`` item 9. Memory mode bounds what grows with the k-mesh;
 what is left on a large cell is one k-point's working set, and its largest term
 is the band loop through the grid. Three things are checked here, all on the
 CPU:
@@ -10,7 +10,7 @@ CPU:
 * the size estimate that chooses it counts what memory mode actually puts on
   the device -- one streamed chunk of the store, not the whole set -- and the
   start, which on a large cell is where the peak was measured
-  (`MEMORY-AUDIT.md` D10);
+  (`notes/MEMORY-AUDIT.md` D10);
 * the choice keeps the whole block wherever it fits, moves only when it does
   not, and yields to an explicit value or ``DEFUQUMAT_BAND_BATCH``.
 """

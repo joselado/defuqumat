@@ -1,6 +1,6 @@
 """chi^(3)_xxxx of bulk silicon at 1.55 eV by the real-time route, at several meshes and broadenings.
 
-``HARMONICS-NEXT.md``'s ladder item 4, the check of scale against
+``notes/HARMONICS-NEXT.md``'s ladder item 4, the check of scale against
 arXiv:1810.06500 (Uemoto, Kuwabara, Sato and Yabana), whose Table V gives, in
 adiabatic LDA, ``|chi^(3)_1111(w)| = 2.2e-18`` and ``|chi^(3)_1111(3w)| = 1.3e-18``
 m^2/V^2 and ``chi^(1) = 15.2``. It is a check of scale and not of digits: that

@@ -89,7 +89,7 @@ it was divided by have moved.
   per frequency, which halves the flop rate on CPU -- and the frequency axis is
   the dial that bounds it: ``w_batch`` frequencies at a time hold ``w_batch``
   blocks of ``(2 npairs, nm)``, **32.4 MB at 32 and 8.7 MB at 8** on the same
-  shapes (``GPU-MEMORY-NEXT.md`` item 12). The whole axis is the CPU default;
+  shapes (``notes/GPU-MEMORY-NEXT.md`` item 12). The whole axis is the CPU default;
   an accelerator's is budgeted (:func:`~defuqumat.batching.resolve_w_batch`).
   ``PERFORMANCE.md`` carries the time.
 
@@ -569,7 +569,7 @@ def _assemble(scalars, vectors, batch):
     and through ``s_wp v_pa``, ``(nw, 2 npairs, nm)``, otherwise. A chunk forms
     ``s_wp v_pa`` for its own frequencies only and contracts that with
     ``conj(v)``, so what is in flight is ``batch`` blocks of ``(2 npairs,
-    nm)`` whatever ``nw`` and ``nm`` are (``GPU-MEMORY-NEXT.md`` item 12). The
+    nm)`` whatever ``nw`` and ``nm`` are (``notes/GPU-MEMORY-NEXT.md`` item 12). The
     frequencies are independent, so the chunk moves nothing beyond the order
     of a sum.
     """

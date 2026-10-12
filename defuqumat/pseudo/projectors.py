@@ -303,7 +303,7 @@ class ProjectorCore(eqx.Module):
     #: :attr:`column_of_channel`. **Real**: a column is ``Y_lm`` times the
     #: radial transform, both real, and its ``(-i)^l`` is kept apart in
     #: :attr:`phase_of_column` -- half the bytes of the largest per-k-point
-    #: array a memory-mode run keeps resident (``GPU-MEMORY-NEXT.md`` item 6).
+    #: array a memory-mode run keeps resident (``notes/GPU-MEMORY-NEXT.md`` item 6).
     columns: jnp.ndarray
     #: ``(nk, npwx, 3)``: ``k + G``, which the phase needs.
     kg: jnp.ndarray
@@ -642,7 +642,7 @@ def _with_origin_rows(columns, kg, series, lm_of, lmax):
     order ``second_matrix_elements`` ``xx`` was off by **3.46e-2 Ry bohr^2** in
     one element of a block of norm 5.15, the same at ``h = 1e-3`` and
     ``3e-4``, while two other k-points sat at the stencil's 2e-7 and 2e-8
-    (``HARMONICS-NEXT.md``, "The row at k + G = 0"), and the shift current
+    (``notes/HARMONICS-NEXT.md``, "The row at k + G = 0"), and the shift current
     consumes that operator. This form covers both and every order above, where
     a second custom rule would have covered order two only.
 

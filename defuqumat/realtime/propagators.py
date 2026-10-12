@@ -24,7 +24,7 @@ A split-operator step (kinetic in G, local potential in real space, the
 separable nonlocal term per atom) is the candidate the plan names for a second
 entry: one transform pair a band instead of four and exactly unitary, with an
 error that has to be measured against this one on the current before it can be
-a default (``HARMONICS-NEXT.md``, "Speed").
+a default (``notes/HARMONICS-NEXT.md``, "Speed").
 """
 
 from __future__ import annotations

@@ -55,7 +55,7 @@ under the 0.01 Ry ladder, from a ferromagnetic seed, it did not converge in 400 
 (this entry, 2026-09-15). So the projection the entry proposed, the rigid rotation taken out of
 the magnetic residual, has no target in the ultracell on the default basis, and on the weak
 field it would act on the wrong thing, since what moves there is the moments' length, not
-their common direction. `MAGNETISM-NEXT.md` F2 keeps the generator form of that projection for
+their common direction. `notes/MAGNETISM-NEXT.md` F2 keeps the generator form of that projection for
 the ordinary SCF, where none of this was measured.
 
 ## What the change would be

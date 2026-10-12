@@ -18,7 +18,7 @@ slab of ``benchmarks/al-slab.in`` (a metal beside vacuum):
   screened modes warn there, and every place that builds a mixer without an LDOS to
   hand it refuses the mode by name.
 
-The measurement that motivates the mode is ``VACUUM-MIXING-NEXT.md``.
+The measurement that motivates the mode is ``notes/VACUUM-MIXING-NEXT.md``.
 """
 
 from functools import lru_cache

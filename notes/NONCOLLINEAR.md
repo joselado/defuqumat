@@ -33,7 +33,7 @@ Also fixed: **9** (the DFT+U continuation, including the noncollinear checkpoint
 > reasoning, because the reasoning is why the fix has the shape it does; read the bold line
 > at its head for the state.
 >
-> **`MAGNETISM-NEXT.md` is the forward-looking half of this file** and is where to start if
+> **`notes/MAGNETISM-NEXT.md` is the forward-looking half of this file** and is where to start if
 > the question is "what next" rather than "what was found". It carries what is left, in
 > order, with the first concrete step of each; this file keeps the reasoning behind every
 > entry, which is why the two are separate.
@@ -915,7 +915,7 @@ explaining that nothing in the SCF breaks spin symmetry on its own, and the cond
 `nspin == 2` (`builder.py:773-790`, `:775`). So `noncolin = .true.` with `angle1(1) = 90` and
 no magnitude gives zero moments (`builder.py:1466-1485`), `domag = False`, `nspin_mag = 1`:
 an unpolarized run with spinor wavefunctions, converged, with no warning. `pw.x` behaves the
-same way, and `GAPS.md:172-183` records the sibling case -- a field in a nonmagnetic
+same way, and `notes/GAPS.md:172-183` records the sibling case -- a field in a nonmagnetic
 noncollinear run -- as closed by a *named refusal*, on the reasoning that `pw.x`'s silence is
 worse. The precedent exists; the refusal does not. **Session.**
 

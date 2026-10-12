@@ -602,7 +602,7 @@ def davidson_eigensolver(
 
         The two rotations that carry the estimate back into the plane-wave
         basis -- no extra ``H``. **They are rebuilt where they are consumed
-        rather than carried across the loop** (``GPU-MEMORY-NEXT.md`` item 10):
+        rather than carried across the loop** (``notes/GPU-MEMORY-NEXT.md`` item 10):
         ``cegterg`` carries the ``(nvecx, nbnd)`` coefficients ``vc`` and so does
         this, so the two ``(nbnd, npwx)`` blocks are not live through the
         correction block's ``h_psi``, which is the step's FFT peak. The rows of
@@ -1067,7 +1067,7 @@ def _every_k(
 
 
 #: :func:`_every_k` with the starting block **donated**, so the solve may write
-#: its states into the buffer ``psi0`` arrived in (``GPU-MEMORY-NEXT.md`` item
+#: its states into the buffer ``psi0`` arrived in (``notes/GPU-MEMORY-NEXT.md`` item
 #: 11). Used only when the caller can rebuild ``psi0`` for the robust retry --
 #: the streamed store, whose host copy is still there -- because a donated
 #: input is deleted by the fast pass. The same trace, so the same bits.
@@ -1213,7 +1213,7 @@ def davidson_eigensolver_all(
     **donates** ``psi0`` to the fast pass: the states are written into its
     buffer, so a chunk holds one band block where it held two, and the
     alternating allocate-and-free of a whole block per call goes away
-    (``MEMORY-AUDIT.md`` A16 measured the saving at exactly one buffer). The
+    (``notes/MEMORY-AUDIT.md`` A16 measured the saving at exactly one buffer). The
     rare robust retry calls it for the starting block the fast pass consumed.
     The streamed solve passes it, since its host store still holds the block;
     the caller must not read ``psi0`` after the call.

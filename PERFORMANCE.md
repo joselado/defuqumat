@@ -84,7 +84,7 @@ figures agree with the established ones at all.
 **The GPU leg is unmeasured here**, because this machine has no accelerator; the sweep
 detects that and skips it rather than substituting a CPU number. When it runs it is
 reported against **defuqumat on CPU, per SCF iteration**, never against single-core QE —
-`GPU.md` §2.3 — with compile time as its own column. That is a different table in the
+`notes/GPU.md` §2.3 — with compile time as its own column. That is a different table in the
 same report and the caption says which is which.
 
 ## The same set on a second machine, and what `pw.x` is linked against (2026-09-12)
@@ -1732,7 +1732,7 @@ default (`compute_stress(..., terms=True)`) because nothing but a diagnostic wan
 
 The third column is not a typo and the second one is the story: **the breakdown costs
 nothing over the plain gradient**, so the 11 GB is the *reverse* pass and not the
-forward-mode Jacobian (corrected 2026-10-03, from `MEMORY-AUDIT.md` section 6 item 2: that
+forward-mode Jacobian (corrected 2026-10-03, from `notes/MEMORY-AUDIT.md` section 6 item 2: that
 does not follow, since peak RSS is a high-water mark within one process and the breakdown ran
 after the gradient had already set it; the reverse pass is the likelier reading, not a shown
 one). On the two-atom cells the gradient costs a few tens of MB over the
@@ -2390,14 +2390,14 @@ Nothing worth a table: `mode_activities` is a contraction of `(nat, 3, 3, 3)`
 with `(3 nat, nat, 3)` and runs in under a millisecond. The whole of
 `vibrational_spectrum` is the two responses above.
 
-## First contact with a GPU (P10 / GPU.md Phase 0)
+## First contact with a GPU (P10 / notes/GPU.md Phase 0)
 
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
 **A different metric, and it is never mixed with the one above.** Everything
 else in this file is single-core defuqumat against single-core Quantum ESPRESSO.
 This section is **GPU defuqumat against CPU defuqumat, same input, same code, per
-SCF iteration**, with compile time as its own column — `GPU.md` §2.3, and the
+SCF iteration**, with compile time as its own column — `notes/GPU.md` §2.3, and the
 reason the two must not share a table. The QE comparison stays a CPU claim.
 
 Run 2026-08-25 on Aalto's Triton: **Tesla V100-SXM2-16GB** (driver 580.173.02),
@@ -2416,7 +2416,7 @@ the `si` cells are one k-point, where `k_batch` is a no-op by construction.
 | `si-1k` | `k=1, b=1` | 16 | 5 | 0.33x | 0.14 GB |
 
 **Nothing was ported to produce this.** The same source, unmodified, on a CUDA
-device — which `GPU.md` predicted and which had never been evidence.
+device — which `notes/GPU.md` predicted and which had never been evidence.
 
 **The dials invert, and that is the measurement.** On the GPU, `al10-metal` goes
 **801 → 177 ms** between QE's loop and the fully batched mode, a factor of
@@ -2451,17 +2451,17 @@ whichever record sorted last; `phase0_compare.py` reports the spread now, and
 the flattering end of a spread presented as the number is exactly the failure
 mode this file exists to prevent.
 
-**This is the datum `GPU.md` Phase 3's rank waits on and it settles it** — the
+**This is the datum `notes/GPU.md` Phase 3's rank waits on and it settles it** — the
 range does not change the conclusion: single precision's ceiling is ≤2x on the
 dense algebra and at most ~1.4x on the transforms, so float32 belongs *after*
-Phase 4's sharding, not before it. `GPU.md` declined to guess this and flagged
+Phase 4's sharding, not before it. `notes/GPU.md` declined to guess this and flagged
 the ordering as provisional; it is now measured.
 
 **Memory is not the binding constraint at this scale** — 0.40 GB peak against
 the allocator's 11.8 GB limit, read from `jax.Device.memory_stats` and never
 from `nvidia-smi`, which reports the preallocated pool. The dial's cost *is*
 visible and is the §2.4 trade in miniature: 0.10 → 0.40 GB for the 4.5x. It is
-`GPU.md`'s bismuthene case at 12.7 GB, not these, that will find the edge of a
+`notes/GPU.md`'s bismuthene case at 12.7 GB, not these, that will find the edge of a
 16 GB card.
 
 **Correctness, which is what Phase 0 was actually for:**
@@ -2486,7 +2486,7 @@ is not yet run. `phase0_compare.py`'s `across` column is what reads it, and it
 is asserted only between records from the same platform (cuFFT and pocketfft sum
 in different orders, so a GPU/CPU pair is expected to differ and does).
 
-## Does the diagonalisation win on a GPU? (P10 / GPU.md Phase 1, 16 atoms)
+## Does the diagonalisation win on a GPU? (P10 / notes/GPU.md Phase 1, 16 atoms)
 
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
@@ -2538,7 +2538,7 @@ the threshold differs. Splitting it:
 | **CPU** | 233 ms each | 237 ms each — **1.0x, flat** |
 
 **Tightening `ethr` is nearly free on a CPU and costs 13x per iteration on a
-GPU.** That is the accelerator pathology `GPU.md` Phase 1 named in advance and
+GPU.** That is the accelerator pathology `notes/GPU.md` Phase 1 named in advance and
 the one this section was meant to find: QE's adaptive `ethr` schedule tightens
 as `dr2` falls, a tighter threshold means more Davidson steps, and each step is
 **small dense linear algebra — an `nvecx x nvecx` `eigh` and its matmuls —
@@ -2620,7 +2620,7 @@ bigger cell before the batched dial is called answer-preserving on a GPU.
 
 ## Sixty-four atoms: defuqumat on a GPU against Quantum ESPRESSO on CPUs
 
-**Read the baseline column before the ratio.** `GPU.md` §2.3 rules this
+**Read the baseline column before the ratio.** `notes/GPU.md` §2.3 rules this
 comparison out by default and the reason is not pedantry: the project's metric
 is single-core against single-core so that a ratio measures *code*, and a GPU
 number against a CPU number measures code *and* hardware at once and cannot be
@@ -2759,11 +2759,11 @@ converging 1e-8 run): `h_psi` **0.012 s**, Davidson **0.640 s**, `v_of_rho`
 cores at the tighter threshold, which is *not* a matched comparison and is
 recorded here only so the next session does not have to re-run it.
 
-## The physics sweep on a GPU, against serial QE (P10 / GPU.md)
+## The physics sweep on a GPU, against serial QE (P10 / notes/GPU.md)
 
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
-**The baseline is one CPU core and the table says so in every row.** `GPU.md`
+**The baseline is one CPU core and the table says so in every row.** `notes/GPU.md`
 §2.3 rules this comparison out by default — the project's metric is single-core
 against single-core so that a ratio measures *code*, and a GPU number against a
 serial CPU number measures code *and* hardware at once. It is here because it
@@ -2835,9 +2835,9 @@ what settled it; both converge at 200, in 151 and 104 iterations.
 `tools/gpu/phase0.py` takes `--max-iterations` now so the driver cannot report
 the one as the other again.
 
-## What each response property's working set is (P10 / GPU.md Phase 5)
+## What each response property's working set is (P10 / notes/GPU.md Phase 5)
 
-**`GPU.md` §4 item 3: "the number that says whether the response path fits on a
+**`notes/GPU.md` §4 item 3: "the number that says whether the response path fits on a
 card at all, and it needs no card to obtain."** Everything measured on a GPU so
 far is the ground state, and `CLAUDE.md`'s "Why JAX" lists autodiff response as
 reason *one*. This is the CPU half of that phase, run 2026-08-26 on the
@@ -2866,7 +2866,7 @@ against P25's 510.102 — which is what says the driver is measuring the same
 calculation the tests validate and not a cheaper one.
 
 **The mode decides the tape, not the property, and that is the finding.**
-`GPU.md` predicted that "the forward-mode paths that P25, P26 and P35 are built
+`notes/GPU.md` predicted that "the forward-mode paths that P25, P26 and P35 are built
 from are much better behaved" but explicitly declined to assert it. Measured: a
 forward response costs **0.7-1.0 GB** over its own SCF, and a
 **forward-over-reverse** one — a `jvp` of a gradient, which tapes the inner
@@ -2921,7 +2921,7 @@ pair run the same driver over the same eight rows, with `si8-us stress` last
 because 11 GB of tape in HBM is the row the phase exists to bound. Per
 `CLAUDE.local.md`, an `sbatch` is proposed rather than submitted.
 
-## The response path on a GPU (P10 / GPU.md Phase 5, the GPU half)
+## The response path on a GPU (P10 / notes/GPU.md Phase 5, the GPU half)
 
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
@@ -2982,7 +2982,7 @@ test.** Neither job passes a dial. The GPU records resolve
 driver, same script — which is what §1's change was for.
 
 **Three rows are not bit-reproducible on the device, and none is on the CPU.**
-`GPU.md` Phase 0 check 5 named this hazard — `basis/fft.py` scatters plane waves
+`notes/GPU.md` Phase 0 check 5 named this hazard — `basis/fft.py` scatters plane waves
 into the box with an accumulating scatter over deliberately duplicated indices,
 and XLA may lower that through atomics whose summation order is not reproducible
 — and Phase 0 did not see it in the SCF. **It is here, in the response path**:
@@ -3017,7 +3017,7 @@ none of this. The SCF sweep needed ten atoms to move from 3x to 115x. So the
 the response path — the next measurement is `si10-epsilon` or larger, where the
 per-k work is real.
 
-## The dials default to the platform now (P10 / GPU.md §1)
+## The dials default to the platform now (P10 / notes/GPU.md §1)
 
 **Every GPU number above was produced by a dial set by hand in an sbatch
 script.** That is the finding this entry closes: `batching.py` defaulted both
@@ -3026,10 +3026,10 @@ cache-shaped end of both — measured at **4.5x** on `al10-metal`, at **0.20x**
 on `si16-1k-ecut30` (a loss against four CPU cores), and at 32 atoms at a wall,
 where `band_batch = 1` did not finish two SCF runs in the fifteen minutes four
 cores need eleven seconds for. Nothing in the code said so; the knowledge lived
-in `GPU.md` and in the job scripts.
+in `notes/GPU.md` and in the job scripts.
 
 `_platform_default()` now answers for both dials at once — `1` on a CPU, `None`
-on anything else — under `GPU.md` §5's rule that a platform-dependent choice is
+on anything else — under `notes/GPU.md` §5's rule that a platform-dependent choice is
 "a dial with a per-platform default and both settings tested". What did *not*
 change is the reason to trust it:
 
@@ -3058,7 +3058,7 @@ that walks the k axis goes through `map_k`/`sum_k`, so a Sternheimer solve on a
 card gets the batched mode without a dial being passed down through
 `dielectric_tensor` or `dynamical_matrix`.
 
-## The guard was inside the k batch, where a `cond` is not a branch (P10 / GPU.md Phase 1)
+## The guard was inside the k batch, where a `cond` is not a branch (P10 / notes/GPU.md Phase 1)
 
 **A `lax.cond` under `vmap` has no branch to take.** JAX's batching rule for a
 conditional whose predicate is batched lowers it to `select_n` over the results
@@ -3134,7 +3134,7 @@ branch is a second copy of the solver in the graph, +1.10 s on the cold-start
 variant and +0.58 s on the seeded one. That is paid once per shape; the 2.85x
 was paid per Davidson step.
 
-## Inside a Davidson step: what each part costs (P10 / GPU.md Phase 1)
+## Inside a Davidson step: what each part costs (P10 / notes/GPU.md Phase 1)
 
 Phase 1 profiled the SCF by *stage* and named what it could not resolve there —
 "the small dense `eigh` and matmuls inside a `lax.while_loop`". This is that
@@ -3201,7 +3201,7 @@ assumed: a profile of the wrong regime would have said the opposite.
 the same tightening on a device cost 13x at sixteen atoms. Same shape, different
 size, and the difference is the subspace algebra's share.
 
-## The response at ten atoms, not two (P10 / GPU.md Phase 5)
+## The response at ten atoms, not two (P10 / notes/GPU.md Phase 5)
 
 `PERFORMANCE.md`'s own caveat on the first Phase 5 run was that every case in it
 was a two-atom cell, "and `CLAUDE.md`'s rule is that a two-atom cell shows none
@@ -3772,7 +3772,7 @@ item below against the code, and the dated marks on items 1, 4, 7, 8, 10 and 11 
 1. **`jax.sharding` over the k-axis**, and GPU. *(Partly done, re-checked 2026-10-03: the
    k-parallelism exists as P124's k-point pools, one process per pool through
    `jax.distributed`, for the SCF, forces, stress and relaxations, and the code runs on a card;
-   nothing shards k inside one process, which `GPU-MEMORY-NEXT.md` item 25 reclassifies as a
+   nothing shards k inside one process, which `notes/GPU-MEMORY-NEXT.md` item 25 reclassifies as a
    throughput lever.)* Now measured to be the *only*
    parallelism worth having on CPU: the thread pool gives 15% between one core
    and four and loses badly beyond that, while `metal.in`'s ten k-points are
@@ -5105,7 +5105,7 @@ self-consistent run's.
 
 ## What a structure factor costs (P61)
 
-Almost nothing, which was the entry's whole claim in `ELK-FEATURES.md` and is
+Almost nothing, which was the entry's whole claim in `notes/ELK-FEATURES.md` and is
 the one part of it that needed no defending: `F(H)` is one transform of a
 density that already exists and a gather at `nh` frequencies. What is worth
 timing is therefore the *pair* -- the quantity beside the ground state that has
@@ -5611,7 +5611,7 @@ cell that will not converge, and it is now measured rather than assumed. Unset a
 an existing input changed.
 
 **It is also the first measurement against the mixer-metric hypothesis** (`OPEN.md` H9,
-`NONCOLLINEAR.md` item 17), and it points away from it. That item reads the 25-versus-12 gap
+`notes/NONCOLLINEAR.md` item 17), and it points away from it. That item reads the 25-versus-12 gap
 as evidence for `rho_ddot` in the Anderson Gram matrix, on the grounds that a Euclidean
 metric mis-weights the magnetization. The deconfounder `fe-unstable-nonmagnetic.in` is the
 same cell, same dataset, same `mixing_beta = 0.3`, `nspin = 1`, where that mechanism cannot
@@ -6859,14 +6859,14 @@ is outstanding.
 | 2026-08-23 | The dynamical matrix of a metal (P28): the `jvp` split so the electronic half takes `wk` where the frozen Hessian keeps `wg` | two-atom aluminium's six modes in **78 s**, 9 response iterations at `av.it. = 23.0` against `ph.x`'s 7 and 3.3-6.3; the extra `jvp` per mode is not measurable against the linear solves, and the iteration gap is P25's two backlog items unchanged |
 | 2026-08-22 | A mixer in the three response loops (`response/mixing.py`), Anderson over the packed state | silicon 19 -> 9 and 18 -> 11 iterations with identical answers; **bilayer graphene and rhombohedral BN converge where linear mixing diverged** -- a correctness fix filed as a speed one |
 | 2026-08-24 | The Tran-Blaha potential (P30): `tau` from the states, the Laplacian as `-G^2 rho(G)`, the Becke-Roussel inversion as a fixed-length bisection with an implicit `custom_jvp` | silicon's gap 0.49 -> 1.13 eV for **1.8x the SCF iterations**; `tau` costs 1125 ms an iteration against the density's 200, which is 7.6x where the algorithm says 3x -- three separate box scatters, and the backlog item |
-| 2026-08-25 | **First contact with a GPU** (GPU.md Phase 0): the same source, unmodified, on a V100 | `al10-metal` **5.44x** the four-core CPU baseline at `k=all, b=all` — and **0.99x on the defaults**, because the cache-shaped dials invert on a GPU (801 → 177 ms). Energy agrees to 1.6e-13 Ry, determinism bit-identical, fp64 costs 1.78-1.98x on a matmul and 0.85-1.44x on an FFT (grid-dependent) |
+| 2026-08-25 | **First contact with a GPU** (notes/GPU.md Phase 0): the same source, unmodified, on a V100 | `al10-metal` **5.44x** the four-core CPU baseline at `k=all, b=all` — and **0.99x on the defaults**, because the cache-shaped dials invert on a GPU (801 → 177 ms). Energy agrees to 1.6e-13 Ry, determinism bit-identical, fp64 costs 1.78-1.98x on a matmul and 0.85-1.44x on an FFT (grid-dependent) |
 | 2026-08-24 | Spin-orbit (P31) and PAW (P32, P33) for the Tran-Blaha potential | `tau` as a 2x2 spin matrix costs the same three transforms per band; PAW's one-centre `tau` is free (same einsum as the density) but its Becke-Roussel inversion runs on `nx * mesh` = 1.4e5 points per atom against the grid's 3.3e4 |
 | 2026-08-31 | The Fermi-surface nesting function (P52): Elk's `O(N_q N_k)` double loop written as one FFT, and a symmetry wedge unfolded rather than re-diagonalised | the correlation **0.001 s against Elk's 0.37 s** on a 12x12x12 aluminium grid; 72 diagonalisations instead of 1728; whole quantity from atomic densities 1.58 s against 2.00 s |
 | 2026-08-31 | The shift current (P53): `w^ab = <n|d^2H/dk_a dk_b|m>` as a `jvp` of the velocity operator's `jvp`, and the sum rule's `sum_{p != n,m}` written as a commutator | **no reference to time against** — `pw.x` computes no photocurrent and Elk's `nonlinopt.f90` is a different response, so this is the absolute cost. AlAs: 18 s on 216 k-points at `nbnd = 16`, 62 s on 512 at 24, of which the six `w^ab` pairs are ~0.03 s per k-point after compilation. The pair sum is `O(nbnd^2)` and the intermediate one `O(nbnd^3)`, so the band count — which is also the accuracy parameter — is what the cost scales in. A converged AlAs peak (`ecutwfc = 22`, 30 bands, 64 k-points) is 55 s |
 | 2026-08-31 | The LO-TO splitting and the static dielectric constant (P55): a rank-one term on the `Gamma` dynamical matrix and a sum of mode dipoles over `omega^2` | **0.072 ms** against `dynmat.x`'s whole 4.2 ms invocation, whose own timer reads 0.00 s. Both free beside the 40 s of response solves that produce their inputs |
 | 2026-09-01 | Magnetocrystalline anisotropy by the force theorem (P58): the converged collinear density rotated onto each direction and diagonalised once, with the coupling on | **The one-shot leg is the like-for-like unit: 50.0 s against `pw.x`'s 23.2 s, both pinned to one core** on QE's 3-layer Co(0001) film (`PP/examples/ForceTheorem_example`, 16 k-points, ultrasoft, fully relativistic) -- **2.2x**, the band this package sits in, and both timings are a whole leg from scratch including setup. The pinning is the measurement: XLA sizes its thread pool from the **CPU affinity mask** and ignores `OMP_NUM_THREADS` (`tools/compare_qe.py:45`), so an unpinned run here quietly takes all 14 cores -- and the unpinned numbers first recorded for this phase (42-66 s) were *also* contended by concurrent jobs and were slower than the pinned one, which is the second reason not to quote them. **The SCF leg is not comparable at any core count**, and the reason is a missing mixer rather than a slower one: QE converges that film in 24 iterations with `mixing_mode = 'local-TF'` (`approx_screening2`), which at the time was refused here, so the run was 250 Kerker iterations -- and plain Anderson at QE's own `beta = 0.7` *diverges* on this slab. `local-TF` is implemented as of the row below and the SCF takes 48 iterations; this row's timings predate it. The 5m38s and 1m54s in QE's committed reference outputs are another machine's; every number above was measured here. |
 | 2026-09-01 | QE's `local-TF` mixer (`approx_screening2`): Thomas-Fermi screening with a **space-dependent** length, solved by the Krylov least-squares method of the Fortran in its own Coulomb metric | **The Co(0001) slab runs at QE's own `beta = 0.7`, where plain Anderson diverges (to +335 Ry).** It reaches -223.13842 Ry at iteration 48 against `pw.x`'s -223.13876 (3.4e-4) and then oscillates about -223.142; at a 60-iteration cap (279 s, 4.65 s an iteration) the estimated accuracy is 3.2e-9 and the energy 3.5e-3 Ry out, so **it does not reach `conv_thr = 1e-10`**. Against Kerker at `beta = 0.3`, the only other mixer that survives this cell -- 2.0e-2 Ry out after 250 iterations -- that is six times closer in a quarter of the iterations. QE takes 24 to 1e-10, and closing that is the backlog item. **The preconditioner is not the cost**: 0.23 s per call against Kerker's 0.002 s and a ~5 s SCF iteration, because its Krylov solve is a handful of FFT pairs on the dense grid. What made it affordable is following the Fortran's *order*: `mix_rho.f90` preconditions the **combined search direction once** ('preconditioning the new search direction'), after the Broyden combination -- where preconditioning each history entry separately runs the solve up to eight times an iteration. For a linear preconditioner the two orders are identical, so Kerker's results are unchanged to the last digit. |
-| 2026-09-01 | P58's force-theorem anisotropy and P59's `local-TF` mixer on a GPU (`tools/gpu/p59_check.py`, job 20026794) | **Both run unmodified on a Tesla V100-SXM2-16GB and reproduce the CPU numbers**: silicon's total energy to **7.1e-15 Ry**, the cobalt SCF to **3.2e-12 Ry**, and the anisotropy 2.397460 meV against 2.397461, **5.4e-7 meV** apart. **The two backend-independent identities hold on the card as they do on the host**: `local-TF` reaches the plain mixer's fixed point to 1.70e-11 Ry on both, and `soc_scale = 0` gives 2.2e-8 meV of anisotropy against the CPU's 1.2e-8 -- both zero. Iteration counts are identical (7 and 9), x64 is on, peak device memory **0.472 GB**. The whole check is 2m15s of wall clock on the node, of which the silicon leg is 15.1 s on the GPU against 1.2 s on the CPU -- **compilation, not arithmetic**, on cells this small, which is what GPU.md Phase 0 already recorded and is why no speedup is claimed here. This is a correctness result, not a performance one. |
+| 2026-09-01 | P58's force-theorem anisotropy and P59's `local-TF` mixer on a GPU (`tools/gpu/p59_check.py`, job 20026794) | **Both run unmodified on a Tesla V100-SXM2-16GB and reproduce the CPU numbers**: silicon's total energy to **7.1e-15 Ry**, the cobalt SCF to **3.2e-12 Ry**, and the anisotropy 2.397460 meV against 2.397461, **5.4e-7 meV** apart. **The two backend-independent identities hold on the card as they do on the host**: `local-TF` reaches the plain mixer's fixed point to 1.70e-11 Ry on both, and `soc_scale = 0` gives 2.2e-8 meV of anisotropy against the CPU's 1.2e-8 -- both zero. Iteration counts are identical (7 and 9), x64 is on, peak device memory **0.472 GB**. The whole check is 2m15s of wall clock on the node, of which the silicon leg is 15.1 s on the GPU against 1.2 s on the CPU -- **compilation, not arithmetic**, on cells this small, which is what notes/GPU.md Phase 0 already recorded and is why no speedup is claimed here. This is a correctness result, not a performance one. |
 | 2026-09-01 | The magnetic torque (P60): the anisotropy as one `jax.grad` of the band energy in the moment's angle, instead of a difference of two diagonalisations | **One angle instead of two, and the same K1 to 2.4e-5 meV.** On the one-atom tetragonal cobalt cell a torque is 16 s against the two-direction difference's ~15 s, so it is not cheaper -- both need one diagonalisation per angle and the torque needs one gradient on top. **What it buys is accuracy, not time**: the difference cancels seven digits and the derivative cancels none, and the torque is *smearing-robust* where the difference is not -- at `degauss = 0.02` Ry the band-energy difference reads 1.235 meV against a converged 0.531, while the torque reads 0.552 at the same width. The gradient itself is a small fraction of the cost: one extra pass over `sum w <psi|H|psi>` on frozen states, where the diagonalisation that produced them is the expensive half. |
 | 2026-09-02 | The full (Liechtenstein) DFT+U functional (P62a): a four-index `vee` contraction in place of a scalar `U_eff`, built once per calculation from `harmonic_products` | **The functional is free and the SCF is the same one.** On antiferromagnetic FeO at `U = 4.3`, `J = 1.0` eV, one core each: **42.8 s of SCF against `pw.x`'s 7.64 s** (52.1 s and 8.46 s end to end, of which 9.3 s is JAX compilation), in 42 iterations against 21 — so the per-iteration ratio is **2.8x**, the band this package sits in, and half the wall-clock gap is the iteration count rather than the cost of an iteration. Against the *simplified* functional on the same cell the interaction is not measurable: `vee` is `(nslot, 5, 5, 5, 5)` built once on the host, and the per-iteration einsum is 625 multiplies against a matrix the Hamiltonian applies to every band. **The comparison is like-for-like** — the same input, the same pseudopotentials, the same `conv_thr` — which is rare for a row here, and it is only available because `kind = 1` is one of the two axes `pw.x` has. |
 | 2026-09-02 | Around-mean-field double counting (P62c) and Slater integrals from the orbital (P62d) | **Neither is a per-iteration cost and that is the whole measurement.** AMF is the same `vee` contraction on a shifted matrix — the shift is one trace per slot per iteration, unmeasurable — and it converges FeO in 39 iterations against FLL's 42. The Yukawa route is **setup only**: `manifold_radial` 0.2 ms, `screening_length` 9.5 ms (about thirty evaluations of a 1195-point double integral inside a bracketed root find), `slater_set` 1.9 ms — **12 ms once**, against a 12 s SCF, so the phase's cost is three parts in ten thousand of the run it configures. **The Elk pair this project's rule asks for is not taken, and the reason is that it would not be informative rather than that it was skipped**: Elk reaches these through `dftu`/`inpdftu` inside its own ground state, so the only timeable unit is a whole all-electron LAPW SCF against a whole pseudopotential one — a comparison of two basis sets, not of this feature. What would be comparable is `genfdu` + `fyukawa` alone, which Elk does not time separately either. The absolute number above is the honest one and it is 12 ms. |
@@ -6975,7 +6975,7 @@ scratch is absent: two iterations, one cell, one configuration.
 step is `6.42 -> 57.47`, **+51.05 GB**. The first run's stage boundary across the same gap
 is `20.38 -> 71.43`, **+51.05 GB**. Identical to the digit in both arms, so the dial does
 not touch the spike at all and the whole of the improvement is the 13.96 GB resident offset
-it starts from. `MEMORY-AUDIT.md` D10 is unchanged as a phenomenon and is now measured
+it starts from. `notes/MEMORY-AUDIT.md` D10 is unchanged as a phenomenon and is now measured
 rather than inferred from a boundary.
 
 **Headroom, and what the open question actually is.** On an A100 at `MEMFRAC 0.97` the pool
@@ -6990,7 +6990,7 @@ is 82.95 GB, so the peak going 79.43 -> 65.47 takes headroom from 3.5 to **17.5 
 > from this dial is card-dependent: 13.96 GB on the A100 and unmeasured on the H100, which
 > wants a same-node `store` against `rebuild` pair nobody has run. The 13.96 itself is safe
 > on two independent grounds regardless: it is an array size from the run's own header, and
-> it is a delta between two arms on one card, one commit and one seed. `MEMORY-AUDIT.md` A17.
+> it is a delta between two arms on one card, one commit and one seed. `notes/MEMORY-AUDIT.md` A17.
 
 > **An earlier version of this paragraph subtracted the 24.89 GB eigensolver buffer from
 > that headroom and called the run "about 7 GB short". That is wrong and is the guard
@@ -7200,7 +7200,7 @@ the hydrogen cell with the store on the device and parked.
 the mixed vector, grown by `beta0` while that component's residual keeps its sign and halved
 back towards `beta0` when it turns over. Every other mixer here damps a residual that is
 **oscillating**; this one lengthens a step that is **crawling**, which is the shape the
-magnetic directions of a noncollinear cell have. `MAGNETISM-NEXT.md` item F2 is the account
+magnetic directions of a noncollinear cell have. `notes/MAGNETISM-NEXT.md` item F2 is the account
 of which directions those are.
 
 **The cell.** `tests/data/qe/fe-noncolin-pbe-stress.in`: bcc iron with its moment in the
@@ -7237,7 +7237,7 @@ cleanly: `anderson` at 0.2 stops at 4.4e-11 carrying the largest transverse comp
 `adaptive` at 0.05 stops at 4.0e-11 carrying the smallest, so what is left in those components
 is not simply how tightly each run converged, and nothing here explains it.
 
-**A correction to item F while we are here.** `MAGNETISM-NEXT.md` F records this cell at 43
+**A correction to item F while we are here.** `notes/MAGNETISM-NEXT.md` F records this cell at 43
 against `pw.x`'s 19 and reads it as a 2:1 ratio needing an explanation. Most of that ratio is
 the mixing parameter: the same cell at `mixing_beta = 0.7` takes **24**, which is 1.26 times
 `pw.x` rather than 2.26 times it. The recorded 43 stands as a measurement and its
@@ -7939,7 +7939,7 @@ projections are `(nk, nbnd, nkb)` and the Pauli components of `dD` are `(3, nkb,
 **The first measurements on a card inside the development loop**: a GeForce GTX 1060
 (6 GB; the allocator's `bytes_limit` is 4.76 GB at JAX's default 75 per cent), jax/jaxlib
 0.11.1 with the `jax-cuda12` plugin, driver 580.173.02. fp64 on this card runs at about
-1/32 of fp32, so **no ratio here is against single-core `pw.x`** (`GPU.md` §2.3) and none
+1/32 of fp32, so **no ratio here is against single-core `pw.x`** (`notes/GPU.md` §2.3) and none
 is against the CPU either: every comparison is one mode against the other on the same card.
 The card reproduces the CPU first -- `si-1k` to 4e-15 Ry, `si2-us-1k` exactly, `si2-paw-1k`
 to 6.8e-13 Ry, all in 7 iterations.
@@ -8044,7 +8044,7 @@ modes, since the stress reads the state whole.
 
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
-`GPU-MEMORY-NEXT.md` items 13 and 14. `pseudo/formfactors.py`'s four radial transforms
+`notes/GPU-MEMORY-NEXT.md` items 13 and 14. `pseudo/formfactors.py`'s four radial transforms
 (`V_loc`, the atomic and core charges, the projectors and atomic orbitals) walked their
 4096-value chunks in a Python loop of jitted calls. That bounds the forward pass and
 nothing else: under `jax.grad` every chunk's `(chunk, mesh)` residuals stay on the tape,
@@ -8098,18 +8098,18 @@ in that route keeps the whole table on a strain's tape has not been located; it 
 thing to check before routing stored datasets through it. (Located later the same day: the
 route's G chunk is sized for a 256 MB forward block, which on BN is the whole G set, and
 one chunk's backward pass holds about fifteen such blocks. At `DEFUQUMAT_AUG_CHUNK=4096` the
-same executable is **0.466 GiB**, at 1024 0.450 -- `GPU-MEMORY-NEXT.md` item 15.)
+same executable is **0.466 GiB**, at 1024 0.450 -- `notes/GPU-MEMORY-NEXT.md` item 15.)
 
 ## The band dial, budgeted from the card in memory mode (GTX 1060, 2026-09-28)
 
-`GPU-MEMORY-NEXT.md` item 9. Once the k axis streams, one k-point's band loop through the
+`notes/GPU-MEMORY-NEXT.md` item 9. Once the k axis streams, one k-point's band loop through the
 grid is the largest per-k-point term left on a large cell, and memory mode kept it at `all`
 on a card. A `Calculation` now resolves its band batch once (`resolve_band_batch_for`:
 explicit argument, `DEFUQUMAT_BAND_BATCH`, then in memory mode on an accelerator the largest
 batch whose estimate fits the card, `sizing.choose_band_batch`, then the platform) and the
 Hamiltonians and density kernels carry it. The estimate behind the choice now counts one
 streamed chunk of the store rather than the whole set, the start (`max(natomwfc, nbnd)`
-vectors, `MEMORY-AUDIT.md` D10) as a stage, and a non-dividing batch's tail.
+vectors, `notes/MEMORY-AUDIT.md` D10) as a stage, and a non-dividing batch's tail.
 
 `benchmarks/h40-chain-lsda.in` (40 H atoms, LSDA, one k-point, 56 bands, a 40x40x640 smooth
 box), memory mode, one process per point, compile cache warm, three SCF iterations, time of
@@ -8145,7 +8145,7 @@ per cent, the largest box here).
 
 ## A band path that keeps no states (GTX 1060, 2026-09-28)
 
-`GPU-MEMORY-NEXT.md` item 1. `fixed_density_bands` -- `run_bands`, `run_nscf` and so the
+`notes/GPU-MEMORY-NEXT.md` item 1. `fixed_density_bands` -- `run_bands`, `run_nscf` and so the
 DOS, the effective mass's eigenvalue route -- wants energies only, and in memory mode it
 still stacked the `(nspin, nk, nbnd, ndim)` states on the card. Where the store streams it
 now solves each chunk from scratch and drops its states (`scf/streaming.stream_eigenvalues`,
@@ -8171,7 +8171,7 @@ the core's setup build, which runs over the whole k-set with its intermediates l
 
 ## The PAW one-centre tensors, factored (GTX 1060, 2026-09-28)
 
-`GPU-MEMORY-NEXT.md` item 18. `PawSpecies` kept `density_ae`, `density_ps` and, for a
+`notes/GPU-MEMORY-NEXT.md` item 18. `PawSpecies` kept `density_ae`, `density_ps` and, for a
 fully-relativistic dataset, `density_rel` as `(nh, nh, nlm, mesh)` products of the Gaunt
 coefficients and the radial pair functions -- 295.2 MB each for `Pt.rel-pbe-n-kjpaw_psl`
 (`nh = 34`, `nlm = 25`, `mesh = 1277`), resident in both memory modes. It now keeps the
@@ -8196,7 +8196,7 @@ differentiates -- within 1.4e-12 relative.
 
 ## Real projector columns, and a resume that stays on the host (GTX 1060, 2026-09-28)
 
-Two of `GPU-MEMORY-NEXT.md`'s smaller items, measured on the cell the memory-mode scan uses:
+Two of `notes/GPU-MEMORY-NEXT.md`'s smaller items, measured on the cell the memory-mode scan uses:
 `si8-1k.in` at `ecutwfc = 20` with `nosym` on a 6x6x6 mesh (216 k-points), default memory
 mode, one process per run, each run twice.
 
@@ -8227,7 +8227,7 @@ block) does not run on this card.
 
 ## The augmentation table on the stress tape: a backward-sized chunk, and a scanned strain (GTX 1060, 2026-09-28)
 
-`GPU-MEMORY-NEXT.md` item 15, in two steps.
+`notes/GPU-MEMORY-NEXT.md` item 15, in two steps.
 
 **The tabulated route's chunk.** `_aug_chunk` sized a G block at 256 MB of `(nh, nh,
 chunk)` complex, and one chunk's rematted body holds about fifteen such blocks while it is
@@ -8267,7 +8267,7 @@ speed mode keeps the stored table.
 
 ## The projector core built in k-chunks (GTX 1060, 2026-09-28)
 
-`GPU-MEMORY-NEXT.md` item 6, second bullet. Bracketing `Calculation.__init__` on the card
+`notes/GPU-MEMORY-NEXT.md` item 6, second bullet. Bracketing `Calculation.__init__` on the card
 put the memory-mode peak of eight-atom silicon at 20 Ry, 216 k-points, **inside
 `build_projector_core`**: 12.1 -> 71.1 MB for a core that leaves 19.7 MB resident, and no
 stage of the SCF came back up to it. In memory mode the setup, `at_kpoints` and
@@ -8300,7 +8300,7 @@ keeps no states" was this build's transient.
 
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
-`GPU-MEMORY-NEXT.md` items 3, 4, 5, 7, 10, 11, 12, 15, 17, 19, 20, 23, 24 and 25 landed in one
+`notes/GPU-MEMORY-NEXT.md` items 3, 4, 5, 7, 10, 11, 12, 15, 17, 19, 20, 23, 24 and 25 landed in one
 day. Each is held to round-off (or bit-identity) against the route it replaces on the CPU,
 and the records are in that file's "Done since". **Only what is below was measured**; the
 card A/Bs for the rest are the next thing to take, one run per process.
@@ -8335,7 +8335,7 @@ memory mode gave the same `dE/dq` (4e-17) and a **larger** compiled temporary fo
 `value_and_grad`: 218.6 -> 225.9 MB on the ultrasoft oxygen chain, **261.7 -> 834.4 MB** on
 bcc iron (`Fe.pz-nd-rrkjus`, `nh = 18`, `ngm = 6963`, CPU). The stored displaced table is
 small on every augmented spiral here and the scanned route's per-chunk radial integral is
-not; it was reverted, the same outcome `MEMORY-AUDIT.md` A4 and A11 record for two other
+not; it was reverted, the same outcome `notes/MEMORY-AUDIT.md` A4 and A11 record for two other
 prescribed fixes.
 
 **The chunked force and stress on the card** (item 3). Exact (<= 7e-14 against the single
@@ -8377,7 +8377,7 @@ between them; both are fixed below ("The projected DOS, the pairs and the rest, 
 
 ## The 2.6 GB silicon spectrum was speed mode; the dials are now re-sized for a solve's bands (GTX 1060, 2026-09-29)
 
-`GPU-MEMORY-NEXT.md` item 12 recorded the TDDFT silicon cell (`si-epsilon-unshifted-nosym`,
+`notes/GPU-MEMORY-NEXT.md` item 12 recorded the TDDFT silicon cell (`si-epsilon-unshifted-nosym`,
 64 k-points, 60 bands, `ecut_response = 8`) at **2613.9 MB at every pair batch** and "the
 peak is set elsewhere". Reproduced with the script that took it (`Calculation(memory_mode=
 "speed")`, `run_scf`, `fixed_density_states(nbnd = 60)`, `independent_response`), and
@@ -8446,7 +8446,7 @@ what it changes is how long a table the program has dropped stays on the device.
 
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
-`GPU-MEMORY-NEXT.md` items validated on the CPU this morning, measured on the card. Each
+`notes/GPU-MEMORY-NEXT.md` items validated on the CPU this morning, measured on the card. Each
 row is one process per run, run twice and the second taken, memory mode; "before" is the
 commit before the change and "after" the commit that made it, in worktrees, except where
 the change is a switch (item 20, the pair batch), which is measured both ways on one code
@@ -8512,7 +8512,7 @@ held as those factors, the angular table shared by both spheres. Silicon PAW und
 
 ## A band path a block at a time, two verdicts, and float32's first blocker (GTX 1060, 2026-09-29)
 
-**A long band path in memory mode** (`GPU-MEMORY-NEXT.md` item 6's third bullet, for the
+**A long band path in memory mode** (`notes/GPU-MEMORY-NEXT.md` item 6's third bullet, for the
 k-set where it grows). Moved onto with `at_kpoints`, a path held every point's per-k tables
 on the card -- the sphere, its box and stick indices, `|k+G|^2`, the projector core --
 while the streamed solve walked the points in chunks. `run_bands` now builds each block of
@@ -8550,7 +8550,7 @@ arrays built from the pseudopotentials' radial tables do not read the precision 
 `vltot`, the starting density and with it `v_scf`, and the bare `D_ij` are float64 in a
 single-precision run -- and casting `vltot` alone does not get past the same line. The fix
 is one cast of the setup leaves to the policy wherever a `Calculation` is built or moved,
-with the deliberate float64 exceptions `GPU-MEMORY-NEXT.md` names; not started.
+with the deliberate float64 exceptions `notes/GPU-MEMORY-NEXT.md` names; not started.
 
 ## The endgame on a card is a stall, and its cause is the subspace solve's parked directions (RTX A2000, 2026-10-01)
 
@@ -8564,7 +8564,7 @@ through an accelerator floor of 3e-12 under `ethr`, which cut the same run to 14
 force accuracy and left tighter requests stalling, and which was **withdrawn the same day** when
 a replay of one call on both platforms located the cause; its tables stay below, marked, because
 they are what the investigation measured. The entry overturns four readings recorded earlier in
-this file and in `GPU.md`, listed near the end. Card: RTX A2000 12 GB on `D22-0161`, host pinned
+this file and in `notes/GPU.md`, listed near the end. Card: RTX A2000 12 GB on `D22-0161`, host pinned
 to four performance cores, jax 0.11.0, `DEFUQUMAT_THREADS=off`, one process per entry, warm. This
 card is a float32 device (float64 at 1/70 of float32), so none of the **times** is a claim about an
 A100 or an H200. The **step counts** are claims about the solver and are reported beside every
@@ -8843,12 +8843,12 @@ stall because the threshold never gets that low). Energies in that process: -507
 -507.166061664056 and -507.166061664052 Ry for the three floors, final residual maxima 3.3e-7,
 4.2e-7 and 8.7e-7.
 
-**Four earlier readings this overturns or qualifies.** (1) `GPU.md` Phase 1: "tightening
+**Four earlier readings this overturns or qualifies.** (1) `notes/GPU.md` Phase 1: "tightening
 `conv_thr` from 1e-8 to 1e-10 costs the GPU 13x (36 to 459 ms)" on `si16-1k-ecut30` on a V100
 was attributed to small dense algebra inside a `while_loop`; no step count was recorded there,
 the same cell on the A2000 shows the same shape as one 73-step call, and `conv_thr` 1e-6 to
 1e-9 never stalls there, so the attribution is unproved and probably wrong (the V100 was not
-re-run). (2) `PARALLEL-NEXT.local.md`: "the default `memory` mode is 2.7x slower than `speed` on
+re-run). (2) `notes/PARALLEL-NEXT.local.md`: "the default `memory` mode is 2.7x slower than `speed` on
 si16" is one call, the streamed store costs 7 per cent. (3) The same file: "on si64 a band batch
 of 8 is twice as fast as the whole block (7094 against 14800 ms)" is one more stalled call,
 `[..., 100, 1]` against `[..., 100, 100]` in the table above. (4) The first layout A/B of the
@@ -8872,7 +8872,7 @@ At 8 atoms, where the steps are equal and nothing stalls, the box layout is 11 p
 (28.9 and 28.8 ms against 32.4 and 33.6); at 64 atoms and `band_batch = 8` over the first four
 iterations the sticks are 4 per cent faster (1412 and 1434 ms against 1471 and 1489); on this
 workstation's CPU they are equal at 8 atoms (135 ms) and 9.5 per cent faster at 16 (466.3 against
-510.5 ms, 15 samples each). `GPU.md` section 2.2's hypothesis that a fused box transform wins on a
+510.5 ms, 15 samples each). `notes/GPU.md` section 2.2's hypothesis that a fused box transform wins on a
 card holds at 8 atoms and is within a few per cent either way at 16 and 64 (3 per cent faster at the
 whole block on 64 atoms, 3 to 6 per cent slower at `band_batch` 8 and 16), and nothing here transfers to a
 float64 card. The
@@ -9056,7 +9056,7 @@ floor, so the 100-step call there is in the loose regime, where `diago_david_ndi
 **The number to carry: on a k-mesh of a small cell the accelerator default, `memory_mode = 'memory'`,
 costs 1.81x at 27 k-points and 1.85x at 64 against `'speed'`, with the Davidson steps equal between
 the two, and the whole of it but the streamed store is the one k-point per call.** This is the re-run
-the pre-stall audit asked for: the GTX 1060 entry above ("Two memory modes") read 1.3x to 1.6x, `GPU.md`
+the pre-stall audit asked for: the GTX 1060 entry above ("Two memory modes") read 1.3x to 1.6x, `notes/GPU.md`
 quotes "1.6x the time", and both were taken without step counts. The reading stands and is larger on
 this card. Eight-atom silicon at 20 Ry with `nosym`, as there (`benchmarks/si8-1k.in` with
 `ecutwfc = 20, nosym = .true.` and `K_POINTS automatic 3 3 3 0 0 0` or `4 4 4`), `conv_thr = 1e-10`,
@@ -9136,7 +9136,7 @@ atoms at 64 points 3885 ms one k-point a call against 3940 at 22 a call (-1.4 pe
 whole mesh), so the batch is still worth about 2.2x on the small cell and still a wash on the larger. **A forecast, not a measurement:** on a card
 with fast float64 the arithmetic shrinks and the fixed cost does not, so the crossover moves to larger
 cells and the batch is worth more there than here. `'fit'` is opt-in; memory mode's own default is
-still one k-point a call (`GPU-SPEED-NEXT.md`).
+still one k-point a call (`notes/GPU-SPEED-NEXT.md`).
 
 ## The band side in single precision, and a switch to double inside the run (RTX A2000 and CPU, 2026-10-01)
 
@@ -9145,7 +9145,7 @@ against 9.5 s in double on the A2000 (3.9x in memory mode, 4.2x in speed mode) a
 (1.65 against 3.15 GiB), with the energy 2.8e-5 Ry from double's at the same threshold; and
 `band_precision = 'mixed'`, which switches to double inside the run, does not pay on the cells tried
 except sixteen-atom silicon.** The A2000 is a float32 part (float64 at 1/70), so the ratios are this
-card's; GPU.md's Phase 3 ranks the tier by the same number on a data-centre card, which
+card's; notes/GPU.md's Phase 3 ranks the tier by the same number on a data-centre card, which
 `tools/gpu/stall-check.sbatch` measures and nobody has run. D22, one process per arm, median of two, the
 Davidson steps beside every time.
 
@@ -9235,7 +9235,7 @@ matrix, ms per call on the card, error of the eigenvalues against LAPACK:
 
 `solvers.subspace._eigh` asks for `syevd` by name; on a CPU every route is LAPACK's `heevd` and nothing
 changes there. The host route would be 2x to 5x faster again up to 128 rows on this card, at the price of
-a host round trip inside the Davidson loop, and is not taken (`GPU-SPEED-NEXT.md`).
+a host round trip inside the Davidson loop, and is not taken (`notes/GPU-SPEED-NEXT.md`).
 
 **The stick layout's fill of the box was a loop over sticks.** `box.at[..., columns].set(sticks)`, a
 scatter along the box's last axis with strided updates, is one XLA's GPU backend expands into a `while`
@@ -9462,7 +9462,7 @@ traced their bodies at every call as well. On the A2000 the same call is 127 cal
 about 0.8 s of printing in 7.1 s, so about 40 per cent of a warm response call on a card is now the key
 rather than the work; the way past it is a perturbation that is a function of explicit arrays, so that
 a module-level `jit` can key on it without tracing, and that is a refactor of the response stack's
-perturbation objects (`GPU-SPEED-NEXT.md`).
+perturbation objects (`notes/GPU-SPEED-NEXT.md`).
 
 **What the slow set caught afterwards, and the three corrections it led to** (`5ba610b`).
 `test_nonlinear.py`'s two moving-overlap Raman cases (ultrasoft and PAW) raised
@@ -9593,7 +9593,7 @@ here. Which of the two is not measured.
 Single converges in nine iterations against six, at its floor, to -507.166033420111 Ry against
 -507.166061645064 (2.8e-5 Ry, as on the A2000). On a card with a real float64 rate the three extra
 iterations take the whole of the per-iteration gain in speed mode, so the tier is worth its half peak and
-not its time there; `GPU.md` Phase 3 ranked it by this number. `nsys` is not on the GPU nodes, so the
+not its time there; `notes/GPU.md` Phase 3 ranked it by this number. `nsys` is not on the GPU nodes, so the
 fourth stage, the kernel profile, was skipped.
 
 **Which half of memory mode's cost it is: the streamed store** (job 20644333, an H100, `gpu46`,
@@ -9615,7 +9615,7 @@ the projector rebuild is 4 to 10 per cent. And the stream saves almost nothing i
 with one k-point and 0.01 GiB with the whole mesh in one batch, because the k-points being solved must be
 on the card either way: the store saves memory only when the chunk is smaller than the mesh, and only
 the part not in flight. On the A2000 the same stream was 7 per cent of a 64-atom iteration (section 6 of
-`GPU-SPEED-NEXT.md`), which the float32 card's slow arithmetic hid.
+`notes/GPU-SPEED-NEXT.md`), which the float32 card's slow arithmetic hid.
 
 **The defaults that follow, implemented the same morning** (`170f2b6`, the user's decisions): in
 `'memory'` on a card `k_batch` resolves to `'fit'`, and the SCF streams its store only where that chunk
@@ -9639,7 +9639,7 @@ the card has (60 per cent of it) rather than what one k-point needs. `k_batch = 
 **The number to carry: on a streamed SCF the dielectric tensor and the Born charges now add nothing to
 the card's peak -- eight-atom silicon stays at the SCF's own 35.1 to 58.8 MB from 27 to 216 k-points,
 where the default call read 225.9 to 1695.2 MB -- for 12 to 14 per cent more time.**
-`GPU-MEMORY-NEXT.md` item 2, its field half (`0a9f317`, `bf821e7`, `defuqumat/response/chunked.py`).
+`notes/GPU-MEMORY-NEXT.md` item 2, its field half (`0a9f317`, `bf821e7`, `defuqumat/response/chunked.py`).
 The field response held the occupied block, three bare perturbations `P_c r_a|psi>` and three
 first-order states `dpsi_a` on the card for the whole self-consistent loop, `(1 + 6) nspin nk nocc npwx`
 complex numbers plus the CG over the whole k axis, and it put a streamed store back on the card whole
@@ -9762,7 +9762,7 @@ third derivatives and anything asking for `keep_internals`, and a strained calcu
 store streams, where it died before, and adds nothing to the SCF's peak on norm-conserving silicon and
 49.6 MB on ultrasoft; with the whole mesh in one chunk it reads the SCF's own peak, where all eight
 atoms took norm-conserving silicon from 872.9 to 1119.0 MB and ultrasoft from 925.2 to 1780.0.**
-`GPU-MEMORY-NEXT.md` item 2, its second piece (`af246f1`, `defuqumat/response/chunked_phonon.py`). The
+`notes/GPU-MEMORY-NEXT.md` item 2, its second piece (`af246f1`, `defuqumat/response/chunked_phonon.py`). The
 phonon held, per perturbation, a bare perturbation, a first-order state and (ultrasoft or PAW) the
 occupied block `ort`, each `(nspin, nk, nocc, npwx)`, whole-k on the card, and assembled each column
 with the whole k axis on one tape; on a streamed store it did not start, because the solver keeps the
@@ -9836,7 +9836,7 @@ MB on the card to 103.0 MB, against the SCF's 35.1, for 3.6 per cent more time, 
 the Ewald swap's Hessian was taken a column at a time; and on a run
 without symmetry the Gamma phonon of all eight atoms at one k-point a chunk went from 65.8 MB to the
 SCF's own 35.1 (norm-conserving) and from 203.9 to 109.8 MB against 66.9 (ultrasoft), for 0.3 to 0.5 per
-cent more time.** `GPU-MEMORY-NEXT.md` item 2, its third and fourth pieces (`61c71d4` for the phonon at
+cent more time.** `notes/GPU-MEMORY-NEXT.md` item 2, its third and fourth pieces (`61c71d4` for the phonon at
 `q`, `7740ab7` and `3601e96` for the per-mode grids).
 
 **The phonon at `q`.** It put a streamed store back on the card whole (`make_sternheimer`'s
@@ -9896,7 +9896,7 @@ together.
 k-point a chunk read 1208.4 / 1256.6 / 1349.6 MB on the card at 8 / 27 / 64 k-points and now reads
 759.7 / 763.2 / 768.8, growing only as the SCF does (169.3 / 172.2 / 178.2), and it takes 14.8 / 29.3 /
 59.3 s where it took 28.2 / 41.7 / 69.3; on the eight-atom cubic cell at 8 k-points, 1660.1 -> 986.3 MB
-against an SCF of 669.6, 65.9 -> 46.6 s.** `GPU-MEMORY-NEXT.md` item 2, its fifth piece. The
+against an SCF of 669.6, 65.9 -> 46.6 s.** `notes/GPU-MEMORY-NEXT.md` item 2, its fifth piece. The
 differentiated route (`clamped_ion_piezoelectric`) is one `jvp` of the stress along each field response;
 it asked the field response for its internals, which forced the field's whole-k route, and assembled
 each column with the whole k axis on one forward-over-reverse tape. Now, where the field response walks
@@ -9966,7 +9966,7 @@ AlAs wedge, the case where it is neither, the streamed Born charges agree with t
 **The number to carry: on a streamed store the strain response did not run at all, and it now runs at
 45.7 / 50.1 MB on the card for eight-atom norm-conserving silicon at 27 / 64 k-points against SCFs of
 35.1 / 39.6, and at 174.8 MB for the ultrasoft cell at 27 against 67.3; the elastic constants on top
-read 126.5 / 141.0 MB.** `GPU-MEMORY-NEXT.md` item 2. The strain response held six bare perturbations
+read 126.5 / 141.0 MB.** `notes/GPU-MEMORY-NEXT.md` item 2. The strain response held six bare perturbations
 and six first-order states (and for an augmented dataset the occupied block and the overlap
 derivatives) whole-k on the device, and on a host store it raised `TracerArrayConversionError` in
 `_bare_strains`, which indexes the store with a traced k, the failure the Gamma phonon had before
@@ -10014,7 +10014,7 @@ history and the iteration count, on ultrasoft and PAW silicon, both arms on the 
 **The number to carry: on two-atom ultrasoft AlAs at one k-point a chunk, electrostriction's
 `d(eps)/d(strain)` read 784.9 / 882.8 MB on the card at 8 / 27 k-points and now reads 263.5 / 264.9,
 and the Raman tensors 299.0 / 368.5 -> 199.3 / 203.1 MB, against an SCF of 169.3 / 172.2.**
-`GPU-MEMORY-NEXT.md` item 2, its last consumers. Both are, per geometry tangent, one `jvp` of
+`notes/GPU-MEMORY-NEXT.md` item 2, its last consumers. Both are, per geometry tangent, one `jvp` of
 `eps = 1 - 4 FPI F / Omega` with `F` the variational second-order energy and `db` three further
 Sternheimer solves (`_position_response`), and both read the field's stores whole, so the field
 response took its whole route under them. `F` is a sum over k of per-k terms that read two whole-cell
@@ -10354,7 +10354,7 @@ shows at the order of `e_14` (`CLAUDE.md`'s trap of a test asserting a tolerance
 not deliver).
 
 **One more item sized on the way, a null**: the walked responses rebuild `newd`'s tangent once per k-chunk
-and perturbation (`GPU-MEMORY-NEXT.md`'s third item); on ultrasoft eight-atom silicon at 8 k-points it is
+and perturbation (`notes/GPU-MEMORY-NEXT.md`'s third item); on ultrasoft eight-atom silicon at 8 k-points it is
 36.7 ms a call, 0.88 s of a 384 s walked phonon of one atom on the CPU, 0.2 per cent.
 
 **And one located**: the symmetric Gamma phonon's card peak climbing 1 to 5 MB an iteration (eight-atom
@@ -10487,7 +10487,7 @@ read 6.11 -> 4.00, 14.59 -> 11.67, 26.67 -> 19.51 and 63.65 -> 33.14 s.
 
 ## Cells with vacuum: the LDOS preconditioner against `pw.x` (CPU, 2026-10-04)
 
-`PLAN.md` P129; the measurement behind it is `VACUUM-MIXING-NEXT.md`. A mixer's cost is two
+`PLAN.md` P129; the measurement behind it is `notes/VACUUM-MIXING-NEXT.md`. A mixer's cost is two
 numbers, the iterations and what one costs, and on a cell with vacuum the first is the larger.
 
 **The pair**, `tests/data/qe/co-slab-forcetheorem-sr.in` as committed (three Co(0001) layers,
@@ -10564,7 +10564,7 @@ user's decision of 2026-10-05, taken with the table in hand. **Per iteration it 
 against 2.06x, and the preconditioner is no longer the gap**: 19 ms of 3.10 s. What is left is
 the base iteration, `TF`'s 2.98 s in "Cells with vacuum", not decomposed. `pw.x`'s whole recipe
 (its grid, the G layout and `rho_ddot` over `ngms`) is the fastest arm, 23 iterations and 1.93x
-`pw.x`, which bears on the pending `rho_ddot` decision (`VACUUM-MIXING-NEXT.md` P-C).
+`pw.x`, which bears on the pending `rho_ddot` decision (`notes/VACUUM-MIXING-NEXT.md` P-C).
 
 **On the 3.3-million-point synthetic slab** of `tools/vacuum_sweep/prec_cost.py` (243x60x225,
 dual 4, so the two grids are one), D22 core 0, median of five after a compiling call: **11.06 s
@@ -10647,7 +10647,7 @@ A2000 (1/70 of float32) means none of these times is a claim about a data-centre
 
 ## The three field directions as one CG loop, and three Born-charge loops compiled at every call (RTX A2000 and CPU, 2026-10-05)
 
-`GPU-SPEED-NEXT.md` item 7's first bullet. `DEFUQUMAT_FIELD_BATCH` (`batching.resolve_field_batch`)
+`notes/GPU-SPEED-NEXT.md` item 7's first bullet. `DEFUQUMAT_FIELD_BATCH` (`batching.resolve_field_batch`)
 makes the field response `vmap` its Sternheimer CG over the three directions
 (`SternheimerSolver.solve_many`), on by default on an accelerator. **The gain the item forecast is
 not there any more**: it was sized on the 2026-10-02 call, 7.1 s of which 2.1 s was tracing and
@@ -11038,7 +11038,7 @@ which was not affordable here. Memory was not measured; every run was under an 8
 
 ## The third harmonic on an H100 against four CPU cores (Triton, 2026-10-08)
 
-`GPU.md` §2.3's metric for the real-time route: the same commit (`02bec95`), the same input and
+`notes/GPU.md` §2.3's metric for the real-time route: the same commit (`02bec95`), the same input and
 the same steps on both sides, the time per k-point and step of the second call, compilation on its
 own line (`tools/realtime/thg_timing.py`, `tools/gpu/thg-gpu.sbatch`, `thg-cpu.sbatch`). Two-atom
 silicon at 12 Ry (`si2-symmetric.in`), `chi_xxxx(-3w; w, w, w)` at 1.55 eV, 0.2 eV broadening, the

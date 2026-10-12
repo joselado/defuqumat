@@ -3,7 +3,7 @@
 A to-do list, written 2026-09-28 on branch `gpu-memory-modes`, right after `memory_mode`
 landed (`batching.py`, `scf/streaming.py`; `PERFORMANCE.md` "Two memory modes"). It says
 what still costs device memory, what each item scales with, what the fix is, and how to
-measure the win on the GTX 1060 in this workstation. `MEMORY-AUDIT.md` is the older,
+measure the win on the GTX 1060 in this workstation. `notes/MEMORY-AUDIT.md` is the older,
 broader audit; where an item here is already recorded there, its id is given, and nothing
 already fixed is listed.
 
@@ -23,7 +23,7 @@ memory-mode scan), `bn-ldau-noncol.in` (the stress that dies), `pt-soc-paw-nosym
 
 **Rule for anyone picking one up**: `CLAUDE.md`'s *an identity that closes is not
 evidence; an A/B is*. Several fixes below are "remat this" or "chunk that", and
-`MEMORY-AUDIT.md` A4 and A11 are two prescribed fixes that measurement refused. Measure
+`notes/MEMORY-AUDIT.md` A4 and A11 are two prescribed fixes that measurement refused. Measure
 the peak before and after, one run per fresh process (`peak_bytes_in_use` has no reset),
 with the compile cache warm (a miss costs *more* device memory on this card).
 
@@ -141,7 +141,7 @@ below:
 
 * **A streamed resume kept the whole loaded wavefunction set alive for the run**
   (`driver.py`, the release of the source span sat in the non-streamed branch only; it
-  reopened `MEMORY-AUDIT.md` A18 on the stream path). Fixed in `ae99566`, with a test that
+  reopened `notes/MEMORY-AUDIT.md` A18 on the stream path). Fixed in `ae99566`, with a test that
   holds a weakref to the loaded *array* and fails on the unfixed driver.
 * **`at_kpoints` and `at_spiral_q(rebuild_basis=True)` dropped `projectors='rebuild'`**, so
   every band path, derived mesh, spiral scan step and `relax_spiral_q` step stored the
@@ -153,7 +153,7 @@ below:
 ## Done since
 
 * **Item 21** (the relaxation loops' retention): `run_vc_relax`, `run_spiral_scan` and
-  `relax_spiral_q` drop the previous step's result and `Calculation` (`MEMORY-AUDIT.md`
+  `relax_spiral_q` drop the previous step's result and `Calculation` (`notes/MEMORY-AUDIT.md`
   A2, extended). No number moves.
 * **Item 7, first half**: `local_perturbation` reads `projectors.at_k(ik)` inside its
   guard; a norm-conserving perturbation no longer builds a whole-k `vkb` it never reads.
@@ -319,7 +319,7 @@ below:
   default mode without saying so. Now only the force theorem builds its own. *(Not so, found
   2026-10-03: `frozen_expectation`, `run_torque`, `run_orientation_torque` and `get_nesting`
   build their own too; `OPEN.md` Part XXIII item 14.)*
-* **Item 25** (2026-09-29): recorded in `GPU.md` Phase 4 -- k-sharding divides time, not
+* **Item 25** (2026-09-29): recorded in `notes/GPU.md` Phase 4 -- k-sharding divides time, not
   per-device memory; distributing the plane waves by sticks is the memory lever.
 * **Item 12, second bullet** (2026-09-29): the TDDFT frequency axis has a dial, `w_batch`
   (`batching.resolve_w_batch`: an argument, then `DEFUQUMAT_W_BATCH`, then the whole axis on a
@@ -656,7 +656,7 @@ process, Si8 at 27/64/125/216 k: SCF only, + dielectric, + one atom's phonon col
 `energy_at` reads `moved.projectors.vkb` and `state.wavefunctions` whole, and the force
 and stress are single `jit(grad)` calls (`forces/autodiff.py`, `stress/autodiff.py`).
 Force tape: `nk (npwx nkb + npwx nat + nbnd npwx npol) x 16 B`; the stress adds
-`nk npwx (16 ncs + 8 kkbeta)`. `MEMORY-AUDIT.md` §8 records the mechanism (the k dial is
+`nk npwx (16 ncs + 8 kkbeta)`. `notes/MEMORY-AUDIT.md` §8 records the mechanism (the k dial is
 inert under reverse mode) and declined it when `nk = 1` was the case that bit; memory mode
 targets many-k runs, which reopens it.
 
@@ -765,7 +765,7 @@ which is the response stack, item 2. Speed mode keeps the single pass by design.
 `at_strain` (`driver.py:3050`), `at_kcart` (`:3299`) and `at_spiral_q(rebuild_basis=False)`
 (`:3412`) still build a stored set; they run under the stress `grad`, the velocity `jvp`
 and `dE/dq`, so check with `memory_analysis()` whether a lazy set on the tape saves
-anything before switching (`MEMORY-AUDIT.md` C5). The response stack reads the whole-k
+anything before switching (`notes/MEMORY-AUDIT.md` C5). The response stack reads the whole-k
 `vkb` at about a dozen sites; **the first one is a single misplaced line**:
 `local_perturbation` runs `vkb = calculation.projectors.vkb` unconditionally
 (`sternheimer.py:880`), outside `apply`, while its only reads sit under
@@ -836,7 +836,7 @@ re-validated bit for bit on the reference cells.
 
 `davidson.py:977-999` names the robustness retry's reuse of `psi0` as the only thing
 blocking `donate_argnums`. On the streamed path `psi0` is a fresh `device_put` of a host
-slice that the host still holds, so a retry can re-fetch it. `MEMORY-AUDIT.md` A16
+slice that the host still holds, so a retry can re-fetch it. `notes/MEMORY-AUDIT.md` A16
 measured that donating one input saves exactly one buffer (`alias_size_in_bytes`) and
 removes an alternating large-block allocation it ties to fragmentation. **Fix**: a
 donating variant of `_every_k` used only when the caller passes a way to rebuild `psi0`
@@ -858,7 +858,7 @@ donating variant of `_every_k` used only when the caller passes a way to rebuild
   modes (`tddft/chi0.py:468`), so every pair's box is in flight -- the module's own 26 GB
   case comes back on a GPU (`D1` was closed on a CPU, where the band default is 1). Give the
   pair axis its own finite default and measure 1/8/32 on the card. Small.
-* **The TDDFT frequency axis has no dial** (`MEMORY-AUDIT.md` A10, open, and
+* **The TDDFT frequency axis has no dial** (`notes/MEMORY-AUDIT.md` A10, open, and
   `PERFORMANCE.md`'s backlog): the `chi_0` assembly holds `(nw, 2 npairs, nm)` per chunk
   and the Dyson loop iterates every frequency with `nw` copies of `f_xc`. Chunk `w`. Medium.
   **Done 2026-09-29** (`w_batch`, see "Done since"); on the card the silicon spectrum's
@@ -962,10 +962,10 @@ item 2.
 
 A `forward` stress method -- nine `jax.jvp` with unit strains, compiled once -- holds the
 forward working set plus one tangent instead of the reverse tape, for about 9x the work;
-`MEMORY-AUDIT.md` C1 is "one measurement from decidable". Select it in memory mode when
+`notes/MEMORY-AUDIT.md` C1 is "one measurement from decidable". Select it in memory mode when
 the reverse tape would not fit. The piezoelectric and elastic assemblies are
 `jvp`-of-`grad` through `at_strain` and carry the whole reverse tape plus its tangent; a
-nested-`jvp` mode removes the reverse pass (`MEMORY-AUDIT.md` C1, `OPEN.md` H7). Both
+nested-`jvp` mode removes the reverse pass (`notes/MEMORY-AUDIT.md` C1, `OPEN.md` H7). Both
 matter less once items 13-15 land -- measure first.
 
 ### 17. Compiled gradients still embed k-sized constants -- priority 2, small
@@ -998,7 +998,7 @@ function) and are what is left of this item.
 outer products put on the device (`paw/onecenter.py:884-925`). For
 `Pt.rel-pbe-n-kjpaw_psl.0.1` (`nh = 34`, `nlm = 25`, `mesh = 1277`) each is 295.2 MB:
 **885.7 MB of the ~1.3 GB measured Pt spin-orbit PAW peak**, the same in both modes.
-`MEMORY-AUDIT.md` A12 is half done (hoisted out of the executables, not factored);
+`notes/MEMORY-AUDIT.md` A12 is half done (hoisted out of the executables, not factored);
 `density_rel` postdates it. **Fix**, QE's `PAW_rho_lm`: store the factors and contract
 `becsum` with the coefficients over `(i, j)` first, then with `pfunc` over `(beta_i,
 beta_j)`, inside the chunked one-centre kernel; no `(nh, nh, nlm, mesh)` array is formed.
@@ -1039,7 +1039,7 @@ setups also do not see the calculator's `memory_mode` or `projectors`
 
 `vc_relax`'s `previous = current` (`:345`) stays bound through the next iteration's SCF,
 force and stress; `run_spiral_scan` (`spiral.py:304-316`) and `relax_spiral_q` (`:591`)
-keep the previous result through the next SCF. `MEMORY-AUDIT.md` A2's fix was applied to
+keep the previous result through the next SCF. `notes/MEMORY-AUDIT.md` A2's fix was applied to
 `run_relax` only. Under the stress, `at_cell` goes through `at_strain`, so `base`,
 `previous` and `current` each hold their own augmentation table and core -- at least one
 extra 1.12 GB `Q_ij(G)` on bismuthene. **Fix**: A2's lines -- `result = None` at the top of
@@ -1056,7 +1056,7 @@ as it is unless a cell turns up whose store is a real fraction of its peak.
 `Calculator._scf` and a derived calculator's seed keep a device store under every later
 `get_*` in speed mode (`calculator.py:767`, `:2243`). Park it to host after the SCF (35 ms
 per 102 MB each way on this card) once item 4 makes every consumer accept a host store.
-The seed half is `MEMORY-AUDIT.md` A6(iii)/B2, open.
+The seed half is `notes/MEMORY-AUDIT.md` A6(iii)/B2, open.
 
 ---
 
@@ -1089,13 +1089,13 @@ items 9 and 16 need to choose a band batch or a stress method from the card.
 
 ### 25. k-axis sharding is a throughput lever, not a memory one -- priority 3, large
 
-`GPU.md` Phase 4 plans sharding the k axis. Once the SCF streams, that buys `nk / ndev`
+`notes/GPU.md` Phase 4 plans sharding the k axis. Once the SCF streams, that buys `nk / ndev`
 time and no per-device memory: every device replicates the k-independent set, which is
 what sets the bismuthene and Pt peaks in both modes, and a single k-point's solve is not
 divided. QE's memory lever is distributing the plane waves (sticks): shard `npwx` and
 `ngm` with `jax.sharding`, using the stick layout `basis/sticks.py` already builds, with
 one all-to-all between the z and xy passes and a `psum` for the projections. Strategic, to
-record in `GPU.md` rather than to start.
+record in `notes/GPU.md` rather than to start.
 
 ### 26. A float32 tier would halve every device array -- priority 3, large
 
@@ -1105,7 +1105,7 @@ side stays double by design, and ultrasoft, PAW, spinors and DFT+U are refused. 
 the item as it stood.
 
 The arithmetic is exact (`zc` 16 -> 8), but no float32 SCF has ever run, so what blocks one
-is unknown (`GPU.md` §4 item 2 and Phase 3; `AUDIT-2026-09-18.md` names a Sternheimer carry
+is unknown (`notes/GPU.md` §4 item 2 and Phase 3; `notes/AUDIT-2026-09-18.md` names a Sternheimer carry
 mismatch and dtype-less constructions). Build the tier on this card -- eight-atom Si,
 `precision=SINGLE`, memory mode -- keeping the density accumulation and the Davidson
 overlaps in float64 and `jax_default_matmul_precision='highest'`, before exposing it.

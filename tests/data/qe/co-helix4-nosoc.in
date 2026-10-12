@@ -1,5 +1,5 @@
 ! **A four-cell spin helix of tetragonal cobalt, without spin-orbit coupling**: the
-! supercell of `ORIENTATION-NEXT.md` step 2, whose one-shot partner with the coupling
+! supercell of `notes/ORIENTATION-NEXT.md` step 2, whose one-shot partner with the coupling
 ! is `co-helix4-soc.in`. **Its own SCF is not the source**, which comes from
 ! `co-helix4-spiral.in` unfolded onto this cell (`unfold_spiral_density`).
 !

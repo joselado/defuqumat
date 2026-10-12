@@ -1,6 +1,6 @@
 """Which of the four directions a noncollinear SCF is slow in -- F2's Option 0.
 
-``MAGNETISM-NEXT.md`` item F has stayed open because the question is put one
+``notes/MAGNETISM-NEXT.md`` item F has stayed open because the question is put one
 level too low: what decides how fast a damped fixed-point iteration converges is
 not the mixer but the spectrum of the map the mixer damps, and in a noncollinear
 cell there are four directions in that spectrum with four different physical

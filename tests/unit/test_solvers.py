@@ -360,7 +360,7 @@ def test_a_donated_start_is_consumed_and_rebuilt_for_the_retry(silicon,
                                                                 monkeypatch):
     """``psi0_again`` donates ``psi0`` and hands the retry a fresh copy.
 
-    ``GPU-MEMORY-NEXT.md`` item 11: the streamed solve donates each chunk's
+    ``notes/GPU-MEMORY-NEXT.md`` item 11: the streamed solve donates each chunk's
     starting block, so the fast pass writes its states into that buffer. The
     robust retry cannot start from a deleted array, so it calls ``psi0_again``
     -- which this test forces by the same ``NaN`` route as the test above, and

@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 5, GPU half: the response path on a device.
+# notes/GPU.md Phase 5, GPU half: the response path on a device.
 #
 # Everything measured on a GPU so far is the ground state. This is the half
 # CLAUDE.md's "Why JAX" lists as reason **one** -- the dielectric tensor, the
@@ -76,7 +76,7 @@ run () {  # run <case> <property> <timeout-seconds>
 }
 
 # Cheapest and least taped first, so that a job which runs out of time still
-# answers the questions in the order GPU.md asks them.
+# answers the questions in the order notes/GPU.md asks them.
 run si2-nc-stress  force       600     # reverse, small: the control
 run si2-nc-stress  stress      900     # reverse through the radial transforms
 run si-epsilon     dielectric  1800    # forward, norm-conserving (P24)

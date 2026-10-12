@@ -29,7 +29,7 @@
 #             again at 19. The last point repeats the first, which is
 #             deliberate: E must come back to E(M) and the integrated curve to
 #             zero, and running M in two independent jobs is also the cross-job
-#             reproducibility check GPU.md Phase 0 left unrun. M is also the
+#             reproducibility check notes/GPU.md Phase 0 left unrun. M is also the
 #             commensurate antiferromagnet -- the one wavevector on the circuit
 #             a supercell could check independently. %4 caps how many run at
 #             once so one calculation does not take four GPUs' worth of the
@@ -57,7 +57,7 @@ cd "$REPO" || exit 1
 source /scratch/work/ladovj1/calculations/defumat-gpu/venv/bin/activate
 
 # Leave XLA_PYTHON_CLIENT_PREALLOCATE alone: a single-tenant job wants the
-# preallocation, which is what avoids fragmentation over a long SCF (GPU.md).
+# preallocation, which is what avoids fragmentation over a long SCF (notes/GPU.md).
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 export PYTHONPATH="$REPO"
@@ -73,7 +73,7 @@ git -C "$REPO" status --porcelain -- defuqumat tests
 
 # k_batch is set by hand rather than inherited. The platform default on a GPU is
 # the whole k axis, and 81 k-points at 64 spinor bands is far past anything
-# GPU.md has measured -- a fully batched Davidson subspace plus its real-space
+# notes/GPU.md has measured -- a fully batched Davidson subspace plus its real-space
 # boxes is tens of GB. 8 is the calibration value; raise it once one q has run.
 # dE/dq is chunked over the same k axis (--grad-k-batch, which follows
 # --k-batch when it is not given). Its backward pass carries vkb(k +- q/2) and

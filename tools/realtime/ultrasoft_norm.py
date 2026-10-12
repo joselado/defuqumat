@@ -2,7 +2,7 @@
 
 The refusal of ultrasoft and PAW datasets in real time rests on a derived term,
 ``P_kappa``, that the equation of motion gains when the overlap moves with the
-field (``HARMONICS-NEXT.md``, "What is refused"). This measures the part that
+field (``notes/HARMONICS-NEXT.md``, "What is refused"). This measures the part that
 needs no derivation: at fixed states, ``<psi|S(k + kappa)|psi>`` moves away from
 one, to first order by ``kappa . <psi|dS/dk|psi>``, which is
 ``VelocityOperator.apply_s``. Printed for each occupied band of ultrasoft

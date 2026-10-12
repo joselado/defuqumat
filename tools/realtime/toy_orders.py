@@ -1,4 +1,4 @@
-"""The check behind HARMONICS-NEXT.md: perturbative orders from a real-time run.
+"""The check behind notes/HARMONICS-NEXT.md: perturbative orders from a real-time run.
 
 A one-dimensional plane-wave model on a frozen sphere,
 

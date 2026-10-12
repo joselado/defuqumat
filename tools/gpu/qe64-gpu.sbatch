@@ -1,7 +1,7 @@
 #!/bin/bash
 # 64 atoms: defuqumat on one GPU, against Quantum ESPRESSO on CPU.
 #
-# **This comparison is the one GPU.md §2.3 forbids by default, and it is run
+# **This comparison is the one notes/GPU.md §2.3 forbids by default, and it is run
 # here deliberately and labelled rather than quietly.** The project's metric is
 # single-core defuqumat against single-core QE, precisely so that a ratio
 # measures *code* and not hardware; a GPU number against a serial CPU number

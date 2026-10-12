@@ -1,6 +1,6 @@
 """The third order of the current by nested jvp, against a finite difference in the amplitude.
 
-``HARMONICS-NEXT.md``'s ladder item 5. On zincblende AlAs at a cutoff chosen
+``notes/HARMONICS-NEXT.md``'s ladder item 5. On zincblende AlAs at a cutoff chosen
 small for it and on the two k-points of ``tests/regression/test_realtime.py``,
 ``J^(3)(t)`` from :func:`defuqumat.realtime.orders.propagate_orders` against the
 four-point stencil of full runs of :func:`defuqumat.realtime.propagate.propagate`

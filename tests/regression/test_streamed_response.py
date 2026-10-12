@@ -1,6 +1,6 @@
 """The field response walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked`). A streamed SCF
+``notes/GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked`). A streamed SCF
 store -- a numpy array in host memory -- is handed to
 :func:`~defuqumat.response.efield.dielectric_tensor` without being put on the
 device, and the response then walks the k axis: the bare perturbations, the

@@ -1,6 +1,6 @@
 """Which plane the NiBr2 helix lies in, on a three-cell supercell (P122).
 
-``ORIENTATION-NEXT.md`` step 5. The NiBr2 monolayer of the ultracell project
+``notes/ORIENTATION-NEXT.md`` step 5. The NiBr2 monolayer of the ultracell project
 (``calculations/NiBr2_ultracell``, its ``paw_n3_k3.scf.in`` unit cell: LDA, the
 fully-relativistic PAW datasets, ``ecutwfc = 45``) stacked three times along
 ``a1`` with the Ni moments 120 degrees apart, the commensurate approximant that

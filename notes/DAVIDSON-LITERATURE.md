@@ -2,7 +2,7 @@
 
 This file collects what arXiv has on speeding up and stabilising a block Davidson eigensolver
 in a plane-wave code, mapped onto `defuqumat/solvers/davidson.py` and onto the Davidson entries
-that are still open (`OPEN.md`, `GPU-SPEED-NEXT.md`, the step count against `pw.x` in
+that are still open (`OPEN.md`, `notes/GPU-SPEED-NEXT.md`, the step count against `pw.x` in
 `PERFORMANCE.md`). It is a survey taken on 2026-10-10 by reading the code, the project's notes
 and the papers. **Nothing in it was run**, so every effect it expects on defuqumat is a forecast
 until a `davidson_steps` count says otherwise.
@@ -46,7 +46,7 @@ This bears on three open items:
 - the slab's 12x against `pw.x` ("The Davidson step count against `pw.x` on a 157-atom slab" in
   `PERFORMANCE.md`, run at `david = 2`);
 - `OPEN.md` Part VII item 2, where 70 or more inner steps were seen at `ethr` 2.3e-6;
-- the hard restart at 20, 8 and 4 steps tried in `GPU-SPEED-NEXT.md`, which did nothing; it
+- the hard restart at 20, 8 and 4 steps tried in `notes/GPU-SPEED-NEXT.md`, which did nothing; it
   restarts more often, and the defect here is restarting too often.
 
 ## Strategies, ranked
@@ -107,7 +107,7 @@ This bears on three open items:
 - (b) Recompute `H|evc>` now and then. The refresh stores the rotated `hevc` (`:779`). PRIMME
   traced stagnation at `sqrt(restarts) ||A|| eps` to that rotation and cured it by recomputing
   `A V` (1607.01404).
-- What it targets: `GPU-SPEED-NEXT.md` item 7 (a `conv_thr` tighter than 1e-10, handled today by
+- What it targets: `notes/GPU-SPEED-NEXT.md` item 7 (a `conv_thr` tighter than 1e-10, handled today by
   the global `DEFUQUMAT_ETHR_MIN`) and the static float32 floor. The stall on the card is solved,
   so this is a guard against a recurrence rather than the fix for a measured defect.
 - Cost: (a) is a few scalars a step; (b) is one `h_psi` of `nbnd` bands per reset.
@@ -143,7 +143,7 @@ This bears on three open items:
   1.20x.
 
 **7. Fewer Rayleigh-Ritz steps for large cells on a card: PPCG or Chebyshev filtering.**
-- What it targets: `GPU-SPEED-NEXT.md` item 7, where the subspace `eigh` costs 1.1 s at
+- What it targets: `notes/GPU-SPEED-NEXT.md` item 7, where the subspace `eigh` costs 1.1 s at
   `m = 2048` and 7.4 s at `m = 4096` a step on the A2000, and the slab's 1020 bands. It buys
   nothing at sixteen atoms.
 - PPCG does a Rayleigh-Ritz every 5 to 10 iterations and is about 2x faster than Davidson

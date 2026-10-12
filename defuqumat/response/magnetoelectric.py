@@ -24,7 +24,7 @@ first: a non-magnetic semiconductor has no linear tensor at all, so a *large*
 external field is applied to break time reversal by hand and the derivative is
 taken against a small further change in it. The second is why the crystal must
 not be centrosymmetric -- and why a centrosymmetric magnet is not a test case
-but a zero, the trap ``ELK-FEATURES.md`` records for the piezoelectric tensor.
+but a zero, the trap ``notes/ELK-FEATURES.md`` records for the piezoelectric tensor.
 
 **Spin-orbit coupling is required and is the sharpest check.** Without it the
 spin and the lattice decouple: a global spin rotation maps ``B`` to ``-B`` and

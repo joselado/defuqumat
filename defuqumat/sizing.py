@@ -328,7 +328,7 @@ class SizeEstimate:
     #: ``S`` applied to them, and their band loop through the grid, at
     #: :attr:`band_batch`. It runs once, before the first Davidson call, and is
     #: a moment rather than a standing cost, so it enters :attr:`peak_bytes`
-    #: beside the eigensolver's buffer (`MEMORY-AUDIT.md` D10, where it set the
+    #: beside the eigensolver's buffer (`notes/MEMORY-AUDIT.md` D10, where it set the
     #: peak of the one cell measured).
     start_buffer: int = 0
     #: **One channel's starting block, beside the eigensolver's buffer.**
@@ -729,7 +729,7 @@ def estimate_size(
         # brackets with 0.00 residual, and ``columns + kg`` there is 0.6-0.7 GB,
         # which would have shown. (A13 made the mirror-image error first, by
         # counting the core as a *new* cost of the rebuilt route.)
-        # Real since ``GPU-MEMORY-NEXT.md`` item 6: the ``(-i)^l`` is kept per
+        # Real since ``notes/GPU-MEMORY-NEXT.md`` item 6: the ``(-i)^l`` is kept per
         # column and applied on use.
         "projector core columns (nk,npwx,ncs)": nk * npwx * ncs * zr,
         "projector core kg (nk,npwx,3)": nk * npwx * 3 * zr,
@@ -746,7 +746,7 @@ def estimate_size(
     }
     if nkb:
         arrays[_BEC] = in_flight[_BEC]
-    # **The per-k basis bookkeeping every Hamiltonian reads** (``GPU-MEMORY-NEXT.md``
+    # **The per-k basis bookkeeping every Hamiltonian reads** (``notes/GPU-MEMORY-NEXT.md``
     # item 24): ``|k+G|^2`` (real), the FFT index (int32) and the sphere's mask,
     # and the gamma trick's ``-(k+G)`` index where the half sphere is consumed.
     # Resident for the run in both memory modes, and one of the things that
@@ -897,7 +897,7 @@ def estimate_size(
     # where the formed maps were ``2 nh^2 nlm mesh zr``. ``nlm = (l_max_rho
     # + 1)^2`` from the header and ``mesh`` the whole radial mesh rather than
     # ``kkbeta``, because the energies are integrated to the end of it. Until
-    # ``GPU-MEMORY-NEXT.md`` item 18 the density maps were products of the two
+    # ``notes/GPU-MEMORY-NEXT.md`` item 18 the density maps were products of the two
     # factors, ``nh^2 nlm mesh`` each and 295.2 MB apiece on platinum. Counted
     # per distinct dataset with ``build_paw``'s own key, for the reason ``ncs``
     # is (P110).
@@ -982,7 +982,7 @@ def estimate_size(
         eigensolver_fixed + _boxes_in_flight(band_batch, nbnd) * band_box_bytes
     )
 
-    # **The start** (`MEMORY-AUDIT.md` D10). ``starting_wavefunctions`` builds
+    # **The start** (`notes/MEMORY-AUDIT.md` D10). ``starting_wavefunctions`` builds
     # the atomic span -- ``natomwfc`` vectors, topped up with random ones to
     # ``nbnd`` -- and ``rayleigh_ritz`` applies ``H`` and ``S`` to it, so three
     # blocks of ``max(natomwfc, nbnd)`` vectors, the span itself whole-k unless
@@ -1334,7 +1334,7 @@ def choose_band_batch(system, pseudos, nbnd: int | None = None,
     is one k-point's working set, and the largest term of that is the band
     loop through the grid -- ``2 b npol N_smooth`` complex numbers at ``b``
     bands in flight, 66.9 GB at every band against 2.65 GB at 16 on the 45-atom
-    NiBr2 slab (``GPU-MEMORY-NEXT.md`` item 9). This sizes the run once at the
+    NiBr2 slab (``notes/GPU-MEMORY-NEXT.md`` item 9). This sizes the run once at the
     memory preset's other dials and re-evaluates it at each ``b``
     (:meth:`SizeEstimate.at_band_batch`, arithmetic only).
 

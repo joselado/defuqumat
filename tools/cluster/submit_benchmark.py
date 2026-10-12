@@ -143,7 +143,7 @@ def write_script(leg: str, case_names: list[str], arguments) -> Path:
     titles = {
         "qe": "Quantum ESPRESSO on one core -- the baseline the CPU claim is against.",
         "cpu": "defuqumat on one core -- the project's own metric, beside the QE array.",
-        "gpu": "defuqumat on one GPU -- against the CPU array, per SCF iteration (GPU.md 2.3).",
+        "gpu": "defuqumat on one GPU -- against the CPU array, per SCF iteration (notes/GPU.md 2.3).",
     }
     text = HEADER.format(
         title=titles[leg],

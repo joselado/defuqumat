@@ -1,6 +1,6 @@
 """A long band path in memory mode is built a block of points at a time.
 
-``GPU-MEMORY-NEXT.md`` item 6. Moved onto with ``at_kpoints``, a band path held
+``notes/GPU-MEMORY-NEXT.md`` item 6. Moved onto with ``at_kpoints``, a band path held
 every point's per-k tables on the device while its streamed solve walked the
 points in chunks -- 1.65 MB a point on the NbSe2 monolayer. Where the store
 streams and the tables would pass ``KSET_BLOCK_BYTES``,

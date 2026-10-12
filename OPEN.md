@@ -2,7 +2,7 @@
 
 What is known to be wrong or missing and is **not this-session work**. Each entry
 says what to do about it, what it costs, and how to know it worked. The evidence and
-the numbers stay in `PLAN.md` §3; `GAPS.md` is the separate list of what a *user* can
+the numbers stay in `PLAN.md` §3; `notes/GAPS.md` is the separate list of what a *user* can
 ask for and not get, and these are mostly internal.
 
 **Part I** is the three items carried out of the 2026-09-10 regression run and the
@@ -311,7 +311,7 @@ differ by 6% where they differed by 62%. The stress agrees to **12 significant f
 the residual is the different contraction order. Gate: 1945 passed, 176 skipped, 0
 failures, 9m54s.
 
-**What is still open** is `MEMORY-AUDIT.md` A12, which asks for `density_ae`/`density_ps`
+**What is still open** is `notes/MEMORY-AUDIT.md` A12, which asks for `density_ae`/`density_ps`
 to be *factored* rather than merely passed: they are themselves a rank-1 outer product, 553
 MB per Ni species, and passing an array as an argument does not make it smaller. And the
 shape is worth looking for elsewhere -- both arrays removed here were an `einsum` writing a
@@ -395,10 +395,10 @@ and none of those numbers has been produced.
 **Verification.** Entries marked **[opened here]** were read in the source in the main
 loop, not only by the reporting agent. The rest carry the agent's `file:line` and are
 specific enough to act on and specific enough to be wrong -- check before building on
-one, the same rule `GAPS.md` states.
+one, the same rule `notes/GAPS.md` states.
 
-**Excluded.** The agents were handed `PLAN.md` §3's outstanding index, `GAPS.md` §3,
-`HOLES.local.md` and Part I above, and told that a known item counts only if the
+**Excluded.** The agents were handed `PLAN.md` §3's outstanding index, `notes/GAPS.md` §3,
+`notes/HOLES.local.md` and Part I above, and told that a known item counts only if the
 *recorded claim itself* is wrong. §F is what came back on that filter.
 
 ---
@@ -504,7 +504,7 @@ helix work, which is the reason it is first.
 across the response stack** -- `efield.py:280` and `:524`, `phononq.py:462` and `:951`,
 `velocity.py:450`, `sternheimer.py:1199`, `electrostriction.py:299`, `:331`, `:447` and
 `:607` -- so each falls back to `self.magnetic_field`, the field the *input* asked for.
-This is `GAPS.md` §0's `DFTSource` defect one layer over, in a place the 2026-09-01 fix
+This is `notes/GAPS.md` §0's `DFTSource` defect one layer over, in a place the 2026-09-01 fix
 did not look, and it is wider there than it was here.
 
 Converge an `nspin = 2` run with `B_field` along z under Elk's `reducebf` or the
@@ -932,7 +932,7 @@ The trap `CLAUDE.md` added most recently, and Part I item 1 is the same family.
 > figure is: 20,206 M at `0da2922` against 20,120 M at `09cf109`, 0.4 per cent
 > apart, with runtimes of 313.42 s and 312.17 s. So the peak is the file's own
 > and predates the continuation work that found it. What has *not* been done is
-> to ask where 20 GB goes on a cell this size, which is a `MEMORY-AUDIT.md`
+> to ask where 20 GB goes on a cell this size, which is a `notes/MEMORY-AUDIT.md`
 > question and is the reason this is an entry rather than a note.
 
 
@@ -1249,7 +1249,7 @@ as a closed question.
 1. **`PLAN.md` §3's outstanding index**, the piezoelectric entry -- "every soft dataset
    committed here is centrosymmetric" is false (E1). The blocker is an input file, not a
    pseudopotential.
-2. **`GAPS.md:391-404`**, "Projected DOS + noncollinear / spin-orbit" -- says the whole
+2. **`notes/GAPS.md:391-404`**, "Projected DOS + noncollinear / spin-orbit" -- says the whole
    spinor regime is refused at `projections.py:163` and names three missing pieces, two
    of which P69 landed and validated against `projwfc.x`. `projections.py:227` now ends
    with *"lspinorb = .true. is implemented and validated against projwfc.x"*, and
@@ -1880,7 +1880,7 @@ batch is one (`scf/density.py:61-66`), and `resolve_plane_chunk` returns `None` 
 the CPU (`batching.py:855-856`), so a card still scatters every band into the whole box while
 `h_psi` takes the sticks; a gamma-only run does too (`density.py:61` requires no `fft_index_minus`).
 The card half is worth little on the one card measured (sticks against box over a whole iteration:
-63.9 against 70.3 ms at 16 atoms, 1424 against 1423 at 64, `GPU-SPEED-NEXT.md` item 6), so it
+63.9 against 70.3 ms at 16 atoms, 1424 against 1423 at 64, `notes/GPU-SPEED-NEXT.md` item 6), so it
 waits with the layout decision for a float64 card.
 
 `defuqumat/scf/density.py:62`. `band_density`'s `one_band` scatters into a full `(n1,n2,n3)`
@@ -2092,7 +2092,7 @@ the *x* run was the accurate one at 1e-10 and the other two were stopping short.
 **Why `dr2` did not see it.** `rho_ddot` weights the charge residual by `1/G^2` and the
 magnetization residual by a constant -- a factor of 13.6 apart at `G_min` on
 `fe-mag-1k` -- so on a magnetic cell an `accuracy` below `conv_thr` bounds the moment much
-more weakly than it bounds the charge. `<L>` is a moment. This is `NONCOLLINEAR.md` item
+more weakly than it bounds the charge. `<L>` is a moment. This is `notes/NONCOLLINEAR.md` item
 18's prediction, found in the wild the same day the split that measures it landed: the two
 halves are now on `scf.history` as `charge_accuracy` and `magnetic_accuracy`.
 
@@ -2487,7 +2487,7 @@ A negative is a result: this is where **not** to look.
   `jax.vmap` call site in the package was grepped: **none walks the k axis by hand.** The
   only vmaps in the hot path are over the spin axis, already measured free at width one
   (true of one channel; at `nspin = 2` the density's vmap keeps both channels' boxes in flight,
-  `MEMORY-AUDIT.md` A15, still open on 2026-10-03).
+  `notes/MEMORY-AUDIT.md` A15, still open on 2026-10-03).
 - **The SCF driver's iteration body** -- `next_ethr` has all three of `electrons.f90`'s
   details (reset at iteration 2, monotone `min`, 1e-13 floor) and takes the absolute
   iteration number across a resume; the attempt loop reproduces `electrons.f90:890-908`
@@ -2790,7 +2790,7 @@ that would otherwise have gone stale silently:
   the **first potential build** and does not care how the run ends, so a scheme that cannot
   converge is fine there and is not fine in a committed input.
 
-`PLAN.md` P79, `docs/features.tex` and `NONCOLLINEAR.md` all cite the file for the 0.55
+`PLAN.md` P79, `docs/features.tex` and `notes/NONCOLLINEAR.md` all cite the file for the 0.55
 degrees; each now names the scheme the number belongs to.
 
 ### The original entry
@@ -2819,8 +2819,8 @@ each other's contradiction and both are committed.
 `tests/regression/test_holding_a_texture.py` reads the text and **rewrites** it to
 `'atomic'` at `lambda = 10` -- the scheme that does converge, and the one P79's 0.55
 degrees per site was measured with -- and `tests/unit/test_magnetic_fields.py` only parses
-it. So the input is referenced by two test files, `PLAN.md`, `NONCOLLINEAR.md`,
-`MAGNETISM-NEXT.md` and `docs/features.tex`, and run as committed by none of them.
+it. So the input is referenced by two test files, `PLAN.md`, `notes/NONCOLLINEAR.md`,
+`notes/MAGNETISM-NEXT.md` and `docs/features.tex`, and run as committed by none of them.
 
 **What to do**, and it is a choice rather than a fix:
 
@@ -3547,7 +3547,7 @@ run the instrument on that slab past the `ethr` tightening on an A100 and an H10
 > `DEFUQUMAT_STAGE_PEAKS=1`, bracketing every stage with `peak_bytes_in_use`: whatever holds 79
 > GB has to appear between one of those pairs.
 >
-> **Two things about that instrument, both from 2026-09-14 and both in `MEMORY-AUDIT.md`
+> **Two things about that instrument, both from 2026-09-14 and both in `notes/MEMORY-AUDIT.md`
 > A17.** `DEFUQUMAT_STAGE_PEAKS` is in **no committed file** in this repository, so every
 > bracketed number in the record rests on a patch that lives only on Triton and that nobody
 > here can read. And the brackets were suspected of depressing the peak they measure, which
@@ -3689,7 +3689,7 @@ afterwards, so the arena does not grow with the step count on this cell.
 
 **Done the same day for one of the two copies** (`ffdeac4`). The output no longer needs a buffer
 of its own: `Calculation.diagonalize` donates the slice to the solve through the existing
-`psi0_again` route (`GPU-MEMORY-NEXT.md` item 11, until now used only by the streamed store), and
+`psi0_again` route (`notes/GPU-MEMORY-NEXT.md` item 11, until now used only by the streamed store), and
 the retry re-slices `psi0`, which the caller still holds, so it starts from the same bits.
 Measured on D22's A2000 on `review/vii1/ni-smoke.in` (`tools/gpu/stage_peaks.py`, three
 iterations, `rebuild`, band batch 4, `david 2`, `01700c4` against `ffdeac4`): the solver used to
@@ -3711,7 +3711,7 @@ per cent is named.
 ## 2. `diago_david_ndim = 2` may degrade at the minimum subspace once `ethr` tightens **[measured 2026-10-09 at `aa08c82`: on `si16-1k-ecut30` it does not, at most 6 steps a call against `pw.x`'s 5; 2026-10-10, branch `decided-j`: the collapse is `cegterg`'s `nbase + notcnv > nvecx` now, 28 to 22 steps at `ndim = 2` on that cell, 27 to 19 on `si8-smeared-1k`, and `al-slab` at `ndim = 2` from 1.4e-5 Ry off to 7e-9 from `pw.x`]**
 
 **2026-10-10, branch `decided-j`: the collapse condition was not `cegterg`'s, and is now.**
-`DAVIDSON-LITERATURE.md` ("The collapse condition is not `cegterg`'s") found that the solver
+`notes/DAVIDSON-LITERATURE.md` ("The collapse condition is not `cegterg`'s") found that the solver
 collapsed its subspace on `nbase + nbnd > nvecx` where `cegterg.f90:580-581` and
 `regterg.f90:496-497` collapse on `nbase + notcnv > nvecx`. Between collapses that kept
 `floor((nvecx - 2 nbnd)/notcnv) + 1` expansions against `cegterg`'s `floor((nvecx - nbnd)/notcnv)`,
@@ -3719,7 +3719,7 @@ so at `ndim = 2` every step after the first collapsed whatever `notcnv` was. (H5
 `PERFORMANCE.md`'s 2026-09-16 section, called the `nbnd` form `cegterg`'s; it is not, and the
 `PERFORMANCE.md` sentence is corrected.) The cause was the write: a `(nbnd, npwx)` block put with a
 `dynamic_update_slice` past `nvecx - nbnd` is moved back onto live rows rather than truncated. The
-user chose `DAVIDSON-LITERATURE.md`'s fix (b), the one with no extra memory, and the form landed is
+user chose `notes/DAVIDSON-LITERATURE.md`'s fix (b), the one with no extra memory, and the form landed is
 the review's route-independent variant of it rather than the band-rung one: the block is written
 where the clamp would put it, shifted down inside it so the live rows in front are kept, and the
 zero rows that fall off the end are dropped (`davidson._write_rows`), with the same placement for
@@ -3816,7 +3816,7 @@ subspace solve parked its unused rows one above a bound of the live block (`90e2
 inner steps against `ethr` at `ndim` 2, 3 and 4 on `si16-1k-ecut30`, has never been taken, and it
 is the first step at master. The nearest data are 9 to 20 steps a call at `david` 2 and 3 in the
 pre-fix replay and small cells at `david = 2` taking 2.2 steps against `pw.x`'s 2.8
-(`GPU-SPEED-NEXT.md` item 7).
+(`notes/GPU-SPEED-NEXT.md` item 7).
 
 Observed on the same run: 70+ Davidson inner steps per k-point at `ethr` 2.3e-6, against
 2.0 at the loose starting threshold. `ndim = 2` is what a memory-constrained cell is forced
@@ -4955,7 +4955,7 @@ this commit, which is the only thing that can close this item.
 
 Measured on Triton (jobs `20336374`, `20336476` and the ladder `20337789`,
 `tools/cluster/piezo_measure.py`), and the full tables are in
-`AUDIT-2026-09-18.md` `drift.3` and `PLAN.md` P50. **The entry opened as "two
+`notes/AUDIT-2026-09-18.md` `drift.3` and `PLAN.md` P50. **The entry opened as "two
 routes disagree by 13 per cent" and the ladder says which one was wrong.** On
 norm-conserving AlAs, `e_14` in C/m^2:
 
@@ -5505,7 +5505,7 @@ why it lives in the cluster array).
 Re-checked first: the three things "What is still open" listed are each answered above (the
 `10 10 10` rung, the ultrasoft refusal turned into `ULTRASOFT_MESH`, and the refusal text, which no
 longer names `strain.py`), and what was left is the first of them, whether the response route's
-`e_14` reaches the Berry value or stops 1.2 per cent short of it, which `AUDIT-2026-09-18.md`
+`e_14` reaches the Berry value or stops 1.2 per cent short of it, which `notes/AUDIT-2026-09-18.md`
 extrapolated to a stop near -0.6691 and attributed to nothing. Today's code, the contracted route
 (`method = 'zstar_eu'`, identical to the taped one to 1.9e-14 on this cell), whole grids,
 `review/open-c/piezo_rungs.py`; the Berry difference is `tools/cluster/piezo_measure.py` with
@@ -5873,7 +5873,7 @@ piezoelectric mesh refusal), and it is not chased here.
 
 ## 1. `dH/dk` at a reciprocal-lattice point is wrong on every `l = 1` channel **[closed 2026-09-20, route A: the ratio goes 0.3695 to 1.0000 and no primal moves]**
 
-`AUDIT-2026-09-20.md`'s `defuqumat/basis/gvectors.py:117`, reproduced and
+`notes/AUDIT-2026-09-20.md`'s `defuqumat/basis/gvectors.py:117`, reproduced and
 measured rather than fixed, because the repair is a choice between two routes
 that differ in kind (below).
 
@@ -6023,7 +6023,7 @@ effective mass differences a `jvp`, on a stencil that excludes its centre).
 
 ## 2. The saturated-point mask in `spin_energy_density` zeroed the *first* derivative, and it was worth 11.3 kbar and a sign on the stress of a fully polarized cell **[closed 2026-09-21, the stress now reproduces `pw.x` to every printed digit]**
 
-`AUDIT-2026-09-20.md`'s `defuqumat/xc/functional.py:487`, reproduced and measured. It is a
+`notes/AUDIT-2026-09-20.md`'s `defuqumat/xc/functional.py:487`, reproduced and measured. It is a
 wrong answer on a committed input rather than a nuisance, and the number that says so is
 `pw.x`'s own stress on `tests/data/qe/h-atom-lsda.in`.
 
@@ -6722,7 +6722,7 @@ distinct datasets with `_projector_dataset_key` and `_paw_dataset_key`.
   `si2-nosym` has one label. `batching.py:583`'s comment still says one column per
   species channel.
 
-## 4. The Calculator facade builds its own `Calculation` per `get_*` call **[closed 2026-09-28/29, `GPU-MEMORY-NEXT.md` item 20]**
+## 4. The Calculator facade builds its own `Calculation` per `get_*` call **[closed 2026-09-28/29, `notes/GPU-MEMORY-NEXT.md` item 20]**
 
 **Closed.** `at_kpoints` keeps `projectors = "rebuild"` since 2026-09-28, and the facade now
 passes its own `Calculation` to bands, NSCF, DOS, PDOS, STM, STS, both transports, the
@@ -7339,7 +7339,7 @@ Ry was a total energy, and the shell is there on its cell too, at a size an ener
 does not rule out. The change, keeping the transverse pair on the laboratory sphere, is planned in
 `plans/open-a-xxi1.md` and not made.
 
-Found while building the source for `ORIENTATION-NEXT.md` step 2. The four-cell cobalt
+Found while building the source for `notes/ORIENTATION-NEXT.md` step 2. The four-cell cobalt
 helix converged in its one-atom cell by the generalized Bloch theorem
 (`co-helix4-spiral.in`: tetragonal cobalt, `Co.pbe-nd-rrkjus.UPF`, `ecutwfc = 20`,
 `ecutrho = 160`, `q = -b3/4`, `3 3 4` grid, 19 iterations to 4.8e-11) and unfolded onto
@@ -7819,7 +7819,7 @@ is not the k-mesh: it is the reverse-mode tape through `H psi` for 432 spinor ba
 lever they name, and leave to this project, is `jax.checkpoint` on the band-batched
 `hamiltonian.apply`, so the backward pass recomputes each batch rather than storing it; the
 number to take first is the compiled `memory_analysis()` of the gradient at `1 1 1` with
-and without it, which `MEMORY-AUDIT.md`'s augmentation-table remat is the precedent for.
+and without it, which `notes/MEMORY-AUDIT.md`'s augmentation-table remat is the precedent for.
 **Their workaround, and it is a validated one**: an energy-only scan at fixed rigid
 rotations (`_reference_texture`, `_with_rotation`, `rotate_texture` on the density and
 `becsum`, `fixed_density_states`, `F = sum w eps - TS`), which on the three-cell helix
@@ -7871,8 +7871,8 @@ Two smaller things from the same runs, recorded as reported:
 
 Nine read-only agents, three weeks and about 700 commits after Part III. Two re-read every
 listed optimisation item against the code, 122 in all: Part III, Part VII item 2 and Part VIII
-item 4 here, `PERFORMANCE.md`'s backlog, `MEMORY-AUDIT.md`, `GPU-MEMORY-NEXT.md` and
-`GPU-SPEED-NEXT.md`. Five swept one subsystem each for what none of those lists has (the SCF
+item 4 here, `PERFORMANCE.md`'s backlog, `notes/MEMORY-AUDIT.md`, `notes/GPU-MEMORY-NEXT.md` and
+`notes/GPU-SPEED-NEXT.md`. Five swept one subsystem each for what none of those lists has (the SCF
 hot path, the response stack, setup and compilation, the derivatives and post-SCF workflows,
 the pools and the accelerator paths), and two verifiers opened every cited line of the 30
 candidates and tried to refute each. 21 were confirmed, 7 confirmed in part with a corrected
@@ -7889,9 +7889,9 @@ so the response comes first: it is where the largest measured ratio against QE i
 
 **The reconciliation is applied where the items live** and is not repeated here: each Part III
 entry carries its status in its heading and in Part III's status paragraph of 2026-10-03, and
-the backlog, `MEMORY-AUDIT.md` and the two GPU handoffs carry dated marks. The records it found
+the backlog, `notes/MEMORY-AUDIT.md` and the two GPU handoffs carry dated marks. The records it found
 wrong, as distinct from stale: Part III H2 was closed on a commit that changed a different
-loop; backlog item 7 named the force's cache as the stress's; `MEMORY-AUDIT.md` D3 said QE's
+loop; backlog item 7 named the force's cache as the stress's; `notes/MEMORY-AUDIT.md` D3 said QE's
 mixer history is the size of this code's, which holds at dual 4 only; three sentences in
 `PERFORMANCE.md` and `PLAN.md` called the response's `tr2` the same as `ph.x`'s, which item 1
 shows it is not; backlog item 4 read 617 ms of a profiler annotation as transfer cost, which
@@ -7930,7 +7930,7 @@ in units of `alat` (`dvpsi_e.f90:83`) where this code is Cartesian, which moves 
 `|at_i|^2` in units of `alat`, under one pass: 1/2 on fcc, 1 on sc, 3/4 on bcc, and not a scalar
 at all on a non-cubic cell (corrected 2026-10-03 from "about `alat^2`", which was wrong: `tpiba`
 carries the `alat`; measured on si-epsilon as a constant 2.00 over the first four passes). The q-phonon's `max |dV|^2` is a sibling with a smaller gap,
-about five decades on 20^3 silicon. `AUDIT-2026-09-20.md` (around its line 857) found the
+about five decades on 20^3 silicon. `notes/AUDIT-2026-09-20.md` (around its line 857) found the
 field's site and it was never carried into a record.
 
 **Fix.** Converge on what `ph.x` converges on: `dr2 = sum(diff^2) / (2 npert nnr nspin_mag,
@@ -8065,7 +8065,7 @@ host vectors of every perturbation's grid concatenated: `16 P nspin_mag nnr x 8`
 halves) and 9 for the strain, three of which are duplicates inside one Anderson fit. Each
 `mix` also makes two whole flat copies. `ph.x` keeps `nmix_ph = 4` (`phq_readin.f90:258`) per
 irreducible representation, on disk when `flmixdpot` is set (`mix_pot.f90:101-115`). No record
-sizes this history: `MEMORY-AUDIT.md` names the field's as live, and Part III S2 sizes only the
+sizes this history: `notes/MEMORY-AUDIT.md` names the field's as live, and Part III S2 sizes only the
 SCF's.
 
 **Fix.** Pass `history` through `ResponseMixer` (`get_mixer` already takes it) and default it to
@@ -8095,7 +8095,7 @@ tangent per chunk, where the walked field and strain routes put the chunk outer
 transforms, the core charge and the augmentation inside a program run once per chunk per
 tangent, all of it independent of k. The loop order is confirmed. What the rebuild is worth is
 not: XLA may merge the repeated primals inside the one `jit`, and the one sibling cost measured,
-`newd` per chunk, is a null at 0.2 per cent (`GPU-MEMORY-NEXT.md`).
+`newd` per chunk, is a null at 0.2 per cent (`notes/GPU-MEMORY-NEXT.md`).
 
 **Fix.** (1) Chunk outer and tangents inner, so arguments and uploads are built once per chunk
 per pass; bit-identical, since the per-tangent sums keep their chunk order. (2) Have the global
@@ -8136,7 +8136,7 @@ neither. In memory mode both take the chunked route and repeat the same forward 
 
 **Fix.** Make every geometry-dependent leaf an argument of both gradients (the cell, the
 positions, `vloc_species`, `rho_core_species`, the Ewald and dispersion lists, `wfcU`), which
-is partitioning the calculation's array leaves, the option `GPU-MEMORY-NEXT.md` item 17 did not
+is partitioning the calculation's array leaves, the option `notes/GPU-MEMORY-NEXT.md` item 17 did not
 take; then remove the pop and key the stress cache as the force's. The Ewald list has to be
 padded to a fixed count over the trajectory under its `rmax` mask, or the gradients retrace
 whenever the count changes. With the cell an argument, one `value_and_grad` of `E(tau, eps)`
@@ -8278,7 +8278,7 @@ are about the spiral, whose sphere moves.
 1e-6 in that case, or the floor-and-redo logic still starts from 1e-2. Not for a rebuilt basis
 and not for `relax_spiral_q`; the Davidson path only, since a residual solver starts its own.
 The trade is one more wavefunction set alive until the first Rayleigh-Ritz releases it, the
-object `MEMORY-AUDIT.md` A2 sized at 7.7 GB on the 45-atom slab when it was held for a whole
+object `notes/MEMORY-AUDIT.md` A2 sized at 7.7 GB on the 45-atom slab when it was held for a whole
 step; here it lasts one stage.
 
 **Bound.** Unbounded: no per-step SCF count of a relaxation against `pw.x` is on record.
@@ -8312,7 +8312,7 @@ the `q_ij(b)` cache on the source's `_base()` calculation, an ordinary object th
 whole workflow (an `eqx.Module` with array leaves is not a reliable weak key). Bit-identical.
 
 **Bound.** `newd` with its tangent is 36.7 ms a call on ultrasoft eight-atom silicon
-(`GPU-MEMORY-NEXT.md`, an overstatement of the forward `newd`), a streamed Wilson-loop row 0.16 s
+(`notes/GPU-MEMORY-NEXT.md`, an overstatement of the forward `newd`), a streamed Wilson-loop row 0.16 s
 on `si8-us` (`PLAN.md` P16), and `v_of_rho` 8.0 ms on sixteen atoms (Part III H4). Different
 machines and dates, so no ratio is claimed. On a norm-conserving cell only the potential and the
 interpolation are saved.
@@ -8370,7 +8370,7 @@ All four call `fixed_density_states` with no `calculation=`, so the constructor 
 direction of `run_anisotropy` and once per step and curvature one-shot of `relax_orientation`.
 Turning already requires `nosym`, so the k-set, both G sets, the projector core, the local
 potential and the augmentation and PAW tables are the same at every orientation.
-`GPU-MEMORY-NEXT.md` item 20 says only the force theorem builds its own; three more do, and
+`notes/GPU-MEMORY-NEXT.md` item 20 says only the force theorem builds its own; three more do, and
 `get_nesting` builds two (`workflows/nesting.py:100`, `:137`). There is no compile saving for the
 potential: it is a module-level `jit` keyed on shapes and statics, so an LDA already reuses it
 and a GGA recompiles through its static `quantization_axis` whatever is shared (no longer:
@@ -8466,7 +8466,7 @@ Loewdin copies beside them, and copies the result to the host, in every memory m
 projected DOS stopped doing exactly this in `ed1ef29` by building a block of k-points at a time
 on `at_rows`. Separately, at `nspin = 1` the loop at `:333-335` calls `project(0, slice(None))`
 twice, once per spin component, so the same `(nk, nbnd, natomwfc)` projection is computed a
-second time and both copies have their weights halved. `GPU-MEMORY-NEXT.md` item 4 counts the
+second time and both copies have their weights halved. `notes/GPU-MEMORY-NEXT.md` item 4 counts the
 site moments among the consumers that walk the chunks, which is true of the states and not of
 the projectors.
 
@@ -8475,7 +8475,7 @@ does (round-off); reuse the first projection for the second component at `nspin 
 (bit-identical, half the projection work).
 
 **Bound.** The PDOS sibling: eight-atom silicon at 20 Ry, nosym, 216 k-points, 645.6 MB to
-96.2 MB on the card (`GPU-MEMORY-NEXT.md`, `ed1ef29`). The `nspin = 1` half is one projection pass
+96.2 MB on the card (`notes/GPU-MEMORY-NEXT.md`, `ed1ef29`). The `nspin = 1` half is one projection pass
 a call, unbounded on record.
 
 **Measure.** `si8-ecut20-nosym-k3.in` with a 6x6x6 mesh, `get_angular_momenta()` on D22's card in
@@ -8640,7 +8640,7 @@ on `ngm0 = ngms` (`mix_rho.f90:132`), and the components between `ngms` and `ngm
 linearly and never stored (`high_frequency_mixing`, `scf_mod.f90:549-553`, called at
 `mix_rho.f90:548`). With the dense sphere about 0.52 of the box, `pw.x`'s entry is a fraction of
 about `(4/dual)^1.5` of this code's: the same at dual 4, which is the only case
-`MEMORY-AUDIT.md` D3's "within 5 per cent" covers (corrected there), and about 0.41 at the NiBr2
+`notes/MEMORY-AUDIT.md` D3's "within 5 per cent" covers (corrected there), and about 0.41 at the NiBr2
 slab's dual of about 7.5, the cell D3 itself sizes.
 
 **Fix.** Keep and fit the history in G on the smooth sphere (half of it, the density being real),
@@ -8652,7 +8652,7 @@ on a magnet with more than one basin it can move the converged energy. The compa
 `pw.x`'s iteration counts and energies, with an ultrasoft or PAW cell, whose augmentation charge
 has G beyond `ngms`, as the case that matters.
 
-**Bound.** Memory, by arithmetic: 3.46 GB of history on the 45-atom NiBr2 slab (`MEMORY-AUDIT.md`
+**Bound.** Memory, by arithmetic: 3.46 GB of history on the 45-atom NiBr2 slab (`notes/MEMORY-AUDIT.md`
 D3), about 1.4 GB in G; the 157-atom slab is at dual 4 and gains nothing. Host memory, and under
 pools rank 0's alone. The time is unbounded: no slab iteration with a full history is on record.
 
@@ -8705,9 +8705,9 @@ NumPy store (`nscf.py:293-306`). The conductivity, SHG and shift-current workflo
 `jnp.asarray` the whole k axis of it after slicing the bands, and the TDDFT spectrum and the
 magnon response hand it to `independent_response` and `transverse_response`, which do the same.
 That puts the whole k axis back on the device, which streaming had removed, and `jnp.asarray` of
-a host array peaks at twice its size where `jax.device_put` peaks at once (`GPU-MEMORY-NEXT.md`,
+a host array peaks at twice its size where `jax.device_put` peaks at once (`notes/GPU-MEMORY-NEXT.md`,
 2026-09-29). None of the three assemblies walks k. The torque derivatives upload the whole store
-too. `GPU-MEMORY-NEXT.md` item 4 lists these workflows as done because they slice their bands;
+too. `notes/GPU-MEMORY-NEXT.md` item 4 lists these workflows as done because they slice their bands;
 the upload was not changed.
 
 **Fix.** First, bit-identical: `jax.device_put(np.ascontiguousarray(...))` where the store is a
@@ -8781,7 +8781,7 @@ all-reduced, one collective per leaf; (b) after rank 0 mixes, `pools.broadcast` 
 the broadcast is a full ring all-reduce, twice an all-gather's traffic, on the dense grid rather
 than the smooth one; (c) three `gather_k` calls, each three all-gathers, although every pool
 computes every pool's rows from the same costs, plus the flag and accuracy broadcasts.
-`PARALLEL-NEXT.local.md` gives the broadcast as the same 83 MB as the all-reduce, which is wrong
+`notes/PARALLEL-NEXT.local.md` gives the broadcast as the same 83 MB as the all-reduce, which is wrong
 on a dual-grid run. A single-precision broadcast is not proposed: rank 0 would have to round its
 own state to stay bit-identical with the others, which is what the broadcast is for.
 
@@ -8851,7 +8851,7 @@ What the agents of this sweep's follow-up found outside their items, recorded ra
   committed code never gave them. `docs/features.tex` now quotes today's peak, spin sum, tail and sum-rule
   sweep; notebook 32's "35 uA/V^2 at 4.2 eV" holds at that precision, and its outputs and notebook 30's
   were executed after `27eeaa2`. The copies of the sweep, the 35.0, the tail, the forbidden components
-  and the truncation in `test_photocurrent.py`, `NONLINEAR.md`, `photocurrent.py`, the guide and
+  and the truncation in `test_photocurrent.py`, `notes/NONLINEAR.md`, `photocurrent.py`, the guide and
   `test_conductivity.py`'s plasma frequencies are corrected to the measurement (`ef238fb`); silicon's
   antisymmetric residue stays 4.0e-13 in the guide and in notebook 30's prose where 1.8e-12 is measured,
   the same order, and was left. Notebooks 32
@@ -8865,7 +8865,7 @@ What the agents of this sweep's follow-up found outside their items, recorded ra
 - **Two failures that predate tonight**, both reproduced on master: `test_retention.py::
   test_the_field_keeps_its_commutators_only_for_a_reader` (`KeyError: 'commutators'`), and
   `test_spinor_response.py::test_the_spinor_density_weights_are_the_ground_state_s` (4.2e-17 against a
-  bound of 1e-18, below the rounding; `GPU-MEMORY-NEXT.md` already lists it).
+  bound of 1e-18, below the rounding; `notes/GPU-MEMORY-NEXT.md` already lists it).
 - **The slow set on `D22-0161`, 2026-10-04, at the integration head and against master.** 247 files at
   `30cffd2`; every file that failed was run again at the later head (`381e4fd`) and the unexplained ones
   at master (`7f6fef2`). One failure was tonight's and is fixed: `test_parallel.py::
@@ -8962,7 +8962,7 @@ What the agents of this sweep's follow-up found outside their items, recorded ra
   2026-10-06 by `d0f8492` (P134)**, the repair proposed below: on `si2-nosym` at Gamma the second
   and third derivatives against a central difference read 1.05e-8 and 1.64e-8 at `h = 3e-4`, where
   master reads 2.56e-2 and 9.28e-2 at every step. Found by the review
-  of `HARMONICS-NEXT.md` and reproduced the same day with the same script. On `si2-nosym.in`
+  of `notes/HARMONICS-NEXT.md` and reproduced the same day with the same script. On `si2-nosym.in`
   (4x4x4, `ecutwfc = 12`, starting wavefunctions, eight bands), `VelocityOperator.second_matrix_elements`
   `xx` against a central difference of `matrix_elements` at `k +- h x`: at `Gamma` the two differ by
   **3.46e-2 Ry bohr^2** in one element, on a block of Frobenius norm 5.15, the same at `h = 1e-3` and
@@ -8978,7 +8978,7 @@ What the agents of this sweep's follow-up found outside their items, recorded ra
   8.9e-9 agreement of `apply_second` with a central difference was evidently taken away from `Gamma`,
   and AlAs's 35.1 uA/V^2 has not been taken again. The repair proposed is to write the column as a
   regular solid harmonic times `g_l(q^2) = f_l(q)/q^l`, which needs no guard at any order
-  (`HARMONICS-NEXT.md`, "The row at k + G = 0"); its test is the measurement above at `Gamma`, at
+  (`notes/HARMONICS-NEXT.md`, "The row at k + G = 0"); its test is the measurement above at `Gamma`, at
   second and at third order.
 
 - **The shift current's recorded numbers do not move with the rows at `k + G = 0` rewritten

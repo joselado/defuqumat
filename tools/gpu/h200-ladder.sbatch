@@ -2,7 +2,7 @@
 # 64 and 128 atoms on one H200, against Quantum ESPRESSO on one CPU core.
 #
 # **The baseline is the softest one available and the table must say so.**
-# GPU.md §2.3 forbids quoting a GPU against single-core QE by default, because
+# notes/GPU.md §2.3 forbids quoting a GPU against single-core QE by default, because
 # the ratio then contains the hardware difference rather than the code's. It is
 # run because it was asked for; the CPU half (h200-ladder-cpu.sbatch) also runs
 # pw.x at 4, 16 and 32 cores so the single-core column can be read next to what

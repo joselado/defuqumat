@@ -130,7 +130,7 @@ def test_a_collinear_hubbard_state_promotes_into_a_spinor_run(pseudo_dir):
     # reference code has produced it: pw.x was run unseeded only and lands at
     # -171.0002509, and a pw.x run from the same starting_ns_eigenvalue lines
     # is what would say whether the state is the functional's or this code's
-    # (AUDIT-2026-09-25.md). If a change of path moves a *seeded* run to
+    # (notes/AUDIT-2026-09-25.md). If a change of path moves a *seeded* run to
     # another minimum, that is worth knowing by name.
     assert source.total_energy == pytest.approx(-171.0025527, abs=1e-6), (
         f"the seeded collinear source converged to {source.total_energy:.7f} Ry, "

@@ -9,7 +9,7 @@
 ! neighbouring k-points carries `q_ij(b)` and is wrong without it.
 !
 ! Both pseudopotentials were already committed for other cases; this is the pair
-! `NEXT-SESSION.md` identified as the one that unblocks the ultrasoft
+! `notes/NEXT-SESSION.md` identified as the one that unblocks the ultrasoft
 ! piezoelectric tensor, used here for the polarization it is built on.
 !
 ! `nosym`/`noinv` and the tight `conv_thr` for `alas-berry.in`'s reasons.

@@ -266,7 +266,7 @@ def _structure_factors_at(g, positions, membership):
     :func:`local_potential_at_q` passes ``G+q``.
 
     **Rematted, because the per-atom array is a reverse-mode residual that
-    nothing else keeps** (`MEMORY-AUDIT.md` A5). ``exp``'s VJP is ``ans * t``,
+    nothing else keeps** (`notes/MEMORY-AUDIT.md` A5). ``exp``'s VJP is ``ans * t``,
     so it saves its own output -- the ``(ngm, nat)`` array below -- while this
     function's *result* is the ``(ntyp, ngm)`` contraction on the next line,
     smaller by ``nat/ntyp``. So every geometry and strain derivative taped a

@@ -1,6 +1,6 @@
 ! benchmarks/al-slab.in with 64 bohr of vacuum in place of 16: the same five Al(100)
 ! layers, held fixed in bohr, in a cell 79 bohr long. It is the cell on which the
-! measurement in VACUUM-MIXING-NEXT.md separates the mixers: plain Anderson takes 34
+! measurement in notes/VACUUM-MIXING-NEXT.md separates the mixers: plain Anderson takes 34
 ! iterations, Kerker ('TF') 36 and local-TF 20, growing with the vacuum, where
 ! mixing_mode = 'ldos' takes 10, as it does at 16 bohr. Positions are in bohr so that
 ! the slab does not stretch with the cell.

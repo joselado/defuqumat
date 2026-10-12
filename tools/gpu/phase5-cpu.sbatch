@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 5, CPU half: the baseline the GPU number is quoted against.
+# notes/GPU.md Phase 5, CPU half: the baseline the GPU number is quoted against.
 #
 # The SAME driver on the SAME cases as phase5-gpu.sbatch, for §2.3's reason --
 # GPU defuqumat against CPU defuqumat, same input, same code -- and a separate job
@@ -7,7 +7,7 @@
 # side must be pinned to a *stated* core count.
 #
 # It also carries a second deliverable of its own, and this one needs no card at
-# all: GPU.md §4 item 3, the tape measurement per property. `phase5.py` reports
+# all: notes/GPU.md §4 item 3, the tape measurement per property. `phase5.py` reports
 # the peak host RSS over the SCF for each, which is the same measurement
 # PERFORMANCE.md's "What a stress costs" section is built from -- so these rows
 # extend that table rather than starting a new scale.

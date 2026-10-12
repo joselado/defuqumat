@@ -1,5 +1,5 @@
 ! **The nonmagnetic twin of `tests/data/qe/fe-noncolin-pbe-stress.in`**, which is
-! the deconfounder `MAGNETISM-NEXT.md` F2 Option 0 asks for and which does not
+! the deconfounder `notes/MAGNETISM-NEXT.md` F2 Option 0 asks for and which does not
 ! exist for the noncollinear cell.
 !
 ! That cell takes 43 SCF iterations where `pw.x` takes 19 at the same

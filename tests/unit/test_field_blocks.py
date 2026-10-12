@@ -1,6 +1,6 @@
 """The third-derivative drivers stack the field response's blocks once.
 
-``GPU-MEMORY-NEXT.md`` item 12. ``raman_tensors`` and ``electrostriction``
+``notes/GPU-MEMORY-NEXT.md`` item 12. ``raman_tensors`` and ``electrostriction``
 read three lists off the field response -- the bare perturbations, their
 solutions and the pre-tail solutions -- and each is a set of wavefunction-sized
 blocks. They used to be stacked while the lists stayed alive in the field's

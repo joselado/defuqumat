@@ -1,6 +1,6 @@
 """The dynamical matrix walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_phonon`). A
+``notes/GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_phonon`). A
 streamed SCF store -- a numpy array in host memory -- is handed to
 :func:`~defuqumat.response.phonon.dynamical_matrix` without being put on the
 device, and the bare perturbations, the overlap's derivatives, the solves, the

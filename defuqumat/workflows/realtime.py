@@ -9,7 +9,7 @@ calculation found sufficient for its conditions (arXiv:1609.09298: the
 spectrum "does not change" between the full evolution and the static
 ground-state potential, for one material, the LDA and one weak mid-infrared
 pulse). The update of the potential in time is a later stage of
-``HARMONICS-NEXT.md``.
+``notes/HARMONICS-NEXT.md``.
 
 **The k-set** is a whole unshifted Monkhorst-Pack grid, because the current is
 a polar vector and a wedge of the crystal's group does not sum to it, and time
@@ -537,7 +537,7 @@ def run_third_harmonic(system, pseudos, density, *, frequency: float,
     ``(chi_xxxx + 3 chi_xxyy)/(2 sqrt 2)`` in the ``x`` component of the
     current, by the intrinsic permutation symmetry of the third harmonic, and
     with it ``chi_xxyy``. One frequency per pair of runs: a spectrum is the
-    frequency-domain hierarchy's job (``HARMONICS-NEXT.md``).
+    frequency-domain hierarchy's job (``notes/HARMONICS-NEXT.md``).
     """
     options = dict(frequency=frequency, broadening=broadening, eta_t=eta_t,
                    steps_per_period=steps_per_period, kpoints=kpoints, grid=grid,

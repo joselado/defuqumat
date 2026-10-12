@@ -1,6 +1,6 @@
 """Does the P58/P59 work run on a GPU, and does it give the same number?
 
-GPU.md Phase 0's two questions, asked of the two things added since it was
+notes/GPU.md Phase 0's two questions, asked of the two things added since it was
 written: the force-theorem magnetic anisotropy (P58) and QE's ``local-TF``
 mixer (P59). Same script on both platforms, which is the harness's own rule --
 run it on a CPU first, then in ``p59-gpu.sbatch``, and diff the JSON.

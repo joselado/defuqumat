@@ -1,7 +1,7 @@
 #!/bin/bash
 # The third harmonic on CPU cores: the CPU arm of thg-gpu.sbatch, the same driver and cases.
 #
-# GPU.md §2.3 asks for the CPU side pinned to a stated core count. The default is four, which
+# notes/GPU.md §2.3 asks for the CPU side pinned to a stated core count. The default is four, which
 # is the thread count defuqumat itself narrows to and the best measured on identical cores
 # (PERFORMANCE.md, "Threads"); `-c 1` on the command line gives the single-core arm, and the
 # job prints what it got. DEFUQUMAT_THREADS=off leaves Slurm's mask as it is, so XLA's pool is

@@ -1,5 +1,5 @@
 """The external number an augmented spinor with several non-parallel moments
-has never had -- ``MAGNETISM-NEXT.md`` Q5, the largest validation gap in the
+has never had -- ``notes/MAGNETISM-NEXT.md`` Q5, the largest validation gap in the
 noncollinear stack.
 
 Everything that only turns on when a fully relativistic ultrasoft or PAW dataset

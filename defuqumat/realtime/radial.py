@@ -20,7 +20,7 @@ the regular solid harmonic (a polynomial in the components of ``q``,
 :func:`~defuqumat.pseudo.harmonics.real_solid_harmonics`) times a polynomial in
 ``|q|^2``, which has no square root, no direction and no guard anywhere, so it
 is differentiable to every order at ``k + G + kappa = 0`` as everywhere else
-(the row ``HARMONICS-NEXT.md`` has a section on). The coefficients are read off
+(the row ``notes/HARMONICS-NEXT.md`` has a section on). The coefficients are read off
 the direct transform at Chebyshev nodes, and the number of them is chosen until
 the series has converged to round-off; the table is checked against the
 transform it replaces at points the nodes do not contain

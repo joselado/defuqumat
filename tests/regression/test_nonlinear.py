@@ -456,7 +456,7 @@ def test_the_wedge_obeys_the_sum_rule_as_well_as_the_closed_grid_does():
     while every symmetry statement about the tensor stays exact: it is still
     zincblende, still permutation-symmetric, still cubic.
 
-    That is P35's lesson in a second place (``NONLINEAR.md`` 5): the symmetry
+    That is P35's lesson in a second place (``notes/NONLINEAR.md`` 5): the symmetry
     checks are blind and the sum rules bite.
     """
     wedge = _raman("alas-raman-wedge")

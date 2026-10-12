@@ -104,7 +104,7 @@ python3 performance/sets.py complete --describe    # what is in a set, and why
 |---|---|---|
 | `qe` | `pw.x`, one core, timed by its own report | — it is the baseline |
 | `cpu` | defuqumat, one core, both batching dials at QE's end | `qe`, per SCF iteration — *the project's metric* |
-| `gpu` | defuqumat, one GPU, both dials batched | `cpu`, per SCF iteration — `GPU.md` §2.3's metric |
+| `gpu` | defuqumat, one GPU, both dials batched | `cpu`, per SCF iteration — `notes/GPU.md` §2.3's metric |
 
 The report prints them as two tables and never mixes them. A GPU number put
 against single-core QE would be meaningless in the same way an unpinned CPU
@@ -201,7 +201,7 @@ figure and the report are typeset from it. To refresh it, rerun those jobs and
 rebuild the JSON — do not edit the numbers in place.
 
 **Read `PERFORMANCE.md`'s section of the same name before quoting a ratio.**
-`GPU.md` §2.3 forbids this comparison by default: one core is the softest
+`notes/GPU.md` §2.3 forbids this comparison by default: one core is the softest
 baseline available, `pw.x` saturates by ~16 cores on a single-k cell, and the
 two codes take different numbers of SCF iterations. The per-iteration column is
 the code comparison; the total is time-to-answer.

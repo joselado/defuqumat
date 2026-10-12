@@ -5,7 +5,7 @@
 conductivity, SHG and shift-current workflows, the TDDFT and magnon responses and
 the two torque energies put it on the device whole with ``jnp.asarray``, which on
 a card peaks at twice the array's size where ``jax.device_put`` of a contiguous
-array peaks at once (``GPU-MEMORY-NEXT.md``, 2026-09-29). They now go through
+array peaks at once (``notes/GPU-MEMORY-NEXT.md``, 2026-09-29). They now go through
 :func:`defuqumat.batching.upload`. The memory is measured on a card; what is
 checked here is that the helper does the right thing with each kind of input, and
 that the two torque energies, which still take a store whole, use it. The five

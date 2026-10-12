@@ -132,7 +132,7 @@ class DFTSource:
     #: The caller's own :class:`~defuqumat.scf.driver.Calculation` of this
     #: system, used as :meth:`_base` rather than a second one built beside it
     #: -- it shares the augmentation and PAW tables and keeps the caller's
-    #: memory mode (``GPU-MEMORY-NEXT.md`` item 20). ``None`` builds one.
+    #: memory mode (``notes/GPU-MEMORY-NEXT.md`` item 20). ``None`` builds one.
     calculation: object = None
 
     def __post_init__(self):
@@ -170,7 +170,7 @@ class DFTSource:
         calculation's memory mode -- memory mode on a card -- and the default
         for :func:`~defuqumat.topology.invariants.chern_number` and the orbital
         magnetization to walk their meshes a column or a plane at a time
-        (``GPU-MEMORY-NEXT.md`` item 5). False on a CPU, where the store is on
+        (``notes/GPU-MEMORY-NEXT.md`` item 5). False on a CPU, where the store is on
         the one memory there is and a column's own compiled solve is the cost.
         """
         from defuqumat.batching import resolve_wfc_store

@@ -14,7 +14,7 @@
 # single-k on purpose, which makes `k_batch` a no-op, and the k axis is exactly
 # where a GPU has something to win. Both dials are set to the batched end.
 #
-# The baseline is one CPU core (sweep-qe.sbatch), which GPU.md §2.3 forbids
+# The baseline is one CPU core (sweep-qe.sbatch), which notes/GPU.md §2.3 forbids
 # quoting by default -- it measures hardware and code together. It is what was
 # asked for; the table says so beside every number.
 #SBATCH --job-name=defuqumat-sweep-gpu

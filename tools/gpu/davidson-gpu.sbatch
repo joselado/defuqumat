@@ -1,5 +1,5 @@
 #!/bin/bash
-# GPU.md Phase 1, continued: *inside* a Davidson step, and what the guard costs.
+# notes/GPU.md Phase 1, continued: *inside* a Davidson step, and what the guard costs.
 #
 # Phase 1 profiled the SCF by stage and named what it could not resolve there --
 # "the small dense eigh and matmuls inside a lax.while_loop" -- and measured the
