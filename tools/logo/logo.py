@@ -25,9 +25,10 @@ iodine where it turns over), the atoms and the Cr to I bonds, and the wordmark.
 The icon is one CrI6 octahedron (centred on a Cr, a disc of 6.5 bohr, no wordmark,
 since at 64 px the name is noise). The banner is a strip of the honeycomb with the
 wordmark in front of it, the name alone in EB Garamond bold at 0.85 of the height,
-dark bevelled pearl type lit by the scene, carrying a moire (two triangular lattices
-of dots at a small twist, mapped once across the whole word, as a lighter graphite
-and a slight relief) and the honeycomb softened by the camera's depth of field
+dark bevelled pearl type lit by the scene, carrying a plane wave (one cosine of
+wavelength a quarter of the letter size, propagating 60 degrees from the baseline,
+mapped once across the whole word, its crests narrowed to pale blue lines with a
+slight relief) and the honeycomb softened by the camera's depth of field
 (``--wordmark acronym`` is the line "density functional quantum materials" with
 each word's first letters big; ``--banner-layout beside`` puts the ring of six to
 the left instead; ``--text-colour light`` is the pearl twin). One Blender unit is
@@ -37,8 +38,8 @@ ten bohr. ``--mask-only`` draws the wordmark alone, the letter mask that
 Dials: ``--camera icon|banner``, ``--arrows atoms+field|all|atoms|field|surface|none``
 with ``--field-sign``, ``--field-style direction|magnitude``, ``--field-tilt``,
 ``--field-thin``, ``--colour mz|tilt``, ``--text 0|1``, ``--text-style
-moire|dark|glossy|metal|flat``, ``--text-colour dark|light``, ``--text-size``,
-``--moire-period``, ``--moire-twist``, ``--moire-dot``, ``--moire-bump``,
+wave|dark|glossy|metal|flat``, ``--text-colour dark|light``, ``--text-size``,
+``--wave-length``, ``--wave-angle``, ``--wave-sharp``, ``--wave-bump``,
 ``--font`` and ``--font-small`` (presets or files), ``--wordmark``, ``--banner-layout``,
 ``--dof`` (f-stop), ``--shell 0|1``, ``--surface m|n``, ``--centre``, ``--radius``,
 ``--cr-radius``, ``--elev-icon``, ``--elev-banner``, ``--cloud-reach``, ``--lobe-reach``,
@@ -77,8 +78,8 @@ PALETTE = {
     "text": (0.10, 0.10, 0.12, 1.0),       # the wordmark when flat (an emission colour)
     "text_glossy": (0.93, 0.93, 0.96, 1.0), # the wordmark as pearl, lit by the scene
     "text_dark": (0.030, 0.032, 0.040, 1.0),   # the wordmark as dark pearl: graphite
-    "text_dark_hi": (0.22, 0.24, 0.30, 1.0),   # the lighter dots of the moire on it
-    "text_light_dots": (0.45, 0.46, 0.50, 1.0),  # the darker dots of the moire on pearl
+    "text_wave_dark": (0.50, 0.60, 0.92, 1.0),  # the crests of the wave on graphite: pale blue
+    "text_wave_light": (0.30, 0.42, 0.85, 1.0), # the crests of the wave on pearl: mid blue
     "arrow_mid": (0.86, 0.86, 0.88, 1.0),  # an arrow in the plane
     "arrow_lo": (0.10, 0.35, 0.90, 1.0),   # m_z down, or no tilt
     "arrow_hi": (0.95, 0.15, 0.10, 1.0),   # m_z up, or the largest tilt
@@ -433,29 +434,21 @@ def add_arrows(arrows, centre, radius, which, colour_by, length_scale, atom_scal
         print(f"  arrows {name}: {len(pts)} inside the disc")
 
 
-def moire_image(name, width, height, period, twist, dot=0.6, px=2048):
-    """Two triangular lattices of dots at a small twist, as a greyscale image
-    covering a box of ``width`` by ``height`` (Blender units) at ``px`` pixels
-    across: the twisted-bilayer moire. Each lattice is the sum of three cosines
-    120 degrees apart (3 at a site), rotated by half the twist either way, and a
-    dot is where that sum passes a threshold, with ``dot`` the width of the step;
-    the image is the mean of the two, so it is 1 where the dots of both lattices
-    fall together and 0 between them, and the beat has the period
-    a / (2 sin(twist / 2)). The image is kept in the .blend (packed), not on disk."""
+def wave_image(name, width, height, wavelength, angle, sharp=6.0, px=2048):
+    """A plane wave, (1 + cos(k . r)) / 2, as a greyscale image covering a box of
+    ``width`` by ``height`` (Blender units) at ``px`` pixels across, with ``k`` of
+    length 2 pi / ``wavelength`` at ``angle`` degrees from the x axis (the
+    direction it propagates in; 90 is crests parallel to the baseline, 0 crests
+    across the word), raised to the power ``sharp`` so the crests are narrow lines
+    on a dark ground rather than half the length (1 is the plain cosine). The
+    image is kept in the .blend (packed), not on disk."""
     ny = max(8, int(round(px * height / width)))
     x = (np.arange(px) + 0.5) / px * width
     y = (np.arange(ny) + 0.5) / ny * height
     X, Y = np.meshgrid(x, y)
-    k = 4 * np.pi / (np.sqrt(3) * period)
-    lattices = []
-    for sign in (-0.5, 0.5):
-        g = np.zeros_like(X)
-        for i in range(3):
-            phi = sign * np.radians(twist) + i * 2 * np.pi / 3
-            g += np.cos(k * (np.cos(phi) * X + np.sin(phi) * Y))
-        t = np.clip((g - (3 - 2 * dot)) / (2 * dot), 0, 1)
-        lattices.append(t * t * (3 - 2 * t))
-    m = 0.5 * (lattices[0] + lattices[1])
+    k = 2 * np.pi / wavelength
+    phi = np.radians(angle)
+    m = (0.5 * (1 + np.cos(k * (np.cos(phi) * X + np.sin(phi) * Y)))) ** sharp
     img = bpy.data.images.new(name, px, ny, alpha=False, float_buffer=True)
     rgba = np.empty((ny, px, 4), dtype=np.float32)
     rgba[..., :3] = m[..., None]
@@ -465,17 +458,17 @@ def moire_image(name, width, height, period, twist, dot=0.6, px=2048):
     return img
 
 
-def moire_material(root, box, period, twist, dot, bump, tone="dark"):
-    """Pearl letters carrying the moire: the base colour mixes the letter colour
-    and the dot colour (graphite and a lighter graphite for the dark tone, pearl
-    and a mid grey for the light one) by the moire image, the same image drives
-    a bump, and the coat is the pearl's. ``box`` is (x0, y0, width, height), the
-    word's extent in the wordmark root's frame, which the image is mapped onto
-    once, so the pattern runs through the whole word rather than restarting at
-    each letter."""
+def wave_material(root, box, wavelength, angle, bump, tone="dark", sharp=6.0):
+    """Pearl letters carrying a plane wave: the base colour mixes the letter
+    colour and the crest colour (graphite and a deep blue for the dark tone,
+    pearl and a pale blue for the light one) by the wave image, the same image
+    drives a bump so the crests catch the light, and the coat is the pearl's.
+    ``box`` is (x0, y0, width, height), the word's extent in the wordmark root's
+    frame, which the image is mapped onto once, so one wave runs through the
+    whole word rather than restarting at each letter."""
     x0, y0, w, h = box
-    lo, hi = {"dark": ("text_dark", "text_dark_hi"),
-              "light": ("text_glossy", "text_light_dots")}[tone]
+    lo, hi = {"dark": ("text_dark", "text_wave_dark"),
+              "light": ("text_glossy", "text_wave_light")}[tone]
     mat = material("text", PALETTE[lo], roughness=0.25, metallic=0.0)
     nodes, links = mat.node_tree.nodes, mat.node_tree.links
     bsdf = nodes["Principled BSDF"]
@@ -486,7 +479,7 @@ def moire_material(root, box, period, twist, dot, bump, tone="dark"):
     mapping.inputs["Location"].default_value = (-x0 / w, -y0 / h, 0.0)
     mapping.inputs["Scale"].default_value = (1.0 / w, 1.0 / h, 1.0)
     tex = nodes.new("ShaderNodeTexImage")
-    tex.image = moire_image("moire", w, h, period, twist, dot)
+    tex.image = wave_image("wave", w, h, wavelength, angle, sharp)
     tex.image.colorspace_settings.name = "Non-Color"
     tex.extension = "REPEAT"
     tex.interpolation = "Cubic"
@@ -509,7 +502,7 @@ def moire_material(root, box, period, twist, dot, bump, tone="dark"):
 
 def text_material(style, size_hint=1.0):
     if style == "dark":
-        mat = material("text", PALETTE["text_dark" if MOIRE["tone"] == "dark" else "text_glossy"],
+        mat = material("text", PALETTE["text_dark" if WAVE["tone"] == "dark" else "text_glossy"],
                        roughness=0.25)
         _set_input(mat.node_tree.nodes["Principled BSDF"], "Coat Weight", 1.0)
         return mat
@@ -561,7 +554,7 @@ WORDS = [("de", "nsity", "up"), ("fu", "nctional", "down"),
          ("qu", "antum", "up"), ("mat", "erials", "down")]
 
 
-MOIRE = {"period": 0.08, "twist": 4.0, "dot": 0.7, "bump": 0.08, "tone": "dark"}
+WAVE = {"wavelength": 0.25, "angle": 60.0, "bump": 0.1, "tone": "dark", "sharp": 6.0}
 
 
 def add_text(text, camera, distance, offset, size, style="glossy", align="LEFT",
@@ -574,15 +567,15 @@ def add_text(text, camera, distance, offset, size, style="glossy", align="LEFT",
     # matrix_world is not evaluated yet in a scene built this way, so it is
     # assembled from the location and the rotation set above)
     root.location = cam_matrix @ Vector((offset[0], offset[1], -distance))
-    if style == "moire":
-        # the moire is mapped onto the word's box: its advance width, and from
+    if style == "wave":
+        # the wave is mapped onto the word's box: its advance width, and from
         # the descender to the ascender (0.35 and 0.85 of the size in Garamond)
         width = text_width(text, size, FONT) if wordmark == "plain" else None
         if width is not None:
             x0 = -width / 2 if align == "CENTER" else 0.0
-            mat = moire_material(root, (x0, -0.45 * size, width, 1.2 * size),
-                                 MOIRE["period"] * size, MOIRE["twist"], MOIRE["dot"],
-                                 MOIRE["bump"], MOIRE["tone"])
+            mat = wave_material(root, (x0, -0.45 * size, width, 1.2 * size),
+                                WAVE["wavelength"] * size, WAVE["angle"], WAVE["bump"],
+                                WAVE["tone"], WAVE["sharp"])
     else:
         mat = text_material(style)
     if wordmark == "plain":
@@ -601,10 +594,10 @@ def add_text(text, camera, distance, offset, size, style="glossy", align="LEFT",
         pieces.append((rest, small, small_font, x)); x += text_width(rest, small, small_font) + gap
     total = x - gap
     x0 = -total / 2 if align == "CENTER" else 0.0
-    if style == "moire":
-        mat = moire_material(root, (x0, -0.45 * size, total, 1.2 * size),
-                             MOIRE["period"] * size, MOIRE["twist"], MOIRE["dot"], MOIRE["bump"],
-                             MOIRE["tone"])
+    if style == "wave":
+        mat = wave_material(root, (x0, -0.45 * size, total, 1.2 * size),
+                            WAVE["wavelength"] * size, WAVE["angle"], WAVE["bump"], WAVE["tone"],
+                            WAVE["sharp"])
     for i, (body, sz, font, xi) in enumerate(pieces):
         curve = text_curve(f"wordmark_{i}", body, sz, font, style)
         curve.align_y = "BOTTOM_BASELINE"
@@ -757,8 +750,8 @@ def build_scene(args):
         FONT = FONTS.get(args.font, args.font)
         PALETTE["text"] = {"dark": (0.10, 0.10, 0.12, 1.0),
                            "light": (0.88, 0.88, 0.90, 1.0)}[args.text_colour]
-        MOIRE.update(period=args.moire_period, twist=args.moire_twist, dot=args.moire_dot,
-                     bump=args.moire_bump, tone=args.text_colour)
+        WAVE.update(wavelength=args.wave_length, angle=args.wave_angle, bump=args.wave_bump,
+                    tone=args.text_colour, sharp=args.wave_sharp)
         place_text(cam, dist, frame, args.camera, extent, args.text_style, args.banner_layout,
                    args.wordmark, FONTS.get(args.font_small, args.font_small), args.text_size)
     scene.render.film_transparent = True
@@ -822,17 +815,18 @@ def main():
                    help="the words' completions, a preset or a font file")
     p.add_argument("--wordmark", choices=("acronym", "plain"), default="plain",
                    help="the name with its words' completions above and below, or alone")
-    p.add_argument("--text-style", choices=("moire", "dark", "glossy", "metal", "flat"),
-                   default="moire",
-                   help="dark pearl with the moire, dark pearl, light pearl, metal, or flat")
+    p.add_argument("--text-style", choices=("wave", "dark", "glossy", "metal", "flat"),
+                   default="wave",
+                   help="pearl with the plane wave, dark pearl, light pearl, metal, or flat")
     p.add_argument("--text-size", type=float, default=0.85,
                    help="the plain wordmark's letter size as a fraction of the banner height")
-    p.add_argument("--moire-period", type=float, default=0.08,
-                   help="the dot lattices' constant, in units of the letter size")
-    p.add_argument("--moire-twist", type=float, default=4.0, help="the twist between them, degrees")
-    p.add_argument("--moire-dot", type=float, default=0.7,
-                   help="the width of the step that makes a dot (0 is hard, 1 is the smooth sum)")
-    p.add_argument("--moire-bump", type=float, default=0.08, help="relief of the dots (0 is flat)")
+    p.add_argument("--wave-length", type=float, default=0.25,
+                   help="the plane wave's wavelength, in units of the letter size")
+    p.add_argument("--wave-angle", type=float, default=60.0,
+                   help="the direction it propagates in, degrees from the baseline")
+    p.add_argument("--wave-bump", type=float, default=0.1, help="relief of the crests (0 is flat)")
+    p.add_argument("--wave-sharp", type=float, default=6.0,
+                   help="the power the cosine is raised to; narrow crests above 1, the plain cosine at 1")
     p.add_argument("--mask-only", action="store_true",
                    help="draw the wordmark alone, for the contrast check's letter mask")
     p.add_argument("--banner-layout", choices=("behind", "beside"), default="behind",

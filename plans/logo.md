@@ -4,7 +4,8 @@ Written 2026-10-12 on `master` as a plan, reviewed by a fable subagent the same 
 the same day; the first two parts are the plan as it was carried out, and "What was
 measured" is the record. The deliverables are `docs/logo/defuqumat-icon.png` (1024 px, no
 wordmark, with 256 and 64 px copies), `docs/logo/defuqumat-banner.png` (2400 by 600, the
-wordmark in dark pearl type across a strip of the honeycomb, for GitHub's light theme) and
+wordmark in dark pearl type carrying a plane wave, across a strip of the honeycomb, for
+GitHub's light theme) and
 `docs/logo/defuqumat-banner-dark.png` (the same with pearl letters, for its dark theme),
 the input `docs/logo/cri3.in`, the SCF log `docs/logo/data/scf.log`, and under
 `tools/logo/` the five files `compute.py`, `logo.py`, `contrast.py`, `run_scf_d22.sh` and
@@ -256,6 +257,49 @@ from EEVEE contact sheets and two Cycles drafts.
   (1.09 and 2.01), which the README's `<picture>` element with a
   `prefers-color-scheme: dark` source avoids. The EEVEE drafts behind the choices: 3.5 s
   at 600 px, 8 s at 2400 px; a Cycles draft at 48 samples 69 s.
+
+## The fifth pass, 2026-10-12, the moire out and a plane wave in
+
+The owner's remark on the fourth pass was to remove the moire and put "something you
+believe would look nice", so the choice of motif was mine, and it went back to the first
+idea, a plane wave through the letters. The lattice code and its four dials are gone
+(`git show 369a02c:tools/logo/logo.py` has them); `--text-style wave` replaces
+`moire`, and the size, weight, graphite, twin and contrast check of the fourth pass
+stand.
+
+- **The wave.** One cosine, (1 + cos(k . r)) / 2, mapped once onto the word's box by the
+  wordmark root's object coordinates as the moire was, with the wavelength 0.25 of the
+  letter size (128 px on the 2400 px banner, about thirteen crests across the word and
+  two across a letter), propagating 60 degrees from the baseline so the crests cross
+  the strokes diagonally, and raised to the sixth power so a crest is a narrow line on
+  graphite rather than half the length; the crest colour is a pale blue (0.50, 0.60,
+  0.92) on the graphite letters and a mid blue (0.30, 0.42, 0.85) on the pearl twin,
+  with a bump of 0.1 so the crest catches the light. The dials are `--wave-length`,
+  `--wave-angle`, `--wave-sharp` and `--wave-bump`.
+- **What was tried and turned down**, each an EEVEE draft at 2400 px (8 s). A
+  wavelength near the letter size (0.6 to 1.4 of it, at 15 to 90 degrees) gives each
+  letter a single gradient and the word no wave, and a wavelength of a full letter size
+  along the baseline shades whole letters differently, which reads as a mistake. The
+  plain cosine (power 1) with any blue crest spends half its length on the crest and
+  turns the letters pale blue (the deep blue and power 1 drafts were judged by eye, not
+  measured). Measured on the EEVEE drafts, the pale crest at power 3 read 3.74 on white
+  where the moire draft had read 5.86, and the letters read as brushed metal; the power
+  of 6 keeps them graphite (5.24 on the draft, letters' median luminance 0.085 against
+  0.139 at power 3). A wavelength of 0.12 at 60 degrees (fine stripes, like a grating)
+  was the other candidate, and to my eye it read as a texture rather than as a wave.
+- **A trap on the way.** The first drafts all looked alike whatever the dials, and a
+  render of the letters alone with white crests showed why: the wave was there, one
+  period per letter, but a deep blue crest (0.10, 0.16, 0.48) against graphite under
+  this lighting reads as shading, not as a pattern. The way to tell a texture from the
+  lighting is a draft with the crest at white and the bump at zero.
+- **The finals** (Cycles, 256 samples, this CPU): the icon 78.7 s and again
+  pixel-identical to the committed one (restored from HEAD, as in the fourth pass); the
+  light-theme banner 256.9 s, the dark-theme twin 253.3 s. The contrast, each on its
+  own theme and against the fourth pass's letter mask (the geometry is unchanged): the
+  graphite letters **3.53 on light** (56 per cent of letter pixels at 3 or above, down
+  from 3.93 and 77 per cent with the moire, the crests being the brighter pixels), the
+  pearl ones **7.07 on dark** (98 per cent). The other theme fails as before (1.02 and
+  1.98), which the README's `<picture>` element avoids.
 
 ## What can go wrong, and did
 
