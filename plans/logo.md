@@ -3,9 +3,11 @@
 Written 2026-10-12 on `master` as a plan, reviewed by a fable subagent the same day, run
 the same day; the first two parts are the plan as it was carried out, and "What was
 measured" is the record. The deliverables are `docs/logo/defuqumat-icon.png` (1024 px, no
-wordmark, with 256 and 64 px copies) and `docs/logo/defuqumat-banner.png` (2400 by 600,
-the wordmark in pearl type across a strip of the honeycomb), the input `docs/logo/cri3.in`, the SCF log `docs/logo/data/scf.log`,
-and under `tools/logo/` the four files `compute.py`, `logo.py`, `run_scf_d22.sh` and
+wordmark, with 256 and 64 px copies), `docs/logo/defuqumat-banner.png` (2400 by 600, the
+wordmark in dark pearl type across a strip of the honeycomb, for GitHub's light theme) and
+`docs/logo/defuqumat-banner-dark.png` (the same with pearl letters, for its dark theme),
+the input `docs/logo/cri3.in`, the SCF log `docs/logo/data/scf.log`, and under
+`tools/logo/` the five files `compute.py`, `logo.py`, `contrast.py`, `run_scf_d22.sh` and
 `symmetry_ab.sh`, whose defaults are the values that made the pictures. The README shows
 the banner, and the title page of `docs/features.tex` the 256 px icon. The saved density (62 MB) and the meshes it cuts are
 regenerable and stay out of git.
@@ -188,7 +190,72 @@ as its words. What changed:
   `cos(m, z)`. The honest caption is that the arrows show the direction of a magnetization
   of a fraction of a per cent of the Cr peak.
 - **The dark-background twin of the banner is gone**: the pearl letters are lit, not
-  coloured, so one banner serves both themes, and the README is back to one image.
+  coloured, so one banner serves both themes, and the README is back to one image. (This
+  claim was false on the light theme, measured in the fourth pass below, and the twin is
+  back.)
+
+## The fourth pass, 2026-10-12, legibility and the moire
+
+The owner's remark on the third pass was that the letters are hard to see, white on a
+white background, and should be bigger and carry a motive related to the calculation,
+"maybe a plane wave"; the plan was presented first and the three choices were the
+owner's (dark letters with a moire motif; two twisted triangular lattices; 0.85 of the
+height in Garamond bold). The fine dials (period, twist, dot width, relief) were picked
+from EEVEE contact sheets and two Cycles drafts.
+
+- **Why the letters vanished, measured.** Three causes stacked. The film is transparent,
+  so GitHub's light theme supplies white wherever the honeycomb does not cover the strip,
+  and the scene covered 56 per cent of it. The letters were pearl with an albedo of 0.93
+  under a bright world, so they rendered near white. And the depth of field at f/2.4
+  turned the honeycomb behind them into a light wash: composited on white, the median
+  luminance of the strip was 0.77. The second pass's claim that lit pearl letters serve
+  both themes is therefore false on the light one, and the record of that pass says so.
+- **The check the earlier passes lacked**, `tools/logo/contrast.py`: the banner
+  composited on white and on GitHub's dark grey (`#0d1117`), the letters taken from a
+  mask render of the wordmark alone (`logo.py --mask-only`, EEVEE, 3 s), the surround a
+  ring 1.5 per cent of the height (9 px) wide around them, and the figures the WCAG
+  ratio of the two medians, (L1 + 0.05) / (L2 + 0.05), and the share of letter pixels
+  at least a ratio of 3 (the WCAG level for large text) from the ring's median. The old
+  banner read **2.03 on light** (no letter pixel reached 3) and 5.49 on dark, which is the
+  owner's remark as a number: it was a dark-theme banner. The same check on the first
+  draft of the new letters gave 5.86 on light and 1.25 on dark, the flip, which is why
+  the twin is back rather than a single banner.
+- **The letters.** The name alone in EB Garamond bold at 0.85 of the banner height (the
+  word spans rows 55 to 543 of 600 and 83 per cent of the width; at 0.62 of the height
+  the regular spanned about half), graphite (albedo 0.03) with the pearl's coat and
+  bevel, 1.2 extents in front of the honeycomb as before, and the depth of field at f/5
+  so what is behind stays structured. The vertical offset of the plain wordmark went
+  from -0.06 to 0 of the height, since at 0.85 the old offset left 91 px above the f and
+  21 below the q.
+- **The moire.** Two triangular lattices of dots at a twist of 4 degrees, each the sum
+  of three cosines 120 degrees apart (3 at a lattice site) rotated by half the twist
+  either way, a dot where the sum passes 3 minus twice the dot width (0.7) through a
+  smoothstep, the image the mean of the two; the lattice constant is 0.08 of the letter
+  size (41 px on the 2400 px banner, about five periods across the x-height), so the
+  beat `a / (2 sin(twist / 2))` is 14.3 lattice constants, 590 px, 3.4 beats across
+  the word, which is what reads as the pairing and splitting of the dots along it. The
+  image (2048 px across, packed into the scene) is mapped by the wordmark root's object
+  coordinates onto the word's box once, so one pattern runs through all nine letters
+  rather than restarting at each glyph; it mixes graphite with a lighter graphite (0.22)
+  as the base colour and drives a bump of strength 0.08. The first draft, dots of width
+  0.6 with a bump of 0.3 at a constant of 0.11, rendered as studs rather than as a
+  moire; the smooth sum (width 1.0) at 0.11 read as soft blobs; the finer, sharper
+  lattice is the pick. The twin for the dark theme is the same material with pearl
+  (0.93) and mid-grey (0.45) dots, `--text-colour light`.
+- **The finals** (Cycles, 256 samples, this CPU): the icon 79.5 s and **pixel-identical
+  to the committed one** (every channel 0 of 255 apart; the PNG bytes differ, so a bare
+  `render` shows the icon as modified in `git status`, and it was restored from HEAD), so
+  the icon, its downsamples and `features.pdf` are untouched by this pass; the
+  light-theme banner 240.5 s, the dark-theme twin 251.7 s. The contrast of the finals,
+  each on its own theme: the graphite letters **3.93 on light** (77 per cent of letter
+  pixels at 3 or above, the rest where a letter crosses a blue cloud or a Cr lobe), the
+  pearl ones **7.17 on dark** (99 per cent). The ring's median on light is 0.42 in the
+  Cycles final against 0.65 in the EEVEE draft of the same scene, so a contrast taken on
+  a draft overstates the final; which part of the scene the two engines shade apart was
+  not isolated. Each fails the other theme
+  (1.09 and 2.01), which the README's `<picture>` element with a
+  `prefers-color-scheme: dark` source avoids. The EEVEE drafts behind the choices: 3.5 s
+  at 600 px, 8 s at 2400 px; a Cycles draft at 48 samples 69 s.
 
 ## What can go wrong, and did
 

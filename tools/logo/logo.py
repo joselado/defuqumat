@@ -8,9 +8,11 @@
     $B -b --factory-startup --python tools/logo/logo.py -- build --mesh docs/logo/mesh \\
         --blend logo.blend              # the scene, to open by hand
 
-``render`` writes ``defuqumat-icon.png`` (``--icon-size``, 1024) and
-``defuqumat-banner.png`` (four times ``--size`` by ``--size``, 2400 by 600); the 256 and
-64 px icons are pillow downsamples of the first. The defaults of every dial are the
+``render`` writes ``defuqumat-icon.png`` (``--icon-size``, 1024), ``defuqumat-banner.png``
+(four times ``--size`` by ``--size``, 2400 by 600, graphite letters for GitHub's light
+theme) and ``defuqumat-banner-dark.png`` (the same with pearl letters, for its dark
+theme; the README picks by ``prefers-color-scheme``); the 256 and 64 px icons are pillow
+downsamples of the first. The defaults of every dial are the
 values that made the committed logo, so a bare ``render`` regenerates it.
 
 The scene is a deterministic function of the files in ``--mesh`` (``surface_m.ply``,
@@ -22,16 +24,21 @@ translucent cloud of the antiparallel density, a field of direction arrows where
 iodine where it turns over), the atoms and the Cr to I bonds, and the wordmark.
 The icon is one CrI6 octahedron (centred on a Cr, a disc of 6.5 bohr, no wordmark,
 since at 64 px the name is noise). The banner is a strip of the honeycomb with the
-wordmark in front of it, pearl bevelled type lit by the scene and the honeycomb
-softened by the camera's depth of field: the line "density functional quantum
-materials" on one baseline, each word's first letters at the full size and the rest
-at half of it in italic, so the big letters read ``defuqumat`` through the line (``--wordmark acronym``; ``plain``
-is the name alone; ``--banner-layout beside`` puts the ring of six to the left
-instead). One Blender unit is ten bohr.
+wordmark in front of it, the name alone in EB Garamond bold at 0.85 of the height,
+dark bevelled pearl type lit by the scene, carrying a moire (two triangular lattices
+of dots at a small twist, mapped once across the whole word, as a lighter graphite
+and a slight relief) and the honeycomb softened by the camera's depth of field
+(``--wordmark acronym`` is the line "density functional quantum materials" with
+each word's first letters big; ``--banner-layout beside`` puts the ring of six to
+the left instead; ``--text-colour light`` is the pearl twin). One Blender unit is
+ten bohr. ``--mask-only`` draws the wordmark alone, the letter mask that
+``contrast.py`` measures the two themes' legibility with.
 
 Dials: ``--camera icon|banner``, ``--arrows atoms+field|all|atoms|field|surface|none``
 with ``--field-sign``, ``--field-style direction|magnitude``, ``--field-tilt``,
-``--field-thin``, ``--colour mz|tilt``, ``--text 0|1``, ``--text-style glossy|metal|flat``,
+``--field-thin``, ``--colour mz|tilt``, ``--text 0|1``, ``--text-style
+moire|dark|glossy|metal|flat``, ``--text-colour dark|light``, ``--text-size``,
+``--moire-period``, ``--moire-twist``, ``--moire-dot``, ``--moire-bump``,
 ``--font`` and ``--font-small`` (presets or files), ``--wordmark``, ``--banner-layout``,
 ``--dof`` (f-stop), ``--shell 0|1``, ``--surface m|n``, ``--centre``, ``--radius``,
 ``--cr-radius``, ``--elev-icon``, ``--elev-banner``, ``--cloud-reach``, ``--lobe-reach``,
@@ -69,6 +76,9 @@ PALETTE = {
     "shell": (0.25, 0.45, 0.95, 1.0),      # the antiparallel cloud on the iodine
     "text": (0.10, 0.10, 0.12, 1.0),       # the wordmark when flat (an emission colour)
     "text_glossy": (0.93, 0.93, 0.96, 1.0), # the wordmark as pearl, lit by the scene
+    "text_dark": (0.030, 0.032, 0.040, 1.0),   # the wordmark as dark pearl: graphite
+    "text_dark_hi": (0.22, 0.24, 0.30, 1.0),   # the lighter dots of the moire on it
+    "text_light_dots": (0.45, 0.46, 0.50, 1.0),  # the darker dots of the moire on pearl
     "arrow_mid": (0.86, 0.86, 0.88, 1.0),  # an arrow in the plane
     "arrow_lo": (0.10, 0.35, 0.90, 1.0),   # m_z down, or no tilt
     "arrow_hi": (0.95, 0.15, 0.10, 1.0),   # m_z up, or the largest tilt
@@ -423,7 +433,86 @@ def add_arrows(arrows, centre, radius, which, colour_by, length_scale, atom_scal
         print(f"  arrows {name}: {len(pts)} inside the disc")
 
 
+def moire_image(name, width, height, period, twist, dot=0.6, px=2048):
+    """Two triangular lattices of dots at a small twist, as a greyscale image
+    covering a box of ``width`` by ``height`` (Blender units) at ``px`` pixels
+    across: the twisted-bilayer moire. Each lattice is the sum of three cosines
+    120 degrees apart (3 at a site), rotated by half the twist either way, and a
+    dot is where that sum passes a threshold, with ``dot`` the width of the step;
+    the image is the mean of the two, so it is 1 where the dots of both lattices
+    fall together and 0 between them, and the beat has the period
+    a / (2 sin(twist / 2)). The image is kept in the .blend (packed), not on disk."""
+    ny = max(8, int(round(px * height / width)))
+    x = (np.arange(px) + 0.5) / px * width
+    y = (np.arange(ny) + 0.5) / ny * height
+    X, Y = np.meshgrid(x, y)
+    k = 4 * np.pi / (np.sqrt(3) * period)
+    lattices = []
+    for sign in (-0.5, 0.5):
+        g = np.zeros_like(X)
+        for i in range(3):
+            phi = sign * np.radians(twist) + i * 2 * np.pi / 3
+            g += np.cos(k * (np.cos(phi) * X + np.sin(phi) * Y))
+        t = np.clip((g - (3 - 2 * dot)) / (2 * dot), 0, 1)
+        lattices.append(t * t * (3 - 2 * t))
+    m = 0.5 * (lattices[0] + lattices[1])
+    img = bpy.data.images.new(name, px, ny, alpha=False, float_buffer=True)
+    rgba = np.empty((ny, px, 4), dtype=np.float32)
+    rgba[..., :3] = m[..., None]
+    rgba[..., 3] = 1.0
+    img.pixels.foreach_set(rgba.ravel())
+    img.pack()
+    return img
+
+
+def moire_material(root, box, period, twist, dot, bump, tone="dark"):
+    """Pearl letters carrying the moire: the base colour mixes the letter colour
+    and the dot colour (graphite and a lighter graphite for the dark tone, pearl
+    and a mid grey for the light one) by the moire image, the same image drives
+    a bump, and the coat is the pearl's. ``box`` is (x0, y0, width, height), the
+    word's extent in the wordmark root's frame, which the image is mapped onto
+    once, so the pattern runs through the whole word rather than restarting at
+    each letter."""
+    x0, y0, w, h = box
+    lo, hi = {"dark": ("text_dark", "text_dark_hi"),
+              "light": ("text_glossy", "text_light_dots")}[tone]
+    mat = material("text", PALETTE[lo], roughness=0.25, metallic=0.0)
+    nodes, links = mat.node_tree.nodes, mat.node_tree.links
+    bsdf = nodes["Principled BSDF"]
+    _set_input(bsdf, "Coat Weight", 1.0)
+    coord = nodes.new("ShaderNodeTexCoord")
+    coord.object = root
+    mapping = nodes.new("ShaderNodeMapping")
+    mapping.inputs["Location"].default_value = (-x0 / w, -y0 / h, 0.0)
+    mapping.inputs["Scale"].default_value = (1.0 / w, 1.0 / h, 1.0)
+    tex = nodes.new("ShaderNodeTexImage")
+    tex.image = moire_image("moire", w, h, period, twist, dot)
+    tex.image.colorspace_settings.name = "Non-Color"
+    tex.extension = "REPEAT"
+    tex.interpolation = "Cubic"
+    mix = nodes.new("ShaderNodeMix")
+    mix.data_type = "RGBA"
+    mix.inputs["A"].default_value = PALETTE[lo]
+    mix.inputs["B"].default_value = PALETTE[hi]
+    links.new(coord.outputs["Object"], mapping.inputs["Vector"])
+    links.new(mapping.outputs["Vector"], tex.inputs["Vector"])
+    links.new(tex.outputs["Color"], mix.inputs["Factor"])
+    links.new(mix.outputs["Result"], bsdf.inputs["Base Color"])
+    if bump > 0:
+        bmp = nodes.new("ShaderNodeBump")
+        bmp.inputs["Strength"].default_value = bump
+        bmp.inputs["Distance"].default_value = 0.02
+        links.new(tex.outputs["Color"], bmp.inputs["Height"])
+        links.new(bmp.outputs["Normal"], bsdf.inputs["Normal"])
+    return mat
+
+
 def text_material(style, size_hint=1.0):
+    if style == "dark":
+        mat = material("text", PALETTE["text_dark" if MOIRE["tone"] == "dark" else "text_glossy"],
+                       roughness=0.25)
+        _set_input(mat.node_tree.nodes["Principled BSDF"], "Coat Weight", 1.0)
+        return mat
     if style == "flat":
         mat = material("text", (0, 0, 0, 1), roughness=1.0)
         bsdf = mat.node_tree.nodes["Principled BSDF"]
@@ -472,6 +561,9 @@ WORDS = [("de", "nsity", "up"), ("fu", "nctional", "down"),
          ("qu", "antum", "up"), ("mat", "erials", "down")]
 
 
+MOIRE = {"period": 0.08, "twist": 4.0, "dot": 0.7, "bump": 0.08, "tone": "dark"}
+
+
 def add_text(text, camera, distance, offset, size, style="glossy", align="LEFT",
              wordmark="acronym", font_small=None):
     cam_matrix = Matrix.Translation(camera.location) @ camera.rotation_euler.to_matrix().to_4x4()
@@ -482,7 +574,17 @@ def add_text(text, camera, distance, offset, size, style="glossy", align="LEFT",
     # matrix_world is not evaluated yet in a scene built this way, so it is
     # assembled from the location and the rotation set above)
     root.location = cam_matrix @ Vector((offset[0], offset[1], -distance))
-    mat = text_material(style)
+    if style == "moire":
+        # the moire is mapped onto the word's box: its advance width, and from
+        # the descender to the ascender (0.35 and 0.85 of the size in Garamond)
+        width = text_width(text, size, FONT) if wordmark == "plain" else None
+        if width is not None:
+            x0 = -width / 2 if align == "CENTER" else 0.0
+            mat = moire_material(root, (x0, -0.45 * size, width, 1.2 * size),
+                                 MOIRE["period"] * size, MOIRE["twist"], MOIRE["dot"],
+                                 MOIRE["bump"], MOIRE["tone"])
+    else:
+        mat = text_material(style)
     if wordmark == "plain":
         ob = new_object("wordmark_text", text_curve("wordmark", text, size, FONT, style, align), mat)
         ob.parent = root
@@ -499,6 +601,10 @@ def add_text(text, camera, distance, offset, size, style="glossy", align="LEFT",
         pieces.append((rest, small, small_font, x)); x += text_width(rest, small, small_font) + gap
     total = x - gap
     x0 = -total / 2 if align == "CENTER" else 0.0
+    if style == "moire":
+        mat = moire_material(root, (x0, -0.45 * size, total, 1.2 * size),
+                             MOIRE["period"] * size, MOIRE["twist"], MOIRE["dot"], MOIRE["bump"],
+                             MOIRE["tone"])
     for i, (body, sz, font, xi) in enumerate(pieces):
         curve = text_curve(f"wordmark_{i}", body, sz, font, style)
         curve.align_y = "BOTTOM_BASELINE"
@@ -573,15 +679,16 @@ def add_camera(kind, extent, elev_icon=58.0, elev_banner=40.0, with_text=True,
 
 
 def place_text(cam, dist, frame, kind, extent, style="glossy", layout="behind",
-               wordmark="acronym", font_small=None):
+               wordmark="acronym", font_small=None, text_size=0.62):
     """The wordmark in the camera's frame: under the structure for the icon;
     for the banner either in the right three quarters (``beside``) or across the
     middle in front of the honeycomb (``behind``), a little nearer the camera
     than the structure so it stands in front of it."""
     w, h = frame
-    big = 0.46 * h if wordmark == "acronym" else 0.62 * h
+    big = 0.46 * h if wordmark == "acronym" else text_size * h
     if kind == "banner" and layout == "behind":
-        add_text("defuqumat", cam, dist - 1.2 * extent, (0.0, -0.06 * h), big,
+        add_text("defuqumat", cam, dist - 1.2 * extent,
+                 (0.0, -0.06 * h if wordmark == "acronym" else 0.0), big,
                  style, align="CENTER", wordmark=wordmark, font_small=font_small)
     elif kind == "banner":
         add_text("defuqumat", cam, dist, (-w / 2 + 1.06 * h, -0.08 * h), 0.36 * h, style,
@@ -623,17 +730,18 @@ def build_scene(args):
     RADIUS["Cr"], RADIUS["I"] = args.cr_radius, args.i_radius
     centre = centre_of(atoms, args.centre)
     print(f"centre (bohr) {np.round(centre, 3)}, clip radius {args.radius} bohr")
-    placed = add_atoms(atoms, centre, args.radius)
-    add_surface(ply, centre, args.radius,
-                PALETTE["surface" if args.surface == "m" else "surface_n"],
-                anchors=placed.get("Cr") if args.lobe_reach > 0 else None,
-                reach=args.lobe_reach)
-    if low is not None and args.shell:
-        add_surface(low, centre, args.radius, PALETTE["shell"], name="shell", faint=True,
-                    anchors=placed.get("I"), reach=args.cloud_reach)
-    add_arrows(arrows, centre, args.radius, args.arrows, args.colour, args.arrow_length,
-               args.atom_arrow, args.field_sign, args.field_style, args.i_arrow,
-               args.field_thin, args.field_tilt)
+    if not args.mask_only:
+        placed = add_atoms(atoms, centre, args.radius)
+        add_surface(ply, centre, args.radius,
+                    PALETTE["surface" if args.surface == "m" else "surface_n"],
+                    anchors=placed.get("Cr") if args.lobe_reach > 0 else None,
+                    reach=args.lobe_reach)
+        if low is not None and args.shell:
+            add_surface(low, centre, args.radius, PALETTE["shell"], name="shell", faint=True,
+                        anchors=placed.get("I"), reach=args.cloud_reach)
+        add_arrows(arrows, centre, args.radius, args.arrows, args.colour, args.arrow_length,
+                   args.atom_arrow, args.field_sign, args.field_style, args.i_arrow,
+                   args.field_thin, args.field_tilt)
     add_lights_and_world()
     extent = args.radius * SCALE
     cam, dist, frame = add_camera(args.camera, extent, args.elev_icon, args.elev_banner,
@@ -649,8 +757,10 @@ def build_scene(args):
         FONT = FONTS.get(args.font, args.font)
         PALETTE["text"] = {"dark": (0.10, 0.10, 0.12, 1.0),
                            "light": (0.88, 0.88, 0.90, 1.0)}[args.text_colour]
+        MOIRE.update(period=args.moire_period, twist=args.moire_twist, dot=args.moire_dot,
+                     bump=args.moire_bump, tone=args.text_colour)
         place_text(cam, dist, frame, args.camera, extent, args.text_style, args.banner_layout,
-                   args.wordmark, FONTS.get(args.font_small, args.font_small))
+                   args.wordmark, FONTS.get(args.font_small, args.font_small), args.text_size)
     scene.render.film_transparent = True
     scene.view_settings.view_transform = args.view
     scene.view_settings.look = "None"
@@ -702,17 +812,29 @@ def main():
                         "(default none for the icon, 0.22 for the banner)")
     p.add_argument("--field-tilt", type=float, default=15.0,
                    help="draw a field arrow only where m leans more than this from z, degrees")
-    p.add_argument("--dof", type=float, default=2.4,
+    p.add_argument("--dof", type=float, default=5.0,
                    help="f-stop of the banner camera's depth of field, 0 for none")
     p.add_argument("--i-arrow", type=float, default=0.6,
                    help="length of an iodine's atom arrow in units of --arrow-length")
-    p.add_argument("--font", default="garamond",
+    p.add_argument("--font", default="garamond-bold",
                    help="the big letters: a preset (%s) or a font file" % ", ".join(FONTS))
     p.add_argument("--font-small", default="garamond-italic",
                    help="the words' completions, a preset or a font file")
     p.add_argument("--wordmark", choices=("acronym", "plain"), default="plain",
                    help="the name with its words' completions above and below, or alone")
-    p.add_argument("--text-style", choices=("glossy", "metal", "flat"), default="glossy")
+    p.add_argument("--text-style", choices=("moire", "dark", "glossy", "metal", "flat"),
+                   default="moire",
+                   help="dark pearl with the moire, dark pearl, light pearl, metal, or flat")
+    p.add_argument("--text-size", type=float, default=0.85,
+                   help="the plain wordmark's letter size as a fraction of the banner height")
+    p.add_argument("--moire-period", type=float, default=0.08,
+                   help="the dot lattices' constant, in units of the letter size")
+    p.add_argument("--moire-twist", type=float, default=4.0, help="the twist between them, degrees")
+    p.add_argument("--moire-dot", type=float, default=0.7,
+                   help="the width of the step that makes a dot (0 is hard, 1 is the smooth sum)")
+    p.add_argument("--moire-bump", type=float, default=0.08, help="relief of the dots (0 is flat)")
+    p.add_argument("--mask-only", action="store_true",
+                   help="draw the wordmark alone, for the contrast check's letter mask")
     p.add_argument("--banner-layout", choices=("behind", "beside"), default="behind",
                    help="the wordmark in front of the honeycomb, or beside it")
     p.add_argument("--colour", choices=("mz", "tilt"), default="mz")
@@ -728,7 +850,7 @@ def main():
     p.add_argument("--text", type=int, default=None,
                    help="draw the wordmark (default: on the banner, not on the icon)")
     p.add_argument("--text-colour", choices=("dark", "light"), default="dark",
-                   help="dark grey for a light background, light grey for a dark one")
+                   help="graphite letters for a light background, pearl ones for a dark one")
     p.add_argument("--shell", type=int, default=1,
                    help="draw the faint low-level surface coloured by cos(m, z)")
     p.add_argument("--atom-arrow", type=float, default=2.4,
@@ -761,10 +883,12 @@ def main():
         # the icon and the banner, each its own scene (its own centre and disc)
         os.makedirs(args.out, exist_ok=True)
         import copy
-        for kind, name, w, h in (
-                ("icon", "defuqumat-icon.png", args.icon_size, args.icon_size),
-                ("banner", "defuqumat-banner.png", 4 * args.size, args.size)):
+        for kind, name, w, h, tone in (
+                ("icon", "defuqumat-icon.png", args.icon_size, args.icon_size, "dark"),
+                ("banner", "defuqumat-banner.png", 4 * args.size, args.size, "dark"),
+                ("banner", "defuqumat-banner-dark.png", 4 * args.size, args.size, "light")):
             a = resolve_kind(copy.copy(args), kind)
+            a.text_colour = tone
             scene = build_scene(a)
             render(scene, a, w, h, os.path.abspath(os.path.join(args.out, name)))
 
