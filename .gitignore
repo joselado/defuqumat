@@ -60,3 +60,7 @@ performance/cluster/generated/
 *.swp
 *.swo
 *~
+
+# the logo run's saved density (62 MB, regenerable by tools/logo/compute.py scf on D22)
+docs/logo/data/*.npz
+docs/logo/mesh*/

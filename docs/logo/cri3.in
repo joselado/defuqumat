@@ -1,0 +1,64 @@
+! CrI3 monolayer, the honeycomb ferromagnet, computed noncollinearly with
+! spin-orbit coupling: the calculation behind the package logo (plans/logo.md).
+!
+! The picture is the magnetization density m(r) of this run: an isosurface of
+! |m| for the t2g lobes of the Cr, and arrows of m sampled on and around it. In
+! a collinear run every arrow would be parallel by construction; it is the
+! iodine's spin-orbit coupling that tilts m(r) away from the Cr axis near the
+! ligands, so the run is noncollinear with lspinorb and fully relativistic
+! datasets (pslibrary, ultrasoft, the same regime as benchmarks/bi20-soc.in).
+!
+! Structure: one layer of bulk CrI3, space group P-31m for the monolayer.
+! a = 6.867 angstrom = 12.9768 bohr; the two Cr form a honeycomb in the
+! z = 0.5 plane, and the six I sit on the 6k positions (x, 0, z), (0, x, z),
+! (1-x, 1-x, z) at 1.56 angstrom above the Cr plane and (1-x, 0, -z),
+! (0, 1-x, -z), (x, x, -z) below, with x = 0.35. Each I then bridges two Cr at
+! 2.724 angstrom (in-plane 2.233 angstrom, 1.56 out of plane), and the Cr-Cr
+! distance is a/sqrt(3) = 3.965 angstrom; both are printed and checked by
+! tools/logo/compute.py before the SCF. c = 18.0 angstrom leaves 14.9 angstrom
+! of vacuum between the iodine planes of neighbouring images.
+!
+! starting_magnetization is a fraction of the valence charge: Cr carries 14
+! valence electrons (3s 3p 3d 4s), so 0.21 x 14 = 2.9 Bohr magnetons seeds the
+! S = 3/2 moment along z (angle1 = 0); the iodine starts unpolarised. The
+! occupations are smeared as every spin-orbit input in tests/data/qe/ is; the
+! gap is above 1 eV, so a degauss of 0.02 Ry touches nothing. No Hubbard U: a
+! U moves the gap, not the lobes.
+!
+! The cutoffs are the ones the Cr dataset asks for in its header (48 and 457 Ry,
+! rounded up), since an augmentation charge under-resolved on the dense grid
+! rings around the Cr and the ringing would show on an isosurface of |m|. The
+! 4x4x1 mesh (four points after symmetry) is a picture's mesh, not a
+! validation's: the density of a ferromagnet with a gap above 1 eV moves by
+! less than a line's width between 4x4x1 and 6x6x1.
+ &control
+    calculation = 'scf'
+    prefix = 'cri3'
+ /
+ &system
+    ibrav = 4, celldm(1) = 12.9768, celldm(3) = 2.62123,
+    nat = 8, ntyp = 2,
+    ecutwfc = 50.0, ecutrho = 460.0,
+    noncolin = .true., lspinorb = .true.,
+    starting_magnetization(1) = 0.21, angle1(1) = 0.0, angle2(1) = 0.0,
+    starting_magnetization(2) = 0.0,
+    occupations = 'smearing', smearing = 'mv', degauss = 0.02,
+ /
+ &electrons
+    conv_thr = 1.0d-8
+    mixing_beta = 0.3
+ /
+ATOMIC_SPECIES
+ Cr  51.996  Cr.rel-pbe-spn-rrkjus_psl.1.0.0.UPF
+ I  126.904  I.rel-pbe-n-rrkjus_psl.1.0.0.UPF
+ATOMIC_POSITIONS (crystal)
+ Cr  0.333333333333  0.666666666667  0.500000000000
+ Cr  0.666666666667  0.333333333333  0.500000000000
+ I   0.350000000000  0.000000000000  0.586666666667
+ I   0.000000000000  0.350000000000  0.586666666667
+ I   0.650000000000  0.650000000000  0.586666666667
+ I   0.650000000000  0.000000000000  0.413333333333
+ I   0.000000000000  0.650000000000  0.413333333333
+ I   0.350000000000  0.350000000000  0.413333333333
+K_POINTS automatic
+ 4 4 1 0 0 0

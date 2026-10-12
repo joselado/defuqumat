@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo/defuqumat-banner-dark.png">
+  <img alt="defuqumat: the magnetization density of a CrI3 monolayer, computed by the code itself" src="docs/logo/defuqumat-banner.png">
+</picture>
+
 # defuqumat
 
 Plane-wave density-functional theory in Python, driven from an ordinary Quantum
