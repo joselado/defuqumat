@@ -1,4 +1,4 @@
-"""Write an elk.in for trigonal selenium with spin-orbit coupling (no defumat import).
+"""Write an elk.in for trigonal selenium with spin-orbit coupling (no defuqumat import).
 
     python3 write_elk.py OUT TASKS N [--rgkmax 7] [--nempty 4] [--lorbcnd]
                          [--tstime T --dtimes DT --intensity I --photon EV --fwhm FS --peak FS]
@@ -6,7 +6,7 @@
 The structure is tests/data/qe/se-trigonal-soc.in's (ibrav 4, a = 8.2509 bohr,
 c/a = 1.1345, x = 0.2254), PBE (xctype 20), tshift off for the time evolution.
 The pulse is Elk's Gaussian along c with A0 = c E0/w, E0 = sqrt(I/3.509e16 W/cm^2),
-which is defumat's Gaussian.from_intensity with amplitude kappa0 = A0/c.
+which is defuqumat's Gaussian.from_intensity with amplitude kappa0 = A0/c.
 """
 import argparse
 import math

@@ -16,10 +16,10 @@ p.add_argument("--out", required=True)
 p.add_argument("--pair", default="co", choices=("co", "o"))
 a = p.parse_args()
 
-from defumat import Calculator
-from defumat.scf.driver import Calculation
-from defumat.workflows.spiral import unfold_spiral_density
-from defumat.workflows.nscf import fixed_density_states
+from defuqumat import Calculator
+from defuqumat.scf.driver import Calculation
+from defuqumat.workflows.spiral import unfold_spiral_density
+from defuqumat.workflows.nscf import fixed_density_states
 
 ROOT = Path("/l/ladovj1/w-a")
 PSEUDO = ROOT / "tests/data/pseudo"

@@ -20,10 +20,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.basis.gradients import divergence, gradient
-from defumat.basis.gvectors import generate_gvectors
-from defumat.scf.sourcefree import longitudinal_field, project_source_free
-from defumat.system.cell import Cell
+from defuqumat.basis.gradients import divergence, gradient
+from defuqumat.basis.gvectors import generate_gvectors
+from defuqumat.scf.sourcefree import longitudinal_field, project_source_free
+from defuqumat.system.cell import Cell
 
 pytestmark = [pytest.mark.unit]
 
@@ -50,7 +50,7 @@ def test_a_gradient_is_removed_entirely(grid):
     cell, gvectors = grid
     scalar = jnp.asarray(_phase(gvectors, cell, (1, 2, 0))
                          + 0.5 * _phase(gvectors, cell, (2, -1, 1)))
-    from defumat.basis.fft import r_to_g
+    from defuqumat.basis.fft import r_to_g
     field = gradient(r_to_g(scalar, gvectors.fft_index), gvectors, cell)
 
     transverse = field - longitudinal_field(field, gvectors, cell)

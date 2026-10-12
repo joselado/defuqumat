@@ -23,13 +23,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.topology.invariants import ModelSource, chern_number
-from defumat.topology.mesh import volume_mesh
-from defumat.topology.orbital_magnetization import (
+from defuqumat.topology.invariants import ModelSource, chern_number
+from defuqumat.topology.mesh import volume_mesh
+from defuqumat.topology.orbital_magnetization import (
     orbital_magnetization_sums,
     streamed_orbital_magnetization_sums,
 )
-from defumat.topology.states import ModelStates
+from defuqumat.topology.states import ModelStates
 from tests.models import haldane
 
 pytestmark = pytest.mark.unit

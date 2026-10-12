@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from defumat.basis.builder import build_basis
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.system import build_system
+from defuqumat.basis.builder import build_basis
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.system import build_system
 from tests.regression.test_geometry import CASES, NEEDS_SPACE_GROUPS
 
 pytestmark = pytest.mark.regression
@@ -39,13 +39,13 @@ pytestmark = pytest.mark.regression
 
 
 def _fft_factors(system):
-    from defumat.system.symmetry import find_symmetries
+    from defuqumat.system.symmetry import find_symmetries
 
     return find_symmetries(system.cell, system.structure).fft_factors()
 
 
 def _assert_grid(ours, reference, factors):
-    from defumat.basis.fftgrid import good_fft_order
+    from defuqumat.basis.fftgrid import good_fft_order
 
     if all(n % f == 0 for n, f in zip(reference, factors)):
         assert tuple(ours) == tuple(reference)
@@ -84,7 +84,7 @@ def _expected_ngm(reported: int, system) -> int:
     **A deliberate divergence, and the relation is exact.** QE halves the
     *dense* G-vector set for a gamma run as well as the wavefunction sphere;
     this code halves only the wavefunction sphere and keeps the dense set whole
-    (:func:`~defumat.basis.builder.build_basis` says why -- the memory is in the
+    (:func:`~defuqumat.basis.builder.build_basis` says why -- the memory is in the
     plane-wave-sized arrays, and halving the dense set would put a conjugate
     fill inside every consumer of a real field for 0.2 per cent of the saving).
 

@@ -30,11 +30,11 @@
 #     the measured peak today is compared with today's estimate, not with that figure.
 #
 # The slab and its start, as jobs 20257133, 20258175 and 20258183 ran them:
-# NiBr2_defumat/nibr2_k161_anderson.scf.in, pseudopotentials in NiBr2_defumat/pseudo, the
-# helix seed of NiBr2_defumat/nibr2_persite.scf.in built by that project's own
+# NiBr2_defuqumat/nibr2_k161_anderson.scf.in, pseudopotentials in NiBr2_defuqumat/pseudo, the
+# helix seed of NiBr2_defuqumat/nibr2_persite.scf.in built by that project's own
 # helix_starting_density (run_scf.py), passed as starting_density. Dials: k_batch 1, band
 # batch 16, david 2, wavefunction store on the device, memory mode pinned to memory, the
-# projectors the only dial that differs between arms. Every DEFUMAT_* variable is unset,
+# projectors the only dial that differs between arms. Every DEFUQUMAT_* variable is unset,
 # preallocation is XLA's default at a pool of 0.97, autotuning at level 0 as nibr2.sbatch ran
 # it in September.
 #
@@ -61,7 +61,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-vii1/out/%x-%j.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-vii1
-SLAB=/scratch/work/ladovj1/calculations/NiBr2_defumat
+SLAB=/scratch/work/ladovj1/calculations/NiBr2_defuqumat
 REPO=/scratch/work/ladovj1/apps/defumat-vii1
 PY=/scratch/work/ladovj1/calculations/pypresso-gpu/venv/bin/python3
 INPUT=$SLAB/nibr2_k161_anderson.scf.in
@@ -73,10 +73,10 @@ ARM_SECONDS=6600
 mkdir -p "$WORK/out" "$WORK/cache-gpu"
 cd "$WORK" || exit 1
 
-# Every DEFUMAT_* dial off, so the script's flags are the only dials.
-for name in $(compgen -e | grep '^DEFUMAT_'); do unset "$name"; done
+# Every DEFUQUMAT_* dial off, so the script's flags are the only dials.
+for name in $(compgen -e | grep '^DEFUQUMAT_'); do unset "$name"; done
 unset JAX_PLATFORMS XLA_PYTHON_CLIENT_PREALLOCATE
-export DEFUMAT_CACHE_DIR="$WORK/cache-gpu"
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 export PYTHONPATH="$REPO" PYTHONWARNINGS=always OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.97
 export XLA_FLAGS="--xla_gpu_autotune_level=0"
@@ -86,7 +86,7 @@ nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
 "$PY" -c "import jax, sys; print('jax', jax.__version__, jax.devices()); sys.exit(0 if jax.devices()[0].platform == 'gpu' else 4)" || exit 4
 git -C "$REPO" rev-parse HEAD
 git -C "$REPO" status --porcelain --untracked-files=no
-env | grep -E '^(DEFUMAT_|XLA_|JAX_|PYTHONWARNINGS)' | sort
+env | grep -E '^(DEFUQUMAT_|XLA_|JAX_|PYTHONWARNINGS)' | sort
 df -h "$WORK" | tail -1
 
 for projectors in rebuild store; do

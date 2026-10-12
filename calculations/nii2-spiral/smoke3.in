@@ -1,6 +1,6 @@
 ! NiI2 monolayer, spin-spiral SCF -- the pw.x form of the Elk input.
 !
-! Elk -> defumat, term by term:
+! Elk -> defuqumat, term by term:
 !
 !   avec (bohr)          -> ibrav = 4 (hexagonal): a1 = (a,0,0),
 !                           a2 = (-a/2, a*sqrt(3)/2, 0), a3 = (0,0,c), which is

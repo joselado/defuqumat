@@ -3,13 +3,13 @@
 ! fixture's 0.05 Ha matches a NUMBER and not a temperature: under Fermi-Dirac
 ! that is kT = 1.36 eV, which destroys the magnetism outright.  Both codes then
 ! converge, agree with each other to six decimals, and are comparing nothing --
-! Elk's total moment came back at 1.7e-04 and defumat's int|m| at 0.0020, against
+! Elk's total moment came back at 1.7e-04 and defuqumat's int|m| at 0.0020, against
 ! 0.54 and 0.515 on the Gaussian pair.  That is this project's "a check whose null
 ! result cannot be told from a pass" exactly: two codes agreeing about a
 ! nonmagnetic chain.
 !
 ! So the width is chosen from a sweep of the QE side rather than copied
-! (defumat, q = 0, conv_thr 1e-10):
+! (defuqumat, q = 0, conv_thr 1e-10):
 !
 !     degauss (Ry)   int|m|     -TS (Ry)
 !          0.10      0.00195   -0.141049     <- magnetism gone

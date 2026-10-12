@@ -44,9 +44,9 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat import Calculator
-from defumat.realtime.orders import fourier_component
-from defumat.workflows.realtime import CHI3_AU_TO_SI
+from defuqumat import Calculator
+from defuqumat.realtime.orders import fourier_component
+from defuqumat.workflows.realtime import CHI3_AU_TO_SI
 
 repo = Path(__file__).resolve().parents[2]
 out = Path(sys.argv[1])

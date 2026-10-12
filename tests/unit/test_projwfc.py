@@ -16,18 +16,18 @@ states *is* independently of any reference:
 import numpy as np
 import pytest
 
-from defumat.projwfc.projections import PROJECTION_KINDS, atomic_projections
-from defumat.projwfc.channels import (
+from defuqumat.projwfc.projections import PROJECTION_KINDS, atomic_projections
+from defuqumat.projwfc.channels import (
     L_LABELS,
     M_LABELS,
     channel_table,
     projection_channels,
 )
-from defumat.pseudo import read_upf
-from defumat.scf.tetrahedra import build_tetrahedra, tetrahedron_projected_dos
-from defumat.system.kpoints import DEGSPIN, monkhorst_pack
-from defumat.workflows.dos import compute_dos, energy_grid, get_dos_scheme
-from defumat.workflows.pdos import lowdin_charges, partial_energy_grid
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.tetrahedra import build_tetrahedra, tetrahedron_projected_dos
+from defuqumat.system.kpoints import DEGSPIN, monkhorst_pack
+from defuqumat.workflows.dos import compute_dos, energy_grid, get_dos_scheme
+from defuqumat.workflows.pdos import lowdin_charges, partial_energy_grid
 
 pytestmark = pytest.mark.unit
 
@@ -121,7 +121,7 @@ def test_the_projected_grid_is_one_point_longer_than_the_dos_grid():
 
 
 def test_silicons_channels_are_one_s_and_three_p_per_atom(pseudo_dir):
-    from defumat.system.structure import Species, Structure
+    from defuqumat.system.structure import Species, Structure
 
     pseudo = read_upf(pseudo_dir / "Si.pz-vbc.UPF")
     structure = Structure(
@@ -155,7 +155,7 @@ def test_the_m_labels_are_ylmr2s_order():
 
 def test_lowdin_charges_use_the_weights_that_carry_the_k_point_weight(pseudo_dir):
     """``print_proj`` multiplies by ``wg``, which is ``w_k f_kb`` and not ``f``."""
-    from defumat.system.structure import Species, Structure
+    from defuqumat.system.structure import Species, Structure
 
     pseudo = read_upf(pseudo_dir / "Si.pz-vbc.UPF")
     structure = Structure(
@@ -213,7 +213,7 @@ def test_a_noncollinear_projection_without_spin_orbit_is_no_longer_refused():
     The orbitals for that branch always existed (``atomic_wfc_nc``, an up and a
     down copy of each harmonic) and the labels carried their ``s_z``; what was
     missing was routing such a run's columns into an up or a down *density of
-    states*, which :func:`~defumat.workflows.pdos.split_spin_columns` now does.
+    states*, which :func:`~defuqumat.workflows.pdos.split_spin_columns` now does.
 
     It gets past the refusal and fails later for want of a real calculation --
     an ``AttributeError`` on the stub -- which is what says no refusal stopped

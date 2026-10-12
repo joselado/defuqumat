@@ -3,13 +3,13 @@
 Memory mode takes one k-point a call, which on a card pays a fixed cost per call
 that batching over k amortises: 1.81x at 27 k-points on eight-atom silicon on an
 RTX A2000, Davidson steps equal (``PERFORMANCE.md``, "Memory mode on a k-mesh").
-``'fit'`` sizes the chunk from :func:`~defumat.sizing.estimate_size`, which matched
+``'fit'`` sizes the chunk from :func:`~defuqumat.sizing.estimate_size`, which matched
 the measured peaks there to 3 per cent. Checked here, on the CPU:
 
 * the choice is the whole mesh whenever it fits, otherwise the fewest calls and
   then the least padding, and says so when not even one k-point fits;
 * ``'fit'`` is refused by name by a caller that has no system to size, and
-  ``DEFUMAT_K_BATCH=fit`` is silent to one;
+  ``DEFUQUMAT_K_BATCH=fit`` is silent to one;
 * a CPU keeps its default, a card takes the chooser, and only from a whole band
   block; the size report resolves the chunk the run takes.
 """
@@ -18,10 +18,10 @@ import warnings
 
 import pytest
 
-from defumat import batching
-from defumat.calculator import Calculator
-from defumat.scf.driver import Calculation, resolve_k_batch_for
-from defumat.sizing import BandBatchChoice, KBatchChoice, choose_k_batch, estimate_size
+from defuqumat import batching
+from defuqumat.calculator import Calculator
+from defuqumat.scf.driver import Calculation, resolve_k_batch_for
+from defuqumat.sizing import BandBatchChoice, KBatchChoice, choose_k_batch, estimate_size
 from tests.backend import on_a_cpu
 
 pytestmark = pytest.mark.unit
@@ -90,14 +90,14 @@ def test_fit_is_refused_by_name_where_there_is_no_system_to_size():
 
 
 def test_the_environment_form_is_silent_to_a_caller_without_a_system(monkeypatch):
-    monkeypatch.setenv("DEFUMAT_K_BATCH", "fit")
+    monkeypatch.setenv("DEFUQUMAT_K_BATCH", "fit")
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert batching.resolve_k_batch("default", "memory") == batching.memory_preset("memory")["k_batch"]
     assert batching.k_batch_fit_requested("default")
     assert batching.k_batch_fit_requested("fit")
     assert not batching.k_batch_fit_requested(3)
-    monkeypatch.delenv("DEFUMAT_K_BATCH")
+    monkeypatch.delenv("DEFUQUMAT_K_BATCH")
     assert not batching.k_batch_fit_requested("default")
 
 
@@ -117,14 +117,14 @@ def _a_card_that_holds(chunk, monkeypatch, band_batch=None):
     """
     monkeypatch.setattr(batching, "_backend", lambda: "gpu")
     monkeypatch.setattr(
-        "defumat.sizing.choose_k_batch",
+        "defuqumat.sizing.choose_k_batch",
         lambda *a, **k: KBatchChoice(k_batch=chunk, fits=True, estimate=1, available=10))
     monkeypatch.setattr(
-        "defumat.sizing.choose_band_batch",
+        "defuqumat.sizing.choose_band_batch",
         lambda *a, **k: BandBatchChoice(band_batch=band_batch, fits=True, estimate=1,
                                         available=10))
-    monkeypatch.delenv("DEFUMAT_K_BATCH", raising=False)
-    monkeypatch.delenv("DEFUMAT_BAND_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_K_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_BAND_BATCH", raising=False)
 
 
 def test_a_card_takes_the_chooser_and_only_from_a_whole_band_block(pseudo_dir, monkeypatch):
@@ -139,7 +139,7 @@ def test_a_card_takes_the_chooser_and_only_from_a_whole_band_block(pseudo_dir, m
     calculation = Calculation(system, pseudos, memory_mode="memory", k_batch="fit")
     assert (calculation.k_batch, calculation.band_batch) == (5, None)
     # the environment form reaches the constructor too
-    monkeypatch.setenv("DEFUMAT_K_BATCH", "fit")
+    monkeypatch.setenv("DEFUQUMAT_K_BATCH", "fit")
     assert Calculation(system, pseudos, memory_mode="memory").k_batch == 5
 
 
@@ -179,7 +179,7 @@ def test_memory_mode_on_a_card_takes_fit_by_default(pseudo_dir, monkeypatch):
     assert Calculation(system, pseudos, memory_mode="memory").k_batch == 5
     # a chunk the caller or the environment names is kept
     assert Calculation(system, pseudos, memory_mode="memory", k_batch=1).k_batch == 1
-    monkeypatch.setenv("DEFUMAT_K_BATCH", "1")
+    monkeypatch.setenv("DEFUQUMAT_K_BATCH", "1")
     assert Calculation(system, pseudos, memory_mode="memory").k_batch == 1
 
 
@@ -200,7 +200,7 @@ def test_speed_mode_that_does_not_fit_falls_back_to_the_largest_chunk(pseudo_dir
         def describe(self):
             return "estimated 20 GiB against 10"
 
-    monkeypatch.setattr("defumat.sizing.speed_mode_fits", lambda *a, **k: Short())
+    monkeypatch.setattr("defuqumat.sizing.speed_mode_fits", lambda *a, **k: Short())
     with pytest.warns(RuntimeWarning, match="largest k-chunk that fits"):
         calculation = Calculation(calculator.system, calculator.pseudos, memory_mode="speed")
     assert (calculation.memory_mode, calculation.k_batch) == ("memory", 5)
@@ -209,7 +209,7 @@ def test_speed_mode_that_does_not_fit_falls_back_to_the_largest_chunk(pseudo_dir
 def test_the_store_streams_only_when_the_chunk_is_smaller_than_the_mesh(monkeypatch):
     """With every k-point in flight the stream saved 0.01 to 0.04 GiB and cost 1.9x on an H100."""
     monkeypatch.setattr(batching, "_backend", lambda: "gpu")
-    monkeypatch.delenv("DEFUMAT_WFC_STORE", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_WFC_STORE", raising=False)
     store = batching.resolve_scf_wfc_store
     assert store("default", "memory", 5, 64) == "stream"
     assert store("default", "memory", None, 64) == "device"
@@ -219,10 +219,10 @@ def test_the_store_streams_only_when_the_chunk_is_smaller_than_the_mesh(monkeypa
     # what the caller or the environment says is kept
     assert store("stream", "memory", None, 64) == "stream"
     assert store("host", "memory", 5, 64) == "host"
-    monkeypatch.setenv("DEFUMAT_WFC_STORE", "stream")
+    monkeypatch.setenv("DEFUQUMAT_WFC_STORE", "stream")
     assert store("default", "memory", 1, 1) == "stream"
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
-    monkeypatch.delenv("DEFUMAT_WFC_STORE")
+    monkeypatch.delenv("DEFUQUMAT_WFC_STORE")
     assert store("default", "memory", 1, 64) == "device"
 
 

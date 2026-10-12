@@ -11,8 +11,8 @@ whole one.
 import numpy as np
 import pytest
 
-from defumat.response.phononq import _require_a_metallic_q
-from defumat.system.cell import Cell
+from defuqumat.response.phononq import _require_a_metallic_q
+from defuqumat.system.cell import Cell
 
 FCC = Cell.from_ibrav(2, [7.5, 0.0, 0.0, 0.0, 0.0, 0.0])
 

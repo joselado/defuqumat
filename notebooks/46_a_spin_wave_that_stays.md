@@ -28,7 +28,7 @@ lands **within two thousandths of a millirydberg** of a real supercell.
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
-from defumat import Calculator
+from defuqumat import Calculator
 
 cal = Calculator.from_file('../tests/data/qe/h-mag-ultracell.in',
                            pseudo_dir='../tests/data/pseudo')
@@ -38,7 +38,7 @@ print(f'{tiled.iterations} iteration, and the two cells hold',
       np.round(tiled.cell_moments(), 4), 'Bohr magnetons each')
 ```
 
-    [defumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-11). Call get_scf() to do this explicitly.
+    [defuqumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-11). Call get_scf() to do this explicitly.
 
 
     1 iteration, and the two cells hold [0.6234 0.6234] Bohr magnetons each

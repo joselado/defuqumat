@@ -23,7 +23,7 @@ a failure that appears here and not there is the gradient correction.
 * ``si2-paw-pbe`` / ``si8-paw-pbe`` -- PAW, which needs the whole one-centre
   gradient machinery on top: a radial derivative, an angular gradient from the
   harmonics' own derivatives, and a divergence on the sphere
-  (:mod:`defumat.paw.gradient`). QE prints the one-centre energy separately, so
+  (:mod:`defuqumat.paw.gradient`). QE prints the one-centre energy separately, so
   it is checked directly rather than only through the total.
 * ``si2-nc-pbe-bands`` -- a band structure on the converged PBE density. It is
   the potential-rebuilding path that a non-self-consistent run takes, and the
@@ -37,12 +37,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
-from defumat.workflows import run_bands
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
+from defuqumat.workflows import run_bands
 from tests.tolerances import (
     EIGENVALUE_EV,
     ENERGY_TERM_RY,
@@ -132,7 +132,7 @@ def test_the_functional_comes_from_the_pseudopotential(pseudo_dir):
     parsed and ignored -- so it is worth asserting on the resolved functional
     and not only on the energy it produces.
     """
-    from defumat.scf.driver import Calculation
+    from defuqumat.scf.driver import Calculation
 
     system, pseudos, _ = _converged("si2-nc-pbe", pseudo_dir)
     assert system.input_dft is None

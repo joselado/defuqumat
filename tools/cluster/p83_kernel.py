@@ -62,13 +62,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.efield import _screening_kernel
-from defumat.response.sternheimer import make_sternheimer
-from defumat.scf import Calculation, run_scf
-from defumat.scf.fields import MagneticField
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.efield import _screening_kernel
+from defuqumat.response.sternheimer import make_sternheimer
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.scf.fields import MagneticField
+from defuqumat.system import build_system
 
 CASES = Path("tests/data/qe")
 PSEUDO = Path("tests/data/pseudo")

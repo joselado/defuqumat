@@ -8,7 +8,7 @@ import os
 import re
 from pathlib import Path
 
-REPO = Path(os.environ.get("DEFUMAT_REPO", "/l/ladovj1/defumat-hspin"))
+REPO = Path(os.environ.get("DEFUQUMAT_REPO", "/l/ladovj1/defumat-hspin"))
 PSEUDO = REPO / "tests" / "data" / "pseudo"
 HERE = Path(__file__).resolve().parent
 
@@ -30,7 +30,7 @@ def make_input(ecut, grid, nbnd=None, conv_thr=None, tag=""):
 
 def pulse(intensity=1.0e10, photon_ev=1.55, fwhm_fs=1.0, peak_fs=None, direction=(0, 0, 1)):
     """Elk's Gaussian, along c: A0 exp(-(t-t0)^2/2s^2) sin(w(t-t0)), kappa0 = E0/w."""
-    from defumat.realtime.pulse import Gaussian
+    from defuqumat.realtime.pulse import Gaussian
 
     return Gaussian.from_intensity(intensity, photon_ev, fwhm_fs, peak_fs=peak_fs,
                                    polarization=tuple(float(x) for x in direction))

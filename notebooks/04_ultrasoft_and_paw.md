@@ -21,7 +21,7 @@ $H\psi = \varepsilon S\psi$ is a *generalised* eigenproblem. Get either half wro
 integrated density stops being the number of electrons, which is a sharper test than any
 energy because it is exact rather than approximate.
 
-| against `pw.x` | defumat | difference |
+| against `pw.x` | defuqumat | difference |
 |---|---|---|
 | norm-conserving silicon, `ecutrho = 8 ecutwfc` | **-15.79449489 Ry** | 9.2e-10 |
 | **ultrasoft** silicon | **-22.75348130 Ry** | 2.4e-09 |
@@ -35,9 +35,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
-from defumat.io import comparison_table, read_qe_output
-from defumat.system.kpoints import KPoints
+from defuqumat import Calculator
+from defuqumat.io import comparison_table, read_qe_output
+from defuqumat.system.kpoints import KPoints
 
 CASES, PSEUDO = Path("../tests/data/qe"), Path("../tests/data/pseudo")
 
@@ -82,7 +82,7 @@ and it dies at the same radius, which is why a denser grid is needed only there.
 
 
 ```python
-from defumat.pseudo import read_upf     # no facade route to a dataset's radial tables
+from defuqumat.pseudo import read_upf     # no facade route to a dataset's radial tables
 
 data = read_upf(PSEUDO / "Si.pz-n-kjpaw_psl.0.1.UPF")
 soft = read_upf(PSEUDO / "Si.pz-n-rrkjus_psl.0.1.UPF")
@@ -136,10 +136,10 @@ for case in ("si2-nc-dual8", "si2-us", "si2-paw", "si8-paw"):
                  read_qe_output(CASES / f"reference.out.{case}").total_energy))
 
 print(comparison_table(rows, fmt="{:.8f}",
-                       headers=("case", "defumat [Ry]", "pw.x", "difference")))
+                       headers=("case", "defuqumat [Ry]", "pw.x", "difference")))
 ```
 
-    case           defumat [Ry]           pw.x  difference
+    case           defuqumat [Ry]           pw.x  difference
     si2-nc-dual8   -15.79449489   -15.79449489     9.2e-10
     si2-us         -22.75348130   -22.75348130     2.4e-09
     si2-paw        -89.27493665   -89.27493665     2.9e-09

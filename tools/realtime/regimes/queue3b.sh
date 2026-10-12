@@ -6,9 +6,9 @@ out=/l/ladovj1/review/hspin/svo12
 while kill -0 $1 2>/dev/null; do sleep 20; done
 cd /l/ladovj1/defumat-hspin
 source /l/ladovj1/venv/bin/activate
-export PYTHONPATH=/l/ladovj1/defumat-hspin:$out DEFUMAT_REPO=/l/ladovj1/defumat-hspin
-export DEFUMAT_CACHE_DIR=/l/ladovj1/jaxcache MKL_NUM_THREADS=1 XLA_PYTHON_CLIENT_MEM_FRACTION=0.6
-export OMP_NUM_THREADS=4 DEFUMAT_THREADS=off
+export PYTHONPATH=/l/ladovj1/defumat-hspin:$out DEFUQUMAT_REPO=/l/ladovj1/defumat-hspin
+export DEFUQUMAT_CACHE_DIR=/l/ladovj1/jaxcache MKL_NUM_THREADS=1 XLA_PYTHON_CLIENT_MEM_FRACTION=0.6
+export OMP_NUM_THREADS=4 DEFUQUMAT_THREADS=off
 unset JAX_PLATFORMS
 run() {  # tag command...
   local tag=$1; shift

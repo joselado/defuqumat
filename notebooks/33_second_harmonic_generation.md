@@ -22,8 +22,8 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat import Calculator
-from defumat.system.kpoints import KPoints
+from defuqumat import Calculator
+from defuqumat.system.kpoints import KPoints
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 
@@ -157,13 +157,13 @@ def elk(name):
 
 w_elk, chi_elk = elk("alas-chi2-123.elk.out")
 i, j = np.abs(xyz).argmax(), np.abs(chi_elk).argmax()
-print("                    defumat     Elk")
+print("                    defuqumat     Elk")
 print("resonance (eV)      %8.3f  %8.3f" % (ev[i], w_elk[j]))
 print("peak |chi| (pm/V)   %8.1f  %8.1f" % (np.abs(xyz[i]), np.abs(chi_elk[j]) * 24.4377))
 print("chi(0)     (pm/V)   %8.1f  %8.1f" % (xyz[0].real, chi_elk[0].real * 24.4377))
 ```
 
-                        defumat     Elk
+                        defuqumat     Elk
     resonance (eV)         2.152     2.163
     peak |chi| (pm/V)      632.9     628.0
     chi(0)     (pm/V)      -78.5     -85.4

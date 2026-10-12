@@ -19,8 +19,8 @@ could not restart, and the reason given had been false for fourteen phases.
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.scf.driver import run_scf
+from defuqumat import Calculator
+from defuqumat.scf.driver import run_scf
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 

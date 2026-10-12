@@ -28,18 +28,18 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
-from defumat.tddft.spinchi0 import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
+from defuqumat.tddft.spinchi0 import (
     commensurate_shift,
     require_a_transverse_regime,
     spin_response_sphere,
 )
-from defumat.tddft.spinkernel import node_limit, transverse_kernel_matrix
-from defumat.workflows.magnons import _peak
-from defumat.xc.functional import get_functional
+from defuqumat.tddft.spinkernel import node_limit, transverse_kernel_matrix
+from defuqumat.workflows.magnons import _peak
+from defuqumat.xc.functional import get_functional
 
 pytestmark = [pytest.mark.unit]
 
@@ -131,7 +131,7 @@ def test_the_kernel_matrix_is_the_transposed_difference():
 
     assert np.allclose(matrix, matrix.conj().T, atol=1e-12)
 
-    from defumat.tddft.spinkernel import transverse_kernel_field
+    from defuqumat.tddft.spinkernel import transverse_kernel_field
 
     field = np.asarray(transverse_kernel_field(calculation, density))
     grid = np.asarray(calculation.basis.dense.grid)

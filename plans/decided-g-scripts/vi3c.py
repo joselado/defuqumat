@@ -13,8 +13,8 @@ from pathlib import Path
 import jax
 import numpy as np
 
-from defumat import Calculator
-from defumat.ultracell import run_ultracell
+from defuqumat import Calculator
+from defuqumat.ultracell import run_ultracell
 from tests.regression.test_ultracell import _noncollinear, _helix_supercell
 
 root = Path(sys.argv[1] if len(sys.argv) > 1 else "/l/ladovj1/w-g")

@@ -1,8 +1,8 @@
 """The linear response of the propagation against the Kubo sum with every band.
 
 The first order of the current after a kick, ``J^(1)(t)`` from
-:func:`defumat.realtime.orders.propagate_orders` under ``kappa = lam theta(t) e``,
-transformed at ``z = w + i eta`` (:func:`defumat.realtime.spectra.conductivity_from_kick`),
+:func:`defuqumat.realtime.orders.propagate_orders` under ``kappa = lam theta(t) e``,
+transformed at ``z = w + i eta`` (:func:`defuqumat.realtime.spectra.conductivity_from_kick`),
 against ``optical_conductivity``'s own resolvent sum
 (``response/conductivity.py:_resolvent_sum``) fed every eigenstate of the dense
 ``H(k)`` on the frozen sphere, plus the one term the two do not share,
@@ -27,17 +27,17 @@ import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 
-import defumat  # noqa: F401
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.dense import dense_hamiltonians
-from defumat.realtime.orders import propagate_orders
-from defumat.realtime.pulse import Kick
-from defumat.realtime.spectra import conductivity_from_kick
-from defumat.response.conductivity import _resolvent_sum
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+import defuqumat  # noqa: F401
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.dense import dense_hamiltonians
+from defuqumat.realtime.orders import propagate_orders
+from defuqumat.realtime.pulse import Kick
+from defuqumat.realtime.spectra import conductivity_from_kick
+from defuqumat.response.conductivity import _resolvent_sum
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 
 repo = Path(__file__).resolve().parents[2]
 ecut = float(sys.argv[1]) if len(sys.argv) > 1 else 6.0

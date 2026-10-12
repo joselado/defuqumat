@@ -3,15 +3,15 @@
     python3 tools/parallel/time_scf.py benchmarks/si16-1k-ecut30.in 5 P4
 
 The mask is the caller's: set it with ``taskset`` *before* Python starts, and
-set ``DEFUMAT_THREADS=off`` so that the package does not narrow it again on
-import (``defumat/__init__.py``). ``JAX_PLATFORMS=cpu`` is needed on a machine
+set ``DEFUQUMAT_THREADS=off`` so that the package does not narrow it again on
+import (``defuqumat/__init__.py``). ``JAX_PLATFORMS=cpu`` is needed on a machine
 with a card, where the default backend is the card. The first SCF compiles and
 is discarded (``CLAUDE.md``: never time a first call); the next ``repeats``
 reuse the same ``Calculation`` and the median ms per iteration is reported with
 every sample beside it, since a check that a number did *not* move wants the
 median rather than the best of N.
 
-``DEFUMAT_BAND_BATCH`` and ``DEFUMAT_MEMORY_MODE`` are read as usual, and the
+``DEFUQUMAT_BAND_BATCH`` and ``DEFUQUMAT_MEMORY_MODE`` are read as usual, and the
 resolved band dial and memory mode are printed so that a typo in either cannot
 pass for a working setting. On an accelerator the device's peak bytes in use
 are printed too; the counter has no reset, so the figure is the whole process's
@@ -37,11 +37,11 @@ from pathlib import Path
 
 import jax
 
-from defumat.batching import resolve_band_batch, resolve_memory_mode, resolve_scf_wfc_store
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.batching import resolve_band_batch, resolve_memory_mode, resolve_scf_wfc_store
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -83,7 +83,7 @@ def main() -> None:
         "label": args.label,
         "input": args.input.name,
         "cpus": sorted(os.sched_getaffinity(0)),
-        "band_batch": os.environ.get("DEFUMAT_BAND_BATCH", "default"),
+        "band_batch": os.environ.get("DEFUQUMAT_BAND_BATCH", "default"),
         "resolved_band_batch": str(resolve_band_batch()),
         "memory_mode": resolve_memory_mode(),
         "calculation_band_batch": str(getattr(calculation, "band_batch", "n/a")),

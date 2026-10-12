@@ -1,7 +1,7 @@
 ! How `reference.stm.al-metal` was made: `pw.x < al-metal.in` (with an outdir
 ! and prefix added), then `pp.x < al-metal.pp.in`. `plot_num = 5` is
 ! `PP/src/stm.f90` and `sample_bias = 0` collapses its window onto the Fermi
-! level, which is Elk's task 162 -- so QE's image is defumat's delta-weighted
+! level, which is Elk's task 162 -- so QE's image is defuqumat's delta-weighted
 ! one times `degauss`. The comparison is in
 ! `tests/regression/test_stm.py::test_the_tunnelling_density_matches_pp_x`.
 !

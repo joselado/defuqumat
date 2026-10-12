@@ -1,6 +1,6 @@
 """What the Davidson executable's XLA temp buffer costs, before it is allocated.
 
-``defumat/sizing.py`` counts the arrays whose size the *basis* fixes and says so
+``defuqumat/sizing.py`` counts the arrays whose size the *basis* fixes and says so
 -- it is a floor, and it does not cover "XLA's own scratch, the temporaries of a
 fused kernel". On a 157-atom slab that omission is the whole feasibility
 question: the sized floor is 95.7 GB and the single allocation the card is asked
@@ -16,7 +16,7 @@ for a whole sweep.
         --david 2 3 4 --band-batch 16 32 64
 
 A fit over CPU shapes (si16-1k-ecut30, npwx 5900, sweeping ``nbnd``, ``david``
-and ``DEFUMAT_BAND_BATCH``) gives, to 1.6 per cent,
+and ``DEFUQUMAT_BAND_BATCH``) gives, to 1.6 per cent,
 
     temp ~ 2.19 nvecx npwx zc + 4.86 nbnd npwx zc + 1.85 band_batch N_fft zc
 
@@ -55,7 +55,7 @@ def main() -> int:
                         help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    os.environ.setdefault("DEFUMAT_CACHE_DIR", "off")
+    os.environ.setdefault("DEFUQUMAT_CACHE_DIR", "off")
 
     if args.point is not None:
         david, nbnd, band_batch = json.loads(args.point)
@@ -64,7 +64,7 @@ def main() -> int:
         return 0
 
     # One subprocess per point. JAX caches a lowering for the life of a
-    # process, and ``DEFUMAT_BAND_BATCH`` is a closure value rather than part
+    # process, and ``DEFUQUMAT_BAND_BATCH`` is a closure value rather than part
     # of the cache key, so a second point in the same process silently reports
     # the first one's buffer.
     import subprocess
@@ -98,17 +98,17 @@ def main() -> int:
 def _measure(args, david, nbnd, band_batch):
     """One (david, nbnd, band_batch) point, in a subprocess-free way.
 
-    ``DEFUMAT_BAND_BATCH`` is read when the batching module resolves it, which
+    ``DEFUQUMAT_BAND_BATCH`` is read when the batching module resolves it, which
     is per call rather than at import, so it can be set here between points.
     """
     if band_batch is not None:
-        os.environ["DEFUMAT_BAND_BATCH"] = str(band_batch)
+        os.environ["DEFUQUMAT_BAND_BATCH"] = str(band_batch)
     else:
-        os.environ.pop("DEFUMAT_BAND_BATCH", None)
+        os.environ.pop("DEFUQUMAT_BAND_BATCH", None)
 
-    import defumat.solvers as solvers
-    import defumat.solvers.davidson as davidson
-    from defumat import Calculator
+    import defuqumat.solvers as solvers
+    import defuqumat.solvers.davidson as davidson
+    from defuqumat import Calculator
 
     real = davidson.davidson_eigensolver_all
     captured = {}
@@ -171,7 +171,7 @@ def _measure(args, david, nbnd, band_batch):
             # Zero unless an argument was donated, and equal to the donated
             # buffer when one was. It is here as a *check on this package*
             # rather than on the compiler: ``donate_argnums`` appears nowhere
-            # in ``defumat`` (grep, 2026-09-14) although ``CLAUDE.md``'s JAX
+            # in ``defuqumat`` (grep, 2026-09-14) although ``CLAUDE.md``'s JAX
             # rules ask for it on the large wavefunction and density buffers,
             # so this field is expected to be 0 and a nonzero reading means
             # that changed. On the same controlled compile, donating the one

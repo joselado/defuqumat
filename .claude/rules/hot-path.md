@@ -1,10 +1,10 @@
 ---
 paths:
-  - "defumat/hamiltonian/**"
-  - "defumat/solvers/**"
-  - "defumat/basis/**"
-  - "defumat/scf/**"
-  - "defumat/batching.py"
+  - "defuqumat/hamiltonian/**"
+  - "defuqumat/solvers/**"
+  - "defuqumat/basis/**"
+  - "defuqumat/scf/**"
+  - "defuqumat/batching.py"
   - "benchmarks/**"
   - "tools/compare_qe.py"
   - "tools/benchmark.py"

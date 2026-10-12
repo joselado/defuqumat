@@ -1,0 +1,765 @@
+"""The velocity operator ``v = dH/dk``, by ``jvp`` at a frozen sphere.
+
+For a local potential the velocity operator would be ``p``, and a plane-wave
+code would need nothing: ``<k+G|p|k+G> = k+G``. A pseudopotential is not local,
+and ``[V_NL, r] != 0`` -- QE hand-codes the correction in
+``PW/src/commutator_Hx_psi.f90``. Rule D2 of ``PLAN.md`` says the whole of
+``H(k)`` is built by differentiable JAX code from ``k`` precisely so that the
+operator falls out of differentiating it, nonlocal contributions and all, with
+nothing derived by hand. This module is that rule being cashed in.
+
+**What carries ``k``, and what visibly does not.** Two terms only:
+``|k+G|^2`` and ``vkb(k)`` -- and ``wfcU(k)`` when there is a Hubbard ``U``,
+whose atomic orbitals live at ``k+G`` as the projectors do. The local potential
+is a field on a real-space box that does not move with ``k``, so its tangent is
+symbolically zero and the ``jvp`` never issues its FFTs.
+:meth:`~defuqumat.scf.driver.Calculation.at_kcart` is what rebuilds the two
+traced arrays over shared everything-else.
+
+**The frozen quantity is the coefficient vector, and it is the right one.** In
+the periodic gauge ``H(k) = e^{-ik.r} H e^{ik.r}`` acts on the lattice-periodic
+part ``u_nk``, whose expansion coefficients are exactly what is stored. Holding
+them fixed while ``k`` moves is therefore differentiating ``H(k)`` at fixed
+basis function, which is what the velocity operator *is*. What is held fixed
+besides is which plane waves are in the sphere: that is a host-side decision
+that cannot be traced, it is piecewise constant in ``k``, and on each piece the
+frozen-sphere derivative is the exact one. The jump at the isolated ``k`` where
+a plane wave crosses the cutoff is the Pulay error of a finite basis, the same
+term :mod:`defuqumat.forces.spiral` measures for ``dE/dq``.
+
+**Ultrasoft and PAW are carried rather than refused, because ``S`` moves
+too.**
+``S(k) = 1 + sum |beta(k)> q <beta(k)|`` has the same ``k`` in it as ``H``, so
+the band velocity is the *generalised* Hellmann-Feynman derivative
+
+    d(eps_n)/dk_a = <psi_n| dH/dk_a - eps_n dS/dk_a |psi_n>,
+
+which is ``commutator_Hx_psi``'s ultrasoft correction and comes from the same
+``jvp`` -- :meth:`VelocityOperator.apply_s` is that second tangent. PAW adds
+nothing to the differentiation and one thing to the *setup*: its one-centre
+coefficients ``ddd_paw`` are built from ``becsum`` rather than from the density,
+and since they multiply ``vkb(k)`` they belong to ``dH/dk`` as much as to ``H``.
+They have to be handed in, and a PAW calculation without them raises rather than
+returning the 2% error it would otherwise give.
+
+**Nothing dense is ever formed.** ``dH/dk`` as a matrix is ``npw^2``, the same
+reason a dense diagonalisation is a test fixture here and never a solver. One
+``jvp`` per cartesian direction gives ``v_a|psi>`` for every band at every
+k-point, and the matrix elements a Kubo sum needs are contractions of that
+against the states already held.
+
+**Memory.** One direction's tangent doubles the two traced arrays while it is
+live: ``vkb`` is ``(nk, npwx, nkb)`` complex and ``|k+G|^2`` is ``(nk, npwx)``,
+so the peak is one extra ``vkb``. The three directions are separate ``jvp``
+calls for that reason -- a ``jacfwd`` over all three would hold three tangents
+at once, and ``vkb`` is the largest ``k``-indexed array a calculation has after
+the wavefunctions themselves.
+
+The matrix elements add nothing of the states' size to that. They contract the
+bra **inside** the k map (:func:`_elements_over_kpoints`), so ``map_k`` stacks
+one ``(nbnd, nbnd)`` block per k-point and per output of the ``jvp``. Applying
+the operator first and contracting afterwards stacks every output at the full
+width of the states instead, ``nspin nk nbnd npwx npol`` complex numbers each,
+and an eager ``jvp`` materialises its primal beside its tangent: two such
+copies for :meth:`VelocityOperator.matrix_elements`, four for
+:meth:`VelocityOperator.generalised_matrix_elements` and
+:meth:`VelocityOperator.second_matrix_elements`, each made only to be
+contracted away (``OPEN.md`` S5). At ``k_batch = None`` the body runs over the
+whole axis at once and forms those arrays anyway, so the saving there is only
+that none of them outlives the contraction.
+
+**Degeneracies.** Nothing here differentiates an eigendecomposition (rule D4).
+:meth:`VelocityOperator.band_velocities` is a diagonal expectation value, which
+is wrong inside a degenerate manifold in the same way any diagonal element is --
+the eigensolver's arbitrary mixing rotates it -- so what it reports there is one
+particular basis of the manifold. :meth:`VelocityOperator.matrix_elements`
+returns the whole block and is what a degeneracy-safe consumer contracts.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from defuqumat.batching import map_k, upload
+from defuqumat.eager import compiled
+
+__all__ = ["VelocityOperator", "BandVelocities", "band_velocities",
+           "over_kpoints"]
+
+#: The three cartesian directions, as tangents for ``k``.
+_CARTESIAN = jnp.eye(3)
+
+
+@dataclass
+class BandVelocities:
+    """``d(eps_n)/dk`` at every band and k-point, in Ry bohr.
+
+    Rydberg atomic units have ``hbar = 1``, so the group velocity is this number
+    outright; it is reported as the energy derivative rather than as a velocity
+    because that is what is computed and what a finite difference of the band
+    structure checks it against.
+    """
+
+    #: ``(nspin, nk, nbnd, 3)`` in Ry bohr. The spin axis is squeezed on the way
+    #: out by :attr:`velocities`, following the convention of ``SCFResult``.
+    velocities_by_spin: np.ndarray
+    #: ``(nspin, nk, nbnd)`` in Ry -- the eigenvalues these belong to.
+    eigenvalues_by_spin: np.ndarray
+    nspin: int = 1
+
+    @property
+    def velocities(self) -> np.ndarray:
+        """``(nk, nbnd, 3)``, or ``(2, nk, nbnd, 3)`` for a collinear run."""
+        return (
+            self.velocities_by_spin
+            if self.nspin == 2
+            else self.velocities_by_spin[0]
+        )
+
+    @property
+    def speeds(self) -> np.ndarray:
+        """``|d(eps)/dk|``, same shape as the eigenvalues."""
+        return np.linalg.norm(self.velocities_by_spin, axis=-1)
+
+
+class VelocityOperator:
+    """``dH/dk`` and ``dS/dk`` at a fixed potential, applied to states.
+
+    Built from the same three things :meth:`~defuqumat.scf.driver.Calculation.
+    hamiltonian` takes -- the self-consistent potential, PAW's one-centre
+    coefficients and the Hubbard occupation matrix -- because the operator is
+    the derivative of *that* Hamiltonian and of no other. The potential is a
+    field on a box that does not move with ``k``, so freezing it is not an
+    approximation: it is what ``dH/dk`` at fixed density means.
+    """
+
+    def __init__(self, calculation, v_scf, ddd_paw=None, ns=None, kcart=None,
+                 dipole=None, local_terms=None):
+        if calculation.spiral:
+            raise NotImplementedError(
+                "the velocity operator on a spin spiral is not implemented: the "
+                "two spinor components sit on spheres centred at k + q/2 and "
+                "k - q/2, so dH/dk moves both (see Calculation.at_spiral_q)"
+            )
+        if calculation.is_paw and ddd_paw is None:
+            # The same rule the Hubbard branch below follows, and for the same
+            # reason: a PAW Hamiltonian's nonlocal coefficients are
+            # ``D^(0) + int V Q + ddd_paw``, the last of which comes from
+            # ``becsum`` and cannot be rebuilt from the density. It multiplies
+            # ``vkb(k)``, so it is part of ``dH/dk`` and not only of ``H`` --
+            # leaving it out gives a velocity that is wrong by **2%** and looks
+            # entirely ordinary (measured: 1.7e-2 Ry bohr against 8.7e-7 on
+            # two-atom PAW silicon).
+            raise ValueError(
+                "dH/dk with a PAW pseudopotential needs the one-centre "
+                "coefficients as well as the potential: pass ddd_paw = "
+                "calculation.onecenter(scf_result.becsum)[1]. They are built "
+                "from becsum, not from the density, and they multiply vkb(k), "
+                "so they are part of the velocity operator"
+            )
+        if calculation.is_hubbard and ns is None:
+            raise ValueError(
+                "dH/dk with a Hubbard U needs the converged occupation matrix: "
+                "pass ns = scf_result.ns. wfcU is built at k+G and therefore "
+                "carries a velocity of its own, and leaving the term out gives "
+                "a plausible operator that is missing the Hubbard shift"
+            )
+        self.calculation = calculation
+        self.v_scf = v_scf
+        self.ddd_paw = ddd_paw
+        self.ns = None if ns is None else jnp.asarray(ns)
+        # **Not always ``kpoints.cartesian(cell)``.** That expression reads
+        # ``KPoints.coords``, which are cartesian in units of ``2 pi / alat``
+        # and therefore do *not* move when the cell is strained -- so on a
+        # calculation from :meth:`~defuqumat.scf.driver.Calculation.at_strain` it
+        # silently returns the undeformed k-points and this would be ``dH/dk``
+        # at the wrong ``k``. Such a calculation records the ``kcart`` it was
+        # built with and it is preferred here; ``kcart`` may also be given
+        # outright, which is what a *traced* strain needs.
+        if kcart is None:
+            kcart = getattr(calculation, "_kcart", None)
+        if kcart is None:
+            kcart = calculation.system.kpoints.cartesian(calculation.system.cell)
+        self.kcart = jnp.asarray(kcart)
+        # ``dpqq`` for :meth:`augmentation_connection`, when the caller has built
+        # it already (:func:`~defuqumat.response.efield._augmentation_dipole`). It
+        # is k-independent, and an operator built inside a compiled walk over
+        # k-chunks cannot build it there: its radial weights pass through the
+        # host. ``None`` builds it where it is needed, as before.
+        self.dipole = dipole
+        # The k-independent half of every Hamiltonian this builds
+        # (``Calculation.local_terms``: the smooth-grid potential and ``newd``'s
+        # ``D_ij``), when the caller has it already. Neither moves with ``k``, so
+        # it is the same at every ``at_kcart`` copy; an operator built once per
+        # k-chunk would otherwise integrate ``V Q_ij`` over the dense grid again
+        # in every chunk and every direction. ``None`` builds it each time, as
+        # before.
+        self.local_terms = local_terms
+
+    def _hamiltonians(self, calculation, hubbard):
+        """``calculation.hamiltonian`` at this operator's potential, from :attr:`local_terms` when given."""
+        if self.local_terms is None:
+            return calculation.hamiltonian(self.v_scf, self.ddd_paw, hubbard)
+        return calculation.hamiltonian_from(self.local_terms, hubbard)
+
+    # -- the two operators ------------------------------------------------
+
+    def apply(self, psi: jnp.ndarray, direction) -> jnp.ndarray:
+        """``dH/dk_a |psi>`` for a cartesian ``direction``.
+
+        ``psi`` is ``(nspin, nk, nbnd, ndim)`` -- the shape ``SCFResult.
+        wavefunctions`` has -- and the result matches it. ``direction`` is a
+        cartesian 3-vector in the reciprocal-space basis ``k`` is written in
+        (1/bohr); it need not be normalised, and the result is linear in it.
+        """
+        return self._tangent(psi, direction, overlap=False)
+
+    def apply_s(self, psi: jnp.ndarray, direction) -> jnp.ndarray:
+        """``dS/dk_a |psi>``: zero for a norm-conserving dataset.
+
+        ``S`` is built from the same ``vkb(k)`` the nonlocal potential is, so it
+        carries a velocity whenever ``qq`` is not ``None``. Skipping it is what
+        would make an ultrasoft band velocity wrong by the norm's own motion.
+        """
+        return self._tangent(psi, direction, overlap=True)
+
+    def projectors(self, direction) -> jnp.ndarray:
+        """The projectors' derivative **about their own atom**, ``(nk, npwx, nkb)``.
+
+        ``gen_us_dj`` and ``gen_us_dy``, which ``commutator_Hx_psi`` combines by
+        hand into ``dvkb1 + dvkb (k+G).vpol/|k+G|`` -- the angular derivative
+        plus the radial one along the unit vector -- and here the tangent of
+        ``vkb`` under the same ``jvp`` everything else in this module uses, so
+        the split into angular and radial never has to be made.
+
+        **With one term taken back out, and it is a trap.** ``vkb`` carries the
+        structure factor ``e^{-i(k+G).tau}``, so the true ``d(vkb)/dk_a``
+        contains ``-i tau_a vkb``; QE's two routines differentiate the radial and
+        angular parts and leave the structure factor alone, so what they build is
+        the derivative *about the atom's own centre*. Everywhere else that
+        distinction is invisible, because a projector always appears as
+        ``|beta_i> D_ij <beta_j|`` and the two ``tau`` terms cancel between the
+        ket and the bra -- which is why the velocity operator itself never had to
+        care. Here a *single* projector derivative is contracted with a state,
+        the cancellation does not happen, and the ``tau`` term is the difference
+        between the right answer and one that is 2% too large.
+
+        It is wanted only by an ultrasoft electric field, whose position operator
+        carries ``<d(beta)/dk|psi>`` beside the augmentation dipole, and the two
+        are on the same convention: ``dpqq`` is also about the atom's centre.
+        """
+        tangent = jnp.broadcast_to(
+            jnp.asarray(direction, dtype=self.kcart.dtype), self.kcart.shape
+        )
+
+        def build(kcart):
+            moved = self.calculation.at_kcart(kcart)
+            return moved.projectors.vkb
+
+        _, derivative = jax.jvp(build, (self.kcart,), (jnp.asarray(tangent),))
+
+        projectors = self.calculation.projectors
+        if projectors.nkb == 0:
+            return derivative
+        # **``tau`` stays traced.** This was ``np.asarray(positions)``, which
+        # reads the atoms off the host and so silently drops them from any
+        # derivative taken *through* this expression -- and a third derivative
+        # in the displacement coordinate takes exactly that one (``PLAN.md``
+        # P43). The channel index is static and stays a Python list.
+        positions = jnp.asarray(self.calculation.system.structure.positions)
+        along = positions @ jnp.asarray(  # tau . e_a, bohr
+            direction, dtype=positions.dtype
+        )
+        shift = along[np.asarray(list(projectors.atom_of_channel))]
+        return derivative + 1j * shift * projectors.vkb
+
+    def both(self, psi: jnp.ndarray, direction):
+        """``(dH/dk_a |psi>, dS/dk_a |psi>)`` from **one** ``jvp``.
+
+        The two tangents share the whole cost -- rebuilding ``|k+G|^2`` and
+        ``vkb(k)`` as differentiable functions of ``k`` -- so a band velocity,
+        which needs both, asks for them together rather than paying for the
+        rebuild twice per direction.
+        """
+        return self._tangent(psi, direction, overlap=None)
+
+    def _tangent(self, psi, direction, overlap, contract=False):
+        psi = jnp.asarray(psi)
+        tangent = jnp.broadcast_to(
+            jnp.asarray(direction, dtype=self.kcart.dtype), self.kcart.shape
+        )
+        # The whole ``jvp`` is compiled by its structure (:mod:`defuqumat.eager`),
+        # since the closure is new at every direction and every call.
+        return compiled(
+            lambda states, kc, dk: jax.jvp(
+                lambda k: self._operator(states, k, overlap, contract), (kc,), (dk,)
+            )[1],
+            psi, self.kcart, jnp.asarray(tangent),
+        )
+
+    def _operator(self, psi, kcart, overlap, contract=False):
+        """``H|psi>``, ``S|psi>``, or both, at every k-point, as a function of ``kcart``.
+
+        ``overlap = None`` returns the pair, which is what
+        :meth:`both` differentiates in one pass. ``contract = True`` returns
+        ``<psi_m|H|psi_n>`` (or ``S``) instead, ``(nspin, nk, nbnd, nbnd)``,
+        contracted inside the k map. ``psi`` is not a function of ``kcart``, so
+        the bra carries no tangent and the ``jvp`` of this is the contraction
+        of the ``jvp`` of the full-width form.
+        """
+        moved = self.calculation.at_kcart(kcart)
+        hubbard = (
+            None if self.ns is None else moved.hubbard_terms(self.ns)[2]
+        )
+        hamiltonians = self._hamiltonians(moved, hubbard)
+        batch = self.calculation.k_batch
+        walk = _elements_over_kpoints if contract else over_kpoints
+
+        def applied(want_overlap):
+            return jnp.stack([
+                walk(ham, psi[spin], batch, want_overlap)
+                for spin, ham in enumerate(hamiltonians)
+            ])
+
+        if overlap is None:
+            return applied(False), applied(True)
+        return applied(overlap)
+
+    # -- what is built from them ------------------------------------------
+
+    def matrix_elements(self, psi: jnp.ndarray, sequential: bool = False) -> jnp.ndarray:
+        """``<psi_m| dH/dk_a |psi_n>``, ``(3, nspin, nk, nbnd, nbnd)`` in Ry bohr.
+
+        The whole block, not its diagonal, because this is what survives a
+        degenerate manifold: a Kubo sum contracts off-diagonal elements and the
+        eigensolver's arbitrary rotation inside a manifold cancels between the
+        two factors (rule D4).
+
+        It is ``einsum("skmg,skng->skmn", psi.conj(), self.apply(psi, a))``
+        with the contraction moved inside the k map, which is the same product
+        and never holds ``dH/dk|psi>`` for more than the k-points in flight.
+
+        ``sequential`` walks the three directions with ``lax.map``
+        (:func:`_one_direction_at_a_time`), for a caller tracing this inside
+        one compiled program.
+        """
+        psi = jnp.asarray(psi)
+
+        def one(axis):
+            return self._tangent(psi, axis, overlap=False, contract=True)
+
+        if sequential:
+            return _one_direction_at_a_time(one, _CARTESIAN)
+        return jnp.stack([one(axis) for axis in _CARTESIAN])
+
+    def augmentation_connection(self, psi: jnp.ndarray, direction):
+        """``K^a_{nm} = <psi_n|T^dag dT/dk_a|psi_m>``, or ``None`` with no ``T``.
+
+        ``psi`` is ``(nspin, nk, nbnd, ndim)`` and the result is
+        ``(nspin, nk, nbnd, nbnd)``. ``None`` for a norm-conserving dataset,
+        where ``T`` is the identity and the whole object is zero.
+
+        **This is the term a moving overlap needs beyond its two tangents.**
+        With ``S = T^dag T`` the states a Berry phase or a Kubo sum is about
+        are ``T|psi>`` rather than ``|psi>``, so the connection is
+
+            <Psi_n|d_a Psi_m> = <psi_n|S|d_a psi_m> + K^a_{nm},
+
+        and only the first piece is a rearrangement of ``dH/dk`` and ``dS/dk``.
+        Writing the second out gives
+
+            K^a_{nm} = sum_ij <psi_n|beta_i> q_ij <d_a beta_j|psi_m>
+                     - i sum_ij <psi_n|beta_i> dpqq^a_ij <beta_j|psi_m>,
+
+        which is ``-i`` times the matrix element of the term ``adddvepsi_us``
+        adds to ``P_c r_a|psi>``. So it is
+        :func:`~defuqumat.response.efield.ultrasoft_position` called with a zero
+        position, and it inherits that function's spin-orbit branch (``qq_so``
+        and ``dpqq_so``) along with the rest.
+
+        **Both halves are about the atom's own centre and the ``tau`` cancels.**
+        ``q_ij(b)`` carries the structure factor ``e^{-i b . tau}``, so its
+        derivative is ``-i (tau_a q_ij + dpqq^a_ij)`` -- but the projector
+        derivative that rides beside it is the full one, whose own ``tau`` term
+        cancels it exactly, leaving the two atom-centred objects
+        :meth:`projectors` and ``dpqq`` already agree on.
+
+        ``K^dag + K`` is exactly ``<psi_n|dS/dk_a|psi_m>``: the ``dpqq`` term
+        enters the two with opposite signs and cancels, and the rest adds. That
+        is what says no rearrangement of ``dS/dk`` can supply this -- and it is
+        also why an identity check on ``K^dag + K`` cannot see the dipole at
+        all, which is what the finite difference of the overlap is for
+        (``tests/regression/test_kubo_curvature.py``).
+        """
+        from defuqumat.response.efield import _augmentation_dipole, ultrasoft_position
+
+        calculation = self.calculation
+        if getattr(calculation, "augmentation", None) is None:
+            return None
+        psi = jnp.asarray(psi)
+        direction = jnp.asarray(direction)
+        dipole = (_augmentation_dipole(calculation) if self.dipole is None
+                  else self.dipole)
+        along = jnp.einsum("a,a...->...", direction.astype(dipole.dtype), dipole)
+        hubbard = (
+            None if self.ns is None
+            else calculation.hubbard_terms(self.ns)[2]
+        )
+        hamiltonians = self._hamiltonians(calculation, hubbard)
+        added = ultrasoft_position(
+            calculation, hamiltonians, psi, jnp.zeros_like(psi), along,
+            self.projectors(direction),
+        )
+        return -1j * jnp.einsum("skmg,skng->skmn", psi.conj(), added)
+
+    def generalised_matrix_elements(self, psi: jnp.ndarray, energies,
+                                    sequential: bool = False) -> jnp.ndarray:
+        """``<Psi_n|v_a|Psi_m>`` of a **generalised** eigenproblem, ``(3, nspin, nk, nb, nb)``.
+
+        :meth:`matrix_elements` is ``<n|dH/dk_a|m>``, which is the velocity only
+        when ``S`` is the identity. With a moving overlap the same object is
+
+            v^a_{nm} = <n|dH_a - e_m dS_a|m> + (e_m - e_n) K^a_{nm},
+
+        the ket band's energy multiplying ``dS`` -- which is what
+        differentiating ``H|m> = e_m S|m>`` and projecting on ``<n|`` gives --
+        and :meth:`augmentation_connection` supplying the piece neither tangent
+        contains. The matrix stays Hermitian: the ``dS`` term's asymmetry under
+        ``n <-> m`` is exactly cancelled by ``K^dag + K = dS``.
+
+        On the **diagonal** the correction is the generalised Hellmann-Feynman
+        band velocity, ``<n|dH_a - e_n dS_a|n>``, since ``e_m - e_n`` kills the
+        connection there. A norm-conserving dataset gets :meth:`matrix_elements`
+        back unchanged. ``sequential`` is :meth:`matrix_elements`', and walks
+        the two pieces one after the other (:meth:`tangent_elements`, then
+        :meth:`connections`).
+        """
+        psi = jnp.asarray(psi)
+        energies = jnp.asarray(energies)
+        if sequential:
+            return with_connections(
+                self.tangent_elements(psi, energies, sequential=True), energies,
+                self.connections(psi, sequential=True))
+        gap = energies[..., None, :] - energies[..., :, None]   # [n, m] = e_m - e_n
+
+        def one(axis):
+            # :meth:`both`'s pair, contracted inside the k map as
+            # :meth:`matrix_elements` is.
+            element, moving = self._tangent(
+                psi, axis, overlap=None, contract=True
+            )
+            element = element - energies[..., None, :] * moving
+            connection = self.augmentation_connection(psi, axis)
+            if connection is not None:
+                element = element + gap * connection
+            return element
+
+        return jnp.stack([one(axis) for axis in _CARTESIAN])
+
+    def tangent_elements(self, psi: jnp.ndarray, energies,
+                         sequential: bool = False) -> jnp.ndarray:
+        """``<n|dH_a - e_m dS_a|m>``, ``(3, nspin, nk, nb, nb)``: the two tangents' share.
+
+        :meth:`generalised_matrix_elements` without the augmentation dipole's
+        connection, for a caller that builds the two pieces as separate programs
+        (:mod:`defuqumat.response.walk`) and joins them with
+        :func:`with_connections`. Measured compile only on ultrasoft AlAs at a
+        chunk of one k-point, one direction's tangent held 58.7 MB of
+        temporaries and its connection 58.4 MB, and one program holding both
+        112.7 MB, whether the two were walked together or one after the other.
+        """
+        psi = jnp.asarray(psi)
+        energies = jnp.asarray(energies)
+
+        def one(axis):
+            element, moving = self._tangent(psi, axis, overlap=None, contract=True)
+            return element - energies[..., None, :] * moving
+
+        if sequential:
+            return _one_direction_at_a_time(one, _CARTESIAN)
+        return jnp.stack([one(axis) for axis in _CARTESIAN])
+
+    def connections(self, psi: jnp.ndarray, sequential: bool = False):
+        """:meth:`augmentation_connection` along the three directions, ``(3, ...)``, or ``None``.
+
+        ``None`` for a norm-conserving dataset, where there is no connection.
+        """
+        if getattr(self.calculation, "augmentation", None) is None:
+            return None
+        psi = jnp.asarray(psi)
+
+        def one(axis):
+            return self.augmentation_connection(psi, axis)
+
+        if sequential:
+            return _one_direction_at_a_time(one, _CARTESIAN)
+        return jnp.stack([one(axis) for axis in _CARTESIAN])
+
+    def apply_second(self, psi: jnp.ndarray, first, second) -> jnp.ndarray:
+        """``d^2H/dk_a dk_b |psi>``, one ``jvp`` differentiated by another.
+
+        ``first`` and ``second`` are the two cartesian tangents; the result is
+        bilinear in them and symmetric under exchanging them, because mixed
+        partial derivatives of a smooth function commute and the sphere is
+        frozen through both. The nesting is forward-over-forward, so nothing of
+        the reverse pass's tape is built and the peak is two live tangents of
+        ``vkb`` rather than a Jacobian.
+
+        **Why the operator's second derivative and not the eigenvalue's.** P48
+        computes ``d^2 eps_n/dk_a dk_b`` and does *not* do it this way, because
+        differentiating the Hellmann-Feynman expression again at frozen states
+        drops the whole ``k.p`` sum. Here the object wanted is the bare operator
+        between two *given* states -- ``w^ab_nm`` of the generalised derivative
+        (:mod:`defuqumat.response.photocurrent`) -- which has no such term to
+        lose: it is the second derivative of ``H``, not of a solution of ``H``.
+        """
+        return self._second_tangent(psi, first, second, contract=False)
+
+    def _second_tangent(self, psi, first, second, contract):
+        def broadcast(direction):
+            return jnp.broadcast_to(
+                jnp.asarray(direction, dtype=self.kcart.dtype), self.kcart.shape
+            )
+
+        def nested(states, kcart, first, second):
+            def inner(k):
+                _, out = jax.jvp(
+                    lambda kc: self._operator(states, kc, False, contract),
+                    (k,), (second,),
+                )
+                return out
+
+            return jax.jvp(inner, (kcart,), (first,))[1]
+
+        # Compiled whole, as :meth:`_tangent` is (:mod:`defuqumat.eager`).
+        return compiled(nested, jnp.asarray(psi), self.kcart, broadcast(first),
+                        broadcast(second))
+
+    def second_matrix_elements(self, psi: jnp.ndarray,
+                               sequential: bool = False) -> jnp.ndarray:
+        """``w^ab_nm = <psi_m| d^2H/dk_a dk_b |psi_n>``, ``(3, 3, nspin, nk, nbnd, nbnd)``.
+
+        Ry bohr^2. The six independent pairs are computed and the tensor is
+        filled symmetrically, which costs half of the nine and is exact rather
+        than imposed -- the equality of ``w^ab`` and ``w^ba`` is measured in
+        ``tests/unit/test_photocurrent_machinery.py`` on the operator itself
+        before it is used to save the work. ``sequential`` walks the six pairs
+        as :meth:`matrix_elements` walks its three directions.
+        """
+        psi = jnp.asarray(psi)
+        pairs = [(a, b) for a in range(3) for b in range(a, 3)]
+
+        def one(directions):
+            # :meth:`apply_second` contracted inside the k map, so neither
+            # ``jvp`` stacks an output as wide as the states.
+            first, second = directions
+            return self._second_tangent(psi, first, second, contract=True)
+
+        if sequential:
+            stacked = _one_direction_at_a_time(one, (
+                _CARTESIAN[np.array([a for a, _ in pairs])],
+                _CARTESIAN[np.array([b for _, b in pairs])]))
+            blocks = {pair: stacked[i] for i, pair in enumerate(pairs)}
+        else:
+            blocks = {(a, b): one((_CARTESIAN[a], _CARTESIAN[b])) for a, b in pairs}
+        return jnp.stack([
+            jnp.stack([blocks[(min(a, b), max(a, b))] for b in range(3)])
+            for a in range(3)
+        ])
+
+    def band_velocities(self, psi, eigenvalues) -> BandVelocities:
+        """``d(eps_n)/dk`` by the generalised Hellmann-Feynman theorem.
+
+        ``<psi_n| dH/dk - eps_n dS/dk |psi_n>``. The second term is identically
+        zero for a norm-conserving dataset and is not skipped for one -- the
+        ``jvp`` is what decides that, not a branch here.
+
+        ``psi`` may be a streamed store, a numpy array in host memory, which a
+        streamed ground state or a streamed NSCF hands over (the effective
+        mass's included): it crosses whole through ``device_put``
+        (:func:`~defuqumat.batching.upload`), at its own size on a card where
+        ``jnp.asarray`` peaks at twice it.
+        """
+        psi = upload(psi)
+        eigenvalues = jnp.asarray(eigenvalues)
+        if eigenvalues.ndim == 2:  # (nk, nbnd) -- the squeezed unpolarized shape
+            eigenvalues = eigenvalues[None]
+
+        columns = []
+        for axis in _CARTESIAN:
+            # One ``jvp`` for the pair: the projector rebuild is the whole cost
+            # and both tangents come out of the same one.
+            velocity, overlap = self.both(psi, axis)
+            dh = jnp.einsum("skng,skng->skn", psi.conj(), velocity)
+            ds = jnp.einsum("skng,skng->skn", psi.conj(), overlap)
+            columns.append(jnp.real(dh) - eigenvalues * jnp.real(ds))
+        return BandVelocities(
+            velocities_by_spin=np.asarray(jnp.stack(columns, axis=-1)),
+            eigenvalues_by_spin=np.asarray(eigenvalues),
+            nspin=self.calculation.nspin,
+        )
+
+
+def with_connections(elements, energies, connections):
+    """``elements + (e_m - e_n) K``: :meth:`VelocityOperator.tangent_elements` and
+    :meth:`VelocityOperator.connections` joined into the generalised velocity.
+
+    ``connections`` is ``None`` on a norm-conserving dataset, which returns
+    ``elements`` unchanged.
+    """
+    if connections is None:
+        return elements
+    energies = jnp.asarray(energies)
+    gap = energies[..., None, :] - energies[..., :, None]   # [n, m] = e_m - e_n
+    return elements + gap * connections
+
+
+def _one_direction_at_a_time(one, directions):
+    """``one`` at every direction of ``directions``, stacked, through ``lax.map``.
+
+    For a caller that traces the matrix elements inside one compiled program --
+    a walk over k-chunks (:mod:`defuqumat.response.walk`). There the directions'
+    ``jvp`` calls are independent pieces of one program, and XLA holds their
+    temporaries side by side rather than one after another: measured compile
+    only on AlAs's shift current at a chunk of one k-point, the three first
+    derivatives held 12.0 MB as written out and 5.1 MB mapped, against 5.0 MB
+    for one, and the six second ones 39.3 MB against 7.2 MB. Called eagerly each
+    direction is its own program and runs after the last, which is the same
+    bound, so the default leaves the eager route as it was.
+    """
+    return jax.lax.map(one, directions)
+
+
+def over_kpoints(hamiltonian, states, batch, overlap: bool = False):
+    """``H|psi>`` (or ``S|psi>``) at every k-point, through the batching dial.
+
+    ``Hamiltonian.apply`` takes a k *index* rather than a slice, so the mapped
+    quantity is the index and the states are gathered inside -- which is how
+    :mod:`defuqumat.solvers.davidson` walks the same axis.
+    """
+    apply = hamiltonian.apply_s if overlap else hamiltonian.apply
+    indices = jnp.arange(states.shape[0])
+    return compiled(
+        lambda idx: map_k(lambda ik: apply(states[ik], ik), idx, batch=batch),
+        indices)
+
+
+def _elements_over_kpoints(hamiltonian, states, batch, overlap: bool = False):
+    """``<psi_m|H|psi_n>`` (or ``S``) at every k-point, ``(nk, nbnd, nbnd)``.
+
+    :func:`over_kpoints` with the bra contracted inside the mapped body, so
+    what ``map_k`` stacks is one ``(nbnd, nbnd)`` block per k-point rather than
+    an ``H|psi>`` as wide as the states. For a caller that wants only the
+    projection that output is a second copy of the wavefunctions, made to be
+    contracted away; for the Sternheimer right-hand sides that call
+    :func:`over_kpoints` it is the answer, and they keep it.
+    """
+    apply = hamiltonian.apply_s if overlap else hamiltonian.apply
+
+    def one(ik):
+        block = states[ik]
+        return jnp.einsum("mg,ng->mn", block.conj(), apply(block, ik))
+
+    indices = jnp.arange(states.shape[0])
+    return compiled(lambda idx: map_k(one, idx, batch=batch), indices)
+
+
+def band_velocities(calculation, result, kpoints=None, nbnd=None,
+                    conv_thr: float = 1.0e-6, k_batch="default",
+                    kcart=None) -> BandVelocities:
+    """``d(eps)/dk`` for a converged run, in one call.
+
+    ``result`` is an :class:`~defuqumat.scf.driver.SCFResult`; the potential and
+    the states are taken from it. When ``kpoints`` is given the velocities are
+    computed there instead -- a band path, typically -- which is an NSCF
+    diagonalisation followed by the same operator, and ``nbnd`` then says how
+    many bands that diagonalisation resolves. A path is usually drawn with more
+    bands than the ground state carried, so it is a parameter rather than the
+    ground state's count; on the SCF's own k-points there is nothing to
+    re-diagonalise and it does not apply.
+
+    ``kcart`` builds that diagonalisation's plane-wave spheres at ``kpoints``
+    and then moves the k-points onto these cartesian coordinates (1/bohr), so
+    that **every point of the set shares one basis**. Which plane waves satisfy
+    ``|k+G|^2 <= ecutwfc`` is a step function of ``k``, so two k-points a
+    stencil apart can hold different numbers of them; freezing the sphere makes
+    each velocity exact on its own basis and does nothing to make two bases the
+    same, which is what a difference over the set needs. The effective mass is
+    the caller (:mod:`defuqumat.response.effmass`).
+
+    ``conv_thr`` is that diagonalisation's threshold, and it is worth setting
+    rather than leaving at the default: a band velocity inside a **degenerate
+    multiplet** is not a property of a band at all, so where two bands touch --
+    which along silicon's Lambda axis is most of the path -- a loosely converged
+    eigensolver mixes them differently from a tight one, and the per-band
+    velocities then differ by order one while the multiplet's *set* of them does
+    not. Measured: 1e-6 against 1e-12 on that path moves an individual band's
+    velocity by 0.5 Ry bohr.
+    """
+    from defuqumat.workflows.nscf import fixed_density_states
+
+    if kpoints is None and kcart is not None:
+        raise ValueError(
+            "kcart moves the k-points of the NSCF this does at new kpoints, "
+            "and none was asked for: on the ground state's own k-points the "
+            "velocities come off the states it converged, on the spheres it "
+            "converged them in"
+        )
+    if kpoints is None and nbnd is not None:
+        raise ValueError(
+            "nbnd applies to the NSCF diagonalisation this does at new "
+            "kpoints, and none was asked for: on the ground state's own "
+            "k-points the velocities come off the states it converged. Pass "
+            "kpoints=, or raise nbnd on the SCF itself"
+        )
+
+    if kpoints is not None:
+        # The whole mixed state crosses, not just ``ns``. ``becsum`` for a PAW
+        # dataset, ``tau`` for a meta-GGA and the converged ``field`` /
+        # ``field_scale`` are properties of the *states* and cannot be rebuilt
+        # from the density this hands over -- forwarding one of them and not the
+        # rest is the defect P38 closed in ``run_dos`` and ``run_pdos``, in a
+        # third place.
+        calculation, _, eigenvalues, psi = fixed_density_states(
+            result.system, calculation.pseudos, result.density,
+            kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
+            ns=result.ns, tau=getattr(result, "tau", None),
+            becsum=result.becsum or (),
+            field=result.magnetic_field, field_scale=result.field_scale,
+            kcart=kcart,
+        )
+        eigenvalues = jnp.asarray(eigenvalues)
+    else:
+        eigenvalues = jnp.asarray(result.eigenvalues)
+        psi = result.wavefunctions
+
+    # The converged field, not the input's -- the same rule the ``kpoints``
+    # branch above already follows, and the reason is ``newd``. The Zeeman and
+    # constraint terms enter ``v_scf`` as a *local* multiplicative potential,
+    # which a norm-conserving ``dH/dk`` cannot see at all: ``_operator``
+    # differentiates with respect to ``kcart``, and only the kinetic term and
+    # ``vkb`` carry it. **On an ultrasoft or PAW dataset it can.**
+    # ``hamiltonian`` rebuilds ``deeq`` from ``v_scf`` on every call and
+    # ``deeq`` multiplies ``vkb(k)``, so the local potential reaches the
+    # velocity through the nonlocal term. Measured in
+    # ``tests/unit/test_velocity_locality.py``: exactly zero for si2-nc, 0.37
+    # out of 398 Ry bohr for si2-us.
+    # ``is None``, not ``or`` -- a field ``reducebf`` has scaled all the way
+    # down has ``field_scale = 0.0``, and ``or`` would turn that back into the
+    # full-strength input field, which is the defect this line exists to fix.
+    field_scale = getattr(result, "field_scale", None)
+    potential = calculation.potential(
+        result.density,
+        1.0 if field_scale is None else float(field_scale),
+        getattr(result, "magnetic_field", None),
+    )
+    # PAW's one-centre coefficients come from ``becsum``, which the result
+    # carries for exactly this reason (it is part of the mixed state, not a
+    # function of the density).
+    _, ddd_paw = calculation.onecenter(result.becsum, getattr(result, "meta_c", None))
+    operator = VelocityOperator(calculation, potential.v_scf, ddd_paw, result.ns)
+    return operator.band_velocities(psi, eigenvalues)

@@ -15,7 +15,7 @@
 !
 ! This code's own spiral already satisfies that identity to **1e-10 Ry**
 ! (tests/regression/test_spin_spirals.py's q = b3/2 test, whose reference has
-! nspin = 2 and is not a spiral at all), so this pair is not a check of defumat
+! nspin = 2 and is not a spiral at all), so this pair is not a check of defuqumat
 ! against itself -- it is the number Elk's collinear path can be asked for, on a
 ! cell where Elk's spiral is not involved.
 !
@@ -24,7 +24,7 @@
 ! 'pw', matching Elk's xctype = 3), the dataset, the cutoff, the smearing and the
 ! convergence threshold. The k-grid is 1 1 4 because the cell is twice as long,
 ! which samples the same Brillouin zone as the unit cell's 1 1 8 -- the grid the
-! defumat scan converged at.
+! defuqumat scan converged at.
 !
 ! The two atoms are two species pointing at one file, which is what lets a
 ! starting magnetization differ between them in a way pw.x can also read.

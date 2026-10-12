@@ -18,16 +18,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.pseudo.upf import read_upf
-from defumat.scf.driver import Calculation, _report_mag, run_scf
-from defumat.scf.locals import (
+from defuqumat.pseudo.upf import read_upf
+from defuqumat.scf.driver import Calculation, _report_mag, run_scf
+from defuqumat.scf.locals import (
     _grid_points,
     _minimum_image_distances,
     _qe_weights,
     build_local_regions,
     default_radii,
 )
-from defumat.system.builder import system_from_file
+from defuqumat.system.builder import system_from_file
 
 QE = Path(__file__).resolve().parents[1] / "data" / "qe"
 GRID = (20, 20, 40)
@@ -367,8 +367,8 @@ def test_a_relaxation_records_the_site_moments_at_every_ionic_step(pseudo_dir):
     the helper would pass whether or not it does (which is how ``promote_ns``
     was right in every element while every resume was silently collinear).
     """
-    from defumat.calculator import Calculator
-    from defumat.workflows.relax import site_moment_report
+    from defuqumat.calculator import Calculator
+    from defuqumat.workflows.relax import site_moment_report
 
     text = (QE / "h2-mirror-afm.in").read_text().replace(
         "calculation = 'scf'", "calculation = 'relax'"
@@ -396,8 +396,8 @@ def test_a_nonmagnetic_relaxation_records_nothing_per_site(pseudo_dir):
     has no site moments, and reporting zeros would make a collapsed magnet and a
     nonmagnetic cell read the same on the one instrument that separates them.
     """
-    from defumat.calculator import Calculator
-    from defumat.workflows.relax import site_moment_report
+    from defuqumat.calculator import Calculator
+    from defuqumat.workflows.relax import site_moment_report
 
     text = (QE / "si2-nc-relax.in").read_text()
     calc = Calculator.from_text(text, pseudo_dir, announce=False)
@@ -416,7 +416,7 @@ def test_the_distances_walked_in_blocks_are_the_whole_array_to_the_bit(monkeypat
     ``site_moments``. Each point's distance is its own, so a block size that
     splits the points unevenly must give the same array bit for bit.
     """
-    from defumat.scf import locals as module
+    from defuqumat.scf import locals as module
 
     rng = np.random.default_rng(4)
     points = rng.random((1000, 3))

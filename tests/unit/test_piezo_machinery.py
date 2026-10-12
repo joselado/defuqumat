@@ -15,17 +15,17 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input, read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.piezo import (
+from defuqumat.io.pwin import parse_pw_input, read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.piezo import (
     VOIGT,
     polar_direction,
     require_a_nonpolar_crystal,
     require_a_piezoelectric_tensor,
     to_voigt,
 )
-from defumat.scf import Calculation
-from defumat.system import build_system
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
 
 pytestmark = [pytest.mark.unit]
 
@@ -46,7 +46,7 @@ def _drop_compiled_code():
 def _crystal(case: str):
     """A stand-in for a calculation: the guard reads only the crystal.
 
-    :func:`~defumat.response.piezo.polar_direction` searches the symmetries of
+    :func:`~defuqumat.response.piezo.polar_direction` searches the symmetries of
     the structure rather than reading the run's -- deliberately, since a
     response is usually run with ``nosym`` and that list would call every
     crystal polar -- so nothing here needs pseudopotentials or a converged
@@ -61,7 +61,7 @@ def test_voigt_carries_no_factor_of_two():
     ``P_i = sum_jk e_(i)jk eps_jk`` runs over all nine pairs, and Voigt's
     ``eps_4 = 2 eps_23`` absorbs the doubling of the two equal shear terms --
     so the coefficient is untouched. It is
-    :class:`~defumat.response.elastic.ElasticConstants`' convention one rank
+    :class:`~defuqumat.response.elastic.ElasticConstants`' convention one rank
     down, and the check is that a contraction gives the same answer in both.
     """
     rng = np.random.default_rng(0)
@@ -201,7 +201,7 @@ def test_the_input_reads_the_way_the_calculation_does():
     leave at their default are taken one cell each by
     :func:`test_the_input_reads_the_way_the_calculation_does_off_the_defaults`.
     """
-    from defumat.response.piezo import _Regime
+    from defuqumat.response.piezo import _Regime
 
     system, pseudos = _input("o2-paw-afm")
     view = _Regime.of(system, pseudos)
@@ -298,7 +298,7 @@ def test_the_input_reads_the_way_the_calculation_does_off_the_defaults(
     and no spiral, and has one Fermi level, so on that cell the view and
     the constructor agree on those five flags whatever either computes for
     them: an edit to ``Calculation.__init__`` on any one of them would drift
-    away from :class:`~defumat.response.piezo._Regime` without a test noticing
+    away from :class:`~defuqumat.response.piezo._Regime` without a test noticing
     (``OPEN.md`` Part XVII item 1). Each cell here is chosen for the flag its
     id names, and ``off_its_default`` asserts **on the view, before the
     comparison**, that the flag really is off its default there, so a cell that
@@ -307,7 +307,7 @@ def test_the_input_reads_the_way_the_calculation_does_off_the_defaults(
     default there is the card, and what both sides must say is that there is
     no Hubbard term.
     """
-    from defumat.response.piezo import _Regime
+    from defuqumat.response.piezo import _Regime
 
     system, pseudos = _input(case, edit)
     view = _Regime.of(system, pseudos)
@@ -324,10 +324,10 @@ def test_the_view_and_the_builders_ask_one_predicate_each(monkeypatch):
     the code before it the view transcribed each rule inline, so patching the
     shared predicate moved nothing on that side.
     """
-    import defumat.paw.onecenter as onecenter
-    import defumat.pseudo.augmentation as augmentation
-    from defumat.response.piezo import _Regime
-    from defumat.system.builder import System
+    import defuqumat.paw.onecenter as onecenter
+    import defuqumat.pseudo.augmentation as augmentation
+    from defuqumat.response.piezo import _Regime
+    from defuqumat.system.builder import System
 
     system, pseudos = _input("h-chain-spiral")
     plain = _Regime.of(system, pseudos)
@@ -378,7 +378,7 @@ def test_the_calculator_refuses_before_its_implicit_ground_state(no_calculation)
     calculation made to fail, the old order fails this test and the new one
     raises the refusal before anything is built.
     """
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     system, pseudos = _input("al-metal")
     calculator = Calculator(system, pseudos, announce=False)
@@ -392,7 +392,7 @@ def test_the_ladder_refuses_before_its_first_rung(no_calculation):
     Asked of the first rung rather than of the input's own k-set, because
     every rung is unshifted whatever the input asked for.
     """
-    from defumat.workflows.piezo_ladder import piezoelectric_kmesh_ladder
+    from defuqumat.workflows.piezo_ladder import piezoelectric_kmesh_ladder
 
     system, pseudos = _input("al-metal")
     with pytest.raises(NotImplementedError, match="metal"):
@@ -410,7 +410,7 @@ def test_an_unknown_route_is_refused_before_anything_is_solved():
     response is the expensive part and there is nothing to learn from solving
     it first.
     """
-    from defumat.response.piezo import PIEZOELECTRIC_METHODS, piezoelectric_tensor
+    from defuqumat.response.piezo import PIEZOELECTRIC_METHODS, piezoelectric_tensor
 
     assert PIEZOELECTRIC_METHODS == ("autodiff", "zstar_eu")
     with pytest.raises(ValueError, match="unknown piezoelectric method"):
@@ -438,7 +438,7 @@ def test_the_transcribed_route_refuses_paw_and_no_longer_refuses_ultrasoft():
     energy is a function of ``becsum`` directly, so the cross term the grid
     integral misses is on no grid at all.
     """
-    from defumat.response.piezo import (
+    from defuqumat.response.piezo import (
         require_a_measured_dataset,
         require_a_norm_conserving_transcription,
     )
@@ -470,10 +470,10 @@ def test_the_kmesh_guard_fires_and_says_what_the_mesh_was():
 
     Three states, and the middle one is the one worth having: no ladder at all
     warns and quotes AlAs's curve; a ladder whose last step is above
-    :data:`~defumat.response.piezo.KMESH_STEP` warns and quotes **that** number
+    :data:`~defuqumat.response.piezo.KMESH_STEP` warns and quotes **that** number
     instead; and a ladder below it says nothing.
     """
-    from defumat.response.piezo import KMESH_STEP, _warn_about_the_kmesh
+    from defuqumat.response.piezo import KMESH_STEP, _warn_about_the_kmesh
 
     calculation = _calculation("alas-raman")
     nk = calculation.system.kpoints.nk
@@ -500,7 +500,7 @@ def test_the_kmesh_the_result_reports_is_the_one_that_was_integrated():
     over is then the only honest thing to report. ``grid`` is ``None`` for a
     list, which is not a failure: an explicit set has no divisions.
     """
-    from defumat.response.piezo import _kmesh_of
+    from defuqumat.response.piezo import _kmesh_of
 
     calculation = _calculation("alas-raman")
     nk, grid = _kmesh_of(calculation)
@@ -518,7 +518,7 @@ def test_the_ladder_refuses_an_order_that_would_read_as_a_drift():
     it, since a repeated mesh makes a step of exactly zero and would read as
     perfect convergence.
     """
-    from defumat.workflows.piezo_ladder import piezoelectric_kmesh_ladder
+    from defuqumat.workflows.piezo_ladder import piezoelectric_kmesh_ladder
 
     system = build_system(read_pw_input(CASES / "alas-raman.in"))
     pseudos = tuple(
@@ -557,7 +557,7 @@ def test_an_ultrasoft_dataset_is_warned_about_its_mesh_and_paw_refused():
     """
     import warnings as _warnings
 
-    from defumat.response.piezo import (
+    from defuqumat.response.piezo import (
         KMESH_STEP,
         ULTRASOFT_MESH,
         _warn_about_the_kmesh,

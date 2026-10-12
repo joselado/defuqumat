@@ -34,11 +34,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
 from tests.tolerances import (
     EIGENVALUE_EV,
     ENERGY_TERM_RY,
@@ -164,14 +164,14 @@ def test_the_augmentation_charge_reproduces_the_files_own_q(pseudo_dir, case, ps
     it depends on the cell through ``1/Omega`` alone -- so a pseudopotential from
     another element can be dropped into it to exercise its own storage format.
     """
-    from defumat.pseudo.augmentation import build_augmentation
-    from defumat.pseudo.projectors import projector_channels
+    from defuqumat.pseudo.augmentation import build_augmentation
+    from defuqumat.pseudo.projectors import projector_channels
 
     system = build_system(read_pw_input(CASES / f"{case}.in"))
     pseudo = read_upf(
         pseudo_dir / (pseudo_file or system.structure.species[0].pseudo_file)
     )
-    from defumat.basis.builder import build_basis
+    from defuqumat.basis.builder import build_basis
 
     basis = build_basis(system)
     augmentation = build_augmentation((pseudo,), system.structure, system.cell, basis.dense)
@@ -199,9 +199,9 @@ def test_two_species_naming_one_dataset_share_one_augmentation_charge(pseudo_dir
     """
     import dataclasses
 
-    from defumat.pseudo.augmentation import build_augmentation
-    from defumat.basis.builder import build_basis
-    from defumat.system.structure import Structure
+    from defuqumat.pseudo.augmentation import build_augmentation
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.system.structure import Structure
 
     system = build_system(read_pw_input(CASES / "si2-us.in"))
     basis = build_basis(system)
@@ -228,8 +228,8 @@ def test_two_species_naming_one_dataset_share_one_augmentation_charge(pseudo_dir
 
 def _augmentation_pair(pseudo_dir, case="si2-us"):
     """The same cell's augmentation charge under both storage schemes."""
-    from defumat.basis.builder import build_basis
-    from defumat.pseudo.augmentation import build_augmentation
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.pseudo.augmentation import build_augmentation
 
     system = build_system(read_pw_input(CASES / f"{case}.in"))
     pseudos = tuple(
@@ -253,7 +253,7 @@ def test_the_tabulated_augmentation_charge_agrees_with_the_stored_one(pseudo_dir
     knot straight out -- which is also what makes the ``PP_Q`` check above
     reach the table.
     """
-    from defumat.pseudo.augmentation import TabulatedAugmentation
+    from defuqumat.pseudo.augmentation import TabulatedAugmentation
 
     system, dense, stored, tabulated = _augmentation_pair(pseudo_dir)
     assert isinstance(tabulated, TabulatedAugmentation)
@@ -296,8 +296,8 @@ def test_the_augmentation_chunk_is_invisible(pseudo_dir, monkeypatch, chunk):
     G is the **origin**, where ``Q_ij(G)`` is far from zero, and forgetting to
     mask it adds a smooth spurious term rather than raising anything.
     """
-    from defumat.basis.builder import build_basis
-    from defumat.pseudo.augmentation import build_augmentation
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.pseudo.augmentation import build_augmentation
 
     system = build_system(read_pw_input(CASES / "si2-us.in"))
     pseudos = tuple(
@@ -307,7 +307,7 @@ def test_the_augmentation_chunk_is_invisible(pseudo_dir, monkeypatch, chunk):
     reference = build_augmentation(system_pseudos := pseudos, system.structure,
                                    system.cell, dense, max_bytes=0)
 
-    monkeypatch.setenv("DEFUMAT_AUG_CHUNK", str(chunk))
+    monkeypatch.setenv("DEFUQUMAT_AUG_CHUNK", str(chunk))
     chunked = build_augmentation(
         system_pseudos, system.structure, system.cell, dense, max_bytes=0
     )
@@ -332,7 +332,7 @@ def test_past_the_end_of_the_table_is_nan_and_not_a_clamp(pseudo_dir):
     order and wrong, and no identity in the suite is sensitive to it. NaN is
     the only report available from inside a traced function.
     """
-    from defumat.pseudo.augmentation import AUG_DQ, _interpolate_qrad, _qrad_table
+    from defuqumat.pseudo.augmentation import AUG_DQ, _interpolate_qrad, _qrad_table
 
     system = build_system(read_pw_input(CASES / "si2-us.in"))
     pseudo = read_upf(pseudo_dir / system.structure.species[0].pseudo_file)
@@ -347,8 +347,8 @@ def test_past_the_end_of_the_table_is_nan_and_not_a_clamp(pseudo_dir):
 
 def test_the_storage_scheme_is_chosen_by_size(pseudo_dir):
     """The switch is the array's size, and a generous budget keeps the old path."""
-    from defumat.basis.builder import build_basis
-    from defumat.pseudo.augmentation import (
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.pseudo.augmentation import (
         AugmentationCharge, TabulatedAugmentation, build_augmentation,
     )
 
@@ -380,8 +380,8 @@ def test_a_displaced_table_agrees_between_the_two_schemes(pseudo_dir):
     The two agree at interpolation level, as the resident pair does: 3.8e-13 on
     a charge of 8.0e-03 and 4.8e-10 on integrals of 2.0e+01.
     """
-    from defumat.basis.builder import build_basis
-    from defumat.pseudo.augmentation import (
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.pseudo.augmentation import (
         AugmentationCharge, TabulatedAugmentation, build_augmentation,
     )
 
@@ -426,8 +426,8 @@ def test_a_zero_displacement_is_the_resident_table(pseudo_dir):
     numbers and the two arrays agree bit for bit. Anything else means the
     displacement has leaked into a branch it should not have reached.
     """
-    from defumat.basis.builder import build_basis
-    from defumat.pseudo.augmentation import build_augmentation
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.pseudo.augmentation import build_augmentation
 
     system = build_system(read_pw_input(CASES / "si2-us.in"))
     pseudos = tuple(
@@ -454,9 +454,9 @@ def test_an_scf_through_the_table_reaches_the_same_total_energy(pseudo_dir, monk
     pseudos = tuple(
         read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
     )
-    monkeypatch.setenv("DEFUMAT_AUG_MAX_BYTES", "off")
+    monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", "off")
     stored = run_scf(system, pseudos)
-    monkeypatch.setenv("DEFUMAT_AUG_MAX_BYTES", "0")
+    monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", "0")
     tabulated = run_scf(system, pseudos)
 
     assert len(tabulated.history) == len(stored.history)
@@ -475,30 +475,30 @@ def test_the_augmentation_budget_reads_every_form_the_guide_prints(
 ):
     """``docs/features.tex`` prints ``2G``; ``float("2G")`` raises.
 
-    The suffixes are not decoration: ``DEFUMAT_TEST_MEM_MAX`` already takes
+    The suffixes are not decoration: ``DEFUQUMAT_TEST_MEM_MAX`` already takes
     them, so anyone who has capped a test run will write this one the same way
     and get a traceback out of setup rather than a memory budget.
     """
-    from defumat.pseudo.augmentation import _aug_max_bytes
+    from defuqumat.pseudo.augmentation import _aug_max_bytes
 
-    monkeypatch.setenv("DEFUMAT_AUG_MAX_BYTES", text)
+    monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", text)
     assert _aug_max_bytes() == expected
 
 
 def test_the_augmentation_budget_defaults_when_unset(monkeypatch):
-    from defumat.pseudo.augmentation import AUG_MAX_BYTES, _aug_max_bytes
+    from defuqumat.pseudo.augmentation import AUG_MAX_BYTES, _aug_max_bytes
 
-    monkeypatch.delenv("DEFUMAT_AUG_MAX_BYTES", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_AUG_MAX_BYTES", raising=False)
     assert _aug_max_bytes() == AUG_MAX_BYTES
 
 
 def _converged_both_schemes(case, pseudo_dir, monkeypatch):
     """The same cell converged under each augmentation storage scheme."""
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     out = []
     for budget in ("off", "0"):
-        monkeypatch.setenv("DEFUMAT_AUG_MAX_BYTES", budget)
+        monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", budget)
         calculator = Calculator.from_file(CASES / f"{case}.in", pseudo_dir,
                                           announce=False)
         out.append((calculator.calculation, calculator.get_scf()))
@@ -516,7 +516,7 @@ def test_a_force_through_the_table_matches_the_stored_path(pseudo_dir, monkeypat
     *is* ``dqvan2``'s ``work1`` -- QE differentiates the same stencil by hand
     and gets the same expression.
     """
-    from defumat.forces import compute_forces
+    from defuqumat.forces import compute_forces
 
     (calc_a, res_a), (calc_b, res_b) = _converged_both_schemes(
         "si2-us-force", pseudo_dir, monkeypatch
@@ -537,7 +537,7 @@ def test_a_stress_through_the_table_matches_the_stored_path(pseudo_dir, monkeypa
     show up here and nowhere else, which is why off-table is NaN and why the
     table reaches ``2 sqrt(ecutrho)``.
     """
-    from defumat.stress import compute_stress
+    from defuqumat.stress import compute_stress
 
     (calc_a, res_a), (calc_b, res_b) = _converged_both_schemes(
         "si2-us-stress", pseudo_dir, monkeypatch
@@ -564,7 +564,7 @@ def test_the_analytic_force_refuses_the_table_by_name(pseudo_dir, monkeypatch):
     and in a relaxation with ``force_method='analytic'`` it arrived at the
     first ionic step with the SCF already paid for.
     """
-    from defumat.forces import compute_forces
+    from defuqumat.forces import compute_forces
 
     (_, _), (calc_b, res_b) = _converged_both_schemes(
         "si2-us-force", pseudo_dir, monkeypatch

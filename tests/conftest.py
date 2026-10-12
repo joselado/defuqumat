@@ -16,7 +16,7 @@ from tests import memwatch  # stdlib + psutil only; never JAX
 #: How many cores the suite leaves visible, and why it is not the package
 #: default.
 #:
-#: ``defumat._limit_thread_pool`` narrows the affinity mask to
+#: ``defuqumat._limit_thread_pool`` narrows the affinity mask to
 #: ``DEFAULT_THREADS = 4`` because that is the fastest setting for the physics
 #: -- 238 ms per SCF iteration on ``benchmarks/si8-1k-ecut30.in`` against 411 ms
 #: at eight cores and 385 at twelve. **It is also the setting that deadlocks**:
@@ -34,17 +34,17 @@ from tests import memwatch  # stdlib + psutil only; never JAX
 #: instead of one run in three. Eight rather than "off" because this machine is
 #: shared, and a gate that takes every core takes them from another session.
 #:
-#: **This must run before ``defumat`` is first imported**, which is why it is at
+#: **This must run before ``defuqumat`` is first imported**, which is why it is at
 #: the top of ``conftest.py`` and not in a fixture: the mask is set once, at
-#: import. An explicit ``DEFUMAT_THREADS`` in the environment still wins, so a
+#: import. An explicit ``DEFUQUMAT_THREADS`` in the environment still wins, so a
 #: run that wants to reproduce the hang can ask for it.
 TEST_THREADS = "8"
-os.environ.setdefault("DEFUMAT_THREADS", TEST_THREADS)
+os.environ.setdefault("DEFUQUMAT_THREADS", TEST_THREADS)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: Where the QE source tree is looked for. The vendored location is the default
-#: and nothing about it has changed; ``DEFUMAT_QE_ROOT`` points at a QE tree
+#: and nothing about it has changed; ``DEFUQUMAT_QE_ROOT`` points at a QE tree
 #: installed somewhere else instead.
 #:
 #: **Why this exists.** The tree is 285 MB, gitignored and never in history, so a
@@ -62,7 +62,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 #: usable stand-in rather than a guess.
 QE_ROOT = Path(
     os.environ.get(
-        "DEFUMAT_QE_ROOT",
+        "DEFUQUMAT_QE_ROOT",
         REPO_ROOT / "quantum_espresso" / "qe-7.5-ReleasePack" / "qe-7.5",
     )
 )
@@ -75,7 +75,7 @@ def qe_testsuite() -> Path:
     if not path.is_dir():
         pytest.skip(
             f"QE reference tree not present at {path}. It is gitignored, so a "
-            f"fresh checkout has none; set DEFUMAT_QE_ROOT to a QE installation "
+            f"fresh checkout has none; set DEFUQUMAT_QE_ROOT to a QE installation "
             f"to run these against its test-suite instead"
         )
     return path
@@ -151,13 +151,13 @@ def committed_benchmark(qe_testsuite):
 # takes the process's knowledge of that with it. The fixture below writes the
 # running test's nodeid into the runner's own `in-flight.log` before the test
 # starts, samples the resident set once a second while it runs, and fails the
-# test at teardown once its peak crosses 85% of the same `DEFUMAT_TEST_MEM_MAX`
+# test at teardown once its peak crosses 85% of the same `DEFUQUMAT_TEST_MEM_MAX`
 # the runner set. Everything it does is in `tests/memwatch.py`, including what
 # it cannot catch; keep this end thin.
 #
 # It is inert with the variable unset -- no thread, no file, no `psutil` import
 # -- so the pre-push gate pays nothing. To watch the gate, give it a cap:
-# `DEFUMAT_TEST_MEM_MAX=12G tools/test-fast.sh`.
+# `DEFUQUMAT_TEST_MEM_MAX=12G tools/test-fast.sh`.
 #
 # A teardown failure is reported by pytest as `ERROR at teardown of <test>`
 # rather than `FAILED`; that is still the test's name, and it still matches the

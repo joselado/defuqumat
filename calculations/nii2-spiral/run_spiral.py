@@ -3,7 +3,7 @@
 Two quantities per point, and the second is the interesting one. ``E(q)`` is the
 SCF total energy; ``dE/dq`` is P21's ``jax.grad`` of that same energy at *frozen*
 wavefunctions and a *frozen* plane-wave sphere
-(:func:`defumat.forces.spiral.compute_spiral_gradient`), which is the
+(:func:`defuqumat.forces.spiral.compute_spiral_gradient`), which is the
 Hellmann-Feynman argument in the spiral coordinate: at the variational minimum
 the wavefunctions' own response contributes nothing, so the derivative of the
 energy is the derivative of the two terms that carry ``q`` at all --
@@ -37,7 +37,7 @@ not, and where they part company at a fixed cutoff, that is the size of the
 error rather than a bug in either.
 
 The scan is an ``sbatch --array`` rather than a loop in one process, and that
-costs nothing here: :func:`defumat.workflows.spiral.run_spiral_scan` starts
+costs nothing here: :func:`defuqumat.workflows.spiral.run_spiral_scan` starts
 every point from the same superposition-of-atoms density -- it does *not* warm
 start one ``q`` from the last -- so the points are genuinely independent and the
 only thing a loop would save is the setup and the compile, which are seconds
@@ -168,7 +168,7 @@ def main() -> None:
 
     import jax
 
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     # GPU.md Phase 0, check 1: x64 is asserted on the device rather than
     # trusted, because its failure mode is a plausible number and a platform
@@ -251,7 +251,7 @@ def main() -> None:
     # ``get_spiral_relaxation`` but no ``get_spiral_gradient``, so this is the
     # documented way in.
     if not args.no_gradient:
-        from defumat.forces.spiral import compute_spiral_gradient
+        from defuqumat.forces.spiral import compute_spiral_gradient
 
         t_grad = time.time()
         try:

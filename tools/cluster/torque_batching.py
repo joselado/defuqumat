@@ -6,7 +6,7 @@ pass held one real-space block per k-point **simultaneously** -- the array
 ``SpinorHamiltonian._local_block``'s own docstring sizes at
 ``nbnd x 2 x N_smooth``, 33 GB for one k-point of the P74 cell -- and no dial
 reached it. ``k_batch`` stopped at the NSCF that produced the states, and
-``DEFUMAT_BAND_BATCH`` reaches ``map_bands`` inside the operator, where a scan
+``DEFUQUMAT_BAND_BATCH`` reaches ``map_bands`` inside the operator, where a scan
 stacks its residuals under ``jax.grad`` just the same. A run given ``k_batch=1``
 so that it would fit then asked for the whole axis anyway.
 
@@ -71,11 +71,11 @@ def main() -> None:
 
     import jax.numpy as jnp
 
-    from defumat.calculator import Calculator
-    from defumat.forces.torque import band_energy_at_angle, torque_at_angle
-    from defumat.scf.continuation import nc_magnetization_from_lsda
-    from defumat.workflows.anisotropy import _with_quantization_axis
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.calculator import Calculator
+    from defuqumat.forces.torque import band_energy_at_angle, torque_at_angle
+    from defuqumat.scf.continuation import nc_magnetization_from_lsda
+    from defuqumat.workflows.anisotropy import _with_quantization_axis
+    from defuqumat.workflows.nscf import fixed_density_states
 
     case = CASES[arguments.case]
     k_batch = None if arguments.route == "whole" else arguments.chunk

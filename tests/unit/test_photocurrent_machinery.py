@@ -1,6 +1,6 @@
 """The pieces of the shift current, each checked without a crystal where it can be.
 
-``defumat.response.photocurrent`` is three things stacked: the second
+``defuqumat.response.photocurrent`` is three things stacked: the second
 derivative of ``H(k)``, the generalised derivative built from it by the
 Aversa-Sipe sum rule, and a spectrum. This file checks the first two, plus the
 refusals; the crystal-scale statements -- the complete-basis identity against a
@@ -22,7 +22,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from defumat.response.photocurrent import (
+from defuqumat.response.photocurrent import (
     DEGENERACY_TOL,
     dipole_matrix,
     generalized_derivative,
@@ -193,7 +193,7 @@ def test_the_generalized_derivative_is_hermitian_in_the_band_pair():
 class _Stub:
     """The four attributes :func:`require_a_shift_current_regime` reads.
 
-    A stand-in and not a :class:`~defumat.scf.driver.Calculation`, because the
+    A stand-in and not a :class:`~defuqumat.scf.driver.Calculation`, because the
     branch under test is unreachable from any committed input: every DFT+U case
     in this suite uses an ultrasoft dataset, so the ultrasoft refusal fires
     first and the Hubbard message is never seen. The guard is four independent
@@ -247,7 +247,7 @@ def test_the_generalized_derivative_is_invariant_inside_a_multiplet():
     operator, and a degenerate eigensolver is free to hand back any unitary
     combination of a multiplet's members: the diagonal moves under that
     rotation and the multiplet's block average does not.
-    :func:`~defumat.response.shg.band_velocity_difference` was written for
+    :func:`~defuqumat.response.shg.band_velocity_difference` was written for
     exactly this in the second-harmonic assembly, where it is worth four orders
     of magnitude on silicon, and the generalised derivative -- the same
     quantity, one module over -- took the bare diagonal.
@@ -260,7 +260,7 @@ def test_the_generalized_derivative_is_invariant_inside_a_multiplet():
 
     import jax.numpy as jnp
 
-    from defumat.response.photocurrent import band_velocity_difference
+    from defuqumat.response.photocurrent import band_velocity_difference
 
     rng = np.random.default_rng(17)
     nk, nb = 2, 6
@@ -316,7 +316,7 @@ def test_the_multiplet_average_is_exactly_the_diagonal_where_nothing_is_degenera
     import jax
     import jax.numpy as jnp
 
-    from defumat.response.photocurrent import band_velocity_difference
+    from defuqumat.response.photocurrent import band_velocity_difference
 
     rng = np.random.default_rng(3)
     nk, nb = 3, 5

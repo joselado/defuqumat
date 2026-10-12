@@ -6,7 +6,7 @@ fixes the whole interaction matrix. ``pw.x`` computes no Slater integral at all,
 so every check here closes inside the package or against an analytic limit:
 
 * **two independent discretisations** of the same integral -- a cumulative
-  quadrature and :mod:`defumat.paw.hartree`'s Numerov solve of the radial
+  quadrature and :mod:`defuqumat.paw.hartree`'s Numerov solve of the radial
   Poisson equation -- which is what found a systematic 1-4 per cent error (the
   diagonal mesh point counted twice in both inner integrals);
 * the **``lam -> 0`` limit** of the Yukawa kernel is the bare one, which is the
@@ -19,12 +19,12 @@ so every check here closes inside the package or against an analytic limit:
 import numpy as np
 import pytest
 
-from defumat.hubbard.interaction import (
+from defuqumat.hubbard.interaction import (
     exchange_from_slater,
     racah_to_slater,
     slater_integrals,
 )
-from defumat.hubbard.yukawa import (
+from defuqumat.hubbard.yukawa import (
     LAMBDA_MAX,
     manifold_radial,
     screening_length,
@@ -32,8 +32,8 @@ from defumat.hubbard.yukawa import (
     slater_from_radial,
     slater_set,
 )
-from defumat.pseudo import read_upf
-from defumat.units import RY_TO_EV
+from defuqumat.pseudo import read_upf
+from defuqumat.units import RY_TO_EV
 
 pytestmark = pytest.mark.unit
 
@@ -108,7 +108,7 @@ def test_the_screened_integral_is_the_double_sum_it_claims_to_be(pseudo_dir, lam
     """
     from scipy.special import spherical_in, spherical_kn
 
-    from defumat.units import E2
+    from defuqumat.units import E2
 
     manifold = _nickel(pseudo_dir)
     weighted = manifold.chi**2 * manifold.weights
@@ -204,9 +204,9 @@ def test_only_a_paw_dataset_reaches_this_route(pseudo_dir):
     ``F^0`` of 2.1 eV where the answer is above twenty, and the SCF converges
     and reports success either way.
     """
-    from defumat.hubbard.manifold import HubbardInput, build_hubbard_setup
-    from defumat.system import build_system
-    from defumat.io.pwin import parse_pw_input
+    from defuqumat.hubbard.manifold import HubbardInput, build_hubbard_setup
+    from defuqumat.system import build_system
+    from defuqumat.io.pwin import parse_pw_input
     from tests.unit.test_hubbard_full import FEO
 
     text = (FEO % "U Fe1-3d 4.3").replace(
@@ -227,7 +227,7 @@ def test_an_unbound_manifold_is_refused(pseudo_dir):
     is an error rather than a caveat -- an integral over part of an orbital is
     not that orbital's Slater integral.
     """
-    from defumat.hubbard.manifold import NORM_FLOOR
+    from defuqumat.hubbard.manifold import NORM_FLOOR
 
     manifold = manifold_radial(
         read_upf(pseudo_dir / "Si.pz-n-kjpaw_psl.0.1.UPF"), 3, 1, cutoff=2.5

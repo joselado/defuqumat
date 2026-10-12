@@ -12,7 +12,7 @@ stale carried across would show up as a wrong ``vkb(k)`` or a wrong ``|k+G|^2``,
 and a Berry phase built on it would come back a plausible non-integer rather than
 an error. That the shared parts are the *same objects* is the point of the
 method: it is what makes streaming a k-mesh cost one diagonalisation per row
-instead of a gigabyte and seventy seconds (see :mod:`defumat.workflows.topology`).
+instead of a gigabyte and seventy seconds (see :mod:`defuqumat.workflows.topology`).
 """
 
 import numpy as np
@@ -20,11 +20,11 @@ import pytest
 
 import equinox as eqx
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 
 pytestmark = pytest.mark.unit
 

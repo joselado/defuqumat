@@ -17,8 +17,8 @@ is always free in.
 import numpy as np
 import pytest
 
-from defumat.system.cell import Cell
-from defumat.system.symmetry import (
+from defuqumat.system.cell import Cell
+from defuqumat.system.symmetry import (
     _PAULI,
     _su2_from_rotation,
     cartesian_rotations,
@@ -55,7 +55,7 @@ def _axis_angle(axis, degrees):
 
 def _symmetries(rotations, t_rev=None):
     """A :class:`Symmetries` carrying just a point group, for the algebra tests."""
-    from defumat.system.symmetry import Symmetries
+    from defuqumat.system.symmetry import Symmetries
 
     rotations = [np.asarray(r, dtype=int).tolist() for r in rotations]
     nsym = len(rotations)
@@ -281,7 +281,7 @@ class TestTheAxialAtomAverage:
     """``symmetrize_atom_cartesian_tensor(axial=True)`` -- ``<L>`` and ``<S>``."""
 
     def _structure(self):
-        from defumat.system.structure import Structure, Species
+        from defuqumat.system.structure import Structure, Species
 
         # A **low-symmetry** cell on purpose. On a cubic one the group contains
         # a rotation carrying z onto x, so a z moment averages to zero whether

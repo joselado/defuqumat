@@ -13,21 +13,21 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.pseudo.radial import simpson_weights
-from defumat.pseudo.atomic import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.radial import simpson_weights
+from defuqumat.pseudo.atomic import (
     atomic_channels,
     atomic_wavefunctions,
     count_atomic_wavefunctions,
 )
-from defumat.scf.driver import Calculation
-from defumat.scf.potential import v_of_rho
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.potential import v_of_rho
 from tests.exact_reference import exact_eigenpairs_all
-from defumat.solvers.davidson import starting_vectors
-from defumat.solvers.subspace import rayleigh_ritz
-from defumat.system import build_system
-from defumat.system.cell import Cell
+from defuqumat.solvers.davidson import starting_vectors
+from defuqumat.solvers.subspace import rayleigh_ritz
+from defuqumat.system import build_system
+from defuqumat.system.cell import Cell
 
 pytestmark = pytest.mark.unit
 

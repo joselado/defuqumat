@@ -7,9 +7,9 @@ in a docstring -- and a second path reaching the same physics had no check at
 all and returned a plausible number. None of them raised; each answered.
 
 * the elastic constants refuse ultrasoft and PAW
-  (:func:`~defumat.response.elastic.require_a_measured_elastic_regime`) -- and
-  :func:`~defumat.response.elastic.elastic_constants`, which
-  :meth:`defumat.calculator.Calculator.get_elastic_constants` calls directly,
+  (:func:`~defuqumat.response.elastic.require_a_measured_elastic_regime`) -- and
+  :func:`~defuqumat.response.elastic.elastic_constants`, which
+  :meth:`defuqumat.calculator.Calculator.get_elastic_constants` calls directly,
   never called the guard that then existed;
 * a potential-only functional has no energy to differentiate, and
   ``method='analytic'`` did not go through the functional that says so;
@@ -28,8 +28,8 @@ import warnings
 
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -71,7 +71,7 @@ def test_lsda_without_a_starting_magnetization_is_refused():
     identical, stay identical and converge to the unpolarized solution --
     ``Calculation.starting_density`` says so in its own docstring, and no caller
     enforced it. The run reported success and printed a total magnetization of
-    zero. :mod:`defumat.scf.continuation` has the equivalent guard on the
+    zero. :mod:`defuqumat.scf.continuation` has the equivalent guard on the
     *promotion* path and has had it since P23.
     """
     with pytest.raises(ValueError, match="no starting_magnetization"):
@@ -200,7 +200,7 @@ def test_an_atomic_constraint_needs_something_to_build_its_targets_from():
 def test_chi2_is_refused_on_the_public_path_and_not_only_by_name():
     """The refusal existed and the only call to it was in a test.
 
-    :func:`~defumat.response.nonlinear.susceptibility_field_derivative` is in
+    :func:`~defuqumat.response.nonlinear.susceptibility_field_derivative` is in
     ``__all__`` and its docstring said it was "kept and refused rather than
     exposed" -- it was exposed. The tensor it returns is missing the
     ``<u_i|r_k|u_j>`` term, is 42% wrong on its displacement counterpart, and no
@@ -209,7 +209,7 @@ def test_chi2_is_refused_on_the_public_path_and_not_only_by_name():
     """
     import inspect
 
-    from defumat.response.nonlinear import susceptibility_field_derivative
+    from defuqumat.response.nonlinear import susceptibility_field_derivative
 
     signature = inspect.signature(susceptibility_field_derivative)
     assert signature.parameters["allow_incomplete"].default is False
@@ -223,9 +223,9 @@ def test_the_elastic_constants_call_the_refusal_that_names_them():
     """``C_ijkl`` refuses an augmented dataset on its own account, not the third
     derivative's, and this entry point has to make the check itself.
 
-    :mod:`defumat.response.electrostriction` refuses the elastic half early, so
+    :mod:`defuqumat.response.electrostriction` refuses the elastic half early, so
     the hole this test was written for was on the direct path --
-    :meth:`defumat.calculator.Calculator.get_elastic_constants`, which is the
+    :meth:`defuqumat.calculator.Calculator.get_elastic_constants`, which is the
     one a user takes. **The reason changed with P100 and the test did not.** The
     guard used to be ``require_norm_conserving``, inherited from a measurement
     of the *third* derivative in the strain coordinate -- which runs on all
@@ -238,7 +238,7 @@ def test_the_elastic_constants_call_the_refusal_that_names_them():
     """
     import inspect
 
-    from defumat.response import elastic
+    from defuqumat.response import elastic
 
     body = inspect.getsource(elastic.elastic_constants)
     assert "require_a_measured_elastic_regime(calculation)" in body
@@ -255,15 +255,15 @@ def test_every_force_method_passes_the_same_guards(guard, name):
     """Before dispatch, so the analytic route is covered too.
 
     The analytic forces are a transcription of QE's six expressions and share no
-    machinery with :func:`~defumat.forces.energy.energy_at`, so a refusal
+    machinery with :func:`~defuqumat.forces.energy.energy_at`, so a refusal
     written into the functional never reached ``method='analytic'``: a
     Tran-Blaha run came back with a force. The field refusal is the stress
-    path's (:func:`defumat.stress.energy.require_a_differentiable_cell`), which
+    path's (:func:`defuqumat.stress.energy.require_a_differentiable_cell`), which
     the force path did not have at all.
     """
     import inspect
 
-    import defumat.forces as forces
+    import defuqumat.forces as forces
 
     assert f"{guard}(calculation)" in inspect.getsource(forces.compute_forces), name
 
@@ -273,7 +273,7 @@ def test_every_force_method_passes_the_same_guards(guard, name):
 def _metallic_calculation():
     """The least that :func:`require_a_sternheimer_regime` reads, on a metal.
 
-    A stub rather than a real :class:`~defumat.scf.driver.Calculation`: the
+    A stub rather than a real :class:`~defuqumat.scf.driver.Calculation`: the
     guard is a guard, it reads seven attributes, and building an SCF to reach it
     would be the slow way to check a message.
     """
@@ -302,7 +302,7 @@ def test_the_strain_response_refuses_a_metal_for_the_right_reason():
     what is actually missing is the Fermi-level shift the phonon branch already
     carries.
     """
-    from defumat.response.strain import strain_response
+    from defuqumat.response.strain import strain_response
 
     with pytest.raises(NotImplementedError) as raised:
         strain_response(_metallic_calculation(), None, [[0.0]], None)
@@ -317,7 +317,7 @@ def test_the_strain_response_refuses_a_metal_for_the_right_reason():
 def test_the_electric_field_still_refuses_a_metal_by_definition():
     """The sibling keeps the other message, because for *it* the statement is
     true: the quantity does not exist for a metal at all."""
-    from defumat.response.efield import dielectric_tensor
+    from defuqumat.response.efield import dielectric_tensor
 
     with pytest.raises(NotImplementedError) as raised:
         dielectric_tensor(_metallic_calculation(), None, [[0.0]], None)
@@ -325,16 +325,16 @@ def test_the_electric_field_still_refuses_a_metal_by_definition():
 
 
 def _calculation_with_a_field(extra: str, pseudo_dir):
-    """A real :class:`~defumat.scf.Calculation`, because the stub has no field.
+    """A real :class:`~defuqumat.scf.Calculation`, because the stub has no field.
 
     ``magnetic_field`` is built in the constructor
-    (:meth:`~defumat.scf.driver.Calculation._build_magnetic_field`) and is
+    (:meth:`~defuqumat.scf.driver.Calculation._build_magnetic_field`) and is
     ``None`` unless the input asked for one, so the namespace above cannot say
     whether the guard fires for the right reason. Silicon at ``ecutwfc = 12``
     with a spin axis costs a basis and a projector table and no SCF at all.
     """
-    from defumat.pseudo import read_upf
-    from defumat.scf import Calculation
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf import Calculation
 
     system = _system(extra)
     pseudos = tuple(
@@ -373,7 +373,7 @@ def test_the_sternheimer_stack_refuses_a_magnetic_field(extra, pseudo_dir):
     The guard is checked on the *calculation* alone, which is what lets one
     assertion stand for all seven entry points that share it.
     """
-    from defumat.response.sternheimer import require_a_sternheimer_regime
+    from defuqumat.response.sternheimer import require_a_sternheimer_regime
 
     calculation = _calculation_with_a_field(extra, pseudo_dir)
     assert calculation.magnetic_field is not None
@@ -396,7 +396,7 @@ def test_the_field_refusal_fires_before_the_regime_flags(pseudo_dir):
     the field would go unmentioned. Five of the seven entry points pass neither
     flag.
     """
-    from defumat.response.sternheimer import require_a_sternheimer_regime
+    from defuqumat.response.sternheimer import require_a_sternheimer_regime
 
     calculation = _calculation_with_a_field(
         _A_FIELD_BY_HAND.replace("tot_magnetization = 0.0", "")
@@ -422,7 +422,7 @@ def test_the_transcribed_force_and_stress_refuse_gamma_storage(entry, term):
 
     ``K_POINTS gamma`` stores one plane wave of each ``(G, -G)`` pair, so a sum
     over the stored list is half the sum it looks like.
-    :func:`~defumat.forces.energy.energy_at` takes ``gamma_only`` as a static
+    :func:`~defuqumat.forces.energy.energy_at` takes ``gamma_only`` as a static
     argument and threads it through the kinetic term, the norms and the nonlocal
     block; neither transcription contained the string at all, so ``force_us``
     summed ``<beta|psi>`` and ``stres_knl`` summed ``|c_G|^2`` over half a
@@ -435,8 +435,8 @@ def test_the_transcribed_force_and_stress_refuse_gamma_storage(entry, term):
     """
     import types
 
-    from defumat.forces.analytic import analytic_forces
-    from defumat.stress.analytic import analytic_terms
+    from defuqumat.forces.analytic import analytic_forces
+    from defuqumat.stress.analytic import analytic_terms
 
     entry_point = {"forces": analytic_forces, "stress": analytic_terms}[entry]
     stub = types.SimpleNamespace(gamma_only=True, noncolin=False)
@@ -478,12 +478,12 @@ def test_two_more_consumers_refuse_gamma_storage(entry, sibling):
     import types
 
     if entry == "angular_momenta":
-        from defumat.projwfc.angular_momentum import (
+        from defuqumat.projwfc.angular_momentum import (
             _refuse_what_is_not_written as guard,
         )
         stub = types.SimpleNamespace(gamma_only=True, spiral=None)
     else:
-        from defumat.tddft.spinchi0 import require_a_transverse_regime as guard
+        from defuqumat.tddft.spinchi0 import require_a_transverse_regime as guard
 
         stub = types.SimpleNamespace(
             gamma_only=True, is_paw=False, is_ultrasoft=False, spiral=None,
@@ -498,7 +498,7 @@ def test_two_more_consumers_refuse_gamma_storage(entry, sibling):
     # The sibling that already carried the rule, named so the pair is on record.
     from pathlib import Path as _Path
 
-    root = _Path(__file__).resolve().parents[2] / "defumat"
+    root = _Path(__file__).resolve().parents[2] / "defuqumat"
     assert "refuse_gamma_storage(" in (root / sibling).read_text(), sibling
 
     # ...and silent on an ordinary run, or the guard is not a guard.
@@ -535,7 +535,7 @@ def test_the_conductivity_forwards_tau_to_both_potential_builds():
     """
     import inspect
 
-    from defumat.workflows import conductivity, nesting, nscf
+    from defuqumat.workflows import conductivity, nesting, nscf
 
     def argument_list(text: str) -> str:
         """Everything up to the matching close paren, comments removed.
@@ -584,8 +584,8 @@ def test_the_magnetoelectric_ground_states_take_the_inputs_mixing(monkeypatch):
     this they received ``scf_options`` alone, so every one ran at the driver's
     default mixing whatever the input said (``PLAN.md`` P57, Cr2O3).
     """
-    import defumat.scf.driver as driver
-    from defumat import Calculator
+    import defuqumat.scf.driver as driver
+    from defuqumat import Calculator
 
     seen = {}
 

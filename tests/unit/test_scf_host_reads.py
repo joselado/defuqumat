@@ -26,8 +26,8 @@ import numpy as np
 import pytest
 from jax._src import array as jax_array
 
-import defumat.scf.driver as driver
-from defumat.calculator import Calculator
+import defuqumat.scf.driver as driver
+from defuqumat.calculator import Calculator
 
 pytestmark = pytest.mark.unit
 

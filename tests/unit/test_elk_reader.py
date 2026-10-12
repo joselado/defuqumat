@@ -25,13 +25,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.elk import (
+from defuqumat.io.elk import (
     ElkGeometry,
     ElkState,
     read_elk_geometry,
     read_elk_state,
 )
-from defumat.io.elk_density import (
+from defuqumat.io.elk_density import (
     poly4,
     real_spherical_harmonics,
     spline_weights,
@@ -97,7 +97,7 @@ def test_the_header_is_read(state):
 
 
 def test_the_hartree_factor_is_on_the_potentials_and_not_the_density(state):
-    """Elk is Hartree and defumat is Rydberg, and only some fields carry it.
+    """Elk is Hartree and defuqumat is Rydberg, and only some fields carry it.
 
     ``efermi`` is 0.0739705280 Ha in the file. A density is e/bohr^3 in both
     codes and takes no factor at all -- which the pointwise agreement against
@@ -261,7 +261,7 @@ def test_the_geometry_carries_the_scale_factors(tmp_path):
     assert geometry.omega == pytest.approx(24.0)
 
 
-def test_the_committed_geometry_is_the_cell_the_defumat_input_uses(state):
+def test_the_committed_geometry_is_the_cell_the_defuqumat_input_uses(state):
     """3.0 bohr simple cubic, the origin unshifted for one atom at a corner."""
     assert state.geometry.avec == pytest.approx(np.eye(3) * 3.0, abs=1e-12)
     assert state.geometry.positions == pytest.approx(np.zeros((1, 3)), abs=1e-12)

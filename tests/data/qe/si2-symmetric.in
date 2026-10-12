@@ -10,7 +10,7 @@
 ! grid's sampling error, and chi^(2) and the shift current, which inversion
 ! forbids outright, pick that up: chi^(2) on the whole 2x2x2 mesh at 8 bands
 ! reads 0.72 pm/V on 15^3 under `nosym` against 0.00074 with symmetry kept
-! (`defumat/response/photocurrent.py`, `_incommensurate_grid`).
+! (`defuqumat/response/photocurrent.py`, `_incommensurate_grid`).
 !
 ! A polar rank-3 tensor still needs the whole Brillouin zone, so the tensor is
 ! evaluated on the complete unshifted mesh passed as `kpoints=`; the grid below

@@ -24,10 +24,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.scf.potential import fixed_quantization_axis
-from defumat.system.builder import build_system
-from defumat.workflows.anisotropy import _reference_axis, _with_quantization_axis
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.scf.potential import fixed_quantization_axis
+from defuqumat.system.builder import build_system
+from defuqumat.workflows.anisotropy import _reference_axis, _with_quantization_axis
 
 pytestmark = pytest.mark.unit
 

@@ -40,12 +40,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.scf.checkpoint import (
+from defuqumat.calculator import Calculator
+from defuqumat.scf.checkpoint import (
     load_mixer, save_mixer, unhandled_mixer_fields,
 )
-from defumat.scf.driver import SCF_CHECKPOINT, SCF_MIXER, run_scf
-from defumat.scf.mixing import get_mixer
+from defuqumat.scf.driver import SCF_CHECKPOINT, SCF_MIXER, run_scf
+from defuqumat.scf.mixing import get_mixer
 
 pytestmark = pytest.mark.unit
 
@@ -214,7 +214,7 @@ def test_the_threshold_schedule_crosses_the_file(qe_silicon, pseudo_dir, tmp_pat
     the state nor the mixer, and QE keeps it in ``restart_scf`` beside ``iter``
     and ``dr2`` for exactly that reason.
     """
-    from defumat.scf.checkpoint import load_state
+    from defuqumat.scf.checkpoint import load_state
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -241,7 +241,7 @@ def test_max_seconds_stops_the_loop_and_leaves_a_checkpoint(qe_silicon, pseudo_d
     notebooks and every other caller. Zero seconds is already past, so the first
     iteration is the one that stops -- which is what makes this cheap to assert.
     """
-    import defumat.scf.driver as driver
+    import defuqumat.scf.driver as driver
 
     # A fake clock rather than a real deadline, so the stop lands after exactly
     # three iterations instead of after however long the machine took.
@@ -331,7 +331,7 @@ def test_a_mixer_does_not_promote_the_densitys_precision(dtype, mode):
     """
     import numpy as np
 
-    from defumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix
 
     rho = np.random.default_rng(3).normal(size=(1, 4, 4, 4)).astype(dtype)
     mixer = get_mixer(mode, **({"beta": 0.4} if mode != "adaptive" else {}))
@@ -358,7 +358,7 @@ def test_the_ns_block_survives_the_mixer_in_either_precision(dtype, mode):
     """
     import numpy as np
 
-    from defumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix
 
     rng = np.random.default_rng(20260911)
     shape = (2, 1, 5, 5)
@@ -395,7 +395,7 @@ def test_the_tau_block_survives_the_mixer_in_either_precision(dtype, mode):
     """
     import numpy as np
 
-    from defumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix
 
     rng = np.random.default_rng(20260920)
     tau = rng.normal(size=(2, 4, 4, 4)).astype(dtype)
@@ -414,7 +414,7 @@ def test_the_tau_block_is_actually_mixed_and_not_carried_through():
     round-trip above, since mixing anything with itself is the identity."""
     import numpy as np
 
-    from defumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix
 
     rng = np.random.default_rng(7)
     rho = rng.normal(size=(1, 4, 4, 4))
@@ -482,7 +482,7 @@ def test_reducebf_is_picked_up_where_the_resume_left_it(pseudo_dir, tmp_path):
     else without a word. The saved scale is what makes (input field, scale)
     reproduce the faded field exactly.
     """
-    from defumat.scf.checkpoint import load_state
+    from defuqumat.scf.checkpoint import load_state
 
     calculator = _with_field(pseudo_dir, tmp_path / "cell",
                              extra="\n    reducebf = 0.5\n")
@@ -574,7 +574,7 @@ def test_an_unreadable_mixer_costs_the_history_and_not_the_run(tmp_path, pseudo_
     and nothing else. Letting the cheap failure raise turns "the resume is
     slower" into "the resume is dead", on the run least able to afford it.
     """
-    from defumat.scf.driver import SCF_MIXER
+    from defuqumat.scf.driver import SCF_MIXER
 
     out = tmp_path / "ckpt"
     with warnings.catch_warnings():

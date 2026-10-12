@@ -30,10 +30,10 @@ import re
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.projwfc.projections import atomic_projections, calculation_channels
-from defumat.workflows.pdos import lowdin_charges
-from defumat.units import RY_TO_EV
+from defuqumat import Calculator
+from defuqumat.projwfc.projections import atomic_projections, calculation_channels
+from defuqumat.workflows.pdos import lowdin_charges
+from defuqumat.units import RY_TO_EV
 
 pytestmark = pytest.mark.regression
 

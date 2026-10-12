@@ -82,7 +82,7 @@ fifteen-cell helix at `1 1 1` and `1 3 1` on an H200, the run that failed.
 
 The production route has no number of its own here: it did not fit, so 6.6 GiB is a lower
 bound on its tape, and a size would need the compile-only `memory_analysis()` of the
-production program, which the eager path through `defumat.eager` does not expose. The
+production program, which the eager path through `defuqumat.eager` does not expose. The
 numbers are one cell on one card. The ratio of the tape to the band loop grows with the
 bands and the grid together, so on the fifteen-cell helix the gap between the production call
 and the routes is larger than here, not smaller, but how much larger is not measured.

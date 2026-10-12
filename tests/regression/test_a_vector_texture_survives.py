@@ -45,7 +45,7 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 

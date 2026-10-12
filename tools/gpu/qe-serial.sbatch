@@ -7,7 +7,7 @@
 # is the comparison and a one-task job starts immediately. The 4/16/32-core
 # columns are that other job's business and are what stop this one being read as
 # "what a GPU is worth against QE".
-#SBATCH --job-name=defumat-qe-serial
+#SBATCH --job-name=defuqumat-qe-serial
 #SBATCH --partition=batch-milan
 #SBATCH --time=08:00:00
 #SBATCH --nodes=1

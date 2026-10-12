@@ -118,8 +118,8 @@ def _measure(args, grid: int, stage: str) -> dict:
     import jax
     import numpy as np
 
-    from defumat import Calculator
-    from defumat.scf.streaming import is_host_store
+    from defuqumat import Calculator
+    from defuqumat.scf.streaming import is_host_store
 
     text = open(args.input).read()
     text = re.sub(r"K_POINTS.*", f"K_POINTS automatic\n {grid} {grid} {grid} 0 0 0\n",

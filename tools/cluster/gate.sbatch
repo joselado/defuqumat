@@ -17,10 +17,10 @@
 #
 # partition     batch-milan.
 # time          02:00:00. Ten minutes warm on the workstation, and this pays
-#               compilation per shape with `DEFUMAT_CACHE_DIR=off`; two hours is
+#               compilation per shape with `DEFUQUMAT_CACHE_DIR=off`; two hours is
 #               headroom over the worst that has been seen rather than an
 #               estimate.
-# cpus-per-task 8, because `tests/conftest.py` sets `DEFUMAT_THREADS=8` itself,
+# cpus-per-task 8, because `tests/conftest.py` sets `DEFUQUMAT_THREADS=8` itself,
 #               for the thread-pool deadlock in `OPEN.md` Part IV item 1. MKL and
 #               OMP are pinned to 1 beside XLA.
 # mem           48G. The gate's measured peak on the workstation is 5.5 GB, but
@@ -28,7 +28,7 @@
 #               memory and dearer in time** while a hit expands a loaded
 #               executable -- so the sign of the cache's effect on memory is the
 #               opposite of the obvious one and this is sized well above either.
-#SBATCH --job-name=defumat-gate
+#SBATCH --job-name=defuqumat-gate
 #SBATCH --partition=batch-milan
 #SBATCH --time=02:00:00
 #SBATCH --cpus-per-task=8
@@ -37,7 +37,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-magnetism/out/gate-%j.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-magnetism
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -47,7 +47,7 @@ source "$VENV/bin/activate" || exit 1
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
-export DEFUMAT_CACHE_DIR=off
+export DEFUQUMAT_CACHE_DIR=off
 
 echo "=== node ==="; hostname; date
 echo "commit: $(git -C "$REPO" rev-parse HEAD)  $(git -C "$REPO" log --oneline -1)"

@@ -9,10 +9,10 @@ import json
 import os
 import time
 
-import defumat  # noqa: F401
-from defumat import Calculator
-from defumat.realtime.pulse import Kick
-from defumat.units import C_AU
+import defuqumat  # noqa: F401
+from defuqumat import Calculator
+from defuqumat.realtime.pulse import Kick
+from defuqumat.units import C_AU
 
 from se_common import REPO
 
@@ -21,7 +21,7 @@ calc = Calculator.from_file(REPO / "tests/data/elk/si_rt/si-dielectric.in",
 calc.get_scf()
 kick = Kick(strength=0.1 / C_AU, direction=(1.0, 0.0, 0.0))
 calc.get_realtime(kick, grid=(8, 8, 8), dt=0.2, duration=80.0)   # compiles
-from defumat.workflows import realtime as workflow  # noqa: E402
+from defuqumat.workflows import realtime as workflow  # noqa: E402
 
 marks = {}
 original = workflow._occupied_states

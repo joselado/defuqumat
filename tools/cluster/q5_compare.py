@@ -1,4 +1,4 @@
-"""The Q5 comparison: defumat against `pw.x` on a textured augmented spinor.
+"""The Q5 comparison: defuqumat against `pw.x` on a textured augmented spinor.
 
 Reads the JSON one side wrote and the output file the other did, and prints the
 three quantities the pair is for -- the total energy, both site moments with the
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat.io.qeref import read_qe_output
+from defuqumat.io.qeref import read_qe_output
 
 CASES = ("fe2-afm-soc", "fe2-canted-soc")
 
@@ -50,9 +50,9 @@ def compare(case: str, out_dir: Path, job: str) -> dict:
     theirs = read_qe_output(out_dir / f"qe-{job}-{case}.out")
 
     print(f"\n=== {case} " + "=" * (58 - len(case)))
-    print(f"  defumat converged {ours['converged']} in {ours['iterations']} "
+    print(f"  defuqumat converged {ours['converged']} in {ours['iterations']} "
           f"iterations at {ours['accuracy']:.2e}")
-    print(f"  {'':<26} {'defumat':>18} {'pw.x':>18} {'difference':>12}")
+    print(f"  {'':<26} {'defuqumat':>18} {'pw.x':>18} {'difference':>12}")
     print(row("total energy", ours["total_energy"], theirs.total_energy, "Ry"))
 
     our_moments = np.asarray(ours["site_moments"])

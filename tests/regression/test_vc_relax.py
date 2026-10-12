@@ -24,7 +24,7 @@ the cell and the atoms are both doing something, and doing it at once.
 the sharpest case here because of it.** ``symm_base.f90`` tests a fixed
 catalogue of rotation matrices written in a canonical cartesian frame, so QE
 finds a symmetry only when the crystal is presented in one of those frames;
-:func:`~defumat.system.symmetry.lattice_point_group` here searches for lattice
+:func:`~defuqumat.system.symmetry.lattice_point_group` here searches for lattice
 vectors of matching lengths and angles, which is orientation-free -- its module
 docstring has always said so. ``vc-relax3`` and ``vc-relax4`` are the *same*
 rhombohedral crystal in two settings, and QE finds **2** operations for the
@@ -43,12 +43,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.system import build_system
-from defumat.units import RY_TO_KBAR
-from defumat.workflows.vc_relax import run_vc_relax
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.system import build_system
+from defuqumat.units import RY_TO_KBAR
+from defuqumat.workflows.vc_relax import run_vc_relax
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -167,7 +167,7 @@ def test_the_relaxed_cell_matches_pw_x(name, pseudo_dir):
     """The nine cell coordinates, against ``pw.x``'s own relaxed cell."""
     result = _relaxed(name, pseudo_dir, True)
     reference = _reference(name, True)
-    assert result.converged, f"{name}: defumat did not converge"
+    assert result.converged, f"{name}: defuqumat did not converge"
     difference = np.abs(result.cell - reference.final_cell).max()
     assert difference < CELL_BOHR, f"{name}: cell differs by {difference:.2e} bohr"
 
@@ -368,7 +368,7 @@ def test_relaxed_does_not_carry_an_scf_from_the_starting_basis(pseudo_dir):
     ``Calculation`` at its own cell -- which is why the test is
     ``scf_in_relaxed_basis`` and not ``final_scf`` alone.
     """
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     calculator = Calculator.from_file(CASES / "si8-vc-relax.in",
                                       pseudo_dir=pseudo_dir, announce=False)
@@ -392,7 +392,7 @@ def test_relaxed_does_not_carry_an_scf_from_the_starting_basis(pseudo_dir):
 
 def test_relaxed_still_carries_the_final_scf_it_is_entitled_to(pseudo_dir):
     """The default path must keep the reuse the method exists for."""
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     calculator = Calculator.from_file(CASES / "si8-vc-relax.in",
                                       pseudo_dir=pseudo_dir, announce=False)

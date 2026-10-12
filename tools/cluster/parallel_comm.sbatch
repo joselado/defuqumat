@@ -1,7 +1,7 @@
 #!/bin/bash
 # Phase 0e of the parallel plan: the pools' collectives on Triton, on one node and on two.
 #
-# gloo over TCP is the transport (defumat/parallel.py); on the workstation an
+# gloo over TCP is the transport (defuqumat/parallel.py); on the workstation an
 # 83 MB all-reduce over three local processes took 352 ms. What a Milan node
 # and the network between two of them give is unmeasured, and so is whether
 # jax.distributed finds its peers from the venv under srun. The NiBr2 slab's
@@ -19,7 +19,7 @@
 # mem           64G a node: a 330 MB all-reduce stacks the size-long global array
 #               on every process, so 16 processes hold a few GB each.
 # time          01:00:00 for a few minutes of collectives and a 400 s kill test.
-#SBATCH --job-name=defumat-par-comm
+#SBATCH --job-name=defuqumat-par-comm
 #SBATCH --partition=batch-milan
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=16
@@ -30,23 +30,23 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/parallel-milan/out/comm-%j.err
 
 set -u
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 WORK=/scratch/work/ladovj1/calculations/parallel-milan/comm-$SLURM_JOB_ID
 mkdir -p "$WORK" || exit 1
 cd "$REPO" || exit 1
-export PYTHONPATH=$REPO JAX_PLATFORMS=cpu DEFUMAT_THREADS=off \
+export PYTHONPATH=$REPO JAX_PLATFORMS=cpu DEFUQUMAT_THREADS=off \
        MKL_NUM_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-       DEFUMAT_CACHE_DIR=off
+       DEFUQUMAT_CACHE_DIR=off
 PY=$VENV/bin/python3
 # Rank 0 (SLURM_PROCID 0) is on the first node of the *step*, so every task
 # names that node as the coordinator; the port is chosen once, before srun.
 step() {  # step <label> <nodes> <ntasks> [comm_bench options]
   local label=$1 nodes=$2 n=$3; shift 3
-  export DEFUMAT_POOLS=$n COORD_PORT=$((20000 + RANDOM % 20000)) PY
+  export DEFUQUMAT_POOLS=$n COORD_PORT=$((20000 + RANDOM % 20000)) PY
   timeout -s KILL 600 srun --nodes="$nodes" --ntasks="$n" --cpus-per-task=1 \
       --ntasks-per-node=$(((n + nodes - 1) / nodes)) bash -c \
-      'DEFUMAT_COORDINATOR=$(scontrol show hostnames "$SLURM_STEP_NODELIST" | head -1):$COORD_PORT \
+      'DEFUQUMAT_COORDINATOR=$(scontrol show hostnames "$SLURM_STEP_NODELIST" | head -1):$COORD_PORT \
          exec "$PY" tools/parallel/comm_bench.py "$@"' comm "$@" \
       >> "$WORK/comm.jsonl" 2> "$WORK/$label.err"
   echo "{\"step\": \"$label\", \"exit\": $?}" >> "$WORK/steps.jsonl"

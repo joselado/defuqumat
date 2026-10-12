@@ -3,7 +3,7 @@
 The steady state the real-time route converges to, without the propagation:
 on each k-point of the ``[100]`` little group's wedge, ``H(k + x e)`` and its
 first four derivatives in ``x`` as dense matrices on the frozen sphere, every
-band of the sphere, and the hierarchy of :func:`defumat.realtime.dense.dense_orders`
+band of the sphere, and the hierarchy of :func:`defuqumat.realtime.dense.dense_orders`
 solved at ``m w + i n eta``. It is the same per-k quantity the propagation
 gives, so it carries the same velocity-gauge mesh artefact (the mesh sums of
 total k-derivatives, :mod:`tools.realtime.si_band_curvature`), and it is the
@@ -41,11 +41,11 @@ from pathlib import Path
 import equinox as eqx
 import numpy as np
 
-from defumat import Calculator
-from defumat.realtime.dense import dense_ground_states, dense_hamiltonians, dense_orders
-from defumat.realtime.pulse import EV_TO_HA, Adiabatic
-from defumat.scf import Calculation
-from defumat.workflows.realtime import CHI3_AU_TO_SI, _kset
+from defuqumat import Calculator
+from defuqumat.realtime.dense import dense_ground_states, dense_hamiltonians, dense_orders
+from defuqumat.realtime.pulse import EV_TO_HA, Adiabatic
+from defuqumat.scf import Calculation
+from defuqumat.workflows.realtime import CHI3_AU_TO_SI, _kset
 
 repo = Path(__file__).resolve().parents[2]
 out = Path(sys.argv[1])

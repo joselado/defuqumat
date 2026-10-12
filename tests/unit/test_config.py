@@ -17,8 +17,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import defumat
-from defumat.config import DOUBLE, SINGLE, precision_by_name
+import defuqumat
+from defuqumat.config import DOUBLE, SINGLE, precision_by_name
 
 pytestmark = pytest.mark.unit
 
@@ -78,8 +78,8 @@ def test_equinox_module_survives_jit_and_grad():
 
 
 def test_package_exports():
-    assert defumat.__version__
-    assert defumat.DOUBLE is DOUBLE
+    assert defuqumat.__version__
+    assert defuqumat.DOUBLE is DOUBLE
 
 
 # --- the persistent compilation cache -----------------------------------------
@@ -92,13 +92,13 @@ def test_package_exports():
 def _cache_dir_in_a_fresh_process(value: str | None) -> str:
     """What ``jax_compilation_cache_dir`` ends up as, with the env var set."""
     environment = dict(os.environ)
-    environment.pop("DEFUMAT_CACHE_DIR", None)
+    environment.pop("DEFUQUMAT_CACHE_DIR", None)
     if value is not None:
-        environment["DEFUMAT_CACHE_DIR"] = value
+        environment["DEFUQUMAT_CACHE_DIR"] = value
 
     script = (
         "import sys; sys.path.insert(0, '.');"
-        "import defumat, jax;"
+        "import defuqumat, jax;"
         "print(jax.config.jax_compilation_cache_dir or '')"
     )
     result = subprocess.run(
@@ -123,13 +123,13 @@ def test_the_cache_honours_an_explicit_directory(tmp_path):
 def _cores_in_a_fresh_process(value: str | None) -> int:
     """How many CPUs the process is left with, with the env var set."""
     environment = dict(os.environ)
-    environment.pop("DEFUMAT_THREADS", None)
+    environment.pop("DEFUQUMAT_THREADS", None)
     if value is not None:
-        environment["DEFUMAT_THREADS"] = value
+        environment["DEFUQUMAT_THREADS"] = value
 
     script = (
         "import sys, os; sys.path.insert(0, '.');"
-        "import defumat;"
+        "import defuqumat;"
         "print(len(os.sched_getaffinity(0)))"
     )
     result = subprocess.run(
@@ -144,11 +144,11 @@ def _cores_in_a_fresh_process(value: str | None) -> int:
 def test_the_thread_pool_is_capped_by_default():
     """XLA sizes its CPU pool from the affinity mask, and its default is slower.
 
-    See ``defumat._limit_thread_pool``: on this workload fourteen threads are
+    See ``defuqumat._limit_thread_pool``: on this workload fourteen threads are
     almost twice as slow as four, so the package narrows the mask on import.
     """
     available = len(os.sched_getaffinity(0))
-    expected = min(defumat.DEFAULT_THREADS, available)
+    expected = min(defuqumat.DEFAULT_THREADS, available)
     assert _cores_in_a_fresh_process(None) == expected
 
 
@@ -168,7 +168,7 @@ def test_the_cap_never_widens_an_existing_restriction():
     script = (
         "import sys, os; sys.path.insert(0, '.');"
         f"os.sched_setaffinity(0, {{{available[0]}}});"
-        "import defumat;"
+        "import defuqumat;"
         "print(len(os.sched_getaffinity(0)))"
     )
     result = subprocess.run(
@@ -194,43 +194,43 @@ def test_the_suite_widens_the_mask_that_the_package_narrows():
     none in 8 at eight or in 14 with the mask left alone (``OPEN.md`` Part IV
     item 1).
 
-    ``tests/conftest.py`` therefore sets ``DEFUMAT_THREADS`` before ``defumat``
+    ``tests/conftest.py`` therefore sets ``DEFUQUMAT_THREADS`` before ``defuqumat``
     is first imported, and this is the guard on that line: the mask is read once
     at import, so a conftest that stopped setting it would fail nothing else and
     would bring the intermittent gate hang back.
     """
     from tests import conftest
 
-    if os.environ.get("DEFUMAT_THREADS") != conftest.TEST_THREADS:
-        pytest.skip("DEFUMAT_THREADS was set explicitly, which is allowed to win")
+    if os.environ.get("DEFUQUMAT_THREADS") != conftest.TEST_THREADS:
+        pytest.skip("DEFUQUMAT_THREADS was set explicitly, which is allowed to win")
     available = len(os.sched_getaffinity(0))
     assert available == int(conftest.TEST_THREADS), (
         f"the suite is running on {available} cores, not "
-        f"{conftest.TEST_THREADS}: conftest must set DEFUMAT_THREADS before "
-        f"anything imports defumat"
+        f"{conftest.TEST_THREADS}: conftest must set DEFUQUMAT_THREADS before "
+        f"anything imports defuqumat"
     )
 
 
 def test_the_device_pool_is_widened_unless_something_else_set_it(monkeypatch):
     """``GPU-MEMORY-NEXT.md`` item 23: 0.9 of the card, and nothing overridden."""
     for name in ("XLA_CLIENT_MEM_FRACTION", "XLA_PYTHON_CLIENT_MEM_FRACTION",
-                 "DEFUMAT_MEM_FRACTION"):
+                 "DEFUQUMAT_MEM_FRACTION"):
         monkeypatch.delenv(name, raising=False)
-    defumat._widen_device_pool()
+    defuqumat._widen_device_pool()
     assert os.environ["XLA_CLIENT_MEM_FRACTION"] == "0.9"
 
     monkeypatch.delenv("XLA_CLIENT_MEM_FRACTION")
-    monkeypatch.setenv("DEFUMAT_MEM_FRACTION", "0.8")
-    defumat._widen_device_pool()
+    monkeypatch.setenv("DEFUQUMAT_MEM_FRACTION", "0.8")
+    defuqumat._widen_device_pool()
     assert os.environ["XLA_CLIENT_MEM_FRACTION"] == "0.8"
 
     monkeypatch.delenv("XLA_CLIENT_MEM_FRACTION")
-    monkeypatch.setenv("DEFUMAT_MEM_FRACTION", "off")
-    defumat._widen_device_pool()
+    monkeypatch.setenv("DEFUQUMAT_MEM_FRACTION", "off")
+    defuqumat._widen_device_pool()
     assert "XLA_CLIENT_MEM_FRACTION" not in os.environ
 
     # The deprecated spelling is someone's choice too, and setting both raises.
-    monkeypatch.delenv("DEFUMAT_MEM_FRACTION")
+    monkeypatch.delenv("DEFUQUMAT_MEM_FRACTION")
     monkeypatch.setenv("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.5")
-    defumat._widen_device_pool()
+    defuqumat._widen_device_pool()
     assert "XLA_CLIENT_MEM_FRACTION" not in os.environ

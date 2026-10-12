@@ -19,7 +19,7 @@ this project has ported to its QE and Elk routines, with a note on each; read it
 since it often answers the question outright.
 
 **Quantum ESPRESSO 7.5** - `quantum_espresso/qe-7.5-ReleasePack/qe-7.5/`, relative to the
-defumat repository root. Read-only; never modify anything under it.
+defuqumat repository root. Read-only; never modify anything under it.
 
 - `PW/src/` is `pw.x` - the SCF, forces, stress, symmetry, occupations.
 - `PHonon/PH/` and `LR_Modules/` are linear response and DFPT.
@@ -37,7 +37,7 @@ defumat repository root. Read-only; never modify anything under it.
 - `src/` is the source. The manual is `docs/elk.pdf` - a PDF, so read it with the Read
   tool's `pages` argument rather than grepping it. Elk exposes most quantities as a
   numbered **task** rather than an input flag, so the task list is where to start.
-- **Start with `ELK-FEATURES.md` in the defumat repository root.** It is this project's
+- **Start with `ELK-FEATURES.md` in the defuqumat repository root.** It is this project's
   own survey of Elk's tasks against QE 7.5, it is plain text, and it will often answer
   the question outright. Confirm a hit against `src/` before reporting it - the survey is
   a summary and can be behind the source.
@@ -52,7 +52,7 @@ explicitly rather than reporting a negative you could not check.
 ## How to search
 
 Use `grep -rn` and `find` through Bash. Search for the physics vocabulary, not the
-defumat name for the thing - the two codes call things by their own names. Try the
+defuqumat name for the thing - the two codes call things by their own names. Try the
 quantity, its standard abbreviation, the tensor symbol, and the name of the method
 (`Berry`, `Kubo`, `Sternheimer`, `Wannier`). Read the header comment of any candidate
 routine before calling it a hit; both codes document what a routine does at the top of

@@ -38,7 +38,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 CHAIN = (CASES / "h-chain-spiral.in").read_text()
@@ -164,7 +164,7 @@ stationary with respect to the density where a derivative is not.
 
 
 ```python
-from defumat.workflows.spiral import heisenberg_exchange   # no facade route to a fit
+from defuqumat.workflows.spiral import heisenberg_exchange   # no facade route to a fit
 
 RY_TO_MEV = 13605.693122994
 SHELLS = [[0.0, 0.0, 1.0], [0.0, 0.0, 2.0]]        # nearest and next-nearest neighbours

@@ -18,8 +18,8 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat import Calculator
-from defumat.realtime.pulse import EV_TO_HA
+from defuqumat import Calculator
+from defuqumat.realtime.pulse import EV_TO_HA
 
 repo = Path(__file__).resolve().parents[2]
 out = Path(sys.argv[1])

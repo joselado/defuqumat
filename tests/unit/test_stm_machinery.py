@@ -12,23 +12,23 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from defumat.basis.fft import g_to_r, r_to_g
-from defumat.basis.gvectors import generate_gvectors
-from defumat.basis.sample import sample_field
-from defumat.scf.occupations import w0gauss
-from defumat.stm.image import (
+from defuqumat.basis.fft import g_to_r, r_to_g
+from defuqumat.basis.gvectors import generate_gvectors
+from defuqumat.basis.sample import sample_field
+from defuqumat.scf.occupations import w0gauss
+from defuqumat.stm.image import (
     constant_current_height,
     project_spin,
     tunnelling_weights,
 )
-from defumat.stm.plane import plot_plane
-from defumat.stm.spectrum import (
+from defuqumat.stm.plane import plot_plane
+from defuqumat.stm.spectrum import (
     STMSpectrum,
     spectrum_weights,
     state_densities,
 )
-from defumat.system.cell import Cell
-from defumat.workflows.stm import (
+from defuqumat.system.cell import Cell
+from defuqumat.workflows.stm import (
     _plane,
     _refuse_a_reduced_k_set,
     _refuse_a_window_under_an_axis,
@@ -55,7 +55,7 @@ def test_the_sampler_is_exact_at_the_grid_points(cubic, sphere):
     """Evaluating the series where the FFT already knows the answer.
 
     The check that the Miller indices, the crystal coordinates and the sign of
-    the phase all agree with :func:`defumat.basis.fft.g_to_r` -- an index
+    the phase all agree with :func:`defuqumat.basis.fft.g_to_r` -- an index
     convention is what a Fourier evaluation gets wrong, and it gets it wrong
     smoothly.
     """
@@ -338,7 +338,7 @@ def _flat_sample(cell):
     ``G + Q`` set in its own coordinates; what the guards below are about is
     the scan rather than the field, so a constant one is enough to reach them.
     """
-    from defumat.basis.sample import sample_coefficients
+    from defuqumat.basis.sample import sample_coefficients
 
     sphere = generate_gvectors(cell, ecut=6.0)
     coefficients = np.zeros(sphere.ngm, dtype=complex)
@@ -355,8 +355,8 @@ def test_a_scan_may_not_reach_past_the_cell():
     one, or there is none and the pixel comes back ``nan``. That reads exactly
     like a set-point which is merely too low.
     """
-    from defumat.stm.plane import plot_plane
-    from defumat.workflows.stm import _constant_current
+    from defuqumat.stm.plane import plot_plane
+    from defuqumat.workflows.stm import _constant_current
 
     cell = Cell.from_vectors(np.diag([12.0, 12.0, 10.0]))
     sample = _flat_sample(cell)
@@ -372,8 +372,8 @@ def test_a_scan_measures_its_reach_from_the_plane_not_from_an_axis():
     the reach from the ``axis`` argument instead made it zero -- which refused
     every constant-current scan on any plane the shortcut did not build.
     """
-    from defumat.stm.plane import plot_plane
-    from defumat.workflows.stm import _constant_current
+    from defuqumat.stm.plane import plot_plane
+    from defuqumat.workflows.stm import _constant_current
 
     cell = Cell.from_vectors(np.diag([12.0, 12.0, 10.0]))
     sample = _flat_sample(cell)
@@ -413,7 +413,7 @@ def test_an_applied_field_is_refused():
 
 
 def test_the_calculator_reaches_it():
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     assert hasattr(Calculator, "get_stm")
 

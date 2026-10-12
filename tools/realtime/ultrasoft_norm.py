@@ -17,11 +17,11 @@ from pathlib import Path
 import jax.numpy as jnp
 import numpy as np
 
-import defumat  # noqa: F401
-from defumat import Calculator
-from defumat.response import VelocityOperator
-from defumat.system.kpoints import KPoints
-from defumat.workflows.nscf import fixed_density_states
+import defuqumat  # noqa: F401
+from defuqumat import Calculator
+from defuqumat.response import VelocityOperator
+from defuqumat.system.kpoints import KPoints
+from defuqumat.workflows.nscf import fixed_density_states
 
 repo = Path(__file__).resolve().parents[2]
 calculator = Calculator.from_file(repo / "tests/data/qe/si2-us.in",

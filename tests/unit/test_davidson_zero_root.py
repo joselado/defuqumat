@@ -34,8 +34,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.solvers import davidson
-from defumat.solvers.subspace import (
+from defuqumat.solvers import davidson
+from defuqumat.solvers.subspace import (
     generalised_eigh, orthonormality_defect, orthonormality_tolerance,
 )
 
@@ -120,11 +120,11 @@ class _Skewed:
 def hamiltonian(pseudo_dir):
     import dataclasses
 
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation
-    from defumat.scf.potential import v_of_rho
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.scf.potential import v_of_rho
+    from defuqumat.system import build_system
 
     benchmark = Path(__file__).resolve().parents[2] / "benchmarks" / "si-1k.in"
     system = build_system(read_pw_input(benchmark))

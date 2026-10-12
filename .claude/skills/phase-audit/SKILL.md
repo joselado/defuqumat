@@ -1,6 +1,6 @@
 ---
 name: phase-audit
-description: Check that a defumat phase actually left behind all five deliverables - a measured number, a README feature-table row, a docs/features.tex entry with an executed snippet and an amber box, a notebook, and a timing against the reference code. Runs the set-difference audit that catches documentation drift. Use when declaring a phase done, before a release, after a subagent reports a feature complete, and when unsure whether an implemented feature was ever written up. Triggers - "is this phase done", "audit the docs", "did we document X", "what is missing before I commit this".
+description: Check that a defuqumat phase actually left behind all five deliverables - a measured number, a README feature-table row, a docs/features.tex entry with an executed snippet and an amber box, a notebook, and a timing against the reference code. Runs the set-difference audit that catches documentation drift. Use when declaring a phase done, before a release, after a subagent reports a feature complete, and when unsure whether an implemented feature was ever written up. Triggers - "is this phase done", "audit the docs", "did we document X", "what is missing before I commit this".
 ---
 
 # Phase audit
@@ -24,8 +24,8 @@ So build the two lists and subtract them. Do not skim.
 
 ```bash
 # what the package actually exposes
-grep -rn "^__all__" defumat/workflows/ defumat/response/ defumat/forces/ defumat/stress/ \
-  defumat/topology/ defumat/transport/ defumat/stm/ | head -60
+grep -rn "^__all__" defuqumat/workflows/ defuqumat/response/ defuqumat/forces/ defuqumat/stress/ \
+  defuqumat/topology/ defuqumat/transport/ defuqumat/stm/ | head -60
 # and what the guide mentions
 grep -c "" docs/features.tex
 ```
@@ -55,7 +55,7 @@ An adjective where a number should be is a finding. So is "agrees well".
   the row about metals, not in a row of its own. A variant of an existing quantity
   updates that row rather than adding one.
 - **The entry-point column is a claim about this code.** `grep` the variable in
-  `defumat/io/pwin.py` and `defumat/system/builder.py`, and check the function is
+  `defuqumat/io/pwin.py` and `defuqumat/system/builder.py`, and check the function is
   actually exported. A row naming something nothing parses is worse than no row.
 - **The QE and Elk ticks are claims about someone else's source.** Before ticking either,
   the routine must have been located. Before leaving both blank - which is the mark of a

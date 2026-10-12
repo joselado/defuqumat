@@ -41,10 +41,10 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.ultracell import run_ultracell
-from defumat.workflows.stm import run_stm, run_sts
-from defumat.workflows.ultracell import (
+from defuqumat import Calculator
+from defuqumat.ultracell import run_ultracell
+from defuqumat.workflows.stm import run_stm, run_sts
+from defuqumat.workflows.ultracell import (
     run_ultracell_stm,
     run_ultracell_sts,
     run_ultracell_transport,
@@ -160,7 +160,7 @@ K_POINTS automatic
 #: the wedge refusal is about.
 SYMMETRIC = SILICON.replace(" nosym=.true., noinv=.true.\n", "")
 
-_WORK = Path(tempfile.mkdtemp(prefix="defumat-sts-"))
+_WORK = Path(tempfile.mkdtemp(prefix="defuqumat-sts-"))
 
 
 def _calculator(pseudo_dir, name, template, grid) -> Calculator:
@@ -372,7 +372,7 @@ def test_a_collinear_tip_picks_the_same_channel_the_image_does(pseudo_dir):
     An unpolarized run carries one component and a spinor run four; two is the
     only case where a magnetic tip is a **difference of channels** rather than a
     contraction of a spinor, and it goes through
-    :func:`~defumat.stm.image.project_spin`'s collinear branch. The check is the
+    :func:`~defuqumat.stm.image.project_spin`'s collinear branch. The check is the
     image at the same energies, so it is the same null as the unpolarized one
     with the projection in the path, and each channel is taken separately as
     well as projected -- the two together are what say the channel axis did not
@@ -569,9 +569,9 @@ def test_the_wedge_sum_the_guard_refuses_is_wrong_by_a_whole_picture(pseudo_dir)
       ``Calculation.density`` doing its job -- so the refusal is about this route
       and not about wedges, exactly as it claims.
     """
-    from defumat.scf.driver import Calculation
-    from defumat.workflows.stm import _finish_spectrum, sample_spectrum
-    from defumat.workflows.transport import _geometry, _tip_points
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.workflows.stm import _finish_spectrum, sample_spectrum
+    from defuqumat.workflows.transport import _geometry, _tip_points
 
     calculator, scf = _converged(str(pseudo_dir), (4, 4, 4), 12, "symmetric")
     geometry = dict(height=0.35, axis=2, shape=(12, 12))

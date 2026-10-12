@@ -27,7 +27,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/nibr2-orientation/out/%x-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/nibr2-orientation
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 PSEUDO=/scratch/work/ladovj1/calculations/NiBr2_ultracell/pseudo_paw
 
@@ -37,12 +37,12 @@ source "$VENV/bin/activate" || exit 1
 
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export PYTHONPATH="$REPO"
-export DEFUMAT_BAND_BATCH=64
+export DEFUQUMAT_BAND_BATCH=64
 export XLA_FLAGS="${XLA_FLAGS:-} --xla_gpu_autotune_level=0"
 export XLA_PYTHON_CLIENT_MEM_FRACTION=0.95
-export DEFUMAT_WFC_STORE=device
-export DEFUMAT_PROJECTORS=store
-export DEFUMAT_CACHE_DIR=$WORK/cache-gpu
+export DEFUQUMAT_WFC_STORE=device
+export DEFUQUMAT_PROJECTORS=store
+export DEFUQUMAT_CACHE_DIR=$WORK/cache-gpu
 
 TASKS=(routea-tilted routea-steep routec-tilted)
 TASK=${TASKS[${SLURM_ARRAY_TASK_ID:-0}]}

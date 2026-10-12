@@ -25,9 +25,9 @@ import warnings
 import numpy as np
 import pytest
 
-from defumat.topology import ArrayStates, ModelSource, chern_number, plane_mesh
-from defumat.topology.berry import berry_curvature, plaquette_flux
-from defumat.topology.links import berry_phase, link_phase
+from defuqumat.topology import ArrayStates, ModelSource, chern_number, plane_mesh
+from defuqumat.topology.berry import berry_curvature, plaquette_flux
+from defuqumat.topology.links import berry_phase, link_phase
 from tests.models import haldane, random_gauge
 
 pytestmark = pytest.mark.unit
@@ -248,7 +248,7 @@ def test_the_degeneracy_guard_uses_one_threshold_in_both_places():
     import jax
     import jax.numpy as jnp
 
-    from defumat.topology.berry import _kubo_point, _plane_directions
+    from defuqumat.topology.berry import _kubo_point, _plane_directions
 
     mesh = plane_mesh((3, 3))
     axes = _plane_directions(mesh)
@@ -277,7 +277,7 @@ def _generalised_blocks(points, h, s, a, h0):
     import jax.numpy as jnp
     import scipy.linalg as sla
 
-    from defumat.topology.mesh import PLANE_AXES
+    from defuqumat.topology.mesh import PLANE_AXES
 
     directions = PLANE_AXES[2]
     out = {name: {d: [] for d in directions}
@@ -323,7 +323,7 @@ def test_a_moving_overlap_needs_more_than_dh_and_ds():
         <Psi_n|d Psi_m> = c_n^dagger S d c_m + c_n^dagger T^dagger (d T) c_m.
 
     The second piece is the augmentation dipole, and
-    :func:`~defumat.topology.kubo.kubo_from_matrices` -- which sees ``dH`` and
+    :func:`~defuqumat.topology.kubo.kubo_from_matrices` -- which sees ``dH`` and
     ``dS`` and nothing else -- has no slot for it. Whether that matters cannot
     be settled on a plane-wave crystal: ``PLAN.md`` P94 measured the term at
     2.5 per cent of ``Omega`` where the *finest* mesh run still leaves the two
@@ -345,7 +345,7 @@ def test_a_moving_overlap_needs_more_than_dh_and_ds():
     has to reproduce and the reason ``dpqq`` is a separate object from
     ``dS/dk``.
     """
-    from defumat.topology.kubo import kubo_from_matrices
+    from defuqumat.topology.kubo import kubo_from_matrices
     from tests.models import nonorthogonal
 
     h0 = haldane()

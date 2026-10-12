@@ -5,7 +5,7 @@ by *quietly* not converging: plausible numbers, wrong in the fourth decimal. On
 a cell of a couple of hundred plane waves the question is settled by forming
 ``H`` and handing it to ``eigh``, which is right by construction -- so that is
 what these tests do (``tests/exact_reference.py``). It is a test fixture and not
-a solver the package offers; see ``defumat/solvers/__init__.py`` for why.
+a solver the package offers; see ``defuqumat/solvers/__init__.py`` for why.
 
 Eigenvalues are compared, not eigenvectors: silicon's bands are degenerate at
 the k-point used here, and any rotation within a degenerate subspace is an
@@ -21,20 +21,20 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.basis.builder import build_basis
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.scf.potential import v_of_rho
-from defumat.solvers import (
+from defuqumat.basis.builder import build_basis
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.scf.potential import v_of_rho
+from defuqumat.solvers import (
     DEFAULT_EIGENSOLVER,
     EIGENSOLVERS,
     davidson_eigensolver,
     davidson_eigensolver_all,
     get_eigensolver,
 )
-from defumat.solvers.davidson import DAVID_NDIM, _band_ladder
-from defumat.system import build_system
+from defuqumat.solvers.davidson import DAVID_NDIM, _band_ladder
+from defuqumat.system import build_system
 from tests.exact_reference import exact_eigenpairs_all
 
 pytestmark = pytest.mark.unit
@@ -255,7 +255,7 @@ def test_the_subspace_solve_is_handed_a_matrix_of_the_order_of_the_diagonal(sili
     """
     import jax
 
-    from defumat.solvers import subspace
+    from defuqumat.solvers import subspace
 
     _, _, hamiltonian = silicon
     seen = []
@@ -316,7 +316,7 @@ def test_a_cholesky_that_returns_nan_is_rescued_outside_the_k_batch(silicon,
     lowers to ``select_n`` and both branches run on every step (2.85x of the
     subspace solve, measured on ``si10-nc``). So the batched solve takes the
     Cholesky route unconditionally and
-    :func:`~defumat.solvers.davidson.davidson_eigensolver_all` retries the
+    :func:`~defuqumat.solvers.davidson.davidson_eigensolver_all` retries the
     whole k-set with canonical orthogonalisation when the eigenvalues come back
     non-finite -- which is one scalar predicate, outside the batch, and a real
     branch again.
@@ -327,7 +327,7 @@ def test_a_cholesky_that_returns_nan_is_rescued_outside_the_k_batch(silicon,
     ``tests/unit/test_subspace_robustness.py``). Replacing the fast route with
     one that returns ``NaN`` exercises the identical path deterministically.
     """
-    from defumat.solvers import davidson, subspace
+    from defuqumat.solvers import davidson, subspace
 
     _, _, hamiltonian = silicon
     exact, _ = exact_eigenpairs_all(hamiltonian, NBND)
@@ -367,7 +367,7 @@ def test_a_donated_start_is_consumed_and_rebuilt_for_the_retry(silicon,
     then checks both halves: the block was donated (deleted), and the retry
     ran from the rebuilt one to the exact answer.
     """
-    from defumat.solvers import davidson, subspace
+    from defuqumat.solvers import davidson, subspace
 
     _, _, hamiltonian = silicon
     exact, _ = exact_eigenpairs_all(hamiltonian, NBND)
@@ -476,7 +476,7 @@ def test_the_retry_replaces_only_the_k_points_that_failed(monkeypatch):
     The predicate is now per k-point and the robust answer is taken only where
     the fast one has none.
     """
-    from defumat.solvers import davidson
+    from defuqumat.solvers import davidson
 
     stub, fast_e, fast_psi, robust_e, robust_psi = _stub_every_k(bad_index=2)
     monkeypatch.setattr(davidson, "_every_k", stub)
@@ -495,7 +495,7 @@ def test_the_retry_replaces_only_the_k_points_that_failed(monkeypatch):
 
 def test_no_retry_and_no_warning_when_every_k_point_is_finite(monkeypatch):
     """The clean case must be untouched -- and pay no second solve."""
-    from defumat.solvers import davidson
+    from defuqumat.solvers import davidson
 
     calls = []
     stub, fast_e, _, _, _ = _stub_every_k(bad_index=2)
@@ -526,7 +526,7 @@ def test_the_finiteness_flag_is_the_reduction_it_replaced(silicon):
     eigenvalues and over the *masked* wavefunctions, and the second is why the
     masked array is what the solver reduces.
     """
-    from defumat.solvers import davidson
+    from defuqumat.solvers import davidson
 
     _, _, hamiltonian = silicon
     values, vectors, finite = davidson._every_k(
@@ -550,7 +550,7 @@ def test_the_flag_does_not_depend_on_the_chunk_size(silicon, k_batch):
     which is exactly the rule a reduction written in the caller could not
     break and one written inside the batch can.
     """
-    from defumat.solvers import davidson
+    from defuqumat.solvers import davidson
 
     _, _, hamiltonian = silicon
     values, _, finite = davidson._every_k(
@@ -578,7 +578,7 @@ def test_the_flag_never_reaches_a_caller(silicon):
 
 def test_the_warning_names_which_k_points_failed(monkeypatch):
     """"Something went non-finite" is not actionable; an index is."""
-    from defumat.solvers import davidson
+    from defuqumat.solvers import davidson
 
     stub, *_ = _stub_every_k(bad_index=3)
     monkeypatch.setattr(davidson, "_every_k", stub)
@@ -605,7 +605,7 @@ def test_a_stalled_fixed_density_solve_is_reported_rather_than_returned():
     ten k-points hit the 100-step budget with one to six bands unsettled, and
     the quantity built on top of them looked entirely plausible.
     """
-    from defumat.workflows.nscf import _say_what_did_not_converge
+    from defuqumat.workflows.nscf import _say_what_did_not_converge
 
     settled = np.zeros((1, 4), dtype=int)
     with warnings.catch_warnings():
@@ -668,7 +668,7 @@ def test_the_subspace_is_capped_at_the_smallest_k_point_and_not_at_npwx():
     on the ultracell's cell ``npwx`` is 192 while the smallest sphere holds 169,
     so a cap at ``ndim`` would still oversubscribe seven k-points.
     """
-    from defumat.hamiltonian.operator import Hamiltonian
+    from defuqumat.hamiltonian.operator import Hamiltonian
 
     class _Spheres:
         """Only what ``space`` reads. Constructing a real ``Hamiltonian`` here
@@ -702,12 +702,12 @@ def test_a_batch_of_k_points_keeps_the_width_ladder_and_its_answer(pseudo_dir):
     """
     import jax
 
-    from defumat.solvers import davidson
+    from defuqumat.solvers import davidson
 
     text = (BENCHMARK.read_text().split("K_POINTS")[0]
             .replace("ecutwfc", "nosym = .true., ecutwfc")
             + "K_POINTS automatic\n 2 2 2 1 1 1\n")
-    from defumat.io.pwin import parse_pw_input
+    from defuqumat.io.pwin import parse_pw_input
 
     system = build_system(parse_pw_input(text))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)

@@ -6,8 +6,8 @@ import time
 
 import jax
 
-import defumat.scf.driver as driver
-from defumat import Calculator
+import defuqumat.scf.driver as driver
+from defuqumat import Calculator
 
 path, mode, fit, out = sys.argv[1:5]
 beta = float(sys.argv[5]) if len(sys.argv) > 5 else None
@@ -17,7 +17,7 @@ driver.RHO_DDOT_FIT = fit == "ddot"
 # extra pass over the bands that builds the LDOS.
 built, ldos_clock = [], {"calls": 0, "seconds": 0.0}
 if mode == "ldos":
-    import defumat.scf.mixing as mixing
+    import defuqumat.scf.mixing as mixing
     mixing.LDOS_COUNT_MATVECS = True
     import os
     if os.environ.get("LDOS_TOL"):

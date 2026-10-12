@@ -25,7 +25,7 @@ import scipy.linalg
 
 from jax.scipy.linalg import solve_triangular
 
-from defumat.solvers.subspace import _cholesky_route, generalised_eigh
+from defuqumat.solvers.subspace import _cholesky_route, generalised_eigh
 
 pytestmark = pytest.mark.unit
 
@@ -155,7 +155,7 @@ def _davidson_pair(n_live=24, n_park=8, top=30.0, park_factor=4.0, seed=3):
     overlap has one eigenvalue at -1e-15, the near-dependent correction vector
     that makes the Cholesky route fail; the solver's own inactive directions sit
     on the diagonal at ``park_factor * top + 1`` against a unit overlap, which is
-    what :func:`~defumat.solvers.davidson.davidson_eigensolver` hands
+    what :func:`~defuqumat.solvers.davidson.davidson_eigensolver` hands
     ``generalised_eigh``. Returns ``(hc, sc)`` and the live block's spectrum.
     """
     rng = np.random.default_rng(seed)
@@ -319,7 +319,7 @@ def test_the_subspace_solves_ask_for_syevd_by_name():
 
 
 def test_the_host_route_is_opt_in_and_solves_what_the_device_route_does(monkeypatch):
-    """``DEFUMAT_HOST_EIGH_ROWS``: LAPACK through a callback, only on an accelerator, only when small.
+    """``DEFUQUMAT_HOST_EIGH_ROWS``: LAPACK through a callback, only on an accelerator, only when small.
 
     The platform is faked, since the route is chosen at trace time from
     ``jax.default_backend()``; on a CPU both routes are LAPACK, so the eigenvalues
@@ -327,7 +327,7 @@ def test_the_host_route_is_opt_in_and_solves_what_the_device_route_does(monkeypa
     """
     import jax
 
-    from defumat.solvers import subspace
+    from defuqumat.solvers import subspace
 
     h, s = _hermitian(12, 3), _positive(12, 5)
     device = np.asarray(generalised_eigh(h, s, robust=False)[0])

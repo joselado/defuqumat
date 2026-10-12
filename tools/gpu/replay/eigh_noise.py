@@ -13,7 +13,7 @@ import os, sys, warnings
 warnings.filterwarnings("ignore")
 import numpy as np, scipy.linalg as sl
 import jax, jax.numpy as jnp
-from defumat.solvers.subspace import generalised_eigh
+from defuqumat.solvers.subspace import generalised_eigh
 n, nb = 128, 32
 rng = np.random.default_rng(3)
 def pair(cond):

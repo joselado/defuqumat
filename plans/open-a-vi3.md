@@ -62,7 +62,7 @@ the ordinary SCF, where none of this was measured.
 
 Only the advice, which is wrong on the default basis in the one place a user reads it:
 
-1. `defumat/ultracell/driver.py`, the `rigid` half of the non-convergence warning (now at lines
+1. `defuqumat/ultracell/driver.py`, the `rigid` half of the non-convergence warning (now at lines
    1627-1650): it says the run is traversing a flat manifold, to raise `max_iterations` or the
    field, and **not** to lower `mixing_beta`, with 263 against 300 from the old basis. On the
    default basis neither `beta` converges this cell in 400 and a seed converges it in 9, so the

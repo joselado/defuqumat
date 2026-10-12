@@ -7,7 +7,7 @@ the mode-resolved activities through ``dynmat.x``, whose ``RamanIR``
 a dynamical-matrix file and contracts them with the eigendisplacements. It
 solves nothing and shares nothing with the ``lraman`` branch that ``PLAN.md``
 P35 establishes has regressed in the vendored 7.5 build -- so writing that file
-from *our* tensors (:func:`~defumat.io.dynmat.write_dynamical_matrix`) and
+from *our* tensors (:func:`~defuqumat.io.dynmat.write_dynamical_matrix`) and
 running the vendored binary on it is a genuine transcription check.
 
 The rest are checks that need no Fortran at all, and the sharpest of them is
@@ -28,15 +28,15 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.io.dynmat import write_dynamical_matrix
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.electrostriction import refined_states
-from defumat.response.nonlinear import raman_tensors
-from defumat.response.phonon import dynamical_matrix
-from defumat.response.spectra import loto_modes, vibrational_spectrum
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.io.dynmat import write_dynamical_matrix
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.electrostriction import refined_states
+from defuqumat.response.nonlinear import raman_tensors
+from defuqumat.response.phonon import dynamical_matrix
+from defuqumat.response.spectra import loto_modes, vibrational_spectrum
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -112,7 +112,7 @@ def _pieces(case: str):
 
     The displacement response is threaded from the Raman tensors into the
     dynamical matrix, which is what makes this one solve rather than two --
-    :attr:`~defumat.response.nonlinear.RamanTensors.displacement`.
+    :attr:`~defuqumat.response.nonlinear.RamanTensors.displacement`.
     """
     _, _, calculation, result = _converged(case)
     raman = raman_tensors(
@@ -172,7 +172,7 @@ def _run_dynmat(case: str, tmp_path: Path, direction=None,
     write_dynamical_matrix(
         fildyn, system.cell, system.structure, phonons.matrix,
         epsilon=raman.epsilon, born=np.asarray(raman.field.born_charges),
-        raman=raman.raman, title=f"defumat {case}",
+        raman=raman.raman, title=f"defuqumat {case}",
     )
     # ``asr = 'no'`` is what ``ph.x`` prints its charges without. ``q`` is left
     # at zero unless a caller asks for a direction: the analytic matrix and the
@@ -423,7 +423,7 @@ def test_lyddane_sachs_teller_holds_for_alas():
 
     **It needs the charge-neutral ``Z*`` and that is the finding.** At
     ``ecutwfc = 10`` this cell's Born charges miss ``sum_a Z*_a = 0`` by -1.257,
-    which charges the crystal: :func:`~defumat.response.spectra.nonanal` then
+    which charges the crystal: :func:`~defuqumat.response.spectra.nonanal` then
     lifts a **longitudinal acoustic** mode from 1.8 to 33.8 cm^-1 and the LO
     frequency lands 7.7 cm^-1 low. Neither is visible against ``dynmat.x``,
     which is handed the same charges and reproduces the same wrong number. LST
@@ -574,8 +574,8 @@ def test_the_born_charges_of_alas_match_ph_x():
 def test_reusing_the_displacement_response_gives_the_same_dynamical_matrix():
     """The threading is an optimisation, so it has to change nothing.
 
-    :func:`~defumat.response.nonlinear.raman_tensors` and
-    :func:`~defumat.response.phonon.dynamical_matrix` need the *same*
+    :func:`~defuqumat.response.nonlinear.raman_tensors` and
+    :func:`~defuqumat.response.phonon.dynamical_matrix` need the *same*
     ``solve_linter`` output, and solving it twice is the dominant cost of a
     spectrum. This is the check that handing it across is exact rather than
     nearly so -- the matrix is compared entry by entry against one built from a

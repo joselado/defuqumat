@@ -2,22 +2,22 @@
 
 P81 opened the Sternheimer **solve** for ``noncolin = .true.`` and stopped
 there: every assembly above it still went through
-:func:`~defumat.response.sternheimer.require_a_sternheimer_regime` without the
+:func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime` without the
 opt-in, so no user-facing quantity changed. This is the first assembly to ask
 for it, and asking found three places that were collinear and had never been
 reached:
 
-* :func:`defumat.response.born._raw_mixed_state`'s own density builder, which
+* :func:`defuqumat.response.born._raw_mixed_state`'s own density builder, which
   is a *local* copy of the SCF's and was the collinear ``sum_band``. A
   ``2 npwx``-long spinor does not give a wrong number there, it fails to
   broadcast -- which is how the site was found;
-* :func:`defumat.forces.energy.frozen_energy`'s refusal of the matrix
+* :func:`defuqumat.forces.energy.frozen_energy`'s refusal of the matrix
   orthonormality multipliers for a spinor, which was a statement about the
   **metric** (``qq_so`` against the scalar ``qq``) and not about the spinor. A
   norm-conserving spinor has ``S = 1`` and never reaches that term;
 * the same function's ``spinors`` opt-in, which
-  :func:`defumat.response.born.born_effective_charges` now asks for
-  deliberately, as :func:`defumat.forces.energy.reject_spinors` requires.
+  :func:`defuqumat.response.born.born_effective_charges` now asks for
+  deliberately, as :func:`defuqumat.forces.energy.reject_spinors` requires.
 
 **The anchors are two identities and one external number.**
 
@@ -29,7 +29,7 @@ reached:
    density.
 2. The symmetrised wedge against the closed grid, as a spinor. Nothing is
    shared between the two routes except the solve, so agreeing is the check on
-   :meth:`~defumat.scf.driver.Calculation.symmetrize_directional` reached from
+   :meth:`~defuqumat.scf.driver.Calculation.symmetrize_directional` reached from
    this assembly.
 3. ``ph.x``'s own number, and it has to be ``ph.x``'s *spinor* one. QE run as a
    spinor on this cell gives **13.806615123** against **13.806689470** as a
@@ -70,11 +70,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.efield import dielectric_tensor
-from defumat.scf import run_scf
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.efield import dielectric_tensor
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +134,7 @@ BORN_TOLERANCE = 1e-4
 #: runs, bit-identical), with ``Z*`` 2.1e-13 and the energies 1.8e-15 Ry apart.
 #: **It is summation order, not a spinor term:** at ``3835742`` the scalar run
 #: alone moves by **1.2e-12** across five of the six pairs of
-#: ``DEFUMAT_K_BATCH`` in {1, 2, all} and ``DEFUMAT_BAND_BATCH`` in {1, all} (all
+#: ``DEFUQUMAT_K_BATCH`` in {1, 2, all} and ``DEFUQUMAT_BAND_BATCH`` in {1, all} (all
 #: but (1, all)), the spinor by 1.7e-12, and the identity over those five reads 9.4e-14, 4.6e-13, 8.1e-13, 1.48e-12 and
 #: 1.59e-12. Tightening the response (``tr2``/``threshold`` 1e-22/1e-11,
 #: 1e-28/1e-14) leaves it at 1.5e-12, so the solve is not what sets it (at
@@ -173,7 +173,7 @@ def _silicon(noncolin: bool, conv_thr: float, nbnd=None):
     three first-order responses beside them, and an unbounded cache of those is
     the accumulation that has killed test files on this machine.
     """
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     parsed = read_pw_input(CASES / "si-epsilon.in")
     if noncolin:
@@ -209,7 +209,7 @@ def test_a_spinor_with_no_magnetization_gives_the_scalar_dielectric_tensor():
     ``Z*`` is the sharper half. Silicon's is zero by symmetry, so what is
     compared is a **residue** of about 4 against an electronic part near 4.076,
     and it is the only quantity here that goes through
-    :func:`defumat.response.born.born_effective_charges` -- the whole
+    :func:`defuqumat.response.born.born_effective_charges` -- the whole
     ``jax.grad`` of the frozen energy through moving atoms, with the matrix
     multipliers that were refused for a spinor until this phase.
 
@@ -263,7 +263,7 @@ def test_the_symmetrised_wedge_and_the_closed_grid_agree_for_a_spinor():
     grid with 48 operations, and ``si-epsilon-unshifted-nosym`` is the whole 64
     of them with no symmetry at all. An unshifted grid *is* closed under the
     point group -- a shifted one is not, which is what
-    :func:`~defumat.response.efield.require_a_symmetrisable_response` refuses --
+    :func:`~defuqumat.response.efield.require_a_symmetrisable_response` refuses --
     so the two routes must give one tensor, and they share nothing but the
     solve.
 
@@ -274,7 +274,7 @@ def test_the_symmetrised_wedge_and_the_closed_grid_agree_for_a_spinor():
 
     Measured **7.4e-13**, against the scalar pair's own 4.1e-13 on the same cell.
     """
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     tensors = []
     for case in ("si-epsilon-unshifted", "si-epsilon-unshifted-nosym"):
@@ -317,7 +317,7 @@ def test_a_textured_spinor_is_refused_by_name():
     looks like a working calculation and is 5 per cent out is exactly what a
     refusal is for.
     """
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / "i-atom-soc.in"))
     pseudos = tuple(
@@ -353,7 +353,7 @@ def _augmented(case: str, noncolin: bool):
     ``maxsize = 2`` for the reason :func:`_silicon` gives: the response holds
     the wavefunctions and three first-order responses beside them.
     """
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     parsed = read_pw_input(CASES / f"{case}.in")
     if noncolin:
@@ -444,7 +444,7 @@ def test_an_augmented_spinor_is_no_longer_refused():
     """The dataset half of the edge, which is gone (P98).
 
     ``set_int3_nc`` was named as the missing object and it is not written here
-    either: the ``jvp`` of :meth:`~defumat.scf.driver.Calculation.coefficients`
+    either: the ``jvp`` of :meth:`~defuqumat.scf.driver.Calculation.coefficients`
     passes through the noncollinear recombination, whose ``fcoef`` sandwich is
     linear, so the tangent comes out already dressed. All three datasets pass
     the guard now, and what still refuses is the *texture*, one line below.
@@ -454,8 +454,8 @@ def test_an_augmented_spinor_is_no_longer_refused():
     about metals rather than the one about datasets, which is the edge that
     moved rather than the one that went.
     """
-    from defumat.scf import Calculation
-    from defumat.response.sternheimer import require_a_sternheimer_regime
+    from defuqumat.scf import Calculation
+    from defuqumat.response.sternheimer import require_a_sternheimer_regime
 
     for case in ("si-epsilon", "si-epsilon-us", "si-epsilon-paw",
                  "alas-epsilon-us-soc"):
@@ -481,8 +481,8 @@ def test_the_opt_in_is_what_lifts_the_refusal():
     regime must not inherit permission from one that has. The phonons and the
     Raman tensor go through the same guard without the flag.
     """
-    from defumat.scf import Calculation
-    from defumat.response.sternheimer import require_a_sternheimer_regime
+    from defuqumat.scf import Calculation
+    from defuqumat.response.sternheimer import require_a_sternheimer_regime
 
     parsed = read_pw_input(CASES / "si-epsilon.in")
     parsed.namelists["system"]["noncolin"] = True

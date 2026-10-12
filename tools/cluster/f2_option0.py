@@ -39,12 +39,12 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat.calculator import electrons_defaults
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation, run_scf
-from defumat.scf.residual_split import residual_bins
-from defumat.system import build_system
+from defuqumat.calculator import electrons_defaults
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.scf.residual_split import residual_bins
+from defuqumat.system import build_system
 
 MAGNETIC = Path("tests/data/qe/fe-noncolin-pbe-stress.in")
 NONMAGNETIC = Path("benchmarks/fe-noncolin-nonmagnetic.in")

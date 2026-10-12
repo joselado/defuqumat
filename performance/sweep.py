@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""The systematic benchmark: Quantum ESPRESSO, defumat on a CPU core, defumat on a GPU.
+"""The systematic benchmark: Quantum ESPRESSO, defuqumat on a CPU core, defuqumat on a GPU.
 
 One harness, three legs, two sets, and the same code path whether it runs on a
 laptop or as one task of a Slurm array. Nothing here measures anything itself --
-the QE leg is ``tools/compare_qe.py``'s ``run_qe`` and both defumat legs are
+the QE leg is ``tools/compare_qe.py``'s ``run_qe`` and both defuqumat legs are
 ``tools/gpu/phase0.py``'s ``run_case``, which is device-agnostic on purpose.
 This file is the loop, the schema and the report.
 
@@ -14,13 +14,13 @@ This file is the loop, the schema and the report.
 
 **The three legs are two different claims and the report never mixes them.**
 
-* ``qe`` and ``cpu`` are the project's own metric: single-core defumat against
+* ``qe`` and ``cpu`` are the project's own metric: single-core defuqumat against
   single-core Quantum ESPRESSO, same machine, same input, same ``conv_thr``.
   Both are pinned to one CPU by affinity mask, because XLA sizes its thread
   pool from that mask and ignores ``OMP_NUM_THREADS`` -- without the pinning the
   comparison flatters this code by the core count.
-* ``gpu`` is a different metric and ``GPU.md`` §2.3 fixes it: defumat on one GPU
-  against *defumat on CPU*, same code, same input, **per SCF iteration**, with
+* ``gpu`` is a different metric and ``GPU.md`` §2.3 fixes it: defuqumat on one GPU
+  against *defuqumat on CPU*, same code, same input, **per SCF iteration**, with
   compile time reported as its own column rather than amortised away. A GPU
   number put against single-core QE would be meaningless in the same way the
   unpinned CPU comparison is, only more so. Table B is therefore against the
@@ -79,15 +79,15 @@ _SINGLE_CORE = {
     "OMP_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
     "OPENBLAS_NUM_THREADS": "1",
-    "DEFUMAT_THREADS": "1",
+    "DEFUQUMAT_THREADS": "1",
 }
 
-if _MEASURING and os.environ.get("DEFUMAT_BENCH_PINNED") != "1":
+if _MEASURING and os.environ.get("DEFUQUMAT_BENCH_PINNED") != "1":
     os.environ.update(_SINGLE_CORE)
-    os.environ["DEFUMAT_BENCH_PINNED"] = "1"
+    os.environ["DEFUQUMAT_BENCH_PINNED"] = "1"
     # tools.compare_qe re-executes on import unless this is already set; it has
     # just been done here, and doing it twice would lose this process's argv.
-    os.environ["DEFUMAT_PINNED"] = "1"
+    os.environ["DEFUQUMAT_PINNED"] = "1"
     os.execv(sys.executable, [sys.executable, *sys.argv])
 
 # The GPU leg is *not* pinned to one core. Its host side dispatches rather than
@@ -137,7 +137,7 @@ def measure(case_name: str, leg: str, repeats: int, cache: str,
     if leg == "qe":
         record.update(_measure_qe(case, repeats))
     else:
-        record.update(_measure_defumat(case, repeats, cache, k_batch, band_batch,
+        record.update(_measure_defuqumat(case, repeats, cache, k_batch, band_batch,
                                        max_iterations))
     record["wall_s"] = time.perf_counter() - started
     record["peak_rss_gb"] = _peak_rss_gb()
@@ -150,7 +150,7 @@ def _measure_qe(case: Path, repeats: int) -> dict:
 
     QE prints the wall time of every routine it instruments, so ``init_run`` and
     ``electrons`` are QE's numbers. The process wall time is kept beside them
-    because that is what is comparable to a stopwatch around defumat.
+    because that is what is comparable to a stopwatch around defuqumat.
     """
     from tools import compare_qe
 
@@ -172,24 +172,24 @@ def _measure_qe(case: Path, repeats: int) -> dict:
         "total_energy": qe["energy"],
         "converged": True,
         "pw_x": str(pw_x),
-        "env": _environment(defumat=False),
+        "env": _environment(defuqumat=False),
     }
 
 
-def _measure_defumat(case: Path, repeats: int, cache: str, k_batch: str,
+def _measure_defuqumat(case: Path, repeats: int, cache: str, k_batch: str,
                      band_batch: str, max_iterations: int) -> dict:
-    """defumat on whatever device JAX finds, with both batching dials explicit.
+    """defuqumat on whatever device JAX finds, with both batching dials explicit.
 
-    ``defumat/batching.py`` reads its dials at import time, so they go into the
+    ``defuqumat/batching.py`` reads its dials at import time, so they go into the
     environment here -- before ``run_case`` performs the import. The CPU leg
     runs at QE's end of both dials (one k-point, one band batch, which is what
     ``c_bands.f90`` does) and the GPU leg at the batched end, because that is
     what each machine wants and comparing them at a single setting would measure
     the dial rather than the device.
     """
-    os.environ["DEFUMAT_CACHE_DIR"] = cache
-    os.environ["DEFUMAT_K_BATCH"] = k_batch
-    os.environ["DEFUMAT_BAND_BATCH"] = band_batch
+    os.environ["DEFUQUMAT_CACHE_DIR"] = cache
+    os.environ["DEFUQUMAT_K_BATCH"] = k_batch
+    os.environ["DEFUQUMAT_BAND_BATCH"] = band_batch
 
     sys.path.insert(0, str(ROOT / "tools" / "gpu"))
     from tools.gpu import phase0
@@ -201,7 +201,7 @@ def _measure_defumat(case: Path, repeats: int, cache: str, k_batch: str,
 
     warm = run["scf_warm_s"]
     return {
-        "code": "defumat",
+        "code": "defuqumat",
         "conv_thr": threshold,
         "nat": run["nat"],
         "nk": run["nk"],
@@ -227,13 +227,13 @@ def _measure_defumat(case: Path, repeats: int, cache: str, k_batch: str,
         "band_batch": band_batch,
         "cache": cache,
         "device_memory": memory,
-        "env": _environment(defumat=True),
+        "env": _environment(defuqumat=True),
     }
 
 
-def _environment(defumat: bool) -> dict:
+def _environment(defuqumat: bool) -> dict:
     """What a reader needs in order to know what the number describes."""
-    if defumat:
+    if defuqumat:
         from tools.gpu import phase0
         return phase0.provenance()
     from performance import run_performance
@@ -490,12 +490,12 @@ def _header(by_case: dict) -> list[str]:
         lines.append(f"  QE            {env.get('qe', '?')} on 1 core, {env.get('cpu', '?')}")
     if any_cpu:
         env = any_cpu["env"]
-        lines.append(f"  defumat CPU   {env.get('device_kind', '?')} x1 core, "
+        lines.append(f"  defuqumat CPU   {env.get('device_kind', '?')} x1 core, "
                      f"jax {env.get('jax', '?')}, commit {str(env.get('git_commit'))[:8]}"
                      f"{' (dirty)' if env.get('git_dirty') else ''}")
     if any_gpu:
         env = any_gpu["env"]
-        lines.append(f"  defumat GPU   {env.get('device_kind', '?')} x{env.get('device_count', '?')}, "
+        lines.append(f"  defuqumat GPU   {env.get('device_kind', '?')} x{env.get('device_count', '?')}, "
                      f"{env.get('nvidia_smi') or 'no nvidia-smi'}")
     lines.append("")
     return lines
@@ -504,12 +504,12 @@ def _header(by_case: dict) -> list[str]:
 def _table_a(by_case: dict, names: list[str]) -> list[str]:
     """The project's metric: both codes on one core, warm SCF and per iteration."""
     lines = [
-        "  A. defumat against Quantum ESPRESSO, both pinned to one CPU core.",
-        "     SCF is QE's own `electrons` against defumat's warm loop; the per-iteration",
+        "  A. defuqumat against Quantum ESPRESSO, both pinned to one CPU core.",
+        "     SCF is QE's own `electrons` against defuqumat's warm loop; the per-iteration",
         "     columns divide out the two codes taking different numbers of iterations.",
         "",
         f"     {'case':22s} {'nat':>4s} {'nk':>3s} {'npwx':>6s} | {'QE scf':>8s} "
-        f"{'defumat':>8s} {'x':>6s} | {'QE/it':>8s} {'def/it':>8s} {'x':>6s} | "
+        f"{'defuqumat':>8s} {'x':>6s} | {'QE/it':>8s} {'def/it':>8s} {'x':>6s} | "
         f"{'its':>7s} | {'dE (Ry)':>9s}",
         f"     {'-' * 115}",
     ]
@@ -545,7 +545,7 @@ def _table_b(by_case: dict, names: list[str]) -> list[str]:
     if not rows:
         return []
     lines = [
-        "  B. defumat on one GPU against defumat on one CPU core -- the same code and",
+        "  B. defuqumat on one GPU against defuqumat on one CPU core -- the same code and",
         "     the same input, per SCF iteration. Compile time is its own column and is",
         "     never amortised into the speedup (GPU.md 2.3). The CPU leg runs one",
         "     k-point at a time and the GPU leg batches the k axis, which is what each",
@@ -622,9 +622,9 @@ def main(argv=None) -> int:
     parser.add_argument("--force-large", action="store_true",
                         help="run a case whose recorded peak does not fit this machine")
     parser.add_argument("--cache", default="off",
-                        help="DEFUMAT_CACHE_DIR for the measured processes. 'off' is the "
+                        help="DEFUQUMAT_CACHE_DIR for the measured processes. 'off' is the "
                              "default and is what makes the cold/warm split true")
-    parser.add_argument("--k-batch", help="override the k dial for the defumat legs")
+    parser.add_argument("--k-batch", help="override the k dial for the defuqumat legs")
     parser.add_argument("--band-batch", help="override the band dial")
     parser.add_argument("--resume", action="store_true",
                         help="skip units that already have a successful record")

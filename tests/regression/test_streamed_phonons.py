@@ -1,8 +1,8 @@
 """The dynamical matrix walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defumat.response.chunked_phonon`). A
+``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_phonon`). A
 streamed SCF store -- a numpy array in host memory -- is handed to
-:func:`~defumat.response.phonon.dynamical_matrix` without being put on the
+:func:`~defuqumat.response.phonon.dynamical_matrix` without being put on the
 device, and the bare perturbations, the overlap's derivatives, the solves, the
 multipliers and the assembly then walk the k axis. The claim is that this is the
 whole-k route's matrix to round-off, and the check is the same converged state
@@ -28,7 +28,7 @@ is reached by one of them:
   halving in every separable term, and the rows of a subset rather than of the
   cell.
 
-The phonon at ``q`` (:class:`~defumat.response.chunked_phonon.
+The phonon at ``q`` (:class:`~defuqumat.response.chunked_phonon.
 StreamedDisplacementsAtQ`) is checked at the end of the file on a small
 norm-conserving cell, three ways, because its ``k + q`` states are a second
 eigensolve that the two routes run as different programs at a chunk larger
@@ -43,8 +43,8 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.response.phonon import dynamical_matrix
+from defuqumat import Calculator
+from defuqumat.response.phonon import dynamical_matrix
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -147,7 +147,7 @@ def test_a_run_without_symmetry_keeps_its_grids_in_host_memory(monkeypatch):
     this says the mode was the one taken, on the PAW cell, whose one-centre
     fields go through the host mixer beside ``dvscf``.
     """
-    import defumat.response.phonon as phonon
+    import defuqumat.response.phonon as phonon
 
     seen = {}
     original = phonon.screening_loop
@@ -234,7 +234,7 @@ def _converged_small(k_batch: int):
 
 
 def _at_q(calculation, result, wavefunctions, q=Q):
-    from defumat.response.phononq import dynamical_matrix_at_q
+    from defuqumat.response.phononq import dynamical_matrix_at_q
 
     return dynamical_matrix_at_q(
         calculation, wavefunctions, result.eigenvalues, result.density,
@@ -270,7 +270,7 @@ def test_the_streamed_phonon_at_q_walks_a_padded_chunk(monkeypatch):
     whole route runs a width-2 tail, which moved one band's convergence by one
     step in 78 solves.
     """
-    import defumat.response.phononq as phononq
+    import defuqumat.response.phononq as phononq
 
     calculation, result = _converged_small(3)
     original = phononq.states_at_k_plus_q

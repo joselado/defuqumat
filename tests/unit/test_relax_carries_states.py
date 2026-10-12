@@ -32,10 +32,10 @@ import inspect
 import numpy as np
 import pytest
 
-import defumat.scf.driver as driver
-import defumat.workflows.relax as relax_module
-import defumat.workflows.vc_relax as vc_module
-from defumat.calculator import Calculator
+import defuqumat.scf.driver as driver
+import defuqumat.workflows.relax as relax_module
+import defuqumat.workflows.vc_relax as vc_module
+from defuqumat.calculator import Calculator
 
 pytestmark = pytest.mark.unit
 

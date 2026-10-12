@@ -1,0 +1,2745 @@
+"""Turn a parsed ``pw.x`` input into the objects the rest of the code uses.
+
+This is where QE's input conventions are interpreted -- which cell parameters
+win when several are given, what a card's units mean, which defaults apply --
+and it is deliberately the *only* place that knows them. Everything downstream
+takes a :class:`System` and never looks at an input file again.
+
+Defaults come from ``Modules/input_parameters.f90``; the rules for combining
+``ibrav``/``celldm``/``A,B,C``/``CELL_PARAMETERS`` come from ``PW/src/input.f90``.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import os
+import sys
+import warnings
+
+import equinox as eqx
+import numpy as np
+
+from defuqumat.config import DEFAULT_PRECISION, Precision
+from defuqumat.io.pwin import PwInput, fortran_float, read_pw_input
+from defuqumat.relax.settings import RelaxSettings
+from defuqumat.system.cell import Cell, celldm_from_abc
+from defuqumat.system.kpoints import (
+    KPoints,
+    expand_to_subgroup,
+    for_spin as kpoints_for_spin,
+)
+from defuqumat.system.structure import Species, Structure
+from defuqumat.system.symmetry import (
+    Symmetries,
+    collinear_symmetries,
+    find_symmetries,
+    lattice_point_group,
+    magnetic_symmetries,
+)
+from defuqumat.units import ANGSTROM_TO_BOHR, RY_TO_EV
+from defuqumat.vdw.registry import canonical_vdw_corr
+
+__all__ = ["System", "build_system", "system_from_file", "local_moments",
+           "is_magnetic"]
+
+
+#: "the caller did not say", where ``None`` is a value a caller can mean --
+#: dropping a ``STARTING_MOMENTS`` card is exactly that, and so is releasing a
+#: ``tot_magnetization`` (:meth:`System.with_spin`).
+_UNSET = object()
+
+
+#: The directories whose frames a warning raised here skips on its way to the
+#: line that asked: this package's own, and equinox's, which wraps every bound
+#: method of a ``Module`` in a ``BoundMethod`` frame of its own.
+_INTERNAL_DIRECTORIES = tuple(
+    os.path.dirname(os.path.abspath(module.__file__)) + os.sep
+    for module in (sys.modules["defuqumat"], eqx)
+)
+
+
+def _stacklevel_outside_package() -> int:
+    """The ``stacklevel`` that lands a warning on the first frame outside the package.
+
+    Counted from the caller of this function, which is the frame that calls
+    ``warnings.warn`` and is ``stacklevel = 1`` there. Walks past every frame in
+    this package or in equinox, so a method reached through the ``Calculator``
+    facade and the same method called on ``System`` both name the user's line.
+    ``warnings.warn``'s own ``skip_file_prefixes`` does this from Python 3.12,
+    and ``pyproject.toml`` still admits 3.10.
+    """
+    frame = sys._getframe(1)
+    level = 1
+    while frame is not None and frame.f_code.co_filename.startswith(_INTERNAL_DIRECTORIES):
+        frame = frame.f_back
+        level += 1
+    return level
+
+
+class System(eqx.Module):
+    """A cell, its atoms, and the k-points to sample -- the output of setup.
+
+    Everything a phase beyond P1 needs about *what* is being calculated, with
+    none of the input-file syntax left in it.
+    """
+
+    cell: Cell
+    structure: Structure
+    kpoints: KPoints
+    ecutwfc: float = eqx.field(static=True)
+    ecutrho: float = eqx.field(static=True)
+    #: 1 for an unpolarized calculation, 2 for collinear LSDA, 4 for
+    #: noncollinear. Static, because it is an array *rank* everywhere
+    #: downstream, not a value.
+    #:
+    #: ``nspin`` alone does not fix any array shape once it is 4: QE keeps
+    #: *three* numbers and so does this code (``set_spin_vars`` in
+    #: ``Modules/noncol.f90``). :attr:`npol` is how many spinor components a
+    #: wavefunction has, :attr:`nspin_mag` how many components the density and
+    #: the potential have, and ``nspin`` only says which of the three regimes is
+    #: in force. Collapsing them is the mistake that makes a nonmagnetic
+    #: spin-orbit run allocate -- and symmetrise -- a magnetization it does not
+    #: have.
+    nspin: int = eqx.field(static=True, default=1)
+    calculation: str = eqx.field(static=True, default="scf")
+    nbnd: int | None = eqx.field(static=True, default=None)
+    occupations: str = eqx.field(static=True, default="fixed")
+    #: ``input_dft``: an exchange-correlation functional that overrides the one
+    #: the pseudopotentials were generated with. ``None`` -- the normal case --
+    #: means the pseudopotentials decide.
+    input_dft: str | None = eqx.field(static=True, default=None)
+    #: ``mbj_c``: the Tran-Blaha coefficient, imposed rather than averaged over
+    #: the cell. **Not a ``pw.x`` variable** -- QE has no way to set it, which is
+    #: why its ``input_dft = 'tb09'`` is Becke-Johnson (libxc's default ``c = 1``)
+    #: rather than Tran-Blaha. WIEN2k and VASP both expose the same knob, and it
+    #: is what lets a pseudopotential run be compared with an all-electron one:
+    #: ``c`` is an average of ``|grad rho|/rho``, which a pseudised core makes
+    #: too small.
+    mbj_c: float | None = eqx.field(static=True, default=None)
+    smearing: str = eqx.field(static=True, default="gaussian")
+    degauss: float = eqx.field(static=True, default=0.0)
+    #: Occupations read from an OCCUPATIONS card, for occupations='from_input'.
+    #: One row per spin channel when nspin = 2 (``f_inp(:, isk(ik))``).
+    input_occupations: tuple[float, ...] | None = eqx.field(static=True, default=None)
+    #: ``starting_magnetization(i)``, per species, in [-1, 1]. It splits the
+    #: superposition of atomic charges the SCF starts from -- and it is the only
+    #: thing that does, so an LSDA run left at zero converges to the unpolarized
+    #: solution whenever that is a stationary point, which for a symmetric
+    #: crystal it always is.
+    starting_magnetization: tuple[float, ...] = eqx.field(static=True, default=())
+    #: The ``STARTING_MOMENTS`` card: one starting moment per atom, cartesian, in
+    #: Bohr magnetons. ``()`` -- the normal case -- means the per-species
+    #: variables above decide. **Not a ``pw.x`` input**: QE has no per-atom
+    #: starting magnetization, so a texture (a helix, a cycloid, a skyrmion)
+    #: cannot be stated in its input at all. What it changes is
+    #: :attr:`local_moments`, and through it the magnetic symmetry group -- which
+    #: is the whole point, since a group built from a per-species ferromagnet
+    #: keeps operations a texture does not have and ``sym_rho`` then averages the
+    #: texture away.
+    starting_moments: tuple = eqx.field(static=True, default=())
+    #: ``tot_magnetization``: constrain ``N_up - N_dw`` instead of letting the
+    #: two channels share one Fermi level. ``None`` -- QE's -10000 sentinel --
+    #: means unconstrained. Only ever set at ``nspin = 2``, the one regime with
+    #: two collinear channels to fill: the input refuses it anywhere else, and
+    #: :meth:`with_spin` drops it on the way out of that regime rather than
+    #: carrying it.
+    tot_magnetization: float | None = eqx.field(static=True, default=None)
+    #: ``nosym``: use no symmetry at all. Not an optimisation switch -- an input
+    #: whose occupations break the crystal's symmetry (an atom with one of its
+    #: three p channels filled) needs it, and symmetrising anyway converges to a
+    #: different state.
+    nosym: bool = eqx.field(static=True, default=False)
+    #: ``nosource``: project the longitudinal part out of the
+    #: exchange-correlation magnetic field, so that ``div B_xc = 0``. Elk's own
+    #: spelling (``src/projsbf.f90``), and this code's own knob rather than a
+    #: ``pw.x`` one -- QE has nothing of the kind. It is a **potential with no
+    #: energy functional behind it**, like a potential-only meta-GGA, so a run
+    #: that sets it reports a total energy that is not the value of anything it
+    #: minimised and every derivative of that energy refuses by name
+    #: (:mod:`defuqumat.scf.sourcefree`).
+    nosource: bool = eqx.field(static=True, default=False)
+    #: ``noncollinear_gga``: the gradient correction of a noncollinear
+    #: magnetization, ``'grad_m'``
+    #: (:func:`defuqumat.scf.potential._noncollinear_gradient_correction_grad_m`)
+    #: or ``'kubler'`` (``pw.x``'s and Elk's). ``None``, the default, is
+    #: resolved by :func:`defuqumat.scf.potential.resolve_noncollinear_gga`:
+    #: ``'grad_m'`` wherever it applies. Not a ``pw.x`` keyword.
+    noncollinear_gga: str | None = eqx.field(static=True, default=None)
+    #: ``noinv``: switch off the ``k -> -k`` reduction of the k-grid.
+    #: ``setup.f90`` sets ``time_reversal = .NOT. noinv .AND. .NOT.
+    #: magnetic_sym``, so it is independent of :attr:`nosym` -- a run may keep
+    #: the rotations and still want both halves of the star.
+    noinv: bool = eqx.field(static=True, default=False)
+    #: ``tstress`` (``&control``): compute the stress tensor once the SCF has
+    #: converged. It is a property of the *run* rather than of the system, and
+    #: it lives here for the same reason :attr:`calculation` does -- this is the
+    #: object an input file becomes, and a switch nothing carries is a switch
+    #: nothing can honour. ``run_scf`` reads it when its own ``tstress``
+    #: argument is left at ``None`` (P11).
+    tstress: bool = eqx.field(static=True, default=False)
+    #: ``lspinorb``: use the ``j``-resolved projectors of a fully-relativistic
+    #: pseudopotential, which is what puts spin-orbit coupling in the
+    #: Hamiltonian. Requires ``noncolin`` -- QE refuses the combination too,
+    #: because the spin-orbit term does not commute with ``S_z`` and there is no
+    #: collinear Hamiltonian for it to enter.
+    lspinorb: bool = eqx.field(static=True, default=False)
+    #: ``lforcet``: this run is the one-shot leg of a force-theorem
+    #: magnetocrystalline-anisotropy calculation
+    #: (:mod:`defuqumat.workflows.anisotropy`), so its density comes from a
+    #: *collinear* run and is rotated onto ``angle1(1)``/``angle2(1)`` on the
+    #: way in (``potinit.f90:96``, ``nc_magnetization_from_lsda``). It selects
+    #: nothing on its own here -- the workflow is called explicitly, where
+    #: ``pw.x`` has one executable and needs the flag to branch -- and is read
+    #: so that QE's own force-theorem inputs run unchanged.
+    lforcet: bool = eqx.field(static=True, default=False)
+    #: ``soc_scale``: switches the spin-orbit part of the nonlocal potential,
+    #: the overlap and the augmentation charge off (``0``) or on (``1``) while
+    #: keeping the same
+    #: fully-relativistic dataset -- Elk's ``socscf`` (manual 5.118) between its
+    #: two ends. It is what lets the force theorem's coupling-off
+    #: control run on **one** file rather than on a matched scalar/relativistic
+    #: pair, and what makes ``frozen_expectation`` well posed at all.
+    #: Values between 0 and 1 are admitted when every dataset is
+    #: norm-conserving, where the scale reaches ``dvan_so`` alone and linearly
+    #: (``H(0) + s dD``, P123), and refused on an augmented one, where
+    #: :class:`~defuqumat.pseudo.spinorbit.SpinOrbitCoupling` says why.
+    #: ``pw.x`` has no counterpart.
+    soc_scale: float = eqx.field(static=True, default=1.0)
+    #: ``angle1``/``angle2`` in degrees, per species: the polar and azimuthal
+    #: angles of that species' starting magnetization. Only meaningful when
+    #: ``noncolin`` -- a collinear run has nothing to point.
+    angle1: tuple[float, ...] = eqx.field(static=True, default=())
+    angle2: tuple[float, ...] = eqx.field(static=True, default=())
+    #: ``constrained_magnetization`` and its ``lambda``/``fixed_magnetization``
+    #: (``input.f90``'s ``i_cons``), plus the fields put in by hand. See
+    #: :mod:`defuqumat.scf.fields`.
+    constrained_magnetization: str = eqx.field(static=True, default="none")
+    constraint_lambda: float = eqx.field(static=True, default=1.0)
+    fixed_magnetization: tuple[float, float, float] = eqx.field(
+        static=True, default=(0.0, 0.0, 0.0)
+    )
+    #: ``B_field``: a uniform field over the cell, in Ry.
+    b_field: tuple[float, float, float] = eqx.field(static=True, default=(0.0, 0.0, 0.0))
+    #: A defuqumat extension with no pw.x counterpart -- Elk's ``bfcmt``: one
+    #: field per atom, applied inside that atom's sphere. ``()`` for none.
+    atomic_b_field: tuple = eqx.field(static=True, default=())
+    #: Elk's ``reducebf``: multiply the external fields by this after every SCF
+    #: iteration, so a symmetry-breaking field is gone by convergence.
+    reducebf: float = eqx.field(static=True, default=1.0)
+    #: Which fixed-spin-moment update rule to use -- a defuqumat extension with
+    #: no pw.x counterpart, since the scheme itself has none. See
+    #: :data:`defuqumat.scf.fields.FSM_UPDATES`.
+    fsm_update: str = eqx.field(static=True, default="elk")
+    #: ``r_m`` per species in bohr, or ``()`` for the radius ``make_pointlists``
+    #: derives. A defuqumat extension only in being an input at all.
+    integration_radii: tuple = eqx.field(static=True, default=())
+    #: Which local-weight scheme the atom-resolved quantities use; see
+    #: :mod:`defuqumat.scf.locals`.
+    local_weights: str = eqx.field(static=True, default="qe")
+    #: ``lberry``/``gdir``/``nppstr``: the Berry-phase polarization run
+    #: (``bp_c_phase.f90``), as ``(gdir, nppstr)`` with ``gdir`` **0-based**
+    #: here where the input variable is 1-based, or ``None`` when ``lberry`` is
+    #: absent or false. It selects nothing on its own -- an SCF ignores it --
+    #: and only supplies the defaults of
+    #: :meth:`~defuqumat.calculator.Calculator.get_polarization`, so that a
+    #: ``pw.x`` input for that run transfers unchanged.
+    berry: tuple | None = eqx.field(static=True, default=None)
+    #: ``spiral_q``: the wavevector of a spin spiral, in **lattice**
+    #: coordinates, as Elk's ``vqlss`` is (P19). ``None`` -- the normal case --
+    #: is no spiral. See :mod:`defuqumat.system.spiral`.
+    spiral_q: tuple | None = eqx.field(static=True, default=None)
+    #: The ``HUBBARD`` card and its namelist companions (P20), or ``None`` for a
+    #: run with no Hubbard correction. Static: it decides array shapes (how many
+    #: projectors, how wide the occupation matrix) and which code paths run.
+    hubbard: object = eqx.field(static=True, default=None)
+    #: ``vdw_corr``: which van der Waals correction to add, canonicalised by
+    #: :func:`~defuqumat.vdw.registry.canonical_vdw_corr`. ``'none'`` -- the
+    #: default -- is no correction. Only ``'grimme-d2'`` is implemented; the
+    #: others are refused by name, since QE's ``set_vdw_corr`` merely warns and
+    #: runs on without one (:mod:`defuqumat.vdw`).
+    vdw_corr: str = eqx.field(static=True, default="none")
+    #: ``london_s6``: D2's global scaling factor.
+    london_s6: float = eqx.field(static=True, default=0.75)
+    #: ``london_rcut``: D2's real-space cutoff in bohr. The sum's truncation
+    #: error falls only as ``1/rcut^3``, which is why QE's default is as large
+    #: as it is (:mod:`defuqumat.vdw.grimme`).
+    london_rcut: float = eqx.field(static=True, default=200.0)
+    #: ``london_c6`` and ``london_rvdw`` per species, overriding the tabulated
+    #: values. ``()`` -- or QE's -1 sentinel in an entry -- means "use the
+    #: table".
+    london_c6: tuple[float, ...] = eqx.field(static=True, default=())
+    london_rvdw: tuple[float, ...] = eqx.field(static=True, default=())
+    #: The ``&control``, ``&ions`` and ``&cell`` variables an optimisation
+    #: reads (:class:`~defuqumat.relax.settings.RelaxSettings`). Static, and a
+    #: value rather than ``None``, so that a caller never has to ask whether the
+    #: input said anything: it always holds either the file's numbers or QE's
+    #: defaults. Read by :func:`~defuqumat.workflows.relax.run_relax` and
+    #: :func:`~defuqumat.workflows.vc_relax.run_vc_relax`.
+    relax: RelaxSettings = eqx.field(static=True, default_factory=RelaxSettings)
+
+    @property
+    def spiral(self) -> bool:
+        return self.spiral_q is not None
+
+    @property
+    def lsda(self) -> bool:
+        return self.nspin == 2
+
+    @property
+    def noncolin(self) -> bool:
+        return self.nspin == 4
+
+    @property
+    def npol(self) -> int:
+        """How many spinor components a wavefunction has: 2 noncollinear, 1 not.
+
+        This is an array *dimension* of every wavefunction-shaped quantity, and
+        the reason a noncollinear Hamiltonian is one operator on a space of
+        ``npol * npwx`` rather than ``nspin`` operators on ``npwx``.
+        """
+        return 2 if self.noncolin else 1
+
+    @property
+    def domag(self) -> bool:
+        """Whether the run carries a magnetization at all (``setup.f90``).
+
+        A spin-orbit run on a nonmagnetic crystal has spinor wavefunctions and a
+        scalar density, and QE says so in the comment above the assignment --
+        "set the domag variable to make a spin-orbit calculation with zero
+        magnetization". It is a property of the *input* rather than of the
+        converged state, which is what makes it static: the magnetization cannot
+        appear during the SCF if nothing in the starting guess breaks the
+        symmetry.
+
+        **What counts as a starting guess is every axial vector the input gives,
+        not ``starting_magnetization`` alone.** This read the per-*species*
+        array and nothing else, while the k-point reduction and the symmetry
+        group read :attr:`local_moments` and the ``LOCAL_MAGNETIC_FIELDS`` card
+        beside it -- three call sites, two rules. A noncollinear input whose
+        texture is given **only** through ``STARTING_MOMENTS`` therefore got
+        ``domag = False``, hence ``nspin_mag = 1``: it converged, reported a
+        total energy, and never had a magnetization. The disagreement also let
+        the SCF symmetrise the density with a larger group than the one its
+        k-set was reduced with, which is trap 4 arriving through bookkeeping
+        rather than through a response.
+
+        One rule, on :class:`System`, for the same reason
+        ``nspin``/``npol``/``nspin_mag`` are: no call site recomputes it.
+        """
+        if not self.noncolin:
+            return False
+        return is_magnetic(self.nspin, self.local_moments, self.atomic_b_field,
+                           self.b_field)
+
+    @property
+    def nspin_mag(self) -> int:
+        """Components of the density and the potential: 1, 2 or 4.
+
+        4 only for a *magnetic* noncollinear run -- ``(n, m_x, m_y, m_z)``. A
+        nonmagnetic spin-orbit run has one, exactly as an unpolarized run does,
+        and every routine that builds, mixes, symmetrises or integrates a
+        density then runs unchanged.
+        """
+        if self.noncolin:
+            return 4 if self.domag else 1
+        return self.nspin
+
+    @property
+    def local_moments(self) -> np.ndarray:
+        """``m_loc``: each atom's starting moment, cartesian ``(nat, 3)``.
+
+        The magnetic symmetry group is decided from this and from nothing else
+        (:func:`local_moments`), so it lives on :class:`System` -- the driver and
+        the k-point reduction must not each compute their own version of the
+        rule, or they can disagree about which operations exist.
+        """
+        return local_moments(
+            self.structure, self.nspin, self.starting_magnetization,
+            self.angle1, self.angle2, per_atom=self.starting_moments,
+        )
+
+    @property
+    def axial_fields(self) -> tuple:
+        """Every per-atom axial vector the magnetic symmetry group must respect.
+
+        :attr:`local_moments`, the ``LOCAL_MAGNETIC_FIELDS`` card when there is
+        one, and a nonzero uniform ``B_field`` as the same vector on every atom
+        (:func:`axial_vectors` has the rule and the measurement). Elk's
+        ``findsym.f90`` tests all three; a group filtered by the moments alone
+        keeps operations an applied field breaks, and ``sym_rho`` then averages
+        away the texture that field was applied to create. It lives here for the
+        reason :attr:`local_moments` does -- three call sites need the same rule
+        and must not each invent it.
+        """
+        return axial_vectors(self.local_moments, self.atomic_b_field, self.b_field)
+
+    @property
+    def has_applied_field(self) -> bool:
+        """Whether a field acts on the spins: a constrained moment, ``B_field`` or the card.
+
+        QE's ``i_cons`` being set, read off the input: a constrained
+        magnetization, a nonzero uniform ``B_field``, or a
+        ``LOCAL_MAGNETIC_FIELDS`` card. It is
+        :meth:`~defuqumat.scf.driver.Calculation._build_magnetic_field`'s early
+        return, and :class:`~defuqumat.response.piezo._Regime` reads the same
+        property, so a guard asked of the input and the constructor cannot
+        disagree about whether there is a field.
+        """
+        return not (
+            self.constrained_magnetization == "none"
+            and not np.asarray(self.b_field, dtype=float).any()
+            and not self.atomic_b_field
+        )
+
+    @property
+    def two_fermi_energies(self) -> bool:
+        """Whether the magnetization is constrained (QE's ``two_fermi_energies``).
+
+        Set by ``tot_magnetization`` being given at all, not by its value:
+        ``input.f90`` turns the sentinel into the flag, and the flag decides
+        whether the channels share a Fermi level or each gets its own. Only at
+        ``nspin = 2``, the one regime with two collinear channels to split.
+        """
+        return int(self.nspin) == 2 and self.tot_magnetization is not None
+
+    def with_soc_scale(self, soc_scale: float) -> "System":
+        """The same run with the spin-orbit term scaled by ``soc_scale``.
+
+        A plain field replacement rather than a
+        :meth:`with_spin`-style rebuild, and that is the point: ``soc_scale``
+        touches only the ``fcoef`` sandwiches (``dvan_so``, ``qq_so``,
+        ``newd_so`` and ``becsum``), so the cell, the symmetry group
+        and above all the **k-points** are untouched. Two runs that differ only
+        in this are therefore sampled identically, which is what makes the
+        anisotropy vanish *identically* at ``soc_scale = 0`` rather than
+        approximately -- the effect is micro-Rydbergs and a moved k-set would
+        swamp it.
+        """
+        soc_scale = float(soc_scale)
+        if not 0.0 <= soc_scale <= 1.0:
+            raise ValueError(
+                f"soc_scale = {soc_scale}: it blends the coupling-free end (0) "
+                "with the coupled dataset (1), and outside [0, 1] it is not a "
+                "blend of anything. Between them it needs every dataset "
+                "norm-conserving, which the Calculation checks "
+                "(defuqumat.pseudo.spinorbit.SpinOrbitCoupling says why)"
+            )
+        return dataclasses.replace(self, soc_scale=soc_scale)
+
+    def with_b_field(self, b_field) -> "System":
+        """The same run under a different uniform ``B_field``, in Ry.
+
+        **Not a plain field replacement**, which is the difference from
+        :meth:`with_soc_scale`: the uniform field enters the magnetic symmetry
+        filter (:func:`axial_vectors`), so a field off the moment's axis has a
+        smaller group than the run without it, and a k-set reduced with the
+        larger group and a density symmetrised with the smaller one do not
+        describe the same zone. The k-points are therefore rebuilt with the new
+        group, as :meth:`with_spin` rebuilds them for a change of regime; under
+        ``nosym`` that is the same full grid, so a finite difference in the
+        field over a ``nosym`` run is sampled identically at both ends.
+        """
+        field = tuple(float(v) for v in np.asarray(b_field, dtype=float).reshape(3))
+        moved = dataclasses.replace(self, b_field=field)
+        return dataclasses.replace(
+            moved,
+            kpoints=moved._respin_kpoints(
+                moved.nspin, moved.starting_magnetization, moved.angle1,
+                moved.angle2,
+            ),
+        )
+
+    def with_spin(
+        self,
+        nspin: int | None = None,
+        *,
+        lspinorb: bool | None = None,
+        starting_magnetization=None,
+        angle1=None,
+        angle2=None,
+        nbnd: int | None = None,
+        tot_magnetization=_UNSET,
+    ) -> "System":
+        """The same crystal in another spin regime, with its k-points rebuilt.
+
+        What an input file would say differently if it asked for a collinear or
+        a noncollinear run of this cell -- ``nspin``, ``lspinorb``,
+        ``starting_magnetization``, ``angle1``/``angle2`` -- with everything the
+        builder derives from them derived again. It exists because
+        ``dataclasses.replace`` is *not* enough and the two ways it is wrong are
+        both silent:
+
+        * **The weights.** ``setup.f90`` multiplies them by ``degspin`` only in
+          the unpolarized branch, so an unpolarized set handed to an ``nspin =
+          2`` run counts every electron twice and the Fermi level comes out
+          somewhere else (:func:`~defuqumat.system.kpoints.for_spin`).
+        * **The k-set itself.** A *magnetic* noncollinear run has a smaller
+          symmetry group and no ``-k = k``, so it needs k-points the collinear
+          run never had -- 22 where the input listed 11, in QE's own
+          ``pw_noncolin`` benchmark. An automatic grid is reduced again with the
+          target's group, and an explicit list goes through ``irreducible_BZ``'s
+          expansion, exactly as :func:`build_system` does it.
+
+        ``nbnd`` is doubled crossing into ``nspin = 4`` and halved coming back,
+        because a spinor band holds one electron where a collinear band holds
+        two; pass it explicitly to override. A band path is left alone -- its
+        weights mean nothing and it is not what an SCF runs on.
+
+        **``tot_magnetization`` is the one input variable that does not carry
+        over**, because it means something only at ``nspin = 2``: it fixes
+        ``N_up - N_down`` by giving each collinear channel its own Fermi level,
+        and an unpolarized run has one channel while a noncollinear one has no
+        up and down channels to split, which is why ``pw.x`` refuses it anywhere
+        else (``input.f90:781-782``). Leaving ``nspin = 2`` therefore **drops**
+        it, with a ``RuntimeWarning``, and the constraint is released: a run
+        continued from the constrained state starts on a density the constraint
+        held and relaxes from it. It used to be carried unchanged, into a
+        ``System`` no input can produce, and
+        :attr:`~defuqumat.scf.driver.Calculation.two_fermi_energies` then read it
+        as absent, so the moment was released with nothing said -- and
+        :func:`defuqumat.scf.continuation._check_fields`, whose job is to say
+        exactly that when a converged moment is carried across, stayed silent
+        too, because the target appeared to hold the same constraint as the
+        source.
+
+        The other direction needs a value the source may not have:
+        ``occupations = 'fixed'`` at ``nspin = 2`` in an SCF is refused without
+        one (``input.f90:784-800``), since nothing else says how the electrons
+        divide between the channels. The ``tot_magnetization`` keyword supplies
+        it. Left out, it keeps what the system has (and drops it outside
+        ``nspin = 2``, as above); an explicit ``None`` drops it without a
+        warning; and a value passed with a target other than ``nspin = 2`` is
+        **refused rather than dropped**, because dropping is for what was
+        carried and not for what was asked. The keyword takes the value it is
+        given: QE's ``-10000`` sentinel for "unset" is read as such by the
+        input parser (``_tot_magnetization``) and not here, where ``None`` is
+        the way to say it.
+
+        **Into ``nspin = 2`` with no starting magnetization and no constraint
+        is allowed, and means a starting magnetization of zero**, which is a
+        departure from ``pw.x``: its ``iosys`` refuses an LSDA SCF that sets
+        neither a ``starting_magnetization`` nor a ``tot_magnetization``
+        ("some starting_magnetization MUST be set", ``input.f90:1506``), and
+        this does not. ``starting_magnetization`` left out keeps the tuple the
+        system has, which from an ``nspin = 1`` source is all zeros, so a
+        *fresh* SCF on the result starts spin-degenerate and, since nothing in
+        an SCF breaks spin symmetry on its own, converges to the unpolarized
+        solution and reports it as converged. Pass ``starting_magnetization``
+        here to start polarized. It is allowed rather than refused because the
+        same call is how a converged moment is *carried* -- a spinor demoted to
+        ``nspin = 2`` with nothing passed continues from the moment in its
+        state (``Calculator.with_spin``'s ``magnetization = 'auto'``), and an
+        ``nspin = 1`` source promoted with nothing passed is a supported route
+        -- and ``System`` keeps only the starting tuple, so it cannot tell
+        those routes from a fresh run, nor an explicit 0.0 from an absent value
+        (the user's decision, 2026-10-10, ``OPEN.md`` Part XVIII item 3).
+
+        Everything else is carried over unchanged, including the fields and the
+        other constraints, so a regime change does not quietly drop them. The
+        result goes through the same consistency checks the input does, in the
+        input's own words: ``lspinorb`` without ``noncolin`` is refused here as
+        it is there, and so is a ``tot_magnetization`` outside ``nspin = 2``,
+        fixed LSDA occupations without one, and a fractional one under them.
+        ``nscf`` and ``bands`` runs are exempt from the last two, as they are
+        in ``input.f90``, since they fill nothing.
+        """
+        nspin = int(self.nspin if nspin is None else nspin)
+        if nspin not in (1, 2, 4):
+            raise ValueError(f"nspin = {nspin}: expected 1, 2 or 4")
+        lspinorb = bool(self.lspinorb if lspinorb is None else lspinorb)
+        if lspinorb and nspin != 4:
+            raise ValueError(
+                "lspinorb = .true. needs nspin = 4: the spin-orbit term couples "
+                "the two spin channels, so it has no collinear form"
+            )
+        magnetization = tuple(
+            self.starting_magnetization if starting_magnetization is None
+            else np.asarray(starting_magnetization, dtype=float).ravel().tolist()
+        )
+        angle1 = tuple(self.angle1 if angle1 is None
+                       else np.asarray(angle1, dtype=float).ravel().tolist())
+        angle2 = tuple(self.angle2 if angle2 is None
+                       else np.asarray(angle2, dtype=float).ravel().tolist())
+        if nspin == 1 and any(abs(m) > 1.0e-6 for m in magnetization):
+            raise ValueError(
+                "nspin = 1 with a nonzero starting_magnetization: an unpolarized "
+                "density has nothing for it to split, so it would be ignored "
+                "rather than honoured"
+            )
+        if self.spiral and nspin != 4:
+            raise ValueError(
+                "a spin spiral is a noncollinear calculation by construction "
+                "(the two spinor components live at k +- q/2); drop spiral_q "
+                "before leaving nspin = 4"
+            )
+        if nbnd is None and self.nbnd is not None:
+            # ``setup.f90``: a spinor band holds one electron, a collinear band
+            # two, so the same physical states need twice as many.
+            factor = (2 if nspin == 4 else 1) / (2 if self.nspin == 4 else 1)
+            nbnd = int(round(self.nbnd * factor))
+
+        # ``tot_magnetization``: asked for, carried, or released. A value the
+        # caller passed is a request and is held to ``input.f90``'s rules; a
+        # value the system carries into a regime without two collinear
+        # channels has nothing left to fix and is dropped, with a warning
+        # emitted only once nothing below can still refuse the result.
+        asked = tot_magnetization is not _UNSET
+        if asked:
+            moment = None if tot_magnetization is None else float(tot_magnetization)
+            if moment is not None and nspin != 2:
+                remedy = (" For a noncollinear moment of fixed size use "
+                          "constrained_magnetization = 'total' or 'fsm'"
+                          if nspin == 4 else "")
+                raise ValueError(
+                    f"{_NEEDS_LSDA} It was passed to with_spin together with "
+                    f"nspin = {nspin}, so it is refused rather than dropped: a "
+                    "value the system already carries is released with a "
+                    "warning on the way out of nspin = 2, but one asked for "
+                    "here would be a constraint the run silently does not "
+                    f"apply.{remedy}"
+                )
+        else:
+            moment = self.tot_magnetization if nspin == 2 else None
+        released = (not asked and nspin != 2
+                    and self.tot_magnetization is not None)
+
+        lscf = str(self.calculation).strip().strip("'\"").lower() not in (
+            "nscf", "bands")
+        if self.occupations == "fixed" and nspin == 2 and lscf:
+            if moment is None:
+                raise ValueError(
+                    f"{_FIXED_NEEDS_MOMENT} Pass an integer tot_magnetization "
+                    "to with_spin, or give the system occupations = 'smearing' "
+                    "first to let a shared Fermi level decide"
+                )
+            if abs(moment - round(moment)) > 1.0e-8:
+                raise ValueError(_FIXED_NEEDS_INTEGER.format(value=moment))
+
+        kpoints = self._respin_kpoints(nspin, magnetization, angle1, angle2)
+        if released:
+            if nspin == 4:
+                why = ("a noncollinear run has no up and down channels to "
+                       "split")
+                after = (", and when the converged moment itself is carried "
+                         "across, run_scf warns separately that it is the "
+                         "constraint's rather than the functional's. "
+                         "constrained_magnetization = 'total' or 'fsm' is the "
+                         "noncollinear way to hold a moment's size")
+            else:
+                why = "an unpolarized run has one channel and no moment"
+                after = ""
+            warnings.warn(
+                f"tot_magnetization = {float(self.tot_magnetization):g} is "
+                f"dropped on the way into nspin = {nspin}: {why}, so the fixed "
+                "N_up - N_down has no meaning there and the constraint is "
+                "released rather than carried. A run continued from the "
+                "constrained state starts on a density the constraint held and "
+                f"relaxes from it{after}. Pass tot_magnetization=None to drop "
+                "it without this warning",
+                RuntimeWarning,
+                # Not a fixed number: ``System`` is an ``eqx.Module``, whose
+                # ``__getattribute__`` wraps every bound method in equinox's
+                # ``BoundMethod``, so a frame of equinox's sits between this one
+                # and the caller, and ``Calculator.with_spin`` adds two more of
+                # this package's. A fixed 3 named the script on the first route
+                # and ``calculator.py``'s forwarding line on the second.
+                stacklevel=_stacklevel_outside_package(),
+            )
+
+        # ``dataclasses.replace`` rather than ``eqx.tree_at``: most of what
+        # changes here is a *static* field, which is not in the pytree at all.
+        return dataclasses.replace(
+            self,
+            nspin=nspin,
+            lspinorb=lspinorb,
+            starting_magnetization=magnetization,
+            angle1=angle1,
+            angle2=angle2,
+            nbnd=nbnd,
+            tot_magnetization=moment,
+            kpoints=kpoints,
+        )
+
+    def with_moments(self, per_atom) -> "System":
+        """The same crystal with a different moment on each atom.
+
+        The Python route to what a ``STARTING_MOMENTS`` card states: a
+        ``(nat, 3)`` array of Bohr magnetons, one row per atom in
+        ``ATOMIC_POSITIONS`` order, or ``None`` to drop the card and go back to
+        the per-species ``starting_magnetization``. This is what a sweep over
+        magnetic configurations needs -- a 120-degree Neel state against a
+        collinear one, a cone at five angles -- and there was no method for it,
+        so the only way in was to write an input file.
+
+        **The workaround it replaces is silently wrong.**
+        ``dataclasses.replace(system, starting_moments=...)`` leaves
+        ``kpoints`` reduced with the *old* group while
+        :meth:`symmetry_group` is a property recomputed from the new moments,
+        so the symmetrisation group ends up **smaller** than the group the
+        k-set was reduced with -- and on a cell built nonmagnetic it also flips
+        ``domag``, so the k-set carries a ``time_reversal`` a magnetic run must
+        not have. Nothing checks either. Here the k-points are rebuilt, exactly
+        as :meth:`with_spin` rebuilds them for a change of regime.
+
+        The collinear refusal is the one :func:`local_moments` already makes:
+        an ``nspin = 2`` run has one component, so a row with an x or y part is
+        an error rather than a projection.
+        """
+        if per_atom is None:
+            moments = ()
+        else:
+            rows = np.asarray(per_atom, dtype=float)
+            if rows.ndim != 2 or rows.shape != (self.structure.nat, 3):
+                raise ValueError(
+                    f"starting_moments must be (nat, 3) = "
+                    f"({self.structure.nat}, 3) Bohr magnetons in "
+                    f"ATOMIC_POSITIONS order; got {rows.shape}"
+                )
+            moments = tuple(tuple(float(x) for x in row) for row in rows)
+
+        replaced = dataclasses.replace(self, starting_moments=moments)
+        return dataclasses.replace(
+            replaced,
+            kpoints=replaced._respin_kpoints(
+                self.nspin, self.starting_magnetization,
+                self.angle1, self.angle2, per_atom=moments,
+            ),
+        )
+
+    def with_cell(self, at, positions=None) -> "System":
+        """The same crystal in a relaxed cell, with its k-points rebuilt.
+
+        What :meth:`with_spin` is to a change of spin regime, this is to a
+        change of *cell* -- and it exists for the same reason, that
+        ``dataclasses.replace`` would be silently wrong. :class:`KPoints`
+        stores its coordinates as cartesian in units of ``2 pi / alat``, so
+        replacing the cell alone leaves the k-points sitting at the **old**
+        reciprocal lattice's points: an automatic grid stops being a grid of
+        the cell it is supposed to sample, and nothing about the run's shapes
+        changes to say so. An automatic grid is therefore generated again from
+        its ``nk1 nk2 nk3`` and its shift, and an explicit list is carried in
+        *crystal* coordinates, which is what is fixed under a deformation.
+
+        This is what a variable-cell relaxation's **final** SCF is built from
+        (``reset_gvectors`` in ``run_pwscf.f90``, and ``treinit_gvecs`` at every
+        step): a whole new run at the relaxed geometry, with the FFT grid, the
+        G-sphere, the symmetry group and the k-points all chosen for it. The
+        relaxation itself does *not* go through here -- it keeps one setup and
+        moves the cell underneath it with
+        :meth:`~defuqumat.scf.driver.Calculation.at_cell`.
+
+        ``positions`` are cartesian in bohr; omitted, the atoms keep their
+        **crystal** coordinates, which is what a pure cell deformation does.
+        """
+        # ``precision.as_real`` and not a literal dtype: rule R4, and the cell
+        # is one of the arrays a float32 run would carry in float32.
+        precision = self.cell.precision
+        cell = eqx.tree_at(
+            lambda c: c.at, self.cell, precision.as_real(np.asarray(at, dtype=float))
+        )
+        if positions is None:
+            crystal = np.asarray(self.structure.positions_crystal(self.cell))
+            positions = precision.as_real(crystal @ np.asarray(cell.at))
+        else:
+            positions = precision.as_real(np.asarray(positions, dtype=float))
+
+        moved = eqx.tree_at(
+            lambda sys: (sys.cell.at, sys.structure.positions),
+            self, (cell.at, positions),
+        )
+        # ``self.cell`` is the cell the k-points' cartesian coordinates were
+        # written in, and it is the only place it still exists: ``moved`` has
+        # the new one. An explicit list is read in crystal coordinates with the
+        # old cell and written back with the new, and reading it with the new
+        # one makes the round trip the identity -- the list then keeps the old
+        # lattice's cartesian points, which is the thing this method exists to
+        # prevent.
+        return dataclasses.replace(
+            moved, kpoints=moved._recelled_kpoints(self.cell)
+        )
+
+    def _recelled_kpoints(self, previous: Cell | None = None) -> KPoints:
+        """The k-set of :meth:`with_cell`'s new cell, at its own symmetry."""
+        kpoints = self.kpoints
+        if kpoints.path_length is not None or kpoints.gamma_only:
+            return kpoints
+
+        symmetries = self.symmetry_group()
+        rotations = None if self.nosym else symmetries.rotation_array()
+        t_rev = None if self.nosym else symmetries.t_rev_array()
+        magnetic = self.domag
+        if kpoints.grid is not None:
+            rebuilt = KPoints.automatic(
+                kpoints.grid, kpoints.shift or (0, 0, 0), self.cell,
+                precision=kpoints.precision, rotations=rotations,
+                time_reversal=not self.noinv and not magnetic, t_rev=t_rev,
+            )
+        else:
+            # Crystal coordinates are what a deformation leaves alone; the
+            # cartesian ones this object stores are not. So the list is read
+            # with the cell it was written in and put back with the new one --
+            # reading it with ``self.cell`` on both sides is
+            # ``k_to_cartesian(k_to_crystal(k))``, which is the identity and
+            # leaves the points on the old reciprocal lattice.
+            rebuilt = KPoints.from_crystal(
+                np.asarray(kpoints.crystal(previous if previous is not None
+                                           else self.cell)),
+                np.asarray(kpoints.weights), self.cell,
+                precision=kpoints.precision,
+            )
+        return kpoints_for_spin(rebuilt, self.nspin)
+
+    def _respin_kpoints(self, nspin, magnetization, angle1, angle2,
+                        per_atom=_UNSET) -> KPoints:
+        """The target regime's k-point set, reduced with *its* symmetry group."""
+        kpoints = self.kpoints
+        if per_atom is _UNSET:
+            per_atom = self.starting_moments
+        if kpoints.path_length is not None or kpoints.gamma_only:
+            return kpoints_for_spin(kpoints, nspin)
+
+        moments = local_moments(
+            self.structure, nspin, magnetization, angle1, angle2,
+            per_atom=per_atom,
+        )
+        fields = np.asarray(self.atomic_b_field, dtype=float)
+        axial = axial_vectors(moments, self.atomic_b_field, self.b_field)
+        magnetic = is_magnetic(nspin, moments, fields, self.b_field)
+        symmetries = find_symmetries(self.cell, self.structure)
+        if magnetic:
+            symmetries = magnetic_symmetries(
+                self.cell, self.structure, symmetries, axial
+            )
+        elif nspin == 2:
+            symmetries = collinear_symmetries(
+                self.cell, self.structure, symmetries, moments,
+                fields=self.atomic_b_field,
+            )
+        rotations = None if self.nosym else symmetries.rotation_array()
+        t_rev = None if self.nosym else symmetries.t_rev_array()
+
+        if kpoints.grid is not None:
+            rebuilt = KPoints.automatic(
+                kpoints.grid, kpoints.shift or (0, 0, 0), self.cell,
+                precision=kpoints.precision, rotations=rotations,
+                time_reversal=not self.noinv and not magnetic, t_rev=t_rev,
+            )
+            return kpoints_for_spin(rebuilt, nspin)
+
+        # An explicit list is the wedge of the *lattice's* group by QE's
+        # convention, so the same completion ``irreducible_BZ`` performs on it
+        # applies again with the target's -- and does nothing at all when the
+        # target's group is the one it was already reduced with.
+        points = np.asarray(kpoints.crystal(self.cell))
+        weights = np.asarray(kpoints.weights)
+        if rotations is not None and len(rotations):
+            points, weights = expand_to_subgroup(
+                points, weights,
+                np.array(lattice_point_group(np.asarray(self.cell.at))),
+                rotations, time_reversal=not self.noinv and not magnetic,
+                t_rev=t_rev,
+            )
+        rebuilt = KPoints.from_crystal(
+            points, weights, self.cell, precision=kpoints.precision
+        )
+        return kpoints_for_spin(rebuilt, nspin)
+
+    def calculator(self, pseudos=None, **options):
+        """A :class:`~defuqumat.calculator.Calculator` on this system.
+
+        The bound-method front end: everything a run can compute, reachable
+        from one object without importing a workflow per quantity::
+
+            calc = system.calculator(pseudo_dir="tests/data/pseudo")
+            bands = calc.get_bands(kpoints=path)
+
+        The pseudopotentials live on the calculator rather than here because a
+        ``System`` is a frozen pytree that crosses ``jit`` and ``grad``, and
+        because it does not have them: it carries the *names* the input file
+        gave, which is why this method takes either the loaded objects or a
+        ``pseudo_dir`` to read them from.
+
+        Imported inside the method: :mod:`defuqumat.calculator` imports this
+        module, and the front end must not be a dependency of the setup it is
+        built on.
+        """
+        from defuqumat.calculator import Calculator
+
+        return Calculator(self, pseudos, **options)
+
+    def grid_symmetry(self):
+        """``(rotations, time_reversal, t_rev)`` this run reduces a k-grid with.
+
+        **One source of truth for a triple that has to be the same in three
+        places**: the k-set an NSCF run is built on
+        (:func:`~defuqumat.workflows.nscf.denser_grid`), the unfolding a nesting
+        function does, and the tetrahedra, whose corners are looked up in that
+        same reduced list. Where two of them disagree about the group, every
+        corner is sent to somebody else's representative and nothing raises --
+        the eigenvalues are simply the wrong ones, and that is the P28a family
+        of defect.
+
+        ``rotations`` is ``None`` for a ``nosym`` run, which
+        :meth:`~defuqumat.system.kpoints.KPoints.automatic` reads as "return the
+        complete grid". ``time_reversal`` is off under ``noinv`` and off for a
+        magnetic noncollinear run, both of which are ``setup.f90``'s rule, and
+        ``t_rev`` marks the operations that are symmetries only together with
+        time reversal.
+        """
+        magnetic = self.nspin == 4 and self.domag
+        symmetries = self.symmetry_group()
+        rotations = None if self.nosym else symmetries.rotation_array()
+        t_rev = None if self.nosym else symmetries.t_rev_array()
+        return rotations, (not self.noinv and not magnetic), t_rev
+
+    def symmetry_group(self, nosym: bool = False) -> Symmetries:
+        """The space group of the crystal -- magnetic if the run is.
+
+        ``find_sym`` is called with ``magnetic_sym = noncolin .AND. domag``
+        (``setup.f90``), and that is the only place the distinction is made.
+
+        **``nosym`` is the caller's decision, not this method's**, which is why
+        it defaults to ``False`` and not to ``self.nosym``. The group is a
+        property of the crystal and is wanted whole in places an input's
+        ``nosym`` has no say over -- :func:`defuqumat.basis.builder` needs the
+        fractional translations to size the FFT box, and
+        :class:`~defuqumat.scf.driver.Calculation` keeps the full group beside a
+        ``use_symmetry`` switch rather than losing it. Passing ``nosym=True``
+        asks for ``setup.f90``'s ``nsym = 1`` instead.
+
+        The parameter used to be ``nosym: bool | None = None``, defaulting to
+        ``self.nosym`` -- and then never read, so ``symmetry_group(nosym=True)``
+        returned the full group and said nothing. Sweeping every QE benchmark's
+        printed ``N Sym. Ops.`` against this is what surfaced it: the twelve
+        cases where QE prints ``1`` are twelve inputs carrying ``nosym =
+        .true.``.
+        """
+        if nosym:
+            # ``setup.f90``'s ``nsym = 1``: the identity alone, with no
+            # fractional translation and no time reversal.
+            return Symmetries(
+                rotations=(((1, 0, 0), (0, 1, 0), (0, 0, 1)),),
+                translations=((0.0, 0.0, 0.0),),
+            )
+        symmetries = find_symmetries(self.cell, self.structure)
+        if self.nspin_mag == 4:
+            symmetries = magnetic_symmetries(
+                self.cell, self.structure, symmetries, self.axial_fields
+            )
+        elif self.nspin == 2:
+            # ``sgam_at_collin``, and it is a *different* filter rather than the
+            # same one on a z-only vector -- see :func:`collinear_symmetries`.
+            symmetries = collinear_symmetries(
+                self.cell, self.structure, symmetries, self.local_moments,
+                fields=self.atomic_b_field,
+            )
+        return symmetries
+
+
+
+def axial_vectors(moments, atomic_b_field=(), b_field=(0.0, 0.0, 0.0)):
+    """Every per-atom axial vector a noncollinear magnetic filter must respect.
+
+    ``moments`` alone when nothing else is applied, which is the ordinary case
+    and what :func:`~defuqumat.system.symmetry.magnetic_symmetries` has always
+    been given; otherwise a tuple of ``(nat, 3)`` arrays, all tested under one
+    choice of ``t_rev``. The order is moments, then ``LOCAL_MAGNETIC_FIELDS``,
+    then the uniform ``B_field`` tiled over the atoms.
+
+    **The uniform field is an axial vector on every atom**, and an operation
+    that rotates it is not a symmetry of a Hamiltonian that contains it. It was
+    left out: bcc Fe, noncollinear, ``starting_magnetization = 0.5`` along z and
+    ``B_field(1) = 0.01`` kept ``nsym = 16``, ``C4z`` among them, which carries
+    ``B_x`` onto ``B_y`` -- so the density was symmetrised with operations the
+    field breaks, and the transverse response the field drives was averaged
+    over directions it does not have. Elk's ``findsym.f90:109-113`` rotates
+    ``bfieldc0`` and tests it before the per-atom fields, which is what is done
+    here. **This is a deliberate departure from pw.x**: ``setup.f90`` imports
+    ``bfield`` and hands ``find_sym`` ``m_loc`` alone (``setup.f90:596``), so a
+    ``pw.x`` run with a field off the moment's axis keeps the larger group.
+
+    A module-level function for the reason :func:`is_magnetic` is one:
+    :func:`build_system` needs it before there is a :class:`System`, and
+    :meth:`System._respin_kpoints` for a regime that is not this one.
+    """
+    moments = np.asarray(moments, dtype=float).reshape(-1, 3)
+    vectors = [moments]
+    if atomic_b_field:
+        vectors.append(np.asarray(atomic_b_field, dtype=float).reshape(-1, 3))
+    uniform = np.asarray(b_field, dtype=float).reshape(3)
+    if np.any(uniform != 0.0):
+        vectors.append(np.tile(uniform, (len(moments), 1)))
+    return vectors[0] if len(vectors) == 1 else tuple(vectors)
+
+
+def is_magnetic(nspin: int, moments, fields=(), uniform=(0.0, 0.0, 0.0)) -> bool:
+    """``setup.f90``'s ``domag``: does this run carry a magnetization?
+
+    ``moments`` is ``(nat, 3)`` -- :func:`local_moments`, which already folds
+    the ``STARTING_MOMENTS`` card over the per-species
+    ``starting_magnetization``/``angle1``/``angle2`` -- ``fields`` the
+    ``LOCAL_MAGNETIC_FIELDS`` card and ``uniform`` the ``B_field``. Elk's
+    ``findsym.f90`` tests all three, and so must this: an applied field breaks
+    operations the moments alone keep, and ``sym_rho`` would then average away
+    the texture the field was applied to create.
+
+    **A uniform field on its own makes the run magnetic, which is a departure
+    from ``pw.x``** (2026-09-23). ``setup.f90:219`` sets ``domag`` from
+    ``starting_magnetization`` alone, and a noncollinear ``pw.x`` input with a
+    ``B_field`` and no starting moment then converges the field-free
+    calculation in silence: ``add_bfield`` writes the field into the
+    magnetization channels and ``vloc_psi_nc`` applies them only
+    ``IF (domag)``. This package refused that input, asking for a seed; now the
+    field makes the run magnetic, as the per-atom card already did, and the
+    comparison against ``pw.x`` for such an input is against the field-free
+    number it prints. **It replaces a seed only where the field-free ground
+    state is nonmagnetic.** A hydrogen atom at ``degauss = 0.2`` (seeded and
+    field-free it decays to 1e-4) takes +0.159 mu_B along ``B_field(3) =
+    0.01``; the same atom at ``degauss = 0.02``, which polarizes on its own,
+    converges to -0.103 mu_B *against* the field, the stationary point near
+    zero moment, 0.052 Ry above the polarized state. A spontaneous magnet still
+    needs a seed of the size of its moment. A collinear run is unaffected,
+    since ``nspin = 2`` refuses a field with no ``starting_magnetization`` at
+    input.
+
+    The two thresholds are not the same number and that is deliberate: ``1e-6``
+    is QE's on a magnetization, and a *field* is compared against ``1e-12``
+    because it is an applied constraint rather than a guess -- asking for one at
+    all is asking for the magnetic branch.
+
+    A module-level function rather than a method, because
+    :func:`build_system` needs it before there is a :class:`System` and
+    :meth:`System._respin_kpoints` needs it for a regime that is not this one.
+    """
+    if nspin != 4:
+        return False
+    moments = np.asarray(moments, dtype=float)
+    fields = np.asarray(fields, dtype=float)
+    uniform = np.asarray(uniform, dtype=float)
+    return bool(
+        np.any(np.abs(moments) > 1.0e-6)
+        or (fields.size and np.any(np.abs(fields) > 1.0e-12))
+        or np.any(np.abs(uniform) > 1.0e-12)
+    )
+
+
+def system_from_file(path, precision: Precision = DEFAULT_PRECISION) -> System:
+    return build_system(read_pw_input(path), precision=precision)
+
+
+def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> System:
+    _refuse_unimplemented_switches(pwin)
+    _refuse_obsolete_hubbard(pwin)
+    _check_calculation(pwin)
+    _check_occupations(pwin)
+    cell = _build_cell(pwin, precision)
+    structure = _build_structure(pwin, cell, precision)
+
+    # ``noncolin`` and ``nspin`` say the same thing twice in a pw.x input, and
+    # ``input.f90`` resolves it in one direction: noncolin wins and sets
+    # nspin = 4. An input that says both consistently is common; one that says
+    # nspin = 2 *and* noncolin is not, and is refused rather than silently
+    # resolved, since which one the author meant is not recoverable.
+    noncolin = _logical(pwin.get("system", "noncolin", False))
+    lspinorb = _logical(pwin.get("system", "lspinorb", False))
+    lforcet = _logical(pwin.get("system", "lforcet", False))
+    soc_scale = float(pwin.get("system", "soc_scale", 1.0))
+    if not 0.0 <= soc_scale <= 1.0:
+        raise ValueError(
+            f"soc_scale = {soc_scale}: it blends the coupling-free end (0) with "
+            "the coupled dataset (1), and outside [0, 1] it is not a blend of "
+            "anything. Between them it needs every dataset norm-conserving "
+            "(defuqumat.pseudo.spinorbit.SpinOrbitCoupling says why)"
+        )
+    nspin = int(pwin.get("system", "nspin", 1))
+    if noncolin:
+        if nspin == 2:
+            raise ValueError(
+                "noncolin = .true. together with nspin = 2: a noncollinear "
+                "calculation is nspin = 4; drop one of the two"
+            )
+        nspin = 4
+    if nspin not in (1, 2, 4):
+        raise ValueError(f"nspin = {nspin}: expected 1, 2 or 4")
+    if lspinorb and nspin != 4:
+        # QE's own check (``input.f90``). Spin-orbit does not commute with S_z,
+        # so there is no collinear Hamiltonian for it to enter -- asking for it
+        # without noncolin is an input error, not a request to be approximated.
+        raise ValueError(
+            "lspinorb = .true. needs noncolin = .true.: the spin-orbit term "
+            "couples the two spin channels, so it has no collinear form"
+        )
+    starting_magnetization = tuple(
+        pwin.indexed("system", "starting_magnetization", structure.ntyp)
+    )
+    # Imported here rather than at module scope: ``defuqumat.scf`` imports the
+    # driver, which imports this module, and the cycle is real.
+    from defuqumat.scf.fields import CONSTRAINTS, FEEDBACK, FEEDBACK_ATOMIC
+
+    constrained_magnetization = str(
+        pwin.get("system", "constrained_magnetization", "none")
+    ).lower()
+    if constrained_magnetization not in CONSTRAINTS:
+        raise ValueError(
+            f"constrained_magnetization = {constrained_magnetization!r} is not "
+            f"implemented; available: {sorted(CONSTRAINTS)}"
+        )
+    if constrained_magnetization != "none" and nspin == 1:
+        # QE's own check: there is no magnetization to constrain.
+        raise ValueError(
+            "constrained_magnetization requires nspin = 2 or noncolin = .true."
+        )
+    # ``input.f90``'s ``SELECT CASE( constrained_magnetization )``, the three
+    # per-scheme checks it makes and this reader did not. Each one guards a
+    # branch that otherwise runs and returns a number:
+    #
+    # * ``'atomic direction'`` is ``i_cons = 2``, and ``add_bfield.f90`` stops
+    #   on it unless ``noncolin`` -- "this magnetic constraint only applies to
+    #   non collinear calculations". Here it did not stop: the penalty is
+    #   ``(m_z/|m| - cos theta)^2`` and ``_polar_cosine`` reads the *last*
+    #   component, which for a collinear moment of one component is the moment
+    #   itself, so the cosine is +-1 whatever the density does and the whole
+    #   constraint is a no-op with a vanishing gradient;
+    # * ``'total'`` is ``i_cons = 3`` and QE requires ``nspin = 4``, because
+    #   ``fixed_magnetization`` is a vector. A collinear run has a one-component
+    #   moment, which NumPy broadcasts against the ``(3,)`` target instead of
+    #   failing;
+    # * every scheme that constrains an atomic moment needs some
+    #   ``starting_magnetization``, for the reason below.
+    if constrained_magnetization == "atomic direction" and nspin != 4:
+        raise ValueError(
+            "constrained_magnetization = 'atomic direction' requires "
+            "noncolin = .true.: the constrained quantity is the angle between "
+            "the local moment and z, and a collinear moment has no angle. QE "
+            "refuses the same combination in add_bfield.f90"
+        )
+    if constrained_magnetization == "total direction" and nspin != 4:
+        # ``i_cons = 6`` (``input.f90:1589-1590``), and ``add_bfield.f90:177-180``
+        # stops on it unless ``noncolin`` with the same message as for
+        # ``i_cons = 2``. The penalty is ``(arccos(m_z/|m|) - theta)^2`` on the
+        # *total* moment, and a collinear total has one component, so ``m_z/|m|``
+        # is +-1 whatever the density does: the constraint is a constant with a
+        # vanishing gradient and the run converges to the unconstrained state.
+        raise ValueError(
+            "constrained_magnetization = 'total direction' requires "
+            "noncolin = .true.: the constrained quantity is the polar angle of "
+            "the total moment, and a collinear moment has no angle. QE refuses "
+            "the same combination in add_bfield.f90 (i_cons = 6)"
+        )
+    if constrained_magnetization == "atomic texture" and nspin != 4:
+        # Not a QE refusal because it is not a QE scheme: the constrained
+        # quantity is a full unit vector per atom, and a collinear moment has
+        # only a sign.
+        raise ValueError(
+            "constrained_magnetization = 'atomic texture' requires "
+            "noncolin = .true.: it constrains the direction of each atom's "
+            "moment as a vector, and a collinear moment has no direction to "
+            "constrain beyond its sign"
+        )
+    if constrained_magnetization == "atomic texture":
+        # At input, once, rather than inside ``constraint_targets``, which every
+        # ``Calculation`` and several unit tests call: a run-setup warning
+        # belongs where a run is set up.
+        warnings.warn(
+            "constrained_magnetization = 'atomic texture' constrains a "
+            "direction and not a length, so its potential carries a 1/|m| and "
+            "*grows* as a site's moment shrinks. Measured on a two-hydrogen "
+            "120-degree cell it holds the angle to 1.6 degrees and **no lambda "
+            "converged** in 400 iterations, and above lambda = 2 one site blew "
+            "up to 2 mu_B while the other went to zero. Use 'atomic' instead, "
+            "with the same STARTING_MOMENTS card scaled to the moment you "
+            "expect: there it converges at every lambda up to 10, and at 10 it "
+            "holds the 120 degrees to 0.55 degrees per site in 38 iterations "
+            "where the unconstrained run collapses to 180 in ten",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+    if (constrained_magnetization == "atomic texture"
+            and not _starting_moments(pwin, structure.nat)):
+        # At the input boundary rather than where the targets are built: an
+        # input that cannot work should not allocate first. ``constraint_targets``
+        # refuses it again for a caller that reaches it directly.
+        raise ValueError(
+            "constrained_magnetization = 'atomic texture' needs a "
+            "STARTING_MOMENTS card: it constrains one direction per atom, and "
+            "starting_magnetization/angle1/angle2 are per species, so there is "
+            "nothing per-atom for it to aim at"
+        )
+    if constrained_magnetization in FEEDBACK_ATOMIC:
+        if nspin != 4:
+            raise ValueError(
+                f"constrained_magnetization = {constrained_magnetization!r} "
+                "requires noncolin = .true.: it drives a vector field on each "
+                "atom towards a vector target (Elk's mommtfix), and a collinear "
+                "moment has one component"
+            )
+        if not _starting_moments(pwin, structure.nat):
+            raise ValueError(
+                f"constrained_magnetization = {constrained_magnetization!r} "
+                "needs a STARTING_MOMENTS card: it drives one field per atom "
+                "towards one target per atom, and "
+                "starting_magnetization/angle1/angle2 are per species, so there "
+                "is nothing per-atom for it to aim at"
+            )
+        if _atomic_b_field(pwin, structure.nat):
+            # Both write the same ``(nat, 3)`` slot -- the feedback would
+            # overwrite the card on its first step and the run would report a
+            # field the user never asked for, with the card's own field gone
+            # and nothing saying so.
+            raise ValueError(
+                f"constrained_magnetization = {constrained_magnetization!r} "
+                "with a LOCAL_MAGNETIC_FIELDS card: the constraint *is* a "
+                "per-atom field, driven from zero, and it writes the same array "
+                "the card fills, so the card would be silently discarded on the "
+                "first iteration. Use one or the other"
+            )
+    if constrained_magnetization in FEEDBACK:
+        from defuqumat.scf.fields import DEFAULT_FSM_GAIN, FSM_GAIN_WARN
+
+        given = pwin.get("system", "lambda")
+        if given is not None and float(given) > FSM_GAIN_WARN:
+            warnings.warn(
+                f"constrained_magnetization = "
+                f"{constrained_magnetization!r} with lambda = {float(given)}: "
+                f"for a FEEDBACK scheme lambda is Elk's taufsm, a *gain* on the "
+                f"constraining field, whose default is {DEFAULT_FSM_GAIN} -- not "
+                f"a penalty stiffness, where 1 to 10 is the useful range. It "
+                f"multiplies a moment error in Bohr magnetons to give a field in "
+                f"Rydbergs, so this asks for a "
+                f"{float(given):g} Ry step from a 1 mu_B error. Measured on the "
+                f"120-degree hydrogen pair, lambda = 0.2 runs 200 iterations "
+                f"without converging and drives the moments to 0.82 mu_B against "
+                f"a target of 0.26. Leave lambda unset for "
+                f"{DEFAULT_FSM_GAIN}, or use a penalty scheme ('atomic') if a "
+                f"stiffness is what you meant",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+    if constrained_magnetization in FEEDBACK and float(
+        pwin.get("system", "reducebf", 1.0)
+    ) != 1.0:
+        # ``reducebf`` multiplies the *applied* field by a factor the loop
+        # accumulates, while the feedback measures its response against the
+        # **unscaled** field it stores. The two disagree from the first
+        # iteration, so the secant's ``chi = dm/dB`` is taken against a field
+        # that is not the one acting -- and the run converges looking untroubled
+        # onto whatever field that arithmetic lands on.
+        raise ValueError(
+            f"constrained_magnetization = {constrained_magnetization!r} with "
+            f"reducebf < 1 is refused: reducebf decays the applied field after "
+            "every iteration, and a feedback constraint measures its own "
+            "response against the field it stores, which is not decayed. The "
+            "two are inconsistent from the first step and nothing in the output "
+            "would say so. reducebf is for a symmetry-breaking field that "
+            "should vanish; a constraint is not one"
+        )
+    if constrained_magnetization == "total" and nspin != 4:
+        raise ValueError(
+            "constrained_magnetization = 'total' requires noncolin = .true.: "
+            "fixed_magnetization is a vector and a collinear run has one "
+            "component to compare it against (input.f90's i_cons = 3)"
+        )
+    if constrained_magnetization in FEEDBACK and lspinorb:
+        # Not QE's -- ``fsm`` is Elk's scheme and QE has no counterpart -- and
+        # not a limit of the physics either: it is a limit of *this* secant.
+        # ``MagneticField._secant_step`` measures ``chi = dm/dB`` component by
+        # component and inverts it the same way, which models the
+        # susceptibility as diagonal. Spin-orbit coupling ties the moment to
+        # the lattice, so pushing along x moves the moment along z as well and
+        # the three components stop being three independent one-dimensional
+        # searches. The scheme would still converge sometimes and would find
+        # the wrong field the rest of the time, with nothing in the output to
+        # say which had happened.
+        raise ValueError(
+            f"constrained_magnetization = {constrained_magnetization!r} with "
+            "lspinorb = .true. is "
+            "refused: the fixed-spin-moment search updates each cartesian "
+            "component of the field from its own component of the moment, "
+            "which assumes dm_a/dB_b is diagonal, and spin-orbit coupling is "
+            "exactly what makes it not. Use a penalty scheme ('total', "
+            "'atomic') for a moment held under spin-orbit coupling"
+        )
+    given_magnetization = pwin.get("system", "starting_magnetization") is not None
+    # ``input.f90:1506``, in the ``'none'`` branch of the same SELECT CASE:
+    # ``lscf .AND. lsda .AND. (.NOT. tfixed_occ) .AND. (.not.
+    # two_fermi_energies) .AND. sm_wasnt_set`` is an error. **Nothing in the
+    # SCF breaks spin symmetry on its own**, which
+    # ``Calculation.starting_density`` writes out: with every
+    # ``starting_magnetization`` at zero the two channels start identical, stay
+    # identical, and the run converges to the unpolarized solution and reports
+    # success. That is the same failure ``defuqumat.scf.continuation`` guards
+    # against on the *promotion* path (a non-magnetic source promoted into a
+    # collinear run is seeded rather than carried) -- the guard existed there
+    # and not on the equivalent fresh-run path.
+    #
+    # The test is *presence*, not value: an explicit ``0.0`` is set as far as
+    # QE is concerned and stays accepted, because asking for the unpolarized
+    # solution in a two-channel run is a legitimate thing to ask for.
+    # ``two_fermi_energies`` is ``tot_magnetization`` being given, and
+    # ``tfixed_occ`` is ``occupations = 'from_input'``; either one fixes the
+    # magnetization by another route, and a non-self-consistent run is not
+    # converging anything.
+    scf_like = str(
+        pwin.get("control", "calculation", "scf")
+    ).strip().strip("'\"").lower() in ("scf", "relax", "md", "vc-relax", "vc-md")
+    occupations = str(pwin.get("system", "occupations", "fixed")).lower()
+    if (
+        scf_like
+        and nspin == 2
+        and constrained_magnetization == "none"
+        and occupations != "from_input"
+        and _tot_magnetization(pwin) is None
+        and not given_magnetization
+    ):
+        raise ValueError(
+            "nspin = 2 with no starting_magnetization: nothing in the SCF "
+            "breaks the spin symmetry on its own, so the two channels stay "
+            "identical and the run converges to the unpolarized solution and "
+            "reports success. Set starting_magnetization for at least one "
+            "species (an explicit 0.0 is accepted and means the unpolarized "
+            "solution was asked for), or constrain the magnetization with "
+            "tot_magnetization or constrained_magnetization. QE stops on the "
+            "same input"
+        )
+    if (constrained_magnetization in ("atomic", "atomic direction")
+            and not given_magnetization
+            and not _starting_moments(pwin, structure.nat)):
+        # ``input.f90``: "constrained atomic magnetizations require that some
+        # starting_magnetization is set". The targets *are* built from it.
+        raise ValueError(
+            f"constrained_magnetization = {constrained_magnetization!r} needs "
+            "some starting_magnetization: the constraint targets are built "
+            "from it, so without one every target is zero"
+        )
+    if any(float(v) != 0.0 for v in pwin.indexed("system", "b_field", 3)) and (
+        constrained_magnetization != "none"
+    ):
+        # ``input.f90:1614``: QE refuses the combination rather than deciding
+        # which of the two fields wins.
+        raise ValueError(
+            "a nonzero B_field together with constrained_magnetization: QE "
+            "refuses this and so does defuqumat; use one or the other"
+        )
+    # ``input.f90:1612``: with nspin = 2 there is one magnetization component
+    # and only ``B_field(3)`` can act on it. What happened without this check is
+    # in ``Calculation._build_magnetic_field``, which slices ``uniform[2:3]``
+    # for a collinear run: the x and y components were dropped in silence, so a
+    # run asking to tilt a collinear moment converged, reported the z
+    # component's field energy, and said nothing about the other two.
+    if nspin == 2 and any(
+        float(v) != 0.0 for v in pwin.indexed("system", "b_field", 3)[:2]
+    ):
+        raise ValueError(
+            "only B_field(3) can be specified with nspin = 2: a collinear "
+            "magnetization has one component, so an x or y field has nothing "
+            "to act on. Use noncolin = .true. for a field off the z axis"
+        )
+    # The same rule for LOCAL_MAGNETIC_FIELDS, which is this package's own card
+    # (Elk's ``bfcmt``; ``pw.x`` has no counterpart, so there is no QE check to
+    # transcribe) and reaches the same ``atomic[:, 2:3]`` slice.
+    if nspin == 2:
+        atomic_fields = _atomic_b_field(pwin, structure.nat)
+        if atomic_fields and any(
+            float(row[0]) != 0.0 or float(row[1]) != 0.0 for row in atomic_fields
+        ):
+            raise ValueError(
+                "a LOCAL_MAGNETIC_FIELDS card with an x or y component and "
+                "nspin = 2: as for B_field, a collinear magnetization has only "
+                "a z component for a field to act on"
+            )
+    angle1 = tuple(pwin.indexed("system", "angle1", structure.ntyp))
+    angle2 = tuple(pwin.indexed("system", "angle2", structure.ntyp))
+    if (
+        scf_like
+        and nspin == 4
+        and any(value != 0.0 for value in angle1 + angle2)
+        and not given_magnetization
+        and not _starting_moments(pwin, structure.nat)
+    ):
+        # The noncollinear sibling of the ``nspin = 2`` refusal above, and the
+        # same physics: nothing in the SCF breaks spin symmetry on its own.
+        # ``angle1``/``angle2`` are the *direction* of a moment whose length is
+        # ``starting_magnetization``, so with no length there is no moment for
+        # them to point, ``domag`` is False, ``nspin_mag`` collapses to 1, and
+        # what runs is an unpolarized calculation with spinor wavefunctions --
+        # converged, successful, and not the calculation the angles asked for.
+        #
+        # ``pw.x`` is silent on this input. `GAPS.md` records the sibling case
+        # (a field in a nonmagnetic noncollinear run) as closed by a named
+        # refusal on the reasoning that QE's silence is the worse of the two
+        # behaviours, and this is that reasoning applied to the case that has
+        # the clearer statement of intent: an angle is not something a user
+        # writes by accident.
+        raise ValueError(
+            "noncolin = .true. with angle1/angle2 set and no "
+            "starting_magnetization: the angles are the direction of a moment "
+            "whose length is starting_magnetization, so with no length there "
+            "is no moment, domag is false and this runs as an unpolarized "
+            "calculation with spinor wavefunctions -- converged, and not what "
+            "the angles asked for. Set starting_magnetization for the species "
+            "carrying an angle, or give each atom a moment with a "
+            "STARTING_MOMENTS card. pw.x runs this input silently"
+        )
+
+    # An automatic k-grid is reduced to its irreducible wedge here, which is
+    # where QE does it too (``setup.f90``, after the symmetry analysis and
+    # before anything is sized from the k-point count). It needs the crystal's
+    # symmetries, hence the ordering: cell, then structure, then the spin
+    # variables -- because a magnetic noncollinear run has a *smaller* group and
+    # no ``-k = k`` (``magnetic_sym`` in ``setup.f90``) -- then symmetry, then
+    # k-points.
+    nosym = _logical(pwin.get("system", "nosym", False))
+    nosource = _logical(pwin.get("system", "nosource", False))
+    noncollinear_gga = pwin.get("system", "noncollinear_gga", None)
+    if noncollinear_gga is not None:
+        noncollinear_gga = str(noncollinear_gga).strip().lower()
+    noinv = _logical(pwin.get("system", "noinv", False))
+    # ``tstress`` and nothing else: there is no ``tprnstress`` in QE 7.5
+    # (``INPUT_PW.txt`` lists one stress switch and a grep of the tree finds no
+    # other spelling), so accepting an alias would be inventing input syntax.
+    # ``input.f90``'s own rule is ``tstress_ = lmovecell .OR. (tstress .AND.
+    # lscf)``: a variable-cell run turns it on whatever the input says, and a
+    # non-self-consistent one turns it off. Neither branch is reachable here --
+    # ``vc-relax`` is not implemented (P11) and an NSCF run does not come
+    # through ``run_scf`` -- so what is read is the input's own value.
+    tstress = _logical(pwin.get("control", "tstress", False))
+    spiral_q = _spiral_q(pwin, nspin, lspinorb, nosym, soc_scale)
+    starting_moments = _starting_moments(pwin, structure.nat)
+    moments = local_moments(
+        structure, nspin, starting_magnetization, angle1, angle2,
+        per_atom=starting_moments,
+    )
+    # The per-atom applied field is an axial field on the atoms exactly as the
+    # starting moments are, and Elk's ``findsym.f90`` filters the group with both
+    # (``bfcmt0``, lines 120-125). Without it a ``LOCAL_MAGNETIC_FIELDS`` card
+    # asking for a texture is symmetrised away by operations that a per-species
+    # ferromagnet has and the texture does not -- measured on a 45-atom NiBr2
+    # helix, where one Ni direction in ``m_loc`` against 15 in the card left
+    # ``nsym = 4`` and a cycloid collapsed to collinear in three iterations.
+    atomic_fields = _atomic_b_field(pwin, structure.nat)
+    # The uniform ``B_field`` enters the same way, as one vector on every atom
+    # (:func:`axial_vectors`, Elk's ``findsym.f90:109-113``).
+    axial = axial_vectors(
+        moments, atomic_fields, pwin.indexed("system", "b_field", 3)
+    )
+    magnetic = is_magnetic(
+        nspin, moments, atomic_fields, pwin.indexed("system", "b_field", 3)
+    )
+    symmetries = find_symmetries(cell, structure)
+    if magnetic:
+        symmetries = magnetic_symmetries(cell, structure, symmetries, axial)
+    elif nspin == 2:
+        # The k-set has to be reduced with the *same* group the density is
+        # symmetrised with, or switching the symmetriser off would not rescue
+        # the run either -- which is why this is here and not only in
+        # ``System.symmetry_group``.
+        # The ``LOCAL_MAGNETIC_FIELDS`` card labels the sites as the moments do
+        # (see :func:`collinear_symmetries`).
+        symmetries = collinear_symmetries(
+            cell, structure, symmetries, moments, fields=atomic_fields
+        )
+    rotations = None if nosym else symmetries.rotation_array()
+    kpoints = _build_kpoints(
+        pwin, cell, precision, rotations,
+        time_reversal=not noinv and not magnetic,
+        t_rev=None if nosym else symmetries.t_rev_array(),
+        lattice_rotations=None if nosym else np.array(lattice_point_group(np.asarray(cell.at))),
+    )
+
+    # ``setup.f90``'s ``degspin``, applied in the one place that knows the rule
+    # -- a k-set built later, for a denser DOS grid, has to go through the same
+    # function or it counts every electron twice.
+    kpoints = kpoints_for_spin(kpoints, nspin)
+    if spiral_q is not None:
+        _warn_if_the_spiral_grid_cannot_shift(spiral_q, kpoints)
+
+    ecutwfc = pwin.get("system", "ecutwfc")
+    if ecutwfc is None:
+        raise ValueError(f"{pwin.path or 'input'}: ecutwfc is required")
+    # QE's default: the density cutoff is 4*ecutwfc, exact for norm-conserving
+    # pseudopotentials (the density has twice the wavefunction's G range).
+    ecutrho = pwin.get("system", "ecutrho") or 4.0 * float(ecutwfc)
+
+    # ``vdw_corr``, with ``iosys``'s four obsolescent aliases. Each of
+    # ``london``, ``xdm``, ``ts_vdw`` and ``mbd_vdw`` is a logical that
+    # ``input.f90`` turns into the corresponding ``vdw_corr`` string (with an
+    # ``infomsg`` saying so), and QE still honours all four. They are read
+    # *after* ``vdw_corr`` and only when that was left at its default, so an
+    # input that says both does not have the older spelling win.
+    #
+    # All four, not just ``london``, and that is the point: the three that are
+    # not implemented are refused by name under their modern spelling
+    # (:mod:`defuqumat.vdw.registry`) precisely so that an input asking for XDM
+    # cannot silently get plain PBE. Honouring only ``london`` left the older
+    # spelling as a way around that refusal -- ``xdm = .true.`` ran with no
+    # correction at all and said nothing.
+    vdw_corr = canonical_vdw_corr(pwin.get("system", "vdw_corr", "none"))
+    if vdw_corr == "none":
+        for flag, spelling in _OBSOLESCENT_VDW.items():
+            if _logical(pwin.get("system", flag, False)):
+                if vdw_corr != "none":
+                    raise ValueError(
+                        "more than one van der Waals correction selected: "
+                        f"{flag} together with an earlier one. QE's iosys stops "
+                        "here too"
+                    )
+                vdw_corr = canonical_vdw_corr(spelling)
+    london_c6 = tuple(pwin.indexed("system", "london_c6", structure.ntyp, default=-1.0))
+    london_rvdw = tuple(
+        pwin.indexed("system", "london_rvdw", structure.ntyp, default=-1.0)
+    )
+
+    return System(
+        cell=cell,
+        structure=structure,
+        kpoints=kpoints,
+        ecutwfc=float(ecutwfc),
+        ecutrho=float(ecutrho),
+        nspin=nspin,
+        calculation=str(pwin.get("control", "calculation", "scf")).lower(),
+        nbnd=pwin.get("system", "nbnd"),
+        occupations=str(pwin.get("system", "occupations", "fixed")).lower(),
+        input_dft=pwin.get("system", "input_dft"),
+        mbj_c=(
+            None if pwin.get("system", "mbj_c") is None
+            else float(pwin.get("system", "mbj_c"))
+        ),
+        smearing=str(pwin.get("system", "smearing", "gaussian")).lower(),
+        degauss=float(pwin.get("system", "degauss", 0.0)),
+        input_occupations=_input_occupations(pwin),
+        starting_magnetization=starting_magnetization,
+        tot_magnetization=_tot_magnetization(pwin),
+        starting_moments=starting_moments,
+        nosym=nosym,
+        nosource=nosource,
+        noncollinear_gga=noncollinear_gga,
+        noinv=noinv,
+        tstress=tstress,
+        lspinorb=lspinorb,
+        lforcet=lforcet,
+        soc_scale=soc_scale,
+        angle1=angle1,
+        angle2=angle2,
+        constrained_magnetization=constrained_magnetization,
+        constraint_lambda=_constraint_lambda(pwin),
+        fixed_magnetization=tuple(
+            float(v) for v in pwin.indexed("system", "fixed_magnetization", 3)
+        ),
+        b_field=tuple(float(v) for v in pwin.indexed("system", "b_field", 3)),
+        atomic_b_field=_atomic_b_field(pwin, structure.nat),
+        reducebf=_reducebf(pwin),
+        fsm_update=_fsm_update(pwin),
+        integration_radii=_integration_radii(pwin, cell, structure),
+        local_weights=str(pwin.get("system", "local_weights", "qe")).lower(),
+        hubbard=_hubbard(pwin, structure),
+        berry=_berry(pwin),
+        spiral_q=spiral_q,
+        vdw_corr=vdw_corr,
+        london_s6=float(pwin.get("system", "london_s6", 0.75)),
+        london_rcut=float(pwin.get("system", "london_rcut", 200.0)),
+        london_c6=london_c6,
+        london_rvdw=london_rvdw,
+        relax=_relax_settings(pwin),
+    )
+
+
+def _relax_settings(pwin: PwInput) -> RelaxSettings:
+    """``&control``, ``&ions`` and ``&cell``, with ``read_namelists.f90``'s
+    defaults -- including the two that depend on ``calculation``.
+
+    ``cell_dynamics`` defaults to ``'none'`` in the namelist and is *reset* to
+    ``'bfgs'`` for a ``pw.x`` ``vc-relax`` before the input is read back, which
+    is why the default here is conditional rather than the namelist's literal
+    one. Reading ``'none'`` off a plain vc-relax input would refuse the very
+    calculation QE runs by default.
+    """
+    calculation = str(pwin.get("control", "calculation", "scf")).strip().strip("'\"")
+    variable_cell = calculation.lower().startswith("vc-")
+    defaults = RelaxSettings()
+    return RelaxSettings(
+        etot_conv_thr=float(
+            pwin.get("control", "etot_conv_thr", defaults.etot_conv_thr)
+        ),
+        forc_conv_thr=float(
+            pwin.get("control", "forc_conv_thr", defaults.forc_conv_thr)
+        ),
+        nstep=int(pwin.get("control", "nstep", defaults.nstep)),
+        ion_dynamics=str(
+            pwin.get("ions", "ion_dynamics", defaults.ion_dynamics)
+        ).strip().strip("'\"").lower(),
+        upscale=float(pwin.get("ions", "upscale", defaults.upscale)),
+        cell_dynamics=str(
+            pwin.get("cell", "cell_dynamics",
+                     defaults.cell_dynamics if variable_cell else "none")
+        ).strip().strip("'\"").lower(),
+        press=float(pwin.get("cell", "press", defaults.press)),
+        press_conv_thr=float(
+            pwin.get("cell", "press_conv_thr", defaults.press_conv_thr)
+        ),
+        cell_dofree=str(
+            pwin.get("cell", "cell_dofree", defaults.cell_dofree)
+        ).strip().strip("'\""),
+        treinit_gvectors=_logical(
+            pwin.get("cell", "treinit_gvecs", defaults.treinit_gvectors)
+        ),
+    )
+
+
+#: ``input.f90``'s obsolescent logicals and the ``vdw_corr`` each stands for.
+#: Kept in QE's own order, which is the order ``iosys`` tests them in.
+_OBSOLESCENT_VDW = {
+    "london": "grimme-d2",
+    "xdm": "xdm",
+    "ts_vdw": "ts",
+    "mbd_vdw": "mbd",
+}
+
+
+#: Input switches that change the physics of a run this code otherwise supports,
+#: and that nothing here implements. Each entry is
+#: ``(namelist, variable, kind, what it would take)``; ``kind`` says what counts
+#: as "asked for", because QE's sentinels differ -- a logical is on when true, a
+#: charge when it is nonzero, ``assume_isolated`` when it is anything but
+#: ``'none'``.
+#:
+#: **They are refused rather than ignored**, which is the same argument
+#: :mod:`defuqumat.vdw.registry` makes for the corrections it does not implement.
+#: An input that asks for a saw-tooth field and gets a run without one, or for a
+#: charged cell and gets a neutral one, is wrong by more than the numbers this
+#: project quotes agreement to, and there is nothing in the output that greps as
+#: an error. Found by listing every variable QE's own ``pw_*`` inputs set and
+#: grepping this package for its name: 61 of the 99 appear nowhere, and these six
+#: are the ones that are not simply out-of-scope features (EXX, MD, vc-relax,
+#: Berry phase) or performance knobs.
+_REFUSED_SWITCHES = (
+    ("system", "tot_charge", "nonzero",
+     "a charged cell: nelec is sum(Z) here, so the run would be neutral. QE's "
+     "setup.f90 subtracts tot_charge and the compensating jellium then rides on "
+     "the G = 0 terms every Coulomb sum already drops"),
+    ("control", "tefield", "logical",
+     "the saw-tooth external field (PW/src/add_efield.f90), which also needs "
+     "edir/eamp/emaxpos/eopreg and reduces the symmetry group to the operations "
+     "that preserve the field's direction"),
+    ("control", "dipfield", "logical",
+     "the dipole correction (PW/src/add_efield.f90), which rides on tefield"),
+    ("control", "lelfield", "logical",
+     "the finite electric field by Berry phase (PW/src/bp_c_phase.f90), which "
+     "makes the SCF a nested loop over nberrycyc"),
+    ("system", "assume_isolated", "not-none",
+     "the isolated-system corrections -- Makov-Payne, Martyna-Tuckerman, 2D and "
+     "ESM (Modules/martyna_tuckerman.f90, PW/src/esm.f90)"),
+    ("system", "twochem", "logical",
+     "two chemical potentials, one for the valence and one for the conduction "
+     "bands (PW/src/weights.f90's twochem branch)"),
+    ("system", "qcutz", "nonzero",
+     "the constant-cutoff modified kinetic functional (PW/src/g2_kin.f90: "
+     "g2kin += qcutz * (1 + erf((g2kin - ecfixed)/q2sigma))), which smooths the "
+     "basis-set discontinuity a variable-cell relaxation runs into. It is one "
+     "erf in basis/planewaves.py:kinetic and the stress would come free -- QE "
+     "needs a separately hand-derived kfac in stres_knl.f90 and here the stress "
+     "is jax.grad of the energy -- but every input in the vendored test-suite "
+     "that sets it is a CPV/ case, so there is no pw.x benchmark to validate it "
+     "against and it is refused rather than written blind. It is the documented "
+     "mitigation for the frozen-basis Pulay error PLAN.md P29 measures at "
+     "0.45 Ry on five-layer graphite"),
+    # ``INPUT_PW.txt`` documents ``twochem`` in ``&system``, but QE's own
+    # ``pw_twochem/vc-relax_twochem.in`` puts it in ``&control`` and ``pw.x``
+    # honours it there. Looking in one namelist only meant that input was read,
+    # accepted and run with a single Fermi level -- the switch it named ignored.
+    ("control", "twochem", "logical",
+     "two chemical potentials, one for the valence and one for the conduction "
+     "bands (PW/src/weights.f90's twochem branch)"),
+    ("system", "one_atom_occupations", "logical",
+     "per-orbital occupations of an isolated atom (PW/src/weights.f90)"),
+    # Not a feature branch but a number: these pin the FFT grid that
+    # ``basis/fftgrid.py`` otherwise derives from the cutoffs, so ignoring them
+    # runs the whole calculation on a different grid than the input asked for --
+    # no error, no warning, and a total energy that will not match a benchmark
+    # generated from the same file. Refused until they are threaded through
+    # ``fft_grid_dimensions`` (QE: dense from nr1..nr3, smooth from nr1s..nr3s,
+    # ``realspace_grid_init`` in PW/src/input.f90).
+    ("system", "nr1", "nonzero", "a hand-pinned dense FFT grid (nr1/nr2/nr3)"),
+    ("system", "nr2", "nonzero", "a hand-pinned dense FFT grid (nr1/nr2/nr3)"),
+    ("system", "nr3", "nonzero", "a hand-pinned dense FFT grid (nr1/nr2/nr3)"),
+    ("system", "nr1s", "nonzero", "a hand-pinned smooth FFT grid (nr1s/nr2s/nr3s)"),
+    ("system", "nr2s", "nonzero", "a hand-pinned smooth FFT grid (nr1s/nr2s/nr3s)"),
+    ("system", "nr3s", "nonzero", "a hand-pinned smooth FFT grid (nr1s/nr2s/nr3s)"),
+    # The four symmetry switches. None of them was read anywhere in the package,
+    # and each one is a statement that some part of the group is *not* a symmetry
+    # of the state being asked for -- so ignoring one leaves the k-mesh reduced
+    # with operations the input excluded, ``sym_rho`` averaging over them, and a
+    # total energy that will not match a benchmark generated from the same file
+    # with nothing saying why. Refused until they are consumed, which is the
+    # standing rule that a run which starts is a run whose physics is there.
+    ("system", "no_t_rev", "logical",
+     "dropping the operations that are symmetries only together with time "
+     "reversal (symm_base.f90's t_rev array, which sgam_at_mag sets and "
+     "sym_rho's nspin = 4 branch carries an extra sign for). Here t_rev_array() "
+     "keeps them unconditionally and the magnetic wedge is built with them"),
+    ("system", "force_symmorphic", "logical",
+     "discarding every operation with a fractional translation (symm_base.f90's "
+     "sgam_at). The group is built with them here, and both the k-point "
+     "reduction and the FFT grid's fft_fact follow from them"),
+    ("system", "use_all_frac", "logical",
+     "keeping fractional translations that are not commensurate with the FFT "
+     "grid (symm_base.f90's remove_sym). Here the grid is chosen to fit the "
+     "translations rather than the translations filtered to fit the grid, so "
+     "the switch selects a different group and a different mesh"),
+    ("system", "nosym_evc", "logical",
+     "the unreduced k-grid symmetrised anyway -- no symmetry in the "
+     "diagonalisation, but the k-points forced to carry the crystal's group "
+     "(setup.f90). Here nosym gives the full grid *and* switches sym_rho off, "
+     "which is a different calculation"),
+)
+
+
+#: What ``calculation`` may say. ``pw.x`` stops on anything else
+#: (``input.f90``'s ``CASE DEFAULT`` on ``calculation``), and so does this.
+_CALCULATIONS = ("scf", "nscf", "bands", "relax", "md", "vc-relax", "vc-md")
+
+#: ...and the ones with no driver here, each named with what it would need.
+_UNIMPLEMENTED_CALCULATIONS = {
+    "md": "Born-Oppenheimer molecular dynamics (PW/src/dynamics_module.f90)",
+    "vc-md": "variable-cell molecular dynamics (Modules/wavefunctions, vc-md)",
+}
+
+
+#: ``occupations`` values that reach an implementation here. ``fixed``,
+#: ``smearing`` and ``from_input`` are dispatched by
+#: :meth:`defuqumat.scf.driver.Calculation.occupations`; the tetrahedron
+#: spellings come from :data:`defuqumat.scf.tetrahedra.TETRAHEDRON_KINDS`, which
+#: carries QE's hyphen and underscore variants both.
+_OCCUPATIONS = (
+    "fixed", "smearing", "from_input",
+    "tetrahedra", "tetrahedra_lin", "tetrahedra-lin",
+    "tetrahedra_opt", "tetrahedra-opt",
+)
+
+#: ``input.f90:778-800``'s ``tot_magnetization`` rules, in the words both
+#: :func:`build_system` and :meth:`System.with_spin` refuse them in. Each
+#: caller finishes the sentence with its own remedy, since an input sets the
+#: variable and ``with_spin`` takes it as a keyword; the rule is written once,
+#: so a regime change and an input file cannot drift into two versions of it.
+_NEEDS_LSDA = (
+    "tot_magnetization requires nspin = 2: it fixes N_up - N_down by "
+    "giving each collinear channel its own Fermi level, and an "
+    "unpolarized run has one channel while a noncollinear one has no "
+    "up and down channels to split. This is pw.x's own refusal "
+    "(input.f90: 'tot_magnetization requires nspin=2')."
+)
+_FIXED_NEEDS_MOMENT = (
+    "occupations = 'fixed' with nspin = 2 needs tot_magnetization: "
+    "the two channels are filled independently and nothing else says "
+    "how many electrons each gets. This is pw.x's own refusal "
+    "(input.f90: 'fixed occupations and lsda need "
+    "tot_magnetization')."
+)
+_FIXED_NEEDS_INTEGER = (
+    "occupations = 'fixed' with nspin = 2 needs an integer "
+    "tot_magnetization, and this one is {value}: each channel fills "
+    "a whole number of bands, so a fractional split has no fixed "
+    "occupation to express it. pw.x refuses the same input"
+)
+
+
+def _check_occupations(pwin: PwInput) -> None:
+    """``set_occupations.f90``'s two checks, neither of which was made here.
+
+    :meth:`defuqumat.scf.driver.Calculation.occupations` dispatches ``fixed``,
+    ``from_input`` and anything starting with ``tetrahedra``, and then **falls
+    through to the smearing branch unconditionally** -- there is no ``else``.
+    So a typo (``tetrahedron``, ``smering``, a stray capital that survives the
+    ``lower()``) selected Gaussian smearing rather than what was asked for, and
+    the run reported success. QE's ``CASE DEFAULT`` stops.
+
+    The second check is the pair to it. ``degauss`` defaults to 0.0 and
+    ``occupations = 'smearing'`` without one gives ``x = (ef - e)/degauss``, a
+    ``0/0`` at whichever band the Fermi bisection lands on: the occupation
+    weights come back with a ``nan`` in them and it propagates into the density.
+    QE's ``lgauss = ( degauss > 0.0_dp )`` refuses it. Note the asymmetry this
+    closes -- the *smearing function's* name was already validated
+    (:func:`defuqumat.scf.occupations.smearing_order` raises on an unknown one),
+    so one half of the pair stopped and the other did not.
+
+    ``fixed`` **with** a ``degauss`` is QE's one warning here rather than an
+    error (``errore(..., -1)`` is a negative severity: it prints and zeroes the
+    value), so it is a warning here too.
+    """
+    occupations = str(pwin.get("system", "occupations", "fixed")).strip().strip("'\"").lower()
+    if occupations not in _OCCUPATIONS:
+        raise ValueError(
+            f"occupations = {occupations!r} is not one of "
+            f"{', '.join(_OCCUPATIONS)}. Refused rather than accepted, because "
+            "the occupation dispatch has no default branch: an unrecognised "
+            "value silently selected smearing"
+        )
+    degauss = float(pwin.get("system", "degauss", 0.0))
+    if occupations == "smearing" and not degauss > 0.0:
+        raise ValueError(
+            "occupations = 'smearing' with no degauss: the smearing width is "
+            "the denominator of (ef - e)/degauss, so a zero one gives NaN "
+            "occupation weights rather than the fixed occupations it looks "
+            "like it should. Set degauss, or ask for occupations = 'fixed'"
+        )
+    if occupations == "fixed" and degauss != 0.0:
+        warnings.warn(
+            "occupations = 'fixed' with a nonzero degauss: the broadening is "
+            "ignored, exactly as set_occupations.f90 ignores it",
+            stacklevel=2,
+        )
+
+    # ``input.f90:784-800``: fixed occupations with LSDA are the two-Fermi-level
+    # branch or nothing. Without ``tot_magnetization`` there is no rule for how
+    # the electrons divide between the channels -- a shared Fermi level would
+    # have to be *found*, which is what smearing is for -- and with one, both it
+    # and the total charge must be integers, since a channel fills a whole
+    # number of bands. Checked here rather than at the first diagonalisation so
+    # that the message names the input variable.
+    lsda = int(pwin.get("system", "nspin", 1)) == 2 and not _logical(
+        pwin.get("system", "noncolin", False)
+    )
+    # ``.AND. lscf``, which is the third conjunct of QE's own condition and not
+    # a softening of it: an ``nscf`` or ``bands`` run reads a density that some
+    # earlier SCF converged and never fills anything, so it has no channel split
+    # to be missing. Leaving it out would refuse a band structure of a magnet
+    # for the shape of a rule that does not apply to it.
+    lscf = str(
+        pwin.get("control", "calculation", "scf")
+    ).strip().strip("'\"").lower() not in ("nscf", "bands")
+    # ``input.f90:778-782``, immediately before the fixed-occupation check and
+    # unconditional on ``lscf``: ``two_fermi_energies .AND. .NOT. lsda`` stops.
+    # Here it was stored and then read by nothing, because
+    # ``Calculation.two_fermi_energies`` gates on ``nspin == 2``: an ``nspin =
+    # 1`` or noncollinear run asking for a fixed moment converged to the
+    # unconstrained state and reported success.
+    if _tot_magnetization(pwin) is not None and not lsda:
+        raise ValueError(
+            f"{_NEEDS_LSDA} For a noncollinear moment of fixed size use "
+            "constrained_magnetization = 'total' or 'fsm'"
+        )
+    if occupations == "fixed" and lsda and lscf:
+        tot_magnetization = pwin.get("system", "tot_magnetization", None)
+        if tot_magnetization is None:
+            raise ValueError(
+                f"{_FIXED_NEEDS_MOMENT} Set an integer tot_magnetization, or "
+                "use occupations = 'smearing' to let a shared Fermi level decide"
+            )
+        # QE requires an integer ``tot_charge`` here too; that half of its check
+        # is unreachable, because a charged cell is refused outright by
+        # ``_refuse_unimplemented_switches`` whatever the occupations are.
+        value = float(tot_magnetization)
+        if abs(value - round(value)) > 1.0e-8:
+            raise ValueError(_FIXED_NEEDS_INTEGER.format(value=value))
+
+
+def _check_calculation(pwin: PwInput) -> None:
+    """``calculation`` must name a run this package can actually perform.
+
+    The field was parsed onto :attr:`System.calculation` and read by nothing, so
+    every mode without a driver here -- and every typo -- was accepted and then
+    run as a plain SCF, which reports success for a calculation that never
+    happened. ``pw.x`` stops on an unknown value, and the modes it has that this
+    package does not are refused by name like every other missing feature.
+
+    ``scf``, ``nscf``, ``bands``, ``relax`` and ``vc-relax`` are the five that
+    have one; which
+    of them is in force is still the caller's choice of entry point, exactly as
+    before, so this only rejects what nothing could have run.
+    """
+    value = str(pwin.get("control", "calculation", "scf")).strip().strip("'\"").lower()
+    if value not in _CALCULATIONS:
+        raise ValueError(
+            f"calculation = {value!r} is not one of {', '.join(_CALCULATIONS)}"
+        )
+    if value in _UNIMPLEMENTED_CALCULATIONS:
+        raise NotImplementedError(
+            f"calculation = {value!r} is not implemented -- "
+            f"{_UNIMPLEMENTED_CALCULATIONS[value]}. It is refused rather than "
+            "run as a plain SCF, which is what happened before: the requested "
+            "calculation never took place and the run reported success"
+        )
+
+
+#: The DFT+Hubbard variables the ``&system`` namelist carried before QE 7.1,
+#: each with the ``HUBBARD`` card entry that replaces it. This code reads the
+#: card and nothing else, so an input written the old way used to be accepted
+#: and run as plain LSDA or PBE with no Hubbard term and no message: the size of
+#: what was dropped is the U-on against U-off gap, which ``PLAN.md`` P20 puts at
+#: 0.0658 Ry between two DFT+U solutions of the same FeO cell.
+#:
+#: ``pw.x`` 7.5 stops on exactly this set (``Modules/read_namelists.f90``, the
+#: obsolete-parameter block ending in ``errore(..., 'DFT+Hubbard input syntax
+#: has changed since v7.1', 1)``), and the test there is on the *value* rather
+#: than on the name: ``lda_plus_u = .false.`` and ``Hubbard_U = 0.0`` are what
+#: an input that never asked for a U looks like, so both pass in both codes.
+_OBSOLETE_HUBBARD = (
+    ("lda_plus_u", "logical", "a HUBBARD card"),
+    ("lda_plus_u_kind", "nonnegative", "the card's header, `HUBBARD (atomic)`"),
+    ("u_projection_type", "string", "the card's header, `HUBBARD (ortho-atomic)`"),
+    ("hubbard_parameters", "string", "the card itself"),
+    ("hubbard_u", "positive", "`U <atom>-<manifold> <value>` in the card"),
+    ("hubbard_u_back", "positive", "`U <atom>-<manifold> <value>` in the card"),
+    ("hubbard_j0", "positive", "`J0 <atom>-<manifold> <value>` in the card"),
+    ("hubbard_j", "positive", "`J <atom>-<manifold> <value>` in the card"),
+    ("hubbard_v", "positive", "`V <atom1> <atom2> <n> <value>` in the card"),
+    ("backall", "logical", "a second manifold on the card's atom label"),
+)
+
+
+def _asked_for(value, kind: str) -> bool:
+    """Whether an obsolete Hubbard variable was set to something that matters.
+
+    An indexed variable such as ``Hubbard_U(1)`` parses to a dict keyed by its
+    index tuple, so the test runs over the values either way -- which is what
+    makes ``ANY(Hubbard_U(:) > eps24)`` translate directly.
+    """
+    if value is None:
+        return False
+    values = list(value.values()) if isinstance(value, dict) else [value]
+    for item in values:
+        if item is None:
+            continue
+        if kind == "logical" and _logical(item):
+            return True
+        if kind == "string" and str(item).strip().strip("'\"") != "":
+            return True
+        try:
+            number = float(item)
+        except (TypeError, ValueError):
+            continue
+        if kind == "positive" and number > 1.0e-24:
+            return True
+        if kind == "nonnegative" and number > -1:
+            return True
+    return False
+
+
+def _refuse_obsolete_hubbard(pwin: PwInput) -> None:
+    """Stop on the pre-7.1 DFT+Hubbard spelling in the ``&system`` namelist.
+
+    See :data:`_OBSOLETE_HUBBARD`. DFT+U *is* implemented here, so this is not a
+    missing feature: it is an input this code reads a different way, and the
+    refusal names the card entry that replaces each variable.
+    """
+    found = [(name, replacement) for name, kind, replacement in _OBSOLETE_HUBBARD
+             if _asked_for(pwin.get("system", name), kind)]
+    if not found:
+        return
+    listed = "; ".join(f"{name} -> {replacement}" for name, replacement in found)
+    raise NotImplementedError(
+        f"{pwin.path or 'input'}: the DFT+Hubbard input syntax changed in QE "
+        f"7.1 and this code reads only the new one, the HUBBARD card. "
+        f"Rewrite {listed}. pw.x 7.5 stops on the same variables "
+        f"(Modules/read_namelists.f90). They are refused rather than ignored "
+        f"because the namelist spelling parses here and reaches nothing, so a "
+        f"run asking for a U would converge without one and report success"
+    )
+
+
+def _refuse_unimplemented_switches(pwin: PwInput) -> None:
+    """Stop on an input asking for physics this code does not have.
+
+    See :data:`_REFUSED_SWITCHES`. Anything QE defaults to is silent, so an
+    ordinary input never reaches the raise.
+    """
+    for namelist, name, kind, explanation in _REFUSED_SWITCHES:
+        value = pwin.get(namelist, name)
+        if value is None:
+            continue
+        if kind == "logical":
+            asked = _logical(value)
+        elif kind == "nonzero":
+            asked = abs(float(value)) > 0.0
+        else:  # not-none
+            asked = str(value).strip().lower() not in ("none", "")
+        if asked:
+            raise NotImplementedError(
+                f"{pwin.path or 'input'}: {name} = {value!r} is not implemented "
+                f"-- {explanation}. It is refused rather than ignored, because a "
+                "run that quietly drops it is wrong by far more than the "
+                "agreement with pw.x this code is checked to"
+            )
+
+
+def _logical(value) -> bool:
+    """A Fortran logical that may already have been parsed to a bool."""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in (".true.", ".t.", "true", "t")
+
+
+def _integration_radii(pwin: PwInput, cell: Cell, structure: Structure) -> tuple:
+    """``r_m`` per species in bohr, or ``()`` when the input gives none at all.
+
+    **A species the input leaves out gets ``make_pointlists``' default radius,
+    not zero.** ``r_m`` is indexed per species and ``pwin.indexed`` fills an
+    unset index with ``0.0``, so ``r_m(1) = 2.0`` on a two-species cell used to
+    give the second species a sphere of radius zero: under ``'qe'`` weights
+    one grid point at most (the one sitting on the nucleus, if any), so its
+    local moment and any constraint or field on it read nothing, and under
+    ``'smooth'`` a ``0/0`` in the taper and NaN weights. ``make_pointlists.f90``
+    replaces a radius ``r_m(nt) < 1.d-8`` with ``0.5 distmin(nt)/1.2 * 0.99``
+    (lines 150-154), and :func:`defuqumat.scf.locals.default_radii` is that
+    expression, so an unset or nonpositive entry takes it here.
+
+    The other half of QE's condition -- a radius *larger* than
+    ``distmin/(2 * 1.2)`` is also reset -- is not applied to a radius the input
+    gave: ``r_m`` is an input here and not in ``pw.x``, where the array is only
+    ever the default, and a user who asks for overlapping spheres under
+    ``'smooth'`` weights (a partition of unity) is asking for something that
+    scheme can represent.
+    """
+    if pwin.get("system", "r_m") is None:
+        return ()
+    radii = [float(v) for v in pwin.indexed("system", "r_m", structure.ntyp)]
+    if all(r >= 1.0e-8 for r in radii):
+        return tuple(radii)
+    # Imported here: ``defuqumat.scf`` imports the driver, which imports this
+    # module (the same cycle ``build_system``'s ``defuqumat.scf.fields`` import
+    # works around).
+    from defuqumat.scf.locals import default_radii
+
+    fallback = default_radii(cell, structure)
+    return tuple(
+        float(fallback[nt]) if r < 1.0e-8 else r for nt, r in enumerate(radii)
+    )
+
+
+def _tot_magnetization(pwin: PwInput) -> float | None:
+    """``tot_magnetization``, with QE's sentinel turned into ``None``.
+
+    ``input_parameters.f90`` defaults it to -10000 and ``set_nelup_neldw`` tests
+    ``< -9999`` -- the flag for "not given" is the *value*, and the switch it
+    controls (``two_fermi_energies``) changes the physics, so the sentinel is
+    resolved once here rather than compared for again downstream.
+    """
+    value = pwin.get("system", "tot_magnetization")
+    if value is None or float(value) < -9999.0:
+        return None
+    return float(value)
+
+
+def _input_occupations(pwin: PwInput) -> tuple[float, ...] | None:
+    """The OCCUPATIONS card, flattened. Present only for occupations='from_input'."""
+    card = pwin.card("OCCUPATIONS")
+    if card is None:
+        return None
+    return tuple(value for row in card.floats() for value in row)
+
+
+def _build_cell(pwin: PwInput, precision: Precision) -> Cell:
+    ibrav = pwin.get("system", "ibrav")
+    if ibrav is None:
+        if pwin.get("system", "space_group") is not None:
+            # ``input.f90``'s ``sup_spacegroup`` derives ``ibrav`` from the space
+            # group and expands the Wyckoff letters into a full basis, so such an
+            # input is legal QE and simply omits ``ibrav``. Saying "ibrav is
+            # required" of it names the wrong thing -- the gap is the Wyckoff
+            # input PLAN.md's P6 still lists as outstanding, and
+            # ``Structure.from_card_units`` refuses ``crystal_sg`` a step later
+            # for the same reason.
+            raise NotImplementedError(
+                f"{pwin.path or 'input'}: space_group = "
+                f"{pwin.get('system', 'space_group')} selects Wyckoff input, "
+                "which is not implemented (Modules/space_group.f90's "
+                "sup_spacegroup derives ibrav from the group and expands the "
+                "Wyckoff letters into a basis). Give ibrav and the full "
+                "ATOMIC_POSITIONS instead"
+            )
+        raise ValueError(f"{pwin.path or 'input'}: ibrav is required")
+    ibrav = int(ibrav)
+
+    celldm = np.array(pwin.indexed("system", "celldm", 6))
+    a = pwin.get("system", "a")
+    if celldm[0] != 0.0 and a is not None and float(a) != 0.0:
+        # **Two spellings of the same lattice parameter, and they disagree by a
+        # factor of 1.8897 whenever the conversion was forgotten.** ``celldm``
+        # is in bohr and ``A`` in angstrom, so a leftover ``A = 5.43`` beside a
+        # complete ``celldm`` is the half-finished conversion of an input, and
+        # taking ``celldm`` silently -- which is what this did -- converges a
+        # ground state for whichever of the two lattice constants the user did
+        # not mean. ``pw.x`` stops on the pair.
+        raise ValueError(
+            f"{pwin.path or 'input'}: do not specify both celldm and a,b,c "
+            f"-- celldm(1) = {float(celldm[0])} bohr and A = {float(a)} "
+            "angstrom are two spellings of the same lattice parameter and "
+            "which is meant is not recoverable (they differ by the "
+            "bohr-per-angstrom factor unless the conversion was done). Drop "
+            "one. pw.x stops on the same pair "
+            "(Modules/cell_base.f90, 'do not specify both celldm and a,b,c!')"
+        )
+    if celldm[0] == 0.0 and a is not None:
+        # The crystallographic alternative to celldm: A,B,C in angstrom plus cosines.
+        celldm = celldm_from_abc(
+            ibrav,
+            float(a),
+            float(pwin.get("system", "b", 0.0)),
+            float(pwin.get("system", "c", 0.0)),
+            float(pwin.get("system", "cosab", 0.0)),
+            float(pwin.get("system", "cosac", 0.0)),
+            float(pwin.get("system", "cosbc", 0.0)),
+        )
+
+    if ibrav != 0:
+        # The card is *redundant* rather than ignorable here, and both codes
+        # treat it that way: ``Modules/cell_base.f90``'s
+        # ``ELSE IF (ibrav_ /= 0 .and. trd_ht)`` stops with 'redundant data for
+        # cell parameters'. Returning first, as this did, discarded the vectors
+        # in silence -- and with ``ATOMIC_POSITIONS alat`` scaled by the ibrav
+        # cell's own alat the positions went with them, so pasting a relaxed
+        # cell back under an input that still carries its ibrav ran the
+        # pre-relaxation geometry and reported a total energy for it.
+        if pwin.card("CELL_PARAMETERS") is not None:
+            raise ValueError(
+                f"{pwin.path or 'input'}: redundant data for cell parameters "
+                f"-- ibrav = {ibrav} and a CELL_PARAMETERS card both describe "
+                "the lattice, and which one is meant is not recoverable. Set "
+                "ibrav = 0 to use the card, or drop the card to use ibrav and "
+                "celldm. pw.x stops on the same combination "
+                "(Modules/cell_base.f90)"
+            )
+        return Cell.from_ibrav(ibrav, celldm, precision=precision)
+
+    card = pwin.require_card("CELL_PARAMETERS")
+    vectors = np.array(card.floats(), dtype=float)
+    if vectors.shape != (3, 3):
+        raise ValueError("CELL_PARAMETERS must give three vectors of three components")
+
+    units = card.option
+    if units is None:
+        # Historical default, kept because old inputs rely on it: alat when a
+        # lattice parameter was supplied, bohr otherwise.
+        units = "alat" if celldm[0] != 0.0 else "bohr"
+
+    if units == "alat":
+        if celldm[0] == 0.0:
+            raise ValueError("CELL_PARAMETERS alat needs celldm(1) or A")
+        return Cell.from_vectors(vectors * celldm[0], alat=float(celldm[0]), precision=precision)
+    if units in ("bohr", "angstrom"):
+        # **The card already carries the lattice parameter, so a ``celldm(1)``
+        # beside it is a second one.** ``pw.x`` refuses the pair outright
+        # (``Modules/cell_base.f90``, 'lattice parameter specified twice', on
+        # ``celldm(1) /= 0 .OR. a /= 0`` -- one test here, because ``A`` has
+        # already been converted into ``celldm`` above). Accepting it is not
+        # merely redundant: ``alat`` is then ``celldm(1)`` rather than the
+        # length the vectors themselves set, and every ``ATOMIC_POSITIONS
+        # alat`` coordinate is scaled by a lattice parameter the cell does not
+        # come from.
+        if celldm[0] != 0.0:
+            raise ValueError(
+                f"{pwin.path or 'input'}: lattice parameter specified twice "
+                f"-- CELL_PARAMETERS {units} gives the vectors in absolute "
+                f"units and celldm(1) = {float(celldm[0])} (or A) gives a "
+                "lattice parameter as well. Drop celldm(1)/A, or write the "
+                "card in alat units. Keeping both is what makes "
+                "ATOMIC_POSITIONS alat scale by a length the cell does not "
+                "have. pw.x stops on the same combination "
+                "(Modules/cell_base.f90)"
+            )
+        if units == "angstrom":
+            vectors = vectors * ANGSTROM_TO_BOHR
+        return Cell.from_vectors(vectors, alat=None, precision=precision)
+    raise ValueError(f"unknown CELL_PARAMETERS units {units!r}")
+
+
+def _build_structure(pwin: PwInput, cell: Cell, precision: Precision) -> Structure:
+    species_card = pwin.require_card("ATOMIC_SPECIES")
+    species, index_of = [], {}
+    for line in species_card.lines:
+        name, mass, pseudo = line.split()[:3]
+        index_of[name] = len(species)
+        species.append(Species(name=name, mass=fortran_float(mass), pseudo_file=pseudo))
+
+    positions_card = pwin.require_card("ATOMIC_POSITIONS")
+    names, coordinates, if_pos = [], [], []
+    for line in positions_card.lines:
+        tokens = line.split()
+        names.append(tokens[0])
+        coordinates.append([fortran_float(t) for t in tokens[1:4]])
+        # Trailing 0/1 flags -- ``if_pos``, which freezes a coordinate during a
+        # relaxation. Absent means free.
+        flags = tokens[4:7]
+        if_pos.append([int(fortran_float(f)) for f in flags] if len(flags) == 3 else [1, 1, 1])
+
+    unknown = set(names) - set(index_of)
+    if unknown:
+        raise ValueError(f"ATOMIC_POSITIONS names a species not in ATOMIC_SPECIES: {sorted(unknown)}")
+
+    nat = pwin.get("system", "nat")
+    if nat is not None and int(nat) != len(names):
+        raise ValueError(f"nat={nat} but ATOMIC_POSITIONS lists {len(names)} atoms")
+
+    return Structure.from_card_units(
+        positions=coordinates,
+        types=[index_of[name] for name in names],
+        species=species,
+        units=positions_card.option,
+        cell=cell,
+        precision=precision,
+        if_pos=if_pos,
+    )
+
+
+def local_moments(
+    structure: Structure,
+    nspin: int,
+    starting_magnetization,
+    angle1,
+    angle2,
+    per_atom=(),
+) -> np.ndarray:
+    """``m_loc``: the starting moment of every atom, cartesian -- ``setup.f90``.
+
+    It is what decides the magnetic symmetry group, so it is computed here, once,
+    from the input and never from the converged state -- exactly as ``domag`` is
+    (see :attr:`System.domag`). ``angle1``/``angle2`` are the polar and azimuthal
+    angles in degrees, and a collinear run has no angles: its moment is along
+    ``z`` by construction.
+
+    ``per_atom`` is the ``STARTING_MOMENTS`` card and **overrides all three** when
+    it is given. QE's variables are per species and so cannot say a texture; the
+    group built from them is a ferromagnet's, keeps operations a helix does not
+    have, and has ``sym_rho`` average the helix away. The override is this
+    package's own -- there is no ``pw.x`` input to transcribe.
+    """
+    if len(per_atom):
+        moments = np.asarray(per_atom, dtype=float).reshape(-1, 3)
+        if len(moments) != structure.nat:
+            raise ValueError(
+                f"STARTING_MOMENTS has {len(moments)} rows for {structure.nat} atoms"
+            )
+        # A collinear run has one component, and a moment off the z axis has
+        # nothing to live on -- the same rule B_field and LOCAL_MAGNETIC_FIELDS
+        # are held to a few hundred lines up.
+        if nspin != 4:
+            if np.any(np.abs(moments[:, :2]) > 1.0e-8):
+                raise ValueError(
+                    "a STARTING_MOMENTS card with an x or y component needs "
+                    "noncolin = .true.: a collinear magnetization has only a z "
+                    "component"
+                )
+            out = np.zeros_like(moments)
+            out[:, 2] = moments[:, 2]
+            return out
+        return moments
+    types = np.asarray(structure.types, dtype=int)
+    ntyp = structure.ntyp
+    magnitudes = np.zeros(ntyp)
+    given = np.asarray(starting_magnetization, dtype=float)
+    magnitudes[: len(given)] = given
+    if nspin != 4:
+        moments = np.zeros((len(types), 3))
+        moments[:, 2] = magnitudes[types]
+        return moments
+
+    theta = np.zeros(ntyp)
+    phi = np.zeros(ntyp)
+    for target, values in ((theta, angle1), (phi, angle2)):
+        values = np.asarray(values, dtype=float)
+        target[: len(values)] = np.deg2rad(values)
+    directions = np.stack(
+        [np.sin(theta) * np.cos(phi), np.sin(theta) * np.sin(phi), np.cos(theta)],
+        axis=1,
+    )
+    return magnitudes[types, None] * directions[types]
+
+
+def _berry(pwin: PwInput) -> tuple | None:
+    """``(gdir, nppstr)`` from a ``lberry`` input, or ``None``.
+
+    ``gdir`` is turned 0-based on the way in, which is where the whole package
+    keeps its Cartesian and crystal direction indices; ``pw.x``'s own variable
+    is 1-based and is documented as such in ``INPUT_PW``. Reading them costs
+    nothing and not reading them was a gap of the kind ``_REFUSED_SWITCHES``
+    exists for: an input asking for a polarization would have run an ordinary
+    SCF and reported success.
+    """
+    if not _logical(pwin.get("control", "lberry", False)):
+        return None
+    gdir = pwin.get("control", "gdir")
+    nppstr = pwin.get("control", "nppstr")
+    if gdir is None or nppstr is None:
+        raise ValueError(
+            "lberry = .true. needs both gdir (which reciprocal lattice vector "
+            "the strings run along, 1, 2 or 3) and nppstr (how many k-points "
+            "each string carries); pw.x's bp_c_phase stops on the same pair"
+        )
+    gdir = int(gdir)
+    if gdir not in (1, 2, 3):
+        raise ValueError(f"gdir must be 1, 2 or 3, got {gdir}")
+    if int(nppstr) < 3:
+        raise ValueError(
+            f"nppstr must be at least 3, got {nppstr}: it counts the repeated "
+            "endpoint, so a string carries nppstr - 1 distinct k-points"
+        )
+    return (gdir - 1, int(nppstr))
+
+
+def _warn_if_the_spiral_grid_cannot_shift(spiral_q, kpoints) -> None:
+    """``E(q + G) = E(q)`` needs a k-grid invariant under a shift by ``G/2``.
+
+    Adding a reciprocal lattice vector to ``q`` moves one spinor component's
+    sphere by ``+G/2`` and the other by ``-G/2``, which is the same calculation
+    with **every** ``k`` shifted by ``G/2`` -- an identity for the sum over the
+    zone only if the k-set survives that shift. For a Monkhorst-Pack grid a
+    shift of half a reciprocal vector along direction ``i`` lands on the grid
+    only when ``n_i`` is **even**.
+
+    It is not an abstract worry. Measured on the hydrogen chain: the identity
+    holds to **2e-9 Ry** on a 1x1x4 grid and fails by **2e-3 Ry** on a 1x1x3
+    one (``PLAN.md`` P19). A user scanning ``E(q)`` on a soft magnetic surface
+    can get a Heisenberg fit that is entirely the sampling, and nothing said so.
+
+    A warning rather than a refusal, because the calculation at a *single* ``q``
+    is perfectly well defined on an odd grid -- what is not defined is comparing
+    it with the same physics written at ``q + G``. Only the directions ``q``
+    actually points along are checked: those are the ones a scan moves in.
+    """
+    grid = getattr(kpoints, "grid", None)
+    if grid is None:
+        # An explicit k-list: there is no ``n_i`` to test, and the same
+        # requirement applies to it. Nothing here can check it cheaply.
+        return
+    odd = [
+        axis for axis in range(3)
+        if abs(float(spiral_q[axis])) > 1.0e-12 and int(grid[axis]) % 2
+    ]
+    if not odd:
+        return
+    names = ", ".join("xyz"[axis] for axis in odd)
+    warnings.warn(
+        f"this spin spiral's k-grid is {tuple(int(n) for n in grid)} and is odd "
+        f"along {names}, where spiral_q = {tuple(spiral_q)} is nonzero. "
+        f"E(q + G) = E(q) is an exact identity and it needs a k-set invariant "
+        f"under a shift by G/2, which a Monkhorst-Pack grid has only when that "
+        f"dimension is even: measured on a hydrogen chain, the identity holds to "
+        f"2e-9 Ry on 1x1x4 and fails by 2e-3 Ry on 1x1x3. A single q is still "
+        f"well defined; an E(q) scan on this grid is not comparable across the "
+        f"zone boundary, and a Heisenberg fit to it can be entirely the sampling",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
+def _spiral_q(pwin: PwInput, nspin: int, lspinorb: bool, nosym: bool,
+              soc_scale: float = 1.0) -> tuple | None:
+    """``spiral_q``, and the three things a spiral cannot be combined with.
+
+    A defuqumat extension -- ``pw.x`` has no spin spiral at all -- with Elk's
+    name for the quantity (``vqlss``) and Elk's units (lattice coordinates).
+
+    ``lspinorb`` is admitted at ``soc_scale = 0`` alone: that is a
+    fully-relativistic dataset with its spin-orbit part switched off, whose
+    Hamiltonian is spin-rotation invariant, so the generalized Bloch theorem
+    holds exactly and the spiral is the zeroth order that
+    :func:`~defuqumat.workflows.spiral_soc.spiral_spin_orbit_energy` expands
+    around (``PLAN.md`` P123).
+    """
+    if "spiral_q" not in pwin.namelists.get("system", {}):
+        return None
+    q = tuple(float(v) for v in pwin.indexed("system", "spiral_q", 3))
+
+    if nspin != 4:
+        # The two spinor components live on different plane-wave spheres, so
+        # there is no collinear or unpolarized form of the calculation.
+        raise ValueError(
+            "spiral_q needs noncolin = .true.: a spin spiral is a two-component "
+            "spinor with a different G-sphere per component"
+        )
+    if lspinorb and soc_scale != 0.0:
+        # Permanently: spin-orbit coupling ties spin to the lattice, so the
+        # combined translation-plus-spin-rotation the generalized Bloch theorem
+        # rests on is not a symmetry. Elk refuses the same combination
+        # (``init0.f90`` sets ``spinorb = .false.`` when ``spinsprl``). At
+        # ``soc_scale = 0`` the coupling is off and the theorem holds again,
+        # which is the one form of the pair that is a calculation.
+        raise ValueError(
+            "spiral_q with lspinorb = .true. is not a calculation: spin-orbit "
+            "coupling breaks the generalized Bloch theorem a spiral rests on. "
+            "soc_scale = 0 keeps the fully-relativistic dataset with the "
+            "coupling switched off, which is a spiral, and "
+            "spiral_spin_orbit_energy adds the coupling to first order"
+        )
+    if not nosym:
+        # The spin space group is not written; see defuqumat.system.spiral.
+        raise ValueError(
+            "a spin spiral needs nosym = .true.: only the operations with "
+            "S^T q = q survive at all, they act on the rotated-frame "
+            "magnetization with a spin rotation of their own (the spin space "
+            "group, which is not implemented), and time reversal sends q to -q"
+        )
+    return q
+
+
+
+def _reducebf(pwin) -> float:
+    """``reducebf``, inside Elk's own range.
+
+    Elk restricts it to ``[0.5, 1]`` (``readinput.f90:1264-1266``) and stops
+    otherwise, and the range is not arbitrary at either end: above 1 the
+    symmetry-breaking field *grows* every iteration, and below 0.5 it is gone
+    before the density has responded to it, so the run is the unmagnetised one
+    with a slower start. This code applies the decay after the convergence
+    test, so a value Elk would refuse is a run that stops carrying a field
+    nobody chose -- see :data:`defuqumat.scf.fields.FADED_FIELD`.
+    """
+    value = float(pwin.get("system", "reducebf", 1.0))
+    if not 0.5 <= value <= 1.0:
+        raise ValueError(
+            f"reducebf = {value} is outside [0.5, 1], which is the range Elk "
+            "accepts (readinput.f90:1264). Above 1 the symmetry-breaking field "
+            "grows instead of decaying; below 0.5 it is gone before the "
+            "density has responded to it"
+        )
+    return value
+
+
+def _constraint_lambda(pwin) -> float:
+    """``lambda``, whose default follows the *family* of the scheme.
+
+    A penalty's stiffness and a feedback field's gain are the same input
+    variable and are three orders apart in magnitude (see
+    :data:`~defuqumat.scf.fields.DEFAULT_FSM_GAIN`), so one default cannot serve
+    both: 1.0 is a weak penalty and a hundred times Elk's ``taufsm``.
+    """
+    from defuqumat.scf.fields import DEFAULT_FSM_GAIN, FEEDBACK
+
+    constraint = str(
+        pwin.get("system", "constrained_magnetization", "none")
+    ).lower()
+    fallback = DEFAULT_FSM_GAIN if constraint in FEEDBACK else 1.0
+    return float(pwin.get("system", "lambda", fallback))
+
+
+def _fsm_update(pwin) -> str:
+    """``fsm_update``, refused by name rather than silently substituted."""
+    from defuqumat.scf.fields import DEFAULT_FSM_UPDATE, FSM_UPDATES
+
+    name = str(pwin.get("system", "fsm_update", DEFAULT_FSM_UPDATE)).strip().lower()
+    if name not in FSM_UPDATES:
+        raise ValueError(
+            f"fsm_update = {name!r}: implemented are {', '.join(FSM_UPDATES)}"
+        )
+    return name
+
+
+def _atomic_b_field(pwin: PwInput, nat: int) -> tuple:
+    """The ``LOCAL_MAGNETIC_FIELDS`` card: one field per atom, cartesian, in Ry.
+
+    Elk's ``bfcmt``. ``()`` when the card is absent, which is the normal case.
+    """
+    card = pwin.card("LOCAL_MAGNETIC_FIELDS")
+    if card is None:
+        return ()
+    rows = [line.split() for line in card.lines if line.strip()]
+    if len(rows) != nat:
+        raise ValueError(
+            f"LOCAL_MAGNETIC_FIELDS lists {len(rows)} atoms but the cell has {nat}"
+        )
+    return tuple(tuple(fortran_float(v) for v in row[:3]) for row in rows)
+
+
+def _starting_moments(pwin: PwInput, nat: int) -> tuple:
+    """The ``STARTING_MOMENTS`` card: one starting moment per atom, cartesian.
+
+    ``starting_magnetization``/``angle1``/``angle2`` are **per species**, which
+    is QE's input and is enough for a ferromagnet or for a two-sublattice
+    antiferromagnet built by splitting the species. It cannot say a *texture* --
+    a helix, a cycloid, a skyrmion -- where every atom of one species has its own
+    direction. This card can, one line per atom in the order of
+    ``ATOMIC_POSITIONS``, three cartesian components in Bohr magnetons.
+
+    ``pw.x`` has no counterpart, so there is nothing to transcribe; the shape
+    follows :func:`_atomic_b_field`, which is this package's other per-atom card.
+    ``()`` when the card is absent, which is the normal case.
+
+    **What it is for is the magnetic symmetry group.** ``m_loc`` decides that
+    group and is built from the per-species variables, so without this card a
+    textured run hands the symmetry search a ferromagnet, keeps operations the
+    texture does not have, and has the texture symmetrised away by ``sym_rho``.
+
+    **There is no refusal for that shape and there should not be**, which this
+    docstring claimed the opposite of for two phases by pointing at a function
+    that was never written. The other way to state a texture is a
+    ``LOCAL_MAGNETIC_FIELDS`` card, and since P77's tolerance fix that card
+    reaches :meth:`System.symmetry_group` through ``axial_fields`` at any
+    magnitude above 1e-12 -- so a run whose texture lives only in the fields is
+    no longer a run whose group cannot see it, and there is nothing left to
+    refuse. :func:`_distinct_directions` is the diagnostic such a refusal would
+    have needed; its callers are in ``tests/unit/test_textured_symmetry.py``,
+    where it measures the two cards against each other.
+    """
+    card = pwin.card("STARTING_MOMENTS")
+    if card is None:
+        return ()
+    rows = [line.split() for line in card.lines if line.strip()]
+    if len(rows) != nat:
+        raise ValueError(
+            f"STARTING_MOMENTS lists {len(rows)} atoms but the cell has {nat}"
+        )
+    return tuple(tuple(fortran_float(v) for v in row[:3]) for row in rows)
+
+
+def _distinct_directions(vectors, tol: float = 1.0e-6) -> int:
+    """How many distinct directions a set of vectors points in, ignoring length.
+
+    Antiparallel counts as **distinct**: a two-sublattice antiferromagnet has two
+    directions, and an operation that maps one onto the other is a symmetry only
+    with time reversal, which is exactly the distinction ``magnetic_symmetries``
+    is making. Rows of (near) zero length carry no direction and are skipped.
+    """
+    directions: list[np.ndarray] = []
+    for row in np.asarray(vectors, dtype=float).reshape(-1, 3):
+        norm = float(np.linalg.norm(row))
+        if norm <= tol:
+            continue
+        unit = row / norm
+        if not any(float(unit @ seen) > 1.0 - tol for seen in directions):
+            directions.append(unit)
+    return len(directions)
+
+
+def _tensor_moments(pwin: PwInput) -> tuple:
+    """The ``TENSOR_MOMENTS`` card: Elk's ``tm3fix``, one line per constraint.
+
+        TENSOR_MOMENTS
+          Fe1-3d  1 1 0  0   -2.5
+
+    is ``manifold``, then the four indices ``k p r t`` of the moment, then the
+    value it is held at. A card ``pw.x`` does not have, for a quantity it does
+    not have; the units are the conventional ones, so a ``w^{000}_0`` of ``N``
+    is ``N`` electrons in the shell.
+    """
+    from defuqumat.hubbard.manifold import parse_manifold
+
+    card = pwin.card("TENSOR_MOMENTS")
+    if card is None:
+        return ()
+    entries = []
+    for line in card.lines:
+        fields = line.split()
+        if not fields:
+            continue
+        if len(fields) != 6:
+            raise ValueError(
+                f"malformed TENSOR_MOMENTS line {line!r}: expected "
+                "'label-nl k p r t value'"
+            )
+        label, n, l = parse_manifold(fields[0])
+        k, p, r, t = (int(x) for x in fields[1:5])
+        entries.append((label, n, l, k, p, r, t, fortran_float(fields[5])))
+    return tuple(entries)
+
+
+def _hubbard(pwin: PwInput, structure):
+    """The ``HUBBARD`` card, with ``hubbard_occ`` and ``starting_ns_eigenvalue``.
+
+    ``CARD: HUBBARD`` in ``INPUT_PW.txt``. Each line is a parameter name, a
+    ``label-manifold`` specification and a value:
+
+        HUBBARD (ortho-atomic)
+          U  Fe1-3d 4.3
+          J0 Fe1-3d 1.0
+
+    **The card's energies are in eV** and are converted to Ry here, which is the
+    only place in the code that sees an eV (rule R6).
+
+    **The card selects the functional**, which is QE's own arrangement
+    (``read_cards.f90:3240``, with the namelist's ``lda_plus_u_kind`` obsolete
+    and warned about): any nonzero ``J``, ``B``, ``E2`` or ``E3`` means the full
+    (Liechtenstein) formulation, ``lda_plus_u_kind = 1``, and ``U``, ``J0``,
+    ``ALPHA``, ``BETA`` alone mean the simplified one. ``V`` -- the intersite
+    term, ``kind = 2`` -- is still refused by name rather than ignored, because
+    ignoring it silently runs a different functional.
+    """
+    from defuqumat.hubbard.manifold import HubbardInput, parse_manifold
+
+    card = pwin.card("HUBBARD")
+    if card is None:
+        return None
+    projectors = (card.option or "atomic").lower()
+
+    accepted = {"u", "j0", "alpha", "beta", "j", "b", "e2", "e3", "lambda"}
+    #: The four that select ``lda_plus_u_kind = 1``.
+    liechtenstein = ("j", "b", "e2", "e3")
+    refused = {
+        "v": "the intersite Hubbard V, lda_plus_u_kind = 2",
+    }
+    entries: dict[str, dict] = {}
+    for line in card.lines:
+        fields = line.split()
+        if not fields:
+            continue
+        name = fields[0].lower()
+        if name in refused:
+            raise NotImplementedError(
+                f"HUBBARD parameter {fields[0]!r} selects {refused[name]}, which "
+                "is not implemented; only U, J0, ALPHA and BETA (the simplified "
+                "rotationally-invariant functional, lda_plus_u_kind = 0) are"
+            )
+        if name not in accepted:
+            raise ValueError(f"unknown HUBBARD parameter {fields[0]!r}")
+        if len(fields) < 3:
+            raise ValueError(f"malformed HUBBARD line {line!r}")
+        if len(fields) > 3:
+            raise NotImplementedError(
+                f"HUBBARD line {line!r} carries orbital indices, which select "
+                "the orbital-resolved formulation; that is not implemented"
+            )
+        label, n, l = parse_manifold(fields[1])
+        entry = entries.setdefault(label, {"n": n, "l": l})
+        if (entry["n"], entry["l"]) != (n, l):
+            raise NotImplementedError(
+                f"{label} is given two Hubbard manifolds "
+                f"({entry['n']}{'spdf'[entry['l']]} and {n}{'spdf'[l]}); the "
+                "second (background) channel is not implemented"
+            )
+        entry[name] = fortran_float(fields[2]) / RY_TO_EV
+
+    names = [species.name for species in structure.species]
+    occupations = []
+    raw = pwin.get("system", "hubbard_occ")
+    if raw is not None and not isinstance(raw, dict):
+        raw = {(1, 1): raw}
+    if isinstance(raw, dict):
+        for index, value in raw.items():
+            kind = index[0] - 1
+            channel = index[1] if len(index) > 1 else 1
+            if channel != 1:
+                raise NotImplementedError(
+                    f"hubbard_occ(..., {channel}) sets a background channel's "
+                    "occupation; background channels are not implemented"
+                )
+            if not 0 <= kind < len(names):
+                raise ValueError(f"hubbard_occ{index} out of range")
+            occupations.append((names[kind], float(value)))
+
+    starting_ns = []
+    raw = pwin.get("system", "starting_ns_eigenvalue")
+    if isinstance(raw, dict):
+        for index, value in raw.items():
+            m, spin, kind = (list(index) + [1, 1])[:3]
+            starting_ns.append((kind - 1, spin - 1, m - 1, float(value)))
+
+    full = tuple(
+        (label,) + tuple(entry.get(name, 0.0) for name in liechtenstein)
+        for label, entry in entries.items()
+        if any(entry.get(name, 0.0) for name in liechtenstein)
+    )
+    if full and any("lambda" in entry for entry in entries.values()):
+        raise NotImplementedError(
+            "the HUBBARD card gives both a Liechtenstein parameter (J, B, E2 "
+            "or E3) and a LAMBDA: the first parameterises the Slater integrals "
+            "and the second computes them, and only one of the two can be in "
+            "force"
+        )
+    if full and any(entry.get("j0", 0.0) for entry in entries.values()):
+        # ``card_hubbard``: 'Hund J is not compatible with Hund J0'. The two
+        # are the exchange of two different functionals, and QE stops here
+        # rather than in ``init_hubbard``, so this does too.
+        raise NotImplementedError(
+            "the HUBBARD card gives both J and J0: J selects the full "
+            "(Liechtenstein) functional and J0 is the simplified functional's "
+            "Hund coupling, and QE refuses them together ('Hund J is not "
+            "compatible with Hund J0', card_hubbard)"
+        )
+    double_counting = pwin.get("system", "hubbard_double_counting")
+    slater = pwin.get("system", "hubbard_slater")
+    radial_cutoff = pwin.get("system", "hubbard_radial_cutoff")
+    # ``LAMBDA`` is a screening length in inverse bohr, not an energy, so it is
+    # the one card value that is **not** converted out of eV. It is undone here
+    # rather than special-cased in the loop above, which keeps that loop's rule
+    # ("every value is an energy in eV") true of everything it reads.
+    lambdas = tuple(
+        (label, entry["lambda"] * RY_TO_EV)
+        for label, entry in entries.items()
+        if "lambda" in entry
+    )
+    return HubbardInput(
+        projectors=projectors,
+        tensor_moments=_tensor_moments(pwin),
+        tensor_moment_penalty=float(
+            pwin.get("system", "tensor_moment_penalty", 1.0)
+        ),
+        slater=("parameters" if slater is None else str(slater).strip().lower()),
+        lambdas=lambdas,
+        radial_cutoff=(None if radial_cutoff is None else float(radial_cutoff)),
+        double_counting=(
+            "fll" if double_counting is None else str(double_counting).strip().lower()
+        ),
+        parameters=tuple(
+            (
+                label, entry["n"], entry["l"],
+                entry.get("u", 0.0), entry.get("j0", 0.0),
+                entry.get("alpha", 0.0), entry.get("beta", 0.0),
+            )
+            for label, entry in entries.items()
+        ),
+        occupations=tuple(occupations),
+        starting_ns=tuple(starting_ns),
+        full=full,
+    )
+
+
+def _build_kpoints(
+    pwin: PwInput,
+    cell: Cell,
+    precision: Precision,
+    rotations=None,
+    time_reversal: bool = True,
+    t_rev=None,
+    lattice_rotations=None,
+) -> KPoints:
+    card = pwin.card("K_POINTS")
+    if card is None:
+        return KPoints.gamma(precision=precision)
+
+    option = (card.option or "tpiba").lower()
+
+    if option == "gamma":
+        return KPoints.gamma(precision=precision)
+
+    if option == "automatic":
+        values = [int(fortran_float(v)) for v in card.lines[0].split()[:6]]
+        return KPoints.automatic(
+            tuple(values[:3]), tuple(values[3:6]), cell,
+            precision=precision, rotations=rotations,
+            time_reversal=time_reversal, t_rev=t_rev,
+        )
+
+    # All remaining forms start with a count, then one line per k-point.
+    rows = np.array([[fortran_float(t) for t in line.split()[:4]] for line in card.lines[1:]])
+    declared = int(card.lines[0].split()[0])
+    if len(rows) != declared:
+        raise ValueError(f"K_POINTS declares {declared} points but lists {len(rows)}")
+
+    points, fourth = rows[:, :3], rows[:, 3]
+
+    if option in ("tpiba", "crystal"):
+        # ``irreducible_BZ`` runs on an explicit list too: QE takes it to be the
+        # wedge of the *lattice's* point group and completes it wherever the
+        # crystal has fewer operations. That is a no-op for most inputs and is
+        # exactly what a magnetic noncollinear run needs -- see
+        # :func:`defuqumat.system.kpoints.expand_to_subgroup`.
+        crystal_points = (
+            np.asarray(points, dtype=float) if option == "crystal"
+            else np.asarray(cell.k_to_crystal(np.asarray(points, dtype=float)))
+        )
+        if rotations is not None and lattice_rotations is not None and len(rotations):
+            crystal_points, fourth = expand_to_subgroup(
+                crystal_points, fourth, lattice_rotations, rotations,
+                time_reversal=time_reversal, t_rev=t_rev,
+            )
+        return KPoints.from_crystal(crystal_points, fourth, cell, precision=precision)
+
+    if option in ("tpiba_b", "crystal_b"):
+        return KPoints.band_path(
+            points, fourth, cell, crystal=option.startswith("crystal"), precision=precision
+        )
+
+    if option in ("tpiba_c", "crystal_c"):
+        raise NotImplementedError(
+            "K_POINTS *_c (three points defining a plane) is not needed before the band phase"
+        )
+
+    raise ValueError(f"unknown K_POINTS option {option!r}")

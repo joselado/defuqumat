@@ -1,10 +1,10 @@
 """The Sternheimer response of a spin-polarized system (``nspin = 2``).
 
 ``GAPS.md`` section 3 called this "the single widest guard": one refusal in
-:func:`~defumat.response.sternheimer.require_a_sternheimer_regime` blocked
+:func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime` blocked
 *every* response quantity for *every* spin-polarized system, and the reason it
 gave was an occupied-band count. The count is per spin channel now
-(:func:`~defumat.response.sternheimer.occupied_counts`), which is what QE gets
+(:func:`~defuqumat.response.sternheimer.occupied_counts`), which is what QE gets
 for free by doubling ``nks`` in LSDA -- there each channel is a separate
 k-point and ``setup_nbnd_occ`` writes its own ``nbnd_occ(ik)``.
 
@@ -37,7 +37,7 @@ The difference re-selects which member of the shell falls below the cut,
 because the perturbation splits it at first order; the solve keeps the member
 the eigensolver handed it, which is an arbitrary one. Nothing inside the solve
 can see that, so it is refused by name
-(:data:`~defumat.response.sternheimer.DEGENERATE_CUT_RY`).
+(:data:`~defuqumat.response.sternheimer.DEGENERATE_CUT_RY`).
 
 The oxygen *molecule* is the case that works: twelve electrons and
 ``tot_magnetization = 2`` give seven up and five down, and both are closed
@@ -52,15 +52,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.sternheimer import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.sternheimer import (
     make_sternheimer,
     occupied_counts,
     require_a_sternheimer_regime,
 )
-from defumat.scf import run_scf
-from defumat.system import build_system
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
 
 
 @pytest.fixture(autouse=True)
@@ -137,7 +137,7 @@ def _probe_potential(calculation, amplitudes):
 
 
 def _converged(name, origin_tangent=True, **kwargs):
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / f"{name}.in"))
     pseudos = tuple(
@@ -182,7 +182,7 @@ def _oxygen_molecule(origin_tangent=True):
     comparisons below take it while the QE-free checks keep the default. This
     cell is Gamma-only, so it is the cell where the row carries its full weight
     rather than one k-point's share: see
-    :func:`~defumat.pseudo.projectors.build_projector_core` and `PLAN.md` P24.
+    :func:`~defuqumat.pseudo.projectors.build_projector_core` and `PLAN.md` P24.
 
     The ground state itself does not depend on it -- the rule is the identity in
     the primal and the total energy is **-63.3630837811 Ry on both legs**, every
@@ -233,9 +233,9 @@ def test_chi0_matches_a_finite_difference_for_a_spin_polarized_metal():
     The probe is **twice as strong in the up channel and opposite in sign in the
     down one**, so the two blocks are told apart.
     """
-    from defumat.basis.interpolate import to_dense
-    from defumat.scf.density import sum_band
-    from defumat.scf.occupations import smearing_order, wgauss
+    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.scf.density import sum_band
+    from defuqumat.scf.occupations import smearing_order, wgauss
 
     system, _, calculation, result = _hydrogen_chain()
     solver = make_sternheimer(
@@ -296,8 +296,8 @@ def test_chi0_matches_a_finite_difference_for_a_spin_polarized_insulator():
     with the spin axis they have had since P12 and none of them exercised in a
     response before.
     """
-    from defumat.basis.interpolate import to_dense
-    from defumat.scf.density import becsum as becsum_of, sum_band
+    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.scf.density import becsum as becsum_of, sum_band
 
     system, _, calculation, result = _oxygen_molecule()
     solver = make_sternheimer(calculation, result, spin_polarized=True)
@@ -362,8 +362,8 @@ def _silicon_dielectric(nspin: int):
     ``tot_magnetization`` (``input.f90:784-800``), and zero is one; it fills
     four bands in each channel, which is ``nelec / 2`` twice.
     """
-    from defumat.response.efield import dielectric_tensor
-    from defumat.scf import Calculation
+    from defuqumat.response.efield import dielectric_tensor
+    from defuqumat.scf import Calculation
 
     parsed = read_pw_input(CASES / "si-epsilon.in")
     if nspin == 2:
@@ -430,7 +430,7 @@ def test_a_magnetic_insulators_dielectric_constant_matches_ph_x():
     channel density reaches zero, which a plane-wave magnetization does in
     vacuum. Measured on this cell: **1504 of 91125 grid points** have
     ``|m| >= |n|``, and ``dv_of_drho`` had exactly 1504 ``NaN``. What was
-    concluded from that was that ``defumat.xc``'s spin branch had to be made
+    concluded from that was that ``defuqumat.xc``'s spin branch had to be made
     twice differentiable at a fully polarized point.
 
     It does not: **QE does not compute a kernel there either.** ``dmxc_lsda``
@@ -463,7 +463,7 @@ def test_a_magnetic_insulators_dielectric_constant_matches_ph_x():
     ``eps_xx`` reads 1.11644639 with the term and 1.11091517
     without it, against ``ph.x``'s 1.110915996. `PLAN.md` P24.
     """
-    from defumat.response.efield import dielectric_tensor
+    from defuqumat.response.efield import dielectric_tensor
 
     _, _, calculation, result = _oxygen_molecule(origin_tangent=False)
     response = dielectric_tensor(
@@ -524,7 +524,7 @@ def test_the_lsda_born_charges_match_ph_x():
     ``Z*_xx`` reads 0.1011009 with the term and 0.1337198
     without it, against ``ph.x``'s 0.13367. `PLAN.md` P24.
     """
-    from defumat.response.efield import VACUUM_TR2, dielectric_tensor
+    from defuqumat.response.efield import VACUUM_TR2, dielectric_tensor
 
     _, _, calculation, result = _oxygen_molecule(origin_tangent=False)
     # **The convergence the reference reached, which is now the default for
@@ -564,7 +564,7 @@ def test_the_lsda_born_charges_match_ph_x():
 
 
 def _calculation(name, **overrides):
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     parsed = read_pw_input(CASES / f"{name}.in")
     parsed.namelists["system"].update(overrides)
@@ -630,8 +630,8 @@ def test_an_unflagged_quantity_still_refuses_nspin_two():
     """The guard is opt-in, exactly as ``metals`` is.
 
     Lifting the refusal for everything at once would have silently opened the
-    third derivatives of :mod:`defumat.response.electrostriction` and
-    :mod:`defumat.response.nonlinear`, neither of which has ever been run with
+    third derivatives of :mod:`defuqumat.response.electrostriction` and
+    :mod:`defuqumat.response.nonlinear`, neither of which has ever been run with
     a spin axis and neither of which has a reference here. The flag keeps them
     refusing, and the message says what is now true: the *solve* is
     spin-polarized and the *assembly* is what is missing.
@@ -662,12 +662,12 @@ def test_the_dynamical_matrix_and_the_strain_response_still_refuse_nspin_two():
 
     Their old reason -- "the occupied-band count here is one number for both
     channels" -- is gone: they derive that pair from
-    :func:`~defumat.response.sternheimer.occupied_counts` now. What is left is
+    :func:`~defuqumat.response.sternheimer.occupied_counts` now. What is left is
     the second-derivative assembly above the solve, which is a term rather than
     a count, and the messages name it.
     """
-    from defumat.response.phonon import _require_one_spin_channel as phonon_guard
-    from defumat.response.strain import _require_one_spin_channel as strain_guard
+    from defuqumat.response.phonon import _require_one_spin_channel as phonon_guard
+    from defuqumat.response.strain import _require_one_spin_channel as strain_guard
 
     calculation = _calculation("h-chain-afm")
     with pytest.raises(NotImplementedError, match="second-derivative assembly"):

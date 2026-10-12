@@ -3,20 +3,20 @@
 ``OPEN.md`` A2: the response stack rebuilt the Zeeman term from the **input**
 magnetic field rather than the one the ground state converged under. Two of the
 call sites are outside the Sternheimer stack --
-:func:`defumat.response.velocity.band_velocities` and
-:func:`defumat.workflows.run_conductivity` -- and both now thread
+:func:`defuqumat.response.velocity.band_velocities` and
+:func:`defuqumat.workflows.run_conductivity` -- and both now thread
 ``SCFResult.magnetic_field`` and ``.field_scale`` through. This file measures
 what that is worth, and the answer has two halves.
 
 A magnetic field and a constraining field both enter ``v_scf`` as a *local*
-multiplicative potential (:mod:`defumat.scf.fields`), while
-:class:`~defumat.response.velocity.VelocityOperator` differentiates ``H(k)``
+multiplicative potential (:mod:`defuqumat.scf.fields`), while
+:class:`~defuqumat.response.velocity.VelocityOperator` differentiates ``H(k)``
 with respect to ``kcart`` at a frozen sphere. The obvious conclusion -- that a
 local potential is a constant of that derivative, so nothing moves -- **is true
 for a norm-conserving dataset and false for an ultrasoft or PAW one**, and the
 second half is the reason the fix is a fix rather than a tidy-up.
 
-The route is ``newd``. :meth:`~defumat.scf.driver.Calculation.hamiltonian`
+The route is ``newd``. :meth:`~defuqumat.scf.driver.Calculation.hamiltonian`
 builds ``deeq`` from ``v_scf + vltot`` on every call, and ``deeq`` contracts
 with the projectors ``vkb(k)``, which carry ``k``. So on a soft dataset the
 local potential reaches the velocity through the nonlocal term, and using the
@@ -34,11 +34,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response import VelocityOperator
-from defumat.scf import Calculation
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response import VelocityOperator
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -120,9 +120,9 @@ def test_an_ultrasoft_velocity_does_see_one_through_newd(pseudo_dir):
 
 def _gamma_states(pseudo_dir, case="si2-nosym", nbnd=10, coords=None):
     """Converged silicon, then `nbnd` states at Gamma (or at ``coords``) on that density."""
-    from defumat import Calculator
-    from defumat.system.kpoints import KPoints
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat import Calculator
+    from defuqumat.system.kpoints import KPoints
+    from defuqumat.workflows.nscf import fixed_density_states
 
     calculator = Calculator.from_file(
         CASES / f"{case}.in", pseudo_dir=pseudo_dir, announce=False)
@@ -141,7 +141,7 @@ def _jvp_against_difference(calculation, psi, density, coords, h=5.0e-4):
     coordinates and keeps the plane waves it was selected with -- so what is
     compared is the same operator twice and not two bases.
     """
-    from defumat.system.kpoints import KPoints
+    from defuqumat.system.kpoints import KPoints
 
     v = VelocityOperator(calculation, calculation.potential(density).v_scf)
     k0 = jnp.asarray(v.kcart)
@@ -215,9 +215,9 @@ def test_the_velocity_off_the_reciprocal_lattice_is_right(pseudo_dir):
     largest element is 1.025, where Gamma's 0.15460 does not move with ``h``
     at all.
     """
-    from defumat.system.kpoints import KPoints
-    from defumat.workflows.nscf import fixed_density_states
-    from defumat import Calculator
+    from defuqumat.system.kpoints import KPoints
+    from defuqumat.workflows.nscf import fixed_density_states
+    from defuqumat import Calculator
 
     calculator = Calculator.from_file(
         CASES / "si2-nosym.in", pseudo_dir=pseudo_dir, announce=False)
@@ -245,7 +245,7 @@ def test_the_origin_slope_is_the_transform_of_the_same_table(pseudo_dir):
     written down wrong once, with ``r^l`` where ``_beta_kernel`` carries
     ``r^(l+1)``, which reads 0.2465 against 0.2291.
     """
-    from defumat.pseudo.formfactors import (
+    from defuqumat.pseudo.formfactors import (
         projector_form_factors, projector_origin_slopes)
 
     q = np.array([1.0e-5, 2.0e-5, 4.0e-5])
@@ -265,7 +265,7 @@ def test_the_origin_slope_is_the_transform_of_the_same_table(pseudo_dir):
 def test_the_origin_series_is_the_transform_expanded(pseudo_dir):
     """``g_l(s) = f_l(q)/q^l`` as a series in ``s = q^2`` against the transform.
 
-    :func:`~defumat.pseudo.formfactors.origin_series` is what the rows at
+    :func:`~defuqumat.pseudo.formfactors.origin_series` is what the rows at
     ``k + G = 0`` are rebuilt from, so its first three terms are checked
     against a cubic fit in ``s`` of the transform itself at ``q`` from 0.01 to
     0.06. Measured over the three kinds of dataset, the largest relative
@@ -274,9 +274,9 @@ def test_the_origin_series_is_the_transform_expanded(pseudo_dir):
     column is the old first-order slope, :func:`projector_origin_slopes`, the
     same integral.
     """
-    from defumat.pseudo.formfactors import (
+    from defuqumat.pseudo.formfactors import (
         origin_series, projector_form_factors, projector_origin_slopes)
-    from defumat.units import FPI
+    from defuqumat.units import FPI
 
     q = np.linspace(0.01, 0.06, 11)
     volume = 265.302
@@ -297,7 +297,7 @@ def test_the_origin_series_is_the_transform_expanded(pseudo_dir):
 
 def test_the_solid_harmonics_are_the_spherical_ones_times_q_to_the_l():
     """``S_lm(q) = |q|^l Y_lm(qhat)``, same order and same signs, to ``l = 4``."""
-    from defumat.pseudo.harmonics import real_solid_harmonics, real_spherical_harmonics
+    from defuqumat.pseudo.harmonics import real_solid_harmonics, real_spherical_harmonics
 
     v = jnp.asarray(np.random.default_rng(0).normal(size=(64, 3)))
     norm = np.linalg.norm(np.asarray(v), axis=-1)
@@ -327,7 +327,7 @@ def test_the_origin_rows_keep_every_value_at_the_origin(pseudo_dir):
     at_origin = np.asarray(np.sum(rewritten.kg * rewritten.kg, axis=-1)) <= 1.0e-8
     assert at_origin.any(), "si2-nosym's unshifted grid has a k + G = 0 row"
 
-    from defumat.pseudo.projectors import _has_origin_rows
+    from defuqumat.pseudo.projectors import _has_origin_rows
 
     shifted = _calculation("si-epsilon", pseudo_dir, True).projector_core
     assert not _has_origin_rows(shifted.kg)

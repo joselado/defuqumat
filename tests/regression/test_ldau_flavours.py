@@ -31,13 +31,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import parse_pw_input, read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
-from defumat.units import RY_TO_EV
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import parse_pw_input, read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
+from defuqumat.units import RY_TO_EV
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -129,7 +129,7 @@ def test_the_force_under_the_full_functional_is_the_energy_gradient(pseudo_dir):
     -0.00749 against an analytic -0.00736.
     """
     system, pseudos, calculation, result = _force_case(pseudo_dir)
-    from defumat.forces import compute_forces
+    from defuqumat.forces import compute_forces
 
     forces = np.asarray(compute_forces(calculation, result).forces)
 
@@ -243,7 +243,7 @@ def test_a_fixed_tensor_moment_tracks_its_target(pseudo_dir, penalty, expected):
     free state -- which is the statement that this is a constraint and not a
     different functional's ground state.
     """
-    from defumat.hubbard.ftm import measured_moments
+    from defuqumat.hubbard.ftm import measured_moments
 
     text = (GENERATED / "bn-ldau-noncol.in").read_text().replace(
         " &system", f" &system\n    tensor_moment_penalty = {penalty}"

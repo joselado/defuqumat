@@ -33,7 +33,7 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -271,7 +271,7 @@ def test_the_k_chunked_coupling_is_the_whole_k_coupling():
     ``k`` or ``k + q`` (rule D4), and the two routes diagonalise ``k + q`` with
     different compiled programs.
     """
-    from defumat.response.elph import electron_phonon_at_q
+    from defuqumat.response.elph import electron_phonon_at_q
 
     q, name = REFERENCES["q1"]
     calc = _calculator("al-elph-nosym")

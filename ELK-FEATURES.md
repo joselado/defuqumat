@@ -448,7 +448,7 @@ neither does the Coulomb term, the head/wing structure or the velocity operator.
 *P19's two-sphere machinery is not needed either.* Restricting `q` to a difference of two
 k-points of the run's own grid -- which is Elk's `vecql` commensurability, reached by
 construction -- puts `k + q` in the grid already. What is left of the problem is an
-umklapp shift of one gather index, which `defumat/topology/` has had since P16.
+umklapp shift of one gather index, which `defuqumat/topology/` has had since P16.
 
 *The named starting case was the wrong one and for a reason this file could have
 predicted.* A hydrogen **chain** has vacuum, and `B_xc/m` grows without bound as the

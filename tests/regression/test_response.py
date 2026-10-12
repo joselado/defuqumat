@@ -3,18 +3,18 @@
 The stages of the phase, each checked against something that shares no
 machinery with it:
 
-* **the velocity operator** (:mod:`defumat.response.velocity`) against a
+* **the velocity operator** (:mod:`defuqumat.response.velocity`) against a
   central difference of the band structure. ``dH/dk`` comes from one ``jvp`` of
   ``H(k)`` at a frozen sphere and the reference comes from diagonalising at
   ``k +- h``, so the only thing the two have in common is the Hamiltonian
   itself. It is checked once more against a *symmetry* statement, which shares
   nothing with either: at ``Gamma`` an inversion-symmetric crystal has states of
   definite parity, so every band velocity is exactly zero.
-* **the Sternheimer solve** (:mod:`defumat.response.sternheimer`) against a
+* **the Sternheimer solve** (:mod:`defuqumat.response.sternheimer`) against a
   central difference of the density under the same perturbation, and its
   composition with the screening kernel against P22's own finite-difference SCF
   Jacobian -- at *that* difference's optimal step, which is not its default one.
-* **the electric field** (:mod:`defumat.response.efield`) against the
+* **the electric field** (:mod:`defuqumat.response.efield`) against the
   **vendored** ``ph.x``, regenerated -- ``ph_base``'s committed benchmark dates
   from release 6.0 and has drifted by six times the disagreement being measured
   -- on norm-conserving, ultrasoft and PAW silicon and on ultrasoft carbon; and
@@ -37,12 +37,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response import VelocityOperator, make_sternheimer
-from defumat.scf import run_scf
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response import VelocityOperator, make_sternheimer
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 
 
 @pytest.fixture(autouse=True)
@@ -109,7 +109,7 @@ def _states_at(case: str, coords, nbnd: int = 8):
     serves all three datasets.
     """
     system, pseudos, result = _converged(case)
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     calculation = Calculation(system, pseudos)
     kpoints = KPoints(coords=jnp.asarray(coords), weights=jnp.ones(len(coords)))
@@ -189,11 +189,11 @@ def test_the_band_velocity_vanishes_at_gamma():
     definite parity and ``<psi|v|psi>`` is zero exactly. Nothing in the operator
     knows that: it is built from ``dH/dk`` at a k-point like any other, and what
     is left over is the eigensolver's own tolerance. It also exercises
-    :func:`~defumat.response.band_velocities`, which is the entry point the
+    :func:`~defuqumat.response.band_velocities`, which is the entry point the
     README names and which the tests above bypass.
     """
-    from defumat.response import band_velocities as compute_velocities
-    from defumat.scf import Calculation
+    from defuqumat.response import band_velocities as compute_velocities
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / "si2-nc-force.in"))
     pseudo_dir = Path(__file__).resolve().parents[1] / "data" / "pseudo"
@@ -286,7 +286,7 @@ def _probe_potential(calculation):
 @lru_cache(maxsize=None)
 def _silicon():
     """The reference two-atom silicon of ``pw_scf/scf.in``, converged tightly."""
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     testsuite = (
         Path(__file__).resolve().parents[2]
@@ -320,9 +320,9 @@ def test_chi0_matches_a_finite_difference_of_the_density(case):
     ``newd``, which already knew about them. The reference builds its density the
     same way, so it carries them too.
     """
-    from defumat.basis.interpolate import to_dense
-    from defumat.scf import Calculation
-    from defumat.scf.density import becsum as becsum_of, sum_band
+    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.scf import Calculation
+    from defuqumat.scf.density import becsum as becsum_of, sum_band
 
     system = build_system(read_pw_input(CASES / f"{case}.in"))
     pseudo_dir = Path(__file__).resolve().parents[1] / "data" / "pseudo"
@@ -396,7 +396,7 @@ METAL_CHI0_RELATIVE = 1e-6
 @lru_cache(maxsize=None)
 def _metal():
     """The converged aluminium of ``al-metal.in`` -- QE's own ``pw_metal`` cell."""
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / "al-metal.in"))
     pseudo_dir = Path(__file__).resolve().parents[1] / "data" / "pseudo"
@@ -422,7 +422,7 @@ def test_chi0_matches_a_finite_difference_for_a_metal():
     re-converging it, and that is not a shortcut -- it is what the quantity being
     computed is. The Sternheimer response of a metal is the response at fixed
     ``ef``; the level's own motion is a separate correction
-    (:meth:`~defumat.response.sternheimer.SternheimerSolver.fermi_level_shift`,
+    (:meth:`~defuqumat.response.sternheimer.SternheimerSolver.fermi_level_shift`,
     ``ef_shift``), and testing the two together would test neither.
 
     What the metal branch changes, and what this therefore checks at once: the
@@ -434,9 +434,9 @@ def test_chi0_matches_a_finite_difference_for_a_metal():
     four wrong moves this by far more than the truncation error below -- the
     weight convention alone would double-count the occupations.
     """
-    from defumat.basis.interpolate import to_dense
-    from defumat.scf.density import sum_band
-    from defumat.scf.occupations import smearing_order, wgauss
+    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.scf.density import sum_band
+    from defuqumat.scf.occupations import smearing_order, wgauss
 
     system, calculation, result = _metal()
     solver = make_sternheimer(calculation, result, metals=True)
@@ -511,10 +511,10 @@ def test_a_metal_is_refused_the_quantities_it_does_not_have():
 
     ``pw.x`` refuses ``epsil`` for a metal for the same reason, and the refusal
     is here rather than three times over because
-    :func:`~defumat.response.sternheimer.require_a_sternheimer_regime` takes a
+    :func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime` takes a
     flag saying whether the *caller's* quantity survives a Fermi surface.
     """
-    from defumat.response.efield import dielectric_tensor
+    from defuqumat.response.efield import dielectric_tensor
 
     _, calculation, _ = _metal()
     with pytest.raises(NotImplementedError, match="epsilon_infinity"):
@@ -574,7 +574,7 @@ def test_the_dynamical_matrix_of_a_metal_is_not_refused_any_more():
     refused and are covered by
     :func:`test_the_regimes_without_a_response_here_are_refused_by_name`.
     """
-    from defumat.response.sternheimer import require_a_sternheimer_regime
+    from defuqumat.response.sternheimer import require_a_sternheimer_regime
 
     _, calculation, _ = _metal()
     assert calculation.system.occupations != "fixed", "this cell must be a metal"
@@ -587,13 +587,13 @@ def test_the_exact_jacobian_agrees_with_the_finite_difference_one():
     ``F`` maps a density to the density its Hamiltonian produces, so
     ``dF/drho = chi_0 K`` with ``K = dV_scf/drho`` -- and ``K`` is free, being
     one ``jvp`` of ``v_of_rho`` (rule D1). The comparison is against
-    :meth:`~defumat.scf.residual.ScfResidual.jvp_finite_difference`, which
+    :meth:`~defuqumat.scf.residual.ScfResidual.jvp_finite_difference`, which
     evaluates ``F`` twice and shares nothing with the linear solve.
 
     ``F`` symmetrises its output density and on a symmetry-reduced k-set that is
     not a no-op, so the exact route has to symmetrise too.
     """
-    from defumat.scf.residual import make_residual
+    from defuqumat.scf.residual import make_residual
 
     _, _, calculation, result = _silicon()
     rho = jnp.asarray(result.density)
@@ -639,7 +639,7 @@ def test_the_regimes_without_a_response_here_are_refused_by_name(case, expected)
     (Ultrasoft and PAW *were* on this list and are not any more -- they are
     implemented and checked above.)
     """
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / f"{case}.in"))
     pseudo_dir = Path(__file__).resolve().parents[1] / "data" / "pseudo"
@@ -733,8 +733,8 @@ IDENTITY = {"tr2": 1.0e-24, "threshold": 1.0e-12}
 @lru_cache(maxsize=None)
 def _dielectric(case: str, **options):
     """The electric-field response of one of the committed inputs."""
-    from defumat.response.efield import dielectric_tensor
-    from defumat.scf import Calculation
+    from defuqumat.response.efield import dielectric_tensor
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / f"{case}.in"))
     pseudo_dir = Path(__file__).resolve().parents[1] / "data" / "pseudo"
@@ -810,7 +810,7 @@ def test_the_born_charges_match_quantum_espresso(case):
     **The ultrasoft cases are the point** (``PLAN.md`` P24b). ``Z*`` is
     ``dF/dE``, a mixed second derivative, and it is computed as one -- one
     ``jvp`` of the force along the field response
-    (:mod:`defumat.response.born`) -- so four of the five stages
+    (:mod:`defuqumat.response.born`) -- so four of the five stages
     ``zstar_eu_us.f90`` adds are terms of the same derivative rather than five
     more routines. The norm-conserving expression on this ultrasoft cell gives
     **+0.1625**, wrong in sign as well as size, which is what the machinery here
@@ -820,7 +820,7 @@ def test_the_born_charges_match_quantum_espresso(case):
     # A bulk crystal keeps ph.x's default when it asks for charges: no point of
     # these cells is vacuum, so the loop ran against the same tr2 as before the
     # vacuum default existed and took the same passes.
-    from defumat.response.efield import TR2, VACUUM_DENSITY
+    from defuqumat.response.efield import TR2, VACUUM_DENSITY
 
     assert response.tr2 == TR2
     assert np.asarray(result.density)[0].min() > VACUUM_DENSITY
@@ -839,17 +839,17 @@ def test_the_mixed_derivative_reproduces_the_transcribed_zstar_eu():
     """The regression gate on the whole assembly, and it is an *equality*.
 
     ``zstar_eu.f90`` is transcribed beside the mixed derivative
-    (:func:`~defumat.response.efield.born_charges_zstar_eu`) and shares only the
+    (:func:`~defuqumat.response.efield.born_charges_zstar_eu`) and shares only the
     field response ``dpsi`` with it -- one contracts the bare displacement
     perturbation by hand, the other differentiates the force. On a
     norm-conserving dataset they must agree exactly, and that is what says every
-    term :mod:`defumat.response.born` adds for an ultrasoft dataset switches
+    term :mod:`defuqumat.response.born` adds for an ultrasoft dataset switches
     itself off when ``S = 1``: the matrix multipliers, the augmentation charge's
     share of the frozen polarization, and ``add_for_charges``' ``dS/du`` are all
     identically zero there, and any one of them leaking would show up here long
     before it showed up against ``ph.x``'s five printed digits.
     """
-    from defumat.response.efield import born_charges_zstar_eu
+    from defuqumat.response.efield import born_charges_zstar_eu
 
     _, response = _dielectric("si-epsilon")
     internals = response.internals
@@ -883,7 +883,7 @@ def test_the_wedge_and_the_closed_grid_give_one_born_charge():
     with the symmetrisation switched off. It is a coarse sample on purpose: the
     charges come out near 0.27 and -8.63 rather than near 2, so the agreement
     below is absolute rather than a cancellation. Without
-    :func:`~defumat.response.born._full_zone_field_response` the wedge gives
+    :func:`~defuqumat.response.born._full_zone_field_response` the wedge gives
     -8.634862 where the closed grid gives -8.627197, so this fires at 7.7e-3 --
     and the closed grid does not move at all, because the correction is
     identically zero where there is no group to average over, which is what
@@ -929,8 +929,8 @@ def test_a_shifted_grid_with_no_symmetry_is_refused():
     off-diagonal entries of 3.77 that cubic symmetry forbids. It is P6's trap
     (``si2-nc-shifted-nosym.in``) in a second place.
     """
-    from defumat.response.efield import dielectric_tensor
-    from defumat.scf import Calculation
+    from defuqumat.response.efield import dielectric_tensor
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / "si2-nc-shifted-nosym.in"))
     pseudo_dir = Path(__file__).resolve().parents[1] / "data" / "pseudo"

@@ -71,7 +71,7 @@ P105), and nothing else.
    `E(q)` is what the NiI2 surface on Triton produces, so this is the item that bears on
    the science directly. Untested: Elk's own `rgkmax` convergence, at about 40 minutes a
    point pinned, and the field convention, Elk's `bfieldc` entering as `(g_e/4c) sigma.B`
-   in Hartree against a potential shift in Ry here. The converged defumat moment crosses
+   in Hartree against a potential shift in Ry here. The converged defuqumat moment crosses
    Elk's rather than approaching it (0.573 against 0.538 at `ecutwfc = 80`).
 
 3. **The dielectric tensor of a textured spinor is 5.3 per cent from `ph.x` along the

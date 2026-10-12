@@ -36,14 +36,14 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat import Calculator
-from defumat.scf.driver import SCFResult
-from defumat.transport.momentum import (
+from defuqumat import Calculator
+from defuqumat.scf.driver import SCFResult
+from defuqumat.transport.momentum import (
     decay_constants,
     decay_identity,
     pocket_mask,
 )
-from defumat.workflows.transport import run_momentum_transport
+from defuqumat.workflows.transport import run_momentum_transport
 
 HERE = Path(__file__).parent
 PSEUDO = HERE.parents[1] / "tests" / "data" / "pseudo"

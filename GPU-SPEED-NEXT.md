@@ -35,7 +35,7 @@ evidence; an A/B is`. Record the steps with every timing. Two stories that fitte
 ## Where it stands, 2026-10-05 (branch `card-scatter-field-batch`, `PLAN.md` P131)
 
 Three of the D22-alone items below were taken up. **The batched field solve is done**
-(`DEFUMAT_FIELD_BATCH`, on by default on a card) and is worth 4 to 5 per cent of a warm call, not
+(`DEFUQUMAT_FIELD_BATCH`, on by default on a card) and is worth 4 to 5 per cent of a warm call, not
 the factor the bullet in item 7 forecast: P127 had already removed most of the tracing that
 forecast was sized on. **The float32 setup cast and the `syevdx` subspace solve were put to the
 user and skipped** (2026-10-05): `band_precision = 'single'` already covers the band side, and
@@ -77,11 +77,11 @@ workstation's CPU. Running it on D22 is `review/card_gate.sh`, which leaves out 
 
 The open items split by what they need. **A float64 card**, so a Triton job the user approves: the
 A100-class profile (item 5; `nsys` is not on the GPU nodes and `module spider nsight` has not been
-tried), the dials of item 6 (the FFT layout, `DEFUMAT_HOST_EIGH_ROWS`, a band batch that follows the cell
+tried), the dials of item 6 (the FFT layout, `DEFUQUMAT_HOST_EIGH_ROWS`, a band batch that follows the cell
 size, and the radial chunk's 8 MB, `GPU-MEMORY-NEXT.md`'s fourth start item), the slab's step count and
 the V100's `k=all, b=1` reading (both item 7). **D22 alone**: the batched field solve (item 7, first
 bullet), the float32 tier's setup cast (item 7, `GPU-MEMORY-NEXT.md` item 26), the lowest-`nbnd` subspace
-`eigh` through `syevdx` (item 7; nothing in `defumat/` calls `syevdx` or `subset_by_index`), and the
+`eigh` through `syevdx` (item 7; nothing in `defuqumat/` calls `syevdx` or `subset_by_index`), and the
 memory tail of `GPU-MEMORY-NEXT.md`'s start list.
 
 Three facts about the batched field solve, read off the code after P127. `_WholeField.respond` still
@@ -185,13 +185,13 @@ XLA command buffers (a null here: `--xla_gpu_enable_command_buffer` with `WHILE,
 
 ## 6. The dials that depend on the card -- priority 3, needs a float64 card
 
-* `DEFUMAT_FFT_LAYOUT` (`sticks` default, `box`): equal to round-off. **Re-measured 2026-10-01 evening,
+* `DEFUQUMAT_FFT_LAYOUT` (`sticks` default, `box`): equal to round-off. **Re-measured 2026-10-01 evening,
   after the stick fill became a gather** (it had been a scatter the card ran as a loop over sticks): on
   the A2000 in speed mode sticks 63.9 against box 70.3 ms at 16 atoms, 153 against 173 on a 27-point
   mesh of 8 atoms, 1424 against 1423 at 64, and 17.7 against 16.6 at 8 atoms with one k-point; sticks
   9.5 per cent faster at 16 atoms on a CPU. The default stays `sticks`. Decide on a float64 card.
 * **The subspace `eigh` by the host's LAPACK, for small matrices on a card** -- now an opt-in dial,
-  `DEFUMAT_HOST_EIGH_ROWS` (2026-10-02, measured on whole SCFs: 1.36x on a 27-point mesh in memory mode,
+  `DEFUQUMAT_HOST_EIGH_ROWS` (2026-10-02, measured on whole SCFs: 1.36x on a 27-point mesh in memory mode,
   1.14x at one k-point, 1.00x at 64 atoms, 0.98x in speed mode; `PERFORMANCE.md`, "The host's LAPACK for
   the small subspace solves"); the user decided on 2026-10-02 to keep it opt-in until a float64 card is measured. The
   device `syevd` is 0.63, 1.11, 3.56 and 6.65 ms a call at 16, 32, 64 and 128 rows on the A2000 against
@@ -205,14 +205,14 @@ XLA command buffers (a null here: `--xla_gpu_enable_command_buffer` with `WHILE,
 * The accelerator band-dial default is the whole block. Stall-free at 64 atoms the best is 16 to 32,
   10 per cent under it (1350 to 1359 against 1497 ms), and at 16 atoms the whole block is best. A
   default that follows the cell size would be a third dial; the gain is small on this card.
-* `DEFUMAT_BAND_RUNGS` on a large spinor cell (2026-10-02, `bi20-soc`, the cache off): 4, 2 and 1 rungs
+* `DEFUQUMAT_BAND_RUNGS` on a large spinor cell (2026-10-02, `bi20-soc`, the cache off): 4, 2 and 1 rungs
   compile the Davidson solve in 78.9, 68.8 and 60.9 s and run three iterations in 74.7, 76.3 and 77.2 s,
   equal steps and energy, so the three extra rungs pay their 18 s back after about 22 iterations. The
   default stays four. **That is a cold-cache figure**: the compile is XLA's autotuning, which the
   persistent cache keeps per matrix-product shape, so with a warm cache two and one rungs compile in 2.8
   and 2.7 s (`PERFORMANCE.md`, "A card's compile is its autotuning").
 * **A card job's cache directory should outlive the job** (2026-10-02): 76 of `bi20-soc`'s 79 s of
-  Davidson compile is autotuning, kept in `DEFUMAT_CACHE_DIR`'s `xla_gpu_per_fusion_autotune_cache_dir`.
+  Davidson compile is autotuning, kept in `DEFUQUMAT_CACHE_DIR`'s `xla_gpu_per_fusion_autotune_cache_dir`.
   `--xla_gpu_autotune_level=0` removes it at 1.3 to 5.4 per cent of every iteration, so it is a one-off
   run's setting and not a default.
 * Memory mode costs a steady 8 per cent over speed mode at 64 atoms (the rebuild, the streamed store
@@ -225,7 +225,7 @@ XLA command buffers (a null here: `--xla_gpu_enable_command_buffer` with `WHILE,
 
 ## 7. Other items that came up -- priority 4
 
-* **A warm response call on a card is 40 per cent key** (2026-10-02): after `defumat/eager.py` a second
+* **A warm response call on a card is 40 per cent key** (2026-10-02): after `defuqumat/eager.py` a second
   AlAs dielectric tensor on the A2000 is 7.1 s, of which 2.1 s is tracing the closures and 0.8 s
   printing their jaxprs to hash them. The fix is a perturbation written as a function of explicit
   arrays (a pytree with a static kind), so that `SternheimerSolver.solve` and the response density can be
@@ -269,7 +269,7 @@ XLA command buffers (a null here: `--xla_gpu_enable_command_buffer` with `WHILE,
   section 4a), and on the H200 it is 0.99x in speed mode and 1.20x in memory mode a run. The grid
   side and the setup arrays' precision policy, the named blocker, are not.)*
 * **A request tighter than `conv_thr = 1e-10`** no longer stalls on the arms measured (1e-11 and 1e-12
-  at sixteen atoms, 1e-11 at 64), and `DEFUMAT_ETHR_MIN` raises the floor if one is met, at a cost in
+  at sixteen atoms, 1e-11 at 64), and `DEFUQUMAT_ETHR_MIN` raises the floor if one is met, at a cost in
   accuracy (the force error doubled at 3e-12 on a displaced cell). The warning for a call at the budget
   says when to reach for it.
 

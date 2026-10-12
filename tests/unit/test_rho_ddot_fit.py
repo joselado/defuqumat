@@ -17,8 +17,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.scf.mixing import AndersonMixer
-from defumat.scf.potential import (
+from defuqumat.scf.mixing import AndersonMixer
+from defuqumat.scf.potential import (
     ns_ddot_vector,
     rho_ddot_vector,
     scf_accuracy,
@@ -29,9 +29,9 @@ from defumat.scf.potential import (
 
 def _accuracy_pieces():
     """A dense G set and a cell, built without an SCF."""
-    from defumat.basis.builder import build_basis
-    from defumat.io.pwin import read_pw_input
-    from defumat.system import build_system
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.system import build_system
 
     case = Path(__file__).resolve().parents[1] / "data" / "qe" / "si2-tb09.in"
     system = build_system(read_pw_input(case))
@@ -99,7 +99,7 @@ def test_the_tau_vector_is_tauk_ddot(pieces, nspin):
 @pytest.mark.parametrize("nspin, complex_ns", [(1, False), (2, False), (4, True)])
 def test_the_ns_vector_is_ns_ddot(nspin, complex_ns):
     """``sqrt(U/2)`` per site, doubled at one channel, a norm for a spinor's complex ``ns``."""
-    from defumat.hubbard.energy import ns_ddot
+    from defuqumat.hubbard.energy import ns_ddot
 
     rng = np.random.default_rng(400 + nspin)
     shape = (nspin, 3, 5, 5)
@@ -160,7 +160,7 @@ def test_a_different_metric_gives_different_coefficients():
 
 def test_the_checkpoint_carries_the_fit_vectors_and_not_the_metric(tmp_path):
     """The installed callable is derived, the stored vectors are state."""
-    from defumat.scf.checkpoint import load_mixer, save_mixer, unhandled_mixer_fields
+    from defuqumat.scf.checkpoint import load_mixer, save_mixer, unhandled_mixer_fields
 
     mixer = AndersonMixer(beta=0.4, history=4)
     mixer.metric = lambda drho, dns, dtau: np.asarray(drho).ravel()
@@ -180,7 +180,7 @@ def test_the_checkpoint_carries_the_fit_vectors_and_not_the_metric(tmp_path):
 
 def test_mix_hands_the_metric_vector_to_the_mixer():
     """``_mix`` evaluates an installed metric on the structured residual and passes it on."""
-    from defumat.scf import driver
+    from defuqumat.scf import driver
 
     seen = {}
 
@@ -210,8 +210,8 @@ def test_a_flat_checkpoint_resumed_with_the_metric_warns_that_its_history_goes(
     """
     import warnings
 
-    from defumat import Calculator
-    from defumat.scf import driver
+    from defuqumat import Calculator
+    from defuqumat.scf import driver
 
     source = Path(__file__).resolve().parents[2] / "benchmarks" / "si-1k.in"
     calculator = Calculator.from_file(
@@ -232,7 +232,7 @@ def test_a_flat_checkpoint_resumed_with_the_metric_warns_that_its_history_goes(
 
 
 def _calculation(name):
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     here = Path(__file__).resolve().parents[1] / "data"
     return Calculator.from_file(here / "qe" / name, pseudo_dir=here / "pseudo",
@@ -249,7 +249,7 @@ def test_the_assembled_metric_is_the_loops_accuracy(name, part):
     coefficients, and the charge, ``ns`` and ``tau`` blocks in one vector whose
     self-dot is the ``accuracy`` the loop converges on.
     """
-    from defumat.scf import driver
+    from defuqumat.scf import driver
 
     calculation = _calculation(name)
     dense, cell = calculation.basis.dense, calculation.system.cell
@@ -273,7 +273,7 @@ def test_a_negative_u_is_refused_as_a_metric():
     """``ns_ddot`` with a negative ``U`` is indefinite, so it is no inner product."""
     import copy
 
-    from defumat.scf import driver
+    from defuqumat.scf import driver
 
     calculation = copy.copy(_calculation("ni-kind1-force.in"))
     coefficients = dict(calculation.hubbard_coefficients)

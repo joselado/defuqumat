@@ -14,14 +14,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.forces.torque import (
+from defuqumat.forces.torque import (
     cross_matrix,
     rotate_texture,
     rotated_density,
     rotation_near,
 )
-from defumat.system.builder import system_from_file
-from defumat.workflows.anisotropy import (
+from defuqumat.system.builder import system_from_file
+from defuqumat.workflows.anisotropy import (
     _checked_rotation,
     _reference_axis,
     _rotation_taking,
@@ -167,7 +167,7 @@ def test_a_turn_about_the_reference_axis_moves_the_other_moment():
     angle between them stays 90 degrees. ``_with_quantization_axis`` has no way
     to ask for this, since the direction it is given does not change.
     """
-    from defumat.scf.continuation import direction_from_angles
+    from defuqumat.scf.continuation import direction_from_angles
 
     system = _canted()
     about_x = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]])
@@ -191,7 +191,7 @@ def test_the_chart_s_jacobian_carries_a_left_turn_to_the_chart():
     Checked to second order in ``d`` at a generic ``x``, and at the origin, where
     ``J`` is the identity and its series takes over from the quotients.
     """
-    from defumat.workflows.anisotropy import _exp_rotation, _left_jacobian
+    from defuqumat.workflows.anisotropy import _exp_rotation, _left_jacobian
 
     x = np.array([0.3, -0.7, 1.1])
     for d in (1e-4 * np.array([0.2, 0.5, -0.4]), 1e-6 * np.array([-1.0, 0.3, 0.8])):
@@ -214,7 +214,7 @@ def test_an_unfolded_spiral_turns_by_minus_q_dot_r_from_cell_to_cell():
     the moment turns by ``+90`` degrees per cell, so it points along ``x``, ``y``,
     ``-x``, ``-y`` at the four cell origins. ``q = +1/4`` turns it the other way.
     """
-    from defumat.workflows.spiral import unfold_spiral_density
+    from defuqumat.workflows.spiral import unfold_spiral_density
 
     rotating = np.zeros((4, 4, 4, 5))
     rotating[0] = 1.0
@@ -244,7 +244,7 @@ def test_the_nyquist_plane_of_an_even_grid_unfolds_to_the_edge_it_belongs_to(q3)
     ``exp(i 2 pi (l - q3) z / c)`` with ``l = +n/2`` for one sign and ``-n/2``
     for the other.
     """
-    from defumat.workflows.spiral import unfold_spiral_density
+    from defuqumat.workflows.spiral import unfold_spiral_density
 
     n, cells = 6, 4
     z = np.arange(n) / n
@@ -269,7 +269,7 @@ def test_a_supercell_grid_that_is_not_the_repeat_is_warned():
     density comes out right and is checked to; the warning is about what the
     exchange-correlation potential does with other points.
     """
-    from defumat.workflows.spiral import unfold_spiral_density
+    from defuqumat.workflows.spiral import unfold_spiral_density
 
     rotating = np.zeros((4, 4, 4, 5))
     rotating[0] = 1.0
@@ -279,7 +279,7 @@ def test_a_supercell_grid_that_is_not_the_repeat_is_warned():
 
 
 def test_an_incommensurate_or_aliased_unfolding_is_refused():
-    from defumat.workflows.spiral import unfold_spiral_density
+    from defuqumat.workflows.spiral import unfold_spiral_density
 
     rotating = np.zeros((4, 4, 4, 5))
     with pytest.raises(ValueError, match="not commensurate"):

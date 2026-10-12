@@ -26,7 +26,7 @@ the energy is stationary. The second atom is displaced by 0.02 alat in both cell
 precisely so that the force is a real number rather than the symmetry residue two
 atoms related by inversion would leave.
 
-This script runs the defumat side and writes JSON. The ``pw.x`` side is the same
+This script runs the defuqumat side and writes JSON. The ``pw.x`` side is the same
 input through the Fortran binary, run by the same array, and the comparison is
 made afterwards from the two files.
 
@@ -40,7 +40,7 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 CASES = Path("tests/data/qe")
 PSEUDO = Path("tests/data/pseudo")

@@ -16,7 +16,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from defumat.io.elk import read_elk_geometry
+from defuqumat.io.elk import read_elk_geometry
 
 #: ``modmain.f90``, both declared ``parameter``; ``solscf`` defaults to 1.
 GFACTE = 2.00231930436256
@@ -51,7 +51,7 @@ def test_the_per_atom_field_gives_elks_zeeman_splitting(tmp_path):
     ``cb B_z`` and lowers spin-down by the same, a splitting
     ``e_up - e_down = 2 cb B_z`` Ha = ``4 cb B_z`` Ry. This code's energy is
     ``-B.m``, so its field lowers spin-up by ``B_z`` and the splitting is
-    ``-2 B_z`` Ry. Equal splittings is ``B_defumat = -2 cb B_Elk``.
+    ``-2 B_z`` Ry. Equal splittings is ``B_defuqumat = -2 cb B_Elk``.
     """
     b_elk = 0.5
     geometry = _geometry(tmp_path, [(0.0, 0.0, b_elk)])
@@ -65,7 +65,7 @@ def test_the_per_atom_field_gives_elks_zeeman_splitting(tmp_path):
 
 
 def test_the_zeeman_energy_of_any_moment_is_elks(tmp_path):
-    """``-B_defumat . m`` equals Elk's ``cb m.B`` for every component and atom.
+    """``-B_defuqumat . m`` equals Elk's ``cb m.B`` for every component and atom.
 
     ``energy.f90:100`` writes the field energy as ``cb momtot.bfieldc`` in
     Hartree, and ``bfcmt`` enters the same Kohn-Sham field through the same

@@ -18,8 +18,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.hamiltonian.operator import conjugated_contraction
+from defuqumat import Calculator
+from defuqumat.hamiltonian.operator import conjugated_contraction
 from tests.backend import assert_same
 
 pytestmark = pytest.mark.unit

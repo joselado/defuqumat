@@ -23,8 +23,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.forces.chunked import _rows_of
-from defumat.scf.streaming import stream_diagonalize
+from defuqumat.forces.chunked import _rows_of
+from defuqumat.scf.streaming import stream_diagonalize
 
 pytestmark = pytest.mark.unit
 
@@ -130,7 +130,7 @@ def test_a_donated_view_of_the_store_is_copied_not_written_through():
     block = jax.device_put(view)
     assert block.unsafe_buffer_pointer() == view.ctypes.data, (
         "device_put no longer aliases an aligned view on a CPU; the note in "
-        "defumat.scf.streaming._to_device describes a behaviour that is gone")
+        "defuqumat.scf.streaming._to_device describes a behaviour that is gone")
 
     solve = jax.jit(lambda psi: 2.0 * psi, donate_argnums=0)
     out = solve(block)

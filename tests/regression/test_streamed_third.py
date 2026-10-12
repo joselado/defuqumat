@@ -1,6 +1,6 @@
 """The third derivatives walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defumat.response.chunked_third`). The
+``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_third`). The
 same re-diagonalised states give the field response twice, once whole and once
 walked with its stores in host memory, and the same tangents (the whole route's
 strain or displacement response) are handed to the whole route's third
@@ -10,7 +10,7 @@ alone:
 * **electrostriction's** ``d(eps)/d(strain)`` on norm-conserving silicon (a
   closed grid, 8 k-points in chunks of 3) and ultrasoft silicon (the occupied
   block ``ort`` and ``adddvepsi_us``'s tail in ``db``);
-* the end-to-end :func:`~defumat.response.electrostriction.electrostriction`
+* the end-to-end :func:`~defuqumat.response.electrostriction.electrostriction`
   on a host store against the whole route on the device, where the two
   re-diagonalisations are different programs and agree only to their
   threshold;
@@ -33,16 +33,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.response.chunked_third import walked_susceptibility_derivative
-from defumat.response.efield import dielectric_tensor
-from defumat.response.electrostriction import (
+from defuqumat import Calculator
+from defuqumat.response.chunked_third import walked_susceptibility_derivative
+from defuqumat.response.efield import dielectric_tensor
+from defuqumat.response.electrostriction import (
     VOIGT, electrostriction, field_blocks, refined_states,
     susceptibility_strain_derivative,
 )
-from defumat.response.nonlinear import raman_tensors
-from defumat.response.spectra import vibrational_spectrum
-from defumat.response.strain import strain_response, strain_tangent
+from defuqumat.response.nonlinear import raman_tensors
+from defuqumat.response.spectra import vibrational_spectrum
+from defuqumat.response.strain import strain_response, strain_tangent
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 

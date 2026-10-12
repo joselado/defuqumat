@@ -1,4 +1,4 @@
-"""One core of defumat on selenium with spin-orbit coupling under Elk's Gaussian pulse.
+"""One core of defuqumat on selenium with spin-orbit coupling under Elk's Gaussian pulse.
 
     taskset -c 0 python3 se_time.py ECUT N DT STEPS BLOCK POTENTIAL OUT.npz [FWHM_FS] [INTENSITY]
 
@@ -16,8 +16,8 @@ import time
 
 import numpy as np
 
-import defumat  # noqa: F401
-from defumat import Calculator
+import defuqumat  # noqa: F401
+from defuqumat import Calculator
 
 from se_common import PSEUDO, make_input, pulse
 
@@ -40,7 +40,7 @@ print(json.dumps({"scf_first_s": scf_first, "scf_warm_s": scf_warm,
                   "scf_iterations": scf.iterations, "nks_scf": len(calc.system.kpoints.weights),
                   "total_energy_ry": float(scf.total_energy)}), flush=True)
 
-from defumat.workflows import realtime as workflow  # noqa: E402
+from defuqumat.workflows import realtime as workflow  # noqa: E402
 
 marks = {}
 original = workflow._occupied_states

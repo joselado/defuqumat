@@ -2,7 +2,7 @@
 
 Written 2026-10-01 for the card's endgame stall (`PERFORMANCE.md`, "The endgame on a card is a
 stall"; `GPU-SPEED-NEXT.md`). Run everything from the repository root, one process per
-configuration, with `DEFUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` and the host pinned
+configuration, with `DEFUQUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` and the host pinned
 (`taskset -c 0-3`) the way `tools/parallel/gpu_scan.sh` does, and nothing else on the card.
 
 * `../../parallel/time_scf.py <input> <repeats> <label> [--max-iterations n] [--conv-thr x]`: one warm

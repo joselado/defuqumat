@@ -15,11 +15,11 @@ import pytest
 
 import jax.numpy as jnp
 
-from defumat.basis.fft import (
+from defuqumat.basis.fft import (
     force_real_g0, g_to_r, g_to_r_gamma, gamma_inner, r_to_g, r_to_g_gamma,
 )
-from defumat.basis.gvectors import generate_gvectors
-from defumat.system.cell import Cell
+from defuqumat.basis.gvectors import generate_gvectors
+from defuqumat.system.cell import Cell
 
 pytestmark = pytest.mark.unit
 
@@ -177,9 +177,9 @@ def test_a_hubbard_run_cannot_consume_the_half_sphere():
     the end. It is therefore a substitution -- run the same cell at an explicit
     k = 0 -- and not something left to a consumer to refuse.
     """
-    from defumat.io.pwin import parse_pw_input
-    from defumat.scf.driver import gamma_storage_is_consumable
-    from defumat.system.builder import build_system
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.scf.driver import gamma_storage_is_consumable
+    from defuqumat.system.builder import build_system
 
     system = build_system(parse_pw_input(_GAMMA_HUBBARD))
     assert system.kpoints.gamma_only and system.nosym
@@ -201,7 +201,7 @@ def test_the_post_scf_consumers_refuse_the_half_sphere_by_name():
     cell as an explicit single k-point at the origin -- so the refusal costs a
     factor of two in storage and nothing in physics.
     """
-    from defumat.basis.gvectors import refuse_gamma_storage
+    from defuqumat.basis.gvectors import refuse_gamma_storage
 
     refuse_gamma_storage(False, "anything", "on the whole sphere")  # silent
     with pytest.raises(NotImplementedError, match="2 Re"):
@@ -209,10 +209,10 @@ def test_the_post_scf_consumers_refuse_the_half_sphere_by_name():
 
 
 @pytest.mark.parametrize("module,function", [
-    ("defumat.projwfc.projections", "atomic_projections"),
-    ("defumat.tddft.chi0", "require_a_sum_over_states_regime"),
-    ("defumat.workflows.transport", "run_vertical_transport"),
-    ("defumat.workflows.stm", "run_stm"),
+    ("defuqumat.projwfc.projections", "atomic_projections"),
+    ("defuqumat.tddft.chi0", "require_a_sum_over_states_regime"),
+    ("defuqumat.workflows.transport", "run_vertical_transport"),
+    ("defuqumat.workflows.stm", "run_stm"),
 ])
 def test_each_named_consumer_calls_the_guard(module, function):
     """A set difference, not a read-through: the four sites are named here so a
@@ -257,7 +257,7 @@ def test_the_hartree_energy_is_the_same_number_with_and_without_abs(spheres):
     """
     import jax
 
-    from defumat.scf.potential import hartree
+    from defuqumat.scf.potential import hartree
 
     cell, full, _ = spheres
     rng = np.random.default_rng(20260911)
@@ -311,7 +311,7 @@ def test_the_local_spin_frame_has_a_finite_gradient_where_the_magnetization_vani
     """
     import jax
 
-    from defumat.xc.functional import local_spin_frame, safe_modulus
+    from defuqumat.xc.functional import local_spin_frame, safe_modulus
 
     charge = jnp.asarray([1.0, 2.0, 0.5, 3.0])
     magnetization = jnp.asarray([
@@ -359,10 +359,10 @@ def test_every_differentiated_magnetization_site_shares_the_one_guard():
     import inspect
     import re
 
-    from defumat.forces import torque
-    from defumat.paw import gradient as paw_gradient
-    from defumat.scf import continuation, driver, potential
-    from defumat.xc import functional
+    from defuqumat.forces import torque
+    from defuqumat.paw import gradient as paw_gradient
+    from defuqumat.scf import continuation, driver, potential
+    from defuqumat.xc import functional
 
     guarded = [
         paw_gradient._noncollinear_gradient,
@@ -417,10 +417,10 @@ def test_the_noncollinear_gga_potential_is_finite_at_a_vanishing_moment():
     """
     import jax
 
-    from defumat.basis.gvectors import generate_gvectors
-    from defumat.scf.potential import _noncollinear_gradient_correction
-    from defumat.system.cell import Cell
-    from defumat.xc.functional import get_functional
+    from defuqumat.basis.gvectors import generate_gvectors
+    from defuqumat.scf.potential import _noncollinear_gradient_correction
+    from defuqumat.system.cell import Cell
+    from defuqumat.xc.functional import get_functional
 
     cell = Cell.from_ibrav(1, [8.0, 0, 0, 0, 0, 0])
     gvectors = generate_gvectors(cell, 12.0)

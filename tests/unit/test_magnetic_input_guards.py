@@ -21,10 +21,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.system.builder import build_system
-from defumat.system.kpoints import KPoints
-from defumat.system.symmetry import (
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system.builder import build_system
+from defuqumat.system.kpoints import KPoints
+from defuqumat.system.symmetry import (
     atom_mapping,
     cartesian_rotations,
     find_symmetries,
@@ -322,7 +322,7 @@ def test_an_unset_r_m_takes_the_default_radius_not_zero():
     sphere of radius zero integrates nothing under ``'qe'`` weights and is a
     ``0/0`` under ``'smooth'``. The given radius must survive untouched.
     """
-    from defumat.scf.locals import build_local_regions, default_radii
+    from defuqumat.scf.locals import build_local_regions, default_radii
 
     plain = _build(_TWO_SPECIES.format(extra=""))
     default = default_radii(plain.cell, plain.structure)

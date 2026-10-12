@@ -46,7 +46,7 @@ The last two are the **full (Liechtenstein) functional**, ``lda_plus_u_kind = 1`
   does, and needs the spinor occupation matrix). ``pw.x`` prints
   ``B(Fe1-3d) = 0.1148`` for it, which is ``init_hubbard``'s substitution putting
   ``F^4/F^2`` at 0.625 -- so the reference confirms the one convention in
-  :mod:`defumat.hubbard.interaction` that a formula alone would get wrong.
+  :mod:`defuqumat.hubbard.interaction` that a formula alone would get wrong.
 
 References are regenerated with the vendored ``pw.x`` at ``conv_thr = 1e-10``
 (``tools/generate_reference.py``), for the reason the LSDA suite gives: the
@@ -60,13 +60,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.forces import compute_forces
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
+from defuqumat.forces import compute_forces
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
 from tests.tolerances import (
     FORCE_RY_BOHR,
     MAGNETIZATION_BOHRMAG,

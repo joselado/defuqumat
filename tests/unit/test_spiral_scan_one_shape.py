@@ -15,8 +15,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.workflows import spiral
+from defuqumat import Calculator
+from defuqumat.workflows import spiral
 
 pytestmark = pytest.mark.unit
 
@@ -77,7 +77,7 @@ def test_a_padded_wavevector_converges_to_the_unpadded_one(pseudo_dir):
     top-up is drawn at the sphere's own width since 2026-10-03, so the padded run
     starts from the unpadded run's vectors: 2.2e-16 apart, nine iterations each.
     """
-    from defumat.scf import run_scf
+    from defuqumat.scf import run_scf
 
     base = Calculator.from_file(H_CHAIN, pseudo_dir=pseudo_dir).calculation
     scan = [(0.0, 0.0, n / 16) for n in range(8)]

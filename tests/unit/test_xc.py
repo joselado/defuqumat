@@ -3,7 +3,7 @@
 Every test here has the same shape: QE's own analytic expressions are
 transcribed independently into the test, and what the code computes by
 differentiating an energy is checked against them. That is what licenses
-writing only the energy down -- see :mod:`defumat.xc.functional`.
+writing only the energy down -- see :mod:`defuqumat.xc.functional`.
 """
 
 import jax
@@ -11,9 +11,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.units import E2
-from defumat.xc.functional import get_functional, resolve_functional
-from defumat.xc.lda import wigner_seitz_radius
+from defuqumat.units import E2
+from defuqumat.xc.functional import get_functional, resolve_functional
+from defuqumat.xc.lda import wigner_seitz_radius
 
 pytestmark = pytest.mark.unit
 

@@ -2,7 +2,7 @@
 carries its numbers. Loaded with -p svo_report; the test itself is unchanged."""
 import time
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 KEYS = ((1, 1), (2, 2), (2, 0), (3, 3), (3, 1))
 _last = {}

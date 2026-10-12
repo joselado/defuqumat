@@ -5,7 +5,7 @@
 # `disk_io = 'none'` so neither code is timed doing I/O the other skips.
 # QE 7.2 from the cluster module (the 7.5 vendored in this repo is gitignored
 # and not on the cluster); the version is recorded beside the number.
-#SBATCH --job-name=defumat-sweep-qe
+#SBATCH --job-name=defuqumat-sweep-qe
 #SBATCH --partition=batch-csl
 #SBATCH --time=12:00:00
 #SBATCH --nodes=1

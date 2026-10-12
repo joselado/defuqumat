@@ -5,11 +5,11 @@ are built from, each checked against code that shares nothing with the chunk
 but the projectors' definition:
 
 * ``X``, the augmentation's share of the position operator, against
-  :func:`~defumat.response.efield.ultrasoft_position` (``adddvepsi_us.f90``),
+  :func:`~defuqumat.response.efield.ultrasoft_position` (``adddvepsi_us.f90``),
   and ``X - X^dag`` against ``i dS/dk`` by a finite difference of the overlap;
 * Woodbury's ``S^-1`` against ``S``;
 * the current operator between generalised eigenstates against
-  :meth:`~defumat.response.velocity.VelocityOperator.generalised_matrix_elements`
+  :meth:`~defuqumat.response.velocity.VelocityOperator.generalised_matrix_elements`
   (``PLAN.md`` P99), with and without spin-orbit coupling;
 * the spinor chunk's kinetic and nonlocal form against the spinor Hamiltonian's
   own application.
@@ -28,12 +28,12 @@ import numpy as np
 import pytest
 import scipy.linalg as sla
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.propagate import _prepare
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints, for_spin
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.propagate import _prepare
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints, for_spin
 
 pytestmark = pytest.mark.unit
 
@@ -54,7 +54,7 @@ def _chunk(pseudo_dir, case, ecut, ecutrho):
     text = (CASES / f"{case}.in").read_text()
     text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", f"ecutwfc = {ecut}", text)
     text = re.sub(r"ecutrho\s*=\s*[0-9.dD+-]+", f"ecutrho = {ecutrho}", text)
-    path = Path("/tmp") / f"defumat-operators-{case}-{ecut}.in"
+    path = Path("/tmp") / f"defuqumat-operators-{case}-{ecut}.in"
     path.write_text(text)
     system = build_system(read_pw_input(path))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -96,8 +96,8 @@ def test_the_position_tail_is_adddvepsi_us_and_its_adjoint_is_the_overlap_veloci
     transform there, the Chebyshev table here); the second needs nothing but
     ``S`` at two points.
     """
-    from defumat.response.efield import ultrasoft_position
-    from defumat.response.velocity import VelocityOperator
+    from defuqumat.response.efield import ultrasoft_position
+    from defuqumat.response.velocity import VelocityOperator
 
     calculation, v_scf, chunk = _chunk(pseudo_dir, case, 10.0, 40.0)
     direction = np.array([0.3, -0.5, 0.8])
@@ -105,7 +105,7 @@ def test_the_position_tail_is_adddvepsi_us_and_its_adjoint_is_the_overlap_veloci
     x = _random(chunk, 3)
     mine = np.asarray(chunk.position(zero, x, jnp.asarray(direction)))
     velocity = VelocityOperator(calculation, v_scf)
-    from defumat.response.efield import _augmentation_dipole
+    from defuqumat.response.efield import _augmentation_dipole
 
     along = jnp.einsum("a,a...->...", jnp.asarray(direction, dtype=jnp.complex128),
                        _augmentation_dipole(calculation))
@@ -143,7 +143,7 @@ def test_the_current_between_eigenstates_is_the_generalised_velocity(pseudo_dir,
     each k-point; without the second term the two differ by the size of the
     augmentation's share.
     """
-    from defumat.response.velocity import VelocityOperator
+    from defuqumat.response.velocity import VelocityOperator
 
     calculation, v_scf, chunk = _chunk(pseudo_dir, case, 10.0, 40.0)
     zero = jnp.zeros(3)

@@ -16,7 +16,7 @@ REPO=$(cd "$(dirname "$0")/../.." && pwd)
 PYTHON=${PYTHON:-python3}
 : "${OUT:?set OUT to the results file}"
 IFS=';' read -ra lists <<< "$("$PYTHON" "$REPO/tools/parallel/cpu_layout.py" "$P" "$T")"
-export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" JAX_PLATFORMS=cpu DEFUMAT_THREADS=off \
+export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}" JAX_PLATFORMS=cpu DEFUQUMAT_THREADS=off \
        OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 pids=()
 for ((c = 0; c < P; c++)); do

@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 pytestmark = pytest.mark.unit
 

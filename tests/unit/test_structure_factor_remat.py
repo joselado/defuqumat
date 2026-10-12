@@ -9,10 +9,10 @@ site.
 
 **The two sites are not the same case, and only a measurement separates them.**
 
-* :func:`~defumat.pseudo.potentials._structure_factors_at` contracts the per-atom
+* :func:`~defuqumat.pseudo.potentials._structure_factors_at` contracts the per-atom
   array to ``(ntyp, ngm)`` on the very next line, so the residual is larger than
   the result by ``nat/ntyp`` and is plainly waste.
-* :func:`~defumat.pseudo.augmentation._atom_phases` *returns* the per-atom array
+* :func:`~defuqumat.pseudo.augmentation._atom_phases` *returns* the per-atom array
   and it is kept as a field on the augmentation charge, which is also an input to
   the already-rematted augmentation scan. The expectation was that rematting it
   would therefore be a no-op. It is not -- the recomputed value has a short live
@@ -32,8 +32,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.pseudo.augmentation import _atom_phases
-from defumat.pseudo.potentials import _structure_factors_at
+from defuqumat.pseudo.augmentation import _atom_phases
+from defuqumat.pseudo.potentials import _structure_factors_at
 
 pytestmark = [pytest.mark.unit]
 

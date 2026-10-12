@@ -1,7 +1,7 @@
 # Performance log
 
 The measurement this project is judged by is **the same input through Quantum
-ESPRESSO and through defumat, on this machine, with both restricted to one
+ESPRESSO and through defuqumat, on this machine, with both restricted to one
 core**. Everything else — component breakdowns, compilation counts, guesses
 about where time goes — is diagnosis in service of that one number.
 
@@ -11,7 +11,7 @@ python3 tools/compare_qe.py benchmarks/si-1k.in --repeats 5
 
 Single core on both sides is what makes the comparison mean anything. QE is
 built serial (`./configure --disable-parallel --disable-openmp && make -j pw`)
-and run with `OMP_NUM_THREADS=1`; defumat runs with XLA's intra-op thread pool
+and run with `OMP_NUM_THREADS=1`; defuqumat runs with XLA's intra-op thread pool
 pinned to one thread, since otherwise JAX quietly uses all 14 cores and the
 comparison flatters it by the core count. The tool pins both itself.
 
@@ -33,11 +33,11 @@ measures batching rather than the cost of the physics.
 
 `performance/sweep.py` and `performance/sets.py`, driven by `tools/run_benchmark.sh`
 locally and by `tools/cluster/submit_benchmark.py` as three Slurm arrays. Two named
-sets, three legs — `pw.x` on one core, defumat on one core, defumat on one GPU — and
+sets, three legs — `pw.x` on one core, defuqumat on one core, defuqumat on one GPU — and
 one JSON record per (case, leg) so the legs join by case name afterwards.
 
 **It measures nothing new.** The QE leg is `tools/compare_qe.py`'s `run_qe` and both
-defumat legs are `tools/gpu/phase0.py`'s `run_case`, which was already device-agnostic.
+defuqumat legs are `tools/gpu/phase0.py`'s `run_case`, which was already device-agnostic.
 What is new is that the set is written down once, that a laptop run and an array task
 execute the same `--measure` command, and that the report separates the two claims
 instead of averaging them.
@@ -46,7 +46,7 @@ instead of averaging them.
 is the warm loop, kernel cache off. All ten cases converged and all twenty units
 succeeded.
 
-| | QE 7.5 | defumat | ratio | its (QE/ours) | dE (Ry) |
+| | QE 7.5 | defuqumat | ratio | its (QE/ours) | dE (Ry) |
 |---|---|---|---|---|---|
 | **`si-1k`** — 2 atoms, 180 PWs | 0.003 s | 0.010 s | **4.2x** | 8/7 | 3.0e-9 |
 | **`si-1k-ecut40`** — 2 atoms, 1131 PWs | 0.013 s | 0.037 s | **3.0x** | 8/8 | 3.8e-9 |
@@ -67,7 +67,7 @@ been the thing at fault.
 
 **`fe-mag-1k` is the row to read twice, and it is an argument for the per-iteration
 column rather than a performance finding.** Its *warm SCF* ratio is **7.6x** and its
-per-iteration ratio is **2.8x**, because defumat takes **32 iterations where `pw.x`
+per-iteration ratio is **2.8x**, because defuqumat takes **32 iterations where `pw.x`
 takes 12** on that cell. Nothing there is slow; something there converges badly, and a
 table carrying only total time would have reported it as a 7.6x arithmetic problem and
 sent the next session to profile `h_psi`. The two mixers take different routes to the
@@ -83,7 +83,7 @@ figures agree with the established ones at all.
 
 **The GPU leg is unmeasured here**, because this machine has no accelerator; the sweep
 detects that and skips it rather than substituting a CPU number. When it runs it is
-reported against **defumat on CPU, per SCF iteration**, never against single-core QE —
+reported against **defuqumat on CPU, per SCF iteration**, never against single-core QE —
 `GPU.md` §2.3 — with compile time as its own column. That is a different table in the
 same report and the caption says which is which.
 
@@ -133,7 +133,7 @@ record would close it, and is a small change to `run_performance.py`.
 **3. The whole `fast` set, this machine, QE on MKL**, one core each, `--repeats 2`,
 kernel cache off, clean tree. All columns per SCF iteration.
 
-| | QE 7.4.1 | defumat | ratio | its (QE/ours) | dE (Ry) |
+| | QE 7.4.1 | defuqumat | ratio | its (QE/ours) | dE (Ry) |
 |---|---|---|---|---|---|
 | **`si-1k`** — 2 atoms, 180 PWs | 0.001 s | 0.004 s | **3.5x** | 8/7 | 3.0e-9 |
 | **`si-1k-ecut40`** — 2 atoms, 1131 PWs | 0.007 s | 0.016 s | **2.1x** | 8/8 | 3.8e-9 |
@@ -181,7 +181,7 @@ Re-measured 2026-08-20 after the band axis became a dial ("The band a
 transform holds", below). The `before` column is the 2026-08-19 measurement it
 replaces, on the same machine and the same inputs.
 
-| | QE 7.5 | defumat | ratio | before |
+| | QE 7.5 | defuqumat | ratio | before |
 |---|---|---|---|---|
 | **`si-1k`** — 2 atoms, 180 PWs, 1 k | 0.003 s | 0.008 s | **3.1x** | 3.0x |
 | **`si-1k-ecut40`** — 2 atoms, 1131 PWs | 0.013 s | 0.032 s | **2.6x** | 3.2x |
@@ -203,7 +203,7 @@ A pair added 2026-08-21 with DFT+U (P20), listed apart because they differ only 
 the `HUBBARD` card and the ratio *between them* is the measurement — see "What
 DFT+U costs" below:
 
-| | QE 7.5 | defumat | ratio |
+| | QE 7.5 | defuqumat | ratio |
 |---|---|---|---|
 | **`ni-noldau-1k`** — Ni, ultrasoft, LSDA, 1 k | 0.070 s | 0.134 s | **1.9x** |
 | **`ni-ldau-1k`** — the same with `U = 3 eV` | 0.069 s | 0.155 s | **2.3x** |
@@ -223,7 +223,7 @@ and a ratio that moves without a code change is the machine, not the code.
 
 and, for ultrasoft and PAW (2026-08-19, `ecutwfc = 20`, `ecutrho = 160`):
 
-| | QE 7.5 | defumat | ratio | before |
+| | QE 7.5 | defuqumat | ratio | before |
 |---|---|---|---|---|
 | **`si2-us-1k`** — 2 atoms, 395 PWs, 9185 G | 0.021 s | 0.049 s | **2.3x** | 2.2x |
 | **`si2-paw-1k`** — the same, PAW | 0.034 s | 0.083 s | **2.4x** | 1.8x |
@@ -241,7 +241,7 @@ measured in one session, the local ones re-run alongside the PBE ones, so each
 pair differs only in the functional — which is the only way the "what does a
 gradient correction cost" question has an answer:
 
-| | QE 7.5 | defumat | ratio |
+| | QE 7.5 | defuqumat | ratio |
 |---|---|---|---|
 | **`si8-1k`** — 8 atoms, LDA | 0.030 s | 0.074 s | **2.5x** |
 | **`si8-pbe-1k`** — the same cell, PBE | 0.025 s | 0.077 s | **3.1x** |
@@ -264,7 +264,7 @@ difference between them is believed.)
 sphere it is nearly free *relative to QE*.** The two rows say different things and
 both are worth reading.
 
-The first pair: PBE costs defumat 4% per iteration (0.074 → 0.077 s) for four
+The first pair: PBE costs defuqumat 4% per iteration (0.074 → 0.077 s) for four
 extra FFTs on the dense grid and a longer pointwise expression. Four transforms
 of a 24³ box is not nothing, but it is a fixed handful of large, dense
 operations — exactly the shape XLA is good at — where the iteration's real cost
@@ -291,7 +291,7 @@ at 40 Ry, 3.0e-9 for two atoms at 12 Ry, 5.6e-9 for the metal.
 
 `scf-kauto` is the one case where the two codes differ by more than that
 (1.0e-6 Ry), and it is not a disagreement about the physics: that input asks for
-`conv_thr = 1e-6`, so QE stops there while this comparison runs defumat to
+`conv_thr = 1e-6`, so QE stops there while this comparison runs defuqumat to
 1e-10. The regression suite compares it against a reference regenerated at 1e-10,
 where the two agree to 2e-9.
 
@@ -348,7 +348,7 @@ k-points multiply the per-dispatch overhead that the single-k cases mostly hide.
 **Both codes are pinned to one CPU by affinity**, which is the only mechanism
 that works — see "Threads" below. An earlier version of the harness passed
 `intra_op_parallelism_threads=1` inside `XLA_FLAGS`; XLA ignored it silently
-(the token does not begin with `--`, so it was read as a filename) and defumat
+(the token does not begin with `--`, so it was read as a filename) and defuqumat
 ran on 1.8 cores while the table claimed one. The ratios were not flattered by
 it — extra threads make this workload *slower*, so the honest single-core
 numbers came out slightly better — but the claim was wrong and is now enforced
@@ -462,7 +462,7 @@ per-compilation floor.
 QE never converges the eigenvalues further than the density warrants
 (`electrons.f90`): `ethr` starts at 1e-2, is reset to 1e-2 at the second
 iteration, and thereafter follows `min(ethr, 0.1 dr2 / nelec)` with a floor at
-1e-13. defumat was asking for 1e-12 from the first iteration — twelve digits of
+1e-13. defuqumat was asking for 1e-12 from the first iteration — twelve digits of
 eigenvalue against a density still wrong in the second.
 
 Implementing the schedule needed QE's `dr2` (`rho_ddot` in `scf_mod.f90`), which
@@ -478,8 +478,8 @@ The schedules, side by side, and the Davidson steps each one buys:
 |---|---|---|---|---|---|---|---|---|---|
 | QE `ethr` | 1e-2 | 1.6e-3 | 7.0e-5 | 1.5e-6 | 3.3e-8 | 3.4e-10 | 1.7e-11 | 2.0e-12 | |
 | QE steps | 2 | 1 | 2 | 5 | 6 | 4 | 2 | 3 | **25** |
-| defumat `ethr` | 1e-2 | 1.8e-3 | 4.5e-5 | 9.9e-7 | 1.5e-8 | 3.5e-9 | 2.9e-12 | — | |
-| defumat steps | 8 | 4 | 4 | 4 | 4 | 3 | 6 | — | **33** |
+| defuqumat `ethr` | 1e-2 | 1.8e-3 | 4.5e-5 | 9.9e-7 | 1.5e-8 | 3.5e-9 | 2.9e-12 | — | |
+| defuqumat steps | 8 | 4 | 4 | 4 | 4 | 3 | 6 | — | **33** |
 | *(before)* | 26 | 16 | 12 | 9 | 6 | 4 | 2 | — | **75** |
 
 75 → 33 steps, against QE's 25. QE's own `ethr` sequence is reproduced closely
@@ -557,8 +557,8 @@ has four and a smeared run asks for six — the rest are random, as QE tops up.
 ### 7. The compilation cache
 
 Nothing to do with the loop, and the largest effect on what a user actually
-waits for. XLA compilations are now written to `~/.cache/defumat/jax`
-(`DEFUMAT_CACHE_DIR` overrides it; `off` disables it), so the second and every
+waits for. XLA compilations are now written to `~/.cache/defuqumat/jax`
+(`DEFUQUMAT_CACHE_DIR` overrides it; `off` disables it), so the second and every
 later run skips them:
 
 | | first run | later runs |
@@ -625,8 +625,8 @@ Per SCF iteration, same code, only the number of visible cores changing:
 | 14 (default) | 10.0 ms | 54.6 ms | 120.3 ms | 152 ms |
 
 Four is best everywhere measured, including a 3215-plane-wave cell, so this is
-not an artefact of small cases. `defumat` now narrows the affinity mask to four
-CPUs on import — **1.7x faster out of the box** — with `DEFUMAT_THREADS` to
+not an artefact of small cases. `defuqumat` now narrows the affinity mask to four
+CPUs on import — **1.7x faster out of the box** — with `DEFUQUMAT_THREADS` to
 change or disable it, and it only ever *narrows*, so an outer `taskset` or a
 scheduler's allocation is respected.
 
@@ -658,7 +658,7 @@ Is the flat curve above the efficiency cores or the workload? A desktop
 i5-12600K separates the two, since its performance cores (CPUs 0-11, siblings
 `2k, 2k+1`) are identical and its four efficiency cores (12-15) can be left out.
 Each row is one fresh process with the mask set by `taskset` before Python
-starts and `DEFUMAT_THREADS=off`, the compiling run discarded, then the median of
+starts and `DEFUQUMAT_THREADS=off`, the compiling run discarded, then the median of
 five warm SCF runs, in ms per iteration (`tools/parallel/thread_scan.sh`, whose
 header carries the masks); all 25 runs gave the same total energy to 1e-13 Ry.
 
@@ -706,14 +706,14 @@ server node.
 ### k-point pools against `pw.x -nk` (2026-09-30)
 
 What does a core buy when it is given its own k-points instead of a share of one k-point's
-threads? `DEFUMAT_POOLS` (`defumat/parallel.py`) splits one SCF over processes by k-point,
+threads? `DEFUQUMAT_POOLS` (`defuqumat/parallel.py`) splits one SCF over processes by k-point,
 `pw.x -nk`'s decomposition, and the comparison is on the same six identical performance
-cores of the i5-12600K as above, every defumat process and every `pw.x` MPI rank pinned to
+cores of the i5-12600K as above, every defuqumat process and every `pw.x` MPI rank pinned to
 its own CPU with `taskset`; `pw.x` 7.5 is built with Open MPI 4.1.6 against OpenBLAS and
 FFTW3. Cells without symmetry, so that the k-points are the whole grid. ms per iteration,
 median of two warm runs, speedup over the same code on one core:
 
-| cell | defumat 1 core | 1 pool x 6 threads | 3 pools x 2 | 6 pools x 1 | `pw.x` 1 rank | `pw.x` 3 ranks, `-nk 3` | `pw.x` 6 ranks, `-nk 6` |
+| cell | defuqumat 1 core | 1 pool x 6 threads | 3 pools x 2 | 6 pools x 1 | `pw.x` 1 rank | `pw.x` 3 ranks, `-nk 3` | `pw.x` 6 ranks, `-nk 6` |
 |---|---|---|---|---|---|---|---|
 | si16, 3x2x2, 12 k | 2573 | 1.35x | 3.13x | 3.99x | 1558 | 2.69x | 5.09x |
 | si32, 3x2x1, 6 k | 6804 | 1.68x | 3.46x | 3.58x | 3727 | 2.84x | 5.06x |
@@ -762,7 +762,7 @@ the projection 1.03x) and `h_psi` does, **1.50x**. Its local term took each band
 product with `V` and the transform back in turn, which streams the box through the
 shared L3 several times per band; six cores doing that at once saturate it. Between the
 two `z` passes, which run on the sticks, everything is plane-local, so
-`defumat.basis.fft.sticks_local` takes a chunk of planes through the transforms and the
+`defuqumat.basis.fft.sticks_local` takes a chunk of planes through the transforms and the
 product while it sits in a core's private L2. The local term of 64 bands, ms, median of
 seven, same answer to the last bit:
 
@@ -779,7 +779,7 @@ plane. `resolve_plane_chunk` therefore counts a plane as `n1 n2 (2 npol itemsize
 nspin_mag itemsize / 2)` against a 384 KB budget, which gives 7 planes on a scalar
 `36x36` plane (8 and 16 measured within 1 per cent of each other) and 3 on the magnetic
 spinor. A card keeps the whole box: a loop of plane-sized kernels is launch-bound there.
-`DEFUMAT_PLANE_CHUNK` overrides; an SCF gives the same energy and eigenvalues to the last
+`DEFUQUMAT_PLANE_CHUNK` overrides; an SCF gives the same energy and eigenvalues to the last
 digit either way (`tests/unit/test_plane_chunk.py` pins `H psi` to 1e-13).
 
 **What it did for the pools**, the same cells and pinning as "k-point pools against `pw.x
@@ -917,7 +917,7 @@ threads all blocked. The rate follows the mask and nothing else — three test
 files that hang together and pass separately, eight runs at each mask, 150 s
 timeout, otherwise idle machine:
 
-| `DEFUMAT_THREADS` | cores | hangs | wall when it passes |
+| `DEFUQUMAT_THREADS` | cores | hangs | wall when it passes |
 |---|---|---|---|
 | `2` | 2 | **8 / 8** | — |
 | `4` (the default above) | 4 | **6 / 14** | 32–35 s |
@@ -935,7 +935,7 @@ two-atom one shows none of this:
 So eight cores costs **73%** of production speed. That is the wrong trade for a
 run and the right one for a test suite, so the two are separated: the package
 stays at four and `tests/conftest.py` asks for eight before anything imports
-`defumat`. What the suite pays for that, isolated on one file, three samples
+`defuqumat`. What the suite pays for that, isolated on one file, three samples
 each: **27.4 s and 1752 M at four cores, 30.3 s and 1981 M at eight — 11% of
 wall clock and 13% of peak RSS.** Read the memory half of that as provisional:
 the three runs per arm were taken in sequence rather than alternating, and peak
@@ -954,11 +954,11 @@ process. The better candidate is the **kernel cache warming across sessions**, s
 that an ever-larger fraction of the gate's executables are *loaded* rather than
 compiled, and loading is what costs memory (`OPEN.md` Part I item 2, where a
 603 MB cache entry is worth 6.3 GB resident). That is a hypothesis with a
-one-run test — `DEFUMAT_CACHE_DIR=off tools/test-fast.sh`, compare the peak —
+one-run test — `DEFUQUMAT_CACHE_DIR=off tools/test-fast.sh`, compare the peak —
 and it has not been run. Under the 12 G cap, with less margin than before.
 
 The two theories that died first are in `OPEN.md` Part IV item 1, and both had
-been recorded here as fact — the persistent kernel cache (`DEFUMAT_CACHE_DIR=off`
+been recorded here as fact — the persistent kernel cache (`DEFUQUMAT_CACHE_DIR=off`
 hangs too) and a dispatch pattern in `symmetry_residual` (removing every op
 between the kernel and the host did not stop it).
 
@@ -989,7 +989,7 @@ executable.
 
 **2. `PawSpecies.density_ae`/`density_ps` (281.6 MB each) and
 `AugmentationCharge.qgm` (120.9 MB) are now arguments**, not closure captures
-(`defumat/forces/energy.py`'s `HOISTED_FIELDS`). Both are `equinox` modules and
+(`defuqumat/forces/energy.py`'s `HOISTED_FIELDS`). Both are `equinox` modules and
 therefore pytrees, so they cross the boundary as ordinary arguments; `None` stays
 `None` so a norm-conserving run keeps a stable pytree structure and does not
 retrace.
@@ -1110,7 +1110,7 @@ not free.
 
 Measured, 2026-08-19, single core, against the same QE build:
 
-| | QE 7.5 | defumat | ratio | defumat before P9 |
+| | QE 7.5 | defuqumat | ratio | defuqumat before P9 |
 |---|---|---|---|---|
 | **`si-1k`** — 2 atoms, 180 PWs | 0.003 s | 0.010 s | **4.1x** | 0.011 s |
 | **`si8-1k`** — 8 atoms, 738 PWs | 0.027 s | 0.074 s | **2.8x** | 0.064 / 0.074 s |
@@ -1154,7 +1154,7 @@ is what a GPU wants and what made the first Python-loop version slow.
 
 That deviation was never measured until a converged bismuthene run (19
 irreducible k-points, two-component spinors, 35 Ry) died at **12.7 GB**. So the
-k axis is now a dial, `defumat/batching.py`, default 1 -- QE's loop -- with
+k axis is now a dial, `defuqumat/batching.py`, default 1 -- QE's loop -- with
 `k_batch=None` for the old behaviour and anything between as a chunk. It is a
 `lax.map`/`lax.scan`, not a Python loop, so the body is compiled once whatever
 the chunk count; the answer is identical to round-off (1.8e-15 Ry) because only
@@ -1188,7 +1188,7 @@ is a dial with both ends kept working rather than a rewrite in either direction.
 ## What a force costs (P15)
 
 Forces are ``jax.grad`` of one energy expression evaluated at the converged
-state (`defumat/forces/energy.py`), and QE's six hand-derived terms are
+state (`defuqumat/forces/energy.py`), and QE's six hand-derived terms are
 implemented beside them as a cross-check (`analytic.py`). Both are timed against
 the SCF that has to happen first, since that is what decides whether a
 relaxation is affordable, and against QE's own `forces` clock.
@@ -1260,7 +1260,7 @@ codes compared per unit of work instead of per SCF iteration — which is the
 comparison that matters, since the two do not take the same number of iterations
 or the same number of Davidson steps.
 
-| | QE | defumat, before | |
+| | QE | defuqumat, before | |
 |---|---|---|---|
 | `h_psi`, `si8-1k-ecut30`, 16 bands | 14.5 ms | 24.1 ms | 1.7x |
 | `h_psi`, `si16-1k-ecut30`, 32 bands | 51.3 ms | 169.6 ms | **3.3x** |
@@ -1291,7 +1291,7 @@ The one case that loses is the 180-plane-wave cell, where the whole box is
 box size is the evidence that the explanation is the right one — no arithmetic
 change produces it. `sum_band` gets the same treatment for the same reason
 (`calc.density` 119 → 47 ms on the sixteen-atom cell), and the band axis is now
-a dial beside the k axis (`defumat/batching.py`, `DEFUMAT_BAND_BATCH`),
+a dial beside the k axis (`defuqumat/batching.py`, `DEFUQUMAT_BAND_BATCH`),
 defaulting to QE's loop, with the batched end kept working for the GPU — which
 wants the batch that a cache does not.
 
@@ -1365,7 +1365,7 @@ reason every other input in that directory is: both codes parallelise over k, an
 symmetry-reduced list is not the same list in both codes unless the *magnetic* group is
 reproduced exactly, which is a correctness question and not a timing one.
 
-| | QE 7.5 | defumat | ratio |
+| | QE 7.5 | defuqumat | ratio |
 |---|---|---|---|
 | setup / `init_run` | 0.550 s | 7.078 s | 12.9x |
 | SCF, cold | 1.420 s | 21.801 s | 15.4x |
@@ -1432,13 +1432,13 @@ crystal the number to watch is still `nk`, which the loss of symmetry has alread
 ## What DFT+U costs (P20)
 
 **The Hubbard term is a small separable operator, and it prices like one.** The comparison
-is the one this file always makes -- single-core defumat against single-core QE 7.5 on the
+is the one this file always makes -- single-core defuqumat against single-core QE 7.5 on the
 same input -- with a *pair* of inputs that differ only by the `HUBBARD` card, so the ratio
 between them is the term's own cost. fcc nickel, one k-point, `nosym`, ultrasoft,
 `ortho-atomic` projectors, `U = 3 eV` (`benchmarks/ni-noldau-1k.in` and
 `benchmarks/ni-ldau-1k.in`, `--repeats 3`, 2026-08-21):
 
-| | QE 7.5 | defumat | ratio |
+| | QE 7.5 | defuqumat | ratio |
 |---|---|---|---|
 | per SCF iteration, no U | 0.070 s | 0.134 s | 1.9x |
 | per SCF iteration, `U = 3 eV` | 0.069 s | 0.155 s | 2.3x |
@@ -1469,13 +1469,13 @@ falls; the FeO benchmark below is where that shows.
 **Four atoms, ultrasoft, `nspin = 2`, symmetry-reduced 2x2x2** -- QE's `pw_lda+U/lda+U.in`
 at `conv_thr = 1e-10` on both sides:
 
-| | QE 7.5 | defumat |
+| | QE 7.5 | defuqumat |
 |---|---|---|
 | SCF wall | 18.54 s | 81.5 s |
 | iterations | 24 | 53 |
 | **per SCF iteration** | 0.77 s | 1.54 s (**2.0x**) |
 
-**2.0x**, the good end of the 2-4x band P10 established, and defumat's figure is an upper
+**2.0x**, the good end of the 2-4x band P10 established, and defuqumat's figure is an upper
 bound: it includes the compilation the first iteration pays for. The iteration *count* is
 the honest difference -- 53 against 24 -- and it is the usual one, two different mixers
 taking different routes to the same fixed point (the total energies agree to 6.7e-9 Ry).
@@ -1620,7 +1620,7 @@ an SCF.
 from the pseudopotential files and reading `evc` off disk — `pw.x`'s own
 `init_run` on this cell is **0.69 s**, which is more than the entire `projwfc.x`
 run, so the projection arithmetic is not what either number measures. What is
-comparable is therefore rebuild against rebuild: **defumat 1.65 s against 0.62
+comparable is therefore rebuild against rebuild: **defuqumat 1.65 s against 0.62
 s**, of which **1.53 s is `Calculation.__init__`**. The paragraph above calls
 that rebuild "about 1 s" and says it "has never mattered next to an SCF"; on a
 PAW dataset it is 87 per cent of the call and about 2.5x QE's.
@@ -1633,7 +1633,7 @@ own converged ground state** — the SCF is outside the pair — one core each
 `DeltaE = 0.01` eV on both sides, so the energy grids are 3318 points against
 3319. QE's times are `projwfc.x`'s own closing WALL line, not a stopwatch:
 
-| step | defumat | `projwfc.x` |
+| step | defuqumat | `projwfc.x` |
 |---|---|---|
 | **the entry point** (`get_pdos`, and `projwfc.x` whole) | **1.65 s** | **0.62 s** |
 | the same with QE writing k-resolved files (`kresolveddos`) | | 0.80 s |
@@ -1648,7 +1648,7 @@ own converged ground state** — the SCF is outside the pair — one core each
 so its 0.62 s has no 0.137 s inside it to compare against. That row is not a
 win over QE; it is a *forecast*: it says where `get_pdos` lands once the
 `Calculation` is threaded through, which is below 0.62 s on work QE has to
-repeat. Quoting it as a speedup today would be comparing defumat without setup
+repeat. Quoting it as a speedup today would be comparing defuqumat without setup
 against QE with it. The other incomparability is I/O and it cuts both ways:
 QE writes six files where `get_pdos` returns an object, and its own k-resolved
 output is the 0.80 s row against the 0.62 s one — 0.20 s for 8x the rows.
@@ -2056,7 +2056,7 @@ phonon part has to be separated out: its cumulative clock reads 1.9 s when the e
 field's loop ends and 4.1 s when the second representation does, so the six `Gamma` modes
 cost it about **2.2 s** of its 4.15 s wall.
 
-| | defumat | `ph.x` |
+| | defuqumat | `ph.x` |
 |---|---|---|
 | the six `Gamma` modes, after the SCF | **57 s** | ~2.2 s |
 | self-consistency of the response | 17 iterations | 5 per representation |
@@ -2226,14 +2226,14 @@ threshold already sits in.
 ## What a variable-cell relaxation costs (P29)
 
 **The comparison, single core on both sides, best of three.** `pw.x` is the vendored
-serial build and the number is its own `PWSCF ... WALL`; defumat is pinned to one CPU by
+serial build and the number is its own `PWSCF ... WALL`; defuqumat is pinned to one CPU by
 the affinity mask, as `tools/compare_qe.py` pins it. On QE's `pw_vc-relax/vc-relax4.in`
 (rhombohedral arsenic at 500 kbar, 2 atoms, 10 k-points, 10 ionic steps on both sides):
 
 | | best of 3 | samples |
 |---|---|---|
 | `pw.x` | **4.39 s** | 4.4, 4.5, 4.4 |
-| defumat | **32.36 s** | 39.0, 33.1, 32.4 |
+| defuqumat | **32.36 s** | 39.0, 33.1, 32.4 |
 | ratio | **7.4x** | |
 
 **Best of three and not a single sample, and this is the finding to read first.** This
@@ -2395,8 +2395,8 @@ with `(3 nat, nat, 3)` and runs in under a millisecond. The whole of
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
 **A different metric, and it is never mixed with the one above.** Everything
-else in this file is single-core defumat against single-core Quantum ESPRESSO.
-This section is **GPU defumat against CPU defumat, same input, same code, per
+else in this file is single-core defuqumat against single-core Quantum ESPRESSO.
+This section is **GPU defuqumat against CPU defuqumat, same input, same code, per
 SCF iteration**, with compile time as its own column — `GPU.md` §2.3, and the
 reason the two must not share a table. The QE comparison stays a CPU claim.
 
@@ -2618,17 +2618,17 @@ dial-induced difference measured anywhere here, it is GPU-only, and it is on the
 largest cell, which is the direction that matters. It should be re-measured on a
 bigger cell before the batched dial is called answer-preserving on a GPU.
 
-## Sixty-four atoms: defumat on a GPU against Quantum ESPRESSO on CPUs
+## Sixty-four atoms: defuqumat on a GPU against Quantum ESPRESSO on CPUs
 
 **Read the baseline column before the ratio.** `GPU.md` §2.3 rules this
 comparison out by default and the reason is not pedantry: the project's metric
 is single-core against single-core so that a ratio measures *code*, and a GPU
 number against a CPU number measures code *and* hardware at once and cannot be
 decomposed afterwards. It is run here because it was asked for, with `pw.x` at
-**four core counts** and defumat-on-CPU included as the middle corner, so that
+**four core counts** and defuqumat-on-CPU included as the middle corner, so that
 the reader can take whichever comparison they actually mean.
 
-Run 2026-08-25/26. **defumat on one NVIDIA H200**, jax 0.11.1; **Quantum
+Run 2026-08-25/26. **defuqumat on one NVIDIA H200**, jax 0.11.1; **Quantum
 ESPRESSO 7.2** (the cluster module — the 7.5 vendored in this repo is gitignored
 and not on the cluster) on **AMD EPYC Milan** cores, one node, `disk_io='none'`
 so neither code is timed doing I/O the other skips. `benchmarks/si64-1k*.in`:
@@ -2638,15 +2638,15 @@ so neither code is timed doing I/O the other skips. `benchmarks/si64-1k*.in`:
 
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
-Both codes agree on the answer first — **QE -505.71932000 Ry, defumat
+Both codes agree on the answer first — **QE -505.71932000 Ry, defuqumat
 -505.71932002 Ry**, 2e-8 apart — which is what makes the timings comparable at
 all.
 
 | code | hardware | iterations | ms/iteration | whole SCF |
 |---|---|---|---|---|
-| **defumat** | **H200, `band_batch=all`** | 8 | **39** | **0.31 s** |
-| defumat | H200, `band_batch=1` | 8 | 342 | 2.74 s |
-| defumat | 4 Milan cores | 8 | 1975 | 15.8 s |
+| **defuqumat** | **H200, `band_batch=all`** | 8 | **39** | **0.31 s** |
+| defuqumat | H200, `band_batch=1` | 8 | 342 | 2.74 s |
+| defuqumat | 4 Milan cores | 8 | 1975 | 15.8 s |
 | QE 7.2 | 1 core | 16 | 1352 | 21.6 s |
 | QE 7.2 | 4 cores | 16 | 531 | 8.50 s |
 | QE 7.2 | 16 cores | 17 | 223 | 3.79 s |
@@ -2658,7 +2658,7 @@ second: one H200 is worth about **5.5x a 32-core Milan node** on this cell,
 per iteration.
 
 **Whole-SCF is a different ratio again — 70x and 11.7x — and the gap is not the
-GPU.** defumat converges in **8** iterations where QE takes **16-17**, which is
+GPU.** defuqumat converges in **8** iterations where QE takes **16-17**, which is
 a difference of starting guess and mixing, not of hardware, and it would show
 identically on a CPU. Time-to-answer is what a user feels, so it is quoted; it
 just must not be filed as a GPU speedup.
@@ -2667,7 +2667,7 @@ just must not be filed as a GPU speedup.
 buys 4%. A single k-point leaves QE only plane-wave and FFT parallelism, and it
 saturates. That is the real reason the GPU comparison looks the way it does.
 
-**And defumat is still the slower code per core** — 1975 ms/iteration on four
+**And defuqumat is still the slower code per core** — 1975 ms/iteration on four
 cores against QE's 531, i.e. **3.7x slower**, consistent with the ~3.3x this
 file records elsewhere. The accelerator is doing the work, not the
 implementation.
@@ -2796,7 +2796,7 @@ Typeset with the figure in `performance/gpu-sweep.tex`; raw numbers in
 | `bi10-soc` | spin-orbit | 10 | 1 | 14 | 21686 | 17 | 260 | **83.3x** | -1.9e-04 † | 16.92 |
 | `bi20-soc` | spin-orbit | 20 | 1 | 20 | 105350 | 20 | 912 | **115.5x** | -3.7e-04 † | 34.70 |
 
-† **The bismuth rows are a pre-existing defumat/QE difference, not a GPU one.**
+† **The bismuth rows are a pre-existing defuqumat/QE difference, not a GPU one.**
 `PLAN.md` records exactly 1.9e-4 Ry for `bi10-soc` as "the one that does not
 close", and QE 7.5 and 7.2 agree with each other to 1e-8 on that case, so it is
 not a version effect either. The GPU reproduces it. **(Closed by `PLAN.md` P116**: the
@@ -2807,7 +2807,7 @@ defect by its size and has not been re-measured.)
 **Every non-spin-orbit case agrees to 4.6e-09 Ry or better, and those figures
 reproduce the *CPU* agreements already in `PLAN.md`** — 1.9e-9 on `al10-metal`,
 4.3e-9 on `h10-chain-lsda`, 4.4e-9 on `h10-chain-noncolin`, 1.8e-8 on
-`ni10-ldau`. That is the finding: **the GPU reproduces defumat's behaviour
+`ni10-ldau`. That is the finding: **the GPU reproduces defuqumat's behaviour
 including its known imperfections, rather than having a numerical character of
 its own.** A further check that costs nothing: `h10-chain-lsda` and
 `h10-chain-noncolin` return the same total to all eight digits (-9.56782281), so
@@ -2927,7 +2927,7 @@ because 11 GB of tape in HBM is the row the phase exists to bound. Per
 
 Run 2026-08-26 at commit `e562427`. **One NVIDIA H200** (`gpu63`, 143771 MiB,
 driver 580.173.02, jax 0.11.1) against **four EPYC Milan cores** (`milan1`, same
-jax, same commit) — §2.3's metric, GPU defumat against CPU defumat on the same
+jax, same commit) — §2.3's metric, GPU defuqumat against CPU defuqumat on the same
 input and the same code, with the CPU side pinned to a stated core count. Both
 jobs ran `tools/gpu/phase5.py` twice per property, so every row carries its own
 determinism check. Warm times, the cold ones beside them:
@@ -3036,7 +3036,7 @@ change is the reason to trust it:
 * **the CPU default is bit-identical to what it was**, so no validated number
   moves. The whole suite is the check;
 * **the order of precedence is unchanged**: an explicit `k_batch`/`band_batch`
-  beats `DEFUMAT_K_BATCH`/`DEFUMAT_BAND_BATCH`, which beat the platform;
+  beats `DEFUQUMAT_K_BATCH`/`DEFUQUMAT_BAND_BATCH`, which beat the platform;
 * **the two axes move together**, because `k=all, b=1` was measured at 2075 ms
   against 177 and 801 — worse than either end, since batching k while looping
   bands multiplies the per-band launches by `nk`;
@@ -3047,9 +3047,9 @@ change is the reason to trust it:
 
 Two implementation notes worth having: the platform is asked **lazily and
 cached**, because asking initialises the backend and on a GPU node that
-allocates device memory — importing `defumat.batching` must not do that — and
+allocates device memory — importing `defuqumat.batching` must not do that — and
 the two constants are module attributes (PEP 562) rather than values frozen at
-import, which also fixes a smaller bug of its own: `DEFUMAT_K_BATCH` set after
+import, which also fixes a smaller bug of its own: `DEFUQUMAT_K_BATCH` set after
 the import used to be ignored. `tests/unit/test_batching.py` substitutes the
 backend, so the accelerator branch is tested on this CPU-only workstation.
 
@@ -3239,24 +3239,24 @@ already checks the whole tensor against this reference, and `PLAN.md` records
 
 **Open, and the headline is the step count rather than any one
 cause**: on the identical input at the identical `diago_david_ndim = 2`,
-defumat's Davidson takes roughly **12x** more steps than `pw.x`. (**Defect 1
+defuqumat's Davidson takes roughly **12x** more steps than `pw.x`. (**Defect 1
 below was implemented on 2026-09-08 and measured at 1.28-1.51x on small cells**
 -- the next section. Everything else in this section stands as written; the
 sentences that the implementation has overtaken are marked in place.) Three
 candidates are below, ranked; the per-band threshold is the one that was
 measured and it accounts for **1.47x** of the 12x, so the rest is elsewhere
 and the leading suspect is the missing hard restart. Diagnosed by running FePc on SnTe(001) through `pw.x` and through
-defumat on the *identical* input and comparing per-iteration timings. Recorded
+defuqumat on the *identical* input and comparing per-iteration timings. Recorded
 here so that whoever takes it does not re-derive any of it.
 
 **The case.** 157 atoms, `nelec = 1700`, `nbnd = 1020`, `K_POINTS gamma`,
 `nspin = 2`, `ecutwfc 60` / `ecutrho 240`, `nosym`, `diago_david_ndim = 2`,
 `mixing_mode local-TF`, `smearing mv`, `degauss 0.01`; `npwx` about 381k on the
-gamma half-sphere, FFT 225x216x256. defumat on one H200 at `f2be49f`
-(`DEFUMAT_BAND_BATCH 64`, pool 132.81 GiB); `pw.x` 7.2 on 128 Milan cores,
+gamma half-sphere, FFT 225x216x256. defuqumat on one H200 at `f2be49f`
+(`DEFUQUMAT_BAND_BATCH 64`, pool 132.81 GiB); `pw.x` 7.2 on 128 Milan cores,
 `-npool 1 -ndiag 64`.
 
-**The symptom.** defumat's iteration 1 takes **62 s** and its iteration 2 takes
+**The symptom.** defuqumat's iteration 1 takes **62 s** and its iteration 2 takes
 **2187 s** — 35x, at an `ethr` that only tightened 4.5x. Memory is not involved:
 14.5 GB in use and 38.1 GB peak against a 132.81 GiB pool.
 
@@ -3276,7 +3276,7 @@ slowest-converging part of an atomic start.
 `btype` comes from the previous iteration's weights, so it is all-ones during
 iteration 1 in both codes and only bites from iteration 2. That is exactly where
 the anomaly starts, and it is why `pw.x`'s iteration 2 gets **cheaper** than its
-iteration 1 while defumat's gets 35x dearer.
+iteration 1 while defuqumat's gets 35x dearer.
 
 **Defect 2: `H` is applied at full `nbnd` width.** `davidson.py:434-437` sorts the
 unconverged roots to the front and *zeroes* the settled rows, and `:508` then
@@ -3305,7 +3305,7 @@ with `nkstot = 2` here, so per spin channel):
 | 8 | 1.68e-04 | 5.0 | 48.7 | 2.72 |
 | 9 | 1.60e-04 | 3.0 | 48.9 | 7.79 |
 
-After a fix, defumat's step count should land in that range rather than at
+After a fix, defuqumat's step count should land in that range rather than at
 `MAX_ITERATIONS = 100` (`davidson.py:156`). **No new `pw.x` run is needed** -- the
 table is the reference.
 
@@ -3349,7 +3349,7 @@ all-ones, against the same run without it:
 Iteration 1 is bit-identical to eight decimals, which is the control saying the
 two runs differ only in that switch. Iteration 2 goes 8.5 -> 12.5, **a factor of
 1.47** -- the right sign, in the right place, and an order of magnitude short of
-the ~12x by which defumat's inferred ~100 steps exceed `pw.x`'s 8.5.
+the ~12x by which defuqumat's inferred ~100 steps exceed `pw.x`'s 8.5.
 
 **So the diagnosis is right and incomplete, and whoever implements it should
 expect ~1.5x.** Measuring 1.5x is confirmation, not refutation; do not conclude
@@ -3361,7 +3361,7 @@ testable against the trace above with no new `pw.x` run:
 * **There is no hard restart.** `c_bands.f90` re-enters `cegterg` up to **5
   times** at `maxter = 20`, each re-entry restarting Davidson from the current
   `evc` with a fresh subspace -- which is why `CLAUDE.md` says QE's real budget is
-  100 steps. defumat's `MAX_ITERATIONS = 100` is one *continuous* loop, and the
+  100 steps. defuqumat's `MAX_ITERATIONS = 100` is one *continuous* loop, and the
   collapse-to-Ritz at `nvecx` is **not** the same thing: it keeps the iteration
   history and the preconditioner state where a re-entry discards them. A periodic
   hard restart is the standard rescue for a stalled Davidson.
@@ -3382,8 +3382,8 @@ aborts when over budget, it does not degrade to slowness). `diago_david_ndim = 2
 being pessimal -- it collapses the subspace every step, which is real, but `pw.x`
 at the *same* setting does iteration 2 in 8.5 steps at a *tighter* `ethr`, so
 raising it would mask the defect rather than explain it. And the H200 being slow
-per unit of work: defumat is at `>= 10.9` s/step against `pw.x`'s ~6.7, about
-1.6x, but defumat's step does more work (defect 2), so once that is normalised the
+per unit of work: defuqumat is at `>= 10.9` s/step against `pw.x`'s ~6.7, about
+1.6x, but defuqumat's step does more work (defect 2), so once that is normalised the
 GPU is probably not behind -- **do not go hunting a slow FFT or GEMM until
 work-per-step is normalised**. `5779eae` and `5b9eb0f` are memory only (84.3 ->
 73.3 GiB at `david = 2`, `band_batch = 64`), not time.
@@ -3396,10 +3396,10 @@ and `sum_band.f90:118-128` are now transcribed -- `empty_ethr = MAX(5 ethr, 1e-5
 and a `btype` built from the previous iteration's occupations, `0` wherever
 `wg/wk < 0.01` -- so `ethr` into the solver is a `(nbnd,)` vector where it was a
 scalar. `diago_full_acc` is the off-switch, defaulting to `pw.x`'s `.false.` and
-reaching `run_scf` and `Calculator`. Code: `defumat/solvers/davidson.py`
+reaching `run_scf` and `Calculator`. Code: `defuqumat/solvers/davidson.py`
 (`empty_band_threshold`, a vector `ethr`, `return_steps`),
-`defumat/scf/driver.py` (`band_thresholds`, the history entries),
-`defumat/calculator.py` (the option).
+`defuqumat/scf/driver.py` (`band_thresholds`, the history entries),
+`defuqumat/calculator.py` (the option).
 
 **The measurement.** One process per input, both arms inside it, alternating
 off/on, 5 repeats, the compiling run discarded; `OMP_NUM_THREADS=1
@@ -3433,7 +3433,7 @@ insulator at `nbnd = 4` and cannot show the feature -- gave 17 steps against 22,
 2.0e-7 Ry apart.
 
 **Wall gains less than the step count does -- 1.11x against 1.28x, 1.34x against
-1.51x -- and the reason is defect 2**, still open: a defumat Davidson step costs
+1.51x -- and the reason is defect 2**, still open: a defuqumat Davidson step costs
 the same whatever `notcnv` is, because `H` is applied to the whole `(nbnd, npwx)`
 block, where `pw.x`'s late steps touch a handful of vectors. The eigensolver is
 also only part of an SCF iteration that costs 0.07 s on the 8-atom cell.
@@ -3490,7 +3490,7 @@ against **OpenBLAS and FFTW3** (`ldd`, recorded because the 2026-09-12 entry
 above found a netlib `pw.x` flattering this code by 2.0x). Both codes one core,
 both from the same input at `conv_thr = 1e-10`.
 
-| `si16-1k-ecut30`, 16 atoms, 32 bands, 5900 PWs | QE 7.5 | defumat, before | after |
+| `si16-1k-ecut30`, 16 atoms, 32 bands, 5900 PWs | QE 7.5 | defuqumat, before | after |
 |---|---|---|---|
 | whole SCF | 3.47 s | 6.499 s | **5.736 s** |
 | SCF iterations | 12 | 9 | 9 |
@@ -3720,7 +3720,7 @@ worry was the runtime buffers. XLA shares them:
 Only the program text grows, which is compile time paid once into the on-disk
 cache. Two rungs is worth 1.3 per cent on the eight-atom cell and nothing
 resolvable on the sixteen, because it rounds a live width of 24 or 20 back up to
-32. `DEFUMAT_BAND_RUNGS` is the dial and **1 turns it off**, which is what a cell
+32. `DEFUQUMAT_BAND_RUNGS` is the dial and **1 turns it off**, which is what a cell
 large enough for XLA's rematerialisation pass to bind should use -- the one cost
 of the extra rungs that could not be measured on a 16-atom cell.
 
@@ -3857,7 +3857,7 @@ item below against the code, and the dated marks on items 1, 4, 7, 8, 10 and 11 
    iterations against `ph.x`'s 5, whose mixer is `LR_Modules/mix_pot.f90`. It
    turned out not to be a speed item at all -- linear mixing of a map whose
    Jacobian has an eigenvalue below -1 **diverges**, which two systems then did
-   (see "What a mixer in the response loop was worth"). `defumat/response/mixing.py`
+   (see "What a mixer in the response loop was worth"). `defuqumat/response/mixing.py`
    now wraps `scf/mixing.py`'s Anderson history for all three loops.
 10. **One irreducible representation at a time** (P25), for the *memory* rather
    than the time: it bounds the working set at 3 modes in flight instead of
@@ -3957,7 +3957,7 @@ this cost is that it is a **mixing** problem: the ground-state SCF answers the
 same stiffness with Kerker preconditioning and pays about 1.7x, where the
 response loop has no preconditioner and pays ~7x in iterations. Preconditioning
 `_self_consistent_response`, or replacing its linear mixing with the Anderson
-mixer `defumat/scf/mixing.py` already has, is the obvious next move and is in
+mixer `defuqumat/scf/mixing.py` already has, is the obvious next move and is in
 the backlog.
 
 ## What a mixer in the response loop was worth (P24 x P25 x P26)
@@ -4086,7 +4086,7 @@ what turned this from a testing habit into an open item (`PLAN.md` §3's outstan
 and the section `CLAUDE.md` now carries). Every bound above keeps a run *under* the
 ceiling; none of them decides what happens when one goes over it, and on this machine what
 happens is that the terminal dies. `run_regression.sh` now puts each file in a cgroup
-scope (`DEFUMAT_TEST_MEM_MAX`, 12G by default), so a kill costs that file's result and a
+scope (`DEFUQUMAT_TEST_MEM_MAX`, 12G by default), so a kill costs that file's result and a
 `killed (SIGKILL, cap=...)` line; verified by killing a synthetic 2.5 GB test under a
 512 MB cap and watching the loop record it and carry on, and by `test_scf.py`'s 27 slow
 tests passing under the default cap in 7.4 s. Each line also carries that file's peak RSS -- `test_scf.py`
@@ -4345,7 +4345,7 @@ before JAX is imported (the mechanism `tools/compare_qe.py` documents), Elk with
 
 | | | |
 |---|---|---|
-| defumat SCF (4x4x4, `conv_thr = 1e-12`) | **4.3 s** | the thing both quantities ride on |
+| defuqumat SCF (4x4x4, `conv_thr = 1e-12`) | **4.3 s** | the thing both quantities ride on |
 | `effective_mass`, velocity route | **4.3 s** warm, 4.8 s cold | 13 NSCF k-points |
 | `effective_mass`, eigenvalue route | **6.0 s** warm, 6.4 s cold | 49 NSCF k-points |
 | Elk ground state (LAPW, same cell, PBE) | 1.36 s | |
@@ -4421,7 +4421,7 @@ with the strain response on the screened side, costs **25 s** for six more
 Sternheimer solves. It is in the slow test set and nowhere near the default path.
 
 **What it costs as the k-mesh is opened up, measured on Triton 2026-09-19**
-(`batch-milan`, 4 cores, `DEFUMAT_CACHE_DIR=off`, `MaxRSS` from `sacct`; the
+(`batch-milan`, 4 cores, `DEFUQUMAT_CACHE_DIR=off`, `MaxRSS` from `sacct`; the
 same AlAs cell, `nosym`, whole unshifted grids). The ladder was run to find out
 which of two routes to `e_14` was unconverged, and its by-product is the first
 sizing of this quantity above one k-mesh:
@@ -4565,7 +4565,7 @@ the safer one and on a reduced k-set it was not.
 reversed.** Each peaks at about 10 GiB of `run_regression.sh`'s 12 GiB cap. The
 two tests passed together once, at 5m52, and the *same code* was killed at 137
 the next time it ran -- the first run had compiled the second cell's kernels and
-the second read them back off `~/.cache/defumat/jax`, and loading a compiled
+the second read them back off `~/.cache/defuqumat/jax`, and loading a compiled
 executable expands it. **A two-cell file measured cold is not a two-cell file
 that runs warm.** Split, they are 5m24 and 1m55 and both pass warm. This is the
 `OPEN.md` Part I item 2 effect landing on a test gate rather than on a
@@ -4742,7 +4742,7 @@ sides, `OMP_NUM_THREADS=1` and `taskset -c 0`, the affinity mask set before JAX
 is imported. Elk's tasks were run **one per invocation** against a state already
 on disk, with `tshift = .false.` so the atomic basis is identical across them.
 
-| | Elk | defumat |
+| | Elk | defuqumat |
 |---|---|---|
 | ground state | 6.08 s | **1.50 s** |
 | form the operator | 0.92 s (task 120, `pmat` to disk) | — |
@@ -4762,7 +4762,7 @@ k-point instead of an `axpy` inside the band-pair loop. Its marginal cost per
 component is small (0.48 s for one, 1.19 s for nine, so the k-loop and the file
 dominate), which is why the ratio is 2.5 and not nine.
 
-**Where defumat loses is the re-diagonalisation, and it is the whole of the
+**Where defuqumat loses is the re-diagonalisation, and it is the whole of the
 gap.** Elk's ground state leaves `EVECSV.OUT` on disk, so its post-processing
 never diagonalises again; this code runs an NSCF, and that 2.55 s is the entire
 1.6x on the bottom row. It is exactly the memory-for-time trade this file
@@ -4807,7 +4807,7 @@ and the affinity mask set before JAX is imported (the mechanism
 `tools/compare_qe.py` documents). Elk's tasks were run one per invocation
 against a state already on disk.
 
-| | Elk | defumat |
+| | Elk | defuqumat |
 |---|---|---|
 | ground state | 1.63 s (12x12x12, LAPW) | 1.17 s (10-point wedge, PW) |
 | eigenvalues on the nesting grid | — (its SCF ran there) | 0.32 s (NSCF, 72 wedge points) |
@@ -4944,7 +4944,7 @@ streaming was avoiding. It is left unjitted, and `k_batch` is the dial.
 The same crystal, the same 6x6x6 grid, the same 0.005 Ha broadening, one core
 each. Elk ran tasks 0, 120 and 125 in one invocation from nothing.
 
-| | Elk | defumat |
+| | Elk | defuqumat |
 |---|---|---|
 | ground state | — | 5.6 s |
 | the states the sum runs over | — | 51.3 s (NSCF, 22 bands) |
@@ -4988,7 +4988,7 @@ Same machine, one core each. `dynmat.x` was run on the `fildyn` this code writes
 (`asr = 'no'`, `q = (1, 0, 0)`, `lplasma = .true.`), which is the same input and
 the same arithmetic.
 
-| | `dynmat.x` | defumat |
+| | `dynmat.x` | defuqumat |
 |---|---|---|
 | its own timer | 0.00 s | -- |
 | whole invocation, 50 runs averaged | 4.2 ms | -- |
@@ -5019,7 +5019,7 @@ on both sides, `OMP_NUM_THREADS=1` and the affinity mask set before JAX is
 imported (the mechanism `tools/compare_qe.py` documents), both starting from a
 converged density already on disk.
 
-| | `pw.x` (`lberry` nscf) | defumat (`run_polarization`) |
+| | `pw.x` (`lberry` nscf) | defuqumat (`run_polarization`) |
 |---|---|---|
 | k-points diagonalised | 24 (4 strings x 6) | 20 (4 strings x 5) |
 | wall clock | **0.11 s** | **0.34 s** warm, 1.73 s cold |
@@ -5068,7 +5068,7 @@ compared by their output.
 AlAs, `ngridk 2 2 2`, field along z, step 0.02, spin-orbit coupling on. Elk built
 from the vendored source with `gfortran` and the system BLAS/LAPACK/FFTW.
 
-| | Elk (task 390) | defumat |
+| | Elk (task 390) | defuqumat |
 |---|---|---|
 | threads | 2 | 4 |
 | whole tensor, three columns | **70 s** | ~230 s (3 x the column below) |
@@ -5122,7 +5122,7 @@ mask set before JAX is imported (`tools/compare_qe.py`'s mechanism); Elk timed
 by wall clock rather than by its own CPU-seconds line, which is what a threaded
 run makes meaningless.
 
-| | Elk | defumat |
+| | Elk | defuqumat |
 |---|---|---|
 | silicon, ground state + task 195 | **2.68 s** | **1.98 s** |
 | iron, ground state + tasks 195/196 | **6.58 s** | **5.00 s** |
@@ -5171,7 +5171,7 @@ machine, both codes starting from nothing.
 
 ### Against `ph.x`, which is where this one was taken from
 
-| stage | `pw.x` / `ph.x` | defumat | ratio |
+| stage | `pw.x` / `ph.x` | defuqumat | ratio |
 |---|---|---|---|
 | ground state | 1.76 s | 4.25 s | **2.4x** |
 | `epsilon_infinity` **and** `Z*` | 3.35 s | 38.46 s | **11.5x** |
@@ -5184,7 +5184,7 @@ Sternheimer solve runs once per occupied band per field direction per *channel*,
 and this cell's channels hold 7 and 5, where `ph.x` gets the same work from
 doubling `nks` and pays for it inside its own k-loop. It is not a fair 11.5x
 either -- `ph.x` reads a converged ground state off disk, so the two columns of
-the middle row start from the same place, but defumat's column includes building
+the middle row start from the same place, but defuqumat's column includes building
 the augmentation tables that `pw.x`'s column already paid for on the QE side.
 The honest number is the "both" row.
 
@@ -5210,7 +5210,7 @@ discarded rather than recorded. `ph.x`'s own figures were **not** taken under
 that rule, and did not need to be: it reports 2.33 s CPU against 2.48 s WALL,
 6% apart, where contention shows as WALL well above CPU.
 
-Both columns are **warm**: `~/.cache/defumat/jax` already held this cell's
+Both columns are **warm**: `~/.cache/defuqumat/jax` already held this cell's
 kernels from the regression file, which runs the same three wavevectors, so the
 32/46/46 s exclude compilation. Cold, the first call pays it once per process.
 
@@ -5219,9 +5219,9 @@ kernels from the regression file, which runs the same three wavevectors, so the
 `ph.x`'s figures are its own cumulative `PHONON` wall clock differenced across
 the three wavevectors of one `ldisp` run at `nq = 2 2 2`
 (`reference.out.ph-si-epsilon-unshifted-dispersion`), so its ground state is
-excluded on both sides: defumat's is 1.3 s and is listed once.
+excluded on both sides: defuqumat's is 1.3 s and is listed once.
 
-| q | `ph.x` | defumat | ratio |
+| q | `ph.x` | defuqumat | ratio |
 |---|---|---|---|
 | `Gamma` | 0.93 s | 32.0 s | 34x |
 | `L` (0.5, -0.5, 0.5) | 0.76 s | 45.7 s | **60x** |
@@ -5246,7 +5246,7 @@ way, and the zone-boundary rows are the comparison to quote.
 
 **The two sides are converged to the same place**, which is set rather than
 assumed: the `ph.x` input carries `tr2_ph = 1.0d-14` and `alpha_mix = 0.700`,
-and defumat runs at its matching `tr2 = 1e-14`, `alpha_mix = 0.7`. So neither
+and defuqumat runs at its matching `tr2 = 1e-14`, `alpha_mix = 0.7`. So neither
 column is buying speed with a looser solve.
 
 **Corrected 2026-10-03: the two `tr2` are not the same quantity.** `ph.x` tests the summed
@@ -5296,7 +5296,7 @@ set before JAX is imported), same machine, nothing else running.
 | the SCF it seeds | **2.5 s**, four iterations |
 
 Both SCF columns are **warm**: each was run twice in its own process and the
-second is quoted, so `~/.cache/defumat/jax` already held the kernels and neither
+second is quoted, so `~/.cache/defuqumat/jax` already held the kernels and neither
 number contains a compile. A "fresh process" is not a cold one here, the
 compilation cache being on disk.
 
@@ -5320,7 +5320,7 @@ directory holding the fixture's `elk.in`, `H.in`, `GEOMETRY.OUT` and
 `STATE.OUT`, which reproduces the committed `RHO3D.OUT` **bit for bit**, three
 runs, single core:
 
-| read the state, evaluate 4096 points, write the file | Elk task 33 | defumat | ratio |
+| read the state, evaluate 4096 points, write the file | Elk task 33 | defuqumat | ratio |
 |---|---|---|---|
 | **per process**, which is what Elk always is | **0.17 s** | **0.376 s** | **2.2x** |
 | a repeat call inside a live process | -- | **0.137 s** | 0.8x |
@@ -5376,7 +5376,7 @@ QE never materialises `Q_ij(G)`. `upflib/qrad_mod.f90`'s `init_tab_qrad` allocat
 On the 45-atom NiBr2 slab that made it fail (noncollinear + spin-orbit, fully-relativistic
 PBE PAW, 21 A of vacuum, `ecutrho = 360`, `ngm = 3536849`):
 
-| | defumat, before | `pw.x` `tab_qrad` | ratio |
+| | defuqumat, before | `pw.x` `tab_qrad` | ratio |
 |---|---|---|---|
 | 2 species (Ni + Br) | 76.5 GB | 8.4 MB | **9100x** |
 | 16 species, one per magnetic site | 992.4 GB | 66.9 MB | 14800x |
@@ -5633,7 +5633,7 @@ which is what preserving the old total bit for bit would need -- costs a second 
 serial `pw.x` 7.5 on this workstation, same inputs, same pseudopotentials.** Not a wall
 clock: a mixer change moves the count and not the cost of an iteration, and the count is
 the number both codes print. Both sides were run the same day, `pw.x` pinned to one core
-(`taskset -c 13`, `OMP_NUM_THREADS=1`); the defumat counts are independent of cores.
+(`taskset -c 13`, `OMP_NUM_THREADS=1`); the defuqumat counts are independent of cores.
 
 | cell | before (fit on `becsum`) | after (fit on the density) | `pw.x` |
 |---|---|---|---|
@@ -5671,18 +5671,18 @@ had never been compared), and it is filed in `OPEN.md` rather than explained her
 workstation one after the other, idle machine.** `tests/data/qe/co-tetragonal-relaxed-mae-{x,z}.in`
 for `pw.x` 7.5 (serial build, `taskset -c 2`, `OMP_NUM_THREADS=1`), and
 `Calculator.get_relaxed_anisotropy(directions="xz", conv_thr=1e-12)` on the base input for
-defumat under the same mask. Both sides start from atomic densities and stop at the same
+defuqumat under the same mask. Both sides start from atomic densities and stop at the same
 threshold, so the same work is timed: a converged ground state per direction, and a
 subtraction.
 
-| | `pw.x` 7.5 | defumat | ratio |
+| | `pw.x` 7.5 | defuqumat | ratio |
 |---|---|---|---|
 | wall, both directions | **45.7 s** (24.5 + 21.2; QE's own report 24.52 + 21.19) | **33.6 s, 35.7 s** (the two compiled calls; the first, 42.5 s, compiles) | **0.76x** |
 | iterations, x + z | 37 + 32 = 69 | 19 + 21 = 40 | |
 | per iteration | 0.66 s | 0.87 s | 1.3x |
 | E(x) - E(z) | 0.4474 meV | 0.447302 meV | |
 
-**defumat is the faster of the two on this pair, and only because it takes fewer
+**defuqumat is the faster of the two on this pair, and only because it takes fewer
 iterations**: per iteration it is 1.3 times `pw.x`, inside the band the rest of this file
 records, and the 69 against 40 is P107's Anderson fit (P87 measured 25 and 43 before it).
 Two samples on the compiled side, which is enough for a change expected to move the number
@@ -5698,7 +5698,7 @@ silicon, 10 k-points, `ecutwfc = 18`, run as a spinor on both sides.
 `OMP_NUM_THREADS=1` and `taskset -c 0` for both, the affinity mask set before the
 interpreter starts so JAX inherits it. Three repeats each.
 
-| stage | defumat | QE | ratio |
+| stage | defuqumat | QE | ratio |
 |---|---|---|---|
 | ground state | 1.33-1.49 s | **1.14-1.45 s** (`pw.x`) | **~1.1x** |
 | the field response | 16.05-17.31 s | **6.5-6.7 s CPU**, 7.4-9.7 s wall (`ph.x`, of which `solve_e` is all but 0.2) | **2.5x** on CPU |
@@ -5709,7 +5709,7 @@ interpreter starts so JAX inherits it. Three repeats each.
 response against response. `dielec` itself is 0.00 s on QE's side and the assembly is
 negligible here too; what is compared is the Sternheimer solve and its
 self-consistent loop. On this side the first run in a process pays compilation and
-the rest do not (`~/.cache/defumat/jax`): 17.31 s is a first run and 16.05 a second,
+the rest do not (`~/.cache/defuqumat/jax`): 17.31 s is a first run and 16.05 a second,
 so **compilation is about 1.3 s of it** and the ratio is not an artefact of it.
 
 **`ph.x` must be timed from clean scratch, and that is worth nearly a factor of
@@ -5745,7 +5745,7 @@ contraction needs `Q` -- and because `build`'s argument comes from a
 plus a `(nchunks, nat, chunk)` copy of the atom phases.
 
 **It had an exact floor.** `build_augmentation` takes this route only when
-`nh^2 ngm x 16 > DEFUMAT_AUG_MAX_BYTES` (2 GiB), and the stacked residual equals
+`nh^2 ngm x 16 > DEFUQUMAT_AUG_MAX_BYTES` (2 GiB), and the stacked residual equals
 that product to within `npad/ngm`. So on every cell that took the path, the tape
 was **at least 2 GiB by construction** -- the scheme is chosen exactly when the
 array it rebuilds is too large to store.
@@ -5753,7 +5753,7 @@ array it rebuilds is too large to store.
 **Measured by the compiler rather than by a stopwatch.** `jax.jit(jax.grad(...))
 .lower(...).compile().memory_analysis()` allocates nothing, so it sizes a
 derivative on a cell whose SCF need not fit (`tools/gpu/force_memory.py`).
-`bismuthene-soc-small.in` with `DEFUMAT_AUG_MAX_BYTES=0` forcing the route:
+`bismuthene-soc-small.in` with `DEFUQUMAT_AUG_MAX_BYTES=0` forcing the route:
 
 | | `temp_bytes` | |
 |---|---|---|
@@ -5910,7 +5910,7 @@ quantity whose expected change is zero, take the median and say how many samples
 number.** A *first-call* `get_stress()` read **8.68 s before and 16.09 s after**
 — a convincing 85% regression, reproducible, and entirely an artefact: the first
 call includes compilation, and the baseline's kernels were already in
-`~/.cache/defumat/jax` while the rematted variant's had to be built. Compiled,
+`~/.cache/defuqumat/jax` while the rematted variant's had to be built. Compiled,
 the two are identical to 0.5 per cent. This is the same shape as the `ph.x`
 warm-scratch artefact recorded above, one layer in: **a first-call timing in this
 code measures the on-disk kernel cache, not the work.** Time the second call, or
@@ -6090,7 +6090,7 @@ choice. Measured on the same cell:
 | the old `lax.map` + `sum` | 9,947,664 |
 
 `None` is worse than the stacking form it replaced. So this is not a dial, and
-`DEFUMAT_BAND_BATCH` deliberately does not reach it -- verified: the figure is
+`DEFUQUMAT_BAND_BATCH` deliberately does not reach it -- verified: the figure is
 2,593,296 with the variable set to `none`.
 
 ## Reassociating the augmentation charge: 2 GiB and 8.9x (MEMORY-AUDIT A9)
@@ -6191,14 +6191,14 @@ afternoon again.
 ## What A9 is worth against `pw.x` (MEMORY-AUDIT A9, the QE side)
 
 The reassociation above was taken as a memory fix and turned out to be a **speed**
-fix, so it owes the project's primary measurement: single-core defumat against
+fix, so it owes the project's primary measurement: single-core defuqumat against
 single-core `pw.x` on the same machine and the same input.
 
 `benchmarks/si8-us-1k.in` (eight-atom silicon, ultrasoft, one k-point,
 `ecutwfc = 20`), `~/apps/qe-7.4.1/bin/pw.x` on the **plain system BLAS** (not the MKL
 wrapper), both codes pinned to CPU 0, `OMP_NUM_THREADS=1`, `--repeats 3`, idle machine:
 
-| | QE | defumat, before | defumat, after | ratio before | ratio after |
+| | QE | defuqumat, before | defuqumat, after | ratio before | ratio after |
 |---|---|---|---|---|---|
 | per SCF iteration | 0.106 s | 0.172 s | **0.114 s** | 1.6x | **1.1x** |
 | SCF, warm | 0.850 s | 1.723 s | **1.135 s** | 2.0x | **1.3-1.4x** |
@@ -6220,7 +6220,7 @@ per process whatever the size of the run, which is why it is reported apart from
 ## What the ultracell costs, against the supercell it approximates (P88)
 
 **The Elk pair is not taken here, and that is a decision rather than an omission.**
-The standing rule is single-core defumat against the single-core code a feature was
+The standing rule is single-core defuqumat against the single-core code a feature was
 taken from, on the same physics. Stage 1 is *unpolarized silicon under an applied
 potential*; Elk's only worked example of the ultra long-range method is the chromium
 spin density wave (`examples/ultra-long-range/Cr-SDW`), which is magnetic, spin-orbit
@@ -6381,7 +6381,7 @@ dataset was generated for costs. **The answer is nothing to speak of**, and the 
 structural: the ultracell box grows with `ecutrho` but the expensive part of an iteration is
 `2 npol N nbnd` transforms on the *wavefunction* sphere, which `ecutrho` does not touch.
 
-Nine cluster tasks, one case each, cold kernel cache (`DEFUMAT_CACHE_DIR=off`), four cores
+Nine cluster tasks, one case each, cold kernel cache (`DEFUQUMAT_CACHE_DIR=off`), four cores
 on `batch-milan`, whole case from the unit cell's SCF to the last rung of every arm --
 so these are comparable to each other and to nothing else:
 
@@ -6843,7 +6843,7 @@ is outstanding.
 | 2026-08-19 | QE's stick FFT layout implemented, with the field held xy-contiguous | 1.13x on the local term at eight atoms; ~4% per iteration |
 | 2026-08-19 | LSDA: a leading spin axis on the density, potential, `becsum`, `D_ij` and the wavefunctions | no change to the unpolarized path (`si-1k` 0.011 → 0.010 s, `si8-1k` unchanged) |
 | 2026-08-20 | Spin-orbit coupling (P14): spinor wavefunctions, `j`-resolved projectors | one Hamiltonian on a doubled space; a nonmagnetic run keeps `nspin_mag = 1`, so the density, potential and XC paths are untouched |
-| 2026-08-20 | The k axis chunked as QE's `k_loop`, default one k-point (`defumat/batching.py`) | converged bismuthene 44.9 → 22.5 s/iteration and 4.91 → 3.16 GB; 9% slower on `metal.in`'s ten cheap k-points |
+| 2026-08-20 | The k axis chunked as QE's `k_loop`, default one k-point (`defuqumat/batching.py`) | converged bismuthene 44.9 → 22.5 s/iteration and 4.91 → 3.16 GB; 9% slower on `metal.in`'s ten cheap k-points |
 | 2026-08-20 | The band axis chunked as `vloc_psi_k`'s `DO ibnd`, default one band (`map_bands`/`sum_bands`) | `h_psi` local term 2.48x at 16 atoms, 1.66x at 8, 0.91x at 180 PWs; `si16-1k-ecut30` 4.2 → 2.5x against QE |
 | 2026-08-20 | `batch = 1` stops meaning a width-one batch axis: direct call at `nk = 1`, plain `lax.map` beyond | 37% of a Davidson solve, on every k-point of every run |
 | 2026-08-20 | `v_xc` and `e_xc` from one `value_and_grad` pass instead of two evaluations | `exchange_correlation` 7.3 → 3.5 ms |
@@ -6875,10 +6875,10 @@ is outstanding.
 | 2026-09-03 | The orbital magnetization (P64): the covariant k-derivative as dual states of the neighbouring manifolds, and `H` contracted between two of them | **The comparison is like-for-like and the ratio is 2.07x**, which is the band this package sits in. An iodine atom in a twelve-bohr box (`i-atom-soc.in`, 8829 plane waves, seven spinor bands, a 3x3x3 grid), one core each with the affinity mask set before JAX is imported: `pw.x`'s non-self-consistent `lorbm` run is **52.6 s** (its own timer agrees) and the same thing here -- the fixed-density diagonalisation on the 27-point mesh plus the assembly -- is **108.6 s**, at a 1.33 GB peak. The self-consistent legs are 3.9 s against 9.8 s (2.48x) on the same input, so the response leg is *not* the expensive half relative to QE. **Both sides start from the same place**, which is what makes the pair meaningful: each is one whole run from scratch, reading a converged density and producing the two Kubo terms. What the assembly itself costs is six overlap matrices, six `nbnd x nbnd` solves and four Hamiltonian applications per k-point -- the applications dominate, and they are the same `h_psi` a diagonalisation calls, so the ratio here is the ratio of `h_psi` and nothing new. The gather plans are `(nk, npol npwx)` integers per neighbour direction, 11 MB on this cell against the states' 53 MB. |
 | 2026-09-03 | STM images (P65): the tunnelling density as `Calculation.density` called with delta-weighted occupations, and the plane read out of the grid by its own Fourier series | **The comparison is like-for-like and this end is 5.4x faster, which is the direction this file does not usually record.** Elk's task 162 on fcc aluminium (the cell and the 4x4x4 shifted grid of QE's `pw_metal/metal.in`, a 40x40 plane, one core each, both starting from a converged ground state) is **0.49 s** against **0.09 s** here warm and 0.29 s including compilation. Each side rebuilds the density from the new occupations and then evaluates it on 1600 points; Elk's leg also re-reads `STATE.OUT` and regenerates its radial functions, which is what a post-processing task does there and has no counterpart in a cached `Calculator`. **What is not comparable is the evaluation**: `rfpts` sums spherical harmonics inside each muffin tin and does a plane-wave sum only in the interstitial, where a pseudopotential code has one Fourier sum everywhere -- so the ratio is a statement about LAPW's geometry rather than about either implementation. **The ground states go the usual way**, 0.69 s by Elk's own timer for its thirteen iterations against 1.57 s here, so the quantity is cheap on both sides and the phase's own cost is a rounding error on the SCF that feeds it. Against `pp.x` the timing is not measured and would not be informative: `plot_num = 5` re-reads the collected wavefunctions off disk and writes a text dump of the whole grid, which is I/O rather than the sum. **Peak** is `chunk x ngm` complex for the phase table -- the points are chunked to ~32 MB, because a 40x40 plane against a 30000-vector sphere is 768 MB in one block -- plus the tunnelling density itself at one dense grid, which is what a density already costs. |
 | 2026-09-03 | Vertical tunnelling transport (P66): the substrate's exit plane as a closed-form Gram matrix per k-point, the tip amplitudes as one plane-wave sum, and the whole thing as one quadratic form | **There is no like-for-like pair and the reason is the geometry rather than the physics.** QE's `pwcond.x` computes a Landauer transmission, but between two semi-infinite crystalline leads with the current along one axis -- one conductance per energy and no point contact, so no map; timing it against a tip-resolved image would compare two different calculations. Elk has nothing. So this is the absolute cost, one core, affinity mask set before JAX is imported. Monolayer graphene, the **whole** 6x6x1 grid (36 k-points, a wedge being refused), 20 bands, a 40x40 tip plane: **36.7 s** warm and 39.4 s cold, of which the fixed-density diagonalisation is **29.9 s** and the transport assembly itself is **6.8 s** -- so four fifths of the run is the NSCF every k-resolved quantity here pays, and the phase's own cost is the smaller part. **The nearest relative is P65's STM image at 8.6 s on the same call, and the gap is not the assembly**: `run_stm` may reduce its grid to a wedge and this may not, so it diagonalises 7 k-points where this does 36. That is a real cost of the quantity and it is the refusal, not the implementation. **The energy axis is free and this is the measurement that says so**: 1, 21 and 81 energies cost 35.7, 36.6 and 38.6 s, so eighty-one tip energies are **8 per cent** more than one -- the tip sampling and the Gram matrices do not depend on `E`, only the per-state weight does, which makes a transport dI/dV at every pixel a by-product rather than a sweep. **Cost shape**: sampling is `nk nbnd npts npwx` and dominates, the Gram matrices are `nk nbnd n_hpar`, and the contraction is `nk nbnd^2 npts` per energy. **Peak 0.85 GB** on that cell, of which the amplitudes are `npol nk nbnd npts` complex (18 MB here) and the phase table is chunked to ~32 MB as P65's sampler already chunks it. |
-| 2026-09-04 | **Two `(nbnd, npwx)` blocks out of the Davidson working set**: the expansion rebuilt at the step that consumes it instead of carried across the loop, and the robustness retry moved from a `lax.cond` to a host branch | **The eigensolver's XLA temp buffer falls by 11.6 GiB on a 157-atom slab, and nothing gets slower.** That buffer is one contiguous allocation and it is what decides whether a large run starts: on FePc/SnTe at `ecutwfc = 60`, `nbnd = 1020`, gamma storage, an H200 was asked for **109.95 GiB** against a 104.85 GiB limit and died before the first iteration, where `defumat/sizing.py` had budgeted 69 GB. **That limit is a setting rather than the card**: it is JAX's default preallocation, 0.75 of the memory free when the client initialises (143158 MiB on these nodes, against an `nvidia-smi` total of 143771 -- the CUDA context holds the rest), where jobs after 2026-09-04 14:30 set `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95` and get a 132.81 GiB pool (`bytes_limit` 142606336000). **A buffer has to be read against the fraction its own job ran under**, and the pool taken from that job's own `bytes_limit` rather than from a remembered constant -- the same number read against the wrong one of those two pools says a configuration fits when it does not. Fitting `memory_analysis().temp_size_in_bytes` of the compiled solve gives `2.18 nvecx npwx zc + 4.20 nbnd npwx zc + 2.00 band_batch N_smooth zc` -- the `psi`/`hpsi` pair, the band blocks, and `h_psi`'s two FFT boxes per band in flight -- and the middle coefficient was **6.20** before this change: a refit measures the drop as **2.00 blocks exactly**, with the other two coefficients unmoved (2.15 -> 2.18, 1.98 -> 2.00). **The buffer assignment is what found them**, not the fit: XLA's own `memory-usage-report` gives `while.4{9}` and `while.5{9}` a `(nbnd, npwx)` slot each, which is the retry `cond` holding two copies of the whole loop -- it shares the big `(nvecx, npwx)` carries between them and not the small one. **Measuring it needs the right cell**: what separates the three terms is `nbnd npwx / (band_batch N_smooth)`, which is 0.5 on the slab and **0.06** at si16 with `band_batch = 32`, where the same change reads as 1 per cent. At a production-like ratio it is **-10.0%** (si16, `band_batch = 4`: 59.6 -> 53.6 MB) and **-10.2%** (si64, `band_batch = 16`: 932.6 -> 837.1 MB). **Time went the same way**, best of three at one core: si16 2.62 -> **2.13 s**, si32 11.93 -> **11.69 s**, iteration counts identical -- the retry `cond` was half the HLO and it is gone. **Seven of eight reference cells are bit-for-bit unchanged** (si8, si16, si8-us, si2-paw, the two-k-point test-suite silicon, Pt with spin-orbit, magnetic Fe) and the eighth moves by **1.1e-15 Ry**, from rewriting `force_real_g0` as a select on the same pass -- a scatter in the middle of the correction chain is a fusion barrier, and that path is gamma-only, which is what production runs. **Not touched, and the larger term at `band_batch = 64`**: the two FFT boxes per band belong to `vloc_psi`, not to this solver. |
+| 2026-09-04 | **Two `(nbnd, npwx)` blocks out of the Davidson working set**: the expansion rebuilt at the step that consumes it instead of carried across the loop, and the robustness retry moved from a `lax.cond` to a host branch | **The eigensolver's XLA temp buffer falls by 11.6 GiB on a 157-atom slab, and nothing gets slower.** That buffer is one contiguous allocation and it is what decides whether a large run starts: on FePc/SnTe at `ecutwfc = 60`, `nbnd = 1020`, gamma storage, an H200 was asked for **109.95 GiB** against a 104.85 GiB limit and died before the first iteration, where `defuqumat/sizing.py` had budgeted 69 GB. **That limit is a setting rather than the card**: it is JAX's default preallocation, 0.75 of the memory free when the client initialises (143158 MiB on these nodes, against an `nvidia-smi` total of 143771 -- the CUDA context holds the rest), where jobs after 2026-09-04 14:30 set `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95` and get a 132.81 GiB pool (`bytes_limit` 142606336000). **A buffer has to be read against the fraction its own job ran under**, and the pool taken from that job's own `bytes_limit` rather than from a remembered constant -- the same number read against the wrong one of those two pools says a configuration fits when it does not. Fitting `memory_analysis().temp_size_in_bytes` of the compiled solve gives `2.18 nvecx npwx zc + 4.20 nbnd npwx zc + 2.00 band_batch N_smooth zc` -- the `psi`/`hpsi` pair, the band blocks, and `h_psi`'s two FFT boxes per band in flight -- and the middle coefficient was **6.20** before this change: a refit measures the drop as **2.00 blocks exactly**, with the other two coefficients unmoved (2.15 -> 2.18, 1.98 -> 2.00). **The buffer assignment is what found them**, not the fit: XLA's own `memory-usage-report` gives `while.4{9}` and `while.5{9}` a `(nbnd, npwx)` slot each, which is the retry `cond` holding two copies of the whole loop -- it shares the big `(nvecx, npwx)` carries between them and not the small one. **Measuring it needs the right cell**: what separates the three terms is `nbnd npwx / (band_batch N_smooth)`, which is 0.5 on the slab and **0.06** at si16 with `band_batch = 32`, where the same change reads as 1 per cent. At a production-like ratio it is **-10.0%** (si16, `band_batch = 4`: 59.6 -> 53.6 MB) and **-10.2%** (si64, `band_batch = 16`: 932.6 -> 837.1 MB). **Time went the same way**, best of three at one core: si16 2.62 -> **2.13 s**, si32 11.93 -> **11.69 s**, iteration counts identical -- the retry `cond` was half the HLO and it is gone. **Seven of eight reference cells are bit-for-bit unchanged** (si8, si16, si8-us, si2-paw, the two-k-point test-suite silicon, Pt with spin-orbit, magnetic Fe) and the eighth moves by **1.1e-15 Ry**, from rewriting `force_real_g0` as a select on the same pass -- a scatter in the middle of the correction chain is a fusion barrier, and that path is gamma-only, which is what production runs. **Not touched, and the larger term at `band_batch = 64`**: the two FFT boxes per band belong to `vloc_psi`, not to this solver. |
 | 2026-09-08 | **QE's per-band Davidson threshold** (`cegterg.f90`'s `empty_ethr`, `sum_band.f90`'s `btype`), with `diago_full_acc` as the off-switch and the step count logged per SCF iteration | **1.28x in Davidson steps on `si8-smeared-1k.in`** (18 against 23) and **1.51x** on a scratchpad si16 with smearing (41 against 62); 1.11x and 1.34x of wall against a +-1.5% timing floor. The control is the off-switch: the two fixed-occupation insulators `si8-1k.in` and `si16-1k.in` are **bit-identical** in both arms, entry for entry, because no band there is below occupation 0.01. Energies move by 8.6e-12 and -2.0e-12 Ry, 12x and 49x below their own `conv_thr`, at unchanged SCF iteration counts. **This is defect 1 of the four candidates in the 157-atom-slab diagnosis and is worth about 1.5x of that section's 12x** -- it brackets the 1.47x `pw.x` shows between its own `diago_full_acc` settings, which is the reference side and is the one already on record: **no new `pw.x` run was made, and the acceptance test, the nine-row slab trace, is cluster work that was not run.** The hard restart, the preconditioner and defect 2's full-width `H` are untouched. |
 | 2026-09-09 | **A spin-polarized tip for the vertical transport map (P66)**: the two spinor components contracted through the tip's `2x2` acceptance rather than added, `Tr[P_t M]` with `M[s,s'] = a_s^T S a_{s'}^*` | **No reference-code pair is owed and the reason is the quantity, not the feature**: neither `pw.x` nor Elk computes a tip-resolved vertical transmission at all (the P66 row above says why -- `pwcond.x` is a Landauer transmission of a different geometry with no point contact, and Elk has none), so a magnetic tip has nothing to be timed against either. What follows is the absolute cost and the cost *against the unpolarized path*, one core, `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` and the affinity mask set before JAX is imported. Spinor hydrogen sheet, 16 k-points, 16 bands, a 30x30 tip plane. **At one energy the polarized path is free: 1.65 s against 1.63 s (1 per cent).** At 41 energies it is **3.19 s against 2.39 s, 1.33x**. The difference between those two numbers is the whole cost model: the tip sampling and the Gram matrices do not depend on `E` and do not change at all, and the only part that grows is the per-energy contraction -- **0.038 s against 0.019 s an energy, 2.03x**. So the headline "`npol` quadratic forms become `npol^2`" **overstates it**, and measuring says where: the `S a*` product is `nk nbnd^2 npts` and is done once per component either way (unchanged at `npol`), and only the `nk nbnd npts` dot products that close it go from 2 to 4. A doubling of the cheap half of the cheap part of the run. **Memory is unchanged to within one `(2, nk, npts)` array**: `M` is `(2, 2, nk, npts)` complex, 74 kB here against the 18 MB of amplitudes P66 already carries. |
-| 2026-09-10 | **The band dial reaches the spinor `h_psi` (P74)**: `NoncollinearHamiltonian._local` -- `vloc_psi_nc` -- never called `map_bands`, so the whole band block went into the FFT box and `DEFUMAT_BAND_BATCH` was **silently inert in every noncollinear run**. The chunk is over the band axis alone, with the `(2, npwx)` spinor pair flattened into `map_bands`'s `ndim` so a state is never split | **33.42 GB to 1.33 GB per FFT array** on the 45-atom NiBr2 supercell at `band_batch = 16`. This is P73's unidentified fourth allocation: the XLA dump shows `c128[403,2,200,240,54]` in the Davidson and `c128[510,2,200,240,54]` in the starting subspace rotation -- 33.42 and **42.32 GB** each, `nbnd x npol x N_smooth` and `natomwfc x npol x N_smooth` -- and the H200 died on the second, where cuFFT asked for a **39.40 GiB** work area (`rank 2, input_distance 12960, batch_count 204000` = `510 x 2 x 200` planes of `240 x 54`) beside the array itself. The 83.62 GiB that answered to no knob is an aligned aggregate of two or three of these boxes plus the stick pass's `c128[510,2,2383,200]` at 7.78 GB, and it is **not reproduced to the byte** -- two 42.32 GB arrays is 84.6 GB and three 33.42 GB ones is 100.3 GB against a 89.79 GB request. The shapes are the identification; the arithmetic is not. **The arithmetic could never have closed it**: an XLA:GPU executable gets one temp buffer, the sum of every live temporary at its aligned offset, which is why `89,788,080,128 = 2^13 x 641 x 17099` divided by no array shape -- `--xla_dump_to` closed it in one run (job **20200419**, gpu50, commit `b1cde9b`). **Bit-for-bit unchanged**: `assert_array_equal` on `H|psi>` across band batches on the four-atom noncollinear hydrogen chain, since `map_bands` maps and does not reduce. `sizing.py`'s third term gains its missing `npol` in the same pass -- every point behind that fit is a **gamma-storage** cell, which a spinor run never is, so it is an extrapolation the fit never saw rather than a retuning of it. **And the slab runs**: job **20200794** on an H200 at `5ba0ada` did two SCF iterations of the 45-atom cell in **5 m 33 s** at a peak of **78.51 GB** of 143.8, where nothing about this cell had ever completed one iteration -- 184.5 s to the first (the compile) and **5.5 s** to the second, so a converged run is minutes. The helix survives: total moment `(0, -0.036, 0.001)` mu_B against per-site `|m|` of 0.84-1.13 on the fifteen Ni. **Still 2.8x low at this commit**: `sizing.py` said 27.80 GB against that 78.51. The next row is where that difference is localised -- 46 GB of it is a second instance of this same defect in `spinor_band_density`, and removing it brings the peak to 32.30 GB and the estimate to 1.16x low. |
+| 2026-09-10 | **The band dial reaches the spinor `h_psi` (P74)**: `NoncollinearHamiltonian._local` -- `vloc_psi_nc` -- never called `map_bands`, so the whole band block went into the FFT box and `DEFUQUMAT_BAND_BATCH` was **silently inert in every noncollinear run**. The chunk is over the band axis alone, with the `(2, npwx)` spinor pair flattened into `map_bands`'s `ndim` so a state is never split | **33.42 GB to 1.33 GB per FFT array** on the 45-atom NiBr2 supercell at `band_batch = 16`. This is P73's unidentified fourth allocation: the XLA dump shows `c128[403,2,200,240,54]` in the Davidson and `c128[510,2,200,240,54]` in the starting subspace rotation -- 33.42 and **42.32 GB** each, `nbnd x npol x N_smooth` and `natomwfc x npol x N_smooth` -- and the H200 died on the second, where cuFFT asked for a **39.40 GiB** work area (`rank 2, input_distance 12960, batch_count 204000` = `510 x 2 x 200` planes of `240 x 54`) beside the array itself. The 83.62 GiB that answered to no knob is an aligned aggregate of two or three of these boxes plus the stick pass's `c128[510,2,2383,200]` at 7.78 GB, and it is **not reproduced to the byte** -- two 42.32 GB arrays is 84.6 GB and three 33.42 GB ones is 100.3 GB against a 89.79 GB request. The shapes are the identification; the arithmetic is not. **The arithmetic could never have closed it**: an XLA:GPU executable gets one temp buffer, the sum of every live temporary at its aligned offset, which is why `89,788,080,128 = 2^13 x 641 x 17099` divided by no array shape -- `--xla_dump_to` closed it in one run (job **20200419**, gpu50, commit `b1cde9b`). **Bit-for-bit unchanged**: `assert_array_equal` on `H|psi>` across band batches on the four-atom noncollinear hydrogen chain, since `map_bands` maps and does not reduce. `sizing.py`'s third term gains its missing `npol` in the same pass -- every point behind that fit is a **gamma-storage** cell, which a spinor run never is, so it is an extrapolation the fit never saw rather than a retuning of it. **And the slab runs**: job **20200794** on an H200 at `5ba0ada` did two SCF iterations of the 45-atom cell in **5 m 33 s** at a peak of **78.51 GB** of 143.8, where nothing about this cell had ever completed one iteration -- 184.5 s to the first (the compile) and **5.5 s** to the second, so a converged run is minutes. The helix survives: total moment `(0, -0.036, 0.001)` mu_B against per-site `|m|` of 0.84-1.13 on the fifteen Ni. **Still 2.8x low at this commit**: `sizing.py` said 27.80 GB against that 78.51. The next row is where that difference is localised -- 46 GB of it is a second instance of this same defect in `spinor_band_density`, and removing it brings the peak to 32.30 GB and the estimate to 1.16x low. |
 | 2026-09-10 | **The band dial reaches the spinor density (P74, second instance)**: `spinor_band_density` transformed the whole band block, so `sum_band`'s noncollinear branch held `nbnd x npol` real-space boxes and the stacked Pauli components built from them | **46 GB of the 45-atom NiBr2 cell's 78.51 GB peak**, and the largest single thing in the run: `g_to_r` on `(403, 2, 200, 240, 54)` is 33.4 GB and `stacked` another 33.4. **Localised rather than guessed** -- jobs **20202818** and **20203025** bracket the run and then one SCF iteration with synchronised `peak_bytes_in_use` reads (`block_until_ready` on every return, or an async dispatch is read before the work runs): `Calculation` built 8.20 GB, helix seed 9.76, `diagonalize` 27.23 -> 31.97, **`density` 31.97 -> 78.19**, live afterwards 9.37. That also **clears two suspects**: setup is 8.20 GB where P73 measured 117.55, and the Davidson's ~22 GB against a fitted 18.54 says the fit is sound at `npol = 2` and PAW -- the first hypothesis for this peak was the Davidson and it was wrong. The scalar `band_density` and the spinor `tau` were always chunked; every `g_to_r` in `scf/density.py` is now inside a `one_band`, audited. **Agreement 4.3e-16** relative against the unfixed code with the integrated charge identical to every digit -- round-off rather than bit-for-bit, because `sum_bands` sums where `map_bands` maps. **Measured: 32.30 GB against 78.51, a factor of 2.43**, job **20203515** at `17d3b16`, same cell and same brackets. `density` no longer moves the peak on either iteration (31.97 -> 31.97, then 32.30 -> 32.30) and `diagonalize` is now what the run costs, which is the term `sizing.py` models -- the estimate is **1.16x low** at 27.80 GB where it was 2.8x, with the residual unresolved because setup leaves 6.7-9.6 GB resident that the SCF estimate does not carry and 4.5 GB is less than that. **Not slower**: 168.2 s to the first iteration against 184.5 and **5.3 s** to the second against 5.5, with `E` identical to every printed digit (-9082.99449656 and -8851.22767276 Ry) and the same moment. |
 | 2026-09-10 | **The band dial reaches the response stack (P74, three latent sites)**: `phononq.response_density_at_q` (three band-sized boxes -- `psi_r`, `dpsi_r` and their product), `phononq.bare_displacements_at_q`, `phononq.induced_perturbation_at_q` and `sternheimer.local_perturbation`, which is the perturbation the whole linear-response stack applies | **No measurement says these bit anything**, and that is the point of recording them as latent: the two SCF sites were each found by a card refusing an allocation, these by an audit of every `g_to_r` caller in the package. `sum_bands` where the contraction is a weighted sum over bands, `map_bands` where it is a band in and a band out; the nonlocal terms stay outside the chunk, being `(n, npwx) x (npwx, nkb)` and holding nothing grid-sized. **Verified on one example through all four at once** -- silicon `si-epsilon-unshifted-nosym.in`, `dielectric_tensor` plus the dynamical matrix at `L` -- against the unfixed code: energy exact, dielectric tensor **3.0e-16** relative, Born charge 1.9e-14, frequencies **4.2e-15** (2.0e-12 cm^-1), and the frequencies still inside the 0.2 cm^-1 that file asserts against `ph.x`. **The gate did not run on these four.** |
 
@@ -6897,7 +6897,7 @@ ten-minute ceiling rests on, so it was trimmed back rather than re-documented.
 | peak RSS | **9319 M** | **5461 M** |
 | slow set | 915 | 1279 |
 
-Both figures are warm-cache, idle-machine, `DEFUMAT_TEST_MEM_MAX=12G`, which is
+Both figures are warm-cache, idle-machine, `DEFUQUMAT_TEST_MEM_MAX=12G`, which is
 the only way this project compares a gate timing at all. Nothing was deleted:
 every test moved is in the slow set, and `tools/run_regression.sh`'s default
 glob was widened to `tests/unit/` as well, because 42 of the slow tests now live
@@ -7041,7 +7041,7 @@ which k-points came back non-finite from the Cholesky route -- was written in th
 over the whole returned k-set, and ran on **every** SCF iteration rather than only on a
 retry. Its temporaries therefore scale with the k-set, and on a 45-atom NiBr2 slab
 (noncollinear + `lspinorb`, FR PAW, `nbnd` 403, `npwx` 156346, `k_batch` 1,
-`DEFUMAT_BAND_BATCH` 16, `diago_david_ndim` 2) it killed two production jobs:
+`DEFUQUMAT_BAND_BATCH` 16, `diago_david_ndim` 2) it killed two production jobs:
 
 | job | card | mesh | wavefunction store | the guard asked for | died at |
 |---|---|---|---|---|---|
@@ -7138,7 +7138,7 @@ every `k_batch` route.
 **What it is.** The wavefunctions are `nspin nk nbnd npwx npol` complex, and they sat on
 the accelerator for the whole SCF because they are the next iteration's starting guess:
 11.27 GiB on the 45-atom NiBr2 slab at six k-points, 45.07 GiB at twenty-four. `k_batch`
-and `DEFUMAT_BAND_BATCH` bound how much of the k axis is **in flight**; neither says
+and `DEFUQUMAT_BAND_BATCH` bound how much of the k axis is **in flight**; neither says
 anything about where it is **stored**, and on a large cell the store is the larger number.
 
 QE does not keep it on the device. `c_bands.f90`'s `get_buffer`/`save_buffer` pair reads
@@ -7466,14 +7466,14 @@ timed here, with the reference code on the supercell side, where it can run.
 **Machine and date:** this workstation, CPU only, 2026-09-16. Both codes pinned to CPU 0
 with `OMP_NUM_THREADS=1`, the affinity mask set before JAX is imported;
 `tools/compare_qe.py` on `tests/data/qe/o-chain-90deg-us.in` for the first two rows and
-the same protocol by hand for the third. Every defumat figure is a **warm** SCF, the
+the same protocol by hand for the third. Every defuqumat figure is a **warm** SCF, the
 minimum of two after a cold one, so none of them is timing the kernel cache.
 
 | | cell | SCF | per iteration | iterations |
 |---|---|---|---|---|
 | `pw.x` 7.5, the supercell | 4 atoms, 1 k-point | **60.76 s** | 3.376 s | 18 |
-| defumat, the same supercell | 4 atoms, 1 k-point | **140.61 s** | 8.271 s | 17 |
-| defumat, the spiral | 1 atom, 4 k-points | **10.28 s** | 1.142 s | 9 |
+| defuqumat, the same supercell | 4 atoms, 1 k-point | **140.61 s** | 8.271 s | 17 |
+| defuqumat, the spiral | 1 atom, 4 k-points | **10.28 s** | 1.142 s | 9 |
 
 **Two ratios, and they say different things.** On identical work -- the same input, the
 same 60x60x96 box, the same 142,989 G vectors -- this code is **2.3x** slower than
@@ -7576,13 +7576,13 @@ zincblende AlAs with both species fully relativistic, `ecutwfc = 25`, `ecutrho =
 of 14163 G-vectors and a smooth 24^3 of 5029.
 
 **Machine and date:** this workstation, CPU only, 2026-09-17. Both codes on one core:
-`pw.x` and `ph.x` are the vendored **serial** build with `OMP_NUM_THREADS=1`, and defumat
+`pw.x` and `ph.x` are the vendored **serial** build with `OMP_NUM_THREADS=1`, and defuqumat
 is pinned with `taskset -c 0` beside `OMP_NUM_THREADS=1` and `MKL_NUM_THREADS=1` set
 before JAX is imported. That is not `tools/compare_qe.py`'s own mechanism, which sets the
 affinity mask inside the process, and the two are equivalent here; it is written down
 because the pinning is what makes the ratio mean anything.
 
-| | defumat | QE |
+| | defuqumat | QE |
 |---|---|---|
 | the SCF | **9.9 s**, 12 iterations | **12.65 s** CPU (15.75 wall), 16 iterations |
 | the field response | **144.0 s**, 12 iterations, `av.it. = 33.7` | **32.5 s**, 6 iterations, `av.it.` 10.4 to 11.6 |
@@ -7686,7 +7686,7 @@ smaller, and here it did not, so this process was not paging at 10.6 GB.
 
 `forces/torque.py`'s band energy walked the k axis with a Python loop inside the
 function `jax.grad` differentiates, so the backward pass held every k-point's
-real-space block simultaneously and neither `k_batch` nor `DEFUMAT_BAND_BATCH`
+real-space block simultaneously and neither `k_batch` nor `DEFUQUMAT_BAND_BATCH`
 reached it. The audit sized that structurally, from the shapes the tape must
 hold, and said in as many words that no torque memory figure existed anywhere.
 This is the figure, measured on Triton (`batch-milan`, 4 cores, job `20336159`,
@@ -7696,7 +7696,7 @@ This is the figure, measured on Triton (`batch-milan`, 4 cores, job `20336159`,
 high-water mark, so two routes in one process report the larger of the two
 twice; and a cache *miss* is cheaper in memory and dearer in time, which would
 flatter whichever side was the miss by up to the 6.3 GB `CLAUDE.md` records. So
-four array tasks, `DEFUMAT_CACHE_DIR=off` throughout.
+four array tasks, `DEFUQUMAT_CACHE_DIR=off` throughout.
 
 | cell | route | torque, Ry/rad | before | peak | the gradient's own | time |
 |---|---|---|---|---|---|---|
@@ -7768,7 +7768,7 @@ old code.
 ## Three bit-identical edits, and two that bought time with memory (P112)
 
 Five of `OPEN.md` Part III's entries, measured on the workstation, one core
-(`taskset -c 3`, `DEFUMAT_THREADS=1`, `OMP_NUM_THREADS=1`), kernel cache off on both
+(`taskset -c 3`, `DEFUQUMAT_THREADS=1`, `OMP_NUM_THREADS=1`), kernel cache off on both
 sides, old code at `93d882f` against the working tree, nothing else running. Times are
 second calls in one process, one sample each, so a change under about 10 per cent is not
 resolved; the compiled temporaries are `memory_analysis()` and do not have that problem.
@@ -7846,11 +7846,11 @@ lower in the functional the loop minimises (`PLAN.md` P121).
 **Unaudited for the Davidson stall (marked 2026-10-01).** The card times in this section were taken before the subspace solve stopped parking its idle directions at 1000 times the largest diagonal element of `H`, without the Davidson steps beside them, at thresholds where one call near the end of an SCF could run to the 100-step budget from round-off. A stall only adds steps, so a card time here is an upper bound on what the same run takes now, and a ratio of the card against a CPU or `pw.x` is a lower bound on the card's advantage; a ratio between two card arms can be wrong in either direction, which is what the four corrected readings were ("The endgame on a card is a stall").
 
 `tools/compare_orientation.py`, the workstation, one core each by the affinity mask set before
-JAX is imported and inherited by `pw.x` (serial 7.5 build), every defumat number the
+JAX is imported and inherited by `pw.x` (serial 7.5 build), every defuqumat number the
 **second** call so no compilation is in it, `pw.x`'s its own `PWSCF ... WALL`. One-atom
 tetragonal cobalt, ultrasoft, 18 k-points without symmetry.
 
-| work | `pw.x` | defumat | ratio |
+| work | `pw.x` | defuqumat | ratio |
 |---|---|---|---|
 | Route A's one-shot: the collinear density turned 45 degrees off `c`, one diagonalisation with the coupling (`lforcet`) | 2.31 s | 3.33 s | 1.44x |
 | the three-component torque on those states | none | 5.16 s | no counterpart |
@@ -8078,7 +8078,7 @@ with `pw.x` (`reference.out.bn-ldau-noncol`) to 2.1e-7 Ry/bohr^3 on the largest 
 (`xy`: -0.00171634 against -0.00171613), 0.03 kbar.
 
 **What it costs**: the backward pass recomputes each chunk. `si2-us-1k.in`, one core
-(`taskset -c 3`, `OMP_NUM_THREADS=1`, `DEFUMAT_THREADS=1`), cache off, warm calls 2-4 of
+(`taskset -c 3`, `OMP_NUM_THREADS=1`, `DEFUQUMAT_THREADS=1`), cache off, warm calls 2-4 of
 `compute_stress` in one process: **2.667 s before and 2.869 s after** (medians of three;
 2.667/2.693/2.652 against 2.829/2.880/2.869), 7.6 per cent. The stress moves by 1.2e-17.
 
@@ -8091,13 +8091,13 @@ values of `q`, before against after: 53 of 68 arrays bit-identical, the rest wit
 largest buffers are `c128[196,43903]` and a dozen `f64[196,1,1,1,43903]` -- `nh^2 = 196`
 projector pairs of a 14-channel dataset times `ngm` -- which is the stored augmentation
 table being assembled on the tape (item 15). **The route item 15 proposes to reuse is not
-yet a fix**: with `DEFUMAT_AUG_MAX_BYTES=0`, which sends the table through the tabulated
+yet a fix**: with `DEFUQUMAT_AUG_MAX_BYTES=0`, which sends the table through the tabulated
 G-chunk scan, the same executable's temporary is **7.47 GiB**, and its report is fifteen
 whole-`ngm` complex pair tables (`c128[196,43903]` and their transposes, 131 MB each). What
 in that route keeps the whole table on a strain's tape has not been located; it is the
 thing to check before routing stored datasets through it. (Located later the same day: the
 route's G chunk is sized for a 256 MB forward block, which on BN is the whole G set, and
-one chunk's backward pass holds about fifteen such blocks. At `DEFUMAT_AUG_CHUNK=4096` the
+one chunk's backward pass holds about fifteen such blocks. At `DEFUQUMAT_AUG_CHUNK=4096` the
 same executable is **0.466 GiB**, at 1024 0.450 -- `GPU-MEMORY-NEXT.md` item 15.)
 
 ## The band dial, budgeted from the card in memory mode (GTX 1060, 2026-09-28)
@@ -8105,7 +8105,7 @@ same executable is **0.466 GiB**, at 1024 0.450 -- `GPU-MEMORY-NEXT.md` item 15.
 `GPU-MEMORY-NEXT.md` item 9. Once the k axis streams, one k-point's band loop through the
 grid is the largest per-k-point term left on a large cell, and memory mode kept it at `all`
 on a card. A `Calculation` now resolves its band batch once (`resolve_band_batch_for`:
-explicit argument, `DEFUMAT_BAND_BATCH`, then in memory mode on an accelerator the largest
+explicit argument, `DEFUQUMAT_BAND_BATCH`, then in memory mode on an accelerator the largest
 batch whose estimate fits the card, `sizing.choose_band_batch`, then the platform) and the
 Hamiltonians and density kernels carry it. The estimate behind the choice now counts one
 streamed chunk of the store rather than the whole set, the start (`max(natomwfc, nbnd)`
@@ -8236,7 +8236,7 @@ Forward cost, warm, `charge` + `integrals`: on `si8-us-1k`, one CPU core, 0.144 
 old chunk (the whole G set) against 0.126 s at 4096 and 0.116 s at 1024; on the card,
 bismuthene-soc-small (`nh = 34`) 0.346 s at the old 8192 against 0.306 s at 4096 and 0.312
 s at 1024. Compiled temporaries of the gradients with the table tabulated
-(`DEFUMAT_AUG_MAX_BYTES=0`):
+(`DEFUQUMAT_AUG_MAX_BYTES=0`):
 
 | case | old chunk | new chunk |
 |---|---:|---:|
@@ -8565,7 +8565,7 @@ force accuracy and left tighter requests stalling, and which was **withdrawn the
 a replay of one call on both platforms located the cause; its tables stay below, marked, because
 they are what the investigation measured. The entry overturns four readings recorded earlier in
 this file and in `GPU.md`, listed near the end. Card: RTX A2000 12 GB on `D22-0161`, host pinned
-to four performance cores, jax 0.11.0, `DEFUMAT_THREADS=off`, one process per entry, warm. This
+to four performance cores, jax 0.11.0, `DEFUQUMAT_THREADS=off`, one process per entry, warm. This
 card is a float32 device (float64 at 1/70 of float32), so none of the **times** is a claim about an
 A100 or an H200. The **step counts** are claims about the solver and are reported beside every
 time.
@@ -8809,7 +8809,7 @@ at an energy error five times `conv_thr` (4.7e-12 at 1e-12, 4.7e-13 at 1e-13). T
 measured, 3e-13 at 1e-11, and QE's 1e-13 from `conv_thr = 3e-12` down, where a user asking for
 more than the card's round-off allows gets the stall risk and not a quietly looser answer.
 It is `batching.resolve_ethr_floor`, a CPU keeps 1e-13 (the same perturbations always took
-3 steps there and every number on record was taken with it), `DEFUMAT_ETHR_MIN` overrides it,
+3 steps there and every number on record was taken with it), `DEFUQUMAT_ETHR_MIN` overrides it,
 and the four sites in `scf/driver.py` that clamped to `ETHR_MIN` read it. `nscf.py` and
 `topology.py` still clamp to 1e-13, which is a band path or a Berry phase, and their cold solves
 were measured stable (below). On 64 atoms the default configuration:
@@ -8857,7 +8857,7 @@ day (box 12 per cent slower than sticks on `si16-1k-ecut30`) is six extra steps 
 
 **With the stall out of the comparison** (the first seven iterations of `si16-1k-ecut30`,
 identical steps `[3, 1, 2, 2, 2, 2, 4]` in every arm, median of three, two alternations),
-`DEFUMAT_FFT_LAYOUT` and the band dial are real effects on this card and smaller than the
+`DEFUQUMAT_FFT_LAYOUT` and the band dial are real effects on this card and smaller than the
 stalled runs said:
 
 | arm | ms per iteration |
@@ -9044,7 +9044,7 @@ this A2000 follows the norm of the matrix where LAPACK's does not, and whether a
 the same is not measured. **No longer open** (the review entry above): the cutoff dependence, since
 the parked value now follows the live block rather than the kinetic energy at the cutoff; the
 canonical retry's park, now a bound of its kept block; and the margin of a factor, there being none.
-A cell where the budget warning fires again, which it will say. The floor dial `DEFUMAT_ETHR_MIN`
+A cell where the budget warning fires again, which it will say. The floor dial `DEFUQUMAT_ETHR_MIN`
 stays as a lever. **The 157-atom slab's "12x too many steps" (`OPEN.md`, the memory notes) is not this**, and
 an earlier sentence here said it might be: its iteration 2 resets `ethr` to 1e-2 and takes
 `0.1 dr2 / nelec`, about 1e-3 at its `dr2 = 24.79` and a thousand electrons, ten orders above any
@@ -9311,7 +9311,7 @@ barrier does not touch. With the persistent cache on this is paid once per shape
 solve (`jit(_every_k)`) and 14 s the start's Rayleigh-Ritz (`jit(_rotate_all)`), against 2.8 and 0.7 s on
 `si16-1k-ecut30`. The spinor ultrasoft `H|psi>` is copied into the compiled solve once per rung of the
 band ladder and the width ladder, so its compile grows with both. Against the band ladder's rung count
-(`DEFUMAT_BAND_RUNGS`, the cache off, one process per arm): 4, 2 and 1 rungs compile `jit(_every_k)` in
+(`DEFUQUMAT_BAND_RUNGS`, the cache off, one process per arm): 4, 2 and 1 rungs compile `jit(_every_k)` in
 78.9, 68.8 and 60.9 s, and the next three iterations take 74.7, 76.3 and 77.2 s, with the same Davidson
 steps (3, 2, 2) and the same energy to every digit (-2930.5696276401 Ry). So the three rungs past the
 first cost 18 s of compile, paid once per shape with the cache on, and buy 0.8 s an iteration, about 3
@@ -9416,7 +9416,7 @@ densities (three directions, twelve iterations), the rest the Born-charge assemb
 Each compile maps a new executable whether the cache supplied it or not, which is why the mappings
 grow by the same amount with the cache off.
 
-**The cure is `defumat/eager.py`**, because these closures carry a callable and so have no static
+**The cure is `defuqumat/eager.py`**, because these closures carry a callable and so have no static
 argument for a module-level `jit` to key on. `compiled(fn, *args)` traces `fn` to a jaxpr with every
 array it closes over hoisted, hashes the printed jaxpr together with the bytes of any constant a nested
 `jit` holds (the printer shows a nested constant's type and not its value, and
@@ -9486,7 +9486,7 @@ first eviction warns.
 **The number to carry: with the Davidson subspace `eigh` on the host for matrices of at most 128 rows,
 a memory-mode SCF iteration on a 27-point mesh of eight-atom silicon takes 269 ms where it took 368
 (1.36x), with every Davidson step and the energy the same; at 64 atoms nothing moves, and in speed mode
-it loses 2 per cent.** `DEFUMAT_HOST_EIGH_ROWS` (`solvers.subspace.HOST_EIGH_ROWS`, read once at import,
+it loses 2 per cent.** `DEFUQUMAT_HOST_EIGH_ROWS` (`solvers.subspace.HOST_EIGH_ROWS`, read once at import,
 0 by default) sends a solve of that many rows or fewer to NumPy's LAPACK through `jax.pure_callback`, on
 an accelerator only. It is an opt-in dial and not a default because it is a host round trip inside the
 Davidson loop, which `CLAUDE.md`'s JAX rules forbid; the one-matrix figures behind it are 0.63, 1.11,
@@ -9517,8 +9517,8 @@ cache off, 76 s is XLA choosing algorithms for its matrix products, and a new pr
 cache has seen compiles in 2.8 s.** `--xla_gpu_autotune_level=0` makes the compile 3.2 s and the next
 three iterations 75.9 s against 74.9, the same steps and energy. JAX keeps XLA's per-fusion autotuning
 results in the persistent cache (`jax_persistent_cache_enable_xla_caches` is
-`xla_gpu_per_fusion_autotune_cache_dir` by default, a directory inside `DEFUMAT_CACHE_DIR`), so in a fresh
-cache, four rungs then two then one then four again (`DEFUMAT_BAND_RUNGS`, one process each):
+`xla_gpu_per_fusion_autotune_cache_dir` by default, a directory inside `DEFUQUMAT_CACHE_DIR`), so in a fresh
+cache, four rungs then two then one then four again (`DEFUQUMAT_BAND_RUNGS`, one process each):
 
 | run | `jit(_every_k)` compile | three warm iterations | autotuning entries after |
 |---|---|---|---|
@@ -9547,7 +9547,7 @@ Steps and energies are identical across each pair. The middle settings buy nothi
 its correctness checks (`--xla_gpu_autotune_level=1`) compiles `bi20-soc` in 79.5 s and runs as the
 default does, and autotuning without XLA's Triton matrix-product search
 (`--xla_gpu_enable_triton_gemm=false`) compiles in 91.9 s and runs si64 3 per cent slower. **What follows
-for the cluster**: a card job should point `DEFUMAT_CACHE_DIR` at a directory that outlives the job, as
+for the cluster**: a card job should point `DEFUQUMAT_CACHE_DIR` at a directory that outlives the job, as
 `tools/gpu/stall-check.sbatch` does, and only the first job of a new cell pays the autotuning.
 `--xla_gpu_autotune_level=0` is the right call for a one-off run on a cell no cache has seen, at 2 to 5
 per cent of every iteration.
@@ -9559,7 +9559,7 @@ the CPU, a 64-atom silicon iteration is 54.1 ms in speed mode against 1439 on th
 the float32 band side is worth nothing at the run level there (0.99x in speed mode, 1.20x in memory
 mode) where the A2000 gave 4.2x to 4.6x.** `tools/gpu/stall-check.sbatch`, job 20644012, `gpu57`
 (`gpu-h200-141g-short`, driver 580.173.02, jax 0.11.1), the worktree at `dfb1ab3`, 2 min 25 s in all;
-`DEFUMAT_CACHE_DIR` on scratch and empty, so every first SCF paid its compile (the `cold` figures).
+`DEFUQUMAT_CACHE_DIR` on scratch and empty, so every first SCF paid its compile (the `cold` figures).
 
 **1. The device `eigh` follows its input's norm on the H200 as it does on the A2000.** On the A2000's 72
 captured Davidson solves (`tools/gpu/replay/eigh_bound.py`), error of the lowest roots against the live
@@ -9639,7 +9639,7 @@ the card has (60 per cent of it) rather than what one k-point needs. `k_batch = 
 **The number to carry: on a streamed SCF the dielectric tensor and the Born charges now add nothing to
 the card's peak -- eight-atom silicon stays at the SCF's own 35.1 to 58.8 MB from 27 to 216 k-points,
 where the default call read 225.9 to 1695.2 MB -- for 12 to 14 per cent more time.**
-`GPU-MEMORY-NEXT.md` item 2, its field half (`0a9f317`, `bf821e7`, `defumat/response/chunked.py`).
+`GPU-MEMORY-NEXT.md` item 2, its field half (`0a9f317`, `bf821e7`, `defuqumat/response/chunked.py`).
 The field response held the occupied block, three bare perturbations `P_c r_a|psi>` and three
 first-order states `dpsi_a` on the card for the whole self-consistent loop, `(1 + 6) nspin nk nocc npwx`
 complex numbers plus the CG over the whole k axis, and it put a streamed store back on the card whole
@@ -9748,7 +9748,7 @@ already compiled by then) and none on the second, and 137 when the compiled code
 `jax.clear_caches()` before the second, which is the check that the counter fires.
 
 **The one design choice that was measured rather than argued.** Building each chunk's solve through
-`defumat.eager.compiled`, which traces at every call to find its program, cost 0.11 s of tracing per
+`defuqumat.eager.compiled`, which traces at every call to find its program, cost 0.11 s of tracing per
 chunk against 0.04 s of work on ultrasoft silicon, a quarter of an hour on 216 k-points; the walks are
 module-level `jit`s cached on the calculation instead, taking the chunk's arrays, the whole set's level
 shift `alpha_pv` and the CG threshold as arguments, so one program serves every chunk and every call.
@@ -9762,7 +9762,7 @@ third derivatives and anything asking for `keep_internals`, and a strained calcu
 store streams, where it died before, and adds nothing to the SCF's peak on norm-conserving silicon and
 49.6 MB on ultrasoft; with the whole mesh in one chunk it reads the SCF's own peak, where all eight
 atoms took norm-conserving silicon from 872.9 to 1119.0 MB and ultrasoft from 925.2 to 1780.0.**
-`GPU-MEMORY-NEXT.md` item 2, its second piece (`af246f1`, `defumat/response/chunked_phonon.py`). The
+`GPU-MEMORY-NEXT.md` item 2, its second piece (`af246f1`, `defuqumat/response/chunked_phonon.py`). The
 phonon held, per perturbation, a bare perturbation, a first-order state and (ultrasoft or PAW) the
 occupied block `ort`, each `(nspin, nk, nocc, npwx)`, whole-k on the card, and assembled each column
 with the whole k axis on one tape; on a streamed store it did not start, because the solver keeps the
@@ -9971,7 +9971,7 @@ and six first-order states (and for an augmented dataset the occupied block and 
 derivatives) whole-k on the device, and on a host store it raised `TracerArrayConversionError` in
 `_bare_strains`, which indexes the store with a traced k, the failure the Gamma phonon had before
 `af246f1`. Where the field response walks it now takes the Gamma phonon's three stages with the six
-strains as its modes (`defumat/response/chunked_strain.py`): the bare walk, with the potential's strain
+strains as its modes (`defuqumat/response/chunked_strain.py`): the bare walk, with the potential's strain
 tangent at the frozen density taken once per strain and handed to every chunk; `S'` per chunk and the
 frozen-state response finished from summed tangents (the strained augmentation charge at the summed
 `becsum` for the half at frozen states, the unstrained one for the occupied block's); the field's own
@@ -10020,7 +10020,7 @@ Sternheimer solves (`_position_response`), and both read the field's stores whol
 response took its whole route under them. `F` is a sum over k of per-k terms that read two whole-cell
 objects -- the potential at the moved geometry and PAW's one-centre coefficients -- plus the screening
 and one-centre terms of the whole raw response sums, so the `jvp` distributes and needs no cotangent
-walk (`defumat/response/chunked_third.py`): a forward walk for the raw sums and their tangents, one
+walk (`defuqumat/response/chunked_third.py`): a forward walk for the raw sums and their tangents, one
 global step, and a chunk walk that solves `db` on the chunk (the residual's `jvp` with the two globals
 handed in as primal and tangent, three solves, the ultrasoft tail's `jvp`) and takes the `jvp` of the
 chunk's terms. Electrostriction routes there with the walked strain response and elastic constants
@@ -10096,7 +10096,7 @@ for 5 to 8 per cent of those calls' time on the card and none on the CPU; the co
 augmented density's strain gradient fall from 924.7 to 102.8 MB and those of its second derivative from
 1550.9 to 293.7, with the stress unchanged to 3e-15.**
 (`formfactors.radial_chunk`; the cap stays 4096, so no cell takes a larger chunk than before, and
-`DEFUMAT_RADIAL_CHUNK` overrides the count.) Found locating the piezoelectric tensor's 705 MB global
+`DEFUQUMAT_RADIAL_CHUNK` overrides the count.) Found locating the piezoelectric tensor's 705 MB global
 step (two entries up).
 
 The probe: `memory_analysis()` of one term of the whole-cell energy at a time, compile only, on the CPU,
@@ -10115,7 +10115,7 @@ the third derivatives': item 15's scanned augmentation table took BN's stress ta
 GiB with the integrand still 4096 values wide.
 
 **Bits and time on the CPU**, the CPU default (speed mode), both arms in fresh processes on the same four
-efficiency cores, medians of five warm calls; the old arm is `DEFUMAT_RADIAL_CHUNK=4096`:
+efficiency cores, medians of five warm calls; the old arm is `DEFUQUMAT_RADIAL_CHUNK=4096`:
 
 | cell | SCF energy | stress, difference | warm stress, 4096 | budget | setup, 4096 | budget |
 |---|---|---|---|---|---|---|
@@ -10127,7 +10127,7 @@ does not get slower.
 
 **On the card**, memory mode at one k-point a chunk, the 8-point unshifted grid, warm cache, the second
 of two fresh processes per point, D22; both arms on the branch, the old one as
-`DEFUMAT_RADIAL_CHUNK=4096`:
+`DEFUQUMAT_RADIAL_CHUNK=4096`:
 
 | cell, call | SCF alone | chunk 4096 | budget | time, 4096 | budget |
 |---|---|---|---|---|---|
@@ -10138,7 +10138,7 @@ of two fresh processes per point, D22; both arms on the branch, the old one as
 with `sigma_xx` the same to 1.5e-17 relative and `e_14` to the ten printed digits. **The stress of
 ultrasoft AlAs now adds nothing to its SCF on the card, and the piezoelectric tensor 29 MB**, where the
 global step held 705 MB (two entries up). The price is 5 to 8 per cent of those two calls' time on the
-card, more scan steps of a smaller transform, and none on the CPU; `DEFUMAT_RADIAL_CHUNK=4096` puts the old
+card, more scan steps of a smaller transform, and none on the CPU; `DEFUQUMAT_RADIAL_CHUNK=4096` puts the old
 chunk back. Platinum's stress peak is set elsewhere (its PAW one-centre terms and its spinor block), so the
 chunk moves it by 2 per cent. **That explanation was wrong (2026-10-03 evening)**: it fitted the number and
 nobody measured it. With the radial transforms' derivatives given as transforms the same stress reads
@@ -10194,7 +10194,7 @@ AlAs's stress and piezoelectric tensor worse, 169.3 -> 353.9 and 198.2 -> 348.5 
 (`83ac598`) on the first measurement and reverted on the second.** The strain response's 114 MB above its
 SCF is two walked passes, the bare walk (116.3 MB of temporaries) and the frozen-state density's finish
 (122.9), both rebuilding `Q_ij(G)` under the strain's `jvp` a G-chunk at a time; at a 4096-vector chunk
-they hold 45.0 and 42.9. And on the tabulated route (`DEFUMAT_AUG_MAX_BYTES=0`) `si8-us-1k`'s SCF and
+they hold 45.0 and 42.9. And on the tabulated route (`DEFUQUMAT_AUG_MAX_BYTES=0`) `si8-us-1k`'s SCF and
 stress fell from 267.9 to 145.2 MB on the card in the same time (0.60 / 1.01 s against 0.59 / 1.03), and
 ran faster on D22's CPU (1.53 / 1.88 against 1.71 / 2.06), the energy equal to the last digit.
 
@@ -10208,7 +10208,7 @@ elastic constants' pull-back pass falls from 113.2 to 21.3 MB of temporaries (th
 the strain response's own). **The chunk is not the same on the two cells, and that explains a reading
 that first looked impossible**: aluminium's dataset carries d projectors (`nh = 18`, against 8 for As and
 for silicon), so the 16 MB target gives AlAs a 2048-vector chunk, seven pieces of its 14211, not one.
-`DEFUMAT_AUG_CHUNK=16384` therefore put the whole table in one piece and read 427.7 MB (the stress) and
+`DEFUQUMAT_AUG_CHUNK=16384` therefore put the whole table in one piece and read 427.7 MB (the stress) and
 601.6 (the piezoelectric tensor), reproduced back to back with the default's 169.3. On AlAs's stress the
 chunk count gives a U: **427.7 MB at one piece, 169.3 at seven, 353.9 at fourteen** (the 4 MB target's
 1024). The large end is one piece's integrand; the small end says the outer scan's cost under the
@@ -10217,7 +10217,7 @@ chunks interact under a derivative, and the right sizing -- or a remat that hold
 reverse -- is the next session's to measure, cell by cell, with the time beside it.
 
 **Where the U comes from**, compile only on the CPU (`memory_analysis()` of the augmented density's strain
-gradient and of its `jvp`, AlAs at 8 k-points, `DEFUMAT_AUG_CHUNK` set): 1012.6 / 1900.8 MB at 14211,
+gradient and of its `jvp`, AlAs at 8 k-points, `DEFUQUMAT_AUG_CHUNK` set): 1012.6 / 1900.8 MB at 14211,
 102.8 / 293.7 at 2048, 463.5 / 771.7 at 1024, 232.8 / 388.3 at 512. Aluminium's radial chunk is 1261
 values, so a table chunk of 2048 is walked inside the radial transform as two rematted pieces and one of
 1024 is taken in **one unrematted block**. With the radial chunk forced to 512 the 1024 table chunk holds
@@ -10227,7 +10227,7 @@ size of the radial piece, not whether it is rematted, and the radial budget of 8
 dial that matters -- at a time cost, measured above at 256 values. The checkpoint was tried and not kept.
 
 **The radial chunk's curve on the card** (current code, the augmentation target at 16 MB, memory mode at
-one k-point a chunk, warm, the second of two processes, D22; `DEFUMAT_RADIAL_CHUNK` set, the default
+one k-point a chunk, warm, the second of two processes, D22; `DEFUQUMAT_RADIAL_CHUNK` set, the default
 being 1261 / 1156 values for Al / As):
 
 | call | default | 1024 | 512 | 256 |
@@ -10345,7 +10345,7 @@ and 1.2e-11: the AlAs ground state at `conv_thr = 1e-12` came out off cubic symm
 master's is cubic to 7e-17, with the same energy, the same Davidson steps per iteration and every radial
 transform bit-for-bit the same to 3.4e-16 and symmetric across equal `|G|`. Putting back any one of three
 master kernels, each differing only in its last bit, restored the symmetry, as did any of six other chunk
-counts; and **master itself fails both tests with `DEFUMAT_K_BATCH=2`**, a dial that moves results only at
+counts; and **master itself fails both tests with `DEFUQUMAT_K_BATCH=2`**, a dial that moves results only at
 round-off (1.4e-9 and 6.2e-12, its density off by 8.7e-11). At that threshold the density is converged to
 about 1e-8 (refining the states moves it by 3.5e-8) and the asymmetry falls with the threshold, 1.1e-11 at
 1e-14 and 8.0e-12 at 1e-15, so it is convergence, and which way it falls is rounding. The bounds were read
@@ -10461,15 +10461,15 @@ are counts and do not depend on the machine's load:
 | `si-electrostriction`, strain | 11 -> 7 | 22.0 -> 6.7 |
 
 **The wall clock against `ph.x`**, on `D22-0161` because this workstation carried another session's test
-suite that night: one performance core each (`taskset -c 0`, `OMP_NUM_THREADS=1`, `DEFUMAT_THREADS=1`),
+suite that night: one performance core each (`taskset -c 0`, `OMP_NUM_THREADS=1`, `DEFUQUMAT_THREADS=1`),
 nothing else on the machine, `ph.x` the serial 7.5 build copied from this workstation (the same binary
-`tools/compare_qe.py` uses here), defumat the second call of `get_dielectric_tensor()` in its process
+`tools/compare_qe.py` uses here), defuqumat the second call of `get_dielectric_tensor()` in its process
 after the SCF, which includes its own setup and excludes the ground state. `ph.x`'s figure is its
 cumulative CPU clock at the last pass of the field response, which likewise includes its setup
 (0.09, 0.39, 0.88 and 1.94 s of it, printed as `PHONON` before "Electric Fields Calculation") and excludes
 `pw.x`. Before is master (`7f6fef2`), after is the integration head:
 
-| cell | defumat before | defumat after | `ph.x` | after / `ph.x` | passes after (`ph.x`) | CG steps a solve after (`ph.x`) |
+| cell | defuqumat before | defuqumat after | `ph.x` | after / `ph.x` | passes after (`ph.x`) | CG steps a solve after (`ph.x`) |
 |---|---|---|---|---|---|---|
 | `si-epsilon` | 4.82 s | 2.78 s | 0.6 s | 4.6 | 5 (5) | 12.6 (9.0) |
 | `si-epsilon-us` | 12.62 s | 6.79 s | 1.8 s | 3.8 | 5 (5) | 13.7 (10.7) |
@@ -10492,7 +10492,7 @@ numbers, the iterations and what one costs, and on a cell with vacuum the first 
 
 **The pair**, `tests/data/qe/co-slab-forcetheorem-sr.in` as committed (three Co(0001) layers,
 ultrasoft PBE, `nspin = 2`, cold smearing, 12x12x1, `beta = 0.7`, `conv_thr = 1e-10`), on one
-performance core of `D22-0161` (`taskset -c 0`, `OMP_NUM_THREADS=1`, `DEFUMAT_THREADS=off`),
+performance core of `D22-0161` (`taskset -c 0`, `OMP_NUM_THREADS=1`, `DEFUQUMAT_THREADS=off`),
 nothing else on the machine, each side run twice and the second read (the two agree to 0.15 s
 and 0.6 s). `pw.x` is the serial 7.5 build, its figure its own `PWSCF ... WALL`; this code's is
 the whole `get_scf()` of a warm process, setup included.
@@ -10500,9 +10500,9 @@ the whole `get_scf()` of a warm process, setup included.
 | | iterations | whole run (s) | per iteration (s) |
 |---|---|---|---|
 | `pw.x`, `local-TF` (the input's mode) | 24 | **40.9** | 1.70 |
-| defumat, `local-TF` (the input's mode) | 30 | 106.0 | 3.53 |
-| defumat, `TF` | 51 | 152.2 | 2.98 |
-| defumat, `'ldos'` | 20 | **76.1** | 3.81 |
+| defuqumat, `local-TF` (the input's mode) | 30 | 106.0 | 3.53 |
+| defuqumat, `TF` | 51 | 152.2 | 2.98 |
+| defuqumat, `'ldos'` | 20 | **76.1** | 3.81 |
 
 **1.86x `pw.x`**, and 28 per cent faster than this code's own run of the input as written. The
 per-iteration base is 1.75x `pw.x` (`TF`'s 2.98 s, Kerker costing one FFT pair); `'ldos'` adds
@@ -10543,7 +10543,7 @@ takes `beta`.
 **The pair**, the cobalt film as committed (`tests/data/qe/co-slab-forcetheorem-sr.in`, three
 Co(0001) layers, ultrasoft PBE at dual 8, `nspin = 2`, 12x12x1, `beta = 0.7`,
 `conv_thr = 1e-10`), on one performance core of `D22-0161` (`taskset -c 0`, `OMP_NUM_THREADS=1`,
-`DEFUMAT_THREADS=off`, `JAX_PLATFORMS=cpu`), nothing else on the machine, each arm a fresh
+`DEFUQUMAT_THREADS=off`, `JAX_PLATFORMS=cpu`), nothing else on the machine, each arm a fresh
 process with the kernel cache warm, two passes and the second read (the passes agree to 0.7 s
 for this code and 0.4 s for `pw.x`). `pw.x` is the serial 7.5 build and its figure its own
 `PWSCF ... WALL`; this code's is the whole `get_scf()`, setup included, and the call is the
@@ -10628,7 +10628,7 @@ hundred entries a call). Every other index-array `set` in the package is real (`
 branch). The wavefunction transforms were already `add`.
 
 **The pair before and after**, each arm a fresh process, two SCFs and the second timed, D22's four
-performance cores (`taskset -c 0-3`, `OMP_NUM_THREADS=1`, `DEFUMAT_THREADS=off`), the CPU arm with
+performance cores (`taskset -c 0-3`, `OMP_NUM_THREADS=1`, `DEFUQUMAT_THREADS=off`), the CPU arm with
 `JAX_PLATFORMS=cpu` in the same harness; the call is the median over the run. Every arm reaches the
 same iterations and, on the card, the same energy to every printed digit before and after.
 
@@ -10647,7 +10647,7 @@ A2000 (1/70 of float32) means none of these times is a claim about a data-centre
 
 ## The three field directions as one CG loop, and three Born-charge loops compiled at every call (RTX A2000 and CPU, 2026-10-05)
 
-`GPU-SPEED-NEXT.md` item 7's first bullet. `DEFUMAT_FIELD_BATCH` (`batching.resolve_field_batch`)
+`GPU-SPEED-NEXT.md` item 7's first bullet. `DEFUQUMAT_FIELD_BATCH` (`batching.resolve_field_batch`)
 makes the field response `vmap` its Sternheimer CG over the three directions
 (`SternheimerSolver.solve_many`), on by default on an accelerator. **The gain the item forecast is
 not there any more**: it was sized on the 2026-10-02 call, 7.1 s of which 2.1 s was tracing and
@@ -10674,7 +10674,7 @@ CPU takes the whole-k route and the Born charges' ultrasoft terms are there. Thr
 by a traceback on each `Compiling` record: `efield.ultrasoft_position`'s `map_k` over a fresh
 closure (3 a call), and two top-level derivatives in `born.born_effective_charges` whose bodies
 hold a `map_k` -- the `jax.jacfwd` of `frozen_polarization` (3) and the `jax.jvp` of
-`_constraint_sandwich`, once per atom and direction (18). The first is now `defumat.eager.compiled`,
+`_constraint_sandwich`, once per atom and direction (18). The first is now `defuqumat.eager.compiled`,
 the other two `compiled` and `compiled_jvp` around the whole derivative; the third call compiles
 nothing and the tensor is the same to every digit. On this machine the cache hits cost little
 (11.0 s before and after); on a Triton node, where every loaded executable adds memory mappings
@@ -10686,11 +10686,11 @@ describes, and a long ultrasoft Born-charge run there would have met it.
 `al-elph-nosym.in` (fcc aluminium, norm-conserving LDA, Marzari-Vanderbilt 0.05 Ry, 8x8x8
 unshifted, no symmetry, 512 k-points, `nbnd = 6`) at `q = (1/4, 0, 0)` 2 pi/a with
 `electron_phonon = 'simple'` and `tr2 = 1e-14`. Both codes on core 0 of D22's i5-12600K (a
-performance core), one thread (`OMP_NUM_THREADS=1`, `DEFUMAT_THREADS=1`, the affinity mask set
+performance core), one thread (`OMP_NUM_THREADS=1`, `DEFUQUMAT_THREADS=1`, the affinity mask set
 before JAX is imported), from a converged ground state, nothing else running. Not this
 workstation: it was free, but the comparison against `ph.x` asked for the same core twice.
 
-| | defumat | `ph.x` 7.5 |
+| | defuqumat | `ph.x` 7.5 |
 |---|---|---|
 | phonon at `q` and the coupling, warm | 34.05, 34.04 s (calls 2 and 3; call 1 35.79) | 5.90, 6.06 s (`PHONON` wall, two runs) |
 | the phonon alone | 33.55 s (call 2; call 1 34.83) | `phqscf` 3.82, 3.94 s |
@@ -10731,7 +10731,7 @@ tolerance against `ph.x`, and the walked route reproduces the whole one to 1.7e-
 
 **After P133** (2026-10-05, the same core 0 of D22, the same input, warm, call 2 of each):
 
-| | defumat | `ph.x` 7.5 | ratio |
+| | defuqumat | `ph.x` 7.5 | ratio |
 |---|---|---|---|
 | `al-elph-nosym.in`, `q = (1/4, 0, 0)` | 19.07, 19.10, 19.38 s (three processes) | 5.90, 6.06 s | 3.2x (from 5.7x) |
 | `al-elph-nosym.in`, `q = (3/4, 1/4, 1/4)` | 21.79 s | 6.05, 5.95 s | 3.6x |
@@ -10835,7 +10835,7 @@ field's wedge), against `tools/realtime/time_realtime.py` on `tests/data/elk/si_
 idle, `OMP_NUM_THREADS=1`, nothing else running but the virus scanner (`ps` before and after),
 `tools/realtime/time_against_elk.sh`:
 
-| | Elk 11.0.2, tasks 450 and 460 | defumat, `get_realtime` |
+| | Elk 11.0.2, tasks 450 and 460 | defuqumat, `get_realtime` |
 |---|---|---|
 | wall clock | **1300 s** | **486 s** (the fixed-density solve on the wedge 1.7 s, the propagation 485 s) |
 | per k-point and step | 3.3 ms | 1.21 ms |
@@ -10847,7 +10847,7 @@ of an LAPW basis, building `H(t)` in that basis and diagonalising it each step, 
 the Hamiltonian on the whole plane-wave sphere to the four occupied states. The two answers agree
 where they should (the static dielectric constant 15.11 here against Elk's independent-particle
 task 121 at 15.19, `PLAN.md` P134), so the 2.7x is a statement about these two algorithms on this
-cell and not about one doing less physics than it reports. defumat's run was the second call of the
+cell and not about one doing less physics than it reports. defuqumat's run was the second call of the
 process (a short run compiled every program first); Elk's includes reading its ground state and
 setting up the 100 points (task 450 writes the vector potential).
 
@@ -10890,7 +10890,7 @@ and `npw^3` in the cutoff.
 pair of the section above updates its potential at every step, so `potential = 'hxc'` is the
 like-for-like run (`tools/realtime/time_realtime.py <out> hxc`, the same 100 points and 4000 steps):
 
-| | Elk 11.0.2, tasks 450 and 460 | defumat, `'frozen'` | defumat, `'hxc'` |
+| | Elk 11.0.2, tasks 450 and 460 | defuqumat, `'frozen'` | defuqumat, `'hxc'` |
 |---|---|---|---|
 | quiet core 0 of D22, back to back (2026-10-07 00:00, `ps` before and after) | **1300 s** (P134) | **505 s** (486 in P134) | **1085 s** |
 | back to back, another session's jobs on five to seven other cores | | 598 s | 1294 s |
@@ -11008,22 +11008,22 @@ c, 1.55 eV, 1e10 W/cm^2, 1 fs FWHM peaking at 3 fs, Elk's `AFIELDT/c` equal to `
 potential updated in both (`potential = 'hxc'`; Elk's task 460 always updates it), each from its
 own converged ground state (`tools/realtime/elk_se_soc/`, `jobA4b.sh` and `jobA7.sh`):
 
-| | Elk 11.0.2, task 460, `nempty 16`, `rgkmax 7` | defumat, `get_realtime` |
+| | Elk 11.0.2, task 460, `nempty 16`, `rgkmax 7` | defuqumat, `get_realtime` |
 |---|---|---|
 | wall clock | **3396 s**, its setup 37 s | **1837 s**, the fixed-density solve 5.1 s |
 | per k-point and step | 112 ms (72 ms at `nempty 8`, 2181 s) | 61 ms |
 | ground state | 25.6 s (task 0) | 3.1 s (`conv_thr = 1e-12`, second call) |
 
 So **0.54x** (0.84x against Elk at `nempty 8`), task 0 and task 460 together 3422 s against 1840 s.
-The defumat time is the second call of the process; the first, a 400-step block that compiles every
+The defuqumat time is the second call of the process; the first, a 400-step block that compiles every
 program, took 388 s and is not counted. Elk's setup (`rhostatic`'s four one-iteration ground states,
 the eigenvectors, `kmat`, `pmat`) is a two-step run with the pulse peaking at `t = 0`, because a
 two-step run of the timed pulse sees no field and reduces with the whole D3 group (9 points
 instead of 15). **What is not the same work.** Elk propagates 146 second-variational states, 48 of
 them occupied, since its selenium carries the 3d shell, and diagonalises `H(t)` in that basis each
-step, where defumat carries the 18 occupied spinor bands on 841 plane waves a component; Elk's
+step, where defuqumat carries the 18 occupied spinor bands on 841 plane waves a component; Elk's
 spin-orbit term is not minimally coupled to the field (it stays at `k`, Krieger et al.,
-arXiv:1406.6607, Eq. 1) where defumat's projectors sit at `k + A/c`; and Elk updates a magnetization
+arXiv:1406.6607, Eq. 1) where defuqumat's projectors sit at `k + A/c`; and Elk updates a magnetization
 (`m_z` up to 2.1e-4 Bohr magnetons) that this `nspin_mag = 1` run does not carry. **The physics
 agrees where it should**: the gap on the mesh is 1.3983 eV here and 1.4006 eV in Elk, the currents
 across the field are below 3e-21 in both, and after the pulse, where `kappa` is back to zero and

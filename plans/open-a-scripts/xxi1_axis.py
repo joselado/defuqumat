@@ -23,9 +23,9 @@ p.add_argument("--conv-thr", type=float, default=1e-10)
 p.add_argument("--out", required=True)
 a = p.parse_args()
 
-import defumat.scf.driver as driver
-from defumat import Calculator
-from defumat.scf.driver import Calculation, run_scf
+import defuqumat.scf.driver as driver
+from defuqumat import Calculator
+from defuqumat.scf.driver import Calculation, run_scf
 
 ROOT = Path(a.root)
 if a.arm == "resident":

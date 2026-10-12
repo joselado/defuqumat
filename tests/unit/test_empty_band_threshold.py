@@ -26,24 +26,24 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import (
     EMPTY_BAND_OCCUPATION,
     ETHR_INIT,
     Calculation,
     band_thresholds,
     run_scf,
 )
-from defumat.scf.potential import v_of_rho
-from defumat.solvers.davidson import (
+from defuqumat.scf.potential import v_of_rho
+from defuqumat.solvers.davidson import (
     DAVID_NDIM,
     EMPTY_ETHR_FLOOR,
     _every_k,
     davidson_eigensolver_all,
     empty_band_threshold,
 )
-from defumat.system import build_system
+from defuqumat.system import build_system
 from tests.exact_reference import exact_eigenpairs_all
 
 pytestmark = pytest.mark.unit
@@ -445,7 +445,7 @@ def test_a_fixed_density_run_converges_every_band_tightly(silicon, two_runs):
     the same tolerance as the valence ones -- against the dense solve, on the
     same potential.
     """
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     system, pseudos, _ = silicon
     result = two_runs[False]
@@ -469,11 +469,11 @@ def test_the_input_file_switch_is_read_as_a_logical(tmp_path):
     It arrives from the generic namelist parser already a Python ``bool``, and
     the conversion table has to say so: without an arm of its own it falls into
     the string branch and becomes ``"True"`` -- truthy either way, and the wrong
-    type to hand to :func:`~defumat.scf.driver.run_scf`.
+    type to hand to :func:`~defuqumat.scf.driver.run_scf`.
     """
     import inspect
 
-    from defumat.calculator import (
+    from defuqumat.calculator import (
         SCF_ONLY_OPTIONS,
         SHARED_OPTIONS,
         electrons_defaults,

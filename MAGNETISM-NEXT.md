@@ -73,7 +73,7 @@ end-to-end test caught it. An array-algebra test passed either way.
 | P63's spiral scan "no longer reproduces", cause unidentified, three candidates nominated | it reproduces to the digit at the right seed, and now **confirms** the magnon prediction | minimum at `q = (0,0,1/4)`, -150.1 meV, where the susceptibility says the ferromagnet first goes unstable — and P63's own `0, -150, -59` come back (P84) |
 | a caller that wrote `scf.density` lost the fact that it converged | `SCFResult.require_converged`, the one implementation, with `Calculator._ground_state` wrapping it | three tests reported a Goldstone residual of 0.3958 that was an unconverged ground state, not a defect in the susceptibility (P84) |
 | a committed input asked for a scheme the code warned does not converge, and said it did | `h2-texture-120.in` is `'atomic'` at `lambda = 10`, and neither test that cites it rewrites away from a stale literal any more | 38 iterations, 121.13 degrees, 0.576 per site (P84) |
-| the spin spiral had no external number of any kind | it has two, and they disagree: Elk against defumat at `q = 0` and `q = 1/4` | moments agree to **4 per cent** at both; `E(1/4) - E(0)` is **-136.294 meV against -20.712**, a factor of 6.6, and Elk's held field explains 6 per cent of it (P86) |
+| the spin spiral had no external number of any kind | it has two, and they disagree: Elk against defuqumat at `q = 0` and `q = 1/4` | moments agree to **4 per cent** at both; `E(1/4) - E(0)` is **-136.294 meV against -20.712**, a factor of 6.6, and Elk's held field explains 6 per cent of it (P86) |
 | the anisotropy could be computed only at frozen density, so PAW and DFT+U were out | `run_relaxed_anisotropy`: one self-consistent run per direction, differencing **total** energies, which hands nothing over and so has no handoff to refuse for | 0.447 meV on tetragonal cobalt against the theorem's **free** energy 0.552 and its band sum 1.235 -- the relaxed route independently says the free energy is the right object (P87) |
 | a held texture's residual angle was a property of penalties with no alternative | Elk's per-atom feedback field, both variants, transcribed and unit-tested -- and **measured not to win**, with the two updates failing for two different reasons | fixed gain: a *growing* ring over 2000 iterations at half Elk's gain. Secant: stable at `acc = 6.5e-6` and converged to the **wrong state** -- lengths right to 8 per cent, angles 145 deg out, because its `chi` is diagonal. Penalty: 0.576 deg in 38 (P85) |
 | the relaxed route's precision was an argument, not a number | it is a number: an identity control with the coupling switched off, scanned in `conv_thr` | **0.011 meV** and it plateaus -- 1e-13 equals 1e-12 to 2 per cent while the density residual falls another order (P87) |
@@ -176,7 +176,7 @@ the printed digit (-25.80117002 Ry):
 
 | | across the moment | along the moment |
 |---|---|---|
-| defumat | 1.356572109, 1.356572109 | **1.574482417** |
+| defuqumat | 1.356572109, 1.356572109 | **1.574482417** |
 | `ph.x` | 1.357034400, 1.357092056 | **1.494593593** |
 
 4.6e-4 across, which is `ph.x`'s own floor on this cell (its two transverse entries differ
@@ -197,7 +197,7 @@ convention trap one regime up, which was the obvious guess.
 
 **The RPA control does not exist for a magnet and that is physics.** Dropping `f_xc` leaves
 the magnetization with no restoring kernel at all, since Hartree is blind to it: `ph.x`
-diverges outright (`|ddv_scf|^2` at 1e14 by iteration 44). defumat's `screening = "hartree"`
+diverges outright (`|ddv_scf|^2` at 1e14 by iteration 44). defuqumat's `screening = "hartree"`
 converges instead, which is a second unexplained difference and may be the cheaper thread to
 pull.
 
@@ -289,7 +289,7 @@ field.
 
 **What exists here.** Nothing per atom: `constraint_targets` returns a single 3-vector for
 both `'total'` and `'fsm'`, and `MagneticField.feedback` drives one uniform field from
-`total_moment`. `grep mommtfix\|bfsmcmt` over `defumat` returns nothing. The machinery to
+`total_moment`. `grep mommtfix\|bfsmcmt` over `defuqumat` returns nothing. The machinery to
 put it in is the `'atomic'` scheme's — the spheres, the per-atom moments, the per-atom
 targets are all there and validated; what is missing is the update rule.
 
@@ -384,7 +384,7 @@ text follows and its numbers stand; its conclusion does not.**
 
 **P86 built the whole apparatus for (a) and did not finish taking the number. Read that
 first** (`PLAN.md` P86): the matched input pair is committed
-(`tests/data/elk/h_chain_spiral/`, `tests/data/qe/h-chain-spiral-elk.in`), the defumat side
+(`tests/data/elk/h_chain_spiral/`, `tests/data/qe/h-chain-spiral-elk.in`), the defuqumat side
 of the scan is measured (`E(q) - E(0)` of 0, -20.71, -50.21 meV at `q_3 = 0, 1/4, 1/2` with
 `|m|` of 0.515, 0.615, 0.611), and **three separate ways the Elk side quietly stops being
 magnetic are identified and fixed**, each of which converged and reported success: a
@@ -399,7 +399,7 @@ disagreement.** Elk at `q = 0` and `q = 1/4`, both converged:
 * **`E(1/4) - E(0)` is -136.294 meV in Elk against -20.712 meV here, a factor of 6.6.**
 
 **The 6.6 is the under-converged pair and the headline is now 5.42 and 4.67**, at the two
-wavevectors, after the defumat side's k-grid and basis were both converged (`PLAN.md` P86).
+wavevectors, after the defuqumat side's k-grid and basis were both converged (`PLAN.md` P86).
 **And the field candidate this item carried is dead**: the conversion behind it read Elk's
 `bfieldc` as an energy in Hartree and dropped `cb = g_e/4c`, so the 6 per cent it was
 credited with was measured under a field **274 times too large**. The true field is
@@ -409,23 +409,23 @@ this item claims rather than less. **Elk's own basis is the last candidate**, an
 
 So the two codes converge to recognisably the same magnetic state and disagree about what
 turning it costs. **The obvious explanation is already dead**: Elk holds a small field and
-defumat holds none, and repeating the defumat scan under Elk's own field moves the answer
+defuqumat holds none, and repeating the defuqumat scan under Elk's own field moves the answer
 by 6 per cent (-20.712 to -21.986), while five times that field reaches only -30.022.
 
 **Locating the 6.6 is now item E(a)**, and `PLAN.md` P86 lists three candidates, none
 tested and cheapest first: basis convergence on both sides (`rgkmax = 7` against
 `ecutwfc = 25`, and a spiral needs two `G+k` sets); the `1 1 4` k-grid, which is very coarse
 and samples *shifted* spheres at `q != 0` so its error need not be the same at the two
-wavevectors; and the field convention, which the moment response hints at -- defumat's
+wavevectors; and the field convention, which the moment response hints at -- defuqumat's
 moment reacts far more strongly to "the same" field (0.633 against Elk's 0.538), so the two
 codes may not be applying the same field at all.
 
 Two things to carry into that run. It is ~40 s per SCF loop at six threads on netlib and
 tens of loops per wavevector, so budget half an hour a point and do not take the
 `PERFORMANCE.md` pair beside anything (that one needs `PIN=1`, one core, idle). And Elk
-carries a small held field where defumat carries none: the Zeeman energy is outside the
+carries a small held field where defuqumat carries none: the Zeeman energy is outside the
 reported total in both codes and the field is the same at every `q`, so it largely cancels
-in `E(q) - E(0)` -- the check nobody has done is the same defumat scan under the same field.
+in `E(q) - E(0)` -- the check nobody has done is the same defuqumat scan under the same field.
 
 **The original entry follows.**
 
@@ -688,7 +688,7 @@ itself, and item D of this file is the reminder that it refuses a noncollinear g
 which is the regime this item is about. The stiffness `D` is the small-`q` curvature of
 `E(q)`, and what P86 has is a single pair of wavevectors rather than a curvature, at
 `q = 1/4` of the zone where the quadratic form is not expected to hold, and the two codes
-disagree about even that: defumat gives `E(1/4) - E(0) = -20.712` meV against Elk's
+disagree about even that: defuqumat gives `E(1/4) - E(0) = -20.712` meV against Elk's
 `-136.294`, a factor of 6.581 that P86 records as unresolved. So the tie is a direction to
 pull rather than a number to use: a proper small-`q` scan on a cell with a stable
 ferromagnet would give `D`, and `D` is what says in advance which cells are slow in the
@@ -963,7 +963,7 @@ make selectable" rule being followed rather than a defect; what is missing is an
 post-P73/P74 number.
 
 **First step, and mind the caveat.** `tools/gpu/force_memory.py` on `bismuthene-soc-small`
-twice, once at `DEFUMAT_AUG_MAX_BYTES=off` and once at a value small enough to force the
+twice, once at `DEFUQUMAT_AUG_MAX_BYTES=off` and once at a value small enough to force the
 table, comparing the reported buffer — that settles both the staleness and the possible
 non-monotonic cliff at the 2 GB default in one pass. The caveat: P73 replaced the *stored*
 `Q_ij(G)`, while `augmentation.py` says the reverse-mode cost lives in `_qrad_kernel`'s
@@ -1001,7 +1001,7 @@ sentence was wrong twice over, and it is the kind of forecast `CLAUDE.md`'s last
 about -- it sat under a table of verified rows and was never checked itself.
 
 * **The primitive already exists and is already validated.**
-  `defumat/topology/augmentation.py:augmentation_at_q` is exactly
+  `defuqumat/topology/augmentation.py:augmentation_at_q` is exactly
   `q^a_ij(b) = Omega Q_ij(b) e^{-i b . tau_a}` at an arbitrary wavevector, it carries the
   `qq_so` map for a relativistic dataset, and it is pinned by `b -> 0` reproducing the
   `qq` the projectors already hold and by the Chern number coming out an exact integer on
@@ -1125,7 +1125,7 @@ runs both to `conv_thr = 1e-12`. Time that pair and record its peak RSS. It is a
 says whether item C is worth a phase.
 
 **Q7 — what do the noncollinear slow tests say today?** [O11] `tools/run_regression.sh`
-restricted to the nine noncollinear files with `DEFUMAT_TEST_MEM_MAX=20G`, keeping the
+restricted to the nine noncollinear files with `DEFUQUMAT_TEST_MEM_MAX=20G`, keeping the
 durable per-file summary line as the dated record. P46 measured `pt2-soc-paw-force` at
 12,204 MB alone and the pair at 16,961 MB, over the 12G default, so the cap matters.
 

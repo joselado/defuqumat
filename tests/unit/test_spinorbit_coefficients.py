@@ -16,8 +16,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.pseudo import read_upf
-from defumat.pseudo.spinorbit import (
+from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.spinorbit import (
     LMAXX,
     SpinOrbitCoupling,
     becsum_transform,
@@ -46,7 +46,7 @@ def _coupling(name: str) -> SpinOrbitCoupling:
 
 def _shell_projector(coupling: SpinOrbitCoupling, nb: int) -> np.ndarray:
     """``fcoef`` restricted to one radial projector, as a ``(2 nh_l, 2 nh_l)`` matrix."""
-    from defumat.pseudo.spinorbit import _channel_table
+    from defuqumat.pseudo.spinorbit import _channel_table
 
     indv = _channel_table(coupling.pseudo)[0]
     rows = np.flatnonzero(indv == nb)
@@ -159,7 +159,7 @@ def test_fcoef_used_for_dvan_is_not_the_zeroed_one():
     ``deeq_nc`` and ``becsum``, which is the failure this test exists to catch.
     """
     coupling = _coupling("Pt.rel-pz-n-rrkjus.UPF")
-    from defumat.pseudo.spinorbit import _channel_table
+    from defuqumat.pseudo.spinorbit import _channel_table
 
     indv = _channel_table(coupling.pseudo)[0]
     cross = indv[:, None] != indv[None, :]
@@ -268,9 +268,9 @@ def test_relativistic_paw_keeps_the_small_component_separate():
 @pytest.fixture(scope="module")
 def spinor_hamiltonian():
     """A spin-orbit Hamiltonian on QE's platinum cell, at its starting density."""
-    from defumat.io.pwin import read_pw_input
-    from defumat.scf.driver import Calculation
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system import build_system
 
     benchmark = Path(__file__).resolve().parents[2] / "benchmarks" / "pt-so-1k.in"
     system = build_system(read_pw_input(benchmark))
@@ -339,10 +339,10 @@ def _bismuth_system(**overrides):
 
     import jax.numpy as jnp
 
-    from defumat.system.builder import System
-    from defumat.system.cell import Cell, latgen
-    from defumat.system.kpoints import KPoints
-    from defumat.system.structure import Species, Structure
+    from defuqumat.system.builder import System
+    from defuqumat.system.cell import Cell, latgen
+    from defuqumat.system.kpoints import KPoints
+    from defuqumat.system.structure import Species, Structure
 
     cell = Cell.from_vectors(latgen(1, [9.0, 0, 0, 0, 0, 0]), alat=9.0)
     structure = Structure(
@@ -375,7 +375,7 @@ def test_a_relativistic_dataset_without_spin_orbit_is_refused(spin):
     rhombohedral BN against ``pw.x``, with the Ewald and dispersion terms, the
     only two that touch no projector, still agreeing to 4e-9.
     """
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     pseudo = read_upf(PSEUDO / "Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF")
     assert pseudo.has_so, "this test needs a fully-relativistic dataset"

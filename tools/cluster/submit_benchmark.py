@@ -15,8 +15,8 @@ nothing in this repository submits, cancels or polls on its own.
 of a job and these three legs want different ones:
 
 * ``qe``  -- ``pw.x`` from the cluster's own module, one core;
-* ``cpu`` -- defumat in the virtualenv, one core, both batching dials at QE's end;
-* ``gpu`` -- defumat on one GPU, both dials at the batched end.
+* ``cpu`` -- defuqumat in the virtualenv, one core, both batching dials at QE's end;
+* ``gpu`` -- defuqumat on one GPU, both dials at the batched end.
 
 They are joined afterwards by case name: every task writes
 ``<work>/results/<set>/<case>.<leg>.json``, and ``performance/sweep.py --report``
@@ -120,7 +120,7 @@ srun python3 performance/sweep.py --measure "$CASE" --leg qe \\
 echo "exit $?"
 """
 
-DEFUMAT_BODY = """
+DEFUQUMAT_BODY = """
 source "{venv}/bin/activate" || exit 1
 python3 -c "import jax; print('jax', jax.__version__, jax.devices())"
 git -C "$REPO" rev-parse HEAD
@@ -142,12 +142,12 @@ def write_script(leg: str, case_names: list[str], arguments) -> Path:
     spec = DEFAULTS[leg]
     titles = {
         "qe": "Quantum ESPRESSO on one core -- the baseline the CPU claim is against.",
-        "cpu": "defumat on one core -- the project's own metric, beside the QE array.",
-        "gpu": "defumat on one GPU -- against the CPU array, per SCF iteration (GPU.md 2.3).",
+        "cpu": "defuqumat on one core -- the project's own metric, beside the QE array.",
+        "gpu": "defuqumat on one GPU -- against the CPU array, per SCF iteration (GPU.md 2.3).",
     }
     text = HEADER.format(
         title=titles[leg],
-        job_name=f"defumat-bench-{leg}-{arguments.set}",
+        job_name=f"defuqumat-bench-{leg}-{arguments.set}",
         partition=arguments.partition.get(leg) or spec["partition"],
         time=arguments.time.get(leg) or spec["time"][arguments.set],
         cpus=spec["cpus"],
@@ -166,7 +166,7 @@ def write_script(leg: str, case_names: list[str], arguments) -> Path:
                                repeats=arguments.repeats,
                                max_iterations=arguments.max_iterations)
     else:
-        text += DEFUMAT_BODY.format(
+        text += DEFUQUMAT_BODY.format(
             venv=arguments.venv, leg=leg, repeats=arguments.repeats,
             max_iterations=arguments.max_iterations,
             k_batch="all" if leg == "gpu" else "1",
@@ -227,7 +227,7 @@ they were generated here, and submit them yourself:
     for leg, path in written:
         print(f"    sbatch {arguments.work}/sbatch/{path.name}")
     print(f"""
-Then bring the records back and typeset them locally -- the cluster runs defumat
+Then bring the records back and typeset them locally -- the cluster runs defuqumat
 and pw.x, and nothing else:
 
     rsync -av ladovj1@code.triton.aalto.fi:{arguments.work}/results/{arguments.set}/ \\

@@ -17,15 +17,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.forces.energy import FrozenState
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation
-from defumat.stress import Stress, compute_stress, format_stress, stress_methods
-from defumat.stress.energy import strained_energy, strained_energy_terms
-from defumat.system import build_system
-from defumat.system.symmetry import symmetrize_matrix
-from defumat.units import RY_TO_KBAR
+from defuqumat.forces.energy import FrozenState
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation
+from defuqumat.stress import Stress, compute_stress, format_stress, stress_methods
+from defuqumat.stress.energy import strained_energy, strained_energy_terms
+from defuqumat.system import build_system
+from defuqumat.system.symmetry import symmetrize_matrix
+from defuqumat.units import RY_TO_KBAR
 
 pytestmark = pytest.mark.unit
 

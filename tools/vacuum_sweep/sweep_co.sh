@@ -2,8 +2,8 @@
 # The cobalt film at three vacuum sizes: every mixer, both fits. Iteration counts only.
 set -u
 cd /l/ladovj1/review/vacuum
-export JAX_PLATFORMS=cpu DEFUMAT_CACHE_DIR=/l/ladovj1/jaxcache
-export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DEFUMAT_THREADS=off
+export JAX_PLATFORMS=cpu DEFUQUMAT_CACHE_DIR=/l/ladovj1/jaxcache
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DEFUQUMAT_THREADS=off
 PY=/l/ladovj1/venv/bin/python3
 mkdir -p out logs
 rm -f sweep_co.done

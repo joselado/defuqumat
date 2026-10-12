@@ -1,0 +1,1281 @@
+"""Chunking the k-point axis: QE's ``k_loop``, kept differentiable and jitted.
+
+``PW/src/c_bands.f90`` diagonalises **one k-point at a time** --
+``k_loop: DO ik = ik_+1, nks``, with ``get_buffer(evc, nwordwfc, iunwfc, ik)``
+reading that k-point's wavefunctions in and ``save_buffer`` writing them back --
+and ``sum_band.f90`` accumulates the density inside the same loop. So the
+working set QE holds is *one* k-point's, whatever ``nks`` is; the whole set of
+``evc`` lives in a buffer that is memory or disk according to ``io_level``. Its
+parallelism over k comes from MPI pools, not from batching.
+
+This code batches the k axis with ``vmap`` instead -- k is the leading
+independent axis of every wavefunction-shaped array precisely so that it can be
+(rule R6) -- and that trades memory for throughput: ``nk`` separate kernel
+launches per operation was what made the first Python-loop version slow, and a
+GPU wants the batch. The cost is that every k-point's Davidson subspace, and
+every k-point's band-by-band real-space field, are live at once. On a cell with
+many irreducible k-points and two-component spinors that is tens of gigabytes
+where QE needs one k-point's worth.
+
+This module is the dial between the two, and on a CPU the default is QE's
+end of it:
+
+* ``batch = 1`` -- QE's loop, one k-point resident.
+* ``batch = n`` -- n k-points at a time, the compromise.
+* ``batch = None`` -- one ``vmap`` over every k-point, the largest working set
+  and the fastest per iteration.
+
+Two properties matter for how it is written. The loop is a ``lax.scan`` (or
+``lax.map``, which is a scan underneath) rather than a Python ``for``: a Python
+loop over k unrolls ``nk`` copies of ``h_psi`` into the jaxpr, so compilation
+time grows with the k-point count and nothing is saved at runtime. And the
+chunk size is not a physical parameter: every k-point is solved by exactly the
+same function whatever it is, so the only difference is the order the
+contributions are *added* in -- one tree reduction over the whole axis against a
+sequential accumulation over chunks. That is a round-off difference and nothing
+else (~1e-15 Ry on the silicon reference cell), which is what
+``tests/unit/test_batching.py`` pins.
+
+**A batch of one is not a batch.** The obvious way to write "one k-point at a
+time" is a batch axis of width one -- ``jax.vmap`` when ``nk`` is 1, and
+``lax.map(..., batch_size=1)``, which is *defined* as a scan over ``vmap(fn)``
+of one-element chunks, when it is not. Both are wrong, and by a wide margin:
+XLA lowers a width-one batch dimension into batched matrix products, a batched
+``eigh`` and scatters rather than into the unbatched kernels, and on the eight-
+atom silicon cell at 30 Ry that costs **37% of a whole Davidson solve** (110 ms
+unbatched against 150 ms under either form of width-one batching). The FFTs are
+not what pays -- ``h_psi`` measures the same either way -- it is the subspace
+linear algebra, which is a third of a Davidson step and every part of it a small
+dense operation.
+
+So ``batch = 1`` here means *no batch axis at all*: a direct call when there is
+one k-point, and a plain ``lax.map`` -- a scan whose body is ``fn`` itself --
+when there are several. ``vmap`` is used only where a batch is genuinely asked
+for. This costs nothing in generality: the body is compiled once either way, and
+the accumulation order is the same sequential one, so the answers are unchanged
+to the last digit.
+
+**The band axis is the same story, and it is worth more.** ``vloc_psi_k`` walks
+its bands one at a time -- ``DO ibnd = 1, m`` around a single ``invfft`` -- and
+so does ``sum_band``. Transforming a whole block instead is the obvious
+vectorisation and it is a large loss on any cell big enough to matter, for a
+reason that has nothing to do with JAX: **a band's real-space box is the working
+set, and a block of them is not**. On the sixteen-atom silicon cell at 30 Ry one
+band's box is 1.5 MB and thirty-two of them are 48 MB, so the batched transform
+streams the whole array from memory twice per pass while the looped one stays in
+cache. Measured on the local term of ``h_psi``, single core, one band at a time
+against all of them:
+
+===================  ===========  ============  =======
+case                 all bands    one at a time
+===================  ===========  ============  =======
+``si16-1k-ecut30``      153.9 ms       62.0 ms   2.48x
+``si16-1k``              23.5 ms       13.9 ms   1.69x
+``si8-1k-ecut30``        23.1 ms       13.9 ms   1.66x
+``si8-1k``                4.2 ms        3.7 ms   1.14x
+``si-1k``                 0.31 ms       0.34 ms  0.91x
+===================  ===========  ============  =======
+
+The gain grows with the box, and the one case that loses is the 180-plane-wave
+cell where the whole calculation is fixed overhead. So the band axis is a dial
+too, with the same default as the k axis -- QE's loop -- and the same escape
+hatch for a GPU, which wants the batch that a cache does not.
+
+**Both defaults are per platform, because both arguments above are arguments
+about a cache and an accelerator has none.** On a CPU each dial defaults to 1
+and every number in this docstring says why; on anything else both default to
+``None``, the whole axis at once. That is not a preference, it is what was
+measured on the device (``PERFORMANCE.md``, "First contact with a GPU"):
+``al10-metal`` runs at **801 ms/iteration on the CPU defaults and 177 at
+``k=all, b=all``** -- **4.5x given up** by inheriting them -- 16-atom silicon
+runs at **0.20x**, an outright loss against four CPU cores, and at 32 atoms
+``band_batch = 1`` did not finish two SCF runs in the fifteen minutes four CPU
+cores need eleven seconds for. **The two axes move together or not at all**:
+``k=all, b=1`` is *worse than either end* (2075 ms), because batching k while
+looping bands multiplies the per-band launches by ``nk``, so ``_platform_default``
+answers for both dials at once rather than per axis.
+
+``GPU.md`` §5's rule is that a platform-dependent choice is "a dial with a
+per-platform default and both settings tested", never a rewrite -- so nothing
+here changes on a CPU, both ends stay reachable everywhere, and the order of
+precedence is unchanged: an explicit argument beats
+``DEFUQUMAT_K_BATCH``/``DEFUQUMAT_BAND_BATCH``, which beat the platform. And the
+default is not visible in a result under any of them: the chunk size changes
+only the order the k contributions are *added* in (~1e-15 Ry), which is what
+``tests/unit/test_batching.py`` pins.
+
+**A single k-point is unaffected either way.** :func:`map_k` and :func:`sum_k`
+short-circuit ``nk == 1`` to a direct call before they look at the chunk size,
+so the new default does not put a width-one batch axis on the single-k
+benchmark cells -- the case "a batch of one is not a batch" above is about.
+
+Where the wavefunctions are *kept*
+----------------------------------
+
+The dials above bound how much of the k axis is **in flight**. They say nothing
+about where the k axis is **stored**, and on a large cell the store is the
+larger number: ``nspin nk nbnd npwx npol`` complex is 11.3 GB on a 45-atom
+NiBr2 slab at six k-points and 45 GB at twenty-four, and it sits on the
+accelerator for the whole SCF because it is the next iteration's starting guess.
+
+QE does not keep it there. ``c_bands.f90``'s ``get_buffer``/``save_buffer`` pair
+reads one k-point's ``evc`` in and writes it back out, and ``io_level`` decides
+whether the buffer is memory or disk -- so QE's *resident* wavefunction set is
+one k-point's however many there are. :func:`park_wavefunctions` and
+:func:`fetch_wavefunctions` are that buffer, with JAX's host memory kind as the
+backing store: the driver parks the whole set once the density has been built
+from it and fetches it back before the next diagonalisation.
+
+**What that wins, and what it does not -- now measured on a 12.10 GB store
+rather than argued.** Jobs **20252135** (device) and **20252136** (host) ran the
+45-atom NiBr2 slab on the *same* A100 node six minutes apart, same commit, same
+input, same seed, with the resolved mode printed on both. `bytes_in_use` differs at exactly
+**three** stage brackets and nowhere else; the fourth row below is where the two
+runs rejoin, and the fifth is the last bracket before the span opens:
+
+===========================  =========  ========
+bracket                      device     host
+===========================  =========  ========
+``<- density``                30.13 GB  30.13 GB
+the iteration line            30.13 GB  **18.04 GB**
+``-> onecenter`` (next it.)   30.30 GB  **18.17 GB**
+``<- hamiltonian``            30.55 GB  **18.37 GB**
+``-> diagonalize``            30.30 GB  30.22 GB
+===========================  =========  ========
+
+The drop is **12.09 GB** against a store of 12,097,428,096 B = **12.10 GB**, it
+begins after the density and has ended by the next solve, and every other
+bracket -- peaks included -- is identical to the digit printed. *When* the fetch
+happens relative to the ``-> diagonalize`` print is not knowable from this: the
+spy's ``block_until_ready`` does not force a park, so the brackets say where
+``live`` stands, never when it moved. That is this
+span statement, measured.
+
+It takes the store off the accelerator for the energy assembly, ``v_of_rho`` on
+the dense grid, the mixer's ``mixing_ndim`` histories, the PAW one-centre terms
+and the checkpoint write. It does **not** lower the peak if the peak is inside
+the solve: the store is an input to the diagonalisation, to ``becsum`` and to
+the density, so it is on the device for all three. **That is measured too, and
+it is the practical answer**: both runs peaked at **79.14 GB**, and the host one
+still died in the eigensolver on the same 23.18 GiB request from the same
+executable. ``wfc_store = 'host'`` did not make this cell fit an 80 GB card.
+**It is a resident-set dial, not a peak dial**, and a run that dies in the
+eigensolver dies just the same.
+
+**Does parking fragment the arena? Untested, unsupported by the evidence that
+exists, and the matched test is unavailable in principle from this diagnostic.**
+All three clauses are load-bearing.
+
+The worry is real and has a mechanism: parking and fetching 12.10 GB every
+iteration is an allocate-and-free cycle of a 12 GB block on an arena whose
+failure mode is a missing *hole* rather than missing bytes. And in the pair
+above, the host arm completed less work -- 20252135 finished its two-iteration
+budget, 20252136 died inside iteration 2, same node, six minutes apart. One
+trial.
+
+**The comparison that would settle it cannot be made, and that is a property of
+the instrument rather than a gap in the runs.** The allocator's arena map is a
+**failure-only** diagnostic: a run that survives prints no bar at all, and the
+device arm survived (its stderr carries zero ``bfc_allocator`` lines). So there
+is no matched pair and no job can produce one -- to get a bar from the device
+arm it would have to fail, at which point it is no longer the control.
+
+The three bars that do exist are unmatched, and to the extent they differ they
+differ *against* the mechanism. One character is about 0.83 GB on an 82.95 GB
+pool, so a one-character difference is at the quantisation limit:
+
+======================  ==========  =========  ======  =============
+job                     mode        died at    free    largest hole
+======================  ==========  =========  ======  =============
+20244646 (H100 gpu45)   device      it. 13     31%     18%
+20252129 (A100 gpu41)   device      it. 5      32%     18%
+20252136 (A100 gpu13)   **host**    it. 2      32%     **19%**
+======================  ==========  =========  ======  =============
+
+The host arm's arena is, if anything, marginally *less* fragmented than either
+device arm while dying soonest, and all three share the same gross shape (~23
+used / hole / 45 used / hole) across two architectures, two nodes and deaths at
+iterations 2, 5 and 13. That is not support for the mechanism.
+
+**What would actually test it**, recorded so the next person does not repeat the
+search above: sample the largest free block *per iteration* rather than only at
+death, and do it on a cell where **both** arms survive, so the comparison is
+between two curves instead of between two deaths.
+
+**That second condition stopped being hypothetical on 2026-09-14.** The
+``projectors = 'rebuild'`` dial took the slab's peak from 79.43 to 65.47 GB, so
+the cell that previously died in every arm now has about 17.5 GB of slack -- and
+"unavailable in principle" above is a statement about the *failure-only arena
+map*, not about this question. A run that survives can be sampled; it just
+cannot print a death map. So the curve comparison is now obtainable on the cell
+that motivated it, which is the only thing that was missing.
+
+**The 65.47 holds, and it survived a scare worth recording.** It was briefly
+withdrawn on 2026-09-14 in favour of 76.51 GB, on the hypothesis that this
+paragraph's own instrument depressed the peak it measured, which would have made
+every bracketed number in this file a lower bound. An unbracketed run (job
+20258183, A100 ``gpu41``) then read **65.18 / 65.47**, byte-identical to the
+bracketed ``20257133``: the ``block_until_ready`` pairs change nothing and no
+figure here is a lower bound. **The 76.51 is real but is an H100 reading**, so
+the slack above is an A100 statement and the ``rebuild`` saving is
+card-dependent. ``MEMORY-AUDIT.md`` A17 has both.
+
+``Device.memory_stats()`` is the instrument, and it **works on the backend this
+question lives on**. Every bracket quoted above is that call --
+``jax.devices()[0].memory_stats()["peak_bytes_in_use"]`` and ``["bytes_in_use"]``
+-- taken on CUDA. It returns ``None`` on the **CPU client**, which is a property
+of that client and *not* of the API: said the wrong way round it reads as "this
+does not work", and the next person on a GPU would skip an instrument that does.
+It simply cannot be developed or checked on this workstation.
+
+These key names are present in ``libjax_common.so`` as exact strings, seen here
+on jax/jaxlib 0.11.0 and independently on 0.11.1: ``bytes_in_use``,
+``bytes_limit``, ``bytes_reservable_limit``, ``largest_alloc_size``,
+``largest_free_block_bytes``, ``num_allocs``, ``peak_bytes_in_use``,
+``pool_bytes``.
+
+**That list is not the key set, and the method could not have told us if it were
+not.** Both greps were fixed alternations of *guessed* names -- one session
+asked about six, the other about eight -- so each could only return names already
+on its own list. The two agreeing is agreement about the candidates, not about
+the set, and the two extra names in the longer list were found by guessing two
+more rather than by discovery. Reading adjacent strings out of the binary does
+not rescue it either: the string table is interleaved across translation units,
+so nothing useful neighbours these. **What enumerates is
+``sorted(device.memory_stats())`` on a GPU**, and nothing here is a substitute
+for it.
+
+**And a string in the binary is evidence the key exists, not proof the CUDA
+client populates it** -- one print from a GPU job settles both questions at once
+and has not been run. What *has* been observed, from job 20258211 on 2026-09-14,
+is that ``bytes_in_use`` and ``peak_bytes_in_use`` are populated under
+``XLA_PYTHON_CLIENT_ALLOCATOR=platform`` as well as under BFC, so the ``.get``
+trap does not bite on that arm. The rest of the key set is still unenumerated:
+that run printed two keys, it did not list them.
+**Enumerated on 2026-09-28**, ``sorted(jax.devices()[0].memory_stats())`` on a
+GTX 1060 (jax/jaxlib 0.11.1, driver 580.173.02, BFC allocator): ``bytes_in_use``,
+``bytes_limit``, ``bytes_reserved``, ``largest_alloc_size``,
+``largest_free_block_bytes``, ``num_allocs``, ``peak_bytes_in_use``,
+``peak_bytes_reserved``, ``peak_pool_bytes``, ``pool_bytes`` -- ten keys, all
+populated. Against the guessed list above: ``bytes_reservable_limit`` is **not**
+in the CUDA client's dict, and ``bytes_reserved``, ``peak_bytes_reserved`` and
+``peak_pool_bytes`` are, which neither grep asked about. There is no call that
+resets ``peak_bytes_in_use``, so a peak is one measured run per process.
+``largest_alloc_size`` is arguably the better single number for this question
+than ``largest_free_block_bytes``, since what a 23.18 GiB request is up against
+is the largest request the arena can still satisfy.
+
+**Index it, do not ``.get`` it.** An unpopulated key read with ``.get`` returns
+``None``, and a formatted ``None`` -- or a guarded print that skips -- is
+indistinguishable from an arena that never fragments. That is this project's
+standing trap about a check whose null result cannot be told from a pass, in the
+one place it would be most expensive: let ``stats["largest_free_block_bytes"]``
+raise ``KeyError``, or assert the key is present once at startup.
+
+**The default is the memory mode's** (:data:`MEMORY_MODES`): on a CPU the host
+and the device are one piece of memory, so parking is a `memcpy` of the whole
+store per iteration that buys nothing, and the default is ``device`` in either
+mode. On an accelerator it is ``stream`` in ``memory`` -- the default -- and
+``device`` in ``speed``. ``host`` is no longer any mode's default: what it does
+is a subset of what ``stream`` does, and the pair above measured it not to move
+the peak. ``DEFUQUMAT_WFC_STORE`` overrides the mode and an explicit
+``wfc_store`` overrides that, which is the precedence the other dials have.
+
+Streaming (``stream``)
+----------------------
+
+``host`` parks the set between the density and the next solve and fetches it
+**whole** for the solve, so the device still holds every k-point's
+wavefunctions -- twice, input and output -- at the moment the peak is taken.
+``stream`` is QE's ``get_buffer``/``save_buffer`` pair at the granularity QE
+uses it: the store is a numpy array in host RAM for the whole run, and every
+pass that reads it -- the starting Rayleigh-Ritz, each Davidson call, ``becsum``,
+the density, ``tau`` and DFT+U's ``ns`` -- walks :func:`k_chunks` with a Python
+loop, moving one chunk to the device, running the *same* compiled kernel the
+whole-set path runs on the chunk's slice of every per-k array, and moving the
+result back. The sums over k are accumulated chunk by chunk and finished once
+(lifted to the dense grid, augmented, symmetrised), which is exact because all
+three are linear. What stays resident on the device and still grows with the
+mesh is the basis bookkeeping -- ``|k+G|^2``, the FFT index and mask, and the
+projector *core* -- which is ``npwx (3 + 2 ncs)`` numbers per k-point against the
+store's ``2 nbnd npol npwx``.
+
+**Why a numpy array and not a pinned-host JAX array**, measured on jax 0.11.1
+with a GTX 1060: indexing a ``pinned_host`` array with a k-subset raises
+(``memory_space of all inputs passed to gather must be the same``), and handing
+a whole host-resident array to a jitted function does *not* raise -- XLA's
+host offloader rewrites the kernel to run **on the host**, with only a log
+line (``host_offloader.cc: ... Converting into host compute``). So the store
+must never reach a kernel whole, and the one form that makes that structural is
+a numpy array sliced on the host: 102 MB moves in about 35 ms each way.
+
+**Only the SCF loop parks anything; the fixed-density solves never stack the
+set.** :func:`~defuqumat.workflows.nscf.run_nscf` and the band-structure path
+diagonalise once, so there is no span between two solves to park across. Where
+the store streams they solve a chunk at a time from scratch instead
+(:mod:`defuqumat.scf.streaming`): a caller that wants energies drops each
+chunk's states as they come back, and one that keeps them gets a numpy store,
+which the consumers walk a chunk at a time (``GPU-MEMORY-NEXT.md`` items 1
+and 4).
+"""
+
+from __future__ import annotations
+
+import functools
+import warnings
+
+import jax
+import jax.numpy as jnp
+from jax import lax
+
+from ._envcompat import environ_get
+
+__all__ = ["DEFAULT_K_BATCH", "resolve_k_batch", "map_k", "sum_k",
+           "DEFAULT_BAND_BATCH", "resolve_band_batch", "resolve_pair_batch",
+           "PLANE_CHUNK_BYTES", "resolve_plane_chunk",
+           "resolve_w_batch",
+           "map_bands",
+           "sum_bands", "map_axis", "map_windows",
+           "PROJECTOR_STORES", "resolve_projectors",
+           "WFC_STORES", "resolve_wfc_store", "resolve_scf_wfc_store", "park_wavefunctions",
+           "fetch_wavefunctions", "upload",
+           "MEMORY_MODES", "resolve_memory_mode", "memory_preset",
+           "k_chunks", "K_BATCH_FIT", "k_batch_fit_requested", "whole_axis_vmap"]
+
+
+_UNSET = object()
+
+
+def _from_environment(name: str) -> int | None | object:
+    """``name`` read as a chunk size: an integer, or ``all``/``0`` for a ``vmap``.
+
+    Returns :data:`_UNSET` when the variable is not set, which is *not* the same
+    as ``None``: ``None`` is a meaningful setting here -- every k-point at once
+    -- so it cannot double as "nothing was said" and let the platform decide.
+    """
+    setting = (environ_get(name, "") or "").strip().lower()
+    if not setting:
+        return _UNSET
+    if setting == K_BATCH_FIT and name == "DEFUQUMAT_K_BATCH":
+        # Chosen from the card by a Calculation (:func:`k_batch_fit_requested`);
+        # to a caller that has no system to size, nothing was said.
+        return _UNSET
+    if setting in ("all", "0", "off", "none"):
+        return None
+    try:
+        value = int(setting)
+    except ValueError:
+        warnings.warn(f"ignoring {name}={setting!r}: not a number",
+                      RuntimeWarning, stacklevel=2)
+        return _UNSET
+    return None if value < 1 else value
+
+
+@functools.cache
+def _backend() -> str:
+    """The platform JAX will run on -- ``cpu``, ``gpu``, ``tpu``.
+
+    Asked lazily and cached, because asking *initialises* the backend and on a
+    GPU node that allocates device memory: importing this module must not do
+    that as a side effect. Anything that is not ``cpu`` counts as an
+    accelerator, so a name this was never tested against (``cuda``, ``rocm``)
+    lands on the accelerator default rather than on neither.
+    """
+    try:
+        return jax.default_backend()
+    except Exception:       # no backend at all: there is nothing to batch for
+        return "cpu"
+
+
+def _platform_default() -> int | None:
+    """QE's loop on a CPU, the whole axis at once on an accelerator.
+
+    This is the **band** dial's default, and it is the same in both memory
+    modes (:func:`memory_preset`) except where a ``memory``-mode calculation on
+    a card finds the whole block does not fit and chooses a batch itself
+    (:func:`~defuqumat.scf.driver.resolve_band_batch_for`). One band's box is the
+    cache-sized unit on a CPU, and on a card a band loop serialises every FFT
+    into its own launch --
+    measured at 4.3x the whole block's time at 64 k-points on a GTX 1060, with
+    no peak worth having in exchange (while the stick fill was itself a loop on
+    a card; since it is a gather, 71.0 against 64.0 ms on sixteen-atom silicon
+    on an RTX A2000). The k dial's default is the memory mode's
+    (:func:`_k_default`), which is where the two modes differ.
+    ``DEFUQUMAT_K_BATCH``/``DEFUQUMAT_BAND_BATCH`` override a whole process. See
+    the module docstring for what each end costs where.
+    """
+    return 1 if _backend() == "cpu" else None
+
+
+# ---------------------------------------------------------------------------
+# the two memory modes -- one switch in front of the four dials
+# ---------------------------------------------------------------------------
+
+#: ``"memory"`` and ``"speed"``: two presets for the four dials of this module.
+#:
+#: The dials are the mechanism and stay reachable one by one; the mode is the
+#: question a user actually has -- *does this fit on the card, and if it fits,
+#: how fast* -- answered once. On an accelerator:
+#:
+#: ============  =======  ==========  ============  ===========
+#: mode          k_batch  band_batch  projectors    wfc_store
+#: ============  =======  ==========  ============  ===========
+#: ``speed``     all      all         ``store``     ``device``
+#: ``memory``    1        all         ``rebuild``   ``stream``
+#: ============  =======  ==========  ============  ===========
+#:
+#: ``speed`` is everything on the device at once. ``memory`` is QE's
+#: ``k_loop`` with ``io_level`` pointing at host RAM: one k-point's working set
+#: on the card, its projectors formed on demand, and the wavefunction set held
+#: in host memory and streamed through one chunk at a time
+#: (:func:`k_chunks`), so the device peak stops following the number of
+#: k-points. Measured on the eight-atom silicon cell at 20 Ry on a GTX 1060,
+#: 64 k-points, one SCF per fresh process: **2080 MB and 7.7 s** in ``speed``,
+#: **45 MB and 12.3 s** in ``memory`` -- and 4055 MB against 56 MB at 125
+#: k-points, where ``memory`` grows by about 0.2 MB per k-point (the resident
+#: basis bookkeeping) and ``speed`` by 33. Before the store streamed, the first
+#: three dials of ``memory`` alone gave 167 MB and 8.95 s at 64 k-points: the
+#: store itself, fetched whole, was most of what was left.
+#:
+#: The band dial is ``all`` in both **wherever that fits**: it is a
+#: per-k-point working set, it does not grow with the mesh, and a band loop on a
+#: card cost 4.3x (39.5 s against 8.95 on the same cell, before the stick fill
+#: stopped being a loop on a card; about 1.1x on sixteen atoms since) for a peak
+#: that is not the one in the way. On a large cell it becomes the one in the way -- it is
+#: the largest per-k-point term left once the k axis streams, 66.9 GB at every
+#: band against 2.65 GB at 16 on the 45-atom NiBr2 slab -- so in ``memory``
+#: mode the :class:`~defuqumat.scf.driver.Calculation` budgets it from the card
+#: (:func:`~defuqumat.scf.driver.resolve_band_batch_for`,
+#: :func:`~defuqumat.sizing.choose_band_batch`): the whole block when it fits,
+#: otherwise the fewest blocks that do, with a warning. The Hamiltonians and
+#: the density kernels carry the value it chose; ``map_bands``' own
+#: ``"default"`` below still means the platform's.
+#:
+#: On a CPU there is one memory, so streaming it to itself buys nothing and
+#: QE's loop is already both the lean and the fast end. The mode changes one
+#: thing there, the projector storage, and ``speed`` -- the CPU defaults every
+#: validated number on record was taken with -- is the CPU default.
+#:
+#: **The accelerator default is** ``memory`` (2026-09-28, the user's decision),
+#: and ``speed`` on an accelerator is checked before it is used:
+#: :func:`defuqumat.sizing.speed_mode_fits` estimates the peak, and a run that
+#: would not fit falls back to ``memory`` with a warning rather than dying in
+#: the eigensolver.
+MEMORY_MODES = ("memory", "speed")
+
+
+def _memory_mode_default() -> str:
+    setting = (environ_get("DEFUQUMAT_MEMORY_MODE", "") or "").strip().lower()
+    if setting in MEMORY_MODES:
+        return setting
+    if setting:
+        warnings.warn(
+            f"ignoring DEFUQUMAT_MEMORY_MODE={setting!r}: expected one of "
+            f"{MEMORY_MODES}", RuntimeWarning, stacklevel=3,
+        )
+    return "speed" if _backend() == "cpu" else "memory"
+
+
+def resolve_memory_mode(requested: str | None = "default") -> str:
+    """``"memory"`` or ``"speed"``: an argument, then the environment, then the platform.
+
+    ``None`` is "nothing was said", as it is for :func:`resolve_wfc_store`,
+    because neither mode is the absence of a choice.
+    """
+    if requested is None or requested == "default":
+        return _memory_mode_default()
+    value = str(requested).strip().lower()
+    if value not in MEMORY_MODES:
+        raise ValueError(
+            f"memory_mode must be one of {MEMORY_MODES} or 'default', got "
+            f"{requested!r}"
+        )
+    return value
+
+
+def memory_preset(mode: str | None = "default") -> dict:
+    """The four dials a mode sets on this platform -- see :data:`MEMORY_MODES`.
+
+    A preset fills in only what a caller left at ``"default"`` and what the
+    environment leaves unset: an explicit dial, or ``DEFUQUMAT_K_BATCH`` and its
+    siblings, still beat it, which is the precedence every dial here has.
+    """
+    mode = resolve_memory_mode(mode)
+    if _backend() == "cpu":
+        return {"k_batch": 1, "band_batch": 1,
+                "projectors": "rebuild" if mode == "memory" else "store",
+                "wfc_store": "device"}
+    if mode == "speed":
+        return {"k_batch": None, "band_batch": None,
+                "projectors": "store", "wfc_store": "device"}
+    return {"k_batch": 1, "band_batch": None,
+            "projectors": "rebuild", "wfc_store": "stream"}
+
+
+def k_chunks(nk: int, batch: int | None):
+    """The k-point chunks a streamed pass walks, each padded to one shape.
+
+    Yields ``(rows, live)``: ``rows`` is a numpy ``(chunk,)`` index array and
+    ``live`` how many of its leading entries are real. The last chunk is padded
+    with a repeat of its own first row, so every chunk shares one shape and
+    therefore one compilation. What the padding contributes is decided by the
+    caller: a sum over k gives the padded rows **zero weight**, which is exact
+    because every such sum is linear in the weights; a solve computes them and
+    discards the result, which costs ``chunk - live`` redundant solves once per
+    pass and nothing at ``batch = 1``.
+
+    ``batch = None`` is one chunk of the whole axis.
+    """
+    import numpy as np
+
+    chunk = nk if batch is None else max(1, min(int(batch), nk))
+    for start in range(0, nk, chunk):
+        live = min(chunk, nk - start)
+        rows = np.arange(start, start + live)
+        if live < chunk:
+            rows = np.concatenate([rows, np.full(chunk - live, start)])
+        yield rows, live
+
+
+def _k_default(mode: str | None = "default") -> int | None:
+    setting = _from_environment("DEFUQUMAT_K_BATCH")
+    return memory_preset(mode)["k_batch"] if setting is _UNSET else setting
+
+
+def _band_default() -> int | None:
+    setting = _from_environment("DEFUQUMAT_BAND_BATCH")
+    return _platform_default() if setting is _UNSET else setting
+
+
+def __getattr__(name: str):
+    """``DEFAULT_K_BATCH`` and ``DEFAULT_BAND_BATCH``, resolved when read.
+
+    Attributes (PEP 562) rather than module constants, because the platform
+    half of the answer costs a backend initialisation to obtain and the
+    environment half may be set after this module is imported.
+    """
+    if name == "DEFAULT_K_BATCH":
+        return _k_default()
+    if name == "DEFAULT_BAND_BATCH":
+        return _band_default()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+#: The ``k_batch`` that asks for the largest k-chunk the card holds, chosen by
+#: :func:`defuqumat.sizing.choose_k_batch` where a :class:`~defuqumat.scf.driver.
+#: Calculation` is built, which is the one place that has the system to size.
+K_BATCH_FIT = "fit"
+
+
+def k_batch_fit_requested(requested: int | None | str = "default") -> bool:
+    """Whether ``requested``, or ``DEFUQUMAT_K_BATCH`` behind a ``"default"``, is ``'fit'``."""
+    if isinstance(requested, str) and requested.strip().lower() == K_BATCH_FIT:
+        return True
+    if isinstance(requested, str) and requested == "default":
+        return (environ_get("DEFUQUMAT_K_BATCH", "") or "").strip().lower() == K_BATCH_FIT
+    return False
+
+
+def resolve_k_batch(requested: int | None | str = "default",
+                    mode: str | None = "default") -> int | None:
+    """Turn what a caller passed into a chunk size.
+
+    The sentinel is the string ``"default"`` rather than ``None``, because
+    ``None`` is a meaningful value here -- it asks for every k-point at once --
+    and a caller that has one must be able to pass it through. ``mode`` is the
+    memory mode whose preset answers when neither the caller nor
+    ``DEFUQUMAT_K_BATCH`` does.
+    """
+    if isinstance(requested, str):
+        if requested == "default":
+            return _k_default(mode)
+        return _named(requested)
+    if requested is None:
+        return None
+    value = int(requested)
+    if value < 1:
+        raise ValueError(f"k_batch must be a positive integer or None, got {requested!r}")
+    return value
+
+
+def _named(setting: str) -> int | None:
+    if setting.strip().lower() in ("all", "0", "off", "none"):
+        return None
+    if setting.strip().lower() == K_BATCH_FIT:
+        raise ValueError(
+            "k_batch='fit' is chosen from the card where a Calculation is built "
+            "(Calculation(..., k_batch='fit'), run_scf(..., k_batch='fit') or "
+            "DEFUQUMAT_K_BATCH=fit), since that is where the system is there to "
+            "size; this call takes a chunk size or None")
+    return resolve_k_batch(int(setting))
+
+
+def _leading(xs) -> int:
+    leaves = jax.tree_util.tree_leaves(xs)
+    if not leaves:
+        raise ValueError("nothing to map over: the k-axis pytree is empty")
+    return int(leaves[0].shape[0])
+
+
+def whole_axis_vmap(n: int, batch: int | None) -> bool:
+    """Whether :func:`map_axis` maps ``n`` entries at ``batch`` as one ``vmap``.
+
+    That is the one route on which a named axis exists for ``fn`` to reduce
+    over (``map_axis``'s ``axis_name``): a single entry is mapped with no batch
+    axis, ``batch = 1`` as a scan, and a chunk smaller than the axis by
+    ``lax.map``, whose own ``vmap`` has no name.
+    """
+    return n > 1 and batch != 1 and (batch is None or batch >= n)
+
+
+def map_axis(fn, xs, *, batch: int | None, axis_name: str | None = None):
+    """``fn`` at every entry of a leading axis, results stacked back onto it.
+
+    The chunking itself, with no opinion about what the axis *is*. ``map_k`` is
+    this function under the name of the axis it was written for, and the k axis
+    is not the only one whose per-entry working set is a whole real-space field
+    -- the occupied-empty **pair** axis of a sum-over-states response is
+    another, and one pair density is the same object one band's is.
+
+    ``batch=None`` asks for the whole axis at once, ``batch=n`` walks it ``n``
+    at a time, and a leading axis of length one is done without a batch
+    dimension at all -- see the module docstring's "A batch of one is not a
+    batch".
+
+    ``axis_name`` names the batch axis on the whole-axis route, so that ``fn``
+    can take a collective over it (``lax.pmax``); a caller that passes one
+    must take that route (:func:`whole_axis_vmap`), and it is refused on any
+    other, where a collective would have no axis to reduce over.
+    """
+    n = _leading(xs)
+    if axis_name is not None and not whole_axis_vmap(n, batch):
+        raise ValueError(
+            f"axis_name={axis_name!r} needs the whole-axis vmap, and {n} entries "
+            f"at batch={batch!r} are not mapped that way")
+    if n == 1:
+        # A single entry is not a batch. Calling ``fn`` on the squeezed pytree
+        # and putting the axis back is the same computation without the
+        # width-one batch dimension, which is what costs.
+        one = jax.tree_util.tree_map(lambda a: a[0], xs)
+        return jax.tree_util.tree_map(lambda a: a[None], fn(one))
+    if batch == 1:
+        return lax.map(fn, xs)  # a plain scan: one entry, no batch axis
+    if batch is None or batch >= n:
+        return jax.vmap(fn, axis_name=axis_name)(xs)
+    return lax.map(fn, xs, batch_size=batch)
+
+
+def map_windows(fn, xs, *, batch: int | None):
+    """:func:`map_axis`, with every chunk written into one output array.
+
+    ``lax.map(..., batch_size=n)`` over an axis ``n`` does not divide computes
+    the short tail separately and **concatenates** it onto the scanned part,
+    which is a second output-sized buffer: measured on ``chi_0``'s frequency
+    axis (200 frequencies, ``nm = 115``) a chunk of 32 held **68.0 MB** of
+    temporaries where the whole axis held 40.4, while a chunk of 8, which
+    divides it, held 6.7. Here the chunks start at ``0, n, 2n, ...`` and the
+    last one at ``len - n``, overlapping its predecessor, and each is written
+    into the output in place (``dynamic_update_slice`` on a scan carry); the
+    overlap is recomputed from the same inputs at the same shape, so it
+    writes the same values again. Use it where the output is large and the
+    axis length is arbitrary -- a frequency grid -- rather than for the k
+    axis, whose chunks :func:`k_chunks` pads instead.
+    """
+    n = _leading(xs)
+    if n == 1 or batch is None or batch >= n:
+        return map_axis(fn, xs, batch=batch)
+    if batch == 1 or n % batch == 0:
+        return map_axis(fn, xs, batch=batch)  # a scan stacks in place
+    batched = jax.vmap(fn)
+    first = jax.tree_util.tree_map(lambda a: a[:batch], xs)
+    template = jax.eval_shape(batched, first)
+    out = jax.tree_util.tree_map(
+        lambda s: jnp.zeros((n,) + s.shape[1:], s.dtype), template)
+    starts = jnp.minimum(jnp.arange(-(-n // batch)) * batch, n - batch)
+
+    def write(out, start):
+        chunk = jax.tree_util.tree_map(
+            lambda a: lax.dynamic_slice_in_dim(a, start, batch), xs)
+        done = batched(chunk)
+        return jax.tree_util.tree_map(
+            lambda o, d: lax.dynamic_update_slice_in_dim(o, d, start, 0),
+            out, done), None
+
+    out, _ = lax.scan(write, out, starts)
+    return out
+
+
+def map_k(fn, xs, *, batch: int | None, axis_name: str | None = None):
+    """``fn`` at every k-point, results stacked on a leading k axis.
+
+    ``xs`` is a pytree whose leaves all have ``nk`` as their leading axis, and
+    ``fn`` takes one k-point's slice of it. This is :func:`map_axis` with the k
+    axis named, which is the axis every caller of it walks.
+    """
+    return map_axis(fn, xs, batch=batch, axis_name=axis_name)
+
+
+def sum_k(fn, xs, *, batch: int | None):
+    """``sum_k fn(k)`` -- the same chunking, accumulated instead of stacked.
+
+    This is the shape ``sum_band`` and ``sum_bec`` need: the per-k contribution
+    is a whole density or a whole ``becsum``, so stacking ``nk`` of them and
+    summing afterwards would defeat the point of chunking at all.
+
+    ``batch = 1`` accumulates through a ``lax.scan`` with no ``vmap`` around the
+    body, for the reason the module docstring gives.
+    """
+    nk = _leading(xs)
+    if nk == 1:
+        return fn(jax.tree_util.tree_map(lambda a: a[0], xs))
+    if batch == 1:
+        template = jax.eval_shape(fn, jax.tree_util.tree_map(lambda a: a[0], xs))
+        zero = jax.tree_util.tree_map(lambda s: jnp.zeros(s.shape, s.dtype), template)
+
+        def add(carry, one):
+            return jax.tree_util.tree_map(jnp.add, carry, fn(one)), None
+
+        total, _ = lax.scan(add, zero, xs)
+        return total
+    if batch is None or batch >= nk:
+        return _chunk_sum(fn, xs)
+
+    full = nk // batch
+    head = jax.tree_util.tree_map(
+        lambda a: a[: full * batch].reshape((full, batch) + a.shape[1:]), xs
+    )
+    template = jax.eval_shape(
+        lambda chunk: _chunk_sum(fn, chunk),
+        jax.tree_util.tree_map(lambda a: a[0], head),
+    )
+    zero = jax.tree_util.tree_map(lambda s: jnp.zeros(s.shape, s.dtype), template)
+
+    def step(carry, chunk):
+        return jax.tree_util.tree_map(jnp.add, carry, _chunk_sum(fn, chunk)), None
+
+    total, _ = lax.scan(step, zero, head)
+
+    remainder = nk - full * batch
+    if remainder:
+        tail = jax.tree_util.tree_map(lambda a: a[full * batch :], xs)
+        total = jax.tree_util.tree_map(jnp.add, total, _chunk_sum(fn, tail))
+    return total
+
+
+def _chunk_sum(fn, chunk):
+    """One chunk's contributions, summed over the k-points in it."""
+    return jax.tree_util.tree_map(
+        lambda a: jnp.sum(a, axis=0), jax.vmap(fn)(chunk)
+    )
+
+
+def map_bands(fn, states, *, batch: int | None | str = "default"):
+    """``fn`` over the leading axis of a block of states, ``batch`` bands at a time.
+
+    ``states`` is ``(..., m, ndim)`` and ``fn`` maps a block of bands to a block
+    of as many bands, each of any one length; the leading axes are flattened together first, so a
+    caller with a spin or k index does not have to know how many there are.
+
+    Unlike :func:`map_k` this is not a dial between two *algorithms* -- every
+    band is transformed by the same code whatever the chunk -- so the answer is
+    identical to the last bit rather than to round-off (2.8e-15 on the
+    sixteen-atom cell is the difference in the *inputs* of a random test, not in
+    the operation). It is a dial between two working sets, and the default is
+    QE's: see the module docstring for why one band wins by 2.5x where the box
+    is large, and by nothing at all where it is small.
+    """
+    batch = _resolve_band_batch(batch)
+    if states.ndim == 1:
+        return fn(states)
+
+    shape = states.shape
+    flat = states.reshape((-1,) + shape[-1:])
+    m = flat.shape[0]
+    if batch is None or batch >= m:
+        return fn(states)
+
+    full = m // batch
+    head = flat[: full * batch].reshape((full, batch, shape[-1]))
+    mapped = lax.map(fn, head)
+    # The last axis is the *output's*: a band moved from the ``k`` sphere to
+    # the ``k + q`` one (the phonon at ``q``) comes back at that sphere's width,
+    # which differs from this one's whenever ``q`` is off the k-grid.
+    width = mapped.shape[-1]
+    done = mapped.reshape((full * batch, width))
+    if m > full * batch:
+        done = jnp.concatenate([done, fn(flat[full * batch :])], axis=0)
+    return done.reshape(shape[:-1] + (width,))
+
+
+def _resolve_band_batch(requested: int | None | str = "default") -> int | None:
+    if isinstance(requested, str):
+        if requested == "default":
+            return _band_default()
+        return _named(requested)
+    if requested is None:
+        return None
+    value = int(requested)
+    if value < 1:
+        raise ValueError(
+            f"band batch must be a positive integer or None, got {requested!r}")
+    return value
+
+
+#: How many bytes of working set the local term keeps per chunk of ``z``
+#: planes on a CPU (:func:`~defuqumat.basis.fft.sticks_local`), counted by
+#: :func:`resolve_plane_chunk` as each plane's wavefunction components twice
+#: (the field and its product) and the potential's components once, in real
+#: numbers. Measured on an i5-12600K over the local term of 64 bands: on si32's
+#: ``36x36`` planes 8 and 16 planes were within 1 per cent of each other and
+#: the best, and on the magnetic spinor si16 cell 2 and 4 planes were the best
+#: while 7 and 15 fell off a cliff (163 ms alone against 124 at 4, and 247 six
+#: at once against 126), the components and the four-component potential
+#: having pushed the chunk out of the core's L2. This budget gives 7 planes on
+#: the first and 3 on the second.
+PLANE_CHUNK_BYTES = 384 * 1024
+
+
+def resolve_plane_chunk(grid, itemsize: int,
+                        requested: int | None | str = "default", *,
+                        fields: int = 1, potentials: int = 1) -> int | None:
+    """The local term's ``z``-plane chunk: an argument, then ``DEFUQUMAT_PLANE_CHUNK``, then the platform.
+
+    ``None`` takes the whole box through each step in turn, which is what every
+    accelerator does, since a card wants the batch that a cache does not and a
+    loop of plane-sized kernels would be launch-bound there. On a CPU the
+    default is as many planes as fit :data:`PLANE_CHUNK_BYTES`, a plane costing
+    ``n1 n2 (2 fields itemsize + potentials itemsize / 2)`` -- ``fields`` the
+    wavefunction's spinor components (``npol``) and ``potentials`` the
+    components of the potential multiplying them (``nspin_mag`` for a spinor,
+    1 otherwise) -- at least one plane and at most ``n3``.
+    ``DEFUQUMAT_PLANE_CHUNK`` takes a plane count, or ``all``/``0``/``off``/``none``
+    for the whole box. The chunk is not visible in any result: the transforms
+    are the same and only the order they are issued in changes.
+    """
+    n1, n2, n3 = (int(n) for n in grid)
+    if isinstance(requested, str) and requested == "default":
+        setting = (environ_get("DEFUQUMAT_PLANE_CHUNK", "") or "").strip().lower()
+        if setting:
+            requested = setting
+        elif _backend() != "cpu":
+            return None
+        else:
+            plane = n1 * n2 * int(itemsize) * (2 * int(fields) + int(potentials) / 2)
+            return max(1, min(n3, int(PLANE_CHUNK_BYTES // max(1.0, plane))))
+    if requested is None:
+        return None
+    if isinstance(requested, str):
+        if requested in ("all", "0", "off", "none"):
+            return None
+        requested = int(requested)
+    value = int(requested)
+    if value < 1:
+        return None
+    return min(value, n3)
+
+
+#: The two layouts :func:`resolve_fft_layout` chooses between.
+FFT_LAYOUTS = ("sticks", "box")
+
+
+def resolve_fft_layout(requested: str = "default") -> str:
+    """The layout of the wavefunction transforms: an argument, then ``DEFUQUMAT_FFT_LAYOUT``, then ``sticks``.
+
+    ``sticks`` is QE's: the ``z`` transform over only the columns the sphere
+    occupies, then one contiguous ``xy`` pass (:mod:`defuqumat.basis.sticks`).
+    ``box`` scatters the sphere into the whole box and takes one fused 3D
+    transform, the call a batched ``cuFFT`` plan is built for, at the price of
+    transforming columns the sphere does not touch. The default is ``sticks`` on
+    every platform: the margin on a CPU is thin (1.13x on eight atoms of
+    silicon, 1.02x on sixteen) and the comparison on a card has not been taken
+    (``GPU.md`` section 2.2, Phase 2), so nothing follows the platform until it
+    is. The two are the same transform summed in a different order, so a result
+    moves by round-off and no more.
+    """
+    if isinstance(requested, str) and requested == "default":
+        requested = (environ_get("DEFUQUMAT_FFT_LAYOUT", "") or "").strip().lower() or "sticks"
+    layout = str(requested).strip().lower()
+    if layout not in FFT_LAYOUTS:
+        raise ValueError(
+            f"fft layout must be one of {FFT_LAYOUTS}, got {requested!r}")
+    return layout
+
+
+def resolve_field_batch(requested: bool | str = "default") -> bool:
+    """Whether a response solves its three field directions as one loop: an argument, then ``DEFUQUMAT_FIELD_BATCH``, then the platform.
+
+    ``True`` ``vmap``-s the Sternheimer CG over the three directions
+    (:meth:`~defuqumat.response.sternheimer.SternheimerSolver.solve_many`), which
+    on a card divides the launches and the host reads of the loop condition by
+    three; on a CPU there is no launch to save, every direction then runs as
+    many steps as the slowest one, and the default is the serial loop, QE's
+    ``solve_e``. The two give the same tensor to the CG's threshold.
+    """
+    if isinstance(requested, str) and requested == "default":
+        setting = (environ_get("DEFUQUMAT_FIELD_BATCH", "") or "").strip().lower()
+        if setting in ("1", "on", "true", "yes"):
+            return True
+        if setting in ("0", "off", "false", "no"):
+            return False
+        return _backend() != "cpu"
+    return bool(requested)
+
+
+def resolve_ethr_floor(floor: float) -> float:
+    """The floor the SCF clamps ``ethr`` to: ``DEFUQUMAT_ETHR_MIN``, else ``floor``, QE's 1e-13.
+
+    ``DEFUQUMAT_ETHR_MIN`` is a lever and not a default. A floor of 3e-12 on an
+    accelerator was the answer to a stall that turned out to have another cause
+    (where the subspace solve parked its idle directions, ``solvers.subspace``), so
+    the default is QE's on every platform again. A run that meets one anyway has
+    the warning ``run_scf`` gives when a call uses its whole Davidson budget, and
+    this to raise the floor with; it costs accuracy (on a displaced sixteen-atom
+    cell at ``conv_thr = 1e-10`` the force error doubled at 3e-12).
+    ``PERFORMANCE.md``, "The endgame on a card is a stall".
+    """
+    setting = (environ_get("DEFUQUMAT_ETHR_MIN", "") or "").strip()
+    return float(setting) if setting else floor
+
+
+#: The band dial's resolver under a public name, mirroring
+#: :func:`resolve_k_batch`. The two dials are read the same way and one of them
+#: had no public spelling, which meant a caller outside this module -- e.g.
+#: :func:`defuqumat.sizing.estimate_size`, which has to size the bands in flight
+#: the way a run would resolve them -- had to reach for the private one.
+resolve_band_batch = _resolve_band_batch
+
+
+#: What a sum-over-states response's **pair** axis may hold in flight on an
+#: accelerator when nothing chose a chunk: the pair products and their
+#: transforms, about two complex FFT boxes per pair. The band dial's own
+#: accelerator default is the whole axis, which is right for bands (``nbnd``
+#: boxes) and not for pairs (``nocc x nempty`` of them: 26 GB on the cell
+#: :mod:`defuqumat.tddft.chi0` is written against). Not yet tuned on a card.
+PAIR_BUDGET_BYTES = 256 * 2**20
+
+
+def resolve_pair_batch(requested: int | None | str = "default", *,
+                       box_bytes: int, npairs: int) -> int | None:
+    """The pair axis's chunk: an argument, then ``DEFUQUMAT_BAND_BATCH``, then a budget.
+
+    One pair density in flight is the same object one band in real space is,
+    so an explicit value and the band dial's environment variable are read as
+    :func:`resolve_band_batch` reads them, and on a CPU the platform default is
+    the band dial's (one). On an accelerator the band dial would say "all",
+    and here that is ``npairs`` boxes -- so the default is the largest chunk
+    whose boxes fit :data:`PAIR_BUDGET_BYTES` (``GPU-MEMORY-NEXT.md`` item 12),
+    ``None`` when that is every pair. The chunk never changes the answer.
+    """
+    if requested != "default" or _from_environment(
+            "DEFUQUMAT_BAND_BATCH") is not _UNSET:
+        return _resolve_band_batch(requested)
+    platform = _platform_default()
+    if platform is not None:
+        return platform
+    fit = max(1, int(PAIR_BUDGET_BYTES // max(1, 2 * box_bytes)))
+    return None if fit >= npairs else fit
+
+
+#: What a sum-over-states spectrum's **frequency** axis may hold in flight on an
+#: accelerator when nothing chose a chunk (``GPU-MEMORY-NEXT.md`` item 12,
+#: ``MEMORY-AUDIT.md`` A10). The frequencies are independent -- ``chi_0`` is a
+#: sum of per-frequency weights on the same pair vectors, and the Dyson
+#: equation is one matrix solve per frequency -- so a chunk bounds the
+#: per-frequency temporaries and never moves a number beyond round-off. Not
+#: yet tuned on a card.
+W_BUDGET_BYTES = 256 * 2**20
+
+
+def resolve_w_batch(requested: int | None | str = "default", *,
+                    block_bytes: int, nw: int) -> int | None:
+    """The frequency axis's chunk: an argument, then ``DEFUQUMAT_W_BATCH``, then a budget.
+
+    ``block_bytes`` is what one frequency's temporaries cost at the call site
+    -- ``2 npairs nm`` complex for ``chi_0``'s pair-weighted block, a few
+    ``nm^2`` for a Dyson solve. On a CPU the default is the whole axis, which
+    is what every validated spectrum was computed with; on an accelerator it
+    is the largest chunk whose blocks fit :data:`W_BUDGET_BYTES`, ``None``
+    when that is every frequency. ``all``/``0`` in the environment, and
+    ``None`` as an argument, ask for the whole axis anywhere.
+    """
+    if isinstance(requested, str):
+        if requested != "default":
+            value = _named(requested)
+            return None if value is None or value >= nw else value
+        setting = _from_environment("DEFUQUMAT_W_BATCH")
+        if setting is not _UNSET:
+            return None if setting is None or setting >= nw else setting
+        if _backend() == "cpu":
+            return None
+        fit = max(1, int(W_BUDGET_BYTES // max(1, block_bytes)))
+        return None if fit >= nw else fit
+    if requested is None:
+        return None
+    value = int(requested)
+    if value < 1:
+        raise ValueError(
+            f"w_batch must be a positive integer or None, got {requested!r}")
+    return None if value >= nw else value
+
+
+def sum_bands(fn, xs, *, batch: int | None | str = "default"):
+    """``sum_b fn(b)`` over the band axis, ``batch`` bands at a time.
+
+    ``sum_band.f90`` accumulates one band's ``|psi(r)|^2`` into ``rho`` inside
+    ``DO ibnd = 1, nbnd`` and never holds more than one band's real-space field.
+    That is the same working-set argument :func:`map_bands` records, applied to
+    the density instead of to ``h_psi``, so it shares :func:`sum_k`'s machinery
+    and only the default differs.
+
+    The chunk changes the order the band contributions are added in and nothing
+    else, so it moves the density by round-off and no more.
+    """
+    return sum_k(fn, xs, batch=_resolve_band_batch(batch))
+
+
+# ---------------------------------------------------------------------------
+# where the wavefunction store lives -- QE's ``get_buffer``/``save_buffer``
+# ---------------------------------------------------------------------------
+
+#: Whether ``<k+G|beta>`` is held for every k-point or rebuilt one at a time.
+#:
+#: ``vkb`` is ``(nk, npwx, nkb)`` and is **resident for the whole run**: on the
+#: 45-atom NiBr2 slab it is 13.96 GB against a 12.10 GB wavefunction set, the
+#: largest single array there after the states themselves. QE does not hold it
+#: -- ``c_bands.f90:111`` calls ``init_us_2`` inside ``k_loop``, so its
+#: projector storage is one k-point's however many there are.
+#:
+#: ``rebuild`` is that: the ``ProjectorCore`` stays resident, which is
+#: ``(nk, npwx, ncs)`` with one column per channel of each distinct *dataset*
+#: rather than per *atom* channel -- about twenty times smaller on a 45-atom
+#: cell of two datasets, however many species labels name them (P110) -- and
+#: each k-point's ``(npwx, nkb)`` is formed on demand.
+#:
+#: **The saving is in the resident set, which is what makes it different from
+#: the other dials**: `k_batch` and `band_batch` bound what is in *flight*, and
+#: this bounds what is *held*, so it sits underneath every stage rather than
+#: inside one. It costs ``nat npwx`` complex exponentials per use.
+#:
+#: The default is the memory mode's (:func:`memory_preset`): ``store`` on a CPU
+#: and in ``speed``, which is what every validated number on record was
+#: measured with, and ``rebuild`` in ``memory``, the accelerator default.
+#: ``DEFUQUMAT_PROJECTORS`` overrides the mode and an explicit ``projectors=``
+#: argument overrides that -- the precedence the other dials have.
+PROJECTOR_STORES = ("store", "rebuild")
+
+
+def _projectors_default(mode: str | None = "default") -> str:
+    setting = (environ_get("DEFUQUMAT_PROJECTORS", "") or "").strip().lower()
+    if setting in PROJECTOR_STORES:
+        return setting
+    if setting:
+        warnings.warn(
+            f"ignoring DEFUQUMAT_PROJECTORS={setting!r}: expected one of "
+            f"{PROJECTOR_STORES}", RuntimeWarning, stacklevel=2,
+        )
+    return memory_preset(mode)["projectors"]
+
+
+def resolve_projectors(requested: str | None = "default",
+                       mode: str | None = "default") -> str:
+    """Which projector storage is in force: an argument, the environment, the mode."""
+    value = requested
+    if value is None or value == "default":
+        return _projectors_default(mode)
+    value = str(value).strip().lower()
+    if value not in PROJECTOR_STORES:
+        raise ValueError(
+            f"projectors must be one of {PROJECTOR_STORES} or 'default', got "
+            f"{requested!r}"
+        )
+    return value
+
+
+#: The three places the store can be. ``"device"`` is this package's own
+#: history and is what a CPU wants; ``"host"`` is QE's buffer, parked whole
+#: between the density and the next solve and fetched whole for it; and
+#: ``"stream"`` never brings it back whole at all -- it lives in host RAM for
+#: the whole run and crosses to the device one k-chunk at a time, for the
+#: solve, for ``becsum`` and for the density (``k_chunks``). ``host`` is a
+#: resident-set dial and ``stream`` is the peak dial ``host`` was measured
+#: not to be (the NiBr2 pair above).
+WFC_STORES = ("device", "host", "stream")
+
+
+def _wfc_store_default(mode: str | None = "default") -> str:
+    setting = (environ_get("DEFUQUMAT_WFC_STORE", "") or "").strip().lower()
+    if setting in WFC_STORES:
+        return setting
+    if setting:
+        warnings.warn(
+            f"ignoring DEFUQUMAT_WFC_STORE={setting!r}: expected one of "
+            f"{WFC_STORES}", RuntimeWarning, stacklevel=2,
+        )
+    return memory_preset(mode)["wfc_store"]
+
+
+def resolve_wfc_store(requested: str | None = "default",
+                      mode: str | None = "default") -> str:
+    """Turn what a caller passed into ``"device"``, ``"host"`` or ``"stream"``.
+
+    ``"default"`` asks the environment and then the memory mode's preset,
+    exactly as :func:`resolve_k_batch` does. ``None`` is *not* a meaningful
+    value here -- unlike the chunk sizes, where it means the whole axis -- so it
+    is treated as "nothing was said" and resolves the same way.
+    """
+    if requested is None or requested == "default":
+        return _wfc_store_default(mode)
+    value = str(requested).strip().lower()
+    if value not in WFC_STORES:
+        raise ValueError(
+            f"wfc_store must be one of {WFC_STORES} or 'default', got "
+            f"{requested!r}"
+        )
+    return value
+
+
+def resolve_scf_wfc_store(requested: str | None, mode: str | None, k_batch,
+                          nk: int) -> str:
+    """The store an SCF on ``nk`` k-points runs with, ``k_batch`` at a time.
+
+    :func:`resolve_wfc_store`, except that memory mode's ``stream``, when it
+    comes from the preset rather than from the caller or ``DEFUQUMAT_WFC_STORE``,
+    is kept only where the chunk is smaller than the mesh. Where every k-point
+    is in flight at once, one k-point or a chunk of the whole mesh, the states
+    being solved are on the card either way and the stream saves nothing: on an
+    H100, 64-atom silicon with one k-point, 124.0 ms an iteration streamed
+    against 65.3 with the store on the card, for 0.04 GiB of peak, and on a
+    27-point mesh batched whole 0.01 GiB (``PERFORMANCE.md``, "The stall check
+    on a data-centre card"). The user's decision of 2026-10-02.
+    """
+    store = resolve_wfc_store(requested, mode)
+    said = (requested not in (None, "default")
+            or (environ_get("DEFUQUMAT_WFC_STORE", "") or "").strip().lower() in WFC_STORES)
+    if store == "stream" and not said and (k_batch is None or int(k_batch) >= nk):
+        return "device"
+    return store
+
+
+@functools.cache
+def _host_sharding():
+    """The pinned-host sharding for the default device, or ``None``.
+
+    ``None`` means this backend has no host memory kind to park in, which is
+    reported once by :func:`park_wavefunctions` rather than discovered as a
+    silently-ignored setting. Cached because building it costs a device query
+    and the answer cannot change inside a process.
+    """
+    try:
+        device = jax.local_devices()[0]
+        kinds = {memory.kind for memory in device.addressable_memories()}
+        if "pinned_host" not in kinds:
+            return None
+        return jax.sharding.SingleDeviceSharding(device, memory_kind="pinned_host")
+    except Exception:
+        return None
+
+
+def _device_sharding():
+    try:
+        return jax.sharding.SingleDeviceSharding(
+            jax.local_devices()[0], memory_kind="device")
+    except Exception:
+        return None
+
+
+def _not_traced(psi, verb: str) -> None:
+    """A transfer is a host-side act and must never be inside a traced path.
+
+    Under ``jax.grad`` JAX raises on its own -- a memory kind is part of the
+    aval, so the cotangent of a parked array has a type the primal does not --
+    but inside a plain ``jit`` it **succeeds**, and what it compiles is a
+    transfer in the middle of a kernel rather than a buffer that lives
+    somewhere. That is the failure this guard is for: it works, it is slower,
+    and nothing says so.
+    """
+    if isinstance(psi, jax.core.Tracer):
+        raise TypeError(
+            f"{verb} the wavefunction store is a host-side transfer and cannot "
+            "happen inside jit or grad: the store is loop state, parked between "
+            "the point the density is built from it and the next "
+            "diagonalisation, and a traced value is neither"
+        )
+
+
+def park_wavefunctions(psi, where: str = "device"):
+    """Move the store to ``where``, QE's ``save_buffer``.
+
+    ``where = "device"`` returns ``psi`` untouched, which is what makes this
+    free to call unconditionally: the driver does not branch, the dial does.
+    ``None`` passes through, since the store does not exist before the first
+    diagonalisation.
+    """
+    if psi is None or where == "device":
+        return psi
+    from defuqumat.parallel import PoolStore
+
+    if isinstance(psi, PoolStore):
+        # A k-point pool's rows already live in host memory and are walked
+        # there; ``np.array`` on one would refuse, as it is meant to.
+        return psi
+    _not_traced(psi, "parking")
+    if where == "stream":
+        # The streamed store is a numpy array for the whole run -- see the
+        # module docstring for why a pinned-host JAX array cannot be it. Anything
+        # that arrives here as a device array (a resume, a caller's own span) is
+        # brought across once and stays.
+        import numpy as np
+
+        # A copy unless it is already a writable host array: the streamed
+        # passes write each chunk's new states back into it in place, and
+        # ``np.asarray`` of a JAX array is a read-only view.
+        if isinstance(psi, np.ndarray) and psi.flags.writeable:
+            return psi
+        return np.array(psi)
+    sharding = _host_sharding()
+    if sharding is None:
+        warnings.warn(
+            "wfc_store='host' asked for, but this backend has no pinned-host "
+            "memory to park the wavefunctions in; they stay on the device",
+            RuntimeWarning, stacklevel=2,
+        )
+        return psi
+    return jax.device_put(psi, sharding)
+
+
+def fetch_wavefunctions(psi):
+    """Bring the store back, QE's ``get_buffer``.
+
+    Idempotent on an array that is already there, and on ``None``. It is called
+    unconditionally rather than under the dial, so that a run whose dial changed
+    mid-flight -- a resume, a caller that passed its own -- still hands the
+    solver a device array.
+    """
+    if psi is None:
+        return psi
+    _not_traced(psi, "fetching")
+    kind = getattr(getattr(psi, "sharding", None), "memory_kind", None)
+    if kind is None or kind == "device":
+        return psi
+    sharding = _device_sharding()
+    return psi if sharding is None else jax.device_put(psi, sharding)
+
+
+def upload(array):
+    """A host array onto the device at its own size; anything else as ``jnp.asarray``.
+
+    For a consumer that takes a streamed store, or a band slice of one, whole.
+    On a card ``jnp.asarray`` of a host array peaks at twice its size on the
+    device and ``jax.device_put`` of a contiguous one at once
+    (``GPU-MEMORY-NEXT.md``, 2026-09-29), so a numpy array goes through
+    ``device_put`` after ``np.ascontiguousarray``, which is a host copy only
+    where the array is a strided view such as ``store[..., :nbnd, :]``. The
+    values are the same bytes either way. A JAX array or a tracer goes through
+    ``jnp.asarray`` untouched, since ``np.ascontiguousarray`` would bring a
+    device array to the host and cannot take a tracer at all.
+    """
+    import numpy as np
+
+    if isinstance(array, np.ndarray):
+        return jax.device_put(np.ascontiguousarray(array))
+    return jnp.asarray(array)

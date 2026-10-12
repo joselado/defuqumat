@@ -10,7 +10,7 @@ converges at all.
 import numpy as np
 import pytest
 
-from defumat.scf.mixing import AndersonMixer, LinearMixer, get_mixer
+from defuqumat.scf.mixing import AndersonMixer, LinearMixer, get_mixer
 
 
 def collinear(up, down):
@@ -154,8 +154,8 @@ def test_mixing_beta_mag_reaches_the_run(space, pseudo_dir):
     """
     import warnings
 
-    from defumat import Calculator
-    from defumat.scf.driver import run_scf
+    from defuqumat import Calculator
+    from defuqumat.scf.driver import run_scf
     from tests.conftest import GENERATED
 
     with warnings.catch_warnings():

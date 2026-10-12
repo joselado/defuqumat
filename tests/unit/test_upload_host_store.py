@@ -6,7 +6,7 @@ conductivity, SHG and shift-current workflows, the TDDFT and magnon responses an
 the two torque energies put it on the device whole with ``jnp.asarray``, which on
 a card peaks at twice the array's size where ``jax.device_put`` of a contiguous
 array peaks at once (``GPU-MEMORY-NEXT.md``, 2026-09-29). They now go through
-:func:`defumat.batching.upload`. The memory is measured on a card; what is
+:func:`defuqumat.batching.upload`. The memory is measured on a card; what is
 checked here is that the helper does the right thing with each kind of input, and
 that the two torque energies, which still take a store whole, use it. The five
 sum-over-states assemblies no longer take it whole at all (item 24's second
@@ -23,7 +23,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.batching import upload
+from defuqumat.batching import upload
 
 pytestmark = pytest.mark.unit
 
@@ -68,25 +68,25 @@ def test_a_device_array_and_a_tracer_are_left_alone(monkeypatch):
 #: import is one failing case and not a collection error that stops the whole
 #: run.
 UPLOADERS = [
-    ("defumat.forces.torque", "_band_energy"),
-    ("defumat.forces.torque", "_value_and_slopes"),
+    ("defuqumat.forces.torque", "_band_energy"),
+    ("defuqumat.forces.torque", "_value_and_slopes"),
 ]
 
 #: The five sum-over-states assemblies, which walk the k axis and take one
 #: chunk's rows to the device at a time (item 24's second half,
-#: :mod:`defumat.response.walk`), and the three workflows in front of them,
+#: :mod:`defuqumat.response.walk`), and the three workflows in front of them,
 #: which hand the band slice on where it is rather than uploading it.
 WALKERS = [
-    ("defumat.response.conductivity", "optical_conductivity"),
-    ("defumat.response.shg", "second_harmonic"),
-    ("defumat.response.photocurrent", "shift_current"),
-    ("defumat.tddft.chi0", "independent_response"),
-    ("defumat.tddft.spinchi0", "transverse_response"),
+    ("defuqumat.response.conductivity", "optical_conductivity"),
+    ("defuqumat.response.shg", "second_harmonic"),
+    ("defuqumat.response.photocurrent", "shift_current"),
+    ("defuqumat.tddft.chi0", "independent_response"),
+    ("defuqumat.tddft.spinchi0", "transverse_response"),
 ]
 HANDERS = [
-    ("defumat.workflows.conductivity", "run_conductivity"),
-    ("defumat.workflows.shg", "run_shg"),
-    ("defumat.workflows.photocurrent", "run_shift_current"),
+    ("defuqumat.workflows.conductivity", "run_conductivity"),
+    ("defuqumat.workflows.shg", "run_shg"),
+    ("defuqumat.workflows.photocurrent", "run_shift_current"),
 ]
 
 #: Putting the whole store on the device, by either spelling.

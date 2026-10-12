@@ -1,9 +1,9 @@
 """The size estimate must be the size, or it is worse than no estimate.
 
-:mod:`defumat.sizing` exists to answer "will this run fit" for an input too
+:mod:`defuqumat.sizing` exists to answer "will this run fit" for an input too
 large to build, which means it is never checked against reality by the person
 relying on it. So it is checked here instead: every count it reports is
-asserted against what a real :class:`~defumat.scf.driver.Calculation` actually
+asserted against what a real :class:`~defuqumat.scf.driver.Calculation` actually
 builds, on cells small enough to build both.
 
 The double-grid case is the one that matters most -- ``ngm`` and ``ngms``
@@ -16,9 +16,9 @@ import warnings
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.scf.driver import default_nbnd
-from defumat.sizing import estimate_size
+from defuqumat.calculator import Calculator
+from defuqumat.scf.driver import default_nbnd
+from defuqumat.sizing import estimate_size
 from tests.backend import on_a_cpu
 
 pytestmark = pytest.mark.unit
@@ -150,9 +150,9 @@ def test_a_tabulated_run_is_sized_as_one_and_not_as_the_stored_array(
     fits -- so the estimate calls the same budget on the same number the run
     calls it on, and the two move together.
     """
-    from defumat.pseudo.augmentation import TabulatedAugmentation
+    from defuqumat.pseudo.augmentation import TabulatedAugmentation
 
-    monkeypatch.setenv("DEFUMAT_AUG_MAX_BYTES", "0")
+    monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", "0")
     calculator = _calculator(SILICON_PAW, pseudo_dir)
     estimate = estimate_size(calculator.system, calculator.pseudos)
 
@@ -337,7 +337,7 @@ def test_the_library_default_is_not_a_literal():
 
     Writing 4 in two places is how they would.
     """
-    from defumat.solvers.davidson import DAVID_NDIM
+    from defuqumat.solvers.davidson import DAVID_NDIM
 
     calculator_free = estimate_size.__defaults__
     assert DAVID_NDIM == 4
@@ -360,11 +360,11 @@ def test_k_batch_is_resolved_the_way_the_run_would_resolve_it(pseudo_dir):
     """The same alignment, one option along.
 
     ``Calculator`` defaults ``k_batch`` to ``"default"``, which
-    :func:`~defumat.batching.resolve_k_batch` turns into QE's one-k-point loop
+    :func:`~defuqumat.batching.resolve_k_batch` turns into QE's one-k-point loop
     on a CPU. An estimate that assumed the whole axis instead would overstate
     the eigensolver on every multi-k cell.
     """
-    from defumat.batching import resolve_k_batch
+    from defuqumat.batching import resolve_k_batch
 
     estimate = _calculator(SILICON, pseudo_dir).estimate()
     expected = resolve_k_batch("default")
@@ -444,7 +444,7 @@ def test_the_symmetry_maps_hold_int32_and_no_phase_a_symmorphic_group_does_not_n
     indices and the whole phase table give, to the bit, and the estimate's
     line to the bytes held.
     """
-    from defumat.system.symmetry import apply_symmetry_maps
+    from defuqumat.system.symmetry import apply_symmetry_maps
 
     text = SILICON
     if element == "Al":
@@ -484,8 +484,8 @@ def test_the_mixer_history_is_counted_on_the_host(pseudo_dir):
     through a depth of four, so the lists are full and trimmed, and the line is
     the bytes they hold. It is not part of the device peak.
     """
-    from defumat.scf.driver import _mix
-    from defumat.scf.mixing import get_mixer
+    from defuqumat.scf.driver import _mix
+    from defuqumat.scf.mixing import get_mixer
 
     calculator = _calculator(SILICON_PAW, pseudo_dir)
     built = calculator.calculation

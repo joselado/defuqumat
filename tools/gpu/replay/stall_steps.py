@@ -7,17 +7,17 @@ changed by more than ``ethr`` and by how much. Each cap is a recompilation. Also
 is bit-reproducible. The first reading of the card's stall came from this table.
 """
 import os, sys, time
-os.environ.setdefault("DEFUMAT_CACHE_DIR", os.path.expanduser("~/.cache/defumat/jax"))
-os.environ.setdefault("DEFUMAT_MEMORY_MODE", "speed")
+os.environ.setdefault("DEFUQUMAT_CACHE_DIR", os.path.expanduser("~/.cache/defuqumat/jax"))
+os.environ.setdefault("DEFUQUMAT_MEMORY_MODE", "speed")
 import jax, jax.numpy as jnp, numpy as np
 from pathlib import Path
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 cell, proj = sys.argv[1], sys.argv[2]
-os.environ["DEFUMAT_PROJECTORS"] = proj
+os.environ["DEFUQUMAT_PROJECTORS"] = proj
 system = build_system(read_pw_input(Path(cell)))
 pseudos = tuple(read_upf(Path("tests/data/pseudo") / s.pseudo_file) for s in system.structure.species)
 calc = Calculation(system, pseudos)

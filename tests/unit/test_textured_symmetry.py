@@ -23,8 +23,8 @@ filter at any magnitude above 1e-12.
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.system.builder import build_system, _distinct_directions
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system.builder import build_system, _distinct_directions
 
 pytestmark = pytest.mark.unit
 
@@ -225,9 +225,9 @@ def test_a_wrong_length_card_is_refused():
 
 import jax.numpy as jnp
 
-from defumat.scf.fields import MagneticField, constraint_targets
-from defumat.scf.locals import LocalRegions
-from defumat.system.cell import Cell
+from defuqumat.scf.fields import MagneticField, constraint_targets
+from defuqumat.scf.locals import LocalRegions
+from defuqumat.system.cell import Cell
 
 CGRID = (4, 1, 1)
 CELL = Cell.from_ibrav(1, [8.0, 0, 0, 0, 0, 0])
@@ -459,7 +459,7 @@ def test_one_rule_decides_whether_a_run_is_magnetic():
     The consequence is trap 4 through bookkeeping: the SCF can symmetrise the
     density with a larger group than the one its k-set was reduced with.
     """
-    from defumat.system.builder import is_magnetic
+    from defuqumat.system.builder import is_magnetic
 
     system = build_system(parse_pw_input(
         BARE + _card("LOCAL_MAGNETIC_FIELDS", CYCLOID, scale=1.0e-3)
@@ -484,7 +484,7 @@ def test_the_starting_density_carries_the_cards_texture(pseudo_dir):
     Asserted on the starting density itself rather than on a converged state:
     an SCF would say the same thing four minutes later.
     """
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     cards = _card("STARTING_MOMENTS", CYCLOID, scale=0.5)
     calc = Calculator.from_text(

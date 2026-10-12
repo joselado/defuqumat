@@ -17,9 +17,9 @@ on its own.
 import numpy as np
 import pytest
 
-from defumat.system.cell import Cell
-from defumat.system.structure import Species, Structure
-from defumat.system.symmetry import (
+from defuqumat.system.cell import Cell
+from defuqumat.system.structure import Species, Structure
+from defuqumat.system.symmetry import (
     atom_mapping,
     find_symmetries,
     symmetrize_atom_cartesian_tensor,

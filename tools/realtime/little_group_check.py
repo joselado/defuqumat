@@ -3,10 +3,10 @@
     JAX_PLATFORMS=cpu python3 tools/realtime/little_group_check.py
 """
 import time, json, numpy as np, sys
-import defumat
+import defuqumat
 from pathlib import Path
-from defumat import Calculator
-from defumat.realtime.pulse import Sin2
+from defuqumat import Calculator
+from defuqumat.realtime.pulse import Sin2
 repo = Path(__file__).resolve().parents[2]
 c = Calculator.from_file(repo/"tests/data/qe/si2-symmetric.in" if (repo/"tests/data/qe/si2-symmetric.in").exists() else repo/"benchmarks/si-1k.in", pseudo_dir=repo/"tests/data/pseudo", announce=False)
 c.get_scf(conv_thr=1e-10)

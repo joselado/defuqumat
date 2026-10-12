@@ -1,6 +1,6 @@
 # What is left to do about continuing one run from another
 
-`PLAN.md` P23 is the phase, `defumat/scf/continuation.py` is the code, and this file is
+`PLAN.md` P23 is the phase, `defuqumat/scf/continuation.py` is the code, and this file is
 the part of it that is not done. The audit behind it was a sweep of the whole
 `starting_from` path against the question a user actually asks, which is whether a
 converged run can be carried into *any* other combination of features: magnetic or not,

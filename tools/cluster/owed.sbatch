@@ -26,9 +26,9 @@
 # partition     batch-milan: 32 nodes, 128 cores and 510 GB each, 5-day limit.
 # time          06:00:00. `test_ten_site.py`, the longest on record, ran 31 m
 #               cold; compilation is paid per file with the cache off.
-# cpus-per-task 8, because `tests/conftest.py` sets `DEFUMAT_THREADS=8` for the
+# cpus-per-task 8, because `tests/conftest.py` sets `DEFUQUMAT_THREADS=8` for the
 #               thread-pool deadlock in `OPEN.md` Part IV item 1.
-#SBATCH --job-name=defumat-owed
+#SBATCH --job-name=defuqumat-owed
 #SBATCH --partition=batch-milan
 #SBATCH --time=06:00:00
 #SBATCH --cpus-per-task=8
@@ -49,11 +49,11 @@ FILES=(test_ldau_flavours test_noncollinear_hubbard_resume test_ten_site \
        test_spinor_pdos test_continuation)
 FILE=${FILES[$SLURM_ARRAY_TASK_ID]}
 
-# Overridable so that an A/B at another commit (DEFUMAT_REPO pointing at a
+# Overridable so that an A/B at another commit (DEFUQUMAT_REPO pointing at a
 # worktree) writes beside this run rather than into it: the runner skips a file
 # already named in its summary, so a shared directory would run nothing.
-WORK=${DEFUMAT_OWED_WORK:-/scratch/work/ladovj1/calculations/defumat-owed}
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+WORK=${DEFUQUMAT_OWED_WORK:-/scratch/work/ladovj1/calculations/defumat-owed}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -61,25 +61,25 @@ cd "$REPO" || exit 1
 source "$VENV/bin/activate" || exit 1
 
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-export DEFUMAT_THREADS=8
+export DEFUQUMAT_THREADS=8
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
 
 # The whole vendored tree on the group share, not the test-suite-only copy, so
 # that a test reading a Fortran source finds it as it does on the workstation.
-export DEFUMAT_QE_ROOT=/scratch/phys/t30428-staff/apps/qe-7.5-ReleasePack/qe-7.5
+export DEFUQUMAT_QE_ROOT=/scratch/phys/t30428-staff/apps/qe-7.5-ReleasePack/qe-7.5
 
 # Off for `bigtests.sbatch`'s reasons: an unchecked concurrent writer on this
 # filesystem, and peaks that then read as a lower bound on the warm ones.
-export DEFUMAT_CACHE_DIR=off
+export DEFUQUMAT_CACHE_DIR=off
 
 # Seven eighths of the allocation, so the watchdog names the test before Slurm
 # kills the task without naming anything. SLURM_MEM_PER_NODE is in MB.
-export DEFUMAT_TEST_MEM_MAX="$(( SLURM_MEM_PER_NODE * 7 / 8 ))M"
+export DEFUQUMAT_TEST_MEM_MAX="$(( SLURM_MEM_PER_NODE * 7 / 8 ))M"
 
 echo "=== node ==="; hostname; date
 echo "file:   $FILE"
-echo "cap:    $DEFUMAT_TEST_MEM_MAX of ${SLURM_MEM_PER_NODE}M"
+echo "cap:    $DEFUQUMAT_TEST_MEM_MAX of ${SLURM_MEM_PER_NODE}M"
 echo "commit: $(git rev-parse --short HEAD)  $(git log --oneline -1)"
 python3 -c "import jax; print('jax', jax.__version__, jax.devices())"
 

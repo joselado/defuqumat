@@ -19,7 +19,7 @@
 #             took 40 min to 2 h 11 min each (sacct on 19988867). Eight hours
 #             covers the longest with room for the gradient and backfills far
 #             better in a short partition than the 24 h placeholder did.
-# cpus-per-task 4, matching the existing defumat GPU jobs; XLA is pinned to it.
+# cpus-per-task 4, matching the existing defuqumat GPU jobs; XLA is pinned to it.
 # mem         160G host, matching phase5-si10-gpu.sbatch. Device memory is
 #             measured rather than requested.
 # array       0-19, the twenty points of the circuit M -> K -> Gamma -> M,
@@ -59,7 +59,7 @@ source /scratch/work/ladovj1/calculations/defumat-gpu/venv/bin/activate
 # Leave XLA_PYTHON_CLIENT_PREALLOCATE alone: a single-tenant job wants the
 # preallocation, which is what avoids fragmentation over a long SCF (GPU.md).
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache-gpu"
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 export PYTHONPATH="$REPO"
 
 echo "=== node ==="; hostname; date
@@ -69,7 +69,7 @@ git -C "$REPO" rev-parse HEAD
 # ...and whether the tree actually *is* that commit. The k-chunked dE/dq
 # was rsynced onto this checkout rather than pulled, so the hash above is
 # only half the provenance; anything listed here is a local modification.
-git -C "$REPO" status --porcelain -- defumat tests
+git -C "$REPO" status --porcelain -- defuqumat tests
 
 # k_batch is set by hand rather than inherited. The platform default on a GPU is
 # the whole k axis, and 81 k-points at 64 spinor bands is far past anything

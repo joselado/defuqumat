@@ -10,18 +10,18 @@ with only the Cholesky there. Sets the ``ethr`` floor to 1e-13 explicitly. Norm-
 """
 import os, sys, warnings, dataclasses
 warnings.filterwarnings("ignore")
-os.environ.setdefault("DEFUMAT_CACHE_DIR", os.path.expanduser("~/.cache/defumat/jax"))
-os.environ.setdefault("DEFUMAT_MEMORY_MODE", "speed")
-os.environ["DEFUMAT_ETHR_MIN"] = "1e-13"
+os.environ.setdefault("DEFUQUMAT_CACHE_DIR", os.path.expanduser("~/.cache/defuqumat/jax"))
+os.environ.setdefault("DEFUQUMAT_MEMORY_MODE", "speed")
+os.environ["DEFUQUMAT_ETHR_MIN"] = "1e-13"
 import numpy as np, jax, jax.numpy as jnp
 from pathlib import Path
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 cell, proj, mode, tag = sys.argv[1:5]
 if os.environ.get("HOSTEIGH") in ("chol", "eigh"):
-    from defumat.solvers import subspace as _sub
+    from defuqumat.solvers import subspace as _sub
     from jax.scipy.linalg import solve_triangular as _st
     which = os.environ["HOSTEIGH"]
     def _route(h, s, parked=None):
@@ -50,7 +50,7 @@ if os.environ.get("HOSTEIGH") in ("chol", "eigh"):
     print("subspace solve: only the", which, "on the host", flush=True)
 elif os.environ.get("HOSTEIGH"):
     import scipy.linalg as sl
-    from defumat.solvers import davidson as _dav
+    from defuqumat.solvers import davidson as _dav
     def _host(h, s, robust=None, parked=None):
         m = h.shape[0]
         if parked is not None:
@@ -68,7 +68,7 @@ elif os.environ.get("HOSTEIGH"):
                                  vmap_method="sequential")
     _dav.generalised_eigh = _host
     print("subspace solve: host LAPACK (scipy gvd)", flush=True)
-os.environ["DEFUMAT_PROJECTORS"] = proj
+os.environ["DEFUQUMAT_PROJECTORS"] = proj
 system = build_system(read_pw_input(Path(cell)))
 pseudos = tuple(read_upf(Path("tests/data/pseudo") / s.pseudo_file) for s in system.structure.species)
 calc = Calculation(system, pseudos)

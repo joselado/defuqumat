@@ -36,7 +36,7 @@ momentum locked parallel to the spin.
 ```python
 from pathlib import Path
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 
@@ -75,7 +75,7 @@ there is no manifold to speak of.
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat.units import RY_TO_EV
+from defuqumat.units import RY_TO_EV
 
 levels = np.asarray(iodine.get_scf().eigenvalues).reshape(-1)[:8] * RY_TO_EV
 momenta = iodine.get_angular_momenta()

@@ -11,16 +11,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.forces import compute_forces, force_methods, frozen_energy, state_from_result
-from defumat.forces.registry import get_force_method
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.relax import get_ion_dynamics, ion_dynamics_schemes
-from defumat.relax.bfgs import BFGS
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
-from defumat.system.structure import Structure
-from defumat.system.symmetry import (
+from defuqumat.forces import compute_forces, force_methods, frozen_energy, state_from_result
+from defuqumat.forces.registry import get_force_method
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.relax import get_ion_dynamics, ion_dynamics_schemes
+from defuqumat.relax.bfgs import BFGS
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
+from defuqumat.system.structure import Structure
+from defuqumat.system.symmetry import (
     atom_mapping,
     check_symmetry,
     find_symmetries,
@@ -195,7 +195,7 @@ def test_bfgs_respects_its_trust_radius():
 
 def test_a_noncollinear_force_is_refused_rather_than_approximated(pseudo_dir):
     """The spinor terms are not written, so the answer is not offered."""
-    from defumat.forces.energy import FrozenState, frozen_energy as energy_of
+    from defuqumat.forces.energy import FrozenState, frozen_energy as energy_of
 
     system = build_system(read_pw_input(CASES / "pt-paw-scalar.in"))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -217,9 +217,9 @@ def test_the_spinor_constraint_is_the_spinor_overlap_it_claims_to_be(pseudo_dir)
     """``Tr[Lambda (<psi|S|psi> - 1)]`` against ``s_psi`` itself, off the diagonal.
 
     The matrix multipliers were refused for an augmented spinor because
-    :func:`~defumat.forces.energy._constraint_energy` contracts the scalar
+    :func:`~defuqumat.forces.energy._constraint_energy` contracts the scalar
     ``qq`` where the metric is ``qq_so``. What replaces it is checked here
-    against :meth:`~defumat.scf.driver.Calculation._spinor_overlap`, which is a
+    against :meth:`~defuqumat.scf.driver.Calculation._spinor_overlap`, which is a
     separate implementation of ``S`` written for the projections, with a
     **random Hermitian** ``Lambda`` rather than the diagonal one a ground state
     has: a diagonal test cannot see an index order, and the two factors of the
@@ -227,7 +227,7 @@ def test_the_spinor_constraint_is_the_spinor_overlap_it_claims_to_be(pseudo_dir)
     for the same reason -- an eigenstate satisfies the constraint, so the thing
     being measured would be zero.
     """
-    from defumat.forces.energy import _spinor_constraint_energy
+    from defuqumat.forces.energy import _spinor_constraint_energy
 
     system = build_system(read_pw_input(CASES / "pt2-soc-force.in"))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)

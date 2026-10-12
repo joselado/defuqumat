@@ -41,15 +41,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.scf.driver import Calculation
-from defumat.scf.locals import build_local_regions, default_radii, get_locals
-from defumat.system import build_system
-from defumat.system.builder import local_moments
-from defumat.system.symmetry import find_symmetries, magnetic_symmetries
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.locals import build_local_regions, default_radii, get_locals
+from defuqumat.system import build_system
+from defuqumat.system.builder import local_moments
+from defuqumat.system.symmetry import find_symmetries, magnetic_symmetries
 from tests.conftest import GENERATED
 from tests.tolerances import TOTAL_ENERGY_RY
 

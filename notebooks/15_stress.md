@@ -16,7 +16,7 @@ derived by hand for it, taken at frozen wavefunctions -- legitimate because the 
 stationary in them, with the cell taking the place of the atoms. On five silicon references,
 each adding one thing to the one before:
 
-| | pressure, defumat | `pw.x` |
+| | pressure, defuqumat | `pw.x` |
 |---|---|---|
 | norm-conserving, one atom displaced | **-23.58 kbar** | -23.58 |
 | the same cell sheared by 4% | **-31.13 kbar** | -31.13 |
@@ -35,9 +35,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
-from defumat.io import comparison_table, read_qe_output
-from defumat.units import RY_TO_KBAR
+from defuqumat import Calculator
+from defuqumat.io import comparison_table, read_qe_output
+from defuqumat.units import RY_TO_KBAR
 
 CASES, PSEUDO = Path("../tests/data/qe"), Path("../tests/data/pseudo")
 

@@ -6,13 +6,13 @@
 # **The field is converted, not copied.** Elk adds `cb * bfieldc` to the
 # Kohn-Sham field with `cb = g_e/(4c) = 3.6529e-3` (`genbs.f90`), and its term is
 # `+cb sigma.B` where this code's energy is `-B . m`, so matching the up-down
-# splitting in Rydberg gives `B_defumat = -2 cb bfieldc` (`PLAN.md` P86, whose
-# sign was corrected on 2026-09-23, after this job ran). The defumat input
+# splitting in Rydberg gives `B_defuqumat = -2 cb bfieldc` (`PLAN.md` P86, whose
+# sign was corrected on 2026-09-23, after this job ran). The defuqumat input
 # carries `B_field(3) = 0.05` Ry with a step `delta = 0.02` Ry; the magnitudes are
 #
 #     |bfieldc| = 0.05 / (2 cb) = 6.84370   deltabf = 0.02 / (2 cb) = 2.73748
 #
-# and the `bfieldc` below is **+6.84370, the field reversed** against the defumat
+# and the `bfieldc` below is **+6.84370, the field reversed** against the defuqumat
 # input, which is how job 20410234 ran and is left as it ran, since P57 has
 # moved to Cr2O3 and this cell is not a reference. Elk's tensor is
 # d(dipole per cell)/d(bfieldc) in Cartesian e.bohr, so it is this code's alpha
@@ -24,7 +24,7 @@
 #   task 2   ngridk 2 2 2, spin-orbit off      -- the null, which must be zero
 #
 # The crystal, the functional (PBE, xctype 20) and the lattice constant are the
-# defumat input's; the basis is Elk's default, which is what P57 compared bands
+# defuqumat input's; the basis is Elk's default, which is what P57 compared bands
 # at. Elk's task 390 turns spinpol on and reducebf off itself.
 #
 # partition     batch-milan.

@@ -36,9 +36,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
-from defumat.io import comparison_table, read_pdos_file, read_projwfc_output
-from defumat.units import RY_TO_EV
+from defuqumat import Calculator
+from defuqumat.io import comparison_table, read_pdos_file, read_projwfc_output
+from defuqumat.units import RY_TO_EV
 
 CASES, PSEUDO = Path("../tests/data/qe"), Path("../tests/data/pseudo")
 
@@ -101,10 +101,10 @@ for atom, printed in theirs.charges.items():
 rows.append(("spilling", pdos.charges.spilling, theirs.spilling))
 
 print(comparison_table(rows, fmt="{:.4f}",
-                       headers=("", "defumat", "projwfc.x", "difference")))
+                       headers=("", "defuqumat", "projwfc.x", "difference")))
 ```
 
-                defumat  projwfc.x  difference
+                defuqumat  projwfc.x  difference
     Si 1 total   3.9647     3.9647     3.7e-05
     Si 1  s      1.1596     1.1596     9.4e-06
     Si 1  p      2.8051     2.8051     4.6e-05
@@ -137,9 +137,9 @@ bands means.
 
 
 ```python
-from defumat.projwfc import atomic_projections           # no facade route to fat bands
-from defumat.workflows.nscf import fixed_density_states   # ... nor to the states behind them
-from defumat.system.kpoints import KPoints
+from defuqumat.projwfc import atomic_projections           # no facade route to fat bands
+from defuqumat.workflows.nscf import fixed_density_states   # ... nor to the states behind them
+from defuqumat.system.kpoints import KPoints
 
 path = KPoints.band_path([(0.5, 0.5, 0.5), (0.0, 0.0, 0.0), (1.0, 0.0, 0.0)], [20, 20, 0],
                          silicon.system.cell, crystal=False)
@@ -239,10 +239,10 @@ for l, letter in enumerate("spd"):
     rows.append(("Pt  " + letter, pt.charges.charges[0][l], qe.charges[1][letter]))
 rows.append(("spilling", pt.charges.spilling, qe.spilling))
 print(comparison_table(rows, fmt="{:.4f}",
-                       headers=("", "defumat", "projwfc.x", "difference")))
+                       headers=("", "defuqumat", "projwfc.x", "difference")))
 ```
 
-              defumat  projwfc.x  difference
+              defuqumat  projwfc.x  difference
     Pt total   9.9880     9.9880     4.5e-05
     Pt  s      0.5032     0.5032     4.1e-06
     Pt  p      0.9944     0.9944     3.2e-05

@@ -16,7 +16,7 @@ returned 0 for ``[1, 0, 0]`` (orthogonal to ``q``) and ``3 J_1`` for
 import numpy as np
 import pytest
 
-from defumat.workflows.spiral import SpiralScan, heisenberg_exchange
+from defuqumat.workflows.spiral import SpiralScan, heisenberg_exchange
 
 pytestmark = pytest.mark.unit
 

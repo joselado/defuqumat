@@ -30,10 +30,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.paw.onecenter import PAW_VMAP_ATOMS, _paw_atom_batch, build_paw
-from defumat.pseudo import read_upf
-from defumat.system.structure import Species, Structure
-from defumat.xc.functional import resolve_functional
+from defuqumat.paw.onecenter import PAW_VMAP_ATOMS, _paw_atom_batch, build_paw
+from defuqumat.pseudo import read_upf
+from defuqumat.system.structure import Species, Structure
+from defuqumat.xc.functional import resolve_functional
 
 pytestmark = [pytest.mark.unit]
 
@@ -113,15 +113,15 @@ def test_chunking_the_atom_axis_does_not_move_the_gradient(pseudo_dir):
         )(becsum))
 
     chunked = gradient()
-    previous = os.environ.get("DEFUMAT_PAW_ATOM_BATCH")
-    os.environ["DEFUMAT_PAW_ATOM_BATCH"] = "all"
+    previous = os.environ.get("DEFUQUMAT_PAW_ATOM_BATCH")
+    os.environ["DEFUQUMAT_PAW_ATOM_BATCH"] = "all"
     try:
         whole = gradient()
     finally:
         if previous is None:
-            os.environ.pop("DEFUMAT_PAW_ATOM_BATCH", None)
+            os.environ.pop("DEFUQUMAT_PAW_ATOM_BATCH", None)
         else:
-            os.environ["DEFUMAT_PAW_ATOM_BATCH"] = previous
+            os.environ["DEFUQUMAT_PAW_ATOM_BATCH"] = previous
 
     scale = np.abs(whole).max()
     assert np.allclose(chunked, whole, rtol=0, atol=1e-12 * scale), (
@@ -142,17 +142,17 @@ def test_a_small_sublattice_keeps_the_vmap(pseudo_dir):
     assert _paw_atom_batch(PAW_VMAP_ATOMS) is None
     assert _paw_atom_batch(PAW_VMAP_ATOMS + 1) == 1
 
-    previous = os.environ.get("DEFUMAT_PAW_ATOM_BATCH")
+    previous = os.environ.get("DEFUQUMAT_PAW_ATOM_BATCH")
     try:
-        os.environ["DEFUMAT_PAW_ATOM_BATCH"] = "1"
+        os.environ["DEFUQUMAT_PAW_ATOM_BATCH"] = "1"
         assert _paw_atom_batch(2) == 1, "an explicit chunk must beat the count"
-        os.environ["DEFUMAT_PAW_ATOM_BATCH"] = "all"
+        os.environ["DEFUQUMAT_PAW_ATOM_BATCH"] = "all"
         assert _paw_atom_batch(64) is None, "an explicit vmap must beat it too"
     finally:
         if previous is None:
-            os.environ.pop("DEFUMAT_PAW_ATOM_BATCH", None)
+            os.environ.pop("DEFUQUMAT_PAW_ATOM_BATCH", None)
         else:
-            os.environ["DEFUMAT_PAW_ATOM_BATCH"] = previous
+            os.environ["DEFUQUMAT_PAW_ATOM_BATCH"] = previous
 
 
 # --- where QE takes the absolute value of the on-site density ----------------
@@ -190,7 +190,7 @@ def test_the_one_centre_gradient_differentiates_the_signed_density(pseudo_dir):
     eigenvalues, the one-centre energy and ``ddd`` are bit-identical on both
     cells. The density here is therefore *constructed* to go negative.
     """
-    from defumat.paw.gradient import _gradient, onecenter_gradient_correction
+    from defuqumat.paw.gradient import _gradient, onecenter_gradient_correction
 
     paw = _species(pseudo_dir)
     nlm, mesh, nx = paw.nlm, len(paw.r), paw.angular.ylm.shape[0]

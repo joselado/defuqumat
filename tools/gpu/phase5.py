@@ -25,7 +25,7 @@ larger of the two twice.
     python3 tools/gpu/phase5.py alas-raman --property all --json-dir records/
 
 It is the *same* script on both platforms, for `phase0.py`'s reason -- §2.3's
-metric is GPU defumat against CPU defumat on the same input and the same code,
+metric is GPU defuqumat against CPU defuqumat on the same input and the same code,
 so the two sides must not be two scripts. On a CPU it answers `GPU.md` §4 item 3
 ("Phase 5's tape measurement, per property -- the number that says whether the
 response path fits on a card at all, and it needs no card to obtain"); on a GPU
@@ -134,7 +134,7 @@ class Context:
 
 
 def _forces(context: Context):
-    from defumat.forces import compute_forces
+    from defuqumat.forces import compute_forces
 
     forces = compute_forces(context.calculation, context.result)
     return {"max_force_ry_bohr": float(forces.max_force),
@@ -142,7 +142,7 @@ def _forces(context: Context):
 
 
 def _stress(context: Context):
-    from defumat.stress import compute_stress
+    from defuqumat.stress import compute_stress
 
     stress = compute_stress(context.calculation, context.result)
     tensor = stress.tensor
@@ -151,7 +151,7 @@ def _stress(context: Context):
 
 
 def _dielectric(context: Context, born: bool):
-    from defumat.response import dielectric_tensor
+    from defuqumat.response import dielectric_tensor
 
     result = context.result
     response = dielectric_tensor(
@@ -168,8 +168,8 @@ def _dielectric(context: Context, born: bool):
 
 def _phonon(context: Context):
     import jax.numpy as jnp
-    from defumat.response import dynamical_matrix
-    from defumat.response.electrostriction import refined_states
+    from defuqumat.response import dynamical_matrix
+    from defuqumat.response.electrostriction import refined_states
 
     result = context.result
     eigenvalues, psi = refined_states(context.calculation, result)
@@ -183,7 +183,7 @@ def _phonon(context: Context):
 
 
 def _raman(context: Context):
-    from defumat.response import raman_tensors
+    from defuqumat.response import raman_tensors
 
     raman = raman_tensors(context.calculation, context.result,
                           born_charges=True, verbose=context.verbose)
@@ -265,10 +265,10 @@ def run_property(case: Path, name: str, threshold: float, repeats: int,
                  max_iterations: int, verbose: bool) -> dict:
     """Converge the cell, then evaluate one property, measuring both stages."""
     import jax
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation, run_scf
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, run_scf
+    from defuqumat.system import build_system
 
     spec = PROPERTIES[name]
     record: dict = {"property": name, "mode": spec.mode, "what": spec.what,
@@ -443,16 +443,16 @@ def main(argv=None) -> int:
     # is the worst setting measured anywhere here, and it is exactly the one a
     # forgiving default would produce.
     dials = {}
-    for name, value in (("DEFUMAT_K_BATCH", arguments.k_batch),
-                        ("DEFUMAT_BAND_BATCH", arguments.band_batch)):
+    for name, value in (("DEFUQUMAT_K_BATCH", arguments.k_batch),
+                        ("DEFUQUMAT_BAND_BATCH", arguments.band_batch)):
         if value is not None:
             os.environ[name] = _dial(value)
-            dials[name.lower().removeprefix("defumat_")] = os.environ[name]
+            dials[name.lower().removeprefix("defuqumat_")] = os.environ[name]
 
     case = resolve_case(arguments.case)
 
-    import defumat  # noqa: F401  -- sets jax_enable_x64 before any array exists
-    from defumat import batching
+    import defuqumat  # noqa: F401  -- sets jax_enable_x64 before any array exists
+    from defuqumat import batching
 
     resolved = {"k_batch": str(batching.DEFAULT_K_BATCH),
                 "band_batch": str(batching.DEFAULT_BAND_BATCH),
@@ -460,7 +460,7 @@ def main(argv=None) -> int:
                 "source": ("explicit" if len(dials) == 2 else
                            "mixed" if dials else "platform default")}
     record = {"dials": resolved, "provenance": provenance()}
-    print(f"# defumat GPU.md phase 5 -- {case.name}, {arguments.property}")
+    print(f"# defuqumat GPU.md phase 5 -- {case.name}, {arguments.property}")
     print(f"# {record['provenance']['device_kind']} "
           f"({record['provenance']['platform']}), jax {record['provenance']['jax']}")
     print(f"# dials: {record['dials']}")

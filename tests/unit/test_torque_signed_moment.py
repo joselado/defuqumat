@@ -15,8 +15,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from defumat.forces.torque import rotated_density
-from defumat.scf.continuation import nc_magnetization_from_lsda
+from defuqumat.forces.torque import rotated_density
+from defuqumat.scf.continuation import nc_magnetization_from_lsda
 
 pytestmark = pytest.mark.unit
 

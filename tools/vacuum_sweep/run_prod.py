@@ -8,9 +8,9 @@ import os
 import sys
 import time
 
-import defumat.scf.driver as driver
-import defumat.scf.mixing as mixing
-from defumat import Calculator
+import defuqumat.scf.driver as driver
+import defuqumat.scf.mixing as mixing
+from defuqumat import Calculator
 
 path, mode, fit, out = sys.argv[1:5]
 driver.RHO_DDOT_FIT = fit == "ddot"

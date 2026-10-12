@@ -53,7 +53,7 @@ can form, and `reducebf` is the usual way to take it back out. Three reasons not
 to carry it:
 
 1. an external field's energy is deliberately **outside** the reported total
-   here (`defumat/scf/fields.py`, P18 — Elk excludes its own by the same
+   here (`defuqumat/scf/fields.py`, P18 — Elk excludes its own by the same
    convention), so the field would contaminate exactly the `E(q)` *differences*
    this calculation is for;
 2. `dE/dq` is **refused** with a field, and correctly: the converged state is

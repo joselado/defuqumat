@@ -46,13 +46,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.forces.energy import _spinor_projector_energies
-from defumat.forces.torque import rotate_texture
-from defumat.scf.driver import Calculation
-from defumat.workflows.anisotropy import _first_order_operator
-from defumat.workflows.nscf import fixed_density_states
-from defumat.workflows.spiral import unfold_spiral_density
+from defuqumat import Calculator
+from defuqumat.forces.energy import _spinor_projector_energies
+from defuqumat.forces.torque import rotate_texture
+from defuqumat.scf.driver import Calculation
+from defuqumat.workflows.anisotropy import _first_order_operator
+from defuqumat.workflows.nscf import fixed_density_states
+from defuqumat.workflows.spiral import unfold_spiral_density
 from tests.conftest import GENERATED
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]

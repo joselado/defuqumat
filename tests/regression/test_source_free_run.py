@@ -21,9 +21,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.basis.gradients import divergence
-from defumat.scf.spin_torque import torque_of_result
+from defuqumat import Calculator
+from defuqumat.basis.gradients import divergence
+from defuqumat.scf.spin_torque import torque_of_result
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -46,7 +46,7 @@ def _converged(stem):
 def _field_divergence(calc, scf):
     """``int |div B_xc|^2``, which is what the projection is named after."""
     calculation = calc.calculation
-    from defumat.scf.potential import v_of_rho
+    from defuqumat.scf.potential import v_of_rho
 
     density = jnp.asarray(scf.density)
     potential = v_of_rho(

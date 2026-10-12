@@ -1,0 +1,660 @@
+"""Building the electron density from occupied Kohn-Sham states.
+
+``sum_band``: transform each occupied state to the grid and accumulate
+``|psi(r)|^2`` with its weight. Following ``PW/src/sum_band.f90``.
+
+Normalisation: a state is normalised as ``sum_G |c_G|^2 = 1``, so on the grid
+``(1/N) sum_r |u(r)|^2 = 1`` and the density carries a ``1/Omega``. The weights
+``wg`` already include both the k-point weight and the occupation, and they sum
+to the number of electrons -- which is what makes ``integral rho = nelec`` an
+exact identity rather than something to renormalise.
+
+**Spin.** Wavefunctions, weights and the density all carry a leading channel
+axis, and the accumulation is per channel: ``sum_band`` writes into
+``rho%of_r(:,current_spin)``, with ``isk(ik)`` saying which. QE flattens the two
+channels into one k-list of length ``2 nks`` and lets that index decide; here
+the channel is a separate axis, which keeps ``k`` the leading *independent* axis
+of every wavefunction-shaped array -- the property the batching and the eventual
+sharding rest on.
+"""
+
+from __future__ import annotations
+
+import jax
+import jax.numpy as jnp
+
+from defuqumat.basis.fft import g_to_r, g_to_r_gamma, sticks_density
+from defuqumat.batching import resolve_band_batch, resolve_k_batch, sum_bands, sum_k
+from defuqumat.eager import compiled
+from defuqumat.system.cell import Cell
+
+__all__ = ["sum_band", "band_density", "becsum", "spinor_sum_band",
+           "spinor_band_density", "spinor_becsum",
+           "band_kinetic_density", "kinetic_energy_density",
+           "spinor_band_kinetic_density", "spinor_kinetic_energy_density"]
+
+
+def band_density(psi: jnp.ndarray, fft_index: jnp.ndarray, grid, weights: jnp.ndarray,
+                 cell: Cell, fft_index_minus: jnp.ndarray | None = None,
+                 band_batch: int | None | str = "default", sticks=None,
+                 columns=None, index=None, plane_chunk: int | None = None):
+    """Contribution of one k-point's bands to the density.
+
+    Args:
+        psi: ``(nbnd, npwx)`` wavefunctions at this k-point.
+        fft_index: ``(npwx,)`` box indices for this k-point.
+        grid: FFT dimensions.
+        weights: ``(nbnd,)`` occupation weights ``wg`` for these bands.
+        cell: for the cell volume.
+        fft_index_minus: ``(npwx,)`` indices of ``-(k+G)``, for a gamma-only
+            run, where the state is stored on half the sphere. **There is no
+            factor of two here**: the half sphere is storage for the *same*
+            bands, so each contributes ``w_n |psi_n(r)|^2`` exactly as before
+            once the field is rebuilt from both halves. The doubling in
+            ``sum_band.f90``'s gamma branch belongs to its two-bands-per-FFT
+            packing, which is a speed device this does not use.
+        sticks, columns, index, plane_chunk: the stick layout of this
+            k-point and the ``z``-plane chunk. With all four, and one band at a
+            time, the bands go through the grid a chunk of planes at a time
+            (:func:`~defuqumat.basis.fft.sticks_density`) instead of as whole
+            boxes; the density is the same to round-off.
+    """
+    if (plane_chunk is not None and sticks is not None and fft_index_minus is None
+            and resolve_band_batch(band_batch) == 1):
+        return sticks_density(
+            psi, weights, sticks, columns, index,
+            lambda field: jnp.real(jnp.conj(field) * field)[None], 1, plane_chunk,
+        )[0] / cell.volume
+
+    def one_band(arrays):
+        state, weight = arrays
+        if fft_index_minus is not None:
+            # The gamma field is real by construction, so the square is the
+            # square -- and it is still written as a product rather than through
+            # ``abs``, for the reason the comment below gives.
+            field = g_to_r_gamma(state, fft_index, fft_index_minus, grid)
+            return weight * (field * field)
+        field = g_to_r(state, fft_index, grid)
+        # ``|psi|^2`` as ``Re(conj(psi) psi)`` and not as ``abs(psi)**2``. The two
+        # are the same number to a rounding, and only one of them is
+        # differentiable: ``abs``'s derivative is ``Re(conj z t)/|z|``, which is
+        # ``0/0`` wherever the field vanishes, and a wavefunction has nodes *on
+        # grid points* by symmetry. One of them poisons the whole density with
+        # NaN. It is :func:`defuqumat.basis.gvectors.modulus`'s trap in a second
+        # place, and it is only reachable once the density is differentiated with
+        # respect to the *states* -- which is what a linear response does
+        # (:mod:`defuqumat.response.sternheimer`).
+        return weight * jnp.real(jnp.conj(field) * field)
+
+    # One band at a time, as ``sum_band.f90`` accumulates them: a band's
+    # real-space box is the working set (:mod:`defuqumat.batching`).
+    return sum_bands(one_band, (psi, weights), batch=band_batch) / cell.volume
+
+
+def sum_band(psi, fft_index, grid, weights, cell: Cell,
+             k_batch: int | None | str = "default",
+             fft_index_minus=None,
+             band_batch: int | None | str = "default",
+             sticks=None, plane_chunk: int | None = None) -> jnp.ndarray:
+    """The density from every k-point, ``(nspin, n1, n2, n3)`` and real.
+
+    Args:
+        psi: ``(nspin, nk, nbnd, npwx)``.
+        fft_index: ``(nk, npwx)`` -- shared by the channels, since the plane-wave
+            basis at a k-point does not depend on spin.
+        weights: ``(nspin, nk, nbnd)`` occupation weights.
+
+    Accumulated ``k_batch`` k-points at a time (:mod:`defuqumat.batching`), which
+    is ``sum_band.f90``'s own structure -- it adds each k-point's bands into
+    ``rho%of_r`` inside ``k_loop`` and never holds more than one k-point's
+    real-space fields. The batched end of the dial holds ``(nk, nbnd, n1, n2,
+    n3)`` complex numbers in flight, which on a large cell is the second-largest
+    working set in the code after the Davidson subspace.
+    """
+    batch = resolve_k_batch(k_batch)
+
+    if sticks is not None and plane_chunk is not None and fft_index_minus is None:
+        # ``sticks`` carries this call's k-points' rows, as ``fft_index`` does;
+        # ``fft_index`` still travels, for the whole-box path ``band_density``
+        # falls back to when the band dial is not one band at a time.
+        def channel(states, occupations):
+            def one_k(arrays):
+                state, box_index, columns, index, occupation = arrays
+                return band_density(state, box_index, grid, occupation, cell,
+                                    band_batch=band_batch, sticks=sticks,
+                                    columns=columns, index=index,
+                                    plane_chunk=plane_chunk)
+
+            return sum_k(one_k, (states, fft_index, sticks.columns, sticks.index,
+                                 occupations), batch=batch)
+
+        return jax.vmap(channel)(psi, weights)
+
+    if fft_index_minus is not None:
+        def channel(states, occupations):
+            def one_k(arrays):
+                state, index, minus, occupation = arrays
+                return band_density(state, index, grid, occupation, cell,
+                                    fft_index_minus=minus, band_batch=band_batch)
+
+            return sum_k(one_k, (states, fft_index, fft_index_minus, occupations),
+                         batch=batch)
+
+        return jax.vmap(channel)(psi, weights)
+
+    def channel(states, occupations):
+        def one_k(arrays):
+            state, index, occupation = arrays
+            return band_density(state, index, grid, occupation, cell,
+                                band_batch=band_batch)
+
+        return sum_k(one_k, (states, fft_index, occupations), batch=batch)
+
+    return jax.vmap(channel)(psi, weights)
+
+
+def band_kinetic_density(psi, fft_index, grid, weights, cell: Cell, kplusg,
+                         gamma_only: bool = False,
+                         band_batch: int | None | str = "default"):
+    """One k-point's contribution to ``tau``, in **Rydberg**.
+
+    Args:
+        psi: ``(nbnd, npwx)``.
+        kplusg: ``(npwx, 3)`` in 1/bohr, zero on padding.
+        gamma_only: whether ``psi`` is stored on the half sphere. See the
+            paragraph on it below -- the transform is the same one either way
+            and it is the *combination* afterwards that differs, which is why
+            this takes a flag rather than an ``fft_index_minus``.
+
+    ``tau(r) = sum_i w_i |grad psi_i(r)|^2`` -- three more transforms per band
+    than the density costs, since ``grad psi`` has to be built one cartesian
+    direction at a time in G space (``i(k+G) c_G``) and brought back. This is
+    ``sum_band.f90``'s meta-GGA branch exactly: it forms ``kplusgi *
+    evc(i,ibnd)`` for ``j = 1, 3`` and calls ``get_rho`` on each, accumulating
+    into ``rho%kin_r`` with the *same* weights the density uses.
+
+    **Rydberg, and no factor of one half.** QE's ``rho%kin_r`` is this sum as
+    written and ``v_xc_meta`` divides it by ``e2`` to get the Hartree ``tau``
+    the functionals want; the same division happens here, in
+    :func:`defuqumat.scf.potential.meta_exchange`, so that what flows through the
+    SCF is in the package's units and only the functional sees Hartree.
+
+    ``|grad psi|^2`` is ``Re(conj z z)`` summed over the three directions and
+    not ``abs(z)**2``, for :func:`band_density`'s reason and with more of an
+    edge: a *derivative* of a state has nodes wherever the state has extrema,
+    which on a symmetric cell is a great many grid points exactly.
+
+    **Under gamma storage the transform is the same and the combination is
+    not**, which is the one place this departs from :func:`band_density`. There
+    the stored half is refilled by its conjugate and :func:`g_to_r_gamma` does
+    it inside the transform; here the object being transformed is ``i(k+G)
+    c_G``, which is **odd** in ``G`` where ``c_G`` is Hermitian, so a conjugate
+    fill would be the wrong fill. Writing ``h(r) = sum_{G in half} i G c_G
+    e^{iGr}`` and pairing each ``G`` with its ``-G``, the ``c_{-G} =
+    conj(c_G)`` of a real state gives
+
+        grad psi = 2 Re h,
+
+    with the ``G = 0`` term dropping out on its own because it carries a factor
+    ``G``. So the half-sphere ``tau`` is ``4 (Re h)^2`` summed over the three
+    directions, where the whole-sphere one is ``|grad psi|^2``, and ``h`` is
+    what the plain :func:`g_to_r` over the stored list already returns.
+
+    Taking ``|h|^2`` there instead -- which is what this did -- is
+    ``(Re h)^2 + (Im h)^2`` where the physics is ``4 (Re h)^2``, so it is not
+    wrong by a factor: **pointwise it loses the oscillation altogether**, and
+    only the *integral* is a clean half, since the stored set holds no
+    ``(G, -G)`` pair. Measured on two-atom silicon under ``tb09``, gamma
+    against an explicit ``k = 0``: the integrals were in the ratio 0.506 and
+    the pointwise disagreement was 7.7e-2 on a ``tau`` whose maximum is
+    1.2e-1, i.e. 63 per cent, with the two total energies 16.9 mRy apart.
+    """
+    def one_band(arrays):
+        state, weight = arrays
+        components = 1j * kplusg.T * state[None, :]  # (3, npwx)
+        field = g_to_r(components, fft_index, grid)  # (3, n1, n2, n3)
+        if gamma_only:
+            real = jnp.real(field)
+            return weight * jnp.sum(4.0 * real * real, axis=0)
+        return weight * jnp.sum(jnp.real(jnp.conj(field) * field), axis=0)
+
+    return sum_bands(one_band, (psi, weights), batch=band_batch) / cell.volume
+
+
+def kinetic_energy_density(psi, fft_index, grid, weights, cell: Cell, kplusg,
+                           k_batch: int | None | str = "default",
+                           gamma_only: bool = False,
+                           band_batch: int | None | str = "default") -> jnp.ndarray:
+    """``tau`` from every k-point, ``(nspin, n1, n2, n3)`` and real, Ry.
+
+    Args:
+        psi: ``(nspin, nk, nbnd, npwx)``.
+        kplusg: ``(nk, npwx, 3)``.
+
+    The channel axis means what it means in the density -- QE's
+    ``rho%kin_r(:, current_spin)``, and this package's ``(up, down)`` for
+    ``nspin = 2``. **QE's own storage differs from its density's there**, since
+    ``sum_band`` converts ``rho`` to ``(total, magnetization)`` at the end and
+    leaves ``kin_r`` alone; ``potinit.f90`` says so in a comment ("for LSDA rho
+    is (tot,magn), rho_kin is (up,down)"). Here the two agree, so nothing
+    converts between them -- and a transcribed conversion would be a bug.
+    """
+    batch = resolve_k_batch(k_batch)
+
+    def channel(states, occupations):
+        def one_k(arrays):
+            state, index, vectors, occupation = arrays
+            return band_kinetic_density(state, index, grid, occupation, cell,
+                                        vectors, gamma_only, band_batch)
+
+        return sum_k(one_k, (states, fft_index, kplusg, occupations), batch=batch)
+
+    return jax.vmap(channel)(psi, weights)
+
+
+def spinor_band_kinetic_density(psi, fft_index, grid, weights, cell: Cell,
+                                kplusg, nspin_mag: int,
+                                band_batch: int | None | str = "default"):
+    """One k-point's contribution to a **noncollinear** ``tau``, Ry.
+
+    Args:
+        psi: ``(nbnd, 2 npwx)`` spinors, the two components stored one after
+            the other, as :func:`spinor_band_density` takes them.
+        kplusg: ``(npwx, 3)`` in 1/bohr.
+        nspin_mag: 1 for the trace alone, 4 for ``(tau, tau_x, tau_y, tau_z)``.
+
+    **The kinetic energy density of a spinor is a 2x2 matrix**, not a number and
+    not two numbers:
+
+        tau_ab(r) = sum_i w_i grad psi_ia^* . grad psi_ib,
+
+    and it decomposes on the Pauli basis exactly as the density does -- a trace
+    and an axial three-vector. This is :func:`spinor_band_density` with
+    ``grad psi`` in place of ``psi``, and the *only* difference beyond that is
+    that every product is a dot product over the three cartesian directions
+    before the spin algebra happens. Getting that order wrong -- taking the spin
+    structure of each direction and summing afterwards -- gives the same trace
+    and a different vector part.
+
+    The sign conventions are the density's, so that the two arrays can be
+    resolved onto the same local axis: ``m = psi^dagger sigma psi`` with
+    ``cross = conj(up) down``, ``m_x = 2 Re(cross)``, ``m_y = 2 Im(cross)``.
+    """
+    npwx = psi.shape[-1] // 2
+    fft_index = jnp.asarray(fft_index)
+    if fft_index.ndim != 1:
+        raise NotImplementedError(
+            "a spin spiral's two spinor components live on different "
+            "plane-wave spheres, so their gradients do not add to a "
+            "lattice-periodic tau; meta-GGA with spiral_q is refused"
+        )
+
+    def one_band(arrays):
+        state, weight = arrays
+        components = state.reshape((2, npwx))
+        # ``(2, 3, npwx)`` -> ``(2, 3, n1, n2, n3)``: the spin component, then
+        # the cartesian direction of the gradient.
+        gradients = 1j * kplusg.T[None, :, :] * components[:, None, :]
+        field = g_to_r(gradients, fft_index, grid)
+        up, down = field[0], field[1]
+
+        # Summed over the cartesian axis *first*: these are dot products of
+        # gradients, and the spin algebra acts on the result.
+        up_density = jnp.sum(jnp.real(jnp.conj(up) * up), axis=0)
+        down_density = jnp.sum(jnp.real(jnp.conj(down) * down), axis=0)
+        trace = up_density + down_density
+        if nspin_mag == 1:
+            return weight * trace[None]
+        cross = jnp.sum(jnp.conj(up) * down, axis=0)
+        return weight * jnp.stack([
+            trace,
+            2.0 * jnp.real(cross),
+            2.0 * jnp.imag(cross),
+            up_density - down_density,
+        ])
+
+    return sum_bands(one_band, (psi, weights), batch=band_batch) / cell.volume
+
+
+def spinor_kinetic_energy_density(psi, fft_index, grid, weights, cell: Cell,
+                                  kplusg, nspin_mag: int,
+                                  k_batch: int | None | str = "default",
+                                  band_batch: int | None | str = "default"):
+    """Noncollinear ``tau`` from every k-point, ``(nspin_mag, n1, n2, n3)``, Ry.
+
+    Args:
+        psi: ``(nk, nbnd, 2 npwx)``.
+        kplusg: ``(nk, npwx, 3)``.
+        weights: ``(nk, nbnd)``.
+    """
+    def one_k(arrays):
+        state, index, vectors, occupation = arrays
+        return spinor_band_kinetic_density(
+            state, index, grid, occupation, cell, vectors, nspin_mag, band_batch
+        )
+
+    return sum_k(one_k, (psi, fft_index, kplusg, weights),
+                 batch=resolve_k_batch(k_batch))
+
+
+def walk_projectors(vkb, nk: int, spiral: bool = False):
+    """``(operand, fetch)``: the projectors walked along k inside :func:`sum_k`.
+
+    ``vkb`` is the ``(nk, npwx, nkb)`` array or a
+    :class:`~defuqumat.pseudo.projectors.Projectors`. A **lazy** set is walked by
+    index and rebuilt one k-point at a time (``at_k``, ``init_us_2`` inside the
+    k loop), so the whole-k array is never formed (``GPU-MEMORY-NEXT.md`` item
+    7); a stored set is walked as its array. ``fetch(operand[ik])`` is the
+    ``(npwx, nkb)`` block, or for a spiral the ``(2, npwx, nkb)`` pair of rows
+    ``(ik, ik + nk)`` -- the up component's sphere and the down one's.
+    """
+    if getattr(vkb, "is_lazy", False):
+        if spiral:
+            return jnp.arange(nk), lambda ik: jnp.stack(
+                [vkb.at_k(ik), vkb.at_k(ik + nk)])
+        return jnp.arange(nk), vkb.at_k
+    if hasattr(vkb, "at_k"):
+        vkb = vkb.vkb
+    if spiral:
+        vkb = jnp.stack([vkb[:nk], vkb[nk:]], axis=1)  # (nk, 2, npwx, nkb)
+    return vkb, lambda block: block
+
+
+def becsum(psi, vkb, weights, species_channels,
+           k_batch: int | None | str = "default") -> tuple:
+    """The projector occupation matrices ``becsum``, per species.
+
+    ``PW/src/sum_band.f90``'s ``sum_bec``:
+
+        becsum^a_ij = sum_k sum_b w_kb <psi_kb|beta_i^a> <beta_j^a|psi_kb>
+
+    It is what the augmentation charge is built from -- the density outside the
+    projector subspace comes from ``|psi|^2``, and everything inside it from
+    these numbers.
+
+    Args:
+        psi: ``(nspin, nk, nbnd, npwx)`` wavefunctions.
+        vkb: ``(nk, npwx, nkb)`` projectors -- the same in both channels -- or
+            the :class:`~defuqumat.pseudo.projectors.Projectors` themselves, which
+            a lazy set then rebuilds per k (:func:`walk_projectors`).
+        weights: ``(nspin, nk, nbnd)`` occupation weights.
+        species_channels: for each species, the ``(nat_t, nh_t)`` array of
+            channel columns belonging to each of its atoms, or ``None`` when the
+            species is norm-conserving.
+
+    Returns one real ``(nspin, nat_t, nh_t, nh_t)`` array per species. QE stores
+    only the upper triangle, with the off-diagonal entries doubled; the full
+    symmetric matrix is carried here instead, which is the same contraction
+    against a ``Q_ij`` symmetric in the same pair of indices and avoids a packed
+    index that nothing else in this code uses.
+
+    The spin index is ``becsum``'s third in QE (``becsum(ijh, na, nspin)``) and
+    it is not decoration: with two channels the augmentation charge, the
+    self-consistent ``D_ij`` and PAW's one-centre terms all become per-channel
+    quantities, and they are all built from this one.
+
+    **Called eagerly, it goes through** :func:`defuqumat.eager.compiled`. The SCF
+    calls this outside any ``jit`` once per iteration, and the per-k sum is a
+    ``lax.scan`` over a closure built at that call, so without it the scan was
+    compiled again at every call and channel: two compilations a warm iteration
+    on ``tests/data/qe/ni-ldau-ortho.in`` at ``nspin = 2`` and one on
+    ``si2-us.in``, each mapping some twenty more lines into the process. Under a
+    trace (a force, a stress, a response taking ``jax.grad`` through this)
+    ``compiled`` is the plain call, so a derivative sees what it saw before.
+    """
+    batch = resolve_k_batch(k_batch)
+    return compiled(
+        lambda states, occupations: _becsum(states, vkb, occupations,
+                                            species_channels, batch),
+        psi, weights,
+    )
+
+
+def _becsum(psi, vkb, weights, species_channels, batch) -> tuple:
+    """:func:`becsum` itself, at a resolved ``batch``."""
+    operand, fetch = walk_projectors(vkb, psi.shape[1])
+
+    def channel(states, occupations):
+        def one_k(arrays):
+            row, state, occupation = arrays
+            projections = jnp.einsum("gc,bg->bc", fetch(row).conj(), state)
+            return tuple(
+                None if channels is None
+                else _becsum_species(projections, occupation, channels)
+                for channels in species_channels
+            )
+
+        return sum_k(one_k, (operand, states, occupations), batch=batch)
+
+    # One channel at a time rather than a spin axis through the accumulation:
+    # QE has no spin axis here either -- ``sum_bec`` writes into
+    # ``becsum(:,:,current_spin)`` and its k-list runs over both channels.
+    per_channel = [channel(psi[spin], weights[spin]) for spin in range(psi.shape[0])]
+    return tuple(
+        None if channels is None
+        else jnp.stack([values[species] for values in per_channel])
+        for species, channels in enumerate(species_channels)
+    )
+
+
+@jax.jit
+def _becsum_species(projections, weights, channels):
+    """One species' ``becsum`` at one k-point, gathering its atoms' channels."""
+    columns = projections[:, channels]  # (nbnd, nat, nh)
+    return jnp.real(
+        jnp.einsum("b,bai,baj->aij", weights.astype(columns.dtype),
+                   columns.conj(), columns)
+    )
+
+
+def spinor_band_density(psi, fft_index, grid, weights, cell: Cell, nspin_mag: int,
+                        band_batch: int | None | str = "default", sticks=None,
+                        columns=None, index=None, plane_chunk: int | None = None):
+    """One k-point's contribution to a noncollinear density.
+
+    Args:
+        psi: ``(nbnd, 2 npwx)`` spinors -- the two components stored one after
+            the other, as :class:`~defuqumat.hamiltonian.noncollinear.SpinorHamiltonian`
+            holds them.
+        nspin_mag: 1 for the charge alone, 4 for ``(n, m_x, m_y, m_z)``.
+
+    ``get_rho_k`` and ``get_rho_domag`` in ``sum_band.f90``. The charge is the
+    sum of the two components' densities and the magnetization is the Pauli
+    expectation value ``psi^dagger sigma psi`` -- so the *same* wavefunctions
+    give one number or four depending only on whether the calculation carries a
+    magnetization, and a nonmagnetic spin-orbit run keeps a scalar density.
+
+    ``fft_index`` is ``(npwx,)`` normally and ``(2, npwx)`` for a spin spiral,
+    whose components live on different spheres. In the spiral case what this
+    returns is the **rotated-frame** density: the charge and ``m_z`` are what
+    they always were, and the transverse pair ``(m_x, m_y)`` is measured in the
+    frame that turns with the spiral, which is the frame the potential is built
+    in. The laboratory-frame spiral is recovered on output and nowhere else.
+
+    **The bands are walked, not batched**, which is ``sum_band.f90``'s own
+    ``DO ibnd`` and here is a memory decision rather than a cache one. A spinor
+    band's real-space working set is two boxes, and every quantity below is
+    another array of that shape: on a 45-atom NiBr2 supercell at 403 bands on a
+    240x54x200 grid the transform alone is 33 GB and the stacked Pauli
+    components another 33 (``PLAN.md`` P74). The scalar :func:`band_density`
+    and the spinor ``tau`` beside it both already did this; this one did not,
+    which is 46 GB of a 78 GB peak.
+
+    The chunk changes the order the band contributions are *added* in and
+    nothing else, so it moves the density by round-off.
+    """
+    npwx = psi.shape[-1] // 2
+
+    def pauli(field):
+        """``(n, m_x, m_y, m_z)`` -- or ``n`` alone -- from the two components."""
+        up, down = field[0], field[1]
+        up_density = jnp.real(jnp.conj(up) * up)
+        down_density = jnp.real(jnp.conj(down) * down)
+        charge = up_density + down_density
+        if nspin_mag == 1:
+            return charge[None]
+        cross = jnp.conj(up) * down
+        return jnp.stack([charge, 2.0 * jnp.real(cross), 2.0 * jnp.imag(cross),
+                          up_density - down_density])
+
+    if (plane_chunk is not None and sticks is not None
+            and resolve_band_batch(band_batch) == 1):
+        # The stick layout serves one sphere; a spiral's two components are on
+        # two, and it keeps the whole-box path below.
+        states = psi.reshape(psi.shape[:-1] + (2, npwx))
+        return sticks_density(states, weights, sticks, columns, index, pauli,
+                              nspin_mag, plane_chunk) / cell.volume
+
+    fft_index = jnp.asarray(fft_index)
+
+    def one_band(arrays):
+        state, weight = arrays
+        components = state.reshape((2, npwx))
+        if fft_index.ndim == 1:
+            field = g_to_r(components, fft_index, grid)      # (2, n1, n2, n3)
+        else:
+            # A spin spiral: the two components are on different spheres, so
+            # they are transformed with different index maps. What comes back
+            # is the pair of *periodic* parts ``U_up``, ``U_dn``, and every
+            # quantity below is built from those -- which is the point of the
+            # generalized Bloch theorem: the density it produces is lattice
+            # periodic even though the magnetization it describes turns from
+            # cell to cell.
+            field = jnp.stack(
+                [g_to_r(components[spin], fft_index[spin], grid)
+                 for spin in range(2)]
+            )
+        up, down = field[0], field[1]
+
+        # ``Re(conj(z) z)`` rather than ``abs(z)**2``, for the reason in
+        # :func:`band_density`: the two are the same number and only one has a
+        # derivative at a node.
+        up_density = jnp.real(jnp.conj(up) * up)
+        down_density = jnp.real(jnp.conj(down) * down)
+        charge = up_density + down_density
+        if nspin_mag == 1:
+            return weight * charge[None]
+        cross = jnp.conj(up) * down
+        return weight * jnp.stack([
+            charge,
+            2.0 * jnp.real(cross),
+            2.0 * jnp.imag(cross),
+            up_density - down_density,
+        ])
+
+    return sum_bands(one_band, (psi, weights), batch=band_batch) / cell.volume
+
+
+def spinor_sum_band(psi, fft_index, grid, weights, cell: Cell, nspin_mag: int,
+                    k_batch: int | None | str = "default",
+                    band_batch: int | None | str = "default",
+                    sticks=None, plane_chunk: int | None = None):
+    """A noncollinear density from every k-point, ``(nspin_mag, n1, n2, n3)``.
+
+    Args:
+        psi: ``(nk, nbnd, 2 npwx)``.
+        weights: ``(nk, nbnd)``.
+    """
+    if sticks is not None and plane_chunk is not None:
+        def one_k_sticks(arrays):
+            state, box_index, columns, index, occupation = arrays
+            return spinor_band_density(state, box_index, grid, occupation, cell,
+                                       nspin_mag, band_batch, sticks=sticks,
+                                       columns=columns, index=index,
+                                       plane_chunk=plane_chunk)
+
+        return sum_k(one_k_sticks, (psi, fft_index, sticks.columns, sticks.index,
+                                    weights), batch=resolve_k_batch(k_batch))
+
+    def one_k(arrays):
+        state, index, occupation = arrays
+        return spinor_band_density(state, index, grid, occupation, cell, nspin_mag,
+                                   band_batch)
+
+    return sum_k(one_k, (psi, fft_index, weights), batch=resolve_k_batch(k_batch))
+
+
+def spinor_becsum(psi, vkb, weights, species_channels,
+                  k_batch: int | None | str = "default",
+                  spiral: bool = False) -> tuple:
+    """The spinor projector occupations, per species, before the spin transform.
+
+        becsum_nc^a_{i s1, j s2} = sum_kb w_kb <psi_kb|beta_i^a s1>
+                                              <beta_j^a s2|psi_kb>
+
+    ``sum_bec``'s noncollinear branch. It is *not* the ``becsum`` the
+    augmentation charge is built from: that one has ``nspin_mag`` real
+    components and comes from contracting this with the spin-orbit coefficients
+    (:meth:`defuqumat.pseudo.spinorbit.SpinOrbitCoupling.becsum_so`). Keeping the
+    two apart is QE's structure too -- ``aux_nc`` then ``add_becsum_so`` -- and
+    it is what lets the same accumulation serve a spin-orbit species and a
+    scalar-relativistic one in the same cell.
+
+    Args:
+        psi: ``(nk, nbnd, 2 npwx)``.
+        vkb: ``(nk, npwx, nkb)``, or ``(2 nk, npwx, nkb)`` for a spiral, or
+            the :class:`~defuqumat.pseudo.projectors.Projectors` themselves
+            (:func:`walk_projectors`).
+        weights: ``(nk, nbnd)``.
+        spiral: the two components live on different spheres, so each is
+            projected on **its own** ``vkb`` -- ``vkb(k + q/2)`` for the up
+            component and ``vkb(k - q/2)`` for the down one, which is the same
+            pairing
+            :meth:`defuqumat.hamiltonian.noncollinear.NoncollinearHamiltonian._project`
+            uses inside ``H``. The rows are laid out as the k-list is, the two
+            halves one after the other, so the pair of a given ``ik`` is
+            ``(ik, ik + nk)``.
+
+            **The cross blocks of what comes back are then between two
+            different k-points**, and that is what makes them carry the spiral
+            wavevector: the augmentation charge they multiply is
+            ``Q_ij(G - q)``, not ``Q_ij(G)``. See
+            :meth:`defuqumat.scf.driver.Calculation.augmented`.
+
+    Returns one complex ``(nat_t, nh_t, 2, nh_t, 2)`` array per species.
+
+    Called eagerly it goes through :func:`defuqumat.eager.compiled`, for
+    :func:`becsum`'s reason: the per-k scan over a fresh closure was compiled
+    again at every SCF iteration, once a warm iteration on
+    ``tests/data/qe/ni-noncol-111.in``.
+    """
+    batch = resolve_k_batch(k_batch)
+    return compiled(
+        lambda states, occupations: _spinor_becsum(states, vkb, occupations,
+                                                   species_channels, batch, spiral),
+        psi, weights,
+    )
+
+
+def _spinor_becsum(psi, vkb, weights, species_channels, batch, spiral) -> tuple:
+    """:func:`spinor_becsum` itself, at a resolved ``batch``."""
+    npwx = psi.shape[-1] // 2
+    operand, fetch = walk_projectors(vkb, psi.shape[0], spiral)
+
+    def one_k(arrays):
+        row, state, occupation = arrays
+        projectors = fetch(row)
+        components = state.reshape(state.shape[:-1] + (2, npwx))
+        if spiral:
+            projections = jnp.einsum("agc,bag->bac", projectors.conj(), components)
+        else:
+            projections = jnp.einsum("gc,bag->bac", projectors.conj(), components)
+        return tuple(
+            None if channels is None
+            else _spinor_becsum_species(projections, occupation, channels)
+            for channels in species_channels
+        )
+
+    return sum_k(one_k, (operand, psi, weights), batch=batch)
+
+
+@jax.jit
+def _spinor_becsum_species(projections, weights, channels):
+    """One species' spinor ``becsum`` at one k-point, gathering its channels."""
+    columns = projections[:, :, channels]  # (nbnd, 2, nat, nh)
+    return jnp.einsum(
+        "b,bani,bcnj->niajc",
+        weights.astype(columns.dtype),
+        columns.conj(),
+        columns,
+    )

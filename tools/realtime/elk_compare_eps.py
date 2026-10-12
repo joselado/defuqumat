@@ -1,4 +1,4 @@
-"""defumat's current on Elk's Si-dielectric input against Elk's, and both dielectric functions.
+"""defuqumat's current on Elk's Si-dielectric input against Elk's, and both dielectric functions.
 
 Reads the current ``tools/realtime/time_realtime.py`` saved and an Elk run
 directory of the same input at scissor 0 (``JTOT_TD.OUT``, ``AFIELDT.OUT``,
@@ -19,7 +19,7 @@ one is the independent-particle response, which pairs with Elk's task 121; Elk
 propagates in 25 ground-state bands of an LAPW basis, this on the full sphere of
 norm-conserving plane waves at 16 Ry.
 
-    python3 tools/realtime/elk_compare_eps.py <defumat.npz> <elk run directory>
+    python3 tools/realtime/elk_compare_eps.py <defuqumat.npz> <elk run directory>
 """
 import json
 import sys
@@ -30,7 +30,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from elk_tdrt import epsilon_481, read_epsilon, read_jtot  # noqa: E402
 
-from defumat.units import HARTREE_TO_EV  # noqa: E402
+from defuqumat.units import HARTREE_TO_EV  # noqa: E402
 
 
 def peaks(w, values, low=0.1, high=0.25):

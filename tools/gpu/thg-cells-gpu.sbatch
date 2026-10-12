@@ -13,7 +13,7 @@
 #
 # Not submitted by any tool here (CLAUDE.local.md): by hand, after `sbatch --test-only`.
 #
-#   sbatch --export=ALL,DEFUMAT_REPO=/scratch/work/ladovj1/apps/defumat-thg tools/gpu/thg-cells-gpu.sbatch
+#   sbatch --export=ALL,DEFUQUMAT_REPO=/scratch/work/ladovj1/apps/defumat-thg tools/gpu/thg-cells-gpu.sbatch
 #
 # The run length is per cell: eta_t 6 (3600 steps) up to 16 atoms, where the check
 # against the hierarchy means something (8e-3 at 6 on the 2-atom cell), and eta_t 1
@@ -21,7 +21,7 @@
 # over 50 minutes at eta_t 0.5 where the 8-atom one took 3 (37.6 ms a point and step).
 # The cells run smallest first and each record is written as it finishes, so the
 # time limit can only cost the largest.
-#SBATCH --job-name=defumat-thg-cells
+#SBATCH --job-name=defuqumat-thg-cells
 #SBATCH --partition=gpu-h100-80g
 #SBATCH --time=08:00:00
 #SBATCH --gpus=h100:1
@@ -31,14 +31,14 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-thg/out/cells-%j.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-thg
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-thg}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-thg}
 PY=/scratch/work/ladovj1/calculations/pypresso-gpu/venv/bin/python3
 mkdir -p "$WORK/out" "$WORK/cache-gpu"
 cd "$REPO" || exit 1
 unset XLA_PYTHON_CLIENT_PREALLOCATE XLA_PYTHON_CLIENT_MEM_FRACTION JAX_PLATFORMS \
-      DEFUMAT_K_BATCH DEFUMAT_BAND_BATCH DEFUMAT_MEMORY_MODE
-export PYTHONPATH="$REPO" DEFUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache-gpu"
+      DEFUQUMAT_K_BATCH DEFUQUMAT_BAND_BATCH DEFUQUMAT_MEMORY_MODE
+export PYTHONPATH="$REPO" DEFUQUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 OUT="$WORK/out/cells-${SLURM_JOB_ID}.json"
 
 echo "=== node ==="; hostname; date

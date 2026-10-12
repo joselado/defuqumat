@@ -10,12 +10,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.basis.fft import g_to_r
-from defumat.basis.gradients import divergence, gradient
-from defumat.basis.gvectors import generate_gvectors
-from defumat.paw.angular import build_angular_grid
-from defumat.paw.gradient import radial_derivative
-from defumat.system.cell import Cell
+from defuqumat.basis.fft import g_to_r
+from defuqumat.basis.gradients import divergence, gradient
+from defuqumat.basis.gvectors import generate_gvectors
+from defuqumat.paw.angular import build_angular_grid
+from defuqumat.paw.gradient import radial_derivative
+from defuqumat.system.cell import Cell
 
 pytestmark = pytest.mark.unit
 
@@ -182,7 +182,7 @@ def test_the_angular_derivatives_are_the_derivatives_of_the_harmonics():
     only the projection is transcribed, so the check is against the angles
     directly.
     """
-    from defumat.pseudo.harmonics import real_spherical_harmonics
+    from defuqumat.pseudo.harmonics import real_spherical_harmonics
 
     grid = build_angular_grid(2, 9, gradient=True)
     lmax, nlm = 4, 25

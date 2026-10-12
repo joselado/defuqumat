@@ -120,7 +120,7 @@ def _without_symmetry(calculator):
     """
     import dataclasses
 
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     if calculator.system.nosym:
         return calculator
@@ -144,12 +144,12 @@ def _with_wedge(calculator, mesh):
 
     The reduction is built the way ``System._rebuild_kpoints`` builds it, from
     the crystal's own group with time reversal unless ``noinv``, and handed over
-    through :meth:`~defumat.calculator.Calculator.with_kpoints` so that
+    through :meth:`~defuqumat.calculator.Calculator.with_kpoints` so that
     ``for_spin`` runs: every ``KPoints`` constructor applies the unpolarized
     ``degspin`` unconditionally, and substituting a raw set is the trap that
     reads a plasma frequency of 13.11 eV where the answer is 0.60.
     """
-    from defumat.system.kpoints import KPoints
+    from defuqumat.system.kpoints import KPoints
 
     system = calculator.system
     if system.nosym:
@@ -177,7 +177,7 @@ def _with_full_grid(calculator, mesh):
     been dropped first with :func:`_without_symmetry`, which is what ``--nosym``
     does and is the only way the ultrasoft cell can be laddered at all.
     """
-    from defumat.system.kpoints import KPoints
+    from defuqumat.system.kpoints import KPoints
 
     if calculator.system.kpoints.reduced and not calculator.system.nosym:
         raise SystemExit("--kmesh refuses a symmetry-reduced cell: the response "
@@ -195,7 +195,7 @@ def _polarization_child(payload, queue):
     """One strained geometry, in a process of its own. See :func:`polarization_vector`."""
     import numpy as np
 
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     extra = ({} if payload.get("k_batch") is None
              else {"k_batch": payload["k_batch"]})
@@ -282,7 +282,7 @@ def wrapped(difference: float) -> float:
 
 def finite_difference(base, magnitude, nppstr, transverse, conv_thr):
     """``e_14`` by Elk's route: one ground state per strain, differenced."""
-    from defumat.units import BOHR_RADIUS_SI, ELECTRON_SI
+    from defuqumat.units import BOHR_RADIUS_SI, ELECTRON_SI
 
     factor = ELECTRON_SI / BOHR_RADIUS_SI**2  # e/bohr^2 -> C/m^2
 
@@ -368,8 +368,8 @@ def main() -> None:
     parser.add_argument("--pseudo-dir", default=str(ROOT / "tests" / "data" / "pseudo"))
     arguments = parser.parse_args()
 
-    import defumat.response.piezo as piezo
-    from defumat.calculator import Calculator
+    import defuqumat.response.piezo as piezo
+    from defuqumat.calculator import Calculator
 
     case = CASES[arguments.case]
     nppstr = arguments.nppstr or case["nppstr"]

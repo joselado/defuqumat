@@ -31,7 +31,7 @@
 #               dual, 45^3 at platinum's) and the peak is the compiled stack
 #               rather than any one array, so this is many times the worst case
 #               and leaves room for the run to be read afterwards with `seff`.
-#SBATCH --job-name=defumat-ulr-dual
+#SBATCH --job-name=defuqumat-ulr-dual
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-10
 #SBATCH --time=04:00:00
@@ -41,7 +41,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-ulr-dual/out/dual-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-ulr-dual
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" "$WORK/results" || exit 1
@@ -54,8 +54,8 @@ export PYTHONPATH="$REPO"
 # A cache *miss* is the cheaper state in memory and the dearer one in time, and
 # nothing here is a timing, so the cache is off and every task pays its own
 # compilation. It also keeps nine tasks off one cache directory on NFS.
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_TEST_MEM_MAX=28G
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_TEST_MEM_MAX=28G
 
 TASK=${SLURM_ARRAY_TASK_ID:-0}
 

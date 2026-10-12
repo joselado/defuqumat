@@ -19,7 +19,7 @@ differentiate it; the norm-conserving chunked route, which treats Hartree + XC a
 gets one extra `grad` of `q_global_energy` in `q` at the frozen density. Check: `dE/dq` against
 a central difference of the frozen-state energy, and against the SCF energy scan.
 
-## B. PAW one-centre (`defumat/paw/gradient.py:_noncollinear_gradient`)
+## B. PAW one-centre (`defuqumat/paw/gradient.py:_noncollinear_gradient`)
 
 Today: rotate onto `(n +- s|m|)/2` per quadrature direction and radius, re-project the channels
 onto multipoles, collinear `spin_gradient_terms_and_energy`, `v1 - div h`, rotate back.
@@ -95,7 +95,7 @@ nonmagnetic); a spiral against its supercell.
 
 ## D. The tests under the new default
 
-Fast gate on D22 (with `DEFUMAT_QE_ROOT`), then every slow file that runs a noncollinear GGA
+Fast gate on D22 (with `DEFUQUMAT_QE_ROOT`), then every slow file that runs a noncollinear GGA
 (spirals, anisotropy, torques, noncollinear GGA, `nosource`, Elk pairs) through
 `tools/run_regression.sh`; each failure is either a functional change on a canted GGA cell
 (re-pin to the explicit `'kubler'` where the reference is `pw.x` or Elk) or a defect.

@@ -1,9 +1,9 @@
 """The magnetocrystalline anisotropy from total energies, not band sums.
 
-:func:`~defumat.workflows.anisotropy.run_anisotropy` freezes the density
+:func:`~defuqumat.workflows.anisotropy.run_anisotropy` freezes the density
 converged without spin-orbit coupling and diagonalises once per direction, so
 every term of the total energy except the band sum cancels between two
-directions by construction. :func:`~defumat.workflows.anisotropy.
+directions by construction. :func:`~defuqumat.workflows.anisotropy.
 run_relaxed_anisotropy` does not cancel anything: it converges a whole
 noncollinear run per direction and subtracts two total energies of order 100 Ry
 in their eighth decimal.
@@ -25,8 +25,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.units import RY_TO_EV
+from defuqumat import Calculator
+from defuqumat.units import RY_TO_EV
 
 pytestmark = [pytest.mark.regression]
 
@@ -56,7 +56,7 @@ def test_without_spin_orbit_coupling_every_direction_has_the_same_energy():
     quantization axis left behind while the moment is turned, which is the bug
     this same identity found on the frozen route and was worth 36.8 meV there.
     """
-    from defumat.workflows.anisotropy import run_relaxed_anisotropy
+    from defuqumat.workflows.anisotropy import run_relaxed_anisotropy
 
     calculator = _calculator("co-tetragonal-relaxed-mae.in")
     with warnings.catch_warnings():
@@ -104,7 +104,7 @@ def test_the_same_identity_is_exact_on_the_scalar_relativistic_partner():
     and this test is what localised that floor to the reduction; it now reads
     1.9e-10 there as well.
     """
-    from defumat.workflows.anisotropy import run_relaxed_anisotropy
+    from defuqumat.workflows.anisotropy import run_relaxed_anisotropy
 
     source = Path("tests/data/qe/co-tetragonal-relaxed-mae.in").read_text()
     scalar = (source.replace("Co.rel-pbe-nd-rrkjus.UPF", "Co.pbe-nd-rrkjus.UPF")
@@ -138,7 +138,7 @@ def test_paw_is_refused_by_the_frozen_route_and_allowed_by_the_relaxed_one():
     does not apply -- and this test fails if either half of that ever changes
     silently.
     """
-    from defumat.workflows.anisotropy import _refuse_relaxed, _refuse_system
+    from defuqumat.workflows.anisotropy import _refuse_relaxed, _refuse_system
 
     calculator = _calculator("ni-tetragonal-relaxed-mae-paw.in")
     assert any(p.is_paw for p in calculator.pseudos), "the cell must be PAW"
@@ -160,7 +160,7 @@ def test_the_relaxed_route_refuses_what_would_make_its_total_meaningless():
     no spin-orbit coupling to be anisotropic about; and a collinear run has no
     direction to point.
     """
-    from defumat.workflows.anisotropy import _refuse_relaxed
+    from defuqumat.workflows.anisotropy import _refuse_relaxed
 
     spiral = _calculator("h-fcc-spiral-scan.in")
     with pytest.raises(NotImplementedError, match="spiral"):
@@ -180,7 +180,7 @@ def test_a_drift_is_reported_rather_than_absorbed():
     results, because the physics of when a drift happens is a property of the
     crystal and not of this code.
     """
-    from defumat.workflows.anisotropy import (RELAXED_DRIFT_TOL,
+    from defuqumat.workflows.anisotropy import (RELAXED_DRIFT_TOL,
                                               RelaxedAnisotropy,
                                               RelaxedDirection)
 
@@ -219,8 +219,8 @@ def test_the_drift_warning_actually_fires():
     Monkeypatching the per-direction worker is what lets one assertion cover the
     warning, its threshold and its text.
     """
-    import defumat.workflows.anisotropy as aniso
-    from defumat.workflows.anisotropy import RelaxedDirection
+    import defuqumat.workflows.anisotropy as aniso
+    from defuqumat.workflows.anisotropy import RelaxedDirection
 
     def fake(system, pseudos, direction=None, **kwargs):
         drift = 0.0 if direction[2] else 41.5
@@ -257,8 +257,8 @@ def test_the_unconverged_warning_actually_fires():
     decimal, so an unconverged direction does not give a slightly wrong
     anisotropy -- it gives one dominated by where the SCF happened to stop.
     """
-    import defumat.workflows.anisotropy as aniso
-    from defumat.workflows.anisotropy import RelaxedDirection
+    import defuqumat.workflows.anisotropy as aniso
+    from defuqumat.workflows.anisotropy import RelaxedDirection
 
     def fake(system, pseudos, direction=None, **kwargs):
         return RelaxedDirection(
@@ -297,7 +297,7 @@ def test_the_relaxed_anisotropy_agrees_with_pw_x():
     printed precision and nothing looser: 1e-8 Ry per total, rounded, and twice
     that on the difference.
     """
-    from defumat.io import read_qe_output
+    from defuqumat.io import read_qe_output
 
     references = [read_qe_output(Path(f"tests/data/qe/reference.out.co-tetragonal-relaxed-mae-{d}"))
                   for d in "xz"]

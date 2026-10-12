@@ -21,8 +21,8 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-from defumat import Calculator
-from defumat.workflows.anisotropy import rotation_from_euler   # no facade route to a rotation from angles
+from defuqumat import Calculator
+from defuqumat.workflows.anisotropy import rotation_from_euler   # no facade route to a rotation from angles
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 
@@ -119,7 +119,7 @@ print(f"turned:  converged {turned.converged} in {turned.iterations} iterations,
 print(f"energy against a run started along c: {turned.total_energy - along.total_energy:.1e} Ry")
 ```
 
-    /u/40/ladovj1/data/Documents/programs/claude/defumat/defumat/calculator.py:756: RuntimeWarning: the SCF stopped without converging: 100 iterations reached accuracy = 6.117e-06 Ry against conv_thr = 1.000e-10. Every quantity on this result is computed from an unconverged density. Raise electron_maxstep, change the mixing (a smaller mixing_beta for a run that is oscillating; mixing_mode = 'adaptive' for one that is crawling, where mixing_beta means an increment and a smaller one is the wrong reflex), or start from a better density (run_scf(starting_from=...)); SCFResult.converged and .accuracy are what say which this is
+    /u/40/ladovj1/data/Documents/programs/claude/defuqumat/defuqumat/calculator.py:756: RuntimeWarning: the SCF stopped without converging: 100 iterations reached accuracy = 6.117e-06 Ry against conv_thr = 1.000e-10. Every quantity on this result is computed from an unconverged density. Raise electron_maxstep, change the mixing (a smaller mixing_beta for a run that is oscillating; mixing_mode = 'adaptive' for one that is crawling, where mixing_beta means an increment and a smaller one is the wrong reflex), or start from a better density (run_scf(starting_from=...)); SCFResult.converged and .accuracy are what say which this is
       self._scf = run_scf(self.system, self.pseudos,
 
 

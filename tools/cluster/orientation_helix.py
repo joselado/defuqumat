@@ -56,12 +56,12 @@ def main() -> None:
     import jax
     import jax.numpy as jnp
 
-    from defumat import Calculator
-    from defumat.forces.torque import orientation_torque, rotate_texture
-    from defumat.scf.driver import Calculation
-    from defumat.workflows.spiral import unfold_spiral_density
-    from defumat.scf.spin_torque import exchange_torque
-    from defumat.workflows.anisotropy import (
+    from defuqumat import Calculator
+    from defuqumat.forces.torque import orientation_torque, rotate_texture
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.workflows.spiral import unfold_spiral_density
+    from defuqumat.scf.spin_torque import exchange_torque
+    from defuqumat.workflows.anisotropy import (
         _exp_rotation,
         _reference_axis,
         _reference_texture,
@@ -70,7 +70,7 @@ def main() -> None:
         rotation_from_euler,
         run_orientation_torque,
     )
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     record: dict = {"task": arguments.task, "start_euler": START}
     clock = time.time()
@@ -138,7 +138,7 @@ def main() -> None:
         # 1e-7 Ry, the helix being an unstable stationary point, so the run may
         # not reach ``conv_thr``; the orientation's trajectory is recorded every
         # iteration and is the measurement either way.
-        from defumat.scf.driver import run_scf
+        from defuqumat.scf.driver import run_scf
 
         start = rotation
         if arguments.task == "routec-near":

@@ -1,6 +1,6 @@
 """The table of ``g_l(q^2)`` the real-time projectors are built from.
 
-:mod:`defumat.realtime.radial` replaces the direct radial transform inside the
+:mod:`defuqumat.realtime.radial` replaces the direct radial transform inside the
 time loop by a Chebyshev series in ``q^2``, so it is checked against the
 transform it replaces: the radial functions on a grid the nodes do not contain,
 the projectors themselves on a cell at a shifted k-point, and the derivative a
@@ -14,11 +14,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.radial import column_layout, max_error, radial_table
-from defumat.scf import Calculation
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.radial import column_layout, max_error, radial_table
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -84,9 +84,9 @@ def test_the_table_differentiates_at_the_origin_like_the_rewritten_rows(pseudo_d
     origin = np.argwhere(np.asarray(np.sum(core.kg * core.kg, axis=-1)) <= 1e-8)[0]
     ik, ig = int(origin[0]), int(origin[1])
     table = radial_table(calculation.pseudos, calculation.system.cell.volume, 30.0)
-    from defumat.pseudo.projectors import (
+    from defuqumat.pseudo.projectors import (
         _origin_columns, _with_origin_rows)
-    from defumat.realtime.radial import column_layout as layout
+    from defuqumat.realtime.radial import column_layout as layout
 
     datasets, beta_of, lm_of, l_of = layout(calculation.pseudos)
     series = _origin_columns(datasets, beta_of, l_of, calculation.system.cell.volume)

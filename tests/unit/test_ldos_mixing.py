@@ -30,8 +30,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import defumat.scf.mixing as mixing
-from defumat.scf.mixing import (
+import defuqumat.scf.mixing as mixing
+from defuqumat.scf.mixing import (
     kerker_preconditioner,
     ldos_dielectric,
     ldos_preconditioner,
@@ -51,9 +51,9 @@ def _clear_caches():
 @lru_cache(maxsize=2)
 def _pieces(path):
     """The dense G-vectors and the cell of an input, built without an SCF."""
-    from defumat.basis.builder import build_basis
-    from defumat.io.pwin import read_pw_input
-    from defumat.system import build_system
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.system import build_system
 
     system = build_system(read_pw_input(path))
     return build_basis(system).dense, system.cell
@@ -225,10 +225,10 @@ def test_only_the_charge_is_screened():
 def test_in_g_it_is_the_real_space_solve_at_dual_4():
     """``mixing_space = 'g'`` solves over the smooth sphere, which at dual 4 is the
     dense one, so the two layouts take the same step to round-off."""
-    from defumat.basis.builder import build_basis
-    from defumat.io.pwin import read_pw_input
-    from defumat.scf.mixing import SphereLayout, ldos_preconditioner_g
-    from defumat.system import build_system
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.scf.mixing import SphereLayout, ldos_preconditioner_g
+    from defuqumat.system import build_system
 
     system = build_system(read_pw_input(SLAB))
     basis, cell = build_basis(system), system.cell
@@ -252,7 +252,7 @@ def test_in_g_it_is_the_real_space_solve_at_dual_4():
 
 @lru_cache(maxsize=1)
 def _slab_state():
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     calc = Calculator.from_file(SLAB, pseudo_dir=PSEUDO, announce=False)
     return calc, calc.get_scf()
@@ -306,7 +306,7 @@ def test_the_streamed_store_gives_the_same_ldos():
 
 
 def _silicon():
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     return Calculator.from_file(BENCHMARKS / "si-1k.in", pseudo_dir=PSEUDO, announce=False)
 
@@ -329,7 +329,7 @@ def test_the_screened_modes_warn_on_an_insulator():
 def test_tetrahedra_are_refused(tmp_path):
     """No smooth delta at ``e_F``; a Gaussian in its place was tried on the aluminium
     slab and neither it nor plain anderson converged there, so it is refused."""
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     text = SLAB.read_text()
     text = text.replace("occupations = 'smearing', smearing = 'gaussian', degauss = 0.05",
@@ -343,9 +343,9 @@ def test_tetrahedra_are_refused(tmp_path):
 
 
 def test_places_without_an_ldos_refuse_the_mode():
-    from defumat.response.mixing import ResponseMixer
-    from defumat.scf import run_scf
-    from defumat.ultracell.driver import run_ultracell
+    from defuqumat.response.mixing import ResponseMixer
+    from defuqumat.scf import run_scf
+    from defuqumat.ultracell.driver import run_ultracell
 
     with pytest.raises(ValueError, match="response loop"):
         ResponseMixer("ldos")

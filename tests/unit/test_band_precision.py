@@ -16,11 +16,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.config import DOUBLE, SINGLE, resolve_band_precision
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.config import DOUBLE, SINGLE, resolve_band_precision
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -38,9 +38,9 @@ def silicon(pseudo_dir):
 
 
 def test_the_default_is_double_and_the_environment_moves_it(monkeypatch):
-    monkeypatch.delenv("DEFUMAT_BAND_PRECISION", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_BAND_PRECISION", raising=False)
     assert resolve_band_precision() is DOUBLE
-    monkeypatch.setenv("DEFUMAT_BAND_PRECISION", "single")
+    monkeypatch.setenv("DEFUQUMAT_BAND_PRECISION", "single")
     assert resolve_band_precision() is SINGLE
     assert resolve_band_precision("double") is DOUBLE
 
@@ -88,7 +88,7 @@ def test_what_it_has_not_been_checked_on_is_refused(pseudo_dir, silicon):
     with pytest.raises(NotImplementedError, match="collinear norm-conserving"):
         Calculation(system, pseudos, band_precision="single")
     # and every derivative of the energy, through the one gate they share
-    from defumat.forces.energy import reject_potential_only
+    from defuqumat.forces.energy import reject_potential_only
 
     system, pseudos = silicon
     with pytest.raises(NotImplementedError, match="single precision"):

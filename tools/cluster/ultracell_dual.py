@@ -32,10 +32,10 @@ import jax
 import numpy as np
 import jax.numpy as jnp
 
-from defumat import Calculator
-from defumat.basis.builder import build_basis
-from defumat.scf.driver import Calculation, run_scf
-from defumat.ultracell import run_ultracell, with_external_potential
+from defuqumat import Calculator
+from defuqumat.basis.builder import build_basis
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.ultracell import run_ultracell, with_external_potential
 
 AMPLITUDE = 0.05
 
@@ -340,7 +340,7 @@ def main(index: int, out: Path, pseudo_dir: Path) -> None:
         return self.g2(_cell) <= (0.25 * _gcut if HALF_CUTOFF else _gcut)
 
     def ladder(arm, steps=None):
-        from defumat.ultracell.grid import Ultracell
+        from defuqumat.ultracell.grid import Ultracell
 
         original = Ultracell.reciprocal_mask
         if arm in ("sphere", "half"):

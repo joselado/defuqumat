@@ -8,14 +8,14 @@ handoff=/l/ladovj1/review/hspin/handoff
 until [ -f $out/all.done ]; do sleep 30; done
 cd /l/ladovj1/defumat-hspin
 source /l/ladovj1/venv/bin/activate
-export PYTHONPATH=/l/ladovj1/defumat-hspin DEFUMAT_REPO=/l/ladovj1/defumat-hspin
-export DEFUMAT_CACHE_DIR=/l/ladovj1/jaxcache MKL_NUM_THREADS=1 XLA_PYTHON_CLIENT_MEM_FRACTION=0.6
+export PYTHONPATH=/l/ladovj1/defumat-hspin DEFUQUMAT_REPO=/l/ladovj1/defumat-hspin
+export DEFUQUMAT_CACHE_DIR=/l/ladovj1/jaxcache MKL_NUM_THREADS=1 XLA_PYTHON_CLIENT_MEM_FRACTION=0.6
 run() {  # tag platform cores threads mem command...
   local tag=$1 platform=$2 cores=$3 threads=$4 mem=$5; shift 5
   if [ "$platform" = cpu ]; then export JAX_PLATFORMS=cpu; else unset JAX_PLATFORMS; fi
   local unit="svo12-$tag-$$"
   ( date; uptime; nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader
-    OMP_NUM_THREADS=$threads DEFUMAT_THREADS=off \
+    OMP_NUM_THREADS=$threads DEFUQUMAT_THREADS=off \
     time systemd-run --user --quiet --unit="$unit" -p MemoryMax=$mem -p MemorySwapMax=0 \
          --scope taskset -c $cores "$@"; uptime ) > $out/$tag.log 2>&1
   echo $? > $out/$tag.done

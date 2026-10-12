@@ -1,7 +1,7 @@
 """P1 check: cells and k-points reproduce what QE prints in its output header.
 
 Every input in the reference test-suite that has a committed benchmark is built
-through defumat and compared against QE's own header: lattice parameter, cell
+through defuqumat and compared against QE's own header: lattice parameter, cell
 volume, crystal and reciprocal axes, and -- where the k-point set is written out
 explicitly -- the k-points and their weights.
 
@@ -14,10 +14,10 @@ free cell. Those sign and ordering conventions are exactly what a
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.system import build_system
-from defumat.system.kpoints import monkhorst_pack
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import monkhorst_pack
 from tests.conftest import QE_ROOT
 from tests.tolerances import GEOMETRY
 

@@ -1,4 +1,4 @@
-"""The local term a chunk of ``z`` planes at a time (``defumat.basis.fft.sticks_local``).
+"""The local term a chunk of ``z`` planes at a time (``defuqumat.basis.fft.sticks_local``).
 
 The chunked path issues the same transforms on the same numbers as the
 whole-box one, in a different order, so ``H psi`` must agree to round-off --
@@ -17,11 +17,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.batching import PLANE_CHUNK_BYTES, resolve_plane_chunk
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
+from defuqumat.batching import PLANE_CHUNK_BYTES, resolve_plane_chunk
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
 from tests.backend import on_a_cpu
 
 REPO = Path(__file__).resolve().parents[2]
@@ -86,16 +86,16 @@ def test_spinor_local_term_is_the_same_in_chunks():
 def test_the_dial_follows_the_platform_and_the_environment(monkeypatch):
     on_a_cpu(monkeypatch)
     grid = (36, 36, 144)
-    monkeypatch.delenv("DEFUMAT_PLANE_CHUNK", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_PLANE_CHUNK", raising=False)
     # On a CPU: the byte budget's worth of planes, at least one, at most n3,
     # a plane counting its wavefunction components twice and the potential's once.
     assert resolve_plane_chunk(grid, 16) == int(PLANE_CHUNK_BYTES // (36 * 36 * 16 * 2.5))
     assert resolve_plane_chunk(grid, 16, fields=2, potentials=4) == 3
     assert resolve_plane_chunk((400, 400, 10), 16) == 1
     assert resolve_plane_chunk((4, 4, 3), 16) == 3
-    monkeypatch.setenv("DEFUMAT_PLANE_CHUNK", "off")
+    monkeypatch.setenv("DEFUQUMAT_PLANE_CHUNK", "off")
     assert resolve_plane_chunk(grid, 16) is None
-    monkeypatch.setenv("DEFUMAT_PLANE_CHUNK", "8")
+    monkeypatch.setenv("DEFUQUMAT_PLANE_CHUNK", "8")
     assert resolve_plane_chunk(grid, 16) == 8
     assert resolve_plane_chunk(grid, 16, requested=None) is None
     assert resolve_plane_chunk(grid, 16, requested=500) == 144

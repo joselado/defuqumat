@@ -13,15 +13,15 @@ import numpy as np
 import jax.numpy as jnp
 import pytest
 
-from defumat.topology.mesh import string_mesh
-from defumat.topology.polarization import (
+from defuqumat.topology.mesh import string_mesh
+from defuqumat.topology.polarization import (
     combine_string_phases,
     ionic_phase,
     polarization_quantum,
     string_phase,
 )
-from defumat.topology.states import ModelStates
-from defumat.workflows.polarization import _refuse_ungapped, run_polarization
+from defuqumat.topology.states import ModelStates
+from defuqumat.workflows.polarization import _refuse_ungapped, run_polarization
 
 pytestmark = pytest.mark.unit
 

@@ -19,7 +19,7 @@ Both come out of differentiating the force of notebook 09 *once more*, along a d
 carries the positions, the states and the density together, so nothing is derived by hand and
 no second-order wavefunction is needed.
 
-| silicon at $\Gamma$ | defumat | `ph.x` |
+| silicon at $\Gamma$ | defuqumat | `ph.x` |
 |---|---|---|
 | optical mode ($\Gamma_{25'}$, triply degenerate) | **510.102 cm⁻¹** | 510.152 |
 | acoustic modes (zero by translation invariance) | 4.09 | 2.05 |
@@ -39,7 +39,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 CASES, PSEUDO = Path("../tests/data/qe"), Path("../tests/data/pseudo")
 
@@ -106,7 +106,7 @@ machinery with the left.
 
 
 ```python
-from defumat.basis.fft import g_to_r, r_to_g   # no facade route to rho(G)
+from defuqumat.basis.fft import g_to_r, r_to_g   # no facade route to rho(G)
 
 grid = silicon.calculation.basis.dense
 cartesian = grid.cartesian(silicon.system.cell)
@@ -280,7 +280,7 @@ there = np.array([PH_X[label] for label in place])
 
 ax.plot(list(place.values()), here, "-o", color="#1f77b4", markersize=7, linewidth=1)
 ax.plot(list(place.values()), there, "x", color="#d62728", markersize=8, mew=1.8)
-ax.plot([], [], "-o", color="#1f77b4", label="defumat")
+ax.plot([], [], "-o", color="#1f77b4", label="defuqumat")
 ax.plot([], [], "x", color="#d62728", label="ph.x", mew=1.8)
 ax.set_xticks(list(place.values()), list(place.keys()), fontsize=13)
 ax.set_ylabel("frequency [cm$^{-1}$]")

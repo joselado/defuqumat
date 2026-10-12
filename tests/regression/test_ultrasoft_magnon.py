@@ -8,7 +8,7 @@ ultrasoft dataset it is not, and what is missing is
 
 the augmentation charge at the *same* wavevector the exponent carries. Nothing
 is derived for it: ``q^a_ij(b)`` at an arbitrary wavevector is the primitive the
-ultrasoft Berry phase already uses (:mod:`defumat.topology.augmentation`,
+ultrasoft Berry phase already uses (:mod:`defuqumat.topology.augmentation`,
 validated by ``b -> 0`` reproducing the projectors' own ``qq`` and by a Chern
 number coming out an exact integer), called once per ``G`` of the response
 sphere.
@@ -46,8 +46,8 @@ import jax
 import numpy as np
 import pytest
 
-import defumat.tddft.spinchi0 as spinchi0
-from defumat import Calculator
+import defuqumat.tddft.spinchi0 as spinchi0
+from defuqumat import Calculator
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -121,7 +121,7 @@ def test_the_wavevector_convention_matches_the_berry_phase():
     would report a pass it could not have failed.
 
     What pins it is a *structural* correspondence with code that is already
-    validated. :meth:`defumat.topology.states.PlaneWaveStates.overlap` builds
+    validated. :meth:`defuqumat.topology.states.PlaneWaveStates.overlap` builds
     the same augmented object for a pair of k-points, takes its wavevector as
     ``k_ket - k_bra`` (its ``_difference``), and is pinned by a Chern number
     coming out an exact integer on an ultrasoft dataset. The transverse matrix
@@ -129,7 +129,7 @@ def test_the_wavevector_convention_matches_the_berry_phase():
     gives ``b = +(q + G)``, and the ``G = 0`` entry of the factors must be the
     *identical array* the Berry phase would use for that pair.
     """
-    from defumat.topology.augmentation import augmentation_at_q
+    from defuqumat.topology.augmentation import augmentation_at_q
 
     calc = _calculator("ni-fcc-magnon-us.in")
     calculation = calc.calculation

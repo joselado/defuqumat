@@ -28,11 +28,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import parse_pw_input, read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import parse_pw_input, read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -134,7 +134,7 @@ def test_constraint_energy_matches_qe(qe_testsuite, pseudo_dir, benchmark):
         pytest.skip("this reference does not print the constraint energy")
 
     system, result = _run(qe_testsuite / "pw_noncolin" / name, pseudo_dir)
-    from defumat.scf.driver import Calculation
+    from defuqumat.scf.driver import Calculation
 
     pseudos = tuple(
         read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species

@@ -27,25 +27,25 @@ import scipy.linalg as sla
 
 import jax.numpy as jnp
 
-from defumat.hubbard.energy import (
+from defuqumat.hubbard.energy import (
     coefficients_from_setup,
     elk_amf_potential,
     hubbard_energy,
     hubbard_potential,
     qe_hubbard_full_potential,
 )
-from defumat.hubbard.interaction import (
+from defuqumat.hubbard.interaction import (
     coulomb_matrix,
     default_racah,
     exchange_from_slater,
     slater_integrals,
 )
-from defumat.hubbard.manifold import HubbardSetup, HubbardSpecies, build_hubbard_setup
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.pseudo.harmonics import real_spherical_harmonics
-from defumat.system import build_system
-from defumat.units import RY_TO_EV
+from defuqumat.hubbard.manifold import HubbardSetup, HubbardSpecies, build_hubbard_setup
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.harmonics import real_spherical_harmonics
+from defuqumat.system import build_system
+from defuqumat.units import RY_TO_EV
 
 pytestmark = pytest.mark.unit
 

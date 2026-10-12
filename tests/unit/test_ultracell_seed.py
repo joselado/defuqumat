@@ -1,6 +1,6 @@
 """The magnetization seed: what it does to a density and to a ``becsum``.
 
-Nothing here runs an SCF. :mod:`defumat.ultracell.seed` turns and scales a
+Nothing here runs an SCF. :mod:`defuqumat.ultracell.seed` turns and scales a
 magnetization that is handed to it, and every claim it makes is an identity on
 an array -- which is the right place to check them, because the two ways this
 goes wrong are both silent. A seed that lands on the **wrong copy** of an atom
@@ -15,14 +15,14 @@ import warnings
 import numpy as np
 import pytest
 
-from defumat.ultracell.grid import Ultracell
-from defumat.ultracell.driver import (
+from defuqumat.ultracell.grid import Ultracell
+from defuqumat.ultracell.driver import (
     KRAMERS_SKIP,
     LSPINORB_SKIP,
     _field_seed_gate,
     _noncollinear_advice,
 )
-from defumat.ultracell.seed import (
+from defuqumat.ultracell.seed import (
     FIELD_NODE_TOL,
     field_seed_axis,
     reference_axis,
@@ -345,7 +345,7 @@ def test_the_becsum_seed_lands_on_the_copy_its_cell_index_names(
     """Copy ``R`` gets the seed at cell ``R``, and a uniform seed cannot say so.
 
     The copy index is a lattice translation in C-order over the integer triple
-    (:func:`~defumat.ultracell.augmentation.becsum_per_copy` is an ``ifftn``
+    (:func:`~defuqumat.ultracell.augmentation.becsum_per_copy` is an ``ifftn``
     over the Q-grid), and a seed landing on the wrong one converges to a
     plausible wrong modulation. So the seed here is deliberately **not** uniform
     -- a different value in every cell, read back copy by copy against the field

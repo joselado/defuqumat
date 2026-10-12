@@ -5,7 +5,7 @@ The push gate was first run with a card as JAX's backend on 2026-10-05
 they assumed the CPU. Two helpers cover the two kinds that are not about a
 compiled program's text.
 
-* :func:`on_a_cpu` pins :func:`defumat.batching._backend`, which every
+* :func:`on_a_cpu` pins :func:`defuqumat.batching._backend`, which every
   platform default reads when it is called, for a test whose claim **is** a
   CPU default (a dial, a route, a printed setting). On a CPU it changes
   nothing.
@@ -21,7 +21,7 @@ import numpy as np
 
 def on_a_cpu(monkeypatch) -> None:
     """Make every platform default resolve as it does on a CPU."""
-    from defumat import batching
+    from defuqumat import batching
 
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
 

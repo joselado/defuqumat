@@ -2,7 +2,7 @@
 
 ``GPU-MEMORY-NEXT.md`` item 15. Under a strain the stored route assembles the
 whole ``(nh, nh, ngm)`` array on the gradient's tape; the scanned route rebuilds
-it a chunk at a time with :class:`~defumat.pseudo.augmentation.ExactRadial` --
+it a chunk at a time with :class:`~defuqumat.pseudo.augmentation.ExactRadial` --
 the radial integral itself, not the interpolated table -- so its charge, its
 ``D_ij`` integrals and its ``q_ij`` are the stored route's to round-off, and a
 stress taken through it is the derivative of the energy the SCF minimised.
@@ -14,8 +14,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.pseudo.augmentation import (
+from defuqumat.calculator import Calculator
+from defuqumat.pseudo.augmentation import (
     AugmentationCharge, ExactRadial, TabulatedAugmentation, build_augmentation,
 )
 
@@ -50,7 +50,7 @@ def _calculation(pseudo_dir, **options):
 
 def test_the_scanned_table_is_the_stored_one_to_round_off(pseudo_dir, monkeypatch):
     # A small chunk, so the scan really walks several blocks and a padded tail.
-    monkeypatch.setenv("DEFUMAT_AUG_CHUNK", "1000")
+    monkeypatch.setenv("DEFUQUMAT_AUG_CHUNK", "1000")
     calculation = _calculation(pseudo_dir)
     stored = calculation.augmentation
     system = calculation.system

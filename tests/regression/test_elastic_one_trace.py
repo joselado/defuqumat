@@ -2,9 +2,9 @@
 
 ``OPEN.md`` Part III H7. Each column of the elastic tensor is one ``jvp`` of the
 stress at the same primal point, and the loop called
-:func:`~defumat.eager.compiled_jvp` once per column, which traces the whole
+:func:`~defuqumat.eager.compiled_jvp` once per column, which traces the whole
 forward-over-reverse derivative at every call to find the program it kept. The
-loop now traces it once (:func:`~defumat.eager.compiled_function`) and runs the
+loop now traces it once (:func:`~defuqumat.eager.compiled_function`) and runs the
 kept program six times. What is checked is the count of traces and that the
 tensor is the old loop's to the bit, which is what makes this a free change
 rather than a number-moving one.
@@ -22,12 +22,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat import eager
-from defumat.eager import compiled_jvp
-from defumat.forces.energy import FrozenState, energy_at
-from defumat.response.elastic import VOIGT, elastic_constants
-from defumat.response.strain import strain_tangent
+from defuqumat import Calculator
+from defuqumat import eager
+from defuqumat.eager import compiled_jvp
+from defuqumat.forces.energy import FrozenState, energy_at
+from defuqumat.response.elastic import VOIGT, elastic_constants
+from defuqumat.response.strain import strain_tangent
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -105,7 +105,7 @@ def test_the_shared_primal_is_taken_under_the_gate_and_agrees(silicon, monkeypat
     six separate columns to round-off and not to the bit, since the batched
     products sum in a different order (1.6e-11 on 26.2 on rBN).
     """
-    from defumat.response import elastic
+    from defuqumat.response import elastic
 
     seen = []
     original = elastic.sized_function
@@ -125,7 +125,7 @@ def test_the_shared_primal_is_taken_under_the_gate_and_agrees(silicon, monkeypat
 
 def test_a_program_over_the_gate_falls_back_to_the_loop(silicon, monkeypatch):
     """The gate fires: a budget one byte under the compiled size takes the loop, to the bit."""
-    from defumat.response import elastic
+    from defuqumat.response import elastic
 
     seen = []
     original = elastic.sized_function

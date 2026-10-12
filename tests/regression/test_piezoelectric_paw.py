@@ -5,8 +5,8 @@
 reaches: ``becsum`` enters a PAW energy directly, through the one-centre terms,
 rather than only through the augmentation charge on the dense grid, so the
 factor that has to be made whole before it is contracted is made whole in two
-places -- :func:`~defumat.response.born._full_zone_field_response` on the grid
-and :func:`~defumat.response.born._full_zone_becsum_response` in the spheres.
+places -- :func:`~defuqumat.response.born._full_zone_field_response` on the grid
+and :func:`~defuqumat.response.born._full_zone_becsum_response` in the spheres.
 The second ran for nobody: the piezoelectric tensor refuses a PAW dataset at the
 door, every committed PAW crystal is centrosymmetric, and a centrosymmetric
 crystal's tensor is zero whatever the assembly does. Live code with no test is
@@ -28,14 +28,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.efield import _bare_plus_induced, dielectric_tensor
-from defumat.response.electrostriction import refined_states
-from defumat.response.piezo import clamped_ion_piezoelectric, to_voigt
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
-from defumat.units import E_BOHR2_TO_C_M2
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.efield import _bare_plus_induced, dielectric_tensor
+from defuqumat.response.electrostriction import refined_states
+from defuqumat.response.piezo import clamped_ion_piezoelectric, to_voigt
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
+from defuqumat.units import E_BOHR2_TO_C_M2
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -137,7 +137,7 @@ def test_the_paw_wedge_completes_and_the_falsifier_says_it_is_doing_it():
     afterwards, which for PAW happens in two places: on the dense grid, where the
     augmentation charge lives, and in the one-centre terms, where ``becsum``
     reaches the energy directly and no grid integral can follow it. The second is
-    :func:`~defumat.response.born._full_zone_becsum_response` and this is the
+    :func:`~defuqumat.response.born._full_zone_becsum_response` and this is the
     first test it has ever had.
 
     Measured on this cell, three k-points against the closed grid's eight:

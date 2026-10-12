@@ -29,7 +29,7 @@ notebook 33 compares with it):
 ```python
 from pathlib import Path
 import numpy as np
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 alas = Calculator.from_file(CASES / "alas-raman-wedge.in", PSEUDO, announce=False)
@@ -91,8 +91,8 @@ to which $\chi^{(2)}$ is odd. The two are related by minus the complex conjugate
 
 
 ```python
-from defumat.system.kpoints import KPoints
-from defumat.units import RY_TO_EV
+from defuqumat.system.kpoints import KPoints
+from defuqumat.units import RY_TO_EV
 
 mesh = KPoints.automatic((4, 4, 4), (0, 0, 0), alas.system.cell)
 shg = alas.get_shg(kpoints=mesh, nbnd=60, frequencies=EV / RY_TO_EV, broadening=0.1 / RY_TO_EV)
@@ -102,7 +102,7 @@ for i in range(1, 31, 3):
     print(f"{EV[i]:5.1f} {xyz[i].real:10.1f}{xyz[i].imag:+9.1f}i {summed[i].real:10.1f}{summed[i].imag:+9.1f}i")
 ```
 
-    /u/40/ladovj1/data/Documents/programs/claude/defumat/defumat/workflows/shg.py:139: RuntimeWarning: the band set is cut inside a degenerate multiplet: band_cut_gap = 1.61e-13 Ry, below DEGENERACY_TOL = 1e-08 Ry, the splitting under which two bands are one level. Which members of the multiplet fall below the cut is arbitrary, since any rotation inside it is an equally good set of eigenvectors, so the second-harmonic tensor chi^abc carries a part that is not a property of the crystal: on AlAs (alas-shg.in, the whole 6x6x6 mesh), cut at 22 bands through doublets at 13 of the 216 k-points, rotating each doublet before the cut moves chi^(2) by up to 4.7e-4 of its peak, and the components zincblende forbids read 2.5e-4 of the allowed ones against 1.5e-9 at 23 bands, a clean cut; on two-atom silicon a cut at 12 bands leaves 1095 pm/V where inversion forbids any. Choose an nbnd at which band_cut_gap is a real gap
+    /u/40/ladovj1/data/Documents/programs/claude/defuqumat/defuqumat/workflows/shg.py:139: RuntimeWarning: the band set is cut inside a degenerate multiplet: band_cut_gap = 1.61e-13 Ry, below DEGENERACY_TOL = 1e-08 Ry, the splitting under which two bands are one level. Which members of the multiplet fall below the cut is arbitrary, since any rotation inside it is an equally good set of eigenvectors, so the second-harmonic tensor chi^abc carries a part that is not a property of the crystal: on AlAs (alas-shg.in, the whole 6x6x6 mesh), cut at 22 bands through doublets at 13 of the 216 k-points, rotating each doublet before the cut moves chi^(2) by up to 4.7e-4 of its peak, and the components zincblende forbids read 2.5e-4 of the allowed ones against 1.5e-9 at 23 bands, a clean cut; on two-atom silicon a cut at 12 bands leaves 1095 pm/V where inversion forbids any. Choose an nbnd at which band_cut_gap is a real gap
       return second_harmonic(
 
 

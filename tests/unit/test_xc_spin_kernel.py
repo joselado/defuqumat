@@ -2,7 +2,7 @@
 
 The kernel a spin-polarized screened response is built from is
 ``d v_sigma / d rho_sigma'``, and here it is one ``jvp`` of
-:meth:`~defumat.xc.functional.Functional.spin_potential`, which is itself a
+:meth:`~defuqumat.xc.functional.Functional.spin_potential`, which is itself a
 gradient -- so nothing in the package writes it down. QE does
 (``XClib/qe_drivers_d_lda_lsda.f90``), and this file transcribes that expression
 to compare against, which is the project's standing rule: the Fortran is the
@@ -14,7 +14,7 @@ transcription below. At a **fully polarized** point, where a channel density
 reaches zero and ``rho_sigma^(4/3)``'s second derivative is infinite, QE does not
 regularise anything -- it *defines* the kernel to be zero, by pre-zeroing
 ``dmuxc`` and then ``CYCLE``-ing past ``ABS(zeta_s) >= 1``. That convention is
-:func:`~defumat.xc.functional._fully_polarized`, and it is what makes triplet
+:func:`~defuqumat.xc.functional._fully_polarized`, and it is what makes triplet
 O2's dielectric constant computable at all (P70).
 
 **The `e2` trap.** ``slater``, ``pz``, ``pz_polarized``, ``dpz`` and
@@ -34,7 +34,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.xc.functional import _fully_polarized, get_functional
+from defuqumat.xc.functional import _fully_polarized, get_functional
 
 E2 = 2.0
 #: ``qe_drivers_d_lda_lsda.f90:219`` -- **0.75/pi, not (3/4 pi)^(1/3)**. QE uses
@@ -265,7 +265,7 @@ def test_the_clamp_keeps_the_interior_tangent_at_the_boundary():
     ``0``. ``|zeta| = 1`` is every point of a saturated magnet, so this is
     reached rather than approached.
     """
-    from defumat.xc.lda import clamp_polarization
+    from defuqumat.xc.lda import clamp_polarization
 
     derivative = jax.grad(clamp_polarization)
     assert float(derivative(1.0)) == 1.0

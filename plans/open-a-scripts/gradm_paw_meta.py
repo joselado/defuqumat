@@ -14,10 +14,10 @@ from pathlib import Path
 
 ROOT = Path(sys.argv[sys.argv.index("--root") + 1]); sys.path.insert(0, str(ROOT))
 mode = sys.argv[-1]
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
 from tests.conftest import GENERATED
 
 PSEUDO = ROOT / "tests" / "data" / "pseudo"

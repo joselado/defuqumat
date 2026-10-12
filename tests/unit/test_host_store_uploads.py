@@ -31,7 +31,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
+from defuqumat.calculator import Calculator
 
 pytestmark = pytest.mark.unit
 
@@ -122,7 +122,7 @@ def _silicon(nbnd=8, nocc=4):
 
 
 def test_the_band_velocities_take_a_host_store_through_device_put(monkeypatch):
-    from defumat.response.velocity import VelocityOperator
+    from defuqumat.response.velocity import VelocityOperator
 
     calculation, _, v_scf, host, eigenvalues = _silicon()
     operator = VelocityOperator(calculation, v_scf)
@@ -145,7 +145,7 @@ def test_the_band_velocities_take_a_host_store_through_device_put(monkeypatch):
 
 def test_the_dielectric_internals_take_a_host_store_through_device_put(monkeypatch):
     """``keep_internals`` keeps the whole-k route, a streamed store included."""
-    import defumat.response.efield as efield
+    import defuqumat.response.efield as efield
 
     calculation, density, _, host, eigenvalues = _silicon(nbnd=4, nocc=4)
     handed = []
@@ -167,10 +167,10 @@ def test_the_dielectric_internals_take_a_host_store_through_device_put(monkeypat
 
 
 def _iodine(pseudo_dir: Path, spiral=False):
-    from defumat.io.pwin import parse_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation
-    from defumat.system import build_system
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system import build_system
 
     system = build_system(parse_pw_input(IODINE.format(spiral=SPIRAL if spiral else "")))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file)
@@ -186,8 +186,8 @@ def _random_store(nk, ndim, nbnd=5, seed=3):
 
 
 def test_the_spiral_expectation_takes_each_chunk_as_rows(monkeypatch, pseudo_dir):
-    from defumat.workflows.anisotropy import _first_order_operator
-    from defumat.workflows.spiral_soc import spiral_expectation
+    from defuqumat.workflows.anisotropy import _first_order_operator
+    from defuqumat.workflows.spiral_soc import spiral_expectation
 
     _, _, calculation = _iodine(pseudo_dir, spiral=True)
     delta, _ = _first_order_operator(calculation, None)
@@ -206,7 +206,7 @@ def test_the_spiral_expectation_takes_each_chunk_as_rows(monkeypatch, pseudo_dir
 
 def test_the_projected_band_energy_takes_each_k_point_through_device_put(
         monkeypatch, pseudo_dir):
-    from defumat.workflows.anisotropy import _project_band_energy
+    from defuqumat.workflows.anisotropy import _project_band_energy
 
     system, _, calculation = _iodine(pseudo_dir)
     nk = calculation.system.kpoints.nk
@@ -226,7 +226,7 @@ def test_the_projected_band_energy_takes_each_k_point_through_device_put(
 
 def test_the_frozen_expectation_takes_each_chunk_as_rows(monkeypatch, pseudo_dir):
     """:func:`frozen_expectation` on stand-in states, so no NSCF is run."""
-    import defumat.workflows.anisotropy as anisotropy
+    import defuqumat.workflows.anisotropy as anisotropy
 
     system, pseudos, calculation = _iodine(pseudo_dir)
     nk = calculation.system.kpoints.nk

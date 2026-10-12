@@ -10,9 +10,9 @@ its whole history, and the step converges on a quadratic it is handed.
 import numpy as np
 import pytest
 
-from defumat.forces.torque import rotate_texture
-from defumat.scf.mixing import get_mixer
-from defumat.scf.orientation import (
+from defuqumat.forces.torque import rotate_texture
+from defuqumat.scf.mixing import get_mixer
+from defuqumat.scf.orientation import (
     OrientationStepper,
     rotate_spinors,
     rotation_matrix,
@@ -106,7 +106,7 @@ def test_the_step_converges_on_a_quadratic_and_respects_its_bounds():
 
 def test_the_first_order_spin_turn_is_the_exact_one_to_first_order():
     """``spin_turned`` is what the PAW torque differentiates through the states."""
-    from defumat.scf.orientation import spin_turned
+    from defuqumat.scf.orientation import spin_turned
 
     rng = np.random.default_rng(4)
     psi = rng.normal(size=(2, 3, 10)) + 1j * rng.normal(size=(2, 3, 10))

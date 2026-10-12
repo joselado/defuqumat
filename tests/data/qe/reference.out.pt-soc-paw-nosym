@@ -64,7 +64,7 @@
 
 
      PseudoPot. # 1 for Pt read from file:
-     /u/40/ladovj1/data/Documents/programs/claude/defumat/tests/data/pseudo/Pt.rel-pbe-n-kjpaw_psl.0.1.UPF
+     /u/40/ladovj1/data/Documents/programs/claude/defuqumat/tests/data/pseudo/Pt.rel-pbe-n-kjpaw_psl.0.1.UPF
      MD5 check sum: 6b9f48222010279fbcf42c08cb87f5e3
      Pseudo is Projector augmented-wave + core cor, Zval = 10.0
      Generated using "atomic" code by A. Dal Corso  v.5.0.2 svn rev. 9415

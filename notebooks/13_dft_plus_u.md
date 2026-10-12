@@ -22,7 +22,7 @@ written down beside it.
 `ortho-atomic` or `norm-atomic` projectors. On antiferromagnetic FeO, the
 material the correction exists for:
 
-| | defumat | `pw.x` |
+| | defuqumat | `pw.x` |
 |---|---|---|
 | total energy, $U = 4.3$ eV | **-174.471560677 Ry** | -174.471560670 |
 | total energy, $U \to 0$ | **-174.824657947 Ry** | -174.824657950 |
@@ -40,8 +40,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
-from defumat.io import comparison_table, read_qe_output
+from defuqumat import Calculator
+from defuqumat.io import comparison_table, read_qe_output
 
 QE = Path("../quantum_espresso/qe-7.5-ReleasePack/qe-7.5/test-suite/pw_lda+U")
 PSEUDO, REFS = Path("../tests/data/pseudo"), Path("../tests/data/qe")
@@ -75,10 +75,10 @@ print(comparison_table(
       read_qe_output(REFS / "reference.out.pw_lda+U-lda+U").total_energy),
      ("FeO, U -> 0", no_u.total_energy,
       read_qe_output(REFS / "reference.out.pw_lda+U-lda+U-noU").total_energy)],
-    fmt="{:.9f}", headers=("total energy [Ry]", "defumat", "pw.x", "difference")))
+    fmt="{:.9f}", headers=("total energy [Ry]", "defuqumat", "pw.x", "difference")))
 ```
 
-    total energy [Ry]         defumat            pw.x  difference
+    total energy [Ry]         defuqumat            pw.x  difference
     FeO, U = 4.3 eV    -174.471560677  -174.471560670     6.6e-09
     FeO, U -> 0        -174.824657947  -174.824657950     3.4e-09
 
@@ -207,11 +207,11 @@ is almost the only one that feels it.
 
 
 ```python
-from defumat.hubbard import (  # no facade route: this is a property of a pseudopotential's orbital, not of a calculation
+from defuqumat.hubbard import (  # no facade route: this is a property of a pseudopotential's orbital, not of a calculation
     exchange_from_slater, manifold_radial, screening_length, slater_set,
 )
-from defumat.pseudo import read_upf  # no facade route
-from defumat.units import RY_TO_EV
+from defuqumat.pseudo import read_upf  # no facade route
+from defuqumat.units import RY_TO_EV
 
 nickel = manifold_radial(read_upf(PSEUDO / "Ni.rel-pbe-spn-kjpaw_psl.1.0.0.UPF"), 3, 2)
 lambdas = np.linspace(0.0, 4.0, 21)

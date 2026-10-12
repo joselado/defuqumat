@@ -1,6 +1,6 @@
 """The ultracell index map, which everything in P88 rests on.
 
-Nothing here runs an SCF. The whole of :mod:`defumat.ultracell.grid` is basis
+Nothing here runs an SCF. The whole of :mod:`defuqumat.ultracell.grid` is basis
 bookkeeping, and it is exactly the kind of bookkeeping that produces a
 plausible wrong answer rather than an error -- a mis-signed Miller index puts a
 plane wave in the wrong cell of the ultracell, which is a *different physical
@@ -13,10 +13,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.basis.builder import build_basis
-from defumat.io.pwin import read_pw_input
-from defumat.system import build_system
-from defumat.ultracell.grid import Ultracell, folded_kpoints
+from defuqumat.basis.builder import build_basis
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.system import build_system
+from defuqumat.ultracell.grid import Ultracell, folded_kpoints
 
 ROOT = Path(__file__).resolve().parents[2]
 SHAPES = [(1, 1, 1), (2, 1, 1), (1, 3, 1), (2, 1, 3), (3, 2, 2)]

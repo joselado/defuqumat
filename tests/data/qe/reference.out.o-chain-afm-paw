@@ -61,7 +61,7 @@
 
 
      PseudoPot. # 1 for O  read from file:
-     /u/40/ladovj1/data/Documents/programs/claude/defumat/tests/data/pseudo/O.pz-kjpaw.UPF
+     /u/40/ladovj1/data/Documents/programs/claude/defuqumat/tests/data/pseudo/O.pz-kjpaw.UPF
      MD5 check sum: b74db769ed4fa2f18a9f432288c41979
      Pseudo is Projector augmented-wave + core cor, Zval =  6.0
      Generated using "atomic" code by A. Dal Corso (espresso distribution)
@@ -75,7 +75,7 @@
 
 
      PseudoPot. # 2 for O  read from file:
-     /u/40/ladovj1/data/Documents/programs/claude/defumat/tests/data/pseudo/O.pz-kjpaw.UPF
+     /u/40/ladovj1/data/Documents/programs/claude/defuqumat/tests/data/pseudo/O.pz-kjpaw.UPF
      MD5 check sum: b74db769ed4fa2f18a9f432288c41979
      Pseudo is Projector augmented-wave + core cor, Zval =  6.0
      Generated using "atomic" code by A. Dal Corso (espresso distribution)

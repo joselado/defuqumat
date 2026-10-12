@@ -35,13 +35,13 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.scf.continuation import (
+from defuqumat.calculator import Calculator
+from defuqumat.scf.continuation import (
     direction_from_angles,
     nc_magnetization_from_lsda,
 )
-from defumat.units import RY_TO_EV
-from defumat.workflows.anisotropy import (
+from defuqumat.units import RY_TO_EV
+from defuqumat.workflows.anisotropy import (
     angles_from_direction,
     frozen_expectation,
     run_torque,
@@ -222,7 +222,7 @@ def test_the_direction_orbit_is_the_point_group_and_not_its_transpose():
     """
     from pathlib import Path
 
-    from defumat.system.builder import system_from_file
+    from defuqumat.system.builder import system_from_file
 
     cases = Path(__file__).resolve().parents[1] / "data" / "qe"
     discriminating = {"co-hcp-anisotropy-sr": 5.0, "alas-piezo": 4.0,
@@ -272,7 +272,7 @@ def test_hexagonal_cobalt_keeps_both_basal_families():
     """
     from pathlib import Path
 
-    from defumat.system.builder import system_from_file
+    from defuqumat.system.builder import system_from_file
 
     cases = Path(__file__).resolve().parents[1] / "data" / "qe"
     system = system_from_file(cases / "co-hcp-anisotropy-sr.in")
@@ -395,7 +395,7 @@ def test_an_intermediate_soc_scale_is_refused_on_an_augmented_dataset():
     meets the datasets; ``System`` cannot know them and admits it. Outside
     ``[0, 1]`` it is not a blend of anything and is refused by ``System``.
     """
-    from defumat.scf.driver import Calculation
+    from defuqumat.scf.driver import Calculation
 
     scalar, _ = _smoke_pair()
     soc = Calculator.from_text(_SMOKE_SOC, pseudo_dir=GENERATED.parent / "pseudo")
@@ -426,9 +426,9 @@ def test_the_first_order_operator_is_the_coupled_hamiltonian_minus_the_reduced_o
     """
     import jax.numpy as jnp
 
-    from defumat.scf.driver import Calculation
-    from defumat.scf.potential import as_potential_components
-    from defumat.workflows.anisotropy import _first_order_operator
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.scf.potential import as_potential_components
+    from defuqumat.workflows.anisotropy import _first_order_operator
 
     soc = Calculator.from_text(_SMOKE_SOC, pseudo_dir=GENERATED.parent / "pseudo",
                                announce=False)
@@ -703,8 +703,8 @@ def test_a_becsum_from_the_other_file_is_refused_and_a_matching_count_is_not_eno
     the front door asks. Both halves are asserted because only the first of
     them announces itself.
     """
-    from defumat.pseudo import read_upf
-    from defumat.workflows.anisotropy import _checked_becsum, becsum_fits
+    from defuqumat.pseudo import read_upf
+    from defuqumat.workflows.anisotropy import _checked_becsum, becsum_fits
 
     directory = GENERATED.parent / "pseudo"
     scalar = read_upf(directory / "Co.pbe-nd-rrkjus.UPF")
@@ -736,7 +736,7 @@ def test_the_front_door_hands_becsum_over_on_one_file_and_not_on_two(monkeypatch
     a PAW run refusing with a message about a route the caller had already
     taken.
     """
-    import defumat.calculator as facade
+    import defuqumat.calculator as facade
 
     seen = {}
 
@@ -746,7 +746,7 @@ def test_the_front_door_hands_becsum_over_on_one_file_and_not_on_two(monkeypatch
 
     monkeypatch.setattr(facade, "run_anisotropy", spy, raising=False)
     monkeypatch.setattr(
-        "defumat.workflows.anisotropy.run_anisotropy", spy, raising=False
+        "defuqumat.workflows.anisotropy.run_anisotropy", spy, raising=False
     )
 
     scalar, _ = _smoke_pair()
@@ -797,7 +797,7 @@ def test_a_paw_force_theorem_carries_becsum_and_the_rotation_identity_holds():
     question, the two sublattices pointing opposite ways while the cell has one
     frame to rotate.
     """
-    import defumat.workflows.anisotropy as anisotropy
+    import defuqumat.workflows.anisotropy as anisotropy
 
     directory = GENERATED.parent / "pseudo"
     collinear = Calculator.from_text(_PAW_SR, pseudo_dir=directory)
@@ -871,7 +871,7 @@ def test_the_decomposition_recovers_the_band_energy_up_to_the_spilling():
     # ``p_x`` and ``p_y`` degenerate and need **not** keep ``p_z`` with them --
     # which is the anisotropy itself, seen orbital by orbital. QE's real
     # harmonics for ``l = 1`` are ordered ``(z, x, y)``
-    # (:data:`defumat.projwfc.channels.M_LABELS`), so it is the last two that
+    # (:data:`defuqumat.projwfc.channels.M_LABELS`), so it is the last two that
     # must agree.
     p_up = {
         channel.m: value for (channel, spin), value in
@@ -928,7 +928,7 @@ def test_the_torque_is_the_gradient_of_the_energy_it_claims_to_be():
     difference of that same functional.
     """
     import jax.numpy as jnp
-    from defumat.forces.torque import band_energy_at_angle, torque_at_angle
+    from defuqumat.forces.torque import band_energy_at_angle, torque_at_angle
 
     scalar, spinor = _tetragonal()
     scf = scalar.get_scf()
@@ -938,9 +938,9 @@ def test_the_torque_is_the_gradient_of_the_energy_it_claims_to_be():
     )
 
     # The gradient against a central difference of its own functional.
-    from defumat.scf.continuation import nc_magnetization_from_lsda
-    from defumat.workflows.anisotropy import _with_quantization_axis
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.scf.continuation import nc_magnetization_from_lsda
+    from defuqumat.workflows.anisotropy import _with_quantization_axis
+    from defuqumat.workflows.nscf import fixed_density_states
 
     angle, plane = result.angle, result.plane
     direction = (np.cos(angle) * np.asarray(plane[0])
@@ -980,16 +980,16 @@ def test_the_forward_torque_is_the_reverse_gradient_at_every_chunk():
     derivative and not a second NSCF.
     """
     import jax.numpy as jnp
-    from defumat.forces.torque import (
+    from defuqumat.forces.torque import (
         band_energy_at_angle,
         band_energy_at_rotation,
         orientation_torque,
         torque_at_angle,
     )
 
-    from defumat.scf.continuation import nc_magnetization_from_lsda
-    from defumat.workflows.anisotropy import _with_quantization_axis
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.scf.continuation import nc_magnetization_from_lsda
+    from defuqumat.workflows.anisotropy import _with_quantization_axis
+    from defuqumat.workflows.nscf import fixed_density_states
 
     scalar, spinor = _tetragonal()
     scf = scalar.get_scf()
@@ -1035,8 +1035,8 @@ def _tetragonal_states_at_45_degrees():
     """
     import jax.numpy as jnp
 
-    from defumat.workflows.anisotropy import _rotation_taking, _with_rotation
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.anisotropy import _rotation_taking, _with_rotation
+    from defuqumat.workflows.nscf import fixed_density_states
 
     scalar, spinor = _tetragonal()
     scf = scalar.get_scf()
@@ -1067,7 +1067,7 @@ def test_the_orientation_torque_contains_the_plane_torque():
     measured at 5.8e-11 Ry per radian, 1.4e-6 of the in-plane torque, at the
     one-shot's ``conv_thr = 1e-10``.
     """
-    from defumat.forces.torque import (
+    from defuqumat.forces.torque import (
         band_energy_at_rotation,
         orientation_torque,
         torque_at_angle,
@@ -1116,7 +1116,7 @@ def test_the_orientation_torque_is_the_plane_torque_end_to_end():
     identity, ``sum w <psi|H|psi> = sum w eps`` at the orientation the states
     came from.
     """
-    from defumat.workflows.anisotropy import _rotation_taking
+    from defuqumat.workflows.anisotropy import _rotation_taking
 
     scalar, spinor = _tetragonal()
     direction = np.array([np.sin(np.pi / 4), 0.0, np.cos(np.pi / 4)])
@@ -1143,7 +1143,7 @@ def test_turning_the_texture_leaves_the_hartree_and_xc_energies_alone():
     energies must agree to round-off although the axis did not turn. (A turn to
     90 degrees from the axis is the 36.8 meV trap and is not what this checks.)
     """
-    from defumat.forces.torque import rotate_texture
+    from defuqumat.forces.torque import rotate_texture
 
     calculation, _, _, density, rotation, _ = _tetragonal_states_at_45_degrees()
     texture = nc_magnetization_from_lsda(density, (0.0, 0.0, 1.0))
@@ -1169,14 +1169,14 @@ def _oblique_states(conv_thr=1.0e-10, turn_the_lattice=False):
     """
     import jax.numpy as jnp
 
-    from defumat.forces.torque import rotate_texture
-    from defumat.workflows.anisotropy import (
+    from defuqumat.forces.torque import rotate_texture
+    from defuqumat.workflows.anisotropy import (
         _reference_axis,
         _reference_texture,
         _with_rotation,
         rotation_from_euler,
     )
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     scalar, spinor = _tetragonal()
     scf = scalar.get_scf()
@@ -1206,8 +1206,8 @@ def test_the_torque_is_the_exchange_field_acting_on_the_coupled_magnetization():
     ``D_ij`` enters the band energy as ``integral of V Q_ij``. Measured at
     1.7e-12 relative, all three components live.
     """
-    from defumat.forces.torque import orientation_torque, rotate_texture
-    from defumat.scf.spin_torque import exchange_torque
+    from defuqumat.forces.torque import orientation_torque, rotate_texture
+    from defuqumat.scf.spin_torque import exchange_torque
 
     calculation, states, weights, _, _, texture, rotation = _oblique_states()
     torque = orientation_torque(calculation, states, weights, texture, rotation)
@@ -1240,8 +1240,8 @@ def test_turning_the_lattice_is_turning_the_spins_the_other_way(monkeypatch):
     the default floor's torque noise, about 7e-11 Ry per radian on this cell,
     is the resolution a relaxation's gradient threshold has to sit above.
     """
-    import defumat.workflows.nscf as nscf
-    from defumat.forces.torque import orientation_torque
+    import defuqumat.workflows.nscf as nscf
+    from defuqumat.forces.torque import orientation_torque
 
     monkeypatch.setattr(nscf, "ETHR_MIN", 1.0e-17)
     energies, torques = [], []
@@ -1252,7 +1252,7 @@ def test_turning_the_lattice_is_turning_the_spins_the_other_way(monkeypatch):
                         + float(levels.get("smearing", 0.0)))
         torques.append(orientation_torque(calculation, states, weights, texture,
                                           applied))
-    from defumat.workflows.anisotropy import rotation_from_euler
+    from defuqumat.workflows.anisotropy import rotation_from_euler
 
     rotation = rotation_from_euler(*OBLIQUE)
     assert energies[1] == pytest.approx(energies[0], abs=1.0e-12)
@@ -1271,7 +1271,7 @@ def test_without_the_coupling_the_torque_on_a_texture_vanishes():
     silence: 1.3e-10 against 4.0e-5 Ry per radian, which is the default
     eigensolver floor's noise (see the lattice test above).
     """
-    from defumat.workflows.anisotropy import rotation_from_euler, run_orientation_torque
+    from defuqumat.workflows.anisotropy import rotation_from_euler, run_orientation_torque
 
     scalar, spinor = _tetragonal()
     scf = scalar.get_scf()
@@ -1296,7 +1296,7 @@ def test_the_orientation_relaxes_onto_the_easy_axis():
     ``2 K1`` for ``E = K1 sin^2 + K2 sin^4``, where the 45-degree torque reads
     ``K1 + K2``; their difference is ``K2``.
     """
-    from defumat.workflows.anisotropy import rotation_from_euler
+    from defuqumat.workflows.anisotropy import rotation_from_euler
 
     scalar, spinor = _tetragonal()
     relaxed = scalar.get_relaxed_orientation(
@@ -1362,8 +1362,8 @@ def test_turning_the_moments_inside_the_scf_converges_on_the_easy_axis():
     # measured 0.026 degrees after 73 iterations in one run and 4.4 degrees,
     # unconverged, after 150 in another, from end states of Route C a hair
     # apart. An iteration budget on a plain SCF along that mode is a bet.
-    from defumat.forces.torque import rotate_texture
-    from defumat.scf.driver import run_scf
+    from defuqumat.forces.torque import rotate_texture
+    from defuqumat.scf.driver import run_scf
 
     calculator = _oblique_coupled_cobalt()
 
@@ -1388,7 +1388,7 @@ def test_turning_the_moments_inside_the_scf_converges_on_the_easy_axis():
 
 def test_turning_the_moments_without_the_coupling_is_refused():
     """Without the coupling the orientation is not a coordinate, so no step is taken."""
-    from defumat.scf.driver import run_scf
+    from defuqumat.scf.driver import run_scf
 
     calculator = _oblique_coupled_cobalt()
     with pytest.raises(ValueError, match="spin-orbit"):

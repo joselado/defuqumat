@@ -52,7 +52,7 @@
 #               iron one is smaller still; what this is sized for is the
 #               screened solve holding several whole `(nspin_mag, ...)` density
 #               arrays at once beside the Sternheimer solver's own state.
-#SBATCH --job-name=defumat-magnext
+#SBATCH --job-name=defuqumat-magnext
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-5
 #SBATCH --time=08:00:00
@@ -62,7 +62,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-magnetism/out/next-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-magnetism
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -72,7 +72,7 @@ source "$VENV/bin/activate" || exit 1
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
-export DEFUMAT_CACHE_DIR=off
+export DEFUQUMAT_CACHE_DIR=off
 
 echo "=== node ==="; hostname; date
 echo "task:   ${SLURM_ARRAY_TASK_ID:-0}"

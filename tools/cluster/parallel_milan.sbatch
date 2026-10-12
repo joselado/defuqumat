@@ -49,7 +49,7 @@
 #             or 120, and MAX_COPIES=96 for the copies.
 # time        10:00:00 against an estimate of 5 to 6 hours from D22's per-core
 #             speeds; the blocks write as they go.
-#SBATCH --job-name=defumat-par-milan
+#SBATCH --job-name=defuqumat-par-milan
 #SBATCH --partition=batch-milan
 #SBATCH --nodes=1
 #SBATCH --ntasks=120
@@ -60,7 +60,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/parallel-milan/out/milan-%j.err
 
 set -u
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 WORK=/scratch/work/ladovj1/calculations/parallel-milan/$SLURM_JOB_ID
 BLOCKS=${BLOCKS:-"topology threads copies pools"}
@@ -68,7 +68,7 @@ mkdir -p "$WORK" || exit 1
 cd "$WORK" || exit 1
 
 export PYTHON=$VENV/bin/python3
-export DEFUMAT_CACHE_DIR=/tmp/defumat-jax-$SLURM_JOB_ID
+export DEFUQUMAT_CACHE_DIR=/tmp/defuqumat-jax-$SLURM_JOB_ID
 export QE_BIN=/scratch/work/ladovj1/apps/qe-env/bin QE_RUNS=$WORK/qe-runs
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
 P=$REPO/tools/parallel

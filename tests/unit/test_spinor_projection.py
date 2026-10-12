@@ -21,16 +21,16 @@ The comparison against ``projwfc.x`` itself is in
 import numpy as np
 import pytest
 
-from defumat.pseudo import read_upf
-from defumat.pseudo.atomic import (
+from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.atomic import (
     _spin_angle_matrix,
     _updown_matrix,
     count_atomic_wavefunctions,
     count_spinor_wavefunctions,
     spinor_orbital_blocks,
 )
-from defumat.projwfc.channels import projection_channels
-from defumat.system.structure import Species, Structure
+from defuqumat.projwfc.channels import projection_channels
+from defuqumat.system.structure import Species, Structure
 
 pytestmark = pytest.mark.unit
 
@@ -168,7 +168,7 @@ def test_the_label_path_refuses_a_relativistic_dataset_without_lspinorb():
 
     ``build_atomic_projectors`` reaches the orbital builder only for
     ``spinor_basis="jmj"``; the labels come from
-    :func:`~defumat.projwfc.channels.projection_channels` whatever the basis. So
+    :func:`~defuqumat.projwfc.channels.projection_channels` whatever the basis. So
     the check has to be in both, and without it here platinum gets 22 up/down
     labels against the 12 j-averaged columns ``atomic_wfc_so_mag`` builds.
     """

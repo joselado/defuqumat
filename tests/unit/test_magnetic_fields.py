@@ -1,6 +1,6 @@
 """P18: the field and constraint potentials, against QE's hand-derived ones.
 
-:mod:`defumat.scf.fields` writes down the *energy* of a field or a penalty and
+:mod:`defuqumat.scf.fields` writes down the *energy* of a field or a penalty and
 takes the potential from ``jax.grad``. QE writes the potential out by hand
 instead -- ``add_bfield.f90``, five expressions, one of them three lines of
 quotient rule -- and the two must agree exactly, because they are the same
@@ -22,9 +22,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.scf.fields import MagneticField
-from defumat.scf.locals import LocalRegions
-from defumat.system.cell import Cell
+from defuqumat.scf.fields import MagneticField
+from defuqumat.scf.locals import LocalRegions
+from defuqumat.system.cell import Cell
 
 pytestmark = pytest.mark.unit
 
@@ -333,7 +333,7 @@ def test_every_atom_resolved_constraint_gets_its_spheres(regions, density, cell)
     happen to carry a ``LOCAL_MAGNETIC_FIELDS`` card, which is why every
     committed test missed it.
     """
-    from defumat.scf.fields import ATOM_RESOLVED, FEEDBACK
+    from defuqumat.scf.fields import ATOM_RESOLVED, FEEDBACK
 
     for constraint in sorted(ATOM_RESOLVED):
         width = 1 if constraint == "atomic direction" else 3
@@ -374,8 +374,8 @@ def test_the_driver_builds_spheres_for_a_bare_atomic_texture_run():
     """
     import warnings
 
-    from defumat import Calculator
-    from defumat.scf.driver import Calculation
+    from defuqumat import Calculator
+    from defuqumat.scf.driver import Calculation
 
     # **The committed file is ``'atomic'`` now**, because as ``'atomic texture'``
     # it did not converge and said it did (``OPEN.md`` Part IV). The regression
@@ -486,8 +486,8 @@ def test_b_field_survives_the_input_file():
     Every test of the field machinery until now built :class:`MagneticField` in
     Python, so the input path had no coverage at all. This is that path.
     """
-    from defumat.io.pwin import parse_pw_input
-    from defumat.system import build_system
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system import build_system
 
     source = """ &control
     calculation = 'scf'
@@ -526,8 +526,8 @@ def test_b_field_with_a_constraint_is_refused():
     """
     import pytest as _pytest
 
-    from defumat.io.pwin import parse_pw_input
-    from defumat.system import build_system
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system import build_system
 
     source = """ &control
     calculation = 'scf'
@@ -571,7 +571,7 @@ def test_a_field_that_did_not_fade_is_reported_and_a_faded_one_is_not(regions):
     """
     import warnings
 
-    from defumat.scf.driver import _warn_if_the_field_did_not_fade
+    from defuqumat.scf.driver import _warn_if_the_field_did_not_fade
 
     def field_with(reducebf):
         return MagneticField(
@@ -618,8 +618,8 @@ def test_the_two_halves_of_dr2_add_up_to_dr2(density, cell):
     cell they are far enough apart at ``G_min`` that a ``dr2`` under
     ``conv_thr`` bounds the moment much more weakly than it bounds the charge.
     """
-    from defumat.basis.gvectors import generate_gvectors
-    from defumat.scf.potential import scf_accuracy, scf_accuracy_terms
+    from defuqumat.basis.gvectors import generate_gvectors
+    from defuqumat.scf.potential import scf_accuracy, scf_accuracy_terms
 
     gvectors = generate_gvectors(cell, ecut=8.0, grid=GRID)
     residual = jnp.asarray(np.random.default_rng(7).normal(size=(4,) + GRID) * 1e-3)
@@ -632,7 +632,7 @@ def test_the_two_halves_of_dr2_add_up_to_dr2(density, cell):
     # The driver reads all three from one call and one transform of the
     # residual -- 12.2 ms per iteration on a 64^3 grid, which is what a second
     # one would cost. Its total must be the *fused* sum and not a Python one.
-    from defumat.scf.potential import scf_accuracy_split
+    from defuqumat.scf.potential import scf_accuracy_split
     total, split_charge, split_magnetic = scf_accuracy_split(residual, gvectors, cell)
     assert float(split_charge) == float(charge)
     assert float(split_magnetic) == float(magnetic)
@@ -647,8 +647,8 @@ def test_the_two_halves_of_dr2_add_up_to_dr2(density, cell):
 
 
 def _build(text: str):
-    from defumat.io.pwin import parse_pw_input
-    from defumat.system.builder import build_system
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
     return build_system(parse_pw_input(text))
 
 
@@ -856,7 +856,7 @@ def test_r3vo_removes_the_component_along_the_target_and_nothing_else():
     would pass the first alone, which is this project's "a clean zero is not a
     pass" in miniature.
     """
-    from defumat.scf.fields import _orthogonalize
+    from defuqumat.scf.fields import _orthogonalize
 
     rng = np.random.default_rng(3)
     axes = jnp.asarray(rng.normal(size=(4, 3)))
@@ -881,7 +881,7 @@ def test_r3vo_leaves_a_vanishing_axis_alone():
     A zero target carries no direction to project against, and dividing by its
     norm is the ``0/0`` that ``CLAUDE.md``'s ``abs`` trap is about.
     """
-    from defumat.scf.fields import _orthogonalize
+    from defuqumat.scf.fields import _orthogonalize
 
     axes = jnp.asarray([[0.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
     vectors = jnp.asarray([[1.0, 2.0, 3.0], [1.0, 2.0, 3.0]])
@@ -900,7 +900,7 @@ def test_the_feedback_schemes_add_nothing_to_the_energy():
     invisible there by construction, and a run that only watched the energy
     would report a constrained answer under no constraint at all.
     """
-    from defumat.scf.fields import FEEDBACK, MagneticField
+    from defuqumat.scf.fields import FEEDBACK, MagneticField
 
     cell = Cell.from_ibrav(1, [6.0, 0, 0, 0, 0, 0])
     grid = (6, 6, 6)
@@ -930,7 +930,7 @@ def test_the_per_atom_feedback_steps_each_atom_from_its_own_error():
     atoms are given *different* errors so that a step which averaged them, or
     used one atom's error for both, cannot pass.
     """
-    from defumat.scf.fields import MagneticField
+    from defuqumat.scf.fields import MagneticField
 
     class _Regions:
         """Two disjoint half-boxes, so each atom's moment is exactly known."""
@@ -974,7 +974,7 @@ def test_the_direction_feedback_never_pushes_along_the_target():
     120-degree cell. A direction-only *field* is the error with its parallel
     part projected out, which is bounded by construction.
     """
-    from defumat.scf.fields import MagneticField
+    from defuqumat.scf.fields import MagneticField
 
     class _Regions:
         def integrate(self, magnetization):
@@ -1005,17 +1005,17 @@ def test_a_direction_target_is_normalised_before_it_is_read_as_a_cosine():
     length one is the exception rather than the rule, and this scheme leaves
     the length free by design -- only the direction is a target. The targets
     were nonetheless carried through unnormalised, and
-    :meth:`~defumat.scf.fields.MagneticField.site_residuals` reads
+    :meth:`~defuqumat.scf.fields.MagneticField.site_residuals` reads
     ``m . n / |m|`` as a cosine, which for a target of length ``|n|`` is
     ``|n| cos(theta)``. With ``|n| = 2`` the ``arccos`` clips to zero for every
-    angle inside 60 degrees, so :meth:`~defumat.scf.fields.MagneticField.satisfied`
+    angle inside 60 degrees, so :meth:`~defuqumat.scf.fields.MagneticField.satisfied`
     declares a texture converged while it is far from it; with ``|n| < 1`` the
     angle is overstated and the run never converges.
 
     The feedback never cared, because ``_orthogonalize`` divides by ``|x|^2``,
     which is why nothing else in this file caught it.
     """
-    from defumat.scf.fields import constraint_targets
+    from defuqumat.scf.fields import constraint_targets
 
     def _direction_targets(per_atom):
         """The scheme's targets as ``build_system`` would hand them over."""

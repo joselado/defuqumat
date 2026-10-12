@@ -26,7 +26,7 @@ import tracemalloc
 import numpy as np
 import pytest
 
-from defumat.scf.mixing import AndersonMixer
+from defuqumat.scf.mixing import AndersonMixer
 
 pytestmark = pytest.mark.unit
 

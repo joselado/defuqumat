@@ -2,9 +2,9 @@
 
 ``test_piezoelectric.py`` checks everything this phase can check on a
 norm-conserving cell, and the whole of what it could not is here. The two
-assemblies -- :func:`~defumat.response.piezo.clamped_ion_piezoelectric`, one
+assemblies -- :func:`~defuqumat.response.piezo.clamped_ion_piezoelectric`, one
 ``jvp`` of the stress along the field response, and
-:func:`~defumat.response.piezo.piezoelectric_zstar_eu_style`, the same mixed
+:func:`~defuqumat.response.piezo.piezoelectric_zstar_eu_style`, the same mixed
 second derivative contracted term by term -- agreed there to ``6.2e-15`` for
 two years while **both** were missing terms, because every one of them is
 contracted either with ``dS/d(eps)``, identically zero when ``S`` is the
@@ -48,20 +48,20 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.efield import _bare_plus_induced, dielectric_tensor
-from defumat.response.electrostriction import refined_states
-from defumat.response.piezo import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.efield import _bare_plus_induced, dielectric_tensor
+from defuqumat.response.electrostriction import refined_states
+from defuqumat.response.piezo import (
     _multiplier_strain_term,
     _screened_strain_term,
     clamped_ion_piezoelectric,
     piezoelectric_zstar_eu_style,
     to_voigt,
 )
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
-from defumat.units import E_BOHR2_TO_C_M2
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
+from defuqumat.units import E_BOHR2_TO_C_M2
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -199,7 +199,7 @@ def test_the_screened_term_is_large_and_lives_only_in_the_shear():
 def test_the_two_routes_agree_on_an_augmented_dataset():
     """The identity, and the whole reason this file exists.
 
-    Before :func:`~defumat.response.piezo._screened_strain_term` the two routes
+    Before :func:`~defuqumat.response.piezo._screened_strain_term` the two routes
     were **0.0238 C/m^2** apart on ``e_14`` on this cell at ``ecutwfc = 12``,
     1.6 per cent, and the same pair was 1.8 per cent apart on ``alas-piezo.in``
     at 64 k-points (Triton ``20339831``). What is left is the Sternheimer

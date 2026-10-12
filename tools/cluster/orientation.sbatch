@@ -24,7 +24,7 @@
 # mem           24G. The first run (job 20478664) reached 15.8 and 16.0 GB of
 #               16 by accumulating compiled code over its one-shots, which
 #               the workflows now drop after each; 24G is margin on that.
-#SBATCH --job-name=defumat-orientation
+#SBATCH --job-name=defuqumat-orientation
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-1
 #SBATCH --time=04:00:00
@@ -34,7 +34,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/orientation-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1

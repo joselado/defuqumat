@@ -26,7 +26,7 @@ integer.
 import numpy as np
 import pytest
 
-from defumat.topology import (
+from defuqumat.topology import (
     ArrayStates,
     ModelSource,
     chern_number,
@@ -34,7 +34,7 @@ from defumat.topology import (
     z2_invariant,
     z2_invariant_3d,
 )
-from defumat.topology.wilson import (
+from defuqumat.topology.wilson import (
     _orientation,
     largest_gap_center,
     wilson_loop,

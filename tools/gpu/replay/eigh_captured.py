@@ -14,9 +14,9 @@ structure from m = 128 to 4096.
 import os, sys, json, time
 import numpy as np, scipy.linalg as sl
 import jax, jax.numpy as jnp
-import defumat
-import defumat.solvers.subspace as sub
-import defumat.solvers.davidson as dav
+import defuqumat
+import defuqumat.solvers.subspace as sub
+import defuqumat.solvers.davidson as dav
 
 OUT = os.environ.get("OUT", "eigh_captured")
 cpu = jax.devices("cpu")[0]
@@ -25,10 +25,10 @@ solve = jax.jit(lambda h, s: sub.generalised_eigh(h, s, robust=False)[0])
 
 def capture():
     from pathlib import Path
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation, run_scf
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, run_scf
+    from defuqumat.system import build_system
     dav.PARK_FACTOR = 1000.0   # exists at b418095 to cc21ad4 only
     pairs = []
     route = sub._cholesky_route
@@ -40,7 +40,7 @@ def capture():
     system = build_system(read_pw_input(Path(cell)))
     pseudos = tuple(read_upf(Path("tests/data/pseudo") / s.pseudo_file) for s in system.structure.species)
     calc = Calculation(system, pseudos)
-    import defumat.scf.potential as P
+    import defuqumat.scf.potential as P
     r = run_scf(system, pseudos, calculation=calc, conv_thr=1e-10)
     steps = [h.get("davidson_iterations") for h in r.history]
     pot = P.v_of_rho(calc.starting_density(), calc.basis.dense, system.cell)

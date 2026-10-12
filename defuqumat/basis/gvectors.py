@@ -1,0 +1,367 @@
+"""The G-vector set: reciprocal lattice points inside the density cutoff sphere.
+
+What is stored is the **Miller indices** -- integers, fixed for a run -- and not
+cartesian components. Cartesian G is then a function of the cell, computed on
+demand, so a strain derivative flows through it (rule D2/D3). Storing cartesian
+components would silently freeze the cell and make stress-by-differentiation
+impossible.
+
+Generation follows ``Modules/recvec_subs.f90`` (``ggen``): enumerate Miller
+indices over the FFT box, keep those with ``|G|^2 <= gcut``, sort by ``|G|^2``.
+The ordering QE produces comes from ``hpsort_eps`` and is *not* reproduced
+exactly -- nothing physical depends on the order within a shell of equal
+``|G|^2``, and only the *set* has to match. What is reproduced is that G = 0 is
+first, which many formulas rely on.
+"""
+
+from __future__ import annotations
+
+from functools import partial
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from defuqumat.basis.fftgrid import fft_grid_dimensions, gcut_from_ecut
+from defuqumat.system.cell import Cell
+
+__all__ = ["GVectors", "displaced_gvectors", "generate_gvectors", "modulus",
+           "refuse_gamma_storage"]
+
+
+class GVectors(eqx.Module):
+    """Reciprocal lattice vectors inside a cutoff sphere, sorted by ``|G|^2``.
+
+    ``miller[n]`` are the integer coefficients of G_n on the reciprocal basis;
+    ``miller[0]`` is always ``(0, 0, 0)``.
+    """
+
+    miller: jnp.ndarray  # (ngm, 3), integers
+    grid: tuple[int, int, int] = eqx.field(static=True)
+    ecut: float = eqx.field(static=True)
+    gamma_only: bool = eqx.field(static=True, default=False)
+
+    @property
+    def ngm(self) -> int:
+        return self.miller.shape[0]
+
+    def reduced(self, cell: Cell) -> jnp.ndarray:
+        """G in units of ``2*pi/alat`` -- QE's ``g`` array."""
+        return _transform(self.miller, cell.bg_2pi_alat)
+
+    def cartesian(self, cell: Cell) -> jnp.ndarray:
+        """G in 1/bohr, which is what ``|k+G|^2`` in Ry needs."""
+        return _transform(self.miller, cell.bg)
+
+    def g2(self, cell: Cell) -> jnp.ndarray:
+        """``|G|^2`` in units of ``(2*pi/alat)^2`` -- QE's ``gg`` array."""
+        return jnp.sum(self.reduced(cell) ** 2, axis=1)
+
+    def kinetic(self, cell: Cell) -> jnp.ndarray:
+        """``|G|^2`` in Ry (``hbar^2/2m = 1``), i.e. in 1/bohr^2."""
+        return jnp.sum(self.cartesian(cell) ** 2, axis=1)
+
+    @property
+    def fft_index(self) -> jnp.ndarray:
+        """Flat index of each G in the FFT box, for scatter/gather.
+
+        Negative Miller indices wrap to the top of each axis, which is the
+        standard FFT frequency layout and matches QE's ``nl`` map.
+        """
+        return _fft_index(self.miller, self.grid)
+
+    @property
+    def fft_index_minus(self) -> jnp.ndarray:
+        """Flat index of **-G** in the FFT box -- QE's ``nlm``.
+
+        Only meaningful for a :attr:`gamma_only` set, where the stored half
+        sphere carries one G of each ``(G, -G)`` pair and the other half is
+        recovered from ``c(-G) = conj(c(G))`` -- a field with real values in
+        real space, which for ``gamma_only`` every field is.
+
+        ``fft_index_minus[0] == fft_index[0]``, both being ``G = 0``, and every
+        caller has to skip that entry rather than add it twice. It is entry 0
+        because :func:`generate_gvectors` sorts ``G = 0`` first and asserts it.
+        """
+        return _fft_index(-self.miller, self.grid)
+
+    def shell_boundaries(self, cell: Cell, tolerance: float = 1e-8) -> np.ndarray:
+        """Indices where a new ``|G|^2`` shell starts. Useful for radial tables."""
+        g2 = np.asarray(self.g2(cell))
+        return np.flatnonzero(np.diff(g2) > tolerance) + 1
+
+
+@jax.jit
+def _transform(miller, matrix):
+    return miller.astype(matrix.dtype) @ matrix
+
+
+#: Below this ``|v|^2`` a vector counts as the origin in :func:`modulus`, where
+#: the square root is replaced by a flat zero. QE's own ``eps8``. It is public
+#: because a second module
+#: has to agree with it exactly: the guard costs the *tangent* of any product
+#: ``f_l(|v|) Y_lm(vhat)`` as well as the square root's, and
+#: ``pseudo.projectors`` puts the ``l = 1`` part of that tangent back on
+#: precisely the rows this threshold selects. Two thresholds would leave rows
+#: corrected that were never guarded, or the reverse.
+ORIGIN_TOL = 1.0e-8
+
+
+@jax.jit
+def modulus(vectors):
+    """``|v|`` for a stack of cartesian vectors, differentiable at the origin.
+
+    The mask goes on ``|v|^2`` **before** the square root, not on the result
+    after it. ``sqrt`` has an infinite derivative at zero, so a guard placed
+    afterwards leaves the value right and the gradient ``0 * inf = NaN`` -- and
+    ``G = 0`` is the first entry of every G-vector set, so the whole stress
+    tensor comes back NaN with every value on the way to it correct. It is P15's
+    Ewald trap in a different module, and it only appears once the cell is what
+    is being differentiated: with respect to the atomic positions ``|G|`` is a
+    constant and no derivative ever reaches this.
+    """
+    norm2 = jnp.sum(vectors**2, axis=-1)
+    return jnp.where(
+        norm2 > ORIGIN_TOL,
+        jnp.sqrt(jnp.where(norm2 > ORIGIN_TOL, norm2, 1.0)),
+        0.0,
+    )
+
+
+@partial(jax.jit, static_argnames=("grid",))
+def _fft_index(miller, grid):
+    n1, n2, n3 = grid
+    i = jnp.mod(miller[:, 0], n1)
+    j = jnp.mod(miller[:, 1], n2)
+    k = jnp.mod(miller[:, 2], n3)
+    return (i * n2 + j) * n3 + k
+
+
+def generate_gvectors(
+    cell: Cell,
+    ecut: float,
+    grid: tuple[int, int, int] | None = None,
+    gamma_only: bool = False,
+    fft_factors: tuple[int, int, int] = (1, 1, 1),
+) -> GVectors:
+    """All G with ``|G|^2 <= ecut`` (Ry), sorted by magnitude.
+
+    Args:
+        cell: the unit cell.
+        ecut: cutoff in Ry -- ``ecutrho`` for the dense grid, ``4*ecutwfc`` for
+            the smooth one.
+        grid: FFT dimensions to enumerate within. Computed from the cutoff when
+            omitted, which is what a caller normally wants; passing it lets the
+            smooth grid be generated inside the dense box.
+        fft_factors: divisibility constraint on the FFT dimensions, from the
+            crystal's fractional translations. It changes the box, never the
+            G-vector set: a larger box only reaches vectors that the cutoff
+            rejects anyway.
+        gamma_only: keep only half the sphere. At k = 0 a real wavefunction
+            satisfies ``c(-G) = conj(c(G))``, so storing one G of each pair
+            halves both memory and work. QE does this whenever the k-point set
+            is Gamma alone, and reports the halved ``ngm``, so reproducing the
+            count means reproducing the selection.
+
+    The enumeration range is QE's: Miller indices in ``[-(n-1)//2, (n-1)//2]``
+    for each axis of the FFT grid, which is exactly the set of frequencies the
+    box can represent without aliasing.
+    """
+    at_alat = np.asarray(cell.at_alat)
+    bg = np.asarray(cell.bg_2pi_alat)
+    gcut = gcut_from_ecut(ecut, cell.alat)
+
+    if grid is None:
+        grid = fft_grid_dimensions(at_alat, bg, gcut, fft_factors)
+
+    ranges = [np.arange(-((n - 1) // 2), (n - 1) // 2 + 1) for n in grid]
+    i, j, k = np.meshgrid(*ranges, indexing="ij")
+    miller = np.stack([i.ravel(), j.ravel(), k.ravel()], axis=1)
+
+    g2 = np.sum((miller @ bg) ** 2, axis=1)
+    inside = g2 <= gcut  # ggen keeps the boundary; grid_set excludes it
+    if gamma_only:
+        inside &= _half_sphere(miller)
+    miller, g2 = miller[inside], g2[inside]
+
+    # Sort by |G|^2, breaking ties by Miller index so the result is reproducible
+    # across machines and runs. QE's hpsort_eps orders ties differently; nothing
+    # physical depends on the order inside a shell.
+    order = np.lexsort((miller[:, 2], miller[:, 1], miller[:, 0], np.round(g2, 12)))
+    miller = miller[order]
+
+    if not np.all(miller[0] == 0):
+        raise AssertionError("G = 0 must sort first")
+
+    return GVectors(
+        miller=jnp.asarray(miller, dtype=jnp.int32),
+        grid=tuple(int(n) for n in grid),
+        ecut=float(ecut),
+        gamma_only=gamma_only,
+    )
+
+
+def displaced_gvectors(
+    cell: Cell,
+    dense: GVectors,
+    shift,
+    smooth: GVectors | None = None,
+) -> tuple[GVectors, GVectors | None]:
+    """The sphere ``{G : |G + shift| <= G_cut}`` on ``dense``'s box, and its smooth prefix.
+
+    The G set a field carrying the Bloch factor ``e^{i shift.r}`` relative to
+    the lattice lives on when it is cut at ``|G + shift|`` -- the laboratory
+    wavevector -- rather than at ``|G|``. It is the transverse pair of a spin
+    spiral in the rotating frame (``shift = -q``): the laboratory pair is
+    ``m'_+ e^{-i q.r}``, so the sphere the unfolded supercell keeps,
+    ``|G'| < G_rho``, is ``|G - q| < G_rho`` in the spiral's labels
+    (``OPEN.md`` Part XXI item 1).
+
+    ``shift`` is cartesian, in 1/bohr, and is the same vector
+    :func:`~defuqumat.pseudo.augmentation.build_augmentation` takes as its
+    ``shift``, so a table built on this set with that shift is evaluated at
+    exactly the ``|G + shift|`` the set was cut at. Read on the host: the set is
+    a step function of ``shift`` and is frozen under a derivative.
+
+    **Order.** Sorted by ``|G + shift|^2`` with :func:`generate_gvectors`' tie
+    break, then ``G = 0`` moved to the front, because the builders read the
+    first entry as the origin. With ``smooth`` given, the members inside
+    ``smooth.ecut`` are the prefix of the list and are returned as a second set
+    on ``smooth``'s box, exactly as ``smooth_subset`` cuts the resident one;
+    ``G = 0`` is inside it whenever ``|shift|^2 <= smooth.ecut``, which is
+    asserted. At ``shift = 0`` both sets are ``dense`` and ``smooth`` Miller
+    index for Miller index, since every number is then the one
+    :func:`generate_gvectors` computed.
+
+    **The box is checked rather than assumed, and what it has to do is not
+    alias.** ``fft_index`` wraps a Miller index with ``mod``, and that is exact
+    for a member past ``(n - 1) // 2`` -- on the grid points
+    ``e^{i (G - n b) . r} = e^{i G . r}``, so the box holds the coefficient at
+    the wrapped index and every transform is the field's own -- **provided no
+    two members land on one index**. A displaced sphere has the resident one's
+    diameter, so its span along an axis is the resident span or one more, and
+    on an even box it usually takes the Nyquist plane the resident sphere
+    leaves free (the oxygen chain at ``q = b3/2``: 81 members at index 12 of
+    24, none at -12). Where two members would share an index, which is the
+    span exceeding the box, the set is refused by name, for the dense box and
+    for the smooth one.
+    """
+    at_alat = np.asarray(cell.at_alat, dtype=float)
+    bg = np.asarray(cell.bg_2pi_alat, dtype=float)
+    tpiba = 2.0 * np.pi / float(cell.alat)
+    offset = np.asarray(shift, dtype=float).reshape(3) / tpiba
+    gcut = gcut_from_ecut(dense.ecut, cell.alat)
+
+    # ``m_i = G . a_i`` in these units, so a shift moves each Miller index by at
+    # most ``|shift| |a_i|`` and the resident range widened by that holds it.
+    reach = np.ceil(np.linalg.norm(offset) * np.linalg.norm(at_alat, axis=1)).astype(int) + 1
+    ranges = [np.arange(-((n - 1) // 2) - r, (n - 1) // 2 + r + 1)
+              for n, r in zip(dense.grid, reach)]
+    i, j, k = np.meshgrid(*ranges, indexing="ij")
+    miller = np.stack([i.ravel(), j.ravel(), k.ravel()], axis=1)
+    g2 = np.sum((miller @ bg + offset) ** 2, axis=1)
+    inside = g2 <= gcut
+    miller, g2 = miller[inside], g2[inside]
+    _require_the_box_holds(miller, dense.grid, "dense", dense.ecut, shift)
+
+    order = np.lexsort((miller[:, 2], miller[:, 1], miller[:, 0], np.round(g2, 12)))
+    miller, g2 = miller[order], g2[order]
+    zero = np.flatnonzero(np.all(miller == 0, axis=1))
+    if not len(zero):
+        raise ValueError(
+            f"the displaced sphere |G + shift| <= sqrt({dense.ecut}) Ry does not "
+            f"contain G = 0 for |shift| = {np.linalg.norm(shift):.4g} 1/bohr"
+        )
+    origin = int(zero[0])
+    if origin:
+        order = np.concatenate([[origin], np.delete(np.arange(len(miller)), origin)])
+        miller, g2 = miller[order], g2[order]
+
+    displaced = GVectors(miller=jnp.asarray(miller, dtype=jnp.int32),
+                         grid=dense.grid, ecut=dense.ecut,
+                         gamma_only=dense.gamma_only)
+    if smooth is None:
+        return displaced, None
+    if smooth is dense:
+        return displaced, displaced
+    gcut_s = gcut_from_ecut(smooth.ecut, cell.alat)
+    inner = g2 <= gcut_s
+    ngms = int(inner.sum())
+    if not inner[0] or not inner[:ngms].all():
+        raise AssertionError(
+            "the displaced smooth sphere is not a prefix of the displaced dense "
+            f"list (|shift|^2 = {np.sum(np.asarray(shift) ** 2):.4g} Ry against "
+            f"a smooth cutoff of {smooth.ecut} Ry)"
+        )
+    _require_the_box_holds(miller[:ngms], smooth.grid, "smooth", smooth.ecut, shift)
+    return displaced, GVectors(miller=jnp.asarray(miller[:ngms], dtype=jnp.int32),
+                               grid=smooth.grid, ecut=smooth.ecut,
+                               gamma_only=smooth.gamma_only)
+
+
+def _require_the_box_holds(miller, grid, name, ecut, shift) -> None:
+    """Refuse a displaced sphere two of whose members the FFT box folds onto one index."""
+    index = np.asarray(_fft_index(jnp.asarray(miller, dtype=jnp.int32), tuple(grid)))
+    folded = len(index) - len(np.unique(index))
+    if folded:
+        spans = tuple(int(np.ptp(miller[:, axis])) + 1 for axis in range(3))
+        raise NotImplementedError(
+            f"the {name} FFT box {tuple(grid)} does not hold the sphere "
+            f"|G + shift| <= sqrt({ecut}) Ry for shift = "
+            f"{tuple(float(v) for v in np.asarray(shift).ravel())} 1/bohr: it "
+            f"spans {spans} Miller indices, so {folded} of its {len(miller)} "
+            "G-vectors would share a box index with another and the box would "
+            "add them together. A spin spiral keeps its transverse pair on that "
+            "displaced sphere, so its box has to be one FFT size larger along "
+            "that axis than the cutoff alone asks for, which is not "
+            "implemented; a slightly different ecutrho or ecutwfc, at which "
+            "the box rounds up past the sphere, avoids it"
+        )
+
+
+def _half_sphere(miller: np.ndarray) -> np.ndarray:
+    """One G from each (G, -G) pair, choosing QE's representative.
+
+    ``ggen`` walks ``i`` from 0, then ``j`` from 0 only on the ``i = 0`` plane,
+    then ``k`` from 0 only on the ``i = j = 0`` line -- that is, the closed
+    half-space ``x > 0``, plus the half-plane ``x = 0, y > 0``, plus the
+    half-line ``x = y = 0, z >= 0``. G = 0 belongs to the last of these and is
+    kept exactly once, which is why the count is ``(ngm_full + 1) / 2``.
+    """
+    i, j, k = miller[:, 0], miller[:, 1], miller[:, 2]
+    return (i > 0) | ((i == 0) & (j > 0)) | ((i == 0) & (j == 0) & (k >= 0))
+
+
+def refuse_gamma_storage(gamma_only: bool, quantity: str, detail: str) -> None:
+    """Stop a consumer that would sum a half sphere as if it were a whole one.
+
+    ``K_POINTS gamma`` stores one plane wave of each ``(G, -G)`` pair, so every
+    plane-wave sum over the stored list is **half** the sum it looks like:
+    the rule is ``2 Re(sum)`` minus the ``G = 0`` term, and exactly three places
+    in this package carry it (:func:`g_to_r_gamma`, ``gamma_inner``/
+    ``calbec_gamma``, and ``force_real_g0``). A consumer that does not is not
+    wrong by a little -- a Loewdin charge comes out at roughly a quarter of its
+    value, and a real-space wavefunction loses the conjugate half and gains a
+    spurious imaginary part.
+
+    The gate on the *storage* (``gamma_storage_is_consumable``) asks only what
+    the SCF can do with it and says nothing about what happens to the states
+    afterwards, so each post-SCF consumer answers for itself. Refusing is the
+    honest first move; carrying the rule is the feature.
+
+    The escape is exact rather than approximate, and it is the same one
+    ``_without_gamma_storage`` documents: run the cell at an explicit ``k = 0``
+    (``K_POINTS automatic, 1 1 1 0 0 0``). Same physics, twice the plane waves.
+    """
+    if not gamma_only:
+        return
+    raise NotImplementedError(
+        f"{quantity} is not implemented for gamma-only storage (K_POINTS "
+        f"gamma): {detail}. Only half of each (G, -G) pair is stored, so a "
+        "plane-wave sum over the stored list must be 2 Re(sum) minus the G = 0 "
+        "term, and this one is not -- it would return a plausible number that "
+        "is wrong by about a factor of two. Run the same cell with an explicit "
+        "k = 0 (K_POINTS automatic, 1 1 1 0 0 0), which is the same physics on "
+        "the whole sphere"
+    )

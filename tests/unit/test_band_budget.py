@@ -5,14 +5,14 @@ what is left on a large cell is one k-point's working set, and its largest term
 is the band loop through the grid. Three things are checked here, all on the
 CPU:
 
-* the :class:`~defumat.scf.driver.Calculation` carries the value it resolved
+* the :class:`~defuqumat.scf.driver.Calculation` carries the value it resolved
   into every Hamiltonian it builds, and the value does not move the answer;
 * the size estimate that chooses it counts what memory mode actually puts on
   the device -- one streamed chunk of the store, not the whole set -- and the
   start, which on a large cell is where the peak was measured
   (`MEMORY-AUDIT.md` D10);
 * the choice keeps the whole block wherever it fits, moves only when it does
-  not, and yields to an explicit value or ``DEFUMAT_BAND_BATCH``.
+  not, and yields to an explicit value or ``DEFUQUMAT_BAND_BATCH``.
 """
 
 import warnings
@@ -21,10 +21,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import batching
-from defumat.calculator import Calculator
-from defumat.scf.driver import Calculation, resolve_band_batch_for, run_scf
-from defumat.sizing import BandBatchChoice, choose_band_batch, estimate_size
+from defuqumat import batching
+from defuqumat.calculator import Calculator
+from defuqumat.scf.driver import Calculation, resolve_band_batch_for, run_scf
+from defuqumat.sizing import BandBatchChoice, choose_band_batch, estimate_size
 
 pytestmark = pytest.mark.unit
 
@@ -151,15 +151,15 @@ def test_an_explicit_value_and_the_environment_beat_the_chooser(pseudo_dir, monk
     # Pretend to be on a card whose budget forces two bands at a time.
     monkeypatch.setattr(batching, "_backend", lambda: "gpu")
     monkeypatch.setattr(
-        "defumat.sizing.choose_band_batch",
+        "defuqumat.sizing.choose_band_batch",
         lambda *a, **k: BandBatchChoice(band_batch=2, fits=True, estimate=1,
                                         available=10))
-    monkeypatch.delenv("DEFUMAT_BAND_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_BAND_BATCH", raising=False)
     with pytest.warns(RuntimeWarning, match="2 bands at a time"):
         assert resolve_band_batch_for("default", "memory", system, pseudos) == 2
     # speed mode never asks the card about bands.
     assert resolve_band_batch_for("default", "speed", system, pseudos) is None
-    monkeypatch.setenv("DEFUMAT_BAND_BATCH", "4")
+    monkeypatch.setenv("DEFUQUMAT_BAND_BATCH", "4")
     assert resolve_band_batch_for("default", "memory", system, pseudos) == 4
     assert resolve_band_batch_for(None, "memory", system, pseudos) is None
     assert resolve_band_batch_for(6, "memory", system, pseudos) == 6
@@ -180,7 +180,7 @@ def _a_card_where_more_than(n, monkeypatch):
     mode's check says no past ``n`` -- the guard is tested by feeding it the
     case that must trip it (``CLAUDE.md``), not by finding a cell too large.
     """
-    from defumat import sizing
+    from defuqumat import sizing
 
     def chooser(system, pseudos, nbnd=None, **kwargs):
         wide = nbnd is not None and nbnd > n
@@ -193,10 +193,10 @@ def _a_card_where_more_than(n, monkeypatch):
                                  available=4 * 2**30)
 
     monkeypatch.setattr(batching, "_backend", lambda: "gpu")
-    monkeypatch.setattr("defumat.sizing.choose_band_batch", chooser)
-    monkeypatch.setattr("defumat.sizing.speed_mode_fits", speed)
-    monkeypatch.delenv("DEFUMAT_BAND_BATCH", raising=False)
-    monkeypatch.delenv("DEFUMAT_K_BATCH", raising=False)
+    monkeypatch.setattr("defuqumat.sizing.choose_band_batch", chooser)
+    monkeypatch.setattr("defuqumat.sizing.speed_mode_fits", speed)
+    monkeypatch.delenv("DEFUQUMAT_BAND_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_K_BATCH", raising=False)
 
 
 def test_a_solve_at_more_bands_re_chooses_the_band_batch(pseudo_dir, monkeypatch):

@@ -6,7 +6,7 @@ amplitudes ``lam = +-h, +-2h`` and differenced,
     J^(3) ~ ([J(2h) - J(-2h)] - 2 [J(h) - J(-h)]) / (12 h^3) = J^(3) + 5 h^2 J^(5) + ...,
     J^(1) ~ (8 [J(h) - J(-h)] - [J(2h) - J(-2h)]) / (12 h)   = J^(1) - 4 h^4 J^(5) + ...,
 
-against :func:`~defumat.realtime.orders.propagate_orders`, which takes the
+against :func:`~defuqumat.realtime.orders.propagate_orders`, which takes the
 orders by forward differentiation through every step at ``lam = 0``. The two
 routes share the propagator, the time grid and the start transient of the
 adiabatic switch-on, so the comparison is of the differentiation and nothing
@@ -25,15 +25,15 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.dense import dense_ground_states, dense_hamiltonians
-from defumat.realtime.orders import fourier_component, propagate_orders
-from defumat.realtime.propagate import _prepare, propagate
-from defumat.realtime.pulse import Adiabatic
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.dense import dense_ground_states, dense_hamiltonians
+from defuqumat.realtime.orders import fourier_component, propagate_orders
+from defuqumat.realtime.propagate import _prepare, propagate
+from defuqumat.realtime.pulse import Adiabatic
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -58,7 +58,7 @@ def _cell(pseudo_dir, case, ecut):
     """
     text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", f"ecutwfc = {ecut}",
                   (CASES / f"{case}.in").read_text())
-    path = Path("/tmp") / f"defumat-realtime-fd-{case}-{ecut}.in"
+    path = Path("/tmp") / f"defuqumat-realtime-fd-{case}-{ecut}.in"
     path.write_text(text)
     system = build_system(read_pw_input(path))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)

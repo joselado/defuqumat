@@ -14,14 +14,14 @@ construction -- putting the rest of the zone back is what ``sym_rho`` is for --
 so the same number computed there is large exactly when symmetry is working and
 cannot be told from the failure. On a seed there is no such ambiguity, and the
 measurement below says how little: **6e-16 against 1.0**, with nothing in
-between, which is what makes :data:`~defumat.scf.driver.SYMMETRY_SEED_RESIDUAL`
+between, which is what makes :data:`~defuqumat.scf.driver.SYMMETRY_SEED_RESIDUAL`
 a threshold on a discriminator rather than a physical tolerance.
 
 **The charge cannot see it.** In the failing case the charge residual is 5.7e-16
 while the magnetization's is 1.0 -- the group leaves the charge exactly alone and
 destroys the whole texture -- so a residual computed on the density as one
 object, or on its charge, reads as a clean pass. That is why
-:meth:`~defumat.scf.driver.Calculation.symmetry_residual` returns the two apart.
+:meth:`~defuqumat.scf.driver.Calculation.symmetry_residual` returns the two apart.
 """
 
 from pathlib import Path
@@ -29,11 +29,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation
-from defumat.scf.driver import SYMMETRY_SEED_RESIDUAL
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation
+from defuqumat.scf.driver import SYMMETRY_SEED_RESIDUAL
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -144,7 +144,7 @@ def test_run_scf_warns_before_the_first_iteration(pair):
     the handed-in case rather than the card, because which of the two it is
     decides whether the fix is ``nosym`` or a bug report.
     """
-    from defumat.scf import run_scf
+    from defuqumat.scf import run_scf
 
     (ferro_system, ferro), (_, cycloid) = pair
     rho = cycloid.starting_density()

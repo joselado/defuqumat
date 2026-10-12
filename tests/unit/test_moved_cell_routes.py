@@ -23,11 +23,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import defumat.pseudo.augmentation as augmentation
-import defumat.scf.driver as driver
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.system.builder import build_system
+import defuqumat.pseudo.augmentation as augmentation
+import defuqumat.scf.driver as driver
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -168,7 +168,7 @@ def test_a_moved_cell_builds_its_hubbard_projectors_at_its_own_k_points():
     """
     from pathlib import Path
 
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     root = Path(__file__).resolve().parents[2]
     with warnings.catch_warnings():

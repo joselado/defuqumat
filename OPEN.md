@@ -222,9 +222,9 @@ peak** -- so the entry dismissed it, and **that dismissal was wrong**; see below
 
 **The peak depends on whether the compiled kernels come from the on-disk cache, and
 nothing else moves it nearly as much.** Same commit, same test, alternating, main tree,
-`DEFUMAT_THREADS=4`, `/usr/bin/time %M`:
+`DEFUQUMAT_THREADS=4`, `/usr/bin/time %M`:
 
-| `DEFUMAT_CACHE_DIR` | peak | wall |
+| `DEFUQUMAT_CACHE_DIR` | peak | wall |
 |---|---|---|
 | `off` -- compiles every kernel | **10,111 M**, then 10,115 M | 57.0 s, 57.2 s |
 | default -- loads them | **16,406 M**, then 16,381 M | 39.3 s, 36.6 s |
@@ -261,8 +261,8 @@ backward pass.
 
 **What this costs today.** With a warm cache the file is **SIGKILLed under
 `run_regression.sh`'s 12 G cap at any thread count** -- it was, at 12,394 M, before the cap
-was raised. Until the constants are fixed it needs `DEFUMAT_TEST_MEM_MAX=18G`, or
-`DEFUMAT_CACHE_DIR=off` at 18 s a run. The 11,088 M on record is neither figure: it is
+was raised. Until the constants are fixed it needs `DEFUQUMAT_TEST_MEM_MAX=18G`, or
+`DEFUQUMAT_CACHE_DIR=off` at 18 s a run. The 11,088 M on record is neither figure: it is
 whatever the cache happened to hold that day.
 
 **Two methodological findings, and the second cost an hour.**
@@ -293,7 +293,7 @@ arrays were almost all of both, and they needed different fixes:
   **host** at setup, which no amount of argument-passing would have done.
 - **`PawSpecies.density_ae`/`density_ps` (281.6 MB each) and `AugmentationCharge.qgm`
   (120.9 MB)** are now **arguments** rather than closure captures
-  (`defumat/forces/energy.py`'s `HOISTED_FIELDS`). Both are `equinox` modules, so they
+  (`defuqumat/forces/energy.py`'s `HOISTED_FIELDS`). Both are `equinox` modules, so they
   cross as ordinary pytrees.
 
 | | before | after |
@@ -434,7 +434,7 @@ worse than a crash. Ranked.
 > asserted is the *starting* density (opposite lobes, zero cell total) and the
 > two structural consequences, which is the same claim one step earlier.
 
-`defumat/system/builder.py:259` and `scf/driver.py:3005`. `domag` is
+`defuqumat/system/builder.py:259` and `scf/driver.py:3005`. `domag` is
 `any(abs(m) > 1e-6 for m in self.starting_magnetization)` -- the per-*species* array.
 The per-atom card that `io/pwin.py` parses, that `builder.py:1375` documents as
 overriding all three of `starting_magnetization`/`angle1`/`angle2`, and that
@@ -518,7 +518,7 @@ state was never converged under. No error, no warning, and the tensor is still
 symmetric and positive -- the exact signature §0 describes.
 
 **What to write.** The same fix as §0: the converged field crosses with the density
-rather than being re-derived from the input. `grep -rn '\.potential(' defumat/` is what
+rather than being re-derived from the input. `grep -rn '\.potential(' defuqumat/` is what
 finds every site -- run it over `projwfc`, `stm` and `transport` too, since §0 was the
 topological consumers and this is the response ones, and nobody has checked the third
 group.
@@ -541,17 +541,17 @@ about what happens to the states *after* the SCF, and `gamma_only` appears nowhe
 Under `K_POINTS gamma` every plane-wave sum must be `2 Re(sum)` minus the `G = 0` term,
 and `CLAUDE.md` says exactly three things carry the trick. These four do not:
 
-- **`defumat/hubbard/occupations.py:74`** -- the worst of them, because it is *inside*
+- **`defuqumat/hubbard/occupations.py:74`** -- the worst of them, because it is *inside*
   the SCF rather than after it. A norm-conserving `nosym` DFT+U run at gamma keeps the
   half-sphere storage (DFT+U is on none of the substitution branches), and `ns` is built
   from a plain half-sphere inner product. The Hubbard potential and energy follow it,
   and the SCF converges silently to the wrong ground state.
-- **`defumat/tddft/chi0.py:479`** -- the sum-over-states `chi_0` transforms with the
+- **`defuqumat/tddft/chi0.py:479`** -- the sum-over-states `chi_0` transforms with the
   full-sphere `g_to_r`, so an optical spectrum of a molecule in a box, which is the
   archetypal gamma case, is built from wrong real-space states.
-- **`defumat/projwfc/projections.py:270`** -- `<phi|S|psi>` as a plain sum, so a Löwdin
+- **`defuqumat/projwfc/projections.py:270`** -- `<phi|S|psi>` as a plain sum, so a Löwdin
   charge is roughly a quarter of its true value.
-- **`defumat/basis/sample.py:160`** -- `psi(r)` as a bare sum over the stored `k+G`
+- **`defuqumat/basis/sample.py:160`** -- `psi(r)` as a bare sum over the stored `k+G`
   list, so the vertical-transport tunnelling amplitudes lose the conjugate half and gain
   a spurious imaginary part.
 
@@ -581,7 +581,7 @@ agree to round-off.
 > `force_symmorphic` is commented out.) 250 pass, 2 skip.
 
 `no_t_rev`, `force_symmorphic`, `use_all_frac`, `nosym_evc`: **zero** occurrences
-anywhere in `defumat/`, including `io/`. They parse into the namelist without complaint
+anywhere in `defuqumat/`, including `io/`. They parse into the namelist without complaint
 -- `io/pwin.py` has no whitelist of known variables and raises only on a line it cannot
 parse structurally -- and are then never looked at.
 
@@ -604,7 +604,7 @@ starts is a run whose physics is there.
 > `xc/functional.safe_modulus`, shared by both sites -- they were the same three
 > lines and the same defect written twice.
 
-`defumat/xc/functional.py:804` and `defumat/paw/gradient.py:191`. Both read
+`defuqumat/xc/functional.py:804` and `defuqumat/paw/gradient.py:191`. Both read
 `modulus = jnp.sqrt(jnp.sum(magnetization**2, axis=0))`, and in `functional.py` the
 `safe = jnp.where(modulus > 0.0, modulus, 1.0)` on the **next line** guards the division
 that follows and not the sqrt's own argument. `d|m|/dm = m/|m|` is `0/0` at an exact
@@ -626,7 +626,7 @@ that forces the zero rather than a run that happens not to hit it.
 > `System.is_magnetic`, used by `domag`, `_respin_kpoints`, `_recelled_kpoints`
 > and `build_system`. Closed together with A1, which is the same defect.
 
-`defumat/system/builder.py:586`, and four call sites. The consequence named is that the
+`defuqumat/system/builder.py:586`, and four call sites. The consequence named is that the
 SCF can symmetrise the density with a larger group than the one its k-set was reduced
 with -- a wedge sum completed against the wrong group, which is trap 4 arriving through
 a bookkeeping disagreement rather than through a response. Related to A1, which is one
@@ -640,7 +640,7 @@ already exposed so no call site recomputes the rule.
 > *PLAUSIBLE* resolved to real: three of the four precision cases were wrong, and
 > the parametrised round-trip test fails on the old code for both float32 ones.
 
-`defumat/scf/driver.py:408`. An unconditional `.view(float)` on the way in, a
+`defuqumat/scf/driver.py:408`. An unconditional `.view(float)` on the way in, a
 `!= np.complex128` test on the way out. In float32 mode a complex `ns` is packed as
 reinterpreted bits and unpacked as real -- silently garbage, not an error. Also a
 hardcoded-dtype violation of the standing convention, which is what makes it findable.
@@ -655,7 +655,7 @@ hardcoded-dtype violation of the standing convention, which is what makes it fin
 > gradient, and the test asserts the *old* form is finite so it fails if a
 > future JAX changes that rule.
 
-`defumat/scf/potential.py:111`. Every other differentiated site in the package uses
+`defuqumat/scf/potential.py:111`. Every other differentiated site in the package uses
 `Re(conj(rho) rho)`. This is the one term that every force, every stress and every
 phonon differentiates, and `abs` at a forced zero is trap 1 -- the reciprocal Ewald sum
 is the recorded instance and a structure factor vanishing exactly is what symmetry
@@ -669,7 +669,7 @@ established.* Cheap to change regardless, and the change is a no-op where it is 
 > multiplet rather than one member of it. The test rotates a degenerate top pair
 > by a random unitary and asserts the old form moves by more than 1e-3.
 
-`defumat/workflows/transport.py:448`. `band_edge_weight` is built from the raw diagonal
+`defuqumat/workflows/transport.py:448`. `band_edge_weight` is built from the raw diagonal
 of the single topmost band, so it is basis-dependent whenever that band sits in a
 degenerate multiplet -- and it is divided by a denominator taken in a different
 (channel) basis. The check that certifies the truncation is itself the thing rule D4
@@ -681,7 +681,7 @@ says cannot be trusted band by band. Take the multiplet block average.
 > "not given" stays distinguishable from "given the default" and `run_scf`'s own
 > numbers are not repeated. A signature test keeps the set from drifting.
 
-`defumat/calculator.py:671`, and the same for `get_relax(variable_cell=True)` and
+`defuqumat/calculator.py:671`, and the same for `get_relax(variable_cell=True)` and
 `get_spiral_relaxation`. `electrons_defaults`/`_ELECTRONS_OPTIONS`
 (`calculator.py:195-212`) adopt `electron_maxstep` (as `max_iterations`),
 `diago_full_acc` and `mixing_fixed_ns` from the input file's own namelist; the three
@@ -785,7 +785,7 @@ relaxed geometry can differ with nothing saying the request was ignored.
 > `tests/unit/test_conductivity_machinery.py`, including the two-route scaling
 > comparison, which is the mechanism itself and costs no SCF.
 
-`defumat/response/conductivity.py:611`: 1.0e-8 Ry. Davidson does not promise that. A
+`defuqumat/response/conductivity.py:611`: 1.0e-8 Ry. Davidson does not promise that. A
 pair degenerate by symmetry comes back split by 3e-7 Ry of residue, survives the guard,
 and enters a `1/gap^2` weight: with `wg_n(1-f_m) ~ 0.25` from the smearing that is
 `~3e12 * Im(v_i v_j)` in one term of `sigma_ij`. fcc Ni with spin-orbit coupling, or any
@@ -809,7 +809,7 @@ that does not is the pass.
 > `al-tetrahedra`) need that tree too, so the partition has been checked on
 > synthetic chains and exact multiplets and not yet on a real Fermi surface.
 
-`defumat/scf/tetrahedra.py:576`. `_average_degenerate` builds a symmetric "within 1e-6
+`defuqumat/scf/tetrahedra.py:576`. `_average_degenerate` builds a symmetric "within 1e-6
 Ry" matrix `S` and returns `w'_i = sum_j S_ij w_j / sum_j S_ij`. Its own docstring says
 the relation may fail to be transitive in a chain and that "the operation is
 weight-preserving either way". **It is not.** Weight is preserved only if
@@ -913,7 +913,7 @@ The trap `CLAUDE.md` added most recently, and Part I item 1 is the same family.
 >
 > **A memory figure came out of it**, and it belongs with Part I item 2:
 > `pt2-soc-paw-force` peaks at **12,204 MB**, *over* `run_regression.sh`'s 12G
-> default, so that case wants `DEFUMAT_TEST_MEM_MAX=20G`; the ultrasoft case
+> default, so that case wants `DEFUQUMAT_TEST_MEM_MAX=20G`; the ultrasoft case
 > peaks at 7,691 MB. Two harness kills were spent finding that out.
 
 > **A third file over the cap, 2026-09-15.**
@@ -921,7 +921,7 @@ The trap `CLAUDE.md` added most recently, and Part I item 1 is the same family.
 > and is therefore SIGKILLed by `run_regression.sh`'s 12G default *every time*,
 > which means the nickel spinor DFT+U resume has been contributing `killed` and
 > not a result to every capped run it appears in. Both its tests **pass** given
-> room: `2 passed` in 313 s at `DEFUMAT_TEST_MEM_MAX=20G`, and the watchdog
+> room: `2 passed` in 313 s at `DEFUQUMAT_TEST_MEM_MAX=20G`, and the watchdog
 > still fires at teardown because 85% of 20G is below the peak, so the file
 > wants **22G** to come back clean. It is one test that does it,
 > `test_a_spinor_hubbard_run_resumes_from_its_own_checkpoint`, which the
@@ -987,7 +987,7 @@ because it changes a P14 claim.
 > as well as one that it saves anything -- which is the half P74 says goes
 > wrong.
 
-`defumat/tddft/chi0.py:484`. `products` is `(npairs, n1, n2, n3)` complex with
+`defuqumat/tddft/chi0.py:484`. `products` is `(npairs, n1, n2, n3)` complex with
 `npairs = nocc * (nbnd - nocc)`, all live at once, and no dial bounds it -- while the
 module's own docstring claims the pair densities are bounded by `map_k`. The P74
 template exactly: a documented dial that does not reach the hot path.
@@ -1000,7 +1000,7 @@ template exactly: a documented dial that does not reach the hot path.
 > neither needing an SCF: the buffer is never below the floor it supersedes, and
 > the peak grows with the batch.
 
-`defumat/sizing.py:619`. `eigensolver_buffer` carries no `k_live` factor, yet
+`defuqumat/sizing.py:619`. `eigensolver_buffer` carries no `k_live` factor, yet
 `peak_bytes` uses it to **supersede** the two Davidson `arrays` lines that do. At
 `nk = 8`, `k_batch = None` (the accelerator default), `nbnd = 64`, `ndim = 10000`,
 `nvecx = 256`, smooth grid `45^3`: the superseded lines are 655 MB + 328 MB = 983 MB and
@@ -1026,7 +1026,7 @@ than no estimate.
 > a number. On a CPU the default already is 1. The map is unchanged to 1e-13 of
 > its maximum, and old and new agree digit for digit where they are printed.
 
-`defumat/workflows/transport.py:368`. One host array of `(npol, nk, nbnd, npoints)`
+`defuqumat/workflows/transport.py:368`. One host array of `(npol, nk, nbnd, npoints)`
 complex128 up front, and each k-point's wavefunctions pulled to host inside a Python
 loop.
 
@@ -1060,7 +1060,7 @@ loop.
 > ultrasoft, non-polar and non-centrosymmetric (Td, 24 operations, no inversion).
 > Running the piezo tests on it is tier 3, and waits on that term.
 
-`defumat/response/piezo.py:258`. The refusal says "every ultrasoft and PAW case
+`defuqumat/response/piezo.py:258`. The refusal says "every ultrasoft and PAW case
 committed here is a centrosymmetric crystal", and `PLAN.md`'s outstanding index repeats
 it. `Al.pbe-n-rrkjus_psl.1.0.0.UPF` and `As.pbe-n-rrkjus_psl.1.0.0.UPF` are committed in
 `tests/data/pseudo/`, and `tests/data/qe/alas-magnetoelectric-nosoc.in` already builds
@@ -1081,7 +1081,7 @@ of about twenty lines, after which the existing piezo tests apply.
 > the epsilon_infinity one and overridden by the strain response with the
 > Fermi-level-shift one. The `ef_shift` term itself is still open.
 
-`defumat/response/strain.py:238` is a bare `require_a_sternheimer_regime(calculation)`
+`defuqumat/response/strain.py:238` is a bare `require_a_sternheimer_regime(calculation)`
 with no `metals=True`, where the sibling perturbation passes it -- **[opened here]**
 `response/phonon.py:342` is `require_a_sternheimer_regime(calculation, metals=True,
 gamma_ok=True)`. The guard then raises
@@ -1132,7 +1132,7 @@ right missing term, then the term itself.
 
 
 
-`defumat/projwfc/projections.py:222`. The spin-angle orbitals are built, the labels
+`defuqumat/projwfc/projections.py:222`. The spin-angle orbitals are built, the labels
 carry their `s_z`, `_updown_matrix` exists. The missing term is `partialdos_nc`'s split
 of the columns into up and down channels (`nspin0 = 2`, route each column by
 `ind <= 2l+1`), plus a generated `projwfc.x` reference -- `ls tests/data/qe` has
@@ -1154,7 +1154,7 @@ lists** -- it is the residue P69 left behind.
 > out of them, so `d clip(z, -1, 1)/dz` is `0.5` at `z = 1` exactly -- not 1,
 > and not 0, which would at least have been visible. The minority potential
 > therefore received half of its `de_c/dzeta . dzeta/drho_down` term. Written as
-> a `where` (`defumat/xc/lda.py`'s `clamp_polarization`) the value is still
+> a `where` (`defuqumat/xc/lda.py`'s `clamp_polarization`) the value is still
 > clamped, the interior's tangent survives at the boundary, and beyond it the
 > tangent is genuinely zero. Four sites: `spin_interpolation`, `pw_spin_hartree`,
 > PBE's `gcc_spin` and `_spin_channels`, plus the same tie in
@@ -1187,7 +1187,7 @@ lists** -- it is the residue P69 left behind.
 
 
 
-`defumat/xc/lda.py`'s `spin_interpolation` clips `zeta` to `[-1, 1]`, and the
+`defuqumat/xc/lda.py`'s `spin_interpolation` clips `zeta` to `[-1, 1]`, and the
 clip's *tangent* is what the potential is built from -- `v_xc` is `jax.grad` of
 the energy. At `zeta` exactly `1.0` the clip stops passing the gradient through,
 so `dE_c/dzeta . dzeta/drho_down` is dropped from the minority potential, and
@@ -1256,7 +1256,7 @@ as a closed question.
    `reference.projwfc.pt-soc` and `pt-soc-paw` -- the platinum cases the entry calls
    blocked -- are committed. What remains is only E3 and the symmetrised-noncollinear
    half at `:206`.
-3. **`defumat/scf/tetrahedra.py:573`**, the docstring claim that the symmetric average is
+3. **`defuqumat/scf/tetrahedra.py:573`**, the docstring claim that the symmetric average is
    "weight-preserving either way" (B2). It is the reason the defect was not seen.
 
 ---
@@ -1348,7 +1348,7 @@ heading or its first paragraph gives the current ones.
 > three times over, on the PAW spheres.
 
 
-`defumat/scf/potential.py:452`. `gradient_potentials` is `jax.grad` of
+`defuqumat/scf/potential.py:452`. `gradient_potentials` is `jax.grad` of
 `sum(where(active, _gradient_energy(r, s), 0))`, so its **forward pass already computes
 the energy** -- and the next line calls `gradient_energy` on the identical `_sanitise`d
 pair to get it again. The polarized branch does the same at `:456`/`:459`. That is the PBE
@@ -1378,7 +1378,7 @@ total energy must be bit-identical.
 
 ### H2. The strain kernel issues nine calls where the loop above it already knows six suffice **[closed 2026-09-20 in `a23b050`; reopened 2026-10-03, Part XXIII item 4; closed again 2026-10-03 in `055da69`]**
 
-**Reopened 2026-10-03.** `git show a23b050 -- defumat/response/strain.py` has one hunk, in
+**Reopened 2026-10-03.** `git show a23b050 -- defuqumat/response/strain.py` has one hunk, in
 `_frozen_density_response` (`:433`), which runs once per response. The loop this entry names is
 the per-iteration one in `_self_consistent_response`, now `strain.py:589-598`, and it still calls
 `compiled_jvp` of the potential for all nine `(a, b)`, as its PAW branch at `:608-615` still calls
@@ -1392,7 +1392,7 @@ the comment there rather than asserted: `strain_tangent` returns `(E_ab + E_ba)/
 `orthogonality_states` writes `out[a, b]` and `out[b, a]` as one object, so the transposed
 pair is the same computation rather than an equal one. No timing was taken.
 
-`defumat/response/strain.py:507`. The kernel loop runs `for a in range(3), b in range(3)`
+`defuqumat/response/strain.py:507`. The kernel loop runs `for a in range(3), b in range(3)`
 on a `symmetrised` array whose `[a,b]` and `[b,a]` entries are the same object, so **three
 of the nine calls are literal duplicates**. The solve loop directly above it already
 exploits the symmetry (`for b in range(a, 3)`); the kernel loop does not.
@@ -1424,7 +1424,7 @@ would contradict. The `k_batch` trap below was a misreading: the discarded build
 not taken; the bound below still stands as the size of it. The Calculator facade still
 builds its own per `get_*` call, which is Part XVII.
 
-`defumat/workflows/conductivity.py:109` and `:175`. `run_conductivity` builds **three**
+`defuqumat/workflows/conductivity.py:109` and `:175`. `run_conductivity` builds **three**
 `Calculation` objects on one system: one so `_default_nbnd` can read `nelec` and
 `noncolin`, one to hand to `require_a_conductivity_regime`, which reads only
 `is_ultrasoft`, `is_paw`, `spiral` and the k-point weights, and then the one
@@ -1471,7 +1471,7 @@ gain would show. It does not land without a bound on that set; the patch is the 
 `p112-h4-linearize-kernel`.
 
 
-`defumat/response/phononq.py:464`, and the same shape at `phonon.py:621`,
+`defuqumat/response/phononq.py:464`, and the same shape at `phonon.py:621`,
 `efield.py:523`, `strain.py:507`. `induced_potential_at_q` splits the complex response
 density and takes **two** `jax.jvp(potential, (density,), ...)` calls. Each evaluates the
 full ground-state `v_of_rho` primal alongside its tangent and throws the primal away. The
@@ -1503,7 +1503,7 @@ the Davidson steps of every iteration, eigenvalues and density. Not timed. The s
 exists only where the predicate is a scalar, one k-point or `k_batch = 1`; under a `vmap`
 over k the `cond` lowers to a select over both branches, as it did before.
 
-`defumat/solvers/davidson.py:531`. `evc_becp, evc_becq = project(evc)` runs
+`defuqumat/solvers/davidson.py:531`. `evc_becp, evc_becq = project(evc)` runs
 unconditionally, immediately before the `lax.cond(full, ...)` at `:532` that is its only
 consumer. The collapse fires when `nbase + nbnd > nvecx`, roughly one step in three at
 `DAVID_NDIM = 4`; on the other two the projections are computed and discarded.
@@ -1527,7 +1527,7 @@ must not move; norm-conserving inputs are the control and must be bit-identical.
 
 **Done 2026-10-03, `fbf44d9`.** `find_symmetries` is an `lru_cache(maxsize=64)` keyed on the cell, the folded positions, the types and the three tolerances read at call time. Building a system, its calculation and one size estimate ran 5 searches and runs 1; the groups are identical to the old module's on all 246 parseable committed inputs of up to 200 atoms.
 
-`defumat/basis/builder.py:132`. `build_basis` calls `find_symmetries(...)` to size the FFT
+`defuqumat/basis/builder.py:132`. `build_basis` calls `find_symmetries(...)` to size the FFT
 box, and `Calculation.__init__` then calls `system.symmetry_group()` (`driver.py:1409`),
 which calls `find_symmetries` on the identical cell and structure. Neither is cached:
 `System` is a frozen `eqx.Module` with nowhere to hang a result, and `find_symmetries` is
@@ -1555,7 +1555,7 @@ temporaries, the user's decision.** `elastic_constants` compiles the six columns
 of the `jvp` over the six tangents, with the stacked first-order states passed as a shape only
 (`eager.sized_function`, so a refusal builds nothing of their size), reads the compiled
 program's `memory_analysis().temp_size_in_bytes`, and runs that same executable when it is at
-most `SHARED_PRIMAL_BYTES` (`1 << 30`; `DEFUMAT_ELASTIC_SHARED_BYTES` or the keyword
+most `SHARED_PRIMAL_BYTES` (`1 << 30`; `DEFUQUMAT_ELASTIC_SHARED_BYTES` or the keyword
 `shared_primal_bytes`, 0 skipping the compile); above it the one-trace loop of 2026-10-09 runs and
 the tensor is that loop's to the bit. Measured on `D22-0161` with the probe
 `/l/ladovj1/review/decided-j/h7_j.py` (CPU, cores 12 to 15, second calls, median of three):
@@ -1607,7 +1607,7 @@ now are), measured on a cell with a real `ngm`.
 
 
 
-`defumat/response/elastic.py:200`. `gradient = jax.grad(energy)` is built once, and the
+`defuqumat/response/elastic.py:200`. `gradient = jax.grad(energy)` is built once, and the
 `VOIGT` loop then calls `jax.jvp(gradient, (zero, psi), ...)` six times **at the same
 primal point**. Forward-over-reverse: each call runs the whole reverse sweep through
 `at_strain(0)` -- the cell rebuild, the form factors, the Ewald sum, the density over the
@@ -1630,7 +1630,7 @@ bit-identical.
 
 ### H8. The q-phonon's CG threshold is fixed at 1e-14, two orders tighter than its own family **[moves a number; done 2026-10-03 with Part XXIII items 1 and 2: every loop schedules its CG as `dfpt_kernels` does, `PLAN.md` P127]**
 
-`defumat/response/phononq.py:903`. `dynamical_matrix_at_q(..., threshold = 1.0e-14)` goes
+`defuqumat/response/phononq.py:903`. `dynamical_matrix_at_q(..., threshold = 1.0e-14)` goes
 straight into the CG convergence test, fixed from the first self-consistency iteration to
 the last. The `Gamma` phonon (`phonon.py:267`), the field (`efield.py:205`) and the strain
 response (`strain.py:215`) all use 1e-12, and `sternheimer.py`'s own default is 1e-11.
@@ -1709,7 +1709,7 @@ each on one core; `bismuthene-soc-small`, where the entry's bound lives, was not
 
 
 
-`defumat/scf/driver.py:2581`. `_noncollinear_coefficients` is a Python list comprehension
+`defuqumat/scf/driver.py:2581`. `_noncollinear_coefficients` is a Python list comprehension
 over the `nspin_mag` potential components, each doing an eager dense-grid `r_to_g`, an
 eager `augmentation.integrals`, and `block_matrix` -- itself a Python loop over atoms with
 one eager scatter per atom, each allocating a fresh `(nkb, nkb)`. So one SCF iteration
@@ -1748,7 +1748,7 @@ every dense G-vector, were 19.7 s. All three are shared per dataset now, and the
 **8.37 s**, with the SCF bit-identical to the old code. `sizing.py` and
 `pseudo/atomic.py` are still per label, which is Part XVII.
 
-`defumat/pseudo/projectors.py:180` and `defumat/paw/onecenter.py:540`. Both loop over
+`defuqumat/pseudo/projectors.py:180` and `defuqumat/paw/onecenter.py:540`. Both loop over
 `pseudos`, which is one entry per species **label**, with no `_dataset_key` check of the
 kind `augmentation.py:564` now applies. Two labels naming one UPF build two identical
 radial form-factor blocks, and two identical `(nh, nh, nlm, mesh)` PAW tensor pairs.
@@ -1786,7 +1786,7 @@ vector with the history full: **11.30 s to 9.04 s**, median of seven steps, one 
 same checksum. The Gram matrix was 2.3 s of the step and the other 9 s is the rest of
 `mix()`, which this entry did not size. Three SCFs are bit-identical.
 
-`defumat/scf/mixing.py:163`. `gram = [[float(a @ b) for b in residuals] for a in
+`defuqumat/scf/mixing.py:163`. `gram = [[float(a @ b) for b in residuals] for a in
 residuals]`, preceded by a fresh norm per history entry. At `history = 8` that is **72 host
 BLAS dots per SCF iteration over vectors of `nspin x n_dense` doubles**, of which one row
 and one norm are new -- and the matrix is symmetric, so half of even the new work is done
@@ -1813,7 +1813,7 @@ bit-identical and the iteration count identical.
 
 **Done 2026-10-03, `32b5605`, and not a null**: the compiled Davidson materialised `conj(vkb)` (c128[1607, 64] on `si8-us-1k`) inside the loop once per rung. `conjugated_contraction` conjugates the smaller operand, decided from static shapes; loop-body copies 5 -> 0 on `si8-us-1k`, 4 -> 0 on `si8-1k`, 5 -> 3 on spinor `pt-so-1k` (whose widest rungs keep the old form), temp bytes 10.0 -> 8.4 MB on `si8-us-1k`; bit-identical.
 
-`defumat/hamiltonian/operator.py:155`. `Hamiltonian._becp` computes
+`defuqumat/hamiltonian/operator.py:155`. `Hamiltonian._becp` computes
 `einsum("gk,...g->...k", vkb.conj(), vectors)`: `vkb.conj()` is a separate materialised
 `(npwx, nkb)` buffer -- XLA does not fuse an elementwise op into a dot operand on CPU,
 since the dot is a library call -- and `_nonlocal` at `:285` then uses the *unconjugated*
@@ -1835,7 +1835,7 @@ line. Bit-identical.
 
 **Reverted 2026-10-04 (`dacdd8b`), a measured regression.** On `bi10-soc` (`test_ten_site.py::test_spin_orbit_coupling_at_ten_sites`, ten bismuth atoms, 150 spinor bands, a 216x45x81 grid), compiled-kernel cache off, the block form peaks at 12.66 and 12.72 GB on D22 where master reads 3.59 and 3.60, and the dense einsum put back alone reads 3.49 GB on this workstation: the broadcast over (plane waves, atoms, channel, channel) is not fused on that cell, where it was on the two silicon cells it was measured on, so the small cells' 1.9 MB of temporaries cost 9 GB on a heavy spinor cell. The Hubbard diagonal built on it (`6f366df`) went with it. A form whose intermediate is bounded by construction (the batched einsum, `(npwx, nkb)` like the dense one, `npwx nkb nh` products) is the one to try next, measured on `bi10-soc` and not on silicon. What follows is the entry as it stood. **Done 2026-10-03, `680e01a`.** The diagonals are contracted atom block by atom block as one broadcast and one sum, which XLA fuses into a single reduction with no `(npwx, nkb)` intermediate (a batched einsum was measured worse, a dot not being fused on a CPU). Temp bytes 8.4 -> 6.5 MB on `si8-us-1k` and `si8-paw-1k`; energies within 6e-14 Ry, eigenvalues within 1e-13 (si16's 9.75e-13 is in pairs inside multiplets whose means agree to 6e-16, rule D4), iteration counts and every per-k Davidson step array unchanged on five cells. `hubbard/operator.py` has the same dense contraction on `v_ns` and is not changed.
 
-`defumat/hamiltonian/operator.py:306`. `diagonal(ik)` builds `h_diag` as
+`defuqumat/hamiltonian/operator.py:306`. `diagonal(ik)` builds `h_diag` as
 `einsum("gi,ij,gj->g", vkb.conj(), dij, vkb)`, where `dij` is the full matrix that
 `projectors.py:65` documents as **block-diagonal over atoms**. opt_einsum contracts
 `(g,i)@(i,j)` first, so the cost is `npwx nkb^2` complex MACs with an `(npwx, nkb)`
@@ -1862,7 +1862,7 @@ number-moving change rather than a free one.
 
 **Done 2026-10-03, `920bf31`.** The solver always carries the step count and the wrapper drops it, so an SCF and a residual solve share one `_every_k` (2 compiles -> 1), bit-identical. Test: `test_davidson_one_executable.py`.
 
-`defumat/solvers/davidson.py:606`. `True` and `False` are two distinct compilations of the
+`defuqumat/solvers/davidson.py:606`. `True` and `False` are two distinct compilations of the
 entire solver -- `h_psi`, the subspace solve, both Ritz rotations. `run_scf`'s mixing loop
 is the only caller that passes `True` (`driver.py:4184`); every other caller takes the
 default, and `scf/residual.py:172` is one that runs **at the SCF's own shapes**.
@@ -1883,7 +1883,7 @@ The card half is worth little on the one card measured (sticks against box over 
 63.9 against 70.3 ms at 16 atoms, 1424 against 1423 at 64, `GPU-SPEED-NEXT.md` item 6), so it
 waits with the layout decision for a float64 card.
 
-`defumat/scf/density.py:62`. `band_density`'s `one_band` scatters into a full `(n1,n2,n3)`
+`defuqumat/scf/density.py:62`. `band_density`'s `one_band` scatters into a full `(n1,n2,n3)`
 box and does a fused 3D `ifftn`, while `Hamiltonian._local` takes the stick path. The
 density is built from a *wavefunction* on the smooth grid, so it is not covered by the
 "dense-grid quantities transform the whole box, which for them is the right thing"
@@ -1922,7 +1922,7 @@ on diamond silicon (nonsymmorphic, phases kept) and fcc aluminium (symmorphic): 
 the phase shape, the estimate equal to the bytes held, and the average against the int64
 indices with the whole phase table **bit for bit**. Checked to fail on `aa08c82`.
 
-`defumat/system/symmetry.py:644`. `permutations` (int64) and `phases` (complex128), both
+`defuqumat/system/symmetry.py:644`. `permutations` (int64) and `phases` (complex128), both
 on the **dense** G set, held for the life of the `Calculation` (`driver.py:1458`).
 `apply_symmetry_maps` then materialises a further `(nsym, ngm)` temporary per channel,
 once per iteration per channel.
@@ -1953,7 +1953,7 @@ the line not existing. What is not done is making the history smaller, which
 is Part XXIII item 22's option and the user's decision of 2026-10-04 to keep real space by
 default.
 
-`defumat/scf/mixing.py:120`. `_densities` and `_residuals` each hold `history = 8` entries,
+`defuqumat/scf/mixing.py:120`. `_densities` and `_residuals` each hold `history = 8` entries,
 and what is handed to them is the whole mixed state flattened -- real-space
 `(nspin_mag, n1, n2, n3)` plus `becsum` and `ns`, through `np.asarray(...).ravel()`.
 
@@ -1973,7 +1973,7 @@ bodies (`_chunk_phases`, the expression `_atom_phases` evaluates on the whole se
 whose phases every contraction reads whole, is unchanged. The 2.55 GB line on the 45-atom
 slab goes to `nat x 24` B; `sizing.py` reports `augmentation positions (nat,3)` in its
 place. **Measured on D22 against `aa08c82` on the same cores** (PAW O2 at 25/200 Ry, one
-atom moved off its site, `DEFUMAT_AUG_MAX_BYTES=0` to force the tabulated route): the
+atom moved off its site, `DEFUQUMAT_AUG_MAX_BYTES=0` to force the tabulated route): the
 charge from the starting `becsum`, the integrals against a random potential and the cross
 integrals of a table displaced by `(0.1, -0.05, 0.02)` are **bit-identical**; the gradient
 of a scalar built from both through `at_positions` moves by 2.6e-13 on 99.4, **2.6e-15
@@ -1986,7 +1986,7 @@ model-free: the live-array inventory after setup of nine-atom NiI2 on D22 held o
 `(9, 629760)` complex128 array, 0.084 GiB, before the change, and the in-use bytes after
 setup fell from 0.322 to 0.238 GiB with it, the same 0.084.
 
-`defumat/pseudo/augmentation.py:80`. On the 45-atom NiBr2 slab (`ngm = 3 536 849`) that is
+`defuqumat/pseudo/augmentation.py:80`. On the 45-atom NiBr2 slab (`ngm = 3 536 849`) that is
 **2.55 GB** held for the life of the `Calculation` -- the largest resident line the
 tabulated branch has, on the very cell where P73's whole achievement was removing the 76.5
 GB `Q_ij(G)`. `sizing.py:590` lists it beside a table measured in kilobytes. Its only
@@ -2011,7 +2011,7 @@ line still models the whole `(ngm, kkbeta)` block, so it now overstates this by
 
 
 
-`defumat/pseudo/augmentation.py:303`. `_qrad_kernel` forms `(ngm, kkbeta)` and hands it to
+`defuqumat/pseudo/augmentation.py:303`. `_qrad_kernel` forms `(ngm, kkbeta)` and hands it to
 `spherical_bessel`, whose body builds five arrays at that shape before the einsum reduces
 it. **Its own docstring records the size** -- 36257 by ~1100 on eight-atom ultrasoft
 silicon, 300 MB, one per `L`. `pseudo/formfactors.py` chunks all four of *its* transforms
@@ -2038,7 +2038,7 @@ nickel is still arithmetic.
 
 
 
-`defumat/response/velocity.py:301`. For each cartesian axis,
+`defuqumat/response/velocity.py:301`. For each cartesian axis,
 `einsum("skmg,skng->skmn", psi.conj(), self.apply(psi, axis))`. `apply` runs through
 `map_k`, and **`map_k` stacks**: a full `(nspin, nk, nbnd, ndim)` array of `dH/dk|psi>` is
 materialised in its entirety before one element of the `(nbnd, nbnd)` answer exists. The
@@ -2143,7 +2143,7 @@ Y1 is about a half that is weighted a factor of 13.6 too lightly. This is about 
 is not in the number at all, and the two compound on exactly the same cells.
 
 **What the code does**, checked rather than remembered. `scf_accuracy_split`
-(`defumat/scf/potential.py:158`) takes the **smooth** density residual and returns
+(`defuqumat/scf/potential.py:158`) takes the **smooth** density residual and returns
 `(dr2, charge, magnetic)`; the mixing loop builds `accuracy` from it at
 `scf/driver.py:5019` and the residual solver's `accuracy_of` at `:4326` does the same,
 adding `ns_ddot` where there is a Hubbard U. `becsum` enters neither. What reaches the
@@ -2190,7 +2190,7 @@ error within an order of magnitude; and the Davidson has not settled, 50.7, 40.3
 then 7.7, 4.0, 3.5, then 30.5, 21.0, 21.7, 5.8, 13.8 average steps, where a gapped insulator
 at `ethr` 4e-8 belongs at 2 to 4. A large energy motion with a small smooth-density residual
 is what points at the one-centre terms. The checkpoint is kept at
-`/scratch/work/ladovj1/calculations/NiBr2_defumat/k161-h200/scf_iteration.npz`
+`/scratch/work/ladovj1/calculations/NiBr2_defuqumat/k161-h200/scf_iteration.npz`
 (`becsum_0`, `becsum_1`, eigenvalues and occupations are all in it).
 
 **That last step was a hypothesis, it was measured, and it is wrong.** Retracted by the
@@ -2381,7 +2381,7 @@ difference and no truncation in it, at one SCF and one gradient per rung instead
 
 **Closed 2026-10-09.** `_compiled_terms` now goes through `geometry_compiled` under the slot `_analytic_terms`, taking the hoisted fields and the geometry's float leaves as arguments, the rule the autodiff force and stress follow since Part XXIII item 7. On the ultrasoft two-atom cell of `tests/unit/test_geometry_compiled.py` an `at_positions` step compiled `jit(_terms)` once (0.33 s on one D22 core) at `aa08c82` and compiles nothing now; the new test fails on `aa08c82` with `the step compiled ['jit(_terms)']`. Against the old closure at the same geometry, five of the six terms are identical to the bit and the nonlocal one differs by 1.4e-17 Ry/bohr.
 
-`defumat/forces/analytic.py:112`. `_compiled_terms` keys its cache on object identity and
+`defuqumat/forces/analytic.py:112`. `_compiled_terms` keys its cache on object identity and
 `at_positions` returns a `copy.copy`, so the six-term kernel is traced and compiled again
 on every step. The mechanism is real and the identity key is deliberate -- `_terms` reads
 the positions off the captured object, so the geometry genuinely is folded into the trace.
@@ -2407,7 +2407,7 @@ memory over ten cases went 0.55 -> **3.67 GB**, monotonic; with it, flat at **1.
 and faster as well as smaller.
 
 **The trade is not free** -- it buys recompilation for a lower peak -- so measure file by
-file with `DEFUMAT_TEST_MEM_MAX=12G tools/run_regression.sh <file>` and read the `peak=` on
+file with `DEFUQUMAT_TEST_MEM_MAX=12G tools/run_regression.sh <file>` and read the `peak=` on
 the summary line, one file at a time and nothing else on the machine. This is the entry
 most likely to pay for itself, given that Part I item 2 is still open.
 
@@ -2449,7 +2449,7 @@ takes 10 to 65 per cent off each peak and two thirds off the mappings, and costs
 at 2.3 times, whose tests each compile a force again after the clear. The number that
 justifies it is `test_stress.py`'s mappings: 51,555 is 79 per cent of a Triton node's
 `vm.max_map_count`, which is Part XIII item 2's failure one cell away. Cold
-(`DEFUMAT_CACHE_DIR=off`) the time cost is larger, `test_ldau.py` 93 against 188 s
+(`DEFUQUMAT_CACHE_DIR=off`) the time cost is larger, `test_ldau.py` 93 against 188 s
 with the reorder, because every clear is then a full recompile.
 
 The eleven left unbounded hold three cells or fewer, or cache a function with no
@@ -2483,7 +2483,7 @@ calculation it is refusing is a refusal at the wrong boundary.**
 
 A negative is a result: this is where **not** to look.
 
-- **`defumat/batching.py`** -- clean, and the best-argued file in the sweep. Every
+- **`defuqumat/batching.py`** -- clean, and the best-argued file in the sweep. Every
   `jax.vmap` call site in the package was grepped: **none walks the k axis by hand.** The
   only vmaps in the hot path are over the spin axis, already measured free at width one
   (true of one channel; at `nspin = 2` the density's vmap keeps both channels' boxes in flight,
@@ -2555,8 +2555,8 @@ way to get a stack here -- `py-spy` and `gdb` are not installed):
 ```
 File ".../jax/_src/array.py", line 642 in _value
 File ".../jax/_src/array.py", line 300 in __float__
-File "defumat/scf/driver.py", line 2948 in relative
-File "defumat/scf/driver.py", line 2963 in symmetry_residual
+File "defuqumat/scf/driver.py", line 2948 in relative
+File "defuqumat/scf/driver.py", line 2963 in symmetry_residual
 File "tests/unit/test_seed_symmetry.py", line 127 in ...
 ```
 
@@ -2564,7 +2564,7 @@ So it is parked in a blocking device-to-host transfer, with **28-35 threads all 
 `futex_wait_queue` and no CPU at all** -- the main thread waiting for a result and every XLA
 worker idle. Not compilation: the same file with the persistent cache **off**, so every
 kernel compiled from scratch, runs its four tests in **9.8 s**. Not a file lock either: no
-lock or temporary files in `~/.cache/defumat/jax` (19,362 entries, 1.5 GB), and the blocked
+lock or temporary files in `~/.cache/defuqumat/jax` (19,362 entries, 1.5 GB), and the blocked
 process holds no open file in it. That leaves a deadlock in XLA's CPU thread pool, which
 nothing in this project can fix.
 
@@ -2609,7 +2609,7 @@ threads); a stalled one moves nothing. Reading `wchan` alone says nothing, and n
 
 **The entry above says "a deadlock in XLA's CPU thread pool, which nothing in this project
 can fix." That is wrong, and the word doing the damage is *nothing*.** The trigger is
-`defumat._limit_thread_pool`, which narrows the process's affinity mask to four cores at
+`defuqumat._limit_thread_pool`, which narrows the process's affinity mask to four cores at
 import. XLA sizes its CPU thread pool from that mask, and the hang rate follows the mask
 and nothing else.
 
@@ -2620,8 +2620,8 @@ it correctly -- CPU time `00:28:19` at two reads 25 s apart, 45 threads all in
 one on record:
 
 ```
-File "defumat/scf/driver.py", line 638 in _relative_residual      <- np.asarray(a)
-File "defumat/scf/driver.py", line 2998 in symmetry_residual
+File "defuqumat/scf/driver.py", line 638 in _relative_residual      <- np.asarray(a)
+File "defuqumat/scf/driver.py", line 2998 in symmetry_residual
 File "tests/unit/test_seed_symmetry.py", line 127 in ...
 ```
 
@@ -2637,7 +2637,7 @@ fact.**
   between the compiled symmetrisation and NumPy -- **and it did not stop the hang.** Worth
   keeping because it makes the code mean what its docstring says; worthless as a cure.
 - *The cache theory.* This entry's strongest datum was "cache off, 9.8 s clean; cache on,
-  hang". `DEFUMAT_CACHE_DIR=off` now hangs too, at 9.9 s of CPU over a 400 s wall clock.
+  hang". `DEFUQUMAT_CACHE_DIR=off` now hangs too, at 9.9 s of CPU over a 400 s wall clock.
   The clean run on record was a lucky draw, which is what a 1-in-3 failure looks like when
   it is sampled once.
 
@@ -2645,7 +2645,7 @@ fact.**
 (`test_seed_symmetry.py`, `test_textured_symmetry.py`, `test_textured_seeding.py`), run
 eight times at each mask, 150 s timeout, otherwise idle machine:
 
-| `DEFUMAT_THREADS` | cores | hangs | wall when it passes |
+| `DEFUQUMAT_THREADS` | cores | hangs | wall when it passes |
 |---|---|---|---|
 | `2` | 2 | **8 / 8** | -- |
 | `4` (the package default) | 4 | **6 / 14** | 32-35 s |
@@ -2671,15 +2671,15 @@ trade for a calculation and the right one for a test suite, and the two are ther
 separated:
 
 - **Production keeps `DEFAULT_THREADS = 4`**, with the deadlock named in
-  `_limit_thread_pool`'s docstring and `DEFUMAT_THREADS` the escape.
+  `_limit_thread_pool`'s docstring and `DEFUQUMAT_THREADS` the escape.
 - **The suite runs at eight**, set in `tests/conftest.py` before anything imports
-  `defumat`, because the mask is read once at import. The gate is not a performance
+  `defuqumat`, because the mask is read once at import. The gate is not a performance
   measurement -- nothing may be timed beside a test run in any case -- so it can afford what
   the mask costs, which is **11% of wall clock and 13% of peak RSS**: 27.4 s and 1752 M at
   four cores against 30.3 s and 1981 M at eight, median of three each on
   `tests/unit/test_textured_seeding.py`. Eight rather than `off` because this machine is
   shared, and a gate that takes every core takes them from another session. An explicit
-  `DEFUMAT_THREADS` still wins, so the hang can still be reproduced on demand.
+  `DEFUQUMAT_THREADS` still wins, so the hang can still be reproduced on demand.
   `tests/unit/test_config.py` guards the line, since the mask is set once at import and a
   conftest that stopped setting it would fail nothing else.
 
@@ -2709,7 +2709,7 @@ diagnosis, not the recovery, which is one more reason to run anything long throu
 **It was never a regression. `starting_magnetization = 1.0` on hydrogen is a *fully
 polarized* atom** -- one valence electron, so the minority channel starts at exactly zero
 and the first potential is built at `|zeta| = 1`, the saturated point every clamp in
-`defumat/xc` is about. From there the run leaves the ferromagnetic branch. At **0.9** the
+`defuqumat/xc` is about. From there the run leaves the ferromagnetic branch. At **0.9** the
 branch survives, and the whole scan comes back:
 
 | `q_3` | converged | iterations | E (Ry) | \|m\| | E - E(0) |
@@ -3460,7 +3460,7 @@ textures on the lattice rather than the ultracell's states.
 A peer session running a 45-atom NiBr2 slab on GPU (noncollinear + `lspinorb`, FR PAW,
 `ecutwfc` 45 / `ecutrho` 240, `nbnd` 403, `npwx` 156346, 45-site
 `LOCAL_MAGNETIC_FIELDS`, `nosym`/`noinv`, anderson 0.3, `diago_david_ndim = 2`,
-`DEFUMAT_BAND_BATCH` 16, `k_batch` 1) reported four things. **Two were defects and are
+`DEFUQUMAT_BAND_BATCH` 16, `k_batch` 1) reported four things. **Two were defects and are
 fixed**; the two below are not this session's work because neither can be measured on
 this machine.
 
@@ -3544,11 +3544,11 @@ run the instrument on that slab past the `ethr` tightening on an A100 and an H10
 > **fragmentation** rather than total bytes, that is a smaller win than it read as.
 >
 > **The next instrument is not arithmetic.** Job 20252135 runs the same two iterations under
-> `DEFUMAT_STAGE_PEAKS=1`, bracketing every stage with `peak_bytes_in_use`: whatever holds 79
+> `DEFUQUMAT_STAGE_PEAKS=1`, bracketing every stage with `peak_bytes_in_use`: whatever holds 79
 > GB has to appear between one of those pairs.
 >
 > **Two things about that instrument, both from 2026-09-14 and both in `MEMORY-AUDIT.md`
-> A17.** `DEFUMAT_STAGE_PEAKS` is in **no committed file** in this repository, so every
+> A17.** `DEFUQUMAT_STAGE_PEAKS` is in **no committed file** in this repository, so every
 > bracketed number in the record rests on a patch that lives only on Triton and that nobody
 > here can read. And the brackets were suspected of depressing the peak they measure, which
 > would have made every one of those numbers a lower bound; an unbracketed run reproduced the
@@ -3562,7 +3562,7 @@ buffer 18.55 GiB, **peak 46.12 GiB = 49.5 GB**. The measured working peak was **
 with the guard above asking 21.4 GB more on top of that once `ethr` tightened. Anyone
 reading the report picks an 80 GB card for a cell that needs 141 GB.
 
-**Closed by subtraction, from that job's own log.** The run prints its `defumat size`
+**Closed by subtraction, from that job's own log.** The run prints its `defuqumat size`
 block at its head, so the estimate and the peak are in one file, and the peer session did
 the arithmetic:
 
@@ -3626,7 +3626,7 @@ Two iterations, and even twelve, said nothing about the arena three iterations l
 **Compile-only pair, 2026-10-11** (`plans/open-d-vii1-review.md`, step 0; jobs `20880067` on an
 A100, `gpu17`, `gpu-debug`, and `20880068` on an H100, `gpu46`, `gpu-h100-80g-short`; master
 `92b8c4b` in `apps/defumat-vii1`; `tools/gpu/davidson_memory.py` on
-`NiBr2_defumat/nibr2_k161_anderson.scf.in`, `david 2`, band batch 16, `k_batch 1`, `nbnd 403`,
+`NiBr2_defuqumat/nibr2_k161_anderson.scf.in`, `david 2`, band batch 16, `k_batch 1`, `nbnd 403`,
 `memory_mode = 'memory'`, autotuning at level 0; JSON in `calculations/defumat-vii1/out/`). The
 Davidson executable's `memory_analysis()`, in GiB:
 
@@ -3726,7 +3726,7 @@ zero rows that fall off the end are dropped (`davidson._write_rows`), with the s
 `psi`, `hpsi`, `becp` and `becq`, `active` a prefix mask `arange(nvecx) < nbase + notcnv`, and
 `_extend_projection` handed the moved offset. The test is then exactly `cegterg`'s on every route;
 a rung-based test would have made the collapse depend on `k_batch`, `narrow` and
-`DEFUMAT_BAND_RUNGS`, against `CLAUDE.md`'s rule that the chunk size is never visible beyond
+`DEFUQUMAT_BAND_RUNGS`, against `CLAUDE.md`'s rule that the chunk size is never visible beyond
 round-off. `david < 2` is refused as `cegterg.f90:125` refuses it. `DAVID_NDIM`'s note said `pw.x`
 runs four: `read_namelists.f90:408` sets 2 before the namelist is read, which is
 `INPUT_PW.txt:2332`'s default, and `docs/features.tex`'s sentence calling that documentation stale
@@ -3788,7 +3788,7 @@ the committed input with `diago_david_ndim` added to `&electrons`, `conv_thr = 1
 serial `pw.x` 7.5 on the same three inputs). Davidson steps per call, iteration by
 iteration, with the `ethr` each was asked for:
 
-| `ndim` | defumat: steps at `ethr` | total | `pw.x`: steps at `ethr` | total |
+| `ndim` | defuqumat: steps at `ethr` | total | `pw.x`: steps at `ethr` | total |
 |---|---|---|---|---|
 | 2 | 3, 1, 2, 4 (7.1e-7), **6 (5.3e-9)**, 3, 3, **6 (2.7e-13)** | 28 in 8 | 2, 1, 1, 2, **5 (8.5e-7)**, **5 (1.6e-8)**, 3, 3, 2, 2, 4 (9.8e-12), 2, 2 | 34 in 13 calls |
 | 3 | 3, 1, 2, 2, 2, 2, 3, 3, 2 | 20 in 9 | 2, 1, 1, 2, 2, 3, 3, 2, 3, 2, 3, 2 | 26 in 12 calls |
@@ -4330,7 +4330,7 @@ through `pp.x` against one `run_sts` call, both single core, same cell.
 
 **Taken 2026-10-09 on D22** (`aa08c82`, `review/open-c/sts/`, one performance core each,
 `taskset -c 8`, nothing else of this session running, `OMP`/`OPENBLAS`/`MKL` threads 1 and
-`DEFUMAT_THREADS=off`). The cell is QE's fcc aluminium as `al-metal-nosym.in`: the whole unshifted
+`DEFUQUMAT_THREADS=off`). The cell is QE's fcc aluminium as `al-metal-nosym.in`: the whole unshifted
 4x4x4 grid, 64 points, because `run_sts` refuses a wedge and `pp.x` then sums the same states;
 Marzari-Vanderbilt at 0.05 Ry, `band_cutoff = 3` so the band sums are `stm.f90`'s, and the tip at
 every point of the 15^3 grid, 3375 points, so both sides produce the same field. `pp.x` is the
@@ -4606,7 +4606,7 @@ RET_CHECK failure ... fft_plan != nullptr
 Failed to create cuFFT batched plan with scratch allocator
 ```
 
-at `DEFUMAT_K_BATCH = 16` and `DEFUMAT_BAND_BATCH = 64` on an 80 GB card. Dropping to 4 and
+at `DEFUQUMAT_K_BATCH = 16` and `DEFUQUMAT_BAND_BATCH = 64` on an 80 GB card. Dropping to 4 and
 16 is what they reran with.
 
 **Why it is worth an entry rather than a shrug.** It is a *plan creation* failure and not an
@@ -4615,7 +4615,7 @@ memory available -- and the step it happens in is the one an ultracell makes lar
 no ordinary run does: `fixed_density_states` diagonalises the whole folded k-set, which is
 `N` times the unit cell's, so `k_batch x band_batch` transforms at `nbnd = 56` on a 3-atom
 cell at `ecutwfc = 45` is a batch shape that only this method reaches. The defaults follow
-the platform (`defumat/batching.py`), and on an accelerator they are the batched end of the
+the platform (`defuqumat/batching.py`), and on an accelerator they are the batched end of the
 dial, so an ultracell is exactly where they are least tested.
 
 **What is not known**: whether the limit is cuFFT's own plan size, the scratch allocator's
@@ -4623,7 +4623,7 @@ budget under XLA, or a shape this code builds needlessly wide. Nothing here read
 size in a way a result depends on -- the chunk size must never be visible beyond round-off,
 which is asserted -- so the workaround is sound and the question is only where the wall is.
 
-**What to do before anything else**: on a machine with a card, walk `DEFUMAT_BAND_BATCH` at
+**What to do before anything else**: on a machine with a card, walk `DEFUQUMAT_BAND_BATCH` at
 fixed `k_batch` and find the largest batch that plans, then the same for `k_batch`, and see
 whether the product or one factor is the bound. If it is the product, the fix is to cap the
 batched shape in `batching.py` for the folded-set solve rather than to leave a user to find
@@ -4688,7 +4688,7 @@ process, so the peak is accumulation over the file rather than any one test's wo
 
 **What to do about it**, in the order the file's own rule gives: `jax.clear_caches()` in an
 autouse fixture after the `yield`, and `lru_cache(maxsize=2)` on the converged-state helper.
-**Raising the cap is not the workaround it looks like**: at `DEFUMAT_TEST_MEM_MAX=16G` the
+**Raising the cap is not the workaround it looks like**: at `DEFUQUMAT_TEST_MEM_MAX=16G` the
 same file is killed again, at **15,316 MB**, in
 `test_a_spinor_occupation_matrix_matches_pw_x` -- three quarters of the way through rather
 than half, which is what accumulation does to a cap. Selecting a subset with `-k` bounds it
@@ -4848,7 +4848,7 @@ polarization identical to the printed digits, and the second call 4.2 s against
 8.2 (`jax_log_compiles`: 16 `jit(scan)` compilations a call before, none after).
 Not yet re-run on a node; the two paragraphs below are the analysis as it stood.
 **The response stack had the same defect at a larger rate** (fixed the same night,
-`defumat/eager.py`): a dielectric tensor of AlAs added 10,770 mappings a call on this
+`defuqumat/eager.py`): a dielectric tensor of AlAs added 10,770 mappings a call on this
 workstation, with the cache on or off, so about six calls in one process reach the
 65,530 `vm.max_map_count` of the Triton nodes (this workstation's is 1,048,576, which is
 why it never showed here), and now a repeat call adds none
@@ -5017,10 +5017,10 @@ a matrix element of what the field response has already built rather than a
 response to be solved for. What is left is therefore the single contraction
 `-<psi_m|dS/d(eps_ab)|psi_n> . dLambda^E_mn`, and **both factors exist as
 functions already**:
-:func:`defumat.response.strain.overlap_derivatives` is
+:func:`defuqumat.response.strain.overlap_derivatives` is
 `<psi_m|dS/d(eps_ab)|psi_n>` for the six strains and returns ``None`` for a
 norm-conserving dataset, and
-:func:`defumat.response.born._multiplier_response` is
+:func:`defuqumat.response.born._multiplier_response` is
 `dLambda_mn = w_n <psi_m|dV_E|psi_n>`, which its own docstring calls "the whole
 of QE's first two ultrasoft stages at once". Both vanish identically for a
 norm-conserving dataset, **which is exactly why the two routes agree to
@@ -5067,7 +5067,7 @@ for.
 **What the gap is instead, and the record already contains it.** The two routes
 differ in one more place: the taped one hands the density and `becsum` to the
 energy as **builders that carry the strain**
-(:func:`~defumat.response.born._raw_mixed_state`), while the contracted one
+(:func:`~defuqumat.response.born._raw_mixed_state`), while the contracted one
 rebuilds the potential from the **frozen density array** inside
 `_bare_strains`. For an ultrasoft dataset that is not the same "bare", because
 the density itself moves with a strain -- the augmentation charge deforms and
@@ -5108,7 +5108,7 @@ Contracted with the field response and using that `K` is symmetric, that is
 factor of two and no volume left in it. `clamped_ion_piezoelectric` needs none
 of it because it hands the density to the energy as a *builder* that carries the
 strain, so its `jvp` generates the link itself.
-`defumat.response.piezo._screened_strain_term` is the term and
+`defuqumat.response.piezo._screened_strain_term` is the term and
 `StrainResponse.moved_drho` is the object it integrates, which is what the
 entry above predicted.
 
@@ -5243,7 +5243,7 @@ this said "+0.815802 is the number and +0.830702 is the artefact", on the
 grounds that the differentiated assembly run in the *position* coordinate is
 the Born charge and that matches `ph.x` on ultrasoft AlAs. **That is the wrong
 function.** What matches `ph.x` is
-`defumat.response.born.born_effective_charges`, which carries three terms the
+`defuqumat.response.born.born_effective_charges`, which carries three terms the
 piezoelectric assembly does not: the multipliers' own response, the
 `add_for_charges` sandwich (`constraint_position_term`), and the full-zone
 density shift. The piezoelectric route that *is* built from the same tape,
@@ -5336,7 +5336,7 @@ free of the proper-against-improper correction and of the polarization branch.
 **The three regression files pass on a node, and until now they had never been
 run in one process anywhere.** Job `20345288`, an array of three tasks on
 `milan3` under `batch-milan` at `c9bbfb1`, four cores and 32 G a task with
-`DEFUMAT_CACHE_DIR=off`, so every kernel was compiled once: **14 tests passed
+`DEFUQUMAT_CACHE_DIR=off`, so every kernel was compiled once: **14 tests passed
 and none failed**, 3 in `test_piezoelectric_augmented.py` at 335.97 s, 1 in
 `test_piezoelectric_wedge.py` at 198.74 s and 10 in `test_piezoelectric.py` at
 563.03 s, with peak resident sets of **10.5, 8.0 and 5.2 GiB**
@@ -5457,7 +5457,7 @@ left to be noticed.
 with the one that found the problem** (2026-09-19). ``piezoelectric_tensor``
 carries ``nk``, ``grid`` and ``kmesh_drift`` on its result and warns that
 nothing inside this quantity can see its own zone sum, quoting the AlAs curve;
-``defumat/workflows/piezo_ladder.py`` measures the curve of whatever crystal is
+``defuqumat/workflows/piezo_ladder.py`` measures the curve of whatever crystal is
 in front of it, one ground state and one response per rung, wedges by default.
 Run on the calibration cell at ``4 4 4`` and ``6 6 6`` it reads **-0.763786**
 and **-0.687475** C/m^2, which is ``tools/cluster/piezo_measure.py``'s ladder
@@ -5724,7 +5724,7 @@ obvious answers have been paid for.
 The whole `slow` set on a node (job `20336106`) failed in thirteen files, and
 item 2 above accounts for eight of them. These are the rest. **They have now
 been run at two commits in one environment** (job `20337788`, tasks 0 and 1,
-`batch-milan`, `DEFUMAT_CACHE_DIR=off`): task 0 at **`b247662`**, the commit the
+`batch-milan`, `DEFUQUMAT_CACHE_DIR=off`): task 0 at **`b247662`**, the commit the
 session started from, and task 1 at **`4773c75`**, its head. Neither
 `tools/run_regression.sh` nor `tests/conftest.py` nor any of the seven files
 changed between the two, so the A/B isolates package code. **The failure counts
@@ -5835,7 +5835,7 @@ level the SCF is converged to. Measured with the test's response convergence (`t
 | 1e-16 | 14.325301460 | 1.56e-8 | 9.9e-12 |
 | 1e-18 | 14.325301367 | 2.8e-10 | 1.8e-13 |
 | 1e-12, `becsum` back in the fit (`driver.FIT_BECSUM`) | 14.325321337 | 1.2e-14 | 9.0e-17 |
-| 1e-12, Davidson floor `DEFUMAT_ETHR_MIN = 1e-16` | 14.325310357 | 3.7e-13 | 3.6e-16 |
+| 1e-12, Davidson floor `DEFUQUMAT_ETHR_MIN = 1e-16` | 14.325310357 | 3.7e-13 | 3.6e-16 |
 | 1e-16, Davidson floor 1e-16 | 14.325301177 | 4.4e-8 | 7.1e-11 |
 
 Three things this says. **The epsilon of this cell is itself converged only to about 1e-5 at the
@@ -5873,7 +5873,7 @@ piezoelectric mesh refusal), and it is not chased here.
 
 ## 1. `dH/dk` at a reciprocal-lattice point is wrong on every `l = 1` channel **[closed 2026-09-20, route A: the ratio goes 0.3695 to 1.0000 and no primal moves]**
 
-`AUDIT-2026-09-20.md`'s `defumat/basis/gvectors.py:117`, reproduced and
+`AUDIT-2026-09-20.md`'s `defuqumat/basis/gvectors.py:117`, reproduced and
 measured rather than fixed, because the repair is a choice between two routes
 that differ in kind (below).
 
@@ -6023,7 +6023,7 @@ effective mass differences a `jvp`, on a stencil that excludes its centre).
 
 ## 2. The saturated-point mask in `spin_energy_density` zeroed the *first* derivative, and it was worth 11.3 kbar and a sign on the stress of a fully polarized cell **[closed 2026-09-21, the stress now reproduces `pw.x` to every printed digit]**
 
-`AUDIT-2026-09-20.md`'s `defumat/xc/functional.py:487`, reproduced and measured. It is a
+`AUDIT-2026-09-20.md`'s `defuqumat/xc/functional.py:487`, reproduced and measured. It is a
 wrong answer on a committed input rather than a nuisance, and the number that says so is
 `pw.x`'s own stress on `tests/data/qe/h-atom-lsda.in`.
 
@@ -6305,13 +6305,13 @@ one ceiling is either a memory regression in this code or a **cache state** -- `
 already records that loading one 603 MB cache entry is worth 6.3 GB resident.
 
 **The discriminator is one run and it is the experiment the skill says has never been
-done**: `DEFUMAT_CACHE_DIR=off` on `test_ten_site` alone, against the same file warm.
+done**: `DEFUQUMAT_CACHE_DIR=off` on `test_ten_site` alone, against the same file warm.
 **Raising the cap is the wrong first move**, since it answers nothing and hides the
 question.
 
 **All seven were then run on Triton, 2026-09-22 (job 20383108), and they are not a cache
 artefact: they genuinely need more than 12 GB.** One array task per file on `batch-milan`
-at 64 G, `DEFUMAT_CACHE_DIR=off`, `tools/cluster/bigtests.sbatch`:
+at 64 G, `DEFUQUMAT_CACHE_DIR=off`, `tools/cluster/bigtests.sbatch`:
 
 | file | peak | result |
 |---|---|---|
@@ -6352,7 +6352,7 @@ is the last one outstanding.
 
 **Closed 2026-10-09: all seven now run under an 8 G cap, at a third or less of what
 they took on Triton.** On `D22-0161` at `aa08c82`, the persistent kernel cache on, each
-file in its own process through `tools/run_regression.sh` at `DEFUMAT_TEST_MEM_MAX=8G`,
+file in its own process through `tools/run_regression.sh` at `DEFUQUMAT_TEST_MEM_MAX=8G`,
 with the QE tree copied over so that `test_lsda.py` runs its 55 tests rather than
 skipping 54 of them, as the D22 slow set of 2026-10-04 did:
 
@@ -6373,7 +6373,7 @@ already when Triton read 20.5 GB. Which commits account for it is not attributed
 **The sentence above that the cap "needs raising to about 24 G" is withdrawn**: the 12 G
 default holds every one of the seven with a factor of 2.7 to spare. **The
 warm-against-cold pair this item asked for is now taken on one file**, `test_ldau.py` at `aa08c82`:
-3,411 MB with `DEFUMAT_CACHE_DIR=off` against 3,317 and 3,265 MB in two runs with the
+3,411 MB with `DEFUQUMAT_CACHE_DIR=off` against 3,317 and 3,265 MB in two runs with the
 cache on, so on this file the **hit is the cheaper one**, by about 100 to 150 MB, which
 is the opposite sign to `CLAUDE.md`'s "a cache miss is the cheaper one in memory" and
 nowhere near the gigabytes a 603 MB entry was once worth. `test_ten_site.py` is the one to watch: on 2026-10-04 it read 12,628 to
@@ -6851,7 +6851,7 @@ k-points.
 ## 1. Five failures from `1705a0a` and one platform-sensitive: a DFT+U cell lands in a solution `pw.x` does not reach **[opened 2026-09-24; closed 2026-09-25, `PLAN.md` P113 to P115]**
 
 Part XVI item 1's list, 35 files, ran on `batch-milan` at `93d882f` (jobs 20429733 and
-20429734, `tools/cluster/owed.sbatch`, `DEFUMAT_CACHE_DIR=off`, the QE tree from the group
+20429734, `tools/cluster/owed.sbatch`, `DEFUQUMAT_CACHE_DIR=off`, the QE tree from the group
 share). 29 files passed; six failed eight tests. The six were then rerun on the same
 partition at `98468d4` and at `1705a0a`, the two sides of the Anderson change (jobs
 20430067 and 20430073, one file per task, each in its own worktree):
@@ -7643,7 +7643,7 @@ from P122, and the line numbers are theirs, at `7b7bf6f`; P123 added lines to
 `scf/driver.py` above them, so look the functions up by name. The case in both: 15 cells
 of the three-cell `paw_n3_k3` primitive cell, 45 atoms, a `STARTING_MOMENTS` helix,
 fully-relativistic PAW, LDA, `ecutwfc = 45`, `ecutrho = 360`, `nbnd = 432`, `nosym`,
-`DEFUMAT_K_BATCH=1`, band batch 16, projectors rebuilt per k-point, on the worktree
+`DEFUQUMAT_K_BATCH=1`, band batch 16, projectors rebuilt per k-point, on the worktree
 `apps/defumat-orient`.
 
 ## 1. `run_scf` computes the PAW one-centre orientation torque on every noncollinear iteration, used or not **[closed 2026-10-09, branch `open-d`: still computed, now with no tape; on nine atoms of spinor PAW NiI2 the torque took the card from 0.88 to 5.40 GiB in use and now to 0.95, below the iteration's own peak; decided by the user and done 2026-10-10 on branch `decided-h`: computed on PAW only when read, `None` otherwise, PAW nickel 3.90 s an iteration to 0.98]**
@@ -7733,7 +7733,7 @@ peak drops by the tape. **Found** by the NiBr2 session; not measured here.
 **Done 2026-10-10 (branch `decided-h`, route 2, the user's decision).** `orientation_torque`
 and `torque_at_angle` take the derivative of the band energy as one `jax.jvp` a tangent (the
 three generators, or the unit angle), each over the whole k axis with the k dial a `sum_k`
-inside it, kept once a process by `defumat.eager.compiled_function` with the tangent an
+inside it, kept once a process by `defuqumat.eager.compiled_function` with the tangent an
 argument, so the three share one program. The whole-axis `jax.grad` branches, which the
 `1 1 1` run took, are gone, and so is the per-chunk loop of reverse passes; the Hamiltonian is
 built once a tangent. Both modes differentiate the same function and nothing on its path has
@@ -7856,7 +7856,7 @@ source is at `soc_scale = 0`. **Which to take is the user's decision.**
 
 Two smaller things from the same runs, recorded as reported:
 
-- at `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95` with `DEFUMAT_K_BATCH` set, three-cell
+- at `XLA_PYTHON_CLIENT_MEM_FRACTION=0.95` with `DEFUQUMAT_K_BATCH` set, three-cell
   relaxations with 30 and 45 k-points failed to load the `jit_chunk` CUBIN, and ran at 0.85;
 - `run_scf` called directly uses the Anderson default `mixing_beta = 0.7` rather than the
   input's `&electrons` (which only `Calculator.from_file` adopts), and the fifteen-cell
@@ -8155,7 +8155,7 @@ Ewald padding.
 
 ### 8. The DFT+U occupation matrix runs an eager `map_k` over a fresh closure every SCF iteration **[confirmed in part]**
 
-**Done 2026-10-03, `bffddf4`, and the conflict is settled: the defect was real.** `projections()` goes through `defumat.eager.compiled`. On `ni-ldau-ortho.in` (`nspin = 2`, 10 k-points, `k_batch = 1`, 10 iterations) a warm SCF compiled 40 `jit(scan)` programs and gained 844 mappings before, 20 and 500 after, every number bit-identical. The 20 left are not DFT+U's: they are the collinear ultrasoft `becsum` (`scf/density.py`'s eager `sum_k`), two a warm iteration, the same trap on every ultrasoft or PAW SCF with more than one k-point on a CPU, so `PERFORMANCE.md`'s "a warm second SCF on a DFT+U cell compiles nothing" was wrong for ultrasoft and PAW cells generally. Test: `test_eager.py::test_a_second_hubbard_occupation_matrix_compiles_nothing`.
+**Done 2026-10-03, `bffddf4`, and the conflict is settled: the defect was real.** `projections()` goes through `defuqumat.eager.compiled`. On `ni-ldau-ortho.in` (`nspin = 2`, 10 k-points, `k_batch = 1`, 10 iterations) a warm SCF compiled 40 `jit(scan)` programs and gained 844 mappings before, 20 and 500 after, every number bit-identical. The 20 left are not DFT+U's: they are the collinear ultrasoft `becsum` (`scf/density.py`'s eager `sum_k`), two a warm iteration, the same trap on every ultrasoft or PAW SCF with more than one k-point on a CPU, so `PERFORMANCE.md`'s "a warm second SCF on a DFT+U cell compiles nothing" was wrong for ultrasoft and PAW cells generally. Test: `test_eager.py::test_a_second_hubbard_occupation_matrix_compiles_nothing`.
 
 Sites: `hubbard/occupations.py:72-78`, `:110`, `:119`; `scf/driver.py:2842`, `:7338-7340`;
 `scf/residual.py:186`.
@@ -8163,7 +8163,7 @@ Sites: `hubbard/occupations.py:72-78`, `:110`, `:119`; `scf/driver.py:2842`, `:7
 `projections()` defines a new closure at every call and hands it to `map_k`, and `run_scf`
 calls `occupation_matrix` once an iteration outside any `jit`, which calls it once per spin
 channel. On a CPU `k_batch = 1`, so with `nk > 1` `map_axis` takes `lax.map`, whose body is a new
-function at each call: the trap `CLAUDE.md` names and `defumat/eager.py` exists for, missed
+function at each call: the trap `CLAUDE.md` names and `defuqumat/eager.py` exists for, missed
 here (the driver wraps its own eager `map_k`, `driver.py:5367`). Not reached at `nk = 1` or on
 the streamed route. **It conflicts with `PERFORMANCE.md`'s entry of 2026-10-02**, "The response
 stack compiled its k loops again at every iteration", which says a warm second SCF on a DFT+U
@@ -8171,7 +8171,7 @@ cell compiles nothing; that cell is not named, and with one k-point it could not
 path. The measurement settles which.
 
 **Fix.** A module-level `jit` of `projections` with `k_batch` static and `wfcU` and `psi` as
-arguments, or the call through `defumat.eager.compiled`: the same program, bit-identical.
+arguments, or the call through `defuqumat.eager.compiled`: the same program, bit-identical.
 
 **Bound.** No time a compile on record. Mappings: about 16 a compile for an eager `jit(scan)`
 (the Berry-phase string loop, `PERFORMANCE.md`), two compiles an iteration at `nspin = 2`, so
@@ -8212,7 +8212,7 @@ cold against 6.6 s warm with the cache off (`PERFORMANCE.md`, P17 to P19), about
 compilation a new shape on a cell that is not a spiral.
 
 **Measure.** `tests/data/qe/h-fcc-spiral-scan.in` or `h-chain-spiral.in`, a fresh process,
-`DEFUMAT_CACHE_DIR=off`, one core: `run_spiral_scan` over eight wavevectors with compiles counted
+`DEFUQUMAT_CACHE_DIR=off`, one core: `run_spiral_scan` over eight wavevectors with compiles counted
 and `npwx` printed per q, then with (a), then with (a) and (b).
 
 ### 10. `build_plane_wave_states` compiles its `becp` loop again at every call when the projectors are rebuilt per k-point
@@ -8225,7 +8225,7 @@ On an ultrasoft or PAW dataset with a lazy projector set, `becp` is a `map_k` ov
 built at every call, outside any `jit`; with an integer batch smaller than the call's points
 it is an eager `lax.map`, compiled every call. It fires under memory mode's
 `projectors = 'rebuild'` with a `k_batch` of 1 or a chunk smaller than a string, column or row
-(a CPU in memory mode, or `DEFUMAT_K_BATCH=1` as the cluster runs set it), once per
+(a CPU in memory mode, or `DEFUQUMAT_K_BATCH=1` as the cluster runs set it), once per
 `DFTSource.states` call. The check of 2026-10-02 ran in speed mode, where the projectors are
 stored and the `vmap` branch is taken, so it could not see this path.
 
@@ -8237,7 +8237,7 @@ second `get_polarization()` of AlAs, 8.2 s against 4.2 after its fix, and grew
 `/proc/self/maps` by 256 a call (`PERFORMANCE.md`, "The Berry-phase string loop compiled its
 overlaps again for every string").
 
-**Measure.** `alas-epsilon-us.in` with `DEFUMAT_MEMORY_MODE=memory DEFUMAT_K_BATCH=1` on the CPU,
+**Measure.** `alas-epsilon-us.in` with `DEFUQUMAT_MEMORY_MODE=memory DEFUQUMAT_K_BATCH=1` on the CPU,
 `get_polarization()` twice: compiles and mappings around the second call, one compile a string
 before and none after, the phases identical.
 
@@ -8379,7 +8379,7 @@ the axis is an array argument since the 2026-10-04 paragraph above). Separately,
 
 **Fix.** One calculation for the one-shot leg, built once per scan or relaxation, and a mover
 returning it with the turned system and axis, sharing every table; `torque.py:251` a
-module-level `jit` or through `defumat.eager.compiled`. Whether `relax_orientation`'s
+module-level `jit` or through `defuqumat.eager.compiled`. Whether `relax_orientation`'s
 `jax.clear_caches()` after each one-shot (`:1799`) can then go is a measurement.
 
 **Bound.** About one constructor per direction or step: 1.53 s on Pt PAW and 7.08 s on bcc Fe
@@ -8419,7 +8419,7 @@ stored table.
 0.9 s an iteration. Even the knot-table route costs 4.5x on `charge` and `integrals`
 (`augmentation.py:723-732`).
 
-**Measure.** `benchmarks/si8-us-1k.in`, `DEFUMAT_MEMORY_MODE=memory`, one core: warm second calls
+**Measure.** `benchmarks/si8-us-1k.in`, `DEFUQUMAT_MEMORY_MODE=memory`, one core: warm second calls
 of `charge(becsum)` and `integrals(v_g)` on the constructed calculation and on
 `at_cell(0.99 * at)`; then a vc-relax of a compressed copy, seconds per SCF iteration of step 1
 against step 2 with the Davidson steps equal; step 2's energy to 1e-12 Ry.
@@ -8628,7 +8628,7 @@ choice). Under the flat fit the film reads **37 / 36 / 24** (real space / G / `p
 line above reads 30 / 34 / 24, and 23 on the G layout with the `rho_ddot` fit. The 34 was the
 dense-box form, which no longer exists.
 
-**The shell rebuilt from the mixed `becsum`, 2026-10-04** (`46d1bf3`, `7d271f8`, `3cac754`, `a47f0bd`, `5342840`; the default is still `'r'`). The premise above was wrong in one respect, measured at every mix of a real-space run: above `ngms` the output density is `sym_rho(addusdens(becsum_out))` and not `Q . becsum_out`, because an ultrasoft `becsum` summed over the wedge is never symmetrised (only PAW's is, `_becsum_symmetry`), so the bare charge is 9 per cent off on `si8-us-1k` where the symmetrised one agrees to 1e-12 of the shell's largest coefficient (1.4e-14 on the noncollinear `fe-mag-1k`). The rebuild is therefore `symmetrize(augmented(0, becsum_mixed))`, the operators `finish_density` uses, which carries a spiral's displaced table and the axial symmetrisation with no code of its own (`_augmentation_of` in `scf/driver.py`, installed only when `nshell > 0`). Iterations, real space / old G / new G / `pw.x`: `fe-mag-1k` 11 / 17 / **11** / 12, `fe-noncolin-pbe-stress` 15 / 34 / **17** / 19, `si8-us-1k` 9 / 9 / 9 / 8, `si8-paw-1k` 8 / 8 / 8 / 9; new G against real space 3.0e-11 and 1.9e-11 Ry on the two iron cells, the moments 5.5e-6 and 6.9e-5 mu_B apart. The two iterations left on the noncollinear cell are not a tail (the shell is at most 7 per cent of the accuracy at any iteration and 0.3 per cent at the last) but where the fit's inner product is taken, the smooth sphere against the box. Dual 4 is byte-identical before and after (`si8-1k`, `al-slab`). Under a forced `'g'` seven slow files pass whole except `test_noncollinear_hubbard_resume.py::test_a_collinear_hubbard_state_promotes_into_a_spinor_run`, whose seeded collinear nickel DFT+U source lands at -171.0005083 Ry (new G, 42 iterations) and -171.0003103 (old G) where real space reaches the asserted -171.0025527, both G states outside the test's four tabulated ones: the layout decides the basin. Two consequences: `mixing_beta_mag` no longer reaches the shell's magnetization, which follows `becsum` at plain `beta`; and an iteration pays one more augmentation contraction and about four dense FFTs a channel, not timed. Tests: `test_mixing_space.py`, whose rebuild test fails on the old code by 5e-6 against a bound of about 1e-15. **The four cells left, measured under the rebuild the same night**, each at its input's own `conv_thr`, `beta` and mixing mode through `Calculator.get_scf()`, real space / old G / new G / `pw.x`, every run converged: the cobalt film with local-TF (`co-slab-forcetheorem-sr`, dual 8, beta 0.7, `conv_thr = 1e-10`) 30 / 34 / **33** / 24, new G against real space 1.4e-10 Ry and 3.0e-6 mu_B, both at `pw.x`'s -223.13884423 to its printed digits; `fe-unstable` (dual 8, beta 0.3, `conv_thr = 1e-8`) 23 / 24 / **20** / 23, 1.2e-8 Ry apart with the G arm stopping at a total moment of 1.6e-3 mu_B against -4.2e-5, which is where each run stopped on a moment decaying to the nonmagnetic fixed point and not a second state, since at `conv_thr = 1e-12` (off the input) the two arms take 26 and 28 iterations and agree to 2.5e-13 Ry with moments of 2.5e-6 and 3.5e-7; `o-paw-spin` 8 / 8 / **8** / 8, 1.1e-13 Ry apart, which says nothing about the rebuild, the cell being at dual 4 (`ngms = ngm = 86907`, so no shell and nothing installed); and the DFT+U nickel cell (`ni-kind1-force`, dual 8, beta 0.3, `conv_thr = 1e-12`) 92 / 97 / **82** / 98. On that cell the real-space arm lands on the third of `PLAN.md` P113's four states, -170.9997723 Ry with d traces 4.961 / 4.201 a spin channel, and the G arm on none of them: -170.9997712 Ry, 1.09e-6 above the third, traces 4.954 / 4.214, the total moment 1.668 against 1.712 mu_B and the absolute 1.842 against 1.892, stopped at an accuracy of 8.3e-13 by the same dense-set test that stops the real-space arm, so a fifth self-consistent state and not a run cut short. Its energy is the one the G arm reached before the rebuild (1.1e-6 above the third, traces not recorded then), so the rebuild moved the count from 97 to 82 and not the basin. The real-space count on that cell was 79 in P113, 90 when this item first recorded it and 92 here, three code states apart, so a count on this cell is a statement about one code state. **So, on every cell measured, new G is within three iterations of real space** (`fe-mag-1k` 11 / 11, `fe-noncolin-pbe-stress` 15 / 17, `si8-us-1k` 9 / 9, `si8-paw-1k` 8 / 8, the film 30 / 33, `fe-unstable` 23 / 20, `o-paw-spin` 8 / 8, dual 4 byte-identical), **except on DFT+U nickel, where both the benchmark cell and the promotion test's seeded source reach another state**, 1.1e-6 Ry above the real-space one on the first and 2.0e-3 above it on the second. **What a memory-mode default would reach**: `resolve_mixing_space` reads no mode, so the change is the `None` branch of `scf/mixing.py:1192-1193` plus `calculation.memory_mode` passed at `scf/driver.py:7204`; memory mode is the default on an accelerator alone (`batching._memory_mode_default` returns `speed` on a CPU), so on this workstation it reaches only a run that asks for `memory_mode = 'memory'` or sets `DEFUMAT_MEMORY_MODE`, which in the test suite is one SCF, `test_kset_blocks.py::test_a_path_in_blocks_is_the_path_whole` (slow, norm-conserving silicon at dual 4, where no shell is installed), while on a card it reaches every run that does not ask for `speed` and every `speed` run that falls back. The history the layout shrinks lives in host memory (rank 0's alone under pools), while the preset's dials are chosen for the card's peak. **Timed 2026-10-04** on `D22-0161`, one performance core, the second to fourth SCF of a process, medians of six: a G iteration costs 0.244 s against 0.235 in real space on `si8-us-1k` (+3.8 per cent) and 0.065 against 0.062 on `fe-mag-1k` (+4.8 per cent), at 9 and 11 iterations in both layouts, which is the shell's one more augmentation contraction and its transforms. **Decided by the user, 2026-10-04: real space stays the default**, in every mode, so that no memory setting chooses a DFT+U basin; `mixing_space='g'` stays an option a run asks for.
+**The shell rebuilt from the mixed `becsum`, 2026-10-04** (`46d1bf3`, `7d271f8`, `3cac754`, `a47f0bd`, `5342840`; the default is still `'r'`). The premise above was wrong in one respect, measured at every mix of a real-space run: above `ngms` the output density is `sym_rho(addusdens(becsum_out))` and not `Q . becsum_out`, because an ultrasoft `becsum` summed over the wedge is never symmetrised (only PAW's is, `_becsum_symmetry`), so the bare charge is 9 per cent off on `si8-us-1k` where the symmetrised one agrees to 1e-12 of the shell's largest coefficient (1.4e-14 on the noncollinear `fe-mag-1k`). The rebuild is therefore `symmetrize(augmented(0, becsum_mixed))`, the operators `finish_density` uses, which carries a spiral's displaced table and the axial symmetrisation with no code of its own (`_augmentation_of` in `scf/driver.py`, installed only when `nshell > 0`). Iterations, real space / old G / new G / `pw.x`: `fe-mag-1k` 11 / 17 / **11** / 12, `fe-noncolin-pbe-stress` 15 / 34 / **17** / 19, `si8-us-1k` 9 / 9 / 9 / 8, `si8-paw-1k` 8 / 8 / 8 / 9; new G against real space 3.0e-11 and 1.9e-11 Ry on the two iron cells, the moments 5.5e-6 and 6.9e-5 mu_B apart. The two iterations left on the noncollinear cell are not a tail (the shell is at most 7 per cent of the accuracy at any iteration and 0.3 per cent at the last) but where the fit's inner product is taken, the smooth sphere against the box. Dual 4 is byte-identical before and after (`si8-1k`, `al-slab`). Under a forced `'g'` seven slow files pass whole except `test_noncollinear_hubbard_resume.py::test_a_collinear_hubbard_state_promotes_into_a_spinor_run`, whose seeded collinear nickel DFT+U source lands at -171.0005083 Ry (new G, 42 iterations) and -171.0003103 (old G) where real space reaches the asserted -171.0025527, both G states outside the test's four tabulated ones: the layout decides the basin. Two consequences: `mixing_beta_mag` no longer reaches the shell's magnetization, which follows `becsum` at plain `beta`; and an iteration pays one more augmentation contraction and about four dense FFTs a channel, not timed. Tests: `test_mixing_space.py`, whose rebuild test fails on the old code by 5e-6 against a bound of about 1e-15. **The four cells left, measured under the rebuild the same night**, each at its input's own `conv_thr`, `beta` and mixing mode through `Calculator.get_scf()`, real space / old G / new G / `pw.x`, every run converged: the cobalt film with local-TF (`co-slab-forcetheorem-sr`, dual 8, beta 0.7, `conv_thr = 1e-10`) 30 / 34 / **33** / 24, new G against real space 1.4e-10 Ry and 3.0e-6 mu_B, both at `pw.x`'s -223.13884423 to its printed digits; `fe-unstable` (dual 8, beta 0.3, `conv_thr = 1e-8`) 23 / 24 / **20** / 23, 1.2e-8 Ry apart with the G arm stopping at a total moment of 1.6e-3 mu_B against -4.2e-5, which is where each run stopped on a moment decaying to the nonmagnetic fixed point and not a second state, since at `conv_thr = 1e-12` (off the input) the two arms take 26 and 28 iterations and agree to 2.5e-13 Ry with moments of 2.5e-6 and 3.5e-7; `o-paw-spin` 8 / 8 / **8** / 8, 1.1e-13 Ry apart, which says nothing about the rebuild, the cell being at dual 4 (`ngms = ngm = 86907`, so no shell and nothing installed); and the DFT+U nickel cell (`ni-kind1-force`, dual 8, beta 0.3, `conv_thr = 1e-12`) 92 / 97 / **82** / 98. On that cell the real-space arm lands on the third of `PLAN.md` P113's four states, -170.9997723 Ry with d traces 4.961 / 4.201 a spin channel, and the G arm on none of them: -170.9997712 Ry, 1.09e-6 above the third, traces 4.954 / 4.214, the total moment 1.668 against 1.712 mu_B and the absolute 1.842 against 1.892, stopped at an accuracy of 8.3e-13 by the same dense-set test that stops the real-space arm, so a fifth self-consistent state and not a run cut short. Its energy is the one the G arm reached before the rebuild (1.1e-6 above the third, traces not recorded then), so the rebuild moved the count from 97 to 82 and not the basin. The real-space count on that cell was 79 in P113, 90 when this item first recorded it and 92 here, three code states apart, so a count on this cell is a statement about one code state. **So, on every cell measured, new G is within three iterations of real space** (`fe-mag-1k` 11 / 11, `fe-noncolin-pbe-stress` 15 / 17, `si8-us-1k` 9 / 9, `si8-paw-1k` 8 / 8, the film 30 / 33, `fe-unstable` 23 / 20, `o-paw-spin` 8 / 8, dual 4 byte-identical), **except on DFT+U nickel, where both the benchmark cell and the promotion test's seeded source reach another state**, 1.1e-6 Ry above the real-space one on the first and 2.0e-3 above it on the second. **What a memory-mode default would reach**: `resolve_mixing_space` reads no mode, so the change is the `None` branch of `scf/mixing.py:1192-1193` plus `calculation.memory_mode` passed at `scf/driver.py:7204`; memory mode is the default on an accelerator alone (`batching._memory_mode_default` returns `speed` on a CPU), so on this workstation it reaches only a run that asks for `memory_mode = 'memory'` or sets `DEFUQUMAT_MEMORY_MODE`, which in the test suite is one SCF, `test_kset_blocks.py::test_a_path_in_blocks_is_the_path_whole` (slow, norm-conserving silicon at dual 4, where no shell is installed), while on a card it reaches every run that does not ask for `speed` and every `speed` run that falls back. The history the layout shrinks lives in host memory (rank 0's alone under pools), while the preset's dials are chosen for the card's peak. **Timed 2026-10-04** on `D22-0161`, one performance core, the second to fourth SCF of a process, medians of six: a G iteration costs 0.244 s against 0.235 in real space on `si8-us-1k` (+3.8 per cent) and 0.065 against 0.062 on `fe-mag-1k` (+4.8 per cent), at 9 and 11 iterations in both layouts, which is the shell's one more augmentation contraction and its transforms. **Decided by the user, 2026-10-04: real space stays the default**, in every mode, so that no memory setting chooses a DFT+U basin; `mixing_space='g'` stays an option a run asks for.
 
 Sites: `scf/driver.py:554-560`, `:602-606`; `scf/mixing.py:330-331`, `:805-809`, `:840`.
 
@@ -8759,9 +8759,9 @@ that follow it), and 3 per cent of an iteration on one CPU core under pools; wha
 that is unmeasured.
 
 **Measure.** On D22, a transfer-only script: `_to_device(array[spin, positions])` against a slice
-view against a pinned buffer at the si64 chunk's size. Then `DEFUMAT_WFC_STORE=stream` against
+view against a pinned buffer at the si64 chunk's size. Then `DEFUQUMAT_WFC_STORE=stream` against
 `device` with `tools/parallel/time_scf.py benchmarks/si64-1k-ecut30.in`, and
-`DEFUMAT_K_BATCH=9 DEFUMAT_WFC_STORE=stream` on `si8-ecut20-nosym-k3.in`, the Davidson steps
+`DEFUQUMAT_K_BATCH=9 DEFUQUMAT_WFC_STORE=stream` on `si8-ecut20-nosym-k3.in`, the Davidson steps
 equal.
 
 ### 26. A pooled iteration moves the density twice in real space, the second time on the dense grid as an all-reduce of zeros
@@ -8799,7 +8799,7 @@ collectives were 25 ms an iteration on si32, about 1.3 per cent. So the gain is 
 across nodes, and `ib0`, unmeasured, shrinks all of it.
 
 **Measure.** `tools/parallel/comm_bench.py --sizes-mb 40 83 110 216` across two Milan nodes with
-and without `DEFUMAT_POOL_INTERFACE=ib0` (a submission for the user to approve), then a large-box
+and without `DEFUQUMAT_POOL_INTERFACE=ib0` (a submission for the user to approve), then a large-box
 pooled input with `tools/parallel/pool_time.py` before and after, energies compared at a fixed
 iteration count.
 
@@ -8913,13 +8913,13 @@ What the agents of this sweep's follow-up found outside their items, recorded ra
   item 25's cost at a chunk's size rather than a whole store: `frozen_expectation` and
   `spiral_expectation` now read a chunk with `walk.store_rows`, and the force theorem's
   `_project_band_energy` uploads its k-point with `batching.upload`. Against `c6e4f79`, with
-  `DEFUMAT_MEMORY_MODE=memory` and `DEFUMAT_WFC_STORE=stream` on this CPU, both arms on cores 0 to 3 and
+  `DEFUQUMAT_MEMORY_MODE=memory` and `DEFUQUMAT_WFC_STORE=stream` on this CPU, both arms on cores 0 to 3 and
   every store reaching the five sites checked to be a numpy array: 21 arrays bit-identical over two-atom
   silicon (`nosym`, unshifted 2x2x2: the band velocities on the ground grid and on a three-point path,
   the effective mass at `Gamma`, `epsilon` with its `bare` and `dpsi`), the iodine spiral's
   `spiral_spin_orbit_energy`, and the noncollinear iodine cell's `frozen_expectation` and projected
   `run_force_theorem`; the iodine cells' 7 arrays bit-identical on a device store too
-  (`DEFUMAT_WFC_STORE=device`, the default route on a CPU, where `store_rows` gathers in place of the
+  (`DEFUQUMAT_WFC_STORE=device`, the default route on a CPU, where `store_rows` gathers in place of the
   numpy index). `tests/unit/test_host_store_uploads.py` fails on the old code at all five sites.
   **Left, because no host store reaches them through any entry point**: `efield.py`'s second upload, in
   `_WholeField.born_charges`, which runs only after the first has made the states a device array;

@@ -1,15 +1,15 @@
 """The piezoelectric tensor walked a k-chunk at a time against the whole-k route.
 
 ``GPU-MEMORY-NEXT.md`` item 2. The differentiated route
-(:func:`~defumat.response.piezo.clamped_ion_piezoelectric`) is one ``jvp`` of the
+(:func:`~defuqumat.response.piezo.clamped_ion_piezoelectric`) is one ``jvp`` of the
 stress along each field response, and with the whole k axis on one tape it was
 recorded at 31.5 GiB of temporaries on ultrasoft AlAs at 64 k-points
 (``PERFORMANCE.md``). Walked
-(:meth:`~defumat.response.chunked.StreamedField.piezoelectric`), it is the
+(:meth:`~defuqumat.response.chunked.StreamedField.piezoelectric`), it is the
 streamed Born charges' split with ``at_strain`` where they have
 ``at_positions``. The claim is that it is the whole route's tensor to round-off,
 and the check is the same re-diagonalised states handed to
-:func:`~defumat.response.piezo._piezoelectric_from_states` once as a device array
+:func:`~defuqumat.response.piezo._piezoelectric_from_states` once as a device array
 (the whole route) and once as a host store (the walk), on cells chosen so each
 term the augmented assembly carries is reached:
 
@@ -33,9 +33,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.response.electrostriction import refined_states
-from defumat.response.piezo import _piezoelectric_from_states
+from defuqumat import Calculator
+from defuqumat.response.electrostriction import refined_states
+from defuqumat.response.piezo import _piezoelectric_from_states
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -111,7 +111,7 @@ def test_the_wedge_comparison_sees_the_full_zone_shift(monkeypatch):
     nothing about it; this is the case where it is the term that would be
     wrong, and the test that the comparison above can see it.
     """
-    from defumat.response import chunked
+    from defuqumat.response import chunked
 
     case, k_batch = "alas-piezo-tiny-wedge", 2
     _, _, _, psi = _refined(case, k_batch)

@@ -40,7 +40,7 @@
 #               resided in 17 GB there (`test_ten_site`), and the cap inside
 #               `run_regression.sh` is set below it so a file is named rather
 #               than the task killed.
-#SBATCH --job-name=defumat-attribute
+#SBATCH --job-name=defuqumat-attribute
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-2
 #SBATCH --time=04:00:00
@@ -50,8 +50,8 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/attr-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-OLD=${DEFUMAT_OLD_REPO:-/scratch/work/ladovj1/apps/defumat-audit}
-NEW=${DEFUMAT_NEW_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+OLD=${DEFUQUMAT_OLD_REPO:-/scratch/work/ladovj1/apps/defumat-audit}
+NEW=${DEFUQUMAT_NEW_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 # The seven assertion failures. `OPEN.md` Part XIII item 4 carries what each one
@@ -83,9 +83,9 @@ export PYTHONPATH="$REPO"
 # comparison of two cache states -- `CLAUDE.md` records one 603 MB cache entry
 # worth 6.3 GB resident, in the direction that flatters whichever side was the
 # miss.
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
-export DEFUMAT_TEST_MEM_MAX=28G
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_TEST_MEM_MAX=28G
 
 echo "=== node ==="; hostname; date
 echo "task:   ${SLURM_ARRAY_TASK_ID:-0}  ($LABEL)"

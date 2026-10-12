@@ -1,6 +1,6 @@
 """Which route the field response takes: the whole k axis, or a k-chunk at a time.
 
-:func:`defumat.response.efield._streams` is a rule about memory rather than about
+:func:`defuqumat.response.efield._streams` is a rule about memory rather than about
 physics -- the two routes agree to round-off (``tests/regression/
 test_streamed_response.py``) -- so what is checked here is the rule itself, on a
 stand-in calculation that carries only what the rule reads. The card branch is
@@ -17,8 +17,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import defumat.batching as batching
-from defumat.response.efield import _streams
+import defuqumat.batching as batching
+from defuqumat.response.efield import _streams
 from tests.backend import on_a_cpu
 
 pytestmark = pytest.mark.unit

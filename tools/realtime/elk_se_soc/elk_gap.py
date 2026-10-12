@@ -1,4 +1,4 @@
-"""The gaps of an Elk EIGVAL.OUT, the same measures se_probe.py prints for defumat.
+"""The gaps of an Elk EIGVAL.OUT, the same measures se_probe.py prints for defuqumat.
 
     python3 elk_gap.py EIGVAL.OUT
 """

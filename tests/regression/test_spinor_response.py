@@ -1,12 +1,12 @@
 """The Sternheimer response of a noncollinear system (``noncolin = .true.``).
 
-One refusal in :func:`~defumat.response.sternheimer.require_a_sternheimer_regime`
+One refusal in :func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime`
 blocked *every* response quantity for *every* spinor calculation, and the reason
 it gave was that ``incdrhoscf_nc`` and ``set_int3_nc`` are "a second
 implementation rather than a spin axis on this one". Taken at face value that
 overstated it. The solve never had a spin axis to lose: a spinor is **one**
 vector of length ``2 npwx`` and
-:class:`~defumat.hamiltonian.noncollinear.SpinorHamiltonian` applies to it, so
+:class:`~defuqumat.hamiltonian.noncollinear.SpinorHamiltonian` applies to it, so
 the operator, the projector, the preconditioner and the CG were already the
 right shape -- ``sternheimer.py`` even read ``degeneracy = 1 if noncolin`` from
 behind the blanket refusal.
@@ -39,7 +39,7 @@ Two things were genuinely missing, and both are on the *outside* of the solve:
    of new physics here: the three magnetization channels of an induced density
    are an **axial** vector and the perturbation direction is a **polar** one, so
    the average carries two different rotations
-   (:func:`~defumat.system.symmetry.symmetrize_spin_vector_density`).
+   (:func:`~defuqumat.system.symmetry.symmetrize_spin_vector_density`).
 4. What is still refused, by name.
 """
 
@@ -50,11 +50,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.sternheimer import make_sternheimer
-from defumat.scf import run_scf
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.sternheimer import make_sternheimer
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
 
 pytestmark = [pytest.mark.regression]
 
@@ -78,7 +78,7 @@ PROBE_MILLER = (1, 0, 0)
 
 
 def _converged(name, **kwargs):
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / f"{name}.in"))
     pseudos = tuple(
@@ -131,9 +131,9 @@ def _finite_difference(system, calculation, result, dv, step):
     give: the Sternheimer response of a metal is the response at fixed ``ef``
     and the level's own motion is a separate correction (``ef_shift``).
     """
-    from defumat.basis.interpolate import to_dense
-    from defumat.scf.density import spinor_sum_band
-    from defumat.scf.occupations import smearing_order, wgauss
+    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.scf.density import spinor_sum_band
+    from defuqumat.scf.occupations import smearing_order, wgauss
 
     smooth, dense = calculation.basis.smooth, calculation.basis.dense
     v_scf = calculation.potential(result.density).v_scf
@@ -181,9 +181,9 @@ def test_the_spinor_density_weights_are_the_ground_state_s():
     0.143, the magnetization's included. **1e-15** is about 36 ulp of that
     value, and a weight out by two would sit at 0.07, fourteen orders above.
     """
-    from defumat.basis.interpolate import to_dense
-    from defumat.scf.density import spinor_sum_band
-    from defumat.scf.occupations import smearing_order, wgauss
+    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.scf.density import spinor_sum_band
+    from defuqumat.scf.occupations import smearing_order, wgauss
 
     system, _, calculation, result = _cycloid()
     smooth, dense = calculation.basis.smooth, calculation.basis.dense
@@ -309,7 +309,7 @@ def _silicon(noncolin: bool):
     physics on a doubled space: four bands of two electrons against eight of
     one.
     """
-    from defumat.scf import Calculation
+    from defuqumat.scf import Calculation
 
     parsed = read_pw_input(CASES / "si-epsilon.in")
     if noncolin:
@@ -333,7 +333,7 @@ def test_a_spinor_with_no_magnetization_is_the_scalar_run():
     Every ``KPoints`` constructor applies the unpolarized ``degspin``
     unconditionally and a spinor band holds **one** electron, so the bookkeeping
     reaches the k-point weights, the occupied-band count
-    (:func:`~defumat.response.sternheimer.occupied_counts`'s ``degeneracy = 1 if
+    (:func:`~defuqumat.response.sternheimer.occupied_counts`'s ``degeneracy = 1 if
     noncolin``) and the density. A factor of two anywhere along that chain is
     100 per cent here and nothing else in this file would see it: the finite
     difference above shares the convention with the solve.
@@ -373,8 +373,8 @@ def _covariant_probe(calculation):
     comes from the ground state's own texture, and that is the index the axial
     rule acts on.
     """
-    from defumat.basis.fft import r_to_g
-    from defumat.basis.gradients import gradient
+    from defuqumat.basis.fft import r_to_g
+    from defuqumat.basis.gradients import gradient
 
     gvectors = calculation.basis.dense
     grad = gradient(
@@ -413,8 +413,8 @@ def test_a_spinor_response_is_symmetrised_as_an_axial_vector():
     group's mirrors have ``det(R) = -1`` and rotating the magnetization without
     that sign cancels the very components it should be averaging.
     """
-    from defumat.basis.fft import g_to_r, r_to_g
-    from defumat.system.symmetry import (
+    from defuqumat.basis.fft import g_to_r, r_to_g
+    from defuqumat.system.symmetry import (
         cartesian_rotations, symmetrize_vector_density,
     )
 
@@ -534,8 +534,8 @@ def _iodine():
 def _fixed_occupation_difference(system, calculation, result, solver, dv, step,
                                  ethr=1e-13):
     """``(rho(+h) - rho(-h)) / 2h`` for an insulator, at the ground state's weights."""
-    from defumat.basis.interpolate import to_dense
-    from defumat.scf.density import spinor_sum_band
+    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.scf.density import spinor_sum_band
 
     smooth, dense = calculation.basis.smooth, calculation.basis.dense
     v_scf = calculation.potential(result.density).v_scf
@@ -614,8 +614,8 @@ def test_what_a_spinor_response_still_refuses():
 
     Cheap: no SCF, no solve -- the guard is a function of the calculation alone.
     """
-    from defumat.response.sternheimer import require_a_sternheimer_regime
-    from defumat.scf import Calculation
+    from defuqumat.response.sternheimer import require_a_sternheimer_regime
+    from defuqumat.scf import Calculation
 
     system = build_system(read_pw_input(CASES / "h-chain-90deg.in"))
     pseudos = tuple(

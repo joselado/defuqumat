@@ -2,8 +2,8 @@
 import os, json, time
 import numpy as np, scipy.linalg as sl
 import jax, jax.numpy as jnp
-import defumat
-import defumat.solvers.subspace as sub
+import defuqumat
+import defuqumat.solvers.subspace as sub
 
 OUT = os.environ.get("OUT", "eigh_captured")
 cpu, dev = jax.devices("cpu")[0], jax.devices()[0]

@@ -9,7 +9,7 @@
 #
 # Ordered so the single-core runs finish first: they are the comparison, and a
 # 128-atom serial run at 30 Ry is the one that could overrun.
-#SBATCH --job-name=defumat-h200-ladder-cpu
+#SBATCH --job-name=defuqumat-h200-ladder-cpu
 #SBATCH --partition=batch-milan
 #SBATCH --time=08:00:00
 #SBATCH --nodes=1

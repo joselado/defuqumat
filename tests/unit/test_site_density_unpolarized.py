@@ -16,7 +16,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.projwfc.angular_momentum import _site_density_matrix
+from defuqumat.projwfc.angular_momentum import _site_density_matrix
 
 pytestmark = pytest.mark.unit
 

@@ -1,7 +1,7 @@
 ! 1H-NbSe2 monolayer -- the pw.x form of the Elk input behind elkpy's
 ! momentum-resolved tunnelling runs (elkpy notebooks/_scratch/nbse2, 2026-09-10).
 !
-! Elk -> defumat, term by term:
+! Elk -> defuqumat, term by term:
 !
 !   avec (bohr)          -> ibrav = 4 (hexagonal): a1 = (a,0,0),
 !                           a2 = (-a/2, a*sqrt(3)/2, 0), a3 = (0,0,c), which is
@@ -13,7 +13,7 @@
 !                           and that is deliberate: the 3.3e-5 offset is above
 !                           both codes' symmetry tolerance, so it breaks the
 !                           three-fold and leaves 4 operations out of the
-!                           lattice's 24. Elk finds 4 and defumat finds 4. Exact
+!                           lattice's 24. Elk finds 4 and defuqumat finds 4. Exact
 !                           thirds are the same physics on a different
 !                           irreducible k-set, and would not be this input.
 !   xctype 20            -> PBE, which is what the pseudopotential headers say,
@@ -32,7 +32,7 @@
 !                           surface the calculation is about.
 !   spinorb .false.      -> scalar-relativistic datasets. NbSe2's Ising splitting
 !                           needs the .rel- pair, which is committed beside these.
-!   tshift .false.       -> nothing here: defumat never moves the origin.
+!   tshift .false.       -> nothing here: defuqumat never moves the origin.
 !   epspot 1e-7          -> conv_thr, tightened to 1e-10 because the Fermi
 !                           surface and the tunnelling weights are post-processed
 !                           off this density.

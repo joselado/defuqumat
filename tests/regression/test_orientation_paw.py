@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
+from defuqumat.calculator import Calculator
 from tests.conftest import GENERATED
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
@@ -36,7 +36,7 @@ def _nickel_text(angle: float = 0.0) -> str:
 @lru_cache(maxsize=2)
 def _source():
     """The one-file route's first leg: this dataset at ``soc_scale = 0``."""
-    from defumat.scf.driver import run_scf
+    from defuqumat.scf.driver import run_scf
 
     spinor = Calculator.from_text(_nickel_text(), pseudo_dir=GENERATED.parent / "pseudo",
                                   announce=False)
@@ -56,21 +56,21 @@ def test_the_paw_torque_is_the_grid_s_plus_the_one_centre_field_s():
     grid's (1.1, -3.1, 0.2) x 1e-6, which is why the torque refused PAW until the
     one-centre coefficients were rebuilt inside the differentiated energy.
     """
-    from defumat.forces.torque import (
+    from defuqumat.forces.torque import (
         band_energy_at_rotation,
         orientation_torque,
         rotate_texture,
     )
-    from defumat.scf.driver import _onecenter_torque
-    from defumat.scf.spin_torque import exchange_torque
-    from defumat.workflows.anisotropy import (
+    from defuqumat.scf.driver import _onecenter_torque
+    from defuqumat.scf.spin_torque import exchange_torque
+    from defuqumat.workflows.anisotropy import (
         _reference_axis,
         _reference_texture,
         _reference_texture_of,
         _with_rotation,
         rotation_from_euler,
     )
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     spinor, source = _source()
     rotation = rotation_from_euler(0.4, 0.9, -0.3)
@@ -116,7 +116,7 @@ def test_the_paw_torque_is_the_grid_s_plus_the_one_centre_field_s():
 
 def test_without_the_coupling_the_paw_torque_vanishes():
     """``soc_scale = 0`` on the one-shot as well: 1.3e-11 against 1.6e-6."""
-    from defumat.workflows.anisotropy import rotation_from_euler, run_orientation_torque
+    from defuqumat.workflows.anisotropy import rotation_from_euler, run_orientation_torque
 
     spinor, source = _source()
     rotation = rotation_from_euler(0.4, 0.9, -0.3)
@@ -138,9 +138,9 @@ def test_with_the_coupling_becsum_is_not_a_vector_under_a_spin_rotation():
     a spin rotation mixes ``j = l + 1/2`` with ``l - 1/2``. The grid density,
     which carries the augmentation built from ``becsum``, differs by 1.1e-5.
     """
-    from defumat.forces.torque import rotate_texture
-    from defumat.scf.orientation import rotate_spinors, rotation_matrix
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.forces.torque import rotate_texture
+    from defuqumat.scf.orientation import rotate_spinors, rotation_matrix
+    from defuqumat.workflows.nscf import fixed_density_states
 
     spinor, source = _source()
     omega = np.array([0.1, 0.4, -0.2])

@@ -1,7 +1,7 @@
 """A fixed-density state source builds its k-independent terms once per workflow.
 
 ``OPEN.md`` Part XXIII, items 12 and 10. A Berry-phase polarization asks
-:class:`~defumat.workflows.topology.DFTSource` for its states once per string, a
+:class:`~defuqumat.workflows.topology.DFTSource` for its states once per string, a
 streamed Chern number once per column and a Wilson loop once per pumping step.
 What each call needs and the k-points do not touch -- the frozen potential, the
 ultrasoft ``newd`` integral and the smooth-grid copy of the potential, and the
@@ -29,13 +29,13 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system.builder import build_system
-from defumat.topology import augmentation as topology_augmentation
-from defumat.workflows.polarization import run_polarization
-from defumat.workflows.topology import DFTSource
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system.builder import build_system
+from defuqumat.topology import augmentation as topology_augmentation
+from defuqumat.workflows.polarization import run_polarization
+from defuqumat.workflows.topology import DFTSource
 
 pytestmark = pytest.mark.unit
 

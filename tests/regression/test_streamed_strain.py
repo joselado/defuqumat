@@ -1,7 +1,7 @@
 """The strain response walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defumat.response.chunked_strain`). The same
-re-diagonalised states are handed to :func:`~defumat.response.strain.
+``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked_strain`). The same
+re-diagonalised states are handed to :func:`~defuqumat.response.strain.
 strain_response` once as a device array (the whole route) and once as a host
 store (the walk), and every field of the result is compared: the response
 density with the volume's frozen-state part in it, the converged induced
@@ -15,9 +15,9 @@ the consumers subtract. Cells:
 * **ultrasoft and PAW silicon, closed grids**: the deforming augmentation
   charge, ``S'``, ``ort``, and for PAW the one-centre response in the loop.
 
-The elastic constants walked (:func:`~defumat.forces.chunked.
+The elastic constants walked (:func:`~defuqumat.forces.chunked.
 chunked_gradient_tangent`) are held to the single pass on the norm-conserving
-closed grid, the one regime :func:`~defumat.response.elastic.elastic_constants`
+closed grid, the one regime :func:`~defuqumat.response.elastic.elastic_constants`
 admits, each route on its own strain response.
 """
 
@@ -29,10 +29,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.response.elastic import elastic_constants
-from defumat.response.electrostriction import refined_states
-from defumat.response.strain import strain_response
+from defuqumat import Calculator
+from defuqumat.response.elastic import elastic_constants
+from defuqumat.response.electrostriction import refined_states
+from defuqumat.response.strain import strain_response
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 

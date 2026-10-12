@@ -15,12 +15,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.scf.potential import v_of_rho
-from defumat.solvers import davidson
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.potential import v_of_rho
+from defuqumat.solvers import davidson
+from defuqumat.system import build_system
 
 pytestmark = pytest.mark.unit
 

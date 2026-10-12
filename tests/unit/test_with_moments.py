@@ -18,8 +18,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -89,7 +89,7 @@ def test_a_collinear_run_still_refuses_a_transverse_row(ferromagnet):
 def test_the_calculator_forwards_it_and_keeps_no_stale_answer():
     """A different texture is a different calculation, so the cache is empty
     and the converged state crosses as a seed rather than as an answer."""
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     calculator = Calculator.from_text(FERROMAGNET, pseudo_dir="tests/data/pseudo")
     textured = calculator.with_moments(CYCLOID)

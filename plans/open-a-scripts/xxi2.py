@@ -24,10 +24,10 @@ p.add_argument("--split", type=int, default=1)
 p.add_argument("--clear-each", action="store_true")
 a = p.parse_args()
 
-from defumat import Calculator
-from defumat.scf.driver import run_scf
+from defuqumat import Calculator
+from defuqumat.scf.driver import run_scf
 import threading, resource
-import defumat.scf.driver as _driver
+import defuqumat.scf.driver as _driver
 
 
 def _watch():

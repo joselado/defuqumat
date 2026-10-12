@@ -18,7 +18,7 @@ can: **only half of its surface atoms show up.**
 ```python
 from pathlib import Path
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 

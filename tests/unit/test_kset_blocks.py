@@ -4,7 +4,7 @@
 every point's per-k tables on the device while its streamed solve walked the
 points in chunks -- 1.65 MB a point on the NbSe2 monolayer. Where the store
 streams and the tables would pass ``KSET_BLOCK_BYTES``,
-:func:`~defumat.workflows.bands.run_bands` now builds each block of points as
+:func:`~defuqumat.workflows.bands.run_bands` now builds each block of points as
 its own ``at_kpoints``, padded to the whole path's ``(npwx, nsticks)``. Checked
 on the CPU with the store forced to stream: the bands are the whole path's, and
 every block has one shape -- a per-block width would recompile per block.
@@ -17,11 +17,11 @@ import warnings
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.scf.driver import Calculation
-from defumat.system.kpoints import KPoints
-from defumat.workflows import nscf
-from defumat.workflows.bands import run_bands
+from defuqumat.calculator import Calculator
+from defuqumat.scf.driver import Calculation
+from defuqumat.system.kpoints import KPoints
+from defuqumat.workflows import nscf
+from defuqumat.workflows.bands import run_bands
 
 pytestmark = pytest.mark.unit
 
@@ -48,7 +48,7 @@ K_POINTS (automatic)
 
 @pytest.mark.slow  # an SCF and two band paths, about 10 s
 def test_a_path_in_blocks_is_the_path_whole(pseudo_dir, monkeypatch):
-    monkeypatch.setenv("DEFUMAT_WFC_STORE", "stream")
+    monkeypatch.setenv("DEFUQUMAT_WFC_STORE", "stream")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         calculator = Calculator.from_text(SILICON, pseudo_dir, announce=False,

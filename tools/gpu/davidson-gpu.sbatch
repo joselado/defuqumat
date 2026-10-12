@@ -45,7 +45,7 @@
 # si10-nc 30, si10-us 43, si10-paw 57, al10-metal 127, ni10-ldau 321.
 #
 # Its pair is davidson-cpu.sbatch: the same script on four pinned Milan cores,
-# which is §2.3's metric (GPU defumat against CPU defumat, same code).
+# which is §2.3's metric (GPU defuqumat against CPU defuqumat, same code).
 #
 # ---- the #SBATCH values, and why each one ----
 #
@@ -58,12 +58,12 @@
 #             is the SCF each one needs first, plus the trajectory's
 #             recompilation per step. Each case carries its own `timeout`, so an
 #             overrun is a reported case and not a lost job.
-# cpus-per-task 4, matching davidson-cpu.sbatch exactly: defumat narrows its
+# cpus-per-task 4, matching davidson-cpu.sbatch exactly: defuqumat narrows its
 #             own affinity mask to four on import, so both sides get the same
 #             host-side threading.
 # mem         120G host memory. Nothing here is a reverse-mode tape; this is the
 #             ground state, and si64 peaked at 3.28 GB of device memory.
-#SBATCH --job-name=defumat-gpu-davidson
+#SBATCH --job-name=defuqumat-gpu-davidson
 #SBATCH --partition=gpu-h200-141g-short
 #SBATCH --time=03:00:00
 #SBATCH --gpus=h200:1
@@ -81,7 +81,7 @@ source "$WORK/venv/bin/activate"
 # Single-tenant job: XLA preallocating the bulk of the card is what we want.
 unset XLA_PYTHON_CLIENT_PREALLOCATE
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache-gpu"
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 export PYTHONPATH="$REPO"
 
 echo "=== node ==="; hostname; date

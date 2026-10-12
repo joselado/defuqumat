@@ -1,4 +1,4 @@
-% defumat user guide.
+% defuqumat user guide.
 %
 % This is the SOURCE, not a conversion of anything -- build with:
 %     xelatex docs/features.tex     (twice, for the table of contents)
@@ -31,7 +31,7 @@
 \definecolor{warnrule}{HTML}{E0C08A}
 
 \hypersetup{colorlinks=true, linkcolor=link, urlcolor=link,
-            pdftitle={defumat: what it computes, and how to ask for it}}
+            pdftitle={defuqumat: what it computes, and how to ask for it}}
 
 % ---- code boxes: wrapped, so nothing can run off the page ----
 \lstdefinestyle{py}{
@@ -75,7 +75,7 @@
 \setlength{\parskip}{0.45em}
 \setlength{\parindent}{0pt}
 
-\title{\textbf{defumat}\\[4pt]
+\title{\textbf{defuqumat}\\[4pt]
   \large what it computes, and how to ask for it}
 \author{\normalsize Plane-wave DFT in Python and JAX, validated against \qe}
 \date{\normalsize\today}
@@ -142,11 +142,11 @@ which is why a \emph{third} derivative needs only first-order wavefunctions.
 % =====================================================================
 \section{Input and invocation}
 
-defumat reads \textbf{\code{pw.x} input files}. The same file that runs in
+defuqumat reads \textbf{\code{pw.x} input files}. The same file that runs in
 \qe\ runs here, which is what makes every comparison in this document possible.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("scf.in", pseudo_dir="pseudo", conv_thr=1.0e-8)
 result = calc.get_scf()
@@ -346,10 +346,10 @@ The functional entry points the rest of this document names --- \code{run\_scf},
 remain the way to drive a calculation whose state is being managed by hand:
 
 \begin{pycode}
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 system = build_system(read_pw_input("scf.in"))
 pseudos = tuple(read_upf(f"pseudo/{s.pseudo_file}") for s in system.structure.species)
@@ -464,12 +464,12 @@ says so (\code{tests/unit/test\_facade\_documentation.py}).
 A command line covers the common workflows:
 
 \begin{shcode}
-python3 -m defumat.cli inspect <qe-output>   # summarise what the parser reads
-python3 -m defumat.cli dos     <input>       # density of states
-python3 -m defumat.cli pdos    <input>       # projected DOS
-python3 -m defumat.cli relax   <input>       # structural relaxation
-python3 -m defumat.cli stress  <input>       # stress tensor
-python3 -m defumat.cli spiral  <input>       # spin-spiral scan
+python3 -m defuqumat.cli inspect <qe-output>   # summarise what the parser reads
+python3 -m defuqumat.cli dos     <input>       # density of states
+python3 -m defuqumat.cli pdos    <input>       # projected DOS
+python3 -m defuqumat.cli relax   <input>       # structural relaxation
+python3 -m defuqumat.cli stress  <input>       # stress tensor
+python3 -m defuqumat.cli spiral  <input>       # spin-spiral scan
 \end{shcode}
 
 Standard \code{pw.x} variables --- \code{ecutwfc}, \code{ecutrho}, \code{ibrav},
@@ -507,7 +507,7 @@ and the datasets alone, allocating nothing:
 print(Calculator.from_file("scf.in").estimate().report())
 \end{lstlisting}
 
-\noindent or \code{python3 -m defumat.cli size scf.in}. \textbf{It sizes the
+\noindent or \code{python3 -m defuqumat.cli size scf.in}. \textbf{It sizes the
 run the input describes}, which means it reads that input's own
 \code{diago\_david\_ndim} and resolves \code{k\_batch} the way the SCF would ---
 an estimate that quietly assumed a library default would report a run that does
@@ -962,7 +962,7 @@ to 22 at every vacuum from 21 to 59 bohr, where \code{pw.x} takes 24 with \code{
 in 150. Each iteration pays an inner conjugate-gradient solve of about 10 to 40 Hartree
 applications, one FFT pair each.
 \begin{verbatim}
-from defumat import Calculator
+from defuqumat import Calculator
 calc = Calculator.from_file("benchmarks/al-slab-v64.in",
                             pseudo_dir="tests/data/pseudo")
 scf = calc.get_scf(mixing_mode="ldos")
@@ -1203,9 +1203,9 @@ parameter is what is \emph{not} captured,
 $\sum_{n\mathbf k} w_{\mathbf k} f_{n\mathbf k}\big(1-\sum_\mu|\langle\phi_\mu|\hat S|\psi\rangle|^2\big)$.
 
 \begin{pycode}
-from defumat.workflows.bands import run_bands
-from defumat.workflows.dos import run_dos
-from defumat.workflows.pdos import run_pdos
+from defuqumat.workflows.bands import run_bands
+from defuqumat.workflows.dos import run_dos
+from defuqumat.workflows.pdos import run_pdos
 
 bands = run_bands(system, pseudos, scf.density, kpoints=path)   # a k-path
 
@@ -1245,7 +1245,7 @@ $\sum_\mathrm{shells}(2j+1)$ --- which is \emph{not} in general twice the scalar
 count, because it is read off the dataset's own $j$ channels.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("pt-soc-paw-nosym.in",   # noncolin + lspinorb
                             pseudo_dir="../pseudo")
@@ -1294,7 +1294,7 @@ scalar-relativistic datasets, and it is what \code{h10-chain-noncolin.in} and
 \code{alas-magnetoelectric-nosoc.in} are.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("h-atom-noncolin.in",   # noncolin, no lspinorb
                             pseudo_dir="../pseudo")
@@ -1344,7 +1344,7 @@ together with time reversal. Averaging the $m$ indices alone leaves the spin
 frame where it was.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 # fcc nickel, noncollinear, moment along (1,1,1): twelve operations, six of
 # them with time reversal, and six of the twelve mix the two spin components.
@@ -1613,7 +1613,7 @@ same directory}, so a resubmitted batch script is the same command and
 continues.
 
 \begin{lstlisting}[language=Python]
-from defumat import Calculator
+from defuqumat import Calculator
 calculator = Calculator.from_file("scf.in", checkpoint_dir="ckpt")
 scf = calculator.get_scf()          # run again after a kill: it continues
 \end{lstlisting}
@@ -1749,7 +1749,7 @@ k-points have been rebuilt for the new moments' magnetic group.
 
 \begin{lstlisting}[language=Python]
 import numpy as np
-from defumat import Calculator
+from defuqumat import Calculator
 
 ferro = Calculator.from_file("h4-chain-ferro.in")  # tests/data/qe
 angles = np.deg2rad([0.0, 90.0, 180.0, 270.0])
@@ -1811,7 +1811,7 @@ in its conventional cell), where exchange wants the pair parallel and holding it
 costs a real torque:
 %
 \begin{verbatim}
-from defumat import Calculator
+from defuqumat import Calculator
 text = open("tests/data/qe/fe2-canted-nosoc.in").read().replace(
     "    nosym = .true.\n",
     "    nosym = .true.\n    constrained_magnetization = 'atomic fsm'\n"
@@ -1982,7 +1982,7 @@ with $w_a$ one inside a radius $r_m$ around atom $a$, falling linearly to zero
 at $1.2\,r_m$, and every grid point belonging to at most one atom.
 
 \begin{lstlisting}[language=Python]
-from defumat import Calculator
+from defuqumat import Calculator
 
 calculator = Calculator.from_file("h2-mirror-afm.in")
 scf = calculator.get_scf()
@@ -2078,7 +2078,7 @@ cold-started displacements land on a different one, which does not look like an
 error, it looks like a force.
 
 \begin{lstlisting}[language=Python]
-from defumat import Calculator
+from defuqumat import Calculator
 scf = Calculator.from_file("feo.in").get_scf()
 print(scf.energy_terms["hubbard"])
 \end{lstlisting}
@@ -2244,7 +2244,7 @@ since a Poisson equation cannot move a constant. The projected field is no
 longer parallel to $\mathbf m$, so the torque stops being zero.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 # fcc nickel, noncollinear, LDA, with nosource = .true. in &system
 calc = Calculator.from_file("ni-noncol-111-nosource.in", pseudo_dir="../pseudo")
@@ -2371,7 +2371,7 @@ $\nabla^2\mathbf m$ and $\boldsymbol\tau$. It is the collinear potential exactly
 wherever the four vectors are parallel, nodes included, and refers to no axis.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 # the cobalt helix, PBE, ultrasoft, q = -b3/4, with noncollinear_gga = 'grad_m'
 calc = Calculator.from_file("co-helix4-spiral-gradm.in", pseudo_dir="../pseudo",
@@ -2423,10 +2423,10 @@ H = E + P\,\Omega,
 \end{equation*}
 
 \begin{pycode}
-from defumat.forces import compute_forces
-from defumat.stress import compute_stress
-from defumat.workflows.relax import run_relax
-from defumat.workflows.vc_relax import run_vc_relax
+from defuqumat.forces import compute_forces
+from defuqumat.stress import compute_stress
+from defuqumat.workflows.relax import run_relax
+from defuqumat.workflows.vc_relax import run_vc_relax
 
 forces = compute_forces(calculation, result)      # method=... for QE's own terms
 print(forces.forces)                              # (nat, 3) in Ry/bohr
@@ -2453,7 +2453,7 @@ vector of length $2\,n_{\mathrm{pw}}$ rather than two. Nothing else in the
 functional changes.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calculator = Calculator.from_file("pt2-soc-force.in")   # noncolin, lspinorb
 forces = calculator.get_forces()          # (nat, 3) Ry/bohr
@@ -2504,7 +2504,7 @@ which is the distinction that cost this project a whole quantity once before.
 \code{method='analytic'} is refused for one more reason, and this one is about
 \emph{storage} rather than about physics: \code{addusforce} needs the whole
 $Q_{ij}(\mathbf G)$ table, and a cell whose stored table would exceed
-\code{AUG\_MAX\_BYTES} (2~GiB; \code{DEFUMAT\_AUG\_MAX\_BYTES} moves it)
+\code{AUG\_MAX\_BYTES} (2~GiB; \code{DEFUQUMAT\_AUG\_MAX\_BYTES} moves it)
 keeps a radial table and rebuilds the array a chunk at a time instead, so there
 is no whole table to read. Materialising one to keep the term would undo the
 thing that scheme exists for, which is why this is a refusal. It costs the
@@ -2570,7 +2570,7 @@ theorem, which is why a third derivative costs one more \code{jvp} and not a new
 solve.
 
 \begin{pycode}
-from defumat.response import (dielectric_tensor, dynamical_matrix,
+from defuqumat.response import (dielectric_tensor, dynamical_matrix,
                                raman_tensors, vibrational_spectrum)
 
 eps = dielectric_tensor(calculation, scf.wavefunctions, scf.eigenvalues,
@@ -3175,7 +3175,7 @@ Bousquet and Janolin it gives the four electrostriction tensors $m$, $q$, $M$
 and $Q$.
 
 \begin{pycode}
-from defumat.response import elastic_constants, electrostriction
+from defuqumat.response import elastic_constants, electrostriction
 
 es = electrostriction(calculation, scf)     # solves the strain response itself
 print(es.m, es.q, es.M, es.Q)              # the four electrostriction tensors
@@ -3210,7 +3210,7 @@ it takes, and 3.7x on a rhombohedral boron nitride cell at 1.6~GB, 3.5 times
 one column's, which is
 above the gate and so runs one column at a time unless the gate is raised. It
 moves the tensor by round-off, 1.6e-11 on 26.2; \code{shared\_primal\_bytes=0} (or
-\code{DEFUMAT\_ELASTIC\_SHARED\_BYTES=0}) keeps the one-at-a-time form and its
+\code{DEFUQUMAT\_ELASTIC\_SHARED\_BYTES=0}) keeps the one-at-a-time form and its
 last bits. The gate costs the shared program's compile even when it refuses,
 once per shape with the kernel cache on. It applies where the states are held
 in memory; a run whose states are walked through host memory a chunk at a time
@@ -3454,7 +3454,7 @@ doubles \code{nks} there and each spin channel is a separate $k$-point.
 
 \begin{pycode}
 # chi_0 for a spin-polarized run -- the part that is validated unconditionally.
-from defumat.response.sternheimer import make_sternheimer
+from defuqumat.response.sternheimer import make_sternheimer
 
 solver = make_sternheimer(calculation, result, spin_polarized=True)
 drho = solver.chi0(dv)          # dv is (2, n1, n2, n3) on the dense grid
@@ -3541,7 +3541,7 @@ truncations rather than the physics of $f_{xc}$.
 
 \begin{pycode}
 import numpy as np
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("ni-fcc-magnon.in")
 
@@ -3567,7 +3567,7 @@ disp.kernel_scale
 \end{pycode}
 
 The functional entry points are
-\code{defumat.workflows.run\_spin\_susceptibility} and
+\code{defuqumat.workflows.run\_spin\_susceptibility} and
 \code{run\_magnon\_dispersion}.
 
 \textbf{$\mathbf q$ must be a difference of two k-points of the run's own
@@ -3759,7 +3759,7 @@ Liouville--Lanczos solver with RPA and ALDA; it has no bootstrap kernel and no
 Dyson equation in $\mathbf G$ space. The reference is Elk.
 
 \begin{pycode}
-from defumat.workflows import run_absorption
+from defuqumat.workflows import run_absorption
 import numpy as np
 
 omega = np.arange(0.0, 0.6, 0.005)          # Ry
@@ -3799,7 +3799,7 @@ pairs and the frequencies are each independent. \code{pair\_batch} is how many
 occupied--empty pair densities are formed at once (each is a whole box on the
 smooth grid): the band dial's value on a CPU, and on a GPU a chunk sized to about
 256~MB of boxes rather than every pair. \code{w\_batch}
-(\code{DEFUMAT\_W\_BATCH}) is how many frequencies are assembled and screened at
+(\code{DEFUQUMAT\_W\_BATCH}) is how many frequencies are assembled and screened at
 once: the whole axis on a CPU, and a chunk sized to about 256~MB on a GPU.
 
 \begin{pycode}
@@ -4277,7 +4277,7 @@ here (\code{Gaussian}: a Gaussian-enveloped sine with a phase and a chirp,
 $\mathbf A$), the $\sin^2$ envelope of the high-harmonic literature
 (\code{Sin2}), and the adiabatic switch-on $e^{\eta t}\cos\omega t$
 (\code{Adiabatic}) the perturbative orders use, all importable as
-\code{from defumat.realtime import Sin2}. A peak intensity in W/cm$^2$ becomes
+\code{from defuqumat.realtime import Sin2}. A peak intensity in W/cm$^2$ becomes
 $E_0 = \sqrt{I/3.51\times10^{16}}$ atomic units, which is what Elk prints as the
 peak power density. \textbf{The sign of the coupling is the electron's and is not
 Elk's}: here an electron of charge $-1$ sees $H(\mathbf k+\mathbf A/c)$, where
@@ -4287,8 +4287,8 @@ dielectric function and the odd orders agree in sign with Elk's
 \code{JTOT\_TD}$/\Omega$, and the even orders are opposite.
 
 \begin{pycode}
-from defumat import Calculator
-from defumat.realtime.pulse import Sin2
+from defuqumat import Calculator
+from defuqumat.realtime.pulse import Sin2
 
 calc = Calculator.from_file("si2-symmetric.in", pseudo_dir="pseudo")
 calc.get_scf(conv_thr=1e-10)
@@ -4304,9 +4304,9 @@ print(run.norm_drift, run.excited)          # electrons per cell left across the
 \textbf{Where each piece is.} The five \code{Calculator} methods of this section
 delegate to \code{run\_realtime}, \code{run\_realtime\_dielectric},
 \code{run\_hhg}, \code{run\_harmonic\_orders} and \code{run\_third\_harmonic}
-(\code{defumat.workflows.realtime}, which also has \code{field\_little\_group},
+(\code{defuqumat.workflows.realtime}, which also has \code{field\_little\_group},
 \code{chi3\_from\_orders}, \code{chi2\_from\_orders} and \code{CHI3\_AU\_TO\_SI}),
-and those to \code{propagate} and \code{propagate\_orders} (\code{defumat.realtime}),
+and those to \code{propagate} and \code{propagate\_orders} (\code{defuqumat.realtime}),
 which take a \code{Calculation}, the states, their weights and the potential to
 freeze, and return a \code{RealTimeResult} or an \code{OrdersResult}
 (\code{fourier\_component} projects an order on a harmonic). \code{conductivity\_from\_kick}
@@ -4408,7 +4408,7 @@ then a fall. With an inversion centre only the odd orders appear; without one,
 in zincblende AlAs, the even ones do too.
 
 \begin{pycode}
-from defumat.realtime.pulse import Sin2
+from defuqumat.realtime.pulse import Sin2
 
 pulse = Sin2.from_intensity(1e12, 1.55, 10, polarization=(1, 0, 0))
 hhg = calc.get_hhg(pulse, grid=(6, 6, 6), dt=0.2, highest=25)
@@ -4882,7 +4882,7 @@ hierarchy solves the same equation expanded in the field, with $S$, its
 derivatives and those of $\mathbf X$ beside the Hamiltonian's.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("se-trigonal-soc.in")   # spin-orbit, three atoms
 calc.get_scf()
@@ -4978,7 +4978,7 @@ points:
 \end{equation*}
 
 \begin{pycode}
-from defumat.workflows.topology import (run_z2, run_z2_3d,
+from defuqumat.workflows.topology import (run_z2, run_z2_3d,
                                          run_berry_curvature)
 
 z2 = run_z2(system, pseudos, scf.density, axis=2)   # Wilson loop by default
@@ -5047,7 +5047,7 @@ the augmentation dipole \code{adddvepsi\_us} adds to an electric field's
 position operator.
 
 \textbf{Written that way $A^a$ is Hermitian and is the generalised velocity
-matrix}, which is what \code{defumat.response.conductivity} contracts; the code
+matrix}, which is what \code{defuqumat.response.conductivity} contracts; the code
 here writes the equivalent form with the \emph{outer} band's energy
 $\varepsilon_n$ in both factors and the two blocks $K^\dagger$ and $K$ split
 between them, because that is what falls out of resolving the identity inside
@@ -5071,7 +5071,7 @@ $1.57\times10^{-2}$ --- 94 times larger, and \emph{not moving} as the difference
 shrinks.
 
 \begin{pycode}
-from defumat.workflows.topology import run_berry_curvature
+from defuqumat.workflows.topology import run_berry_curvature
 
 curvature = run_berry_curvature(
     system, pseudos, density, shape=(4, 4), nocc=4, nbnd=12, method="kubo"
@@ -5147,7 +5147,7 @@ A single number is not a physical statement: what is meaningful is a
 a Born effective charge and a piezoelectric constant are made of.
 
 \begin{pycode}
-from defumat.workflows.polarization import run_polarization
+from defuqumat.workflows.polarization import run_polarization
 
 p = run_polarization(system, pseudos, scf.density,
                      gdir=2,            # 0-based; pw.x's gdir = 3
@@ -5216,7 +5216,7 @@ derivative taken against a small further change in it. The magnetism is induced
 rather than spontaneous, which is what makes a plain gapped semiconductor usable.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 alas = Calculator.from_file("alas-magnetoelectric.in", pseudo_dir)
 me = alas.get_magnetoelectric_tensor(delta=0.02, directions=(2,))
@@ -5295,7 +5295,7 @@ band of one basis. It is worth \textbf{0.5\,\%} on the eigenvalue route at $L$
 at the default stencil.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("si.scf.in")
 mass = calc.get_effective_mass((0.0, 0.0, 0.0), nbnd=10)  # crystal coordinates
@@ -5345,7 +5345,7 @@ $J = L + S$. The $L$ matrices are the complex-basis ones conjugated into the
 unitary the spin-orbit projectors are built from.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("ni.scf.in")   # noncolin, lspinorb, nosym
 momenta = calc.get_angular_momenta()
@@ -5423,7 +5423,7 @@ neighbouring manifold --- so nothing is divided by $E_n - E_m$ and the answer is
 invariant under any unitary mixing of the occupied bands.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("i-atom-soc.in")    # noncolin, lspinorb, gapped
 orbm = calc.get_orbital_magnetization(divisions=(3, 3, 3))
@@ -5502,7 +5502,7 @@ $\varepsilon_n(R\mathbf k) = \varepsilon_n(\mathbf k)$: 72 diagonalisations
 instead of 1728.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("al.scf.in")
 nest = calc.get_nesting(grid=(12, 12, 12))   # the grid is the convergence knob
@@ -5517,7 +5517,7 @@ nest.fermi_dos      # D(E_F) in states/Ry/cell
 nest.elk_units      # the same array in NEST3D.OUT's normalisation
 \end{pycode}
 
-The functional entry point is \code{defumat.workflows.run\_nesting}, which
+The functional entry point is \code{defuqumat.workflows.run\_nesting}, which
 takes the converged density directly.
 
 \textbf{Two identities come with the normalisation and both are worth reading.}
@@ -5598,7 +5598,7 @@ reachable, the alternative --- averaging one relativistic file's $j$ channels
 back --- being refused for ultrasoft and PAW by \code{pw.x} itself.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 scalar = Calculator.from_file("scf.in")          # nspin = 2, Co.pbe-nd-rrkjus
 spinor = Calculator.from_file("nscf.in")         # noncolin, lspinorb, rel- file
@@ -5659,8 +5659,8 @@ it is for the density, so a canted first leg hands over the collinear part of
 its moment and not the canting.
 
 \begin{pycode}
-from defumat.scf import run_scf
-from defumat.workflows.anisotropy import run_anisotropy
+from defuqumat.scf import run_scf
+from defuqumat.workflows.anisotropy import run_anisotropy
 
 # one fully-relativistic PAW file, run twice: the coupling off for the
 # self-consistent leg and on for the one-shot.
@@ -5739,7 +5739,7 @@ $5.8\times10^{-11}$~Ry, the diagonalisation's level.
 
 \begin{pycode}
 import numpy as np
-from defumat.workflows.anisotropy import rotation_from_euler
+from defuqumat.workflows.anisotropy import rotation_from_euler
 R = rotation_from_euler(0.0, np.pi / 4, 0.0)     # ZYZ, radians: c tilted 45 deg to a
 vector = scalar.get_orientation_torque(spinor, rotation=R)
 print(vector.torque)                             # -> [~0, -4.06e-05, ~0] Ry/rad
@@ -5892,7 +5892,7 @@ that is already second order in the coupling. Nothing bounds it in general,
 which is why it is measured rather than argued about.
 
 \begin{lstlisting}[language=Python]
-from defumat import Calculator
+from defuqumat import Calculator
 
 soc = Calculator.from_file("ni-tetragonal-relaxed-mae-paw.in",
                            pseudo_dir="tests/data/pseudo")
@@ -5955,7 +5955,7 @@ gather: \textbf{6~ms} against the seconds its SCF cost. $F(0)$ is the electron
 count of the cell and $F_j(0)$ its magnetic moment, which is what anchors both.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("si.scf.in")
 factors = calc.get_structure_factors(hmax=5.0)
@@ -5973,7 +5973,7 @@ print(factors.table(limit=10))
 bonding = calc.get_structure_factors(hmax=3.0, window=(-1.0, 0.2))
 \end{pycode}
 
-The functional entry point is \code{defumat.workflows.sfac.run\_structure\_factors}.
+The functional entry point is \code{defuqumat.workflows.sfac.run\_structure\_factors}.
 \code{transform="conventional"} labels the reflections on the conventional cubic
 axes (Elk's \code{vhmat}), \code{reduce=False} keeps every member of every star,
 and \code{core=True} adds a dataset's frozen core-correction charge.
@@ -6056,7 +6056,7 @@ is a real experiment's sign convention and the mode a semiconductor surface
 needs.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("graphene.scf.in")
 
@@ -6085,7 +6085,7 @@ along_x = calc.get_stm(height=0.85, spin=(1, 0, 0))  # noncollinear
 side = calc.get_stm(plane=((0.15, 0, 0), (0.15, 0.3, 0), (0.15, 0, 1)))
 \end{pycode}
 
-The functional entry point is \code{defumat.workflows.stm.run\_stm}. A delta at
+The functional entry point is \code{defuqumat.workflows.stm.run\_stm}. A delta at
 the Fermi level wants a denser k-grid than the SCF's, which \code{grid=}
 re-solves the bands on and \textbf{recomputes the Fermi level for}; \code{smearing}
 picks the delta (a Gaussian by default whatever the run used, because
@@ -6203,7 +6203,7 @@ the whole sum each time.
 
 \begin{pycode}
 import numpy as np
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("si-ultracell-mag.in")
 field = lambda x: 0.02 * np.cos(2 * np.pi * x[..., 0] / 8)
@@ -6339,7 +6339,7 @@ the opposite way round from \code{get\_stm}, where \code{spin} is the tip. The
 substrate was the polarizer first and the name was kept.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("graphene.scf.in")
 
@@ -6545,8 +6545,8 @@ the tip is.
 
 \begin{pycode}
 import numpy as np
-from defumat import Calculator
-from defumat.transport.momentum import decay_constants, decay_identity, pocket_mask
+from defuqumat import Calculator
+from defuqumat.transport.momentum import decay_constants, decay_identity, pocket_mask
 
 calc = Calculator.from_file("nbse2.in")          # a 1H-NbSe2 monolayer
 
@@ -6744,7 +6744,7 @@ PAW's one-centre path, which a laboratory-sphere run with the same path
 refutes.
 
 \begin{pycode}
-from defumat.workflows.spiral import (run_spiral_scan, relax_spiral_q,
+from defuqumat.workflows.spiral import (run_spiral_scan, relax_spiral_q,
                                        heisenberg_exchange)
 
 scan = run_spiral_scan(system, pseudos, wavevectors)   # E(q)
@@ -6818,7 +6818,7 @@ members of the displaced sphere onto one index, which no cell measured here
 does, since \code{pw.x}'s FFT sizes leave room; $dE/d\mathbf q$ on a
 dataset whose augmentation charge is held as a \emph{radial} table rather than
 on the dense $\mathbf G$ set --- the branch a large cell falls onto when
-$n_h^2 n_{\mathrm{gm}}$ is over \code{DEFUMAT\_AUG\_MAX\_BYTES} --- because that
+$n_h^2 n_{\mathrm{gm}}$ is over \code{DEFUQUMAT\_AUG\_MAX\_BYTES} --- because that
 route reads $|\mathbf q|$ on the host to size its interpolation and running past
 the end of the table is a NaN rather than a clamp, so a tracer cannot go through
 it at all; and spiral relaxation under a magnetic field, whose energy is outside
@@ -7039,7 +7039,7 @@ $10^{-6}$~Ry per cell here, which is larger than the top of that ladder; within
 the ladder the box is the same one and the monotonicity is exact.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 import numpy as np
 
 cal = Calculator.from_file("si.in")        # the two-atom unit cell
@@ -7169,7 +7169,7 @@ terms per copy, the copies' occupations being the transform of that same
 \code{becsum} over the same index.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 import numpy as np
 
 cal = Calculator.from_file("si-ultracell-paw.in")   # PAW, ecutrho = 4 ecutwfc
@@ -7229,7 +7229,7 @@ and there the two agree to every digit printed --- $+6.37\times10^{-7}$ on both
 at the last rung.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 import numpy as np
 
 cal = Calculator.from_file("pt-ultracell-soc.in")   # fcc Pt, lspinorb, ultrasoft
@@ -7310,7 +7310,7 @@ entering as $v_\uparrow \mathrel{-}= B$ and $v_\downarrow \mathrel{+}= B$, in
 the same two forms \code{external} takes.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 import numpy as np
 
 cal = Calculator.from_file("si-mag.in")     # the same cell at nspin = 2
@@ -7365,7 +7365,7 @@ can, so a state whose basin the seed misses decays back to the tiled one, and th
 loop says so by converging to it.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 import numpy as np
 
 cal = Calculator.from_file("h-mag.in")   # partly polarized hydrogen, nspin = 2
@@ -7479,7 +7479,7 @@ unit-cell crystal coordinates returning three components per point. A field that
 collinear form.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 import numpy as np
 
 cal = Calculator.from_file("h-noncolin-ultracell.in")  # moments free to turn
@@ -7744,7 +7744,7 @@ axis and $0.300$ in the plane, and still $0.288$ and $0.188$ at twice the bands;
 $2.2$~mRy below the old basis at the same size.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 import numpy as np
 
 cal = Calculator.from_file("h-noncolin-z.in")  # the moment along z, free to turn
@@ -7900,7 +7900,7 @@ in it. The entry points are \code{run\_ultracell\_stm} and
 \code{Calculator.get\_ultracell\_transport}.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 import numpy as np
 
 cal = Calculator.from_file("si.in")        # the two-atom unit cell
@@ -7985,7 +7985,7 @@ normalisation is the unit cell's, while a state that mixes $\mathbf Q$ makes
 $\sum_{\mathbf Q}|a_{\mathbf Q}|^2 = 1$ the $S$-orthonormality claim itself.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 cal = Calculator.from_file("ultracell-sheet-paw.in")   # a PAW sheet in vacuum
 
@@ -8057,7 +8057,7 @@ part is written in pointwise and is never Fourier truncated, which is why the
 nuclear cusp transfers exactly and why nothing is lost to aliasing.
 
 \begin{pycode}
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("scf.in", pseudo_dir="pseudo")
 seed = calc.get_elk_seed("elk_run/")     # STATE.OUT beside GEOMETRY.OUT
@@ -8078,10 +8078,10 @@ what fraction of the norm sat outside it.
 seeding with it. \code{read\_elk\_state} is the same thing as a function and
 \code{read\_elk\_geometry} reads \code{GEOMETRY.OUT} alone, returning the
 \code{ElkGeometry} that \code{state.geometry} also holds; all four are exported
-from \code{defumat.io}.
+from \code{defuqumat.io}.
 
 \begin{pycode}
-from defumat.io import ElkState
+from defuqumat.io import ElkState
 
 state = ElkState.read("elk_run/")
 print(state.rmt, state.efermi)            # muffin-tin radii; e_F in Rydberg
@@ -8091,7 +8091,7 @@ rho = state.evaluate_at(points)           # the density at arbitrary points
 \end{pycode}
 
 The pieces of the reconstruction are exported too, from
-\code{defumat.io.elk\_density}, because each is a separately checkable part of
+\code{defuqumat.io.elk\_density}, because each is a separately checkable part of
 somebody else's convention rather than an internal:
 \code{real\_spherical\_harmonics} (the sign convention is Elk's and is not the
 textbook one), \code{poly4} (the 4-point Lagrange radial window),
@@ -8215,11 +8215,11 @@ showing --- on this card the measured peaks were 1.57--1.61x the estimate. On a
 CPU the default is \code{'speed'}, which there is \qe's loop already and is what
 every validated number in this document was measured with; \code{'memory'} on a
 CPU changes one thing, the projector storage, since host and device are one
-memory. An explicit dial beats the mode, and \code{DEFUMAT\_MEMORY\_MODE} sets
+memory. An explicit dial beats the mode, and \code{DEFUQUMAT\_MEMORY\_MODE} sets
 it for a whole process:
 
 \begin{lstlisting}[language=Python]
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("scf.in", memory_mode="speed")
 result = calc.get_scf()
@@ -8227,7 +8227,7 @@ print(calc.calculation.memory_mode, calc.calculation.k_batch)
 \end{lstlisting}
 
 \begin{shcode}
-DEFUMAT_MEMORY_MODE=speed python3 run.py
+DEFUQUMAT_MEMORY_MODE=speed python3 run.py
 \end{shcode}
 
 \begin{refuses}
@@ -8264,7 +8264,7 @@ symmetrisation here, walks the group's operations one at a time once holding
 them all at once would pass 64~MB, rather than gathering \code{nsym} copies of
 the field: on eight-atom silicon with 24 operations the $\Gamma$ phonon of every
 atom reads 89~MB on a card where it read 503, against an SCF of 39.
-\code{DEFUMAT\_GATHER\_BUDGET} sets that threshold in MB (\code{0} walks
+\code{DEFUQUMAT\_GATHER\_BUDGET} sets that threshold in MB (\code{0} walks
 always); the result moves only in its last digits either way. \textbf{So do the
 piezoelectric tensor, the strain response and the elastic constants}: the
 piezoelectric tensor's derivative of the stress along the field's response is
@@ -8285,7 +8285,7 @@ piezoelectric route \code{method="zstar\_eu"} and the sum-over-states spectra. \
 must hold the set} ($n_{\rm spin} n_k n_{\rm bnd} n_{\rm pwx} n_{\rm pol}$
 complex), which is the point but is not free. And \textbf{the fall-back from
 \code{'speed'} fires only where the preset is what would run}: with a
-\code{k\_batch} or \code{projectors} of your own, or \code{DEFUMAT\_K\_BATCH},
+\code{k\_batch} or \code{projectors} of your own, or \code{DEFUQUMAT\_K\_BATCH},
 the estimate would describe another calculation, so nothing is checked.
 \textbf{A mode given to a \code{Calculator} configures its own setup}, and the
 calculator's post-SCF methods --- bands, NSCF, DOS, PDOS, STM, transport,
@@ -8297,14 +8297,14 @@ the SCF's bands, so a spectrum's sixty bands on a cell whose SCF has four can
 fall back from \code{'speed'} to \code{'memory'}, or run fewer bands at a time,
 for that solve alone, with a warning. The magnetic-anisotropy force theorem and torque build a setup of
 their own, because they rotate the moments; they resolve the mode from
-\code{DEFUMAT\_MEMORY\_MODE} and the platform.
+\code{DEFUQUMAT\_MEMORY\_MODE} and the platform.
 \end{refuses}
 
 \textbf{A $k$-chunk sized to the card: \code{k\_batch='fit'}, \code{'memory'}'s
 default on a card.} One $k$-point per call is \qe's loop, and on a card it pays a
 fixed cost per call --- one dispatch per kernel of a Davidson solve sized for one small
 $k$-point --- that a batch over $k$ amortises. \code{k\_batch='fit'} (or
-\code{DEFUMAT\_K\_BATCH=fit}) chooses the largest chunk whose estimated peak fits
+\code{DEFUQUMAT\_K\_BATCH=fit}) chooses the largest chunk whose estimated peak fits
 60\% of what the card has free, from the same estimate that sizes the band batch:
 the whole mesh whenever it fits, otherwise the fewest calls and then the least
 padding. On an RTX~A2000, eight-atom silicon at 20~Ry with \code{nosym}, Davidson
@@ -8320,7 +8320,7 @@ iteration at one $k$-point and 31.4 at \code{'fit'}, against 20.6 in
 \code{'speed'}, Davidson steps and energy equal, which is why it is the default.
 
 \begin{lstlisting}[language=Python]
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("scf.in", k_batch="fit")
 print(calc.calculation.k_batch, calc.estimate().k_batch)
@@ -8329,7 +8329,7 @@ print(calc.calculation.k_batch, calc.estimate().k_batch)
 \begin{refuses}
 \textbf{It is \code{'memory'}'s default on a card} (since 2026-10-02), and a
 \code{'speed'} run that does not fit falls back to it; \code{k\_batch=1} or
-\code{DEFUMAT\_K\_BATCH=1} asks for one $k$-point a call. \textbf{On a CPU it is
+\code{DEFUQUMAT\_K\_BATCH=1} asks for one $k$-point a call. \textbf{On a CPU it is
 the platform's default}, there being no card to fill and a
 batch over $k$ measured slower there. \textbf{A chunk is grown only from a whole
 band block}: a run whose band block had to be split to fit stays at one $k$-point.
@@ -8342,7 +8342,7 @@ steps are equal across $k$-points, as they are on every cell measured.
 \end{refuses}
 
 \textbf{The band side in single precision: \code{band\_precision}.} \code{'single'}
-(or \code{DEFUMAT\_BAND\_PRECISION=single}) runs $H\psi$, the Davidson work arrays
+(or \code{DEFUQUMAT\_BAND\_PRECISION=single}) runs $H\psi$, the Davidson work arrays
 and the wavefunction store in float32, and keeps the density, the potential, the
 mixer and the energies in float64; the small subspace solves run in double
 whatever the bands do. It is a performance mode and no correctness claim is made
@@ -8359,7 +8359,7 @@ the $10^{-7}$ perturbation of single's first iterations costs the double phase t
 superlinear mixing step that a cell like that converges by.
 
 \begin{lstlisting}[language=Python]
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("scf.in", band_precision="mixed")
 result = calc.get_scf()
@@ -8367,7 +8367,7 @@ print([entry["band_precision"] for entry in result.history])
 \end{lstlisting}
 
 \begin{shcode}
-DEFUMAT_BAND_PRECISION=single python3 run.py
+DEFUQUMAT_BAND_PRECISION=single python3 run.py
 \end{shcode}
 
 \begin{refuses}
@@ -8390,15 +8390,15 @@ a band path --- builds it in double, so the moved calculation is double througho
 rather than half single.
 \end{refuses}
 
-\textbf{The card's pool.} Importing \code{defumat} lets the device allocator take
+\textbf{The card's pool.} Importing \code{defuqumat} lets the device allocator take
 90\% of the card instead of JAX's own 75\% (on a 6~GB card, 5.45~GB rather than
 4.76), by setting \code{XLA\_CLIENT\_MEM\_FRACTION} before the backend starts.
 A value you set yourself, in either spelling of that variable, is left alone;
-\code{DEFUMAT\_MEM\_FRACTION} takes a number in $(0, 1]$, or \code{off} for
+\code{DEFUQUMAT\_MEM\_FRACTION} takes a number in $(0, 1]$, or \code{off} for
 JAX's default --- which is what to use when another program shares the card.
 
 \begin{shcode}
-DEFUMAT_MEM_FRACTION=off python3 run.py
+DEFUQUMAT_MEM_FRACTION=off python3 run.py
 \end{shcode}
 
 \textbf{Two batching dials} control how much is in flight. The band dial
@@ -8411,7 +8411,7 @@ every band batch and, if the whole block would not fit, runs the fewest blocks
 that do and says so in a warning. The answer is identical bit for bit, since
 chunking the band axis is a map rather than a sum; what it costs is time. The
 chosen value is \code{calc.calculation.band\_batch}, and an explicit
-\code{band\_batch} or \code{DEFUMAT\_BAND\_BATCH} is taken as given:
+\code{band\_batch} or \code{DEFUQUMAT\_BAND\_BATCH} is taken as given:
 
 \begin{lstlisting}[language=Python]
 calc = Calculator.from_file("scf.in", band_batch=16)
@@ -8426,7 +8426,7 @@ either mode and in \code{'memory'} on a GPU, all of them in \code{'speed'}.
 Either end is reachable everywhere:
 
 \begin{shcode}
-DEFUMAT_K_BATCH=all DEFUMAT_BAND_BATCH=all python3 run.py
+DEFUQUMAT_K_BATCH=all DEFUQUMAT_BAND_BATCH=all python3 run.py
 \end{shcode}
 
 or per call, \code{run\_scf(..., k\_batch=...)}. The chunk size changes the order
@@ -8443,15 +8443,15 @@ ultrasoft AlAs) with the same iteration counts. The price is that every directio
 runs as many steps as the slowest one, and on a CPU, where there is nothing to
 amortise, the serial loop stays the default. In the walked route the batch holds
 three directions' states where one was, so the $k$-chunk is a third of the SCF's.
-\code{DEFUMAT\_FIELD\_BATCH} sets it for a whole process:
+\code{DEFUQUMAT\_FIELD\_BATCH} sets it for a whole process:
 
 \begin{shcode}
-DEFUMAT_FIELD_BATCH=0 python3 run.py    # one direction at a time, as ph.x
+DEFUQUMAT_FIELD_BATCH=0 python3 run.py    # one direction at a time, as ph.x
 \end{shcode}
 
 \textbf{The floor under Davidson's threshold.} The SCF tightens the threshold
 \code{ethr} with its own error, as \code{electrons.f90} does, and floors it at
-$10^{-13}$~Ry on every platform; \code{DEFUMAT\_ETHR\_MIN} sets the floor for a
+$10^{-13}$~Ry on every platform; \code{DEFUQUMAT\_ETHR\_MIN} sets the floor for a
 whole process. That is a lever and not a default, and the history of why is worth
 knowing because it looked like a floor problem. Davidson stops on the \emph{change}
 in each eigenvalue between two steps, and on a GPU one call at that floor could
@@ -8469,13 +8469,13 @@ is at its floor; every arm measured takes the same steps, sixteen atoms the CPU'
 in every iteration at \qe's floor, and the CPU's own numbers did not move.
 
 \begin{lstlisting}[language=Python]
-from defumat.batching import resolve_ethr_floor
+from defuqumat.batching import resolve_ethr_floor
 
 print(resolve_ethr_floor(1e-13))   # QE's floor, on every platform
 \end{lstlisting}
 
 \begin{shcode}
-DEFUMAT_ETHR_MIN=3e-12 python3 run.py
+DEFUQUMAT_ETHR_MIN=3e-12 python3 run.py
 \end{shcode}
 
 \begin{refuses}
@@ -8498,7 +8498,7 @@ on it was not measured.
 \textbf{The wavefunction transforms have two layouts.} The default, on every
 platform, is \qe's: the $z$ transform over only the columns the wavefunction
 sphere occupies, then one contiguous $xy$ pass.
-\code{DEFUMAT\_FFT\_LAYOUT=box} takes the sphere through the whole box with one
+\code{DEFUQUMAT\_FFT\_LAYOUT=box} takes the sphere through the whole box with one
 fused three-dimensional transform instead. They are the same transform summed in
 a different order, so $H\psi$ agrees to $10^{-16}$ relative and an SCF reaches the
 same energy in the same number of iterations. Which is faster depends on the cell
@@ -8516,7 +8516,7 @@ in flight is then \emph{two} real-space boxes rather than one: a noncollinear
 calculation with 403 bands on a $240\times54\times200$ grid puts
 $403\times2\times2{,}592{,}000$ complex numbers --- 33 GB --- into one transform
 if the whole block goes at once, and several such arrays are live inside a
-single application of $H$. \code{DEFUMAT\_BAND\_BATCH=16} makes that 1.3 GB. The
+single application of $H$. \code{DEFUQUMAT\_BAND\_BATCH=16} makes that 1.3 GB. The
 answer is unchanged bit for bit, not merely to round-off, because chunking the
 band axis reorders nothing: it is a map, not a sum.
 
@@ -8537,7 +8537,7 @@ it is measured rather than assumed: 8.95~s against 7.4~s for \code{all/all} and
 the environment variables, which beat the mode.
 
 \textbf{A third dial says where the wavefunctions are \emph{kept}}
-(\code{wfc\_store}, \code{DEFUMAT\_WFC\_STORE}), which is a different question
+(\code{wfc\_store}, \code{DEFUQUMAT\_WFC\_STORE}), which is a different question
 from how many are in flight. The store is $n_{\rm spin} n_k n_{\rm bnd}
 n_{\rm pwx} n_{\rm pol}$ complex --- 11.3~GB on a 45-atom slab at six
 $k$-points, 45~GB at twenty-four --- and it stays resident all through the SCF
@@ -8569,14 +8569,14 @@ is smaller than the mesh}: with every $k$-point in flight it saved 0.04~GB of
 the peak with one $k$-point and 0.01~GB with a 27-point mesh in one batch on an
 H100, and cost 1.9x and 1.5x an iteration there, so \code{'memory'} then keeps
 the store on the card; \code{wfc\_store='stream'} or
-\code{DEFUMAT\_WFC\_STORE=stream} still asks for it. It was checked against the whole-set
+\code{DEFUQUMAT\_WFC\_STORE=stream} still asks for it. It was checked against the whole-set
 store on norm-conserving, ultrasoft and PAW silicon, the three spiral chains,
 \code{tb09}, spin-orbit bismuthene, PAW spin-orbit platinum, DFT+U on FeO
 and on noncollinear BN, and gamma-only storage: total energies agree to 5e-12~Ry or better, most of them
 to the last printed digit. \code{'host'} is no mode's default any more.
 
 \textbf{A fourth dial says whether the \emph{projectors} are kept}
-(\code{projectors}, \code{DEFUMAT\_PROJECTORS}), and it is the one that has been
+(\code{projectors}, \code{DEFUQUMAT\_PROJECTORS}), and it is the one that has been
 measured to move a peak rather than a stage. $\langle k+G|\beta\rangle$ is
 $n_k n_{\rm pwx} n_{\rm kb}$ complex and resident for the whole run: on the
 45-atom slab above that is \textbf{13.96~GB}, larger than the wavefunctions
@@ -8610,7 +8610,7 @@ in \code{'speed'}, and \code{rebuild} in \code{'memory'}.
 Nothing is refused, but two things are worth knowing before switching. Every
 validated number in this document was measured with \code{store}. And a size
 estimate follows the dial only from \code{433abd7} onward:
-an older \code{defumat size} reports the stored array for a rebuilt run and so
+an older \code{defuqumat size} reports the stored array for a rebuilt run and so
 overstates the floor by the largest single line in its own table.
 \end{refuses}
 
@@ -8636,7 +8636,7 @@ than the SCF it came from. Measure your own with
 
 \textbf{The augmentation charge is the largest object in an ultrasoft or PAW
 run on a large cell}, and there are two ways of keeping it. Below
-\code{DEFUMAT\_AUG\_MAX\_BYTES} (default 2~GB) $Q_{ij}(\mathbf{G})$ is built on
+\code{DEFUQUMAT\_AUG\_MAX\_BYTES} (default 2~GB) $Q_{ij}(\mathbf{G})$ is built on
 the whole $G$ sphere once and kept, which is what every number in the accuracy
 table below was measured with. Above it, \qe's scheme takes over: the
 \emph{radial} transforms
@@ -8653,12 +8653,12 @@ every iteration, exactly as \code{addusdens} and \code{newd} do it. On a
 \textbf{65~GB} for one relativistic nickel dataset.
 
 \begin{shcode}
-DEFUMAT_AUG_MAX_BYTES=off python3 run.py   # never tabulate
-DEFUMAT_AUG_MAX_BYTES=2G  python3 run.py   # the default
-DEFUMAT_AUG_CHUNK=8192    python3 run.py   # G vectors per block
+DEFUQUMAT_AUG_MAX_BYTES=off python3 run.py   # never tabulate
+DEFUQUMAT_AUG_MAX_BYTES=2G  python3 run.py   # the default
+DEFUQUMAT_AUG_CHUNK=8192    python3 run.py   # G vectors per block
 \end{shcode}
 
-\code{DEFUMAT\_AUG\_CHUNK} sets how many $\mathbf G$ vectors the rebuild takes
+\code{DEFUQUMAT\_AUG\_CHUNK} sets how many $\mathbf G$ vectors the rebuild takes
 at a time, and defaults to putting an $(n_h, n_h, \text{chunk})$ block near
 16~MB (16384 $\mathbf G$ vectors for silicon, never fewer than 1024); like the
 batching dials it is a loop bound over an exact sum and is invisible in a
@@ -8696,7 +8696,7 @@ of the local potential compiles to 16~MB of temporaries where it took 136, and
 the stress on a card peaks at the SCF's own 169~MB (652~MB with the old fixed
 4096 values before the block was sized at all), and the strained calls run 2
 to 17\% faster than when the derivative was taken through the integrand,
-because nothing has to be recomputed for a backward pass. \code{DEFUMAT\_RADIAL\_CHUNK}
+because nothing has to be recomputed for a backward pass. \code{DEFUQUMAT\_RADIAL\_CHUNK}
 sets the count; like the other chunk dials it bounds a loop over an exact sum
 and moves a result only in its last digits.
 
@@ -8714,13 +8714,13 @@ it costs is a \emph{derivative} rather than a run.} Each atom's sphere carries
 $(n_{\mathrm{spin}}, n_x, \text{mesh})$ radial fields, and inside a force or a
 stress every atom's reverse pass is live at once: \textbf{272~MB per atom} for a
 relativistic nickel dataset with a magnetization, so 4.1~GB for a fifteen-atom
-sublattice and no ceiling. \code{DEFUMAT\_PAW\_ATOM\_BATCH} is how many spheres
+sublattice and no ceiling. \code{DEFUQUMAT\_PAW\_ATOM\_BATCH} is how many spheres
 are in flight together --- \code{all} for one \code{vmap}, an integer for
 \code{paw\_onecenter.f90}'s own loop over atoms:
 
 \begin{shcode}
-DEFUMAT_PAW_ATOM_BATCH=1   python3 run.py   # one sphere at a time
-DEFUMAT_PAW_ATOM_BATCH=all python3 run.py   # the whole sublattice at once
+DEFUQUMAT_PAW_ATOM_BATCH=1   python3 run.py   # one sphere at a time
+DEFUQUMAT_PAW_ATOM_BATCH=all python3 run.py   # the whole sublattice at once
 \end{shcode}
 
 Left alone it chunks above three atoms per species and not below, because that
@@ -8738,7 +8738,7 @@ threads? Inside one $k$-point the work is a chain of operations each the size of
 one band's transform or a subspace product over a few dozen bands, and threads
 pay little for it: on six identical desktop cores a $k$-point gains 1.33x from
 four threads at sixteen atoms and 2.16x from six at sixty-four. So the cores go
-to the $k$-points, which is \code{pw.x -nk}: \code{DEFUMAT\_POOLS} runs one
+to the $k$-points, which is \code{pw.x -nk}: \code{DEFUQUMAT\_POOLS} runs one
 calculation as that many processes, each holding and diagonalising its own
 share of the $k$-points, and the pools meet where \qe's do --- the raw
 sums over $k$ (the density, \code{becsum}, $\tau$, $n_s$) are all-reduced before
@@ -8752,16 +8752,16 @@ as its $k$-points, which is where pools pay most. Launched by hand on one machin
 each pool with its rank, one coordinator address and its own core:
 
 \begin{shcode}
-export DEFUMAT_POOLS=2 DEFUMAT_COORDINATOR=localhost:23456 DEFUMAT_THREADS=1 JAX_PLATFORMS=cpu
-DEFUMAT_POOL_RANK=0 taskset -c 0 python3 run.py &
-DEFUMAT_POOL_RANK=1 taskset -c 2 python3 run.py
+export DEFUQUMAT_POOLS=2 DEFUQUMAT_COORDINATOR=localhost:23456 DEFUQUMAT_THREADS=1 JAX_PLATFORMS=cpu
+DEFUQUMAT_POOL_RANK=0 taskset -c 0 python3 run.py &
+DEFUQUMAT_POOL_RANK=1 taskset -c 2 python3 run.py
 \end{shcode}
 
 \noindent with \code{run.py} an ordinary script, which every pool runs whole:
 
 \begin{lstlisting}[language=Python]
-from defumat import Calculator
-from defumat.parallel import current_pools
+from defuqumat import Calculator
+from defuqumat.parallel import current_pools
 
 calc = Calculator.from_file("scf.in")
 result = calc.get_scf()
@@ -8771,7 +8771,7 @@ if current_pools().rank == 0:
 \end{lstlisting}
 
 \noindent Under Slurm the rank and the coordinator come from the job, so
-\code{export DEFUMAT\_POOLS=\$SLURM\_NTASKS DEFUMAT\_THREADS=\$SLURM\_CPUS\_PER\_TASK}
+\code{export DEFUQUMAT\_POOLS=\$SLURM\_NTASKS DEFUQUMAT\_THREADS=\$SLURM\_CPUS\_PER\_TASK}
 and \code{srun python3 run.py} is the whole launch. \code{get\_scf},
 \code{get\_forces}, \code{get\_stress} and \code{get\_relax} run under pools: the
 force and the stress walk each pool's rows and reduce, and a relaxation steps
@@ -8808,14 +8808,14 @@ srun python3 run.py            # every pool stops at the same iteration, checkpo
 \noindent A pool that dies ends the job rather than hanging it: across nodes
 \code{srun} cancels the step at once, and on one machine the others are aborted
 when the coordination service misses the dead pool's heartbeat,
-\code{DEFUMAT\_POOL\_HEARTBEAT} seconds later (100 by default). Between nodes the
+\code{DEFUQUMAT\_POOL\_HEARTBEAT} seconds later (100 by default). Between nodes the
 collectives go over whatever address the node's name resolves to, which on
 Triton is its Ethernet interface at about 100~MB/s;
-\code{DEFUMAT\_POOL\_INTERFACE=ib0} puts them on another interface, and a name the
+\code{DEFUQUMAT\_POOL\_INTERFACE=ib0} puts them on another interface, and a name the
 node does not have stops the run at start-up.
 
 \textbf{What pools measured against \code{pw.x -nk}.} Six identical cores of an
-i5-12600K, every defumat process and every \code{pw.x} MPI rank pinned to its own
+i5-12600K, every defuqumat process and every \code{pw.x} MPI rank pinned to its own
 core, cells without symmetry, speedup over the same code on one core:
 
 \begin{center}
@@ -8852,11 +8852,11 @@ chunk of $z$ planes through the $xy$ transforms and the product (or
 $w|\psi|^2$) while it sits in a core's own cache: on si32's box the local term of
 64 bands went from 111~ms alone and 232~ms six at once to 99~ms both ways, with
 the same answer. The chunk is sized from a 384~KB budget that counts the spinor
-components and the potential's; \code{DEFUMAT\_PLANE\_CHUNK} takes a plane count,
+components and the potential's; \code{DEFUQUMAT\_PLANE\_CHUNK} takes a plane count,
 or \code{off} for the whole box, which is what a GPU keeps.
 
 \begin{refuses}
-Under \code{DEFUMAT\_POOLS} greater than one, refused by name before anything
+Under \code{DEFUQUMAT\_POOLS} greater than one, refused by name before anything
 runs: more pools than $k$-points; a residual \code{scf\_solver} (it
 differentiates the whole set in one gradient); the analytic force and stress
 (they read every $k$-point's states); and every \code{Calculator} method outside

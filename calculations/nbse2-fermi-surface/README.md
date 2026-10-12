@@ -48,7 +48,7 @@ record. Delete it and `ground_state.py` rebuilds it in about twelve minutes.
 | `ngridk 12 12 1`, `vkloff 0 0 0` | `K_POINTS automatic 12 12 1 0 0 0` | Γ-centred both ways |
 | `spinpol .false.` | nothing | a **physics** choice: DFT sits on a Stoner instability for this monolayer, and a spurious moment would destroy the Fermi surface the calculation is about |
 | `spinorb .false.` | the scalar-relativistic datasets | the `.rel-` pair is committed beside them for the Ising splitting, which is a different calculation |
-| `tshift .false.` | nothing | defumat never moves the origin. It is mandatory in Elk here: it otherwise shifts the origin onto a symmetry centre while the plane heights stay in the input frame |
+| `tshift .false.` | nothing | defuqumat never moves the origin. It is mandatory in Elk here: it otherwise shifts the origin onto a symmetry centre while the plane heights stay in the input frame |
 | `epspot 1e-7` | `conv_thr = 1.0d-10` | tightened, because the tunnelling weights are post-processed off this density |
 | `rgkmax 7`, `gmaxvr 12`, `lmaxapw`, `lmaxo` | — | LAPW basis knobs with no plane-wave counterpart. `ecutwfc = 60 Ry` is where the total energy is settled to 0.5 mRy and `E_F` to 0.13 mRy over a 50–80 Ry sweep |
 | 12 empty states | `nbnd = 24` | against 13 occupied: 25 valence electrons, Nb 13 and Se 6 each |
@@ -63,7 +63,7 @@ different irreducible k-set, and would not be this input.
 
 That both codes find **4** without being told is the first thing the two setups
 agreed on, and it was not arranged. Where they differ is what happens next:
-defumat reduces 144 k-points to **43** where Elk keeps **78**, which is time
+defuqumat reduces 144 k-points to **43** where Elk keeps **78**, which is time
 reversal on top of a mirror that does nothing to a k-grid at `k_z = 0`.
 Everything k-resolved here runs the whole grid anyway.
 
@@ -120,7 +120,7 @@ be told from that.
 - **Elk's** is the plane-wave floor: the interstitial sum's reach is set by
   `rgkmax`, the large-`|k|` pocket hits it first, and past ~3.5 Å the `K` weight
   flattens at ~1e-6 and the apparent contrast *falls*.
-- **defumat's** is not a basis floor at all — a norm-conserving plane-wave
+- **defuqumat's** is not a basis floor at all — a norm-conserving plane-wave
   sphere resolves the tail as far as the tail goes. It is the **periodic
   image**: in an 18 Å cell the vacuum is 14.6 Å, so a tip 6.5 Å above the top Se
   is 8.1 Å from the image slab below, a ~4% contamination at `kappa ~ 1 1/Å`,
@@ -162,7 +162,7 @@ the same signature — a decay that stops decaying — from opposite directions:
 - **Elk's is pocket-selective and hits the pocket the result is about.** `K`'s
   true tail falls below what `rgkmax` can represent and flattens onto ~1e-6
   while Γ stays straight.
-- **defumat's is not pocket-selective.** The tip approaches the periodic image
+- **defuqumat's is not pocket-selective.** The tip approaches the periodic image
   slab from the other side, contaminating everything equally.
 
 So a Γ/K contrast that agrees between the two codes over 1.5–3.5 Å is not two

@@ -17,10 +17,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.pseudo.upf import read_upf
-from defumat.scf.driver import run_scf
-from defumat.system.builder import system_from_file
-from defumat.system.symmetry import (
+from defuqumat.pseudo.upf import read_upf
+from defuqumat.scf.driver import run_scf
+from defuqumat.system.builder import system_from_file
+from defuqumat.system.symmetry import (
     atom_mapping,
     collinear_symmetries,
     find_symmetries,

@@ -17,7 +17,7 @@
 
      Reading xml data from directory:
 
-     /tmp/claude-3291340/-u-40-ladovj1-data-Documents-programs-claude-defumat/fb6cbcb3-754d-4ac2-84b5-e39bee160d3c/scratchpad/qe-bi/pwscf.save/
+     /tmp/claude-3291340/-u-40-ladovj1-data-Documents-programs-claude-defuqumat/fb6cbcb3-754d-4ac2-84b5-e39bee160d3c/scratchpad/qe-bi/pwscf.save/
 
      file Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF: wavefunction(s)  5D 5D renormalized
 
@@ -37,7 +37,7 @@
 
 
      negative rho (up, down):  2.686E-03 0.000E+00
-     Reading collected, re-writing distributed wavefunctions in /tmp/claude-3291340/-u-40-ladovj1-data-Documents-programs-claude-defumat/fb6cbcb3-754d-4ac2-84b5-e39bee160d3c/scratchpad/qe-bi/
+     Reading collected, re-writing distributed wavefunctions in /tmp/claude-3291340/-u-40-ladovj1-data-Documents-programs-claude-defuqumat/fb6cbcb3-754d-4ac2-84b5-e39bee160d3c/scratchpad/qe-bi/
 
      Number and degeneracy of irreps per q-point
        N         xq(1)         xq(2)         xq(3)   N irreps
@@ -100,7 +100,7 @@
         k(    4) = (   0.2500000   0.4330127   0.0000000), wk =   0.3750000
 
      PseudoPot. # 1 for Bi read from file:
-     /u/40/ladovj1/unix/Documents/programs/claude/defumat/tests/data/pseudo/Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF
+     /u/40/ladovj1/unix/Documents/programs/claude/defuqumat/tests/data/pseudo/Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF
      MD5 check sum: 0357e51b97995f252f8888940afc4c39
      Pseudo is Ultrasoft + core correction, Zval = 15.0
      Generated using &quot;atomic&quot; code by A. Dal Corso  v.6.2.2

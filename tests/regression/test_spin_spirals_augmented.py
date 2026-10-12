@@ -68,11 +68,11 @@ from pathlib import Path
 
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
 from tests.conftest import GENERATED
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
@@ -355,10 +355,10 @@ def _resident_sets(monkeypatch):
 
     Exactly the code before ``OPEN.md`` Part XXI item 1 -- the displaced table
     on ``|G| < G_rho``, the pair interpolated on ``|G| < G_s`` -- since
-    :func:`~defumat.scf.driver._spiral_gvectors` is the one place the
+    :func:`~defuqumat.scf.driver._spiral_gvectors` is the one place the
     laboratory spheres come from.
     """
-    import defumat.scf.driver as driver
+    import defuqumat.scf.driver as driver
 
     monkeypatch.setattr(
         driver, "_spiral_gvectors",
@@ -393,7 +393,7 @@ def _one_shot(system, pseudos, density, calculation=None, nbnd=None):
     import jax.numpy as jnp
     import numpy as np
 
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     calculation, _, eigenvalues, states = fixed_density_states(
         system, pseudos, jnp.asarray(density), conv_thr=1e-11,
@@ -418,8 +418,8 @@ def _supercell_identity(spiral_system, pseudos, density, ecutrho: float, pseudo_
     """
     import numpy as np
 
-    from defumat.scf.driver import Calculation
-    from defumat.workflows.spiral import unfold_spiral_density
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.workflows.spiral import unfold_spiral_density
 
     spiral_e, spiral_out = _one_shot(spiral_system, pseudos, density)
 
@@ -501,7 +501,7 @@ SCAN_POINT = (1.0e-10, 1.0e-9)
 def test_a_scan_moves_the_displaced_table_with_q(pseudo_dir, monkeypatch):
     """Every point of an ``E(q)`` scan carries *its own* laboratory sphere and table.
 
-    A scan walks :meth:`~defumat.scf.driver.Calculation.at_spiral_q` with
+    A scan walks :meth:`~defuqumat.scf.driver.Calculation.at_spiral_q` with
     ``rebuild_basis = True``, which rebuilds the spheres, ``vkb``, the
     laboratory sphere of the transverse pair and the displaced table on it. A
     point that kept the first point's sphere or table would be **silent**: the
@@ -521,7 +521,7 @@ def test_a_scan_moves_the_displaced_table_with_q(pseudo_dir, monkeypatch):
 
     import numpy as np
 
-    from defumat.scf.driver import Calculation
+    from defuqumat.scf.driver import Calculation
 
     system, pseudos, density = _cobalt_density(_cobalt(80.0), pseudo_dir)
     start = Calculation(dataclasses.replace(system, spiral_q=(0.0, 0.0, 0.0)), pseudos)
@@ -553,8 +553,8 @@ def test_the_resident_table_is_not_enough(pseudo_dir, monkeypatch):
     ``shift`` were ever dropped on the way through -- and measures how far out
     that is: **1.15e-03 Ry**, against the 3.6e-07 the displacement leaves.
     """
-    import defumat.scf.driver as driver
-    from defumat.pseudo.augmentation import build_augmentation
+    import defuqumat.scf.driver as driver
+    from defuqumat.pseudo.augmentation import build_augmentation
 
     def without_the_shift(*args, **kwargs):
         kwargs.pop("shift", None)
@@ -592,7 +592,7 @@ def test_grad_m_on_the_spiral_is_the_unfolded_supercells_functional(pseudo_dir):
     The transverse pair of a spiral is stored in the frame that turns with
     ``q``, where ``|m|`` is the laboratory one and ``grad m`` is not; the
     ``'grad_m'`` branch takes the covariant gradient ``i (G - q)`` on the
-    laboratory sphere (:func:`~defumat.scf.potential._spiral_transverse_gradient`).
+    laboratory sphere (:func:`~defuqumat.scf.potential._spiral_transverse_gradient`).
     Against the four-cell supercell at the unfolded density, measured on D22
     (2026-10-11): ``etxc`` equal to the last printed digit (0.0 Ry of 131.12)
     and the potential to **2.5e-13 Ry (charge) and 1.4e-13 (field)**, where the
@@ -608,8 +608,8 @@ def test_grad_m_on_the_spiral_is_the_unfolded_supercells_functional(pseudo_dir):
     import jax.numpy as jnp
     import numpy as np
 
-    from defumat.scf.driver import Calculation
-    from defumat.workflows.spiral import unfold_spiral_density
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.workflows.spiral import unfold_spiral_density
 
     spiral, pseudos, density = _cobalt_density(_cobalt(160.0), pseudo_dir)
     text = (GENERATED / "co-helix4-nosoc.in").read_text()

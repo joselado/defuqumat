@@ -16,13 +16,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input, read_pw_input
-from defumat.response.magnetoelectric import (
+from defuqumat.io.pwin import parse_pw_input, read_pw_input
+from defuqumat.response.magnetoelectric import (
     BRANCH_FRACTION,
     MagnetoelectricTensor,
     magnetoelectric_tensor,
 )
-from defumat.system.builder import build_system
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -41,7 +41,7 @@ def test_a_run_with_no_magnetization_vector_is_refused():
 
     **The base field alone is enough to carry one** (2026-09-23): a uniform
     ``B_field`` makes the run magnetic by itself
-    (:func:`~defumat.system.builder.is_magnetic`), so zeroing the seed moments
+    (:func:`~defuqumat.system.builder.is_magnetic`), so zeroing the seed moments
     and keeping the committed ``B_field(3) = 0.1`` still gives four channels.
     Until then this test zeroed the seeds alone, which is now a working run.
     """

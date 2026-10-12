@@ -11,7 +11,7 @@
 #          the reference comes from. There is no committed benchmark for either
 #          because neither cell existed until now, and QE's own test-suite has no
 #          fully relativistic ultrasoft cell with two inequivalent moments.
-#   2, 3   defumat on the same two inputs, through `Calculator`, reporting the
+#   2, 3   defuqumat on the same two inputs, through `Calculator`, reporting the
 #          total energy, both site moments, the angle between them and the
 #          forces.
 #
@@ -55,7 +55,7 @@
 #               working set, and the force is a reverse-mode derivative that
 #               carries that table on the tape, so the ask is roughly fifty
 #               times the forward path. `pw.x` needs a fraction of it.
-#SBATCH --job-name=defumat-q5iron
+#SBATCH --job-name=defuqumat-q5iron
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-3
 #SBATCH --time=04:00:00
@@ -65,7 +65,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-magnetism/out/q5-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-magnetism
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 QEBIN=/scratch/work/ladovj1/apps/qe-env/bin
 
@@ -81,8 +81,8 @@ echo "commit: $(git -C "$REPO" rev-parse HEAD)  $(git -C "$REPO" log --oneline -
 case ${SLURM_ARRAY_TASK_ID:-0} in
     0) CODE=qe;      CASE=fe2-afm-soc ;;
     1) CODE=qe;      CASE=fe2-canted-soc ;;
-    2) CODE=defumat; CASE=fe2-afm-soc ;;
-    3) CODE=defumat; CASE=fe2-canted-soc ;;
+    2) CODE=defuqumat; CASE=fe2-afm-soc ;;
+    3) CODE=defuqumat; CASE=fe2-canted-soc ;;
     *) echo "no such task"; exit 1 ;;
 esac
 echo "code:   $CODE   case: $CASE"
@@ -107,7 +107,7 @@ else
     source "$VENV/bin/activate" || exit 1
     export JAX_PLATFORMS=cpu
     export PYTHONPATH="$REPO"
-    export DEFUMAT_CACHE_DIR=off
+    export DEFUQUMAT_CACHE_DIR=off
     python3 -c "import jax; print('jax', jax.__version__, jax.devices())"
     python3 -c "import os; print('affinity:', len(os.sched_getaffinity(0)), 'cores')"
     python3 -u tools/cluster/q5_measure.py "$CASE" \

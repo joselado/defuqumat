@@ -1,7 +1,7 @@
 """The radial transforms' chunk is sized from the mesh, and chunking changes nothing.
 
-:func:`~defumat.pseudo.formfactors.radial_chunk` bounds one ``(chunk, mesh)``
-integrand at :data:`~defumat.pseudo.formfactors.RADIAL_CHUNK_BYTES` rather than
+:func:`~defuqumat.pseudo.formfactors.radial_chunk` bounds one ``(chunk, mesh)``
+integrand at :data:`~defuqumat.pseudo.formfactors.RADIAL_CHUNK_BYTES` rather than
 at a fixed 4096 values, because the strain's derivatives hold many such arrays at
 once (``PERFORMANCE.md``, "The radial transforms' chunk, sized from the mesh").
 Two things are checked: the arithmetic, and that a transform walked in chunks
@@ -15,10 +15,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.pseudo.formfactors import (
+from defuqumat.pseudo.formfactors import (
     CHUNK, MIN_CHUNK, core_charge_of_g, local_potential_of_g, radial_chunk,
 )
-from defumat.pseudo.upf import read_upf
+from defuqumat.pseudo.upf import read_upf
 
 pytestmark = [pytest.mark.unit]
 
@@ -26,12 +26,12 @@ PSEUDO = Path(__file__).resolve().parents[1] / "data" / "pseudo"
 
 
 def test_the_chunk_follows_the_mesh_between_its_bounds(monkeypatch):
-    monkeypatch.delenv("DEFUMAT_RADIAL_CHUNK", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_RADIAL_CHUNK", raising=False)
     assert radial_chunk(841) == 1246
     assert radial_chunk(995) == 1053
     assert radial_chunk(10) == CHUNK
     assert radial_chunk(10**7) == MIN_CHUNK
-    monkeypatch.setenv("DEFUMAT_RADIAL_CHUNK", "300")
+    monkeypatch.setenv("DEFUQUMAT_RADIAL_CHUNK", "300")
     assert radial_chunk(841) == 300
 
 

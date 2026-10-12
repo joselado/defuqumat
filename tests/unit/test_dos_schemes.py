@@ -8,11 +8,11 @@ each scheme integrates to the right number of states, that the energy grid is
 import numpy as np
 import pytest
 
-from defumat.io.output import format_dos, fortran_exponential, write_dos
-from defumat.scf.tetrahedra import build_tetrahedra
-from defumat.system.kpoints import DEGSPIN, monkhorst_pack
-from defumat.units import RY_TO_EV
-from defumat.workflows.dos import (
+from defuqumat.io.output import format_dos, fortran_exponential, write_dos
+from defuqumat.scf.tetrahedra import build_tetrahedra
+from defuqumat.system.kpoints import DEGSPIN, monkhorst_pack
+from defuqumat.units import RY_TO_EV
+from defuqumat.workflows.dos import (
     DOS_SCHEMES,
     DEFAULT_DELTA_E,
     compute_dos,
@@ -64,7 +64,7 @@ def test_smearing_blocks_over_energies_are_the_whole_grid(name, monkeypatch):
     """
     import jax.numpy as jnp
 
-    from defumat.workflows import dos as dos_module
+    from defuqumat.workflows import dos as dos_module
 
     eigenvalues, weights = _free_electron(4)
     eigenvalues = jnp.asarray(eigenvalues)
@@ -227,9 +227,9 @@ def test_the_tetrahedra_corners_land_in_the_k_set_the_run_built(
     """
     from pathlib import Path
 
-    from defumat.io.pwin import parse_pw_input
-    from defumat.system.builder import build_system
-    from defumat.system.kpoints import KPoints, grid_equivalence
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
+    from defuqumat.system.kpoints import KPoints, grid_equivalence
 
     path = Path(__file__).resolve().parents[1] / "data" / "qe" / f"{case}.in"
     system = build_system(parse_pw_input(

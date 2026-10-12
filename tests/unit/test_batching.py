@@ -1,6 +1,6 @@
 """The k-point chunking, which must be invisible in every result.
 
-``defumat.batching`` is the dial between QE's ``k_loop`` -- one k-point
+``defuqumat.batching`` is the dial between QE's ``k_loop`` -- one k-point
 resident, ``c_bands.f90`` -- and a single ``vmap`` over the whole k axis, and
 the same dial on the band axis, between ``vloc_psi_k``'s ``DO ibnd`` and one
 transform of the whole block. Both
@@ -20,8 +20,8 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from defumat import batching
-from defumat.batching import (DEFAULT_BAND_BATCH, DEFAULT_K_BATCH, _resolve_band_batch,
+from defuqumat import batching
+from defuqumat.batching import (DEFAULT_BAND_BATCH, DEFAULT_K_BATCH, _resolve_band_batch,
                                map_bands, map_k, resolve_k_batch, sum_bands, sum_k)
 
 pytestmark = pytest.mark.unit
@@ -94,8 +94,8 @@ def test_chunking_stays_differentiable(batch):
 @pytest.mark.parametrize("batch", [1, 3, None])
 def test_sum_band_is_the_same_density(batch):
     """``sum_band``'s accumulation, which is where the second-largest working set is."""
-    from defumat.scf.density import sum_band
-    from defumat.system.cell import Cell
+    from defuqumat.scf.density import sum_band
+    from defuqumat.system.cell import Cell
 
     grid = (6, 6, 6)
     nk, nbnd, npwx = 5, 3, 11
@@ -197,7 +197,7 @@ def test_h_psi_is_the_same_operator_whatever_the_band_chunk(batch):
     scheduling decision and nothing else, so the operator it applies has to be
     the same one to the last bit the transforms allow.
     """
-    from defumat.batching import _resolve_band_batch
+    from defuqumat.batching import _resolve_band_batch
 
     key = jax.random.split(jax.random.PRNGKey(7), 2)
     grid = (8, 8, 8)
@@ -207,7 +207,7 @@ def test_h_psi_is_the_same_operator_whatever_the_band_chunk(batch):
     fft_index = jnp.arange(npwx)
     potential = jnp.asarray(np.cos(np.arange(int(np.prod(grid))), dtype=float)).reshape(grid)
 
-    from defumat.basis.fft import g_to_r, gather_from_box
+    from defuqumat.basis.fft import g_to_r, gather_from_box
 
     n = int(np.prod(grid))
 
@@ -244,17 +244,17 @@ def test_the_band_dial_reaches_the_spinor_h_psi(pseudo_dir, monkeypatch,
     half and passes on the broken code; the width of the traced FFT is the half
     that does not.
 
-    The dial is set the way a run sets it -- ``DEFUMAT_BAND_BATCH`` -- rather
+    The dial is set the way a run sets it -- ``DEFUQUMAT_BAND_BATCH`` -- rather
     than by reaching into the module, because "the environment variable is
     inert here" *was* the defect.
     """
     from pathlib import Path
 
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation
-    from defumat.scf.potential import v_of_rho
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.scf.potential import v_of_rho
+    from defuqumat.system import build_system
 
     case = Path(__file__).resolve().parents[1] / "data" / "qe" / "h-chain-90deg.in"
     system = build_system(read_pw_input(case))
@@ -267,7 +267,7 @@ def test_the_band_dial_reaches_the_spinor_h_psi(pseudo_dir, monkeypatch,
         # A ``Calculation`` resolves its band batch once, when it is built, and
         # its Hamiltonians carry it, so the variable is set before building one
         # -- which is how a run sets it.
-        monkeypatch.setenv("DEFUMAT_BAND_BATCH", band_batch)
+        monkeypatch.setenv("DEFUQUMAT_BAND_BATCH", band_batch)
         calculation = Calculation(system, pseudos)
         potential = v_of_rho(calculation.starting_density(),
                              calculation.basis.dense, system.cell)
@@ -314,11 +314,11 @@ def test_the_band_dial_reaches_the_spinor_density(pseudo_dir, monkeypatch,
     """
     from pathlib import Path
 
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.density import spinor_sum_band
-    from defumat.scf.driver import Calculation
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.density import spinor_sum_band
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system import build_system
 
     case = Path(__file__).resolve().parents[1] / "data" / "qe" / "h-chain-90deg.in"
     system = build_system(read_pw_input(case))
@@ -335,7 +335,7 @@ def test_the_band_dial_reaches_the_spinor_density(pseudo_dir, monkeypatch,
     occupations = jnp.asarray(generator.random((1, nbnd)))
 
     def summed(band_batch):
-        monkeypatch.setenv("DEFUMAT_BAND_BATCH", band_batch)
+        monkeypatch.setenv("DEFUQUMAT_BAND_BATCH", band_batch)
         compiled = jax.jit(lambda p, w, _tag=band_batch: spinor_sum_band(
             p, calculation.state_fft_index, calculation.basis.smooth.grid, w,
             system.cell, system.nspin_mag, 1))
@@ -381,9 +381,9 @@ def _on(monkeypatch, platform: str):
 ])                             # lands on the accelerator end
 def test_both_defaults_follow_the_platform(monkeypatch, platform, k_expected,
                                            band_expected, speed_k):
-    monkeypatch.delenv("DEFUMAT_MEMORY_MODE", raising=False)
-    monkeypatch.delenv("DEFUMAT_K_BATCH", raising=False)
-    monkeypatch.delenv("DEFUMAT_BAND_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_MEMORY_MODE", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_K_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_BAND_BATCH", raising=False)
     _on(monkeypatch, platform)
     assert batching.DEFAULT_K_BATCH == k_expected
     assert batching.DEFAULT_BAND_BATCH == band_expected
@@ -411,8 +411,8 @@ def test_no_preset_pairs_the_whole_k_axis_with_one_band(monkeypatch):
 @pytest.mark.parametrize("platform", ["cpu", "gpu"])
 def test_the_environment_beats_the_platform(monkeypatch, platform):
     _on(monkeypatch, platform)
-    monkeypatch.setenv("DEFUMAT_K_BATCH", "2")
-    monkeypatch.setenv("DEFUMAT_BAND_BATCH", "all")
+    monkeypatch.setenv("DEFUQUMAT_K_BATCH", "2")
+    monkeypatch.setenv("DEFUQUMAT_BAND_BATCH", "all")
     assert resolve_k_batch("default") == 2
     assert _resolve_band_batch("default") is None
 
@@ -421,7 +421,7 @@ def test_the_environment_beats_the_platform(monkeypatch, platform):
 def test_an_explicit_argument_beats_the_environment_and_the_platform(
         monkeypatch, platform):
     _on(monkeypatch, platform)
-    monkeypatch.setenv("DEFUMAT_K_BATCH", "2")
+    monkeypatch.setenv("DEFUQUMAT_K_BATCH", "2")
     assert resolve_k_batch(3) == 3
     assert resolve_k_batch(None) is None
     assert _resolve_band_batch(5) == 5
@@ -435,7 +435,7 @@ def test_the_environment_is_read_when_it_is_asked_for(monkeypatch):
     """
     _on(monkeypatch, "cpu")
     assert resolve_k_batch("default") == 1
-    monkeypatch.setenv("DEFUMAT_K_BATCH", "all")
+    monkeypatch.setenv("DEFUQUMAT_K_BATCH", "all")
     assert resolve_k_batch("default") is None
 
 
@@ -443,9 +443,9 @@ def test_the_environment_is_read_when_it_is_asked_for(monkeypatch):
 def test_a_malformed_setting_warns_and_falls_back_to_the_platform(
         monkeypatch, platform, expected):
     """Falls back to the default memory mode's preset: one k-point on both."""
-    monkeypatch.delenv("DEFUMAT_MEMORY_MODE", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_MEMORY_MODE", raising=False)
     _on(monkeypatch, platform)
-    monkeypatch.setenv("DEFUMAT_K_BATCH", "lots")
+    monkeypatch.setenv("DEFUQUMAT_K_BATCH", "lots")
     with pytest.warns(RuntimeWarning, match="not a number"):
         assert resolve_k_batch("default") == expected
 
@@ -473,9 +473,9 @@ def test_the_pair_axis_has_a_budget_on_a_card_and_the_band_dial_on_a_cpu(
     is every occupied-empty pair's FFT box at once. So there the default is a
     budget, and it fires: a thousand 1 MB pairs come back chunked.
     """
-    from defumat import batching
+    from defuqumat import batching
 
-    monkeypatch.delenv("DEFUMAT_BAND_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_BAND_BATCH", raising=False)
     box = 2**20
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
     assert batching.resolve_pair_batch(box_bytes=box, npairs=1000) == 1
@@ -484,22 +484,22 @@ def test_the_pair_axis_has_a_budget_on_a_card_and_the_band_dial_on_a_cpu(
     assert chunk == batching.PAIR_BUDGET_BYTES // (2 * box) < 1000
     assert batching.resolve_pair_batch(box_bytes=box, npairs=10) is None
     assert batching.resolve_pair_batch(8, box_bytes=box, npairs=1000) == 8
-    monkeypatch.setenv("DEFUMAT_BAND_BATCH", "4")
+    monkeypatch.setenv("DEFUQUMAT_BAND_BATCH", "4")
     assert batching.resolve_pair_batch(box_bytes=box, npairs=1000) == 4
 
 
 def test_the_ethr_floor_is_qes_on_every_platform_and_the_environment_moves_it(monkeypatch):
-    """QE's 1e-13 whatever the platform; ``DEFUMAT_ETHR_MIN`` is the only lever.
+    """QE's 1e-13 whatever the platform; ``DEFUQUMAT_ETHR_MIN`` is the only lever.
 
     An accelerator floor of 3e-12 was tried for a stall whose cause was the parked
     directions of the subspace solve; with that fixed (``subspace.generalised_eigh``) the card
     takes the CPU's steps at 1e-13, so the platform no longer matters.
     """
-    from defumat.batching import resolve_ethr_floor
-    from defumat.scf.driver import next_ethr
-    from defumat.solvers.davidson import ETHR_MIN
+    from defuqumat.batching import resolve_ethr_floor
+    from defuqumat.scf.driver import next_ethr
+    from defuqumat.solvers.davidson import ETHR_MIN
 
-    monkeypatch.delenv("DEFUMAT_ETHR_MIN", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_ETHR_MIN", raising=False)
     for platform in ("cpu", "gpu"):
         monkeypatch.setattr(batching, "_backend", lambda platform=platform: platform)
         assert resolve_ethr_floor(ETHR_MIN) == ETHR_MIN == 1e-13
@@ -507,7 +507,7 @@ def test_the_ethr_floor_is_qes_on_every_platform_and_the_environment_moves_it(mo
         # above the floor the schedule is QE's
         assert next_ethr(1e-2, 8e-3, 8.0, 5) == pytest.approx(0.1 * 8e-3 / 8.0)
 
-    monkeypatch.setenv("DEFUMAT_ETHR_MIN", "3e-12")
+    monkeypatch.setenv("DEFUQUMAT_ETHR_MIN", "3e-12")
     assert resolve_ethr_floor(ETHR_MIN) == 3e-12
     assert next_ethr(1e-2, 1e-20, 8.0, 5) == 3e-12
 
@@ -525,11 +525,11 @@ def test_a_call_that_uses_the_whole_davidson_budget_is_reported(monkeypatch):
 
     import numpy as np
 
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation, run_scf
-    from defumat.solvers.davidson import MAX_ITERATIONS
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, run_scf
+    from defuqumat.solvers.davidson import MAX_ITERATIONS
+    from defuqumat.system import build_system
 
     text = """&control
   calculation = 'scf'

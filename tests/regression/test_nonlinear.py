@@ -33,11 +33,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.efield import dielectric_tensor
-from defumat.response.electrostriction import _project_conduction, refined_states
-from defumat.response.nonlinear import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.efield import dielectric_tensor
+from defuqumat.response.electrostriction import _project_conduction, refined_states
+from defuqumat.response.nonlinear import (
     permutation_asymmetry,
     raman_tensors,
     require_a_complete_third_derivative,
@@ -45,9 +45,9 @@ from defumat.response.nonlinear import (
     susceptibility_field_derivative,
     translational_residue,
 )
-from defumat.response.phonon import _bare_displacements, self_consistent_response
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.response.phonon import _bare_displacements, self_consistent_response
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -179,7 +179,7 @@ def test_the_alas_ground_state_matches_pw_x():
     which is what makes it possible to say that what has is the third-derivative
     branch specifically.
     """
-    from defumat.io.qeref import read_qe_output
+    from defuqumat.io.qeref import read_qe_output
 
     _, _, _, result = _converged("alas-raman")
     reference = read_qe_output(CASES / "reference.out.alas-raman")
@@ -402,7 +402,7 @@ def test_the_wedge_reproduces_the_closed_grid():
     over the irreducible wedge is incomplete in every one of them and has to be
     averaged over the point group afterwards -- ``symme.f90``'s ``symtensor3``,
     here
-    :func:`~defumat.system.symmetry.symmetrize_atom_cartesian_tensor`. Until
+    :func:`~defuqumat.system.symmetry.symmetrize_atom_cartesian_tensor`. Until
     P36 that average did not exist and this phase refused a reduced k-set by
     name; the closed-grid numbers above are what it now has to reproduce from
     **8 k-points instead of 64**.
@@ -416,7 +416,7 @@ def test_the_wedge_reproduces_the_closed_grid():
     wrong, with the translational sum rule 37x worse. What repairs it is
     symmetrising the *value* of the density response inside the functional while
     leaving its *derivative* the raw wedge sum
-    (:func:`~defumat.response.electrostriction._second_order_energy_at`), after
+    (:func:`~defuqumat.response.electrostriction._second_order_energy_at`), after
     which the two routes agree to round-off.
     """
     wedge = _raman("alas-raman-wedge")

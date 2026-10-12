@@ -17,7 +17,7 @@ an atom carries when it moves, and it is the force the atom feels in a field.
 On the silicon cell QE runs with `epsil = .true.`, against a re-run of the
 vendored `ph.x`:
 
-| | defumat | `ph.x` |
+| | defuqumat | `ph.x` |
 |---|---|---|
 | $\varepsilon_\infty$, norm-conserving Si | **13.806646** | 13.806689 |
 | $\varepsilon_\infty$, **ultrasoft** Si | **14.325321** | 14.325270 |
@@ -39,8 +39,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
-from defumat.io import comparison_table
+from defuqumat import Calculator
+from defuqumat.io import comparison_table
 
 CASES, PSEUDO = Path("../tests/data/qe"), Path("../tests/data/pseudo")
 
@@ -52,7 +52,7 @@ print(np.round(field.epsilon, 6))
 print(f"\ndeparture from cubic symmetry   {field.anisotropy:.1e}")
 ```
 
-    [defumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
+    [defuqumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
 
 
     dielectric tensor, cartesian axes:
@@ -140,10 +140,10 @@ print(comparison_table(
     [("epsilon (nc)", field.isotropic, 13.806689470),
      ("Z* Si 1", float(born[0, 0, 0]), -0.07571),
      ("Z* Si 2", float(born[1, 0, 0]), -0.07571)],
-    fmt="{:.6f}", headers=("", "defumat", "ph.x", "difference")))
+    fmt="{:.6f}", headers=("", "defuqumat", "ph.x", "difference")))
 ```
 
-                    defumat       ph.x  difference
+                    defuqumat       ph.x  difference
     epsilon (nc)  13.806646  13.806689     4.4e-05
     Z* Si 1       -0.075715  -0.075710     5.0e-06
     Z* Si 2       -0.075715  -0.075710     5.0e-06
@@ -163,7 +163,7 @@ in reciprocal space and leaves a function of $x$ alone.
 
 
 ```python
-from defumat.basis.fft import r_to_g               # no facade route to rho(G)
+from defuqumat.basis.fft import r_to_g               # no facade route to rho(G)
 
 system = silicon.system
 dense = silicon.calculation.basis.dense
@@ -217,13 +217,13 @@ us = ultrasoft.get_dielectric_tensor()
 print(comparison_table(
     [("epsilon (ultrasoft)", us.isotropic, 14.325270),
      ("Z* (ultrasoft)", float(ultrasoft.get_born_charges()[0, 0, 0]), -0.07945)],
-    fmt="{:.6f}", headers=("", "defumat", "ph.x", "difference")))
+    fmt="{:.6f}", headers=("", "defuqumat", "ph.x", "difference")))
 ```
 
-    [defumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
+    [defuqumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
 
 
-                           defumat       ph.x  difference
+                           defuqumat       ph.x  difference
     epsilon (ultrasoft)  14.325321  14.325270     5.1e-05
     Z* (ultrasoft)       -0.079440  -0.079450     9.8e-06
 
@@ -254,14 +254,14 @@ print(comparison_table(
     [("Z* Al", float(z[0, 0, 0]), 2.10106),
      ("Z* As", float(z[1, 0, 0]), -2.16581),
      ("sum over the cell", float(z[:, 0, 0].sum()), -0.06475)],
-    fmt="{:.6f}", headers=("", "defumat", "ph.x", "difference")))
+    fmt="{:.6f}", headers=("", "defuqumat", "ph.x", "difference")))
 
 ```
 
-    [defumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
+    [defuqumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
 
 
-                         defumat       ph.x  difference
+                         defuqumat       ph.x  difference
     Z* Al               2.101065   2.101060     5.0e-06
     Z* As              -2.165827  -2.165810     1.7e-05
     sum over the cell  -0.064762  -0.064750     1.2e-05
@@ -290,7 +290,7 @@ print(comparison_table(
     fmt="{:.6f}", headers=("", "spinor", "scalar", "difference")))
 ```
 
-    [defumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
+    [defuqumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
 
 
                 spinor     scalar  difference

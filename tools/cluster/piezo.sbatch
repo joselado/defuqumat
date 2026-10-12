@@ -29,7 +29,7 @@
 #               is `CLAUDE.md`'s own account of where an ultrasoft derivative's
 #               peak lives. The norm-conserving task shares the allocation and
 #               will not use it.
-#SBATCH --job-name=defumat-piezo
+#SBATCH --job-name=defuqumat-piezo
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-1
 #SBATCH --time=12:00:00
@@ -41,7 +41,7 @@
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
 # The checkout to run, overridable so that a run never has to modify the
 # working tree someone else is using: this defaults to a clone of it.
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-audit}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-audit}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -54,8 +54,8 @@ export PYTHONPATH="$REPO"
 # One process does every step here, so the on-disk cache would only help across
 # *jobs*; it is off for the regression array's reasons (scratch at 89 per cent,
 # concurrent writers unmeasured) and costs this job almost nothing.
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 
 CASES=(nc us)
 CASE=${CASES[${SLURM_ARRAY_TASK_ID:-0}]}

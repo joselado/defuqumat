@@ -9,7 +9,7 @@ that vector is what every overlap downstream shifts the plane waves by.
 import numpy as np
 import pytest
 
-from defumat.topology.mesh import PLANE_AXES, plane_mesh, pumping_mesh, trim_points
+from defuqumat.topology.mesh import PLANE_AXES, plane_mesh, pumping_mesh, trim_points
 
 pytestmark = pytest.mark.unit
 

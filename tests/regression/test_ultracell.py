@@ -29,11 +29,11 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from defumat import Calculator
-from defumat.basis.builder import build_basis
-from defumat.scf.driver import Calculation, run_scf
-from defumat.ultracell import run_ultracell, with_external_potential
-from defumat.units import RY_TO_EV
+from defuqumat import Calculator
+from defuqumat.basis.builder import build_basis
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.ultracell import run_ultracell, with_external_potential
+from defuqumat.units import RY_TO_EV
 
 pytestmark = pytest.mark.regression
 
@@ -990,7 +990,7 @@ def test_a_collinear_seed_reaches_the_state_the_tiled_loop_cannot(
     and the supercell agreement is what says that is the physical state rather
     than a weak wave. It is why the number checked here is the Fourier amplitude
     and not
-    :meth:`~defumat.ultracell.driver.UltracellResult.cell_moments`.
+    :meth:`~defuqumat.ultracell.driver.UltracellResult.cell_moments`.
     """
     shape, kgrid = (2, 1, 1), (2, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
@@ -1072,7 +1072,7 @@ class _Overridden:
 ])
 def test_every_refusal_fires(replaced, message, tmp_path, pseudo_dir):
     """Each one is triggered on its own, on a cell that otherwise passes."""
-    from defumat.ultracell.driver import require_an_ultracell_regime
+    from defuqumat.ultracell.driver import require_an_ultracell_regime
 
     calculator = _silicon(tmp_path, pseudo_dir, (2, 2, 2))
     basis = build_basis(calculator.system)
@@ -1087,8 +1087,8 @@ def test_every_refusal_fires(replaced, message, tmp_path, pseudo_dir):
 
 def test_the_hubbard_refusal_fires(tmp_path, pseudo_dir):
     """Separately, because it reads a field whose name was wrong once."""
-    from defumat.hubbard.manifold import HubbardInput
-    from defumat.ultracell.driver import require_an_ultracell_regime
+    from defuqumat.hubbard.manifold import HubbardInput
+    from defuqumat.ultracell.driver import require_an_ultracell_regime
 
     calculator = _silicon(tmp_path, pseudo_dir, (2, 2, 2))
     basis = build_basis(calculator.system)
@@ -1103,8 +1103,8 @@ def test_the_hubbard_refusal_fires(tmp_path, pseudo_dir):
 
 def test_the_refusals_name_themselves():
     """Every regime stage 1 has not been measured in is refused by name."""
-    from defumat.ultracell.potential import require_an_ultracell_functional
-    from defumat.xc.functional import get_functional
+    from defuqumat.ultracell.potential import require_an_ultracell_functional
+    from defuqumat.xc.functional import get_functional
 
     with pytest.raises(NotImplementedError, match="gradient-corrected"):
         require_an_ultracell_functional(get_functional("PBE"))
@@ -1144,8 +1144,8 @@ def test_a_field_needs_two_channels_to_split(tmp_path, pseudo_dir):
     into, so the field would be silently dropped -- and a run that reports a
     perfectly converged unmodulated state is the worst way to be told.
     """
-    from defumat.ultracell.driver import _as_field
-    from defumat.ultracell.grid import Ultracell
+    from defuqumat.ultracell.driver import _as_field
+    from defuqumat.ultracell.grid import Ultracell
 
     ultracell = Ultracell.build((2, 1, 1), (4, 4, 4))
     with pytest.raises(ValueError, match="two spin channels"):
@@ -1164,8 +1164,8 @@ def test_a_field_needs_a_magnetization_to_act_on(tmp_path, pseudo_dir):
     tests: here the fix is to give the unit cell a seed so that ``domag`` is
     true, and the susceptibility that comes back is then the Pauli one.
     """
-    from defumat.ultracell.driver import _as_field
-    from defumat.ultracell.grid import Ultracell
+    from defuqumat.ultracell.driver import _as_field
+    from defuqumat.ultracell.grid import Ultracell
 
     ultracell = Ultracell.build((2, 1, 1), (4, 4, 4))
     with pytest.raises(ValueError, match="carries a magnetization"):
@@ -1184,8 +1184,8 @@ def test_the_collinear_field_carries_add_bfields_own_sign():
     :func:`test_a_uniform_field_is_the_unit_cell_under_the_same_field`; this is
     the cheap half of it.
     """
-    from defumat.ultracell.driver import _as_field
-    from defumat.ultracell.grid import Ultracell
+    from defuqumat.ultracell.driver import _as_field
+    from defuqumat.ultracell.grid import Ultracell
 
     ultracell = Ultracell.build((2, 1, 1), (4, 4, 4))
     field = np.asarray(_as_field(None, lambda x: np.full(x.shape[:-1], 0.3),
@@ -2130,8 +2130,8 @@ def test_the_reversed_paw_reference_is_the_time_reversed_one(pseudo_dir):
     check gives 7.0e-14 against a control of 9.3e-3, which is NiBr2's regime;
     it is not a test because its SCF takes three minutes.)
     """
-    from defumat.ultracell.kramers import time_reversed
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.ultracell.kramers import time_reversed
+    from defuqumat.workflows.nscf import fixed_density_states
 
     calculator = Calculator.from_file(
         Path(__file__).resolve().parents[1] / "data" / "qe" / "o2-paw-texture.in",
@@ -2168,7 +2168,7 @@ def test_fixed_occupations_fill_spinor_bands_one_electron_at_a_time(pseudo_dir):
     this method nothing.** It is a nonlocal term in the Hamiltonian the frozen
     unit-cell states were diagonalised with, so the ultracell only ever sees
     their eigenvalues and their coefficients; there is no spin-orbit term
-    anywhere in ``defumat/ultracell/``. This is the run that says so rather than
+    anywhere in ``defuqumat/ultracell/``. This is the run that says so rather than
     the argument.
 
     **What it caught on the way is the real reason it is here.** The two

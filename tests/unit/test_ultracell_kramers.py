@@ -1,7 +1,7 @@
 """The Kramers-closed basis on a matrix small enough to know the answer.
 
 The hydrogen helix keeps every direction of the union, so the dropping and the
-padding of :func:`~defumat.ultracell.kramers.kramers_closed_basis` are reached
+padding of :func:`~defuqumat.ultracell.kramers.kramers_closed_basis` are reached
 only here: a partner that duplicates a state is dropped, the folded k-point it
 belongs to keeps its slot as a zero vector at the sentinel, and what is kept is
 orthonormal with the reference's own eigenvalues at the bottom.
@@ -12,7 +12,7 @@ import pytest
 
 import jax.numpy as jnp
 
-from defumat.ultracell.kramers import (
+from defuqumat.ultracell.kramers import (
     OVERLAP_FLOOR,
     SENTINEL_SHIFT,
     kramers_closed_basis,

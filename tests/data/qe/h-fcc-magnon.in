@@ -25,7 +25,7 @@
 ! wrong one.** Hydrogen has one valence electron, so a starting magnetization of
 ! 1.0 is a *fully polarized* atom: the minority channel starts at exactly zero
 ! and the first potential is built at |zeta| = 1, which is the saturated point
-! every clamp in defumat/xc is about (CLAUDE.md's clamp-tangent trap). From
+! every clamp in defuqumat/xc is about (CLAUDE.md's clamp-tangent trap). From
 ! there the run leaves the ferromagnetic branch altogether. Measured, same cell,
 ! same everything else, conv_thr = 1e-10:
 !

@@ -21,13 +21,13 @@ import pytest
 
 import jax.numpy as jnp
 
-from defumat.io.pwin import read_pw_input
-from defumat.paw.gradient import onecenter_gradient_correction
-from defumat.paw.onecenter import build_paw
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
-from defumat.xc.functional import get_functional
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.paw.gradient import onecenter_gradient_correction
+from defuqumat.paw.onecenter import build_paw
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
+from defuqumat.xc.functional import get_functional
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 

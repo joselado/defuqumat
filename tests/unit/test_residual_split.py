@@ -10,7 +10,7 @@ rotated antiferromagnet, whose net moment is zero at every angle.
 import numpy as np
 import pytest
 
-from defumat.scf.residual_split import becsum_residual, residual_bins
+from defuqumat.scf.residual_split import becsum_residual, residual_bins
 
 
 class Cell:

@@ -36,7 +36,7 @@
 # mem           32G. Measured, not guessed: this route peaked at 2.32 GiB at 64
 #               points and 2.63 at 216, and the new term is an `nbnd x nbnd`
 #               matrix per k-point on top.
-#SBATCH --job-name=defumat-dlambda
+#SBATCH --job-name=defuqumat-dlambda
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-1
 #SBATCH --time=02:00:00
@@ -46,7 +46,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/dlambda-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -56,8 +56,8 @@ source "$VENV/bin/activate" || exit 1
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 
 MESH=$(( ${SLURM_ARRAY_TASK_ID:-0} == 0 ? 4 : 6 ))
 

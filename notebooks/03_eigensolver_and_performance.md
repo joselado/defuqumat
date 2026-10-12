@@ -3,7 +3,7 @@
 The SCF spends almost all of its time diagonalising, so the eigensolver decides what size
 of problem is reachable. Forming $H$ and calling `eigh` costs $O(n_{\rm pw}^3)$ time and
 $O(n_{\rm pw}^2)$ memory; a block Davidson gets the same eigenvalues to 1e-13 Ry at a
-fraction of both, and with it defumat runs **within 2-4x of serial Quantum ESPRESSO per
+fraction of both, and with it defuqumat runs **within 2-4x of serial Quantum ESPRESSO per
 SCF iteration**.
 
 What is solved at every k-point is a *generalised* eigenproblem, because ultrasoft and PAW
@@ -35,10 +35,10 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
-from defumat.scf.driver import run_scf
-from defumat.scf.potential import v_of_rho
-from defumat.solvers import davidson_eigensolver_all
+from defuqumat import Calculator
+from defuqumat.scf.driver import run_scf
+from defuqumat.scf.potential import v_of_rho
+from defuqumat.solvers import davidson_eigensolver_all
 
 BENCH, PSEUDO = Path("../benchmarks"), Path("../tests/data/pseudo")
 
@@ -139,8 +139,8 @@ distinct k-points in it than the grid has points.
 
 
 ```python
-from defumat.system.kpoints import KPoints
-from defumat.system.symmetry import find_symmetries
+from defuqumat.system.kpoints import KPoints
+from defuqumat.system.symmetry import find_symmetries
 
 QE = Path("../quantum_espresso/qe-7.5-ReleasePack/qe-7.5/test-suite/pw_scf")
 wedge = Calculator.from_file(QE / "scf-kauto.in", pseudo_dir=PSEUDO, announce=False)
@@ -178,7 +178,7 @@ needs a `pw.x` binary:
 |---|---|---|---|---|
 | plane waves | 180 | 1131 | 2950 | 5900 |
 | QE, per SCF iteration | 0.003 s | 0.011 s | 0.071 s | 0.278 s |
-| defumat, per SCF iteration | 0.007 s | 0.033 s | 0.254 s | 1.141 s |
+| defuqumat, per SCF iteration | 0.007 s | 0.033 s | 0.254 s | 1.141 s |
 | ratio | **2.8x** | **3.0x** | **3.6x** | **4.1x** |
 | total energy agreement | 7e-7 Ry | 3e-9 Ry | 4e-9 Ry | 1e-9 Ry |
 
@@ -192,7 +192,7 @@ and never mixed until the density is accumulated.
 What does a core buy when it is given its own k-points instead of a share of one k-point's
 threads? Inside one k-point the work is a chain of operations each the size of one band's
 transform, too fine for threads to pay much, so the cores go to the k-points, which is
-`pw.x -nk`. `DEFUMAT_POOLS` runs one calculation as that many processes, each diagonalising
+`pw.x -nk`. `DEFUQUMAT_POOLS` runs one calculation as that many processes, each diagonalising
 its own share of the k-points; the density and the decisions are shared every iteration, and the
 numbers are those of one process to round-off. Below, silicon with one atom displaced, on a
 2x2x2 grid without symmetry (eight k-points), as one process and as two pools; the same
@@ -205,8 +205,8 @@ import json, os, socket, subprocess, sys, tempfile, textwrap
 SCRIPT = textwrap.dedent("""
     import json, sys, warnings
     warnings.simplefilter("ignore")
-    from defumat import Calculator
-    from defumat.parallel import current_pools
+    from defuqumat import Calculator
+    from defuqumat.parallel import current_pools
     calc = Calculator.from_file("scf.in", pseudo_dir=sys.argv[1], announce=False)
     result = calc.get_scf(conv_thr=1e-10)
     forces = calc.get_forces()
@@ -227,15 +227,15 @@ def run_pools(size, script=None, *args):
     with socket.socket() as sock:
         sock.bind(("localhost", 0))
         port = sock.getsockname()[1]
-    base = {k: v for k, v in os.environ.items() if not k.startswith("DEFUMAT_POOL")}
-    base.update(JAX_PLATFORMS="cpu", DEFUMAT_THREADS="1",
+    base = {k: v for k, v in os.environ.items() if not k.startswith("DEFUQUMAT_POOL")}
+    base.update(JAX_PLATFORMS="cpu", DEFUQUMAT_THREADS="1",
                 PYTHONPATH=str(Path("..").resolve()))
     processes = []
     for rank in range(size):
         env = dict(base)
         if size > 1:
-            env.update(DEFUMAT_POOLS=str(size), DEFUMAT_POOL_RANK=str(rank),
-                       DEFUMAT_COORDINATOR=f"localhost:{port}")
+            env.update(DEFUQUMAT_POOLS=str(size), DEFUQUMAT_POOL_RANK=str(rank),
+                       DEFUQUMAT_COORDINATOR=f"localhost:{port}")
         processes.append(subprocess.Popen(
             [sys.executable, "-c", script or SCRIPT, str(PSEUDO.resolve()), *map(str, args)], cwd=work, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True))
@@ -277,9 +277,9 @@ uninterrupted is the reference.
 RESTART = textwrap.dedent("""
     import json, sys, warnings
     warnings.simplefilter("ignore")
-    from defumat import Calculator
-    from defumat.parallel import current_pools
-    from defumat.scf.driver import run_scf
+    from defuqumat import Calculator
+    from defuqumat.parallel import current_pools
+    from defuqumat.scf.driver import run_scf
     calc = Calculator.from_file("scf.in", pseudo_dir=sys.argv[1], announce=False)
     mode = sys.argv[2]
     result = run_scf(calc.system, calc.pseudos, conv_thr=1e-10, verbose=False,
@@ -320,8 +320,8 @@ qe = [5.09, 5.06, 4.92]         # pw.x -nk 6, six ranks
 fig, ax = plt.subplots(figsize=(7.5, 4.2))
 x = np.arange(len(cells))
 width = 0.26
-series = [("defumat, 1 process x 6 threads", threads, "#2a78d6"),
-          ("defumat, 6 pools x 1 core", pools, "#eb6834"),
+series = [("defuqumat, 1 process x 6 threads", threads, "#2a78d6"),
+          ("defuqumat, 6 pools x 1 core", pools, "#eb6834"),
           ("pw.x -nk 6", qe, "#1baf7a")]
 for i, (label, values, color) in enumerate(series):
     bars = ax.bar(x + (i - 1) * width, values, width - 0.03, label=label, color=color)

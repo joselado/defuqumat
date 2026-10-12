@@ -34,9 +34,9 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.workflows.stm import run_stm
-from defumat.workflows.transport import run_vertical_transport
+from defuqumat import Calculator
+from defuqumat.workflows.stm import run_stm
+from defuqumat.workflows.transport import run_vertical_transport
 
 pytestmark = pytest.mark.slow
 
@@ -158,7 +158,7 @@ def test_the_band_count_converges():
     energy is suppressed as a Gaussian rather than as ``1/(E - e)``: the map
     settles to a part in 10^4 by twenty bands. That is the whole reason the
     amplitude is the on-shell one -- the literal Landauer denominator does not
-    converge at *any* band count (:mod:`defumat.transport.green` measures it).
+    converge at *any* band count (:mod:`defuqumat.transport.green` measures it).
     """
     calculator = _converged("graphene-monolayer")
     maps = [run_vertical_transport(
@@ -185,7 +185,7 @@ def test_the_tip_amplitudes_are_held_in_a_fixed_block(monkeypatch):
     k-point's worth, a block smaller than the image takes more calls than there
     are k-points, and the map and its diagnostics do not move.
     """
-    import defumat.workflows.transport as transport
+    import defuqumat.workflows.transport as transport
 
     calculator = _converged("h-sheet")
     nk = len(calculator.system.kpoints.weights)
@@ -234,7 +234,7 @@ def test_the_band_window_leaves_a_real_map_unchanged(monkeypatch):
     asserted to have dropped something, since one that kept every band would
     pass the comparison trivially.
     """
-    import defumat.workflows.transport as transport
+    import defuqumat.workflows.transport as transport
 
     calculator = _converged("graphene-monolayer")
     shared = dict(height=0.62, shape=(10, 10), grid=(6, 6, 1), nbnd=20,
@@ -678,7 +678,7 @@ def test_the_literal_landauer_denominator_warns_that_it_does_not_converge():
     """It is the exact expression and a band sum cannot evaluate it.
 
     Kept reachable so that the statement can be measured rather than asserted;
-    :mod:`defumat.transport.green` carries the measurement -- a factor of 349
+    :mod:`defuqumat.transport.green` carries the measurement -- a factor of 349
     of cancellation on a cell small enough to diagonalise completely.
     """
     calculator = _converged("h-sheet")
@@ -708,8 +708,8 @@ def test_the_momentum_weight_is_the_plane_integral_of_the_map_on_a_real_cell():
     that is spectrally accurate rather than second order -- so this is asserted
     at 1e-9 and not at a per-cent.
     """
-    from defumat.workflows.transport import run_momentum_transport
-    from defumat.transport.substrate import surface_area
+    from defuqumat.workflows.transport import run_momentum_transport
+    from defuqumat.transport.substrate import surface_area
 
     calculator = _converged("h-sheet")
     scf = calculator.get_scf()
@@ -752,9 +752,9 @@ def test_the_two_limits_are_the_stm_image_and_the_fermi_surface_on_a_real_cell()
     ``for_spin`` trap in the one place here that can see it, since this is the
     only column with an independent route to compare against.
     """
-    from defumat.response.nesting import fermi_surface_weights
-    from defumat.workflows.transport import run_momentum_transport
-    from defumat.transport.substrate import surface_area
+    from defuqumat.response.nesting import fermi_surface_weights
+    from defuqumat.workflows.transport import run_momentum_transport
+    from defuqumat.transport.substrate import surface_area
 
     calculator = _converged("h-sheet")
     scf = calculator.get_scf()
@@ -786,7 +786,7 @@ def test_a_magnetic_plane_tip_is_refused_rather_than_approximated():
     projector; the plane integral does not collapse that the way it collapses
     the trace over tip position, so there is no planar form of it to compute.
     """
-    from defumat.workflows.transport import run_momentum_transport
+    from defuqumat.workflows.transport import run_momentum_transport
 
     calculator = _magnet("spinor")
     with pytest.raises(TypeError):

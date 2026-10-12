@@ -1,6 +1,6 @@
 """The atomic projections built a block of k-points at a time are the whole build.
 
-In memory mode :func:`~defumat.projwfc.projections.atomic_projections` builds
+In memory mode :func:`~defuqumat.projwfc.projections.atomic_projections` builds
 the atomic projector set on each block's row-subset calculation instead of for
 every k-point at once, which on eight-atom silicon at 216 k-points took the
 card from 645.6 MB to the SCF's own peak. Each k-point's set is its own
@@ -15,9 +15,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.projwfc import projections
-from defumat.projwfc.projections import atomic_projections
+from defuqumat import Calculator
+from defuqumat.projwfc import projections
+from defuqumat.projwfc.projections import atomic_projections
 
 pytestmark = pytest.mark.unit
 

@@ -20,8 +20,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.pseudo.formfactors import bessel_transform
-from defumat.pseudo.radial import simpson_weights, spherical_bessel
+from defuqumat.pseudo.formfactors import bessel_transform
+from defuqumat.pseudo.radial import simpson_weights, spherical_bessel
 
 pytestmark = pytest.mark.unit
 
@@ -120,7 +120,7 @@ OMEGA = 300.0
 
 
 def _dataset(pseudo_dir):
-    from defumat.pseudo.upf import read_upf
+    from defuqumat.pseudo.upf import read_upf
 
     return read_upf(pseudo_dir / NLCC_DATASET)
 
@@ -130,8 +130,8 @@ def _moduli():
 
 
 def test_the_core_charges_slope_is_qes_drhoc(pseudo_dir):
-    from defumat.pseudo.formfactors import core_charge_of_g
-    from defumat.stress.analytic import _drhoc_of_g
+    from defuqumat.pseudo.formfactors import core_charge_of_g
+    from defuqumat.stress.analytic import _drhoc_of_g
 
     pseudo = _dataset(pseudo_dir)
     q = _moduli()
@@ -143,8 +143,8 @@ def test_the_core_charges_slope_is_qes_drhoc(pseudo_dir):
 
 
 def test_the_local_potentials_slope_is_qes_dvloc(pseudo_dir):
-    from defumat.pseudo.formfactors import local_potential_of_g
-    from defumat.stress.analytic import _dvloc_of_g2
+    from defuqumat.pseudo.formfactors import local_potential_of_g
+    from defuqumat.stress.analytic import _dvloc_of_g2
 
     pseudo = _dataset(pseudo_dir)
     q = _moduli()

@@ -36,11 +36,11 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
-from defumat.workflows import run_orbital_magnetization
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
+from defuqumat.workflows import run_orbital_magnetization
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 

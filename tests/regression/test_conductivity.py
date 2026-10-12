@@ -10,7 +10,7 @@ internal statements and one analytic limit, and each fails differently:
 * the **symmetric** part must reproduce P37's independent-particle dielectric
   function exactly. That chain is a different assembly -- a Dyson solve over a
   response sphere rather than a resolvent sum over band pairs -- and it reaches
-  ``ph.x`` through :func:`~defumat.response.efield.dielectric_tensor`. It is
+  ``ph.x`` through :func:`~defuqumat.response.efield.dielectric_tensor`. It is
   what pins the prefactor, and it is the check the factor of two P50 found
   would have failed;
 * the **f-sum rule** converges onto ``<n|d2H/dk^2|n>``, measured separately by a
@@ -40,16 +40,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input, read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.conductivity import optical_conductivity
-from defumat.response.velocity import VelocityOperator
-from defumat.scf import run_scf
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
-from defumat.workflows.conductivity import run_conductivity
-from defumat.workflows.nscf import fixed_density_states
-from defumat.workflows.tddft import run_absorption
+from defuqumat.io.pwin import parse_pw_input, read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.conductivity import optical_conductivity
+from defuqumat.response.velocity import VelocityOperator
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
+from defuqumat.workflows.conductivity import run_conductivity
+from defuqumat.workflows.nscf import fixed_density_states
+from defuqumat.workflows.tddft import run_absorption
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -180,7 +180,7 @@ def _weights(system, pseudos, density, nbnd):
     is exactly ``(pi/2 Omega) sum t_nm |V_nm|^2`` over the pairs with a
     positive gap, so no frequency grid and no ``eta`` enter the number at all.
     """
-    from defumat.response.conductivity import DEGENERACY_TOL, _pair_weights
+    from defuqumat.response.conductivity import DEGENERACY_TOL, _pair_weights
 
     calculation, _, eigenvalues, psi = fixed_density_states(
         system, pseudos, density, nbnd=nbnd, conv_thr=1e-10
@@ -504,7 +504,7 @@ def test_the_fermi_surface_delta_is_the_derivative_of_the_occupations():
     weight, redistributed across the Fermi surface, which the velocity weighting
     turns into the 8.4 per cent above.
     """
-    from defumat.scf.occupations import _count, smearing_order, w0gauss
+    from defuqumat.scf.occupations import _count, smearing_order, w0gauss
 
     for name, mirrored_differs in (("marzari-vanderbilt", True),
                                    ("gaussian", False),

@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from defumat.system.cell import Cell
-from defumat.system.kpoints import DEGSPIN, KPoints, expand_band_path, monkhorst_pack
+from defuqumat.system.cell import Cell
+from defuqumat.system.kpoints import DEGSPIN, KPoints, expand_band_path, monkhorst_pack
 
 pytestmark = pytest.mark.unit
 
@@ -167,7 +167,7 @@ def test_a_shifted_wedge_has_uniform_weights(rotations, shift, nk, spread):
     (None,   (0, 0, 0), False),
 ])
 def test_the_reduced_flag_says_what_the_weights_cannot(rotations, shift, expected):
-    from defumat.system.kpoints import is_reduced
+    from defuqumat.system.kpoints import is_reduced
 
     points = KPoints.automatic((4, 4, 4), shift, FCC, rotations=rotations)
     assert points.reduced is expected
@@ -182,7 +182,7 @@ def test_the_weight_spread_survives_as_a_fallback():
     cases in ``tests/data/qe`` are written, and a flag set by
     ``KPoints.automatic`` cannot see one.
     """
-    from defumat.system.kpoints import is_reduced
+    from defuqumat.system.kpoints import is_reduced
 
     points = KPoints.from_crystal(
         np.array([[0.0, 0.0, 0.0], [0.25, 0.0, 0.0]]), np.array([1.0, 3.0]), FCC)
@@ -192,7 +192,7 @@ def test_the_weight_spread_survives_as_a_fallback():
 
 def test_the_flag_survives_for_spin():
     """It has to reach a polarized run, which is where the guards live."""
-    from defumat.system.kpoints import for_spin, is_reduced
+    from defuqumat.system.kpoints import for_spin, is_reduced
 
     points = KPoints.automatic((4, 4, 4), (1, 1, 1), FCC, rotations=_E)
     assert is_reduced(for_spin(points, 2)) is True

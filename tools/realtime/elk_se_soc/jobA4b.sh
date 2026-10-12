@@ -3,7 +3,7 @@
 # on core 0, after the user's Blender render (PID 92077) ends or at 23:50. Elk at nempty 16
 # per atom with lorbcnd (the basis at which the in-pulse current agrees to 7 per cent on
 # 2x2x2): task 0 timed, 450 alone, a 2-step 450+460 for the setup, 460 alone timed.
-# defumat: se_time.py hxc, dt 0.125, 2000 steps, block 400. A silicon load control before
+# defuqumat: se_time.py hxc, dt 0.125, 2000 steps, block 400. A silicon load control before
 # and after. Then an nempty-8 Elk row on the same mesh.
 d=/l/ladovj1/review/hspin-elk
 E=/l/ladovj1/review/harmonics-elk/bin/elk
@@ -29,11 +29,11 @@ elkrow() {  # nempty tag
   $d/run_capped.sh $tag-elk-460-n$ne $d bash -c "cd $w && $E > td.stdout 2>&1"
 }
 elkrow 16 a4
-$d/run_capped.sh a4-defumat-hxc $d python3 -u se_time.py 20 3 0.125 2000 400 hxc $d/a4-defumat-hxc.npz
-python3 compare_current.py $d/a4-defumat-hxc.npz $d/a4-elk-n16/JTOT_TD.OUT $d/a4-elk-n16/AFIELDT.OUT > $d/a4-compare-n16.json 2>&1
-python3 coef.py $d/a4-defumat-hxc.npz $d/a4-elk-n16/JTOT_TD.OUT > $d/a4-coef-n16.txt 2>&1
+$d/run_capped.sh a4-defuqumat-hxc $d python3 -u se_time.py 20 3 0.125 2000 400 hxc $d/a4-defuqumat-hxc.npz
+python3 compare_current.py $d/a4-defuqumat-hxc.npz $d/a4-elk-n16/JTOT_TD.OUT $d/a4-elk-n16/AFIELDT.OUT > $d/a4-compare-n16.json 2>&1
+python3 coef.py $d/a4-defuqumat-hxc.npz $d/a4-elk-n16/JTOT_TD.OUT > $d/a4-coef-n16.txt 2>&1
 $d/run_capped.sh a4-si-control-after $d python3 -u si_control.py
 touch $d/A4pair.done
 elkrow 8 a6
-python3 coef.py $d/a4-defumat-hxc.npz $d/a4-elk-n16/JTOT_TD.OUT $d/a6-elk-n8/JTOT_TD.OUT > $d/a6-coef.txt 2>&1
+python3 coef.py $d/a4-defuqumat-hxc.npz $d/a4-elk-n16/JTOT_TD.OUT $d/a6-elk-n8/JTOT_TD.OUT > $d/a6-coef.txt 2>&1
 touch $d/A6.done

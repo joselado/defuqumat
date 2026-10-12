@@ -1,6 +1,6 @@
 """The force and the stress walked a k-chunk at a time.
 
-``GPU-MEMORY-NEXT.md`` item 3 (:mod:`defumat.forces.chunked`). One ``grad`` of
+``GPU-MEMORY-NEXT.md`` item 3 (:mod:`defuqumat.forces.chunked`). One ``grad`` of
 the frozen energy tapes the whole k axis; the chunked route splits the energy
 into a separable part and a global part of the whole sums (``becsum``, the
 smooth density, ``ns``) and pulls the global gradient back through each chunk.
@@ -18,12 +18,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.forces import compute_forces
-from defumat.forces.autodiff import _energy_gradient as force_gradient
-from defumat.forces.chunked import chunked_gradient, wants_chunks
-from defumat.forces.energy import FrozenState, frozen_energy, hoisted, state_from_result
-from defumat.stress.autodiff import _energy_gradient as strain_gradient
+from defuqumat.calculator import Calculator
+from defuqumat.forces import compute_forces
+from defuqumat.forces.autodiff import _energy_gradient as force_gradient
+from defuqumat.forces.chunked import chunked_gradient, wants_chunks
+from defuqumat.forces.energy import FrozenState, frozen_energy, hoisted, state_from_result
+from defuqumat.stress.autodiff import _energy_gradient as strain_gradient
 
 pytestmark = pytest.mark.unit
 

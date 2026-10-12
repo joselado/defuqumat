@@ -1,4 +1,4 @@
-"""Warm per-iteration time of one SCF under whatever pools ``DEFUMAT_POOLS`` started.
+"""Warm per-iteration time of one SCF under whatever pools ``DEFUQUMAT_POOLS`` started.
 
     python3 tools/parallel/pool_time.py <input> <repeats> <label> [--max-iterations N]
 
@@ -27,12 +27,12 @@ from pathlib import Path
 
 import numpy as np
 
-import defumat  # noqa: F401  (starts the pools before any array exists)
-from defumat.io.pwin import read_pw_input
-from defumat.parallel import current_pools
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+import defuqumat  # noqa: F401  (starts the pools before any array exists)
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.parallel import current_pools
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 REPO = Path(__file__).resolve().parents[2]
 

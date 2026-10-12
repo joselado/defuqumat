@@ -1,7 +1,7 @@
 """Where a run's device peak is set: the size estimate against the allocator, stage by stage.
 
 ``OPEN.md`` Part VII item 1 and ``MEMORY-AUDIT.md`` A17: the stage-peak numbers in
-the record came from a ``DEFUMAT_STAGE_PEAKS`` patch that was never committed. This
+the record came from a ``DEFUQUMAT_STAGE_PEAKS`` patch that was never committed. This
 is that instrument, in the repository. It prints :meth:`Calculator.estimate`'s
 report, builds the ``Calculation``, inventories the live device arrays by shape,
 then runs ``--iterations`` SCF iterations with every stage of the loop wrapped:
@@ -142,7 +142,7 @@ def main() -> None:
     # **The production run's starting texture.** The 45-atom slab's runs on
     # record start from a helix that a two-species input cannot express, built
     # by ``helix_starting_density(calculator, seed_input, pseudo_dir)`` in that
-    # project's own driver (``NiBr2_defumat/run_scf.py``, not this
+    # project's own driver (``NiBr2_defuqumat/run_scf.py``, not this
     # repository). The ``ethr`` schedule and the Davidson step counts follow
     # the density, so a run from the input's own guess would measure a
     # different trajectory; these two name the function's file and its seed
@@ -155,11 +155,11 @@ def main() -> None:
     import jax
     import numpy as np
 
-    import defumat  # noqa: F401  (x64 before any array)
-    import defumat.solvers as solvers
-    import defumat.solvers.davidson as davidson
-    from defumat import Calculator
-    from defumat.scf import driver
+    import defuqumat  # noqa: F401  (x64 before any array)
+    import defuqumat.solvers as solvers
+    import defuqumat.solvers.davidson as davidson
+    from defuqumat import Calculator
+    from defuqumat.scf import driver
 
     options = {"memory_mode": arguments.memory_mode}
     for name in ("k_batch", "band_batch"):
@@ -181,7 +181,7 @@ def main() -> None:
         # Every dial that is not on the command line, so a run whose numbers
         # moved can be checked for an environment it inherited.
         "environment": {key: value for key, value in sorted(os.environ.items())
-                        if key.startswith(("DEFUMAT_", "XLA_", "JAX_", "TF_GPU",
+                        if key.startswith(("DEFUQUMAT_", "XLA_", "JAX_", "TF_GPU",
                                            "PYTHONWARNINGS", "OMP_", "MKL_",
                                            "SLURM_JOB_ID", "SLURM_JOB_PARTITION",
                                            "SLURMD_NODENAME"))},

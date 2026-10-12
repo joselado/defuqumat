@@ -27,15 +27,15 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.scf.driver import Calculation
-from defumat.scf.occupations import tetrahedra_for, tetrahedron_occupations
-from defumat.system import build_system
-from defumat.units import RY_TO_EV
-from defumat.workflows import run_bands
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.occupations import tetrahedra_for, tetrahedron_occupations
+from defuqumat.system import build_system
+from defuqumat.units import RY_TO_EV
+from defuqumat.workflows import run_bands
 from tests.conftest import reference_output
 from tests.tolerances import (
     DENSITY_DEPENDENT_TERM_RY,
@@ -163,7 +163,7 @@ def test_nosym_and_the_wedge_reach_the_same_fermi_level(pseudo_dir):
     """
     from pathlib import Path
 
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     text = (Path(__file__).resolve().parents[1] / "data" / "qe"
             / "al-tetrahedra.in").read_text()

@@ -58,8 +58,8 @@ from pathlib import Path
 import jax
 import numpy as np
 
-from defumat import Calculator
-from defumat.workflows import realtime as workflow
+from defuqumat import Calculator
+from defuqumat.workflows import realtime as workflow
 
 FREQUENCY = 1.55
 

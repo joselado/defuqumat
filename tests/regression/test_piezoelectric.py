@@ -41,11 +41,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.efield import dielectric_tensor
-from defumat.response.electrostriction import refined_states
-from defumat.response.piezo import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.efield import dielectric_tensor
+from defuqumat.response.electrostriction import refined_states
+from defuqumat.response.piezo import (
     born_charges_from_stress_route,
     clamped_ion_piezoelectric,
     piezoelectric_from_strain_response,
@@ -54,10 +54,10 @@ from defumat.response.piezo import (
     require_a_nonpolar_crystal,
     to_voigt,
 )
-from defumat.response.strain import strain_response
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
-from defumat.units import E_BOHR2_TO_C_M2
+from defuqumat.response.strain import strain_response
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
+from defuqumat.units import E_BOHR2_TO_C_M2
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -69,7 +69,7 @@ PSEUDO = Path(__file__).resolve().parents[1] / "data" / "pseudo"
 #: ``conv_thr = 1e-12`` the SCF density is converged to about 1e-8 (refining the
 #: states moves it by 3.5e-8), so which way its last 1e-10 falls is decided by
 #: rounding. Measured on AlAs, ``nosym``: the density's cubic asymmetry is 7e-17
-#: on the default k batch and 8.7e-11 with ``DEFUMAT_K_BATCH=2``, a dial that
+#: on the default k batch and 8.7e-11 with ``DEFUQUMAT_K_BATCH=2``, a dial that
 #: moves results only at round-off, and the largest forbidden component reads
 #: 2.4e-14 and **1.4e-9** respectively (2.8e-9 on a rounding pattern of the
 #: radial transforms' chunking); at ``conv_thr`` 1e-14 and 1e-15 the density's
@@ -225,7 +225,7 @@ def test_the_transcribed_contraction_reproduces_the_differentiated_one():
     differentiated = _piezo("alas-raman")
     # The two agree at self-consistency, so their difference follows the
     # ground state's convergence: 3.6e-16 on the default k batch and 6.2e-12
-    # with ``DEFUMAT_K_BATCH=2`` (1.2e-11 on a rounding pattern of the radial
+    # with ``DEFUQUMAT_K_BATCH=2`` (1.2e-11 on a rounding pattern of the radial
     # transforms' chunking), on a tensor of 1.3e-2 e/bohr^2 -- see FORBIDDEN.
     assert np.abs(transcribed - differentiated).max() < 1e-10
 
@@ -235,12 +235,12 @@ def test_the_constraint_term_is_wired_and_inert_on_this_dataset():
 
     The transcribed route takes the field perturbations, the band weights,
     ``nocc`` and the field's converged induced potential on top of what it used
-    to, so that :func:`~defumat.response.piezo._multiplier_strain_term` can add
+    to, so that :func:`~defuqumat.response.piezo._multiplier_strain_term` can add
     the multipliers' own response and
-    :func:`~defumat.response.piezo._screened_strain_term` the screening of the
+    :func:`~defuqumat.response.piezo._screened_strain_term` the screening of the
     frozen-state density response -- the two terms ``zstar_eu.f90`` delegates to
     ``zstar_eu_us.f90`` for. This builds them the way
-    :func:`~defumat.response.piezo.piezoelectric_tensor` does and asserts the
+    :func:`~defuqumat.response.piezo.piezoelectric_tensor` does and asserts the
     answer does not move.
 
     **What this cell can and cannot say.** It cannot say the terms are *right*:
@@ -258,7 +258,7 @@ def test_the_constraint_term_is_wired_and_inert_on_this_dataset():
     unchanged at -0.763786071 in every digit. The numbers that check the terms
     are on an ultrasoft cell, in ``test_piezoelectric_augmented.py``.
     """
-    from defumat.response.efield import _bare_plus_induced
+    from defuqumat.response.efield import _bare_plus_induced
 
     calculation, _, _, _, density, field = _field("alas-raman")
     internals = field.internals
@@ -393,7 +393,7 @@ def test_the_ultrasoft_refusal_names_the_term_and_not_the_pseudopotentials(
     gets the k-mesh warning with those numbers in it rather than a refusal
     telling the reader to change something.
     """
-    from defumat.response.piezo import (
+    from defuqumat.response.piezo import (
         _warn_about_the_kmesh,
         require_a_measured_dataset,
     )

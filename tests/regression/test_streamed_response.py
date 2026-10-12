@@ -1,8 +1,8 @@
 """The field response walked a k-chunk at a time against the whole-k route.
 
-``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defumat.response.chunked`). A streamed SCF
+``GPU-MEMORY-NEXT.md`` item 2 (:mod:`defuqumat.response.chunked`). A streamed SCF
 store -- a numpy array in host memory -- is handed to
-:func:`~defumat.response.efield.dielectric_tensor` without being put on the
+:func:`~defuqumat.response.efield.dielectric_tensor` without being put on the
 device, and the response then walks the k axis: the bare perturbations, the
 Sternheimer solves and the response density per chunk, every sum over k added
 over chunks and finished once. The claim is that this is the whole-k route's
@@ -22,7 +22,7 @@ The three cells each add something the others do not reach:
   whole sum.
 
 The Born charges are walked too: the force's split
-(:mod:`defumat.forces.chunked`) with one ``jvp`` through each pass. **AlAs is the
+(:mod:`defuqumat.forces.chunked`) with one ``jvp`` through each pass. **AlAs is the
 cell that discriminates there**, being polar and ultrasoft: the term coupling a
 chunk's projector occupations to the whole-cell energy, ``g_b . db_c/dx``, is
 zero for a norm-conserving dataset and only a symmetric residue on silicon, and
@@ -38,8 +38,8 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.response.efield import dielectric_tensor
+from defuqumat import Calculator
+from defuqumat.response.efield import dielectric_tensor
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -119,7 +119,7 @@ def test_a_second_streamed_call_compiles_nothing():
 
     ``CLAUDE.md``'s check for the eager-closure trap: a second call, counted on
     the ``jax`` logger. Building each chunk's solve afresh through
-    :func:`~defumat.eager.compiled` traced it every time instead -- 0.11 s per
+    :func:`~defuqumat.eager.compiled` traced it every time instead -- 0.11 s per
     chunk on ultrasoft silicon, a quarter of an hour on a 216-point mesh.
     """
     calculation, result = _converged(*CASES[0])

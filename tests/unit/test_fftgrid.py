@@ -3,13 +3,13 @@
 import numpy as np
 import pytest
 
-from defumat.basis.fftgrid import (
+from defuqumat.basis.fftgrid import (
     allowed_fft_size,
     fft_grid_dimensions,
     gcut_from_ecut,
     good_fft_order,
 )
-from defumat.system.cell import Cell
+from defuqumat.system.cell import Cell
 
 pytestmark = pytest.mark.unit
 

@@ -31,7 +31,7 @@ the film at all.
 
 **How to read the numbers.** Every count is an SCF iteration (one diagonalisation) to the
 input's own `conv_thr`, at the input's own `mixing_beta`, on the CPU of `D22-0161`, one
-thread per run (`taskset` to one core, `OMP_NUM_THREADS=1`, `DEFUMAT_THREADS=off`), from
+thread per run (`taskset` to one core, `OMP_NUM_THREADS=1`, `DEFUQUMAT_THREADS=off`), from
 the scripts in `tools/vacuum_sweep/` on branch `ldos-precond` (`make_inputs.py`,
 `run_one.py`, `aggregate.py`, `prec_cost.py`, the `sweep*.sh` drivers); they ran in
 `/l/ladovj1/review/vacuum/` on D22, where the per-run JSON is in `out/`. Wall times inside

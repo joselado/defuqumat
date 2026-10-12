@@ -4,8 +4,8 @@
 # (`PLAN.md` P86, `MAGNETISM-NEXT.md` item E).
 #
 # **What is already excluded, and by measurement rather than argument.** The
-# k-grid is worth nothing: the defumat scan at `1 1 4/8/16/32` converges by 8 and
-# is flat to 0.03 meV out to 32, leaving the ratio at 6.19 and 5.08. The defumat
+# k-grid is worth nothing: the defuqumat scan at `1 1 4/8/16/32` converges by 8 and
+# is flat to 0.03 meV out to 32, leaving the ratio at 6.19 and 5.08. The defuqumat
 # basis is worth a tenth of it: `ecutwfc` from 25 to 80 takes the ratio from 6.18
 # to 5.42 at `q = 1/4` and 5.08 to 4.67 at `q = 1/2`, converged by 60. And the
 # held field is now excluded twice over -- P86 measured it at 6 per cent, and
@@ -67,7 +67,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-magnetism/out/elk-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-magnetism
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 FIXTURE="$REPO/tests/data/elk/h_chain_spiral"
 
 TASK=${SLURM_ARRAY_TASK_ID:-0}

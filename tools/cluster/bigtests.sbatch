@@ -25,7 +25,7 @@
 # cpus-per-task 8. XLA sizes its pool from the affinity mask and Slurm's cgroup
 #               is what bounds it, so this *is* the thread count; MKL and OMP
 #               are pinned to 1 beside it. Eight rather than `regression.sbatch`'s
-#               four because `tests/conftest.py` sets `DEFUMAT_THREADS=8` itself,
+#               four because `tests/conftest.py` sets `DEFUQUMAT_THREADS=8` itself,
 #               for the thread-pool deadlock in `OPEN.md` Part IV item 1.
 # mem           64G. Five times the 12.42 G these files died at, and unlike
 #               `regression.sbatch`'s 32 G the ask is justified per task rather
@@ -34,7 +34,7 @@
 #               still climbing at 15.3 G under a 16 G cap. Seven tasks is 448 GB
 #               across a shared cluster, which is why the list is seven and not
 #               ninety-one.
-#SBATCH --job-name=defumat-bigtests
+#SBATCH --job-name=defuqumat-bigtests
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-6
 #SBATCH --time=12:00:00
@@ -50,7 +50,7 @@ FILES=(test_ldau_flavours test_lsda test_noncollinear_hubbard_resume \
 FILE=${FILES[$SLURM_ARRAY_TASK_ID]}
 
 WORK=/scratch/work/ladovj1/calculations/defumat-bigtests
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -59,14 +59,14 @@ cd "$REPO" || exit 1
 source "$VENV/bin/activate" || exit 1
 
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-export DEFUMAT_THREADS=8
+export DEFUQUMAT_THREADS=8
 export JAX_PLATFORMS=cpu          # a CPU node has no device; say so rather than discover it
 export PYTHONPATH="$REPO"
 
 # The vendored QE tree is gitignored and absent from the cluster checkout, so
 # `test-suite/` is shipped separately (61 MB) and the fixture pointed at it.
 # Only `test_lsda` and `test_spinor_forces` read it; the other five do not.
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-ref
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-ref
 
 # **The kernel cache is off, for `regression.sbatch`'s reason and one more.**
 # Its concurrent-writer behaviour on this filesystem has never been checked, and
@@ -75,11 +75,11 @@ export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-ref
 # these numbers are a **lower bound** against the warm workstation figures
 # rather than like-for-like, and this job does not settle the warm-against-cold
 # question of `OPEN.md` Part XIV item 5.
-export DEFUMAT_CACHE_DIR=off
+export DEFUQUMAT_CACHE_DIR=off
 
 # Below the 64 G Slurm allocation, so the package's own watchdog names the
 # offending test before Slurm kills the task without naming anything.
-export DEFUMAT_TEST_MEM_MAX=56G
+export DEFUQUMAT_TEST_MEM_MAX=56G
 
 echo "=== node ==="; hostname; date
 echo "file:   $FILE"

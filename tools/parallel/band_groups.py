@@ -30,11 +30,11 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-import defumat.hamiltonian.operator as operator
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
+import defuqumat.hamiltonian.operator as operator
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
 
 REPO = Path(__file__).resolve().parents[2]
 _ORIGINAL = operator.map_bands

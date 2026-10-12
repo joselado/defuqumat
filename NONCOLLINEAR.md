@@ -142,16 +142,16 @@ averages `rho_up` over both sites and `rho_down` over both sites, which is exact
 statement that the staggered moment is zero.
 
 **Evidence.** `is_magnetic` returns False at `if nspin != 4: return False`
-(`defumat/system/builder.py:624-626`), so `System.symmetry_group()` (`builder.py:597-600`),
+(`defuqumat/system/builder.py:624-626`), so `System.symmetry_group()` (`builder.py:597-600`),
 `build_system` (`:874-877`) and `_respin_kpoints` (`:509-514`) all skip the filter.
 Meanwhile a `STARTING_MOMENTS` card is *accepted* for a collinear run as long as x and y
 vanish (`builder.py:1453-1463`), and it seeds the density per atom through
 `_per_atom_magnetization(axis=2)` into `rho_up - rho_down`
-(`defumat/scf/driver.py:3031`). `Calculation.symmetrize` then sends `nspin_mag = 2` to
+(`defuqumat/scf/driver.py:3031`). `Calculation.symmetrize` then sends `nspin_mag = 2` to
 `_symmetrize`, which `vmap`s each channel independently over the full group
 (`driver.py:2633-2639`, `:276-290`), and `find_symmetries` matched the two sites in the
 first place because `_maps_structure` tests only that they are the same *species*
-(`defumat/system/symmetry.py:603-609`). The k-set was reduced with that same full group,
+(`defuqumat/system/symmetry.py:603-609`). The k-set was reduced with that same full group,
 so switching the symmetrisation off would not rescue the run either: **`nosym = .true.`
 is the only working spelling today.**
 
@@ -203,10 +203,10 @@ instead. The vector total is zero for both. `int|m|` moves in the *wrong* direct
 `CLAUDE.md`'s own NiBr2 note records that a vector-norm integral loses weight at the nodes
 a collinear state has and a spiral does not.
 
-**Evidence.** `get_locals` (`defumat/scf/locals.py:220`) is QE's `report_mag` per atom and
+**Evidence.** `get_locals` (`defuqumat/scf/locals.py:220`) is QE's `report_mag` per atom and
 is validated against `pw.x`'s printed block at `abs = 1e-4` on the charge and 1e-3 on the
 moment (`tests/regression/test_noncollinear_magnetism.py:245-267`). It has **no caller
-anywhere in `defumat/`**. `SCFResult` carries `magnetization_vector` (`driver.py:841`) and
+anywhere in `defuqumat/`**. `SCFResult` carries `magnetization_vector` (`driver.py:841`) and
 `absolute_magnetization` (`:835`) and no per-atom field at all. The per-iteration console
 prints the cell total as `m = (mx, my, mz) [|m|]` in `{:6.3f}` (`driver.py:4409-4413`)
 where the *collinear* branch beside it uses `{:7.4f}` (`:4417`) -- the harder regime is
@@ -253,7 +253,7 @@ no measured derivative of this branch against `pw.x`, and generating
 `h4-noncolin-force.in` with `input_dft = 'PBE'` plus its reference is a phase.
 
 **What.** At `nspin_mag = 4` with a gradient-corrected functional the exchange-correlation
-potential goes through `_noncollinear_gradient_correction` (`defumat/scf/potential.py:304-353`):
+potential goes through `_noncollinear_gradient_correction` (`defuqumat/scf/potential.py:304-353`):
 rotate into the local spin frame, call the collinear GGA, rotate back. Every spinor force,
 every spinor stress and every response `jvp` differentiates that function.
 
@@ -295,7 +295,7 @@ reporting-only, and never differentiated.
 `(3, 4)` magnetization `test_gamma_basis.py:317-322` already builds, whose column 1 is
 bit-exactly zero in all three components; assert every entry finite. Repeat for
 `_noncollinear_meta_exchange`, and extend the source-text assertion to
-`defumat.scf.potential` and rename it, since it is four sites and not two. (b) The one that
+`defuqumat.scf.potential` and rename it, since it is four sites and not two. (b) The one that
 matters more: a magnetic noncollinear PBE cell with a force against `pw.x`.
 `h4-noncolin-force.in` is LDA; the input to generate is the same four hydrogen atoms with
 `input_dft = 'PBE'`.
@@ -324,7 +324,7 @@ different physics.
 `IF (ANY(ABS(starting_magnetization(1:nsp)) .ge. 1._DP)) starting_magnetization(1:nsp) = starting_magnetization(1:nsp) / zv(1:nsp)`
 -- unconditional, outside both the `noncolin` block and the `constrained_magnetization`
 `SELECT`; `:1476-1480` then clamps to `[-1, 1]` inside `CASE('none')`. Neither is
-transcribed: `grep z_valence defumat/system/` is empty and `builder.py:88` documents "per
+transcribed: `grep z_valence defuqumat/system/` is empty and `builder.py:88` documents "per
 species, in `[-1, 1]`". So `starting_magnetization(1) = 2.0` is 2 mu_B in `pw.x` and
 2 `Z_v` here. It is invisible to the committed benchmark suite because every test-suite
 value is below 1.
@@ -571,7 +571,7 @@ in **4 iterations against 78** from scratch, agreeing with its collinear source 
 antiferromagnet, then promote it and let the moments cant. That route is closed for
 anything with a `HUBBARD` card.
 
-**Evidence.** `defumat/scf/continuation.py:449-453` raises "a Hubbard U in a noncollinear
+**Evidence.** `defuqumat/scf/continuation.py:449-453` raises "a Hubbard U in a noncollinear
 calculation needs `ns_nc`, which is refused by name (PLAN.md P20); drop the HUBBARD card or
 stay collinear", gated on the *target's* `nspin == 4` alone, so 2 -> 4 and 4 -> 4 both fire.
 `ns_nc` is not refused any more: `PLAN.md:9614` heads P62b "DONE, both functionals",
@@ -621,7 +621,7 @@ projecting the field perpendicular to the target
 (`~/apps/elk-9.6.8/src/bfieldfsm.f90:32-73`, with a `t1 >= 1000` per-atom skip sentinel).
 Here there is nothing per atom: `constraint_targets` returns a single 3-vector for both
 `'total'` and `'fsm'` (`fields.py:231-239`) and `MagneticField.feedback` drives one uniform
-field from `total_moment` (`:380-410`). `grep mommtfix|bfsmcmt` over `defumat` returns
+field from `total_moment` (`:380-410`). `grep mommtfix|bfsmcmt` over `defuqumat` returns
 nothing. What exists instead is QE's *penalty* per atom -- `'atomic'`, `'atomic direction'`
 and this code's `'atomic texture'` -- which leaves a residual force at convergence by
 construction (`fields.py:385-388` says so), where a feedback field converges to a genuine
@@ -656,7 +656,7 @@ never applied to a sum over states, and inheriting it left P54's whole quantity 
 impossible.
 
 **What exists.** The induced density's spinor form is `spinor_sum_band`
-(`defumat/scf/density.py:407`), needing only the cross term per Pauli component;
+(`defuqumat/scf/density.py:407`), needing only the cross term per Pauli component;
 `set_int3_nc`'s input is `spinor_becsum` (`:422`), and `int3` is by this project's own rule
 one `jvp` of `newd`, whose noncollinear form is `Calculation._noncollinear_coefficients`
 (`driver.py:2556`); the occupied-band count is already spinor-aware -- `sternheimer.py:981`
@@ -694,7 +694,7 @@ through zero, so it will fail on item 3 until that is fixed -- which is the righ
 
 #### 12. Magnons refuse a noncollinear ground state, so the states whose excitations are interesting have none
 
-**Evidence.** `defumat/tddft/spinchi0.py:229-235` refuses `system.noncolin` with a correctly
+**Evidence.** `defuqumat/tddft/spinchi0.py:229-235` refuses `system.noncolin` with a correctly
 named reason -- the 4x4 spin-density response no longer block-diagonalises, so the
 transverse channel is not a matrix in `(G, G')` on its own, and Elk's `genspchi0` carries all
 sixteen blocks. `:237-243` then requires `nspin == 2` and `:221-228` requires
@@ -724,7 +724,7 @@ and it is the cheaper half of the problem.
 (`d_spin_ldau`) beside the rotation of the `m` indices, "and nothing here builds those
 matrices"; `projwfc/projections.py:203-214` refuses a symmetrised spinor projection for the
 same object (`sym_proj_so`) and points at the first. A grep for `d_spin`, `SU(2)` or
-`spin_rotation` over `defumat` finds only the refusals. A second refusal covers any group
+`spin_rotation` over `defuqumat` finds only the refusals. A second refusal covers any group
 carrying `t_rev` even in the collinear case (`driver.py:1572-1580`), because `new_ns` flips
 the spin index for such an operation and that branch was never exercised -- the benchmarks'
 two magnetic sublattices are different species
@@ -807,7 +807,7 @@ time against" and has no Elk column either, which is the gap `CLAUDE.md`'s rule 
 (`PLAN.md:2042-2045`; 2e-9 on 1x1x4) -- and nothing checks a user's grid. At
 `degauss = 0.02` a spiral and its equivalent supercell converge to **different minima** and
 disagree in the fourth decimal, agreeing to 1e-10 only at `degauss = 0.1`
-(`PLAN.md:2052-2054`). `defumat/system/spiral.py` contains no `raise` and no `warn`, and the
+(`PLAN.md:2052-2054`). `defuqumat/system/spiral.py` contains no `raise` and no `warn`, and the
 spiral amber box (`docs/features.tex:3583-3590`) refuses spin-orbit coupling, symmetry,
 ultrasoft/PAW and a field, and says nothing about either. A user scanning `E(q)` on a soft
 magnetic surface can get a Heisenberg fit that is entirely the sampling.
@@ -847,7 +847,7 @@ here. That is the first measurement against item 17 and it points away from it.
 
 `AndersonMixer.history` is fixed at 8 (`mixing.py:103`); `driver.py:3950` is
 `get_mixer(mixing_mode, beta=mixing_beta)`; `run_scf` has no depth parameter
-(`driver.py:3748-3776`); and `mixing_ndim` occurs **nowhere** in `defumat/` -- not in
+(`driver.py:3748-3776`); and `mixing_ndim` occurs **nowhere** in `defuqumat/` -- not in
 `io/pwin.py`, which has no whitelist, not in `calculator.py`'s `_ELECTRONS_OPTIONS`
 (`:195-212`), and not in `_REFUSED_SWITCHES` (`builder.py:1049-1128`). Raising `mixing_ndim`
 is the first thing a QE user does to a magnetic cell that will not converge. Two mitigations:
@@ -1230,7 +1230,7 @@ coefficients under both quadratic forms (`scf_accuracy` gives QE's for free) and
 angle between the two coefficient vectors.
 
 **O10. What does a spinor derivative cost after P73 and P74?** `tools/gpu/force_memory.py` on
-`bismuthene-soc-small` twice, once at `DEFUMAT_AUG_MAX_BYTES=off` and once at a value small
+`bismuthene-soc-small` twice, once at `DEFUQUMAT_AUG_MAX_BYTES=off` and once at a value small
 enough to force the table, comparing the reported buffer -- that settles both the staleness and
 the possible non-monotonic cliff at the 2 GB default (`augmentation.py:316`) in one pass. Be
 aware of the caveat: P73 replaced the *stored* `Q_ij(G)`, while `augmentation.py:288-301` says
@@ -1238,7 +1238,7 @@ the reverse-mode cost lives in `_qrad_kernel`'s `(ngm, kkbeta)` intermediate, wh
 route evaluates rather than avoids -- so P73 may not have helped the backward pass at all.
 
 **O11. What do the noncollinear slow tests say today?** `tools/run_regression.sh` restricted to
-the nine noncollinear files with `DEFUMAT_TEST_MEM_MAX=20G`, keeping the durable per-file
+the nine noncollinear files with `DEFUQUMAT_TEST_MEM_MAX=20G`, keeping the durable per-file
 summary line as the dated record -- `regression-results/` currently holds none, only an
 `in-flight.log` of starts. P46 measured `pt2-soc-paw-force` at 12,204 MB alone and the pair at
 16,961 MB, over `run_regression.sh`'s 12G default, so the cap matters.
@@ -1300,7 +1300,7 @@ to be rediscovered and re-believed, and each would send a session down a wrong p
 8. **"Two thirds of a spiral's k-point cost is recoverable with the filter that already
    exists."** Not at `q != 0`: `magnetic_symmetries` knows nothing about `q` or about the spin
    rotation an operation performs on the rotated frame, which is exactly what the refusal says
-   is missing. `defumat/system/spiral.py:110-128` `invariant_operations` exists to *price* the
+   is missing. `defuqumat/system/spiral.py:110-128` `invariant_operations` exists to *price* the
    spin space group and says so in its own docstring.
 9. **"`System.with_spin` drops a texture, and a checkpoint resume, a promotion or an Elk seed
    are new ways for one to arrive unseen."** `with_spin` is a `dataclasses.replace` that carries

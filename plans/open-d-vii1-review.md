@@ -36,7 +36,7 @@ September's 23.18 and 33.44 (the second coefficient fell from 6.20 to 4.20, `siz
 
 **Then one long H100 job, two arms** (`rebuild` first, `store` second, the same-node pair A17
 says has never been run), 14 or more iterations each, about 4 h after `--test-only`, with
-`XLA_PYTHON_CLIENT_MEM_FRACTION=0.97`, preallocation at its default, every `DEFUMAT_*` dial
+`XLA_PYTHON_CLIENT_MEM_FRACTION=0.97`, preallocation at its default, every `DEFUQUMAT_*` dial
 unset so the script's flags are the only dials (`--k-batch 1 --band-batch 16 --david 2
 --wfc-store device --memory-mode memory --projectors rebuild|store`). An A100 arm of two
 iterations only if the compile pair does not name the offset. A 12 GB card cannot answer it.

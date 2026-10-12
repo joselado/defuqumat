@@ -3,7 +3,7 @@
 The torque ``-dF/dw`` of a rigid turn of the texture, on one k-point of a spinor
 PAW cell, by several routes, one process each:
 
-* ``whole``: :func:`defumat.forces.torque.orientation_torque` as it is, the
+* ``whole``: :func:`defuqumat.forces.torque.orientation_torque` as it is, the
   production call (three ``jax.jvp`` since 2026-10-10, a reverse pass before);
 * ``reverse``: ``jax.grad`` of the public energy ``band_energy_at_rotation``,
   which is the route ``whole`` took until 2026-10-10 (what asked 33.37 GiB
@@ -76,8 +76,8 @@ def main() -> None:
     import jax.numpy as jnp
     import numpy as np
 
-    from defumat import Calculator
-    from defumat.forces.torque import (
+    from defuqumat import Calculator
+    from defuqumat.forces.torque import (
         _turned_becsum, orientation_torque,
         rotate_texture, rotation_near,
     )
@@ -87,7 +87,7 @@ def main() -> None:
     system = calculator.system
     if arguments.soc_scale != 1.0:
         system = system.with_soc_scale(arguments.soc_scale)
-    from defumat.scf.driver import Calculation
+    from defuqumat.scf.driver import Calculation
 
     calculation = Calculation(system, calculator.pseudos, k_batch=1)
     texture = jnp.asarray(calculation.starting_density())
@@ -119,12 +119,12 @@ def main() -> None:
     try:
         if arguments.mode in ("whole", "reverse", "vmap"):
             # The production call, as ``run_orientation_torque`` makes it at one
-            # k-point, kept compiled by ``defumat.eager``; the other two through
+            # k-point, kept compiled by ``defuqumat.eager``; the other two through
             # the same keeper. Not wrapped in a ``jit`` here, since a ``jit``
             # closing over the states folds them in as constants and the compile
             # alone then exceeded 8 GB of host memory.
-            from defumat.eager import compiled_function
-            from defumat.forces.torque import _hamiltonian_of, band_energy_at_rotation
+            from defuqumat.eager import compiled_function
+            from defuqumat.forces.torque import _hamiltonian_of, band_energy_at_rotation
 
             def energy(value):
                 rotation = rotation_near(value, base)
@@ -162,7 +162,7 @@ def main() -> None:
                 jax.block_until_ready(jnp.asarray(torque))
                 record["second_seconds"] = time.time() - again
         elif arguments.mode in ("remat", "forward"):
-            from defumat.forces.torque import _hamiltonian_of
+            from defuqumat.forces.torque import _hamiltonian_of
 
             block = arguments.block
             nblocks = -(-nbnd // block)
@@ -210,8 +210,8 @@ def main() -> None:
                 record["compiled"] = _analysis(compiled)
                 torque = -np.array([float(compiled(axis, *data)) for axis in jnp.eye(3)])
         else:
-            from defumat.scf.driver import _onecenter_torque
-            from defumat.scf.spin_torque import exchange_torque
+            from defuqumat.scf.driver import _onecenter_torque
+            from defuqumat.scf.spin_torque import exchange_torque
 
             becsum_out = calculation.becsum(states, weights)
             output = calculation.density(states, weights, becsum_out)

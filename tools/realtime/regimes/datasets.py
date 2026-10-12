@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 REPO = Path("/l/ladovj1/defumat-hspin")
 HERE = Path(__file__).resolve().parent

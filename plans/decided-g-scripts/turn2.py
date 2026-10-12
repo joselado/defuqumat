@@ -10,7 +10,7 @@ from pathlib import Path
 import jax
 import numpy as np
 
-from defumat.ultracell import run_ultracell
+from defuqumat.ultracell import run_ultracell
 from tests.regression.test_ultracell import _noncollinear
 
 root = Path("/l/ladovj1/w-g")

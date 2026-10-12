@@ -27,10 +27,10 @@ import inspect
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.system.builder import build_system
-from defumat.system.kpoints import KPoints, for_spin
-from defumat.workflows.nscf import denser_grid
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system.builder import build_system
+from defuqumat.system.kpoints import KPoints, for_spin
+from defuqumat.workflows.nscf import denser_grid
 
 pytestmark = pytest.mark.unit
 
@@ -119,7 +119,7 @@ def test_for_spin_puts_the_degeneracy_back_on_a_demotion():
     level somewhere else.
 
     What reaches it is
-    :meth:`~defumat.system.builder.System.with_spin` on a **gamma-only** run or
+    :meth:`~defuqumat.system.builder.System.with_spin` on a **gamma-only** run or
     a band path, whose branches return the existing set instead of rebuilding
     it; a rebuilt set gets the factor fresh from its constructor. The flag is
     what makes the inverse well defined, so the round trip is exact rather than
@@ -187,7 +187,7 @@ def test_the_substituted_gamma_set_keeps_the_spin_flag():
     """
     import warnings
 
-    from defumat.scf.driver import _without_gamma_storage
+    from defuqumat.scf.driver import _without_gamma_storage
 
     text = _SILICON.replace(
         "K_POINTS automatic\n 2 2 2 0 0 0", "K_POINTS gamma"
@@ -218,7 +218,7 @@ def test_with_kpoints_normalizes_a_raw_k_set_and_leaves_a_normalized_one(pseudo_
     electron twice, which does not fail: the Fermi level moves and the run
     integrates to the right electron count at the wrong energy.
     """
-    from defumat.pseudo import read_upf
+    from defuqumat.pseudo import read_upf
 
     system = _system(", nspin = 2, starting_magnetization(1) = 0.1"
                      ", occupations = 'smearing', degauss = 0.02")
@@ -250,7 +250,7 @@ def test_the_topology_workflows_can_be_given_ns():
     isolated using those eigenvalues, which is a confident integer off the wrong
     bands.
     """
-    from defumat.workflows.topology import run_berry_curvature, run_z2, run_z2_3d
+    from defuqumat.workflows.topology import run_berry_curvature, run_z2, run_z2_3d
 
     for entry in (run_berry_curvature, run_z2, run_z2_3d):
         assert "ns" in inspect.signature(entry).parameters, entry.__name__
@@ -270,8 +270,8 @@ def test_a_topological_invariant_takes_the_converged_field_too():
     refusal in ``fixed_density_states`` had been there since the 2026-08-29
     sweep and this one had not.
     """
-    from defumat.workflows.polarization import run_polarization
-    from defumat.workflows.topology import DFTSource, run_berry_curvature, run_z2, run_z2_3d
+    from defuqumat.workflows.polarization import run_polarization
+    from defuqumat.workflows.topology import DFTSource, run_berry_curvature, run_z2, run_z2_3d
 
     for entry in (run_berry_curvature, run_z2, run_z2_3d, run_polarization):
         parameters = inspect.signature(entry).parameters
@@ -294,8 +294,8 @@ def test_a_topological_invariant_actually_refuses_a_field_it_was_not_given():
     """
     from pathlib import Path
 
-    from defumat.pseudo.upf import read_upf
-    from defumat.workflows.topology import DFTSource
+    from defuqumat.pseudo.upf import read_upf
+    from defuqumat.workflows.topology import DFTSource
 
     cases = Path(__file__).resolve().parents[1] / "data" / "qe"
     pseudo = Path(__file__).resolve().parents[1] / "data" / "pseudo"
@@ -315,9 +315,9 @@ def test_a_topological_invariant_actually_refuses_a_field_it_was_not_given():
 
 def test_a_fixed_density_run_takes_the_whole_mixed_state():
     """Including the field, which the input does not describe after reducebf."""
-    from defumat.workflows.nscf import fixed_density_states, run_nscf
-    from defumat.workflows.bands import run_bands
-    from defumat.workflows.dos import run_dos
+    from defuqumat.workflows.nscf import fixed_density_states, run_nscf
+    from defuqumat.workflows.bands import run_bands
+    from defuqumat.workflows.dos import run_dos
 
     for entry in (fixed_density_states, run_nscf, run_bands, run_dos):
         parameters = inspect.signature(entry).parameters
@@ -333,7 +333,7 @@ def test_the_projected_dos_forwards_becsum_and_tau():
     ``fixed_density_states``' own refusal -- with no argument to satisfy it.
     Everything it needs is on the ``result`` it already receives.
     """
-    from defumat.workflows import pdos
+    from defuqumat.workflows import pdos
 
     body = inspect.getsource(pdos.run_pdos)
     for name in ("becsum=", "tau=", "field=", "field_scale="):
@@ -346,7 +346,7 @@ def test_the_converged_field_is_carried_on_the_result():
     So the converged potential is reproducible only from the pair, and
     ``field_scale`` was not on the result at all.
     """
-    from defumat.scf.driver import SCFResult
+    from defuqumat.scf.driver import SCFResult
 
     assert "field_scale" in SCFResult.__dataclass_fields__
     assert "magnetic_field" in SCFResult.__dataclass_fields__
@@ -354,7 +354,7 @@ def test_the_converged_field_is_carried_on_the_result():
 
 def test_the_state_arguments_map_parameter_names_to_result_attributes():
     """``field`` comes from ``magnetic_field``, so it cannot be a plain getattr."""
-    from defumat.calculator import _STATE_ARGUMENTS
+    from defuqumat.calculator import _STATE_ARGUMENTS
 
     assert _STATE_ARGUMENTS["field"] == "magnetic_field"
     assert _STATE_ARGUMENTS["field_scale"] == "field_scale"
@@ -370,7 +370,7 @@ def test_scf_only_options_are_not_forwarded_past_the_scf():
     ``dielectric_tensor``, and the Dyson fixed point's in ``run_absorption`` --
     which *was* being fed the calculator's SCF value, silently.
     """
-    from defumat.calculator import SCF_ONLY_OPTIONS, SHARED_OPTIONS
+    from defuqumat.calculator import SCF_ONLY_OPTIONS, SHARED_OPTIONS
 
     assert SCF_ONLY_OPTIONS < SHARED_OPTIONS
     assert "max_iterations" in SCF_ONLY_OPTIONS
@@ -383,7 +383,7 @@ def test_scf_only_options_are_not_forwarded_past_the_scf():
 def test_the_response_methods_forward_the_options_they_name():
     """Nine methods dropped them entirely, against a docstring promising
     they are "applied to every method that names them"."""
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     methods = [
         "get_dielectric_tensor", "get_phonons", "get_raman_tensors",
@@ -426,7 +426,7 @@ def test_a_zero_qcutz_is_not_asked_for():
 def test_an_explicit_k_list_follows_a_deformed_cell():
     """``with_cell`` carries a k-list in crystal coordinates, or it carries nothing.
 
-    :class:`~defumat.system.kpoints.KPoints` stores cartesian coordinates in
+    :class:`~defuqumat.system.kpoints.KPoints` stores cartesian coordinates in
     units of ``2 pi / alat``, which are *not* fixed under a deformation; the
     crystal ones are, and ``with_cell``'s docstring says so. The conversion was
     being made with the **new** cell on both sides, which is

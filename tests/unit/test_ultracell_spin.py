@@ -38,10 +38,10 @@ import pytest
 
 import jax.numpy as jnp
 
-from defumat.config import DOUBLE
-from defumat.hamiltonian.noncollinear import spin_multiply
-from defumat.ultracell.density import spinor_ultracell_density, ultracell_density
-from defumat.ultracell.hamiltonian import ultracell_matrix
+from defuqumat.config import DOUBLE
+from defuqumat.hamiltonian.noncollinear import spin_multiply
+from defuqumat.ultracell.density import spinor_ultracell_density, ultracell_density
+from defuqumat.ultracell.hamiltonian import ultracell_matrix
 
 pytestmark = pytest.mark.unit
 

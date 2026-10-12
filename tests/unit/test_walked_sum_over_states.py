@@ -3,7 +3,7 @@
 ``OPEN.md`` Part XXIII item 24, second half. The optical conductivity, the
 second harmonic, the shift current, the TDDFT ``chi_0`` and the transverse spin
 ``chi_0`` are each a sum over k of per-k terms, and they now walk
-:func:`~defumat.batching.k_chunks` (:mod:`defumat.response.walk`): one chunk's
+:func:`~defuqumat.batching.k_chunks` (:mod:`defuqumat.response.walk`): one chunk's
 states on the device, its matrix elements built on its own rows, its share added
 to the sum. What is checked here is the identity that makes that legitimate --
 a chunk of three on eight k-points, so the last chunk is padded with rows of zero
@@ -23,7 +23,7 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
+from defuqumat.calculator import Calculator
 
 pytestmark = pytest.mark.unit
 
@@ -112,7 +112,7 @@ def _uploads(monkeypatch):
 
 
 def test_the_conductivity_walks_to_the_whole_axis(monkeypatch):
-    from defumat.response.conductivity import optical_conductivity
+    from defuqumat.response.conductivity import optical_conductivity
 
     calculation, v_scf, states, eigenvalues = _states(
         SILICON.format(smearing=",\n    occupations = 'smearing', "
@@ -154,7 +154,7 @@ def _insulator(text=None):
 @pytest.mark.slow
 @pytest.mark.parametrize("dataset", ["norm-conserving", "ultrasoft"])
 def test_the_second_harmonic_walks_to_the_whole_axis(dataset):
-    from defumat.response.shg import second_harmonic
+    from defuqumat.response.shg import second_harmonic
 
     calculation, v_scf, host, eigenvalues = _insulator(
         ULTRASOFT.format(smearing="") if dataset == "ultrasoft" else None)
@@ -172,7 +172,7 @@ def test_the_second_harmonic_walks_to_the_whole_axis(dataset):
 
 
 def test_the_shift_current_walks_to_the_whole_axis():
-    from defumat.response.photocurrent import shift_current
+    from defuqumat.response.photocurrent import shift_current
 
     calculation, v_scf, host, eigenvalues = _insulator()
     with warnings.catch_warnings():
@@ -184,7 +184,7 @@ def test_the_shift_current_walks_to_the_whole_axis():
 
 
 def test_the_tddft_chi0_walks_to_the_whole_axis():
-    from defumat.tddft.chi0 import independent_response
+    from defuqumat.tddft.chi0 import independent_response
 
     calculation, v_scf, states, eigenvalues = _states(SILICON.format(smearing=""), 8, 4)
     host = np.array(states)
@@ -196,7 +196,7 @@ def test_the_tddft_chi0_walks_to_the_whole_axis():
 
 
 def test_the_transverse_response_walks_to_the_whole_axis():
-    from defumat.tddft.spinchi0 import transverse_response
+    from defuqumat.tddft.spinchi0 import transverse_response
 
     calculation, _, states, eigenvalues = _states(HYDROGEN, 4, 1)
     host = np.array(states)

@@ -4,7 +4,7 @@
 ``:316``), fits on it (``ngm0 = ngms``, ``mix_rho.f90:132``) and mixes the shell
 between ``ngms`` and ``ngm`` linearly without storing it
 (``high_frequency_mixing``, ``scf_mod.f90:549-553``).
-:class:`~defumat.scf.mixing.SphereLayout` is that layout. What is pinned here:
+:class:`~defuqumat.scf.mixing.SphereLayout` is that layout. What is pinned here:
 the shell is mixed at ``beta`` and never reaches the history; an entry is
 ``ngms`` reals a channel; the stored vector's flat dot is the real-space dot, so
 at dual 4, where the shell is empty, the layout is the real-space mixer to
@@ -20,7 +20,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.scf.mixing import (
+from defuqumat.scf.mixing import (
     SphereLayout,
     get_mixer,
     kerker_preconditioner,
@@ -29,16 +29,16 @@ from defumat.scf.mixing import (
     local_tf_preconditioner_g,
     resolve_mixing_space,
 )
-from defumat.scf.potential import scf_accuracy
+from defuqumat.scf.potential import scf_accuracy
 
 BENCHMARKS = Path(__file__).resolve().parents[2] / "benchmarks"
 
 
 def _pieces(name):
     """The basis and cell of an input, built without an SCF."""
-    from defumat.basis.builder import build_basis
-    from defumat.io.pwin import read_pw_input
-    from defumat.system import build_system
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.system import build_system
 
     system = build_system(read_pw_input(BENCHMARKS / name))
     return build_basis(system), system.cell
@@ -87,7 +87,7 @@ def _shell(layout, field):
 
 def test_a_history_entry_is_the_smooth_sphere_and_not_the_box(dual8):
     """``ngms`` reals a channel, against ``n1 n2 n3`` for the box it replaced."""
-    from defumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix
 
     layout = _layout(dual8, 2)
     assert layout.ngms < layout.ngm < layout.points
@@ -114,7 +114,7 @@ def test_the_shell_is_mixed_linearly_and_not_stored(dual8):
     nor fitted, and the mixed densities differ by exactly ``beta`` times the
     shell difference, which is ``high_frequency_mixing``.
     """
-    from defumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix
 
     layout = _layout(dual8, 1)
     beta = 0.3
@@ -162,7 +162,7 @@ def test_at_dual_four_the_layout_is_the_real_space_mixer(dual4, nspin):
     Fed the same pairs, four Anderson steps on either layout give the same
     densities to round-off, which is what the stored scaling is for.
     """
-    from defumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix
 
     layout = _layout(dual4, nspin)
     assert layout.ngms == layout.ngm
@@ -230,7 +230,7 @@ def test_at_dual_four_an_installed_augmentation_changes_no_bit(dual4, nspin):
     is the guard that a layout which has one installed anyway at dual 4 does
     not call it and moves nothing.
     """
-    from defumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix
 
     def augmentation(base, becsum):
         raise AssertionError("a dual-4 layout has no shell to rebuild")
@@ -269,7 +269,7 @@ def test_the_adaptive_mixer_keeps_real_space_and_says_so():
 
 
 def _calculator(pseudo_dir):
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -289,7 +289,7 @@ def test_the_shell_of_an_output_density_is_its_symmetrised_augmentation_charge(
     ultrasoft ``becsum`` summed over a k-wedge is not symmetrised, and on this
     cell ``Q_ij(G) becsum_out`` alone is far off the shell.
     """
-    import defumat.scf.driver as driver
+    import defuqumat.scf.driver as driver
 
     calculator = _calculator(pseudo_dir)
     calculation = calculator.calculation
@@ -335,7 +335,7 @@ def test_the_rebuilt_shell_is_the_anderson_step_on_every_entrys_shell(pseudo_dir
     the fields actually handed in. A shell mixed linearly at ``beta`` is the
     newest pair's step alone and fails from the second call on.
     """
-    from defumat.scf.driver import _augmentation_of, _mix
+    from defuqumat.scf.driver import _augmentation_of, _mix
 
     calculation = _calculator(pseudo_dir).calculation
     basis, cell = calculation.basis, calculation.system.cell
@@ -404,7 +404,7 @@ def test_a_dual_eight_run_reaches_the_real_space_energy(pseudo_dir):
     it. On its eight-atom sibling ``benchmarks/si8-us-1k.in`` the two layouts
     took 9 iterations each and printed the same energy to every digit.
     """
-    from defumat.scf.driver import run_scf
+    from defuqumat.scf.driver import run_scf
 
     calculator = _calculator(pseudo_dir)
     results = {}
@@ -429,7 +429,7 @@ def test_a_magnetic_ultrasoft_run_takes_the_real_space_count(pseudo_dir):
     set. Rebuilt from the mixed ``becsum`` it takes 11, and the energies agree
     to 3e-11 Ry at the input's ``conv_thr = 1e-8``.
     """
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -455,8 +455,8 @@ def test_a_resume_carries_the_g_history_and_drops_a_real_space_one(pseudo_dir, t
     ``conv_thr = 1e-10``, ``beta = 0.3`` and a stop at 4 both took 10 and the
     check could not have seen it.
     """
-    from defumat.scf.checkpoint import load_mixer
-    from defumat.scf.driver import SCF_MIXER, run_scf
+    from defuqumat.scf.checkpoint import load_mixer
+    from defuqumat.scf.driver import SCF_MIXER, run_scf
 
     calculator = _calculator(pseudo_dir)
     options = dict(conv_thr=1e-12, mixing_beta=0.2, verbose=False)
@@ -501,7 +501,7 @@ def test_the_rho_ddot_fit_runs_on_the_stored_sphere(pseudo_dir, monkeypatch):
     part is :meth:`SphereLayout.rho_ddot_vector`. One channel here, so a fit
     vector is the charge alone, ``ngms`` reals.
     """
-    import defumat.scf.driver as driver
+    import defuqumat.scf.driver as driver
 
     calculator = _calculator(pseudo_dir)
     with warnings.catch_warnings():

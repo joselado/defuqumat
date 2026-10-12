@@ -14,9 +14,9 @@ import jax
 import jax.numpy as jnp
 import pytest
 
-from defumat.hamiltonian.noncollinear import SpinorHamiltonian
-from defumat.hamiltonian.operator import Hamiltonian
-from defumat.pseudo.projectors import Projectors
+from defuqumat.hamiltonian.noncollinear import SpinorHamiltonian
+from defuqumat.hamiltonian.operator import Hamiltonian
+from defuqumat.pseudo.projectors import Projectors
 
 pytestmark = pytest.mark.unit
 

@@ -1,6 +1,6 @@
 """The wavefunction transforms' layout: QE's sticks against one fused box transform.
 
-``DEFUMAT_FFT_LAYOUT=box`` takes the sphere through the whole box with a single 3D
+``DEFUQUMAT_FFT_LAYOUT=box`` takes the sphere through the whole box with a single 3D
 transform instead of QE's ``z``-over-the-sticks then ``xy``. The two are the same
 transform summed in a different order, so ``H psi`` and the density must agree to
 round-off, here 1e-12 relative, on a scalar and a noncollinear magnetic cell, and an
@@ -18,11 +18,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.batching import FFT_LAYOUTS, resolve_fft_layout
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.batching import FFT_LAYOUTS, resolve_fft_layout
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -52,7 +52,7 @@ MAGNETIC = (",\n  noncolin = .true., nosym = .true., noinv = .true.,\n"
 
 
 def _setup(layout: str, monkeypatch, extra: str = ""):
-    monkeypatch.setenv("DEFUMAT_FFT_LAYOUT", layout)
+    monkeypatch.setenv("DEFUQUMAT_FFT_LAYOUT", layout)
     with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as handle:
         handle.write(SILICON.format(extra=extra))
     system = build_system(read_pw_input(Path(handle.name)))
@@ -67,9 +67,9 @@ def _hamiltonian(calculation: Calculation):
 
 
 def test_the_dial_defaults_to_sticks_and_takes_an_override(monkeypatch):
-    monkeypatch.delenv("DEFUMAT_FFT_LAYOUT", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_FFT_LAYOUT", raising=False)
     assert resolve_fft_layout() == "sticks"
-    monkeypatch.setenv("DEFUMAT_FFT_LAYOUT", "BOX")
+    monkeypatch.setenv("DEFUQUMAT_FFT_LAYOUT", "BOX")
     assert resolve_fft_layout() == "box"
     assert resolve_fft_layout("sticks") == "sticks"
     assert set(FFT_LAYOUTS) == {"sticks", "box"}
@@ -113,7 +113,7 @@ def test_the_movers_keep_the_box_layout(monkeypatch):
     assert box.at_kpoints(box.system.kpoints).sticks is None
     # a mover that rebuilds the sphere takes the layout from the calculation,
     # not from the environment of the moment
-    monkeypatch.setenv("DEFUMAT_FFT_LAYOUT", "sticks")
+    monkeypatch.setenv("DEFUQUMAT_FFT_LAYOUT", "sticks")
     assert box.at_kpoints(box.system.kpoints).sticks is None
 
 
@@ -131,13 +131,13 @@ def test_the_chunked_force_runs_on_the_box_layout(monkeypatch):
     """A streamed state walks the k axis on row-subset calculations, whose ``sticks`` is ``None``."""
     import warnings
 
-    from defumat.calculator import Calculator
-    from defumat.forces import compute_forces
-    from defumat.forces.chunked import wants_chunks
-    from defumat.forces.energy import FrozenState, state_from_result
+    from defuqumat.calculator import Calculator
+    from defuqumat.forces import compute_forces
+    from defuqumat.forces.chunked import wants_chunks
+    from defuqumat.forces.energy import FrozenState, state_from_result
     from tests.unit.test_chunked_gradient import CELL, PSEUDO
 
-    monkeypatch.setenv("DEFUMAT_FFT_LAYOUT", "box")
+    monkeypatch.setenv("DEFUQUMAT_FFT_LAYOUT", "box")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         calculator = Calculator.from_text(CELL, PSEUDO, announce=False)
@@ -169,8 +169,8 @@ def test_the_card_fills_the_box_by_a_gather_and_gets_the_scatters_bits(monkeypat
     import numpy as np
     import jax.numpy as jnp
 
-    from defumat import batching
-    from defumat.basis.fft import _fill_columns
+    from defuqumat import batching
+    from defuqumat.basis.fft import _fill_columns
 
     rng = np.random.default_rng(4)
     columns = jnp.asarray(rng.permutation(50)[:13])

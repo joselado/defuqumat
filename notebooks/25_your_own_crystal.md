@@ -30,8 +30,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
-from defumat.units import RY_TO_EV
+from defuqumat import Calculator
+from defuqumat.units import RY_TO_EV
 
 INPUT = Path("../tests/data/qe/diamond.in")
 
@@ -207,7 +207,7 @@ Everything the rest of this set computes, off the same object.
 
 
 ```python
-from defumat.system.kpoints import KPoints
+from defuqumat.system.kpoints import KPoints
 
 FCC = {"L": (.5, .5, .5), "G": (0., 0., 0.), "X": (0., 0., 1.), "K": (.75, .75, 0.)}
 PATH = ["L", "G", "X", "K", "G"]

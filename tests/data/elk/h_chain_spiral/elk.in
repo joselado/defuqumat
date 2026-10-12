@@ -7,7 +7,7 @@
 ! The mechanism is one line of Elk: energy.f90:242 guards the entropy term with
 ! "non-zero only for the Fermi-Dirac smearing function", IF (stype == 3), so with
 ! the stype = 0 below engyts is identically zero and engytot carries no -TS.  QE's
-! "!    total energy" and defumat's SCFResult.total_energy both put the smearing
+! "!    total energy" and defuqumat's SCFResult.total_energy both put the smearing
 ! contribution INSIDE the reported total.
 !
 ! It is not small here.  At swidth = 0.05 Ha the entropy moves by 112 meV between
@@ -52,7 +52,7 @@
 !     this is the cell to take an external number on and iron is not.
 !
 ! The field breaks spin symmetry and STAYS ON: Elk will not polarise on its own,
-! where defumat seeds from starting_magnetization.  It is along x, perpendicular
+! where defuqumat seeds from starting_magnetization.  It is along x, perpendicular
 ! to q along z, which is the plane a spiral's moments turn in -- QE's angle1 = 90
 ! says the same thing.  See the bfieldc block below for why it is not decayed,
 ! which is the one real trap in this fixture.  Always read "total moment" out of
@@ -86,11 +86,11 @@ spinpol
 !
 ! **reducebf = 0.8 does not work on this cell, and the way it fails is the thing
 ! to know about this fixture.**  Elk will not polarise on its own -- unlike
-! defumat, which seeds from starting_magnetization -- so the field has to
+! defuqumat, which seeds from starting_magnetization -- so the field has to
 ! establish the moment, and 0.8 takes it to 0.9 per cent of its value in 21
 ! loops.  Measured: the moment grew from 0.148 to 0.172 mu_B over the first eight
 ! loops and then followed the field down, and the run CONVERGED, in 23 loops, to
-! a total moment of 2.0e-4 mu_B -- a nonmagnetic state -- while defumat on the
+! a total moment of 2.0e-4 mu_B -- a nonmagnetic state -- while defuqumat on the
 ! identical cell with no field at all sustains 0.515 mu_B.  That is a fading
 ! seed, not a disagreement about the physics, and what it produces is a
 ! converged-looking Elk run with the answer quietly gone.

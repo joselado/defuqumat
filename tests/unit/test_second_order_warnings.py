@@ -36,12 +36,12 @@ import equinox as eqx
 import numpy as np
 import pytest
 
-import defumat.response.photocurrent as photocurrent
-import defumat.response.shg as shg
-from defumat.basis.builder import build_basis
-from defumat.io.pwin import parse_pw_input, read_pw_input
-from defumat.system.builder import build_system
-from defumat.system.kpoints import KPoints
+import defuqumat.response.photocurrent as photocurrent
+import defuqumat.response.shg as shg
+from defuqumat.basis.builder import build_basis
+from defuqumat.io.pwin import parse_pw_input, read_pw_input
+from defuqumat.system.builder import build_system
+from defuqumat.system.kpoints import KPoints
 
 pytestmark = pytest.mark.unit
 

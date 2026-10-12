@@ -12,7 +12,7 @@ of the two cells peaks at about 10 GiB of ``tools/run_regression.sh``'s 12 GiB
 cap, and a file boundary is a process boundary under that runner. The two tests
 *did* pass together once, at 5m52, and then failed with the same code the next
 time they were run -- because the first run compiled the second cell's kernels
-and the second read them back off ``~/.cache/defumat/jax``. That is
+and the second read them back off ``~/.cache/defuqumat/jax``. That is
 ``CLAUDE.md``'s cache rule with its sign reversed: **a cache miss is cheaper in
 memory and dearer in time**, so a two-cell file measured cold is not a two-cell
 file that runs warm, and the passing measurement was of a cache state that no
@@ -48,7 +48,7 @@ def test_the_wedge_completes_and_the_taped_route_is_where_it_did_not():
     a product of two per-k tangents. A wedge sum of a product is not the product
     of the full-zone objects, so averaging the finished rank-3 tensor cannot
     repair it: one factor has to be made whole *before* it is contracted, which
-    is :func:`~defumat.response.born._full_zone_field_response` and is P36's
+    is :func:`~defuqumat.response.born._full_zone_field_response` and is P36's
     rule. The two routes need it in different amounts and that is the point of
     asserting both: the contracted one's screening factor is the field's
     converged ``dvscf``, which ``dielectric_tensor`` mixes from the

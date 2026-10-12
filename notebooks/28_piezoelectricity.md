@@ -54,7 +54,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 CASES, PSEUDO = Path("../tests/data/qe"), Path("../tests/data/pseudo")
 
@@ -64,7 +64,7 @@ piezo = alas.get_piezoelectric_tensor()
 print(f"AlAs   e_14 = {piezo.e14:+.4f} C/m2      epsilon = {np.trace(piezo.dielectric.epsilon) / 3:.4f}")
 ```
 
-    /l/ladovj1/w-k/defumat/calculator.py:1260: RuntimeWarning: the piezoelectric tensor was integrated over 64 k-points (4 4 4) and this run's own k-convergence has not been measured. On zincblende AlAs, against a Berry-phase finite difference that shares no machinery with it, e_14 reads -0.7638, -0.6875, -0.6729, -0.6699 C/m^2 at 4 4 4, 6 6 6, 8 8 8 and 10 10 10 and -0.6691 at 12 12 12, so a committed-quality 4 4 4 mesh is 14 per cent out there and 8 8 8 is 0.6. Nothing inside this quantity can see that: the three routes share one field response and the Z* anchor is the same assembly in the position coordinate, so every internal check moves with the mesh instead of catching it. Measure this crystal's own curve with defumat.workflows.piezo_ladder.piezoelectric_kmesh_ladder (Calculator.get_piezoelectric_kmesh_ladder), which reruns the ground state and the response on a ladder of meshes and puts the last step on the result; pass kmesh_warning=False to silence this once the mesh is known to be enough
+    /l/ladovj1/w-k/defumat/calculator.py:1260: RuntimeWarning: the piezoelectric tensor was integrated over 64 k-points (4 4 4) and this run's own k-convergence has not been measured. On zincblende AlAs, against a Berry-phase finite difference that shares no machinery with it, e_14 reads -0.7638, -0.6875, -0.6729, -0.6699 C/m^2 at 4 4 4, 6 6 6, 8 8 8 and 10 10 10 and -0.6691 at 12 12 12, so a committed-quality 4 4 4 mesh is 14 per cent out there and 8 8 8 is 0.6. Nothing inside this quantity can see that: the three routes share one field response and the Z* anchor is the same assembly in the position coordinate, so every internal check moves with the mesh instead of catching it. Measure this crystal's own curve with defuqumat.workflows.piezo_ladder.piezoelectric_kmesh_ladder (Calculator.get_piezoelectric_kmesh_ladder), which reruns the ground state and the response on a ladder of meshes and puts the last step on the result; pass kmesh_warning=False to silence this once the mesh is known to be enough
       return piezoelectric_tensor(self.calculation, result, **merged)
 
 

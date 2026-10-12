@@ -1,7 +1,7 @@
 #!/bin/bash
 # The third harmonic on one H100: its time against the CPU arm (thg-cpu.sbatch), and its tests.
 #
-# GPU.md §2.3's metric: card defumat against CPU defumat, the same commit and the same input,
+# GPU.md §2.3's metric: card defuqumat against CPU defuqumat, the same commit and the same input,
 # per k-point and step, compilation its own line (tools/realtime/thg_timing.py). Two-atom
 # silicon at 12 Ry, chi^(3)(-3w; w, w, w) at 1.55 eV along [100], 0.2 eV, 450 steps a period:
 #
@@ -17,7 +17,7 @@
 #
 # Not submitted by any tool here (CLAUDE.local.md): by hand, after `sbatch --test-only`.
 #
-#   sbatch --export=ALL,DEFUMAT_REPO=/scratch/work/ladovj1/apps/defumat-thg tools/gpu/thg-gpu.sbatch
+#   sbatch --export=ALL,DEFUQUMAT_REPO=/scratch/work/ladovj1/apps/defumat-thg tools/gpu/thg-gpu.sbatch
 #
 # partition   one named H100 partition, so the card is the one asked for (a list gets
 #             whichever card frees first, CLAUDE.local.md 2026-10-02); on 2026-10-08 at
@@ -26,7 +26,7 @@
 # time        04:00:00: the timings are minutes on a data-centre card; the regime tests
 #             took about an hour on D22's A2000, which runs float64 at 1/70 of float32.
 # mem         32G of host memory; the 8^3 orders hold 2^3 copies of 100 points' states.
-#SBATCH --job-name=defumat-thg-gpu
+#SBATCH --job-name=defuqumat-thg-gpu
 #SBATCH --partition=gpu-h100-80g
 #SBATCH --time=04:00:00
 #SBATCH --gpus=h100:1
@@ -36,14 +36,14 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-thg/out/gpu-%j.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-thg
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-thg}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-thg}
 PY=/scratch/work/ladovj1/calculations/pypresso-gpu/venv/bin/python3
 mkdir -p "$WORK/out" "$WORK/cache-gpu"
 cd "$REPO" || exit 1
 unset XLA_PYTHON_CLIENT_PREALLOCATE XLA_PYTHON_CLIENT_MEM_FRACTION JAX_PLATFORMS \
-      DEFUMAT_K_BATCH DEFUMAT_BAND_BATCH DEFUMAT_MEMORY_MODE
-export PYTHONPATH="$REPO" DEFUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache-gpu"
+      DEFUQUMAT_K_BATCH DEFUQUMAT_BAND_BATCH DEFUQUMAT_MEMORY_MODE
+export PYTHONPATH="$REPO" DEFUQUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 OUT="$WORK/out/gpu-${SLURM_JOB_ID}.json"
 
 echo "=== node ==="; hostname; date

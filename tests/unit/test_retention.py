@@ -16,10 +16,10 @@ what the stub asserts is what was still bound when it was entered.
 import numpy as np
 import pytest
 
-import defumat.calculator as calculator_module
-import defumat.response.efield as efield
-import defumat.scf.driver as driver
-from defumat.calculator import Calculator
+import defuqumat.calculator as calculator_module
+import defuqumat.response.efield as efield
+import defuqumat.scf.driver as driver
+from defuqumat.calculator import Calculator
 
 pytestmark = pytest.mark.unit
 
@@ -74,7 +74,7 @@ def test_the_cached_scf_is_dropped_before_the_new_one_runs(silicon, monkeypatch)
 def test_the_cached_relaxation_is_dropped_before_the_new_one_runs(silicon,
                                                                  monkeypatch):
     """A6(ii). A relaxation holds every ionic step's converged state."""
-    import defumat.workflows.relax as relax_module
+    import defuqumat.workflows.relax as relax_module
 
     seen = {}
     original = relax_module.run_relax
@@ -92,7 +92,7 @@ def test_the_cached_relaxation_is_dropped_before_the_new_one_runs(silicon,
 def test_the_cached_strain_response_is_dropped_before_the_recompute(silicon,
                                                                    monkeypatch):
     """A6(i). ``options`` recomputes, and that is the double-live path."""
-    import defumat.response.strain as strain_module
+    import defuqumat.response.strain as strain_module
 
     seen = {}
 
@@ -221,10 +221,10 @@ def _run_a_field(**options):
     """
     from pathlib import Path
 
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf import Calculation, run_scf
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf import Calculation, run_scf
+    from defuqumat.system import build_system
 
     root = Path(__file__).resolve().parents[1]
     system = build_system(read_pw_input(root / "data" / "qe" / "si-epsilon-us.in"))

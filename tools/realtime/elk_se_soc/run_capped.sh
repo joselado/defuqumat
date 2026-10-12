@@ -6,8 +6,8 @@ name=$1; dir=$2; shift 2
 cd "$dir" || exit 1
 source /l/ladovj1/venv/bin/activate
 export PYTHONPATH=/l/ladovj1/defumat-hspin:/l/ladovj1/review/hspin-elk
-export DEFUMAT_REPO=/l/ladovj1/defumat-hspin DEFUMAT_CACHE_DIR=/l/ladovj1/jaxcache
-export JAX_PLATFORMS=cpu DEFUMAT_THREADS=off
+export DEFUQUMAT_REPO=/l/ladovj1/defumat-hspin DEFUQUMAT_CACHE_DIR=/l/ladovj1/jaxcache
+export JAX_PLATFORMS=cpu DEFUQUMAT_THREADS=off
 export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_STACKSIZE=64M
 ulimit -s unlimited 2>/dev/null || true
 load() {

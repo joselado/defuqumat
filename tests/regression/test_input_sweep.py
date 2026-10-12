@@ -2,7 +2,7 @@
 
 The other regression files compare *numbers*. This one compares nothing: it
 walks all 252 inputs under ``test-suite/pw_*`` and asserts only that each one
-either builds a :class:`~defumat.system.builder.System` or is refused with a
+either builds a :class:`~defuqumat.system.builder.System` or is refused with a
 ``NotImplementedError`` that names the feature. It is here because that sweep
 found six of the bugs this file was written alongside, and none of them was
 reachable from a curated case list:
@@ -39,8 +39,8 @@ import warnings
 
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.system import build_system
 from tests.conftest import QE_ROOT
 
 pytestmark = pytest.mark.regression
@@ -60,7 +60,7 @@ EXPECTED_REFUSALS = {
     # 252, which is why they have no entry rather than an unused one.
     "scf-allfrac.in": "use_all_frac",
     "scf-nofrac.in": "force_symmorphic",
-    # DFT+U variants `defumat.hubbard` refuses by name.
+    # DFT+U variants `defuqumat.hubbard` refuses by name.
     "lda+U+V-user_ns.in": "intersite",
     "lda+U+V_background.in": "intersite",
     "lda+U+V_force_stress_ortho.in": "intersite",

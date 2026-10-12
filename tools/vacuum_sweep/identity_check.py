@@ -2,10 +2,10 @@
 import numpy as np
 import jax.numpy as jnp
 
-import defumat.scf.driver as driver
-import defumat.scf.mixing as mixing
-from defumat import Calculator
-from defumat.scf.occupations import wgauss, smearing_order
+import defuqumat.scf.driver as driver
+import defuqumat.scf.mixing as mixing
+from defuqumat import Calculator
+from defuqumat.scf.occupations import wgauss, smearing_order
 
 calc = Calculator.from_file("local/al-v16.in", announce=False)
 result = calc.get_scf()

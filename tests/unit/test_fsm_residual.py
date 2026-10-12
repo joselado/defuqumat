@@ -5,8 +5,8 @@ and falls to zero as the constraint is met. ``constrained_magnetization = 'fsm'`
 is not a penalty -- it drives a *feedback field* -- so its ``constraint_energy``
 is **0 by construction**, and until this was added nothing on the result said how
 far the run ended from what it was asked for:
-:meth:`~defumat.scf.fields.MagneticField.satisfied` computed exactly that error,
-compared it against :data:`~defumat.scf.fields.FSM_TOLERANCE`, returned a bool and
+:meth:`~defuqumat.scf.fields.MagneticField.satisfied` computed exactly that error,
+compared it against :data:`~defuqumat.scf.fields.FSM_TOLERANCE`, returned a bool and
 threw the number away.
 
 The consequence was measured before it was fixed (``PLAN.md`` P80). An fcc
@@ -41,11 +41,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation, run_scf
-from defumat.scf.fields import FSM_TOLERANCE
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.scf.fields import FSM_TOLERANCE
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 

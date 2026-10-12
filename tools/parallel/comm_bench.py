@@ -1,6 +1,6 @@
 """Time the pools' collectives, and see what the others do when one pool dies.
 
-    DEFUMAT_POOLS=P ... python3 tools/parallel/comm_bench.py [--sizes-mb 1.5 83 330] [--kill-after N]
+    DEFUQUMAT_POOLS=P ... python3 tools/parallel/comm_bench.py [--sizes-mb 1.5 83 330] [--kill-after N]
 
 Every rank runs it (``run_comm.sh`` on one node, ``srun`` across nodes). Rank 0
 prints one JSON line with the warm time of an all-reduce and a broadcast of a
@@ -25,8 +25,8 @@ import time
 
 import numpy as np
 
-import defumat  # noqa: F401
-from defumat.parallel import current_pools
+import defuqumat  # noqa: F401
+from defuqumat.parallel import current_pools
 
 
 def timed(fn, repeats):

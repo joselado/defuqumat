@@ -22,14 +22,14 @@ import pytest
 
 import jax.numpy as jnp
 
-from defumat.hubbard.energy import (
+from defuqumat.hubbard.energy import (
     coefficients_from_setup,
     hubbard_energy,
     hubbard_potential,
 )
-from defumat.hubbard.interaction import default_racah
-from defumat.hubbard.manifold import HubbardSetup, HubbardSpecies
-from defumat.units import RY_TO_EV
+from defuqumat.hubbard.interaction import default_racah
+from defuqumat.hubbard.manifold import HubbardSetup, HubbardSpecies
+from defuqumat.units import RY_TO_EV
 
 pytestmark = pytest.mark.unit
 
@@ -167,10 +167,10 @@ def _hubbard_hamiltonian(case, pseudo_dir):
     """A DFT+U Hamiltonian at the starting density: no SCF, one build."""
     from pathlib import Path
 
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system import build_system
 
     cases = Path(__file__).resolve().parents[1] / "data" / "qe"
     system = build_system(read_pw_input(cases / case))

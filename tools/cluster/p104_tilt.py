@@ -42,10 +42,10 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
 
 CASES = Path("tests/data/qe")
 PSEUDO = Path("tests/data/pseudo")

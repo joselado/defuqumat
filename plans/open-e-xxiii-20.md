@@ -27,7 +27,7 @@ a Ritz rotation is 3.2 to 11.7 ms at widths 32 to 128 and `_extend_projection` 1
 (`PERFORMANCE.md`, "Inside a Davidson step"), at a live fraction of 0.72 and about 11
 in-loop steps. It grows as `nbnd^2 npwx` against `h_psi`'s `nbnd npwx log N`, so the only
 place it pays is a large cell, which is also where the rematerialisation pass is the binding
-constraint and each new `lax.switch` branch is a copy of HLO (the reason `DEFUMAT_BAND_RUNGS`
+constraint and each new `lax.switch` branch is a copy of HLO (the reason `DEFUQUMAT_BAND_RUNGS`
 exists). That trade, speed on a large cell against compile size and peak on the same cell,
 is the reason this is not done as a small change.
 

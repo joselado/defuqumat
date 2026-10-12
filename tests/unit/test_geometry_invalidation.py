@@ -21,10 +21,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -205,7 +205,7 @@ def _displaced(pseudo_dir, extra):
     import jax.numpy as jnp
     import numpy as np
 
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -223,7 +223,7 @@ def test_a_symmetric_run_still_refuses_a_step_that_breaks_its_group(pseudo_dir):
     The FFT grid and the k-set were chosen for this group, so a step that
     leaves it is a bug and has to be caught.
     """
-    from defumat.system.symmetry import check_symmetry
+    from defuqumat.system.symmetry import check_symmetry
 
     built, moved = _displaced(pseudo_dir, "")
     assert built.use_symmetry
@@ -241,7 +241,7 @@ def test_nosym_does_not_check_a_group_it_never_applies(pseudo_dir):
     ``nosym`` the FFT grid takes ``fft_fact = (1, 1, 1)`` and the k-set is not
     reduced, so nothing the check protects is at risk.
     """
-    from defumat.system.symmetry import check_symmetry
+    from defuqumat.system.symmetry import check_symmetry
 
     built, moved = _displaced(pseudo_dir, ", nosym = .true.")
     assert not built.use_symmetry

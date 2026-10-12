@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import jax
 from tests.regression.test_ultracell import _noncollinear, _pitch, _cone
-from defumat.ultracell import run_ultracell
+from defuqumat.ultracell import run_ultracell
 
 pseudo_dir = Path("/l/ladovj1/w-a/tests/data/pseudo")
 tmp = Path("/l/ladovj1/review/open-a/vi3-tmp"); tmp.mkdir(parents=True, exist_ok=True)

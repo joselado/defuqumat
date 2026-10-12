@@ -1,6 +1,6 @@
 """A closure called eagerly is compiled once per structure, and never wrongly reused.
 
-:mod:`defumat.eager` keys a compiled program on the printed jaxpr of a closure
+:mod:`defuqumat.eager` keys a compiled program on the printed jaxpr of a closure
 with its arrays hoisted out, so the property that matters is two-sided: calls
 that differ only in their arrays share one program, and calls that differ in
 anything the printed form does not show (a nested constant, a callback) do not.
@@ -23,9 +23,9 @@ import numpy as np
 import pytest
 from jax import lax
 
-from defumat import eager
-from defumat.calculator import Calculator
-from defumat.eager import compiled
+from defuqumat import eager
+from defuqumat.calculator import Calculator
+from defuqumat.eager import compiled
 from tests.backend import assert_same
 
 pytestmark = pytest.mark.unit
@@ -181,7 +181,7 @@ def test_a_second_band_velocity_call_compiles_nothing(silicon):
 
 @pytest.mark.slow
 def test_a_second_dielectric_tensor_call_compiles_nothing(silicon):
-    """Before :mod:`defumat.eager` a second call compiled 127 programs here."""
+    """Before :mod:`defuqumat.eager` a second call compiled 127 programs here."""
     first = silicon.get_dielectric_tensor()
     with counting_compiles() as names:
         second = silicon.get_dielectric_tensor()
@@ -204,14 +204,14 @@ def _hubbard_arrays(seed, nspin=2, nk=3, nbnd=4, npwx=7, nwfcU=5):
 def test_a_second_hubbard_occupation_matrix_compiles_nothing(nk):
     """``projections`` walked k with an eager ``lax.map`` over a closure built per call.
 
-    ``run_scf`` calls :func:`~defumat.hubbard.occupations.occupation_matrix`
+    ``run_scf`` calls :func:`~defuqumat.hubbard.occupations.occupation_matrix`
     once an iteration outside any ``jit``, once per spin channel inside it, so on
     a CPU (one k-point a step) with more than one k-point every iteration
     compiled the loop again: two programs an iteration at ``nspin = 2``. Two
     calls with different arrays of the same shapes, the second compiling
     nothing, and the value the per-k contraction written out.
     """
-    from defumat.hubbard.occupations import occupation_matrix
+    from defuqumat.hubbard.occupations import occupation_matrix
 
     columns = jnp.asarray([[[0, 1, 2]], [[2, 3, 4]]])  # two slots of l = 1
     mask = jnp.ones((2, 3), dtype=bool)
@@ -264,7 +264,7 @@ def test_a_second_chunked_torque_compiles_nothing():
     derivative, chunked and whole, matches the reverse-mode gradient of the
     energy it differentiates, taken here and not by the torque.
     """
-    from defumat.forces.torque import band_energy_at_angle, torque_at_angle
+    from defuqumat.forces.torque import band_energy_at_angle, torque_at_angle
 
     nk, nbnd, npw = 3, 2, 5
     rng = np.random.default_rng(7)
@@ -303,7 +303,7 @@ def test_the_torque_takes_no_reverse_pass(monkeypatch):
     taken before the patch. The chunked calls failed on ``a1ba166``, which took
     ``value_and_grad`` a chunk at a time and ``jax.grad`` of the whole axis.
     """
-    from defumat.forces.torque import (
+    from defuqumat.forces.torque import (
         band_energy_at_angle,
         band_energy_at_rotation,
         orientation_torque,
@@ -392,7 +392,7 @@ def test_host_arithmetic_on_constants_is_evaluated_while_tracing():
 
 def test_a_value_read_off_an_argument_falls_back_to_the_plain_call():
     """``map_axis`` with one entry calls its body on concrete values, which a trace cannot."""
-    from defumat.batching import map_k
+    from defuqumat.batching import map_k
 
     def body(x):
         return x * 2.0 if float(x) > 0 else x

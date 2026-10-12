@@ -28,8 +28,8 @@ from functools import lru_cache
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.projwfc import angular_momentum
+from defuqumat import Calculator
+from defuqumat.projwfc import angular_momentum
 
 pytestmark = pytest.mark.slow
 

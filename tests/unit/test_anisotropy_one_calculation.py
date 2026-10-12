@@ -1,12 +1,12 @@
 """A force-theorem scan and an orientation relaxation build one ``Calculation``.
 
 ``OPEN.md`` Part XXIII, item 14. Every direction of
-:func:`~defumat.workflows.anisotropy.run_anisotropy` and every one-shot of
-:func:`~defumat.workflows.anisotropy.relax_orientation` used to build the
+:func:`~defuqumat.workflows.anisotropy.run_anisotropy` and every one-shot of
+:func:`~defuqumat.workflows.anisotropy.relax_orientation` used to build the
 one-shot leg's whole ``Calculation`` again, although only the magnetic texture
 moves between them and turning it requires ``nosym``, so the k-set, the G sets,
 the projectors and every table are the same. Now the first builds it and the
-rest turn it with :meth:`~defumat.scf.driver.Calculation.with_texture`.
+rest turn it with :meth:`~defuqumat.scf.driver.Calculation.with_texture`.
 
 **How the count is taken without diagonalising.** ``Calculation.diagonalize``
 is replaced by a stand-in that returns ordered levels and zero states of the
@@ -32,9 +32,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.scf.driver import Calculation
-from defumat.workflows.anisotropy import (
+from defuqumat import Calculator
+from defuqumat.scf.driver import Calculation
+from defuqumat.workflows.anisotropy import (
     _with_quantization_axis,
     relax_orientation,
     run_anisotropy,
@@ -134,9 +134,9 @@ def test_an_orientation_relaxation_builds_one_calculation(cobalt, monkeypatch):
     """A first step and six curvature one-shots, one constructor."""
     system, pseudos, density = cobalt
     built, solved = _stand_ins(monkeypatch)
-    monkeypatch.setattr("defumat.forces.torque.orientation_torque",
+    monkeypatch.setattr("defuqumat.forces.torque.orientation_torque",
                         lambda *args, **kwargs: np.zeros(3))
-    monkeypatch.setattr("defumat.forces.torque.band_energy_at_rotation",
+    monkeypatch.setattr("defuqumat.forces.torque.band_energy_at_rotation",
                         lambda *args, **kwargs: 0.0)
 
     with pytest.warns(UserWarning, match="already has a torque below"):
@@ -179,7 +179,7 @@ def test_a_turned_texture_compiles_the_potential_once(cobalt):
     """
     import dataclasses
 
-    from defumat.scf.driver import _potential_of_rho
+    from defuqumat.scf.driver import _potential_of_rho
 
     system, pseudos, _ = cobalt
     # ``'kubler'``, the branch that reads the axis; under ``'grad_m'``, the
@@ -242,7 +242,7 @@ K_POINTS automatic
 def test_a_turned_texture_traces_to_the_same_program(pseudo_dir):
     """What traces the potential and the one-centre terms holds no axis in its program.
 
-    The torque's derivative is a program :mod:`defumat.eager` keeps by the
+    The torque's derivative is a program :mod:`defuqumat.eager` keeps by the
     printed jaxpr and the bytes of every constant nested in it, and it traces
     both potentials. The axis used to reach the grid potential as a static
     argument, a constant nested in that jaxpr, and the PAW one-centre terms as
@@ -251,7 +251,7 @@ def test_a_turned_texture_traces_to_the_same_program(pseudo_dir):
     Both are a hoisted array now, an argument of the kept program, and the two
     orientations trace to one key.
     """
-    from defumat import eager
+    from defuqumat import eager
 
     calculator = Calculator.from_text(_OXYGEN_PAW, pseudo_dir, announce=False)
     system, pseudos = calculator.system, calculator.pseudos
@@ -277,12 +277,12 @@ def _per_one_shot(monkeypatch):
     """Each one-shot's XLA compilations by name, and the kept programs before it.
 
     The names are read off the ``jax`` logger, which sees a persistent-cache
-    hit as well as a fresh compile. The count of :mod:`defumat.eager`'s kept
+    hit as well as a fresh compile. The count of :mod:`defuqumat.eager`'s kept
     programs is read as each one-shot starts, so after whatever the one
     before it dropped.
     """
-    from defumat import eager
-    from defumat.workflows import anisotropy
+    from defuqumat import eager
+    from defuqumat.workflows import anisotropy
 
     shots = {"compiled": [], "kept": []}
     original = anisotropy._orientation_torque
@@ -316,8 +316,8 @@ def test_an_orientation_relaxation_keeps_what_every_one_shot_shares(cobalt, monk
     compile at the first one-shot only, keep the same programs after every
     one-shot, and hold one potential executable.
     """
-    from defumat import eager
-    from defumat.scf.driver import _potential_of_rho
+    from defuqumat import eager
+    from defuqumat.scf.driver import _potential_of_rho
 
     system, pseudos, density = cobalt
     _stand_ins(monkeypatch)

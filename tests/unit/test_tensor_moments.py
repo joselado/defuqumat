@@ -12,7 +12,7 @@ statements are identities rather than agreements.
 * the round trip ``N -> w -> N`` returns the matrix;
 * the moments that have names carry what they are named for: ``w^{000}`` is the
   shell's charge, ``|w^{011}|`` its moment, and ``L . S`` -- built independently
-  from :mod:`defumat.projwfc.angular_momentum` -- decomposes onto ``w^{110}_0``
+  from :mod:`defuqumat.projwfc.angular_momentum` -- decomposes onto ``w^{110}_0``
   and **nothing else**, which is the check that fixes the coupling and the
   basis rotation together.
 """
@@ -20,7 +20,7 @@ statements are identities rather than agreements.
 import numpy as np
 import pytest
 
-from defumat.hubbard.tensormoments import (
+from defuqumat.hubbard.tensormoments import (
     MomentLabel,
     compose,
     decompose,
@@ -28,7 +28,7 @@ from defumat.hubbard.tensormoments import (
     moment_matrices,
     wigner3j,
 )
-from defumat.projwfc.angular_momentum import orbital_matrices
+from defuqumat.projwfc.angular_momentum import orbital_matrices
 
 pytestmark = pytest.mark.unit
 
@@ -123,7 +123,7 @@ def test_spin_orbit_coupling_is_one_moment_and_nothing_else(l):
     The sharpest check here and the one that fixes two conventions at once: the
     ``(k, p) -> r`` coupling, and the rotation of the basis into the **real**
     harmonics the occupation matrix is measured in. ``L`` comes from
-    :mod:`defumat.projwfc.angular_momentum`, which shares nothing with this
+    :mod:`defuqumat.projwfc.angular_momentum`, which shares nothing with this
     module but ``rot_ylm``. The coefficient is
     ``-sqrt(l (l+1) (2l+1) / 2)``, which is a closed form rather than a
     measurement.

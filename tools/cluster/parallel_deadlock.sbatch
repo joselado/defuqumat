@@ -29,7 +29,7 @@
 #               soak pools hold two small cells each.
 # time          00:40:00: the files pass in 32 to 38 s, the soak in a few
 #               minutes, and each probe is killed at 15 minutes.
-#SBATCH --job-name=defumat-par-deadlock
+#SBATCH --job-name=defuqumat-par-deadlock
 #SBATCH --partition=batch-milan
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
@@ -38,14 +38,14 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/parallel-milan/out/deadlock-%A_%a.err
 
 set -u
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 WORK=/scratch/work/ladovj1/calculations/parallel-milan/deadlock-$SLURM_ARRAY_JOB_ID
 mkdir -p "$WORK" || exit 1
 cd "$REPO" || exit 1
-export PYTHONPATH=$REPO JAX_PLATFORMS=cpu DEFUMAT_THREADS=off \
+export PYTHONPATH=$REPO JAX_PLATFORMS=cpu DEFUQUMAT_THREADS=off \
        MKL_NUM_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 \
-       DEFUMAT_CACHE_DIR=/tmp/defumat-jax-$SLURM_JOB_ID
+       DEFUQUMAT_CACHE_DIR=/tmp/defuqumat-jax-$SLURM_JOB_ID
 PY=$VENV/bin/python3
 ID=$SLURM_ARRAY_TASK_ID
 mine=($("$PY" -c "import os; print(' '.join(map(str, sorted(os.sched_getaffinity(0)))))"))
@@ -68,7 +68,7 @@ else
   pids=()
   for r in 0 1; do
     list=$(cpus $((2 * T)) | cut -d, -f$((r * T + 1))-$(((r + 1) * T)))
-    DEFUMAT_POOLS=2 DEFUMAT_POOL_RANK=$r DEFUMAT_COORDINATOR=localhost:$port \
+    DEFUQUMAT_POOLS=2 DEFUQUMAT_POOL_RANK=$r DEFUQUMAT_COORDINATOR=localhost:$port \
       /usr/bin/time -f "%e s wall %U s user %S s sys %M kB" -o "$log.r$r.time" \
       timeout -s KILL 900 taskset -c "$list" "$PY" tools/parallel/pool_soak.py \
         > "$log.r$r.out" 2> "$log.r$r.err" &

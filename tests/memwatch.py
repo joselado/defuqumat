@@ -20,7 +20,7 @@ anonymous exit 137 into a bug report.
 
 Configuration
 -------------
-The cap is read from ``DEFUMAT_TEST_MEM_MAX``, which is the variable
+The cap is read from ``DEFUQUMAT_TEST_MEM_MAX``, which is the variable
 ``tools/run_regression.sh`` already uses, in the same systemd syntax (``12G``,
 ``512M``, ``50%``) with the same ``off`` sentinel. There is deliberately no
 second variable: two caps that could disagree would be worse than none. The
@@ -33,7 +33,7 @@ import, nothing measured. The reason is that the pre-push gate
 (``tools/test-fast.sh``, 1634 tests in one process) pays for anything this
 module does on every test, and a peak with no cap to compare it against answers
 no question anybody asked. To watch the gate, give it a cap:
-``DEFUMAT_TEST_MEM_MAX=12G tools/test-fast.sh``.
+``DEFUQUMAT_TEST_MEM_MAX=12G tools/test-fast.sh``.
 
 The fraction is 0.85, and the headroom is the justification: 15% of a 12 G cap
 is 1.8 GB and of a 4 G cap is 600 MB, which is what a 1 s sample interval has to
@@ -77,11 +77,11 @@ DEFAULT_INTERVAL = 1.0
 DEFAULT_RESTEP = 0.02
 
 #: The variable ``tools/run_regression.sh`` sets, reused rather than duplicated.
-CAP_ENV = "DEFUMAT_TEST_MEM_MAX"
+CAP_ENV = "DEFUQUMAT_TEST_MEM_MAX"
 
 #: Where the runner keeps ``in-flight.log``; it exports this so the child writes
 #: into the same file the shell loop is already appending to.
-LOG_ENV = "DEFUMAT_TEST_INFLIGHT"
+LOG_ENV = "DEFUQUMAT_TEST_INFLIGHT"
 
 _MB = 1024 * 1024
 _SUFFIXES = {"": 1, "B": 1, "K": 1024, "M": 1024**2, "G": 1024**3,
@@ -249,7 +249,7 @@ class Watchdog:
     def start(self) -> None:
         if self._thread is not None:
             return
-        self._thread = threading.Thread(target=self._loop, name="defumat-memwatch",
+        self._thread = threading.Thread(target=self._loop, name="defuqumat-memwatch",
                                         daemon=True)
         self._thread.start()
 

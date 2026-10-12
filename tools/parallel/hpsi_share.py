@@ -13,7 +13,7 @@ have to take over.
 
 Measured on D22's performance cores (2026-10-01), share of an iteration spent in
 ``apply``: si64 0.42 at one core and 0.52 at six, the ultrasoft spinor
-``si16-spinor-us-6k.in`` 0.35 and 0.40. Set ``DEFUMAT_THREADS=off`` and pin with ``taskset``.
+``si16-spinor-us-6k.in`` 0.35 and 0.40. Set ``DEFUQUMAT_THREADS=off`` and pin with ``taskset``.
 """
 
 from __future__ import annotations
@@ -29,12 +29,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import defumat.hamiltonian.noncollinear as noncollinear
-import defumat.hamiltonian.operator as operator
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+import defuqumat.hamiltonian.noncollinear as noncollinear
+import defuqumat.hamiltonian.operator as operator
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 REPO = Path(__file__).resolve().parents[2]
 ROWS = [0]

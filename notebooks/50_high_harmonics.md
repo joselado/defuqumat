@@ -45,8 +45,8 @@ which has one, has not been run on this pulse.
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-from defumat import Calculator
-from defumat.realtime.pulse import Sin2  # a pulse is built by the caller, and the Calculator has no constructor for one
+from defuqumat import Calculator
+from defuqumat.realtime.pulse import Sin2  # a pulse is built by the caller, and the Calculator has no constructor for one
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 pulse = Sin2.from_intensity(3e12, 1.55, 8, polarization=(1, 1, 1))  # W/cm^2, eV, cycles

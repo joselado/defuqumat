@@ -41,7 +41,7 @@ is an overlap, and the unit-test silicon cell is norm-conserving, where the
 projections are zero-width; and a spy on ``Hamiltonian.s_projections`` would
 mean patching a method onto an ``eqx.Module``. The stub is a dense generalised
 problem ``H v = e S v`` with ``S = 1 + beta q beta^H``, written in exactly the
-conventions of :meth:`~defumat.hamiltonian.operator.Hamiltonian.s_projections`
+conventions of :meth:`~defuqumat.hamiltonian.operator.Hamiltonian.s_projections`
 and ``s_correction``, and ``scipy.linalg.eigh`` is the exact answer it is
 checked against.
 """
@@ -54,8 +54,8 @@ import numpy as np
 import pytest
 import scipy.linalg
 
-from defumat.config import DOUBLE
-from defumat.solvers.davidson import DAVID_NDIM, davidson_eigensolver
+from defuqumat.config import DOUBLE
+from defuqumat.solvers.davidson import DAVID_NDIM, davidson_eigensolver
 
 pytestmark = pytest.mark.unit
 
@@ -288,7 +288,7 @@ def test_the_schedule_does_not_depend_on_the_route(narrow, rungs):
     """The collapse is a property of the solve, not of how it is batched.
 
     ``narrow`` and ``band_rungs`` are performance dials (``narrow`` is what
-    :func:`~defumat.solvers.davidson._every_k` sets from the k-batch), so the
+    :func:`~defuqumat.solvers.davidson._every_k` sets from the k-batch), so the
     step count, the eigenvalues and the number of projections must be the
     same on every one of them. A collapse test written on the band rung rather
     than on ``notcnv`` fails this.
@@ -316,7 +316,7 @@ def test_a_write_past_the_end_drops_the_tail_and_keeps_the_live_rows():
     """
     # imported here, so that the rest of the file runs against the code before
     # the helper existed, which is how its failures there were checked
-    from defumat.solvers.davidson import _write_rows
+    from defuqumat.solvers.davidson import _write_rows
 
     buffer = jnp.arange(12.0).reshape(6, 2) + 1.0
     buffer = buffer.at[4:].set(0.0)

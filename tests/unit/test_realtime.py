@@ -23,15 +23,15 @@ import numpy as np
 import pytest
 import scipy.linalg
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.propagate import propagate
-from defumat.realtime.propagators import TAYLOR4_BOUND, taylor4
-from defumat.realtime.pulse import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.propagate import propagate
+from defuqumat.realtime.propagators import TAYLOR4_BOUND, taylor4
+from defuqumat.realtime.pulse import (
     FS_TO_AU, Adiabatic, Gaussian, Kick, Ramp, Sin2, field_amplitude, get_pulse)
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 
 pytestmark = pytest.mark.unit
 
@@ -109,11 +109,11 @@ def _silicon(pseudo_dir, ecut=6.0):
     """Two-atom silicon at a small cutoff on a 2x2x2 grid, with its dense ground states."""
     import re
 
-    from defumat.realtime.dense import dense_hamiltonians
+    from defuqumat.realtime.dense import dense_hamiltonians
 
     text = re.sub(r"ecutwfc\s*=\s*[0-9.]+", f"ecutwfc = {ecut}",
                   (CASES / "si2-nosym.in").read_text())
-    path = Path("/tmp") / f"defumat-realtime-si-{ecut}.in"
+    path = Path("/tmp") / f"defuqumat-realtime-si-{ecut}.in"
     path.write_text(text)
     import equinox as eqx
 
@@ -169,7 +169,7 @@ def test_the_work_done_is_the_energy_gained(pseudo_dir, potential):
     ``kappa`` derivative of the Hamiltonian the step applies, and a step that
     is not unitary. Measured 2.4e-6 relative on the 12 Ry cell at ``dt = 0.1``.
     With the potential updated the energy is the functional the dynamics
-    conserves (:mod:`defumat.realtime.selfconsistent`), so a potential that is
+    conserves (:mod:`defuqumat.realtime.selfconsistent`), so a potential that is
     not its derivative fails here: measured at 5e12 W/cm^2 on the 6 Ry cell,
     1.4e-6 at ``dt = 0.1`` and 2.8e-7 at 0.05 with the Hartree and
     exchange-correlation potentials updated, against 1.2e-6 and 2.5e-7 frozen,
@@ -237,7 +237,7 @@ def test_a_second_k_chunk_compiles_nothing(pseudo_dir):
     bounds the spectrum and in the propagation. The counter is validated on the
     first chunk of the spectrum's pass, which must compile something.
     """
-    from defumat.realtime import propagate as module
+    from defuqumat.realtime import propagate as module
 
     calculation, states, weights, v_scf = _silicon(pseudo_dir)
     count = [0]
@@ -328,10 +328,10 @@ def test_what_is_refused_is_refused_by_name(pseudo_dir):
     An ultrasoft dataset runs at a frozen potential (``PLAN.md`` P141); what is
     refused is the update, whose density, ``D`` and one-centre terms move.
     """
-    from defumat.realtime.propagate import require_a_realtime_regime
-    from defumat.realtime.selfconsistent import require_a_potential_mode
-    from defumat.workflows.realtime import _kset
-    from defumat.realtime.pulse import Sin2
+    from defuqumat.realtime.propagate import require_a_realtime_regime
+    from defuqumat.realtime.selfconsistent import require_a_potential_mode
+    from defuqumat.workflows.realtime import _kset
+    from defuqumat.realtime.pulse import Sin2
 
     system = build_system(read_pw_input(CASES / "si2-us.in"))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -351,7 +351,7 @@ def test_what_is_refused_is_refused_by_name(pseudo_dir):
 
 def test_what_the_updated_potential_refuses_is_refused_by_name(pseudo_dir):
     """An unknown mode, a reduced k-set without its group, and a checkpoint."""
-    from defumat.realtime.selfconsistent import require_a_potential_mode
+    from defuqumat.realtime.selfconsistent import require_a_potential_mode
 
     calculation, states, weights, v_scf = _silicon(pseudo_dir)
     with pytest.raises(ValueError, match="one of"):
@@ -428,7 +428,7 @@ def test_the_chunk_size_is_not_in_the_current(pseudo_dir):
 
 def test_a_projection_over_a_broken_period_is_refused():
     """``fourier_component`` needs a step that divides the period, or it leaks the other harmonics."""
-    from defumat.realtime.orders import fourier_component
+    from defuqumat.realtime.orders import fourier_component
 
     omega = 0.05
     times = np.arange(0.0, 400.0, 0.3)
@@ -443,7 +443,7 @@ def test_a_projection_over_a_broken_period_is_refused():
 
 def test_the_cutoff_is_the_end_of_an_unbroken_plateau():
     """An isolated peak past a gap does not move the cutoff; found in review, where it read 31 for 9."""
-    from defumat.realtime.spectra import HarmonicSpectrum
+    from defuqumat.realtime.spectra import HarmonicSpectrum
 
     orders = np.linspace(0, 40, 4001)
     total = np.full_like(orders, 1e-12)

@@ -1,7 +1,7 @@
 """The gradient correction of a **vector** magnetization, against ``pw.x``.
 
 The noncollinear GGA branch (``gradcorr``'s ``nspin == 4 .AND. domag`` case,
-:func:`defumat.scf.potential._noncollinear_gradient_correction`) had no measured
+:func:`defuqumat.scf.potential._noncollinear_gradient_correction`) had no measured
 number of any kind anywhere in this project. Its *guard* was measured -- a bare
 ``|m|`` differentiated through its own nodes gave nan on 243 grid components and
 ``safe_modulus`` made them finite (P77a) -- but whether the branch is right was
@@ -12,7 +12,7 @@ or nonmagnetic, and every noncollinear reference is LDA.
 plane, ultrasoft, PBE, ``nosym``, a shifted 4x4x4 grid
 (``tests/data/qe/fe-noncolin-pbe-stress.in``):
 
-    quantity                     defumat          pw.x 7.4.1     difference
+    quantity                     defuqumat          pw.x 7.4.1     difference
     total energy (Ry)         -55.78872994     -55.78872993      6.7e-9
     magnetization (mu_B)        1.95101          1.95
     absolute magnetization      2.14008          2.14
@@ -36,7 +36,7 @@ direction, and ``compute_rho`` then resolves the density as
 ``m`` passes through zero. One atom is trivially parallel to itself, so this is
 the **signed** branch, and both codes agree on the axis: ``pw.x`` prints "Fixed
 quantization axis for GGA: 1.000000 0.000000 0.000000" and
-:func:`~defumat.scf.potential.fixed_quantization_axis` returns the same.
+:func:`~defuqumat.scf.potential.fixed_quantization_axis` returns the same.
 
 **The unsigned branch is still unmeasured, and the obstacle is not this code.**
 Plain ``|m|`` with a real kink at every node is what a genuinely canted cell
@@ -54,7 +54,7 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -103,7 +103,7 @@ def _calculator(pseudo_dir):
 
 @lru_cache(maxsize=2)
 def _reference():
-    from defumat.io import read_qe_output
+    from defuqumat.io import read_qe_output
 
     return read_qe_output(CASES / f"reference.out.{CASE}")
 

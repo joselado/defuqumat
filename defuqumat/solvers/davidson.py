@@ -1,0 +1,1341 @@
+"""Block Davidson: the eigensolver a plane-wave code is supposed to use.
+
+Transcribed from ``KS_Solvers/Davidson/cegterg.f90``, which is QE's default.
+The idea is the one every iterative eigensolver shares -- never form ``H``,
+only apply it -- but Davidson's particular choice is what to apply it to: given
+the current estimate of an eigenpair ``(e, psi)``, the residual ``(H - e) psi``
+points at what the estimate is missing, and adding it to the subspace and
+re-diagonalising there is a step towards the true eigenvector.
+
+Why this matters more than any other optimisation here: building the matrix
+costs ``O(npw^2)`` memory and diagonalising it ``O(npw^3)`` time, and ``npw`` is
+tens of thousands in a real calculation. Davidson touches only the ``nbnd``
+lowest states, so the cost is ``nbnd`` applications of ``H`` per iteration and a
+dense solve in a subspace of a few times ``nbnd``. On the reference silicon cell
+that is a 16x16 solve instead of 180x180.
+
+Three deliberate departures from the Fortran, all of them forced by the rule
+that shapes inside ``jit`` are static:
+
+* **The subspace is masked, not resized.** The work arrays are always
+  ``(nvecx, npwx)``; which of their rows are in play is a boolean mask, and the
+  masked-out part of the projected problem is decoupled against an identity
+  overlap and the subspace solve puts its eigenvalues one above a bound of the
+  live spectrum, instead of leaving a singular block.
+* **Unconverged roots are compacted by sorting, not by resizing.** ``cegterg``
+  moves them to the front so that the block it works on shrinks; the same
+  reordering here is a stable ``argsort`` on the convergence flags, which is a
+  fixed-shape operation, and the subspace then grows by the number of
+  unconverged roots rather than by the full block. Both halves of that matter.
+  Keeping a converged root in the expansion means normalising a residual of
+  order 1e-14, which turns round-off into a basis vector and makes the overlap
+  matrix singular; growing by the full block regardless means the subspace fills
+  up and is collapsed long before a stubborn root -- in practice always the
+  highest band, which has nothing above it to mix with -- has had a deep enough
+  space to converge in. Each was found the same way: the top band of the silicon
+  band structure sitting a few meV above the reference.
+* **The loop is ``lax.while_loop``**, so it stays on device: no host round trip
+  per Davidson iteration, which would otherwise cost more than the arithmetic.
+
+The convergence test is QE's -- two consecutive estimates of a root differing by
+less than ``ethr`` -- and the preconditioner is ``g_psi.f90``'s, including its
+``TEST_NEW_PRECONDITIONING`` branch, which is the one QE compiles by default.
+
+**``ethr`` is a per-band vector, not a scalar, and that is ``cegterg`` too.**
+``cegterg.f90:556-563`` tests band ``i`` against ``ethr`` when ``btype(i) == 1``
+and against ``empty_ethr = MAX(5 ethr, 1e-5)`` (``:129``) otherwise, where
+``btype`` is 0 for a band whose fractional occupation is below 0.01
+(``sum_band.f90:118-128``). An empty band is converged more loosely because
+nothing reads it: it carries no charge, so the density, the total energy and
+every derivative of them are blind to it, and the states it holds up are the
+occupied ones the SCF is actually solving for. The threshold is data of shape
+``(nbnd,)`` per k-point -- a traced argument, so it changes no shape and forces
+no recompilation -- and :func:`~defuqumat.scf.driver.band_thresholds` is where the
+occupations become one. Two properties of the Fortran that the transcription
+keeps: the flag is **not sticky** (recomputed from scratch every step, so a band
+that met the test once may fail it later, unlike ``crmmdiagg.f90:1093``'s
+latched ``conv = conv .OR. ...``), and a loosened band is **not locked out of
+the loop** -- ``notcnv`` counts every band and the exit is still that all of
+them pass, so the only thing ``btype`` changes is when a given root stops being
+expanded. What it buys is that plus a narrower expansion block, which is the
+1.47x ``pw.x`` itself shows when ``diago_full_acc`` turns it off.
+
+**The problem is generalised**, ``H v = e S v``, because an ultrasoft
+pseudopotential makes ``S`` a genuine operator. ``cegterg`` tracks ``S|psi>``
+alongside ``H|psi>`` in a second ``(nvecx, npw)`` array; this does not, and the
+reason is worth stating. ``S`` differs from the identity only inside the
+projector subspace,
+
+    S|psi> = |psi> + sum_kl |beta_k> q_kl <beta_l|psi>
+
+so everything the algorithm needs from it is a function of the small
+``(nvecx, nkb)`` array of projections ``<beta|psi>`` -- the projected overlap is
+``psi^H psi + becp^H q becp``, and ``S`` applied to a Ritz vector is one
+``(nkb, npw)`` product away. Carrying ``becp`` instead of ``S|psi>`` is the same
+arithmetic in a fraction of the memory, and it makes the norm-conserving path
+free rather than merely cheap: with no augmentation charge the tracked array has
+zero columns, and every expression involving it disappears at compile time.
+
+**The working set is one contiguous XLA buffer and it is what decides whether a
+large run starts at all**, so it is written down here rather than discovered.
+Fitted to ``memory_analysis().temp_size_in_bytes`` of the compiled solve, in
+bytes of one complex number ``zc``::
+
+    2.18 nvecx npwx zc  +  4.20 nbnd npwx zc  +  2.00 band_batch npol N_smooth zc
+
+The first term is ``psi`` and ``hpsi``, the two arrays this carries; the second
+is the ``(nbnd, npwx)`` blocks -- ``evc``, ``hevc`` and the expansion chain; and
+the third is ``h_psi``'s FFT boxes, two per band in flight and ``npol`` fields
+per band, which is the term nothing in this file controls. On a 157-atom slab at ``ecutwfc = 60`` with
+``nbnd = 1020`` and ``diago_david_ndim = 4`` that is 46 + 24 + 24 GiB, and an
+H200 with the default 75 per cent preallocation refuses it.
+
+Two of those band blocks were **carried and did not need to be**, and removing
+them is worth 11.6 GiB there:
+
+* the expansion block is a pure function of ``evc``, ``hevc``, ``sbec`` and the
+  eigenvalues, all of which the loop already carries, so it is rebuilt at the
+  top of the step that consumes it rather than held across the loop boundary
+  (:func:`~defuqumat.solvers.davidson.davidson_eigensolver`'s ``expansion``);
+* and the robustness retry was a ``lax.cond`` over a *static* flag, which put
+  two copies of the whole ``while_loop`` in one executable -- XLA shares the
+  ``(nvecx, npwx)`` carries between them and gives the ``(nbnd, npwx)`` one a
+  slot each. The retry is a host branch now
+  (:func:`davidson_eigensolver_all`).
+
+Neither changes an eigenvalue: seven of eight reference cells came back
+bit-for-bit and the eighth moved by 1.1e-15 Ry, from an unrelated rewrite of
+``force_real_g0`` on the same pass. **The measurement that shows it is the
+ratio ``nbnd npwx / (band_batch N_smooth)``**, which is 0.5 on that slab: at a
+small cell's 0.06 the same change reads as 1 per cent, and only at a
+production-like ratio does it read as the 10 per cent it is (``si64`` at
+``band_batch = 16``: 932.6 MB to 837.1).
+"""
+
+from __future__ import annotations
+
+import os
+import warnings
+from functools import partial
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from defuqumat.basis.fft import force_real_g0
+from defuqumat.batching import map_k, resolve_k_batch, whole_axis_vmap
+from defuqumat.config import subspace_dtype
+from defuqumat.hamiltonian.operator import (
+    Hamiltonian, from_planes, planes_force_real_g0, planes_inner, planes_norm2, to_planes,
+    twice,
+)
+from defuqumat.solvers.subspace import (
+    generalised_eigh, orthonormality_defect, orthonormality_tolerance,
+)
+
+__all__ = ["davidson_eigensolver", "davidson_eigensolver_all", "DAVID_NDIM",
+           "MAX_ITERATIONS", "ETHR", "ETHR_MIN", "EMPTY_ETHR_FLOOR",
+           "RESIDUAL_THRESHOLD", "BAND_RUNGS", "empty_band_threshold",
+           "starting_vectors"]
+
+#: QE's ``diago_david_ndim``: the subspace may grow to this many times ``nbnd``
+#: before it is collapsed back onto the current eigenvector estimates.
+#:
+#: **Four here, where ``pw.x`` runs two.** ``input_parameters.f90:926``
+#: declares 4, but ``read_namelists.f90:408`` (``electrons_defaults``, called
+#: before the namelist is read) sets 2, which is what ``INPUT_PW.txt:2332``
+#: says; this line said "four, as QE has it" until 2026-10-10. A step count
+#: against ``pw.x`` at each code's default therefore compares four against
+#: two, and the like-for-like comparison sets ``diago_david_ndim`` on both
+#: sides. Three was tried here, and the episode is worth recording
+#: because both halves of it were surprises. ``INPUT_PW.txt`` says to use four
+#: "if the time spent in subspace diagonalization is small compared to the time
+#: spent in ``h_psi``", and at the time it was not -- that algebra is
+#: ``O(nvecx nbnd npw)`` matrix products sized by ``nvecx``, since the shapes
+#: must be static, where ``cegterg`` sizes its ZGEMMs by the *live* basis. Three
+#: was then worth 12% of a whole SCF on the eight-atom cell and 7% on the
+#: sixteen-atom one.
+#:
+#: It is four anyway, for two independent reasons.
+#:
+#: It **changed a validated number**. A band-structure run has no SCF around it:
+#: the SCF re-seeds this solver from the previous iteration and re-runs it ten
+#: times on a tightening ``ethr``, so a root left slightly short is corrected on
+#: the next pass, while ``non_scf`` gets one attempt. Combined with a
+#: convergence test that watches the *change* in an eigenvalue rather than its
+#: residual -- QE's test, and a weak proxy (see :data:`RESIDUAL_THRESHOLD`) -- a
+#: smaller workspace collapses more often, consecutive estimates sit closer
+#: together, and the test fires while the error is larger. That showed up
+#: exactly where it should: on the bismuthene spin-orbit path, Kramers pairs are
+#: degenerate by symmetry and so measure nothing but solver error, and they went
+#: from below 1e-6 eV to 5.9e-6. Every SCF regression passed; only the one-shot
+#: solve moved.
+#:
+#: And by the time that was understood the **speed was gone too**. The 12% was
+#: measured before ``h_psi`` began walking its bands one at a time
+#: (:mod:`defuqumat.batching`); with that in, three and four are within the
+#: run-to-run spread of each other on both cells. The saving had been in the
+#: cache, not in the flop count, and the band loop had already collected it.
+DAVID_NDIM = 4
+
+#: Total budget of Davidson steps, matching QE's.
+#:
+#: ``cegterg``'s own ``maxter`` is 20, but ``c_bands.f90`` re-enters it up to
+#: five times (``ntry <= 5`` in ``test_exit_cond``), each time seeded with the
+#: current estimate -- so QE's real budget is 100 steps. Re-entering is the same
+#: operation as the subspace collapse this loop already performs when the basis
+#: fills up, so one loop of 100 reproduces it without the outer level. It costs
+#: nothing when the solve converges early, which inside an SCF it always does:
+#: the budget is only reached on a cold start, and on the band-structure runs
+#: where there is no SCF to spread the convergence over.
+MAX_ITERATIONS = 100
+
+#: Root-improvement threshold used when the caller does not supply one -- a
+#: standalone solve, with no SCF around it to say how accurate is accurate
+#: enough. Inside the SCF the driver schedules it the way ``electrons.f90`` does,
+#: from 1e-2 down to the error in the density.
+ETHR = 1.0e-12
+
+#: The floor QE puts under ``ethr``: below this the iterative diagonalisation
+#: becomes unstable rather than more accurate (``electrons.f90``).
+ETHR_MIN = 1.0e-13
+
+#: Optional extra test on the residual norm ``|(H - e)psi|``, per band, on top of
+#: QE's test on the change in the eigenvalue. ``None`` -- the default -- is QE's
+#: behaviour exactly.
+#:
+#: It exists because the change in an eigenvalue is a weak proxy for its error:
+#: the eigenvalue is variational, so the error goes as ``|r|^2 / gap`` while the
+#: change between two steps can already be tiny. That matters when the solver
+#: stalls -- which it did before the expansion was restricted to unconverged
+#: roots -- and it is a useful thing to be able to demand of a standalone solve.
+#: Inside the SCF it is left off: ``ethr`` is scheduled against the error in the
+#: density, and demanding more than that of the eigenvalues is exactly the waste
+#: this schedule exists to remove.
+RESIDUAL_THRESHOLD = None
+
+#: The floor under the threshold an *empty* band is converged to
+#: (``cegterg.f90:129``: ``empty_ethr = MAX( ( ethr * 5.D0 ), 1.D-5 )``).
+#:
+#: **The floor is the half that matters, and writing ``5 ethr`` alone misses
+#: most of the effect.** Five times a loose ``ethr`` is still loose, so early in
+#: an SCF the two thresholds barely differ; it is late, once ``ethr`` has fallen
+#: below 2e-6, that the constant takes over and the empty bands stop being
+#: converged at all. At QE's ``ethr`` floor of 1e-13 the two differ by eight
+#: orders of magnitude.
+EMPTY_ETHR_FLOOR = 1.0e-5
+
+
+def empty_band_threshold(ethr):
+    """``cegterg.f90:129``'s ``empty_ethr``, for one scalar ``ethr`` in Ry."""
+    return max(5.0 * float(ethr), EMPTY_ETHR_FLOOR)
+
+
+def _extend_projection(hc, sc, psi, hpsi, becp, becq, offset, block,
+                       gamma_only: bool = False, *, width: int | None = None):
+    """Add one block of rows and columns to the projected H and overlap.
+
+    The projected matrices grow by a block of vectors per Davidson step, so all
+    but the newest rows are unchanged from the step before. ``cegterg`` computes
+    only the new ones -- its ZGEMM writes into ``hc(nb1, n_start)`` -- and keeps
+    the rest, and so does this.
+
+    It is not a small saving. Recomputing costs ``O(nvecx^2 npw)`` per step
+    against ``O(nvecx nbnd npw)`` for the update, a factor of ``nvecx/nbnd``,
+    four at the default subspace size. On an eight-atom silicon cell at 2950
+    plane waves that is 7.7 ms per step against 2.2; on a two-atom cell it is
+    half a millisecond either way, which is why it took a bigger system to
+    notice.
+
+    The Hermitian counterpart of each new row is written at the same time, so
+    the stored matrices stay full rather than triangular.
+
+    ``becp``/``becq`` carry the augmentation part of the overlap: ``becq`` is
+    ``q <beta|psi>``, so ``becp^H becq`` is the ``<psi|S - 1|psi>`` block. They
+    have zero columns when there is no augmentation charge.
+
+    ``gamma_only`` says that ``psi`` and ``hpsi`` are a half sphere held as
+    real planes, ``(nvecx, 2 npwx)``, and the matrices real; see
+    :func:`davidson_eigensolver`.
+
+    **The new rows are sliced back out of ``psi`` rather than passed in**, and
+    that is the measured choice rather than the obvious one. The caller has
+    just written them there and still holds them, so handing them over looks
+    like one ``(nbnd, npwx)`` block saved -- and it costs one instead, on both
+    backends and at every band batch tried. A ``dynamic_slice`` of a buffer the
+    consumer only reads is free to XLA; passing the block keeps the caller's
+    copy live *across* the two matrix products below, where otherwise it dies
+    into the ``dynamic_update_slice`` that wrote it.
+    """
+    rows = jax.lax.dynamic_slice(psi, (offset, 0), (block, psi.shape[1]))
+    # ``cegterg`` sizes these products by ``nbase``, the vectors actually in the
+    # subspace; ``width`` is that, rounded up to the caller's ladder of static
+    # shapes. Every buffer is exactly zero past the live subspace, so a narrower
+    # product is the same sum over fewer terms rather than an approximation.
+    live = psi.shape[0] if width is None else width
+    psi_c, hpsi_c, becq_c = psi[:live], hpsi[:live], becq[:live]
+    if gamma_only:
+        # ``regterg.f90:403-404`` and ``:422-428``: ``DGEMM('T', 'N', ...,
+        # npw2, 2.D0, psi, ...)`` and ``MYDGER(..., -1.D0, ...)`` -- the stored
+        # half doubled and ``G = 0``, its own conjugate partner rather than half
+        # of a pair, counted once. **The arrays are real planes here**
+        # (:func:`~defuqumat.hamiltonian.operator.to_planes`), so this is one real
+        # product over ``2 npwx`` rather than a complex one whose imaginary half
+        # was discarded, and both matrices are real by construction: a complex
+        # overlap is round-off that ``generalised_eigh`` turns into an arbitrary
+        # phase per eigenvector, hence a complex ``c(0)``, hence a state that is
+        # no longer real.
+        row_h = planes_inner(rows, hpsi_c)
+        row_s = planes_inner(rows, psi_c)
+    else:
+        row_h = rows.conj() @ hpsi_c.T
+        row_s = rows.conj() @ psi_c.T
+    row_b = jax.lax.dynamic_slice(becp, (offset, 0), (block, becp.shape[1]))
+    # ``becp^H becq`` is a sum over *projector* channels, not over plane waves,
+    # so it carries no gamma factor -- the factor is already inside ``becp``,
+    # which ``calbec_gamma`` returned.
+    row_s = row_s + row_b.conj() @ becq_c.T
+
+    hc = jax.lax.dynamic_update_slice(hc, row_h, (offset, 0))
+    sc = jax.lax.dynamic_update_slice(sc, row_s, (offset, 0))
+    hc = jax.lax.dynamic_update_slice(hc, row_h.conj().T, (0, offset))
+    sc = jax.lax.dynamic_update_slice(sc, row_s.conj().T, (0, offset))
+    return hc, sc
+
+
+#: How many widths a correction block may be applied at; see
+#: :func:`_band_ladder`. ``DEFUQUMAT_BAND_RUNGS`` moves it, and ``1`` applies
+#: every block at ``nbnd``, which is what this code did before the ladder and is
+#: what a cell large enough for XLA's rematerialisation pass to be the binding
+#: constraint should use, since each rung is a copy of ``h_psi``'s HLO.
+BAND_RUNGS = max(1, int(os.environ.get("DEFUQUMAT_BAND_RUNGS", "4")))
+
+
+def _width_ladder(nvecx: int, nbnd: int) -> tuple[int, ...]:
+    """The static widths the live subspace is rounded up to.
+
+    ``cegterg`` sizes its ZGEMMs and its ``cdiaghg`` by ``nbase``, the number of
+    vectors actually in the subspace, which grows by ``notcnv`` a step. A
+    ``lax.while_loop`` body has one shape, so ``nbase`` cannot be a bound here;
+    what can is a short ladder of multiples of ``nbnd``, chosen by a
+    ``lax.switch``. Four rungs at the default ``david = 4``.
+
+    **The top rung is ``nvecx`` and is not always a multiple of ``nbnd``.**
+    ``nvecx`` is ``min(david * nbnd, space)``, and a small basis can cut it
+    anywhere above ``2 nbnd`` (which is what ``_refuse_a_space_too_small``
+    guarantees). The ladder is still sorted and still covers ``nvecx``, which is
+    all :func:`_at_width` needs to round up correctly.
+    """
+    return tuple(range(nbnd, nvecx, nbnd)) + (nvecx,)
+
+
+def _band_ladder(nbnd: int, rungs: int = BAND_RUNGS) -> tuple[int, ...]:
+    """The widths a correction block is applied at.
+
+    ``expansion`` sorts the unconverged roots to the front and zeroes the rest,
+    so a block carries ``notcnv`` live rows and ``nbnd - notcnv`` exact zeros,
+    and ``H`` of a zero row is zero. ``cegterg`` applies ``H`` to ``notcnv``
+    vectors for exactly that reason (``cegterg.f90:465``).
+
+    **Two rungs rather than the width ladder's four, and the reason is the
+    executable rather than the arithmetic.** Each rung is a separate copy of the
+    whole ``h_psi`` subtree in the compiled program, which is the duplication
+    :func:`davidson_eigensolver_all`'s docstring sizes at 5.8 GiB on a 157-atom
+    slab for a different reason. Finer rungs track ``notcnv`` better and cost
+    more HLO; :data:`BAND_RUNGS` is the dial and 1 turns the whole thing off.
+    """
+    if rungs <= 1 or nbnd < 2:
+        return (nbnd,)
+    step = -(-nbnd // rungs)
+    return tuple(sorted({min(step * i, nbnd) for i in range(1, rungs + 1)}))
+
+
+def _at_width(live, widths: tuple[int, ...], make, narrow: bool,
+              axis_name: str | None = None):
+    """``make(m)`` at the smallest ladder width ``m`` that still covers ``live``.
+
+    ``narrow = False`` takes the full width unconditionally. ``lax.switch`` is
+    ``lax.cond``'s twin under ``vmap``: with a batched index it evaluates
+    *every* branch, so narrowing a batched solve would cost the ladder's whole
+    height instead of saving anything. **Unless the index is not batched**, which
+    ``axis_name`` arranges: under a ``vmap`` with that name the rung is the
+    largest any k-point of the batch needs (``lax.pmax``), one scalar, so the
+    ``switch`` runs one branch for all of them. A width above a k-point's own is
+    exact for it, every buffer being zero past its live subspace.
+    """
+    if not narrow or len(widths) == 1:
+        return make(widths[-1])
+    if isinstance(live, int):                 # the first solve, known at trace time
+        return make(next(m for m in widths if m >= live))
+    # the first rung that covers ``live``: the count of rungs below it. Written as
+    # a comparison rather than ``searchsorted``, whose default method is a short
+    # loop, a few more kernels a rung choice on a card, five choices a step.
+    index = jnp.clip(jnp.sum(jnp.asarray(widths) < live), 0, len(widths) - 1)
+    if axis_name is not None:
+        index = jax.lax.pmax(index, axis_name)
+    return jax.lax.switch(index, [(lambda m: lambda: make(m))(m) for m in widths])
+
+
+def _write_rows(buffer, block, start):
+    """``block`` written into ``buffer`` from row ``start``, rows past its end dropped.
+
+    Returns the new buffer and the row the write was placed at.
+
+    ``dynamic_update_slice`` does not drop what falls off the end: it moves the
+    whole write back until it fits, so a ``(nbnd, ...)`` block put at
+    ``start > len(buffer) - nbnd`` would land on live rows. That clamp is why
+    the collapse used to fire on ``nbase + nbnd > nvecx`` rather than on
+    ``cegterg``'s ``nbase + notcnv > nvecx``: a whole block had to fit. Here
+    the write is placed where the clamp would put it, at ``at = min(start,
+    len - nbnd)``, and the block is shifted down by ``shift = start - at``
+    inside it, the first ``shift`` rows keeping what the buffer held there.
+    The ``shift`` rows that fall off the far end are dropped, which is right
+    exactly when they are zero; the caller guarantees it, since the expansion
+    block is zero past ``notcnv`` and the collapse test leaves ``nbase +
+    notcnv <= nvecx``.
+
+    With ``shift = 0`` the gather is the identity and every row comes from
+    ``block``, so the values are bit for bit a plain ``dynamic_update_slice``;
+    the only cost is reading the ``nbnd`` rows the write replaces, which XLA
+    fuses into the in-place update (``PERFORMANCE.md``, "The collapse
+    condition", has the memory measurement).
+    """
+    rows = block.shape[0]
+    at = jnp.minimum(start, buffer.shape[0] - rows)
+    shift = start - at
+    zeros = (0,) * (buffer.ndim - 1)
+    kept = jax.lax.dynamic_slice(buffer, (at, *zeros), block.shape)
+    index = jnp.arange(rows)
+    moved = block[jnp.clip(index - shift, 0, rows - 1)]
+    keep = (index < shift).reshape((rows,) + (1,) * (buffer.ndim - 1))
+    return (jax.lax.dynamic_update_slice(buffer, jnp.where(keep, kept, moved),
+                                         (at, *zeros)), at)
+
+
+def _precondition(residual, diagonal, overlap_diagonal, energies):
+    """``g_psi.f90``: an approximate inverse of ``H - e S`` from its diagonal.
+
+    The naive ``1/(H_ii - e S_ii)`` is unbounded where the shift meets the
+    diagonal. QE's default branch replaces it with
+    ``(1 + x + sqrt(1 + (x-1)^2)) / 2``, which agrees with ``x`` for large ``x``
+    and saturates at 1 near the pole -- so a plane wave nearly resonant with the
+    eigenvalue is damped rather than amplified.
+
+    ``overlap_diagonal`` is ``usnldiag``'s ``s_diag``, identically one without an
+    augmentation charge.
+    """
+    x = diagonal[None, :] - energies[:, None] * overlap_diagonal[None, :]
+    denominator = 0.5 * (1.0 + x + jnp.sqrt(1.0 + (x - 1.0) ** 2))
+    return residual / denominator
+
+
+def davidson_eigensolver(
+    hamiltonian: Hamiltonian,
+    ik: int,
+    nbnd: int,
+    psi0=None,
+    ethr=None,
+    residual_threshold=RESIDUAL_THRESHOLD,
+    david: int = DAVID_NDIM,
+    max_iterations: int = MAX_ITERATIONS,
+    robust: bool = False,
+    narrow: bool = True,
+    band_rungs: int = BAND_RUNGS,
+    axis_name: str | None = None,
+    return_steps: bool = False,
+    return_finite: bool = False,
+):
+    """The ``nbnd`` lowest eigenpairs at k-point ``ik``, iteratively.
+
+    Args:
+        hamiltonian: the operator: ``apply_projected`` for every block the
+            subspace grows by, ``s_projections`` and ``s_correction`` for the
+            overlap, and the two diagonals for the preconditioner.
+        ik: k-point index. May be traced, so this ``vmap``s over k.
+        psi0: ``(nbnd, npwx)`` starting vectors -- normally the previous SCF
+            iteration's wavefunctions, which is what makes later iterations
+            converge in one or two Davidson steps. ``None`` starts from QE's
+            random guess.
+        ethr: convergence threshold on the change in each eigenvalue, in Ry.
+            A scalar applies to every band; an ``(nbnd,)`` array is QE's
+            per-band threshold, ``ethr`` for an occupied band and
+            ``empty_ethr`` for an empty one (``cegterg.f90:556-563``, and
+            :func:`~defuqumat.scf.driver.band_thresholds` for where the vector
+            comes from). ``None`` uses :data:`ETHR`; the SCF driver passes its
+            scheduled value, which starts loose and tightens as the density
+            converges.
+        narrow: size the subspace solve and the two Ritz rotations by the
+            *live* basis rather than by ``nvecx``, which is what ``cegterg``
+            does with its ``nbase``. The widths are quantised to a ladder of
+            multiples of ``nbnd`` and picked with a ``lax.switch``
+            (:func:`_at_width`), and the answer is unchanged to the last bit
+            because every buffer is exactly zero past the live subspace. It
+            must be ``False`` wherever this is called under a ``vmap`` -- a
+            ``switch`` there evaluates every branch -- unless ``axis_name``
+            names that ``vmap``'s axis, which makes the rung the batch's widest
+            and one scalar; :func:`_every_k` decides both from the k-batch.
+        return_steps: also return how many Davidson steps the solve took and
+            how many bands were still unsettled when it stopped. Both are
+            already computed inside the loop -- they are its trip counter and
+            its ``notcnv`` -- so this only widens the return. It is *static*,
+            read at trace time, which is why :func:`davidson_eigensolver_all`
+            always asks for the pair and drops it itself: two values of a
+            static argument are two executables. The count is the number of passes of the
+            step function, and the initial subspace solve happens outside the
+            loop, so a solve that arrives already converged reports 0. Read the
+            pair together: a count at ``max_iterations`` with a small
+            ``notcnv`` is a straggler, with a large one it is a stall, and a
+            *short* count can also mean the eigenvalues stopped being finite
+            (see ``unconverged``).
+        robust: which route the subspace solve takes, *statically*. ``False`` is
+            the Cholesky one, which is what every validated number here was
+            produced with; ``True`` is canonical orthogonalisation, for an
+            overlap that has gone indefinite. The choice is not made per step
+            because this function is ``vmap``ped over k, where a ``cond`` runs
+            both branches -- see :func:`davidson_eigensolver_all`, which makes
+            it outside the batch.
+
+    Returns ``(eigenvalues, eigenvectors)`` with eigenvalues ascending in Ry and
+    eigenvectors ``(nbnd, npwx)`` -- bands first, as the rest of the code
+    carries wavefunctions -- and, with ``return_steps``, the step count and the
+    number of unsettled bands after them.
+    """
+    if david < 2:
+        # ``cegterg.f90:125``: ``IF ( nvec > nvecx / 2 ) CALL errore(...,
+        # 'nvecx is too small', 1)``. One expansion block has to fit beside the
+        # ``nbnd`` vectors the subspace is collapsed onto; at ``david = 1``
+        # there is no room for it, and the write that adds it would land on
+        # the vectors themselves.
+        raise ValueError(
+            f"diago_david_ndim = {david} leaves Davidson no room to expand: the "
+            "subspace holds david * nbnd vectors and needs nbnd for the current "
+            "estimates plus room for one correction block, so david must be at "
+            "least 2 (QE refuses the same case, cegterg.f90:125)"
+        )
+    ethr = ETHR if ethr is None else ethr
+    gamma_only = hamiltonian.gamma_only
+    ndim = hamiltonian.ndim
+    # **The subspace cannot be larger than the space it lives in.** QE stops
+    # here (``c_bands.f90:286``, ``IF (nbndx > ipw) CALL errore``) and this used
+    # to run on regardless: the extra vectors cannot be independent, the overlap
+    # goes singular, the Cholesky returns ``nan`` and the canonical-orthogonalisation
+    # fallback then spends the whole iteration budget. ``space`` is
+    # ``npol * min_k npw`` rather than ``ndim``, because ``ndim`` is ``npwx``,
+    # the padded maximum over k, and the k-points that go singular are precisely
+    # the ones below it. ``davidson_eigensolver_all`` refuses the cases a cap
+    # cannot rescue; this is the cap itself, and it is static.
+    nvecx = min(david * nbnd, hamiltonian.space)
+    widths = _width_ladder(nvecx, nbnd)
+    band_widths = _band_ladder(nbnd, band_rungs)
+    mask = hamiltonian.state_mask[ik]
+    kinetic = hamiltonian.state_kinetic[ik]
+    diagonal = hamiltonian.diagonal(ik)
+    s_diagonal = hamiltonian.overlap_diagonal(ik)
+    dtype = hamiltonian.dtype
+
+    start = starting_vectors(psi0, nbnd, ndim, kinetic, mask, dtype)
+    # ``regterg.f90:174``: ``psi(1,k) = CMPLX(DBLE(psi(1,k)), 0)`` for every
+    # vector that enters the subspace. A random start has an imaginary part at
+    # ``G = 0`` and it makes the rebuilt field complex.
+    start = force_real_g0(start, gamma_only)
+
+    # **Under half-sphere storage the solve runs in real arithmetic, as
+    # ``regterg`` does** (``OPEN.md`` Part XXIII item 19). The work arrays are
+    # the states' real planes, ``(nvecx, 2 npwx)`` in the policy's real dtype
+    # (:func:`~defuqumat.hamiltonian.operator.to_planes`), so the projected rows,
+    # both Ritz rotations and ``calbec`` are real products over ``2 npwx`` --
+    # ``regterg``'s DGEMMs, two multiply-adds an element where the complex
+    # products this replaces spent four on a result whose imaginary half was
+    # exactly zero or discarded. The complex block is rebuilt only per band
+    # chunk inside ``h_psi``'s transform, and the states leave as complex
+    # coefficients at the end. A view of the complex buffers as reals would
+    # have been the cheaper change and does not exist under XLA:
+    # ``bitcast_convert_type`` refuses complex operands and ``ndarray.view``
+    # lowers to two scatters. On the k-point path every name below is the
+    # object it always was, so that path's program is unchanged.
+    if gamma_only:
+        dtype = jnp.finfo(dtype).dtype
+        start = to_planes(start)
+        mask, diagonal, s_diagonal = twice(mask), twice(diagonal), twice(s_diagonal)
+        apply_projected = hamiltonian.apply_projected_planes
+        s_projections = hamiltonian.s_projections_planes
+        s_correction = hamiltonian.s_correction_planes
+    else:
+        apply_projected = hamiltonian.apply_projected
+        s_projections = hamiltonian.s_projections
+        s_correction = hamiltonian.s_correction
+    length = start.shape[-1]
+
+    # The projections S is built from, asked of the operator rather than
+    # assembled here. With no augmentation charge they are zero-width arrays and
+    # every expression below that touches them is a no-op -- which is how the
+    # norm-conserving path stays exactly what it was -- and with a spinor
+    # Hamiltonian they carry the spin index folded into their width, so nothing
+    # in this routine has to know how many components a state has. Only the
+    # refresh asks for them alone; a block that ``H`` is applied to gets them
+    # from the same call (``apply_projected``).
+    def project(vectors):
+        """``<beta|psi>`` and ``q <beta|psi>`` for a block of vectors."""
+        return s_projections(vectors, ik)
+
+    psi = jnp.zeros((nvecx, length), dtype).at[:nbnd].set(start)
+    # ``H`` and the projections of the starting block from one ``calbec``, as
+    # ``h_psi`` and ``s_psi`` share ``becp`` (:meth:`~defuqumat.hamiltonian.
+    # operator.Hamiltonian.apply_projected`); the expansion block below does
+    # the same.
+    hstart, becp0, becq0 = apply_projected(start, ik)
+    hpsi = jnp.zeros((nvecx, length), dtype).at[:nbnd].set(hstart)
+    nkb = becp0.shape[1]
+    becp = jnp.zeros((nvecx, nkb), dtype).at[:nbnd].set(becp0)
+    becq = jnp.zeros((nvecx, nkb), dtype).at[:nbnd].set(becq0)
+    first = jnp.arange(nvecx) < nbnd
+    empty = jnp.zeros((nvecx, nvecx), dtype)
+    hc0, sc0 = _at_width(
+        nbnd, widths,
+        lambda m: _extend_projection(empty, empty, psi, hpsi, becp, becq, 0,
+                                     nbnd, gamma_only, width=m),
+        narrow,
+    )
+
+    def ritz(coefficients, psi, hpsi, live, with_h: bool = True):
+        """``(evc, hevc)``: the Ritz vectors and ``H`` of them, from their coefficients.
+
+        The two rotations that carry the estimate back into the plane-wave
+        basis -- no extra ``H``. **They are rebuilt where they are consumed
+        rather than carried across the loop** (``GPU-MEMORY-NEXT.md`` item 10):
+        ``cegterg`` carries the ``(nvecx, nbnd)`` coefficients ``vc`` and so does
+        this, so the two ``(nbnd, npwx)`` blocks are not live through the
+        correction block's ``h_psi``, which is the step's FFT peak. The rows of
+        ``psi`` and ``hpsi`` the coefficients read are the ones the solve that
+        produced them read -- the expansion writes past ``live`` -- and the
+        product is taken at the same ladder width, so the shapes, and the
+        values, are the ones the solve would have formed.
+        """
+        def at(m):
+            c = coefficients[:m].T
+            return (c @ psi[:m], c @ hpsi[:m] if with_h else None)
+
+        return _at_width(live, widths, at, narrow, axis_name)
+
+    def solve(psi, hpsi, becq, active, hc_raw, sc_raw, previous, live):
+        """Diagonalise in the current subspace and measure what is left.
+
+        Everything that scales with the subspace is inside :func:`at`, which is
+        run at the live width rather than at ``nvecx``. What comes back is the
+        Ritz *coefficients*, padded to ``nvecx`` rows, rather than the vectors;
+        :func:`ritz` forms those. See :func:`_at_width`.
+        """
+        def at(m):
+            # The directions not in use are decoupled against a unit overlap and
+            # handed over as ``parked`` rows, which the subspace solve puts one
+            # above a bound of the reduced live block's spectrum, so they never
+            # enter the roots taken. **Where they sit is the norm of the matrix
+            # the dense ``eigh`` sees, and on a card its error follows that
+            # norm.** They were at 1000 times the largest diagonal element of
+            # ``H``, a norm of 3e4 where the live block's is 6 to 9 Ry, and with
+            # ``ethr`` at its 1e-13 floor one call took between 3 and 100 steps
+            # from round-off alone; then at 4 times it, which cleared the stalls
+            # measured and still left the card's error over 1e-13 in 2 of 72
+            # solves. ``generalised_eigh`` has the numbers.
+            pair = active[:m, None] & active[None, :m]
+            inactive = jnp.logical_not(active[:m])
+            hc = jnp.where(pair, hc_raw[:m, :m], 0.0)
+            sc = jnp.where(pair, sc_raw[:m, :m], 0.0) + jnp.diag(inactive.astype(dtype))
+
+            # Under gamma both are real symmetric, as ``regterg``'s ``hr``/``sr``
+            # are, because the rows they are built from are real products
+            # (:func:`_extend_projection`); and so are the eigenvectors, the Ritz
+            # coefficients and every rotation they drive. A complex matrix here
+            # would be round-off in a quantity real by construction, and
+            # leaving it in is what gives each eigenvector an arbitrary phase.
+            # In the subspace precision whatever the bands run in (config.py's
+            # SUBSPACE_PRECISION; a no-op in double), and back: the energies in
+            # the bands' real precision, since they enter the preconditioner
+            # and the residual, and the coefficients in theirs.
+            wide = subspace_dtype(hc.dtype)
+            overlap = 0.5 * (sc + sc.conj().T).astype(wide)
+            values, vectors = generalised_eigh(0.5 * (hc + hc.conj().T).astype(wide),
+                                               overlap, robust=robust, parked=inactive)
+            if not robust:
+                # **A finite Cholesky answer is not a right one.** With the
+                # overlap's smallest eigenvalue at the round-off floor and still
+                # positive, the factor is finite and the reduction can return a
+                # root below the whole spectrum whose vector is the near-null
+                # direction, a zero plane-wave vector; the collapse then stores
+                # it under a unit overlap and it stays a converged root with a
+                # zero residual. Its coefficients are not S-orthonormal, which
+                # a clean solve's are to round-off, so such a solve is marked
+                # non-finite here: the loop stops (``unconverged``) and
+                # :func:`davidson_eigensolver_all` re-solves the k-point by
+                # canonical orthogonalisation, as it does for a factor that
+                # failed outright. ``subspace.orthonormality_defect`` has the
+                # measurement. The canonical route is not checked: its kept
+                # block is S-orthonormal by construction, and there is nothing
+                # behind it to retry with.
+                defect = orthonormality_defect(overlap, vectors[:, :nbnd])
+                values = jnp.where(defect > orthonormality_tolerance(wide),
+                                   jnp.nan, values)
+            values = values.astype(diagonal.dtype)
+            vectors = vectors.astype(psi.dtype)
+            coefficients = vectors[:, :nbnd]
+
+            # ``sbec`` is ``q <beta|evc>``, the only thing S needs beyond
+            # ``evc`` itself: the Ritz vector's projections are the same
+            # rotation of the stored ones, so ``S|psi>`` is never formed.
+            # ``(nbnd, nkb)``, and zero-width without an augmentation charge.
+            return (values[:nbnd].real,
+                    jnp.zeros((nvecx, nbnd), psi.dtype).at[:m].set(coefficients),
+                    coefficients.T @ becq[:m])
+
+        energies, coefficients, sbec = _at_width(live, widths, at, narrow, axis_name)
+
+        settled = jnp.abs(energies - previous) < ethr
+        if residual_threshold is not None:
+            # The only consumer of the residual inside this function, and it is
+            # off by default (:data:`RESIDUAL_THRESHOLD`). :func:`expansion`
+            # builds its own from the same inputs.
+            evc, hevc = ritz(coefficients, psi, hpsi, live)
+            sevc = (evc + s_correction(sbec, ik)
+                    if hamiltonian.has_overlap else evc)
+            residual = hevc - energies[:, None].astype(dtype) * sevc
+            settled = jnp.logical_and(
+                settled,
+                jnp.sqrt(jnp.sum(jnp.abs(residual) ** 2, axis=1)) < residual_threshold,
+            )
+
+        return (energies, coefficients, sbec, settled,
+                jnp.sum(jnp.logical_not(settled)), jnp.all(settled))
+
+    def expansion(evc, hevc, sbec, energies, settled):
+        """The block the subspace grows by: preconditioned, normalised, sorted.
+
+        The unconverged roots are sorted to the front so that the block written
+        next starts with exactly the vectors worth keeping. The sort is stable,
+        so roots keep their relative order.
+
+        **Split out of :func:`solve` and evaluated at the top of the step that
+        consumes it, rather than at the bottom of the one that could have
+        produced it.** It is a pure function of things the loop already carries,
+        and computing it here means it is *not* a loop carry -- which is one
+        ``(nbnd, npwx)`` block, 5.8 GiB on a 157-atom slab, live across the
+        whole of the next step for the sake of an elementwise chain that costs
+        nothing to rebuild. ``cegterg`` carries no such block either. The
+        arithmetic is unchanged, so the vectors are bit-for-bit what the
+        carried version produced. (``evc`` and ``hevc`` themselves are not
+        carried either any more -- :func:`ritz` forms them from the Ritz
+        coefficients at the top of the step, as ``cegterg`` forms them from
+        ``vc``.)
+
+        ``sbec`` is ``<beta|evc>`` already multiplied by ``q``, carried as the
+        ``(nbnd, nkb)`` array it is rather than recomputed: recomputing it from
+        ``project(evc)`` would be the same quantity by a different summation and
+        would move the answer in the last bits.
+        """
+        if hamiltonian.has_overlap:
+            sevc = evc + s_correction(sbec, ik)
+        else:
+            sevc = evc
+        residual = hevc - energies[:, None].astype(dtype) * sevc
+        correction = _precondition(residual, diagonal, s_diagonal, energies)
+        correction = jnp.where(mask, correction, 0.0)
+        if gamma_only:
+            # ``regterg.f90:375`` and ``:360-361``: ``Im psi(1) = 0`` -- the
+            # imaginary plane's first entry -- and ``ew(n) = 2 psi.psi -
+            # psi(1) psi(1)``, the same doubling and the same ``G = 0``
+            # correction as every other plane-wave sum here.
+            correction = planes_force_real_g0(correction)
+            norm = jnp.sqrt(planes_norm2(correction))
+        else:
+            norm = jnp.sqrt(jnp.sum(jnp.abs(correction) ** 2, axis=1, keepdims=True))
+        # **The sort comes before the normalisation, and only the buffer cares.**
+        # Each row is still divided by its own norm and zeroed by its own flag,
+        # so the value is what it was; but a gather whose consumer is elementwise
+        # fuses into that consumer, where a gather *after* the division is a
+        # second ``(nbnd, npwx)`` block -- one before it and one after. The
+        # permutation is applied to the two ``(nbnd,)`` vectors instead, which
+        # is free.
+        order = jnp.argsort(settled)
+        norm = norm[order]
+        return jnp.where(
+            settled[order][:, None], 0.0,
+            correction[order] / jnp.where(norm > 0.0, norm, 1.0),
+        )
+
+    energies0, coefficients0, sbec0, settled0, notcnv0, converged0 = solve(
+        psi, hpsi, becq, first, hc0, sc0,
+        jnp.full((nbnd,), jnp.inf, dtype=diagonal.dtype), nbnd,
+    )
+
+    state = (
+        psi, hpsi, becp, becq, first, hc0, sc0,  # the subspace and its projections
+        nbnd,                              # where the next block is written
+        coefficients0, energies0,          # current estimate, as Ritz coefficients
+        sbec0, settled0, notcnv0,          # what the expansion is built from
+        0, converged0,                     # iteration, converged
+    )
+
+    def unconverged(state):
+        # ... and stop the moment the eigenvalues stop being finite. Without
+        # this a subspace solve that has returned ``NaN`` runs the full budget
+        # of steps before the retry outside can see it, since ``settled`` --
+        # a comparison against ``NaN`` -- is false for every root forever.
+        # It costs one reduction over ``nbnd`` per step and it is what makes
+        # the retry in :func:`davidson_eigensolver_all` cheap enough to be the
+        # guard rather than a ``cond`` inside the batch.
+        alive = jnp.all(jnp.isfinite(state[9]))
+        return jnp.logical_and(
+            jnp.logical_and(jnp.logical_not(state[14]), state[13] < max_iterations),
+            alive,
+        )
+
+    def step(state):
+        (psi, hpsi, becp, becq, active, hc_raw, sc_raw, nbase,
+         coefficients, energies, sbec, settled, notcnv, iteration, _) = state
+
+        # The current estimate, formed from its coefficients for the two things
+        # that read it -- the collapse and the expansion -- both before the
+        # step's ``h_psi``, so neither block is live across it (:func:`ritz`).
+        evc, hevc = ritz(coefficients, psi, hpsi, nbase)
+
+        # ... collapse onto the current estimates when the subspace is full,
+        # which is the only place the basis ever shrinks (cegterg's "refresh").
+        # The projected matrices come along for free: the Ritz vectors
+        # diagonalise H within the span and are S-orthonormal by construction,
+        # so the retained block is diag(energies) against the identity.
+        #
+        # **Full means no room for the ``notcnv`` vectors about to be added**,
+        # ``cegterg.f90:580-581`` and ``regterg.f90:496-497``. Until 2026-10-10
+        # this read ``nbase + nbnd > nvecx``, room for a whole block, because
+        # the block was written with a ``dynamic_update_slice`` that clamps
+        # rather than drops; that kept ``floor((nvecx - 2 nbnd)/notcnv) + 1``
+        # expansions between collapses against ``cegterg``'s
+        # ``floor((nvecx - nbnd)/notcnv)``, which at ``david = 2`` is a
+        # collapse on every step after the first however few roots are left.
+        # :func:`_write_rows` drops the zero rows that fall off the end, so the
+        # test is ``cegterg``'s on every route, and the step count depends on
+        # nothing the k-batch, ``narrow`` or the band ladder sets.
+        full = nbase + notcnv > nvecx
+        blank = jnp.zeros_like(hc_raw)
+
+        def refresh():
+            # **The retained block's projections are computed here, inside the
+            # branch that consumes them, and nowhere else.** They were taken
+            # unconditionally just above the ``cond``, which is one calbec of
+            # an ``(nbnd, npwx)`` block against ``nkb`` projectors per step,
+            # thrown away on every step that does not collapse: two in three
+            # on a cold start at ``DAVID_NDIM = 4``, and all of them on a
+            # seeded solve that settles in fewer than ``DAVID_NDIM`` steps,
+            # which is the usual SCF iteration past the first. ``cegterg``
+            # rebuilds ``spsi`` inside the refresh too (``cegterg.f90:614-629``,
+            # under the ``IF`` at ``:580-581``). The expression and its
+            # operands are unchanged, only where it is evaluated moved; a
+            # norm-conserving run, whose projections are zero-width, is
+            # unaffected either way.
+            #
+            # The saving needs the predicate to be a scalar. Under a ``vmap``
+            # over k, ``full`` is batched and the ``cond`` lowers to a
+            # ``select_n`` over both branches, so this runs on every step
+            # there exactly as before -- no gain and no loss. That is the same
+            # rule :func:`_every_k` applies to ``narrow``, and it holds on the
+            # same routes: a single k-point, or ``k_batch = 1``, the CPU
+            # default (:func:`~defuqumat.batching.map_axis`).
+            evc_becp, evc_becq = project(evc)
+            return (
+                jnp.zeros_like(psi).at[:nbnd].set(evc),
+                jnp.zeros_like(hpsi).at[:nbnd].set(hevc),
+                jnp.zeros_like(becp).at[:nbnd].set(evc_becp),
+                jnp.zeros_like(becq).at[:nbnd].set(evc_becq),
+                first,
+                nbnd,
+                blank.at[:nbnd, :nbnd].set(jnp.diag(energies.astype(dtype))),
+                blank.at[:nbnd, :nbnd].set(jnp.eye(nbnd, dtype=dtype)),
+            )
+
+        psi, hpsi, becp, becq, active, nbase, hc_raw, sc_raw = jax.lax.cond(
+            full,
+            refresh,
+            lambda: (psi, hpsi, becp, becq, active, nbase, hc_raw, sc_raw),
+        )
+
+        # ... expand, and only then diagonalise and test. This ordering is
+        # cegterg's, and it is not cosmetic: testing after expanding, as an
+        # earlier version did, means every call ends by applying H to a block of
+        # residuals that are all zero because every root has just converged.
+        # That was one wasted h_psi per Davidson call -- 7 of the 23 steps a
+        # whole eight-atom run takes.
+        # ... the block to expand with, rebuilt here rather than carried across
+        # the loop boundary, and built *after* the collapse rather than before
+        # it: the collapse leaves ``evc``, ``hevc``, ``sbec`` and ``energies``
+        # untouched, so the value is the same either way, and putting it here
+        # keeps the block out of the ``cond``'s live range -- which is where the
+        # FFT boxes of the next ``h_psi`` are. See :func:`expansion`.
+        correction = expansion(evc, hevc, sbec, energies, settled)
+        # ``at`` is ``nbase`` unless the block's zero tail runs past ``nvecx``,
+        # and then the last ``nbnd`` rows; see :func:`_write_rows`.
+        psi, at = _write_rows(psi, correction, nbase)
+
+        def live_block(m):
+            """``H`` and the projections of the block, over its live rows.
+
+            The rows past ``notcnv`` are exactly zero, so ``H`` of them is zero
+            and the padding below is their value rather than an approximation
+            of it. This is ``cegterg.f90:465``'s ``h_psi_ptr(..., notcnv, ...)``
+            under the one shape a ``lax.while_loop`` body is allowed.
+
+            **One ``calbec`` for both**, as ``h_psi`` computes ``becp`` and
+            ``s_psi`` reads it. ``apply`` followed by ``project`` took it twice,
+            on the masked block and on the block as passed, two products XLA
+            cannot merge since their operands are different arrays; the values
+            were equal because :func:`expansion` masked the block already, so
+            the shared one is bit-for-bit what both were.
+            """
+            if m >= nbnd:
+                return apply_projected(correction, ik)
+            live = correction[:m]
+            h, bp, bq = apply_projected(live, ik)
+            return (jnp.zeros_like(correction).at[:m].set(h),
+                    jnp.zeros((nbnd, bp.shape[1]), bp.dtype).at[:m].set(bp),
+                    jnp.zeros((nbnd, bq.shape[1]), bq.dtype).at[:m].set(bq))
+
+        hcorr, new_becp, new_becq = _at_width(notcnv, band_widths, live_block,
+                                              narrow, axis_name)
+        # The same placement for every array the block lands in, so row ``i``
+        # of each is the same vector.
+        hpsi, _ = _write_rows(hpsi, hcorr, nbase)
+        becp, _ = _write_rows(becp, new_becp, nbase)
+        becq, _ = _write_rows(becq, new_becq, nbase)
+        # A prefix mask, always: the refresh resets it to ``nbnd`` rows and
+        # each step extends it by ``notcnv``.
+        active = jnp.arange(nvecx) < nbase + notcnv
+        # The rows from ``at``: the new ones and, when the write was moved
+        # back, the ``nbase - at`` old ones in front of them, whose rows of
+        # the projected matrices are recomputed from the same vectors.
+        hc_raw, sc_raw = _at_width(
+            at + nbnd, widths,
+            lambda m: _extend_projection(hc_raw, sc_raw, psi, hpsi, becp, becq,
+                                         at, nbnd, gamma_only, width=m),
+            narrow, axis_name,
+        )
+        nbase = nbase + notcnv
+
+        energies, coefficients, sbec, settled, notcnv, converged = solve(
+            psi, hpsi, becq, active, hc_raw, sc_raw, energies, nbase
+        )
+        return (psi, hpsi, becp, becq, active, hc_raw, sc_raw, nbase,
+                coefficients, energies, sbec, settled, notcnv, iteration + 1,
+                converged)
+
+    final = jax.lax.while_loop(unconverged, step, state)
+    energies = final[9]
+    evc, _ = ritz(final[8], final[0], final[1], final[7], with_h=False)
+    wavefunctions = jnp.where(mask, evc, 0.0)
+    if gamma_only:
+        # the states leave as the complex coefficients every caller stores
+        wavefunctions = from_planes(wavefunctions)
+    out = (energies, wavefunctions)
+    if return_steps:
+        # Both are loop carries already: nothing is measured that was not
+        # measured before, and nothing is read on the host inside the loop.
+        out += (final[13], final[12])
+    if return_finite:
+        # **The finiteness guard, reduced here rather than over the stacked
+        # k-set.** It is the same two reductions
+        # :func:`davidson_eigensolver_all` used to take over the whole returned
+        # set -- over the eigenvalues *and* over the masked wavefunctions, for
+        # the reason its docstring gives -- but taken while this k-point's
+        # ``evc`` is the only one in flight. Over the stack the temporaries
+        # scale with ``nk`` and are the largest single allocation in the SCF;
+        # here they are one k-point's, whatever the mesh. The masked array is
+        # what is reduced, not ``evc``, so the answer is identical to the
+        # stacked form rather than merely equivalent.
+        out += (jnp.isfinite(energies).all() & jnp.isfinite(wavefunctions).all(),)
+    return out
+
+
+def starting_vectors(psi0, nbnd, ndim, kinetic, mask, dtype, npol=1, width=None):
+    """The trial vectors: the caller's, or QE's random guess.
+
+    ``wfcinit``'s ``starting_wfc = 'random'`` draws random coefficients damped by
+    ``1/(1 + |k+G|^2)``, so that the guess is concentrated on the low-kinetic
+    plane waves where the occupied states live. The damping is what matters; the
+    particular random numbers are not, so a fixed key is used and the result is
+    reproducible.
+
+    ``width`` is the sphere's own ``npwx`` where the arrays are padded past it
+    (a spiral scan's common shape, a band path's): the numbers are drawn at
+    ``(nbnd, npol * width)``, exactly as the unpadded run draws them, and each of
+    the ``npol`` components is padded with zeros to ``ndim / npol``, so a padded
+    run starts from the unpadded run's vectors rather than from a draw whose
+    every row but the first changes with the width. ``None``, or the padded
+    width itself, is the draw as it always was.
+    """
+    if psi0 is not None:
+        return jnp.where(mask, psi0.astype(dtype), 0.0)
+
+    padded = ndim // npol
+    own = padded if width is None else int(width)
+    keys = jax.random.split(jax.random.PRNGKey(0), 2)
+    real = jax.random.uniform(keys[0], (nbnd, npol * own)) - 0.5
+    imaginary = jax.random.uniform(keys[1], (nbnd, npol * own)) - 0.5
+    draw = real + 1j * imaginary
+    if own != padded:
+        draw = jnp.pad(draw.reshape(nbnd, npol, own),
+                       ((0, 0), (0, 0), (0, padded - own))).reshape(nbnd, ndim)
+    guess = draw.astype(dtype) / (1.0 + kinetic)
+    return jnp.where(mask, guess, 0.0)
+
+
+@partial(jax.jit, static_argnames=("nbnd", "david", "max_iterations", "k_batch",
+                                   "robust", "return_steps", "return_finite"))
+def _every_k(
+    hamiltonian: Hamiltonian,
+    nbnd: int,
+    psi0,
+    ethr,
+    residual_threshold,
+    david: int,
+    max_iterations: int,
+    k_batch: int | None | str,
+    robust: bool,
+    *,
+    return_steps: bool = False,
+    return_finite: bool = False,
+    indices=None,
+):
+    """One compiled solve of the whole k-set, by one of the two routes.
+
+    ``indices`` restricts it to a chunk of k-points, named by their index in
+    the whole set: ``psi0`` is then that chunk's ``(chunk, nbnd, ndim)`` and
+    everything returned has the chunk's length. The Hamiltonian stays whole --
+    it is indexed by ``ik`` already, and slicing it would mean knowing which of
+    its leaves carry a k axis -- and so does ``ethr``, gathered by the same
+    global ``ik``. This is what :func:`~defuqumat.batching.k_chunks` streams
+    through.
+
+    ``return_steps`` and ``return_finite`` are keyword-only and last on purpose:
+    ``tools/gpu``'s memory tool lowers this unit by position, so a new
+    positional parameter would break it with no test to notice.
+
+    ``return_finite`` adds a ``(nk,)`` boolean saying which k-points came back
+    finite. It belongs here rather than in the caller because the reduction is
+    then inside the chunk -- ``k_batch`` k-points at a time instead of the whole
+    stacked set -- and the guard is the caller's largest allocation otherwise.
+    It also brings the guard inside the executable ``tools/gpu/davidson_memory``
+    sizes, which is the other half of the same problem: an allocation outside
+    that unit appears in no line of the size report.
+    """
+    batch = resolve_k_batch(k_batch)
+    # **Whether the subspace may be sized by the live basis is decided here,
+    # because it is a property of the route rather than of the solve.**
+    # ``map_axis`` puts a ``vmap`` around the body for every batch but one --
+    # a single k-point, or ``batch = 1``, which is a plain ``lax.map`` -- and
+    # ``lax.switch`` under ``vmap`` evaluates every branch of the ladder
+    # instead of one. So the narrowing is taken on exactly the routes that have
+    # no batch axis, which are the ones the large single-k cells run on anyway.
+    if indices is None:
+        indices = jnp.arange(hamiltonian.nk)
+    narrow = indices.shape[0] == 1 or batch == 1
+    # ... and on the whole-axis ``vmap``, by naming its axis: the rung is then
+    # the batch's widest, one scalar, and the ``switch`` takes one branch for all
+    # of them (:func:`_at_width`). Only ``lax.map``'s chunks, whose ``vmap`` has
+    # no name, still run at the full width.
+    axis_name = "k" if whole_axis_vmap(indices.shape[0], batch) else None
+    narrow = narrow or axis_name is not None
+
+    def solve(ik, start):
+        # The threshold rides the traced ``ethr`` slot as an ``(nk, nbnd)``
+        # array and is gathered here with the same ``ik`` the solver already
+        # uses for ``state_mask[ik]``. It is *not* a leaf of ``map_k``'s
+        # pytree: keeping it closed over means the chunked, the scanned and the
+        # ``vmap``ped branch all read the same rows, so the chunk size still
+        # cannot change the answer. ``jnp.ndim`` is static on a tracer, so the
+        # branch below is taken at trace time.
+        row = ethr if jnp.ndim(ethr) < 2 else ethr[ik]
+        return davidson_eigensolver(
+            hamiltonian, ik, nbnd, start, ethr=row,
+            residual_threshold=residual_threshold, david=david,
+            max_iterations=max_iterations, robust=robust, narrow=narrow,
+            axis_name=axis_name,
+            return_steps=return_steps, return_finite=return_finite,
+        )
+
+    if psi0 is None:
+        return map_k(lambda ik: solve(ik, None), indices, batch=batch,
+                     axis_name=axis_name)
+    return map_k(lambda pair: solve(*pair), (indices, psi0), batch=batch,
+                 axis_name=axis_name)
+
+
+#: :func:`_every_k` with the starting block **donated**, so the solve may write
+#: its states into the buffer ``psi0`` arrived in (``GPU-MEMORY-NEXT.md`` item
+#: 11). Used only when the caller can rebuild ``psi0`` for the robust retry --
+#: the streamed store, whose host copy is still there -- because a donated
+#: input is deleted by the fast pass. The same trace, so the same bits.
+_every_k_donating = jax.jit(
+    _every_k.__wrapped__,
+    static_argnames=("nbnd", "david", "max_iterations", "k_batch", "robust",
+                     "return_steps", "return_finite"),
+    donate_argnames=("psi0",),
+)
+
+
+def _clear_every_k() -> None:
+    """Drop both compiled forms of :func:`_every_k`."""
+    _every_k.clear_cache()
+    _every_k_donating.clear_cache()
+
+
+def _refuse_a_space_too_small(hamiltonian, nbnd: int) -> None:
+    """``nbnd`` bands asked of a space that does not hold them, refused by name.
+
+    QE's own check, one routine over: ``c_bands.f90:286`` stops with *"too many
+    bands, or too few plane waves"* and ``memory_report.f90:484`` says it a
+    second time before any work is done. What is checked here is
+    ``npol * min_k npw`` rather than ``npwx``, for the reason
+    :attr:`~defuqumat.hamiltonian.operator.Hamiltonian.space` gives, and there are
+    two thresholds rather than one: ``nbnd`` bands need ``nbnd`` dimensions to
+    be independent in, and Davidson needs room for one expansion on top of that
+    -- ``cegterg.f90:125``'s ``nvec > nvecx/2``. Between them the answer is a
+    direct diagonalisation of the space itself rather than an iterative solve
+    inside it, and that is refused by name rather than written, because nothing
+    on any cell committed here reaches it and an untested path is worse than a
+    refusal.
+    """
+    space = hamiltonian.space
+    if nbnd > space:
+        raise ValueError(
+            f"{nbnd} bands asked of a space that holds {space}: the smallest "
+            f"k-point on this set carries {space // hamiltonian.npol} plane "
+            f"waves (npwx is {hamiltonian.npwx}), so the bands beyond that "
+            "cannot be independent and the eigenvalues past it are not "
+            "eigenvalues of anything. Raise ecutwfc, or ask for fewer bands. "
+            "This is QE's own refusal, c_bands.f90:286"
+        )
+    if 2 * nbnd > space:
+        raise ValueError(
+            f"{nbnd} bands in a space of {space} leaves Davidson no room to "
+            "expand: it needs one correction vector per band beside the band "
+            "itself (cegterg.f90:125), so 2 nbnd has to fit. What is right "
+            "here is a direct diagonalisation of the space rather than an "
+            "iterative solve inside it, and that is not written. Raise "
+            "ecutwfc, or ask for fewer bands"
+        )
+
+
+def davidson_eigensolver_all(
+    hamiltonian: Hamiltonian,
+    nbnd: int,
+    psi0=None,
+    ethr=None,
+    residual_threshold=RESIDUAL_THRESHOLD,
+    david: int = DAVID_NDIM,
+    max_iterations: int = MAX_ITERATIONS,
+    k_batch: int | None | str = "default",
+    robust_retry: bool = True,
+    return_steps: bool = False,
+    indices=None,
+    psi0_again=None,
+):
+    """Every k-point, ``k_batch`` of them at a time.
+
+    ``indices`` solves only the k-points it names, with ``psi0`` holding just
+    theirs, and returns arrays of that length -- one chunk of a streamed pass
+    (:func:`~defuqumat.batching.k_chunks`). ``ethr`` is still indexed by the
+    global k-point, so a per-band threshold is passed whole.
+
+    This is where the k-axis working set is largest: each k-point in flight
+    holds ``david * nbnd`` subspace vectors of length ``npol * npwx``, three of
+    them (``psi``, ``hpsi``, ``spsi``), plus whatever ``h_psi`` needs to
+    transform a block of bands. Multiplying that by ``nk`` is what a ``vmap``
+    over the whole axis does, and it is why the default here is QE's loop --
+    ``c_bands.f90`` calls ``diag_bands`` on one ``ik`` at a time. See
+    :mod:`defuqumat.batching`.
+
+    The chunking cannot change the answer: the k-points are independent here,
+    and each is solved by exactly the same function either way.
+
+    **This is also where the indefinite-overlap guard lives, and it is here
+    rather than inside the solve for a reason that is entirely about batching.**
+    ``generalised_eigh``'s ``lax.cond`` between the Cholesky route and canonical
+    orthogonalisation is a real branch only where its predicate is a scalar; one
+    level down, inside a ``vmap`` over k, the predicate is batched and JAX
+    lowers the ``cond`` to a ``select_n`` over **both** branches. That is 2.85x
+    of the subspace solve on ``si10-nc``'s shapes, paid on every step of every
+    multi-k run in the mode an accelerator defaults to.
+
+    So the batched solve takes the Cholesky route with no ``cond`` in it at all,
+    and the guard is applied *here*, where ``jnp.all(jnp.isfinite(...))`` over
+    the whole k-set -- of the eigenvalues **and** of the wavefunctions -- is one
+    scalar and ``lax.cond`` is a branch again. A clean
+    solve pays one reduction; a solve that has gone non-finite -- the 64-atom
+    ``NaN`` -- is repeated for every k-point with canonical orthogonalisation,
+    which is strictly more work than the old per-step ``cond`` in exactly the
+    case that was already broken. The per-step loop exits as soon as the
+    eigenvalues stop being finite (see ``unconverged``), so the wasted half of
+    that retry is a few steps rather than the whole budget.
+
+    The values returned are bit-for-bit what the guarded version returned
+    whenever the guard passed, because the guard passing *is* taking the
+    Cholesky route's own answer.
+
+    **The guard is a Python branch and not a ``lax.cond``, and that is a memory
+    decision.** ``robust`` is static -- it picks between two different subspace
+    routines -- so a ``cond`` over it puts *two* copies of the whole Davidson
+    ``while_loop`` in one executable. XLA shares the big ``(nvecx, npwx)``
+    carries between them, but not the ``(nbnd, npwx)`` correction: the buffer
+    assignment gives ``while.4`` and ``while.5`` a slot each, which is one band
+    block of pure duplication -- 5.8 GiB on a 157-atom slab -- and twice the
+    HLO for the rematerialisation pass to work on, which is where a large run
+    actually fails. Branching on the host costs one scalar transfer per call,
+    at a point where :meth:`~defuqumat.scf.driver.Calculation.diagonalize`'s
+    caller synchronises on the Fermi level a few lines later anyway.
+
+    ``robust_retry = False`` keeps the whole thing inside one ``jit`` for a
+    caller that has to trace through it; ``clear_cache`` reaches the compiled
+    unit, so a test that monkeypatches the subspace route still works.
+
+    ``ethr`` may be a scalar, an ``(nbnd,)`` vector applied at every k-point, or
+    an ``(nk, nbnd)`` one. **It is broadcast to ``(nk, nbnd)`` here, on the
+    host, and the reason is compilation rather than convenience**: the value is
+    traced, so no value of it ever recompiles, but a ``()`` aval and an
+    ``(nk, nbnd)`` aval are two signatures -- and an SCF whose first iteration
+    has no occupations yet, hence a scalar, and whose second has a vector would
+    compile the whole Davidson stack twice.
+
+    ``return_steps`` adds the per-k step count and unsettled-band count to the
+    return, ``(nk,)`` each. It is off by default so that every existing caller
+    still unpacks two values, and it is applied **here, on the host**: the
+    compiled unit returns the pair whatever was asked, so an SCF, which asks,
+    and a residual map or a topology workflow at the same shapes, which do not,
+    run one executable rather than two.
+
+    ``psi0_again`` is a callable that returns ``psi0`` afresh, and passing it
+    **donates** ``psi0`` to the fast pass: the states are written into its
+    buffer, so a chunk holds one band block where it held two, and the
+    alternating allocate-and-free of a whole block per call goes away
+    (``MEMORY-AUDIT.md`` A16 measured the saving at exactly one buffer). The
+    rare robust retry calls it for the starting block the fast pass consumed.
+    The streamed solve passes it, since its host store still holds the block;
+    the caller must not read ``psi0`` after the call.
+    """
+    _refuse_a_space_too_small(hamiltonian, nbnd)
+    ethr = jnp.broadcast_to(
+        jnp.asarray(ETHR if ethr is None else ethr,
+                    dtype=hamiltonian.kinetic.dtype),
+        (hamiltonian.nk, nbnd),
+    )
+    # **``psi0`` is consumed twice, and that is what blocks ``donate_argnums``
+    # here.** ``CLAUDE.md``'s JAX rules ask for donation on the large
+    # wavefunction buffers, and this is the call where it would pay: the SCF
+    # allocates a fresh ``(nk, nbnd, ndim)`` output every iteration and frees
+    # the input, which at 45-atom slab shapes is 12.10 GB allocated and 12.10
+    # GB freed per iteration -- the alternating large-block pattern that leaves
+    # a BFC arena with bytes free and no contiguous hole, which is how every
+    # death on that cell happened. But this same tuple feeds the ``robust``
+    # call below, so a donated ``psi0`` would be deleted by the fast pass and
+    # the retry would raise on a deleted array. The retry is rare and the
+    # donation is not conditional on it, so the two cannot coexist as written.
+    #
+    # **What it would take, and why it is not done here.** Either the robust
+    # pass starts from something other than ``psi0`` -- random vectors, which
+    # is a *physics* change to the retry path and would move numbers on it --
+    # or ``psi0`` is copied for it, which is the allocation donation exists to
+    # remove. Neither is a memory decision alone. Measured, not assumed: on a
+    # controlled compile, donating one wavefunction-shaped input takes the
+    # executable's argument-plus-output requirement down by exactly one buffer
+    # and sets ``memory_analysis().alias_size_in_bytes`` to that buffer's size,
+    # so the win is real and it is this structure that is in the way.
+    arguments = (hamiltonian, nbnd, psi0, ethr, residual_threshold, david,
+                 max_iterations, k_batch)
+    # Passed only when there is a chunk, so a whole-set solve calls ``_every_k``
+    # exactly as it always has -- ``tools/gpu``'s memory tool and the tests'
+    # stand-ins for it are written against that signature.
+    chunk = {} if indices is None else {"indices": jnp.asarray(indices)}
+    # **The compiled unit always returns the step counts, and they are dropped
+    # here when they were not asked for** (``OPEN.md`` Part III M6). As a static
+    # argument, ``return_steps`` made ``True`` and ``False`` two compilations of
+    # the whole solver at the same shapes, so a process that ran an SCF, which
+    # asks for them, and then a residual map, a topology workflow or
+    # electrostriction, which do not, compiled Davidson twice. The two counters
+    # are loop carries the solve has anyway, so carrying them out costs two
+    # ``(nk,)`` integer arrays.
+    def wanted(out):
+        return out if return_steps else out[:2]
+
+    if not robust_retry:
+        return wanted(_every_k(*arguments, robust=False, return_steps=True,
+                               **chunk))
+    # Both halves, not just the eigenvalues. A Cholesky factor that has gone
+    # non-finite does not necessarily poison every root -- the first regression
+    # test written for the 64-atom NaN passed on the *unfixed* code precisely
+    # because the failure sat in a triangle nothing read -- so a guard that
+    # watches only the energies can pass a wavefunction with a NaN in it
+    # straight into the density. Two reductions against a solve is not a cost.
+    #
+    # **Per k-point, not over the whole set.** This reduction used to be one
+    # scalar ``jnp.isfinite(...).all()``, and the retry it gated replaced
+    # *every* k-point's result with the robust route's. That is wrong twice
+    # over on a dense mesh, where one bad k-point in ten is ordinary rather
+    # than exceptional: the converged Cholesky answers at the other nine were
+    # discarded and recomputed from a fresh random start, and if the robust
+    # pass then hit its iteration budget -- which nothing downstream checks --
+    # the caller received *less* converged wavefunctions than the ones thrown
+    # away. Measured on a 1H-NbSe2 mesh at ``ethr = 4e-9``: k-points 0-4 all
+    # finite, k-point 9 non-finite, and the whole-set retry turned 509 s into
+    # 1368 s while replacing four good solves.
+    #
+    # **Where the reduction happens is a memory decision, and it is the whole
+    # point of ``return_finite``.** Written here, over the returned stack, it
+    # was the single largest allocation in the SCF: the temporaries scale with
+    # the *set*, and on a 45-atom NiBr2 slab (nk 6, nbnd 403, npwx 156346,
+    # spinor) an H100 was asked for **21.40 GiB** against an 11.27 GiB
+    # wavefunction store and died -- ``RESOURCE_EXHAUSTED``, at SCF iteration
+    # 13, in a pool with 25.7 GB free and a 14.9 GB largest hole. It ran every
+    # iteration, not only on a retry. Inside the per-k solve the same two
+    # reductions see one k-point, so the cost stops following ``nk``: compiled
+    # on this CPU backend the stacked form is 0.70 GiB at that shape and 2.82
+    # GiB at nk = 24, against **0.12 GiB flat** for the moved one. The CPU
+    # coefficient is far below the GPU's -- fusion is not the same on the two
+    # backends, the same caveat ``tools/gpu/davidson_memory`` states for the
+    # subspace buffer -- but the *form* is what matters here: one is
+    # proportional to the k-set and the other is not.
+    # A donated ``psi0`` is consumed here, and ``psi0_again`` is what the
+    # retry below starts from instead (see the note above ``arguments``).
+    donate = psi0_again is not None and psi0 is not None
+    fast = (_every_k_donating if donate else _every_k)(
+        *arguments, robust=False, return_steps=True,
+        return_finite=True, **chunk)
+    fast, per_k = fast[:-1], fast[-1]
+    failed = ~np.asarray(per_k)
+    if not failed.any():
+        return wanted(fast)
+    # Named by their index in the whole set, which on a streamed chunk is not
+    # their position in it.
+    named = (np.flatnonzero(failed) if indices is None
+             else np.asarray(indices)[failed])
+    warnings.warn(
+        f"{int(failed.sum())} of {failed.size} k-points failed on the Cholesky "
+        f"route ({named.tolist()[:8]}{' ...' if failed.sum() > 8 else ''}): "
+        "either the factor of the subspace overlap was not finite, or it was "
+        "and the Ritz vectors it gave were not S-orthonormal, which is the "
+        "overlap at the round-off floor giving a spurious root. They are being "
+        "re-solved with canonical orthogonalisation. A singular overlap here "
+        "is usually a solve that stalled rather than a bad Hamiltonian -- "
+        "check the step counts, and loosen ethr (conv_thr) before trusting "
+        "the result",
+        stacklevel=2,
+    )
+    if donate:
+        arguments = (hamiltonian, nbnd, psi0_again(), *arguments[3:])
+    robust = _every_k(*arguments, robust=True, return_steps=True, **chunk)
+    # Keep what the fast route already converged. The robust pass still runs
+    # over the whole k-set -- the shapes are static, so it must -- but its
+    # answer is taken only where the fast one has none.
+    take = jnp.asarray(failed)
+    return wanted(tuple(
+        jnp.where(take.reshape((-1,) + (1,) * (jnp.ndim(quick) - 1)), sturdy, quick)
+        for quick, sturdy in zip(fast, robust)
+    ))
+
+
+davidson_eigensolver_all.clear_cache = _clear_every_k

@@ -4,8 +4,8 @@ from pathlib import Path
 import numpy as np
 import jax, jax.numpy as jnp
 from tests.regression.test_ultracell import _noncollinear, _modulation, _fourier
-from defumat.scf.driver import Calculation, run_scf
-from defumat.ultracell import run_ultracell, with_external_potential
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.ultracell import run_ultracell, with_external_potential
 
 pseudo_dir = Path("/l/ladovj1/w-a/tests/data/pseudo")
 tmp = Path("/l/ladovj1/review/open-a/xx2-tmp"); tmp.mkdir(parents=True, exist_ok=True)

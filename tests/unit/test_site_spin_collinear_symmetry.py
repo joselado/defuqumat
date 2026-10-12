@@ -24,11 +24,11 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from defumat.projwfc.angular_momentum import _symmetrise_axial
-from defumat.system.builder import build_system, system_from_file
-from defumat.io.pwin import parse_pw_input
-from defumat.system.kpoints import is_reduced
-from defumat.system.symmetry import (
+from defuqumat.projwfc.angular_momentum import _symmetrise_axial
+from defuqumat.system.builder import build_system, system_from_file
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system.kpoints import is_reduced
+from defuqumat.system.symmetry import (
     atom_mapping,
     symmetrize_atom_cartesian_tensor,
 )

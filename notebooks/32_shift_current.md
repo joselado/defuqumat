@@ -26,9 +26,9 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat import Calculator
-from defumat.system.kpoints import KPoints
-from defumat.units import RY_TO_EV
+from defuqumat import Calculator
+from defuqumat.system.kpoints import KPoints
+from defuqumat.units import RY_TO_EV
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 

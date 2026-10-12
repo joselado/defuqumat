@@ -55,18 +55,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.forces.energy import state_from_result
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation, run_scf
-from defumat.stress import compute_stress
-from defumat.stress.analytic import analytic_terms
-from defumat.stress.autodiff import autodiff_stress_terms
-from defumat.system import build_system
-from defumat.system.symmetry import symmetrize_matrix
+from defuqumat.forces.energy import state_from_result
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.stress import compute_stress
+from defuqumat.stress.analytic import analytic_terms
+from defuqumat.stress.autodiff import autodiff_stress_terms
+from defuqumat.system import build_system
+from defuqumat.system.symmetry import symmetrize_matrix
 from tests.conftest import reference_output
-from defumat.units import RY_TO_KBAR
+from defuqumat.units import RY_TO_KBAR
 from tests.tolerances import STRESS_RY_BOHR3, TOTAL_ENERGY_RY
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
@@ -375,7 +375,7 @@ def test_the_frozen_energy_at_zero_strain_is_the_scf_total(pseudo_dir):
     """
     import jax.numpy as jnp
 
-    from defumat.stress.energy import strained_energy
+    from defuqumat.stress.energy import strained_energy
 
     for case in ("si2-nc-sheared", "si2-us-stress", "si2-paw-stress"):
         _, calculation, result = _converged(CASES / f"{case}.in", pseudo_dir)
@@ -441,7 +441,7 @@ def test_an_input_asking_for_an_impossible_stress_warns_rather_than_raising(pseu
     pre-existing and unexplained in ``PLAN.md`` P74 and measured again on a
     cluster node in ``OPEN.md`` Part XIII item 4. What the test is about is the
     switching-off, not the regime, so it now uses a regime
-    :func:`~defumat.stress.energy.require_a_differentiable_cell` still refuses:
+    :func:`~defuqumat.stress.energy.require_a_differentiable_cell` still refuses:
     a spin spiral, whose ``q`` is given in lattice coordinates, so a strain
     turns the spiral too. The spinor stress itself is covered by
     ``test_spinor_forces.py::test_stress_matches_quantum_espresso``, against
@@ -466,7 +466,7 @@ def test_a_noncollinear_run_is_refused_rather_than_approximated(pseudo_dir):
     """``pw_noncolin/noncolin.in`` is the rung this phase did not reach."""
     import jax.numpy as jnp
 
-    from defumat.stress.energy import strained_energy
+    from defuqumat.stress.energy import strained_energy
 
     system = build_system(read_pw_input(CASES / "h-chain-90deg.in"))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)

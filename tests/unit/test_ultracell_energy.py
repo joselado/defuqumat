@@ -1,7 +1,7 @@
 """The ultracell energy assembly, without an SCF in it.
 
 ``PLAN.md`` P88 stage 4. Four conventions live in
-:mod:`defumat.ultracell.energy` and each of them is the kind that goes wrong
+:mod:`defuqumat.ultracell.energy` and each of them is the kind that goes wrong
 silently: a term normalised per ultracell where it should be per unit cell is a
 factor of ``N`` in a number that still looks like an energy; a field paired into
 ``deband`` with the wrong sign is an energy that moves the right way and by
@@ -21,15 +21,15 @@ import pytest
 
 import jax.numpy as jnp
 
-from defumat.basis.builder import build_basis
-from defumat.io.pwin import read_pw_input
-from defumat.system import build_system
-from defumat.ultracell.energy import (
+from defuqumat.basis.builder import build_basis
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.system import build_system
+from defuqumat.ultracell.energy import (
     total_of,
     ultracell_energy,
     ultracell_entropy,
 )
-from defumat.ultracell.grid import Ultracell
+from defuqumat.ultracell.grid import Ultracell
 
 ROOT = Path(__file__).resolve().parents[2]
 

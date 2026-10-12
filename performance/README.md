@@ -34,11 +34,11 @@ is twenty-five, adding a size ladder and a sweep across the physics at fixed
 size.
 
 ```bash
-tools/run_benchmark.sh              # Quantum ESPRESSO, defumat on a core, a GPU if present
+tools/run_benchmark.sh              # Quantum ESPRESSO, defuqumat on a core, a GPU if present
 tools/run_benchmark.sh complete
 ```
 
-Both codes are pinned to one core, and a GPU leg is reported against defumat on
+Both codes are pinned to one core, and a GPU leg is reported against defuqumat on
 CPU rather than against Quantum ESPRESSO, since only one side of that comparison
 changed. `tools/cluster/submit_benchmark.py` writes the same sweep as Slurm array
 scripts for a cluster, and `PERFORMANCE.md` is the running log of what the
@@ -46,7 +46,7 @@ comparison has read over time.
 
 ## What it measures, and why that way
 
-The project's metric is **single-core defumat against single-core Quantum
+The project's metric is **single-core defuqumat against single-core Quantum
 ESPRESSO, same machine, same input, same `conv_thr`** — see `PERFORMANCE.md` for
 the running commentary and `tools/compare_qe.py` for the measurement itself,
 which this script drives and typesets.
@@ -69,7 +69,7 @@ which this script drives and typesets.
 The benchmark inputs are **single k-point on purpose**: both codes parallelise
 over k, so a multi-k comparison measures batching rather than the cost of the
 physics. How many k-points this code holds at once is a separate axis with its
-own measurement — `defumat/batching.py`, and the k-axis section of
+own measurement — `defuqumat/batching.py`, and the k-axis section of
 `PERFORMANCE.md`.
 
 ## Requirements
@@ -103,8 +103,8 @@ python3 performance/sets.py complete --describe    # what is in a set, and why
 | leg | what runs | what it is compared against |
 |---|---|---|
 | `qe` | `pw.x`, one core, timed by its own report | — it is the baseline |
-| `cpu` | defumat, one core, both batching dials at QE's end | `qe`, per SCF iteration — *the project's metric* |
-| `gpu` | defumat, one GPU, both dials batched | `cpu`, per SCF iteration — `GPU.md` §2.3's metric |
+| `cpu` | defuqumat, one core, both batching dials at QE's end | `qe`, per SCF iteration — *the project's metric* |
+| `gpu` | defuqumat, one GPU, both dials batched | `cpu`, per SCF iteration — `GPU.md` §2.3's metric |
 
 The report prints them as two tables and never mixes them. A GPU number put
 against single-core QE would be meaningless in the same way an unpinned CPU
@@ -126,7 +126,7 @@ than from a retyped copy.
   moves with one can be told from a ratio that moves with the other.
 
 **The kernel cache is off by default** (`--cache`), and that is not incidental:
-with `~/.cache/defumat/jax` live, a "cold" run is reading an earlier run's
+with `~/.cache/defuqumat/jax` live, a "cold" run is reading an earlier run's
 compilation and the cold/warm split stops being a measurement. On a cluster it
 would be a *concurrent* task's compilation.
 
@@ -179,7 +179,7 @@ against the generator.
 ## `gpu-sweep.*` — the GPU report
 
 A second, hand-run report beside the single-core one, and **a different metric**:
-defumat on one GPU against Quantum ESPRESSO on one CPU core, across twelve
+defuqumat on one GPU against Quantum ESPRESSO on one CPU core, across twelve
 cases spanning the pseudopotential kinds, a GGA, a metal, collinear and
 noncollinear magnetism, spin-orbit coupling and DFT+U, at 10-40 atoms.
 

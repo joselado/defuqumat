@@ -1,11 +1,11 @@
 ---
 name: reference-timing
-description: Measure defumat against the code a feature was taken from - single-core pw.x or Elk on the same machine and the same physics - and record the pair in PERFORMANCE.md. Encodes the mistakes that have invalidated timings here - a measurement taken beside a test run, a multi-k benchmark that measures batching instead of physics, a two-atom cell that hides every real cost, and an Elk task compared against work it does not do. Use when a feature lands, when a hot spot moves, when asked how fast something is, and before claiming any speed result.
+description: Measure defuqumat against the code a feature was taken from - single-core pw.x or Elk on the same machine and the same physics - and record the pair in PERFORMANCE.md. Encodes the mistakes that have invalidated timings here - a measurement taken beside a test run, a multi-k benchmark that measures batching instead of physics, a two-atom cell that hides every real cost, and an Elk task compared against work it does not do. Use when a feature lands, when a hot spot moves, when asked how fast something is, and before claiming any speed result.
 ---
 
 # Timing against the reference code
 
-**The measurement is single-core defumat against single-core Quantum ESPRESSO or Elk, on
+**The measurement is single-core defuqumat against single-core Quantum ESPRESSO or Elk, on
 the same machine and the same input.** That comparison is the starting point of any
 performance discussion, not a summary of one. A number without the reference code beside
 it does not say whether the cost is what the physics costs or what this implementation
@@ -60,7 +60,7 @@ must be **stated beside the number**, not discovered by a reader:
 - **Say what is not comparable.** LAPW's basis is not a plane-wave sphere. Write that down.
 - **Time the same work, not the same task number.** Codes split post-processing
   differently. Elk's `dielectric` task reads momentum matrix elements off a file that a
-  *previous* task produced, so timing it alone against a defumat call that **builds**
+  *previous* task produced, so timing it alone against a defuqumat call that **builds**
   `dH/dk` compares a contraction against a contraction plus its operator. Add the steps up
   until both sides start from the same place - usually a converged ground state - and say
   in the entry which steps were added.
@@ -102,7 +102,7 @@ absent timing with no explanation is indistinguishable from a forgotten one.
 
 - **`ulimit -v` is the wrong cap.** It bounds virtual address space, and XLA reserves
   arenas far larger than it ever resides in - a 16 GB cap failed tests that need a couple
-  of GB. Use the cgroup (`DEFUMAT_TEST_MEM_MAX`, through `tools/run_regression.sh`), which
+  of GB. Use the cgroup (`DEFUQUMAT_TEST_MEM_MAX`, through `tools/run_regression.sh`), which
   bounds resident memory and lets a 4 GB cap run work with a 1.0 GB peak.
 - **`XLA_PYTHON_CLIENT_MEM_FRACTION` is a GPU knob.** It sizes the PJRT device allocator's
   pool. On CPU there is no such pool and nothing to bound.

@@ -14,7 +14,7 @@
 # `fermi-dirac` on this side and `stype = 3` on Elk's, both totals carry `-TS`.
 #
 #   0, 1, 2   Elk at q_3 = 0, 1/4, 1/2
-#   3, 4, 5   defumat at the same three
+#   3, 4, 5   defuqumat at the same three
 #
 # **No number carries across from the Gaussian pair.** A different smearing
 # function is a different free-energy surface, so the moment, the energy and
@@ -34,7 +34,7 @@
 #               there is no reason to expect a different count, so this is
 #               headroom rather than an estimate.
 # cpus-per-task 4, with OMP pinned to the same 4 for Elk and to 1 beside XLA for
-#               defumat. No timing pair is taken here.
+#               defuqumat. No timing pair is taken here.
 # mem           16G. One hydrogen atom; headroom, not a size.
 #SBATCH --job-name=spiral-fd
 #SBATCH --partition=batch-milan
@@ -46,14 +46,14 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-magnetism/out/fd-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-magnetism
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 FIXTURE="$REPO/tests/data/elk/h_chain_spiral_fd"
 
 TASK=${SLURM_ARRAY_TASK_ID:-0}
 QVALUES=(0.0 0.25 0.5)
 if [ "$TASK" -lt 3 ]; then CODE=elk; QZ=${QVALUES[$TASK]};
-else CODE=defumat; QZ=${QVALUES[$((TASK - 3))]}; fi
+else CODE=defuqumat; QZ=${QVALUES[$((TASK - 3))]}; fi
 
 mkdir -p "$WORK/out" || exit 1
 echo "=== node ==="; hostname; date
@@ -101,7 +101,7 @@ else
     cd "$REPO" || exit 1
     source "$VENV/bin/activate" || exit 1
     export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-    export JAX_PLATFORMS=cpu PYTHONPATH="$REPO" DEFUMAT_CACHE_DIR=off
+    export JAX_PLATFORMS=cpu PYTHONPATH="$REPO" DEFUQUMAT_CACHE_DIR=off
     python3 -u tools/cluster/spiral_fd.py --q "$QZ" \
         --out "$WORK/out/fd-${SLURM_ARRAY_JOB_ID}-q$QZ.json"
     echo "exit $?"

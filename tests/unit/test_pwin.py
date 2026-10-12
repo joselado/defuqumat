@@ -2,7 +2,7 @@
 
 import pytest
 
-from defumat.io.pwin import parse_pw_input
+from defuqumat.io.pwin import parse_pw_input
 
 pytestmark = pytest.mark.unit
 
@@ -200,7 +200,7 @@ def test_physics_this_code_does_not_have_is_refused_not_ignored(
     ``tot_charge`` is the sharpest: ``nelec`` is ``sum(Z)`` here, so
     ``pw_cluster/cluster2.in``'s singly-charged cell would have run neutral.
     """
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     with pytest.raises(NotImplementedError, match=expected):
         build_system(parse_pw_input(_MINIMAL.format(control=control, system=system)))
@@ -208,7 +208,7 @@ def test_physics_this_code_does_not_have_is_refused_not_ignored(
 
 def test_the_defaults_of_all_seven_are_silent():
     """An ordinary input must not go anywhere near the refusal."""
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     build_system(parse_pw_input(_MINIMAL.format(
         control="tefield = .false., dipfield = .false.",
@@ -222,10 +222,10 @@ def test_the_four_symmetry_switches_are_silent_at_their_defaults():
 
     They were read by *nothing* in the package before -- ``no_t_rev``,
     ``force_symmorphic``, ``use_all_frac`` and ``nosym_evc`` had zero
-    occurrences anywhere in ``defumat/`` -- so an input excluding part of the
+    occurrences anywhere in ``defuqumat/`` -- so an input excluding part of the
     group got its k-mesh reduced with that part anyway.
     """
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     build_system(parse_pw_input(_MINIMAL.format(
         control="",
@@ -260,7 +260,7 @@ def test_every_fortran_logical_spelling(token, expected):
 
 def test_lberry_false_written_bare_does_not_ask_for_a_berry_run():
     """The end of that path: ``lberry = F`` asked for gdir and nppstr."""
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     build_system(parse_pw_input(_MINIMAL.format(control="lberry = F", system="")))
 
@@ -285,7 +285,7 @@ def test_the_pre_7_1_hubbard_spelling_is_refused(system):
 
     ``pw.x`` 7.5 stops on the same set (``Modules/read_namelists.f90``).
     """
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     with pytest.raises(NotImplementedError, match="HUBBARD card"):
         build_system(parse_pw_input(_MINIMAL.format(control="", system=system)))
@@ -297,7 +297,7 @@ def test_the_pre_7_1_hubbard_spelling_is_refused(system):
 )
 def test_an_input_that_never_asked_for_a_u_is_silent(system):
     """QE's test is on the *value*, so writing the default longhand passes."""
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     build_system(parse_pw_input(_MINIMAL.format(control="", system=system)))
 
@@ -308,7 +308,7 @@ def test_ibrav_and_cell_parameters_together_are_refused():
     That is how a relaxed cell pasted back under an input that still carries
     its ``ibrav`` ran the pre-relaxation geometry.
     """
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     text = _MINIMAL.format(control="", system="") + (
         "CELL_PARAMETERS bohr\n 6.0 0.0 0.0\n 0.0 6.0 0.0\n 0.0 0.0 6.0\n"
@@ -324,7 +324,7 @@ def test_ibrav_zero_still_reads_the_card():
     ``bohr`` card carries the lattice parameter itself, and the two together are
     what :func:`test_a_lattice_parameter_given_twice_is_refused` covers.
     """
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     text = (
         _MINIMAL.format(control="", system="")
@@ -345,7 +345,7 @@ def test_celldm_and_the_crystallographic_a_together_are_refused():
     what this did, converges a ground state for whichever of the two the user
     did not mean. ``pw.x`` stops on it (``Modules/cell_base.f90``).
     """
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     text = _MINIMAL.format(control="", system="A = 5.43")
     with pytest.raises(ValueError, match="do not specify both celldm and a,b,c"):
@@ -361,7 +361,7 @@ def test_a_lattice_parameter_given_twice_is_refused(units):
     scaled by a lattice parameter the cell does not come from: in this input the
     cell is a 6 bohr cube and the second silicon sat at 0.25 * 10.2 bohr.
     """
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     text = _MINIMAL.format(control="", system="").replace("ibrav=2", "ibrav=0") + (
         f"CELL_PARAMETERS {units}\n 6.0 0.0 0.0\n 0.0 6.0 0.0\n 0.0 0.0 6.0\n"
@@ -372,7 +372,7 @@ def test_a_lattice_parameter_given_twice_is_refused(units):
 
 def test_an_alat_card_still_takes_its_lattice_parameter_from_celldm():
     """The refusal is about *absolute* units, and ``alat`` units need celldm."""
-    from defumat.system.builder import build_system
+    from defuqumat.system.builder import build_system
 
     text = _MINIMAL.format(control="", system="").replace("ibrav=2", "ibrav=0") + (
         "CELL_PARAMETERS alat\n 1.0 0.0 0.0\n 0.0 1.0 0.0\n 0.0 0.0 1.0\n"

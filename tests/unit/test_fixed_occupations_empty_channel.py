@@ -27,14 +27,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.scf.driver import Calculation
-from defumat.scf.occupations import (
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.occupations import (
     EMPTY_CHANNEL_LEVEL,
     fixed_occupations,
     spin_electron_counts,
 )
-from defumat.system.builder import build_system
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 

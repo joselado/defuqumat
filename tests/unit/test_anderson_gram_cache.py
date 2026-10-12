@@ -26,8 +26,8 @@ vectors were dotted rather than about how the BLAS sums them.
 import numpy as np
 import pytest
 
-from defumat.scf.checkpoint import load_mixer, save_mixer
-from defumat.scf.mixing import AndersonMixer, get_mixer
+from defuqumat.scf.checkpoint import load_mixer, save_mixer
+from defuqumat.scf.mixing import AndersonMixer, get_mixer
 
 pytestmark = pytest.mark.unit
 

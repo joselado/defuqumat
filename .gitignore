@@ -42,7 +42,7 @@ performance/*.out
 *.local.md
 regression-results/
 
-# xelatex build products for slides/defumat.tex. The PDF is committed.
+# xelatex build products for slides/defuqumat.tex. The PDF is committed.
 slides/*.aux
 slides/*.log
 slides/*.nav

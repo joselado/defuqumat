@@ -29,11 +29,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import defumat  # noqa: F401  (x64)
-from defumat import Calculator
-from defumat.realtime.propagators import taylor4
-from defumat.system.kpoints import KPoints
-from defumat.workflows.nscf import fixed_density_states
+import defuqumat  # noqa: F401  (x64)
+from defuqumat import Calculator
+from defuqumat.realtime.propagators import taylor4
+from defuqumat.system.kpoints import KPoints
+from defuqumat.workflows.nscf import fixed_density_states
 
 
 def _median(fn, repeats):
@@ -98,12 +98,12 @@ def main(path, repeats=15):
         return taylor4(lambda x: ham.apply(x, 0), psi, 0.05, 0.0)
 
     # The same three operations through the table of g_l(q^2)
-    # (:mod:`defumat.realtime.radial`) instead of the direct transform.
+    # (:mod:`defuqumat.realtime.radial`) instead of the direct transform.
     import dataclasses
 
     import equinox as eqx
 
-    from defumat.realtime.radial import radial_table
+    from defuqumat.realtime.radial import radial_table
 
     ecut = float(calculation.system.ecutwfc) if hasattr(calculation.system, "ecutwfc") else None
     kmax = float(np.max(np.linalg.norm(np.asarray(row.projector_core.kg[0]), axis=-1)))
@@ -166,7 +166,7 @@ def main(path, repeats=15):
 
     # The frozen sphere's error: H(k + kappa) on the sphere of k against the
     # sphere of k + kappa, lowest nocc + 4 eigenvalues, kappa along x.
-    from defumat.units import RY_TO_EV
+    from defuqumat.units import RY_TO_EV
 
     cell = calculation.system.cell
     for size in (0.1, 0.3, 0.5):

@@ -30,8 +30,8 @@ from scipy.stats import unitary_group
 
 import jax.numpy as jnp
 
-from defumat.response.photocurrent import dipole_matrix
-from defumat.response.shg import (
+from defuqumat.response.photocurrent import dipole_matrix
+from defuqumat.response.shg import (
     CHI2_AU_TO_PM_PER_V,
     OCCUPATION_TOL,
     band_velocity_difference,

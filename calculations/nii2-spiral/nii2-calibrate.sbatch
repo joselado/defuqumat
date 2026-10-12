@@ -22,7 +22,7 @@
 #             (45 x 45 x 270) x 16 B = 8.7 MB, so a fully batched h_psi at
 #             k_batch = 81 would be ~90 GB of transforms alone.
 # time        01:00:00 -- three ten-iteration runs plus compile.
-# cpus-per-task 4, matching the existing defumat GPU jobs; XLA pinned to it.
+# cpus-per-task 4, matching the existing defuqumat GPU jobs; XLA pinned to it.
 # mem         160G host.
 #SBATCH --job-name=nii2-calib
 #SBATCH --partition=gpu-h200-141g-short
@@ -40,7 +40,7 @@ cd "$REPO" || exit 1
 source /scratch/work/ladovj1/calculations/defumat-gpu/venv/bin/activate
 
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache-gpu"
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 export PYTHONPATH="$REPO"
 
 echo "=== node ==="; hostname; date

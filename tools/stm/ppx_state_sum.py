@@ -7,7 +7,7 @@ states (``local_dos`` with ``iflag = 0``, ``wg = 1``); this script
    with its window rule transcribed literally, and checks it against pp.x's
    own STM dump (``al.stm.b20``) -- if this does not reproduce it, the
    transcription is wrong and nothing below means anything;
-2. compares every state's density with defumat's, multiplet by multiplet
+2. compares every state's density with defuqumat's, multiplet by multiplet
    (rule D4: a single member of a degenerate multiplet is not comparable);
 3. builds the image both ways, each with each code's window rule.
 
@@ -104,8 +104,8 @@ for k in np.nonzero(np.abs(mask_stale - mask_fresh).sum(1))[0]:
     print(f"  stale drops k {k + 1} {xk_qe[k]} band(s) {b + 1} e-E_F {eig_qe[k, b] - ef} Ry "
           f"weight {wg[k, b]}", flush=True)
 
-# -- defumat's states --------------------------------------------------------
-from defumat import Calculator  # noqa: E402
+# -- defuqumat's states --------------------------------------------------------
+from defuqumat import Calculator  # noqa: E402
 
 calc = Calculator.from_file(REPO + "/tests/data/qe/al-metal-nosym.in",
                             pseudo_dir=REPO + "/tests/data/pseudo")
@@ -115,13 +115,13 @@ eig = np.asarray(scf.eigenvalues_by_spin)[0]
 coords = np.asarray(cal.system.kpoints.coords)
 order = [int(np.argmin(np.linalg.norm(coords - k, axis=1))) for k in xk_qe]
 worst = max(float(np.linalg.norm(coords[o] - k)) for o, k in zip(order, xk_qe))
-print(f"defumat: E_F {float(scf.fermi_energy):.10f} Ry (pw.x {ef:.10f}); k match "
+print(f"defuqumat: E_F {float(scf.fermi_energy):.10f} Ry (pw.x {ef:.10f}); k match "
       f"worst {worst:.1e}, identity order {order == list(range(nk))}", flush=True)
 eig = eig[order]
-print(f"eigenvalues: max |defumat - pw.x| = {np.abs(eig - eig_qe).max():.3e} Ry", flush=True)
+print(f"eigenvalues: max |defuqumat - pw.x| = {np.abs(eig - eig_qe).max():.3e} Ry", flush=True)
 wfc = scf.wavefunctions
 wk = np.asarray(cal.system.kpoints.weights)
-print(f"defumat sum wk {wk.sum():.6f}", flush=True)
+print(f"defuqumat sum wk {wk.sum():.6f}", flush=True)
 
 D = np.zeros_like(P)
 for i, k in enumerate(order):
@@ -149,9 +149,9 @@ for row in worst[:12]:
     print("  ", row, flush=True)
 
 wgd = wk[order][:, None] * w0gauss_mv((ef - eig) / degauss)
-for name, mask in (("defumat window", window_mask(eig)), ("stm.f90 stale", mask_stale)):
+for name, mask in (("defuqumat window", window_mask(eig)), ("stm.f90 stale", mask_stale)):
     image = np.einsum("kb,kbxyz->xyz", wgd * mask, D)
-    print(f"defumat states, {name} mask: max |image - pp.x STM| = "
+    print(f"defuqumat states, {name} mask: max |image - pp.x STM| = "
           f"{np.abs(image - ppx).max():.3e}", flush=True)
 image = calc.get_stm(height=0.0, width=0.05, smearing="marzari-vanderbilt", band_cutoff=3.0)
 ours = np.asarray(image.density) * image.width

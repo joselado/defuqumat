@@ -12,7 +12,7 @@ from pathlib import Path
 import jax
 import pytest
 
-from defumat import Calculator
+from defuqumat import Calculator
 from tests.tolerances import TOTAL_ENERGY_RY
 
 pytestmark = [pytest.mark.slow, pytest.mark.regression]

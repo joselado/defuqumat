@@ -46,7 +46,7 @@
 #               (`memory_analysis`, compiled and never run) and its whole job
 #               peaked at 139.6; the multipliers add an `nbnd x nbnd` Gram per
 #               k-point on top, which on four occupied bands is nothing.
-#SBATCH --job-name=defumat-piezo-both
+#SBATCH --job-name=defuqumat-piezo-both
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-1
 #SBATCH --time=04:00:00
@@ -56,7 +56,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/both-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -66,8 +66,8 @@ source "$VENV/bin/activate" || exit 1
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 
 if [ "${SLURM_ARRAY_TASK_ID:-0}" = "0" ]; then METHOD=autodiff; else METHOD=zstar_eu; fi
 

@@ -41,7 +41,7 @@ converges, which is the trade the docstring above explains.
 import numpy as np
 import pytest
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 #: **Not blanket-slow.** The audit's own finding was that the fast gate contained
 #: no magnetic *noncollinear* SCF at all -- every `pw.x` noncollinear comparison

@@ -1,6 +1,6 @@
 ---
 paths:
-  - "defumat/**"
+  - "defuqumat/**"
   - "tests/**"
   - "notebooks/**"
   - "docs/features.tex"
@@ -34,7 +34,7 @@ in `docs/features.tex`'s amber boxes.
   it. Forces, stress and relaxation for this regime are P46, and they take `dvan_so` (the
   **bare** `D`, for the same reason the collinear branch takes `dion`) and `qq_so`.
 - **Noncollinear magnetism, magnetic fields and spin spirals** (P17-P19;
-  `defumat/scf/fields.py`, `scf/locals.py`). `sym_rho`
+  `defuqumat/scf/fields.py`, `scf/locals.py`). `sym_rho`
   rotates the magnetization as an **axial** vector. Fields: the *energy* is written down
   and the potential is `jax.grad` of it, with QE's five `add_bfield.f90` expressions as a
   test; **the field's energy is not in the reported total**, by QE's and Elk's shared
@@ -84,7 +84,7 @@ in `docs/features.tex`'s amber boxes.
   card, whose parameters are **in eV** and are converted at the input boundary. The energy
   is written down and `v_ns` is `jax.grad` of it; `v_hubbard` is transcribed as a test, and
   `force_hub` is *not* transcribed at all — it is `jax.grad` through moving projectors.
-- **Continuing one run from another** (P23, `defumat/scf/continuation.py` and
+- **Continuing one run from another** (P23, `defuqumat/scf/continuation.py` and
   `System.with_spin`): `run_scf(starting_from=result)` across a
   change of spin regime. A promotion is *decompose, decide what `m` should be, recompose*;
   the magnetization is **seeded** when the source has none, because nothing in the SCF
@@ -137,7 +137,7 @@ in `docs/features.tex`'s amber boxes.
   the shift current, second-harmonic generation, LO-TO splitting, magnetocrystalline
   anisotropy and the magnetic torque, structure factors, magnons, the orbital
   magnetization, STM images and vertical tunnelling transport.
-- **Running a calculation too large for one job** (P67): `defumat/sizing.py` budgets a
+- **Running a calculation too large for one job** (P67): `defuqumat/sizing.py` budgets a
   run's peak before it starts, the SCF checkpoints, and a dynamical matrix can be built
   one atom's column at a time across jobs.
 - **The `j`-resolved projected density of states** (P69): `projwfc.x` for a spinor band,
@@ -156,7 +156,7 @@ in `docs/features.tex`'s amber boxes.
   nothing new is differentiated. Refused: a metal at `q = 0` (`ef_shift`), ultrasoft/PAW,
   spin, and the zone sum (`alpha^2 F`, `T_c`).
 - **Real-time propagation, high harmonics and the third harmonic** (P134 to P138,
-  `defumat/realtime/`, `workflows/realtime.py`): the occupied states under
+  `defuqumat/realtime/`, `workflows/realtime.py`): the occupied states under
   `H(k + kappa(t))`, `kappa = A/c`, on the sphere built for `k`, at the ground state's
   potential. Four rules bind it. **The current is `jax.grad` in `kappa` of the kinetic and
   nonlocal band energy**, which already holds the diamagnetic term and `[r, V_NL]`; adding
@@ -196,7 +196,7 @@ in `docs/features.tex`'s amber boxes.
   density is built not to look like it. A spin-polarized state, a spiral, DFT+U, an element
   with a **core** and a *fixed* Elk density are refused by name.
 
-**One calculation on many cores** (P124, `defumat/parallel.py`): `DEFUMAT_POOLS` runs
+**One calculation on many cores** (P124, `defuqumat/parallel.py`): `DEFUQUMAT_POOLS` runs
 one calculation as that many processes by k-point, `pw.x -nk`, joined through
 `jax.distributed` at import. A pool walks its own rows through the **streamed** store, the
 raw sums over k are all-reduced before they are finished, the occupations run on the whole
@@ -205,7 +205,7 @@ pools with unequal thread counts can differ in the last bit. A pool's store is a
 `PoolStore`, not an `ndarray`, so a whole-set consumer fails instead of misreading it. The
 SCF, forces, stress and relaxations are pool-aware; every other `Calculator.get_*`
 refuses by name. On a CPU the local term and the density go through the grid a chunk of
-`z` planes at a time (`sticks_local`, `sticks_density`, `DEFUMAT_PLANE_CHUNK`), which is
+`z` planes at a time (`sticks_local`, `sticks_density`, `DEFUQUMAT_PLANE_CHUNK`), which is
 what keeps a core from slowing down when others share its memory.
 
 **Gamma-only storage** (P68) is a **memory** feature rather than a speed one:

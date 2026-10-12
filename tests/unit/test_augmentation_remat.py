@@ -10,8 +10,8 @@ partial evaluation stacks it into a ``(nchunks, nh, nh, chunk)`` residual. That
 is the dense table reborn on the tape.
 
 **It had an exact floor, which is why this is worth a test rather than a
-comment.** :func:`~defumat.pseudo.augmentation.build_augmentation` takes this
-route only when ``nh^2 ngm x 16 > DEFUMAT_AUG_MAX_BYTES`` (2 GiB), and the
+comment.** :func:`~defuqumat.pseudo.augmentation.build_augmentation` takes this
+route only when ``nh^2 ngm x 16 > DEFUQUMAT_AUG_MAX_BYTES`` (2 GiB), and the
 stacked residual equals that product to within ``npad/ngm``. So the regression is
 not "a bit more memory": on every cell that takes the path the tape would be
 **at least 2 GiB by construction**. Measured on ``bismuthene-soc-small``, the
@@ -32,7 +32,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.pseudo.augmentation import (
+from defuqumat.pseudo.augmentation import (
     _assemble_qgm, _tabulated_charge, _tabulated_integrals,
 )
 
@@ -192,7 +192,7 @@ def test_the_remat_does_not_move_the_gradient():
 def _unrematted_charge(factors, gcart, mask, positions, becsum, coefficients, beta_of,
                        nbeta, nl, chunk, ngm, dtype=None):
     """:func:`_tabulated_charge` with its body written out and no ``jax.checkpoint``."""
-    from defumat.pseudo.augmentation import _beta_basis, _chunk_phases
+    from defuqumat.pseudo.augmentation import _beta_basis, _chunk_phases
 
     nchunks = mask.shape[0] // chunk
     nat = positions.shape[0]

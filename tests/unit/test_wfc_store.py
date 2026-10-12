@@ -24,11 +24,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.batching import (
+from defuqumat.batching import (
     WFC_STORES, fetch_wavefunctions, park_wavefunctions, resolve_projectors,
     resolve_wfc_store,
 )
-from defumat.calculator import Calculator
+from defuqumat.calculator import Calculator
 from tests.backend import on_a_cpu
 
 pytestmark = pytest.mark.unit
@@ -54,10 +54,10 @@ def test_the_platform_decides_when_nothing_else_does(monkeypatch):
     for the reason that makes them a pair: on a CPU the host is the device, so
     parking is a memcpy of the whole store per iteration that buys nothing.
     """
-    from defumat import batching
+    from defuqumat import batching
 
-    monkeypatch.delenv("DEFUMAT_WFC_STORE", raising=False)
-    monkeypatch.delenv("DEFUMAT_MEMORY_MODE", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_WFC_STORE", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_MEMORY_MODE", raising=False)
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
     assert resolve_wfc_store() == "device"
     assert resolve_wfc_store(mode="memory") == "device"
@@ -70,10 +70,10 @@ def test_the_platform_decides_when_nothing_else_does(monkeypatch):
 
 def test_an_explicit_setting_beats_the_environment_beats_the_platform(monkeypatch):
     """The precedence `k_batch` already has, and for the same reason."""
-    from defumat import batching
+    from defuqumat import batching
 
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
-    monkeypatch.setenv("DEFUMAT_WFC_STORE", "host")
+    monkeypatch.setenv("DEFUQUMAT_WFC_STORE", "host")
     assert resolve_wfc_store() == "host", "the environment must beat the platform"
     assert resolve_wfc_store("device") == "device", "an argument must beat both"
 
@@ -85,8 +85,8 @@ def test_a_setting_that_is_not_a_place_is_refused():
 
 def test_an_unreadable_environment_variable_warns_and_falls_back(monkeypatch):
     """Ignored settings are the quietest kind of wrong, so it says so."""
-    monkeypatch.setenv("DEFUMAT_WFC_STORE", "somewhere")
-    with pytest.warns(RuntimeWarning, match="DEFUMAT_WFC_STORE"):
+    monkeypatch.setenv("DEFUQUMAT_WFC_STORE", "somewhere")
+    with pytest.warns(RuntimeWarning, match="DEFUQUMAT_WFC_STORE"):
         assert resolve_wfc_store() in WFC_STORES
 
 
@@ -96,9 +96,9 @@ def test_none_is_not_a_place(monkeypatch):
     ``resolve_k_batch(None)`` is a meaningful request and cannot double as
     "nothing was said". Here it can, and does.
     """
-    from defumat import batching
+    from defuqumat import batching
 
-    monkeypatch.delenv("DEFUMAT_WFC_STORE", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_WFC_STORE", raising=False)
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
     assert resolve_wfc_store(None) == "device"
 
@@ -186,8 +186,8 @@ def test_the_driver_really_parks_the_store(monkeypatch):
     """
     if not _host_memory_available():
         pytest.skip("this backend has no pinned-host memory to park in")
-    from defumat.batching import park_wavefunctions as real
-    from defumat.scf import driver
+    from defuqumat.batching import park_wavefunctions as real
+    from defuqumat.scf import driver
 
     kinds = []
 
@@ -218,7 +218,7 @@ def test_the_solver_is_never_handed_a_parked_store(monkeypatch):
     """
     if not _host_memory_available():
         pytest.skip("this backend has no pinned-host memory to park in")
-    from defumat.scf.driver import Calculation
+    from defuqumat.scf.driver import Calculation
 
     seen = []
     real = Calculation.diagonalize
@@ -241,7 +241,7 @@ def test_the_resolved_mode_is_printed_and_a_typo_does_not_read_as_a_pin(
 
     ``_wfc_store_default`` warns and falls back on a value it does not
     recognise, and nothing else printed the answer -- so in a cluster job's log
-    a misspelt ``DEFUMAT_WFC_STORE`` looked exactly like a working pin. The
+    a misspelt ``DEFUQUMAT_WFC_STORE`` looked exactly like a working pin. The
     line under test is the one that tells them apart, and the assertion is that
     it agrees with :func:`resolve_wfc_store` rather than with the request.
     """
@@ -256,7 +256,7 @@ def test_the_resolved_mode_is_printed_and_a_typo_does_not_read_as_a_pin(
 
     # The typo. The run falls back to the platform default; the log must say
     # the default, and must not echo what was asked for.
-    monkeypatch.setenv("DEFUMAT_WFC_STORE", "hsot")
+    monkeypatch.setenv("DEFUQUMAT_WFC_STORE", "hsot")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         _scf("default", max_iterations=1, verbose=True)

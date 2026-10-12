@@ -163,7 +163,7 @@ centrosymmetric crystal, and this one has never been run on a polar cell.
 
 ## 8. The ultracell. ✅ DONE in all three spin regimes.
 
-`PLAN.md` P88 stage 5, 2026-09-17; `defumat/ultracell/augmentation.py`. The refusal is
+`PLAN.md` P88 stage 5, 2026-09-17; `defuqumat/ultracell/augmentation.py`. The refusal is
 lifted for `nspin = 1` and `2`, and what this entry got right is worth keeping because two
 sessions had to rediscover it: the frozen states stay a fixed basis, `S` does not enter, and
 what was missing is one term used three times -- the matrix element, `becsum` per atom copy
@@ -208,7 +208,7 @@ which is now a choice about what a comparison costs rather than the only pair th
 **What was read.** `fixed_density_states` in `workflows/nscf.py`, `DFTSource.states` in
 `workflows/topology.py`, `VelocityOperator.__init__` and `band_velocities` in
 `response/velocity.py`, `dielectric_tensor` in `response/efield.py`, and
-`Calculator._call_options` with `_STATE_ARGUMENTS` in `defumat/calculator.py`.
+`Calculator._call_options` with `_STATE_ARGUMENTS` in `defuqumat/calculator.py`.
 
 **Why it is a refusal at all.** A PAW Hamiltonian's nonlocal coefficients are
 `D^(0) + int V Q + ddd_paw`, and only the first two can be rebuilt from the density:

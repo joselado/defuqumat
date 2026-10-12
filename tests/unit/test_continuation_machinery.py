@@ -16,10 +16,10 @@ from functools import lru_cache
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation, SCFResult
-from defumat.scf.continuation import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation, SCFResult
+from defuqumat.scf.continuation import (
     ContinuedState,
     continued_state,
     from_spin_components,
@@ -27,7 +27,7 @@ from defumat.scf.continuation import (
     promote_wavefunctions,
     spin_components,
 )
-from defumat.system import build_system
+from defuqumat.system import build_system
 from tests.conftest import QE_ROOT
 
 pytestmark = pytest.mark.unit
@@ -81,7 +81,7 @@ def _random_density(shape, nspin_mag, seed=0, calculation=None):
     decoration: a continuation refuses a source density whose own electron count
     is not the target's, because that is what a swapped dataset looks like, and
     a random charge is a dataset nobody has. It is left out where the density
-    never reaches :func:`~defumat.scf.continuation.continued_state` -- a
+    never reaches :func:`~defuqumat.scf.continuation.continued_state` -- a
     ``promote_wavefunctions`` call, or a shape that is refused for its grid
     before anything counts electrons.
     """
@@ -468,8 +468,8 @@ def test_a_promoted_ns_points_where_the_target_asks_and_not_along_z():
     one, and this is the object where that transpose has already been the bug
     once (``test_the_seeded_occupation_matrix_is_qes_own_init_ns_nc``).
     """
-    from defumat.hubbard.occupations import initial_ns, initial_ns_noncollinear
-    from defumat.scf.continuation import _SpinTransfer
+    from defuqumat.hubbard.occupations import initial_ns, initial_ns_noncollinear
+    from defuqumat.scf.continuation import _SpinTransfer
 
     setup = types.SimpleNamespace(
         nslot=2, types=(0, 0), atoms=(0, 1), ldmx=5, noncolin=False,
@@ -513,8 +513,8 @@ def test_demoting_a_shell_collinear_off_z_follows_the_density_axis():
     succeeded. The axis is the density's, sign included, so the shell's "up" is
     the density's up.
     """
-    from defumat.hubbard.occupations import spinor_ns_from_components
-    from defumat.scf.continuation import _SpinTransfer
+    from defuqumat.hubbard.occupations import spinor_ns_from_components
+    from defuqumat.scf.continuation import _SpinTransfer
 
     setup = _Setup()
     up = np.diag([0.9, 0.8, 0.7])[None] * np.ones((2, 1, 1))
@@ -558,8 +558,8 @@ def test_a_demotion_that_drops_the_moment_does_not_care_where_it_pointed():
 
     What has to survive is the *charge*, which is the part worth carrying.
     """
-    from defumat.hubbard.occupations import spinor_ns_from_components
-    from defumat.scf.continuation import _SpinTransfer
+    from defuqumat.hubbard.occupations import spinor_ns_from_components
+    from defuqumat.scf.continuation import _SpinTransfer
 
     setup = _Setup()
     up = np.diag([0.9, 0.8, 0.7])[None] * np.ones((2, 1, 1))
@@ -727,7 +727,7 @@ def test_with_spin_refuses_what_the_input_reader_refuses():
 
 
 def test_continued_state_can_be_handed_to_run_scf_only_on_its_own():
-    from defumat.scf import run_scf
+    from defuqumat.scf import run_scf
 
     with pytest.raises(ValueError, match="two states at once"):
         run_scf(_silicon(), (read_upf(PSEUDO),),
@@ -844,7 +844,7 @@ def test_a_texture_card_is_what_a_scalar_magnetization_is_laid_along():
     says otherwise, and a carried scalar went in along an axis the run was
     built not to use.
     """
-    from defumat.scf.continuation import _common_direction
+    from defuqumat.scf.continuation import _common_direction
 
     along_x = _textured(((0.4, 0.0, 0.0), (0.4, 0.0, 0.0)))
     assert _common_direction(along_x) == pytest.approx((1.0, 0.0, 0.0))
@@ -957,7 +957,7 @@ def test_a_field_that_decays_to_nothing_is_not_a_held_magnetization():
 
 def test_magnetization_without_a_seed_is_refused_rather_than_ignored():
     """It says how a continuation crosses, and there is no continuation."""
-    from defumat.scf import run_scf
+    from defuqumat.scf import run_scf
 
     calculation = _calculation(2, (0.4,))
     with pytest.raises(ValueError, match="no continuation here"):
@@ -967,7 +967,7 @@ def test_magnetization_without_a_seed_is_refused_rather_than_ignored():
 
 def test_magnetization_beside_a_continued_state_is_refused_as_a_second_answer():
     """The state has already resolved the question; two answers is one too many."""
-    from defumat.scf import run_scf
+    from defuqumat.scf import run_scf
 
     calculation = _calculation(2, (0.4,))
     grid = tuple(calculation.basis.dense.grid)
@@ -989,7 +989,7 @@ def test_with_moments_seeds_where_with_spin_carries():
     which resolves to carry whenever the source has a moment, would start the
     run on the configuration the new card was written to leave.
     """
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     calculation = _calculation(2, (0.4,))
     calculator = Calculator(calculation.system, (read_upf(PSEUDO),),
@@ -1031,7 +1031,7 @@ def test_a_deformed_cell_is_refused_by_the_cell_and_not_by_the_count():
 
 def _seeded_calculator(calculation):
     """A derived calculator holding a converged parent state as its seed."""
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     parent = Calculator(calculation.system, (read_upf(PSEUDO),), announce=False)
     parent._scf = _result(
@@ -1054,7 +1054,7 @@ def _record_run_scf(monkeypatch, calculation):
             1, system=calculation.system,
         )
 
-    monkeypatch.setattr("defumat.calculator.run_scf", fake_run_scf)
+    monkeypatch.setattr("defuqumat.calculator.run_scf", fake_run_scf)
     return calls
 
 
@@ -1067,7 +1067,7 @@ def test_a_seeded_calculator_reads_the_checkpoint_it_has_been_writing(
     on the caller's behalf -- so a job killed at its wall clock and resubmitted
     restarted from the seed every time and never read the file it had written.
     """
-    from defumat.scf.driver import SCF_CHECKPOINT
+    from defuqumat.scf.driver import SCF_CHECKPOINT
 
     calculation = _calculation(1)
     calculator = _seeded_calculator(calculation).with_spin(2)
@@ -1092,7 +1092,7 @@ def test_the_seed_and_its_magnetization_are_withheld_together(
     Withholding ``starting_from`` alone would turn a resubmitted texture run
     from one that silently restarts into one that raises.
     """
-    from defumat.scf.driver import SCF_CHECKPOINT
+    from defuqumat.scf.driver import SCF_CHECKPOINT
 
     calculation = _calculation(1)
     calculator = _seeded_calculator(calculation).with_moments(
@@ -1119,7 +1119,7 @@ def test_a_checkpoint_left_behind_does_not_cost_the_cache(monkeypatch, tmp_path)
     life. Keying on it would make the second ``get_scf`` miss and rerun the
     whole SCF, against a mid-run state at that.
     """
-    from defumat.scf.driver import SCF_CHECKPOINT
+    from defuqumat.scf.driver import SCF_CHECKPOINT
 
     calculation = _calculation(1)
     calculator = _seeded_calculator(calculation).with_spin(2)
@@ -1184,7 +1184,7 @@ def test_ns_follows_the_magnetization_decision(mode, expected):
     does not do better from the *target's* own ``starting_magnetization`` --
     which is exactly what ``run_scf`` does with a ``None``.
     """
-    from defumat.scf.continuation import _SpinTransfer
+    from defuqumat.scf.continuation import _SpinTransfer
 
     calculation = _ldau_calculation()
     ns = _hubbard_ns(calculation, 0.4)
@@ -1238,7 +1238,7 @@ def test_tau_is_depolarized_in_its_own_storage(nspin_mag, expected):
     through an energy, so the first Hamiltonian is split by a magnetization the
     density does not have.
     """
-    from defumat.scf.continuation import depolarize_tau
+    from defuqumat.scf.continuation import depolarize_tau
 
     grid = (4, 4, 4)
     rng = np.random.default_rng(7)
@@ -1260,7 +1260,7 @@ def test_tau_is_depolarized_in_its_own_storage(nspin_mag, expected):
 
 def test_tau_crosses_untouched_when_the_magnetization_does():
     """``'carry'`` must not lose the guess the shape test exists to keep."""
-    from defumat.scf.continuation import depolarize_tau
+    from defuqumat.scf.continuation import depolarize_tau
 
     tau = np.random.default_rng(3).uniform(0.1, 1.0, (2, 4, 4, 4))
     # the driver only calls it for 'none'; this pins that the identity branch
@@ -1291,7 +1291,7 @@ def _silicon_text():
 
 
 def _silicon_calculator(text=None):
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     if text is None:
         text = _silicon_text()

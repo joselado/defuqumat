@@ -40,7 +40,7 @@
 #             what is measured rather than requested -- every two-atom property
 #             sat under 0.25 GB of HBM, and what this job establishes is how
 #             that scales with nk and ngm.
-#SBATCH --job-name=defumat-gpu-phase5-si10
+#SBATCH --job-name=defuqumat-gpu-phase5-si10
 #SBATCH --partition=gpu-h200-141g-short
 #SBATCH --time=04:00:00
 #SBATCH --gpus=h200:1
@@ -57,7 +57,7 @@ source "$WORK/venv/bin/activate"
 
 unset XLA_PYTHON_CLIENT_PREALLOCATE
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache-gpu"
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 export PYTHONPATH="$REPO"
 
 echo "=== node ==="; hostname; date

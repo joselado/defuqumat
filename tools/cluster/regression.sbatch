@@ -32,7 +32,7 @@
 #               that and a smaller ask than the headroom would suggest: eight
 #               tasks at 48 G would hold 384 GB of a shared cluster for the
 #               sake of one file.
-#SBATCH --job-name=defumat-regression
+#SBATCH --job-name=defuqumat-regression
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-7
 #SBATCH --time=08:00:00
@@ -44,7 +44,7 @@
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
 # The checkout to run, overridable so that a run never has to modify the
 # working tree someone else is using: this defaults to a clone of it.
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-audit}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-audit}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -60,16 +60,16 @@ export PYTHONPATH="$REPO"
 # directory is exactly the case nobody has measured. What it costs is
 # compilation per file; what it buys is that nothing is shared between tasks and
 # that a cache *miss* is the cheaper state in memory (`CLAUDE.md`).
-export DEFUMAT_CACHE_DIR=off
+export DEFUQUMAT_CACHE_DIR=off
 # **The vendored QE tree is gitignored**, so the checkout here does not have it
 # and every test that reads a committed QE input or benchmark out of
 # ``test-suite/`` would skip -- silently, and skipping is what this run exists
 # to avoid. Only ``test-suite/`` is read (``tests/conftest.py``), 59 MB of it,
 # so that subtree alone is mirrored to scratch and pointed at.
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 # Under the Slurm cap, so the in-process watchdog names the test before the
 # kernel acts on the 32 G.
-export DEFUMAT_TEST_MEM_MAX=28G
+export DEFUQUMAT_TEST_MEM_MAX=28G
 
 TASK=${SLURM_ARRAY_TASK_ID:-0}
 TASKS=${SLURM_ARRAY_TASK_COUNT:-8}

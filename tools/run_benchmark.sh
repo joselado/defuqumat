@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The laptop benchmark: Quantum ESPRESSO, defumat on a CPU core, and a GPU if
+# The laptop benchmark: Quantum ESPRESSO, defuqumat on a CPU core, and a GPU if
 # there is one. The counterpart to tools/cluster/submit_benchmark.py, which puts
 # the same sweep into a Slurm array.
 #
@@ -12,7 +12,7 @@
 # It needs pw.x built serially once, which is the QE leg's whole requirement:
 #   cd quantum_espresso/qe-7.5-ReleasePack/qe-7.5
 #   ./configure --disable-parallel --disable-openmp && make -j pw
-# Without it the QE leg fails and is reported as such, case by case; the defumat
+# Without it the QE leg fails and is reported as such, case by case; the defuqumat
 # columns still land.
 #
 # `complete` carries cells that do not fit every machine -- bi20-soc peaks near
@@ -36,7 +36,7 @@ case "$SET" in
 esac
 
 cd "$ROOT"
-echo "defumat benchmark, set '$SET' -- both codes on one core, one GPU if present."
+echo "defuqumat benchmark, set '$SET' -- both codes on one core, one GPU if present."
 echo "results: performance/results/$SET/"
 echo
 exec python3 performance/sweep.py --set "$SET" "$@"

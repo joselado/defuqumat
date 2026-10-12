@@ -1,18 +1,18 @@
 """A sum-over-states workflow builds its ``Calculation`` once.
 
 ``OPEN.md`` Part III, H3. Every workflow here checks its refusals on a
-:class:`~defumat.scf.driver.Calculation` before the fixed-density run, so that a
+:class:`~defuqumat.scf.driver.Calculation` before the fixed-density run, so that a
 regime it cannot do is refused before the empty states are paid for, and each
 of them used to build that calculation, discard it, and let
-:func:`~defumat.workflows.nscf.fixed_density_states` build the identical object
+:func:`~defuqumat.workflows.nscf.fixed_density_states` build the identical object
 again -- and four of them built a third one for ``_default_nbnd`` to read the
 electron count off. Each discarded build is the whole constructor: both G sets,
 both FFT grids, the symmetry search, the local potential and the projector
 core, which is 1.53 s on P69's one-atom Pt PAW cell. The counts were three for
-:func:`~defumat.workflows.conductivity.run_conductivity`,
-:func:`~defumat.workflows.tddft.run_absorption` and the two magnon entry
-points, and two for :func:`~defumat.workflows.shg.run_shg` and
-:func:`~defumat.workflows.photocurrent.run_shift_current`.
+:func:`~defuqumat.workflows.conductivity.run_conductivity`,
+:func:`~defuqumat.workflows.tddft.run_absorption` and the two magnon entry
+points, and two for :func:`~defuqumat.workflows.shg.run_shg` and
+:func:`~defuqumat.workflows.photocurrent.run_shift_current`.
 
 **How the count is taken without an SCF.** ``Calculation.__init__`` is wrapped
 with a counter, and ``Calculation.potential`` is replaced by a sentinel that
@@ -32,10 +32,10 @@ import types
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -79,37 +79,37 @@ def _silicon(extra, pseudo_dir):
 
 
 def _conductivity(system, pseudos):
-    from defumat.workflows.conductivity import run_conductivity
+    from defuqumat.workflows.conductivity import run_conductivity
 
     run_conductivity(system, pseudos, None)
 
 
 def _absorption(system, pseudos):
-    from defumat.workflows.tddft import run_absorption
+    from defuqumat.workflows.tddft import run_absorption
 
     run_absorption(system, pseudos, None, np.array([0.1]))
 
 
 def _shg(system, pseudos):
-    from defumat.workflows.shg import run_shg
+    from defuqumat.workflows.shg import run_shg
 
     run_shg(system, pseudos, None, nbnd=8)
 
 
 def _shift_current(system, pseudos):
-    from defumat.workflows.photocurrent import run_shift_current
+    from defuqumat.workflows.photocurrent import run_shift_current
 
     run_shift_current(system, pseudos, None, nbnd=8)
 
 
 def _spin_susceptibility(system, pseudos):
-    from defumat.workflows.magnons import run_spin_susceptibility
+    from defuqumat.workflows.magnons import run_spin_susceptibility
 
     run_spin_susceptibility(system, pseudos, None, np.zeros(3), np.array([0.01]))
 
 
 def _magnon_dispersion(system, pseudos):
-    from defumat.workflows.magnons import run_magnon_dispersion
+    from defuqumat.workflows.magnons import run_magnon_dispersion
 
     run_magnon_dispersion(
         system, pseudos, None, np.zeros((1, 3)), np.array([0.01])
@@ -179,7 +179,7 @@ def _a_built_calculation(k_batch=1, david=None):
 
 def test_a_threaded_calculation_and_a_k_set_are_refused_together(pseudo_dir):
     """The calculation's spheres and projectors are already on its own k-set."""
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     system, pseudos = _silicon("", pseudo_dir)
     with pytest.raises(ValueError, match="both a calculation and kpoints"):
@@ -208,7 +208,7 @@ def test_a_threaded_calculation_built_otherwise_is_refused(
     accepted and ignored, which is the shape every refusal in this package
     exists to prevent.
     """
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     system, pseudos = _silicon("", pseudo_dir)
     with pytest.raises(ValueError, match=message):
@@ -225,7 +225,7 @@ def test_a_default_chunk_defers_to_the_threaded_calculation():
     calculation on a card (built at ``None``, the preset saying 1) that its own
     caller handed over. An explicit value that differs is still refused.
     """
-    from defumat.workflows.nscf import _require_a_matching_calculation
+    from defuqumat.workflows.nscf import _require_a_matching_calculation
 
     for built in (None, 1, 3):
         _require_a_matching_calculation(
@@ -275,7 +275,7 @@ def test_the_calculator_hands_the_spectra_its_own_calculation(
     speed-mode calculator's spectrum used to run in the platform's default
     mode without saying so.
     """
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     calculator = Calculator.from_text(_SILICON.format(extra=extra), pseudo_dir,
                                       announce=False)
@@ -318,8 +318,8 @@ def test_the_ultracell_reads_its_cut_off_the_basis_calculation(pseudo_dir, monke
     """
     from pathlib import Path
 
-    from defumat import Calculator
-    from defumat.ultracell.driver import run_ultracell
+    from defuqumat import Calculator
+    from defuqumat.ultracell.driver import run_ultracell
 
     data = Path(__file__).resolve().parents[1] / "data" / "qe"
     calculator = Calculator.from_file(data / "h-mag-ultracell.in",

@@ -18,8 +18,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.basis.gvectors import GVectors
-from defumat.scf.mixing import (
+from defuqumat.basis.gvectors import GVectors
+from defuqumat.scf.mixing import (
     LOCAL_TF_EPS,
     LOCAL_TF_MMX,
     LOCAL_TF_REFRESHES,
@@ -36,9 +36,9 @@ BENCHMARKS = Path(__file__).resolve().parents[2] / "benchmarks"
 
 def _pieces(name):
     """The basis and cell of an input, built without an SCF."""
-    from defumat.basis.builder import build_basis
-    from defumat.io.pwin import read_pw_input
-    from defumat.system import build_system
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.system import build_system
 
     system = build_system(read_pw_input(BENCHMARKS / name))
     return build_basis(system), system.cell

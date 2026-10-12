@@ -4,7 +4,7 @@
 Q^L_ij(|G|)`` and ``ap`` vanishes unless ``l_i + l_j + L`` is even, so
 ``Q_ij(G) = (-i)^(l_i + l_j) R_ij(G)`` with ``R`` real. The stored table is ``R``
 and the phase is folded in where it is read. The standard is the old complex
-construction (:func:`~defumat.pseudo.augmentation._assemble_qgm`), rebuilt here
+construction (:func:`~defuqumat.pseudo.augmentation._assemble_qgm`), rebuilt here
 from the same pieces: the charge, the ``D_ij`` integrals, the complex ones a
 displaced table needs, ``q_ij`` and the per-atom charge ``addusforce`` reads, on
 an ultrasoft, a PAW and a fully-relativistic PAW dataset -- round-off, not
@@ -18,18 +18,18 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.basis.builder import build_basis
-from defumat.basis.gvectors import modulus
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.pseudo.augmentation import (
+from defuqumat.basis.builder import build_basis
+from defuqumat.basis.gvectors import modulus
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.augmentation import (
     _assemble_qgm, _atom_phases, build_augmentation,
     radial_augmentation_transforms,
 )
-from defumat.pseudo.coupling import harmonic_products
-from defumat.pseudo.harmonics import real_spherical_harmonics
-from defumat.pseudo.projectors import projector_channels
-from defumat.system.builder import build_system
+from defuqumat.pseudo.coupling import harmonic_products
+from defuqumat.pseudo.harmonics import real_spherical_harmonics
+from defuqumat.pseudo.projectors import projector_channels
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 

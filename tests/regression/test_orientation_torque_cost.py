@@ -20,7 +20,7 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
+from defuqumat.calculator import Calculator
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -52,8 +52,8 @@ def test_a_paw_run_that_reads_no_torque_computes_none(monkeypatch):
     ``None``. Both cases called it once an iteration on ``a1ba166``, and the
     coupled one turned every output state in it.
     """
-    from defumat.scf import driver, orientation
-    from defumat.scf.driver import run_scf
+    from defuqumat.scf import driver, orientation
+    from defuqumat.scf.driver import run_scf
 
     calls, turns = [], []
     original_torque, original_turn = driver._onecenter_torque, orientation.spin_turned
@@ -100,8 +100,8 @@ def test_with_the_coupling_the_states_are_turned_a_k_chunk_at_a_time(monkeypatch
     output state (19.50 GiB on the fifteen-cell NiBr2 source; 4.5 GiB, twice
     the estimated peak, on nine atoms of NiI2).
     """
-    from defumat.scf import orientation
-    from defumat.scf.driver import run_scf
+    from defuqumat.scf import orientation
+    from defuqumat.scf.driver import run_scf
 
     calculator = _iodine_on_two_k_points()
     shapes = []

@@ -38,18 +38,18 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.phonon import dynamical_matrix
-from defumat.response.phononq import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.phonon import dynamical_matrix
+from defuqumat.response.phononq import (
     dynamical_matrix_at_q,
     ewald_dynamical_matrix,
     frozen_force_constants,
     require_a_two_sphere_regime,
 )
-from defumat.response.sternheimer import make_sternheimer
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.response.sternheimer import make_sternheimer
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -218,8 +218,8 @@ def test_the_ewald_term_reproduces_the_ground_state_hessian_at_q_zero():
     """
     import jax.numpy as jnp
 
-    from defumat.scf.ewald import EwaldSum
-    from defumat.system.cell import lattice_translations, pair_separation_bound
+    from defuqumat.scf.ewald import EwaldSum
+    from defuqumat.system.cell import lattice_translations, pair_separation_bound
 
     calculation, _ = _ground_state("si-epsilon-unshifted-nosym")
     cell = calculation.system.cell
@@ -322,7 +322,7 @@ def test_the_matrix_is_periodic_in_the_reciprocal_lattice():
     2.5e-6 relative. The tolerance is deliberately loose against that, because
     the residue is not the electrons'. The *frozen* half alone differs by
     1.515768e-6 between the two wavevectors, and
-    :func:`~defumat.response.phononq.ewald_dynamical_matrix` alone differs by
+    :func:`~defuqumat.response.phononq.ewald_dynamical_matrix` alone differs by
     1.515768e-6 -- the same number to every digit printed. So what bounds this
     check is the Ewald reciprocal sum's truncation, and the electronic response
     is clean well below it; the time-reversal identity, which has no such
@@ -342,7 +342,7 @@ def test_time_reversal_conjugates_the_matrix():
     The force constants of a crystal are real, so their Fourier transform obeys
     both. Nothing here imposes either: the ``-q`` run builds its own second
     sphere and its own first-order states, and the hermitisation in the
-    assembly is applied *after* :attr:`~defumat.response.phonon.Phonons.asymmetry`
+    assembly is applied *after* :attr:`~defuqumat.response.phonon.Phonons.asymmetry`
     has recorded what it removed.
 
     Measured: **3.18e-9** on the matrix and 8.79e-10 on the asymmetry, both of
@@ -412,7 +412,7 @@ K_POINTS automatic
 def test_two_grids_keep_the_imaginary_part():
     """The ``+q`` response is complex, and the grid interpolation is written for real fields.
 
-    :func:`~defumat.basis.interpolate.to_dense` and ``to_smooth`` end in
+    :func:`~defuqumat.basis.interpolate.to_dense` and ``to_smooth`` end in
     ``jnp.real``, and on a cell whose two grids coincide they return their
     argument untouched -- so every case above, all on one grid, passed through
     a resampling that never ran. With ``ecutrho = 8 ecutwfc`` the response
@@ -425,7 +425,7 @@ def test_two_grids_keep_the_imaginary_part():
     """
     import warnings
 
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     def phonons(ecutrho):
         with warnings.catch_warnings():

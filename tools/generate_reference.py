@@ -1,6 +1,6 @@
 """Run reference inputs through Quantum ESPRESSO and commit the output.
 
-Most of defumat's validation uses the outputs QE already ships in its
+Most of defuqumat's validation uses the outputs QE already ships in its
 ``test-suite/``. Ultrasoft and PAW silicon is the case where it does not: no
 committed benchmark covers the pseudopotentials used here, so the reference has
 to be generated once with the vendored ``pw.x`` and stored next to the input --
@@ -177,7 +177,7 @@ def reference_path(case: Path) -> Path:
 NOT_PW_X_INPUT = ("STARTING_MOMENTS", "LOCAL_MAGNETIC_FIELDS")
 
 
-def is_defumat_only(case: Path) -> str | None:
+def is_defuqumat_only(case: Path) -> str | None:
     """The card that makes this input unreadable by ``pw.x``, or ``None``."""
     text = case.read_text()
     for card in NOT_PW_X_INPUT:
@@ -207,7 +207,7 @@ def prerequisite(case: Path) -> Path | None:
     ``<stem>-bands.in`` reads the density ``<stem>.in`` converged, so the two
     have to share an outdir. That is the only kind of dependency between cases
     here, and encoding it in the name keeps the inputs plain ``pw.x`` inputs --
-    which they have to stay, since defumat reads the same files.
+    which they have to stay, since defuqumat reads the same files.
     """
     for suffix in FOLLOWS:
         if case.stem.endswith(suffix):
@@ -227,7 +227,7 @@ def run_case(case: Path, conv_thr: float | None = None) -> str:
     test-suite cases, whose inputs ask for 1e-6: QE then stops with a density
     still wrong in the seventh decimal, and its printed energy *terms* -- which
     are first-order sensitive to the density where the total is second-order --
-    are only good to about 1e-4. Comparing a converged defumat against that
+    are only good to about 1e-4. Comparing a converged defuqumat against that
     measures QE's stopping point, not the physics. The dedicated inputs under
     ``tests/data/qe`` and ``benchmarks`` already ask for 1e-10 for the same
     reason; this brings the borrowed ones to the same footing.
@@ -243,7 +243,7 @@ def _invoke(case: Path, tmp: str, conv_thr: float | None) -> str:
     """One ``pw.x`` run in an existing directory."""
     # pseudo_dir and outdir are injected rather than written into the
     # committed input: the input has to stay a plain pw.x input that
-    # defumat reads unchanged, and neither path is a property of the case.
+    # defuqumat reads unchanged, and neither path is a property of the case.
     text = case.read_text()
     text = re.sub(
         r"(&control\b)",
@@ -337,7 +337,7 @@ PROJWFC = {
     "pt-soc-paw": "pt-soc-paw-nosym",
 }
 
-#: Cases whose projection must **not** be symmetrised, because defumat refuses a
+#: Cases whose projection must **not** be symmetrised, because defuqumat refuses a
 #: symmetrised spinor projection (``sym_proj_so`` needs the SU(2) representation
 #: of each operation) and offers ``nosym`` as the way out.
 #:
@@ -485,7 +485,7 @@ def main(argv=None) -> int:
         if out.is_file() and not args.force:
             print(f"  {case.stem}: already generated")
             continue
-        card = is_defumat_only(case)
+        card = is_defuqumat_only(case)
         if card is not None:
             print(f"  {case.stem}: carries a {card} card, which pw.x cannot read; "
                   f"no reference exists for it")

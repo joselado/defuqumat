@@ -2,8 +2,8 @@
 # The LDOS arm at DFTK's inner tolerance, 1e-2, on every cell that has an LDOS.
 set -u
 cd /l/ladovj1/review/vacuum
-export JAX_PLATFORMS=cpu PYTHONPATH=/l/ladovj1/defumat-ldos DEFUMAT_CACHE_DIR=/l/ladovj1/jaxcache
-export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DEFUMAT_THREADS=off LDOS_TOL=1e-2
+export JAX_PLATFORMS=cpu PYTHONPATH=/l/ladovj1/defumat-ldos DEFUQUMAT_CACHE_DIR=/l/ladovj1/jaxcache
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DEFUQUMAT_THREADS=off LDOS_TOL=1e-2
 PY=/l/ladovj1/venv/bin/python3
 rm -f sweep_tol.done
 jobs=()

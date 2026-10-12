@@ -1,0 +1,895 @@
+"""``E(q)``: a spin-spiral energy surface, and the exchange constants in it.
+
+One SCF run per wavevector, and the point of collecting them is that ``E(q)``
+*is* the magnon dispersion of a Heisenberg model. Mapping a classical Heisenberg
+Hamiltonian ``H = - sum_ij J_ij e_i . e_j`` onto a flat spiral of unit moments
+gives
+
+    E(q) - E(0) = - m^2 sum_R J(R) [cos(q . R) - 1] = m^2 [J(0) - J(q)],
+
+so a scan over ``q`` is the Fourier transform of the exchange constants
+(Sandratskii's frozen-magnon method), and the curvature at ``q = 0`` is the spin
+stiffness. That is what makes a spiral worth computing rather than a curiosity:
+a handful of SCF runs give the parameters of a spin model that a supercell
+calculation would need one cell per period to reach.
+
+**Every point is an independent SCF and they share almost everything.** The
+cell, the atoms, the pseudopotentials, the dense G set, the local potential and
+the Ewald sum do not depend on ``q``; only the plane-wave spheres, ``|k+G|^2``,
+the stick layout and ``vkb`` do. :meth:`~defuqumat.scf.driver.Calculation.at_spiral_q`
+rebuilds exactly those and shares the rest, the way ``at_kpoints`` does for a
+k-list (P16 measured that sharing at 29.8x on a large cell).
+
+**Reading the result.** The energies are per unit cell and include no
+contribution from the field or constraint machinery (:mod:`defuqumat.scf.fields`),
+so differences between points are directly the magnetic energy. ``E(q)`` is even
+in ``q`` and periodic under ``q -> q + 2G``; it is periodic under ``q -> q + G``
+only on a k-grid invariant under a shift by ``G/2``, which is what
+:mod:`defuqumat.system.spiral` documents and what an even Monkhorst-Pack grid
+gives.
+
+**Integrating ``dE/dq`` rather than differencing ``E``.** The same curve comes
+out of the gradient: ``E(q_n) - E(q_0)`` is the line integral of ``dE/dq`` along
+the path the scan walks, and ``gradients=True`` collects the gradient at every
+point so that :attr:`SpiralScan.integrated` can accumulate it. The two curves
+are not identical and the difference is the interesting part -- the energies are
+computed on a plane-wave sphere that is rebuilt at every point and step by the
+Pulay error of a finite basis wherever a plane wave crosses the cutoff, while
+the gradient is taken at a *frozen* sphere and does not see those steps. The
+integrated curve is therefore the smooth one. What it is not is cheaper (every
+point still needs its own SCF), converged on a coarser k-mesh (the gradient is
+the exact derivative of the *same* fixed-mesh energy, so it inherits the same
+Brillouin-zone error), or tolerant of a looser ``conv_thr`` -- that last one runs
+the other way, since an energy's error is second order in the density's and a
+derivative's is first.
+
+**Relaxing ``q`` rather than scanning it.** A scan is the right tool when the
+whole surface is wanted -- the exchange constants are a fit to it -- and the
+wrong one when only its minimum is. :func:`relax_spiral_q` is the minimum, and
+it is the ionic relaxation of :mod:`defuqumat.workflows.relax` with one
+substitution: the coordinate is ``q`` instead of the atomic positions, the
+gradient is :func:`~defuqumat.forces.spiral.compute_spiral_gradient` instead of
+the force, and the optimizer is the same transcribed BFGS working in the
+*reciprocal* cell's metric instead of the direct one. The physical content of
+the answer is the pitch the magnet chooses: an incommensurate ground state comes
+out as a ``q`` that is not a simple fraction, which no supercell calculation can
+represent at all.
+
+Two differences from moving atoms are worth stating, because they set what the
+relaxation can be asked for:
+
+* **A step of ``q`` rebuilds the plane-wave spheres**, since they are centred on
+  ``k +- q/2``. The wavefunctions therefore cannot be carried from one step to
+  the next -- they are coefficients on a basis that no longer exists -- but the
+  density can, because in the rotated frame it is a lattice-periodic function on
+  a grid that does not move. That is the warm start used here, and it is
+  ``update_pot.f90``'s ``pot_extrapolation = 'file'`` rather than its atomic
+  extrapolation: nothing has moved for an atomic superposition to follow.
+* **The surface has a floor of basis-set noise.** ``E(q)`` jumps by a
+  Pulay-sized amount wherever a plane wave crosses the cutoff, and the gradient
+  -- taken at a frozen sphere -- does not see those jumps
+  (:mod:`defuqumat.forces.spiral`). Driving ``|dE/dq|`` below that scale is
+  chasing the discretisation, so the thresholds default to a size a converged
+  cutoff can actually deliver and the honest way to tighten them is to raise
+  ``ecutwfc``.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+from dataclasses import dataclass, field
+import warnings
+
+import numpy as np
+
+from defuqumat.basis.planewaves import sphere_widths
+from defuqumat.forces.spiral import (SpiralGradient, compute_spiral_gradient,
+                                    _require_a_differentiable_spiral)
+from defuqumat.pseudo.upf import Pseudopotential
+from defuqumat.relax import get_ion_dynamics
+from defuqumat.relax.bfgs import BFGSSettings
+from defuqumat.scf.driver import Calculation, SCFResult, run_scf
+from defuqumat.system.builder import System
+from defuqumat.system.kpoints import KPoints
+from defuqumat.system.spiral import spiral_kpoints
+from defuqumat.system.symmetry import lattice_point_group
+from defuqumat.workflows.relax import (_scf_loop_options, site_magnetization,
+                                     site_moment_report)
+
+__all__ = ["SpiralScan", "run_spiral_scan", "heisenberg_exchange", "unfold_spiral_density",
+           "SpiralRelaxResult", "relax_spiral_q"]
+
+#: The trust radius of an *ionic* step is a length in bohr and QE's defaults say
+#: what a reasonable one is. A step in ``q`` has no such absolute scale: the
+#: useful range of ``q`` is the Brillouin zone, whose size is the cell's and
+#: differs by orders of magnitude between a molecule in a large box and a dense
+#: metal. So the three radii are fractions of the zone's **linear size**, taken
+#: as the cube root of its volume -- a single number that is right for a cubic
+#: cell and does not collapse for an anisotropic one, where the shortest
+#: reciprocal vector may be the one along a vacuum direction the physics never
+#: uses. Once that scale is known they are ordinary
+#: :class:`~defuqumat.relax.bfgs.BFGSSettings`.
+TRUST_RADIUS_MAX_FRACTION = 0.25
+TRUST_RADIUS_INI_FRACTION = 0.08
+TRUST_RADIUS_MIN_FRACTION = 1.0e-4
+
+#: ``upscale``, as in ``move_ions.f90``: how much tighter than the input
+#: ``conv_thr`` the SCF may become as the relaxation closes in. A gradient is a
+#: derivative and needs a better density than an energy does.
+UPSCALE = 100.0
+
+
+@dataclass
+class SpiralScan:
+    """``E(q)`` over a list of spiral wavevectors."""
+
+    #: ``(nq, 3)`` in lattice coordinates, as they were given.
+    wavevectors: np.ndarray
+    #: ``(nq,)`` total energies in Ry, per unit cell.
+    energies: np.ndarray
+    #: ``(nq, 3)`` the rotated-frame moment of each converged state, in Bohr
+    #: magnetons -- the amplitude of the moment that turns, not a net moment.
+    moments: np.ndarray
+    converged: tuple
+    results: tuple = field(default_factory=tuple)
+    #: ``(nq, 3)`` ``dE/dq`` in lattice coordinates, Ry, or ``None`` when the
+    #: scan was not asked for them (``gradients=False``). One per point, taken
+    #: at that point's own converged state.
+    gradients: np.ndarray | None = None
+
+    @property
+    def relative(self) -> np.ndarray:
+        """Energies measured from the first point, in mRy."""
+        return 1.0e3 * (self.energies - self.energies[0])
+
+    @property
+    def integrated(self) -> np.ndarray:
+        """``E(q) - E(q_0)`` in mRy, from ``dE/dq`` rather than the energies.
+
+        The scan's wavevectors are a path through the zone, so the energy along
+        it is the line integral of its own gradient,
+
+            E(q_n) - E(q_0) = sum_m int dq . dE/dq,
+
+        evaluated here by the trapezoid rule on the segments between successive
+        points. Both factors are in **lattice** coordinates -- the units
+        ``spiral_q`` and :attr:`~defuqumat.forces.spiral.SpiralGradient.gradient`
+        are written in -- so the contraction needs no metric and the path may
+        bend, which a scan along a zone boundary does.
+
+        **Why this differs from** :attr:`relative`, **which is the same curve.**
+        The energies are computed on a plane-wave sphere rebuilt at every point,
+        so they step by the Pulay error of a finite basis wherever a plane wave
+        crosses ``|k +- q/2 + G|^2 = ecutwfc``; the gradient is taken at a
+        *frozen* sphere and does not see those steps. The integrated curve is
+        therefore the smooth one, and on the hydrogen chain of
+        ``tests/data/qe/h-chain-spiral.in`` the direct one is visibly not: over
+        a 13-point scan at ``ecutwfc = 25`` its energies rise, fall and rise
+        again (0.000, 0.031, 0.105, 0.009, -0.092 mRy) where the integrated
+        curve descends monotonically.
+
+        **Two error sources live in that gap and they are told apart by
+        refining, not by staring.** The trapezoid rule contributes its own
+        ``h^2``, which shrinks when the ``q`` path is refined; the basis noise
+        does not, since it is a property of the cutoff. Measured on that cell at
+        ``ecutwfc = 25``, refining 7 -> 13 -> 25 points takes the quadrature
+        error from 0.051 to 0.016 to 0.003 mRy while the gap against the
+        energies holds at 0.139, 0.138, 0.137 -- so the gap there is basis noise
+        essentially entirely, and refining ``q`` will not touch it. Raising
+        ``ecutwfc`` is what touches it, and it does so **erratically** rather
+        than smoothly, for the reason
+        ``tests/regression/test_spiral_relaxation.py`` records: the number
+        counts the plane waves that happen to cross inside the window of ``q``
+        rather than truncating a series.
+
+        **They do converge onto each other**, which is the check that neither
+        route carries a term the other is missing: at ``ecutwfc = 60`` on the
+        same cell the two agree to **0.005 mRy** once the quadrature error is
+        removed, against 0.130 at 25 -- a factor of 26 for a factor of 2.4 in
+        the cutoff. Which of the two is *closer* to that limit at a low cutoff
+        is a separate question and is not settled by any of this; the integrated
+        curve is smoother, which is not the same claim. Raising ``ecutwfc``
+        until they agree is what settles it, and it is the check to run before
+        quoting either.
+
+        Three things this route does not buy, because the intuition that it
+        might is a common one:
+
+        * **No k-mesh gain.** ``dE/dq`` at the frozen converged state is the
+          exact derivative of the same fixed-mesh ``E(q)``, so integrating it
+          carries the same Brillouin-zone error the energies do.
+        * **No saving.** Every point still needs its own converged state for
+          the gradient to be evaluated at.
+        * **A tighter ``conv_thr``, not a looser one.** An energy's error is
+          second order in the density's and a gradient's is first order, which
+          is why :func:`relax_spiral_q` escalates ``conv_thr`` as it closes in.
+        """
+        if self.gradients is None:
+            raise ValueError(
+                "this scan carries no gradients: pass gradients=True to "
+                "run_spiral_scan, which needs a spiral the gradient supports "
+                "(norm-conserving, no magnetic field)"
+            )
+        q = np.asarray(self.wavevectors, dtype=float)
+        g = np.asarray(self.gradients, dtype=float)
+        # Trapezoid on each segment: the average of the two endpoints'
+        # gradients contracted with the step between them.
+        steps = np.sum(0.5 * (g[1:] + g[:-1]) * (q[1:] - q[:-1]), axis=1)
+        return 1.0e3 * np.concatenate([[0.0], np.cumsum(steps)])
+
+    def plot(self, ax=None, axis: int = 2, moment: bool = True,
+             integrated: bool | None = None, **kwargs):
+        """Draw ``E(q)``, and return the axes.
+
+        A frozen-magnon curve is the whole point of a scan and is drawn the
+        same way every time: the energy relative to the first point, in mRy,
+        against the component of ``q`` that was varied. ``axis`` selects that
+        component (the spirals here run along ``z`` by convention); ``moment``
+        adds the amplitude of the turning moment on a twin axis, since a curve
+        that softens because the moment collapsed is a different statement from
+        one that softens because the spiral is favourable.
+
+        ``integrated`` overlays the curve :attr:`integrated` builds from
+        ``dE/dq``, which is the informative comparison when the scan carries
+        gradients: the two are the same physical curve and the gap between them
+        is the basis-set noise the energies have and the gradients do not. It
+        defaults to drawing whenever the gradients are there.
+
+        matplotlib is imported here rather than at module scope: it is not a
+        dependency of any calculation, and a headless run should not need it.
+        """
+        import matplotlib.pyplot as plt
+
+        if ax is None:
+            _, ax = plt.subplots()
+        q = np.asarray(self.wavevectors)[:, axis]
+        kwargs.setdefault("marker", "o")
+        kwargs.setdefault("color", "C0")
+        kwargs.setdefault("label", "from $E$")
+        ax.plot(q, self.relative, **kwargs)
+        if integrated is None:
+            integrated = self.gradients is not None
+        if integrated:
+            ax.plot(q, self.integrated, marker="x", ls="--", lw=1.0,
+                    color="C2", label=r"$\int dq\, dE/dq$")
+            ax.legend(frameon=False, loc="best")
+        ax.set_xlabel(f"$q_{'xyz'[axis]}$   [$2\\pi/a$, lattice coordinates]")
+        ax.set_ylabel(r"$E(q) - E(q_0)$   [mRy]")
+        ax.axhline(0.0, color="0.7", lw=0.8, ls=":")
+        if moment and self.moments is not None:
+            twin = ax.twinx()
+            twin.plot(q, np.linalg.norm(np.asarray(self.moments), axis=1),
+                      marker="s", ls="--", lw=1.0, color="C3")
+            twin.set_ylabel(r"$|m|$   [$\mu_B$]", color="C3")
+            twin.tick_params(axis="y", labelcolor="C3")
+        return ax
+
+
+def run_spiral_scan(
+    system: System,
+    pseudos: tuple[Pseudopotential, ...],
+    wavevectors,
+    keep_results: bool = False,
+    gradients: bool = False,
+    calculation=None,
+    **scf_options,
+) -> SpiralScan:
+    """One SCF per wavevector, sharing everything that does not depend on ``q``.
+
+    Args:
+        system: a spiral system -- ``noncolin``, ``nosym``, and a ``spiral_q``
+            that this scan overrides point by point.
+        wavevectors: ``(nq, 3)`` in lattice coordinates.
+        keep_results: hold every :class:`~defuqumat.scf.driver.SCFResult`. Off by default: each one
+            carries its wavefunctions, which is the largest array in the run.
+        gradients: also take ``dE/dq`` at every point, which
+            :attr:`SpiralScan.integrated` then integrates along the path into a
+            second, jump-free ``E(q)``. It is evaluated on the converged state
+            the scan already has, so it costs one gradient per point and no
+            further SCF; what it asks for in return is a tighter ``conv_thr``,
+            since a derivative needs a better density than an energy does.
+        calculation: the caller's own :class:`~defuqumat.scf.driver.Calculation`
+            of this system, moved to each wavevector with ``at_spiral_q``
+            rather than a second one built beside it -- it keeps the caller's
+            memory mode and shares its k-independent tables
+            (``GPU-MEMORY-NEXT.md`` item 20). ``Calculator.get_spiral_scan``
+            passes its own.
+    """
+    wavevectors = np.asarray(wavevectors, dtype=float).reshape(-1, 3)
+    if not system.spiral:
+        raise ValueError(
+            "run_spiral_scan needs a system with spiral_q set: it is what makes "
+            "the run noncollinear, symmetry-free and two-sphered"
+        )
+
+    k_batch = scf_options.pop("k_batch", "default")
+    base = (calculation if calculation is not None
+            else Calculation(system, pseudos, k_batch=k_batch))
+    calculation = None
+    # Every point padded to the widths of all of them, so that the SCF stack
+    # compiles once for the scan rather than once per padded width.
+    widths = scan_widths(base, wavevectors)
+    if gradients:
+        # Ask before the first SCF rather than after it. The refusals live on
+        # the gradient, not the scan, so an unsupported spiral would otherwise
+        # converge a state and then throw it away along with the whole run.
+        _require_a_differentiable_spiral(base.at_spiral_q(wavevectors[0], widths=widths))
+    energies, moments, converged, results, slopes = [], [], [], [], []
+    for q in wavevectors:
+        # The last point's result and Calculation must not be live under this
+        # point's setup and SCF (`MEMORY-AUDIT.md` A2); ``results`` keeps the
+        # result when it was asked for, and nothing else reads either.
+        calculation = result = None
+        calculation = base.at_spiral_q(q, widths=widths)
+        result = run_scf(
+            calculation.system, pseudos, calculation=calculation, **scf_options
+        )
+        energies.append(result.total_energy)
+        moments.append(result.magnetization_vector or (0.0, 0.0, 0.0))
+        converged.append(bool(result.converged))
+        if gradients:
+            # The live result is in hand here, so the gradient costs nothing
+            # beyond itself -- ``keep_results`` is about holding the
+            # wavefunctions afterwards and is a separate question.
+            slopes.append(compute_spiral_gradient(calculation, result).gradient)
+        if keep_results:
+            results.append(result)
+
+    return SpiralScan(
+        wavevectors=wavevectors,
+        energies=np.array(energies),
+        moments=np.array(moments),
+        converged=tuple(converged),
+        results=tuple(results),
+        gradients=np.array(slopes) if gradients else None,
+    )
+
+
+def scan_widths(calculation: Calculation, wavevectors) -> tuple[int, int, int]:
+    """``(npwx, nsticks, npw_min)`` over both spheres of every wavevector at once.
+
+    What :meth:`~defuqumat.scf.driver.Calculation.at_spiral_q` pads each point of
+    a scan to. Each wavevector centres its two spheres on ``k + q/2`` and
+    ``k - q/2``, so each one's widest sphere and stick count differ a little
+    from the next one's -- 1532 to 1544 plane waves over eight wavevectors of
+    the hydrogen chain -- and every new width compiled the whole SCF stack
+    again. Taken over the union of every point's shifted list, the widths are
+    one shape for the whole scan, which is what a band path walked in blocks
+    does (:func:`~defuqumat.basis.planewaves.sphere_widths`).
+
+    **It moves an energy within the SCF's stopping slack and not at round-off**
+    wherever the starting wavefunctions are topped up with random vectors,
+    since those are drawn at the padded width with a fixed key: the same
+    wavevector padded wider starts from different random vectors, takes a
+    different path to the same state and stops at a different point inside
+    ``conv_thr``. Measured on the hydrogen chain over eight wavevectors at
+    ``conv_thr = 1e-11`` (``OPEN.md`` Part XXIII item 9): the four whose own
+    widths are the union's give the same energy bit for bit; three move by 2 to
+    3e-12 Ry; and ``q = 5/16`` moves by 1.75e-10, because the padded run
+    stopped one iteration earlier, at an estimated accuracy of 7.4e-12, where
+    the unpadded one had run on to 5.0e-14. Converged further, the two widths
+    agree to 5.6e-13 at ``conv_thr = 1e-13`` and to 9.5e-15 at 1e-14, so they
+    reach the same state, and the slack is the threshold's own: the unpadded
+    run's previous iteration, at an estimated accuracy of 1.2e-11, was 2.9e-6
+    Ry from where it ended. The smallest sphere ``npw_min`` caps the Davidson
+    subspace at ``2 npw_min``, which moves nothing unless ``david nbnd`` is
+    larger than that -- 12 against 3016 on that cell.
+    """
+    system = calculation.system
+    cell = system.cell
+    lists = [spiral_kpoints(system.kpoints, q, cell)
+             for q in np.asarray(wavevectors, dtype=float).reshape(-1, 3)]
+    union = KPoints.from_cartesian(
+        np.concatenate([np.asarray(k.coords) for k in lists]),
+        np.concatenate([np.asarray(k.weights) for k in lists]),
+        precision=system.kpoints.precision,
+    )
+    return sphere_widths(calculation.basis.smooth, union, cell, system.ecutwfc)
+
+
+def heisenberg_exchange(scan: SpiralScan, cell, shells, *, point_group=None) -> np.ndarray:
+    """Fit ``E(q) - E(0) = m^2 sum_shells J_s sum_{R in s} [1 - cos(q . R)]`` for the ``J_s``.
+
+    Args:
+        cell: the :class:`~defuqumat.system.cell.Cell` the scan ran in (or its
+            ``at`` array); its lattice point group generates each shell.
+        shells: ``(nshell, 3)`` lattice vectors in *crystal* coordinates, one
+            **representative** per neighbour shell to fit. Each is expanded into
+            its star, so ``[0, 0, 1]`` and ``[1, 0, 0]`` name the same shell of a
+            cubic lattice and give the same ``J``. The moment is taken from the
+            scan's own converged states, so the ``J`` come out in Ry per pair of
+            unit vectors -- the convention in which ``H = -sum_<ij> J_ij e_i . e_j``
+            runs over **pairs**, meaning that ``R`` and ``-R`` are one bond and
+            the sum above runs over one member of each.
+        point_group: the integer rotations (crystal coordinates,
+            ``S a_i = sum_j M_ij a_j``) that generate a shell. Defaults to the
+            lattice's own point group, which is the right one for a Bravais
+            magnet; pass the crystal's ``Symmetries.rotation_array()`` where the
+            basis lowers the symmetry, so that a lattice shell splits into the
+            crystal's inequivalent ones.
+
+    A least-squares fit rather than an inversion: the number of ``q`` points is
+    usually larger than the number of shells, and the residual is the honest
+    statement of how well a Heisenberg model describes the surface. A large one
+    means the moments' *magnitude* is changing with ``q``, which is exactly what
+    the ``moments`` column of the scan is there to show.
+    """
+    q = np.asarray(scan.wavevectors, dtype=float)
+    representatives = np.asarray(shells, dtype=float).reshape(-1, 3)
+    if point_group is None:
+        at = np.asarray(getattr(cell, "at", cell), dtype=float)
+        point_group = lattice_point_group(at)
+    rotations = [np.asarray(r, dtype=int).reshape(3, 3) for r in point_group]
+
+    # One column per *shell*, not per vector passed in. A scan along one
+    # direction sees only the members of a star with a component along it, so
+    # a single representative made the fitted J depend on which member was
+    # typed: on fcc with q along b_3, [1, 0, 0] gave a column of zeros and
+    # [0, 0, 1] three times the per-bond constant.
+    columns, seen = [], set()
+    for index, vector in enumerate(representatives):
+        integer = np.rint(vector).astype(int)
+        if np.any(np.abs(vector - integer) > 1.0e-8) or not np.any(integer):
+            raise ValueError(
+                f"heisenberg_exchange: shell {index} is {vector.tolist()}, which is "
+                "not a nonzero lattice vector in crystal coordinates; a Heisenberg "
+                "J(R) couples a site to one of its periodic images"
+            )
+        star = _bond_star(integer, rotations)
+        if star & seen:
+            raise ValueError(
+                f"heisenberg_exchange: shell {index} ({integer.tolist()}) is the "
+                "same star as an earlier one, so the two J would be one parameter "
+                "and the fit singular"
+            )
+        seen |= star
+        bonds = np.array(sorted(star), dtype=float)
+        # q is in lattice (reciprocal) coordinates and R in crystal
+        # coordinates, so q . R is 2 pi times their dot product -- no metric
+        # needed, which is the convenience those two conventions exist for.
+        columns.append(np.sum(1.0 - np.cos(2.0 * np.pi * (q @ bonds.T)), axis=1))
+    phase = np.stack(columns, axis=1)
+    amplitude = np.linalg.norm(np.asarray(scan.moments), axis=1)
+    magnitude = float(np.mean(amplitude[amplitude > 0.0])) if np.any(amplitude) else 1.0
+    energies = scan.energies - scan.energies[0]
+    solution, *_ = np.linalg.lstsq(phase * magnitude**2, energies, rcond=None)
+    return solution
+
+
+def _bond_star(vector: np.ndarray, rotations) -> set:
+    """The bonds of ``vector``'s shell, one member of each ``(R, -R)`` pair.
+
+    A lattice vector in crystal coordinates transforms as a position does,
+    ``n' = n M`` (see :class:`~defuqumat.system.symmetry.Symmetries`). ``-R`` is
+    added whether or not the group has inversion, since a Heisenberg bond is
+    the same bond read from either end, and the pair is then kept once: the
+    member whose first nonzero component is positive.
+    """
+    orbit = set()
+    for rotation in rotations:
+        image = vector @ rotation
+        for member in (image, -image):
+            leading = member[np.flatnonzero(member)[0]]
+            if leading > 0:
+                orbit.add(tuple(int(v) for v in member))
+    return orbit
+
+
+@dataclass
+class SpiralRelaxStep:
+    """One step of a ``q`` relaxation: where it was, and what was found there."""
+
+    index: int
+    #: The wavevector, in lattice coordinates.
+    wavevector: np.ndarray
+    total_energy: float  # Ry
+    #: ``max |dE/dq|`` in Ry per ``2 pi / alat``, over the free components.
+    max_gradient: float
+    scf_iterations: int
+    conv_thr: float
+    energy_error: float | None = None
+    gradient_error: float | None = None
+    #: ``report_mag`` at this wavevector, in the **rotated frame** the spiral's
+    #: density is carried in: the charge ``(nat,)`` and the moment ``(nat, 3)``
+    #: in Bohr magnetons. ``None`` for a run with no magnetization.
+    #:
+    #: A spiral's cell total is the one quantity that cannot see whether the
+    #: magnet is still there -- :attr:`SpiralRelaxResult.moment` is the
+    #: rotated-frame integral and a collapsed run reports it as small in exactly
+    #: the way a long-pitch one does. Per site, a collapse is unambiguous.
+    site_charges: np.ndarray | None = None
+    site_moments: np.ndarray | None = None
+
+
+@dataclass
+class SpiralRelaxResult:
+    """The relaxed spiral, and the path taken to it."""
+
+    converged: bool
+    #: The final wavevector in lattice coordinates -- the pitch of the ground
+    #: state, and the number the whole calculation exists to produce.
+    wavevector: np.ndarray
+    #: The final system, with ``spiral_q`` at that wavevector, so it can be
+    #: handed straight to another calculation.
+    system: System
+    #: The last SCF, at the final wavevector.
+    scf: SCFResult
+    #: The gradient there.
+    gradient: SpiralGradient
+    steps: list = field(default_factory=list)
+    #: Set when the optimizer gave up -- its line search stopped making
+    #: progress -- rather than converging. On a spiral surface this most often
+    #: means the steps have reached the size at which the basis-set jumps in
+    #: ``E(q)`` are as large as the energy differences being resolved.
+    optimizer_failed: bool = False
+
+    @property
+    def total_energy(self) -> float:
+        return self.scf.total_energy
+
+    @property
+    def moment(self) -> tuple | None:
+        """The rotated-frame moment at the relaxed wavevector, in Bohr magnetons."""
+        return self.scf.magnetization_vector
+
+    @property
+    def nsteps(self) -> int:
+        return len(self.steps)
+
+
+def relax_spiral_q(
+    system: System,
+    pseudos: tuple[Pseudopotential, ...],
+    *,
+    nbnd: int | None = None,
+    conv_thr: float = 1.0e-8,
+    etot_conv_thr: float = 1.0e-5,
+    grad_conv_thr: float = 1.0e-4,
+    nstep: int = 30,
+    free=(1, 1, 1),
+    ion_dynamics: str | None = None,
+    calculation: Calculation | None = None,
+    diagonalization: str | None = None,
+    mixing_mode: str = "anderson",
+    mixing_beta: float | None = None,
+    k_batch: int | None | str = "default",
+    warm_start: bool = True,
+    verbose: bool = False,
+    # See :data:`~defuqumat.workflows.relax.SCF_LOOP_OPTIONS`.
+    max_iterations: int | None = None,
+    david: int | None = None,
+    diago_full_acc: bool | None = None,
+    mixing_fixed_ns: int | None = None,
+    mixing_ndim: int | None = None,
+    scf_solver: str | None = None,
+    scf_solver_options: dict | None = None,
+    **scf_options,
+) -> SpiralRelaxResult:
+    """Move ``q`` downhill until ``dE/dq`` vanishes: the ground-state spiral.
+
+    The counterpart of :func:`~defuqumat.workflows.relax.run_relax` on the other
+    coordinate. Converge the electrons at fixed ``q``, take ``dE/dq``, ask BFGS
+    where to go, rebuild the spheres there, repeat.
+
+    Args:
+        system: a spiral system. Its ``spiral_q`` is the starting guess, and it
+            matters: ``E(q)`` is even in ``q``, so ``q = 0`` and the zone
+            boundary are stationary points *by symmetry* and a relaxation
+            started at either one will report convergence without moving. Start
+            between them.
+        conv_thr: the SCF's starting threshold. Tighter than a plain SCF's
+            default by two decades, for the reason ``move_ions.f90`` gives: a
+            gradient is more sensitive to the density than an energy is.
+        etot_conv_thr: in Ry, and ``grad_conv_thr`` in Ry per ``2 pi / alat``.
+            Both must be satisfied, as in a ``pw.x`` relaxation -- and of the
+            two it is the **energy** one that is loose here, at 1e-5 Ry rather
+            than the 1e-4 an ionic relaxation uses over an energy scale a
+            hundred times larger. It has to be: near the minimum the energy
+            differences being resolved are of the size of the basis-set jumps
+            described above (measured on the hydrogen chain at ``ecutwfc = 40``:
+            3e-6 Ry between two wavevectors 0.006 apart, where the physics is
+            8e-7), so a tighter one is asking the line search to follow
+            discretisation noise. The gradient threshold is the one that carries
+            the physics, and it is the one to tighten -- after raising the
+            cutoff.
+        free: which components of ``q`` may move, as ``if_pos`` does for an
+            atom -- and, like ``if_pos``, **cartesian**: it multiplies
+            ``dE/dq`` in units of ``2 pi / alat``, not the lattice coordinates
+            ``spiral_q`` is written in. The two coincide whenever the reciprocal
+            vectors are orthogonal, which covers the case this is for: a search
+            along one symmetry direction, ``(0, 0, 1)`` for a chain or a
+            tetragonal or hexagonal axis, where the other two components are
+            zero by symmetry and letting them move only lets basis-set noise
+            push them off it. Freezing a single *lattice* component of an
+            oblique cell is not what this does and needs a projector rather than
+            a mask.
+        warm_start: hand each step the previous one's converged density. The
+            wavefunctions cannot travel -- a new ``q`` is a new plane-wave
+            sphere -- but the density is a lattice-periodic function on a grid
+            that does not move, so it costs nothing and saves several SCF
+            iterations a step.
+    """
+    if not system.spiral:
+        raise ValueError(
+            "relax_spiral_q needs a system with spiral_q set: it is the "
+            "coordinate being relaxed, and it is what makes the run "
+            "noncollinear, symmetry-free and two-sphered"
+        )
+    calculation = calculation or Calculation(
+        system, pseudos, diagonalization=diagonalization, k_batch=k_batch
+    )
+    cell = system.cell
+    # The optimizer's "cartesian" is ``q`` in units of ``2 pi / alat`` and its
+    # "crystal" is ``q`` in lattice coordinates, so the lattice it is handed is
+    # the *reciprocal* one and its metric ``b_i . b_j`` is what measures the
+    # length of a step. That is the whole of the substitution: everything else
+    # in BFGS -- the trust radius, the Wolfe line search, the damped Hessian
+    # update -- is the same arithmetic on a single three-component coordinate.
+    bg = np.asarray(cell.bg_2pi_alat, dtype=float)
+    scale = float(abs(np.linalg.det(bg))) ** (1.0 / 3.0)
+    settings = BFGSSettings(
+        trust_radius_max=TRUST_RADIUS_MAX_FRACTION * scale,
+        trust_radius_ini=TRUST_RADIUS_INI_FRACTION * scale,
+        trust_radius_min=TRUST_RADIUS_MIN_FRACTION * scale,
+    )
+    optimizer = get_ion_dynamics(ion_dynamics)(
+        at=bg, energy_thr=etot_conv_thr, grad_thr=grad_conv_thr, settings=settings,
+    )
+
+    scf_options = _scf_loop_options(
+        scf_options, max_iterations=max_iterations, david=david,
+        diago_full_acc=diago_full_acc, mixing_fixed_ns=mixing_fixed_ns,
+        mixing_ndim=mixing_ndim,
+        scf_solver=scf_solver, scf_solver_options=scf_solver_options,
+    )
+    free = np.asarray(free, dtype=float).reshape(1, 3)
+    starting_threshold = threshold = conv_thr
+    steps: list[SpiralRelaxStep] = []
+    density = None
+    converged = False
+    q_crystal = np.asarray(system.spiral_q, dtype=float)
+
+    for index in range(1, nstep + 1):
+        # The last step's result must not be live under this step's SCF
+        # (`MEMORY-AUDIT.md` A2); ``density`` is the only thing carried over.
+        result = None
+        result = run_scf(
+            calculation.system,
+            pseudos,
+            nbnd=nbnd,
+            conv_thr=threshold,
+            calculation=calculation,
+            mixing_mode=mixing_mode,
+            mixing_beta=mixing_beta,
+            starting_density=density,
+            verbose=verbose,
+            **scf_options,
+        )
+        gradient = compute_spiral_gradient(calculation, result)
+        q_crystal = np.asarray(calculation.system.spiral_q, dtype=float)
+        max_gradient = float(np.abs(gradient.force * free).max())
+
+        if index == 1:
+            # BFGS's first step is a Newton step through an inverse Hessian it
+            # has no information for, and for the atoms QE's guess -- the
+            # inverse metric, i.e. a curvature of 1 Ry/bohr^2 -- happens to be
+            # the size of a chemical bond. On this surface it is out by two
+            # orders of magnitude (the energy scale of magnetism is milli-Ry
+            # over a coordinate of order one), so the first step comes out a
+            # hundredth of the trust radius and the relaxation crawls until the
+            # updates have rebuilt the curvature from scratch. Scaling the guess
+            # so that the first Newton step is exactly ``trust_radius_ini`` long
+            # says the honest thing instead: with no curvature information,
+            # take a steepest-descent step of the length the trust radius
+            # allows. Every step after this one uses a measured curvature.
+            settings.hessian_scale = _first_step_scale(
+                optimizer, gradient.gradient * free.reshape(3), settings
+            )
+
+        moved, converged = optimizer.step(
+            (q_crystal @ bg).reshape(1, 3),
+            result.total_energy,
+            gradient.force.reshape(1, 3) * free,
+        )
+        charges, moments = site_magnetization(result)
+        steps.append(SpiralRelaxStep(
+            index=index,
+            wavevector=q_crystal,
+            total_energy=result.total_energy,
+            max_gradient=max_gradient,
+            scf_iterations=result.iterations,
+            conv_thr=threshold,
+            energy_error=getattr(optimizer, "energy_error", None),
+            gradient_error=getattr(optimizer, "gradient_error", None),
+            site_charges=charges,
+            site_moments=moments,
+        ))
+        if verbose:
+            print(f"spiral step {index:3d}   q = "
+                  f"({q_crystal[0]:8.5f}, {q_crystal[1]:8.5f}, {q_crystal[2]:8.5f})"
+                  f"   E = {result.total_energy:16.8f} Ry"
+                  f"   max |dE/dq| = {max_gradient:.6f}"
+                  f"   dE = {optimizer.energy_error:.2e}"
+                  f"{site_moment_report(moments)}")
+        if converged:
+            break
+
+        if getattr(optimizer, "step_accepted", False):
+            threshold = max(
+                starting_threshold / UPSCALE,
+                starting_threshold * min(
+                    1.0,
+                    optimizer.energy_error / (etot_conv_thr * UPSCALE),
+                    optimizer.gradient_error / (grad_conv_thr * UPSCALE),
+                ),
+            )
+
+        # The spheres are rebuilt here -- ``rebuild_basis`` defaults to True --
+        # because this is a real move of ``q`` and the frozen sphere the
+        # gradient was taken on belongs to the point that was just left. They
+        # are padded to their own widths, unlike a scan's (``scan_widths``):
+        # the steps are not known in advance, so a step compiles the SCF again
+        # wherever its padded width, its stick count or its smallest sphere is
+        # new, and only there, since the operators hold the smallest sphere
+        # rather than every k-point's count.
+        density = result.density if warm_start else None
+        calculation = calculation.at_spiral_q(optimizer.to_crystal(moved).reshape(3))
+
+    # ``q_crystal`` and not the calculation's own ``spiral_q``: the last thing
+    # the loop does when it has *not* converged is move, so the two differ
+    # exactly when the step budget ran out -- and the wavevector reported has to
+    # be the one ``scf`` and ``gradient`` were evaluated at.
+    return SpiralRelaxResult(
+        converged=converged and not optimizer.failed,
+        wavevector=q_crystal,
+        system=dataclasses.replace(
+            calculation.system, spiral_q=tuple(float(v) for v in q_crystal)
+        ),
+        scf=result,
+        gradient=gradient,
+        steps=steps,
+        optimizer_failed=bool(optimizer.failed),
+    )
+
+
+def _first_step_scale(optimizer, gradient, settings: BFGSSettings) -> float:
+    """The multiple of the inverse metric that makes step one the trust radius.
+
+    ``direction = -s M^-1 g`` and its length in the cell metric is linear in
+    ``s``, so the scale that makes it ``trust_radius_ini`` is one division. A
+    vanishing gradient means the run has converged before it started and the
+    scale is irrelevant, so it falls back to QE's.
+    """
+    step = (optimizer.inverse_metric @ np.asarray(gradient)).reshape(1, 3)
+    # The metric has to exist before it can be measured against. ``BFGS`` builds
+    # it for **zero** blocks in ``__post_init__`` and fills it in at the top of
+    # the first ``step`` (``_rebuild_metric(nat)``) -- and this runs *before*
+    # that first step, so without this line ``_norm`` reduces over an empty
+    # array and raises. One block, because a spiral's ``q`` is a single
+    # three-vector coordinate; ``step`` rebuilds it for itself either way.
+    optimizer._rebuild_metric(1)
+    length = optimizer._norm(step)
+    if length < 1.0e-30:
+        return 1.0
+    return settings.trust_radius_ini / length
+
+
+def unfold_spiral_density(density, spiral_q, multiples, shape) -> np.ndarray:
+    """A commensurate spiral's density, laid out on the supercell it repeats in.
+
+    A spiral run keeps its magnetization in the frame that turns with ``q``
+    (``scf/density.py``): the charge and ``m_z`` are the laboratory ones, and the
+    transverse pair is ``m'_+ = m'_x + i m'_y = 2 conj(U_up) U_dn`` of the
+    periodic parts. With the up component at ``k + q/2`` and the down at
+    ``k - q/2`` the laboratory pair is ``m_+ = m'_+ exp(-i q . r)``, so the
+    moment turns by ``-q . R`` from a cell to the next. When ``q . M`` is an
+    integer vector for the supercell multiples ``M``, that phase is a supercell
+    reciprocal-lattice vector, ``K = -q * M``, and the whole unfolding is done in
+    reciprocal space: every unit-cell Fourier component ``(h, k, l)`` goes to
+    the supercell's ``(M1 h, M2 k, M3 l)``, and ``m'_+``'s are shifted by ``K``
+    as well. Nothing is interpolated, so a band-limited density comes out
+    exactly, provided ``shape`` holds every component (checked).
+
+    Args:
+        density: ``(4, n1, n2, n3)``, the spiral run's rotating-frame density.
+        spiral_q: ``q`` in lattice coordinates of the unit cell (``spiral_q``).
+        multiples: the supercell's ``(M1, M2, M3)`` in units of the unit cell.
+        shape: the supercell's dense grid ``(N1, N2, N3)``.
+
+    Returns the ``(4, N1, N2, N3)`` laboratory-frame density of the supercell.
+    Without spin-orbit coupling it is the supercell's stationary density
+    whenever the spiral's is the unit cell's, because the generalized Bloch
+    theorem is exact at a commensurate ``q``.
+    """
+    density = np.asarray(density)
+    if density.shape[0] != 4:
+        raise ValueError(
+            f"a spiral's density has four channels, got {density.shape[0]}"
+        )
+    multiples = np.asarray(multiples, dtype=int).reshape(3)
+    shift = -np.asarray(spiral_q, dtype=float).reshape(3) * multiples
+    if np.max(np.abs(shift - np.round(shift))) > 1.0e-8:
+        raise ValueError(
+            f"q = {tuple(spiral_q)} is not commensurate with the supercell "
+            f"{tuple(multiples)}: q * M = {tuple(-shift)} is not an integer "
+            "vector, so the spiral does not repeat in it"
+        )
+    shift = np.round(shift).astype(int)
+    small = np.asarray(density.shape[1:])
+    shape = tuple(int(n) for n in shape)
+    scale = float(np.prod(shape)) / float(np.prod(small))
+
+    def frequencies(n):
+        return np.fft.fftfreq(n, d=1.0 / n).astype(int)
+
+    h, k, l = np.meshgrid(*(frequencies(n) for n in small), indexing="ij")
+
+    def place(field, offset):
+        coefficients = np.fft.fftn(field) * scale
+        target = np.stack([h * multiples[0], k * multiples[1],
+                           l * multiples[2]]) + offset.reshape(3, 1, 1, 1)
+        # **The Nyquist index of an even grid is both ends of it**, and
+        # ``fftfreq`` calls it the negative one. That is a label, not a
+        # position: shifted by ``K`` the label ``-n/2`` can land one index past
+        # the supercell grid's edge where ``+n/2`` would land inside it, so the
+        # alias is taken wherever the label falls outside and the alias does
+        # not, and a component that fits under neither is still refused below.
+        # **Since 2026-10-11 this is the transverse pair's ordinary case rather
+        # than an edge one.** A spiral keeps ``m'_+`` on the laboratory sphere
+        # ``|G - q| < G_rho`` (``Calculation.spiral_dense``), whose members past
+        # ``(n - 1) // 2`` the unit cell's box holds at the wrapped index -- the
+        # oxygen chain at ``q = b3/2`` has 81 at index 12 of 24 -- so every
+        # augmented spiral at such a ``q`` puts physical weight on the Nyquist
+        # plane, where before only the uncut smooth density at dual 4 did. The
+        # unit cell's box is checked to hold the sphere without folding two
+        # members together, so the label is the only ambiguity left, and this is
+        # what resolves it.
+        #
+        # On an odd unit-cell box the same holds the other way round: ``fftfreq``
+        # is symmetric there, and a member one past its negative end, which a
+        # sphere displaced towards ``-b`` has, is labelled at the positive end,
+        # so the alias is tried in both directions.
+        for axis, size in enumerate(shape):
+            low, high = -(size // 2), (size - 1) // 2
+            period = multiples[axis] * small[axis]
+            for alias in (target[axis] + period, target[axis] - period):
+                use = (((target[axis] < low) | (target[axis] > high))
+                       & (alias >= low) & (alias <= high))
+                target[axis] = np.where(use, alias, target[axis])
+        for axis, size in enumerate(shape):
+            # ``fftfreq``'s range on ``size`` points, the Nyquist included.
+            if (np.min(target[axis]) < -(size // 2)
+                    or np.max(target[axis]) > (size - 1) // 2):
+                raise ValueError(
+                    f"the supercell grid {shape} is too coarse along axis "
+                    f"{axis} for the unit cell's {tuple(small)} unfolded "
+                    f"{tuple(multiples)} times: a component would alias"
+                )
+        out = np.zeros(shape, dtype=complex)
+        index = tuple(np.mod(target[axis], shape[axis]) for axis in range(3))
+        np.add.at(out, index, coefficients)
+        return np.fft.ifftn(out)
+
+    none = np.zeros(3, dtype=int)
+    charge = np.real(place(density[0], none))
+    along_z = np.real(place(density[3], none))
+    transverse = place(density[1] + 1j * density[2], shift)
+    if tuple(int(n) for n in small * multiples) != shape:
+        # The unfolding itself is exact on any grid that holds the components.
+        # What is not is everything built from it afterwards: the
+        # exchange-correlation potential is evaluated point by point, and on
+        # other points than the unit cell's it is another potential at the
+        # level of the grid's aliasing. On the nickel-iodine chain of P123 at
+        # 30 Ry (unit grid 15 along the chain, supercell 64 rather than 60)
+        # that moved the supercell's first-order spin-orbit energy 1.3 per cent
+        # from the spiral's; with the grid repeated exactly it agrees to 1e-11.
+        warnings.warn(
+            f"the supercell grid {shape} is not the unit cell's "
+            f"{tuple(int(n) for n in small)} repeated {tuple(int(m) for m in multiples)} "
+            "times: the density unfolds exactly, but a potential built from it "
+            "is evaluated on other points than the spiral's and is not its "
+            "potential to better than the grid's aliasing. Choose ecutrho (or "
+            "the cell) so that the supercell's grid is the repeat",
+            stacklevel=2,
+        )
+    return np.stack([charge, np.real(transverse), np.imag(transverse), along_z])

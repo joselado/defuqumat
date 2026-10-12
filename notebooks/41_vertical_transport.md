@@ -18,7 +18,7 @@ correlation falls to **0.16**.
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
-from defumat import Calculator
+from defuqumat import Calculator
 
 graphene = Calculator.from_file('../tests/data/qe/graphene-monolayer.in',
                                 pseudo_dir='../tests/data/pseudo')
@@ -31,7 +31,7 @@ print(f'open channels through the sheet: {flow.notes["channels"]:.2f}')
 
 ```
 
-    [defumat] a vertical transmission: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
+    [defuqumat] a vertical transmission: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 
 
     open channels through the sheet: 2.85
@@ -93,7 +93,7 @@ print(f'          coherent map below the incoherent one by '
 
 ```
 
-    [defumat] a vertical transmission: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
+    [defuqumat] a vertical transmission: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 
 
     bilayer:  correlation with the tunnelling image 0.1562
@@ -198,7 +198,7 @@ current = np.array([
 print(f'antiparallel / parallel current: {current[6] / current[0]:.2f}')
 ```
 
-    [defumat] a vertical transmission: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
+    [defuqumat] a vertical transmission: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 
 
     antiparallel / parallel current: 5.31

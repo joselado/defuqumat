@@ -4,8 +4,8 @@
 antiferromagnet's ``Fe1``/``Fe2`` and a noncollinear texture are written, and
 P110 made the two setups that scale with that pattern hold one copy per
 distinct *dataset*: the projectors' phase-free columns
-(:func:`~defumat.pseudo.projectors._projector_dataset_key`) and the PAW
-one-centre tensors (:func:`~defumat.paw.onecenter._paw_dataset_key`). The
+(:func:`~defuqumat.pseudo.projectors._projector_dataset_key`) and the PAW
+one-centre tensors (:func:`~defuqumat.paw.onecenter._paw_dataset_key`). The
 estimate went on summing the first over labels, so a two-label cell reported
 twice the columns the run holds, and it had no line at all for the second.
 
@@ -36,12 +36,12 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.basis.builder import build_basis
-from defumat.calculator import Calculator
-from defumat.paw.onecenter import build_paw
-from defumat.pseudo.projectors import build_projector_core
-from defumat.sizing import estimate_size
-from defumat.xc.functional import resolve_functional
+from defuqumat.basis.builder import build_basis
+from defuqumat.calculator import Calculator
+from defuqumat.paw.onecenter import build_paw
+from defuqumat.pseudo.projectors import build_projector_core
+from defuqumat.sizing import estimate_size
+from defuqumat.xc.functional import resolve_functional
 # One ulp in the first ``beta``: a different projector dataset, and the same
 # PAW sphere, since ``_paw_dataset_key`` does not read ``beta``.
 from tests.unit.test_dataset_dedupe import _nudged_beta
@@ -262,9 +262,9 @@ def test_the_onecentre_line_follows_the_build_not_the_precision_policy(pseudo_di
     width it was half of what is resident. The real lines beside it do halve,
     which is what shows the system really is single.
     """
-    from defumat.config import SINGLE
-    from defumat.io.pwin import parse_pw_input
-    from defumat.system.builder import build_system
+    from defuqumat.config import SINGLE
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
 
     text = _input(PAW, two_labels=False)
     calculator = _calculator(text, pseudo_dir)

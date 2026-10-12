@@ -33,7 +33,7 @@
 #               warm cache and less with a cold one, so this is three times the
 #               worst and leaves room for the in-process watchdog to name a test
 #               before the kernel acts.
-#SBATCH --job-name=defumat-piezo
+#SBATCH --job-name=defuqumat-piezo
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-3
 #SBATCH --time=01:00:00
@@ -44,12 +44,12 @@
 
 WORK=/scratch/work/ladovj1/calculations/defumat-piezo
 # The checkout to run, overridable so that a run never has to modify a working
-# tree someone else is using. It is `defumat-jobs`, which is the checkout every
+# tree someone else is using. It is `defuqumat-jobs`, which is the checkout every
 # other piezoelectric job of this session used and the one a bundle is fetched
-# into; `defumat-audit` is the *old* side of `attribute.sbatch`'s A/B and sits
+# into; `defuqumat-audit` is the *old* side of `attribute.sbatch`'s A/B and sits
 # at the commit that session started from, where two of the three files below
 # do not exist at all.
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -64,18 +64,18 @@ export PYTHONPATH="$REPO"
 # whole reason these three are split on the workstation is a warm cache. Running
 # them cold here is the like-for-like comparison with what the workstation did
 # the first time, not with what it does now.
-export DEFUMAT_CACHE_DIR=off
-# These files read no committed QE benchmark, so `DEFUMAT_QE_ROOT` is not needed
+export DEFUQUMAT_CACHE_DIR=off
+# These files read no committed QE benchmark, so `DEFUQUMAT_QE_ROOT` is not needed
 # -- but it is set anyway, because a test that silently skips is what a cluster
 # run exists to avoid and the cost of pointing at a directory is nothing.
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 # Under the Slurm cap, so that the in-process watchdog names the test before the
 # kernel acts on the 32 G. **It did not fire on `20345288` and it will not fire
 # here at all**: `psutil` is not importable in this venv, so `conftest.py` warns
 # at collection time and switches the watchdog off, and the `peak=` figure on
 # the summary line comes from `/usr/bin/time` around pytest instead, which is a
 # number for the file and not a name for the test that held it.
-export DEFUMAT_TEST_MEM_MAX=28G
+export DEFUQUMAT_TEST_MEM_MAX=28G
 
 # The fourth is the PAW pair, and it is the one that cannot run on the
 # workstation at all rather than merely being awkward there: one ground state

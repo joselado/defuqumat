@@ -20,8 +20,8 @@ p.add_argument("--dft", default=None)
 p.add_argument("--out", required=True)
 a = p.parse_args()
 
-from defumat import Calculator
-from defumat.scf.driver import Calculation, run_scf
+from defuqumat import Calculator
+from defuqumat.scf.driver import Calculation, run_scf
 
 ROOT = Path(a.root)
 text = (ROOT / "tests/data/qe/co-helix4-spiral.in").read_text()

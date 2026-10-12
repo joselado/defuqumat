@@ -4,7 +4,7 @@ Three comparisons, each an identity rather than an agreement:
 
 * the perturbative orders of the current, by nested ``jvp`` through the
   propagation, against the dense frequency-domain hierarchy with every band on
-  the sphere (``defumat.realtime.dense``), on zincblende AlAs, whose lack of an
+  the sphere (``defuqumat.realtime.dense``), on zincblende AlAs, whose lack of an
   inversion centre lets the even orders be nonzero, at Gamma (where the
   projector row at ``k + G = 0`` lives) and at a general point;
 * the linear response after a kick against ``optical_conductivity``'s resolvent
@@ -28,16 +28,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.dense import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.dense import (
     dense_first_order, dense_ground_states, dense_hamiltonians, dense_orders)
-from defumat.realtime.orders import propagate_orders
-from defumat.realtime.pulse import Adiabatic, Kick
-from defumat.realtime.spectra import conductivity_from_kick
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+from defuqumat.realtime.orders import propagate_orders
+from defuqumat.realtime.pulse import Adiabatic, Kick
+from defuqumat.realtime.spectra import conductivity_from_kick
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -61,7 +61,7 @@ def _cell(pseudo_dir, case, ecut):
     """
     text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", f"ecutwfc = {ecut}",
                   (CASES / f"{case}.in").read_text())
-    path = Path("/tmp") / f"defumat-realtime-{case}-{ecut}.in"
+    path = Path("/tmp") / f"defuqumat-realtime-{case}-{ecut}.in"
     path.write_text(text)
     system = build_system(read_pw_input(path))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -119,8 +119,8 @@ def test_the_self_consistent_first_order_is_the_dense_self_consistent_solve(pseu
 
     AlAs at 4 Ry on Gamma and a general point, ``w = 0.05`` and ``eta = 0.01``
     Hartree over ``eta T = 20``, the first order of the propagation in the
-    difference form of :mod:`defumat.realtime.selfconsistent` against
-    :func:`~defumat.realtime.dense.dense_first_order`, whose fixed point in the
+    difference form of :mod:`defuqumat.realtime.selfconsistent` against
+    :func:`~defuqumat.realtime.dense.dense_first_order`, whose fixed point in the
     induced potential is a GMRES solve with every band of each sphere.
     Measured: **1.36e-5** (Hartree) and **1.64e-5** (Hartree and
     exchange-correlation) at 400 steps a period, against 1.37e-5 for the frozen
@@ -165,7 +165,7 @@ def test_the_linear_response_is_the_kubo_sum_plus_the_band_curvature(pseudo_dir)
     term, and the whole scale (0.81 against 0.81) without it, so the term is
     the size of the answer on two k-points and not a correction.
     """
-    from defumat.response.conductivity import _resolvent_sum
+    from defuqumat.response.conductivity import _resolvent_sum
 
     calculation, terms, v_scf = _cell(pseudo_dir, "si2-nosym", 6.0)
     eta, direction = 0.02, np.array([1.0, 0.0, 0.0])
@@ -219,8 +219,8 @@ def test_the_little_group_of_the_field_gives_the_whole_mesh_current(pseudo_dir, 
     whole one, or the rotations without the translations) would fail by the
     size of the local-field effect.
     """
-    from defumat import Calculator
-    from defumat.realtime.pulse import Sin2
+    from defuqumat import Calculator
+    from defuqumat.realtime.pulse import Sin2
 
     calculator = Calculator.from_file(CASES / "si2-symmetric.in", pseudo_dir=pseudo_dir,
                                       announce=False)

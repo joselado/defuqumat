@@ -19,8 +19,8 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat import Calculator
-from defumat.response.nesting import fermi_surface_weights
+from defuqumat import Calculator
+from defuqumat.response.nesting import fermi_surface_weights
 
 HERE = Path(__file__).parent
 PSEUDO = HERE.parents[1] / "tests" / "data" / "pseudo"

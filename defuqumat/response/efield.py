@@ -1,0 +1,1347 @@
+"""The response to a uniform electric field: ``epsilon_infinity``.
+
+An electric field is the one perturbation a periodic code cannot simply write
+down. ``V = E.r`` is neither bounded nor lattice periodic, so ``r|psi>`` has no
+meaning as it stands; what *is* well defined is its projection onto the
+conduction manifold, ``P_c r|psi>``, and the standard way to reach it is through
+a commutator (``PHonon/PH/dvpsi_e.f90``):
+
+    (H - eps_v S) P_c r|psi_v> = P_c^+ [H - eps_v S, r] |psi_v>
+
+-- one more solve of the same Sternheimer equation
+(:mod:`defuqumat.response.sternheimer`), with the commutator on the right.
+
+**And the commutator is the velocity operator, so it is not derived here
+either.** In the periodic gauge ``H(k) = e^{-ik.r} H e^{ik.r}``, so
+``dH/dk_a = i [H, r_a]`` and
+
+    [H - eps S, r_a] |psi> = -i (dH/dk_a - eps dS/dk_a) |psi>,
+
+which is exactly what :mod:`defuqumat.response.velocity` produces from one
+``jvp``. ``commutator_Hx_psi.f90`` hand-codes the same expression term by term
+-- the kinetic ``-2i(k+G)_a`` and ``gen_us_dj``/``gen_us_dy`` for the
+projectors' angular and radial derivatives -- and none of that is transcribed.
+
+**The self-consistent part is `solve_e.f90`'s loop, and its kernel is free.**
+The induced charge screens the field, so the perturbation seen by a state is the
+bare ``P_c r|psi>`` plus ``dV_scf drho`` applied to it, and the loop is
+
+    dpsi    <- Sternheimer(P_c r|psi> + dH_induced |psi>)
+    drho    <- d/dlambda rho[psi + lambda dpsi]
+    dV_scf  <- K drho,   mixed with the previous one
+
+``K = dV_scf/drho`` is ``dv_of_drho.f90`` -- the Hartree kernel with its ``G=0``
+component dropped, plus ``f_xc`` -- and here it is **one ``jax.jvp`` of
+``Calculation.potential``** and nothing else, because ``v_of_rho`` is already
+written as a differentiable function of the density (rule D1) and already drops
+that ``G = 0`` term (:func:`defuqumat.scf.potential.hartree`). The exchange-
+correlation kernel that QE tabulates in ``setup_dmuxc`` is the second derivative
+of the energy this code writes down once.
+
+**The Born charges come from the same two solutions**, and they are a *mixed
+second derivative* rather than a formula: ``Z* = dF/dE`` is one ``jvp`` of the
+force along the field's response, which is :mod:`defuqumat.response.born` and is
+P25's machinery with a different tangent. What that buys is **ultrasoft**
+datasets, where ``zstar_eu_us.f90`` adds five stages on top of ``zstar_eu.f90``
+and the norm-conserving expression is wrong in sign as well as size (+0.1625
+against ``ph.x``'s -0.07945). Four of the five are terms of the same
+derivative once the mixed state stays a function of the positions and the
+constraint's multipliers get a matrix tangent; the fifth,
+``add_for_charges``, is transcribed because it contains the position operator's
+occupied-occupied block, which is finite only in the combination it appears in.
+Against the vendored ``ph.x``: **-0.075715** norm-conserving (every digit of its
+-0.07571), **-0.079440** ultrasoft (1.0e-5 from its -0.07945) and **-0.079601**
+PAW (9e-6 from its -0.07961). On the polar crystal that makes ``Z*`` a charge
+rather than a residue, ultrasoft AlAs gives **2.101065 / -2.165827** against
+2.10106 / -2.16581. ``zstar_eu.f90`` itself is transcribed beside it as the
+cross-check (:func:`born_charges_zstar_eu`), and the two agree to 1.3e-14 where
+both apply.
+
+The tensor itself is ``dielec.f90``:
+
+    eps_ij = delta_ij - (16 pi / Omega) sum_kn w_kn Re <P_c r_i psi_n | dpsi_j>
+
+**The response has to be symmetrised, and it is a vector when it is.** A field
+along one direction breaks the crystal's point group, so on a symmetry-reduced
+k-set the three response densities are not what the whole grid would give.
+``symdvscf.f90`` puts the difference back, and what it averages is not three
+scalar densities but a **polar vector field** --
+:meth:`~defuqumat.scf.driver.Calculation.symmetrize_directional`, which is
+``sym_rho``'s machinery with the components rotated into each other and without
+the axial sign a magnetization carries. The assembled tensor is symmetrised
+again at the end (``dielec.f90`` ends with ``symmatrix``), because a
+wedge sum of a rank-2 tensor is exact only for its scalar part.
+
+**The escape that does not work, measured.** The obvious alternative is to run
+the *whole* k-grid, where a reduction has nothing to put back -- and it is only
+sound if that grid is closed under the point group. A **shifted** Monkhorst-Pack
+grid is not: on fcc silicon **2304 of the 3072 rotation images of a shifted
+4x4x4 grid land off it**, so even the unreduced grid gives a density that is 2%
+asymmetric and a ground-state energy 3.1e-5 Ry above the reduced run's. Its
+dielectric tensor comes out with a diagonal of 13.848 against 13.806 and
+**off-diagonal entries of 3.77 that cubic symmetry forbids**. An *unshifted*
+grid is closed exactly, and running one with the symmetrisation switched off is
+how this module is checked against itself.
+
+**Ultrasoft and PAW work, and the field is where they cost something extra.**
+Everywhere else in this phase they came free, because the density and ``newd``
+were already differentiable functions of the state and the potential
+(:mod:`defuqumat.response.sternheimer`). The *position* operator is different: an
+ultrasoft state's charge is not all in ``|psi|^2``, and the part inside the
+augmentation spheres has a dipole of its own and moves with ``k``. That is
+``adddvepsi_us.f90``, transcribed in :func:`_ultrasoft_position`, and the
+augmentation dipole it needs is
+:func:`~defuqumat.pseudo.augmentation.augmentation_dipole`. Two traps come with
+it and both are measured there and in ``PLAN.md`` P24a: the projector derivative
+is the one about the atom's *own centre* (worth 2%), and ``dbecsum`` on a wedge
+is a polar vector like everything else here (worth 1.6e-2 on PAW).
+
+Against the vendored ``ph.x``: **13.806646** against 13.806689 (norm-conserving
+Si), **14.325321** against 14.325270 (ultrasoft Si), **14.320211** against
+14.320177 (PAW Si) and **5.756059** against 5.756182 (ultrasoft C).
+
+**A spinor run carrying no net moment is not refused (P83)**, and it was the
+first assembly to ask P81's solve for its opt-in. A *textured* one
+(``nspin_mag = 4``) still is, and for a measured reason rather than a missing
+term: see :func:`require_a_measured_spinor_response`. A nonmagnetic spinor
+silicon gives the scalar run's
+own ``epsilon`` and ``Z*`` -- 5.0e-14 and 3.0e-15 apart at ``conv_thr = 1e-10``
+-- and the symmetrised 8-point wedge gives the closed 64-point grid's tensor to
+7.4e-13, against the scalar pair's own 4.1e-13. Asking found three collinear
+places nothing had reached: :mod:`defuqumat.response.born`'s *local* density
+builder, and in :func:`defuqumat.forces.energy.frozen_energy` both the ``spinors``
+opt-in and a refusal of the matrix multipliers that was really about the
+**metric** -- ``qq_so`` against the scalar ``qq`` -- and so never applied to a
+norm-conserving spinor, where ``S = 1``.
+
+What is still refused is what :func:`~defuqumat.response.sternheimer.
+require_a_sternheimer_regime` refuses -- metals, DFT+U, spirals, and an
+**ultrasoft or PAW** spinor, whose ``dD_ij`` is a 2x2 matrix in spin space
+(``set_int3_nc``) -- and a metal has no ``epsilon_infinity`` in any case, which
+is why ``pw.x`` refuses ``epsil`` for one too.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from defuqumat.basis.fft import g_to_r, r_to_g
+from defuqumat.batching import map_k, resolve_field_batch, upload
+from defuqumat.eager import compiled, compiled_jvp
+from defuqumat.pseudo.augmentation import augmentation_dipole
+from defuqumat.response.born import born_effective_charges, require_born_charges
+from defuqumat.response.mixing import DEFAULT_RESPONSE_MIXING, ResponseMixer, ddv_scf
+from defuqumat.response.sternheimer import (
+    SternheimerSolver,
+    paw_response,
+    occupied_counts,
+    pass_threshold,
+    require_a_sternheimer_regime,
+)
+from defuqumat.response.velocity import VelocityOperator, over_kpoints
+from defuqumat.scf.potential import hartree, total_charge
+from defuqumat.system.symmetry import cartesian_rotations, symmetrize_matrix
+from defuqumat.units import FPI
+
+__all__ = ["DielectricTensor", "dielectric_tensor", "default_tr2", "vacuum_fraction",
+           "require_a_measured_spinor_response",
+           "require_a_symmetrisable_response"]
+
+#: QE's ``alpha_mix(1)``: the weight the mixer gives the residual. It is no
+#: longer the *whole* of the mixing -- :mod:`defuqumat.response.mixing` builds an
+#: Anderson history on top of it -- which is what makes 0.7 a safe default here
+#: rather than a value each system has to be tuned to.
+ALPHA_MIX = 0.7
+
+#: ``ph.x``'s ``tr2_ph``, in its units: the loop stops when ``|ddv_scf|^2``,
+#: the summed square of the pass's change divided by the square of its length in
+#: reals and by ``npert`` (:func:`defuqumat.response.mixing.ddv_scf`, which says
+#: what that means on a fine grid and why the number is twice ``ph.x``'s on an
+#: fcc cell), falls below ``tr2 / npol``. QE's default is 1e-12; thirteen of the
+#: fourteen ``.ph.in`` references committed here ask for 1e-14, so a default run
+#: is converged the way the reference it is compared with was. Until 2026-10-03
+#: the test was the raw sum, eleven decades tighter on the AlAs spinor cell, and
+#: that was the whole of the factor of two in passes against ``ph.x``. What it
+#: admits at the threshold is an RMS residual per real of ``sqrt(ndimtot npert
+#: tr2)``: 3.8e-5 Ry on silicon's 20^3 grid and 1.8e-4 on O2's 45^3 vacuum box at
+#: ``nspin = 2``, where a residue-sized quantity (a homonuclear molecule's raw
+#: Born charge) can be a per cent short at the default, as it can be in ``ph.x``;
+#: such a quantity wants a smaller ``tr2`` (``PLAN.md`` P127), which Born
+#: charges on a cell with vacuum now get by default (:data:`VACUUM_TR2`).
+TR2 = 1.0e-14
+
+#: The default ``tr2`` of a solve that returns **Born charges on a cell with
+#: vacuum** (:func:`default_tr2`), the user's decision of 2026-10-10. On triplet
+#: O2 in its 10-bohr box (``o2-fixed-lsda.in``) :data:`TR2` stops at pass 7 with
+#: ``Z*`` 2.57e-3 from ``ph.x``'s, and 1e-16 takes ``ph.x``'s eight passes and
+#: lands 1.51e-4 from it; a raw Born charge of a molecule is a residue, 0.2 left
+#: of an electronic 5.8 against an ionic 6 (``PLAN.md`` P127). Every other
+#: solve, and every bulk cell, keeps :data:`TR2`.
+VACUUM_TR2 = 1.0e-16
+
+#: A dense-grid point is **vacuum** when the converged charge there is below
+#: this, in electrons/bohr^3 (``r_s`` above 13 bohr), and a cell **has vacuum**
+#: when more than :data:`VACUUM_FRACTION` of its points are. Nothing else in
+#: the package detected a vacuum when this was written (the mixers take the
+#: run's word for it through ``mixing_mode``), so the two numbers are set on the
+#: converged densities of the committed cells, measured on D22 2026-10-10: no
+#: point of ``si-epsilon``, ``si-epsilon-us`` or ``alas-raman`` is below 1e-4
+#: (their minima 1.4e-3, 3.5e-3 and 1.0e-3), nor of fcc aluminium (minimum
+#: 2.1e-4), while 56.3 per cent of O2's box is, 44.1 of ``h-sheet``'s and 20.7
+#: of the graphene bilayer's, whose 13.7 bohr of vacuum is the thinnest here.
+VACUUM_DENSITY = 1.0e-4
+VACUUM_FRACTION = 0.10
+
+
+def vacuum_fraction(calculation, density) -> float:
+    """The fraction of the dense grid where the charge is below :data:`VACUUM_DENSITY`.
+
+    A number about the converged state, read on the host: it decides a default
+    and is not differentiated, so it must not be called on a traced density.
+    """
+    charge = np.asarray(calculation.charge_channel(jnp.asarray(density)))
+    return float(np.mean(charge < VACUUM_DENSITY))
+
+
+def default_tr2(calculation, density, born_charges: bool) -> float:
+    """``tr2`` when the caller gives none: :data:`VACUUM_TR2` for Born charges
+    of a cell with vacuum (:func:`vacuum_fraction` above :data:`VACUUM_FRACTION`),
+    :data:`TR2` otherwise.
+
+    The test is the solve's one ``tr2``, so the dielectric tensor of such a cell
+    comes out at 1e-16 as well when the charges are asked for; asked for alone
+    (``born_charges=False``) it keeps ``ph.x``'s 1e-14.
+    """
+    if born_charges and vacuum_fraction(calculation, density) > VACUUM_FRACTION:
+        return VACUUM_TR2
+    return TR2
+
+MAX_ITERATIONS = 40
+
+#: The CG threshold of every solve that is not scheduled: the bare
+#: ``P_c r|psi>`` always, and the loop's when a caller asks for a fixed one.
+#: It was the loop's too until 2026-10-03.
+FIXED_THRESHOLD = 1.0e-12
+
+
+@dataclass
+class DielectricTensor:
+    """``epsilon_infinity``, and what the self-consistent response cost."""
+
+    #: ``(3, 3)``, dimensionless, in cartesian axes.
+    epsilon: np.ndarray
+    #: ``(nat, 3, 3)`` Born effective charges ``Z*_ij = dF_j/dE_i``, in units of
+    #: the electron charge, or ``None`` when they were not asked for.
+    born_charges: np.ndarray | None = None
+    #: ``(3, nspin_mag, n1, n2, n3)``: the induced charge density per unit field,
+    #: symmetrised, on the dense grid. It is what screening *is* -- the charge
+    #: that piles up against the field and makes ``epsilon`` 13.8 rather than 1 --
+    #: and it is carried out because nothing else here shows it.
+    induced_density: np.ndarray | None = None
+    #: ``|ddv_scf|^2`` at each iteration -- the trajectory ``ph.x`` prints, and
+    #: the only intermediate quantity there is a reference for, up to the
+    #: direction convention :func:`~defuqumat.response.mixing.ddv_scf` describes
+    #: (twice ``ph.x``'s on an fcc cell).
+    history: list = field(default_factory=list)
+    #: Mean CG iterations per band per solve, QE's ``av.it.``.
+    average_iterations: float = 0.0
+    converged: bool = False
+    #: The ``tr2`` the loop was tested against: the caller's, or
+    #: :func:`default_tr2`'s choice when the caller gave none.
+    tr2: float = TR2
+    #: ``{"solver", "bare", "dpsi", "dvscf", "v_scf"}`` when the caller asked
+    #: for them, and ``None`` otherwise. The self-consistent response *is* the
+    #: expensive part of this calculation, and a **third** derivative needs the
+    #: same first-order wavefunctions rather than a second solve of them
+    #: (:mod:`defuqumat.response.electrostriction`). Kept behind a flag because
+    #: they are large -- ``3 (nspin, nk, nocc, npwx)`` complex -- and no ordinary
+    #: caller wants them.
+    internals: dict | None = None
+
+    @property
+    def isotropic(self) -> float:
+        """``Tr(eps)/3`` -- the number quoted for a cubic crystal."""
+        return float(np.trace(self.epsilon) / 3.0)
+
+    @property
+    def anisotropy(self) -> float:
+        """The largest departure from a scalar tensor.
+
+        On a cubic crystal this is zero by symmetry, and it is a *measurement*
+        rather than a construction: what the group average
+        (``symmetrize_directional``, ``symmatrix``) imposes is invariance under
+        the operations the crystal has, which is not the same as projecting onto
+        the cubic form. A wrong rotation convention, a missing fractional
+        translation, or an axial sign where a polar one belongs would all survive
+        the average and show up here.
+        """
+        return float(np.abs(self.epsilon - np.eye(3) * self.isotropic).max())
+
+
+def dielectric_tensor(
+    calculation,
+    wavefunctions,
+    eigenvalues,
+    density,
+    becsum=(),
+    alpha_mix: float = ALPHA_MIX,
+    tr2: float | None = None,
+    max_iterations: int = MAX_ITERATIONS,
+    threshold: float | None = None,
+    mixing_mode: str = DEFAULT_RESPONSE_MIXING,
+    screening: str = "full",
+    born_charges: bool = True,
+    keep_internals: bool = False,
+    verbose: bool = False,
+    streamed_internals: bool = False,
+) -> DielectricTensor:
+    """``epsilon_infinity`` and the Born charges for a converged insulator.
+
+    Args:
+        streamed_internals: the caller reads the internals of a walked response,
+            so ``keep_internals`` does not force the whole-k route. Where the
+            route walks, ``internals["field"]`` is then the
+            :class:`~defuqumat.response.chunked.StreamedField` with its stores in
+            host memory and the whole-k keys ``bare``, ``dpsi`` and
+            ``commutators`` are absent, so a consumer written for device arrays
+            fails by name rather than stacking the stores onto the device. Only
+            the piezoelectric tensor's differentiated route asks for it.
+        calculation: the :class:`~defuqumat.scf.driver.Calculation` the states
+            belong to. The normal case is an ordinary symmetry-reduced wedge,
+            which the response is symmetrised over; a ``nosym`` run is accepted
+            only on an **unshifted** k-grid, since a shifted one does not carry
+            the symmetry itself (see the module docstring).
+        wavefunctions: ``(nspin, nk, nbnd, ndim)`` from the converged run.
+        eigenvalues: ``(nspin, nk, nbnd)`` or the squeezed ``(nk, nbnd)``.
+        density: the converged density, which the fixed potential is built from.
+        becsum: the converged projector occupations (``SCFResult.becsum``).
+            Required for an ultrasoft or PAW dataset and empty otherwise: PAW's
+            one-centre coefficients are built from it and cannot be rebuilt from
+            the density.
+        screening: which kernel screens the field. ``"full"`` is
+            ``dv_of_drho`` -- Hartree plus ``f_xc``, which is what QE's
+            ``solve_e`` uses and what ``epsilon_infinity`` means. ``"hartree"``
+            drops the exchange-correlation term and gives the **RPA** dielectric
+            constant instead, which is not a physical improvement but is the
+            only way to compare this solve with a sum-over-states response run
+            in RPA (:mod:`defuqumat.tddft`): the two routes are identities of
+            each other only when their kernels match. ``"none"`` is the
+            independent-particle response, the frozen potential of a
+            real-time propagation.
+        threshold: the CG threshold of the linear solves. ``None``, the
+            default, is ``ph.x``'s schedule (:func:`~defuqumat.response.
+            sternheimer.pass_threshold`): ``1e-2`` on the first pass and
+            ``min(0.1 sqrt(|ddv_scf|^2), 1e-2)`` after, so the solves are only
+            as tight as the potential they solve at is converged. A number holds
+            that threshold on every pass, which is what a test comparing two
+            routes below ``ph.x``'s own convergence wants.
+        tr2: ``ph.x``'s ``tr2_ph``, in its units. ``None``, the default, is
+            :data:`TR2`, except that a solve asked for Born charges on a cell
+            with vacuum takes :data:`VACUUM_TR2` (:func:`default_tr2`); the
+            value used is the result's ``tr2``.
+    """
+    eigenvalues = jnp.asarray(eigenvalues)
+    if eigenvalues.ndim == 2:
+        eigenvalues = eigenvalues[None]
+    require_a_symmetrisable_response(calculation)
+    # ``spin_polarized = True``: this assembly *is* spin-summed already. The
+    # weights ``dielec.f90`` contracts with are the ground state's own ``wg``,
+    # which carries the spin degeneracy the way ``sum_band``'s do -- one channel
+    # whose ``wk`` sums to two, or two channels whose ``wk`` sum to one each --
+    # so no factor appears here that is not in the density builder. The identity
+    # that says so is the same cell run as ``nspin = 1`` and as ``nspin = 2``
+    # with no magnetization (``tests/regression/test_lsda_response.py``).
+    # **Still refused under gamma, and the reason is specific.** The solve
+    # itself is right there (P68a) -- ``chi_0`` under a *potential* probe
+    # matches a central difference of the density to 7e-6 -- and the dynamical
+    # matrix, whose perturbation is one ``jvp`` through ``at_positions`` and so
+    # inherits the gamma-aware ``h_psi``, agrees with the whole sphere to
+    # 1.5e-13. A *field* does not enter through the potential: its source is the
+    # commutator ``[H, r]`` (``dvpsi_e``, ``response/velocity.py``), which
+    # builds its own plane-wave sums and has none of the corrections. Measured
+    # with the guard lifted: 501.7/213.1/253.1 against an isotropic 190.8.
+    require_a_sternheimer_regime(
+        calculation, spin_polarized=True, noncollinear=True,
+    )
+    require_a_measured_spinor_response(calculation)
+    if born_charges:
+        # Checked first of all: the refusal is a statement about the dataset, so
+        # it should not cost a whole self-consistent response -- nor a converged
+        # ``becsum`` the caller only needs for the quantity being refused.
+        require_born_charges(calculation)
+    if calculation.is_paw and not becsum:
+        # The same rule ``VelocityOperator`` enforces for ``ddd_paw``: PAW's
+        # one-centre coefficients are built from ``becsum``, and a Hamiltonian
+        # without them is a different operator whose response is plausible and
+        # wrong by the whole PAW correction.
+        raise ValueError(
+            "a PAW dielectric response needs the converged projector "
+            "occupations: pass becsum = scf_result.becsum. They are part of the "
+            "mixed state, not a function of the density, and the one-centre "
+            "potential is built from them"
+        )
+    # After the refusals: they are checked on the *calculation* and must not
+    # need a state, so that a caller can ask "is this supported?" cheaply.
+    if tr2 is None:
+        tr2 = default_tr2(calculation, density, born_charges)
+    #
+    # **The route is decided before anything converts the states**, because the
+    # conversion is what it is about: a streamed store (a numpy array in host
+    # memory, memory mode on a card) walked a k-chunk at a time stays where it
+    # is (:mod:`defuqumat.response.chunked`), and ``jnp.asarray`` of it is the
+    # whole set back on the device.
+    streamed = _streams(calculation, wavefunctions,
+                        keep_internals and not streamed_internals)
+    if not streamed:
+        # The whole-k route, which ``keep_internals`` asks for whatever the
+        # store: a streamed one crosses whole here, through ``device_put`` at
+        # its own size rather than ``jnp.asarray`` at twice it on a card
+        # (:func:`~defuqumat.batching.upload`).
+        wavefunctions = upload(wavefunctions)
+        if wavefunctions.ndim == 3:
+            wavefunctions = wavefunctions[None]
+    weights, _ = calculation.occupations(eigenvalues)
+    nocc = occupied_counts(calculation)
+    potential = calculation.potential(density)
+    # PAW's one-centre coefficients are built from ``becsum``, which is why the
+    # caller has to supply it: it is part of the mixed state and not a function
+    # of the density.
+    _, ddd_paw = calculation.onecenter(becsum)
+    hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw)
+    solver = SternheimerSolver(
+        calculation, hamiltonians, wavefunctions, eigenvalues, jnp.asarray(weights),
+        nocc, FIXED_THRESHOLD if threshold is None else threshold,
+        v_scf=potential.v_scf, becsum=becsum,
+    )
+    solver.schedule = threshold is None
+
+    # 1. The bare perturbation, once: ``P_c r_a |psi>`` for the three cartesian
+    #    directions -- see :meth:`_WholeField.prepare`.
+    #
+    # ``commutators`` and the projectors' velocities are read *after* the loop
+    # and by nothing inside it, so they are kept only when the caller asks for
+    # ``Z*`` (or for the internals): see :class:`_WholeField`.
+    dipole = _augmentation_dipole(calculation)
+    keep_commutators = bool(born_charges or keep_internals)
+    if streamed:
+        from defuqumat.response.chunked import StreamedField
+
+        field = StreamedField(calculation, solver, potential.v_scf, dipole,
+                              keep_commutators)
+    else:
+        field = _WholeField(calculation, solver, potential.v_scf, dipole,
+                            keep_commutators, born_charges)
+    field.prepare()
+
+    # 2. The self-consistent loop. Only the induced term changes between
+    #    iterations; the bare one above is what the whole loop is driven by.
+    grid_shape = jnp.asarray(density).shape
+    dvscf = jnp.zeros((3,) + grid_shape)
+    drho = jnp.zeros((3,) + grid_shape)
+    # PAW's one-centre coefficients respond too, and they are *not* a function
+    # of the density: they come from ``becsum``. They are therefore carried and
+    # mixed beside ``dvscf`` rather than rebuilt from it, exactly as
+    # ``dfpt_kernels`` carries ``int3_paw`` beside ``dvscfin``.
+    onecentre = None if solver.ddd_paw is None else jnp.zeros(
+        (3,) + solver.ddd_paw.shape
+    )
+    history = []
+    converged = False
+
+    screen = _screening_kernel(calculation, density, screening)
+    mixer = ResponseMixer(mixing_mode, beta=alpha_mix)
+    for iteration in range(max_iterations):
+        response, becsum_response = field.respond(
+            dvscf, onecentre, iteration > 0,
+            threshold=pass_threshold(solver, history))
+
+        # ``psymdvscf(drhop)``: the three responses are symmetrised *together*,
+        # after the loop over directions and before the kernel, because a
+        # rotation mixes them.
+        symmetrised = calculation.symmetrize_directional(jnp.stack(response))
+        drho = symmetrised
+        # ``PAW_dusymmetrize``: the same average one level down, on the three
+        # ``becsum`` responses, which PAW's one-centre potential is built from.
+        becsum_response = _symmetrize_becsum_response(calculation, becsum_response)
+        induced, induced_onecentre = [], []
+        for axis in range(3):
+            # ``dv_of_drho``: the Hartree kernel without its G = 0 component,
+            # plus f_xc -- one jvp of the potential this code already writes.
+            induced.append(screen(symmetrised[axis]))
+            if onecentre is not None:
+                # ``PAW_dpotential``, from the same becsum response.
+                induced_onecentre.append(
+                    paw_response(calculation, becsum_response[axis], solver.becsum)
+                )
+
+        proposed = jnp.stack(induced)
+        _require_a_finite_kernel(calculation, proposed, density)
+        proposed_onecentre = (None if onecentre is None
+                              else jnp.stack(induced_onecentre))
+        change = ddv_scf(
+            proposed - dvscf,
+            None if onecentre is None else proposed_onecentre - onecentre,
+            joint=True,
+        )
+        history.append(change)
+        if verbose:
+            print(f"  iter {iteration + 1}: |ddv_scf|^2 = {change:.3e}")
+        # ``mix_potential`` decides convergence before it mixes and, when it
+        # has converged, returns the *input* unchanged (``mix_pot.f90:85-113``),
+        # so the loop leaves with the potential this pass's ``dpsi`` and
+        # one-centre response were computed at. The Born charges below rebuild
+        # their perturbation from it.
+        if change < tr2 / calculation.system.npol:
+            converged = True
+            break
+        if onecentre is None:
+            dvscf = mixer.mix(dvscf, proposed)
+        else:
+            # **One Anderson problem over both**, not two: the one-centre
+            # potential and ``dV_scf`` are coupled through the same ``dbecsum``,
+            # and ``mix_pot`` concatenates them for exactly this reason.
+            dvscf, onecentre = mixer.mix(
+                [dvscf, onecentre], [proposed, proposed_onecentre]
+            )
+
+    epsilon = _assemble_overlaps(calculation, field.overlaps())
+    charges = None
+    if born_charges:
+        # ``dLambda`` is a matrix element of the *same* perturbation the last
+        # solve was driven by, rebuilt there at the converged ``dV_scf``.
+        charges = field.born_charges(
+            dvscf, onecentre, wavefunctions, eigenvalues, weights, density, becsum,
+        )
+    internals = None
+    if keep_internals:
+        internals = {
+            "calculation": calculation, "solver": solver, "dvscf": dvscf,
+            "v_scf": potential.v_scf, "onecentre": onecentre, "weights": weights,
+            "nocc": nocc,
+        }
+        if streamed:
+            internals["field"] = field
+        else:
+            internals.update(bare=field.bare, dpsi=field.dpsi,
+                             commutators=field.commutators)
+    return DielectricTensor(
+        epsilon=epsilon,
+        born_charges=charges,
+        internals=internals,
+        induced_density=np.asarray(drho),
+        history=history,
+        average_iterations=field.iterations / max(field.solves, 1),
+        converged=converged,
+        tr2=float(tr2),
+    )
+
+
+def _streams(calculation, wavefunctions, keep_internals: bool,
+             what: str = "the dielectric response") -> bool:
+    """Whether the field response walks the k axis a chunk at a time.
+
+    :func:`~defuqumat.forces.chunked.walks_chunks`' rule -- a streamed store, or
+    memory mode with a chunk smaller than the mesh -- so the force, the stress
+    and this response agree about when the store is too large to take whole;
+    and on a card in memory mode always, the whole mesh as one chunk included,
+    because the chunk was sized for the SCF and the whole-k route's working set
+    is not the SCF's (see the comment below). Three cases take the whole-k route
+    instead, each for a reason:
+
+    * ``keep_internals``: the third derivatives read ``bare``, ``dpsi`` and the
+      solver as device arrays (:mod:`defuqumat.response.electrostriction`,
+      :mod:`defuqumat.response.nonlinear`). The piezoelectric tensor's
+      differentiated route does not, and asks for the walk with
+      ``streamed_internals`` (:func:`dielectric_tensor`), so its caller passes
+      ``keep_internals and not streamed_internals`` here;
+    * a calculation carrying ``_kcart``, which ``at_strain`` records because
+      its ``KPoints`` do not move with the cell: a chunk's velocity operator
+      would be built at the unstrained k-points;
+    * a k-point pool's store is refused, as every non-pooled ``get_*`` is.
+
+    :func:`~defuqumat.response.phonon.dynamical_matrix` asks the same question
+    (``what`` names it in the refusal), so the two responses agree about when
+    to walk.
+    """
+    from defuqumat.forces.chunked import walks_chunks
+    from defuqumat.parallel import PoolStore
+
+    if isinstance(wavefunctions, PoolStore):
+        raise NotImplementedError(
+            f"{what} under k-point pools (DEFUQUMAT_POOLS) is "
+            "not implemented: the SCF, forces, stress and relaxations are "
+            "pool-aware, and this walks the whole store. Run it in one process")
+    if keep_internals or getattr(calculation, "_kcart", None) is not None:
+        return False
+    if walks_chunks(calculation, wavefunctions):
+        return True
+    # **And in memory mode on a card whatever the chunk**, the whole mesh in
+    # one chunk included. ``k_batch = 'fit'`` sizes the chunk for the SCF, and
+    # the whole-k route's working set is not the SCF's: on ultrasoft eight-atom
+    # silicon at 27 k-points, where ``'fit'`` took the whole mesh and the SCF
+    # peaked at 925.2 MB on the RTX A2000, the Born charges took the card to
+    # 6825.4 MB. Walked as one chunk with the stores in host memory, every pass
+    # is the chunk's, and with the whole mesh as the chunk no pass's
+    # temporaries passed the SCF's peak on the two cells measured: 584 MB at
+    # most against 925.2 there, the run reading 925.2, and the norm-conserving
+    # cell its SCF's own at 27 and 125 k-points. At one k-point a chunk the
+    # ultrasoft cell does add a fixed 153 to 155 MB to a smaller SCF peak
+    # (``PERFORMANCE.md``, "The dielectric tensor and the Born charges a
+    # k-chunk at a time").
+    from defuqumat.batching import _backend
+
+    return calculation.memory_mode == "memory" and _backend() != "cpu"
+
+
+class _WholeField:
+    """The field response with every k-point in one array: the route as it was.
+
+    :class:`~defuqumat.response.chunked.StreamedField` is the other one, with
+    the same four steps; the self-consistent loop in :func:`dielectric_tensor`
+    drives either.
+    """
+
+    def __init__(self, calculation, solver, v_scf, dipole, keep_commutators,
+                 born_charges):
+        self.calculation = calculation
+        self.solver = solver
+        self.v_scf = v_scf
+        self.dipole = dipole
+        self.keep_commutators = keep_commutators
+        self.keep_projector_velocities = born_charges
+        self.bare, self.commutators, self.projector_velocities = [], [], []
+        self.dpsi = [None, None, None]
+        self.iterations = 0
+        self.solves = 0
+
+    def prepare(self) -> None:
+        """``P_c^+ r_a|psi>`` for the three directions.
+
+        The commutator is computed for the whole k axis in three ``jvp`` calls
+        and *stored*; taking it inside the per-k callback would differentiate
+        every k-point's projectors to use one of them.
+
+        ``bare`` drives the loop and is always kept. ``commutators`` is free for
+        a norm-conserving run -- ``position`` is never rebound, so its entries
+        are ``bare``'s own objects -- and a separate ``(nspin, nk, nocc, npwx)``
+        block each once the augmentation dipole splits them.
+        ``projector_velocities`` is ``3 (nk, npwx, nkb)``, which on an ultrasoft
+        or PAW dataset is the larger of the two by a factor
+        ``nkb / (2 nocc nspin)``; both are kept only for ``Z*``.
+        """
+        solver = self.solver
+        velocity = VelocityOperator(self.calculation, self.v_scf, solver.ddd_paw)
+        occupied = solver.psi
+        occupied_eigenvalues = solver.eigenvalues
+        for axis, direction in enumerate(np.eye(3)):
+            # ``[H - eps S, r_a] = -i (dH/dk_a - eps dS/dk_a)``, both tangents
+            # from one ``jvp`` -- the projector rebuild they share is the whole
+            # cost.
+            derivative, overlap = velocity.both(occupied, direction)
+            commutator = -1j * (
+                derivative - occupied_eigenvalues[..., None] * overlap
+            )
+            position = _solve_stored(solver, commutator)
+            # ``iucom``: ``P_c r|psi>`` *before* ``S`` and before the
+            # augmentation dipole. QE stores it separately because the Born
+            # charges need it (``add_for_charges``), and so does
+            # :func:`defuqumat.response.born.constraint_position_term`.
+            if self.keep_commutators:
+                self.commutators.append(position)
+            if self.dipole is not None:
+                derivative = velocity.projectors(direction)
+                if self.keep_projector_velocities:
+                    self.projector_velocities.append(derivative)
+                position = _ultrasoft_position(
+                    solver, velocity, position, direction, self.dipole[axis],
+                    derivative,
+                )
+            self.bare.append(position)
+        # The loop's own names outlive it, and three of them are band- or
+        # projector-sized: the last axis's ``derivative`` is a whole
+        # ``(nk, npwx, nkb)`` block on its own. Nothing below reads them.
+        commutator = derivative = overlap = position = None
+
+    def respond(self, dvscf, onecentre, include_induced: bool, threshold=None):
+        """One iteration's three solves: ``(drho, dbecsum)`` per direction.
+
+        Each solve starts from the previous pass's ``dpsi`` (zeros on the first),
+        as ``solve_linter`` reads it back from ``iudwf``; ``threshold`` is this
+        pass's CG threshold, the solver's own when ``None``.
+        """
+        solver = self.solver
+        response, becsum_response = [], []
+        if resolve_field_batch():
+            return self._respond_batched(dvscf, onecentre, include_induced,
+                                         threshold)
+        for axis in range(3):
+            perturbation = _bare_plus_induced(
+                solver, self.bare[axis], dvscf[axis],
+                None if onecentre is None else onecentre[axis],
+                include_induced,
+            )
+            start = (jnp.zeros_like(self.bare[axis]) if self.dpsi[axis] is None
+                     else self.dpsi[axis])
+            solution = solver.solve(perturbation, start=start, threshold=threshold)
+            self.dpsi[axis] = solution.dpsi
+            self.iterations += solution.iterations
+            self.solves += 1
+            response.append(solver.response_density(solution.dpsi))
+            if onecentre is not None:
+                becsum_response.append(solver.response_becsum(solution.dpsi))
+        return response, becsum_response
+
+    def _respond_batched(self, dvscf, onecentre, include_induced, threshold):
+        """:meth:`respond` with the three directions in one CG loop per k-point.
+
+        The right-hand sides are built as they are one at a time and stacked;
+        only the solve is batched (:meth:`SternheimerSolver.solve_many`).
+        ``dpsi`` is then held as one ``(3, nspin, nk, nocc, ndim)`` array, which
+        every reader indexes by direction as it indexes the list.
+        """
+        solver = self.solver
+        parts = [
+            _bare_plus_induced(
+                solver, self.bare[axis], dvscf[axis],
+                None if onecentre is None else onecentre[axis], include_induced)
+            for axis in range(3)
+        ]
+
+        def perturbation(psi, ik, spin):
+            return jnp.stack([part(psi, ik, spin) for part in parts])
+
+        start = (jnp.zeros((3,) + tuple(self.bare[0].shape), self.bare[0].dtype)
+                 if self.dpsi[0] is None else self.dpsi)
+        dpsi, iterations, _ = solver.solve_many(perturbation, start=start,
+                                                threshold=threshold)
+        self.dpsi = dpsi
+        self.iterations += sum(iterations)
+        self.solves += 3
+        response = [solver.response_density(dpsi[axis]) for axis in range(3)]
+        becsum_response = ([solver.response_becsum(dpsi[axis]) for axis in range(3)]
+                           if onecentre is not None else [])
+        return response, becsum_response
+
+    def overlaps(self) -> np.ndarray:
+        """``sum_kn w Re <P_c r_i psi|dpsi_j>``, ``(3, 3)``."""
+        weights = self.solver.weights  # (nspin, nk, nocc)
+        totals = np.zeros((3, 3))
+        for i in range(3):
+            for j in range(3):
+                overlap = jnp.einsum(
+                    "skng,skng->skn", jnp.conj(self.bare[i]), self.dpsi[j]
+                )
+                totals[i, j] = float(jnp.sum(weights * jnp.real(overlap)))
+        return totals
+
+    def born_charges(self, dvscf, onecentre, wavefunctions, eigenvalues, weights,
+                     density, becsum):
+        solver = self.solver
+        perturbations = [
+            _bare_plus_induced(
+                solver, self.bare[axis], dvscf[axis],
+                None if onecentre is None else onecentre[axis], True,
+            )
+            for axis in range(3)
+        ]
+        return born_effective_charges(
+            self.calculation, solver, jnp.asarray(wavefunctions), eigenvalues,
+            jnp.asarray(weights), jnp.asarray(density), becsum, self.dpsi,
+            perturbations, self.commutators,
+            projector_velocities=self.projector_velocities or None,
+        )
+
+
+def _require_a_finite_kernel(calculation, induced, density) -> None:
+    """Refuse a screening kernel that came back non-finite, and say where.
+
+    **Measured, and it is what stopped the screened response on every
+    magnetic-insulator cell available here** -- which is one cell, so read the
+    claim as a diagnosis of that cell rather than of the regime.
+    ``dv_of_drho`` is one ``jvp`` of ``v_of_rho``,
+    so for ``nspin = 2`` it is the *second* derivative of the LSDA
+    exchange-correlation energy with respect to the two channel densities --
+    and that diverges wherever a channel density reaches zero, which in a
+    plane-wave calculation is any point where the magnetization is as large as
+    the charge. On triplet O2 in a 10-bohr box the two counts agree exactly:
+    **1504 of 91125 grid points have** ``|zeta| >= 1``, **and dv_of_drho has
+    1504 NaN**. The value of ``v_xc`` is fine there -- ``xc_lsda`` clips
+    ``zeta`` to [-1, 1] and QE does the same -- but the clip's own tangent is
+    zero and ``rho^(4/3)``'s second derivative is infinite at the channel it
+    zeroes, so the product is ``inf * 0``. It is the ``abs`` trap of
+    ``PLAN.md`` P28a in a fifth place, one derivative further out, and the two
+    obvious repairs do not fix it: pulling the clip inside to ``1 - eps`` for
+    ``eps`` of 1e-12, 1e-10 and 1e-8 leaves all 1504 points NaN and turns the
+    largest entry into ``inf``, so what diverges is the kernel itself and not
+    only the clip.
+
+    Nothing downstream can see it: a NaN ``|ddv_scf|^2`` never satisfies
+    ``change < tr2``, so the loop would run its whole budget and report
+    ``converged = False`` on a tensor that is not a number. Raised here instead,
+    with the term named.
+
+    An unpolarized run cannot reach this -- there is no ``zeta`` -- and neither
+    can a polarized run whose magnetization is zero everywhere, which is why the
+    ``nspin = 1`` / ``nspin = 2`` identity on silicon passes.
+
+    **The LDA is fixed and this guard is insurance for what is not.** QE does
+    not regularise a fully polarized point either: ``dmxc_lsda`` *defines* the
+    kernel to be zero there, on both of its branches, and
+    :func:`~defuqumat.xc.functional._fully_polarized` is that convention -- so the
+    cell in the paragraph above now returns ``diag(1.11091441, 1.11091441,
+    1.19799977)`` against this ``ph.x`` reference's ``diag(1.110915996,
+    1.110915996, 1.198004867)``, 5.1e-6, in 13 iterations. What is **not**
+    covered is a **GGA**: ``dgcxc_spin`` carries its own ``rho_threshold_gga``
+    and its own ``zeta`` gates, which are different numbers in a different
+    routine, and nothing here has transcribed them -- both committed O2
+    references are ``pz``. A PBE magnetic response can still land here, and
+    that is what this is left in place for.
+    """
+    if bool(jnp.all(jnp.isfinite(induced))):
+        return
+    density = jnp.asarray(density)
+    where = ""
+    if density.shape[0] == 4:
+        # The same singular set in the representation a spinor carries it in:
+        # ``(n, m_x, m_y, m_z)`` rather than ``(up, down)``, so the saturated
+        # point is ``|m| >= n``. A texture adds a *second* one the collinear
+        # case does not have -- the nodes of ``|m|``, where the local spin frame
+        # the noncollinear XC rotates into is undefined.
+        total = jnp.abs(density[0])
+        magnetization = jnp.linalg.norm(density[1:], axis=0)
+        saturated = int(jnp.sum(magnetization >= total))
+        where = (
+            f" The density has {saturated} of {total.size} grid points where "
+            "|m| is at least the charge, which is where the exchange-correlation "
+            "kernel's second derivative diverges, and its |m| runs down to "
+            f"{float(jnp.min(magnetization)):.3e}, where the local spin frame is "
+            "undefined."
+        )
+    elif density.shape[0] == 2:
+        total = jnp.abs(density[0] + density[1])
+        magnetization = jnp.abs(density[0] - density[1])
+        count = int(jnp.sum(magnetization >= total))
+        where = (
+            f" The density has {count} of {total.size} grid points where the "
+            "magnetization is at least the charge, which is where the LSDA "
+            "kernel's second derivative diverges."
+        )
+    raise NotImplementedError(
+        "the screened response of this system is not computable here: the "
+        "screening kernel dv_of_drho came back non-finite." + where +
+        " For nspin = 2 that kernel is the second derivative of the LSDA "
+        "exchange-correlation energy in the two channel densities, and it is "
+        "infinite wherever a channel density reaches zero -- which a plane-wave "
+        "magnetization does in vacuum. The value of v_xc is finite there "
+        "because xc_lsda clips zeta to [-1, 1], but the clip's own tangent is "
+        "zero and the product is inf * 0. Making defuqumat.xc's spin branch "
+        "twice differentiable at a fully polarized point is the missing piece; "
+        "chi_0 itself is unaffected and is validated for nspin = 2, and so is "
+        "a polarized cell with no magnetization"
+    )
+
+
+def _screening_kernel(calculation, density, screening: str):
+    """``dV_scf/drho``: the kernel the induced density is screened by.
+
+    ``"full"`` is ``dv_of_drho.f90`` -- one ``jvp`` of ``v_of_rho``, so Hartree
+    *and* ``f_xc``, which is what ``solve_e`` screens with and therefore what
+    ``epsilon_infinity`` means here.
+
+    ``"hartree"`` keeps the Hartree term alone. That is the **RPA** kernel, and
+    it exists for one reason: a sum-over-states response (:mod:`defuqumat.tddft`)
+    solved in RPA is an *identity* of this solve only when the two kernels
+    match, and the physical one does not match RPA. Comparing an RPA spectrum
+    against the ``"full"`` dielectric constant measures ``f_xc``, not the
+    agreement of two routes -- so the referee needs this switch to be honest.
+    The exchange-correlation term is dropped, not approximated: nothing else
+    about the solve changes.
+
+    ``"none"`` screens with nothing, the independent-particle response with
+    every band, which is what a real-time propagation at the ground state's
+    frozen potential computes; the shift from it to ``"full"`` is then the
+    local fields and the kernel alone, the quantity a propagation with the
+    potential updated in time is compared against
+    (:mod:`defuqumat.realtime.selfconsistent`).
+    """
+    density = jnp.asarray(density)
+    if screening == "none":
+        def screen(drho):
+            return jnp.zeros_like(drho)
+
+        return screen
+    if screening == "full":
+        def screen(drho):
+            _, dv = compiled_jvp(
+                lambda r: calculation.potential(r).v_scf, (density,), (drho,)
+            )
+            return dv
+
+        return screen
+    if screening != "hartree":
+        raise ValueError(
+            f"unknown screening kernel {screening!r}: 'full' is Hartree plus "
+            "f_xc (dv_of_drho, the physical one), 'hartree' is RPA and 'none' "
+            "the independent-particle response"
+        )
+
+    gvectors = calculation.basis.dense
+    cell = calculation.system.cell
+
+    def screen(drho):
+        # ``hartree`` already drops the G = 0 component, which is the same
+        # reason ``dv_of_drho`` may be a plain jvp of the potential: a response
+        # carries no net charge and the divergent term is not there to remove.
+        drho_g = jax.vmap(r_to_g, in_axes=(0, None))(drho, gvectors.fft_index)
+        v_g, _ = hartree(total_charge(drho_g), gvectors, cell)
+        v_r = jnp.real(g_to_r(v_g, gvectors.fft_index, gvectors.grid))
+        # The Hartree potential is built from the total charge and is the same
+        # in every channel, exactly as ``_potential_of_rho`` adds it.
+        return jnp.broadcast_to(v_r, drho.shape)
+
+    return screen
+
+
+def _solve_stored(solver, rhs):
+    """Solve with a right-hand side that is already an array, not a callback.
+
+    ``dvpsi_e`` applies ``-P_c^+`` to the commutator and then flips the sign, so
+    the right-hand side handed to the CG is ``+P_c^+ [H - eps S, r]|psi>``.
+    :meth:`SternheimerSolver.project` is ``orthogonalize``, sign included, so the
+    flip is the minus below.
+    """
+    batch = solver.calculation.k_batch
+    blocks = []
+    for spin in range(solver.nspin):
+        def one_k(ik, spin=spin):
+            projected = -solver.project(rhs[spin][ik], ik, spin)
+            return solver.solve_at(projected, ik, spin)[0]
+
+        blocks.append(compiled(
+            lambda indices, one_k=one_k: map_k(one_k, indices, batch=batch),
+            jnp.arange(rhs.shape[1]),
+        ))
+    return jnp.stack(blocks)
+
+
+def _augmentation_dipole(calculation):
+    """``dpqq`` as the ``(3, nkb, nkb)`` block matrix a projection contracts against.
+
+    ``None`` for a norm-conserving run, where the augmentation charge -- and so
+    its dipole -- does not exist.
+    """
+    if not calculation.is_ultrasoft:
+        return None
+    per_species = [augmentation_dipole(pseudo) for pseudo in calculation.pseudos]
+    if calculation.noncolin:
+        return _spinor_augmentation_dipole(calculation, per_species)
+    blocks = []
+    for values, atoms in zip(per_species, calculation.augmentation.species_atoms):
+        nh = values.shape[-1]
+        blocks.append(jnp.asarray(np.broadcast_to(
+            values[None], (len(atoms), 3, nh, nh)
+        )))
+    # ``block_matrix`` puts one atom's channels on the diagonal; the three
+    # cartesian components ride along as a leading axis of each block.
+    return jnp.stack([
+        calculation.augmentation.block_matrix(
+            tuple(None if b.shape[0] == 0 else b[:, axis] for b in blocks)
+        )
+        for axis in range(3)
+    ])
+
+
+def _spinor_augmentation_dipole(calculation, per_species):
+    """``dpqq_so`` as the ``(3, 2, 2, nkb, nkb)`` matrix a spinor projection contracts.
+
+    ``compute_qdipol_so``. The dipole is dressed by the same ``fcoef``
+    congruence ``qq_so`` is (:meth:`~defuqumat.pseudo.spinorbit.
+    SpinOrbitCoupling.dipole_so`), and a scalar-relativistic species inside a
+    spin-orbit run comes back with ``dpqq`` on both diagonal spin blocks and
+    zero off them, which is the Fortran's ``else`` branch.
+    """
+    transforms = calculation.spin_orbit
+    dressed = [
+        np.stack([
+            transforms[species].dipole_so(np.asarray(values[axis]))
+            for axis in range(3)
+        ])                                 # (3, nh, nh, 2, 2)
+        for species, values in enumerate(per_species)
+    ]
+    augmentation = calculation.augmentation
+    return jnp.stack([
+        jnp.stack([
+            jnp.stack([
+                augmentation.block_matrix(tuple(
+                    jnp.asarray(np.broadcast_to(
+                        matrix[axis, :, :, a, b][None],
+                        (len(atoms),) + matrix.shape[1:3],
+                    ))
+                    for matrix, atoms in zip(dressed, augmentation.species_atoms)
+                ))
+                for b in range(2)
+            ])
+            for a in range(2)
+        ])
+        for axis in range(3)
+    ])
+
+
+def ultrasoft_position(calculation, hamiltonians, states, position, dipole,
+                       projector_velocity):
+    """``dvpsi_e``'s ultrasoft tail, as a function of everything that moves.
+
+    :func:`_ultrasoft_position` is this called with the solver's own frozen
+    objects, which is what the primal path wants. **A third derivative in the
+    displacement coordinate wants the other form**, because every ingredient
+    here -- ``beta``, ``qq``, ``dpqq`` and ``d(beta)/dk`` -- travels with its
+    atom, so the tangent of ``b`` is the tangent of *this* composed with the
+    tangent of the linear solve underneath it
+    (:func:`~defuqumat.response.electrostriction._position_response`). The two
+    callers share one expression rather than two, which is the whole reason
+    this is a function and not the body of the one below.
+    """
+    batch = calculation.k_batch
+    # One k-point's projectors at a time, built rather than sliced on a lazy
+    # set: the whole-k ``vkb`` is never formed here (``GPU-MEMORY-NEXT.md``
+    # item 7).
+    projectors = calculation.projectors
+    dipole = dipole.astype(projectors.dtype)
+    blocks = []
+    for spin, hamiltonian in enumerate(hamiltonians):
+        occupied = states[spin]
+
+        def one_k(ik, hamiltonian=hamiltonian, occupied=occupied, spin=spin):
+            vkb = projectors.at_k(ik)
+            overlapped = hamiltonian.apply_s(position[spin][ik], ik)
+            if calculation.noncolin:
+                # ``adddvepsi_us``'s ``lspinorb`` branch, which is the same two
+                # terms with a spin pair on each matrix: the two components of
+                # the spinor are projected on the *same* projectors, and what
+                # mixes them is ``qq_so`` and ``dpqq_so``. A spiral is the one
+                # case where the projectors differ between components and the
+                # velocity operator refuses it before this is reached.
+                npwx = vkb.shape[0]
+                pair = occupied[ik].reshape(
+                    occupied[ik].shape[:-1] + (2, npwx)
+                )
+                becp1 = jnp.einsum("gk,nag->nak", vkb.conj(), pair)
+                becp2 = jnp.einsum(
+                    "gk,nag->nak", projector_velocity[ik].conj(), pair
+                )
+                qq = hamiltonian.qq.astype(vkb.dtype)
+                coefficients = 1j * jnp.einsum(
+                    "abij,nbj->nai", qq, becp2
+                ) + jnp.einsum("abij,nbj->nai", dipole, becp1)
+                added = jnp.einsum("gk,nak->nag", vkb, coefficients)
+                return overlapped + added.reshape(occupied[ik].shape)
+            qq = hamiltonian.projectors.qq.astype(vkb.dtype)
+            becp1 = jnp.einsum("gk,ng->nk", vkb.conj(), occupied[ik])
+            becp2 = jnp.einsum("gk,ng->nk",
+                               projector_velocity[ik].conj(), occupied[ik])
+            coefficients = 1j * (becp2 @ qq.T) + becp1 @ dipole.T
+            return overlapped + jnp.einsum("gk,nk->ng", vkb, coefficients)
+
+        # Compiled by its structure (:mod:`defuqumat.eager`): ``one_k`` is a new
+        # closure at every call.
+        blocks.append(compiled(
+            lambda indices, one_k=one_k: map_k(one_k, indices, batch=batch),
+            jnp.arange(occupied.shape[0])))
+    return jnp.stack(blocks)
+
+
+def _ultrasoft_position(solver, velocity, position, direction, dipole,
+                        derivative=None):
+    """``dvpsi_e``'s ultrasoft tail: ``S P_c r|psi>`` plus the augmentation dipole.
+
+    ``P_c r|psi>`` is what the linear solve above returns, and for an ultrasoft
+    dataset it is not what the polarization is built from. QE's comment says it
+    plainly: *"In the US case we obtain P_c x |psi>, but we need P_c^+ x |psi>,
+    therefore we apply S again, and then subtract the additional term;
+    furthermore we add the term due to dipole of the augmentation charges."*
+    ``adddvepsi_us.f90``, which is Eq. 10 of Dal Corso and Mauri:
+
+        |chi_a> = S P_c r_a |psi> + sum_ij |beta_i> [ i q_ij <d(beta_j)/dk_a|psi>
+                                                    + dpqq^a_ij <beta_j|psi> ]
+
+    Both new terms exist because an ultrasoft state's charge is not all in
+    ``|psi|^2``: part of it sits in the augmentation spheres, and that part has a
+    dipole (``dpqq``) and moves with ``k`` (``d(beta)/dk``). On a norm-conserving
+    dataset ``q_ij`` and ``dpqq`` are both zero and this whole function is the
+    identity -- which is why it is applied only when ``qq`` exists.
+    """
+    if derivative is None:
+        derivative = velocity.projectors(direction)   # (nk, npwx, nkb)
+    return ultrasoft_position(
+        solver.calculation, solver.hamiltonians, solver.psi, position, dipole,
+        derivative,
+    )
+
+
+def _bare_plus_induced(solver, bare_axis, dv, dddd_paw, include_induced: bool):
+    """``P_c r|psi> + dH_induced|psi>``, as ``sternheimer_kernel`` assembles it.
+
+    The induced part is not simply ``dV_scf(r)|psi>`` once the dataset is
+    ultrasoft: it carries ``int3`` and, for PAW, the one-centre response as well
+    (:func:`~defuqumat.response.sternheimer.local_perturbation`).
+    """
+    if not include_induced:
+        return lambda psi, ik, spin: bare_axis[spin][ik]
+
+    induced = solver.perturbation(dv, dddd_paw)
+
+    def perturbation(psi, ik, spin):
+        return bare_axis[spin][ik] + induced(psi, ik, spin)
+
+    return perturbation
+
+
+def _assemble_overlaps(calculation, overlaps) -> np.ndarray:
+    """``dielec.f90``: the tensor from the bare and self-consistent responses.
+
+        eps_ij = delta_ij - 4 (4 pi w_k / Omega) sum_n Re <P_c r_i psi | dpsi_j>
+
+    ``overlaps`` is the ``(3, 3)`` sum ``sum_kn w Re <P_c r_i psi | dpsi_j>``,
+    which each route contracts over its own stores (``_WholeField.overlaps``,
+    :meth:`~defuqumat.response.chunked.StreamedField.overlaps`). The weights are
+    the ground state's own ``wg``, which carries the spin degeneracy exactly as
+    QE's ``wk`` does, so no factor of two appears here that is not in
+    ``sum_band``.
+    """
+    volume = calculation.system.cell.volume
+    epsilon = np.eye(3) - 4.0 * FPI * np.asarray(overlaps) / volume
+    # ``dielec.f90`` ends with ``symmatrix``: a Brillouin-zone sum over the
+    # wedge is exact for a scalar and not for a rank-2 tensor, so the components
+    # the crystal's symmetry forbids are a residue of the reduction. On cubic
+    # silicon they are what this removes.
+    #
+    # **Under ``nosym`` there is nothing to put back and it must not be done**,
+    # which is the guard :meth:`Calculation.symmetrize_atom_tensor` was written
+    # to hold in one place and this call site was still missing. It is invisible
+    # on every cell committed before P28b, because there the k-grid is closed
+    # under the point group and the raw tensor is already symmetric -- a no-op
+    # applied to a tensor that does not need it. On the ten-site supercell,
+    # whose 4x4x1 grid the three-fold does *not* preserve, it is worth 0.97 in
+    # the off-diagonal entries and 1.06 in the diagonal against ``ph.x``'s
+    # ``nosym`` run, with the isotropic average -- the part symmetrisation
+    # cannot move -- agreeing to 5e-6.
+    identity = np.eye(3)
+    if not calculation.use_symmetry:
+        return epsilon
+    return identity + symmetrize_matrix(
+        epsilon - identity, calculation.system.cell, calculation.symmetries
+    )
+
+
+def born_charges_zstar_eu(calculation, solver, v_scf, dpsi) -> np.ndarray:
+    """``zstar_eu.f90`` transcribed: the cross-check on the mixed derivative.
+
+    **This is not how the Born charges are computed here.** They come from
+    differentiating the force along the field's response
+    (:mod:`defuqumat.response.born`), and this is the Fortran expression put
+    beside it, in the project's usual arrangement -- the two share the field
+    response ``dpsi`` and nothing else, and they agree to **1.3e-14** on
+    norm-conserving silicon.
+
+    It is **norm-conserving only** and is not guarded, because nothing calls it
+    but the test: on ultrasoft silicon it gives +0.1625 where ``ph.x`` gives
+    -0.07945, wrong in sign as well as size, which is the five stages
+    ``zstar_eu_us.f90`` adds and :mod:`defuqumat.response.born` gets from one more
+    tangent.
+
+    The bare perturbation is ``dV_bare/du |psi>`` at frozen ``v_scf``, which is
+    one ``jvp`` through :meth:`~defuqumat.scf.driver.Calculation.at_positions`
+    (see the module docstring). ``dvqpsi_us`` returns ``+dV/du`` -- the local
+    part is ``v(G) (-i)(G.u) e^{-iG.tau}``, which is the derivative with respect
+    to the *displacement* with no sign of its own -- so the transcription is
+    literal.
+    """
+
+    structure = calculation.system.structure
+    positions = jnp.asarray(structure.positions)
+    natoms = positions.shape[0]
+    batch = calculation.k_batch
+    psi = solver.psi
+    weights = solver.weights
+
+    def h_psi(moved_positions):
+        moved = calculation.at_positions(moved_positions)
+        # PAW's one-centre coefficients are constant under a displacement --
+        # ``becsum`` is frozen with the states -- but they have to be *in* the
+        # operator being differentiated, or the bare term is the wrong operator's.
+        hamiltonians = moved.hamiltonian(v_scf, solver.ddd_paw)
+        return jnp.stack([
+            over_kpoints(hamiltonian, psi[spin], batch)
+            for spin, hamiltonian in enumerate(hamiltonians)
+        ])
+
+    charges = np.zeros((natoms, 3, 3))
+    valence = np.array([
+        calculation.pseudos[t].z_valence for t in structure.types
+    ])
+    for atom in range(natoms):
+        for cart in range(3):
+            tangent = jnp.zeros_like(positions).at[atom, cart].set(1.0)
+            _, bare = compiled_jvp(h_psi, (positions,), (tangent,))
+            for direction in range(3):
+                overlap = jnp.einsum(
+                    "skng,skng->skn", jnp.conj(dpsi[direction]), bare
+                )
+                charges[atom, direction, cart] = -2.0 * float(
+                    jnp.sum(weights * jnp.real(overlap))
+                )
+    charges += np.eye(3)[None] * valence[:, None, None]
+
+    # ``symtensor``: the wedge sum is exact for a scalar and not for a rank-2
+    # tensor carried between atoms by the group.
+    return calculation.symmetrize_atom_tensor(charges)
+
+
+def _symmetrize_becsum_response(calculation, per_axis):
+    """``PAW_dusymmetrize`` on the three directions' ``dbecsum``.
+
+    A no-op when there is nothing to symmetrise -- no PAW species, or a run
+    with no symmetry, where the k-grid carries it instead.
+    """
+    if not per_axis or calculation._becsum_symmetry is None:
+        return per_axis
+    rotations = cartesian_rotations(calculation.system.cell, calculation.symmetries)
+    stacked = tuple(
+        None if per_axis[0][species] is None
+        else jnp.stack([per_axis[axis][species] for axis in range(3)])
+        for species in range(len(per_axis[0]))
+    )
+    symmetrised = calculation._becsum_symmetry.apply_directional(stacked, rotations)
+    return [
+        tuple(None if values is None else values[axis] for values in symmetrised)
+        for axis in range(3)
+    ]
+
+
+def require_a_measured_spinor_response(calculation) -> None:
+    """A *textured* spinor dielectric tensor runs and is not trusted. P83.
+
+    ``nspin_mag`` is 4 only when the run actually carries a magnetization, and
+    that is the case this refuses. A spinor with **no** magnetization -- a
+    spin-orbit insulator with a filled shell, which is the commoner heavy-element
+    regime -- has ``nspin_mag = 1`` and is supported: it reaches ``ph.x``'s own
+    number to 4.3e-5, reproduces the scalar run's ``epsilon`` and ``Z*`` to
+    5.0e-14 and 3.0e-15, and its symmetrised wedge reproduces the closed grid to
+    7.4e-13.
+
+    **What a textured run gives, and why that is not enough.** The one cell here
+    that is at once an insulator, textured and norm-conserving is
+    ``i-atom-soc.in`` -- an iodine atom, ``lspinorb``, ``occupations = 'fixed'``,
+    7 electrons in 8 spinor bands with a 0.164 eV gap, moment 1.00 mu_B along z.
+    Two internal checks pass and they are not weak ones:
+
+    * the tensor is **uniaxial along the moment**,
+      ``diag(1.356572109, 1.356572109, 1.574482417)``, with the off-diagonal
+      entries at 6e-15 and **nothing imposing it** -- the run is ``nosym``, so
+      ``symmetrize_directional`` returns its argument and ``symmatrix`` is
+      skipped, which makes the two equal entries a measurement;
+    * turning the moment to ``x`` moves the distinct axis to ``x`` and returns
+      **the same two numbers to all nine digits**. That is what makes the
+      equality a statement about spin-orbit coupling rather than about the box:
+      without ``lspinorb`` the spin and the orbital hole decouple and the
+      anisotropy would stay wherever the eigensolver put it.
+
+    And yet ``ph.x`` on the same ground state -- whose total energy it agrees with
+    to the printed digit, -25.80117002 Ry -- gives
+    ``diag(1.357034400, 1.357092056, 1.494593593)``. The two components **across**
+    the moment agree to 4.6e-4, which is ``ph.x``'s own floor on this cell rather
+    than ours (its own ``eps_xx`` and ``eps_yy`` differ by 5.8e-5 and its
+    off-diagonals are 7e-5). The one **along** the moment is **0.080 apart, 5.3
+    per cent**, and that is 40 per cent of the whole exchange-correlation
+    contribution to it: the same solve in RPA gives 1.37741894, so ``f_xc`` is
+    worth +0.197 there and the disagreement is a large fraction of it.
+
+    **Three explanations were tested and all three are dead**, which is recorded
+    so that they are not tested a fourth time. ``dmxc_nc`` differs from a ``jvp``
+    of ``v_of_rho`` in exactly three places, and every one of them is a threshold
+    that this cell never reaches:
+
+    * it evaluates ``dv/dzeta`` as a ``dz = 1e-6`` central difference at a
+      **clamped** ``zeta_eff = sign(min(|zeta|, 1 - 2e-6), zeta)`` -- **0** of
+      157464 grid points are above that clamp, and ``max |zeta| = 0.3245``;
+    * it sets the whole 4x4 kernel to zero where ``|zeta| > 1`` or
+      ``n <= 1e-30`` -- **0** points, and ``min n = 1.3e-9``;
+    * it keeps only the charge-charge element where ``|m| <= 1e-10`` -- **0**
+      points.
+
+    So both kernels are in their smooth interior everywhere on this cell and the
+    difference is not a convention at an edge, which is what P70's
+    ``|zeta| >= 1`` turned out to be for the collinear case. It is a genuine
+    difference in what one of the two codes computes, and it is unlocated.
+
+    **Why this is a refusal and not a warning.** A user asking for the dielectric
+    constant of a magnetic spin-orbit insulator would otherwise be handed a
+    number that is 5 per cent from ``ph.x``'s, symmetric, positive, uniaxial
+    along the moment and in every visible respect a working calculation. There is
+    no workaround to route them to: the quantity is the one they asked for.
+
+    The *bare* response is **not** implicated by any of this, and it is now
+    cleared **on this cell** rather than only on another one. P81 validated it
+    for ``nspin_mag = 4`` on a 90-degree texture (four probes, 1.2e-6 to
+    7.7e-6), but every cell it used was ``H.pz-vbc`` or ``Si.pz-vbc``, so no
+    Sternheimer solve had touched a fully relativistic dataset until the same
+    check was run here (2026-09-16, ``scratchpad/iodine_chi0.py``): four
+    amplitude patterns, along the moment and across it, four steps each. Two of
+    them -- a charge probe and a field along the moment -- are flat in the step at
+    **6.81e-7** and **1.06e-6**, so what is left in those is the solve's own
+    threshold rather than the difference's truncation, and every probe with a
+    transverse component falls as ``h^2`` (1.69e-4, 4.43e-5, 1.36e-5, 7.5e-6),
+    with all four density channels live rather than null.
+
+    So what is in question is above ``chi_0``, and it is three things rather than
+    the kernel alone: the kernel itself, where ``dmxc_nc``'s ``dz = 1e-6``
+    difference is as much a candidate as the ``jvp`` here; the **E-field source
+    term**, which a potential probe never reaches; and ``ph.x``.
+    """
+    if calculation.nspin_mag == 4:
+        raise NotImplementedError(
+            "the dielectric response of a *textured* spinor (nspin_mag = 4, a "
+            "noncollinear run that carries a magnetization) is refused: it runs, "
+            "and on the one comparable cell here it disagrees with ph.x by 5.3 "
+            "per cent in the component along the moment (1.574482 against "
+            "1.494594) while the two across it agree to 4.6e-4. Every threshold "
+            "dmxc_nc has that a jvp of v_of_rho does not -- the clamped zeta "
+            "derivative, the |zeta| > 1 zeroing, the |m| <= 1e-10 rule -- was "
+            "measured on that cell and fires at zero of 157464 grid points, so "
+            "the disagreement is not a convention at an edge. The bare response "
+            "underneath is not the fault either: on the same cell chi_0 under a "
+            "potential probe, which carries no kernel and no field at all, "
+            "reproduces a central difference of the density to 6.8e-7, so what "
+            "is unlocated sits above chi_0 -- the kernel, the field's own source "
+            "term, or ph.x. "
+            "A spinor with **no** magnetization (nspin_mag = 1, a filled-shell "
+            "spin-orbit insulator) is implemented and matches ph.x to 4.3e-5"
+        )
+
+
+def require_a_symmetrisable_response(calculation) -> None:
+    """Either the group can restore the response, or the grid must be closed.
+
+    With symmetry on there is nothing to check: the wedge sum is completed by
+    :meth:`~defuqumat.scf.driver.Calculation.symmetrize_directional`. With
+    ``nosym`` there is no group to average over, so the k-grid has to carry the
+    symmetry itself -- and a **shifted** Monkhorst-Pack grid does not (see the
+    module docstring for the measurement). An unshifted one does.
+    """
+    if not calculation.system.nosym and calculation.symmetries.nsym > 1:
+        return
+    shift = getattr(calculation.system.kpoints, "shift", None)
+    if shift is not None and any(shift):
+        raise NotImplementedError(
+            "a directional response with nosym on a *shifted* k-grid is refused: "
+            "a shifted Monkhorst-Pack grid is not closed under the point group "
+            "(2304 of 3072 rotation images leave a shifted 4x4x4 grid on fcc "
+            "silicon), so the response it gives is asymmetric and no "
+            "symmetrisation is available to repair it. Use an unshifted grid, "
+            "which is closed exactly, or drop nosym and let symdvscf's average "
+            "do the work"
+        )

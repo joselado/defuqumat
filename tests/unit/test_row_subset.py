@@ -18,8 +18,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.response.velocity import VelocityOperator
+from defuqumat.calculator import Calculator
+from defuqumat.response.velocity import VelocityOperator
 from tests.backend import assert_same
 
 pytestmark = pytest.mark.unit

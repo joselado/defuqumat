@@ -1,6 +1,6 @@
 ---
 paths:
-  - "defumat/**"
+  - "defuqumat/**"
   - "tests/**"
   - "MEMORY-AUDIT.md"
   - "GPU-MEMORY-NEXT.md"
@@ -24,7 +24,7 @@ None of these is incidental to the algorithm:
   `sum_band.f90` accumulates the density inside the same loop, so QE's working set is one
   k-point's whatever `nks` is, and the parallelism over k comes from MPI pools. Batching
   the whole k axis with `vmap` is this code's deliberate deviation — it is what a GPU wants
-  — so it is a **dial** (`defumat/batching.py`), set by `memory_mode`: QE's end of it on a
+  — so it is a **dial** (`defuqumat/batching.py`), set by `memory_mode`: QE's end of it on a
   CPU; in `'memory'`, the accelerator default, the largest k-chunk the card holds
   (`k_batch = 'fit'`) and the wavefunction store streamed through the card from host RAM
   (`wfc_store = 'stream'`) **only when that chunk is smaller than the mesh**, since with

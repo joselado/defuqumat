@@ -1,12 +1,12 @@
 #!/bin/bash
-# Elk's Si-dielectric propagation against defumat's, one core each, from a converged
+# Elk's Si-dielectric propagation against defuqumat's, one core each, from a converged
 # ground state on both sides (CLAUDE.md "Performance"; the reference-timing skill).
 #
 #   tools/realtime/time_against_elk.sh <elk binary> <elk species dir> <work dir> [core]
 #
 # Elk: task 0 (the ground state, not timed), then tasks 450 and 460 timed together
 # (450 writes the vector potential, 460 propagates), with Elk's example input at
-# scissor 0. defumat: tools/realtime/time_realtime.py, which times the fixed-density
+# scissor 0. defuqumat: tools/realtime/time_realtime.py, which times the fixed-density
 # solve on the field's wedge and the propagation apart. The machine must be quiet.
 set -euo pipefail
 elk=$1; species=$2; work=$3; core=${4:-0}
@@ -28,4 +28,4 @@ start=$(date +%s.%N)
 end=$(date +%s.%N)
 echo "{\"elk_450_460_s\": $(echo "$end - $start" | bc)}"
 cd "$here"
-DEFUMAT_THREADS=off taskset -c "$core" python3 -u tools/realtime/time_realtime.py "$work/defumat.npz"
+DEFUQUMAT_THREADS=off taskset -c "$core" python3 -u tools/realtime/time_realtime.py "$work/defuqumat.npz"

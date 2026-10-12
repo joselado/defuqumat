@@ -5,7 +5,7 @@ the calculation they were compiled for -- its cell, its radial tables, its
 Ewald list -- so ``at_cell`` (every step of a variable-cell relaxation after the
 first) compiled both again. They now take every array the geometry moves as an
 argument and are keyed on what they still close over
-(:class:`~defumat.forces.energy.GeometryKey`).
+(:class:`~defuqumat.forces.energy.GeometryKey`).
 
 The step chosen here also *loses* Ewald images (177 at the starting cell, 141
 at the expanded one), so it reaches ``at_cell``'s padding of the list to the
@@ -33,16 +33,16 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.forces.analytic import _terms, analytic_forces
-from defumat.forces.autodiff import autodiff_forces
-from defumat.forces.energy import frozen_energy, hoisted, state_from_result, with_hoisted
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.scf.ewald import build_ewald
-from defumat.stress.autodiff import autodiff_stress
-from defumat.stress.energy import strained_energy
-from defumat.system.builder import build_system
+from defuqumat.forces.analytic import _terms, analytic_forces
+from defuqumat.forces.autodiff import autodiff_forces
+from defuqumat.forces.energy import frozen_energy, hoisted, state_from_result, with_hoisted
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.scf.ewald import build_ewald
+from defuqumat.stress.autodiff import autodiff_stress
+from defuqumat.stress.energy import strained_energy
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -158,7 +158,7 @@ def test_a_cell_step_compiles_neither_gradient_again(stepped):
 
 def test_the_key_misses_when_what_the_gradient_closes_over_changes(stepped):
     """The safety is in the comparison: anything captured that differs is a miss."""
-    from defumat.forces.energy import split_geometry
+    from defuqumat.forces.energy import split_geometry
 
     base, moved, _ = stepped
     key, _ = split_geometry(base)

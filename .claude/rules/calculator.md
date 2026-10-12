@@ -1,9 +1,9 @@
 ---
 paths:
-  - "defumat/calculator.py"
-  - "defumat/workflows/**"
-  - "defumat/response/**"
-  - "defumat/system/**"
+  - "defuqumat/calculator.py"
+  - "defuqumat/workflows/**"
+  - "defuqumat/response/**"
+  - "defuqumat/system/**"
   - "tests/unit/test_calculator*"
 ---
 
@@ -11,11 +11,11 @@ paths:
 
 ## The front door is `Calculator`
 
-`defumat/calculator.py` (P38). A `Calculator` is a `System` together with its
+`defuqumat/calculator.py` (P38). A `Calculator` is a `System` together with its
 pseudopotentials, and every workflow, force, stress, response and invariant is a method
 on it — `Calculator.from_file("scf.in")`, then `get_scf()`, `get_bands()`,
 `get_dielectric_tensor()`. It is what the README, the user guide and new notebooks use,
-and `from defumat import Calculator` is the one import a script needs.
+and `from defuqumat import Calculator` is the one import a script needs.
 
 **It is a facade and nothing else.** No physics lives there: every method is a one-line
 delegation to the functional entry point, which is unchanged and still the way anything

@@ -1,6 +1,6 @@
 """The group averages walked over the operations are the batched gather's.
 
-:data:`~defumat.system.symmetry.GATHER_BUDGET_BYTES` decides whether an average
+:data:`~defuqumat.system.symmetry.GATHER_BUDGET_BYTES` decides whether an average
 gathers the field for every operation at once (``nsym`` copies of it) or walks
 the operations in a scan. The two are the same sum in a different order, so each
 walked average is held to its batched one on random fields and maps, with the
@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import defumat.system.symmetry as symmetry
+import defuqumat.system.symmetry as symmetry
 
 pytestmark = [pytest.mark.unit]
 
@@ -79,11 +79,11 @@ def test_the_budget_decides_by_the_batched_working_set():
 
 
 def test_the_budget_has_a_dial(monkeypatch):
-    """``DEFUMAT_GATHER_BUDGET`` is read at every decision, which is what lets
+    """``DEFUQUMAT_GATHER_BUDGET`` is read at every decision, which is what lets
     ``monkeypatch.setenv`` reach it; a cache of the budget would have to keep
     that or this test would read the first value only."""
     field = np.zeros((3, 1000))
-    monkeypatch.setenv("DEFUMAT_GATHER_BUDGET", "0")
+    monkeypatch.setenv("DEFUQUMAT_GATHER_BUDGET", "0")
     assert symmetry._walks_operations(48, field)
-    monkeypatch.setenv("DEFUMAT_GATHER_BUDGET", "100000")
+    monkeypatch.setenv("DEFUQUMAT_GATHER_BUDGET", "100000")
     assert not symmetry._walks_operations(48, np.zeros((8, 3, 30000)))

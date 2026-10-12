@@ -37,13 +37,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.forces import compute_forces, frozen_energy, state_from_result
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
-from defumat.system.symmetry import atom_mapping, symmetrize_vector
+from defuqumat.forces import compute_forces, frozen_energy, state_from_result
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
+from defuqumat.system.symmetry import atom_mapping, symmetrize_vector
 from tests.tolerances import FORCE_RY_BOHR, TOTAL_ENERGY_RY
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
@@ -214,7 +214,7 @@ def test_the_force_is_the_derivative_of_the_energy(pseudo_dir):
     It has to run with ``nosym``. Moving one atom along one axis breaks the
     symmetry of the starting structure, and the symmetry group is deliberately
     held fixed while the atoms move (see
-    :meth:`~defumat.scf.driver.Calculation.at_positions`), so a symmetrised run
+    :meth:`~defuqumat.scf.driver.Calculation.at_positions`), so a symmetrised run
     would compare the energy of the displaced structure against a density
     symmetrised with operations it no longer has. The agreement is limited by
     the step size: at ``h = 2e-3`` bohr the truncation error of a central

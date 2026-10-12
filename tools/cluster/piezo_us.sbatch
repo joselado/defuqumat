@@ -43,7 +43,7 @@
 #               than the extrapolation -- which is why task 1 exists. 200 G is
 #               four times the only ultrasoft peak on record and still leaves a
 #               node able to take two of these at once.
-#SBATCH --job-name=defumat-piezo-us
+#SBATCH --job-name=defuqumat-piezo-us
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-3
 #SBATCH --time=04:00:00
@@ -53,7 +53,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/us-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -63,8 +63,8 @@ source "$VENV/bin/activate" || exit 1
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 
 case ${SLURM_ARRAY_TASK_ID:-0} in
     0) RUNG=response-k4;       ARGS="--nosym --kmesh 4 --skip-difference" ;;

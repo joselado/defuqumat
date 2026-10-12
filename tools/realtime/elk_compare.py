@@ -10,7 +10,7 @@ weighted sum over them, so a run can be split across processes exactly: each
 process propagates every ``nparts``-th point of the field's little group's
 wedge with its own weights, and ``combine`` adds the shares and averages the
 sum over the group as a polar vector, which is what
-:func:`defumat.workflows.realtime.run_realtime` does in one process.
+:func:`defuqumat.workflows.realtime.run_realtime` does in one process.
 
     python3 tools/realtime/elk_compare.py scf INPUT density.npz
     python3 tools/realtime/elk_compare.py run INPUT density.npz CASE PART NPARTS share.npz \
@@ -72,8 +72,8 @@ ELK_C = 137.035999084
 
 
 def _pulse(case: str):
-    from defumat.realtime.pulse import Kick, Ramp
-    from defumat.units import C_AU
+    from defuqumat.realtime.pulse import Kick, Ramp
+    from defuqumat.units import C_AU
 
     if case == "kick":
         return Kick(strength=0.1 / C_AU, direction=(1.0, 0.0, 0.0))
@@ -84,7 +84,7 @@ def _pulse(case: str):
 
 
 def _calculator(path):
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     return Calculator.from_file(path, pseudo_dir=PSEUDO, announce=False)
 
@@ -102,8 +102,8 @@ def cmd_scf(args):
 def cmd_run(args):
     import equinox as eqx
 
-    from defumat.realtime.propagate import propagate
-    from defumat.workflows.realtime import _kset, _occupied_states
+    from defuqumat.realtime.propagate import propagate
+    from defuqumat.workflows.realtime import _kset, _occupied_states
 
     calculator = _calculator(args.input)
     system, pseudos = calculator.system, calculator.pseudos
@@ -251,8 +251,8 @@ def _summary(w_ev, eps, label):
 
 
 def cmd_dielectric(args):
-    from defumat.realtime.spectra import conductivity_from_kick
-    from defumat.units import C_AU
+    from defuqumat.realtime.spectra import conductivity_from_kick
+    from defuqumat.units import C_AU
 
     data = np.load(args.current)
     times, jx = data["times"], data["current"][:, 0]

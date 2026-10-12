@@ -16,8 +16,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-import defumat.scf.mixing as mixing
-from defumat import Calculator
+import defuqumat.scf.mixing as mixing
+from defuqumat import Calculator
 
 SLAB, RHO0, LDOS0 = 20.0, 0.03, 0.05
 

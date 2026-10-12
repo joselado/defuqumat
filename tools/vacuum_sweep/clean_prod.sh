@@ -2,8 +2,8 @@
 # The production LDOS mixer on the cobalt film at the input's own vacuum, alone on
 # core 0, twice, the second read; and Kerker beside it as the per-iteration base.
 cd /l/ladovj1/review/vacuum
-export JAX_PLATFORMS=cpu PYTHONPATH=/l/ladovj1/defumat-ldos DEFUMAT_CACHE_DIR=/l/ladovj1/jaxcache
-export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DEFUMAT_THREADS=off
+export JAX_PLATFORMS=cpu PYTHONPATH=/l/ladovj1/defumat-ldos DEFUQUMAT_CACHE_DIR=/l/ladovj1/jaxcache
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DEFUQUMAT_THREADS=off
 mkdir -p clean
 rm -f clean_prod.done
 for arm in "ldos flat" "tf flat"; do

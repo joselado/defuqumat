@@ -1,6 +1,6 @@
 """P46 check: the force and the stress of a noncollinear or spin-orbit run.
 
-The functional in :mod:`defumat.forces.energy` grew a spinor branch, so
+The functional in :mod:`defuqumat.forces.energy` grew a spinor branch, so
 ``noncolin = .true.`` -- with or without ``lspinorb`` -- has forces, a stress
 and therefore a relaxation, where it had a refusal. What changed is two
 quadratic forms and a layout, and this file is arranged around measuring them
@@ -54,15 +54,15 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from defumat.forces import compute_forces
-from defumat.forces.energy import energy_at, state_from_result
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation, run_scf
-from defumat.stress import compute_stress
-from defumat.system import build_system
-from defumat.workflows.relax import run_relax
+from defuqumat.forces import compute_forces
+from defuqumat.forces.energy import energy_at, state_from_result
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.stress import compute_stress
+from defuqumat.system import build_system
+from defuqumat.workflows.relax import run_relax
 from tests.tolerances import FORCE_RY_BOHR, STRESS_RY_BOHR3, TOTAL_ENERGY_RY
 
 #: How close the two relaxed atoms must come to being half a cell apart, in
@@ -178,7 +178,7 @@ def test_the_frozen_energy_is_the_total_energy_on_platinum(stem, qe_testsuite, p
 def test_the_force_is_a_finite_difference_of_the_frozen_energy(pseudo_dir):
     """The anchor that shares nothing with `pw.x`, on the ``nosym`` chain.
 
-    A central difference of :func:`~defumat.forces.energy.energy_at` under a
+    A central difference of :func:`~defuqumat.forces.energy.energy_at` under a
     displacement, against ``jax.grad`` of the same function. It isolates the
     gradient from the symmetrisation, the translation correction and QE's
     ``force_corr`` all at once, which is why it comes before the reference
@@ -295,7 +295,7 @@ def test_the_symmetrisation_reaches_the_crystals_invariant_subspace(case, pseudo
     PAW one at **12,204 MB**, already over ``tools/run_regression.sh``'s 12G
     default; the two parameters *together* in one process peak at **16,961
     MB**, because the backend keeps both cells' executables. So the file wants
-    ``DEFUMAT_TEST_MEM_MAX=20G``, and the cost is ``Q_ij(G)`` at ``nh = 34`` in
+    ``DEFUQUMAT_TEST_MEM_MAX=20G``, and the cost is ``Q_ij(G)`` at ``nh = 34`` in
     the backward pass -- the figure ``PLAN.md`` P46 already names for a
     fully-relativistic dataset.
     """

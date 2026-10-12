@@ -32,7 +32,7 @@ what is left is the bonding charge between the atoms.
 ```python
 from pathlib import Path
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 

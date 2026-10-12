@@ -17,8 +17,8 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.batching import PROJECTOR_STORES, resolve_projectors
-from defumat.calculator import Calculator
+from defuqumat.batching import PROJECTOR_STORES, resolve_projectors
+from defuqumat.calculator import Calculator
 from tests.backend import on_a_cpu
 
 pytestmark = pytest.mark.unit
@@ -49,7 +49,7 @@ def test_the_default_is_what_every_validated_number_was_measured_with(monkeypatc
 
 
 def test_an_explicit_setting_beats_the_environment(monkeypatch):
-    monkeypatch.setenv("DEFUMAT_PROJECTORS", "rebuild")
+    monkeypatch.setenv("DEFUQUMAT_PROJECTORS", "rebuild")
     assert resolve_projectors() == "rebuild"
     assert resolve_projectors("store") == "store"
 
@@ -61,8 +61,8 @@ def test_a_storage_that_is_not_one_is_refused():
 
 def test_an_unreadable_environment_variable_warns_and_falls_back(monkeypatch):
     on_a_cpu(monkeypatch)
-    monkeypatch.setenv("DEFUMAT_PROJECTORS", "rebiuld")
-    with pytest.warns(RuntimeWarning, match="DEFUMAT_PROJECTORS"):
+    monkeypatch.setenv("DEFUQUMAT_PROJECTORS", "rebiuld")
+    with pytest.warns(RuntimeWarning, match="DEFUQUMAT_PROJECTORS"):
         assert resolve_projectors() == "store"
 
 
@@ -128,7 +128,7 @@ def test_the_dial_reaches_the_calculation_through_the_facade():
     setup option out of ``defaults`` and not this one, so ``get_scf(projectors=
     'rebuild')`` ran happily and stored the whole array anyway. A dial that
     does not reach the code is indistinguishable from a dial that does not
-    help, which is the shape ``DEFUMAT_BAND_BATCH`` already failed in once.
+    help, which is the shape ``DEFUQUMAT_BAND_BATCH`` already failed in once.
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -172,7 +172,7 @@ def test_the_dial_is_not_part_of_the_scf_cache_key():
     than restoring the forwarding, because ``_adopt`` already drops the cache
     when a setup option changes.
     """
-    import defumat.calculator as facade
+    import defuqumat.calculator as facade
 
     calls = {"n": 0}
     real = facade.run_scf
@@ -215,7 +215,7 @@ def test_the_dial_does_not_reach_the_pdos_projector_scheme():
         calculator = Calculator.from_file(
             CELL, pseudo_dir="tests/data/pseudo", announce=False)
         calculator.get_scf(projectors="rebuild", max_iterations=1)
-    from defumat.workflows.pdos import run_pdos
+    from defuqumat.workflows.pdos import run_pdos
     forwarded = calculator._defaults_for(run_pdos, {})
     assert "projectors" not in forwarded
 
@@ -415,8 +415,8 @@ def test_a_chunked_core_build_is_the_one_shot_core(pseudo_dir, monkeypatch):
     small here so that the two-atom cell really is walked in pieces, with a
     short last one.
     """
-    from defumat.scf import driver as driver_module
-    from defumat.system.kpoints import KPoints
+    from defuqumat.scf import driver as driver_module
+    from defuqumat.system.kpoints import KPoints
 
     monkeypatch.setattr(driver_module, "CORE_CHUNK_BYTES", 4 * 180 * 7 * 8)
     calls = []
@@ -449,7 +449,7 @@ def test_a_chunked_core_build_is_the_one_shot_core(pseudo_dir, monkeypatch):
 
 def test_a_chunked_core_on_a_spiral_is_the_one_shot_core(monkeypatch):
     """The same, through ``at_spiral_q``'s rebuilt basis: two spheres per k-point."""
-    from defumat.scf import driver as driver_module
+    from defuqumat.scf import driver as driver_module
 
     monkeypatch.setattr(driver_module, "CORE_CHUNK_BYTES", 1)
     cores = []
@@ -483,7 +483,7 @@ def test_becsum_rebuilds_a_lazy_set_per_k(path, monkeypatch):
     that avoids it did not run. The spiral pairs each state with rows ``ik``
     and ``ik + nk``.
     """
-    from defumat.pseudo.projectors import Projectors
+    from defuqumat.pseudo.projectors import Projectors
 
     calculations = {}
     for which in ("store", "rebuild"):

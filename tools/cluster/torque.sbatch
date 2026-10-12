@@ -23,7 +23,7 @@
 #               as many words that no torque memory figure exists. A task that
 #               is killed for want of memory is itself the measurement, and the
 #               `seff` line says so.
-#SBATCH --job-name=defumat-torque
+#SBATCH --job-name=defuqumat-torque
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-3
 #SBATCH --time=08:00:00
@@ -33,7 +33,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/torque-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-audit}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-audit}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -46,8 +46,8 @@ export PYTHONPATH="$REPO"
 # **Both sides must be the same cache state or the memory figure is about the
 # cache** -- `CLAUDE.md` records a 603 MB cache entry worth 6.3 GB resident, in
 # the direction that flatters whichever side was the miss. Off on both.
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 
 CASES=(tetragonal tetragonal slab slab)
 ROUTES=(whole chunked whole chunked)

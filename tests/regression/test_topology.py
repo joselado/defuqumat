@@ -24,12 +24,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo.upf import read_upf
-from defumat.scf.driver import run_scf
-from defumat.system.builder import build_system
-from defumat.topology.augmentation import augmentation_at_q
-from defumat.workflows.topology import DFTSource, run_berry_curvature, run_z2
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo.upf import read_upf
+from defuqumat.scf.driver import run_scf
+from defuqumat.system.builder import build_system
+from defuqumat.topology.augmentation import augmentation_at_q
+from defuqumat.workflows.topology import DFTSource, run_berry_curvature, run_z2
 
 pytestmark = pytest.mark.regression
 
@@ -182,14 +182,14 @@ def test_silicon_is_a_trivial_insulator_by_the_parity_criterion():
 
     Silicon has no spin-orbit coupling here, so its bands are spin-degenerate
     rather than Kramers doublets and the halving in
-    :func:`~defumat.topology.parity.trim_delta` does not apply -- the delta is
+    :func:`~defuqumat.topology.parity.trim_delta` does not apply -- the delta is
     the plain product over the four orbital bands. That is why this test builds
     the deltas itself instead of going through ``run_z2``, which requires
     spinors and would be right to refuse.
     """
-    from defumat.system.symmetry import find_symmetries
-    from defumat.topology.mesh import trim_points
-    from defumat.topology.parity import inversion_centre, parity_eigenvalues
+    from defuqumat.system.symmetry import find_symmetries
+    from defuqumat.topology.mesh import trim_points
+    from defuqumat.topology.parity import inversion_centre, parity_eigenvalues
 
     system, pseudos, density = converged("si2-nc-pbe.in")
     centre = inversion_centre(find_symmetries(system.cell, system.structure))

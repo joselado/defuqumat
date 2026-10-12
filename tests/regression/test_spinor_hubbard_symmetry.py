@@ -43,10 +43,10 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo.upf import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo.upf import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system.builder import build_system
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -139,7 +139,7 @@ def test_the_symmetriser_fixes_the_answer_it_should_fix(pseudo_dir):
     An undivided "is a fixed point to 1e-8" fails at 6.0e-7 on a *correct*
     implementation, which is how this test was first written.
     """
-    from defumat.hubbard.occupations import build_ns_symmetry
+    from defuqumat.hubbard.occupations import build_ns_symmetry
 
     wedge_calculation, _ = _converged(pseudo_dir, False)
     whole_calculation, whole = _converged(pseudo_dir, True)
@@ -284,7 +284,7 @@ def test_site_angular_momenta_agree_between_the_wedge_and_the_grid(pseudo_dir):
     which face-centred nickel is: so a wrong implementation does not disagree by a
     little, it returns a clean and plausible nothing.
     """
-    from defumat.projwfc.angular_momentum import angular_momenta
+    from defuqumat.projwfc.angular_momentum import angular_momenta
 
     wedge_calculation, wedge = _converged(pseudo_dir, False)
     whole_calculation, whole = _converged(pseudo_dir, True)

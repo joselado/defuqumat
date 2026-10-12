@@ -1,6 +1,6 @@
 ---
 name: trap-check
-description: Audit a change against defumat's recurring traps - the ones that produce a plausible wrong answer rather than an error. Covers abs at a forced zero, rule D4 band diagonals, a caller-built k-set that misses for_spin, an unsymmetrised wedge sum, np.asarray inside a differentiated path, hardcoded dtypes, a hand-rolled vmap over k, and a stencil containing its own centre. Use before committing anything that touches the SCF, a response, a force, a stress, an invariant, or any differentiated path; also when a number looks right but is not trusted, and when reviewing a subagent's physics code. Triggers - "check for traps", "review this diff", "is this safe to commit", "why is this number slightly wrong".
+description: Audit a change against defuqumat's recurring traps - the ones that produce a plausible wrong answer rather than an error. Covers abs at a forced zero, rule D4 band diagonals, a caller-built k-set that misses for_spin, an unsymmetrised wedge sum, np.asarray inside a differentiated path, hardcoded dtypes, a hand-rolled vmap over k, and a stencil containing its own centre. Use before committing anything that touches the SCF, a response, a force, a stress, an invariant, or any differentiated path; also when a number looks right but is not trusted, and when reviewing a subagent's physics code. Triggers - "check for traps", "review this diff", "is this safe to commit", "why is this number slightly wrong".
 ---
 
 # Trap check
@@ -61,8 +61,8 @@ as written. A degenerate eigensolver is free to return any unitary mixture insid
 multiplet, and a diagonal is not invariant under it. A quadratic form is.
 
 **The fix is the multiplet block average**, or diagonalising the operator within each
-block first. `defumat/response/spectra.py:degenerate_manifolds` is the shared helper;
-`defumat/transport/green.py:channel_basis` is the in-place version.
+block first. `defuqumat/response/spectra.py:degenerate_manifolds` is the shared helper;
+`defuqumat/transport/green.py:channel_basis` is the in-place version.
 
 **Cost when missed:** four orders of magnitude on silicon's second-order susceptibility;
 69x against 26x on a bilayer's transport contrast. **No symmetry check sees it**, and
@@ -76,7 +76,7 @@ git diff -U0 | grep -nE '^\+.*(KPoints\(|kpoint_grid|from_list|monkhorst|denser_
 
 Every `KPoints` constructor applies the unpolarized `degspin` unconditionally. A spinor
 band holds **one** electron, not two. Any entry point that builds its own k-set must
-pass it through `defumat.system.kpoints.for_spin(kpoints, nspin)`.
+pass it through `defuqumat.system.kpoints.for_spin(kpoints, nspin)`.
 
 **Cost when missed:** a plasma frequency of 13.11 eV instead of 0.60; a factor of four
 in a nesting function. The wrong numbers are the plausible ones.
@@ -97,7 +97,7 @@ Two things that are **not** escapes:
   this backwards is worth 2.5%, is worse than doing nothing, and only a sum rule catches it.
 
 Also check the group: a quantity unfolded with `grid_equivalence` must be unfolded with
-the group that `denser_grid` reduced it with (`defumat/workflows/nscf.py:grid_symmetry`).
+the group that `denser_grid` reduced it with (`defuqumat/workflows/nscf.py:grid_symmetry`).
 
 ## 5. `np.asarray` inside a differentiated path
 
@@ -117,7 +117,7 @@ git diff -U0 | grep -nE '^\+.*(complex128|complex64|float64|float32|1\.0j|1j|0j)
 ```
 
 Single precision must stay viable for GPU. Real and complex dtypes come from the
-precision policy - `defumat/config.py`'s `Precision`, reached as `DEFAULT_PRECISION` or
+precision policy - `defuqumat/config.py`'s `Precision`, reached as `DEFAULT_PRECISION` or
 the object already threaded through the call site (`prec.as_complex`, `prec.zeros`,
 `prec.real`). A literal `1.0j` is a hit; so is `dtype=jnp.complex128`.
 
@@ -128,7 +128,7 @@ git diff -U0 | grep -nE '^\+.*(jax\.vmap|jnp\.vmap|for ik in|for k in range)'
 ```
 
 Anything new that walks the k axis goes through `map_k`/`sum_k` in
-`defumat/batching.py`, not its own `vmap`. That is what keeps the batching dial, the
+`defuqumat/batching.py`, not its own `vmap`. That is what keeps the batching dial, the
 chunked `lax.map`/`lax.scan` form, and the eventual sharding available. The chunk size
 must never be visible in a result beyond round-off.
 

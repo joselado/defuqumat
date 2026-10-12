@@ -1,7 +1,7 @@
 """P64: the orbital magnetization's machinery, on models where it is exact.
 
 Four statements, and none of them needs a plane wave. The zone sums
-:func:`~defumat.topology.orbital_magnetization.orbital_magnetization_sums`
+:func:`~defuqumat.topology.orbital_magnetization.orbital_magnetization_sums`
 returns carry no lattice and no unit, so a tight-binding model reaches every
 line of the assembly:
 
@@ -31,13 +31,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.topology.invariants import ModelSource, chern_number
-from defumat.topology.mesh import volume_mesh
-from defumat.topology.orbital_magnetization import (
+from defuqumat.topology.invariants import ModelSource, chern_number
+from defuqumat.topology.mesh import volume_mesh
+from defuqumat.topology.orbital_magnetization import (
     orbital_magnetization,
     orbital_magnetization_sums,
 )
-from defumat.topology.states import ModelStates
+from defuqumat.topology.states import ModelStates
 from tests.models import haldane, random_gauge
 
 pytestmark = pytest.mark.unit

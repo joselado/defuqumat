@@ -32,9 +32,9 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from defumat import Calculator
-from defumat.io import read_qe_output
-from defumat.units import RY_TO_EV
+from defuqumat import Calculator
+from defuqumat.io import read_qe_output
+from defuqumat.units import RY_TO_EV
 
 QE = Path("../quantum_espresso/qe-7.5-ReleasePack/qe-7.5/test-suite")
 PSEUDO = Path("../tests/data/pseudo")
@@ -104,7 +104,7 @@ both go negative, which is what lets them cancel the leading error of the Gaussi
 
 
 ```python
-from defumat.scf.occupations import w0gauss, wgauss   # no facade route to one scheme
+from defuqumat.scf.occupations import w0gauss, wgauss   # no facade route to one scheme
 
 x = np.linspace(-4.0, 4.0, 801)
 NAMES = {0: "Gaussian", 1: "Methfessel-Paxton", -1: "cold (Marzari-Vanderbilt)",

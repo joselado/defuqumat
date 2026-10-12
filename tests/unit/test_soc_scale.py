@@ -24,8 +24,8 @@ dresses**, and that is the content of this file:
 import numpy as np
 import pytest
 
-from defumat.pseudo import read_upf
-from defumat.pseudo.spinorbit import SpinOrbitCoupling, spin_trace
+from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.spinorbit import SpinOrbitCoupling, spin_trace
 from tests.conftest import GENERATED
 
 pytestmark = [pytest.mark.unit]
@@ -133,7 +133,7 @@ def test_spin_trace_is_idempotent_and_kills_the_traceless_part():
 
 def test_the_system_carries_it_without_moving_the_k_points():
     """Two ``soc_scale`` must be sampled identically or the law is unmeasurable."""
-    from defumat.system.builder import system_from_file
+    from defuqumat.system.builder import system_from_file
 
     system = system_from_file(GENERATED / "co-slab-forcetheorem-par.in")
     assert system.soc_scale == 1.0
@@ -173,7 +173,7 @@ def _symmetric(nh, seed, count=None):
 def _becsum(coupling, spin_density, nspin_mag, scale):
     import jax.numpy as jnp
 
-    from defumat.pseudo.spinorbit import becsum_transform
+    from defuqumat.pseudo.spinorbit import becsum_transform
 
     return np.asarray(becsum_transform(
         jnp.asarray(coupling.fcoef), jnp.asarray(spin_density)[None], nspin_mag,
@@ -235,7 +235,7 @@ def test_newd_is_the_derivative_of_the_augmentation_energy(scale):
     """
     import jax.numpy as jnp
 
-    from defumat.scf.driver import _newd_noncollinear, _spin_block_diagonal
+    from defuqumat.scf.driver import _newd_noncollinear, _spin_block_diagonal
 
     pseudo = _pseudo(RELATIVISTIC)
     coupling = _coupling(pseudo, scale)
@@ -295,8 +295,8 @@ def test_the_spin_traced_sandwich_is_the_spin_trace_of_the_overlap():
     """
     import jax.numpy as jnp
 
-    from defumat.pseudo.spinorbit import spin_traced_sandwich
-    from defumat.scf.driver import _spin_block_diagonal
+    from defuqumat.pseudo.spinorbit import spin_traced_sandwich
+    from defuqumat.scf.driver import _spin_block_diagonal
 
     pseudo = _pseudo(RELATIVISTIC)
     coupling = SpinOrbitCoupling(pseudo, 0.0)
@@ -320,8 +320,8 @@ def test_the_spin_traced_sandwich_of_dion_is_the_traced_bare_d():
     """
     import jax.numpy as jnp
 
-    from defumat.pseudo.spinorbit import _channel_table, _fcoef, spin_traced_sandwich
-    from defumat.scf.driver import _spin_block_diagonal
+    from defuqumat.pseudo.spinorbit import _channel_table, _fcoef, spin_traced_sandwich
+    from defuqumat.scf.driver import _spin_block_diagonal
 
     pseudo = _pseudo(RELATIVISTIC)
     coupling = SpinOrbitCoupling(pseudo, 0.0)
@@ -353,8 +353,8 @@ def test_the_ultracells_deeq_at_zero_difference_is_the_unit_cells(scale):
     """
     import jax.numpy as jnp
 
-    from defumat.scf.driver import _newd_noncollinear, _spin_block_diagonal
-    from defumat.ultracell.augmentation import spinor_ultracell_deeq
+    from defuqumat.scf.driver import _newd_noncollinear, _spin_block_diagonal
+    from defuqumat.ultracell.augmentation import spinor_ultracell_deeq
 
     pseudo = _pseudo(RELATIVISTIC)
     fcoef = jnp.asarray(_spin_block_diagonal([_coupling(pseudo, scale).fcoef]))
@@ -383,9 +383,9 @@ def test_the_paw_sphere_does_not_know_where_the_spin_points_at_zero():
     2.6 GB and 16 s built on its own, and in the gate's process it raised the
     peak to 7.5 GB (2026-09-25), so the two species are built one at a time.
     """
-    from defumat.paw.onecenter import _build_species, onecenter_species
-    from defumat.pseudo.projectors import projector_channels
-    from defumat.xc.functional import resolve_functional
+    from defuqumat.paw.onecenter import _build_species, onecenter_species
+    from defuqumat.pseudo.projectors import projector_channels
+    from defuqumat.xc.functional import resolve_functional
 
     pseudo = _pseudo(PAW_RELATIVISTIC)
     functional = resolve_functional([pseudo.functional])

@@ -24,7 +24,7 @@ rule of this project is that a claim is a number rather than an adjective.
 
 ## What this project is
 
-A ground-up reimplementation of Quantum ESPRESSO in Python + JAX ("defumat"). The
+A ground-up reimplementation of Quantum ESPRESSO in Python + JAX ("defuqumat"). The
 Fortran QE 7.5 release is vendored here **as reference material only** — it is read to
 understand algorithms and to validate numerical results, never modified or compiled into
 the deliverable.
@@ -72,7 +72,7 @@ is the one thing not to compress away.
 - `quantum_espresso/qe-7.5-ReleasePack/qe-7.5/` — QE 7.5 Fortran sources. **Read-only.**
 - `quantum_espresso/Doc-QE-7.5/Doc-7.5/` — input-file documentation (`INPUT_PW.txt` is the
   authoritative spec for the `pw.x` input namelists/cards) and theory PDFs.
-- `defumat/` — the Python package. `tests/` alongside it; `tests/data/pseudo/` holds the
+- `defuqumat/` — the Python package. `tests/` alongside it; `tests/data/pseudo/` holds the
   committed UPF files (QE's test-suite downloads rather than ships them).
 - Git repository, with `quantum_espresso/` gitignored — 285 MB of vendored reference does
   not belong in history. Tests that need it skip cleanly when it is absent.
@@ -88,7 +88,7 @@ will keep growing, so structure matters more than speed of delivery — read `PL
 the architecture, the phase breakdown and the validation strategy before writing code.
 
 **What is in scope and implemented**, with the rule that binds each piece, is
-`.claude/rules/scope.md`; it loads whenever a file under `defumat/`, `tests/` or
+`.claude/rules/scope.md`; it loads whenever a file under `defuqumat/`, `tests/` or
 `notebooks/`, or `docs/features.tex`, is read, and
 `README.md`'s feature table is the short list.
 
@@ -115,8 +115,8 @@ choice should make good performance unreachable without a rewrite.
 
 ## The front door is `Calculator`
 
-`defumat/calculator.py` (P38): a `System` with its pseudopotentials, every workflow a
-`get_*` method on it, and `from defumat import Calculator` the one import a script needs.
+`defuqumat/calculator.py` (P38): a `System` with its pseudopotentials, every workflow a
+`get_*` method on it, and `from defuqumat import Calculator` the one import a script needs.
 It is a facade and nothing else, nothing on it mutates, and a new feature adds its `get_*`
 in the same pass as its entry point. The binding rules (no state on `System`, the one-slot
 cache, `SHARED_OPTIONS` forwarded by name) are in `.claude/rules/calculator.md`, which loads
@@ -139,7 +139,7 @@ rules are `.claude/rules/notebooks.md`, which loads when anything under `noteboo
 
 ## Performance
 
-**The measurement is single-core defumat against single-core Quantum ESPRESSO (or Elk) on
+**The measurement is single-core defuqumat against single-core Quantum ESPRESSO (or Elk) on
 the same machine and the same input**, and every feature taken from either is timed against
 it, with the pair in `PERFORMANCE.md`:
 
@@ -254,7 +254,7 @@ measured and made selectable when large. A test file sweeping more than about th
 takes `jax.clear_caches()` in an autouse fixture, and its converged states either sit behind
 `lru_cache(maxsize=2)` or are shared through a module-scoped fixture (or, where its peak is
 measured, stay in an unbounded cache beside the clearing fixture). The full section
-is `.claude/rules/memory-design.md`, which loads with any file under `defumat/` or `tests/`.
+is `.claude/rules/memory-design.md`, which loads with any file under `defuqumat/` or `tests/`.
 
 ## Reading beyond the source
 
@@ -280,7 +280,7 @@ The test-suite's pseudopotential files are **not** shipped — inputs name files
 commit them. The canonical first target is `test-suite/pw_scf/scf.in` (Si diamond, LDA,
 `ecutwfc=12`, 2 k-points, 15³ FFT grid).
 
-The testing method is running the *same input* through real QE and through defumat and
+The testing method is running the *same input* through real QE and through defuqumat and
 comparing numbers. Building the Fortran QE is only needed when a comparison is not already
 covered by a committed benchmark (likely for `bands`/`dos` runs); when that happens, store
 the generated reference output alongside the test so it never has to be regenerated.
@@ -294,8 +294,8 @@ Dependencies live in the **base anaconda env** — there is no project virtualen
 here; the JAX paths must run unchanged on GPU, so correctness is established in float64 on
 CPU and performance work is a later, separate phase.
 
-Compiled kernels are cached in `~/.cache/defumat/jax` so that only the first run of a
-process pays for them; `DEFUMAT_CACHE_DIR` moves it and `DEFUMAT_CACHE_DIR=off` disables
+Compiled kernels are cached in `~/.cache/defuqumat/jax` so that only the first run of a
+process pays for them; `DEFUQUMAT_CACHE_DIR` moves it and `DEFUQUMAT_CACHE_DIR=off` disables
 it.
 
 ```
@@ -303,7 +303,7 @@ tools/test-fast.sh                     # THE GATE: everything not marked slow, ~
 python3 -m pytest -m slow              # the other 1279, over two hours
 tools/run_regression.sh                # the same slow set, one capped process per file
 python3 -m pytest tests/unit/test_qeref.py::test_scf_silicon   # a single test
-python3 -m defumat.cli inspect <qe-output>   # summarise what the parser reads
+python3 -m defuqumat.cli inspect <qe-output>   # summarise what the parser reads
 tools/export_notebooks.sh                     # re-execute notebooks + refresh .md exports
 ```
 
@@ -327,7 +327,7 @@ whether a new test belongs in the gate, the cgroup cap and the RSS watchdog.
   iteration body (`h_psi` → diagonalize → density → potential → mix). Inside the
   eigensolver, use `lax.while_loop`/`fori_loop` with a fixed subspace size so the solver
   stays on device.
-- **How many k-points are in flight is `defumat/batching.py`'s dial, and its default
+- **How many k-points are in flight is `defuqumat/batching.py`'s dial, and its default
   follows `memory_mode`** — QE's loop, one k-point at a time as `c_bands.f90` and
   `sum_band.f90` do it, on a CPU; in `'memory'` (the accelerator default since
   2026-09-28, the user's decision) the largest chunk the card holds, `'fit'`, since
@@ -340,7 +340,7 @@ whether a new test belongs in the gate, the cgroup cap and the RSS watchdog.
   `k=1, b=all` is `'memory'`'s, measured at 1.2x `all/all` on a card.
   `k_batch`
   reaches every entry point (`run_scf`, `run_bands`, `run_nscf`, `run_dos`, `Calculation`,
-  `DEFUMAT_K_BATCH`), `None` asks for one `vmap` over the whole axis, and the chunked form
+  `DEFUQUMAT_K_BATCH`), `None` asks for one `vmap` over the whole axis, and the chunked form
   is a `lax.map`/`lax.scan` so it stays compiled once and differentiable. Anything new that
   walks the k axis goes through `map_k`/`sum_k` rather than calling `vmap` itself; the
   chunk size must never be visible in a result beyond round-off.

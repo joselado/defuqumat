@@ -5,8 +5,8 @@
 out=/l/ladovj1/review/hspin/svo12
 cd /l/ladovj1/defumat-hspin
 source /l/ladovj1/venv/bin/activate
-export PYTHONPATH=/l/ladovj1/defumat-hspin:$out DEFUMAT_REPO=/l/ladovj1/defumat-hspin
-export DEFUMAT_CACHE_DIR=/l/ladovj1/jaxcache MKL_NUM_THREADS=1 XLA_PYTHON_CLIENT_MEM_FRACTION=0.6
+export PYTHONPATH=/l/ladovj1/defumat-hspin:$out DEFUQUMAT_REPO=/l/ladovj1/defumat-hspin
+export DEFUQUMAT_CACHE_DIR=/l/ladovj1/jaxcache MKL_NUM_THREADS=1 XLA_PYTHON_CLIENT_MEM_FRACTION=0.6
 rm -f $out/all.done
 git log --oneline -1 > $out/state.txt; git status --short >> $out/state.txt
 run() {  # tag platform cores mem command...
@@ -24,7 +24,7 @@ for v in mag us paw; do
   OMP_NUM_THREADS=4 run $v card 0-3 10G python3 -u -m pytest -q -s -p no:cacheprovider \
       -p svo_report "$test[$v]"
 done
-OMP_NUM_THREADS=4 DEFUMAT_TEST_MEM_MAX=11G run gate cpu 0-11 12G tools/test-fast.sh -q -p no:cacheprovider
+OMP_NUM_THREADS=4 DEFUQUMAT_TEST_MEM_MAX=11G run gate cpu 0-11 12G tools/test-fast.sh -q -p no:cacheprovider
 OMP_NUM_THREADS=4 run se card 0-3 10G python3 -u -m pytest -q -s -p no:cacheprovider \
     -p svo_report "$test[se]"
 touch $out/all.done

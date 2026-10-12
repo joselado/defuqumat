@@ -25,13 +25,13 @@ account:
 The bound is entirely a multi-node one: 868 ms per 83 MB all-reduce between two Triton nodes
 on `eth0` (`PLAN.md` P124), against 25 ms an iteration, about 1.3 per cent, at six pools on
 one machine (si32). D22 is one machine with 16 cores, so nothing measured there can move the
-decision, and `ib0` (`DEFUMAT_POOL_INTERFACE=ib0`), unmeasured, may shrink the whole item.
+decision, and `ib0` (`DEFUQUMAT_POOL_INTERFACE=ib0`), unmeasured, may shrink the whole item.
 
 ## Steps
 
 1. **Measure the wire first** (the user's approval, Triton): `tools/parallel/comm_bench.py
    --sizes-mb 40 83 110 216` across two Milan nodes, once on `eth0` and once with
-   `DEFUMAT_POOL_INTERFACE=ib0`. If `ib0` brings 83 MB under about 100 ms, the payload work
+   `DEFUQUMAT_POOL_INTERFACE=ib0`. If `ib0` brings 83 MB under about 100 ms, the payload work
    is worth less than one per cent on any cell on record and the item closes as measured.
 2. **If it does not**: implement (2) above behind the existing `Pools` API.
    `JaxCommunicator.broadcast` of the mixed state sends `rho` in G on the smooth sphere

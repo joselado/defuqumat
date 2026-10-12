@@ -24,7 +24,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.xc.functional import RHO_THRESHOLD_GGA, SMALL_SPIN_GGA, get_functional
+from defuqumat.xc.functional import RHO_THRESHOLD_GGA, SMALL_SPIN_GGA, get_functional
 
 pytestmark = pytest.mark.unit
 

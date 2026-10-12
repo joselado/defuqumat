@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
-from defumat.basis.gvectors import generate_gvectors
-from defumat.system.cell import Cell
-from defumat.system.structure import Species, Structure
-from defumat.system.symmetry import (
+from defuqumat.basis.gvectors import generate_gvectors
+from defuqumat.system.cell import Cell
+from defuqumat.system.structure import Species, Structure
+from defuqumat.system.symmetry import (
     find_symmetries,
     lattice_point_group,
     symmetrize_density,
@@ -101,7 +101,7 @@ def test_symmetrization_preserves_the_average_and_reduces_the_norm():
 
 def test_a_symmetric_density_is_unchanged():
     """The structure factor of the crystal is symmetric by construction."""
-    from defumat.pseudo.potentials import structure_factors
+    from defuqumat.pseudo.potentials import structure_factors
 
     gvectors = generate_gvectors(SILICON_CELL, 48.0)
     structure = _diamond()
@@ -121,8 +121,8 @@ def test_symmetry_group_honours_the_nosym_it_takes():
     is a property of the crystal, and ``basis.builder`` needs the fractional
     translations to size the FFT box whatever the input said about symmetrising.
     """
-    from defumat.io.pwin import parse_pw_input
-    from defumat.system.builder import build_system
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
 
     system = build_system(parse_pw_input(
         "&system\n ibrav=2, celldm(1)=10.2, nat=2, ntyp=1, ecutwfc=12.0,"
@@ -153,7 +153,7 @@ def test_a_translation_written_with_six_decimals_is_a_third():
     operation, and the only other candidate for a sublattice swap is the zero
     translation, which fails the structure match.
     """
-    from defumat.system.symmetry import _crystallographic_translation
+    from defuqumat.system.symmetry import _crystallographic_translation
 
     exact = np.array([1.0 / 3.0, 2.0 / 3.0, 0.5])
     written = np.array([0.333333, 0.666667, 0.5])
@@ -185,7 +185,7 @@ def test_hcp_cobalt_finds_the_group_pw_x_finds(pseudo_dir):
     """
     from pathlib import Path
 
-    from defumat.system.builder import system_from_file
+    from defuqumat.system.builder import system_from_file
 
     case = Path(__file__).resolve().parents[1] / "data" / "qe"
     system = system_from_file(case / "co-hcp-anisotropy-sr.in")
@@ -210,8 +210,8 @@ def test_the_position_tolerance_has_room_on_every_committed_cell():
     import glob
     from pathlib import Path
 
-    from defumat.system.builder import system_from_file
-    from defumat.system.symmetry import _POSITION_TOLERANCE
+    from defuqumat.system.builder import system_from_file
+    from defuqumat.system.symmetry import _POSITION_TOLERANCE
 
     case = Path(__file__).resolve().parents[1] / "data" / "qe"
     closest = np.inf
@@ -242,7 +242,7 @@ def _diamond_on(cell, kinds=(0, 0), species=SI, second=(0.25, 0.25, 0.25)):
 
 def _counting_searches(monkeypatch):
     """Every lattice search :func:`find_symmetries` starts, counted, from an empty memo."""
-    from defumat.system import symmetry
+    from defuqumat.system import symmetry
 
     find_symmetries.cache_clear()
     calls = []
@@ -302,7 +302,7 @@ def test_a_tolerance_is_part_of_the_key(monkeypatch):
     The six-decimal hexagonal cobalt of ``test_hcp_cobalt_finds_the_group_pw_x_finds``
     keeps its non-symmorphic half at QE's 1e-5 and loses it at 1e-6.
     """
-    from defumat.system import symmetry
+    from defuqumat.system import symmetry
 
     cell = Cell.from_ibrav(4, [4.74 + 1.0e-3, 0, 1.62, 0, 0, 0])
     species = (Species(name="Co", mass=58.933, pseudo_file="Co.UPF"),)

@@ -22,8 +22,8 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.forces import compute_forces
+from defuqumat.calculator import Calculator
+from defuqumat.forces import compute_forces
 
 
 #: What an identity between two runs of the response needs: the convergence it
@@ -399,9 +399,9 @@ def test_chi0_matches_a_finite_difference_under_gamma(pseudo_dir):
     """
     import jax.numpy as jnp
 
-    from defumat.basis.interpolate import to_dense
-    from defumat.response.sternheimer import make_sternheimer
-    from defumat.scf.density import sum_band
+    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.response.sternheimer import make_sternheimer
+    from defuqumat.scf.density import sum_band
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -466,7 +466,7 @@ def test_a_topological_invariant_runs_on_a_gamma_ground_state(pseudo_dir):
     one at an explicit ``k = 0`` are the same physics, so the curvature built
     on each must agree to round-off rather than to a tolerance.
     """
-    from defumat.workflows.topology import run_berry_curvature
+    from defuqumat.workflows.topology import run_berry_curvature
 
     whole, full, _ = _run(pseudo_dir, "", "crystal\n 1\n 0.0 0.0 0.0 1.0")
     half, gamma, _ = _run(pseudo_dir, "", "gamma")
@@ -489,7 +489,7 @@ def test_at_kpoints_re_derives_the_three_sphere_fields(pseudo_dir):
     Cheaper than the test above and it fails for one reason rather than many,
     which is what a guard on a stale field wants.
     """
-    from defumat.system.kpoints import KPoints
+    from defuqumat.system.kpoints import KPoints
 
     half, _, _ = _run(pseudo_dir, "", "gamma")
     calculation = half.calculation
@@ -583,8 +583,8 @@ def test_the_velocity_operator_refuses_gamma_storage(pseudo_dir):
     ``at_kpoints`` rebuilds the sphere whole, and that is asserted here so the
     refusal cannot quietly widen.
     """
-    from defumat.response.velocity import band_velocities
-    from defumat.workflows.topology import run_berry_curvature
+    from defuqumat.response.velocity import band_velocities
+    from defuqumat.workflows.topology import run_berry_curvature
 
     whole, full, _ = _run(pseudo_dir, "", "crystal\n 1\n 0.0 0.0 0.0 1.0")
     velocities = np.asarray(

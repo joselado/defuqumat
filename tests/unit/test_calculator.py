@@ -3,7 +3,7 @@
 Every test here is one of three claims, and only the first is about brevity:
 
 * what the bound method computes is what the functional entry point computes,
-  bit for bit -- there is no physics in :mod:`defumat.calculator`;
+  bit for bit -- there is no physics in :mod:`defuqumat.calculator`;
 * the pieces of the mixed state that cannot be rebuilt from the density
   (``ns``, ``tau``, ``becsum``) are supplied automatically. The entry points
   already *refuse* without them rather than computing something else, so what
@@ -21,14 +21,14 @@ import textwrap
 import numpy as np
 import pytest
 
-from defumat.calculator import (SCF_ONLY_OPTIONS, SETUP_ONLY_OPTIONS,
+from defuqumat.calculator import (SCF_ONLY_OPTIONS, SETUP_ONLY_OPTIONS,
                                  SHARED_OPTIONS, _ELECTRONS_OPTIONS,
                                  Calculator, electrons_defaults)
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import run_scf
-from defumat.system.builder import build_system
-from defumat.system.kpoints import KPoints
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import run_scf
+from defuqumat.system.builder import build_system
+from defuqumat.system.kpoints import KPoints
 
 pytestmark = pytest.mark.unit
 
@@ -132,7 +132,7 @@ def test_relaxed_reruns_when_its_options_change(pseudo_dir):
     """
     from types import SimpleNamespace
 
-    from defumat.calculator import _relax_entry_point
+    from defuqumat.calculator import _relax_entry_point
 
     calc = Calculator.from_text(SILICON, pseudo_dir, announce=False)
     calls = []
@@ -167,7 +167,7 @@ def test_the_strain_response_is_keyed_by_the_options_that_filled_it(pseudo_dir,
     """
     from types import SimpleNamespace
 
-    import defumat.response.strain as strain_module
+    import defuqumat.response.strain as strain_module
 
     calls = []
 
@@ -203,7 +203,7 @@ def test_the_relaxed_anisotropy_gets_the_shared_scf_options(pseudo_dir,
     library default. ``conv_thr`` is the one held back, because
     ``run_relaxed_direction`` tightens it to 1e-10 on purpose.
     """
-    import defumat.workflows.anisotropy as anisotropy
+    import defuqumat.workflows.anisotropy as anisotropy
 
     seen = {}
 
@@ -312,7 +312,7 @@ def test_the_paw_becsum_is_supplied_without_being_asked_for(pseudo_dir):
     method passes the whole converged state, so the run that raises by hand
     simply works.
     """
-    from defumat.workflows.bands import run_bands
+    from defuqumat.workflows.bands import run_bands
 
     calc = Calculator.from_text(SILICON_PAW, pseudo_dir, announce=False)
     result = calc.get_scf()
@@ -581,7 +581,7 @@ def test_the_default_is_qes_code_default_and_not_its_documented_one(pseudo_dir):
     ``INPUT_PW.txt`` says "Default: 2". The number ``pw.x`` runs is **4**, so
     that is the number here.
     """
-    from defumat.solvers.davidson import DAVID_NDIM
+    from defuqumat.solvers.davidson import DAVID_NDIM
 
     calc = Calculator.from_text(SILICON, pseudo_dir, announce=False)
     assert calc.calculation.david is None
@@ -597,7 +597,7 @@ def test_origin_tangent_reaches_the_calculation_from_the_front_door(pseudo_dir):
     it has to replace the ``Calculation``, like ``david`` and ``projectors``.
 
     What it is for, and the numbers, are in
-    :func:`~defumat.pseudo.projectors.build_projector_core` and `PLAN.md` P24:
+    :func:`~defuqumat.pseudo.projectors.build_projector_core` and `PLAN.md` P24:
     ``False`` reproduces ``ph.x``, which zeroes that row where the limit it is
     zeroing is a nonzero gradient, and the default keeps the term.
     """
@@ -640,7 +640,7 @@ def test_the_subspace_size_changes_the_cost_and_not_the_answer(pseudo_dir):
     """
     import numpy as np
 
-    from defumat.sizing import estimate_size
+    from defuqumat.sizing import estimate_size
 
     wide = Calculator.from_text(SILICON, pseudo_dir, announce=False).get_scf()
     narrow = Calculator.from_text(_DAVID, pseudo_dir, announce=False).get_scf()
@@ -671,9 +671,9 @@ def test_the_relaxation_drivers_name_every_option_the_scf_does():
     input's own ``&electrons`` namelist, were dropped on the way in and every
     SCF inside a relaxation ran at the defaults.
     """
-    from defumat.workflows.relax import run_relax
-    from defumat.workflows.spiral import relax_spiral_q
-    from defumat.workflows.vc_relax import run_vc_relax
+    from defuqumat.workflows.relax import run_relax
+    from defuqumat.workflows.spiral import relax_spiral_q
+    from defuqumat.workflows.vc_relax import run_vc_relax
 
     wanted = {
         name for name in _ELECTRONS_OPTIONS.values()
@@ -688,7 +688,7 @@ def test_an_option_left_alone_does_not_override_run_scfs_own_default():
     """The named parameters are ``None``-defaulted rather than repeating
     ``run_scf``'s numbers, so "not given" stays distinguishable from "given the
     default" and the two cannot drift apart."""
-    from defumat.workflows.relax import SCF_LOOP_OPTIONS, _scf_loop_options
+    from defuqumat.workflows.relax import SCF_LOOP_OPTIONS, _scf_loop_options
 
     assert _scf_loop_options({}, max_iterations=None, david=None) == {}
     assert _scf_loop_options({}, max_iterations=3) == {"max_iterations": 3}
@@ -731,8 +731,8 @@ def test_a_workflow_that_chose_its_own_conv_thr_keeps_it(pseudo_dir,
     force theorem moved together, so the workflow's own ``drifts`` could not
     see it.
     """
-    import defumat.workflows.anisotropy as anisotropy
-    import defumat.workflows.topology as topology
+    import defuqumat.workflows.anisotropy as anisotropy
+    import defuqumat.workflows.topology as topology
 
     seen = {}
     for name in ("run_anisotropy", "run_torque", "run_force_theorem",
@@ -769,7 +769,7 @@ def test_the_same_conv_thr_still_reaches_a_workflow_with_no_opinion(pseudo_dir,
     Without this the rule would read as "``conv_thr`` is never forwarded",
     which is a different thing and a wrong one.
     """
-    import defumat.workflows.bands as bands
+    import defuqumat.workflows.bands as bands
 
     seen = {}
     _spy(monkeypatch, bands, "run_bands", seen)
@@ -783,7 +783,7 @@ def test_the_same_conv_thr_still_reaches_a_workflow_with_no_opinion(pseudo_dir,
 def test_naming_it_at_the_call_site_still_reaches_the_workflow(pseudo_dir,
                                                                monkeypatch):
     """A default is not a refusal, which is the line ``withheld`` already drew."""
-    import defumat.workflows.anisotropy as anisotropy
+    import defuqumat.workflows.anisotropy as anisotropy
 
     seen = {}
     _spy(monkeypatch, anisotropy, "run_anisotropy", seen)
@@ -804,7 +804,7 @@ def test_the_collinear_legs_band_count_does_not_cross_to_the_spinor_one(
     are being counted -- stays behind, and the spinor calculator's own crosses
     in its place rather than being lost with it.
     """
-    import defumat.workflows.anisotropy as anisotropy
+    import defuqumat.workflows.anisotropy as anisotropy
 
     seen = {}
     _spy(monkeypatch, anisotropy, "run_anisotropy", seen)
@@ -830,8 +830,8 @@ def test_the_collinear_legs_band_count_does_not_cross_to_the_spinor_one(
 def test_every_spinor_leg_callee_names_every_withheld_option():
     """The ``setdefault`` that carries the second leg's options across would
     otherwise hand an entry point a keyword it does not take."""
-    from defumat.calculator import _SPINOR_LEG_OPTIONS
-    from defumat.workflows.anisotropy import (frozen_expectation,
+    from defuqumat.calculator import _SPINOR_LEG_OPTIONS
+    from defuqumat.workflows.anisotropy import (frozen_expectation,
                                               run_anisotropy,
                                               run_force_theorem, run_torque)
 
@@ -849,7 +849,7 @@ def test_the_rule_is_read_off_the_signature_and_not_off_a_list():
     ``run_scf``'s is not, ``None`` is the callee having no opinion, and a
     parameter with no default at all is one the calculator must supply or the
     call fails."""
-    from defumat.calculator import _callee_chose
+    from defuqumat.calculator import _callee_chose
 
     def entry(required, chosen=1.0e-10, silent=None, agreeing=1.0e-6):
         pass
@@ -871,7 +871,7 @@ def test_a_tighter_conv_thr_from_the_calculator_still_tightens(pseudo_dir,
     default for the *same* quantity rather than a tightening -- that module
     says so -- and the run would have come back looser than the file asked for.
     """
-    import defumat.workflows.anisotropy as anisotropy
+    import defuqumat.workflows.anisotropy as anisotropy
 
     seen = {}
     _spy(monkeypatch, anisotropy, "run_anisotropy", seen)
@@ -894,7 +894,7 @@ def test_a_tighter_conv_thr_from_the_calculator_still_tightens(pseudo_dir,
 def test_only_a_tolerance_is_ordered_and_max_iterations_is_not(pseudo_dir):
     """``max_iterations`` of 40 against 100 is not better or worse, so no value
     of it from the calculator reaches a callee that chose one."""
-    from defumat.calculator import _yields_to_callee
+    from defuqumat.calculator import _yields_to_callee
 
     def entry(conv_thr=1.0e-10, max_iterations=40):
         pass
@@ -913,17 +913,17 @@ def test_the_rule_reaches_the_entry_points_it_was_written_for():
     Every one of these declares a ``conv_thr`` its own docstring argues for,
     and every one of them was being handed the calculator's instead.
     """
-    from defumat.calculator import _callee_chose
-    from defumat.response.effmass import effective_mass
-    from defumat.workflows.anisotropy import (frozen_expectation,
+    from defuqumat.calculator import _callee_chose
+    from defuqumat.response.effmass import effective_mass
+    from defuqumat.workflows.anisotropy import (frozen_expectation,
                                               run_anisotropy,
                                               run_force_theorem, run_torque)
-    from defumat.workflows.nesting import run_nesting
-    from defumat.workflows.spiral import relax_spiral_q
-    from defumat.workflows.orbital_magnetization import (
+    from defuqumat.workflows.nesting import run_nesting
+    from defuqumat.workflows.spiral import relax_spiral_q
+    from defuqumat.workflows.orbital_magnetization import (
         run_orbital_magnetization)
-    from defumat.workflows.polarization import run_polarization
-    from defumat.workflows.topology import (run_berry_curvature, run_z2,
+    from defuqumat.workflows.polarization import run_polarization
+    from defuqumat.workflows.topology import (run_berry_curvature, run_z2,
                                             run_z2_3d)
 
     for func in (run_anisotropy, run_torque, frozen_expectation,
@@ -947,7 +947,7 @@ def _converged_stub():
     """
     import dataclasses
 
-    from defumat.scf.driver import SCFResult
+    from defuqumat.scf.driver import SCFResult
 
     fields = {f.name: None for f in dataclasses.fields(SCFResult)}
     fields.update(converged=True, density=np.zeros((2, 4, 4, 4)), nspin=2)

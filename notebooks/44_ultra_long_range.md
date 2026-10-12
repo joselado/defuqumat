@@ -23,7 +23,7 @@ the shape of the problem the method was built for.
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file('../tests/data/qe/si-ultracell.in',
                             pseudo_dir='../tests/data/pseudo')
@@ -34,7 +34,7 @@ print(f'eight unit cells, {ulr.iterations} iterations; induced density '
       f'{np.abs(ulr.modulation).max():.3e} e/bohr^3')
 ```
 
-    [defumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
+    [defuqumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 
 
     eight unit cells, 9 iterations; induced density 7.647e-05 e/bohr^3
@@ -138,7 +138,7 @@ for name, run, cal in (('4 cells', short, calc), ('8 cells', ulr, calc),
 paw_core = deep.energy_terms['one_center_paw']; print(f'inside the spheres: {paw_core:.1f} Ry per unit cell, against {deep.total_energy - paw_core:.1f} Ry for everything else')
 ```
 
-    [defumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
+    [defuqumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
 
 
     /l/ladovj1/w-k/defumat/ultracell/driver.py:1066: UserWarning: this ultracell runs an ultrasoft or PAW dataset at ecutrho = 4 ecutwfc, which is the input's own default rather than the dual such a dataset wants. At 4 the augmentation charge is represented on the wavefunction grid: the run is self-consistent and a comparison against a supercell at the same cutoffs is still like for like, but the absolute energy is not converged in ecutrho and cannot be compared against a pw.x number taken at the dataset's own dual. Set ecutrho to 8 to 12 times ecutwfc, which runs
@@ -239,7 +239,7 @@ print(f'eight unit cells, {wave.iterations} iterations; largest cell moment '
 
 ```
 
-    [defumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
+    [defuqumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 
 
     eight unit cells, 8 iterations; largest cell moment 0.1223 mu_B, net +2.96e-09 mu_B
@@ -317,7 +317,7 @@ print(f'out of plane by {np.abs(vectors[:, 2]).max():.0e}; against the untwisted
       f'field {twist:+.3f} mRy per cell, {twist + 1000 * helix.field_energy:+.3f} with the field')
 ```
 
-    [defumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-11). Call get_scf() to do this explicitly.
+    [defuqumat] an ultracell calculation: no ground state cached, running the SCF first (conv_thr = 1e-11). Call get_scf() to do this explicitly.
 
 
     11 iterations; the moments at [  35.2  125.2 -144.8  -54.8] degrees

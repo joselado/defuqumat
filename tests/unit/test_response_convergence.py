@@ -3,7 +3,7 @@
 ``ddv_scf`` is ``mix_pot``'s ``dr2`` divided by ``npert``; ``pass_threshold`` is
 ``dfpt_kernels``' schedule; and a schedule that changes the CG threshold every
 pass must not compile a new program every pass, which a Python float closed
-over would (``defumat.eager`` prints it into the key).
+over would (``defuqumat.eager`` prints it into the key).
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ import pytest
 
 import jax.numpy as jnp
 
-from defumat.response.mixing import ddv_scf
-from defumat.response.sternheimer import FIRST_PASS_THRESHOLD, pass_threshold
+from defuqumat.response.mixing import ddv_scf
+from defuqumat.response.sternheimer import FIRST_PASS_THRESHOLD, pass_threshold
 
 
 def _mix_pot_dr2(vectors):
@@ -77,7 +77,7 @@ def test_an_unscheduled_solver_keeps_its_own_threshold():
 
 
 class _Charge:
-    """The one method :func:`~defumat.response.efield.vacuum_fraction` reads."""
+    """The one method :func:`~defuqumat.response.efield.vacuum_fraction` reads."""
 
     def __init__(self, noncolin=False):
         self.noncolin = noncolin
@@ -103,10 +103,10 @@ def test_born_charges_on_a_cell_with_vacuum_default_to_1e_16():
     """The user's decision of 2026-10-10, on synthetic densities.
 
     The measured fractions on the committed cells are in
-    :data:`~defumat.response.efield.VACUUM_DENSITY`'s comment: 0 on bulk silicon,
+    :data:`~defuqumat.response.efield.VACUUM_DENSITY`'s comment: 0 on bulk silicon,
     AlAs and aluminium, 0.207 on the graphene bilayer and 0.563 on O2.
     """
-    from defumat.response.efield import (TR2, VACUUM_FRACTION, VACUUM_TR2,
+    from defuqumat.response.efield import (TR2, VACUUM_FRACTION, VACUUM_TR2,
                                          default_tr2, vacuum_fraction)
 
     assert (TR2, VACUUM_TR2) == (1.0e-14, 1.0e-16)
@@ -131,16 +131,16 @@ def test_a_new_threshold_and_start_reuse_the_compiled_solve(tmp_path):
     """Two passes of a schedule: the second compiles nothing.
 
     The threshold reaches the loop as an array and the start as an array, both
-    arguments of the program :mod:`defumat.eager` keeps, so a second solve with
+    arguments of the program :mod:`defuqumat.eager` keeps, so a second solve with
     another threshold and the first one's solution as its start is the same
     program. Counted on the ``eager`` cache: a Python float in the closure would
     add one entry per distinct value.
     """
     from pathlib import Path
 
-    from defumat import Calculator
-    from defumat import eager
-    from defumat.response.sternheimer import make_sternheimer
+    from defuqumat import Calculator
+    from defuqumat import eager
+    from defuqumat.response.sternheimer import make_sternheimer
 
     root = Path(__file__).resolve().parents[2]
     calculator = Calculator.from_file(root / "benchmarks" / "si-1k.in",

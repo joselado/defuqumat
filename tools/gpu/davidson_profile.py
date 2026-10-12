@@ -116,10 +116,10 @@ def context(case: Path, threshold: float, max_iterations: int):
     than a fresh one at the starting density.
     """
     import jax
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation, run_scf
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, run_scf
+    from defuqumat.system import build_system
 
     system = build_system(read_pw_input(case))
     pseudos = tuple(read_upf(PSEUDO_DIR / s.pseudo_file) for s in system.structure.species)
@@ -164,7 +164,7 @@ def _subspace_pair(size: int, dtype, seed: int = 0):
 def profile_subspace(hamiltonian, nbnd: int, david: int, nk: int, repeats: int) -> list[dict]:
     """(a) and (c): the projected eigenproblem, by width and by batching."""
     import jax
-    from defumat.solvers.subspace import (
+    from defuqumat.solvers.subspace import (
         _canonical_route, _cholesky_route, generalised_eigh,
     )
 
@@ -263,7 +263,7 @@ def profile_expansion(hamiltonian, nbnd: int, david: int, repeats: int) -> list[
                              repeats=repeats),
         })
 
-    from defumat.solvers.davidson import _extend_projection
+    from defuqumat.solvers.davidson import _extend_projection
 
     nvecx = david * nbnd
     empty = jnp.zeros((nvecx, nvecx), dtype)
@@ -291,7 +291,7 @@ def trajectory(hamiltonian, nbnd: int, ethr: float, steps: int, psi0=None) -> di
     """
     import jax
     import numpy as np
-    from defumat.solvers.davidson import davidson_eigensolver
+    from defuqumat.solvers.davidson import davidson_eigensolver
 
     history = []
     for cap in range(1, steps + 1):
@@ -325,7 +325,7 @@ def whole_solve(hamiltonian, nbnd: int, thresholds, repeats: int,
     tighter threshold also buys.
     """
     import jax
-    from defumat.solvers.davidson import davidson_eigensolver
+    from defuqumat.solvers.davidson import davidson_eigensolver
 
     rows = []
     for threshold in thresholds:
@@ -425,16 +425,16 @@ def main(argv=None) -> int:
     arguments = parser.parse_args(argv)
 
     dials = {}
-    for name, value in (("DEFUMAT_K_BATCH", arguments.k_batch),
-                        ("DEFUMAT_BAND_BATCH", arguments.band_batch)):
+    for name, value in (("DEFUQUMAT_K_BATCH", arguments.k_batch),
+                        ("DEFUQUMAT_BAND_BATCH", arguments.band_batch)):
         if value is not None:
             os.environ[name] = _dial(value)
-            dials[name.lower().removeprefix("defumat_")] = os.environ[name]
+            dials[name.lower().removeprefix("defuqumat_")] = os.environ[name]
 
     case = resolve_case(arguments.case)
-    import defumat  # noqa: F401  -- x64 before any array exists
-    from defumat import batching
-    from defumat.solvers.davidson import DAVID_NDIM
+    import defuqumat  # noqa: F401  -- x64 before any array exists
+    from defuqumat import batching
+    from defuqumat.solvers.davidson import DAVID_NDIM
 
     record = {
         "case": case.name,
@@ -443,7 +443,7 @@ def main(argv=None) -> int:
                   "band_batch": str(batching.DEFAULT_BAND_BATCH),
                   "given": dials or None},
     }
-    print(f"# defumat GPU.md phase 1 -- inside a Davidson step, {case.name}")
+    print(f"# defuqumat GPU.md phase 1 -- inside a Davidson step, {case.name}")
     print(f"# {record['provenance']['device_kind']} "
           f"({record['provenance']['platform']}), jax {record['provenance']['jax']}")
 

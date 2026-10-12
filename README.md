@@ -1,4 +1,4 @@
-# defumat
+# defuqumat
 
 Plane-wave density-functional theory in Python, driven from an ordinary Quantum
 ESPRESSO `pw.x` input file. It computes the ground state, the band structure and
@@ -16,8 +16,8 @@ ESPRESSO also computes has been compared against it on the same input.
 ## Installing
 
 ```bash
-git clone https://github.com/joselado/defumat
-cd defumat
+git clone https://github.com/joselado/defuqumat
+cd defuqumat
 pip install -e .
 ```
 
@@ -29,7 +29,7 @@ and `pip` will fetch them.
 Silicon, from the input file in `benchmarks/`:
 
 ```python
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file("benchmarks/si-1k.in", pseudo_dir="tests/data/pseudo")
 result = calc.get_scf()
@@ -70,7 +70,7 @@ calc.get_chern()              # and get_z2(), get_berry_curvature()
 Carrying on from the density the SCF converged:
 
 ```python
-from defumat.system.kpoints import KPoints
+from defuqumat.system.kpoints import KPoints
 
 path = KPoints.band_path(
     [[0.5, 0.5, 0.5], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0]],   # L - Gamma - X
@@ -90,14 +90,14 @@ the functional and not the code: Quantum ESPRESSO gives the same answer.
 ## One calculation on many cores
 
 Inside one k-point the work is too fine-grained for threads to pay much, so the cores go to
-the k-points instead, which is `pw.x -nk`: `DEFUMAT_POOLS` runs one calculation as that many
+the k-points instead, which is `pw.x -nk`: `DEFUQUMAT_POOLS` runs one calculation as that many
 processes, each diagonalising its own share of the k-points, and the density and the
 decisions are shared between them every iteration. The script is unchanged; under Slurm the
 launch is
 
 ```bash
 #SBATCH --signal=TERM@600
-export DEFUMAT_POOLS=$SLURM_NTASKS DEFUMAT_THREADS=$SLURM_CPUS_PER_TASK
+export DEFUQUMAT_POOLS=$SLURM_NTASKS DEFUQUMAT_THREADS=$SLURM_CPUS_PER_TASK
 srun python3 run.py
 ```
 

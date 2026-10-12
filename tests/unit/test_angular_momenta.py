@@ -21,8 +21,8 @@ the magnetization -- is expensive enough to be marked slow.
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.projwfc.angular_momentum import (
+from defuqumat.calculator import Calculator
+from defuqumat.projwfc.angular_momentum import (
     PAULI,
     angular_momenta,
     orbital_matrices,
@@ -372,11 +372,11 @@ def test_the_block_build_is_the_whole_build(pseudo_dir, monkeypatch, regime):
 
     import jax.numpy as jnp
 
-    import defumat.projwfc.projections as projections
-    from defumat.projwfc.angular_momentum import (
+    import defuqumat.projwfc.projections as projections
+    from defuqumat.projwfc.angular_momentum import (
         _atomic_projectors, _projection_blocks, _site_density_matrix,
     )
-    from defumat.projwfc.channels import projection_channels
+    from defuqumat.projwfc.channels import projection_channels
 
     text = _SILICON.format(extra=", nosym = .true." + regime).replace(
         " 4 4 4 0 0 0", " 2 2 2 0 0 0")

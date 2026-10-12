@@ -1,6 +1,6 @@
 """P37's cheap pieces: the response sphere, the kernel registry and the refusals.
 
-Everything here runs off a bare :class:`~defumat.scf.driver.Calculation` --
+Everything here runs off a bare :class:`~defuqumat.scf.driver.Calculation` --
 no SCF, no states -- which is the point: a refusal is a statement about the
 calculation and must be reachable before anything expensive has been paid for.
 The identities that need a converged ground state are in
@@ -13,17 +13,17 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
-from defumat.tddft import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
+from defuqumat.tddft import (
     get_kernel,
     kernel_names,
     require_a_sum_over_states_regime,
     response_sphere,
 )
-from defumat.units import E2, FPI
+from defuqumat.units import E2, FPI
 
 pytestmark = pytest.mark.unit
 
@@ -73,7 +73,7 @@ def test_the_coulomb_factor_is_the_rydberg_one():
     """``sqrt(8 pi / |G|^2)``, not ``sqrt(4 pi / |G|^2)``.
 
     ``e^2 = 2`` in Rydberg atomic units, which is exactly the factor
-    :func:`~defumat.scf.potential.hartree` carries and the classic place to
+    :func:`~defuqumat.scf.potential.hartree` carries and the classic place to
     lose a two. The symmetrised ``chi_0`` has it on both sides, so a wrong
     constant here is a factor of two on every dielectric function.
     """
@@ -128,7 +128,7 @@ def test_the_lrc_kernel_is_a_constant_on_the_diagonal_and_needs_its_parameter():
     reason the bootstrap kernel was proposed. Supplying a default would hide
     that behind a number that is right for nothing.
     """
-    from defumat.tddft.chi0 import ChiZero, ResponseSphere
+    from defuqumat.tddft.chi0 import ChiZero, ResponseSphere
 
     sphere = ResponseSphere(
         fft_index=jnp.arange(2), sqrt_coulomb=jnp.ones(2),
@@ -194,7 +194,7 @@ def test_the_pair_densities_are_bounded_by_the_pair_dial():
     """
     import jax
 
-    from defumat.tddft.chi0 import _pair_terms, _pairs, response_sphere
+    from defuqumat.tddft.chi0 import _pair_terms, _pairs, response_sphere
 
     calculation = _calculation("si-epsilon-unshifted-nosym")
     sphere = response_sphere(calculation, 8.0)
@@ -260,7 +260,7 @@ def test_the_frequency_dial_bounds_the_assembly_and_does_not_move_it():
     """
     import jax
 
-    from defumat.tddft.chi0 import _assemble
+    from defuqumat.tddft.chi0 import _assemble
 
     rng = np.random.default_rng(0)
     nw, npairs2, nm = 7, 48, 20
@@ -286,7 +286,7 @@ def test_the_frequency_dial_bounds_the_assembly_and_does_not_move_it():
 
 def _synthetic_chi(nw: int = 7, nm: int = 8):
     """A ``ChiZero`` whose static slice is negative definite, as ``X`` is."""
-    from defumat.tddft.chi0 import ChiZero, ResponseSphere
+    from defuqumat.tddft.chi0 import ChiZero, ResponseSphere
 
     rng = np.random.default_rng(1)
     sphere = ResponseSphere(
@@ -342,7 +342,7 @@ def test_the_dyson_solve_iterates_one_frequency_and_screens_the_rest_in_chunks(
     whole-axis loop it replaced, with seven frequencies in chunks of three and
     of one.
     """
-    from defumat.tddft.dyson import solve_dyson
+    from defuqumat.tddft.dyson import solve_dyson
 
     chi = _synthetic_chi()
     epsi, fxc, iterations = _whole_axis_dyson(chi, kernel, context, 1)
@@ -359,9 +359,9 @@ def test_the_dyson_solve_iterates_one_frequency_and_screens_the_rest_in_chunks(
 
 def test_the_frequency_dial_chunks_on_a_card_and_not_on_a_cpu(monkeypatch):
     """The accelerator default is a budget, and it fires; the CPU's is the axis."""
-    from defumat import batching
+    from defuqumat import batching
 
-    monkeypatch.delenv("DEFUMAT_W_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_W_BATCH", raising=False)
     block = 2**20
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
     assert batching.resolve_w_batch(block_bytes=block, nw=1000) is None
@@ -371,7 +371,7 @@ def test_the_frequency_dial_chunks_on_a_card_and_not_on_a_cpu(monkeypatch):
     assert batching.resolve_w_batch(block_bytes=block, nw=10) is None
     assert batching.resolve_w_batch(8, block_bytes=block, nw=1000) == 8
     assert batching.resolve_w_batch(None, block_bytes=block, nw=1000) is None
-    monkeypatch.setenv("DEFUMAT_W_BATCH", "5")
+    monkeypatch.setenv("DEFUQUMAT_W_BATCH", "5")
     assert batching.resolve_w_batch(block_bytes=block, nw=1000) == 5
-    monkeypatch.setenv("DEFUMAT_W_BATCH", "all")
+    monkeypatch.setenv("DEFUQUMAT_W_BATCH", "all")
     assert batching.resolve_w_batch(block_bytes=block, nw=1000) is None

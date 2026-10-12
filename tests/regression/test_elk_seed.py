@@ -33,8 +33,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.io.elk import read_elk_state
+from defuqumat import Calculator
+from defuqumat.io.elk import read_elk_state
 
 pytestmark = pytest.mark.slow
 
@@ -141,7 +141,7 @@ def test_the_printed_interstitial_charge_is_not_a_check_on_a_sharp_sphere():
     above, so an implementation that used the sharp step would look broken
     against ``INFO.OUT`` while being perfectly sensible physics.
     """
-    from defumat.io.elk_density import sharp_interstitial_charge
+    from defuqumat.io.elk_density import sharp_interstitial_charge
 
     elk = state()
     sharp = sharp_interstitial_charge(elk)

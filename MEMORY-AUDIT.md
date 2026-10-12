@@ -1,4 +1,4 @@
-# Memory audit of defumat
+# Memory audit of defuqumat
 
 > **Status, 2026-10-03: every lettered entry re-read against the code** (the reconciliation of
 > `OPEN.md` Part XXIII). Each heading now carries what the code shows, with the commit where it was
@@ -65,7 +65,7 @@
 
 
 Static audit, 2026-09-13. Nothing was executed: no pytest, no notebook, no benchmark, no SCF,
-nothing that imports `defumat` and allocates. Every number below is arithmetic on shapes read
+nothing that imports `defuqumat` and allocates. Every number below is arithmetic on shapes read
 from source, on counts read from committed UPF headers and QE reference outputs, or on figures
 already recorded in `PERFORMANCE.md`. Where a claim needs a measurement, the measurement is
 named and not taken.
@@ -121,7 +121,7 @@ entry above is a *temporary* or a retained *extra* copy, and this is the thing t
 supposed to be holding. It is a `b` -- a stated, measured, selectable trade -- rather than
 an `a`: the saving is real and the cost is a host transfer per iteration, which is 1.3 GB/s
 on this CPU backend and PCIe on an accelerator, so the dial's default follows the platform.
-`wfc_store` / `DEFUMAT_WFC_STORE`, `device` on a CPU and `host` on anything else. It takes
+`wfc_store` / `DEFUQUMAT_WFC_STORE`, `device` on a CPU and `host` on anything else. It takes
 the store off the accelerator for the energy assembly, `v_of_rho`, the mixer and the
 checkpoint write, and **not** for the solve, `becsum` or the density, where it is an input.
 `PERFORMANCE.md` has the transfer-rate table and the reason the CPU default is what it is.
@@ -145,7 +145,7 @@ Do not add across those groups: they are three different moments of a run.
 
 ### A1. The tabulated augmentation charge's `lax.scan` stacks its residuals, so P73 does not reach the backward pass **[done 2026-09-13, `4c22cc3`; the scan bodies rewritten in the radial basis by `7705fa0` and still rematted]**
 
-**Site.** `defumat/pseudo/augmentation.py:521-530` (`_tabulated_charge`'s body and scan) and
+**Site.** `defuqumat/pseudo/augmentation.py:521-530` (`_tabulated_charge`'s body and scan) and
 `:534-558` (`_tabulated_integrals`, same shape, for any reverse-mode consumer of `newd`).
 
 ```
@@ -219,10 +219,10 @@ changes to its own per-chunk intermediates rather than `Q`. Directionally worse;
 settleable by reading, so do not write "strictly worse."
 
 **Measurement.** `jax.jit(jax.grad(energy_at)).lower(*ShapeDtypeStructs).compile().memory_analysis()`
-at those shapes with `DEFUMAT_AUG_MAX_BYTES` forcing each route in turn, before and after. It
+at those shapes with `DEFUQUMAT_AUG_MAX_BYTES` forcing each route in turn, before and after. It
 compiles and allocates nothing. `tools/gpu/force_memory.py` is the existing instrument.
 
-**Why it is not already done.** `grep -rn "jax.checkpoint\|jax.remat" defumat/` returns exactly one
+**Why it is not already done.** `grep -rn "jax.checkpoint\|jax.remat" defuqumat/` returns exactly one
 hit and it is a comment: `augmentation.py:296`, the recorded null for `_qrad_kernel` in the
 **stored** route. Nothing in the package is rematted.
 
@@ -230,7 +230,7 @@ hit and it is a comment: `augmentation.py:296`, the recorded null for `_qrad_ker
 
 ### A2. `run_relax` holds the previous ionic step's Calculation and SCFResult through the whole of the next step **[done 2026-09-13, `4c22cc3`; extended to `vc_relax` and the spiral loops in `e9f7944`]**
 
-**Site.** `defumat/workflows/relax.py:434` (`previous = calculation`), never dropped — it is
+**Site.** `defuqumat/workflows/relax.py:434` (`previous = calculation`), never dropped — it is
 rebound only at `:434` of the following iteration, so it is live through that iteration's
 `run_scf` (`:364`) and `compute_forces` (`:377`). The loop variable `result` is the same: `result
 = run_scf(...)` evaluates its right-hand side with the previous `SCFResult` still bound.
@@ -308,7 +308,7 @@ moves; nothing was measured, because nothing reads the dropped objects.
 
 ### A3. `vc_relax` ends holding four Calculations and two SCF states while it starts a fresh SCF **[done 2026-09-13, `4c22cc3`]**
 
-**Site.** `defumat/workflows/vc_relax.py`: `base` at `:245`, `current = base` at `:265`, `previous
+**Site.** `defuqumat/workflows/vc_relax.py`: `base` at `:245`, `current = base` at `:265`, `previous
 = current` at `:326`, `current = _advance(...)` at `:327`, `relaxed = current.system` at `:333`,
 `relaxation_scf = result` at `:334`, `final = Calculation(...)` at `:341`, `result = run_scf(...)`
 at `:343`. None of `base`, `previous`, `current` or `relaxation_scf` is ever dropped.
@@ -356,7 +356,7 @@ run here. This is a cell of that scale and dataset, not that run.
 
 ### A4. PAW's one-centre reverse pass holds every atom's XC quadrature, where QE holds one sphere **[done 2026-09-13, `ad4b599`: chunked and rematted, not the one-line fix below]**
 
-**Site.** `defumat/paw/onecenter.py:128`:
+**Site.** `defuqumat/paw/onecenter.py:128`:
 
 ```python
 atom_energy, atom_ddd = jax.vmap(
@@ -464,7 +464,7 @@ the `atom_batch = 1` cost that `PERFORMANCE.md` never separated.
 
 ### A5. The per-atom structure factor is a reverse-mode residual, in two places, on every geometry derivative **[done 2026-09-13, `3c5d779`]**
 
-**Site.** `defumat/pseudo/potentials.py:224`:
+**Site.** `defuqumat/pseudo/potentials.py:224`:
 
 ```python
 phases = jnp.exp(-1j * (g @ positions.T))   # (ngm, nat)
@@ -617,7 +617,7 @@ checkpoint resume `resumed_state` holds it anyway.
 > done.
 
 
-**Site.** `defumat/response/efield.py:313` (`bare, commutators, projector_velocities = [], [], []`),
+**Site.** `defuqumat/response/efield.py:313` (`bare, commutators, projector_velocities = [], [], []`),
 `:326` (`commutators.append`), `:329` (`projector_velocities.append`), `:333` (`bare.append`). Both
 lists are built before the loop at `:323` and next read at `:408-412` (Born charges) or `:420`
 (`keep_internals`).
@@ -690,10 +690,10 @@ actual dataset.
 > *grid-sized* fields -- what this walk exists to avoid -- for 15,558,912 B against the old
 > `lax.map`'s 9,947,664 and `batch = 1`'s 2,593,296. It is **worse than what it replaced**.
 > So the walk is pinned at `batch = 1` on every platform, as the `lax.map` had it, and
-> `DEFUMAT_BAND_BATCH` does not reach it.
+> `DEFUQUMAT_BAND_BATCH` does not reach it.
 
 
-**Site.** `defumat/tddft/spinchi0.py:472-473`:
+**Site.** `defuqumat/tddft/spinchi0.py:472-473`:
 
 ```python
 total = jax.lax.map(one_band, (fields_up, eig_up, occ_up, slope_up))
@@ -702,7 +702,7 @@ return jnp.sum(total, axis=0)
 
 `one_band` returns one `(nw, nm, nm)`; `lax.map` is a scan whose per-iteration output is stacked
 into a full `ys` buffer, and XLA does not promote a while-loop output buffer into a following
-reduction. `grep -n "scan\|lax\." defumat/tddft/spinchi0.py` returns exactly two hits, both the
+reduction. `grep -n "scan\|lax\." defuqumat/tddft/spinchi0.py` returns exactly two hits, both the
 `lax.map` — there is no scan carry anywhere in the file.
 
 **Arithmetic, fcc Ni** (`PERFORMANCE.md:4581`'s own production case: `nbnd = 30`,
@@ -762,7 +762,7 @@ both ways; the axis walked is the band axis *inside* one k-point's body, so R6 i
 > cell unchanged at 1.3x as the control. `PERFORMANCE.md` has the table.
 
 
-**Site.** `defumat/pseudo/augmentation.py:157`, inside `@jax.jit _species_charge`:
+**Site.** `defuqumat/pseudo/augmentation.py:157`, inside `@jax.jit _species_charge`:
 
 ```python
 weighted = jnp.einsum("aij,ag->ijg", becsum.astype(phases.dtype), phases)
@@ -825,7 +825,7 @@ CPU than the present one. Measurement, allocating nothing:
 
 ### A10. The bootstrap Dyson loop iterates every frequency when its kernel reads one, and broadcasts `nw` identical copies of `fxc` **[done 2026-09-29, `1298ae5`, as `GPU-MEMORY-NEXT.md` item 12, with the static-kernel gate asked for here]**
 
-**Site.** `defumat/tddft/dyson.py:122-126`. Per pass, all `(nw, nm, nm)` complex: `fxc` (`:122`),
+**Site.** `defuqumat/tddft/dyson.py:122-126`. Per pass, all `(nw, nm, nm)` complex: `fxc` (`:122`),
 `fxc_x = fxc @ x` (`:125`), the `eps0 - fxc_x` temporary, `jnp.linalg.inv(...)`, `x @ inv` and the
 new `epsi` (`:126`) — beside `x` (`:109`) and `eps0` (`:111`), and the previous pass's `epsi`, still
 bound while `:126` evaluates. Seven simultaneous. `solve_dyson` is an unjitted Python loop — its
@@ -903,7 +903,7 @@ dtypes follow `chi.x` throughout, as `identity = jnp.eye(..., dtype=x.dtype)` al
 > repeated.
 
 
-**Site.** `defumat/forces/energy.py:520-521`, inside `_kinetic_energy` (`:504`, jitted at `:503`):
+**Site.** `defuqumat/forces/energy.py:520-521`, inside `_kinetic_energy` (`:504`, jitted at `:503`):
 
 ```python
 density = jnp.real(jnp.conj(psi) * psi)          # (nspin, nk, nbnd, ndim)
@@ -955,7 +955,7 @@ makes XLA's own cross-boundary rematerialisation less likely rather than more.
 > two arrays were not only large, they were **constants** of every compiled force and
 > stress gradient -- the gradient is a `jit` of a function closing over its `Calculation`,
 > so everything reachable from it is embedded in the executable. They are now
-> **arguments** (`defumat/forces/energy.py`'s `HOISTED_FIELDS`), which took the stress
+> **arguments** (`defuqumat/forces/energy.py`'s `HOISTED_FIELDS`), which took the stress
 > gradient's constants from 1062.4 MB to 10.1 MB and the force gradient's from 694.3 MB to
 > 10.0 MB, and the peak of the test that carries them from 16,383 M to 6,232 M. **The
 > factoring this entry asks for is still open** and is still worth 553 MB per Ni species:
@@ -970,7 +970,7 @@ makes XLA's own cross-boundary rematerialisation less likely rather than more.
 > instead. **Worth looking for the same shape elsewhere** -- both of these were an
 > `einsum` that writes a product of two indices the consumer immediately contracts away.
 
-**Site.** `defumat/paw/onecenter.py:604` and `:606` (with the `+=` at `:616`); declared `:73-80`:
+**Site.** `defuqumat/paw/onecenter.py:604` and `:606` (with the `+=` at `:616`); declared `:73-80`:
 
 ```python
 density_ae = np.einsum("lij,ijr->ijlr", coefficients, pfunc[beta_of][:, beta_of])
@@ -1044,7 +1044,7 @@ Ry on `si2-paw-1k.in` and the spinorbit PAW case, not bit-identity.
 
 ### A13. `vkb` is materialised for every k-point and sits outside the `k_batch` dial **[done, `2351b41`, and the memory-mode default since 2026-09-28]**
 
-**Site.** `defumat/pseudo/projectors.py:69` — `Projectors.vkb` `(nk, npwx, nkb)` complex — built at
+**Site.** `defuqumat/pseudo/projectors.py:69` — `Projectors.vkb` `(nk, npwx, nkb)` complex — built at
 `driver.py:1450` and kept as a `Calculation` attribute for the life of the run. Its sources
 `ProjectorCore.columns` `(nk, npwx, ncs)` (`:104`) and `kg` `(nk, npwx, 3)` (`:106`) are kept
 alongside it at `driver.py:1446`.
@@ -1153,7 +1153,7 @@ essentially nothing there. nbse2 is the cell that carries it.
 > nbse2. What changes is only the claim that the slab does not carry this.
 >
 > **Implemented 2026-09-14, and the saving is larger than either figure above.** The dial is
-> `projectors` / `DEFUMAT_PROJECTORS` / `Calculation(projectors=...)`, `store` (the default,
+> `projectors` / `DEFUQUMAT_PROJECTORS` / `Calculation(projectors=...)`, `store` (the default,
 > and what every validated number on record was measured with) against `rebuild`.
 > `Projectors` holds either the `(nk, npwx, nkb)` array or the core plus the positions, and
 > `at_k(ik)` builds one k-point's `(npwx, nkb)` through the *same* `_apply_phases` -- an
@@ -1235,7 +1235,7 @@ still `ProjectorCore.complex_dtype`. **R6 is untouched**: this removes a leading
 `PLAN.md:10939` names the stronger matrix-free form as a deferred phase; OPEN.md M2 asks for the
 `ProjectorCore` arrays to get their own sizing line (D5). **What is missing against the memory rule
 is the selectable leg**: the trade is stated and measured, and there is no dial. If the refactor is
-not taken, the fallback is a declared `DEFUMAT_VKB_PER_K` switch and a `projectors.py` docstring
+not taken, the fallback is a declared `DEFUQUMAT_VKB_PER_K` switch and a `projectors.py` docstring
 naming the `nk` factor against QE's `(npwx, nkb)`.
 
 **Measurement.** Sum `jax.live_arrays()` nbytes, or `memory_analysis().temp_size_in_bytes` of the
@@ -1245,7 +1245,7 @@ compiled per-k body, before and after, on `calculations/nbse2-fermi-surface/nbse
 
 ### A14. `VelocityOperator.matrix_elements` holds four full-k blocks to build a matrix `nbnd/ndim` smaller **[done 2026-09-24, `bde3bed` (`OPEN.md` Part III S5); `band_velocities` still forms the whole tangent block for the diagonal, which this entry did not cover]**
 
-**Site.** `defumat/response/velocity.py:302`:
+**Site.** `defuqumat/response/velocity.py:302`:
 
 ```python
 jnp.einsum("skmg,skng->skmn", psi.conj(), self.apply(psi, axis))
@@ -1309,7 +1309,7 @@ instrument `PERFORMANCE.md:4370` used for `pair_batch`.
 
 ### A15. `sum_band` vmaps the spin axis, so both LSDA channels' real-space boxes are in flight at once **[open, re-checked 2026-10-03; the band budget of `GPU-MEMORY-NEXT.md` item 9 does not size this stage either]**
 
-**Site.** `defumat/scf/density.py:109`, `:118` and `:180` — `jax.vmap(channel)(psi, weights)`. Under
+**Site.** `defuqumat/scf/density.py:109`, `:118` and `:180` — `jax.vmap(channel)(psi, weights)`. Under
 that vmap every intermediate inside `channel` gains a leading spin axis by construction, so
 `g_to_r`'s output is `(nspin, band_batch, n1, n2, n3)` complex and `weight * Re(conj(field)*field)`
 is `(nspin, band_batch, n1, n2, n3)` real — one batched FFT producing one buffer, so the two
@@ -1361,18 +1361,18 @@ differently.
 
 ### B1. An `atom_batch` dial for the PAW one-centre forward set — **done, with A4**
 
-**Site.** `defumat/paw/onecenter.py:128`, as A4. The *forward* live set is 0.35-0.45 GB for the Ni
+**Site.** `defuqumat/paw/onecenter.py:128`, as A4. The *forward* live set is 0.35-0.45 GB for the Ni
 sublattice of the 45-atom cell, against ~30 MB one atom at a time — about **1.2% of the measured
 32.30 GB peak**.
 
 **Fix.** Route the atom axis through the dial that already exists. `batching.py:236`'s `map_axis` is
 the generic `lax.map`/`lax.scan` chunker `map_k` and `map_bands` are both built on; add an
-`atom_batch` resolved the same way (`DEFUMAT_ATOM_BATCH`, `SHARED_OPTIONS`, a `resolve_*` helper)
+`atom_batch` resolved the same way (`DEFUQUMAT_ATOM_BATCH`, `SHARED_OPTIONS`, a `resolve_*` helper)
 and **default it to the present `None`**, so no measured number moves and the dial is there for the
 cell that needs it.
 
 > **Landed with A4, and the reason it stopped being a (b) is that the cost turned out to be
-> negative.** The dial is `_paw_atom_batch` / `PAW_ATOM_BATCH` / `DEFUMAT_PAW_ATOM_BATCH` in
+> negative.** The dial is `_paw_atom_batch` / `PAW_ATOM_BATCH` / `DEFUQUMAT_PAW_ATOM_BATCH` in
 > `paw/onecenter.py`, on `map_axis` exactly as proposed — but its default is **not** the present
 > `None`, because chunking is what makes A4's remat pay and above the crossover it is *faster* as
 > well as smaller (per-iteration SCF 1.403 -> 1.281 s on `si10-paw-pbe`). The paragraph below
@@ -1546,7 +1546,7 @@ force answers it.
 the spheres at `k +- q/2`, so `npwx` changes at every step — `PERFORMANCE.md:1146-1148` states this
 outright — and every kernel whose signature carries `npwx` is compiled afresh per q and kept for the
 life of the process. **Verified: `jax.clear_caches()` appears in ~20 test files and in no module of
-`defumat/` (0 hits).**
+`defuqumat/` (0 hits).**
 
 The only ladder on record (`PERFORMANCE.md:3236-3241`: ten distinct-shape cells in one process at
 0.55, 0.81, 1.27, 1.47, 1.60, 1.77, 1.82, 2.14, 2.47, **3.67 GB** monotonic, "none of it the
@@ -1635,7 +1635,7 @@ What is missing is its **provenance** and a CLI override.
 **Fix, zero compute.** (1) Thread a `platform`/`target` argument to both resolvers and have
 `report()` say `bands in flight = 1 [cpu default]`. (2) `cli.py:341-349` gives the `size` subparser
 `--pseudo-dir`, `--k-batch` and `--david` and **no `--band-batch`**, so the only override for the
-largest assumption in the estimate is `DEFUMAT_BAND_BATCH` — add `--band-batch` and `--platform`.
+largest assumption in the estimate is `DEFUQUMAT_BAND_BATCH` — add `--band-batch` and `--platform`.
 (3) `cli.py:346`'s help for `--k-batch` says "(default: all)", which is wrong on every CPU, where
 the resolved default is 1.
 
@@ -1747,7 +1747,7 @@ filled by `Calculator.estimate` from `self.defaults` exactly as calculator.py:37
 
 ### D4. No PAW term at all **[half done, `62b95fb`: the one-centre tables are counted, the quadrature tables and the workspace are not, by choice]**
 
-`grep -ic paw defumat/sizing.py` returns **0**. Two arrays a PAW run makes that the model reports as
+`grep -ic paw defuqumat/sizing.py` returns **0**. Two arrays a PAW run makes that the model reports as
 zero bytes: `PawSpecies.density_ae`/`density_ps` at **552.6 MB per Ni species** (A12), and the
 one-centre quadrature at **0.35-0.45 GB** per species sublattice (B1). Both are resident for the
 life of the `Calculation`.
@@ -1855,7 +1855,7 @@ simultaneously live at slab scale on a GPU is not established here.
 
 **Third death, and it changes this entry's shape rather than confirming it.** Reported from
 the Triton session, job **20258175** (H100 `gpu46`, `rebuild`, `BAND_BATCH 16`, `KBATCH 1`,
-`MEMFRAC 0.97`, defumat `e4f2dfd`). The log is not held on this machine, so the figures are
+`MEMFRAC 0.97`, defuqumat `e4f2dfd`). The log is not held on this machine, so the figures are
 recorded as reported and the job id is what checks them:
 
 ```
@@ -1903,7 +1903,7 @@ fresh pair has not been run. One thing it does settle: `memory_stats()` keeps wo
 
 ---
 
-### A17. The stage-peak instrument is in no committed file, and the peak it briefly withdrew is reinstated **[open, re-checked 2026-10-03: `DEFUMAT_STAGE_PEAKS` is in no file under `defumat/` or `tools/`]**
+### A17. The stage-peak instrument is in no committed file, and the peak it briefly withdrew is reinstated **[open, re-checked 2026-10-03: `DEFUQUMAT_STAGE_PEAKS` is in no file under `defuqumat/` or `tools/`]**
 
 **Opened and closed 2026-09-14.** The instrument hypothesis below was **refuted within the
 day by an accidental A/B**, so the withdrawal it caused is itself withdrawn. What survives
@@ -1912,7 +1912,7 @@ explained.
 
 **The refutation first, because it governs everything after it.** Job **20258183** (A100
 `gpu41`, `e4f2dfd`, `rebuild`, `BAND_BATCH 16`, `KBATCH 1`, `MEMFRAC 0.97`) ran **without**
-`DEFUMAT_STAGE_PEAKS`, so without the per-stage `block_until_ready` pairs, and read
+`DEFUQUMAT_STAGE_PEAKS`, so without the per-stage `block_until_ready` pairs, and read
 **65.18 and 65.47 GB**, byte-identical to the bracketed `20257133` on `gpu13`. The brackets
 change nothing, the instrument suppresses nothing, and **no stage-bracketed number in this
 file or in `PERFORMANCE.md` is a lower bound**. `A13`'s 65.47 stands as measured.
@@ -1923,8 +1923,8 @@ the compute path" predicts.
 
 **Two findings, and the second is only legible because of the first.**
 
-**`DEFUMAT_STAGE_PEAKS` appears in no source file in this repository.** It is a prose mention
-in `OPEN.md` and nothing else: no module under `defumat/` or `tools/` reads it, no committed
+**`DEFUQUMAT_STAGE_PEAKS` appears in no source file in this repository.** It is a prose mention
+in `OPEN.md` and nothing else: no module under `defuqumat/` or `tools/` reads it, no committed
 code emits a `[mem]` line, and `git log -S` finds the string entering only through `f12a8f6`,
 which touched `OPEN.md` alone. The brackets behind `D10`, behind `batching.py`'s device/host
 table and behind both peaks in `A13` come from an **uncommitted patch living only on
@@ -2045,7 +2045,7 @@ same-node fresh-against-resumed pair is what would show it.
 independently by two sessions that agreed.** This is the largest gap in the list and it is
 the only one so far with a measured peak behind it.
 
-**Site.** `defumat/scf/driver.py:4850` -- `calculation.starting_wavefunctions(...)` under
+**Site.** `defuqumat/scf/driver.py:4850` -- `calculation.starting_wavefunctions(...)` under
 `if wavefunctions is None`, so it runs **exactly once**, between the Hamiltonian build and
 the first `diagonalize`. `natomwfc` appears **nowhere** in `sizing.py` (grep): the `arrays`
 table carries a `wavefunctions (nspin,nk,nbnd,ndim)` line and has no counterpart for the
@@ -2114,7 +2114,7 @@ happened to the last analysis that assumed otherwise.
 > The floor line is the first thing anyone reads in a cluster log.
 >
 > `estimate_size` now takes `projectors`, resolves it the way the run will
-> (:func:`~defumat.batching.resolve_projectors`, so an unnamed value comes from the
+> (:func:`~defuqumat.batching.resolve_projectors`, so an unnamed value comes from the
 > environment as `D1` asks), names it in the header beside `k in flight` and
 > `bands in flight`, and swaps the line: `store` carries `vkb (nk, npwx, nkb)`, `rebuild`
 > carries `columns (nk, npwx, ncs)` + `kg` + one rebuilt chunk. **`D5` goes with it** -- the
@@ -2232,14 +2232,14 @@ weakly typed in JAX — `float32 * 1j` gives complex64, not complex128.
 
 Not re-proposed. Re-reporting a solved item is worse than reporting nothing.
 
-**Done and measured:** P73 (the tabulated `Q_ij(G)` route, `DEFUMAT_AUG_MAX_BYTES`, `_aug_chunk`, the
+**Done and measured:** P73 (the tabulated `Q_ij(G)` route, `DEFUQUMAT_AUG_MAX_BYTES`, `_aug_chunk`, the
 `_dataset_key` dedup: 76.5 GB -> 8.4 MB) and P74 (the band dial reaching `NoncollinearHamiltonian._local`
 and `spinor_band_density`, plus the latent response sites: 78.51 -> 32.30 GB). P77's `LocalRegions`
 packing (~700 MB -> ~24 MB). P78's `mixing_ndim` actually reaching the mixer.
 
-**Already a dial:** `k_batch` and `band_batch` (`DEFUMAT_K_BATCH`, `DEFUMAT_BAND_BATCH`, per-platform
+**Already a dial:** `k_batch` and `band_batch` (`DEFUQUMAT_K_BATCH`, `DEFUQUMAT_BAND_BATCH`, per-platform
 defaults, lazy env reads, explicit > env > platform precedence, `nk == 1` short-circuiting before the
-chunk size is looked at), `DEFUMAT_AUG_MAX_BYTES`, `DEFUMAT_AUG_CHUNK`, `pair_batch` in
+chunk size is looked at), `DEFUQUMAT_AUG_MAX_BYTES`, `DEFUQUMAT_AUG_CHUNK`, `pair_batch` in
 `tddft/chi0.py`, the phonon's `atoms=`/`on_row=` streaming, `run_spiral_scan(keep_results=False)`,
 `checkpoint_every`.
 
@@ -2317,7 +2317,7 @@ matrix-free forward is not matrix-free backward without remat).
 Sized on Triton rather than inferred, because the workstation could only ever report the
 cap. `tools/run_regression.sh` on 2026-09-21 lost seven files to `SIGKILL` at **12.42 GB
 give or take 10 MB**, which is the cap and says nothing about what any of them needs. Job
-20383108, one array task per file on `batch-milan` at 64 G with `DEFUMAT_CACHE_DIR=off`
+20383108, one array task per file on `batch-milan` at 64 G with `DEFUQUMAT_CACHE_DIR=off`
 (`tools/cluster/bigtests.sbatch`), peaks from the runner's own watchdog line:
 
 | file | peak | tests | wall |
@@ -2332,7 +2332,7 @@ give or take 10 MB**, which is the cap and says nothing about what any of them n
 | `test_piezoelectric_augmented.py` | 11247M | 3 passed | 4 m 42 s |
 
 **Six of the seven are above 12 G and three are above 17 G**, so the kills were the cap
-working rather than a regression, and `DEFUMAT_TEST_MEM_MAX` wants **about 24 G** on a
+working rather than a regression, and `DEFUQUMAT_TEST_MEM_MAX` wants **about 24 G** on a
 machine that can afford it. Three files at 17 to 20 GB is also the answer to why they were
 never seen: the workstation has 30 GB total, so two of them side by side is the whole
 machine.

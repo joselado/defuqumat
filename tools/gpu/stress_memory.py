@@ -3,7 +3,7 @@
 The stress companion to :mod:`tools.gpu.force_memory`, built the same way:
 ``compute_stress``'s own compiled gradient (``stress/autodiff.py``,
 ``_energy_gradient``) is lowered against a
-:class:`~defumat.forces.energy.FrozenState` of :class:`jax.ShapeDtypeStruct`
+:class:`~defuqumat.forces.energy.FrozenState` of :class:`jax.ShapeDtypeStruct`
 leaves and compiled, and ``memory_analysis()`` is read off the executable. No
 wavefunction is allocated and no SCF is run, so a cell whose stress does not fit
 on the card can still be sized on it -- which is the case it was written for:
@@ -38,7 +38,7 @@ def main() -> int:
     parser.add_argument("--point", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    os.environ.setdefault("DEFUMAT_CACHE_DIR", "off")
+    os.environ.setdefault("DEFUQUMAT_CACHE_DIR", "off")
 
     if args.point:
         print("__POINT__" + json.dumps(_measure(args)), flush=True)
@@ -61,9 +61,9 @@ def main() -> int:
 def _measure(args):
     import jax
 
-    from defumat import Calculator
-    from defumat.forces.energy import hoisted
-    from defumat.stress.autodiff import _energy_gradient, _zero
+    from defuqumat import Calculator
+    from defuqumat.forces.energy import hoisted
+    from defuqumat.stress.autodiff import _energy_gradient, _zero
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from force_memory import _frozen_state_shapes
@@ -75,7 +75,7 @@ def _measure(args):
     if args.kpoints is not None:
         # ``at_kpoints`` keeps everything the k-set does not decide, which is
         # what a scan in nk needs: the tape's k-dependence and nothing else.
-        from defumat.system.kpoints import KPoints
+        from defuqumat.system.kpoints import KPoints
         calculation = calculation.at_kpoints(
             KPoints.automatic(tuple(args.kpoints), (0, 0, 0),
                               calculation.system.cell, time_reversal=False)

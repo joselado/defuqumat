@@ -37,13 +37,13 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
-from defumat.units import RY_TO_EV
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
+from defuqumat.units import RY_TO_EV
 from tests.tolerances import (
     DENSITY_DEPENDENT_TERM_RY,
     EIGENVALUE_EV,
@@ -297,7 +297,7 @@ def test_rotating_every_moment_costs_nothing(pseudo_dir):
 
 @pytest.mark.parametrize("case", FORCE_CASES)
 def test_forces_match_qe(pseudo_dir, case):
-    from defumat.forces import compute_forces
+    from defuqumat.forces import compute_forces
 
     _, calculation, result = _converged(case, pseudo_dir)
     reference = _reference(case)
@@ -310,7 +310,7 @@ def test_forces_match_qe(pseudo_dir, case):
 
 @pytest.mark.parametrize("case", FORCE_CASES)
 def test_stress_matches_qe(pseudo_dir, case):
-    from defumat.stress import compute_stress
+    from defuqumat.stress import compute_stress
 
     _, calculation, result = _converged(case, pseudo_dir)
     reference = _reference(case)
@@ -330,7 +330,7 @@ def test_the_pristine_metal_has_no_force_to_compare(pseudo_dir):
     errors, so what is asserted is that both are small. The forces that *are*
     compared are the displaced silicon cells' above, where they are 0.117.
     """
-    from defumat.forces import compute_forces
+    from defuqumat.forces import compute_forces
 
     _, calculation, result = _converged("al10-metal", pseudo_dir)
     reference = _reference("al10-metal")
@@ -353,12 +353,12 @@ def test_the_two_codes_reduce_an_unclosed_grid_differently(pseudo_dir):
     keeps only rotations that map the grid onto itself) and then completes the
     list for the smaller crystal group with ``irreducible_BZ``, which builds
     each wedge point's star under the lattice rotations -- and half of the
-    fourteen points it ends with are not grid points at all. defumat reduces
+    fourteen points it ends with are not grid points at all. defuqumat reduces
     the requested grid directly with the crystal's own operations, so its seven
     points are grid points with orbit-size weights.
 
     The two totals differ by 6.9e-5 Ry, and ``pw.x``'s own ``nosym`` run over
-    the same grid is the arbiter: it agrees with defumat's reduced answer to
+    the same grid is the arbiter: it agrees with defuqumat's reduced answer to
     1e-9 and not with QE's own reduced one. Nothing here is a defect in QE on a
     grid it was meant for -- ``si10-nc-force`` is the same cell on 4x4x4, where
     both codes' wedges are exact and the totals agree to 2e-9.
@@ -379,7 +379,7 @@ def test_the_two_codes_reduce_an_unclosed_grid_differently(pseudo_dir):
 
     # Both codes agree on the whole grid, where there is nothing to reduce.
     assert whole.total_energy == pytest.approx(qe_whole.total_energy, abs=TOTAL_ENERGY_RY)
-    # defumat's reduced answer is the whole-grid one; QE's is not.
+    # defuqumat's reduced answer is the whole-grid one; QE's is not.
     assert reduced.total_energy == pytest.approx(whole.total_energy, abs=1e-8)
     assert abs(qe_reduced.total_energy - qe_whole.total_energy) > 1e-5
 
@@ -395,8 +395,8 @@ def test_the_two_codes_reduce_an_unclosed_grid_differently(pseudo_dir):
 # warns about.
 @lru_cache(maxsize=1)
 def _projected(pseudo_dir: Path):
-    from defumat.workflows.pdos import run_pdos
-    from defumat.io import read_pdos_file
+    from defuqumat.workflows.pdos import run_pdos
+    from defuqumat.io import read_pdos_file
 
     system, _, scf = _converged("si10-nc", pseudo_dir)
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -410,7 +410,7 @@ def _projected(pseudo_dir: Path):
 
 
 def _projwfc_reference():
-    from defumat.io import read_projwfc_output
+    from defuqumat.io import read_projwfc_output
 
     path = CASES / "reference.projwfc.si10-nc"
     if not path.is_file():
@@ -443,7 +443,7 @@ def test_lowdin_charges_and_spilling_at_ten_sites(pseudo_dir):
     that mixing, and it agrees to **4.8e-5**.
     """
     from tests.tolerances import LOWDIN_CHARGE
-    from defumat.projwfc.channels import L_LABELS
+    from defuqumat.projwfc.channels import L_LABELS
 
     pdos = _projected(pseudo_dir)
     reference = _projwfc_reference()
@@ -463,7 +463,7 @@ def test_the_projected_dos_curves_match_filpdos_at_ten_sites(pseudo_dir):
     """``pdos_tot`` and all twenty ``pdos_atm#N(Si)_wfc#n(l)`` files."""
     import re
 
-    from defumat.io import read_pdos_file
+    from defuqumat.io import read_pdos_file
     from tests.tolerances import PDOS_RELATIVE
 
     pdos = _projected(pseudo_dir)
@@ -551,7 +551,7 @@ def test_the_ten_site_relaxation_ends_where_qe_ends(pseudo_dir):
     two end at the same geometry rather than at two different exactly-symmetric
     ones.
     """
-    from defumat.workflows.relax import run_relax
+    from defuqumat.workflows.relax import run_relax
 
     system = build_system(read_pw_input(CASES / "si10-nc-relax.in"))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -600,7 +600,7 @@ def test_the_dielectric_tensor_at_ten_sites(pseudo_dir):
     """
     import re
 
-    from defumat.response.efield import dielectric_tensor
+    from defuqumat.response.efield import dielectric_tensor
 
     system, calculation, result = _converged("si10-epsilon", pseudo_dir,
                                              origin_tangent=False)

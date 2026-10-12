@@ -12,7 +12,7 @@ label: the projectors' phase-free columns and the PAW one-centre tensors.
 **The assertion is sharing and not agreement**, as it is in P73's test: two
 copies that agree numerically still cost twice the memory, which is the whole
 defect. For PAW that is object identity. For the projectors it cannot be,
-because :class:`~defumat.pseudo.projectors.ProjectorCore` holds one concatenated
+because :class:`~defuqumat.pseudo.projectors.ProjectorCore` holds one concatenated
 ``(nk, npwx, ncs)`` array with no per-species block to compare: sharing there
 means the second label's channels select the first label's columns, and the
 array is one dataset wide.
@@ -32,14 +32,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.basis.builder import build_basis
-from defumat.io.pwin import read_pw_input
-from defumat.paw.onecenter import build_paw
-from defumat.pseudo import read_upf
-from defumat.pseudo.projectors import build_projector_core, projector_channels
-from defumat.system import build_system
-from defumat.system.structure import Structure
-from defumat.xc.functional import resolve_functional
+from defuqumat.basis.builder import build_basis
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.paw.onecenter import build_paw
+from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.projectors import build_projector_core, projector_channels
+from defuqumat.system import build_system
+from defuqumat.system.structure import Structure
+from defuqumat.xc.functional import resolve_functional
 
 pytestmark = pytest.mark.unit
 
@@ -240,7 +240,7 @@ def test_two_labels_naming_one_file_share_their_radial_tables(silicon, pseudo_di
     second transform would have produced, so asserting identity asserts both
     the saving and that nothing moved.
     """
-    from defumat.pseudo.potentials import (
+    from defuqumat.pseudo.potentials import (
         species_atomic_charge, species_core_charge, species_local_potential,
     )
 
@@ -262,7 +262,7 @@ def test_two_labels_naming_one_file_share_their_radial_tables(silicon, pseudo_di
 def test_one_ulp_in_the_radial_array_keeps_two_tables(silicon, pseudo_dir, field,
                                                       build_name):
     """The guard fires: one ulp in the array a table is built from separates it."""
-    import defumat.pseudo.potentials as potentials
+    import defuqumat.pseudo.potentials as potentials
 
     system, basis = silicon
     pseudo = read_upf(pseudo_dir / PAW)

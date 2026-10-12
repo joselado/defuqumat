@@ -40,14 +40,14 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo.upf import read_upf
-from defumat.response.shg import require_an_shg_regime
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system.builder import build_system
-from defumat.system.kpoints import KPoints
-from defumat.units import RY_TO_EV
-from defumat.workflows.shg import run_shg
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo.upf import read_upf
+from defuqumat.response.shg import require_an_shg_regime
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system.builder import build_system
+from defuqumat.system.kpoints import KPoints
+from defuqumat.units import RY_TO_EV
+from defuqumat.workflows.shg import run_shg
 
 pytestmark = pytest.mark.regression
 
@@ -106,7 +106,7 @@ def read_elk_chi(path: Path):
     """Elk's ``CHI_2WWW_abc.OUT``: real block, blank line, imaginary block.
 
     ``w`` in Hartree and ``chi`` in atomic units, which is why
-    :data:`~defumat.response.shg.CHI2_AU_TO_PM_PER_V` exists as a separate
+    :data:`~defuqumat.response.shg.CHI2_AU_TO_PM_PER_V` exists as a separate
     constant -- the comparison is made in Elk's own units and converted once,
     so a wrong conversion cannot hide inside an agreement.
     """
@@ -213,7 +213,7 @@ def test_the_absorption_turns_on_at_half_the_gap():
 
     import equinox as eqx
 
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     _, _, eigenvalues, _ = fixed_density_states(
         eqx.tree_at(lambda s: s.kpoints, system, mesh),
@@ -316,7 +316,7 @@ def test_the_tensor_agrees_with_elk_on_the_same_crystal():
     ours = np.asarray(chi.chi)[:, 0, 1, 2]
 
     # The static limit, in Elk's own atomic units.
-    from defumat.response.shg import CHI2_AU_TO_PM_PER_V
+    from defuqumat.response.shg import CHI2_AU_TO_PM_PER_V
 
     static_ours = float(ours[0].real) / CHI2_AU_TO_PM_PER_V
     static_elk = float(elk[0].real)
@@ -364,7 +364,7 @@ def test_the_scissors_shift_moves_the_two_photon_resonance_by_half_of_itself():
     same run read a height ratio of 0.60 and a static value of -3.10 to -1.14,
     with the same shift.
     """
-    from defumat.response.shg import CHI2_AU_TO_PM_PER_V
+    from defuqumat.response.shg import CHI2_AU_TO_PM_PER_V
 
     scissor = 0.1  # Ry, which is Elk's 0.05 Ha
     plain = spectrum("alas-shg.in", 6, 23, window=0.6, nw=240, broadening=0.010)
@@ -414,7 +414,7 @@ def test_the_three_parts_agree_with_elks_three_parts():
     and 21.32, so the tangent moves ``chi_II``, the part with the intermediate
     state, by 4% and the other two by 0.2% or less.
     """
-    from defumat.response.shg import CHI2_AU_TO_PM_PER_V
+    from defuqumat.response.shg import CHI2_AU_TO_PM_PER_V
 
     result = spectrum("alas-shg.in", 6, 23, window=0.6, nw=240, broadening=0.010)
     ours = {
@@ -515,7 +515,7 @@ def test_the_augmentation_dipole_reaches_the_second_harmonic_tensor():
     1578.2, so the tangent is worth 6.2 pm/V of the deletion and 0.13 of the
     peak, and the band count 0.6 and 0.8.
     """
-    from defumat.response.velocity import VelocityOperator
+    from defuqumat.response.velocity import VelocityOperator
 
     chi = np.asarray(spectrum("alas-us.in", 4, 23, **SHG_OPTIONS).chi)
     original = VelocityOperator.augmentation_connection
@@ -532,7 +532,7 @@ def test_the_augmentation_dipole_reaches_the_second_harmonic_tensor():
 
 @pytest.mark.slow
 def test_the_refusals_name_second_harmonic_generation_rather_than_the_shift_current():
-    """The guard is :func:`~defumat.response.photocurrent.
+    """The guard is :func:`~defuqumat.response.photocurrent.
     require_a_velocity_sum_regime`, which is the shift current's minus one.
 
     Sharing the refusals is right -- this module is the same velocity matrix

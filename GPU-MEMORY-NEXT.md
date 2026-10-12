@@ -111,7 +111,7 @@ identity against the whole-k route on the same states.
    electrostriction being 6 per cent slower than the whole route at 27 k-points is not separated.
 4. **The radial chunk's ceiling on a production card**: the budget (8 MB an integrand) was chosen on the
    A2000 and the CPU; on a float64 card the smaller transforms' launch count may cost more than the 5 to 8
-   per cent measured here, and `DEFUMAT_RADIAL_CHUNK` is the dial.
+   per cent measured here, and `DEFUQUMAT_RADIAL_CHUNK` is the dial.
 
 **Loose ends of the later evening (branch `bessel-jvp`):** the branch holds the radial derivative rule,
 the factored augmentation charge and three test tolerances read off one rounding pattern (`CLAUDE.md`'s
@@ -228,7 +228,7 @@ below:
   states' `becp` no longer stack the whole-k `vkb`. `test_projector_storage.py` makes the
   whole-k property fail for a lazy set during the call. AlAs ultrasoft `epsilon` identical
   and `Z*` within 1e-14 between the two modes; the ultrasoft magnon and the ultrasoft
-  topology checks pass with `DEFUMAT_PROJECTORS=rebuild`. Still whole-k: the traced movers
+  topology checks pass with `DEFUQUMAT_PROJECTORS=rebuild`. Still whole-k: the traced movers
   (`at_strain`, `at_kcart`, `at_spiral_q`) and what reads them -- the velocity operator's
   projector derivative, the strain and phonon responses, `born.py`'s ultrasoft tail. Not
   measured on the card.
@@ -238,11 +238,11 @@ below:
   the card.
 * **Item 12, first bullet** (2026-09-29): `chi_0`'s pair axis has its own default
   (`batching.resolve_pair_batch`): the band dial's value on a CPU and wherever
-  `DEFUMAT_BAND_BATCH` or an argument says, and on an accelerator the largest chunk whose
+  `DEFUQUMAT_BAND_BATCH` or an argument says, and on an accelerator the largest chunk whose
   pair boxes fit `PAIR_BUDGET_BYTES = 256 MB` rather than every pair. The budget is a guess
   until the 1/8/32 sweep on the card is taken; nothing changes on a CPU.
 * **Item 23** (2026-09-29): importing the package sets `XLA_CLIENT_MEM_FRACTION = 0.9` unless
-  either spelling is already set or `DEFUMAT_MEM_FRACTION` says otherwise (`off`, or a number).
+  either spelling is already set or `DEFUQUMAT_MEM_FRACTION` says otherwise (`off`, or a number).
   On the GTX 1060 the pool is **5452 MB against 4765 MB** (`bytes_limit`, measured).
 * **Item 17** (2026-09-29): `HOISTED_FIELDS` adds the projector core, `|k+G|^2`, the FFT
   indices, a meta-GGA's `k + G`, `vltot` and the core charge. Ultrasoft silicon at 64
@@ -322,7 +322,7 @@ below:
 * **Item 25** (2026-09-29): recorded in `GPU.md` Phase 4 -- k-sharding divides time, not
   per-device memory; distributing the plane waves by sticks is the memory lever.
 * **Item 12, second bullet** (2026-09-29): the TDDFT frequency axis has a dial, `w_batch`
-  (`batching.resolve_w_batch`: an argument, then `DEFUMAT_W_BATCH`, then the whole axis on a
+  (`batching.resolve_w_batch`: an argument, then `DEFUQUMAT_W_BATCH`, then the whole axis on a
   CPU and a 256 MB budget on a card). `chi_0`'s whole-axis assembly held a `(2 npairs, nm, nm)`
   block; chunks hold `n` blocks of `(2 npairs, nm)`, written into one output
   (`map_windows`, so a chunk that does not divide `nw` concatenates no tail). Silicon at
@@ -388,7 +388,7 @@ below:
 * **Item 2, the field half** (2026-10-02, `0a9f317`, `bf821e7`, `6485073`): where the store
   streams, or memory mode's chunk is smaller than the mesh (`forces.chunked.walks_chunks`, the
   force's own rule), `dielectric_tensor` walks `k_chunks` with the states, the three bare
-  perturbations and the three `dpsi` in host memory (`defumat/response/chunked.py`). Every index is
+  perturbations and the three `dpsi` in host memory (`defuqumat/response/chunked.py`). Every index is
   the chunk's own, on `at_rows`; the whole set's Hamiltonians are sliced rather than rebuilt
   (`Calculation.restricted_hamiltonians`, bit-identical), `int3` is made once per direction and
   iteration, and the level shift `alpha_pv` is the whole set's. The Born charges are item 3's split
@@ -419,7 +419,7 @@ below:
   two pieces. The frozen pass holds four such evaluations (its value and three directions), the bare
   walk two (`PERFORMANCE.md`, the same entry). It is item 14's transform, and (a) there, one transform
   per `(dataset, l)`, is one of the ways to it.
-* **Item 2, the Gamma phonon** (2026-10-03, `af246f1`, `defumat/response/chunked_phonon.py`):
+* **Item 2, the Gamma phonon** (2026-10-03, `af246f1`, `defuqumat/response/chunked_phonon.py`):
   `dynamical_matrix` takes the field response's route under the field response's rule
   (`efield._streams`). The bare perturbations and `dpsi` per perturbation are host stores; `ort` is
   rebuilt per chunk from the `(nocc, nocc)` overlap derivative rather than stored; the solves reuse the
@@ -489,7 +489,7 @@ below:
   the occupied block and `S'`) whole-k on the card, and **on a streamed store it did not run at all**
   (the whole-k helpers index the host store with a traced k, as the Gamma phonon's did before
   `af246f1`). Where the field response walks it now takes the Gamma phonon's three stages with the six
-  strains as its modes (`defumat/response/chunked_strain.py`, `StreamedStrains`): the bare walk with
+  strains as its modes (`defuqumat/response/chunked_strain.py`, `StreamedStrains`): the bare walk with
   the potential's strain tangent taken once per strain, `S'` and the frozen-state response's two halves
   finished from summed tangents, the field's `respond` pass, and the eigenvalue response walked; the
   loop is one function for both routes and the whole route is bit-identical to master on ultrasoft and
@@ -507,7 +507,7 @@ below:
   a `jvp` of the variational second-order energy per tangent, and that energy is a sum over k of per-k
   terms reading two whole-cell objects (the moved potential, PAW's one-centre coefficients) plus terms of
   the whole raw response sums, so the derivative is a forward walk, one global step and a chunk walk
-  that also solves `db` on the chunk (`defumat/response/chunked_third.py`); Raman's displacement
+  that also solves `db` on the chunk (`defuqumat/response/chunked_third.py`); Raman's displacement
   response is the walked Gamma phonon's stages without the assembly. **On the card**, two-atom
   ultrasoft AlAs at one k-point a chunk: electrostriction 784.9 / 882.8 -> 263.5 / 264.9 MB at 8 / 27
   k-points, Raman 299.0 / 368.5 -> 199.3 / 203.1 MB, against an SCF of 169 to 172 (`PERFORMANCE.md`,
@@ -525,7 +525,7 @@ below:
 * **The radial transforms' chunk, sized from the mesh** (2026-10-03, `a71b8a3`). The Bessel transforms
   took 4096 values of `|q|` at a time; the strain's derivatives hold many `(chunk, mesh)` integrands at
   once, so the chunk is now sized to 8 MB an integrand (`formfactors.radial_chunk`, capped at 4096,
-  `DEFUMAT_RADIAL_CHUNK` overrides it). **On the card**, ultrasoft AlAs at 200 Ry and 8 k-points: the
+  `DEFUQUMAT_RADIAL_CHUNK` overrides it). **On the card**, ultrasoft AlAs at 200 Ry and 8 k-points: the
   stress 652.2 -> 169.3 MB (the SCF's own) and the piezoelectric tensor 759.5 -> 198.4 MB, for 5 to 8 per
   cent of those calls' time; on the CPU the energy is bit-identical, the stress moves by 3e-15 relative,
   and the warm stress is no slower (`PERFORMANCE.md`, "The radial transforms' chunk, sized from the
@@ -549,7 +549,7 @@ below:
   the card the AlAs piezoelectric tensor, the Si8 elastic constants and the Pt stress at their SCF's or
   strain response's peak (`PERFORMANCE.md`, "The radial transforms' derivatives, as transforms"). It also
   found two piezoelectric tests whose bounds rested on a rounding pattern: master fails them too with
-  `DEFUMAT_K_BATCH=2`.
+  `DEFUQUMAT_K_BATCH=2`.
 
 ## Suggested order
 
@@ -803,7 +803,7 @@ Si8, where a band loop costs 4.3x and buys nothing. On a large cell it is the la
 term: the eigensolver's FFT line is `2 band_batch npol N_smooth x 16 B`
 (`sizing.py:801-806`, a measured coefficient), which on the NiBr2 slab is **66.9 GB at
 `all` against 2.65 GB at 16**, so one k-point in memory mode needs about 92.9 GB against
-28.7 GB at 16 (the cluster runs set `DEFUMAT_BAND_BATCH=16` by hand). The start is worse:
+28.7 GB at 16 (the cluster runs set `DEFUQUMAT_BAND_BATCH=16` by hand). The start is worse:
 `natomwfc` vectors, and D10's dump names `c128[510,2,200,240,54]` = 42.32 GB. The `nspin =
 2` density stage doubles on top (A15, open). Nothing checks memory mode against the card.
 
@@ -814,7 +814,7 @@ density (A15's three lines). The value needs a carrier, because `map_bands`' `"d
 never sees the mode: a static field on the Hamiltonian, or a value resolved in the
 `Calculation` and passed to `map_bands`/`sum_bands`. **Risk**: none to numbers
 (`map_bands` is bit-identical across chunks); time. **Measure**: `h40-chain-lsda.in`
-(one k-point, 56 bands, 40x40x640 box) in memory mode at `DEFUMAT_BAND_BATCH` = all, 28,
+(one k-point, 56 bands, 40x40x640 box) in memory mode at `DEFUQUMAT_BAND_BATCH` = all, 28,
 14, 8, 1: peak and warm time per point.
 
 ### 10. Davidson carries two band blocks it could rebuild -- priority 2, medium
@@ -929,13 +929,13 @@ It may win on a spiral with a far larger `ngm`, which has not been sized.
 **Measured 2026-09-28, and the prescription below does not yet hold.** After items 13/14
 this is the largest thing left on BN's stress tape: its 1.42 GiB (CPU) is headed by
 `c128[196,43903]` and a dozen `f64[196,1,1,1,43903]`, `nh^2 x ngm` pair blocks. But with
-`DEFUMAT_AUG_MAX_BYTES=0`, which sends the table through the tabulated scan named below,
+`DEFUQUMAT_AUG_MAX_BYTES=0`, which sends the table through the tabulated scan named below,
 the same executable is **7.47 GiB**, fifteen whole-`ngm` complex pair tables. **Located the
 same day**: the HLO places them in the backward pass of the tabulated route's own rematted
 scan (`transpose(jvp(_addusdens))/while/body/checkpoint`), and each is one *chunk* --
 `_aug_chunk` sizes the chunk for about 256 MB of forward block, which at `nh = 14` is more
 than the whole G set, so BN runs one chunk of all 43903, and one chunk's backward holds
-about fifteen blocks of it. With the chunk set small (`DEFUMAT_AUG_CHUNK`), same route,
+about fifteen blocks of it. With the chunk set small (`DEFUQUMAT_AUG_CHUNK`), same route,
 same compile: **0.466 GiB at 4096, 0.450 GiB at 1024**, against 1.42 for the stored table.
 So the prescription below holds **with a chunk sized for the backward pass** (a sixteenth
 of the forward budget, or a separate budget under a derivative); the exact builder in place
@@ -1070,7 +1070,7 @@ are still untried.
 `XLA_CLIENT_MEM_FRACTION` (and its deprecated `XLA_PYTHON_CLIENT_MEM_FRACTION`; setting
 both raises) is untouched by the package; on this card the pool is 4.76 GB of 6. About 0.9
 gives roughly +0.95 GB here, and the H200 entry in `PERFORMANCE.md` died 5 GiB over the
-default limit. **Fix**: in `defumat/__init__.py`, before the backend initialises, set it
+default limit. **Fix**: in `defuqumat/__init__.py`, before the backend initialises, set it
 to ~0.9 when neither name is set and the mode is not `speed`. The installed jaxlib also
 accepts `cuda_async`, `vmm` and `address` allocators, which are the untried half of A16's
 fragmentation question. A capacity lever rather than a reduction.

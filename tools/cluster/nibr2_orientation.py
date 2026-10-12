@@ -110,9 +110,9 @@ def main() -> None:
     arguments = parser.parse_args()
     arguments.outdir.mkdir(parents=True, exist_ok=True)
 
-    from defumat import Calculator
-    from defumat.scf.driver import run_scf
-    from defumat.workflows.anisotropy import (
+    from defuqumat import Calculator
+    from defuqumat.scf.driver import run_scf
+    from defuqumat.workflows.anisotropy import (
         _with_rotation,
         relax_orientation,
         rotation_from_euler,

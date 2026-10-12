@@ -23,8 +23,8 @@ that step gives an error ``delta/h^2`` which **grows** as the stencil shrinks.
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.response.effmass import Multiplet, effective_mass
+from defuqumat.calculator import Calculator
+from defuqumat.response.effmass import Multiplet, effective_mass
 
 pytestmark = pytest.mark.unit
 
@@ -110,8 +110,8 @@ def test_the_stencil_shares_one_sphere_away_from_gamma(silicon_at_a_shell):
     and 5.29032, **2.8e-4** relative apart and both within 3e-3 of the limit;
     the eigenvalue route alone moves from 2.79e-2 out to 1.2e-3 out.
     """
-    from defumat.basis.planewaves import build_plane_wave_basis
-    from defumat.response.effmass import _stencil_kpoints
+    from defuqumat.basis.planewaves import build_plane_wave_basis
+    from defuqumat.response.effmass import _stencil_kpoints
 
     calculator, scf = silicon_at_a_shell
     calculation = calculator.calculation
@@ -287,7 +287,7 @@ def test_the_eigenvalue_stencil_never_contains_its_centre():
     """
     import inspect
 
-    from defumat.response import effmass
+    from defuqumat.response import effmass
 
     source = inspect.getsource(effmass._by_eigenvalue)
     # ``eps[0]`` is the centre and it may be *returned* (the eigenvalues the

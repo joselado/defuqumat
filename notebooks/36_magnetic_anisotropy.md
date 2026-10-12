@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 
@@ -59,7 +59,7 @@ sees that.
 
 
 ```python
-from defumat.units import RY_TO_EV
+from defuqumat.units import RY_TO_EV
 
 first = [scalar.get_first_order_soc(spinor, direction=d) * RY_TO_EV * 1000
          for d in [(1, 0, 0), (0, 0, 1)]]

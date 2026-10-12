@@ -1,6 +1,6 @@
 """A long-lived pooled process that compiles many cells: the deadlock's condition.
 
-    DEFUMAT_POOLS=2 ... python3 tools/parallel/pool_soak.py [--cells 12]
+    DEFUQUMAT_POOLS=2 ... python3 tools/parallel/pool_soak.py [--cells 12]
 
 The XLA thread-pool deadlock (``OPEN.md`` Part IV item 1) has only been seen in
 processes that had already compiled many different cells, at narrow affinity
@@ -22,12 +22,12 @@ import time
 import warnings
 from pathlib import Path
 
-import defumat  # noqa: F401
-from defumat.io.pwin import read_pw_input
-from defumat.parallel import current_pools
-from defumat.pseudo import read_upf
-from defumat.scf.driver import run_scf
-from defumat.system import build_system
+import defuqumat  # noqa: F401
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.parallel import current_pools
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import run_scf
+from defuqumat.system import build_system
 
 REPO = Path(__file__).resolve().parents[2]
 SILICON = """\

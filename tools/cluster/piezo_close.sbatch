@@ -45,7 +45,7 @@
 #               (`20336374_1`). Taking the pessimistic reading, that all 49.4
 #               scales, `6 6 6` is 167 GiB, and 260 G is that with 40 per cent
 #               over. Tasks 0 and 2 do not need it and are short.
-#SBATCH --job-name=defumat-piezo-close
+#SBATCH --job-name=defuqumat-piezo-close
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-2
 #SBATCH --time=04:00:00
@@ -55,7 +55,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/close-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -65,8 +65,8 @@ source "$VENV/bin/activate" || exit 1
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 
 case ${SLURM_ARRAY_TASK_ID:-0} in
     0) CASE=nc; RUNG=response-k10; ARGS="--kmesh 10 --skip-difference" ;;

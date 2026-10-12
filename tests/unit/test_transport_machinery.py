@@ -26,14 +26,14 @@ between ``+n`` and ``-n``, and gives half the unpolarized map at ``P = 0``.
 import numpy as np
 import pytest
 
-from defumat.basis.sample import sample_wavefunctions
-from defumat.transport.green import (
+from defuqumat.basis.sample import sample_wavefunctions
+from defuqumat.transport.green import (
     amplitude_weights,
     channel_basis,
     spin_transmission,
     transmission,
 )
-from defumat.transport.substrate import (
+from defuqumat.transport.substrate import (
     exit_overlap,
     spin_projector,
     surface_area,
@@ -42,7 +42,7 @@ from defumat.transport.substrate import (
 
 
 class _Cell:
-    """The three things :mod:`defumat.transport` asks a cell for."""
+    """The three things :mod:`defuqumat.transport` asks a cell for."""
 
     def __init__(self, at):
         self.at = np.asarray(at, dtype=float)
@@ -180,7 +180,7 @@ def test_the_on_shell_amplitude_squares_to_the_stm_weight():
     It is what makes the whole-cell exit region reproduce ``run_stm`` with no
     factor between them rather than up to one.
     """
-    from defumat.stm.image import smeared_delta
+    from defuqumat.stm.image import smeared_delta
 
     eps = np.array([[-0.2, 0.0, 0.15, 1.0]])
     a = amplitude_weights(eps, 0.0, 0.05, "spectral", "gaussian")
@@ -518,7 +518,7 @@ def test_the_tip_acceptance_refuses_what_it_has_nothing_to_couple_to():
     ``m_y`` there are absent rather than zero, which is P65's reasoning applied
     to the other lead.
     """
-    from defumat.workflows.transport import _tip_acceptance
+    from defuqumat.workflows.transport import _tip_acceptance
 
     assert _tip_acceptance(None, 1.0, 1, 1) == (None, None)
     with pytest.raises(NotImplementedError, match="tip needs a magnetization"):
@@ -699,7 +699,7 @@ def _degenerate_top(nk=2, nbnd=4, npts=3, seed=11):
 
 
 def test_the_top_multiplet_mask_is_the_whole_degenerate_block():
-    from defumat.workflows.transport import _top_multiplet_mask
+    from defuqumat.workflows.transport import _top_multiplet_mask
 
     _, _, _, _, eigenvalues = _degenerate_top()
     mask = _top_multiplet_mask(eigenvalues)
@@ -721,7 +721,7 @@ def test_the_band_edge_weight_is_blind_to_a_degenerate_rotation():
     ratio that certifies the band-count truncation moved with a basis nobody
     chose. Taking the whole multiplet, in the same basis, fixes both halves.
     """
-    from defumat.workflows.transport import _top_multiplet_mask
+    from defuqumat.workflows.transport import _top_multiplet_mask
 
     amplitudes, overlaps, kweights, weights, eigenvalues = _degenerate_top()
     # ``amplitude_weights`` is a function of the eigenvalue alone, so two
@@ -790,7 +790,7 @@ def test_the_momentum_weight_is_the_plane_integral_of_the_point_tip_map():
     """The theorem the whole module rests on, evaluated literally on both sides.
 
     ``sum_k W(k)`` must equal the point-tip map of
-    :func:`~defumat.transport.green.transmission` integrated over one cell's
+    :func:`~defuqumat.transport.green.transmission` integrated over one cell's
     worth of the tip plane. The two routes share only ``exit_overlap``: one
     samples ``psi`` on a real-space quadrature of the tip plane and squares a
     Green's function, the other never leaves reciprocal space. The quadrature is
@@ -798,7 +798,7 @@ def test_the_momentum_weight_is_the_plane_integral_of_the_point_tip_map():
     polynomial of in-plane degree ``2 max|h|``, so a grid past that integrates
     it with no error -- which is why this can be asserted at round-off.
     """
-    from defumat.transport.momentum import momentum_weights
+    from defuqumat.transport.momentum import momentum_weights
 
     cell, axis = HEXAGONAL, 2
     exit_height, tip_height = 0.13, 0.71
@@ -842,7 +842,7 @@ def test_the_transposed_contraction_is_a_different_number_on_two_planes():
     would show, so the wrong form is not something a picture catches. The
     previous test is what says which of the two is the plane integral.
     """
-    from defumat.transport.momentum import momentum_weights
+    from defuqumat.transport.momentum import momentum_weights
 
     exit_gram, tip_gram, kweights, weights = _two_planes()
     right = momentum_weights(exit_gram, tip_gram, kweights, weights)["weight"]
@@ -863,7 +863,7 @@ def test_the_momentum_weight_is_blind_to_a_rotation_inside_a_multiplet():
     which is why ``weight`` needs no degeneracy handling at all, where the
     ``incoherent`` column below does.
     """
-    from defumat.transport.momentum import momentum_weights
+    from defuqumat.transport.momentum import momentum_weights
 
     exit_gram, tip_gram, kweights, weights = _two_planes()
     weights[:, 1:3] = weights[:, 1:3].mean()  # a degenerate pair, equal g_n
@@ -889,7 +889,7 @@ def test_the_tersoff_hamann_column_is_the_structureless_substrate_limit():
     tip's diagonal. Both further limits are here too -- both matrices the
     identity leaves the plain Fermi-surface weight, which is what ``bare`` is.
     """
-    from defumat.transport.momentum import momentum_weights
+    from defuqumat.transport.momentum import momentum_weights
 
     exit_gram, tip_gram, kweights, weights = _two_planes()
     identity = np.broadcast_to(np.eye(exit_gram.shape[1], dtype=complex),
@@ -905,7 +905,7 @@ def test_the_tersoff_hamann_column_is_the_structureless_substrate_limit():
 
 def test_the_momentum_weight_cannot_go_negative():
     """Two positive semi-definite matrices, so ``Tr[XY] >= 0``. No sign to have."""
-    from defumat.transport.momentum import momentum_weights
+    from defuqumat.transport.momentum import momentum_weights
 
     exit_gram, tip_gram, kweights, weights = _two_planes(seed=17, nbnd=6, nk=4)
     for column in momentum_weights(exit_gram, tip_gram, kweights, weights,
@@ -917,10 +917,10 @@ def test_the_incoherent_column_is_blind_to_a_degenerate_rotation():
     """A diagonal is not invariant, so it is taken in the substrate's own basis.
 
     This is the one column that needs the degeneracy handling ``weight`` does
-    not, and it is the same :func:`~defumat.transport.green.channel_basis` the
+    not, and it is the same :func:`~defuqumat.transport.green.channel_basis` the
     real-space map uses.
     """
-    from defumat.transport.momentum import momentum_weights
+    from defuqumat.transport.momentum import momentum_weights
 
     exit_gram, tip_gram, kweights, weights = _two_planes()
     eigenvalues = np.tile(np.array([0.0, 0.5, 0.5, 1.2]), (exit_gram.shape[0], 1))
@@ -949,7 +949,7 @@ def test_the_incoherent_column_is_blind_to_a_degenerate_rotation():
 
 
 def test_momentum_weights_refuse_shapes_they_cannot_read():
-    from defumat.transport.momentum import momentum_weights
+    from defuqumat.transport.momentum import momentum_weights
 
     exit_gram, tip_gram, kweights, weights = _two_planes()
     with pytest.raises(ValueError, match="same shape"):
@@ -977,7 +977,7 @@ def test_the_pocket_partition_covers_the_zone_exactly_once():
     knowing before reading any share, because a Fermi surface that carried its
     weight uniformly would already report 67% at ``K``.
     """
-    from defumat.transport.momentum import pocket_mask
+    from defuqumat.transport.momentum import pocket_mask
 
     n = 30
     grid = np.stack(np.meshgrid(np.arange(n) / n, np.arange(n) / n, [0.0],
@@ -999,7 +999,7 @@ def test_the_decay_constant_is_the_amplitude_one_and_not_twice_it():
     function, and getting it wrong makes :func:`decay_identity` come out four
     times too large -- which is the failure mode the identity exists to catch.
     """
-    from defumat.transport.momentum import decay_constants
+    from defuqumat.transport.momentum import decay_constants
 
     heights = np.linspace(2.0, 8.0, 7)
     kappa = np.array([0.31, 0.77])
@@ -1021,7 +1021,7 @@ def test_the_decay_identity_closes_on_a_planted_free_electron_tail():
     ``|psi|^2`` without halving the slope would give, puts the residual at 3 --
     a factor of four on the measured side.
     """
-    from defumat.transport.momentum import decay_identity
+    from defuqumat.transport.momentum import decay_identity
 
     barrier, k_corner, k_centre = 0.55, np.array([0.42, 0.0, 0.0]), np.zeros(3)
     kappa = [np.sqrt(barrier**2 + float(k @ k)) for k in (k_corner, k_centre)]
@@ -1052,7 +1052,7 @@ def test_a_bias_window_too_coarse_for_the_leads_is_refused_by_name():
     passes, which is the whole point of ``OPEN.md``'s entry about a check whose
     null result cannot be told from a pass.
     """
-    from defumat.workflows.transport import _check_bias_axis, _energies
+    from defuqumat.workflows.transport import _check_bias_axis, _energies
 
     with pytest.raises(ValueError, match="steps over the levels"):
         _check_bias_axis(0.24, 7, 0.02)
@@ -1077,7 +1077,7 @@ def test_one_point_per_width_is_the_boundary_and_it_passes():
     The tolerance is there because a window built to land exactly on the
     boundary arrives as a float that does not divide cleanly.
     """
-    from defumat.workflows.transport import _energies
+    from defuqumat.workflows.transport import _energies
 
     axis = _energies(0.0, {"fermi_energy": 0.0}, 0.3, 11, 0.03)
     assert axis.size == 11
@@ -1090,7 +1090,7 @@ def test_the_guard_is_about_the_trapezoid_and_not_about_an_energy_list():
     Each energy is its own zero-bias conductance there, and a list of them is a
     spectrum rather than a current.
     """
-    from defumat.workflows.transport import _energies
+    from defuqumat.workflows.transport import _energies
 
     coarse = _energies([0.0, 1.0, 2.0], {"fermi_energy": 0.0}, None, 3, 1.0e-6)
     assert np.allclose(coarse, [0.0, 1.0, 2.0])
@@ -1108,7 +1108,7 @@ def test_the_bias_axis_is_checked_before_the_fixed_density_solve():
     """
     import inspect
 
-    from defumat.workflows import transport, ultracell
+    from defuqumat.workflows import transport, ultracell
 
     # Each entry point against the first thing it does that costs anything: the
     # fixed-density solve where there is one, and the tip sampling where there
@@ -1126,7 +1126,7 @@ def test_the_bias_axis_is_checked_before_the_fixed_density_solve():
 
 
 def _junction(npol=1, nk=2, nbnd=10, seed=31):
-    """A synthetic junction for :func:`~defumat.workflows.transport._assemble`.
+    """A synthetic junction for :func:`~defuqumat.workflows.transport._assemble`.
 
     Ten bands spread over 1.2 Ry with a degenerate pair near the tip energy, at
     a broadening of 0.01 Ry. One band sits five broadenings from the nearer
@@ -1137,7 +1137,7 @@ def _junction(npol=1, nk=2, nbnd=10, seed=31):
     not underflowed to an exact zero, which is the case a window could get
     wrong.
     """
-    from defumat.transport.green import TransportGeometry
+    from defuqumat.transport.green import TransportGeometry
 
     rng = np.random.default_rng(seed)
     miller = _sphere(2)
@@ -1161,7 +1161,7 @@ def _junction(npol=1, nk=2, nbnd=10, seed=31):
 
 
 def _run(geometry, coefficients, eigenvalues, points, **options):
-    from defumat.workflows.transport import _assemble
+    from defuqumat.workflows.transport import _assemble
 
     settings = dict(exit_height=0.1, exit_axis=2, energies=np.array([0.0, 0.03]),
                     broadening=0.01, spin=None, polarization=1.0,
@@ -1184,7 +1184,7 @@ def _agree(one, other):
 
 
 def _spy_on_the_sampler(monkeypatch):
-    import defumat.workflows.transport as transport
+    import defuqumat.workflows.transport as transport
 
     calls = []
     real = transport.sample_wavefunctions
@@ -1206,7 +1206,7 @@ def test_the_band_window_drops_only_what_the_map_cannot_see(monkeypatch, npol, t
     test also asserts that the window **did** drop bands: a window that kept
     everything would pass the first half trivially.
     """
-    import defumat.workflows.transport as transport
+    import defuqumat.workflows.transport as transport
 
     geometry, coefficients, eigenvalues = _junction(npol=npol)
     points = _plane()
@@ -1242,7 +1242,7 @@ def test_the_window_keeps_a_degenerate_block_whole(monkeypatch):
     5e-7, one member is put just above the threshold and the other just below,
     and a nondegenerate band below it is there to show the threshold is real.
     """
-    from defumat.workflows.transport import _band_window
+    from defuqumat.workflows.transport import _band_window
 
     eigenvalues = np.array([[[0.0, 0.2, 0.2 + 5.0e-7, 0.7]]])
     weights = np.array([1.0, 2.0e-18, 0.5e-18, 0.5e-18],
@@ -1257,7 +1257,7 @@ def test_the_tip_pixels_are_taken_in_blocks(monkeypatch):
     The spy counts the sampler's calls, so a block that silently held the whole
     image would fail the count rather than pass the comparison.
     """
-    import defumat.workflows.transport as transport
+    import defuqumat.workflows.transport as transport
 
     geometry, coefficients, eigenvalues = _junction(npol=2)
     points = _plane(6)
@@ -1280,7 +1280,7 @@ def test_a_flat_tip_plane_is_folded_and_a_tilted_one_is_not(monkeypatch):
     whole sphere for a tilted one. The flat map is compared with the same map
     sampled without the fold.
     """
-    import defumat.workflows.transport as transport
+    import defuqumat.workflows.transport as transport
 
     geometry, coefficients, eigenvalues = _junction()
     flat = _plane(5)
@@ -1338,8 +1338,8 @@ def test_a_closed_channel_sets_no_scale_for_the_window(monkeypatch):
     own maximum. The reference map is asserted nonzero, which is what makes the
     comparison mean anything.
     """
-    import defumat.workflows.transport as transport
-    from defumat.transport.green import TransportGeometry
+    import defuqumat.workflows.transport as transport
+    from defuqumat.transport.green import TransportGeometry
 
     geometry, up, _ = _junction(nk=1, nbnd=3, seed=41)
     _, down, _ = _junction(nk=1, nbnd=3, seed=43)

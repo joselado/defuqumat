@@ -14,7 +14,7 @@ bohr, `c/a = 1.30`, `Co.pbe-nd-rrkjus.UPF` (ultrasoft, PBE from the header),
 (`angle1 = 90, angle2 = 0`), `3 3 4` unshifted, `nosym`, Marzari-Vanderbilt smearing
 at 0.02 Ry, `conv_thr = 1e-10`. The "laboratory sphere" is the transverse pair of the
 density and of the potential kept on `{G : |G - q| < G_rho}` and its smooth prefix
-(`defumat/basis/gvectors.py:205-300`, `defumat/scf/driver.py:2475-2484`,
+(`defuqumat/basis/gvectors.py:205-300`, `defuqumat/scf/driver.py:2475-2484`,
 `lift_density` at `:5285-5300`, the cut of `W = V_x + i V_y` at `:5409-5414`, the
 transverse `newd` gather at `:4732`); the "resident sphere" is the code before, which the
 tests reproduce by handing back `basis.dense, basis.smooth`
@@ -45,7 +45,7 @@ total is `eband - int V_in rho_out + E_H[rho_in] + E_xc[rho_in] + ...`
 `E_HF[rho_in] = eband - int V_in rho_in + E_Hxc[rho_in]` it differs by
 `-int V_in (rho_out - rho_in)`, which is linear in the residual. `accuracy` is QE's
 `dr2`, the Hartree energy of the charge residual plus a flat-weighted magnetization term
-(`defumat/scf/potential.py:160-215`), so it is quadratic: 2.6e-10 is a residual of about
+(`defuqumat/scf/potential.py:160-215`), so it is quadratic: 2.6e-10 is a residual of about
 2e-5 in the flat norm of the Fourier coefficients, and with a cell of 126.5 bohr^3 and an
 exchange field of order 0.1 Ry the linear term is bounded by about 2.5e-4 Ry. 5e-5 Ry
 sits inside that bound. So the sentence in the item, "a state whose energy is not
@@ -57,7 +57,7 @@ an ultrasoft dataset the mixed `becsum` feeds nothing but this diagnostic
 (`driver.py:601-760`: it is packed, stepped with the density's Anderson coefficients and
 excluded from the fit; the potential is built from the mixed grid density, which already
 holds `Q_ij becsum`), and `becsum_residual` is a Euclidean norm in electrons
-(`defumat/scf/residual_split.py:165-221`). The item's two pairs are consistent with one
+(`defuqumat/scf/residual_split.py:165-221`). The item's two pairs are consistent with one
 quadratic `dr2`: 1.7e-3 / 2.4e-4 = 7.1 against `sqrt(2.6e-10 / 4.0e-12) = 8.1`, and the
 resident arm reports 2.4e-4 at a converged 4.0e-12. So "`becsum` not mixed" is not a
 hypothesis for this cell.
@@ -106,7 +106,7 @@ one-atom cell forbids by symmetry.
 
 **H2: the laboratory sphere makes the map non-variational, the potential's set differing
 from the density's.** The chain is: the pair comes up through `pair_to_dense` on the
-displaced smooth sphere (`defumat/basis/interpolate.py:89-110`), is augmented on the
+displaced smooth sphere (`defuqumat/basis/interpolate.py:89-110`), is augmented on the
 displaced dense sphere (`_addusdens_spiral`), is mixed in real space on the whole box
 (`DEFAULT_MIXING_SPACE = "r"`, `mixing.py:1645`; `'g'` is refused on a magnetic spiral),
 goes into `v_of_rho` as four real fields on the box, and `W` comes back down through
@@ -138,7 +138,7 @@ well under 1 GB, and from the test file's twenty-iteration helper about one seco
 iteration on six cores, so a 150-iteration run is a few minutes and the whole list is
 under 20 minutes. The script skeleton is `plans/open-a-scripts/xxi1.py` (`Calculator.
 from_text`, `get_scf`, `fixed_density_states`, `calc.occupations`, `calc.density`); the
-resident arm is the test's monkeypatch of `defumat.scf.driver._spiral_gvectors`
+resident arm is the test's monkeypatch of `defuqumat.scf.driver._spiral_gvectors`
 (`test_spin_spirals_augmented.py:353-367`); a `Calculation` built by hand and handed to
 `run_scf(..., calculation=calc)` is where an axis is overridden, since
 `quantization_axis` is a plain attribute read at each call (`driver.py:4533-4553`).
@@ -158,7 +158,7 @@ PBE, and its `density`. Two numbers.
   under H2: a mismatch of 1e-6 relative or more in channels 1 and 2 (the transverse pair),
   everywhere; under H1 and H5: round-off (below 1e-12 relative) except at grid points
   where `|m| < 1e-6 max |m|`, where the `where` masks at `potential.py:522-544` and
-  `defumat/xc/functional.py:921-945` may differ between primal and tangent. Report the
+  `defuqumat/xc/functional.py:921-945` may differ between primal and tangent. Report the
   maximum mismatch and the `|m|` at the point it occurs.
 - The second-order remainder `R = E_Hxc[rho_out] - E_Hxc[rho_in] - int V_in (rho_out -
   rho_in)`, with `rho_out` from one `fixed_density_states` at `rho_in`, against `dr2 =

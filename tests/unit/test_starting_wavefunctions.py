@@ -26,8 +26,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.pseudo.atomic import (
+from defuqumat import Calculator
+from defuqumat.pseudo.atomic import (
     atomic_wavefunctions,
     count_spinor_wavefunctions,
 )

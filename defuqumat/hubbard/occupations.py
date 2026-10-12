@@ -1,0 +1,600 @@
+"""The Hubbard occupation matrix ``ns``, and where it comes from.
+
+``PW/src/new_ns.f90``:
+
+    ns^{I s}_{m1 m2} = sum_{k,v} f_{kv} <phi^I_{m1}|psi_{kvs}> <psi_{kvs}|phi^I_{m2}>
+
+with ``phi`` the projectors of :mod:`defuqumat.hubbard.projectors`. Three things
+about that expression are not obvious from it:
+
+* **``ns`` is per spin channel.** With ``nspin = 1`` the band sum runs over
+  doubly-occupied states, so QE halves the result: ``ns`` then means the
+  occupation of *one* of the two identical channels, and the energy is doubled
+  instead (:mod:`defuqumat.hubbard.energy`).
+* **It has to be symmetrised**, and for the same reason ``becsum`` does
+  (:mod:`defuqumat.paw.symmetry`): the band sum runs over the irreducible wedge,
+  so what comes out has the symmetry of the wedge rather than of the crystal.
+  The average is over the group with each index rotated by the matrices that
+  mix real spherical harmonics of the manifold's ``l`` -- the same
+  :func:`~defuqumat.paw.symmetry.harmonic_rotations` PAW uses, deliberately, so
+  that one convention is validated once.
+* **It is real and symmetric.** ``Re(p_{m2} conj(p_{m1}))`` is symmetric in
+  ``m1, m2`` by construction, so the matrix built directly needs none of the
+  hermiticity repair ``new_ns`` performs on its half-filled array.
+
+The layout is ``(nspin, nslot, ldmx, ldmx)``: spin leading (rule R6), one slot
+per correlated atom rather than per atom, and manifolds of different ``l``
+padded with zeros up to the largest. QE carries ``ns(ldmx,ldmx,nspin,nat)`` --
+same content, reversed index order, and every atom present.
+
+``init_ns`` and ``ns_adj`` are here too: the starting occupation from Hund's
+rule (``PW/src/init_ns.f90``) and the adjustment of its *eigenvalues* to what
+``starting_ns_eigenvalue`` asks for (``PW/src/ns_adj.f90``). The second is not a
+convenience -- an antiferromagnet has more than one self-consistent ``ns``, and
+it is how a run is steered to the one that is wanted.
+
+**Which starting ``ns`` is chosen decides which solution is found, and
+``starting_magnetization`` does not control it.** ``init_ns`` fills the majority
+channel first by Hund's rule, so on a magnetic species the starting matrix is
+strongly spin-polarised however small the starting magnetization is -- on fcc
+nickel it is 1.0 in every majority orbital against 0.8 in every minority one,
+whether ``starting_magnetization`` is 0.7 or 0.05. A run meant to begin near the
+*unpolarised* solution therefore cannot get there by turning
+``starting_magnetization`` down; it has to be handed a different matrix.
+:func:`uniform_ns` and :func:`spin_averaged_ns` build the usual ones, and
+``run_scf(starting_ns=...)`` takes any array of the right shape.
+"""
+
+from __future__ import annotations
+
+import jax.numpy as jnp
+import numpy as np
+
+from defuqumat.basis.fft import put_unique
+from defuqumat.batching import map_k
+from defuqumat.eager import compiled
+
+__all__ = [
+    "NsSymmetry",
+    "adjust_ns",
+    "build_ns_symmetry",
+    "initial_ns",
+    "initial_ns_noncollinear",
+    "ns_components",
+    "ns_shape",
+    "occupation_matrix",
+    "projections",
+    "spin_averaged_ns",
+    "spinor_ns_components",
+    "spinor_ns_from_components",
+    "uniform_ns",
+]
+
+
+def projections(wfcU: jnp.ndarray, psi: jnp.ndarray, k_batch=1) -> jnp.ndarray:
+    """``<wfcU|psi>``: ``(nk, nbnd, nwfcU)`` from ``(nk, nbnd, npwx)`` states.
+
+    ``run_scf`` reaches this once an iteration and once per spin channel, outside
+    any ``jit``, and with more than one k-point and one k-point a step (a CPU's
+    default) ``map_k`` is an eager ``lax.map`` over a closure built here, which
+    JAX compiled again at every call: two programs an iteration at ``nspin = 2``
+    on ``tests/data/qe/ni-ldau-ortho.in``. Through :func:`defuqumat.eager.compiled`
+    the loop is compiled once per shape; under a trace (the forces'
+    ``jax.grad``) that is the plain call, so those paths are unchanged.
+    """
+    def one(arrays):
+        columns, states = arrays
+        return jnp.einsum("gi,bg->bi", jnp.conj(columns), states)
+
+    return compiled(lambda columns, states: map_k(one, (columns, states), batch=k_batch),
+                    wfcU, psi)
+
+
+def occupation_matrix(
+    wfcU: jnp.ndarray,
+    wavefunctions: jnp.ndarray,
+    weights: jnp.ndarray,
+    columns: jnp.ndarray,
+    mask: jnp.ndarray,
+    k_batch=1,
+) -> jnp.ndarray:
+    """``nr``: the unsymmetrised occupation matrix, ``(nspin, nslot, ldmx, ldmx)``.
+
+    ``columns[slot, spin, m]`` is the position of orbital ``m`` of that slot in
+    ``wfcU`` (``spin`` has one entry unless the states are spinors), and
+    ``mask[slot, m]`` says whether it is a real orbital or padding -- the two
+    together are what let manifolds of different ``l`` share one rectangular
+    array. ``weights`` are QE's ``wg``, the k-point weight times the occupation.
+
+    For a spinor the result is ``(4, nslot, ldmx, ldmx)`` **complex**, the four
+    entries being the spin pairs ``(uu, ud, du, dd)``; for a collinear run it is
+    ``(nspin, nslot, ldmx, ldmx)`` real, as before.
+    """
+    nspin = wavefunctions.shape[0]
+    npol = columns.shape[1]
+    if npol == 2:
+        # ``new_ns_nc``: one projection per spinor band onto ``2 (2l+1)``
+        # columns, and the occupation matrix keeps the two spin indices rather
+        # than tracing over them. ``nr(m1, m2, is1, is2)`` becomes four
+        # ``(ldmx, ldmx)`` blocks packed as ``2 is1 + is2``, which is QE's own
+        # ``ns_nc`` layout and the order :meth:`HubbardSetup.block_indices`
+        # scatters back from.
+        proj = projections(wfcU, wavefunctions[0], k_batch)  # (nk, nbnd, nwfcU)
+        block = jnp.where(mask[:, None, :], proj[..., columns], 0.0)
+        ns = jnp.einsum(
+            "kb,kbnsa,kbntc->stnac", weights[0], jnp.conj(block), block
+        )
+        return ns.reshape((4,) + ns.shape[2:])
+
+    blocks = []
+    for spin in range(nspin):
+        proj = projections(wfcU, wavefunctions[spin], k_batch)  # (nk, nbnd, nwfcU)
+        block = proj[..., columns[:, 0]]  # (nk, nbnd, nslot, ldmx)
+        block = jnp.where(mask, block, 0.0)
+        blocks.append(
+            jnp.einsum("kb,kbna,kbnc->nac", weights[spin], jnp.conj(block), block).real
+        )
+    ns = jnp.stack(blocks)
+    # ``IF (nspin == 1) nr = 0.5d0 * nr``: with one channel the band sum already
+    # counted both spins.
+    return 0.5 * ns if nspin == 1 else ns
+
+
+class NsSymmetry:
+    """The group average over ``ns``, precomputed per species.
+
+    Structurally :class:`defuqumat.paw.symmetry.BecsumSymmetry` restricted to a
+    single ``(n, l)`` block: for each operation, a rank-four tensor rotating the
+    two ``m`` indices and a permutation saying which atom the operation's image
+    comes from.
+
+    **The rule the whole class is, written once.** Operation ``s`` carries the
+    orbital ``|a, m, sigma>`` to ``|s(a), m', sigma'>`` with the amplitudes
+    ``D_s`` on the harmonics and ``S_s`` on the spinor, so a density matrix
+    built from those orbitals transforms as
+
+        ns_sym[b] = (1/N) sum_s (D_s x S_s) ns[s^-1(b)] (D_s x S_s)^dagger,
+
+    which is why the atom index is gathered through the **inverse** permutation
+    while the rotation carries ``s`` itself. For a collinear run ``S_s`` is
+    absent, the spin axis is a spectator, and what is left is the expression
+    ``new_ns.f90`` writes; for a spinor run it is the four-component one
+    ``new_ns_nc`` writes, and the spin factor is the only difference.
+    """
+
+    __slots__ = (
+        "operators", "sources", "slots", "ldims", "nsym", "shape", "spin",
+        "time_reversed",
+    )
+
+    def __init__(
+        self, operators, sources, slots, ldims, nsym, shape, spin=None,
+        time_reversed=None,
+    ):
+        self.operators = operators
+        self.sources = sources
+        self.slots = slots
+        self.ldims = ldims
+        self.nsym = nsym
+        self.shape = shape
+        self.spin = spin
+        self.time_reversed = time_reversed
+
+    def apply(self, ns: jnp.ndarray) -> jnp.ndarray:
+        """The symmetrised occupation matrix, same shape as the input."""
+        if self.nsym <= 1:
+            return ns
+        out = jnp.zeros_like(ns)
+        for operator, sources, slots, ldim in zip(
+            self.operators, self.sources, self.slots, self.ldims
+        ):
+            block = ns[:, slots, :ldim, :ldim]  # (ncomp, ngroup, ldim, ldim)
+            gathered = block[:, sources]  # (ncomp, nsym, ngroup, ldim, ldim)
+            if self.spin is None:
+                averaged = jnp.einsum(
+                    "sikjl,zsnkl->znij", operator, gathered
+                ) / self.nsym
+            else:
+                gathered = self._time_reverse(gathered)
+                # The leading axis is the spin pair ``(s1, s2)`` packed as
+                # ``2 s1 + s2``, and ``spin[s]`` is ``S_s x conj(S_s)`` on it --
+                # the two indices of a density matrix, one of which is
+                # conjugated.
+                averaged = jnp.einsum(
+                    "szw,sikjl,wsnkl->znij",
+                    self.spin.astype(gathered.dtype), operator, gathered,
+                ) / self.nsym
+            # Into zeros, the groups' slots being disjoint: a complex
+            # scatter-set is a loop on a card (:func:`~defuqumat.basis.fft.put_unique`).
+            out = put_unique(out, (slice(None), slots, slice(None, ldim),
+                                   slice(None, ldim)), averaged)
+        return out
+
+    #: Swapping the two spin indices of the packed pair ``2 s1 + s2``.
+    _SPIN_TRANSPOSE = (0, 2, 1, 3)
+
+    def _time_reverse(self, gathered: jnp.ndarray) -> jnp.ndarray:
+        """Transpose the block of every operation that needs time reversal.
+
+        ``new_ns_nc`` reads ``nr(m4, m3, is4, is3, nb)`` rather than
+        ``nr(m3, m4, is3, is4, nb)`` when ``t_rev(isym) == 1`` -- the transpose
+        in the ``m`` indices and the spin indices **jointly**, which for a
+        Hermitian block is its complex conjugate. It is not decoration: time
+        reversal is antiunitary, so the unitary matrix
+        :func:`~defuqumat.system.symmetry.spin_rotations` returns carries only
+        half of the operation and the conjugation is the other half.
+
+        Measured, on the 48 operations of the simple cubic group with a random
+        moment: ``U rho U^dagger`` reverses the moment by **5.1** against the
+        axial law, and ``U rho^T U^dagger`` reproduces it to **8.9e-16**. So
+        leaving this out is not a small error in a rare branch -- it is the
+        wrong sign on the magnetization of every time-reversed operation, which
+        is most of the group of an antiferromagnet.
+        """
+        if self.time_reversed is None:
+            return gathered
+        # axes are (spin pair, operation, atom, m, m)
+        transposed = jnp.take(
+            gathered, jnp.asarray(self._SPIN_TRANSPOSE), axis=0
+        ).swapaxes(-1, -2)
+        mask = self.time_reversed.reshape(1, -1, 1, 1, 1)
+        return jnp.where(mask, transposed, gathered)
+
+
+def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
+    """Precompute the average. ``None`` when the group is trivial.
+
+    **A spinor setup gains the spin factor**, which is
+    :func:`~defuqumat.system.symmetry.spin_rotations` -- ``d_spin_ldau``. The spin
+    axis of a spinor ``ns`` is the pair ``(s1, s2)`` packed as ``2 s1 + s2``, so
+    the operator on it is ``S x conj(S)``: one index of a density matrix is
+    conjugated, and an overall sign of ``S`` therefore cancels, which is why the
+    two-valuedness of the spin representation never has to be resolved.
+
+    **Collinear time reversal is not handled.** ``new_ns`` flips the spin index
+    of an operation that is a symmetry only together with time reversal
+    (``colin_mag == 2``, ``t_rev(isym) == 1``). No such operation can appear in
+    the benchmarks this is validated against -- their two magnetic sublattices
+    are different *species*, so nothing maps one to the other -- and building
+    the branch without a case that exercises it would be writing untested code.
+    A run whose symmetry group carries ``t_rev`` is refused where the setup is
+    built rather than silently symmetrised without the flip. **The spinor branch
+    has no such hole**: ``spin_rotations`` carries the ``i sigma_y D*`` twist a
+    time-reversed operation needs, because a spinor ``ns`` keeps both spin
+    indices and the twist acts on them rather than permuting two channels.
+    """
+    from defuqumat.paw.symmetry import harmonic_rotations
+    from defuqumat.system.symmetry import atom_mapping, spin_rotations
+
+    if setup is None or symmetries is None or symmetries.nsym <= 1:
+        return None
+
+    lmax = max(setup.species[t].l for t in setup.types)
+    rotations = harmonic_rotations(cell, symmetries, lmax)
+    mapping = atom_mapping(cell, structure, symmetries)
+    slot_of_atom = {atom: slot for slot, atom in enumerate(setup.atoms)}
+
+    operators, sources, groups, ldims = [], [], [], []
+    for t in sorted(set(setup.types)):
+        slots = [slot for slot, kind in enumerate(setup.types) if kind == t]
+        l = setup.species[t].l
+        ldim = 2 * l + 1
+        # ``D[s, i, k]`` here has ``d_matrix.f90``'s own index order -- it is
+        # built the same way and comes out the same matrix -- so the contraction
+        # below is ``D ns D^T`` where ``new_ns.f90`` writes ``d(m0,m1) *
+        # nr(m0,m00) * d(m00,m2)``, which is ``D^T ns D``. The two agree once
+        # the atom is taken from the *inverse* permutation: ``D`` is orthogonal,
+        # so ``D_s^T = D_{s^-1}``, and summing over the group with ``irt(s^-1,
+        # na)`` beside ``D_s`` is QE's sum re-indexed by ``s -> s^-1``.
+        d = np.asarray(rotations[l])
+        operators.append(jnp.asarray(np.einsum("sik,sjl->sikjl", d, d)))
+        position = {slot: n for n, slot in enumerate(slots)}
+        inverse = np.zeros((symmetries.nsym, len(slots)), dtype=int)
+        for s in range(symmetries.nsym):
+            for n, slot in enumerate(slots):
+                image = position[slot_of_atom[int(mapping[s, setup.atoms[slot]])]]
+                inverse[s, image] = n
+        sources.append(jnp.asarray(inverse))
+        groups.append(jnp.asarray(slots))
+        ldims.append(ldim)
+
+    spin = time_reversed = None
+    if setup.noncolin:
+        matrices = spin_rotations(cell, symmetries)  # (nsym, 2, 2)
+        spin = jnp.asarray(
+            np.einsum("sac,sbd->sabcd", matrices, matrices.conj())
+            .reshape(symmetries.nsym, 4, 4)
+        )
+        time_reversed = jnp.asarray(
+            np.asarray(symmetries.t_rev_array()) == 1
+        )
+
+    return NsSymmetry(
+        operators=tuple(operators),
+        sources=tuple(sources),
+        slots=tuple(groups),
+        ldims=tuple(ldims),
+        nsym=symmetries.nsym,
+        shape=(setup.nslot, setup.ldmx),
+        spin=spin,
+        time_reversed=time_reversed,
+    )
+
+
+def ns_components(setup, nspin: int) -> int:
+    """The size of ``ns``'s leading axis: 4 for a spinor, ``nspin`` otherwise.
+
+    Not the same number as ``nspin_mag``, and deliberately not derived from it:
+    a spinor DFT+U run measures all four spin components of the occupation
+    matrix whether or not the *density* carries a magnetization, because the
+    correction acts on the shell rather than on the density.
+    """
+    return 4 if setup.noncolin else nspin
+
+
+def ns_shape(setup, nspin: int) -> tuple[int, int, int, int]:
+    """``(nspin, nslot, ldmx, ldmx)`` -- what a ``starting_ns`` has to be.
+
+    One slot per *correlated* atom, not per atom, and manifolds of different
+    ``l`` zero-padded to the largest, so the shape is not something to guess
+    from the structure. :attr:`~defuqumat.scf.Calculation.hubbard` carries the
+    slot-to-atom map.
+    """
+    return (ns_components(setup, nspin), setup.nslot, setup.ldmx, setup.ldmx)
+
+
+def uniform_ns(setup, nspin: int, occupation=None) -> jnp.ndarray:
+    """A diagonal starting ``ns`` with every orbital of every channel equal.
+
+    This is the *orbitally and spin unpolarised* start: the reference occupation
+    of each manifold spread evenly over its ``2l+1`` orbitals and its channels.
+    It is what ``init_ns`` already produces for a species with no starting
+    magnetization, made available for one that has one -- which is the case that
+    cannot be reached any other way, since ``init_ns`` reads Hund's rule off the
+    magnetization rather than off a request.
+
+    The value written is ``occupation / 2 / (2l+1)`` per orbital *per channel*
+    for either ``nspin``, which is ``init_ns``'s own unpolarised branch.
+
+    ``occupation`` overrides the reference occupation, as a scalar for every
+    manifold or one value per slot. It is *not* clamped to ``[0, 2l+1]``: a
+    deliberately over- or under-filled start is a legitimate way to look for
+    another solution, and silently correcting it would hide the request.
+    """
+    shape = ns_shape(setup, nspin)
+    ns = np.zeros(shape)
+    values = None if occupation is None else np.atleast_1d(np.asarray(occupation, dtype=float))
+    for slot, t in enumerate(setup.types):
+        item = setup.species[t]
+        total = item.occupation if values is None else float(
+            values[slot] if values.size > 1 else values[0]
+        )
+        for spin in range(nspin):
+            for m in range(item.ldim):
+                # ``/ 2`` and not ``/ nspin``: ``ns`` is *per spin channel* even
+                # when there is one of them -- ``new_ns`` halves it for
+                # ``nspin = 1`` and the energy carries the factor of two instead
+                # (P20's third trap). ``init_ns`` writes the same ``total / 2``
+                # here, and dividing by ``nspin`` would silently double the
+                # unpolarized start.
+                ns[spin, slot, m, m] = total / 2.0 / item.ldim
+    return jnp.asarray(ns)
+
+
+def spin_averaged_ns(ns) -> jnp.ndarray:
+    """The same occupation matrix in both channels, preserving the total.
+
+    The spin-symmetric neighbour of a given ``ns``: it keeps whatever *orbital*
+    structure the input has and removes only the *spin* polarisation, which is
+    what a run aimed at the non-magnetic solution of a magnetic system wants as
+    a start. For ``nspin = 1`` it is the identity.
+    """
+    ns = jnp.asarray(ns)
+    if ns.shape[0] == 1:
+        return ns
+    return jnp.broadcast_to(jnp.mean(ns, axis=0, keepdims=True), ns.shape)
+
+
+def spinor_ns_components(ns):
+    """``(total, m)`` of a packed spinor ``ns`` -- charge and the Pauli vector.
+
+    The occupation matrix's counterpart of
+    :func:`~defuqumat.scf.continuation.spin_components`, one axis out: a density
+    at ``nspin_mag = 4`` is already stored on the Pauli basis, while ``ns`` is
+    stored as the four *spin pairs* of the matrix itself, so the decomposition
+    has to be done rather than read off.
+
+    ``total`` is ``Tr_spin rho = n_uu + n_dd`` and ``m`` is
+    ``(3, nslot, ldmx, ldmx)`` with ``m_a = Tr_spin(sigma_a rho)``, both of them
+    orbital matrices. **The packed pair is not the density matrix's index
+    order** -- ``ns[2 s1 + s2]`` is ``rho[s2, s1]``, which is the trap
+    :func:`initial_ns_noncollinear` documents at length -- so ``m_y`` is
+    ``i (ns[2] - ns[1])`` and not the other sign. This function and
+    :func:`spinor_ns_from_components` are the only two places that rule is
+    written, which is the point of having them.
+    """
+    ns = jnp.asarray(ns)
+    if ns.shape[0] != 4:
+        raise ValueError(
+            f"a spinor ns has 4 spin components and this one has {ns.shape[0]}")
+    # rho[0, 0], rho[1, 0], rho[0, 1], rho[1, 1]
+    uu, du, ud, dd = ns[0], ns[1], ns[2], ns[3]
+    return uu + dd, jnp.stack([du + ud, 1j * (ud - du), uu - dd])
+
+
+def spinor_ns_from_components(total, magnetization):
+    """The inverse of :func:`spinor_ns_components`: ``(n/2) I + (m/2) sigma``.
+
+    ``magnetization`` broadcasts against ``total``, so a single axis times a
+    scalar field is as good an argument as a full ``(3, ...)`` one.
+    """
+    total = jnp.asarray(total)
+    moment = jnp.broadcast_to(jnp.asarray(magnetization),
+                              (3,) + jnp.shape(total))
+    dtype = jnp.result_type(total, moment, 1j)
+    half = 0.5 * total.astype(dtype)
+    along = 0.5 * moment.astype(dtype)
+    # **Written out rather than conjugated.** ``m_x`` and ``m_y`` are themselves
+    # *orbital* matrices, Hermitian rather than real, so ``conj(m_x + i m_y)``
+    # is the transpose of the block that is wanted and not the block.
+    # ``ns[2 s1 + s2] = rho[s2, s1]``: index 1 is rho[1, 0], index 2 is rho[0, 1].
+    return jnp.stack([half + along[2], along[0] + 1j * along[1],
+                      along[0] - 1j * along[1], half - along[2]])
+
+
+def initial_ns_noncollinear(
+    setup, starting_magnetization, angle1, angle2, per_atom=None
+) -> jnp.ndarray:
+    """``init_ns``'s spinor form: Hund's rule, along the species' own direction.
+
+    The collinear routine fills the majority channel first and spreads the rest
+    over the minority one. Here the same two numbers are the eigenvalues of a
+    2x2 matrix whose axis is the direction ``angle1``/``angle2`` name, so the
+    starting occupation matrix has off-diagonal spin blocks from the first
+    iteration. **That matters more than in a collinear run**: nothing in the SCF
+    turns a moment, so a spinor DFT+U run started with a moment along ``z`` on a
+    species whose ``angle1`` points elsewhere converges with the shell polarised
+    along the wrong axis and reports success.
+
+    ``per_atom`` is the ``(nat, 3)`` ``STARTING_MOMENTS`` field in Bohr
+    magnetons, and when it is given **the axis is taken per slot** rather than
+    per species. Without it a texture on one species -- a helix, a cycloid, a
+    two-sublattice antiferromagnet written with one label -- started every
+    correlated site of that species pointing the *same* way, while the charge
+    density carried the texture: iteration 1 then contradicted itself, and the
+    U term is the strongest thing in the first Hamiltonian for exactly the
+    transition-metal magnets that need one. Noncollinear DFT+U is forced to
+    ``nosym``, so the starting matrix is the only steering there is.
+
+    The sign is carried by the axis and not by a swap of the two fillings. A
+    moment of ``-m`` along ``z`` is ``+m`` along ``-z``, which is the same
+    state; doing both would undo it.
+    """
+    # Plural, because ``total`` and ``moment`` are this loop's own per-species
+    # scalars: these are the whole field, one entry per slot and orbital.
+    charges = np.zeros((setup.nslot, setup.ldmx, setup.ldmx))
+    moments = np.zeros((3, setup.nslot, setup.ldmx, setup.ldmx))
+    magnetization = np.asarray(starting_magnetization, dtype=float)
+    theta = np.deg2rad(np.asarray(angle1, dtype=float))
+    phi = np.deg2rad(np.asarray(angle2, dtype=float))
+    textured = None if per_atom is None else np.asarray(per_atom, dtype=float)
+    for slot, t in enumerate(setup.types):
+        item = setup.species[t]
+        ldim, total = item.ldim, item.occupation
+        if textured is None:
+            moment = magnetization[t] if t < len(magnetization) else 0.0
+            vector = None
+        else:
+            vector = textured[setup.atoms[slot]]
+            moment = float(np.linalg.norm(vector))
+        if total > ldim:
+            major, minor = 1.0, (total - ldim) / ldim
+        else:
+            major, minor = total / ldim, 0.0
+        if moment == 0.0:
+            major = minor = total / 2.0 / ldim
+        elif vector is None and moment < 0.0:
+            # Per species there is no axis to carry the sign, so the two
+            # fillings swap. With a per-atom vector the axis carries it.
+            major, minor = minor, major
+        if vector is not None and moment > 0.0:
+            axis = vector / moment
+        else:
+            axis = np.array([
+                np.sin(theta[t]) * np.cos(phi[t]),
+                np.sin(theta[t]) * np.sin(phi[t]),
+                np.cos(theta[t]),
+            ]) if t < len(theta) else np.array([0.0, 0.0, 1.0])
+        # The two fillings are the eigenvalues of ``(n/2) I + (m/2) sigma . n``,
+        # so what this loop writes is that charge and that moment; the block
+        # itself, and the packed-pair order it goes into, are
+        # :func:`spinor_ns_from_components`'s. **That order is the trap**: the
+        # entry at ``2 s1 + s2`` is ``rho[s2, s1]`` and not ``rho[s1, s2]``,
+        # because ``new_ns_nc`` accumulates
+        # ``conj(proj(m1, is1)) proj(m2, is2)``, which is
+        # ``<phi_{is2}| rho |phi_{is1}>`` -- the first label is the *ket*.
+        # Transposing a Hermitian block conjugates it, so getting it backwards
+        # leaves the charge, ``m_x`` and ``m_z`` untouched and seeds ``m_y``
+        # with the **opposite sign**, a starting texture that is a mirror image
+        # of the one asked for in one component only. It is written once, in
+        # that function, so this routine and the promotion in
+        # :mod:`defuqumat.scf.continuation` cannot disagree about it.
+        for m in range(ldim):
+            charges[slot, m, m] = major + minor
+            moments[:, slot, m, m] = (major - minor) * axis
+    return spinor_ns_from_components(charges, moments)
+
+
+def initial_ns(setup, nspin: int, starting_magnetization, per_atom=None) -> jnp.ndarray:
+    """``init_ns``: the starting occupation matrix, diagonal, from Hund's rule.
+
+    Majority-spin levels are filled first and the remainder is spread equally
+    over the minority ones; a species with no starting magnetization gets half
+    the reference occupation in each channel. The result is what the first
+    Hubbard potential is built from, and for a magnetic insulator it is what
+    decides which of several self-consistent solutions the run finds.
+
+    ``per_atom`` is the ``(nat,)`` z-moment of a ``STARTING_MOMENTS`` card, and
+    when it is given **only its sign per slot is used** -- the same Hund's-rule
+    filling, majority in whichever channel the card points at. Without it a
+    one-species antiferromagnet, which is now expressible and now converges,
+    would start every correlated site polarised the *same* way while the charge
+    carried the staggered moment.
+    """
+    ns = np.zeros((nspin, setup.nslot, setup.ldmx, setup.ldmx))
+    magnetization = np.asarray(starting_magnetization, dtype=float)
+    textured = None if per_atom is None else np.asarray(per_atom, dtype=float)
+    for slot, t in enumerate(setup.types):
+        item = setup.species[t]
+        ldim, total = item.ldim, item.occupation
+        if textured is None:
+            moment = magnetization[t] if t < len(magnetization) else 0.0
+        else:
+            moment = float(textured[setup.atoms[slot]])
+        if nspin == 2 and moment != 0.0:
+            major, minor = (0, 1) if moment > 0.0 else (1, 0)
+            if total > ldim:
+                for m in range(ldim):
+                    ns[major, slot, m, m] = 1.0
+                    ns[minor, slot, m, m] = (total - ldim) / ldim
+            else:
+                for m in range(ldim):
+                    ns[major, slot, m, m] = total / ldim
+        else:
+            for spin in range(nspin):
+                for m in range(ldim):
+                    ns[spin, slot, m, m] = total / 2.0 / ldim
+    return jnp.asarray(ns)
+
+
+def adjust_ns(ns: jnp.ndarray, setup) -> jnp.ndarray:
+    """``ns_adj``: replace the eigenvalues of ``ns`` by the ones asked for.
+
+    ``starting_ns_eigenvalue(m, ispin, ityp)`` names one eigenvalue of one
+    channel of one species. The matrix is diagonalised, the named eigenvalues
+    are overwritten, and it is rebuilt from the *original* eigenvectors -- so
+    the orbital that the level belongs to is whatever the starting matrix says
+    it is, which for the diagonal starting matrix of :func:`initial_ns` is one
+    of the ``m`` states in the file's order.
+    """
+    if not setup.starting_ns:
+        return ns
+    values = np.array(ns)
+    for slot, t in enumerate(setup.types):
+        ldim = setup.ldims[slot]
+        for spin in range(values.shape[0]):
+            requested = {
+                m: value for (kind, ispin, m), value in setup.starting_ns.items()
+                if kind == t and ispin == spin and m < ldim
+            }
+            if not requested:
+                continue
+            block = values[spin, slot, :ldim, :ldim]
+            eigenvalues, vectors = np.linalg.eigh(block)
+            for m, value in requested.items():
+                if value >= 0.0:
+                    eigenvalues[m] = value
+            values[spin, slot, :ldim, :ldim] = (
+                vectors * eigenvalues
+            ) @ vectors.conj().T
+    return jnp.asarray(values)

@@ -12,7 +12,7 @@ whether XLA's CPU runtime runs the devices' shares at once. Prints the warm
 time on ``D`` devices and on one device with the same mask, and the largest
 difference between the two results, which must be zero.
 
-Set ``DEFUMAT_THREADS=off`` and pin the mask with ``taskset`` before Python
+Set ``DEFUQUMAT_THREADS=off`` and pin the mask with ``taskset`` before Python
 starts; the device count has to be set before JAX is imported, which this
 script does from its argument.
 """
@@ -37,10 +37,10 @@ import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 from jax.sharding import Mesh, NamedSharding, PartitionSpec  # noqa: E402
 
-from defumat.io.pwin import read_pw_input  # noqa: E402
-from defumat.pseudo import read_upf  # noqa: E402
-from defumat.scf.driver import Calculation  # noqa: E402
-from defumat.system import build_system  # noqa: E402
+from defuqumat.io.pwin import read_pw_input  # noqa: E402
+from defuqumat.pseudo import read_upf  # noqa: E402
+from defuqumat.scf.driver import Calculation  # noqa: E402
+from defuqumat.system import build_system  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 

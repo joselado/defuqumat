@@ -2,15 +2,15 @@
 
 Two comparisons, each an identity rather than an agreement:
 
-* the iterative hierarchy of :mod:`defumat.realtime.hierarchy` against
-  :func:`~defumat.realtime.dense.dense_orders` with every band of the sphere, on
+* the iterative hierarchy of :mod:`defuqumat.realtime.hierarchy` against
+  :func:`~defuqumat.realtime.dense.dense_orders` with every band of the sphere, on
   zincblende AlAs at 4 Ry at Gamma and a general point, all five components of
   orders one to three at three frequencies, and the result unchanged when the
   projector on the computed bands holds half as many;
 * the spectrum's second and third orders against the real-time route's at one
   frequency, which shares the table of the projectors and nothing of the solve;
 * the first order with the induced potential, self-consistent, against the dense
-  self-consistent solve of :func:`~defumat.realtime.dense.dense_first_order`, and
+  self-consistent solve of :func:`~defuqumat.realtime.dense.dense_first_order`, and
   its static shift against the Sternheimer stack's.
 
 ``PLAN.md`` P137 has the measurements.
@@ -26,15 +26,15 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.dense import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.dense import (
     dense_first_order, dense_ground_states, dense_hamiltonians, dense_orders)
-from defumat.realtime.hierarchy import (
+from defuqumat.realtime.hierarchy import (
     HierarchyError, hierarchy_linear_self_consistent, hierarchy_orders)
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -60,7 +60,7 @@ def _dense_cell(pseudo_dir, case, ecut, computed):
     """
     text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", f"ecutwfc = {ecut}",
                   (CASES / f"{case}.in").read_text())
-    path = Path("/tmp") / f"defumat-hierarchy-{case}-{ecut}.in"
+    path = Path("/tmp") / f"defuqumat-hierarchy-{case}-{ecut}.in"
     path.write_text(text)
     system = build_system(read_pw_input(path))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -152,7 +152,7 @@ def test_the_spectrum_is_the_propagation_at_one_frequency(pseudo_dir, tmp_path):
     frequency, the fixed-density solve included, and the propagation 302 s at
     400 steps a period (four of this workstation's efficiency cores).
     """
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     text = (CASES / "alas-shg.in").read_text()
     text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", "ecutwfc = 6.0", text)
@@ -219,7 +219,7 @@ def test_the_self_consistent_static_shift_is_the_sternheimer_shift(pseudo_dir):
     -0.883446 - 0.0018i against -2.120012 and -0.883444, **8e-6 and 2e-6**,
     what ``|z|^2`` over the gap squared leaves at that frequency and less.
     """
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     calculator = Calculator.from_file(CASES / "si2-symmetric.in", pseudo_dir=pseudo_dir,
                                       announce=False)
@@ -237,7 +237,7 @@ def test_the_self_consistent_static_shift_is_the_sternheimer_shift(pseudo_dir):
 
 
 def test_the_updated_potential_above_first_order_is_refused(pseudo_dir):
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     calculator = Calculator.from_file(CASES / "si2-symmetric.in", pseudo_dir=pseudo_dir,
                                       announce=False)

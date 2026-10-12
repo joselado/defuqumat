@@ -13,7 +13,7 @@ independent ways, all of which this file now pins:
    ``regterg`` overlaps, and the augmentation charge its ``fact = 2``. Silicon
    at ``K_POINTS gamma`` did not even reach that -- it failed in the symmetry
    maps, since rotating a stored half-sphere G lands on one that is not stored.
-   :func:`defumat.scf.driver._without_gamma_storage` now substitutes an
+   :func:`defuqumat.scf.driver._without_gamma_storage` now substitutes an
    explicit k = 0 with the full sphere, which is the same physics at twice the
    storage, and says so.
 2. **The old Vanderbilt augmentation format was refused.** Every ``rrkjus``
@@ -39,11 +39,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
 from tests.conftest import reference_output
 from tests.tolerances import (
     EIGENVALUE_EV,
@@ -146,7 +146,7 @@ def test_gamma_storage_is_substituted_rather_than_used(qe_testsuite, pseudo_dir)
     cubic box with its full point group, and a rotation carries a stored ``G``
     onto an unstored ``-G'``. ``gamma_storage_is_consumable`` is the rule.
     """
-    from defumat.scf.driver import Calculation
+    from defuqumat.scf.driver import Calculation
 
     system = build_system(read_pw_input(qe_testsuite / "pw_atom" / "atom.in"))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -164,7 +164,7 @@ def test_gamma_storage_is_substituted_rather_than_used(qe_testsuite, pseudo_dir)
     # wavefunction sphere halves under gamma storage (``build_basis``), so the
     # dense G list is the same either way and it is ``npwx`` that carries the
     # factor -- exactly twice the half sphere less the ``G = 0`` they share.
-    from defumat.basis.builder import build_basis
+    from defuqumat.basis.builder import build_basis
 
     halved = build_basis(system)
     assert halved.planewaves.gamma_only

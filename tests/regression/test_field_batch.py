@@ -1,8 +1,8 @@
 """The three field directions solved as one CG loop against one at a time.
 
-``DEFUMAT_FIELD_BATCH`` (:func:`~defumat.batching.resolve_field_batch`) makes
+``DEFUQUMAT_FIELD_BATCH`` (:func:`~defuqumat.batching.resolve_field_batch`) makes
 the field response ``vmap`` its Sternheimer CG over the three directions
-(:meth:`~defumat.response.sternheimer.SternheimerSolver.solve_many`), the
+(:meth:`~defuqumat.response.sternheimer.SternheimerSolver.solve_many`), the
 default on a card, where it divides the launches and the host reads of the
 loop condition by three. Each band of each direction keeps its own convergence
 flag, so the claim is the serial answer to round-off and the same CG counts,
@@ -21,8 +21,8 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.response.efield import dielectric_tensor
+from defuqumat import Calculator
+from defuqumat.response.efield import dielectric_tensor
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -69,9 +69,9 @@ def test_the_batched_directions_are_the_serial_ones(case, k_batch, streamed,
     calculation, result = _converged(case, k_batch)
     store = (np.asarray(result.wavefunctions) if streamed
              else result.wavefunctions)
-    monkeypatch.setenv("DEFUMAT_FIELD_BATCH", "0")
+    monkeypatch.setenv("DEFUQUMAT_FIELD_BATCH", "0")
     serial = _response(calculation, result, store)
-    monkeypatch.setenv("DEFUMAT_FIELD_BATCH", "1")
+    monkeypatch.setenv("DEFUQUMAT_FIELD_BATCH", "1")
     batched = _response(calculation, result, store)
 
     np.testing.assert_allclose(batched.epsilon, serial.epsilon, rtol=0,
@@ -93,7 +93,7 @@ def test_a_second_whole_k_born_call_compiles_nothing(monkeypatch):
     the constraint sandwich, once per atom and direction (18). The walked route
     had none, which is why the card did not show it.
     """
-    monkeypatch.setenv("DEFUMAT_FIELD_BATCH", "0")
+    monkeypatch.setenv("DEFUQUMAT_FIELD_BATCH", "0")
     calculation, result = _converged(*CASES[0])
     _response(calculation, result, result.wavefunctions)
 

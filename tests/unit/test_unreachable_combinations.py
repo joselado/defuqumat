@@ -32,11 +32,11 @@ import warnings
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.scf.driver import Calculation
-from defumat.scf.occupations import fixed_occupations
-from defumat.scf.residual import make_residual
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.occupations import fixed_occupations
+from defuqumat.scf.residual import make_residual
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -66,7 +66,7 @@ def _system(extra: str = ""):
 
 
 def _calculation(pseudo_dir, extra: str = ""):
-    from defumat.pseudo import read_upf
+    from defuqumat.pseudo import read_upf
 
     system = _system(extra)
     pseudos = tuple(
@@ -80,7 +80,7 @@ def _calculation(pseudo_dir, extra: str = ""):
 
 def test_the_calculator_reaches_the_band_velocities():
     """A ``get_*`` for every entry point, which is CLAUDE.md's own rule."""
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     assert hasattr(Calculator, "get_band_velocities")
     parameters = inspect.signature(Calculator.get_band_velocities).parameters
@@ -89,7 +89,7 @@ def test_the_calculator_reaches_the_band_velocities():
 
 def test_the_band_velocity_facade_is_a_delegation_and_not_a_computation():
     """The facade rule: one call out, no physics of its own."""
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     # The docstring is prose; what must be a delegation is the *code*, so the
     # statements are read off the parse tree with the docstring dropped.
@@ -110,8 +110,8 @@ def test_the_band_velocities_forward_the_whole_mixed_state():
     ``field_scale`` since the previous pass; forwarding one of them and not the
     rest is the same defect ``run_dos`` and ``run_pdos`` were fixed for.
     """
-    from defumat.response.velocity import band_velocities
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.response.velocity import band_velocities
+    from defuqumat.workflows.nscf import fixed_density_states
 
     accepted = set(inspect.signature(fixed_density_states).parameters)
     body = inspect.getsource(band_velocities)
@@ -128,8 +128,8 @@ def test_paw_band_velocities_on_a_path_run(pseudo_dir):
     one-centre coefficients cannot be rebuilt from the density -- so this call
     used to stop on that refusal with no argument that could satisfy it.
     """
-    from defumat.calculator import Calculator
-    from defumat.system.kpoints import KPoints
+    from defuqumat.calculator import Calculator
+    from defuqumat.system.kpoints import KPoints
 
     paw = _SILICON.format(extra="").replace(
         "Si.pz-vbc.UPF", "Si.pz-n-kjpaw_psl.0.1.UPF"
@@ -183,8 +183,8 @@ def test_the_thomas_fermi_guess_scales_by_nspin_mag(pseudo_dir):
     ``|2 rho|^(5/3) / 2`` applied to a *total* density is too large by
     ``2^(2/3)``, which is what a nonmagnetic spin-orbit run was started from.
     """
-    from defumat.scf.driver import _starting_tau
-    from defumat.xc.mgga import thomas_fermi_tau
+    from defuqumat.scf.driver import _starting_tau
+    from defuqumat.xc.mgga import thomas_fermi_tau
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -205,7 +205,7 @@ def test_a_continued_run_compares_tau_against_the_densitys_shape():
     spin-orbit run, and the fallback -- Thomas-Fermi -- costs iterations and
     says nothing.
     """
-    from defumat.scf import driver
+    from defuqumat.scf import driver
 
     source = inspect.getsource(driver.run_scf)
     assert "expected = tuple(np.shape(calculation.starting_density()))" in source
@@ -353,7 +353,7 @@ def test_a_channel_needing_more_bands_than_were_computed_is_named():
 
 def test_the_residual_solver_forwards_the_channel_counts(pseudo_dir):
     """The sibling path: ``residual.py`` mirrors the driver's dispatch."""
-    from defumat.scf import residual as residual_module
+    from defuqumat.scf import residual as residual_module
 
     source = inspect.getsource(residual_module._weights)
     fixed = source.split('if scheme == "fixed"')[1].split("counts =")[0]
@@ -383,7 +383,7 @@ def test_block_matrix_leaves_a_species_without_augmentation_at_zero():
     """
     import types
 
-    from defumat.pseudo.augmentation import AugmentationCharge
+    from defuqumat.pseudo.augmentation import AugmentationCharge
 
     table = types.SimpleNamespace(
         nkb=5, channel_offsets=(0, 3), species_atoms=((0,), (1,)))
@@ -432,8 +432,8 @@ def test_a_paw_dataset_beside_a_norm_conserving_one_runs(pseudo_dir):
     to **1.4e-14 Ry** and **1.4e-15 Ry/bohr**. So the two-species layout is
     exact and the 1.15e-5 is the norm-conserving species' own contribution.
     """
-    from defumat.calculator import Calculator
-    from defumat.io.qeref import read_qe_output
+    from defuqumat.calculator import Calculator
+    from defuqumat.io.qeref import read_qe_output
 
     cases = pathlib.Path(__file__).resolve().parents[1] / "data" / "qe"
     reference = read_qe_output(cases / "reference.out.si2-paw-nc")

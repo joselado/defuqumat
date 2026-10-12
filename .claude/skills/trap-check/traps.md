@@ -73,7 +73,7 @@ plausible wrong answer rather than an error. `PLAN.md` has the phase that found 
   results that are real, non-negative, correctly symmetric and wrong (P54, P66).
 - **An `nspin = 2` screening kernel is not finite where a channel density reaches zero**,
   which a cell with vacuum guarantees. That is the `abs` trap one derivative further out,
-  it lives in `defumat/xc`, and clipping inside the response does not fix it (P45).
+  it lives in `defuqumat/xc`, and clipping inside the response does not fix it (P45).
 - **Inherit a refusal only after checking which machine it belongs to.** P35's refusal is a
   statement about the Sternheimer stack and never applied to a sum over states; taking it
   as read left a whole quantity marked impossible (P54).
@@ -189,7 +189,7 @@ plausible wrong answer rather than an error. `PLAN.md` has the phase that found 
   below. **When the old commit passes, it can still be the test**: a bound read off the one
   rounding pattern that happened to land well passes there and nowhere else, and the
   falsifier is the old commit under a dial documented as moving results only at round-off
-  (`DEFUMAT_K_BATCH=2`, `DEFUMAT_RADIAL_CHUNK`). Three tests failed on a change that moved
+  (`DEFUQUMAT_K_BATCH=2`, `DEFUQUMAT_RADIAL_CHUNK`). Three tests failed on a change that moved
   only the last bit of the radial transforms (2026-10-03, two in `test_piezoelectric.py`, one
   in `test_streamed_strain.py`); master passed all three, and failed all three under such a
   dial -- an AlAs density converged at `conv_thr = 1e-12` to about 1e-8 had been asserted
@@ -248,7 +248,7 @@ plausible wrong answer rather than an error. `PLAN.md` has the phase that found 
   static and its arrays as arguments. **The third site was the whole response stack**, whose
   closures carry a callable (a perturbation) and so have no static argument to key on: a second
   dielectric tensor on one-k-point silicon compiled 127 programs. Such a site goes through
-  `defumat.eager.compiled`, which keys on the traced structure with the arrays hoisted, and a
+  `defuqumat.eager.compiled`, which keys on the traced structure with the arrays hoisted, and a
   `jax.jvp` at the top level is wrapped whole so the kept program is the derivative itself.
   **The check is a second call that compiles nothing**:
   `jax_log_compiles` with a handler on the `jax` logger, which sees them where `jax._src.dispatch`

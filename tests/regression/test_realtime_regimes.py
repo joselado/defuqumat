@@ -33,15 +33,15 @@ import numpy as np
 import pytest
 import scipy.linalg as sla
 
-from defumat import Calculator
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.orders import propagate_orders
-from defumat.realtime.pulse import Kick
-from defumat.realtime.spectra import conductivity_from_kick
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints, for_spin
+from defuqumat import Calculator
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.orders import propagate_orders
+from defuqumat.realtime.pulse import Kick
+from defuqumat.realtime.spectra import conductivity_from_kick
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints, for_spin
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -86,11 +86,11 @@ def test_the_first_order_is_the_kubo_sum_plus_the_band_curvature(pseudo_dir, tmp
     Hartree, ``dt = 0.05``, the first order of a kick through the step in
     ``kappa`` the augmented states cross. The dense generalised eigenproblem
     gives every state of the sphere to the resolvent sum, whose velocity is
-    :meth:`~defumat.response.velocity.VelocityOperator.generalised_matrix_elements`,
+    :meth:`~defuqumat.response.velocity.VelocityOperator.generalised_matrix_elements`,
     and ``D`` is a second difference of the occupied generalised eigenvalues.
     """
-    from defumat.response.conductivity import _resolvent_sum
-    from defumat.response.velocity import VelocityOperator
+    from defuqumat.response.conductivity import _resolvent_sum
+    from defuqumat.response.velocity import VelocityOperator
 
     system = build_system(read_pw_input(_input(tmp_path, case, ecut, ecutrho)))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -201,9 +201,9 @@ def test_a_collinear_magnet_written_as_spinors_is_itself(pseudo_dir, tmp_path):
     the induced potential 3.2e-12 (Hartree) and 2.5e-12 (adiabatic LSDA), where
     the update moves the current by 2.4 and 3.4 per cent.
     """
-    from defumat.realtime.hierarchy import hierarchy_linear_self_consistent, hierarchy_orders
-    from defumat.realtime.pulse import EV_TO_HA
-    from defumat.workflows.realtime import _kset, _solved_states
+    from defuqumat.realtime.hierarchy import hierarchy_linear_self_consistent, hierarchy_orders
+    from defuqumat.realtime.pulse import EV_TO_HA
+    from defuqumat.workflows.realtime import _kset, _solved_states
 
     collinear = Calculator.from_file(
         _input(tmp_path, "alas-shg", 6.0, extra="nspin = 2, tot_magnetization = 2, "

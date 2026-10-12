@@ -8,10 +8,10 @@ All of these are in a **working state** (imports clean, tests run). Nothing is h
 
 | path | what changed |
 |---|---|
-| `defumat/transport/green.py` | new `spin_transmission(...)` (in `__all__`); module docstring gained the magnetic-tip paragraph; `VerticalTransport` gained `tip_spin` / `tip_polarization` fields |
-| `defumat/transport/substrate.py` | `spin_projector(direction, polarization, what="substrate")` -- only the error-message label is new |
-| `defumat/workflows/transport.py` | `run_vertical_transport(..., tip_spin=None, tip_polarization=1.0)`; new `_tip_acceptance`; `_collinear_acceptance(..., what=)`; new `_label`; `_assemble` takes the two new arguments and branches on `tip_projector`; a second "identically zero" warning for two opposed fully polarized leads (`open_path`) |
-| `defumat/calculator.py` | `get_vertical_transport` docstring only (the options pass through `_call_options` untouched -- verified, it filters by the callee's signature) |
+| `defuqumat/transport/green.py` | new `spin_transmission(...)` (in `__all__`); module docstring gained the magnetic-tip paragraph; `VerticalTransport` gained `tip_spin` / `tip_polarization` fields |
+| `defuqumat/transport/substrate.py` | `spin_projector(direction, polarization, what="substrate")` -- only the error-message label is new |
+| `defuqumat/workflows/transport.py` | `run_vertical_transport(..., tip_spin=None, tip_polarization=1.0)`; new `_tip_acceptance`; `_collinear_acceptance(..., what=)`; new `_label`; `_assemble` takes the two new arguments and branches on `tip_projector`; a second "identically zero" warning for two opposed fully polarized leads (`open_path`) |
+| `defuqumat/calculator.py` | `get_vertical_transport` docstring only (the options pass through `_call_options` untouched -- verified, it filters by the callee's signature) |
 | `tests/unit/test_transport_machinery.py` | +9 tests, 40 pass |
 | `tests/regression/test_transport.py` | +5 tests, `_magnet(kind)` `lru_cache(maxsize=2)` helper, `MAGNETS` |
 | `tests/data/qe/h-sheet-noncolin.in` | **new, untracked**: the committed magnetic spinor sheet |
@@ -74,7 +74,7 @@ every call to report what two calls already give.
 ## Exactly which sections of the shared documents were changed
 
 Another agent is working in this tree at the same time (`ELK-P72-CHECKPOINT.md`,
-`defumat/io/elk.py`, `defumat/io/elk_density.py`, `tests/data/elk/h_sc/` are
+`defuqumat/io/elk.py`, `defuqumat/io/elk_density.py`, `tests/data/elk/h_sc/` are
 theirs, not mine) and may have touched the same four files. These are the only
 places this work edited, so the two sets reconcile without reading the whole diff.
 
@@ -178,7 +178,7 @@ The notebook is finished and exported. What remains, in order:
   therefore has to have `m_y != 0`**, which is why `h-sheet-noncolin.in` puts the
   moment at `angle1 = 90, angle2 = 40` rather than along an axis. The existing
   spinor tests all use `angle1 = 90` alone and would have passed the wrong code.
-* `defumat/scf/density.py` uses `cross = conj(up) down`, `m_x = 2 Re`, `m_y = 2 Im`,
+* `defuqumat/scf/density.py` uses `cross = conj(up) down`, `m_x = 2 Re`, `m_y = 2 Im`,
   which is `psi^dag sigma psi`. That is what makes the Tersoff-Hamann comparison
   against `project_spin` exact; had it been the other sign the y-component would
   have flipped and the failure would have looked like this contraction's.

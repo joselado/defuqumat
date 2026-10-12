@@ -37,16 +37,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io import read_pdos_file, read_projwfc_output
-from defumat.io.pwin import read_pw_input
-from defumat.projwfc.channels import L_LABELS, M_LABELS
-from defumat.projwfc.projections import atomic_projections
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
-from defumat.units import RY_TO_EV
-from defumat.workflows.pdos import run_pdos
+from defuqumat.io import read_pdos_file, read_projwfc_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.projwfc.channels import L_LABELS, M_LABELS
+from defuqumat.projwfc.projections import atomic_projections
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
+from defuqumat.units import RY_TO_EV
+from defuqumat.workflows.pdos import run_pdos
 from tests.tolerances import LOWDIN_CHARGE, PDOS_RELATIVE, PROJECTION
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]

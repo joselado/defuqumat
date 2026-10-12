@@ -2,8 +2,8 @@
 
 ``HARMONICS-NEXT.md``'s ladder item 5. On zincblende AlAs at a cutoff chosen
 small for it and on the two k-points of ``tests/regression/test_realtime.py``,
-``J^(3)(t)`` from :func:`defumat.realtime.orders.propagate_orders` against the
-four-point stencil of full runs of :func:`defumat.realtime.propagate.propagate`
+``J^(3)(t)`` from :func:`defuqumat.realtime.orders.propagate_orders` against the
+four-point stencil of full runs of :func:`defuqumat.realtime.propagate.propagate`
 under ``kappa = lam exp(eta t) cos(w t) e`` at ``lam = +-h, +-2h``,
 
     J^(3) ~ ([J(2h) - J(-2h)] - 2 [J(h) - J(-h)]) / (12 h^3) = J^(3) + 5 h^2 J^(5) + ...,
@@ -33,16 +33,16 @@ import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 
-import defumat  # noqa: F401
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.dense import dense_ground_states, dense_hamiltonians
-from defumat.realtime.orders import fourier_component, propagate_orders
-from defumat.realtime.propagate import _prepare, propagate
-from defumat.realtime.pulse import Adiabatic
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+import defuqumat  # noqa: F401
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.dense import dense_ground_states, dense_hamiltonians
+from defuqumat.realtime.orders import fourier_component, propagate_orders
+from defuqumat.realtime.propagate import _prepare, propagate
+from defuqumat.realtime.pulse import Adiabatic
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 
 repo = Path(__file__).resolve().parents[2]
 ecut = float(sys.argv[1]) if len(sys.argv) > 1 else 4.0

@@ -3,7 +3,7 @@
 *Moved out of `CLAUDE.md` verbatim on 2026-10-08.*
 
 
-**The measurement is single-core defumat against single-core Quantum ESPRESSO on the
+**The measurement is single-core defuqumat against single-core Quantum ESPRESSO on the
 same machine and the same input.** That comparison is the starting point of any
 performance discussion, not a summary of one:
 
@@ -45,7 +45,7 @@ code is never like-for-like and a misleading ratio is worse than no ratio:
 - **Time the same work, not the same task number.** Codes split a calculation into
   post-processing steps differently — Elk's `dielectric` (task 121) reads momentum matrix
   elements off a file that `writepmat` (task 120) produced, so timing 121 alone against a
-  `defumat` call that *builds* `dH/dk` compares a contraction with a contraction plus its
+  `defuqumat` call that *builds* `dH/dk` compares a contraction with a contraction plus its
   operator. Add the steps up until both sides start from the same place, usually a
   converged ground state, and say which steps were added.
 
@@ -53,7 +53,7 @@ code is never like-for-like and a misleading ratio is worse than no ratio:
 number here.** They are the internal counterpart of the `ph.x` warm-scratch artefact.
 
 - **Never time a first call.** It includes compilation, and compilation here is served by
-  the on-disk kernel cache (`~/.cache/defumat/jax`, 4 GB and growing), so a first call
+  the on-disk kernel cache (`~/.cache/defuqumat/jax`, 4 GB and growing), so a first call
   times *whether the cache had that executable* — not the work. A first-call
   `get_stress()` read 8.68 s before a change and 16.09 s after, reproducibly; compiled,
   the two are the same to 0.5 per cent. Call it once to pay the compilation and time the
@@ -61,7 +61,7 @@ number here.** They are the internal counterpart of the `ph.x` warm-scratch arte
 - **A memory figure must say what the cache held, and it points the *other* way.** The
   same rule applies to `%M`, with the sign reversed: a cache **miss is cheaper in memory
   and dearer in time**, because loading a compiled executable expands it. On one spinor
-  PAW test, same code, alternating: **10.1 GB with `DEFUMAT_CACHE_DIR=off` against 16.4 GB
+  PAW test, same code, alternating: **10.1 GB with `DEFUQUMAT_CACHE_DIR=off` against 16.4 GB
   with the cache on**, 57 s against 37 s — a 603 MB cache entry worth 6.3 GB resident
   (`OPEN.md` Part I item 2). The corollary is sharper than the rule: **a bisection across
   commits is a bisection across cache states**, because every new code state is a miss.

@@ -1,6 +1,6 @@
 """The laboratory sphere a spin spiral keeps its transverse pair on (``OPEN.md`` Part XXI item 1).
 
-:func:`~defumat.basis.gvectors.displaced_gvectors` cuts ``{G : |G + shift| <= G_cut}``
+:func:`~defuqumat.basis.gvectors.displaced_gvectors` cuts ``{G : |G + shift| <= G_cut}``
 on the resident box, with the smooth sphere as its prefix. These are host-side
 checks of the set itself; whether the spiral then equals its unfolded supercell
 is ``tests/regression/test_spin_spirals_augmented.py``.
@@ -11,11 +11,11 @@ from functools import lru_cache
 import numpy as np
 import pytest
 
-from defumat.basis.builder import build_basis
-from defumat.basis.gvectors import GVectors, displaced_gvectors
-from defumat.io.pwin import parse_pw_input
-from defumat.system import build_system
-from defumat.system.spiral import spiral_cartesian
+from defuqumat.basis.builder import build_basis
+from defuqumat.basis.gvectors import GVectors, displaced_gvectors
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system import build_system
+from defuqumat.system.spiral import spiral_cartesian
 from tests.conftest import GENERATED
 
 
@@ -101,8 +101,8 @@ def test_a_box_that_would_fold_two_members_together_is_refused():
 
 def test_g_space_mixing_is_refused_on_a_magnetic_spiral(pseudo_dir):
     """``mixing_space = 'g'`` keeps every channel on the resident sphere, so a spiral refuses it."""
-    from defumat.pseudo import read_upf
-    from defumat.scf import run_scf
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf import run_scf
 
     system = build_system(parse_pw_input((GENERATED / "h-chain-spiral.in").read_text()))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)

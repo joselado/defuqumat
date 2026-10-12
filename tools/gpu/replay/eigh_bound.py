@@ -3,8 +3,8 @@ parked value at one above the Gershgorin bound of the reduced live block, or wit
 import json, os
 import numpy as np, scipy.linalg as sl
 import jax, jax.numpy as jnp
-import defumat
-import defumat.solvers.subspace as sub
+import defuqumat
+import defuqumat.solvers.subspace as sub
 cpu, dev = jax.devices("cpu")[0], jax.devices()[0]
 solve = jax.jit(lambda h, s: sub.generalised_eigh(h, s, robust=False)[0])
 z = np.load(os.environ.get("OUT", "eigh_captured") + ".npz")

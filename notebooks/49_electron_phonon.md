@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 aluminium = Calculator.from_file(CASES / "al-elph-nosym.in", PSEUDO, announce=False)

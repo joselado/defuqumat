@@ -1,0 +1,1791 @@
+"""The Sternheimer equation: the first-order wavefunctions, without a sum over states.
+
+The response of a Kohn-Sham state to a perturbation ``dV`` is, formally,
+
+    |dpsi_n> = sum_{m != n} |psi_m> <psi_m|dV|psi_n> / (eps_n - eps_m),
+
+which needs every empty state and divides by a gap that closes at every
+degeneracy. The Sternheimer form asks the same question as a linear system,
+
+    (H - eps_n S + alpha Q) |dpsi_n> = -P_c^+ dV |psi_n>,
+
+and answers it with a projected conjugate-gradient solve per occupied band. It
+needs no empty states at all, and it never divides by ``eps_n - eps_m`` -- which
+is rule D4's requirement, not a convenience: a crystal is degenerate everywhere
+by symmetry.
+
+``LR_Modules/cgsolve_all.f90`` (the solver), ``ch_psi_all.f90`` (the operator),
+``orthogonalize.f90`` (the projector), ``h_prec.f90`` (the preconditioner) and
+``setup_alpha_pv.f90`` (the level shift) are transcribed here. The Fortran's
+dynamic repacking of the unconverged bands becomes a **mask at a static shape**,
+following the same rule ``cegterg`` followed into
+:mod:`defuqumat.solvers.davidson`: a converged band stays in the block and takes a
+zero step.
+
+**What is not transcribed is everything the response is *of*.** The density is
+already written down once as a differentiable function of the states, and the
+nonlocal coefficients as one of the potential, so the quantities QE builds a
+routine apiece for are derivatives of code that exists:
+
+===============================================  ==========================================
+QE                                               here
+===============================================  ==========================================
+``incdrhoscf``, ``addusdbec``, ``lr_addusddens``  one ``jvp`` of the density w.r.t. the states
+``newdq``'s ``int3``, ``adddvscf``                one ``jvp`` of ``newd`` w.r.t. the potential
+``PAW_dpotential``                                one ``jvp`` of ``onecenter`` w.r.t. ``becsum``
+===============================================  ==========================================
+
+which is why **ultrasoft and PAW work here without a second implementation**.
+:meth:`SternheimerSolver.response_density` and :func:`local_perturbation` are
+those three lines and the bookkeeping around them.
+
+**What ``alpha Q`` is for, and why it is kept even though the right-hand side is
+already projected.** ``Q = alpha_pv S P_occ S`` shifts the occupied manifold up
+by ``alpha_pv`` so that ``H - eps_n S + alpha Q`` is positive definite on the
+whole space rather than only on the conduction subspace. Without it the solution
+is undetermined along the occupied directions and the numerical leakage into
+them is amplified rather than damped. ``alpha_pv = 2 (eps_max^occ - eps_min)``
+is ``setup_alpha_pv``'s insulator value.
+
+**This is P22c and D3's backward pass, not only a step towards a dielectric
+constant.** ``chi_0 = drho/dV`` is the exact independent-particle susceptibility,
+and the SCF Jacobian is ``chi_0 K`` with ``K = dV_scf/drho`` already free from
+``jax.grad`` of ``v_of_rho`` (rule D1). P22 measured the alternative -- forward
+mode straight through Davidson's ``lax.while_loop`` -- at 109% wrong from a cold
+start and 4-7x slower than a finite difference from a warm one. The solve here is
+exact rather than accurate to ``ethr``, and on two-atom silicon at
+``ecutwfc = 12`` it costs **0.5 s** against that route's **3.5 s**. That it should
+also *scale* better -- a projected CG over the occupied bands against a Davidson
+subspace of ``nvecx = 4 nbnd`` -- is an expectation rather than a measurement: it
+has not been timed on a cell where the two would separate.
+
+**Metals are in** (``PLAN.md`` P24c), and what they change is the projector
+rather than the solve. For an insulator ``P_c^+`` is a projector: a band is
+occupied or it is not. For a metal there is no such partition, and
+``orthogonalize``'s smearing branch replaces the sharp step with a pair of
+weights -- one on the right-hand side and one, ``wwg``, on each overlap, built
+from the *difference* of two occupations
+(:meth:`SternheimerSolver._smeared_projection`). Three consequences run through
+this module:
+
+* **every band is kept**, because ``nbnd_eff = nbnd`` there. QE truncates the
+  solve at ``setup_nbnd_occ``'s count; here the block stays whole at a static
+  shape and the bands past it carry an occupation of zero.
+* **``alpha_pv`` is measured to where the smearing dies**, ``ef + xmax
+  degauss``, since the occupied manifold has no top (``setup_alpha_pv``).
+* **the density response is accumulated with ``wk``, not ``wg``.** The
+  occupation is applied to ``dpsi`` itself, so weighting the density by it again
+  would count it twice. The two coincide for an insulator, which is why nothing
+  before this had to tell them apart -- and why getting it wrong would have been
+  invisible on every case in the suite.
+
+What a metal still needs from its *caller* is ``ef_shift``: a perturbation at
+``q = 0`` changes the number of states below the Fermi level, so the level moves
+and the response density has to be corrected by the local density of states at
+it. That is :func:`fermi_level_shift`, and it belongs to the self-consistent
+loop rather than to the solve.
+
+**Refused rather than approximated**, each by name:
+
+* **the tetrahedron occupations**, whose ``orthogonalize`` branch reads
+  ``dfpt_tetra_beta`` -- a response weight per band *pair*, which the
+  tetrahedron machinery here does not build. The smearing family is what is
+  implemented.
+* **noncollinear magnetism and spin-orbit coupling**, whose ``incdrhoscf_nc``
+  and ``set_int3_nc`` are a second implementation rather than a spin axis on
+  this one.
+* **DFT+U**, whose induced potential has a ``dns`` of its own
+  (``adddvhubscf.f90``) that is not a function of ``drho``.
+* **a potential-only meta-GGA** (``tb09``, ``bj06``), which has no total energy
+  and so nothing for the response to be the second derivative of. The refusal
+  is :func:`defuqumat.forces.energy.reject_potential_only`, reused rather than
+  restated.
+* **a ``tot_magnetization`` with a smearing** -- two Fermi levels, where
+  :class:`Smearing` carries one scalar ``ef``.
+* **a ``nspin = 2`` filling that cuts a degenerate multiplet**
+  (:data:`DEGENERATE_CUT_RY`).
+
+**Collinear spin is *not* on that list any more.** The occupied-band count is
+one number per channel (:func:`occupied_counts`), the sharp projector masks the
+deficient channel's extra bands, and ``chi_0`` is validated against a central
+difference of the density for a spin-polarized metal and a spin-polarized
+insulator alike. What the *callers* do with it is a separate claim and is what
+``spin_polarized`` in :func:`require_a_sternheimer_regime` gates.
+
+**Memory.** The CG carries four band-blocks -- the gradient, its
+preconditioning, the search direction and the previous one -- at
+``(nk, nbnd_occ, ndim)`` complex each if the whole k axis is in flight, or one
+k-point's worth at ``k_batch = 1``. That is the same working set the Davidson
+subspace has at ``nvecx = 4 nbnd``, and it goes through the same dial
+(:mod:`defuqumat.batching`).
+
+**A metal pays ``nbnd`` where an insulator pays ``nbnd_occ``**, and that is a
+deliberate trade rather than an oversight: QE truncates the solve at
+``setup_nbnd_occ``'s per-k count, and a per-k count is a dynamic shape, which
+rule R2 does not allow inside a compiled loop. So the block stays whole and the
+bands past the cutoff carry an occupation of zero -- exact, and paying their
+share of the CG for nothing. On the aluminium of ``al-metal.in`` that is 8 bands
+against a per-k ``nbnd_occ`` of 1 to 3, so the factor is real; it is bounded by
+``nbnd/nbnd_occ`` and it shrinks as a cell grows, because ``nbnd`` is chosen a
+fixed margin above the occupied count rather than a multiple of it. The way down
+if it ever matters is the same as ``cegterg``'s: a mask that compacts, not a
+shape that changes.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import jax.numpy as jnp
+import numpy as np
+from jax import lax
+
+import math
+
+import jax
+
+from defuqumat.basis.fft import force_real_g0, g_to_r, g_to_r_gamma
+from defuqumat.basis.interpolate import to_dense, to_smooth
+from defuqumat.batching import map_bands, map_k
+from defuqumat.eager import compiled
+from defuqumat.hamiltonian.noncollinear import SpinorHamiltonian, spin_multiply
+from defuqumat.scf.density import (
+    becsum as becsum_of,
+    spinor_becsum,
+    spinor_sum_band,
+    sum_band,
+)
+from defuqumat.scf.occupations import smearing_order, w0gauss, wgauss
+from defuqumat.forces.energy import reject_potential_only
+from defuqumat.scf.potential import as_potential_components
+from defuqumat.scf.streaming import is_host_store
+
+__all__ = [
+    "Smearing",
+    "SternheimerSolver",
+    "SternheimerResult",
+    "local_perturbation",
+    "make_sternheimer",
+    "occupied_counts",
+    "paw_response",
+    "require_a_sternheimer_regime",
+    "scalars_at",
+    "pass_threshold",
+    "FIRST_PASS_THRESHOLD",
+    "smearing_of",
+]
+
+#: ``cgsolve_all``'s own ceiling on the CG iterations.
+MAX_ITERATIONS = 400
+
+
+#: ``dfpt_kernels.f90:277-281``'s first-pass threshold, which is also its cap.
+FIRST_PASS_THRESHOLD = 1.0e-2
+
+
+def pass_threshold(solver, history):
+    """This pass's CG threshold in a self-consistent response, or ``None``.
+
+    ``dfpt_kernels.f90:277-281``: ``1e-2`` on the first pass and
+    ``min(0.1 sqrt(dr2), 1e-2)`` after, with ``dr2`` the previous pass's
+    ``|ddv_scf|^2`` as it is printed (divided by ``npert``, ``:519``) -- here
+    ``history[-1]``, from :func:`defuqumat.response.mixing.ddv_scf`. The solve
+    need be no tighter than the potential it is solving at is converged, so the
+    early passes cost a few CG steps and the late ones what the end needs. The
+    last pass is at the schedule too, which is ``ph.x``'s accuracy: its final
+    ``dpsi`` carry a residual of order ``0.1 sqrt`` of the pass before.
+
+    ``None`` -- the solver's own fixed :attr:`~SternheimerSolver.threshold` --
+    unless the solver was built to be scheduled (:attr:`SternheimerSolver.
+    schedule`), which the response entry points do when they are given
+    ``threshold=None``. The schedule is not monotone and is not meant to be:
+    the loose first pass can make the second pass's ``dr2`` the larger of the
+    two, as it does in ``ph.x`` (``reference.out.ph-al2-metal:167-172``).
+    """
+    if not getattr(solver, "schedule", False):
+        return None
+    if not history:
+        return FIRST_PASS_THRESHOLD
+    return min(0.1 * math.sqrt(max(float(history[-1]), 0.0)), FIRST_PASS_THRESHOLD)
+
+
+def scalars_at(scalars: dict, threshold=None) -> dict:
+    """:meth:`SternheimerSolver.scalars` with this pass's ``threshold`` in it.
+
+    The scalars are arguments of the walked routes' compiled passes, so a value
+    written here reaches the device without a new program; ``None`` leaves the
+    solver's own.
+    """
+    if threshold is None:
+        return scalars
+    return {**scalars, "threshold": jnp.asarray(
+        threshold, dtype=jnp.asarray(scalars["threshold"]).dtype)}
+
+#: The default target for the preconditioned residual norm of one band. QE
+#: schedules this against the self-consistency of the response (``dfpt_kernels``:
+#: ``thresh = min(0.1 sqrt(dr2), 1e-2)``); a solver used on its own, as
+#: ``chi_0``, wants it tight from the start.
+THRESHOLD = 1.0e-11
+
+#: The smallest gap, in Ry, between the last occupied and the first empty band
+#: of a spin channel that the sliced (insulator) branch will accept for
+#: ``nspin = 2``. Below it the occupied manifold *cuts a degenerate multiplet*
+#: and there is no response to compute: which member of the multiplet the
+#: eigensolver returned is arbitrary, so ``P_c`` is built for an arbitrary
+#: subspace of a degenerate shell and the answer is a property of the
+#: eigensolver rather than of the density. It is the same multivaluedness the
+#: *residual* solver is diagnosed for (``GAPS.md`` section 3, the closed
+#: ``occupations = 'fixed'`` + ``nspin = 2`` entry), one layer up.
+#:
+#: **And it fails silently, which is why this is a refusal and not a warning.**
+#: Measured on the oxygen atom of ``o-atom-fixed-lsda`` (``neldw = 2``, cutting
+#: the triply degenerate 2p shell, the two levels 1.4e-14 Ry apart): the CG
+#: *converges* -- 42 iterations to a residual of 5e-12 against a 1e-11
+#: threshold -- and ``chi_0`` then disagrees with a central difference of the
+#: density by **100 per cent** (1.24, 1.02, 1.01 and 1.01 relative for probes
+#: at Miller (1,0,0), (0,0,1), (1,1,0) and (1,1,1)). The difference re-selects
+#: which member of the shell falls below the cut, because the perturbation
+#: splits it at first order; the solve keeps the member it was handed. Nothing
+#: in the solve can see that, which is exactly why it is refused here.
+#:
+#: Checked for ``nspin = 2`` and for a **spinor**, and the second was added
+#: late: the rule was gated on there being more than one occupied-band count, so
+#: a noncollinear run -- which has exactly one, its band holding one electron --
+#: ran straight through it. A spinor is where the case is *commonest* rather
+#: than rarest. Spin-orbit coupling splits a shell into ``j`` multiplets of
+#: ``2j + 1`` states, so any open-shell atom with an odd number of electrons in
+#: its outer ``j`` shell cuts one, and that is an ordinary heavy element rather
+#: than a contrived cell. An unpolarized *scalar* insulator's fillings have been
+#: validated for many phases and are left bit-for-bit alone.
+DEGENERATE_CUT_RY = 1.0e-5
+
+
+#: :func:`local_perturbation`'s "build ``int3`` yourself", since ``None`` there
+#: already means "a norm-conserving dataset, nothing moves ``D_ij``".
+_COMPUTE = object()
+
+
+#: ``setup_nbnd_occ``/``setup_alpha_pv``'s cutoff on the smeared occupation: a
+#: band is "occupied" for the response if ``eps < ef + xmax degauss``, where
+#: ``xmax`` is where the smearing function has fallen to ``small``.
+_SMALL = 6.9626525973374e-5
+
+
+@dataclass(frozen=True)
+class Smearing:
+    """The ground state's smearing, which the metal branch of the projector needs.
+
+    ``ef`` and ``degauss`` in Ry, ``ngauss`` QE's integer smearing order (the
+    same one :func:`defuqumat.scf.occupations.wgauss` takes). Present on a
+    :class:`SternheimerSolver` exactly when the run is a metal; ``None`` selects
+    ``orthogonalize``'s insulator branch, where the projector is sharp.
+    """
+
+    ef: float
+    degauss: float
+    ngauss: int
+
+    @property
+    def cutoff(self) -> float:
+        """``ef + xmax degauss`` -- ``setup_nbnd_occ``'s ``target``."""
+        if self.ngauss == -99:
+            factor = 1.0 / np.sqrt(_SMALL)
+            xmax = 2.0 * np.log(0.5 * (factor + np.sqrt(factor * factor - 4.0)))
+        else:
+            xmax = np.sqrt(-np.log(np.sqrt(np.pi) * _SMALL))
+        return self.ef + xmax * self.degauss
+
+
+@dataclass
+class SternheimerResult:
+    """The first-order wavefunctions and what the solve cost."""
+
+    #: ``(nspin, nk, nbnd_occ, ndim)`` complex -- the ``dpsi`` of ``dfpt``.
+    dpsi: jnp.ndarray
+    #: How many CG iterations the *worst* band needed, per spin channel.
+    iterations: int
+    #: The largest preconditioned residual norm left over any band.
+    residual: float
+
+    @property
+    def converged(self) -> bool:
+        return self.iterations < MAX_ITERATIONS
+
+
+class SternheimerSolver:
+    """``(H - eps S + alpha Q) dpsi = -P_c^+ dV psi`` at a fixed ground state.
+
+    Built once for a converged calculation and then applied to as many
+    perturbations as the caller has: the operator, the projector and the
+    preconditioner all depend on the ground state alone.
+    """
+
+    #: Whether a self-consistent loop schedules this solver's CG threshold pass
+    #: by pass (:func:`pass_threshold`) rather than holding :attr:`threshold`.
+    #: Set by the response entry points when called with ``threshold=None``;
+    #: :attr:`threshold` stays the tight fixed value every other solve uses (the
+    #: bare ``P_c r|psi>``, which ``ph.x`` solves at its own fixed ``eth_rps``).
+    schedule: bool = False
+
+    def __init__(
+        self,
+        calculation,
+        hamiltonians,
+        psi,
+        eigenvalues,
+        weights,
+        nocc,
+        threshold: float = THRESHOLD,
+        max_iterations: int = MAX_ITERATIONS,
+        v_scf=None,
+        becsum=(),
+        smearing: Smearing | None = None,
+        kpoint_weights=None,
+    ):
+        self.calculation = calculation
+        self.hamiltonians = tuple(hamiltonians)
+        # The ground state's potential and projector occupations. Not needed to
+        # *solve* -- the Hamiltonians carry everything for that -- but needed to
+        # build an ultrasoft or PAW perturbation, whose nonlocal part moves with
+        # the potential (``int3``) and whose one-centre part moves with
+        # ``becsum`` (``PAW_dpotential``).
+        self.v_scf = None if v_scf is None else jnp.asarray(v_scf)
+        self.becsum = becsum
+        self.ddd_paw = calculation.onecenter(becsum)[1] if becsum else None
+        # Only the occupied bands are solved for. The empty ones are what the
+        # sum-over-states form would need and what this form exists to avoid;
+        # they are kept out of ``psi`` here so that no shape carries them.
+        #
+        # **A metal keeps all of them**, because "occupied" is not a count there:
+        # ``orthogonalize``'s smearing branch sums over every band (its
+        # ``nbnd_eff = nbnd``) and the occupation rides inside ``dpsi`` as a
+        # weight rather than deciding which bands exist. QE truncates the *solve*
+        # at ``setup_nbnd_occ``'s ``nbnd_occ``; here the block stays whole and
+        # the bands past that point are multiplied by an occupation of zero,
+        # which is the same answer at a static shape (rule R2) and costs the
+        # empty bands' share of the CG.
+        self.smearing = smearing
+        # **The occupied-band count is one number per spin channel**, because a
+        # magnetic insulator's channels are filled to different depths. QE never
+        # meets this: LSDA doubles ``nks`` there, so its spin channels are
+        # separate k-points and ``setup_nbnd_occ`` writes one ``nbnd_occ(ik)``
+        # per k-point that already carries the channel. Here the channel is an
+        # axis of one array, so what QE gets from its k index is got from a
+        # per-channel count and a mask (rule R2: the shape stays static and the
+        # deficient channel's extra bands are masked, not removed).
+        counts = _normalized_counts(nocc, psi.shape[0])
+        self.occupied_counts = counts
+        keep = psi.shape[2] if smearing is not None else max(counts)
+        # A streamed store (a numpy array in host memory) stays there: the
+        # solver is then walked a chunk at a time through :meth:`for_rows`, and
+        # ``jnp.asarray`` here would put the whole set on the device.
+        self.psi = (psi[:, :, :keep] if is_host_store(psi)
+                    else jnp.asarray(psi)[:, :, :keep])
+        self.eigenvalues = jnp.asarray(eigenvalues)[:, :, :keep]
+        self.weights = jnp.asarray(weights)[:, :, :keep]
+        self.nocc = int(keep)
+        self.threshold = float(threshold)
+        self.max_iterations = int(max_iterations)
+        self.alpha_pv = _alpha_pv(np.asarray(eigenvalues), counts, smearing)
+        # ``nbnd_occ``: which bands the ``alpha_pv`` projector runs over, and
+        # which ones ``orthogonalize``'s ``jbnd <= nbnd_occ(ikq)`` admits into
+        # the level-shift correction. A boolean mask rather than a per-k count,
+        # for the same reason ``cegterg``'s repacking became one.
+        if smearing is None:
+            bands = jnp.arange(self.eigenvalues.shape[2])
+            self.projector_mask = jnp.broadcast_to(
+                (bands[None, :] < jnp.asarray(counts)[:, None])[:, None, :],
+                self.eigenvalues.shape,
+            )
+            if len(counts) > 1 or calculation.noncolin:
+                _require_a_gap_at_the_cut(np.asarray(eigenvalues), counts)
+        else:
+            self.projector_mask = self.eigenvalues < smearing.cutoff
+        # **The weight the density response is built with is not ``wg``.** In the
+        # smearing branch the occupation is applied to ``dpsi`` itself
+        # (``dvpsi = wg1 dvpsi``), so accumulating ``drho`` with ``wg`` on top
+        # would count it twice; ``incdrhoscf`` is called with ``wk`` and this is
+        # that ``wk``. For an insulator the two coincide -- a filled band has
+        # ``wg = wk`` -- which is why nothing before this had to tell them apart.
+        if smearing is None or kpoint_weights is None:
+            self.density_weights = self.weights
+        else:
+            self.density_weights = jnp.broadcast_to(
+                jnp.asarray(kpoint_weights)[None, :, None], self.weights.shape
+            )
+
+    def chunk_arrays(self, rows, live: int) -> dict:
+        """One k-chunk's share of every k-indexed array but the states.
+
+        For a response walked a k-chunk at a time (:mod:`defuqumat.response.
+        chunked`). ``rows`` are the chunk's global k indices from
+        :func:`~defuqumat.batching.k_chunks` and ``live`` how many of them are
+        real. The padded rows carry **zero weight**, in the occupation and in
+        the density weight both, so a sum over the chunk is its share of the
+        whole sum and the padding adds nothing. Sliced here, on the host side of
+        the compiled passes, so that the passes take them as arguments and one
+        program serves every chunk; :meth:`on_chunk` puts them back together.
+        """
+        rows = np.asarray(rows)
+        padding = jnp.asarray(np.arange(len(rows)) >= live)[None, :, None]
+        return {
+            "eigenvalues": self.eigenvalues[:, rows],
+            "weights": jnp.where(padding, 0.0, self.weights[:, rows]),
+            "density_weights": jnp.where(padding, 0.0,
+                                         self.density_weights[:, rows]),
+            "projector_mask": self.projector_mask[:, rows],
+        }
+
+    def scalars(self) -> dict:
+        """The solver's three numbers, as arrays a compiled pass takes as arguments.
+
+        **The level shift is the whole set's.** ``alpha_pv`` is set by the
+        lowest eigenvalue and the highest occupied one over every k-point
+        (``setup_alpha_pv``), and a chunk computing its own would hand each
+        chunk a different operator -- the same solution in exact arithmetic,
+        and a different CG path and round-off in practice. The gap check at the
+        cut is likewise the whole set's, made once in ``__init__``. Passed as
+        arrays rather than closed over so that a second call with another
+        ``threshold`` reuses the program instead of running the first one's.
+        """
+        return {
+            "alpha_pv": jnp.asarray(self.alpha_pv),
+            "threshold": jnp.asarray(self.threshold),
+            "max_iterations": jnp.asarray(self.max_iterations),
+        }
+
+    @classmethod
+    def on_chunk(cls, calculation, hamiltonians, psi, arrays, scalars, *,
+                 nocc, occupied_counts, smearing, v_scf=None, ddd_paw=None):
+        """A solver for one k-chunk, assembled from parts -- traceable.
+
+        ``calculation`` is the whole set's :meth:`~defuqumat.scf.driver.
+        Calculation.at_rows` (or its traced counterpart), ``hamiltonians`` its
+        :meth:`~defuqumat.scf.driver.Calculation.restricted_hamiltonians`,
+        ``psi`` the chunk's occupied block on the device, and ``arrays`` and
+        ``scalars`` what :meth:`chunk_arrays` and :meth:`scalars` returned.
+        Nothing here reads a value back to the host, which is what
+        ``__init__``'s ``alpha_pv`` and gap check do, so this can run inside a
+        compiled pass; everything with a k index is the chunk's, indexed
+        locally.
+        """
+        chunk = cls.__new__(cls)
+        chunk.calculation = calculation
+        chunk.hamiltonians = tuple(hamiltonians)
+        chunk.v_scf = v_scf
+        chunk.becsum = ()
+        chunk.ddd_paw = ddd_paw
+        chunk.smearing = smearing
+        chunk.occupied_counts = tuple(occupied_counts)
+        chunk.psi = psi[:, :, :nocc]
+        chunk.nocc = int(nocc)
+        chunk.eigenvalues = arrays["eigenvalues"]
+        chunk.weights = arrays["weights"]
+        chunk.density_weights = arrays["density_weights"]
+        chunk.projector_mask = arrays["projector_mask"]
+        chunk.alpha_pv = scalars["alpha_pv"]
+        chunk.threshold = scalars["threshold"]
+        chunk.max_iterations = scalars["max_iterations"]
+        return chunk
+
+    @property
+    def nspin(self) -> int:
+        return self.psi.shape[0]
+
+    @property
+    def gamma_only(self) -> bool:
+        """Whether the states are stored on the half sphere (``PLAN.md`` P68).
+
+        Read off the operator rather than passed in: the ``Hamiltonian`` the
+        solver was handed already knows, and a second source of truth for this
+        is a second thing to get out of step.
+        """
+        return bool(self.hamiltonians[0].gamma_only)
+
+    def _pw(self, total, zero):
+        """``2 Re(total) - Re(zero)`` for a sum over a stored half sphere.
+
+        ``total`` is the sum over what is stored and ``zero`` the ``G = 0``
+        term of it, which stands for itself rather than for half of a pair. The
+        result is **real** and is cast back to the states' dtype, because every
+        caller feeds it straight into a complex ``einsum``.
+
+        One helper for the whole stack: the projector's overlaps, the CG's own
+        products, the preconditioner's ``<psi|T|psi>`` and the projections in
+        the perturbation applier all take the same correction, and the term
+        that goes missing is always the ``G = 0`` one.
+        """
+        if not self.gamma_only:
+            return total
+        return (2.0 * total.real - zero.real).astype(self.psi.dtype)
+
+    # -- the pieces of ``ch_psi_all`` -------------------------------------
+
+    def _occupied_overlapped(self, ik, spin):
+        """``S|psi_occ>`` at one k-point, the level shift's fixed half."""
+        return self.hamiltonians[spin].apply_s(self.psi[spin][ik], ik)
+
+    def _operator(self, vectors, ik, spin, s_occupied=None):
+        """``(H - eps S + alpha_pv S P_occ S) |h>`` -- ``ch_psi_all``.
+
+        ``s_occupied`` is :meth:`_occupied_overlapped`, which a solve builds once:
+        ``S`` is linear, so ``S (sum_m o_mn psi_m) = sum_m o_mn (S psi_m)``, and
+        the level shift then costs a contraction instead of a ``calbec`` and an
+        expansion every CG step. ``ch_psi_all.f90:216-227`` applies ``S`` to the
+        lifted vector at every step; this is past QE, exact in arithmetic and
+        round-off in practice, and on a norm-conserving dataset, where ``S`` is
+        the identity, the same numbers to the bit.
+        """
+        hamiltonian = self.hamiltonians[spin]
+        occupied = self.psi[spin][ik]
+        eps = self.eigenvalues[spin][ik][:, None]
+
+        h = hamiltonian.apply(vectors, ik)
+        s = hamiltonian.apply_s(vectors, ik)
+        out = h - eps * s
+
+        # The level shift. ``S P_occ S``: project the *overlapped* vector onto
+        # the occupied manifold, then apply ``S`` again -- which for a
+        # norm-conserving dataset is the identity twice and the plain projector.
+        # ``ch_psi_all`` runs this sum over ``nbnd_occ``, which for a metal is
+        # not every band in the block -- hence the mask.
+        overlaps = self._pw(
+            jnp.einsum("mg,ng->mn", jnp.conj(occupied), s),
+            jnp.conj(occupied[:, :1]) * s[:, :1].T,
+        )
+        overlaps = jnp.where(self.projector_mask[spin][ik][:, None], overlaps, 0.0)
+        if s_occupied is not None:
+            return out + self.alpha_pv * jnp.einsum("mn,mg->ng", overlaps, s_occupied)
+        lifted = jnp.einsum("mn,mg->ng", overlaps, occupied)
+        return out + self.alpha_pv * hamiltonian.apply_s(lifted, ik)
+
+    def project(self, rhs, ik, spin):
+        """``-P_c^+ rhs`` where ``P_c^+ = 1 - S |psi_occ><psi_occ|``.
+
+        ``orthogonalize.f90``, **including its sign**: the routine returns minus
+        the projected vector, because the right-hand side of the Sternheimer
+        equation is ``-P_c^+ dV|psi>``. The insulator branch is the sharp
+        projector above; :meth:`_smeared_projection` is the other one.
+        """
+        hamiltonian = self.hamiltonians[spin]
+        occupied = self.psi[spin][ik]
+        s_occupied = hamiltonian.apply_s(occupied, ik)
+        # ``Im c(0) = 0`` on the right-hand side, or it propagates through every
+        # ``dpsi`` and into the response density. The CG below preserves it --
+        # its alpha and beta are real and ``h_prec`` is a real diagonal -- but
+        # only if it starts true.
+        rhs = force_real_g0(rhs, self.gamma_only)
+        if self.smearing is not None:
+            overlaps = self._pw(
+                jnp.einsum("mg,ng->mn", jnp.conj(occupied), rhs),
+                jnp.conj(occupied[:, :1]) * rhs[:, :1].T,
+            )
+            rhs, overlaps = self._smeared_projection(rhs, overlaps, ik, spin)
+            return -(rhs - jnp.einsum("mn,mg->ng", overlaps, s_occupied))
+        # The sharp branch, and the mask is the identity except in the deficient
+        # channel of a magnetic insulator. It does two different jobs there, and
+        # only the first is about conditioning:
+        #
+        # * the **row** mask zeroes the right-hand side of a band this channel
+        #   does not occupy, so the CG returns ``dpsi = 0`` at iteration zero
+        #   instead of solving ``H - eps_n S`` for an *empty* ``n``, where the
+        #   operator is not positive definite and the level shift does not make
+        #   it so;
+        # * the **column** mask (over ``m``) keeps ``P_c^+`` projecting out this
+        #   channel's own occupied manifold. Without it the projector would also
+        #   remove the bands the *other* channel fills -- which is precisely the
+        #   subspace the deficient channel's response lives in.
+        keep = self.projector_mask[spin][ik][:, None]
+        rhs = jnp.where(keep, rhs, 0.0)
+        overlaps = jnp.where(
+            keep,
+            self._pw(jnp.einsum("mg,ng->mn", jnp.conj(occupied), rhs),
+                     jnp.conj(occupied[:, :1]) * rhs[:, :1].T),
+            0.0,
+        )
+        return -(rhs - jnp.einsum("mn,mg->ng", overlaps, s_occupied))
+
+    def _smeared_projection(self, rhs, overlaps, ik, spin):
+        """``orthogonalize``'s metal branch: the sharp step becomes ``wwg``.
+
+        For an insulator ``P_c^+`` is a projector -- a band is in the occupied
+        manifold or it is not. For a metal there is no such partition, and what
+        replaces it is a pair of *weights* (``PRB 51, 6773 (1995)``, Eq. 75):
+
+            dvpsi_i  <-  wg1_i dvpsi_i
+            ps_(j,i) <-  wwg_(j,i) <psi_j|dvpsi_i>
+
+        with ``wg1_i = theta(ef - eps_i)`` the smeared occupation of the band
+        being solved for, and
+
+            wwg_(j,i) = wg1_i (1 - t) + wg1_j t
+                        + alpha_pv t (wg1_j - wg1_i) / (eps_j - eps_i)
+
+        where ``t = theta((eps_j - eps_i)/degauss)`` is a *second* smeared step,
+        this one of the energy difference. Two things about that expression are
+        worth keeping in view. The ``0/0`` at a degeneracy is taken to its limit
+        ``-alpha_pv t w0gauss_i`` rather than guarded, which matters because a
+        crystal is degenerate everywhere by symmetry (rule D4) -- and the branch
+        is written with :func:`jnp.where` on a *safe* denominator, so the unused
+        side never produces a NaN that would poison the gradient. And the
+        ``alpha_pv`` piece is admitted only for ``j`` inside ``nbnd_occ``, which
+        is :attr:`projector_mask`; without that cut the empty bands contribute a
+        term QE does not have.
+
+        Everything here reduces to the insulator branch when the smearing is
+        narrow: ``wg1`` becomes a step, ``t`` becomes a step, and ``wwg`` becomes
+        the sharp ``1`` on the occupied block that :meth:`project` applies above.
+        """
+        smearing = self.smearing
+        eps = self.eigenvalues[spin][ik]
+        degauss, ngauss = smearing.degauss, smearing.ngauss
+        occupation = wgauss((smearing.ef - eps) / degauss, ngauss)      # wg1
+        delta = w0gauss((smearing.ef - eps) / degauss, ngauss) / degauss
+
+        difference = eps[:, None] - eps[None, :]                        # eps_j - eps_i
+        step = wgauss(difference / degauss, 0)                          # theta
+        mixed = occupation[None, :] * (1.0 - step) + occupation[:, None] * step
+
+        close = jnp.abs(difference) <= 1.0e-5
+        safe = jnp.where(close, 1.0, difference)
+        ratio = (occupation[:, None] - occupation[None, :]) / safe
+        shift = self.alpha_pv * step * jnp.where(close, -delta[None, :], ratio)
+        weights = mixed + jnp.where(self.projector_mask[spin][ik][:, None], shift, 0.0)
+
+        return occupation[:, None] * rhs, weights * overlaps
+
+    def _preconditioner(self, ik, spin):
+        """``h_prec``: ``1 / max(1, |k+G|^2 / eprec_n)``, ``eprec = 1.35 <T>``."""
+        hamiltonian = self.hamiltonians[spin]
+        occupied = self.psi[spin][ik]
+        kinetic = hamiltonian.state_kinetic[ik]
+        expectation = jnp.real(
+            jnp.einsum("ng,g,ng->n", jnp.conj(occupied), kinetic, occupied)
+        )
+        if self.gamma_only:
+            expectation = 2.0 * expectation - jnp.real(
+                jnp.conj(occupied[:, 0]) * kinetic[0] * occupied[:, 0]
+            )
+        eprec = 1.35 * expectation
+        return 1.0 / jnp.maximum(1.0, kinetic[None, :] / eprec[:, None])
+
+    # -- the solver -------------------------------------------------------
+
+    def solve_at(self, rhs, ik, spin, start=None, threshold=None):
+        """``cgsolve_all`` for one k-point: the projected CG, masked by band.
+
+        ``rhs`` is the *already projected* right-hand side -- what
+        :meth:`project` returns. ``start`` is the first iterate, zero when
+        ``None``: ``cgsolve_all`` applies ``ch_psi`` to whatever ``dpsi`` it is
+        handed and subtracts ``d0psi`` for the first gradient
+        (``cgsolve_all.f90:153-159``), with no projection of the start, and
+        ``solve_linter`` hands it the previous pass's solution
+        (``response_kernels.f90:240-251``); the level shift in the operator
+        keeps the solution out of the occupied manifold whatever the start
+        carries. ``threshold`` overrides :attr:`threshold` for this solve,
+        which is how a self-consistent loop schedules it. Returns
+        ``(dpsi, iterations, residual)``.
+        """
+        hamiltonian = self.hamiltonians[spin]
+        mask = hamiltonian.state_mask[ik]
+        precondition = self._preconditioner(ik, spin)
+        threshold = self.threshold if threshold is None else threshold
+
+        s_occupied = self._occupied_overlapped(ik, spin)
+
+        def operator(vectors):
+            return jnp.where(
+                mask, self._operator(vectors, ik, spin, s_occupied), 0.0)
+
+        def dot(a, b):
+            """``MYDDOTV3``: the real part of the Hermitian product, per band.
+
+            Under half-sphere storage ``cgsolve_all`` treats each vector as a
+            real one of length ``2 npw`` and subtracts the ``G = 0`` product --
+            which is this, with the doubling that the real dot product supplies
+            there written out.
+            """
+            product = jnp.real(jnp.einsum("ng,ng->n", jnp.conj(a), b))
+            if not self.gamma_only:
+                return product
+            return 2.0 * product - jnp.real(jnp.conj(a[:, 0]) * b[:, 0])
+
+        rhs = jnp.where(mask, rhs, 0.0)
+        dpsi = (jnp.zeros_like(rhs) if start is None
+                else jnp.where(mask, start, 0.0).astype(rhs.dtype))
+        gradient = operator(dpsi) - rhs
+
+        # **The two real slots take their dtype from the data, not from a
+        # literal.** A bare ``jnp.zeros`` is float64 under x64 whatever
+        # ``config.Precision`` says, while the body returns ``rho`` as
+        # ``jnp.real`` of a complex einsum, which follows the policy. Under a
+        # ``SINGLE`` run the two disagree and ``lax.while_loop``, which requires
+        # the body's output to carry exactly the input's types, raises before a
+        # single CG iteration -- and ``rhoold`` poisons four of the seven slots
+        # on the way, since ``gamma = rho/rhoold`` then promotes ``direction``,
+        # ``applied`` and the three complex slots as well. Deriving it here
+        # keeps the convention that dtypes come from the policy object without
+        # threading the policy into the solver.
+        real_dtype = jnp.finfo(rhs.dtype).dtype  # complex128 -> float64, complex64 -> float32
+        state = (
+            dpsi,
+            gradient,
+            jnp.zeros_like(rhs),                      # hold: the previous step
+            jnp.zeros(rhs.shape[0], dtype=real_dtype),  # rhoold
+            jnp.zeros(rhs.shape[0], dtype=real_dtype),  # rho, for the report
+            jnp.array(0),
+            jnp.zeros(rhs.shape[0], dtype=bool),      # conv
+        )
+
+        def body(state):
+            dpsi, gradient, hold, rhoold, _, iteration, conv = state
+            preconditioned = precondition * gradient
+            rho = dot(preconditioned, gradient)
+            conv = conv | (jnp.sqrt(jnp.abs(rho)) < threshold)
+
+            # ``dcgamma = rho/rhoold``, zero on the first iteration -- which is
+            # what ``hold = 0`` makes it here, rather than a branch.
+            gamma = jnp.where(rhoold > 0.0, rho / jnp.where(rhoold > 0.0, rhoold, 1.0), 0.0)
+            direction = -preconditioned + gamma[:, None] * hold
+            applied = operator(direction)
+
+            a = dot(direction, gradient)
+            c = dot(direction, applied)
+            # A converged band takes a zero step and stops moving; this is the
+            # mask that replaces ``cgsolve_all``'s repacking of the block.
+            safe = jnp.where(jnp.abs(c) > 0.0, c, 1.0)
+            step = jnp.where(conv | (jnp.abs(c) == 0.0), 0.0, -a / safe)
+
+            return (
+                dpsi + step[:, None] * direction,
+                gradient + step[:, None] * applied,
+                jnp.where(conv[:, None], hold, direction),
+                jnp.where(conv, rhoold, rho),
+                rho,
+                iteration + 1,
+                conv,
+            )
+
+        def keep_going(state):
+            iteration, conv = state[5], state[6]
+            return (iteration < self.max_iterations) & ~jnp.all(conv)
+
+        final = lax.while_loop(keep_going, body, state)
+        dpsi, _, _, _, rho, iterations, _ = final
+        return jnp.where(mask, dpsi, 0.0), iterations, jnp.sqrt(jnp.max(jnp.abs(rho)))
+
+    def solve(self, perturbation, start=None, threshold=None) -> SternheimerResult:
+        """Solve at every k-point and spin channel.
+
+        ``perturbation(psi, ik, spin)`` returns ``dV|psi>`` for the occupied
+        block at one k-point -- unprojected, since :meth:`project` is applied
+        here. It is a function rather than an array because the perturbations
+        this module serves are not all local potentials: an electric field is a
+        commutator (:mod:`defuqumat.response.efield`).
+
+        ``start``, ``(nspin, nk, nocc, ndim)`` like the result's ``dpsi``, is
+        the first iterate (:meth:`solve_at`); a self-consistent loop hands it
+        the previous pass's solution and zeros on the first pass, so that one
+        program serves every pass. ``threshold`` overrides :attr:`threshold`,
+        and both reach the compiled loop as arguments: a Python float closed
+        over would be printed into :mod:`defuqumat.eager`'s key and compile a new
+        program for every distinct value a schedule takes.
+        """
+        batch = self.calculation.k_batch
+        level = jnp.asarray(self.threshold if threshold is None else threshold)
+        blocks, iterations, residuals = [], [], []
+        for spin in range(self.nspin):
+            if start is None:
+                def one_k(ik, level, spin=spin):
+                    rhs = self.project(
+                        perturbation(self.psi[spin][ik], ik, spin), ik, spin
+                    )
+                    return self.solve_at(rhs, ik, spin, threshold=level)
+
+                # ``one_k`` is a new closure at every call, around a new
+                # ``perturbation``, so the loop is compiled by its structure
+                # (:mod:`defuqumat.eager`) rather than once per call.
+                dpsi, steps, residual = compiled(
+                    lambda indices, level, one_k=one_k: map_k(
+                        lambda ik: one_k(ik, level), indices, batch=batch),
+                    jnp.arange(self.psi.shape[1]), level,
+                )
+            else:
+                def one_k(ik, initial, level, spin=spin):
+                    rhs = self.project(
+                        perturbation(self.psi[spin][ik], ik, spin), ik, spin
+                    )
+                    return self.solve_at(rhs, ik, spin, start=initial[ik],
+                                         threshold=level)
+
+                dpsi, steps, residual = compiled(
+                    lambda indices, initial, level, one_k=one_k: map_k(
+                        lambda ik: one_k(ik, initial, level), indices,
+                        batch=batch),
+                    jnp.arange(self.psi.shape[1]), jnp.asarray(start[spin]),
+                    level,
+                )
+            blocks.append(dpsi)
+            iterations.append(int(jnp.max(steps)))
+            residuals.append(float(jnp.max(residual)))
+        return SternheimerResult(
+            dpsi=jnp.stack(blocks),
+            iterations=max(iterations),
+            residual=max(residuals),
+        )
+
+    def _solve_directions(self, stack, ik, spin, start, level):
+        """:meth:`solve_at` for several right-hand sides at one k-point, as one loop.
+
+        ``stack`` is ``(ndir, nocc, ndim)``, unprojected; ``start`` is
+        ``(ndir, nocc, ndim)`` or ``None``; ``level`` is a scalar or
+        ``(ndir,)``. The CG is ``vmap``-ed over the leading axis, so its
+        ``lax.while_loop`` runs until every band of every direction has
+        converged, a finished direction's carry is frozen by the batched
+        predicate's select, and its iteration count is its own. Every band
+        keeps its own ``conv`` flag, as in one direction's solve.
+        """
+        rhs = jax.vmap(lambda r: self.project(r, ik, spin))(stack)
+        level = jnp.broadcast_to(level, stack.shape[:1])
+        if start is None:
+            return jax.vmap(
+                lambda r, t: self.solve_at(r, ik, spin, threshold=t))(rhs, level)
+        return jax.vmap(
+            lambda r, s, t: self.solve_at(r, ik, spin, start=s, threshold=t)
+        )(rhs, start, level)
+
+    def solve_many(self, perturbation, start=None, threshold=None):
+        """:meth:`solve` for ``ndir`` perturbations at once, one CG loop per k-point.
+
+        ``perturbation(psi, ik, spin)`` returns the stacked unprojected
+        ``(ndir, nocc, ndim)``; ``start`` is ``(ndir, nspin, nk, nocc, ndim)``;
+        ``threshold`` a scalar or ``(ndir,)``. Returns ``(dpsi, iterations,
+        residuals)`` with ``dpsi`` ``(ndir, nspin, nk, nocc, ndim)`` and the
+        worst iteration count and residual of each direction over k and spin,
+        so that the counts add up as ``ndir`` calls of :meth:`solve` do.
+
+        **A departure from QE**, which solves the directions one after another
+        (``solve_e.f90``). On an accelerator one loop for the three halves the
+        launches and the host reads of the loop condition by three; the cost is
+        that every direction runs ``max_d(iter_d)`` steps rather than its own,
+        2 per cent on cubic silicon, and three directions' CG state in flight.
+        """
+        batch = self.calculation.k_batch
+        level = jnp.asarray(self.threshold if threshold is None else threshold)
+        blocks, iterations, residuals = [], [], []
+        for spin in range(self.nspin):
+            if start is None:
+                def one_k(ik, level, spin=spin):
+                    stack = perturbation(self.psi[spin][ik], ik, spin)
+                    return self._solve_directions(stack, ik, spin, None, level)
+
+                dpsi, steps, residual = compiled(
+                    lambda indices, level, one_k=one_k: map_k(
+                        lambda ik: one_k(ik, level), indices, batch=batch),
+                    jnp.arange(self.psi.shape[1]), level,
+                )
+            else:
+                def one_k(ik, initial, level, spin=spin):
+                    stack = perturbation(self.psi[spin][ik], ik, spin)
+                    return self._solve_directions(stack, ik, spin,
+                                                  initial[:, ik], level)
+
+                dpsi, steps, residual = compiled(
+                    lambda indices, initial, level, one_k=one_k: map_k(
+                        lambda ik: one_k(ik, initial, level), indices,
+                        batch=batch),
+                    jnp.arange(self.psi.shape[1]), jnp.asarray(start[:, spin]),
+                    level,
+                )
+            # (nk, ndir, nocc, ndim) -> (ndir, nk, nocc, ndim); steps (nk, ndir)
+            blocks.append(jnp.swapaxes(dpsi, 0, 1))
+            iterations.append(np.max(np.asarray(steps), axis=0))
+            residuals.append(np.max(np.asarray(residual), axis=0))
+        return (jnp.stack(blocks, axis=1),
+                [int(x) for x in np.max(iterations, axis=0)],
+                [float(x) for x in np.max(residuals, axis=0)])
+
+    def solve_arrays_many(self, perturbation, start=None):
+        """:meth:`solve_many` for a caller that is itself being traced.
+
+        Returns ``(dpsi, iterations, residuals)`` as arrays: ``dpsi``
+        ``(ndir, nspin, nk, nocc, ndim)`` and the worst count and residual per
+        direction and channel, ``(ndir, nspin)``; ``start`` is
+        ``(ndir, nspin, nk, nocc, ndim)``.
+        """
+        batch = self.calculation.k_batch
+        level = jnp.asarray(self.threshold)
+        blocks, iterations, residuals = [], [], []
+        for spin in range(self.nspin):
+            def one_k(ik, spin=spin):
+                stack = perturbation(self.psi[spin][ik], ik, spin)
+                return self._solve_directions(
+                    stack, ik, spin, None if start is None else start[:, spin, ik],
+                    level)
+
+            dpsi, steps, residual = map_k(
+                one_k, jnp.arange(self.psi.shape[1]), batch=batch)
+            blocks.append(jnp.swapaxes(dpsi, 0, 1))
+            iterations.append(jnp.max(steps, axis=0))
+            residuals.append(jnp.max(residual, axis=0))
+        return (jnp.stack(blocks, axis=1), jnp.stack(iterations, axis=1),
+                jnp.stack(residuals, axis=1))
+
+    def solve_arrays(self, perturbation, start=None):
+        """:meth:`solve` for a caller that is itself being traced.
+
+        Returns ``(dpsi, iterations, residual)`` as arrays -- the worst band's
+        iteration count and residual per spin channel -- where :meth:`solve`
+        reads them back to the host, which a trace cannot do. Used inside the
+        compiled passes of a response walked a k-chunk at a time
+        (:mod:`defuqumat.response.chunked`), where the whole chunk is one program.
+        ``start`` is the chunk's first iterate (:meth:`solve`); the threshold is
+        the chunk solver's own, a traced scalar from :meth:`scalars`.
+        """
+        batch = self.calculation.k_batch
+        blocks, iterations, residuals = [], [], []
+        for spin in range(self.nspin):
+            def one_k(ik, spin=spin):
+                rhs = self.project(
+                    perturbation(self.psi[spin][ik], ik, spin), ik, spin
+                )
+                return self.solve_at(
+                    rhs, ik, spin,
+                    start=None if start is None else start[spin][ik])
+
+            dpsi, steps, residual = map_k(
+                one_k, jnp.arange(self.psi.shape[1]), batch=batch)
+            blocks.append(dpsi)
+            iterations.append(jnp.max(steps))
+            residuals.append(jnp.max(residual))
+        return jnp.stack(blocks), jnp.stack(iterations), jnp.stack(residuals)
+
+    # -- the density it produces -------------------------------------------
+
+    def density_at(self, states, weights=None) -> jnp.ndarray:
+        """``rho`` from a set of occupied states, as the SCF builds it.
+
+        :meth:`~defuqumat.scf.driver.Calculation.density` **without the
+        symmetrisation**: a response is symmetrised as a vector, not as a scalar
+        (:meth:`~defuqumat.scf.driver.Calculation.symmetrize_directional`), so the
+        caller does it. Everything else is the same function the SCF uses --
+        including ``becsum`` and the augmentation charge, which is what makes
+        the derivative below carry them.
+        """
+        return self.finish_density(*self.density_parts(states, weights))
+
+    def density_parts(self, states, weights=None) -> tuple:
+        """``(rho_smooth, becsum)``: the two sums over k :meth:`density_at` finishes.
+
+        Both are plain sums over the k-points ``states`` hold, so a response
+        walked a k-chunk at a time adds the chunks' parts (or their tangents)
+        and finishes the total once with :meth:`finish_density`, which is
+        linear.
+        """
+        calculation = self.calculation
+        smooth = calculation.basis.smooth
+        weights = self.density_weights if weights is None else weights
+        becsum_ = self._raw_becsum(states, weights)
+        if calculation.noncolin:
+            # The same split :meth:`Calculation.density` makes, and for the same
+            # reason: a spinor carries its own spin axis inside the state, so
+            # the leading channel axis of ``states`` is 1 and the *density* it
+            # produces has ``nspin_mag`` components rather than one.
+            rho = spinor_sum_band(
+                states[0], calculation.state_fft_index, smooth.grid, weights[0],
+                calculation.system.cell, calculation.nspin_mag,
+                calculation.k_batch,
+            )
+        else:
+            rho = sum_band(
+                states, calculation.fft_index, smooth.grid, weights,
+                calculation.system.cell, calculation.k_batch,
+                fft_index_minus=calculation.fft_index_minus,
+            )
+        return rho, becsum_
+
+    def finish_density(self, rho_smooth, becsum_) -> jnp.ndarray:
+        """Lift :meth:`density_parts`' smooth density to the dense grid and augment it.
+
+        No symmetrisation, for :meth:`density_at`'s reason; linear in both.
+        """
+        calculation = self.calculation
+        smooth, dense = calculation.basis.smooth, calculation.basis.dense
+        return calculation.augmented(to_dense(rho_smooth, smooth, dense), becsum_)
+
+    def response_density(self, dpsi) -> jnp.ndarray:
+        """``drho``: the first-order density, as one ``jvp`` of :meth:`density_at`.
+
+        ``incdrhoscf`` plus ``addusdbec`` plus ``lr_addusddens``, and none of the
+        three is transcribed. The density is a *quadratic* function of the states
+        that this code already writes down once, so its response to
+        ``psi -> psi + lambda dpsi`` is the directional derivative of that
+        function -- and every term QE adds by hand for an ultrasoft dataset comes
+        with it:
+
+        * the smooth part, ``sum_kn wg 2 Re[psi* dpsi]/Omega``, which is the
+          derivative of ``|psi|^2`` (``incdrhoscf``);
+        * ``dbecsum``, the derivative of ``becsum``, which is bilinear in the
+          projections (``addusdbec``);
+        * the augmentation charge's own response, ``sum_ij Q_ij(r) dbecsum_ij``,
+          which is the derivative of ``addusdens`` -- linear in ``becsum``, so it
+          is that same sum with ``dbecsum`` in it (``lr_addusddens``).
+
+        The one thing this needed was for ``|psi|^2`` to be written as
+        ``Re(conj(psi) psi)`` rather than ``abs(psi)**2``, whose derivative is
+        ``0/0`` at a node (:func:`defuqumat.scf.density.band_density`).
+
+        On the **dense** grid, like every other density here.
+        """
+        # The whole ``jvp`` is what is compiled, so the kept program is the
+        # derivative itself and is only ever evaluated (:mod:`defuqumat.eager`).
+        return compiled(
+            lambda psi, tangent: jax.jvp(self.density_at, (psi,), (tangent,))[1],
+            self.psi, jnp.asarray(dpsi),
+        )
+
+    def response_becsum(self, dpsi) -> tuple:
+        """``dbecsum``: the projector occupations' response, on its own.
+
+        The augmentation charge's share of ``drho`` is already inside
+        :meth:`response_density`; this is the same derivative kept separately,
+        because **PAW's one-centre terms are a function of ``becsum`` and not of
+        the density** and there is nowhere else to get them from
+        (``PAW_dpotential``).
+        """
+        return compiled(
+            lambda psi, tangent: jax.jvp(self._raw_becsum, (psi,), (tangent,))[1],
+            self.psi, jnp.asarray(dpsi),
+        )
+
+    def _raw_becsum(self, states, weights=None) -> tuple:
+        """``becsum`` **without** the symmetrisation :meth:`Calculation.becsum` applies.
+
+        For PAW that method ends with ``PAW_symmetrize``, and a *response* must
+        not go through it: the three response densities are symmetrised together
+        as a polar vector afterwards
+        (:meth:`~defuqumat.scf.driver.Calculation.symmetrize_directional`), and
+        pre-averaging each one as a scalar is the same wrong-symmetry mistake in
+        a place where it is much harder to see. It is worth **1.6e-2** on the
+        dielectric constant of PAW silicon, against the 5e-5 the rest of the
+        machinery reaches.
+        """
+        calculation = self.calculation
+        if not calculation.is_ultrasoft:
+            return ()
+        weights = self.density_weights if weights is None else weights
+        if calculation.noncolin:
+            # ``sum_bec``'s noncollinear branch, then the spin transform that
+            # turns its complex 2x2 blocks into the ``nspin_mag`` real
+            # components the augmentation charge is built from
+            # (``add_becsum_so``). Both are
+            # :meth:`Calculation._noncollinear_becsum`; what is *not* taken is
+            # the symmetrisation, for this method's own reason.
+            return calculation._noncollinear_becsum(states, weights)
+        return becsum_of(
+            states, calculation.projectors, weights,
+            calculation.species_channels, calculation.k_batch,
+        )
+
+    def local_density_of_states(self):
+        """``localdos``: ``(ldos, becsum1, dos_ef)`` at the Fermi level.
+
+        ``ldos(r) = sum_kn w_k delta(ef - eps_kn) |psi_kn(r)|^2`` and
+        ``dos_ef = sum_kn w_k delta(ef - eps_kn)``. **It is the same density
+        builder with a different weight** -- the smeared delta in place of the
+        smeared step -- so ``localdos.f90``'s hundred lines, including its
+        ``becsum1``, are :meth:`density_at` called once more.
+
+        Only a metal has one; an insulator raises, because ``delta(ef - eps)``
+        is zero everywhere there and the caller asking for it has confused two
+        regimes.
+        """
+        if self.smearing is None:
+            raise ValueError(
+                "a local density of states at the Fermi level is a metallic "
+                "quantity: this run has occupations='fixed' and no Fermi surface"
+            )
+        weights = self._delta_weights()
+        return self.density_at(self.psi, weights), float(jnp.sum(weights))
+
+    def _delta_weights(self):
+        """``w_k delta(ef - eps_kn)``, the weight :meth:`local_density_of_states` uses."""
+        smearing = self.smearing
+        x = (smearing.ef - self.eigenvalues) / smearing.degauss
+        return self.density_weights * w0gauss(x, smearing.ngauss) / smearing.degauss
+
+    def fermi_level_shift(self, drho, levels=None):
+        """``ef_shift``: the Fermi level moves, and the response density with it.
+
+        ``PW/src`` has no counterpart; this is ``LR_Modules/efermi_shift.f90``.
+        A perturbation at ``q = 0`` is not orthogonal to the identity, so it
+        changes the number of states below the Fermi level and the level itself
+        has to move to keep the electron count. The shift is fixed by that count,
+
+            def = - (integral of drho) / N(ef),
+
+        and what it does to the density is fill or empty the Fermi surface:
+        ``drho <- drho + def ldos``. Both pieces come from
+        :meth:`local_density_of_states`.
+
+        Returns ``(corrected, def)``. **The corrected density integrates to
+        zero**, which is the identity this is checked against and is not
+        imposed: ``ldos`` integrates to ``dos_ef`` by construction, so the
+        correction removes exactly the charge the uncorrected response invented.
+
+        ``drho`` is ``(..., nspin_mag, n1, n2, n3)`` with any number of leading
+        perturbation axes; the shift is computed per perturbation.
+
+        ``levels`` is ``(ldos, dos_ef)`` when the caller already has them -- a
+        response walked a k-chunk at a time builds them once by walking the
+        chunks (:mod:`defuqumat.response.chunked_phonon`), where
+        :meth:`local_density_of_states` would read the whole set.
+        """
+        ldos, dos_ef = (self.local_density_of_states() if levels is None
+                        else levels)
+        calculation = self.calculation
+        cell = calculation.system.cell
+        element = cell.volume / int(np.prod(ldos.shape[1:]))
+        leading = drho.ndim - ldos.ndim
+        axes = tuple(range(leading, drho.ndim))
+        delta_n = jnp.sum(drho, axis=axes) * element
+        shift = jnp.where(jnp.abs(dos_ef) > 1.0e-18, -delta_n / dos_ef, 0.0)
+        return drho + shift[(...,) + (None,) * ldos.ndim] * ldos, shift
+
+    def fermi_level_shift_states(self, dpsi, shift):
+        """``ef_shift_wfc``: the same shift applied to the first-order states.
+
+        ``dpsi_n <- dpsi_n + (1/2) def delta(ef - eps_n) psi_n``. The half is
+        QE's and is not a typo: the density is quadratic in the states, so half
+        the shift on each of ``psi`` and its conjugate reproduces the whole of
+        the ``def ldos`` that :meth:`fermi_level_shift` added to the density.
+        It matters only where ``dpsi`` is consumed as a *tangent* rather than
+        through the density it already carries -- which is the second derivative
+        (:mod:`defuqumat.response.phonon`), not ``chi_0``.
+        """
+        smearing = self.smearing
+        x = (smearing.ef - self.eigenvalues) / smearing.degauss
+        delta = w0gauss(x, smearing.ngauss) / smearing.degauss
+        return dpsi + 0.5 * shift * delta[..., None] * self.psi
+
+    def perturbation(self, dv, dddd_paw=None, coefficients=_COMPUTE):
+        """``dH|psi>`` for a change ``dv`` in the potential -- see
+        :func:`local_perturbation`, with this solver's ground state filled in."""
+        return local_perturbation(
+            self.calculation, dv, self.v_scf, self.ddd_paw, dddd_paw,
+            coefficients=coefficients,
+        )
+
+    def perturbed_coefficients(self, dv, dddd_paw=None):
+        """``int3 + d(ddd_paw)`` for ``dv``: :func:`perturbed_coefficients` here."""
+        return perturbed_coefficients(
+            self.calculation, dv, self.v_scf, self.ddd_paw, dddd_paw
+        )
+
+    def chi0(self, dv) -> jnp.ndarray:
+        """``chi_0 dV``: the independent-particle density response to a potential.
+
+        ``dv`` is ``(nspin, n1, n2, n3)`` real on the **dense** grid, the shape a
+        potential has. The result is a density of the same shape.
+
+        **PAW's one-centre response is deliberately not in it.** ``chi_0`` is the
+        response at a *frozen* one-centre potential, which is what an
+        independent-particle susceptibility means; the term that makes
+        ``ddd_paw`` move with ``becsum`` is part of the self-consistent loop and
+        is added there (:mod:`defuqumat.response.efield`).
+        """
+        return self.response_density(self.solve(self.perturbation(dv)).dpsi)
+
+
+def local_perturbation(calculation, dv, v_scf=None, ddd_paw=None, dddd_paw=None,
+                       coefficients=_COMPUTE):
+    """``dH|psi>`` for a change ``dv`` in the self-consistent potential.
+
+    For a norm-conserving dataset this is ``dV(r)|psi>`` and nothing else. For an
+    ultrasoft one it is not, and the missing piece is invisible in the answer:
+    ``D_ij = D_ij^(0) + int V_eff(r) Q_ij(r) dr`` depends on the potential, so a
+    change in the potential changes the *nonlocal* operator as well,
+
+        dH |psi> = dV(r) |psi> + sum_ij |beta_i> int3_ij <beta_j|psi>,
+        int3_ij  = int dV(r) Q_ij(r) dr,
+
+    which is ``newdq.f90`` and ``adddvscf.f90``. Neither is transcribed:
+    ``int3`` is one ``jvp`` of :meth:`~defuqumat.scf.driver.Calculation.
+    coefficients`, which is ``newd`` and is already a differentiable function of
+    the potential.
+
+    ``dddd_paw`` is PAW's one-centre response, which is *not* a function of the
+    potential and so cannot come from the same derivative -- it is
+    ``PAW_dpotential``, obtained from ``becsum``'s response
+    (:func:`paw_response`) and simply added to ``int3`` here, exactly as
+    ``add_paw_to_deeq`` adds ``ddd_paw`` to ``deeq``.
+
+    The potential arrives on the dense grid and is interpolated to the smooth one
+    exactly as ``Calculation.hamiltonian`` interpolates the self-consistent
+    potential: the wavefunctions live there, and applying a dense-grid field to
+    them would be applying a different operator.
+
+    ``coefficients`` is ``int3 + d(ddd_paw)`` when the caller already has it
+    (:func:`perturbed_coefficients`): it is k-independent, so a response walked
+    a k-chunk at a time computes it once per perturbation rather than once per
+    chunk.
+    """
+    dense, smooth = calculation.basis.dense, calculation.basis.smooth
+    grid = smooth.grid
+    fft_index = calculation.fft_index
+    minus_index = calculation.fft_index_minus
+    mask = calculation.basis.planewaves.mask
+    n = grid[0] * grid[1] * grid[2]
+    dv = jnp.asarray(dv)
+    fields = jnp.stack([
+        to_smooth(dv[spin], dense, smooth) for spin in range(dv.shape[0])
+    ])
+    if coefficients is _COMPUTE:
+        coefficients = perturbed_coefficients(
+            calculation, dv, v_scf, ddd_paw, dddd_paw
+        )
+    # Read one k-point's projectors where they are used, never the whole-k
+    # ``vkb``: on a norm-conserving dataset they are not used at all, and on a
+    # lazy set the property would build the ``(nk, npwx, nkb)`` array for every
+    # perturbation of every iteration to read one row of it.
+    projector_set = calculation.projectors
+    # **A spinor perturbation is one operator on a space twice as large, not two
+    # operators.** ``dv`` carries ``nspin_mag`` components -- one for a
+    # nonmagnetic spin-orbit run and four for a magnetic one -- and they are a
+    # 2x2 matrix ``dv_0 I + dm . sigma`` at each point of the grid, exactly as
+    # the self-consistent potential is. So the states are split into their two
+    # components, transformed independently (the FFT knows nothing about spin)
+    # and mixed pointwise, which is ``vloc_psi_nc`` and is
+    # :meth:`SpinorHamiltonian._local`'s own body with ``dv`` in place of ``V``.
+    # The Pauli algebra itself is *not* written a second time here -- it is
+    # :func:`~defuqumat.hamiltonian.noncollinear.spin_multiply`, called below --
+    # because a sign in it is invisible in every shape and every convergence
+    # test.
+    noncolin = bool(calculation.noncolin)
+    npwx = mask.shape[-1]
+    if noncolin:
+        # The mask is per component and the state holds both, so it is the
+        # doubled one -- ``SpinorHamiltonian._as_state`` of it.
+        mask = jnp.concatenate([mask, mask], axis=-1)
+
+    def apply(states, ik, spin):
+        index = fft_index[ik]
+
+        def spinor_block(block):
+            pair = block.reshape(block.shape[:-1] + (2, npwx))
+            field = g_to_r(pair, index, grid)
+            product = spin_multiply(field, fields)
+            box = jnp.fft.fftn(product, axes=(-3, -2, -1)) / n
+            gathered = jnp.take(
+                box.reshape(box.shape[:-3] + (-1,)), index, axis=-1
+            )
+            return gathered.reshape(block.shape)
+
+        if noncolin:
+            out = map_bands(spinor_block, states)
+            if coefficients is not None:
+                # ``set_int3_nc``: ``int3`` carries a spin pair here, and it is
+                # **not** assembled a second time. The ``jvp`` in
+                # :func:`perturbed_coefficients` runs through
+                # ``_noncollinear_coefficients``, whose recombination and
+                # ``fcoef`` sandwich are linear in the integrals, so the tangent
+                # comes out already dressed -- which is what makes
+                # ``set_int3_nc`` a routine QE needs and this code does not.
+                # What is written here is ``adddvscf``'s contraction alone,
+                # which is :meth:`~defuqumat.hamiltonian.noncollinear.
+                # SpinorHamiltonian._nonlocal` with ``int3`` in place of
+                # ``deeq_nc``.
+                projectors = projector_set.at_k(ik)
+                pair = jnp.where(mask[ik], states, 0.0).reshape(
+                    states.shape[:-1] + (2, npwx)
+                )
+                becp = jnp.einsum("gk,...ag->...ak", projectors.conj(), pair)
+                applied = jnp.einsum(
+                    "abij,...bj->...ai",
+                    coefficients.astype(projectors.dtype), becp,
+                )
+                out = out + jnp.einsum(
+                    "gk,...ak->...ag", projectors, applied
+                ).reshape(states.shape)
+            return jnp.where(mask[ik], out, 0.0)
+
+        # **The bands are walked, not batched**, as everywhere else a block of
+        # states goes through the grid. This is the whole linear-response
+        # stack's local perturbation -- the dielectric constant, the Born
+        # charges and the phonons all reach it -- so a block of bands here is
+        # ``nbnd`` boxes live at once (``PLAN.md`` P74). The nonlocal term
+        # below is ``(n, npwx) x (npwx, nkb)`` and holds nothing grid-sized, so
+        # it stays outside the chunk.
+        def local_block(block):
+            if minus_index is None:
+                field = g_to_r(block, index, grid)
+            else:
+                # Half-sphere storage: the field is rebuilt from both halves
+                # and is real, and ``dV_scf`` is real, so the product is -- and
+                # gathering the stored half of its coefficients loses nothing.
+                # No factor: the doubling belongs to *sums*, never to the
+                # transform.
+                field = g_to_r_gamma(block, index, minus_index[ik], grid)
+            box = jnp.fft.fftn(field * fields[spin], axes=(-3, -2, -1)) / n
+            return jnp.take(box.reshape(box.shape[:-3] + (-1,)), index, axis=-1)
+
+        out = map_bands(local_block, states)
+        if coefficients is not None:
+            projectors = projector_set.at_k(ik)
+            projections = jnp.einsum("gk,...g->...k", projectors.conj(), states)
+            if minus_index is not None:
+                # ``calbec_gamma`` again -- a sum over plane waves, so it takes
+                # the doubling and the ``G = 0`` correction.
+                zero = projectors[:1].conj() * states[..., :1]
+                projections = (
+                    2.0 * projections.real - zero.real
+                ).astype(projectors.dtype)
+            dij = coefficients[spin].astype(projectors.dtype)
+            out = out + jnp.einsum("gk,...k->...g", projectors, projections @ dij.T)
+        return jnp.where(mask[ik], out, 0.0)
+
+    return apply
+
+
+def perturbed_coefficients(calculation, dv, v_scf, ddd_paw, dddd_paw):
+    """``int3 + d(ddd_paw)``: how ``D_ij`` moves when the potential does.
+
+    ``None`` for a norm-conserving dataset, where ``D_ij`` is the file's and
+    nothing moves it.
+    """
+    if not calculation.is_ultrasoft:
+        return None
+    if v_scf is None:
+        raise ValueError(
+            "an ultrasoft or PAW perturbation needs the ground-state potential "
+            "as well as its change: D_ij depends on V_eff, so dH carries "
+            "int3_ij = int dV Q_ij dr (newdq/adddvscf) and that derivative is "
+            "taken at the converged potential"
+        )
+    components = as_potential_components(calculation.vltot, calculation.nspin_mag)
+    potential = jnp.asarray(v_scf) + components
+    if ddd_paw is None:
+        _, int3 = jax.jvp(
+            lambda field: calculation.coefficients(field, None),
+            (potential,),
+            (dv,),
+        )
+        return int3 if dddd_paw is None else int3 + dddd_paw
+    # **PAW's one-centre response rides the same ``jvp`` instead of being added
+    # to its result**, and the two agree only for a collinear run. ``newd``
+    # there is additive in ``ddd_paw``, so the order does not matter; a spinor's
+    # :meth:`~defuqumat.scf.driver.Calculation._noncollinear_coefficients` adds it
+    # to the *scalar* integrals **before** the ``fcoef`` sandwich, and a tangent
+    # added after the sandwich is in the wrong spin structure -- which is
+    # ``add_paw_to_deeq``'s own placement trap, one derivative out.
+    tangent = jnp.zeros_like(ddd_paw) if dddd_paw is None else dddd_paw
+    _, int3 = jax.jvp(
+        calculation.coefficients, (potential, ddd_paw), (dv, tangent)
+    )
+    return int3
+
+
+def paw_response(calculation, dbecsum, becsum_):
+    """``PAW_dpotential``: the one-centre coefficients' response to ``dbecsum``.
+
+    ``paw_onecenter.f90``. PAW's ``ddd_paw`` is a function of ``becsum`` and of
+    nothing else, so its response is the directional derivative of
+    :meth:`~defuqumat.scf.driver.Calculation.onecenter` along ``dbecsum`` -- one
+    ``jvp``, where QE writes a second radial routine beside the first.
+
+    ``None`` when no species is PAW, which is the norm-conserving and plain
+    ultrasoft case both.
+    """
+    if calculation.paw is None:
+        return None
+    _, ddd = jax.jvp(
+        lambda parts: calculation.onecenter(parts)[1], (becsum_,), (dbecsum,)
+    )
+    return ddd
+
+
+def _nint(value) -> int:
+    """Fortran's ``NINT`` for a non-negative count: half rounds *away* from zero.
+
+    Python's :func:`round` is banker's rounding -- ``round(2.5)`` is 2 -- and
+    ``_fixed_occupations_spin`` fills ``int(floor(count + 1/2))`` bands, so the
+    two disagree at exactly a half electron. That happens: an **odd** electron
+    count with an **even** ``tot_magnetization`` gives a half-integer ``nelup``,
+    and QE rounds it up rather than refusing (``GAPS.md`` section 3). Using
+    ``round`` here would build a mask one band shallower than the weights the
+    density was made with, in exactly that case and no other.
+    """
+    return int(np.floor(float(value) + 0.5))
+
+
+def _normalized_counts(nocc, nspin: int) -> tuple:
+    """``nocc`` as one count per spin channel.
+
+    Accepts a single number -- every earlier caller passes one -- and repeats it
+    across the channels, which is what an unpolarized run and a shared-Fermi
+    metal both want. A sequence is taken as it stands and must have one entry
+    per channel.
+    """
+    if np.ndim(nocc) == 0:
+        return (_nint(nocc),) * nspin
+    counts = tuple(_nint(n) for n in nocc)
+    if len(counts) == 1:
+        return counts * nspin
+    if len(counts) != nspin:
+        raise ValueError(
+            f"the Sternheimer solver was given {len(counts)} occupied-band "
+            f"counts for {nspin} spin channels"
+        )
+    return counts
+
+
+def occupied_counts(calculation) -> tuple:
+    """How many bands each spin channel occupies -- ``setup_nbnd_occ``'s ``nbnd_occ``.
+
+    One number per channel, because a magnetic insulator's channels are filled
+    to different depths and the three perturbation modules used to derive
+    ``nelec / 2`` themselves. The rule follows
+    :func:`~defuqumat.scf.occupations.spin_electron_counts`, which is QE's
+    ``set_nelup_neldw``:
+
+    * ``nspin = 1``: ``nelec / 2`` (``nelec`` for a spinor, whose band holds one
+      electron rather than two);
+    * ``nspin = 2``: ``(NINT(nelup), NINT(neldw))``. With ``occupations =
+      'fixed'`` those are what ``iweights_only`` fills -- QE refuses fixed LSDA
+      without ``tot_magnetization`` and requires an integer one
+      (``input.f90:784-800``), so the pair is always defined and always integral
+      on the branch that slices. With a smearing they are ``nelec / 2`` twice
+      and unused: the metal branch keeps every band and masks by ``eps <
+      ef + xmax degauss`` instead.
+
+    Returned as a tuple so that a caller can pass it straight to
+    :class:`SternheimerSolver`.
+    """
+    if calculation.nspin != 2:
+        degeneracy = 1 if calculation.noncolin else 2
+        # ``fixed_occupations``' unpolarized branch uses ``round`` here and
+        # refuses a non-integral filling outright, so the two agree.
+        return (int(round(calculation.nelec / degeneracy)),)
+    return (_nint(calculation.nelup), _nint(calculation.neldw))
+
+
+def _require_a_gap_at_the_cut(eigenvalues, counts) -> None:
+    """Refuse a filling whose boundary lands inside a degenerate multiplet.
+
+    See :data:`DEGENERATE_CUT_RY`. The check needs a band above the cut to
+    measure against; where the run carries exactly ``nbnd = max(counts)`` there
+    is nothing to compare and the caller is trusted, as it was before.
+    """
+    for spin, count in enumerate(counts):
+        if count <= 0 or count >= eigenvalues.shape[2]:
+            continue
+        gap = float(np.min(eigenvalues[spin][:, count] - eigenvalues[spin][:, count - 1]))
+        if gap < DEGENERATE_CUT_RY:
+            raise NotImplementedError(
+                f"spin channel {spin} occupies {count} bands and the gap to the "
+                f"first empty one is {gap:.2e} Ry: the filling cuts a degenerate "
+                "multiplet, so there is no response to compute. Which member of "
+                "the multiplet the eigensolver returned is arbitrary, so P_c is "
+                "built for an arbitrary subspace of a degenerate shell and the "
+                "answer is a property of the eigensolver rather than of the "
+                "density -- measured at 100 per cent against a finite difference "
+                "on the oxygen atom, with the CG converging normally, which is "
+                "why this is refused rather than warned about. It is the physics "
+                "rather than a missing term (a Hund's-rule atom is exactly this "
+                "case); occupy the whole shell, or use a smearing"
+            )
+
+
+def _alpha_pv(eigenvalues, counts, smearing=None) -> float:
+    """``setup_alpha_pv``: the level shift that makes the operator positive definite.
+
+    Insulator: ``2 (eps_max^occ - eps_min)``. **Metal**: ``emax - emin`` with
+    ``emax = ef + xmax degauss``, the same cutoff ``setup_nbnd_occ`` uses -- the
+    occupied manifold has no top there, so the shift is measured to where the
+    smearing function has died instead. Both are floored at 1e-2, as QE floors
+    them.
+
+    ``counts`` is one occupied-band count per spin channel, and the insulator's
+    ``emax`` is the largest over the channels -- which is what QE's own
+    ``setup_alpha_pv`` computes, since its LSDA ``et`` array runs over ``nks``
+    k-points that already include both channels. The metal branch does not read
+    it at all: ``ef + xmax degauss`` is one number for a shared Fermi level.
+    """
+    if smearing is not None:
+        emin = float(np.min(eigenvalues))
+        return max(smearing.cutoff - emin, 1.0e-2)
+    emin = float(np.min(eigenvalues))
+    emax = max(
+        float(np.max(eigenvalues[spin][..., :count]))
+        for spin, count in enumerate(counts) if count > 0
+    )
+    return max(2.0 * (emax - emin), 1.0e-2)
+
+
+#: The default answer to "why is a metal refused here". It is a statement about
+#: the *quantity*, not about the solve, and it is only true of the two static
+#: electronic responses -- which is why a caller whose quantity is perfectly well
+#: defined for a metal passes ``metals_missing`` instead of inheriting it.
+_NO_METAL_BY_DEFINITION = (
+    "the quantity being asked for is not defined there -- a metal has no "
+    "epsilon_infinity and no Born effective charge, which is why pw.x refuses "
+    "epsil for one too"
+)
+
+#: ...and what is actually missing where the quantity *is* defined for a metal.
+#: The solve handles one; the self-consistent loop above it does not yet move
+#: the Fermi level, which is a term the phonon branch already has.
+_NO_METAL_YET = (
+    "the quantity being asked for is perfectly well defined for a metal and "
+    "the machinery is not here yet. What is missing is the Fermi-level shift: "
+    "a perturbation at q = 0 changes the number of states below E_F, so the "
+    "level moves and the response density has to be corrected by the local "
+    "density of states at it (localdos/ef_shift, SternheimerSolver.local_dos "
+    "and fermi_level_shift), together with the wg/2wk weight split the "
+    "occupied projector needs. Both are written for the displacement "
+    "coordinate and are what response/phonon.py passes metals = True on; "
+    "neither has been carried onto this perturbation"
+)
+
+
+def require_a_sternheimer_regime(
+    calculation, metals: bool = False, spin_polarized: bool = False,
+    gamma_ok: bool = False, metals_missing: str = _NO_METAL_BY_DEFINITION,
+    noncollinear: bool = False,
+) -> None:
+    """Refuse, by name, every regime whose response needs machinery not here.
+
+    A separate function because several entry points need the same list -- this
+    module's :func:`make_sternheimer`, the electric field's
+    :func:`~defuqumat.response.efield.dielectric_tensor`, the phonons' -- and a
+    refusal stated twice is a refusal that will eventually be stated
+    differently. See the module docstring for what each case would need.
+
+    ``metals = True`` says the *caller's* quantity exists for a metal. The solve
+    does: ``orthogonalize``'s smearing branch is implemented
+    (:meth:`SternheimerSolver._smeared_projection`). ``epsilon_infinity`` and
+    the Born charges do not, and are refused here rather than in three places.
+
+    ``metals_missing`` is *why*, and it has two answers rather than one. For the
+    two static electronic responses the quantity itself does not exist for a
+    metal (:data:`_NO_METAL_BY_DEFINITION`). For the **strain** response it does
+    -- aluminium has elastic constants, and they are the textbook case -- and
+    what is missing is the Fermi-level shift (:data:`_NO_METAL_YET`). Inheriting
+    the first message there answered a question the user had not asked, and left
+    nothing in the output to say what the real gap was.
+
+    **A noncollinear ultrasoft or PAW dataset is no longer refused here** (P98).
+    ``int3`` is a 2x2 matrix in spin space for a spinor, which is what
+    ``set_int3_nc`` builds -- and it is not built a second time here: the
+    ``jvp`` of :meth:`~defuqumat.scf.driver.Calculation.coefficients` already
+    passes through the noncollinear recombination, whose ``fcoef`` sandwich is
+    linear, so the tangent comes out dressed. What that leaves the caller is its
+    own assembly, and the *position* operator was the term that had to be
+    written: an ultrasoft state's augmentation dipole carries a spin pair too
+    (``compute_qdipol_so``).
+
+    ``spin_polarized = True`` says the same thing about ``nspin = 2``: the
+    *solve* now takes one occupied-band count per channel
+    (:func:`occupied_counts`) and is validated for both regimes, but a caller's
+    **assembly** on top of it is a separate claim -- the third derivatives of
+    :mod:`defuqumat.response.electrostriction` and
+    :mod:`defuqumat.response.nonlinear` have never been run with a spin axis and
+    are still refused here. The flag is deliberately opt-in for that reason,
+    exactly as ``metals`` is.
+    """
+    if getattr(calculation, "gamma_only", False) and not gamma_ok:
+        raise NotImplementedError(
+            "this response quantity is not implemented for gamma-only "
+            "storage. **The solver is** (P68a): every inner product in the "
+            "Sternheimer stack takes 2 Re(...) minus the G = 0 term, chi_0 "
+            "under a potential probe matches a central difference of the "
+            "density to 7e-6, and the dynamical matrix -- including a partial "
+            "one -- agrees with the whole sphere to 1.5e-13 Ry/bohr^2. What is "
+            "not is this quantity's own source term. A displacement enters "
+            "through the potential and so inherits the corrected h_psi; a "
+            "**field** enters through the commutator [H, r] (dvpsi_e, "
+            "response/velocity.py), and the Raman tensor, the strain response "
+            "and the Born charges each build further plane-wave sums on top of "
+            "that. **None of them fails**, which is why this is a refusal: with "
+            "the guard lifted, silicon's dielectric constant is "
+            "501.7/213.1/253.1 against an isotropic 190.8. Run the same cell "
+            "with an explicit k = 0 (K_POINTS automatic, 1 1 1 0 0 0), which is "
+            "the same physics on the whole sphere"
+        )
+    system = calculation.system
+    reject_potential_only(calculation)
+    if calculation.noncolin and not noncollinear:
+        raise NotImplementedError(
+            "this response quantity is not implemented for a noncollinear or "
+            "spin-orbit calculation. **The solve is** (P81): the operator, the "
+            "projector and the preconditioner never had a spin axis to begin "
+            "with -- a spinor is one vector of length 2 npwx and the "
+            "SpinorHamiltonian applies to it -- and what was missing was the "
+            "density the solve feeds, which is now spinor_sum_band, and the "
+            "perturbation, which is dv_0 I + dm . sigma rather than one "
+            "potential per channel. What is *not* validated is this caller's "
+            "assembly on top of it"
+        )
+    if getattr(calculation, "magnetic_field", None) is not None:
+        # **The field the run converged under is not the field the input asked
+        # for**, and nothing in this stack carries the difference. ``reducebf``
+        # scales the field down as the SCF proceeds and the fixed-spin-moment
+        # scheme replaces it outright, so ``SCFResult.magnetic_field`` and
+        # ``field_scale`` are what the ground state belongs to -- while every
+        # ``calculation.potential(rho)`` here takes the default third argument
+        # and rebuilds the Zeeman term at **input** strength. Every eigenvalue
+        # entering the solve, and the screened tensor on top of it, would then
+        # be evaluated under a field the density was never converged under. The
+        # tensor stays symmetric and positive, which is why this is a refusal
+        # rather than a warning.
+        #
+        # Two different amounts of work sit behind it. For a field put in by
+        # hand the missing piece is **plumbing**: thread the converged pair
+        # through ``make_sternheimer`` and the ten ``.potential(`` sites, after
+        # which the induced ``2 lambda dm`` term appears on its own, because
+        # ``_field_potential`` is ``jax.grad`` of the penalty and the induced
+        # potential is one ``jvp`` of ``potential`` (``efield.py``,
+        # ``electrostriction.py``, ``phonon.py``, ``strain.py``). For a
+        # *constrained* moment that is not enough at the fixed-spin-moment end:
+        # ``fsm`` updates its field by feedback rather than from a penalty, so
+        # ``dB/drho`` is not a derivative of anything and would have to be
+        # written.
+        raise NotImplementedError(
+            "the Sternheimer response of a calculation with a magnetic field "
+            "or a constrained moment is not implemented: the response is built "
+            "from calculation.potential(density), which rebuilds the Zeeman "
+            "term from the *input* field, and reducebf or the fixed-spin-moment "
+            "scheme mean that is not the field the ground state converged "
+            "under (SCFResult.magnetic_field and .field_scale are). Threading "
+            "the converged pair through the stack is what is missing for a "
+            "field put in by hand; a constrained_magnetization = 'fsm' moment "
+            "needs the induced field as well, and its field is a feedback "
+            "update rather than a derivative. Re-run the ground state without "
+            "the field to get the response of the state it produced"
+        )
+    if calculation.is_hubbard:
+        raise NotImplementedError(
+            "the Sternheimer response with a Hubbard U is not implemented: the "
+            "induced potential carries a dns of its own (adddvhubscf.f90), "
+            "which is not a function of drho"
+        )
+    scheme = system.occupations
+    if scheme.startswith("tetrahedra"):
+        # ``orthogonalize``'s other metallic branch reads ``dfpt_tetra_beta``,
+        # a per-pair weight the tetrahedron machinery builds for the response
+        # and which nothing here computes. The smearing family is implemented;
+        # this one is refused rather than silently run with a smeared weight.
+        raise NotImplementedError(
+            f"occupations={scheme!r}: the Sternheimer response of a metal is "
+            "implemented for the smearing family only. The tetrahedron branch "
+            "needs dfpt_tetra_beta -- a response weight per band *pair*, which "
+            "the tetrahedron occupations here do not build. Re-run the ground "
+            "state with a smearing"
+        )
+    if scheme == "from_input":
+        raise NotImplementedError(
+            "occupations='from_input': the response projector needs occupations "
+            "that are a differentiable function of a Fermi level, and an "
+            "OCCUPATIONS card is neither"
+        )
+    if scheme != "fixed" and not metals:
+        raise NotImplementedError(
+            f"occupations={scheme!r}: this response is refused for a metal. "
+            "The Sternheimer solve itself handles one (orthogonalize's smearing "
+            f"branch is implemented), but {metals_missing}"
+        )
+    if calculation.spiral:
+        raise NotImplementedError("the Sternheimer response of a spin spiral is not implemented")
+    if calculation.nspin == 2:
+        # **The solve is spin-polarized now** (:func:`occupied_counts`), and
+        # what is left is a per-quantity claim rather than the old blanket one.
+        if not spin_polarized:
+            raise NotImplementedError(
+                "this response quantity is not implemented for nspin = 2. The "
+                "Sternheimer *solve* is -- it takes one occupied-band count per "
+                "spin channel (occupied_counts) and chi_0 is validated against a "
+                "finite difference of the density in both regimes -- but the "
+                "assembly on top of it in this module has never been run with a "
+                "spin axis, so it is refused rather than reported"
+            )
+        if calculation.two_fermi_energies and scheme != "fixed":
+            # ``smearing_of`` would build a :class:`Smearing` from
+            # ``result.fermi_energy``, which for a constrained magnetization is
+            # the **mean** of the two levels -- a number QE prints only so that
+            # the field is not NaN. Every weight in ``_smeared_projection``
+            # would then be evaluated at a level neither channel has, and the
+            # result would be smooth, plausible and wrong.
+            raise NotImplementedError(
+                "the Sternheimer response with tot_magnetization and a smearing "
+                "is not implemented: the two channels have separate Fermi levels "
+                "there and Smearing carries a single scalar ef, so the projector "
+                "would be evaluated at the mean of the two -- which is the number "
+                "QE prints only to avoid a NaN. Giving Smearing.ef a spin axis "
+                "(and smearing_of the pair off the result) is the missing piece. "
+                "Drop tot_magnetization for a shared Fermi level, or use "
+                "occupations='fixed', whose channels need no level at all"
+            )
+
+
+def smearing_of(calculation, result) -> Smearing | None:
+    """The :class:`Smearing` of a converged run, or ``None`` if it is an insulator.
+
+    ``result`` is anything carrying a ``fermi_energy``. The level is **taken
+    from the run and not re-derived**: it is what the occupations the density was
+    built from were evaluated at, and re-deriving it would differ by the
+    bisection tolerance -- which the projector would feel as an inconsistency
+    between its ``wg1`` and the ``wg`` the ground state used. Where a caller has
+    no ``SCFResult`` to hand (:func:`defuqumat.response.phonon.dynamical_matrix`
+    is given a density and eigenvalues instead) it re-runs
+    :meth:`~defuqumat.scf.driver.Calculation.occupations` on those same
+    eigenvalues, which is the same call the SCF made on the same numbers and so
+    the same level, not an independent bisection.
+    """
+    scheme = calculation.system.occupations
+    if scheme == "fixed":
+        return None
+    return Smearing(
+        ef=float(result.fermi_energy),
+        degauss=float(calculation.system.degauss),
+        ngauss=smearing_order(calculation.system.smearing),
+    )
+
+
+def make_sternheimer(calculation, result, threshold: float = THRESHOLD,
+                     metals: bool = False, spin_polarized: bool = False,
+                     gamma_ok: bool = False, noncollinear: bool = False,
+                     host_store: bool = False):
+    """A solver for a converged :class:`~defuqumat.scf.driver.SCFResult`."""
+    require_a_sternheimer_regime(
+        calculation, metals=metals, spin_polarized=spin_polarized,
+        gamma_ok=gamma_ok, noncollinear=noncollinear,
+    )
+    eigenvalues = jnp.asarray(result.eigenvalues)
+    if eigenvalues.ndim == 2:
+        eigenvalues = eigenvalues[None]
+    weights, _ = calculation.occupations(eigenvalues)
+    weights = jnp.asarray(weights)
+
+    nocc = occupied_counts(calculation)
+    potential = calculation.potential(result.density)
+    # PAW's one-centre coefficients come from ``becsum``, which is part of the
+    # mixed state and not a function of the density -- which is why
+    # ``SCFResult`` carries it and why a fixed-density run without it is refused
+    # elsewhere.
+    _, ddd_paw = calculation.onecenter(result.becsum)
+    hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw)
+    # ``host_store``: a caller that walks the k axis a chunk at a time keeps a
+    # streamed store where it is, and the solver then holds it in host memory
+    # (:mod:`defuqumat.response.chunked_phonon`); every other caller indexes the
+    # states with a traced k and needs them on the device.
+    wavefunctions = result.wavefunctions
+    if not (host_store and is_host_store(wavefunctions)):
+        wavefunctions = jnp.asarray(wavefunctions)
+    if wavefunctions.ndim == 3:
+        wavefunctions = wavefunctions[None]
+    return SternheimerSolver(
+        calculation, hamiltonians, wavefunctions, eigenvalues, weights,
+        nocc, threshold, v_scf=potential.v_scf, becsum=result.becsum,
+        smearing=smearing_of(calculation, result),
+        kpoint_weights=calculation.system.kpoints.weights,
+    )

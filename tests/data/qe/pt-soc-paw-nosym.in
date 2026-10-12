@@ -6,7 +6,7 @@
 ! `nosym`/`noinv` and an unshifted grid, because a spinor projection cannot yet
 ! be symmetrised here: `sym_proj_so` averages over the point group with the SU(2)
 ! representation of each operation beside the rotation of the harmonics, and
-! nothing in defumat builds those. Run this way both codes use the whole grid and
+! nothing in defuqumat builds those. Run this way both codes use the whole grid and
 ! neither averages, so the comparison is of the projection itself. `projwfc.x`
 ! is given `lsym = .false.` to match.
 !

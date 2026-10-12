@@ -17,7 +17,7 @@
 # band-batched real-space array, so a handful of them plus the Davidson
 # subspace should sit inside 141 GB with room to spare -- but that is an
 # estimate and the driver's check 4 is what settles it.
-#SBATCH --job-name=defumat-h200-ladder
+#SBATCH --job-name=defuqumat-h200-ladder
 #SBATCH --partition=gpu-h200-141g-short
 #SBATCH --time=03:00:00
 #SBATCH --gpus=h200:1
@@ -32,7 +32,7 @@ mkdir -p "$WORK/out" "$WORK/cache-gpu"
 cd "$REPO" || exit 1
 source "$WORK/venv/bin/activate"
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache-gpu"
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-gpu"
 export PYTHONPATH="$REPO"
 
 echo "=== node ==="; hostname; date

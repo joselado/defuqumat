@@ -48,8 +48,8 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.projwfc.projections import atomic_projections, calculation_channels
+from defuqumat import Calculator
+from defuqumat.projwfc.projections import atomic_projections, calculation_channels
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -124,7 +124,7 @@ def test_the_operator_is_unitary_per_operation():
     the assembled coefficient block has to be unitary shell by shell. It is the
     one property that catches a mis-shaped gather without running anything.
     """
-    from defumat.projwfc.projections import build_projection_symmetry
+    from defuqumat.projwfc.projections import build_projection_symmetry
 
     calc, _ = _converged("ni-noncol-111.in")
     channels = calculation_channels(calc.calculation)

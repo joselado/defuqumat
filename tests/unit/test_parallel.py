@@ -1,4 +1,4 @@
-"""k-point pools (``defumat.parallel``): the split, the store, the collectives, the SCF.
+"""k-point pools (``defuqumat.parallel``): the split, the store, the collectives, the SCF.
 
 The multi-process tests start real processes over a localhost coordinator, one
 per pool, each with a hard timeout: a collective that one rank never reaches
@@ -33,7 +33,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.parallel import PoolStore, Pools, SerialCommunicator
+from defuqumat.parallel import PoolStore, Pools, SerialCommunicator
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -101,7 +101,7 @@ def test_a_pool_store_cannot_be_read_as_the_whole_set():
 def test_refusals_name_what_pools_do_not_cover():
     from types import SimpleNamespace
 
-    from defumat.scf.driver import _refuse_under_pools
+    from defuqumat.scf.driver import _refuse_under_pools
 
     pools = Pools(_FakeCommunicator(2, 0))
     calculation = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=8)),
@@ -134,17 +134,17 @@ def _start_pools(script: str, size: int, *args, timeout: float = 300.0,
     """Run ``script`` as ``size`` pools; ``(returncode, stdout, stderr)`` per rank."""
     port = _free_port()
     base = {k: v for k, v in os.environ.items()
-            if not k.startswith(("DEFUMAT_POOL", "DEFUMAT_COORDINATOR"))}
-    base.update(JAX_PLATFORMS="cpu", DEFUMAT_THREADS="2",
+            if not k.startswith(("DEFUQUMAT_POOL", "DEFUQUMAT_COORDINATOR"))}
+    base.update(JAX_PLATFORMS="cpu", DEFUQUMAT_THREADS="2",
                 PYTHONPATH=str(REPO) + os.pathsep + base.get("PYTHONPATH", ""))
     base.update(env_extra or {})
     processes = []
     for rank in range(size):
         env = dict(base)
         if size > 1:
-            env.update(DEFUMAT_POOLS=str(size), DEFUMAT_POOL_RANK=str(rank),
-                       DEFUMAT_COORDINATOR=f"localhost:{port}",
-                       DEFUMAT_POOL_TIMEOUT="120")
+            env.update(DEFUQUMAT_POOLS=str(size), DEFUQUMAT_POOL_RANK=str(rank),
+                       DEFUQUMAT_COORDINATOR=f"localhost:{port}",
+                       DEFUQUMAT_POOL_TIMEOUT="120")
         processes.append(subprocess.Popen(
             [sys.executable, "-c", script, *map(str, args)], env=env, cwd=REPO,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
@@ -174,8 +174,8 @@ def _run_pools(script: str, size: int, *args, timeout: float = 300.0,
 COMMUNICATOR_SCRIPT = textwrap.dedent("""
     import hashlib, json
     import numpy as np
-    import defumat
-    from defumat.parallel import current_pools
+    import defuqumat
+    from defuqumat.parallel import current_pools
     p = current_pools()
     r = p.rank
     real = np.full((2, 3), r + 1.0)
@@ -201,8 +201,8 @@ def test_the_facade_refuses_what_is_not_pool_aware(monkeypatch):
     """Every ``get_*`` outside ``POOL_AWARE`` refuses under pools, by name."""
     import inspect
 
-    import defumat.parallel as parallel
-    from defumat.calculator import POOL_AWARE, Calculator
+    import defuqumat.parallel as parallel
+    from defuqumat.calculator import POOL_AWARE, Calculator
 
     guarded = {name for name, method in vars(Calculator).items()
                if name.startswith("get_") and inspect.isfunction(method)
@@ -235,12 +235,12 @@ SCF_SCRIPT = textwrap.dedent("""
     warnings.simplefilter("ignore")
     from pathlib import Path
     import numpy as np
-    import defumat
-    from defumat.parallel import Pools, current_pools
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import run_scf
-    from defumat.system import build_system
+    import defuqumat
+    from defuqumat.parallel import Pools, current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import run_scf
+    from defuqumat.system import build_system
     text, drop_reduce = sys.argv[1], sys.argv[2] == "1"
     iterations = int(sys.argv[3]) if len(sys.argv) > 3 else 100
     if drop_reduce:
@@ -254,9 +254,9 @@ SCF_SCRIPT = textwrap.dedent("""
                      max_iterations=iterations)
     forces = stress = None
     if len(sys.argv) > 4 and sys.argv[4] == "forces":
-        from defumat.forces import compute_forces
-        from defumat.scf.driver import Calculation
-        from defumat.stress import compute_stress
+        from defuqumat.forces import compute_forces
+        from defuqumat.scf.driver import Calculation
+        from defuqumat.stress import compute_stress
         calculation = Calculation(system, pseudos)
         result = run_scf(system, pseudos, conv_thr=1e-12, calculation=calculation)
         forces = np.asarray(compute_forces(calculation, result).forces).tolist()
@@ -361,10 +361,10 @@ RELAX_SCRIPT = textwrap.dedent("""
     warnings.simplefilter("ignore")
     from pathlib import Path
     import numpy as np
-    import defumat
-    from defumat import Calculator
-    from defumat.parallel import current_pools
-    import defumat.workflows.relax as relax
+    import defuqumat
+    from defuqumat import Calculator
+    from defuqumat.parallel import current_pools
+    import defuqumat.workflows.relax as relax
     # Pools start every step from atomic orbitals; one pool would carry the
     # previous step's states, so it is held to the same start here.
     relax._carries_states = lambda scf_options, pools: False
@@ -404,17 +404,17 @@ def test_a_pooled_relaxation_takes_the_same_steps():
 
 @pytest.mark.slow
 def test_gloo_can_be_routed_through_a_named_interface():
-    """``DEFUMAT_POOL_INTERFACE`` reaches gloo; a name the machine lacks fails at start.
+    """``DEFUQUMAT_POOL_INTERFACE`` reaches gloo; a name the machine lacks fails at start.
 
     On Triton the hostname resolves to ``eth0`` and gloo ran at about 100 MB/s
     between nodes; the interface is how ``ib0`` is chosen instead. A wrong name
     must stop the run at start-up rather than fall back silently.
     """
     for result in _run_pools(COMMUNICATOR_SCRIPT, 2,
-                             env_extra={"DEFUMAT_POOL_INTERFACE": "lo"}):
+                             env_extra={"DEFUQUMAT_POOL_INTERFACE": "lo"}):
         assert np.allclose(result["real"], 3.0)
     outcomes = _start_pools(COMMUNICATOR_SCRIPT, 2, timeout=120,
-                            env_extra={"DEFUMAT_POOL_INTERFACE": "nosuchif0"})
+                            env_extra={"DEFUQUMAT_POOL_INTERFACE": "nosuchif0"})
     for code, _, err in outcomes:
         assert code != 0 and "nosuchif0" in err
 
@@ -422,8 +422,8 @@ def test_gloo_can_be_routed_through_a_named_interface():
 DEAD_POOL_SCRIPT = textwrap.dedent("""
     import os, time
     import numpy as np
-    import defumat
-    from defumat.parallel import current_pools
+    import defuqumat
+    from defuqumat.parallel import current_pools
     p = current_pools()
     for step in range(20):
         if p.rank == p.size - 1 and step == 3:
@@ -445,7 +445,7 @@ def test_a_dead_pool_takes_the_others_down_within_the_heartbeat():
 
     start = time.perf_counter()
     outcomes = _start_pools(DEAD_POOL_SCRIPT, 3, timeout=150,
-                            env_extra={"DEFUMAT_POOL_HEARTBEAT": "15"})
+                            env_extra={"DEFUQUMAT_POOL_HEARTBEAT": "15"})
     elapsed = time.perf_counter() - start
     assert outcomes[-1][0] == 3
     for code, out, _ in outcomes[:-1]:
@@ -486,12 +486,12 @@ CONTINUE_SCRIPT = textwrap.dedent("""
     import json, sys, tempfile, warnings
     warnings.simplefilter("ignore")
     from pathlib import Path
-    import defumat
-    from defumat.parallel import Pools, SerialCommunicator, current_pools
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation, run_scf
-    from defumat.system import build_system
+    import defuqumat
+    from defuqumat.parallel import Pools, SerialCommunicator, current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, run_scf
+    from defuqumat.system import build_system
     with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
         f.write(sys.argv[1])
     system = build_system(read_pw_input(Path(f.name)))
@@ -535,10 +535,10 @@ def test_a_pooled_run_continues_from_a_pooled_or_a_whole_set_seed():
 
 def test_a_span_from_another_pool_layout_is_refused_by_name():
     """A pool's span holding other rows must not be read by position."""
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system import build_system
 
     with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as handle:
         handle.write(SILICON_8K)
@@ -560,12 +560,12 @@ CHECKPOINT_SCRIPT = textwrap.dedent("""
     import json, sys, tempfile, warnings
     warnings.simplefilter("ignore")
     from pathlib import Path
-    import defumat
-    from defumat.parallel import current_pools
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import run_scf
-    from defumat.system import build_system
+    import defuqumat
+    from defuqumat.parallel import current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import run_scf
+    from defuqumat.system import build_system
     text, directory, mode = sys.argv[1], sys.argv[2], sys.argv[3]
     with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
         f.write(text)
@@ -575,7 +575,7 @@ CHECKPOINT_SCRIPT = textwrap.dedent("""
     if mode == "resume-drop":
         # What a span dropped for the wrong k count does: the density and the
         # mixer come back and the states restart from the atomic orbitals.
-        import defumat.scf.continuation as continuation
+        import defuqumat.scf.continuation as continuation
         continuation.promote_wavefunctions = lambda result, calculation: None
     options = {"whole": {}, "stop": {"max_iterations": 4, "checkpoint_dir": directory,
                                      "checkpoint_every": 2},
@@ -651,12 +651,12 @@ RELAX_CHECKPOINT_SCRIPT = textwrap.dedent("""
     warnings.simplefilter("ignore")
     from pathlib import Path
     import numpy as np
-    import defumat
-    from defumat.io.pwin import read_pw_input
-    from defumat.parallel import current_pools
-    from defumat.pseudo import read_upf
-    from defumat.system import build_system
-    from defumat.workflows.relax import run_relax
+    import defuqumat
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.parallel import current_pools
+    from defuqumat.pseudo import read_upf
+    from defuqumat.system import build_system
+    from defuqumat.workflows.relax import run_relax
     text, directory, nstep = sys.argv[1], sys.argv[2], int(sys.argv[3])
     with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
         f.write(text)
@@ -702,12 +702,12 @@ SIGTERM_SCRIPT = textwrap.dedent("""
     import json, os, signal, sys, tempfile, warnings
     warnings.simplefilter("ignore")
     from pathlib import Path
-    import defumat
-    from defumat.parallel import current_pools
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation, run_scf
-    from defumat.system import build_system
+    import defuqumat
+    from defuqumat.parallel import current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, run_scf
+    from defuqumat.system import build_system
     text, directory, victim = sys.argv[1], sys.argv[2], int(sys.argv[3])
     SIGNAL_AT, PAUSE = 5, 0.1
     with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
@@ -727,8 +727,8 @@ SIGTERM_SCRIPT = textwrap.dedent("""
     # three. With the pause, ten runs stopped at 4 to 11 iterations and the
     # unsignalled SCF took 7.8 s to its 63.
     import time
-    import defumat.scf.driver as driver
-    from defumat.parallel import poll_stop
+    import defuqumat.scf.driver as driver
+    from defuqumat.parallel import poll_stop
     polls = []
     def poll_and_signal():
         polls.append(None)
@@ -806,12 +806,12 @@ ROTATE_SCRIPT = textwrap.dedent("""
     warnings.simplefilter("ignore")
     from pathlib import Path
     import numpy as np
-    import defumat
-    from defumat.parallel import current_pools
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import run_scf
-    from defumat.system import build_system
+    import defuqumat
+    from defuqumat.parallel import current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import run_scf
+    from defuqumat.system import build_system
     text, iterations, turn = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "1"
     start = float(sys.argv[4])
     with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
@@ -868,7 +868,7 @@ def test_pools_reproduce_one_when_the_moments_are_turned(text, iterations, start
 
 def test_the_balanced_assignment_covers_every_row_once_and_evens_the_load():
     """Longest first: the Gamma point, counted twice, takes fewer others."""
-    from defumat.parallel import balance
+    from defuqumat.parallel import balance
 
     costs = np.array([2.0] + [1.0] * 7)
     sets = balance(costs, 3)
@@ -909,7 +909,7 @@ def test_the_eigenvalue_gather_is_one_all_gather_with_the_layout_known():
     """``OPEN.md`` Part XXIII item 26: every pool knows every pool's rows, so the
     eigenvalues, the step counts and the unsettled counts cross in one all-gather
     of their bytes, where each used to take three (shares, data, positions)."""
-    from defumat.parallel import balance
+    from defuqumat.parallel import balance
 
     size, nk = 3, 7
     costs = np.array([2.0, 1.0, 1.0, 1.0, 3.0, 1.0, 1.0])
@@ -945,8 +945,8 @@ def test_the_eigenvalue_gather_is_one_all_gather_with_the_layout_known():
 GATHER_ROWS_SCRIPT = textwrap.dedent("""
     import json
     import numpy as np
-    import defumat
-    from defumat.parallel import balance, current_pools
+    import defuqumat
+    from defuqumat.parallel import balance, current_pools
     p = current_pools()
     rows = balance(np.array([3.0, 1.0, 1.0, 2.0, 1.0]), p.size)[p.rank]
     local = np.asarray(rows, float)[None, :, None] * np.ones((1, 1, 2))

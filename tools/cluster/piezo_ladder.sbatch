@@ -47,7 +47,7 @@
 #               (`nh^2 x ngm` per atom on the dense grid). One array with one
 #               `--mem` is worth more than splitting the ladder to save
 #               allocation on tasks that run for ten minutes.
-#SBATCH --job-name=defumat-ladder
+#SBATCH --job-name=defuqumat-ladder
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-6
 #SBATCH --time=02:00:00
@@ -57,7 +57,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/ladder-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -67,8 +67,8 @@ source "$VENV/bin/activate" || exit 1
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 
 case ${SLURM_ARRAY_TASK_ID:-0} in
     0) CASE=nc; RUNG=response-k6;  ARGS="--kmesh 6 --skip-difference" ;;

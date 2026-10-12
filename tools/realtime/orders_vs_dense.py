@@ -3,8 +3,8 @@
 ``HARMONICS-NEXT.md``'s ladder item 3, the check of ``tools/realtime/toy_orders.py``
 carried to the code: on zincblende AlAs at a cutoff chosen small for it, the
 orders J_(n,m) of the current under ``kappa = lam exp(eta t) cos(w t) e`` from
-:func:`defumat.realtime.orders.propagate_orders`, against
-:func:`defumat.realtime.dense.dense_orders` with every band of the sphere. The
+:func:`defuqumat.realtime.orders.propagate_orders`, against
+:func:`defuqumat.realtime.dense.dense_orders` with every band of the sphere. The
 two share ``H(k)`` and nothing else: the propagation builds its projectors from
 the table of ``g_l(q^2)`` and steps in time, the hierarchy builds dense matrices
 through ``at_kcart`` (the radial transform and its rows at ``k + G = 0``) and
@@ -22,15 +22,15 @@ from pathlib import Path
 import jax.numpy as jnp
 import numpy as np
 
-import defumat  # noqa: F401
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.realtime.dense import dense_ground_states, dense_hamiltonians, dense_orders
-from defumat.realtime.orders import propagate_orders
-from defumat.realtime.pulse import Adiabatic
-from defumat.scf import Calculation
-from defumat.system import build_system
-from defumat.system.kpoints import KPoints
+import defuqumat  # noqa: F401
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.realtime.dense import dense_ground_states, dense_hamiltonians, dense_orders
+from defuqumat.realtime.orders import propagate_orders
+from defuqumat.realtime.pulse import Adiabatic
+from defuqumat.scf import Calculation
+from defuqumat.system import build_system
+from defuqumat.system.kpoints import KPoints
 import equinox as eqx
 
 repo = Path(__file__).resolve().parents[2]

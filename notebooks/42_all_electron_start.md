@@ -19,7 +19,7 @@ cent**. At the nucleus the pseudo density is **38 per cent** lower.
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file('../tests/data/elk/h_sc/scf.in',
                             pseudo_dir='../tests/data/pseudo')
@@ -57,7 +57,7 @@ every digit it printed.
 
 
 ```python
-from defumat.io import ElkState
+from defuqumat.io import ElkState
 
 state = ElkState.read('../tests/data/elk/h_sc')
 inside = float(state.muffin_tin_charges().sum())

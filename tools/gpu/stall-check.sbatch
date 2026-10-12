@@ -18,7 +18,7 @@
 # Not submitted by any tool here (CLAUDE.local.md): submit it by hand, from the checkout the
 # job should run, after `sbatch --test-only` has accepted the partition and the limits.
 #
-#   sbatch --export=ALL,DEFUMAT_REPO=/scratch/work/ladovj1/apps/defumat-stall tools/gpu/stall-check.sbatch
+#   sbatch --export=ALL,DEFUQUMAT_REPO=/scratch/work/ladovj1/apps/defumat-stall tools/gpu/stall-check.sbatch
 #
 # ---- the #SBATCH values, and why each one ----
 # partition   any of the four card partitions a committed script here has used; the job prints
@@ -27,7 +27,7 @@
 # time        01:00:00: the eigh table is seconds, si64 at conv_thr 1e-10 is about a minute an
 #             arm on the A2000, and there are eight arms plus one profile.
 # mem         32G host memory; si64 peaked at 3.3 GiB on the card in speed mode.
-#SBATCH --job-name=defumat-stall-check
+#SBATCH --job-name=defuqumat-stall-check
 #SBATCH --partition=gpu-a100-80g,gpu-h100-80g,gpu-h100-80g-short,gpu-h200-141g-short
 #SBATCH --time=01:00:00
 #SBATCH --gpus=1
@@ -37,13 +37,13 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-stall/out/stall-%j.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-stall
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 PY=/scratch/work/ladovj1/calculations/pypresso-gpu/venv/bin/python3
 mkdir -p "$WORK/out" "$WORK/cache"
 cd "$REPO" || exit 1
-unset XLA_PYTHON_CLIENT_PREALLOCATE JAX_PLATFORMS DEFUMAT_ETHR_MIN DEFUMAT_K_BATCH DEFUMAT_BAND_BATCH
-export PYTHONPATH="$REPO" DEFUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache"
+unset XLA_PYTHON_CLIENT_PREALLOCATE JAX_PLATFORMS DEFUQUMAT_ETHR_MIN DEFUQUMAT_K_BATCH DEFUQUMAT_BAND_BATCH
+export PYTHONPATH="$REPO" DEFUQUMAT_THREADS=off OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1
+export DEFUQUMAT_CACHE_DIR="$WORK/cache"
 OUT="$WORK/out/stall-${SLURM_JOB_ID}.jsonl"
 
 echo "=== node ==="; hostname; date
@@ -61,7 +61,7 @@ fi
 echo; echo "=== 2. steps and times at the committed parking, conv_thr 1e-10 ==="
 for mode in memory speed; do
   for cell in si16-1k-ecut30 si64-1k-ecut30; do
-    DEFUMAT_MEMORY_MODE=$mode timeout 900 "$PY" tools/parallel/time_scf.py \
+    DEFUQUMAT_MEMORY_MODE=$mode timeout 900 "$PY" tools/parallel/time_scf.py \
         benchmarks/$cell.in 2 $cell-$mode-double >> "$OUT" || echo "failed $cell $mode"
   done
 done
@@ -69,7 +69,7 @@ done
 echo; echo "=== 3. the float32 band side, conv_thr 1e-7, against double at the same threshold ==="
 for mode in memory speed; do
   for prec in double single; do
-    DEFUMAT_MEMORY_MODE=$mode DEFUMAT_BAND_PRECISION=$prec timeout 900 "$PY" tools/parallel/time_scf.py \
+    DEFUQUMAT_MEMORY_MODE=$mode DEFUQUMAT_BAND_PRECISION=$prec timeout 900 "$PY" tools/parallel/time_scf.py \
         benchmarks/si64-1k-ecut30.in 2 si64-$mode-$prec-1e-7 --conv-thr 1e-7 >> "$OUT" || echo "failed $mode $prec"
   done
 done

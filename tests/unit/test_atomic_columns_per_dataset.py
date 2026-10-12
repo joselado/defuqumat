@@ -44,24 +44,24 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-import defumat.pseudo.atomic as atomic
-from defumat.basis.builder import build_basis
-from defumat.io.pwin import parse_pw_input, read_pw_input
-from defumat.pseudo import read_upf
-from defumat.pseudo.atomic import (
+import defuqumat.pseudo.atomic as atomic
+from defuqumat.basis.builder import build_basis
+from defuqumat.io.pwin import parse_pw_input, read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.atomic import (
     atomic_channels,
     atomic_wavefunctions,
     spinor_atomic_wavefunctions,
 )
-from defumat.pseudo.formfactors import atomic_form_factors
-from defumat.pseudo.projectors import (
+from defuqumat.pseudo.formfactors import atomic_form_factors
+from defuqumat.pseudo.projectors import (
     _angular_part,
     _apply_phases,
     _projector_dataset_key,
     _radial_table,
     _species_columns,
 )
-from defumat.system import build_system
+from defuqumat.system import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -337,7 +337,7 @@ def test_the_orbitals_key_reads_what_the_projectors_key_does_not(silicon):
     calls the two the same dataset, and sharing on it would hand the second
     label the first label's orbitals.
     """
-    from defumat.pseudo.atomic import _atomic_dataset_key
+    from defuqumat.pseudo.atomic import _atomic_dataset_key
 
     _, _, pseudos = silicon
     nudged = _nudged_chi(pseudos[0])
@@ -356,7 +356,7 @@ def test_the_three_column_builds_share_one_dataset_order():
     datasets ``0 1 3`` and the slots ``0 1 0 2 1``. The key is an argument
     because the atomic orbitals fingerprint different parts of the file.
     """
-    from defumat.pseudo.projectors import first_declared_datasets
+    from defuqumat.pseudo.projectors import first_declared_datasets
 
     datasets, slot_of = first_declared_datasets("abacb", key=lambda label: label)
     assert datasets == [0, 1, 3]

@@ -50,12 +50,12 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from defumat import Calculator
-from defumat.basis.builder import build_basis
-from defumat.scf.driver import Calculation, run_scf
-from defumat.ultracell import run_ultracell, with_external_potential
-from defumat.workflows.transport import run_vertical_transport
-from defumat.workflows.ultracell import run_ultracell_transport
+from defuqumat import Calculator
+from defuqumat.basis.builder import build_basis
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.ultracell import run_ultracell, with_external_potential
+from defuqumat.workflows.transport import run_vertical_transport
+from defuqumat.workflows.ultracell import run_ultracell_transport
 
 pytestmark = pytest.mark.regression
 
@@ -545,7 +545,7 @@ def test_a_double_grid_runs_and_warns_only_below_it(tmp_path, pseudo_dir):
     of ``4 ecutwfc``, where the augmentation charge sits on the wavefunction
     grid and the absolute energy is not the dataset's.
     """
-    from defumat.ultracell.driver import require_an_ultracell_regime
+    from defuqumat.ultracell.driver import require_an_ultracell_regime
 
     dual = _silicon_at_a_dual(tmp_path, pseudo_dir, "ultrasoft", (2, 2, 2))
     basis = build_basis(dual.system)
@@ -619,8 +619,8 @@ def test_the_dense_half_of_dv_cannot_reach_the_matrix_element(
     which is this project's "a check whose null result cannot be told from a
     pass"; zeroing ``dV`` at the same point moves the total by 6.5e-4 Ry.
     """
-    import defumat.ultracell.driver as driver
-    from defumat.ultracell.grid import Ultracell
+    import defuqumat.ultracell.driver as driver
+    from defuqumat.ultracell.grid import Ultracell
 
     shape, kgrid = (2, 1, 1), (1, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
@@ -806,7 +806,7 @@ def test_an_augmented_ultracell_runs_through_the_radial_table(
     """The displaced tables are ``N`` of them, so the budget is ``max_bytes / N``.
 
     An ultracell therefore falls to
-    :class:`~defumat.pseudo.augmentation.TabulatedAugmentation` ``N`` times
+    :class:`~defuqumat.pseudo.augmentation.TabulatedAugmentation` ``N`` times
     sooner than the unit cell does, and on a real slab it is the route that is
     taken rather than an option: the 45-atom NiBr2 cell this was reported from
     needs 1.7 GiB per table against a 683 MiB share of the default budget.
@@ -844,12 +844,12 @@ def test_an_augmented_ultracell_runs_through_the_radial_table(
     6.1e-9.) The zone centre is the only folded k-point where 32 cuts a
     multiplet, and it is also where the Kramers-closed default, when this
     reference still received it, kept 32 or 33 directions by thread count
-    (:data:`~defumat.ultracell.driver.KRAMERS_MOMENT_FLOOR`).
+    (:data:`~defuqumat.ultracell.driver.KRAMERS_MOMENT_FLOOR`).
     """
     modulation = _modulation((2, 1, 1))
     energies, iterations, induced, seeds = [], [], [], []
     for budget in ("off", "0"):
-        monkeypatch.setenv("DEFUMAT_AUG_MAX_BYTES", budget)
+        monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", budget)
         if regime == "collinear":
             calculator = _silicon(tmp_path, pseudo_dir, "paw", (2, 2, 1))
             scf = calculator.get_scf(conv_thr=1e-12)

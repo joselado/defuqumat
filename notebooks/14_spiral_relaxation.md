@@ -29,7 +29,7 @@ no spiral, so the validation is finite differences and symmetry.
 ```python
 from pathlib import Path
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 CHAIN = (CASES / "h-chain-spiral.in").read_text().replace("ecutwfc = 25.0",

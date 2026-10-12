@@ -10,19 +10,19 @@ took exactly 3 steps for every seed where a card took 3 to 100 (``PERFORMANCE.md
 card is a stall"). One process per configuration, and nothing else on the card meanwhile.
 """
 import os, sys, time
-os.environ.setdefault("DEFUMAT_CACHE_DIR", os.path.expanduser("~/.cache/defumat/jax"))
-os.environ.setdefault("DEFUMAT_MEMORY_MODE", "speed")
+os.environ.setdefault("DEFUQUMAT_CACHE_DIR", os.path.expanduser("~/.cache/defuqumat/jax"))
+os.environ.setdefault("DEFUQUMAT_MEMORY_MODE", "speed")
 import jax, jax.numpy as jnp, numpy as np
 from pathlib import Path
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 
 ETA = float(os.environ.get("NOISE_ETA", "0"))
 if ETA > 0:
-    from defumat.solvers import davidson as _dav, subspace as _sub
+    from defuqumat.solvers import davidson as _dav, subspace as _sub
     _orig = _sub.generalised_eigh
     def _noisy(h, s, robust=None):
         # relative noise of size ETA on every entry of the projected pair, a deterministic
@@ -41,7 +41,7 @@ if ETA > 0:
 cell, proj = sys.argv[1], sys.argv[2]
 nseed = int(sys.argv[3]) if len(sys.argv) > 3 else 20
 call_index = int(sys.argv[4]) if len(sys.argv) > 4 else -2          # the last iteration with the tight threshold
-os.environ["DEFUMAT_PROJECTORS"] = proj
+os.environ["DEFUQUMAT_PROJECTORS"] = proj
 system = build_system(read_pw_input(Path(cell)))
 pseudos = tuple(read_upf(Path("tests/data/pseudo") / s.pseudo_file) for s in system.structure.species)
 calc = Calculation(system, pseudos, david=(int(os.environ["DAVID"]) if os.environ.get("DAVID") else None))

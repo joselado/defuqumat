@@ -21,8 +21,8 @@ import warnings
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.system.builder import build_system
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system.builder import build_system
 
 pytestmark = pytest.mark.unit
 
@@ -201,7 +201,7 @@ def test_a_non_scf_run_is_exempt_from_the_fixed_occupation_rule():
 
 def test_the_calculator_forwards_the_keyword(pseudo_dir):
     """``Calculator.with_spin`` hands its options to ``System.with_spin``."""
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     calculator = Calculator.from_text(
         _SILICON.format(extra="", calculation="scf"), pseudo_dir, announce=False)
@@ -219,7 +219,7 @@ def test_the_drop_warning_names_the_script_through_the_calculator(pseudo_dir):
     the warning on ``calculator.py``'s forwarding line, one frame short of the
     caller. The level is now found by walking out of the package.
     """
-    from defumat import Calculator
+    from defuqumat import Calculator
 
     calculator = Calculator.from_text(
         _SILICON.format(extra=_FIXED_MOMENT, calculation="scf"), pseudo_dir,

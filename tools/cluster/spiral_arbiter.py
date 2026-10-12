@@ -1,6 +1,6 @@
 """The collinear arbiter for the spin spiral's factor of five.
 
-defumat and Elk agree on the spiral's moments to 4 per cent at every wavevector
+defuqumat and Elk agree on the spiral's moments to 4 per cent at every wavevector
 and disagree about ``E(q) - E(0)`` by about five, and every named candidate for
 that is now dead: the k-grid is worth nothing, this code's basis a tenth, the
 held field was measured under a conversion 274 times too large, and Elk's own
@@ -20,7 +20,7 @@ either code -- so
 and both sides of that can be computed with ordinary collinear machinery that
 has no spiral in it anywhere. This code's own spiral already satisfies the
 identity to **1e-10 Ry** (``tests/regression/test_spin_spirals.py``, whose
-reference has ``nspin = 2``), so this run is not defumat checking itself: it is
+reference has ``nspin = 2``), so this run is not defuqumat checking itself: it is
 the number Elk's *collinear* path can be asked for, on a cell where Elk's spiral
 is not involved.
 
@@ -47,11 +47,11 @@ from pathlib import Path
 
 import numpy as np
 
-from defumat.calculator import electrons_defaults
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.calculator import electrons_defaults
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
 
 CASES = Path("tests/data/qe")
 PSEUDO = Path("tests/data/pseudo")

@@ -4,7 +4,7 @@ What can be held without converging anything is held here: that the reader and
 the calculation admit a spiral on a fully-relativistic dataset at ``soc_scale =
 0`` and nowhere else, that the zeroth order they admit is spin-rotation
 invariant (which is the whole of the generalized Bloch theorem's premise), and
-that :func:`~defumat.workflows.spiral_soc.spiral_expectation` is the diagonal
+that :func:`~defuqumat.workflows.spiral_soc.spiral_expectation` is the diagonal
 spin blocks of the coupled operator minus the free one, projected on each
 component's own sphere, for every orientation of the spiral's axis. The
 converged numbers, the chirality and the supercell reference are in
@@ -17,12 +17,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system import build_system
-from defumat.workflows.anisotropy import _first_order_operator
-from defumat.workflows.spiral_soc import (spiral_expectation,
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system import build_system
+from defuqumat.workflows.anisotropy import _first_order_operator
+from defuqumat.workflows.spiral_soc import (spiral_expectation,
                                           spiral_spin_orbit_energy)
 
 pytestmark = pytest.mark.unit
@@ -255,7 +255,7 @@ def test_a_fixed_gradient_axis_under_a_turning_texture_is_warned(turning, axis, 
     import warnings
     from types import SimpleNamespace
 
-    from defumat.workflows.nscf import _warn_if_the_sign_axis_cuts_the_texture
+    from defuqumat.workflows.nscf import _warn_if_the_sign_axis_cuts_the_texture
 
     calculation = SimpleNamespace(quantization_axis=axis,
                                   functional=SimpleNamespace(is_gradient=gradient))

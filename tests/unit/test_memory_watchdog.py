@@ -3,7 +3,7 @@
 No JAX, no SCF, nothing that allocates -- the watchdog is driven with an
 injected resident-set reader, so a "20 GB" test costs a function call. What is
 checked is the thing the feature promises: that a test which crosses a fraction
-of ``DEFUMAT_TEST_MEM_MAX`` is *named*, in a log line written before it would
+of ``DEFUQUMAT_TEST_MEM_MAX`` is *named*, in a log line written before it would
 have been killed and in a failure carrying its nodeid.
 """
 

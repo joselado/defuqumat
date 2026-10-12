@@ -14,7 +14,7 @@
 
 The pinning is ``tools/compare_qe.py``'s: the CPU affinity mask is set before JAX
 is imported and inherited by the ``pw.x`` subprocess, because XLA sizes its thread
-pool from that mask and ignores ``OMP_NUM_THREADS``. Every defumat timing is the
+pool from that mask and ignores ``OMP_NUM_THREADS``. Every defuqumat timing is the
 **second** call of the same thing, so no compilation is in it (``CLAUDE.md``,
 never time a first call). ``pw.x``'s times are its own ``PWSCF ... WALL`` line.
 
@@ -84,15 +84,15 @@ def main() -> None:
     import jax.numpy as jnp
     import numpy as np
 
-    from defumat import Calculator
-    from defumat.forces.torque import orientation_torque, rotate_texture
-    from defumat.workflows.anisotropy import (
+    from defuqumat import Calculator
+    from defuqumat.forces.torque import orientation_torque, rotate_texture
+    from defuqumat.workflows.anisotropy import (
         _reference_axis,
         _reference_texture,
         _with_rotation,
         rotation_from_euler,
     )
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.workflows.nscf import fixed_density_states
 
     print("cores", len(os.sched_getaffinity(0)))
     scalar_text = (CASES / "co-tetragonal-anisotropy-sr.in").read_text()
@@ -128,14 +128,14 @@ def main() -> None:
     shot_seconds, (calculation, states, weights) = twice(one_shot)
     grad_seconds, torque = twice(lambda: orientation_torque(
         calculation, states, weights, texture, rotation))
-    print(f"defumat one-shot {shot_seconds:.2f} s, three-component torque "
+    print(f"defuqumat one-shot {shot_seconds:.2f} s, three-component torque "
           f"{grad_seconds:.2f} s, torque {torque}")
     if torque_only:
         import jax
 
-        from defumat.forces.torque import band_energy_at_rotation
+        from defuqumat.forces.torque import band_energy_at_rotation
 
-        from defumat.eager import compiled_function
+        from defuqumat.eager import compiled_function
 
         # Kept as the forward one is, and traced again at every call as the
         # forward one is, so the two second calls do the same work around it.
@@ -150,7 +150,7 @@ def main() -> None:
         reverse_seconds, reverse = twice(reverse_torque)
         print(f"forward torque {[repr(float(x)) for x in torque]}")
         print(f"reverse torque {[repr(float(x)) for x in reverse]}")
-        print(f"defumat reverse-mode torque {reverse_seconds:.2f} s, torque {reverse}, "
+        print(f"defuqumat reverse-mode torque {reverse_seconds:.2f} s, torque {reverse}, "
               f"forward/reverse time {grad_seconds / reverse_seconds:.2f}, "
               f"difference {np.linalg.norm(np.asarray(torque) - reverse) / np.linalg.norm(reverse):.2e} "
               f"of the norm")
@@ -175,7 +175,7 @@ def main() -> None:
     for label, options in (("plain", {}), ("rotate_moments", {"rotate_moments": True})):
         seconds, result = twice(lambda: Calculator.from_text(
             oblique, PSEUDO, announce=False).get_scf(**options))
-        print(f"defumat {label:15s} {seconds:.2f} s, {result.iterations} iterations, "
+        print(f"defuqumat {label:15s} {seconds:.2f} s, {result.iterations} iterations, "
               f"converged {result.converged}, ends {angle(result):.4f} deg from c")
 
 

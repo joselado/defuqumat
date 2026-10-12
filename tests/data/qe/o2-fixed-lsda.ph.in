@@ -18,14 +18,14 @@ dielectric constant of triplet O2, LSDA
  /
 0.0 0.0 0.0
 !
-! It gives diag(1.110915996, 1.110915996, 1.198004867), and defumat reproduces
+! It gives diag(1.110915996, 1.110915996, 1.198004867), and defuqumat reproduces
 ! it to 5.1e-6 as of P70 -- diag(1.11091441, 1.11091441, 1.19799977), in 13
 ! iterations. The obstacle was not what an earlier version of this comment said
 ! it was. `dv_of_drho` is one `jvp` of `v_of_rho`, so for nspin = 2 it is the
 ! second derivative of the LSDA exchange-correlation energy in the two channel
 ! densities, and 1504 of this cell's 91125 grid points have |m| >= |n|, where
 ! that second derivative is infinite -- so it came back with exactly 1504 NaN.
-! What was concluded was that defumat.xc's spin branch had to be made twice
+! What was concluded was that defuqumat.xc's spin branch had to be made twice
 ! differentiable there. It does not: `dmxc_lsda` does not compute a kernel at
 ! those points either, it *defines* it to be zero and CYCLEs past them. The
 ! missing piece was that convention, applied to the argument the derivative is

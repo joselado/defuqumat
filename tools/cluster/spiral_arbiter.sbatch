@@ -7,7 +7,7 @@
 # `E(q = 1/2) - E(q = 0)`, and both sides can be had from ordinary collinear
 # runs. This code's own spiral satisfies that identity to **1e-10 Ry** already
 # (`tests/regression/test_spin_spirals.py`, against a reference whose `nspin` is
-# 2 and which is not a spiral at all), so this is not defumat checking itself --
+# 2 and which is not a spiral at all), so this is not defuqumat checking itself --
 # it is the number Elk's *collinear* path can be asked for.
 #
 # Written down before the run, because a prediction made afterwards is not one:
@@ -18,7 +18,7 @@
 # pseudopotential or the functional and is a different investigation.
 #
 #   0, 1   Elk, ferromagnetic and antiferromagnetic
-#   2, 3   defumat, the same two
+#   2, 3   defuqumat, the same two
 #
 # ---- the #SBATCH values ----
 #
@@ -29,7 +29,7 @@
 #               eights the diagonalisation, and there are two atoms rather than
 #               one, so this is headroom on a run measured in tens of minutes.
 # cpus-per-task 4, with OMP pinned to the same 4 for Elk and to 1 beside XLA for
-#               defumat. No timing pair is taken here, so Elk's threads are free
+#               defuqumat. No timing pair is taken here, so Elk's threads are free
 #               speed.
 # mem           16G. Two hydrogen atoms; this is headroom, not a size.
 #SBATCH --job-name=spiral-arbiter
@@ -42,7 +42,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-magnetism/out/arb-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-magnetism
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 FIXTURE="$REPO/tests/data/elk/h_chain_doubled"
 
@@ -50,8 +50,8 @@ TASK=${SLURM_ARRAY_TASK_ID:-0}
 case $TASK in
     0) CODE=elk;     ARR=fm ;;
     1) CODE=elk;     ARR=afm ;;
-    2) CODE=defumat; ARR=fm ;;
-    3) CODE=defumat; ARR=afm ;;
+    2) CODE=defuqumat; ARR=fm ;;
+    3) CODE=defuqumat; ARR=afm ;;
     *) echo "no such task"; exit 1 ;;
 esac
 
@@ -87,7 +87,7 @@ else
     cd "$REPO" || exit 1
     source "$VENV/bin/activate" || exit 1
     export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-    export JAX_PLATFORMS=cpu PYTHONPATH="$REPO" DEFUMAT_CACHE_DIR=off
+    export JAX_PLATFORMS=cpu PYTHONPATH="$REPO" DEFUQUMAT_CACHE_DIR=off
     python3 -u tools/cluster/spiral_arbiter.py --arrangement "$ARR" \
         --out "$WORK/out/arbiter-${SLURM_ARRAY_JOB_ID}-$ARR.json"
     echo "exit $?"

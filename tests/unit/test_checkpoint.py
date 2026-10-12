@@ -4,7 +4,7 @@ That is the failure mode this file is mostly about. A state missing ``becsum``
 or ``tau`` does not fail to load -- it converges to something plausible and
 slightly wrong, which is the hardest kind of bug to notice on a calculation big
 enough to need checkpointing in the first place. So the coverage of
-:mod:`defumat.scf.checkpoint` over ``SCFResult``'s fields is asserted, and the
+:mod:`defuqumat.scf.checkpoint` over ``SCFResult``'s fields is asserted, and the
 round trip is checked to be exact rather than close.
 """
 
@@ -15,10 +15,10 @@ import weakref
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.scf import checkpoint as checkpoint_module
-from defumat.scf.checkpoint import load_state, save_state, unhandled_fields
-from defumat.scf.driver import (SCF_CHECKPOINT, Calculation, SCFResult,
+from defuqumat.calculator import Calculator
+from defuqumat.scf import checkpoint as checkpoint_module
+from defuqumat.scf.checkpoint import load_state, save_state, unhandled_fields
+from defuqumat.scf.driver import (SCF_CHECKPOINT, Calculation, SCFResult,
                                 run_scf)
 
 pytestmark = pytest.mark.unit
@@ -166,7 +166,7 @@ def _field(constraint):
     """A :class:`MagneticField` of one flavour, with nothing else switched on."""
     import jax.numpy as jnp
 
-    from defumat.scf.fields import MagneticField
+    from defuqumat.scf.fields import MagneticField
 
     return MagneticField(
         regions=None, uniform=jnp.asarray([0.0, 0.0, 0.1]), atomic=None,
@@ -263,7 +263,7 @@ def test_an_applied_field_and_a_penalty_are_saved_rather_than_refused(
 
     Neither an applied ``LOCAL_MAGNETIC_FIELDS`` card nor a penalty constraint
     changes the field object: ``feedback`` returns ``self`` for anything outside
-    :data:`~defumat.scf.fields.FEEDBACK`, so the resume rebuilds the identical
+    :data:`~defuqumat.scf.fields.FEEDBACK`, so the resume rebuilds the identical
     field from ``scf.in``. Refusing these left long, constrained, magnetic runs
     -- the class checkpointing exists for -- with no checkpoint at all.
     """
@@ -329,8 +329,8 @@ def test_the_optimizer_state_covers_every_attribute():
     """A new attribute on ``BFGS`` must be stored or declared derived."""
     import numpy as np
 
-    from defumat.relax.bfgs import BFGS
-    from defumat.scf.checkpoint import unhandled_optimizer_fields
+    from defuqumat.relax.bfgs import BFGS
+    from defuqumat.scf.checkpoint import unhandled_optimizer_fields
 
     assert unhandled_optimizer_fields(BFGS(at=np.eye(3) * 10.2)) == set()
 
@@ -344,7 +344,7 @@ def test_an_interrupted_relaxation_resumes_where_it_stopped(pseudo_dir, tmp_path
     Hessian would still get there, just by taking its next step as if it were
     the first. ``2 + 4 == 6`` says the history crossed the file.
     """
-    from defumat.workflows.relax import run_relax
+    from defuqumat.workflows.relax import run_relax
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -452,7 +452,7 @@ def test_a_streamed_resume_does_not_pin_the_loaded_wavefunctions(
     see this; this one holds one to the wavefunction array itself, and counts
     the streamed solves, since the stream path never calls ``diagonalize``.
     """
-    from defumat.scf import driver as driver_module
+    from defuqumat.scf import driver as driver_module
 
     calculator, result = _converged(SILICON, pseudo_dir)
     save_state(result, tmp_path / SCF_CHECKPOINT)

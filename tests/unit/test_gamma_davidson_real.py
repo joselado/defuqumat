@@ -25,9 +25,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.basis.fft import gamma_inner
-from defumat.calculator import Calculator
-from defumat.solvers import davidson
+from defuqumat.basis.fft import gamma_inner
+from defuqumat.calculator import Calculator
+from defuqumat.solvers import davidson
 
 pytestmark = pytest.mark.unit
 
@@ -136,7 +136,7 @@ def test_the_planes_operator_is_the_complex_one(hamiltonian):
     """
     # here rather than at the top, so that the two checks above and below can be
     # run against the complex route, which has none of these
-    from defumat.hamiltonian.operator import from_planes, planes_inner, to_planes
+    from defuqumat.hamiltonian.operator import from_planes, planes_inner, to_planes
 
     rng = np.random.default_rng(0)
     shape = (NBND, hamiltonian.npwx)

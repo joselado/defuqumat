@@ -17,17 +17,17 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.response.conductivity import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.response.conductivity import (
     OpticalConductivity,
     _curvature_sum,
     _pair_weights,
     _resolvent_sum,
     require_a_conductivity_regime,
 )
-from defumat.solvers.davidson import EMPTY_ETHR_FLOOR
-from defumat.system import build_system
-from defumat.units import AU_TO_S_PER_CM, FPI
+from defuqumat.solvers.davidson import EMPTY_ETHR_FLOOR
+from defuqumat.system import build_system
+from defuqumat.units import AU_TO_S_PER_CM, FPI
 
 pytestmark = [pytest.mark.unit]
 
@@ -233,7 +233,7 @@ def test_fixed_occupations_across_a_degeneracy_diverge_on_both_routes():
     its partner empty at the same eigenvalue, so ``f`` is not a function of
     energy at all and the cancellation above has nothing to work with:
     ``1/g`` on the frequency route and ``1/g^2`` on the curvature one. That is
-    :attr:`~defumat.response.conductivity.OpticalConductivity.band_cut_gap`'s
+    :attr:`~defuqumat.response.conductivity.OpticalConductivity.band_cut_gap`'s
     pathology, measured here from the expression rather than from a run.
     """
     rng = np.random.default_rng(0)
@@ -263,7 +263,7 @@ def test_the_guard_covers_the_round_off_an_scf_leaves_on_an_empty_band():
     where they came from, and its own docstring's advice is not a guarantee:
     hand it an ``SCFResult``'s and the *empty* bands carry
     ``max(5 ethr, 1e-5)`` Ry, since that is all
-    :func:`~defumat.scf.driver.band_thresholds` asks of them. A symmetry
+    :func:`~defuqumat.scf.driver.band_thresholds` asks of them. A symmetry
     degeneracy split by 3e-7 of that residue is the case, and on the curvature
     route the old 1e-8 let it through into a ``1/g^2`` weight.
     """
@@ -344,11 +344,11 @@ def test_the_ordinary_shifted_grid_is_seen_as_the_wedge_it_is():
     whole grid" and which skips time reversal with it, so the same cell comes
     back at 64 of 64.
     """
-    from defumat.io.pwin import parse_pw_input
-    from defumat.response.conductivity import require_a_conductivity_regime
-    from defumat.scf.driver import Calculation
-    from defumat.system.builder import build_system
-    from defumat.pseudo import read_upf
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.response.conductivity import require_a_conductivity_regime
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system.builder import build_system
+    from defuqumat.pseudo import read_upf
 
     text = """
 &control

@@ -315,7 +315,7 @@ All of this was read from the code on 2026-10-06 and should be checked again bef
 - `fixed_density_states` (`workflows/nscf.py:83`) gives the ground states on a caller's
   k-set, `is_reduced` (`system/kpoints.py:536`) is the one predicate for a wedge, and
   `for_spin` is the boundary a caller-built k-set must cross.
-- `map_k` and `sum_k` (`batching.py`), `defumat.eager.compiled` and
+- `map_k` and `sum_k` (`batching.py`), `defuqumat.eager.compiled` and
   `compiled_function`, `sizing.estimate_size` and the dtype policy `cell.precision` are
   what a new walk over k, a new closure, a new budget and a new array go through.
   `compiled` retraces at each call to find its key, so a Python loop over chunks uses
@@ -356,7 +356,7 @@ $\kappa$ = 0.1, 0.3 and 0.5 bohr$^{-1}$.
 
 ### The propagator at a frozen potential
 
-`defumat/realtime/` with three modules: `pulse.py` (the pulse shapes behind a registry,
+`defuqumat/realtime/` with three modules: `pulse.py` (the pulse shapes behind a registry,
 returning $\boldsymbol\kappa$ on the time grid and at the midpoints), `propagators.py`
 (the step behind a registry) and `propagate.py` (the driver, the current, the
 diagnostics). The entry point is `workflows/realtime.py:run_realtime`, with
@@ -631,7 +631,7 @@ signs checked: `X = sum |b_i>[d_ij <b_j| + i q_ij <db_j/dk|]` is `i` times P99's
   the occupied states at $\mathbf k+\boldsymbol\kappa(t)$, which a propagation on the
   full sphere does not have. `tb09` at a frozen potential takes its place.
 - A magnetic field or a constrained moment, for the reason the response stack gives.
-- `DEFUMAT_POOLS` with the potential updated in time, in the first version. The frozen
+- `DEFUQUMAT_POOLS` with the potential updated in time, in the first version. The frozen
   mode needs no communication between k-points, which is an argument that pools are
   simple there and has not been checked against `parallel.py`.
 - A metal is allowed in the frozen mode with its ground-state occupations held fixed,
@@ -718,7 +718,7 @@ In order of what we expect each to be worth:
   stick-based transform as every Hamiltonian application does.
 - In the frozen mode, k outside and time inside keeps a core's working set at a few
   bands of one k-point, which is the regime "One calculation on many cores" found a CPU
-  to be fast in, and `DEFUMAT_POOLS` then needs no communication until the final sum. On
+  to be fast in, and `DEFUQUMAT_POOLS` then needs no communication until the final sum. On
   a card the k-chunk is `'fit'`.
 - The little group divides everything by up to eight.
 - `vkb` at $\mathbf k+\boldsymbol\kappa(t)$ is rebuilt at every step. For a linearly
@@ -743,7 +743,7 @@ In order of what we expect each to be worth:
   steps, so this is a measurement (the spectrum in both precisions on one cell, to which
   harmonic order they agree) and never the mode a number is claimed in.
 - The first call compiles and, on a card, autotunes; the timing rules of `CLAUDE.md`
-  apply, and a card job points `DEFUMAT_CACHE_DIR` at a directory that outlives it.
+  apply, and a card job points `DEFUQUMAT_CACHE_DIR` at a directory that outlives it.
 
 ## The traps this work will meet
 
@@ -840,7 +840,7 @@ Not verified, and not to be leaned on:
   rebuild, which is an operation count and was not timed;
 - the iteration count of a complex shifted solve, and with it the ratio between the two
   routes to the third harmonic;
-- whether the frozen mode runs under `DEFUMAT_POOLS` as it stands;
+- whether the frozen mode runs under `DEFUQUMAT_POOLS` as it stands;
 - whether Elk's task 125 assembles the complete $\chi^{(2)}$ as a function of the
   complex frequency, which matters only if it is used beside `get_shg` in the ladder.
 

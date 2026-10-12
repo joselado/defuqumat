@@ -1,10 +1,10 @@
 # Making the Davidson solver faster and more stable: what the literature offers
 
 This file collects what arXiv has on speeding up and stabilising a block Davidson eigensolver
-in a plane-wave code, mapped onto `defumat/solvers/davidson.py` and onto the Davidson entries
+in a plane-wave code, mapped onto `defuqumat/solvers/davidson.py` and onto the Davidson entries
 that are still open (`OPEN.md`, `GPU-SPEED-NEXT.md`, the step count against `pw.x` in
 `PERFORMANCE.md`). It is a survey taken on 2026-10-10 by reading the code, the project's notes
-and the papers. **Nothing in it was run**, so every effect it expects on defumat is a forecast
+and the papers. **Nothing in it was run**, so every effect it expects on defuqumat is a forecast
 until a `davidson_steps` count says otherwise.
 
 The strategies are ranked by how directly they address a problem this code is known to have.
@@ -14,10 +14,10 @@ the papers measured, what it costs, and the arXiv references behind it.
 ## The collapse condition is not `cegterg`'s
 
 The most useful finding is not in any paper, and it was checked in the source on 2026-10-10.
-defumat collapses its subspace when
+defuqumat collapses its subspace when
 
 ```python
-full = nbase + nbnd > nvecx          # defumat/solvers/davidson.py:750
+full = nbase + nbnd > nvecx          # defuqumat/solvers/davidson.py:750
 ```
 
 while QE refreshes when
@@ -26,13 +26,13 @@ while QE refreshes when
 nbase+notcnv > nvecx                  ! cegterg.f90:581 and :1128, regterg.f90:497
 ```
 
-meaning that defumat makes room for a whole block of `nbnd` corrections where `pw.x` makes room
+meaning that defuqumat makes room for a whole block of `nbnd` corrections where `pw.x` makes room
 only for the `notcnv` bands that are still unconverged. At `diago_david_ndim = 2` we have
 `nvecx = 2 nbnd`. After one expansion `nbase = nbnd + notcnv`, so `nbase + nbnd > nvecx` holds
 for any `notcnv > 0`, and the solver collapses every second step regardless of how many bands
 are left. It is then a restarted block steepest descent. `pw.x` keeps roughly
 `(nvecx - nbnd)/notcnv` blocks of history, which is ten blocks when 100 of 1020 bands are
-still unconverged. At `david = 4` defumat keeps at most three expansions, where QE keeps
+still unconverged. At `david = 4` defuqumat keeps at most three expansions, where QE keeps
 `3 nbnd/notcnv`.
 
 The code says `nbnd` because of the static write at `davidson.py:807`. It puts a full
@@ -108,7 +108,7 @@ This bears on three open items:
   traced stagnation at `sqrt(restarts) ||A|| eps` to that rotation and cured it by recomputing
   `A V` (1607.01404).
 - What it targets: `GPU-SPEED-NEXT.md` item 7 (a `conv_thr` tighter than 1e-10, handled today by
-  the global `DEFUMAT_ETHR_MIN`) and the static float32 floor. The stall on the card is solved,
+  the global `DEFUQUMAT_ETHR_MIN`) and the static float32 floor. The stall on the card is solved,
   so this is a guard against a recurrence rather than the fix for a measured defect.
 - Cost: (a) is a few scalars a step; (b) is one `h_psi` of `nbnd` bands per reset.
 
@@ -128,7 +128,7 @@ This bears on three open items:
   stability, not speed.
 
 **6. Mixed precision inside the solve, not across the SCF.**
-- What the literature does: the opposite of defumat's `'mixed'`. Gubler and co-workers keep the
+- What the literature does: the opposite of defuqumat's `'mixed'`. Gubler and co-workers keep the
   full space, `H V` and the residuals in float64 and put only the small sketched subspace in
   float32 (2608.24529). R-ChFSI applies the float32 or TF32 products to residuals, reaches 1e-8,
   and makes the whole solver 2.1x faster on a GPU (2503.22652). ELPA and BEAST start in single
@@ -160,7 +160,7 @@ This bears on three open items:
   counts. KSSOLV 2.0's tolerance tied to the density residual is the same idea (2206.01993).
 - The preconditioner: no plane-wave paper was found that beats a kinetic diagonal with numbers.
   `OPEN.md` M5 is a cost item, and 1308.2445 concerns a nonorthogonal basis.
-- RMM-DIIS and ParO are in QE's tree but address nothing on defumat's lists.
+- RMM-DIIS and ParO are in QE's tree but address nothing on defuqumat's lists.
 
 **Differentiability.** No file that calls the solver contains `jax.grad`, `jax.jvp` or
 `jax.vjp`, and the only gradient handling inside the solver is the `stop_gradient` in

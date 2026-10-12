@@ -38,7 +38,7 @@
 #               is partly to measure the peak, since nothing on record says what
 #               the transcribed route costs on an augmented dataset; if it comes
 #               in low the next array asks for much less.
-#SBATCH --job-name=defumat-piezo-cheap
+#SBATCH --job-name=defuqumat-piezo-cheap
 #SBATCH --partition=batch-milan
 #SBATCH --array=0-2
 #SBATCH --time=04:00:00
@@ -48,7 +48,7 @@
 #SBATCH --error=/scratch/work/ladovj1/calculations/defumat-audit/out/cheap-%A_%a.err
 
 WORK=/scratch/work/ladovj1/calculations/defumat-audit
-REPO=${DEFUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
+REPO=${DEFUQUMAT_REPO:-/scratch/work/ladovj1/apps/defumat-jobs}
 VENV=/scratch/work/ladovj1/calculations/pypresso-gpu/venv
 
 mkdir -p "$WORK/out" || exit 1
@@ -58,8 +58,8 @@ source "$VENV/bin/activate" || exit 1
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
 export JAX_PLATFORMS=cpu
 export PYTHONPATH="$REPO"
-export DEFUMAT_CACHE_DIR=off
-export DEFUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
+export DEFUQUMAT_CACHE_DIR=off
+export DEFUQUMAT_QE_ROOT=/scratch/work/ladovj1/apps/qe-7.5-reference
 
 case ${SLURM_ARRAY_TASK_ID:-0} in
     0) RUNG=zstar-k4;  MESH=4 ;;

@@ -29,8 +29,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 
 import jax
 
-from defumat import Calculator
-from defumat.units import RY_TO_EV
+from defuqumat import Calculator
+from defuqumat.units import RY_TO_EV
 
 DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))), "tests", "data")

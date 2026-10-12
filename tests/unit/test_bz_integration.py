@@ -11,12 +11,12 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.scf.occupations import (
+from defuqumat.scf.occupations import (
     smeared_occupations,
     w0gauss,
     wgauss,
 )
-from defumat.scf.tetrahedra import (
+from defuqumat.scf.tetrahedra import (
     build_tetrahedra,
     integrated_states,
     tetrahedron_dos,
@@ -24,13 +24,13 @@ from defumat.scf.tetrahedra import (
     tetrahedron_occupations,
     _sorted_corners,
 )
-from defumat.system.kpoints import (
+from defuqumat.system.kpoints import (
     DEGSPIN,
     grid_equivalence,
     irreducible_wedge,
     monkhorst_pack,
 )
-from defumat.units import SQRT_PI
+from defuqumat.units import SQRT_PI
 
 pytestmark = pytest.mark.unit
 
@@ -318,7 +318,7 @@ def test_the_degenerate_average_conserves_weight_on_a_chain():
     which preserves weight only when ``S`` is block-diagonal. On the chain
     below the middle column sums to ``1/2 + 1/3 + 1/2 = 4/3`` instead of 1.
     """
-    from defumat.scf.tetrahedra import _average_degenerate
+    from defuqumat.scf.tetrahedra import _average_degenerate
 
     levels, wg = _chain()
     averaged = _average_degenerate(wg, levels)
@@ -340,7 +340,7 @@ def test_the_old_symmetric_form_is_the_one_that_loses_weight():
 def test_the_groups_are_contiguous_runs_and_the_average_is_their_mean():
     """QE's scan compares each band to the *first* of the group it is building,
     so a group is a contiguous run and the average within it is a plain mean."""
-    from defumat.scf.tetrahedra import _average_degenerate
+    from defuqumat.scf.tetrahedra import _average_degenerate
 
     levels, wg = _chain()
     averaged = np.asarray(_average_degenerate(wg, levels))
@@ -355,7 +355,7 @@ def test_the_groups_are_contiguous_runs_and_the_average_is_their_mean():
 def test_an_exact_multiplet_is_unchanged_by_the_new_rule():
     """The case every committed reference is: exact degeneracies, where the
     partition and the symmetric relation agree. The fix must be a no-op here."""
-    from defumat.scf.tetrahedra import _average_degenerate
+    from defuqumat.scf.tetrahedra import _average_degenerate
 
     levels = jnp.asarray(np.tile([-1.0, 0.5, 0.5, 0.5, 3.0], (4, 1)))
     rng = np.random.default_rng(7)

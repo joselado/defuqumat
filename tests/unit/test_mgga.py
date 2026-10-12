@@ -2,7 +2,7 @@
 
 There is no Fortran to compare against -- QE reaches TB09 only through libxc,
 and with a zero Laplacian and ``c = 1`` at that (see
-:mod:`defumat.xc.mgga`) -- so the checks here are *analytic identities* the
+:mod:`defuqumat.xc.mgga`) -- so the checks here are *analytic identities* the
 functional has to satisfy, which is a stronger kind of test than an agreement
 to somebody else's floating point:
 
@@ -28,9 +28,9 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from defumat.units import E2
-from defumat.xc.functional import get_functional
-from defumat.xc.mgga import (
+from defuqumat.units import E2
+from defuqumat.xc.functional import get_functional
+from defuqumat.xc.mgga import (
     BR89_GAMMA,
     META_RHO_THRESHOLD,
     TB09_ALPHA,
@@ -275,9 +275,9 @@ def test_the_potential_is_zero_where_the_density_is():
 
 def _accuracy_pieces():
     """A dense G set and a cell, built without an SCF."""
-    from defumat.basis.builder import build_basis
-    from defumat.io.pwin import read_pw_input
-    from defumat.system import build_system
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.system import build_system
     from pathlib import Path
 
     case = Path(__file__).resolve().parents[1] / "data" / "qe" / "si2-tb09.in"
@@ -293,7 +293,7 @@ def test_the_tau_term_is_the_magnetization_halfs_expression():
     :func:`scf_accuracy_terms`, which shares no code with it: the magnetization
     of an ``(up, down)`` pair ``(tau, 0)`` is ``tau``, so the two must agree.
     """
-    from defumat.scf.potential import scf_accuracy_terms, tau_accuracy
+    from defuqumat.scf.potential import scf_accuracy_terms, tau_accuracy
 
     gvectors, cell = _accuracy_pieces()
     rng = np.random.default_rng(20260920)
@@ -318,7 +318,7 @@ def test_the_tau_term_agrees_across_the_two_spin_regimes():
     two regimes agree exactly -- which is what keeps
     ``test_the_two_spin_regimes_agree`` bit for bit.
     """
-    from defumat.scf.potential import tau_accuracy
+    from defuqumat.scf.potential import tau_accuracy
 
     gvectors, cell = _accuracy_pieces()
     rng = np.random.default_rng(11)
@@ -344,7 +344,7 @@ def test_the_tau_term_agrees_across_the_two_spin_regimes():
 def test_a_polarized_tau_is_not_the_same_number():
     """The regime test above would pass on a function that ignored its input's
     second channel, so a genuinely polarized pair has to move it."""
-    from defumat.scf.potential import tau_accuracy
+    from defuqumat.scf.potential import tau_accuracy
 
     gvectors, cell = _accuracy_pieces()
     rng = np.random.default_rng(3)
@@ -360,7 +360,7 @@ def test_a_polarized_tau_is_not_the_same_number():
 def test_the_residual_routes_accuracy_carries_tau_too():
     """``conv_thr`` means one thing across the two solvers, so both carry it.
 
-    The mixing loop and :func:`~defumat.scf.driver.run_scf`'s residual route
+    The mixing loop and :func:`~defuqumat.scf.driver.run_scf`'s residual route
     compose ``accuracy`` from the same pieces in the same order -- charge and
     magnetization fused, then ``ns``, then ``tau``, which is ``unpack``'s order
     -- and a run that stopped on a different measure from the one it mixed with
@@ -369,11 +369,11 @@ def test_the_residual_routes_accuracy_carries_tau_too():
     """
     from pathlib import Path
 
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation, _accuracy, _tau_accuracy
-    from defumat.scf.residual import make_residual
-    from defumat.system import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, _accuracy, _tau_accuracy
+    from defuqumat.scf.residual import make_residual
+    from defuqumat.system import build_system
 
     root = Path(__file__).resolve().parents[1] / "data"
     system = build_system(read_pw_input(root / "qe" / "si2-tb09.in"))

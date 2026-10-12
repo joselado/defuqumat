@@ -24,15 +24,15 @@ import equinox as eqx
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.basis.builder import build_basis
-from defumat.system.kpoints import KPoints
-from defumat.ultracell.driver import (
+from defuqumat import Calculator
+from defuqumat.basis.builder import build_basis
+from defuqumat.system.kpoints import KPoints
+from defuqumat.ultracell.driver import (
     require_an_ultracell_regime,
     require_the_folded_grid,
     run_ultracell,
 )
-from defumat.ultracell.hamiltonian import multiplet_cut
+from defuqumat.ultracell.hamiltonian import multiplet_cut
 
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "tests" / "data" / "qe"

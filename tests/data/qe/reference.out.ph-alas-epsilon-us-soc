@@ -17,7 +17,7 @@
 
      Reading xml data from directory:
 
-     /tmp/claude-3291340/-u-40-ladovj1-data-Documents-programs-claude-defumat/fb6cbcb3-754d-4ac2-84b5-e39bee160d3c/scratchpad/qe-alas-soc/pwscf.save/
+     /tmp/claude-3291340/-u-40-ladovj1-data-Documents-programs-claude-defuqumat/fb6cbcb3-754d-4ac2-84b5-e39bee160d3c/scratchpad/qe-alas-soc/pwscf.save/
 
 
      IMPORTANT: XC functional enforced from input :
@@ -34,7 +34,7 @@
 
      Using Slab Decomposition
 
-     Reading collected, re-writing distributed wavefunctions in /tmp/claude-3291340/-u-40-ladovj1-data-Documents-programs-claude-defumat/fb6cbcb3-754d-4ac2-84b5-e39bee160d3c/scratchpad/qe-alas-soc/
+     Reading collected, re-writing distributed wavefunctions in /tmp/claude-3291340/-u-40-ladovj1-data-Documents-programs-claude-defuqumat/fb6cbcb3-754d-4ac2-84b5-e39bee160d3c/scratchpad/qe-alas-soc/
 
      Number and degeneracy of irreps per q-point
        N         xq(1)         xq(2)         xq(3)   N irreps
@@ -103,7 +103,7 @@
         k(   10) = (   0.3750000  -0.3750000   1.1250000), wk =   0.0937500
 
      PseudoPot. # 1 for Al read from file:
-     /u/40/ladovj1/unix/Documents/programs/claude/defumat/tests/data/pseudo/Al.rel-pbe-n-rrkjus_psl.1.0.0.UPF
+     /u/40/ladovj1/unix/Documents/programs/claude/defuqumat/tests/data/pseudo/Al.rel-pbe-n-rrkjus_psl.1.0.0.UPF
      MD5 check sum: 40c82804aa80f8a3174aa04441560ec7
      Pseudo is Ultrasoft + core correction, Zval =  3.0
      Generated using &quot;atomic&quot; code by A. Dal Corso  v.6.3
@@ -122,7 +122,7 @@
 
 
      PseudoPot. # 2 for As read from file:
-     /u/40/ladovj1/unix/Documents/programs/claude/defumat/tests/data/pseudo/As.rel-pbe-n-rrkjus_psl.1.0.0.UPF
+     /u/40/ladovj1/unix/Documents/programs/claude/defuqumat/tests/data/pseudo/As.rel-pbe-n-rrkjus_psl.1.0.0.UPF
      MD5 check sum: 801fd03116123803a7a6c9811cd3e45c
      Pseudo is Ultrasoft + core correction, Zval =  5.0
      Generated using &quot;atomic&quot; code by A. Dal Corso  v.6.3

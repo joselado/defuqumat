@@ -58,12 +58,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.io import read_qe_output
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.scf import run_scf
-from defumat.system import build_system
-from defumat.units import RY_TO_EV
+from defuqumat.io import read_qe_output
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
+from defuqumat.units import RY_TO_EV
 from tests.conftest import reference_output
 from tests.tolerances import (
     EIGENVALUE_EV,
@@ -390,7 +390,7 @@ def test_an_unimplemented_spin_correlation_is_refused():
     """
     import dataclasses
 
-    from defumat.xc.functional import get_functional
+    from defuqumat.xc.functional import get_functional
 
     functional = get_functional("PZ")
     assert functional.supports_spin
@@ -466,10 +466,10 @@ def test_nscf_on_a_denser_grid_matches_reference(qe_testsuite, pseudo_dir):
     -- which is exactly what a denser NSCF grid is -- never passed through that
     step and counted every electron twice. The failure is silent: the density of
     states still integrates to ten electrons, at a Fermi level 2.3 eV too low.
-    :func:`defumat.system.kpoints.for_spin` is now the single place that knows
+    :func:`defuqumat.system.kpoints.for_spin` is now the single place that knows
     the rule, and both callers go through it.
     """
-    from defumat.workflows.nscf import run_nscf
+    from defuqumat.workflows.nscf import run_nscf
 
     _, _, scf = _converged("pw_lsda", "lsda.in", qe_testsuite, pseudo_dir)
 
@@ -499,7 +499,7 @@ def test_the_spin_resolved_density_of_states(qe_testsuite, pseudo_dir):
     magnetization. Getting the weight convention wrong (see the test above)
     leaves the first intact and destroys the second, which is why both are here.
     """
-    from defumat.workflows.dos import run_dos
+    from defuqumat.workflows.dos import run_dos
 
     system, pseudos, scf = _converged("pw_lsda", "lsda.in", qe_testsuite, pseudo_dir)
     nelec = sum(pseudos[t].z_valence for t in system.structure.types)
@@ -533,8 +533,8 @@ def test_the_spin_resolved_density_of_states(qe_testsuite, pseudo_dir):
 
 def test_the_dos_file_gets_two_columns_when_polarized(qe_testsuite, pseudo_dir):
     """``dos.f90``'s LSDA format: ``dosup``, ``dosdw``, and one ``Int dos``."""
-    from defumat.io.output import format_dos
-    from defumat.workflows.dos import compute_dos, energy_grid
+    from defuqumat.io.output import format_dos
+    from defuqumat.workflows.dos import compute_dos, energy_grid
 
     system, pseudos, scf = _converged("pw_lsda", "lsda.in", qe_testsuite, pseudo_dir)
     eigenvalues = scf.eigenvalues_by_spin

@@ -3,13 +3,13 @@
 ! fixture's 0.05 Ha matches a NUMBER and not a temperature: under Fermi-Dirac
 ! that is kT = 1.36 eV, which destroys the magnetism outright.  Both codes then
 ! converge, agree with each other to six decimals, and are comparing nothing --
-! Elk's total moment came back at 1.7e-04 and defumat's int|m| at 0.0020, against
+! Elk's total moment came back at 1.7e-04 and defuqumat's int|m| at 0.0020, against
 ! 0.54 and 0.515 on the Gaussian pair.  That is this project's "a check whose null
 ! result cannot be told from a pass" exactly: two codes agreeing about a
 ! nonmagnetic chain.
 !
 ! So the width is chosen from a sweep of the QE side rather than copied
-! (defumat, q = 0, conv_thr 1e-10):
+! (defuqumat, q = 0, conv_thr 1e-10):
 !
 !     degauss (Ry)   int|m|     -TS (Ry)
 !          0.10      0.00195   -0.141049     <- magnetism gone
@@ -63,7 +63,7 @@
 !     this is the cell to take an external number on and iron is not.
 !
 ! The field breaks spin symmetry and STAYS ON: Elk will not polarise on its own,
-! where defumat seeds from starting_magnetization.  It is along x, perpendicular
+! where defuqumat seeds from starting_magnetization.  It is along x, perpendicular
 ! to q along z, which is the plane a spiral's moments turn in -- QE's angle1 = 90
 ! says the same thing.  See the bfieldc block below for why it is not decayed,
 ! which is the one real trap in this fixture.  Always read "total moment" out of
@@ -97,11 +97,11 @@ spinpol
 !
 ! **reducebf = 0.8 does not work on this cell, and the way it fails is the thing
 ! to know about this fixture.**  Elk will not polarise on its own -- unlike
-! defumat, which seeds from starting_magnetization -- so the field has to
+! defuqumat, which seeds from starting_magnetization -- so the field has to
 ! establish the moment, and 0.8 takes it to 0.9 per cent of its value in 21
 ! loops.  Measured: the moment grew from 0.148 to 0.172 mu_B over the first eight
 ! loops and then followed the field down, and the run CONVERGED, in 23 loops, to
-! a total moment of 2.0e-4 mu_B -- a nonmagnetic state -- while defumat on the
+! a total moment of 2.0e-4 mu_B -- a nonmagnetic state -- while defuqumat on the
 ! identical cell with no field at all sustains 0.515 mu_B.  That is a fading
 ! seed, not a disagreement about the physics, and what it produces is a
 ! converged-looking Elk run with the answer quietly gone.
@@ -120,7 +120,7 @@ reducebf
 ! **Fermi-Dirac smearing, and this one line is the whole point of this fixture.**
 ! energy.f90:242 computes Elk's entropy term only IF (stype == 3), so with the
 ! Gaussian its engytot carries no -TS and is an INTERNAL energy where QE's and
-! defumat's totals are FREE energies.  At this width that difference is 112 meV
+! defuqumat's totals are FREE energies.  At this width that difference is 112 meV
 ! between q = 0 and q = 1/4 and was the whole of the factor of five PLAN.md P86
 ! could not place.  With stype = 3 both sides carry -TS and E(q) - E(0) can be
 ! compared directly, with no correction and nothing to remember.

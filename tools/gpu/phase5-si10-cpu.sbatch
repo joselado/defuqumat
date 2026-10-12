@@ -29,11 +29,11 @@
 #             workstation, against 12 s -- and the thirty-mode dynamical matrix
 #             is the row that sets this budget. Each case carries its own
 #             timeout.
-# cpus-per-task 4, matching the GPU half; defumat narrows to four on import.
+# cpus-per-task 4, matching the GPU half; defuqumat narrows to four on import.
 # mem         160G, matching phase5-cpu.sbatch -- and deliberately the *same*
 #             160G the alas-raman MemoryError happened under, since reproducing
 #             it is half the point of that row.
-#SBATCH --job-name=defumat-cpu-phase5-si10
+#SBATCH --job-name=defuqumat-cpu-phase5-si10
 #SBATCH --partition=batch-milan
 #SBATCH --time=10:00:00
 #SBATCH --cpus-per-task=4
@@ -48,7 +48,7 @@ cd "$REPO" || exit 1
 source "$WORK/venv/bin/activate"
 
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1
-export DEFUMAT_CACHE_DIR="$WORK/cache-cpu"
+export DEFUQUMAT_CACHE_DIR="$WORK/cache-cpu"
 export PYTHONPATH="$REPO"
 export JAX_PLATFORMS=cpu
 

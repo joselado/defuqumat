@@ -20,7 +20,7 @@ numbers are the only place it shows.
 ```python
 import numpy as np
 import matplotlib.pyplot as plt
-from defumat import Calculator
+from defuqumat import Calculator
 
 calc = Calculator.from_file('../tests/data/qe/h4-cycloid-90.in',
                             pseudo_dir='../tests/data/pseudo')

@@ -19,7 +19,7 @@ digit it gives.
 ```python
 from pathlib import Path
 import numpy as np
-from defumat import Calculator
+from defuqumat import Calculator
 
 PSEUDO, CASES = Path("../tests/data/pseudo"), Path("../tests/data/qe")
 

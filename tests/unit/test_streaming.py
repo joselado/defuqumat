@@ -2,7 +2,7 @@
 
 ``wfc_store = 'stream'`` keeps the store in host memory for the whole SCF and
 moves one k-chunk at a time through every pass that reads it
-(:mod:`defumat.scf.streaming`). It is a regrouping of the same sums, so the
+(:mod:`defuqumat.scf.streaming`). It is a regrouping of the same sums, so the
 standard is round-off against the whole-set store, regime by regime -- every
 regime has its own per-k arrays to slice, and a slice taken from the wrong one
 (the spiral's doubled basis list, the gamma trick's ``-(k+G)`` index, the
@@ -23,9 +23,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import batching
-from defumat.batching import k_chunks, memory_preset, resolve_memory_mode
-from defumat.calculator import Calculator
+from defuqumat import batching
+from defuqumat.batching import k_chunks, memory_preset, resolve_memory_mode
+from defuqumat.calculator import Calculator
 
 pytestmark = pytest.mark.unit
 
@@ -181,12 +181,12 @@ def test_the_presets(monkeypatch):
 
 
 def test_memory_is_the_default_on_a_card_and_speed_on_a_cpu(monkeypatch):
-    monkeypatch.delenv("DEFUMAT_MEMORY_MODE", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_MEMORY_MODE", raising=False)
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
     assert resolve_memory_mode() == "speed"
     monkeypatch.setattr(batching, "_backend", lambda: "gpu")
     assert resolve_memory_mode() == "memory"
-    monkeypatch.setenv("DEFUMAT_MEMORY_MODE", "speed")
+    monkeypatch.setenv("DEFUQUMAT_MEMORY_MODE", "speed")
     assert resolve_memory_mode() == "speed", "the environment beats the platform"
     assert resolve_memory_mode("memory") == "memory", "an argument beats both"
     with pytest.raises(ValueError, match="memory_mode must be one of"):
@@ -199,11 +199,11 @@ def test_speed_that_would_not_fit_falls_back_to_memory(monkeypatch):
     Tested by making the check say no rather than by finding a cell too large
     for a card -- a guard is tested by feeding it the case that must trip it.
     """
-    from defumat import sizing
-    from defumat.scf import driver
+    from defuqumat import sizing
+    from defuqumat.scf import driver
 
     monkeypatch.setattr(batching, "_backend", lambda: "gpu")
-    monkeypatch.delenv("DEFUMAT_K_BATCH", raising=False)
+    monkeypatch.delenv("DEFUQUMAT_K_BATCH", raising=False)
     monkeypatch.setattr(sizing, "speed_mode_fits", lambda *a, **k: sizing.SpeedCheck(
         fits=False, estimate=10 * 2**30, available=4 * 2**30))
     calculator = Calculator.from_text(SILICON_8K, PSEUDO, announce=False)
@@ -262,8 +262,8 @@ def test_an_eigenvalue_only_solve_streams_and_keeps_no_states(k_batch=3):
     returns. Round-off against the whole-set solve, a short last chunk at
     ``k_batch = 3``, and no wavefunctions handed back.
     """
-    from defumat.system.kpoints import KPoints
-    from defumat.workflows.nscf import fixed_density_bands, fixed_density_states
+    from defuqumat.system.kpoints import KPoints
+    from defuqumat.workflows.nscf import fixed_density_bands, fixed_density_states
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -308,10 +308,10 @@ def test_a_host_store_is_read_a_chunk_at_a_time():
     item 4). The same states in both forms, a short last chunk at
     ``k_batch = 3``: round-off.
     """
-    from defumat.hubbard.projectors import build_atomic_projectors
-    from defumat.projwfc.angular_momentum import _site_density_matrix
-    from defumat.projwfc.channels import projection_channels
-    from defumat.projwfc.projections import atomic_projections
+    from defuqumat.hubbard.projectors import build_atomic_projectors
+    from defuqumat.projwfc.angular_momentum import _site_density_matrix
+    from defuqumat.projwfc.channels import projection_channels
+    from defuqumat.projwfc.projections import atomic_projections
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -357,8 +357,8 @@ def test_a_host_store_is_read_a_chunk_at_a_time():
 @pytest.mark.slow  # 7.7 s in the gate: an SCF and two path solves
 def test_a_streamed_solve_that_keeps_its_states_keeps_them_on_the_host(k_batch=3):
     """``fixed_density_states`` in a streamed store: the whole-set solve, in host memory."""
-    from defumat.system.kpoints import KPoints
-    from defumat.workflows.nscf import fixed_density_states
+    from defuqumat.system.kpoints import KPoints
+    from defuqumat.workflows.nscf import fixed_density_states
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -394,9 +394,9 @@ def test_the_paw_orientation_torque_walks_a_host_store():
     by a finite rotation so the torque is not zero by alignment -- a zero here
     would pass whatever the regrouping did.
     """
-    from defumat.forces.torque import rotate_texture
-    from defumat.scf.driver import _onecenter_torque
-    from defumat.workflows.anisotropy import rotation_from_euler
+    from defuqumat.forces.torque import rotate_texture
+    from defuqumat.scf.driver import _onecenter_torque
+    from defuqumat.workflows.anisotropy import rotation_from_euler
 
     text = open("tests/data/qe/o2-paw-texture.in").read()
     text = text.replace("celldm(1) = 14.0", "celldm(1) = 9.0").replace(

@@ -29,8 +29,8 @@ one that falls with the threshold is convergence. About 15 minutes on three core
 
 ```python
 from pathlib import Path
-from defumat import Calculator
-from defumat.workflows.anisotropy import run_relaxed_anisotropy
+from defuqumat import Calculator
+from defuqumat.workflows.anisotropy import run_relaxed_anisotropy
 
 src = Path("tests/data/qe/ni-tetragonal-relaxed-mae-paw.in").read_text()
 src = (src.replace("ecutwfc = 75.0, ecutrho = 480.0", "ecutwfc = 40.0, ecutrho = 320.0")
@@ -137,7 +137,7 @@ III is bit-identical on any core count and on the tabulated route.
   bit-identical pinned to one core. On `benchmarks/si8-us-1k.in` (nine chunks), compare
   `Q_ij(G)` and `get_stress()` with `np.array_equal` between the current tree and a
   `93d882f` worktree, once pinned and once not, and repeat P112's `M1` script on
-  `o2-paw-texture.in` with `DEFUMAT_AUG_MAX_BYTES=0` to force the tabulated route, which
+  `o2-paw-texture.in` with `DEFUQUMAT_AUG_MAX_BYTES=0` to force the tabulated route, which
   was never A/B'd.
 
 ## On Triton

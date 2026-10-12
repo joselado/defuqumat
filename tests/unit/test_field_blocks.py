@@ -12,8 +12,8 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.response.efield import DielectricTensor
-from defumat.response.electrostriction import field_blocks
+from defuqumat.response.efield import DielectricTensor
+from defuqumat.response.electrostriction import field_blocks
 
 pytestmark = pytest.mark.unit
 

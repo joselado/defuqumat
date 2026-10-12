@@ -26,7 +26,7 @@ import jax
 import numpy as np
 import pytest
 
-from defumat import Calculator
+from defuqumat import Calculator
 
 pytestmark = pytest.mark.slow
 
@@ -144,7 +144,7 @@ def test_the_image_integrates_to_the_density_of_states():
     factor of two in the spin degeneracy, a missing ``1/Omega``, or a delta
     that is not normalised.
     """
-    from defumat.workflows.dos import compute_dos
+    from defuqumat.workflows.dos import compute_dos
 
     calculator = _converged("al-metal")
     scf = calculator.get_scf()
@@ -170,8 +170,8 @@ def test_a_denser_grid_re_solves_the_bands_and_moves_the_fermi_level():
     check is the sum rule against the new k-set's own density of states, which
     fails if either half is stale.
     """
-    from defumat.workflows.dos import compute_dos
-    from defumat.workflows.nscf import denser_grid
+    from defuqumat.workflows.dos import compute_dos
+    from defuqumat.workflows.nscf import denser_grid
 
     calculator = _converged("al-metal")
     scf = calculator.get_scf()
@@ -191,8 +191,8 @@ def test_a_denser_grid_re_solves_the_bands_and_moves_the_fermi_level():
 
 def test_the_plane_is_read_out_of_the_grid_exactly():
     """Sampling on the grid's own points returns the grid, on a real cell."""
-    from defumat.basis.builder import build_basis
-    from defumat.basis.sample import sample_field
+    from defuqumat.basis.builder import build_basis
+    from defuqumat.basis.sample import sample_field
 
     calculator = _converged("al-metal")
     image = calculator.get_stm(height=0.0, width=0.05)
@@ -288,7 +288,7 @@ def test_a_spinor_image_obeys_the_same_sum_rule():
     same ``int rho_STM = D(E_F)`` the aluminium test makes, on the branch where
     the degeneracy is different.
     """
-    from defumat.workflows.dos import compute_dos
+    from defuqumat.workflows.dos import compute_dos
 
     calculator = _converged("h-chain-90deg")
     scf = calculator.get_scf()
@@ -313,7 +313,7 @@ def test_a_soft_dataset_image_carries_its_augmentation_charge(case):
     ``pp.x`` cannot be the reference here: ``stm.f90`` sums ``|psi|^2`` and
     never calls ``addusdens``, so it is norm-conserving only.
     """
-    from defumat.stm.image import tunnelling_weights
+    from defuqumat.stm.image import tunnelling_weights
 
     calculator = _converged(case)
     scf = calculator.get_scf()

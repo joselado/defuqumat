@@ -3,8 +3,8 @@
 # Gaussian's minimum width, the G layout and a tetrahedron run. Iteration counts.
 set -u
 cd /l/ladovj1/review/vacuum
-export JAX_PLATFORMS=cpu PYTHONPATH=/l/ladovj1/defumat-ldos DEFUMAT_CACHE_DIR=/l/ladovj1/jaxcache
-export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DEFUMAT_THREADS=off
+export JAX_PLATFORMS=cpu PYTHONPATH=/l/ladovj1/defumat-ldos DEFUQUMAT_CACHE_DIR=/l/ladovj1/jaxcache
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 DEFUQUMAT_THREADS=off
 PY=/l/ladovj1/venv/bin/python3
 mkdir -p prod prod-logs
 rm -f sweep_prod.done

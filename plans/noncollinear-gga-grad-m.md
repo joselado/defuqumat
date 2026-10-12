@@ -6,7 +6,7 @@ D22-0161; the code is developed on the workstation.*
 
 ## Why
 
-`_noncollinear_gradient_correction` (`defumat/scf/potential.py`) is `gradcorr`'s
+`_noncollinear_gradient_correction` (`defuqumat/scf/potential.py`) is `gradcorr`'s
 `nspin = 4` branch: it builds `rho_up/dw = (n +- s|m|)/2` and runs the collinear GGA on
 that, with `s = sign(m . u)` along a fixed axis when every starting moment is parallel
 (`fixed_quantization_axis`, QE's `lsign`) and `s = 1` otherwise. A spiral never has an
@@ -73,11 +73,11 @@ reproduction. So it is an option, not a replacement.
 ## Implementation
 
 1. `Functional.noncollinear_exchange_energy(n, s, g, Gamma, A, t)` (or the sigma pair and
-   the weights) in `defumat/xc/functional.py`: `_spin_exchange_energy`'s gates and spin
+   the weights) in `defuqumat/xc/functional.py`: `_spin_exchange_energy`'s gates and spin
    scaling on a per-channel `sigma` given directly, evaluated on the two `tau` branches
    and mixed with `(1 +- c)/2`. `c` from `jnp.where(s*A > eta, t / (s*A), 0)`, with `A`
    and `s` through `safe_modulus` so that no derivative is `0/0`.
-2. `_noncollinear_gradient_correction_grad_m` in `defumat/scf/potential.py`: transforms
+2. `_noncollinear_gradient_correction_grad_m` in `defuqumat/scf/potential.py`: transforms
    `n + core` and the three `m_k` (4 forward), takes `grad n` and `grad m_k` (12 back),
    builds the invariants, and gets **the potential as `jax.value_and_grad` of the
    integrated energy with respect to `rho_r`**, times `N/Omega`. Every term (the
@@ -89,7 +89,7 @@ reproduction. So it is an option, not a replacement.
    `nosource` is plumbed. Under `'grad_m'` the quantization axis is ignored (it is
    irrelevant: the collinear limit is exact without it).
 4. Refused by name under `'grad_m'` until checked: the meta-GGA branch
-   (`_noncollinear_meta_exchange`), the PAW one-centre GGA (`defumat/paw/gradient.py`,
+   (`_noncollinear_meta_exchange`), the PAW one-centre GGA (`defuqumat/paw/gradient.py`,
    which has its own `|m|` rotation), `nosource`, and the ultracell. A PAW spiral with
    `'grad_m'` would otherwise mix two functionals.
 

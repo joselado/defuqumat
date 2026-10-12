@@ -26,13 +26,13 @@ import pytest
 
 import jax.numpy as jnp
 
-from defumat.ultracell.augmentation import (
+from defuqumat.ultracell.augmentation import (
     becsum_per_copy,
     build_ultracell_augmentation,
     coefficients_per_difference,
     onecentre_deeq,
 )
-from defumat.ultracell.grid import Ultracell
+from defuqumat.ultracell.grid import Ultracell
 
 CASES = Path(__file__).resolve().parents[1] / "data" / "qe"
 PSEUDO = Path(__file__).resolve().parents[1] / "data" / "pseudo"
@@ -102,7 +102,7 @@ def test_a_lattice_periodic_set_is_the_same_on_every_copy(shape):
 
     It is the one case the loop starts from -- ``_tiled_becsum`` seeds exactly
     this -- and it fixes the factor ``N`` that
-    :func:`~defumat.ultracell.augmentation.becsum_per_copy` carries. Without
+    :func:`~defuqumat.ultracell.augmentation.becsum_per_copy` carries. Without
     that factor the seed would be the unit cell's occupations divided by ``N``
     and PAW's one-centre energy would be wrong at the first iteration in a way
     the loop would then converge away from.
@@ -127,7 +127,7 @@ def test_a_conjugate_paired_q_set_gives_real_copies(shape):
     **The relation is conjugation and not Hermiticity, and the difference is
     the symmetrisation.** A copy's projector occupation matrix is Hermitian, so
     its imaginary part is its antisymmetric part and is not zero; what
-    :func:`~defumat.ultracell.augmentation.ultracell_becsum` carries is the part
+    :func:`~defuqumat.ultracell.augmentation.ultracell_becsum` carries is the part
     symmetric in the channel pair, which is all ``Q_ij`` and the one-centre
     tensors ever contract, and on a symmetric block Hermiticity reads
     ``becsum(-Q_d) = conj(becsum(Q_d))``. The transform of such a set is real,
@@ -214,13 +214,13 @@ def _paw_ultracell(shape, budget, monkeypatch):
     """The displaced tables of a PAW silicon ultracell, under one byte budget.
 
     No SCF: everything below is about the tables' shape metadata, and a
-    :class:`~defumat.scf.driver.Calculation` built from the input alone already
+    :class:`~defuqumat.scf.driver.Calculation` built from the input alone already
     carries the dense G set, the atoms and the projector channels they need.
     """
-    from defumat.io.pwin import read_pw_input
-    from defumat.pseudo import read_upf
-    from defumat.scf.driver import Calculation
-    from defumat.system.builder import build_system
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system.builder import build_system
 
     system = build_system(read_pw_input(CASES / "si-ultracell-paw.in"))
     pseudos = tuple(
@@ -228,7 +228,7 @@ def _paw_ultracell(shape, budget, monkeypatch):
     )
     calculation = Calculation(system, pseudos)
     ultracell = Ultracell.build(shape, tuple(calculation.basis.dense.grid))
-    monkeypatch.setenv("DEFUMAT_AUG_MAX_BYTES", budget)
+    monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", budget)
     return build_ultracell_augmentation(calculation, ultracell, system.cell)
 
 
@@ -238,7 +238,7 @@ def test_the_one_centre_matrix_is_the_same_through_either_storage_scheme(
 
     The budget the displaced tables are built against is ``max_bytes / N``, so
     an ultracell falls to
-    :class:`~defumat.pseudo.augmentation.TabulatedAugmentation` ``N`` times
+    :class:`~defuqumat.pseudo.augmentation.TabulatedAugmentation` ``N`` times
     sooner than the unit cell does -- and that table never materialises
     ``Q_ij(G)``. Asking it for ``qgm`` gave an empty tuple, so the per-species
     blocks came out empty and PAW's one-centre assembly died on
@@ -254,7 +254,7 @@ def test_the_one_centre_matrix_is_the_same_through_either_storage_scheme(
     shape = (2, 1, 1)
     stored = _paw_ultracell(shape, "off", monkeypatch)
     tabulated = _paw_ultracell(shape, "0", monkeypatch)
-    from defumat.pseudo.augmentation import TabulatedAugmentation
+    from defuqumat.pseudo.augmentation import TabulatedAugmentation
 
     assert not isinstance(stored.tables[0], TabulatedAugmentation)
     assert isinstance(tabulated.tables[0], TabulatedAugmentation)

@@ -23,8 +23,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.response import phononq
+from defuqumat import Calculator
+from defuqumat.response import phononq
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 

@@ -14,7 +14,7 @@ warm runs of ``--max-iterations`` iterations), and the energy, which must agree
 with ``D = 1`` to round-off.
 
 The device count is set from the argument before JAX is imported. Pin the mask
-with ``taskset`` and set ``DEFUMAT_THREADS=off``.
+with ``taskset`` and set ``DEFUQUMAT_THREADS=off``.
 """
 
 from __future__ import annotations
@@ -39,12 +39,12 @@ import jax.numpy as jnp  # noqa: E402
 import numpy as np  # noqa: E402
 from jax.sharding import Mesh, PartitionSpec  # noqa: E402
 
-import defumat.hamiltonian.noncollinear as noncollinear  # noqa: E402
-import defumat.hamiltonian.operator as operator  # noqa: E402
-from defumat.io.pwin import read_pw_input  # noqa: E402
-from defumat.pseudo import read_upf  # noqa: E402
-from defumat.scf.driver import Calculation, run_scf  # noqa: E402
-from defumat.system import build_system  # noqa: E402
+import defuqumat.hamiltonian.noncollinear as noncollinear  # noqa: E402
+import defuqumat.hamiltonian.operator as operator  # noqa: E402
+from defuqumat.io.pwin import read_pw_input  # noqa: E402
+from defuqumat.pseudo import read_upf  # noqa: E402
+from defuqumat.scf.driver import Calculation, run_scf  # noqa: E402
+from defuqumat.system import build_system  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 

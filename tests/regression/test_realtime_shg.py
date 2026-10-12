@@ -1,8 +1,8 @@
 """chi^(2)(-2w; w, w) of zincblende AlAs from the real-time second order, against get_shg.
 
 The second order of the current under the adiabatic field, ``J_(2,2)``, is turned
-into ``chi^(2)`` by :func:`~defumat.workflows.realtime.chi2_from_orders`, and the
-reference is the sum over states of :mod:`defumat.response.shg` on the same whole
+into ``chi^(2)`` by :func:`~defuqumat.workflows.realtime.chi2_from_orders`, and the
+reference is the sum over states of :mod:`defuqumat.response.shg` on the same whole
 unshifted mesh and cutoff. AlAs is the cell because silicon's second order is zero by
 inversion, where an agreement would be about a residue. ``alas-shg.in`` is run with
 its symmetry kept and its density on its own 4x4x4 grid, and the field is along
@@ -11,7 +11,7 @@ its symmetry kept and its density on its own 4x4x4 grid, and the field is along
 
 What the comparison found, at 12 Ry on the whole 4x4x4 mesh with ``eta = 0.2`` eV
 unless said otherwise. The real-time side of the mesh and cutoff series is the dense
-hierarchy of :mod:`defumat.realtime.dense` with every band of the sphere, which the
+hierarchy of :mod:`defuqumat.realtime.dense` with every band of the sphere, which the
 propagation itself reproduces: on this mesh, 3.0e-4 at 0.7 eV (``eta_t = 12``, 1250
 steps a period) and 6.1e-5 at 1.5 eV (600 steps a period), 124.918 + 20.117i and
 215.161 + 321.547i pm/V.
@@ -69,13 +69,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.realtime.dense import dense_hamiltonians, dense_orders
-from defumat.response.shg import CHI2_AU_TO_PM_PER_V, _chi_at_k
-from defumat.scf import Calculation
-from defumat.system.kpoints import KPoints
-from defumat.units import HARTREE_TO_EV, RY_TO_EV
-from defumat.workflows.realtime import chi2_from_orders
+from defuqumat import Calculator
+from defuqumat.realtime.dense import dense_hamiltonians, dense_orders
+from defuqumat.response.shg import CHI2_AU_TO_PM_PER_V, _chi_at_k
+from defuqumat.scf import Calculation
+from defuqumat.system.kpoints import KPoints
+from defuqumat.units import HARTREE_TO_EV, RY_TO_EV
+from defuqumat.workflows.realtime import chi2_from_orders
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 

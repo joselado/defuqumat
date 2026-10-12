@@ -35,7 +35,7 @@ def zone_image(kcartesian, values, ax, title, cmap):
     nine in-plane translations put every point in its shortest image and the
     hexagon closes.
     """
-    from defumat.transport.momentum import HEXAGONAL_CORNERS
+    from defuqumat.transport.momentum import HEXAGONAL_CORNERS
 
     k = np.asarray(kcartesian)[:, :2] / BOHR          # 1/A
     shifts = []

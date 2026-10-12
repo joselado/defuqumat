@@ -14,33 +14,33 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from defumat.hubbard.energy import (
+from defuqumat.hubbard.energy import (
     coefficients_from_setup,
     hubbard_energy,
     hubbard_potential,
     ns_ddot,
     qe_hubbard_potential,
 )
-from defumat.hubbard.manifold import (
+from defuqumat.hubbard.manifold import (
     HubbardInput,
     build_hubbard_setup,
     manifold_label,
     parse_manifold,
     reference_occupation,
 )
-from defumat.hubbard.occupations import (
+from defuqumat.hubbard.occupations import (
     adjust_ns,
     initial_ns,
     ns_shape,
     spin_averaged_ns,
     uniform_ns,
 )
-from defumat.hubbard.operator import block_potential
-from defumat.hubbard.projectors import lowdin_transform
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo import read_upf
-from defumat.system import build_system
-from defumat.units import RY_TO_EV
+from defuqumat.hubbard.operator import block_potential
+from defuqumat.hubbard.projectors import lowdin_transform
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.system import build_system
+from defuqumat.units import RY_TO_EV
 
 pytestmark = pytest.mark.unit
 
@@ -260,7 +260,7 @@ def test_operator_matrix_and_application_agree():
     different Hamiltonians -- and every existing consistency test would still
     pass, because none of them switches a U on.
     """
-    from defumat.hubbard.operator import HubbardTerm
+    from defuqumat.hubbard.operator import HubbardTerm
 
     rng = np.random.default_rng(5)
     wfcU = jnp.asarray(
@@ -431,9 +431,9 @@ def test_atomic_orbitals_are_renormalised(pseudo_dir):
     QE prints ``wavefunction(s) 4S renormalized`` for both iron and nickel, so
     the file's own 4s is *not* normalised in the generalised metric. The DFT+U
     ortho-atomic projectors are where that matters -- see
-    :func:`defumat.pseudo.upf._renormalize_orbitals`.
+    :func:`defuqumat.pseudo.upf._renormalize_orbitals`.
     """
-    from defumat.pseudo.radial import simpson_weights
+    from defuqumat.pseudo.radial import simpson_weights
 
     pseudo = read_upf(pseudo_dir / "Ni.pz-nd-rrkjus.UPF")
     weights = np.asarray(simpson_weights(pseudo.rab))

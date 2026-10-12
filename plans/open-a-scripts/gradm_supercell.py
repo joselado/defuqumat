@@ -19,8 +19,8 @@ a = p.parse_args()
 ROOT = Path(a.root)
 sys.path.insert(0, str(ROOT))
 from tests.conftest import GENERATED
-from defumat import Calculator
-from defumat.scf.driver import Calculation, run_scf
+from defuqumat import Calculator
+from defuqumat.scf.driver import Calculation, run_scf
 
 front = Calculator.from_text((GENERATED / "co-helix4-nosoc.in").read_text(),
                              pseudo_dir=ROOT / "tests/data/pseudo", announce=False)

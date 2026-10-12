@@ -13,7 +13,7 @@
 #
 # The step is this code's `delta = 0.01` Ry converted by `2 cb` in magnitude:
 # `deltabf = 0.01 / (2 * 3.6529e-3) = 1.36878`. The conversion itself is
-# `B_defumat = -2 cb bfieldc` (`PLAN.md` P86, sign corrected 2026-09-23), because
+# `B_defuqumat = -2 cb bfieldc` (`PLAN.md` P86, sign corrected 2026-09-23), because
 # Elk's term is `+cb sigma.B` and this code's energy is `-B . m`. A step is a
 # magnitude, so the input is unaffected, but Elk's tensor d(dipole)/d(bfieldc)
 # is this code's alpha times the cell volume times **-2 cb**, and a comparison
@@ -23,7 +23,7 @@
 # read off the moments in its `INFO.OUT` before the signs are compared, rather
 # than assumed from the sign of the seed.
 #
-#   task 0   ngridk 2 2 2, spin-orbit on       -- the grid the first defumat number used
+#   task 0   ngridk 2 2 2, spin-orbit on       -- the grid the first defuqumat number used
 #   task 1   ngridk 4 4 4, spin-orbit on       -- converged sampling
 #   task 2   ngridk 2 2 2, spin-orbit off      -- the null, which must be zero
 #

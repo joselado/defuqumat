@@ -40,13 +40,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.tddft.spinchi0 import transverse_response
-from defumat.tddft.spinkernel import (
+from defuqumat import Calculator
+from defuqumat.tddft.spinchi0 import transverse_response
+from defuqumat.tddft.spinkernel import (
     goldstone_residual,
     transverse_kernel_matrix,
 )
-from defumat.workflows.nscf import fixed_density_states
+from defuqumat.workflows.nscf import fixed_density_states
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -340,8 +340,8 @@ def test_a_caller_built_k_set_carries_one_electron_per_band():
     ``4 4 4`` set **is** this input's own set: the two routes must give the
     same array bit for bit, and they do.
     """
-    from defumat.system.kpoints import KPoints
-    from defumat.workflows.magnons import run_spin_susceptibility
+    from defuqumat.system.kpoints import KPoints
+    from defuqumat.workflows.magnons import run_spin_susceptibility
 
     calculator, scf = _converged("h-fcc-magnon.in")
     options = dict(nbnd=8, conv_thr=1.0e-9)

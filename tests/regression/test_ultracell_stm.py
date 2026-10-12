@@ -12,8 +12,8 @@ The checks, in the order they are worth reading:
 * **the relabelling itself**, which is the one thing here that is new. An
   ultracell state is claimed to be a single coefficient vector on the
   ultracell's own sphere, so sampling it with
-  :func:`~defumat.basis.sample.sample_wavefunctions` must reproduce the box
-  transform :mod:`defumat.ultracell.density` builds the density from. It is run
+  :func:`~defuqumat.basis.sample.sample_wavefunctions` must reproduce the box
+  transform :mod:`defuqumat.ultracell.density` builds the density from. It is run
   on a **modulated** state, because the sign of ``q`` and the value of ``k0`` in
   the ultracell's coordinates are invisible in any state built from one ``Q``;
 * the image against the unit cell's, tiled -- on the **folded** k-set, which is
@@ -39,14 +39,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat import Calculator
-from defumat.basis.builder import build_basis
-from defumat.basis.sample import sample_wavefunctions
-from defumat.scf.driver import Calculation, run_scf
-from defumat.ultracell import run_ultracell, with_external_potential
-from defumat.workflows.stm import run_stm
-from defumat.workflows.transport import run_vertical_transport
-from defumat.workflows.ultracell import (
+from defuqumat import Calculator
+from defuqumat.basis.builder import build_basis
+from defuqumat.basis.sample import sample_wavefunctions
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.ultracell import run_ultracell, with_external_potential
+from defuqumat.workflows.stm import run_stm
+from defuqumat.workflows.transport import run_vertical_transport
+from defuqumat.workflows.ultracell import (
     run_ultracell_stm,
     run_ultracell_transport,
 )
@@ -146,7 +146,7 @@ K_POINTS automatic
 #: keyed on the physics rather than on which test asked first: ``tmp_path`` is
 #: per-test, and with it in the key every cell would be converged again for
 #: every test that wants it.
-_WORK = Path(tempfile.mkdtemp(prefix="defumat-p89-"))
+_WORK = Path(tempfile.mkdtemp(prefix="defuqumat-p89-"))
 
 
 def _calculator(pseudo_dir, name, template, grid) -> Calculator:
@@ -228,8 +228,8 @@ def test_an_ultracell_state_is_one_plane_wave_vector(pseudo_dir):
     spheres, relabelled by ``h = n G + q``, is the ultracell's own sphere at
     ``k0``, so an ultracell state is one coefficient vector on it. Two routes to
     the same function then have to agree -- the scatter-and-transform
-    :mod:`defumat.ultracell.density` builds the density with, and the direct
-    plane-wave sum :func:`~defumat.basis.sample.sample_wavefunctions` takes.
+    :mod:`defuqumat.ultracell.density` builds the density with, and the direct
+    plane-wave sum :func:`~defuqumat.basis.sample.sample_wavefunctions` takes.
 
     **On a modulated state, not an unmodulated one.** A state built from a
     single ``Q`` differs from the right answer by ``e^{-2iQ.r}`` if the sign of
@@ -365,7 +365,7 @@ def test_the_image_integrates_to_the_density_of_states(pseudo_dir):
     see on their own: the weights are divided by ``N`` and the density by the
     **unit cell's** volume, and only their product is constrained here.
     """
-    from defumat.workflows.dos import compute_dos
+    from defuqumat.workflows.dos import compute_dos
 
     shape, kgrid = (2, 1, 1), (1, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
@@ -491,9 +491,9 @@ def test_the_whole_cell_transmission_is_the_image(pseudo_dir):
 def test_the_exit_plane_transmission_is_the_unit_cell_s_tiled(pseudo_dir):
     """The plane path, which the whole-cell identity above does not reach.
 
-    ``exit_region="volume"`` goes through :func:`~defumat.transport.substrate.volume_overlap`,
+    ``exit_region="volume"`` goes through :func:`~defuqumat.transport.substrate.volume_overlap`,
     which is one matrix product and knows nothing about the cell; the substrate
-    the feature is for is :func:`~defumat.transport.substrate.exit_overlap`,
+    the feature is for is :func:`~defuqumat.transport.substrate.exit_overlap`,
     which groups plane waves by their **in-plane** Miller index and scales by
     the cell's own area over its volume. Handing it the ultracell's indices and
     the ultracell's cell is the whole of what P89 does to it, so it needs a

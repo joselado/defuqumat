@@ -3,7 +3,7 @@
 The companion to :mod:`tools.gpu.davidson_memory`, and it exists because of the
 order the two run in: a ``calibrate`` stage converges an SCF and *then* takes
 ``compute_forces``, so a force that does not fit is discovered after the
-expensive part rather than before it. ``defumat/sizing.py`` says in its own
+expensive part rather than before it. ``defuqumat/sizing.py`` says in its own
 docstring that its floor does not cover "the autodiff tape of a derivative that
 has not been asked for; a reverse-mode force carries intermediates this cannot
 see" -- this is how to see them.
@@ -47,7 +47,7 @@ def main() -> int:
     parser.add_argument("--point", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
 
-    os.environ.setdefault("DEFUMAT_CACHE_DIR", "off")
+    os.environ.setdefault("DEFUQUMAT_CACHE_DIR", "off")
 
     if args.point is not None:
         nbnd, band_batch = json.loads(args.point)
@@ -80,13 +80,13 @@ def main() -> int:
 
 def _measure(args, nbnd, band_batch):
     if band_batch is not None:
-        os.environ["DEFUMAT_BAND_BATCH"] = str(band_batch)
+        os.environ["DEFUQUMAT_BAND_BATCH"] = str(band_batch)
     else:
-        os.environ.pop("DEFUMAT_BAND_BATCH", None)
+        os.environ.pop("DEFUQUMAT_BAND_BATCH", None)
 
     import jax
-    from defumat import Calculator
-    from defumat.forces.energy import FrozenState, frozen_energy
+    from defuqumat import Calculator
+    from defuqumat.forces.energy import FrozenState, frozen_energy
 
     options = {"k_batch": args.k_batch}
     if nbnd is not None:
@@ -117,7 +117,7 @@ def _measure(args, nbnd, band_batch):
 
 
 def _frozen_state_shapes(calculation, nbnd) -> FrozenState:
-    """A :class:`~defumat.forces.energy.FrozenState` of shapes and no data.
+    """A :class:`~defuqumat.forces.energy.FrozenState` of shapes and no data.
 
     ``density`` and ``potential`` stay ``None``: they are what the *analytic*
     force consumes, and the autodiff route rebuilds the density as a function
@@ -127,8 +127,8 @@ def _frozen_state_shapes(calculation, nbnd) -> FrozenState:
     """
     import jax
 
-    from defumat.forces.energy import FrozenState
-    from defumat.scf.driver import default_nbnd
+    from defuqumat.forces.energy import FrozenState
+    from defuqumat.scf.driver import default_nbnd
 
     system = calculation.system
     precision = system.cell.precision

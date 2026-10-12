@@ -49,11 +49,11 @@ from pathlib import Path
 import equinox as eqx
 import numpy as np
 
-from defumat import Calculator
-from defumat.realtime.dense import dense_hamiltonians
-from defumat.realtime.pulse import EV_TO_HA, Adiabatic
-from defumat.scf import Calculation
-from defumat.workflows.realtime import CHI3_AU_TO_SI, _kset
+from defuqumat import Calculator
+from defuqumat.realtime.dense import dense_hamiltonians
+from defuqumat.realtime.pulse import EV_TO_HA, Adiabatic
+from defuqumat.scf import Calculation
+from defuqumat.workflows.realtime import CHI3_AU_TO_SI, _kset
 
 repo = Path(__file__).resolve().parents[2]
 out = Path(sys.argv[1])

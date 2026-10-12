@@ -1,9 +1,9 @@
 ---
 name: test-runs
-description: Run defumat's test suite without getting OOM-killed, and know which group to run. Covers the two groups and where the `slow` line falls, what the push gate costs and why it drifts upward, the per-file cgroup cap and the RSS watchdog that names the test before the kernel acts, and the rule against running demanding suites side by side on this shared machine. Use before running pytest on anything beyond a single file, when deciding whether a new test belongs in the gate or the slow set, when a run was killed or a session died, when asked how long the suite takes or whether the machine is free, and when a memory figure or a timing needs to be taken beside one. Triggers - "run the tests", "run the slow suite", "run the gate", "test-fast", "run_regression", "why was it killed", "OOM", "is this test too slow", "how long does the suite take".
+description: Run defuqumat's test suite without getting OOM-killed, and know which group to run. Covers the two groups and where the `slow` line falls, what the push gate costs and why it drifts upward, the per-file cgroup cap and the RSS watchdog that names the test before the kernel acts, and the rule against running demanding suites side by side on this shared machine. Use before running pytest on anything beyond a single file, when deciding whether a new test belongs in the gate or the slow set, when a run was killed or a session died, when asked how long the suite takes or whether the machine is free, and when a memory figure or a timing needs to be taken beside one. Triggers - "run the tests", "run the slow suite", "run the gate", "test-fast", "run_regression", "why was it killed", "OOM", "is this test too slow", "how long does the suite take".
 ---
 
-# Running defumat's tests
+# Running defuqumat's tests
 
 `CLAUDE.md` keeps the command block and one rule: **run anything long through
 `tools/run_regression.sh`, and commit before starting it.** This is the rest -- which
@@ -50,13 +50,13 @@ peak is the sum of the per-test *gains* in it and nothing else, which is what
 says two tests out of 2973 held half the peak.
 
 **The suite runs on eight cores where the package runs on four, and that is a
-deadlock fix rather than a speed choice.** `defumat` narrows the affinity mask
+deadlock fix rather than a speed choice.** `defuqumat` narrows the affinity mask
 to four at import because that is fastest for the physics (238 ms per SCF
 iteration on the eight-atom benchmark against 411 at eight cores); it is also
 the mask that parks a long-lived process with every XLA worker blocked and no
 CPU at all, at a rate that follows the mask and nothing else — 8 hangs in 8 runs
 at two cores, 6 in 14 at four, none at eight or above. `tests/conftest.py`
-therefore sets `DEFUMAT_THREADS=8` before anything imports `defumat`, which
+therefore sets `DEFUQUMAT_THREADS=8` before anything imports `defuqumat`, which
 costs the suite 11% of wall clock and, provisionally, 13% of peak RSS — the
 memory half was measured in sequence rather than alternating, and peak RSS here
 depends on the compiled-kernel cache much more than on the mask. An explicit
@@ -68,7 +68,7 @@ because the spread inside them is not the test set either -- the same
 command read 1892 tests in **7 minutes** at 4.5 GB on 2026-09-12, 1938 in
 **11m17s** at 6043 M later on 2026-09-13, and **1941 in 7m22s** at 5903 M later
 still the same day, on an idle machine with a **4.0 GB warm**
-`~/.cache/defumat/jax`. Three more tests cannot cost minus four minutes, so what
+`~/.cache/defuqumat/jax`. Three more tests cannot cost minus four minutes, so what
 separates the two 2026-09-13 runs is the compiled-kernel cache and whatever else
 the machine was doing — which is the same rule the performance section states
 about timings taken beside a test run, applied to the gate itself. **Time it
@@ -78,7 +78,7 @@ attribute that to the wider mask**: the better candidate is the kernel cache
 warming across sessions, so that more of the gate's executables are *loaded*
 rather than compiled — and loading one 603 MB cache entry is worth 6.3 GB
 resident (`OPEN.md` Part I item 2). The test is one run of
-`DEFUMAT_CACHE_DIR=off tools/test-fast.sh`, and it has not been done. 8.2 GB
+`DEFUQUMAT_CACHE_DIR=off tools/test-fast.sh`, and it has not been done. 8.2 GB
 against a 12 G cap whose watchdog fires at 0.85 is less margin than it reads.
 
 **A fourth figure, and the peak came back down: 1951 passed / 176 skipped in
@@ -204,7 +204,7 @@ long.** Each file goes into its own scope, a kill lands there rather than on the
 the loop writes `killed (SIGKILL, cap=…)` as that file's durable summary line and starts
 the next one — so a kill costs one file's *result*, which is what the per-file runner was
 always for and what the kill taking the runner defeated. Three things it does that are not
-obvious and are each a bug that was hit while writing it: the cap is `DEFUMAT_TEST_MEM_MAX`
+obvious and are each a bug that was hit while writing it: the cap is `DEFUQUMAT_TEST_MEM_MAX`
 (`off` for none, and a machine without cgroup delegation says so and runs uncapped); a file
 the cap killed is **retried** on the next run rather than skipped, since the reason to
 resume after a kill is that something changed; and the unit name carries the run's PID,
@@ -225,7 +225,7 @@ watchdog lives in `tests/conftest.py`'s autouse fixture, with all of it in
 `tests/memwatch.py`: it writes the running test's nodeid into the runner's own
 `in-flight.log` *before* the test starts, samples this process's resident set once a
 second in a daemon thread, logs a crossing the moment it happens, and fails that test by
-name at teardown once its peak passes **0.85** of `DEFUMAT_TEST_MEM_MAX` — the same
+name at teardown once its peak passes **0.85** of `DEFUQUMAT_TEST_MEM_MAX` — the same
 variable and the same `off` sentinel as the cap above, and `run_regression.sh` now exports
 the effective value and the log path so the child sees the number actually in force. **It
 fails the crossing, not everything after it**: once a test has been named, a later one is
@@ -238,7 +238,7 @@ afternoon and a bug report. The fraction is the headroom: 15% of a 12 G cap is 1
 of a 4 G one 600 MB, which is what a 1 s interval has to cover between two reads. **Unset
 is inert** — no thread, no log file, no `psutil` import — so the gate pays nothing; to
 watch the gate, which is one process by design and where this is the only form of the
-protection that works, give it a cap: `DEFUMAT_TEST_MEM_MAX=12G tools/test-fast.sh`.
+protection that works, give it a cap: `DEFUQUMAT_TEST_MEM_MAX=12G tools/test-fast.sh`.
 
 **Four things it does not catch, and they are why the log line comes first.** A single
 allocation that goes from under the threshold to past the cap **between two samples** is

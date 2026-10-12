@@ -1,13 +1,13 @@
 """What one pool holds: peak resident set at three points, gathered from every rank.
 
-    DEFUMAT_POOLS=P ... python3 tools/parallel/pool_memory.py <input> <label> [--iterations 2]
+    DEFUQUMAT_POOLS=P ... python3 tools/parallel/pool_memory.py <input> <label> [--iterations 2]
 
 The three points are after the import (the runtime and the distributed
 client), after the ``Calculation`` is built (the replicated set and the per-k
 tables), and after a short SCF (the store share, one k-point's solve, the
 executables). ``ru_maxrss`` is a high-water mark, so each figure is the peak
 up to that point. Rank 0 prints one JSON line with every rank's three numbers,
-in GiB. ``DEFUMAT_PROJECTORS`` and ``DEFUMAT_CACHE_DIR`` are read as usual,
+in GiB. ``DEFUQUMAT_PROJECTORS`` and ``DEFUQUMAT_CACHE_DIR`` are read as usual,
 which is how the per-k projector store and the cache are switched between runs.
 """
 
@@ -22,12 +22,12 @@ from pathlib import Path
 
 import numpy as np
 
-import defumat  # noqa: F401
-from defumat.io.pwin import read_pw_input
-from defumat.parallel import current_pools
-from defumat.pseudo import read_upf
-from defumat.scf.driver import Calculation, run_scf
-from defumat.system import build_system
+import defuqumat  # noqa: F401
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.parallel import current_pools
+from defuqumat.pseudo import read_upf
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.system import build_system
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -61,7 +61,7 @@ def main() -> None:
             "label": args.label, "input": args.input.name, "pools": pools.size,
             "nk": int(system.kpoints.nk),
             "projectors": calculation.projector_storage,
-            "cache": os.environ.get("DEFUMAT_CACHE_DIR", "default"),
+            "cache": os.environ.get("DEFUQUMAT_CACHE_DIR", "default"),
             "energy_ry": float(result.total_energy),
             "import_gib": [round(float(x), 3) for x in every[:, 0]],
             "calculation_gib": [round(float(x), 3) for x in every[:, 1]],

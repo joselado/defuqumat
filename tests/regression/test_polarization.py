@@ -22,11 +22,11 @@ import pytest
 
 import re
 
-from defumat.io.pwin import parse_pw_input
-from defumat.pseudo.upf import read_upf
-from defumat.scf.driver import run_scf
-from defumat.system.builder import build_system
-from defumat.workflows.polarization import run_polarization
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo.upf import read_upf
+from defuqumat.scf.driver import run_scf
+from defuqumat.system.builder import build_system
+from defuqumat.workflows.polarization import run_polarization
 
 pytestmark = pytest.mark.regression
 

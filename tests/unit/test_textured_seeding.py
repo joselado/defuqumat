@@ -20,9 +20,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from defumat.pseudo.upf import read_upf
-from defumat.scf.driver import Calculation
-from defumat.system.builder import system_from_file
+from defuqumat.pseudo.upf import read_upf
+from defuqumat.scf.driver import Calculation
+from defuqumat.system.builder import system_from_file
 
 QE = Path(__file__).resolve().parents[1] / "data" / "qe"
 pytestmark = pytest.mark.unit
@@ -68,7 +68,7 @@ def test_the_hubbard_shell_points_where_the_card_says(pseudo_dir):
     ns = np.asarray(calculation.starting_ns())
     for slot in range(setup.nslot):
         # ``ns[2 s1 + s2]`` is ``rho[s2, s1]`` and not ``rho[s1, s2]``: the
-        # accumulation in :func:`~defumat.hubbard.occupations.occupation_matrix`
+        # accumulation in :func:`~defuqumat.hubbard.occupations.occupation_matrix`
         # is ``conj(proj[s1]) proj[s2]``, whose first label is the **ket**. So
         # the entry read here as the up-down element is ``rho[1, 0]``, and
         # ``m_y`` comes out with ``+2 Im`` rather than ``-2 Im``. This decoder
@@ -202,7 +202,7 @@ def test_a_collinear_card_reaches_the_hubbard_shell_too(pseudo_dir):
     Only the sign matters in a collinear run -- it says which channel is the
     majority one -- but it is per atom that it has to be right.
     """
-    from defumat.hubbard.occupations import initial_ns
+    from defuqumat.hubbard.occupations import initial_ns
 
     system, calculation = _calculation("n2-ldau-texture.in", pseudo_dir)
     setup = calculation.hubbard
@@ -243,7 +243,7 @@ def test_the_seeded_occupation_matrix_is_qes_own_init_ns_nc():
     which is what the sibling test above was doing when it decoded the seed with
     the seed's own index order and passed either way.
     """
-    from defumat.hubbard.occupations import initial_ns_noncollinear
+    from defuqumat.hubbard.occupations import initial_ns_noncollinear
 
     import types as _types
 
@@ -281,7 +281,7 @@ def test_the_pauli_decomposition_of_a_spinor_ns_round_trips():
     conjugate: conjugating a Hermitian matrix transposes it, which is the
     orbital indices swapped and reads as agreement on every diagonal shell.
     """
-    from defumat.hubbard.occupations import (
+    from defuqumat.hubbard.occupations import (
         spinor_ns_components, spinor_ns_from_components)
 
     rng = np.random.default_rng(17)

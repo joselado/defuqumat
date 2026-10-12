@@ -26,9 +26,9 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.calculator import Calculator
-from defumat.hamiltonian.operator import Hamiltonian
-from defumat.solvers.davidson import davidson_eigensolver
+from defuqumat.calculator import Calculator
+from defuqumat.hamiltonian.operator import Hamiltonian
+from defuqumat.solvers.davidson import davidson_eigensolver
 
 pytestmark = pytest.mark.unit
 

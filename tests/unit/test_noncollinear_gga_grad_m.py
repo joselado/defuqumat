@@ -12,13 +12,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.basis.fft import g_to_r
-from defumat.basis.gvectors import generate_gvectors
-from defumat.scf.potential import (
+from defuqumat.basis.fft import g_to_r
+from defuqumat.basis.gvectors import generate_gvectors
+from defuqumat.scf.potential import (
     refuse_noncollinear_gga, resolve_noncollinear_gga, v_of_rho,
 )
-from defumat.system.cell import Cell
-from defumat.xc.functional import get_functional
+from defuqumat.system.cell import Cell
+from defuqumat.xc.functional import get_functional
 
 pytestmark = pytest.mark.unit
 
@@ -257,9 +257,9 @@ def oxygen_paw():
     """``O.pbe-kjpaw.UPF``'s sphere under PBE and under TB09, and a ``becsum`` shape."""
     from pathlib import Path
 
-    from defumat.paw.onecenter import _build_species
-    from defumat.pseudo import read_upf
-    from defumat.pseudo.projectors import projector_channels
+    from defuqumat.paw.onecenter import _build_species
+    from defuqumat.pseudo import read_upf
+    from defuqumat.pseudo.projectors import projector_channels
 
     pseudo = read_upf(Path(__file__).resolve().parents[1] / "data" / "pseudo"
                       / "O.pbe-kjpaw.UPF")
@@ -274,7 +274,7 @@ def oxygen_paw():
 
 
 def _sphere(paw, becsum, choice="grad_m"):
-    from defumat.paw.onecenter import onecenter_species
+    from defuqumat.paw.onecenter import onecenter_species
 
     energy, ddd = onecenter_species(paw, jnp.asarray(becsum), axis=None,
                                     noncollinear_gga=choice)
@@ -300,7 +300,7 @@ def test_the_paw_sphere_potential_is_the_derivative_of_its_energy(oxygen_paw):
     on this ``becsum`` shape (1.5e-5 unpolarized, 4.7e-4 under ``'kubler'``
     noncollinear; D22, 2026-10-12), and this branch reads 4.3e-4. A spiral
     adds nothing on the sphere
-    (:func:`defumat.paw.gradient._noncollinear_gradient_grad_m`)."""
+    (:func:`defuqumat.paw.gradient._noncollinear_gradient_grad_m`)."""
     paw, _, charge, moment, _ = oxygen_paw
     rng = np.random.default_rng(23)
     nh = charge.shape[0]
@@ -317,7 +317,7 @@ def test_the_paw_sphere_potential_is_the_derivative_of_its_energy(oxygen_paw):
 
 
 def test_the_one_centre_meta_gga_is_the_collinear_one_for_a_collinear_moment(oxygen_paw):
-    from defumat.paw.onecenter import _meta_exchange_onecenter, _multipoles
+    from defuqumat.paw.onecenter import _meta_exchange_onecenter, _multipoles
 
     _, paw, charge, moment, _ = oxygen_paw
     e = _unit([0.3, -0.5, 0.8])

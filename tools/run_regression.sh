@@ -25,8 +25,8 @@
 # survives to write down that it happened, so each file runs in a transient
 # scope with `MemoryMax`: the kernel kills that scope, this loop notices exit
 # 137, writes `killed` as the file's durable line, and goes on to the next one.
-# Override the cap with `DEFUMAT_TEST_MEM_MAX` (systemd syntax, e.g. `20G`);
-# `DEFUMAT_TEST_MEM_MAX=off` runs uncapped, which is what a machine without
+# Override the cap with `DEFUQUMAT_TEST_MEM_MAX` (systemd syntax, e.g. `20G`);
+# `DEFUQUMAT_TEST_MEM_MAX=off` runs uncapped, which is what a machine without
 # cgroup delegation gets anyway, with a warning.
 #
 # Two things the cap is not. It is not `ulimit -v`, which bounds *virtual*
@@ -45,7 +45,7 @@ MARK=${2:-slow}
 # runner -- only by a bare `pytest -m slow`. `CLAUDE.md` calls this "the
 # same slow set" as that command, so it has to actually be the same set.
 GLOB=${3:-tests/regression/test_*.py tests/unit/test_*.py}
-MEMMAX=${DEFUMAT_TEST_MEM_MAX:-8G}
+MEMMAX=${DEFUQUMAT_TEST_MEM_MAX:-8G}
 mkdir -p "$OUT"
 SUMMARY=$OUT/summary.txt
 INFLIGHT=$OUT/in-flight.log
@@ -55,8 +55,8 @@ INFLIGHT=$OUT/in-flight.log
 # writing that name into the same `in-flight.log` this loop appends to. The
 # name is the whole point -- a SIGKILL destroys the process's account of what
 # it was running, so the watchdog writes it before the kernel can act.
-export DEFUMAT_TEST_MEM_MAX="$MEMMAX"
-export DEFUMAT_TEST_INFLIGHT="$INFLIGHT"
+export DEFUQUMAT_TEST_MEM_MAX="$MEMMAX"
+export DEFUQUMAT_TEST_INFLIGHT="$INFLIGHT"
 # The end marker is rewritten rather than appended, so a resumed run does not
 # leave a trail of them through the file.
 [ -f "$SUMMARY" ] && { grep -v "^ALL FILES DONE$" "$SUMMARY" > "$SUMMARY.tmp"; mv "$SUMMARY.tmp" "$SUMMARY"; }
@@ -68,12 +68,12 @@ export DEFUMAT_TEST_INFLIGHT="$INFLIGHT"
 CAPPED=1
 if [ "$MEMMAX" = "off" ]; then
     CAPPED=0
-    echo "run_regression: uncapped by request (DEFUMAT_TEST_MEM_MAX=off)" >&2
+    echo "run_regression: uncapped by request (DEFUQUMAT_TEST_MEM_MAX=off)" >&2
 elif ! systemd-run --user --quiet -p MemoryMax=64M --scope true >/dev/null 2>&1; then
     CAPPED=0
     echo "run_regression: no cgroup memory cap available -- an out-of-memory" >&2
     echo "  kill will take this runner with it. Run fewer files at a time." >&2
-    # `DEFUMAT_TEST_MEM_MAX` stays at the requested size here rather than being
+    # `DEFUQUMAT_TEST_MEM_MAX` stays at the requested size here rather than being
     # set to `off`: with no cgroup between the process and the machine's own OOM
     # killer, the in-process watchdog is the *only* thing that can name a test,
     # so it is worth more on this branch, not less. Only an explicit `off` above
@@ -105,7 +105,7 @@ for f in $GLOB; do
         # reusing the name on a retry fails to start with "already loaded" and
         # looks like a test failure. `reset-failed` clears it afterwards; the
         # name itself is in the file's log, on systemd-run's own first line.
-        unit="defumat-reg-$name-$$"
+        unit="defuqumat-reg-$name-$$"
         "${TIMER[@]}" systemd-run --user --unit="$unit" \
             -p MemoryMax="$MEMMAX" -p MemorySwapMax=0 --scope \
             python3 -m pytest "$f" -q -m "$MARK" --tb=line > "$OUT/$name.log" 2>&1
@@ -140,7 +140,7 @@ for f in $GLOB; do
     # the journal is unreadable without the `systemd-journal` group here, so the
     # cause is not confirmed and the line does not claim it is.
     if [ "$status" -eq 137 ]; then
-        line="killed (SIGKILL, cap=$MEMMAX) -- rerun this file alone or raise DEFUMAT_TEST_MEM_MAX"
+        line="killed (SIGKILL, cap=$MEMMAX) -- rerun this file alone or raise DEFUQUMAT_TEST_MEM_MAX"
     fi
     # The watchdog's own line names the *test* that held the peak, which
     # `/usr/bin/time -f %M` around the process cannot; the two sit side by side.

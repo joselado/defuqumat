@@ -42,13 +42,13 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from defumat.basis.fft import g_to_r, r_to_g
-from defumat.forces import compute_forces
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo import read_upf
-from defumat.response.phonon import _require_one_spin_channel, dynamical_matrix
-from defumat.scf import Calculation, run_scf
-from defumat.system import build_system
+from defuqumat.basis.fft import g_to_r, r_to_g
+from defuqumat.forces import compute_forces
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.response.phonon import _require_one_spin_channel, dynamical_matrix
+from defuqumat.scf import Calculation, run_scf
+from defuqumat.system import build_system
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
@@ -272,7 +272,7 @@ def test_the_gamma_phonon_of_a_metal_matches_quantum_espresso():
     counted the occupation twice. QE never does: ``dynmat_us.f90`` reads ``wg``
     for the frozen Hessian and ``drhodvnl.f90`` reads ``2 wk`` for the
     electronic term, in two routines. Splitting the ``jvp`` accordingly is the
-    whole of the change (:func:`defumat.response.phonon._state_weights`).
+    whole of the change (:func:`defuqumat.response.phonon._state_weights`).
 
     Three of the six modes are the primitive cell's at the zone-boundary point
     the doubling folds in; the other three are acoustic and are the diagnostic
@@ -527,7 +527,7 @@ def test_the_gamma_phonon_of_a_moving_overlap_matches_quantum_espresso(case):
 
     * the source term is ``(dH/du - eps dS/du)|psi>`` (``compute_deff``);
     * the first-order state has an occupied block the solve does not produce
-      (:func:`~defumat.response.phonon.orthogonality_states`);
+      (:func:`~defuqumat.response.phonon.orthogonality_states`);
     * the mixed state changes at *frozen* states -- the augmentation charge and
       the projectors travel with their atom (``drho.f90``) -- and that change
       both screens and enters the assembly;
@@ -810,7 +810,7 @@ def test_a_subset_that_does_not_start_at_zero(pseudo_dir):
     """
     import warnings
 
-    from defumat.calculator import Calculator
+    from defuqumat.calculator import Calculator
 
     text = """
 &control

@@ -21,10 +21,10 @@ a = p.parse_args()
 ROOT = Path(a.root)
 sys.path.insert(0, str(ROOT))
 from tests.regression.test_spin_spirals_augmented import GENERATED, _cobalt, _pseudos
-from defumat.io.pwin import parse_pw_input
-from defumat.system import build_system
-from defumat.scf.driver import Calculation, run_scf
-from defumat.workflows.spiral import unfold_spiral_density
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.system import build_system
+from defuqumat.scf.driver import Calculation, run_scf
+from defuqumat.workflows.spiral import unfold_spiral_density
 
 PSEUDO = ROOT / "tests" / "data" / "pseudo"
 spiral = build_system(parse_pw_input(_cobalt(a.ecutrho)))

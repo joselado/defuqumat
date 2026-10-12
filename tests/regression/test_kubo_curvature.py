@@ -1,11 +1,11 @@
 """The Kubo Berry curvature on a plane-wave calculation (P47).
 
-``defumat.topology.berry`` has had a ``kubo`` method since P16 and it was
+``defuqumat.topology.berry`` has had a ``kubo`` method since P16 and it was
 reachable only from a tight-binding model, because a plane-wave ``H(k)`` is not
 a dense matrix ``jacfwd`` can differentiate and ``eigh`` can diagonalise. P24's
-:class:`~defumat.response.velocity.VelocityOperator` is what removes the
+:class:`~defuqumat.response.velocity.VelocityOperator` is what removes the
 obstruction -- one ``jax.jvp`` of ``H(k)`` at a frozen sphere -- and
-:mod:`defumat.topology.kubo` contracts it into band matrix elements, so
+:mod:`defuqumat.topology.kubo` contracts it into band matrix elements, so
 nothing of size ``npw^2`` is ever formed.
 
 The file is laid out as the three independent things that can be wrong.
@@ -42,19 +42,19 @@ import jax
 import numpy as np
 import pytest
 
-from defumat.io.pwin import read_pw_input
-from defumat.pseudo.upf import read_upf
-from defumat.scf.driver import run_scf
-from defumat.system.builder import build_system
-from defumat.topology.berry import berry_curvature
-from defumat.topology.kubo import (
+from defuqumat.io.pwin import read_pw_input
+from defuqumat.pseudo.upf import read_upf
+from defuqumat.scf.driver import run_scf
+from defuqumat.system.builder import build_system
+from defuqumat.topology.berry import berry_curvature
+from defuqumat.topology.kubo import (
     augmentation_connection,
     kubo_from_matrices,
     velocity_matrices,
 )
-from defumat.topology.links import berry_phase, link_phase
-from defumat.topology.mesh import plane_mesh
-from defumat.workflows.topology import DFTSource, run_berry_curvature
+from defuqumat.topology.links import berry_phase, link_phase
+from defuqumat.topology.mesh import plane_mesh
+from defuqumat.workflows.topology import DFTSource, run_berry_curvature
 
 pytestmark = pytest.mark.regression
 
@@ -142,7 +142,7 @@ def test_the_velocity_matrix_is_the_finite_difference_of_h():
     """
     import jax.numpy as jnp
 
-    from defumat.response.velocity import over_kpoints
+    from defuqumat.response.velocity import over_kpoints
 
     points = np.array([[0.13, 0.21, 0.07], [0.30, -0.10, 0.25]])
     states = source("alas-raman.in", 4, nbnd=10).states(points, keep_velocity=True)
@@ -348,7 +348,7 @@ def test_silicon_kubo_curvature_vanishes_pointwise():
 # arbitrary and is decided by round-off, so how far a fixed rotation moves its
 # members is arbitrary too: the pair reads (-0.190965, +0.176480) here where the
 # docstring recorded (+0.203989, -0.218475), and `moved` is 0.108 or 0.092
-# depending only on `DEFUMAT_BAND_RUNGS`. It passes the whole gate run after run
+# depending only on `DEFUQUMAT_BAND_RUNGS`. It passes the whole gate run after run
 # and then fails once when the reduction order shifts, which is what it did on
 # 2026-09-16.
 #
@@ -531,12 +531,12 @@ def test_the_curvature_and_the_conductivity_contract_the_same_velocity(name):
     """``kubo_from_matrices`` *is* the generalised velocity matrix, contracted.
 
     Two modules build this sum from the same three objects and arrange them
-    differently. :func:`~defumat.topology.kubo.kubo_from_matrices` keeps
+    differently. :func:`~defuqumat.topology.kubo.kubo_from_matrices` keeps
     ``dH``, ``dS`` and the connection apart and carries the outer band's energy
-    into both factors; :meth:`~defumat.response.velocity.VelocityOperator.
+    into both factors; :meth:`~defuqumat.response.velocity.VelocityOperator.
     generalised_matrix_elements` assembles one Hermitian matrix
     ``<n|dH_a - e_m dS_a|m> + (e_m - e_n)K^a_{nm}`` with the *ket* band's
-    energy, which is what :mod:`defumat.response.conductivity` contracts. The
+    energy, which is what :mod:`defuqumat.response.conductivity` contracts. The
     two are the same object -- the ``dS`` term's asymmetry under ``n <-> m`` is
     exactly ``K^dag + K`` -- and that is worth asserting rather than deriving,
     because an index order transposed in either arrangement reads as a sign and
@@ -619,7 +619,7 @@ def test_fhs_is_still_the_default_and_is_untouched():
     ever being one. It is for the *map*; the invariant stays with the lattice
     construction.
     """
-    from defumat.topology.registry import DEFAULT_CURVATURE_METHOD, curvature_methods
+    from defuqumat.topology.registry import DEFAULT_CURVATURE_METHOD, curvature_methods
 
     assert DEFAULT_CURVATURE_METHOD == "fhs"
     assert set(curvature_methods()) >= {"fhs", "kubo"}
