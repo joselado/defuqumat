@@ -206,3 +206,16 @@ def test_qe_dipole_slab(_rho_ddot_fit):
     for method in ("autodiff", "analytic"):
         forces = compute_forces(calculation, result, method=method).forces
         np.testing.assert_allclose(forces, reference.forces, atol=1e-5)
+
+
+def test_a_noncollinear_run_at_zero_moment_is_the_spinless_one():
+    """``nspin = 4``, which ``pw.x`` refuses with ``tefield``: the field is a
+    scalar potential on the charge component only. CO is nonmagnetic, so a
+    noncollinear run seeded with a moment relaxes to none and must give the
+    ``nspin = 1`` total."""
+    _, single = _converged("efield-co-dipole", 1e-11)
+    _, spinor = _converged("efield-co-dipole", 1e-11,
+                           **{"ecutrho =300,": "ecutrho =300, noncolin=.true., "
+                                               "starting_magnetization(1)=0.3,"})
+    assert spinor.total_energy == pytest.approx(single.total_energy, abs=1e-7)
+    assert spinor.efield_dipole == pytest.approx(single.efield_dipole, abs=1e-5)

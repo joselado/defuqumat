@@ -25429,8 +25429,14 @@ to 2e-6 Ry; the 30 Ry printed was the per-iteration total without QE's `descf`, 
 from convergence. **`RHO_DDOT_FIT` stays off by default** (P113 measured the flat fit on nine bulk cells);
 this slab is the counterexample, recorded here and not decided here.
 
-**What is outstanding.** `gate`, `nspin = 4` with a number of its own, the reduced symmetry group that
-keeps `b_edir` and the saw-tooth's origin, and the stress.
+**`nspin = 4`**, which `pw.x` refuses with `tefield`, runs here and has its number: CO seeded with a
+moment under `noncolin` relaxes to none and gives the `nspin = 1` total within 1e-7 Ry
+(`test_a_noncollinear_run_at_zero_moment_is_the_spinless_one`).
+
+**What is outstanding.** `gate`, the reduced symmetry group that keeps `b_edir` and the saw-tooth's
+origin, and the stress. `nosym` here is the full k-grid, where `pw.x`'s keeps time reversal: the same
+energy for a nonmagnetic slab on an automatic grid, about twice the k-points; measured only on the
+committed cases, which have one k-point.
 
 ### P145 -- The finite homogeneous electric field by the Berry phase: `lelfield`. ✅ DONE 2026-10-13 for norm-conserving `nspin = 1` insulators along one `gdir`, against `pw.x` 7.5 on QE's `pw_electric` chain; the plan and fable's review are `plans/lelfield.md`.
 
@@ -25450,7 +25456,8 @@ route; the k-chunked force route is bypassed (the term is not a sum of chunks).
 **Numbers.** Unit (`tests/unit/test_berryfield.py`, random closed strings): `H_E u_nk = (1/w_k) dE_P/d
 conj(u_nk)` against `jax.grad` of the phase energy to 1e-12 (`w_k = 2/nk`; fable checked the same algebra
 independently to 4e-12), `<a|u> < 1e-13`, hermiticity and `matrix` = `apply` to 1e-13, gauge invariance
-of `E_P` under a rotation of one k's block to 1e-14. SCF (`tests/regression/test_berryfield.py`), QE's
+of `E_P` under a rotation of one k's block to 1e-14; and `energy_at` at the converged field state, the
+Berry enthalpy included, equals the SCF total within 1e-8 Ry (the identity the forces rest on). SCF (`tests/regression/test_berryfield.py`), QE's
 chain regenerated with 7.5 at `conv_thr = 1e-11` (`tests/data/qe/si8-lelfield*`): zero field
 -62.9504651310 against -62.95046513; the field switched on from that state, 7 iterations as in `pw.x`,
 -63.0661033823 against -63.06610337 (1.2e-8, `pw.x`'s own total moving 2e-8 over its last two

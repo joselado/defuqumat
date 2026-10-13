@@ -1636,8 +1636,8 @@ _OBSOLESCENT_VDW = {
 #: project quotes agreement to, and there is nothing in the output that greps as
 #: an error. Found by listing every variable QE's own ``pw_*`` inputs set and
 #: grepping this package for its name: 61 of the 99 appear nowhere, and six of them
-#: (``tefield`` and ``dipfield`` since implemented, :mod:`defuqumat.scf.sawtooth`)
-#: were the ones that are not simply out-of-scope features (EXX, MD, vc-relax,
+#: (``tefield`` and ``dipfield`` since implemented, :mod:`defuqumat.scf.sawtooth`,
+#: and ``lelfield``, :mod:`defuqumat.scf.berryfield`) were the ones that are not simply out-of-scope features (EXX, MD, vc-relax,
 #: Berry phase) or performance knobs.
 _REFUSED_SWITCHES = (
     ("system", "tot_charge", "nonzero",

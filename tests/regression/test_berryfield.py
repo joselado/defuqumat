@@ -125,3 +125,13 @@ def test_the_field_derivative_is_the_electronic_dipole():
     el = [r.berry_dipoles[0] for r in (minus, centre, plus)]
     simpson = 0.001 * (el[0] + 4.0 * el[1] + el[2]) / 6.0
     assert difference == pytest.approx(-simpson, abs=1e-7)
+
+
+def test_the_frozen_energy_is_the_total_energy():
+    """The force functional, Berry enthalpy included, evaluated at the converged
+    state is the SCF total: the identity every force here rests on."""
+    from defuqumat.forces.energy import energy_at, state_from_result
+
+    calculation, result = _field()
+    frozen = float(energy_at(calculation, state_from_result(result)))
+    assert frozen == pytest.approx(result.total_energy, abs=1e-8)
