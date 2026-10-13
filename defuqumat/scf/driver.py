@@ -531,14 +531,18 @@ def _pack_ns(ns, dtype, real):
 FIT_BECSUM = False
 
 #: Fit the Anderson coefficients in ``rho_ddot``'s inner product, as ``pw.x``
-#: does (``PLAN.md`` P113). **Off by default, on a measurement**: over P107's nine
-#: benchmark cells it takes 132 iterations against the flat fit's 128 and
-#: ``pw.x``'s 131, tracking ``pw.x`` cell by cell, and on the nickel DFT+U cell
-#: at ``conv_thr = 1e-12`` it stops at 100 unconverged where the flat fit takes
-#: 79; it was written to bring that cell to ``pw.x``'s solution and does not,
-#: because the cell has four minima and the path decides (``OPEN.md`` Part XIX).
-#: Kept for a port of ``pw.x``'s modified Broyden, whose metric this is.
-RHO_DDOT_FIT = False
+#: does (``PLAN.md`` P113, P146). **On by default since 2026-10-13** (P146, fable's
+#: decision on the user's delegation). The flat fit does not converge on metal
+#: films: the Co(0001) film at every vacuum in 150 iterations, and ``pw.x``'s own
+#: test-suite slab ``pw_dipole/dipole.in``, where this fit takes 27 against
+#: ``pw.x``'s 26 (``notes/VACUUM-MIXING-NEXT.md``). Its cost is 132 iterations
+#: against 128 over P107's nine bulk cells, tracking ``pw.x``'s 131 cell by
+#: cell, and a mixer history of three dense-grid arrays per entry where the flat
+#: fit keeps two. The nickel DFT+U cell that kept it off in P113 has four minima,
+#: and the flat fit's faster 79 iterations land 4.8e-4 Ry above ``pw.x``'s state.
+#: A negative Hubbard U makes ``ns_ddot`` indefinite; that run fits flat, with a
+#: warning (:func:`_rho_ddot_metric`). ``False`` restores the flat fit.
+RHO_DDOT_FIT = True
 
 
 def _rho_ddot_metric(calculation, layout=None):
@@ -563,11 +567,15 @@ def _rho_ddot_metric(calculation, layout=None):
     if calculation.is_hubbard:
         u_metric = jnp.asarray(calculation.hubbard_coefficients["u_metric"])
         if bool(jnp.any(u_metric < 0)):
-            raise ValueError(
+            # Not a refusal: the fit is a choice of path, not of answer, so the
+            # run falls back to the flat fit and says so.
+            warnings.warn(
                 "a negative Hubbard U makes ns_ddot indefinite, so it is not an "
-                "inner product the Anderson fit can use; set driver.RHO_DDOT_FIT "
-                "= False to fit flat instead"
+                "inner product the Anderson fit can use; this run fits the mixer "
+                "coefficients in the flat inner product instead",
+                RuntimeWarning, stacklevel=3,
             )
+            return None
 
     def metric(drho, dns, dtau):
         if layout is not None:
@@ -629,15 +637,14 @@ def _mix(mixer, rho, rho_out, becsum_in, becsum_out, ns_in=None, ns_out=None,
     (:class:`~defuqumat.scf.residual.Residual`), so the two routes now agree with
     each other as well as with ``pw.x``.
 
-    **The inner product is Euclidean by default and QE's is not.**
-    ``mix_rho.f90:409-413`` builds Broyden's ``betamix`` from ``rho_ddot``, so
-    ``pw.x`` fits in the same weighted metric it converges in; the mixer here
-    fits a plain Gram matrix on the packed real-space vector, with ``becsum``
-    left out since P107. ``rho_ddot``'s own fit is written and installed when
-    :data:`RHO_DDOT_FIT` is set, and this function then evaluates
+    **The inner product is QE's by default.** ``mix_rho.f90:409-413`` builds
+    Broyden's ``betamix`` from ``rho_ddot``, so ``pw.x`` fits in the same
+    weighted metric it converges in; with :data:`RHO_DDOT_FIT` set (the default
+    since P146) this function evaluates
     :attr:`~defuqumat.scf.mixing.Mixer.metric` on the structured residual and
-    hands it to the mixer. It is off because it measured slower than the flat
-    fit under Anderson (``PLAN.md`` P113), not because it is wrong.
+    hands it to the mixer. Without it the mixer fits a plain Gram matrix on the
+    packed real-space vector, with ``becsum`` left out since P107, which is
+    3 per cent faster on bulk cells and does not converge on metal films.
 
     Two costs to state. The history doubles for a meta run, one dense-grid array
     per entry becoming two (``notes/MEMORY-AUDIT.md`` D3, where the Anderson history
@@ -7677,7 +7684,8 @@ def run_scf(
         # G-vectors, which ``get_mixer`` does not have. Only Anderson fits
         # coefficients, so only it is handed one; ``_mix`` evaluates it.
         mixer.metric = _rho_ddot_metric(calculation, layout)
-        if mixer._residuals and len(mixer._fits) != len(mixer._residuals):
+        if (mixer.metric is not None and mixer._residuals
+                and len(mixer._fits) != len(mixer._residuals)):
             # A history restored from a flat-fit checkpoint has no fit vectors,
             # and the first ``mix`` drops it (``AndersonMixer.mix``). Said here,
             # beside "mixer history restored", which would otherwise be the

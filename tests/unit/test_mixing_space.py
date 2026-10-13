@@ -496,7 +496,7 @@ def test_a_resume_carries_the_g_history_and_drops_a_real_space_one(pseudo_dir, t
 def test_the_rho_ddot_fit_runs_on_the_stored_sphere(pseudo_dir, monkeypatch):
     """``RHO_DDOT_FIT`` under the layout: fit vectors over ``ngm0``, same fixed point.
 
-    The flag is off by default (``PLAN.md`` P113), so nothing else runs this
+    The flag is on by default since P146; the flat fit is the comparison. The
     plumbing: ``_mix`` hands the stored residual to the metric, whose density
     part is :meth:`SphereLayout.rho_ddot_vector`. One channel here, so a fit
     vector is the charge alone, ``ngms`` reals.
@@ -506,6 +506,7 @@ def test_the_rho_ddot_fit_runs_on_the_stored_sphere(pseudo_dir, monkeypatch):
     calculator = _calculator(pseudo_dir)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
+        monkeypatch.setattr(driver, "RHO_DDOT_FIT", False)
         plain = driver.run_scf(calculator.system, calculator.pseudos, conv_thr=1e-10,
                                mixing_space="g", verbose=False)
         monkeypatch.setattr(driver, "RHO_DDOT_FIT", True)

@@ -218,6 +218,8 @@ def test_a_flat_checkpoint_resumed_with_the_metric_warns_that_its_history_goes(
         source, pseudo_dir=Path(__file__).resolve().parents[1] / "data" / "pseudo",
         announce=False,
     )
+    # The flat fit writes the checkpoint; it is no longer the default (P146).
+    monkeypatch.setattr(driver, "RHO_DDOT_FIT", False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         driver.run_scf(calculator.system, calculator.pseudos, mixing_mode="plain",
@@ -269,8 +271,12 @@ def test_the_assembled_metric_is_the_loops_accuracy(name, part):
     assert float(vector @ vector) == pytest.approx(expected, rel=1e-12)
 
 
-def test_a_negative_u_is_refused_as_a_metric():
-    """``ns_ddot`` with a negative ``U`` is indefinite, so it is no inner product."""
+def test_a_negative_u_falls_back_to_the_flat_fit():
+    """``ns_ddot`` with a negative ``U`` is indefinite, so it is no inner product.
+
+    Since the fit is the default (P146) that is a fallback with a warning rather
+    than a refusal: the fit chooses a path to the fixed point, not the point.
+    """
     import copy
 
     from defuqumat.scf import driver
@@ -279,5 +285,5 @@ def test_a_negative_u_is_refused_as_a_metric():
     coefficients = dict(calculation.hubbard_coefficients)
     coefficients["u_metric"] = -np.abs(np.asarray(coefficients["u_metric"])) - 1e-3
     calculation.hubbard_coefficients = coefficients
-    with pytest.raises(ValueError, match="negative Hubbard U"):
-        driver._rho_ddot_metric(calculation)
+    with pytest.warns(RuntimeWarning, match="negative Hubbard U"):
+        assert driver._rho_ddot_metric(calculation) is None

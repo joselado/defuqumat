@@ -173,24 +173,14 @@ def test_relax_el_relaxes_to_the_benchmark(qe_testsuite):
     assert z[0] == pytest.approx(-1.071599420, abs=2e-3)
 
 
-@pytest.fixture
-def _rho_ddot_fit(monkeypatch):
-    """The Anderson fit in ``rho_ddot``'s metric, which this slab needs.
-
-    With the default flat fit QE's ``pw_dipole`` slab does not converge here at
-    all, field or no field (iteration 3 at accuracy 643 where ``pw.x`` reads
-    1.76, still unconverged after 60); in the ``1/G^2`` metric it converges in
-    27 iterations, ``pw.x`` taking 26 (P144).
-    """
-    import defuqumat.scf.driver as driver
-    monkeypatch.setattr(driver, "RHO_DDOT_FIT", True)
-
-
-def test_qe_dipole_slab(_rho_ddot_fit):
+def test_qe_dipole_slab():
     """``pw_dipole/dipole.in`` at ``conv_thr = 1e-10``: Ni slab with CO, ultrasoft, smearing.
 
     ``run_scf`` does not read ``&electrons``, so the input's ``mixing_beta =
-    0.3`` is passed by hand. Measured: total 7e-11 Ry, field energy 3e-8 Ry,
+    0.3`` is passed by hand. It needs the Anderson fit in ``rho_ddot``'s inner
+    product, the default since P146: with the flat fit it does not converge at
+    all, field or no field (iteration 3 at accuracy 643 where ``pw.x`` reads
+    1.76), and with this one it takes 27 iterations against ``pw.x``'s 26. Measured: total 7e-11 Ry, field energy 3e-8 Ry,
     forces 5e-6 Ry/bohr (autodiff) and 2e-6 (analytic), ``pw.x``'s own SCF
     correction being 6e-6.
     """
