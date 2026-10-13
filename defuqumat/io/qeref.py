@@ -540,6 +540,12 @@ _ENERGY_TERMS = {
     # PAW's one-centre correction, printed only for a PAW run.
     "one_center_paw": r"one-center paw contrib\.\s*=\s*(" + _FLOAT + ")",
     "dispersion": r"Dispersion Correction\s*=\s*(" + _FLOAT + ")",
+    # ``etotefield`` (``tefield``). Without ``dipfield`` it is the ions' part
+    # alone, the electrons' part being inside the one-electron term; with it,
+    # the whole field energy. defuqumat's ``efield`` term is always the whole
+    # (:mod:`defuqumat.scf.sawtooth`), so the two agree term by term only
+    # under ``dipfield``.
+    "efield": r"electric field correction\s*=\s*(" + _FLOAT + ")",
 }
 
 #: ``internal energy E=F+TS`` is **not** one of the terms, although pw.x prints
