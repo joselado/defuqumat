@@ -176,8 +176,6 @@ K_POINTS gamma
     "control,system,expected",
     [
         ("", "tot_charge = 1.0", "tot_charge"),
-        ("tefield = .true.", "", "tefield"),
-        ("dipfield = .true.", "", "dipfield"),
         ("lelfield = .true.", "", "lelfield"),
         ("", "assume_isolated = 'martyna-tuckerman'", "assume_isolated"),
         ("", "twochem = .true.", "twochem"),

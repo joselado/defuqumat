@@ -20,7 +20,8 @@ reachable from a curated case list:
   with the reason;
 * and the seven ``&control``/``&system`` switches -- ``tot_charge``, ``tefield``,
   ``dipfield``, ``lelfield``, ``assume_isolated``, ``twochem``,
-  ``one_atom_occupations`` -- that changed the physics and were read by nobody.
+  ``one_atom_occupations`` -- that changed the physics and were read by nobody
+  (``tefield`` and ``dipfield`` since implemented, P144).
 
 **The assertion is about the failure mode.** A `ValueError`, a `KeyError` or a
 `TypeError` out of this sweep means the reader could not cope with valid QE
@@ -108,8 +109,6 @@ EXPECTED_REFUSALS = {
     "cluster_rs.in": "tot_charge",
     "cluster_rs50.in": "tot_charge",
     "2dcutoff.in": "assume_isolated",
-    "dipole.in": "tefield",
-    "relax-el.in": "tefield",
     "electric-1.in": "lelfield",
     "electric-2.in": "lelfield",
 }
