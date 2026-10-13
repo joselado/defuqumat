@@ -156,6 +156,7 @@ from defuqumat.scf.occupations import (
     tetrahedra_for,
     tetrahedron_occupations_spin,
 )
+from defuqumat.scf.sawtooth import build_sawtooth, sawtooth_potential
 from defuqumat.scf.fields import (ATOM_RESOLVED, FADED_FIELD, FEEDBACK,
                                 FEEDBACK_ATOMIC, FSM_ANGLE_TOLERANCE,
                                 FSM_TOLERANCE, VANISHING_MOMENT, MagneticField,
@@ -1736,6 +1737,17 @@ class SCFResult:
     #: and never adds it, and Elk excludes its external field's energy by the
     #: same convention. ``None`` when the run had no field.
     field_energy: float | None = None
+    #: ``etotefield``: the saw-tooth field's energy (``tefield``), electrons and
+    #: ions together, in Ry, and **included** in :attr:`total_energy`. Without
+    #: ``dipfield`` ``pw.x`` prints only the ions' part as "electric field
+    #: correction" and keeps the electrons' part in the one-electron term; the
+    #: total is the same (:mod:`defuqumat.scf.sawtooth`). ``None`` without
+    #: ``tefield``.
+    efield_energy: float | None = None
+    #: The cell's dipole along ``edir`` that ``add_efield`` prints as "Dipole",
+    #: in Ry atomic units, ``D Omega/(4 pi)``: ions minus electrons. ``None``
+    #: without ``tefield``.
+    efield_dipole: float | None = None
     constraint_energy: float | None = None
     #: ``(nat,)``: how far each atom ended from its own constraint target --
     #: **degrees** for the two direction schemes, Bohr magnetons for
@@ -2815,6 +2827,10 @@ class Calculation:
         # case -- costs nothing: the whole term is absent rather than added as a
         # zero to every potential.
         self.magnetic_field = self._build_magnetic_field()
+        # ``tefield``/``dipfield``: independent of the positions and the cell,
+        # which it reads from ``self.system`` at every call, so a moved or
+        # strained copy carries it unchanged.
+        self.sawtooth = build_sawtooth(system.efield, system.cell.precision)
         # The integration spheres the *reporting* uses. Built on demand rather
         # than here, because a nonmagnetic run never asks for them; shared with
         # the field's when there is one, so a constrained run builds one set.
@@ -4514,6 +4530,19 @@ class Calculation:
             self.noncollinear_gga,
             self._spiral_q_argument(),
         )
+        if self.sawtooth is not None:
+            # ``add_efield``. The energy is written once and the potential is
+            # its gradient, so QE's two branches (``vltot`` without
+            # ``dipfield``, ``v_of_rho`` with it) are one here; the positions
+            # are read from ``self.system``, which is what a moved copy traces.
+            v_saw, e_saw, dipole = sawtooth_potential(
+                self.sawtooth, rho_r, self.system.structure.positions,
+                self.charges, self.system.cell,
+            )
+            potential = eqx.tree_at(
+                lambda p: (p.v_scf, p.e_sawtooth, p.sawtooth_dipole), potential,
+                (potential.v_scf + v_saw, e_saw, dipole),
+            )
         field = self.magnetic_field if field is None else field
         if field is None:
             return potential
@@ -4530,6 +4559,8 @@ class Calculation:
             etxc=potential.etxc,
             e_field=e_field,
             e_constraint=e_constraint,
+            e_sawtooth=potential.e_sawtooth,
+            sawtooth_dipole=potential.sawtooth_dipole,
             meta_c=potential.meta_c,
         )
 
@@ -8463,6 +8494,13 @@ def run_scf(
             # added to the printed total and to nothing else, exactly as
             # ``electrons.f90`` adds ``elondon``.
             terms["dispersion"] = float(calculation.dispersion)
+        if calculation.sawtooth is not None:
+            # ``etotefield``, added to ``etot`` as ``electrons.f90`` does. The
+            # whole term, electrons and ions: the electrons' half sits inside
+            # ``v_scf`` here and ``deband`` takes it out of the one-electron
+            # term, where without ``dipfield`` QE leaves it in ``eband`` through
+            # ``vltot`` and prints only the ions' half. Same total.
+            terms["efield"] = float(potential.e_sawtooth)
         if calculation.is_paw:
             terms["one_center_paw"] = float(epaw_value)
         if calculation.is_hubbard:
@@ -8523,6 +8561,9 @@ def run_scf(
                  "davidson_unconverged": davidson_unconverged,
                  # which precision the band side ran in, since 'mixed' moves it
                  "band_precision": calculation.band_precision.name}
+        if calculation.sawtooth is not None:
+            entry["efield_dipole"] = float(calculation.sawtooth.dipole(
+                potential.sawtooth_dipole, calculation.system.cell))
         if tau_state is not None:
             # ``c`` is a cell average of the density, so it moves with the SCF
             # and settling is part of convergence: a run whose density has
@@ -9069,6 +9110,11 @@ def run_scf(
             else tuple(tuple(row) for row in site_moments.tolist())
         ),
         field_energy=None if field is None else float(potential.e_field),
+        efield_energy=(None if calculation.sawtooth is None
+                       else float(potential.e_sawtooth)),
+        efield_dipole=(None if calculation.sawtooth is None
+                       else float(calculation.sawtooth.dipole(
+                           potential.sawtooth_dipole, calculation.system.cell))),
         constraint_energy=None if field is None else float(potential.e_constraint),
         # ``rho_out``, which is what ``site_moments`` is measured on, and not
         # the mixed ``rho`` the *potential's* penalty was built from. QE's own

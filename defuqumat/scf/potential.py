@@ -84,6 +84,12 @@ class Potential(eqx.Module):
     #: :mod:`defuqumat.scf.fields`.
     e_field: jnp.ndarray = 0.0
     e_constraint: jnp.ndarray = 0.0
+    #: ``etotefield``: the saw-tooth electric field's energy with the electrons
+    #: and the ions, and ``D``, the dipole ``add_efield`` computes, in QE's
+    #: ``4 pi/Omega`` units (:mod:`defuqumat.scf.sawtooth`). Also inside
+    #: ``v_scf``, but unlike ``e_field`` this **is** part of the total energy.
+    e_sawtooth: jnp.ndarray = 0.0
+    sawtooth_dipole: jnp.ndarray = 0.0
     #: The Tran-Blaha coefficient this potential was built with, or ``0`` when
     #: the functional is not a meta one. Carried on the potential rather than
     #: recomputed by whoever wants to print it, because it is a *cell average*

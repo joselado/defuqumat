@@ -69,6 +69,7 @@ from defuqumat.forces.energy import (
     reject_potential_only,
     reject_spinors,
 )
+from defuqumat.scf.sawtooth import refuse_sawtooth
 
 __all__ = ["strained_energy", "strained_energy_terms", "require_a_differentiable_cell"]
 
@@ -105,6 +106,12 @@ def strained_energy_terms(calculation, strain, state: FrozenState,
 
 def require_a_differentiable_cell(calculation) -> None:
     """The things that make ``dE/d(epsilon)`` at frozen state not be the answer."""
+    refuse_sawtooth(
+        calculation, "the stress",
+        "pw.x switches the stress off with this field (input.f90), so there is "
+        "no reference, and the saw-tooth's discontinuity is a property of the "
+        "cell that a strain moves",
+    )
     if calculation.spiral:
         raise NotImplementedError(
             "the stress of a spin spiral is not implemented: q is given in "

@@ -722,6 +722,12 @@ def energy_at(moved, state: FrozenState, terms: bool = False, density=None,
         # here, which is the whole of ``force_london`` and ``stres_london``:
         # both are ``grad`` of this entry, in the coordinate the caller chose.
         "dispersion": moved.dispersion,
+        # ``tefield`` (:mod:`defuqumat.scf.sawtooth`): a function of the total
+        # density, augmentation included, and of the ions' crystal coordinate
+        # along ``edir``, so its gradient is ``forcefield`` plus what an
+        # augmentation charge picks up as it moves through the saw-tooth. Zero
+        # without the field.
+        "efield": potential.e_sawtooth,
         "onecentre": epaw,
         "hubbard": hubbard,
         "overlap": -overlap,

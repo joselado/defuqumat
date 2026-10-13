@@ -188,11 +188,35 @@ def _terms(calculation, state) -> dict:
         terms["dispersion"] = dispersion_force(
             calculation.dispersion_sum, structure.positions
         )
+    if calculation.sawtooth is not None:
+        terms["efield"] = _force_efield(calculation, rho, structure.positions)
     if state.potential_change is not None:
         terms["scf_correction"] = _force_corr(
             calculation, state.potential_change, gcart, phases, types, volume
         )
     return terms
+
+
+def _force_efield(calculation, rho, positions):
+    """``forcefield`` (``add_efield.f90``): ``e2 (eamp - D) Z_a b_edir/|b_edir|``.
+
+    ``D`` is the dipole of the converged density with ``dipfield`` and zero
+    without it. Transcribed literally, so it assumes every ion sits where the
+    saw-tooth rises: an ion inside the ``eopreg`` region feels the opposite
+    slope there, which the autodiff route has and this does not, as in QE. The
+    augmentation charge's share of the field's force is in ``_addusforce``,
+    whose potential already carries the saw-tooth.
+    """
+    field = calculation.sawtooth
+    cell = calculation.system.cell
+    eamp = field.eamp
+    if field.dipfield:
+        dip, _, _ = field.dipoles(total_charge(rho), positions,
+                                  calculation.charges, cell)
+        eamp = eamp - dip
+    direction = cell.bg[field.edir] / jnp.linalg.norm(cell.bg[field.edir])
+    charges = jnp.asarray(calculation.charges, dtype=direction.dtype)
+    return 2.0 * eamp * charges[:, None] * direction[None, :]
 
 
 def _phases(gcart, positions):

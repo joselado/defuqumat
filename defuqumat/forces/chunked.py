@@ -144,8 +144,8 @@ def _global(moved, becsum_, rho_smooth, ns):
     epaw, _ = moved.onecenter(finished)
     volume = moved.system.cell.volume
     local = volume / rho[0].size * jnp.sum(moved.vltot * total_charge(rho))
-    energy = (local + potential.ehart + potential.etxc + epaw + moved.ewald
-              + moved.dispersion)
+    energy = (local + potential.ehart + potential.etxc + potential.e_sawtooth
+              + epaw + moved.ewald + moved.dispersion)
     if ns is not None:
         energy = energy + hubbard_energy(
             moved.finish_occupation_matrix(ns), moved.hubbard_coefficients)

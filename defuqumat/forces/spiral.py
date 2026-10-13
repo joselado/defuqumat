@@ -204,6 +204,9 @@ def spiral_energy(calculation, q_crystal, state: FrozenState):
         + local
         + potential.ehart
         + potential.etxc
+        # ``tefield``'s energy, zero without one. It carries no ``q`` of its
+        # own; here so the identity against the SCF total holds.
+        + potential.e_sawtooth
         + epaw
         - overlap
         + moved.ewald
@@ -317,6 +320,7 @@ def q_independent_energy(calculation, state: FrozenState,
         local
         + potential.ehart
         + potential.etxc
+        + potential.e_sawtooth
         + epaw
         + calculation.ewald
         + calculation.dispersion
@@ -343,7 +347,7 @@ def q_global_energy(calculation, q_crystal, becsum_, rho_smooth):
     epaw, _ = moved.onecenter(becsum_)
     volume = calculation.system.cell.volume
     local = volume / rho[0].size * jnp.sum(moved.vltot * total_charge(rho))
-    return local + potential.ehart + potential.etxc + epaw
+    return local + potential.ehart + potential.etxc + potential.e_sawtooth + epaw
 
 
 def _rows_of(array, rows):

@@ -182,6 +182,7 @@ from defuqumat.ultracell.potential import (
     ultracell_potential,
 )
 from defuqumat.units import E2, FPI, RY_TO_EV
+from defuqumat.scf.sawtooth import refuse_sawtooth
 
 #: Below this gap (Ry) the ``nbnd`` truncation is cutting a degenerate
 #: multiplet rather than falling in a gap, and the basis is then whatever the
@@ -467,6 +468,9 @@ class UltracellResult:
 def require_an_ultracell_regime(system, pseudos, basis) -> None:
     """Refuse every regime this has not been measured in, by name.
 
+    A saw-tooth field (``tefield``) is refused first: the ultracell builds its
+    own potential and has no saw-tooth term.
+
     Called **before** the frozen states are computed, not after: that
     diagonalisation is the expensive step of the whole method, and a run
     that is going to be refused should not pay for it first. Everything
@@ -494,6 +498,8 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
     component and a field has nothing to be added to). Both depend on the call
     rather than on the system, which is why neither is in this function.
     """
+    refuse_sawtooth(system, "an ultracell run",
+                    "the ultracell builds its own potential, with no saw-tooth term")
     require_an_ultracell_functional(
         resolve_functional([p.functional for p in pseudos], system.input_dft),
         bool(getattr(system, "nosource", False)),

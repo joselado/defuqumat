@@ -159,6 +159,7 @@ from defuqumat.scf.occupations import smearing_order, w0gauss, wgauss
 from defuqumat.forces.energy import reject_potential_only
 from defuqumat.scf.potential import as_potential_components
 from defuqumat.scf.streaming import is_host_store
+from defuqumat.scf.sawtooth import refuse_sawtooth
 
 __all__ = [
     "Smearing",
@@ -1593,6 +1594,13 @@ def require_a_sternheimer_regime(
     are still refused here. The flag is deliberately opt-in for that reason,
     exactly as ``metals`` is.
     """
+    refuse_sawtooth(
+        calculation, "a linear response",
+        "the response stack would differentiate the field's potential with "
+        "everything else (under dipfield the dipole's own term, and through "
+        "at_positions the ions' dipole), and none of it has been checked against "
+        "a reference or an identity",
+    )
     if getattr(calculation, "gamma_only", False) and not gamma_ok:
         raise NotImplementedError(
             "this response quantity is not implemented for gamma-only "

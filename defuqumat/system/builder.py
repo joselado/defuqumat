@@ -244,6 +244,11 @@ class System(eqx.Module):
     #: :meth:`~defuqumat.calculator.Calculator.get_polarization`, so that a
     #: ``pw.x`` input for that run transfers unchanged.
     berry: tuple | None = eqx.field(static=True, default=None)
+    #: ``tefield`` with its parameters (``add_efield.f90``), as ``(edir, eamp,
+    #: emaxpos, eopreg, dipfield)`` with ``edir`` **0-based** and ``eamp`` in
+    #: Hartree atomic units as ``INPUT_PW`` gives it, or ``None`` when
+    #: ``tefield`` is absent or false (:mod:`defuqumat.scf.sawtooth`).
+    efield: tuple | None = eqx.field(static=True, default=None)
     #: ``spiral_q``: the wavevector of a spin spiral, in **lattice**
     #: coordinates, as Elk's ``vqlss`` is (P19). ``None`` -- the normal case --
     #: is no spiral. See :mod:`defuqumat.system.spiral`.
@@ -1389,6 +1394,17 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
     # no ``-k = k`` (``magnetic_sym`` in ``setup.f90``) -- then symmetry, then
     # k-points.
     nosym = _logical(pwin.get("system", "nosym", False))
+    efield = _efield(pwin)
+    if efield is not None and not nosym:
+        # ``input.f90``: "Presently no symmetry can be used with electric
+        # field", and ``nosym`` is switched on, time reversal kept. The group
+        # that leaves ``b_edir`` and the saw-tooth's origin alone would be the
+        # right one, but it changes the k-set against every benchmark.
+        warnings.warn(
+            "tefield: no symmetry is used with a saw-tooth electric field, as "
+            "in pw.x (nosym = .true.)", stacklevel=_stacklevel_outside_package()
+        )
+        nosym = True
     nosource = _logical(pwin.get("system", "nosource", False))
     noncollinear_gga = pwin.get("system", "noncollinear_gga", None)
     if noncollinear_gga is not None:
@@ -1533,6 +1549,7 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         local_weights=str(pwin.get("system", "local_weights", "qe")).lower(),
         hubbard=_hubbard(pwin, structure),
         berry=_berry(pwin),
+        efield=efield,
         spiral_q=spiral_q,
         vdw_corr=vdw_corr,
         london_s6=float(pwin.get("system", "london_s6", 0.75)),
@@ -1604,24 +1621,18 @@ _OBSOLESCENT_VDW = {
 #:
 #: **They are refused rather than ignored**, which is the same argument
 #: :mod:`defuqumat.vdw.registry` makes for the corrections it does not implement.
-#: An input that asks for a saw-tooth field and gets a run without one, or for a
-#: charged cell and gets a neutral one, is wrong by more than the numbers this
+#: An input that asks for a charged cell and gets a neutral one, is wrong by more than the numbers this
 #: project quotes agreement to, and there is nothing in the output that greps as
 #: an error. Found by listing every variable QE's own ``pw_*`` inputs set and
-#: grepping this package for its name: 61 of the 99 appear nowhere, and these six
-#: are the ones that are not simply out-of-scope features (EXX, MD, vc-relax,
+#: grepping this package for its name: 61 of the 99 appear nowhere, and six of them
+#: (``tefield`` and ``dipfield`` since implemented, :mod:`defuqumat.scf.sawtooth`)
+#: were the ones that are not simply out-of-scope features (EXX, MD, vc-relax,
 #: Berry phase) or performance knobs.
 _REFUSED_SWITCHES = (
     ("system", "tot_charge", "nonzero",
      "a charged cell: nelec is sum(Z) here, so the run would be neutral. QE's "
      "setup.f90 subtracts tot_charge and the compensating jellium then rides on "
      "the G = 0 terms every Coulomb sum already drops"),
-    ("control", "tefield", "logical",
-     "the saw-tooth external field (PW/src/add_efield.f90), which also needs "
-     "edir/eamp/emaxpos/eopreg and reduces the symmetry group to the operations "
-     "that preserve the field's direction"),
-    ("control", "dipfield", "logical",
-     "the dipole correction (PW/src/add_efield.f90), which rides on tefield"),
     ("control", "lelfield", "logical",
      "the finite electric field by Berry phase (PW/src/bp_c_phase.f90), which "
      "makes the SCF a nested loop over nberrycyc"),
@@ -2273,6 +2284,43 @@ def _berry(pwin: PwInput) -> tuple | None:
             "endpoint, so a string carries nppstr - 1 distinct k-points"
         )
     return (gdir - 1, int(nppstr))
+
+
+def _efield(pwin: PwInput) -> tuple | None:
+    """``(edir, eamp, emaxpos, eopreg, dipfield)`` from a ``tefield`` input, or ``None``.
+
+    ``read_namelists.f90``'s defaults: ``edir`` has none and is required,
+    ``eamp = 0.001``, ``emaxpos = 0.5``, ``eopreg = 0.1``. ``dipfield`` without
+    ``tefield`` does nothing in ``pw.x`` (``add_efield`` returns at once), and
+    is refused here rather than ignored, since an input that sets it expects a
+    correction.
+    """
+    tefield = _logical(pwin.get("control", "tefield", False))
+    dipfield = _logical(pwin.get("control", "dipfield", False))
+    if not tefield:
+        if dipfield:
+            raise ValueError(
+                "dipfield = .true. needs tefield = .true.: pw.x applies the "
+                "dipole correction only through add_efield, so without tefield "
+                "it would silently run with no correction"
+            )
+        return None
+    if _logical(pwin.get("system", "gate", False)):
+        raise NotImplementedError(
+            "gate = .true. is not implemented: the charged plate needs a "
+            "charged cell (tot_charge), which is refused (add_gatefield.f90)"
+        )
+    edir = pwin.get("system", "edir")
+    if edir is None or int(edir) not in (1, 2, 3):
+        raise ValueError(
+            f"tefield needs edir = 1, 2 or 3 (which reciprocal vector the field "
+            f"is along), got {edir!r}; add_efield stops on the same"
+        )
+    eopreg = float(pwin.get("system", "eopreg", 0.1))
+    if not 0.0 < eopreg < 1.0:
+        raise ValueError(f"eopreg must lie in (0, 1), got {eopreg}")
+    return (int(edir) - 1, float(pwin.get("system", "eamp", 0.001)),
+            float(pwin.get("system", "emaxpos", 0.5)), eopreg, dipfield)
 
 
 def _warn_if_the_spiral_grid_cannot_shift(spiral_q, kpoints) -> None:

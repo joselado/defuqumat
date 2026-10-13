@@ -83,6 +83,7 @@ from defuqumat.realtime.propagators import get_propagator
 from defuqumat.realtime.pulse import Kick, Sum
 from defuqumat.realtime.radial import radial_table
 from defuqumat.units import AU_SEC
+from defuqumat.scf.sawtooth import refuse_sawtooth
 
 __all__ = ["RealTimeResult", "propagate", "require_a_realtime_regime",
            "spectral_bounds", "time_grid", "largest_stable_step"]
@@ -169,12 +170,22 @@ class RealTimeResult:
 def require_a_realtime_regime(calculation) -> None:
     """Refuse, by name, every regime whose missing term is known (``notes/HARMONICS-NEXT.md``).
 
+    A static saw-tooth field (``tefield``) is refused first: the propagation
+    would keep it in the frozen potential beside the laser's vector potential,
+    which is a length gauge and a velocity gauge in one Hamiltonian, and that
+    has not been measured.
+
     Collinear spin, spinors (spin-orbit coupling and noncollinear magnetism)
     and ultrasoft and PAW datasets run (``PLAN.md`` P139 to P141): the first is
     two independent channels at a frozen potential, the second one Hamiltonian
     on ``2 npwx`` whose coupling to the field is the scalar one, and the third
     the generalised equation of motion of :meth:`_Chunk.generator`.
     """
+    refuse_sawtooth(
+        calculation, "real-time propagation",
+        "the static saw-tooth and the laser's vector potential would be a "
+        "length gauge and a velocity gauge in one Hamiltonian, unmeasured",
+    )
     if calculation.spiral:
         raise NotImplementedError(
             "real-time propagation of a spin spiral is not implemented: the two "
