@@ -11182,3 +11182,28 @@ QE takes 27 and 26, this code 18 and 17. QE mixes `el_dipole` as an extra degree
 (`scf_mod.f90`), and this code does not (P144); that changes the mixer's metric and not the fixed point,
 and here it costs QE one iteration rather than saving one. Elk has no saw-tooth and no dipole correction
 (`efieldc` is a ramp clamped at `dmaxefc`, `potefield.f90`), so there is no Elk pair.
+
+## The finite field by the Berry phase against `pw.x` (CPU, D22, 2026-10-13)
+
+One core each on D22-0161 (CPU 0, `OMP_NUM_THREADS=1`, this code's affinity set before JAX is imported,
+as `tools/compare_qe.py` does), D22 otherwise idle (load 0.9 to 1.0). QE's `pw_electric` chain on Si8
+(norm-conserving PBE, `ecutwfc = 20`, 63 k-points as 9 strings of 7, 16 bands, `nberrycyc = 3`,
+`conv_thr = 1e-11`): the field step `electric-2`, which both codes start from the converged zero-field
+state (`pw.x` from `electric-1`'s files, this code from `starting_from`). Steps added up: the SCF with the
+field only, not the zero-field run before it. This code's number is the second run in the same
+process; the first took 26.0 s, since the zero-field run before it had already compiled the Hamiltonian.
+
+| | `pw.x` 7.5 | defuqumat | ratio |
+|---|---|---|---|
+| SCF with the field (`electrons` / `run_scf`) | 25.89 s, 26.09 s | 25.75 s | 1.0x |
+| iterations, operator builds | 7, 24 | 7, 24 | |
+| building the operator (`h_epsi_set` / `BerryFieldSetup.term`) | 5.55 s | 2.47 s | 0.4x |
+| applying it (`h_epsi_apply`) | 4.88 s, 3730 calls | inside `h_psi`, not separated | |
+
+The build is the overlaps and the duals for all 63 k-points in one compiled call from gathers fixed at
+setup, where `h_epsi_set` maps every pair through the full `ngm` list and inverts `M` with `zgefa`/`zgedi`
+per k. **Memory**: the operator holds `u` and `a`, two `(nk, nocc, npwx)` complex arrays, 2 x 63 x 16 x
+~1000 x 16 B = 32 MB here, and the gathers `(nk, npwx)` twice; QE keeps `evcel`, `evcelm`, `evcelp` and
+writes the duals to disk. The term is not chunked over k (the duals couple neighbours), which is why the
+streamed and pooled stores refuse it. Elk has no Berry-phase field (only `efieldc`, a clamped ramp), so
+there is no Elk pair.

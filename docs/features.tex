@@ -1248,7 +1248,69 @@ field energy agree too. The relaxation of \code{relax-el.in} ends at the energy 
 the QE benchmark, $-43.1264736$ Ry. Two checks need no other code. The derivative
 of the total energy with respect to \code{eamp} is the dipole, $-e^2 D\,\Omega/4\pi$,
 to $10^{-4}$ relative. And an unpolarized \code{nspin = 2} run gives the
-\code{nspin = 1} energy to $10^{-8}$ Ry.
+\code{nspin = 1} energy to $10^{-8}$ Ry. On the Ni slab with CO of the QE test
+suite (\code{pw\_dipole}) the total energy agrees to $7\times10^{-11}$ Ry and the
+forces to $5\times10^{-6}$ Ry/bohr. This slab needs \code{mixing\_beta = 0.3}, as
+in its input, and an Anderson fit in the Hartree metric, which is not the default
+yet.
+
+\subsection{A finite electric field in a crystal, by the Berry phase}
+
+What does a crystal do in a static uniform field? In a periodic cell we cannot
+add $-e\mathbf E\cdot\mathbf r$, because $\mathbf r$ is not periodic. So the code
+minimises the electric enthalpy instead (Souza, Iniguez and Vanderbilt,
+arXiv:cond-mat/0205633):
+\begin{equation*}
+F[\psi] = E_{\mathrm{KS}}[\psi] - E\,\big(p_{\mathrm{el}}[\psi] + p_{\mathrm{ion}}\big),
+\qquad
+p_{\mathrm{el}} = \frac{2\sqrt2\,|\mathbf a_g|}{2\pi}\,\frac{1}{N_s}\sum_s
+\operatorname{Im}\ln\prod_{\mathbf k\in s}\det M(\mathbf k,\mathbf k+\Delta\mathbf k).
+\end{equation*}
+Here $M$ is the overlap of the occupied bands at two neighbouring k-points on a
+string along $\mathbf b_g$, and $N_s$ is the number of strings. This is the Berry
+phase of the polarization. The derivative of $F$ with respect to the
+wavefunctions is an operator that couples each k-point to its two neighbours. The
+code builds it from the current states before each diagonalisation,
+\code{nberrycyc} times per SCF iteration, as \code{pw.x} does. The field
+\code{efield} is in Ry atomic units, and the dipoles are in Ry atomic units too.
+This is \code{lelfield} in \code{pw.x}, with \code{gdir}, \code{nppstr} and an
+explicit list of k-points: strings of \code{nppstr} consecutive points.
+
+Switch the field on from a converged state without field. From random
+wavefunctions the bands at neighbouring k-points are almost orthogonal, and the
+operator is then very large. Every input of \code{pw.x} for this does the same:
+\begin{pycode}
+crystal = Calculator.from_file("si8-lelfield-zero.in")   # efield = 0
+ground = crystal.get_scf()
+calc = Calculator.from_file("si8-lelfield.in")           # efield = 0.001
+scf = calc.get_scf(starting_from=ground)
+print(scf.total_energy)       # -63.0661033823 Ry
+print(scf.berry_dipoles)      # (0.92995686, 115.1735525, 0.0): el, ion, jumps
+print(calc.get_forces().forces[0])   # [-0.01260638 -0.01260638 -0.01251766]
+\end{pycode}
+\code{scf.efield\_energy} is $-E\,(p_{\mathrm{el}} + p_{\mathrm{ion}})$ and is part
+of the total energy. The third number of \code{berry\_dipoles} counts the jumps of
+the phase by $2\pi$ during the run, as \code{pw.x} does.
+
+\begin{refuses}
+\textbf{Refuses.} An \textbf{ultrasoft or PAW} dataset. The overlap $M$ then needs
+the augmentation between two k-points, and the force needs its derivative.
+\textbf{\code{nspin = 2}} and spinors. A \textbf{metal}: a Berry phase belongs to a
+gapped set of bands. The three-direction form \code{efield\_cart}, and an
+automatic k-grid, which \code{pw.x} turns into that form. A cell where
+$\mathbf a_g$ is not along the Cartesian axis $g$. The \textbf{stress}: the field
+terms of the stress are not in \code{pw.x} either. Also DFT+U, a spin spiral,
+\code{tefield} at the same time, and every linear response.
+\end{refuses}
+
+\textbf{Validated against \code{pw.x} 7.5} on the 8-atom silicon of its own test,
+with 9 strings of 7 k-points. The total energy agrees to $1.2\times10^{-8}$ Ry. The
+electronic dipole agrees to $8.6\times10^{-6}$, while the value of \code{pw.x} still
+moves by $1.6\times10^{-5}$ in its last iteration. The forces agree to $10^{-7}$
+Ry/bohr. One check needs no other code. The energy difference between two fields,
+without the linear part of the ions, is the integral of $p_{\mathrm{el}}$ over the
+field, to $10^{-7}$ Ry. The operator is checked against the derivative of the
+Berry phase itself, to $10^{-12}$.
 
 % =====================================================================
 \section{Bands, densities of states, projections}

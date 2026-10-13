@@ -110,10 +110,11 @@ def test_the_field_derivative_is_the_electronic_dipole():
     Three self-consistent runs at 0.0005, 0.001 and 0.0015 Ry a.u. The
     integral is Simpson's rule on their own ``el_pol``, exact to ``h^4``. The
     plain central difference against ``-el_pol`` at the centre is off by
-    3.0e-4, which is the curvature of ``el_pol(E)``: this Si8 is not
-    centrosymmetric (the atoms sit at +-0.123, not 0.125), so the response has a
-    second order, and the test would be about that rather than about the
-    Hellmann-Feynman statement.
+    3.0e-4, which is the third-order response: ``el = chi1 E + chi3 E^3``
+    (the cell keeps inversion, so there is no ``E^2``) leaves the central
+    difference ``chi3 E h^2`` short, and ``chi3`` fitted from the five-field
+    residual of notebook 54 predicts 2.9e-4. The test would be about ``chi3``
+    rather than about the Hellmann-Feynman statement.
     """
     _, centre = _field()
     _, plus = _field(0.0015)

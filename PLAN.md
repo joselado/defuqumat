@@ -204,6 +204,13 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
+- **External electric fields beyond P144 and P145.** The saw-tooth field and the dipole correction are
+  in, and the Berry-phase finite field for norm-conserving `nspin = 1` insulators along one `gdir`. Not
+  in: `gate` (needs `tot_charge`); the stress with either field (`pw.x` has none either); the Berry field
+  on an ultrasoft or PAW dataset (the cross overlap `q_dk` with its structure phase in the string
+  overlaps, and `forces_us_efield`), with two spin channels or spinors, and along three directions
+  (`efield_cart`, `l3dstring`, which is also what an automatic k-grid becomes); and either field inside
+  the Sternheimer stack. Also recorded under P144: `RHO_DDOT_FIT` off by default fails QE's own slab.
 - **The `grad m` noncollinear GGA** (P142, P143) under `nosource` (its projection was checked for a
   field parallel to `m`), and the meta-GGA on a spiral (the kinetic energy density's laboratory
   gradient; refused under either functional).
@@ -25409,9 +25416,66 @@ correction" (snippet executed on D22), notebook `53_electric_field_molecule` (39
 CO 13.5 bohr^3 in the 10 bohr box against about 15.6 measured), and the timing in `PERFORMANCE.md`: one
 iteration 0.165 s against `pw.x`'s 0.170 s on one core, the field itself unmeasurable in either.
 
-**What is outstanding.** QE's own slab case (`pw_dipole/dipole.in`, `tests/data/qe/efield-ni-slab.in` with
-its 7.5 reference, -300.64220949 Ry) does not converge here, **with the field off as well** (`eamp = 0`
-without `dipfield` is an identically zero potential): iteration 1 is -269.72 Ry against `pw.x`'s -299.34 at
-the same estimated accuracy, and the run oscillates from iteration 2. That is a defect of this ultrasoft
-metallic slab, not of the field, and it leaves `dipfield` without a slab number. `gate`, `nspin = 4` with a
-number of its own, the reduced symmetry group that keeps `b_edir` and the saw-tooth's origin, and the stress.
+**The slab, resolved the same day.** QE's own slab (`pw_dipole/dipole.in`,
+`tests/data/qe/efield-ni-slab.in`) first diverged here with the field off as well, which pointed away from
+the field, and the cause was two things stacked: the harness called `run_scf` directly, which does not read
+`&electrons`, so the run had `mixing_beta = 0.7` instead of the input's 0.3; and even at 0.3 the default
+Anderson fit (flat metric) diverges on this slab, iteration 3 at accuracy 643 where `pw.x` reads 1.76.
+With the fit in `rho_ddot`'s metric (`driver.RHO_DDOT_FIT = True`) it converges in 27 iterations against
+`pw.x`'s 26, to -300.6422094966 against -300.64220949 Ry (7e-11), field energy 5.0863e-5 against
+5.089e-5, dipole -0.0736, forces 5e-6 (autodiff) and 2e-6 (analytic) Ry/bohr at `pw.x`'s own SCF
+correction of 6e-6 (`test_qe_dipole_slab`). Iteration 1 was never different: tight on both sides it agrees
+to 2e-6 Ry; the 30 Ry printed was the per-iteration total without QE's `descf`, which is first order away
+from convergence. **`RHO_DDOT_FIT` stays off by default** (P113 measured the flat fit on nine bulk cells);
+this slab is the counterexample, recorded here and not decided here.
+
+**What is outstanding.** `gate`, `nspin = 4` with a number of its own, the reduced symmetry group that
+keeps `b_edir` and the saw-tooth's origin, and the stress.
+
+### P145 -- The finite homogeneous electric field by the Berry phase: `lelfield`. ✅ DONE 2026-10-13 for norm-conserving `nspin = 1` insulators along one `gdir`, against `pw.x` 7.5 on QE's `pw_electric` chain; the plan and fable's review are `plans/lelfield.md`.
+
+**What it is.** The electric enthalpy `E_KS - E . P` with `P` the Berry phase on discrete strings (Souza,
+Iniguez, Vanderbilt, arXiv:cond-mat/0205633; Umari and Pasquarello). `scf/berryfield.py` transcribes QE's
+Hermitian operator (`h_epsi_her_set`/`h_epsi_her_apply`): dual vectors `e+-_m = sum_n |u_{k+-dk,n}>
+(M+-^-1)_{nm}` on k's sphere, `H_E = sum_n |a_n><u_n| + h.c.`, `a = fact (e- - e+)`, `fact = -i E sqrt2
+|a_gdir| nppstr/(4 pi)`, over the occupied bands only; the Miller gathers between neighbours, wrap included,
+are built once at setup from `PlaneWaveStates._alignment`, and the duals for all k are one jitted call. The
+term sits in a `berry` slot of `Hamiltonian` beside `hubbard` (`apply`, `matrix`, zero diagonal) and is
+rebuilt from the current states `nberrycyc` times per iteration (`c_bands_efield`). The energy is
+`calc_pol`'s `-E (el_pol + ion_pol + acc)`, per-string principal value, QE's half-scaled jump rule kept
+for parity, reset at the start of every run; `SCFResult.berry_dipoles = (el, ion, acc)`. Forces:
+`-E . P` in `frozen_energy` (`forces_ion_efield` = `sqrt2 E Z` falls out), transcribed in the analytic
+route; the k-chunked force route is bypassed (the term is not a sum of chunks).
+
+**Numbers.** Unit (`tests/unit/test_berryfield.py`, random closed strings): `H_E u_nk = (1/w_k) dE_P/d
+conj(u_nk)` against `jax.grad` of the phase energy to 1e-12 (`w_k = 2/nk`; fable checked the same algebra
+independently to 4e-12), `<a|u> < 1e-13`, hermiticity and `matrix` = `apply` to 1e-13, gauge invariance
+of `E_P` under a rotation of one k's block to 1e-14. SCF (`tests/regression/test_berryfield.py`), QE's
+chain regenerated with 7.5 at `conv_thr = 1e-11` (`tests/data/qe/si8-lelfield*`): zero field
+-62.9504651310 against -62.95046513; the field switched on from that state, 7 iterations as in `pw.x`,
+-63.0661033823 against -63.06610337 (1.2e-8, `pw.x`'s own total moving 2e-8 over its last two
+iterations), `el_pol` 0.92995686 against 0.92996548 (8.6e-6, `pw.x`'s moving 1.6e-5), `ion_pol` exact,
+`acc = 0`, forces 1e-7 Ry/bohr on both routes, which agree with each other to 1e-8. Identity: `E(E+h) -
+E(E-h)` with the ions' exact linear term removed equals `-int el_pol dE` by Simpson on the three runs'
+own dipoles to 1e-7; the plain central difference against `-el_pol` is off by 3.0e-4, which is the
+third-order response: the residual of a linear fit over five fields is odd in `E` (the cell keeps
+inversion, atoms at +-0.123 rather than 0.125, so there is no `E^2`), and its `chi3` predicts a
+central-difference error `chi3 E h^2` of 2.9e-4. An earlier draft of this paragraph called it a
+second-order term of a non-centrosymmetric cell; the residual's parity said otherwise.
+
+**Why the chain and not a cold start (fable).** From random states the neighbouring occupied subspaces
+are nearly orthogonal, `M` is near singular and `a` is O(1) Ry; every QE input switches the field on from
+a converged zero-field state, and so does the test (`starting_from`). A cold start is not measured.
+
+**Refused by name.** Ultrasoft and PAW (`q_dk` with the structure phase in `M`, `forces_us_efield`),
+`nspin` 2 and 4, smearing, a spiral, DFT+U, `tefield` together, gamma-only, a cell whose `a_gdir` is not
+along Cartesian `gdir`, `efield_cart` (`l3dstring`), an automatic k-grid (QE turns it into `l3dstring`),
+streamed and pooled stores, and every consumer that refuses `tefield` (the stress, where QE's own field
+terms are commented out, the Sternheimer stack, real-time propagation, the ultracell).
+
+**Timing** (`PERFORMANCE.md`): the field run on one core 25.75 s against `pw.x`'s 25.9 and 26.1 s (1.0x),
+same 7 iterations and 24 operator builds; the builds 2.5 s here against `h_epsi_set`'s 5.6 s.
+
+**What is outstanding.** The three items above that are terms rather than layouts: the ultrasoft cross
+overlap, the spin channels, the three-direction form; and the stress with the field, which has no
+reference anywhere.

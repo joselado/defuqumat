@@ -237,6 +237,11 @@ invariant form of Liechtenstein, with $J$. `HUBBARD` card, notebook
   cancels the artificial field that the dipole of a slab creates in the vacuum.
   The field enters the energy and the forces, so a relaxation in a field works.
   `tefield`, `dipfield`, notebook [53](notebooks/53_electric_field_molecule.ipynb).
+- **A finite electric field in a crystal, by the Berry phase**. The code minimises
+  the electric enthalpy $E_{\mathrm{KS}} - \mathbf E\cdot\mathbf P$, with
+  $\mathbf P$ the Berry phase of the occupied bands. So it gives the polarization
+  and the forces in the field, and $\varepsilon_\infty$ from the slope.
+  `lelfield`, notebook [54](notebooks/54_finite_electric_field.ipynb).
 
 ### Structure and mechanics
 
@@ -654,6 +659,7 @@ task of the other code that it refers to.
 | **Slater integrals from the orbital** | `hubbard_slater = 'yukawa'` | | ✓ |
 | **Van der Waals dispersion**, Grimme's D2 | `vdw_corr = 'grimme-d2'` | ✓ | |
 | **An electric field across a slab**, and the dipole correction | `tefield`, `dipfield` | ✓ | (✓)²⁰ |
+| **A finite electric field in a crystal**, by the Berry phase | `lelfield`, `calc.get_scf().berry_dipoles` | ✓ | |
 | **Forces on the atoms** | `calc.get_forces()` | ✓ | ✓ |
 | **Structural relaxation** | `calc.get_relax()` | ✓ | ✓ |
 | **Variable-cell relaxation** at an applied pressure | `calc.get_relax(variable_cell=True)` | ✓ | ✓ |
