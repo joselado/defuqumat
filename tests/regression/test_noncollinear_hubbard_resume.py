@@ -89,7 +89,7 @@ def _seeded(text):
     return seeded
 
 
-def test_a_collinear_hubbard_state_promotes_into_a_spinor_run(pseudo_dir):
+def test_a_collinear_hubbard_state_promotes_into_a_spinor_run(pseudo_dir, monkeypatch):
     """The staged route into a hard magnet, which the same refusal closed.
 
     Converge the collinear run, hand it to the noncollinear one as
@@ -120,10 +120,18 @@ def test_a_collinear_hubbard_state_promotes_into_a_spinor_run(pseudo_dir):
     """
     from pathlib import Path
 
+    import defuqumat.scf.driver as driver
+
     text = Path(PROMOTION).read_text()
     collinear = Calculator.from_text(_seeded(text), pseudo_dir, announce=False)
+    # The seeded source on the flat fit, the path it was measured on. Under the
+    # default ``rho_ddot`` fit (P146) the same seed lands at -171.0000254 Ry, a
+    # fifth state of this cell; the subject here is the promotion, not which
+    # basin a path falls into, so the path is pinned.
+    monkeypatch.setattr(driver, "RHO_DDOT_FIT", False)
     source = run_scf(collinear.system, collinear.pseudos, conv_thr=1e-8,
                      max_iterations=80, verbose=False)
+    monkeypatch.setattr(driver, "RHO_DDOT_FIT", True)
     assert source.converged, source.accuracy
     assert np.asarray(source.ns).shape[0] == 2
     # The seed reaches the lowest state this code has found on this cell. No

@@ -346,7 +346,9 @@ monolayers**, with the numbers above, and warn at setup when either is asked for
 with fixed occupations (an insulator, where the measured cost is 15 to 24 iterations against
 11). Small.
 
-**P-C. Reopen P113's decision on `rho_ddot`'s fit, with the vacuum numbers.** Under plain
+**P-C. Reopen P113's decision on `rho_ddot`'s fit, with the vacuum numbers.** **Closed
+2026-10-14 by `PLAN.md` P146: on by default** (the Co film plain 30 against not converged, `local-TF`
+27 against 36, QE's `pw_dipole` slab 27 against 82; eight bulk cells 107 against 94). Under plain
 Anderson it halves the aluminium slab (34 to 15 at 64 bohr), and on the cobalt film it is
 the difference between converging (31 to 36) and not converging in 150 at any vacuum; under
 `local-TF` it takes the film from 30 to 24 at c10, which is `pw.x`'s count. Against it:

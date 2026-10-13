@@ -524,8 +524,8 @@ symmetry maps, and on an ultrasoft or PAW dataset the augmentation charge's
 table and phases and PAW's one-centre tables (in float64 whatever the precision
 policy, since that is what their build allocates). Below the device peak it
 lists, separately, what the run keeps in \emph{host} RAM: the mixer's history,
-\code{mixing\_ndim} input densities and as many residuals, which is 3.18~GB on a
-157-atom slab and does not count against the card. The
+\code{mixing\_ndim} input densities, as many residuals and as many fit vectors,
+which is 4.77~GB on a 157-atom slab and does not count against the card. The
 G-vector enumeration runs in slabs, so an input destined for a GPU can be sized
 on a laptop.
 
@@ -911,8 +911,8 @@ with $(\alpha f)$ multiplied in \emph{real} space, so the operator is not
 diagonal in $\mathbf G$ and is inverted iteratively at each step. As in
 \code{pw.x}, the solve runs on the smooth sphere and the smooth FFT grid, and on an
 ultrasoft or PAW run the shell between the two cutoffs takes the plain $\beta$. On a cobalt
-film it converges at \code{mixing\_beta = 0.7} where plain Anderson at the same
-$\beta$ diverges and Kerker at $0.3$ is still far out after 250 iterations.
+film it converges at \code{mixing\_beta = 0.7} in 27 iterations. Plain Anderson
+takes 30 there, and Kerker at $0.3$ is still far out after 250 iterations.
 
 \textbf{Both are for metal films, and they slow a monolayer or an insulator
 down}, which \code{pw.x}'s own description of \code{local-TF} (``for highly
@@ -937,6 +937,12 @@ five Al(100) layers & 25, 34 & 15, 36 & 13, 20 & 10, 10 \\
 \end{center}
 A monolayer, metal or not, converges under plain \code{anderson} in the same count at
 every vacuum, and \code{TF} adds about one iteration for every two bohr of cell length.
+These counts were taken with a flat fit of the Anderson coefficients. Since
+2026-10-13 the fit uses the Hartree metric, as in \code{pw.x}. With it, plain
+\code{anderson} takes the aluminium slab in 14 and 15 iterations instead of 25 and 34,
+and it converges the cobalt film and the Ni slab of the QE test suite, where the
+flat fit did not. On bulk cells it takes a few more iterations, about as many as
+\code{pw.x}.
 \code{run\_scf} warns when \code{TF} or \code{local-TF} is asked for with fixed
 occupations, which is the one case the input can identify.
 
@@ -1250,9 +1256,8 @@ of the total energy with respect to \code{eamp} is the dipole, $-e^2 D\,\Omega/4
 to $10^{-4}$ relative. And an unpolarized \code{nspin = 2} run gives the
 \code{nspin = 1} energy to $10^{-8}$ Ry. On the Ni slab with CO of the QE test
 suite (\code{pw\_dipole}) the total energy agrees to $7\times10^{-11}$ Ry and the
-forces to $5\times10^{-6}$ Ry/bohr. This slab needs \code{mixing\_beta = 0.3}, as
-in its input, and an Anderson fit in the Hartree metric, which is not the default
-yet.
+forces to $5\times10^{-6}$ Ry/bohr, in 27 iterations against the 26 of
+\code{pw.x}.
 
 \subsection{A finite electric field in a crystal, by the Berry phase}
 

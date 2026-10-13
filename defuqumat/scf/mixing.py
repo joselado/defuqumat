@@ -306,8 +306,9 @@ class AndersonMixer(Mixer):
     #: **This is the memory the metric costs**: a fit vector holds the dense
     #: sphere's complex coefficients as reals, about ``pi/6`` of the box twice
     #: over, so it is the size of a residual to within five per cent and the
-    #: history's resident set doubles (``OPEN.md`` S2 sizes it at 3.18 GB on the
-    #: 157-atom slab without them). Kept rather than recomputed because each
+    #: history's resident set grows by half, two arrays per entry becoming three
+    #: (``OPEN.md`` S2 sizes it at 3.18 GB on the 157-atom slab without them,
+    #: 4.77 GB with them; on by default since P146). Kept rather than recomputed because each
     #: one is an FFT of a whole residual, and the new row of the Gram matrix
     #: needs all of them every call; ``history`` is the dial.
     _fits: list = field(default_factory=list, repr=False)

@@ -25486,3 +25486,43 @@ same 7 iterations and 24 operator builds; the builds 2.5 s here against `h_epsi_
 **What is outstanding.** The three items above that are terms rather than layouts: the ultrasoft cross
 overlap, the spin channels, the three-direction form; and the stress with the field, which has no
 reference anywhere.
+
+### P146 -- The Anderson fit in `rho_ddot`'s inner product by default. ✅ DONE 2026-10-14, on fable's decision under the user's delegation ("fix the problems"); reopens P113's choice with the vacuum numbers (`notes/VACUUM-MIXING-NEXT.md` P-C).
+
+**What changed.** `driver.RHO_DDOT_FIT = True`: the Anderson coefficients are fitted in `pw.x`'s own
+metric (Hartree `1/G^2` on the charge, constant on the magnetization, `ns_ddot`, `tau`), the one
+`mix_rho.f90` builds `betamix` from. A negative Hubbard U, where `ns_ddot` is indefinite, now falls back to
+the flat fit with a `RuntimeWarning` instead of raising. `False` restores the flat fit. A checkpoint
+written before this drops its mixer history on resume, with the warning that already said so.
+
+**Numbers** (D22, `Calculator.get_scf` at each input's own settings, iterations `rho_ddot` / flat, same
+energies to 1e-9 Ry wherever both converge):
+
+| cell | `rho_ddot` | flat | `pw.x` |
+|---|---|---|---|
+| `fe-mag-1k` | 11 | 11 | 12 |
+| `fe-noncolin-pbe-stress` | 16 | 15 | 19 |
+| `fe-unstable` | 25 | 18 | 23 |
+| `fe-unstable-nonmagnetic` | 21 | 18 | 20 |
+| `si8-us-1k` | 9 | 9 | 8 |
+| `ni-ldau-1k` | 8 | 7 | 8 |
+| `si8-paw-1k` | 9 | 8 | 9 |
+| `o-paw-spin` | 8 | 8 | 8 |
+| eight bulk cells | **107** | 94 | 107 |
+| Co(0001) film, `local-TF` | **27** | 36 | 24 |
+| Co(0001) film, plain | **30** | not converged in 100 (at -82 Ry) | |
+| `pw_dipole` Ni slab (`efield-ni-slab`) | **27** | 82 | 26 |
+
+So the bulk cells take 14 per cent more and land on `pw.x`'s total exactly (107 against 107), and the
+films that failed converge. P113's nickel DFT+U cell (`test_ldau_flavours`, unseeded at `conv_thr =
+1e-12`, `max_iterations = 300`) passes, 9 of 9. **The seeded collinear source of
+`test_noncollinear_hubbard_resume` lands at -171.0000254 Ry under the new fit**, a fifth state of that
+four-minima cell (P113's table), against -171.0025527 under the flat one; the test is about the
+promotion, so its source run is pinned to the flat fit and says why. `test_parallel`'s PAW nickel case
+reads pooled minus serial 1.04e-9 Ry in the energy after five unconverged iterations while the moment
+agrees to 1.4e-12 and the torque to 5.6e-12: the total's reduction-order round-off, 2.3e-12 relative, so
+that bound is now relative (1e-11). Memory: the history keeps a fit vector per entry, three dense arrays
+where the flat fit keeps two, 4.77 GB against 3.18 on the 157-atom slab (`sizing.py` already counted it).
+
+**What is still not `pw.x`'s fit**: the inner product runs over the whole dense set where `pw.x` fits
+only `G < ngms`, and the combination is Anderson rather than modified Broyden (P113).
