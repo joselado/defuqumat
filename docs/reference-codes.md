@@ -145,6 +145,28 @@ known is elkpy's Elk patch (task 9007), which is not stock Elk; it is what the
 NbSe2 numbers here are checked against, and the two agree on the contraction
 independently.
 
+**18. Electron-phonon coupling, Elk (✓).** Elk's tasks 240 and 241 (`ephcouple.f90`)
+compute the matrix elements and the linewidth, so the quantity is there, but the
+linewidth is not the same sum as `ph.x`'s. `ephcouple.f90:139-146` puts the first
+state at the Fermi level, `sdelta((evalsv(ist,jkq)-efermi)/swidth)`, and keeps the
+phonon frequency in the second, `sdelta((wphq(i,iq)+evalsv(jst,jk)-evalsv(ist,jkq))/swidth)`,
+which is $\delta(\omega_{\mathbf q\nu} + \varepsilon_{n\mathbf k} - \varepsilon_{m\mathbf k+\mathbf q})$.
+`PHonon/PH/elphon.f90:1296-1302` weights by `w0gauss((ef1 - et(ibnd,ikk))/degauss1)`
+times `w0gauss((ef1 - et(jbnd,ikq))/degauss1)`, both states at $E_F$ and no phonon
+frequency, and that is the double-delta form this code computes and is checked
+against. The two agree in the limit $\omega_{\mathbf q\nu} \to 0$ and differ by
+the phonon energy against the smearing otherwise. `PLAN.md` P132.
+
+**19. Real-time response to a laser pulse, Elk (✓).** Elk propagates in time
+(tasks 460 to 463, `tddft.f90`) with the field coupled linearly in a basis of
+ground-state bands and the potential updated at every step, and transforms the
+current it writes into a dielectric function (tasks 480 and 481,
+`dielectric_tdrt.f90`). That is the current a harmonic spectrum is read from, and
+no task reads the harmonics off, so the high-harmonic spectrum is the part Elk
+does not have. `TDDFPT/` in Quantum ESPRESSO (`lr_main.f90`) is the
+Liouville-Lanczos route to a linear spectrum and propagates nothing in time, so
+`pw.x` and its tools have no real-time response at all. `PLAN.md` P134 to P137.
+
 ## The convergence workflows, which have no row
 
 Six rows about getting a calculation to converge left the table when the README

@@ -10,10 +10,8 @@ spiral and a magnon; and a set of quantities that neither
 [Quantum ESPRESSO](https://www.quantum-espresso.org) nor
 [Elk](https://elk.sourceforge.io) computes, among them the Chern and
 $\mathbb Z_2$ invariants, the shift current, the Heisenberg exchange constants
-read off a spin-spiral scan, and the elastic constants. Every derivative
-quantity, from a force to a Raman tensor, is a derivative of the total energy
-itself rather than a formula derived by hand, and every number that Quantum
-ESPRESSO also computes has been compared against it on the same input.
+read off a spin-spiral scan, and the elastic constants. Every number that
+Quantum ESPRESSO also computes has been compared against it on the same input.
 
 ## Installing
 
@@ -24,7 +22,8 @@ pip install -e .
 ```
 
 Python 3.10 or newer. The dependencies are JAX, NumPy, SciPy, Numba and equinox,
-and `pip` will fetch them.
+and `pip` will fetch them; `pip install -e ".[notebooks]"` adds matplotlib and
+Jupyter for the plots and the notebooks.
 
 ## A first calculation
 
@@ -56,7 +55,11 @@ you point `Calculator.from_file` at: the `&control`, `&system` and `&electrons`
 namelists and the `ATOMIC_SPECIES`, `ATOMIC_POSITIONS` and `K_POINTS` cards mean
 what they mean in Quantum ESPRESSO, and `conv_thr` is compared against the same
 quantity. The pseudopotentials are read from the names on the `ATOMIC_SPECIES`
-card, and `pseudo_dir` defaults to the input file's own directory.
+card, in UPF format, from `pseudo_dir`, which defaults to the input file's own
+directory; a crystal of your own is an input file you write and the UPF files
+you fetched put in that directory, and notebook
+[25](notebooks/25_your_own_crystal.ipynb) walks through one from the structure
+to the converged number.
 
 Every other quantity is a method on the same object, and each runs the SCF first
 if none is cached:
@@ -91,11 +94,9 @@ the functional and not the code: Quantum ESPRESSO gives the same answer.
 
 ## One calculation on many cores
 
-Inside one k-point the work is too fine-grained for threads to pay much, so the cores go to
-the k-points instead, which is `pw.x -nk`: `DEFUQUMAT_POOLS` runs one calculation as that many
-processes, each diagonalising its own share of the k-points, and the density and the
-decisions are shared between them every iteration. The script is unchanged; under Slurm the
-launch is
+The cores go to the k-points, as `pw.x -nk` does: `DEFUQUMAT_POOLS` runs one
+calculation as that many processes, each diagonalising its own share of the
+k-points, and the script is unchanged. Under Slurm the launch is
 
 ```bash
 #SBATCH --signal=TERM@600
@@ -103,15 +104,12 @@ export DEFUQUMAT_POOLS=$SLURM_NTASKS DEFUQUMAT_THREADS=$SLURM_CPUS_PER_TASK
 srun python3 run.py
 ```
 
-and the numbers are those of one process to round-off. The ground state, forces, stress
-and relaxations run this way, including spin spirals, magnetic fields and constraints, the
-moments turned inside the SCF, seeds and checkpoints; a checkpoint written by pools resumes
-at any pool count, and a SIGTERM stops every pool at the same iteration with one written.
-Everything else refuses by name under pools. On six identical
-desktop cores six pools reach 80 to 91 per cent of `pw.x -nk 6`'s speedup on scalar cells
-and 65 per cent on a magnetic spinor one; on a 128-core server node a 40-atom cell at 27
-k-points runs 20.3x faster on 54 cores, 76 per cent of `pw.x -nk 27`'s speedup. The user guide's performance section has the
-launch on one machine, the measurements and what is refused.
+and the numbers are those of one process to round-off. The ground state, forces,
+stress and relaxations run this way, including spin spirals, magnetic fields and
+constrained moments; a checkpoint written by pools resumes at any pool count, and
+a SIGTERM stops every pool at the same iteration with one written. Everything
+else refuses by name under pools. The measured speedups against `pw.x -nk` are
+in [`PERFORMANCE.md`](PERFORMANCE.md).
 
 ## What you can compute
 
@@ -128,7 +126,8 @@ being properties of the states that minimise it, a tunnelling image or a
 structure factor. Each group opens with the equation of its headline quantity
 and lists the others with the one call that computes each, or the input variable
 that selects it, and the notebook that works it through on a real crystal. The
-full guide, with a snippet per quantity and what each refuses, is
+conditions under which each quantity runs, which pseudopotential datasets, which
+spin regimes and what it refuses, are the amber boxes of the user guide,
 [`docs/features.pdf`](docs/features.pdf), and
 [`notebooks/README.md`](notebooks/README.md) indexes the notebooks by the
 property you want.
@@ -167,7 +166,7 @@ occupations fixed by a smearing or by the tetrahedron method exactly as the
   $m_j$ for a spin-orbit run, with the Löwdin charges beside it. `calc.get_pdos()`,
   notebook [16](notebooks/16_projected_density_of_states.ipynb).
 - **Band velocities**, $\mathbf v_{n\mathbf k} = \partial\epsilon_{n\mathbf k}/\partial\mathbf k$,
-  including the nonlocal pseudopotential's own term. `calc.get_band_velocities()`,
+  what sets a group velocity and a Drude weight. `calc.get_band_velocities()`,
   notebook [19](notebooks/19_linear_response.ipynb).
 - **Effective mass tensor**, $(m^{\ast})^{-1}_{ij} = \partial^2\epsilon_{n\mathbf k}/\partial k_i\,\partial k_j$
   at a chosen k-point, with the principal masses and the density-of-states mass.
@@ -197,11 +196,10 @@ card. `HUBBARD` card, notebook [13](notebooks/13_dft_plus_u.ipynb).
 - **Pseudopotentials**: norm-conserving, ultrasoft and PAW datasets in UPF v2,
   read from the names on the card. `ATOMIC_SPECIES`, notebook
   [04](notebooks/04_ultrasoft_and_paw.ipynb).
-- **Functionals**: LDA (Perdew-Zunger, Perdew-Wang) and GGA (PBE, revPBE, PBEsol),
-  on the grid and inside a PAW sphere. The functional is taken from the datasets'
-  headers unless the input overrides it, and one that is not implemented is
-  refused rather than replaced. `input_dft`, notebook
-  [05](notebooks/05_gradient_corrections.ipynb).
+- **Functionals**: LDA (Perdew-Zunger, Perdew-Wang) and GGA (PBE, revPBE, PBEsol).
+  The functional is taken from the datasets' headers unless the input overrides
+  it, and one that is not implemented is refused rather than replaced.
+  `input_dft`, notebook [05](notebooks/05_gradient_corrections.ipynb).
 - **Band gaps from the Tran-Blaha potential**, the modified Becke-Johnson
   meta-GGA, a potential with no energy functional behind it, which takes
   silicon's gap from LDA's 0.49 eV to 1.13 against an experimental 1.17; forces,
@@ -235,11 +233,8 @@ $$
 $$
 
 which at self-consistency is exact, since the energy is stationary in the
-wavefunctions, and which for an ultrasoft or PAW dataset includes the term from
-a basis that moves with the atom. In Ry/bohr, on norm-conserving, ultrasoft and
-PAW datasets, unpolarized, collinear and spin-orbit alike. `calc.get_forces()`,
-whose `.forces` is `(nat, 3)`, notebook
-[09](notebooks/09_forces_and_relaxation.ipynb).
+wavefunctions. In Ry/bohr. `calc.get_forces()`, whose `.forces` is `(nat, 3)`,
+notebook [09](notebooks/09_forces_and_relaxation.ipynb).
 
 - **Structural relaxation**: the atoms moved downhill by BFGS until the forces
   vanish, and **variable-cell relaxation**, the cell and the atoms together at
@@ -247,15 +242,16 @@ whose `.forces` is `(nat, 3)`, notebook
   notebooks [09](notebooks/09_forces_and_relaxation.ipynb) and
   [23](notebooks/23_variable_cell_relaxation.ipynb).
 - **Stress tensor and pressure**, $\sigma_{ij} = -\Omega^{-1}\,\partial E/\partial\varepsilon_{ij}$,
-  the strain derivative of the energy at fixed wavefunctions, in Ry/bohr³ and
-  kbar. `calc.get_stress()`, notebook [15](notebooks/15_stress.ipynb).
+  the strain derivative of the energy, in Ry/bohr³ and kbar. `calc.get_stress()`,
+  notebook [15](notebooks/15_stress.ipynb).
 - **The strain response**, $\partial\psi/\partial\varepsilon$ and
   $\partial n/\partial\varepsilon$, and the deformation potentials
-  $\partial\epsilon_{n\mathbf k}/\partial\varepsilon_{ij}$ that follow.
-  `calc.get_strain_response()`, notebook [21](notebooks/21_electrostriction.ipynb).
+  $\partial\epsilon_{n\mathbf k}/\partial\varepsilon_{ij}$ that follow, which is
+  what a strain does to a band edge. `calc.get_strain_response()`, notebook
+  [21](notebooks/21_electrostriction.ipynb).
 - **Elastic constants**, $C_{ijkl} = \partial\sigma_{ij}/\partial\varepsilon_{kl}$,
-  with the compliances and the bulk modulus; clamped-ion, for insulators on
-  norm-conserving datasets. `calc.get_elastic_constants()`, notebook
+  with the compliances and the bulk modulus; clamped-ion.
+  `calc.get_elastic_constants()`, notebook
   [21](notebooks/21_electrostriction.ipynb).
 - **Electrostriction and the elasto-optic tensor**: the quadratic coupling of a
   field to a strain, the coefficients $m$, $q$, $M$ and $Q$, and
@@ -266,9 +262,8 @@ whose `.forces` is `(nat, 3)`, notebook
 - **Piezoelectric tensor**, $e_{k,ij} = \partial P_k/\partial\varepsilon_{ij}$, the
   polarization a strain induces, which is also the stress a field induces;
   clamped-ion, for insulators without a spontaneous polarization.
-  `calc.get_piezoelectric_tensor()`, and `calc.get_piezoelectric_kmesh_ladder()`
-  for its convergence with the k-mesh, which is far slower than the energy's;
-  notebook [28](notebooks/28_piezoelectricity.ipynb).
+  `calc.get_piezoelectric_tensor()`, notebook
+  [28](notebooks/28_piezoelectricity.ipynb).
 
 ### Magnetism
 
@@ -292,8 +287,11 @@ model describes the surface. `calc.get_spiral_scan(wavevectors)`, notebook
   species. `nspin = 2`, notebook [07](notebooks/07_spin_polarization.ipynb).
 - **Magnetism as a vector**,
   $\mathbf m(\mathbf r) = \sum_{n\mathbf k} f_{n\mathbf k}\,\psi^\dagger_{n\mathbf k}\,\boldsymbol\sigma\,\psi_{n\mathbf k}$,
-  with the magnetic symmetry group. `noncolin`, notebook
-  [11](notebooks/11_noncollinear_magnetism_and_fields.ipynb).
+  with the magnetic symmetry group, and a gradient correction built from
+  $\nabla\mathbf m$ rather than from $\nabla|\mathbf m|$, so that it is smooth
+  where the moment vanishes and has no quantization axis. `noncolin`, notebooks
+  [11](notebooks/11_noncollinear_magnetism_and_fields.ipynb) and
+  [12](notebooks/12_spin_spirals.ipynb).
 - **Spin-orbit coupling**, two-component spinors and $j$-resolved projectors from
   a fully relativistic dataset. `lspinorb`, notebook
   [08](notebooks/08_spin_orbit_coupling.ipynb).
@@ -303,33 +301,22 @@ model describes the surface. `calc.get_spiral_scan(wavevectors)`, notebook
   can collapse into. `calc.get_scf().site_moments`, notebook
   [43](notebooks/43_magnetic_textures.ipynb).
 - **Magnetic fields and constrained moments**: a uniform Zeeman field
-  (`B_field`), or a moment held at a size or a direction by a penalty.
+  (`B_field`), a field inside one atom's sphere (`LOCAL_MAGNETIC_FIELDS` card),
+  or a moment held at a size or a direction, by a penalty or by a feedback field.
   `constrained_magnetization`, notebook
   [11](notebooks/11_noncollinear_magnetism_and_fields.ipynb).
-- **Magnetic fields inside one atom's sphere**, and a field that fades away as
-  the run converges. `LOCAL_MAGNETIC_FIELDS` card.
 - **Spin spirals** at any wavevector $\mathbf q$, by the generalized Bloch
   theorem: the up component at $\mathbf k + \mathbf q/2$ and the down at
-  $\mathbf k - \mathbf q/2$, on norm-conserving, ultrasoft and PAW datasets. Needs
-  `nosym`, and spin-orbit coupling switched on is refused, since it breaks the
-  theorem. `spiral_q`, notebook [12](notebooks/12_spin_spirals.ipynb).
-- **A noncollinear gradient correction built from $\nabla\mathbf m$** rather than from
-  $\nabla|\mathbf m|$: smooth where the moment vanishes and free of a quantization axis,
-  and the collinear functional exactly for a collinear state. It is what converges a PBE
-  spiral: 15 iterations to $10^{-11}$ Ry on a cobalt helix, where `pw.x`'s rotation onto
-  $|\mathbf m|$ takes 119.
-  The default for every noncollinear magnetic run with a gradient or meta functional, on
-  norm-conserving, ultrasoft and PAW datasets, on spirals and in their `dE/dq`. Not `pw.x`'s
-  or Elk's functional, so a comparison on a canted state sets `noncollinear_gga = 'kubler'`;
-  notebook [12](notebooks/12_spin_spirals.ipynb).
+  $\mathbf k - \mathbf q/2$. Needs `nosym`, and spin-orbit coupling switched on
+  is refused, since it breaks the theorem. `spiral_q`, notebook
+  [12](notebooks/12_spin_spirals.ipynb).
 - **The Dzyaloshinskii-Moriya energy of a spin spiral**, spin-orbit coupling
   added to first order on the spiral computed without it, in the unit cell and
   at any $\mathbf q$: $E_1(\mathbf q, \hat{\mathbf n}) = \hat{\mathbf n}\cdot\mathbf V(\mathbf q)$,
   odd in $\mathbf q$ and linear in the spiral's axis $\hat{\mathbf n}$, so one
   vector gives every orientation of the spiral plane, and zero on a
-  centrosymmetric crystal. The spiral runs on a fully-relativistic
-  norm-conserving dataset at `soc_scale = 0`. `calc.get_spiral_spin_orbit_energy()`,
-  notebook [48](notebooks/48_spiral_chirality.ipynb).
+  centrosymmetric crystal. `calc.get_spiral_spin_orbit_energy()`, notebook
+  [48](notebooks/48_spiral_chirality.ipynb).
 - **Relaxing the spiral wavevector**, $\mathrm dE/\mathrm d\mathbf q$ walked down
   to the ground-state pitch by BFGS. `calc.get_spiral_relaxation()`, notebook
   [14](notebooks/14_spiral_relaxation.ipynb).
@@ -346,11 +333,8 @@ model describes the surface. `calc.get_spiral_scan(wavevectors)`, notebook
   $E_{\mathrm{MAE}} = \sum_{\mathrm{occ}}\epsilon(\hat{\mathbf n}_1) - \sum_{\mathrm{occ}}\epsilon(\hat{\mathbf n}_2)$,
   the band-energy sums of one diagonalisation per direction with spin-orbit
   coupling on, over a density converged without it. `calc.get_anisotropy(spinor)`,
-  where `spinor` is the same crystal as a spin-orbit calculator;
-  `calc.get_force_theorem(spinor)` is one direction's leg, and
-  `calc.get_first_order_soc(spinor)` the spin-orbit term's expectation value at
-  coupling-free states, which is the first-order estimate the theorem is often
-  mistaken for. Notebook [36](notebooks/36_magnetic_anisotropy.ipynb).
+  where `spinor` is the same crystal as a spin-orbit calculator; notebook
+  [36](notebooks/36_magnetic_anisotropy.ipynb).
 - **Relaxed magnetocrystalline anisotropy**, the same energy from total energies,
   one self-consistent noncollinear run per direction with the density free to
   respond; it allows a Hubbard $U$ and reports how far each moment drifted from
@@ -359,48 +343,36 @@ model describes the surface. `calc.get_spiral_scan(wavevectors)`, notebook
 - **Magnetic torque**, $-\mathrm dF/\mathrm d\theta$, the anisotropy from one
   angle rather than a difference of two; for $E(\theta) = K_1\sin^2\theta$ the
   torque at 45 degrees is $-K_1$. `calc.get_torque(spinor)`, notebook
-  [36](notebooks/36_magnetic_anisotropy.ipynb). With every spin turned by one
-  rotation it is a vector, the torque for the three generators at once,
-  `calc.get_orientation_torque(spinor, rotation=R)`.
+  [36](notebooks/36_magnetic_anisotropy.ipynb).
 - **Easy orientation of a magnetic texture**, relaxed rather than scanned: every
-  spin turned by one rotation, and BFGS in the rotation vector on that torque,
-  from a state converged without the coupling. The easy axis of a magnet, and the
-  plane of a spiral in a supercell. `calc.get_relaxed_orientation(spinor)`. Inside
-  a self-consistent run with the coupling the same torque turns the moments after
-  every mix, `calc.get_scf(rotate_moments=True)`, so the run converges on the easy
-  orientation instead of wandering along it.
+  spin turned by one rotation, and BFGS in the rotation vector on that torque.
+  The easy axis of a magnet, and the plane of a spiral in a supercell.
+  `calc.get_relaxed_orientation(spinor)`, or inside a self-consistent run
+  `calc.get_scf(rotate_moments=True)`, so the run converges on the easy
+  orientation instead of wandering along it; notebook
+  [47](notebooks/47_turning_a_magnet.ipynb).
 - **Source-free exchange-correlation field, and the torque it exerts**: the
   longitudinal part of $\mathbf B_{xc}$ projected out so that
   $\nabla\cdot\mathbf B_{xc} = 0$, the one thing that lets a local functional
   turn a moment at all, with $\int \mathbf m\times\mathbf B_{xc}$ as the measure
-  of how far a texture is from stationary. The field is selected by `nosource`;
-  `calc.get_exchange_torque()` returns the torque.
+  of how far a texture is from stationary. `nosource`, and
+  `calc.get_exchange_torque()` for the torque.
 - **Magnons**: the transverse spin susceptibility $\chi^{+-}(\mathbf q,\omega)$,
   whose pole below the Stoner continuum of independent spin flips is the spin
   wave, and the dispersion $\omega(\mathbf q)$ read off it, with the Goldstone
   theorem's $\omega(0) = 0$ as the calculation's own error bar.
-  `calc.get_magnon_dispersion(qpoints, frequencies)`, and
-  `calc.get_spin_susceptibility(q, frequencies)` for one wavevector; notebook
+  `calc.get_magnon_dispersion(qpoints, frequencies)`, notebook
   [38](notebooks/38_magnons.ipynb).
 
-**Getting a hard calculation to converge.** Anderson or Broyden mixing with
-Kerker or local Thomas-Fermi preconditioning, a preconditioner built from the
-local density of states at the Fermi level (`mixing_mode = 'ldos'`), whose
-iteration count on a metal film does not grow with the vacuum, Elk's adaptive scheme for an SCF
-that crawls rather than oscillates, or a residual solver with its own Jacobian
-that reaches magnetic solutions no mixer does, are all options of
-`calc.get_scf()` (`mixing_mode`, `scf_solver`), and a long run checkpoints
-itself (`checkpoint_dir`, `max_seconds`) so that a resubmitted job continues
-rather than starting over. A converged run seeds another across a change of spin
-regime, a nonmagnetic density starting a magnetic run or a collinear one a
-noncollinear run, with `calc.with_spin()`. A magnetic texture is stated one atom
-at a time with `calc.with_moments()` or the `STARTING_MOMENTS` card, which is
-what a helix, a cycloid or a Néel state needs and which decides the magnetic
-symmetry group; a texture that is not the ground state is held while the rest of
-the density relaxes, by a per-atom penalty (`constrained_magnetization = 'atomic'`)
-or by Elk's per-site feedback field (`'atomic fsm'`, `'atomic fsm direction'`),
-which converges to a genuine stationary point where a penalty leaves a residual.
-Notebooks [17](notebooks/17_reaching_self_consistency.ipynb),
+A magnetic texture is stated one atom at a time, with `calc.with_moments()` or
+the `STARTING_MOMENTS` card, which is what a helix, a cycloid or a Néel state
+needs and which decides the magnetic symmetry group; a texture that is not the
+ground state is held while the rest of the density relaxes
+(`constrained_magnetization = 'atomic'` or `'atomic fsm'`). A converged run
+seeds another across a change of spin regime, a nonmagnetic density starting a
+magnetic run or a collinear one a noncollinear run, with `calc.with_spin()`, and
+a long run checkpoints itself so that a resubmitted job continues rather than
+starting over. Notebooks [17](notebooks/17_reaching_self_consistency.ipynb),
 [18](notebooks/18_continuing_a_calculation.ipynb) and
 [43](notebooks/43_magnetic_textures.ipynb).
 
@@ -419,22 +391,18 @@ the second in units of the electron charge. Both are second derivatives of the
 same energy under the same field, so one calculation returns both;
 $\epsilon^\infty$ is what infrared reflectivity measures above the phonon
 frequencies, and $Z^{\ast}$ is what splits the longitudinal from the transverse
-optical mode of a polar crystal. For insulators, on norm-conserving, ultrasoft
-and PAW datasets, unpolarized, collinear, and for a spin-orbit insulator with no
-net moment. `calc.get_dielectric_tensor()`, whose `.epsilon` is `(3, 3)` and
-`.born_charges` is `(nat, 3, 3)`, and `calc.get_born_charges()` for the charges
-alone from the same solve; notebook [19](notebooks/19_linear_response.ipynb).
+optical mode of a polar crystal. For insulators. `calc.get_dielectric_tensor()`,
+whose `.epsilon` is `(3, 3)` and `.born_charges` is `(nat, 3, 3)`; notebook
+[19](notebooks/19_linear_response.ipynb).
 
 - **Phonons at $\Gamma$**: the force constants
   $C_{I\alpha,J\beta} = \partial^2 E/\partial\tau_{I\alpha}\,\partial\tau_{J\beta}$
   and the frequencies of the zone-centre modes, the eigenvalues of
   $C_{I\alpha,J\beta}/\sqrt{M_I M_J}$, in cm⁻¹ with an unstable mode reported as
-  a negative number; insulators and metals, and an ultrasoft or PAW metal is
-  refused. `calc.get_phonons()`, whose `.frequencies` is `(3 nat,)`, notebook
-  [20](notebooks/20_phonons.ipynb).
-- **Phonons at $\mathbf q \neq 0$**: the dynamical matrix at one wavevector, from
-  the perturbed states on their own $\mathbf k + \mathbf q$ plane-wave sphere;
-  norm-conserving insulators and metals on the full grid. `calc.get_phonons_at_q(q)`,
+  a negative number; insulators and metals. `calc.get_phonons()`, whose
+  `.frequencies` is `(3 nat,)`, notebook [20](notebooks/20_phonons.ipynb).
+- **Phonons at $\mathbf q \neq 0$**: the dynamical matrix at one wavevector, so
+  a frequency anywhere in the zone without a supercell. `calc.get_phonons_at_q(q)`,
   notebook [20](notebooks/20_phonons.ipynb).
 - **Electron-phonon coupling**: the matrix elements
   $g_{mn}^\nu(\mathbf k, \mathbf q) = \langle\psi_{m\mathbf k+\mathbf q}|\partial_\nu V|\psi_{n\mathbf k}\rangle$
@@ -485,30 +453,21 @@ adiabatic local kernel can. `calc.get_absorption(frequencies)`, notebook
   `calc.get_shift_current()`, notebook [32](notebooks/32_shift_current.ipynb).
 - **Second-harmonic generation**, $\chi^{(2)}_{abc}(-2\omega;\omega,\omega)$, how
   much of the light shone on a crystal comes back at twice the frequency, a
-  polar rank-3 tensor that vanishes in any centrosymmetric crystal, on
-  norm-conserving, ultrasoft and PAW datasets and on collinear, spinor and
-  spin-orbit ground states.
+  polar rank-3 tensor that vanishes in any centrosymmetric crystal.
   `calc.get_shg()`, notebook [33](notebooks/33_second_harmonic_generation.ipynb).
 - **High-harmonic generation**, the light a crystal emits at multiples of a laser's
   frequency when driven hard: the occupied states propagated in time under
   $H(\mathbf k + \mathbf A(t)/c)$, a plateau of odd harmonics in silicon and every
   order in zincblende AlAs, and the dielectric function from a kick on the way,
   at the ground state's potential or with the Hartree and exchange-correlation
-  potentials rebuilt from the density at every step (local fields and the
-  adiabatic kernel, `potential='hxc'`). A collinear magnet, a spinor run with
-  spin-orbit coupling or noncollinear magnetism, and an ultrasoft or PAW dataset,
-  whose moving overlap adds the augmentation's dipole to the equation of motion
-  and to the current, take the same route.
-  `calc.get_hhg(pulse)`, `calc.get_realtime(pulse)`, notebook
-  [50](notebooks/50_high_harmonics.ipynb).
+  potentials rebuilt from the density at every step (`potential = 'hxc'`).
+  `calc.get_hhg(pulse)`, and `calc.get_realtime(pulse)` for the current in time;
+  notebook [50](notebooks/50_high_harmonics.ipynb).
 - **The third harmonic**, $\chi^{(3)}(-3\omega;\omega,\omega,\omega)$, and the
-  intensity-dependent index $\chi^{(3)}(-\omega;\omega,\omega,-\omega)$, taken as
-  derivatives of the propagation with respect to the field strength at one
-  frequency, or as a spectrum from the steady state solved directly at every
-  frequency, which carries the projectors' curvature a sum over states misses;
-  for magnets, spin-orbit coupling, ultrasoft and PAW as for the scalar case.
-  `calc.get_third_harmonic(frequency)`, `calc.get_nonlinear_spectrum(frequencies)`,
-  notebook [51](notebooks/51_nonlinear_spectra.ipynb).
+  intensity-dependent index $\chi^{(3)}(-\omega;\omega,\omega,-\omega)$, at one
+  frequency or as a spectrum over many. `calc.get_third_harmonic(frequency)` and
+  `calc.get_nonlinear_spectrum(frequencies)`, notebook
+  [51](notebooks/51_nonlinear_spectra.ipynb).
 
 ### Topology and polarization
 
@@ -525,9 +484,8 @@ $$
 an integer that counts the chiral edge states of a two-dimensional insulator
 and is its quantized Hall conductance, $\sigma_{xy} = C\,e^2/h$. It comes out an
 exact integer on any k-mesh, so the mesh sets the resolution of the map and not
-the answer. On norm-conserving, ultrasoft and PAW datasets. `calc.get_chern()`,
-and `calc.get_berry_curvature()` for the map, whose `.chern_number` is the same
-integer; notebook [10](notebooks/10_topological_invariants.ipynb).
+the answer. `calc.get_chern()`, and `calc.get_berry_curvature()` for the map;
+notebook [10](notebooks/10_topological_invariants.ipynb).
 
 - **$\mathbb Z_2$ invariants** in 2D and 3D, by the flow of the Wannier charge
   centres and by the Fu-Kane parities, two independent routes whose agreement is
@@ -605,21 +563,16 @@ $$
 
 where $\mathcal K_N$ are the $N$ k-points of the unit cell that fold onto the
 $N$-cell supercell's $\Gamma$, so the cost is set by the number of bands rather
-than of plane waves and the self-consistency runs on the envelope alone. It is a
-variational truncation of the exact supercell, converging to it as `nbnd` grows.
+than of plane waves. It is a variational truncation of the exact supercell,
+converging to it from above as `nbnd` grows, so its energy per unit cell says
+with a sign whether a modulated state is worth its cost against the uniform one.
 An applied field drives a modulation and returns the $\mathbf Q$-resolved
 susceptibility; a seed hands the loop a texture, a staggered wave or a helix, as
-its initial condition, and the loop keeps it if it is a solution, since nothing
-finds a wave on its own from a uniform state. `calc.get_ultracell(supercell)`,
-notebooks [44](notebooks/44_ultra_long_range.ipynb) and
+its initial condition, and the loop keeps it if it is a solution.
+`calc.get_ultracell(supercell)`, whose `.total_energy` is the energy per unit
+cell; notebooks [44](notebooks/44_ultra_long_range.ipynb) and
 [46](notebooks/46_a_spin_wave_that_stays.ipynb).
 
-- **The energy of a long-range modulation**, the Kohn-Sham free energy per unit
-  cell, which is what says whether a modulated state is worth its cost against
-  the uniform one, and the one quantity of the method that converges with a
-  sign, as a monotone upper bound on the supercell's energy.
-  `calc.get_ultracell(supercell).total_energy`, notebook
-  [44](notebooks/44_ultra_long_range.ipynb).
 - **What a modulation looks like to a tip**: the Tersoff-Hamann image, the
   tunnelling spectrum and the vertical transmission of an ultracell, which is
   how a charge or spin density wave is actually seen. An unpolarized tip sees a
@@ -634,10 +587,10 @@ Each row is a quantity from the catalogue above, the call or input variable
 that asks for it, and whether the two established codes compute it as well:
 **QE** is Quantum ESPRESSO (`pw.x` and its post-processing tools) and **Elk** is
 the all-electron LAPW code. A tick means the quantity is there; **(✓)** means it
-is there only partly, and the numbered note under the table says how; **blank
-in both columns is a quantity neither code computes**, which is what tells you
-whether a row is a reimplementation or an extension. The evidence under each
-note, the routine or task in the other code's source, is in
+is there only partly; **blank in both columns is a quantity neither code
+computes**, which is what tells you whether a row is a reimplementation or an
+extension. Each numbered mark is explained, with the routine or task in the
+other code that it rests on, in
 [`docs/reference-codes.md`](docs/reference-codes.md).
 
 | Quantity | How to ask for it | QE | Elk |
@@ -680,8 +633,8 @@ note, the routine or task in the other code's source, is in
 | **Orbital magnetization of the cell** | `calc.get_orbital_magnetization()` | ✓ | ⁶ |
 | **Magnetocrystalline anisotropy**, by the force theorem | `calc.get_anisotropy(spinor)` | ✓ | (✓)⁷ |
 | **Relaxed magnetocrystalline anisotropy** | `calc.get_relaxed_anisotropy()` | (✓)⁸ | ✓ |
-| **Magnetic torque** | `calc.get_torque(spinor)`, `calc.get_orientation_torque(spinor)` | | |
-| **Easy orientation of a magnetic texture**, relaxed | `calc.get_relaxed_orientation(spinor)`, `calc.get_scf(rotate_moments=True)` | (✓)⁸ | (✓)⁷ |
+| **Magnetic torque** | `calc.get_torque(spinor)` | | |
+| **Easy orientation of a magnetic texture**, relaxed | `calc.get_relaxed_orientation(spinor)` | (✓)⁸ | (✓)⁷ |
 | **Source-free exchange-correlation field**, and its torque | `calc.get_exchange_torque()` | | ✓ |
 | **Magnons** and the transverse spin susceptibility | `calc.get_magnon_dispersion(qpoints, frequencies)` | (✓)⁹ | ✓ |
 | **Dielectric constant** and **Born effective charges** | `calc.get_dielectric_tensor()` | ✓ | ✓ |
@@ -691,12 +644,12 @@ note, the routine or task in the other code's source, is in
 | **Raman tensors** | `calc.get_raman_tensors()` | (✓)¹⁰ | |
 | **Raman and infrared spectra** | `calc.get_vibrational_spectrum()` | ✓ | |
 | **LO-TO splitting and the static dielectric constant** | `calc.get_vibrational_spectrum(loto_direction=...)` | ✓ | (✓)¹¹ |
-| **Optical absorption spectra with excitons** | `calc.get_absorption(frequencies)`; with local fields and the adiabatic kernel band-complete, from the steady state, `calc.get_nonlinear_spectrum(frequencies, order=1, potential='hxc')` | | ✓ |
+| **Optical absorption spectra with excitons** | `calc.get_absorption(frequencies)` | | ✓ |
 | **Optical conductivity**, the Kerr angle and the anomalous Hall conductivity | `calc.get_optical_conductivity()` | (✓)¹² | ✓ |
 | **Shift current** | `calc.get_shift_current()` | ¹³ | |
-| **Second-harmonic generation** | `calc.get_shg()`, and with every band and the projectors' curvature `calc.get_nonlinear_spectrum(frequencies, order=2)` | (✓)¹⁴ | ✓ |
-| **Real-time response to a laser pulse**: the current in time, the dielectric function from a kick, the high-harmonic spectrum, at the ground state's potential or with the Hartree and exchange-correlation potentials updated in time, for collinear and spinor magnets, spin-orbit coupling, ultrasoft and PAW | `calc.get_realtime(pulse)`, `calc.get_realtime_dielectric()`, `calc.get_hhg(pulse)`, each with `potential='hxc'` | | (✓)¹⁹ |
-| **Third-harmonic susceptibility** $\chi^{(3)}$, and the perturbative orders of the current, at one frequency or as a spectrum, for collinear and spinor magnets, spin-orbit coupling, ultrasoft and PAW | `calc.get_third_harmonic(frequency)`, `calc.get_harmonic_orders(frequency)`, `calc.get_nonlinear_spectrum(frequencies)` | | |
+| **Second-harmonic generation** | `calc.get_shg()` | (✓)¹⁴ | ✓ |
+| **Real-time response to a laser pulse**: the current in time, the dielectric function from a kick, the high-harmonic spectrum | `calc.get_realtime(pulse)`, `calc.get_realtime_dielectric()`, `calc.get_hhg(pulse)` | | (✓)¹⁹ |
+| **Third-harmonic susceptibility** $\chi^{(3)}$, at one frequency or as a spectrum | `calc.get_third_harmonic(frequency)` | | |
 | **Berry curvature and Chern numbers** | `calc.get_chern()` | | |
 | **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
@@ -711,63 +664,6 @@ note, the routine or task in the other code's source, is in
 | **The energy of a long-range modulation** | `calc.get_ultracell(supercell).total_energy` | | |
 | **What a modulation looks like to a tip** | `calc.get_ultracell_stm()` | | |
 
-Where a tick is qualified, in one sentence each; the routines behind them are in
-[`docs/reference-codes.md`](docs/reference-codes.md):
-
-- ¹ Elk's partial density of states is resolved over $(l, m)$ and over spin but
-  not over $j$; `projwfc.x` has the $j$ resolution and is what this is checked
-  against.
-- ² `fermi_velocity.x` finite-differences eigenvalues and reports only the
-  magnitude.
-- ³ Neither code reads the other's ground state; what is here is the crossing
-  from a muffin-tin density into a plane-wave one, which neither has a reason to
-  implement.
-- ⁴ Quantum ESPRESSO reaches `tb09` only through libxc, with a zero Laplacian and
-  the functional's coefficient never set, so what it runs under that name is a
-  different functional.
-- ⁵ `lorbm` gives the cell's orbital magnetization and nothing per atom.
-- ⁶ Elk has no orbital magnetization by the modern theory; its moments are
-  integrals of the magnetization over the muffin tins and the interstitial.
-- ⁷ Elk's `mae` re-converges a ground state per direction, which is the relaxed
-  row's method and not the force theorem. Its lowest direction is the easy axis
-  of a collinear cell, found by a scan over directions rather than by a
-  relaxation, and it cannot turn a noncollinear texture.
-- ⁸ `pw.x` can converge a spin-orbit run per direction and print its total
-  energy, but has no routine that sets the directions up, holds the k-set fixed
-  and reports how far a moment drifted. Its `lforcet` turns a collinear density
-  onto one direction per run, with no torque and so no relaxation.
-- ⁹ turboMagnon propagates a response vector and never forms $\chi_0$, so there
-  is no Dyson equation and no pole; Elk's tasks 330 and 331 do exactly this.
-- ¹⁰ `ph.x` refuses a gradient-corrected functional here, where this does not.
-- ¹¹ Elk adds the same non-analytic term and computes Born charges, but reads its
-  static dielectric tensor in rather than summing the modes into it.
-- ¹² `epsilon.x` forms the dielectric tensor but no conductivity and no Kerr
-  angle, refuses ultrasoft datasets, and builds its dipole from momentum matrix
-  elements, which is not $[H, \mathbf r]$ for a nonlocal pseudopotential.
-- ¹³ Wannier90's `berry_task = 'sc'` computes a shift current, but it is a
-  separate code bundled beside Quantum ESPRESSO and needs a wannierisation first;
-  nothing in `PW`, `PP` or `PHonon` computes a photocurrent, and Elk has none.
-- ¹⁴ `el_opt.f90` computes the static electro-optic tensor and not
-  $\chi^{(2)}(-2\omega;\omega,\omega)$; Elk's task 125 is the reference.
-- ¹⁵ Both codes compute the charge image and neither the spin-polarized one;
-  constant current is Quantum ESPRESSO's alone and is quantised to the grid
-  spacing there.
-- ¹⁶ `PWCOND` is a Landauer transmission between two semi-infinite crystalline
-  leads, one conductance per energy, with no point contact and so no map.
-- ¹⁷ `pw.x` has nothing of the kind, `PWCOND` is the different geometry of the
-  note above, and Elk's Fermi-surface tasks write bands for a plotting program
-  rather than weighting them by anything.
-- ¹⁸ Elk's `ephcouple` keeps the phonon frequency in the second delta,
-  $\delta(\omega_{\mathbf q\nu} + \varepsilon_{n\mathbf k} - \varepsilon_{m\mathbf k+\mathbf q})$,
-  where `ph.x` and this code put both states at $E_F$, so the two linewidths
-  are not the same sum.
-- ¹⁹ Elk propagates in time (tasks 460 to 463) and transforms the current to a
-  dielectric function (tasks 480 and 481), with the field coupled linearly in a
-  basis of ground-state bands and the potential updated at every step; it writes
-  the current a harmonic spectrum is read from, and no task reads the harmonics
-  off. `TDDFPT` in Quantum ESPRESSO is
-  the Liouville-Lanczos route to a linear spectrum and propagates nothing.
-
 The variants under each row, which smearing or tetrahedron method fixes the
 occupations, which projectors DFT+U uses, which constraint scheme holds a
 moment, are chosen with the same input variables as in `pw.x` where it has them.
@@ -776,18 +672,7 @@ moment, are chosen with the same input variables as in `pw.x` where it has them.
 
 That is the question the project is organised around. Where Quantum ESPRESSO
 computes the same quantity, the same input is run through both codes and the
-numbers are compared; its test suite ships reference outputs, and `pytest`
-compares against them:
-
-```bash
-pip install -e ".[dev]"
-python3 -m pytest
-```
-
-Most of those tests need Quantum ESPRESSO's `test-suite` directory, which is
-not shipped here, and skip cleanly without it; the ultrasoft, PAW and PBE
-references were generated once with `pw.x` and are committed under
-`tests/data/qe/`.
+numbers are compared:
 
 | | agrees to |
 |---|---|
@@ -796,7 +681,7 @@ references were generated once with `pw.x` and are committed under
 | forces, term by term | 2e-5 Ry/bohr |
 | stress | 2.7e-7 Ry/bohr³ |
 | the dielectric constant, and the Born effective charges | 1.2e-4; every digit `ph.x` prints |
-| phonons at $\Gamma$, silicon and a metal | 0.05 and 0.0019 cm⁻¹ |
+| phonons at $\Gamma$, silicon and a metal | 0.05 and 0.002 cm⁻¹ |
 
 The per-feature figures, for ultrasoft and PAW, the functionals, spin and
 spin-orbit coupling, DFT+U, relaxation, the Raman and infrared spectra and the
@@ -817,26 +702,21 @@ both are computed and compared.
 **Anything not implemented is refused with an error naming what is**, rather
 than quietly replaced by something else. That applies to combinations as well as
 to features, so a run that starts is one whose physics is all there, and the
-refusals of each quantity are the refusal notes of the guide.
+refusals of each quantity are the amber boxes of the user guide.
 
 **Not yet:** a phonon dispersion (one wavevector works; the star of $\mathbf q$
-and the Fourier interpolation do not), exact exchange, and a real-time
-propagation that updates the potential in time (the propagation here holds the
-ground state's potential, which is the independent-particle response).
+and the Fourier interpolation between wavevectors do not), and exact exchange.
 
-**Substituted with a warning rather than refused:** `K_POINTS gamma` stores one
-plane wave of each $(\mathbf G, -\mathbf G)$ pair, which halves every array a
-band lives in and is what lets a large molecule or slab fit in memory, and it
-agrees with an explicit k = 0 on the whole sphere to round-off. For an ultrasoft
-or PAW dataset, a run that uses symmetry, and a spinor or spiral run, the whole
-sphere is used instead and the run says so, which is the same physics at twice
-the storage.
+**Substituted with a warning rather than refused:** a `K_POINTS gamma` input
+runs, and for an ultrasoft or PAW dataset, a run that uses symmetry, or a spinor
+or spiral run, it is computed as an explicit k = 0 instead and the run says so,
+which is the same physics and agrees to round-off.
 
 If your calculation needs any of those, use Quantum ESPRESSO. This is not a
 replacement for it, and on one core it is slower, by about 2.2 times per SCF
 iteration as the median over ten cases of different physics and between 1.3 and
 3.5 times across them, measured against a `pw.x` linked to an optimised BLAS
-(`PERFORMANCE.md`).
+([`PERFORMANCE.md`](PERFORMANCE.md)).
 
 ## Where to read more
 
@@ -851,6 +731,9 @@ iteration as the median over ten cases of different physics and between 1.3 and
 - `benchmarks/`, ready-to-run input files from a two-atom silicon cell up to a
   sixteen-atom one, and [`performance/README.md`](performance/README.md) for
   running the same inputs through `pw.x` and through this code side by side.
+- The tests, `pip install -e ".[dev]"` and `python3 -m pytest`, compare against
+  the reference outputs of Quantum ESPRESSO's own test suite and skip where that
+  directory is absent.
 
 ## License
 
