@@ -232,6 +232,11 @@ invariant form of Liechtenstein, with $J$. `HUBBARD` card, notebook
   the energy, the forces, the stress and the elastic constants. It is what binds
   bilayer graphene, because PBE alone has no minimum there.
   `vdw_corr = 'grimme-d2'`, notebook [22](notebooks/22_van_der_waals.ipynb).
+- **An electric field across a slab, and the dipole correction**. The field is a
+  saw-tooth along one reciprocal vector, as in `pw.x`. The dipole correction
+  cancels the artificial field that the dipole of a slab creates in the vacuum.
+  The field enters the energy and the forces, so a relaxation in a field works.
+  `tefield`, `dipfield`, notebook [53](notebooks/53_electric_field_molecule.ipynb).
 
 ### Structure and mechanics
 
@@ -648,6 +653,7 @@ task of the other code that it refers to.
 | **Around-mean-field double counting** | `hubbard_double_counting = 'amf'` | | ✓ |
 | **Slater integrals from the orbital** | `hubbard_slater = 'yukawa'` | | ✓ |
 | **Van der Waals dispersion**, Grimme's D2 | `vdw_corr = 'grimme-d2'` | ✓ | |
+| **An electric field across a slab**, and the dipole correction | `tefield`, `dipfield` | ✓ | (✓)²⁰ |
 | **Forces on the atoms** | `calc.get_forces()` | ✓ | ✓ |
 | **Structural relaxation** | `calc.get_relax()` | ✓ | ✓ |
 | **Variable-cell relaxation** at an applied pressure | `calc.get_relax(variable_cell=True)` | ✓ | ✓ |

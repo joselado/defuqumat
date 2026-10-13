@@ -167,6 +167,12 @@ does not have. `TDDFPT/` in Quantum ESPRESSO (`lr_main.f90`) is the
 Liouville-Lanczos route to a linear spectrum and propagates nothing in time, so
 `pw.x` and its tools have no real-time response at all. `PLAN.md` P134 to P137.
 
+**20. An electric field across a slab, Elk (✓).** Elk's `efieldc`
+(`potefield.f90`, called from `potcoul.f90`) adds `-E . (r - r_c)` to the Coulomb
+potential, measured from the centre of the cell and clamped at a distance
+`dmaxefc` from it. It is a linear ramp cut off in the vacuum, not the saw-tooth of
+`pw.x`, and Elk has no dipole correction. `PLAN.md` P144.
+
 ## The convergence workflows, which have no row
 
 Six rows about getting a calculation to converge left the table when the README

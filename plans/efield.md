@@ -97,3 +97,23 @@ Tests run on D22, not this workstation.
 7. Anything in the driver (`defuqumat/scf/driver.py`) that would make an added k-coupled operator (Part B) hard:
    look at how hubbard reaches Hamiltonian and how the Davidson is vmapped over k (map_k), and say where the
    per-iteration frozen `a` vectors should live.
+
+## Fable's review (2026-10-13), and what was done with it
+
+- Q1 TRUE. The relax-el printed correction checked by hand: `-2 * 0.001 * (6*(-0.16) + 4*0.06) * 10 = +0.01440000`.
+  The ultrasoft force comes out of `frozen_energy` with nothing else, since `addusforce` integrates `vltot + v_scf`.
+  Use `total_charge` and `as_potential_components`; do not route through `magnetic_field` (its energy is excluded).
+- Q2: omit QE's mixed `el_dipole`; same fixed point. Measured: not needed on the CO cell (the force spread at
+  conv_thr 1e-10 was convergence in a mostly empty cell, with or without dipfield, gone at 1e-13).
+- Q3: `<a_m|u_n> = 0` TRUE; `H_E u_n = dE_P/d<u_n|` FALSE as written: (i) `H_E u_nk = (1/w_k) dE_P/d<u_nk|`,
+  w_k = 2/nk at nspin = 1; (ii) `jax.grad` of a real E returns `2 conj(dE/d conj u)`; (iii) ultrasoft operator is
+  `sum_m |a_m><u_m| S_k + S_k |u_m><a_m|`. `c_phase_field` takes the per-string principal value, not bp_c_phase's
+  averaged branch; `calc_pol` tracks 2 pi jumps (`el_pol_acc`). QE's lelfield stress has the field terms commented
+  out (`stress.f90:170-171`), so electric-2's P = 46.70 kbar has no field term.
+- Q4: split. P144 = tefield/dipfield, P145 = lelfield. Taken.
+- Q5: follow QE's nosym. Taken.
+- Q6: nspin = 4 could be extended with an identity; done for nspin = 2 (unpolarized LSDA = spinless, measured),
+  nspin = 4 left as the scalar rule in `as_potential_components` without its own number.
+- Q7: Hubbard is the template for the Berry operator; build `a` outside `map_k` per outer iteration and per
+  `nberrycyc`; the solve donates its starting block, so the operator's `u` must be a separate array; zero
+  preconditioner diagonal.

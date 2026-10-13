@@ -1189,6 +1189,67 @@ below \code{conv\_thr} bounds the moment much more weakly than it bounds the
 charge, and only the split can say whether it is the charge or the magnetization
 that is still moving.
 
+\subsection{An electric field across a slab, and the dipole correction}
+
+How do you put a uniform electric field into a periodic cell? A linear potential
+is not periodic. So the code uses a saw-tooth, as \code{pw.x} does. The
+potential rises linearly over most of the cell along the reciprocal vector
+$\mathbf b_{\mathrm{edir}}$. Then it falls back in a thin region of width
+\code{eopreg}, which must lie in the vacuum. The field is switched on with
+\code{tefield} and has the amplitude \code{eamp}, in Hartree atomic units.
+
+A slab with a different surface on each side has a dipole. Through the periodic
+images, this dipole creates an artificial field in the vacuum. The dipole
+correction (\code{dipfield}) cancels it (Bengtsson, PRB \textbf{59}, 12301
+(1999)). It adds a second saw-tooth whose slope is the dipole of the current
+density. So the total energy of the field is:
+\begin{equation*}
+E_f = \frac{\Omega}{4\pi}\,e^2\Big[-E_{\mathrm{amp}}\,D + \tfrac12 D^2\Big],
+\qquad
+D = \frac{4\pi}{\Omega}\Big[\sum_a Z_a\,s(x_a) - \int n(\mathbf r)\,s(x(\mathbf r))\,d\mathbf r\Big]\,d .
+\end{equation*}
+Here $s$ is the saw-tooth, $x$ is the crystal coordinate along the field, and
+$d = 2\pi/|\mathbf b_{\mathrm{edir}}|$ is the distance between lattice planes.
+The $D^2/2$ term is there only with \code{dipfield}. The potential is the
+derivative of $E_f$ with respect to the density, and the force is its
+derivative with respect to the positions. Both come from \code{jax.grad} of
+this one energy.
+
+The input is the \code{pw.x} input. Here it is the CO molecule of
+\code{pw\_relax/relax-el.in}, with the dipole correction added:
+\begin{pycode}
+calc = Calculator.from_file("efield-co-dipole.in")
+scf = calc.get_scf(conv_thr=1e-13)
+print(scf.total_energy)       # -43.1230004596 Ry
+print(scf.efield_energy)      # 8.1867e-05 Ry, part of the total
+print(scf.efield_dipole)      # -0.0337687, D Omega/(4 pi) in Ry a.u.
+print(calc.get_forces().forces[:, 2])   # [ 0.11697173 -0.11697173]
+\end{pycode}
+
+\code{scf.efield\_energy} is always the whole energy of the field, electrons and
+ions. Without \code{dipfield}, \code{pw.x} prints only the part of the ions as
+``electric field correction''. The part of the electrons is then inside its
+one-electron term. The total energy is the same in both codes.
+
+\begin{refuses}
+\textbf{Refuses.} The \textbf{stress}, and so a variable-cell relaxation.
+\code{pw.x} switches the stress off with this field too. Also every
+\textbf{linear response}, real-time propagation and the ultracell, which have not
+been checked with the field. \code{gate} (a charged plate) needs a charged cell,
+and \code{tot\_charge} is refused. \code{dipfield} without \code{tefield} is an
+error, because in \code{pw.x} it does nothing. As in \code{pw.x}, the run uses no
+symmetry (\code{nosym}), and the code warns about it.
+\end{refuses}
+
+\textbf{Validated against \code{pw.x}} on the CO molecule, with and without
+\code{dipfield}, both at \code{conv\_thr = 1e-13}. The total energies agree to
+$4\times10^{-10}$ Ry and the forces to $4\times10^{-7}$ Ry/bohr. The dipole and the
+field energy agree too. The relaxation of \code{relax-el.in} ends at the energy of
+the QE benchmark, $-43.1264736$ Ry. Two checks need no other code. The derivative
+of the total energy with respect to \code{eamp} is the dipole, $-e^2 D\,\Omega/4\pi$,
+to $10^{-4}$ relative. And an unpolarized \code{nspin = 2} run gives the
+\code{nspin = 1} energy to $10^{-8}$ Ry.
+
 % =====================================================================
 \section{Bands, densities of states, projections}
 

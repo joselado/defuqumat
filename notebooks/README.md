@@ -49,6 +49,7 @@ instead, which means the physics is selected in the input file rather than at th
 | Stress and pressure | `get_stress()` | [15](15_stress.ipynb) |
 | A relaxed cell at an applied pressure | `get_relax(variable_cell=True)` | [23](23_variable_cell_relaxation.ipynb) |
 | A geometry bound by dispersion | `vdw_corr = 'grimme-d2'` | [22](22_van_der_waals.ipynb) |
+| A molecule or a slab in a uniform electric field: the dipole, the polarizability, the force | `tefield`, `dipfield` | [53](53_electric_field_molecule.ipynb) |
 
 ### Magnetism
 
@@ -187,6 +188,7 @@ want a number.
 | [`49_electron_phonon.ipynb`](49_electron_phonon.ipynb) | Electron-phonon coupling in fcc aluminium at two wavevectors: the linewidth and `lambda` of each mode at ten broadenings of the Fermi surface, against `ph.x` 7.5 on the same input, `lambda` to every digit it prints and the linewidths to 0.007 GHz, and what the dependence on the broadening says about the k-mesh |
 | [`50_high_harmonics.ipynb`](50_high_harmonics.ipynb) | High harmonics: silicon under an 800 nm pulse emits only odd multiples of the laser frequency because inversion reverses the field, zincblende AlAs emits every one along [111] and only the odd ones along [100], where a rotation reverses it instead, the end of the plateau moves with the field and is the one number here that needs a larger basis before it is quoted, and the charge the pulse moves screens it when the potential is rebuilt in time |
 | [`51_nonlinear_spectra.ipynb`](51_nonlinear_spectra.ipynb) | The second harmonic of AlAs across the spectrum, with its two-photon and one-photon edges, from the steady state at every frequency, against the sum over states, which converges in the band count and still misses the curvature of the pseudopotential; and silicon's third harmonic, whose coarse-mesh numbers are the mesh's |
+| [`53_electric_field_molecule.ipynb`](53_electric_field_molecule.ipynb) | CO in a saw-tooth field with the dipole correction: the energy, the field energy and the force against `pw.x`, the dipole at five fields and the polarizability along the bond (13.5 bohr^3 in a 10 bohr box, against about 15.6 measured), and where the induced charge goes |
 
 ## Conventions
 
@@ -299,6 +301,10 @@ helix under both gradient corrections, the first taking 119 iterations.
 | `00` | 22 | `23` | 35 | `39` | 151 | `49` | 194 |
 | `07` | 22 | `32` | 84 | `41` | 110 | `51` | 290 |
 | `46` | 61 | `47` | 260 | `48` | 121 | `50` | 509 |
+
+`53` reads **39 s** on 2026-10-13, its first measurement, on four performance cores of
+D22-0161 (`taskset -c 2-5`), with the compiled code already cached: six SCF runs of the
+CO molecule and their forces.
 
 `32` and `33` read **84 s** and **401 s** on 2026-10-04, through
 `tools/export_notebooks.sh` on a machine carrying other work at a load of about 11, so

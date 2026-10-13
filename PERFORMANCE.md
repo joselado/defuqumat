@@ -11157,3 +11157,28 @@ after, in bytes: `si16-1k-ecut30` at `david` 2, 3, 4: 31146112, 34167168, 435029
 docstring's three fitted coefficients stand and were not refitted; the card was not measured (it
 was shared that night), and fusion is not the same on the two backends. The 157-atom slab, where
 the 12x was observed at `david = 2`, does not fit D22 and is not re-measured.
+
+## The saw-tooth field and the dipole correction against `pw.x` (CPU, D22, 2026-10-13)
+
+`tools/compare_qe.py --repeats 5` on D22-0161, both codes pinned to CPU 0, `OMP_NUM_THREADS=1`,
+D22 otherwise idle (load 1.1 to 1.5). The vendored `pw.x` 7.5 serial build
+(`/l/ladovj1/review/timing/pw.x`). CO in a 10 bohr cube, ultrasoft, `ecutwfc = 25`,
+`ecutrho = 300`, one k-point, 60^3 grid, 2103 plane waves, `conv_thr = 1e-13`.
+
+| input | | QE 7.5 | defuqumat | ratio |
+|---|---|---|---|---|
+| `efield-co-dipole.in` (`tefield` + `dipfield`) | per iteration | 0.170 s | 0.165 s | 1.0x |
+| | SCF, warm | 4.59 s (27 it.) | 2.96 s (18 it.) | 0.6x |
+| | setup | 0.59 s | 6.97 s (compilation, cold cache of this shape) | 11.8x |
+| the same CO, no field | per iteration | 0.167 s | 0.171 s | 1.0x |
+| | SCF, warm | 4.33 s (26 it.) | 2.91 s (17 it.) | 0.7x |
+
+**The field costs nothing measurable in either code**: 0.165 against 0.171 s an iteration here with and
+without it, inside the spread of one repeat, and 0.170 against 0.167 in `pw.x`. The term is one mean over
+the dense grid for `el_dip`, its gradient (the same saw-tooth times a scalar), and the ions' sum. It adds one
+dense-grid real array to the potential's working set, `n1 n2 n3` doubles (1.7 MB here), and nothing per k
+or per band, so it changes no memory budget. The iteration counts differ by the mixer, not by the field:
+QE takes 27 and 26, this code 18 and 17. QE mixes `el_dipole` as an extra degree of freedom of the density
+(`scf_mod.f90`), and this code does not (P144); that changes the mixer's metric and not the fixed point,
+and here it costs QE one iteration rather than saving one. Elk has no saw-tooth and no dipole correction
+(`efieldc` is a ramp clamped at `dmaxefc`, `potefield.f90`), so there is no Elk pair.

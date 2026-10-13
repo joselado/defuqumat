@@ -25360,3 +25360,58 @@ fixed in the tests, with the measurements in each, apart from one code
 defect (the ultracell Kramers closure decided on the input's `nspin_mag` rather than the
 converged moment) and one left open (`OPEN.md` Part XXV, the electron-phonon default's gauge).
 
+
+### P144 -- The saw-tooth electric field and the dipole correction: `tefield`, `dipfield`. ✅ DONE 2026-10-13 against `pw.x` on ultrasoft CO, with and without `dipfield`, and on `relax-el`'s relaxation; the plan and fable's review are `plans/efield.md`. The Berry-phase finite field (`lelfield`) is P145.
+
+**One energy, QE's two branches.** `scf/sawtooth.py`: `E_f(rho, tau) = (Omega/4 pi) e2 [-eamp D +
+[dipfield] D^2/2]`, `D = ion_dip(tau) - el_dip(rho)` in `add_efield`'s `4 pi/Omega` units, `d = 2 pi/|b_edir|`
+for QE's `alat/bmod`. `v = dE_f/drho` by `jax.grad` (divided by `Omega/N`), added to every channel of
+`(up, down)` and to component 0 of `(n, m)` (`as_potential_components`), inside `Calculation.potential`, so
+`nscf`/bands, the frozen-energy force and the analytic `addusforce` all see it. **Unlike `scf/fields.py` the
+energy is in the total**, as `etotefield` is. Without `dipfield` QE puts the saw-tooth in `vltot` and prints
+the ions' part alone; here it is in `v_scf` and `deband` moves the electrons' share out of the one-electron
+term into `efield`, same total. Forces: `"efield"` in `frozen_energy` (and the chunked and spiral sums, for
+the identity), and QE's `forcefield` transcribed in `forces/analytic.py:_force_efield`. Input: `System.efield
+= (edir 0-based, eamp, emaxpos, eopreg, dipfield)`; `nosym` forced with a warning (`input.f90:673`);
+`dipfield` without `tefield`, `gate`, a missing `edir` refused. Refused by name (`refuse_sawtooth`): the
+stress (QE switches it off), the Sternheimer stack, real-time propagation, the ultracell.
+
+**Numbers.** Unit (`tests/unit/test_sawtooth.py`, 54 tests, no SCF): `saw` against `extfield.f90` at 37
+points; the potential against `add_efield`'s explicit loop on an oblique cell, every `edir`, both branches,
+1e-13; `-dE/dtau` against `forcefield`, 1e-13; `dE/d(eamp) = -(Omega/4pi) e2 D`, 1e-13 relative; relax-el's
+printed `electric field correction = 0.01440000` from the ions alone. SCF (`tests/regression/test_sawtooth.py`,
+`tests/data/qe/efield-co*.in`, references from the vendored `pw.x` at `conv_thr = 1e-13`):
+
+| | defuqumat | `pw.x` |
+|---|---|---|
+| total, field | -43.1230177145 | -43.12301771 |
+| total, field + `dipfield` | -43.1230004596 | -43.12300046 |
+| force, field (autodiff / analytic) | 0.11751950 / 0.11751952 | 0.11751980 |
+| force, `dipfield` (autodiff / analytic) | 0.11697230 / 0.11697210 | 0.11697193 |
+| `etotefield`, `dipfield` | 8.1867e-5 | 8.187e-5 |
+| dipole `D Omega/4pi`, `dipfield` | -0.03377 | -0.0337 |
+
+Identities: the central difference of the SCF total in `eamp` (0.0005 to 0.0015) equals `-e2` times the
+printed dipole to 1e-4 relative; an unpolarized `nspin = 2` (`tot_magnetization = 0`) gives the `nspin = 1`
+total to 1e-8. `pw_relax/relax-el.in` relaxed as committed ends at the 6.1 benchmark's -43.1264736 Ry
+within 2e-6 and O at `z = -1.0716` within 2e-3.
+
+**The trap this phase found is about convergence, not the field.** At `conv_thr = 1e-10` the autodiff and
+analytic forces on CO differ by 3.5e-6 (plain) and the `dipfield` force moves 1.0e-5 between 1e-10 and
+1e-13; the same 2.6e-6 spread appears with no field at all. At 1e-13 the two routes agree to 2e-8 and
+2e-7. A cell that is mostly vacuum converges its force slowly in `dr2`, so the references are taken at
+1e-13 on both sides, and QE's mixing of `el_dipole` (an extra metric term, `scf_mod.f90:847`) was **not**
+needed for the fixed point or for these numbers.
+
+**Deliverables.** README row (QE ✓, Elk (✓)²⁰: a clamped ramp, no saw-tooth, no dipole correction,
+`docs/reference-codes.md` 20), `docs/features.tex` "An electric field across a slab, and the dipole
+correction" (snippet executed on D22), notebook `53_electric_field_molecule` (39 s; polarizability along
+CO 13.5 bohr^3 in the 10 bohr box against about 15.6 measured), and the timing in `PERFORMANCE.md`: one
+iteration 0.165 s against `pw.x`'s 0.170 s on one core, the field itself unmeasurable in either.
+
+**What is outstanding.** QE's own slab case (`pw_dipole/dipole.in`, `tests/data/qe/efield-ni-slab.in` with
+its 7.5 reference, -300.64220949 Ry) does not converge here, **with the field off as well** (`eamp = 0`
+without `dipfield` is an identically zero potential): iteration 1 is -269.72 Ry against `pw.x`'s -299.34 at
+the same estimated accuracy, and the run oscillates from iteration 2. That is a defect of this ultrasoft
+metallic slab, not of the field, and it leaves `dipfield` without a slab number. `gate`, `nspin = 4` with a
+number of its own, the reduced symmetry group that keeps `b_edir` and the saw-tooth's origin, and the stress.
