@@ -668,7 +668,7 @@ task of the other code that it refers to.
 | **Elastic constants** | `calc.get_elastic_constants()` | | |
 | **Electrostriction coefficients** | `calc.get_electrostriction()` | | |
 | **Elasto-optic tensor** | `calc.get_electrostriction().photoelastic` | | |
-| **Piezoelectric tensor** | `calc.get_piezoelectric_tensor()` | | ✓ |
+| **Piezoelectric tensor** | `calc.get_piezoelectric_tensor()`, `calc.get_piezoelectric_kmesh_ladder()` | | ✓ |
 | **Collinear magnetism**, with one Fermi level or two | `nspin = 2` | ✓ | ✓ |
 | **Magnetism as a vector**, with the magnetic symmetry group | `noncolin` | ✓ | ✓ |
 | **Spin-orbit coupling** | `lspinorb` | ✓ | ✓ |
@@ -681,13 +681,13 @@ task of the other code that it refers to.
 | **Dzyaloshinskii-Moriya energy of a spin spiral**, spin-orbit coupling to first order | `calc.get_spiral_spin_orbit_energy()` | | |
 | **Orbital, spin and total angular momentum on each atom** | `calc.get_angular_momenta()` | (✓)⁵ | ✓ |
 | **Orbital magnetization of the cell** | `calc.get_orbital_magnetization()` | ✓ | ⁶ |
-| **Magnetocrystalline anisotropy**, by the force theorem | `calc.get_anisotropy(spinor)` | ✓ | (✓)⁷ |
+| **Magnetocrystalline anisotropy**, by the force theorem | `calc.get_anisotropy(spinor)`, `calc.get_force_theorem(spinor)`, `calc.get_first_order_soc(spinor)` | ✓ | (✓)⁷ |
 | **Relaxed magnetocrystalline anisotropy** | `calc.get_relaxed_anisotropy()` | (✓)⁸ | ✓ |
 | **Magnetic torque** | `calc.get_torque(spinor)` | | |
-| **Easy orientation of a magnetic texture**, relaxed | `calc.get_relaxed_orientation(spinor)` | (✓)⁸ | (✓)⁷ |
+| **Easy orientation of a magnetic texture**, relaxed | `calc.get_relaxed_orientation(spinor)`, `calc.get_orientation_torque(spinor)` | (✓)⁸ | (✓)⁷ |
 | **Source-free exchange-correlation field**, and its torque | `calc.get_exchange_torque()` | | ✓ |
-| **Magnons** and the transverse spin susceptibility | `calc.get_magnon_dispersion(qpoints, frequencies)` | (✓)⁹ | ✓ |
-| **Dielectric constant** and **Born effective charges** | `calc.get_dielectric_tensor()` | ✓ | ✓ |
+| **Magnons** and the transverse spin susceptibility | `calc.get_magnon_dispersion(qpoints, frequencies)`, `calc.get_spin_susceptibility(q, frequencies)` | (✓)⁹ | ✓ |
+| **Dielectric constant** and **Born effective charges** | `calc.get_dielectric_tensor()`, `calc.get_born_charges()` | ✓ | ✓ |
 | **Phonons at $\Gamma$** | `calc.get_phonons()` | ✓ | ✓ |
 | **Phonons at $\mathbf q \neq 0$** | `calc.get_phonons_at_q(q)` | ✓ | ✓ |
 | **Electron-phonon coupling**: phonon linewidths and $\lambda_{\mathbf q\nu}$ | `calc.get_electron_phonon(q)` | ✓ | (✓)¹⁸ |
@@ -699,7 +699,7 @@ task of the other code that it refers to.
 | **Shift current** | `calc.get_shift_current()` | ¹³ | |
 | **Second-harmonic generation** | `calc.get_shg()` | (✓)¹⁴ | ✓ |
 | **Real-time response to a laser pulse**: the current in time, the dielectric function from a kick, the high-harmonic spectrum | `calc.get_realtime(pulse)`, `calc.get_realtime_dielectric()`, `calc.get_hhg(pulse)` | | (✓)¹⁹ |
-| **Third-harmonic susceptibility** $\chi^{(3)}$, at one frequency or as a spectrum | `calc.get_third_harmonic(frequency)` | | |
+| **Third-harmonic susceptibility** $\chi^{(3)}$, at one frequency or as a spectrum | `calc.get_third_harmonic(frequency)`, `calc.get_harmonic_orders(frequency)` | | |
 | **Berry curvature and Chern numbers** | `calc.get_chern()` | | |
 | **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
