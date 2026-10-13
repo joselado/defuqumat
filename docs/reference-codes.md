@@ -134,7 +134,7 @@ junction. It has no point contact and therefore no map: nothing in it is a
 function of where a tip is, which is the whole output here. Elk has neither: no
 task in its list computes a conductance, and `notes/ELK-FEATURES.md` records none.
 
-**17. Which k-points the tunnelling current comes out of, blank in both.** That
+**17. Which k-points the tunnelling current comes from, blank in both.** That
 is a claim about two sources rather than a gap in the search. `pw.x` has nothing
 of the kind; `PWCOND/` is a Landauer transmission of a different geometry, two
 semi-infinite crystalline leads, one conductance per energy, no tip and so no

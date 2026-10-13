@@ -22,6 +22,15 @@ the session. It does **not** loosen `PLAN.md`, `PERFORMANCE.md`, `docs/features.
 docstrings or comments: the record stays exact, technical and numeric, because the whole
 rule of this project is that a claim is a number rather than an adjective.
 
+**User-facing text is written in simple English, by a physicist.** Since 2026-10-13 (the
+user's decision), `README.md`, the user guide `docs/features.tex`, the notebooks' prose and
+the other docs a user reads use short sentences, one fact each, common words and no idioms,
+while every formula, call, number and link stays exact. New text is written this way, and
+any user-facing text that is rewritten for any reason is moved to this style; the goal is
+that all of it reads this way. The full rule, with a before and after, is
+`.claude/rules/user-docs-style.md`, and it wins over the global voice file for these texts.
+`README.md` is the reference example.
+
 ## What this project is
 
 A ground-up reimplementation of Quantum ESPRESSO in Python + JAX ("defuqumat"). The
