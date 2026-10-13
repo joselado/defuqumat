@@ -109,7 +109,7 @@ _SCALARS = (
     "homo", "lumo", "accuracy", "ethr", "nspin", "magnetization",
     "absolute_magnetization", "fermi_energy_up", "fermi_energy_down",
     "magnetization_vector", "field_energy", "constraint_energy", "field_scale",
-    "efield_energy", "efield_dipole",
+    "efield_energy", "efield_dipole", "berry_dipoles",
     "nspin_mag", "meta_c",
 )
 

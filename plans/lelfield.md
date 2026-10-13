@@ -75,3 +75,25 @@ reference), and a cell where `a_gdir` is not along Cartesian axis `gdir` (QE's i
 5. The branch: from scratch, is QE's first `calc_pol` the principal value per string with `el_pol_acc = 0`, so a
    fresh run of electric-2 matches the continuation's energy exactly when no jump happens during the run?
 6. Anything else that would give a plausible wrong number.
+
+## Fable's review (2026-10-13), and what is taken from it
+
+- Q1 TRUE: `a_n = fact (e- - e+)_n = +(1/w_k) dE_P/d conj(u_{k,n})`, checked numerically to 4e-12 on a random
+  closed string; `|<u|a>| = 8e-18`. The wrap: `gtr = g + gpar` for `e-`, `g - gpar` for `e+`, a pure Miller
+  shift with no phase; `mat` over the full ngm list, duals kept on k's sphere (`found` is the mask for both).
+- Q2: empty bands: `e+- = 0`, `a = 0`; build `a` over `nocc = NINT(nelec/2)` only. Empty eigenvalues of
+  `H_KS + H_E` are not those of `H_KS`.
+- Q3: QE applies the field from iteration 1, but every QE input starts the field from a converged zero-field
+  state. From random states M is near singular and `a` is O(1). **Validate by the chain**: converge at
+  `efield = 0`, then switch the field on from those states (resume). A cold start is a separate item.
+- Q4: precompute the gathers once (`_alignment` on (k, k+1, 0), the wrap pairs with `+-e_gdir`), one jitted
+  `duals(u)`, all k in one sweep, never inside `map_k`.
+- Q5: first `calc_pol`: principal value per string, `acc = 0`. QE's jump rule is half-scaled at nspin = 1
+  (el_pol has the factor 2, fc_pol not): reproduce for parity, report `acc` and the per-string phases, assert
+  `acc = 0` in the test.
+- Q6: the 6.1 reference was unconverged in el_pol (1e-3 in the last iteration); use the 7.5 chain at 1e-11
+  or tighter, with tolerances from the last-iteration movement. Compare `el_pol` (the electronic physics),
+  not only the energy (mostly `-E ion_pol`). Forces: the explicit field force is `sqrt2 E Z` only; test
+  field-on minus field-off along `gdir`. `ion_pol` uses unwrapped `tau`. `|efield| < 1e-6` is no field in
+  QE. `nosym` is forced silently in QE (`setup.f90:565`), not an error. `wstring` = each string's weight
+  normalised. Hermiticity test. `en_el` enters `etot`, not `hwf_energy`.

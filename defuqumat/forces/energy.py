@@ -727,7 +727,7 @@ def energy_at(moved, state: FrozenState, terms: bool = False, density=None,
         # along ``edir``, so its gradient is ``forcefield`` plus what an
         # augmentation charge picks up as it moves through the saw-tooth. Zero
         # without the field.
-        "efield": potential.e_sawtooth,
+        "efield": potential.e_sawtooth + _berry_enthalpy(moved, psi),
         "onecentre": epaw,
         "hubbard": hubbard,
         "overlap": -overlap,
@@ -737,6 +737,14 @@ def energy_at(moved, state: FrozenState, terms: bool = False, density=None,
     if terms:
         return contributions
     return sum(contributions.values())
+
+
+def _berry_enthalpy(moved, psi):
+    """``lelfield``'s ``-E . P`` at frozen states, zero without the field."""
+    field = getattr(moved, "berry_field", None)
+    if field is None:
+        return 0.0
+    return field.enthalpy(psi, moved.system.structure.positions)
 
 
 @partial(jax.jit, static_argnames=("gamma_only",))

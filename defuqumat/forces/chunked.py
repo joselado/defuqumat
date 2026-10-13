@@ -94,6 +94,14 @@ def walks_chunks(calculation, wavefunctions) -> bool:
     store is too large to take whole.
     """
     nk = calculation.system.kpoints.nk
+    if getattr(calculation, "berry_field", None) is not None:
+        # ``lelfield``'s ``-E . P`` couples every k-point to its neighbours on
+        # the string, so it is not a sum of chunks; the single pass takes it.
+        if is_host_store(wavefunctions) or isinstance(wavefunctions, PoolStore):
+            raise NotImplementedError(
+                "the force with lelfield on a streamed or pooled store is not "
+                "implemented: the Berry term needs the whole k-set at once")
+        return False
     if is_host_store(wavefunctions) or isinstance(wavefunctions, PoolStore):
         # A k-point pool's share is walked as the pool's own rows.
         return True

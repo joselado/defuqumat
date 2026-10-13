@@ -157,6 +157,7 @@ from defuqumat.scf.occupations import (
     tetrahedron_occupations_spin,
 )
 from defuqumat.scf.sawtooth import build_sawtooth, sawtooth_potential
+from defuqumat.scf.berryfield import BerryFieldSetup, require_a_berry_field_regime
 from defuqumat.scf.fields import (ATOM_RESOLVED, FADED_FIELD, FEEDBACK,
                                 FEEDBACK_ATOMIC, FSM_ANGLE_TOLERANCE,
                                 FSM_TOLERANCE, VANISHING_MOMENT, MagneticField,
@@ -1748,6 +1749,12 @@ class SCFResult:
     #: in Ry atomic units, ``D Omega/(4 pi)``: ions minus electrons. ``None``
     #: without ``tefield``.
     efield_dipole: float | None = None
+    #: ``lelfield``: ``(el_pol, ion_pol, acc)`` in Ry a.u. as ``c_phase_field``
+    #: prints them ("Electronic/Ionic Dipole per cell"), and the ``2 pi`` jumps
+    #: ``calc_pol`` accumulated during the run. :attr:`efield_energy` is then
+    #: ``en_el = -E (el + ion + acc)``, part of :attr:`total_energy`. ``None``
+    #: without ``lelfield``.
+    berry_dipoles: tuple | None = None
     constraint_energy: float | None = None
     #: ``(nat,)``: how far each atom ended from its own constraint target --
     #: **degrees** for the two direction schemes, Bohr magnetons for
@@ -2831,6 +2838,12 @@ class Calculation:
         # which it reads from ``self.system`` at every call, so a moved or
         # strained copy carries it unchanged.
         self.sawtooth = build_sawtooth(system.efield, system.cell.precision)
+        # ``lelfield``: the string layout and the Miller gathers between
+        # neighbouring k-points, fixed for the run (:mod:`defuqumat.scf.berryfield`).
+        self.berry_field = None
+        if system.berry_field is not None:
+            require_a_berry_field_regime(self)
+            self.berry_field = BerryFieldSetup.build(self, system.berry_field)
         # The integration spheres the *reporting* uses. Built on demand rather
         # than here, because a nonmagnetic run never asks for them; shared with
         # the field's when there is one, so a constrained run builds one set.
@@ -7948,6 +7961,17 @@ def run_scf(
         resumed_state = None
 
     stopped_early = False
+    berry_dipoles = None
+    if calculation.berry_field is not None:
+        if streaming or pooled:
+            raise NotImplementedError(
+                "lelfield with a streamed wavefunction store or k-point pools is "
+                "not implemented: the Berry operator couples every k-point to its "
+                "neighbours on the string, so it needs the whole set on the device")
+        # ``calc_pol``'s branch state belongs to one run, as QE's does to one
+        # process: a fresh run starts on the principal branch with no jump.
+        calculation.berry_field.previous = None
+        calculation.berry_field.accumulated = 0.0
     for iteration in range(resumed_at + 1, resumed_at + max_iterations + 1):
         # **At least one iteration always runs.** The loop's arrays -- the
         # eigenvalues, the weights, the wavefunctions -- do not exist before the
@@ -8124,6 +8148,22 @@ def run_scf(
                     eigenvalues, steps, unsettled = pools.gather_k(
                         (eigenvalues, steps, unsettled), nk_all, layout=pool_layout)
                 eigenvalues = jnp.asarray(eigenvalues)
+            elif calculation.berry_field is not None and calculation.berry_field.active:
+                # ``c_bands_efield``: ``nberrycyc`` times, the Berry operator is
+                # rebuilt from the current states and frozen for one
+                # diagonalisation. From the first iteration, as in QE.
+                wavefunctions = fetch_wavefunctions(wavefunctions)
+                steps = 0.0
+                for _cycle in range(calculation.berry_field.nberrycyc):
+                    term = calculation.berry_field.term(wavefunctions)
+                    fielded = tuple(
+                        eqx.tree_at(lambda h: h.berry, h, term,
+                                    is_leaf=lambda x: x is None)
+                        for h in hamiltonians)
+                    eigenvalues, wavefunctions, cycle_steps, unsettled = (
+                        calculation.diagonalize(fielded, nbnd, wavefunctions,
+                                                thresholds, return_steps=True))
+                    steps = steps + cycle_steps
             else:
                 wavefunctions = fetch_wavefunctions(wavefunctions)
                 eigenvalues, wavefunctions, steps, unsettled = calculation.diagonalize(
@@ -8494,6 +8534,15 @@ def run_scf(
             # added to the printed total and to nothing else, exactly as
             # ``electrons.f90`` adds ``elondon``.
             terms["dispersion"] = float(calculation.dispersion)
+        if calculation.berry_field is not None:
+            # ``calc_pol``'s ``en_el``, added to ``etot`` (``electrons.f90``) and
+            # evaluated on this iteration's states, once per iteration, which
+            # is what its branch tracking assumes.
+            en_el, el_pol, ion_pol = calculation.berry_field.energy(
+                fetch_wavefunctions(wavefunctions),
+                np.asarray(calculation.system.structure.positions))
+            terms["efield"] = en_el
+            berry_dipoles = (el_pol, ion_pol, calculation.berry_field.accumulated)
         if calculation.sawtooth is not None:
             # ``etotefield``, added to ``etot`` as ``electrons.f90`` does. The
             # whole term, electrons and ions: the electrons' half sits inside
@@ -9110,8 +9159,9 @@ def run_scf(
             else tuple(tuple(row) for row in site_moments.tolist())
         ),
         field_energy=None if field is None else float(potential.e_field),
-        efield_energy=(None if calculation.sawtooth is None
-                       else float(potential.e_sawtooth)),
+        efield_energy=(float(potential.e_sawtooth) if calculation.sawtooth is not None
+                       else None if berry_dipoles is None else float(terms["efield"])),
+        berry_dipoles=berry_dipoles,
         efield_dipole=(None if calculation.sawtooth is None
                        else float(calculation.sawtooth.dipole(
                            potential.sawtooth_dipole, calculation.system.cell))),

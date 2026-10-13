@@ -171,3 +171,38 @@ def test_relax_el_relaxes_to_the_benchmark(qe_testsuite):
     assert relaxed.scf.total_energy == pytest.approx(benchmark.final_energy, abs=2e-6)
     z = np.asarray(relaxed.system.structure.positions)[:, 2]
     assert z[0] == pytest.approx(-1.071599420, abs=2e-3)
+
+
+@pytest.fixture
+def _rho_ddot_fit(monkeypatch):
+    """The Anderson fit in ``rho_ddot``'s metric, which this slab needs.
+
+    With the default flat fit QE's ``pw_dipole`` slab does not converge here at
+    all, field or no field (iteration 3 at accuracy 643 where ``pw.x`` reads
+    1.76, still unconverged after 60); in the ``1/G^2`` metric it converges in
+    27 iterations, ``pw.x`` taking 26 (P144).
+    """
+    import defuqumat.scf.driver as driver
+    monkeypatch.setattr(driver, "RHO_DDOT_FIT", True)
+
+
+def test_qe_dipole_slab(_rho_ddot_fit):
+    """``pw_dipole/dipole.in`` at ``conv_thr = 1e-10``: Ni slab with CO, ultrasoft, smearing.
+
+    ``run_scf`` does not read ``&electrons``, so the input's ``mixing_beta =
+    0.3`` is passed by hand. Measured: total 7e-11 Ry, field energy 3e-8 Ry,
+    forces 5e-6 Ry/bohr (autodiff) and 2e-6 (analytic), ``pw.x``'s own SCF
+    correction being 6e-6.
+    """
+    system = _system("efield-ni-slab")
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-10,
+                     mixing_beta=0.3, max_iterations=60)
+    reference = _reference("efield-ni-slab")
+    assert result.converged
+    assert result.total_energy == pytest.approx(reference.total_energy, abs=ENERGY)
+    assert result.efield_energy == pytest.approx(reference.energy_terms["efield"], abs=1e-7)
+    for method in ("autodiff", "analytic"):
+        forces = compute_forces(calculation, result, method=method).forces
+        np.testing.assert_allclose(forces, reference.forces, atol=1e-5)

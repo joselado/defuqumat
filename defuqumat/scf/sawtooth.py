@@ -180,3 +180,12 @@ def refuse_sawtooth(owner, quantity: str, missing: str) -> None:
             f"{quantity} with a saw-tooth electric field (tefield) is not "
             f"implemented: {missing}"
         )
+    # The Berry-phase field (``lelfield``) is refused by the same consumers:
+    # none of them carries ``-E . P`` or the operator that couples the k-points.
+    if (getattr(owner, "berry_field", None) is not None):
+        raise NotImplementedError(
+            f"{quantity} with a finite electric field by the Berry phase (lelfield) "
+            "is not implemented: it would need the field's operator, which couples "
+            "each k-point to its neighbours on the string, and -E.P in its energy"
+            + ("; pw.x's own field stress terms are commented out (stress.f90), "
+               "so there is no reference either" if quantity == "the stress" else ""))

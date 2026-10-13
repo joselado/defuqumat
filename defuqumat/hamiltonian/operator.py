@@ -197,6 +197,11 @@ class Hamiltonian(eqx.Module):
     #: :meth:`matrix` alone would make the dense reference fixture solve a
     #: *different* Hamiltonian from the one Davidson solves.
     hubbard: object | None = None
+    #: ``lelfield``'s ``H_E`` (:class:`~defuqumat.scf.berryfield.BerryTerm`), a
+    #: low-rank term that couples each k to the states of its neighbours on the
+    #: string, frozen during one diagonalisation. In :meth:`apply` and
+    #: :meth:`matrix`; its diagonal is zero, as QE's ``h_diag`` leaves it.
+    berry: object | None = None
     #: ``(nk, npwx)``: the flat index of ``-(k+G)`` -- QE's ``nlm`` -- and
     #: ``None`` unless this is a gamma-only run. Its presence *is* the switch:
     #: see :attr:`gamma_only`.
@@ -520,6 +525,8 @@ class Hamiltonian(eqx.Module):
         result = result + self._nonlocal(psi, ik, becp)
         if self.hubbard is not None:
             result = result + self.hubbard.apply(psi, ik)
+        if self.berry is not None:
+            result = result + self.berry.apply(psi, ik)
         return jnp.where(self.mask[ik], result, 0.0)
 
     def apply_s(self, psi: jnp.ndarray, ik: int) -> jnp.ndarray:
@@ -713,6 +720,8 @@ class Hamiltonian(eqx.Module):
             matrix = matrix + vkb @ self.coefficients.astype(vkb.dtype) @ vkb.conj().T
         if self.hubbard is not None:
             matrix = matrix + self.hubbard.matrix(ik)
+        if self.berry is not None:
+            matrix = matrix + self.berry.matrix(ik)
 
         mask = self.mask[ik]
         matrix = jnp.where(mask[:, None] & mask[None, :], matrix, 0.0)

@@ -249,6 +249,11 @@ class System(eqx.Module):
     #: Hartree atomic units as ``INPUT_PW`` gives it, or ``None`` when
     #: ``tefield`` is absent or false (:mod:`defuqumat.scf.sawtooth`).
     efield: tuple | None = eqx.field(static=True, default=None)
+    #: ``lelfield``: the finite field by the Berry phase
+    #: (:mod:`defuqumat.scf.berryfield`), as ``(gdir, nppstr, efield,
+    #: nberrycyc)`` with ``gdir`` **0-based** and ``efield`` in Ry a.u. as
+    #: ``INPUT_PW`` gives it, or ``None``.
+    berry_field: tuple | None = eqx.field(static=True, default=None)
     #: ``spiral_q``: the wavevector of a spin spiral, in **lattice**
     #: coordinates, as Elk's ``vqlss`` is (P19). ``None`` -- the normal case --
     #: is no spiral. See :mod:`defuqumat.system.spiral`.
@@ -1395,6 +1400,11 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
     # k-points.
     nosym = _logical(pwin.get("system", "nosym", False))
     efield = _efield(pwin)
+    berry_field = _berry_field(pwin)
+    if berry_field is not None:
+        # ``setup.f90`` sets ``nosym`` silently for a manual k-list under
+        # ``lelfield``: the strings are read as they are given, every point.
+        nosym = True
     if efield is not None and not nosym:
         # ``input.f90``: "Presently no symmetry can be used with electric
         # field", and ``nosym`` is switched on, time reversal kept. The group
@@ -1550,6 +1560,7 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         hubbard=_hubbard(pwin, structure),
         berry=_berry(pwin),
         efield=efield,
+        berry_field=berry_field,
         spiral_q=spiral_q,
         vdw_corr=vdw_corr,
         london_s6=float(pwin.get("system", "london_s6", 0.75)),
@@ -1633,9 +1644,6 @@ _REFUSED_SWITCHES = (
      "a charged cell: nelec is sum(Z) here, so the run would be neutral. QE's "
      "setup.f90 subtracts tot_charge and the compensating jellium then rides on "
      "the G = 0 terms every Coulomb sum already drops"),
-    ("control", "lelfield", "logical",
-     "the finite electric field by Berry phase (PW/src/bp_c_phase.f90), which "
-     "makes the SCF a nested loop over nberrycyc"),
     ("system", "assume_isolated", "not-none",
      "the isolated-system corrections -- Makov-Payne, Martyna-Tuckerman, 2D and "
      "ESM (Modules/martyna_tuckerman.f90, PW/src/esm.f90)"),
@@ -2321,6 +2329,40 @@ def _efield(pwin: PwInput) -> tuple | None:
         raise ValueError(f"eopreg must lie in (0, 1), got {eopreg}")
     return (int(edir) - 1, float(pwin.get("system", "eamp", 0.001)),
             float(pwin.get("system", "emaxpos", 0.5)), eopreg, dipfield)
+
+
+def _berry_field(pwin: PwInput) -> tuple | None:
+    """``(gdir, nppstr, efield, nberrycyc)`` from a ``lelfield`` input, or ``None``.
+
+    ``gdir`` 0-based. ``efield_cart`` (the three-direction form, ``l3dstring``)
+    and an automatic k-grid (which ``pw.x`` turns into ``l3dstring``) are
+    refused by name; ``nppstr`` is required with a manual k-list, as in
+    ``setup.f90``.
+    """
+    if not _logical(pwin.get("control", "lelfield", False)):
+        return None
+    cart = pwin.indexed("electrons", "efield_cart", 3)
+    if any(abs(float(v)) > 0.0 for v in cart):
+        raise NotImplementedError(
+            "efield_cart is not implemented: the field along three directions is "
+            "pw.x's l3dstring form, three string sets and three operators "
+            "(h_epsi_her_set for each ipol); use efield with gdir"
+        )
+    card = pwin.card("K_POINTS")
+    if card is not None and (card.option or "tpiba").lower() == "automatic":
+        raise NotImplementedError(
+            "lelfield with K_POINTS automatic is not implemented: pw.x builds "
+            "three string sets from it (kpoint_grid_efield, l3dstring); give the "
+            "strings as an explicit k-list with gdir and nppstr"
+        )
+    gdir, nppstr = pwin.get("control", "gdir"), pwin.get("control", "nppstr")
+    if gdir is None or nppstr is None or int(gdir) not in (1, 2, 3):
+        raise ValueError(
+            "lelfield = .true. with a manual k-list needs gdir (1, 2 or 3) and "
+            "nppstr; setup.f90 stops on the same"
+        )
+    return (int(gdir) - 1, int(nppstr), float(pwin.get("electrons", "efield", 0.0)),
+            int(pwin.get("control", "nberrycyc", 1)))
 
 
 def _warn_if_the_spiral_grid_cannot_shift(spiral_q, kpoints) -> None:

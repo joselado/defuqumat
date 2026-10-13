@@ -190,6 +190,14 @@ def _terms(calculation, state) -> dict:
         )
     if calculation.sawtooth is not None:
         terms["efield"] = _force_efield(calculation, rho, structure.positions)
+    berry = getattr(calculation, "berry_field", None)
+    if berry is not None and berry.active:
+        # ``forces_ion_efield``: ``sqrt(2) E Z_a`` along Cartesian ``gdir``.
+        # A norm-conserving dataset has no other explicit field force; the
+        # electrons' response is in the Hellmann-Feynman terms above.
+        ionic = np.zeros((structure.nat, 3))
+        ionic[:, berry.gdir] = np.sqrt(2.0) * berry.efield * berry.charges
+        terms["efield"] = jnp.asarray(ionic)
     if state.potential_change is not None:
         terms["scf_correction"] = _force_corr(
             calculation, state.potential_change, gcart, phases, types, volume
