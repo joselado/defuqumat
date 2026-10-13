@@ -264,7 +264,7 @@ def _converged_result(name: str):
     """
     system = build_system(read_pw_input(CASES / name))
     pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
-    return system, pseudos, run_scf(system, pseudos, conv_thr=1.0e-10)
+    return system, pseudos, run_scf(system, pseudos, conv_thr=1.0e-12)
 
 
 def test_a_paw_source_without_becsum_is_refused():

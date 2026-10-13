@@ -585,13 +585,19 @@ def _rho_ddot_metric(calculation, layout=None):
             if dtau is not None:
                 parts.append(np.asarray(_tau_ddot_vector(dtau, gvectors, cell)))
             return np.concatenate(parts)
+        return np.asarray(device(drho, dns, dtau))
+
+    def device(drho, dns, dtau):
+        """The same vector left on the device, so the caller can batch its read."""
         parts = [_rho_ddot_vector(drho, gvectors, cell)]
         if dns is not None:
             parts.append(_ns_ddot_vector(dns, u_metric))
         if dtau is not None:
             parts.append(_tau_ddot_vector(dtau, gvectors, cell))
-        return np.asarray(jnp.concatenate(parts))
+        return jnp.concatenate(parts)
 
+    if layout is None:
+        metric.device = device
     return metric
 
 
@@ -670,7 +676,22 @@ def _mix(mixer, rho, rho_out, becsum_in, becsum_out, ns_in=None, ns_out=None,
     """
     layout = getattr(mixer, "layout", None)
     shell_mixed = None
+    metric = getattr(mixer, "metric", None)
+    prefit = None
     if layout is None:
+        device_metric = getattr(metric, "device", None)
+        if device_metric is not None:
+            # The fit vector dispatched before the two densities are read, and
+            # all three read in one ``device_get``: the metric is the default
+            # since P146, and read on its own it was one more host block per
+            # iteration (``test_scf_host_reads``).
+            pending = device_metric(
+                jnp.asarray(rho_out) - jnp.asarray(rho),
+                None if ns_in is None else jnp.asarray(ns_out) - jnp.asarray(ns_in),
+                None if tau_in is None else jnp.asarray(tau_out) - jnp.asarray(tau_in),
+            )
+            rho, rho_out, prefit = jax.device_get((rho, rho_out, pending))
+            prefit = np.asarray(prefit)
         flat = [np.asarray(rho).ravel()]
         flat_out = [np.asarray(rho_out).ravel()]
         head_size = int(np.size(rho))
@@ -725,9 +746,8 @@ def _mix(mixer, rho, rho_out, becsum_in, becsum_out, ns_in=None, ns_out=None,
     becsum_size = sum(np.size(b) for b in becsum_in if b is not None)
     exclude = (slice(head_size, head_size + becsum_size)
                if becsum_size and not FIT_BECSUM else None)
-    metric = getattr(mixer, "metric", None)
-    fit = None
-    if metric is not None:
+    fit = prefit
+    if metric is not None and fit is None:
         # The residual in ``rho_ddot``'s inner product, from its structured
         # parts rather than off the packed vector, so no offset can disagree
         # with the packing above. ``becsum`` has no term in it, which is what

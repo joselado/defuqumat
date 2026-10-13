@@ -25524,5 +25524,16 @@ agrees to 1.4e-12 and the torque to 5.6e-12: the total's reduction-order round-o
 that bound is now relative (1e-11). Memory: the history keeps a fit vector per entry, three dense arrays
 where the flat fit keeps two, 4.77 GB against 3.18 on the 157-atom slab (`sizing.py` already counted it).
 
+**The fast gate's five, each measured.** One more host block per iteration (6 against 5,
+`test_scf_host_reads`): the fit vector was read on its own; it is now dispatched before the two densities
+and read with them in one `device_get`, back to 5. `sizing.py` counted each fit vector as the dense box
+(32768 reals on PAW silicon) where it is `2 nspin_mag ngm` reals (11922 measured); counted exactly now,
+and `test_sizing` installs the metric so its lists hold what the estimate counts. Three tests held a
+quantity first order in where the SCF stops, at a threshold that does not deliver it, which the trap list
+names: the PAW fixed-density eigenvalues (1.4e-6 at 1e-10) and `local-TF` against plain (1.1e-8 at the
+input's threshold) now run at 1e-12 and pass under both fits; and the force's wedge residue was pinned
+at the flat fit's 1e-10 stop point, 8.950175e-02, which neither fit reproduces at 1e-13 (flat 8.9501154e-02,
+`rho_ddot` 8.9501240e-02), so it is re-pinned at their mean, 1e-6 relative, and passes under both.
+
 **What is still not `pw.x`'s fit**: the inner product runs over the whole dense set where `pw.x` fits
 only `G < ngms`, and the combination is Anderson rather than modified Broyden (P113).

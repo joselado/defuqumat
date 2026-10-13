@@ -1032,7 +1032,14 @@ def estimate_size(
                 packed += nspin_mag * nat_t * nh * nh
         from defuqumat.scf.driver import RHO_DDOT_FIT
 
-        per_entry = packed * 2 + (head if RHO_DDOT_FIT else 0)
+        # The fit vector (``_rho_ddot_metric``, on by default since P146): the
+        # density's dense-set coefficients as reals, ``2 nspin_mag ngm`` in real
+        # space (11922 measured against 32768 for the box on PAW silicon, which
+        # is what this used to count), the stored sphere under ``'g'``, and the
+        # same again for ``tau`` on a meta-GGA.
+        fit = (head if space == "g" else 2 * nspin_mag * ngm)
+        fit += int(functional.is_meta) * 2 * nspin_mag * ngm
+        per_entry = packed * 2 + (fit if RHO_DDOT_FIT else 0)
         host_arrays = {
             f"mixer history ({mixer.history} x rho_in, residual)":
                 int(mixer.history) * per_entry * zr,

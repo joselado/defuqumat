@@ -534,9 +534,9 @@ def test_local_tf_is_adopted_from_the_namelist_and_runs(pseudo_dir):
                            "&electrons\n  mixing_mode = 'local-TF'\n/")
     calc = Calculator.from_text(text, pseudo_dir, announce=False)
     assert calc.defaults["mixing_mode"] == "local-TF"
-    local = calc.get_scf()
+    local = calc.get_scf(conv_thr=1e-12)
     assert local.converged
-    plain = Calculator.from_text(SILICON, pseudo_dir, announce=False).get_scf()
+    plain = Calculator.from_text(SILICON, pseudo_dir, announce=False).get_scf(conv_thr=1e-12)
     assert local.total_energy == pytest.approx(plain.total_energy, abs=1.0e-8)
 
 

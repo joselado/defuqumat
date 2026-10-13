@@ -484,7 +484,7 @@ def test_the_mixer_history_is_counted_on_the_host(pseudo_dir):
     through a depth of four, so the lists are full and trimmed, and the line is
     the bytes they hold. It is not part of the device peak.
     """
-    from defuqumat.scf.driver import _mix
+    from defuqumat.scf.driver import _mix, _rho_ddot_metric
     from defuqumat.scf.mixing import get_mixer
 
     calculator = _calculator(SILICON_PAW, pseudo_dir)
@@ -493,12 +493,16 @@ def test_the_mixer_history_is_counted_on_the_host(pseudo_dir):
     becsum = built.starting_becsum()
     rng = np.random.default_rng(7)
     mixer = get_mixer("anderson", history=4)
+    # The fit in rho_ddot's inner product, the default since P146, as run_scf
+    # installs it: each entry then also keeps its fit vector.
+    mixer.metric = _rho_ddot_metric(built)
     for _ in range(6):
         noise = rng.standard_normal(np.shape(rho)) * 1.0e-3
         out = tuple(None if b is None else b * (1.0 + rng.uniform(-1e-3, 1e-3))
                     for b in becsum)
         rho, becsum, _, _ = _mix(mixer, rho, rho + noise, becsum, out)
-    held = sum(np.asarray(v).nbytes for v in mixer._densities + mixer._residuals)
+    held = sum(np.asarray(v).nbytes
+               for v in mixer._densities + mixer._residuals + mixer._fits)
     assert len(mixer._densities) == 4
 
     estimate = calculator.estimate(mixing_ndim=4)

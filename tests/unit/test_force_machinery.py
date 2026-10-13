@@ -47,7 +47,7 @@ def silicon(pseudo_dir):
     )
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
     calculation = Calculation(system, pseudos)
-    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-10)
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-13)
     return system, calculation, result
 
 
@@ -95,7 +95,12 @@ def test_the_two_assemblies_agree_before_the_projection(silicon):
     One differentiates the total energy at frozen wavefunctions and the other
     evaluates QE's hand-derived expressions term by term. On the symmetrised
     force they agree at zero whatever they compute; on the *wedge residue* they
-    agree at 8.9501750e-02 Ry/bohr, which is a number neither of them is told.
+    agree at 8.95012e-02 Ry/bohr, which is a number neither of them is told.
+
+    The residue is not variational, so it moves with where the SCF stops: the
+    8.950175e-02 this pinned at ``conv_thr = 1e-10`` was the flat fit's stop
+    point, and at 1e-13 the flat fit reads 8.9501154e-02 and the ``rho_ddot`` fit
+    (the default since P146) 8.9501240e-02. Pinned at their mean, 1e-6 relative.
     """
     _, calculation, result = silicon
     raw = {
@@ -105,7 +110,7 @@ def test_the_two_assemblies_agree_before_the_projection(silicon):
         for method in ("autodiff", "analytic")
     }
     assert raw["autodiff"] == pytest.approx(raw["analytic"], abs=1e-12)
-    assert np.abs(raw["autodiff"]).max() == pytest.approx(8.950175e-02, rel=1e-6)
+    assert np.abs(raw["autodiff"]).max() == pytest.approx(8.95012e-02, rel=1e-6)
 
 
 def test_symmetrize_vector_projects_onto_the_allowed_directions(silicon):
