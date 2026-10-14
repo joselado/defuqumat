@@ -26084,7 +26084,7 @@ P24 and P25 validated against `ph.x` was taken there.
 **Verification, D22, `regress/`, the P149 working tree over `cf1ebe2`.** The fast gate on cores 0-7
 (`gate.log`): **3663 passed, 72 skipped, 0 failed in 10:28**. The regression files the change reaches,
 one capped process each: `test_electron_phonon.py` 10 passed under the cap and again under the pair;
-`test_streamed_phonons.py` 13; `test_phonons_at_q.py` 9 passed and the periodicity test at 1.03e-5
+`test_streamed_phonons.py` 13 under the cap and 13 again under the pair (`test_streamed_phonons-pair.log`); `test_phonons_at_q.py` 9 passed and the periodicity test at 1.03e-5
 under the cap alone, then 9 passed and the `q = 0` test at 1.43e-5 under the pair, both resolved
 above (the periodicity test unchanged, the `q = 0` test compared at one `tr2`); `test_conductivity.py`
 9 (with the retuned explicit-ask assertion, which now reads both warnings), `test_kubo_curvature.py`
@@ -26101,5 +26101,12 @@ points above, `None` by default and documented in `features.tex` at the conducti
 curvature, the transport and the ultracell; `get_phonons_at_q` and `get_electron_phonon` take
 `threshold_cap` (1e-8) with `tr2` paired to it (1e-16 capped, 1e-14 for `ph.x`'s loop), and the
 electron-phonon pair of the test-suite case now comes out 8.1e-6 cm^-1 apart where it was 1.5e-2, at
-1.7x the CG steps (`PERFORMANCE.md`). No README row (a rule and a cap, not a quantity), no notebook,
-no reference timing beyond the step count.
+1.7x the CG steps on that metal and, on the silicon insulator, 1.4x the steps a solve at the bare
+schedule's pass count (`PERFORMANCE.md`). No README row (a rule and a cap, not a quantity), no new
+notebook, no reference timing beyond the step count. **Owed**: notebooks 20 and 49 call
+`get_phonons_at_q` and `get_electron_phonon` and were not re-executed under the pair, so their
+printed frequencies are the bare schedule's at `tr2` 1e-14 until `tools/export_notebooks.sh` is run
+on them. The gate ran on the tree before the `tr2` pairing landed; the pairing touched `phononq.py`
+and `elph.py` only, whose tests are all slow and outside the gate, so its 3663 is the gate of the
+shipped code for everything the gate covers, and the three slow phonon files were rerun on the
+final files.

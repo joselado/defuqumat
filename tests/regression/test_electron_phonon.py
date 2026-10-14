@@ -106,7 +106,11 @@ def _calculator(case: str) -> Calculator:
 #: ``nbase + notcnv > nvecx``) the scheduled run happened to give 73.9961,
 #: 73.9963, which is what the bound below was first measured on. The cost is
 #: 1.4x a call: 19.6 against 27.9 s at q1 and 23.2 against 33.7 s at q2, a
-#: second call each, on two cores of D22.
+#: second call each, on two cores of D22. **Since P149 the default is no longer
+#: the bare schedule**: it is the schedule capped at 1e-8 with ``tr2 = 1e-16``
+#: (``phononq.SCHEDULE_CAP_AT_Q``, ``TR2_AT_Q_CAPPED``), under which the pair
+#: reads 73.995365, 73.995374 and moves by 2.2e-7 under the rotation, 3e-6 from
+#: the 1e-12 pair; this pin stays as the reference arm, not as a cure.
 CG_THRESHOLD = 1.0e-12
 
 
