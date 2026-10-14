@@ -43,6 +43,8 @@ import numpy as np
 from defuqumat.realtime.orders import OrdersResult, propagate_orders
 from defuqumat.realtime.propagate import RealTimeResult, propagate, require_a_realtime_regime
 from defuqumat.realtime.pulse import EV_TO_HA, Adiabatic, Kick, Pulse, Sum
+from defuqumat.scf.occupations import cut_gaps
+from defuqumat.solvers.davidson import EMPTY_ETHR_FLOOR
 from defuqumat.realtime.spectra import (
     HarmonicSpectrum, KickResponse, conductivity_from_kick, harmonic_spectrum)
 from defuqumat.units import C_AU
@@ -250,17 +252,24 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
             raise ValueError(
                 f"every one of the {nb} bands of channel {c} carries weight; pass a "
                 "larger nbnd so the propagated set ends where the occupations do")
-        if fixed and keep > 0:
-            gaps = eigenvalues[c, :, keep] - eigenvalues[c, :, keep - 1]
-            if np.min(gaps) < 1e-5:
+        keeps.append(keep)
+    if fixed:
+        # The gap across each channel's cut (``scf.occupations.cut_gaps``; NaN for
+        # an empty channel, which compares false), read in the unit the solve
+        # above converged the band over the cut to: ``fixed_density_states``
+        # schedules ``ethr`` from ``conv_thr``, and the empty band gets
+        # ``max(5 ethr, EMPTY_ETHR_FLOOR)``, where the floor dominates at any
+        # ``conv_thr`` down to 1e-6 ``nelec``.
+        gaps = cut_gaps(eigenvalues, keeps)
+        for c, (keep, gap) in enumerate(zip(keeps, gaps)):
+            if gap < EMPTY_ETHR_FLOOR:
                 raise ValueError(
                     "occupations = 'fixed' cuts a degenerate multiplet at some k-point "
-                    f"(gap {float(np.min(gaps)):.2e} Ry between bands {keep} and "
+                    f"(gap {float(gap):.2e} Ry between bands {keep} and "
                     f"{keep + 1}" + (f" of channel {c}" if channels > 1 else "") + "): "
                     "the weights then differ inside a multiplet and the current depends "
                     "on the rotation the eigensolver returned. Use a smearing, or a "
                     "k-set on which the occupied manifold is gapped")
-        keeps.append(keep)
     keep = max(keeps)
     weights = np.zeros((channels,) + wg.shape[1:2] + (keep,))
     for c in range(channels):

@@ -1619,6 +1619,36 @@ printed digit. A $|$\code{tot\_magnetization}$|$ larger than the electron count
 is refused, where \code{pw.x} fills the other channel anyway and stops on the
 wrong charge.
 
+\textbf{A fixed filling that ends inside a degenerate shell.} The oxygen atom
+above is one. Its minority channel holds one electron in the threefold 2p shell.
+The eigensolver returns some rotation of that shell, and which member gets the
+weight is that rotation. The run records the gap across the cut in each channel,
+\code{result.cut\_gap}, as $\min_k (\epsilon_{n_\mathrm{occ}} -
+\epsilon_{n_\mathrm{occ}-1})$ in Ry. When the gap is below the threshold the
+solver converged the empty band to, $\max(5\,\code{ethr}, 10^{-5})$~Ry, the run
+warns once and says what to do. It does not refuse. The reason is measured. With
+the point group on, two runs that return different rotations of the shell agree
+on the total energy to $1.2\times10^{-13}$~Ry and on the density to
+$6\times10^{-12}$: the symmetrisation averages $|p_x|^2$ over the cubic group
+into the spherical shell, so the density sees the shell and not one member of it.
+\code{pw.x} converges the same atom to the same $-31.40468356$~Ry and makes no
+check. What does depend on the rotation is everything built from the
+wavefunctions band by band, and every response taken on this state, since a
+perturbation breaks the symmetry. Those callers refuse by name
+(\code{get\_dielectric\_tensor}, \code{get\_realtime}). A smearing is the cure:
+\code{occupations = 'smearing'} with a small \code{degauss} and the same
+\code{tot\_magnetization} gives each member of the shell the same weight. It
+costs the $-TS$ term, $7.7$~mRy at \code{degauss = 0.01} on this atom and
+linear in the width. Note that the default \code{nbnd} at fixed occupations is
+the occupied count, so there is no band above the cut and \code{cut\_gap} is
+\code{nan}; set \code{nbnd} one above the count to get the check. Without
+symmetry the atom does not cut the shell but breaks it: one orbital drops
+23~mRy below the other two, the energy falls by 8~mRy, and the run lands on an
+arbitrary orientation of that orbital (two runs $3\times10^{-7}$~Ry and
+$10^{-3}$ of the density apart). The gap check cannot see this case, since the
+gap at the cut is then a real 0.023~Ry. The measurements are in
+\path{notes/DEGENERACY-NEXT.md}.
+
 \textbf{Magnetic fields and constraints:} a uniform field over the cell, a field
 inside one atom's sphere (through a \code{LOCAL\_MAGNETIC\_FIELDS} card that
 \code{pw.x} has no counterpart for), Elk's \code{reducebf}, and all four of QE's
@@ -2341,13 +2371,21 @@ orbital-resolved variant, the \code{wf}/\code{pseudo} projector sets, and
 noncollinear \code{ns\_nc}; and PAW $+$ GGA $+$ a noncollinear magnetization
 together.
 
-The \textbf{residual solver} cannot take a fixed occupation whose filled/empty
-boundary cuts a \textbf{degenerate multiplet} --- which is exactly what an
-atom's Hund's-rule filling does. Which member of the multiplet the eigensolver
-returns is arbitrary, so the density map is not a function of the density and a
-Newton step has nothing to converge on; it is diagnosed by name rather than left
-as a \code{NaN}. The mixer damps its way past it, and a \emph{gapped}
-fixed-occupation LSDA cell agrees between the two solvers to 5e-12~Ry.
+The \textbf{residual solver} with its default finite-difference Jacobian cannot
+take a fixed occupation whose filled/empty boundary cuts a \textbf{degenerate
+multiplet}. This is what the Hund's-rule filling of an atom does. The state the
+solver works on holds the density and the ultrasoft \code{becsum}. The density
+is symmetrised and does not see which member of the multiplet is occupied (it
+moves by $9\times10^{-8}$ under a rotation of the shell). The \code{becsum} is
+not symmetrised and does see it (it moves by 0.34 on a maximum of 1.11). So the
+difference quotient is not the derivative of anything in those rows. Measured on
+the oxygen atom at \code{tot\_magnetization = 2}: the accuracy goes to
+$7\times10^{33}$ at the first Newton step. The SCF warns about the cut before this happens (see
+\code{result.cut\_gap} above). Two things work on the same atom. The
+\code{jvp = 'autodiff'} Jacobian takes it to $3.8\times10^{-7}$ in eight Newton
+steps and the mixer then finishes at $5\times10^{-12}$~Ry. A smearing works
+with both Jacobians. A \emph{gapped} fixed-occupation LSDA cell agrees between
+the two solvers to 5e-12~Ry.
 \end{refuses}
 
 \subsection{The source-free exchange-correlation field, and the torque}

@@ -60,9 +60,11 @@ from functools import partial
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 from defuqumat.batching import map_k
 from defuqumat.hamiltonian.noncollinear import spin_multiply
+from defuqumat.scf.occupations import cut_gaps
 
 __all__ = ["ultracell_matrix", "multiplet_cut"]
 
@@ -204,7 +206,7 @@ def multiplet_cut(eigenvalues: jnp.ndarray, nbnd: int) -> float:
     ``Gamma_15`` triplet, read 0.17 Ry, while ``nbnd = 4``, which cuts in a
     0.17 Ry gap, read zero.
     """
-    eigenvalues = jnp.asarray(eigenvalues)
+    eigenvalues = np.asarray(eigenvalues)
     nbnd = int(nbnd)
     if nbnd < 1:
         raise ValueError(f"nbnd must be at least 1, got {nbnd}")
@@ -214,5 +216,8 @@ def multiplet_cut(eigenvalues: jnp.ndarray, nbnd: int) -> float:
             f"well, and only {eigenvalues.shape[-1]} bands were passed: solve "
             f"one band more than is kept"
         )
-    gaps = eigenvalues[..., nbnd] - eigenvalues[..., nbnd - 1]
-    return float(jnp.min(gaps))
+    # The one arithmetic every cut shares (``scf.occupations.cut_gaps``): the
+    # leading axes here are spin blocks, k-points and cells, and the minimum is
+    # over all of them, so they are folded into one k axis of one channel.
+    folded = eigenvalues.reshape(1, -1, eigenvalues.shape[-1])
+    return float(cut_gaps(folded, (nbnd,))[0])

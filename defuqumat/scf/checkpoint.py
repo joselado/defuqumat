@@ -107,6 +107,10 @@ _SCALARS = (
     # iteration number, and a resume that re-enters at 1 without it takes the
     # reset and converges on a different schedule than the one it left.
     "homo", "lumo", "accuracy", "ethr", "nspin", "magnetization",
+    # The gap across a fixed filling's cut, one float per channel and NaN where
+    # a channel has no band above its cut; a report beside ``homo`` and ``lumo``,
+    # carried the same way (JSON writes a NaN and reads it back).
+    "cut_gap",
     "absolute_magnetization", "fermi_energy_up", "fermi_energy_down",
     "magnetization_vector", "field_energy", "constraint_energy", "field_scale",
     "efield_energy", "efield_dipole", "berry_dipoles",
@@ -308,8 +312,9 @@ def load_state(path, system=None, calculation=None, strict: bool = True, rows=No
                 f"version {FORMAT_VERSION}"
             )
         fields = {name: meta[name] for name in _SCALARS if name in meta}
-        if fields.get("magnetization_vector") is not None:
-            fields["magnetization_vector"] = tuple(fields["magnetization_vector"])
+        for name in ("magnetization_vector", "cut_gap"):
+            if fields.get(name) is not None:
+                fields[name] = tuple(fields[name])
         host = ("eigenvalues", "occupations", "wavefunctions")
         arrays = {
             name: (np.asarray(handle[name]) if name in host

@@ -138,7 +138,12 @@ def test_the_reported_levels_are_the_occupied_channels():
     assert levels["fermi_energy_up"] == pytest.approx(-0.55)
     assert levels["fermi_energy_down"] == EMPTY_CHANNEL_LEVEL
     assert "fermi_energy" not in levels
-    assert all(np.isfinite(value) for value in levels.values())
+    # ``cut_gap`` is the one entry that is a tuple and may hold a NaN by
+    # contract: the empty channel has no band *below* its cut, so its gap is
+    # unmeasured, while the majority's cut at band 1 reads 0.50 at both k.
+    assert levels["cut_gap"][0] == pytest.approx(0.50)
+    assert np.isnan(levels["cut_gap"][1])
+    assert all(np.isfinite(value) for key, value in levels.items() if key != "cut_gap")
 
 
 _HYDROGEN = """

@@ -26,6 +26,7 @@ from defuqumat.response.conductivity import (
     require_a_conductivity_regime,
 )
 from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
+from defuqumat.scf.occupations import cut_gaps
 
 __all__ = ["run_conductivity"]
 
@@ -148,10 +149,7 @@ def run_conductivity(
     eigenvalues = jnp.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
         eigenvalues = eigenvalues[None]
-    band_cut_gap = float(
-        np.min(np.asarray(eigenvalues)[..., nbnd] -
-               np.asarray(eigenvalues)[..., nbnd - 1])
-    )
+    band_cut_gap = float(np.min(cut_gaps(eigenvalues, (nbnd,) * eigenvalues.shape[0])))
     eigenvalues = eigenvalues[..., :nbnd]
     # The band slice is handed on where it is, a view of a streamed store in
     # host memory or a device array: the assembly walks the k axis and takes

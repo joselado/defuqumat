@@ -155,7 +155,8 @@ from defuqumat.scf.density import (
     spinor_sum_band,
     sum_band,
 )
-from defuqumat.scf.occupations import smearing_order, w0gauss, wgauss
+from defuqumat.scf.occupations import (_nint, cut_gaps, occupied_counts,
+                                       smearing_order, w0gauss, wgauss)
 from defuqumat.forces.energy import reject_potential_only
 from defuqumat.scf.potential import as_potential_components
 from defuqumat.scf.streaming import is_host_store
@@ -1405,20 +1406,6 @@ def paw_response(calculation, dbecsum, becsum_):
     return ddd
 
 
-def _nint(value) -> int:
-    """Fortran's ``NINT`` for a non-negative count: half rounds *away* from zero.
-
-    Python's :func:`round` is banker's rounding -- ``round(2.5)`` is 2 -- and
-    ``_fixed_occupations_spin`` fills ``int(floor(count + 1/2))`` bands, so the
-    two disagree at exactly a half electron. That happens: an **odd** electron
-    count with an **even** ``tot_magnetization`` gives a half-integer ``nelup``,
-    and QE rounds it up rather than refusing (``notes/GAPS.md`` section 3). Using
-    ``round`` here would build a mask one band shallower than the weights the
-    density was made with, in exactly that case and no other.
-    """
-    return int(np.floor(float(value) + 0.5))
-
-
 def _normalized_counts(nocc, nspin: int) -> tuple:
     """``nocc`` as one count per spin channel.
 
@@ -1440,36 +1427,6 @@ def _normalized_counts(nocc, nspin: int) -> tuple:
     return counts
 
 
-def occupied_counts(calculation) -> tuple:
-    """How many bands each spin channel occupies -- ``setup_nbnd_occ``'s ``nbnd_occ``.
-
-    One number per channel, because a magnetic insulator's channels are filled
-    to different depths and the three perturbation modules used to derive
-    ``nelec / 2`` themselves. The rule follows
-    :func:`~defuqumat.scf.occupations.spin_electron_counts`, which is QE's
-    ``set_nelup_neldw``:
-
-    * ``nspin = 1``: ``nelec / 2`` (``nelec`` for a spinor, whose band holds one
-      electron rather than two);
-    * ``nspin = 2``: ``(NINT(nelup), NINT(neldw))``. With ``occupations =
-      'fixed'`` those are what ``iweights_only`` fills -- QE refuses fixed LSDA
-      without ``tot_magnetization`` and requires an integer one
-      (``input.f90:784-800``), so the pair is always defined and always integral
-      on the branch that slices. With a smearing they are ``nelec / 2`` twice
-      and unused: the metal branch keeps every band and masks by ``eps <
-      ef + xmax degauss`` instead.
-
-    Returned as a tuple so that a caller can pass it straight to
-    :class:`SternheimerSolver`.
-    """
-    if calculation.nspin != 2:
-        degeneracy = 1 if calculation.noncolin else 2
-        # ``fixed_occupations``' unpolarized branch uses ``round`` here and
-        # refuses a non-integral filling outright, so the two agree.
-        return (int(round(calculation.nelec / degeneracy)),)
-    return (_nint(calculation.nelup), _nint(calculation.neldw))
-
-
 def _require_a_gap_at_the_cut(eigenvalues, counts) -> None:
     """Refuse a filling whose boundary lands inside a degenerate multiplet.
 
@@ -1477,10 +1434,11 @@ def _require_a_gap_at_the_cut(eigenvalues, counts) -> None:
     measure against; where the run carries exactly ``nbnd = max(counts)`` there
     is nothing to compare and the caller is trusted, as it was before.
     """
+    # NaN where a channel has no band above its cut, which compares false below:
+    # that channel is trusted, as it was before.
+    gaps = cut_gaps(eigenvalues, counts)
     for spin, count in enumerate(counts):
-        if count <= 0 or count >= eigenvalues.shape[2]:
-            continue
-        gap = float(np.min(eigenvalues[spin][:, count] - eigenvalues[spin][:, count - 1]))
+        gap = float(gaps[spin])
         if gap < DEGENERATE_CUT_RY:
             raise NotImplementedError(
                 f"spin channel {spin} occupies {count} bands and the gap to the "

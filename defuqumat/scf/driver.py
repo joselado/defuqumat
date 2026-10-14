@@ -148,8 +148,11 @@ from defuqumat.scf.mixing import (
 from defuqumat.scf.residual import make_residual
 from defuqumat.scf.solvers import get_scf_solver
 from defuqumat.scf.occupations import (
+    _nint,
+    cut_gaps,
     fixed_occupations,
     input_occupations,
+    occupied_counts,
     smeared_occupations,
     smearing_entropy,
     spin_electron_counts,
@@ -1706,6 +1709,75 @@ def default_nbnd(
     return degeneracy * max(int(round(1.2 * nelec / 2.0)), occupied + 4)
 
 
+def warn_about_a_cut_shell(cut_gap, ethr, counts, nbnd: int) -> None:
+    """Say so, once, when a fixed filling ends inside a degenerate multiplet.
+
+    ``cut_gap`` is :attr:`SCFResult.cut_gap`, the per-channel gap across the
+    filling cut; the unit it is read in is the eigensolver's promise on the band
+    *above* the cut, ``empty_band_threshold(ethr)`` -- ``band_thresholds``
+    converges an empty band only that far, so a pair closer than that is
+    degenerate as far as this run can tell. A channel whose gap is NaN had no
+    band above its cut (``nbnd`` equal to its count, the default at fixed
+    occupations) and is passed over in silence: there is nothing to measure.
+
+    **Why a warning and not a refusal, and why it fires with symmetry on.**
+    Measured on the oxygen atom of ``o-atom-fixed-lsda.in``, whose minority
+    channel fills one member of an exactly degenerate 2p triplet (gap 4.9e-12
+    Ry): with the point group on, two runs returning different rotations of the
+    triplet agree on the total energy to 1.2e-13 Ry and on the density to
+    6.2e-12, because ``sym_rho`` averages ``|p_x|^2`` over the cubic group into
+    the spherical shell, which is the projector onto the multiplet and not a
+    member of it; ``pw.x`` converges the same cell to -31.40468356 Ry with the
+    same 48 operations and makes no check at all (``iweights.f90`` fills the
+    lowest bands in index order). So the converged energy and the symmetrised
+    density are single-valued and a refusal here would refuse a validated
+    number. What is *not* single-valued is everything band-resolved -- the
+    wavefunctions, a projected DOS, a Berry phase of the occupied set -- and
+    everything that perturbs the cell, where the perturbation breaks the
+    symmetry the symmetrisation relied on: the Sternheimer response is out by
+    100 per cent on that atom (``response/sternheimer.py``, ``DEGENERATE_CUT_RY``)
+    and the Newton-Krylov solver's finite-difference Jacobian diverges on it
+    (7e33 at the first step, where ``jvp='autodiff'`` converges). The response
+    refuses by name; this says why it will, while the number in hand is still
+    good. Without symmetry the same atom does not cut the shell but breaks it,
+    one orbital 23 mRy below the other two with a real 2.3e-2 Ry gap at the cut,
+    and lands on an arbitrary orientation of that orbital (two runs 3.3e-7 Ry
+    and 1e-3 of the density apart): a gap check cannot see that case, and its
+    signature is the lifted degeneracy and the iteration count.
+
+    A smearing is the cure in both cases (every pair of runs agrees to 1e-12
+    and the shell stays spherical even without symmetry), at the price of the
+    ``-TS`` term, 7.7 mRy at ``degauss = 0.01`` on that atom and linear in the
+    width. The plan and the measurements are ``notes/DEGENERACY-NEXT.md``.
+    """
+    if cut_gap is None:
+        return
+    tolerance = empty_band_threshold(ethr)
+    gaps = np.asarray(cut_gap, dtype=float)
+    cut = [c for c, g in enumerate(gaps) if np.isfinite(g) and g < tolerance]
+    if not cut:
+        return
+    where = "; ".join(
+        f"channel {c} fills {int(counts[c])} of {nbnd} bands and the gap to the "
+        f"first empty one is {gaps[c]:.2e} Ry" for c in cut
+    )
+    warnings.warn(
+        f"occupations = 'fixed' cuts a degenerate multiplet: {where}, below the "
+        f"{tolerance:.1e} Ry the eigensolver converged the empty band to. Which "
+        "members of the multiplet carry the weight is whatever rotation the "
+        "eigensolver returned. The total energy and the symmetrised density do "
+        "not depend on it where the point group averages the shell, so the "
+        "numbers in this result stand, but the wavefunctions, anything "
+        "band-resolved built from them, and every response on this state do "
+        "depend on it (the response refuses by name), and a finite-difference "
+        "Newton-Krylov Jacobian diverges on it where jvp='autodiff' does not. "
+        "Use a smearing (occupations = 'smearing' with a small degauss, keeping "
+        "tot_magnetization), or a tot_magnetization that fills the shell",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 @dataclass
 class SCFResult:
     """Everything an SCF produces, with the energy split QE's way."""
@@ -1731,6 +1803,16 @@ class SCFResult:
     fermi_energy: float | None = None
     homo: float | None = None
     lumo: float | None = None
+    #: ``occupations = 'fixed'`` only: the gap across the filling cut, one
+    #: entry per spin channel in Ry, ``min_k (e[nocc] - e[nocc - 1])``
+    #: (:func:`~defuqumat.scf.occupations.cut_gaps`). NaN in a channel with no
+    #: band above its cut -- the default ``nbnd`` at fixed occupations is the
+    #: occupied count exactly, so an input that does not raise ``nbnd`` records
+    #: NaN here and measures nothing; ``nbnd = nocc + 1`` buys the check. Below
+    #: ``empty_band_threshold(ethr)`` the cut falls inside a degenerate
+    #: multiplet and the run warned by name (:func:`warn_about_a_cut_shell`).
+    #: ``None`` for every other occupation scheme, which has no sharp cut.
+    cut_gap: tuple | None = None
     #: QE's estimated scf accuracy at the last iteration, in Ry.
     accuracy: float | None = None
     #: The diagonalisation threshold the run ended at. Reported because it is
@@ -6291,9 +6373,18 @@ class Calculation:
             wg, homo, lumo = fixed_occupations(
                 eigenvalues, weights, self.nelec, degeneracy, counts=counts
             )
+            # The gap across the cut, per channel, at the counts ``iweights``
+            # fills -- ``NINT`` of each channel's electrons, which is
+            # ``occupied_counts``' rule written on what this method already
+            # holds; NaN where ``nbnd`` leaves no band above the cut. Reported
+            # on the result and read by ``warn_about_a_cut_shell`` at the end.
+            cuts = ((_nint(counts[0]), _nint(counts[1])) if counts is not None
+                    else (int(round(self.nelec / degeneracy)),))
+            cut_gap = tuple(float(g) for g in cut_gaps(eigenvalues, cuts))
             if counts is None:
                 return wg, {"homo": float(homo),
-                            "lumo": None if lumo is None else float(lumo)}
+                            "lumo": None if lumo is None else float(lumo),
+                            "cut_gap": cut_gap}
             # ``iweights`` returns one level per channel and QE prints the pair
             # as ``ef_up``/``ef_dw``; the scalar HOMO and LUMO it also prints are
             # the extremes over both channels, which is why they can coincide --
@@ -6307,6 +6398,7 @@ class Calculation:
                 "lumo": float(np.min(finite)) if finite.size else None,
                 "fermi_energy_up": float(homo[0]),
                 "fermi_energy_down": float(homo[1]),
+                "cut_gap": cut_gap,
             }
 
         if scheme == "from_input":
@@ -9181,6 +9273,10 @@ def run_scf(
                 stacklevel=2,
             )
 
+    if levels.get("cut_gap") is not None:
+        warn_about_a_cut_shell(levels["cut_gap"], ethr,
+                               occupied_counts(calculation), int(nbnd))
+
     return SCFResult(
         converged=converged,
         # Absolute across a resume, which is what the next one re-enters with.
@@ -9248,6 +9344,7 @@ def run_scf(
         fermi_energy_down=levels.get("fermi_energy_down"),
         homo=levels.get("homo"),
         lumo=levels.get("lumo"),
+        cut_gap=levels.get("cut_gap"),
         history=history,
         solver=solver_result,
         tau=tau_state,

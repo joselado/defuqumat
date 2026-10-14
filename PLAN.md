@@ -204,6 +204,15 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
+- **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut; `notes/DEGENERACY-NEXT.md`
+  items 3 to 5): the nine per-module degeneracy tolerances, five of them below the solver's promise on
+  an empty band, and the smooth kernel in place of the step; the Newton-Krylov `jvp` through Davidson's
+  `eigh` at a degeneracy, unmeasured; `starting_ns` written by eigenvector index inside a degenerate
+  block; the electron-phonon default threshold's gauge dependence (`OPEN.md`); and **`becsum` is not
+  symmetrised in the ground state** (P147 measured it moving by 0.34 of 1.11 under a rotation of a cut
+  shell while the symmetrised density moved 9e-8), which is what breaks the finite-difference Newton
+  Jacobian there and would reach a PAW one-centre term directly, where `PAW_symmetrize` is what `pw.x`
+  does; the response modules symmetrise theirs (`strain.py`, `nonlinear.py`), the SCF's is unchecked.
 - **External electric fields beyond P144 and P145.** The saw-tooth field and the dipole correction are
   in, and the Berry-phase finite field for norm-conserving `nspin = 1` insulators along one `gdir`. Not
   in: `gate` (needs `tot_charge`); the stress with either field (`pw.x` has none either); the Berry field
@@ -25575,3 +25584,127 @@ for bit, which is either an SCF already far below its threshold or a probe that 
 own note puts that size at the D4 gauge of the solve. The Raman residue needs max `|residual(G)|` at high
 G of the final density under each fit on AlAs, to confirm it is the flat fit's over-convergence and not
 a symmetry defect.
+
+### P147 -- A fixed filling that ends inside a degenerate shell: the gap across the cut, measured, recorded and warned about; one arithmetic for every cut. ✅ DONE 2026-10-14, on fable's review and decision (`notes/DEGENERACY-NEXT.md` item 2), every number on `D22-0161`.
+
+**The question.** The user suspected that degenerate eigenvectors "sometimes" give trouble and asked
+whether a smearing would cure it. The inventory (`notes/DEGENERACY-NEXT.md`) found three different
+troubles under that name, and a smearing cures exactly one of them: a filling (`occupations = 'fixed'`) or
+a band truncation (`nbnd`) that ends inside a degenerate multiplet, where which members carry the weight is
+the rotation the eigensolver returned (rule D4). The code knew this in five places with four tolerances
+(1e-5, 1e-5, 1e-8, 1e-8 and nothing) and never where the defect is made. This phase is that item; items
+3 to 5 (the tolerance zoo and the smooth kernel, the Newton-Krylov `jvp` through Davidson's `eigh`,
+`starting_ns`, the electron-phonon default) stay in the notes file and in "What is outstanding".
+
+**What changed.** `scf/occupations.py:cut_gaps(eigenvalues, cuts)`: `(nspin, nk, nbnd)` in, one cut per
+channel, `min_k (e[cut] - e[cut-1])` per channel out, **NaN where there is no band on one side of the
+cut**, so that "unmeasured" cannot be read as "gapped" (the `band_cut_gap` convention). `occupied_counts`
+and `_nint` moved there from `response/sternheimer.py`, which imports them back, so the filling count has
+one source. The callers: `Calculation.occupations` records `cut_gap` in its levels at `occupations =
+'fixed'` and `SCFResult.cut_gap` carries it (`None` for every other scheme); `run_scf` calls
+`warn_about_a_cut_shell` once at the end, which **warns and never refuses** (the decision, below) when a
+channel's gap is below `empty_band_threshold(ethr)`, the promise the solve made on the band *above* the
+cut (`band_thresholds` gives an empty band `max(5 ethr, 1e-5)`); `_require_a_gap_at_the_cut`
+(Sternheimer) and `workflows/realtime.py` keep their refusals on the helper's number, realtime's literal
+1e-5 now `EMPTY_ETHR_FLOOR` by name; `ultracell/hamiltonian.py:multiplet_cut` is the helper with its
+leading axes folded, same `ValueError`; and `workflows/conductivity.py`, `photocurrent.py` and `shg.py`
+build `band_cut_gap` through it instead of three hand-rolled minima. The ultracell's 1e-8 is untouched:
+its docstring says its figures were taken under the old definition of the cut, and the move to the
+solver's unit waits for its silicon cases to be re-measured across the cut.
+
+**The measurement that reshaped the item** (`/l/ladovj1/review/degeneracy/`, `w-ddot` at `3ab298b`, CPU).
+`o-atom-fixed-lsda.in`, whose minority channel fills one member of the 2p triplet, in two arms (cores 0-3
+at four threads against 4-9 at six), with and without `nosym`, fixed and smeared (`gaussian`, 0.01, the
+same `tot_magnetization = 2`):
+
+| run | iterations | E (Ry) | gap at the down cut (Ry) | arm A against B: `|dE|`, `max|drho|` |
+|---|---|---|---|---|
+| fixed, symmetry on | 9, 9 | -31.404683564908 | 4.9e-12 | 1.2e-13, 6.2e-12 |
+| fixed, `nosym` | 58, 50 | -31.412688052606, -31.412687726220 | 2.3e-2 | **3.3e-7, 1.0e-3** |
+| smeared, symmetry on | 8, 8 | -31.412396680897 | 0.46 | 6.4e-14, 1.5e-13 |
+| smeared, `nosym` | 11, 11 | -31.412396680910 | 0.46 | 9.6e-14, 2.3e-12 |
+
+**With the point group on, the SCF at a cut shell is single-valued**, which corrected the premise of the
+plan (that `run_scf` should refuse): `sym_rho` averages `|p_x|^2` over the 48 operations into the
+spherical shell, the projector onto the multiplet and not a member of it (the traceless part of one
+member's density spans `E_g + T_2g`, both nontrivial). Tested directly, no re-diagonalisation
+(`cut_symdensity.py`): the converged states with the minority block turned by a random unitary, or with
+only the occupied member replaced by a rotated one, handed to `Calculation.density` beside the unturned
+states, move the density by **9.1e-8** with symmetry (the eigenvectors' own convergence at `ethr =
+2e-12`, not round-off) and by **0.202** without, on a maximum of 0.61: a third of an electron, so the
+method could have returned a surprise and did without the group. `pw.x` converges the same atom to
+-31.40468356 Ry with the same 48 operations and makes no check at all (`iweights.f90` fills the lowest
+`NINT(nelec)/degspin` bands in index order and reads no eigenvalue; `get_homo_lumo` returns `ehomo ==
+elumo` silently; `setup.f90:354, :362` check the count only for a metal or an unpolarized spin run). A
+refusal in `run_scf` would therefore refuse a validated number, and the decision is **record and warn**,
+with the refusals left in the consumers measured multivalued (the Sternheimer `chi_0` at 100 per cent,
+`sternheimer.py:233`). **Without symmetry the shell is not cut but broken**: one orbital 23 mRy below the
+other two, the energy 8.0 mRy lower, a real 2.3e-2 Ry gap at the cut, six times the iterations, and the
+two arms on different orientations of that orbital (the cubic box's anisotropy between them, 3.3e-7 Ry).
+A gap check at convergence cannot see that case; its signature is the lifted degeneracy and the count.
+**A smearing is the cure in both cases** (every pair of arms to 1e-12, the shell spherical even without
+symmetry at occupations 0.3334, 0.3333, 0.3333) and costs the `-TS` term, 7.7 mRy at `degauss = 0.01`
+on the same density and eigenvalues (to 6e-7 and 3e-6), `3 x 0.01 x 0.282 = 8.5` mRy to leading order and
+linear in the width.
+
+**Two nulls, recorded so they are not rerun.** The two-arm baseline on the symmetric atom could not have
+rotated the block (Davidson starts from one fixed key; the arms differ only in reduction order), and the
+rotation handed back through `starting_wavefunctions` did not survive the first Rayleigh-Ritz either
+(`cut_overlap.py`: the two continuations' minority blocks overlap diagonally to 0.8 per cent), since that
+argument is a *span* and a rotation inside a block does not change the span. The direct density test
+above is what settles the symmetric case.
+
+**The Newton-Krylov arms, and a sentence retracted** (`cut_newton.py`, the symmetric atom,
+`max_iterations = 8`, `verbose`). `scf/solvers.py` and `docs/features.tex` said that this atom "dies at
+the first line search" with a non-finite residual, the density map being multivalued. It does not, under
+either Jacobian. With `jvp = 'autodiff'` the solve goes 1.3e-2, 9.7e-3, 1.1e-4, 1.2e-5, 3.8e-6, 2.7e-6,
+1.9e-6, 1.1e-6, **3.8e-7** in eight Newton steps (26 JVPs, 20 `F` evaluations, 14.6 s with the compile),
+damped to `lambda = 0.125` on three of them, and the mixer then finishes it at 5.2e-12 in six more to
+**-31.404683564910 Ry**, the mixer's own number: not quadratic, which is what a Jacobian missing the
+in-block term of a degenerate `eigh` gives a Krylov solver, and good enough for a direction, which is all
+`scf/residual.py` ever claimed. With the default `jvp = 'finite-difference'` the first Newton step runs
+GMRES to its cap (20, 444 JVPs, 888 `F` evaluations, 100 s) and lands at an accuracy of **7.1e33**, then
+7.7e31, 2.4e29, 2.2e27, 5.6e24, 170, 130, 99.8 at the eighth, and the mixer fallback runs its 100
+iterations at `E ~ 1e6` Ry. **The component that diverges is measured, not argued** (`cut_becsum.py`,
+fable's change 10): under a rotation of the cut shell at the converged symmetric state, the symmetrised
+density moves by 9.1e-8 while `becsum`, which the state vector packs **raw**, moves by **0.342 on a
+maximum of 1.111** (0.428 on 1.120 without symmetry, where the density moves 0.202 too), so the
+difference quotient `(F(x + eps v) - F(x))/eps` is `O(1)/eps` in its `becsum` rows whenever the perturbed
+solve hands back another member of the shell, and is a derivative in its density rows. The mixer is
+indifferent because an ultrasoft `becsum` reaches the next Hamiltonian only through the augmentation
+charge, which `sym_rho` symmetrises with the rest of the density; a PAW one-centre term reads `becsum`
+raw, and whether this code symmetrises it there as `PAW_symmetrize` does is an open check, indexed in
+"What is outstanding". No NaN is produced in either arm, so the `FloatingPointError` branch that carried the retracted sentence is not what a cut shell
+reaches; its comment and message now say what was measured and point at `cut_gap`, `jvp = 'autodiff'`
+and the smearing, and the `features.tex` box and `.claude/rules/scope.md` say the same. (The first
+attempt, uncapped and without `verbose`, ran 63 minutes with no output on the finite-difference arm
+before it was killed, `docs/d22-notes.local.md`.) What this leaves of item 4 is the clean comparison,
+`residual.jvp` against `jvp_finite_difference` for a random direction on a cell where the cut is
+gapped and on one where it is not, which this arm did not take.
+
+**Tests.** `tests/unit/test_cut_gap.py` (fast gate, 1 s): the per-k minimum per channel on a synthetic
+spectrum with an exact triplet at one k-point and a 0.02 split at the other, NaN on both unmeasurable
+sides and its false comparison, the shape contract, `multiplet_cut` as the same arithmetic over any
+leading axes, `occupied_counts` for the four regimes (`NINT` of a half away from zero), the warning
+firing on the oxygen shape and naming the channel and the cure, silent on a gapped filling, on NaN, on
+`None` and at 1.01 of the tolerance under `simplefilter("error")`, firing at 0.99 of it, and firing on
+B1's 3e-7 split at `ethr = 1e-10` (the tolerance is the empty band's promise, not `ethr`).
+`test_fixed_occupations_empty_channel.py` reads the new level, and the checkpoint carries `cut_gap`
+beside `homo` and `lumo` (`_SCALARS`, a tuple through JSON, NaN included), which
+`test_checkpoint.py::test_every_field_of_the_result_is_accounted_for` demanded. 2026-10-14 on D22: 78
+passed across the five touched unit files, and the fast gate at 3647 passed, 71 skipped, 1 failed in
+10:10 (`taskset -c 0-3,8-11`), the one failure being that accounting test before the checkpoint entry
+was added; **rerun on the final files, 3648 passed, 71 skipped, 0 failed in 9:46** (`gate2.log`). The wiring from `run_scf` to the field is asserted on the real
+run: `test_lsda.py`'s oxygen levels test now reads `result.cut_gap[0] > 0.5` and `result.cut_gap[1] <
+empty_band_threshold(result.ethr)`, and on D22 the run emitted the warning ("channel 1 fills 2 of 6
+bands and the gap to the first empty one is 4.90e-12 Ry, below the 1.0e-05") and passed, 7 of 7 in the
+file's fixed-occupation selection. `run_scf` builds its `SCFResult` in one place (`driver.py:9280`), so
+the residual-solver path records the gap and warns as the mixer's does. The suite has no
+warnings-as-errors policy, so the warning changes no outcome elsewhere.
+
+**What a user sees.** `result.cut_gap`, `(0.674, 4.9e-12)` on the oxygen atom, and one `RuntimeWarning`
+naming the channel, the count, the gap, the tolerance, what stays single-valued and what does not, and the
+smearing. **The default `nbnd` at fixed occupations is the occupied count exactly**, so a `pw.x`-style
+input records NaN and measures nothing; `nbnd = nocc + 1` buys the check (`docs/features.tex`, the
+collinear-spin section). No README row, notebook or timing: this is a host-side minimum over an array the
+run already holds, not a quantity, and it costs nothing measurable.

@@ -62,6 +62,7 @@ from defuqumat.io import read_qe_output
 from defuqumat.io.pwin import read_pw_input
 from defuqumat.pseudo import read_upf
 from defuqumat.scf import run_scf
+from defuqumat.solvers.davidson import empty_band_threshold
 from defuqumat.system import build_system
 from defuqumat.units import RY_TO_EV
 from tests.conftest import reference_output
@@ -342,6 +343,12 @@ def test_fixed_occupations_fill_each_channel_to_its_own_count(case):
     assert result.fermi_energy is None
     assert result.homo * RY_TO_EV == pytest.approx(reference.homo, abs=FERMI_EV)
     assert result.lumo * RY_TO_EV == pytest.approx(reference.lumo, abs=FERMI_EV)
+    # The gap across each channel's cut (P147): the majority fills four bands
+    # into a 0.67 Ry gap, the minority two bands into the 2p triplet, so its
+    # gap is the solver's residue on an exactly degenerate pair (4.9e-12 Ry
+    # measured) and below the promise the run made on the band above the cut.
+    assert result.cut_gap[0] > 0.5
+    assert result.cut_gap[1] < empty_band_threshold(result.ethr)
     # ...and each channel's own highest occupied level is carried beside them,
     # which is what ``iweights`` returns as ef_up and ef_dw.
     assert result.fermi_energy_up * RY_TO_EV == pytest.approx(-9.6440, abs=1e-3)

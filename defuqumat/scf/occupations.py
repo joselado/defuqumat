@@ -104,6 +104,103 @@ def fixed_occupations(
     return wg, homo, lumo
 
 
+def _nint(value) -> int:
+    """Fortran's ``NINT`` for a non-negative count: half rounds *away* from zero.
+
+    Python's :func:`round` is banker's rounding -- ``round(2.5)`` is 2 -- and
+    :func:`_fixed_occupations_spin` fills ``int(floor(count + 1/2))`` bands, so
+    the two disagree at exactly a half electron. That happens: an **odd**
+    electron count with an **even** ``tot_magnetization`` gives a half-integer
+    ``nelup``, and QE rounds it up rather than refusing (``notes/GAPS.md``
+    section 3). Using ``round`` here would build a mask one band shallower than
+    the weights the density was made with, in exactly that case and no other.
+    """
+    return int(np.floor(float(value) + 0.5))
+
+
+def occupied_counts(calculation) -> tuple:
+    """How many bands each spin channel occupies -- ``setup_nbnd_occ``'s ``nbnd_occ``.
+
+    One number per channel, because a magnetic insulator's channels are filled
+    to different depths and the perturbation modules used to derive
+    ``nelec / 2`` themselves. The rule follows :func:`spin_electron_counts`,
+    which is QE's ``set_nelup_neldw``:
+
+    * ``nspin = 1``: ``nelec / 2`` (``nelec`` for a spinor, whose band holds one
+      electron rather than two);
+    * ``nspin = 2``: ``(NINT(nelup), NINT(neldw))``. With ``occupations =
+      'fixed'`` those are what ``iweights_only`` fills -- QE refuses fixed LSDA
+      without ``tot_magnetization`` and requires an integer one
+      (``input.f90:784-800``), so the pair is always defined and always integral
+      on the branch that slices. With a smearing they are ``nelec / 2`` twice
+      and unused: the metal branch keeps every band and masks by ``eps <
+      ef + xmax degauss`` instead.
+
+    This is the one rule the filling callers share: the Sternheimer solver,
+    the real-time propagation and the SCF's own cut diagnostic
+    (:func:`cut_gaps`) take the count from here, so that a noncollinear run
+    (``nspin = 1``, a count of ``nelec``) is decided once. Returned as a tuple
+    so that a caller can pass it straight to ``SternheimerSolver``.
+    """
+    if calculation.nspin != 2:
+        degeneracy = 1 if calculation.noncolin else 2
+        # ``fixed_occupations``' unpolarized branch uses ``round`` here and
+        # refuses a non-integral filling outright, so the two agree.
+        return (int(round(calculation.nelec / degeneracy)),)
+    return (_nint(calculation.nelup), _nint(calculation.neldw))
+
+
+def cut_gaps(eigenvalues, cuts) -> np.ndarray:
+    """The gap across a cut through the band index, per spin channel, in Ry.
+
+    ``eigenvalues`` is ``(nspin, nk, nbnd)`` -- always with the spin axis, so a
+    caller holding an :class:`SCFResult` passes ``eigenvalues_by_spin`` -- and
+    ``cuts`` one band count per channel. Channel ``s`` returns
+    ``min_k (e[s, k, cut] - e[s, k, cut - 1])``, the distance from the last band
+    below the cut to the first one above it at the k-point where the two are
+    closest, and **NaN where there is nothing to measure**: a cut at or below
+    zero has no band under it, and a cut at or beyond ``nbnd`` has no band over
+    it. NaN rather than an exception or a large number, so that "not measured"
+    cannot be read as "gapped" by a caller comparing against a tolerance -- the
+    convention :attr:`~defuqumat.response.conductivity.OpticalConductivity.
+    band_cut_gap` already uses -- and a caller that needs the band above the cut
+    solves one band more than it keeps, as the ultracell and the sum-over-states
+    workflows do.
+
+    Two cuts share this arithmetic and nothing else. A **filling** cut, the
+    occupied count of ``occupations = 'fixed'`` per channel
+    (:func:`occupied_counts`), decides which bands carry weight; a
+    **truncation** cut, the same ``nbnd`` in every channel, decides which bands
+    a sum-over-states or an ultracell basis keeps. Either one falling inside a
+    degenerate multiplet makes what is built on the kept bands a function of the
+    rotation the eigensolver returned (rule D4), which is why both measure the
+    same number. The outcome -- a warning, a refusal, a recorded field -- stays
+    with the caller, and so does the tolerance, which is the eigensolver's
+    promise on the band *above* the cut and so belongs to the solve that
+    produced the eigenvalues (``empty_band_threshold(ethr)`` for an SCF's
+    result, where ``band_thresholds`` converges an empty band only that far).
+
+    The minimum over k is the minimum over the zone whatever k-set it is taken
+    on: a gap is a scalar per k-point and the members of a star share their
+    spectrum, so a wedge needs no symmetrisation here. This is a host-side
+    diagnostic and never enters a differentiated quantity.
+    """
+    eigenvalues = np.asarray(eigenvalues, dtype=float)
+    if eigenvalues.ndim != 3:
+        raise ValueError(
+            f"cut_gaps wants (nspin, nk, nbnd) eigenvalues, got shape {eigenvalues.shape}"
+        )
+    nspin, _, nbnd = eigenvalues.shape
+    cuts = tuple(int(c) for c in cuts)
+    if len(cuts) != nspin:
+        raise ValueError(f"{len(cuts)} cuts were given for {nspin} spin channels")
+    gaps = np.full(nspin, np.nan)
+    for channel, cut in enumerate(cuts):
+        if 0 < cut < nbnd:
+            gaps[channel] = np.min(eigenvalues[channel, :, cut] - eigenvalues[channel, :, cut - 1])
+    return gaps
+
+
 #: The highest occupied level of a channel that holds no electrons.
 #: ``iweights.f90:51`` initialises ``Ef = -1.0d+20`` and raises it only at a band
 #: with ``wg > 0`` (line 60), so a channel ``iweights_only`` filled with nothing

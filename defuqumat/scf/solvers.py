@@ -178,24 +178,43 @@ def newton_krylov(
         if not np.all(np.isfinite(r)):
             # The *residual* rather than the direction, which the guard below
             # catches. What puts a NaN here is a step that left the region where
-            # ``F`` is a function of the density at all, and the reproducible way
-            # to do that is fixed occupations whose filled/empty boundary cuts a
-            # **degenerate multiplet**: which member of the multiplet the
-            # eigensolver hands back is arbitrary, so two evaluations at the same
-            # density give different densities back and there is no map to solve.
-            # An oxygen atom at ``tot_magnetization = 2`` is exactly that -- one
-            # electron in a threefold 2p shell -- and it dies here at the first
-            # line search, where the same atom with a smearing converges in four
-            # Newton steps and a *gapped* fixed LSDA cell agrees with the mixer
-            # to 5e-12. The mixer damps its way past it; a Newton solve cannot.
+            # ``F`` is a function of the density at all. The suspect this guard
+            # was written for is fixed occupations whose filled/empty boundary
+            # cuts a **degenerate multiplet** -- which member of the multiplet
+            # the eigensolver hands back is arbitrary -- and the account of it
+            # here used to say that the oxygen atom at ``tot_magnetization = 2``
+            # (one electron in a threefold 2p shell) "dies at the first line
+            # search". **Measured on 2026-10-14 (PLAN.md P147), it does not.**
+            # With the point group on, ``sym_rho`` averages the occupied member
+            # into the spherical shell, so ``F`` is single-valued there: the
+            # ``autodiff`` JVP takes that atom from 1.3e-2 to 3.8e-7 in eight
+            # Newton steps (damped, since the Jacobian drops the in-block term
+            # of the degenerate ``eigh``) and the mixer finishes it at 5.2e-12,
+            # while the ``finite-difference`` JVP diverges to an accuracy of
+            # 7e33 at the first step without ever producing a NaN. The
+            # component that does it is measured: under a rotation of the cut
+            # shell the symmetrised density moves by 9.1e-8 but ``becsum``,
+            # packed into this state vector **raw**, moves by 0.34 on a maximum
+            # of 1.11 (``cut_becsum.py``), so the difference quotient's
+            # ``becsum`` rows are ``O(1)/eps`` whenever the perturbed solve
+            # hands back another member of the shell, and no step length
+            # repairs that. (The mixer does not care, since an ultrasoft
+            # ``becsum`` reaches the next Hamiltonian only through the
+            # augmentation charge, which ``sym_rho`` symmetrises with the rest;
+            # a PAW one-centre term would read it raw, which is open.) So a cut
+            # shell is not what reaches this branch; it is diagnosed where it is
+            # made (``SCFResult.cut_gap``, ``warn_about_a_cut_shell``) and its
+            # cures are ``jvp='autodiff'`` or a smearing. The sentence about a
+            # *gapped* fixed LSDA cell agreeing with the mixer to 5e-12 stands.
             raise FloatingPointError(
                 "the SCF residual is not finite, so there is no Newton step to "
-                "take. The reproducible cause is an occupation rule that splits "
-                "a degenerate multiplet -- occupations='fixed' whose highest "
-                "occupied and lowest unoccupied levels coincide -- which makes "
-                "the density map multivalued rather than merely stiff. Check "
-                "homo against lumo, and use a smearing or scf_solver='mixing' "
-                "if they are equal"
+                "take: a step left the region where the density map is a "
+                "function of the density. Read the SCF's own diagnostics first "
+                "-- a RuntimeWarning that occupations='fixed' cuts a degenerate "
+                "multiplet (SCFResult.cut_gap) -- and if that is the case, use "
+                "jvp='autodiff', a smearing, or scf_solver='mixing'; the "
+                "finite-difference JVP is the one that fails on a cut shell, by "
+                "divergence rather than by a NaN"
             )
         operator = LinearOperator((x.size, x.size), matvec=matvec, dtype=float)
         # ``-P`` rather than ``P``: the Jacobian of ``r = F - x`` is close to
