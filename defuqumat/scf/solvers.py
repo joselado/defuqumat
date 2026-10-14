@@ -58,11 +58,16 @@ The numbers are in ``PERFORMANCE.md``; the summary is 19 to 139 evaluations
 against Kerker-preconditioned Anderson's 14 to 36.
 
 **So this is not the default and should not become one until the Jacobian action
-is cheap** -- which means the Sternheimer rule of ``PLAN.md`` P22c, a projected
-CG solve per occupied band rather than another diagonalisation. What the solver
-buys today is a *capability*: Newton is stability-blind and converges on
-whichever root it starts nearest, so it reaches **unstable** SCF solutions that
-a damped mixing dynamics cannot hold.
+is cheap.** The Sternheimer rule of ``PLAN.md`` P22c, a projected CG solve per
+occupied band rather than another diagonalisation, is in since P150
+(``jvp = 'sternheimer'``), and it does not make it cheap: on the aluminium slab
+from the atomic density it takes 4 outer steps and 9 evaluations of ``F``
+against the finite difference's 5 and 82, and 10.3 s of Newton against 3.3 s,
+because one CG solve to 1e-11 costs more than two diagonalisations from a
+converged start (D22, two cores, after the first call; four more cells read the
+same way). What the solver buys today is a *capability*: Newton is
+stability-blind and converges on whichever root it starts nearest, so it reaches
+**unstable** SCF solutions that a damped mixing dynamics cannot hold.
 """
 
 from __future__ import annotations
@@ -143,8 +148,23 @@ def newton_krylov(
     fixed filling that cuts a degenerate shell with the point group on: there
     it converges in four undamped steps to 5e-12 (38 ``F`` evaluations) where
     the autodiff arm takes five (26 JVPs, each about two to three ``F``).
+
+    ``'sternheimer'`` does not differentiate the eigensolver at all
+    (:class:`~defuqumat.scf.residual.SternheimerJacobian`, ``PLAN.md`` P150): the
+    action is the static response of the eigenpairs of ``H[x]``, one
+    Sternheimer solve per matvec after one warm diagonalisation per outer
+    iteration, and it does not depend on the basis the eigensolver returned
+    inside a degenerate block. Refused with a Hubbard U, a meta-GGA, a
+    magnetic noncollinear run, a streamed store and a fixed filling that cuts
+    a degenerate shell. **It also showed what the two other backends agree
+    on**: both differentiate the *warm-started* map, whose Davidson stops once
+    the eigenvalues have settled, and that map's derivative is 5.3e-2 of
+    ``|dF v|`` off the exact-eigenpair one on the generic silicon cell above
+    (3.4e-3 to 0.40 on ten more), where the Sternheimer action agrees with a
+    cold, tight difference to 4.6e-7. The default stays the finite difference
+    because it is faster on every cell measured (P150).
     """
-    if jvp not in ("autodiff", "finite-difference"):
+    if jvp not in ("autodiff", "finite-difference", "sternheimer"):
         raise ValueError(f"unknown jvp backend {jvp!r}")
 
     x = np.asarray(x0, dtype=float).copy()
@@ -185,6 +205,8 @@ def newton_krylov(
 
         def matvec(v):
             counters["jvps"] += 1
+            if jvp == "sternheimer":
+                return jacobian(v)
             if jvp == "autodiff":
                 out, _ = residual.jvp(x, v, warm)
                 return np.asarray(out, dtype=float)
@@ -228,6 +250,13 @@ def newton_krylov(
                 "far, which both Jacobians now converge), and fall back to "
                 "scf_solver='mixing' or a smearing"
             )
+        if jvp == "sternheimer":
+            # After the guard, so that a non-finite residual raises its own
+            # message rather than a diagonalisation of it: one warm solve at
+            # ``x``, counted as an evaluation of ``F``, and then every matvec
+            # is one Sternheimer solve.
+            counters["steps"] += 1
+            jacobian = residual.sternheimer_jacobian(x, warm)
         operator = LinearOperator((x.size, x.size), matvec=matvec, dtype=float)
         # ``-P`` rather than ``P``: the Jacobian of ``r = F - x`` is close to
         # ``-1`` where the iteration is well behaved, so the approximate inverse

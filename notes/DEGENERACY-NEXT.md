@@ -1,5 +1,12 @@
 # What to do about degenerate eigenvectors, and where a smearing is the cure
 
+**Status, 2026-10-14, night: items 1 to 6 are closed.** P150 (`plans/degeneracy-p150.md`) closed
+item 4's tail and `OPEN.md` Part XXVI item 1 with the exact Jacobian of the SCF map, `jvp =
+'sternheimer'`, the Sternheimer response of the converged eigenpairs, which carries the divided
+difference of the occupation by construction; see "Outcome, P150" under item 4. What is left is
+item 7, the gauge sweep over the front door, recorded and not started, and `OPEN.md` Part XXVI items
+2 to 4, recorded. The status paragraph of earlier the same evening follows.
+
 **Status, 2026-10-14, late.** Item 2 is done as `PLAN.md` P147 (the user's pick, fable's review
 and decision, every number on D22); its measurements are in that item below and in P147. Items 6
 (the ultrasoft `becsum` averaged) and 4 (the subspace `eigh` tangent regularised) are P148, in the
@@ -407,6 +414,23 @@ tangent is a candidate approximation and not a fix. The exact route is the impli
 converged eigenproblem (P22c). The Newton default stays `finite-difference`, which with item 6 is a
 derivative on the cut shell too (four undamped steps to 5.2e-12, 38 `F` evaluations against 26 JVPs).
 
+**Outcome, P150 (2026-10-14 night, D22, `review/degeneracy/p150/`).** The exact route is in:
+`ScfResidual.sternheimer_jacobian` builds `J v` from one Sternheimer solve per action, the metal
+branch with every band in the projector mask and `alpha_pv` over the whole set (fable's review), and
+`newton_krylov(jvp='sternheimer')` uses it. Against a central difference of `F` diagonalised cold at
+`ethr = 1e-13` with buffer bands, relative to `|dF v|`, it agrees to 1.9e-7 to 1.0e-5 on ten cells
+(NC, US and PAW, insulators and cold-smeared metals, fixed LSDA, smeared `nspin = 2`), and on a
+nonmagnetic spinor to the scatter of the reference, about 5e-4 (`OPEN.md` Part XXVI item 5), `si-gamma` at 2.2e-7 against `si-generic`'s 4.6e-7, and moves by 1e-14 to 1e-9
+under a random unitary inside every degenerate block. The tail of this item, the divided
+difference at a smeared Fermi level, is `_smeared_projection`'s `wwg`, measured on three
+cold-smeared aluminium cells at 1.6e-6 to 9.2e-6. **The measurement also showed that every
+reference above in this item was the derivative of a different map**: the warm-started `F`, whose
+Davidson stops at second order, has a derivative 3.4e-3 to 0.40 of `|dF v|` off the exact one, 5.3e-2
+on `si-generic`, so the "1.5e-8" agreement of autodiff on `si-generic` was two derivatives of the
+warm map agreeing (`OPEN.md` Part XXVI item 2). The default stays the finite difference: the exact
+Jacobian gives the same outer and GMRES counts (one outer step fewer on the aluminium slab) at 2x to
+8x the wall time.
+
 ## 5. Two small ones, named
 
 - `hubbard/occupations.py:593`: `starting_ns` writes the requested eigenvalues into
@@ -484,6 +508,35 @@ call; the `becsum` call read 1.7 to 3.4 ms on these cells before the change. **T
 continuation from a pre-change checkpoint, the noncollinear cell with symmetry in force
 (`ni-noncol-111-nosource`, `nspin_mag = 4`) and the nonmagnetic spinor one (`alas-epsilon-us-soc`)
 are in `PLAN.md` P148.**
+
+## 7. A gauge sweep over the front door, recorded and not started (2026-10-14, the user's call)
+
+**What it is.** Every degeneracy defect found so far was found one consumer at a time, and the
+last one (the electron-phonon pair of `OPEN.md` Part XXV, 1.4e-2 cm^-1) only because a random
+unitary was put inside the degenerate pairs at `k` and the observable was read again. `Calculator`
+has 64 `get_*` methods, and the gauge tests that exist (about a dozen files, `tests/models.py:
+random_gauge`, `test_topology_curvature.py`, `test_orbital_magnetization.py`, the electron-phonon
+pin) are mostly on model data rather than on converged SCF states. The sweep takes converged states
+that carry real degeneracies, rotates the eigenvectors by a random unitary inside every multiplet
+(the gap below `resolve_degeneracy_tol`'s value for those states) before they reach each pure
+assembly, and records how far every observable moves, against the same observable's move under
+a second, independent rotation.
+
+**The cells.** `si-gamma` (NC silicon, 2x2x2 with `Gamma`: a threefold block and pairs at `L`), a
+Kramers-paired spin-orbit cell (`alas-epsilon-us-soc` on a small mesh) and the smeared oxygen atom
+(the 2p triplet at a Fermi level). A cut-shell fixed filling is left out: its band-resolved
+quantities are gauge dependent by construction (P147).
+
+**What decides it is a mechanism, not a count.** The rotation has to reach the assembly: a consumer
+that re-diagonalises (a fixed-density solve from the SCF density) rebuilds its own basis, so
+`starting_wavefunctions` is a span and a rotation handed through it is a null test (P149). The
+injection point is the converged eigenvectors handed to the pure assembly, as P149 did for the
+electron-phonon pair, and it has to be found per entry point; that is most of the work. A consumer
+that reads one member of a multiplet on its own (rule D4) shows up with a size; one that moves by
+round-off is closed with that number.
+
+**Trigger.** None set; it is a sweep that could return a surprise, and it is sized at one session for
+the injection points and one D22 night for the cells.
 
 ## What is not here
 

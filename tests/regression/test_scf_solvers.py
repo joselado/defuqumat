@@ -632,3 +632,151 @@ def test_starting_ns_without_a_u_is_refused():
     with pytest.raises(ValueError, match="no Hubbard U"):
         run_scf(system, pseudos, calculation=Calculation(system, pseudos),
                 max_iterations=1, starting_ns=np.zeros((1, 1, 5, 5)))
+
+
+# ---- the implicit Jacobian (P150) -------------------------------------------
+
+CASES = Path(__file__).resolve().parents[1] / "data" / "qe"
+
+
+@lru_cache(maxsize=2)
+def _converged_text(name: str):
+    """A converged cell built from an input's text, its residual and its state.
+
+    ``si-gamma`` is ``si2-lda-gap.in`` on a 2x2x2 mesh with ``Gamma`` in it, a
+    threefold block at ``Gamma`` and pairs at ``L``, the cell ``OPEN.md`` Part
+    XXVI measured the autodiff Jacobian on.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+
+    nbnd = None
+    if name == "si-gamma":
+        text = (CASES / "si2-lda-gap.in").read_text()
+        assert "\n 6 6 6 0 0 0" in text
+        text = text.replace("\n 6 6 6 0 0 0", "\n 2 2 2 0 0 0")
+        # Six bands above the four occupied ones, as ``Calculator`` gives this
+        # cell. With ``nbnd = 4`` the top of the threefold block at ``Gamma`` is
+        # Davidson's topmost requested root, the one it converges worst, and the
+        # eigenpairs the action is built from read 2.6e-3 off the reference.
+        nbnd = 10
+    else:
+        text = (CASES / f"{name}.in").read_text()
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(
+        read_upf(Path(__file__).parents[1] / "data" / "pseudo" / s.pseudo_file)
+        for s in system.structure.species
+    )
+    calculation = Calculation(system, pseudos)
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                     max_iterations=100, nbnd=nbnd)
+    assert result.converged
+    nbnd = int(np.asarray(result.eigenvalues_by_spin).shape[-1])
+    residual = make_residual(calculation, nbnd, float(result.ethr))
+    x = residual.pack(result.density, tuple(result.becsum or ()))
+    return calculation, result, residual, np.asarray(x), nbnd
+
+
+#: ``(buffer bands, bound on the Sternheimer action, bound the warm difference
+#: stays above)``, both relative to ``|dF v|`` and both the median over the
+#: three steps ``STERNHEIMER_STEPS`` of ``max(1, |x|)``. Measured on D22
+#: (2026-10-14, P150): the Sternheimer action 4.9e-7, 2.6e-3 and 1.4e-7 off the
+#: reference on ``si-gamma`` (the middle one the reference's own: the cold
+#: difference at 1e-5 is 2.6e-3 from the two beside it, a Davidson solve on a
+#: degenerate block landing elsewhere at one of its two points) and 9.6e-6,
+#: 5.8e-5 and 9.2e-6 on ``al-metal``; 4.6e-7 on silicon at one generic k-point,
+#: where no degeneracy exists. The warm difference was 0.35 off on
+#: ``si-gamma`` and 4.3e-3 to 3.9e-2 on ``al-metal``.
+STERNHEIMER_CASES = {
+    "si-gamma": (4, 5e-6, 1e-2),
+    "al-metal": (0, 1e-4, 1e-3),
+}
+STERNHEIMER_STEPS = (1e-4, 1e-5, 1e-6)
+
+
+@pytest.mark.regression
+@pytest.mark.parametrize("name", sorted(STERNHEIMER_CASES))
+def test_the_sternheimer_jacobian_is_the_derivative_of_the_exact_eigenpair_map(name):
+    """``jvp = 'sternheimer'`` is the derivative of ``F`` with exact eigenpairs.
+
+    The reference is the central difference of the same ``F`` diagonalised from
+    a cold start at ``ethr = 1e-13``, on the insulator with four buffer bands,
+    since Davidson converges its topmost requested root worst (on ``si-gamma``
+    without them the reference itself moves by 1e-4 to 7e-3 with the step). The
+    two share the Hamiltonian and the assembly and nothing else. **The
+    warm-started difference is not the reference, and the test says so**: from
+    a converged start Davidson stops once the eigenvalues have settled, which is
+    second order in the perturbation, so its eigenvectors carry a first-order
+    error, and the warm map's difference is a derivative of a different map
+    (P150).
+    """
+    buffer, bound, warm_above = STERNHEIMER_CASES[name]
+    calculation, result, residual, x, nbnd = _converged_text(name)
+    rng = np.random.default_rng(7)
+    v = rng.normal(size=x.shape)
+    v /= np.linalg.norm(v)
+    size = max(1.0, float(np.linalg.norm(x)))
+
+    jv = residual.sternheimer_jacobian(x, result.wavefunctions)(v)
+    exact = make_residual(calculation, nbnd + buffer, 1e-13)
+    errors, warm_errors = [], []
+    for step in STERNHEIMER_STEPS:
+        reference = np.asarray(
+            exact.jvp_finite_difference(x, v, None, epsilon=step * size))
+        warm = np.asarray(residual.jvp_finite_difference(
+            x, v, result.wavefunctions, epsilon=step * size))
+        scale = np.linalg.norm(reference + v)
+        errors.append(np.linalg.norm(jv - reference) / scale)
+        warm_errors.append(np.linalg.norm(warm - reference) / scale)
+    assert np.median(errors) < bound
+    assert np.median(warm_errors) > warm_above
+
+
+@pytest.mark.regression
+def test_the_sternheimer_jacobian_does_not_see_the_basis_of_a_degenerate_block():
+    """Rule D4 for the Jacobian: the same eigenpairs rotated by a random unitary
+    inside every degenerate block give the same ``J v``. Measured at 3.0e-10 of
+    ``|dF v|`` on ``si-gamma`` over ten blocks; the autodiff action through
+    Davidson is not even defined there (``OPEN.md`` Part XXVI)."""
+    import jax.numpy as jnp
+
+    calculation, result, residual, x, _ = _converged_text("si-gamma")
+    rng = np.random.default_rng(7)
+    v = rng.normal(size=x.shape)
+    v /= np.linalg.norm(v)
+    jacobian = residual.sternheimer_jacobian(x, result.wavefunctions)
+    jv = jacobian(v)
+    eigenvalues, psi = (np.asarray(a) for a in jacobian.eigenpairs)
+    rotated = psi.copy()
+    blocks = 0
+    for k in range(eigenvalues.shape[1]):
+        start = 0
+        while start < eigenvalues.shape[2]:
+            stop = start + 1
+            while (stop < eigenvalues.shape[2]
+                   and eigenvalues[0, k, stop] - eigenvalues[0, k, stop - 1] < 1e-8):
+                stop += 1
+            if stop - start > 1:
+                size = stop - start
+                q, _ = np.linalg.qr(rng.normal(size=(size, size))
+                                    + 1j * rng.normal(size=(size, size)))
+                rotated[0, k, start:stop] = q.T @ psi[0, k, start:stop]
+                blocks += 1
+            start = stop
+    assert blocks >= 3
+    turned = residual.sternheimer_jacobian_at(
+        x, jnp.asarray(eigenvalues), jnp.asarray(rotated))(v)
+    assert np.linalg.norm(turned - jv) / np.linalg.norm(jv + v) < 1e-8
+
+
+@pytest.mark.unit
+def test_the_sternheimer_jacobian_refuses_a_hubbard_u_and_a_meta_gga():
+    """The two parts of the state whose perturbation of ``H`` is not a local
+    potential are refused by name, before anything is computed."""
+    from defuqumat.scf.residual import ScfResidual
+
+    hubbard = ScfResidual(None, 4, 1e-10, ((1, 2, 2, 2),), 8, ns_shape=(1, 1, 5, 5))
+    with pytest.raises(NotImplementedError, match="Hubbard U"):
+        hubbard.sternheimer_jacobian(np.zeros(8), None)
+    meta = ScfResidual(None, 4, 1e-10, ((1, 2, 2, 2),), 8, tau_shape=(1, 2, 2, 2))
+    with pytest.raises(NotImplementedError, match="meta-GGA"):
+        meta.sternheimer_jacobian(np.zeros(8), None)

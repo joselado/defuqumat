@@ -2388,12 +2388,28 @@ depend on the rotation. A smearing is the cure for those. A \emph{gapped}
 fixed-occupation LSDA cell agrees between the two solvers to 5e-12~Ry.
 
 The \code{jvp = 'autodiff'} Jacobian has one more limit. It differentiates the
-eigensolver step by step. On a cell with no degenerate band it agrees with the
-finite difference to $1.5\times10^{-8}$. On silicon with a threefold degenerate
-band at $\Gamma$ it is off by $1.2\times10^{-2}$ from a warm start. From a cold
-start it is off by 0.16. At \code{ethr} $=10^{-13}$ it is off by a factor of
-2.3. So the default stays the finite difference. The numbers are in
-\code{PLAN.md} P148.
+eigensolver step by step. On silicon with a threefold degenerate band at
+$\Gamma$ it is off by $1.2\times10^{-2}$ from the finite difference from a warm
+start. From a cold start it is off by 0.16. At \code{ethr} $=10^{-13}$ it is off
+by a factor of 2.3. The numbers are in \code{PLAN.md} P148.
+
+\code{jvp = 'sternheimer'} does not differentiate the eigensolver. It solves the
+Sternheimer equation for the response of the converged states, as
+density-functional perturbation theory does, once for each Krylov step. This is
+the exact Jacobian of the map with exact eigenstates. It does not depend on
+which states the eigensolver chose inside a degenerate multiplet: under a random
+rotation inside each multiplet it moves by $10^{-14}$ to $10^{-9}$. Against a
+cold and tight finite difference it agrees to $2\times10^{-7}$ to
+$1\times10^{-5}$ of $|dF\,v|$ on ten cells, metals and ultrasoft and PAW
+datasets included. On a spin-orbit cell the finite difference itself scatters by
+about $5\times10^{-4}$, so the check stops there. The default finite difference starts the eigensolver from the
+converged states, so it is the derivative of a slightly different map, 5 to 40
+per cent off the exact one. Newton converges with both. The default stays the
+finite difference because it is faster: on the aluminium slab the Newton part
+takes 3.3~s with it and 10.3~s with \code{'sternheimer'}. \code{'sternheimer'}
+gives an error with a Hubbard $U$, a meta-GGA, a magnetic noncollinear run, a
+streamed store, and a fixed occupation that cuts a degenerate multiplet. The
+numbers are in \code{PLAN.md} P150.
 \end{refuses}
 
 \subsection{The source-free exchange-correlation field, and the torque}

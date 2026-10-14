@@ -1870,6 +1870,30 @@ CG solve per occupied band instead of a differentiated Davidson. That is the onl
 inner Krylov iteration stops costing a diagonalisation, and it is the same routine DFPT
 needs, which is the argument for writing it.
 
+**P150 wrote it, and it did not change the verdict** (`jvp = 'sternheimer'`, D22, `taskset -c` two
+P-cores, `OMP_NUM_THREADS = 2`, `conv_thr = 1e-10`, `forcing = 0.1`, the second of two calls in one
+process, each run alone on its cores with two other runs on other cores; one sample each, so a
+ratio below 1.5x is not a claim). Outer steps, evaluations of `F`, Jacobian actions and the seconds of
+the Newton part:
+
+| cell | start | finite difference | Sternheimer |
+|---|---|---|---|
+| `si-gamma` (`si2-lda-gap.in`, 2x2x2) | four mixing steps | 2, 21, 7, 0.6 s | 2, 9, 7, 1.1 s |
+| `si-gamma` | atomic density | 4, 35, 15, 1.4 s | 4, 9, 15, 2.6 s |
+| `al-metal.in` | four mixing steps | 1, 14, 4, 0.1 s | 1, 7, 4, 0.5 s |
+| `al-metal.in` | atomic density | 2, 19, 8, 0.2 s | 2, 5, 8, 1.1 s |
+| `si-epsilon-us.in` on 2x2x2 | four mixing steps | 2, 23, 8, 0.4 s | 2, 9, 8, 1.1 s |
+| `benchmarks/si8-1k.in` | four mixing steps | 2, 21, 7, 0.2 s | 2, 9, 7, 1.1 s |
+| `benchmarks/al-slab.in` | atomic density | 5, 82, 38, 3.3 s | 4, 9, 37, 10.3 s |
+
+The evaluations of `F` fall by 2x to 9x and the wall time rises by 2x to 8x: one CG solve to 1e-11
+(18 to 27 steps over the occupied block, or every band of a metal) is more work than the two
+diagonalisations from a converged start that a central difference costs, each of which exits in one
+or two Davidson steps. The counts of outer steps and of Jacobian actions are the same but for one
+outer step on the slab, so the exact Jacobian buys no convergence here; the account of why the two
+Jacobians differ at all is `OPEN.md` Part XXVI item 2. A looser CG threshold per action is the lever
+not measured. `pw.x` has no Newton solver, so there is no reference pair.
+
 ## How many iterations a continuation saves (P23)
 
 The same currency as P22 -- **iterations, not seconds** -- because a continuation changes

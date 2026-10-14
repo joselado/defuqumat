@@ -206,17 +206,17 @@ because that is what decides whether it is a session or a phase.
 - **Wyckoff input** (P6, the one part of that phase not done).
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
-  the `starting_ns` sentence; `notes/DEGENERACY-NEXT.md` item 4's tail and `OPEN.md` Part XXVI):
-  the divided difference of the occupation, `(f_n - f_m)/(e_n - e_m)`, in the density assembly's
-  tangent, which P148's regularised kernel suppresses for a pair within about ten `eta` of each
-  other at a smeared Fermi level, to be taken up when a smeared metal's Newton autodiff arm
-  disagrees with its finite difference by more than `si-generic`'s 3.5e-7; and the remaining
-  amplifier in a Davidson step on a degenerate block (one member's correction vector, not a smooth
-  function of the density when LAPACK's basis inside the block changes between steps), whose exact
-  route is the implicit tangent of the converged eigenproblem (P22c) and whose trigger is the
-  `si-gamma` cap sweep flat within 10x of `si-generic` at every cap. The smooth kernel
-  `gap/(gap^2 + eta^2)` is **not** outstanding at any further site: P149 withdrew it on arithmetic
-  (at a solver-split pair it is a fiction the size of a real pair's contribution).
+  the `starting_ns` sentence, P150 the exact Jacobian of the SCF map, `jvp = 'sternheimer'`, which
+  closed `OPEN.md` Part XXVI item 1 and carries the divided difference of the occupation by
+  construction). What is left: **a gauge sweep over the `Calculator` front door**
+  (`notes/DEGENERACY-NEXT.md` item 7), recorded and not started, whose work is finding the
+  injection point of a rotated eigenvector at each entry point; and two findings P150 recorded and
+  did not fix, `OPEN.md` Part XXVI items 2 (the warm-started SCF map has a different derivative,
+  5e-2 to 0.4 of `|dF v|` off the exact one, harmless to Newton) and 3 (`fermi_level_shift` sums the
+  magnetization at `nspin_mag = 4`, unreachable today), with item 4 (notebook 17's stale outputs) and
+  item 5 (the spinor cell's check stops at its reference's scatter, about 5e-4). The smooth kernel `gap/(gap^2 + eta^2)` is
+  **not** outstanding at any further site: P149 withdrew it on arithmetic (at a solver-split pair
+  it is a fiction the size of a real pair's contribution).
 - **External electric fields beyond P144 and P145.** The saw-tooth field and the dipole correction are
   in, and the Berry-phase finite field for norm-conserving `nspin = 1` insulators along one `gdir`. Not
   in: `gate` (needs `tot_charge`); the stress with either field (`pw.x` has none either); the Berry field
@@ -26110,3 +26110,106 @@ on them. The gate ran on the tree before the `tr2` pairing landed; the pairing t
 and `elph.py` only, whose tests are all slow and outside the gate, so its 3663 is the gate of the
 shipped code for everything the gate covers, and the three slow phonon files were rerun on the
 final files.
+
+### P150 -- The exact Jacobian of the SCF map, from the Sternheimer response of the converged eigenpairs: `OPEN.md` Part XXVI closed, and the warm-started map found to have a different derivative. ✅ DONE 2026-10-14 night, on fable's review of the plan (one defect found in the metal branch and fixed before any code ran, two refusals added), every number on `D22-0161` (`/l/ladovj1/review/degeneracy/p150/`, the worktree `w-p150` at `764bc3e` with this tree copied over it).
+
+**What this phase is.** The two items "What is outstanding" kept under the degenerate multiplets after
+P149: the autodiff Jacobian through Davidson on a degenerate block (`OPEN.md` Part XXVI) and the
+divided difference of the occupation at a smeared Fermi level. Both are closed by not
+differentiating the eigensolver at all. `ScfResidual.sternheimer_jacobian(x, psi0)` diagonalises
+`H[x]` once (warm, `F`'s own call) and returns `SternheimerJacobian`, a callable `v -> J v`:
+`dV` is one `jvp` of `potential`, PAW's one-centre term moves with the input `becsum`
+(`paw_response`), the ultrasoft `D_ij` through `int3`; `SternheimerSolver` solves for `dpsi`; a
+smeared Fermi level adds `ef_shift`, on the states, so that `dbecsum` gets its share; and the
+output is one `jvp` of `F`'s own assembly (`becsum` with the group average, `density` with
+`sym_rho`) along `dpsi`, with `density_weights` as the weight. `newton_krylov(jvp='sternheimer')`
+builds it once per outer iteration (one warm diagonalisation, counted as an evaluation of `F`), so
+every GMRES matvec is one Sternheimer solve.
+
+**Fable's review** (`plans/degeneracy-p150.md`, the plan and the report) found
+the claim true and one defect in the plan's metal branch: the response stack's level shift and
+projector mask run to `ef + xmax degauss`, and a band above that cutoff then loses its diagonal
+term `-wk f'_i <i|dV|i>`, which `F` fills (`w0gauss(-3) = 7e-5` a band). Here the mask covers every
+band and `alpha_pv = 2 (e_max - e_min)` over the whole set. It also asked for the solve to see `v`
+normalised (the CG test is absolute), the Fermi-shift charge to come from `charge_channel` (Part
+XXVI item 3), and two refusals: a streamed store and a magnetic spinor run. Refused besides: DFT+U,
+a meta-GGA, a fixed filling that cuts a degenerate shell (now at every `nspin`), and what
+`require_a_sternheimer_regime` refuses with its per-quantity gates lifted. One suggestion was not
+taken: fable asked for `step` to return its eigenvalues so that the Jacobian is built on the very
+eigenpairs of the last `F`, and the code re-diagonalises warm instead (one Davidson step from the
+answer, counted), which keeps `step`'s signature. The action does not move measurably with the
+eigenpairs it is built from: on `si-gamma`, built on eigenpairs from a warm solve at `ethr`, a
+warm one at 1e-13, a cold one at `ethr` and a cold one at 1e-13 with four buffer bands, its distance
+to one reference reads 2.55226e-3 in all four, the spread 1e-8 (the reference being the outlier
+step described below, which is why the number is large).
+
+**The measurement** (`p150_jvp.py`): at each converged state, a random unit `v` (seed 7; relative to
+`x` on the three cells with vacuum, where a uniform direction drives the density negative and the
+map is not differentiable, which is what the first runs of those cells read: the cold difference
+moving by 30 per cent with the step), against the central difference of `F` diagonalised cold at
+`ethr = 1e-13` with four buffer bands, all relative to `|dF v|`, best step of 1e-3 to 1e-6:
+
+| cell | regime | Sternheimer vs exact | warm difference vs exact | gauge (blocks) | CG steps |
+|---|---|---|---|---|---|
+| `si-generic` | NC, nosym, one generic k | 4.6e-7 | 5.3e-2 | -- (0) | 23 |
+| `si-gamma` | NC, 2x2x2 with `Gamma` | 2.2e-7 | 0.35 | 3.0e-10 (10) | 22 |
+| `al-metal` | NC, cold smearing | 9.2e-6 | 1.9e-2 | 4.2e-14 (3) | 18 |
+| `al-us` | US, cold smearing | 2.5e-6 | 0.23 | 1.2e-12 (3) | 18 |
+| `al-paw` | PAW, cold smearing | 1.6e-6 | 0.11 | 4.8e-12 (3) | 18 |
+| `si-us` | US, 2x2x2 | 4.3e-6 | 0.16 | 1.4e-9 (4) | 24 |
+| `si2-paw` | PAW | 5.1e-7 | 0.40 | 2.2e-10 (1) | 23 |
+| `alas-soc` | US spinor, nonmagnetic | 1.2e-4 (the reference's floor, see below) | 0.12 | 1.4e-10 (11) | 23 |
+| `o2-lsda` | US, fixed LSDA, gapped | 1.9e-7 | 3.7e-2 | 1.7e-11 (4) | 27 |
+| `o-smear` | US, nspin 2, smeared, O_h | 3.3e-6 | 7.0e-2 | 1.3e-10 (2) | 22 |
+| `o-smear-nosym` | the same, nosym | 3.6e-6 | 3.4e-3 | -- (0) | 22 |
+
+(`si-generic`, `al-metal`, `al-us`, `si-us` and `si2-paw` without buffer bands, where the
+four-band reference was not run; the other six with them. `si-gamma` without them reads 1.1e-4 to
+7.4e-3, the reference's topmost root.) So the action is the exact-eigenpair derivative on every regime, the
+gauge column is round-off, and `si-gamma` is within 10x of `si-generic` at every step, the trigger
+fable set for Part XXVI. **The other column is the finding of this phase**: the warm-started map
+`F(x; psi0)` that both older backends differentiate is not the exact-eigenpair map at first order,
+because Davidson from a converged start stops when the eigenvalues settle, which is second order
+(`OPEN.md` Part XXVI item 2). Autodiff on `si-generic` agrees with the warm difference to 1.5e-3
+of `|dF v|`, so P148's "1.5e-8" was two derivatives of the warm map agreeing, and on `si-gamma`
+autodiff is 4.9 off. On `si-gamma` converged to `conv_thr = 1e-12` (the test's state, where the
+table's is the input's 1e-9) the cold difference at step 1e-5 is an outlier, 2.6e-3 from its
+neighbours at 1e-4 and 1e-6, which read 4.9e-7 and 1.4e-7, a Davidson solve on a degenerate block
+landing elsewhere at one of its two points; the test takes the median of the three. **The spinor
+row is not resolved.** Its excess sits in the `becsum` rows, and the run that would tell a
+reference floor from a 1e-4 term in the spinor `becsum` tangent (`p150_soc8.py`: buffer bands 4, 8
+and 12, steps 1e-4 and 1e-5, the CG at 1e-11 and 1e-14) read 4.5e-4 to 6.7e-3, with no trend in the
+buffer, the same at both CG thresholds, and the four-band step-1e-4 point at 7.0e-4 where the first
+round read 1.2e-4. So the cold reference on this cell scatters by an order of magnitude from draw to
+draw, and the comparison is bounded by it at about 5e-4 (`OPEN.md` Part XXVI item 5).
+
+**End to end** (`p150_newton.py`, `conv_thr = 1e-10`, the second of two calls, two cores, wall time
+of the Newton part):
+
+| cell | start | finite difference: outer, `F`, `J v`, s | Sternheimer: outer, `F`, `J v`, s | mixing iterations |
+|---|---|---|---|---|
+| `si-gamma` | four mixing steps | 2, 21, 7, 0.6 | 2, 9, 7, 1.1 | 7 |
+| `si-gamma` | atomic density | 4, 35, 15, 1.4 | 4, 9, 15, 2.6 | 7 |
+| `al-metal` | four mixing steps | 1, 14, 4, 0.1 | 1, 7, 4, 0.5 | 5 |
+| `al-metal` | atomic density | 2, 19, 8, 0.2 | 2, 5, 8, 1.1 | 5 |
+| `si-us` | four mixing steps | 2, 23, 8, 0.4 | 2, 9, 8, 1.1 | 6 |
+| `si8-1k` | four mixing steps | 2, 21, 7, 0.2 | 2, 9, 7, 1.1 | 7 |
+| `al-slab` | atomic density | 5, 82, 38, 3.3 | 4, 9, 37, 10.3 | 15 |
+
+Every pair lands on the same energy to the digits printed (1e-12 Ry). So the exact Jacobian buys
+nothing in the outer or GMRES counts except one outer step on the slab, and it costs 2x to 8x in
+wall time, because one CG solve to 1e-11 is more work than two diagonalisations from a converged
+start. **The default stays `'finite-difference'`**, on fable's rule (switch only if the Sternheimer
+wins on wall time on `si-gamma` and `al-metal`; it loses on both). A looser CG threshold per
+matvec is the obvious lever and is not measured.
+
+**Tests** (`tests/regression/test_scf_solvers.py`, in the gate, 11 s on D22): the action against
+the cold difference on `si-gamma` and `al-metal` (median of three steps, bounds 5e-6 and 1e-4)
+with the warm difference held above 1e-2 and 1e-3, so the warm-map finding is asserted rather than
+commented; the gauge test on `si-gamma` (bound 1e-8); and the refusals of a Hubbard U and a
+meta-GGA. **No notebook**: the option is named `jvp`, which the notebook conventions forbid in a
+tutorial (`test_no_implementation_vocabulary`), so it is in `docs/features.tex` instead; extending
+notebook 17 found its committed outputs stale (`OPEN.md` Part XXVI item 4). **Recorded and not
+done**: the gauge sweep over the front door (`notes/DEGENERACY-NEXT.md` item 7) and `OPEN.md` Part
+XXVI items 2 to 5.
+

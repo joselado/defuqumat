@@ -9167,7 +9167,20 @@ every placement (the trap in `CLAUDE.md`). **How to know it worked:** the test a
 
 # Part XXVI -- the autodiff Jacobian of the SCF map through a degenerate Davidson subspace, 2026-10-14
 
-## 1. `residual.jvp` is the Jacobian only where no degenerate block enters Davidson's subspace
+## 1. `residual.jvp` is the Jacobian only where no degenerate block enters Davidson's subspace **[closed 2026-10-14, `PLAN.md` P150: the exact route is in as `jvp = 'sternheimer'`; `jvp = 'autodiff'` stays as it is, documented]**
+
+> **Closed by the exact route, measured on `D22-0161` (`/l/ladovj1/review/degeneracy/p150/`).**
+> `ScfResidual.sternheimer_jacobian` builds `J v` from the static response of the eigenpairs of
+> `H[x]`, one Sternheimer solve per action, so nothing about Davidson's steps enters it. Against
+> a central difference of `F` diagonalised cold at `ethr = 1e-13` with four buffer bands (the
+> exact-eigenpair map), relative to `|dF v|`: `si-gamma` 2.2e-7 to 3.3e-7 over steps 1e-4 to 1e-6,
+> within 10x of `si-generic`'s 4.6e-7 at every step, which is the trigger fable set. Under a random
+> unitary inside each of the ten degenerate blocks it moves by 3.0e-10. The trigger as worded
+> (the cap sweep of the autodiff tangent flat) is about the other backend and was not rerun; the
+> autodiff arm is unchanged and is 4.9 of `|dF v|` off on `si-gamma`. **The reference of every
+> number below was the warm-started difference**, which is itself the derivative of a different
+> map (item 2): on `si-generic` the "1.5e-8" agreement is autodiff against that difference, and
+> both are 5.3e-2 off the exact derivative.
 
 `scf/residual.py` differentiates Davidson as implemented, and `PLAN.md` P148 measured what that is worth
 (`notes/DEGENERACY-NEXT.md` item 4, every number on `D22-0161`, `/l/ladovj1/review/degeneracy/after4/`).
@@ -9206,3 +9219,74 @@ converged end of a warm start). Or the exact route, the implicit tangent of the 
 is also what the divided difference of the occupation needs at a smeared Fermi level
 (`notes/DEGENERACY-NEXT.md` item 4's tail). **The trigger (fable, 2026-10-14):** the `si-gamma` cap
 sweep flat within 10x of `si-generic` at every cap, cold included.
+
+## 2. The warm-started SCF map has a different derivative from the exact-eigenpair one **[open 2026-10-14, P150; no consumer is wrong because of it]**
+
+`ScfResidual` evaluates `F(x)` with Davidson started from the converged states of the last point
+(`psi0`), and its docstring said this "changes how many iterations the solver takes and not what it
+converges to". True of the fixed point, false of the derivative. Davidson stops once the eigenvalue
+change per band is below `ethr`, and from a converged start the eigenvalues settle at second order
+in the change of `x` while the states move at first order, so the eigenvectors it returns carry an
+error linear in the perturbation, set by how far one preconditioned correction step reaches. The
+central difference of the warm map, relative to `|dF v|`, against the cold tight difference (step
+1e-5 of `max(1, |x|)`, seed 7, a direction relative to `x` on the three cells with vacuum):
+`si-generic` 5.3e-2, `si-gamma` 0.35, `al-metal` 1.9e-2, `al-us` 0.23, `al-paw` 0.11, `si-us` 0.16,
+`si2-paw` 0.40, `alas-soc` (nonmagnetic spinor) 0.12, `o2-lsda` 3.7e-2, `o-smear` 7.0e-2,
+`o-smear-nosym` 3.4e-3. The Sternheimer action on the same cells: 1.9e-7 to 1.0e-5 at its best step, and on
+`alas-soc` down to the scatter of its reference, about 5e-4 (item 5).
+
+**What it affects.** The two older Jacobian backends of `newton_krylov` (`'finite-difference'`, the
+default, and `'autodiff'`) are derivatives of the warm map, which is also the map whose residual
+the solver drives to zero, so Newton converges under them; on the cells measured the outer and
+GMRES counts were the same under the exact Jacobian (`si-gamma` and `al-metal` after four mixing
+steps and after none, `si-us` and `si8-1k` after four; the aluminium slab from the atomic density 4
+outer steps against 5). Nothing in the response stack uses
+this map.
+
+**What would close it**, if a consumer needs `F` to be a function of `x` alone at first order:
+Davidson converging on the residual norm of each band rather than on its eigenvalue change, or a
+fixed number of steps past convergence. Neither is `cegterg`'s rule, and both cost Davidson steps
+on every SCF iteration, so it is recorded, not done.
+
+## 3. `SternheimerSolver.fermi_level_shift` sums the magnetization into the charge at `nspin_mag = 4` **[open 2026-10-14, P150; unreachable today]**
+
+`fermi_level_shift` integrates `drho` over every axis after the leading ones, the channel axis
+included, which is the charge for `nspin = 1` and for `(up, down)` at `nspin = 2` and is `n + m_x +
+m_y + m_z` for a magnetic spinor. Its two callers are the metallic phonons (`response/phonon.py`,
+`chunked_phonon.py`), and both refuse a noncollinear run, so no number is wrong today.
+`SternheimerJacobian` takes the integral with `Calculation.charge_channel` instead. The fix is the
+same one line in `fermi_level_shift`, to be made with the first caller that lifts the refusal.
+
+
+## 4. Notebook 17's committed outputs are stale, and its iron cell now returns the ferromagnet **[open 2026-10-14, found while extending it for P150; the extension was dropped]**
+
+Re-executed on D22 at `764bc3e` plus P150 (`/l/ladovj1/review/degeneracy/p150/nb17.log`, 95 s), against
+the outputs committed on 2026-10-04: plain Anderson on the 16-bohr slab takes 13 iterations where the
+notebook prints 25 (Kerker 14 against 15, LDOS 11 against 10, Anderson at 64 bohr 15 against 34),
+which contradicts the prose sentence "Kerker's count grows from 15 to 36 ... past plain Anderson";
+and the iron cell's Newton-Krylov run, kicked off the non-magnetic saddle, now lands on the
+ferromagnet (`M = 3.4052`, the "stabilisation energy" printed as 0.0 mRy) where the notebook shows the
+saddle (`M = 0.0012`, 64.1 mRy). The second is the drift `tests/regression/test_scf_solvers.py` records
+for `KICK` (0.10 until `22842dc` changed Davidson's collapse, 0.12 since); the notebook still kicks by
+the old amount. The Anderson counts are not attributed; the candidate is `RHO_DDOT_FIT`, on by
+default since P146 (2026-10-14), which changes the inner product the Anderson fit is taken in, and
+an A/B with it off is the test. Neither comes from P150, whose code is not on either path. The fix is the
+notebook's kick and its prose numbers, then a re-export. P150's own cells were not added, because
+the notebook conventions forbid the word `jvp` in a tutorial and the option is called that
+(`tests/unit/test_notebook_conventions.py::test_no_implementation_vocabulary`).
+
+## 5. The spinor cell's check of `jvp = 'sternheimer'` stops at its reference, about 5e-4 **[open 2026-10-14, P150]**
+
+On `alas-epsilon-us-soc.in` at 2x2x2 (ultrasoft, spin-orbit, nonmagnetic) the Sternheimer action read
+1.2e-4 of `|dF v|` against the cold tight difference in the first round, where every other cell read
+2e-7 to 1e-5, the excess in the `becsum` rows. The discriminating rerun (`p150_soc8.py` on D22,
+`review/degeneracy/p150/soc8.log`): buffer bands 4, 8 and 12 at steps 1e-4 and 1e-5 give 6.9e-4, 6.7e-3,
+4.5e-4, 5.8e-3, 1.4e-3, 5.3e-4, with the `becsum` rows carrying all but 5e-5 to 5e-4 of it and the CG at
+1e-14 reading the same as at 1e-11 to four figures. There is no trend in the buffer, and the same
+four-band point read 1.2e-4 and 7.0e-4 in two runs, so the reference scatters from one cold
+Davidson to the next and this check cannot see below about 5e-4. A 1e-4 term in the spinor `becsum`
+tangent is neither confirmed nor excluded. What would decide it is a reference that does not
+scatter: the same difference at a fixed starting set (the converged states at `x`, rotated off by a
+random unitary well outside any degenerate block) or a Davidson that converges every band on its
+residual norm.
+

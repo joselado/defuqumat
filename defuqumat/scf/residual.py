@@ -44,8 +44,21 @@ Two things had to be written down rather than differentiated:
   warm, and the rest, growing with the Davidson step count, is the gauge of one
   member's correction vector (``OPEN.md`` Part XXVI). The exact route is the
   implicit tangent of the converged eigenproblem, the Sternheimer response
-  ``PLAN.md`` P22c plans; until then the Newton solver's default is the
-  finite difference, which is a derivative wherever the state is single-valued.
+  ``PLAN.md`` P22c planned, and it is :class:`SternheimerJacobian` (P150).
+* **What the warm start does to ``F``, measured with that route** (P150). The
+  sentence below, that ``psi0`` "changes how many iterations the solver takes
+  and not what it converges to", is true of the fixed point and false of the
+  derivative. From a converged start Davidson stops once the eigenvalues have
+  settled, which is second order in the change of ``x``, while the states are
+  first order, so the warm map has a different derivative from the
+  exact-eigenpair one: its central difference was 5.3e-2 of ``|dF v|`` off on
+  silicon at one generic k-point (with autodiff agreeing with it to 1.5e-3,
+  both derivatives of the same warm map) and 3.4e-3 to 0.40 on ten other
+  cells, while the Sternheimer action agreed with a cold, tight difference to
+  2e-7 to 1e-5 (on the spinor cell to the scatter of the reference,
+  about 5e-4). Newton converges under either,
+  since the fixed point is the same; the default stays the finite difference
+  on wall time (P150).
 
 **DFT+U joins the state rather than being refused.** ``ns`` is not a function of
 the density -- the Hubbard potential is built from it before the Hamiltonian
@@ -77,9 +90,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from defuqumat.eager import compiled
 from defuqumat.scf.occupations import fixed_occupations, smeared_occupations
 
-__all__ = ["ScfResidual", "make_residual"]
+__all__ = ["ScfResidual", "SternheimerJacobian", "make_residual"]
 
 
 @dataclass(frozen=True)
@@ -249,6 +263,237 @@ class ScfResidual:
         plus, _ = self.residual(x + epsilon * v, psi0)
         minus, _ = self.residual(x - epsilon * v, psi0)
         return np.asarray((plus - minus) / (2.0 * epsilon))
+
+    # ---- the implicit Jacobian -----------------------------------------
+    def sternheimer_jacobian(self, x, psi0, threshold=None):
+        """``v -> J v`` at ``x``, from the response of the converged eigenproblem.
+
+        Built once per point and applied to as many directions as GMRES asks
+        for, since the eigenpairs of ``H[x]``, the solver and the density of
+        states at the Fermi level depend on ``x`` alone. ``psi0`` is the warm
+        start: the converged states at ``x``, so the diagonalisation here is
+        ``F``'s own, one Davidson step from the answer and not bit for bit the
+        eigenpairs the last evaluation of ``F`` returned. See
+        :class:`SternheimerJacobian` for what is differentiated.
+        """
+        calculation = self.calculation
+        self._refuse_sternheimer(psi0)
+        rho, becsum_, _, _ = self.unpack(x)
+        potential = calculation.potential(rho)
+        _, ddd_paw = calculation.onecenter(becsum_)
+        hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw)
+        eigenvalues, psi = calculation.diagonalize(
+            hamiltonians, self.nbnd, psi0, self.ethr
+        )
+        return SternheimerJacobian(self, x, eigenvalues, psi, threshold,
+                                   built=(potential, hamiltonians))
+
+    def sternheimer_jacobian_at(self, x, eigenvalues, psi, threshold=None):
+        """:meth:`sternheimer_jacobian` on eigenpairs of ``H[x]`` the caller has.
+
+        The gauge test's entry: the same eigenpairs rotated inside a degenerate
+        block give the same ``J v``.
+        """
+        self._refuse_sternheimer(psi)
+        return SternheimerJacobian(self, x, eigenvalues, psi, threshold)
+
+    def _refuse_sternheimer(self, psi) -> None:
+        """Every regime the implicit Jacobian does not carry, by name."""
+        from defuqumat.response.sternheimer import require_a_sternheimer_regime
+        from defuqumat.scf.streaming import is_host_store
+
+        calculation = self.calculation
+        if self.ns_shape is not None:
+            raise NotImplementedError(
+                "jvp='sternheimer' with a Hubbard U is not implemented: ns is part "
+                "of the state and its perturbation of H (adddvhubscf.f90) is not a "
+                "local potential. Use jvp='finite-difference'"
+            )
+        if self.tau_shape is not None:
+            raise NotImplementedError(
+                "jvp='sternheimer' with a meta-GGA is not implemented: tau is part "
+                "of the state and dH from dtau is a kinetic-like operator, not a "
+                "local potential. Use jvp='finite-difference'"
+            )
+        if calculation.noncolin and calculation.nspin_mag == 4:
+            raise NotImplementedError(
+                "jvp='sternheimer' on a magnetic noncollinear run is not measured: "
+                "no cell checks its four-component response against a central "
+                "difference of F. Use jvp='finite-difference'"
+            )
+        if psi is not None and is_host_store(psi):
+            raise NotImplementedError(
+                "jvp='sternheimer' on a streamed store is not implemented: the "
+                "density of a host store is walked by stream_densities, which has "
+                "no derivative. Use jvp='finite-difference'"
+            )
+        # The solve and its assembly are this one's own, so the response
+        # stack's per-quantity gates (spin, spinors, metals, half-sphere
+        # storage) are lifted; what stays is every regime whose operator or
+        # occupations are not here (fields, tetrahedra, two smeared levels).
+        require_a_sternheimer_regime(
+            calculation, metals=True, spin_polarized=True, gamma_ok=True,
+            noncollinear=True,
+        )
+
+
+class SternheimerJacobian:
+    """``J v`` of ``r = F - x`` at one point, without differentiating the eigensolver.
+
+    ``F(x)`` is built from the eigenpairs of ``H[x]``, and the derivative of
+    its assembly along ``v`` is the static independent-particle response of
+    those eigenpairs to ``dH = dH/dx . v``: one Sternheimer solve
+    (:class:`~defuqumat.response.sternheimer.SternheimerSolver`, ``PLAN.md``
+    P22c) and one ``jvp`` of ``F``'s own assembly along the first-order states.
+    The insulator branch needs only ``P_c``, which no rotation inside the
+    occupied manifold changes, and the metal branch carries the divided
+    difference ``(f_n - f_m)/(e_n - e_m)`` with its limit ``-f'`` at a
+    degeneracy (``_smeared_projection``), so the action does not depend on the
+    basis the eigensolver returned inside a degenerate block. What is
+    differentiated is the ``ethr -> 0`` limit of ``F``, the exact-eigenpair
+    map, not Davidson as implemented (``OPEN.md`` Part XXVI shows that one is
+    not differentiable on a degenerate block): it approximates ``F``'s
+    derivative to Davidson's ``ethr`` on the eigenpairs and the CG threshold
+    on ``dpsi``.
+
+    Term by term against :meth:`ScfResidual.step`: ``dV`` is one ``jvp`` of
+    ``potential``; the ultrasoft ``D_ij(V)`` moves through ``int3``
+    (:func:`~defuqumat.response.sternheimer.perturbed_coefficients`); PAW's
+    one-centre term moves with the *input* ``becsum`` (``paw_response``); ``S``
+    holds only the dataset's ``q_ij``, so there is no ``dS``. A smeared Fermi
+    level is re-bisected at every ``x``, so the tangent carries ``ef_shift``,
+    applied to the states (``fermi_level_shift_states``) so that ``dbecsum``
+    gets its share as well as ``drho``. The assembly is ``F``'s own two calls
+    (``becsum`` with its group average and ``density`` with ``sym_rho``), both
+    linear in the tangent, with ``density_weights`` as the weight: ``wg`` on
+    the occupied block for an insulator and ``wk`` for a metal, whose
+    occupation is already inside ``dpsi``.
+
+    **Two departures from the response stack's metal solver.** Its level shift
+    and its projector mask run up to ``ef + xmax degauss``, and a band above
+    that cutoff then loses the diagonal term ``-wk f'_i <i|dV|i>``, which the
+    ``alpha_pv`` channel delivers; ``F`` fills every one of its ``nbnd`` bands,
+    so here the mask covers them all and ``alpha_pv = 2 (e_max - e_min)`` over
+    the whole set, which keeps ``e_j - e_i + alpha_pv > 0`` on every row
+    (fable's review of the plan, 2026-10-14: ``w0gauss(-3) = 7e-5`` per band
+    otherwise). And the solve sees ``v`` normalised, since the CG's stopping
+    test is absolute, and the answer is scaled back.
+
+    Memory: three wavefunction sets, ``psi``, the solver's sliced copy and
+    ``dpsi``, plus the CG's four band blocks at the ``k_batch`` dial.
+    """
+
+    def __init__(self, residual, x, eigenvalues, psi, threshold=None, built=None):
+        from defuqumat.response.sternheimer import (
+            THRESHOLD, Smearing, SternheimerSolver, _require_a_gap_at_the_cut,
+            occupied_counts,
+        )
+        from defuqumat.scf.occupations import smearing_order
+
+        calculation = residual.calculation
+        system = calculation.system
+        self.residual = residual
+        self.x = np.asarray(x)
+        rho, becsum_, _, _ = residual.unpack(x)
+        self.rho, self.becsum = rho, becsum_
+        if built is None:
+            potential = calculation.potential(rho)
+            _, ddd_paw = calculation.onecenter(becsum_)
+            hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw)
+        else:
+            potential, hamiltonians = built
+        eigenvalues = jnp.asarray(eigenvalues)
+        psi = jnp.asarray(psi)
+        if eigenvalues.ndim == 2:
+            eigenvalues, psi = eigenvalues[None], psi[None]
+        self.eigenpairs = (eigenvalues, psi)
+        nbnd = int(eigenvalues.shape[-1])
+
+        weights, levels = calculation.occupations(eigenvalues)
+        counts = occupied_counts(calculation)
+        smearing = None
+        if system.occupations == "fixed":
+            # No derivative exists where the filling cuts a degenerate shell
+            # (``PLAN.md`` P147): which member is occupied is the solver's
+            # choice. The response stack checks this only with a spin axis.
+            _require_a_gap_at_the_cut(np.asarray(eigenvalues), counts)
+        else:
+            smearing = Smearing(
+                ef=float(levels["fermi_energy"]),
+                degauss=float(system.degauss),
+                ngauss=smearing_order(system.smearing),
+            )
+        solver = SternheimerSolver(
+            calculation, hamiltonians, psi, eigenvalues, jnp.asarray(weights),
+            counts, THRESHOLD if threshold is None else threshold,
+            v_scf=potential.v_scf, becsum=becsum_, smearing=smearing,
+            kpoint_weights=system.kpoints.weights,
+        )
+        if smearing is not None:
+            solver.projector_mask = jnp.ones(solver.eigenvalues.shape, dtype=bool)
+            values = np.asarray(eigenvalues)
+            solver.alpha_pv = max(2.0 * float(values.max() - values.min()), 1.0e-2)
+            self.levels = solver.local_density_of_states()
+        self.solver = solver
+        self.smearing = smearing
+        keep = solver.nocc
+        pad = ((0, 0), (0, 0), (0, nbnd - keep))
+        self.weights = jnp.pad(solver.density_weights, pad)
+        self.pad = pad + ((0, 0),)
+        self.last_iterations = None
+
+    def _dv(self, drho):
+        calculation = self.residual.calculation
+        return compiled(
+            lambda rho, t: jax.jvp(
+                lambda q: calculation.potential(q).v_scf, (rho,), (t,))[1],
+            self.rho, drho,
+        )
+
+    def _assembly(self, tangent):
+        calculation = self.residual.calculation
+        weights = self.weights
+
+        def assemble(states):
+            becsum_ = calculation.becsum(states, weights)
+            return calculation.density(states, weights, becsum_), becsum_
+
+        return compiled(
+            lambda psi, t: jax.jvp(assemble, (psi,), (t,))[1],
+            self.eigenpairs[1], tangent,
+        )
+
+    def __call__(self, v):
+        from defuqumat.response.sternheimer import paw_response
+
+        residual = self.residual
+        calculation = residual.calculation
+        solver = self.solver
+        v = np.asarray(v, dtype=float)
+        norm = float(np.linalg.norm(v))
+        if norm == 0.0:
+            return np.zeros_like(v)
+        drho_in, dbecsum_in, _, _ = residual.unpack(v / norm)
+        dv = self._dv(drho_in)
+        dddd_paw = paw_response(calculation, dbecsum_in, self.becsum)
+        solution = solver.solve(solver.perturbation(dv, dddd_paw))
+        self.last_iterations = solution.iterations
+        dpsi = solution.dpsi
+        if self.smearing is not None:
+            # ``ef_shift``: ``-int drho / N(ef)``, the implicit derivative of
+            # ``N(E_F) = nelec`` that ``bisect_fermi``'s custom tangent writes.
+            # The charge is taken by ``charge_channel``, not by summing every
+            # channel, which would add the magnetization at ``nspin_mag = 4``.
+            ldos, dos_ef = self.levels
+            drho_raw = solver.response_density(dpsi)
+            cell = calculation.system.cell
+            element = cell.volume / int(np.prod(drho_raw.shape[1:]))
+            delta_n = jnp.sum(calculation.charge_channel(drho_raw)) * element
+            shift = jnp.where(jnp.abs(dos_ef) > 1.0e-18, -delta_n / dos_ef, 0.0)
+            dpsi = solver.fermi_level_shift_states(dpsi, shift)
+        drho_out, dbecsum_out = self._assembly(jnp.pad(dpsi, self.pad))
+        tangent = residual.flatten(drho_out, dbecsum_out)
+        return np.asarray(norm * tangent) - v
 
 
 def _weights(calculation, eigenvalues):
