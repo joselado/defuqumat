@@ -1063,7 +1063,8 @@ class SternheimerSolver:
     def _raw_becsum(self, states, weights=None) -> tuple:
         """``becsum`` **without** the symmetrisation :meth:`Calculation.becsum` applies.
 
-        For PAW that method ends with ``PAW_symmetrize``, and a *response* must
+        For every augmented species that method ends with ``PAW_symmetrize``'s
+        group average (PAW always, ultrasoft since P148), and a *response* must
         not go through it: the three response densities are symmetrised together
         as a polar vector afterwards
         (:meth:`~defuqumat.scf.driver.Calculation.symmetrize_directional`), and

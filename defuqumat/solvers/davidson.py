@@ -513,6 +513,15 @@ def davidson_eigensolver(
             "least 2 (QE refuses the same case, cegterg.f90:125)"
         )
     ethr = ETHR if ethr is None else ethr
+    # The width the subspace solve's tangent is regularised at (P148,
+    # ``subspace._eigh_regularised``): the solver's own unit, ``empty_ethr``,
+    # since a degenerate block's members are converged separately only to the
+    # promise on them, and the per-band vector's largest entry is that unit
+    # already (``cegterg.f90:129``). Traced, so it rides ``ethr``'s slot.
+    eta = (
+        jnp.maximum(5.0 * jnp.asarray(ethr), EMPTY_ETHR_FLOOR)
+        if jnp.ndim(ethr) == 0 else jnp.max(jnp.asarray(ethr))
+    )
     gamma_only = hamiltonian.gamma_only
     ndim = hamiltonian.ndim
     # **The subspace cannot be larger than the space it lives in.** QE stops
@@ -655,7 +664,8 @@ def davidson_eigensolver(
             wide = subspace_dtype(hc.dtype)
             overlap = 0.5 * (sc + sc.conj().T).astype(wide)
             values, vectors = generalised_eigh(0.5 * (hc + hc.conj().T).astype(wide),
-                                               overlap, robust=robust, parked=inactive)
+                                               overlap, robust=robust, parked=inactive,
+                                               eta=eta)
             if not robust:
                 # **A finite Cholesky answer is not a right one.** With the
                 # overlap's smallest eigenvalue at the round-off floor and still

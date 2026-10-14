@@ -44,8 +44,58 @@ OVERLAP_FLOOR = 1.0e-12
 HOST_EIGH_ROWS = int(environ_get("DEFUQUMAT_HOST_EIGH_ROWS", "0") or "0")
 
 
-def _eigh(x):
+@jax.custom_jvp
+def _eigh_regularised(x, eta):
+    """``_lax_eigh`` with the mixing kernel of its tangent regularised at ``eta``.
+
+    The primal is the same call bit for bit. The tangent rule is JAX's own
+    (``jax/_src/lax/linalg.py``, ``_eigh_jvp_rule``) with one change: the
+    eigenvector mixing kernel ``1/(w_j - w_i)``, which JAX leaves unprotected
+    off the diagonal, becomes ``(w_j - w_i)/((w_j - w_i)^2 + eta^2)``, the real
+    part of ``1/(w_j - w_i + i eta)``. The reason is where this solve sits: it is
+    Davidson's subspace solve, and a degenerate multiplet of the Hamiltonian
+    reaches it as Ritz values split only by the solver's own noise, so the
+    plain kernel is ``1/noise`` there and ``inf`` on the parked rows, which are
+    exactly degenerate with each other. That in-block rotation tangent is gauge
+    and cancels in the density after one or two steps, and once it has passed
+    through a normalised correction vector it no longer cancels: measured on
+    norm-conserving silicon with ``Gamma`` in the mesh, the autodiff action of
+    the SCF map was 28 per cent off the central difference warm, 10x off cold
+    and ``NaN`` at ``ethr = 1e-13``, where the same cell at one generic k-point
+    with no degenerate block agreed to 1.5e-8 (`PLAN.md` P148,
+    `notes/DEGENERACY-NEXT.md` item 4). The kernel is bounded by ``1/(2 eta)``,
+    is ``1/Delta`` to ``(eta/Delta)^2`` away from a degeneracy, and is linear in
+    the tangent, so transposition keeps reverse mode where it exists. What it
+    costs is stated at the caller: a pair of Ritz values within about ``10 eta``
+    of each other has its mixing tangent suppressed by ``(eta/Delta)^2``, which
+    matters only where the two carry different occupations.
+    """
+    vectors, values = _lax_eigh(x, implementation=EighImplementation.QR)
+    return values, vectors
+
+
+@_eigh_regularised.defjvp
+def _eigh_regularised_jvp(primals, tangents):
+    x, eta = primals
+    dx, _ = tangents
+    values, vectors = _eigh_regularised(x, eta)
+    # ``v^H dx v`` of the Hermitian part of the tangent, as JAX's rule takes it.
+    dx = 0.5 * (dx + jnp.swapaxes(dx, -1, -2).conj())
+    inner = jnp.swapaxes(vectors, -1, -2).conj() @ dx @ vectors
+    delta = values[..., None, :] - values[..., :, None]  # w_j - w_i
+    eta2 = jnp.asarray(eta, dtype=delta.dtype) ** 2
+    kernel = (delta / (delta * delta + eta2)).astype(inner.dtype)
+    dvectors = vectors @ (kernel * inner)
+    dvalues = jnp.real(jnp.diagonal(inner, axis1=-2, axis2=-1))
+    return (values, vectors), (dvalues, dvectors)
+
+
+def _eigh(x, eta=None):
     """``jnp.linalg.eigh`` with cuSOLVER's ``syevd`` asked for by name.
+
+    ``eta`` regularises the tangent's mixing kernel at that width
+    (:func:`_eigh_regularised`); ``None`` keeps JAX's own rule, for callers that
+    solve once and are not differentiated through a degenerate block.
 
     Left to choose, jaxlib takes cuSOLVER's Jacobi solver for a matrix of 32 or
     fewer rows and ``syevd`` above, and at Davidson's first rungs the Jacobi one
@@ -59,6 +109,8 @@ def _eigh(x):
     """
     if 0 < x.shape[-1] <= HOST_EIGH_ROWS and jax.default_backend() != "cpu":
         return _host_eigh(x)
+    if eta is not None:
+        return _eigh_regularised(x, eta)
     vectors, values = _lax_eigh(x, implementation=EighImplementation.QR)
     return values, vectors
 
@@ -93,7 +145,7 @@ def _park_above(reduced, parked):
     return reduced + jnp.diag(jnp.where(parked, bound + 1.0, 0.0).astype(reduced.dtype))
 
 
-def _cholesky_route(h, s, parked=None):
+def _cholesky_route(h, s, parked=None, eta=None):
     """QE's ``cdiaghg``: reduce through the Cholesky factor of the overlap.
 
     Writing ``S = L L^H``, the substitution ``v = L^-H u`` gives
@@ -113,11 +165,11 @@ def _cholesky_route(h, s, parked=None):
     if parked is not None:
         reduced = _park_above(reduced, parked)
 
-    values, vectors = _eigh(reduced)
+    values, vectors = _eigh(reduced, eta)
     return values, solve_triangular(factor.conj().T, vectors, lower=False)
 
 
-def _canonical_route(h, s, parked=None):
+def _canonical_route(h, s, parked=None, eta=None):
     """Canonical orthogonalisation, for an overlap that is no longer positive.
 
     Diagonalise ``S = U w U^H`` and work in ``X = U w^-1/2``, which is the
@@ -149,7 +201,10 @@ def _canonical_route(h, s, parked=None):
         live = jnp.logical_not(parked)
         pair = live[:, None] & live[None, :]
         h, s = jnp.where(pair, h, 0.0), jnp.where(pair, s, 0.0)
-    w, u = _eigh(s)
+    # The overlap of an orthonormal block is the identity to round-off, so its
+    # eigenvalues are all degenerate and the plain tangent rule is ``inf`` on
+    # every pair: the kernel applies here as much as to the reduced problem.
+    w, u = _eigh(s, eta)
     keep = w > OVERLAP_FLOOR * jnp.max(w)
     safe = jnp.where(keep, w, 1.0)
     x = u / jnp.sqrt(safe)[None, :]
@@ -158,7 +213,7 @@ def _canonical_route(h, s, parked=None):
     reduced = 0.5 * (reduced + reduced.conj().T)
     reduced = _park_above(reduced, jnp.logical_not(keep))
 
-    values, vectors = _eigh(reduced)
+    values, vectors = _eigh(reduced, eta)
     return values, x @ vectors
 
 
@@ -199,13 +254,20 @@ def orthonormality_tolerance(dtype) -> float:
     return float(np.sqrt(jnp.finfo(dtype).eps))
 
 
-def _route(route, h, s, parked):
+def _route(route, h, s, parked, eta=None):
     """``route(h, s)``, with the parked rows when there are any."""
-    return route(h, s) if parked is None else route(h, s, parked)
+    return route(h, s, parked, eta)
 
 
-def generalised_eigh(h, s, robust: bool | None = None, parked=None):
+def generalised_eigh(h, s, robust: bool | None = None, parked=None, eta=None):
     """Eigenpairs of ``H v = e S v`` for Hermitian ``H`` and positive ``S``.
+
+    ``eta``, when given, regularises the tangent of every ``eigh`` inside at
+    that width (:func:`_eigh_regularised`, P148): Davidson passes the solver's
+    own unit, ``empty_band_threshold(ethr)``, so that a degenerate multiplet of
+    the Hamiltonian, which reaches this solve as Ritz values split only by the
+    solver's noise, does not put ``1/noise`` into the eigenvector tangent at
+    every step. The primal is unchanged. ``None`` keeps JAX's rule.
 
     **``parked`` marks rows that are not in the problem**, decoupled by the caller
     in both matrices with a unit overlap: Davidson's subspace directions not in
@@ -274,14 +336,14 @@ def generalised_eigh(h, s, robust: bool | None = None, parked=None):
     * ``True`` is canonical orthogonalisation alone, which is the retry.
     """
     if robust is True:
-        return _route(_canonical_route, h, s, parked)
+        return _route(_canonical_route, h, s, parked, eta)
     if robust is False:
-        return _route(_cholesky_route, h, s, parked)
+        return _route(_cholesky_route, h, s, parked, eta)
     factor = jnp.linalg.cholesky(s)
     return jax.lax.cond(
         jnp.all(jnp.isfinite(factor)),
-        lambda: _route(_cholesky_route, h, s, parked),
-        lambda: _route(_canonical_route, h, s, parked),
+        lambda: _route(_cholesky_route, h, s, parked, eta),
+        lambda: _route(_canonical_route, h, s, parked, eta),
     )
 
 

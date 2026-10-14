@@ -13,6 +13,21 @@ gives an unsymmetric ``becsum``, and diamond silicon's three ``p`` channels come
 out with occupations of 1.003, 1.268, 1.268 where symmetry says they must be
 equal. The one-centre energy of that is wrong in the fifth decimal.
 
+**Every augmented species gets the average, not only a PAW one** (P148).
+``pw.x`` leaves an ultrasoft ``becsum`` raw (``sum_band.f90:259-267``: "only
+used to compute the density, which is symmetrized later"), and so did this
+module until 2026-10-14; the energy does not care, since ``sym_rho`` of the
+augmentation charge of a raw ``becsum`` is the augmentation charge of the
+averaged one (linear and covariant, equal to 5.0e-16 on a field of 0.26 on the
+oxygen atom of `PLAN.md` P147). What does care is everything that reads
+``becsum`` *as a state*: the Newton-Krylov state vector, the checkpoint and the
+mixer's history. A raw one-k ``becsum`` is a function of which member of a
+degenerate multiplet the eigensolver returned (it moved by 0.342 on a maximum of
+1.111 under a rotation of a cut 2p shell where the averaged one moved by 4.1e-7,
+the states' own convergence), and the finite-difference Jacobian on it is
+``O(1)/eps`` rather than a derivative. Averaging it makes the state single-valued
+at the cost of one ``(nsym, nh, nh)`` contraction per species per iteration.
+
 ``PW/src/paw_symmetry.f90``:
 
     becsym^a_ij = 1/nsym sum_S D^{l_i}_{m_i m}(S) D^{l_j}_{m_j m'}(S)
@@ -323,7 +338,7 @@ def build_becsum_symmetry(
         atoms = np.flatnonzero(types == t)
         species_atoms.append(tuple(int(a) for a in atoms))
         channels = projector_channels(pseudo)
-        if not pseudo.is_paw or not len(atoms) or not channels:
+        if not pseudo.is_ultrasoft or not len(atoms) or not channels:
             operators.append(None)
             sources_per_species.append(None)
             continue

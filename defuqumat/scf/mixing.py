@@ -1735,11 +1735,15 @@ class SphereLayout:
     else, measured on ``benchmarks/si8-us-1k.in`` at 1e-12 of the shell's
     largest coefficient (1e-18 absolute, the round-off of a field of 3e-2) at
     every iteration, and on ``si8-paw-1k`` and the noncollinear ``fe-mag-1k``
-    to the same order. **The symmetrisation is part of it**: an ultrasoft
-    ``becsum`` summed over a k-wedge is not symmetrised (only PAW's is), so
-    ``Q_ij(G) becsum_out`` alone is 9 per cent off that shell on the same cell,
-    while ``sym_rho`` maps every ``|G|`` to itself and moved nothing across the
-    cutoff. The mixer combines ``becsum`` with the coefficients it fits on the
+    to the same order. **The symmetrisation is part of it**: until P148 an
+    ultrasoft ``becsum`` summed over a k-wedge was not symmetrised (only PAW's
+    was), so ``Q_ij(G) becsum_out`` alone was 9 per cent off that shell on the
+    same cell, while ``sym_rho`` maps every ``|G|`` to itself and moved nothing
+    across the cutoff; since P148 every augmented species' ``becsum`` carries
+    the group average (:mod:`defuqumat.paw.symmetry`), and the augmentation
+    charge of the averaged ``becsum`` is ``sym_rho`` of the raw one's to 5e-16,
+    so the shell this rebuilds is unchanged and the ``becsum`` it rebuilds it
+    from is single-valued. The mixer combines ``becsum`` with the coefficients it fits on the
     smooth sphere and steps it at the plain ``beta`` (:meth:`Mixer.magnetic_step`
     leaves the tail alone, and both preconditioners give it ``beta``), and
     ``sym_rho(addusdens(.))`` is linear, so the augmentation charge of the mixed

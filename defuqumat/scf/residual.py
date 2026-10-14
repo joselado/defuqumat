@@ -31,11 +31,21 @@ Two things had to be written down rather than differentiated:
   tangent is zero or garbage. It now carries a ``custom_jvp`` with the implicit
   derivative of ``N(E_F) = nelec`` (``scf/occupations.py``), which is the
   Fermi-shift term of metallic linear response.
-* **Nothing else, yet.** Davidson is differentiated as implemented, so the
-  Jacobian is the Jacobian of the *approximate* eigensolver and is accurate to
-  about ``ethr``. That is enough for a Krylov solver, which only needs a
-  direction; it is not the Sternheimer response, which would be exact and is
-  what ``PLAN.md`` P22c plans.
+* **Davidson, half way.** Davidson is differentiated as implemented, so the
+  Jacobian is the Jacobian of the *approximate* eigensolver. This used to say
+  "accurate to about ``ethr``", and that is measured true only on a cell whose
+  subspace holds no degenerate block (P148, `notes/DEGENERACY-NEXT.md` item 4):
+  norm-conserving silicon at one generic k-point agrees with a central
+  difference of ``r`` to 1.5e-8, following its ``eps^2`` law. With a degenerate
+  block (the same cell with ``Gamma`` in the mesh) it was 28 per cent off warm,
+  10x off cold and ``NaN`` at ``ethr = 1e-13``, from JAX's ``eigh`` tangent,
+  ``1/(w_j - w_i)`` unprotected on Ritz values the block splits only at the
+  solver's noise; the kernel in ``solvers/subspace.py`` takes that to 1.2e-2
+  warm, and the rest, growing with the Davidson step count, is the gauge of one
+  member's correction vector (``OPEN.md`` Part XXVI). The exact route is the
+  implicit tangent of the converged eigenproblem, the Sternheimer response
+  ``PLAN.md`` P22c plans; until then the Newton solver's default is the
+  finite difference, which is a derivative wherever the state is single-valued.
 
 **DFT+U joins the state rather than being refused.** ``ns`` is not a function of
 the density -- the Hubbard potential is built from it before the Hamiltonian

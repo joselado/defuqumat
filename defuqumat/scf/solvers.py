@@ -125,6 +125,24 @@ def newton_krylov(
     preconditioner should be. **This is the honest comparison** -- a
     preconditioner that helps GMRES helps the mixer too, so both sides of any
     measurement get it.
+
+    ``jvp`` chooses how ``J v`` is formed, and the default is the central
+    difference of ``r`` for a measured reason (P148, `notes/DEGENERACY-NEXT.md`
+    item 4). ``'autodiff'`` differentiates Davidson as implemented, and that
+    action is the Jacobian only on a cell whose subspace holds no degenerate
+    block: norm-conserving silicon at one generic k-point agrees with the
+    central difference to 1.5e-8, following its ``eps^2`` law, while the same
+    cell with ``Gamma`` in the mesh (a threefold block) was 28 per cent off and
+    ``NaN`` at ``ethr = 1e-13`` before the subspace ``eigh``'s tangent was
+    regularised (``solvers/subspace.py``) and is 1.2e-2 off warm after it,
+    growing with the number of Davidson steps (1.9x to 4.7x on the eigensolver
+    alone, 119x from a cold start), because one member's correction vector on
+    a degenerate block is not a smooth function of the density (``OPEN.md``
+    Part XXVI). The finite difference is a derivative wherever the state is
+    single-valued, which since P148's averaged ultrasoft ``becsum`` includes a
+    fixed filling that cuts a degenerate shell with the point group on: there
+    it converges in four undamped steps to 5e-12 (38 ``F`` evaluations) where
+    the autodiff arm takes five (26 JVPs, each about two to three ``F``).
     """
     if jvp not in ("autodiff", "finite-difference"):
         raise ValueError(f"unknown jvp backend {jvp!r}")
@@ -184,37 +202,31 @@ def newton_krylov(
             # the eigensolver hands back is arbitrary -- and the account of it
             # here used to say that the oxygen atom at ``tot_magnetization = 2``
             # (one electron in a threefold 2p shell) "dies at the first line
-            # search". **Measured on 2026-10-14 (PLAN.md P147), it does not.**
-            # With the point group on, ``sym_rho`` averages the occupied member
-            # into the spherical shell, so ``F`` is single-valued there: the
-            # ``autodiff`` JVP takes that atom from 1.3e-2 to 3.8e-7 in eight
-            # Newton steps (damped, since the Jacobian drops the in-block term
-            # of the degenerate ``eigh``) and the mixer finishes it at 5.2e-12,
-            # while the ``finite-difference`` JVP diverges to an accuracy of
-            # 7e33 at the first step without ever producing a NaN. The
-            # component that does it is measured: under a rotation of the cut
-            # shell the symmetrised density moves by 9.1e-8 but ``becsum``,
-            # packed into this state vector **raw**, moves by 0.34 on a maximum
-            # of 1.11 (``cut_becsum.py``), so the difference quotient's
-            # ``becsum`` rows are ``O(1)/eps`` whenever the perturbed solve
-            # hands back another member of the shell, and no step length
-            # repairs that. (The mixer does not care, since an ultrasoft
-            # ``becsum`` reaches the next Hamiltonian only through the
-            # augmentation charge, which ``sym_rho`` symmetrises with the rest;
-            # a PAW one-centre term would read it raw, which is open.) So a cut
-            # shell is not what reaches this branch; it is diagnosed where it is
-            # made (``SCFResult.cut_gap``, ``warn_about_a_cut_shell``) and its
-            # cures are ``jvp='autodiff'`` or a smearing. The sentence about a
-            # *gapped* fixed LSDA cell agreeing with the mixer to 5e-12 stands.
+            # search". **Measured on 2026-10-14 (PLAN.md P147 and P148), it
+            # does not, under either Jacobian.** With the point group on,
+            # ``sym_rho`` averages the occupied member into the spherical shell,
+            # so ``F`` is single-valued in its density rows; its ``becsum`` rows
+            # were not (the raw one-k sum moved by 0.34 on a maximum of 1.11
+            # under a rotation of the shell, the density by 9.1e-8), which is
+            # why the finite-difference JVP once reached an accuracy of 7e33 at
+            # the first step, without a NaN. Since P148 the ultrasoft ``becsum``
+            # carries the same group average as PAW's and the state is
+            # single-valued to the eigensolver's accuracy on the states
+            # (4.1e-7): both Jacobians then converge on that atom in four and
+            # five undamped Newton steps, to 5.2e-12 and 2.3e-12. So a cut shell
+            # is not what reaches this branch; it is diagnosed where it is made
+            # (``SCFResult.cut_gap``, ``warn_about_a_cut_shell``), the band-
+            # resolved quantities and the response on it stay gauge dependent,
+            # and their cure is a smearing. The sentence about a *gapped* fixed
+            # LSDA cell agreeing with the mixer to 5e-12 stands.
             raise FloatingPointError(
                 "the SCF residual is not finite, so there is no Newton step to "
                 "take: a step left the region where the density map is a "
                 "function of the density. Read the SCF's own diagnostics first "
-                "-- a RuntimeWarning that occupations='fixed' cuts a degenerate "
-                "multiplet (SCFResult.cut_gap) -- and if that is the case, use "
-                "jvp='autodiff', a smearing, or scf_solver='mixing'; the "
-                "finite-difference JVP is the one that fails on a cut shell, by "
-                "divergence rather than by a NaN"
+                "(a RuntimeWarning that occupations='fixed' cuts a degenerate "
+                "multiplet, SCFResult.cut_gap, names the one case measured so "
+                "far, which both Jacobians now converge), and fall back to "
+                "scf_solver='mixing' or a smearing"
             )
         operator = LinearOperator((x.size, x.size), matvec=matvec, dtype=float)
         # ``-P`` rather than ``P``: the Jacobian of ``r = F - x`` is close to

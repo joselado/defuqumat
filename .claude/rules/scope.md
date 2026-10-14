@@ -27,10 +27,11 @@ in `docs/features.tex`'s amber boxes.
   rule (`input.f90:784-800`) and is enforced at input here in QE's order. A fixed
   occupation **cutting a degenerate multiplet** is recorded (`SCFResult.cut_gap`, the
   gap across each channel's cut) and warned about by name, never refused (P147): with
-  the point group on, `sym_rho` averages the occupied member into the shell, so the
-  energy and the density are single-valued; what is not is everything band-resolved,
-  the response (refused there), and the finite-difference Newton Jacobian, which
-  diverges where the autodiff one converges.
+  the point group on, `sym_rho` averages the occupied member into the shell and, since
+  P148, the ultrasoft `becsum` carries the same group average, so the energy, the density
+  and the Newton-Krylov state are single-valued and both Jacobians converge there; what
+  is not is everything band-resolved and the response (refused there), whose cure is a
+  smearing.
 - **Spin-orbit coupling** (P14): `noncolin` makes a wavefunction a two-component spinor of
   length `2 npwx`, so there is *one* Hamiltonian on a space twice as large rather than two
   Hamiltonians; `lspinorb` puts a fully-relativistic dataset's `j`-resolved projectors into

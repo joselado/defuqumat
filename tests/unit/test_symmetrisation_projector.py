@@ -79,29 +79,66 @@ def _symmetric(rng, shape) -> jnp.ndarray:
     return jnp.asarray(x + np.swapaxes(x, -1, -2))
 
 
-def test_becsum_symmetrisation_is_a_projector(pseudo_dir):
+#: The PAW dataset the average was written for, and the ultrasoft one it covers
+#: since P148 (``pw.x`` leaves that one raw, ``sum_band.f90:259-267``).
+_AUGMENTED = ("Si.pz-n-kjpaw_psl.0.1.UPF", "Si.pz-n-rrkjus_psl.0.1.UPF")
+
+
+def _random_becsum(symmetry, rng):
+    natoms = np.asarray(symmetry.mapping[0]).shape[1]
+    return tuple(
+        None if operator is None
+        else _symmetric(rng, (1, natoms, operator.shape[1], operator.shape[2]))
+        for operator in symmetry.operators
+    )
+
+
+@pytest.mark.parametrize("pseudo", _AUGMENTED)
+def test_becsum_symmetrisation_is_a_projector(pseudo_dir, pseudo):
     """``PAW_symmetrize``'s average, applied twice, must not move."""
     calculation = _calculation(
         pseudo_dir, ecutwfc=12.0, ecutrho=96.0, extra="",
-        name="Si", mass=28.086, pseudo="Si.pz-n-kjpaw_psl.0.1.UPF", cards="",
+        name="Si", mass=28.086, pseudo=pseudo, cards="",
     )
     symmetry = calculation._becsum_symmetry
     assert symmetry is not None
     assert _non_involutive(symmetry.mapping[0]) > 0, "this cell proves nothing"
 
-    rng = np.random.default_rng(0)
-    natoms = np.asarray(symmetry.mapping[0]).shape[1]
-    becsum = tuple(
-        None if operator is None
-        else _symmetric(rng, (1, natoms, operator.shape[1], operator.shape[2]))
-        for operator in symmetry.operators
-    )
+    becsum = _random_becsum(symmetry, np.random.default_rng(0))
 
     once = symmetry.apply(becsum)
     twice = symmetry.apply(once)
     for a, b in zip(once, twice):
         if a is not None:
             assert np.allclose(a, b, atol=1e-12), "not idempotent"
+
+
+def test_the_augmentation_charge_of_the_average_is_the_average_of_the_charge(pseudo_dir):
+    """``addusdens(sym(b)) == sym_rho(addusdens(b))`` on an ultrasoft cell (P148).
+
+    The identity that makes averaging an ultrasoft ``becsum`` exact for the
+    energy: the augmentation charge is linear in ``becsum`` and covariant under
+    the group, so the group average can be taken before it or after it. On the
+    oxygen atom of P147 it held to 5.0e-16 on a field of 0.26; here on a random
+    ``becsum`` and the three-fold orbit, so the inverse atom permutation is in it.
+    """
+    calculation = _calculation(
+        pseudo_dir, ecutwfc=12.0, ecutrho=96.0, extra="",
+        name="Si", mass=28.086, pseudo="Si.pz-n-rrkjus_psl.0.1.UPF", cards="",
+    )
+    symmetry = calculation._becsum_symmetry
+    assert symmetry is not None, "an ultrasoft species gets the average since P148"
+    becsum = _random_becsum(symmetry, np.random.default_rng(1))
+    base = jnp.zeros_like(calculation.starting_density())
+
+    of_average = np.asarray(calculation.augmented(base, symmetry.apply(becsum)))
+    average_of = np.asarray(calculation.symmetrize(calculation.augmented(base, becsum)))
+    raw = np.asarray(calculation.augmented(base, becsum))
+    scale = float(np.max(np.abs(raw)))
+    assert scale > 0.0
+    # the raw charge is not symmetric, or the identity would be a null test
+    assert np.max(np.abs(raw - average_of)) > 1e-3 * scale
+    assert np.max(np.abs(of_average - average_of)) < 1e-12 * scale
 
 
 @pytest.mark.slow

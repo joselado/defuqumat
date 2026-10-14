@@ -204,15 +204,17 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
-- **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut; `notes/DEGENERACY-NEXT.md`
-  items 3 to 5): the nine per-module degeneracy tolerances, five of them below the solver's promise on
-  an empty band, and the smooth kernel in place of the step; the Newton-Krylov `jvp` through Davidson's
-  `eigh` at a degeneracy, unmeasured; `starting_ns` written by eigenvector index inside a degenerate
-  block; the electron-phonon default threshold's gauge dependence (`OPEN.md`); and **`becsum` is not
-  symmetrised in the ground state** (P147 measured it moving by 0.34 of 1.11 under a rotation of a cut
-  shell while the symmetrised density moved 9e-8), which is what breaks the finite-difference Newton
-  Jacobian there and would reach a PAW one-centre term directly, where `PAW_symmetrize` is what `pw.x`
-  does; the response modules symmetrise theirs (`strain.py`, `nonlinear.py`), the SCF's is unchecked.
+- **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
+  `becsum` and the subspace `eigh` tangent; `notes/DEGENERACY-NEXT.md` items 3 and 5, and item 4's
+  tail): the nine per-module degeneracy tolerances, five of them below the solver's promise on an
+  empty band, and the smooth kernel in place of the step at each site, measured against that site's
+  own validation number (P148 landed the kernel at its first site, Davidson's subspace solve);
+  `starting_ns` written by eigenvector index inside a degenerate block; the electron-phonon default
+  threshold's gauge dependence (`OPEN.md`); and the divided difference of the occupation,
+  `(f_n - f_m)/(e_n - e_m)`, in the density assembly's tangent, which the regularised kernel
+  suppresses for a pair within about ten `eta` of each other at a smeared Fermi level, to be taken up
+  when a smeared metal's Newton autodiff arm disagrees with its finite difference by more than
+  `si-generic`'s 3.5e-7.
 - **External electric fields beyond P144 and P145.** The saw-tooth field and the dipole correction are
   in, and the Berry-phase finite field for norm-conserving `nspin = 1` insulators along one `gdir`. Not
   in: `gate` (needs `tot_charge`); the stress with either field (`pw.x` has none either); the Berry field
@@ -25672,11 +25674,15 @@ maximum of 1.111** (0.428 on 1.120 without symmetry, where the density moves 0.2
 difference quotient `(F(x + eps v) - F(x))/eps` is `O(1)/eps` in its `becsum` rows whenever the perturbed
 solve hands back another member of the shell, and is a derivative in its density rows. The mixer is
 indifferent because an ultrasoft `becsum` reaches the next Hamiltonian only through the augmentation
-charge, which `sym_rho` symmetrises with the rest of the density; a PAW one-centre term reads `becsum`
-raw, and whether this code symmetrises it there as `PAW_symmetrize` does is an open check, indexed in
-"What is outstanding". No NaN is produced in either arm, so the `FloatingPointError` branch that carried the retracted sentence is not what a cut shell
+charge, which `sym_rho` symmetrises with the rest of the density. (This paragraph said that a PAW
+one-centre term "reads `becsum` raw" and that whether this code symmetrises it was open; **read on
+2026-10-14 evening, it is not open and the sentence was wrong**: `paw/symmetry.py` is `PAW_symmetrize`,
+applied at the end of `Calculation.becsum` for every PAW species since P12, and what was raw was the
+*ultrasoft* `becsum`, by `pw.x`'s own choice; P148 averages it too.) No NaN is produced in either arm, so the `FloatingPointError` branch that carried the retracted sentence is not what a cut shell
 reaches; its comment and message now say what was measured and point at `cut_gap`, `jvp = 'autodiff'`
-and the smearing, and the `features.tex` box and `.claude/rules/scope.md` say the same. (The first
+and the smearing, and the `features.tex` box and `.claude/rules/scope.md` say the same (**P148 revises
+the `jvp = 'autodiff'` recommendation**: measured on gapped silicon, the autodiff action through a
+degenerate subspace was not the Jacobian at all). (The first
 attempt, uncapped and without `verbose`, ran 63 minutes with no output on the finite-difference arm
 before it was killed, `docs/d22-notes.local.md`.) What this leaves of item 4 is the clean comparison,
 `residual.jvp` against `jvp_finite_difference` for a random direction on a cell where the cut is
@@ -25708,3 +25714,195 @@ smearing. **The default `nbnd` at fixed occupations is the occupied count exactl
 input records NaN and measures nothing; `nbnd = nocc + 1` buys the check (`docs/features.tex`, the
 collinear-spin section). No README row, notebook or timing: this is a host-side minimum over an array the
 run already holds, not a quantity, and it costs nothing measurable.
+
+### P148 -- The ultrasoft `becsum` averaged over the group, and Davidson's subspace `eigh` tangent regularised: the two degeneracy defects P147 uncovered, measured and fixed. IN PROGRESS 2026-10-14 night, on fable's review and decisions (`notes/DEGENERACY-NEXT.md` items 6 and 4, order 6, 4, 5, 3), every number on `D22-0161`.
+
+**What was asked, and what the measurements turned it into.** `notes/DEGENERACY-NEXT.md` left two things
+beside the filling cut: item 4, "the Newton-Krylov `jvp` through Davidson's `eigh` at a degeneracy,
+unmeasured", expected to agree with a finite difference to `ethr` on a gapped cell; and item 6, found
+during P147, that `becsum` is not symmetrised in the ground state, with a PAW question attached. The
+PAW question closed by reading (`paw/symmetry.py` is `PAW_symmetrize`, applied for every PAW species since
+P12; the P147 sentence saying otherwise was wrong and is corrected there), and the two measurements below
+each came back the opposite of what the plan expected, so the two items are one phase.
+
+**Item 6, the ultrasoft `becsum`.** `pw.x` leaves it raw on purpose (`sum_band.f90:259-267`: "For USPP
+there is no need to do this as becsums are only used to compute the density, which is symmetrized
+later"; `addusforce.f90` and `addusstress.f90` read it raw and symmetrise the force and the stress
+after). Here every consumer is linear in it and symmetrised downstream as well (`addusdens` then
+`sym_rho`; `symmetrize_vector` for the forces, `symmetrize_matrix` for the stress; the Anderson fit
+excludes it, `mixing.py:371`; the shell is rebuilt by the linear `sym_rho(addusdens(.))`), so the group
+average can be taken before or after and the energy cannot move. What was not single-valued was the
+*state*: the Newton-Krylov vector, the checkpoint and the mixer's history carry `becsum` itself, and a
+raw one-k sum follows the rotation the eigensolver returned inside a degenerate multiplet, which is the
+whole of the finite-difference Jacobian's 7e33 in P147 (0.342 of 1.111 under the shell rotation, the
+density 9.1e-8). **The change is one condition in two places**: `build_becsum_symmetry` gives a species
+its operator when `pseudo.is_ultrasoft` rather than `is_paw`, and `Calculation` builds the object when
+`self.is_ultrasoft and use_symmetry` rather than `self.paw is not None`; unconditional rather than
+Newton-only (fable: a gate would make the checkpoint's state and the mixer's history depend on the
+solver choice, and the response modules' `apply_strain`, `apply_atom_displacement` and
+`apply_directional` need the object regardless). **Measured before the change** (`us_becsum.py`, the
+average built through a proxy and applied to the converged raw `becsum`):
+
+| cell | `nsym` | iterations, E (Ry) | `max|becsum|`, `|sym(b) - b|` | `|aug(sym b) - sym(aug(b))|` on `max|aug|` | `|aug(b) - sym(aug(b))|` |
+|---|---|---|---|---|---|
+| `si8-us-1k` | 24 | 9, -91.013925889499 | 1.552, 0.105 | 6.9e-17 on 4.26e-2 | 6.7e-3 |
+| `si2-us-1k` | 48 | 8, -22.212973427529 | 1.351, 0.205 | 6.7e-17 on 3.87e-2 | 1.3e-2 |
+| `si-epsilon-us` | 48 | 10, -22.766005381176 | 1.580, 0.092 | 5.6e-17 on 4.36e-2 | 2.5e-3 |
+| oxygen atom, P147's | 48 | 9, -31.404683564908 | 1.111, 0.533 | 5.0e-16 on 2.63e-1 | 1.5e-1 |
+| `fe-mag-1k` (`nosym`) | none in force | 11, -55.574264635419 | 61.1, 24.9 | a null: no symmetry in force, `symmetrize` is the identity | 0 |
+
+The raw ultrasoft `becsum` is 7 to 48 per cent of its maximum away from symmetric on every cell, and the
+identity `addusdens(sym(b)) = sym_rho(addusdens(b))` holds to round-off wherever a group is in force,
+which is what makes the change exact for the energy. Under P147's shell rotation the averaged `becsum`
+moves by 4.1e-7, the states' own convergence, where the raw one moved by 0.342 (`cut_becsum_sym.py`).
+The `becsum` call read 1.7 to 3.4 ms on these cells before the change. `tests/unit/test_symmetrisation_projector.py`
+runs its idempotence test over the ultrasoft dataset as well as the PAW one, and
+`test_the_augmentation_charge_of_the_average_is_the_average_of_the_charge` reads the identity on the
+three-fold orbit (the inverse atom permutation in it) against a raw charge that is not symmetric, so the
+test is not a null; 5 passed on D22 in the P148 worktree.
+
+**Item 4, the Jacobian action through Davidson.** `residual.jvp` against `residual.jvp_finite_difference`
+at the output density of a converged run (`|r(x)|` 7e-6 to 4e-5), a random unit direction `v`, `J = dF/dx - I`:
+
+| cell | degenerate block in the subspace | warm autodiff `|Jv|` (Davidson steps) | finite difference `|Jv|`, every start and `eps` | warm autodiff against warm FD |
+|---|---|---|---|---|
+| NC silicon, `nosym`, one generic k | none, smallest occupied gap 9.2e-2 Ry | 0.99971 (8) | 0.99971 to 0.99977 | 6.1e-4, 3.3e-5, **3.5e-7**, 1.5e-8 at `eps` 1e-4 to 1e-7 `|x|`; cold pair 1.5e-9 |
+| NC silicon, 2x2x2 with `Gamma` | threefold at `Gamma`, pairs at `L` | 1.039 (11/19/8); cold 9.58; `ethr` 1e-13 85.5 | 1.0000 to four figures, warm, cold, tight | **28 per cent**, independent of `eps` |
+| smeared symmetric oxygen, triplet split 1.8e-14 | the 2p triplet | 1.0003 (8/9); cold 3.21 | 1.0002 to 1.0004 | 0.5 to 0.9 per cent; `becsum` rows (norm 3e-2) 14 to 23 per cent |
+| smeared `nosym` oxygen, triplet split 6e-6 | the split triplet | 1.0016 | 1.0012 to 1.0016 | 1.5 to 2.5 per cent |
+
+Without a degenerate block the autodiff action **is** the Jacobian, to the finite difference's own
+accuracy, and `residual.py`'s "accurate to about `ethr`" holds; with one it is not, the three autodiff
+arms contradict each other by factors of 9 and 30 while every finite-difference arm agrees with every
+other to four figures, and the eigensolver alone (`cut_jvp_mech.py`, the Davidson cap swept at a fixed
+warm start, the occupied weight per `G` against its own central difference) puts the defect inside the
+step: 4.5e-2 off at caps 1 and 2 on `si-gamma`, then **36x** at cap 4, 17x at 8, 23x at 16, 40x
+uncapped, NaN at `ethr = 1e-13`, 895x cold, against a finite difference flat at 8.4e-2 to 8.8e-2. The
+culprit is JAX's `eigh` JVP at every step: `Fmat = 1/(eye + w_j - w_i) - eye` (`_eigh_jvp_rule`, read
+2026-10-14) is zero on the diagonal and `1/(w_j - w_i)` **unprotected** off it (the plan's sentence that
+an exact degeneracy gives a dropped term was wrong: it gives `inf`, the NaN above, from the exactly
+degenerate parked rows), so a multiplet the solver splits only at its own noise gives an in-block rotation
+tangent of `1/noise`, gauge, which cancels in the density for one or two steps and not after it has passed
+through a normalised correction vector. **The fix (fable's decision: a small one, here, not an `OPEN.md`
+item)**: `solvers/subspace.py:_eigh_regularised`, a `custom_jvp` on the standard `eigh` whose primal is the
+same call bit for bit and whose eigenvector mixing kernel is `(w_j - w_i)/((w_j - w_i)^2 + eta^2)`, the
+real part of `1/(w_j - w_i + i eta)`: bounded by `1/(2 eta)`, `1/Delta` to `(eta/Delta)^2` away from a
+degeneracy, zero on the diagonal, the eigenvalue tangent unchanged, linear in the tangent so reverse mode
+transposes where it exists; applied to both `eigh` calls of both routes through `generalised_eigh(eta=)`,
+and `eta` is the solver's own unit, `empty_band_threshold(ethr)` for a scalar `ethr` and the per-band
+vector's largest entry otherwise, computed once in `davidson_eigensolver` and traced. **This is item 3's
+smooth kernel landed at its first measured site.** What it costs, stated: a pair of Ritz values within
+about `10 eta` of each other (1e-4 Ry at the defaults) has its mixing tangent suppressed by
+`(eta/Delta)^2`, one per cent there, which matters only where the two carry different occupations, a
+near-cut or a smeared Fermi level, where the divided difference of the occupation in the density assembly
+is the exact rule; that stays in "What is outstanding". `tests/unit/test_subspace_eigh_tangent.py` holds
+the four properties (primal unchanged; eigenvalue tangent unchanged and the eigenvector tangent JAX's to
+`3 eta^2` at a gap of 1; finite at an exact degeneracy with the block projector's tangent equal to a
+central difference to 1e-6 while JAX's rule is `inf` or above 1e9 there; a pair split by 1e-13 bounded by
+`1/eta`). The Newton default was and stays `jvp = 'finite-difference'`.
+
+**Item 6, measured after the change** (`us_becsum.py` on the P148 worktree, the same cells; the "other
+arm" column is the before-arm run read back from its saved density and eigenvalues):
+
+| cell | iterations, E (Ry), after | `|sym(b) - b|` | identity `|aug(sym b) - sym(aug(b))|` | against the before arm: `|dE|`, `max|drho|`, `max|deps|` | continued from the before arm's checkpoint |
+|---|---|---|---|---|---|
+| `si8-us-1k` | 9, -91.013925889499 | 1.8e-15 | 5.6e-17 | 2.8e-14 Ry, 4.6e-16, 3.8e-15 | 1 iteration, `dE` -1.0e-12 |
+| `si2-us-1k` | 8, -22.212973427529 | 1.8e-15 | 1.1e-16 | 0, 1.2e-16, 5.6e-16 | 1 iteration, -2.7e-12 |
+| `si-epsilon-us` | 10, -22.766005381176 | 8.9e-16 | 4.2e-17 | 0, 5.4e-16, 6.5e-15 | 1 iteration, -1.4e-14 |
+| oxygen atom (the cut shell) | 9, -31.404683564908 | 1.1e-15 | 3.9e-16 | 1.4e-13 Ry, 7.9e-12, 4.0e-11 | 1 iteration, -7.7e-13 |
+| `ni-noncol-111-nosource` (`nspin_mag = 4`, 12 operations) | 14, -85.724506687719 | 8.8e-15 | 9.3e-15 on 1.42 | 8.5e-14 Ry, 5.3e-14, 2.7e-13 | see below |
+| `alas-epsilon-us-soc` (spinors, `nspin_mag = 1`, 24 operations) | 9, -25.564414817853 | 1.0e-15 | 8.3e-17 | 0, 8.6e-16, 8.1e-15 | 1 iteration, -6.8e-14 |
+
+So the energy, the density and the eigenvalues are unchanged to round-off on every cell, the
+iteration counts are equal, the stored `becsum` is now symmetric to 1e-15 where it was 7 to 48 per cent
+off, and the `nspin_mag = 4` branch (the magnetization rotated as an axial vector, the raw nickel
+`becsum` 3.80 of 8.94 off symmetric before) passes the identity at 9e-15 on a field of 1.42. The
+`becsum` call costs 2.9 to 10.8 ms after against 1.7 to 10.5 before, the group average being one
+`(nsym, nh, nh)` einsum per species (1.5 ms on the 24-operation silicon cell). **The pre-change
+checkpoint**: every cell continues from its raw-`becsum` checkpoint to the same energy in one iteration,
+and the nickel cell, which read `dE` = -7.3e-7 after one iteration at `conv_thr = 1e-9`, was run three
+ways at `conv_thr = 1e-12` with `verbose` (`continue_ni.py`): the new code from the old checkpoint, the
+old code from the old checkpoint and the new code from the new one give **bit-identical trajectories**
+(E -85.72397238, -85.72580942, -85.72450687 at iterations 1 to 3, the same `dr2` to three figures,
+`dE` -5.1e-9 against a fresh 1e-12 run on all three), so the offset is the noncollinear continuation's
+own and not the change's; the one thing the change alters is the `becsum (outside dr2)` diagnostic at the
+first step, 9.34 against 1.9e-3, the predicted one-off jump in the `becsum` residual rows, gone by the
+third. **The finite-difference Newton arm on the cut shell** (`cut_newton.py sym finite-difference`, the
+run that reached 7.1e33 in P147): with the averaged `becsum` it converges, 1.26e-2, 1.11e-4, 1.90e-6,
+1.14e-8, **5.21e-12** in four undamped steps, 19 JVPs (38 `F` evaluations), 7.7 s, to
+-31.404683564910 Ry, the mixer's number. The P147 reading that the difference quotient "is not a
+derivative in its `becsum` rows" was right about the rows and wrong about the consequence once they are
+averaged: the perturbed solve, warm-started from the same block, returns the same member of the shell, so
+the quotient is a derivative along the gauge the warm start fixes, and that is enough for Newton.
+
+**Item 4, measured after the kernel** (`after4/`, the same scripts on the P148 worktree). `si-generic`
+unchanged, 6.1e-4, 3.3e-5, 3.5e-7, 1.5e-8. `si-gamma` warm autodiff against the central difference
+**1.24e-2** at `eps` 1e-4 to 1e-6 and 2.8e-2 at 1e-7 (was 28 per cent); cold autodiff 16 per cent off
+(was 9.6x); warm at `ethr = 1e-13` 2.3x off and finite (was 85x). The mech cap sweep on `si-gamma`:
+4.8e-2 and 5.1e-2 at caps 1 and 2, then 1.9x at 4, 3.5x at 8, 3.3x at 16, 4.7x uncapped, 300x at
+`ethr = 1e-13` (was NaN), 119x cold (was 36x, 17x, 23x, 40x, NaN, 895x). The smeared oxygen's warm
+pair 0.4 to 0.8 per cent (unchanged); its sweep now flat at 0.19 to 0.22x at every cap (was 0.9 to
+3.1x), 0.73x at `ethr = 1e-13`, cold 1779x (was 5200x). **The Newton autodiff arm on the cut-shell
+atom** (`cut_newton.py sym autodiff`) converges 1.26e-2, 1.1e-4, 1.4e-6, 2.0e-8, 6.2e-10, **2.3e-12** in
+five undamped steps, 26 JVPs, 10 s, where before the kernel it took eight damped steps to 3.8e-7 and
+stopped at its cap. So the `inf` is gone, the error is 10 to 30 times smaller, and the acceptance
+"within 10x of `si-generic`, the sweep flat" is **not met**: 1.2e-2 against 3.5e-6, and the sweep still
+grows with the cap. **The width diagnostic** (`cut_jvp_mech_eta.py`, the floor under `eta` raised for
+the run): at `eta = 1e-3` the sweep reads 5.1e-2, 4.4e-2, 1.0x, 4.4x, 5.4x, 4.6x, cold 109x, and at
+`eta = 1e-1`, where the kernel removes essentially every mixing tangent below 1 Ry, 6.0e-2, 4.2e-2,
+4.3e-2, 4.9x, 5.9x, 6.9x, cold 103x. So the growth with the cap does not depend on `eta` above the
+solver's unit: the `eigh`'s in-block tangent was the `inf` and part of the error, and what remains is
+another amplifier inside a Davidson step that acts on a degenerate cell only (`si-generic` is exact at
+every cap).
+
+**Which amplifier remains, two frozen variants (fable's discriminating runs, `w-p148c`).** With
+`stop_gradient` on the correction vectors' *norm* alone the `si-gamma` sweep is bit-identical to the
+kernel's (4.76e-2, 5.07e-2, 1.92x, 3.47x, 3.33x, 4.72x, 119x cold), so the `c d|c|/|c|^2` term is not
+it. With the **whole normalised expansion block frozen**, so that only each subspace's Rayleigh-Ritz
+is differentiated, `si-gamma` flattens and falls with the cap, 0.17, 0.18, 0.12, 7.5e-2, 7.5e-2, 7.1e-2,
+5.5e-2 at `ethr = 1e-13`, **3.1e-2 cold**, and its warm Jacobian action reads 1.6e-3 against the FD
+(from 1.2e-2); but `si-generic` loses its exactness, 0.12 on the sweep and 5.9e-3 on the Jacobian
+action (from 3.5e-7), because the expansion directions' out-of-subspace response is a real term. So the
+remaining amplifier is the member residual's gauge on a degenerate block (one member's correction is not
+a smooth function of `x` when LAPACK's basis inside the block changes between steps, and `1/|c|` makes
+its tangent large), the frozen-expansion tangent is a candidate *approximation* and not a fix, and the
+exact route is the implicit tangent of the converged eigenproblem (P22c). **That goes to `OPEN.md`**
+(Part XXVI) with these numbers and the trigger fable set: the `si-gamma` sweep flat within 10x of
+`si-generic` at every cap, cold included. The kernel stays (fable: every number it touched moved one way,
+`si-generic` did not move, a revert would give back a measured NaN to buy nothing), the `eta` rule stays
+(the residue is independent of `eta` from 1e-5 to 1e-1), and the Newton default stays
+`finite-difference`, now the cheaper arm on the cut shell as well (38 `F` against 26 JVPs).
+
+**Verification, D22, the P148 worktree.** Unit: `test_subspace_eigh_tangent.py` (4),
+`test_symmetrisation_projector.py` (5), `test_davidson_zero_root.py` (8, after its `_Skewed` wrapper
+learnt the `eta` keyword) pass. Regression files the change reaches, one capped process each:
+`test_uspp.py` 45 passed (the ultrasoft forces and stress, the covariance argument's measurement),
+`test_response.py -k us` 13, `test_phonons.py -k us` 12, `test_streamed_phonons.py` 13 (8:18),
+`test_streamed_piezo.py` 6 (3:21), `test_checkpoint.py` 22, `test_lsda.py` oxygen selection 6; and two
+tests asserted the old behaviour and were retuned to the measured new one:
+`test_mixing_space.py::test_the_shell_of_an_output_density_is_its_symmetrised_augmentation_charge`
+asserted that the bare `Q_ij(G) becsum_out` is more than 1e-3 off the shell (the 9 per cent), which with
+the averaged `becsum` reads 1e-18, so it now asserts the bare charge *is* the shell and reads the
+rebuild's symmetrisation on a `becsum` with a random symmetric perturbation (22 passed); and
+`test_scf_solvers.py::test_autodiff_jvp_needs_a_warm_start` asserted a cold-start disagreement above
+0.1 on the aluminium slab, which the kernel took from 0.242 to **0.051**, so its bound is 0.02 with the
+docstring saying why (27 passed with `test_cut_gap.py`). `test_subspace_eigh_tangent.py` gained a
+reverse-mode test on the advisor's review (`jax.grad` through the kernel finite at an exact degeneracy and
+equal to JAX's gradient to `3 eta^2` away from one; 5 passed). The fast gate on the P148 files,
+`after4/gate2.log`: **1 failed, 3652 passed, 72 skipped in 10:47**, the failure
+`test_solvers.py::test_the_subspace_solve_is_handed_a_matrix_of_the_order_of_the_diagonal`, whose spy
+wrapped the two routes with a three-argument signature that `_route` now calls with `eta` (fixed, 28
+passed in the file); **the rerun on the final files, `after4/gate3.log`: 3654 passed, 72 skipped, 0 failed
+in 10:08** on `taskset -c 0-7`.
+
+**What a user sees.** Nothing new to call: an ultrasoft run's `SCFResult.becsum` is now symmetric
+under the point group (the energy, density and eigenvalues unchanged to round-off), a checkpoint written
+before P148 continues to the same fixed point in one iteration, and the Newton-Krylov solver converges on
+a fixed filling that cuts a degenerate shell with either Jacobian; `jvp = 'autodiff'` carries its
+measured accuracy in its docstring and the `features.tex` box says the finite difference is the default
+and why. No README row, notebook or timing: a defect fixed and a tangent regularised, not a quantity;
+the cost is one `(nsym, nh, nh)` contraction per species per `becsum` call (1.5 ms on the 24-operation
+silicon cell) and nothing on the primal of the subspace solve. The texts that recommended
+`jvp = 'autodiff'` as the cut-shell cure (`scf/solvers.py`, `scf/driver.py`'s warning, the
+`features.tex` box, `.claude/rules/scope.md`, P147) now say what was measured: both Jacobians converge
+there, and the smearing is the cure for what stays gauge dependent.

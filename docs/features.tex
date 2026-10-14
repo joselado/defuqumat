@@ -2371,21 +2371,29 @@ orbital-resolved variant, the \code{wf}/\code{pseudo} projector sets, and
 noncollinear \code{ns\_nc}; and PAW $+$ GGA $+$ a noncollinear magnetization
 together.
 
-The \textbf{residual solver} with its default finite-difference Jacobian cannot
-take a fixed occupation whose filled/empty boundary cuts a \textbf{degenerate
-multiplet}. This is what the Hund's-rule filling of an atom does. The state the
-solver works on holds the density and the ultrasoft \code{becsum}. The density
-is symmetrised and does not see which member of the multiplet is occupied (it
-moves by $9\times10^{-8}$ under a rotation of the shell). The \code{becsum} is
-not symmetrised and does see it (it moves by 0.34 on a maximum of 1.11). So the
-difference quotient is not the derivative of anything in those rows. Measured on
-the oxygen atom at \code{tot\_magnetization = 2}: the accuracy goes to
-$7\times10^{33}$ at the first Newton step. The SCF warns about the cut before this happens (see
-\code{result.cut\_gap} above). Two things work on the same atom. The
-\code{jvp = 'autodiff'} Jacobian takes it to $3.8\times10^{-7}$ in eight Newton
-steps and the mixer then finishes at $5\times10^{-12}$~Ry. A smearing works
-with both Jacobians. A \emph{gapped} fixed-occupation LSDA cell agrees between
-the two solvers to 5e-12~Ry.
+The \textbf{residual solver} works on a state that holds the density and the
+ultrasoft \code{becsum}. Both are averaged over the point group. So the state
+does not see which member of a degenerate multiplet the eigensolver filled. This
+matters for a fixed occupation that cuts a \textbf{degenerate multiplet}, which
+is what the Hund's-rule filling of an atom does. Measured on the oxygen atom at
+\code{tot\_magnetization = 2}: the density moves by $9\times10^{-8}$ under a
+rotation of the shell and the averaged \code{becsum} by $4\times10^{-7}$. Both
+Jacobians converge there. The default finite difference takes four Newton steps
+to $5\times10^{-12}$ and \code{jvp = 'autodiff'} takes five to
+$2\times10^{-12}$. Before the average, the raw \code{becsum} moved by 0.34 on a
+maximum of 1.11 and the finite difference went to $7\times10^{33}$ at the first
+step. The SCF still warns about the cut (see \code{result.cut\_gap} above),
+because the wavefunctions, the band-resolved quantities and the response do
+depend on the rotation. A smearing is the cure for those. A \emph{gapped}
+fixed-occupation LSDA cell agrees between the two solvers to 5e-12~Ry.
+
+The \code{jvp = 'autodiff'} Jacobian has one more limit. It differentiates the
+eigensolver step by step. On a cell with no degenerate band it agrees with the
+finite difference to $1.5\times10^{-8}$. On silicon with a threefold degenerate
+band at $\Gamma$ it is off by $1.2\times10^{-2}$ from a warm start. From a cold
+start it is off by 0.16. At \code{ethr} $=10^{-13}$ it is off by a factor of
+2.3. So the default stays the finite difference. The numbers are in
+\code{PLAN.md} P148.
 \end{refuses}
 
 \subsection{The source-free exchange-correlation field, and the torque}

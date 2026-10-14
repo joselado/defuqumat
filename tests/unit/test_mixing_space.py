@@ -285,9 +285,13 @@ def test_the_shell_of_an_output_density_is_its_symmetrised_augmentation_charge(
     The smooth density reaches the dense grid through a zero-padded extension,
     so nothing but the augmentation charge can be in the shell. Read off the
     first two output densities of a real-space run, the shell agrees with the
-    rebuild to round-off; and the symmetrisation is part of it, since an
-    ultrasoft ``becsum`` summed over a k-wedge is not symmetrised, and on this
-    cell ``Q_ij(G) becsum_out`` alone is far off the shell.
+    rebuild to round-off; and the symmetrisation is part of it. Until P148 the
+    ultrasoft ``becsum_out`` was the raw sum over the k-wedge and
+    ``Q_ij(G) becsum_out`` alone was 9 per cent off the shell on this cell;
+    since P148 ``becsum_out`` carries the group average, so its bare
+    augmentation charge *is* the shell, and the statement that the rebuild
+    symmetrises is read on a ``becsum`` with a random symmetric perturbation,
+    whose bare charge is far from its rebuilt one.
     """
     import defuqumat.scf.driver as driver
 
@@ -318,7 +322,22 @@ def test_the_shell_of_an_output_density_is_its_symmetrised_augmentation_charge(
         rebuilt = _shell(layout, np.asarray(rebuild(zero, becsum_out)))
         bare = _shell(layout, np.asarray(calculation.augmented(zero, becsum_out)))
         assert np.max(np.abs(rebuilt - shell)) < 1e-10 * scale
-        assert np.max(np.abs(bare - shell)) > 1e-3 * scale
+        # P148: the averaged becsum's bare charge is already the shell ...
+        assert np.max(np.abs(bare - shell)) < 1e-10 * scale
+        # ... and the rebuild still symmetrises, read on a becsum that is not symmetric
+        rng = np.random.default_rng(0)
+        skewed = []
+        for block in becsum_out:
+            if block is None:
+                skewed.append(None)
+                continue
+            noise = rng.standard_normal(np.shape(block))
+            noise = 0.1 * float(np.max(np.abs(np.asarray(block)))) * (noise + np.swapaxes(noise, -1, -2))
+            skewed.append(jnp.asarray(block) + jnp.asarray(noise))
+        skewed = tuple(skewed)
+        bare_skewed = _shell(layout, np.asarray(calculation.augmented(zero, skewed)))
+        rebuilt_skewed = _shell(layout, np.asarray(rebuild(zero, skewed)))
+        assert np.max(np.abs(bare_skewed - rebuilt_skewed)) > 1e-3 * scale
 
 
 @pytest.mark.parametrize("preconditioned", [False, True])

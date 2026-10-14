@@ -261,9 +261,8 @@ def test_the_subspace_solve_is_handed_a_matrix_of_the_order_of_the_diagonal(sili
     seen = []
 
     def spy(route):
-        def inner(h, s, parked=None):
-            values, vectors = (route(h, s) if parked is None
-                               else route(h, s, parked))
+        def inner(h, s, parked=None, eta=None):
+            values, vectors = route(h, s, parked, eta)
             jax.debug.callback(lambda v, p: seen.append((np.asarray(v), np.asarray(p))),
                                values, parked)
             return values, vectors

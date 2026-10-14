@@ -1735,9 +1735,11 @@ def warn_about_a_cut_shell(cut_gap, ethr, counts, nbnd: int) -> None:
     wavefunctions, a projected DOS, a Berry phase of the occupied set -- and
     everything that perturbs the cell, where the perturbation breaks the
     symmetry the symmetrisation relied on: the Sternheimer response is out by
-    100 per cent on that atom (``response/sternheimer.py``, ``DEGENERATE_CUT_RY``)
-    and the Newton-Krylov solver's finite-difference Jacobian diverges on it
-    (7e33 at the first step, where ``jvp='autodiff'`` converges). The response
+    100 per cent on that atom (``response/sternheimer.py``, ``DEGENERATE_CUT_RY``).
+    The Newton-Krylov solver's finite-difference Jacobian diverged on it too
+    (7e33 at the first step) while the ultrasoft ``becsum`` in its state vector
+    was raw; since P148 that ``becsum`` carries the group average and both
+    Jacobians converge on this atom in four and five undamped steps. The response
     refuses by name; this says why it will, while the number in hand is still
     good. Without symmetry the same atom does not cut the shell but breaks it,
     one orbital 23 mRy below the other two with a real 2.3e-2 Ry gap at the cut,
@@ -1769,8 +1771,7 @@ def warn_about_a_cut_shell(cut_gap, ethr, counts, nbnd: int) -> None:
         "not depend on it where the point group averages the shell, so the "
         "numbers in this result stand, but the wavefunctions, anything "
         "band-resolved built from them, and every response on this state do "
-        "depend on it (the response refuses by name), and a finite-difference "
-        "Newton-Krylov Jacobian diverges on it where jvp='autodiff' does not. "
+        "depend on it (the response refuses by name). "
         "Use a smearing (occupations = 'smearing' with a small degauss, keeping "
         "tot_magnetization), or a tot_magnetization that fills the shell",
         RuntimeWarning,
@@ -2941,13 +2942,17 @@ class Calculation:
             )
             if use_symmetry and self.nspin_mag == 4 else None
         )
-        # PAW's projector occupations need the symmetry imposed on them
-        # explicitly -- see defuqumat.paw.symmetry. Built after the symmetry
-        # search, which is why it is not up with the rest of the PAW setup.
+        # The projector occupations of every augmented species get the group
+        # average -- see defuqumat.paw.symmetry: PAW needs it for the one-centre
+        # terms, and an ultrasoft one since P148 so that ``becsum`` is a
+        # single-valued state (the Newton-Krylov vector, the checkpoint) where a
+        # raw one-k sum follows the rotation the eigensolver returned inside a
+        # degenerate multiplet. Built after the symmetry search, which is why it
+        # is not up with the rest of the augmentation setup.
         self._becsum_symmetry = (
             build_becsum_symmetry(self.pseudos, system.structure, system.cell,
                                   self.symmetries, self.nspin_mag)
-            if self.paw is not None and use_symmetry else None
+            if self.is_ultrasoft and use_symmetry else None
         )
         self._symmetry_maps = symmetry_maps(dense, self.symmetries) if use_symmetry else None
 

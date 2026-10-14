@@ -109,8 +109,8 @@ class _Skewed:
     def __init__(self, original):
         self.original = original
 
-    def __call__(self, h, s, robust=None, parked=None):
-        values, vectors = self.original(h, s, robust=robust, parked=parked)
+    def __call__(self, h, s, robust=None, parked=None, eta=None):
+        values, vectors = self.original(h, s, robust=robust, parked=parked, eta=eta)
         if robust is False:
             vectors = vectors.at[:, 0].multiply(1.0e-3)
         return values, vectors

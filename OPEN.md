@@ -9129,3 +9129,45 @@ rotations give 73.995394, 73.995396, and that is what the tests now do (`CG_THRE
 a call); the default is not fixed. The warm start between passes (`phononq.py:904`) is not
 obviously the cause. **How to know it worked:** the default reproduces the 1e-12 pair to the
 7.8e-5 `ph.x` itself shows, under a random unitary in the degenerate blocks at `k`.
+
+# Part XXVI -- the autodiff Jacobian of the SCF map through a degenerate Davidson subspace, 2026-10-14
+
+## 1. `residual.jvp` is the Jacobian only where no degenerate block enters Davidson's subspace
+
+`scf/residual.py` differentiates Davidson as implemented, and `PLAN.md` P148 measured what that is worth
+(`notes/DEGENERACY-NEXT.md` item 4, every number on `D22-0161`, `/l/ladovj1/review/degeneracy/after4/`).
+On norm-conserving silicon at one generic k-point with `nosym`, no degeneracy anywhere, the autodiff
+action agrees with a central difference of `r` to 6.1e-4, 3.3e-5, 3.5e-7 and 1.5e-8 at steps 1e-4 to
+1e-7 of `|x|`, the `eps^2` law of a central difference around an exact tangent. On the same cell with
+`Gamma` in a 2x2x2 mesh (a threefold block at `Gamma`, pairs at `L`) it was **28 per cent** off warm,
+9.6x off from a cold start and `NaN` at `ethr = 1e-13`, and on the eigensolver alone the tangent of the
+occupied weight grew with the Davidson cap, 4.5e-2 at caps 1 and 2 then 36x, 17x, 23x, 40x. Half of it
+was JAX's `eigh` tangent, `Fmat = 1/(eye + w_j - w_i) - eye`, which is `1/(w_j - w_i)` unprotected off
+the diagonal, applied at every step to Ritz values a multiplet splits only at the solver's noise;
+`solvers/subspace.py:_eigh_regularised` (P148) replaces it by `Delta/(Delta^2 + eta^2)` with `eta` the
+solver's own `empty_band_threshold(ethr)`, and that takes the warm figure to **1.2e-2**, the cold one to
+16 per cent, the sweep to 1.9x, 3.5x, 3.3x, 4.7x and the NaN to a finite 300x, with the generic cell
+unchanged to the last digit. The other half does not depend on `eta` at all (the floor raised to 1e-3
+and to 1e-1 leaves the sweep at 4 to 7x) and is located by two frozen variants: `stop_gradient` on the
+correction vectors' norm changes nothing, and freezing the whole normalised expansion block, so that only
+each subspace's Rayleigh-Ritz is differentiated, flattens the degenerate cell (0.17 down to 3.1e-2 cold,
+the Jacobian action 1.6e-3) while costing the generic cell its exactness (5.9e-3 from 3.5e-7). So the
+remaining amplifier is **one member's correction vector on a degenerate block**: the block's basis is
+LAPACK's choice and changes between steps, so one member's residual is not a smooth function of the
+density, and its normalisation divides that non-smooth tangent by a norm at the residual floor.
+
+**What it affects.** Only `scf_solver = 'newton-krylov'` under `jvp = 'autodiff'`; the default is and
+stays `'finite-difference'`, which is a derivative wherever the state is single-valued (with P148's
+averaged ultrasoft `becsum`, on a cut shell with the point group on as well), and the response stack is
+Sternheimer and does not go through this. In practice the autodiff arm still converges: on the cut-shell
+oxygen atom five undamped Newton steps to 2.3e-12 after the kernel, against eight damped ones stalled at
+3.8e-7 before it, since GMRES needs a direction more than a derivative.
+
+**What would close it.** Either of two things, each a measurement first. The frozen-expansion tangent as
+a selectable approximation, if a cell where it matters shows it beats the full one at the Newton level
+(it is exact in the limit where the expansion directions' out-of-subspace response is small, which is the
+converged end of a warm start). Or the exact route, the implicit tangent of the converged eigenproblem
+(`PLAN.md` P22c): the Sternheimer solve for the occupied manifold's response, one solve per JVP, which
+is also what the divided difference of the occupation needs at a smeared Fermi level
+(`notes/DEGENERACY-NEXT.md` item 4's tail). **The trigger (fable, 2026-10-14):** the `si-gamma` cap
+sweep flat within 10x of `si-generic` at every cap, cold included.
