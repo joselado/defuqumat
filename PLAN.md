@@ -208,12 +208,12 @@ because that is what decides whether it is a session or a phase.
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
   the `starting_ns` sentence, P150 the exact Jacobian of the SCF map, `jvp = 'sternheimer'`, which
   closed `OPEN.md` Part XXVI item 1 and carries the divided difference of the occupation by
-  construction). What is left: **a gauge sweep over the `Calculator` front door**
-  (`notes/DEGENERACY-NEXT.md` item 7), recorded and not started, whose work is finding the
-  injection point of a rotated eigenvector at each entry point; and two findings P150 recorded and
-  did not fix, `OPEN.md` Part XXVI items 2 (the warm-started SCF map has a different derivative,
-  5e-2 to 0.4 of `|dF v|` off the exact one, harmless to Newton) and 3 (`fermi_level_shift` sums the
-  magnetization at `nspin_mag = 4`, unreachable today), with item 4 (notebook 17's stale outputs) and
+  construction), P151 the gauge sweep over the `Calculator` front door (`notes/DEGENERACY-NEXT.md`
+  item 7: three rule-D4 defects found, in the band velocities, the strain `deigenvalues` and two
+  effective-mass diagnostics) and `OPEN.md` Part XXVI item 3. What is left: the dense `eigh` sites
+  outside Davidson, which the sweep does not reach, and the expensive families it left out (P151);
+  `OPEN.md` Part XXVI item 2 (the warm-started SCF map has a different derivative,
+  5e-2 to 0.4 of `|dF v|` off the exact one, harmless to Newton), with item 4 (notebook 17's stale outputs) and
   item 5 (the spinor cell's check stops at its reference's scatter, about 5e-4). The smooth kernel `gap/(gap^2 + eta^2)` is
   **not** outstanding at any further site: P149 withdrew it on arithmetic (at a solver-split pair
   it is a fiction the size of a real pair's contribution).
@@ -26213,3 +26213,45 @@ notebook 17 found its committed outputs stale (`OPEN.md` Part XXVI item 4). **Re
 done**: the gauge sweep over the front door (`notes/DEGENERACY-NEXT.md` item 7) and `OPEN.md` Part
 XXVI items 2 to 5.
 
+
+### P151 -- The gauge sweep over the front door, run: every `get_*` a degenerate cell admits, under two random gauges inside every multiplet; and the Fermi-level shift's count taken on the charge. 🚧 2026-10-15, the user's request ("do the first two points": `notes/DEGENERACY-NEXT.md` item 7 and `OPEN.md` Part XXVI item 3), on fable's review of the plan and its decisions on the fixes (`plans/gauge-sweep-p151.md`), every number on `D22-0161` (`/l/ladovj1/review/degeneracy/p151/`, worktree `w-p151` at `85e7c76` with this tree rsync'd over it).
+
+**The Fermi-level shift.** `SternheimerSolver.fermi_level_shift` integrated `drho` over the channel
+axis, which at `nspin_mag = 4` counted `n + m_x + m_y + m_z`. It now takes the charge by
+`charge_channel`'s rule first. Unit test: a response of 0.3 electrons and 0.7 of magnetization per
+row, two perturbations, gives `-0.3/N(e_F)` and `-0.6/N(e_F)` to 1e-12 at `nspin_mag = 1, 2, 4` (the old
+sum gave `-2.4/N(e_F)` at 4). No reachable number moved: both metallic phonon callers refuse a
+spinor, and `test_the_fermi_level_shift_restores_charge_neutrality` passes unchanged.
+
+**The sweep.** `tools/gauge_sweep.py` (call table `tools/gauge_calls.py`) runs each call in four
+arms on one converged state: unrotated twice, and under two gauges `expm(i A o M)` inside every
+multiplet, with a random phase on every singlet, applied to the cached states and to the output of
+every eigensolve the call makes (the registry entries patched, a fresh calculator per arm, the
+multiplets labelled by `resolve_degeneracy_tol`'s value for that provenance). The controls read
+0.22 to 0.65 (cached states) and 0.52 to 0.98 (a wrapped fixed-density solve) of a multiplet
+member's largest coefficient moved, with the eigenvalues moved by 0; each call reports its reach.
+Four cells, `si-gamma`, `si-gamma-nosym`, `alas-soc`, `o-smear`; 66 cell-calls reached an assembly
+and 66 were refused by name. The full table is `notes/DEGENERACY-NEXT.md` item 7, "Outcome, P151".
+
+| what | `si-gamma` | `si-gamma-nosym` | `alas-soc` | `o-smear` |
+|---|---|---|---|---|
+| bands, nscf, DOS, STM, structure factors | 0 | 0 | 0 | 0 |
+| SHG / shift current (`nbnd = 8`) | refused (wedge) | 5e-10 / 1e-10 of a residue | refused (US) | refused (metal) |
+| optical conductivity | refused (wedge) | 0 | refused (wedge) | 5e-4 at `nbnd = 9`, 0 at `nbnd = 10` |
+| Born charges, `tr2 = 1e-20` | 0 | 6.4e-7, **1.7e-9 at `conv_thr = 1e-14`** | 0 | refused (metal) |
+| phonon at `q = (0,0,1/2)`, frequencies | refused (wedge) | 5.1e-7, **3.1e-9 at `conv_thr = 1e-14`** | refused (US) | refused (US) |
+| `get_band_velocities` | 0.12 to 0.86 | 43 to 65 of a 1.4e-2 maximum | 0.67 to 0.85 | 5.5e-6 |
+| strain `deigenvalues` | 0.27 to 0.42 | 0.36 to 0.66 | refused | refused |
+| effective mass, `asymmetry` / `truncation` of refused bands | 2.5e-2 / 1.5e-9 | 2.9e-10 / 0 | 0.8 to 1.9 / 9e-3 to 1.7e-2 | 0.18 to 0.41 / 1.2e-8 |
+
+The responses' 1e-7 to 1e-6 on the whole-grid cell are not a defect: with the point group off the
+density is symmetric only to `conv_thr`, so the occupied multiplets are really split by 3e-7 to 5e-7
+Ry at 1e-9, and at `conv_thr = 1e-14` the same moves fall by two orders. The oxygen conductivity's
+move goes with its own `band_cut_gap` (6e-14 at `nbnd = 9`, 3.5e-14 at 8, 7.4e-2 at 10). **Three
+rule-D4 defects**, each a band-resolved first-order or diagnostic quantity read inside a multiplet:
+the band velocities, the strain `deigenvalues` (no consumer), and the effective mass's two
+diagnostics on bands whose mass is already refused. Their fixes are this phase's second commit.
+
+**Not reached**: the dense `eigh` sites outside Davidson (recorded, fable's decision), the calls that
+run their own SCF, and for cost the real-time, harmonic, Raman, magnetoelectric, ultracell and
+relaxed families.

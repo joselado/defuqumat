@@ -1140,7 +1140,9 @@ class SternheimerSolver:
         correction removes exactly the charge the uncorrected response invented.
 
         ``drho`` is ``(..., nspin_mag, n1, n2, n3)`` with any number of leading
-        perturbation axes; the shift is computed per perturbation.
+        perturbation axes; the shift is computed per perturbation, from the
+        charge alone (at ``nspin_mag = 4`` the magnetization rows are not
+        summed into the count, ``OPEN.md`` Part XXVI item 3).
 
         ``levels`` is ``(ldos, dos_ef)`` when the caller already has them -- a
         response walked a k-chunk at a time builds them once by walking the
@@ -1153,8 +1155,12 @@ class SternheimerSolver:
         cell = calculation.system.cell
         element = cell.volume / int(np.prod(ldos.shape[1:]))
         leading = drho.ndim - ldos.ndim
-        axes = tuple(range(leading, drho.ndim))
-        delta_n = jnp.sum(drho, axis=axes) * element
+        # the charge of the channel axis, ``Calculation.charge_channel``'s rule
+        # with leading axes: up plus down collinear, channel 0 of a spinor
+        # density, whose other three are the magnetization and carry no count
+        charge = (jnp.take(drho, 0, axis=leading) if calculation.noncolin
+                  else jnp.sum(drho, axis=leading))
+        delta_n = jnp.sum(charge, axis=tuple(range(leading, charge.ndim))) * element
         shift = jnp.where(jnp.abs(dos_ef) > 1.0e-18, -delta_n / dos_ef, 0.0)
         return drho + shift[(...,) + (None,) * ldos.ndim] * ldos, shift
 

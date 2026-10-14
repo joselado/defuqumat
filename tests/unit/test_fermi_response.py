@@ -95,3 +95,36 @@ def test_gapped_spectrum_has_no_fermi_response(levels):
         lambda e: bisect_fermi(e, weights, nelec, 0.01, 0), (eigenvalues,), (direction,)
     )
     assert float(tangent) == 0.0
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("noncolin,channels", [(False, 1), (False, 2), (True, 4)])
+def test_the_fermi_level_shift_counts_the_charge_and_not_the_magnetization(noncolin, channels):
+    """``ef_shift`` fixes the electron count, so only the charge enters it.
+
+    At ``nspin_mag = 4`` the channel axis is ``(n, m_x, m_y, m_z)``, and summing
+    it put the magnetization into the count (``OPEN.md`` Part XXVI item 3). The
+    probe is a response with a charge of 0.3 electrons and a magnetization of
+    0.7 per row: the shift has to be ``-0.3 / N(e_F)`` regardless of the
+    magnetization, and collinear the count is up plus down.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.response.sternheimer import SternheimerSolver
+
+    grid, volume, dos_ef = (2, 3, 4), 12.0, 1.7
+    element = volume / np.prod(grid)
+    rows = np.full((channels,) + grid, 0.3 / (channels * volume))
+    if noncolin:
+        rows[0] = 0.3 / volume
+        rows[1:] = 0.7 / volume
+    drho = jnp.asarray(np.stack([rows, 2.0 * rows]))
+    ldos = jnp.asarray(np.full((channels,) + grid, dos_ef / (volume * (1 if noncolin else channels))))
+    if noncolin:
+        ldos = ldos.at[1:].set(0.0)
+    stub = SimpleNamespace(calculation=SimpleNamespace(
+        noncolin=noncolin, system=SimpleNamespace(cell=SimpleNamespace(volume=volume))))
+    corrected, shift = SternheimerSolver.fermi_level_shift(stub, drho, levels=(ldos, dos_ef))
+    np.testing.assert_allclose(np.asarray(shift), [-0.3 / dos_ef, -0.6 / dos_ef], rtol=1e-12)
+    charge = corrected[:, 0] if noncolin else jnp.sum(corrected, axis=1)
+    np.testing.assert_allclose(np.asarray(jnp.sum(charge, axis=(1, 2, 3))) * element, 0.0, atol=1e-12)

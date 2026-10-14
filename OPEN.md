@@ -9248,7 +9248,17 @@ Davidson converging on the residual norm of each band rather than on its eigenva
 fixed number of steps past convergence. Neither is `cegterg`'s rule, and both cost Davidson steps
 on every SCF iteration, so it is recorded, not done.
 
-## 3. `SternheimerSolver.fermi_level_shift` sums the magnetization into the charge at `nspin_mag = 4` **[open 2026-10-14, P150; unreachable today]**
+## 3. `SternheimerSolver.fermi_level_shift` sums the magnetization into the charge at `nspin_mag = 4` **[closed 2026-10-15, P151: the count is the charge alone]**
+
+> **Closed.** `fermi_level_shift` now takes the charge of the channel axis by
+> `Calculation.charge_channel`'s rule (up plus down collinear, row 0 of a spinor density) before it
+> integrates. `tests/unit/test_fermi_response.py::test_the_fermi_level_shift_counts_the_charge_and_not_the_magnetization`
+> pins it with a response carrying 0.3 electrons and 0.7 of magnetization per row, two perturbations:
+> the shift is `-0.3/N(e_F)` and `-0.6/N(e_F)` to 1e-12 at `nspin_mag = 1, 2, 4`, where the old sum
+> gave `-2.4/N(e_F)` at 4. The two metallic phonon callers still refuse a noncollinear run, so no
+> number that was reachable moved; the neutrality test of `tests/regression/test_response.py` passes
+> unchanged.
+
 
 `fermi_level_shift` integrates `drho` over every axis after the leading ones, the channel axis
 included, which is the charge for `nspin = 1` and for `(up, down)` at `nspin = 2` and is `n + m_x +

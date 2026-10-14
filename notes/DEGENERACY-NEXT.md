@@ -509,7 +509,7 @@ continuation from a pre-change checkpoint, the noncollinear cell with symmetry i
 (`ni-noncol-111-nosource`, `nspin_mag = 4`) and the nonmagnetic spinor one (`alas-epsilon-us-soc`)
 are in `PLAN.md` P148.**
 
-## 7. A gauge sweep over the front door, recorded and not started (2026-10-14, the user's call)
+## 7. A gauge sweep over the front door (2026-10-14, the user's call; run 2026-10-15 as P151)
 
 **What it is.** Every degeneracy defect found so far was found one consumer at a time, and the
 last one (the electron-phonon pair of `OPEN.md` Part XXV, 1.4e-2 cm^-1) only because a random
@@ -537,6 +537,74 @@ round-off is closed with that number.
 
 **Trigger.** None set; it is a sweep that could return a surprise, and it is sized at one session for
 the injection points and one D22 night for the cells.
+
+### Outcome, P151 (2026-10-15, every number on `D22-0161`, `/l/ladovj1/review/degeneracy/p151/`)
+
+The harness is `tools/gauge_sweep.py` with its call table `tools/gauge_calls.py`; the plan and fable's
+review are `plans/gauge-sweep-p151.md`. Four cells: `si-gamma`, the same with `nosym`/`noinv`
+(`si-gamma-nosym`, since half the optical consumers refuse a wedge), `alas-soc` at 2x2x2 and the
+smeared oxygen atom (`o-smear`, no `tot_magnetization`). Each `get_*` ran in four arms on one
+converged ground state: unrotated twice (bit-identical in every case, so the repeat floor is 0) and
+under two random gauges, a unitary `expm(i A o M)` inside every multiplet (labels
+`cumsum(diff(e) >= tol)`, `tol` by `resolve_degeneracy_tol`: 1e-5 on the cached SCF states, `max(5
+ethr, 1e-10)` per wrapped solve) with a random phase on every singlet, applied to the calculator's
+cached states and to the output of every eigensolve the call makes (the registry entries patched, a
+fresh calculator per arm). **The injection reaches**: on every cell the first member of a multiplet
+moves by 0.22 to 0.65 of its largest coefficient in the cached states and by 0.52 to 0.98 after a
+wrapped fixed-density solve, with the eigenvalues moved by exactly 0; every reached call reports its
+solve count and its reads of the cached states, and none reached read zero on both.
+
+Of the calls in the table, 66 cell-calls reached an assembly and 66 were refused by name (a wedge,
+a metal, ultrasoft, spin-orbit, a missing argument). **Invariant to round-off** (every leaf at the
+floor, or a leaf that symmetry forces to zero moving at 1e-16 absolute): bands, nscf, DOS,
+structure factors, STM, angular momenta, nesting, the spin susceptibility, magnons, absorption, the
+optical conductivity on silicon, SHG (5e-10) and the shift current (1e-10 of a 5e-9 residue) on
+`si-gamma-nosym`, the Berry curvature (8e-8 of a time-reversal residue of 9e-6), the polarization,
+`Z2` and `Z2` in 3D (AlAs, 13 and 78 wrapped solves), forces and stress (their residues only).
+
+**Moved, and attributed by an A/B** (each the run that would have read differently had it been a
+defect):
+
+- The **responses** (dielectric constant, Born charges, the phonon at `q`, the strain response's
+  `dvscf`) moved by 1e-7 to 1e-6 on `si-gamma-nosym`, with the same size under both seeds at
+  `tr2 = 1e-20`: Born 6.4e-7, the matrix at `q = (0, 0, 1/2)` 3.6e-7, its frequencies 5.1e-7 (2.4e-4
+  cm^-1). With the point group off the SCF density is symmetric only to `conv_thr`, and the occupied
+  multiplets are really split by 3e-7 to 5e-7 Ry at `conv_thr = 1e-9`, so the rotation is a gauge only
+  to that accuracy. At `conv_thr = 1e-14` (`si-gamma-nosym-tight`, splits down to 6.2e-7 only in the
+  empty bands) the same moves are 1.7e-9, 4.7e-9, 3.1e-9 and the `dvscf` 5.2e-9. On `si-gamma` and
+  `alas-soc` with symmetry on, Born at `tr2 = 1e-20` reads 0 and 0 moving leaves; at the default
+  `tr2 = 1e-14` the 6.8e-7 / 6.7e-8 spread is the self-consistency's own noise.
+- The **optical conductivity of the oxygen atom** moved by 5e-4 at the default `nbnd = 9` and 1e-4 at
+  `nbnd = 8`, where its own `band_cut_gap` reads 6e-14 and 3.5e-14 (the band sum cuts a multiplet);
+  at `nbnd = 10`, `band_cut_gap` 7.4e-2, `sigma` does not move. The result reports the cut and does
+  not warn.
+- The **PDOS of `si-gamma-nosym`** moved by 2.8e-4 (integrated 4e-5): the rotation moves projected
+  weight between members split by up to 1.5e-6 Ry in the SCF's empty bands, the same kind of
+  residue as the responses'.
+
+**Rule D4, found** (each a band-resolved quantity inside a multiplet, recorded with its size; the
+fixes are the second commit of P151, `PLAN.md`):
+
+- `get_band_velocities`: `velocities_by_spin` moves by 0.12 to 0.86 on `si-gamma`, 0.67 to 0.85 on
+  `alas-soc`, 43 to 65 (relative to a 1.4e-2 largest velocity) on `si-gamma-nosym`. Its docstring
+  already said a velocity in a multiplet is not a band's.
+- `get_strain_response`: `deigenvalues`, `<psi_n|dH_ab|psi_n>`, moves by 0.27 to 0.66 on both
+  silicon cells at either `tr2`. No code reads it.
+- `get_effective_mass`: the masses of multiplet bands are already `nan` and the multiplet's
+  `inverse_mass_sum` is invariant to 1e-14, but `asymmetry_by_spin` and `truncation_by_spin` are
+  still reported for those bands and move by 0.8 to 1.9 and 9e-3 to 1.7e-2 on `alas-soc`.
+
+**Not reached, by design** (fable): the dense `eigh` calls outside Davidson (`topology/berry.py`,
+`topology/states.py`, `response/effmass.py`, `response/phonon*.py`, `transport/green.py`,
+`ultracell/*`, `forces/torque.py`, `scf/orientation.py`, `realtime/*`, `hubbard/*`,
+`scf/continuation.py`), the calls that run SCFs of their own, and, for cost, the real-time and
+harmonic calls, Raman, the vibrational spectrum, the magnetoelectric tensor, the ultracell and the
+relaxed family. Electrostriction ran once on `si-gamma-nosym` and is **a null, not a pass**: it
+diagonalises again (one wrapped solve), and on that cell's `conv_thr = 1e-9` density the solve's
+pairs are split by 5.8e-9 and more, above the solve's own `max(5 ethr, 1e-10)`, so the wrapper did
+not rotate them; its copy of the strain `deigenvalues` moved by 8.7e-8 where the standalone
+strain response's moved by 0.66, so it reads states of that solve. It wants a cell whose solve
+leaves its multiplets inside the tolerance (`si-gamma-nosym-tight`), not run.
 
 ## What is not here
 
