@@ -123,6 +123,8 @@ from __future__ import annotations
 import dataclasses
 import time
 import warnings
+from defuqumat.workflows.nscf import fixed_density_ethr
+from defuqumat.solvers.davidson import degeneracy_tolerance
 
 import jax
 import jax.numpy as jnp
@@ -200,6 +202,10 @@ from defuqumat.scf.sawtooth import refuse_sawtooth
 #: it, and the threshold has not been re-measured against the gap
 #: :func:`~defuqumat.ultracell.hamiltonian.multiplet_cut` now returns.
 DEGENERATE_CUT = 1.0e-8
+
+#: ``fixed_density_states``'s own ``conv_thr``, the one the frozen solve runs at
+#: when ``states_conv_thr`` is ``None``.
+DEFAULT_STATES_CONV_THR = 1.0e-6
 
 #: **A noncollinear reference carries a moment when ``int |m|`` over the unit
 #: cell exceeds this**, in Bohr magnetons, and only then is it closed under
@@ -940,6 +946,7 @@ def run_ultracell(
     keep_states: bool = True,
     verbose: bool = False,
     kramers_pairs: bool | None = None,
+    degeneracy_tol: float | None = None,
 ) -> UltracellResult:
     """Converge a modulation over ``supercell`` unit cells.
 
@@ -1321,7 +1328,16 @@ def run_ultracell(
             int(np.ceil(float(calculation.nelup))),
             int(np.ceil(float(calculation.neldw))),
         )
-    if gap < DEGENERATE_CUT and nbnd <= 2 * occupied:
+    # The frozen states were held to ``states_conv_thr``'s scalar ``ethr``, so
+    # that is the promise the cut's gap is read against (``PLAN.md`` P149): at
+    # the default 1e-6 it is 6e-8 where the constant alone, 1e-8, let a
+    # multiplet the solver itself splits by a few ``ethr`` pass as a gap.
+    cut_tol = degeneracy_tolerance(
+        degeneracy_tol, DEGENERATE_CUT,
+        ethr=fixed_density_ethr(
+            frozen.get("conv_thr", DEFAULT_STATES_CONV_THR), calculation.nelec),
+        site="the ultracell's band cut")
+    if gap < cut_tol and nbnd <= 2 * occupied:
         warnings.warn(
             f"the nbnd = {nbnd} truncation cuts a degenerate multiplet "
             f"somewhere on the folded k-set (smallest gap {gap:.2e} Ry), and "

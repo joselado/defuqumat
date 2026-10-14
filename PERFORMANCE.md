@@ -10739,6 +10739,18 @@ tolerance against `ph.x`, and the walked route reproduces the whole one to 1.7e-
 | mode-solves in all, single atom at `(1/4, 0, 0)` | 24 in 8 passes | 26 | |
 | mode-solves in all, four atoms | 165 in 16 passes | 144 | |
 
+**After P149** (2026-10-14, D22, `review/degeneracy/elph/`): the scheduled CG threshold at `q` is
+capped at 1e-8 by default (`phononq.SCHEDULE_CAP_AT_Q`, `threshold_cap=None` for `ph.x`'s loop),
+because the bare schedule's pair at `(1/4, 0, 0)` moved by 1.4e-2 cm^-1 with the basis of the
+degenerate pairs at `k`. The price on the single atom, counted in CG steps (the worst mode per
+pass, summed over modes and passes, warm call): **301 against 178, 1.7x**, in 9 passes either way
+(the fixed 1e-12 the tests pin is 432, 2.4x). In seconds on four efficiency cores with three other
+arms running beside it, 23.2 against 20.3 s for the same call, which is not a timing by the rules
+above (not single-core, not alone) and is recorded only to say the wall clock moved less than the
+step count, since the per-solve setup is a fixed share. The pair against `ph.x` is now 73.995365,
+73.995374 (8.1e-6 apart; `ph.x` 73.995634, 73.995712), where the schedule gave 73.994985,
+74.009679; the ratio against `ph.x` above has not been retaken.
+
 The single atom's warm call is 13.0 s of solves, 2.4 s of response density and 2.6 s of the
 `k + q` diagonalisation; the four atoms' is about 133 s of solves, 21 s of response density and
 6.5 s of diagonalisation, against `ph.x`'s 27.7 s of `cgsolve` and 5.1 s of `incdrhoscf`. Where

@@ -9114,7 +9114,27 @@ six-band image to 9.2e-11 (`review/decided-i/sts8/`, `sts_nbnd.py`).
 
 # Part XXV -- the slow suite under the `grad_m` default, 2026-10-12
 
-## 1. `get_electron_phonon` at its default threshold depends on the gauge of a degenerate multiplet
+## 1. `get_electron_phonon` at its default threshold depends on the gauge of a degenerate multiplet **[closed 2026-10-14, `PLAN.md` P149 item 5b: the scheduled CG threshold at `q` is capped at 1e-8]**
+
+> **Closed by a measurement and a cap, not by the threshold rule the entry expected.** On
+> P148's tree on D22 (`review/degeneracy/elph/`), the same cell and `q1`, a random unitary inside
+> every degenerate pair the ground state left split below 1e-9 Ry (49 pairs on the 512-point grid,
+> 6 of them carrying weight), the pair's move under the rotation and its split against the 1e-12
+> pair (73.995368, 73.995376 on this tree; the entry's 73.995394, 73.995396 is another commit's):
+> the bare schedule 1.42e-2 and 1.47e-2 (the entry's 73.994985, 74.009679 to the digit); every
+> pass from zero 5.6e-4 and 8.1e-4, so the warm start is a factor of 25 and not the cause; a fixed
+> 1e-2 or 1e-4 never converges the loop (100 passes at 2 to 3 CG steps); a fixed 1e-6 is gauge-safe
+> at 6e-5 but 1.4e-2 off the tight pair; a fixed 1e-8 moves by 2.2e-7 and is 3e-6 from the tight
+> pair at 301 against 178 CG steps (1.7x); 1e-10 and 1e-12 at 2.9e-6 and 6.7e-8 for 2.4x. One more
+> tight pass of every mode at the converged `dV_scf`, warm or from zero, at 1e-8 or 1e-12, leaves
+> the full 1.42e-2, and the loop re-converges at once: the error sits in the self-consistent
+> potential, which the loose early passes put there, the metal's near-singular response map at
+> small `q` amplified, and the `|ddv_scf|^2` test cannot see, so it is not a property of the last
+> `dpsi`. The fix is `dynamical_matrix_at_q(threshold_cap=1e-8)` by default
+> (`SCHEDULE_CAP_AT_Q`, `min(0.1 sqrt(dr2), 1e-2, cap)` at every pass), a named deviation from
+> `ph.x`'s loop with `None` giving the uncapped one; the default reproduces the fixed 1e-8 arm to
+> the digit (2.2e-7 under rotation, 301 CG steps, 9 passes), which meets the acceptance below
+> (7.8e-5) by two decades, and the tests' pinned `CG_THRESHOLD = 1e-12` stays as it was.
 
 On `test_electron_phonon.py`'s metal at `q1 = (0.25, 0, 0)`, the two modes `ph.x` gives as
 73.995634 and 73.995712 cm^-1 read **73.99498 and 74.00968** at the default `threshold=None`,

@@ -114,7 +114,7 @@ DEFAULT_DELTA = 0.025
 
 #: Two eigenvalues closer than this (Ry) at the centre are one multiplet. It is
 #: loose on purpose: a near-degeneracy is contaminated by the same rotation an
-#: exact one is, only continuously.
+#: exact one is, only continuously. P149's one rule for a degeneracy tolerance (:func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`) reaches this value and leaves it unchanged: it is already the 1e-5 floor.
 DEFAULT_DEGENERACY_TOL = 1.0e-5
 
 

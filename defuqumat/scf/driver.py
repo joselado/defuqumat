@@ -190,6 +190,7 @@ from defuqumat.solvers.davidson import (
     MAX_ITERATIONS,
     empty_band_threshold,
     starting_vectors,
+    degeneracy_tolerance,
 )
 from defuqumat.solvers.subspace import rayleigh_ritz
 from defuqumat.system.builder import System
@@ -1709,7 +1710,8 @@ def default_nbnd(
     return degeneracy * max(int(round(1.2 * nelec / 2.0)), occupied + 4)
 
 
-def warn_about_a_cut_shell(cut_gap, ethr, counts, nbnd: int) -> None:
+def warn_about_a_cut_shell(cut_gap, ethr, counts, nbnd: int,
+                           degeneracy_tol: float | None = None) -> None:
     """Say so, once, when a fixed filling ends inside a degenerate multiplet.
 
     ``cut_gap`` is :attr:`SCFResult.cut_gap`, the per-channel gap across the
@@ -1754,7 +1756,11 @@ def warn_about_a_cut_shell(cut_gap, ethr, counts, nbnd: int) -> None:
     """
     if cut_gap is None:
         return
-    tolerance = empty_band_threshold(ethr)
+    # ``None`` is the solver's promise on the band above the cut; a number is
+    # the caller's ``degeneracy_tol`` (``PLAN.md`` P149).
+    tolerance = degeneracy_tolerance(
+        degeneracy_tol, empty_band_threshold(ethr), ethr=ethr,
+        empty_floor=True, site="the filling cut")
     gaps = np.asarray(cut_gap, dtype=float)
     cut = [c for c, g in enumerate(gaps) if np.isfinite(g) and g < tolerance]
     if not cut:
@@ -7140,6 +7146,7 @@ def run_scf(
     rotation_flat_curvature: float | None = None,
     pools=None,
     diago_thr_init: float | None = None,
+    degeneracy_tol: float | None = None,
 ) -> SCFResult:
     """Run the self-consistent field loop to convergence.
 
@@ -9280,7 +9287,8 @@ def run_scf(
 
     if levels.get("cut_gap") is not None:
         warn_about_a_cut_shell(levels["cut_gap"], ethr,
-                               occupied_counts(calculation), int(nbnd))
+                               occupied_counts(calculation), int(nbnd),
+                               degeneracy_tol=degeneracy_tol)
 
     return SCFResult(
         converged=converged,

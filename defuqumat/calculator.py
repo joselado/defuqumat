@@ -127,6 +127,14 @@ SHARED_OPTIONS = frozenset({
     # ``pw.x``'s) or 'flat'; this code's own knob, named here so that a
     # calculator can pin it (``PLAN.md`` P146).
     "mixing_fit",
+    # The gap in Ry below which two bands are one level, wherever a quantity
+    # is built on 1/gap or on which bands form a block (the Kubo curvature,
+    # the optical conductivity, the shift current and SHG, the transport
+    # channel basis, the ultracell's cut, the SCF's cut-shell warning).
+    # ``None`` resolves at each site to the eigensolver's own promise on the
+    # states it reads (``PLAN.md`` P149); a number is yours, warned about
+    # below that promise and never raised.
+    "degeneracy_tol",
     "mixing_ndim",
     "mixing_fixed_ns",
     "max_iterations",

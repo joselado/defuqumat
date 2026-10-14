@@ -42,7 +42,7 @@ import numpy as np
 
 from defuqumat.pseudo.upf import Pseudopotential
 from defuqumat.scf.driver import Calculation, default_nbnd
-from defuqumat.solvers.davidson import ETHR_MIN
+from defuqumat.workflows.nscf import fixed_density_ethr
 from defuqumat.system.builder import System
 from defuqumat.system.kpoints import KPoints
 from defuqumat.topology.berry import BerryCurvature
@@ -127,7 +127,9 @@ class DFTSource:
     #: reference implementation records twice (``elkpy``: graphene with a narrow
     #: anticrossing, bulk Bi2Se3 on a coarse loop). Checking it costs nothing:
     #: the eigenvalues are already computed, since the eigensolver is asked for
-    #: empty bands anyway.
+    #: empty bands anyway. It is also what makes the Kubo route's own
+    #: degeneracy step inert on the manifold total: no occupied/empty pair
+    #: below it reaches the sum (``PLAN.md`` P149).
     gap_tol: float = 1.0e-4
     #: The caller's own :class:`~defuqumat.scf.driver.Calculation` of this
     #: system, used as :meth:`_base` rather than a second one built beside it
@@ -304,10 +306,7 @@ class DFTSource:
             ))
         v_scf, terms = self._frozen
         hamiltonians = calculation.hamiltonian_from(terms, hubbard_terms)
-        ethr = max(
-            ETHR_MIN,
-            0.1 * min(1.0e-2, self.conv_thr / max(1.0, calculation.nelec)),
-        )
+        ethr = fixed_density_ethr(self.conv_thr, calculation.nelec)
         eigenvalues, wavefunctions = calculation.diagonalize(
             hamiltonians, nbnd, None, ethr
         )
@@ -328,6 +327,7 @@ class DFTSource:
             wavefunctions[0],
             nbnd=self.nocc,
             keep_projectors=keep_projectors,
+            ethr=ethr,
             energies=eigenvalues[0],
             velocity=velocity,
             hamiltonian=hamiltonians[0] if keep_hamiltonian else None,
@@ -430,6 +430,7 @@ def run_berry_curvature(
     field=None,
     field_scale: float | None = None,
     stream: bool | None = None,
+    degeneracy_tol: float | None = None,
     calculation=None,
     **kwargs,
 ) -> BerryCurvature:
@@ -449,9 +450,16 @@ def run_berry_curvature(
             :mod:`defuqumat.topology.berry`. ``"kubo"`` gives the pointwise
             curvature and reports the truncation of its sum over empty states;
             ``"fhs"`` is the only one a Chern *number* should be read from.
-        kwargs: forwarded to the curvature method -- ``degeneracy_tol`` for
-            ``"kubo"``.
+        degeneracy_tol: for ``"kubo"``, the gap in Ry below which two bands
+            are one level in the per-band curvature; ``None`` resolves to the
+            solver's own promise on these states
+            (:func:`~defuqumat.solvers.davidson.degeneracy_tolerance`), a
+            number is honoured as asked. Named here so that the facade
+            forwards it.
+        kwargs: forwarded to the curvature method.
     """
+    if degeneracy_tol is not None:
+        kwargs["degeneracy_tol"] = degeneracy_tol
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
                      becsum=becsum, ns=ns,
                      field=field, field_scale=field_scale,

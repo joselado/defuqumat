@@ -71,7 +71,10 @@ from defuqumat.transport.substrate import (
 )
 from defuqumat.system.kpoints import KPoints, is_reduced
 from defuqumat.system.kpoints import for_spin as kpoints_for_spin
-from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
+from defuqumat.solvers.davidson import degeneracy_tolerance
+from defuqumat.workflows.nscf import (
+    fixed_density_ethr, fixed_density_states, threaded_calculation,
+)
 from defuqumat.workflows.stm import _plane, _refuse_what_has_no_fermi_level
 
 __all__ = ["run_vertical_transport", "run_momentum_transport",
@@ -112,6 +115,7 @@ def run_vertical_transport(
     kpoints=None,
     nbnd: int | None = None,
     conv_thr: float = 1.0e-6,
+    degeneracy_tol: float | None = None,
     k_batch: int | None | str = "default",
     calculation=None,
 ) -> VerticalTransport:
@@ -284,6 +288,8 @@ def run_vertical_transport(
     # The store is handed over as it is -- a device array or a host one -- and
     # read one k-point at a time; converting it here would copy every k-point
     # to the host at once, beside the device copy the result still holds.
+    degeneracy_tol = _resolved_degeneracy_tol(
+        degeneracy_tol, resolve, result, conv_thr, calculation)
     values, extras = _assemble(
         _geometry(calculation), wavefunctions, eigenvalues, points,
         exit_height=float(exit_height), exit_axis=exit_axis,
@@ -291,7 +297,7 @@ def run_vertical_transport(
         spin=spin, polarization=float(polarization),
         tip_spin=tip_spin, tip_polarization=float(tip_polarization),
         incoherent=bool(incoherent), exit_region=exit_region,
-        method=method, smearing=smearing,
+        method=method, smearing=smearing, degeneracy_tol=degeneracy_tol,
     )
 
     if bias is not None:
@@ -605,6 +611,26 @@ def whole_grid(system, grid, shift=None) -> KPoints:
 
 
 
+def _resolved_degeneracy_tol(explicit, resolve: bool, result, conv_thr,
+                             calculation) -> float:
+    """The block tolerance for this run's states (``PLAN.md`` P149).
+
+    On the re-solved branch every band was held to the fixed-density scalar
+    ``ethr``; on the other the states are the SCF's own, whose empty bands in
+    the window were converged only to ``empty_band_threshold(ethr)``, the 1e-5
+    floor, against which :data:`~defuqumat.transport.green.DEGENERACY_TOL`'s
+    1e-6 was the one real margin item 3 found. ``None`` resolves; a number
+    is the caller's, warned about below the promise.
+    """
+    if resolve:
+        ethr, empty_floor = fixed_density_ethr(conv_thr, calculation.nelec), False
+    else:
+        ethr, empty_floor = getattr(result, "ethr", None), True
+    return degeneracy_tolerance(explicit, DEGENERACY_TOL, ethr=ethr,
+                                empty_floor=empty_floor,
+                                site="the transport channel basis")
+
+
 def _geometry(calculation) -> TransportGeometry:
     """The bundle :func:`_assemble` walks, out of a plane-wave run."""
     used = calculation.system
@@ -624,7 +650,7 @@ def _geometry(calculation) -> TransportGeometry:
 def _assemble(geometry, wavefunctions, eigenvalues, points, *,
               exit_height, exit_axis, energies, broadening, spin,
               polarization, tip_spin, tip_polarization, incoherent,
-              exit_region, method, smearing):
+              exit_region, method, smearing, degeneracy_tol=DEGENERACY_TOL):
     """Sample the tip, build every ``S_k``, contract. One channel at a time.
 
     **A spinor's two components are two amplitude vectors, not one**, and what
@@ -717,7 +743,8 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
         if tip_scale is not None:
             scale *= tip_scale[ispin]
         scales.append(float(scale))
-    windows = _band_window(state_weights, eigenvalues, method, scales)
+    windows = _band_window(state_weights, eigenvalues, method, scales,
+                           tol=degeneracy_tol)
     flat = _flat_axis(points, miller)
 
     open_path = 0.0
@@ -726,7 +753,7 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
         open_path += scale
         # Which bands the band-count truncation actually cuts: the topmost
         # *multiplet*, in the same channel basis the denominator is taken in.
-        top_multiplet = _top_multiplet_mask(eigenvalues[ispin])
+        top_multiplet = _top_multiplet_mask(eigenvalues[ispin], degeneracy_tol)
 
         for ik in range(nk):
             block = np.asarray(wavefunctions[ispin, ik])
@@ -744,7 +771,8 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
                 )
             bands = eigenvalues[ispin][ik]
             hermiticity, least = _diagnose(overlap, bands, hermiticity, least,
-                                           channels, offdiagonal)
+                                           channels, offdiagonal,
+                                           tol=degeneracy_tol)
 
             rows = windows[ispin][ik]
             if scale == 0.0 or rows.size == 0:
@@ -881,7 +909,7 @@ _AMPLITUDE_BLOCK = 2_000_000
 _WINDOW_TOL = 1.0e-18
 
 
-def _band_window(weights, eigenvalues, method, scales=None):
+def _band_window(weights, eigenvalues, method, scales=None, tol=DEGENERACY_TOL):
     """Per channel and k-point, the bands whose amplitude can reach the map.
 
     ``weights`` is ``(nspin, nE, nk, nbnd)``, the per-state factor of
@@ -938,7 +966,7 @@ def _band_window(weights, eigenvalues, method, scales=None):
         for ik in range(nk):
             keep = reached[ispin, ik].copy()
             if keep.any():
-                for block in multiplets(eigenvalues[ispin, ik]):
+                for block in multiplets(eigenvalues[ispin, ik], tol):
                     if keep[block].any():
                         keep[block] = True
             row.append(np.flatnonzero(keep))
@@ -985,7 +1013,8 @@ def _tip_sphere(window, miller, mask, kcrystal, npol, flat, points, exit_axis,
     return folded, inplane, lateral, None
 
 
-def _diagnose(overlap, bands, hermiticity, least, channels, offdiagonal):
+def _diagnose(overlap, bands, hermiticity, least, channels, offdiagonal,
+              tol=DEGENERACY_TOL):
     """What one ``S_k`` says about the substrate, on every band.
 
     Returns the running ``(hermiticity, least)`` and appends to ``channels``
@@ -1012,7 +1041,7 @@ def _diagnose(overlap, bands, hermiticity, least, channels, offdiagonal):
     # In the channel basis, so that "how much sits off the diagonal" is a
     # property of the substrate and not of which basis the eigensolver
     # returned inside a multiplet.
-    u = channel_basis(overlaps, np.asarray(bands)[None])
+    u = channel_basis(overlaps, np.asarray(bands)[None], tol)
     rotated = np.einsum("kni,knm,kmj->kij", u.conj(), overlaps, u,
                         optimize=True)
     norms = np.linalg.norm(rotated, axis=(1, 2))

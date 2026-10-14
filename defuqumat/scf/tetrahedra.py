@@ -91,6 +91,10 @@ def tetrahedron_kind(occupations: str) -> str:
 _DEGENERATE = 1.0e-12
 
 #: Bands within this of each other share their weight (``opt_tetra_weights_only``).
+#: P149's one rule for a degeneracy tolerance (:func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`) does not reach this one, on fable's review: this grouping runs inside the
+#: SCF loop at the *scheduled* ``ethr``, which starts near 1e-2, so a rule that
+#: tracked it would merge distinct bands in the first iterations; the constant
+#: stays, as ``pw.x``'s does.
 _BAND_DEGENERATE = 1.0e-6
 
 #: Bisection steps for the Fermi level. As in ``scf/occupations.py``: 200

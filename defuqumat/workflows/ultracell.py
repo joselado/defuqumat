@@ -38,9 +38,11 @@ from defuqumat.basis.sample import sample_miller
 from defuqumat.stm.image import STMImage, project_spin, tunnelling_weights
 from defuqumat.stm.spectrum import STMSpectrum
 from defuqumat.stm.plane import PlotPlane
+from defuqumat.solvers.davidson import degeneracy_tolerance
 from defuqumat.transport.green import (
     TransportGeometry,
     VerticalTransport,
+    DEGENERACY_TOL,
 )
 from defuqumat.workflows.stm import (
     _constant_current,
@@ -260,6 +262,7 @@ def run_ultracell_transport(
     tip_spin=None,
     tip_polarization: float = 1.0,
     incoherent: bool = True,
+    degeneracy_tol: float | None = None,
     exit_region: str = "plane",
 ) -> VerticalTransport:
     """``T(r; E)`` through a modulated two-dimensional material.
@@ -355,6 +358,12 @@ def run_ultracell_transport(
     # coordinate along it is the same number in both; laterally it is ``n_i``
     # cells, so a point given over ``[0, n_i)`` is ``s / n_i`` in the
     # coordinates the ultracell's own Miller indices are written against.
+    # The ultracell's eigenvalues are a dense ``eigh`` of its frozen-basis
+    # Hamiltonian, exact to round-off, so the promise on them is the
+    # arithmetic floor alone (``ethr = 0``), and ``None`` is the constant.
+    degeneracy_tol = degeneracy_tolerance(
+        degeneracy_tol, DEGENERACY_TOL, ethr=0.0,
+        site="the ultracell transport's channel basis")
     values, extras = _assemble(
         _ultracell_geometry(states), states, np.asarray(states.eigenvalues),
         points / scale,
@@ -363,7 +372,7 @@ def run_ultracell_transport(
         spin=spin, polarization=float(polarization),
         tip_spin=tip_spin, tip_polarization=float(tip_polarization),
         incoherent=bool(incoherent), exit_region=exit_region,
-        method=method, smearing=smearing,
+        method=method, smearing=smearing, degeneracy_tol=degeneracy_tol,
     )
 
     if bias is not None:

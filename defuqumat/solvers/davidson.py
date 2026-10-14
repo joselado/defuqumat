@@ -231,6 +231,94 @@ def empty_band_threshold(ethr):
     return max(5.0 * float(ethr), EMPTY_ETHR_FLOOR)
 
 
+#: What a symmetry-degenerate multiplet is left split by, as a multiple of the
+#: scalar ``ethr`` every band of a fixed-density solve was held to. Measured on
+#: silicon (``si2-lda-gap.in``, ``PLAN.md`` P149, D22, 2026-10-14) at ``Gamma``,
+#: ``X`` and ``L`` with twelve bands: at ``conv_thr`` 1e-4, 1e-5 and 1e-6
+#: (``ethr`` 1.25e-6 to 1.25e-8) the twelve multiplets read 0.00 to 0.23
+#: ``ethr``, and the one outlier over the whole sweep is the highest solved
+#: pair at ``conv_thr`` 1e-8, 1.68 ``ethr`` (the top of a Davidson block is
+#: the band it converges last). Five covers that with a margin of three and
+#: is also ``cegterg``'s own factor on an empty band, so the rule reads the
+#: same on both routes.
+SPLIT_PER_ETHR = 5.0
+
+#: The split a symmetry-degenerate pair keeps whatever ``ethr`` asks: the
+#: round-off of a Rayleigh quotient, which scales with the Hamiltonian's norm
+#: and with ``npw``. Read at 5.5e-12 Ry on spin-orbit nickel at every ``ethr``
+#: below 2.5e-10 (``OPEN.md`` B1) and at 1e-16 to 8e-13 on silicon at
+#: ``conv_thr`` 1e-10 and 1e-12 (P149); twenty times the larger reading is
+#: the margin for a cell at a higher cutoff.
+ARITHMETIC_FLOOR = 1.0e-10
+
+
+def resolve_degeneracy_tol(asked, ethr=None, *, empty_floor: bool = False) -> float:
+    """The gap below which two bands are one level, for states of known provenance.
+
+    ``asked`` is a site's own constant; the result is never below the split
+    the eigensolver itself leaves on an exactly degenerate pair, which is what
+    makes a ``1/gap`` built on it a report rather than a rotation's residue
+    (rule D4; ``notes/DEGENERACY-NEXT.md`` item 3):
+
+    * ``ethr=None``: an array of unknown provenance, which may be an
+      ``SCFResult``'s eigenvalues with the empty bands at
+      :data:`EMPTY_ETHR_FLOOR` -- ``max(asked, EMPTY_ETHR_FLOOR)``, the
+      argument of ``OPEN.md`` B1.
+    * a scalar ``ethr`` every band was held to (a fixed-density solve,
+      :func:`~defuqumat.workflows.nscf.fixed_density_ethr`):
+      ``max(asked, SPLIT_PER_ETHR * ethr, ARITHMETIC_FLOOR)``.
+    * ``empty_floor=True`` with ``ethr``: an SCF's states, whose empty bands
+      were converged only to :func:`empty_band_threshold`; that joins the
+      ``max``.
+
+    At every site's default on the fixed-density route the result is the
+    site's own constant (``conv_thr`` 1e-8 to 1e-10 puts ``5 ethr`` at
+    6e-10 and below), so what the rule changes is what the tolerance is a
+    function of: a loose ``conv_thr`` raises it. A caller's *explicit*
+    tolerance is not resolved here but honoured as asked
+    (:func:`degeneracy_tolerance`).
+    """
+    tol = float(asked)
+    if ethr is None:
+        return max(tol, EMPTY_ETHR_FLOOR)
+    tol = max(tol, SPLIT_PER_ETHR * float(ethr), ARITHMETIC_FLOOR)
+    if empty_floor:
+        tol = max(tol, empty_band_threshold(ethr))
+    return tol
+
+
+def degeneracy_tolerance(explicit, default, ethr=None, *,
+                         empty_floor: bool = False, site: str = "") -> float:
+    """A site's degeneracy tolerance: ``explicit`` as asked, or ``default`` resolved.
+
+    ``None`` resolves ``default`` through :func:`resolve_degeneracy_tol`; a
+    number is the caller's and is returned unchanged, with a warning naming
+    both when it is below the resolved value, since a guard below the
+    solver's own split lets an exactly degenerate pair into a ``1/gap``
+    (``OPEN.md`` B1 measured 2700x on the anomalous Hall conductivity). The
+    knob stays a knob because B1's own reading, 42 pairs at 5.56e-13 against
+    102 at 1e-10, is a measurement a silently raised ask could not make.
+    """
+    resolved = resolve_degeneracy_tol(default, ethr, empty_floor=empty_floor)
+    if explicit is None:
+        return resolved
+    explicit = float(explicit)
+    if explicit < resolved:
+        import warnings
+
+        warnings.warn(
+            f"degeneracy_tol = {explicit:.3g} Ry{' at ' + site if site else ''} "
+            f"is below the split the eigensolver leaves on an exactly "
+            f"degenerate pair of these states, {resolved:.3g} Ry; a pair "
+            f"between the two is a symmetry degeneracy read as a gap, and "
+            f"anything built on 1/gap from it is the rotation the solver "
+            f"returned, not a quantity. Honoured as asked; None takes "
+            f"{resolved:.3g}.",
+            stacklevel=3,
+        )
+    return explicit
+
+
 def _extend_projection(hc, sc, psi, hpsi, becp, becq, offset, block,
                        gamma_only: bool = False, *, width: int | None = None):
     """Add one block of rows and columns to the projected H and overlap.

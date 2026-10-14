@@ -24,8 +24,12 @@ from defuqumat.response.conductivity import (
     OpticalConductivity,
     optical_conductivity,
     require_a_conductivity_regime,
+    DEGENERACY_TOL,
 )
-from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
+from defuqumat.solvers.davidson import degeneracy_tolerance
+from defuqumat.workflows.nscf import (
+    fixed_density_ethr, fixed_density_states, threaded_calculation,
+)
 from defuqumat.scf.occupations import cut_gaps
 
 __all__ = ["run_conductivity"]
@@ -182,6 +186,13 @@ def run_conductivity(
     if fermi_energy is None:
         fermi_energy = _fermi_level(calculation, eigenvalues)
 
+    # ``None`` resolves to the solver's promise on *these* states, every band
+    # held to the scalar ``ethr`` of the fixed-density solve above; a number is
+    # the caller's and is warned about below that promise (``PLAN.md`` P149).
+    degeneracy_tol = degeneracy_tolerance(
+        degeneracy_tol, DEGENERACY_TOL,
+        ethr=fixed_density_ethr(conv_thr, calculation.nelec),
+        site="the optical conductivity")
     return optical_conductivity(
         calculation, wavefunctions, eigenvalues, potential.v_scf,
         fermi_energy=fermi_energy, frequencies=frequencies, window=window,

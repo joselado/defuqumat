@@ -446,10 +446,18 @@ def test_a_degenerate_pair_is_counted_and_the_guard_is_above_the_round_off():
     assert default.degeneracy_tol == pytest.approx(1.0e-5)
     assert np.max(np.abs(default.sigma_s_per_cm)) < 1.0e-3
 
-    with pytest.warns(RuntimeWarning, match="degenerate within"):
+    # An explicit tolerance is honoured as asked (this reading, 42 against
+    # 102, is B1's measurement of the bimodal gaps and a silently raised knob
+    # could not make it), and since P149 it is warned about by name when it
+    # sits below the promise the eigensolver made on these states: that
+    # warning is the guard-fires test of this site, so both are asserted.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         tight = run_conductivity(system, pseudos, result.density, nbnd=36,
                                  method="curvature", broadening=0.01,
                                  degeneracy_tol=5.56e-13)
+    assert [w for w in caught if "degenerate within" in str(w.message)]
+    assert [w for w in caught if "below the split" in str(w.message)]
     assert tight.degenerate_pairs == 42
     assert np.max(np.abs(tight.sigma_s_per_cm)) > 1.0
 

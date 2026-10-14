@@ -197,7 +197,7 @@ def kubo_from_matrices(
 
 def plane_wave_kubo(
     states, mesh, axes, nocc: int | None = None,
-    degeneracy_tol: float = DEGENERACY_TOL, **_,
+    degeneracy_tol: float | None = None, **_,
 ):
     """``Omega(k)`` on a plane mesh, from ``VelocityOperator``.
 
@@ -208,6 +208,14 @@ def plane_wave_kubo(
     """
     from defuqumat.topology.berry import BerryCurvature
 
+    # ``None`` is the solver's own promise on these states (``states.ethr``,
+    # a fixed-density solve's scalar threshold) and a number is the caller's,
+    # warned about when it is below that promise (``PLAN.md`` P149).
+    from defuqumat.solvers.davidson import degeneracy_tolerance
+
+    degeneracy_tol = degeneracy_tolerance(
+        degeneracy_tol, DEGENERACY_TOL, ethr=getattr(states, "ethr", None),
+        site="the Kubo Berry curvature")
     _require_velocity(states)
 
     nocc = states.nbnd if nocc is None else int(nocc)

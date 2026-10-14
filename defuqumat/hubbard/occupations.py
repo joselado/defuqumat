@@ -576,6 +576,13 @@ def adjust_ns(ns: jnp.ndarray, setup) -> jnp.ndarray:
     the orbital that the level belongs to is whatever the starting matrix says
     it is, which for the diagonal starting matrix of :func:`initial_ns` is one
     of the ``m`` states in the file's order.
+
+    Inside a degenerate block of ``ns`` (the diagonal starting matrix has one
+    per shell), ``eigh`` orders the block's eigenvectors as LAPACK happens to,
+    so ``m`` names a member of the block the solver chose rather than a
+    definite orbital. This is a starting guess and not a result, so it costs
+    SCF iterations at worst and cannot be wrong, and ``pw.x``'s ``ns_adj``
+    does the same (``notes/DEGENERACY-NEXT.md`` item 5).
     """
     if not setup.starting_ns:
         return ns

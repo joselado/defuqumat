@@ -848,6 +848,33 @@ def _modes(nat: int, modes):
     return list(modes)
 
 
+#: The CG threshold a *scheduled* solve at ``q`` is capped at, in the units of
+#: :func:`~defuqumat.response.sternheimer.pass_threshold`: every pass runs at
+#: ``min(0.1 sqrt(dr2), 1e-2, cap)``. ``ph.x``'s loop is the uncapped one
+#: (``threshold_cap=None``), and this code's default departs from it on a
+#: measurement (``PLAN.md`` P149, item 5b; ``al-elph-nosym.in`` at
+#: q = (1/4, 0, 0), D22, 2026-10-14): under the bare schedule the transverse
+#: pair comes out 1.5e-2 cm^-1 apart and moves by 1.4e-2 under a random
+#: unitary inside the degenerate pairs at ``k`` (rule D4), while ``ph.x``'s
+#: own pair is 7.8e-5 apart; a loose early pass leaves an error inside each
+#: pair that the mixer folds into ``dV_scf``, the metal's response map at
+#: small ``q`` amplifies it into the fixed point, and the self-consistency
+#: test is blind to it, so neither a warm nor a cold tight pass at the
+#: converged potential removes it (1.42e-2 either way), nor every pass from
+#: zero (5.6e-4). With every pass at 1e-8 the move is 2.2e-7 and the pair is
+#: 3e-6 from the one at 1e-12, at 301 against 178 CG steps (1.7x); 1e-6 is
+#: gauge-safe (6e-5) but 1.4e-2 off the tight pair, and a fixed 1e-2 or 1e-4
+#: never converges the loop.
+SCHEDULE_CAP_AT_Q = 1.0e-8
+
+
+def _capped(threshold, cap):
+    """``min(threshold, cap)`` where both are numbers, else ``threshold``."""
+    if threshold is None or cap is None:
+        return threshold
+    return min(float(threshold), float(cap))
+
+
 def _levels(threshold, count: int) -> list:
     """One CG threshold per mode from a scalar, ``None`` or a list."""
     if isinstance(threshold, (list, tuple)):
@@ -913,7 +940,7 @@ class _WholeDisplacementsAtQ:
 def screening_loop_at_q(
     calculation, displacements, density, q_cart, alpha_mix: float = 0.7,
     tr2: float = 1e-14, max_iterations: int = 100, mixing_mode: str = "anderson",
-    verbose: bool = False,
+    verbose: bool = False, threshold_cap: float | None = None,
 ):
     """:func:`self_consistent_response_at_q`'s loop around a set of solves.
 
@@ -967,8 +994,10 @@ def screening_loop_at_q(
     active = list(range(modes))
     drho = None
     for iteration in range(max_iterations):
-        thresholds = [pass_threshold(displacements.solver,
-                                     [] if changes[index] is None else [changes[index]])
+        thresholds = [_capped(pass_threshold(displacements.solver,
+                                             [] if changes[index] is None
+                                             else [changes[index]]),
+                              threshold_cap)
                       for index in active]
         response = displacements.respond(
             dvscf, iteration > 0, threshold=thresholds,
@@ -1443,7 +1472,7 @@ def dynamical_matrix_at_q(
     q=(0.0, 0.0, 0.0), q_cartesian: bool = False, nbnd: int | None = None,
     threshold: float | None = None, alpha_mix: float = 0.7, tr2: float = 1.0e-14,
     max_iterations: int = 100, verbose: bool = False,
-    keep_internals: bool = False,
+    keep_internals: bool = False, threshold_cap: float | None = SCHEDULE_CAP_AT_Q,
 ):
     """``D(q)``: the dynamical matrix at one wavevector.
 
@@ -1469,6 +1498,8 @@ def dynamical_matrix_at_q(
     :func:`ewald_dynamical_matrix` are whole-cell objects, and a partial
     dynamical matrix that silently mixed the two would be a plausible wrong
     answer rather than an error. Adding it means slicing all three together.
+
+    ``threshold_cap`` caps the *scheduled* CG threshold at every pass, ``min(0.1 sqrt(dr2), 1e-2, cap)``, :data:`SCHEDULE_CAP_AT_Q` by default; ``None`` is ``ph.x``'s uncapped loop, for a like-for-like comparison, and a number given as ``threshold`` is never scheduled and never capped. Why the default departs from ``ph.x`` is :data:`SCHEDULE_CAP_AT_Q`'s docstring.
 
     ``keep_internals`` attaches the two-sphere solver, the bare perturbations
     and the converged ``dV_scf`` to the result's ``internals``, which is what
@@ -1541,7 +1572,7 @@ def dynamical_matrix_at_q(
         dpsi, drho, history, average, converged = screening_loop_at_q(
             calculation, displacements, density, q_cart,
             alpha_mix=alpha_mix, tr2=tr2, max_iterations=max_iterations,
-            verbose=verbose,
+            verbose=verbose, threshold_cap=threshold_cap,
         )
         matrix = (
             swap_ewald(calculation, positions,
@@ -1565,7 +1596,7 @@ def dynamical_matrix_at_q(
         dpsi, drho, history, average, converged = screening_loop_at_q(
             calculation, displacements, density, q_cart,
             alpha_mix=alpha_mix, tr2=tr2, max_iterations=max_iterations,
-            verbose=verbose,
+            verbose=verbose, threshold_cap=threshold_cap,
         )
 
         matrix = (

@@ -2811,7 +2811,17 @@ $\min\big(0.1\sqrt{|\Delta\Delta V_{\mathrm{scf}}|^2},\,10^{-2}\big)$ after, and
 each solve starts from the previous pass's solution. A number for
 \code{threshold} holds the CG at that value on every pass instead, which together
 with a smaller \code{tr2} is what a comparison of two routes below \code{ph.x}'s
-own convergence needs.
+own convergence needs. At $\mathbf q \neq 0$ there is one more rule. The schedule
+is capped at $10^{-8}$ on every pass (\code{threshold\_cap}). We measured why on
+aluminium at $\mathbf q = (1/4, 0, 0)$. With the bare schedule the two transverse
+modes came out 0.015~cm$^{-1}$ apart. A random rotation inside the degenerate
+pairs at $\mathbf k$ moved them by 0.014~cm$^{-1}$. So the number depended on
+the basis the eigensolver returned, which it must not. The cause is the loose
+early passes. They leave an error in $\Delta V_{\mathrm{scf}}$ that the
+convergence test cannot see. A tight last pass does not remove it. With the cap
+the move is $2\times10^{-7}$~cm$^{-1}$ and the solves take 1.7 times more CG
+steps. \code{threshold\_cap=None} gives the loop exactly as \code{ph.x} runs it,
+for a comparison of the two codes.
 
 \begin{pycode}
 calc = Calculator.from_file("si-epsilon.in", pseudo_dir="pseudo")
@@ -3109,7 +3119,11 @@ sums to 2 and $N(E_F)$ is per spin. This is \code{ph.x}'s
 $\sigma$ the Fermi level and $N(E_F)$ are recomputed at that width with
 Methfessel--Paxton smearing, and the two deltas are Gaussians of width
 $\sigma$, so you can watch how far the result is from converged in the
-$k$-mesh by how much it moves with $\sigma$.
+$k$-mesh by how much it moves with $\sigma$. The phonon under the coupling is
+solved with the CG threshold capped at $10^{-8}$ on every pass
+(\code{threshold\_cap}, see the phonons at $\mathbf q$ above). This is what
+makes the two transverse modes of aluminium at $\mathbf q = (1/4, 0, 0)$ come
+out $8\times10^{-6}$~cm$^{-1}$ apart, as in \code{ph.x}, and not 0.015.
 
 \begin{pycode}
 # a metal: occupations = 'smearing', nosym and noinv on an unshifted grid
@@ -4104,8 +4118,16 @@ first dropped: stopping \emph{inside} a degenerate multiplet keeps some members
 and drops others, and silicon's antisymmetric $\sigma$ --- zero by time
 reversal --- comes out at 4.0e-13 when the cut falls at a real gap and at
 1.0e-5 when it does not. \code{degenerate\_pairs} counts the occupied/empty
-pairs that came back closer together than \code{degeneracy\_tol} (1e-5~Ry,
-what an SCF converges an \emph{empty} band to) and were therefore dropped.
+pairs that came back closer together than \code{degeneracy\_tol} and were
+therefore dropped. If you do not give \code{degeneracy\_tol}, the code resolves
+it from the states it reads. For a fixed-density solve this is
+$\max(5\,\code{ethr}, 10^{-10})$~Ry and at least 1e-5~Ry. Here \code{ethr} is
+the threshold every band was converged to, $0.1\,\code{conv\_thr}/N_{\rm el}$.
+So at the default \code{conv\_thr} the value is 1e-5~Ry, as before. A number
+you give is used as it is. If it is below what the eigensolver can resolve, the
+code warns and says both numbers. The same option, with the same meaning, exists
+on \code{get\_berry\_curvature}, \code{get\_shift\_current}, \code{get\_shg},
+\code{get\_vertical\_transport}, \code{get\_ultracell} and \code{get\_scf}.
 Zero is the ordinary case. When it is not zero it usually still does not
 matter --- on the smeared frequency route the two orderings of such a pair
 cancel analytically, because what survives the $1/\epsilon_{mn}$ is
@@ -5277,7 +5299,16 @@ silicon the curvature vanishes \emph{pointwise} to $3.5\times10^{-5}$.
 its denominator $(\varepsilon_n-\varepsilon_m)^{-2}$ is singular at a degeneracy
 and its Brillouin-zone sum is an ordinary Riemann sum, which converges to an
 integer without ever being one --- \code{method="fhs"} is the default and is
-exact on any mesh. \textbf{Ultrasoft and PAW run}, and what the
+exact on any mesh. Two bands closer than \code{degeneracy\_tol} are one level
+in the per-band curvature \code{curvature\_by\_band}. If you do not give it, the
+code takes the larger of 1e-6~Ry and $5\,\code{ethr}$ of the fixed-density solve.
+At the default \code{conv\_thr} this is 1e-6~Ry, as before. The total over the
+occupied bands does not need this guard. It is built from occupied/empty pairs
+only, and the gap check above already refuses a gap below 1e-4~Ry. We checked
+both on silicon with a random rotation inside each degenerate multiplet. The
+total and the sum of \code{curvature\_by\_band} over a multiplet moved by
+$8\times10^{-11}$. One band inside a multiplet moved by 7 on a scale of 11, as
+it must, because that number is not defined on its own. \textbf{Ultrasoft and PAW run}, and what the
 \code{method="kubo"} comparison against \code{method="fhs"} cannot tell you is
 whether the augmentation dipole is there: on ultrasoft AlAs it is worth
 \textbf{0.34\,\%} of $\Omega$ where the two methods sit \textbf{50\,\%} apart
@@ -6711,6 +6742,11 @@ $\sum_n \tilde\delta(E - \varepsilon_{n\mathbf k})$. A fourth,
 that diagonalises $S^{\rm exit}$ inside each degenerate multiplet --- that
 column is a \emph{diagonal} and so is not invariant under the rotation a
 degenerate eigensolver is free in, where $W$ is a trace and needs no such care.
+Two bands closer than \code{degeneracy\_tol} form one multiplet here. If you do
+not give it, the code takes it from the states. With \code{kpoints} given, the
+bands are re-solved and the value is the larger of 1e-6~Ry and $5\,\code{ethr}$
+of that solve. Without \code{kpoints} the states are the SCF's own. Then an
+empty band in the window is converged only to 1e-5~Ry, so the value is 1e-5~Ry.
 
 \textbf{Why the ratio is large.} A state at in-plane momentum
 $\mathbf k_\parallel$ decays into the vacuum as
@@ -7256,7 +7292,15 @@ envelope nothing to be built from. Pass it. \code{ulr.multiplet\_gap} reports
 the smallest gap the truncation opens anywhere on the folded k-set: where that
 is small the cut has fallen inside a degenerate multiplet, which member of it
 survives is whatever the eigensolver returned, and the basis is arbitrary
-there. \textbf{Whether that matters depends on where the cut is}, and the two
+there. What counts as small is \code{degeneracy\_tol}. If you do not give it,
+the code takes the larger of 1e-8~Ry and $5\,\code{ethr}$ of the frozen solve.
+Here \code{ethr} is $0.1\,\code{states\_conv\_thr}/N_{\rm el}$. This matters
+at a loose \code{states\_conv\_thr}. We measured it on silicon with
+\code{nbnd = 6}, a cut inside a triplet. At \code{states\_conv\_thr = 1e-4} the
+eigensolver left the triplet split by $1.3\times10^{-7}$~Ry. The old fixed
+1e-8~Ry read this as a real gap and stayed silent. The resolved value,
+$6\times10^{-6}$~Ry, warns. At the default \code{states\_conv\_thr} the two
+agree. \textbf{Whether that matters depends on where the cut is}, and the two
 cases were measured rather than assumed. Low --- no more empty bands than
 occupied ones --- the arbitrary rotation is among the very states the response
 is built from, and \code{run\_ultracell} warns: \code{nbnd = 8} on silicon cuts

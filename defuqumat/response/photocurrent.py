@@ -527,6 +527,7 @@ def shift_current(
     band_cut_gap: float = float("nan"),
     k_batch: int | None | str = "default",
     degeneracy_tol: float | None = None,
+    cut_tol: float | None = None,
 ) -> ShiftCurrent:
     """``sigma^abc(0; w, -w)``, the shift-current tensor, in A/V^2.
 
@@ -567,7 +568,8 @@ def shift_current(
         calculation, "the shift-current tensor sigma^abc", _GRID_RESIDUE_SHIFT
     )
     _warn_about_the_cut(
-        band_cut_gap, "the shift-current tensor sigma^abc", _CUT_RESIDUE_SHIFT
+        band_cut_gap, "the shift-current tensor sigma^abc", _CUT_RESIDUE_SHIFT,
+        tol=DEGENERACY_TOL if cut_tol is None else float(cut_tol),
     )
 
     eigenvalues = jnp.asarray(eigenvalues)
@@ -867,7 +869,8 @@ def _warn_about_the_grid(calculation, quantity: str, measured: str) -> None:
     )
 
 
-def _warn_about_the_cut(band_cut_gap: float, quantity: str, measured: str) -> None:
+def _warn_about_the_cut(band_cut_gap: float, quantity: str, measured: str,
+                        tol: float = DEGENERACY_TOL) -> None:
     """Say so when the band set was cut inside a degenerate multiplet.
 
     ``band_cut_gap`` is ``min_k (e_(nbnd+1) - e_nbnd)``, which the workflows
@@ -893,11 +896,11 @@ def _warn_about_the_cut(band_cut_gap: float, quantity: str, measured: str) -> No
     ``nan``, which is what the assembly carries when nobody measured the cut,
     compares false and says nothing.
     """
-    if not band_cut_gap < DEGENERACY_TOL:
+    if not band_cut_gap < tol:
         return
     warnings.warn(
         f"the band set is cut inside a degenerate multiplet: band_cut_gap = "
-        f"{band_cut_gap:.2e} Ry, below DEGENERACY_TOL = {DEGENERACY_TOL:g} Ry, "
+        f"{band_cut_gap:.2e} Ry, below the degeneracy tolerance {tol:g} Ry, "
         "the splitting under which two bands are one level. Which members of "
         "the multiplet fall below the cut is arbitrary, since any rotation "
         "inside it is an equally good set of eigenvectors, so "

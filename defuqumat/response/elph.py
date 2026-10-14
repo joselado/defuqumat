@@ -275,7 +275,7 @@ def electron_phonon_at_q(
     el_ph_ngauss: int = 1, degeneracy_cmm1: float = 0.05,
     nbnd: int | None = None, threshold: float | None = None,
     alpha_mix: float = 0.7, tr2: float = 1.0e-14, max_iterations: int = 100,
-    verbose: bool = False,
+    verbose: bool = False, threshold_cap: float | None | str = "default",
 ) -> ElectronPhonon:
     """The phonon at ``q``, its coupling matrix elements, and ``elphsum_simple``.
 
@@ -284,10 +284,17 @@ def electron_phonon_at_q(
     ``N(E_F)`` are recomputed with at each of them (1, Methfessel-Paxton, as in
     ``ph.x``). ``degeneracy_cmm1`` is how close two frequencies must be to be
     averaged as one degenerate set. ``nbnd``, ``threshold``, ``alpha_mix``,
-    ``tr2``, ``max_iterations`` and ``verbose`` are
-    :func:`~defuqumat.response.phononq.dynamical_matrix_at_q`'s.
+    ``tr2``, ``max_iterations``, ``verbose`` and ``threshold_cap`` are
+    :func:`~defuqumat.response.phononq.dynamical_matrix_at_q`'s; ``"default"``
+    for the cap is that function's default,
+    :data:`~defuqumat.response.phononq.SCHEDULE_CAP_AT_Q`, which is what makes
+    the pair this test-suite case reads gauge-safe (``PLAN.md`` P149), and
+    ``None`` is ``ph.x``'s uncapped loop.
     """
-    from defuqumat.response.phononq import dynamical_matrix_at_q
+    from defuqumat.response.phononq import SCHEDULE_CAP_AT_Q, dynamical_matrix_at_q
+
+    if isinstance(threshold_cap, str):
+        threshold_cap = SCHEDULE_CAP_AT_Q
 
     if calculation.system.occupations == "fixed":
         raise NotImplementedError(
@@ -300,7 +307,7 @@ def electron_phonon_at_q(
         calculation, wavefunctions, eigenvalues, density, becsum, q=q,
         q_cartesian=q_cartesian, nbnd=nbnd, threshold=threshold,
         alpha_mix=alpha_mix, tr2=tr2, max_iterations=max_iterations,
-        verbose=verbose, keep_internals=True)
+        verbose=verbose, keep_internals=True, threshold_cap=threshold_cap)
     internals = phonons.internals
     nat = calculation.system.structure.nat
     g = matrix_elements(internals, nat)

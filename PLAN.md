@@ -205,16 +205,18 @@ because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
-  `becsum` and the subspace `eigh` tangent; `notes/DEGENERACY-NEXT.md` items 3 and 5, and item 4's
-  tail): the nine per-module degeneracy tolerances, five of them below the solver's promise on an
-  empty band, and the smooth kernel in place of the step at each site, measured against that site's
-  own validation number (P148 landed the kernel at its first site, Davidson's subspace solve);
-  `starting_ns` written by eigenvector index inside a degenerate block; the electron-phonon default
-  threshold's gauge dependence (`OPEN.md`); and the divided difference of the occupation,
-  `(f_n - f_m)/(e_n - e_m)`, in the density assembly's tangent, which the regularised kernel
-  suppresses for a pair within about ten `eta` of each other at a smeared Fermi level, to be taken up
-  when a smeared metal's Newton autodiff arm disagrees with its finite difference by more than
-  `si-generic`'s 3.5e-7.
+  `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
+  the `starting_ns` sentence; `notes/DEGENERACY-NEXT.md` item 4's tail and `OPEN.md` Part XXVI):
+  the divided difference of the occupation, `(f_n - f_m)/(e_n - e_m)`, in the density assembly's
+  tangent, which P148's regularised kernel suppresses for a pair within about ten `eta` of each
+  other at a smeared Fermi level, to be taken up when a smeared metal's Newton autodiff arm
+  disagrees with its finite difference by more than `si-generic`'s 3.5e-7; and the remaining
+  amplifier in a Davidson step on a degenerate block (one member's correction vector, not a smooth
+  function of the density when LAPACK's basis inside the block changes between steps), whose exact
+  route is the implicit tangent of the converged eigenproblem (P22c) and whose trigger is the
+  `si-gamma` cap sweep flat within 10x of `si-generic` at every cap. The smooth kernel
+  `gap/(gap^2 + eta^2)` is **not** outstanding at any further site: P149 withdrew it on arithmetic
+  (at a solver-split pair it is a fiction the size of a real pair's contribution).
 - **External electric fields beyond P144 and P145.** The saw-tooth field and the dipole correction are
   in, and the Berry-phase finite field for norm-conserving `nspin = 1` insulators along one `gdir`. Not
   in: `gate` (needs `tot_charge`); the stress with either field (`pw.x` has none either); the Berry field
@@ -25715,7 +25717,7 @@ input records NaN and measures nothing; `nbnd = nocc + 1` buys the check (`docs/
 collinear-spin section). No README row, notebook or timing: this is a host-side minimum over an array the
 run already holds, not a quantity, and it costs nothing measurable.
 
-### P148 -- The ultrasoft `becsum` averaged over the group, and Davidson's subspace `eigh` tangent regularised: the two degeneracy defects P147 uncovered, measured and fixed. IN PROGRESS 2026-10-14 night, on fable's review and decisions (`notes/DEGENERACY-NEXT.md` items 6 and 4, order 6, 4, 5, 3), every number on `D22-0161`.
+### P148 -- The ultrasoft `becsum` averaged over the group, and Davidson's subspace `eigh` tangent regularised: the two degeneracy defects P147 uncovered, measured and fixed. ✅ DONE 2026-10-14 night (the header flipped in P149's first commit, on fable's answer to its question 1), on fable's review and decisions (`notes/DEGENERACY-NEXT.md` items 6 and 4, order 6, 4, 5, 3), every number on `D22-0161`.
 
 **What was asked, and what the measurements turned it into.** `notes/DEGENERACY-NEXT.md` left two things
 beside the filling cut: item 4, "the Newton-Krylov `jvp` through Davidson's `eigh` at a degeneracy,
@@ -25906,3 +25908,140 @@ silicon cell) and nothing on the primal of the subspace solve. The texts that re
 `jvp = 'autodiff'` as the cut-shell cure (`scf/solvers.py`, `scf/driver.py`'s warning, the
 `features.tex` box, `.claude/rules/scope.md`, P147) now say what was measured: both Jacobians converge
 there, and the smearing is the cure for what stays gauge dependent.
+
+
+### P149 -- One rule for a degeneracy tolerance, and the scheduled CG threshold at `q` capped: items 3 and 5 of the degeneracy plan, measured and landed, with the smooth kernel withdrawn on arithmetic. ✅ DONE 2026-10-14 night, on fable's review, its three follow-up decisions and its order (`plans/degeneracy-p149.md`), every number on `D22-0161` (`/l/ladovj1/review/degeneracy/{elph,split,ultracell,controls,regress}/`, the worktree `w-p149` at `cf1ebe2` with this tree rsync'd over it).
+
+**What this phase is.** The two items `notes/DEGENERACY-NEXT.md` left after P147 and P148: item 5
+(two small ones, a `starting_ns` docstring and `OPEN.md` Part XXV's gauge-dependent electron-phonon
+pair) and item 3 (nine per-module degeneracy tolerances, a hard step each, and the plan to replace
+the step by a smooth kernel site by site). The plan went to fable before any code, and fable's
+review changed the shape of item 3 before a line was written: **the premise that the pair sites read
+states converged to the empty-band floor is false.** `optical_conductivity`, `shift_current`, `shg`
+and the Kubo curvature all take fixed-density states, which `calculation.diagonalize` holds to one
+scalar `ethr = max(ETHR_MIN, 0.1 min(1e-2, conv_thr/nelec))`, the empty bands included;
+`empty_band_threshold` acts only inside the SCF loop. So the plan's sentence "1e-6 and 1e-8 become
+1e-5 at four sites" was withdrawn before it was implemented, and what the rule delivers is a
+tolerance that is a function of the states' provenance, which changes no default at a pair site and
+changes two things elsewhere (below).
+
+**Item 3, the measurement before the rule** (`split/`, `nscf_split.py`): silicon (`si2-lda-gap.in`),
+the ground state once, then `fixed_density_states` at `Gamma` (two threefold multiplets), `X` and `L`
+(pairs) and one generic point, twelve bands, at `conv_thr` 1e-4 to 1e-12. What a symmetry multiplet is
+left split by, as a multiple of the scalar `ethr`:
+
+| `conv_thr` | `ethr` | split over the 12 multiplets (Ry) | split/`ethr` |
+|---|---|---|---|
+| 1e-4 | 1.25e-6 | 1.6e-9 to 2.8e-7 | 0.00 to 0.23 |
+| 1e-5 | 1.25e-7 | 9.0e-11 to 2.5e-8 | 0.00 to 0.20 |
+| 1e-6 | 1.25e-8 | 7.2e-12 to 3.9e-10 | 0.00 to 0.03 |
+| 1e-8 | 1.25e-10 | 1.7e-13 to 2.1e-10 | 0.00 to 0.07, and **1.68** on the highest solved pair |
+| 1e-10 | 1.25e-12 | 1.1e-16 to 8.0e-13 | the floor |
+| 1e-12 | 1e-13 | 3.6e-16 to 1.9e-14 | the floor |
+
+So the multiplier is a few per cent of `ethr` in the linear regime, as fable read off B1's points,
+with one outlier at the top of a Davidson block (the band it converges last), and the arithmetic floor
+on silicon is below 1e-12 where B1's spin-orbit nickel read 5.5e-12. **The rule**
+(`solvers/davidson.py:resolve_degeneracy_tol`): `max(asked, SPLIT_PER_ETHR * ethr, ARITHMETIC_FLOOR)`
+for a fixed-density solve with `SPLIT_PER_ETHR = 5` (three times the outlier, and `cegterg`'s own
+factor on an empty band) and `ARITHMETIC_FLOOR = 1e-10` (twenty times B1's reading, fable's margin
+for a cell at a higher cutoff); `max(asked, EMPTY_ETHR_FLOOR)` for an array of unknown provenance
+(B1's argument, unchanged); the empty-band floor joined for an SCF's own states. `degeneracy_tolerance`
+wraps it: `None` resolves, a number is honoured as asked and warned about by name when it is below
+the resolved value (fable's follow-up 3, so that B1's 42-against-102 reading stays a measurement).
+`fixed_density_ethr` in `workflows/nscf.py` is the one copy of `setup.f90`'s formula (it was in two
+places); `NSCFResult.ethr`, `BandStructure.ethr` and `PlaneWaveStates.ethr` carry it as a
+convenience, and the Kubo site resolves against the states' own field. One `degeneracy_tol` in
+`SHARED_OPTIONS`, named at eight entry points (`run_scf`, where it is the cut-shell warning's unit;
+`run_conductivity`; `run_berry_curvature`, which forwarded it through `**kwargs` the facade drops;
+`run_shift_current` and `run_shg`, with `cut_tol` beside them for the cut's warning, which read the
+raw constant; `run_vertical_transport`; `run_ultracell_transport`; `run_ultracell`), not in
+`_TOLERANCE_OPTIONS` (a larger value is the safe one). `run_momentum_transport` decides no block and
+does not take it. The nine sites, re-read:
+
+| site | the rule | what changed at the defaults |
+|---|---|---|
+| `response/conductivity.py` | resolved at the nscf `ethr` | nothing (1e-5 at `conv_thr` 1e-10) |
+| `topology/kubo.py` | resolved at `states.ethr`; fires on `curvature_by_band` only, `gap_tol` makes the total's step inert | nothing (1e-6 at `conv_thr` 1e-8) |
+| `transport/green.py` | resolved per branch: the nscf `ethr` with `kpoints`, the SCF's `ethr` with the empty floor without | **the SCF branch reads 1e-5 where the constant was 1e-6**, the one margin item 3 found (3e-7 under 1e-6) |
+| `response/photocurrent.py` | the broadening or the promise, whichever is looser; the cut's warning at the promise alone | nothing at the entry points (the broadening is the operative guard) |
+| `ultracell/driver.py` | resolved at `states_conv_thr`'s `ethr` | **the cut warning at a loose `states_conv_thr`**, measured below |
+| `topology/berry.py`, `tddft/spinchi0.py`, `scf/tetrahedra.py`, `topology/parity.py` | left alone, a sentence each: no solver on a model; the two branches agree at the switch to `O(gap)`; a grouping at the *scheduled* `ethr` would merge distinct bands early in an SCF; a closure check is not a gap | nothing |
+| `sternheimer.py:DEGENERATE_CUT_RY`, `effmass.py:DEFAULT_DEGENERACY_TOL`, `DFTSource.gap_tol` | reached and unchanged, said in each docstring | nothing |
+
+**The ultracell cut, re-measured** (`ultracell/`, `ultracell_cut.py`; silicon on the unreduced 2x2x2
+grid, `run_ultracell` on the (1, 1, 1) supercell, one iteration): `nbnd = 6` cuts the `Gamma_15`
+triplet, and `multiplet_cut` reads 1.8e-10 Ry at `states_conv_thr` 1e-6 (0.01 `ethr`), 1.2e-9 at 1e-5,
+**1.3e-7 at 1e-4** (0.10 `ethr`) and 1.0e-6 at 1e-3; the 1e-8 constant fires on the first two and is
+silent on the last two, where the solver's own split reads as a gap, and the resolved tolerance
+(6.25e-8, 6.25e-7, 6.25e-6, 6.25e-5) fires on all four. `nbnd = 8` cuts at a real 8.0e-2 gap and nothing
+fires at any `states_conv_thr` (the loop's own non-convergence warning after one iteration is the other
+message in those runs). The crossover is between `states_conv_thr` 1e-5 and 1e-4.
+
+**The kernel, withdrawn on arithmetic** (fable's follow-up 1, on the advisor's sum). On the curvature
+route the two orderings of a pair leave `w (f_n - f_m) Im z K(gap)`, and with
+`K = gap^2/(gap^2 + eta^2)^2` and `f_n - f_m` about `f' gap` that is `w f' Im z gap^3/eta^4`: at the
+synthetic 3e-7 with `eta = 1e-5` the factor is 2.7 times `f'` of order 50 at `degauss = 0.02`, about
+135 `w Im z`, against 100 `w Im z` from a legitimate pair at 0.1 Ry and the step's exact zero, which is
+the physical answer for a symmetry pair whose true gap is zero; at the solver's real split, 5e-12, the
+factor is 1e-14 and the kernel is harmless and buys nothing. So the kernel buys continuity in `eta`
+and not gauge safety below it, the continuity it would buy already exists as the frequency route at
+`frequencies = [0]` with `broadening = eta`, and **no site beyond P148's subspace solve gets it**; the
+step in `_pair_weights` and `_safe_ratio` stays, already in the differentiable double-`where` form.
+**The rotation controls** at the two sites without a kernel (`controls/`, `rotation_controls.py`, the
+rotation into the converged eigenvectors handed to the pure assemblies, never through a workflow that
+re-solves): silicon's Kubo curvature at `Gamma`, `X`, `L` and a generic point under a random unitary
+inside every multiplet (4 occupied blocks, 12 over all twelve bands), the manifold total moves by
+**8.5e-11** on 3.0e-2 and the per-band curvature's block trace by **8.5e-11** on 10.7 while one band
+inside a multiplet moves by 7.0 (rule D4, as `kubo.py`'s docstring says); AlAs's `chi^(2)` on the full
+6x6x6 mesh at `nbnd = 23` under a rotation inside 222 blocks below the cut, **1.0e-10** on 1.1e3.
+Controls, not results.
+
+**Item 5a** is one sentence in `adjust_ns`'s docstring: inside a degenerate block of `ns`, `m` names the
+member LAPACK ordered there; a starting guess, so it costs iterations at worst, and `ns_adj` does the
+same.
+
+**Item 5b, measured** (`elph/`, `elph_gauge.py`; `al-elph-nosym.in`, `mixing_fit = 'flat'` as the
+test, the ground state at `conv_thr` 1e-12, `q1 = (1/4, 0, 0)`, `tr2` 1e-14; the rotation a random
+unitary inside every pair the ground state left split below 1e-9 Ry, 49 pairs on the 512-point grid, 6
+carrying weight, applied to the converged wavefunctions handed to `electron_phonon_at_q`; the reference
+pair at a fixed 1e-12 is 73.995368, 73.995376 on this tree, `ph.x`'s 73.995634, 73.995712):
+
+| CG threshold | warm start | pair split, plain (cm^-1) | max move under the rotation | CG steps (worst mode per pass, summed) | passes |
+|---|---|---|---|---|---|
+| the schedule (`ph.x`'s) | on | 1.47e-2 (73.994985, 74.009679, Part XXV's digits) | **1.42e-2** | 178 | 9 |
+| the schedule | every pass from zero | 8.1e-4 | 5.6e-4 | about 1.6x | 9 |
+| 1e-2 fixed | on | 5.8 | 1.9 | 2.0 per solve, 100 passes, not converged | |
+| 1e-4 fixed | on | 3.5e-2 | 2.4e-2 | 2.6 per solve, 100 passes, not converged | |
+| 1e-6 fixed | on | 1.0e-5, but 1.4e-2 off the tight pair | 6.0e-5 | 1.3x | 9 |
+| 1e-8 fixed | on | 8.1e-6, 3e-6 from the tight pair | **2.2e-7** | **301** | 9 |
+| 1e-8 fixed | off | 7.9e-6 | 9.3e-8 | 1.3x of 301 | |
+| 1e-10 fixed | on | 8.2e-6 | 2.9e-6 | 2.1x | 9 |
+| 1e-12 fixed | on | 8.2e-6 | 6.7e-8 | 432 | 9 |
+| the schedule, then every mode once more at 1e-8 at the converged `dV_scf`, warm | on | 1.47e-2 | 1.42e-2 | 192 | 10 |
+| the same, the loop continued at 1e-8 until the potential reconverged (one pass) | on | 1.47e-2 | 1.42e-2 | 192 | 10 |
+| the same, the finishing pass from zero, at 1e-8 and at 1e-12 | on | 1.47e-2 | 1.42e-2 | 229, 244 | 10 |
+
+Three readings. The gauge split and the frequency accuracy are set by different thresholds: 1e-6 is
+gauge-safe and wrong by 1.4e-2, so `T*` is the accuracy's, 1e-8 (fable's follow-up). The warm start
+between passes is a factor of 25 and not the cause (every pass from zero still reads 7x `ph.x`'s own
+7.8e-5). And no finishing pass removes it, warm or cold, tight or tighter: the error sits in the
+self-consistent potential, which the loose early passes put there, the metal's near-singular response
+map at small `q` amplified into the fixed point, and the `|ddv_scf|^2` test is blind to (the loop
+continued at 1e-8 reconverged in one pass), so it is not a property of the last `dpsi`. By fable's
+decision tree that is (a): **`dynamical_matrix_at_q(threshold_cap=1e-8)` by default**
+(`SCHEDULE_CAP_AT_Q`, `min(0.1 sqrt(dr2), 1e-2, cap)` at every pass), a named deviation from `ph.x`'s
+loop with `None` giving the uncapped one, reaching `electron_phonon_at_q` (`"default"` there, so that
+`None` still means the uncapped loop) and the facade. The default reproduces the fixed 1e-8 arm to the
+digit: 2.2e-7 under the rotation, 301 CG steps in 9 passes, the acceptance (7.8e-5) met by two decades;
+`OPEN.md` Part XXV item 1 is closed with the table. Two harness mistakes are recorded in the D22 notes,
+since each cost a round trip: zeroing a stored response per pass must skip the modes the loop has
+stopped solving (a converged mode keeps its last solution and is not solved again; zeroed, it enters
+the dynamical matrix as zero and the frequencies read 599 cm^-1, or as `None` and `conjugate` raises).
+
+**What a user sees.** One new shared option, `degeneracy_tol`, on `Calculator` and the eight entry
+points above, `None` by default and documented in `features.tex` at the conductivity, the Kubo
+curvature, the transport and the ultracell; `get_phonons_at_q` and `get_electron_phonon` take
+`threshold_cap`, and the electron-phonon pair of the test-suite case now comes out 8.1e-6 cm^-1 apart
+where it was 1.5e-2, at 1.7x the CG steps (`PERFORMANCE.md`). No README row (a rule and a cap, not a
+quantity), no notebook, no reference timing beyond the step count.

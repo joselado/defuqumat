@@ -83,7 +83,19 @@ in `docs/features.tex`'s amber boxes.
   Everything is built from one primitive, `<u_mk|S|u_nk'>`, because a determinant of
   overlaps is blind to the mixing a degenerate eigensolver leaves (rule D4) *and* is an
   exact integer on any mesh. Z2 has two independent routes and running both where both
-  apply is the check; where they disagree the parity one is the answer.
+  apply is the check; where they disagree the parity one is the answer. **A degeneracy
+  tolerance is a function of where the eigenvalues came from** (P149,
+  `solvers/davidson.py:resolve_degeneracy_tol`): the Kubo per-band curvature, the optical
+  conductivity, the shift current and SHG, the transport channel basis, the ultracell's cut
+  and the SCF's cut-shell warning all take one `degeneracy_tol`, `None` resolving to the
+  eigensolver's promise on the states the site reads (`max(5 ethr, 1e-10)` for a
+  fixed-density solve, the 1e-5 empty-band floor on top for an SCF's states or an array of
+  unknown provenance) and a number honoured as asked with a warning below that promise. At
+  every default on the fixed-density route the resolved value is the site's old constant;
+  what changed is the ultracell cut at a loose `states_conv_thr` and the transport channel
+  basis on SCF states. The smooth kernel `gap/(gap^2 + eta^2)` lands nowhere beyond P148's
+  subspace solve, on fable's arithmetic: at a solver-split pair it is a fiction the size of a
+  real pair's contribution where the step's zero is the physical answer.
 - **DFT+U** (P20, P62): `lda_plus_u_kind = 0` and Elk's other flavours, from the `HUBBARD`
   card, whose parameters are **in eV** and are converted at the input boundary. The energy
   is written down and `v_ns` is `jax.grad` of it; `v_hubbard` is transcribed as a test, and
@@ -158,7 +170,12 @@ in `docs/features.tex`'s amber boxes.
   weights at `k` and `k + q` apart, `wk` in the contraction, and one mixer per mode). `g`
   is the bare vector the right-hand side was built from plus the converged `dV_scf`, so
   nothing new is differentiated. Refused: a metal at `q = 0` (`ef_shift`), ultrasoft/PAW,
-  spin, and the zone sum (`alpha^2 F`, `T_c`).
+  spin, and the zone sum (`alpha^2 F`, `T_c`). **The scheduled CG threshold at `q` is capped
+  at 1e-8** (P149, `phononq.SCHEDULE_CAP_AT_Q`, `threshold_cap=None` for `ph.x`'s uncapped
+  loop): under the bare schedule a metal's transverse pair at `q = (1/4, 0, 0)` moved by
+  1.4e-2 cm^-1 with the basis of the degenerate pairs at `k` (rule D4), because a loose
+  early pass leaves an error the mixer folds into `dV_scf` and the self-consistency test
+  cannot see; the cap costs 1.7x the CG steps and takes the move to 2.2e-7.
 - **Real-time propagation, high harmonics and the third harmonic** (P134 to P138,
   `defuqumat/realtime/`, `workflows/realtime.py`): the occupied states under
   `H(k + kappa(t))`, `kappa = A/c`, on the sphere built for `k`, at the ground state's

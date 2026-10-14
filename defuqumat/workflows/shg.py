@@ -30,12 +30,16 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
+from defuqumat.response.photocurrent import DEGENERACY_TOL
 from defuqumat.response.shg import (
     SecondHarmonic,
     require_an_shg_regime,
     second_harmonic,
 )
-from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
+from defuqumat.solvers.davidson import degeneracy_tolerance, resolve_degeneracy_tol
+from defuqumat.workflows.nscf import (
+    fixed_density_ethr, fixed_density_states, threaded_calculation,
+)
 from defuqumat.scf.occupations import cut_gaps
 
 __all__ = ["run_shg"]
@@ -134,9 +138,17 @@ def run_shg(
     # ``vkb(k)``, so they belong to ``dH/dk`` as much as to ``H``.
     _, ddd_paw = calculation.onecenter(becsum)
 
+    # As :func:`~defuqumat.workflows.photocurrent.run_shift_current` resolves
+    # it: the broadening or the solver's promise on these states, whichever is
+    # looser, and the promise alone for the cut's warning (``PLAN.md`` P149).
+    ethr = fixed_density_ethr(conv_thr, calculation.nelec)
+    degeneracy_tol = degeneracy_tolerance(
+        degeneracy_tol, max(float(broadening), DEGENERACY_TOL), ethr=ethr,
+        site="second-harmonic generation")
     return second_harmonic(
         calculation, wavefunctions, eigenvalues, potential.v_scf,
         frequencies=frequencies, window=window, nw=nw, broadening=broadening,
         scissor=scissor, degeneracy_tol=degeneracy_tol, ddd_paw=ddd_paw,
         band_cut_gap=band_cut_gap, k_batch=k_batch,
+        cut_tol=resolve_degeneracy_tol(DEGENERACY_TOL, ethr),
     )

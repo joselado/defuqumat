@@ -30,8 +30,12 @@ from defuqumat.response.photocurrent import (
     ShiftCurrent,
     require_a_shift_current_regime,
     shift_current,
+    DEGENERACY_TOL,
 )
-from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
+from defuqumat.solvers.davidson import degeneracy_tolerance, resolve_degeneracy_tol
+from defuqumat.workflows.nscf import (
+    fixed_density_ethr, fixed_density_states, threaded_calculation,
+)
 from defuqumat.scf.occupations import cut_gaps
 
 __all__ = ["run_shift_current"]
@@ -129,9 +133,18 @@ def run_shift_current(
     wavefunctions = wavefunctions[..., :nbnd, :]
     potential = calculation.potential(jnp.asarray(density))
 
+    # ``None`` resolves to the broadening, Elk's rule, or to the solver's own
+    # promise on these states where that is looser (``PLAN.md`` P149); the
+    # cut's warning reads the promise alone, since the broadening is no
+    # statement about where the band set ends.
+    ethr = fixed_density_ethr(conv_thr, calculation.nelec)
+    degeneracy_tol = degeneracy_tolerance(
+        degeneracy_tol, max(float(broadening), DEGENERACY_TOL), ethr=ethr,
+        site="the shift current")
     return shift_current(
         calculation, wavefunctions, eigenvalues, potential.v_scf,
         frequencies=frequencies, window=window, nw=nw, broadening=broadening,
         smearing=smearing, degeneracy_tol=degeneracy_tol,
         band_cut_gap=band_cut_gap, k_batch=k_batch,
+        cut_tol=resolve_degeneracy_tol(DEGENERACY_TOL, ethr),
     )

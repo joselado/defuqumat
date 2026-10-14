@@ -65,6 +65,10 @@ class NSCFResult:
     #: Only when ``tot_magnetization`` constrained the channels separately.
     fermi_energy_up: float | None = None
     fermi_energy_down: float | None = None
+    #: The scalar threshold every band was converged to, in Ry
+    #: (:func:`fixed_density_ethr`); what a degeneracy tolerance read on these
+    #: eigenvalues is resolved against.
+    ethr: float | None = None
 
     @property
     def eigenvalues_ev(self) -> np.ndarray:
@@ -78,6 +82,20 @@ class NSCFResult:
     @property
     def occupations_by_spin(self) -> np.ndarray:
         return self.occupations if self.nspin == 2 else self.occupations[None]
+
+
+def fixed_density_ethr(conv_thr: float, nelec: float) -> float:
+    """The scalar ``ethr`` every band of a fixed-density solve is held to.
+
+    ``setup.f90``'s rule, ``max(ETHR_MIN, 0.1 min(1e-2, conv_thr / nelec))``:
+    with no SCF to tighten the threshold over it is picked once from the
+    accuracy of the density the bands are computed in, and a scalar holds
+    every band to it, the empty ones included (``diago_full_acc`` is an SCF
+    notion). It is the promise a consumer of these states reads a degeneracy
+    tolerance against (:func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`),
+    which is why it is one function rather than the same line in two places.
+    """
+    return max(ETHR_MIN, 0.1 * min(1.0e-2, float(conv_thr) / max(1.0, float(nelec))))
 
 
 def fixed_density_states(
@@ -282,7 +300,7 @@ def fixed_density_states(
 
     # There is no SCF here to tighten the threshold over, so ``setup.f90`` picks
     # one up front from the accuracy of the density the bands are computed in.
-    ethr = max(ETHR_MIN, 0.1 * min(1.0e-2, conv_thr / max(1.0, calculation.nelec)))
+    ethr = fixed_density_ethr(conv_thr, calculation.nelec)
     # **A caller that wants only the energies, where the store streams, never
     # stacks the states** (``notes/GPU-MEMORY-NEXT.md`` item 1): each chunk's solve is
     # discarded as it returns, which is ``c_bands_nscf``, so the device peak
@@ -584,6 +602,7 @@ def run_nscf(
         nspin=nspin,
         fermi_energy_up=levels.get("fermi_energy_up"),
         fermi_energy_down=levels.get("fermi_energy_down"),
+        ethr=fixed_density_ethr(conv_thr, calculation.nelec),
     )
 
 

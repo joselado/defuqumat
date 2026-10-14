@@ -320,6 +320,8 @@ def kubo_curvature(states, mesh: PlaneMesh, nocc: int | None = None, **_) -> Ber
 #: **Ry** and means nothing here -- and over the whole mesh because the
 #: spectrum at *one* k is no scale at all: for a two-band model the local
 #: spread **is** the gap, so a tolerance relative to it can never fire.
+#: P149's one rule for a degeneracy tolerance (:func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`) does not reach this one, on fable's review: a model has no eigensolver
+#: promise to read it against, and the relative constant stays.
 MODEL_DEGENERACY_TOL = 1.0e-8
 
 

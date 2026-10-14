@@ -24,7 +24,7 @@ from defuqumat.system.kpoints import KPoints
 from defuqumat.units import RY_TO_EV
 from defuqumat.system.kpoints import for_spin as kpoints_for_spin
 from defuqumat.workflows.nscf import (
-    fixed_density_bands, kset_blocks, threaded_calculation,
+    fixed_density_bands, fixed_density_ethr, kset_blocks, threaded_calculation,
 )
 
 __all__ = ["BandStructure", "run_bands"]
@@ -41,6 +41,9 @@ class BandStructure:
     fermi_energy: float | None = None
     homo: float | None = None
     nspin: int = 1
+    #: The scalar threshold every band was converged to, in Ry
+    #: (:func:`~defuqumat.workflows.nscf.fixed_density_ethr`).
+    ethr: float | None = None
 
     @property
     def eigenvalues_by_spin(self) -> np.ndarray:
@@ -220,6 +223,7 @@ def run_bands(
             fermi_energy=fermi_energy,
             homo=homo,
             nspin=nspin,
+            ethr=fixed_density_ethr(conv_thr, calculation.nelec),
         )
     calculation, system, kpoints, k_batch = threaded_calculation(
         calculation, system, kpoints, k_batch)
@@ -234,4 +238,5 @@ def run_bands(
         fermi_energy=fermi_energy,
         homo=homo,
         nspin=nspin,
+        ethr=fixed_density_ethr(conv_thr, calculation.nelec),
     )

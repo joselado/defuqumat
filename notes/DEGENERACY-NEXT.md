@@ -1,10 +1,14 @@
 # What to do about degenerate eigenvectors, and where a smearing is the cure
 
-**Status, 2026-10-14 night.** Item 2 is done as `PLAN.md` P147 (the user's pick, fable's review
+**Status, 2026-10-14, late.** Item 2 is done as `PLAN.md` P147 (the user's pick, fable's review
 and decision, every number on D22); its measurements are in that item below and in P147. Items 6
 (the ultrasoft `becsum` averaged) and 4 (the subspace `eigh` tangent regularised) are P148, in the
-order fable decided (6, 4, 5, 3); items 3 and 5 are open and indexed in `PLAN.md` "What is
-outstanding". The paragraph that follows is the plan as
+order fable decided (6, 4, 5, 3). **Items 5 and 3 are P149** (`plans/degeneracy-p149.md` holds the
+plan, fable's review, which corrected item 3's premise, and its follow-up): item 5a is a docstring
+sentence, item 5b is closed by a cap on the scheduled CG threshold at `q` (not by a threshold rule
+of the kind sketched in item 3, see "Outcome" under item 5), and item 3 landed as one rule and no
+kernel (see "Outcome" under item 3). What stays open is item 4's tail and `OPEN.md` Part XXVI,
+indexed in `PLAN.md` "What is outstanding". The paragraph that follows is the plan as
 first written, on master at `3ab298b`, before anything was measured. The question was whether the trouble a degenerate
 multiplet gives this code could be solved by some sort of smearing. **The short answer is that
 "degenerate eigenvectors" covers three different troubles and a smearing cures exactly one of
@@ -255,6 +259,36 @@ kernel is the same rotation at a pair split by the solver's own 3e-7. Each lande
 also read against its reference number: `PLAN.md`'s silicon `chi^(2)`, the Kubo Chern number
 of the model, the conductivity against `OPEN.md` B1's table.
 
+**Outcome (P149, 2026-10-14, D22).** The table above was re-read site by site at fable's review
+(`plans/degeneracy-p149.md` A) and its premise was wrong in one respect that reshapes the item:
+the pair sites (the conductivity, the Kubo curvature, the shift current and SHG) read
+*fixed-density* states, which a scalar `ethr = max(ETHR_MIN, 0.1 min(1e-2, conv_thr/nelec))` holds
+every band to, the empty ones included, so none of them reads a band at the 1e-5 floor and "five
+of them below the solver's promise" is withdrawn. Measured on silicon's symmetry multiplets at
+`Gamma`, `X` and `L` (`review/degeneracy/split/`): a fixed-density solve leaves a multiplet split by
+0.00 to 0.23 `ethr` at `conv_thr` 1e-4 to 1e-6, with the one outlier the highest solved pair at
+1.7 `ethr`, and by 1e-16 to 8e-13 Ry at `conv_thr` 1e-10 and 1e-12, the arithmetic floor (B1's
+nickel read 5.5e-12). So the rule landed as `solvers/davidson.py:resolve_degeneracy_tol`,
+`max(asked, 5 ethr, 1e-10)` for a fixed-density solve, `max(asked, 1e-5)` for states of unknown
+provenance, the empty-band floor on top for an SCF's states, one `degeneracy_tol` in
+`SHARED_OPTIONS` reaching eight entry points by name, `None` resolving and a number honoured as
+asked with a warning below the promise (fable's three follow-up decisions). It touches five sites
+(the conductivity, the Kubo per-band curvature, `green.py`'s block decision, the photocurrent's
+guard and cut warning, the ultracell cut) and leaves four alone with a sentence each
+(`berry.py`'s model, `spinchi0.py`'s switch, `tetrahedra.py`'s grouping at the scheduled `ethr`,
+`parity.py`'s closure check). At every default on the fixed-density route it changes no number;
+what it changes is the ultracell cut at a loose `states_conv_thr` (at 1e-4 the solver splits the
+cut multiplet by 1.3e-7, which the 1e-8 constant read as a gap and the resolved 6.25e-6 does not)
+and the transport channel basis on SCF states (the 1e-5 floor over the 1e-6 constant). **The
+smooth kernel lands nowhere beyond P148's subspace solve**, on the arithmetic: on the curvature
+route a pair at the synthetic 3e-7 with `eta = 1e-5` leaves `w f' Im z gap^3/eta^4`, about 135
+`w Im z` at `degauss = 0.02`, against 100 from a legitimate 0.1 Ry pair and the step's exact zero,
+which is the physical answer for a symmetry pair; at the real 5e-12 split the kernel is harmless and
+buys nothing. The rotation controls at the sites without a kernel are round-off where rule D4 says
+they must be: the Kubo manifold total and the per-band block trace move by 8.5e-11 on 3e-2 and 11
+under a rotation inside silicon's multiplets while one band inside a multiplet moves by 7, and
+AlAs's `chi^(2)` moves by 1e-10 on 1.1e3 under a rotation inside 222 blocks below the cut.
+
 ## 4. A derivative taken through `eigh`: what a smearing cannot touch
 
 **What goes wrong.** `jnp.linalg.eigh`'s JVP carries `1/(w_i - w_j)` over every pair, written
@@ -384,6 +418,18 @@ derivative on the cut shell too (four undamped steps to 5.2e-12, 38 `F` evaluati
   the degenerate blocks at `k` under the scheduled CG threshold and by nothing at 1e-12. The
   tests pin 1e-12 and the default is still the schedule, so the item is open as written; it is
   item 3's experiment on a phonon, and the fix is a threshold rule rather than a kernel.
+
+**Outcome (P149, 2026-10-14, D22, `review/degeneracy/elph/`).** The first is one sentence in
+`adjust_ns`'s docstring. The second was measured as a sweep of the CG threshold under a random
+unitary inside every degenerate pair at `k` (49 pairs, 6 carrying weight) on `al-elph-nosym.in`
+at `q1`, with the warm start on and off, and with one more tight pass of every mode at the
+converged potential, warm or cold: the bare schedule moves the pair by 1.42e-2 cm^-1 (Part XXV's
+number to the digit), every pass from zero by 5.6e-4, a fixed 1e-6 by 6e-5 but 1.4e-2 off the
+tight pair, a fixed 1e-8 by 2.2e-7 at 1.7x the CG steps, 1e-10 and 1e-12 by 2.9e-6 and 6.7e-8 at
+2.4x, a fixed 1e-2 or 1e-4 never converges the loop, and a tight finishing pass changes nothing
+(the error is in `dV_scf`, which the self-consistency test cannot see). So the rule is a cap,
+`dynamical_matrix_at_q(threshold_cap=1e-8)` by default (`SCHEDULE_CAP_AT_Q`), which reproduces the
+fixed 1e-8 arm to the digit; the entry is closed in `OPEN.md` Part XXV with the table.
 
 ## 6. `becsum` was not symmetrised for an ultrasoft species
 

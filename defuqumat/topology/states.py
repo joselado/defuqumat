@@ -437,6 +437,12 @@ class PlaneWaveStates(StateSet):
     #: Static: it holds the frozen potential and the calculation, neither of
     #: which is traced through a state set.
     velocity: object = eqx.field(static=True, default=None)
+    #: The scalar threshold every band was converged to, in Ry, when the
+    #: states came from a fixed-density solve
+    #: (:func:`~defuqumat.workflows.nscf.fixed_density_ethr`); ``None`` for
+    #: states of unknown provenance. A consumer's degeneracy tolerance is
+    #: resolved against it (:func:`~defuqumat.solvers.davidson.degeneracy_tolerance`).
+    ethr: float | None = eqx.field(static=True, default=None)
     #: The fixed-density :class:`~defuqumat.hamiltonian.operator.Hamiltonian` at
     #: *these* k-points -- what an orbital magnetization contracts between two
     #: k-derivatives. Kept only when asked for: it carries the frozen potential
@@ -658,6 +664,7 @@ class PlaneWaveStates(StateSet):
             becp=None if self.becp is None else self.becp[jnp.asarray(index)],
             calculation=self.calculation,
             setup=self.setup,
+            ethr=self.ethr,
             vkb=None if self.vkb is None else self.vkb[jnp.asarray(index)],
             energies=None if self.energies is None else self.energies[jnp.asarray(index)],
             # **Dropped, not sliced.** The velocity operator is built on a
@@ -822,6 +829,7 @@ def build_plane_wave_states(
     velocity=None,
     hamiltonian=None,
     setup=None,
+    ethr: float | None = None,
 ) -> PlaneWaveStates:
     """Wrap a diagonalisation's output as a :class:`PlaneWaveStates`.
 
@@ -887,6 +895,7 @@ def build_plane_wave_states(
                 vkb = projectors.vkb
 
     return PlaneWaveStates(
+        ethr=ethr,
         coefficients=coefficients,
         keys=keys,
         valid=mask,

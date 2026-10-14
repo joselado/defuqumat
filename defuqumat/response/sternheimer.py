@@ -259,6 +259,9 @@ THRESHOLD = 1.0e-11
 #: its outer ``j`` shell cuts one, and that is an ordinary heavy element rather
 #: than a contrived cell. An unpolarized *scalar* insulator's fillings have been
 #: validated for many phases and are left bit-for-bit alone.
+#: P149's one rule for a degeneracy tolerance (:func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`) reaches this
+#: value and leaves it unchanged: an ``SCFResult``'s first empty band is at the
+#: 1e-5 floor, which is exactly the rule's value for states of that provenance.
 DEGENERATE_CUT_RY = 1.0e-5
 
 

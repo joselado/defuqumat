@@ -651,4 +651,8 @@ def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
 
 #: Two eigenvalues closer than this (Ry) are treated as degenerate, and their
 #: pair takes the smearing derivative instead of the ratio.
+#: P149's one rule for a degeneracy tolerance (:func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`) does not reach this one, on fable's review: the two branches agree at the
+#: switch to ``O(gap)`` (``f' + f'' gap/2`` against ``f'``), so the step is not a
+#: discontinuity, the divided difference is already the exact kernel, and the
+#: solver's promise does not enter.
 _DEGENERACY_TOLERANCE = 1.0e-8

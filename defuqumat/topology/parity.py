@@ -70,6 +70,8 @@ __all__ = [
 #: exactly how a confident wrong invariant is produced. (``elkpy`` uses ``5e-2``
 #: because Elk's overlaps carry a ~1e-3 real-space truncation floor; there is no
 #: such floor here, so the tolerance that hid it is not wanted.)
+#: P149's one rule for a degeneracy tolerance (:func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`) does not reach this one, on fable's review: this is a closure check on
+#: ``|P - P^H|`` and ``||P| - 1||``, not a gap between two bands.
 TOLERANCE = 1.0e-6
 
 

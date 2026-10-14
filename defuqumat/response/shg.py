@@ -554,6 +554,7 @@ def second_harmonic(
     ddd_paw=None,
     k_batch: int | None | str = "default",
     degeneracy_tol: float | None = None,
+    cut_tol: float | None = None,
 ) -> SecondHarmonic:
     """``chi^(2)(-2 omega; omega, omega)`` in pm/V.
 
@@ -598,7 +599,8 @@ def second_harmonic(
         calculation, "the second-harmonic tensor chi^abc", _GRID_RESIDUE_SHG
     )
     _warn_about_the_cut(
-        band_cut_gap, "the second-harmonic tensor chi^abc", _CUT_RESIDUE_SHG
+        band_cut_gap, "the second-harmonic tensor chi^abc", _CUT_RESIDUE_SHG,
+        tol=DEGENERACY_TOL if cut_tol is None else float(cut_tol),
     )
 
     eigenvalues = jnp.asarray(eigenvalues)
