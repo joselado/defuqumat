@@ -2735,6 +2735,22 @@ velocities = calc.get_band_velocities()          # .velocities is (nk, nbnd, 3)
 elsewhere = calc.get_band_velocities(kpoints=path)
 \end{pycode}
 
+What is the velocity of a band inside a degenerate multiplet? The eigensolver
+can return any rotation of the states of the multiplet. So the diagonal element
+$\langle\psi_n|\partial_{k_\alpha}\hat H|\psi_n\rangle$ of one band depends on
+that rotation, and it is not a property of the crystal. Here the code uses
+degenerate perturbation theory instead. For each direction $\alpha$ it takes the
+eigenvalues of the block of $\partial_{k_\alpha}\hat H - \bar\epsilon\,
+\partial_{k_\alpha}\hat S$ inside the multiplet. These are the slopes along
+$\alpha$ of the bands that the multiplet splits into. They are sorted from low
+to high. So at the $X$ point of silicon a crossing pair gives $\pm v$, not a
+number that depends on the rotation. The three directions are separate
+spectra, because the blocks of two directions do not commute. So inside a
+multiplet a row of \code{.velocities} is not the vector of one band. The array
+\code{.degenerate\_by\_spin} marks these bands, and \code{.speeds} is NaN there.
+The strain response does the same for its first-order eigenvalues
+\code{.deigenvalues}, one strain component at a time.
+
 Every first-order quantity then comes from the Sternheimer equation --- the response
 of an occupied orbital to a perturbation, projected outside the occupied
 manifold so that no empty states and no energy denominators appear:

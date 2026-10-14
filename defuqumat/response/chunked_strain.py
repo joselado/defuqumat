@@ -240,13 +240,14 @@ class StreamedStrains:
     # -- after the loop --------------------------------------------------------
 
     def eigenvalue_response(self, dvscf) -> np.ndarray:
-        """``(3, 3, nspin, nk, nocc)``: ``<psi_n|dH_bare + dV_scf|psi_n>``, walked."""
+        """``(3, 3, nspin, nk, nocc, nocc)``: ``<psi_m|dH_bare + dV_scf|psi_n>``, walked."""
         solver = self.solver
-        out = np.empty((3, 3) + tuple(solver.psi.shape[:3]))
+        shape = tuple(solver.psi.shape[:3]) + tuple(solver.psi.shape[2:3])
+        out = np.empty((3, 3) + shape, dtype=complex)
         for index, (a, b) in enumerate(PAIRS):
             coefficients = (solver.perturbed_coefficients(dvscf[a, b])
                             if self.ultrasoft else None)
-            values = np.empty(solver.psi.shape[:3])
+            values = np.empty(shape, dtype=complex)
             for rows, live in self.chunks:
                 chunk = self.passes["eigenvalues"](
                     *self._arguments(rows, live), _rows_of(self.bare[index], rows),
@@ -368,7 +369,7 @@ def _strain_passes(calculation, key) -> dict:
 
     def eigenvalues(big, rowset, hamiltonians, psi, arrays, scalars, v_scf,
                     ddd_paw, bare_c, dv, coefficients):
-        """``<psi_n|bare + induced|psi_n>`` on one chunk -- ``_eigenvalue_response``."""
+        """``<psi_m|bare + induced|psi_n>`` on one chunk -- ``_eigenvalue_response``."""
         sub = local(big, rowset)
         solver = SternheimerSolver.on_chunk(
             sub, sub.restricted_hamiltonians(hamiltonians), psi, arrays, scalars,
@@ -381,8 +382,7 @@ def _strain_passes(calculation, key) -> dict:
         for spin in range(states.shape[0]):
             def one_k(ik, spin=spin):
                 total = bare_c[spin][ik] + induced(states[spin][ik], ik, spin)
-                return jnp.real(jnp.einsum("ng,ng->n", jnp.conj(states[spin][ik]),
-                                           total))
+                return jnp.einsum("mg,ng->mn", jnp.conj(states[spin][ik]), total)
             out.append(jax.vmap(one_k)(jnp.arange(states.shape[1])))
         return jnp.stack(out)
 

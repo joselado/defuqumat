@@ -9268,7 +9268,7 @@ m_y + m_z` for a magnetic spinor. Its two callers are the metallic phonons (`res
 same one line in `fermi_level_shift`, to be made with the first caller that lifts the refusal.
 
 
-## 4. Notebook 17's committed outputs are stale, and its iron cell now returns the ferromagnet **[open 2026-10-14, found while extending it for P150; the extension was dropped]**
+## 4. Notebook 17's committed outputs are stale, and its iron cell now returns the ferromagnet; notebook 19's response numbers have drifted too **[open 2026-10-14, found while extending it for P150; the extension was dropped; notebook 19 added 2026-10-15, P151]**
 
 Re-executed on D22 at `764bc3e` plus P150 (`/l/ladovj1/review/degeneracy/p150/nb17.log`, 95 s), against
 the outputs committed on 2026-10-04: plain Anderson on the 16-bohr slab takes 13 iterations where the
@@ -9284,6 +9284,17 @@ an A/B with it off is the test. Neither comes from P150, whose code is not on ei
 notebook's kick and its prose numbers, then a re-export. P150's own cells were not added, because
 the notebook conventions forbid the word `jvp` in a tutorial and the option is called that
 (`tests/unit/test_notebook_conventions.py::test_no_implementation_vocabulary`).
+
+**Notebook 19 too (2026-10-15, P151).** Re-executed for P151's velocities on D22, its response
+numbers have drifted since it was committed, identically at `85e7c76` before P151
+(`review/degeneracy/p151/nb19-85e7c76.md` against `nb19-p151.md`, which differ only in the
+velocity line P151 changes): `epsilon` 13.806646 to 13.806630, `Z*` of silicon -0.075715 to
+-0.075726, `Z*` of As -2.165827 to -2.165848, and the spinor-scalar `epsilon` pair from 4.5e-6 to
+2.6e-5 apart, where the prose says "the same number to seven figures". All stay within 6e-5 of
+`ph.x`. Not attributed; the candidates are P146 (`RHO_DDOT_FIT` in the SCF at `conv_thr = 1e-12`)
+and P148/P149's changes to the response path, and an A/B at `3ab298b` is the test. The notebook is
+not re-committed, so its velocity line still reads the pre-P151 0.1890 Ry bohr where the code now
+gives 0.1274.
 
 ## 5. The spinor cell's check of `jvp = 'sternheimer'` stops at its reference, about 5e-4 **[open 2026-10-14, P150]**
 

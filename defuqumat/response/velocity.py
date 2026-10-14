@@ -86,6 +86,7 @@ import numpy as np
 
 from defuqumat.batching import map_k, upload
 from defuqumat.eager import compiled
+from defuqumat.scf.occupations import block_spectra, multiplet_labels
 
 __all__ = ["VelocityOperator", "BandVelocities", "band_velocities",
            "over_kpoints"]
@@ -110,6 +111,17 @@ class BandVelocities:
     #: ``(nspin, nk, nbnd)`` in Ry -- the eigenvalues these belong to.
     eigenvalues_by_spin: np.ndarray
     nspin: int = 1
+    #: ``(nspin, nk, nbnd)``, ``True`` on a band inside a degenerate multiplet,
+    #: or ``None`` when no grouping was made (the raw diagonal). **Inside a
+    #: multiplet a row is three spectra and not one band's vector**: column
+    #: ``a`` holds the eigenvalues of the multiplet's block of ``dH/dk_a``, in
+    #: ascending order, which are the slopes along ``a`` of the bands the level
+    #: splits into (degenerate perturbation theory), and the blocks of two
+    #: directions do not commute, so the slopes of one band along ``x`` and
+    #: along ``y`` sit in the same row only by their order. The per-band
+    #: diagonal it replaces was the eigensolver's rotation (rule D4), and moved
+    #: by order one under it (``PLAN.md`` P151).
+    degenerate_by_spin: np.ndarray | None = None
 
     @property
     def velocities(self) -> np.ndarray:
@@ -122,8 +134,12 @@ class BandVelocities:
 
     @property
     def speeds(self) -> np.ndarray:
-        """``|d(eps)/dk|``, same shape as the eigenvalues."""
-        return np.linalg.norm(self.velocities_by_spin, axis=-1)
+        """``|d(eps)/dk|``, same shape as the eigenvalues; ``nan`` inside a
+        multiplet, where a row is not one band's vector (:attr:`degenerate_by_spin`)."""
+        speeds = np.linalg.norm(self.velocities_by_spin, axis=-1)
+        if self.degenerate_by_spin is not None:
+            speeds = np.where(self.degenerate_by_spin, np.nan, speeds)
+        return speeds
 
 
 class VelocityOperator:
@@ -571,12 +587,19 @@ class VelocityOperator:
             for a in range(3)
         ])
 
-    def band_velocities(self, psi, eigenvalues) -> BandVelocities:
+    def band_velocities(self, psi, eigenvalues, labels=None) -> BandVelocities:
         """``d(eps_n)/dk`` by the generalised Hellmann-Feynman theorem.
 
         ``<psi_n| dH/dk - eps_n dS/dk |psi_n>``. The second term is identically
         zero for a norm-conserving dataset and is not skipped for one -- the
         ``jvp`` is what decides that, not a branch here.
+
+        ``labels`` (``(nspin, nk, nbnd)``, :func:`~defuqumat.scf.occupations.
+        multiplet_labels`) groups the multiplets, and inside one the velocity
+        along each direction is the spectrum of the block of
+        ``dH/dk_a - eps dS/dk_a`` (:func:`~defuqumat.scf.occupations.block_spectra`,
+        with ``eps`` the multiplet's mean, which keeps the block Hermitian).
+        ``None`` keeps the raw diagonal.
 
         ``psi`` may be a streamed store, a numpy array in host memory, which a
         streamed ground state or a streamed NSCF hands over (the effective
@@ -589,18 +612,33 @@ class VelocityOperator:
         if eigenvalues.ndim == 2:  # (nk, nbnd) -- the squeezed unpolarized shape
             eigenvalues = eigenvalues[None]
 
+        degenerate = None
+        if labels is not None:
+            labels = np.asarray(labels)
+            same = labels[..., :, None] == labels[..., None, :]
+            degenerate = same.sum(axis=-1) > 1
+            # the multiplet's mean eigenvalue on every band of it
+            energies = np.asarray(eigenvalues)
+            mean = (same * energies[..., None, :]).sum(-1) / same.sum(-1)
+
         columns = []
         for axis in _CARTESIAN:
             # One ``jvp`` for the pair: the projector rebuild is the whole cost
             # and both tangents come out of the same one.
             velocity, overlap = self.both(psi, axis)
-            dh = jnp.einsum("skng,skng->skn", psi.conj(), velocity)
-            ds = jnp.einsum("skng,skng->skn", psi.conj(), overlap)
-            columns.append(jnp.real(dh) - eigenvalues * jnp.real(ds))
+            if labels is None:
+                dh = jnp.einsum("skng,skng->skn", psi.conj(), velocity)
+                ds = jnp.einsum("skng,skng->skn", psi.conj(), overlap)
+                columns.append(np.asarray(jnp.real(dh) - eigenvalues * jnp.real(ds)))
+                continue
+            dh = np.asarray(jnp.einsum("skmg,skng->skmn", psi.conj(), velocity))
+            ds = np.asarray(jnp.einsum("skmg,skng->skmn", psi.conj(), overlap))
+            columns.append(block_spectra(dh - mean[..., None, :] * ds, labels))
         return BandVelocities(
-            velocities_by_spin=np.asarray(jnp.stack(columns, axis=-1)),
+            velocities_by_spin=np.stack(columns, axis=-1),
             eigenvalues_by_spin=np.asarray(eigenvalues),
             nspin=self.calculation.nspin,
+            degenerate_by_spin=degenerate,
         )
 
 
@@ -670,7 +708,7 @@ def _elements_over_kpoints(hamiltonian, states, batch, overlap: bool = False):
 
 def band_velocities(calculation, result, kpoints=None, nbnd=None,
                     conv_thr: float = 1.0e-6, k_batch="default",
-                    kcart=None) -> BandVelocities:
+                    kcart=None, degeneracy_tol: float | None = None) -> BandVelocities:
     """``d(eps)/dk`` for a converged run, in one call.
 
     ``result`` is an :class:`~defuqumat.scf.driver.SCFResult`; the potential and
@@ -698,8 +736,25 @@ def band_velocities(calculation, result, kpoints=None, nbnd=None,
     eigensolver mixes them differently from a tight one, and the per-band
     velocities then differ by order one while the multiplet's *set* of them does
     not. Measured: 1e-6 against 1e-12 on that path moves an individual band's
-    velocity by 0.5 Ry bohr.
+    velocity by 0.5 Ry bohr. **So inside a multiplet the velocities are the
+    block's spectrum** along each direction (:attr:`BandVelocities.
+    degenerate_by_spin`), which no rotation moves: before that the per-band
+    diagonal moved by 0.12 to 0.86 of the largest velocity on silicon with
+    ``Gamma`` in a 2x2x2 mesh, under a random unitary inside each multiplet
+    (``PLAN.md`` P151).
+
+    ``degeneracy_tol`` groups the multiplets, in Ry. ``None`` takes the
+    eigensolver's promise on the states read
+    (:func:`~defuqumat.solvers.davidson.degeneracy_tolerance`): on the
+    ``kpoints`` route the fixed-density solve's
+    ``fixed_density_ethr(conv_thr, nelec)``, on the ground state's own k-points
+    the SCF's ``ethr`` with the empty-band floor. Never a looser one: between
+    two resolved bands ``<psi_m|dH/dk|psi_n>`` is of order one, and grouping
+    them replaces their slopes by numbers off by that much.
     """
+    from defuqumat.solvers.davidson import degeneracy_tolerance
+    from defuqumat.workflows.nscf import fixed_density_ethr
+
     from defuqumat.workflows.nscf import fixed_density_states
 
     if kpoints is None and kcart is not None:
@@ -733,9 +788,14 @@ def band_velocities(calculation, result, kpoints=None, nbnd=None,
             kcart=kcart,
         )
         eigenvalues = jnp.asarray(eigenvalues)
+        tol = degeneracy_tolerance(
+            degeneracy_tol, 0.0, fixed_density_ethr(conv_thr, calculation.nelec),
+            site="band_velocities")
     else:
         eigenvalues = jnp.asarray(result.eigenvalues)
         psi = result.wavefunctions
+        tol = degeneracy_tolerance(degeneracy_tol, 0.0, result.ethr, empty_floor=True,
+                                   site="band_velocities")
 
     # The converged field, not the input's -- the same rule the ``kpoints``
     # branch above already follows, and the reason is ``newd``. The Zeeman and
@@ -762,4 +822,5 @@ def band_velocities(calculation, result, kpoints=None, nbnd=None,
     # function of the density).
     _, ddd_paw = calculation.onecenter(result.becsum, getattr(result, "meta_c", None))
     operator = VelocityOperator(calculation, potential.v_scf, ddd_paw, result.ns)
-    return operator.band_velocities(psi, eigenvalues)
+    energies = eigenvalues if eigenvalues.ndim == 3 else eigenvalues[None]
+    return operator.band_velocities(psi, eigenvalues, multiplet_labels(energies, tol))

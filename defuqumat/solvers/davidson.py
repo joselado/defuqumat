@@ -271,6 +271,14 @@ def resolve_degeneracy_tol(asked, ethr=None, *, empty_floor: bool = False) -> fl
       were converged only to :func:`empty_band_threshold`; that joins the
       ``max``.
 
+    **The promise is the eigensolver's and not the SCF's.** On a ``nosym`` run
+    the density is symmetric only to ``conv_thr``, so a pair degenerate by
+    symmetry is split by the SCF residual, not by ``ethr``: 5.3e-7 Ry at
+    ``conv_thr = 1e-9`` and 8.8e-8 at 1e-14 on silicon 2x2x2 with ``Gamma``,
+    far above ``5 ethr``. A site reading an SCF's states groups them with
+    ``empty_floor=True``, whose 1e-5 covers both (``PLAN.md`` P151); a rule in
+    ``conv_thr`` is not written.
+
     At every site's default on the fixed-density route the result is the
     site's own constant (``conv_thr`` 1e-8 to 1e-10 puts ``5 ethr`` at
     6e-10 and below), so what the rule changes is what the tolerance is a

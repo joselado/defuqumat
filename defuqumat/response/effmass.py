@@ -154,7 +154,8 @@ class EffectiveMass:
     eigenvalues_by_spin: np.ndarray
     #: One entry per spin channel, each a tuple of :class:`Multiplet`.
     multiplets: tuple
-    #: ``(nspin, nbnd)``: ``||M - M^T|| / ||M||`` before symmetrisation. The
+    #: ``(nspin, nbnd)``: ``||M - M^T|| / ||M||`` before symmetrisation, ``nan``
+    #: on a band in a degenerate multiplet as the tensor is. The
     #: tensor is a second derivative and so is symmetric exactly; what this
     #: measures is the stencil's own error, and it is free. **``nan`` for
     #: ``method = "eigenvalue"``**, whose mixed difference writes the two
@@ -164,8 +165,9 @@ class EffectiveMass:
     asymmetry_by_spin: np.ndarray
     #: ``(nspin, nbnd)`` in 1/m_e: ``|M(h/2) - M(h)| / 3``, the ``O(h^2)``
     #: truncation the Richardson step removed, kept as an estimate of what is
-    #: left. ``None`` when ``richardson = False``, where the error is the whole
-    #: of that difference and is not measured.
+    #: left, ``nan`` on a band in a degenerate multiplet. ``None`` when
+    #: ``richardson = False``, where the error is the whole of that difference
+    #: and is not measured.
     truncation_by_spin: np.ndarray | None
     #: The stencil's outermost displacement, 1/bohr.
     delta: float
@@ -371,6 +373,13 @@ def effective_mass(
 
     multiplets, refused = _multiplets(eigenvalues, inverse_mass, degeneracy_tol)
     reported = _mask_degenerate(inverse_mass, refused)
+    # The two diagnostics of a refused tensor are themselves residues: they
+    # moved by 0.8 to 1.9 and 9e-3 to 1.7e-2 under a random rotation inside
+    # AlAs's Kramers pairs (``PLAN.md`` P151), where the tensor sum they belong
+    # to did not move.
+    asymmetry = _mask_degenerate(asymmetry, refused)
+    if truncation is not None:
+        truncation = _mask_degenerate(truncation, refused)
     if bands is not None:
         wanted = np.asarray(bands, dtype=int)
         reported = reported[:, wanted]
@@ -618,23 +627,22 @@ def _multiplets(eigenvalues, inverse_mass, tol):
     Returns ``(per_spin_multiplets, refused)``, the second being the
     ``(spin, band)`` pairs whose individual tensor is not a property of the band.
     """
+    from defuqumat.scf.occupations import multiplet_labels
+
     per_spin, refused = [], []
+    labels = multiplet_labels(eigenvalues, tol)
     for spin in range(eigenvalues.shape[0]):
-        groups, start = [], 0
+        groups = []
         eps = np.asarray(eigenvalues[spin])
-        for band in range(1, len(eps) + 1):
-            if band == len(eps) or eps[band] - eps[band - 1] > tol:
-                indices = tuple(range(start, band))
-                groups.append(Multiplet(
-                    bands=indices,
-                    eigenvalue=float(np.mean(eps[list(indices)])),
-                    inverse_mass_sum=np.sum(
-                        inverse_mass[spin, list(indices)], axis=0
-                    ),
-                ))
-                if len(indices) > 1:
-                    refused += [(spin, index) for index in indices]
-                start = band
+        for value in np.unique(labels[spin]):
+            indices = tuple(int(i) for i in np.flatnonzero(labels[spin] == value))
+            groups.append(Multiplet(
+                bands=indices,
+                eigenvalue=float(np.mean(eps[list(indices)])),
+                inverse_mass_sum=np.sum(inverse_mass[spin, list(indices)], axis=0),
+            ))
+            if len(indices) > 1:
+                refused += [(spin, index) for index in indices]
         per_spin.append(tuple(groups))
     return tuple(per_spin), tuple(refused)
 

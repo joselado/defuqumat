@@ -1,5 +1,7 @@
 # What to do about degenerate eigenvectors, and where a smearing is the cure
 
+**Status, 2026-10-15: items 1 to 7 are closed.** Item 7, the gauge sweep, ran as `PLAN.md` P151 and its three rule-D4 defects are fixed ("Outcome, P151" under item 7). The status of the night before follows.
+
 **Status, 2026-10-14, night: items 1 to 6 are closed.** P150 (`plans/degeneracy-p150.md`) closed
 item 4's tail and `OPEN.md` Part XXVI item 1 with the exact Jacobian of the SCF map, `jvp =
 'sternheimer'`, the Sternheimer response of the converged eigenpairs, which carries the divided
@@ -603,8 +605,19 @@ relaxed family. Electrostriction ran once on `si-gamma-nosym` and is **a null, n
 diagonalises again (one wrapped solve), and on that cell's `conv_thr = 1e-9` density the solve's
 pairs are split by 5.8e-9 and more, above the solve's own `max(5 ethr, 1e-10)`, so the wrapper did
 not rotate them; its copy of the strain `deigenvalues` moved by 8.7e-8 where the standalone
-strain response's moved by 0.66, so it reads states of that solve. It wants a cell whose solve
-leaves its multiplets inside the tolerance (`si-gamma-nosym-tight`), not run.
+strain response's moved by 0.66. On `si-gamma-nosym-tight` it reached and is invariant: the
+electrostriction and photoelastic tensors move by 2.2e-9 and the clamped-ion elastic tensor by
+7.6e-11, its strain `deigenvalues` by 3.1e-6.
+
+**Fixed, the same day** (P151's second commit, fable's decisions): the velocities and the strain
+`deigenvalues` take the block spectrum inside a multiplet (degenerate perturbation theory, the
+slopes of the split bands), the effective mass's two diagnostics are `nan` on refused bands, and
+the optical conductivity warns on a cut multiplet. After: the velocities move by nothing on all four
+cells, `deigenvalues` by 2.4e-9 to 2.4e-8, `asymmetry` by 6e-7 at most. The strain grouping needed
+the empty-band floor: on a `nosym` SCF a symmetry pair is split by the SCF residual (1.2e-8 to
+5.3e-7 Ry at `conv_thr = 1e-9`, up to 8.8e-8 at 1e-14), not by `ethr`. Coverage at the default
+`conv_thr = 1e-6`, where that split is larger, was not measured; a rule in `conv_thr` is not written.
+The numbers are `PLAN.md` P151.
 
 ## What is not here
 

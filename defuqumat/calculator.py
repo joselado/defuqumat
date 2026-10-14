@@ -1222,12 +1222,24 @@ class Calculator:
         :meth:`get_elastic_constants`, which asks for the response with no
         options at all, and nothing on the result said which tolerance it had
         been built at.
+
+        The multiplets of ``deigenvalues`` are grouped at the SCF states'
+        tolerance with the empty-band floor, as the band velocities are. Not at
+        ``max(5 ethr, 1e-10)``: a symmetry pair's split on a ``nosym`` SCF is
+        set by the SCF residual, since the density is symmetric only to
+        ``conv_thr``, and read 5.3e-7 Ry at ``conv_thr = 1e-9`` and 8.8e-8 at
+        1e-14, where the per-band shifts moved by 0.4 to 0.7 under a rotation
+        inside the pair (``PLAN.md`` P151).
         """
         from defuqumat.response.strain import strain_response
+
+        from defuqumat.solvers.davidson import resolve_degeneracy_tol
 
         result = self._ground_state("the strain response")
         merged = self._defaults_for(strain_response, options,
                                     exclude=SCF_ONLY_OPTIONS)
+        merged.setdefault("degeneracy_tol", resolve_degeneracy_tol(
+            0.0, getattr(result, "ethr", None), empty_floor=True))
         if self._strain_response is not None and _same_options(
             merged, self._strain_response_options
         ):

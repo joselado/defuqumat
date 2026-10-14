@@ -168,8 +168,10 @@ class StrainResponse:
     #: frozen-state part the changing volume contributes.
     drho: jnp.ndarray
     #: ``(3, 3, nspin, nk, nocc)`` -- ``<psi_n|dH|psi_n>`` with the induced
-    #: potential in it. Defined only up to a common constant; see the module
-    #: docstring.
+    #: potential in it, and inside a degenerate multiplet the spectrum of the
+    #: block of ``dH_ab`` in ascending order (one strain pair at a time; the
+    #: blocks of two pairs do not commute). Defined only up to a common
+    #: constant; see the module docstring.
     deigenvalues: np.ndarray
     #: ``(3, 3, nspin_mag, n1, n2, n3)`` -- the converged induced potential.
     dvscf: jnp.ndarray
@@ -246,6 +248,7 @@ def strain_response(
     threshold: float | None = None,
     mixing_mode: str = DEFAULT_RESPONSE_MIXING,
     verbose: bool = False,
+    degeneracy_tol: float | None = None,
 ) -> StrainResponse:
     """``solve_linter``'s loop for the six independent homogeneous strains.
 
@@ -266,6 +269,11 @@ def strain_response(
             pass (:func:`~defuqumat.response.efield.dielectric_tensor` says when
             that is wanted).
         tr2: ``ph.x``'s ``tr2_ph``, in its units (:data:`TR2`).
+        degeneracy_tol: the gap in Ry below which two occupied bands are one
+            multiplet for :attr:`StrainResponse.deigenvalues`. ``None`` takes
+            the floor for states of unknown provenance;
+            :meth:`~defuqumat.calculator.Calculator.get_strain_response` passes
+            the eigensolver's promise on the SCF's own states.
     """
     eigenvalues = jnp.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
@@ -338,10 +346,11 @@ def strain_response(
     if streamed:
         dpsi = strains.first_order_states()
         derivatives, ort = strains.overlap_derivatives()
-        deigenvalues = strains.eigenvalue_response(dvscf)
+        elements = strains.eigenvalue_response(dvscf)
     else:
         dpsi = strains.dpsi
-        deigenvalues = _eigenvalue_response(solver, bare, dvscf)
+        elements = _eigenvalue_response(solver, bare, dvscf)
+    deigenvalues = _shifts(elements, eigenvalues, degeneracy_tol)
 
     return StrainResponse(
         dpsi=dpsi,
@@ -734,8 +743,37 @@ def _bare_plus_induced(solver, bare_component, dv, include_induced: bool,
     return perturbation
 
 
+def _shifts(elements, eigenvalues, degeneracy_tol) -> np.ndarray:
+    """``(3, 3, nspin, nk, nocc)`` first-order eigenvalues from the matrices.
+
+    The diagonal outside a degenerate multiplet, the block's spectrum inside one
+    (:func:`~defuqumat.scf.occupations.block_spectra`): the deformation
+    potentials of the bands a strain splits the level into, which no rotation
+    inside it moves. The per-band diagonal moved by 0.27 to 0.66 under a random
+    unitary inside silicon's multiplets (``PLAN.md`` P151). ``degeneracy_tol``
+    ``None`` takes :func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol` of
+    unknown provenance; the calculator passes the SCF's own.
+    """
+    from defuqumat.scf.occupations import block_spectra, multiplet_labels
+    from defuqumat.solvers.davidson import resolve_degeneracy_tol
+
+    nocc = elements.shape[-1]
+    energies = np.asarray(eigenvalues)
+    energies = (energies if energies.ndim == 3 else energies[None])[..., :nocc]
+    tol = resolve_degeneracy_tol(0.0) if degeneracy_tol is None else float(degeneracy_tol)
+    labels = multiplet_labels(energies, tol)
+    out = np.empty(elements.shape[:-1])
+    for a in range(3):
+        for b in range(3):
+            out[a, b] = block_spectra(elements[a, b], labels)
+    return out
+
+
 def _eigenvalue_response(solver, bare, dvscf) -> np.ndarray:
-    """``deps_n = <psi_n|dH_bare + dV_scf|psi_n>``, the first-order eigenvalues.
+    """``<psi_m|dH_bare + dV_scf|psi_n>``, ``(3, 3, nspin, nk, nocc, nocc)``.
+
+    The matrix rather than its diagonal, so that :func:`_shifts` can take the
+    first-order eigenvalues inside a degenerate multiplet from the block.
 
     QE computes this nowhere for a strain: ``ph.x`` has no strain perturbation.
     It is needed because the Sternheimer operator carries ``eps_n`` explicitly,
@@ -746,7 +784,7 @@ def _eigenvalue_response(solver, bare, dvscf) -> np.ndarray:
     """
     batch = solver.calculation.k_batch
     psi = solver.psi
-    out = np.empty((3, 3) + psi.shape[:3])
+    out = np.empty((3, 3) + psi.shape[:3] + psi.shape[2:3], dtype=complex)
     for a in range(3):
         for b in range(a, 3):
             induced = solver.perturbation(dvscf[a, b])
@@ -755,9 +793,7 @@ def _eigenvalue_response(solver, bare, dvscf) -> np.ndarray:
                 def one_k(ik, spin=spin, a=a, b=b):
                     states = psi[spin][ik]
                     total = bare[a, b][spin][ik] + induced(states, ik, spin)
-                    return jnp.real(
-                        jnp.einsum("ng,ng->n", jnp.conj(states), total)
-                    )
+                    return jnp.einsum("mg,ng->mn", jnp.conj(states), total)
 
                 blocks.append(compiled(
                     lambda indices, one_k=one_k: map_k(one_k, indices, batch=batch),

@@ -34,7 +34,7 @@ __all__ = ["fixed_occupations", "smeared_occupations", "fermi_level", "bisect_fe
            "smearing_entropy", "spin_electron_counts",
            "input_occupations", "wgauss", "w0gauss", "w1gauss",
            "smearing_order", "tetrahedra_for", "tetrahedron_occupations",
-           "tetrahedron_occupations_spin"]
+           "tetrahedron_occupations_spin", "multiplet_labels", "block_spectra"]
 
 
 def fixed_occupations(
@@ -199,6 +199,56 @@ def cut_gaps(eigenvalues, cuts) -> np.ndarray:
         if 0 < cut < nbnd:
             gaps[channel] = np.min(eigenvalues[channel, :, cut] - eigenvalues[channel, :, cut - 1])
     return gaps
+
+
+def multiplet_labels(eigenvalues, tol: float) -> np.ndarray:
+    """Which degenerate multiplet each band belongs to, along the last axis.
+
+    ``labels[..., n] = sum_{m < n} [e[..., m + 1] - e[..., m] > tol]`` on the
+    sorted eigenvalues, so two bands share a label exactly when every gap
+    between them is at most ``tol``. A partition by construction, where a mask
+    ``|e_n - e_m| <= tol`` is not transitive and would join a chain of bands
+    whose ends are further apart than ``tol``. ``tol`` belongs to the caller,
+    and is the eigensolver's promise on the states it is applied to
+    (:func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`). The same
+    gap arithmetic as :func:`cut_gaps`, which measures one cut where this
+    measures every one. Host-side, never inside a differentiated quantity.
+    """
+    eigenvalues = np.asarray(eigenvalues, dtype=float)
+    steps = np.diff(eigenvalues, axis=-1) > tol
+    return np.concatenate(
+        [np.zeros(eigenvalues.shape[:-1] + (1,), dtype=int),
+         np.cumsum(steps, axis=-1)], axis=-1)
+
+
+def block_spectra(matrices, labels) -> np.ndarray:
+    """The first-order shifts of each band under one perturbation, multiplets included.
+
+    ``matrices`` is ``(..., nbnd, nbnd)``, the Hermitian matrix of a first-order
+    operator between the states (``<psi_m|dH|psi_n>``), and ``labels`` the
+    ``(..., nbnd)`` of :func:`multiplet_labels`. Outside a multiplet the shift is
+    the diagonal element. Inside a multiplet of ``d`` bands the diagonal is
+    whatever rotation the eigensolver returned (rule D4), and what degenerate
+    perturbation theory gives instead is the ``d`` eigenvalues of the block,
+    the slopes of the bands the perturbation splits the level into; they are
+    returned in ascending order on the multiplet's band indices, so their sum,
+    the block's trace, is the diagonal's sum unchanged.
+
+    One perturbation at a time: the blocks of two directions do not commute, so
+    the shifts of one band under ``k_x`` and under ``k_y`` are not one band's
+    vector inside a multiplet.
+    """
+    matrices = np.asarray(matrices)
+    labels = np.asarray(labels)
+    out = np.array(np.real(np.einsum("...nn->...n", matrices)), dtype=float)
+    for index in np.ndindex(labels.shape[:-1]):
+        row = labels[index]
+        for value in np.unique(row):
+            bands = np.flatnonzero(row == value)
+            if bands.size > 1:
+                block = matrices[index][np.ix_(bands, bands)]
+                out[index + (bands,)] = np.linalg.eigvalsh(0.5 * (block + np.conj(block.T)))
+    return out
 
 
 #: The highest occupied level of a channel that holds no electrons.

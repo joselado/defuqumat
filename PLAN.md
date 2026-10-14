@@ -210,8 +210,9 @@ because that is what decides whether it is a session or a phase.
   closed `OPEN.md` Part XXVI item 1 and carries the divided difference of the occupation by
   construction), P151 the gauge sweep over the `Calculator` front door (`notes/DEGENERACY-NEXT.md`
   item 7: three rule-D4 defects found, in the band velocities, the strain `deigenvalues` and two
-  effective-mass diagnostics) and `OPEN.md` Part XXVI item 3. What is left: the dense `eigh` sites
-  outside Davidson, which the sweep does not reach, and the expensive families it left out (P151);
+  effective-mass diagnostics, all three fixed by the block spectrum or a `nan`) and `OPEN.md` Part
+  XXVI item 3. What is left: the dense `eigh` sites outside Davidson, which the sweep does not reach,
+  the expensive families it left out, and a degeneracy rule in `conv_thr` for a `nosym` SCF (P151);
   `OPEN.md` Part XXVI item 2 (the warm-started SCF map has a different derivative,
   5e-2 to 0.4 of `|dF v|` off the exact one, harmless to Newton), with item 4 (notebook 17's stale outputs) and
   item 5 (the spinor cell's check stops at its reference's scatter, about 5e-4). The smooth kernel `gap/(gap^2 + eta^2)` is
@@ -26214,7 +26215,7 @@ done**: the gauge sweep over the front door (`notes/DEGENERACY-NEXT.md` item 7) 
 XXVI items 2 to 5.
 
 
-### P151 -- The gauge sweep over the front door, run: every `get_*` a degenerate cell admits, under two random gauges inside every multiplet; and the Fermi-level shift's count taken on the charge. 🚧 2026-10-15, the user's request ("do the first two points": `notes/DEGENERACY-NEXT.md` item 7 and `OPEN.md` Part XXVI item 3), on fable's review of the plan and its decisions on the fixes (`plans/gauge-sweep-p151.md`), every number on `D22-0161` (`/l/ladovj1/review/degeneracy/p151/`, worktree `w-p151` at `85e7c76` with this tree rsync'd over it).
+### P151 -- The gauge sweep over the front door, run: every `get_*` a degenerate cell admits, under two random gauges inside every multiplet, its three rule-D4 defects fixed; and the Fermi-level shift's count taken on the charge. ✅ DONE 2026-10-15, the user's request ("do the first two points": `notes/DEGENERACY-NEXT.md` item 7 and `OPEN.md` Part XXVI item 3), on fable's review of the plan and its decisions on the fixes (`plans/gauge-sweep-p151.md`), every number on `D22-0161` (`/l/ladovj1/review/degeneracy/p151/`, worktree `w-p151` at `85e7c76` with this tree rsync'd over it).
 
 **The Fermi-level shift.** `SternheimerSolver.fermi_level_shift` integrated `drho` over the channel
 axis, which at `nspin_mag = 4` counted `n + m_x + m_y + m_z`. It now takes the charge by
@@ -26255,3 +26256,48 @@ diagnostics on bands whose mass is already refused. Their fixes are this phase's
 **Not reached**: the dense `eigh` sites outside Davidson (recorded, fable's decision), the calls that
 run their own SCF, and for cost the real-time, harmonic, Raman, magnetoelectric, ultracell and
 relaxed families.
+
+**The fixes** (the second commit, on fable's decisions). The rule they share: a first-order
+diagonal read in a degenerate level has a gauge-free answer, the eigenvalues of the multiplet's
+block (degenerate perturbation theory: the slopes of the split bands, the deformation potentials),
+and a second-order per-band tensor has none, which is why the effective mass's `nan` stays.
+
+- `scf/occupations.py` gains `multiplet_labels` (`cumsum(diff(e) > tol)`, a partition) and
+  `block_spectra` (the diagonal outside a multiplet, the block's ascending eigenvalues inside one,
+  so the trace is kept); `effmass._multiplets` is rewritten over the first.
+- `band_velocities` takes the block of `dH/dk_a - e_mean dS/dk_a` per direction inside a multiplet;
+  `BandVelocities` gains `degenerate_by_spin`, and `speeds` is `nan` there, since a row is three
+  spectra and not one band's vector. The tolerance is the solver's promise: on SCF states `ethr` with
+  the empty-band floor, on the `kpoints` route `fixed_density_ethr(conv_thr, nelec)`.
+- `StrainResponse.deigenvalues` comes from the matrix `<psi_m|dH_ab|psi_n>` (both routes return it)
+  through `block_spectra`, one pair `ab` at a time. `get_strain_response` groups at the SCF states'
+  tolerance **with** the empty floor: fable first decided without it (the array is occupied-only), and
+  the measurement overturned that, since on a `nosym` SCF a symmetry pair's split is set by the SCF
+  residual and not by `ethr` (occupied splits 1.2e-8 to 5.3e-7 Ry at `conv_thr = 1e-9`, 1.0e-10 to
+  5.8e-10 and three at 8.8e-8 at 1e-14, against a grouping of 1e-10, where `deigenvalues` still moved
+  by 0.62). `resolve_degeneracy_tol`'s docstring says so; a rule in `conv_thr` is not written (open).
+- `effective_mass`: `asymmetry_by_spin` and `truncation_by_spin` are `nan` on refused bands.
+- `optical_conductivity` warns when `band_cut_gap` is below its tolerance
+  (`photocurrent._warn_about_the_cut`, quoting the oxygen atom's 5e-4).
+
+After, the same harness on the same cells (`after-*.log`, `after2-*.log`):
+
+| what | before | after |
+|---|---|---|
+| `get_band_velocities`, four cells | 0.12 to 65 | no leaf moves |
+| strain `deigenvalues`, `si-gamma` / `-nosym` / `-nosym-tight` | 0.27 to 0.66 | 2.4e-9 / 2.4e-8 / 1.5e-8 |
+| effective mass `asymmetry`, `alas-soc` / `o-smear` / `si-gamma` | 0.8 to 1.9 / 0.4 / 5e-2 | 0 / 6e-7 / 5e-8 (finite entries) |
+| oxygen conductivity at `nbnd = 9` | 5e-4, silent | 5e-4, warned |
+
+The warning also fires on `si-gamma-nosym` at its default `nbnd` (`band_cut_gap` 9.6e-9 Ry), where
+`sigma` did not move. Tests: `tests/regression/test_gauge_multiplets.py` (gate) pins both block
+spectra on `si-gamma` under a random unitary, with the raw kernel diagonal moving by more than 1e-2
+of the largest velocity as the check that the rotation reached the states;
+`test_effective_mass.py`'s two diagnostics tests now ask for `nan` on refused bands and finite values
+elsewhere; `test_conductivity.py`'s cut at `nbnd = 24` asserts the warning fires. **Notebook 19**
+was re-executed for the velocities: its "smallest group velocity" moves from 0.1890 to 0.1274 Ry bohr
+(the shifted grid's multiplet rows now being block spectra), and the same run shows the dielectric
+and Born numbers drifted since the notebook was committed (`epsilon` 13.806646 to 13.806630, the
+spinor-scalar pair 4.5e-6 apart to 2.6e-5, against prose that says seven figures), identically at
+`85e7c76` before this phase, so the notebook is not re-committed and the drift is `OPEN.md` Part XXVI
+item 4.

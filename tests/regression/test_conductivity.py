@@ -246,8 +246,10 @@ def test_a_nonmagnetic_crystal_has_no_hall_conductivity():
     assert np.max(np.abs(0.5 * (sigma - sigma.T))) < 1e-11
     assert clean.band_cut_gap > 0.02
 
-    inside = run_conductivity(system, pseudos, result.density, nbnd=24,
-                              frequencies=[0.0], broadening=0.01)
+    # the guard that says so has to fire (P151)
+    with pytest.warns(RuntimeWarning, match="cut inside a degenerate multiplet"):
+        inside = run_conductivity(system, pseudos, result.density, nbnd=24,
+                                  frequencies=[0.0], broadening=0.01)
     assert inside.band_cut_gap < 1e-6
     sigma = inside.sigma[0]
     assert np.max(np.abs(0.5 * (sigma - sigma.T))) > 1e-7

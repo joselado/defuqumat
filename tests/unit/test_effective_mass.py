@@ -239,8 +239,19 @@ def test_the_truncation_is_reported_not_tuned_away(masses):
     """
     for mass in masses.values():
         assert mass.truncation is not None
-        assert np.all(mass.truncation >= 0.0)
-        assert np.all(np.isfinite(mass.truncation))
+        refused = _refused_mask(mass)
+        assert np.all(mass.truncation_by_spin[~refused] >= 0.0)
+        assert np.all(np.isfinite(mass.truncation_by_spin[~refused]))
+        # a diagnostic of a refused tensor is a residue of the rotation (P151)
+        assert np.all(np.isnan(mass.truncation_by_spin[refused]))
+
+
+def _refused_mask(mass):
+    """``(nspin, nbnd)``, ``True`` on the bands whose tensor is refused."""
+    refused = np.zeros(mass.asymmetry_by_spin.shape, dtype=bool)
+    for spin, band in mass.refused:
+        refused[spin, band] = True
+    return refused
 
 
 def test_the_asymmetry_is_a_null_where_it_cannot_be_a_measurement(masses):
@@ -260,8 +271,11 @@ def test_the_asymmetry_is_a_null_where_it_cannot_be_a_measurement(masses):
     against. What measures its stencil error is ``truncation``.
     """
     velocity = masses["velocity"].asymmetry_by_spin
-    assert np.all(np.isfinite(velocity))
-    assert np.all(velocity >= 0.0)
+    refused = _refused_mask(masses["velocity"])
+    assert refused.any() and not refused.all()
+    assert np.all(np.isfinite(velocity[~refused]))
+    assert np.all(velocity[~refused] >= 0.0)
+    assert np.all(np.isnan(velocity[refused]))
 
     eigenvalue = masses["eigenvalue"].asymmetry_by_spin
     assert np.all(np.isnan(eigenvalue))

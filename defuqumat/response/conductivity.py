@@ -591,6 +591,14 @@ def optical_conductivity(
     zomega = (jnp.asarray(frequencies) + 1j * eta).astype(precision.complex)
 
     tol = DEGENERACY_TOL if degeneracy_tol is None else float(degeneracy_tol)
+    # A cut multiplet keeps some of its members and drops the rest, so the pairs
+    # it makes with the dropped ones are missing and nothing cancels them;
+    # ``_report_dropped_pairs`` is silent here by design (a pair's two orderings
+    # cancel), so the cut is warned about on its own.
+    from defuqumat.response.photocurrent import _warn_about_the_cut
+
+    _warn_about_the_cut(band_cut_gap, "the optical conductivity sigma_ab",
+                        _CUT_RESIDUE_SIGMA, tol=tol)
     if method == "frequency":
         def one_k(arrays):
             element, energy, weight, fill = arrays
@@ -834,6 +842,16 @@ def _report_dropped_pairs(dropped: int, tol: float, *, curvature: bool,
 #: :data:`defuqumat.response.spectra.DEGENERACY_TOLERANCE` is the same argument
 #: made for phonon frequencies, and was measured the same way.
 DEGENERACY_TOL = EMPTY_ETHR_FLOOR
+
+#: What :func:`~defuqumat.response.photocurrent._warn_about_the_cut` quotes for
+#: this tensor: how far it moved when the multiplet straddling the cut was
+#: rotated (``PLAN.md`` P151, the gauge sweep).
+_CUT_RESIDUE_SIGMA = (
+    "on the smeared oxygen atom (o-atom-fixed-lsda.in with a smearing), cut at "
+    "nbnd = 9 and 8 through a multiplet (band_cut_gap 6e-14 and 3.5e-14 Ry), "
+    "a random rotation inside each multiplet moves sigma by 5e-4 and 1e-4 of "
+    "its peak, and at nbnd = 10 (band_cut_gap 7.4e-2 Ry) by nothing"
+)
 
 #: A pair counts as "dropped" only if its weight ``W_n (1 - f_m)`` is above
 #: this. Every occupied/occupied and empty/empty pair of a well converged run
