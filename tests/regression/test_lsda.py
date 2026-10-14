@@ -158,7 +158,17 @@ TOTAL_RY = {"pw_pawatom": 2e-5}
 #: 2.6e-5 apart, past ``TERM_RY``, and at 1e-13 they are **9.9e-7** apart. Where a
 #: 1e-10 run stops inside that 2e-5 is decided by the mixer's path, which is why the
 #: case passed before ``1705a0a`` and failed after it (``OPEN.md`` Part XIX).
-CONV_THR = {"pw_lsda": 1e-13}
+#:
+#: **``paw-atom_spin_lda`` runs at 1e-8 because it has no fixed point below about
+#: 1e-9.** Its minority channel puts one electron into a threefold degenerate p
+#: shell, so which member is filled is the eigensolver's choice at each step and
+#: ``F`` is not a function of the density. Measured 2026-10-14 on D22 (CPU, babdef7)
+#: over 120 iterations: the flat fit, ``rho_ddot`` in real space and ``rho_ddot``
+#: on the G sphere each reach about 1e-9 Ry in 11 to 12 iterations and then wander
+#: between 1e-9 and 1e-5 for good, so 1e-10 was never reached (300 iterations end
+#: at 1.2e-8 flat and 2.6e-6 under ``rho_ddot``). At 1e-8 the five tests of the case
+#: pass under both fits. ``pw.x`` stops it at 1e-6 in 8 iterations.
+CONV_THR = {"pw_lsda": 1e-13, "pw_pawatom": 1e-8}
 
 
 def _input_path(directory, name: str, qe_testsuite: Path) -> Path:

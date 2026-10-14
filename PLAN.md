@@ -25436,7 +25436,10 @@ moment under `noncolin` relaxes to none and gives the `nspin = 1` total within 1
 **What is outstanding.** `gate`, the reduced symmetry group that keeps `b_edir` and the saw-tooth's
 origin, and the stress. `nosym` here is the full k-grid, where `pw.x`'s keeps time reversal: the same
 energy for a nonmagnetic slab on an automatic grid, about twice the k-points; measured only on the
-committed cases, which have one k-point.
+committed cases, which have one k-point. Also outstanding: **`rho_ddot`'s `dipfield` term**, `(e2/2) el_dipole1 el_dipole2
+Omega/fpi` (`scf_mod.f90`, at the end of `rho_ddot`), which neither this code's fit metric nor its `dr2`
+has. Left out on fable's decision of 2026-10-14, so that P146's A/B stays clean; `pw_dipole` at 27
+iterations against `pw.x`'s 26 is the number saying it is small.
 
 ### P145 -- The finite homogeneous electric field by the Berry phase: `lelfield`. ✅ DONE 2026-10-13 for norm-conserving `nspin = 1` insulators along one `gdir`, against `pw.x` 7.5 on QE's `pw_electric` chain; the plan and fable's review are `plans/lelfield.md`.
 
@@ -25537,3 +25540,38 @@ at the flat fit's 1e-10 stop point, 8.950175e-02, which neither fit reproduces a
 
 **What is still not `pw.x`'s fit**: the inner product runs over the whole dense set where `pw.x` fits
 only `G < ngms`, and the combination is Anderson rather than modified Broyden (P113).
+
+**The slow set, and `mixing_fit`** (2026-10-14, D22, CPU; every number an A/B on babdef7 with only the
+fit toggled). Ten tests in seven files failed; nine pass under the flat fit, and the one that does not is
+not about the fit. Fable kept `rho_ddot` as the default (option A of four) on one reading: **the fit and
+the stop now share one metric**, `scf_accuracy` being `rho_ddot` under both fits, so the flat fit had been
+delivering more at high G than `conv_thr` asks, and bounds measured under it were measured on that
+over-convergence. The fit is now a `run_scf` keyword, `mixing_fit = 'rho_ddot' | 'flat'` (a
+`SHARED_OPTIONS` entry, so a `Calculator` reaches it; `None` is `RHO_DDOT_FIT`), and a test that needs the
+flat fit says so by name instead of patching the module.
+
+| test | under `rho_ddot` | what it got |
+|---|---|---|
+| `test_lsda` `paw-atom_spin_lda` | not converged in 300 (2.6e-6; flat 1.2e-8) | `conv_thr` 1e-8 for `pw_pawatom` |
+| `test_spinorbit` empty Kramers pair | 1.484e-4 eV against a bound of 1.361e-4 | `conv_thr` 1e-12, passes |
+| `test_noncollinear_pdos` minority channel | 7.3e-3 of the peak against 5e-3 | `conv_thr` 1e-14, passes |
+| `test_conductivity` guard | 0.062 S/cm against > 1; 102 pairs against 42 at 1e-12 | flat, pinned |
+| `test_electron_phonon` q1 (3 tests) | pair 73.99540, 74.00865 (`ph.x` 73.995634, 73.995712) | flat, pinned |
+| `test_nonlinear` forbidden components (2 tests) | 1.3e-10, 2.2e-9 relative at 1e-12; 2.3e-10, 1.5e-9 at 1e-14 | flat, pinned |
+| `test_holding_a_texture` `lambda = 10` | not converged: 0.036 Ry at 100, 0.021 at 300 | flat, pinned |
+
+The PAW atom has no fixed point below about 1e-9 under any fit: its minority channel puts one electron
+in a threefold p shell, and flat, `rho_ddot` and `rho_ddot` on the G sphere each reach 1e-9 in 11 to 12
+iterations and then wander between 1e-9 and 1e-5. The G-sphere layout (`mixing_space = 'g'`) changes none
+of the other nine, which is expected: the same metric gives the same coefficients.
+
+**Open, each with the measurement that settles it.** The texture is the one real convergence failure
+against the fit; the hypothesis is the magnetization's flat `lambda = 1` bohr weight, under-weighted
+against the charge's `1/G^2` by roughly 40 at typical G, on a problem that a stiff site constraint makes
+magnetic; the number that decides it is `pw.x` with `constrained_magnetization = 'atomic'` on the same H2
+pair at `lambda = 10`, and only after it would a flat default for that workflow be defensible. The
+electron-phonon split is unmeasured against a tighter ground state (the `conv_thr / 100` probe left it bit
+for bit, which is either an SCF already far below its threshold or a probe that missed it); the test's
+own note puts that size at the D4 gauge of the solve. The Raman residue needs max `|residual(G)|` at high
+G of the final density under each fit on AlAs, to confirm it is the flat fit's over-convergence and not
+a symmetry defect.

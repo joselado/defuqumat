@@ -80,7 +80,12 @@ def _drop_compiled_code():
 #: do with the projection, which a Gaussian of width ``degauss`` turns into
 #: about 2 per cent of the peak. ``diago_full_acc`` is QE's own switch for it,
 #: and it is what ``PLAN.md`` P14 used to separate the same two effects.
-ACCURATE = dict(diago_full_acc=True, conv_thr=1.0e-12)
+#:
+#: ``conv_thr`` is 1e-14 because the minority bound below is a stop-point bound.
+#: Measured 2026-10-14 on D22 (CPU, babdef7): at 1e-12 under the ``rho_ddot`` fit
+#: (P146) the minority channel came out 7.3e-3 of the peak against 5e-3; at
+#: 1e-14 it passes. The flat fit had stopped where it passed at 1e-12.
+ACCURATE = dict(diago_full_acc=True, conv_thr=1.0e-14)
 
 
 @lru_cache(maxsize=2)

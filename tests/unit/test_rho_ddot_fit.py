@@ -287,3 +287,17 @@ def test_a_negative_u_falls_back_to_the_flat_fit():
     calculation.hubbard_coefficients = coefficients
     with pytest.warns(RuntimeWarning, match="negative Hubbard U"):
         assert driver._rho_ddot_metric(calculation) is None
+
+
+def test_mixing_fit_names_the_fit_and_refuses_anything_else(monkeypatch):
+    """``run_scf(mixing_fit=...)``: the two fits by name, ``None`` the module default."""
+    import defuqumat.scf.driver as driver
+
+    assert driver.resolve_mixing_fit("rho_ddot") is True
+    assert driver.resolve_mixing_fit("FLAT") is False
+    monkeypatch.setattr(driver, "RHO_DDOT_FIT", False)
+    assert driver.resolve_mixing_fit(None) is False
+    monkeypatch.setattr(driver, "RHO_DDOT_FIT", True)
+    assert driver.resolve_mixing_fit(None) is True
+    with pytest.raises(ValueError, match="mixing_fit"):
+        driver.resolve_mixing_fit("kerker")

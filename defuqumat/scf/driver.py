@@ -545,6 +545,28 @@ FIT_BECSUM = False
 RHO_DDOT_FIT = True
 
 
+#: ``run_scf``'s ``mixing_fit``, to whether the Anderson fit is ``rho_ddot``'s.
+MIXING_FITS = {"rho_ddot": True, "flat": False}
+
+
+def resolve_mixing_fit(fit) -> bool:
+    """``True`` to fit in ``rho_ddot``'s inner product, from ``run_scf``'s ``mixing_fit``.
+
+    ``None`` is :data:`RHO_DDOT_FIT`, read at call time so the module default
+    stays the one switch.
+    """
+    if fit is None:
+        return RHO_DDOT_FIT
+    try:
+        return MIXING_FITS[str(fit).lower()]
+    except KeyError as error:
+        raise ValueError(
+            f"mixing_fit = {fit!r} is not an inner product the mixer fits in; it "
+            f"takes 'rho_ddot' (pw.x's, the metric conv_thr is measured in) or "
+            f"'flat' (the plain Euclidean one of the packed density)"
+        ) from error
+
+
 def _rho_ddot_metric(calculation, layout=None):
     """``(drho, dns, dtau) -> F`` whose dot products are ``rho_ddot``, for :attr:`Mixer.metric`.
 
@@ -6486,7 +6508,7 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
 
 def _solve_residual(
     calculation, system, nbnd, rho, becsum_, ns_, conv_thr,
-    scf_solver, options, mixing_beta, verbose, tau_=None,
+    scf_solver, options, mixing_beta, verbose, tau_=None, fit_in_rho_ddot=None,
 ):
     """Find the fixed point with a residual solver, before the mixing loop runs.
 
@@ -6629,7 +6651,8 @@ def _solve_residual(
                    else {"nelec": calculation.nelec}),
             )
         warm_metric = (_rho_ddot_metric(calculation)
-                       if RHO_DDOT_FIT and isinstance(warm_mixer, AndersonMixer) else None)
+                       if (RHO_DDOT_FIT if fit_in_rho_ddot is None else fit_in_rho_ddot)
+                       and isinstance(warm_mixer, AndersonMixer) else None)
         for _ in range(warmup):
             fx, wavefunctions = residual.step(x0, wavefunctions)
             fit = None
@@ -7011,6 +7034,7 @@ def run_scf(
     residual_split: bool = False,
     mixing_beta_mag: float | None = None,
     mixing_space: str | None = None,
+    mixing_fit: str | None = None,
     rotate_moments: bool = False,
     torque_conv_thr: float = 1.0e-8,
     rotation_trust: float = 0.1,
@@ -7155,6 +7179,17 @@ def run_scf(
     point; the path, and on a cell with more than one self-consistent state the
     state reached, can differ. The adaptive mixer is pointwise in real space
     and is always ``'r'``.
+
+    ``mixing_fit`` is the inner product the Anderson mixer fits its
+    coefficients in, and this code's own knob. ``'rho_ddot'`` is ``pw.x``'s:
+    the same weighted metric ``conv_thr`` is measured in, which is what
+    converges a metal film (``PLAN.md`` P146). ``'flat'`` is the plain Euclidean
+    Gram matrix of the packed real-space vector, the default before P146; it
+    also bounds the residual at high G, which ``rho_ddot`` weights by
+    ``1/G^2`` and ``conv_thr`` does not ask for. ``None`` is
+    :data:`RHO_DDOT_FIT`. Both reach the same fixed point; the path, the stop
+    point and, on a cell with more than one state, the state reached can
+    differ. Only the Anderson mixer fits coefficients, so the others ignore it.
 
     ``mixing_fixed_ns`` is QE's ``&electrons`` variable of the same name: for
     that many iterations the Hubbard occupation matrix is held at its starting
@@ -7569,6 +7604,7 @@ def run_scf(
     # rather than mixed linearly; at dual 4 nothing is installed, so the run is
     # the bare layout's bit for bit.
     space = resolve_mixing_space(mixing_space, mixer)
+    fit_in_rho_ddot = resolve_mixing_fit(mixing_fit)
     layout = None
     if space == "g" and calculation.spiral and calculation.nspin_mag == 4:
         # The layout keeps each real channel on the *resident* smooth sphere
@@ -7699,7 +7735,7 @@ def run_scf(
                 RuntimeWarning, stacklevel=2,
             )
 
-    if RHO_DDOT_FIT and isinstance(mixer, AndersonMixer):
+    if fit_in_rho_ddot and isinstance(mixer, AndersonMixer):
         # Beside the preconditioner and for the same reason: it needs the
         # G-vectors, which ``get_mixer`` does not have. Only Anderson fits
         # coefficients, so only it is handed one; ``_mix`` evaluates it.
@@ -7898,7 +7934,7 @@ def run_scf(
         ) = _solve_residual(
             calculation, system, nbnd, rho, becsum_state, ns_state, conv_thr,
             scf_solver, dict(scf_solver_options or {}), mixing_beta, verbose,
-            starting_tau,
+            starting_tau, fit_in_rho_ddot=fit_in_rho_ddot,
         )
         # The density is converged, so the eigenvalues must be too: the loose
         # start of the ``ethr`` schedule would otherwise throw the hand-off away

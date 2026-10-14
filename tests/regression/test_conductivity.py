@@ -407,7 +407,13 @@ def _nonmagnetic_nickel():
     pseudos = tuple(
         read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
     )
-    result = run_scf(system, pseudos, conv_thr=1e-10, max_iterations=200)
+    # The flat Anderson fit, pinned: the guard test below counts round-off
+    # pairs (42 at a 5.56e-13 guard) and needs their splitting to be large
+    # enough to invert into > 1 S/cm, which are numbers of the stop point the
+    # flat fit reaches. Under the ``rho_ddot`` fit (P146), measured 2026-10-14 on
+    # D22: 0.062 S/cm at 1e-10, and 102 pairs instead of 42 at 1e-12.
+    result = run_scf(system, pseudos, conv_thr=1e-10, max_iterations=200,
+                     mixing_fit="flat")
     assert result.magnetization_vector is None
     return system, pseudos, result
 

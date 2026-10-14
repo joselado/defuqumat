@@ -109,7 +109,12 @@ def _bound_compilation_cache():
 def _run(path: Path, pseudo_dir: Path):
     system = build_system(read_pw_input(path))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
-    return system, run_scf(system, pseudos, conv_thr=1e-10, max_iterations=100)
+    # 1e-12 for the empty Kramers pairs, whose bound is the empty-band threshold
+    # of the last ``ethr`` and so moves with where the run stops. Measured
+    # 2026-10-14 on D22 (CPU, babdef7): at 1e-10 under the ``rho_ddot`` fit (P146)
+    # ``spinorbit.in``'s widest empty pair was 1.484e-4 eV against a bound of
+    # 1.361e-4; at 1e-12 it passes. The flat fit had stopped where it passed.
+    return system, run_scf(system, pseudos, conv_thr=1e-12, max_iterations=100)
 
 
 @pytest.mark.parametrize(("kind", "name"), DOUBLING_CASES)

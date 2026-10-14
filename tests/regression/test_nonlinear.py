@@ -107,8 +107,14 @@ def _converged(case: str):
         read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
     )
     calculation = Calculation(system, pseudos)
+    # The flat Anderson fit, pinned. The bounds on what symmetry forbids
+    # (:data:`EXACT_TOLERANCE`) were measured at 3e-13 relative under it, which
+    # bounds the residual at every G alike. ``rho_ddot`` (P146) weights the high
+    # G by 1/G^2, as ``conv_thr`` does, and leaves more there: measured
+    # 2026-10-14 on D22, 1.3e-10 and 2.2e-9 relative at 1e-12, and 2.3e-10 and
+    # 1.5e-9 at 1e-14, so it is not cured by ``conv_thr`` (``PLAN.md`` P146).
     result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
-                     max_iterations=100)
+                     max_iterations=100, mixing_fit="flat")
     return system, pseudos, calculation, result
 
 

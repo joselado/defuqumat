@@ -943,6 +943,13 @@ These counts were taken with a flat fit of the Anderson coefficients. Since
 and it converges the cobalt film and the Ni slab of the QE test suite, where the
 flat fit did not. On bulk cells it takes a few more iterations, about as many as
 \code{pw.x}.
+The keyword \code{mixing\_fit} chooses the fit: \code{'rho\_ddot'} (the default) or
+\code{'flat'}. The Hartree metric is the same one \code{conv\_thr} is measured in,
+so it weights a residual at large $G$ by $1/G^2$. The flat fit also makes this part
+small. So a quantity that is sensitive to the density at large $G$ can need a smaller
+\code{conv\_thr} under the default. One case converges only with the flat fit: two
+canted moments held by \code{constrained\_magnetization = 'atomic'} at
+\code{lambda = 10}.
 \code{run\_scf} warns when \code{TF} or \code{local-TF} is asked for with fixed
 occupations, which is the one case the input can identify.
 

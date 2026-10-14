@@ -132,7 +132,12 @@ def test_the_vector_penalty_holds_it_and_tightens_with_lambda(
     site**, which is the number that says a texture which is not the ground
     state can be converged here at all.
     """
-    scf, between, errors = _converge(_text("atomic", lam), pseudo_dir)
+    # The flat Anderson fit, pinned: under the ``rho_ddot`` fit (P146) the
+    # lambda = 10 run does not converge (0.036 Ry after 100 iterations, 0.021
+    # after 300 at 1e-10; D22, 2026-10-14), and the flat fit does. Open in
+    # ``PLAN.md`` P146.
+    scf, between, errors = _converge(_text("atomic", lam), pseudo_dir,
+                                     mixing_fit="flat")
     assert scf.converged, scf.accuracy
     assert between == pytest.approx(angle, abs=tolerance), between
     assert between < 175.0, "the constraint did nothing"

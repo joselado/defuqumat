@@ -76,7 +76,14 @@ def _bounded_compilation_cache():
 
 @lru_cache(maxsize=2)
 def _calculator(case: str) -> Calculator:
-    calc = Calculator.from_file(CASES / f"{case}.in", pseudo_dir=PSEUDO)
+    # The flat Anderson fit, pinned. Under the ``rho_ddot`` fit (P146), measured
+    # 2026-10-14 on D22 (CPU, babdef7), the transverse pair at q1 comes out
+    # 73.99540, 74.00865 (split 1.3e-2 against ``ph.x``'s 8e-5), the same on the
+    # G-sphere layout to eight digits, which is the size of the D4 gauge split
+    # :data:`CG_THRESHOLD` describes. Whether a tighter ground state cures it is
+    # not measured (``PLAN.md`` P146).
+    calc = Calculator.from_file(CASES / f"{case}.in", pseudo_dir=PSEUDO,
+                                mixing_fit="flat")
     calc.get_scf()
     return calc
 

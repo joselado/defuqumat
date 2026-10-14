@@ -123,6 +123,10 @@ SHARED_OPTIONS = frozenset({
     # at all -- an option `run_scf` takes and `SHARED_OPTIONS` does not name is
     # one the facade silently drops.
     "mixing_beta_mag",
+    # The inner product the Anderson fit is taken in, 'rho_ddot' (the default,
+    # ``pw.x``'s) or 'flat'; this code's own knob, named here so that a
+    # calculator can pin it (``PLAN.md`` P146).
+    "mixing_fit",
     "mixing_ndim",
     "mixing_fixed_ns",
     "max_iterations",
@@ -203,6 +207,7 @@ SCF_ONLY_OPTIONS = frozenset({
     "mixing_mode",
     "mixing_beta",
     "mixing_beta_mag",
+    "mixing_fit",
     "mixing_ndim",
     "mixing_fixed_ns",
     "max_iterations",
