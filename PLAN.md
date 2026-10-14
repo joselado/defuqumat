@@ -26039,9 +26039,67 @@ since each cost a round trip: zeroing a stored response per pass must skip the m
 stopped solving (a converged mode keeps its last solution and is not solved again; zeroed, it enters
 the dynamical matrix as zero and the frequencies read 599 cm^-1, or as `None` and `conjugate` raises).
 
+**The cap against the periodicity test, and the paired default** (fable's follow-up 2, after the
+phonon regressions). Under the cap alone
+`test_phonons_at_q.py::test_the_matrix_is_periodic_in_the_reciprocal_lattice` (silicon
+`si-epsilon-unshifted-nosym`, `D(q)` against `D(q + G)` at `q = (1/4, 1/4, 0)`, asserted below 1e-5,
+measured 8.22e-7 and bounded by the Ewald sum's 1.5e-6) read **1.027e-5** and failed. The A/B
+(`periodic/ab.log`):
+
+| `tr2` | cap | passes | CG per solve | `max abs(D(q) - D(q + G))` | TA pair at `q` (cm^-1), split |
+|---|---|---|---|---|---|
+| 1e-14 | none (`ph.x`'s loop) | 11 | 12.0 | 8.25e-7 | 125.925605, 125.935775, **1.0e-2** |
+| 1e-14 | 1e-8 | 9 | 17.8 | **1.027e-5** | 125.927349, 125.941236, 1.4e-2 |
+| 1e-14 | 1e-12 | 9 | 24.7 | 1.026e-5 | the same to 1e-6 |
+| 1e-16 | none | 15 | 12.1 | 8.21e-7 | 125.912908, 125.913170, 2.6e-4 |
+| 1e-16 | 1e-8 | 11 | 16.8 | 8.22e-7 | 125.913495, 125.913538, **4.3e-5** |
+| 1e-16 | 1e-12 | 11 | 23.7 | 8.21e-7 | the same to 1e-6 |
+
+So with the CG noise gone the pass-to-pass change `|ddv_scf|^2` falls below 1e-14 before the potential
+is converged: at 1e-14 the stopping test reads the change and not the distance to the fixed point, the
+capped loop stops two passes short, the periodicity residue is then the loop's stopping point and not
+the Ewald floor, and the degenerate TA pair at `q`, split 1.0e-2 by the bare schedule at 1e-14 already
+(the aluminium disease on an insulator), is split 1.4e-2 capped. At 1e-16 both arms are clean and the
+cap is the better one. On aluminium `tr2` alone is not the cure either: the bare schedule at 1e-16
+still moves the pair by 5.1e-4 (from 1.42e-2) and splits it 1.0e-4, 7x `ph.x`'s, in 11 passes and 226
+steps, while the capped loop at 1e-16 is identical to the capped one at 1e-14 (2.2e-7, 9 passes, 301
+steps). **The default is therefore the pair**: `threshold_cap = 1e-8` with `tr2 = 1e-16`
+(`TR2_AT_Q_CAPPED`), and `threshold_cap = None` with `tr2 = 1e-14` (`TR2_AT_Q`, `ph.x`'s `tr2_ph`) for
+the like-for-like loop; `tr2` given as a number is used as it is, and a number given as `threshold`
+is neither scheduled nor capped and keeps 1e-14. Not (A), moving the test to the setting that passes
+while the default leaves a potential twelve times the Ewald floor off; not (B), two defaults for one
+object, which would leave `get_phonons_at_q` on aluminium with the split `get_electron_phonon` no
+longer has. The periodicity test keeps its 1e-5 bound and its Ewald docstring and reads 8.22e-7 at the
+default; the silicon cost is 11 passes, the bare schedule's count, at 1.4x the CG steps a solve.
+
+**The `Gamma` loop against the pair** (`periodic/gamma.log`): `test_q_zero_reproduces_the_gamma_machinery`
+read 1.43e-5 against its 5e-6 bound under the pair, and the A/B says why: the `Gamma` machinery alone
+moves by **1.45e-5** between `tr2` 1e-14 and 1e-16 (its acoustic residue 5.68 to 4.45 cm^-1 on the
+silicon cell, the optical modes by 1e-3), while like for like the two routes agree to 2.2e-6 capped
+and 1.95e-6 uncapped at either `tr2`, the Ewald residue the bound is about (at-`q` capped against
+uncapped at one `tr2`, 6.4e-7 and 1.2e-6). The test now asks `Gamma` for the at-`q` default's `tr2`
+and keeps its bound and its meaning; `Gamma`'s own default stays `ph.x`'s 1e-14, since every number
+P24 and P25 validated against `ph.x` was taken there.
+
+**Verification, D22, `regress/`, the P149 working tree over `cf1ebe2`.** The fast gate on cores 0-7
+(`gate.log`): **3663 passed, 72 skipped, 0 failed in 10:28**. The regression files the change reaches,
+one capped process each: `test_electron_phonon.py` 10 passed under the cap and again under the pair;
+`test_streamed_phonons.py` 13; `test_phonons_at_q.py` 9 passed and the periodicity test at 1.03e-5
+under the cap alone, then 9 passed and the `q = 0` test at 1.43e-5 under the pair, both resolved
+above (the periodicity test unchanged, the `q = 0` test compared at one `tr2`); `test_conductivity.py`
+9 (with the retuned explicit-ask assertion, which now reads both warnings), `test_kubo_curvature.py`
+17, `test_photocurrent.py` 7, `test_shg.py` 11, `test_topology.py` 15, `test_transport.py` 29,
+`test_ultracell.py` 34, `test_empty_band_threshold.py` 17, `test_conductivity_machinery.py` 14,
+`test_photocurrent_machinery.py` 13, the new `test_degeneracy_tolerance.py` 9. One pre-existing
+failure, outside the gate: `test_calculator.py::test_the_subspace_size_changes_the_cost_and_not_the_answer`
+(slow) reads 1.9e-8 against an asserted 1e-8 on cores 12-15, bit-identically on a clean `cf1ebe2` and
+on this tree, so it is the placement's and is `OPEN.md` Part XXV item 2. The two phonon-at-`q` tests
+named above were rerun on the final files (`phonons_at_q-retuned.log`): **2 passed in 1:18**.
+
 **What a user sees.** One new shared option, `degeneracy_tol`, on `Calculator` and the eight entry
 points above, `None` by default and documented in `features.tex` at the conductivity, the Kubo
 curvature, the transport and the ultracell; `get_phonons_at_q` and `get_electron_phonon` take
-`threshold_cap`, and the electron-phonon pair of the test-suite case now comes out 8.1e-6 cm^-1 apart
-where it was 1.5e-2, at 1.7x the CG steps (`PERFORMANCE.md`). No README row (a rule and a cap, not a
-quantity), no notebook, no reference timing beyond the step count.
+`threshold_cap` (1e-8) with `tr2` paired to it (1e-16 capped, 1e-14 for `ph.x`'s loop), and the
+electron-phonon pair of the test-suite case now comes out 8.1e-6 cm^-1 apart where it was 1.5e-2, at
+1.7x the CG steps (`PERFORMANCE.md`). No README row (a rule and a cap, not a quantity), no notebook,
+no reference timing beyond the step count.

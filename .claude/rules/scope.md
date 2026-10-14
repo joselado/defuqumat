@@ -175,7 +175,11 @@ in `docs/features.tex`'s amber boxes.
   loop): under the bare schedule a metal's transverse pair at `q = (1/4, 0, 0)` moved by
   1.4e-2 cm^-1 with the basis of the degenerate pairs at `k` (rule D4), because a loose
   early pass leaves an error the mixer folds into `dV_scf` and the self-consistency test
-  cannot see; the cap costs 1.7x the CG steps and takes the move to 2.2e-7.
+  cannot see; the cap costs 1.7x the CG steps and takes the move to 2.2e-7. **The cap and `tr2`
+  are a pair**: capped, `tr2` is 1e-16 (`TR2_AT_Q_CAPPED`), since with the CG noise gone the
+  pass-to-pass change falls below 1e-14 before the potential is converged and the capped loop
+  stopped two passes short on silicon (`D(q)` against `D(q + G)` 1.03e-5 where the Ewald floor is
+  8.2e-7); uncapped, 1e-14, `ph.x`'s `tr2_ph`.
 - **Real-time propagation, high harmonics and the third harmonic** (P134 to P138,
   `defuqumat/realtime/`, `workflows/realtime.py`): the occupied states under
   `H(k + kappa(t))`, `kappa = A/c`, on the sphere built for `k`, at the ground state's

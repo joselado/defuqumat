@@ -2820,8 +2820,14 @@ the basis the eigensolver returned, which it must not. The cause is the loose
 early passes. They leave an error in $\Delta V_{\mathrm{scf}}$ that the
 convergence test cannot see. A tight last pass does not remove it. With the cap
 the move is $2\times10^{-7}$~cm$^{-1}$ and the solves take 1.7 times more CG
-steps. \code{threshold\_cap=None} gives the loop exactly as \code{ph.x} runs it,
-for a comparison of the two codes.
+steps. With the cap, \code{tr2} is $10^{-16}$ if you do not give it. The two
+go together. With accurate solves the change between two passes falls below
+$10^{-14}$ before the potential has converged, so at $10^{-14}$ the loop
+stops too early. We saw this on silicon: $D(\mathbf q)$ and
+$D(\mathbf q + \mathbf G)$ differed by $10^{-5}$ where the Ewald sum sets
+$8\times10^{-7}$, and at $10^{-16}$ they agree to $8\times10^{-7}$ again.
+\code{threshold\_cap=None} gives the loop exactly as \code{ph.x} runs it, with
+\code{tr2} at $10^{-14}$, for a comparison of the two codes.
 
 \begin{pycode}
 calc = Calculator.from_file("si-epsilon.in", pseudo_dir="pseudo")
@@ -4127,7 +4133,8 @@ So at the default \code{conv\_thr} the value is 1e-5~Ry, as before. A number
 you give is used as it is. If it is below what the eigensolver can resolve, the
 code warns and says both numbers. The same option, with the same meaning, exists
 on \code{get\_berry\_curvature}, \code{get\_shift\_current}, \code{get\_shg},
-\code{get\_vertical\_transport}, \code{get\_ultracell} and \code{get\_scf}.
+\code{get\_vertical\_transport}, \code{get\_ultracell},
+\code{get\_ultracell\_transport} and \code{get\_scf}.
 Zero is the ordinary case. When it is not zero it usually still does not
 matter --- on the smeared frequency route the two orderings of such a pair
 cancel analytically, because what survives the $1/\epsilon_{mn}$ is

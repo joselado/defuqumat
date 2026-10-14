@@ -429,7 +429,11 @@ tight pair, a fixed 1e-8 by 2.2e-7 at 1.7x the CG steps, 1e-10 and 1e-12 by 2.9e
 2.4x, a fixed 1e-2 or 1e-4 never converges the loop, and a tight finishing pass changes nothing
 (the error is in `dV_scf`, which the self-consistency test cannot see). So the rule is a cap,
 `dynamical_matrix_at_q(threshold_cap=1e-8)` by default (`SCHEDULE_CAP_AT_Q`), which reproduces the
-fixed 1e-8 arm to the digit; the entry is closed in `OPEN.md` Part XXV with the table.
+fixed 1e-8 arm to the digit; the entry is closed in `OPEN.md` Part XXV with the table. The cap
+pairs with `tr2 = 1e-16` (fable's follow-up 2): with the CG noise gone the capped loop at 1e-14
+stopped two passes short on silicon at `q = (1/4, 1/4, 0)` (`D(q)` against `D(q + G)` 1.03e-5
+where the Ewald floor is 8.2e-7, the degenerate TA pair split 1.4e-2 against the bare schedule's own
+1.0e-2), and at 1e-16 both are clean, 8.2e-7 and 4.3e-5, in the bare schedule's 11 passes.
 
 ## 6. `becsum` was not symmetrised for an ultrasoft species
 

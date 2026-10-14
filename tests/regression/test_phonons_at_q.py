@@ -187,11 +187,23 @@ def test_q_zero_reproduces_the_gamma_machinery():
     have a limit here that is already validated against ``ph.x`` through P25.
     A sign or an index order that is wrong at finite ``q`` is very often still
     wrong at zero, where there is something to compare it with.
+
+    **The two loops are compared at one ``tr2``.** Since P149 the at-``q`` route
+    runs its scheduled solves capped at 1e-8 with ``tr2 = 1e-16``
+    (:data:`~defuqumat.response.phononq.TR2_AT_Q_CAPPED`), while ``Gamma``'s
+    default stays ``ph.x``'s 1e-14, and the ``Gamma`` loop alone moves by
+    1.45e-5 between the two (its acoustic residue 5.68 to 4.45 cm^-1, D22,
+    2026-10-14); like for like the routes agree to 2.2e-6 capped and 1.95e-6
+    uncapped at either ``tr2``, which is the Ewald residue
+    :data:`GAMMA_AGREEMENT` is about. So ``Gamma`` is asked for the at-``q``
+    default's ``tr2`` here, and the bound keeps its meaning.
     """
+    from defuqumat.response.phononq import TR2_AT_Q_CAPPED
+
     calculation, result = _ground_state("si-epsilon-unshifted-nosym")
     gamma = dynamical_matrix(
         calculation, result.wavefunctions, result.eigenvalues, result.density,
-        result.becsum,
+        result.becsum, tr2=TR2_AT_Q_CAPPED,
     )
     here = _phonons("si-epsilon-unshifted-nosym", (0.0, 0.0, 0.0))
     difference = np.abs(

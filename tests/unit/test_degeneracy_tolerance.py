@@ -143,3 +143,21 @@ def test_the_option_is_shared_and_named_at_every_entry_point():
                   run_berry_curvature, run_vertical_transport,
                   run_ultracell_transport, run_ultracell):
         assert "degeneracy_tol" in inspect.signature(entry).parameters, entry.__name__
+
+
+def test_a_numeric_tolerance_cannot_break_the_plaquette_berry_route():
+    """The option is shared, so a ``Calculator(degeneracy_tol=1e-7)`` forwards it
+    to ``get_berry_curvature`` whatever the method, and the default method is
+    the plaquette one, which has no such tolerance: every registered curvature
+    method must therefore swallow unknown keywords, and the workflow forwards
+    the number to the Kubo route alone."""
+    import inspect
+
+    from defuqumat.topology.registry import curvature_methods, get_curvature_method
+    from defuqumat.workflows import topology
+
+    for name in curvature_methods():
+        parameters = inspect.signature(get_curvature_method(name)).parameters.values()
+        assert any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters), name
+    source = inspect.getsource(topology.run_berry_curvature)
+    assert 'method == "kubo"' in source

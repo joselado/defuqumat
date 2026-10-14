@@ -808,8 +808,9 @@ def induced_perturbation_at_q(calculation, calculation_kq, dv):
 
 def self_consistent_response_at_q(
     calculation, calculation_kq, solver, bare, density, q_cart,
-    alpha_mix: float = 0.7, tr2: float = 1e-14, max_iterations: int = 100,
+    alpha_mix: float = 0.7, tr2: float | None = None, max_iterations: int = 100,
     mixing_mode: str = "anderson", verbose: bool = False,
+    threshold_cap: float | None | str = "default",
 ):
     """``solve_linter``'s loop at ``q != 0``.
 
@@ -833,11 +834,16 @@ def self_consistent_response_at_q(
     Returns ``(dpsi, drho, history, average_iterations, converged)``.
     """
     nat = np.asarray(calculation.system.structure.positions).shape[0]
+    if isinstance(threshold_cap, str):
+        threshold_cap = SCHEDULE_CAP_AT_Q
+    tr2 = resolve_tr2_at_q(tr2, threshold_cap, getattr(solver, "threshold", None)
+                           if not getattr(solver, "schedule", False) else None)
     return screening_loop_at_q(
         calculation, _WholeDisplacementsAtQ(calculation, calculation_kq, solver,
                                             bare, nat),
         density, q_cart, alpha_mix=alpha_mix, tr2=tr2,
         max_iterations=max_iterations, mixing_mode=mixing_mode, verbose=verbose,
+        threshold_cap=threshold_cap,
     )
 
 
@@ -866,6 +872,32 @@ def _modes(nat: int, modes):
 #: gauge-safe (6e-5) but 1.4e-2 off the tight pair, and a fixed 1e-2 or 1e-4
 #: never converges the loop.
 SCHEDULE_CAP_AT_Q = 1.0e-8
+
+#: The loop's ``tr2`` at ``q`` when the scheduled threshold is capped, and when
+#: it is not (``ph.x``'s ``tr2_ph``). **The pair is measured together** (P149,
+#: silicon ``si-epsilon-unshifted-nosym`` at q = (1/4, 1/4, 0), D22): with the
+#: CG noise gone the pass-to-pass change ``|ddv_scf|^2`` falls below 1e-14
+#: before the potential is converged, so at 1e-14 the stopping test reads the
+#: change and not the distance to the fixed point, the capped loop stops two
+#: passes short, ``D(q)`` against ``D(q + G)`` reads 1.03e-5 where the Ewald
+#: floor is 8.2e-7, and the degenerate TA pair at ``q`` is split 1.4e-2 cm^-1
+#: (1.0e-2 under the bare schedule at 1e-14, the aluminium disease on an
+#: insulator). At 1e-16 the capped loop reads 8.2e-7 and 4.3e-5 in 11 passes,
+#: the bare schedule's count at 1e-14, at 16.8 against 12.0 CG steps a solve
+#: (1.4x); on aluminium the capped loop is identical at 1e-14 and 1e-16
+#: (2.2e-7 under rotation, 9 passes, 301 steps), and the bare schedule at 1e-16
+#: still moves the pair by 5.1e-4, so ``tr2`` alone is not the cure either.
+TR2_AT_Q_CAPPED = 1.0e-16
+TR2_AT_Q = 1.0e-14
+
+
+def resolve_tr2_at_q(tr2, threshold_cap, threshold=None) -> float:
+    """An explicit ``tr2`` as given; ``None`` is the pair's value for this loop."""
+    if tr2 is not None:
+        return float(tr2)
+    scheduled = threshold is None
+    capped = scheduled and threshold_cap is not None
+    return TR2_AT_Q_CAPPED if capped else TR2_AT_Q
 
 
 def _capped(threshold, cap):
@@ -1470,7 +1502,7 @@ def _require_a_metallic_q(cell, q_cart) -> None:
 def dynamical_matrix_at_q(
     calculation, wavefunctions, eigenvalues, density, becsum=(),
     q=(0.0, 0.0, 0.0), q_cartesian: bool = False, nbnd: int | None = None,
-    threshold: float | None = None, alpha_mix: float = 0.7, tr2: float = 1.0e-14,
+    threshold: float | None = None, alpha_mix: float = 0.7, tr2: float | None = None,
     max_iterations: int = 100, verbose: bool = False,
     keep_internals: bool = False, threshold_cap: float | None = SCHEDULE_CAP_AT_Q,
 ):
@@ -1499,6 +1531,8 @@ def dynamical_matrix_at_q(
     dynamical matrix that silently mixed the two would be a plausible wrong
     answer rather than an error. Adding it means slicing all three together.
 
+    ``tr2`` is the loop's stop on ``|ddv_scf|^2``; ``None`` is :data:`TR2_AT_Q_CAPPED` (1e-16) under the cap and :data:`TR2_AT_Q` (1e-14, ``ph.x``'s ``tr2_ph``) without it, a pair measured together (their docstring), and a number given is used as it is.
+
     ``threshold_cap`` caps the *scheduled* CG threshold at every pass, ``min(0.1 sqrt(dr2), 1e-2, cap)``, :data:`SCHEDULE_CAP_AT_Q` by default; ``None`` is ``ph.x``'s uncapped loop, for a like-for-like comparison, and a number given as ``threshold`` is never scheduled and never capped. Why the default departs from ``ph.x`` is :data:`SCHEDULE_CAP_AT_Q`'s docstring.
 
     ``keep_internals`` attaches the two-sphere solver, the bare perturbations
@@ -1507,6 +1541,7 @@ def dynamical_matrix_at_q(
     route they are the host stores (``"displacements"``), and the coupling is
     walked a chunk at a time from them.
     """
+    tr2 = resolve_tr2_at_q(tr2, threshold_cap, threshold)
     from defuqumat.response.phonon import Phonons
     from defuqumat.response.sternheimer import make_sternheimer
 

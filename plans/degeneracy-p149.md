@@ -407,3 +407,43 @@ by C.2's tree the running one-tight-final-pass arm decides between (b) at `T* = 
 pair, says the gauge split and the frequency accuracy are set by different thresholds, so `T*` is the
 accuracy's (the 6e-3 bound against the 1e-12 pair) and the record says which of the two each
 threshold meets.
+
+### Follow-up 2 (2026-10-14, the cap against the periodicity test)
+
+**(C), in the one form the table has already measured: the cap stays at 1e-8 by default, and `tr2`
+defaults to 1e-16 whenever the cap is active**, the `None` arm keeping `tr2 = 1e-14` as `ph.x`'s
+loop for like-for-like pass counts. Not (A), because moving a test to the setting that makes it
+pass while the default leaves a less converged potential is the trap of a tolerance the default does
+not deliver, and the periodicity residue at 1.027e-5 is a fact about the default and not about the
+test. Not (B), because the dynamical matrix of a metal is one object and two entry points with two
+defaults for it would leave `get_phonons_at_q` on aluminium with the 1.42e-2 split that
+`get_electron_phonon` on the same cell no longer has. Not the "two consecutive passes below `tr2`"
+variant, which is unmeasured, where the `tr2 = 1e-16` variant is rows four to six of the table on
+silicon and the aluminium reading on the other cell: silicon capped at 1e-16 reads 8.22e-7 on
+`D(q) - D(q + G)` (the Ewald floor, 8.25e-7 uncapped at 1e-14) and the TA pair split 4.3e-5 (1.0e-2
+under the bare schedule at 1e-14, 2.6e-4 uncapped at 1e-16), in 11 passes, the same count as the
+old default, at 16.8 against 12.0 CG steps a solve, 1.4x; aluminium capped at 1e-16 is 2.2e-7 under
+the rotation and 9 passes at 301 steps, identical to capped at 1e-14, 1.7x the uncapped 178. So the
+default pair is clean on both cells and costs 1.4x to 1.7x in CG steps, which is the price the tests
+already paid at `CG_THRESHOLD`.
+
+**What the stop-short is.** With the CG noise gone the change `|ddv_scf|^2` falls below 1e-14 two
+passes earlier on silicon at a potential whose periodicity residue is twelve times the Ewald floor,
+so at 1e-14 the stopping test reads the pass-to-pass change and not the distance to the fixed point,
+and the noise was what kept the uncapped loop going to a better potential. That sentence goes in the
+`tr2` docstring and in the P149 record with the table above; it does not go to `OPEN.md`, since the
+default pair cures it and the `None` arm is documented as what it is.
+
+**Test consequences.** `test_phonons_at_q.py::test_the_matrix_is_periodic_in_the_reciprocal_lattice`
+keeps its 1e-5 bound and its Ewald-floor docstring and reads 8.22e-7 at the new default with nothing
+retuned; every other phonon-at-`q` and electron-phonon number is re-read under the default pair
+through `tools/run_regression.sh` on the two files, with any move recorded against its old value;
+`test_electron_phonon.py` may drop its `CG_THRESHOLD` pin for the default and keep the 1e-12 pair
+(73.995394, 73.995396) as the reference it is read against, since the capped default reproduces the
+fixed 1e-8 arm at 3e-6 from it.
+
+**The silicon TA pair's 1.0e-2 under the bare schedule at `tr2 = 1e-14` does not go to `OPEN.md`.**
+It is the aluminium disease on an insulator and it is cured by the default; it goes in the P149
+record as the second cell the cap was measured on, and the `threshold_cap = None` docstring says
+that `ph.x`'s loop leaves a degenerate pair split by the CG path, 1.0e-2 cm^-1 on this cell and
+1.42e-2 on aluminium, which is what the cap is for.

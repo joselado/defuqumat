@@ -205,7 +205,7 @@ def link_variables(states, mesh: PlaneMesh, k_batch="default"):
     return links[0], links[1]
 
 
-def fhs_curvature(states, mesh: PlaneMesh, k_batch="default") -> BerryCurvature:
+def fhs_curvature(states, mesh: PlaneMesh, k_batch="default", **_) -> BerryCurvature:
     """Berry curvature by the lattice field strength of FHS.
 
     The plaquette anchored at ``(i, j)`` is

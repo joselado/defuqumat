@@ -9134,7 +9134,12 @@ six-band image to 9.2e-11 (`review/decided-i/sts8/`, `sts_nbnd.py`).
 > (`SCHEDULE_CAP_AT_Q`, `min(0.1 sqrt(dr2), 1e-2, cap)` at every pass), a named deviation from
 > `ph.x`'s loop with `None` giving the uncapped one; the default reproduces the fixed 1e-8 arm to
 > the digit (2.2e-7 under rotation, 301 CG steps, 9 passes), which meets the acceptance below
-> (7.8e-5) by two decades, and the tests' pinned `CG_THRESHOLD = 1e-12` stays as it was.
+> (7.8e-5) by two decades, and the tests' pinned `CG_THRESHOLD = 1e-12` stays as it was. The cap
+> and `tr2` are a pair (fable's follow-up 2): capped, `tr2` is 1e-16, because with the CG noise
+> gone the pass-to-pass change falls below 1e-14 before the potential is converged and the capped
+> loop stopped two passes short on silicon at `q = (1/4, 1/4, 0)` (`D(q)` against `D(q + G)`
+> 1.03e-5 where the Ewald floor is 8.2e-7, the degenerate TA pair split 1.4e-2 against the bare
+> schedule's own 1.0e-2 at 1e-14); uncapped, 1e-14. On aluminium `tr2` alone leaves 5.1e-4.
 
 On `test_electron_phonon.py`'s metal at `q1 = (0.25, 0, 0)`, the two modes `ph.x` gives as
 73.995634 and 73.995712 cm^-1 read **73.99498 and 74.00968** at the default `threshold=None`,
@@ -9149,6 +9154,16 @@ rotations give 73.995394, 73.995396, and that is what the tests now do (`CG_THRE
 a call); the default is not fixed. The warm start between passes (`phononq.py:904`) is not
 obviously the cause. **How to know it worked:** the default reproduces the 1e-12 pair to the
 7.8e-5 `ph.x` itself shows, under a random unitary in the degenerate blocks at `k`.
+
+## 2. `test_calculator.py::test_the_subspace_size_changes_the_cost_and_not_the_answer` asserts 1e-8 and reads 1.9e-8 on D22's cores 12-15
+
+Slow, so outside the gate. At `cf1ebe2` on a clean tree and on P149's tree alike (bit-identical:
+-15.614354001413679 against -15.614354019934066 Ry, the two Davidson subspace sizes), run on
+`taskset -c 12-15` of D22 on 2026-10-14; P148's gate on cores 0-7 does not run it, and the
+docstring's 7.3e-11 was measured on this workstation. The two totals are converged to the same
+`conv_thr`, so an asserted 1e-8 is a tolerance the test's own threshold does not deliver on
+every placement (the trap in `CLAUDE.md`). **How to know it worked:** the test asserts what
+`conv_thr` promises, or tightens it, and passes on cores 0-3, 4-11 and 12-15 of D22 alike.
 
 # Part XXVI -- the autodiff Jacobian of the SCF map through a degenerate Davidson subspace, 2026-10-14
 

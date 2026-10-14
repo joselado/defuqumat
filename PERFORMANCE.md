@@ -10749,7 +10749,11 @@ arms running beside it, 23.2 against 20.3 s for the same call, which is not a ti
 above (not single-core, not alone) and is recorded only to say the wall clock moved less than the
 step count, since the per-solve setup is a fixed share. The pair against `ph.x` is now 73.995365,
 73.995374 (8.1e-6 apart; `ph.x` 73.995634, 73.995712), where the schedule gave 73.994985,
-74.009679; the ratio against `ph.x` above has not been retaken.
+74.009679; the ratio against `ph.x` above has not been retaken. The cap pairs with `tr2 = 1e-16`
+(1e-14 uncapped), and on an insulator that is where the cost sits: silicon
+`si-epsilon-unshifted-nosym` at `q = (1/4, 1/4, 0)` takes 11 passes under the pair, the bare
+schedule's count at 1e-14, at 16.8 against 12.0 CG steps a solve (1.4x), 21.0 against 16.8 s a call
+on four efficiency cores beside other arms; the aluminium call is the same at either `tr2`.
 
 The single atom's warm call is 13.0 s of solves, 2.4 s of response density and 2.6 s of the
 `k + q` diagonalisation; the four atoms' is about 133 s of solves, 21 s of response density and

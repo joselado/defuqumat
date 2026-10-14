@@ -458,7 +458,10 @@ def run_berry_curvature(
             forwards it.
         kwargs: forwarded to the curvature method.
     """
-    if degeneracy_tol is not None:
+    # Only the Kubo route has a degeneracy tolerance; the plaquette route is a
+    # determinant of overlaps and takes none, so a shared numeric option must
+    # not reach its signature (the facade forwards it to every method here).
+    if degeneracy_tol is not None and method == "kubo":
         kwargs["degeneracy_tol"] = degeneracy_tol
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
                      becsum=becsum, ns=ns,

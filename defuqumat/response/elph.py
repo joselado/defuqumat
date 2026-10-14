@@ -274,7 +274,7 @@ def electron_phonon_at_q(
     sigmas=None, el_ph_sigma: float = 0.02, el_ph_nsigma: int = 10,
     el_ph_ngauss: int = 1, degeneracy_cmm1: float = 0.05,
     nbnd: int | None = None, threshold: float | None = None,
-    alpha_mix: float = 0.7, tr2: float = 1.0e-14, max_iterations: int = 100,
+    alpha_mix: float = 0.7, tr2: float | None = None, max_iterations: int = 100,
     verbose: bool = False, threshold_cap: float | None | str = "default",
 ) -> ElectronPhonon:
     """The phonon at ``q``, its coupling matrix elements, and ``elphsum_simple``.
