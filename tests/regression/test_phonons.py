@@ -771,6 +771,19 @@ def test_a_subset_of_a_symmetrised_run_is_refused():
 # them, so the subset is symmetrised with the group restricted to it, and its
 # block must be the whole cell's block of the same calculation.
 
+#: What a closed subset and the whole cell agree to at :data:`IDENTITY`, and it
+#: is the loop's stop rather than the symmetrisation: the two solve different
+#: sets of modes and stop at different passes. Measured on D22: 6.3e-11 to
+#: 3.7e-10 on the six AlAs blocks (nc, US, PAW), 1.7e-10 on fluorite, and 6.2e-10
+#: from the wedge to the ``nosym`` grid, against **7.9e-10** between the two
+#: whole-cell routes themselves on the same AlAs pair. At ``tr2 = 1e-28`` and a
+#: CG threshold of 1e-14 the AlAs blocks fall to 3.9e-14 and 4.7e-13, so the
+#: residue moves with the loop's convergence. Switching off the subset's
+#: in-loop ``symdvscf`` reads 2.7e-3 and switching off its ``symdynph_gq``
+#: 5.3e-3, on force constants of 0.22 to 0.39, so a wrong symmetrisation is six
+#: orders above this bound.
+CLOSED_SUBSET_TOLERANCE = 2e-9
+
 @lru_cache(maxsize=2)
 def _closed_subsets(case: str):
     """The whole wedge matrix and the two one-atom blocks of a zincblende cell,
@@ -805,8 +818,7 @@ def test_a_closed_subset_of_a_symmetrised_run_is_the_whole_block(case):
         block = whole.matrix[list(atoms)][:, :, list(atoms)]
         assert part.atoms == atoms
         assert part.matrix.shape == (1, 3, 1, 3)
-        print(f"{case} {atoms}: {np.abs(part.matrix - block).max():.3e}")
-        assert np.abs(part.matrix - block).max() < WEDGE_TOLERANCE
+        assert np.abs(part.matrix - block).max() < CLOSED_SUBSET_TOLERANCE
 
 
 @pytest.mark.slow
@@ -827,8 +839,7 @@ def test_a_closed_subset_on_the_wedge_is_the_subset_on_the_whole_grid():
         result.becsum, atoms=(0,), **IDENTITY,
     )
     difference = np.abs(parts[(0,)].matrix - whole_grid.matrix).max()
-    print(f"wedge (0,) against nosym (0,): {difference:.3e}")
-    assert difference < WEDGE_TOLERANCE
+    assert difference < CLOSED_SUBSET_TOLERANCE
 
 
 #: A three-atom fluorite cell, Si at the origin and As at +-(1/4, 1/4, 1/4):
@@ -877,11 +888,10 @@ def test_a_closed_orbit_of_two_atoms_is_the_whole_block(pseudo_dir):
         with pytest.raises(NotImplementedError, match=r"atoms=\(1, 2\)"):
             calculator.get_phonons(atoms=(1,))
 
-    print(f"fluorite (1, 2): {np.abs(pair.matrix - whole.matrix[1:3, :, 1:3, :]).max():.3e}"
-          f", (0,): {np.abs(centre.matrix - whole.matrix[0:1, :, 0:1, :]).max():.3e}"
-          f", |D_12| {np.abs(whole.matrix[1, :, 2, :]).max():.3e}")
-    assert np.abs(pair.matrix - whole.matrix[1:3, :, 1:3, :]).max() < WEDGE_TOLERANCE
-    assert np.abs(centre.matrix - whole.matrix[0:1, :, 0:1, :]).max() < WEDGE_TOLERANCE
+    assert (np.abs(pair.matrix - whole.matrix[1:3, :, 1:3, :]).max()
+            < CLOSED_SUBSET_TOLERANCE)
+    assert (np.abs(centre.matrix - whole.matrix[0:1, :, 0:1, :]).max()
+            < CLOSED_SUBSET_TOLERANCE)
     # The pair's block is not diagonal in the atoms, so the permutation is
     # doing work rather than being the identity on two independent blocks.
     assert np.abs(whole.matrix[1, :, 2, :]).max() > 1e-3
