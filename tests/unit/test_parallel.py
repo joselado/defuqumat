@@ -393,6 +393,7 @@ FIXED_DENSITY_SCRIPT = textwrap.dedent("""
                       "dos_eigenvalues": np.asarray(states.eigenvalues).tolist(),
                       "dos_nk": int(states.kpoints.nk),
                       "dos_homo": float(states.homo), "dos_lumo": float(states.lumo),
+                      "energies": np.asarray(dos.energies).tolist(),
                       "dos": np.asarray(dos.dos).tolist()}))
 """)
 
@@ -415,8 +416,15 @@ def test_pooled_bands_nscf_and_dos_reproduce_one_pool(serial_fixed_density, size
     serial = serial_fixed_density
     pooled = _run_pools(FIXED_DENSITY_SCRIPT, size, SILICON_8K, 0, timeout=900)
     for result in pooled:
-        for key in ("bands", "nscf", "dos_eigenvalues", "dos"):
-            assert np.allclose(result[key], serial[key], rtol=0, atol=1e-10), key
+        spread = {key: float(np.abs(np.subtract(result[key], serial[key])).max())
+                  for key in ("bands", "nscf", "dos_eigenvalues", "energies", "dos")}
+        print(f"pools {size} rank {result['rank']}: {spread}")
+        for key in ("bands", "nscf", "dos_eigenvalues", "energies"):
+            assert spread[key] < 1e-10, (key, spread)
+        # The curve is a sum of Gaussians of width DeltaE, whose slope turns a
+        # round-off in an eigenvalue into a far larger one in the value, so it
+        # is held relative to its peak.
+        assert spread["dos"] < 1e-10 * np.abs(serial["dos"]).max(), spread
         assert result["dos_nk"] == serial["dos_nk"] == 27
         for key in ("nscf_homo", "dos_homo", "dos_lumo"):
             assert abs(result[key] - serial[key]) < 1e-10, key
