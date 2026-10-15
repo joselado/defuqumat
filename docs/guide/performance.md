@@ -20,12 +20,13 @@ n(\mathbf r) = \sum_{\mathbf k} w_{\mathbf k} \sum_n f_{n\mathbf k}\,
   |\psi_{n\mathbf k}(\mathbf r)|^2 ,
 $$
 
-and the k-points only meet in the sum that gives the density. So the
+and the k-points only meet in the sum that gives the density and, in a
+metal, in the Fermi level. So the
 k-points are independent problems, which is where the parallel work is. Inside
 one k-point the work is a chain of small steps, one Fourier transform per band
 and small matrix products, and many threads do not help much there. This is
-why the code gives each process only a few threads, and gives the other cores
-to the k-points, the k-point pools of the section on pools.
+why the code gives each process only a few threads, and leaves the other
+cores for the k-point pools of the section on pools.
 
 The settings that decide this are environment variables, and they have to be
 set before Python imports `defuqumat`. A normal launch on a CPU is
@@ -95,7 +96,9 @@ the cutoff and the mesh are the same. With the cache switched on, as it is if
 you do not set `DEFUQUMAT_CACHE_DIR`, the kernels are also kept on the disk,
 so a second script with the same shapes does not compile them again. This is
 why a time you measure has to be the time of a second call, never of the
-first one.
+first one. These times are from one desktop computer. On yours the two numbers
+will be different, but the first run will still be much longer than the
+second.
 
 ## How many k-points at once: `k_batch`
 
@@ -149,7 +152,7 @@ On a GPU the first question is whether the calculation fits on the card.
 for you. `"speed"` keeps everything on the card at once. `"memory"` keeps only
 a part of the k-points on the card, computes the projectors of the
 pseudopotential only when they are used, and keeps the wavefunctions in the
-memory of the host. Before a run, `calc.estimate()` tells us what it will cost,
+memory of the host when not all k-points fit on the card at once. Before a run, `calc.estimate()` tells us what it will cost,
 without allocating anything:
 
 ```python
@@ -184,7 +187,7 @@ On a CPU the default is `"speed"`, and on a GPU it is `"memory"`. You give
 `memory_mode` to the `Calculator`, or set `DEFUQUMAT_MEMORY_MODE` for the
 whole process, and a setting you give for `k_batch` or `band_batch` wins over
 the mode. The command `defuqumat size scf.in` prints the same estimate for an
-input file, with every array in it.
+input file, with every array in it, in GiB, so it is useful for large cells.
 
 ## Many cores: k-point pools
 
@@ -257,11 +260,11 @@ checkpoint.
 ## GPUs
 
 The same script runs on a GPU without any change, once JAX is installed with
-GPU support (`pip install "jax[cuda12]"` for an NVIDIA card). On a GPU the
+GPU support. On a GPU the
 defaults change: `memory_mode` is `"memory"`, `k_batch` is `"fit"` and all
 bands of a k-point are computed at once. In the `memory` mode, the memory on
-the card does not grow with the k-mesh, so a dense mesh fits on a small card.
-If you ask for `"speed"`, the code first estimates the memory, and if the
+the card grows very little with the k-mesh, so a dense mesh fits on a small card.
+If you ask for `"speed"` and leave the other settings to it, the code first estimates the memory, and if the
 calculation would not fit on the card it uses `"memory"` instead and gives a
 warning. With `band_precision="single"` the bands of the SCF are computed in
 single precision, while the density, the potential and the energies stay in
@@ -291,7 +294,9 @@ several cards are in
     The memory mode only reduces the memory that grows with the k-mesh. The
     memory of one k-point, of the dense grid or of the augmentation charges of
     an ultrasoft or PAW dataset is the same in both modes. The memory of the
-    host has to hold all the wavefunctions.
+    host has to hold all the wavefunctions. If you give your own `k_batch` or
+    `projectors`, or set `DEFUQUMAT_K_BATCH`, the code does not check that
+    `"speed"` fits, and it does not switch to `"memory"`.
 
     `band_precision="single"` works only for the SCF of a collinear
     norm-conserving calculation. An ultrasoft or PAW dataset, spinors, a
