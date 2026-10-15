@@ -171,6 +171,63 @@ def test_the_whole_grid_norm_conserving_insulator_is_accepted():
     require_a_sum_over_states_regime(_calculation("si-epsilon-unshifted-nosym"))
 
 
+def _spin_calculation(case: str, nspin: int, **spin) -> Calculation:
+    system = build_system(read_pw_input(CASES / f"{case}.in")).with_spin(nspin, **spin)
+    pseudos = tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+    )
+    return Calculation(system, pseudos)
+
+
+def test_collinear_spin_is_accepted():
+    """``nspin = 2`` is a sum over the two channels, not a refusal.
+
+    The pair ``(i, j)`` is a pair of states of one spin, since ``e^{-iG.r}``
+    and ``dH/dk`` are diagonal in spin, so the charge ``chi_0`` is the sum of
+    the channels' and nothing about it needs a tensor. Until the sum was
+    written this raised "restricted to nspin = 1"; the identity that it equals
+    the ``nspin = 1`` matrix on an unpolarized cell is in
+    ``tests/regression/test_tddft.py``.
+    """
+    require_a_sum_over_states_regime(
+        _spin_calculation("si-epsilon-unshifted-nosym", 2, tot_magnetization=0))
+
+
+def test_spinors_are_still_refused():
+    """The sibling of the collinear case: a spinor's matrix element has a spin trace."""
+    with pytest.raises(NotImplementedError, match="noncollinear or spin-orbit"):
+        require_a_sum_over_states_regime(
+            _spin_calculation("si-epsilon-unshifted-nosym", 4))
+
+
+def test_the_alda_kernel_refuses_a_polarized_density_and_halves_the_tangent():
+    """ALDA on a moment needs the 2x2 ``(n, m)`` kernel, which is not here.
+
+    Two halves, both without an SCF. A density with a moment is refused by
+    name. An unpolarized ``nspin = 2`` density gives the same matrix as the
+    ``nspin = 1`` density it splits, which is what the ``1/nspin`` tangent is
+    for: with a tangent of ones in both channels the kernel would come out
+    doubled, ``f_upup + f_updn`` instead of ``dv/dn``.
+    """
+    from defuqumat.tddft import alda_matrix
+
+    one = _calculation("si-epsilon-unshifted-nosym")
+    two = _spin_calculation("si-epsilon-unshifted-nosym", 2, tot_magnetization=0)
+    grid = tuple(int(n) for n in one.basis.dense.grid)
+    x = np.arange(grid[0])[:, None, None] / grid[0]
+    total = 0.03 * (1.0 + 0.4 * np.cos(2 * np.pi * x)) * np.ones(grid)
+    sphere = response_sphere(one, 4.0)
+
+    reference = np.asarray(alda_matrix(one, jnp.asarray(total[None]), sphere))
+    split = np.asarray(alda_matrix(two, jnp.asarray(np.stack([total, total]) / 2),
+                                   sphere))
+    assert np.abs(split - reference).max() <= 1e-12 * np.abs(reference).max()
+
+    polarized = np.stack([0.6 * total, 0.4 * total])
+    with pytest.raises(NotImplementedError, match="magnetized ground state"):
+        alda_matrix(two, jnp.asarray(polarized), sphere)
+
+
 # --- the pair axis's working set ---------------------------------------------
 
 def test_the_pair_densities_are_bounded_by_the_pair_dial():
