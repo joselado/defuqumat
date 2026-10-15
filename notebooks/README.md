@@ -132,7 +132,7 @@ want a number.
 |---|---|
 | [`01_silicon_setup`](01_silicon_setup.ipynb) | Input file to cell to k-points to the plane-wave basis, and what a cutoff can represent |
 | [`03_eigensolver_and_performance`](03_eigensolver_and_performance.ipynb) | What an iterative eigensolver saves over a dense one, the single-core comparison with QE, and one calculation on many cores |
-| [`17_reaching_self_consistency`](17_reaching_self_consistency.ipynb) | Charge sloshing and Kerker screening, screening from the LDOS at the Fermi level when the vacuum grows, and the unstable magnetic solutions a mixer cannot reach |
+| [`17_reaching_self_consistency`](17_reaching_self_consistency.ipynb) | Charge sloshing and Kerker screening, screening from the LDOS at the Fermi level when the vacuum grows, a mode that chooses the mixer and checks every step, and the unstable magnetic solutions a mixer cannot reach |
 
 ## In file order
 
@@ -155,7 +155,7 @@ want a number.
 | [`14_spiral_relaxation.ipynb`](14_spiral_relaxation.ipynb) | `dE/dq`, and a relaxation that finds a magnet's ground-state pitch in six SCF runs |
 | [`15_stress.ipynb`](15_stress.ipynb) | The stress tensor, silicon's equation of state, and the Pulay stress a low cutoff carries |
 | [`16_projected_density_of_states.ipynb`](16_projected_density_of_states.ipynb) | Which atom and which orbital a band belongs to, as a projected DOS, Löwdin charges and fat bands, and resolved by $j$ for a spin-orbit run |
-| [`17_reaching_self_consistency.ipynb`](17_reaching_self_consistency.ipynb) | Charge sloshing and Kerker screening, screening from the LDOS at the Fermi level when the vacuum grows, and the unstable magnetic solutions a mixer cannot reach |
+| [`17_reaching_self_consistency.ipynb`](17_reaching_self_consistency.ipynb) | Charge sloshing and Kerker screening, screening from the LDOS at the Fermi level when the vacuum grows, a mode that chooses the mixer and checks every step, and the unstable magnetic solutions a mixer cannot reach |
 | [`18_continuing_a_calculation.ipynb`](18_continuing_a_calculation.ipynb) | Starting one run from another across a change of spin regime: iron's moment rotated in one iteration |
 | [`19_linear_response.ipynb`](19_linear_response.ipynb) | Silicon's dielectric constant and Born charges against `ph.x`, norm-conserving and ultrasoft, the charge that does the screening, the ionicity of AlAs read off a Born charge where silicon's is zero by symmetry, and the same insulator written as a spinor, where every band holds one electron instead of two |
 | [`20_phonons.ipynb`](20_phonons.ipynb) | Phonons: silicon's optical mode at Gamma against `ph.x`, the charge that rearranges, a metal, and the six branches at the zone boundary |
