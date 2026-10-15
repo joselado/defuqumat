@@ -17,18 +17,19 @@ def draw():
     a.set_xlim(0, 8)
     a.set_xlabel("position along the long cell (unit cells)")
     a.set_ylabel(r"moment ($\mu_B$)")
-    a.legend(loc="lower center")
+    a.legend(loc="upper center")
 
     for k, (name, label) in enumerate((("up", "tip polarized up"),
                                        ("down", "tip polarized down"),
                                        ("charge", "unpolarized tip"))):
-        line = d[name].mean(axis=1)
-        b.plot(np.arange(line.size) * 8 / line.size, line / line.mean(),
-               color=style.color(k), label=label)
+        cell = d[name].mean(axis=1).reshape(8, -1).mean(axis=1)
+        b.plot(d["cells"], cell / cell.mean(), "o-", color=style.color(k),
+               label=label)
     b.axhline(1.0, color=style.ink2(), lw=0.8)
     b.set_xlim(0, 8)
+    b.set_ylim(0.5, 1.9)
     b.set_xlabel("position along the long cell (unit cells)")
-    b.set_ylabel("tip current / its mean")
+    b.set_ylabel("tip current of each cell / its mean")
     b.legend(loc="upper center", ncol=1)
     return fig
 
