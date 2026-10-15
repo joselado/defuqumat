@@ -33,9 +33,15 @@ input and never sees a rejected one, and nothing inside it changes, which is
 what keeps every other mode bit-identical. Each trial is one diagonalisation and
 one SCF iteration of the loop; ``history`` marks which were kept.
 
-**The ladder.** A stall -- the best ``accuracy`` over the last ``window`` kept
-inputs has not halved, or the step has been cut to its floor ``window`` times
-running -- moves the run one rung down, from the best input seen so far:
+**The ladder.** A stall -- over the last ``window`` kept inputs the best
+``accuracy`` has not halved *and* the merit has not fallen beyond its noise, or
+the step has been cut to its floor ``window`` times running -- moves the run one
+rung down, from the last kept input (or the best one, if the run has since
+moved ten times above it in the residual). The merit clause is not optional: on
+``benchmarks/fe-unstable.in`` at 4x4x4 the run leaves the nonmagnetic saddle
+Anderson converges to, the energy falling by 5e-4 Ry an iteration while the
+residual *rises*, which is the run going downhill to the ferromagnet, and a
+residual-only test called it a stall and sent it back to the saddle:
 restart the history with the conditioning bound at 1e2 (Herbst and Levitt's
 Fe2CrGa); switch on the LDOS preconditioner on a smeared cell; cut the
 magnetization's step to a quarter; shorten the history to four and lower the
@@ -63,11 +69,18 @@ ROBUST_MODES = ("robust",)
 #: The ladder, in order. Each name is what ``history`` records when it is taken.
 RUNGS = ("restart", "ldos", "magnetization", "short-history")
 
-#: Herbst and Levitt's bound on the least-squares conditioning (their section
-#: II D), against :class:`AndersonMixer`'s 1e12, which was chosen not to fire.
-CONDITION_LIMIT = 1.0e6
-#: The bound after a stall, which unjammed Fe2CrGa where a restart alone did not.
-CONDITION_LIMIT_RESTART = 1.0e2
+#: The bound on the Anderson least-squares conditioning: :class:`AndersonMixer`'s
+#: own 1e12, and **not** Herbst and Levitt's 1e6. Measured on D22 (2026-10-16,
+#: ``tools/robust_mixing``): at 1e6 the supervisor's graphene monolayer at
+#: ``mixing_beta = 0.1``, which it never cut back, took 29 diagonalisations to
+#: plain Anderson's 17, the residual falling by 0.82 an iteration from 4e-9 on,
+#: because the trim drops the history the tail needs; the fit here is in
+#: ``rho_ddot`` over unit-norm residuals, which is not their Gram matrix.
+CONDITION_LIMIT = 1.0e12
+#: The bound after a stall. Herbst and Levitt's 1e2 unjammed Fe2CrGa, but the
+#: same measurement makes a tight bound cost the tail, so a restart here clears
+#: the history and keeps the bound.
+CONDITION_LIMIT_RESTART = 1.0e12
 
 
 def vacuum_fraction(positions, lattice, radius: float = 3.0) -> float:
@@ -135,6 +148,7 @@ class Supervisor:
     _best: tuple | None = field(default=None, repr=False)
     _best_accuracy: float = np.inf
     _accuracies: list = field(default_factory=list)
+    _merits: list = field(default_factory=list)
     _floored: int = 0
     _last: dict = field(default_factory=dict)
 
@@ -185,13 +199,14 @@ class Supervisor:
         else:
             self._floored = 0
         if self.cuts == 0:
-            self.scale = min(1.0, 1.5 * self.scale)
+            self.scale = min(1.0, 2.0 * self.scale)
         self.cuts = 0
         self._kept, self._proposal = state, proposal
         self._merit, self._accuracy, self._ethr = merit, accuracy, ethr
         if accuracy < self._best_accuracy:
             self._best_accuracy, self._best = accuracy, state
         self._accuracies.append(accuracy)
+        self._merits.append(merit)
         self._last["next_scale"] = self.scale
         return _combine(state, proposal, self.scale)
 
@@ -209,7 +224,10 @@ class Supervisor:
         if len(self._accuracies) <= self.window:
             return False
         before = min(self._accuracies[:-self.window])
-        return min(self._accuracies[-self.window:]) > self.progress * before
+        if min(self._accuracies[-self.window:]) <= self.progress * before:
+            return False
+        noise = self.nelec * (self._ethr or 0.0)
+        return self._merits[-1] > self._merits[-1 - self.window] - 2.0 * noise
 
     def next_rung(self) -> str | None:
         """The next rung that applies to this cell, taken; ``None`` past the last."""
@@ -221,16 +239,25 @@ class Supervisor:
             if name == "magnetization" and not self.magnetic:
                 continue
             self._accuracies.clear()
+            self._merits.clear()
             self._floored = 0
             self.scale, self.cuts = 1.0, 0
             return name
         return None
 
     def restart_from_best(self):
-        """The best input seen, as the next one; the line search starts over from it."""
+        """Where the line search starts over: the last kept input, or the best one.
+
+        The last kept input, unless its residual is ten times the best seen, in
+        which case the run has gone somewhere worse and goes back. Not the best
+        one always: the lowest residual can be a saddle the run was right to
+        leave (see the module docstring).
+        """
+        start = (self._kept if self._accuracy is not None
+                 and self._accuracy <= 10.0 * self._best_accuracy else self._best)
         self._kept = None
         self._proposal = None
-        return self._best
+        return start
 
     @property
     def record(self) -> dict:

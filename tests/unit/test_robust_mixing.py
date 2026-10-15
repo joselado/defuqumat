@@ -81,6 +81,13 @@ def test_a_stall_is_detected_and_the_ladder_skips_what_does_not_apply():
         sup.judge(-10.0, accuracy, 1e-6, 0)
         sup.kept(_state(0.0), _state(1.0), -10.0, accuracy, 1e-6)
     assert sup.stalled()
+    # The same residuals with the merit falling well beyond its noise are a run
+    # going downhill, not a stall.
+    moving = Supervisor(nelec=8.0, window=3)
+    for k, accuracy in enumerate((1e-3, 9e-4, 8e-4, 9e-4)):
+        moving.judge(-10.0 - k, accuracy, 1e-6, 0)
+        moving.kept(_state(0.0), _state(1.0), -10.0 - k, accuracy, 1e-6)
+    assert not moving.stalled()
     # An insulator without spin takes the restart, then the short history: the
     # LDOS rung needs states at the Fermi level, the magnetic one a moment.
     assert [sup.next_rung(), sup.next_rung(), sup.next_rung()] == [
