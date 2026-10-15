@@ -73,3 +73,8 @@ nav:
       - Spin spirals: spirals.md
       - Magnons: magnons.md
       - DFT+U: dft-plus-u.md
+  - Microscopy and scattering:
+      - Diffraction and nesting: scattering.md
+  - More:
+      - Starting from an all-electron ground state: elk-seed.md
+      - Accuracy: accuracy.md
