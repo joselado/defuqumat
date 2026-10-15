@@ -384,39 +384,83 @@ def _cobalt(pseudo_dir, angle1, angle2, soc_scale=1.0):
     system = build_system(parse_pw_input(text)).with_soc_scale(soc_scale)
     calculator = Calculator(system, pseudo_dir=pseudo_dir, announce=False)
     scf = calculator.get_scf()
-    return angular_momenta(calculator.calculation, scf)
+    return calculator.calculation, scf
+
+
+def _one_radial_function(pseudo):
+    """Both ``j`` chi of each shell replaced by their ``(l+1, l)``-weighted average."""
+    import dataclasses
+
+    orbitals = list(pseudo.orbitals)
+    shells = {}
+    for index, orbital in enumerate(orbitals):
+        if orbital.j is not None:
+            shells.setdefault((orbital.label, orbital.l), []).append(index)
+    for (_, l), indices in shells.items():
+        if len(indices) != 2:
+            continue
+        weights = [l + 1 if abs(orbitals[i].j - l - 0.5) < 1e-6 else l
+                   for i in indices]
+        chi = sum(w * orbitals[i].chi for w, i in zip(weights, indices)) / sum(weights)
+        for i in indices:
+            orbitals[i] = dataclasses.replace(orbitals[i], chi=chi)
+    return dataclasses.replace(pseudo, orbitals=tuple(orbitals))
 
 
 @pytest.mark.slow
-def test_a_relativistic_ultrasoft_magnet_has_a_site_orbital_moment(pseudo_dir):
+def test_a_relativistic_ultrasoft_magnet_has_a_site_orbital_moment(
+        pseudo_dir, monkeypatch):
     """``<L>`` on a fully-relativistic ultrasoft dataset, tetragonal cobalt.
 
-    Three runs. At ``soc_scale = 0`` the Hamiltonian has no spin-orbit term and
-    ``<L>`` is quenched; on the spin-angle functions it is quenched only to
-    the cross-``j`` approximation (the two ``j`` radial functions are taken as
-    one), so the bound is the measured residue and not round-off. With the
-    coupling on, the moment along ``x`` and along ``y`` are related by the
-    ``C4`` of the cell, so ``|<L>|`` must agree and ``<L>`` must follow
-    ``<S>``. The metric itself, ``qq_so``, is held to ``projwfc.x`` in
+    Three runs. With the coupling on, the moment along ``x`` and along ``y``
+    are related by the ``C4`` of the cell, so ``|<L>|`` must agree and ``<L>``
+    must follow ``<S>``: measured **0.117097947** in both, ``<S> = 0.890135``.
+
+    At ``soc_scale = 0`` nothing locks the orbital moment to the lattice and
+    ``<L>`` is quenched, **but only to the cross-``j`` approximation**: the
+    site operators take the two ``j`` radial functions of a shell as one, and
+    the 3D pair of ``Co.rel-pbe-nd-rrkjus`` overlaps to ``1 - 2.9e-5``.
+    Measured ``<L_z> = -1.014e-3`` at ``<S_z> = 0.891``. **The A/B is what
+    makes that a check**: projecting on the same set with the two chi of each
+    shell replaced by their ``j``-weighted average, which is the one radial
+    function the operators assume, takes it to **1.7e-7** on the same states,
+    so the residue is the approximation and not the operator transform. The
+    same average moves the coupled ``<L>`` from 0.11710 to 0.11914. The
+    metric, ``qq_so``, is held to ``projwfc.x`` in
     ``tests/regression/test_spinor_pdos.py``.
     """
-    quenched = _cobalt(pseudo_dir, 0.0, 0.0, soc_scale=0.0)
-    along_x = _cobalt(pseudo_dir, 90.0, 0.0)
-    along_y = _cobalt(pseudo_dir, 90.0, 90.0)
-    print("quenched L", quenched.orbital[0], "S", quenched.spin[0])
-    print("x L", along_x.orbital[0], "S", along_x.spin[0], "q", along_x.atoms[0].charge)
-    print("y L", along_y.orbital[0], "S", along_y.spin[0], "q", along_y.atoms[0].charge)
+    from defuqumat.hubbard.projectors import build_atomic_projectors
+    from defuqumat.projwfc import angular_momentum
 
-    assert np.linalg.norm(quenched.spin[0]) > 0.5
+    quenched_calc, quenched_scf = _cobalt(pseudo_dir, 0.0, 0.0, soc_scale=0.0)
+    quenched = angular_momenta(quenched_calc, quenched_scf)
+    along_x = angular_momenta(*_cobalt(pseudo_dir, 90.0, 0.0))
+    along_y = angular_momenta(*_cobalt(pseudo_dir, 90.0, 90.0))
+
     lx, ly = along_x.orbital[0], along_y.orbital[0]
     sx, sy = along_x.spin[0], along_y.spin[0]
-    assert np.linalg.norm(lx) > 0.03
-    assert abs(np.linalg.norm(lx) - np.linalg.norm(ly)) < 1.0e-6
-    np.testing.assert_allclose([lx[0], lx[1]], [ly[1], -ly[0]], atol=1.0e-6)
+    assert np.linalg.norm(lx) == pytest.approx(0.1171, abs=2.0e-4)
+    assert abs(np.linalg.norm(lx) - np.linalg.norm(ly)) < 1.0e-7
+    np.testing.assert_allclose([lx[0], lx[1]], [ly[1], -ly[0]], atol=1.0e-7)
     for orbital, spin in ((lx, sx), (ly, sy)):
         cosine = orbital @ spin / (np.linalg.norm(orbital) * np.linalg.norm(spin))
-        assert cosine > 0.999, cosine
-    assert np.linalg.norm(quenched.orbital[0]) < 0.05 * np.linalg.norm(lx)
+        assert cosine > 1.0 - 1.0e-9, cosine
+
+    assert quenched.spin[0][2] > 0.8
+    assert 5.0e-4 < np.linalg.norm(quenched.orbital[0]) < 2.0e-3
+
+    def one_radial(calculation, kind):
+        system = calculation.system
+        return build_atomic_projectors(
+            tuple(_one_radial_function(p) for p in calculation.pseudos),
+            system.structure, system.cell, calculation.basis.smooth,
+            calculation.basis.planewaves, calculation.basis_kpoints,
+            calculation._spinor_overlap, kind=kind, noncolin=True,
+            spinor_basis="jmj")
+
+    monkeypatch.setattr(angular_momentum, "_spin_angle_projectors", one_radial)
+    averaged = angular_momenta(quenched_calc, quenched_scf)
+    assert np.linalg.norm(averaged.orbital[0]) < 1.0e-5
 
 
 # --- the block build ----------------------------------------------------------
