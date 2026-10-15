@@ -29,6 +29,7 @@ from defuqumat.system.kpoints import (
     for_spin as kpoints_for_spin,
 )
 from defuqumat.system.structure import Species, Structure
+from defuqumat.system.spiral import spiral_symmetries
 from defuqumat.system.symmetry import (
     Symmetries,
     collinear_symmetries,
@@ -816,7 +817,11 @@ class System(eqx.Module):
         axial = axial_vectors(moments, self.atomic_b_field, self.b_field)
         magnetic = is_magnetic(nspin, moments, fields, self.b_field)
         symmetries = find_symmetries(self.cell, self.structure)
-        if magnetic:
+        if self.spiral and nspin == 4:
+            symmetries = spiral_symmetries(
+                self.cell, self.structure, symmetries, self.spiral_q, axial
+            )
+        elif magnetic:
             symmetries = magnetic_symmetries(
                 self.cell, self.structure, symmetries, axial
             )
@@ -932,7 +937,14 @@ class System(eqx.Module):
                 translations=((0.0, 0.0, 0.0),),
             )
         symmetries = find_symmetries(self.cell, self.structure)
-        if self.nspin_mag == 4:
+        if self.spiral:
+            # The spin space group, from the same three vectors the reader
+            # reduced the k-set with (see :func:`spiral_symmetries`).
+            symmetries = spiral_symmetries(
+                self.cell, self.structure, symmetries, self.spiral_q,
+                self.axial_fields,
+            )
+        elif self.nspin_mag == 4:
             symmetries = magnetic_symmetries(
                 self.cell, self.structure, symmetries, self.axial_fields
             )
@@ -1452,7 +1464,13 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         nspin, moments, atomic_fields, pwin.indexed("system", "b_field", 3)
     )
     symmetries = find_symmetries(cell, structure)
-    if magnetic:
+    if spiral_q is not None:
+        # The spin space group (:func:`spiral_symmetries`): the operations with
+        # ``S q = q`` that permute the rotated-frame moments without turning
+        # them. Never the axial filter below, whose ``det(S) S`` and ``t_rev``
+        # are wrong on the rotated frame.
+        symmetries = spiral_symmetries(cell, structure, symmetries, spiral_q, axial)
+    elif magnetic:
         symmetries = magnetic_symmetries(cell, structure, symmetries, axial)
     elif nspin == 2:
         # The k-set has to be reduced with the *same* group the density is
@@ -2413,7 +2431,11 @@ def _warn_if_the_spiral_grid_cannot_shift(spiral_q, kpoints) -> None:
 
 def _spiral_q(pwin: PwInput, nspin: int, lspinorb: bool, nosym: bool,
               soc_scale: float = 1.0) -> tuple | None:
-    """``spiral_q``, and the three things a spiral cannot be combined with.
+    """``spiral_q``, and what a spiral cannot be combined with.
+
+    Symmetry is not one of them since the spin space group was written
+    (:func:`~defuqumat.system.spiral.spiral_symmetries`), except beside a
+    fully-relativistic dataset.
 
     A defuqumat extension -- ``pw.x`` has no spin spiral at all -- with Elk's
     name for the quantity (``vqlss``) and Elk's units (lattice coordinates).
@@ -2450,13 +2472,16 @@ def _spiral_q(pwin: PwInput, nspin: int, lspinorb: bool, nosym: bool,
             "coupling switched off, which is a spiral, and "
             "spiral_spin_orbit_energy adds the coupling to first order"
         )
-    if not nosym:
-        # The spin space group is not written; see defuqumat.system.spiral.
+    if lspinorb and not nosym:
+        # The spin space group is a symmetry of the run only with the coupling
+        # off, and the one thing a fully-relativistic spiral is for is
+        # ``spiral_spin_orbit_energy``, the coupling to first order on these
+        # states: a wedge sum of a term that breaks the group is not its zone
+        # sum.
         raise ValueError(
-            "a spin spiral needs nosym = .true.: only the operations with "
-            "S^T q = q survive at all, they act on the rotated-frame "
-            "magnetization with a spin rotation of their own (the spin space "
-            "group, which is not implemented), and time reversal sends q to -q"
+            "spiral_q with lspinorb = .true. needs nosym = .true.: the spin "
+            "space group the k-set would be reduced with is not a symmetry of "
+            "the spin-orbit coupling that spiral_spin_orbit_energy adds on top"
         )
     return q
 

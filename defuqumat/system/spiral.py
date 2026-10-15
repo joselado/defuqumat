@@ -37,13 +37,20 @@ different G-index map, and the phase that relates them is exactly the trap P16
 records for the zone edge (``u_{k+b}(G) = u_k(G+b)``). Nothing here needs the
 wrapped form, so nothing wraps it.
 
-**Symmetry is refused rather than reduced.** A spiral breaks the ordinary space
-group: only the operations with ``S^T q = q`` survive at all (Elk checks this in
-``findsymlat.f90``), and even those act on the rotated-frame magnetization with a
-spin rotation of their own -- the spin space group, which is not written here.
-Time reversal is not available either, since it sends ``q`` to ``-q``. So a
-spiral run needs the full k-grid, and :func:`invariant_operations` exists to say
-how much would be gained by writing the spin space group rather than to be used.
+**Symmetry is the spin space group, and it acts on four scalars.** Without
+spin-orbit coupling a spatial operation does not turn the spin, so the spiral's
+symmetries are pairs (a space-group operation ``{S|f}``, a spin rotation of its
+own). Only the operations with ``S q = q`` survive (Elk checks this in
+``findsymlat.f90``): for those, the spiral phase at the image point is the one
+at the source plus ``q . f``, so the operation is a symmetry of the spiral
+state together with the laboratory spin rotation ``Rot_z(q . f)``, and on the
+*rotated-frame* fields the SCF holds -- ``n``, ``m_x``, ``m_y``, ``m_z``, all
+lattice periodic -- the two cancel and the operation acts as on four scalars,
+with no ``det(S) S`` turning the magnetization. :func:`spiral_symmetries` keeps
+the operations that map every atom's starting moment (and applied field) onto
+its image's *unrotated*, which is Elk's ``findsym.f90`` with the identity as the
+global spin rotation, and the k-set is reduced with them and **without** time
+reversal, which sends ``q`` to ``-q``. A spiral ``nosym`` run is the check.
 """
 
 from __future__ import annotations
@@ -53,10 +60,16 @@ import numpy as np
 
 from defuqumat.system.cell import Cell
 from defuqumat.system.kpoints import KPoints
-from defuqumat.system.symmetry import Symmetries
+from defuqumat.system.symmetry import (
+    _MAGNETIC_TOLERANCE,
+    Symmetries,
+    _axial_fields,
+    atom_mapping,
+    cartesian_rotations,
+)
 
 __all__ = ["spiral_kpoints", "spiral_kcart", "invariant_operations",
-           "spiral_cartesian"]
+           "spiral_symmetries", "spiral_cartesian"]
 
 
 def spiral_cartesian(q_crystal, cell: Cell) -> np.ndarray:
@@ -110,9 +123,9 @@ def invariant_operations(symmetries: Symmetries, q_crystal) -> Symmetries:
     """The operations that leave the spiral wavevector alone, ``S^T q = q``.
 
     Elk's check, in ``findsymlat.f90``, and the *first* condition a spin space
-    group imposes -- not the only one, which is why this is not yet enough to
-    reduce a k-set with. ``q`` is a reciprocal-space vector in crystal
-    coordinates, so it transforms like a Miller index: ``q' = M q``.
+    group imposes -- not the only one: :func:`spiral_symmetries` adds the
+    moments. ``q`` is a reciprocal-space vector in crystal coordinates, so it
+    transforms like a Miller index: ``q' = M q``.
     """
     q = np.asarray(q_crystal, dtype=float)
     kept, translations, t_rev = [], [], []
@@ -127,3 +140,54 @@ def invariant_operations(symmetries: Symmetries, q_crystal) -> Symmetries:
         translations=tuple(translations),
         time_reversed=tuple(t_rev),
     )
+
+
+def spiral_symmetries(cell: Cell, structure, symmetries: Symmetries, q_crystal,
+                      fields=()) -> Symmetries:
+    """The spin space group of a flat spiral, as the operations it keeps.
+
+    ``symmetries`` is the crystal's group from positions alone
+    (:func:`~defuqumat.system.symmetry.find_symmetries`), **not** the magnetic
+    one: :func:`~defuqumat.system.symmetry.magnetic_symmetries` tests the
+    moments as axial vectors turned by ``det(S) S`` and keeps operations with
+    ``t_rev = 1``, and both are wrong on the rotated-frame magnetization, which
+    an operation of the spin space group permutes without turning (see the
+    module docstring).
+
+    Two conditions, both exact rather than modulo a reciprocal vector:
+
+    * ``S q = q``, tested on the *cartesian* rotation, so that whether the
+      crystal-coordinate matrix acts on ``q`` or its transpose does is never a
+      question. ``S q = q + G`` would put the up component's image on the
+      sphere at ``S k + q/2 + G/2``, which is not one of the run's spheres.
+    * every per-atom vector in ``fields`` (the starting moments, the
+      ``LOCAL_MAGNETIC_FIELDS`` card, the uniform field tiled; each normalised
+      as :func:`~defuqumat.system.symmetry.magnetic_symmetries` does) equals
+      its image's **as it is**, all three components, which is
+      :func:`~defuqumat.system.symmetry.collinear_symmetries`' permutation test
+      on a vector. Elk's ``findsym.f90`` tries the global spin rotations in the
+      lattice group with the identity first; this keeps the identity only, so
+      the group can be a subgroup of Elk's and is never larger.
+
+    No operation is time-reversed: ``t_rev`` is zero throughout, and the k-set
+    is reduced with ``time_reversal = False``.
+    """
+    q = np.asarray(q_crystal, dtype=float)
+    if symmetries.nsym <= 1:
+        return symmetries
+    qcart = np.asarray(spiral_cartesian(q, cell), dtype=float)
+    rotations = cartesian_rotations(cell, symmetries)
+    scale = max(float(np.linalg.norm(qcart)), 1.0)
+    vectors = _axial_fields(fields, structure.nat)
+    mapping = atom_mapping(cell, structure, symmetries) if vectors else None
+
+    kept, translations = [], []
+    for s, rotation in enumerate(rotations):
+        if np.max(np.abs(rotation @ qcart - qcart)) > 1.0e-8 * scale:
+            continue
+        if any(np.max(np.abs(field[mapping[s]] - field)) >= _MAGNETIC_TOLERANCE
+               for field in vectors):
+            continue
+        kept.append(symmetries.rotations[s])
+        translations.append(symmetries.translations[s])
+    return Symmetries(rotations=tuple(kept), translations=tuple(translations))

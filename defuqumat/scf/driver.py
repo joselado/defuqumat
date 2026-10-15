@@ -435,6 +435,62 @@ def _symmetrize(rho_r, fft_index, grid, maps):
     return jax.vmap(channel)(rho_r)
 
 
+def _require_a_spiral_wedge(system, symmetries, augmented: bool) -> None:
+    """Refuse a symmetrised spiral the spin space group was not written for.
+
+    Three regimes, each by name: an augmented dataset, whose ``becsum`` is
+    symmetrised as an axial vector (:mod:`defuqumat.paw.symmetry`) where a
+    spiral's is a scalar per component; DFT+U, whose occupation matrices are
+    turned the same way; and a k-set that is not the wedge of *this* group --
+    an explicit list, or a grid reduced with another group, which is what a
+    ``System`` built by ``dataclasses.replace`` from a non-spiral one carries.
+    The k-set is compared with the wedge the group gives on the same grid,
+    point by point and weight by weight, so a k-set that happens to equal it is
+    accepted, being exactly the one a reader-built spiral would have.
+    """
+    if augmented:
+        raise NotImplementedError(
+            "a spin spiral with an ultrasoft or PAW dataset needs nosym = .true.: "
+            "becsum is symmetrised as an axial vector, and a spiral's "
+            "rotated-frame becsum is permuted without turning"
+        )
+    if system.hubbard is not None:
+        raise NotImplementedError(
+            "a spin spiral with DFT+U needs nosym = .true.: the occupation "
+            "matrices are symmetrised with the spin turned with the lattice, "
+            "which the spin space group does not do"
+        )
+    kpoints = system.kpoints
+    if kpoints.grid is None:
+        raise NotImplementedError(
+            "a spin spiral with symmetry needs an automatic k-grid, or nosym = "
+            ".true.: an explicit list cannot be checked to be the wedge of the "
+            "spin space group"
+        )
+    wedge = KPoints.automatic(
+        kpoints.grid, kpoints.shift or (0, 0, 0), system.cell,
+        precision=kpoints.precision,
+        rotations=symmetries.rotation_array(), time_reversal=False,
+    )
+    ours = np.asarray(kpoints.crystal(system.cell))
+    theirs = np.asarray(wedge.crystal(system.cell))
+    same = ours.shape == theirs.shape and bool(
+        np.allclose(ours, theirs, atol=1.0e-8)
+        and np.allclose(np.asarray(kpoints.weights) / np.sum(kpoints.weights),
+                        np.asarray(wedge.weights) / np.sum(wedge.weights),
+                        atol=1.0e-12)
+    )
+    if not same:
+        raise NotImplementedError(
+            f"a spin spiral needs nosym = .true. or the k-set reduced with its "
+            f"spin space group: this one has {len(ours)} points where the "
+            f"{symmetries.nsym} operations that fix q = {tuple(system.spiral_q)} "
+            f"give {len(theirs)} -- built from a system that was not a spiral, "
+            f"or at another q -- and a k-set reduced with another group is "
+            f"the wrong wedge"
+        )
+
+
 @partial(jax.jit, static_argnames=("grid",))
 def _symmetrize_noncollinear(rho_r, fft_index, grid, maps, rotations):
     """``sym_rho``'s ``nspin = 4`` branch: a scalar and an axial vector field.
@@ -2879,22 +2935,14 @@ class Calculation:
         self.use_symmetry = bool(not system.nosym and self.symmetries.nsym > 1)
         use_symmetry = self.use_symmetry
         if self.spiral and use_symmetry:
-            # The reader refuses this pair too (``_spiral_q``), but a ``System``
-            # can be built without going through it -- directly, or through the
+            # The spin space group (:func:`~defuqumat.system.spiral.spiral_symmetries`)
+            # is what :attr:`symmetries` is for a spiral, but a ``System`` can
+            # reach here without the reader -- directly, or through the
             # ``dataclasses.replace`` that ``at_spiral_q`` and
-            # ``workflows/spiral`` use -- and then nothing else here looks at the
-            # combination. Symmetrising a spiral averages the rotated-frame
-            # magnetization over operations of the *crystal* point group, which
-            # are not symmetries of the spiral, and reduces the k-set to the same
-            # wrong wedge; the run converges and reports an energy that is
-            # silently wrong. The spin space group is what would make it right.
-            raise NotImplementedError(
-                "a spin spiral needs nosym = .true.: the symmetry group here is "
-                "the crystal's, and an operation that is a symmetry of the "
-                "lattice need not be one of the spiral -- the spin space group "
-                "is not implemented, so the density symmetrisation and the "
-                "k-point reduction would both be wrong"
-            )
+            # ``workflows/spiral`` use -- carrying a k-set reduced with some
+            # other group, and the regimes the group was not written for are
+            # refused by name.
+            _require_a_spiral_wedge(system, self.symmetries, self.is_ultrasoft)
         if self.spiral and self.lspinorb and float(system.soc_scale) != 0.0:
             # The reader refuses this pair too (``_spiral_q``), and for the
             # reason the ``nosym`` check above gives a ``System`` can reach here
@@ -2946,11 +2994,8 @@ class Calculation:
         # The axial-vector rotations, signs folded in, that the magnetization
         # needs and the charge does not.
         self._magnetization_rotations = (
-            jnp.asarray(
-                magnetization_signs(system.cell, self.symmetries)[:, None, None]
-                * cartesian_rotations(system.cell, self.symmetries)
-            )
-            if use_symmetry and self.nspin_mag == 4 else None
+            jnp.asarray(self._spin_rotations()) if use_symmetry and self.nspin_mag == 4
+            else None
         )
         # The projector occupations of every augmented species get the group
         # average -- see defuqumat.paw.symmetry: PAW needs it for the one-centre
@@ -4507,6 +4552,17 @@ class Calculation:
                 "at_spiral_q needs a calculation that is already a spiral: "
                 "spiral_q decides the basis, which is built once"
             )
+        if self.use_symmetry:
+            # The group is the stabiliser of *this* q, so another q has another
+            # group and another wedge; and ``dE/dq`` on a wedge is a vector in
+            # q-space that the group's completion would have to finish, which
+            # ``forces/spiral.py`` does not (its ``finish_becsum`` is the
+            # identity a ``nosym`` run gives).
+            raise NotImplementedError(
+                "at_spiral_q needs nosym = .true.: this spiral's k-set is reduced "
+                "with the operations that fix its own q, which are not those of "
+                "another q, and dE/dq on that wedge is not completed by the group"
+            )
         if widths is not None and not rebuild_basis:
             raise ValueError(
                 "at_spiral_q pads a rebuilt basis to widths; with "
@@ -5051,6 +5107,23 @@ class Calculation:
         nk = self.system.kpoints.nk
         return jnp.concatenate([self.kinetic[:nk], self.kinetic[nk:]], axis=-1)
 
+    def _spin_rotations(self) -> np.ndarray:
+        """``(nsym, 3, 3)``: what each operation does to the magnetization's components.
+
+        ``det(S) (-1)^t_rev S`` -- an axial vector -- in every noncollinear run
+        but a spiral, and the **identity** in a spiral: there the operation of
+        the spin space group carries the laboratory spin rotation
+        ``Rot_z(q . f)``, which the spiral's own phase cancels on the
+        rotated-frame components the SCF holds, so each is permuted as a scalar
+        (:mod:`defuqumat.system.spiral`). One place for the rule, read by the
+        density's symmetriser and by :meth:`symmetrize_directional`.
+        """
+        rotations = cartesian_rotations(self.system.cell, self.symmetries)
+        if self.spiral:
+            return np.broadcast_to(np.eye(3), rotations.shape).copy()
+        return (magnetization_signs(self.system.cell, self.symmetries)[:, None, None]
+                * rotations)
+
     def symmetrize(self, rho_r: jnp.ndarray) -> jnp.ndarray:
         """Impose the crystal symmetry on a real-space density."""
         if self._symmetry_maps is None:
@@ -5194,16 +5267,13 @@ class Calculation:
         if self.nspin_mag != 4:
             return jnp.moveaxis(jnp.stack([channel(c) for c in moved]), 0, 1)
 
-        signs = jnp.asarray(
-            magnetization_signs(self.system.cell, self.symmetries)
-        )
         charge = channel(moved[0])
         # ``(3 directions, 3 spin components, ngm)``: the magnetization block,
         # with both indices live.
         block = jnp.stack([to_g(moved[i]) for i in (1, 2, 3)], axis=1)
         rotated = symmetrize_spin_vector_density(
             block, permutations, phases, rotations,
-            signs[:, None, None] * rotations,
+            jnp.asarray(self._spin_rotations()),
         )
         magnetization = jnp.stack([to_r(rotated[:, i]) for i in range(3)])
         return jnp.moveaxis(
