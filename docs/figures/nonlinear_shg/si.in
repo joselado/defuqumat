@@ -1,0 +1,20 @@
+! Silicon in the diamond structure, LDA, norm-conserving, with its symmetry kept,
+! so the density has the inversion centre exactly. It is the control for a
+! second-order response, since inversion makes chi^(2) and the shift current zero.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.2, nat = 2, ntyp = 1,
+    ecutwfc = 12.0
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-vbc.UPF
+ATOMIC_POSITIONS crystal
+ Si 0.00 0.00 0.00
+ Si 0.25 0.25 0.25
+K_POINTS (automatic)
+ 4 4 4 0 0 0

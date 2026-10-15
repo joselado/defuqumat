@@ -1,0 +1,23 @@
+! Zincblende AlAs, LDA, norm-conserving, at 10 Ry, with its symmetry kept.
+! It is the lattice of silicon with no inversion centre. A real-time run reduces
+! the 4x4x4 mesh with the symmetry operations that leave the field unchanged.
+ &control
+    calculation = 'scf'
+    prefix = 'alas'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.575, nat = 2, ntyp = 2,
+    ecutwfc = 10.0
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al  26.98  Al.pz-vbc.UPF
+ As  74.92  As.pz-bhs.UPF
+ATOMIC_POSITIONS (alat)
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 4 4 4 0 0 0
