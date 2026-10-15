@@ -233,3 +233,54 @@ def test_an_ultrasoft_crystal_matches_pw_x_with_a_phase_that_is_not_zero():
     assert polarization.ionic_phase == pytest.approx(1.0, abs=1.0e-6)
     assert polarization.total_phase == pytest.approx(0.99030, abs=1.0e-5)
     assert polarization.quantum == pytest.approx(2.0)
+
+
+# --- two spin channels ------------------------------------------------------
+
+def _two_channel(name: str, scf_grid: str, extra: str):
+    """A committed input at ``nspin = 2``, converged; ``extra`` goes into &system."""
+    text = (CASES / name).read_text()
+    if scf_grid:
+        text = re.sub(r"^ *\d+ +\d+ +\d+ +\d+ +\d+ +\d+ *$", f" {scf_grid}",
+                      text, count=1, flags=re.M)
+    text = text.replace("calculation = 'nscf'", "calculation = 'scf'")
+    text = text.replace("    noinv = .true.\n", "    noinv = .true.\n" + extra, 1)
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
+    return system, pseudos, run_scf(system, pseudos, conv_thr=1.0e-12)
+
+
+@pytest.mark.slow
+def test_two_channels_at_zero_moment_reproduce_pw_x_unpolarized_numbers():
+    """``reference.out.alas-berry`` from an ``nspin = 2`` run that converges to ``m = 0``.
+
+    AlAs seeded with a moment on Al and held at ``tot_magnetization = 0``: the
+    two channels are then the same channel, each folds onto ``[-1/2, 1/2)`` on
+    its own, and the sum must be pw.x's unpolarized electronic phase 0.00876
+    and total -0.24124, with each channel's strings half of pw.x's four. The
+    quantum is 1 either way, AlAs having an odd valence.
+
+    This is the check the unpolarized doubling and the two-channel sum agree
+    on; it cannot tell one channel solved twice from two, which is what
+    ``alas-mag-berry.in`` below is for.
+    """
+    system, pseudos, result = _two_channel(
+        "alas-raman.in", "",
+        "    nspin = 2\n    starting_magnetization(1) = 0.5\n"
+        "    tot_magnetization = 0\n",
+    )
+    assert system.nspin == 2
+    polarization = run_polarization(system, pseudos, result.density, gdir=2,
+                                    nppstr=6, transverse=(2, 2),
+                                    conv_thr=1.0e-12)
+    up, down = polarization.strings_by_spin
+    assert np.allclose(up.phases, np.array(QE_STRINGS) / 2, atol=1.0e-5)
+    assert np.allclose(down.phases, up.phases, atol=1.0e-8)
+    assert len(polarization.strings) == 8
+    assert polarization.electronic_phase == pytest.approx(QE_ELECTRONIC, abs=1.0e-5)
+    assert polarization.total_phase == pytest.approx(QE_TOTAL, abs=1.0e-5)
+    assert polarization.quantum == pytest.approx(1.0)
+    # and against this code's own unpolarized run, past pw.x's five decimals
+    plain = alas_polarization()
+    assert polarization.electronic_phase == pytest.approx(
+        plain.electronic_phase, abs=1.0e-8)

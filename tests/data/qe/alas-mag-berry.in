@@ -1,0 +1,42 @@
+! AlAs with a constrained moment: the Berry-phase polarization at nspin = 2
+! where the two channels hold different numbers of bands.
+!
+! `alas-berry.in`'s cell, cutoff and string settings, with `nspin = 2` and
+! `tot_magnetization = 2`, so that the up channel fills five bands and the
+! down channel three. That is a constrained excited state of a nonmagnetic
+! crystal rather than a ground-state magnet, and it is chosen for one reason:
+! with the two channels different, a code that solved one channel twice, or
+! filled both to the same depth, reads differently from pw.x, which the
+! `tot_magnetization = 0` run of the same cell cannot show.
+!
+! The ground state is `alas-mag-scf.in` beside this file, the same input with
+! `calculation = 'scf'` and the 4x4x4 grid of `alas-raman.in`; this input is
+! the `lberry` run on top of it. `nbnd = 8` gives each channel empty bands.
+ &control
+    calculation = 'nscf'
+    lberry = .true.
+    gdir = 3
+    nppstr = 6
+    prefix = 'alasmag'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.575, nat = 2, ntyp = 2,
+    ecutwfc = 10.0
+    nosym = .true.
+    noinv = .true.
+    nspin = 2
+    starting_magnetization(1) = 0.5
+    tot_magnetization = 2
+    nbnd = 8
+ /
+ &electrons
+    conv_thr = 1.0d-12
+ /
+ATOMIC_SPECIES
+ Al  26.98  Al.pz-vbc.UPF
+ As  74.92  As.pz-bhs.UPF
+ATOMIC_POSITIONS (alat)
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 2 2 6 0 0 0
