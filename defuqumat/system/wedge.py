@@ -129,13 +129,19 @@ def _orbit_weights(system, kpoints, rotations, antiunitary) -> np.ndarray:
     return np.asarray(list(accumulated.values()))
 
 
-def wedge_group(system, kpoints=None, *, quantity: str) -> WedgeGroup | None:
+def wedge_group(system, kpoints=None, *, quantity: str,
+                scalar: bool = False) -> WedgeGroup | None:
     """The group a reduced k-set was cut with, or ``None`` for a whole one.
 
     ``kpoints`` defaults to the system's own. Raises
     :class:`NotImplementedError`, naming ``quantity``, for every k-set the
     average of :class:`WedgeGroup` could not complete -- see the module
     docstring for the three cases.
+
+    ``scalar`` is for a quantity every operation leaves alone (a band energy, a
+    total energy), whose wedge sum needs no average at all, only the tiling
+    check: a magnetic group is then accepted, its ``t_rev`` operations sending
+    ``k`` to ``-R k`` as anti-unitary ones do.
     """
     from defuqumat.system.symmetry import cartesian_rotations
 
@@ -153,7 +159,7 @@ def wedge_group(system, kpoints=None, *, quantity: str) -> WedgeGroup | None:
     magnetic = bool(np.any(t_rev != 0)) or (
         bool(getattr(system, "noncolin", False)) and bool(getattr(system, "domag", False))
     )
-    if magnetic:
+    if magnetic and not scalar:
         raise NotImplementedError(
             f"{quantity} on a symmetry-reduced k-set of a magnetic run is not "
             "implemented: the wedge of a magnetic group carries operations "
@@ -165,7 +171,7 @@ def wedge_group(system, kpoints=None, *, quantity: str) -> WedgeGroup | None:
     rotations = np.asarray(cartesian_rotations(system.cell, symmetries), dtype=float)
     crystal = np.asarray(symmetries.rotation_array(), dtype=float)
     translations = np.asarray(symmetries.translations, dtype=float).reshape(-1, 3)
-    antiunitary = np.zeros(len(rotations), dtype=bool)
+    antiunitary = t_rev != 0
     if time_reversal:
         rotations = np.concatenate([rotations, rotations])
         crystal = np.concatenate([crystal, crystal])

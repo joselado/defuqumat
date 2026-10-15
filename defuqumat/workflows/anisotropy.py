@@ -97,6 +97,8 @@ spiral, which has no spin-orbit coupling to switch on.
 
 from __future__ import annotations
 
+import dataclasses
+
 import warnings
 from dataclasses import dataclass, field
 
@@ -557,27 +559,33 @@ def _force_theorem(system, pseudos, density, direction, nbnd, conv_thr, k_batch,
         system = system.with_soc_scale(soc_scale)
     becsum = _checked_becsum(becsum, pseudos)
     _refuse_system(system, pseudos, require_spin_orbit, becsum)
+    turned = False
     if direction is None:
         direction = _reference_axis(system)
     else:
         own = np.asarray(_reference_axis(system))
         wanted = np.asarray(direction, dtype=float)
         wanted = wanted / np.sqrt(np.sum(wanted**2))
-        if not system.nosym and np.sum(np.abs(own - wanted)) > DIRECTION_TOL:
+        turned = not system.nosym and np.sum(np.abs(own - wanted)) > DIRECTION_TOL
+        if turned and projected:
             raise ValueError(
-                "a force-theorem direction other than the system's own "
+                "a projected force-theorem decomposition off the system's own "
                 f"angle1/angle2 ({tuple(np.round(own, 6))}) needs nosym = "
-                ".true.: a magnetic noncollinear run reduces its k-grid with "
-                "the magnetic symmetry group, which depends on where the "
-                "moment points, so two directions would be sampled on two "
-                "different wedges and their band energies would differ by the "
-                "k-sampling rather than by the physics. QE's own force-theorem "
-                "example sets nosym for this reason"
+                ".true.: the direction is sampled on the wedge of its own "
+                "magnetic group, which completes the band energy (a scalar) "
+                "and not a sum resolved by site and orbital, whose labels the "
+                "group permutes"
             )
 
     direction = np.asarray(direction, dtype=float)
     direction = tuple(float(x) for x in direction / np.sqrt(np.sum(direction**2)))
-    system = _with_quantization_axis(system, direction)
+    if turned:
+        # The direction's own wedge, and a calculation built on it: the k-set
+        # moved, so the earlier direction's calculation is not this one's.
+        system = _turned_on_its_own_wedge(system, direction)
+        calculation = None
+    else:
+        system = _with_quantization_axis(system, direction)
 
     rotated = nc_magnetization_from_lsda(density, direction)
     # The one-centre occupations follow the density onto the same axis, and
@@ -1018,6 +1026,53 @@ def _with_rotation(system: System, rotation) -> System:
     _require_nosym_to_turn(system, own)
     wanted = rotation @ own
     return _turn(system, rotation, wanted / np.sqrt(np.sum(wanted**2)))
+
+
+def _turned_on_its_own_wedge(system: System, direction) -> System:
+    """:func:`_with_quantization_axis` for a run with symmetry: the k-set rebuilt too.
+
+    **What lifted the force theorem's and the relaxed route's** ``nosym``
+    **refusal.** A magnetic noncollinear run reduces its grid with the magnetic
+    group of where the moment points, so a turned direction has a different
+    wedge; the refusal said the two band energies would then differ "by the
+    k-sampling rather than by the physics". That is true of a wedge that is not
+    the direction's own and false of one that is: a band energy and a total
+    energy are **scalars**, and a scalar's wedge sum is the whole grid's sum
+    exactly whenever the wedge is cut by a symmetry group of the Hamiltonian
+    from a grid that group maps onto itself. So the texture is turned, the
+    k-set is rebuilt with the turned texture's magnetic group
+    (:meth:`~defuqumat.system.builder.System._respin_kpoints`, the rebuild
+    ``with_spin`` makes), and the result is checked to tile its grid
+    (:func:`~defuqumat.system.wedge.wedge_group` with ``scalar=True``) --
+    which a shifted Monkhorst-Pack grid need not, and is then refused as
+    before.
+
+    The torque and the frozen expectation value still need ``nosym``
+    (:func:`_require_nosym_to_turn`): they differentiate a wedge sum in the
+    direction, and ``dH/dtheta`` is an axial vector the group of the direction
+    does not leave alone.
+    """
+    from defuqumat.system.wedge import wedge_group
+
+    own = np.asarray(_reference_axis(system), dtype=float)
+    wanted = np.asarray(direction, dtype=float)
+    wanted = wanted / np.sqrt(np.sum(wanted**2))
+    if np.sum(np.abs(own - wanted)) <= DIRECTION_TOL:
+        return system
+    turned = _turn(system, _rotation_taking(own, wanted), wanted)
+    kpoints = turned._respin_kpoints(
+        turned.nspin, turned.starting_magnetization, turned.angle1, turned.angle2)
+    turned = dataclasses.replace(turned, kpoints=kpoints)
+    try:
+        wedge_group(turned, quantity="the band energy of a turned direction",
+                    scalar=True)
+    except NotImplementedError as error:
+        raise ValueError(
+            f"{error}. The direction {tuple(np.round(wanted, 6))} is sampled on "
+            "the wedge of its own magnetic group, and that wedge does not tile "
+            "this grid; run with nosym = .true. instead"
+        ) from None
+    return turned
 
 
 def _require_nosym_to_turn(system: System, own) -> None:
@@ -2126,17 +2181,9 @@ def _refuse_relaxed(system: System, pseudos, require_spin_orbit: bool = True) ->
             "run_relaxed_anisotropy(..., require_spin_orbit=False) to run it "
             "anyway, which is the control for that identity"
         )
-    if not system.nosym:
-        raise ValueError(
-            "a relaxed magnetic anisotropy needs nosym = .true.: a magnetic "
-            "noncollinear run reduces its k-grid with the magnetic symmetry "
-            "group, which depends on where the moment points, so two "
-            "directions would be sampled on two different wedges and their "
-            "total energies would differ by the k-sampling rather than by the "
-            "physics. The force theorem requires it for the same reason, and "
-            "here it is worse: a total energy carries the Ewald and Hartree "
-            "terms as well, so the contamination is not confined to the bands"
-        )
+    # ``nosym`` is no longer required: each direction is run on the wedge of
+    # its own magnetic group (:func:`_turned_on_its_own_wedge`), which sums the
+    # total energy, a scalar, exactly as the whole grid does.
 
 
 def run_relaxed_direction(
@@ -2181,8 +2228,10 @@ def run_relaxed_direction(
     # reads its quantization axis off ``angle1``/``angle2``, so rotating where
     # the moment is started without rotating the axis leaves the functional
     # differentiating ``|m|`` through its own kinks
-    # (:func:`_with_quantization_axis` has the 36.8 meV that cost).
-    system = _with_quantization_axis(system, direction)
+    # (:func:`_with_quantization_axis` has the 36.8 meV that cost). With
+    # symmetry on, the k-set is the turned direction's own wedge.
+    system = (_with_quantization_axis(system, direction) if system.nosym
+              else _turned_on_its_own_wedge(system, direction))
 
     options.setdefault("conv_thr", 1.0e-10)
     from defuqumat.scf.driver import run_scf
