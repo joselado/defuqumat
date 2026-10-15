@@ -1,0 +1,23 @@
+! fcc nickel, collinear, norm-conserving PBE, for the transverse spin
+! response. The response needs the whole k-mesh, so nosym and noinv.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 6.65, nat = 1, ntyp = 1,
+    ecutwfc = 60.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.02,
+    nspin = 2
+    nosym = .true., noinv = .true.
+    starting_magnetization(1) = 0.3
+ /
+ &electrons
+    conv_thr = 1.0d-9
+    mixing_beta = 0.3
+ /
+ATOMIC_SPECIES
+ Ni 58.69 Ni.pbe-nc-sg15.UPF
+ATOMIC_POSITIONS (alat)
+ Ni 0.0 0.0 0.0
+K_POINTS {automatic}
+ 4 4 4 0 0 0
