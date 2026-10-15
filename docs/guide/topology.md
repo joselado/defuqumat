@@ -67,11 +67,14 @@ sum of the map 2.82e-06
 ```
 
 The map has one value at each of the $24\times24$ points of the plane, and its
-largest value is of order one, so the curvature of AlAs is not small. Its sum
-over the mesh, `omega.chern_number`, is $2.8\times10^{-6}$, which is close to
-zero but not zero. Time reversal makes the exact integral zero, and the small
+largest value, 1.3605 in the units of `omega.curvature`, which here differ from
+bohr$^2$ by 0.15%, is of order one, so the curvature of AlAs is not small. The
+Chern number from this map, `omega.chern_number`, which is the mean of the map
+divided by $2\pi$, is $2.8\times10^{-6}$, which is close to zero but not zero. Time reversal makes the exact integral zero, and the small
 rest is there because a sum over a mesh is not an exact integral. We come back
-to this in the next section.
+to this in the next section. AlAs runs here at 10 Ry on a $4\times4\times4$
+mesh of the SCF, so the map is a picture of the symmetry and not a converged
+curvature.
 
 The keywords of `get_berry_curvature` are:
 
@@ -107,9 +110,10 @@ The curvature reaches 1.36 bohr$^2$, with the largest values at
 $(k_1, k_2) = (\pm 1/8, \mp 1/8)$, and each red lobe has a blue lobe at
 $-\mathbf k$, so the map is odd, as time reversal requires. This is why the
 integral is zero while the map is of order one. The white line on the diagonal
-$k_1 = k_2$ is a mirror plane of zincblende, where the curvature is zero to
-$10^{-8}$ bohr$^2$, and on the lines $k_1 = 0$ and $k_2 = 0$ it is below
-0.003 bohr$^2$. At $\Gamma$ itself we get 0.0099 bohr$^2$, 0.7% of the largest
+$k_1 = k_2$ lies in a mirror plane of zincblende, which changes the sign of
+$\Omega$, so away from $\Gamma$ the curvature there is zero to $10^{-8}$
+bohr$^2$, and away from $\Gamma$ on the lines $k_1 = 0$ and $k_2 = 0$ it is
+below 0.003 bohr$^2$. At $\Gamma$ itself we get 0.0099 bohr$^2$, 0.7% of the largest
 value, where time reversal requires zero, so this is the size of the numerical
 error of this map. On the right
 we see silicon, with inversion and time reversal, and its curvature is below
@@ -171,9 +175,9 @@ On the same $24\times24$ mesh, the lattice construction gives $-2.6\times10^{-17
 which is zero to the last digit, against $2.8\times10^{-6}$ for the sum of the
 Kubo map. The two numbers come from the same states, and only the way of
 summing differs. AlAs is not magnetic, so $C = 0$ by time reversal. A nonzero
-Chern number needs broken time reversal, which in a crystal means a
-magnetization together with spin-orbit coupling, so you compute it on a
-noncollinear magnetic run. If you only want the integer, `get_chern` is the call
+Chern number needs broken time reversal, which in a crystal usually means a
+magnetization together with spin-orbit coupling, or a noncoplanar magnetic
+order, so you compute it on a noncollinear magnetic run. If you only want the integer, `get_chern` is the call
 to use, and `get_berry_curvature(method="fhs")` gives the same construction
 together with the phase of each plaquette in `.flux`.
 
@@ -225,7 +229,9 @@ $+1$ at the three $M$ points, so the product of the four $\delta_i$ is $-1$ and
 $\nu = 1$. Only $\Gamma$ differs from the others, so the order of the states
 of opposite parity across the gap is inverted at $\Gamma$, which is what is
 called a band inversion. So the bilayer is a quantum spin Hall insulator
-at this cutoff and on this $6\times6$ mesh of the SCF.
+at this cutoff and on this $6\times6$ mesh of the SCF. The cutoff, 20 Ry, is
+below what this pseudopotential needs, and the geometry is not relaxed, so the
+integer is what we trust here and not the size of the gap.
 
 ### The flow of the Wannier charge centres
 
@@ -349,7 +355,8 @@ $\nu_0$, which here is zero because the layers do not talk to each other.
     only for a band that is not degenerate. Inside a degenerate level only the
     sum over its bands has a meaning.
 
-    The invariants give an error with the Tran-Blaha potential.
+    The invariants give an error with a potential-only meta-GGA (`tb09` or
+    `bj06`).
 
 The notebook for this page is
 [10, the topological invariants](https://github.com/joselado/defuqumat/blob/master/notebooks/10_topological_invariants.ipynb).
