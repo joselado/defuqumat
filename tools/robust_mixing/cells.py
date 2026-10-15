@@ -18,6 +18,7 @@ CELLS = {
     "al2-metal": ("tests/data/qe/al2-metal.in", "control", ["anderson"]),
     "graphene": ("tests/data/qe/graphene-monolayer.in", "control, monolayer", ["anderson"]),
     # The cells still recorded as hard at their own settings.
+    "ni-mae-gauss": ("ni-mae-gauss", "SOC PAW, Gaussian", ["anderson"]),
     "ni-mae-paw": ("tests/data/qe/ni-tetragonal-relaxed-mae-paw.in", "SOC PAW stall", ["anderson"]),
     "fe2-canted-soc": ("tests/data/qe/fe2-canted-soc.in", "SOC canted oscillation", ["anderson"]),
     "ni-slab-efield": ("tests/data/qe/efield-ni-slab.in", "slab, dipole", ["anderson"]),

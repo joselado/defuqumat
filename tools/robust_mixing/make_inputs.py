@@ -10,6 +10,8 @@ python3 make_inputs.py <out_dir>
   rattled aluminium (arXiv:2109.14018, Table I), run without Kerker.
 * ``fe-unstable-k4``: ``benchmarks/fe-unstable.in`` on a 4x4x4 mesh, where
   ``PLAN.md`` P129 records the run landing on M = 0.
+* ``ni-mae-gauss``: ``ni-tetragonal-relaxed-mae-paw.in`` with a Gaussian of the
+  same width in place of ``mv``, the variational counterpart of the same cell.
 * ``h4-pbe``: ``tests/data/qe/h4-noncolin-force.in`` under PBE, recorded as a limit
   cycle at 5e-6 (``notes/MAGNETISM-NEXT.md``).
 """
@@ -68,3 +70,7 @@ text = (ROOT / "tests/data/qe/h4-noncolin-force.in").read_text()
 import re
 head, sep, tail = re.split(r"(&system)", text, maxsplit=1, flags=re.IGNORECASE)
 write("h4-pbe", [(head + sep + "\n    input_dft = 'pbe'," + tail).rstrip("\n")])
+
+text = (ROOT / "tests/data/qe/ni-tetragonal-relaxed-mae-paw.in").read_text()
+assert "smearing = 'mv'" in text
+write("ni-mae-gauss", [text.replace("smearing = 'mv'", "smearing = 'gaussian'").rstrip("\n")])
