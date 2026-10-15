@@ -73,6 +73,64 @@ shell.
     --8<-- "magnetism_nickel_dos/plot.py"
     ```
 
+## Where the moment sits
+
+We now look at the moment in real space. The difference
+$n_\uparrow(\mathbf r) - n_\downarrow(\mathbf r)$ is the spin density, which is
+what polarized neutron diffraction measures. The two channels are in
+`scf.density`, so we only subtract them. We also project the moment on the
+atomic orbitals with `get_pdos()`, as in the page about the density of states:
+
+```python
+m = scf.density[0] - scf.density[1]          # the spin density, mu_B/bohr^3
+print(f"{float(m.mean()) * float(nickel.system.cell.volume):.4f} mu_B in the cell")
+
+pdos = nickel.get_pdos()
+up, down = pdos.charges.charges_by_spin[:, 0]  # s, p and d of the one atom
+print(f"d shell {up[2] - down[2]:.4f} mu_B, s shell {up[0] - down[0]:.4f} mu_B")
+```
+
+```
+0.7280 mu_B in the cell
+d shell 0.7396 mu_B, s shell 0.0069 mu_B
+```
+
+The integral of the spin density is the moment of the cell. For an ultrasoft
+dataset like this one, `scf.density` already holds the augmentation charge, so
+nothing is missing from it. The Löwdin moments say that the moment is in the $d$
+shell. Together, the $d$ and $s$ shells hold 0.747 $\mu_B$, more than the
+0.728 $\mu_B$ of the cell, so the part of the density that the atomic orbitals
+do not describe carries a small negative moment, $-0.019\,\mu_B$.
+
+![The spin density of nickel on a face of the cubic cell, and two cuts through it on a logarithmic scale.](img/magnetism_spin_density.png#only-light)
+![The spin density of nickel on a face of the cubic cell, and two cuts through it on a logarithmic scale.](img/magnetism_spin_density-dark.png#only-dark)
+
+The left panel shows the spin density on the (001) face of the cubic cell, with
+an atom at each corner and one in the centre. Around each atom the spin density
+is a ring at about 0.7 bohr from the nucleus, the radius of the $3d$ shell, and
+it is close to zero at the nucleus, as for a $d$ orbital. The ring is not round.
+Its maxima point along [110], towards the nearest neighbours, where it reaches
+0.167 $\mu_B$/bohr$^3$, while along [100] it reaches 0.115 $\mu_B$/bohr$^3$. So
+the moment sits more in the $t_{2g}$ orbitals, which point between the cubic
+axes, than in the $e_g$ orbitals, which point along them. Polarized neutron
+diffraction on nickel also finds most of the $3d$ moment in the $t_{2g}$
+orbitals. The white dashed line is where the spin density changes sign. Between
+the atoms it is negative, about $-1\times10^{-3}\,\mu_B$/bohr$^3$, as the right
+panel shows on a logarithmic scale. This is the negative moment of the Löwdin
+balance above, the electrons between the atoms polarized opposite to the $d$
+shell. These small numbers come from the $4\times4\times4$ mesh of the SCF, and
+we did not converge them in the k-mesh.
+
+??? example "Code of this figure (docs/figures/magnetism_spin_density/)"
+
+    ```python title="compute.py"
+    --8<-- "magnetism_spin_density/compute.py"
+    ```
+
+    ```python title="plot.py"
+    --8<-- "magnetism_spin_density/plot.py"
+    ```
+
 ## Noncollinear magnetism
 
 We now let the moments point in any direction. With `noncolin = .true.` the

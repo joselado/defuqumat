@@ -2,7 +2,7 @@
 
 In this page we put a molecule or a slab in a uniform electric field, we put a
 crystal in a finite field through the Berry phase, and we compute the
-polarization of a crystal.
+polarization of a crystal, with the Born charges that we get from it.
 
 ## A field across a molecule or a slab
 
@@ -191,6 +191,50 @@ small, and it needs enough strings. On $2\times2$ strings, the mesh of notebook
 $2.4\times10^{-4}$, so $P$ is converged to about 0.3 mC/m$^2$. AlAs has no
 inversion center, so its phase is not fixed by symmetry. In a crystal with
 inversion, the phase is 0 or half a quantum.
+
+Let us now use a difference of $\mathbf P$, which is what is physical. If we move
+one sublattice by $u$, the polarization changes linearly in $u$, and the slope is
+the Born effective charge, the dipole that an atom creates per unit of its
+displacement:
+
+$$
+Z^*_{a,ij} = \frac{\Omega}{e}\,\frac{\partial P_i}{\partial u_{aj}} .
+$$
+
+In a purely ionic picture $Z^*$ would be the formal charge of the ion, +3 for Al
+and $-3$ for As. It differs from it because the electrons follow the moving atom
+only in part, so $Z^*$ says how covalent the bond is. It enters the infrared
+absorption of the crystal and the LO-TO splitting of its phonons. We take AlAs,
+move the Al or the As sublattice along $x$ with `alas.with_positions()`, and
+compute `get_polarization()` at each step. From $\Omega\,\mathbf P\cdot\mathbf
+b_3 = 2\pi\varphi_3$ we get $\Omega P_x$, since $\mathbf P$ is along $x$ for a
+displacement along $x$ in this cubic crystal.
+
+![The change of the polarization of AlAs when the Al or the As sublattice moves along x.](img/electric-field_born.png#only-light)
+![The change of the polarization of AlAs when the Al or the As sublattice moves along x.](img/electric-field_born-dark.png#only-dark)
+
+We see two straight lines, and the slopes are the Born charges, $Z^*_{\rm Al} =
++2.150$ and $Z^*_{\rm As} = -2.150$, on $8\times8$ strings. On $4\times4$
+strings they are +2.152 and $-2.152$, so the slope converges much faster than the
+polarization itself, whose electronic phase moved by $1.7\times10^{-3}$ between the same two
+meshes in the table above. Over the five points the largest deviation from the
+straight line is $1.3\times10^{-4}$ e bohr, so up to 0.08 bohr the response is
+linear. The two charges add up to zero, to $5\times10^{-5}$. This is the
+acoustic sum rule: moving the As sublattice by $u$ gives the same crystal as
+moving the Al sublattice by $-u$, up to a rigid translation, which changes no
+dipole. So here the sum rule checks that the Berry phase does not change under
+a rigid translation of the crystal. The two values are much smaller in size than
+the formal charge 3, so the bond of AlAs is far from ionic.
+
+??? example "Code of this figure (docs/figures/electric-field_born/)"
+
+    ```python title="compute.py"
+    --8<-- "electric-field_born/compute.py"
+    ```
+
+    ```python title="plot.py"
+    --8<-- "electric-field_born/plot.py"
+    ```
 
 !!! note "Limits"
     A saw-tooth field (`tefield`) gives no stress, so no `vc-relax`, as in

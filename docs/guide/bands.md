@@ -1,8 +1,9 @@
 # Band structure
 
 In this page we compute the band structure, the energies
-$\varepsilon_{n\mathbf k}$ along a path through the Brillouin zone, and the band
-velocities, the slopes of these bands.
+$\varepsilon_{n\mathbf k}$ along a path through the Brillouin zone, the band
+velocities, the slopes of these bands, and the effective masses, their
+curvatures.
 
 ## Bands along a k-path
 
@@ -129,5 +130,77 @@ velocities are on the k-points of the SCF.
     the bands that the multiplet splits into, in ascending order, and
     `v.degenerate_by_spin` marks these rows.
 
-The notebook for this page is
-[02, silicon](https://github.com/joselado/defuqumat/blob/master/notebooks/02_silicon_scf_and_bands.ipynb).
+## Effective masses
+
+Let us now go one derivative further, to the curvature of a band. Near a band
+edge a band is a parabola, and its curvature is the inverse effective mass
+tensor:
+
+$$
+\left(\frac{1}{m^*}\right)_{ab} = \frac{1}{2}\,
+  \frac{\partial^2 \varepsilon_{n\mathbf k}}{\partial k_a\,\partial k_b} ,
+$$
+
+in units of $1/m_e$, because $\hbar^2/2m_e$ is exactly 1 Ry bohr$^2$. The mass
+sets the mobility of the carriers and the density of states at the band edge,
+and cyclotron resonance measures it. The code takes the first derivative from
+the band velocity above and the second one from a small finite difference of the
+velocity around the k-point you give. We compute it with
+`calc.get_effective_mass()`, at the minimum of the conduction band of silicon:
+
+```python
+import numpy as np
+
+k = np.array([0.843, 0.0, 0.0])           # the minimum, in units of 2 pi / a
+mass = calc.get_effective_mass(calc.system.cell.k_to_crystal(k), nbnd=8)
+masses, axes = mass.principal(4)          # band 4, the lowest conduction band
+print(np.round(masses, 3))                # in units of m_e
+print(np.round(abs(axes[:, 0]), 3))       # the axis of the first mass
+```
+
+```
+[0.952 0.19  0.19 ]
+[1. 0. 0.]
+```
+
+The k-point is in crystal coordinates, so we convert it with
+`cell.k_to_crystal()`, and the tensor that comes back is cartesian.
+`mass.inverse_mass` has the shape (bands, 3, 3), `mass.principal(n)` gives the
+three masses of band $n$ and their axes, and `mass.density_of_states_mass(n)`
+gives their geometric mean. Inside a degenerate multiplet a single band has no
+mass tensor, as for the velocity, so these bands are `nan`, and
+`mass.multiplets` holds the summed inverse mass of each multiplet, which is well
+defined.
+
+![The conduction valley of silicon along and across Gamma-X, with the parabolas of the two masses.](img/bands_masses.png#only-light)
+![The conduction valley of silicon along and across Gamma-X, with the parabolas of the two masses.](img/bands_masses-dark.png#only-dark)
+
+The minimum of the conduction band is on the line from $\Gamma$ to X, at 0.843
+of the way to X, and by symmetry there are six such valleys, one on each of the
+cubic axes. We see that each valley is a long ellipsoid. Along $\Gamma$-X the
+band is flat, with the longitudinal mass $m_l = 0.952\,m_e$, and across it the
+band is steep, with the transverse mass $m_t = 0.190\,m_e$. Cyclotron resonance
+gives 0.92 and 0.19 $m_e$. The orange parabolas come only from the mass tensor
+at the minimum, while the blue points are a separate band calculation along the
+two lines. So the two agree near the minimum and move apart further out, where
+the band stops being quadratic: at 0.08 1/bohr across the valley the band is
+0.036 eV below its parabola. The grey curve is the next conduction band. Along
+$\Gamma$-X it comes down and touches the lowest one at X, just outside the left
+panel. The finite difference is done at two step sizes and combined so that its
+leading error cancels, and `mass.truncation` gives the size of the part that was
+removed, 0.034 in units of $1/m_e$ for this band.
+
+??? example "Code of this figure (docs/figures/bands_masses/)"
+
+    ```python title="compute.py"
+    --8<-- "bands_masses/compute.py"
+    ```
+
+    ```python title="plot.py"
+    --8<-- "bands_masses/plot.py"
+    ```
+
+The notebooks for this page are
+[02, silicon](https://github.com/joselado/defuqumat/blob/master/notebooks/02_silicon_scf_and_bands.ipynb)
+and
+[29, effective masses](https://github.com/joselado/defuqumat/blob/master/notebooks/29_effective_mass_and_angular_momenta.ipynb).
