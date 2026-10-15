@@ -50,10 +50,8 @@ moved ten times above it in the residual). The merit clause is not optional: on
 Anderson converges to, the energy falling by 5e-4 Ry an iteration while the
 residual *rises*, which is the run going downhill to the ferromagnet, and a
 residual-only test called it a stall and sent it back to the saddle:
-restart the history with the conditioning bound at 1e2 (Herbst and Levitt's
-Fe2CrGa); switch on the LDOS preconditioner on a smeared cell; cut the
-magnetization's step to a quarter; shorten the history to four; and at the
-bottom, damped **Hamiltonian** mixing with an energy-only line search
+restart the history; switch on the LDOS preconditioner on a smeared cell; and
+at the bottom, damped **Hamiltonian** mixing with an energy-only line search
 (:class:`HamiltonianDamping`), the one rung with a theorem under it. A run that
 cannot lower the merit there at the smallest step stops and says so: the map is
 not single-valued at the eigensolver's floor, and no mixer fixes that.
@@ -78,7 +76,13 @@ __all__ = ["Supervisor", "HamiltonianDamping", "RUNGS", "vacuum_fraction", "ROBU
 ROBUST_MODES = ("robust",)
 
 #: The ladder, in order. Each name is what ``history`` records when it is taken.
-RUNGS = ("restart", "ldos", "magnetization", "short-history", "hamiltonian")
+#: ``magnetization`` (the magnetization's step cut to a quarter) and
+#: ``short-history`` (four entries) were rungs until 2026-10-16 and are gone on
+#: the bed's record: neither was the rung a run converged on in any sweep, and
+#: ``short-history`` drove the PAW nickel cells from 1e-8 to 1e4 in the
+#: residual. ``ldos`` is the one that rescued runs: the cobalt film and the
+#: nickel slab under the flat fit, started on plain Anderson, converged on it.
+RUNGS = ("restart", "ldos", "hamiltonian")
 
 #: The bound on the Anderson least-squares conditioning: :class:`AndersonMixer`'s
 #: own 1e12, and not Herbst and Levitt's 1e6, so that a run the supervisor never
@@ -135,8 +139,6 @@ class Supervisor:
     """
 
     nelec: float
-    #: Whether a magnetization exists for the magnetic rung to act on.
-    magnetic: bool = False
     #: Whether the cell has states at the Fermi level for the LDOS rung.
     smeared: bool = False
     #: Whether the LDOS preconditioner is already installed.
@@ -162,8 +164,11 @@ class Supervisor:
     #: on eight of the 31 converged runs and threw their history away. At 20
     #: with no new best at all it fires on one of them, at its iteration 40 of
     #: 81, and on every run that failed (``h4-pbe`` at 60 and 61, the nickel
-    #: DFT+U cell at 0.1 at 126).
-    window: int = 20
+    #: DFT+U cell at 0.1 at 126). Raised to 30 after the supervisor's own runs:
+    #: at 20 it fired on the PAW nickel's slow tail at 1e-8 against a
+    #: ``conv_thr`` of 1e-10 (iterations 29 and 56), where plain Anderson
+    #: converges by waiting.
+    window: int = 30
     #: The best ``accuracy`` must fall by this factor over a window; 1 is any
     #: new best at all.
     progress: float = 1.0
@@ -180,7 +185,7 @@ class Supervisor:
     growth: float | None = None
     #: The window after the first stall: the run is known to be stuck, so a
     #: second full window proves nothing.
-    window_after: int = 8
+    window_after: int = 15
 
     scale: float = 1.0
     cuts: int = 0
@@ -337,8 +342,6 @@ class Supervisor:
             self.rung += 1
             name = RUNGS[self.rung]
             if name == "ldos" and (self.ldos or not self.smeared):
-                continue
-            if name == "magnetization" and not self.magnetic:
                 continue
             if name == "hamiltonian" and not self.variational:
                 continue

@@ -76,7 +76,7 @@ def test_a_step_cut_to_its_floor_is_kept_regardless():
 
 
 def test_a_stall_is_detected_and_the_ladder_skips_what_does_not_apply():
-    sup = Supervisor(nelec=8.0, window=3, smeared=False, magnetic=False)
+    sup = Supervisor(nelec=8.0, window=3, smeared=False)
     sup.judge(-10.0, 1e-3, 1e-6, 0)
     sup.kept(_state(0.0), _state(1.0), -10.0, 1e-3, 1e-6)
     for accuracy in (1.1e-3, 1.2e-3, 1.05e-3):
@@ -92,10 +92,8 @@ def test_a_stall_is_detected_and_the_ladder_skips_what_does_not_apply():
     assert not moving.stalled()
     # An insulator without spin takes the restart, then the short history: the
     # LDOS rung needs states at the Fermi level, the magnetic one a moment.
-    assert [sup.next_rung() for _ in range(4)] == [
-        "restart", "short-history", "hamiltonian", None]
-    assert set(RUNGS) == {"restart", "ldos", "magnetization", "short-history",
-                          "hamiltonian"}
+    assert [sup.next_rung() for _ in range(3)] == ["restart", "hamiltonian", None]
+    assert set(RUNGS) == {"restart", "ldos", "hamiltonian"}
     np.testing.assert_allclose(sup.restart_from_best()[0], 0.0)
 
 
@@ -168,7 +166,7 @@ def test_the_acceptance_is_measured_against_the_worst_of_the_last_kept_inputs():
 
 
 def test_a_stall_after_an_action_that_paid_repeats_the_restart():
-    sup = Supervisor(nelec=8.0, window=2, smeared=True, magnetic=True)
+    sup = Supervisor(nelec=8.0, window=2, smeared=True)
     sup.judge(-10.0, 1e-3, 1e-9, 0)
     sup.kept(_state(0.0), _state(1.0), -10.0, 1e-3, 1e-9)
     assert sup.on_stall() == "restart"

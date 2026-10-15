@@ -7205,12 +7205,6 @@ def _take_rung(rung, mixer, calculation, layout, rho) -> None:
             if layout is not None else
             ldos_preconditioner(calculation.basis.dense, calculation.system.cell,
                                 tuple(np.shape(rho)), beta=mixer.beta))
-    elif rung == "magnetization":
-        mixer.beta_mag = 0.25 * mixer.beta
-        mixer.shape = (layout.stored_shape if layout is not None
-                       else tuple(np.shape(rho)))
-    elif rung == "short-history":
-        mixer.history = 4
     mixer.reset()
 
 
@@ -7701,7 +7695,6 @@ def run_scf(
                 RuntimeWarning, stacklevel=2)
         supervisor = Supervisor(
             nelec=float(calculation.nelec),
-            magnetic=calculation.nspin_mag > 1,
             smeared=smeared,
             ldos=mixing_mode == "ldos",
             variational=variational,
