@@ -50,8 +50,9 @@ move, in inverse bohr, and `raman.epsilon` is the dielectric tensor it was taken
 at. AlAs has the point group $\bar 4 3m$, where a tensor of rank three has only
 one independent component, the one with three different indices. So moving Al
 along $x$ changes only $\varepsilon_{yz}$, by $-3.137$ per bohr, and every other
-entry is zero to $10^{-16}$. Nothing imposes these zeros, they are what the
-calculation gives. Moving the whole crystal cannot change $\varepsilon$, so the
+entry is zero to $10^{-16}$. The code averages the tensors over the operations
+of the crystal, so these zeros are exact by construction. The sum over the atoms
+is not imposed by this average. Moving the whole crystal cannot change $\varepsilon$, so the
 tensors of the two atoms should add up to zero. Here they cancel to
 $2.8\times10^{-4}$ of their size, which is the error of the plane-wave basis. The
 code reports this sum and does not force it to zero.
@@ -133,7 +134,7 @@ measured, which is the line every Raman spectrometer is calibrated on. It is
 Raman active and infrared silent. The reason is symmetry: one operation of the
 crystal maps one silicon atom onto the other, so the two atoms have the same
 $Z^*$, and the optical mode moves them against each other, so its dipole is zero.
-This is why silicon is transparent in the infrared. The acoustic triplet again
+This is why silicon has no one-phonon infrared absorption. The acoustic triplet again
 carries the residue of the sum rules, here 5.68 cm$^{-1}$ and an infrared
 activity of 2.35, because the two equal $Z^*$ of silicon are not exactly zero on
 this basis.
@@ -179,7 +180,7 @@ leaves the two transverse ones alone, so a polar crystal has two optical
 frequencies at $\Gamma$, $\omega_{\rm TO}$ and $\omega_{\rm LO}$. In silicon
 $Z^*$ is zero by symmetry, so the term is zero and there is one line. The two
 frequencies are what infrared reflectivity and Raman scattering measure, and the
-band between them is where a polar crystal reflects all the light. We get it with
+band between them is where a polar crystal reflects almost all the light. We get it with
 `loto_direction`, the direction $\hat{\mathbf q}$ in cartesian coordinates:
 
 ```python
@@ -252,10 +253,11 @@ eps_0 / eps_inf   1.22742
 
 `lo.static_permittivity` is $\varepsilon^0$ and `lo.ionic_permittivity` is the
 part of it that comes from the polar modes, both as $3\times3$ tensors. The
-relation holds to every printed digit, and nothing in the code imposes it,
-since the left side is a sum of mode dipoles over $\omega^2$ and the right side
-is a ratio of two frequencies. The two dielectric constants are not converged. This cell
-has a cutoff of 10 Ry and a $4\times4\times4$ mesh that contains $\Gamma$, and it
+relation holds to every printed digit. For a crystal with one polar mode this
+relation is exact, so here it checks that the LO frequency and $\varepsilon^0$
+are built from the same charges and the same constants. It does not tell us that
+either number is converged. The two dielectric constants are not converged. This
+cell has a cutoff of 10 Ry and a $4\times4\times4$ mesh that contains $\Gamma$, and it
 gives 13.00 and 15.96, against 8.16 and 10.06 measured. Their ratio is much
 better, 1.227 against 1.233 from the two measured constants, because the error
 that pushes one constant up pushes the other up too.
@@ -273,7 +275,7 @@ infrared panel both crystals are on one scale. AlAs absorbs at its TO frequency,
 353 cm$^{-1}$. The dashed line is its LO frequency, 391 cm$^{-1}$, which the
 absorption does not show. It is the upper edge of the band between
 $\omega_{\rm TO}$ and $\omega_{\rm LO}$ where the crystal reflects the light,
-and a reflectivity measurement sees it. Silicon is a flat line at zero. The AlAs spectra of this
+and a reflectivity measurement sees it. Silicon is a flat line at zero, which we lift by 0.02 so that it can be seen. The AlAs spectra of this
 figure are computed with `neutralize=True`, and this changes the infrared
 activity of the optical mode from 5.92 to 7.58 per mode, so the sum rule of the
 charges matters for the intensities as well as for the LO frequency. The figure

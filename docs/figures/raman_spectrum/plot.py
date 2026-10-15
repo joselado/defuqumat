@@ -15,7 +15,7 @@ def curve(freq, activity):
 
 
 def draw():
-    fig, (a, b) = style.figure(2, sharey=True)
+    fig, (a, b) = style.figure(2)
     for k, (name, key) in enumerate([("silicon", "si"), ("AlAs", "alas")]):
         raman = curve(d[key + "_freq"], d[key + "_raman"])
         a.plot(w, raman / raman.max(), color=style.color(k), label=name)
@@ -27,13 +27,14 @@ def draw():
     ir_alas = curve(d["alas_freq"], d["alas_ir"])
     ir_si = curve(d["si_freq"], d["si_ir"])
     top = ir_alas.max()
-    b.plot(w, ir_si / top, color=style.color(0), label="silicon", zorder=3)
+    b.plot(w, ir_si / top + 0.02, color=style.color(0), label="silicon (lifted by 0.02)", zorder=3)
     b.plot(w, ir_alas / top, color=style.color(1), label="AlAs")
     to, lo = d["alas_freq"].max(), d["lo_freq"].max()
     b.axvline(lo, **style.reference())
     b.text(to - 12, 0.9, "TO %.0f" % to, ha="right", color=style.ink2())
     b.text(lo + 8, 0.9, "LO %.0f" % lo, ha="left", color=style.ink2())
     b.set_xlabel(r"frequency (cm$^{-1}$)")
+    b.set_ylabel("absorption (to the AlAs peak)")
     b.set_title("infrared", color=style.ink())
     b.legend(loc="upper left")
     for ax in (a, b):
