@@ -43,10 +43,11 @@ pair into an exciton, and here the question is how strong the kernel is at long
 wavelength. We measure it with one number,
 
 $$
-\alpha = -4\pi F_{00},
+\alpha = -4\pi\,[\tilde f_{xc}]_{00},
 $$
 
-the long-range strength the head of the kernel is equivalent to. In ALDA the
+This is the $\alpha$ of the long-range kernel $f_{xc}=-\alpha/q^2$ that has the
+same head as our kernel. In ALDA the
 kernel is finite at $\mathbf q = 0$ while $v$ diverges, so $\alpha$ is exactly zero,
 and no adiabatic local kernel can bind an exciton however strong it is. The
 bootstrap kernel of Sharma, Dewhurst, Sanna and Gross,
@@ -89,11 +90,13 @@ The bootstrap kernel converged in 9 passes, and its long-range strength is
 $\alpha = +0.0232$. The second line is a check on the number of empty bands, which
 is the one error of a sum over states that gives no visible symptom. The band
 truncation is $\epsilon_M(0)$ of this run in RPA minus the same quantity from the
-static linear response, which needs no empty bands at all, so with 60 bands we
-miss $-0.013$ of 22.33, and `nbnd` is what makes it smaller. The value 22.33
-itself is far from the measured dielectric constant of silicon, 11.7, meaning
-that this $4\times4\times4$ grid is too coarse even for the static limit, and
-you should read the spectra below as a demonstration of the method rather than as
+static linear response, which needs no empty bands at all, so the sum over 60
+bands is 0.013 below the complete value, and `nbnd` is what makes the difference
+smaller. The value 22.33 itself is far from the measured dielectric constant of
+silicon, 11.7. A converged LDA calculation gives about 13 to 14, already above
+11.7, so most of the distance to 22.33 comes from this $4\times4\times4$ grid,
+which is too coarse even for the static limit, and you should read the spectra
+below as a demonstration of the method rather than as
 converged numbers. The largest absorption is at 3.76 eV, below the measured $E_2$
 peak of silicon at 4.25 eV, and 64 k-points give a spectrum made of separate peaks
 of width $\eta$ rather than a smooth curve.
@@ -134,8 +137,9 @@ to 80.1, about 10%. Both kernels are attractive, so they move oscillator strengt
 down in energy, from $E_2$ to $E_1$, and the first moment of the spectrum goes
 from 3.648 eV in RPA to 3.592 eV with ALDA and 3.587 eV with the bootstrap. The
 bootstrap raises the $E_1$ peak by up to 10.9 and ALDA by up to 12.8, so on this
-plot ALDA moves about as much weight as the bootstrap does. Silicon has no bound
-exciton, so there is no peak below the gap for either kernel to create. The
+plot ALDA moves about as much weight as the bootstrap does. Silicon has only a weakly
+bound exciton, of about 15 meV, far below the broadening here, so there is no peak
+below the gap for either kernel to create. The
 difference between the two is the number $\alpha$, exactly zero for ALDA and
 $+0.0232$ for the bootstrap, and it decides what happens in a crystal where the
 electron-hole attraction is strong enough to bind a pair below the gap.
@@ -171,7 +175,9 @@ $$
 Here $v = \partial H/\partial\mathbf k$ is the velocity operator, which includes
 the nonlocal part of the pseudopotential, $\epsilon_{mn}$ is the energy of the
 transition and $\omega_p$ is the plasma frequency, a Fermi-surface average of the
-squared band velocity. The diagonal part, $\mathrm{Re}\,\sigma_{xx}$, is the
+squared band velocity. $W_n$ is the occupation of band $n$ times its k weight,
+$f_m$ the occupation of band $m$, and $\gamma$ the relaxation rate of the Drude
+term. The diagonal part, $\mathrm{Re}\,\sigma_{xx}$, is the
 normal absorption of the metal, and the optical constants that reflectivity and
 ellipsometry measure follow from it through
 $\epsilon_{ij}(\omega) = \delta_{ij} + 4\pi i\sigma_{ij}/\omega$.
@@ -274,7 +280,24 @@ Is this number converged? A metal has a Fermi surface, and both the Drude term
 and the static Hall conductivity are integrals over it, so they need many more
 k-points than an insulator does. In the figure we repeat the same calculation on
 the whole $4\times4\times4$, $6\times6\times6$ and $8\times8\times8$ grids, with the
-Fermi level of the SCF and the same 36 bands and $\eta = 0.01$ Ry. The figure
+Fermi level of the SCF and the same 36 bands and $\eta = 0.01$ Ry. Each denser
+grid is the whole Monkhorst-Pack grid, which is what `KPoints.automatic()` gives
+when we pass it no symmetry operations:
+
+```python
+from defuqumat.system.kpoints import KPoints
+
+cell = nickel.system.cell
+mesh = KPoints.automatic((8, 8, 8), (0, 0, 0), cell, precision=cell.precision)
+print(f"{len(mesh.weights)} k-points")
+```
+
+```
+512 k-points
+```
+
+and we give it as `kpoints=mesh`, with `fermi_energy=scf.fermi_energy` where
+`scf = nickel.get_scf()`. The figure
 takes 12 minutes on one core, most of it on the $8\times8\times8$ grid of 512
 k-points.
 
