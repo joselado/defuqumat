@@ -251,6 +251,38 @@ def test_the_lowdin_charges_match_every_digit_projwfc_prints(_projection):
 
 
 @_cases(PAW, US)
+def test_the_site_angular_momenta_carry_projwfcs_lowdin_charges(_projection):
+    """``<L>``, ``<S>`` and ``<J>`` on a fully-relativistic augmented dataset.
+
+    ``projwfc/angular_momentum.py`` builds its site matrix on the spin-angle
+    functions orthonormalised against the spinor overlap with ``qq_so``, so its
+    trace is ``print_lowdin``'s charge: the same metric this file holds to
+    ``projwfc.x``, reached through the angular-momentum module's own build. The
+    scalar ``S`` on each component, the route that was refused here, gives the
+    ``j``-averaged metric and other charges. Platinum is nonmagnetic, so
+    ``<L>`` and ``<S>`` are zero by Kramers, here on the whole grid
+    (``nosym``, ``noinv``) where nothing completes them, and they are measured.
+    """
+    from defuqumat.projwfc.angular_momentum import (
+        _site_density_matrix, angular_momenta,
+    )
+
+    calculation, scf = _projection["calculation"], _projection["scf"]
+    channels = _projection["channels"]
+    momenta = angular_momenta(calculation, scf)
+    density = _site_density_matrix(calculation, scf, None, channels,
+                                   spin_angle=True)
+    diagonal = np.real(np.diag(density))
+    reference, total, _ = _qe_lowdin(_projection["stdout"])
+    for l, label in enumerate("spd"):
+        ours = sum(d for d, c in zip(diagonal, channels) if c.l == l)
+        assert ours == pytest.approx(reference[label], abs=5.0e-5), label
+    assert momenta.atoms[0].charge == pytest.approx(total, abs=5.0e-5)
+    assert np.abs(momenta.orbital).max() < 1.0e-6, momenta.orbital
+    assert np.abs(momenta.spin).max() < 1.0e-6, momenta.spin
+
+
+@_cases(PAW, US)
 def test_a_spinor_projection_has_no_m_resolved_charge(_projection):
     """``print_lowdin`` allocates ``charges_lm`` only ``IF ( nspin /= 4 )``.
 

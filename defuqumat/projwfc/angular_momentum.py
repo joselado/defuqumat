@@ -59,11 +59,33 @@ nonmagnetic one a wedge cut with ``k -> -k`` is completed to the exact zero
 Kramers pairing gives both; at ``nspin = 1, 2`` ``<S_z>`` is a site scalar the
 group permutes, and ``<L>`` on a wedge cut with ``k -> -k`` is completed to
 the exact zero time reversal in each channel gives it (:func:`_symmetrise_axial`
-has the argument). **Refused by name**: a
-**fully-relativistic ultrasoft or PAW** dataset, because the spinor overlap's
-off-diagonal spin blocks are ``qq_so`` and the projection built here applies the
-*scalar* ``S`` to each component -- which is the validated ``projwfc.x`` path in
-every other regime and is missing a term in that one.
+has the argument).
+
+**A fully-relativistic ultrasoft or PAW dataset is decomposed on the
+spin-angle functions** ``|l j m_j>`` (:func:`_spin_angle_projectors`), the set
+``projwfc.x`` projects on (``atomic_wfc_nc_proj``), orthonormalised against the
+*spinor* overlap ``_spinor_overlap``, whose off-diagonal spin blocks are
+``qq_so``. Applying the scalar ``S`` to each component, which is what the
+``(m, spin)`` route above does, gives the ``j``-averaged metric and is wrong
+there; doubling the scalar set into up and down spinors against the right
+metric is wrong too, because such a file carries the two ``j`` of a shell as two
+``PP_CHI`` entries and the doubling has ``4(2l+1)`` columns where the shell has
+``2(2l+1)`` states (22 against 12 on ``Pt.rel-pz-n-rrkjus``). So the basis is
+kept and the **operators are transformed**: with ``M`` the spin-angle matrix
+(:func:`defuqumat.pseudo.atomic._spin_angle_matrix`) that writes each column
+as ``sum_{s m} M[c, s, m] |Y_m> |s>``,
+
+    L_i^{jmj} = M^* (L_i x 1) M^T,     S_i^{jmj} = M^* (1 x sigma_i / 2) M^T,
+
+over the two ``j`` shells of one ``(atom, l, label)`` together, and
+``<O> = Tr(O^{jmj} rho)``. The site charge is then ``Tr rho``, which is
+``projwfc.x``'s Löwdin charge column for column. **One approximation is made,
+and it is the cross-``j`` block**: ``L`` and ``S`` separately connect
+``j = l - 1/2`` to ``j = l + 1/2`` at equal ``m_j``, and the matrix element
+carries the overlap of the two shells' radial functions, which differ on a
+fully-relativistic file and are taken as one here (``J = L + S`` is diagonal in
+``j`` and does not need it). The fully-relativistic **norm-conserving** route
+keeps the ``(m, spin)`` set it was validated on (nickel's 0.0365).
 
 Memory: the orbitals are ``(nk, npwx, natomwfc)`` complex, the same array a
 projected density of states or a Hubbard ``U`` already holds, and in memory mode
@@ -89,6 +111,7 @@ __all__ = [
     "AtomicMoments",
     "angular_momenta",
     "orbital_matrices",
+    "spin_angle_operators",
     "PAULI",
 ]
 
@@ -249,10 +272,29 @@ def angular_momenta(
             "on, so there is no site to resolve an angular momentum onto"
         )
 
+    if _on_spin_angle_functions(calculation):
+        from defuqumat.projwfc.projections import calculation_channels
+
+        channels = calculation_channels(calculation)
+        density = _site_density_matrix(calculation, result, None, channels,
+                                       kind=kind, spin_angle=True)
+        return _contract_spin_angle(density, channels, system, kind, calculation)
+
     density = _site_density_matrix(calculation, result, None, channels, kind=kind)
     return _contract(
         density, channels, system, calculation.nspin, kind, calculation
     )
+
+
+def _on_spin_angle_functions(calculation) -> bool:
+    """Whether the site matrices are built on ``|l j m_j>``: a fully-relativistic
+    ultrasoft or PAW dataset, where the spinor metric carries ``qq_so``."""
+    relativistic = any(
+        getattr(pseudo, "has_so", False) for pseudo in calculation.pseudos
+    )
+    return bool(relativistic and calculation.noncolin
+                and getattr(calculation.system, "lspinorb", False)
+                and calculation.projectors.qq is not None)
 
 
 def _refuse_what_is_not_written(calculation) -> None:
@@ -274,15 +316,17 @@ def _refuse_what_is_not_written(calculation) -> None:
     relativistic = any(
         getattr(pseudo, "has_so", False) for pseudo in calculation.pseudos
     )
-    if relativistic and calculation.projectors.qq is not None:
+    if (relativistic and calculation.projectors.qq is not None
+            and not _on_spin_angle_functions(calculation)):
+        # Only reachable without ``lspinorb``, which the projection's own
+        # builder refuses for a relativistic dataset anyway; kept so that the
+        # scalar ``S`` is never applied to a qq_so metric by a new route.
         raise NotImplementedError(
             "site angular momenta with a fully-relativistic ultrasoft or PAW "
-            "dataset are not implemented: the spinor overlap's off-diagonal "
-            "spin blocks are qq_so (transform_qq_so), and the projection here "
-            "applies the scalar S to each component -- which is projwfc.x's "
-            "validated path in every other regime and is missing that term in "
-            "this one. A fully-relativistic norm-conserving dataset has S = 1 "
-            "and is exact"
+            "dataset are implemented on the spin-angle functions, which need "
+            "noncolin and lspinorb: the spinor overlap's off-diagonal spin "
+            "blocks are qq_so (transform_qq_so), and applying the scalar S to "
+            "each component would give the j-averaged metric"
         )
 
 
@@ -295,6 +339,25 @@ def _atomic_projectors(calculation, kind: str):
         calculation.pseudos, system.structure, system.cell,
         calculation.basis.smooth, calculation.basis.planewaves,
         calculation.basis_kpoints, calculation._overlap, kind=kind,
+    )
+
+
+def _spin_angle_projectors(calculation, kind: str):
+    """``(nk, 2 npwx, natomwfc)``: the ``|l j m_j>`` set against the spinor ``S``.
+
+    The call :func:`defuqumat.projwfc.projections.atomic_projections` makes for
+    a spin-orbit run, whose Löwdin charges are ``projwfc.x``'s to 5e-5 on
+    platinum's ultrasoft and PAW datasets
+    (``tests/regression/test_spinor_pdos.py``).
+    """
+    from defuqumat.hubbard.projectors import build_atomic_projectors
+
+    system = calculation.system
+    return build_atomic_projectors(
+        calculation.pseudos, system.structure, system.cell,
+        calculation.basis.smooth, calculation.basis.planewaves,
+        calculation.basis_kpoints, calculation._spinor_overlap, kind=kind,
+        noncolin=True, spinor_basis="jmj",
     )
 
 
@@ -331,7 +394,7 @@ def _projection_blocks(calculation, psi, channels, built: bool, width: int | Non
 
 
 def _site_density_matrix(calculation, result, projectors, channels,
-                         kind: str = "ortho-atomic"):
+                         kind: str = "ortho-atomic", spin_angle: bool = False):
     """``(natomwfc, 2, natomwfc, 2)``: ``sum_nk wg c c*``, over the whole basis.
 
     The spin axis is always two wide, whatever the regime, so that the traces
@@ -344,6 +407,10 @@ def _site_density_matrix(calculation, result, projectors, channels,
     :func:`_projection_blocks` says so. The coefficients are written into host
     arrays block by block and contracted once at the end, so the order of the
     k sum is the whole build's.
+
+    ``spin_angle`` builds the ``|l j m_j>`` set (:func:`_spin_angle_projectors`)
+    and projects the whole spinor on each column, so the matrix is
+    ``(natomwfc, natomwfc)`` with no spin axis: the spin is inside the columns.
     """
     from defuqumat.scf.streaming import rows_to_device
 
@@ -360,7 +427,9 @@ def _site_density_matrix(calculation, result, projectors, channels,
     # the one channel there is, so it is projected once and the same array
     # fills both diagonal blocks rather than the same product being computed a
     # second time.
-    if nspin == 4:
+    if spin_angle:
+        wanted = [(0, slice(None))]
+    elif nspin == 4:
         npwx = calculation.basis.planewaves.npwx
         wanted = [(0, slice(component * npwx, (component + 1) * npwx))
                   for component in range(2)]
@@ -386,7 +455,8 @@ def _site_density_matrix(calculation, result, projectors, channels,
         if projectors is not None:
             block = jnp.asarray(projectors if whole else np.asarray(projectors)[rows])
         else:
-            block = _atomic_projectors(
+            build = _spin_angle_projectors if spin_angle else _atomic_projectors
+            block = build(
                 calculation if whole else calculation.at_rows(rows), kind)
         conjugate = jnp.conj(block)
         uploaded = {}
@@ -400,6 +470,11 @@ def _site_density_matrix(calculation, result, projectors, channels,
             computed[slot][rows[:live]] = part[:live]
         del block, conjugate, uploaded
     natomwfc = computed[0].shape[-1]
+
+    if spin_angle:
+        # One signed weight per band (the comment below says why it is signed).
+        return np.einsum("kb,kbi,kbj->ij", np.asarray(weights[0]),
+                         computed[0], computed[0].conj())
 
     if nspin == 4:
         coefficients = computed
@@ -619,6 +694,81 @@ def _contract(density, channels, system, nspin, kind, calculation=None):
     return SiteAngularMomentum(
         atoms=atoms, orbital=orbital, spin=spin, kind=kind, nspin=nspin,
     )
+
+
+def spin_angle_operators(l: int, js) -> tuple[np.ndarray, np.ndarray]:
+    """``L`` and ``S`` on the spin-angle functions of the ``j`` shells ``js`` of one ``l``.
+
+    ``(3, n, n)`` each, ``n = sum (2j + 1)``, the columns in the order
+    :func:`~defuqumat.pseudo.atomic.spinor_orbital_blocks` builds them (one
+    ``j`` shell after another, ``m_j`` rising). With both ``j = l -+ 1/2``
+    present ``M`` is unitary and the pair is the ``(m, spin)`` operators
+    written in another basis; with one of them it is their restriction to that
+    shell, which drops the cross-``j`` block.
+    """
+    from defuqumat.pseudo.atomic import _spin_angle_matrix
+
+    m = np.concatenate([_spin_angle_matrix(l, j) for j in js])  # (n, 2, 2l+1)
+    orbital = np.einsum("csw,iwv,dsv->icd", m.conj(), orbital_matrices(l), m)
+    spin = 0.5 * np.einsum("csw,ist,dtw->icd", m.conj(), PAULI, m)
+    return orbital, spin
+
+
+def _spin_angle_shells(channels):
+    """Group the ``|l j m_j>`` columns into ``(indices, l, js)`` per ``(atom, l, shell)``.
+
+    The two ``j`` of one shell are two ``PP_CHI`` entries, so two ``wfc``
+    numbers, and what ties them is the file's ``els`` label (``5D`` twice on
+    platinum). A ``j`` that repeats starts a new shell.
+    """
+    groups: list[list] = []
+    last_key = None
+    for channel in channels:
+        shell_key = (channel.atom, channel.wfc, channel.j)
+        if groups and shell_key == last_key:
+            groups[-1][0].append(channel.index)
+            continue
+        last_key = shell_key
+        open_group = groups[-1] if groups else None
+        if (open_group is not None
+                and open_group[3] == (channel.atom, channel.l, channel.label)
+                and channel.j not in open_group[2]):
+            open_group[0].append(channel.index)
+            open_group[2].append(channel.j)
+            continue
+        groups.append([[channel.index], channel.l, [channel.j],
+                       (channel.atom, channel.l, channel.label)])
+    return [(indices, l, tuple(js)) for indices, l, js, _ in groups]
+
+
+def _contract_spin_angle(density, channels, system, kind, calculation=None):
+    """:func:`_contract` on ``|l j m_j>``: ``Tr(O rho)`` with the operators transformed."""
+    natom = len(system.structure.positions)
+    orbital = np.zeros((natom, 3))
+    spin = np.zeros((natom, 3))
+    charge = np.zeros(natom)
+    for indices, l, js in _spin_angle_shells(channels):
+        block = density[np.ix_(indices, indices)]
+        atom = channels[indices[0]].atom
+        l_ops, s_ops = spin_angle_operators(l, js)
+        # ``<O> = sum_cd O_cd rho_dc``, with ``rho_dc = sum w a_d conj(a_c)``.
+        orbital[atom] += np.real(np.einsum("icd,dc->i", l_ops, block))
+        spin[atom] += np.real(np.einsum("icd,dc->i", s_ops, block))
+        charge[atom] += float(np.real(np.trace(block)))
+
+    if calculation is not None:
+        orbital, spin, charge = _symmetrise_axial(orbital, spin, charge, calculation)
+
+    atoms = tuple(
+        AtomicMoments(
+            atom=index,
+            species=system.structure.species[system.structure.types[index]].name,
+            l=orbital[index], s=spin[index], charge=charge[index],
+        )
+        for index in range(natom)
+    )
+    return SiteAngularMomentum(atoms=atoms, orbital=orbital, spin=spin,
+                               kind=kind, nspin=4)
 
 
 def _shells(channels):
