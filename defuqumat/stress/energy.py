@@ -67,6 +67,7 @@ from defuqumat.forces.energy import (
     FrozenState,
     energy_at,
     reject_potential_only,
+    reject_spinor_spiral,
     reject_spinors,
 )
 from defuqumat.scf.sawtooth import refuse_sawtooth
@@ -113,11 +114,11 @@ def require_a_differentiable_cell(calculation) -> None:
         "cell that a strain moves",
     )
     if calculation.spiral:
-        raise NotImplementedError(
-            "the stress of a spin spiral is not implemented: q is given in "
-            "lattice coordinates, so a strain turns the spiral as well and the "
-            "generalized Bloch theorem's own term would be missing"
-        )
+        # ``q`` is in lattice coordinates and is held there by the strain, as
+        # ``k`` is (:meth:`~defuqumat.scf.driver.Calculation.at_strain`), which
+        # is the supercell's own strain; what is still refused is the
+        # augmented spiral, for the reason that function gives.
+        reject_spinor_spiral(calculation)
     if calculation.magnetic_field is not None:
         raise NotImplementedError(
             "the stress with a magnetic field or a constrained moment is not "

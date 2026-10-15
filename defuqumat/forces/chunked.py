@@ -129,7 +129,8 @@ def _separable(moved, psi, weights, eigenvalues, rows):
     if moved.noncolin:
         kinetic = _kinetic_energy(psi, moved.state_kinetic[rows], weights)
         nonlocal_, overlap = _spinor_projector_energies(
-            psi, vkb, moved.dvan_so, moved.qq_so, weights, eigenvalues)
+            psi, vkb, moved.dvan_so, moved.qq_so, weights, eigenvalues,
+            spiral=bool(moved.spiral))
     else:
         kinetic = _kinetic_energy(psi, moved.kinetic[rows], weights, gamma_only)
         nonlocal_, overlap = _projector_energies(

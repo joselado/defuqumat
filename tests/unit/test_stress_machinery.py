@@ -253,10 +253,43 @@ def test_analytic_total_is_refused_by_name(pseudo_dir):
         compute_stress(calculation, state, method="analytic")
 
 
-def test_a_spiral_is_refused(pseudo_dir):
-    """``spiral_q`` is in lattice coordinates, so a strain turns the spiral too."""
+def test_an_augmented_spiral_is_refused(pseudo_dir):
+    """The displaced table ``Q_ij(G - q)`` is not rebuilt at the strained ``G - q``.
+
+    A norm-conserving spiral strains (``q`` held in lattice coordinates, as
+    ``k`` is), and is checked against its supercell in
+    ``tests/regression/test_spiral_forces.py``; the ultrasoft one is refused,
+    both at the gate and inside ``at_strain``.
+    """
+    from defuqumat.stress.energy import require_a_differentiable_cell
+
+    system = build_system(read_pw_input(CASES / "o-chain-spiral-us.in"))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW spin spiral"):
+        require_a_differentiable_cell(calculation)
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW spin spiral"):
+        calculation.at_strain(jnp.zeros((3, 3)))
+
+
+def test_a_norm_conserving_spiral_strains_both_spheres(pseudo_dir):
+    """Under a strain the two spheres stay at ``k + q/2`` and ``k - q/2``.
+
+    ``q`` is held in lattice coordinates, so an isotropic strain ``eps``
+    scales every ``|k +- q/2 + G|^2`` by ``(1 + eps)^-2``, and at zero strain
+    the rebuilt table is the unstrained one: the two halves are not swapped and
+    neither loses its shift.
+    """
     system = build_system(read_pw_input(CASES / "h-chain-spiral.in"))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
     calculation = Calculation(system, pseudos)
-    with pytest.raises(NotImplementedError, match="spiral"):
-        calculation.at_strain(jnp.zeros((3, 3)))
+    assert calculation.spiral
+    mask = np.asarray(calculation.basis.planewaves.mask)
+    same = np.asarray(calculation.at_strain(jnp.zeros((3, 3))).kinetic)
+    np.testing.assert_allclose(same[mask], np.asarray(calculation.kinetic)[mask],
+                               rtol=1e-13, atol=1e-13)
+    eps = 0.01
+    strained = np.asarray(calculation.at_strain(eps * jnp.eye(3)).kinetic)
+    np.testing.assert_allclose(strained[mask],
+                               np.asarray(calculation.kinetic)[mask] / (1 + eps) ** 2,
+                               rtol=1e-12, atol=1e-12)

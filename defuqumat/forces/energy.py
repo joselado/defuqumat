@@ -439,26 +439,35 @@ def reject_spinors(calculation) -> None:
 
 
 def reject_spinor_spiral(calculation) -> None:
-    """A spin spiral has two spheres, and this functional writes down one.
+    """The one spiral regime the force and the stress do not cover: augmentation.
 
-    ``noncolin`` alone is now carried (see :func:`reject_spinors`), and a
-    spiral is ``noncolin`` with ``spiral_q`` on top -- so without this the
-    force of a spiral would walk into :func:`_spinor_projector_energies` with a
-    ``(2 nk, npwx, nkb)`` ``vkb`` against ``nk`` rows of coefficients and die on
-    an einsum shape rather than on a refusal. The missing piece is real and is
-    named in :mod:`defuqumat.forces.spiral`: the up component lives at
-    ``k + q/2`` and the down at ``k - q/2``, each with its own projectors, so
-    the nonlocal term needs the pair -- which ``spiral_energy`` does write, in
-    the *other* coordinate. ``dE/dq`` is what a spiral has instead.
+    A spin spiral has two spheres, the up component at ``k + q/2`` and the down
+    at ``k - q/2``, each with its own projectors, so the nonlocal term needs
+    the pair ``vkb(k + q/2)``, ``vkb(k - q/2)``. :func:`_spinor_projector_energies`
+    contracts that pair when called with ``spiral = True`` (the contraction
+    :mod:`defuqumat.forces.spiral` writes for ``dE/dq``), and with it the force
+    and the stress of a **norm-conserving** spiral are ``grad`` of the same
+    functional as every other force, checked against the four-cell supercell of
+    the NiI chain at the unfolded density (``notes/incompat/I20.md``,
+    ``I21.md``).
+
+    An **ultrasoft or PAW** spiral is still refused. Every term it needs is in
+    the functional -- the displaced table ``Q_ij(G - q)`` follows the atoms in
+    :meth:`~defuqumat.scf.driver.Calculation.at_positions` and the overlap pairs
+    each component with its own sphere's projectors -- but the only augmented
+    spiral cells in the tree (``o-chain-spiral-*.in``) have one atom per cell,
+    where the force is zero by symmetry, so nothing has checked it; and the
+    strain does not yet rebuild that table on the strained laboratory sphere.
     """
-    if getattr(calculation, "spiral", False):
+    if getattr(calculation, "spiral", False) and getattr(calculation, "is_ultrasoft", False):
         raise NotImplementedError(
-            "the force on an atom of a spin spiral is not implemented: the two "
-            "spinor components live on different plane-wave spheres, so the "
-            "nonlocal term needs vkb(k + q/2) and vkb(k - q/2) as a pair (see "
-            "defuqumat.forces.spiral, which writes exactly that for dE/dq). The "
-            "stress of a spiral is refused for its own reason -- q is in "
-            "lattice coordinates, so a strain turns the spiral"
+            "the force and the stress of an ultrasoft or PAW spin spiral are not "
+            "implemented: the norm-conserving spiral is (the pair vkb(k + q/2), "
+            "vkb(k - q/2) in the nonlocal term, checked against the four-cell "
+            "NiI supercell), but the augmented one has no check -- the only "
+            "augmented spiral cells have one atom per cell, where the force is "
+            "zero by symmetry -- and a strain does not rebuild the displaced "
+            "table Q_ij(G - q) on the strained laboratory sphere"
         )
 
 
@@ -677,9 +686,11 @@ def energy_at(moved, state: FrozenState, terms: bool = False, density=None,
         # quadratic forms take the complex 2x2-in-spin ``dvan_so`` and
         # ``qq_so`` where the collinear ones take ``dij`` and ``qq``.
         kinetic = _kinetic_energy(psi, moved.state_kinetic, weights)
+        # A spiral's ``vkb`` has ``2 nk`` rows, the up component's sphere
+        # ``k + q/2`` first, and each component is projected on its own half.
         nonlocal_, overlap = _spinor_projector_energies(
             psi, moved.projectors.vkb, moved.dvan_so, moved.qq_so,
-            weights, state.eigenvalues,
+            weights, state.eigenvalues, spiral=bool(moved.spiral),
         )
     else:
         kinetic = _kinetic_energy(psi, moved.kinetic, weights, gamma_only)
@@ -700,6 +711,14 @@ def energy_at(moved, state: FrozenState, terms: bool = False, density=None,
         # :func:`_constraint_energy`. Identical at the ground state, where
         # ``Lambda = diag(w eps)``, and the two terms above are what it replaces.
         overlap = jnp.zeros(())
+        if getattr(moved, "spiral", False):
+            # Only a second derivative passes multipliers, and every one of
+            # them is refused on a spiral before it gets here (the
+            # Sternheimer gate); the matrix constraint below projects both
+            # components on one sphere, so it is refused rather than reached.
+            raise NotImplementedError(
+                "the matrix orthonormality constraint is not implemented for a "
+                "spin spiral: it projects both spinor components on one sphere")
         if moved.noncolin:
             norm = _spinor_constraint_energy(
                 psi, moved.projectors.vkb, moved.qq_so, multipliers
@@ -922,14 +941,18 @@ def _spinor_constraint_energy(psi, vkb, qq_so, multipliers):
     return jnp.real(jnp.einsum("skmn,sknm->", multipliers, gram - identity))
 
 
-def _spinor_projector_energies(psi, vkb, dvan_so, qq_so, weights, eigenvalues):
+def _spinor_projector_energies(psi, vkb, dvan_so, qq_so, weights, eigenvalues,
+                               spiral: bool = False):
     """:func:`_projector_energies` for a two-component spinor.
 
     ``add_vuspsi_nc`` and ``s_psi_nc``: the coefficient vector is ``2 npwx``
     long and splits into the two components QE stores as ``evc(1:npw)`` and
-    ``evc(npwx+1:npwx+npw)``, both projected on the *same* projectors -- the
-    spiral is the one case where they are not, and it is refused
-    (:func:`reject_spinor_spiral`). What changes is the matrix between them:
+    ``evc(npwx+1:npwx+npw)``, both projected on the *same* projectors -- except
+    on a spin spiral (``spiral = True``), whose ``vkb`` has ``2 nk`` rows, the
+    up component's sphere ``k + q/2`` first and the down's ``k - q/2`` after,
+    and each component is projected on its own half. That pair is the whole
+    difference, and it is what :mod:`defuqumat.forces.spiral` contracts for
+    ``dE/dq``. What changes in every case is the matrix between them:
     ``D`` and the overlap's ``q`` each carry a spin pair, complex and not
     diagonal, and the off-diagonal blocks are the whole of spin-orbit coupling.
 
@@ -949,9 +972,19 @@ def _spinor_projector_energies(psi, vkb, dvan_so, qq_so, weights, eigenvalues):
         return jnp.zeros(()), jnp.zeros(())
     npwx = vkb.shape[1]
     components = psi.reshape(psi.shape[:-1] + (2, npwx))
-    # ``<beta_i|psi^a>``, the same contraction ``SpinorHamiltonian._project``
-    # does one k-point at a time.
-    becp = jnp.einsum("kgi,sknag->sknai", vkb.conj(), components)
+    if spiral:
+        nk = psi.shape[1]
+        if vkb.shape[0] != 2 * nk:
+            raise ValueError(
+                f"a spiral's projectors have 2 nk rows, got {vkb.shape[0]} for "
+                f"{nk} k-points")
+        # ``(nk, 2, npwx, nkb)``: the spinor axis is the sphere axis.
+        pair = jnp.stack([vkb[:nk], vkb[nk:]], axis=1)
+        becp = jnp.einsum("kagi,sknag->sknai", pair.conj(), components)
+    else:
+        # ``<beta_i|psi^a>``, the same contraction ``SpinorHamiltonian._project``
+        # does one k-point at a time.
+        becp = jnp.einsum("kgi,sknag->sknai", vkb.conj(), components)
     bands = jnp.real(jnp.einsum(
         "sknai,abij,sknbj->skn",
         becp.conj(), dvan_so.astype(becp.dtype), becp, optimize=True,

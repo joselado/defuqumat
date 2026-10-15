@@ -3799,12 +3799,21 @@ class Calculation:
         charge, the projector core and the projectors are then built as the
         constructor builds them rather than for a tape.
         """
-        if self.spiral:
+        if self.spiral and (_moving or self.cross_augmentation is not None):
+            # A norm-conserving spiral is strained below, its two spheres at
+            # ``k +- q/2`` with ``q`` held in lattice coordinates. What is not:
+            # an augmented one, whose displaced table ``Q_ij(G - q)`` sits on the
+            # laboratory sphere and would have to be rebuilt at the strained
+            # ``G - q``; and a cell that *moves* (``at_cell``, a variable-cell
+            # relaxation), which rebuilds the projector core the constructor's
+            # way on the unshifted list.
             raise NotImplementedError(
-                "the stress of a spin spiral is not implemented: the two "
-                "components' spheres are centred at k +- q/2, so a strain moves "
-                "q as well and the generalized Bloch theorem's own term would "
-                "be missing"
+                "the stress of an ultrasoft or PAW spin spiral, and a moving "
+                "cell under one, are not implemented: the displaced "
+                "augmentation table Q_ij(G - q) lives on the laboratory sphere "
+                "and is not rebuilt at the strained G - q, and at_cell rebuilds "
+                "the projectors on the unshifted k-list. The norm-conserving "
+                "spiral's stress is (q held in lattice coordinates)"
             )
 
         strain = jnp.asarray(strain)
@@ -3845,6 +3854,17 @@ class Calculation:
         # -- silently, and exactly zero at Gamma. What is fixed under a strain is
         # k in crystal coordinates, which is the same rule the G-vectors follow.
         kcart = jnp.asarray(self._kcrystal) @ cell.bg
+        if self.spiral:
+            # **A spiral's basis list is ``k + q/2`` then ``k - q/2``**, and
+            # ``q`` is fixed under a strain in lattice coordinates exactly as
+            # ``k`` is: a commensurate spiral is a supercell whose moments sit
+            # on its atoms, and straining that supercell carries the atoms, so
+            # the moments, along in crystal coordinates. The two spheres'
+            # plane waves are then the supercell's at its own frozen sphere,
+            # which is why the stress of the one is the stress of the other.
+            half = 0.5 * jnp.asarray(
+                np.asarray(self.system.spiral_q, dtype=float)) @ cell.bg
+            kcart = jnp.concatenate([kcart + half, kcart - half])
         # Recorded because *nothing else can recover it*: ``KPoints.coords`` are
         # cartesian in units of ``2 pi / alat``, so
         # ``kpoints.cartesian(strained_cell)`` gives the unstrained k-points back
