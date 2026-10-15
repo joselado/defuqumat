@@ -207,7 +207,8 @@ only in part, so $Z^*$ says how covalent the bond is. It enters the infrared
 absorption of the crystal and the LO-TO splitting of its phonons. We take AlAs,
 move the Al or the As sublattice along $x$ with `alas.with_positions()`, and
 compute `get_polarization()` at each step. From $\Omega\,\mathbf P\cdot\mathbf
-b_3 = 2\pi\varphi_3$ we get $\Omega P_x$, since $\mathbf P$ is along $x$ for a
+b_3 = \varphi_3$, with the phase in radians, so $2\pi$ times the printed
+phase, we get $\Omega P_x$, since $\mathbf P$ is along $x$ for a
 displacement along $x$ in this cubic crystal.
 
 ![The change of the polarization of AlAs when the Al or the As sublattice moves along x.](img/electric-field_born.png#only-light)

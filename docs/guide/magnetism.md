@@ -116,9 +116,9 @@ axes, than in the $e_g$ orbitals, which point along them. Polarized neutron
 diffraction on nickel also finds most of the $3d$ moment in the $t_{2g}$
 orbitals. The white dashed line is where the spin density changes sign. Between
 the atoms it is negative, about $-1\times10^{-3}\,\mu_B$/bohr$^3$, as the right
-panel shows on a logarithmic scale. This is the negative moment of the Löwdin
-balance above, the electrons between the atoms polarized opposite to the $d$
-shell. These small numbers come from the $4\times4\times4$ mesh of the SCF, and
+panel shows on a logarithmic scale. These are the electrons between the atoms,
+polarized opposite to the $d$ shell, and their sign and size agree with the
+$-0.019\,\mu_B$ of the Löwdin balance above. These small numbers come from the $4\times4\times4$ mesh of the SCF, and
 we did not converge them in the k-mesh.
 
 ??? example "Code of this figure (docs/figures/magnetism_spin_density/)"
