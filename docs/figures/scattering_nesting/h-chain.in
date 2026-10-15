@@ -1,0 +1,22 @@
+! A non-magnetic chain of hydrogen atoms, one atom every 5 bohr along z and
+! 12 bohr from its images in x and y. One electron in a spin-degenerate band
+! is half filling, so the Fermi surface is the two points k = +-k_F.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 6, celldm(1) = 12.0, celldm(3) = 0.41666666666667,
+    nat = 1, ntyp = 1,
+    ecutwfc = 25.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.02
+    nbnd = 6
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS (crystal)
+ H 0.0 0.0 0.0
+K_POINTS {automatic}
+ 1 1 16 0 0 0
