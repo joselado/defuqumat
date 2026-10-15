@@ -111,6 +111,11 @@ class ProjectionSymmetry(eqx.Module):
     # on a spinor run, where the coefficient is ``D^l x U`` and ``mmax``
     # covers both spin halves of a shell.
     nsym: int = eqx.field(static=True)
+    #: ``(natomwfc,)``: the column holding each column's Kramers partner
+    #: (``m_j -> -m_j`` in the same ``j`` shell), or ``None``. Set on a
+    #: nonmagnetic spin-orbit run only, where ``sym_proj_so`` averages the group
+    #: and its product with time reversal; see :func:`build_projection_symmetry`.
+    partner: jnp.ndarray | None = None
 
     def apply(self, proj0: jnp.ndarray) -> jnp.ndarray:
         """``(natomwfc, nbnd)`` complex in, ``(natomwfc, nbnd)`` real out."""
@@ -125,11 +130,15 @@ class ProjectionSymmetry(eqx.Module):
             work = work + (
                 self.coefficients[:, :, j, None] * proj0[self.indices[:, :, j]]
             )
-        return jnp.sum(jnp.abs(work) ** 2, axis=0) / self.nsym
+        out = jnp.sum(jnp.abs(work) ** 2, axis=0) / self.nsym
+        if self.partner is None:
+            return out
+        return 0.5 * (out + out[self.partner])
 
 
 def build_projection_symmetry(
-    channels: tuple[AtomicChannel, ...], cell, structure, symmetries
+    channels: tuple[AtomicChannel, ...], cell, structure, symmetries,
+    domag: bool = False,
 ) -> ProjectionSymmetry | None:
     """The tables :class:`ProjectionSymmetry` contracts through.
 
@@ -163,11 +172,40 @@ def build_projection_symmetry(
     a symmetry only with time reversal, and the conjugation the antiunitary
     half asks for is applied to the matrix rather than to the projection, which
     is the same thing under ``|.|^2``.
+
+    **A spin-orbit column is the same operator in another basis** (``sym_proj_so``).
+    The columns of a fully-relativistic shell are the spin-angle functions
+    ``|l j m_j> = sum_{m sigma} M_j[m_j, (sigma, m)] |l m> |sigma>``, with
+    ``M_j`` the ``(2j+1, 2 (2l+1))`` map :func:`~defuqumat.pseudo.atomic.
+    _spin_angle_matrix` builds the orbitals with. A rotation acts on the product
+    space as the ``D^l x conj(U)`` above, ``A_s[(sigma, m), (sigma1, m1)]``
+    (output, input), and since it commutes with ``J^2`` the ``j`` subspace is
+    invariant, so ``d_matrix_so``'s ``D^j`` is
+
+        coefficients_s[m_j, m_j'] = ( conj(M_j) A_s M_j^T )[m_j, m_j']
+
+    which is how ``d_matrix_so.f90`` itself makes it, from the ``l`` rotation and
+    the SU(2) matrix through the same Clebsch-Gordan coefficients. The block
+    between the two ``j`` of one ``l``, ``conj(M_j) A_s M_j'^T``, has to vanish,
+    and it vanishes only if the SU(2) convention of
+    :func:`~defuqumat.system.symmetry.spin_rotations` and the complex-harmonic
+    convention of ``rot_ylm`` and ``spinor`` agree; that is the test
+    (``tests/unit/test_projwfc.py``), and it needs no ground state.
+
+    **A nonmagnetic spin-orbit run also averages over time reversal**
+    (``domag = False``, ``sym_proj_so``'s second pass): each column is averaged
+    with its Kramers partner ``m_j -> -m_j``, which is what
+    :attr:`ProjectionSymmetry.partner` carries. A magnetic spin-orbit run is
+    refused by :func:`atomic_projections` before this is reached, because no
+    wedge against a closed grid has been measured for it.
     """
     if symmetries is None or symmetries.nsym <= 1 or not channels:
         return None
 
-    spinor = any(channel.s_z is not None for channel in channels)
+    spinor = any(channel.spinor for channel in channels)
+    relativistic = any(channel.j is not None for channel in channels)
+    if relativistic and not all(channel.j is not None for channel in channels):
+        raise ValueError("a projection mixes j-resolved and other columns")
     lmax = max(channel.l for channel in channels)
     rotations = harmonic_rotations(cell, symmetries, lmax)
     mapping = atom_mapping(cell, structure, symmetries)
@@ -179,9 +217,20 @@ def build_projection_symmetry(
     # Where each (atom, wfc, l) shell starts among the columns, so that the
     # image shell can be found by its key rather than by ``sym_proj_k``'s linear
     # search for "the same atom, n and l with m = 1".
+    # On a fully-relativistic dataset the two ``j`` of one ``l`` share ``wfc``
+    # (``fill_nlmchi``'s ``n``), so ``j`` is part of the key.
+    def key(channel, atom):
+        return (atom, channel.wfc, channel.l, channel.j)
+
     first = {}
     for channel in channels:
-        first.setdefault((channel.atom, channel.wfc, channel.l), channel.index)
+        first.setdefault(key(channel, channel.atom), channel.index)
+
+    if relativistic:
+        return _spin_orbit_symmetry(
+            channels, cell, symmetries, rotations, mapping, spins, first, key,
+            mmax, domag,
+        )
 
     indices = np.zeros((nsym, len(channels), mmax), dtype=int)
     coefficients = np.zeros(
@@ -194,7 +243,7 @@ def build_projection_symmetry(
         # second, which is the order the orbitals themselves are built in.
         sigma = 0 if (channel.s_z is None or channel.s_z > 0.0) else 1
         for s in range(nsym):
-            image = first[(int(mapping[s, channel.atom]), channel.wfc, channel.l)]
+            image = first[key(channel, int(mapping[s, channel.atom]))]
             for sigma1 in range(npol):
                 # ``conj(U)`` rather than ``U``, and it is not a taste: the
                 # harmonic factor is contracted on its *first* index, so what
@@ -224,6 +273,61 @@ def build_projection_symmetry(
             dtype=cell.precision.complex if spinor else cell.precision.real,
         ),
         nsym=nsym,
+    )
+
+
+def _spin_orbit_symmetry(channels, cell, symmetries, rotations, mapping, spins,
+                         first, key, mmax, domag) -> ProjectionSymmetry:
+    """The ``|j m_j>`` branch of :func:`build_projection_symmetry`.
+
+    ``coefficients[s, c, j]`` multiplies ``proj0[image + j]`` for output column
+    ``c``, as on the other branches: here it is ``conj(M_j) A_s M_j^T`` at
+    ``[m_j(c), j]``, with ``A_s`` the noncollinear branch's ``D^l x conj(U)``.
+    """
+    # The imports are local: ``_spin_angle_matrix`` is the orbital builder's own
+    # map, reused so that the columns and their rotation cannot disagree.
+    from defuqumat.pseudo.atomic import _spin_angle_matrix
+
+    nsym = symmetries.nsym
+    if np.any(np.asarray(symmetries.t_rev_array()) != 0):
+        raise NotImplementedError(
+            "a spin-orbit projection under an operation that is a symmetry only "
+            "with time reversal is not implemented (sym_proj_so's t_rev branch)"
+        )
+    indices = np.zeros((nsym, len(channels), mmax), dtype=int)
+    coefficients = np.zeros((nsym, len(channels), mmax), dtype=complex)
+    partner = np.arange(len(channels))
+    cache = {}
+    for channel in channels:
+        l, j = channel.l, channel.j
+        if (l, j) not in cache:
+            matrix = _spin_angle_matrix(l, j)  # (2j+1, 2, 2l+1)
+            width = 2 * l + 1
+            flat = matrix.reshape(matrix.shape[0], 2 * width)  # sigma-major
+            # A_s[(sigma, m), (sigma1, m1)] = D^l_s[m1, m] conj(U_s[sigma1, sigma])
+            a = np.einsum("sqp,snm->spmqn", np.conj(spins), rotations[l])
+            a = a.reshape(nsym, 2 * width, 2 * width)
+            cache[(l, j)] = np.einsum(
+                "ca,sab,db->scd", np.conj(flat), a, flat
+            )  # (nsym, 2j+1, 2j+1): (output m_j, input m_j)
+        block = cache[(l, j)]
+        size = block.shape[-1]
+        if not 0 <= channel.m < size:
+            raise ValueError(f"column {channel} is outside its j = {j} shell")
+        start = first[key(channel, channel.atom)]
+        # Columns are built in increasing m_j, so the partner of the ``ind``-th
+        # is the ``(2j - ind)``-th: QE's ``ind = 2 jj + 2 - ind0``, 1-based.
+        partner[channel.index] = start + size - 1 - channel.m
+        for s in range(nsym):
+            image = first[key(channel, int(mapping[s, channel.atom]))]
+            indices[s, channel.index, :size] = image + np.arange(size)
+            indices[s, channel.index, size:] = image
+            coefficients[s, channel.index, :size] = block[s, channel.m]
+    return ProjectionSymmetry(
+        indices=jnp.asarray(indices),
+        coefficients=jnp.asarray(coefficients, dtype=cell.precision.complex),
+        nsym=nsym,
+        partner=None if domag else jnp.asarray(partner),
     )
 
 
@@ -265,38 +369,26 @@ def atomic_projections(
     system = calculation.system
     noncolin = bool(system.noncolin)
     lspinorb = bool(getattr(system, "lspinorb", False))
-    if lspinorb and symmetrize and calculation.use_symmetry and (
+    domag = bool(getattr(system, "domag", False))
+    if lspinorb and domag and symmetrize and calculation.use_symmetry and (
         calculation.symmetries is not None and calculation.symmetries.nsym > 1
     ):
-        # A spin-angle function carries a spin frame that the operation turns,
-        # so the group average needs a spin matrix beside the rotation of the
-        # harmonics; averaging the ``m`` indices alone mixes columns across a
-        # frame that has moved, which is a smooth, normalised, plausible and
-        # wrong projection.
-        #
-        # **The two regimes need two different matrices, and only one of them is
-        # still missing.** Without spin-orbit coupling the columns are
-        # ``|l m> x |sigma>`` and ``sym_proj_nc``'s operator is the tensor
-        # product ``D^l x U`` (``PP/src/d_matrix_nc.f90`` builds exactly
-        # ``dy_l(m,n) * s_spin(m1,n1)``), whose two factors are both here --
-        # :func:`~defuqumat.paw.symmetry.harmonic_rotations` and
-        # :func:`~defuqumat.system.symmetry.spin_rotations` -- and
-        # :func:`build_projection_symmetry` assembles them.
-        #
-        # With spin-orbit coupling the columns are ``|j m_j>`` instead, and
-        # ``sym_proj_so`` contracts ``d_matrix_so``'s ``D^j`` for
-        # ``j = 1/2, 3/2, 5/2, 7/2`` -- a **different** matrix that nothing here
-        # builds, and it is not the tensor product above. It is not reachable
-        # by relabelling the one above either: the ``j`` shells of one ``l``
-        # have different dimensions and mix under a rotation only within
-        # themselves.
+        # The columns are ``|j m_j>`` and their group average is
+        # ``sym_proj_so``'s, built here as ``conj(M_j) (D^l x conj(U)) M_j^T``
+        # (:func:`build_projection_symmetry`). It is measured on a nonmagnetic
+        # wedge against the closed grid (``pt-soc.in``, ``pt-soc-paw.in``),
+        # where the group is unitary and the Kramers average is ``sym_proj_so``'s
+        # ``.not. domag`` pass. A magnetic run is the other branch -- no
+        # Kramers average, and operations that are symmetries only with time
+        # reversal, where ``sym_proj_so`` swaps ``m_j -> -m_j`` -- and no wedge
+        # of it has been compared with a closed grid, so it stays refused.
         raise NotImplementedError(
-            "a symmetrised projection is not implemented for a spin-orbit "
-            "run: the columns are |j m_j> and sym_proj_so contracts "
-            "d_matrix_so's D^j, which is a different matrix from the D^l x U "
-            "the noncollinear branch uses and is not built here. Run with "
-            "nosym = .true. and the whole k-grid, which is the same physics, "
-            "or pass symmetrize=False"
+            "a symmetrised projection is not implemented for a magnetic "
+            "spin-orbit run: sym_proj_so's domag branch (no Kramers average, "
+            "and the m_j -> -m_j swap under a time-reversed operation) has not "
+            "been checked against a closed grid. Run with nosym = .true. and "
+            "the whole k-grid, which is the same physics, or pass "
+            "symmetrize=False"
         )
     channels = calculation_channels(calculation)
     if not channels:
@@ -335,7 +427,8 @@ def atomic_projections(
 
     symmetry = (
         build_projection_symmetry(
-            channels, system.cell, system.structure, calculation.symmetries
+            channels, system.cell, system.structure, calculation.symmetries,
+            domag=domag,
         ) if symmetrize and calculation.use_symmetry else None
     )
 
