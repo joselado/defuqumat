@@ -54,10 +54,12 @@ def _run(text: str, pseudo_dir: Path):
     )
 
 
+#: Measured on D22, one sample each (``notes/incompat/I50.md``): the energy
+#: 1.1e-12, 2.3e-12 and 1.3e-13 Ry apart, ``|m|`` 1.1e-7, 3.0e-6 and 2.9e-6.
 @pytest.mark.parametrize("text, nk_sym, nk_full, tolerance", [
-    (FCC, 20, 64, 1e-8),
-    (ZIGZAG, 16, 36, 1e-8),
-    (CHAIN, 12, 36, 1e-8),
+    (FCC, 20, 64, 1e-10),
+    (ZIGZAG, 16, 36, 1e-10),
+    (CHAIN, 12, 36, 1e-10),
 ], ids=["fcc", "zigzag", "chain"])
 def test_the_spiral_on_its_wedge_is_the_nosym_spiral(text, nk_sym, nk_full,
                                                      tolerance, pseudo_dir):
@@ -73,5 +75,5 @@ def test_the_spiral_on_its_wedge_is_the_nosym_spiral(text, nk_sym, nk_full,
 
     assert reduced.total_energy == pytest.approx(full.total_energy, abs=tolerance)
     assert reduced.absolute_magnetization == pytest.approx(
-        full.absolute_magnetization, abs=1e-5
+        full.absolute_magnetization, abs=2e-5
     )

@@ -45,7 +45,10 @@ FCC = (ROOT / "data" / "qe" / "h-fcc-spiral-scan.in").read_text().replace(
 #: operations carry ``q . f = 2 pi (1/4)(1/2)``, the one arm where the
 #: four-scalar rule and a leftover spin rotation read differently. The atoms
 #: are 5 bohr apart along the chain, ``h-chain-spiral.in``'s spacing: at 4 bohr
-#: the chain converges nonmagnetic (``|m| = 2e-5``, measured).
+#: the chain converges nonmagnetic (``|m| = 2e-5``, measured). ``conv_thr =
+#: 1e-13`` because at 1e-11 the wedge and the full grid differ in ``|m|`` by
+#: 1.4e-4 (and in energy by 5.9e-11 Ry), which closes to 3.0e-6 (2.3e-12 Ry)
+#: here: a soft transverse mode of the chain, not the group.
 ZIGZAG = """\
  &control
     calculation = 'scf'
@@ -62,7 +65,7 @@ ZIGZAG = """\
  /
  &electrons
     mixing_beta = 0.3
-    conv_thr = 1.0d-11
+    conv_thr = 1.0d-13
  /
 ATOMIC_SPECIES
  H  1.008  H.pz-vbc.UPF
