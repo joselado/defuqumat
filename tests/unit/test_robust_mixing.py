@@ -50,8 +50,9 @@ def test_either_clause_keeps_a_trial():
     # The residual fell while the merit rose: kept, Anderson's late steps.
     assert sup.judge(-9.0, 5e-3, 1e-6, 0) and sup.record["reason"] == "residual"
     sup.kept(_state(1.0), _state(2.0), -9.0, 5e-3, 1e-6)
-    # The merit fell by more than nelec * ethr while the residual rose: kept.
-    assert sup.judge(-9.1, 6e-3, 1e-6, 0) and sup.record["reason"] == "energy"
+    # The merit fell by more than nelec * ethr while the residual rose above
+    # both kept ones: kept.
+    assert sup.judge(-10.1, 2e-2, 1e-6, 0) and sup.record["reason"] == "energy"
 
 
 def test_the_merit_inside_the_eigensolver_noise_or_with_unsettled_bands_keeps_nothing():
