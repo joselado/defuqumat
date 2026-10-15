@@ -284,3 +284,42 @@ def test_two_channels_at_zero_moment_reproduce_pw_x_unpolarized_numbers():
     plain = alas_polarization()
     assert polarization.electronic_phase == pytest.approx(
         plain.electronic_phase, abs=1.0e-8)
+
+
+@pytest.mark.slow
+def test_triplet_o2_matches_pw_x_channel_by_channel():
+    """``reference.out.o2-lsda-berry``: two channels that hold different bands.
+
+    Triplet O2 at ``tot_magnetization = 2`` fills seven bands up and five down,
+    one string of three distinct points along ``b_3``, on the ground state of
+    ``o2-fixed-lsda.in`` (``reference.out.o2-fixed-lsda``). ``pw.x`` prints up
+    0.19500, down 0.42500, electronic 0.62000 (the sum, not folded again),
+    ionic -0.62000 and a total of 0.00000 with ``MOD_TOT: 1``, and
+    ``P = 0.0000164 (e/Omega).bohr``.
+
+    For a centrosymmetric molecule in a box each channel's phase is
+    ``-N_s z_c`` mod 1, with the centre at ``z_c = 0.115``: -7 x 0.115 is
+    0.195 and -5 x 0.115 is 0.425 mod 1, which is what pw.x prints. So this
+    case separates every wrong bookkeeping the ``m = 0`` check cannot: one
+    channel solved twice reads 0.39 or 0.85, one count for both channels
+    reads the same, and a fold of the sum reads -0.38.
+    """
+    system, pseudos, result = _two_channel("o2-fixed-lsda.in", "", "")
+    assert system.nspin == 2
+    polarization = run_polarization(
+        system, pseudos, result.density, gdir=2, nppstr=4, transverse=(1, 1),
+        becsum=result.becsum, conv_thr=1.0e-10,
+    )
+    up, down = polarization.strings_by_spin
+    assert up.total == pytest.approx(0.19500, abs=1.0e-5)
+    assert down.total == pytest.approx(0.42500, abs=1.0e-5)
+    assert np.allclose(polarization.strings.phases, [0.19500, 0.42500],
+                       atol=1.0e-5)
+    assert polarization.electronic_phase == pytest.approx(0.62000, abs=1.0e-5)
+    assert polarization.ionic_phase == pytest.approx(-0.62000, abs=1.0e-6)
+    assert polarization.total_phase == pytest.approx(0.0, abs=1.0e-5)
+    assert polarization.quantum == pytest.approx(1.0)
+    assert polarization.polarization == pytest.approx(0.0000164, abs=1.0e-4)
+    print(f"o2 up {up.total:.8f} down {down.total:.8f} "
+          f"electronic {polarization.electronic_phase:.8f} "
+          f"total {polarization.total_phase:.3e} P {polarization.polarization:.3e}")
