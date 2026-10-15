@@ -169,11 +169,81 @@ def _calculation(extra_system="", kpoints=_LIST):
     return Calculation(system, pseudos)
 
 
-def test_nspin_two_is_refused():
-    with pytest.raises(NotImplementedError, match="nspin = 2"):
-        _calculation(", nspin=2, tot_magnetization=0")
+def test_nspin_two_is_built_per_channel():
+    """I14: a nonmagnetic ``nspin = 2`` run builds one count per channel and drops the factor 2."""
+    field = _calculation(", nspin=2, tot_magnetization=0").berry_field
+    assert field.nocc == (2, 2)
+    assert field.spin_factor == 1.0
 
 
-def test_a_spinor_is_refused():
-    with pytest.raises(NotImplementedError, match="nspin = 4"):
-        _calculation(", noncolin=.true.")
+def test_unequal_channels_are_refused():
+    """``pw.x`` builds the phase on ``nelec/2`` bands per channel, so a magnet has no reference."""
+    with pytest.raises(NotImplementedError, match="3 and 1 occupied bands"):
+        _calculation(", nspin=2, tot_magnetization=2, starting_magnetization(1)=0.5")
+
+
+def test_a_nonmagnetic_spinor_is_built():
+    """I15: one channel of ``NINT(nelec)`` two-component states, no factor 2."""
+    field = _calculation(", noncolin=.true.").berry_field
+    assert field.nocc == 4 and field.npol == 2 and field.spin_factor == 1.0
+
+
+def test_a_magnetized_spinor_is_refused():
+    with pytest.raises(NotImplementedError, match="nspin = 4 with a magnetization"):
+        _calculation(", noncolin=.true., starting_magnetization(1)=0.5")
+
+
+def test_a_spinor_with_spin_orbit_coupling_is_refused():
+    from defuqumat.scf.berryfield import require_a_berry_field_regime
+
+    calculation = type("C", (), {})()
+    system = build_system(parse_pw_input(_INPUT.format(extra="", kpoints=_LIST).replace(
+        "ecutwfc=20", "ecutwfc=12, noncolin=.true., lspinorb=.true.")))
+    calculation.system, calculation.augmentation, calculation.spiral = system, None, False
+    calculation.is_hubbard = False
+    with pytest.raises(NotImplementedError, match="spin-orbit coupling"):
+        require_a_berry_field_regime(calculation)
+
+
+def test_each_channel_is_the_derivative_of_its_own_energy():
+    """At ``nspin = 2`` the operator of each channel is ``(1/w_k) dE/d conj(u_s)``, ``w_k = 1/nk``.
+
+    The two channels carry different states, so a term built from the wrong
+    channel, or a factor 2 left on the energy, fails it.
+    """
+    setup = _setup()
+    setup.nocc, setup.spin_factor = (NOCC, NOCC), 1.0
+    psi = jnp.concatenate([_states(11), _states(12)])
+    prefactor = -setup.efield * setup.fc_pol / setup.strings.shape[0]
+    for spin in range(2):
+        term = setup.term(psi, spin)
+
+        def energy(x, spin=spin):
+            whole = psi.at[spin].set(x)
+            total = 0.0
+            for s in range(2):
+                plus, _ = setup.neighbours(whole[s])
+                total = total + phase_energy(whole[s], plus, setup.strings, prefactor)
+            return total
+
+        derivative = jnp.conj(jax.grad(energy)(psi[spin])) / 2.0
+        np.testing.assert_allclose(np.asarray(term.a), np.asarray(derivative * NK), atol=1e-12)
+    # and the enthalpy is that sum, the ions aside
+    positions = jnp.zeros((2, 3))
+    total = sum(float(phase_energy(psi[s], setup.neighbours(psi[s])[0], setup.strings,
+                                   prefactor)) for s in range(2))
+    assert float(setup.enthalpy(psi, positions)) == pytest.approx(total, abs=1e-14)
+
+
+def test_a_spinor_is_gathered_component_by_component():
+    rng = np.random.default_rng(4)
+    from defuqumat.scf.berryfield import _gathered
+
+    coefficients = jnp.asarray(rng.normal(size=(3, 2, 2 * NPW)) + 1j * rng.normal(size=(3, 2, 2 * NPW)))
+    gather = jnp.asarray(np.stack([rng.permutation(NPW) for _ in range(3)]))
+    found = jnp.asarray(rng.random((3, NPW)) > 0.3)
+    spinor = _gathered(coefficients, gather, found, npol=2)
+    for c in range(2):
+        part = _gathered(coefficients[..., c * NPW:(c + 1) * NPW], gather, found)
+        np.testing.assert_array_equal(np.asarray(spinor[..., c * NPW:(c + 1) * NPW]),
+                                      np.asarray(part))

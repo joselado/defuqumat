@@ -8501,11 +8501,13 @@ def run_scf(
                 wavefunctions = fetch_wavefunctions(wavefunctions)
                 steps = 0.0
                 for _cycle in range(calculation.berry_field.nberrycyc):
-                    term = calculation.berry_field.term(wavefunctions)
+                    # One operator per channel, each from its own states
+                    # (``h_epsi_her_set``'s ``is`` at ``nspin = 2``).
                     fielded = tuple(
-                        eqx.tree_at(lambda h: h.berry, h, term,
+                        eqx.tree_at(lambda h: h.berry, h,
+                                    calculation.berry_field.term(wavefunctions, spin),
                                     is_leaf=lambda x: x is None)
-                        for h in hamiltonians)
+                        for spin, h in enumerate(hamiltonians))
                     eigenvalues, wavefunctions, cycle_steps, unsettled = (
                         calculation.diagonalize(fielded, nbnd, wavefunctions,
                                                 thresholds, return_steps=True))

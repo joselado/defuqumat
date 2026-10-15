@@ -44,9 +44,23 @@ the ``+-2 pi fc_pol`` that ``calc_pol`` adds when the phase jumps by more than
 ``pi fc_pol`` between iterations. ``sqrt(2)`` is the electron's charge in
 Rydberg units; ``efield`` is in Ry a.u. (36.3609e10 V/m).
 
+**Spin.** At ``nspin = 2`` each channel has its own string set, its own
+occupied count (``NINT(nelup)``, ``NINT(neldw)``) and its own operator, and
+``el_pol`` is the sum of the two channels' string averages with no factor 2
+(``c_phase_field.f90:612`` doubles only at ``nspin = 1``). A spinor (``npol =
+2``) is one channel of ``NINT(nelec)`` occupied two-component states, again with
+no factor 2 (``l_cal``, ``h_epsi_her_set.f90:225``), and the Miller gather is
+applied to each component, as ``c_phase_field`` maps ``psi(ig+npwx)``.
+``fact`` does not change in either: the factor 2 the energy loses is the
+factor 2 the k weight ``w_k = 1/nk`` loses. Refused: ``nelup /= neldw``, where
+``pw.x`` itself builds the phase on ``nelec/2`` bands per channel (``l_cal``
+reads ``f_inp`` only for ``occupations = 'from_input'``) whatever the channel
+holds, and a spinor with spin-orbit coupling or a magnetization, for which
+no identity is measured here.
+
 **What is not here**, refused by name at input: ultrasoft and PAW (the cross
 overlap ``q_dk`` and the structure phase in ``M``, and ``forces_us_efield``),
-``nspin`` 2 and 4, a metal, ``efield_cart`` (three directions,
+the three regimes just named, a metal, ``efield_cart`` (three directions,
 ``l3dstring``), an automatic k-grid (QE turns that into ``l3dstring``), a cell
 whose ``a_gdir`` is not along Cartesian axis ``gdir`` (QE's ionic dipole takes
 the Cartesian component while the electronic one is along ``a_gdir``), the
@@ -99,7 +113,7 @@ def string_layout(kcrystal: np.ndarray, gdir: int, nppstr: int) -> np.ndarray:
 class BerryTerm(eqx.Module):
     """``H_E`` for one spin channel: ``sum_n |a_n><u_n| + |u_n><a_n|`` at every k.
 
-    ``u`` and ``a`` are ``(nk, nocc, npwx)``. ``u`` is a copy of the states the
+    ``u`` and ``a`` are ``(nk, nocc, npol * npwx)``. ``u`` is a copy of the states the
     term was built from, never the block the eigensolver donates.
     """
 
@@ -120,10 +134,16 @@ class BerryTerm(eqx.Module):
         return jnp.zeros(self.u.shape[-1], dtype=jnp.real(self.u).dtype)
 
 
-def _gathered(coefficients, gather, found):
-    """``u_{k'}`` on the sphere of ``k``: ``(nk, nb, npwx)`` gathered by Miller index."""
-    picked = jnp.take_along_axis(coefficients, gather[:, None, :], axis=2)
-    return jnp.where(found[:, None, :], picked, 0.0)
+def _gathered(coefficients, gather, found, npol: int = 1):
+    """``u_{k'}`` on the sphere of ``k``: ``(nk, nb, npol * npwx)`` gathered by Miller index.
+
+    The gather is one spinor component's; a spinor's components are stored end
+    to end (``evc(npwx*npol, nbnd)``), so each is gathered with the same index.
+    """
+    nk, nb, ndim = coefficients.shape
+    split = coefficients.reshape(nk, nb, npol, ndim // npol)
+    picked = jnp.take_along_axis(split, gather[:, None, None, :], axis=3)
+    return jnp.where(found[:, None, None, :], picked, 0.0).reshape(nk, nb, ndim)
 
 
 def _overlaps(u, neighbour):
@@ -171,7 +191,8 @@ class BerryFieldSetup:
     nppstr: int
     efield: float
     nberrycyc: int
-    nocc: int
+    #: Occupied bands: one count, or one per channel at ``nspin = 2``.
+    nocc: int | tuple
     strings: np.ndarray
     plus_index: np.ndarray  # (nk,) neighbour k
     minus_index: np.ndarray
@@ -181,6 +202,10 @@ class BerryFieldSetup:
     minus_found: jnp.ndarray
     length: float  # |a_gdir| in bohr
     charges: np.ndarray
+    #: Spinor components of a state, and how many electrons one band holds:
+    #: the factor ``c_phase_field`` puts on ``el_pol`` at ``nspin = 1`` only.
+    npol: int = 1
+    spin_factor: float = 2.0
     #: ``el_pol_acc`` and ``el_pol_old`` of ``calc_pol``: host state carried
     #: across the iterations of one run.
     accumulated: float = 0.0
@@ -220,9 +245,17 @@ class BerryFieldSetup:
         plus_gather, plus_found = stack(gathers["plus"])
         minus_gather, minus_found = stack(gathers["minus"])
         at = np.asarray(cell.at)
+        nint = lambda x: int(np.floor(float(x) + 0.5))
+        if system.nspin == 2:
+            nocc = (nint(calculation.nelup), nint(calculation.neldw))
+        elif system.nspin == 4:
+            nocc = nint(calculation.nelec)
+        else:
+            nocc = nint(calculation.nelec / 2)
         return cls(
             gdir=gdir, nppstr=nppstr, efield=float(efield), nberrycyc=int(nberrycyc),
-            nocc=int(round(calculation.nelec / 2)), strings=strings,
+            nocc=nocc, strings=strings, npol=int(system.npol),
+            spin_factor=2.0 if system.nspin == 1 else 1.0,
             plus_index=plus_index, minus_index=minus_index,
             plus_gather=plus_gather, plus_found=plus_found,
             minus_gather=minus_gather, minus_found=minus_found,
@@ -235,10 +268,15 @@ class BerryFieldSetup:
     def active(self) -> bool:
         return abs(self.efield) >= NO_FIELD
 
+    def occupied(self, spin: int = 0) -> int:
+        """The occupied count of channel ``spin``."""
+        return self.nocc[spin] if isinstance(self.nocc, tuple) else self.nocc
+
     def neighbours(self, u):
         """The forward and backward neighbours of each k, gathered onto its sphere."""
-        plus = _gathered(u[self.plus_index], self.plus_gather, self.plus_found)
-        minus = _gathered(u[self.minus_index], self.minus_gather, self.minus_found)
+        plus = _gathered(u[self.plus_index], self.plus_gather, self.plus_found, self.npol)
+        minus = _gathered(u[self.minus_index], self.minus_gather, self.minus_found,
+                          self.npol)
         return plus, minus
 
     @property
@@ -246,9 +284,9 @@ class BerryFieldSetup:
         """``fact_hepsi``: ``-i E sqrt(2)/(2 dkfact)``, ``dkfact = 2 pi/(|a_gdir| nppstr)``."""
         return -1j * self.efield * SQRT2 * self.length * self.nppstr / (4.0 * np.pi)
 
-    def term(self, wavefunctions) -> BerryTerm:
-        """``H_E`` from the occupied states of ``wavefunctions`` ``(1, nk, nbnd, npwx)``."""
-        u = jnp.array(wavefunctions[0, :, : self.nocc], copy=True)
+    def term(self, wavefunctions, spin: int = 0) -> BerryTerm:
+        """``H_E`` of channel ``spin`` from ``wavefunctions`` ``(nspin, nk, nbnd, npol * npwx)``."""
+        u = jnp.array(wavefunctions[spin, :, : self.occupied(spin)], copy=True)
         plus, minus = self.neighbours(u)
         e_plus, e_minus = _duals(u, plus, minus)
         a = (self.fact * (e_minus - e_plus)).astype(u.dtype)
@@ -266,20 +304,26 @@ class BerryFieldSetup:
         """
         if not self.active:
             return jnp.zeros((), dtype=jnp.real(wavefunctions).dtype)
-        u = wavefunctions[0, :, : self.nocc]
-        plus, _ = self.neighbours(u)
-        prefactor = -self.efield * 2.0 * self.fc_pol / self.strings.shape[0]
-        electronic = phase_energy(u, plus, self.strings, prefactor)
+        prefactor = (-self.efield * self.spin_factor * self.fc_pol
+                     / self.strings.shape[0])
+        electronic = 0.0
+        for spin in range(wavefunctions.shape[0]):
+            u = wavefunctions[spin, :, : self.occupied(spin)]
+            plus, _ = self.neighbours(u)
+            electronic = electronic + phase_energy(u, plus, self.strings, prefactor)
         charges = jnp.asarray(self.charges, dtype=positions.dtype)
         ionic = SQRT2 * jnp.sum(charges * positions[:, self.gdir])
         return electronic - self.efield * (ionic + self.accumulated)
 
     def string_phases(self, wavefunctions) -> np.ndarray:
-        """Each string's principal phase, ``Im ln prod det M+``, radians."""
-        u = wavefunctions[0, :, : self.nocc]
-        plus, _ = self.neighbours(u)
-        sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
-        return np.angle(np.prod(np.asarray(sign)[self.strings], axis=1))
+        """Each string's principal phase, ``Im ln prod det M+``, radians, ``(nchannel, nkort)``."""
+        phases = []
+        for spin in range(wavefunctions.shape[0]):
+            u = wavefunctions[spin, :, : self.occupied(spin)]
+            plus, _ = self.neighbours(u)
+            sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
+            phases.append(np.angle(np.prod(np.asarray(sign)[self.strings], axis=1)))
+        return np.array(phases)
 
     @property
     def fc_pol(self) -> float:
@@ -287,9 +331,9 @@ class BerryFieldSetup:
         return SQRT2 * self.length / (2.0 * np.pi)
 
     def electronic_dipole(self, wavefunctions) -> float:
-        """``el_pol`` in Ry a.u., the spin factor 2 included (``nspin = 1``)."""
+        """``el_pol`` in Ry a.u.: each channel's string average, summed, times 2 at ``nspin = 1``."""
         phases = self.string_phases(wavefunctions)
-        return float(2.0 * self.fc_pol * np.mean(phases))
+        return float(self.spin_factor * self.fc_pol * np.sum(np.mean(phases, axis=1)))
 
     def ionic_dipole(self, positions) -> float:
         """``ion_pol``: ``sqrt(2) sum Z tau(gdir)``, unwrapped positions in bohr."""
@@ -326,10 +370,24 @@ def require_a_berry_field_regime(calculation) -> None:
             "an ultrasoft or PAW dataset: the string overlap needs the cross "
             "augmentation q_dk with the structure phase e^{-i dk.tau} "
             "(h_epsi_her_set's becp sandwich), and the force forces_us_efield")
-    if system.nspin != 1:
+    if system.nspin == 2:
+        nint = lambda x: int(np.floor(float(x) + 0.5))
+        up, down = nint(calculation.nelup), nint(calculation.neldw)
+        if up != down:
+            reasons.append(
+                f"nspin = 2 with {up} and {down} occupied bands in the two channels: "
+                "pw.x builds the Berry phase on NINT(nelec/2) bands in each channel "
+                "whatever the channel holds (l_cal in c_phase_field and "
+                "h_epsi_her_set reads f_inp only for occupations = 'from_input'), "
+                "so there is no pw.x number for a magnet, and none is measured here")
+    if system.nspin == 4 and system.lspinorb:
         reasons.append(
-            f"nspin = {system.nspin}: one string set per channel, and the spinor "
-            "duals, are not built")
+            "nspin = 4 with spin-orbit coupling: the spinor field is measured only "
+            "without it (against nspin = 1)")
+    if system.nspin == 4 and system.domag:
+        reasons.append(
+            "nspin = 4 with a magnetization: the spinor field is measured only on a "
+            "nonmagnetic spinor (against nspin = 1)")
     if system.occupations != "fixed":
         reasons.append(
             f"occupations = '{system.occupations}': a Berry phase belongs to a "

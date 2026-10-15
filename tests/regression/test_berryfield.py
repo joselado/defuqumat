@@ -51,10 +51,12 @@ def _drop_compiled_code():
     jax.clear_caches()
 
 
-def _load(case, efield=None):
+def _load(case, efield=None, spin=""):
     text = (CASES / f"{case}.in").read_text()
     if efield is not None:
         text = text.replace("efield=0.001", f"efield={efield}")
+    if spin:
+        text = text.replace("nosym=.true.", f"nosym=.true., {spin}")
     system = build_system(parse_pw_input(text))
     pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
     return system, pseudos, Calculation(system, pseudos)
@@ -135,3 +137,60 @@ def test_the_frozen_energy_is_the_total_energy():
     calculation, result = _field()
     frozen = float(energy_at(calculation, state_from_result(result)))
     assert frozen == pytest.approx(result.total_energy, abs=1e-8)
+
+
+#: The same chain in another spin regime with no moment: the identity with
+#: ``nspin = 1`` (I14, I15). Measured at conv_thr = 1e-11 on D22, see the tests.
+NSPIN2 = "nspin=2, tot_magnetization=0"
+SPINOR = "noncolin=.true."
+
+
+@lru_cache(maxsize=1)
+def _regime(spin):
+    """The zero-field run and the field switched on from it, both in ``spin``'s regime.
+
+    Its own zero-field start, never ``_zero()``: ``starting_from`` across a
+    change of spin regime seeds a moment when the source has none (P23).
+    """
+    system, pseudos, calculation = _load("si8-lelfield-zero", spin=spin)
+    zero = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11,
+                   mixing_beta=0.5, max_iterations=100)
+    assert zero.converged
+    system, pseudos, calculation = _load("si8-lelfield", spin=spin)
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11,
+                     mixing_beta=0.5, max_iterations=100, starting_from=zero)
+    assert result.converged
+    return calculation, result
+
+
+@pytest.mark.parametrize("spin, energy, dipole", [
+    (NSPIN2, 1e-9, 1e-6),
+    (SPINOR, 1e-9, 1e-6),
+])
+def test_a_nonmagnetic_spin_regime_is_the_unpolarized_field(spin, energy, dipole):
+    """I14 and I15: ``nspin = 2`` at ``tot_magnetization = 0``, and a spinor without
+    spin-orbit coupling, are the ``nspin = 1`` field run to the SCF's own accuracy:
+    the total, ``el_pol`` (a sum of two channels' phases, or one channel of twice the
+    bands, where ``nspin = 1`` doubles one) and ``ion_pol``. ``pw.x``'s total is
+    checked beside it at the tolerance of the ``nspin = 1`` comparison."""
+    _, reference = _field()
+    calculation, result = _regime(spin)
+    print(f"\n{spin}: dE = {result.total_energy - reference.total_energy:.3e}, "
+          f"d el_pol = {result.berry_dipoles[0] - reference.berry_dipoles[0]:.3e}, "
+          f"iterations {result.iterations}")
+    assert result.total_energy == pytest.approx(reference.total_energy, abs=energy)
+    el, ion, acc = result.berry_dipoles
+    assert acc == 0.0
+    assert ion == pytest.approx(reference.berry_dipoles[1], abs=1e-12)
+    assert el == pytest.approx(reference.berry_dipoles[0], abs=dipole)
+    qe = read_qe_output(CASES / "reference.out.si8-lelfield")
+    assert result.total_energy == pytest.approx(qe.total_energy, abs=ENERGY)
+
+
+@pytest.mark.parametrize("spin", [NSPIN2, SPINOR])
+def test_a_nonmagnetic_spin_regime_has_the_unpolarized_forces(spin):
+    calculation, result = _regime(spin)
+    reference = read_qe_output(CASES / "reference.out.si8-lelfield")
+    for method in ("autodiff", "analytic"):
+        forces = compute_forces(calculation, result, method=method).forces
+        np.testing.assert_allclose(forces, reference.forces, atol=FORCE)
