@@ -56,9 +56,11 @@ K_POINTS {kpoints}
 PULSE = Sin2.from_intensity(1e12, 1.55, 1, polarization=(1.0, 0.5, 0.2))
 OPTIONS = dict(dt=0.1, duration=40.0, conv_thr=1.0e-12)
 
-#: Measured on D22 (``notes/incompat/I39.md``), and set above the measurement
-#: with room for the fixed-density solve's ``conv_thr``.
-CURRENT_RTOL = 1.0e-8
+#: Measured on D22 (``notes/incompat/I39.md``, one run): 1.84e-13 of the peak
+#: current on both routes, with ``max |J| = 1.58e-3``. Set 500 times above that,
+#: for the fixed-density solve's ``conv_thr``; a half sphere propagated as whole
+#: would read of order one.
+CURRENT_RTOL = 1.0e-10
 ENERGY_ATOL = 1.0e-10
 
 
