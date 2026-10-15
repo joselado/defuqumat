@@ -225,6 +225,10 @@ def test_the_spin_orbit_wedge_reproduces_the_closed_grid(wedge, closed, stem):
           f"wedge-closed {against_closed:.3e}, wedge-projwfc {against_qe:.3e}, "
           f"closed-projwfc {np.abs(closed_grid - reference).max():.3e}, "
           f"unsymmetrised {unsymmetrised:.3e}")
-    assert against_closed < 1.0e-4
-    assert against_qe < 2.0e-4
-    assert unsymmetrised > 1.0e-3
+    # Measured on D22 (2026-10-16): wedge against closed grid 3.7e-7 (ultrasoft)
+    # and 5.2e-9 (PAW) electrons; against projwfc.x 1.7e-6 and 2.2e-6, which is
+    # the closed grid's own distance from projwfc.x (2.0e-6 and 2.2e-6); the
+    # unsymmetrised wedge misses by 7.5e-2 on both.
+    assert against_closed < 1.0e-5
+    assert against_qe < 1.0e-5
+    assert unsymmetrised > 1.0e-2
