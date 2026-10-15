@@ -56,3 +56,9 @@ extra_javascript:
 
 nav:
   - Home: index.md
+  - Getting started:
+      - Your own crystal: own-crystal.md
+  - Ground state:
+      - Total energy and the density: ground-state.md
+      - Band structure: bands.md
+      - Density of states: dos.md

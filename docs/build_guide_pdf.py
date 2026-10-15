@@ -69,6 +69,20 @@ def figure_code_to_pointer(text):
     return "\n".join(out)
 
 
+def expand_snippets(text):
+    """Copy in a file named by a `--8<-- "path"` line, as the website does.
+
+    The path is relative to docs/figures/, the base_path of pymdownx.snippets.
+    A fence title (```python title="x.py") is dropped, since pandoc reads it
+    as part of the language name.
+    """
+    def include(m):
+        body = open(os.path.join(HERE, "figures", m.group(2))).read().rstrip("\n")
+        return "\n".join(m.group(1) + line for line in body.split("\n"))
+    text = re.sub(r'^([ \t]*)--8<-- "([^"]+)"[ \t]*$', include, text, flags=re.M)
+    return re.sub(r'^([ \t]*```\w+) title="[^"]*"', r"\1", text, flags=re.M)
+
+
 def local_links_to_text(text):
     """A link to another page of the site becomes its text."""
     return re.sub(r"\[([^\]]+)\]\((?:[\w-]+\.md)?(?:#[\w-]+)?\)", r"\1", text)
@@ -89,7 +103,8 @@ def page_source(fn):
     text = light_figures_only(open(os.path.join(GUIDE, fn)).read())
     if fn == "index.md":
         text = re.sub(r"^# [^\n]*\n", "# Introduction\n", text, count=1)
-    return local_links_to_text(admonitions_to_quotes(figure_code_to_pointer(text)))
+    text = expand_snippets(figure_code_to_pointer(text))
+    return local_links_to_text(admonitions_to_quotes(text))
 
 
 def main():
