@@ -33,7 +33,6 @@ print(f"pressure {stress.pressure_kbar:.2f} kbar")
 ```
 
 ```
-[defuqumat] the stress: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 [7.369 7.369 7.369]
 pressure 7.37 kbar
 ```
@@ -145,7 +144,6 @@ print(f"bulk modulus {c.bulk_modulus:.1f} GPa")
 ```
 
 ```
-[defuqumat] the elastic constants: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
 C11 = 209.4   C12 = 68.0   C44 = 134.0 GPa
 bulk modulus 115.1 GPa
 ```

@@ -11,7 +11,8 @@
 #   taken. Each slot is pinned with taskset to its own physical core. On the
 #   Core Ultra 5 225U workstation CPUs 0-3 are two P-cores with their SMT
 #   siblings, so the default "0 2" is the two P-cores; on D22 (i5-12600K,
-#   CPUs 0-11 are six P-cores with two siblings each) use "0 2 4".
+#   CPUs 0-11 are six P-cores with two siblings each) use even CPUs that no
+#   other job holds, for example "4 6 8".
 # - Inside a systemd user scope with MemoryMax=8G and no swap, when
 #   systemd-run works; otherwise without it, with a note in the log.
 # - Writes docs/figures/<id>/compute.log, RUNNING while it runs, and DONE

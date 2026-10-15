@@ -34,12 +34,12 @@ print(forces.forces.round(6))      # (atoms, 3), Ry/bohr
 ```
 
 ```
-[defuqumat] the forces: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 [[ 0.060397 -0.        0.      ]
  [-0.060397  0.       -0.      ]]
 ```
 
-The code ran the SCF first, because a force is a derivative at the ground state.
+There was no ground state yet, so the code ran the SCF first and said so on
+stderr. A force is a derivative at the ground state.
 The two forces are equal and opposite. Nothing in the code imposes this. The
 total force on a crystal is zero, because a rigid translation does not change the
 energy. The force on the second atom points along $-x$, back towards its site.
@@ -136,8 +136,8 @@ total energy -45.10439956 Ry
 D2 energy    -0.02305929 Ry
 ```
 
-The D2 energy depends only on the positions of the atoms. So it does not change
-the density, the bands or the potential. The run with D2 has the same density as
+The D2 energy depends only on the positions of the atoms and on the cell. So it
+does not change the density, the bands or the potential. The run with D2 has the same density as
 the run without it, and the two total energies differ by exactly $E_{\rm disp}$.
 The correction enters the forces, the stress and so the relaxations, and the
 elastic constants.

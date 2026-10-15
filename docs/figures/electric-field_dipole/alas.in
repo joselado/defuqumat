@@ -1,8 +1,9 @@
 ! AlAs, zincblende. The Berry-phase polarization along the third reciprocal
 ! lattice vector (lberry, gdir = 3), on strings of nppstr = 6 k-points.
 ! nppstr counts the last point, which is the first one shifted by b3.
+! The SCF runs on the 4x4x4 mesh below; the strings are built separately.
  &control
-    calculation = 'nscf'
+    calculation = 'scf'
     lberry = .true.
     gdir = 3
     nppstr = 6
@@ -24,4 +25,4 @@ ATOMIC_POSITIONS (alat)
  Al 0.00 0.00 0.00
  As 0.25 0.25 0.25
 K_POINTS (automatic)
- 2 2 6 0 0 0
+ 4 4 4 0 0 0

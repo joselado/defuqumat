@@ -168,11 +168,10 @@ print(f"ionic {pol.ionic_phase:+.5f}, modulo {pol.quantum:.0f}, "
 ```
 
 ```
-[defuqumat] the Berry-phase polarization: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
-2x2 strings: electronic +0.00666   P = -0.35213 C/m^2
-4x4 strings: electronic -0.00401   P = -0.36758 C/m^2
-6x6 strings: electronic -0.00553   P = -0.36977 C/m^2
-8x8 strings: electronic -0.00578   P = -0.37014 C/m^2
+2x2 strings: electronic +0.00876   P = -0.34909 C/m^2
+4x4 strings: electronic -0.00184   P = -0.36444 C/m^2
+6x6 strings: electronic -0.00331   P = -0.36657 C/m^2
+8x8 strings: electronic -0.00355   P = -0.36691 C/m^2
 ionic -0.25000, modulo 1, or 1.44708 C/m^2
 ```
 
@@ -183,9 +182,9 @@ strings in the two other directions, $4\times4$ if you do not give it. The phase
 are in units of $2\pi$, and `pol.quantum_si` is the quantum in C/m$^2$.
 
 The ionic phase is exactly $-1/4$, modulo 1. The
-electronic phase is small, and it needs enough strings. On $2\times2$ strings it
-has the wrong sign. From $6\times6$ to $8\times8$ it moves by $2.5\times10^{-4}$,
-so $P$ is converged to about 0.4 mC/m$^2$. AlAs has no inversion center, so its
+electronic phase is small, and it needs enough strings. On $2\times2$ strings,
+the mesh of notebook 34, it has the wrong sign. From $6\times6$ to $8\times8$ it
+moves by $2.4\times10^{-4}$, so $P$ is converged to about 0.3 mC/m$^2$. AlAs has no inversion center, so its
 phase is not fixed by symmetry. In a crystal with inversion, the phase is 0 or
 half a quantum.
 
