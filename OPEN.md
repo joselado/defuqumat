@@ -9377,3 +9377,74 @@ scatter: the same difference at a fixed starting set (the converged states at `x
 random unitary well outside any degenerate block) or a Davidson that converges every band on its
 residual norm.
 
+
+# Part XXVII -- the acoustic residue of silicon through the two phonon routes, 2026-10-15
+
+## 1. `get_phonons()` reports an acoustic residue of 5.68 cm^-1 where the converged response gives 4.33, because its loop stops at `ph.x`'s `tr2 = 1e-14` **[open 2026-10-15; no term is missing in either route, the default is the user's decision]**
+
+On `docs/figures/phonons_silicon_q/si.in` (the cell of `tests/data/qe/si-epsilon-unshifted-nosym.in`:
+silicon, `Si.pz-vbc`, 18 Ry, unshifted 4x4x4, `nosym`) the user guide's `get_phonons()` prints the
+acoustic triplet at 5.68, 5.68, 5.69 cm^-1 and `get_phonons_at_q(q=(0,0,0))` at 4.372, exactly triply
+degenerate, with the optical mode at 519.21 in both. The two routes are the same physics, as the
+`get_phonons_at_q` docstring says; what differs is the default stop of the self-consistent loop:
+`dynamical_matrix` keeps `ph.x`'s `tr2 = 1e-14` with the bare CG schedule (`phonon.TR2`, kept there
+on purpose in P149 because every P24 and P25 number was taken at it), while `dynamical_matrix_at_q`
+runs at `tr2 = 1e-16` under the 1e-8 schedule cap (`TR2_AT_Q_CAPPED`, P149). The acoustic residue is
+a 1e-4 fraction of force constants of 0.287 Ry/bohr^2, so it is the first number a loop that stops
+early moves, and it moves a lot.
+
+Measured on `D22-0161` at `f35cfbd` (worktree `w-phonon-residue`, `review/phonon-residue/`,
+`dfpt.py` and `fd.py`, one thread a job through `review/guide/slot.sh`). `S_xx` is the atom-summed
+block `sum_ij D_(ix)(jx)` in Ry/bohr^2, which is exactly what a rigid translation sees, and the
+residue is `sqrt(S_xx / (2 M))` in cm^-1, with `M = 28.086` amu in Rydberg mass units (`AMU_TO_RY`):
+
+| route and loop | `S_xx` | acoustic triplet, cm^-1 |
+|---|---|---|
+| `get_phonons()`, `tr2` 1e-14, bare schedule (the default) | 1.3743e-4 | 5.6830, 5.6836, 5.6856 |
+| `get_phonons_at_q`, uncapped, `tr2` 1e-14 | 1.3748e-4 | 5.6828, 5.6834, 5.6869 |
+| `get_phonons()`, `tr2` 1e-16 | 8.4259e-5 | 4.4512, 4.4517, 4.4519 |
+| `get_phonons_at_q`, capped, `tr2` 1e-16 (the default) | 8.1258e-5 | 4.3718 (x3) |
+| `get_phonons()`, `tr2` 1e-18 | 7.9565e-5 | 4.3260, 4.3260, 4.3261 |
+| `get_phonons_at_q`, capped, `tr2` 1e-18 | 7.9611e-5 | 4.3273 (x3) |
+| `get_phonons()`, CG fixed at 1e-12, `tr2` 1e-18 | 7.9593e-5 | 4.3268 (x3) |
+| `get_phonons_at_q`, CG fixed at 1e-12, `tr2` 1e-18 | 7.9612e-5 | 4.3273 (x3) |
+| finite difference of the energy, rigid shift along x | 7.9528e-5 | 4.3250 |
+| finite difference of the net force, rigid shift along x | 7.9548e-5 | 4.3256 |
+
+Like for like the two routes agree: at `tr2 = 1e-14` uncapped the whole matrices differ by 1.95e-6
+and at the tight fixed-CG setting by 1.93e-6, which is the Ewald swap `GAMMA_AGREEMENT` is about
+(the ground-state sum truncated at `4/sqrt(alpha)` against `d2ionq`'s `5/sqrt(alpha)`); it moves the
+optical mode by 1.8e-3 cm^-1 (519.2048 against 519.2066) and `S_xx` by 1.9e-8 (7.9593e-5 against
+7.9612e-5), which is the loop's own scatter (the two tight `Gamma` arms differ by 2.8e-8, the two
+tight at-`q` arms by 9e-10), since both Ewald Hessians are translation invariant. The default `get_phonons()` matrix is 1.61e-5 from
+the tight one, the default at `q` 4.3e-7. The non-degenerate 5.68/5.68/5.69 is the tell of the
+unconverged response: every tight arm is degenerate to 1e-4 cm^-1. The finite differences are the
+independent check, through `Calculator.with_positions` at the frozen basis and FFT grid, `conv_thr
+= 1e-14`, shifts of 0.01, 0.02 and 0.04 bohr (and 0.08 as a probe of the egg-box nonlinearity), each
+estimate Richardson-extrapolated in the step: the force slopes read 7.9102e-5, 7.7776e-5, 7.2701e-5
+at the three steps and the energy curvatures 7.9304e-5, 7.8638e-5, 7.6051e-5, so the extrapolated
+7.953e-5 and 7.955e-5 agree with each other to 3e-4, and with the tight response to 6e-4 to 8e-4
+against the `Gamma` arm and 8e-4 to 1.1e-3 against the at-`q` one (force and energy estimate). The
+converged residue of this cell is therefore **4.33 cm^-1**, the derivative of the energy the SCF
+minimises; `get_phonons_at_q`'s default is 0.045 cm^-1 above it and `get_phonons()`'s 1.36 above it.
+The same 4.32 was quoted in `test_phonons_at_q.py`'s `ACOUSTIC_CEILING` docstring for the at-`q` route.
+
+**What it affects.** Only quantities that read the 1e-4 part of the matrix: the acoustic residue of
+`get_phonons()`, `get_vibrational_spectrum()` and anything else built on `dynamical_matrix` at its
+default, so the user guide's `phonons.md` (5.68 and the sentence that puts all of the residue on the
+finite basis) and `raman.md` (5.68 in its table and prose). The optical modes move by 1.5e-3 cm^-1,
+which is below everything P25 validated against `ph.x`.
+
+**What to do, the user's decision**, one of:
+
+- move `phonon.TR2` to 1e-18 (or to the at-`q` pair, the 1e-8 cap with `tr2` 1e-16), which buys the
+  converged residue at 9 passes against 6 on this cell and changes every `Gamma` number recorded at
+  `ph.x`'s `tr2_ph` in the last digits;
+- keep `ph.x`'s 1e-14 and change the guide: say that part of the 5.7 cm^-1 is the stop of the loop,
+  and show `tr2=1e-18` giving 4.33;
+- keep both and only qualify the `get_phonons_at_q` docstring: "a regression" holds at one `tr2`,
+  which is what `test_q_zero_reproduces_the_gamma_machinery` already does.
+
+**How to know it worked:** `get_phonons()` and `get_phonons_at_q(q=0)` at their defaults give the
+same acoustic triplet to 0.01 cm^-1 on this cell, or the guide's printed residue is the one the
+finite difference of the forces gives, 4.33.
