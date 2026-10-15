@@ -158,6 +158,8 @@ def ultracell_energy(
     onecentre: float = 0.0,
     paw_deband: float = 0.0,
     efield: float | None = None,
+    hubbard: float | None = None,
+    hubbard_deband: float = 0.0,
 ) -> dict:
     """The energy terms of one ultracell iteration, per unit cell, in Ry.
 
@@ -201,6 +203,13 @@ def ultracell_energy(
             field is inside ``v_scf`` and ``deband`` takes it out of the
             one-electron term, so adding the whole ``E_f`` back is what leaves
             the electrons' and the ions' energy in the field counted once.
+        hubbard: ``eth`` **per unit cell**, the copies' Hubbard energies at the
+            output occupation matrices summed and divided by ``N``, or ``None``
+            without a U.
+        hubbard_deband: ``delta_e``'s ``-sum(ns v_ns)``, doubled at one spin
+            channel, with each copy's input potential against its output
+            ``ns``, summed over the copies and divided by ``N``. Folded into
+            the one-electron term as ``paw_deband`` is, for its reason.
 
     Returns a dict whose non-underscored entries sum to the total energy, in
     the shape ``SCFResult.energy_terms`` uses, plus ``_field_energy``, which is
@@ -227,7 +236,8 @@ def ultracell_energy(
         field_energy = element * float(
             jnp.sum(density_out * jnp.asarray(magnetic_potential))
         ) / cells
-    deband = -element * float(jnp.sum(density_out * v)) / cells + float(paw_deband)
+    deband = (-element * float(jnp.sum(density_out * v)) / cells
+              + float(paw_deband) + float(hubbard_deband))
 
     terms = {
         "one-electron": float(band_energy) + deband,
@@ -241,6 +251,8 @@ def ultracell_energy(
         terms["dispersion"] = float(dispersion)
     if efield is not None:
         terms["efield"] = float(efield)
+    if hubbard is not None:
+        terms["hubbard"] = float(hubbard)
     if entropy:
         terms["smearing"] = float(entropy)
     terms["_field_energy"] = field_energy

@@ -178,6 +178,14 @@ from defuqumat.ultracell.seed import (
     seeded_density,
 )
 from defuqumat.ultracell.density import ultracell_kinetic_density
+from defuqumat.ultracell.hubbard import (
+    copy_hubbard_matrix,
+    copy_occupations,
+    copy_projections,
+    ultracell_hubbard_terms,
+)
+from defuqumat.hubbard.energy import hubbard_energy, hubbard_potential
+from defuqumat.hubbard.operator import block_potential
 from defuqumat.ultracell.potential import (
     delta_potential,
     hartree_kernel,
@@ -550,11 +558,31 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
             f"band left to hold a prescribed occupation. Use 'fixed' or "
             f"'smearing'"
         )
-    if getattr(system, "hubbard", None) is not None:
-        raise NotImplementedError(
-            "the ultracell refuses DFT+U: the occupation matrix is per atom and "
-            "an ultracell holds N copies of every atom, each with its own"
-        )
+    hubbard = getattr(system, "hubbard", None)
+    if hubbard is not None:
+        # **One occupation matrix per atom copy** (:mod:`defuqumat.ultracell.hubbard`),
+        # each projected through the unit cell's own ``wfcU`` at the folded
+        # points with a phase per copy. What that construction does not cover
+        # is refused here, before the frozen solve.
+        augmented = any(p.is_ultrasoft or p.is_paw for p in pseudos)
+        reasons = []
+        if augmented:
+            reasons.append("an ultrasoft or PAW dataset, whose Hubbard projection "
+                           "carries the overlap S")
+        if int(system.nspin) == 4:
+            reasons.append("a spinor, whose ns has four spin blocks per copy")
+        if getattr(hubbard, "tensor_moments", ()):
+            reasons.append("a TENSOR_MOMENTS constraint on the occupation matrix")
+        if getattr(hubbard, "projectors", "atomic") != "atomic":
+            reasons.append(f"{hubbard.projectors!r} projectors, measured with "
+                           f"'atomic' only (a Lowdin-orthogonalised manifold "
+                           f"decomposes over Q in the same way and is not measured)")
+        if reasons:
+            raise NotImplementedError(
+                "the ultracell runs DFT+U with one occupation matrix per atom "
+                "copy, on a norm-conserving collinear cell with atomic "
+                "projectors, and refuses " + "; ".join(reasons)
+            )
     if getattr(system, "spiral_q", None) is not None:
         raise NotImplementedError(
             "the ultracell refuses a spin spiral: it is a second modulation of "
@@ -1287,6 +1315,8 @@ def run_ultracell(
         # potential at the converged ``tau`` as well as the converged density.
         **({} if getattr(reference, "tau", None) is None else {
             "tau": jnp.asarray(reference.tau)}),
+        **({} if getattr(system, "hubbard", None) is None else {
+            "ns": jnp.asarray(reference.ns)}),
         david=david,
     )
     kept = _kept_bands(system, pseudos, nbnd)
@@ -1455,6 +1485,26 @@ def run_ultracell(
         )
 
     box_index = jnp.asarray(_box_indices(ultracell, calculation, nk0))
+
+    # **DFT+U: every frozen state's projection onto every atom copy**, built
+    # once, since both the states and the projectors are frozen
+    # (:mod:`defuqumat.ultracell.hubbard`). The reference's block potential is
+    # what every frozen eigenvalue carries and what the matrix subtracts.
+    hubbard_projections, hubbard_reference, ns_state = None, None, None
+    if calculation.is_hubbard:
+        kq_crystal = (np.asarray(k0.crystal(cell))[:, None, :]
+                      + np.asarray(ultracell.q_crystal)[None, :, :])
+        wfcU = jnp.asarray(calculation.wfcU)
+        hubbard_projections = copy_projections(
+            wfcU.reshape(nk0, cells, wfcU.shape[-2], wfcU.shape[-1]),
+            coefficients, kq_crystal, ultracell.q_triples,
+        )
+        reference_ns = jnp.asarray(reference.ns)
+        hubbard_reference = block_potential(
+            hubbard_potential(reference_ns, calculation.hubbard_coefficients),
+            calculation._hubbard_blocks,
+        )
+        ns_state = jnp.broadcast_to(reference_ns, (cells,) + reference_ns.shape)
     grid = ultracell.grid
 
     # **The augmented layer, and it is built once.** The ``N`` displaced tables
@@ -1740,6 +1790,13 @@ def run_ultracell(
                     deeq, calculation.fcoef_matrix, float(system.soc_scale),
                 )
 
+        hubbard_in = None
+        if hubbard_projections is not None:
+            hubbard_in = ultracell_hubbard_terms(
+                ns_state, calculation.hubbard_coefficients,
+                calculation._hubbard_blocks, hubbard_reference,
+            )
+
         levels = np.empty((blocks, nk0, cells * nbnd))
         vectors = [[] for _ in range(blocks)]
         for spin in range(blocks):
@@ -1756,6 +1813,12 @@ def run_ultracell(
                             becp[spin, ik], deeq[spin], augmentation.difference,
                         )
                     )
+                if hubbard_in is not None:
+                    term = copy_hubbard_matrix(
+                        hubbard_projections[spin, ik],
+                        hubbard_in.delta_blocks[spin],
+                    )
+                    extra = term if extra is None else extra + term
                 matrix = ultracell_matrix(
                     coefficients[spin, ik], jnp.asarray(eigenvalues[spin, ik]),
                     box_index[ik], channel, grid, batch=state_batch, npol=npol,
@@ -1849,6 +1912,21 @@ def run_ultracell(
         accuracy, charge_dr2, magnetic_dr2 = _accuracy(
             new - density, ultracell, cell, g2_inverse, keep
         )
+        ns_out, hubbard_energy_out, hubbard_deband = None, None, 0.0
+        if hubbard_in is not None:
+            ns_out = copy_occupations(
+                hubbard_projections, vectors, occupations,
+                calculation._hubbard_columns, calculation._hubbard_mask, nspin,
+            )
+            # ``ns_ddot`` per copy, an ultracell total as the density's ``dr2``.
+            accuracy += sum(
+                float(calculation.ns_accuracy(ns_out[c] - ns_state[c]))
+                for c in range(cells))
+            hubbard_energy_out = sum(
+                float(hubbard_energy(ns_out[c], calculation.hubbard_coefficients))
+                for c in range(cells)) / cells
+            overlap = float(jnp.real(jnp.sum(ns_out * hubbard_in.v_ns))) / cells
+            hubbard_deband = -(2.0 * overlap if nspin == 1 else overlap)
 
         # **The energy of the state this iteration produced**, which is not the
         # density the next one will start from. ``eband`` carries the potential
@@ -1883,6 +1961,7 @@ def run_ultracell(
             dispersion=dispersion, onecentre=onecentre, paw_deband=paw_deband,
             efield=(None if sawtooth is None
                     else float(potential_out.e_sawtooth) / cells),
+            hubbard=hubbard_energy_out, hubbard_deband=hubbard_deband,
         )
         energy = total_of(terms)
 
@@ -1921,6 +2000,18 @@ def run_ultracell(
                     vector[:size].reshape(head_in.shape), dtype=density.dtype
                 )
                 becsum_state = _unflatten_becsum(vector[size:], becsum_copies)
+            elif ns_state is not None:
+                vector = mixer.mix(
+                    np.concatenate([head_in.ravel(), np.asarray(ns_state).ravel()]),
+                    np.concatenate([head_out.ravel(), np.asarray(ns_out).ravel()]),
+                )
+                size = head_in.size
+                density = jnp.asarray(
+                    vector[:size].reshape(head_in.shape), dtype=density.dtype
+                )
+                ns_state = jnp.asarray(
+                    vector[size:].reshape(ns_out.shape), dtype=ns_out.dtype
+                )
             elif tau_state is not None:
                 vector = mixer.mix(
                     np.concatenate([head_in.ravel(), np.asarray(tau_state).ravel()]),
@@ -1943,6 +2034,8 @@ def run_ultracell(
                 becsum_state = becsum_copies
             if new_tau is not None:
                 tau_state = new_tau
+            if ns_out is not None:
+                ns_state = ns_out
 
         if converged:
             result = _result(

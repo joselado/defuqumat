@@ -61,11 +61,11 @@ ATOMIC_POSITIONS alat
 {atoms}
 K_POINTS automatic
  {k0} {k1} {k2} 0 0 0
-"""
+{cards}"""
 
 
 def _silicon(tmp_path, pseudo_dir, kgrid, shape=(1, 1, 1), ecut=MATCHED_ECUT,
-             pseudo="Si.pz-vbc.UPF", control="", system="", tag="si"):
+             pseudo="Si.pz-vbc.UPF", control="", system="", tag="si", cards=""):
     """The two-atom cell, or its ``shape`` supercell with every atom copied.
 
     The supercell's lattice is ``n_i a_i`` exactly, so its reciprocal lattice is
@@ -89,7 +89,7 @@ def _silicon(tmp_path, pseudo_dir, kgrid, shape=(1, 1, 1), ecut=MATCHED_ECUT,
         positions = np.concatenate([tau + s @ unit for s in shifts])
     atoms = "\n".join(" Si %.12f %.12f %.12f" % tuple(p) for p in positions)
     text = SILICON.format(
-        control=control, system=system, ecut=ecut, pseudo=pseudo,
+        control=control, system=system, ecut=ecut, pseudo=pseudo, cards=cards,
         nat=len(positions), cell=cell, atoms=atoms,
         k0=kgrid[0], k1=kgrid[1], k2=kgrid[2],
     )
@@ -344,6 +344,46 @@ def test_a_polarized_gga_ultracell_converges_to_the_supercell(tmp_path, pseudo_d
     assert charges == sorted(charges, reverse=True), charges
     assert moments == sorted(moments, reverse=True), moments
     assert charges[-1] < 5e-4 and moments[-1] < 5e-4, rows
+
+
+# -- I32: DFT+U ----------------------------------------------------------------
+
+
+HUBBARD = "HUBBARD {atomic}\nU Si-3p 2.0\n"
+
+
+@pytest.mark.slow
+def test_a_hubbard_ultracell_bounds_the_hubbard_supercell_from_above(
+        tmp_path, pseudo_dir):
+    """U on Si 3p, three cells: the tiled null, then the energy ladder.
+
+    Three cells rather than two, because the projection onto copy ``c`` carries
+    ``exp(i (k0+Q) . R_c)`` and at two cells ``R_1`` and ``-R_1`` are the same
+    copy, so a sign error in the phase would be invisible; at three it puts the
+    occupation of one copy on the other.
+    """
+    shape, kgrid = (3, 1, 1), (1, 2, 2)
+    folded = tuple(n * m for n, m in zip(shape, kgrid))
+    # 14 Ry puts the unit cell on (18, 18, 18) and the three-cell supercell on
+    # (54, 18, 18), the same box; ``MATCHED_ECUT`` gives (50, 18, 18) at three
+    # cells, where the energy's sign would not be a statement about the method.
+    calculator = _silicon(tmp_path, pseudo_dir, folded, ecut=14.0,
+                          cards=HUBBARD, tag="u")
+    assert calculator.system.hubbard is not None
+    scf = calculator.get_scf(conv_thr=1e-12, nbnd=12)
+    assert scf.converged and "hubbard" in scf.energy_terms
+    null, null_energy = _tiled_null(calculator, scf, shape, kgrid, nbnd=12)
+    assert abs(null_energy) < 1e-10
+    assert null.energy_terms["hubbard"] == pytest.approx(
+        scf.energy_terms["hubbard"], abs=1e-10)
+
+    supercell = _silicon(tmp_path, pseudo_dir, kgrid, shape=shape, ecut=14.0,
+                         cards=HUBBARD, tag="u-sup")
+    reference, _ = _supercell_reference(supercell, shape, nbnd=18)
+    gaps = _energy_ladder(calculator, scf, shape, kgrid, reference, (12, 24, 48))
+    assert gaps[48] < gaps[24] < gaps[12]
+    assert all(g > 0.0 for g in gaps.values()), gaps
+    assert gaps[48] < 1e-6, gaps
 
 
 # -- I33: a potential-only meta-GGA --------------------------------------------
