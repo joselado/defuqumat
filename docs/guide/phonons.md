@@ -72,7 +72,9 @@ its trace over three. The Born charges come from the same solve, so
 `eps.born_charges` has them, with the shape (atoms, 3, 3).
 `alas.get_born_charges()` returns only this array. In the cubic zincblende
 structure both tensors are diagonal with three equal elements, as we see, so
-AlAs has $\epsilon^\infty = 9.52$, and the charges $+2.10$ on Al and $-2.17$ on As.
+this calculation gives $\epsilon^\infty = 9.52$ for AlAs, and the charges $+2.10$
+on Al and $-2.17$ on As. The $4\times4\times4$ mesh and the cutoff of 25 Ry are
+small, so $\epsilon^\infty$ is not converged, and you check it on a denser k-mesh.
 These are far from the nominal charges $\pm 3$ of a fully ionic picture, which is
 what a covalent bond with some ionic character gives. A uniform displacement of
 the whole crystal carries no dipole, so the Born charges of the cell must add up
@@ -165,8 +167,11 @@ longitudinal acoustic and longitudinal optical modes meet at 405.32 cm$^{-1}$,
 which the diamond structure forces at this point, and the two transverse optical
 modes are at 455.12 cm$^{-1}$. At L all four branches are apart, with the
 transverse ones doubly degenerate: 101.79, 382.24, 405.10 and 488.03 cm$^{-1}$.
-`phonon.matrix` now has complex elements, because the phase
-$e^{i\mathbf q\cdot\mathbf R}$ makes $D(\mathbf q)$ complex. Each `q` is a full
+`phonon.matrix` is the force constant matrix at $\mathbf q$,
+$\sum_{\mathbf R} C(\mathbf R)\, e^{-i\mathbf q\cdot\mathbf R}$, in Ry/bohr$^2$
+and without the masses, with the shape (atom, direction, atom, direction). It has
+complex elements because of the phase $e^{-i\mathbf q\cdot\mathbf R}$, and the
+masses enter only when it is diagonalised. Each `q` is a full
 calculation of its own, which here is about 30 s on one core.
 
 ![The phonon branches of silicon along Gamma-X-K-Gamma-L.](img/phonons_silicon_q.png#only-light)
@@ -249,9 +254,10 @@ with.
 
 At $\mathbf q = (1/2, 0, 0)\,2\pi/a$, halfway to X, the two transverse modes are
 at 140.08 cm$^{-1}$ and the longitudinal one at 216.46 cm$^{-1}$. At the smallest
-broadening, 0.02 Ry, the transverse linewidth is almost zero, 0.0002 GHz, and
-this is not physics: on the $8\times8\times8$ mesh almost no pair of k-points has both states
-within 0.02 Ry of the Fermi level, so the two delta functions find nothing. From
+broadening, 0.02 Ry, the mesh finds only a few pairs of states at the Fermi
+level. These few pairs give the longitudinal mode 6.46 GHz, a fifth of its
+converged value, and the transverse modes almost nothing (0.0002 GHz). So 0.02 Ry
+is too small for the $8\times8\times8$ mesh, and this is not physics. From
 0.06 Ry the longitudinal linewidth stays near 30 GHz (31.81, 30.65 and 29.30 GHz)
 and its $\lambda$ near 0.28, while the transverse one still grows from 4.6 to
 7.3 GHz. A linewidth of 30 GHz is 1 cm$^{-1}$, so the longitudinal mode is
