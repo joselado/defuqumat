@@ -1,0 +1,21 @@
+! Silicon with the second atom moved by 0.02 alat along x, so that there is a force.
+! The same input was run with pw.x 7.5, and its output is
+! tests/data/qe/reference.out.si2-nc-force. Both runs use conv_thr = 1e-10.
+ &control
+    calculation = 'scf'
+    tprnfor = .true.
+ /
+ &system
+    ibrav=2, celldm(1)=10.20, nat=2, ntyp=1,
+    ecutwfc=12.0
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ Si  28.086  Si.pz-vbc.UPF
+ATOMIC_POSITIONS (alat)
+ Si 0.00 0.00 0.00
+ Si 0.27 0.25 0.25
+K_POINTS (automatic)
+ 4 4 4 0 0 0
