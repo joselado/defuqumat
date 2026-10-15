@@ -1,0 +1,22 @@
+! The same hydrogen lattice, noncollinear, with the moment along x.
+! The mesh is what a (4, 1, 1) long cell with kgrid (1, 2, 2) folds onto.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 1, celldm(1) = 5.5, nat = 1, ntyp = 1, ecutwfc = 15.0,
+    nosym = .true., noinv = .true.,
+    noncolin = .true., starting_magnetization(1) = 0.8,
+    angle1(1) = 90.0, angle2(1) = 0.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.02
+ /
+ &electrons
+    conv_thr = 1.0d-11
+    mixing_beta = 0.3
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS crystal
+ H 0.5 0.5 0.5
+K_POINTS automatic
+ 4 2 2 0 0 0
