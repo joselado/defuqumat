@@ -27,7 +27,7 @@ def draw():
     ir_alas = curve(d["alas_freq"], d["alas_ir"])
     ir_si = curve(d["si_freq"], d["si_ir"])
     top = ir_alas.max()
-    b.plot(w, ir_si / top, color=style.color(0), label="silicon")
+    b.plot(w, ir_si / top, color=style.color(0), label="silicon", zorder=3)
     b.plot(w, ir_alas / top, color=style.color(1), label="AlAs")
     to, lo = d["alas_freq"].max(), d["lo_freq"].max()
     b.axvline(lo, **style.reference())
