@@ -9138,7 +9138,7 @@ def run_scf(
                 )
                 following = supervisor.kept(state, proposal, merit, accuracy, ethr)
                 if supervisor.stalled():
-                    rung = supervisor.next_rung()
+                    rung = supervisor.on_stall()
                     if rung == "hamiltonian":
                         damping = HamiltonianDamping()
                         following = supervisor.restart_from_best()

@@ -165,3 +165,16 @@ def test_the_acceptance_is_measured_against_the_worst_of_the_last_kept_inputs():
     assert sup.judge(-10.0, 3e-4, 1e-9, 0) and sup.record["reason"] == "residual"
     # Above all three: cut back.
     assert not sup.judge(-10.0, 2e-3, 1e-9, 0)
+
+
+def test_a_stall_after_an_action_that_paid_repeats_the_restart():
+    sup = Supervisor(nelec=8.0, window=2, smeared=True, magnetic=True)
+    sup.judge(-10.0, 1e-3, 1e-9, 0)
+    sup.kept(_state(0.0), _state(1.0), -10.0, 1e-3, 1e-9)
+    assert sup.on_stall() == "restart"
+    # The restart bought a tenfold fall in the best residual: restart again.
+    sup.judge(-10.0, 1e-4, 1e-9, 0)
+    sup.kept(_state(0.0), _state(1.0), -10.0, 5e-5, 1e-9)
+    assert sup.on_stall() == "restart"
+    # Nothing since: the next rung.
+    assert sup.on_stall() == "ldos"

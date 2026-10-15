@@ -81,16 +81,16 @@ ROBUST_MODES = ("robust",)
 RUNGS = ("restart", "ldos", "magnetization", "short-history", "hamiltonian")
 
 #: The bound on the Anderson least-squares conditioning: :class:`AndersonMixer`'s
-#: own 1e12, and **not** Herbst and Levitt's 1e6. Measured on D22 (2026-10-16,
-#: ``tools/robust_mixing``): at 1e6 the supervisor's graphene monolayer at
-#: ``mixing_beta = 0.1``, which it never cut back, took 29 diagonalisations to
-#: plain Anderson's 17, the residual falling by 0.82 an iteration from 4e-9 on,
-#: because the trim drops the history the tail needs; the fit here is in
-#: ``rho_ddot`` over unit-norm residuals, which is not their Gram matrix.
+#: own 1e12, and not Herbst and Levitt's 1e6, so that a run the supervisor never
+#: cuts back is plain Anderson's to the bit. Their value was tried on D22
+#: (2026-10-16) and bought nothing on the test bed: two-atom silicon at
+#: ``mixing_beta = 0.1`` took 33 diagonalisations at 1e6 and at 1e9 and 54 at
+#: 1e12 under the first, monotone acceptance test, and 14 at 1e12 under the
+#: nonmonotone one, so the count followed the acceptance rule and not the bound.
 CONDITION_LIMIT = 1.0e12
-#: The bound after a stall. Herbst and Levitt's 1e2 unjammed Fe2CrGa, but the
-#: same measurement makes a tight bound cost the tail, so a restart here clears
-#: the history and keeps the bound.
+#: The bound after a stall. Herbst and Levitt's 1e2 unjammed Fe2CrGa; here a
+#: restart clears the history and keeps the bound, since no cell of the bed has
+#: measured the tighter one.
 CONDITION_LIMIT_RESTART = 1.0e12
 
 
@@ -168,6 +168,9 @@ class Supervisor:
     _window_merits: list = field(default_factory=list)
     _floored: int = 0
     _last: dict = field(default_factory=dict)
+    #: The best residual and the last merit when the ladder last acted.
+    _action_accuracy: float | None = None
+    _action_merit: float | None = None
 
     @property
     def scale_floor(self) -> float:
@@ -249,6 +252,32 @@ class Supervisor:
             return False
         noise = self.nelec * (self._ethr or 0.0)
         return self._merits[-1] > self._merits[-1 - self.window] - 2.0 * noise
+
+    def on_stall(self) -> str | None:
+        """What a stall does: the restart again if the last action paid, else the next rung.
+
+        A rung is not used up by one stall. If, since the ladder last acted, the
+        best residual fell tenfold or the merit fell by ten times its noise, the
+        last action worked and the run only needs its history cleared again;
+        only a stall that follows an action that bought nothing moves down the
+        ladder. Measured on the DFT+U nickel cell of ``ni-kind1-force.in`` at
+        ``mixing_beta = 0.4``, where each stall used to cost a rung: the whole
+        ladder was gone by iteration 85, and the run spent the rest of its 200
+        on the slow bottom rung while the restart rung had been working.
+        """
+        noise = self.nelec * (self._ethr or 0.0)
+        paid = (self._action_accuracy is not None and (
+            self._best_accuracy < 0.1 * self._action_accuracy
+            or (self._merit is not None
+                and self._merit < self._action_merit - 10.0 * noise)))
+        self._action_accuracy, self._action_merit = self._best_accuracy, self._merit
+        if paid:
+            self._accuracies.clear()
+            self._merits.clear()
+            self._floored = 0
+            self.scale, self.cuts = 1.0, 0
+            return "restart"
+        return self.next_rung()
 
     def next_rung(self) -> str | None:
         """The next rung that applies to this cell, taken; ``None`` past the last."""
