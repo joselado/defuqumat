@@ -3,7 +3,7 @@ paths:
   - "defuqumat/**"
   - "tests/**"
   - "notebooks/**"
-  - "docs/features.tex"
+  - "docs/guide/**"
 ---
 
 # Scope: what is implemented, and the rule that binds each piece
@@ -12,7 +12,7 @@ paths:
 
 **What is in scope and implemented**, one line each. The binding rule is stated; the
 validation numbers and the traps are in the named phase, and the user-facing refusals are
-in `docs/features.tex`'s amber boxes.
+in the "Limits" notes of the user guide, `docs/guide/*.md`.
 
 - **Ultrasoft and PAW** (P12): the two-grid split, the augmentation charge, the overlap
   operator, self-consistent `D_ij`, PAW's one-centre terms.

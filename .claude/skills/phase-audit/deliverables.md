@@ -29,25 +29,31 @@ which is what tells a reader whether this is a reimplementation or an extension.
   `io/pwin.py` and `system/builder.py` and check the function is exported. A row naming
   something nothing parses is worse than no row.
 
-**3. An entry in the user guide.** `docs/features.tex`, built with `xelatex docs/features.tex`
-(twice, for the table of contents); there is no markdown copy and none should be added,
-because two copies drift. An entry is four things and the last two get skipped:
+**3. A section in the user guide.** The user guide is the website built from
+`docs/guide/*.md` (Material for MkDocs, https://joselado.github.io/defuqumat/, with a PDF built
+by CI); `docs/features.tex` was retired on 2026-10-15 and lives in git history only, and
+nothing goes into it again. The plan and the page shape are `plans/user-guide-web.md`, the
+voice is the last section of `.claude/rules/user-docs-style.md`, and the figures are
+`docs/figures/<id>/` (`docs/figures/README.md`). A section is four things and the last two get
+skipped:
 
 - **what it computes**, as an equation where there is one — this is a physics document,
   not an API listing;
-- **the entry point**, checked by `grep` rather than remembered;
-- **a snippet that has been run.** Checking a name exists is not enough: an audit that only
-  checked `dir()` passed six broken snippets. Execute it;
-- **what it refuses**, in the amber box. The refusals are the promise that a run which
-  starts is a run whose physics is there, and that promise is only usable if its edges are
-  written down.
+- **the entry point**, the `Calculator.get_*` call, checked by `grep` rather than remembered;
+- **a snippet that has been run**, with its printed output pasted from that run (on D22, see
+  the user's memory and `docs/d22-notes.local.md`). Checking a name exists is not enough: an
+  audit that only checked `dir()` passed six broken snippets. Execute it. A figure, computed
+  by its `compute.py` and drawn by its `plot.py`, where one says something;
+- **what it refuses**, in the page's `!!! note "Limits"` admonition. The refusals are the
+  promise that a run which starts is a run whose physics is there, and that promise is only
+  usable if its edges are written down.
 
 **Do not re-document standard `pw.x` variables** — `ecutwfc`, `ibrav`, `nbnd` mean what
 they mean in QE and the guide says so once. Document this code's own knobs (`mbj_c`,
 `spiral_q`, `LOCAL_MAGNETIC_FIELDS`) and the ones that gate a feature. **The audit that
-catches drift is a set difference, not a read-through**: list the workflow, response, force
-and stress entry points the package exports and check each appears in the `.tex`. It found
-ten missing at once, including a whole implemented feature with no mention.
+catches drift is a set difference, not a read-through**: `tests/unit/test_facade_documentation.py`
+checks that every `Calculator.get_*` is named on some page, and `tools/check_guide.py` checks
+the rest (includes, images, nav). `mkdocs build --strict` must pass.
 
 **4. A notebook.** See the section below.
 

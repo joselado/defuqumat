@@ -18,12 +18,12 @@ wrong — not in software-engineering vocabulary (pytrees, tracing, cache invali
 that assumes the answer is about the code rather than the physics.
 
 **This is about talking, not about writing.** It binds replies, questions and summaries in
-the session. It does **not** loosen `PLAN.md`, `PERFORMANCE.md`, `docs/features.tex`,
+the session. It does **not** loosen `PLAN.md`, `PERFORMANCE.md`,
 docstrings or comments: the record stays exact, technical and numeric, because the whole
 rule of this project is that a claim is a number rather than an adjective.
 
 **User-facing text is written in simple English, by a physicist.** Since 2026-10-13 (the
-user's decision), `README.md`, the user guide `docs/features.tex`, the notebooks' prose and
+user's decision), `README.md`, the user guide `docs/guide/` (the website), the notebooks' prose and
 the other docs a user reads use short sentences, one fact each, common words and no idioms,
 while every formula, call, number and link stays exact. New text is written this way, and
 any user-facing text that is rewritten for any reason is moved to this style; the goal is
@@ -53,7 +53,7 @@ missing, are indexed at the head of `PLAN.md` §3.
 |---|---|
 | what a phase found, and what it was measured at | `PLAN.md` §3 (one section per phase) |
 | what is implemented, and whether QE or Elk has it | `README.md`'s feature table |
-| how a user runs a feature, and what it refuses | `docs/features.tex` |
+| how a user runs a feature, and what it refuses | the user guide, `docs/guide/*.md` (https://joselado.github.io/defuqumat/), each page's "Limits" note |
 | what something costs, in time and in memory | `PERFORMANCE.md` |
 | what is not here and what term is missing | `PLAN.md` §3, "What is outstanding" |
 | a survey of Elk's tasks against QE 7.5 | `notes/ELK-FEATURES.md` |
@@ -98,7 +98,7 @@ the architecture, the phase breakdown and the validation strategy before writing
 
 **What is in scope and implemented**, with the rule that binds each piece, is
 `.claude/rules/scope.md`; it loads whenever a file under `defuqumat/`, `tests/` or
-`notebooks/`, or `docs/features.tex`, is read, and
+`notebooks/`, or `docs/guide/`, is read, and
 `README.md`'s feature table is the short list.
 
 **Out of scope until the above works:** EXX, the Liouville-Lanczos route to a spectrum
@@ -135,8 +135,9 @@ when the calculator, a workflow or a response module is read.
 
 Five things, each checked rather than assumed, since each has gone stale silently at least
 once: **a number** against `pw.x`, Elk or an independent identity, in `PLAN.md` §3; **a row**
-in the README's feature table, with its `QE` and `Elk` ticks checked in their source; **an
-entry** in `docs/features.tex` with an executed snippet and its amber box; **a notebook**;
+in the README's feature table, with its `QE` and `Elk` ticks checked in their source; **a
+section** on a page of the user guide `docs/guide/`, with a snippet whose output was
+executed, a figure where one says something, and its refusals in the page's "Limits" note; **a notebook**;
 and **a timing** against the code it was taken from. The full rules are
 `.claude/skills/phase-audit/deliverables.md`, and the `phase-audit` skill runs the audit.
 

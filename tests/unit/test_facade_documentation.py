@@ -21,6 +21,10 @@ The fix is mechanical and so is the check: a set difference against
 ``dir(Calculator)``, run in the fast gate. It cannot say whether an entry is any
 *good* -- that is what the executed snippet and the amber box are for -- but it
 can say the name is there, and that is the half that drifts silently.
+
+Since 2026-10-15 the user guide is the website ``docs/guide/*.md`` (Material for
+MkDocs); ``docs/features.tex`` is retired and lives on in git history, so the
+guide checked here is the concatenated text of those pages.
 """
 
 import re
@@ -34,7 +38,12 @@ pytestmark = pytest.mark.unit
 
 ROOT = Path(__file__).resolve().parents[2]
 README = ROOT / "README.md"
-GUIDE = ROOT / "docs" / "features.tex"
+GUIDE = ROOT / "docs" / "guide"
+
+
+def _guide_text():
+    """Every page of the user guide, as one string."""
+    return "\n".join(p.read_text() for p in sorted(GUIDE.glob("*.md")))
 
 #: Methods with no row of their own in the README's feature table, each for a
 #: stated reason. **This set does not grow without one**: the table "names
@@ -66,29 +75,28 @@ def test_there_are_methods_to_check():
 
 
 def test_every_calculator_method_is_named_in_the_user_guide():
-    """``docs/features.tex``, which the "every method in one place" table covers.
-
-    LaTeX escapes the underscore, so ``get_dos`` is written ``get\\_dos``; both
-    spellings count, because the bare one appears inside ``pycode`` blocks.
-    """
-    text = GUIDE.read_text()
-    missing = [m for m in _methods()
-               if m not in text and m.replace("_", r"\_") not in text]
+    """``docs/guide/*.md``: each method appears on some page, in a snippet or a catalogue."""
+    text = _guide_text()
+    missing = [m for m in _methods() if m not in text]
     assert not missing, (
-        f"{len(missing)} Calculator methods are absent from docs/features.tex: "
-        f"{missing}. Add each to the 'Every method, in one place' table, and to "
-        "the section where its physics is described"
+        f"{len(missing)} Calculator methods are absent from docs/guide/*.md: "
+        f"{missing}. Add each to the page where its physics is described, as a "
+        "call in a snippet or a bullet of the page's catalogue"
     )
 
 
 def test_the_guide_names_no_method_that_does_not_exist():
-    """The other direction, which is the one that goes stale after a rename."""
-    text = GUIDE.read_text()
-    named = {m.replace(r"\_", "_")
-             for m in re.findall(r"\\code\{(get(?:\\_\w+)+)\}", text)}
+    """The other direction, which is the one that goes stale after a rename.
+
+    Only a call on a ``calc``-like object or a backticked ``get_*`` name counts,
+    so a word such as ``get_`` in prose does not.
+    """
+    text = _guide_text()
+    named = set(re.findall(r"\.(get_\w+)\(", text))
+    named |= set(re.findall(r"`(get_\w+)(?:\(\))?`", text))
     unknown = sorted(named - set(_methods()))
     assert not unknown, (
-        f"docs/features.tex names methods Calculator does not have: {unknown}"
+        f"docs/guide/*.md names methods Calculator does not have: {unknown}"
     )
 
 

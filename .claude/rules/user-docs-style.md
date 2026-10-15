@@ -20,7 +20,7 @@ Python. **Who writes it.** A physicist whose English is good but not native: pla
 words, short sentences, nothing idiomatic. The physics stays exact; only the
 language gets simpler.
 
-**What it covers.** `README.md`, `docs/features.tex` and anything else under `docs/`
+**What it covers.** `README.md`, the user guide `docs/guide/` and anything else under `docs/`
 meant for a user, the prose cells of the notebooks and `notebooks/README.md`,
 `performance/README.md`. It does **not** cover `PLAN.md`, `OPEN.md`, `notes/`,
 `PERFORMANCE.md`, code, comments or docstrings: those are the record, and they stay

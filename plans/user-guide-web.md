@@ -329,6 +329,10 @@ not the convergence.
     references, and edit the seven rule and skill files of section 3 in the same commit, so no
     session writes into the `.tex` again. Build the PDF once locally with pandoc to see that
     `build_guide_pdf.py` handles every page.
+    **Done 2026-10-15** (the user's "apply step 10"): every box was mapped to a page and
+    checked by a second agent, the stale refusals were left out after checking the code, the
+    references moved, `tests/unit/test_facade_documentation.py` now reads `docs/guide/`, and
+    step 9's `tools/check_guide.py` with `tests/unit/test_check_guide.py` is in the gate.
 
 Until step 10 the current rules still send a new phase's guide entry into `features.tex`. If
 a phase lands in between, its entry is written as a guide page instead, and a one-sentence

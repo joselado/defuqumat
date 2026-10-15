@@ -135,8 +135,8 @@ example a tunnelling image or a structure factor. Each group starts with the
 equation of its main quantity. Then it lists the other quantities, each with the
 call or the input variable that computes it, and with a notebook that shows it
 on a real crystal. Each quantity has some conditions: which pseudopotentials,
-which spin regimes, and what it refuses. These conditions are in the amber boxes
-of the user guide, [`docs/features.pdf`](docs/features.pdf). The file
+which spin regimes, and what it refuses. These conditions are in the "Limits" note
+of each page of the [user guide](https://joselado.github.io/defuqumat/). The file
 [`notebooks/README.md`](notebooks/README.md) lists the notebooks by the property
 you want to compute.
 
@@ -737,8 +737,8 @@ same quantity, we run the same input in both codes and compare the numbers:
 | the dielectric constant, and the Born effective charges | 1.2e-4; every digit `ph.x` prints |
 | phonons at $\Gamma$, silicon and a metal | 0.05 and 0.002 cm⁻¹ |
 
-The numbers for each feature are in the "Accuracy summary" of
-[`docs/features.pdf`](docs/features.pdf). This includes ultrasoft and PAW, the
+The numbers for each feature are on the [Accuracy](https://joselado.github.io/defuqumat/accuracy/)
+page of the user guide. This includes ultrasoft and PAW, the
 functionals, spin and spin-orbit coupling, DFT+U, relaxation, the Raman and
 infrared spectra, and the rest.
 
@@ -776,10 +776,11 @@ to an optimised BLAS ([`PERFORMANCE.md`](PERFORMANCE.md)).
 
 ## Where to read more
 
-- [`docs/features.pdf`](docs/features.pdf) is the user guide. For each feature it
-  gives the equation, a snippet that runs it, what we validated it against, and
-  what it refuses. The source is `docs/features.tex`. To build it, run
-  `xelatex docs/features.tex` two times, so the table of contents is complete.
+- The [user guide](https://joselado.github.io/defuqumat/) (also as a
+  [PDF](https://joselado.github.io/defuqumat/user_guide.pdf)) shows how to compute
+  each quantity. For each one it gives the equation, a snippet that runs it with
+  its output, a figure, and what it refuses. The source is `docs/guide/`, and
+  `mkdocs serve` shows it locally.
 - [`notebooks/README.md`](notebooks/README.md) lists the worked examples by the
   property you want to compute. Each notebook is run and saved with its output,
   so you can read it without running it. Start with `00_the_calculator` and

@@ -1,6 +1,6 @@
 ---
 name: phase-audit
-description: Check that a defuqumat phase actually left behind all five deliverables - a measured number, a README feature-table row, a docs/features.tex entry with an executed snippet and an amber box, a notebook, and a timing against the reference code. Runs the set-difference audit that catches documentation drift. Use when declaring a phase done, before a release, after a subagent reports a feature complete, and when unsure whether an implemented feature was ever written up. Triggers - "is this phase done", "audit the docs", "did we document X", "what is missing before I commit this".
+description: Check that a defuqumat phase actually left behind all five deliverables - a measured number, a README feature-table row, a section of the user guide (docs/guide/*.md) with an executed snippet and its Limits note, a notebook, and a timing against the reference code. Runs the set-difference audit that catches documentation drift. Use when declaring a phase done, before a release, after a subagent reports a feature complete, and when unsure whether an implemented feature was ever written up. Triggers - "is this phase done", "audit the docs", "did we document X", "what is missing before I commit this".
 ---
 
 # Phase audit
@@ -26,8 +26,9 @@ So build the two lists and subtract them. Do not skim.
 # what the package actually exposes
 grep -rn "^__all__" defuqumat/workflows/ defuqumat/response/ defuqumat/forces/ defuqumat/stress/ \
   defuqumat/topology/ defuqumat/transport/ defuqumat/stm/ | head -60
-# and what the guide mentions
-grep -c "" docs/features.tex
+# and what the guide mentions (the set difference for Calculator methods is a fast test)
+python3 -m pytest tests/unit/test_facade_documentation.py -q
+python3 tools/check_guide.py
 ```
 
 ## 1. A number
@@ -64,24 +65,27 @@ An adjective where a number should be is a finding. So is "agrees well".
   this to the `reference-source` agent rather than doing it inline; it is a large search
   with a one-line answer.
 
-## 3. An entry in `docs/features.tex`
+## 3. A section in the user guide
 
-There is no markdown copy and none should be added - two copies drift. An entry is four
-things, and **the last two are the ones that get skipped**:
+The user guide is `docs/guide/*.md`, the website (https://joselado.github.io/defuqumat/);
+`docs/features.tex` was retired on 2026-10-15 and nothing goes into it. The full rule is
+deliverable 3 of `deliverables.md`. A section is four things, and **the last two are the
+ones that get skipped**:
 
 - **What it computes**, as an equation where there is one. This is a physics document.
-- **The entry point**, checked by `grep` rather than remembered.
-- **A snippet that has been run.** Checking a name exists in `dir()` is not enough - an
-  audit that only did that passed six broken snippets. **Execute it.**
-- **The amber box.** What the feature refuses. The refusals are the promise that a run
-  which starts is a run whose physics is there, and that promise is only usable if its
-  edges are written down.
+- **The entry point**, the `Calculator.get_*` call, checked by `grep` rather than remembered.
+- **A snippet that has been run**, its printed output pasted from that run. Checking a name
+  exists in `dir()` is not enough - an audit that only did that passed six broken snippets.
+  **Execute it.** A figure in `docs/figures/<id>/` where one says something.
+- **The Limits note.** What the feature refuses, in the page's `!!! note "Limits"`. The
+  refusals are the promise that a run which starts is a run whose physics is there, and
+  that promise is only usable if its edges are written down.
 
 Do not re-document standard `pw.x` variables - `ecutwfc`, `ibrav`, `nbnd` mean what they
 mean in QE. Document this code's own knobs and the ones that gate a feature.
 
-Build it to confirm it still compiles: `xelatex docs/features.tex` twice, for the table
-of contents.
+Build it to confirm it still builds: `mkdocs build --strict` (only Material's MkDocs-2.0
+banner may print) and `python3 docs/build_guide_pdf.py <scratch>/guide.pdf`.
 
 ## 4. A notebook
 
@@ -134,5 +138,5 @@ explicitly. An absent timing with no explanation is indistinguishable from a for
 ## Report
 
 One line per deliverable: present, missing, or stale - with the evidence. Then the set
-difference in full: every exported entry point for this phase that `docs/features.tex`
+difference in full: every exported entry point for this phase that `docs/guide/*.md`
 does not mention. Then a short list of what to do, ordered by what a reader loses without it.
