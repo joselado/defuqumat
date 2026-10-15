@@ -7,11 +7,12 @@ strains = ["xx", "yy", "zz", "yz", "xz", "xy"]
 
 
 def table(ax, e, title, scale):
-    m = ax.imshow(e, cmap="RdBu_r", vmin=-scale, vmax=scale, aspect="auto")
+    m = ax.imshow(e, cmap="RdBu_r", vmin=-scale, vmax=scale, aspect="equal")
     for i in range(3):
         for j in range(6):
             dark = abs(e[i, j]) > 0.5 * scale
-            ax.text(j, i, f"{e[i, j] + 0.0:+.2f}", ha="center", va="center", fontsize=8,
+            text = "0" if abs(e[i, j]) < 5e-3 else f"{e[i, j]:.2f}"
+            ax.text(j, i, text, ha="center", va="center", fontsize=8,
                     color="white" if dark else "#0b0b0b")
     ax.set_xticks(range(6), strains)
     ax.set_yticks(range(3), ["x", "y", "z"])
@@ -24,13 +25,14 @@ def table(ax, e, title, scale):
 
 
 def draw():
-    fig, (a, b, c) = style.figure(3, gridspec_kw={"width_ratios": [1.0, 1.0, 1.1]})
+    fig, (a, b, c) = style.figure(3, gridspec_kw={"width_ratios": [1.0, 1.0, 1.1]},
+                                layout="constrained")
     scale = np.abs(d["alas"]).max()
     table(a, d["alas"], "AlAs, $4\\times4\\times4$", scale)
     a.set_ylabel("polarization along")
     m = table(b, d["silicon"], "Si, $4\\times4\\times4$", scale)
     b.set_yticks(range(3), [])
-    style.colorbar(fig, m, b, r"$e_{iJ}$ (C/m$^2$)")
+    style.colorbar(fig, m, [a, b], r"$e_{iJ}$ (C/m$^2$)")
 
     c.plot(d["meshes"], d["e14"], "o-", color=style.color(0))
     for n, nk, e in zip(d["meshes"], d["nk"], d["e14"]):
@@ -40,7 +42,6 @@ def draw():
     c.set_xlabel("k-mesh")
     c.set_ylabel(r"$e_{14}$ of AlAs (C/m$^2$)")
     c.margins(x=0.15, y=0.15)
-    fig.tight_layout()
     return fig
 
 
