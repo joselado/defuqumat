@@ -1019,7 +1019,9 @@ def estimate_size(
     # is not Anderson's keeps no such list and gets no line.
     from defuqumat.scf.mixing import AndersonMixer, get_mixer, resolve_mixing_space
 
-    mixer = get_mixer(mixing_mode or "anderson", history=mixing_ndim)
+    # The robust mode's history is its inner Anderson's.
+    inner = "anderson" if str(mixing_mode).lower() == "robust" else mixing_mode
+    mixer = get_mixer(inner or "anderson", history=mixing_ndim)
     if isinstance(mixer, AndersonMixer) and mixer.history:
         space = resolve_mixing_space(mixing_space, mixer)
         head = nspin_mag * (ngms if space == "g" else int(np.prod(dense_grid)))

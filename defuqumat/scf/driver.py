@@ -146,6 +146,8 @@ from defuqumat.scf.mixing import (
     resolve_mixing_space,
 )
 from defuqumat.scf.residual import make_residual
+from defuqumat.scf.robust import (CONDITION_LIMIT, CONDITION_LIMIT_RESTART,
+                                  ROBUST_MODES, Supervisor, vacuum_fraction)
 from defuqumat.scf.solvers import get_scf_solver
 from defuqumat.scf.occupations import (
     _nint,
@@ -7099,6 +7101,112 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
             + ". Run with DEFUQUMAT_POOLS unset (one pool) for these.")
 
 
+#: The vacuum fraction (:func:`~defuqumat.scf.robust.vacuum_fraction`) above
+#: which ``mixing_mode = 'robust'`` starts a smeared cell on the LDOS
+#: preconditioner. A monolayer it misfires on costs about one iteration
+#: (``PLAN.md`` P129: NbSe2 10 against 9), so no film is told from a monolayer.
+ROBUST_VACUUM = 0.3
+
+
+def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
+                   checkpoint_dir, mixing_from, mixing_beta_mag) -> None:
+    """Every regime ``mixing_mode = 'robust'`` does not take, by name, at setup.
+
+    Where the merit function does not exist or is not one functional over the
+    run: a potential-only meta-GGA has no energy, the Berry-phase field's energy
+    is on the states, tetrahedra give no smooth ``I``, and a feedback field, a
+    fading one or the orientation stepper change the functional between
+    iterations. The others are not implemented for it yet: k-point pools, a
+    checkpoint (the supervisor's state is not in one), a residual solver, and a
+    separate magnetization step, which the mode sets itself.
+    """
+    reasons = []
+    if calculation.functional.is_meta:
+        reasons.append("a potential-only meta-GGA has no energy functional, so there "
+                       "is no merit function to search on")
+    if calculation.berry_field is not None:
+        reasons.append("lelfield's energy is a Berry phase of the states")
+    if calculation.system.occupations.startswith("tetrahedra"):
+        reasons.append("the tetrahedron method gives no smooth energy in the input")
+    field = calculation.magnetic_field
+    if field is not None and (field.constraint in FEEDBACK or field.reducebf < 1.0):
+        reasons.append("a feedback or fading field changes the functional between "
+                       "iterations")
+    if rotate_moments:
+        reasons.append("rotate_moments turns the input between iterations")
+    if get_scf_solver(scf_solver) is not None:
+        reasons.append(f"scf_solver = {scf_solver!r} replaces the mixing loop")
+    if pooled:
+        reasons.append("k-point pools are not implemented for it")
+    if checkpoint_dir is not None or mixing_from is not None:
+        reasons.append("a checkpoint does not carry the supervisor's state yet")
+    if mixing_beta_mag is not None:
+        reasons.append("the mode sets the magnetization's step itself")
+    if reasons:
+        raise NotImplementedError(
+            "mixing_mode = 'robust' is refused here: " + "; ".join(reasons)
+            + ". Use 'anderson' or 'ldos'")
+
+
+def _robust_merit(calculation, total, terms, rho_out, becsum_out, ns_out,
+                  field_scale, field) -> float:
+    """``I = E_KS[P_out]``: the loop's total with every term at the output.
+
+    ``eband + deband`` is already ``Tr[(T + V_ext) P_out]`` and the smearing
+    term is this iteration's; what the mid-run total has at the *input* density
+    is the Hartree and exchange-correlation energy, the PAW one-centre energy,
+    the Hubbard energy and the saw-tooth's, and those are evaluated again here at
+    the output, as the converged branch of ``run_scf`` does once. A fixed field's
+    and a penalty constraint's energies are added, since the functional the
+    supervisor searches on is the one the field is part of.
+    """
+    potential = calculation.potential(rho_out, field_scale, field)
+    merit = total - terms["hartree"] - terms["xc"]
+    pieces = [potential.ehart, potential.etxc]
+    if calculation.is_paw:
+        epaw, _ = calculation.onecenter(becsum_out, None)
+        pieces.append(epaw)
+    if calculation.sawtooth is not None:
+        pieces.append(potential.e_sawtooth)
+    if field is not None:
+        pieces += [potential.e_field, potential.e_constraint]
+    values = [float(x) for x in jax.device_get(pieces)]
+    merit += values[0] + values[1]
+    position = 2
+    if calculation.is_paw:
+        merit += values[position] - terms["one_center_paw"]
+        position += 1
+    if calculation.sawtooth is not None:
+        merit += values[position] - terms["efield"]
+        position += 1
+    if field is not None:
+        merit += values[position] + values[position + 1]
+    if calculation.is_hubbard:
+        merit += (float(hubbard_energy(ns_out, calculation.hubbard_coefficients))
+                  - terms["hubbard"])
+    return merit
+
+
+def _take_rung(rung, mixer, calculation, layout, rho) -> None:
+    """Change the inner mixer for one rung of the robust mode's ladder."""
+    if rung == "restart":
+        mixer.condition_limit = CONDITION_LIMIT_RESTART
+    elif rung == "ldos":
+        mixer.precondition = (
+            ldos_preconditioner_g(layout, calculation.basis.dense,
+                                  calculation.system.cell, beta=mixer.beta)
+            if layout is not None else
+            ldos_preconditioner(calculation.basis.dense, calculation.system.cell,
+                                tuple(np.shape(rho)), beta=mixer.beta))
+    elif rung == "magnetization":
+        mixer.beta_mag = 0.25 * mixer.beta
+        mixer.shape = (layout.stored_shape if layout is not None
+                       else tuple(np.shape(rho)))
+    elif rung == "short-history":
+        mixer.history = 4
+    mixer.reset()
+
+
 def run_scf(
     system: System,
     pseudos: tuple[Pseudopotential, ...],
@@ -7550,7 +7658,33 @@ def run_scf(
 
     started_at = time.time()
     budget_warned = False
+    robust = str(mixing_mode).lower() in ROBUST_MODES
+    if robust:
+        # ``plans/robust-mixing.md``: the inner mixer is Anderson, with the LDOS
+        # preconditioner when the cell is smeared and has vacuum, and the
+        # supervisor below decides what is kept. Everything after this line sees
+        # the inner mode, so the preconditioner and the fit are installed exactly
+        # as they would be for it.
+        _refuse_robust(calculation, scf_solver=scf_solver, pooled=pooled,
+                       rotate_moments=rotate_moments, checkpoint_dir=checkpoint_dir,
+                       mixing_from=mixing_from, mixing_beta_mag=mixing_beta_mag)
+        smeared = calculation.system.occupations == "smearing"
+        vacuum = vacuum_fraction(np.asarray(calculation.system.structure.positions),
+                                 np.asarray(calculation.system.cell.at))
+        mixing_mode = "ldos" if smeared and vacuum > ROBUST_VACUUM else "anderson"
+        if verbose:
+            print(f"  mixing_mode = 'robust': vacuum fraction {vacuum:.2f}, "
+                  f"inner mixer {mixing_mode!r}")
     mixer = get_mixer(mixing_mode, beta=mixing_beta, history=mixing_ndim)
+    supervisor = None
+    if robust:
+        mixer.condition_limit = CONDITION_LIMIT
+        supervisor = Supervisor(
+            nelec=float(calculation.nelec),
+            magnetic=calculation.nspin_mag > 1,
+            smeared=calculation.system.occupations == "smearing",
+            ldos=mixing_mode == "ldos",
+        )
     # Turned off for the rest of the run the first time a write is refused, so a
     # ``reducebf`` run says so once rather than once per cadence.
     checkpointing = checkpoint_dir is not None
@@ -8913,6 +9047,44 @@ def run_scf(
                 ns_state = ns_out
             if tau_state is not None:
                 tau_state = tau_out
+        elif supervisor is not None and iteration > mixing_fixed_ns:
+            # ``mixing_mode = 'robust'`` (``scf/robust.py``): keep this input or
+            # cut the step back, on the merit and the residual. The inner mixer
+            # is called only on a kept input, so its history never holds a
+            # rejected one.
+            merit = _robust_merit(calculation, total, terms, rho_out, becsum_out,
+                                  ns_out if calculation.is_hubbard else None,
+                                  field_scale, field)
+            state = (rho, tuple(becsum_state),
+                     ns_state if calculation.is_hubbard else None, None)
+            if supervisor.judge(merit, accuracy, ethr, davidson_unconverged):
+                proposal = _mix(
+                    mixer, rho, rho_out, becsum_state, becsum_out,
+                    ns_state if calculation.is_hubbard else None,
+                    ns_out if calculation.is_hubbard else None,
+                )
+                following = supervisor.kept(state, proposal, merit, accuracy, ethr)
+                if supervisor.stalled():
+                    rung = supervisor.next_rung()
+                    if rung is not None:
+                        _take_rung(rung, mixer, calculation, layout, rho)
+                        following = supervisor.restart_from_best()
+                        if verbose:
+                            print(f"  iteration {iteration:3d}   robust: stalled, "
+                                  f"rung {rung!r} from the best input "
+                                  f"(accuracy {supervisor._best_accuracy:.2e})")
+            else:
+                following = supervisor.retry()
+            history[-1]["merit"] = merit
+            history[-1]["supervisor"] = supervisor.record
+            if verbose:
+                record = history[-1]["supervisor"]
+                print(f"     robust: {'kept' if record['kept'] else 'rejected'} "
+                      f"({record['reason']}), I = {merit:.8f} Ry, next step "
+                      f"x{record.get('next_scale', 1.0):.3f}")
+            rho, becsum_state, mixed_ns, _ = following
+            if calculation.is_hubbard:
+                ns_state = mixed_ns
         else:
             rho, becsum_state, ns_state, mixed_tau = _mix(
                 mixer, rho, rho_out, becsum_state, becsum_out,

@@ -10,6 +10,8 @@ python3 make_inputs.py <out_dir>
   rattled aluminium (arXiv:2109.14018, Table I), run without Kerker.
 * ``fe-unstable-k4``: ``benchmarks/fe-unstable.in`` on a 4x4x4 mesh, where
   ``PLAN.md`` P129 records the run landing on M = 0.
+* ``h4-pbe``: ``tests/data/qe/h4-noncolin-force.in`` under PBE, recorded as a limit
+  cycle at 5e-6 (``notes/MAGNETISM-NEXT.md``).
 """
 import sys
 from pathlib import Path
@@ -61,3 +63,8 @@ write("al8-rattled", [
 text = (ROOT / "benchmarks/fe-unstable.in").read_text()
 assert " 2 2 2 0 0 0" in text
 write("fe-unstable-k4", [text.replace(" 2 2 2 0 0 0", " 4 4 4 0 0 0").rstrip("\n")])
+
+text = (ROOT / "tests/data/qe/h4-noncolin-force.in").read_text()
+import re
+head, sep, tail = re.split(r"(&system)", text, maxsplit=1, flags=re.IGNORECASE)
+write("h4-pbe", [(head + sep + "\n    input_dft = 'pbe'," + tail).rstrip("\n")])

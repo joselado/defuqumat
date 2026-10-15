@@ -1083,6 +1083,12 @@ def run_ultracell(
     # otherwise reach the guard inside ``AdaptiveMixer.mix`` after a ground
     # state and a supercell had already been paid for. ``accepts_precondition``
     # is a class attribute, so this asks the registry rather than an instance.
+    if str(mixing_mode).lower() == "robust":
+        raise NotImplementedError(
+            "mixing_mode = 'robust' is not implemented for the ultracell: its "
+            "supervisor lives in run_scf's loop (scf/robust.py), and this driver "
+            "has its own. Use 'anderson' with kerker=True"
+        )
     if str(mixing_mode).lower() in LDOS_DEPENDENT:
         raise ValueError(
             "mixing_mode = 'ldos' is not implemented for the ultracell: its mixer is "
