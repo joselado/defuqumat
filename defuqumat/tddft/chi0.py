@@ -116,9 +116,21 @@ chunk follows, so the states are never on the device for the whole k axis. The
 chunk is the calculation's ``k_batch`` and moves the matrix at round-off, through
 the order of the k sum.
 
-Refused by name: finite ``q``, ultrasoft and PAW, metals, ``nspin != 1``,
-noncollinear magnetism and spin-orbit coupling, and a **reduced k-set** -- see
-:func:`require_a_sum_over_states_regime`.
+**A spinor is a doubled space, not a new formula.** With ``noncolin`` the
+states are ``(up, down)`` on one sphere, both components are transformed with
+the same ``fft_index``, and the pair density is the spin trace
+``sum_s conj(u_i,s) u_j,s``. That is the charge-charge block of ``chi_0``, and
+when the ground state carries no moment (``nspin_mag = 1``) it is all the
+Coulomb and the unpolarized kernels see, with or without spin-orbit coupling,
+whose whole effect is in the states and in ``dH/dk``. Each band then holds one
+electron, so ``nocc`` is ``nelec`` and ``npairs`` is four times the scalar
+run's on the same cell; ``fields`` is ``nbnd npol`` boxes. Checked in
+``tests/regression/test_spinor_chi0.py``: silicon as a spinor against the scalar
+run, and spin-orbit selenium against the spinor Sternheimer solve.
+
+Refused by name: finite ``q``, ultrasoft and PAW, metals, ``nspin = 2``, a
+spinor carrying a moment (``nspin_mag = 4``), a spin spiral, and a **reduced
+k-set** -- see :func:`require_a_sum_over_states_regime`.
 """
 
 from __future__ import annotations
@@ -136,8 +148,9 @@ from defuqumat.response.velocity import VelocityOperator
 from defuqumat.response.walk import (
     chunk_size, padded, row_leaves, store_rows, walk, with_rows,
 )
-from defuqumat.units import E2, FPI
+from defuqumat.scf.occupations import occupied_counts
 from defuqumat.system.kpoints import is_reduced
+from defuqumat.units import E2, FPI
 
 __all__ = [
     "ResponseSphere",
@@ -304,9 +317,17 @@ def require_a_sum_over_states_regime(calculation) -> None:
         the ``f_i - f_j`` weight kills the ``i = j`` term, so the intraband
         (Drude) response is missing entirely at ``q = 0``. Elk's ``tddftlr``
         does not add it either.
-    ``nspin != 1``, noncollinear, spin-orbit
+    ``nspin = 2``, and a spinor with a moment (``nspin_mag = 4``)
         the kernel acquires spin components (Elk's ``nscfxc``, and a separate
-        routine ``tddftsplr.f90``).
+        routine ``tddftsplr.f90``): the charge couples to the magnetization
+        response through ``f_xc``. A **nonmagnetic** spinor, with or without
+        spin-orbit coupling, is not refused: its charge-only pair density is
+        the spin trace, and that is the whole response. Until 2026-10-16 every
+        spinor was refused, by the collinear branch, since a noncollinear
+        :class:`~defuqumat.scf.driver.Calculation` reads ``nspin = 4``.
+    a spin spiral
+        the two components live on spheres at ``k +- q/2``, so a pair density
+        is not one gather. Checked first, since a spiral carries a moment too.
     gamma-only storage
         the pair densities go through the **full-sphere** ``g_to_r``, and the
         stored half sphere is not the whole one. See
@@ -335,24 +356,32 @@ def require_a_sum_over_states_regime(calculation) -> None:
             "is wrong by the whole augmentation and still looks like a "
             "dielectric function. Use a norm-conserving dataset"
         )
-    if calculation.nspin != 1:
-        raise NotImplementedError(
-            f"chi_0 here is restricted to nspin = 1 and this run has "
-            f"nspin = {calculation.nspin}: with spin the kernel becomes a "
-            "tensor in the spin components (Elk reaches it through a separate "
-            "routine, tddftsplr.f90)"
-        )
-    if system.noncolin:
-        raise NotImplementedError(
-            "a noncollinear or spin-orbit chi_0 is not implemented here: the "
-            "states are two-component spinors and the matrix element carries "
-            "the spin trace"
-        )
     if calculation.spiral:
+        # Checked before the spin regime, which a spiral also fails (it always
+        # carries a moment, so ``nspin_mag = 4``): the spiral is the one regime
+        # whose missing term is a different one, and it should say so.
         raise NotImplementedError(
             "chi_0 on a spin spiral is not implemented: the two spinor "
             "components live on spheres centred at k +- q/2, so a plane-wave "
             "matrix element is not a single gather"
+        )
+    if calculation.nspin == 2:
+        raise NotImplementedError(
+            "chi_0 here is restricted to an unpolarized density and this run "
+            "has nspin = 2: with spin the kernel becomes a tensor in the spin "
+            "components (Elk reaches it through a separate routine, "
+            "tddftsplr.f90)"
+        )
+    if system.noncolin and calculation.nspin_mag != 1:
+        raise NotImplementedError(
+            "a sum-over-states chi_0 of a textured spinor (nspin_mag = 4, a "
+            "run carrying a magnetization) is not implemented: the "
+            "charge-charge chi_0 is only the first of four spin-trace blocks, "
+            "and once the ground state carries a moment the exchange-"
+            "correlation kernel couples the charge to the magnetization "
+            "response, which nothing here builds. The Sternheimer referee "
+            "refuses the same regime (P83). A nonmagnetic spinor, with or "
+            "without spin-orbit coupling, is supported"
         )
     if getattr(calculation, "is_hubbard", False):
         raise NotImplementedError(
@@ -607,9 +636,17 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
     which are the same states read the other way round.
     """
     if sphere.nbody:
-        # The states in real space, once. Padding must be zeroed before the
-        # scatter, since padding entries share the index of G = 0.
-        fields = g_to_r(psi * band_mask[None, :], fft_index, grid)
+        # The states in real space, once, one field per spinor component:
+        # ``(nbnd, npol, n1, n2, n3)``. A spinor is ``(up, down)`` on the one
+        # sphere at ``k``, each ``npwx`` long, so both components go through
+        # the same ``fft_index`` -- which is exactly what a spiral, whose two
+        # components sit on spheres at ``k +- q/2``, does not allow. Padding
+        # must be zeroed before the scatter, since padding entries share the
+        # index of G = 0.
+        npwx = band_mask.shape[-1]
+        npol = psi.shape[-1] // npwx
+        components = psi.reshape(psi.shape[:-1] + (npol, npwx))
+        fields = g_to_r(components * band_mask, fft_index, grid)
 
         def one_pair(index):
             # ``<u_i| e^{-iG.r} |u_j>``, from one transform. The product is
@@ -617,8 +654,12 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
             # wavefunctions has, and it is **the** allocation of this phase:
             # one whole complex box per pair, against ``nm`` numbers kept.
             # Forming every pair's at once is what ``pair_batch`` bounds.
+            # For a spinor the pair density is the **spin trace**
+            # ``sum_s conj(u_i,s) u_j,s``, the charge-charge block, which is
+            # the whole of what the Coulomb and the unpolarized kernels see
+            # when the ground state carries no moment (``nspin_mag = 1``).
             i, j = index
-            product = jnp.conj(fields[i]) * fields[j]
+            product = jnp.sum(jnp.conj(fields[i]) * fields[j], axis=0)
             return r_to_g(product, sphere.fft_index) * sphere.sqrt_coulomb
 
         body = map_axis(one_pair, (jnp.asarray(rows), jnp.asarray(columns)),
@@ -672,7 +713,9 @@ def _occupied_bands(calculation, eigenvalues, nbnd: int) -> int:
     but the refusal reads the input's ``occupations``, and a fixed-occupation
     input can still be handed a state that crosses. This catches that.
     """
-    nocc = int(round(calculation.nelec / 2))
+    # ``nelec`` for a spinor, whose band holds one electron, and ``nelec / 2``
+    # otherwise; ``occupied_counts`` is the one place that rule lives.
+    nocc = occupied_counts(calculation)[0]
     if nocc < 1 or nocc >= nbnd:
         raise ValueError(
             f"a sum-over-states chi_0 needs empty states: this run has "
