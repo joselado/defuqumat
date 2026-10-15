@@ -354,6 +354,52 @@ def test_the_spin_angle_operators_are_l_and_s_in_another_basis(l):
         np.diag((jj * (jj + 1) - l * (l + 1) - 0.75) / 2), atol=1e-12)
 
 
+def test_a_relativistic_augmented_dataset_without_lspinorb_is_still_refused():
+    """The guard that stays: the scalar ``S`` is never applied to a ``qq_so`` metric.
+
+    Fires without ``lspinorb``, and is silent on the spin-angle route, or it is
+    not a guard.
+    """
+    import types
+
+    from defuqumat.projwfc.angular_momentum import _refuse_what_is_not_written
+
+    def stub(noncolin, lspinorb):
+        return types.SimpleNamespace(
+            gamma_only=False, spiral=None, noncolin=noncolin,
+            pseudos=[types.SimpleNamespace(has_so=True)],
+            projectors=types.SimpleNamespace(qq=object()),
+            system=types.SimpleNamespace(lspinorb=lspinorb))
+
+    with pytest.raises(NotImplementedError, match="qq_so"):
+        _refuse_what_is_not_written(stub(True, False))
+    _refuse_what_is_not_written(stub(True, True))
+
+
+def test_the_two_j_of_a_shell_are_paired_without_a_label():
+    """A file with no ``els`` gets counter labels, ``3D`` and ``4D`` for one pair.
+
+    The pairing is on adjacency, ``l`` and the other ``j``, so the dojo order
+    ``s1/2, p3/2, p1/2, d5/2, d3/2, s1/2`` gives four shells, the two ``s``
+    apart.
+    """
+    from defuqumat.projwfc.angular_momentum import _spin_angle_shells
+    from defuqumat.projwfc.channels import AtomicChannel
+
+    channels, wfc = [], 0
+    for l, j, label in ((0, 0.5, "1S"), (1, 1.5, "2P"), (1, 0.5, "3P"),
+                        (2, 2.5, "3D"), (2, 1.5, "4D"), (0, 0.5, "2S")):
+        wfc += 1
+        for m in range(int(2 * j + 1)):
+            channels.append(AtomicChannel(
+                index=len(channels), atom=0, species="Ni", wfc=wfc, l=l, m=m,
+                label=label, j=j, mj=m - j))
+    shells = _spin_angle_shells(tuple(channels))
+    assert [(l, js) for _, l, js in shells] == [
+        (0, (0.5,)), (1, (1.5, 0.5)), (2, (2.5, 1.5)), (0, (0.5,))]
+    assert [len(indices) for indices, _, _ in shells] == [2, 6, 10, 2]
+
+
 _COBALT = """
 &control
   calculation = 'scf'
@@ -447,6 +493,9 @@ def test_a_relativistic_ultrasoft_magnet_has_a_site_orbital_moment(
         assert cosine > 1.0 - 1.0e-9, cosine
 
     assert quenched.spin[0][2] > 0.8
+    # The lower bound is the approximation being present; it fails on correct
+    # code the day the radial overlap of the two j is carried exactly, and then
+    # it goes, with the A/B below kept.
     assert 5.0e-4 < np.linalg.norm(quenched.orbital[0]) < 2.0e-3
 
     def one_radial(calculation, kind):

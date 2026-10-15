@@ -77,7 +77,7 @@ as ``sum_{s m} M[c, s, m] |Y_m> |s>``,
 
     L_i^{jmj} = M^* (L_i x 1) M^T,     S_i^{jmj} = M^* (1 x sigma_i / 2) M^T,
 
-over the two ``j`` shells of one ``(atom, l, label)`` together, and
+over the two ``j`` shells of one ``(atom, l)`` pair together, and
 ``<O> = Tr(O^{jmj} rho)``. The site charge is then ``Tr rho``, which is
 ``projwfc.x``'s Löwdin charge column for column. **One approximation is made,
 and it is the cross-``j`` block**: ``L`` and ``S`` separately connect
@@ -92,7 +92,10 @@ projected density of states or a Hubbard ``U`` already holds, and in memory mode
 they are built a block of k-points at a time on the block's own rows, as the
 projected density of states builds them (:func:`_projection_blocks`); the
 coefficients ``<phi|S|psi>`` are ``(nk, nbnd, natomwfc)`` on the host and the
-site matrices ``(natom, nshell, 2l+1, 2, 2l+1, 2)``, which is nothing.
+site matrices ``(natom, nshell, 2l+1, 2, 2l+1, 2)``, which is nothing. On the
+spin-angle route the set is ``(nk, 2 npwx, natomwfc)`` with the spinor
+``natomwfc = sum (2j+1)``, which is what the ``j``-resolved projected density
+of states holds, and the site matrix ``(natomwfc, natomwfc)``.
 """
 
 from __future__ import annotations
@@ -718,8 +721,13 @@ def _spin_angle_shells(channels):
     """Group the ``|l j m_j>`` columns into ``(indices, l, js)`` per ``(atom, l, shell)``.
 
     The two ``j`` of one shell are two ``PP_CHI`` entries, so two ``wfc``
-    numbers, and what ties them is the file's ``els`` label (``5D`` twice on
-    platinum). A ``j`` that repeats starts a new shell.
+    numbers, and a file lists them next to each other. They are paired on
+    that: **adjacent, same atom, same ``l``, the other ``j``**. Not on the
+    ``els`` label, because a file without one (the dojo convention, no ``els``
+    in ``PP_RELWFC``) gets per-``l`` counter labels from ``fill_nlmchi``'s
+    rule, ``3D`` and ``4D`` for one 3d pair, and pairing on those would
+    decompose each ``j`` alone and drop the cross-``j`` block silently. A
+    ``j`` that repeats starts a new shell.
     """
     groups: list[list] = []
     last_key = None
@@ -731,13 +739,14 @@ def _spin_angle_shells(channels):
         last_key = shell_key
         open_group = groups[-1] if groups else None
         if (open_group is not None
-                and open_group[3] == (channel.atom, channel.l, channel.label)
+                and open_group[3] == (channel.atom, channel.l)
+                and len(open_group[2]) == 1
                 and channel.j not in open_group[2]):
             open_group[0].append(channel.index)
             open_group[2].append(channel.j)
             continue
         groups.append([[channel.index], channel.l, [channel.j],
-                       (channel.atom, channel.l, channel.label)])
+                       (channel.atom, channel.l)])
     return [(indices, l, tuple(js)) for indices, l, js, _ in groups]
 
 
