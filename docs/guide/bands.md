@@ -119,17 +119,6 @@ print(v.velocities.shape)   # (k-points, bands, 3), in Ry bohr
 The unit is Ry bohr, with $\hbar = 1$. If you do not pass `kpoints`, the
 velocities are on the k-points of the SCF.
 
-!!! note "Limits"
-    `bands.gap(nelec)` gives an error for a spin-polarized run (`nspin = 2`),
-    because a gap at fixed filling is not defined for each channel. In this case
-    you take it from `bands.eigenvalues_by_spin` with the occupation of each
-    channel.
-
-    Inside a degenerate multiplet a single band has no well-defined velocity.
-    There, each row of `v.velocities` holds, for each direction, the slopes of
-    the bands that the multiplet splits into, in ascending order, and
-    `v.degenerate_by_spin` marks these rows.
-
 ## Effective masses
 
 Let us now go one derivative further, to the curvature of a band. Near a band
@@ -199,6 +188,32 @@ removed, 0.034 in units of $1/m_e$ for this band.
     ```python title="plot.py"
     --8<-- "bands_masses/plot.py"
     ```
+
+!!! note "Limits"
+    `bands.gap(nelec)` gives an error for a spin-polarized run (`nspin = 2`),
+    because a gap at fixed filling is not defined for each channel. In this case
+    you take it from `bands.eigenvalues_by_spin` with the occupation of each
+    channel.
+
+    Inside a degenerate multiplet a single band has no well-defined velocity.
+    There, each row of `v.velocities` holds, for each direction, the slopes of
+    the bands that the multiplet splits into, in ascending order, and
+    `v.degenerate_by_spin` marks these rows.
+
+    `get_effective_mass()` gives an error on a spin spiral, because the two
+    spinor components sit on plane-wave spheres centred at
+    $\mathbf k + \mathbf q/2$ and $\mathbf k - \mathbf q/2$, and a k-stencil
+    moves both of them. Two eigenvalues closer than
+    `degeneracy_tol = 1e-5` Ry at the k-point form a degenerate multiplet.
+    Inside it a single band has no mass tensor, because the eigensolver can
+    rotate the bands inside the multiplet. These bands are `nan` in `mass.inverse_mass`,
+    `mass.principal(n)` gives an error for them, and `mass.multiplets` holds the
+    summed inverse mass of the multiplet, which is invariant.
+
+    The step `delta`, 0.025 1/bohr by default, is the outermost point of the
+    stencil with both `method="velocity"` and `method="eigenvalue"`. The code does not tune it,
+    and it reports the error that the two step sizes removed in
+    `mass.truncation`.
 
 The notebooks for this page are
 [02, silicon](https://github.com/joselado/defuqumat/blob/master/notebooks/02_silicon_scf_and_bands.ipynb)

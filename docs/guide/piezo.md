@@ -296,7 +296,12 @@ The two runs together took 123 s on one core.
     spontaneous polarization. A PAW dataset gives an error, while
     norm-conserving and ultrasoft datasets work on any k-mesh. The tensor
     needs an insulator with `nspin = 1`, and it gives an error for a metal, a
-    spin spiral, a magnetic field, and a shifted k-mesh with `nosym`.
+    spin spiral, a magnetic field, and a shifted k-mesh with `nosym`. If the
+    field response under the tensor does not converge, the code gives an error
+    instead of using it. The code warns that the k-mesh may be
+    too coarse, because nothing inside one calculation can see it, and
+    `kmesh_warning=False` silences the warning once you have converged the
+    mesh with the ladder.
 
     The electrostriction and elasto-optic tensors are clamped-ion too, and they
     need an insulator with `nspin = 1`. In the diamond structure a tetragonal
@@ -306,8 +311,10 @@ The two runs together took 123 s on one core.
     and PAW datasets, but the elastic constants are norm-conserving only, so
     for an ultrasoft or PAW dataset you pass `elastic=False`, and then `M` and
     `Q` are `None`, because they need the elastic compliance. The elastic
-    constants also need the full k-mesh (`nosym`), and the elasto-optic tensor
-    alone works on the symmetry-reduced mesh. If one of the two linear
+    constants also need the full k-mesh (`nosym`), so on a symmetry-reduced
+    mesh you pass `elastic=False` as well. The elasto-optic tensor and the
+    electrostriction tensors `m` and `q` work on the symmetry-reduced mesh,
+    and only `M` and `Q` are left out there. If one of the two linear
     responses under the calculation does not converge, the code gives an error
     instead of using it.
 
@@ -315,9 +322,13 @@ The two runs together took 123 s on one core.
     converge. On the AlAs cell of this page, only the column along the
     starting magnetization converges, because a field with a transverse
     component has to rotate the moment, and this is slow, so you start the
-    magnetization along the column you want. A run with no magnetization vector
-    (no `starting_magnetization` with `noncolin`) gives an error, because the
-    field then acts on nothing and every polarization is the same. A field step
+    magnetization along the column you want. The tensor needs a noncollinear
+    run that carries a magnetization vector (`nspin_mag = 4`). Any other run
+    gives an error, because the field then acts on nothing and every
+    polarization is the same. This includes every collinear run, with
+    `nspin = 1` or `nspin = 2`, and a noncollinear run with no
+    `starting_magnetization` and no applied field. In the last case you set
+    one of the two. A field step
     that moves the Berry phase by more than a quarter of its quantum gives an
     error, and so does everything the Berry-phase polarization refuses. The
     field acts only on the spin, so the orbital part of the coupling is not

@@ -47,6 +47,10 @@ force on a crystal is zero, because a rigid translation does not change the
 energy. The force on the second atom points along $-x$, back towards its site.
 The forces are in Ry/bohr, as in `pw.x`.
 
+A noncollinear or spin-orbit run has forces too, with the same call. The energy is
+then written for two-component spinors, so the nonlocal term takes a $2\times2$
+matrix in spin space and nothing else in the derivative changes.
+
 ## Relaxing the structure
 
 We now let the atoms move. `get_relax()` moves them downhill with the BFGS method
@@ -174,14 +178,31 @@ some binding in it.
 !!! note "Limits"
     `get_forces(method="analytic")` computes the force from the expressions of
     `pw.x`, term by term, as a check. It gives an error for a noncollinear or
-    spin-orbit run, and for a cell where the table of the augmentation charge is
-    too large to keep in memory (`DEFUQUMAT_AUG_MAX_BYTES`, 2 GiB). The default
-    method works in both cases.
+    spin-orbit run, because these expressions have no spinor form, and the
+    default method works there. The same holds for a relaxation with
+    `force_method="analytic"`. The stress has no analytic method at all, and
+    `get_stress(method="analytic")` gives an error on every run, collinear or
+    not, because the nonlocal part of the stress is not written out term by
+    term. The default method gives the whole stress, spinors included.
 
-    A spin spiral has no force on the atoms, because its two spinor components
-    live on different plane-wave spheres. What a spiral has instead is the
-    derivative of the energy with respect to its wavevector, which we compute on
-    the page about spin spirals.
+    `get_forces(method="analytic")` also gives an error for an ultrasoft or PAW
+    cell whose table of the augmentation charge would be larger than 2 GiB,
+    because the code then keeps only a radial table and builds the charge a piece
+    at a time, while the analytic force needs the whole table. The environment
+    variable `DEFUQUMAT_AUG_MAX_BYTES` moves the 2 GiB limit. The default method
+    works on such a cell and gives the same force.
+
+    `get_forces()` gives an error for a spin spiral, because its two spinor
+    components live on different plane-wave spheres and the nonlocal term then
+    needs the projectors of both. So `get_relax()` gives an error for a spiral
+    too. `get_stress()` also gives an error for a spiral, because `spiral_q` is
+    given in units of the reciprocal lattice vectors, so a strain turns the
+    spiral as well. What we compute for a spiral instead is the derivative of
+    the energy with respect to its wavevector, on the page about spin spirals.
+
+    A noncollinear or spin-orbit run has forces, a stress and a relaxation, but
+    the elastic constants and the electrostriction give an error, because they
+    take a third derivative and none has been checked with spinors.
 
     A potential-only meta-GGA (`tb09`, `bj06`) has no energy functional, so it
     has no forces and no relaxation.

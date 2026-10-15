@@ -51,6 +51,21 @@ moment turns by a quarter turn per cell. In the turning frame this is a normal S
 The moment of the cell depends on the frame, so only the energy and the size of the
 moment are physical.
 
+## The gradient correction of a turning moment
+
+We now ask what a gradient functional such as PBE does with a moment that turns.
+The answer of `pw.x`, which is `noncollinear_gga = 'kubler'` here, is to evaluate the
+collinear functional on $(n\pm|\mathbf m|)/2$. On a spiral $|\mathbf m|$ has a kink
+at every node of $\mathbf m$, so its gradient diverges there and the SCF needs many
+iterations. With `noncollinear_gga = 'grad_m'` in `&system`, the default for every
+noncollinear magnetic run with a gradient or meta-GGA functional, we build exchange
+from the gradients of the components of $\mathbf m$ instead, meaning that it is the
+collinear exchange wherever $\nabla\mathbf m$ is parallel to $\mathbf m$ and it is
+smooth where $\mathbf m$ vanishes. On a spiral this gradient carries $\mathbf q$, so
+it also enters $dE/d\mathbf q$. The two choices are one functional on a collinear
+state and differ on a canted or spiral one, so when you compare such a state with
+`pw.x` or Elk you set `noncollinear_gga = 'kubler'`.
+
 ## E(q) and its slope
 
 Let us now compute the energy as a function of $\mathbf q$. We do this with
@@ -144,7 +159,6 @@ for axis in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
 ```
 
 ```
-[defuqumat] the spiral's first-order spin-orbit energy: no ground state cached, running the SCF first (conv_thr = 1e-09). Call get_scf() to do this explicitly.
 V(q) = [ 0.      -1.40272  0.     ] meV per cell
 axis (1, 0, 0): +0.00000 meV
 axis (0, 1, 0): -1.40272 meV
@@ -157,24 +171,58 @@ mirror in the plane of the atoms forces this. A run at $-\mathbf q$ gives the
 opposite sign, so all of $E_1$ is chirality. This cell has a low cutoff and eight
 k-points, so this number is far from converged. It is a sum of contributions of
 both signs over the k-points, so it moves a lot with the cutoff and with the mesh.
+It also depends on the gradient correction of the noncollinear GGA. The default,
+`noncollinear_gga = 'grad_m'`, gives $-1.403$ meV, and the older
+`noncollinear_gga = 'kubler'` gives $-1.219$ meV on the same cell.
 
 !!! note "Limits"
-    A spiral with spin-orbit coupling switched on gives an error. Elk refuses
-    this too. A spiral needs `nosym` and the full k-mesh. `mixing_space = 'g'`
-    gives an error for a magnetic spiral.
+    A spiral with spin-orbit coupling switched on gives an error, because the
+    coupling breaks the generalized Bloch theorem, and Elk refuses this too. At
+    `soc_scale = 0` a fully relativistic dataset is allowed. A spiral needs
+    `nosym` and the full k-mesh, because the spin space group is not in the code.
+    It also needs starting moments off the rotation axis $z$, because a moment
+    along $z$ does not turn and the run would converge to the ferromagnet, so you
+    set `angle1` or give the moments a transverse part.
 
-    The relaxation of $\mathbf q$ gives an error under a magnetic field, because
-    the energy of the field is not part of the total energy. $dE/d\mathbf q$
-    gives an error when the augmentation charge is kept as a radial table, which
-    happens on large cells (`DEFUQUMAT_AUG_MAX_BYTES`).
+    `mixing_space = 'g'` gives an error for a magnetic spiral, because the
+    transverse magnetization lives on the sphere displaced by $\mathbf q$ and
+    each mixing step would cut it. The default, `'r'`, mixes the whole dense grid.
+    A spiral whose FFT grid would put two plane waves of the displaced sphere on
+    one grid point gives an error, but the usual FFT sizes leave room, so in
+    practice this does not happen.
+
+    A spiral with a meta-GGA gives an error under either `noncollinear_gga`,
+    because the two spinor components live on different spheres and their
+    kinetic energy density is not periodic. DFT+U on a spiral gives an error.
+    An explicit `noncollinear_gga = 'grad_m'` gives an error on a collinear or
+    unpolarized run and with a local functional such as LDA, which have nothing
+    for it to change, and with `nosource`, because its projection was written for
+    a field parallel to $\mathbf m$. These runs keep `'kubler'` by default.
+
+    $dE/d\mathbf q$, and with it the relaxation of $\mathbf q$ and the scan with
+    `gradients=True`, gives an error under a magnetic field or a constrained
+    moment, because the energy of the field is not part of the total energy. It
+    also gives an error when the augmentation charge is kept as a radial table,
+    which happens on large cells above `DEFUQUMAT_AUG_MAX_BYTES`, so you raise
+    that limit or scan $E(\mathbf q)$ instead.
 
     The first-order spin-orbit energy needs a norm-conserving fully relativistic
-    dataset at `soc_scale = 0`. It gives an error for a $\mathbf q$ in the
-    reciprocal lattice (a uniform magnet), and for a spiral converged under a
-    field or a constraint.
+    dataset at `soc_scale = 0`. A scalar-relativistic dataset gives an error,
+    because it has no coupling to switch on, and so does an ultrasoft or PAW
+    dataset, because the spin-orbit part of its augmentation charge on a spiral
+    is not derived. It gives an error for a $\mathbf q$ in the reciprocal lattice,
+    because that is a uniform magnet, and for a uniform magnet you call
+    `get_first_order_soc()` instead. It also gives an error for a spiral
+    converged under a field or a constraint.
 
-    A spin spiral has no force on the atoms, no site angular momenta, no
-    orbital magnetization and no magnons in the code.
+    The fit of a Heisenberg model to $E(\mathbf q)$ is `heisenberg_exchange` in
+    `defuqumat.workflows.spiral`. It gives an error for a shell vector that is not
+    a nonzero integer lattice vector in crystal coordinates. It also gives an
+    error for two shells in the same star, because their two $J$ would be one
+    parameter and the fit would be singular.
+
+    A spin spiral has no force on the atoms, no stress, no site angular momenta,
+    no orbital magnetization and no magnons in the code.
 
 The notebooks for this page are
 [12, spin spirals](https://github.com/joselado/defuqumat/blob/master/notebooks/12_spin_spirals.ipynb),

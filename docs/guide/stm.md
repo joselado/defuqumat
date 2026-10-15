@@ -447,42 +447,79 @@ broadening of 0.03 Ry.
     ```
 
 !!! note "Limits"
-    The STM image gives an error for a spin spiral, for a run with a fixed total
-    magnetization (`tot_magnetization`, which has one Fermi level per spin), and
-    for a run in an applied magnetic field. A magnetic tip gives an error on a run
-    with no magnetization, and a tip direction across the axis of a collinear run
-    also gives an error, because such a run has no transverse magnetization. A
-    constant-current scan longer than the period of the cell along the normal
-    gives an error, and a point where the tip never reaches the set-point comes
-    back as `nan`, with a warning. At zero bias the image of an insulator is zero,
-    because the delta sits in the gap, so for an insulator you give a `bias`. All
-    four calculations of this page give an error with the half-sphere storage of
-    `K_POINTS gamma`, and an explicit $k = 0$ gives the same states.
+    The STM image gives an error for a spin spiral, because its two spinor
+    components live on different plane-wave spheres and $|\psi(\mathbf r)|^2$ is
+    then not periodic in the cell. A run with a fixed total magnetization
+    (`tot_magnetization`) gives an error, because it has one Fermi level per spin
+    and a tip sees one energy. A run in an applied magnetic field also gives an
+    error, because the energy of the field is not in the total, so its Fermi level
+    is not the one of the run without the field. A magnetic tip gives an error on
+    a run with no magnetization, and a tip direction across the axis of a
+    collinear run also gives an error, because such a run has no transverse
+    magnetization, which is not the same as a zero one.
 
-    The tunnelling spectrum gives the same errors, and two more. A
-    symmetry-reduced k-mesh gives an error, so you pass `grid`, which builds the
-    full mesh, or run with `nosym`. A tip inside the augmentation sphere of an
-    ultrasoft or PAW atom gives an error, because there the pseudo-wavefunction is
-    not the true one. A tip above a surface, in the vacuum, is always fine. A
-    `bias` together with `energies`, and the constant-current mode, also give an
-    error. `sts.current` gives an error if the step of the energy axis is larger
-    than `width`. For a run with no Fermi level, the zero of bias is the middle of
-    the gap, with a warning.
+    A constant-current scan longer than the period of the cell along the normal
+    gives an error, because there the tip meets the next copy of the surface. A
+    point where the tip never reaches the set-point comes back as `nan`, with a
+    warning that says how many points. At zero bias the image of an insulator is
+    zero, because the delta sits in the gap, and the code warns about it, so for
+    an insulator you give a `bias`. All four calculations of this page give an
+    error with the half-sphere storage of `K_POINTS gamma`, and an explicit
+    $k = 0$ gives the same states. Not every `K_POINTS gamma` input keeps that
+    storage. An ultrasoft run or a symmetric run is switched to an explicit
+    $k = 0$ before the SCF, and then all four calculations work.
+
+    The tunnelling spectrum gives the same errors as the image, and two more,
+    because here $\psi(\mathbf r)$ is sampled and squared at the tip. A
+    symmetry-reduced k-mesh gives an error, because nothing symmetrises the sum,
+    so a wedge would give a smooth but wrong spectrum. You pass `grid`, which
+    builds the full mesh, or run with `nosym`. A tip inside the augmentation
+    sphere of an ultrasoft or PAW atom gives an error, because there the
+    pseudo-wavefunction is not the true one. So the tip has to be farther from
+    every atom than the augmentation radius, and in practice this means in the
+    vacuum above a surface. On a dense bulk crystal with these datasets every
+    tip position gives an error, because the layers are closer together than
+    that radius (2.4 bohr for SiC), and this is the expected answer,
+    since a tip belongs above a surface. An ultracell already needs `nosym`, so
+    the error for a symmetry-reduced k-mesh never applies to it. The
+    augmentation-sphere error does apply, to its image, its spectrum and its
+    transmission, and we check it on the atoms of the unit cell, which are the
+    same in every copy. A `bias` together with `energies` gives an error,
+    since `sts.current` is already that window, and the constant-current mode
+    gives an error, since a tip that moves while the bias is swept is a
+    different experiment. `sts.current` gives an error if the step of the
+    energy axis is larger than `width`, because the integral would then be wrong
+    by orders of magnitude, not by a few per cent. For a run with no Fermi level,
+    the zero of bias is the middle of the gap, with a warning, and if the run
+    has no gap either, `sts.current` gives an error.
 
     The vertical transport gives an error for a k-mesh with more than one point
-    along the stacking axis, for a symmetry-reduced k-mesh (`grid` builds the full
-    one), for a substrate plane that is not parallel to the layers, and for a tip
-    or a substrate plane inside an augmentation sphere. A magnetic tip or
-    substrate gives an error on a run with no magnetization, and a direction
-    across the axis of a collinear run gives an error for both. A spin spiral, a
-    fixed `tot_magnetization` and an applied field give an error, as for the image.
-    A `bias` window whose energy step is larger than `broadening` gives an error,
-    since it would be wrong by orders of magnitude. If the atoms are not between
-    the two planes, the code warns. The tip is an s-wave tip, the substrate is
-    infinite and flat, and the map has no absolute scale.
+    along the stacking axis, because the momentum along the normal is not
+    conserved and two such points interfere with a phase that depends on where
+    the substrate plane is. A symmetry-reduced k-mesh gives an error, because a
+    mirror through the slab exchanges the tip and the substrate, and `grid`
+    builds the full mesh. The substrate plane is always a lattice plane, set by
+    `exit_height`, while the tip plane may be tilted. A tip or a substrate plane
+    inside an augmentation sphere of an ultrasoft or PAW atom gives an error,
+    and in the vacuum these datasets need nothing extra. A magnetic tip or a
+    magnetic substrate gives an error on a run with no magnetization, and a
+    direction across the axis of a collinear run gives an error for both. A spin
+    spiral, a fixed `tot_magnetization` and an applied field give an error, as
+    for the image. A `bias` window whose energy step is larger than `broadening`
+    gives an error, since the current would be wrong by orders of magnitude, and
+    the error says which `nenergies` is enough. If the atoms are not between the
+    two planes, the code warns. The tip is an s-wave tip, the substrate is
+    infinite and flat, and the map has no absolute scale, because the couplings
+    of the tip and of the substrate are unknown constants.
 
-    The momentum-resolved transport gives the same errors, and also for a
-    magnetic tip plane and for a tip plane that is not parallel to the layers.
+    The momentum-resolved transport gives the same errors as the vertical
+    transport for the k-mesh, the two planes and the substrate, and the code warns if both planes are on the same side of the
+    slab. It has no magnetic tip (`tip_spin`), because a magnetic plane tip
+    mixes the two spinor components in a way the integral over the plane does
+    not reduce, so for a magnetic tip you use the map of
+    `get_vertical_transport`. The tip plane is always parallel to the layers,
+    given by `height`. The weights have no absolute scale, so `run.shares()`
+    gives shares of a total.
 
 The notebooks for this page are
 [40, STM images](https://github.com/joselado/defuqumat/blob/master/notebooks/40_stm_images.ipynb)

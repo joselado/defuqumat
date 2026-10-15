@@ -168,9 +168,11 @@ cell: [ 0. -0. -0.]
 in $\mu_B$, and `scf.site_charges` is the charge in the same spheres. We see that
 the moment of the cell is zero, because the four moments cancel. An
 antiferromagnet and a cell with no moment at all give the same zero, so for a
-compensated magnet you have to look at the site moments. The spheres are a
-choice, so you should compare site moments with another code only at the same
-radius.
+compensated magnet you have to look at the site moments. The code takes the
+radius of the spheres a little under half the distance to the nearest neighbour,
+divided by 1.2 for the tapered edge, so that the spheres do not overlap. This
+radius is a choice, so you should compare site moments with another code only at
+the same radius.
 
 ![The moments of the helix on the hydrogen chain.](img/magnetism_texture.png#only-light)
 ![The moments of the helix on the hydrogen chain.](img/magnetism_texture-dark.png#only-dark)
@@ -223,8 +225,9 @@ We now hold a moment in place. To compute a state that is not a minimum, for
 example two moments at a fixed angle, we hold the moment with a constraint.
 `constrained_magnetization` in `&system` chooses what is held, as in `pw.x`:
 `'total'` (the moment of the cell), `'atomic'` (the moment of each atom),
-`'atomic direction'` (only its direction) and `'total direction'`. Each adds a
-penalty with the weight `lambda`:
+`'atomic direction'` (only its direction) and `'total direction'`. With
+`'atomic texture'` each atom keeps the direction of its row in a
+`STARTING_MOMENTS` card. Each adds a penalty with the weight `lambda`:
 
 $$
 E_{\rm pen} = \lambda \sum_I \big(\mathbf m_I - \mathbf m^{\rm fix}_I\big)^2 .
@@ -232,8 +235,11 @@ $$
 
 A penalty still pushes at convergence, so the moment ends a bit away from its
 target. `'atomic fsm'` instead adjusts a field on each atom until the moment is
-exactly at its target. The field that does this is then a result, and it is the
-torque that the texture costs. For a fixed external field you use the `B_field`
+exactly at its target, as in Elk. `'fsm'` does this for the moment of the cell, and `'atomic fsm direction'` does the same for the
+direction only. The field that does this is then a result, and it is the
+torque that the texture costs. How far each atom is from its target is in
+`scf.site_residuals`, one number per atom, in degrees for a direction and in
+$\mu_B$ for a moment. For a fixed external field you use the `B_field`
 of `pw.x`, or a field on each atom with a `LOCAL_MAGNETIC_FIELDS` card. The energy
 of a penalty or of a field is not part of the total energy, and the code prints it
 apart, as in `pw.x` and Elk.
@@ -263,26 +269,125 @@ the code seeds the moment, because nothing in the SCF breaks the spin symmetry b
 itself. Without a seed, the run would stay unpolarized and still report
 convergence.
 
+The argument `magnetization` of `with_spin` and `with_moments` says how the
+moment of the old run crosses into the new one. `'auto'`, the default of
+`with_spin`, carries the old moment where there is one and seeds
+`starting_magnetization` where there is none. `'seed'`, the default of
+`with_moments`, keeps the converged charge and takes the moment from the new
+starting moments. `'carry'` always carries the old moment, and `'none'` starts
+unpolarized.
+
+## The source-free exchange-correlation field
+
+Let us now ask what turns a moment. A local functional builds the
+exchange-correlation field $\mathbf B_{xc}(\mathbf r)$ along $\mathbf m(\mathbf r)$
+at every point, so the torque
+$\boldsymbol\tau = \int \mathbf m\times\mathbf B_{xc}\, d\mathbf r$ is zero at
+every density, converged or not. A magnetic field in nature has no sources, and
+`nosource = .true.` in `&system` makes the exchange-correlation field obey that,
+as in Elk. We remove the longitudinal part of $\mathbf B_{xc}$, the part with a
+divergence, and the field is then no longer parallel to $\mathbf m$. We compute
+the torque with `calc.get_exchange_torque()`. Its `sites` hold one torque vector
+per atom, and its `parallel_fraction` is 1 without `nosource`, so that a zero
+torque can be told from a field that is parallel to the moment by construction.
+Without spin-orbit coupling the total torque of the cell is zero by symmetry, so
+what we read is the torque on each site.
+
 !!! note "Limits"
     With `occupations = 'fixed'` and two spin channels, you must give
     `tot_magnetization`, and it must be an integer, as in `pw.x`.
-    `tot_magnetization` works only with `nspin = 2`.
+    `tot_magnetization` with any `nspin` other than 2 gives an error, as in
+    `pw.x`. A noncollinear run holds its total moment with
+    `constrained_magnetization = 'total'` instead. An SCF or a relaxation with
+    `nspin = 2` and no `starting_magnetization` gives an error, as in `pw.x`,
+    because nothing in the SCF breaks the spin symmetry by itself and the run
+    would converge to the unpolarized state. An explicit
+    `starting_magnetization = 0.0` is accepted, and so is a run with
+    `tot_magnetization`, with a constraint or with `occupations = 'from_input'`.
 
     `noncolin` with `angle1` or `angle2` and no `starting_magnetization` gives an
-    error, because the angles then have no moment to point. `STARTING_MOMENTS`
-    needs `noncolin` for any $x$ or $y$ component, and it needs one row per atom.
+    error, because the angles then give the direction of a moment that has no
+    length. A spinor run with no magnetization at all is still allowed.
+    `STARTING_MOMENTS` needs `noncolin` for any $x$ or $y$ component, and it
+    needs one row per atom.
 
-    `constrained_magnetization = 'fsm'` together with spin-orbit coupling gives an
-    error, so there you use `'total'` or `'atomic'`. `'total direction'` with
-    `nspin = 2` gives an error, as in `pw.x`.
+    `'total'`, `'total direction'`, `'atomic direction'` and `'atomic texture'`
+    need `noncolin = .true.`, so `'total direction'` or `'atomic direction'` with
+    `nspin = 2` gives an error, as in `pw.x`. `'atomic'` and `'atomic direction'`
+    need some `starting_magnetization` or a `STARTING_MOMENTS` card, because the
+    targets are built from them and would all be zero otherwise.
+    `'atomic texture'` needs a `STARTING_MOMENTS` card with no zero row, because
+    a zero vector has no direction. The code also warns that
+    `'atomic texture'` did not converge at any `lambda` we tried, so for a texture
+    you use `'atomic'` with the same card, scaled to the moment you expect.
 
-    A symmetry operation that reverses every moment is combined with time
-    reversal. The code drops these operations, which gives the same result at
-    the cost of more k-points.
+    The field schemes `'fsm'`, `'atomic fsm'` and `'atomic fsm direction'`
+    together with `lspinorb = .true.` give an error, because the search updates
+    each Cartesian component of the field from the same component of the moment,
+    and spin-orbit coupling couples the components. So there you use `'total'` or
+    `'atomic'`. These three schemes with `reducebf` below 1 also give an error.
+    `'atomic fsm'` and `'atomic fsm direction'` need `noncolin = .true.` and a
+    `STARTING_MOMENTS` card, and they cannot be used together with a
+    `LOCAL_MAGNETIC_FIELDS` card. `'atomic fsm direction'` gives an error for a
+    zero row in the card. With these two schemes and `fsm_update = 'elk'`, the default, the
+    code warns unless `mixing_mode = 'adaptive'`, because the other mixers run
+    away. `mixing_mode = 'adaptive'` with `mixing_beta = 0.05` is what Elk uses.
 
-    A collinear source cannot be promoted to a target whose species point in
-    different directions, and a noncollinear magnetization cannot be split back
-    into two collinear channels. The noncollinear linear response gives an error.
+    In a collinear run, a symmetry operation that reverses every moment is a
+    symmetry only when combined with time reversal. The code drops these
+    operations, as `pw.x` does with `colin_mag = 1`, which gives the same result at the
+    cost of more k-points. The symmetry group comes from the input and not from
+    the density, so a texture that you pass only in `starting_density` is
+    averaged away. The code warns when symmetrization changes such a starting
+    density by more than $10^{-3}$ of its size. Give the texture as a
+    `STARTING_MOMENTS` card, or set `nosym = .true.`.
+
+    The site moments are the moments in spheres that do not overlap, with a
+    radius a little under half the distance to the nearest neighbour, divided by
+    1.2. So the site charges and the site moments sum to less than those of the
+    cell. The SCF and the relaxations report them, and the response calculations
+    do not.
+
+    A collinear source cannot be promoted to a target whose atoms point along
+    different axes, from `angle1` and `angle2` or from a `STARTING_MOMENTS` card,
+    because one scalar magnetization cannot follow a helix. A noncollinear
+    magnetization that does not lie along one axis cannot be split back into two
+    collinear channels. In both cases `magnetization='seed'` keeps the converged
+    charge and takes the moment from the new starting moments.
+    `magnetization='carry'` gives an error when the source has no moment. A
+    source with a noncollinear magnetization does not cross into a spin spiral,
+    or out of one, because a spiral measures $m_x$ and $m_y$ in the frame that
+    turns with $\mathbf q$. A collinear source does cross, and a spiral continues
+    from another spiral at any $\mathbf q$.
+
+    The source of a continuation must have the same
+    cell, the same grid and the same number of electrons, so a dataset with
+    another `z_valence` gives an error. The code warns when the source was held
+    by a field or a constraint that the new run does not have, because the moment
+    it carries is then the moment of the field. A value of `magnetization` other
+    than `'auto'` gives an error on a run that continues nothing, on a resume
+    from a checkpoint, which continues the same run, and beside a continued state
+    that already says how the moment crosses.
+
+    A spin spiral whose starting moments all lie along $z$, or are all zero,
+    gives an error, also at $\mathbf q = 0$. The spiral turns the moments about
+    $z$, so such a run would converge to the ferromagnet at every $\mathbf q$.
+    `angle1 = 90` puts the moments in the plane.
+
+    `nosource` gives an error for forces, stress, phonons, the elastic constants
+    and all the linear response, because the projection changes the potential
+    and not the energy. For the same reason the code warns that the total energy
+    of a `nosource` run cannot be compared with that of a run without it. The
+    magnons give an error, because their kernel $B_{xc}/m$ is a scalar only while
+    $\mathbf B_{xc}$ is parallel to $\mathbf m$. `nosource` also gives an error
+    in a collinear run, with a PAW dataset, on a spin spiral, with a
+    potential-only meta-GGA, with `noncollinear_gga = 'grad_m'` asked for
+    explicitly and in the ultracell. If you do not give `noncollinear_gga`, a
+    `nosource` run uses `'kubler'`. Elk calls `nosource` an experimental feature,
+    and this holds here too. The scaling of the spin part of the field, the other option of Elk,
+    is not implemented.
+
+    The noncollinear linear response gives an error.
 
 The notebooks for this page are
 [07, spin polarization](https://github.com/joselado/defuqumat/blob/master/notebooks/07_spin_polarization.ipynb),

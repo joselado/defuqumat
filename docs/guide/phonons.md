@@ -123,10 +123,14 @@ with the shape (atom, direction, atom, direction).
 We see the triply degenerate optical mode of silicon at 519.21 cm$^{-1}$, which is
 the Raman line. The three acoustic modes, a rigid translation of the crystal,
 must be at zero frequency exactly, and here they are at 5.7 cm$^{-1}$.
-`gamma.acoustic_residue` gives this number. The reason is the finite plane-wave
-basis: the energy changes a little when the atoms move relative to the FFT grid,
-so the crystal is not exactly invariant under a translation. A larger `ecutrho`
-makes the residue smaller. We do not correct it by default, so you see how large
+`gamma.acoustic_residue` gives this number. It has two parts. The larger part is
+the finite plane-wave basis, because the energy changes a little when the atoms
+move relative to the FFT grid, so the crystal is not exactly invariant under a
+translation, and a larger `ecutrho` makes this part smaller. The other part is
+where the self-consistent response loop stops. `get_phonons()` stops at
+`tr2 = 1e-14`, and with a tighter loop the residue falls to 4.33 cm$^{-1}$ on this
+cell, which is the basis part alone. So of the 5.7 cm$^{-1}$, about 1.4 cm$^{-1}$
+is the loop, and the optical mode moves by only 0.002 cm$^{-1}$. We do not correct it by default, so you see how large
 it is, and `acoustic_sum_rule=True` removes it from the matrix by hand.
 
 ## Phonons at any wavevector
@@ -188,8 +192,9 @@ transverse branches stay degenerate, while along K-$\Gamma$ the symmetry is lowe
 and all six branches split. The upper three branches stay between 371 and
 519 cm$^{-1}$, and the longitudinal acoustic branch rises to 405 cm$^{-1}$ at X.
 At $\Gamma$ the acoustic branches start at 4.4 cm$^{-1}$ rather than at zero. This
-is the same basis error as above, and it is 5.7 cm$^{-1}$ with `get_phonons()`,
-so the residue depends on the route and only gives the size of the error.
+is the same error as above. `get_phonons_at_q` converges its response loop more
+tightly than `get_phonons()` does, so its residue is close to the 4.33 cm$^{-1}$ of
+the basis alone, where `get_phonons()` gives 5.7 cm$^{-1}$.
 
 ??? example "Code of this figure (docs/figures/phonons_silicon_q/)"
 
@@ -349,30 +354,61 @@ which we compute in the page about stress with `get_elastic_constants()`.
 
 !!! note "Limits"
     The dielectric constant and the Born charges are for insulators, and a
-    metal gives an error. A noncollinear or spin-orbit run works if it has no net
-    magnetization, and a noncollinear run with a magnetization gives an error.
+    metal gives an error, because $\epsilon^\infty$ is not defined there. They
+    work for `nspin = 2`. A noncollinear or spin-orbit run works with
+    norm-conserving, ultrasoft and PAW datasets if it has no net magnetization,
+    and a noncollinear run with a magnetization gives an error.
 
-    The phonons, the Raman tensors and the strain response give an error for a
-    noncollinear or spin-orbit run. Every response gives an error for a ground
-    state converged with a magnetic field or a constrained moment, so you run the
-    ground state again without them, and for a potential-only meta-GGA. The
-    phonons at $\Gamma$ of an ultrasoft or PAW metal give an error.
+    Every response gives an error for a ground state converged with a magnetic
+    field or a constrained moment, because the field the ground state converged
+    under is not the one in the input, so you run the ground state again
+    without them. It also gives an error for a Hubbard $U$ and for a
+    potential-only meta-GGA (`tb09`, `bj06`), which has no total energy to
+    differentiate. For a metal the response needs a smearing, so tetrahedra and
+    `occupations = 'from_input'` give an error.
 
-    The phonons at $\mathbf q$ need the whole k-mesh, so the input must have
-    `nosym` and `noinv` and an unshifted mesh. They give an error for ultrasoft
-    and PAW datasets, for a nonlinear core correction, for spin polarization,
-    spinors, spin spirals, meta-GGA and DFT+U. For a metal they give an error at
-    $\mathbf q = 0$, where you use `get_phonons()`. There is no interpolation of
-    the force constants, so a dispersion is one calculation per wavevector.
+    In a spin-polarized or noncollinear run with fixed occupations, every
+    response gives an error when the filling cuts a degenerate multiplet, meaning that the gap to the
+    first empty band is below $10^{-5}$ Ry, as in an atom with Hund's rule.
+    Which member of the multiplet is occupied is then arbitrary, so you occupy
+    the whole shell or use a smearing. `tot_magnetization` with a smearing
+    gives an error, because the two spin channels then have two Fermi levels.
+    The screened response of a magnetic system with vacuum gives an error for a
+    GGA, because the exchange-correlation kernel is infinite where one spin
+    channel is empty, and with the LDA it works.
 
-    With `nosym`, every response needs an unshifted k-mesh, because a shifted
-    mesh does not have the symmetry of the crystal. The phonons of a part of
-    the atoms (`atoms=`) need `nosym`.
+    The phonons, the Raman tensors, the strain response, the elastic constants
+    and the electrostriction tensors give an error for a noncollinear or
+    spin-orbit run, and for `nspin = 2`. The phonons at $\Gamma$ of an
+    ultrasoft or PAW metal give an error.
 
-    The electron-phonon coupling gives an error for an insulator, at
-    $\mathbf q = 0$, and for everything that the phonons at $\mathbf q$ refuse.
-    There is no Eliashberg function $\alpha^2F(\omega)$, no $\lambda$ averaged
-    over the zone and no $T_c$.
+    The static $\chi^{(2)}$ and the electro-optic tensor from this response give
+    an error, because the term $\langle u_i|r_k|u_j\rangle$, where the field
+    sits between two first-order states, has nothing to build it from. The
+    Raman tensors do not need this term and they work.
+
+    The phonons at $\mathbf q$ need the whole k-mesh, so without `nosym` they
+    give an error, because the response would have to be averaged over the
+    small group of $\mathbf q$, which is not the group of the crystal. We run
+    them with `noinv` as well and on an unshifted mesh, which is the mesh that
+    is closed under the point group. They give an error for ultrasoft and PAW
+    datasets, for a nonlinear core correction, for spin polarization, spinors,
+    spin spirals, DFT+U and `nosource`, and for a potential-only meta-GGA
+    (`tb09`, `bj06`), as every response does. For a metal they give an error at
+    $\mathbf q = 0$ or at a reciprocal lattice vector, because only there the
+    Fermi level moves, and you use `get_phonons()`. There is no interpolation
+    of the force constants, so a dispersion is one calculation per wavevector.
+
+    With `nosym`, the dielectric constant, the Born charges, the phonons at
+    $\Gamma$, the Raman tensors, the strain response and the electrostriction
+    tensors need an unshifted k-mesh, and a shifted one gives an error,
+    because a shifted mesh does not have the symmetry of the crystal. The
+    phonons of a part of the atoms (`atoms=`) need `nosym`.
+
+    The electron-phonon coupling gives an error for an insulator, where there
+    are no states at the Fermi level, at $\mathbf q = 0$, and for everything
+    that the phonons at $\mathbf q$ refuse. There is no Eliashberg function
+    $\alpha^2F(\omega)$, no $\lambda$ averaged over the zone and no $T_c$.
 
     The strain response is for an insulator with `nspin = 1`, and it is
     clamped-ion. It works with norm-conserving, ultrasoft and PAW datasets, but

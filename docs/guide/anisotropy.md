@@ -45,7 +45,6 @@ print(f"band energy {mae.anisotropy_mev:.4f} meV, free energy {mae.free_anisotro
 ```
 
 ```
-[defuqumat] the magnetic anisotropy: no ground state cached, running the SCF first (conv_thr = 1e-09). Call get_scf() to do this explicitly.
 easy axis (0.0, 0.0, 1.0)
 band energy 1.2351 meV, free energy 0.5522 meV
 ```
@@ -57,6 +56,14 @@ changes with the direction, so the free energy, `mae.free_energies`, is the
 quantity that a variational argument is about. Here the two differ by a factor of
 two at `degauss = 0.02` Ry, and they meet as the smearing goes to zero. So when
 you quote an anisotropy, you should say which one you use.
+
+`get_anisotropy` is a loop over directions, and
+`scalar.get_force_theorem(spinor, direction=(0, 0, 1))` gives one direction alone, with its band energy, its free
+energy and its occupations. The call
+`scalar.get_first_order_soc(spinor, direction=(0, 0, 1))` gives the spin-orbit energy to first order at the fixed states of the scalar
+run, without any diagonalization. The anisotropy is second order in the coupling,
+so this first-order energy is only a small part of it, and the comparison of the
+two shows why the force theorem has to diagonalize.
 
 ![The free energy of tetragonal cobalt against the angle of the moment, with and without spin-orbit coupling.](img/anisotropy_energy_vs_angle.png#only-light)
 ![The free energy of tetragonal cobalt against the angle of the moment, with and without spin-orbit coupling.](img/anisotropy_energy_vs_angle-dark.png#only-dark)
@@ -125,25 +132,56 @@ print(f"{scf.iterations} iterations, m = {np.round(m, 4)}")
 ```
 
 We see that the moment ends on the $c$ axis. `torque_conv_thr` is the threshold
-on the torque, in Ry.
+on the torque, in Ry per radian.
 
 !!! note "Limits"
-    The force theorem gives an error for a Hubbard $U$, a potential-only
-    meta-GGA, a converged magnetic field or constrained moment, and a spin
-    spiral. A spiral has its own first-order term, on the page about spin
-    spirals. A direction other than the one in the input needs `nosym`. For
-    ultrasoft and PAW datasets `soc_scale` must be 0 or 1. A PAW dataset needs
-    the one-file route, meaning the same fully relativistic file for both runs,
-    with `soc_scale = 0` for the first.
+    The force theorem gives an error for a Hubbard $U$, because its occupation
+    matrix is not carried from the first run to the second, and for a
+    potential-only meta-GGA, for the same reason with $\tau$. It also gives an
+    error for a converged magnetic field or constrained moment, because the
+    energy of the field is not in the reported total, and for a spin spiral. A spiral
+    has its own first-order term, on the page about spin spirals. The first run
+    must be spin-polarized, and the second needs `noncolin` and `lspinorb`. A
+    direction other than the one in the input needs `nosym`, because the
+    magnetic symmetry, and with it the k-point set, depends on where the moment
+    points. For `get_anisotropy`, a first run whose magnetization is genuinely
+    noncollinear gives an error, because the moment is laid along one axis.
 
-    `rotate_moments` gives an error without spin-orbit coupling, for a spin
-    spiral, a Hubbard $U$, a magnetic field or a constrained moment, and without
-    `nosym`.
+    A PAW dataset needs the one-file route, meaning the same fully relativistic
+    file for both runs, with `soc_scale = 0` for the first. With two different
+    files PAW gives an error, because the one-centre terms are built from the
+    one-centre occupations of the first run, which do not fit the projectors of
+    the other file.
+
+    `soc_scale` outside $[0, 1]$ gives an error on every dataset. For ultrasoft
+    and PAW datasets it must be exactly 0 or 1, because a blend in between is
+    not the overlap of any set of projectors. When every dataset is
+    norm-conserving, any value in $[0, 1]$ is allowed.
+
+    `get_torque`, `get_orientation_torque` and `get_relaxed_orientation` give
+    an error for the same cases as the force theorem. `get_torque` also gives
+    an error for every PAW dataset, because it does not take the one-centre
+    occupations of the first run. `get_orientation_torque` and
+    `get_relaxed_orientation` do take PAW on the one-file route. They also take
+    a genuinely noncollinear first run, and turn its texture as it is.
+
+    `rotate_moments` needs a magnetic noncollinear run with spin-orbit coupling,
+    so it gives an error without `lspinorb` or with `soc_scale = 0`, where every
+    orientation has the same energy and the step would only follow noise. It
+    also gives an error for a spin spiral, for a Hubbard $U$, whose occupation
+    matrix would have to turn with the density, for a magnetic field or a
+    constrained moment, which holds the orientation that the step moves, and
+    without `nosym`. It does take PAW datasets. On PAW nickel the run stalls with the torque near
+    $10^{-4}$, and there you should use `get_relaxed_orientation` instead.
 
     `get_relaxed_anisotropy` gives an error for a magnetic field or constrained
-    moment, a potential-only meta-GGA, a spin spiral and a collinear run. It
-    needs `nosym`. Nothing holds the moment while the density relaxes, so you
-    should check that it stayed where it started (`drifts`).
+    moment, because the energy of the field is not in the total, for a
+    potential-only meta-GGA, which has no energy functional, for a spin spiral
+    and for a collinear run. It needs `lspinorb` and `nosym`. Nothing holds the
+    moment while the density relaxes, so the code warns when a direction
+    drifted more than one degree from where it started, and when a direction
+    did not converge. Read `converged` and `drifts` on the result before the
+    anisotropy itself.
 
 The notebooks for this page are
 [36, magnetocrystalline anisotropy](https://github.com/joselado/defuqumat/blob/master/notebooks/36_magnetic_anisotropy.ipynb)

@@ -1151,7 +1151,12 @@ class Calculator:
         ``q_cartesian = True``, which reads it in the ``2 pi / alat`` units
         ``ph.x`` prints. ``q = 0`` is the same physics as :meth:`get_phonons`
         through a second plane-wave sphere, so it is a regression rather than a
-        second way of asking; away from the zone centre it is the only route.
+        second way of asking **at one ``tr2``**; away from the zone centre it is
+        the only route. The defaults differ: this route converges its loop at
+        ``tr2 = 1e-16`` with the CG threshold capped, :meth:`get_phonons` at
+        ``ph.x``'s ``1e-14``, and on silicon that is 4.37 against 5.68 cm^-1 in
+        the acoustic residue (both converged: 4.33; ``OPEN.md`` Part XXVII
+        item 1).
         """
         from defuqumat.response.phononq import dynamical_matrix_at_q
 

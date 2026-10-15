@@ -323,12 +323,20 @@ the plateau can change on a denser mesh or with a smaller `degauss`.
     each other, so for the magnetization you keep every member with
     `reduce=False`.
 
-    The nesting function gives an error for a run with `occupations = 'fixed'`,
-    which has no Fermi level, and for a run with `tot_magnetization`, which has
-    one Fermi level for each spin channel. It also gives an error for a spin
-    spiral, because the nesting function is a property of the state the spiral
-    grows from. So you compute it on the non-magnetic state and compare its peak
-    with the wavevector of the relaxed spiral.
+    The nesting function gives an error for a run with fixed occupations
+    (`occupations = 'fixed'` or `'from_input'`), which has no Fermi level, and for
+    a run with `tot_magnetization`, which has one Fermi level for each spin
+    channel. It also gives an error for a spin spiral, because the nesting
+    function is a property of the state the spiral grows from. So you compute it
+    on the non-magnetic or collinear state and compare its peak with the
+    wavevector of the relaxed spiral.
+
+    The delta function of the nesting function is a Gaussian by default, even
+    when the SCF used Methfessel-Paxton or cold smearing, because those go
+    negative on the wings, so $g(\mathbf k)$ can be negative and $N(\mathbf q)$
+    has no sign. You can still pass `smearing=` to use the smearing of the run.
+    A run with no `degauss`, such as one with tetrahedra, gives an error unless
+    you pass `degauss` yourself.
 
 The notebooks for this page are
 [37, structure factors](https://github.com/joselado/defuqumat/blob/master/notebooks/37_structure_factors.ipynb)

@@ -136,7 +136,8 @@ of the accuracy. The line is Raman active and infrared silent. The reason is sym
 crystal maps one silicon atom onto the other, so the two atoms have the same
 $Z^*$, and the optical mode moves them against each other, so its dipole is zero.
 This is why silicon has no one-phonon infrared absorption. The acoustic triplet again
-carries the residue of the sum rules, here 5.68 cm$^{-1}$ and an infrared
+carries the residue of the sum rules, here 5.68 cm$^{-1}$ (the basis error and
+where the response loop stops, as on the page about phonons) and an infrared
 activity of 2.35, because on this cell each silicon atom carries $Z^* = -1.20$
 instead of zero. The $4\times4\times4$ mesh contains $\Gamma$, where the gap is
 smallest, so the dielectric constant of silicon is 23.6 here against 11.7
@@ -299,14 +300,28 @@ takes 62 s on one core.
     ```
 
 !!! note "Limits"
-    The Raman tensors and the spectra need an insulator. A metal has no
-    $\varepsilon^\infty$, so they give an error.
+    The Raman tensors and the spectra need a ground state with
+    `occupations='fixed'`. A metal has no $\varepsilon^\infty$, so any other
+    occupations give an error, and this holds for a gapped crystal run with a
+    smearing too. `occupations='from_input'` and the tetrahedra give an error
+    as well.
 
     The phonons and the Raman tensors give an error for two spin channels, for
     spinors (noncollinear magnetism and spin-orbit coupling), for DFT+U, for spin
     spirals and for a potential-only meta-GGA. A ground state converged under a
     magnetic field or with a constrained moment also gives an error, so you run
-    the ground state again without them.
+    the ground state again without them. A ground state with a sawtooth electric
+    field (`tefield`, with or without `dipfield`) or with a Berry-phase field
+    (`lelfield`) gives an error for any linear response, so also for the Raman
+    tensors and the spectra.
+
+    The Raman tensors give an error for `K_POINTS gamma`, because the field
+    enters through a term that is not written for the gamma-only storage. You
+    run the same cell with an explicit $\mathbf k = 0$ mesh,
+    `K_POINTS automatic` with `1 1 1 0 0 0`, which is the same physics.
+
+    The Raman tensors give an error under k-point pools (`DEFUQUMAT_POOLS`),
+    so you run them in one process.
 
     With `nosym`, a shifted k-mesh gives an error, because a shifted mesh does
     not have the symmetry of the crystal. Use an unshifted mesh, as here, or let
@@ -316,9 +331,15 @@ takes 62 s on one core.
     give an error. They need one term that the code does not compute, and this
     term is 42 per cent of the answer.
 
-    The LO-TO splitting is a quantity at $\Gamma$. The code does not compute the
-    phonon dispersion through it, which needs the non-analytic term at every
-    $\mathbf q$ and an interpolation over the zone.
+    The LO-TO splitting is built from the Born charges and $\varepsilon^\infty$,
+    so `loto_direction` with `infrared=False` gives an error. A direction with
+    no length also gives an error, because the term needs a direction from
+    which to approach $\Gamma$.
+
+    The LO-TO splitting is a quantity at $\Gamma$, the limit $\mathbf q \to 0$.
+    A phonon at one $\mathbf q$ away from $\Gamma$ is
+    `calc.get_phonons_at_q()`, but the code has no interpolation over the zone,
+    so it does not give the phonon dispersion through $\Gamma$.
 
 The notebook for this page is
 [26, Raman and infrared spectra](https://github.com/joselado/defuqumat/blob/master/notebooks/26_raman_and_infrared_spectra.ipynb).

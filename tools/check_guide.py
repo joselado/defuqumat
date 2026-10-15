@@ -20,7 +20,9 @@ read-through. Four checks, each printed under its own heading:
 3. **Nav.** Every page is in the ``nav`` of ``mkdocs.yml`` and every nav entry
    is a page.
 4. **Prose.** No semicolon and no em-dash outside code, math, link targets,
-   HTML entities and include lines.
+   HTML entities and include lines. And no ``[defuqumat] ...`` line in a page
+   at all: that is the announcement the code prints on stderr when it runs the
+   SCF first, and a printed output block on a page holds stdout only.
 
 It reads files only: ``calculator.py`` is parsed with ``ast``, nothing from
 ``defuqumat`` is imported, so it runs in well under a second.
@@ -213,6 +215,11 @@ def check(root: Path = ROOT) -> dict[str, list[str]]:
             if partner not in light:
                 failures["files"].append(
                     f"{name}:{n}: {t} has no light partner {partner}")
+
+        for n, line in enumerate(text.splitlines(), 1):
+            if line.startswith("[defuqumat] "):
+                failures["prose"].append(
+                    f"{name}:{n}: a stderr announcement in an output block: {line[:60]}")
 
         for n, line in strip_prose(prose):
             for ch, what in ((";", "a semicolon"), ("—", "an em-dash")):

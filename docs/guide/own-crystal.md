@@ -4,10 +4,10 @@ In this page we compute a crystal that is not in the repository, and for
 concreteness we take diamond. We have to choose four things before a number from
 a plane-wave code has a meaning:
 
-1. the structure: the Bravais lattice, the lattice constant and the atomic positions;
-2. the pseudopotential of each element, which also fixes the functional;
-3. the plane-wave cutoff;
-4. the k-mesh, which says how finely the Brillouin zone is sampled.
+1. The structure, which is the Bravais lattice, the lattice constant and the atomic positions.
+2. The pseudopotential of each element, which also fixes the functional.
+3. The plane-wave cutoff.
+4. The k-mesh, which says how finely the Brillouin zone is sampled.
 
 The first two are physics. The last two are numerical parameters, so we have to
 converge them for the quantity we want.
@@ -45,15 +45,22 @@ The repository has only the pseudopotentials that its tests need, in
 `tests/data/pseudo/`. For other elements you can take them from three common
 sources:
 
-- the table of Quantum ESPRESSO, at `pseudopotentials.quantum-espresso.org`;
-- the PseudoDojo set;
-- the SSSP library, which also gives a recommended cutoff for each element.
+- The table of Quantum ESPRESSO, at `pseudopotentials.quantum-espresso.org`.
+- The PseudoDojo set.
+- The SSSP library, which also gives a recommended cutoff for each element.
 
 The code reads norm-conserving, ultrasoft and PAW files. The header of the file
 says which functional was used to generate it, and we use this functional unless
 you set `input_dft`. Notebook
 [05](https://github.com/joselado/defuqumat/blob/master/notebooks/05_gradient_corrections.ipynb)
 shows what changes between LDA and PBE.
+
+The functionals we have are LDA (PZ), PBE, revPBE and PBEsol. We write down only
+the energy of the functional, and the code takes the potential as its gradient.
+Two more functionals work the other way around. `input_dft = 'tb09'` (Tran and
+Blaha) and `input_dft = 'bj06'` (Becke and Johnson) are meta-GGA potentials
+with no energy behind them. They are used for band gaps, and for silicon
+`tb09` gives a gap of 1.13 eV, where LDA gives 0.49 eV.
 
 ## The two convergence tests
 
@@ -145,13 +152,48 @@ Before we trust the numbers of a new crystal, we check four things.
 
 !!! note "Limits"
     An input variable that changes the physics and is not implemented gives an
-    error with its name, so it is never read and ignored. Examples are
-    `tot_charge`, `assume_isolated`, `twochem` and a fixed FFT grid
-    (`nr1` to `nr3s`). The old DFT+U variables of `&system` (`lda_plus_u`,
-    `Hubbard_U`, and the others) also give an error, and you use the `HUBBARD`
-    card instead. `ibrav` different from 0 together with a `CELL_PARAMETERS`
-    card gives an error, and so does `celldm` together with `A`, so to use the
-    card you set `ibrav = 0`.
+    error with its name, so it is never read and ignored. These are a charged
+    cell (`tot_charge`), the corrections for an isolated system
+    (`assume_isolated`), two chemical potentials (`twochem`, in `&system` or in
+    `&control`), the occupations of an isolated atom (`one_atom_occupations`),
+    the constant-cutoff kinetic functional (`qcutz`) and a fixed FFT grid (`nr1`
+    to `nr3s`). The four symmetry switches `no_t_rev`, `force_symmorphic`,
+    `use_all_frac` and `nosym_evc` also give an error, because each one removes
+    symmetry operations that the code would still use. A value equal to the
+    default of `pw.x` gives no error, so an ordinary input never meets these.
+    `calculation = 'md'` and `calculation = 'vc-md'` give an error, because we
+    have no molecular dynamics.
+
+    The old DFT+U variables of `&system` give an error, as in `pw.x` 7.5. These
+    are `lda_plus_u`, `lda_plus_u_kind`, `Hubbard_U`, `Hubbard_U_back`,
+    `Hubbard_J0`, `Hubbard_J`, `Hubbard_V`, `U_projection_type`,
+    `Hubbard_parameters` and `backall`, and you write the `HUBBARD` card instead.
+    The test is on the value, so `lda_plus_u = .false.` and `Hubbard_U = 0.0`
+    give no error.
+
+    A lattice given twice gives an error, as in `pw.x`. `ibrav` different from 0
+    together with a `CELL_PARAMETERS` card gives an error, and to use the card
+    you set `ibrav = 0`. `celldm` together with `A` gives an error. A
+    `CELL_PARAMETERS bohr` or `angstrom` card together with `celldm(1)` or `A`
+    gives an error, and you either write the card in `alat` units or remove
+    `celldm(1)` or `A`.
+
+    Only UPF version 2 files are read. A UPF version 1 file gives an error, and
+    you can convert it with `upfconv.x` of Quantum ESPRESSO. Pseudopotentials
+    generated with different functionals give an error, unless you set
+    `input_dft`, and then the code warns that the functional differs from the
+    files.
+
+    A functional that is not implemented gives an error, and the code never
+    replaces it with LDA. This covers the hybrid functionals (EXX) and the
+    meta-GGAs with an energy (TPSS, SCAN, M06L). `tb09` and `bj06` give an error
+    with an ultrasoft dataset, because it has no partial waves to build the
+    kinetic energy density inside the spheres, and you use a PAW or
+    norm-conserving one instead. They also give an error with a spin spiral and
+    with DFT+U (a `HUBBARD` card).
+    With `tb09` or `bj06` the code warns that the total energy is not the
+    energy of any functional, and forces, stress, phonons and the responses give
+    an error.
 
 The notebook for this page is
 [25, your own crystal](https://github.com/joselado/defuqumat/blob/master/notebooks/25_your_own_crystal.ipynb).

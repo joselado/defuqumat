@@ -477,41 +477,55 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
 !!! note "Limits"
     The shift current gives an error for an ultrasoft or PAW dataset, because
     one term, the second derivative of the projectors in $\mathbf k$, is not
-    implemented. It also gives an error for a spin spiral, a metal, DFT+U,
-    `nspin = 2` and a symmetry-reduced k-set. A spinor run works.
+    implemented. It also gives an error for a spin spiral, DFT+U, `nspin = 2`, a
+    symmetry-reduced k-set and a metal, where the partly filled bands give
+    transitions of zero energy and every denominator of the sum diverges. A
+    spinor run works.
 
-    Second-harmonic generation gives an error for a spin spiral, a metal, DFT+U,
-    `nspin = 2` and a symmetry-reduced k-set, and it works for a spinor run and
-    for ultrasoft and PAW datasets. For both tensors you pass the whole unshifted
-    mesh as `kpoints`, because a polar tensor of rank 3 summed on a wedge is not
-    the tensor of the crystal. The band count is not converged for you, so read
-    `.truncation`. The code warns when `nbnd` cuts a degenerate level
-    (`band_cut_gap` below $10^{-8}$ Ry), because then the result depends on an
-    arbitrary choice inside the level. For AlAs, 22 bands do that and 23 do not.
-    The code also warns when a `nosym` run has an FFT grid that does not respect
-    the fractional translations, which leaves a small false signal in a crystal
-    where the tensor is zero, so for the SCF you keep the symmetry and pass the
-    whole mesh as `kpoints`, as we do for silicon.
+    Second-harmonic generation gives an error for a spin spiral, a metal, DFT+U
+    and a symmetry-reduced k-set. It works for a spinor run, for a collinear
+    spin-polarized run (`nspin = 2`), where the two channels add, and for
+    ultrasoft and PAW datasets. The static $\chi^{(2)}$ and the electro-optic
+    tensor of the [Raman page](raman.md) still give an error, because that route
+    needs a term which this sum over states does not use.
+
+    For both tensors you pass the whole unshifted mesh as `kpoints`, because a
+    polar tensor of rank 3 summed on a wedge is not the tensor of the crystal.
+    The band count is not converged for you, so read `.truncation`. The code
+    warns when `nbnd` cuts a degenerate level (`band_cut_gap` below $10^{-8}$
+    Ry), because then the result depends on an arbitrary choice inside the
+    level. For AlAs, 22 bands do that and 23 do not. The code also warns when a
+    `nosym` run has an FFT grid that does not respect the fractional
+    translations, which leaves a small false signal in a crystal where the
+    tensor is zero, so for the SCF you keep the symmetry and pass the whole mesh
+    as `kpoints`, as we do for silicon.
 
     The real-time methods give an error for DFT+U, a spin spiral, `K_POINTS
     gamma`, a ground state under a magnetic field or with a constrained moment,
-    a shifted mesh, and a symmetry-reduced k-set passed as `kpoints` (you pass
-    `grid=` instead, which builds the right reduction for the field). They also
-    give an error when `occupations = 'fixed'` cuts a degenerate level, and for a
-    time step that is too long to be stable. A magnet, a spinor run with
-    spin-orbit coupling, and ultrasoft and PAW datasets work, but with an
-    ultrasoft or PAW dataset the potential updated in time (`"hartree"` or
-    `"hxc"`) and a kick after the start of the run give an error. With the
-    potential updated, a meta-GGA with `"hxc"` and a checkpoint give an error. A
-    metal runs with the occupations of the ground state held fixed, and its
-    intraband response converges slowly in $\mathbf k$.
+    a static electric field (`tefield` or `lelfield`), and a symmetry-reduced
+    k-set passed as `kpoints` (you pass `grid=` instead, which builds the right
+    reduction for the field). A shifted mesh gives an error, because it is not
+    closed under the point group, and `little_group=False` propagates the whole
+    shifted mesh instead. They also give an error when `occupations = 'fixed'`
+    cuts a degenerate level, because the current then depends on an arbitrary
+    choice inside the level, and for a time step that is too long to be stable.
 
-    `get_nonlinear_spectrum` gives an error when a solve does not converge,
-    or when the outer solve does not converge, since an unconverged first order is amplified by $1/(2\eta)$ in the second.
+    A magnet, a spinor run with spin-orbit coupling, and ultrasoft and PAW
+    datasets work in real time. With an ultrasoft or PAW dataset, the potential
+    updated in time (`"hartree"` or `"hxc"`) and a kick after the start of the
+    run give an error. With the potential updated, a meta-GGA with `"hxc"` and a
+    checkpoint give an error. A metal runs with the occupations of the ground
+    state held fixed, and its intraband response converges slowly in
+    $\mathbf k$.
+
+    `get_nonlinear_spectrum` gives an error (`HierarchyError`, with its
+    residual) when a solve or the outer solve does not converge, since an
+    unconverged first order is amplified by $1/(2\eta)$ in the second.
     It also gives an error for the potential updated in time above first order
     (the real-time route has it, one frequency per run), for two FFT grids with
-    the potential updated, for an order above three, and for an `nbnd` that
-    leaves no conduction band below the top four.
+    the potential updated, for a meta-GGA with `"hxc"`, because its
+    exchange-correlation kernel is not implemented, for an order above three,
+    and for an `nbnd` that leaves no conduction band below the top four.
 
 The notebooks for this page are
 [32, the shift current](https://github.com/joselado/defuqumat/blob/master/notebooks/32_shift_current.ipynb),

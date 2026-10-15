@@ -186,13 +186,25 @@ valence charge here.
     of `K_POINTS gamma`. In this case you can use an explicit $k = 0$ instead,
     which gives the same result.
 
+    The tetrahedron schemes need an automatic k-mesh. If you do not give `grid`
+    and the SCF used an explicit list of k-points, tetrahedra give an error,
+    because a list of points carries no tetrahedra.
+
     For a spin-orbit run (`lspinorb`), the symmetrized projection gives an error,
-    so you run with `nosym` and the full k-mesh, or pass `symmetrize=False`. For
-    a spin-orbit run there are no $m$-resolved charges, and `charges.charges_lm`
-    is `None`, because a state with a given $j$ has an $m_j$ and no $m$.
+    because its channels are $|j\,m_j\rangle$ and the rotation matrix they need
+    is not built. You run with `nosym = .true.` and the full k-mesh, which is
+    the same physics, or pass `symmetrize=False`. A noncollinear run without
+    spin-orbit coupling is symmetrized, with the spin rotated together with the
+    orbitals.
+
+    A noncollinear run, with or without spin-orbit coupling, has no
+    $m$-resolved charges, and `charges.charges_lm` is `None`. The charges per
+    atom and per $l$, `charges.charges`, are still there.
 
     A fully relativistic dataset with `lspinorb = .false.` gives an error in the
-    projection.
+    projection, because its channels would be resolved by $j$ and still be
+    labelled as up and down. So you run it with `lspinorb = .true.`, which is what a
+    fully relativistic dataset is for.
 
 The notebooks for this page are
 [06, the density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/06_density_of_states.ipynb)

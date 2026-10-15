@@ -140,20 +140,26 @@ the lines between the points are only a guide to the eye.
 !!! note "Limits"
     The Elk state must be for the same cell as the run, because a density cannot
     be moved from one lattice to another. The folder must contain `GEOMETRY.OUT`
-    from the same Elk run as `STATE.OUT`, and a `STATE.OUT` written by Elk older
-    than version 2.0.0 gives an error.
+    from the same Elk run as `STATE.OUT`. A folder without `GEOMETRY.OUT` gives an
+    error. A `GEOMETRY.OUT` with a different number of species, or a different
+    number of atoms in a species, also gives an error. We do not check the atomic
+    positions against `STATE.OUT`, so you must make sure that both files come from
+    the same run. A `STATE.OUT` written by Elk older than version 2.0.0 gives an
+    error.
 
     A spin-polarized Elk state and a spin spiral give an error, because the
     magnetization is a second field, and a seed without it would start a magnetic
-    run from a non-magnetic density. A run with more than one spin channel gives an
-    error for the same reason. A DFT+U state, or one with fixed tensor moments,
-    also gives an error.
+    run from a non-magnetic density. A run that carries a magnetization, with
+    `nspin=2` or noncollinear, gives an error for the same reason. A DFT+U state,
+    or one with fixed tensor moments, also gives an error, because the code does
+    not read their occupation matrices.
 
     An element with core electrons gives an error. The muffin-tin density of Elk
     contains the core states, and nothing in `STATE.OUT` separates them from the
-    valence charge, so a run whose valence charge is far from what the Elk density
-    integrates to gives an error and is not scaled. Hydrogen, with no core, is the
-    case this is made for.
+    valence charge. So when the Elk density integrates to a charge that is further
+    from the valence charge of the run than half of it (or than 0.5 electrons, if
+    that is larger), the code gives an error and does not scale it. Hydrogen, with
+    no core, is the case this is made for.
 
     The Elk density can only be a starting density. You cannot use it as a fixed
     density with no SCF on top, because the two converged densities are different

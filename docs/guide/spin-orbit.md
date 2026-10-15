@@ -96,7 +96,6 @@ print(nickel.get_angular_momenta().table())
 ```
 
 ```
-[defuqumat] the site angular momenta: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 Angular momenta on the ortho-atomic projectors (units of hbar)
 
   Ni1  L = (-0.00000,-0.00000, 0.03647)  S = (-0.00001,-0.00000, 0.31270)  J = (-0.00001,-0.00000, 0.34918)
@@ -142,7 +141,6 @@ print(f"total      {orbm.total[2]:.5f} mu_B")
 ```
 
 ```
-[defuqumat] the orbital magnetization: no ground state cached, running the SCF first (conv_thr = 1e-10). Call get_scf() to do this explicitly.
 local      -0.59864 mu_B
 itinerant  -0.57580 mu_B
 total      -1.17444 mu_B
@@ -162,12 +160,22 @@ occupations. This is the quantity `pw.x` computes with `lorbm`.
     `soc_scale = 0` a fully relativistic file is accepted.
 
     The site angular momenta give an error for a fully relativistic ultrasoft or
-    PAW dataset and for a spin spiral. They need the full k-mesh (`nosym`).
+    PAW dataset, because the projection uses the scalar overlap for each spinor
+    component and misses its spin off-diagonal part. A fully relativistic
+    norm-conserving file is exact. A spin spiral also gives an error, because its
+    two spinor components do not share one set of atomic orbitals, and so does a
+    run with `K_POINTS gamma`. A k-set reduced by symmetry works.
 
-    The orbital magnetization gives an error for an ultrasoft or PAW dataset (as
-    in `pw.x`), without spin-orbit coupling, for `nspin = 2`, for a metal and
-    for a spin spiral. A mesh with two points along a direction gives an error.
-    One point is allowed and sets that derivative to zero, as for a slab.
+    The orbital magnetization gives an error for an ultrasoft or PAW dataset, as
+    in `pw.x`. It gives an error without spinors (`noncolin = .false.`) and for
+    `nspin = 2`, because there the orbital moment is zero. A spinor run without
+    the coupling is accepted and gives zero. A metal gives an error, and so does
+    any occupied manifold whose gap to the band above is smaller than `gap_tol`
+    (1e-4 Ry by default) at some k-point. A spin spiral gives an error. A mesh
+    with two divisions along a direction gives an error, because the two
+    neighbours of a point are then the same k-point. One division is allowed and
+    sets that derivative to zero, as for a slab. Without `divisions`, k-points
+    that do not come from a uniform grid give an error.
 
     A spinor run has no elastic constants and no electrostriction.
     `get_forces(method="analytic")` gives an error for a spinor run, while the

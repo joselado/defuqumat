@@ -162,10 +162,24 @@ symmetry, but for $C_{44}$ it is not. A shear strain moves the two atoms of the
 cell against each other, and this internal relaxation lowers $C_{44}$.
 
 !!! note "Limits"
-    The elastic constants need a norm-conserving dataset and the full k-mesh
-    (`nosym`), and they give an error for a noncollinear or spin-orbit run. The
-    page about piezoelectric and strain responses has the other strain
-    responses, which also work for ultrasoft and PAW.
+    The elastic constants need a norm-conserving dataset. An ultrasoft or PAW
+    dataset gives an error, because two terms of the derivative for an
+    augmented dataset are still missing. They also need `nspin = 1`, an insulator and the
+    full k-mesh (`nosym`), so a spin-polarized, noncollinear or spin-orbit run,
+    a metal and a symmetry-reduced k-set each give an error. The full k-mesh
+    must also be an unshifted Monkhorst-Pack grid. A shifted grid with `nosym`
+    gives an error, because a shifted grid does not have the symmetry of the
+    crystal. They are clamped-ion only. The page about piezoelectric and strain responses has the
+    other strain responses, which also work for ultrasoft and PAW.
+
+    A strain response that did not converge gives an error, because a diverged
+    response gives an elastic tensor that is not even symmetric under
+    $C_{ijkl} = C_{klij}$. This happens mainly on a slab with vacuum, where the
+    response diverges at `alpha_mix = 0.7`. If you set `mixing_mode='linear'`,
+    first try the default Anderson mixer. Otherwise use a larger
+    `max_iterations` or a smaller `alpha_mix`, which you pass to
+    `get_strain_response()`. `allow_unconverged=True` in
+    `get_elastic_constants()` turns the error off for a diagnostic run.
 
     A potential-only meta-GGA (`tb09`, `bj06`) has no stress. Its total energy
     is not the minimum of any functional, so its derivative has no meaning.

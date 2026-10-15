@@ -440,32 +440,52 @@ period you compare the energies of several long cells, one run each.
 
 !!! note "Limits"
     The long cell needs `nosym` and the full, unshifted k-mesh of the unit cell,
-    and this mesh must be `supercell` times `kgrid`. If you do not give `kgrid`,
-    the code divides the mesh of the input by `supercell`, which is the one value
-    that works. A mesh reduced by symmetry gives an error, and so does a ground
+    and this mesh must be `supercell` times `kgrid`, because the tiled density
+    of the unit cell is a solution of the long cell only on the points it folds
+    onto. On another mesh the loop would report the difference in sampling as a
+    modulation. The check is on the points, so an explicit list of k-points that
+    is this grid also works. If you do not give `kgrid`, the code divides the
+    mesh of the input by `supercell`, which is the one value that works. A mesh
+    reduced by symmetry gives an error, and so does a ground
     state that is not converged, since its density is the one thing the long
     cell keeps fixed. The long cell must be a whole number of unit cells along
     each lattice vector.
 
     The functional must be LDA. A gradient-corrected functional gives an error,
     because the gradient of the density then contains the gradient of the
-    envelope, and a meta-GGA also gives an error. The occupations must be
-    `'fixed'` or `'smearing'`, so tetrahedra give an error. DFT+U, spin spirals,
-    `K_POINTS gamma` and a ground state converged under a magnetic field or a
-    constrained moment also give an error. For a field, you give it with
-    `magnetic_field` in the long cell instead. An ultrasoft or PAW dataset runs,
-    but with `ecutrho` at four times `ecutwfc` the code warns that the
-    augmentation charge is then on the wavefunction grid, so you set `ecutrho`
-    to 8 to 12 times `ecutwfc`.
+    envelope, and a meta-GGA also gives an error. `nosource` gives an error,
+    because its projection couples every cell of the long cell to every other
+    one. The occupations must be `'fixed'` or `'smearing'`. Tetrahedra give an
+    error, because a state of the long cell mixes bands from the $N$ folded
+    k-points and is not a band of any mesh, and `'from_input'` gives an error
+    because there is no single band left to hold the occupation you give.
+
+    DFT+U gives an error, because its occupation matrix is per atom and the long
+    cell has $N$ copies of each atom. Spin spirals, `K_POINTS gamma` and a
+    saw-tooth electric field (`tefield`) also give an error. A ground state
+    converged under a magnetic field or a constrained moment gives an error,
+    because its eigenvalues carry the field the SCF ended with while the long
+    cell rebuilds its potential from the density alone. For a field, you
+    converge the unit cell without it and give it with `magnetic_field` in the
+    long cell instead.
+
+    An ultrasoft or PAW dataset runs, but with `ecutrho` at four times
+    `ecutwfc` the code warns that the augmentation charge is then on the
+    wavefunction grid, so you set `ecutrho` to 8 to 12 times `ecutwfc`. The
+    mixers `mixing_mode='robust'` and `mixing_mode='ldos'` give an error, and a
+    mixer that takes no preconditioner needs `kerker=False`.
 
     A seed with $|s| > 1$ gives an error, because it asks for more magnetization
     than the cell has. A seed on a unit cell with no moment gives an error,
     because there is nothing to scale, and so does a vector seed on an
     antiferromagnetic unit cell, whose net moment has no direction. A
     `magnetic_field` on a noncollinear cell with no magnetization gives an
-    error. There, you give the unit cell a small `starting_magnetization`.
-    `kramers_pairs=True` on a collinear cell or on a nonmagnetic spinor cell
-    gives an error, because these states already come in pairs.
+    error, because the field has no magnetization to be added to. There, you
+    give the unit cell a small `starting_magnetization`, and the run then
+    measures the Pauli susceptibility. `kramers_pairs=True` on a collinear cell
+    gives an error, because the partner of one spin channel is the other
+    channel, which is already in the basis. On a nonmagnetic spinor cell it also
+    gives an error, because the states already come in Kramers pairs.
 
     The images, spectra and transmissions need a long cell that kept its states
     (`keep_states=True`, the default). A denser k-mesh for an image is a new
@@ -476,7 +496,10 @@ period you compare the energies of several long cells, one run each.
     with one k-point along it, and on an ultrasoft or PAW dataset its exit region
     must be a plane, not the whole cell. A spectrum gives an error if you also
     give `bias`, since the energy axis already holds it, and a constant-current
-    spectrum is not computed.
+    spectrum is not computed. A `magnetic_field` does not give an error here,
+    where a unit-cell image refuses it, because in the long cell the field is
+    the driver of the modulation and the tip energy is read from the
+    eigenvalues under it.
 
     Two things are not errors but limit what a number means. With
     Methfessel-Paxton smearing the energy is not a variational bound, so you use

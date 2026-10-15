@@ -334,29 +334,44 @@ $\nu_0$, which here is zero because the layers do not talk to each other.
     Hamiltonians and so two sets of invariants. For a magnet, you use the
     noncollinear run.
 
-    The $\mathbb Z_2$ invariant needs `noncolin = .true.`, `lspinorb = .true.`
-    and a fully relativistic pseudopotential, and otherwise it gives an error.
-    Without spin-orbit coupling the bands are spin degenerate, the two copies
-    wind in opposite ways, and $\nu$ is zero for a reason that has nothing to do
-    with the band structure. A crystal without magnetization has $C = 0$ by
-    time reversal.
+    Every invariant gives an error if the occupied bands come closer than
+    1e-4 Ry to the band above them at any point of the mesh, because the
+    invariant of a set of bands that touches the next one is not defined. If
+    the number of electrons does not fill a whole number of bands, you give
+    `nocc`, and otherwise this gives an error.
 
-    `method="parity"` gives an error if the crystal has no inversion centre.
-    Every invariant gives an error if the occupied bands touch the band above
-    them somewhere on the mesh, because the invariant of such a set of bands is
-    not defined.
+    The $\mathbb Z_2$ invariant gives an error without `noncolin = .true.`,
+    and you also need `lspinorb = .true.` and a fully relativistic
+    pseudopotential. Without spin-orbit coupling the bands are spin
+    degenerate, the two copies wind in opposite ways, and $\nu$ is zero for a
+    reason that has nothing to do with the band structure. `method="parity"`
+    gives an error if the crystal has no inversion centre, and then you use
+    `method="wilson"`. A crystal without magnetization has $C = 0$ by time
+    reversal.
 
-    `method="kubo"` is for the map, and `method="fhs"` is for the integer. The
-    Kubo sum over the empty bands stops at `nbnd`, and `.truncation` says what
-    this costs. Where symmetry makes the curvature zero, the ratio is noise, so
-    you read `.truncation_abs` there. A mesh point where an occupied and an
-    empty band touch is left out with a warning, and `.singular_points` counts
-    these points. The curvature of one band, `curvature_by_band`, is defined
-    only for a band that is not degenerate. Inside a degenerate level only the
-    sum over its bands has a meaning.
+    `method="kubo"` is for the map, and `method="fhs"` is for the integer,
+    because the Kubo sum diverges where two bands meet and its sum over the
+    mesh is never an exact integer. The Kubo sum over the empty bands stops at
+    `nbnd`, and `nbnd` no larger than `nocc` gives an error, since the sum is
+    then empty. `.truncation` says what the highest empty band was worth.
+    Where symmetry makes the curvature zero, this ratio is noise, so you read
+    `.truncation_abs` there.
+
+    The curvature of one band, `curvature_by_band`, is defined only for a band
+    that is not degenerate. Inside a degenerate level only the sum over its
+    bands has a meaning, and the total `curvature` always has one. Two bands
+    closer than `degeneracy_tol` count as one level. If you do not give it,
+    we take the larger of 1e-6 Ry and the split the eigensolver leaves
+    between two exactly degenerate bands, and at the default `conv_thr` this
+    is 1e-6 Ry. If you give a value below the one we would take, we warn you
+    and still use your value.
 
     The invariants give an error with a potential-only meta-GGA (`tb09` or
     `bj06`).
+
+    With a PAW dataset the invariants need the converged `becsum` beside the
+    density, because it cannot be rebuilt from the density. The `Calculator`
+    methods pass it for you.
 
 The notebook for this page is
 [10, the topological invariants](https://github.com/joselado/defuqumat/blob/master/notebooks/10_topological_invariants.ipynb).

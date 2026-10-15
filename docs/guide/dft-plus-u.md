@@ -130,17 +130,57 @@ radial function of the shell itself, with a screened Coulomb interaction. The
 screening length is chosen so that $F^0$ is the $U$ on the card. This needs a PAW
 dataset, because only PAW has the all-electron partial wave.
 
+## Fixing a tensor moment
+
+The occupation matrix of a shell can also be written as a sum of multipoles, the
+tensor moments $w^{kpr}_t$, with $k$ the rank in the orbital index, $p$ the rank in
+spin and $r$ their coupling. The charge is $w^{000}$, the spin moment is $w^{011}$,
+and $\mathbf{L}\cdot\mathbf{S}$ is $w^{110}_0$. With a `TENSOR_MOMENTS` card you
+fix one of them, and the SCF converges to a state that carries it, which selects an
+orbital or multipolar order that the SCF would not find on its own:
+
+```
+&system
+   tensor_moment_penalty = 20.0
+/
+TENSOR_MOMENTS
+ N-2p 1 1 0 0 -0.40      # hold L.S at -0.40
+```
+
+The constraint is a quadratic penalty with strength `tensor_moment_penalty`, so the
+moment approaches its target as the penalty grows rather than reaching it. The energy
+of the penalty is not part of the reported total energy.
+
 !!! note "Limits"
-    The intersite $V$, background channels, the orbital-resolved form and the
-    `wf` and `pseudo` projectors give an error. PAW with a GGA and a
-    noncollinear magnetization together gives an error.
+    The intersite $V$ gives an error, and so do background channels (a second
+    manifold on the same species, or `hubbard_occ` for a second channel), orbital
+    indices on a `HUBBARD` line (the orbital-resolved form) and the `wf` and
+    `pseudo` projectors.
+
+    `hubbard_double_counting = 'amf'` needs the full form of DFT+U, which a `J` on
+    the card or `hubbard_slater = 'yukawa'` selects. Without them it gives an
+    error, because the simple form of DFT+U is the fully localized limit itself.
+    `ALPHA`, `J0` or `BETA` together with a `J` give an error, as in `pw.x`. There is no input for Slater
+    or Racah integrals given directly (Elk's `inpdftu = 2` and `3`), since they are
+    the same three numbers as $U$, $J$ and $B$, and there is no interpolation
+    between the fully localized limit and around mean field.
 
     A collinear DFT+U run needs `nosym` when its magnetic group has operations
-    combined with time reversal. A spinor run does not. A fixed tensor moment
-    needs a spinor run.
+    combined with time reversal, because these exchange the two spin channels. A
+    spinor run (`noncolin = .true.`) does not need it.
+
+    A fixed tensor moment needs a spinor run, because in a collinear run it
+    reduces to the fixed spin moment that `constrained_magnetization` already
+    gives.
 
     `hubbard_slater = 'yukawa'` needs a PAW dataset. A norm-conserving or
-    ultrasoft orbital gives a far too small $F^0$.
+    ultrasoft orbital would give a far too small $F^0$, so it gives an error.
+    It also gives an error when the partial wave has a norm below 0.7 inside the
+    cutoff, which is by default the augmentation radius of the dataset, and you
+    can set a larger one with `hubbard_radial_cutoff`. The run keeps, with each
+    manifold, the cutoff it used and the norm inside it, and this norm tells you
+    whether the shell is bound inside the cutoff. `J0`, `ALPHA` and `BETA` give
+    an error with `'yukawa'`.
 
     A Hubbard $U$ gives an error in the force theorem for the anisotropy, in the
     magnons and in the linear response. The relaxed anisotropy works.

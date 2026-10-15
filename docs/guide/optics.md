@@ -43,7 +43,7 @@ pair into an exciton, and here the question is how strong the kernel is at long
 wavelength. We measure it with one number,
 
 $$
-\alpha = -4\pi\,[\tilde f_{xc}]_{00},
+\alpha = -4\pi\,[\tilde f_{xc}]_{00} .
 $$
 
 This is the $\alpha$ of the long-range kernel $f_{xc}=-\alpha/q^2$ that has the
@@ -187,8 +187,8 @@ makes it zero, so a crystal with no magnetic order has none, however heavy its
 atoms are. A collinear magnet without spin-orbit coupling has none either, because
 a spin rotation combined with time reversal is still a symmetry. So
 $\sigma_{xy}$ needs magnetism and spin-orbit coupling together, and fcc nickel has
-both. Its static limit is the anomalous Hall conductivity, the transverse current
-that flows with no applied magnetic field. Here we take nickel with spin-orbit
+both. Its static limit, taken with $\eta \to 0$ first, is the anomalous Hall
+conductivity, the transverse current that flows with no applied magnetic field. Here we take nickel with spin-orbit
 coupling and the moment along $z$, on a $4\times4\times4$ grid, and we compute
 the tensor with `calc.get_optical_conductivity()`:
 
@@ -238,12 +238,23 @@ The keywords of `get_optical_conductivity` are:
 - **`fermi_energy`**: the Fermi level in Ry. With a denser grid you give the one of
   the SCF, `fermi_energy=scf.fermi_energy`, so the occupations stay those of the
   ground state.
+- **`method`**: `"frequency"`, the default, or `"curvature"`. `"frequency"` gives
+  the whole spectrum, and its value at $\omega = 0$ is the conductivity at the
+  finite broadening $\eta$, which is what a measured spectrum goes to at zero
+  frequency. `"curvature"` gives only $\omega = 0$, as the Berry-curvature
+  integral with $\eta \to 0$, which is the intrinsic anomalous Hall
+  conductivity. For an insulator the two are the same, and for a metal they are
+  not.
+- **`degeneracy_tol`**: the gap in Ry below which an occupied and an empty band
+  count as degenerate, so their pair is dropped. The Limits note below says how
+  the code chooses it when you do not give it.
 
 `sigma.sigma_s_per_cm` is the complex tensor in S/cm with the shape
 (frequency, 3, 3), and `sigma.sigma` the same in atomic units.
 `sigma.dielectric` is $\epsilon_{ij}(\omega)$, `sigma.plasma_ev` is the
 $3\times3$ tensor $\hbar\omega_p$ in eV, and `sigma.hall_conductivity` is the
-antisymmetric part at $\omega = 0$ in S/cm.
+antisymmetric part at $\omega = 0$ in S/cm, which is the intrinsic anomalous
+Hall conductivity only with `method="curvature"`.
 
 ## The Kerr angle
 
@@ -309,7 +320,7 @@ $\mathrm{Re}\,\sigma_{xx}$, and the Drude peak at $\omega = 0$ grows with the me
 because the plasma frequency $\hbar\omega_p$ goes from 0.85 eV to 4.42 eV and
 then 5.74 eV, which means that the Fermi surface is not converged even on 512
 k-points. In the middle panel we see $\mathrm{Re}\,\sigma_{xy}$, and its static
-value, the anomalous Hall conductivity, is $-1103$, $+1713$ and $+5310$ S/cm on
+value at $\eta = 0.01$ Ry is $-1103$, $+1713$ and $+5310$ S/cm on
 the three meshes, so it changes sign and then grows. The static Hall
 conductivity of nickel is a sum dominated by a few k-points where two bands are
 almost degenerate at the Fermi level, and a converged value needs meshes much
@@ -339,30 +350,59 @@ here.
 !!! note "Limits"
     The absorption spectrum needs an insulator with fixed occupations. For a metal
     the sum over pairs of bands has no intraband term, so the Drude part of the
-    response would be missing, and the code gives an error. Ultrasoft and PAW
-    datasets give an error, and so do `nspin = 2`, noncollinear magnetism,
-    spin-orbit coupling, a spin spiral and a Hubbard $U$. The spectrum is at
-    $\mathbf q = 0$ only.
+    response would be missing, and the code gives an error. A state where an empty
+    band carries occupation at some k-point also gives an error. Ultrasoft and PAW
+    datasets give an error, because every matrix element would need the
+    augmentation charge, and so do `nspin = 2`, noncollinear magnetism, spin-orbit
+    coupling, a spin spiral and a Hubbard $U$. The spectrum is at
+    $\mathbf q = 0$ only, since a finite $\mathbf q$ needs the states at
+    $\mathbf k + \mathbf q$.
 
     Both the absorption spectrum and the optical conductivity need the whole
-    k-grid, not the irreducible wedge. So you run with `nosym = .true.` and
-    `noinv = .true.` on an unshifted grid, which is closed under the point group.
-    The half-sphere storage of `K_POINTS gamma` also gives an error for the
-    absorption spectrum.
+    k-grid, and a symmetry-reduced k-set gives an error. For the spectrum the
+    reason is that symmetrizing $\chi^0_{\mathbf G\mathbf G'}$ rotates two
+    $\mathbf G$ indices at once, and for the conductivity it is that the
+    antisymmetric part is an axial vector, which a wedge does not sum to the
+    whole cell. So you run with `nosym = .true.` and `noinv = .true.` on an
+    unshifted grid, which is closed under the point group. A shifted whole grid
+    works for the spectrum itself, but the band-truncation check
+    `static_residual` gives an error on it, so you pass `static_residual=False`.
+    The half-sphere storage of `K_POINTS gamma` gives an error for the absorption
+    spectrum, because the pair densities would be built from wrong real-space
+    products.
 
-    The `alda` kernel gives an error with a gradient-corrected functional, because
-    the ALDA kernel is local in the density and a GGA kernel is not. If the
-    bootstrap kernel does not converge, the code gives an error and returns no
-    spectrum.
+    The `alda` kernel gives an error with a gradient-corrected or meta-GGA
+    functional, because the ALDA kernel is local in the density and a GGA kernel
+    is not. The `lrc` kernel gives an error without `alpha`. If the bootstrap
+    kernel does not converge, the code gives an error and returns no spectrum,
+    because a spectrum from a kernel still in motion belongs to no functional.
 
-    The optical conductivity gives an error for a spin spiral, and its Drude term
-    gives an error with tetrahedra, which have no smeared delta function at the
-    Fermi level. Two numbers come with every conductivity and you should read
-    them. `sigma.band_cut_gap` is the gap between the last band in the sum and the
-    first band left out. If it is close to zero, the sum stops inside a degenerate
-    set of bands and the result is wrong, so you change `nbnd`.
-    `sigma.degenerate_pairs` counts the pairs of bands that are too close in energy
-    to count as a transition, and it is normally zero.
+    The optical conductivity gives an error for a spin spiral, whose two spinor
+    components live on different spheres. Its Drude term gives an error with
+    tetrahedra, which have no smeared delta function at the Fermi level, so you
+    use smearing, or `intraband=False` to read the interband part alone.
+    Ultrasoft and PAW datasets work, and so does `nspin = 2`, where the
+    conductivities of the two spin channels are added. `sigma.hall_conductivity`
+    gives an error when your frequencies do not start at $\omega = 0$, since it
+    is the static limit. The anomalous Hall conductivity of a metal needs a very
+    dense k-mesh, as we saw above, so you quote it with its convergence in the
+    k-mesh.
+
+    Two numbers come with every conductivity and you should read them.
+    `sigma.band_cut_gap` is the gap between the last band in the sum and the
+    first band left out. If it is close to zero, the sum stops inside a
+    degenerate set of bands and the result is wrong, so the code warns and you
+    change `nbnd`. `sigma.degenerate_pairs` counts the occupied and empty pairs
+    of bands closer in energy than `degeneracy_tol` (in Ry), which are dropped,
+    and it is normally zero. If you do not give `degeneracy_tol`, the code takes
+    it from how well the bands were converged, which is 1e-5 Ry at the default
+    `conv_thr`. A value you give below what the eigensolver resolves is used,
+    and the code warns. With smearing the dropped pairs cancel and change
+    nothing, and the code warns where they do not cancel, which is with fixed
+    occupations and with `method="curvature"`. The same `degeneracy_tol` works
+    the same way on `get_berry_curvature`, `get_shift_current`, `get_shg`,
+    `get_vertical_transport`, `get_ultracell`, `get_ultracell_transport` and
+    `get_scf`.
 
 The notebooks for this page are
 [27, excitons and TDDFT](https://github.com/joselado/defuqumat/blob/master/notebooks/27_excitons_and_tddft.ipynb)

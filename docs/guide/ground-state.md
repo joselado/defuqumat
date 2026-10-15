@@ -138,26 +138,141 @@ the step produces, which cannot go below the ground-state energy. A step is kept
 if this energy or the residual goes down, and otherwise the step is cut in half.
 This is the adaptive damping of Herbst and Levitt (arXiv:2109.14018).
 
+We can also choose the mixing ourselves. `mixing_mode='ldos'` is the
+preconditioner of Herbst and Levitt (arXiv:2009.01665) for a metal beside vacuum.
+It screens the residual with the local density of states at the Fermi level, so
+it acts as Kerker mixing in the metal, does nothing in the vacuum and is plain
+Anderson mixing in an insulator, with no parameter to choose. A bulk cell has no
+charge sloshing to cure, so there we keep `anderson`.
+
+`mixing_mode='adaptive'` is the mixer of Elk. It keeps a separate step length for
+each component of the density, which grows while the residual of that component
+keeps its sign and is cut when the sign changes. This helps when the SCF crawls
+rather than overshoots, which is the case of a magnet with a soft direction.
+Note that in this mode `mixing_beta` is not a step length but the increment and
+the floor of the steps. It is 0.05 when `mixing_beta` is set neither in the
+input file nor in the call, so the same number means two different things in
+the two modes, and the 0.7 of a `pw.x` input is too large here.
+
+`mixing_beta_mag` gives the magnetization a step length of its own, separate
+from the `mixing_beta` of the charge. When it is unset, the magnetization takes
+`mixing_beta`, as in `pw.x`. Whether it helps depends on which channel the run
+is slow in, and `calc.get_scf(residual_split=True)` writes into `scf.history`
+how much of the residual of each iteration is in the charge and how much is in
+the magnetization.
+
+`scf_solver='newton-krylov'` does not mix at all. It solves the condition that
+the output density equals the input density by Newton's method, and the way the
+Jacobian is applied is chosen with `scf_solver_options={"jvp": ...}`. The
+default `"finite-difference"` is a central difference of one SCF step and is the
+fastest. `"autodiff"` differentiates the eigensolver step by step, and
+`"sternheimer"` solves the Sternheimer equation for the response of the
+converged states, as density-functional perturbation theory does, which is the
+exact Jacobian. On the cells we measured Newton is slower than mixing, and what
+it buys is that it converges to the solution it starts nearest, also an
+unstable one that a mixer cannot hold.
+
 If the SCF reaches `max_iterations` without converging, the code warns and
-`scf.converged` is `False`, so all quantities computed from this result then come
-from an unconverged density.
+`scf.converged` is `False`. The other methods of `calc` that start from the
+ground state then give an error, because they need a converged density.
 
 !!! note "Limits"
-    `K_POINTS gamma` asks for the half-sphere storage of the gamma trick. For an
-    ultrasoft or PAW dataset, a run with symmetry, a spinor or spiral run and a
-    Hubbard $U$, we use an explicit $k = 0$ on the full sphere instead. The
-    result is the same and the cost is twice as large, and the code warns.
+    `K_POINTS gamma` asks for the half-sphere storage of the gamma trick, which
+    halves the memory of the wavefunctions. We use it only for a norm-conserving
+    run with `nosym = .true.`, no spinor or spiral and no Hubbard $U$. Otherwise
+    we run an explicit $k = 0$ on the full sphere instead, with the same result at
+    twice the cost, and the code warns. For a crystal with symmetry,
+    `nosym = .true.` is the way to keep the half sphere. `calc.estimate()` makes
+    the same choice as the run, so it sizes the run either way.
+
+    After a run on the half sphere, the following give an error, because
+    their plane-wave sums are not written for it. These are the projected density
+    of states, the Löwdin charges and the site-resolved angular momenta, the
+    sum-over-states $\chi_0$, the transverse spin susceptibility, an STM image, a
+    tunnelling spectrum, the tunnelling transmission and its momentum-resolved
+    weight, and the forces and the stress with `method='analytic'`. The velocity
+    operator gives an error too, and with it the band velocities, the optical
+    conductivity, the Kerr angle, second-harmonic generation, the shift current
+    and the nesting function. So does a response to an electric field, which is
+    the dielectric tensor, the Born charges, the Raman tensor and the strain
+    response, and so do real-time propagation and the ultracell. For all of these
+    the way out is the same cell at `K_POINTS automatic` with `1 1 1 0 0 0`,
+    which is exact. A Berry-phase field, `lelfield`, gives an error with
+    `K_POINTS gamma`, as in `pw.x`. The dynamical matrix, also a partial one,
+    the topological invariants and a potential-only meta-GGA work on the half
+    sphere.
+
+    A checkpoint holds the state and not the report of the run. The stress, the
+    solver, the history and the site charges and moments are not stored. A
+    DFT+U state is saved, and its Hubbard manifold is built again from the
+    `HUBBARD` card when it is loaded.
 
     A functional that the pseudopotentials name and that we do not implement
     gives an error, and it is never replaced by LDA.
 
-    The robust mode is not guaranteed to converge. On a cell with several
-    self-consistent solutions it can find a different one than plain Anderson,
-    so you should compare the energy and the moments, not only the number of
-    iterations. With Marzari-Vanderbilt or Methfessel-Paxton smearing its energy
-    is not a lower bound, so it keeps a step on the residual only, and warns. It
-    gives an error for tetrahedra, a potential-only meta-GGA, `lelfield`,
-    k-point pools and checkpoints.
+    A converged run does not prove that we found the ground state. On a cell
+    with a soft or degenerate magnetic direction, another mixer or only another
+    `mixing_beta` can converge to another self-consistent solution, and each
+    reports `converged = True`. On such a cell we vary both, and compare the
+    energy and `scf.site_moments`, or `cell_moments()` of an ultracell result,
+    not only the number of iterations.
+
+    The robust mode is not guaranteed to converge. Convergence is proved only for
+    its last step, damped mixing of the Hamiltonian, and the rest is measured.
+    It can also find another solution than plain Anderson. With
+    Marzari-Vanderbilt or Methfessel-Paxton smearing its energy is not a lower
+    bound, so it keeps a step on the residual only, has no last step, and warns.
+    It gives an error for tetrahedra, a potential-only meta-GGA, `lelfield`, a
+    magnetic field that is updated or reduced during the run, `rotate_moments`,
+    `scf_solver`, k-point pools, a checkpoint, a continued mixer state
+    (`mixing_from`) and `mixing_beta_mag`, which the mode sets itself. The
+    ultracell does not take it.
+
+    `mixing_mode='ldos'` screens only the charge, so the magnetization takes
+    `mixing_beta` and the soft direction of a magnet is not helped. With fixed or
+    `from_input` occupations there are no states at the Fermi level, so the run
+    is plain Anderson mixing and the code warns. It does not help a metal on a
+    semiconductor or a $d$-electron magnet, and on a bulk $d$-metal it takes more
+    iterations than `anderson`. Near a magnetic transition it can also change
+    the state found. On `benchmarks/fe-unstable.in` it lands on a moment of
+    0.42 $\mu_B$, where plain `anderson` stops at the nonmagnetic state. It gives
+    an error with tetrahedra, because it needs a smooth delta at the Fermi
+    level, and also as the `warmup_mixing` of
+    the Newton solver, in the ultracell and in a response loop. Under
+    `scf_solver='newton-krylov'` the solver uses Kerker and `mixing_mode` does
+    not reach it.
+
+    Under `mixing_mode='adaptive'` the code warns when `mixing_beta` is above
+    0.5, because the steps then reach their maximum within two iterations and
+    the run is plain linear mixing. Adaptive mixing with a preconditioner gives
+    an error, because its step lengths act point by point in real space. So in
+    the ultracell, where Kerker is on by default, it needs `kerker=False`.
+
+    `mixing_beta_mag` gives an error with `mixing_mode='adaptive'`, because that
+    mode already has one step length per component, and when it is not
+    positive. It acts on the density only, and the augmentation charge of an
+    ultrasoft or PAW run, the Hubbard occupations and the kinetic-energy density
+    keep `mixing_beta`. The residual of the augmentation charge is written into
+    `scf.history` at every iteration as `becsum_accuracy`, outside the `dr2` that
+    decides convergence, so you can ask with a number whether it needs a step of
+    its own.
+
+    Under `scf_solver='newton-krylov'`, a fixed occupation that cuts a degenerate
+    multiplet, as the Hund's-rule filling of an atom does, converges, but the
+    code still warns, because the wavefunctions and the band-resolved quantities
+    depend on which members of the multiplet are filled. A smearing is the cure.
+    With `"jvp": "autodiff"` the Jacobian is not exact at a degenerate band, for
+    example the threefold band of silicon at $\Gamma$, and it is worse from a
+    cold start and at a tight eigensolver threshold, a factor of 2.3 off at
+    `ethr` $=10^{-13}$. The default finite difference starts the eigensolver
+    from the converged states, so it is the derivative of a slightly different
+    map, 5 to 40 per cent off the exact one, and Newton still converges with it.
+    The `"sternheimer"` Jacobian does not depend on which states fill a
+    degenerate multiplet. `"jvp": "sternheimer"` gives an error with a Hubbard
+    $U$, a meta-GGA, a magnetic noncollinear run, `wfc_store='host'`, a fixed occupation
+    that cuts a degenerate multiplet, tetrahedra, `from_input` occupations,
+    `tot_magnetization` with a smearing, a spin spiral, a saw-tooth or
+    Berry-phase electric field, and a magnetic field or a constrained moment.
 
 The notebooks for this page are
 [02, silicon](https://github.com/joselado/defuqumat/blob/master/notebooks/02_silicon_scf_and_bands.ipynb)

@@ -62,6 +62,11 @@ variables are:
   the section on pools.
 - **`DEFUQUMAT_MEM_FRACTION`**: the part of the GPU memory the code may take,
   0.9 if you do not set it. Use `off` when another program shares the card.
+- **`DEFUQUMAT_GATHER_BUDGET`**: the size in MB above which each
+  symmetrisation walks the symmetry operations one at a time, instead of
+  holding a copy of the field for every operation. It is 64 if you do not set
+  it, and `0` means that it always walks. The result changes only in its last
+  digits.
 
 Why is the first run of a script slow? The code is written in JAX, which
 compiles each kernel the first time it meets it, for the shapes of this
@@ -268,8 +273,11 @@ If you ask for `"speed"` and leave the other settings to it, the code first esti
 calculation would not fit on the card it uses `"memory"` instead and gives a
 warning. With `band_precision="single"` the bands of the SCF are computed in
 single precision, while the density, the potential and the energies stay in
-double precision. This is a mode for speed only, and no result in this guide
-was computed in it. By default the code takes 90% of the memory of the card,
+double precision. With `band_precision="mixed"` the SCF starts in single
+precision and changes the bands to double precision in the same run, at the
+first iteration whose threshold single precision cannot reach, so the state it
+converges to is a double one. This is a mode for speed only, and no result in
+this guide was computed in it. By default the code takes 90% of the memory of the card,
 and `DEFUQUMAT_MEM_FRACTION=off` gives the default of JAX, which is what you
 want when another program uses the same card. The speedups we measured on
 several cards are in
@@ -280,29 +288,91 @@ several cards are in
     run. Every other method gives an error that names it. More pools than
     k-points give an error. An SCF with a `scf_solver` other than the normal
     mixing gives an error with pools, and so do the forces and the stress
-    with a `method` other than the default one. A starting state (`starting_from`)
-    whose wavefunctions were held by a different number of pools gives an
-    error, so you start from its density instead, or use the same number of
-    pools. A checkpoint does not have this limit.
+    with a `method` other than the default `"autodiff"`. A starting state
+    (`starting_from`) whose wavefunctions were held by a different number of
+    pools gives an error, so you start from its density instead, or use the
+    same number of pools. A checkpoint does not have this limit.
+
+    The SCF does not write a checkpoint when the magnetic field comes from a
+    fixed-spin-moment scheme (`constrained_magnetization = 'fsm'`,
+    `'atomic fsm'` or `'atomic fsm direction'`). It says so once and runs on
+    without one, because this field changes at every iteration and no input
+    file says what it reached, so a restart would go back to the input field.
+    An applied field and a penalty constraint are saved normally.
+    `checkpoint_every`, the number of iterations between two checkpoints (10
+    if you do not give it), must be at least 1. A run that continues from its
+    checkpoint gives an error if you also give `magnetization`, because the
+    run already has its own. A checkpoint holds the wavefunctions, which can
+    be tens of gigabytes on a large cell, so you put `checkpoint_dir` on a
+    scratch directory. We have not timed the default of 10 on a large cell, so
+    you may need to set `checkpoint_every` yourself.
 
     `k_batch="fit"` is chosen for the k-points of the SCF, and a band path or
     an NSCF run uses the same number. It grows the number of k-points only when
     all the bands of one k-point fit on the card, otherwise it stays at one
-    k-point. A function that gets `k_batch="fit"` with no crystal to size it
-    gives an error.
+    k-point. A function that gets `k_batch="fit"` as an argument with no
+    crystal to size it gives an error. `DEFUQUMAT_K_BATCH=fit` gives no error
+    there. A batch of k-points runs each Davidson step until the slowest
+    k-point of the batch has converged. This changes only the speed, and only
+    if the k-points need different numbers of steps, which they did not on any
+    cell we measured.
 
     The memory mode only reduces the memory that grows with the k-mesh. The
     memory of one k-point, of the dense grid or of the augmentation charges of
     an ultrasoft or PAW dataset is the same in both modes. The memory of the
     host has to hold all the wavefunctions. If you give your own `k_batch` or
     `projectors`, or set `DEFUQUMAT_K_BATCH`, the code does not check that
-    `"speed"` fits, and it does not switch to `"memory"`.
+    `"speed"` fits, and it does not switch to `"memory"`. A solve with more
+    bands than the SCF, such as a spectrum, is checked again for its own
+    number of bands, and it can switch to `"memory"` or to fewer bands at a
+    time for that solve only, with a warning. The piezoelectric tensor with
+    `method="zstar_eu"` and the spectra computed as a sum over states still
+    move all the wavefunctions to the card. A `memory_mode` you give to a
+    `Calculator` sets up that calculator, and its methods after the SCF follow
+    the same mode. These are the bands, the NSCF run, the DOS, the PDOS, STM,
+    transport, the structure factors, the spiral scan, the topological
+    invariants and the optical and magnetic spectra. The magnetic anisotropy
+    and the torque do not follow the `memory_mode` of the `Calculator`. They take it
+    from `DEFUQUMAT_MEMORY_MODE` and the platform.
 
     `band_precision="single"` works only for the SCF of a collinear
-    norm-conserving calculation. An ultrasoft or PAW dataset, spinors, a
-    spiral, DFT+U and a meta-GGA give an error, and so do the forces, the
-    stress and every response computed from it. A `conv_thr` below
-    $10^{-7}$ Ry gives an error in single precision.
+    norm-conserving calculation, with one or two spin channels. An ultrasoft
+    or PAW dataset, spinors, a spiral, DFT+U and a meta-GGA give an error.
+    The forces, the stress and every response give an error on a calculation
+    whose bands are in single precision, because a gradient taken through
+    single-precision bands carries its round-off as a plausible force. This
+    also holds for a `Calculator` built with `"mixed"`, which keeps its
+    single-precision setup. For these, you converge again in double
+    precision, starting from the single-precision result with
+    `starting_from`. A `conv_thr` below $10^{-7}$ Ry gives an error in single
+    precision, because the energy does not follow it there. In single
+    precision the lowest threshold of the eigensolver is
+    $4\,\epsilon_{32}\,E_\mathrm{cut}$, with $\epsilon_{32}$ the machine
+    precision of float32 and $E_\mathrm{cut}$ the value of `ecutwfc`, because
+    $10^{-13}$ Ry would stall the eigensolver at its budget. On a GPU, single
+    precision makes the float32 matrix products run at full precision, without
+    TF32, for the whole process. A calculation moved to a new geometry or to a
+    band path builds its projectors again in double precision, so it runs fully
+    in double precision and does not stay in single precision.
+
+    The code gives a `RuntimeWarning`, once per run, when the eigensolver uses
+    its whole budget of 100 steps and leaves bands not converged. The steps of
+    each iteration are in `scf.history[i]["davidson_iterations"]`.
+    `DEFUQUMAT_ETHR_MIN` sets the lowest threshold of the eigensolver. If you
+    do not set it, this threshold is $10^{-13}$ Ry in double precision, as in
+    pw.x, and the value above in single precision. A higher value costs
+    accuracy in the energy and in the forces.
+
+    On an ultrasoft or PAW dataset, the table of the augmentation charges
+    reaches $|\mathbf G| = 2\sqrt{E_\mathrm{rho}}$, with $E_\mathrm{rho}$ the
+    value of `ecutrho`, as in pw.x. A strain so large that $|\mathbf G|$ goes
+    past this end gives NaN, not a value clamped at the end of the table,
+    because a clamped value would look smooth and of the right size but give
+    a wrong stress.
+
+    Every number we validated was measured with `projectors="store"`, which
+    keeps the projectors in memory. The `memory` mode uses
+    `projectors="rebuild"`, which builds them again when they are used.
 
 The notebook for this page is
 [03, the eigensolver and performance](https://github.com/joselado/defuqumat/blob/master/notebooks/03_eigensolver_and_performance.ipynb).
