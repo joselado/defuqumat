@@ -372,7 +372,8 @@ def test_the_band_gap_reads_both_channels_as_pw_x_does(case):
       minority channel, which ``get_homo_lumo``'s 1e-3 weight threshold reads as
       four occupied bands in *both* channels: -6.6338 and -0.4658 eV in
       ``reference.out.pw_atom-atom-lsda:295``, a gap of 6.168 eV running from the
-      minority p shell to the majority's first empty level.
+      minority p shell to the majority's first empty level (whose 3.6 meV is
+      between two ``pw.x`` runs, see below).
     """
     from defuqumat.workflows.bands import BandStructure, run_bands
 
@@ -396,9 +397,20 @@ def test_the_band_gap_reads_both_channels_as_pw_x_does(case):
     )
     homo, lumo = bands.band_edges(occupied=(4, 4))
     assert homo == pytest.approx(reference.homo, abs=FERMI_EV)
-    assert lumo == pytest.approx(reference.lumo, abs=FERMI_EV)
+    # The LUMO is the majority's first empty level, a state spread over the
+    # box, and ``pw.x`` itself does not agree with itself on it: the same state
+    # (same pseudopotential, cutoffs, cell and total energy to 1e-8 Ry) reads
+    # -0.4658 eV in this ``K_POINTS gamma`` run and -0.4694 eV in the full-sphere
+    # ``o-atom-fixed-lsda`` (``reference.out.o-atom-fixed-lsda:250``). Measured on
+    # D22: this code gives -0.46942, the full-sphere value, 3.6 meV from this
+    # file's line. So the LUMO is held to the full-sphere run at ``FERMI_EV``
+    # and to this line at 5 meV; reading the wrong band would miss both by at
+    # least the 0.15 eV to the minority's fifth level.
+    full_sphere = read_qe_output(GENERATED / "reference.out.o-atom-fixed-lsda")
+    assert lumo == pytest.approx(full_sphere.eigenvalues[0, 0, 4], abs=FERMI_EV)
+    assert lumo == pytest.approx(reference.lumo, abs=5e-3)
     assert bands.gap(occupied=(4, 4)) == pytest.approx(
-        reference.lumo - reference.homo, abs=2 * FERMI_EV
+        reference.lumo - reference.homo, abs=5e-3 + FERMI_EV
     )
     # Both edges are in different channels: the HOMO is the minority's fourth
     # band and the LUMO the majority's fifth.
