@@ -64,3 +64,15 @@ performance/cluster/generated/
 # the logo run's saved density (62 MB, regenerable by tools/logo/compute.py scf on D22)
 docs/logo/data/*.npz
 docs/logo/mesh*/
+
+# The user guide website and its PDF, built by mkdocs and docs/build_guide_pdf.py.
+/site/
+docs/user_guide.pdf
+
+# User-guide figures: data.npz is committed, the run files are not.
+docs/figures/.locks/
+docs/figures/*/DONE
+docs/figures/*/FAILED
+docs/figures/*/RUNNING
+docs/figures/*/compute.log
+docs/figures/COMMIT
