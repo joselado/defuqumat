@@ -3,7 +3,7 @@ import numpy as np
 import style
 
 d = np.load("data.npz")
-FLOOR = 1e-3          # reflections that are zero by symmetry are drawn here
+FLOOR = 1e-4          # reflections that are zero by symmetry are drawn here
 
 
 def label(hkl):
@@ -20,18 +20,19 @@ def draw():
                color=style.ink2(), label="zero by symmetry")
     for i in np.flatnonzero(keep):
         name = label(d["hkl"][i])
-        if name in ("(111)", "(220)", "(311)", "(400)", "(200)"):
+        if name in ("(111)", "(220)", "(311)", "(400)", "(200)", "(420)"):
             y = d["F"][i] if not zero[i] else FLOOR
-            a.annotate(name, (d["length"][i], y), xytext=(4, 4), textcoords="offset points",
+            dx = -30 if name == "(311)" else 4
+            a.annotate(name, (d["length"][i], y), xytext=(dx, 4), textcoords="offset points",
                        color=style.ink2(), fontsize=8)
         if name == "(222)":
             a.semilogy(d["length"][i], d["F"][i], "o", ms=8, color=style.color(1))
             a.annotate("(222): bond charge", (d["length"][i], d["F"][i]),
-                       xytext=(10, 18), textcoords="offset points", color=style.color(1),
+                       xytext=(2.6, 1.3), color=style.color(1),
                        arrowprops=dict(arrowstyle="-", color=style.color(1), lw=0.8))
     a.set_xlabel(r"$|\mathbf{H}|$ (1/bohr)")
     a.set_ylabel(r"$|F(\mathbf{H})|$ (electrons)")
-    a.set_ylim(5e-4, 4.0)
+    a.set_ylim(5e-5, 4.0)
     a.legend(loc="upper right")
 
     w = 0.36
