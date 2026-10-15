@@ -319,7 +319,28 @@ def test_triplet_o2_matches_pw_x_channel_by_channel():
     assert polarization.ionic_phase == pytest.approx(-0.62000, abs=1.0e-6)
     assert polarization.total_phase == pytest.approx(0.0, abs=1.0e-5)
     assert polarization.quantum == pytest.approx(1.0)
+    # pw.x's P is its total phase, 0.00000 to five decimals, times |a_3| = 10,
+    # so the five-decimal resolution is 1e-4 here.
     assert polarization.polarization == pytest.approx(0.0000164, abs=1.0e-4)
-    print(f"o2 up {up.total:.8f} down {down.total:.8f} "
-          f"electronic {polarization.electronic_phase:.8f} "
-          f"total {polarization.total_phase:.3e} P {polarization.polarization:.3e}")
+
+    # The phases separate the two counts but not which Hamiltonian each channel
+    # reads: any isolated manifold of this molecule centres at z_c, so the up
+    # Hamiltonian's lowest five bands give 0.425 as well. The eigenvalues do
+    # separate them, the exchange splitting of triplet O2 being of order an eV.
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.scf.occupations import occupied_counts
+    from defuqumat.workflows.topology import _source
+
+    calculation = Calculation(system, pseudos)
+    counts = occupied_counts(calculation)
+    assert counts == (7, 5)
+    reference = np.asarray(result.eigenvalues_by_spin)  # (nspin, nk, nbnd), Ry
+    assert reference.shape[1] == 1          # the ground state is at Gamma alone
+    gamma = 0
+    for spin in (0, 1):
+        source = _source(system, pseudos, result.density, counts[spin], None,
+                         1.0e-10, "default", becsum=result.becsum,
+                         calculation=calculation, spin=spin)
+        energies = np.asarray(source.states([[0.0, 0.0, 0.0]]).energies)[0]
+        assert np.allclose(energies[:7], reference[spin, gamma, :7], atol=1.0e-6)
+    assert abs(reference[0, gamma, 4] - reference[1, gamma, 4]) > 1.0e-2
