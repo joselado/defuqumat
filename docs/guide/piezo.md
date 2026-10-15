@@ -1,10 +1,11 @@
 # Strain and polarization couplings
 
 In this page we compute how a crystal couples its strain, its polarization and
-its magnetization: the piezoelectric tensor, the polarization that a strain
-creates, then the elasto-optic and electrostriction tensors, which say how a
-strain changes the dielectric response, and finally the magnetoelectric tensor,
-the polarization that a magnetic field creates.
+its magnetization. We start with the piezoelectric tensor, the polarization
+that a strain creates, and its convergence with the k-mesh. Then we compute
+the elasto-optic and electrostriction tensors, which say how a strain changes
+the dielectric response, and finally the magnetoelectric tensor, the
+polarization that a magnetic field creates.
 
 ## The piezoelectric tensor
 
@@ -18,7 +19,7 @@ e_{k,ij} = \frac{\partial P_k}{\partial \varepsilon_{ij}}
          = -\frac{1}{\Omega}\,\frac{\partial^2 E}{\partial \varepsilon_{ij}\,\partial \mathcal E_k} .
 $$
 
-The two first forms are the same number, because a mixed second derivative of
+The first two forms are the same number, because a mixed second derivative of
 the energy does not depend on the order, meaning that the polarization a strain
 creates is also the stress a field creates. This is what a piezoelectric sensor
 reads as a voltage, and what a piezoelectric actuator uses in reverse. A tensor
@@ -198,14 +199,14 @@ need the elastic compliance.
 
 Why such a dense mesh? The elasto-optic tensor is a small change of the
 dielectric tensor, and it converges slowly with the k-mesh. The run above takes
-109 s on one core, and in separate runs of the same input on smaller meshes, $p_{11}$
+109 s on one core with the kernels already compiled, and in separate runs of the same input on smaller meshes, $p_{11}$
 reads $-0.0544$, $-0.0746$, $-0.0871$, $-0.0927$, $-0.0947$ and $-0.0953$ at
 $6^3$, $8^3$, $10^3$, $12^3$, $14^3$ and $16^3$, and $p_{12}$ reads $-0.0026$
 at $6^3$ and $+0.0085$ at $8^3$, so on a $6\times6\times6$ mesh even its sign
 is wrong. From $16^3$ to $20^3$, $p_{11}$ still moves by 0.4 per cent and
 $p_{12}$ by 1.7 per cent, so the last digit printed above is not converged. The
 dielectric constant moves in the same way, from 15.744 at $6^3$ to 12.617 at
-$16^3$. As a reference, the measured values for silicon are
+$16^3$ and 12.606 at $20^3$. As a reference, the measured values for silicon are
 $p_{11} = -0.094$, $p_{12} = +0.017$ and $p_{44} = -0.051$. The clamped-ion
 $p_{11}$ and $p_{12}$ are the whole answer in the diamond structure, while
 $p_{44}$ misses the relaxation of the atoms inside the cell, so it is not yet
