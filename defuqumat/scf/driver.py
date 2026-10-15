@@ -7109,6 +7109,11 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
 #: (``PLAN.md`` P129: NbSe2 10 against 9), so no film is told from a monolayer.
 ROBUST_VACUUM = 0.3
 
+#: The inner mixer ``mixing_mode = 'robust'`` uses, or ``None`` for the setup's
+#: choice from the cell. Set only by ``tools/robust_mixing/run_one.py``, for the
+#: control that separates the supervisor from the preconditioner it chose.
+ROBUST_INNER = None
+
 
 
 def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
@@ -7673,8 +7678,8 @@ def run_scf(
         vacuum = vacuum_fraction(np.asarray(calculation.system.structure.positions),
                                  np.asarray(calculation.system.cell.at))
         mixing_mode = "ldos" if smeared and vacuum > ROBUST_VACUUM else "anderson"
-        # For the A/B that separates the supervisor from the preconditioner.
-        mixing_mode = os.environ.get("DEFUQUMAT_ROBUST_INNER", mixing_mode)
+        if ROBUST_INNER is not None:
+            mixing_mode = ROBUST_INNER
         if verbose:
             print(f"  mixing_mode = 'robust': vacuum fraction {vacuum:.2f}, "
                   f"inner mixer {mixing_mode!r}")
@@ -7698,11 +7703,6 @@ def run_scf(
             smeared=smeared,
             ldos=mixing_mode == "ldos",
             variational=variational,
-            # The A/B of the acceptance window (``tools/robust_mixing``), read
-            # from the environment only while it is being measured.
-            memory=int(os.environ.get("DEFUQUMAT_ROBUST_MEMORY", "8")),
-            growth=(float(os.environ["DEFUQUMAT_ROBUST_GROWTH"])
-                    if os.environ.get("DEFUQUMAT_ROBUST_GROWTH") else None),
         )
     # Turned off for the rest of the run the first time a write is refused, so a
     # ``reducebf`` run says so once rather than once per cadence.

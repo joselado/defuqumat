@@ -180,9 +180,6 @@ class Supervisor:
     #: times the best instead matched Anderson on the DFT+U cell and took 133 on
     #: the PAW one.
     memory: int = 8
-    #: If set, the residual clause is instead ``accuracy < growth * best`` over
-    #: the same window: a bound on how far above the best a kept input may be.
-    growth: float | None = None
     #: The window after the first stall: the run is known to be stuck, so a
     #: second full window proves nothing.
     window_after: int = 15
@@ -230,10 +227,7 @@ class Supervisor:
             return True
         noise = self.nelec * max(ethr, self._ethr or ethr)
         recent = slice(-self.memory, None)
-        if self.growth is None:
-            residual_fell = accuracy < max(self._window_accuracies[recent])
-        else:
-            residual_fell = accuracy < self.growth * min(self._window_accuracies[recent])
+        residual_fell = accuracy < max(self._window_accuracies[recent])
         energy_fell = (self.variational and unsettled == 0
                        and merit < max(self._window_merits[recent]) - noise)
         if residual_fell or energy_fell:

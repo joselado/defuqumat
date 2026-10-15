@@ -8,6 +8,7 @@ by the state it reached and not only by its count.
 """
 import json
 import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -17,6 +18,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cells import CELLS, MAX_ITERATIONS  # noqa: E402
 
 from defuqumat import Calculator  # noqa: E402
+import defuqumat.scf.driver as driver  # noqa: E402
+
+# The control arm: the robust mode with its inner mixer pinned (``anderson``),
+# to separate what the supervisor does from the preconditioner it would choose.
+driver.ROBUST_INNER = os.environ.get("ROBUST_INNER") or None
 
 cell, mode, out = sys.argv[1:4]
 generated = Path(sys.argv[4]) if len(sys.argv) > 4 and "=" not in sys.argv[4] else ROOT / "tools/robust_mixing/inputs"
