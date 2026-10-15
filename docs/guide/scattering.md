@@ -60,8 +60,8 @@ print(factors.table(limit=10))
 Each line is one reflection, with its index $(hkl)$ on the conventional cubic
 axes, the number of equivalent reflections in its star, $|\mathbf H|$ in 1/bohr
 and the complex $F$ in electrons. The first line is $F(000) = 8$, the eight
-valence electrons of the two silicon atoms. The (111) and the (222) take two
-rows each, with the same $|F|$ and opposite imaginary parts, because the code
+valence electrons of the two silicon atoms. The (111), the (311) and the (222)
+take two rows each, with the same $|F|$ and opposite imaginary parts, because the code
 collapses only the members of a star that have the same phase, and in diamond the
 two halves of these stars differ by a fractional translation. Let us now look at four reflections
 by their index:
@@ -81,7 +81,7 @@ for hkl in [(1, -1, -1), (0, 0, -2), (2, -2, -2), (2, 0, -4)]:
 The (111) reflection is allowed and large, 1.749529 electrons, but most of its
 measured value comes from the core, so this number is not the measured one. The
 (200) and the (420) are zero for a different reason. The space group of diamond
-has a glide plane, and this makes every $(h00)$ reflection with $h$ not a
+has a glide plane, and this makes every $(hk0)$ reflection with $h+k$ not a
 multiple of 4 exactly zero, whatever the density is inside the cell. The (222) is
 the interesting one. The space group allows it, and it is zero only if each atom
 has a spherical charge, because then the two atoms of the cell give equal and
@@ -163,8 +163,10 @@ reflections fall from 1.75 electrons at (111) to about $10^{-2}$ and below past
 4 1/bohr, because the valence density is smooth. The five reflections that the glide
 plane forbids, (200), (420), (600), (640) and (820), are at most $4\times10^{-17}$,
 and we draw them at $10^{-4}$ with a cross. The (222) reflection, in orange, is
-0.347 electrons, about the same as its allowed neighbours (311) and (400), so the
-bond charge of silicon is not a small effect in X-ray diffraction. Note that the
+0.347 electrons, about the same as the valence part of its allowed neighbours
+(311) and (400), so the bond charge is not a small part of the valence density.
+Next to a measured allowed reflection, which includes the core, the (222) is
+still a weak reflection. Note that the
 (222) is the difference of two nearly equal atomic contributions, so it
 converges more slowly than the total energy. For this reason the input takes a
 cutoff of 30 Ry and an $8\times8\times8$ k-mesh, and we did not test its
@@ -240,14 +242,15 @@ mean of N(q) / D(E_F)^2 = 1.000000
 The peak is at $q_3 = 0.5$, which is $2k_F$, as we expected from the half
 filling, and it reaches 99.8% of $N(0)$, so almost every point of the Fermi
 surface is nested. The mean of $N(\mathbf q)$ is $D(E_F)^2$ to six digits, which is
-the sum rule above. A peak at $2k_F$ means that the chain is unstable to a
-modulation of period $2c$, which doubles the cell. If the lattice takes this
+the sum rule above. A peak at $2k_F$ means that, if the chain is unstable, the
+modulation has period $2c$, which doubles the cell. In one dimension at half
+filling this happens for any coupling. If the lattice takes this
 modulation, the atoms dimerize, which is the Peierls instability. If the spins
 take it, the chain orders antiferromagnetically, which is the chain of the
 previous section.
 You can test the prediction with a calculation that knows nothing about the
 Fermi surface, a spin spiral of the same chain relaxed in its wavevector, as in
-[Spin spirals and exchange](spirals.md).
+[Spin spirals](spirals.md).
 
 The nesting function is a non-self-consistent run. We keep the density of the SCF
 and compute the bands again on the k-mesh `grid`, and $g(\mathbf k)$ is a delta
@@ -259,7 +262,8 @@ are:
 - **`grid`**: the Monkhorst-Pack mesh of the Fermi surface. If you do not give
   it, the code uses the mesh of the SCF, which is rarely enough. An input with an
   explicit list of k-points has no mesh, so there you must give `grid`. The
-  q-points are the differences of these k-points, on the same unshifted mesh.
+  q-points are the differences of these k-points, so they lie on an unshifted
+  mesh of the same size, whatever the shift of the k-mesh.
 - **`degauss`**: the width of the delta function, in Ry. If you do not give it,
   the code uses the `degauss` of the SCF.
 - **`smearing`**: the shape of the delta function. If you do not give it, the
@@ -281,7 +285,7 @@ $N(\mathbf q)$ as an array of the shape of the mesh, for a map.
 
 On the left we see $N(q)/N(0)$ of the hydrogen chain on the 60 q-points of the
 chain. It has two peaks, at $q_3 = 0$ and at $q_3 = 0.5$, of the same height, and it
-is zero between them. The width of the peaks, about $\pm0.04$ in $q_3$ at half
+is zero between them. The width of the peaks, about $\pm0.05$ in $q_3$ at half
 height, comes from the Gaussian width `degauss = 0.02` Ry of the delta
 functions. On the right we see fcc aluminium on a $12\times12\times12$ mesh, with
 the default Gaussian of the width `degauss = 0.05` Ry of its input. All 1727
@@ -291,8 +295,8 @@ the nesting function of aluminium is a featureless plateau that falls slowly
 with $|\mathbf q|$, and nothing rises above it. This is what a nearly spherical
 Fermi surface gives, since a sphere shifted by $\mathbf q$ touches itself only
 on a circle. Aluminium has no charge-density wave and no magnetic order, in
-agreement with this. We did not converge the aluminium mesh, so the small
-structure of the plateau, but not its level, can change on a denser mesh.
+agreement with this. We did not converge the aluminium mesh, so the values on
+the plateau can change on a denser mesh or with a smaller `degauss`.
 
 ??? example "Code of this figure (docs/figures/scattering_nesting/)"
 
