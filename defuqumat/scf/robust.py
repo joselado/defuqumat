@@ -25,7 +25,15 @@ density, a Harris-like value with no lower bound.
 **The safeguard** (their Algorithm 1, in density mixing): a trial input is kept
 when ``I`` fell by more than the eigensolver's noise, ``nelec * ethr``, or the
 residual ``accuracy`` (``rho_ddot``, the number the run converges on) fell;
-otherwise the step from the last kept input is halved and tried again. The step
+otherwise the step from the last kept input is halved and tried again. "Fell" is
+measured against the **worst of the last** :attr:`Supervisor.memory` **kept
+inputs**, Grippo, Lampariello and Lucidi's nonmonotone rule (SIAM J. Numer. Anal.
+23, 707), and not against the last one: Anderson's ordinary path is not
+monotone, and a monotone test rejected its steps of a factor two or three near
+convergence, each rejection costing three to six diagonalisations (measured on
+the four-cell cobalt helix at ``mixing_beta = 0.7``: 38 against plain Anderson's
+27). The worst of a window cannot grow, so a run that runs away still fails the
+test. The step
 is the one the inner mixer proposed at the kept input, ``mixed - x``, rescaled:
 the Anderson coefficients depend on the residuals only (eq. 39), so a rescale is
 exactly the step at a smaller damping, the inner mixer is called once per kept
@@ -139,6 +147,8 @@ class Supervisor:
     window: int = 8
     #: The best ``accuracy`` must fall by this factor over a window.
     progress: float = 0.5
+    #: How many kept inputs the acceptance test compares against the worst of.
+    memory: int = 3
 
     scale: float = 1.0
     cuts: int = 0
@@ -152,6 +162,10 @@ class Supervisor:
     _best_accuracy: float = np.inf
     _accuracies: list = field(default_factory=list)
     _merits: list = field(default_factory=list)
+    #: The kept inputs since the line search last started, for the
+    #: nonmonotone test; unlike the two lists above, not cleared by a rung.
+    _window_accuracies: list = field(default_factory=list)
+    _window_merits: list = field(default_factory=list)
     _floored: int = 0
     _last: dict = field(default_factory=dict)
 
@@ -175,8 +189,10 @@ class Supervisor:
             self._last = {"kept": True, "reason": "first"}
             return True
         noise = self.nelec * max(ethr, self._ethr or ethr)
-        residual_fell = accuracy < self._accuracy
-        energy_fell = unsettled == 0 and merit < self._merit - noise
+        recent = slice(-self.memory, None)
+        residual_fell = accuracy < max(self._window_accuracies[recent])
+        energy_fell = (unsettled == 0
+                       and merit < max(self._window_merits[recent]) - noise)
         if residual_fell or energy_fell:
             reason = "residual" if residual_fell else "energy"
             keep = True
@@ -210,6 +226,8 @@ class Supervisor:
             self._best_accuracy, self._best = accuracy, state
         self._accuracies.append(accuracy)
         self._merits.append(merit)
+        self._window_accuracies.append(accuracy)
+        self._window_merits.append(merit)
         self._last["next_scale"] = self.scale
         return _combine(state, proposal, self.scale)
 
@@ -260,6 +278,8 @@ class Supervisor:
                  and self._accuracy <= 10.0 * self._best_accuracy else self._best)
         self._kept = None
         self._proposal = None
+        self._window_accuracies.clear()
+        self._window_merits.clear()
         return start
 
     @property

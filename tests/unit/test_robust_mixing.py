@@ -152,3 +152,15 @@ def test_the_bottom_rung_alone_converges_silicon(monkeypatch):
     assert result.total_energy == pytest.approx(plain.total_energy, abs=1e-7)
     rungs = {h["supervisor"]["rung"] for h in result.history if "supervisor" in h}
     assert "hamiltonian" in rungs
+
+
+def test_the_acceptance_is_measured_against_the_worst_of_the_last_kept_inputs():
+    sup = Supervisor(nelec=8.0, memory=3)
+    for accuracy in (1e-3, 4e-4, 1e-4):
+        sup.judge(-10.0, accuracy, 1e-9, 0)
+        sup.kept(_state(0.0), _state(1.0), -10.0, accuracy, 1e-9)
+    # Above the last kept residual and below the worst of the last three:
+    # Anderson's ordinary non-monotone step, kept.
+    assert sup.judge(-10.0, 3e-4, 1e-9, 0) and sup.record["reason"] == "residual"
+    # Above all three: cut back.
+    assert not sup.judge(-10.0, 2e-3, 1e-9, 0)
