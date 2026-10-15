@@ -26321,3 +26321,49 @@ test's kick and tight inner solve. Notebook 19's drift is the SCF stop point at 
 3e-5 `test_spinor_dielectric.py` records. Both re-executed (54 s and 59 s on four cores), their
 prose moved to the numbers in the simple style; the full account is in the `OPEN.md` entry.
 
+
+### P153 -- `mixing_mode = 'robust'`: the preconditioner chosen from the cell, every step checked against the Kohn-Sham energy of its output states, and a ladder for a stalled run. ⏳ IN PROGRESS 2026-10-16, the user's request ("a mixing that switches mode depending on how the SCF evolves ... almost guaranteed to converge"), on fable's review of the plan and six measured versions (`plans/robust-mixing.md`, sections 7 and 8), every number on `D22-0161` (`/l/ladovj1/review/robust/`, worktrees `w-robust` to `w-robust11`), branch `robust-mixing`, not merged.
+
+**What this phase is.** `defuqumat/scf/robust.py` (the `Supervisor`, `HamiltonianDamping`,
+`vacuum_fraction`) and four hooks in `run_scf`: the setup (inner mixer `'ldos'` when the cell
+is smeared and its vacuum fraction is above `ROBUST_VACUUM = 0.3`, else `'anderson'`), the merit
+`_robust_merit`, the decision at the mix site, and the bottom rung's Hamiltonian override at the
+top of the loop. The merit is the converged branch of the loop run every iteration (`E_H`,
+`E_xc`, PAW one-centre, Hubbard and saw-tooth at the output); the mid-run `total` is
+Harris-like and has no lower bound (there is no `descf` in this code). The test bed is
+`tools/robust_mixing/` (`cells.py`, `make_inputs.py`, `run_one.py`, `aggregate.py`).
+
+**The merit, checked as an identity** (`identity.py`): `I(rho* + eps (rho_atomic - rho*)) - E*`
+at `eps` = 0, 0.003, 0.01, 0.03, 0.1 is -3e-11, 1.4e-7, 1.6e-6, 1.4e-5, 1.6e-4 Ry on two-atom
+silicon, 5.8e-8, 1.5e-5, 1.9e-4, 1.7e-3, 1.8e-2 on the aluminium slab at 32 bohr, and -8e-12,
+1.6e-6, 1.8e-5, 1.6e-4, 1.7e-3 on the fully relativistic PAW nickel under a Gaussian: positive
+and quadratic in every case. Under the same nickel's own `mv` smearing it went 5.4e-3 Ry
+**below** `E*` at an input with residual 2.0, which is why the energy clause is off under MV
+and MP.
+
+**The bed** (`r1`, `r3` plain Anderson, `r6` the robust mode; 15 cells, a `mixing_beta` sweep of
+0.1, 0.4, 0.7, 1.0 on eight of them, three flat-fit stress runs; 48 cases). Plain Anderson
+fails 5 in 200 iterations (`h4-pbe` at 0.3 and 0.7, `ni-kind1-force` at 0.1, the Co film at 0.7
+and the Ni slab at 0.7 under the flat fit); the robust mode fails 3 (the first three). The two
+it rescues are rescued by its **setup** (20 and 42 iterations on `'ldos'`); with its inner mixer
+pinned to Anderson the supervisor alone converged them at a stall window of 20 (137 and 115) and
+not at the window of 30 (200 and 200), which the PAW nickel cells need (at 20 the stall test
+fired on their slow tail at 1e-8 and two of the four did not converge). Elsewhere it is within a
+few iterations of Anderson, slower on the Ni slab at 0.3 (49 against 27) and the PAW nickel at
+0.3 (106 against 77), faster on the DFT+U nickel at 1.0 (65 against 115). On the DFT+U nickel,
+which has several solutions, it lands on a different one from Anderson at 0.7 and 1.0.
+
+**Six versions, each on a measurement** (`plans/robust-mixing.md` section 8): the 1e6
+conditioning bound dropped; a residual-only stall test replaced (it sent fe-unstable back to the
+saddle while the energy fell 5e-4 Ry an iteration); the rejected pair kept in the Anderson
+history, overriding fable's decision 2 (Anderson recovers with it; the Co helix at 1.0 34
+against 63); the acceptance nonmonotone over the last eight kept inputs (A/B against three and
+against a 10x-of-best bound); a step kept at the floor resets the scale (a 60-iteration deadlock
+at 3.3e-8 without it); the `magnetization` and `short-history` rungs removed (never the rung a
+run converged on; `short-history` drove the PAW nickel from 1e-8 to 1e4).
+
+**What is outstanding.** `h4-pbe` (PZ pseudopotentials under PBE, a stress case) limit-cycles at
+3e-6 under every version; the bottom rung, reached on it once, did not converge it within the
+budget, and the terminal "at the eigensolver's floor" stop has not been seen to fire on a real
+cell. Checkpoint, pools and the ultracell are refused. No timing pair (DFTK, the reference for
+the algorithm, is not installed anywhere here). The fast gate has not been run on the branch.
