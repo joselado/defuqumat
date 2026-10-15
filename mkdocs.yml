@@ -66,3 +66,10 @@ nav:
       - Forces and relaxation: forces.md
       - Stress and the cell: stress.md
       - Electric fields: electric-field.md
+  - Magnetism:
+      - Collinear and noncollinear magnetism: magnetism.md
+      - Spin-orbit coupling: spin-orbit.md
+      - Magnetic anisotropy: anisotropy.md
+      - Spin spirals: spirals.md
+      - Magnons: magnons.md
+      - DFT+U: dft-plus-u.md
