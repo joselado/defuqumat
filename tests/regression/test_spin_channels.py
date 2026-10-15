@@ -79,6 +79,8 @@ def test_the_shift_current_of_two_unpolarized_channels_is_the_scalar_run(pseudo_
     options = dict(nbnd=9, nw=4, window=0.6, broadening=0.01)
     a = np.asarray(one.get_shift_current(**options).sigma)
     b = np.asarray(two.get_shift_current(**options).sigma)
+    print("unpolarized shift current: max|sigma|", np.abs(a).max(),
+          "relative difference", np.abs(a - b).max() / np.abs(a).max())
     assert np.abs(a).max() > 0.0
     assert np.abs(a - b).max() < 1e-7 * np.abs(a).max()
 
