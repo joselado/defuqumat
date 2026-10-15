@@ -19,5 +19,6 @@ for n in (4, 6, 8):
     out[f"kerr{n}"] = sigma.kerr                 # degrees
     out[f"hall{n}"] = sigma.hall_conductivity[0, 1]
     out[f"fsum{n}"] = sigma.fsum
+    out[f"plasma{n}"] = sigma.plasma_ev[0, 0]   # hbar omega_p, eV
 
 save(energy=sigma.frequencies_ev, **out)
