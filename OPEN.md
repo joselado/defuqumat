@@ -9307,7 +9307,7 @@ same one line in `fermi_level_shift`, to be made with the first caller that lift
 > on this cell. The notebook's table, its two quoted cases (PAW silicon 14.320207, `Z*`
 > -0.079613; ultrasoft carbon 5.756143, re-run) and the "seven figures" sentence now carry these
 > numbers; the guide's spinor snippet and its 5e-14 (now the test's 1.5e-12 from scratch at 1e-10)
-> moved with it. 59 s.
+> moved with it (the default fit reads 5.7e-13 and 7.3e-14 there, `ident.py`). 59 s.
 
 
 Re-executed on D22 at `764bc3e` plus P150 (`/l/ladovj1/review/degeneracy/p150/nb17.log`, 95 s), against

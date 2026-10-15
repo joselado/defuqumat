@@ -300,7 +300,7 @@ print(comparison_table(
 The two numbers agree to 3e-5. This is the level at which the SCF threshold fixes
 $\varepsilon_\infty$ on this cell. For example, $\varepsilon_\infty$ itself moves by 3e-5
 between `conv_thr = 1e-10` and `1e-14`. If both runs start from scratch at
-`conv_thr = 1e-10`, they agree to about 1e-12. So nothing in the screening knows how
+`conv_thr = 1e-10`, they agree to 6e-13. So nothing in the screening knows how
 the bands were counted.
 
 With spin-orbit coupling switched on by a relativistic
