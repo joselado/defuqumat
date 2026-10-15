@@ -112,7 +112,10 @@ def run_polarization(
         raise NotImplementedError(
             "a Berry-phase polarization of a spin spiral is not implemented: "
             "the two spinor components live on spheres centred at k +- q/2, so "
-            "an overlap between neighbouring k-points is not a single gather"
+            "each string's states need an NSCF on the doubled list at new "
+            "k-points (at_kpoints, which a spiral refuses), and the overlap "
+            "between neighbouring k-points is two gathers by Miller index, one "
+            "per component on its own sphere, where the string phase does one"
         )
 
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,

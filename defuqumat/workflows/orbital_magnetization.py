@@ -114,9 +114,13 @@ def run_orbital_magnetization(
         )
     if getattr(system, "spiral_q", None) is not None:
         raise NotImplementedError(
-            "an orbital magnetization of a spin spiral is not implemented: the "
-            "two spinor components live on different plane-wave spheres, so the "
-            "overlap between neighbouring manifolds is not a single gather"
+            "an orbital magnetization of a spin spiral is refused: the quantity "
+            "needs spin-orbit coupling, which a spiral refuses (it breaks the "
+            "generalized Bloch theorem), and at soc_scale = 0 a flat spiral's "
+            "orbital magnetization is zero by the combined symmetry of time "
+            "reversal and a half turn of the spins about an axis in the spiral "
+            "plane. The commensurate supercell with spin-orbit coupling is the "
+            "calculation that carries it"
         )
 
     if any(p.is_ultrasoft or p.is_paw for p in pseudos):
