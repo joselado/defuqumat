@@ -41,12 +41,12 @@ differences    1.4e-09 Ry and 3.3e-08 Ry/bohr
 
 The total energies are the same to all eight decimals that `pw.x` prints, and
 the difference of 1.4e-9 Ry is the "about 1e-9 Ry" of the first row of the
-table below, with `conv_thr = 1e-10` in both runs. The force differs in the eighth decimal. Note that we obtain the force
-as the derivative of the total energy, while `pw.x` sums its terms one by one,
-so this is a check of the derivative too. `read_qe_output` reads any `pw.x`
-output file, and the files `tests/data/qe/reference.out.*` are the `pw.x` 7.5
-outputs of the inputs next to them, so you can repeat this check on the other
-cases of the tables below.
+table below, with `conv_thr = 1e-10` in both runs. The force differs in the
+eighth decimal. Note that we obtain the force as the derivative of the total
+energy, while `pw.x` sums its terms one by one, so this is a check of the
+derivative too. `read_qe_output` reads any `pw.x` output file, and the files
+`tests/data/qe/reference.out.*` are the `pw.x` 7.5 outputs of the inputs next
+to them, so you can repeat this check on the other cases of the tables below.
 
 The convergence threshold matters for such a comparison. The test-suite of
 Quantum ESPRESSO runs at the default `conv_thr = 1e-6`, so its energies are
@@ -74,7 +74,7 @@ energy, the quantity every other one is built on:
 | DFT+U | at most 6.7e-9 Ry |
 | DFT+U+J on antiferromagnetic FeO, $J = 1$ eV | 4.2e-9 Ry |
 | DFT+U on spinors, BN and iron with spin-orbit coupling | 7.7e-9 and 1.4e-9 Ry |
-| a slab in a field with the dipole correction, CO and the Ni slab with CO | 4e-10 and 7e-11 Ry |
+| a saw-tooth field, CO in a box and the Ni slab with CO | 4.5e-10 (4e-11 with the dipole correction) and 7e-11 Ry |
 | a finite field in a crystal by the Berry phase, eight-atom silicon | 1.2e-8 Ry |
 
 These are small cells, with two to eight atoms. We also ran cells of ten atoms,
@@ -115,11 +115,11 @@ We now come to the linear response, against `ph.x`:
 | Born effective charges of AlAs | $+2.101065$ and $-2.165827$, against $+2.10106$ and $-2.16581$ |
 | dielectric constant and Born charges of triplet O$_2$, `nspin = 2` | $1.11091441$ against $1.110915996$, $Z^*$ $0.13372$ against $0.13367$ |
 | phonons at $\Gamma$, silicon, norm-conserving | 0.05 cm$^{-1}$ |
-| phonons at $\Gamma$, silicon, ultrasoft and PAW | 0.020 and 0.017 cm$^{-1}$ |
+| phonons at $\Gamma$, silicon, ultrasoft and PAW | 0.019 and 0.017 cm$^{-1}$ |
 | phonons at $\Gamma$, aluminium, a metal | 0.002 cm$^{-1}$ |
 | phonons at $L$ and $X$, silicon | 0.054 and 0.038 cm$^{-1}$ |
 | phonons at $\mathbf q = (1/4, 0, 0)$, aluminium | 0.0004 cm$^{-1}$ |
-| electron-phonon linewidths and $\lambda$, aluminium | every digit `ph.x` prints |
+| electron-phonon linewidths and $\lambda$, aluminium | $\lambda$ to every digit `ph.x` prints, the linewidths to 7e-3 GHz on 18.5 |
 
 The phonons of silicon have the same floor of about 0.05 cm$^{-1}$ at every
 $\mathbf q$, and its reason is the same table interpolation as for the bands.
