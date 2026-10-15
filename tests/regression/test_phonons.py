@@ -805,6 +805,7 @@ def test_a_closed_subset_of_a_symmetrised_run_is_the_whole_block(case):
         block = whole.matrix[list(atoms)][:, :, list(atoms)]
         assert part.atoms == atoms
         assert part.matrix.shape == (1, 3, 1, 3)
+        print(f"{case} {atoms}: {np.abs(part.matrix - block).max():.3e}")
         assert np.abs(part.matrix - block).max() < WEDGE_TOLERANCE
 
 
@@ -825,7 +826,9 @@ def test_a_closed_subset_on_the_wedge_is_the_subset_on_the_whole_grid():
         calculation, result.wavefunctions, result.eigenvalues, result.density,
         result.becsum, atoms=(0,), **IDENTITY,
     )
-    assert np.abs(parts[(0,)].matrix - whole_grid.matrix).max() < WEDGE_TOLERANCE
+    difference = np.abs(parts[(0,)].matrix - whole_grid.matrix).max()
+    print(f"wedge (0,) against nosym (0,): {difference:.3e}")
+    assert difference < WEDGE_TOLERANCE
 
 
 #: A three-atom fluorite cell, Si at the origin and As at +-(1/4, 1/4, 1/4):
@@ -874,6 +877,9 @@ def test_a_closed_orbit_of_two_atoms_is_the_whole_block(pseudo_dir):
         with pytest.raises(NotImplementedError, match=r"atoms=\(1, 2\)"):
             calculator.get_phonons(atoms=(1,))
 
+    print(f"fluorite (1, 2): {np.abs(pair.matrix - whole.matrix[1:3, :, 1:3, :]).max():.3e}"
+          f", (0,): {np.abs(centre.matrix - whole.matrix[0:1, :, 0:1, :]).max():.3e}"
+          f", |D_12| {np.abs(whole.matrix[1, :, 2, :]).max():.3e}")
     assert np.abs(pair.matrix - whole.matrix[1:3, :, 1:3, :]).max() < WEDGE_TOLERANCE
     assert np.abs(centre.matrix - whole.matrix[0:1, :, 0:1, :]).max() < WEDGE_TOLERANCE
     # The pair's block is not diagonal in the atoms, so the permutation is
