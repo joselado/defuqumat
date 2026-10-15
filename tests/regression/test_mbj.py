@@ -545,8 +545,7 @@ def test_a_tran_blaha_chern_number_is_an_integer(qe_testsuite, pseudo_dir):
     module docstring of :mod:`defuqumat.workflows.topology` says so for every
     nonmagnetic Chern number. What it establishes is that the whole route, the
     plane mesh walked through the source with ``tau`` frozen, runs and lands
-    on an integer, and that ``tau`` reaches it from
-    :class:`~defuqumat.calculator.Calculator`'s forwarding of the state.
+    on an integer.
     """
     from defuqumat.workflows.topology import run_berry_curvature
 
