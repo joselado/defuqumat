@@ -50,10 +50,10 @@ SUPERCELL = GENERATED / "nii-chain-4cell.in"
 
 #: The spiral against the supercell, Ry/bohr and Ry/bohr^3. Both from this
 #: code at one density, so the floor is the eigensolver's (``conv_thr = 1e-10``
-#: on the supercell's diagonalisation); the measured figures are in
-#: ``notes/incompat/I20.md`` and ``I21.md``.
-FORCE_IDENTITY = 1.0e-6
-STRESS_IDENTITY = 1.0e-7
+#: on both diagonalisations). Measured 1.2e-8 on forces of 1.2e-2 and 7.8e-10 on
+#: a stress of 2.8e-2 (``notes/incompat/I20.md``, ``I21.md``).
+FORCE_IDENTITY = 1.0e-7
+STRESS_IDENTITY = 1.0e-8
 
 
 @pytest.fixture(autouse=True)
@@ -146,8 +146,9 @@ def test_the_spiral_stress_is_the_supercell_stress(pseudo_dir):
 
 
 #: ``Tr(f v_a f v_b)`` per supercell k-point against the sum over the four spiral
-#: k-points that fold onto it, relative to its largest entry.
-VELOCITY_IDENTITY = 1.0e-6
+#: k-points that fold onto it, relative to its largest entry. Measured 5.5e-10;
+#: the four k-points folded the other way give 6.5 on entries of 204.
+VELOCITY_IDENTITY = 1.0e-8
 
 
 def _filled_velocity_traces(calculation, v_scf, psi, weights):
@@ -199,7 +200,8 @@ def test_the_spiral_velocity_is_the_supercell_velocity(pseudo_dir):
 
 
 #: Site moments and charges, spiral against supercell, in hbar and electrons.
-SITE_IDENTITY = 1.0e-6
+#: Measured 2.1e-10 on a nickel moment of 0.344; the opposite turn gives 0.69.
+SITE_IDENTITY = 1.0e-8
 
 
 def _about_z(angle):
@@ -244,7 +246,8 @@ def test_the_spiral_site_moments_are_the_supercell_moments(pseudo_dir):
 
 
 #: The charge image, spiral against supercell, relative to its largest value.
-IMAGE_IDENTITY = 1.0e-6
+#: Measured 2.9e-9.
+IMAGE_IDENTITY = 1.0e-7
 
 
 def test_the_spiral_charge_image_is_the_supercell_image(pseudo_dir):
@@ -287,7 +290,8 @@ def test_the_spiral_charge_image_is_the_supercell_image(pseudo_dir):
 # -- the meta-GGA on a spiral (the hydrogen chain, which needs no projectors) --
 
 #: The folded spiral eigenvalues against the supercell's at the unfolded density
-#: and ``tau``, Ry. The floor is the eigensolver's, as above.
+#: and ``tau``, Ry. The floor is the eigensolver's, as above: measured 4.8e-14 on
+#: the lowest twelve, where dropping the transverse ``tau`` moves them by 0.54.
 META_IDENTITY = 1.0e-8
 
 
@@ -354,7 +358,9 @@ def test_the_meta_gga_spiral_is_the_supercell(pseudo_dir):
 # -- DFT+U on a spiral (the NiI chain with a U on the nickel d shell) ---------
 
 #: Levels and the occupation matrix, spiral against supercell, Ry and electrons.
-HUBBARD_IDENTITY = 1.0e-7
+#: Measured 2.3e-13 and 1.2e-10; the turn of the opposite sense gives 3.7e-2
+#: and 0.24.
+HUBBARD_IDENTITY = 1.0e-8
 
 
 def _hubbard(text: str, labels) -> str:
