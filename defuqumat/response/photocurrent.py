@@ -147,6 +147,7 @@ from defuqumat.response.walk import (
 )
 from defuqumat.scf.occupations import w0gauss
 from defuqumat.system.kpoints import is_reduced
+from defuqumat.system.wedge import wedge_group
 from defuqumat.system.symmetry import find_symmetries
 
 __all__ = [
@@ -564,6 +565,7 @@ def shift_current(
     (:func:`_warn_about_the_cut`).
     """
     require_a_shift_current_regime(calculation)
+    group = wedge(calculation, "the shift current")
     _warn_about_the_grid(
         calculation, "the shift-current tensor sigma^abc", _GRID_RESIDUE_SHIFT
     )
@@ -674,11 +676,11 @@ def shift_current(
     sums = walk(int(wk.shape[0]), batch, arguments, *stages,
                 shares=len(band_counts))
     sums = sums if len(band_counts) > 1 else (sums,)
-    sigma = np.asarray(sums[0]) * (SIGMA_SI / volume)
+    sigma = _completed(np.asarray(sums[0]) * (SIGMA_SI / volume), group)
     scale = float(np.max(np.abs(sigma)))
     truncation = float("nan")
     if len(band_counts) > 1 and scale > 0.0:
-        coarse = np.asarray(sums[1]) * (SIGMA_SI / volume)
+        coarse = _completed(np.asarray(sums[1]) * (SIGMA_SI / volume), group)
         truncation = float(np.max(np.abs(coarse - sigma)) / scale)
 
     return ShiftCurrent(
@@ -691,6 +693,13 @@ def shift_current(
         band_cut_gap=float(band_cut_gap),
     )
 
+
+
+def _completed(tensor, group):
+    """A ``(nw, 3, 3, 3)`` wedge sum averaged over its group, or unchanged."""
+    if group is None:
+        return tensor
+    return group.average(tensor, (1, 2, 3))
 
 
 # -- the refusals --------------------------------------------------------------
@@ -744,25 +753,10 @@ def require_a_velocity_sum_regime(calculation) -> None:
             "spinor components live on spheres centred at k + q/2 and k - q/2, "
             "so <n|dH/dk|m> is not a single contraction over one plane-wave set"
         )
-    if _kpoints_are_reduced(calculation):
-        raise NotImplementedError(
-            "the shift current needs the whole k-grid, not a symmetry-reduced "
-            "wedge: sigma^abc is a polar rank-3 tensor and a wedge sum is not "
-            "the cell's until it is averaged over the point group, which this "
-            "assembly does not do (defuqumat.system.symmetry."
-            "symmetrize_cartesian_tensor would, and lifting this is a "
-            "separate piece of work). Keep symmetry for the SCF and pass the "
-            "whole unshifted grid as kpoints= (KPoints.automatic((n, n, n), "
-            "(0, 0, 0), cell) with no rotations), which is closed under the "
-            "point group where a shifted one is not. Running the SCF with "
-            "nosym = .true. instead is not the same escape: a nosym run's FFT "
-            "grid is chosen without the factors the fractional translations "
-            "need, so on a crystal whose operations carry one (diamond, not "
-            "zincblende) the potential breaks them at the grid's sampling "
-            "error, and two-atom silicon's tensor, which inversion forbids, "
-            "then comes out three to four orders of magnitude larger than "
-            "with symmetry kept"
-        )
+    # A symmetry-reduced k-set is completed by the group it was cut with
+    # (:func:`wedge`); a set that group does not tile, and a magnetic group,
+    # are still refused there.
+    wedge(calculation, "the shift current")
     if calculation.is_hubbard:
         raise NotImplementedError(
             "the shift current of a DFT+U calculation is not implemented: the "
@@ -785,6 +779,32 @@ def require_a_velocity_sum_regime(calculation) -> None:
             "and the intraband part of the shift) are a different assembly. "
             "Use occupations = 'fixed'"
         )
+
+
+def wedge(calculation, quantity: str):
+    """The group that completes a velocity sum's wedge, or ``None`` on a whole grid.
+
+    **Lifted from a refusal** that named a rank-3 point-group average as the
+    missing term. That was half of it. The other half is time reversal, which
+    QE reduces a non-magnetic grid with on top of the point group, and which
+    acts on each consumer's per-k term differently:
+
+    * the shift-current integrand ``Im[r^b_mn r^{c;a}_nm + (b <-> c)]`` is
+      **even** under it, k-point by k-point: ``v(-k) = -conj(v(k))`` gives
+      ``r(-k) = conj(r(k))`` and, through the sum rule, ``r^{c;a}(-k) =
+      -conj(r^{c;a}(k))``, so the product goes to minus its conjugate and its
+      imaginary part is unchanged. A time-reversed image is a plain rotation;
+    * the second-harmonic coefficient matrices go to their **conjugates**
+      (the same two relations), and a conjugated coefficient over the same
+      complex resonance is not a rotation of the summed tensor, so
+      :mod:`defuqumat.response.shg` takes the real part of its coefficients
+      per k-point -- which *is* the time-reversal average of the pair
+      ``k, -k`` -- and then needs only the rotation.
+
+    So both go through the rotation alone, :meth:`~defuqumat.system.wedge.
+    WedgeGroup.average` with no anti-unitary image.
+    """
+    return wedge_group(calculation.system, quantity=quantity)
 
 
 def _kpoints_are_reduced(calculation) -> bool:
