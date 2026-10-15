@@ -38,9 +38,10 @@ long cell. When `nbnd` grows, this basis becomes the full plane-wave basis of
 the supercell, so the method is a variational truncation of the real supercell,
 and `nbnd` is its one convergence parameter. For an insulator the default
 `nbnd` has no empty bands, which leaves the envelope nothing to be built from,
-so you always give it. All the numbers on this page are at a single `nbnd` and
+so you always give it. Each number on this page is at one value of `nbnd` and
 on a small k-mesh of the long cell, for example `nbnd=32` on a $1\times2\times2$
-mesh for silicon at `ecutwfc = 12`, and none of them is converged. You check
+mesh of the long cell for silicon at `ecutwfc = 12`, and none of them is
+converged. You check
 them by raising `nbnd` and `kgrid`.
 
 Here we take silicon and apply a potential
@@ -94,8 +95,8 @@ almost cancels the applied one. The ratio of the two, here 10, is roughly the
 static dielectric function of silicon at the wavevector of one period over
 eight cells. It is only roughly this, because `delta_v` also holds the
 exchange-correlation potential of the induced charge. The value 10 is also
-below the converged LDA value, roughly 12 to 13, because `nbnd=32` and the
-$8\times2\times2$ mesh are not converged.
+below the converged LDA value, because `nbnd=32` and the $1\times2\times2$
+mesh of the long cell are not converged.
 
 ## The energy of a modulation
 
@@ -426,7 +427,9 @@ The helix is kept: the four moments have the same length, 0.461 $\mu_B$, they
 turn by exactly 90 degrees from one cell to the next, and they stay in the $yz$
 plane. The helix is 0.738 mRy per cell below the ferromagnet, but 2.3 mRy per
 cell above the two-cell antiferromagnet of the last run, so on this lattice the
-antiferromagnet is the lowest of the three states we tried. For a magnet whose moment is free to turn,
+antiferromagnet is the lowest of the three states we tried. The two long cells
+are at different `nbnd`, 24 and 8 with their partners, so this ranking is
+rough. For a magnet whose moment is free to turn,
 the long cell is built by default from the states of the unit cell together
 with their time-reversed partners, the same orbitals with the spin flipped
 (`kramers_pairs`). Without them the basis holds spin only along the moment of
