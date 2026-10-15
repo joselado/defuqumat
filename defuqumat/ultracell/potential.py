@@ -173,24 +173,33 @@ def ultracell_sphere(ultracell: Ultracell, cell: Cell, keep, dense=None,
 
 
 def require_an_ultracell_functional(functional, source_free: bool = False,
-                                    nspin_mag: int = 1) -> None:
+                                    nspin_mag: int = 1,
+                                    augmented: bool = False) -> None:
     """Refuse what has not been measured on the box, each by name.
 
-    A gradient-corrected functional and ``nosource`` both run through
-    ``v_of_rho`` on the box (module docstring); what is still refused is the
-    meta-GGA, whose ``tau`` the loop does not build, and a GGA on a
-    noncollinear magnetization, whose local-frame rotation has not been
-    checked against a supercell.
+    A gradient-corrected functional, ``nosource`` and a potential-only
+    meta-GGA all run through ``v_of_rho`` on the box (module docstring), the
+    last with ``tau`` built from the ultracell states and mixed beside the
+    density. What is still refused is a GGA or a meta-GGA on a noncollinear
+    magnetization, whose local-frame rotation has not been checked against a
+    supercell, and a meta-GGA on an ultrasoft or PAW dataset, whose one-centre
+    ``tau`` the ultracell's per-copy terms do not carry.
     """
-    if functional.is_meta:
+    if functional.is_meta and int(nspin_mag) != 1:
         raise NotImplementedError(
-            f"the ultracell refuses the meta-GGA {functional.name}: tau is a "
-            "property of the states, and the loop builds the density from the "
-            "ultracell states and not tau. What is missing is the kinetic "
-            "energy density on the box -- three more transforms per state, of "
-            "i(k0 + G + Q) times the scattered state, in the density "
-            "accumulation -- carried and mixed beside the density as pw.x "
-            "mixes kin_r, and handed to v_of_rho on the box"
+            f"the ultracell refuses the meta-GGA {functional.name} on a "
+            f"magnetic cell (nspin_mag = {int(nspin_mag)}): tau is built on the "
+            "box per collinear channel and measured against a supercell on an "
+            "unpolarized cell only, and a spinor tau is a 2x2 matrix the "
+            "ultracell does not build"
+        )
+    if functional.is_meta and augmented:
+        raise NotImplementedError(
+            f"the ultracell refuses the meta-GGA {functional.name} with an "
+            "ultrasoft or PAW dataset: tau is built from the smooth states on "
+            "the box, and the one-centre terms evaluated per atom copy are "
+            "handed no meta_c, so the two halves would be different "
+            "functionals. Use a norm-conserving dataset"
         )
     if functional.is_gradient and int(nspin_mag) == 4:
         raise NotImplementedError(
@@ -211,6 +220,7 @@ def ultracell_potential(
     quantization_axis=None,
     source_free: bool = False,
     noncollinear_gga: str = "kubler",
+    tau: jnp.ndarray | None = None,
 ) -> UltracellPotential:
     """``v_of_rho`` on the ultracell box: the supercell's, on the tiled sphere.
 
@@ -223,6 +233,9 @@ def ultracell_potential(
         quantization_axis, source_free, noncollinear_gga: the unit-cell
             calculation's own, passed through so that the box and the frozen
             eigenvalues are built from the same functional.
+        tau: ``(nspin, *box)`` kinetic energy density in Ry, for a meta-GGA
+            and only for one, from
+            :func:`~defuqumat.ultracell.density.ultracell_kinetic_density`.
 
     The Hartree term is ``4 pi rho(G+Q)/|G+Q|^2`` with only ``G = Q = 0``
     dropped, and the energies are ultracell totals: ``v_of_rho`` integrates over
@@ -234,7 +247,8 @@ def ultracell_potential(
     """
     potential = _box_potential(
         jnp.asarray(rho_r), sphere.gvectors, sphere.cell, rho_core_tiled,
-        functional, sphere.rho_core_g, quantization_axis, None,
+        functional, sphere.rho_core_g, quantization_axis,
+        None if tau is None else jnp.asarray(tau),
         bool(source_free), str(noncollinear_gga), None,
     )
     return UltracellPotential(

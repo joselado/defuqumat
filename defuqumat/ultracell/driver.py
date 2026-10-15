@@ -177,6 +177,7 @@ from defuqumat.ultracell.seed import (
     seeded_becsum,
     seeded_density,
 )
+from defuqumat.ultracell.density import ultracell_kinetic_density
 from defuqumat.ultracell.potential import (
     delta_potential,
     hartree_kernel,
@@ -521,6 +522,7 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
         resolve_functional([p.functional for p in pseudos], system.input_dft),
         bool(getattr(system, "nosource", False)),
         int(system.nspin_mag),
+        any(p.is_ultrasoft or p.is_paw for p in pseudos),
     )
     # **Two occupation schemes reach this loop, and anything else would be
     # read as the smeared one.** ``_occupy`` has a fixed branch and a smeared
@@ -1281,6 +1283,10 @@ def run_ultracell(
         **({} if states_conv_thr is None else {"conv_thr": states_conv_thr}),
         **({} if reference_field is None else {
             "field": reference_field, "field_scale": reference_field_scale}),
+        # A potential-only meta-GGA's frozen states are eigenstates of the
+        # potential at the converged ``tau`` as well as the converged density.
+        **({} if getattr(reference, "tau", None) is None else {
+            "tau": jnp.asarray(reference.tau)}),
         david=david,
     )
     kept = _kept_bands(system, pseudos, nbnd)
@@ -1481,8 +1487,12 @@ def run_ultracell(
     rho_core_tiled = None
     if calculation.rho_core is not None:
         rho_core_tiled = ultracell.tile(jnp.asarray(calculation.rho_core))
+    reference_tau = None
+    if calculation.functional.is_meta:
+        reference_tau = jnp.asarray(reference.tau)
     reference_potential = calculation.potential(
         jnp.asarray(reference.density), reference_field_scale, reference_field,
+        tau=reference_tau,
     ).v_scf
     # The converged field, held fixed: inside every frozen eigenvalue, so out
     # of ``dV`` (subtracted from the reference potential here, never added on
@@ -1523,12 +1533,13 @@ def run_ultracell(
             dtype=ultracell.precision.real,
         )
 
-    def box_potential(rho):
+    def box_potential(rho, tau=None):
         potential = ultracell_potential(
             rho, sphere, rho_core_tiled, calculation.functional,
             quantization_axis=calculation._axis_argument(),
             source_free=calculation.source_free,
             noncollinear_gga=calculation.noncollinear_gga,
+            tau=tau,
         )
         if sawtooth is not None:
             v_saw, e_saw, _ = sawtooth_potential(
@@ -1648,6 +1659,22 @@ def run_ultracell(
     # integral of the potential, and the potential is a functional of the
     # density the box already carries.
     becsum_state = ()
+    # **A potential-only meta-GGA's second carried field**, ``tau``, built
+    # from the ultracell states and mixed beside the density in one packed
+    # vector, which is what ``pw.x`` does with ``kin_r`` (``scf_mod.f90``'s
+    # ``mix_type``). It starts tiled, as the density does, and the folded
+    # spheres' ``k0 + Q + G`` are the unit-cell calculation's own ``kplusg``.
+    tau_state, kplusg = None, None
+    if reference_tau is not None:
+        tau_state = ultracell.tile(reference_tau).astype(density.dtype)
+        kplusg = jnp.asarray(calculation.kplusg).reshape(nk0, cells, npwx, 3)
+        warnings.warn(
+            f"{calculation.functional.name} is a potential and not the "
+            "derivative of an energy, so the ultracell's total energy is not "
+            "the value of anything the loop minimised and carries no bound; "
+            "the density and the eigenvalues are what this run is for",
+            RuntimeWarning, stacklevel=2,
+        )
     if augmentation is not None:
         becsum_state = _tiled_becsum(reference.becsum, cells)
         if seed_field is not None:
@@ -1668,7 +1695,7 @@ def run_ultracell(
     energies = []
 
     for iteration in range(1, max_iterations + 1):
-        potential = box_potential(density)
+        potential = box_potential(density, tau_state)
         delta_v = delta_potential(
             potential.v_scf, reference_potential, ultracell, external_field
         )
@@ -1752,6 +1779,16 @@ def run_ultracell(
             float(cell.volume), npol=npol, nspin_mag=nspin_mag,
             batch=state_batch, dtype=density.dtype,
         )
+        new_tau = None
+        if tau_state is not None:
+            new_tau = jnp.stack([
+                sum(ultracell_kinetic_density(
+                        coefficients[spin, ik], vectors[spin][ik],
+                        jnp.asarray(occupations[spin][ik]), box_index[ik],
+                        kplusg[ik], grid, float(cell.volume), batch=state_batch)
+                    for ik in range(nk0))
+                for spin in range(blocks)
+            ]).astype(density.dtype)
 
         # **The charge inside the projector spheres, which no state carries.**
         # ``becsum`` here is resolved by Q-difference rather than by atom copy,
@@ -1822,7 +1859,7 @@ def run_ultracell(
         # every iteration's number is then the Kohn-Sham energy of a state that
         # exists, rather than a mixture's corrected to first order.
         band = float(np.sum(occupations * levels))
-        potential_out = box_potential(new)
+        potential_out = box_potential(new, new_tau)
         entropy = 0.0
         if smearing:
             entropy = ultracell_entropy(levels, weights0, fermi, ultracell, system)
@@ -1884,6 +1921,18 @@ def run_ultracell(
                     vector[:size].reshape(head_in.shape), dtype=density.dtype
                 )
                 becsum_state = _unflatten_becsum(vector[size:], becsum_copies)
+            elif tau_state is not None:
+                vector = mixer.mix(
+                    np.concatenate([head_in.ravel(), np.asarray(tau_state).ravel()]),
+                    np.concatenate([head_out.ravel(), np.asarray(new_tau).ravel()]),
+                )
+                size = head_in.size
+                density = jnp.asarray(
+                    vector[:size].reshape(head_in.shape), dtype=density.dtype
+                )
+                tau_state = jnp.asarray(
+                    vector[size:].reshape(tau_state.shape), dtype=density.dtype
+                )
             else:
                 density = jnp.asarray(
                     mixer.mix(head_in, head_out), dtype=density.dtype
@@ -1892,6 +1941,8 @@ def run_ultracell(
             density = new
             if calculation.is_paw and becsum_copies is not None:
                 becsum_state = becsum_copies
+            if new_tau is not None:
+                tau_state = new_tau
 
         if converged:
             result = _result(

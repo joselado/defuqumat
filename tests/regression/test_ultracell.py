@@ -1111,10 +1111,10 @@ def test_the_refusals_name_themselves():
     with pytest.raises(NotImplementedError, match="gradient-corrected"):
         require_an_ultracell_functional(get_functional("PBE"), nspin_mag=4)
 
-    # and the meta-GGA branch, which refuses for a different reason: tau is a
-    # property of the states, not of the density the ultracell loop carries.
+    # and the meta-GGA on a magnetic cell: its tau is built on the box and
+    # measured on an unpolarized cell only.
     with pytest.raises(NotImplementedError, match="meta-GGA"):
-        require_an_ultracell_functional(get_functional("tb09"))
+        require_an_ultracell_functional(get_functional("tb09"), nspin_mag=2)
 
 
 MAGNETIC = """&control

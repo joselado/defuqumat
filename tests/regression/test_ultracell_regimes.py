@@ -156,12 +156,15 @@ def _energy_ladder(calculator, scf, shape, kgrid, reference, ladder, **options):
 
 
 def test_what_the_box_still_refuses(tmp_path, pseudo_dir):
-    """The meta-GGA and a noncollinear GGA still refuse; GGA and ``nosource`` pass."""
+    """What the box has not been measured in refuses; GGA, ``nosource`` and TB09 pass."""
     from defuqumat.ultracell.potential import require_an_ultracell_functional
     from defuqumat.xc.functional import get_functional
 
-    with pytest.raises(NotImplementedError, match="meta-GGA"):
-        require_an_ultracell_functional(get_functional("tb09"))
+    with pytest.raises(NotImplementedError, match="meta-GGA .* magnetic cell"):
+        require_an_ultracell_functional(get_functional("tb09"), nspin_mag=2)
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
+        require_an_ultracell_functional(get_functional("tb09"), augmented=True)
+    require_an_ultracell_functional(get_functional("tb09"))
     with pytest.raises(NotImplementedError, match="noncollinear magnetization"):
         require_an_ultracell_functional(get_functional("PBE"), nspin_mag=4)
     require_an_ultracell_functional(get_functional("PBE"), nspin_mag=2)
@@ -341,6 +344,59 @@ def test_a_polarized_gga_ultracell_converges_to_the_supercell(tmp_path, pseudo_d
     assert charges == sorted(charges, reverse=True), charges
     assert moments == sorted(moments, reverse=True), moments
     assert charges[-1] < 5e-4 and moments[-1] < 5e-4, rows
+
+
+# -- I33: a potential-only meta-GGA --------------------------------------------
+
+
+@pytest.mark.slow
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_a_tb09_ultracell_converges_to_the_tb09_supercell(tmp_path, pseudo_dir):
+    """Tran-Blaha: ``tau`` from the ultracell states, against a TB09 supercell.
+
+    The functional has no energy, so what is compared is the induced density,
+    Fourier component by Fourier component, as the LDA density ladder of
+    ``test_ultracell.py`` compares it. ``tau`` is built on the box from the
+    ultracell states and mixed beside the density, and ``c``, the cell
+    average Tran and Blaha's potential carries, is the ultracell's average,
+    which is the supercell's.
+    """
+    shape, kgrid = (2, 1, 1), (1, 2, 2)
+    folded = tuple(n * m for n, m in zip(shape, kgrid))
+    tb09 = ",\n input_dft='tb09'"
+    calculator = _silicon(tmp_path, pseudo_dir, folded, ecut=12.0, system=tb09,
+                          tag="tb09")
+    assert calculator.system.input_dft is not None
+    scf = calculator.get_scf(conv_thr=1e-11, nbnd=8)
+    assert scf.converged and scf.tau is not None
+    _tiled_null(calculator, scf, shape, kgrid, nbnd=12)
+
+    supercell = _silicon(tmp_path, pseudo_dir, kgrid, shape=shape, ecut=12.0,
+                         system=tb09, tag="tb09-sup")
+    reference, grid = _supercell_reference(supercell, shape, nbnd=12)
+    from defuqumat.basis.builder import build_basis as _build
+    miller = np.asarray(_build(supercell.system).dense.miller)
+    exact = _fourier(np.asarray(reference.density)[0], grid, miller)
+
+    errors = {}
+    for nbnd in (12, 24, 48):
+        result = run_ultracell(
+            calculator.system, calculator.pseudos, scf, shape, kgrid,
+            nbnd=nbnd, external=_modulation(shape), conv_thr=1e-10,
+            states_conv_thr=1e-10,
+        )
+        assert result.converged
+        box = result.ultracell.grid
+        ours = _fourier(np.asarray(result.density)[0], box, miller)
+        flat = _fourier(np.asarray(result.ultracell.tile(
+            jnp.asarray(scf.density)))[0], box, miller)
+        errors[nbnd] = float(np.abs((ours - flat) - (exact - flat)).max()
+                             / np.abs(exact - flat).max())
+        jax.clear_caches()
+    print("  induced density error: "
+          + ", ".join(f"nbnd={n}: {e:.3e}" for n, e in errors.items()))
+    assert errors[48] < errors[24] < errors[12]
+    assert errors[48] < 0.01, errors
 
 
 # -- I34: nosource -------------------------------------------------------------
