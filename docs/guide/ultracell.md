@@ -223,7 +223,7 @@ four cells, half a period. The unpolarized tip is brightest where the moment is
 largest in size, in cells 1, 4, 5 and 8, so its period is four cells. The polarized
 curve is not a pure cosine, because it is the spin part with one period plus this
 charge part with two, and so its minima, 0.687 and 0.717, are in cells 6 and 3
-rather than in cells 4 and 5. The whole figure takes 37 s on one core.
+rather than in cells 4 and 5.
 
 ??? example "Code of this figure (docs/figures/ultracell_sdw/)"
 
@@ -257,8 +257,9 @@ down (41, 8) [0.53 0.49 0.41 0.24 0.29 0.37 0.49 0.57]
 `energies` are the tip energies in Ry, `tip` gives the tip positions in the
 crystal coordinates of the unit cell, and `sts.values` has one row per energy and
 one column per tip. `sts.bias_axis` is the energy measured from the Fermi level,
-which is the bias of the experiment. In this window the largest $dI/dV$ is the
-edge of the conduction band, and we see that it moves through the wave. For
+which is the bias of the experiment. In this window the largest $dI/dV$ comes from
+the conduction states just above the gap, and we see that it moves through the
+wave. For
 spin up it is at 0.24 eV in cell 8, where the field is largest, and at 0.57 eV in
 cell 4, so it moves by 0.33 eV. For spin down it is the same curve moved by four
 cells. This shift in energy is the local exchange splitting that a
