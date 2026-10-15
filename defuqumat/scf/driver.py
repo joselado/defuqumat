@@ -147,7 +147,8 @@ from defuqumat.scf.mixing import (
 )
 from defuqumat.scf.residual import make_residual
 from defuqumat.scf.robust import (CONDITION_LIMIT, CONDITION_LIMIT_RESTART,
-                                  ROBUST_MODES, Supervisor, vacuum_fraction)
+                                  ROBUST_MODES, HamiltonianDamping, Supervisor,
+                                  vacuum_fraction)
 from defuqumat.scf.solvers import get_scf_solver
 from defuqumat.scf.occupations import (
     _nint,
@@ -7149,7 +7150,7 @@ def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
 
 
 def _robust_merit(calculation, total, terms, rho_out, becsum_out, ns_out,
-                  field_scale, field) -> float:
+                  field_scale, field) -> tuple:
     """``I = E_KS[P_out]``: the loop's total with every term at the output.
 
     ``eband + deband`` is already ``Tr[(T + V_ext) P_out]`` and the smearing
@@ -7159,12 +7160,16 @@ def _robust_merit(calculation, total, terms, rho_out, becsum_out, ns_out,
     the output, as the converged branch of ``run_scf`` does once. A fixed field's
     and a penalty constraint's energies are added, since the functional the
     supervisor searches on is the one the field is part of.
+
+    Returns ``(I, H_out)``, the second the Hamiltonian of the output,
+    ``(v_scf, ddd_paw, v_ns)``, which the bottom rung mixes towards.
     """
     potential = calculation.potential(rho_out, field_scale, field)
+    ddd_out = v_ns_out = None
     merit = total - terms["hartree"] - terms["xc"]
     pieces = [potential.ehart, potential.etxc]
     if calculation.is_paw:
-        epaw, _ = calculation.onecenter(becsum_out, None)
+        epaw, ddd_out = calculation.onecenter(becsum_out, None)
         pieces.append(epaw)
     if calculation.sawtooth is not None:
         pieces.append(potential.e_sawtooth)
@@ -7182,9 +7187,9 @@ def _robust_merit(calculation, total, terms, rho_out, becsum_out, ns_out,
     if field is not None:
         merit += values[position] + values[position + 1]
     if calculation.is_hubbard:
-        merit += (float(hubbard_energy(ns_out, calculation.hubbard_coefficients))
-                  - terms["hubbard"])
-    return merit
+        eth_out, v_ns_out, _ = calculation.hubbard_terms(ns_out)
+        merit += float(eth_out) - terms["hubbard"]
+    return merit, (potential.v_scf, ddd_out, v_ns_out)
 
 
 def _take_rung(rung, mixer, calculation, layout, rho) -> None:
@@ -7676,7 +7681,7 @@ def run_scf(
             print(f"  mixing_mode = 'robust': vacuum fraction {vacuum:.2f}, "
                   f"inner mixer {mixing_mode!r}")
     mixer = get_mixer(mixing_mode, beta=mixing_beta, history=mixing_ndim)
-    supervisor = None
+    supervisor = damping = hamiltonian_in = None
     if robust:
         mixer.condition_limit = CONDITION_LIMIT
         supervisor = Supervisor(
@@ -8353,6 +8358,25 @@ def run_scf(
         eth = 0.0
         if calculation.is_hubbard:
             eth, v_ns, hubbard_terms = calculation.hubbard_terms(ns_state)
+        if hamiltonian_in is not None:
+            # The robust mode's bottom rung mixes the Hamiltonian itself, so the
+            # one this iteration diagonalises is the mixed one, whatever the
+            # density bookkeeping says; ``rho`` is the last output, which makes
+            # ``accuracy`` the change in the output between two iterations.
+            v_mixed, ddd_mixed, v_ns_mixed = hamiltonian_in
+            potential = eqx.tree_at(lambda p: p.v_scf, potential, v_mixed)
+            if ddd_mixed is not None:
+                ddd_paw = ddd_mixed
+            if v_ns_mixed is not None:
+                v_ns = v_ns_mixed
+                blocks = block_potential(v_ns, calculation._hubbard_blocks)
+                hubbard_terms = tuple(
+                    HubbardTerm(wfcU=calculation.wfcU, vns=blocks[spin])
+                    for spin in range(1 if calculation.noncolin else ns_state.shape[0]))
+            # The energy-only acceptance needs the merit to be resolved: ``ethr``
+            # a hundredth of the residual per electron, as fable's review set.
+            ethr = max(min(ethr, 0.01 * accuracy / max(1.0, calculation.nelec)),
+                       resolve_ethr_floor(getattr(calculation, "ethr_floor", ETHR_MIN)))
         hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw, hubbard_terms)
 
         # QE's threshold for judging the *first* diagonalisation after the fact:
@@ -9047,14 +9071,51 @@ def run_scf(
                 ns_state = ns_out
             if tau_state is not None:
                 tau_state = tau_out
+        elif damping is not None:
+            # The bottom rung: the Hamiltonian is what is mixed, the density
+            # state is the output (``accuracy`` is then the change in the output).
+            merit, h_out = _robust_merit(calculation, total, terms, rho_out,
+                                         becsum_out,
+                                         ns_out if calculation.is_hubbard else None,
+                                         field_scale, field)
+            h_in = (potential.v_scf, ddd_paw if calculation.is_paw else None,
+                    v_ns if calculation.is_hubbard else None)
+            h_out = (h_out[0], h_out[1] if calculation.is_paw else None,
+                     h_out[2] if calculation.is_hubbard else None)
+            if damping.judge(merit, davidson_unconverged):
+                hamiltonian_in = damping.kept(h_in, h_out, merit)
+            else:
+                hamiltonian_in = damping.retry()
+            history[-1]["merit"] = merit
+            history[-1]["supervisor"] = damping.record
+            if verbose:
+                record = history[-1]["supervisor"]
+                print(f"     robust (hamiltonian): "
+                      f"{'kept' if record['kept'] else 'rejected'} ({record['reason']}), "
+                      f"I = {merit:.8f} Ry, next alpha {record['next_scale']:.4f}")
+            rho, becsum_state = rho_out, becsum_out
+            if calculation.is_hubbard:
+                ns_state = ns_out
+            if damping.at_floor:
+                warnings.warn(
+                    f"mixing_mode = 'robust' stopped at iteration {iteration}: on its "
+                    f"last rung, damped Hamiltonian mixing, the energy of the output "
+                    f"states did not fall at the smallest step {damping.patience} "
+                    f"times running, with the residual at {accuracy:.2e}. The SCF map "
+                    f"is not single-valued at the eigensolver's floor here (a "
+                    f"degenerate cut or a limit cycle), and no mixer converges it; "
+                    f"a smearing is the usual cure",
+                    RuntimeWarning, stacklevel=2)
+                history[-1]["supervisor"]["terminal"] = True
+                break
         elif supervisor is not None and iteration > mixing_fixed_ns:
             # ``mixing_mode = 'robust'`` (``scf/robust.py``): keep this input or
             # cut the step back, on the merit and the residual. The inner mixer
             # is called only on a kept input, so its history never holds a
             # rejected one.
-            merit = _robust_merit(calculation, total, terms, rho_out, becsum_out,
-                                  ns_out if calculation.is_hubbard else None,
-                                  field_scale, field)
+            merit, _ = _robust_merit(calculation, total, terms, rho_out, becsum_out,
+                                     ns_out if calculation.is_hubbard else None,
+                                     field_scale, field)
             state = (rho, tuple(becsum_state),
                      ns_state if calculation.is_hubbard else None, None)
             if supervisor.judge(merit, accuracy, ethr, davidson_unconverged):
@@ -9066,7 +9127,10 @@ def run_scf(
                 following = supervisor.kept(state, proposal, merit, accuracy, ethr)
                 if supervisor.stalled():
                     rung = supervisor.next_rung()
-                    if rung is not None:
+                    if rung == "hamiltonian":
+                        damping = HamiltonianDamping()
+                        following = supervisor.restart_from_best()
+                    elif rung is not None:
                         _take_rung(rung, mixer, calculation, layout, rho)
                         following = supervisor.restart_from_best()
                         if verbose:

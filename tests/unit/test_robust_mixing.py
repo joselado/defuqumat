@@ -12,7 +12,8 @@ import numpy as np
 import pytest
 
 from defuqumat import Calculator
-from defuqumat.scf.robust import RUNGS, Supervisor, vacuum_fraction
+import defuqumat.scf.robust as robust
+from defuqumat.scf.robust import RUNGS, HamiltonianDamping, Supervisor, vacuum_fraction
 
 REPO = Path(__file__).resolve().parents[2]
 PSEUDO = REPO / "tests" / "data" / "pseudo"
@@ -90,9 +91,10 @@ def test_a_stall_is_detected_and_the_ladder_skips_what_does_not_apply():
     assert not moving.stalled()
     # An insulator without spin takes the restart, then the short history: the
     # LDOS rung needs states at the Fermi level, the magnetic one a moment.
-    assert [sup.next_rung(), sup.next_rung(), sup.next_rung()] == [
-        "restart", "short-history", None]
-    assert set(RUNGS) == {"restart", "ldos", "magnetization", "short-history"}
+    assert [sup.next_rung() for _ in range(4)] == [
+        "restart", "short-history", "hamiltonian", None]
+    assert set(RUNGS) == {"restart", "ldos", "magnetization", "short-history",
+                          "hamiltonian"}
     np.testing.assert_allclose(sup.restart_from_best()[0], 0.0)
 
 
@@ -116,3 +118,37 @@ def test_tetrahedra_are_refused_by_name():
     calc = Calculator.from_file(path, pseudo_dir=PSEUDO, announce=False)
     with pytest.raises(NotImplementedError, match="tetrahedron"):
         calc.get_scf(mixing_mode="robust", max_iterations=1)
+
+
+def test_the_hamiltonian_rung_keeps_only_a_lower_merit_and_ends_at_its_floor():
+    damping = HamiltonianDamping(alpha_max=0.5, alpha_min=0.1, patience=2)
+    h = (np.zeros(2), None, None)
+    assert damping.judge(-1.0, 0)
+    np.testing.assert_allclose(damping.kept(h, (np.ones(2), None, None), -1.0)[0], 0.5)
+    assert not damping.judge(-0.9, 0)
+    np.testing.assert_allclose(damping.retry()[0], 0.25)
+    assert not damping.judge(-0.9, 0)
+    damping.retry()
+    damping.retry()
+    # At the floor the trial is kept, and twice running is the end.
+    assert damping.judge(-0.9, 0) and damping.record["reason"] == "floor"
+    damping.kept(h, (np.ones(2), None, None), -0.9)
+    assert not damping.at_floor
+    assert damping.judge(-0.8, 0)
+    damping.kept(h, (np.ones(2), None, None), -0.8)
+    assert damping.at_floor
+
+
+def test_the_bottom_rung_alone_converges_silicon(monkeypatch):
+    """Damped Hamiltonian mixing from the second iteration on, every other rung
+    skipped: slow, and it must land where Anderson does."""
+    monkeypatch.setattr(robust, "RUNGS", ("hamiltonian",))
+    monkeypatch.setattr(Supervisor, "stalled", lambda self: True)
+    path = REPO / "benchmarks" / "si-1k.in"
+    plain = Calculator.from_file(path, pseudo_dir=PSEUDO, announce=False).get_scf()
+    result = Calculator.from_file(path, pseudo_dir=PSEUDO, announce=False).get_scf(
+        mixing_mode="robust", max_iterations=200)
+    assert result.converged
+    assert result.total_energy == pytest.approx(plain.total_energy, abs=1e-7)
+    rungs = {h["supervisor"]["rung"] for h in result.history if "supervisor" in h}
+    assert "hamiltonian" in rungs

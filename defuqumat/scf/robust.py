@@ -44,8 +44,11 @@ residual *rises*, which is the run going downhill to the ferromagnet, and a
 residual-only test called it a stall and sent it back to the saddle:
 restart the history with the conditioning bound at 1e2 (Herbst and Levitt's
 Fe2CrGa); switch on the LDOS preconditioner on a smeared cell; cut the
-magnetization's step to a quarter; shorten the history to four and lower the
-floor. Past the last rung the run goes on at it until ``max_iterations``.
+magnetization's step to a quarter; shorten the history to four; and at the
+bottom, damped **Hamiltonian** mixing with an energy-only line search
+(:class:`HamiltonianDamping`), the one rung with a theorem under it. A run that
+cannot lower the merit there at the smallest step stops and says so: the map is
+not single-valued at the eigensolver's floor, and no mixer fixes that.
 
 What is guaranteed and what is not is section 2 of the plan: the damped
 iteration with an energy-only line search has a theorem under it (their
@@ -61,13 +64,13 @@ from dataclasses import dataclass, field
 import jax
 import numpy as np
 
-__all__ = ["Supervisor", "RUNGS", "vacuum_fraction", "ROBUST_MODES"]
+__all__ = ["Supervisor", "HamiltonianDamping", "RUNGS", "vacuum_fraction", "ROBUST_MODES"]
 
 #: The names ``run_scf`` reads as this mode.
 ROBUST_MODES = ("robust",)
 
 #: The ladder, in order. Each name is what ``history`` records when it is taken.
-RUNGS = ("restart", "ldos", "magnetization", "short-history")
+RUNGS = ("restart", "ldos", "magnetization", "short-history", "hamiltonian")
 
 #: The bound on the Anderson least-squares conditioning: :class:`AndersonMixer`'s
 #: own 1e12, and **not** Herbst and Levitt's 1e6. Measured on D22 (2026-10-16,
@@ -264,4 +267,82 @@ class Supervisor:
         """What ``history`` records for this trial."""
         out = dict(self._last)
         out["rung"] = RUNGS[self.rung] if self.rung >= 0 else "none"
+        return out
+
+
+@dataclass
+class HamiltonianDamping:
+    """The bottom rung: ``H_{n+1} = H_n + alpha (H_KS(P_out(H_n)) - H_n)``, Armijo on ``I``.
+
+    Herbst and Levitt's Theorems 1 and 2 (arXiv:2109.14018, section II) are for
+    exactly this iteration: Hamiltonian mixing along the plain SCF direction,
+    no Anderson and no preconditioner, the step accepted only when the merit
+    fell. Along it the slope of ``I`` is ``<R_V, chi0 R_V> <= 0`` with no
+    linearisation, which is why this rung mixes the Hamiltonian and the others
+    the density (``plans/robust-mixing.md`` section 2). ``H`` is the triple the
+    loop builds its Hamiltonians from, ``(v_scf, ddd_paw, v_ns)``, with ``None``
+    for a piece the run does not have. ``alpha`` starts at ``alpha_max < 1``,
+    which Theorem 2 needs.
+    """
+
+    alpha_max: float = 0.5
+    #: Below this step a trial is kept regardless and counted towards the end.
+    alpha_min: float = 1.0e-3
+    #: Consecutive trials kept at ``alpha_min`` before the run is declared at
+    #: the eigensolver's floor.
+    patience: int = 6
+
+    alpha: float = 0.5
+    cuts: int = 0
+    _h: tuple | None = field(default=None, repr=False)
+    _r: tuple | None = field(default=None, repr=False)
+    _merit: float | None = None
+    _floored: int = 0
+    _last: dict = field(default_factory=dict)
+
+    def judge(self, merit: float, unsettled: int) -> bool:
+        """Kept when the merit fell, or when the step is at its floor."""
+        if self._h is None:
+            self._last = {"kept": True, "reason": "first"}
+            return True
+        if unsettled == 0 and merit < self._merit:
+            reason, keep = "energy", True
+        elif self.alpha <= self.alpha_min:
+            reason, keep = "floor", True
+        else:
+            reason, keep = "rejected", False
+        self._last = {"kept": keep, "reason": reason, "scale": self.alpha,
+                      "merit_change": merit - self._merit}
+        return keep
+
+    def kept(self, h_in, h_out, merit):
+        """Record the kept Hamiltonian and its residual; the next trial."""
+        self._floored = self._floored + 1 if self._last.get("reason") == "floor" else 0
+        if self.cuts == 0 and self._h is not None:
+            self.alpha = min(self.alpha_max, 2.0 * self.alpha)
+        self.cuts = 0
+        self._h = h_in
+        self._r = jax.tree_util.tree_map(lambda o, i: o - i, h_out, h_in)
+        self._merit = merit
+        self._last["next_scale"] = self.alpha
+        return self._step()
+
+    def retry(self):
+        self.cuts += 1
+        self.alpha *= 0.5
+        self._last["next_scale"] = self.alpha
+        return self._step()
+
+    def _step(self):
+        return jax.tree_util.tree_map(lambda h, r: h + self.alpha * r, self._h, self._r)
+
+    @property
+    def at_floor(self) -> bool:
+        """Whether the merit has not fallen at the smallest step :attr:`patience` times running."""
+        return self._floored >= self.patience
+
+    @property
+    def record(self) -> dict:
+        out = dict(self._last)
+        out["rung"] = "hamiltonian"
         return out
