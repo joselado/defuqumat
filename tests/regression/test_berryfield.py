@@ -164,8 +164,8 @@ def _regime(spin):
 
 
 @pytest.mark.parametrize("spin, energy, dipole", [
-    (NSPIN2, 1e-8, 1e-6),
-    (SPINOR, 1e-8, 1e-6),
+    (NSPIN2, 1e-9, 1e-6),
+    (SPINOR, 1e-9, 1e-6),
 ])
 def test_a_nonmagnetic_spin_regime_is_the_unpolarized_field(spin, energy, dipole):
     """I14 and I15: ``nspin = 2`` at ``tot_magnetization = 0``, and a spinor without
@@ -196,7 +196,8 @@ def test_a_nonmagnetic_spin_regime_is_the_unpolarized_field(spin, energy, dipole
 def test_a_nonmagnetic_spin_regime_has_the_unpolarized_forces(spin):
     calculation, result, _ = _regime(spin)
     reference = read_qe_output(CASES / "reference.out.si8-lelfield")
-    for method in ("autodiff", "analytic"):
+    # the analytic route refuses a spinor for every run, field or not
+    for method in ("autodiff", "analytic") if spin == NSPIN2 else ("autodiff",):
         forces = compute_forces(calculation, result, method=method).forces
         np.testing.assert_allclose(forces, reference.forces, atol=FORCE)
 
@@ -226,7 +227,9 @@ def test_an_automatic_grid_is_pw_x_l3dstring_field():
     assert el == pytest.approx(electronic, abs=DIPOLE)
     forces = compute_forces(calculation, result, method="analytic").forces
     np.testing.assert_allclose(forces, reference.forces, atol=FORCE)
-    assert result.total_energy == pytest.approx(explicit.total_energy, abs=1e-10)
+    # si8-lelfield.in writes its points to nine digits and the grid is exact, which
+    # moves the total by 5.7e-9 (measured on D22), so this is not the 1e-10 of one input
+    assert result.total_energy == pytest.approx(explicit.total_energy, abs=2e-8)
 
 
 def test_a_streamed_store_is_the_in_memory_run():

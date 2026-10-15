@@ -8483,19 +8483,19 @@ def run_scf(
                 # arrived on the device -- a resume, a caller's span -- is
                 # brought across once here and stays.
                 wavefunctions = park_wavefunctions(wavefunctions, "stream")
-                field = calculation.berry_field
-                if field is not None and field.active:
+                berry = calculation.berry_field
+                if berry is not None and berry.active:
                     # ``c_bands_efield`` on the store: the whole operator is built
                     # on the host before each walk, from the states the walk is
                     # about to overwrite, and each chunk is handed its rows.
                     steps = 0
-                    for _cycle in range(field.nberrycyc):
-                        terms = tuple(field.host_term(wavefunctions, spin)
+                    for _cycle in range(berry.nberrycyc):
+                        terms = tuple(berry.host_term(wavefunctions, spin)
                                       for spin in range(len(hamiltonians)))
                         eigenvalues, cycle_steps, unsettled = stream_diagonalize(
                             calculation, hamiltonians, nbnd, wavefunctions, thresholds,
                             per_chunk=lambda spin, h, rows: eqx.tree_at(
-                                lambda h: h.berry, h, field.chunk_term(terms[spin], rows),
+                                lambda h: h.berry, h, berry.chunk_term(terms[spin], rows),
                                 is_leaf=lambda x: x is None))
                         steps = steps + cycle_steps
                 else:

@@ -360,7 +360,7 @@ class BerryFieldSetup:
     def _link_signs(self, wavefunctions, spin: int) -> np.ndarray:
         """``det M+(k) / |det M+(k)|`` at every k, ``(nk,)``, a chunk at a time for a host store."""
         if isinstance(wavefunctions, np.ndarray):
-            signs = np.empty(wavefunctions.shape[1], dtype=complex)
+            signs = np.empty(wavefunctions.shape[1], dtype=wavefunctions.dtype)
             for rows, live, u, plus, _ in self._host_chunks(wavefunctions, spin):
                 sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
                 signs[rows[:live]] = np.asarray(sign)[:live]
