@@ -73,8 +73,18 @@ nav:
       - Spin spirals: spirals.md
       - Magnons: magnons.md
       - DFT+U: dft-plus-u.md
+  - Response and spectra:
+      - Dielectric constant, Born charges and phonons: phonons.md
+      - Raman and infrared: raman.md
+      - Optical spectra: optics.md
+      - Nonlinear optics: nonlinear.md
+      - Strain and polarization couplings: piezo.md
+  - Topology: topology.md
   - Microscopy and scattering:
+      - STM images and tunnelling: stm.md
       - Diffraction and nesting: scattering.md
+  - Long-range modulations: ultracell.md
   - More:
       - Starting from an all-electron ground state: elk-seed.md
+      - Performance and many cores: performance.md
       - Accuracy: accuracy.md
