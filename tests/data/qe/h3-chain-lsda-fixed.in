@@ -3,10 +3,11 @@
 ! 7 bohr apart, held at one Bohr magneton a cell by fixed occupations. The up
 ! channel fills two bands and the down channel one, so the two channels are
 ! filled to different depths, which is what an nspin = 2 chi_0 has to get
-! right and an unpolarized cell cannot test. The spacings are all different,
-! so no band is degenerate with its neighbour at any k and neither cut splits
-! a multiplet. The whole unshifted 1x1x8 grid with nosym and noinv, as the
-! sum over states needs.
+! right and an unpolarized cell cannot test. Neither cut splits a multiplet:
+! the smallest gap across the up channel's cut (band 2 to 3) is 0.109 Ry and
+! across the down channel's (band 1 to 2) 0.117 Ry, over the eight k-points
+! (D22, 2026-10-16). The whole unshifted 1x1x8 grid with nosym and noinv, as
+! the sum over states needs.
  &control
     calculation = 'scf'
  /
