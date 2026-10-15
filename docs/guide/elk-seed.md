@@ -2,8 +2,7 @@
 
 In this page we compute a ground state that starts from the converged density of
 Elk, an all-electron LAPW code, and we compare the two densities point by point.
-We take simple cubic hydrogen at $a = 3.0$ bohr, the one element with no core
-electrons, so the all-electron density and the valence density count the same
+We take simple cubic hydrogen at $a = 3.0$ bohr, which has no core electrons, so the all-electron density and the valence density count the same
 single electron.
 
 ## Reading the all-electron density
@@ -89,11 +88,8 @@ is the bridge itself: an all-electron ground state, computed in a different basi
 on the grid of this code, where you can compare it with the pseudopotential
 density point by point.
 
-The run also prints a warning that the starting density is not invariant under the
-48 symmetry operations of the cubic cell, with a relative size of 2.24e-02. For
-this seed the number is the part of the density on Fourier components outside the
-cutoff of the run, which the first iteration removes, and not a broken symmetry,
-so here you can ignore it.
+The run also prints a warning about the symmetry of the starting density. You can
+ignore it here, because this seed has the full symmetry of the cube.
 
 ## Where the two densities differ
 
