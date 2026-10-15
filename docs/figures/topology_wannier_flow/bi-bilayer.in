@@ -1,0 +1,23 @@
+! A freestanding buckled Bi(111) bilayer with spin-orbit coupling: a = 4.34 A,
+! buckling 1.74 A, 11.3 A of vacuum. A small cutoff and a 6x6x1 mesh.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 4, celldm(1) = 8.201308, celldm(3) = 3.000000,
+    nat = 2, ntyp = 1,
+    ecutwfc = 20.0, ecutrho = 160.0,
+    noncolin = .true., lspinorb = .true.,
+    starting_magnetization = 0.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.005,
+ /
+ &electrons
+    conv_thr = 1.0d-8
+ /
+ATOMIC_SPECIES
+ Bi 208.98 Bi.rel-pbe-dn-rrkjus_psl.1.0.0.UPF
+ATOMIC_POSITIONS (crystal)
+ Bi 0.333333333333 0.666666666667  0.066820276498
+ Bi 0.666666666667 0.333333333333 -0.066820276498
+K_POINTS AUTOMATIC
+ 6 6 1 0 0 0
