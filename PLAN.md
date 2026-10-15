@@ -12536,6 +12536,22 @@ at `X`, the dispersion turning over as it approaches the zone boundary. **The tw
 agree**: at the cheaper `nbnd = 24`, `ecut_response = 40` that the notebook runs (residual
 2.29 per cent) the same mode comes out at **434 meV**, 2 meV from the converged one.
 
+**2026-10-15: at the input's `conv_thr = 1e-9` the same call now gives 430.65 meV, from
+`043d293` (P146, the Anderson fit in `rho_ddot`'s inner product by default), and the
+converged answer is 433.8 under either mixer.** Measured on D22, one core, one fixed copy of
+`ni-fcc-magnon.in` and `Ni.pbe-nc-sg15.UPF`, notebook 38's call: 434.29 at `aaec996` (the
+notebook's commit), 434.01 at `520a037`, `dbfae07`, `f7e01a2`, `040cce0` and `6163b68`, 433.95 at
+`60a099a`, `e1f4801` and `400905f`, then **430.65** at `043d293`, `6f9b6d6`, `484b243`,
+`cbb5f1d`, `16c0573`, `4aaf07c` and `b05447f`, the enhancement at `q` going from 0.64502 to
+0.64571. The ground states differ by 4.6e-10 Ry in energy and 3.3e-6 mu_B in the moment. At
+`conv_thr = 1e-12` the magnon is **433.870 at `400905f` and 433.798 at `043d293` and
+`b05447f`**, 0.07 meV apart, so the 3.1 meV is where the new fit stops at 1e-9, and the old
+fit's 1e-9 stop happened to sit within 0.1 meV of the converged value. The 434 above and in
+notebook 38 is therefore right to 0.5 meV, and the user guide's 431 (`docs/guide/magnons.md`,
+same input at 1e-9) is 3 meV low. **A magnon at `conv_thr = 1e-9` carries a few meV of SCF
+error on this cell**, being a ratio read off the Goldstone-corrected kernel; a figure quoted
+to the meV wants `conv_thr = 1e-12`.
+
 Nickel's measured spin-wave stiffness of about 550 meV A^2 would put a quadratic magnon at
 438 meV at that wavevector, which is the same size -- and the agreement should not be
 pushed, because the quadratic law is long past its range there. **This is not a converged
@@ -23501,6 +23517,25 @@ there and in "What the number is not" above, none re-measured), and notebook 48,
 guide's `docs/guide/spirals.md` already shows the default's -1.40272. The identities (`V(-q) =
 -V(q)`, the supercell, the scaled-coupling limit) were not re-run under `'grad_m'`; the supercell
 one was, for the energy and potential alone, by P142's own cobalt test.
+
+**The smaller moves inside one functional are where the SCF stops at `conv_thr = 1e-9`, not
+the code.** Under `'kubler'`, `V_y` reads -1.217895 at `dbfae07`, -1.216742 at `60a099a` and
+-1.218651 at `b05447f`; under `'grad_m'`, -1.404241 at `ee08a18` and -1.402725 at `b05447f`.
+These are 1e-3 relative, a hundred times the 1.3e-5 quoted above for `V(-q) + V(q)`, which
+was two SCFs of one mixer and so one stopping rule; between them sit `22842dc` (the Davidson
+collapse) and `6f9b6d6` (P146's Anderson fit), both of which move where an SCF stops. The same
+input at `conv_thr = 1e-11` (`electron_maxstep = 400`) under `'grad_m'` gives **-1.4038788 at
+`ee08a18` (141 iterations) and -1.4038932 at `b05447f` (145)**, 1.0e-5 apart, so the
+converged `'grad_m'` value is -1.40389 and both 1e-9 readings are about 1e-3 from it, on
+either side. Under `'kubler'` the same tightening does not converge at any of `520a037`,
+`60a099a` and `b05447f`: 400 iterations stall at 3.3e-10, 4.5e-10 and 4.6e-10 Ry, so
+`'kubler'`'s value on this cell is known to about 1e-3 relative and no better.
+
+**The identities under `'grad_m'`**, `tests/regression/test_spiral_soc.py` at `b05447f` on one
+D22 core: **4 passed in 28:06**, the symmetry's zero, `V(-q) = -V(q)`, the supercell identity
+and the scaled-coupling limit, at the tolerances fixed under `'kubler'` (1e-4 relative, 1e-10
+Ry, 1e-3 relative). The test pins no functional, so it has been running under `'grad_m'` since
+`ee08a18`; the measured margins under it were not printed and are not recorded here.
 
 ### P124 -- One calculation on many cores: k-point pools, and the local term and the density a chunk of planes at a time. ✅ DONE for the SCF, forces, stress and relaxations on six desktop cores; a server node and the 40-site target are not measured.
 
