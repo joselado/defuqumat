@@ -8739,6 +8739,15 @@ def run_scf(
         # ``eband``, ``deband`` and ``|drho|``, read in the attempt's one fetch;
         # the comment there says which density each is evaluated at.
         eband, deband, residual = (float(x) for x in iteration_terms)
+        if damping is not None and hamiltonian_in is not None:
+            # On the robust mode's bottom rung ``rho`` is the kept trial's
+            # *output*, so ``accuracy`` measured the change in the output over a
+            # step ``alpha`` along the residual, ``alpha chi0 R`` to first order.
+            # ``rho_ddot`` is quadratic, so the residual it stands for is that
+            # over ``alpha^2``; without this the run stops ``1/alpha^2`` early
+            # (measured on the aluminium slab: 1.2e-7 Ry off the converged energy
+            # at ``conv_thr = 1e-8``).
+            accuracy = accuracy / damping.alpha ** 2
 
         if record_orientation:
             # ``potential`` is still the input's here, which is the field the
@@ -9093,9 +9102,12 @@ def run_scf(
                 print(f"     robust (hamiltonian): "
                       f"{'kept' if record['kept'] else 'rejected'} ({record['reason']}), "
                       f"I = {merit:.8f} Ry, next alpha {record['next_scale']:.4f}")
-            rho, becsum_state = rho_out, becsum_out
-            if calculation.is_hubbard:
-                ns_state = ns_out
+            if history[-1]["supervisor"]["kept"]:
+                # The kept trial's output is the reference the next ``accuracy``
+                # is measured from; a rejected one leaves it alone.
+                rho, becsum_state = rho_out, becsum_out
+                if calculation.is_hubbard:
+                    ns_state = ns_out
             if damping.at_floor:
                 warnings.warn(
                     f"mixing_mode = 'robust' stopped at iteration {iteration}: on its "
