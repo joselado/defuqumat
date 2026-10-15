@@ -1,0 +1,26 @@
+! Simple cubic hydrogen, one atom at the origin, a = 3.0 bohr, with the
+! default settings of Elk. Run in this folder, it writes STATE.OUT and
+! GEOMETRY.OUT. tshift = .false. keeps the origin on the atom.
+
+tasks
+  0
+
+sppath
+  './'
+
+avec
+  3.0  0.0  0.0
+  0.0  3.0  0.0
+  0.0  0.0  3.0
+
+atoms
+  1
+  'H.in'
+  1
+  0.0  0.0  0.0    0.0  0.0  0.0
+
+ngridk
+  4  4  4
+
+tshift
+  .false.
