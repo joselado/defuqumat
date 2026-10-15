@@ -206,6 +206,7 @@ from defuqumat.system.symmetry import (
     atom_mapping,
     cartesian_rotations,
     magnetization_signs,
+    subset_atom_mapping,
     symmetry_maps,
     symmetrize_atom_displacement_density,
     symmetrize_tensor_density,
@@ -5232,7 +5233,7 @@ class Calculation:
             atom_mapping(self.system.cell, self.system.structure, self.symmetries),
         ))
 
-    def symmetrize_atom_pair_tensor(self, tensors) -> np.ndarray:
+    def symmetrize_atom_pair_tensor(self, tensors, atoms=None) -> np.ndarray:
         """``symdynph_gq`` at ``q = 0``: the force constants' two atom indices.
 
         The companion of :meth:`symmetrize_atom_displacement` and **not** its
@@ -5241,15 +5242,24 @@ class Calculation:
         (``PLAN.md`` P28a, and the docstrings of both functions in
         :mod:`defuqumat.system.symmetry`). Guarded on :attr:`use_symmetry` for
         the reason :meth:`symmetrize_atom_tensor` is.
+
+        ``atoms``: the tensor is the ``(len(atoms), 3, len(atoms), 3)`` block of
+        a subset, which must be a union of orbits; the average over the group
+        then reads only entries inside the block, so it is the whole matrix's
+        average restricted to it, exactly.
         """
-        from defuqumat.system.symmetry import atom_mapping, symmetrize_atom_pair_tensor
+        from defuqumat.system.symmetry import (
+            atom_mapping, subset_atom_mapping, symmetrize_atom_pair_tensor,
+        )
 
         tensors = np.asarray(tensors)
         if not self.use_symmetry:
             return tensors
+        mapping = atom_mapping(self.system.cell, self.system.structure, self.symmetries)
+        if atoms is not None:
+            mapping = subset_atom_mapping(mapping, atoms)
         return np.asarray(symmetrize_atom_pair_tensor(
-            tensors, self.system.cell, self.symmetries,
-            atom_mapping(self.system.cell, self.system.structure, self.symmetries),
+            tensors, self.system.cell, self.symmetries, mapping,
         ))
 
     def symmetrize_cartesian_tensor(self, tensor) -> np.ndarray:
@@ -5296,7 +5306,8 @@ class Calculation:
             atom_mapping(self.system.cell, self.system.structure, self.symmetries),
         ))
 
-    def symmetrize_atom_displacement(self, fields: jnp.ndarray) -> jnp.ndarray:
+    def symmetrize_atom_displacement(self, fields: jnp.ndarray,
+                                     atoms=None) -> jnp.ndarray:
         """:meth:`symmetrize_directional` for the ``3 nat`` displacement patterns.
 
         ``LR_Modules/symdvscf.f90`` at ``q = 0``, for the *phonon* perturbation
@@ -5320,7 +5331,14 @@ class Calculation:
         leaving the wedge sum alone (``PLAN.md`` P81).
 
         Args:
-            fields: ``(nat, 3, nspin_mag, n1, n2, n3)`` real, on the dense grid.
+            fields: ``(nat, 3, nspin_mag, n1, n2, n3)`` real, on the dense grid,
+                or ``(len(atoms), 3, ...)`` for a subset.
+            atoms: the displaced atoms when they are a subset of the cell. It
+                must be a union of orbits (:func:`~defuqumat.system.symmetry.
+                subset_atom_mapping`): the average for ``drho_{a,i}`` reads
+                ``drho_{S^-1(a),j}`` for every operation of the group the wedge
+                was reduced by, so a subset the group carries outside itself
+                has nothing to read there.
         """
         if self._symmetry_maps is None:
             return fields
@@ -5338,6 +5356,8 @@ class Calculation:
         mapping = atom_mapping(
             self.system.cell, self.system.structure, self.symmetries
         )
+        if atoms is not None:
+            mapping = subset_atom_mapping(mapping, atoms)
 
         def channel(patterns):
             """``patterns``: (nat, 3, n1, n2, n3) for one spin channel."""

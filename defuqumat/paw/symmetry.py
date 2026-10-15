@@ -284,7 +284,11 @@ class BecsumSymmetry:
             mapping: ``(nsym, nat)`` from
                 :func:`~defuqumat.system.symmetry.atom_mapping` -- ``irt``
                 itself, inverted here so that call sites keep passing it
-                unchanged.
+                unchanged. It indexes the *displaced* axis only, so a subset's
+                ``(nsym, len(atoms))`` table from
+                :func:`~defuqumat.system.symmetry.subset_atom_mapping` is passed
+                here for a partial stack; the ``becsum`` atoms are permuted by
+                this object's own full table.
         """
         if self.nsym <= 1:
             return becsum

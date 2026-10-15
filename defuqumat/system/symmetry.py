@@ -1098,6 +1098,43 @@ def atom_mapping(cell: Cell, structure: Structure, symmetries: Symmetries) -> np
     return mapping
 
 
+def orbit_closure(mapping: np.ndarray, atoms) -> tuple:
+    """The smallest union of orbits under ``irt`` that contains ``atoms``.
+
+    A set of atoms the group can act on by itself is one that every operation
+    maps into itself, and that is a union of whole orbits. Sorted, so that a
+    refusal can name it and a caller can pass it straight back.
+    """
+    mapping = np.asarray(mapping)
+    return tuple(sorted({int(b) for a in atoms for b in mapping[:, int(a)]}))
+
+
+def subset_atom_mapping(mapping: np.ndarray, atoms) -> np.ndarray:
+    """``irt`` restricted to a subset closed under the group, in its own indices.
+
+    ``out[s, r]`` is the position *in* ``atoms`` of the atom that operation
+    ``s`` sends ``atoms[r]`` to, so the result is ``(nsym, len(atoms))`` and is
+    a permutation of ``range(len(atoms))`` for every ``s``. That is what lets a
+    symmetriser written for the ``3 nat`` stack act on a partial one unchanged:
+    it only ever indexes the atom axis through this table.
+
+    Raises ``ValueError`` when the subset is not a union of orbits, where an
+    operation would carry a mode inside it onto an atom outside it and there is
+    no table to write.
+    """
+    mapping = np.asarray(mapping)
+    atoms = tuple(int(a) for a in atoms)
+    position = {a: r for r, a in enumerate(atoms)}
+    images = mapping[:, list(atoms)]
+    outside = sorted({int(b) for b in images.ravel()} - set(atoms))
+    if outside:
+        raise ValueError(
+            f"atoms {atoms} is not closed under the symmetry group: operations "
+            f"carry it onto atoms {tuple(outside)}"
+        )
+    return np.vectorize(position.__getitem__, otypes=[int])(images)
+
+
 def cartesian_rotations(cell: Cell, symmetries: Symmetries) -> np.ndarray:
     """The symmetry rotations as cartesian matrices acting on column vectors.
 

@@ -252,12 +252,12 @@ class StreamedDisplacements:
                            + _stack_host(ort_density))
         else:
             moved_stacked = _stack_modes(
-                _symmetrize_modes(calculation, moved_density))
+                _symmetrize_modes(calculation, moved_density, self.atoms))
             self.drhous = moved_stacked + _stack_modes(
-                _symmetrize_modes(calculation, ort_density))
+                _symmetrize_modes(calculation, ort_density, self.atoms))
         self.becsumort = _add_becsum(
-            symmetrize_becsum_modes(calculation, moved_becsum),
-            symmetrize_becsum_modes(calculation, ort_becsum))
+            symmetrize_becsum_modes(calculation, moved_becsum, self.atoms),
+            symmetrize_becsum_modes(calculation, ort_becsum, self.atoms))
 
     # -- walk 2: the solves, once per iteration --------------------------------
 

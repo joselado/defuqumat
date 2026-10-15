@@ -748,19 +748,137 @@ def test_a_frozen_partner_raises_the_frequency_by_the_reduced_mass():
 
 @pytest.mark.slow
 def test_a_subset_of_a_symmetrised_run_is_refused():
-    """``symdvscf`` acts on the ``3 nat`` stack as one object.
+    """``symdvscf`` acts on the stack as one object, so a subset must be closed.
 
-    An operation rotates the cartesian direction *and* permutes the atom, so it
-    mixes a mode inside the subset with one outside it. Refusing is the only
-    honest option: the partial stack is not something the group can act on.
+    An operation rotates the cartesian direction *and* permutes the atom, so on
+    diamond silicon, where half the operations exchange the two sublattices,
+    ``atoms=(0,)`` has a mode whose images live on atom 1, outside the subset.
+    The wedge was reduced by the whole group, so there is nothing to average
+    with, and the refusal names the smallest subset that is closed.
     """
     _, _, calculation = _build("si-epsilon")
     assert calculation.use_symmetry
-    with pytest.raises(NotImplementedError, match="nosym"):
+    with pytest.raises(NotImplementedError, match=r"atoms=\(0, 1\).*nosym"):
         dynamical_matrix(
             calculation, np.zeros((1, 1, 1, 1)), np.zeros((1, 1, 1)),
             np.zeros((1, 1, 1, 1)), (), atoms=(0,),
         )
+
+
+# A subset closed under the group, with symmetry on (``notes/incompat/I51.md``).
+# The wedge is reduced by the whole group, and the average for ``drho_{a,i}``
+# reads ``drho_{S^-1(a),j}`` for every operation: a union of orbits has all of
+# them, so the subset is symmetrised with the group restricted to it, and its
+# block must be the whole cell's block of the same calculation.
+
+@lru_cache(maxsize=2)
+def _closed_subsets(case: str):
+    """The whole wedge matrix and the two one-atom blocks of a zincblende cell,
+    each atom being its own orbit under T_d."""
+    system, pseudos, calculation = _build(case)
+    assert calculation.use_symmetry
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                     max_iterations=100)
+    args = (calculation, result.wavefunctions, result.eigenvalues,
+            result.density, result.becsum)
+    whole = dynamical_matrix(*args, **IDENTITY)
+    parts = {atoms: dynamical_matrix(*args, atoms=atoms, **IDENTITY)
+             for atoms in [(0,), (1,)]}
+    return whole, parts
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "case",
+    ["alas-raman-wedge", "alas-piezo-tiny-wedge", "alas-piezo-tiny-paw-wedge"],
+    ids=["nc", "us", "paw"],
+)
+def test_a_closed_subset_of_a_symmetrised_run_is_the_whole_block(case):
+    """``atoms=(0,)`` and ``(1,)`` on the wedge give the whole wedge's blocks.
+
+    Ultrasoft and PAW are here because their ``drhous`` and ``becsumort`` are
+    symmetrised per mode as well, and PAW's ``becsum`` symmetriser permutes two
+    atom labels, of which only the displaced one is restricted to the subset.
+    """
+    whole, parts = _closed_subsets(case)
+    for atoms, part in parts.items():
+        block = whole.matrix[list(atoms)][:, :, list(atoms)]
+        assert part.atoms == atoms
+        assert part.matrix.shape == (1, 3, 1, 3)
+        assert np.abs(part.matrix - block).max() < WEDGE_TOLERANCE
+
+
+@pytest.mark.slow
+def test_a_closed_subset_on_the_wedge_is_the_subset_on_the_whole_grid():
+    """The same block from 8 symmetrised points and from the 64 of ``nosym``.
+
+    The check above shares every symmetriser with the reference it is compared
+    to; this one shares none, since ``alas-raman.in`` is the same closed sample
+    run whole, where the subset was already accepted.
+    """
+    _, parts = _closed_subsets("alas-raman-wedge")
+    system, pseudos, calculation = _build("alas-raman")
+    assert not calculation.use_symmetry
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                     max_iterations=100)
+    whole_grid = dynamical_matrix(
+        calculation, result.wavefunctions, result.eigenvalues, result.density,
+        result.becsum, atoms=(0,), **IDENTITY,
+    )
+    assert np.abs(parts[(0,)].matrix - whole_grid.matrix).max() < WEDGE_TOLERANCE
+
+
+#: A three-atom fluorite cell, Si at the origin and As at +-(1/4, 1/4, 1/4):
+#: the two As are one orbit of O_h, exchanged by the inversion, so the subset
+#: ``(1, 2)`` is closed with a **non-trivial** permutation in its own indices,
+#: which the zincblende cells above (one atom per orbit) cannot have. A metal,
+#: so the Fermi level's shift is in the loop as well.
+FLUORITE = """
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 2, celldm(1) = 10.4, nat = 3, ntyp = 2, ecutwfc = 10.0,
+  occupations = 'smearing', smearing = 'mv', degauss = 0.05
+/
+&electrons
+  conv_thr = 1.0d-12
+/
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-vbc.UPF
+ As 74.92  As.pz-bhs.UPF
+ATOMIC_POSITIONS crystal
+ Si  0.00  0.00  0.00
+ As  0.25  0.25  0.25
+ As -0.25 -0.25 -0.25
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+
+
+@pytest.mark.slow
+def test_a_closed_orbit_of_two_atoms_is_the_whole_block(pseudo_dir):
+    """``atoms=(1, 2)``, permuted by the group, and ``atoms=(0,)`` beside it."""
+    import warnings
+
+    from defuqumat.calculator import Calculator
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        calculator = Calculator.from_text(FLUORITE, pseudo_dir, announce=False)
+        assert calculator.calculation.use_symmetry
+        calculator.get_scf()
+        whole = calculator.get_phonons(**IDENTITY)
+        pair = calculator.get_phonons(atoms=(1, 2), **IDENTITY)
+        centre = calculator.get_phonons(atoms=(0,), **IDENTITY)
+        with pytest.raises(NotImplementedError, match=r"atoms=\(1, 2\)"):
+            calculator.get_phonons(atoms=(1,))
+
+    assert np.abs(pair.matrix - whole.matrix[1:3, :, 1:3, :]).max() < WEDGE_TOLERANCE
+    assert np.abs(centre.matrix - whole.matrix[0:1, :, 0:1, :]).max() < WEDGE_TOLERANCE
+    # The pair's block is not diagonal in the atoms, so the permutation is
+    # doing work rather than being the identity on two independent blocks.
+    assert np.abs(whole.matrix[1, :, 2, :]).max() > 1e-3
 
 
 @pytest.mark.slow
