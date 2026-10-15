@@ -1139,7 +1139,7 @@ from defuqumat import Calculator
 calc = Calculator.from_file("tests/data/qe/efield-ni-slab.in",
                             pseudo_dir="tests/data/pseudo")
 scf = calc.get_scf(mixing_mode="robust", mixing_beta=0.7, mixing_fit="flat")
-scf.iterations      # 42, where plain anderson does not converge in 200
+scf.iterations      # 42 to 44 (by core), where plain anderson does not converge in 200
 \end{verbatim}
 
 \textbf{What it does, measured.} We ran 48 cases: 15 cells, each at its own

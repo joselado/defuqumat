@@ -299,6 +299,73 @@ costs more: the step counts above close most of the gap between the two ratios. 
 is real, and it is the smaller of the two figures.
 
 
+## A mode that chooses for you
+
+Each cure above fits one kind of cell. `mixing_mode = 'robust'` chooses one from the cell and
+then checks every step. If the cell is smeared and has vacuum, it screens with the local
+density of states. Otherwise it uses plain Anderson. Every step is measured by a merit
+function, the Kohn-Sham free energy of the states the step produces,
+
+$$I[\rho_{\rm in}] = E_{\rm KS}[P_{\rm out}] \;\ge\; E_{\min}.$$
+
+This is the energy of a real density matrix, so it cannot go below the ground state. A step
+is kept if this energy fell, or if the residual fell. Otherwise the step is cut by half. This
+is the adaptive damping of Herbst and Levitt (arXiv:2109.14018).
+
+The nickel slab below is the one of the Quantum ESPRESSO test suite, with its dipole
+correction. With $\beta = 0.7$ and an Anderson fit that treats every wavelength alike, plain
+Anderson runs away from the solution.
+
+
+```python
+slab_input = Path("../tests/data/qe/efield-ni-slab.in")
+
+def nickel_slab(mode):
+    calc = Calculator.from_file(slab_input, pseudo_dir=PSEUDO, announce=False)
+    return calc.get_scf(mixing_mode=mode, mixing_beta=0.7, mixing_fit="flat",
+                        max_iterations=200)
+
+plain, robust = nickel_slab("anderson"), nickel_slab("robust")
+print(f"{'mode':<10} {'converged':>9} {'iterations':>10} {'E (Ry)':>16}")
+for name, run in (("anderson", plain), ("robust", robust)):
+    print(f"{name:<10} {str(run.converged):>9} {run.iterations:>10} {run.total_energy:16.8f}")
+
+fig, ax = plt.subplots(figsize=(6, 3.5))
+for name, run in (("anderson", plain), ("robust", robust)):
+    ax.semilogy([h["accuracy"] for h in run.history], label=name)
+ax.axhline(1e-10, color="grey", lw=0.8, ls=":")  # the input's conv_thr
+ax.set_xlabel("diagonalisation")
+ax.set_ylabel("estimated error (Ry)")
+ax.set_title("Ni slab with a dipole correction, beta = 0.7")
+ax.legend()
+plt.show()
+```
+
+    /tmp/ipykernel_1746060/2859648814.py:4: UserWarning: tefield: no symmetry is used with a saw-tooth electric field, as in pw.x (nosym = .true.)
+      calc = Calculator.from_file(slab_input, pseudo_dir=PSEUDO, announce=False)
+    /l/ladovj1/w-robust13/defuqumat/calculator.py:678: UserWarning: K_POINTS gamma asks for the half-sphere storage of the gamma-point trick, which this run cannot consume -- it is implemented for a norm-conserving calculation with no Hubbard U and nosym = .true., and this one is ultrasoft/PAW, carries a U, or uses symmetry (see gamma_storage_is_consumable). Running at an explicit k = 0 with the full G sphere instead: the result is the same and the cost is twice the plane waves
+      self._calculation = Calculation(
+
+
+    /l/ladovj1/w-robust13/defuqumat/calculator.py:809: RuntimeWarning: the SCF stopped without converging: 200 iterations reached accuracy = 4.022e+02 Ry against conv_thr = 1.000e-10. Every quantity on this result is computed from an unconverged density. Raise electron_maxstep, change the mixing (a smaller mixing_beta for a run that is oscillating; mixing_mode = 'adaptive' for one that is crawling, where mixing_beta means an increment and a smaller one is the wrong reflex), or start from a better density (run_scf(starting_from=...)); SCFResult.converged and .accuracy are what say which this is
+      self._scf = run_scf(self.system, self.pseudos,
+
+
+    /l/ladovj1/w-robust13/defuqumat/calculator.py:809: RuntimeWarning: mixing_mode = 'robust' with smearing = 'm-v': its occupations leave [0, 1], so the energy of the output states is not a lower bound and the supervisor keeps a step on the residual alone, without its last rung. A Gaussian or Fermi-Dirac smearing gives it both
+      self._scf = run_scf(self.system, self.pseudos,
+
+
+    mode       converged iterations           E (Ry)
+    anderson       False        200    -626.52143657
+    robust          True         44    -300.64220950
+
+
+
+    
+![png](17_reaching_self_consistency_files/17_reaching_self_consistency_14_4.png)
+    
+
+
 ## The same fixed point, as a root to be found
 
 `scf_solver = 'newton-krylov'` solves $r[\rho] = 0$ instead of iterating $F$. The Jacobian
@@ -340,7 +407,7 @@ print(f"all three agree to "
 
 
     
-![png](17_reaching_self_consistency_files/17_reaching_self_consistency_14_1.png)
+![png](17_reaching_self_consistency_files/17_reaching_self_consistency_16_1.png)
     
 
 
