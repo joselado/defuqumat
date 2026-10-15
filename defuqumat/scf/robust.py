@@ -169,6 +169,12 @@ class Supervisor:
     progress: float = 1.0
     #: How many kept inputs the acceptance test compares against the worst of.
     memory: int = 3
+    #: If set, the residual clause is instead ``accuracy < growth * best`` over
+    #: the same window: a bound on how far above the best a kept input may be.
+    growth: float | None = None
+    #: The window after the first stall: the run is known to be stuck, so a
+    #: second full window proves nothing.
+    window_after: int = 8
 
     scale: float = 1.0
     cuts: int = 0
@@ -213,7 +219,10 @@ class Supervisor:
             return True
         noise = self.nelec * max(ethr, self._ethr or ethr)
         recent = slice(-self.memory, None)
-        residual_fell = accuracy < max(self._window_accuracies[recent])
+        if self.growth is None:
+            residual_fell = accuracy < max(self._window_accuracies[recent])
+        else:
+            residual_fell = accuracy < self.growth * min(self._window_accuracies[recent])
         energy_fell = (self.variational and unsettled == 0
                        and merit < max(self._window_merits[recent]) - noise)
         if residual_fell or energy_fell:
@@ -287,6 +296,10 @@ class Supervisor:
         return self._merits[-1] > self._merits[-1 - self.window] - 2.0 * noise
 
     def on_stall(self) -> str | None:
+        self.window = min(self.window, self.window_after)
+        return self._on_stall()
+
+    def _on_stall(self) -> str | None:
         """What a stall does: the restart again if the last action paid, else the next rung.
 
         A rung is not used up by one stall. If, since the ladder last acted, the

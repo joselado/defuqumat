@@ -7703,6 +7703,11 @@ def run_scf(
             smeared=smeared,
             ldos=mixing_mode == "ldos",
             variational=variational,
+            # The A/B of the acceptance window (``tools/robust_mixing``), read
+            # from the environment only while it is being measured.
+            memory=int(os.environ.get("DEFUQUMAT_ROBUST_MEMORY", "3")),
+            growth=(float(os.environ["DEFUQUMAT_ROBUST_GROWTH"])
+                    if os.environ.get("DEFUQUMAT_ROBUST_GROWTH") else None),
         )
     # Turned off for the rest of the run the first time a write is refused, so a
     # ``reducebf`` run says so once rather than once per cadence.
