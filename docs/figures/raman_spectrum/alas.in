@@ -1,0 +1,23 @@
+! Zincblende AlAs, LDA, norm-conserving. The cutoff is low (10 Ry), so the
+! whole spectrum runs in a few minutes. The unshifted 4x4x4 mesh is reduced
+! with the point group, and the response is symmetrized.
+ &control
+    calculation = 'scf'
+    prefix = 'alas'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.575, nat = 2, ntyp = 2,
+    ecutwfc = 10.0
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al  26.98  Al.pz-vbc.UPF
+ As  74.92  As.pz-bhs.UPF
+ATOMIC_POSITIONS (alat)
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 4 4 4 0 0 0
