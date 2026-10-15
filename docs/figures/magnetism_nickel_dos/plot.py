@@ -24,7 +24,10 @@ def draw():
     for ax in (a, b):
         ax.axhline(0.0, **style.reference())
     style.zero_line(b, vertical=True)
-    b.set_xlabel("DOS (states/eV), minority to the left")
+    b.set_xlabel("DOS (states/eV)")
+    b.text(0.03, 0.97, "minority", transform=b.transAxes, va="top", color=style.color(1))
+    b.text(0.97, 0.97, "majority", transform=b.transAxes, va="top", ha="right",
+           color=style.color(0))
     return fig
 
 

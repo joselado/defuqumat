@@ -1,0 +1,26 @@
+! A nickel chain along z with an iodine atom beside each Ni-Ni bond, which
+! breaks inversion. A spiral with a quarter turn per cell, on fully
+! relativistic datasets with the coupling scaled to zero (soc_scale = 0).
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 8, celldm(1) = 13.0, celldm(2) = 0.92307692307692, celldm(3) = 0.33846153846154,
+    nat = 2, ntyp = 2, ecutwfc = 34.0, nbnd = 34,
+    occupations = 'smearing', smearing = 'mv', degauss = 0.03, nosym = .true.,
+    noncolin = .true., lspinorb = .true., soc_scale = 0.0,
+    starting_magnetization(1) = 0.5, angle1(1) = 90.0,
+    starting_magnetization(2) = 0.0,
+    spiral_q(1) = 0.0, spiral_q(2) = 0.0, spiral_q(3) = 0.25
+ /
+ &electrons
+    conv_thr = 1.0d-9, mixing_beta = 0.3
+ /
+ATOMIC_SPECIES
+ Ni 58.69 Ni.rel-pbe-nc-dojo.UPF
+ I 126.90 I.rel-pbe-nc-dojo.UPF
+ATOMIC_POSITIONS bohr
+ Ni 4.3 6.0 0.0
+ I  8.7 6.0 2.2
+K_POINTS (automatic)
+ 1 1 8 0 0 0

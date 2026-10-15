@@ -188,7 +188,8 @@ link to the notebooks and to the README accuracy table.
 - *Magnons* (`magnons.md`, notebook 38): the transverse susceptibility, the Stoner continuum,
   `get_magnon_dispersion`, `get_spin_susceptibility`. Figure: `magnons_dispersion`.
 - *DFT+U* (`dft-plus-u.md`, notebook 13): the occupation penalty, the double counting,
-  `HUBBARD`, `hubbard_slater`, tensor moments. Figure: `dft-plus-u_feo_gap`.
+  `HUBBARD`, `hubbard_slater`, tensor moments. Figure: `dft-plus-u_feo` (the DOS and the occupations; it was `dft-plus-u_feo_gap` until the run showed
+  FeO metallic in this symmetric cell at either U).
 
 **Response and spectra**
 - *Dielectric constant, Born charges and phonons* (`phonons.md`, notebooks 19, 20, 49): the

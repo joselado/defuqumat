@@ -1,0 +1,20 @@
+! One iodine atom in a box, with spin-orbit coupling and a fixed occupation:
+! 5s2 5p5, one hole in the p shell. Norm-conserving, fully relativistic.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 1, celldm(1) = 12.0, nat = 1, ntyp = 1, ecutwfc = 45.0,
+    occupations = 'fixed', nbnd = 8, nosym = .true., noinv = .true.,
+    noncolin = .true., lspinorb = .true.,
+    starting_magnetization(1) = 0.5, angle1(1) = 0.0
+ /
+ &electrons
+    conv_thr = 1.0d-10, mixing_beta = 0.3
+ /
+ATOMIC_SPECIES
+ I 126.9 I.rel-pbe-nc-dojo.UPF
+ATOMIC_POSITIONS crystal
+ I 0.00 0.00 0.00
+K_POINTS (automatic)
+ 1 1 1 0 0 0
