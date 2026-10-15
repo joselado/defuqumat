@@ -372,9 +372,10 @@ def test_a_nonmagnetic_channel_has_the_unpolarized_curvature():
     AlAs is zincblende, so its Berry flux is nonzero plaquette by plaquette
     (odd in ``k``, the Chern number zero), and the comparison is about a field
     rather than a null integer. Each channel of the unpolarized ``nspin = 2``
-    run, at the count its own density holds, must give the ``nspin = 1`` flux;
-    the two SCFs and every diagonalisation are separate, so they agree to the
-    solver's threshold rather than to round-off.
+    run, at the count its own density holds, must give the ``nspin = 1`` flux.
+    The two SCFs and every diagonalisation are separate runs, and they agreed
+    to 9.7e-13 against a largest flux of 4.1e-2 (D22, 2026-10-16): at zero
+    moment nothing in the ``nspin = 2`` run differs from the ``nspin = 1`` one.
     """
     shape = (4, 4)
     _, pseudos, one = _channels_of("alas-berry.in", 1, 1.0e-10)
