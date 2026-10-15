@@ -765,6 +765,27 @@ def test_a_subset_of_a_symmetrised_run_is_refused():
         )
 
 
+@pytest.mark.slow
+def test_a_closed_subset_on_the_streamed_route_is_refused(monkeypatch):
+    """The closed-subset symmetrisation was measured on the whole-k route only.
+
+    ``_streams`` is forced, because what decides it on a real run (a streamed
+    store, a chunk smaller than the mesh, a card) is not this check's subject;
+    AlAs's ``atoms=(0,)`` passes the orbit guard, so this refusal is the one
+    that fires.
+    """
+    import defuqumat.response.phonon as phonon
+
+    _, _, calculation = _build("alas-raman-wedge")
+    assert calculation.use_symmetry
+    monkeypatch.setattr(phonon, "_streams", lambda *args, **kwargs: True)
+    with pytest.raises(NotImplementedError, match="whole-k route"):
+        dynamical_matrix(
+            calculation, np.zeros((1, 1, 1, 1)), np.zeros((1, 1, 1)),
+            np.zeros((1, 1, 1, 1)), (), atoms=(0,),
+        )
+
+
 # A subset closed under the group, with symmetry on (``notes/incompat/I51.md``).
 # The wedge is reduced by the whole group, and the average for ``drho_{a,i}``
 # reads ``drho_{S^-1(a),j}`` for every operation: a union of orbits has all of
