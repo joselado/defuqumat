@@ -110,7 +110,7 @@ def test_an_augmented_spiral_force_is_refused_by_name(pseudo_dir):
 
     A norm-conserving spiral's force is ``grad`` of the functional with the
     pair ``vkb(k + q/2)``, ``vkb(k - q/2)`` in its nonlocal term, checked
-    against the NiI supercell (``tests/regression/test_spiral_forces.py``).
+    against the NiI supercell (``tests/regression/test_spiral_supercell.py``).
     The ultrasoft one has no check, since its only cells have one atom each,
     and this is that refusal; the norm-conserving one must pass the guard.
     """

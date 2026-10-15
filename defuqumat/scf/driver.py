@@ -3092,9 +3092,15 @@ class Calculation:
         and stops. Here ``tau`` is carried as the 2x2 matrix it is and resolved
         onto the density's local spin axis
         (:func:`~defuqumat.scf.potential._noncollinear_meta_exchange`).
-        * **Spin spirals.** The two spinor components live on different spheres,
-          so ``grad psi`` carries two different ``k + q/2`` sets and the sum is
-          not the kinetic energy density of anything periodic.
+        * **Spin spirals under ``noncollinear_gga = 'grad_m'``, or on a PAW
+          dataset.** A norm-conserving spiral under ``'kubler'`` runs: each
+          component is differentiated with its own ``k +- q/2 + G``
+          (:func:`~defuqumat.scf.density.spinor_band_kinetic_density`), which
+          gives a ``tau`` in the frame that turns with ``q``, resolved onto the
+          local axis as the density is. ``'grad_m'`` takes the laboratory
+          gradient of the transverse pair, ``i (G - q)``, which its meta-GGA
+          branch does not carry, and PAW's one-centre ``tau`` on a spiral has
+          no check.
         """
         if any(p.is_ultrasoft and not p.is_paw for p in self.pseudos):
             # **Ultrasoft, but not PAW.** The distinction is the partial waves:
@@ -3113,11 +3119,16 @@ class Calculation:
                 "pw.x refuses both (setup.f90: 'Meta-GGA not implemented with "
                 "USPP/PAW')"
             )
-        if getattr(system, "spiral_q", None) is not None:
+        if getattr(system, "spiral_q", None) is not None and (
+                getattr(system, "noncollinear_gga", None) != "kubler"
+                or any(p.is_paw for p in self.pseudos)):
             raise NotImplementedError(
-                f"{self.functional.name} with a spin spiral is not implemented: "
-                "the two spinor components live on different plane-wave spheres, "
-                "so their gradients do not add to a lattice-periodic tau"
+                f"{self.functional.name} with a spin spiral is implemented for a "
+                "norm-conserving dataset under noncollinear_gga = 'kubler' only: "
+                "the default 'grad_m' takes the laboratory gradient of the "
+                "transverse pair, i (G - q), which its meta-GGA branch does not "
+                "carry, and PAW's one-centre tau on a spiral has no check. Set "
+                "noncollinear_gga = 'kubler'"
             )
         if getattr(system, "hubbard", None):
             # Nothing in the physics forbids it -- ``vhpsi`` is a separate term
@@ -4403,14 +4414,15 @@ class Calculation:
         reads it back. For an actual *move* of the k-list, use
         :meth:`at_kpoints`, which rebuilds the sphere.
         """
-        if self.spiral:
-            # A spiral has its spheres centred at ``k +- q/2``, so one cartesian
-            # k-list is not what its arrays are built on. :meth:`at_spiral_q`
-            # moves both halves together and is what a spiral differentiates.
-            raise NotImplementedError(
-                "at_kcart on a spin spiral is not implemented: the basis is "
-                "built at k +- q/2, so moving k means moving both halves "
-                "(see at_spiral_q)"
+        if self.spiral and np.shape(kcart)[0] != 2 * self.system.kpoints.nk:
+            # A spiral has its spheres centred at ``k +- q/2``, so its arrays are
+            # built on the doubled list, up component first, and that is the
+            # list this takes (:func:`~defuqumat.system.spiral.spiral_kcart`).
+            # An ``nk``-row list would put both components on one sphere.
+            raise ValueError(
+                "at_kcart on a spin spiral takes the doubled basis list, "
+                "k + q/2 then k - q/2 (2 nk rows; see spiral_kcart), got "
+                f"{np.shape(kcart)[0]} rows for nk = {self.system.kpoints.nk}"
             )
         if self.gamma_only:
             # **This is the one chokepoint for the velocity operator**, which
@@ -5613,7 +5625,15 @@ class Calculation:
         kplusg = self.kplusg
         if self.noncolin:
             index = self.state_fft_index
-            if rows is not None:
+            if self.spiral:
+                # ``(nk, 2, npwx, 3)``, :attr:`state_fft_index`'s layout: the
+                # up component's ``k + q/2 + G`` and the down's ``k - q/2 + G``
+                # at each k-point, rows ``ik`` and ``nk + ik`` of the basis list.
+                nk = self.system.kpoints.nk
+                kplusg = jnp.stack([kplusg[:nk], kplusg[nk:]], axis=1)
+                if rows is not None:
+                    index, kplusg = index[rows], kplusg[rows]
+            elif rows is not None:
                 index, kplusg = index[rows], kplusg[self.basis_rows(rows)]
             # ``tau`` is a 2x2 matrix in spin space, carried on the Pauli basis
             # exactly as the density is -- a trace and an axial vector, and the

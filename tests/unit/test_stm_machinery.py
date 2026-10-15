@@ -393,9 +393,18 @@ def test_a_scan_measures_its_reach_from_the_plane_not_from_an_axis():
 
 
 def test_a_spin_spiral_is_refused():
+    """Everything but the charge image: spectra, maps, a spin-resolved image."""
     system = SimpleNamespace(spiral_q=(0.0, 0.0, 0.5))
     with pytest.raises(NotImplementedError, match="spin spiral"):
         _refuse_what_has_no_fermi_level(system, SimpleNamespace())
+
+
+def test_the_charge_image_of_a_spin_spiral_passes():
+    """``|U_up|^2 + |U_dn|^2`` is lattice periodic; the check is the supercell's
+    image (``tests/regression/test_spiral_supercell.py``)."""
+    system = SimpleNamespace(spiral_q=(0.0, 0.0, 0.5))
+    result = SimpleNamespace(fermi_energy_up=None, magnetic_field=None)
+    _refuse_what_has_no_fermi_level(system, result, charge_image=True)
 
 
 def test_two_fermi_levels_are_refused():

@@ -412,8 +412,12 @@ def require_a_conductivity_regime(calculation) -> None:
         raise NotImplementedError(
             "the optical conductivity of a spin spiral is not implemented: "
             "the two spinor components live on spheres centred at k + q/2 and "
-            "k - q/2, so <n|dH/dk|m> is not a single contraction over one "
-            "plane-wave set"
+            "k - q/2. The velocity operator itself is carried on a "
+            "norm-conserving spiral (VelocityOperator differentiates the "
+            "doubled list), but this sum walks the k axis in chunks whose "
+            "rows, kcart and projectors are one list of nk, where a spiral's "
+            "are rows ik and nk + ik of a list of 2 nk, and its NSCF with "
+            "empty states needs at_kpoints, which a spiral refuses"
         )
     if _kpoints_are_reduced(calculation):
         raise NotImplementedError(

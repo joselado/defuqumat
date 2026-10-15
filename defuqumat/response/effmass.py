@@ -330,7 +330,10 @@ def effective_mass(
         raise NotImplementedError(
             "an effective mass on a spin spiral is not implemented: the two "
             "spinor components sit on spheres centred at k + q/2 and k - q/2, "
-            "so a k-stencil moves both and the band index does not survive it"
+            "and the stencil is an NSCF at new k-points, which needs "
+            "at_kpoints to rebuild both shifted spheres; a spiral refuses it. "
+            "The velocity operator on the SCF's own k-points is carried "
+            "(band_velocities)"
         )
 
     centre = np.asarray(kpoint, dtype=float).reshape(3)

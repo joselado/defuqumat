@@ -258,7 +258,7 @@ def test_an_augmented_spiral_is_refused(pseudo_dir):
 
     A norm-conserving spiral strains (``q`` held in lattice coordinates, as
     ``k`` is), and is checked against its supercell in
-    ``tests/regression/test_spiral_forces.py``; the ultrasoft one is refused,
+    ``tests/regression/test_spiral_supercell.py``; the ultrasoft one is refused,
     both at the gate and inside ``at_strain``.
     """
     from defuqumat.stress.energy import require_a_differentiable_cell
