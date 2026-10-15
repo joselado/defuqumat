@@ -13,6 +13,9 @@ invariants, the shift current, the Heisenberg exchange constants from a
 spin-spiral scan, and the elastic constants. When Quantum ESPRESSO also computes
 a number, we compared the two codes on the same input.
 
+The user guide is at <https://joselado.github.io/defuqumat/>. It is also
+available as a [PDF](https://joselado.github.io/defuqumat/user_guide.pdf).
+
 ## Installing
 
 ```bash
