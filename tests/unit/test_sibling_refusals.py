@@ -535,7 +535,7 @@ def test_the_conductivity_forwards_tau_to_both_potential_builds():
     """
     import inspect
 
-    from defuqumat.workflows import conductivity, nesting, nscf
+    from defuqumat.workflows import conductivity, nesting, nscf, topology
 
     def argument_list(text: str) -> str:
         """Everything up to the matching close paren, comments removed.
@@ -560,7 +560,9 @@ def test_the_conductivity_forwards_tau_to_both_potential_builds():
         assert "#" not in code
         return code
 
-    for module in (conductivity, nscf):
+    # ``topology`` joined with I13: its source now takes ``tau`` and builds
+    # the frozen potential itself.
+    for module in (conductivity, nscf, topology):
         source = inspect.getsource(module)
         calls = source.split("calculation.potential(")[1:]
         assert calls, f"{module.__name__} no longer builds a potential"
