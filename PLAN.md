@@ -214,8 +214,7 @@ because that is what decides whether it is a session or a phase.
   XXVI item 3. What is left: the dense `eigh` sites outside Davidson, which the sweep does not reach,
   the expensive families it left out, and a degeneracy rule in `conv_thr` for a `nosym` SCF (P151);
   `OPEN.md` Part XXVI item 2 (the warm-started SCF map has a different derivative,
-  5e-2 to 0.4 of `|dF v|` off the exact one, harmless to Newton), with item 4 (notebook 17's stale outputs) and
-  item 5 (the spinor cell's check stops at its reference's scatter, about 5e-4). The smooth kernel `gap/(gap^2 + eta^2)` is
+  5e-2 to 0.4 of `|dF v|` off the exact one, harmless to Newton); items 4 and 5 closed by P152. The smooth kernel `gap/(gap^2 + eta^2)` is
   **not** outstanding at any further site: P149 withdrew it on arithmetic (at a solver-split pair
   it is a fiction the size of a real pair's contribution).
 - **External electric fields beyond P144 and P145.** The saw-tooth field and the dipole correction are
@@ -26301,3 +26300,24 @@ and Born numbers drifted since the notebook was committed (`epsilon` 13.806646 t
 spinor-scalar pair 4.5e-6 apart to 2.6e-5, against prose that says seven figures), identically at
 `85e7c76` before this phase, so the notebook is not re-committed and the drift is `OPEN.md` Part XXVI
 item 4.
+
+### P152 -- The open items after P151: a test's threshold, two notebooks' drift attributed and re-executed, and the spinor check's floor found in its reference. ✅ DONE 2026-10-15 evening, the user's request ("continue with open items"), the notebook 17 telling decided by fable, every number on `D22-0161` (`/l/ladovj1/review/open-xxvi/`, worktree `w-open` at `6ae9f0c`). No code under `defuqumat/` changed.
+
+**`OPEN.md` Part XXV item 2.** `test_the_subspace_size_changes_the_cost_and_not_the_answer` asserted
+1e-8 at `pw.x`'s default `conv_thr = 1e-6`, where the two Davidson subspaces stop 1.85e-8 Ry apart
+on every core set of D22; 4.2e-10 at 1e-8, 7.7e-11 at 1e-10, 1.1e-13 at 1e-12. Both runs now take
+1e-10 and the bound stays; it passes on cores 0-3, 4-11 and 12-15.
+
+**`OPEN.md` Part XXVI item 5.** The spinor ultrasoft cell's 5e-4 was the reference: the cold central
+difference of `F` at Davidson's `ethr` 1e-13, 1e-15, 1e-17 reads 1.2e-2, 1.1e-4, 1.8e-6 of `|dF v|`
+at a step of 1e-5 `|x|` (6.1e-5 at 1e-4, the `eps^2` truncation), the `becsum` rows carrying the
+same, so the Sternheimer action's spinor `becsum` tangent agrees to 1.8e-6. A fixed start in the
+span of `x`'s eigenvectors is worse at 1e-13 (4e-2, the warm map of item 2) and equal at 1e-17.
+
+**`OPEN.md` Part XXVI item 4.** Notebook 17's mixer counts are P146 (`mixing_fit = 'flat'` gives
+back 24/15/10 and 31/34/10), its Newton count of 75 predates P146, and its iron cell needed the
+test's kick and tight inner solve. Notebook 19's drift is the SCF stop point at `conv_thr = 1e-12`
+(the spinor pair 2.6e-5 under `rho_ddot`, 4.6e-6 flat, 3.8e-7 and 3.1e-7 at 1e-14), inside the
+3e-5 `test_spinor_dielectric.py` records. Both re-executed (54 s and 59 s on four cores), their
+prose moved to the numbers in the simple style; the full account is in the `OPEN.md` entry.
+

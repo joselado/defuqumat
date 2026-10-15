@@ -19,15 +19,15 @@ vendored `ph.x`:
 
 | | defuqumat | `ph.x` |
 |---|---|---|
-| $\varepsilon_\infty$, norm-conserving Si | **13.806646** | 13.806689 |
-| $\varepsilon_\infty$, **ultrasoft** Si | **14.325321** | 14.325270 |
-| $\varepsilon_\infty$, **PAW** Si | **14.320211** | 14.320177 |
-| $\varepsilon_\infty$, ultrasoft C | **5.756059** | 5.756182 |
-| $Z^*$, norm-conserving Si | **-0.075715** | -0.07571 |
-| $Z^*$, ultrasoft Si | **-0.079440** | -0.07945 |
-| $Z^*$, **PAW** Si | **-0.079601** | -0.07961 |
-| $Z^*$, ultrasoft AlAs, Al | **2.101065** | 2.10106 |
-| $Z^*$, ultrasoft AlAs, As | **-2.165827** | -2.16581 |
+| $\varepsilon_\infty$, norm-conserving Si | **13.806630** | 13.806689 |
+| $\varepsilon_\infty$, **ultrasoft** Si | **14.325309** | 14.325270 |
+| $\varepsilon_\infty$, **PAW** Si | **14.320207** | 14.320177 |
+| $\varepsilon_\infty$, ultrasoft C | **5.756143** | 5.756182 |
+| $Z^*$, norm-conserving Si | **-0.075726** | -0.07571 |
+| $Z^*$, ultrasoft Si | **-0.079453** | -0.07945 |
+| $Z^*$, **PAW** Si | **-0.079613** | -0.07961 |
+| $Z^*$, ultrasoft AlAs, Al | **2.101062** | 2.10106 |
+| $Z^*$, ultrasoft AlAs, As | **-2.165848** | -2.16581 |
 
 The reference is regenerated rather than the committed one, which dates from
 release 6.0 and has drifted by 3e-4, six times the disagreement being measured.
@@ -56,14 +56,14 @@ print(f"\ndeparture from cubic symmetry   {field.anisotropy:.1e}")
 
 
     dielectric tensor, cartesian axes:
-    [[13.806646 -0.       -0.      ]
-     [-0.       13.806646  0.      ]
-     [-0.        0.       13.806646]]
+    [[13.80663 -0.       0.     ]
+     [-0.      13.80663  0.     ]
+     [ 0.       0.      13.80663]]
     
     departure from cubic symmetry   5.3e-15
 
 
-The tensor came out isotropic to 4e-15 with nothing imposing that it should be.
+The tensor came out isotropic to 5e-15 with nothing imposing that it should be.
 Cubic symmetry says $\varepsilon_{ij} = \varepsilon\,\delta_{ij}$, and the three
 directions were solved for independently, so the off-diagonal zeros are a
 result rather than a constraint.
@@ -114,7 +114,7 @@ print(f"smallest                 {speeds.min():.4f} Ry bohr")
 
     band velocities, one vector per band per k-point: (10, 4)
     largest group velocity   1.2857 Ry bohr
-    smallest                 0.1890 Ry bohr
+    smallest                 0.1274 Ry bohr
 
 
 Nothing there was differenced: each number is an expectation value of an
@@ -143,10 +143,10 @@ print(comparison_table(
     fmt="{:.6f}", headers=("", "defuqumat", "ph.x", "difference")))
 ```
 
-                    defuqumat       ph.x  difference
-    epsilon (nc)  13.806646  13.806689     4.4e-05
-    Z* Si 1       -0.075715  -0.075710     5.0e-06
-    Z* Si 2       -0.075715  -0.075710     5.0e-06
+                  defuqumat       ph.x  difference
+    epsilon (nc)  13.806630  13.806689     6.0e-05
+    Z* Si 1       -0.075726  -0.075710     1.6e-05
+    Z* Si 2       -0.075726  -0.075710     1.6e-05
 
 
 Silicon's Born effective charge is **zero by symmetry** in a fully converged
@@ -223,9 +223,9 @@ print(comparison_table(
     [defuqumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
 
 
-                           defuqumat       ph.x  difference
-    epsilon (ultrasoft)  14.325321  14.325270     5.1e-05
-    Z* (ultrasoft)       -0.079440  -0.079450     9.8e-06
+                         defuqumat       ph.x  difference
+    epsilon (ultrasoft)  14.325309  14.325270     3.9e-05
+    Z* (ultrasoft)       -0.079453  -0.079450     3.4e-06
 
 
 ## A charge, rather than a number symmetry has already fixed
@@ -261,10 +261,10 @@ print(comparison_table(
     [defuqumat] the dielectric tensor: no ground state cached, running the SCF first (conv_thr = 1e-12). Call get_scf() to do this explicitly.
 
 
-                         defuqumat       ph.x  difference
-    Z* Al               2.101065   2.101060     5.0e-06
-    Z* As              -2.165827  -2.165810     1.7e-05
-    sum over the cell  -0.064762  -0.064750     1.2e-05
+                       defuqumat       ph.x  difference
+    Z* Al               2.101062   2.101060     2.0e-06
+    Z* As              -2.165848  -2.165810     3.8e-05
+    sum over the cell  -0.064786  -0.064750     3.6e-05
 
 
 ## Spin-orbit coupling, where a band holds one electron
@@ -294,11 +294,14 @@ print(comparison_table(
 
 
                 spinor     scalar  difference
-    epsilon  13.806641  13.806646     4.5e-06
+    epsilon  13.806656  13.806630     2.6e-05
 
 
-The same number to seven figures, and held to a tighter convergence the two
-agree to 5e-14. Nothing in the screening knows how the bands were counted.
+The two numbers agree to 3e-5. This is the level at which the SCF threshold fixes
+$\varepsilon_\infty$ on this cell. For example, $\varepsilon_\infty$ itself moves by 3e-5
+between `conv_thr = 1e-10` and `1e-14`. If both runs start from scratch at
+`conv_thr = 1e-10`, they agree to about 1e-12. So nothing in the screening knows how
+the bands were counted.
 
 With spin-orbit coupling switched on by a relativistic
 pseudopotential the bands are no longer degenerate in pairs and the tensor is
@@ -326,9 +329,9 @@ Leaving the augmentation charge's own share out of the Born charge gives
 **+0.1625** on this cell: wrong in sign as well as in size, which is why it is
 the quantity that says whether every term is present. Two more cases are
 measured the same way and quoted rather than run here, because each costs a
-self-consistent response of its own: **PAW silicon** gives 14.320211 against
+self-consistent response of its own: **PAW silicon** gives 14.320207 against
 `ph.x`'s 14.320177, and **ultrasoft carbon**, a different element at a different
-cutoff and lattice constant, gives 5.756059 against 5.756182.
+cutoff and lattice constant, gives 5.756143 against 5.756182.
 
 Two spin channels work as well. Their $\chi_0$ is block diagonal in spin, so
 each channel responds on its own, and the check that catches a factor of two in

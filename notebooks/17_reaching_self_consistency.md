@@ -17,11 +17,14 @@ divergence out is Kerker preconditioning,
 $$\beta \;\longrightarrow\; \beta\,
    \frac{|\mathbf G|^2}{|\mathbf G|^2 + q_{\rm TF}^2},$$
 
-and on an aluminium slab, half metal and half vacuum, it takes the iteration count from
-**25 to 15** for one extra transform per iteration. **With more vacuum it loses**, because it
-screens the vacuum as well, and screening from the local density of states at the Fermi
-level instead takes **10 iterations at 16 and at 64 bohr** of vacuum, where Kerker goes
-from 15 to 36.
+On an aluminium slab, half metal and half vacuum, it takes the iteration count from
+**24 to 15**. This is when the Anderson fit treats every wavelength alike. There is a second
+cure for the same divergence. If the fit measures the residual by its Hartree energy, as
+`pw.x` does, the long wavelengths count the most and the fit removes them first. Then plain
+Anderson takes **13** with no preconditioner at all. **With more vacuum Kerker loses**,
+because it screens the vacuum as well: 14 to 35 iterations, against 13 to 15 for Anderson.
+Screening from the local density of states at the Fermi level takes **11 iterations at 16
+and at 64 bohr** of vacuum.
 
 **Solving $r[\rho] = 0$ as a root instead.** It is not faster, and it does something no mixer
 can: it converges on **unstable** self-consistent solutions. Iron's non-magnetic state is a
@@ -64,29 +67,48 @@ across the cell, visible in the first few iterations of a plain run.
 
 
 ```python
+# The Anderson fit, measured with every wavelength alike, and with the Hartree energy
+# of the residual (pw.x's measure, and the default).
+sloshing = aluminium.get_scf(mixing_fit="flat")
 anderson = aluminium.get_scf()
-energies = [h["total_energy"] for h in anderson.history]
-print(f"Anderson: {anderson.iterations} iterations, E = {anderson.total_energy:.8f} Ry")
-print(f"  worst total energy along the way: {max(energies):+.2f} Ry  "
-      f"(the converged one is {anderson.total_energy:.2f})")
+for label, run in (("every wavelength alike", sloshing), ("Hartree energy", anderson)):
+    energies = [h["total_energy"] for h in run.history]
+    print(f"{label:24s} {run.iterations:3d} iterations, "
+          f"worst total energy along the way {max(energies):+8.2f} Ry")
+print(f"the converged total energy is {anderson.total_energy:.8f} Ry")
 ```
 
-    Anderson: 25 iterations, E = -20.87908226 Ry
-      worst total energy along the way: +105.51 Ry  (the converged one is -20.88)
+    every wavelength alike    24 iterations, worst total energy along the way  +105.53 Ry
+    Hartree energy            13 iterations, worst total energy along the way  +105.53 Ry
+    the converged total energy is -20.87908225 Ry
 
 
-## Kerker: divide the divergence out
+## Two cures for one divergence
 
-`mixing_mode = 'TF'` damps the long-wavelength components of the residual by the
-Thomas-Fermi factor, which is an approximate inverse of the very dielectric response that
-causes the sloshing.
+Anderson mixing builds the next density from the past ones. It takes the combination that
+makes the residual smallest. But smallest in which measure? Both runs above reach the same
++105 Ry, because that happens on the second step, before the fit has a history. What
+differs is how fast the sloshing is removed after that. If every wavelength counts the same,
+the long-wavelength charge transfer across the cell survives the fit, and the Hartree term
+amplifies it again at every step.
 
-Two things about it are physical rather than adjustable. The screening wavevector comes
-from the electron density of the cell, $r_s = (3\Omega/4\pi N)^{1/3}$ and
-$q_{\rm TF}^2 = (12/\pi)^{2/3}/r_s$, so it is a property of the material; a hand-picked
-value over-screens this slab and turns a win into a loss. And only the **charge** channel is
-screened, because the magnetization has no $q^{-2}$ divergence to divide out: spin density
-is not screened by the Hartree term.
+The first cure is Kerker preconditioning. `mixing_mode = 'kerker'` damps the long-wavelength
+components of the step by the Thomas-Fermi factor. This is an approximate inverse of the
+dielectric response that causes the sloshing.
+
+The second cure is the measure itself. The Hartree energy of the residual is
+
+$$\|R\|^2 = \sum_{\mathbf G} \frac{4\pi e^2}{|\mathbf G|^2}\,|R(\mathbf G)|^2 .$$
+
+Here the long wavelengths have the largest weight, so the fit removes them first. This is
+the quantity `conv_thr` measures. It is also the measure `pw.x` uses, and the default here.
+
+Two things about Kerker are physical, not adjustable. The screening wavevector comes from
+the electron density of the cell, $r_s = (3\Omega/4\pi N)^{1/3}$ and
+$q_{\rm TF}^2 = (12/\pi)^{2/3}/r_s$. So it is a property of the material. A hand-picked
+value over-screens this slab. Also only the **charge** channel is screened. The
+magnetization has no $q^{-2}$ divergence, because spin density is not screened by the
+Hartree term.
 
 
 ```python
@@ -98,16 +120,18 @@ print(f"q_TF from the cell = {q_tf:.3f} 1/bohr   (a hand-picked 1.5 over-screens
       f"{(1.5/q_tf)**2:.1f}x in q^2)")
 
 kerker = aluminium.get_scf(mixing_mode="kerker")
-print(f"Anderson          {anderson.iterations:3d} iterations")
-print(f"Anderson + Kerker {kerker.iterations:3d} iterations   "
+print(f"Anderson, every wavelength alike  {sloshing.iterations:3d} iterations")
+print(f"Anderson + Kerker                 {kerker.iterations:3d} iterations   "
       f"(same answer to {abs(kerker.total_energy - anderson.total_energy):.1e} Ry)")
+print(f"Anderson, Hartree energy          {anderson.iterations:3d} iterations")
 ```
 
     q_TF from the cell = 1.008 1/bohr   (a hand-picked 1.5 over-screens by 2.2x in q^2)
 
 
-    Anderson           25 iterations
-    Anderson + Kerker  15 iterations   (same answer to 4.0e-09 Ry)
+    Anderson, every wavelength alike   24 iterations
+    Anderson + Kerker                  14 iterations   (same answer to 5.3e-08 Ry)
+    Anderson, Hartree energy           13 iterations
 
 
 ## When the vacuum grows: screening from the states at the Fermi level
@@ -176,10 +200,10 @@ fig.tight_layout()
 plt.show()
 ```
 
-    vacuum 16 bohr:  anderson  25   kerker  15   ldos  10
+    vacuum 16 bohr:  anderson  13   kerker  14   ldos  11
 
 
-    vacuum 64 bohr:  anderson  34   kerker  36   ldos  10
+    vacuum 64 bohr:  anderson  15   kerker  35   ldos  11
     in the middle of the vacuum: density 1.1e-06, LDOS 1.5e-06 of their maxima
 
 
@@ -189,7 +213,7 @@ plt.show()
     
 
 
-Kerker's count grows from 15 to 36 as the vacuum goes from 16 to 64 bohr, past plain Anderson's 34, while the LDOS preconditioner takes 10 at both. The left panel says why: the states at the Fermi level fill the metal and fall by six orders of magnitude to the middle of the vacuum, as the density does, so the operator screens the slab like a metal and leaves the vacuum alone, where Kerker screens both. The same reasoning says that a monolayer, which has no thickness to slosh across, needs no screening at all, and plain Anderson is measured flat in the vacuum there; on an insulator $D$ is zero and the mode is plain Anderson exactly.
+Kerker's count grows from 14 to 35 as the vacuum goes from 16 to 64 bohr. Plain Anderson in the Hartree measure stays at 13 to 15, and the LDOS preconditioner takes 11 at both. The left panel shows why. The states at the Fermi level fill the metal. They fall by six orders of magnitude to the middle of the vacuum, as the density does. So the operator screens the slab like a metal and leaves the vacuum alone, while Kerker screens both. The same reasoning says that a monolayer, which has no thickness to slosh across, needs no screening at all. We measured plain Anderson to be flat in the vacuum there. On an insulator $D$ is zero, and the mode is exactly plain Anderson.
 
 ## The opposite failure: a run that crawls
 
@@ -239,12 +263,12 @@ print(f"\nthe same fixed point: energies {gap:.1e} Ry apart, "
 
 ```
 
-    anderson   15 iterations,  34 Davidson steps   E = -55.788729937 Ry
+    anderson   16 iterations,  34 Davidson steps   E = -55.788729937 Ry
 
 
     adaptive   16 iterations,  42 Davidson steps   E = -55.788729937 Ry
     
-    the same fixed point: energies 1.4e-11 Ry apart, moments 6.1e-05 mu_B apart
+    the same fixed point: energies 1.1e-10 Ry apart, moments 7.6e-05 mu_B apart
 
 
 
@@ -311,7 +335,7 @@ print(f"all three agree to "
       f"{max(abs(r.total_energy - anderson.total_energy) for r in (kerker, newton)):.1e} Ry")
 ```
 
-    all three agree to 4.2e-09 Ry
+    all three agree to 5.3e-08 Ry
 
 
 
@@ -320,18 +344,19 @@ print(f"all three agree to "
     
 
 
-The outer iteration count of the root-finder is flat, three to six whatever the
-conditioning, and that does not help, because each outer step is paid for in inner ones.
-Measured over a sweep of vacuum thickness and quoted rather than run:
+The outer iteration count of the root-finder is small, but each outer step is paid for
+in inner ones. We measured a sweep of the vacuum thickness. The numbers are quoted here, not
+run, and all are evaluations of $F$:
 
-| vacuum (bohr) | Anderson | Anderson + Kerker | Newton-Krylov |
-|---|---|---|---|
-| 16 | 24 | **14** | 19 |
-| 32 | 34 | **20** | 74 |
-| 48 | 32 | **28** | 139 |
-| 64 | **35** | 36 | 123 |
+| vacuum (bohr) | Anderson | Anderson + Kerker | `ldos` | Newton-Krylov |
+|---|---|---|---|---|
+| 16 | 13 | 14 | **11** | 75 |
+| 32 | 15 | 20 | **11** | 149 |
+| 48 | 18 | 27 | **11** | 138 |
+| 64 | 15 | 35 | **11** | 200 |
 
-On cost the answer is Kerker, and mixing stays the default.
+On cost the answer is mixing. Plain Anderson is enough for a short vacuum, `ldos` for a long
+one, and mixing stays the default.
 
 ## What a Jacobian is worth: an unstable solution
 
@@ -342,12 +367,13 @@ into the stable solution. A root-finder is stability-blind: it converges on whic
 started nearest to. That is how the non-magnetic reference energy of a magnet is obtained
 without constraining anything.
 
-Which root is nearest has to be arranged rather than hoped for, so the state is perturbed
-away from the symmetric solution and the *same* perturbed state is handed to both solvers.
-Doing it that way also measures the size of the basin: a kick of 0.05 decays back to the
-non-magnetic state under mixing, 0.20 runs away, and the window where mixing leaves and the
-root-finder returns is 0.08 to 0.12. The non-magnetic solution of iron is metastable, not a
-sharp saddle.
+Which root is nearest must be arranged, not hoped for. So we kick the state away from the
+symmetric solution, and we give the *same* kicked state to both solvers. The kick has the
+shape of the atomic magnetization, and its size is 0.12 (0.06 added to one spin channel and
+taken from the other). This also measures the size of the basin. Below a kick of 0.10,
+mixing comes back to the non-magnetic state. From 0.10 up, mixing runs away to the
+ferromagnet. The root-finder comes back from 0.10 to 0.14, and not at 0.15. So the
+non-magnetic solution of iron is metastable, not a sharp saddle.
 
 
 ```python
@@ -367,14 +393,14 @@ root = run_scf(iron, iron_pseudos, calculation=Calculation(iron, iron_pseudos), 
 shape = rho[0] - rho[1]
 shape = shape / np.abs(shape).max()
 base = np.asarray(root.density)
-kicked = jnp.asarray(np.stack([base[0] + 0.05 * shape, base[1] - 0.05 * shape]))
+kicked = jnp.asarray(np.stack([base[0] + 0.06 * shape, base[1] - 0.06 * shape]))
 
 mixed = run_scf(iron, iron_pseudos, calculation=Calculation(iron, iron_pseudos), **options,
                 starting_density=kicked)
 saddle = run_scf(iron, iron_pseudos, calculation=Calculation(iron, iron_pseudos), **options,
                  starting_density=kicked, scf_solver="newton-krylov",
-                 scf_solver_options={"forcing": 0.5, "gmres_maxiter": 8,
-                                     "max_iterations": 12, "kerker": True})
+                 scf_solver_options={"forcing": 0.1, "gmres_maxiter": 20,
+                                     "max_iterations": 30, "kerker": True})
 
 # The check is free and shares nothing with either run above.
 reference = load("fe-unstable-nonmagnetic.in").get_scf()
@@ -393,19 +419,21 @@ print(f"iron's magnetic stabilisation energy = "
 ```
 
     from the same kicked symmetric root               E (Ry)   m (mu_B)
-      Anderson, nspin = 2                       -55.44642602     3.4053
-      Newton-Krylov, nspin = 2                  -55.38228996     0.0012
-      nspin = 1 (independent reference)         -55.38228993         --
+      Anderson, nspin = 2                       -55.44642602     3.4052
+      Newton-Krylov, nspin = 2                  -55.38228995     0.0001
+      nspin = 1 (independent reference)         -55.38228995         --
     
-    Newton's root matches the nspin = 1 reference to 2.5e-08 Ry
+    Newton's root matches the nspin = 1 reference to 9.3e-10 Ry
     iron's magnetic stabilisation energy = 64.1 mRy
 
 
-With the preconditioner switched off the same solver from the same starting state also
-converges, reports an accuracy below `conv_thr`, and lands on the *ferromagnetic* solution
-instead. A poorly conditioned inner solve degrades the step towards a damped mixing step,
-and a mixing step flows to the stable root. On a problem with more than one solution the
-preconditioner decides which physics comes out, and both answers look equally converged.
+With a looser inner solve (`forcing = 0.5` and at most 8 GMRES steps), the same solver
+starts from the same kicked state. It also converges, and it reports an accuracy below
+`conv_thr`. But it lands on the *ferromagnetic* solution. A rough inner solve makes the
+Newton step close to a damped mixing step, and a mixing step flows to the stable root.
+Switching the Kerker preconditioner off does not change which root each inner solve finds.
+So on a problem with more than one solution, the accuracy of the inner solve decides which
+physics comes out. Both answers look equally converged.
 
 ## The same thing with DFT+U
 
@@ -467,8 +495,8 @@ print(f"{'  Newton-Krylov (returns)':<28} {back.total_energy:15.8f} {float(back.
 
 
     from the perturbed saddle             E (Ry)    m (mu_B)
-      Anderson (runs away)          -86.41841671    2.000000
-      Newton-Krylov (returns)       -86.20620046    0.000005
+      Anderson (runs away)          -86.41841670    2.000000
+      Newton-Krylov (returns)       -86.20620046    0.000003
 
 
 Mixing amplifies the kick into the ferromagnet, which is what makes the state unstable, and

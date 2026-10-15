@@ -9155,7 +9155,19 @@ a call); the default is not fixed. The warm start between passes (`phononq.py:90
 obviously the cause. **How to know it worked:** the default reproduces the 1e-12 pair to the
 7.8e-5 `ph.x` itself shows, under a random unitary in the degenerate blocks at `k`.
 
-## 2. `test_calculator.py::test_the_subspace_size_changes_the_cost_and_not_the_answer` asserts 1e-8 and reads 1.9e-8 on D22's cores 12-15
+## 2. `test_calculator.py::test_the_subspace_size_changes_the_cost_and_not_the_answer` asserts 1e-8 and reads 1.9e-8 on D22's cores 12-15 **[closed 2026-10-15: not placement; the test asserted 1e-8 at `pw.x`'s default `conv_thr = 1e-6`, and both runs now take 1e-10]**
+
+> **Closed by the threshold the assertion needs.** Measured on `D22-0161` at `6ae9f0c`
+> (`/l/ladovj1/review/open-xxvi/sub_e.py`), bit-identical on cores 0-3, 4-11 and 12-15, the two
+> subspace sizes apart by 1.85e-8 Ry at `conv_thr = 1e-6` (the input sets none, so it is `pw.x`'s
+> default; the narrow run is 3.2e-8 above the converged total, the wide one 1.3e-8), 4.2e-10 at
+> 1e-8, 7.7e-11 at 1e-10 (6 against 7 iterations) and 1.1e-13 at 1e-12. So the 2026-10-14
+> reading of placement was already withdrawn by the 2026-10-15 run on cores 0-3, and the cause is
+> the trap in `CLAUDE.md`: an asserted tolerance the test's own `conv_thr` does not deliver, with
+> the docstring's 7.3e-11 a value at a different stop point. Both `get_scf` calls now take
+> `conv_thr = 1e-10` and the 1e-8 assertion stays, with 130x of margin; the test passes on all
+> three core sets in 3 to 4 s.
+
 
 Slow, so outside the gate. At `cf1ebe2` on a clean tree and on P149's tree alike (bit-identical:
 -15.614354001413679 against -15.614354019934066 Ry, the two Davidson subspace sizes), run on
@@ -9268,7 +9280,35 @@ m_y + m_z` for a magnetic spinor. Its two callers are the metallic phonons (`res
 same one line in `fermi_level_shift`, to be made with the first caller that lifts the refusal.
 
 
-## 4. Notebook 17's committed outputs are stale, and its iron cell now returns the ferromagnet; notebook 19's response numbers have drifted too **[open 2026-10-14, found while extending it for P150; the extension was dropped; notebook 19 added 2026-10-15, P151]**
+## 4. Notebook 17's committed outputs are stale, and its iron cell now returns the ferromagnet; notebook 19's response numbers have drifted too **[closed 2026-10-15, `PLAN.md` P152: both attributed by an A/B, both notebooks re-executed with their prose moved to the numbers]**
+
+> **Closed, every number on `D22-0161` at `6ae9f0c` (`/l/ladovj1/review/open-xxvi/`).**
+> *Notebook 17's mixer counts are P146.* With `mixing_fit = 'flat'` the slab gives Anderson,
+> Kerker, LDOS 24, 15, 10 at 16 bohr and 31, 34, 10 at 64 (the notebook's 25, 15, 10 and 34, 36,
+> 10 to within an iteration or three); under the default `'rho_ddot'` 13, 14, 11 and 15, 35, 11.
+> The Newton-Krylov count is not P146: 75 evaluations of `F` at 16 bohr at `8fd33ae` (before
+> P146), at `904031c` and at `6ae9f0c`, flat or not, bit-identical histories, against the quoted
+> table's 19, which was already stale before 2026-10-13 and is not attributed further. The fresh
+> sweep (16/32/48/64 bohr, `slab_sweep.py`): Anderson 13/15/18/15, Kerker 14/20/27/35, LDOS
+> 11/11/11/11, Newton-Krylov 75/149/138/200. Fable chose the telling (option B): the flat fit shows
+> the sloshing Kerker cures (24 to 15), the Hartree measure of the residual is the second cure
+> (13, no preconditioner), the sweep and the figure stay on the default; both runs reach +105.53
+> Ry on the second step, before the fit has a history. *The iron cell* kicks by 0.06 a channel
+> (the test's `KICK = 0.12`) with the test's tight inner solve and Kerker: the saddle, `M =
+> 0.0001`, 9.3e-10 Ry from the `nspin = 1` run, 64.1 mRy; the loose inner solve of the old
+> notebook from the same kick reaches the ferromagnet (`nb17iron.py`), and the prose now says the
+> inner solve decides, which is what `test_scf_solvers.py` measured with Kerker off. 54 s.
+> *Notebook 19's drift is the SCF stop point at `conv_thr = 1e-12`, moved by P146 and before it.*
+> Under the flat fit at 1e-12: `epsilon` 13.806654, the spinor pair 4.6e-6 apart (the committed
+> 4.5e-6), `Z*` of As -2.165848; under `rho_ddot` 13.806630, 2.56e-5, -2.165848. At 1e-14 the two
+> fits give 13.806650 and 13.806649 and the pairs 3.1e-7 and 3.8e-7. So the pair's 2.6e-5 is P146's
+> stop point and the As charge moved before it, both inside the 3e-5 that
+> `test_spinor_dielectric.py` already records as how far `epsilon` wanders between 1e-10 and 1e-14
+> on this cell. The notebook's table, its two quoted cases (PAW silicon 14.320207, `Z*`
+> -0.079613; ultrasoft carbon 5.756143, re-run) and the "seven figures" sentence now carry these
+> numbers; the guide's spinor snippet and its 5e-14 (now the test's 1.5e-12 from scratch at 1e-10)
+> moved with it. 59 s.
+
 
 Re-executed on D22 at `764bc3e` plus P150 (`/l/ladovj1/review/degeneracy/p150/nb17.log`, 95 s), against
 the outputs committed on 2026-10-04: plain Anderson on the 16-bohr slab takes 13 iterations where the
@@ -9296,7 +9336,33 @@ and P148/P149's changes to the response path, and an A/B at `3ab298b` is the tes
 not re-committed, so its velocity line still reads the pre-P151 0.1890 Ry bohr where the code now
 gives 0.1274.
 
-## 5. The spinor cell's check of `jvp = 'sternheimer'` stops at its reference, about 5e-4 **[open 2026-10-14, P150]**
+## 5. The spinor cell's check of `jvp = 'sternheimer'` stops at its reference, about 5e-4 **[closed 2026-10-15: the floor was the reference's `ethr = 1e-13`; at 1e-17 the action agrees to 1.8e-6 of `|dF v|`, no term is missing]**
+
+> **Closed by a sharper reference, nothing in the code changed.** `review/open-xxvi/soc_fixed.py`
+> on `D22-0161` (worktree `w-open` at `6ae9f0c`): the same cell, direction (seed 7) and Sternheimer
+> action (CG at 1e-14), eight buffer bands, `|dF v| = 9.0e-3`. The cold central difference of `F`,
+> relative to `|dF v|`, at Davidson's `ethr` 1e-13, 1e-15 and 1e-17:
+>
+> | step | `ethr` 1e-13 | 1e-15 | 1e-17 |
+> |---|---|---|---|
+> | 1e-4 of `|x|` | 1.0e-3 | 6.1e-5 | 6.1e-5 |
+> | 1e-5 of `|x|` | 1.2e-2 | 1.1e-4 | **1.8e-6** |
+>
+> with the `becsum` rows 1.2e-2, 1.1e-4 and 1.8e-6 of the second row. The small step falls in
+> proportion to `ethr` and the large one stops at 6.1e-5, which is the `eps^2` truncation of a
+> central difference (the density rows alone, 4.8e-5, set it). So the reference, not the
+> tangent, was what the first round measured: a Davidson stopped at `ethr` leaves an error in
+> `F` that the difference divides by its step, and at 1e-13 that is 1e-3 to 1e-2 on this cell
+> where the other ten cells converge further past their threshold on their last step. The spinor
+> `becsum` tangent agrees to 1.8e-6, inside the 2e-7 to 1e-5 of the other cells. Two cold
+> evaluations in one process are bit-identical, so the "1.2e-4 and 7.0e-4 in two runs" below is
+> between processes and is the same `ethr` floor read twice. **The fixed start this entry proposed
+> is worse at a loose `ethr`, not better:** the converged states at `x` rotated by a random unitary
+> over all sixteen bands read 4.0e-2 and 1.0e-1 at 1e-13, and two unitaries differ by 6.9e-3,
+> because a start that spans `x`'s eigenvectors makes the difference the warm map's (item 2);
+> at 1e-17 the fixed and cold references agree to 1.7e-7. A reference for this check needs an
+> `ethr` small against the step's own error budget, not a fixed start.
+
 
 On `alas-epsilon-us-soc.in` at 2x2x2 (ultrasoft, spin-orbit, nonmagnetic) the Sternheimer action read
 1.2e-4 of `|dF v|` against the cold tight difference in the first round, where every other cell read

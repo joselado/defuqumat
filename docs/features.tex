@@ -2925,22 +2925,27 @@ and each one can be finite-differenced on its own against a re-converged run:
 three agreed to 7e-4 and two did not.
 
 \textbf{A spinor run has a dielectric constant and Born charges}, on all three
-datasets --- what an augmented one adds is in the amber box below, with its own
-numbers. A nonmagnetic one is the same physics on a doubled
-space, four bands of two electrons against eight of one, and it comes out the
-same to $5\times10^{-14}$ in $\epsilon$ and $3\times10^{-15}$ in $Z^{\ast}$;
-the symmetrised 8-point wedge of an unshifted grid gives the closed 64-point
-grid's tensor to $7\times10^{-13}$, and \code{ph.x}'s own number to
-$4.3\times10^{-5}$, which is the scalar route's figure to the digit.
+datasets. The amber box below says what an augmented dataset adds, with its own
+numbers. A nonmagnetic spinor run is the same physics on a doubled space: eight
+bands of one electron instead of four bands of two. So it must give the same
+numbers. When both runs start from scratch at \code{conv\_thr = 1e-10}, they agree
+to $1.5\times10^{-12}$ in $\epsilon$ and $2\times10^{-13}$ in $Z^{\ast}$. The
+symmetrised 8-point wedge of an unshifted grid gives the tensor of the closed
+64-point grid to $7\times10^{-13}$. It is $4.3\times10^{-5}$ from the number of
+\code{ph.x}, the same figure as the scalar run.
 
 \begin{lstlisting}[language=Python]
 silicon = Calculator.from_file("si-epsilon.in")
 spinor  = silicon.with_spin(4)          # 8 bands of one electron, not 4 of two
-spinor.get_dielectric_tensor().isotropic    # 13.806641, against 13.806646
+spinor.get_dielectric_tensor().isotropic    # 13.806656, against 13.806630
 \end{lstlisting}
 
-\noindent\code{with\_spin} promotes the converged state rather than starting
-again, so the second ground state is not paid for twice.
+\noindent\code{with\_spin} starts from the converged scalar state. So the second
+ground state is not paid for twice. Here the two numbers agree to $2.6\times10^{-5}$,
+not to $10^{-12}$. The reason is the SCF threshold, not the spinor. At the default
+\code{conv\_thr = 1e-12} of a response, the two ground states stop at slightly
+different points, and $\epsilon$ on this cell moves by about $3\times10^{-5}$
+between \code{conv\_thr = 1e-10} and \code{1e-14}.
 
 \textbf{A magnetic spinor is refused, and the reason is a measurement rather
 than a missing term.} An iodine atom with spin--orbit coupling and its moment

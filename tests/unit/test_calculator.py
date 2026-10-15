@@ -633,17 +633,25 @@ def test_david_is_a_setup_option_and_rebuilds_the_calculation(pseudo_dir):
 def test_the_subspace_size_changes_the_cost_and_not_the_answer(pseudo_dir):
     """The whole point: a smaller workspace must reach the same solution.
 
-    Measured on this cell: the two totals agree to **7.3e-11** Ry and the
-    smaller subspace takes one more iteration, which is the trade QE's own
-    documentation describes ("a larger value may yield a smaller number of
-    iterations ... but uses more memory").
+    Both runs are held to ``conv_thr = 1e-10``, because the input's own
+    default, ``pw.x``'s 1e-6, does not promise the 1e-8 asserted here. Two
+    runs stopped at one threshold on two different paths agree only to what
+    that threshold delivers, measured on ``D22-0161`` (2026-10-15, identical
+    on cores 0-3, 4-11 and 12-15): 1.85e-8 Ry apart at 1e-6, the narrow one
+    3.2e-8 above the converged total; 4.2e-10 at 1e-8; **7.7e-11** at 1e-10,
+    where the smaller subspace takes one more iteration (7 against 6), which
+    is the trade QE's own documentation describes ("a larger value may yield
+    a smaller number of iterations ... but uses more memory"); 1.1e-13 at
+    1e-12. The docstring used to quote 7.3e-11 at the default threshold.
     """
     import numpy as np
 
     from defuqumat.sizing import estimate_size
 
-    wide = Calculator.from_text(SILICON, pseudo_dir, announce=False).get_scf()
-    narrow = Calculator.from_text(_DAVID, pseudo_dir, announce=False).get_scf()
+    wide = Calculator.from_text(SILICON, pseudo_dir, announce=False).get_scf(
+        conv_thr=1e-10)
+    narrow = Calculator.from_text(_DAVID, pseudo_dir, announce=False).get_scf(
+        conv_thr=1e-10)
     assert wide.converged and narrow.converged
     assert narrow.total_energy == pytest.approx(wide.total_energy, abs=1e-8)
 
