@@ -71,6 +71,7 @@ AMPLITUDE = 0.05
 #: asserted, ten times it.
 WEDGE_STS_MEASURED = None
 WEDGE_STS_BOUND = 1e-6
+WEDGE_STS_CONV_THR = 1e-12
 WIDTH = 0.02
 PLANE = dict(height=0.35, axis=2)
 
@@ -542,7 +543,7 @@ def test_a_wedge_spectrum_is_the_whole_grid_s(pseudo_dir):
     wedge's spectrum over the 48 images ``g(r)`` of each tip point
     (:func:`~defuqumat.workflows.stm._tip_orbit`). The reference is the same
     plane from the whole unshifted 4x4x4 grid, ``grid=(4, 4, 4)``, at the same
-    density; both arms re-solve their bands at ``conv_thr = 1e-10``. Measured on
+    density; both arms re-solve their bands at ``conv_thr = 1e-12``. Measured on
     D22 at ``WEDGE_STS_MEASURED`` of the peak; the uncompleted wedge sum is 98
     per cent off (the test below).
     """
@@ -552,10 +553,10 @@ def test_a_wedge_spectrum_is_the_whole_grid_s(pseudo_dir):
     energies = float(scf.homo) + np.linspace(-0.05, 0.05, 3)
     whole = run_sts(calculator.system, calculator.pseudos, scf,
                     energies=energies, width=WIDTH, grid=(4, 4, 4),
-                    conv_thr=1e-10, **geometry)
+                    conv_thr=WEDGE_STS_CONV_THR, **geometry)
     wedge = run_sts(calculator.system, calculator.pseudos, scf,
                     energies=energies, width=WIDTH,
-                    kpoints=calculator.system.kpoints, conv_thr=1e-10,
+                    kpoints=calculator.system.kpoints, conv_thr=WEDGE_STS_CONV_THR,
                     **geometry)
     right = np.asarray(whole.values)
     error = np.abs(np.asarray(wedge.values) - right).max() / right.max()
