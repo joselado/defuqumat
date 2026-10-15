@@ -1,0 +1,30 @@
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 0
+  nat = 5
+  ntyp = 1
+  ecutwfc = 12.0
+  occupations = 'smearing'
+  smearing = 'gaussian'
+  degauss = 0.05
+/
+&electrons
+  conv_thr = 1.0d-8
+  electron_maxstep = 200
+/
+ATOMIC_SPECIES
+  Al 26.98 Al.pz-vbc.UPF
+CELL_PARAMETERS bohr
+  5.3033010000 0.0 0.0
+  0.0 5.3033010000 0.0
+  0.0 0.0 47.0000000000
+ATOMIC_POSITIONS bohr
+  Al 0.0000000000 0.0000000000 16.0000150000
+  Al 2.6516505000 2.6516505000 19.7499920000
+  Al 0.0000000000 0.0000000000 23.5000000000
+  Al 2.6516505000 2.6516505000 27.2500080000
+  Al 0.0000000000 0.0000000000 30.9999850000
+K_POINTS automatic
+  2 2 1 0 0 0
