@@ -298,9 +298,10 @@ within about 1 degree of zero, but its shape still moves with the mesh. The larg
 rotation in the visible is $+1.03$ degrees at 1.85 eV on $4\times4\times4$,
 $+0.81$ at 3.28 eV on $6\times6\times6$ and $+0.50$ at 2.42 eV on
 $8\times8\times8$, and the curve changes by up to 0.59 degrees between the last
-two meshes. So the order of magnitude of the Kerr angle is right, a fraction of a
-degree, but the spectrum is not converged, and a converged one needs a denser
-grid than we can show here.
+two meshes. The measured rotation of bulk nickel in the visible is about 0.1
+degree, so all three meshes give a rotation several times too large, and the
+spectrum is not converged. A converged one needs a denser grid than we can show
+here.
 
 ??? example "Code of this figure (docs/figures/optics_kerr/)"
 
