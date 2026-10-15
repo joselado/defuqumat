@@ -15,7 +15,7 @@ atoms = {"A": (0, 0), "B": (2 / 3, 1 / 3)}
 
 def draw():
     fig, (a, b) = style.figure(2, layout="constrained",
-                              gridspec_kw={"width_ratios": [1.2, 1]})
+                              gridspec_kw={"width_ratios": [1.2, 1], "wspace": 0.15})
     for i in range(-1, 3):
         for j in range(-1, 3):
             shift = i * a1 + j * a2
@@ -42,7 +42,7 @@ def draw():
     b.set_xlim(0.5, d["z"][-1])
     b.set_ylim(1.0e-12, 1.0)
     b.set_xlabel("height above the top layer (bohr)")
-    b.set_ylabel(r"$\rho_{\rm STM}$ (1/(bohr$^3$ Ry))")
+    b.set_ylabel(r"$\rho_{\rm STM}$ (same units)")
     b.legend(loc="lower left")
     return fig
 

@@ -58,9 +58,9 @@ yet at the Fermi level B is 1.64 times brighter than A. You can think of it this
 way: A is bound to the atom below it, which pushes the states of A away from the
 Fermi level, so the states at the Fermi level sit on B. Above the centre of the
 hexagon the tip sees $2.4\times10^{-7}$, more than three orders of magnitude
-less. So a microscope sees one bright spot per cell, on B, which is a triangular
-lattice and not the honeycomb of the crystal. This is the reason why only half of
-the atoms of graphite appear in an STM image.
+less. So the brightest spot of each cell is on B, and A is 0.61 of it. This
+asymmetry between the two atoms is the origin of the triangular images of
+graphite, where only half of the atoms appear.
 
 The integral of the image, 2.4834 states/Ry, is $D(E_F)$ of the cell, here on the
 $12\times12\times1$ k-mesh of the SCF with a Gaussian of 0.02 Ry. Bilayer
@@ -126,15 +126,17 @@ triangular image of graphite is a low-bias image.
 ![The STM image of graphite at constant height, and the decay of the tunnelling density into the vacuum.](img/stm_graphite-dark.png#only-dark)
 
 On the left we see the image at 3.5 bohr, repeated over a few cells. The bright
-spots are on B, A is dimmer, and the centres of the hexagons are dark, which is
-the triangular lattice of the experiment. On the right we follow the tunnelling
+spots are on B, A is dimmer but still bright, and only the centres of the
+hexagons are dark. On the right we follow the tunnelling
 density from the top layer up to the middle of the vacuum, 6.5 bohr. Above A and
 above B it falls by a factor of 10 every 1.16 bohr, and B stays brighter than A
 up to 6 bohr, so the contrast does not depend on the height of the tip. Above
 the centre of the hexagon the density stays below $10^{-5}$ at every height. You
 can think of it this way: the states at the Fermi level are the states near K,
-and by the threefold symmetry their wavefunction is zero on the axis through the
-centre of the hexagon. At 6.5 bohr the three curves meet, near
+and by the threefold symmetry the states of the top layer are zero on the axis
+through the centre of its hexagon. The small value left there comes from the
+atom of the lower layer that sits on this axis, 7.0 bohr further from the tip.
+At 6.5 bohr the three curves meet, near
 $3\times10^{-6}$, because there the tip is as far from this surface as from the
 next copy of the slab, so the image has no contrast left.
 
@@ -224,9 +226,11 @@ filled $\pi$ band at M, a van Hove singularity, and the peak at $+1.86$ V is its
 partner in the empty $\pi^*$ band. Above about 2.7 V the signal grows by a factor
 of 4.5. These are states with much weight in the vacuum, and we did not converge
 them against the size of the vacuum, so this part of the curve depends on the
-cell. On the right we see the zoom near the Fermi level. The spectrum has a
-minimum at $V = 0$, which is the semimetal, and only there A and B differ, with B
-up to 1.63 times A between $-0.1$ and $+0.1$ V. The width of the delta is
+cell. On the right we see the zoom near the Fermi level. Above A the spectrum
+has a minimum at $V = 0$, which is the semimetal. Above B there is a small peak at
+$V = 0$ instead, from the flat low-energy states of the bilayer, which sit on B.
+Only near zero bias A and B differ, with B up to 1.63 times A between $-0.1$ and
+$+0.1$ V. The width of the delta is
 0.02 Ry, 0.27 eV, and the curve is smooth only because of this width. A sharper
 spectrum needs a denser k-mesh together with a smaller `width`.
 
