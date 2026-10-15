@@ -1,0 +1,26 @@
+! The same crystal, cell and field as alas-field.in, without spin-orbit coupling:
+! lspinorb = .false. and scalar-relativistic pseudopotentials.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 5, celldm(1) = 7.504807, celldm(4) = 0.5, nat = 2, ntyp = 2,
+    ecutwfc = 25.0, ecutrho = 200.0,
+    noncolin = .true., lspinorb = .false.,
+    nosym = .true., noinv = .true.,
+    starting_magnetization(1) = 0.01, angle1(1) = 0.0,
+    starting_magnetization(2) = 0.01, angle1(2) = 0.0,
+    B_field(3) = 0.05
+ /
+ &electrons
+    conv_thr = 1.0d-10
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al 26.98 Al.pbe-n-rrkjus_psl.1.0.0.UPF
+ As 74.92 As.pbe-n-rrkjus_psl.1.0.0.UPF
+ATOMIC_POSITIONS crystal
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 2 2 2 0 0 0

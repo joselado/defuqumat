@@ -1,0 +1,21 @@
+! Silicon on an unshifted 20x20x20 mesh, for the elasto-optic tensor, which needs
+! a much denser mesh than the ground state.
+! The symmetry of the crystal reduces the mesh to a wedge.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.20, nat = 2, ntyp = 1,
+    ecutwfc = 12.0
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Si  28.086  Si.pz-vbc.UPF
+ATOMIC_POSITIONS (alat)
+ Si 0.00 0.00 0.00
+ Si 0.25 0.25 0.25
+K_POINTS (automatic)
+ 20 20 20 0 0 0
