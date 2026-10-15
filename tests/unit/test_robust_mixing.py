@@ -90,8 +90,8 @@ def test_a_stall_is_detected_and_the_ladder_skips_what_does_not_apply():
         moving.judge(-10.0 - k, accuracy, 1e-6, 0)
         moving.kept(_state(0.0), _state(1.0), -10.0 - k, accuracy, 1e-6)
     assert not moving.stalled()
-    # An insulator without spin takes the restart, then the short history: the
-    # LDOS rung needs states at the Fermi level, the magnetic one a moment.
+    # An insulator takes the restart, then the bottom rung: the
+    # LDOS rung needs states at the Fermi level.
     assert [sup.next_rung() for _ in range(3)] == ["restart", "hamiltonian", None]
     assert set(RUNGS) == {"restart", "ldos", "hamiltonian"}
     np.testing.assert_allclose(sup.restart_from_best()[0], 0.0)
