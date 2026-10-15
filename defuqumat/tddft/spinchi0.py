@@ -309,7 +309,14 @@ def require_a_transverse_regime(calculation) -> None:
             "the transverse spin susceptibility needs the full k-grid, not a "
             "symmetry-reduced wedge: X_0(G, G') is a matrix in two G indices, "
             "and the k + q fold needs the set to be closed under translation "
-            "by q. Run with nosym = .true. and noinv = .true."
+            "by q. Averaging the two G labels is what chi_0 at q -> 0 now does "
+            "on a wedge (defuqumat.tddft.chi0._completed); what is missing here "
+            "is the other half -- the states at k + q are not in a wedge, and "
+            "taking them from their representative means rotating a "
+            "wavefunction (a G permutation, a phase and, for the spin, an SU(2) "
+            "turn), which nothing in this code does -- together with the "
+            "magnetic group of q, whose time-reversed operations swap the "
+            "+- and -+ blocks. Run with nosym = .true. and noinv = .true."
         )
 
 

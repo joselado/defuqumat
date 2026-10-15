@@ -587,7 +587,7 @@ def _completed(x, sphere, group):
     reflect = np.concatenate([head, 3 + np.asarray(sphere.reflection, dtype=int)])
     sign = np.concatenate([-np.ones(3), np.ones(nbody)])
     transposed = jnp.swapaxes(x, -1, -2)[:, reflect[:, None], reflect[None, :]]
-    reversed_ = transposed * jnp.asarray(sign[:, None] * sign[None, :])
+    reversed_ = transposed * jnp.asarray(sign[:, None] * sign[None, :], dtype=x.dtype)
 
     total = jnp.zeros_like(x)
     for rotation, crystal, shift, anti in zip(group.rotations, group.crystal,
@@ -608,9 +608,11 @@ def _completed(x, sphere, group):
             np.exp(-2j * np.pi * (miller @ np.asarray(shift, dtype=float))),
         ])
         source = reversed_ if anti else x
+        # The precision of ``x`` and not a literal one: the phases and the
+        # rotation are host tables, cast to the matrix they act on.
         term = source[:, full[:, None], full[None, :]] * jnp.asarray(
-            phase[:, None] * np.conj(phase)[None, :])
-        rot = jnp.asarray(np.asarray(rotation, dtype=float))
+            phase[:, None] * np.conj(phase)[None, :], dtype=x.dtype)
+        rot = jnp.asarray(np.asarray(rotation, dtype=float), dtype=x.dtype)
         term = term.at[:, :3, :].set(jnp.einsum("ab,wbn->wan", rot, term[:, :3, :]))
         term = term.at[:, :, :3].set(jnp.einsum("wnb,ab->wna", term[:, :, :3], rot))
         total = total + term
