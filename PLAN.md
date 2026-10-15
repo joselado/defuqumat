@@ -23438,7 +23438,8 @@ and it is a Triton array rather than a workstation job.
 **The test cell** (`nii-chain-spiral.in` and `nii-chain-4cell.in`: the same chain at 34 Ry,
 `1 1 8` and `1 1 2`, the spiral at `conv_thr = 1e-9` because 1e-10 takes over a hundred
 iterations there; `tests/regression/test_spiral_soc.py`). `V = (4.2e-7, -1.21790, 1.8e-7)`
-meV per cell. The run at `-q` gives `V_y = +1.21791`, so `V(-q) + V(q)` is 1.54e-5 meV,
+meV per cell, **under `noncollinear_gga = 'kubler'`, the default until `ee08a18` (P143); the
+current default gives `V_y = -1.40272`, see the 2026-10-15 note at the end of this section**. The run at `-q` gives `V_y = +1.21791`, so `V(-q) + V(q)` is 1.54e-5 meV,
 1.3e-5 of `V_y`, two independent SCFs apart. The supercell identity holds to **9.0e-12 Ry
 per cell** along `y`, and along `z` both sides are at 1e-11 Ry. The scaled coupling at
 `lambda` = 0.05, 0.1 and 0.2 gives remainders `O / lambda - V_y` of 5.23e-7, 1.009e-6 and
@@ -23464,6 +23465,42 @@ interior value when any dataset is ultrasoft or PAW (a scalar-relativistic ultra
 included, so the rule has one statement), and `SpinOrbitCoupling` keeps its own refusal for
 an augmented relativistic species. The scaled-coupling test uses the knob rather than
 setting `dvan_so` by hand.
+
+**2026-10-15: `V_y` of the test cell moved from -1.21790 to -1.40272 meV, at `ee08a18`, the
+`'grad_m'` default (P143).** Every number of P123 above was taken under `pw.x`'s
+noncollinear gradient correction, `'kubler'`, which was the default then; `ee08a18` (2026-10-11)
+made `'grad_m'` the default for any `nspin_mag = 4` GGA, this PBE spiral included, and P143's
+sweep of the slow tests under the new default did not re-measure P123, whose test checks
+identities and not the value. Bisected on D22 with one fixed copy of `520a037`'s
+`nii-chain-spiral.in` and its two datasets for every commit (`docs/figures/spirals_eq/nii-chain.in`
+is the same input with a shorter header), `Calculator.get_spiral_spin_orbit_energy().vector_mev`,
+one core each, `V_y` in meV per cell:
+
+| commit | `noncollinear_gga` | `V_y` | `E_tot` (Ry) | `E_F` (Ry) |
+|---|---|---|---|---|
+| `520a037` (P123) | default (`'kubler'`) | -1.21789002 | -352.149286929 | 0.087757345 |
+| `df1e3ea`, `7f8a947`, `c513b1a` | default (`'kubler'`) | -1.21788957 | -352.149286929 | 0.087757345 |
+| `dbfae07` | default (`'kubler'`) | -1.21789496 | -352.149286929 | 0.087757345 |
+| `60a099a` (parent of `ee08a18`) | default (`'kubler'`) | -1.21674201 | -352.149286939 | 0.087757015 |
+| `60a099a` | `'grad_m'` set in the input | -1.40424058 | -352.149421921 | 0.087736113 |
+| `ee08a18`, `e1f4801` | default (`'grad_m'`) | -1.40424058 | -352.149421921 | 0.087736113 |
+| `b05447f` (2026-10-15) | default (`'grad_m'`) | -1.40272470 | -352.149422332 | 0.087738669 |
+| `b05447f` | `'kubler'` set in the input | -1.21865102 | -352.149286924 | 0.087758209 |
+
+`V_x` and `V_z` stay at 2.7e-7 to 4.2e-7 meV throughout. So the move is the functional and
+nothing else: `'grad_m'` set by hand at the commit before the default changed is bit-identical
+to the default after it, and `'kubler'` set by hand at `b05447f` gives back -1.2187. **Neither a
+fix nor a regression of the code**: the two are different functionals on a spiral (P142, 8.5e-4
+Ry apart on the cobalt helix; 1.35e-4 Ry here), and a first-order energy that is a remainder of
+`k`-point contributions a hundred times larger than their sum moves 15 per cent between them
+on this unconverged cell, as it moves sign between 30 and 34 Ry. What went stale is the record:
+this section's -1.21790 and `+1.21791`, the `$V_y = -1.2179$` of `docs/features.tex` (the 34 Ry
+paragraph of the spiral spin-orbit entry, and the 30, 34, 40 Ry sequence -2.35, -1.22, +0.028
+there and in "What the number is not" above, none re-measured), and notebook 48, executed at
+`520a037` and printing -1.21790 for both the spiral and the supercell, are `'kubler'`'s; the user
+guide's `docs/guide/spirals.md` already shows the default's -1.40272. The identities (`V(-q) =
+-V(q)`, the supercell, the scaled-coupling limit) were not re-run under `'grad_m'`; the supercell
+one was, for the energy and potential alone, by P142's own cobalt test.
 
 ### P124 -- One calculation on many cores: k-point pools, and the local term and the density a chunk of planes at a time. ✅ DONE for the SCF, forces, stress and relaxations on six desktop cores; a server node and the 40-site target are not measured.
 
