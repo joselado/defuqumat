@@ -12,7 +12,8 @@ def draw():
     a.plot(v, e, "o-")
     a.set_ylabel("total energy (Ry)")
     b.plot(v, d["pressure"], "o-", label="from the stress, one run per volume")
-    b.plot(v, -np.gradient(e, v) * ry_bohr3_to_kbar, **style.reference(),
+    slope = np.gradient(e, v)[1:-1]                 # central differences only
+    b.plot(v[1:-1], -slope * ry_bohr3_to_kbar, **style.reference(),
            label=r"$-dE/dV$ along the curve")
     style.zero_line(b)
     b.set_ylabel("pressure (kbar)")

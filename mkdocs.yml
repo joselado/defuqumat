@@ -62,3 +62,7 @@ nav:
       - Total energy and the density: ground-state.md
       - Band structure: bands.md
       - Density of states: dos.md
+  - Structure:
+      - Forces and relaxation: forces.md
+      - Stress and the cell: stress.md
+      - Electric fields: electric-field.md
