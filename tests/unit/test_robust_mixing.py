@@ -79,14 +79,14 @@ def test_a_stall_is_detected_and_the_ladder_skips_what_does_not_apply():
     sup = Supervisor(nelec=8.0, window=3, smeared=False, magnetic=False)
     sup.judge(-10.0, 1e-3, 1e-6, 0)
     sup.kept(_state(0.0), _state(1.0), -10.0, 1e-3, 1e-6)
-    for accuracy in (9e-4, 8e-4, 9e-4):
+    for accuracy in (1.1e-3, 1.2e-3, 1.05e-3):
         sup.judge(-10.0, accuracy, 1e-6, 0)
         sup.kept(_state(0.0), _state(1.0), -10.0, accuracy, 1e-6)
     assert sup.stalled()
     # The same residuals with the merit falling well beyond its noise are a run
     # going downhill, not a stall.
     moving = Supervisor(nelec=8.0, window=3)
-    for k, accuracy in enumerate((1e-3, 9e-4, 8e-4, 9e-4)):
+    for k, accuracy in enumerate((1e-3, 1.1e-3, 1.2e-3, 1.05e-3)):
         moving.judge(-10.0 - k, accuracy, 1e-6, 0)
         moving.kept(_state(0.0), _state(1.0), -10.0 - k, accuracy, 1e-6)
     assert not moving.stalled()

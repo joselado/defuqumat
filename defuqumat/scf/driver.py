@@ -7109,6 +7109,11 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
 #: (``PLAN.md`` P129: NbSe2 10 against 9), so no film is told from a monolayer.
 ROBUST_VACUUM = 0.3
 
+#: After a rejected trial, whether the next one halves the kept input's own step
+#: (``'kept'``) or the inner mixer's new proposal, made with the rejected pair in
+#: its history (``'new'``). Read from ``DEFUQUMAT_ROBUST_RETRY``, for the A/B.
+ROBUST_RETRY = os.environ.get("DEFUQUMAT_ROBUST_RETRY", "kept")
+
 
 def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
                    checkpoint_dir, mixing_from, mixing_beta_mag) -> None:
@@ -8752,6 +8757,7 @@ def run_scf(
         # ``eband``, ``deband`` and ``|drho|``, read in the attempt's one fetch;
         # the comment there says which density each is evaluated at.
         eband, deband, residual = (float(x) for x in iteration_terms)
+        unscaled_accuracy = None
         if damping is not None and hamiltonian_in is not None:
             # On the robust mode's bottom rung ``rho`` is the kept trial's
             # *output*, so ``accuracy`` measured the change in the output over a
@@ -8760,6 +8766,7 @@ def run_scf(
             # over ``alpha^2``; without this the run stops ``1/alpha^2`` early
             # (measured on the aluminium slab: 1.2e-7 Ry off the converged energy
             # at ``conv_thr = 1e-8``).
+            unscaled_accuracy = accuracy
             accuracy = accuracy / damping.alpha ** 2
 
         if record_orientation:
@@ -9110,6 +9117,10 @@ def run_scf(
                 hamiltonian_in = damping.retry()
             history[-1]["merit"] = merit
             history[-1]["supervisor"] = damping.record
+            if unscaled_accuracy is not None:
+                # ``accuracy`` on this rung is the output's change over
+                # ``alpha^2``; the raw change is kept beside it.
+                history[-1]["supervisor"]["output_change"] = unscaled_accuracy
             if verbose:
                 record = history[-1]["supervisor"]
                 print(f"     robust (hamiltonian): "
@@ -9163,7 +9174,21 @@ def run_scf(
                                   f"rung {rung!r} from the best input "
                                   f"(accuracy {supervisor._best_accuracy:.2e})")
             else:
-                following = supervisor.retry()
+                # **The rejected pair enters the history.** It is a valid secant
+                # pair, and it is what Anderson recovers with: on the PAW nickel
+                # cell under a Gaussian, plain Anderson took the residual from
+                # 0.28 to 3.5 at iteration 2 and was at 3.4e-3 at iteration 3,
+                # while a supervisor that discarded the pair half-stepped to 0.53
+                # and never caught up (D22, 2026-10-16). This overrides the plan
+                # review's decision 2 on that measurement. The trial is still not
+                # the reference: the next one is cut back from the kept input.
+                rejected_proposal = _mix(
+                    mixer, rho, rho_out, becsum_state, becsum_out,
+                    ns_state if calculation.is_hubbard else None,
+                    ns_out if calculation.is_hubbard else None,
+                )
+                following = supervisor.retry(
+                    rejected_proposal if ROBUST_RETRY == "new" else None)
             history[-1]["merit"] = merit
             history[-1]["supervisor"] = supervisor.record
             if verbose:

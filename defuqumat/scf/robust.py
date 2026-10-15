@@ -154,10 +154,19 @@ class Supervisor:
     variational: bool = True
     #: How many halvings a step takes before the trial is kept regardless.
     max_cuts: int = 4
-    #: The window, in kept inputs, a stall is judged over.
-    window: int = 8
-    #: The best ``accuracy`` must fall by this factor over a window.
-    progress: float = 0.5
+    #: The window, in kept inputs, a stall is judged over. Calibrated on the
+    #: converged plain-Anderson traces of the bed (``tools/robust_mixing``, D22,
+    #: 2026-10-16): the DFT+U and spin-orbit nickel cells sit on plateaus where
+    #: the best residual does not halve for 15 to 30 iterations and then
+    #: converge (69 to 115 iterations), so a window of 8 at a factor of 2 fired
+    #: on eight of the 31 converged runs and threw their history away. At 20
+    #: with no new best at all it fires on one of them, at its iteration 40 of
+    #: 81, and on every run that failed (``h4-pbe`` at 60 and 61, the nickel
+    #: DFT+U cell at 0.1 at 126).
+    window: int = 20
+    #: The best ``accuracy`` must fall by this factor over a window; 1 is any
+    #: new best at all.
+    progress: float = 1.0
     #: How many kept inputs the acceptance test compares against the worst of.
     memory: int = 3
 
@@ -245,8 +254,14 @@ class Supervisor:
         self._last["next_scale"] = self.scale
         return _combine(state, proposal, self.scale)
 
-    def retry(self):
-        """The next trial after a rejected one: the kept input's step, halved."""
+    def retry(self, proposal=None):
+        """The next trial after a rejected one: the kept input's step, halved.
+
+        ``proposal``, when given, replaces the kept input's step: it is the
+        inner mixer's proposal after the rejected pair entered its history.
+        """
+        if proposal is not None:
+            self._proposal = proposal
         self.cuts += 1
         self.scale *= 0.5
         self._last["next_scale"] = self.scale
@@ -259,7 +274,7 @@ class Supervisor:
         if len(self._accuracies) <= self.window:
             return False
         before = min(self._accuracies[:-self.window])
-        if min(self._accuracies[-self.window:]) <= self.progress * before:
+        if min(self._accuracies[-self.window:]) < self.progress * before:
             return False
         noise = self.nelec * (self._ethr or 0.0)
         return self._merits[-1] > self._merits[-1 - self.window] - 2.0 * noise
