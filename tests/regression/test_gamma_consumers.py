@@ -49,7 +49,7 @@ _SILICON = """
   nosym = .true., nbnd = 8
 /
 &electrons
-  conv_thr = 1.0d-12
+  conv_thr = 1.0d-12, diago_full_acc = .true.
 /
 ATOMIC_SPECIES
  Si 28.086 Si.pz-vbc.UPF
@@ -80,7 +80,13 @@ def _text(case: str, kpoints: str) -> str:
         # one shell of eight above the lowest state, so nothing is cut at Gamma
         assert "nbnd = 8" in head
         head = head.replace("nbnd = 8", "nbnd = 9")
-    return re.sub(r"conv_thr = [0-9.d-]+", "conv_thr = 1.0d-12", head) + kpoints
+    # ``diago_full_acc``: the empty bands are converged as tightly as the
+    # occupied ones. Without it the sheet's image and transmission, which weight
+    # the partly filled bands at the Fermi level, differed by 3.4e-6 and 4.2e-6
+    # between the two storages -- the empty-band floor of two independent SCFs,
+    # since the image does not go through the unfold at all.
+    return re.sub(r"conv_thr = [0-9.d-]+",
+                  "conv_thr = 1.0d-12, diago_full_acc = .true.", head) + kpoints
 
 
 @lru_cache(maxsize=2)
@@ -118,8 +124,8 @@ def _quietly(method, *args, **kwargs):
 def test_the_projected_density_of_states():
     gamma, whole = _pair("silicon")
     a, b = _quietly(gamma.get_pdos), _quietly(whole.get_pdos)
-    assert _relative("pdos", a.pdos, b.pdos) < 1e-9
-    assert _relative("pdos integrated", a.integrated, b.integrated) < 1e-9
+    assert _relative("pdos", a.pdos, b.pdos) < 1e-10  # 1.7e-12 measured
+    assert _relative("pdos integrated", a.integrated, b.integrated) < 1e-10  # 6.4e-13
 
 
 def test_the_optical_spectrum():
@@ -129,9 +135,9 @@ def test_the_optical_spectrum():
     frequencies = np.linspace(0.05, 0.6, 6)
     a = _quietly(gamma.get_absorption, frequencies, **options)
     b = _quietly(whole.get_absorption, frequencies, **options)
-    assert _relative("eps_M", a.epsilon, b.epsilon) < 1e-8
+    assert _relative("eps_M", a.epsilon, b.epsilon) < 1e-8  # 9.9e-10 measured
     assert _relative("eps_M (no local fields)", a.epsilon_no_local_fields,
-                     b.epsilon_no_local_fields) < 1e-8
+                     b.epsilon_no_local_fields) < 1e-8  # 5.3e-10
 
 
 def test_the_stm_image_and_the_tunnelling_spectrum():
@@ -162,8 +168,10 @@ def test_the_vertical_and_the_momentum_transmission():
 
 def test_the_transverse_susceptibility_and_the_site_moments():
     gamma, whole = _pair("h-fcc-magnon")
-    m = float(np.abs(np.asarray(whole.get_scf().density)[1]).max())
-    print(f"h-fcc at Gamma: max |m(r)| = {m:.3e}")
+    density = np.asarray(whole.get_scf().density)
+    m = float(np.abs(density[0] - density[1]).max())
+    print(f"h-fcc at Gamma: max |rho_up - rho_down| = {m:.3e}")
+    assert m > 1e-3  # a moment, or the transverse response tests nothing
     options = dict(nbnd=9, interacting=False, goldstone=False,
                    ecut_response=4.0)
     frequencies = np.array([0.01, 0.05])
@@ -171,7 +179,7 @@ def test_the_transverse_susceptibility_and_the_site_moments():
                  **options)
     b = _quietly(whole.get_spin_susceptibility, (0.0, 0.0, 0.0), frequencies,
                  **options)
-    assert _relative("X_0^{+-}", a.chi, b.chi) < 1e-8
+    assert _relative("X_0^{+-}", a.chi, b.chi) < 1e-9  # 1.0e-11 measured
 
     a, b = _quietly(gamma.get_angular_momenta), _quietly(whole.get_angular_momenta)
-    assert _relative("site <S>", a.spin, b.spin) < 1e-8
+    assert _relative("site <S>", a.spin, b.spin) < 1e-9  # 3.8e-11 measured
