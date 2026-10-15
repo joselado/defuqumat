@@ -106,13 +106,20 @@ def test_refusals_name_what_pools_do_not_cover():
     pools = Pools(_FakeCommunicator(2, 0))
     calculation = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=8)),
                                   spiral=False)
-    quiet = dict(checkpointing=False, residual_solver=False, rotate_moments=False,
+    quiet = dict(checkpointing=False, residual_solver=None, rotate_moments=False,
                  field=None)
     _refuse_under_pools(pools, calculation, **quiet)
     _refuse_under_pools(pools, calculation, **{**quiet, "checkpointing": True})
     _refuse_under_pools(pools, calculation, **{**quiet, "field": object()})
     _refuse_under_pools(pools, calculation, **{**quiet, "rotate_moments": True})
-    for name, value, words in [("residual_solver", True, "residual scf_solver")]:
+    # The residual solver runs under pools with its default Jacobian, the
+    # central difference; the two that differentiate stay refused.
+    _refuse_under_pools(pools, calculation,
+                        **{**quiet, "residual_solver": "finite-difference"})
+    for name, value, words in [
+            ("residual_solver", "autodiff", "residual scf_solver with jvp='autodiff'"),
+            ("residual_solver", "sternheimer",
+             "residual scf_solver with jvp='sternheimer'")]:
         with pytest.raises(NotImplementedError, match=words):
             _refuse_under_pools(pools, calculation, **{**quiet, name: value})
     few = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=1)), spiral=False)
@@ -336,6 +343,64 @@ def test_pools_reproduce_one_under_the_ldos_mixer():
     for result in pooled:
         assert abs(result["energy"] - serial["energy"]) < 1e-10
         assert result["iterations"] == serial["iterations"] == 8
+
+
+NEWTON_SCRIPT = SCF_SCRIPT.replace(
+    "max_iterations=iterations)",
+    "max_iterations=iterations, scf_solver='newton-krylov',\n"
+    "                     scf_solver_options={'forcing': 0.5, 'warmup': 3})",
+).replace(
+    '"store": type(result.wavefunctions).__name__}',
+    '"store": type(result.wavefunctions).__name__,\n'
+    '                      "steps": result.solver.steps, "newton": result.solver.iterations,\n'
+    '                      "solved": bool(result.solver.converged),\n'
+    '                      "accuracy": float(result.solver.accuracy)}',
+)
+
+SILICON_SMEARED_8K = SILICON_8K.replace(
+    "nosym = .true., noinv = .true.",
+    "nosym = .true., noinv = .true.,\n  occupations = 'smearing', smearing = 'mv', degauss = 0.02")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("text, sizes", [(SILICON_8K, (2, 3)), (SILICON_SMEARED_8K, (2,))],
+                         ids=["insulator", "smeared"])
+def test_newton_krylov_under_pools_reproduces_one_pool(text, sizes):
+    """``scf_solver = 'newton-krylov'`` at 1 pool against 2 and 3 (I53).
+
+    One pool is the whole-set residual (``ScfResidual.step``); several are the
+    pooled one, each pool solving its rows and rank 0 running the solver while
+    the others serve it (``PooledScfResidual``). The smeared cell is the one
+    whose ``F`` needs the gathered eigenvalues, for its Fermi level. The two
+    routes start Davidson differently on the first evaluation (QE's random
+    guess against the atomic start of ``stream_start``), so the 1-against-N
+    figure is the converged energy, not the bits, and the pooled runs
+    against each other are compared too. The guard drops the all-reduce: a
+    Newton solve on each pool's own share must not pass.
+    """
+    assert NEWTON_SCRIPT != SCF_SCRIPT
+    serial = _run_pools(NEWTON_SCRIPT, 1, text, 0, timeout=900)[0]
+    assert serial["solved"] and serial["store"] != "PoolStore"
+    runs = {}
+    for size in sizes:
+        pooled = _run_pools(NEWTON_SCRIPT, size, text, 0, timeout=900)
+        runs[size] = pooled
+        print(f"pools={size}: dE = {pooled[0]['energy'] - serial['energy']:.3e} Ry, "
+              f"F evaluations {pooled[0]['steps']} against {serial['steps']}, "
+              f"newton {pooled[0]['newton']} against {serial['newton']}")
+        for result in pooled:
+            assert result["solved"] and result["store"] == "PoolStore"
+            assert abs(result["energy"] - serial["energy"]) < 1e-10
+            assert result["energy"] == pooled[0]["energy"]
+            assert result["steps"] == pooled[0]["steps"]
+    if len(sizes) > 1:
+        a, b = (runs[size][0] for size in sizes[:2])
+        assert abs(a["energy"] - b["energy"]) < 1e-10
+    if text is SILICON_8K:
+        broken = _start_pools(NEWTON_SCRIPT, 2, text, 1, timeout=900)
+        energies = [json.loads(out.strip().splitlines()[-1])["energy"]
+                    for code, out, _ in broken if code == 0 and out.strip()]
+        assert all(abs(e - serial["energy"]) > 1e-3 for e in energies)
 
 
 SILICON_DISPLACED_8K = SILICON_8K.replace(" Si 0.25 0.25 0.25", " Si 0.27 0.25 0.24")

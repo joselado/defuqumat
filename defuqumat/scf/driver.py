@@ -145,7 +145,7 @@ from defuqumat.scf.mixing import (
     ldos_preconditioner_g,
     resolve_mixing_space,
 )
-from defuqumat.scf.residual import make_residual
+from defuqumat.scf.residual import PooledScfResidual, make_residual
 from defuqumat.scf.robust import (CONDITION_LIMIT, CONDITION_LIMIT_RESTART,
                                   ROBUST_MODES, HamiltonianDamping, Supervisor,
                                   vacuum_fraction)
@@ -6616,6 +6616,42 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
 def _solve_residual(
     calculation, system, nbnd, rho, becsum_, ns_, conv_thr,
     scf_solver, options, mixing_beta, verbose, tau_=None, fit_in_rho_ddot=None,
+    pools=None, pool_rows=None, pool_layout=None,
+):
+    """:func:`_solve_residual_body`, and under k-point pools its protocol's ends.
+
+    With pools the residual is a :class:`~defuqumat.scf.residual.PooledScfResidual`:
+    rank 0 runs the solver and the others serve its evaluations of ``F``, so
+    rank 0 has to release them, with the result when the solve returns
+    (``finish``, after which its ``psi`` is the pool's store rather than a
+    token) and with an abort when it raises, or they would wait at the next
+    collective until the heartbeat took them down.
+    """
+    holder = {}
+    try:
+        out = _solve_residual_body(
+            calculation, system, nbnd, rho, becsum_, ns_, conv_thr, scf_solver,
+            options, mixing_beta, verbose, tau_, fit_in_rho_ddot,
+            pools=pools, pool_rows=pool_rows, pool_layout=pool_layout,
+            holder=holder,
+        )
+    except BaseException:
+        residual = holder.get("residual")
+        if isinstance(residual, PooledScfResidual) and residual.pools.rank == 0:
+            residual.abort()
+        raise
+    residual = holder.get("residual")
+    if isinstance(residual, PooledScfResidual) and residual.pools.rank == 0:
+        result = out[-1]
+        residual.finish(result)
+        out = out[:4] + (result.psi, result)
+    return out
+
+
+def _solve_residual_body(
+    calculation, system, nbnd, rho, becsum_, ns_, conv_thr,
+    scf_solver, options, mixing_beta, verbose, tau_=None, fit_in_rho_ddot=None,
+    *, pools=None, pool_rows=None, pool_layout=None, holder=None,
 ):
     """Find the fixed point with a residual solver, before the mixing loop runs.
 
@@ -6659,6 +6695,16 @@ def _solve_residual(
     wavefunctions = None
 
     residual = make_residual(calculation, nbnd, ethr)
+    if pools is not None and pools.size > 1:
+        # Rank 0 solves and the other pools serve its evaluations of ``F``
+        # (``PooledScfResidual``); everything below this block is rank 0's.
+        residual = PooledScfResidual.of(residual, pools, pool_rows, pool_layout)
+        if pools.rank != 0:
+            result = residual.serve()
+            rho_out, becsum_out, ns_out, tau_out = residual.unpack(result.x)
+            return rho_out, becsum_out, ns_out, tau_out, result.psi, result
+    if holder is not None:
+        holder["residual"] = residual
     x0 = residual.pack(
         rho, becsum_, ns_,
         None if residual.tau_shape is None
@@ -7088,8 +7134,17 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
     # A checkpoint is not refused: every pool writes its rows and rank 0 the
     # state (``_write_pooled_checkpoint``), and a load of any pool count
     # assembles the rows it holds (``checkpoint.load_state(rows=...)``).
-    if residual_solver:
-        refused.append("a residual scf_solver (it differentiates the whole set)")
+    # A residual solver is not refused with its default Jacobian, the central
+    # difference: ``F`` is the pooled iteration's own sequence at a fixed
+    # ``ethr`` (``PooledScfResidual``), rank 0 runs the solver and the other
+    # pools serve its evaluations. The two backends that differentiate stay
+    # refused: ``autodiff`` traces the whole-set eigensolver, which a pool's
+    # host store cannot enter, and ``sternheimer``'s solve reads every state.
+    # ``residual_solver`` is the ``jvp`` backend's name, ``None`` for mixing.
+    if residual_solver not in (None, False, "finite-difference"):
+        refused.append(f"a residual scf_solver with jvp={residual_solver!r} (it "
+                       "differentiates the whole set; jvp='finite-difference', "
+                       "the default, runs under pools)")
     # ``rotate_moments`` is not refused: the torque is rank 0's before the
     # stepper sees it, and the states it turns and the sums it rebuilds from
     # them are each pool's rows, reduced.
@@ -8132,7 +8187,9 @@ def run_scf(
     if pooled:
         _refuse_under_pools(
             pools, calculation, checkpointing=checkpointing,
-            residual_solver=get_scf_solver(scf_solver) is not None,
+            residual_solver=(
+                dict(scf_solver_options or {}).get("jvp", "finite-difference")
+                if get_scf_solver(scf_solver) is not None else None),
             rotate_moments=rotate_moments, field=field,
         )
         # A pool keeps its own rows in host memory and walks them: the
@@ -8198,6 +8255,8 @@ def run_scf(
             calculation, system, nbnd, rho, becsum_state, ns_state, conv_thr,
             scf_solver, dict(scf_solver_options or {}), mixing_beta, verbose,
             starting_tau, fit_in_rho_ddot=fit_in_rho_ddot,
+            pools=pools if pooled else None, pool_rows=pool_rows,
+            pool_layout=pool_layout,
         )
         # The density is converged, so the eigenvalues must be too: the loose
         # start of the ``ethr`` schedule would otherwise throw the hand-off away

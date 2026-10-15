@@ -84,7 +84,7 @@ through the same ``k_batch`` dial the primal does.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import jax
 import jax.numpy as jnp
@@ -93,7 +93,7 @@ import numpy as np
 from defuqumat.eager import compiled
 from defuqumat.scf.occupations import fixed_occupations, smeared_occupations
 
-__all__ = ["ScfResidual", "SternheimerJacobian", "make_residual"]
+__all__ = ["PooledScfResidual", "ScfResidual", "SternheimerJacobian", "make_residual"]
 
 
 @dataclass(frozen=True)
@@ -335,6 +335,172 @@ class ScfResidual:
             calculation, metals=True, spin_polarized=True, gamma_ok=True,
             noncollinear=True,
         )
+
+
+#: The command codes of :class:`PooledScfResidual`'s protocol, the first entry
+#: of the vector rank 0 broadcasts before every collective step.
+_EVALUATE, _FINISH, _ABORT = 1.0, 0.0, -1.0
+
+
+@dataclass(frozen=True)
+class PooledScfResidual(ScfResidual):
+    """``F`` under k-point pools, each pool solving its own rows.
+
+    The same map as :meth:`ScfResidual.step`, evaluated the way the mixing
+    loop's pooled iteration is: each pool diagonalises its rows of a streamed
+    :class:`~defuqumat.parallel.PoolStore` at the fixed ``ethr``, the
+    eigenvalues are gathered so that the occupations see the whole set, and
+    the raw sums over k are all-reduced before they are finished
+    (:func:`~defuqumat.scf.streaming.stream_densities`). It is a host-side
+    function and not a traceable one, so only the central-difference Jacobian
+    (``jvp = 'finite-difference'``, the default) is available; ``autodiff`` and
+    ``sternheimer`` raise by name. Nothing here is differentiated, which is why
+    the ``np.asarray`` calls in :meth:`_evaluate` are harmless.
+
+    **Rank 0 runs the solver and the other pools serve it.** GMRES, the line
+    search and the convergence test are host decisions, and pools whose thread
+    counts differ can differ in the last bit, so a solver run on every rank
+    could take one more GMRES iteration on one of them and leave the others
+    waiting at a collective. So the solver runs on rank 0 alone, every
+    evaluation of ``F`` is a collective it opens by broadcasting
+    ``[command, warm, x]`` (every pool evaluates at rank 0's ``x`` to the
+    bit), and the others sit in :meth:`serve` until :meth:`finish` hands them
+    the result: the pooled loop's rule, every decision is rank 0's, carried to
+    the whole solver.
+
+    **The warm start is an integer token, the same on every pool.** Each
+    evaluation is collective, so a counter numbers the stores alike everywhere,
+    and rank 0's solver passes the tokens where the serial one passes arrays.
+    A pool keeps two stores, the warm start just used and the one just made,
+    which is all ``newton_krylov`` reads: every matvec and line-search trial of
+    an outer iteration starts from the accepted point's states, and an
+    accepted trial is always the last one evaluated. The warm store is
+    **copied** before the solve, since ``stream_diagonalize`` writes in place
+    and the central difference evaluates ``x + eps v`` and ``x - eps v`` from
+    the same start (the warm start changes ``F``'s derivative, module
+    docstring).
+
+    Memory: three of the pool's stores, the two kept and the copy being solved.
+    """
+
+    pools: object = None
+    rows: object = None
+    layout: object = None
+    held: dict = field(default_factory=dict, compare=False)
+
+    @classmethod
+    def of(cls, residual: ScfResidual, pools, rows, layout) -> "PooledScfResidual":
+        return cls(residual.calculation, residual.nbnd, residual.ethr,
+                   residual.shapes, residual.size, residual.ns_shape,
+                   residual.tau_shape, pools=pools, rows=np.asarray(rows),
+                   layout=layout)
+
+    # ---- the collective evaluation --------------------------------------
+    def _evaluate(self, x, warm):
+        from defuqumat.parallel import PoolStore
+        from defuqumat.scf.streaming import (
+            stream_densities, stream_diagonalize, stream_start,
+        )
+
+        calculation = self.calculation
+        rho, becsum_, ns, tau = self.unpack(x)
+        potential = calculation.potential(rho, tau=tau)
+        _, ddd_paw = calculation.onecenter(
+            becsum_, None if tau is None else potential.meta_c
+        )
+        hubbard_terms = None
+        if ns is not None:
+            _, _, hubbard_terms = calculation.hubbard_terms(ns)
+        hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw, hubbard_terms)
+        if warm is None:
+            store = stream_start(calculation, hamiltonians, self.nbnd, rows=self.rows)
+        else:
+            source = self.held[warm]
+            store = PoolStore(source.array.copy(), source.rows, source.nk)
+        eigenvalues, _, _ = stream_diagonalize(
+            calculation, hamiltonians, self.nbnd, store, self.ethr)
+        eigenvalues = self.pools.gather_k(
+            eigenvalues, calculation.system.kpoints.nk, layout=self.layout)
+        wg = np.asarray(_weights(calculation, jnp.asarray(eigenvalues)))
+        becsum_out, rho_out, tau_out, ns_out = stream_densities(
+            calculation, store, wg, kinetic=tau is not None,
+            hubbard=ns is not None, reduce=self.pools.allreduce_sum,
+        )
+        fx = np.asarray(self.flatten(rho_out, becsum_out, ns_out, tau_out))
+        token = self.held.pop("next", 0)
+        kept = {} if warm is None else {warm: self.held[warm]}
+        self.held.clear()
+        self.held.update(kept)
+        self.held[token] = store
+        self.held["next"] = token + 1
+        return fx, token
+
+    def _command(self, code, warm, x):
+        vector = np.empty(self.size + 2, dtype=np.float64)
+        vector[0] = code
+        vector[1] = -1.0 if warm is None else float(warm)
+        vector[2:] = np.asarray(x, dtype=np.float64)
+        return np.asarray(self.pools.broadcast(vector))
+
+    # ---- rank 0: the solver's view ---------------------------------------
+    def step(self, x, psi0):
+        """``F(x)`` and a token for the pools' states; a collective rank 0 opens."""
+        if self.pools.rank != 0:
+            raise RuntimeError("only rank 0 drives a pooled residual; the others serve")
+        sent = self._command(_EVALUATE, psi0, x)
+        return self._evaluate(sent[2:], psi0)
+
+    def jvp(self, x, v, psi0):
+        raise NotImplementedError(
+            "jvp='autodiff' is not available with k-point pools: a pool's F is "
+            "evaluated on the host through the streamed store, which jax.jvp "
+            "cannot trace. Use jvp='finite-difference' (the default)")
+
+    def sternheimer_jacobian(self, x, psi0, threshold=None):
+        raise NotImplementedError(
+            "jvp='sternheimer' is not available with k-point pools: its "
+            "Sternheimer solve reads the whole set's states. Use "
+            "jvp='finite-difference' (the default)")
+
+    def store(self, token):
+        """The pool's states behind ``token``."""
+        return self.held[token]
+
+    def finish(self, result) -> None:
+        """Hand the solver's result to the serving pools and release them."""
+        self._command(_FINISH, result.psi, result.x)
+        self.pools.broadcast(np.asarray(
+            [result.accuracy, float(result.converged), result.iterations,
+             result.steps, result.jvps], dtype=np.float64))
+        result.psi = self.store(result.psi)
+
+    def abort(self) -> None:
+        """Release the serving pools after rank 0's solver has raised."""
+        self._command(_ABORT, None, np.zeros(self.size))
+
+    # ---- every other pool --------------------------------------------------
+    def serve(self):
+        """Evaluate ``F`` whenever rank 0 asks, until it finishes; its result."""
+        from defuqumat.scf.solvers import NewtonKrylovResult
+
+        while True:
+            # The placeholder is overwritten by rank 0's command.
+            sent = self._command(_ABORT, None, np.zeros(self.size))
+            code, warm = float(sent[0]), int(sent[1])
+            warm = None if warm < 0 else warm
+            if code == _EVALUATE:
+                self._evaluate(sent[2:], warm)
+            elif code == _FINISH:
+                record = np.asarray(self.pools.broadcast(np.zeros(5, dtype=np.float64)))
+                return NewtonKrylovResult(
+                    x=np.asarray(sent[2:]), psi=self.store(warm),
+                    converged=bool(record[1]), accuracy=float(record[0]),
+                    iterations=int(record[2]), steps=int(record[3]),
+                    jvps=int(record[4]))
+            else:
+                raise RuntimeError(
+                    "rank 0's residual solver raised, so this pool stops with it; "
+                    "rank 0's log has the reason")
 
 
 class SternheimerJacobian:
