@@ -129,8 +129,8 @@ cent, so they shrink by a factor of four to five each rung. The $4^3$ value is
 14 per cent larger in size than the $14^3$ one, and we need at least the
 $8\times8\times8$ mesh, 29 points, to be within 1 per cent. The six rungs
 took 87 s on one core together. The ladder converges only the k-mesh, and on
-this cell, with `ecutwfc = 10` Ry, the cutoff is worth about 1 per cent of
-$e_{14}$, so you converge `ecutwfc` separately. Note that this is the clamped-ion tensor, so
+this cell, with `ecutwfc = 10` Ry, the cutoff changes
+$e_{14}$ by about 1 per cent, so you converge `ecutwfc` separately. Note that this is the clamped-ion tensor, so
 the $-0.67$ C/m$^2$ is not yet the value one measures, as we say in the Limits
 below.
 
@@ -163,7 +163,7 @@ m_{ijkl} = -\frac{\varepsilon_0}{2}\,\frac{\partial \chi_{kl}}{\partial x_{ij}},
 q_{ijkl} = \frac{1}{2\varepsilon_0}\,\frac{\partial \eta_{kl}}{\partial x_{ij}} .
 $$
 
-Here $x$ is the strain, $\chi$ the electronic susceptibility and
+Here $\chi$ is the electronic susceptibility and
 $\eta = \chi^{-1}$ its inverse, so all of them come from one quantity,
 $\partial\chi/\partial x$, which is a third derivative of the energy, two
 fields and one strain. The code gets it from the first-order wavefunctions of
@@ -274,11 +274,12 @@ number of k-points along each Berry-phase string and `transverse` the k-mesh
 across the strings. We see that a change of the field along $[111]$ creates a
 polarization along $[111]$, $3.2\times10^{-6}$, while the two components that
 the threefold axis forces to zero are $3.8\times10^{-10}$ and
-$9.6\times10^{-11}$, which is the error of the small meshes, since with `nosym`
-nothing in the calculation imposes the zero. Without spin-orbit coupling the
-largest entry is $1.1\times10^{-9}$, about 3000 times smaller, which is the
-precision of the two self-consistent runs, so the allowed response is well
-above both errors and it comes from spin-orbit coupling. The tensor is in
+$9.6\times10^{-11}$. This is the precision of the two self-consistent runs,
+because the k-mesh and the Berry-phase strings keep the threefold symmetry, so
+the three string directions are images of one another. Without spin-orbit
+coupling the largest entry is $1.1\times10^{-9}$, the same floor measured a
+second way, so the allowed response is about 3000 times above the precision of
+the calculation and it comes from spin-orbit coupling. The tensor is in
 $e/\text{bohr}^2$ per unit of the internal field of the code, so its absolute
 size is not yet a number to compare with experiment. The $2\times2\times2$
 ground-state mesh and the 2 by 2 mesh across the strings are also small, and we
