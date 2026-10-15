@@ -53,7 +53,7 @@ truncation: 5.7 per cent
 and `sigma.frequencies_ev` is the photon energy. In zincblende the only
 components that are not zero are the six with three different labels, and they
 are all equal, so $\sigma^{xyz}$ is the whole answer. We see that the largest
-current, 33.8 $\mu$A/V$^2$, comes at 4.17 eV, far above the smallest direct gap
+current in magnitude, 33.8 $\mu$A/V$^2$, comes at 4.17 eV, far above the smallest direct gap
 of this mesh, 2.42 eV, and below the gap there is no current at all, since no
 photon is absorbed. With 14 bands the truncation is 5.7 per cent, so the
 number is good to a few per cent and not better. Note that some papers write
@@ -318,8 +318,8 @@ fundamental. The dark lines mark the odd orders and the light ones the even
 orders. In silicon the peaks sit on the odd orders, and the third harmonic is 21
 times the fundamental, the fifth 2.2 times and the seventh 0.23 times. The
 third harmonic is at 4.65 eV, above the direct gap, and $S$ carries a factor
-$\omega^2$, so a harmonic can be larger than the fundamental. Above the seventh order the peaks fall by roughly a factor of
-ten from one odd order to the next, and the last odd order above $10^{-6}$ of the fundamental is
+$\omega^2$, so a harmonic can be larger than the fundamental. Above the seventh order the peaks fall by a factor between
+2.6 and 23 from one odd order to the next, and the last odd order above $10^{-6}$ of the fundamental is
 the 19th. Inversion forbids the even orders, and what we read at them, $3\times10^{-2}$ at
 the second order and $2\times10^{-2}$ at the fourth, is the tail of the odd peaks
 next to them, since a pulse of eight cycles has a finite width in frequency. In
@@ -402,9 +402,9 @@ order, is left from the start. `get_third_harmonic` runs a field along $[100]$
 and one along $[110]$, which gives the two independent components of a cubic
 crystal, $\chi_{xxxx}$ and $\chi_{xxyy}$. In an isotropic medium
 $\chi_{xxxx} = 3\chi_{xxyy}$ for the third harmonic, and here the ratio of the
-two magnitudes is 2.0, so silicon is not isotropic at this order. These are
+two magnitudes is 2.0 and not 3, so on this grid the response is not isotropic. These are
 numbers of a $2\times2\times2$ grid, which is a check of the method and not a
-converged third harmonic, and these two calls together took 730 s on one core for this one frequency.
+converged third harmonic, and this snippet took 730 s on one core, with its SCF, for this one frequency.
 
 One propagation gives one frequency. For a spectrum, the code solves the same
 steady state directly at each frequency, with no time step. At order $N$ and
@@ -450,8 +450,9 @@ for w, a, b in zip(third.frequencies, chi_3w, chi_w):
 
 A field along $[011]$ gives $\chi^{xyz}$ directly in the $x$ component of the
 current, so `spec.chi2(axis=0)` is the one component of zincblende, with no
-factor. Along $[100]$ the same run gives nothing at $2\omega$, because a
-rotation of the crystal reverses that field. `spec.component(n, m)` is
+factor. Along $[100]$ the same run gives nothing at $2\omega$, because an
+operation of the crystal, the $S_4$ about $x$, reverses that field, and the
+second-order current does not change sign with the field, so its $x$ component is zero. `spec.component(n, m)` is
 $\mathbf J_{(n,m)}$ at every frequency, `spec.chi3(axis)` gives the two
 third-order susceptibilities, and with `order=1` and `potential="hxc"`,
 `spec.epsilon(axis)` is the dielectric function with local fields.
@@ -506,7 +507,7 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     intraband response converges slowly in $\mathbf k$.
 
     `get_nonlinear_spectrum` gives an error when a solve does not converge,
-    since an unconverged first order is amplified by $1/(2\eta)$ in the second.
+    or when the outer solve does not converge, since an unconverged first order is amplified by $1/(2\eta)$ in the second.
     It also gives an error for the potential updated in time above first order
     (the real-time route has it, one frequency per run), for two FFT grids with
     the potential updated, for an order above three, and for an `nbnd` that
