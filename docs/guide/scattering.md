@@ -1,6 +1,6 @@
 # Diffraction and nesting
 
-In this page we compute two Fourier transforms of a converged ground state. The
+In this page we compute two quantities in reciprocal space from a converged ground state. The
 first is the structure factor, the Fourier coefficient of the density on a
 reciprocal lattice vector, which is what X-ray and neutron diffraction measure.
 The second is the nesting function of the Fermi surface, which tells us at which
@@ -241,9 +241,10 @@ The peak is at $q_3 = 0.5$, which is $2k_F$, as we expected from the half
 filling, and it reaches 99.8% of $N(0)$, so almost every point of the Fermi
 surface is nested. The mean of $N(\mathbf q)$ is $D(E_F)^2$ to six digits, which is
 the sum rule above. A peak at $2k_F$ means that the chain is unstable to a
-modulation of period $2c$, which doubles the cell. This is the Peierls
-instability, and for the hydrogen chain it can be a dimerization of the atoms or
-an antiferromagnetic order, the second being the chain of the previous section.
+modulation of period $2c$, which doubles the cell. If the lattice takes this
+modulation, the atoms dimerize, which is the Peierls instability. If the spins
+take it, the chain orders antiferromagnetically, which is the chain of the
+previous section.
 You can test the prediction with a calculation that knows nothing about the
 Fermi surface, a spin spiral of the same chain relaxed in its wavevector, as in
 [Spin spirals and exchange](spirals.md).

@@ -17,7 +17,7 @@ def draw():
 
     b.plot(d["q"][1:], d["metal"][1:], ".", ms=4, color=style.color(2))
     b.axhline(float(d["chain_ratio"]), **style.reference())
-    b.text(0.05, float(d["chain_ratio"]) - 0.08, "peak of the chain", color=style.ink2())
+    b.text(0.15, float(d["chain_ratio"]) - 0.08, "peak of the chain", color=style.ink2())
     b.set_xlabel(r"$|\mathbf{q}|$ (1/bohr)")
     b.set_ylabel(r"$N(\mathbf{q})\,/\,N(0)$")
     b.set_ylim(0, 1.08)
