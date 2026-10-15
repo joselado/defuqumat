@@ -492,7 +492,8 @@ def optical_conductivity(
 
     Args:
         calculation: the :class:`~defuqumat.scf.driver.Calculation` the states
-            belong to, on the **whole** k-grid.
+            belong to, on the whole k-grid or a wedge completed by its group
+            (:func:`_wedge`).
         wavefunctions: ``(nspin, nk, nbnd, ndim)``. ``ndim`` is ``2 npwx`` for
             a spinor, which is the regime a magneto-optical spectrum wants;
             ``nspin = 2`` is a collinear run, whose two channels' conductivities

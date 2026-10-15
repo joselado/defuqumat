@@ -410,8 +410,8 @@ def independent_response(
 
     Args:
         calculation: the :class:`~defuqumat.scf.driver.Calculation` the states
-            belong to. It must be on the **whole** k-grid; see
-            :func:`require_a_sum_over_states_regime`.
+            belong to, on the whole k-grid or on a wedge, which is completed by
+            its group (:func:`_completed`).
         wavefunctions: ``(nspin, nk, nbnd, npwx)``, from a fixed-density run
             with empty states -- :func:`~defuqumat.workflows.nscf.
             fixed_density_states`. ``nbnd`` is the convergence parameter of this

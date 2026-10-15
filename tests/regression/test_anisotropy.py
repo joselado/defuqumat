@@ -60,7 +60,7 @@ pytestmark = [pytest.mark.regression]
 #: ``angle1 = 0``, along the surface normal.
 #: The force-theorem anisotropy of tetragonal cobalt on each direction's own
 #: wedge against the whole grid, in meV: what D22 measured and the bound asserted.
-WEDGE_FT_MEASURED = None
+WEDGE_FT_MEASURED = 5.4e-11
 WEDGE_FT_BOUND = 1e-4
 QE_EBAND = {"par": -75.5059287216436, "per": -75.5062821245659}
 QE_FERMI = {"par": -0.454721315571854, "per": -0.457778043909281}
@@ -647,6 +647,35 @@ def test_a_direction_off_the_system_s_own_runs_on_its_own_wedge():
     with pytest.raises(ValueError, match="projected"):
         run_force_theorem(reduced.system, reduced.pseudos, scf.density,
                           direction=(1.0, 0.0, 0.0), projected=True)
+
+
+@pytest.mark.slow
+def test_a_relaxed_direction_runs_on_its_own_wedge():
+    """The relaxed route with symmetry on, against ``nosym``, on tetragonal cobalt.
+
+    Each direction is one SCF on the wedge of its own magnetic group, so its
+    total energy, a scalar, is the whole grid's. Measured on D22: the two totals
+    agree to one ulp (1.9e-10 meV along ``z``, 0 along ``x``), so ``K`` is
+    0.422516 meV in both arms. The direction ``(1,0,1)`` run on the ``z``
+    direction's wedge instead, which is what dropping the refusal without
+    rebuilding the k-set would do, is 0.678 meV off: the density is then averaged
+    over directions the ``z`` group relates and this one's does not.
+    """
+    import re
+
+    from defuqumat.workflows.anisotropy import run_relaxed_direction
+
+    _, spinor = _tetragonal()
+    text = re.sub(r"nosym\s*=\s*\.true\.,?", "",
+                  (GENERATED / "co-tetragonal-anisotropy-soc.in").read_text())
+    reduced = Calculator.from_text(text, GENERATED.parent / "pseudo",
+                                   announce=False)
+    for direction in ((0.0, 0.0, 1.0), (1.0, 0.0, 1.0)):
+        whole = run_relaxed_direction(spinor.system, spinor.pseudos,
+                                      direction=direction, conv_thr=1.0e-10)
+        wedge = run_relaxed_direction(reduced.system, reduced.pseudos,
+                                      direction=direction, conv_thr=1.0e-10)
+        assert abs(wedge.total_energy - whole.total_energy) * RY_TO_EV * 1000 < 1e-6
 
 
 def test_a_scalar_relativistic_one_shot_leg_is_refused_by_default():

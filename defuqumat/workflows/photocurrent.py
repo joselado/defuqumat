@@ -64,8 +64,8 @@ def run_shift_current(
         system: the converged :class:`~defuqumat.system.builder.System`.
         pseudos: its pseudopotentials.
         density: the converged density.
-        kpoints: a denser k-set to evaluate on. It must be the **whole**
-            unshifted grid; a wedge is refused by name.
+        kpoints: a denser k-set to evaluate on. The whole grid, or a
+            wedge completed by its group (:func:`~defuqumat.response.photocurrent.wedge`).
         nbnd: how many bands to diagonalise. Both sums use them.
         calculation: the SCF's own, used on its own k-set or moved to
             ``kpoints`` rather than a second one built beside it

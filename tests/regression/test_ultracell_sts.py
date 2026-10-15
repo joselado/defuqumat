@@ -69,7 +69,7 @@ AMPLITUDE = 0.05
 #: The wedge's spectrum against the whole grid's, relative to the peak: what D22
 #: measured (``test_a_wedge_spectrum_is_the_whole_grid_s``) and the bound
 #: asserted, ten times it.
-WEDGE_STS_MEASURED = None
+WEDGE_STS_MEASURED = 4.2e-8
 WEDGE_STS_BOUND = 1e-6
 WEDGE_STS_CONV_THR = 1e-12
 WIDTH = 0.02
