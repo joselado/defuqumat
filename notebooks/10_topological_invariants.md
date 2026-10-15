@@ -209,21 +209,34 @@ pumping step. Where they disagree like this, the parity answer is the one to tak
 
 ## What it refuses
 
-The Kubo map runs on **norm-conserving** datasets only: the $\varepsilon_n\,\partial_k S$
-term is identically zero without an augmentation charge, so nothing validated here can say
-whether its convention is right, and it is refused rather than guessed. The lattice flux
-carries the augmentation charge correctly and runs on all three kinds of dataset. A
-$\mathbb{Z}_2$ needs `noncolin = .true.` and asks for it by name: without spin-orbit
-coupling the bands are spin degenerate, the two copies wind oppositely, and the invariant
-is zero for a reason that has nothing to do with the band structure. And a **per-band**
-curvature is meaningful only for a non-degenerate band, since inside a degenerate multiplet
-only the sum over the members is defined.
+The Kubo map runs on norm-conserving, ultrasoft and PAW datasets. With an
+augmentation charge the eigenproblem has an overlap $S$, and the sum gets an extra
+term $\varepsilon_n\,\partial_k S$. This term is zero for a norm-conserving dataset,
+so a norm-conserving test cannot check it. We check it on ultrasoft and PAW silicon
+against a finite difference of the overlap itself. The lattice flux also runs on all
+three kinds of dataset.
+
+A $\mathbb{Z}_2$ needs `noncolin = .true.`, and without it the code gives an error.
+Without spin-orbit coupling the bands are spin degenerate. The two copies wind in
+opposite directions, so the invariant is zero. This zero has nothing to do with the
+band structure.
+
+Every quantity here is a property of an isolated set of occupied bands. On a crystal,
+the code gives an error if the last occupied band and the first empty band come
+closer than `gap_tol` at any k-point of the mesh. If you do not give `gap_tol`, it is
+1e-4 Ry.
+
+A **per-band** curvature has a meaning only for a non-degenerate band. Inside a
+degenerate multiplet only the sum over the members is defined. The total curvature of
+the occupied bands is always defined.
 
 ---
-The tests behind this notebook: `tests/regression/test_topology.py`, which runs silicon's
-parity product over the eight TRIM and its vanishing curvature on all three kinds of
-dataset; `tests/unit/test_topology_curvature.py`, which holds the Haldane mesh sweep, the
-gauge invariance of a plaquette and the agreement of the two routes on the integral; and
-`tests/unit/test_topology_mesh.py`, which holds the zone-edge wrap -- the step from
-$k = 0.4$ to $k = -0.5$ being the same as the step to $k = 0.5$ only once the Miller
+The tests behind this notebook: `tests/regression/test_topology.py` runs the parity
+product of silicon over the eight TRIM, and its zero curvature on all three kinds of
+dataset. `tests/regression/test_kubo_curvature.py` holds the Kubo map: the agreement
+with the lattice flux on AlAs, and the overlap term on ultrasoft and PAW silicon.
+`tests/unit/test_topology_curvature.py` holds the Haldane mesh sweep, the gauge
+invariance of a plaquette and the agreement of the two routes on the integral.
+`tests/unit/test_topology_mesh.py` holds the zone-edge wrap. The step from
+$k = 0.4$ to $k = -0.5$ is the same as the step to $k = 0.5$ only once the Miller
 indices are shifted with it.
