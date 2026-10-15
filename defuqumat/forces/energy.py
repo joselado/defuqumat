@@ -459,6 +459,12 @@ def reject_spinor_spiral(calculation) -> None:
     where the force is zero by symmetry, so nothing has checked it; and the
     strain does not yet rebuild that table on the strained laboratory sphere.
     """
+    if getattr(calculation, "spiral", False) and getattr(calculation, "is_hubbard", False):
+        raise NotImplementedError(
+            "the force and the stress of a spin spiral with DFT+U are not "
+            "implemented: the spiral's Hubbard projectors are built on both "
+            "spheres and its SCF is checked against the supercell, but their "
+            "derivative in the positions and the strain has no check")
     if getattr(calculation, "spiral", False) and getattr(calculation, "is_ultrasoft", False):
         raise NotImplementedError(
             "the force and the stress of an ultrasoft or PAW spin spiral are not "

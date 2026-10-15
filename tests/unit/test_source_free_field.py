@@ -134,3 +134,45 @@ def test_the_tangent_is_finite_at_g_zero(grid):
 
     tangent = jax.grad(total)(1.0)
     assert np.isfinite(float(tangent))
+
+
+def test_a_spin_spiral_is_refused():
+    """``nosource`` on a spiral: the guard fires before anything is built."""
+    from types import SimpleNamespace
+
+    from defuqumat.scf.sourcefree import refuse_source_free
+
+    system = SimpleNamespace(noncolin=True, spiral_q=(0.0, 0.0, 0.25), nosource=True)
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        refuse_source_free(system)
+
+
+def test_the_source_free_field_of_a_spiral_is_not_a_spiral(grid):
+    """Why the spiral refusal is permanent: the projection leaves the ansatz.
+
+    The box is read as four primitive cells along ``z`` and the field as a
+    spiral at ``q = b3/4`` of the primitive cell, which is one step of the box
+    along ``z``: ``B_+ = B_x + i B_y = exp(i (G - q).r)`` with ``G`` along
+    ``x``, ``B_z = 0``. A spiral's ``B_z`` is lattice periodic in the primitive
+    cell. The projected field's is not: its longitudinal part has a ``z``
+    component at ``G - q``, which changes sign under a translation by half
+    the box, so no spiral carries it.
+    """
+    cell, gvectors = grid
+    n = gvectors.grid
+    assert n[2] % 4 == 0
+    coords = np.stack(np.meshgrid(
+        np.arange(n[0]) / n[0], np.arange(n[1]) / n[1], np.arange(n[2]) / n[2],
+        indexing="ij",
+    ))
+    phase = 2.0 * np.pi * (1 * coords[0] - 1 * coords[2])   # (G - q) . r
+    field = np.stack([np.cos(phase), np.sin(phase), np.zeros_like(phase)])
+    v_xc = jnp.asarray(np.concatenate([np.zeros((1,) + phase.shape), field]))
+
+    projected = np.asarray(jnp.real(project_source_free(v_xc, gvectors, cell)))
+    b_z = projected[3]
+    assert np.abs(b_z).max() > 0.1  # the longitudinal part has a z component
+    # A primitive cell is a quarter of the box along z; the spiral's B_z would
+    # repeat under that translation, and this one does not.
+    shifted = np.roll(b_z, n[2] // 4, axis=2)
+    assert np.abs(shifted - b_z).max() > 0.1

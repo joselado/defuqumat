@@ -155,6 +155,11 @@ class VelocityOperator:
 
     def __init__(self, calculation, v_scf, ddd_paw=None, ns=None, kcart=None,
                  dipole=None, local_terms=None):
+        if calculation.spiral and calculation.is_hubbard:
+            raise NotImplementedError(
+                "the velocity operator on a spin spiral with DFT+U is not "
+                "implemented: the Hubbard projectors carry k on both spheres "
+                "and that tangent has no check")
         if calculation.spiral and calculation.is_ultrasoft:
             # The norm-conserving spiral is carried below. The augmented one
             # would need ``dS/dk`` and the displaced table's own ``k``

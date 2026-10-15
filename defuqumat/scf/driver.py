@@ -3163,11 +3163,17 @@ class Calculation:
             return
 
         setup = self.hubbard
-        if self.spiral:
+        if self.spiral and self.is_ultrasoft:
+            # A norm-conserving spiral's ``wfcU`` is built on both spheres
+            # (:meth:`_build_hubbard_projectors`). An augmented one would need
+            # ``S`` on each sphere inside the orthogonalisation, whose row index
+            # here is the doubled list's, and has no check.
             raise NotImplementedError(
-                "DFT+U together with a spin spiral is not implemented: the two "
-                "spinor components live on different plane-wave spheres, so a "
-                "projector would have to be built on each"
+                "DFT+U together with an ultrasoft or PAW spin spiral is not "
+                "implemented: the norm-conserving spiral is (each spinor "
+                "component's Hubbard projector built on its own sphere), but "
+                "the augmented one needs S on each sphere in the "
+                "orthogonalisation and has no check"
             )
         if (
             not self.noncolin
@@ -3272,11 +3278,30 @@ class Calculation:
         (``workflows/nscf.py``), so no reverse-mode gradient reaches ``wfcU``
         that way today.
         """
-        return build_hubbard_projectors(
+        projectors = build_hubbard_projectors(
             self.hubbard, self.pseudos, self.system.structure, self.system.cell,
             self.basis.smooth, self.basis.planewaves, self.basis_kpoints,
             self._spinor_overlap if self.noncolin else self._overlap, kcart,
         )
+        if not self.spiral:
+            return projectors
+        # **A spin spiral's spinor projector takes its two halves from two
+        # rows.** Built on the doubled list, row ``ik`` is the orbital set at
+        # ``k + q/2`` and row ``nk + ik`` the one at ``k - q/2``, each a whole
+        # spinor set in the ``'updown'`` basis -- every column pure up or pure
+        # down. The up component of a spiral state lives on the first sphere and
+        # the down on the second, so the projector it meets is the up half of
+        # row ``ik`` laid beside the down half of row ``nk + ik``. A pure-up
+        # column has nothing in its down half and the reverse, so nothing is
+        # lost in the splice, and the Löwdin orthogonalisation of each row is
+        # block diagonal in spin (``S = 1`` on a norm-conserving dataset), so
+        # each half is orthogonalised in its own sphere. The site matrix ``ns``
+        # it measures is the laboratory one of the atoms in the home cell,
+        # which the rotationally invariant energy needs no frame for.
+        nk = self.system.kpoints.nk
+        npwx = self.basis.planewaves.npwx
+        return jnp.concatenate(
+            [projectors[:nk, :npwx], projectors[nk:, npwx:]], axis=1)
 
     @property
     def is_hubbard(self) -> bool:

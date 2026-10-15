@@ -172,11 +172,27 @@ def refuse_source_free(system, functional=None, pseudos=()) -> None:
             "without ncmag). Run with noncolin = .true."
         )
     if getattr(system, "spiral_q", None) is not None:
+        # Not a missing term: the projection leaves the spiral ansatz. The
+        # generalized Bloch theorem needs a field that turns by ``q . R`` in
+        # spin alone, ``B(r + R) = R_z(q . R) B(r)``; ``1 - grad (lap)^-1 div``
+        # couples the spin components to the spatial direction, so it does not
+        # commute with a spin rotation that leaves space alone. Worked out on
+        # one component: a transverse ``B_+ = b e^{i (G - q).r}`` with
+        # ``G = (G_x, 0, 0)`` and ``q`` along ``z`` has ``div B ~ G_x``, and its
+        # longitudinal part has a ``z`` component ``~ G_x q cos((G - q).r)``,
+        # which is not lattice periodic -- no spiral carries it. It is spin-orbit
+        # coupling's position: the coupling of spin to space breaks the
+        # combined translation, and a commensurate supercell is the only way.
         raise NotImplementedError(
-            "a source-free exchange-correlation field on a spin spiral is not "
-            "implemented: div B_xc is a statement in the laboratory frame and "
-            "the magnetization of a spiral is stored in the rotating one, so "
-            "the projection would be taken of a field that is not the field"
+            "a source-free exchange-correlation field on a spin spiral is "
+            "refused: the projection 1 - grad (lap)^-1 div couples the field's "
+            "spin components to the spatial directions, so the projected field "
+            "no longer turns by q . R in spin alone -- a transverse component "
+            "at G - q with G off the spiral axis acquires a longitudinal part "
+            "along the axis at G - q, which is not lattice periodic -- and the "
+            "generalized Bloch theorem the spiral rests on does not hold for "
+            "it, as for spin-orbit coupling. Run the commensurate supercell "
+            "with noncolin = .true. instead"
         )
     if functional is not None and getattr(functional, "is_meta", False):
         raise NotImplementedError(

@@ -62,19 +62,41 @@ def _drop_compiled_code():
     jax.clear_caches()
 
 
+def _frozen(calculation, eigenvalues, states) -> FrozenState:
+    eigenvalues = jnp.asarray(eigenvalues)
+    weights, levels = calculation.occupations(eigenvalues)
+    return FrozenState(
+        wavefunctions=jnp.asarray(states), weights=jnp.asarray(weights),
+        eigenvalues=eigenvalues, entropy=float(levels.get("smearing", 0.0)),
+    )
+
+
 @lru_cache(maxsize=1)
 def _spiral(pseudo_dir: Path):
+    """The spiral's SCF, and its states re-solved once at the SCF's density.
+
+    **Both cells are compared at one input density**, not at the end of two
+    different processes. The SCF's states were diagonalised in the potential
+    of the last *input* density, and the density it reports is one mixing step
+    from that, so the supercell diagonalised at the reported density is a
+    slightly different state: measured on this cell, a Fermi level
+    1.8e-6 Ry away and energy terms 1e-4 to 1e-3 Ry apart, which put 2e-5 to
+    2e-4 Ry/bohr into the force identity. Re-solving the spiral at the same
+    density as the supercell removes it, and leaves the eigensolver's floor.
+    """
     calculator = Calculator.from_file(SPIRAL, pseudo_dir, announce=False)
     result = calculator.get_scf()
     assert result.converged
-    calculation = Calculation(calculator.system, calculator.pseudos)
-    return calculator, calculation, result
+    calculation, _, eigenvalues, states = fixed_density_states(
+        calculator.system, calculator.pseudos, result.density, conv_thr=1.0e-10,
+    )
+    return calculator, calculation, result, _frozen(calculation, eigenvalues, states)
 
 
 @lru_cache(maxsize=1)
 def _supercell(pseudo_dir: Path):
     """The supercell at the unfolded spiral density, as a frozen state."""
-    spiral, _, result = _spiral(pseudo_dir)
+    spiral, _, result, _ = _spiral(pseudo_dir)
     supercell = Calculator.from_file(SUPERCELL, pseudo_dir, announce=False)
     system = supercell.system.with_soc_scale(0.0)
     calculation = Calculation(system, supercell.pseudos)
@@ -85,25 +107,24 @@ def _supercell(pseudo_dir: Path):
     calculation, _, eigenvalues, states = fixed_density_states(
         system, supercell.pseudos, lab, conv_thr=1.0e-10, calculation=calculation,
     )
-    eigenvalues = jnp.asarray(eigenvalues)
-    weights, levels = calculation.occupations(eigenvalues)
-    state = FrozenState(
-        wavefunctions=jnp.asarray(states), weights=jnp.asarray(weights),
-        eigenvalues=eigenvalues, entropy=float(levels.get("smearing", 0.0)),
-    )
-    return calculation, state, lab
+    return calculation, _frozen(calculation, eigenvalues, states), lab
 
 
 def test_the_functional_is_the_spiral_total_energy(pseudo_dir):
     """What is differentiated is the energy the SCF converged, pair term included."""
-    _, calculation, result = _spiral(pseudo_dir)
+    calculator, _, result, _ = _spiral(pseudo_dir)
+    calculation = Calculation(calculator.system, calculator.pseudos)
     frozen = float(energy_at(calculation, state_from_result(result), spinors=True))
     assert frozen == pytest.approx(result.total_energy, abs=1.0e-8)
 
 
 def test_the_spiral_force_is_the_supercell_force(pseudo_dir):
-    _, calculation, result = _spiral(pseudo_dir)
-    spiral = compute_forces(calculation, result)
+    calculator, _, _, frozen = _spiral(pseudo_dir)
+    # A fresh calculation, so that the ``'grad_m'`` spiral potential is first
+    # built inside the force's trace (``spiral_box_frequencies`` on a cold
+    # cache, which once read a traced ``cell.bg`` there and died).
+    calculation = Calculation(calculator.system, calculator.pseudos)
+    spiral = compute_forces(calculation, frozen)
     supercell_calculation, state, _ = _supercell(pseudo_dir)
     supercell = compute_forces(supercell_calculation, state)
 
@@ -115,8 +136,8 @@ def test_the_spiral_force_is_the_supercell_force(pseudo_dir):
 
 
 def test_the_spiral_stress_is_the_supercell_stress(pseudo_dir):
-    _, calculation, result = _spiral(pseudo_dir)
-    spiral = compute_stress(calculation, result)
+    _, calculation, _, frozen = _spiral(pseudo_dir)
+    spiral = compute_stress(calculation, frozen)
     supercell_calculation, state, _ = _supercell(pseudo_dir)
     supercell = compute_stress(supercell_calculation, state)
 
@@ -152,11 +173,10 @@ def test_the_spiral_velocity_is_the_supercell_velocity(pseudo_dir):
     so it has no matrix element between two spiral k-points and the supercell
     trace at ``k'`` is the sum of the four spiral traces folded onto it.
     """
-    _, calculation, result = _spiral(pseudo_dir)
+    _, calculation, result, frozen = _spiral(pseudo_dir)
     v_spiral = calculation.potential(result.density).v_scf
     spiral = _filled_velocity_traces(
-        calculation, v_spiral, result.wavefunctions,
-        np.asarray(result.occupations)[None])
+        calculation, v_spiral, frozen.wavefunctions, frozen.weights)
     supercell_calculation, state, lab = _supercell(pseudo_dir)
     v_super = supercell_calculation.potential(jnp.asarray(lab)).v_scf
     supercell = _filled_velocity_traces(
@@ -202,8 +222,9 @@ def test_the_spiral_site_moments_are_the_supercell_moments(pseudo_dir):
 
     from defuqumat.projwfc.angular_momentum import angular_momenta
 
-    _, calculation, result = _spiral(pseudo_dir)
-    spiral = angular_momenta(calculation, result)
+    _, calculation, _, frozen = _spiral(pseudo_dir)
+    spiral = angular_momenta(calculation, SimpleNamespace(
+        wavefunctions=frozen.wavefunctions, occupations=np.asarray(frozen.weights)[0]))
     supercell_calculation, state, _ = _supercell(pseudo_dir)
     frozen = SimpleNamespace(wavefunctions=state.wavefunctions,
                              occupations=np.asarray(state.weights)[0])
@@ -239,10 +260,14 @@ def test_the_spiral_charge_image_is_the_supercell_image(pseudo_dir):
 
     from defuqumat.workflows.stm import run_stm
 
-    calculator, calculation, result = _spiral(pseudo_dir)
+    calculator, calculation, result, frozen = _spiral(pseudo_dir)
     energy = float(result.fermi_energy)
     shape = (12, 12)
-    spiral = run_stm(calculator.system, calculator.pseudos, result, energy=energy,
+    resolved = SimpleNamespace(
+        eigenvalues_by_spin=np.asarray(frozen.eigenvalues),
+        wavefunctions=frozen.wavefunctions, fermi_energy=energy, homo=None, lumo=None,
+        density=result.density, fermi_energy_up=None, magnetic_field=None)
+    spiral = run_stm(calculator.system, calculator.pseudos, resolved, energy=energy,
                      plane=((0.6, 0.0, 0.0), (0.6, 1.0, 0.0), (0.6, 0.0, 1.0)),
                      shape=shape, calculation=calculation)
     supercell_calculation, state, lab = _supercell(pseudo_dir)
@@ -267,6 +292,16 @@ META_IDENTITY = 1.0e-8
 
 
 def _meta(text: str) -> str:
+    """Tran-Blaha under ``'kubler'``, and the chain stretched to 5.2 bohr.
+
+    At the inputs' 5.0 bohr the unit cell's dense grid is 15 points along the
+    chain and the supercell's 64, not 60, so the two potentials would be
+    evaluated on different points -- worth 4e-3 Ry in the levels here, since
+    Tran-Blaha reads the Laplacian and ``tau / rho``. At 5.2 bohr the grids are
+    18 and 72 (``o-chain-spiral-us.in`` makes the same choice).
+    """
+    text = text.replace("celldm(3) = 0.41666666666667", "celldm(3) = 0.43333333333333")
+    text = text.replace("celldm(3) = 1.66666666666667", "celldm(3) = 1.73333333333333")
     return text.replace(
         "    nosym = .true.",
         "    nosym = .true.\n    input_dft = 'tb09'\n    noncollinear_gga = 'kubler'", 1)
@@ -285,8 +320,10 @@ def test_the_meta_gga_spiral_is_the_supercell(pseudo_dir):
     """
     spiral = Calculator.from_text(_meta((GENERATED / "h-chain-spiral.in").read_text()),
                                   pseudo_dir, announce=False)
+    # Converged or not, the identity is taken with both cells diagonalised at
+    # one ``(rho, tau)``, so it does not depend on where the SCF stopped.
     result = spiral.get_scf()
-    assert result.converged and result.tau is not None
+    assert result.tau is not None
     assert np.abs(np.asarray(result.tau)[1:3]).max() > 1.0e-4  # a transverse tau
     supercell = Calculator.from_text(_meta((GENERATED / "h-chain-90deg.in").read_text()),
                                      pseudo_dir, announce=False)
@@ -312,3 +349,87 @@ def test_the_meta_gga_spiral_is_the_supercell(pseudo_dir):
     levels = np.sort(np.asarray(eigenvalues).ravel())
     nocc = 12
     assert np.abs(levels[:nocc] - folded[:nocc]).max() < META_IDENTITY
+
+
+# -- DFT+U on a spiral (the NiI chain with a U on the nickel d shell) ---------
+
+#: Levels and the occupation matrix, spiral against supercell, Ry and electrons.
+HUBBARD_IDENTITY = 1.0e-7
+
+
+def _hubbard(text: str, labels) -> str:
+    return text + "HUBBARD {atomic}\n" + "".join(f"U {label}-3d 4.0\n" for label in labels)
+
+
+def _turned(ns, q, cells):
+    """The spiral's ``ns`` on the nickel of each supercell cell, ``(4, cells, l, l)``.
+
+    A spiral state's up component picks up ``e^{i q.R/2}`` and its down
+    component ``e^{-i q.R/2}`` from one cell to the next (beyond the common
+    ``e^{i k.R}``), so with the blocks ``(uu, ud, du, dd)`` of
+    ``<phi_s|psi>* <phi_t|psi>`` the ``ud`` block of cell ``j`` is
+    ``e^{-i q.R_j}`` times the home cell's and ``du`` the conjugate.
+    """
+    ns = np.asarray(ns)[:, 0]
+    out = np.empty((4, cells) + ns.shape[1:], dtype=complex)
+    for j in range(cells):
+        phase = np.exp(-2j * np.pi * q * j)
+        out[0, j], out[3, j] = ns[0], ns[3]
+        out[1, j], out[2, j] = phase * ns[1], np.conj(phase) * ns[2]
+    return out
+
+
+def test_the_hubbard_spiral_is_the_supercell(pseudo_dir):
+    """A U on the nickel, the spiral's projectors on both spheres, against four cells.
+
+    The supercell is diagonalised at the unfolded density and at the spiral's
+    occupation matrix turned onto each of its four nickel atoms
+    (:func:`_turned`), and two things are asserted: the occupation matrix the
+    supercell's states measure is the one it was handed (so the turn, and with
+    it the spiral's laboratory ``ns``, is self-consistent), and the supercell's
+    levels at each of its two k-points are the spiral's at the four k-points
+    folded onto it. A projector built on one sphere for both components fails
+    both.
+    """
+    from defuqumat.workflows.nscf import fixed_density_states as solve
+
+    spiral = Calculator.from_text(_hubbard(SPIRAL.read_text(), ["Ni"]), pseudo_dir,
+                                  announce=False)
+    result = spiral.get_scf()
+    assert result.converged and result.ns is not None
+    q = spiral.system.spiral_q[2]
+    # The spiral diagonalised again at its own ``(rho, ns)``, and the ``ns``
+    # its states measure: both sides at one input, whatever the SCF's last
+    # step left between its input and output occupation matrices.
+    unit, _, own, own_states = solve(spiral.system, spiral.pseudos, result.density,
+                                     ns=result.ns, conv_thr=1.0e-10)
+    own_weights, _ = unit.occupations(jnp.asarray(own))
+    own_ns = unit.occupation_matrix(jnp.asarray(own_states), own_weights)
+
+    supercell = Calculator.from_text(
+        _hubbard(SUPERCELL.read_text(), ["Ni1", "Ni2", "Ni3", "Ni4"]), pseudo_dir,
+        announce=False)
+    system = supercell.system.with_soc_scale(0.0)
+    calculation = Calculation(system, supercell.pseudos)
+    lab = unfold_spiral_density(np.asarray(result.density), spiral.system.spiral_q,
+                                (1, 1, 4), calculation.basis.dense.grid)
+    ns = jnp.asarray(_turned(result.ns, q, 4))
+    calculation, _, eigenvalues, states = solve(
+        system, supercell.pseudos, lab, ns=ns, conv_thr=1.0e-10, calculation=calculation)
+    weights, _ = calculation.occupations(jnp.asarray(eigenvalues))
+    measured = np.asarray(calculation.occupation_matrix(jnp.asarray(states), weights))
+    expected = _turned(own_ns, q, 4)
+    assert np.abs(expected[1:3]).max() > 1.0e-3  # a transverse occupation to turn
+    assert np.abs(measured - expected).max() < HUBBARD_IDENTITY
+
+    kz = np.asarray(spiral.system.kpoints.crystal(spiral.system.cell))[:, 2]
+    folded = np.round(np.mod(kz + 0.5 * q, 0.25) * 8) % 2
+    kz_super = np.asarray(system.kpoints.crystal(system.cell))[:, 2]
+    landing = np.round(np.mod(kz_super / 4.0, 0.25) * 8) % 2
+    own = np.asarray(own).reshape(len(kz), -1)
+    levels = np.asarray(eigenvalues).reshape(len(kz_super), -1)
+    count = 80
+    for index, where in enumerate(landing):
+        mine = np.sort(own[folded == where].ravel())[:count]
+        theirs = np.sort(levels[index])[:count]
+        assert np.abs(theirs - mine).max() < HUBBARD_IDENTITY
