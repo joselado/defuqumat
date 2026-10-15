@@ -892,8 +892,9 @@ throw the converged moment away after every wall-clock kill.
 
 \textbf{Convergence.} \code{mixing\_mode} selects \code{anderson} (default),
 \code{linear}, \code{broyden}, Kerker/Thomas--Fermi preconditioning (\code{TF}),
-\code{local-TF}, the local-density-of-states preconditioner (\code{ldos}), or
-\code{adaptive}; \code{scf\_solver} offers a Newton--Krylov
+\code{local-TF}, the local-density-of-states preconditioner (\code{ldos}),
+\code{adaptive}, or \code{robust}, which chooses and supervises the others;
+\code{scf\_solver} offers a Newton--Krylov
 alternative that is slower but reaches solutions the mixer cannot hold.
 
 \code{TF} screens the residual with one Thomas--Fermi length for the whole cell.
@@ -1109,6 +1110,68 @@ residual that is small and will not turn around.
 It is registered under its own name and is \textbf{not} aliased to any
 \code{pw.x} mode. QE has no adaptive mixer, so a \code{pw.x} input reaching one
 of QE's names here still gets what QE would do.
+\end{refuses}
+
+\textbf{\code{mixing\_mode = 'robust'} is for convergence first.} What makes an SCF
+fail? There are three things, and this mode treats each one. A metal beside vacuum
+sloshes charge. A step far from the solution can overshoot. And Anderson can stop
+improving on a plateau. The mode is a supervisor around the Anderson mixer. At the
+start it reads the cell. If the cell is smeared and more than 30 per cent of it is
+vacuum along one lattice vector, it uses the \code{ldos} preconditioner. Otherwise it
+uses plain \code{anderson}. Then it checks every step against a merit function, the
+Kohn--Sham free energy of the output states,
+\begin{equation*}
+  I[\rho_{\rm in}] = E_{\rm KS}[P_{\rm out}],
+\end{equation*}
+which is the energy of a real density matrix. So $I \ge E_{\min}$ for every input,
+with equality at a self-consistent minimum. A step is kept if $I$ fell by more than
+the error of the eigensolver, $N_{\rm el}\,\varepsilon_{\rm thr}$, or if the residual
+fell. ``Fell'' means below the worst of the last eight kept steps, so the normal
+non-monotone path of Anderson is allowed. Otherwise the step is cut by half, and the
+rejected pair still goes into the Anderson history. This is the adaptive damping of
+Herbst and Levitt (arXiv:2109.14018). If the best residual does not improve in 30
+kept steps, the run is stalled. Then the mode clears the Anderson history. If that
+did not help, it switches on \code{ldos} on a smeared cell. The last step is damped
+mixing of the Hamiltonian, with the energy as the only test. Every decision is in
+\code{scf.history[i]['supervisor']}.
+\begin{verbatim}
+from defuqumat import Calculator
+calc = Calculator.from_file("tests/data/qe/efield-ni-slab.in",
+                            pseudo_dir="tests/data/pseudo")
+scf = calc.get_scf(mixing_mode="robust", mixing_beta=0.7, mixing_fit="flat")
+scf.iterations      # 42, where plain anderson does not converge in 200
+\end{verbatim}
+
+\textbf{What it does, measured.} We ran 48 cases: 15 cells, each at its own
+\code{mixing\_beta} and most at 0.1, 0.4, 0.7 and 1.0, plus three cells with the flat
+Anderson fit, which diverges more easily (\code{tools/robust\_mixing/}). Plain
+\code{anderson} does not converge 5 of them in 200 iterations. The robust mode does
+not converge 3. It converges the cobalt film and the nickel slab under the flat fit
+(20 and 42 iterations), where plain Anderson goes to $-304$ and $-232$ Ry. Both
+converge because the mode chose \code{ldos} for them. On the other cells it takes
+about as many iterations as Anderson. It is slower on some (the nickel slab at
+$\beta = 0.3$: 49 against 27) and faster on others (DFT+U nickel at $\beta = 1$:
+65 against 115).
+
+\begin{refuses}
+\textbf{It is not guaranteed to converge.} Herbst and Levitt prove convergence only
+for damped mixing of the Hamiltonian with Fermi--Dirac or Gaussian occupations and an
+energy-only test, which is the last step of the ladder. The rest is measured, not
+proved. Two cells of the test set still fail: four hydrogen atoms in a noncollinear
+chain with PBE on LDA pseudopotentials, and the DFT+U nickel cell at
+$\beta = 0.1$. A run can also land on another solution than Anderson does. On the
+DFT+U nickel cell, which has several, it did at $\beta = 0.7$ and $1.0$. Compare
+the energy and the moments, not only the count.
+
+\textbf{With Marzari--Vanderbilt or Methfessel--Paxton smearing} the occupations
+leave $[0, 1]$, so $I$ is not a lower bound. We measured $I$ at $5.4\times10^{-3}$ Ry
+below the converged energy on a spin-orbit nickel cell. There the mode keeps a step
+on the residual only, has no last step, and warns.
+
+\textbf{Gives an error} for: tetrahedra, a potential-only meta-GGA, \code{lelfield}, a
+magnetic field that is updated or reduced during the run, \code{rotate\_moments},
+\code{scf\_solver}, k-point pools, checkpoints and \code{mixing\_beta\_mag}, which the
+mode sets itself. The ultracell driver does not take it.
 \end{refuses}
 
 \code{max\_iterations}

@@ -644,6 +644,7 @@ task of the other code that it refers to.
 | Quantity | How to ask for it | QE | Elk |
 |---|---|:-:|:-:|
 | **Total energy**, self-consistent and term by term | `calc.get_scf()` | ✓ | ✓ |
+| **A mixing mode for hard cells**: it chooses the preconditioner and checks every step | `get_scf(mixing_mode='robust')` | | |
 | **Band structure** | `calc.get_bands()` | ✓ | ✓ |
 | **Density of states** | `calc.get_dos()` | ✓ | ✓ |
 | **Projected density of states**, by atom, $l$, $m$ and $j$ | `calc.get_pdos()` | ✓ | (✓)¹ |
