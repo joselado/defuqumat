@@ -1,7 +1,7 @@
 # Strain and polarization couplings
 
 In this page we compute how a crystal couples its strain, its polarization and
-its magnetization. We start with the piezoelectric tensor, the polarization
+a magnetic field. We start with the piezoelectric tensor, the polarization
 that a strain creates, and its convergence with the k-mesh. Then we compute
 the elasto-optic and electrostriction tensors, which say how a strain changes
 the dielectric response, and finally the magnetoelectric tensor, the
@@ -125,10 +125,12 @@ The right panel is the ladder continued to $14\times14\times14$, with the
 number of k-points of each rung after symmetry. We see that $e_{14}$ goes from
 $-0.7636$ at $4^3$ to $-0.6699$ at $10^3$, $-0.6691$ at $12^3$ and $-0.6689$
 C/m$^2$ at $14^3$, and the relative steps are 11, 2.2, 0.44, 0.12 and 0.03 per
-cent, so they shrink by a factor of roughly four each rung. The $4^3$ value is
+cent, so they shrink by a factor of four to five each rung. The $4^3$ value is
 14 per cent larger in size than the $14^3$ one, and we need at least the
 $8\times8\times8$ mesh, 29 points, to be within 1 per cent. The six rungs
-took 87 s on one core together. Note that this is the clamped-ion tensor, so
+took 87 s on one core together. The ladder converges only the k-mesh, and on
+this cell, with `ecutwfc = 10` Ry, the cutoff is worth about 1 per cent of
+$e_{14}$, so you converge `ecutwfc` separately. Note that this is the clamped-ion tensor, so
 the $-0.67$ C/m$^2$ is not yet the value one measures, as we say in the Limits
 below.
 
@@ -148,10 +150,10 @@ We now go one order higher. Every insulator deforms in an electric field, also
 one with an inversion centre, because the stress is quadratic in the field,
 $\sigma_{ij} \propto m_{ijkl}\,\mathcal E_k \mathcal E_l$, and this is
 electrostriction, which is measured as the strain of a dielectric under a field.
-The same coupling read the other way is how a strain changes the dielectric
+The same coupling in reverse is how a strain changes the dielectric
 response, and the elasto-optic tensor, the change of the inverse dielectric
 tensor per unit strain, is what Brillouin scattering and acousto-optic
-modulators measure:
+modulators measure. Here we write the strain as $x$:
 
 $$
 \Delta\big(\varepsilon^{-1}\big)_{ij} = p_{ijkl}\, x_{kl},
@@ -206,7 +208,8 @@ at $6^3$ and $+0.0085$ at $8^3$, so on a $6\times6\times6$ mesh even its sign
 is wrong. From $16^3$ to $20^3$, $p_{11}$ still moves by 0.4 per cent and
 $p_{12}$ by 1.7 per cent, so the last digit printed above is not converged. The
 dielectric constant moves in the same way, from 15.744 at $6^3$ to 12.617 at
-$16^3$ and 12.606 at $20^3$. As a reference, the measured values for silicon are
+$16^3$ and 12.606 at $20^3$. All these numbers are at `ecutwfc = 12` Ry, and
+we did not converge the cutoff. As a reference, the measured values for silicon are
 $p_{11} = -0.094$, $p_{12} = +0.017$ and $p_{44} = -0.051$. The clamped-ion
 $p_{11}$ and $p_{12}$ are the whole answer in the diamond structure, while
 $p_{44}$ misses the relaxation of the atoms inside the cell, so it is not yet
@@ -225,14 +228,25 @@ It is measured as the charge, or the voltage, that appears on a crystal when a
 magnetic field is applied, and it is what a voltage-written magnetic memory
 would use in reverse. Time reversal and inversion both change the sign of
 $\alpha$, so it is zero whenever one of the two is a symmetry. AlAs has no
-inversion centre, and here a static field $B_z$ in the input breaks time
-reversal, so we compute the response to a small further change of that field.
-The field acts on the spin and the polarization is a property of the charge,
-so the two are coupled only through spin-orbit coupling, and without it the
-tensor has to be zero. The code computes each column of $\alpha$ as a central
-difference of the Berry-phase polarization between two self-consistent runs at
-$B \pm \delta/2$. We compute it with `calc.get_magnetoelectric_tensor()`, with
-and without spin-orbit coupling:
+inversion centre, and here a static field in the input breaks time reversal, so
+we compute the response to a small further change of that field. The direction
+of the field matters. Along a cube axis, for example $B_z$, the field keeps the
+twofold rotation and the fourfold rotoinversion about $z$, which flip $P_x$,
+$P_y$ and $P_z$, so the polarization is zero for every field along $z$ and the
+whole column $\partial P/\partial B_z$ is zero by symmetry. The response that
+zincblende allows is quadratic in the field, $P_x \propto B_y B_z$, so its
+derivative is not zero only when the field has components along more than one
+cube axis. Here we put the field along the cube diagonal $[111]$, and for this
+the input uses the rhombohedral setting of the same fcc lattice (`ibrav = 5`),
+in which $z$ is $[111]$. The threefold axis then forces $P_x = P_y = 0$ and
+leaves $P_z$ free. The field acts on the spin and the polarization is a
+property of the charge, so the two are coupled only through spin-orbit
+coupling. Without it the tensor is exactly zero, because a uniform field on the
+spin then only shifts the bands of the two spins of this insulator rigidly, so
+the charge does not change at all. The code computes each column of $\alpha$
+as a central difference of the Berry-phase polarization between two
+self-consistent runs at $B \pm \delta/2$. We compute it with
+`calc.get_magnetoelectric_tensor()`, with and without spin-orbit coupling:
 
 ```python
 alas = Calculator.from_file("docs/figures/piezo_components/alas-field.in",
@@ -240,38 +254,36 @@ alas = Calculator.from_file("docs/figures/piezo_components/alas-field.in",
 me = alas.get_magnetoelectric_tensor(delta=0.02, directions=(2,),
                                      nppstr=6, transverse=(2, 2))
 print(me.alpha[:, 2])               # dP/dB_z, along x, y and z
-print(f"largest component {me.magnitude:.4e}")
 
 no_soc = Calculator.from_file("docs/figures/piezo_components/alas-field-nosoc.in",
                               pseudo_dir="tests/data/pseudo")
 null = no_soc.get_magnetoelectric_tensor(delta=0.02, directions=(2,),
                                          nppstr=6, transverse=(2, 2))
-print(f"without spin-orbit coupling {null.magnitude:.4e}")
-print(f"ratio {me.magnitude / null.magnitude:.0f}")
+print(null.alpha[:, 2])             # the same column without spin-orbit coupling
 ```
 
 ```
-[ 4.46023136e-06 -4.45981429e-06 -3.04720414e-06]
-largest component 4.4602e-06
-without spin-orbit coupling 8.4383e-10
-ratio 5286
+[3.76382078e-10 9.58366487e-11 3.17899747e-06]
+[-1.80241501e-10 -4.09963801e-10  1.05013792e-09]
 ```
 
 `directions=(2,)` steps only the $z$ component of the field, which costs two
 self-consistent runs, so only the third column of `me.alpha` is computed, and
 the other two are left at zero. `delta` is the size of the step, `nppstr` the
 number of k-points along each Berry-phase string and `transverse` the k-mesh
-across the strings. We see that a change of $B_z$ creates a polarization with
-all three components, of the order of $4\times10^{-6}$, and that the same
-crystal without spin-orbit coupling gives $8.4\times10^{-10}$, 5286 times
-smaller, which is the precision of the two self-consistent runs and not a
-physical response. So the whole effect comes from spin-orbit coupling. The
-tensor is in $e/\text{bohr}^2$ per unit of the internal field of the code,
-so its absolute size is not yet a number to compare with experiment. The
-$2\times2\times2$ ground-state mesh and the 2 by 2 mesh across the strings are
-also small, and we did not converge them, so here we read only the null test,
-not the size. The two runs together took
-273 s on one core.
+across the strings. We see that a change of the field along $[111]$ creates a
+polarization along $[111]$, $3.2\times10^{-6}$, while the two components that
+the threefold axis forces to zero are $3.8\times10^{-10}$ and
+$9.6\times10^{-11}$, which is the error of the small meshes, since with `nosym`
+nothing in the calculation imposes the zero. Without spin-orbit coupling the
+largest entry is $1.1\times10^{-9}$, about 3000 times smaller, which is the
+precision of the two self-consistent runs, so the allowed response is well
+above both errors and it comes from spin-orbit coupling. The tensor is in
+$e/\text{bohr}^2$ per unit of the internal field of the code, so its absolute
+size is not yet a number to compare with experiment. The $2\times2\times2$
+ground-state mesh and the 2 by 2 mesh across the strings are also small, and we
+did not converge them, so the value $3.2\times10^{-6}$ is not converged either.
+The two runs together took 123 s on one core.
 
 !!! note "Limits"
     The piezoelectric tensor is clamped-ion: the atoms move with the strain and
