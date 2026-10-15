@@ -12546,7 +12546,10 @@ notebook's commit), 434.01 at `520a037`, `dbfae07`, `f7e01a2`, `040cce0` and `61
 0.64571. The ground states differ by 4.6e-10 Ry in energy and 3.3e-6 mu_B in the moment. At
 `conv_thr = 1e-12` the magnon is **433.870 at `400905f` and 433.798 at `043d293` and
 `b05447f`**, 0.07 meV apart, so the 3.1 meV is where the new fit stops at 1e-9, and the old
-fit's 1e-9 stop happened to sit within 0.1 meV of the converged value. The 434 above and in
+fit's 1e-9 stop happened to sit within 0.1 meV of the converged value. `043d293` changes the fit's
+inner product and not the stopping test (`scf_accuracy` is untouched by it), and the NiI chain
+takes 21 iterations under it against 23 to 24 before, so it is a different path to a density
+of the same estimated error, not a looser stopping rule, and no `OPEN.md` item follows. The 434 above and in
 notebook 38 is therefore right to 0.5 meV, and the user guide's 431 (`docs/guide/magnons.md`,
 same input at 1e-9) is 3 meV low. **A magnon at `conv_thr = 1e-9` carries a few meV of SCF
 error on this cell**, being a ratio read off the Goldstone-corrected kernel; a figure quoted
@@ -23503,13 +23506,13 @@ one core each, `V_y` in meV per cell:
 | `b05447f` (2026-10-15) | default (`'grad_m'`) | -1.40272470 | -352.149422332 | 0.087738669 |
 | `b05447f` | `'kubler'` set in the input | -1.21865102 | -352.149286924 | 0.087758209 |
 
-`V_x` and `V_z` stay at 2.7e-7 to 4.2e-7 meV throughout. So the move is the functional and
+`V_x` and `V_z` stay below 4.2e-7 meV throughout. So the move is the functional and
 nothing else: `'grad_m'` set by hand at the commit before the default changed is bit-identical
 to the default after it, and `'kubler'` set by hand at `b05447f` gives back -1.2187. **Neither a
 fix nor a regression of the code**: the two are different functionals on a spiral (P142, 8.5e-4
 Ry apart on the cobalt helix; 1.35e-4 Ry here), and a first-order energy that is a remainder of
 `k`-point contributions a hundred times larger than their sum moves 15 per cent between them
-on this unconverged cell, as it moves sign between 30 and 34 Ry. What went stale is the record:
+on this unconverged cell, as it moves from -2.35 to -1.22 between 30 and 34 Ry and changes sign by 40. What went stale is the record:
 this section's -1.21790 and `+1.21791`, the `$V_y = -1.2179$` of `docs/features.tex` (the 34 Ry
 paragraph of the spiral spin-orbit entry, and the 30, 34, 40 Ry sequence -2.35, -1.22, +0.028
 there and in "What the number is not" above, none re-measured), and notebook 48, executed at
