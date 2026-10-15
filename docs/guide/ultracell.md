@@ -3,10 +3,10 @@
 In this page we compute a crystal whose density or magnetization changes slowly
 over many unit cells, for example a spin density wave, a screened impurity or a
 domain wall. We first apply a potential over eight cells of silicon and see the
-electrons screen it, then we compute the energy of the modulation, a spin
-density wave, what a scanning-tunnelling microscope sees above it and what
-tunnels through a modulated sheet, and finally a magnetic texture that the
-calculation keeps without any field.
+electrons screen it. Then we compute the energy of the modulation, a spin
+density wave, and what a scanning-tunnelling microscope sees above it. We end
+with what tunnels through a modulated sheet and with a magnetic texture that
+the calculation keeps without any field.
 
 ## A modulation over many cells
 
@@ -38,7 +38,10 @@ long cell. When `nbnd` grows, this basis becomes the full plane-wave basis of
 the supercell, so the method is a variational truncation of the real supercell,
 and `nbnd` is its one convergence parameter. For an insulator the default
 `nbnd` has no empty bands, which leaves the envelope nothing to be built from,
-so you always give it.
+so you always give it. All the numbers on this page are at a single `nbnd` and
+on a small k-mesh of the long cell, for example `nbnd=32` on a $1\times2\times2$
+mesh for silicon at `ecutwfc = 12`, and none of them is converged. You check
+them by raising `nbnd` and `kgrid`.
 
 Here we take silicon and apply a potential
 $V(\mathbf r) = 0.02\cos(2\pi x_1/8)$ Ry, one period over eight cells along
@@ -87,9 +90,12 @@ $7.6\times10^{-5}$ e/bohr$^3$, so the modulation is small, as it should be for a
 potential of 20 mRy. What the electrons feel is the cosine component of the
 plane average of `delta_v`, and it is 2.00 mRy, ten times smaller than what we
 apply. This is screening: the induced charge builds a Hartree potential that
-almost cancels the applied one. The ratio of the two, here 10, is the
-dielectric function of silicon at the wavevector of one period over eight cells,
-which is what electron energy-loss spectroscopy measures at finite $q$.
+almost cancels the applied one. The ratio of the two, here 10, is roughly the
+static dielectric function of silicon at the wavevector of one period over
+eight cells. It is only roughly this, because `delta_v` also holds the
+exchange-correlation potential of the induced charge. The value 10 is also
+below the converged LDA value, roughly 12 to 13, because `nbnd=32` and the
+$8\times2\times2$ mesh are not converged.
 
 ## The energy of a modulation
 
@@ -131,9 +137,9 @@ states under a field, you compare `total_energy + field_energy`.
 
 We now apply a magnetic field that changes sign over the long cell. With
 `nspin = 2` the field enters as $v_\uparrow - B$ and $v_\downarrow + B$, and
-the two spin channels share one Fermi level, so an electron can move from the
-minority channel in one cell to the majority channel in the next. This is what a
-spin density wave is made of. The silicon cell has no moment of its own, so the
+the two spin channels share one Fermi level, so spin-up electrons can gather in
+the cells where the field favours them and spin-down electrons in the others.
+This is what a spin density wave is made of. The silicon cell has no moment of its own, so the
 moment we get is the spin response of the crystal at the wavevector of the
 field, the $\mathbf Q$-resolved spin susceptibility:
 
@@ -158,9 +164,10 @@ The loop converges in 8 iterations. `wave.cell_moments()` is the moment of each 
 the eight unit cells, and it follows the field, from $+0.122$ $\mu_B$ where the
 field is largest to $-0.122$ $\mu_B$ four cells later, with $\pm0.047$ $\mu_B$
 in between. The total moment is zero, so this is a spin density wave and not a
-ferromagnet. The input is a gaussian smearing of 0.02 Ry, so silicon has a small
-weight at the Fermi level from the tails of the two band edges, and this weight
-is what lets the moment respond. `field_energy` is $-\int\mathbf B\cdot\mathbf m$,
+ferromagnet. The moment comes from the same mixing of valence and conduction
+states that screens the potential in the first section, now with opposite signs
+in the two spin channels. The gaussian smearing of 0.02 Ry in the input only
+adds a small part from the tails of the band edges. `field_energy` is $-\int\mathbf B\cdot\mathbf m$,
 $-1.29$ mRy per cell here, and you add it to `total_energy` when you compare
 this state with another one under the same field.
 
@@ -260,9 +267,10 @@ one column per tip. `sts.bias_axis` is the energy measured from the Fermi level,
 which is the bias of the experiment. In this window the largest $dI/dV$ comes from
 the conduction states just above the gap, and we see that it moves through the
 wave. For
-spin up it is at 0.24 eV in cell 8, where the field is largest, and at 0.57 eV in
-cell 4, so it moves by 0.33 eV. For spin down it is the same curve moved by four
-cells. This shift in energy is the local exchange splitting that a
+spin up it is at 0.24 eV in cell 8, where the moment is largest, and at 0.57 eV
+in cell 4, so it moves by 0.33 eV. The peak is read on an energy axis with a
+step of 0.003 Ry, which is 0.04 eV, so this shift is known to about that step.
+For spin down it is the same curve moved by four cells. This shift in energy is the local exchange splitting that a
 spin-polarized STS measurement fits, and an image at one bias cannot give it,
 because a level that moves and a level that gains weight look the same at one
 energy.
@@ -316,9 +324,11 @@ line is the map averaged across the sheet, at 12 points along the two cells, in
 units of its mean. Both maps are brightest on the atoms, at the first and the
 seventh point, and the atom under the attractive half of the potential, at
 $x_1 = 1$, is the brighter one. The transmission has the larger contrast between
-the two atoms, 1.346 against 1.105, where the image has 1.282 against 1.144, and
-this difference is the interference between the states at the Fermi level, which
-the image does not have. The cell is small and the k-mesh of the long cell is
+the two atoms, 1.346 against 1.105, where the image has 1.282 against 1.144.
+Part of this difference comes from the interference between the states at the
+Fermi level, which the image does not contain, but the two maps also differ in
+the propagation to the exit plane and in their energy window, and we did not
+separate these. The cell is small and the k-mesh of the long cell is
 $2\times4$, so these numbers show what the call gives rather than a converged
 map of a real material.
 
@@ -372,8 +382,9 @@ Without a seed the loop stops after one iteration at the tiled ferromagnet,
 0.6234 $\mu_B$ in each cell, which is the moment of the unit cell. With the
 seed it converges in 8 iterations to the antiferromagnet, with $\pm 0.415$
 $\mu_B$ per cell, and this state is 3.017 mRy per cell below the ferromagnet.
-So here the energy says which of the two solutions is the ground state, and the
-seed is only how we reach the second one.
+So here the energy says which of the two solutions is lower, and the seed is
+only how we reach the second one. The value 3.017 mRy is at `nbnd=24` on a
+$4\times2\times2$ mesh, and it is not converged.
 
 For a texture that turns we use a noncollinear cell, and the seed is then a
 vector at each point. Here the moment of the unit cell points along $x$, and we
@@ -413,8 +424,9 @@ gain 0.738 mRy per cell
 
 The helix is kept: the four moments have the same length, 0.461 $\mu_B$, they
 turn by exactly 90 degrees from one cell to the next, and they stay in the $yz$
-plane. The helix is 0.738 mRy per cell below the ferromagnet, so on this lattice
-it is the better of the two states. For a magnet whose moment is free to turn,
+plane. The helix is 0.738 mRy per cell below the ferromagnet, but 2.3 mRy per
+cell above the two-cell antiferromagnet of the last run, so on this lattice the
+antiferromagnet is the lowest of the three states we tried. For a magnet whose moment is free to turn,
 the long cell is built by default from the states of the unit cell together
 with their time-reversed partners, the same orbitals with the spin flipped
 (`kramers_pairs`). Without them the basis holds spin only along the moment of
@@ -440,7 +452,8 @@ period you compare the energies of several long cells, one run each.
     constrained moment also give an error. For a field, you give it with
     `magnetic_field` in the long cell instead. An ultrasoft or PAW dataset runs,
     but with `ecutrho` at four times `ecutwfc` the code warns that the
-    augmentation charge is on the coarse grid.
+    augmentation charge is then on the wavefunction grid, so you set `ecutrho`
+    to 8 to 12 times `ecutwfc`.
 
     A seed with $|s| > 1$ gives an error, because it asks for more magnetization
     than the cell has. A seed on a unit cell with no moment gives an error,
@@ -458,7 +471,9 @@ period you compare the energies of several long cells, one run each.
     `tot_magnetization`, whose two Fermi levels leave no single tip energy. The
     transmission needs a long cell that is one cell deep along the stacking axis,
     with one k-point along it, and on an ultrasoft or PAW dataset its exit region
-    must be a plane, not the whole cell.
+    must be a plane, not the whole cell. A spectrum gives an error if you also
+    give `bias`, since the energy axis already holds it, and a constant-current
+    spectrum is not computed.
 
     Two things are not errors but limit what a number means. With
     Methfessel-Paxton smearing the energy is not a variational bound, so you use
