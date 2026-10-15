@@ -1,10 +1,10 @@
-! The same crystal and field as alas-field.in, without spin-orbit coupling:
+! The same crystal, cell and field as alas-field.in, without spin-orbit coupling:
 ! lspinorb = .false. and scalar-relativistic pseudopotentials.
  &control
     calculation = 'scf'
  /
  &system
-    ibrav = 2, celldm(1) = 10.6134, nat = 2, ntyp = 2,
+    ibrav = 5, celldm(1) = 7.504807, celldm(4) = 0.5, nat = 2, ntyp = 2,
     ecutwfc = 25.0, ecutrho = 200.0,
     noncolin = .true., lspinorb = .false.,
     nosym = .true., noinv = .true.,

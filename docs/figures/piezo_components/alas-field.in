@@ -1,11 +1,12 @@
-! Zincblende AlAs with spin-orbit coupling, PBE, ultrasoft, in a magnetic field
-! B_field(3) along z. The small starting_magnetization along z is needed, so that
-! the run carries a magnetization vector for the field to act on.
+! Zincblende AlAs with spin-orbit coupling, PBE, ultrasoft, in a magnetic field.
+! The cell is the rhombohedral setting of the fcc lattice (ibrav = 5), so z is
+! the cube diagonal [111], and B_field(3) and the small starting magnetization
+! point along it. The magnetization gives the field a moment to act on.
  &control
     calculation = 'scf'
  /
  &system
-    ibrav = 2, celldm(1) = 10.6134, nat = 2, ntyp = 2,
+    ibrav = 5, celldm(1) = 7.504807, celldm(4) = 0.5, nat = 2, ntyp = 2,
     ecutwfc = 25.0, ecutrho = 200.0,
     noncolin = .true., lspinorb = .true.,
     nosym = .true., noinv = .true.,
