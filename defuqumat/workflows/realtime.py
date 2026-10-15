@@ -11,7 +11,7 @@ ground-state potential, for one material, the LDA and one weak mid-infrared
 pulse). The update of the potential in time is a later stage of
 ``notes/HARMONICS-NEXT.md``.
 
-**The k-set** is a whole unshifted Monkhorst-Pack grid, because the current is
+**The k-set** is a whole Monkhorst-Pack grid, because the current is
 a polar vector and a wedge of the crystal's group does not sum to it, and time
 reversal does not hold under a field: the state at ``-k`` evolves under
 ``-kappa``, which is not the same field. What may reduce the grid is the
@@ -20,8 +20,10 @@ of the pulse invariant at every time, with time reversal off (Elk's
 ``tdinit.f90``): each k-point of its wedge then stands for its star, the
 current is averaged over the group as a polar vector afterwards, and a field
 along ``[100]`` in silicon keeps eight of the 48 operations. A shifted grid is
-not closed under the group and is refused, by the rule P24 found for the
-response stack.
+not closed under the group (the rule P24 found for the response stack), so on
+one the wedge is that of the group's members that map the grid onto itself,
+two of the eight on silicon's ``4 4 4 1 1 1``, which sum exactly what the whole
+shifted grid sums.
 
 **Units at this boundary.** Times are Hartree atomic units of time (24.189 as)
 as in Elk, frequencies and broadenings are given in eV where an entry point
@@ -113,6 +115,30 @@ def field_little_group(system, pulse, tolerance: float = 1e-8):
     return group.rotation_array(), cartesian_rotations(system.cell, group)
 
 
+def _grid_little_group(group, grid, shift):
+    """The members of the field's little group ``group`` that map the grid onto itself.
+
+    A shifted Monkhorst-Pack grid is not closed under the point group, nor in
+    general under the field's little group: on silicon at ``4 4 4 1 1 1`` two
+    of the eight operations that fix a field along ``[100]`` keep it. Those two
+    are a group, the grid's own stabilizer inside the field's, and the wedge
+    built with them, the current averaged over them and the density completed
+    with them sum exactly what the whole grid sums, which the whole little
+    group would not (``irreducible_wedge`` skips an off-grid image silently).
+    An unshifted grid with equal divisions keeps every operation.
+    """
+    from defuqumat.system.kpoints import grid_stabilizer
+    from defuqumat.system.symmetry import Symmetries
+
+    rotations = group.rotation_array()
+    keep = grid_stabilizer(grid, shift, rotations)
+    if group.nsym and not any(np.array_equal(r, np.eye(3)) for r in rotations[keep]):
+        raise AssertionError("the identity does not map the grid onto itself")
+    return Symmetries(
+        rotations=tuple(r for r, k in zip(group.rotations, keep) if k),
+        translations=tuple(t for t, k in zip(group.translations, keep) if k))
+
+
 def _kset(system, pulse, kpoints, grid, little_group: bool):
     """``(k-set, cartesian rotations, Symmetries)``: what a run propagates and its group.
 
@@ -142,22 +168,14 @@ def _kset(system, pulse, kpoints, grid, little_group: bool):
                     "the run's own k-set is reduced and carries no grid to "
                     "rebuild the whole one from; pass grid= or kpoints=")
             return for_spin(system.kpoints, system.nspin), None, None
-        if little_group and any(shift):
-            raise NotImplementedError(
-                "the little group of the field on a shifted Monkhorst-Pack grid is "
-                "not implemented: a shifted grid is not closed under the point "
-                "group, so its wedge does not sum the current correctly (the rule "
-                "P24 found for the response stack). Pass little_group=False to "
-                "propagate the whole shifted grid, whose k-points are independent "
-                "at a frozen potential, or grid= for an unshifted one")
     grid = tuple(int(n) for n in grid)
     group = None
     if little_group:
         from defuqumat.system.symmetry import cartesian_rotations
 
-        group = field_symmetries(system, pulse)
+        group = _grid_little_group(field_symmetries(system, pulse), grid, shift)
         rotations = cartesian_rotations(cell, group)
-        kset = KPoints.automatic(grid, (0, 0, 0), cell, rotations=group.rotation_array(),
+        kset = KPoints.automatic(grid, shift, cell, rotations=group.rotation_array(),
                                  time_reversal=False)
         if len(rotations) <= 1:
             rotations, group = None, None
@@ -297,8 +315,10 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
         duration, start: the run's span; the pulse's own when not given.
         kpoints: an explicit whole k-set; refused if it is a wedge.
         grid: an unshifted Monkhorst-Pack grid to build, reduced by the field's
-            little group when ``little_group`` is set; the run's own grid when
-            neither this nor ``kpoints`` is given.
+            little group when ``little_group`` is set; the run's own grid,
+            shifted or not, when neither this nor ``kpoints`` is given, a
+            shifted one reduced by the members of the little group that map it
+            onto itself.
         nbnd: how many bands the fixed-density solve resolves before the
             occupied ones are kept.
         conv_thr: that solve's threshold. The ground state's residual is a

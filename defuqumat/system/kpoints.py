@@ -28,6 +28,7 @@ from defuqumat.system.cell import Cell
 _GRID_EPS = 1.0e-5
 
 __all__ = ["KPoints", "monkhorst_pack", "irreducible_wedge", "grid_equivalence",
+           "grid_stabilizer",
            "expand_to_subgroup", "expand_band_path", "for_spin", "is_reduced"]
 
 #: Spin degeneracy factor applied to weights for an unpolarised calculation.
@@ -236,6 +237,44 @@ def grid_equivalence(
     keep = equivalent == np.arange(len(xkg))
     position = np.cumsum(keep) - 1
     return position[equivalent]
+
+
+def grid_stabilizer(
+    grid: tuple[int, int, int],
+    shift: tuple[int, int, int],
+    rotations: np.ndarray,
+) -> np.ndarray:
+    """Which of ``rotations`` map the Monkhorst-Pack grid onto itself.
+
+    :func:`irreducible_wedge` skips an image that lands off the grid without
+    saying so, so handed an operation the grid is not closed under it returns
+    a wedge whose multiplicities count the on-grid images alone, and a quantity
+    averaged afterwards over that operation is summed over a zone the grid does
+    not sample. A shifted grid is the case: on fcc silicon at ``4 4 4 1 1 1``
+    two of the eight operations that fix a field along ``[100]`` keep it, and
+    the 64 points reduce to 40 under those two. The operations returned here
+    form a group whatever ``rotations`` is, being the stabilizer of a set, so
+    their wedge sums exactly what the whole grid sums. An unshifted grid with
+    equal divisions is closed under every integer rotation and keeps all of
+    them; one with unequal divisions need not.
+
+    Args:
+        grid, shift: as :func:`monkhorst_pack`.
+        rotations: ``(nsym, 3, 3)`` integer rotations in crystal axes, acting
+            on a k-point as :func:`irreducible_wedge` acts with them.
+
+    Returns:
+        ``(nsym,)`` booleans, true where the operation maps every grid point
+        onto a grid point.
+    """
+    counts = np.array([int(n) for n in grid])
+    offsets = np.array([int(x) for x in shift]) / 2.0
+    points, _ = monkhorst_pack(grid, shift)
+    keep = []
+    for rotation in np.asarray(rotations):
+        scaled = (points @ np.asarray(rotation).T) * counts - offsets
+        keep.append(bool(np.all(np.abs(scaled - np.rint(scaled)) <= _GRID_EPS)))
+    return np.array(keep, dtype=bool)
 
 
 def expand_to_subgroup(
