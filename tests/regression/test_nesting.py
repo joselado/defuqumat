@@ -267,14 +267,17 @@ def test_a_constrained_moment_nests_each_channel_at_its_own_level(
     channel, and ``g(k)`` is each channel's delta at its own level. Three
     statements, on the run's own shifted 4x4x4 mesh:
 
-    * the two levels the nesting function was built at are ``pw.x``'s, 19.9663
-      and 14.2955 eV on line 302 of the committed benchmark, to ``FERMI_EV``.
+    * the two levels the nesting function was built at are ``pw.x``'s, 20.7043
+      and 14.2991 eV on line 368 of the regenerated QE 7.5 reference
+      ``tests/data/qe/reference.out.pw_lsda-lsda-tot_magnetization``, which
+      ``reference_output`` prefers to the release-6.0 benchmark (19.9663 and
+      14.2955 there), to ``FERMI_EV``; measured 20.704251 and 14.299028 eV.
       The scalar such a run prints is their mean, which neither channel sits
       at, and it is what ``run_nesting`` would have read before;
     * ``(1/N_k) sum_k g(k)`` on the unfolded grid is ``compute_dos`` on the
       wedge, channel by channel at each channel's own level, summed;
     * the wedge, reduced with the magnetic group, and the complete grid give the
-      same ``N(q)``. The chain of the spin-regime test above runs at zero
+      same ``N(q)``, measured 2.1e-12 of its maximum. The chain of the spin-regime test above runs at zero
       magnetization, so this is the first magnetic cell the unfold meets.
     """
     from defuqumat.io import read_qe_output
@@ -300,7 +303,7 @@ def test_a_constrained_moment_nests_each_channel_at_its_own_level(
           f"{reference.fermi_energy_up} {reference.fermi_energy_down}")
     assert up * RY_TO_EV == pytest.approx(reference.fermi_energy_up, abs=FERMI_EV)
     assert down * RY_TO_EV == pytest.approx(reference.fermi_energy_down, abs=FERMI_EV)
-    assert up - down > 0.3  # 5.7 eV apart: two distinct levels, not one
+    assert up - down > 0.3  # 6.4 eV apart: two distinct levels, not one
     assert wedge.fermi_energy == pytest.approx(0.5 * (up + down))
 
     kpoints = denser_grid(system, grid)
