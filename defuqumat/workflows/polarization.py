@@ -53,7 +53,7 @@ from defuqumat.topology.polarization import (
     polarization_quantum,
     string_phase,
 )
-from defuqumat.workflows.topology import _source
+from defuqumat.workflows.topology import _refuse_potential_only_meta, _source
 
 __all__ = ["run_polarization"]
 
@@ -117,6 +117,7 @@ def run_polarization(
 
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
                      becsum=becsum, ns=ns, field=field, field_scale=field_scale)
+    _refuse_potential_only_meta(source, "a Berry-phase polarization")
     axis = int(gdir) % 3
     mesh = string_mesh(transverse, int(nppstr) - 1, gdir=axis, shift=shift)
     nstring, npoints = mesh.shape
