@@ -93,10 +93,15 @@ it, and the question is only whether the `.tex` stays for a while.
 
 If the PDF goes and the `.tex` stays, there are two user guides and they drift from the next
 phase on. So the recommendation is to **retire both**, with the amber boxes moved: each
-refusal becomes one or two sentences in the page's "Limits" admonition, and the validation
-numbers go where the record already keeps them (`PLAN.md` §3 and the README accuracy table).
-`features.tex` is kept in git history and nothing is lost. The CI-built `user_guide.pdf` is the
-replacement for the committed PDF.
+refusal becomes one or two sentences in the page's "Limits" admonition. The box environment
+in `features.tex` is called `refuses`, not amber, and `grep -c 'begin{refuses}'
+docs/features.tex` counts 61 of them on 2026-10-15; that is the size of the move in step 10.
+The "Accuracy summary" section of `features.tex` (line 9207), the full table of what each
+feature was compared against and to how many digits, is the one user-facing content that has
+no other home: the README table is five rows and `PLAN.md` §3 is the record, not a user text.
+It moves to its own page, `accuracy.md` under More, which is the one page exempt from the rule
+against benchmark numbers. `features.tex` is kept in git history and nothing is lost. The
+CI-built `user_guide.pdf` is the replacement for the committed PDF.
 
 Every reference has to move, or the next phase writes into `features.tex` again:
 
@@ -115,9 +120,13 @@ Every reference has to move, or the next phase writes into `features.tex` again:
 The user asked that the reference to the guide be at the top, right after the description. So
 the first paragraph under the banner stays, and the next line is "The user guide is at
 <https://joselado.github.io/defuqumat/>. It is also available as a
-[PDF](https://joselado.github.io/defuqumat/user_guide.pdf)." as dmrgpy's README has it. The
-three later references (lines 136, 738, 776 to 779) change to the website. The feature table
-stays, since it is the checklist of section 6. Nothing else in the README changes.
+[PDF](https://joselado.github.io/defuqumat/user_guide.pdf)." as dmrgpy's README has it. This
+top link is added as soon as the site is deployed (step 4). The three later references (lines
+136, 738, 776 to 779) keep pointing at the committed `features.pdf` until the web guide covers
+everything, which is what decision 3 asks for, and move in step 10: line 136 to the Limits
+notes, line 738 to `accuracy.md`, lines 776 to 779 to the website. The feature table stays,
+since it is the checklist of section 6, and gains one row for `get_ultracell_transport`, which
+is named in the catalogue (line 629) but has no row. Nothing else in the README changes.
 
 ## 5. The pages
 
@@ -206,24 +215,34 @@ link to the notebooks and to the README accuracy table.
   `get_nesting`. Figure: `scattering_forbidden_reflection`.
 
 **Long-range modulations** (`ultracell.md`, notebooks 44, 45, 46): `get_ultracell`, its
-energy, `get_ultracell_stm`, `get_ultracell_sts`, seeded spin waves. Figure:
-`ultracell_sdw`.
+energy, `get_ultracell_stm`, `get_ultracell_sts`, `get_ultracell_transport`, seeded spin
+waves. Figure: `ultracell_sdw`.
 
 **More**
 - *Starting from an all-electron ground state* (`elk-seed.md`, notebook 42).
 - *Performance and many cores* (`performance.md`, notebook 03, `performance/README.md`): the
   launch block, `k_batch`, `memory_mode`, GPUs in a paragraph, pointing at `PERFORMANCE.md`.
+- *Accuracy* (`accuracy.md`): the "Accuracy summary" of `features.tex` as a table, what each
+  feature was compared against and to how many digits. The one page that carries numbers
+  against `pw.x` and Elk.
 - *Where the notebooks are* is a line on Home, not a page.
 
-That is 25 pages and 36 figures. Phases 8 and 9 of section 8 may merge `effective-mass.md`
+The methods that are not a feature of their own go on the page of the feature they serve:
+`with_cell`, `with_positions` and `with_kpoints` on `own-crystal.md`, `from_text` on Home,
+`get_force_theorem` and `get_first_order_soc` on `anisotropy.md`,
+`get_piezoelectric_kmesh_ladder` on `piezo.md`, `get_realtime_dielectric`,
+`get_harmonic_orders` and `get_nonlinear_spectrum` on `nonlinear.md`.
+
+That is 26 pages and 36 figures. Phases 8 and 9 of section 8 may merge `effective-mass.md`
 into `bands.md` and `elk-seed.md` into `own-crystal.md` if they come out at one section each.
 
 ## 6. Coverage is a set difference
 
 The checklist is the README feature table (lines 646 to 716, 71 rows) plus the methods of
-`Calculator` (`grep 'def get_' defuqumat/calculator.py`: 62 `get_*`, five `with_*`, two
-`from_*`). Every row and every method appears on exactly one page as a call in a snippet or a
-catalogue bullet. The mapping of the rows to the pages above:
+`Calculator` (`grep 'def get_' defuqumat/calculator.py`: 64 `get_*`, five `with_*`, two
+`from_*` on 2026-10-15). Every row and every method appears on exactly one page as a call in a
+snippet or a catalogue bullet; section 5 assigns them by hand and the script of step 9 is what
+says whether the assignment is complete. The mapping of the rows to the pages above:
 
 | README rows | page |
 |---|---|
@@ -263,7 +282,8 @@ skill in place of the `features.tex` grep, and as a fast test so the gate catche
 The website build never runs DFT: `data.npz` is committed and CI runs only `mkdocs build` and
 pandoc. Each `compute.py` is run once here or on D22 under `run.sh`, with one BLAS thread and
 the memory cap, never beside a test run (the `test-runs` skill's rule for this shared
-machine). The budget per figure, from the notebooks' execution times:
+machine). The budget per figure is an estimate (only notebook 17's 282 s on D22 was read in
+this session); `common.save` replaces it with measured times as the figures land:
 
 - Under a minute, run here: silicon bands, DOS, density, convergence tests, forces and
   relaxation of a small cell, the equation of state, the Berry curvature map, the dielectric
@@ -294,17 +314,22 @@ not the convergence.
    `has_pages` is false, so enabling Pages with `build_type: workflow` is a settings change,
    and the first push of `guide.yml` deploys the site. Both go to the user with the exact
    command before they happen.
-4. **README**: the link at the top, the three later references.
+4. **README**: the link at the top only; the three later references wait for step 10.
 5. **Structure** (three pages, five figures).
 6. **Magnetism** (six pages, seven figures), the long-running figures sent to D22 first so they
    compute while the pages are written.
 7. **Response and spectra** (five pages, nine figures).
 8. **Topology, microscopy and scattering, the ultracell** (four pages, four figures).
-9. **More**: all-electron start, performance. `tools/check_guide.py` and its test.
-10. **Retire `features.tex` and `features.pdf`**, move every amber box that is not yet a Limits
-    note, and edit the seven rule and skill files of section 3 in the same commit, so no
+9. **More**: all-electron start, performance, accuracy. `tools/check_guide.py` and its test.
+10. **Retire `features.tex` and `features.pdf`**, move every one of the 61 `refuses` boxes
+    that is not yet a Limits note (grep for `begin{refuses}`), move the three README
+    references, and edit the seven rule and skill files of section 3 in the same commit, so no
     session writes into the `.tex` again. Build the PDF once locally with pandoc to see that
     `build_guide_pdf.py` handles every page.
+
+Until step 10 the current rules still send a new phase's guide entry into `features.tex`. If
+a phase lands in between, its entry is written as a guide page instead, and a one-sentence
+freeze note in `CLAUDE.md` says so; the user decides whether to add that note now.
 
 Steps 2 and 5 to 9 are each one commit per page or per group, with the figures' `data.npz`
 committed beside the scripts.
