@@ -40,8 +40,8 @@ differences    1.4e-09 Ry and 3.3e-08 Ry/bohr
 ```
 
 The total energies are the same to all eight decimals that `pw.x` prints, and
-the difference of 1.4e-9 Ry is at the level of `conv_thr = 1e-10`, which both
-runs use. The force differs in the eighth decimal. Note that we obtain the force
+the difference of 1.4e-9 Ry is the "about 1e-9 Ry" of the first row of the
+table below, with `conv_thr = 1e-10` in both runs. The force differs in the eighth decimal. Note that we obtain the force
 as the derivative of the total energy, while `pw.x` sums its terms one by one,
 so this is a check of the derivative too. `read_qe_output` reads any `pw.x`
 output file, and the files `tests/data/qe/reference.out.*` are the `pw.x` 7.5
@@ -83,7 +83,7 @@ two k-points and bands: silicon with the three kinds of pseudopotential,
 aluminium with smearing and with tetrahedra, a hydrogen chain with collinear and
 noncollinear spin, graphite with Grimme's D2, nickel with DFT+U and bismuth with
 spin-orbit coupling. Their total energies agree to between 3.2e-10 and 2.2e-8
-Ry, and the bands of the nine cells without spin-orbit coupling agree to between
+Ry, and the bands of the cells without spin-orbit coupling agree to between
 4.8e-5 and 2.9e-4 eV.
 
 The band energies agree to 0.0002 eV. This is limited by `pw.x`, which prints
@@ -244,7 +244,7 @@ the two codes agree to 2.2e-8 Ry on $-1477.737$ Ry.
     An agreement can be no better than the convergence of the two runs. A
     reference output made at the default `conv_thr = 1e-6` of `pw.x` gives the
     total energy to about 1e-8 Ry, and its forces and its terms of the energy
-    to much less. So when you compare with your own `pw.x` run, you set
+    less well. So when you compare with your own `pw.x` run, you set
     `conv_thr` to 1e-10 or tighter in both codes.
 
 The reference outputs of `pw.x`, `ph.x` and `projwfc.x` are in
