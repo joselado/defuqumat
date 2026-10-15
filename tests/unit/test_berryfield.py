@@ -150,10 +150,61 @@ def test_three_directions_are_refused():
         build_system(parse_pw_input(text))
 
 
-def test_an_automatic_grid_is_refused():
+def test_an_automatic_grid_without_efield_cart_is_refused():
+    """``pw.x`` reads ``efield_cart`` on an automatic grid and ignores ``efield``."""
     text = _INPUT.format(extra="", kpoints="automatic\n2 2 2 0 0 0\n")
-    with pytest.raises(NotImplementedError, match="automatic"):
+    with pytest.raises(NotImplementedError, match="efield_cart = 0"):
         build_system(parse_pw_input(text))
+
+
+def test_efield_cart_along_two_axes_is_refused():
+    text = _INPUT.format(extra=", efield_cart(1)=0.001, efield_cart(3)=0.001",
+                         kpoints="automatic\n2 2 2 0 0 0\n")
+    with pytest.raises(NotImplementedError, match="more than one axis"):
+        build_system(parse_pw_input(text))
+
+
+def test_efield_cart_on_an_oblique_axis_is_refused():
+    text = _INPUT.format(extra=", efield_cart(1)=0.001",
+                         kpoints="automatic\n2 2 2 0 0 0\n").replace("ibrav=1", "ibrav=2")
+    with pytest.raises(NotImplementedError, match="another lattice vector"):
+        build_system(parse_pw_input(text))
+
+
+_SI8 = Path(__file__).resolve().parents[1] / "data" / "qe" / "si8-lelfield.in"
+
+
+def _si8_automatic(grid, component):
+    text = _SI8.read_text()
+    text = text[: text.index("K_POINTS")] + f"K_POINTS automatic\n{grid}\n"
+    return text.replace("efield=0.001", f"efield_cart({component})=0.001")
+
+
+def test_an_automatic_grid_is_electric_1s_strings():
+    """I57: ``3 3 7 0 0 0`` with ``efield_cart(3)`` is the 63-point list of
+    ``pw_electric/electric-1.in`` (9 strings of 7 along z), point by point and in
+    order, and the field, its axis and ``nppstr`` are the ``gdir`` form's."""
+    automatic = build_system(parse_pw_input(_si8_automatic("3 3 7 0 0 0", 3)))
+    explicit = build_system(parse_pw_input(_SI8.read_text()))
+    assert automatic.berry_field == explicit.berry_field == (2, 7, 0.001, 3)
+    np.testing.assert_allclose(np.asarray(automatic.kpoints.crystal(automatic.cell)),
+                               np.asarray(explicit.kpoints.crystal(explicit.cell)), atol=1e-8)
+    np.testing.assert_allclose(np.asarray(automatic.kpoints.weights),
+                               np.asarray(explicit.kpoints.weights), atol=1e-14)
+    assert automatic.nosym
+
+
+def test_an_automatic_grid_along_x_is_strings_along_x():
+    """``nx_el(:, 1)``: the index along x fastest, then z, then y, with the grid's offsets."""
+    system = build_system(parse_pw_input(_si8_automatic("5 2 3 1 0 1", 1)))
+    assert system.berry_field[:3] == (0, 5, 0.001)
+    k = np.asarray(system.kpoints.crystal(system.cell))
+    strings = string_layout(k, 0, 5)
+    assert strings.shape == (6, 5)
+    np.testing.assert_allclose(k[:5], [[(i + 0.5) / 5, 0.0, 0.5 / 3] for i in range(5)])
+    np.testing.assert_allclose(k[5, 1:], [0.0, 1.5 / 3])
+    grid = {(round(5 * x - 0.5), round(2 * y), round(3 * z - 0.5)) for x, y, z in k}
+    assert len(grid) == 30
 
 
 def _calculation(extra_system="", kpoints=_LIST):

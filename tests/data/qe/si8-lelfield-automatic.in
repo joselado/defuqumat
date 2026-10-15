@@ -1,0 +1,39 @@
+! si8-lelfield.in with K_POINTS automatic 3 3 7 and efield_cart(3) = 0.001 in place of the
+! explicit strings and efield: pw.x's l3dstring form (kpoint_grid_efield). The reference is pw.x 7.5
+! run as the chain electric -> -1 -> -2 with this grid on -1 and -2 (the zero-field start keeps
+! the explicit list, which is the same 63 points in the same order).
+ &control
+    calculation='scf'
+    gdir=3,
+    nppstr=7,
+    lelfield=.true.,
+    nberrycyc=3
+    tprnfor=.true. tstress=.true.
+ /
+ &system
+    ibrav= 1, 
+    celldm(1)=10.18, 
+    nat=  8,
+    ntyp= 1,
+    ecutwfc = 20.0,
+    nosym=.true.
+ /
+ &electrons
+    conv_thr = 1.0d-11,
+    mixing_beta = 0.5,
+    startingwfc='random',
+    efield_cart(1)=0.d0, efield_cart(2)=0.d0, efield_cart(3)=0.001
+ /
+ATOMIC_SPECIES
+ Si  28.086 Si.pbe-rrkj.UPF
+ATOMIC_POSITIONS (alat)
+ Si -0.123 -0.123 -0.123
+ Si  0.377  0.377 -0.123
+ Si  0.377 -0.123  0.377
+ Si -0.123  0.377  0.377
+ Si  0.123  0.123  0.123
+ Si  0.623  0.623  0.123
+ Si  0.623  0.123  0.623
+ Si  0.123  0.623  0.623
+K_POINTS automatic
+3 3 7 0 0 0

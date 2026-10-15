@@ -20,7 +20,7 @@ import equinox as eqx
 import numpy as np
 
 from defuqumat.config import DEFAULT_PRECISION, Precision
-from defuqumat.io.pwin import PwInput, fortran_float, read_pw_input
+from defuqumat.io.pwin import Card, PwInput, fortran_float, read_pw_input
 from defuqumat.relax.settings import RelaxSettings
 from defuqumat.system.cell import Cell, celldm_from_abc
 from defuqumat.system.kpoints import (
@@ -1401,6 +1401,11 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
     nosym = _logical(pwin.get("system", "nosym", False))
     efield = _efield(pwin)
     berry_field = _berry_field(pwin)
+    if berry_field is not None and _is_automatic(pwin):
+        # ``kpoint_grid_efield``: the grid written out as the strings along the
+        # field's axis, which is the form the rest of the run reads.
+        _require_an_orthogonal_axis(cell, berry_field[0])
+        pwin = _berry_strings_as_a_list(pwin, berry_field[0])
     if berry_field is not None:
         # ``setup.f90`` sets ``nosym`` silently for a manual k-list under
         # ``lelfield``: the strings are read as they are given, every point.
@@ -2334,26 +2339,48 @@ def _efield(pwin: PwInput) -> tuple | None:
 def _berry_field(pwin: PwInput) -> tuple | None:
     """``(gdir, nppstr, efield, nberrycyc)`` from a ``lelfield`` input, or ``None``.
 
-    ``gdir`` 0-based. ``efield_cart`` (the three-direction form, ``l3dstring``)
-    and an automatic k-grid (which ``pw.x`` turns into ``l3dstring``) are
-    refused by name; ``nppstr`` is required with a manual k-list, as in
-    ``setup.f90``.
+    ``gdir`` 0-based. With a manual k-list the field is ``efield`` along
+    ``gdir`` and ``nppstr`` is required, as in ``setup.f90``. With an automatic
+    grid ``pw.x`` reads ``efield_cart`` instead (``l3dstring``), and one
+    Cartesian component is taken here as ``gdir``, with ``nppstr`` the grid's
+    count along it; the grid itself is written out as strings by
+    :func:`_berry_strings_as_a_list`. ``efield_cart`` along more than one axis,
+    or zero on an automatic grid, is refused by name.
     """
     if not _logical(pwin.get("control", "lelfield", False)):
         return None
     cart = pwin.indexed("electrons", "efield_cart", 3)
+    nberrycyc = int(pwin.get("control", "nberrycyc", 1))
+    if _is_automatic(pwin):
+        # ``pw.x`` makes an automatic grid ``l3dstring`` (``kpoint_grid_efield``):
+        # the field is ``efield_cart`` and ``efield``/``gdir`` are not read at
+        # all (``h_psi.f90:276``, ``c_bands.f90:967``, ``calc_pol``). One
+        # Cartesian component on a cell whose lattice vector along it is
+        # orthogonal to the other two is the ``gdir`` form exactly
+        # (``efield_cry`` and ``transform_el`` are then the identity on that
+        # axis), with ``nppstr`` the grid's count along it.
+        along = [i for i in range(3) if abs(float(cart[i])) > 0.0]
+        if not along:
+            raise NotImplementedError(
+                "lelfield with K_POINTS automatic and efield_cart = 0 is not "
+                "implemented: pw.x reads the field from efield_cart on an automatic "
+                "grid (l3dstring) and ignores efield and gdir, so there this input "
+                "is a zero field with three string sets; give efield_cart along one "
+                "axis, or the strings as an explicit k-list with gdir and nppstr")
+        if len(along) > 1:
+            raise NotImplementedError(
+                "efield_cart along more than one axis is not implemented: the field "
+                "along three directions is pw.x's l3dstring form, three string sets "
+                "and three operators (h_epsi_her_set for each ipol); give it along "
+                "one Cartesian axis")
+        gdir = along[0]
+        grid = [int(fortran_float(v)) for v in pwin.card("K_POINTS").lines[0].split()[:3]]
+        return (gdir, grid[gdir], float(cart[gdir]), nberrycyc)
     if any(abs(float(v)) > 0.0 for v in cart):
         raise NotImplementedError(
-            "efield_cart is not implemented: the field along three directions is "
-            "pw.x's l3dstring form, three string sets and three operators "
-            "(h_epsi_her_set for each ipol); use efield with gdir"
-        )
-    card = pwin.card("K_POINTS")
-    if card is not None and (card.option or "tpiba").lower() == "automatic":
-        raise NotImplementedError(
-            "lelfield with K_POINTS automatic is not implemented: pw.x builds "
-            "three string sets from it (kpoint_grid_efield, l3dstring); give the "
-            "strings as an explicit k-list with gdir and nppstr"
+            "efield_cart with a manual k-list is not implemented: pw.x reads it "
+            "only on an automatic grid (INPUT_PW) and uses efield and gdir here; "
+            "give efield with gdir, or K_POINTS automatic with efield_cart"
         )
     gdir, nppstr = pwin.get("control", "gdir"), pwin.get("control", "nppstr")
     if gdir is None or nppstr is None or int(gdir) not in (1, 2, 3):
@@ -2362,7 +2389,50 @@ def _berry_field(pwin: PwInput) -> tuple | None:
             "nppstr; setup.f90 stops on the same"
         )
     return (int(gdir) - 1, int(nppstr), float(pwin.get("electrons", "efield", 0.0)),
-            int(pwin.get("control", "nberrycyc", 1)))
+            nberrycyc)
+
+
+def _is_automatic(pwin: PwInput) -> bool:
+    card = pwin.card("K_POINTS")
+    return card is not None and (card.option or "tpiba").lower() == "automatic"
+
+
+def _require_an_orthogonal_axis(cell: Cell, gdir: int) -> None:
+    """``efield_cart`` along Cartesian ``gdir`` is the ``gdir`` form only if no other
+    lattice vector has a component along it (``efield_cry(j) = E . a_j/|a_j|``)."""
+    at = np.asarray(cell.at)
+    others = np.delete(at, gdir, axis=0)[:, gdir]
+    if not np.allclose(others, 0.0, atol=1e-8 * np.abs(at).max()):
+        raise NotImplementedError(
+            f"efield_cart along Cartesian axis {gdir + 1} on this cell is not "
+            "implemented: another lattice vector has a component along it, so "
+            "pw.x's efield_cry puts the field on more than one string set (l3dstring)")
+
+
+def _berry_strings_as_a_list(pwin: PwInput, gdir: int) -> PwInput:
+    """``kpoint_grid_efield``'s grid as a ``crystal`` k-list, the strings along ``gdir`` consecutive.
+
+    The points are ``(i + k_i/2)/nk_i`` on the full grid, each with the same
+    weight and no symmetry, in the order ``nx_el(:, gdir)`` reads them: the
+    index along ``gdir`` fastest, then ``k`` and ``j`` for ``gdir = 1``, ``i``
+    and ``k`` for 2, and ``j`` and ``i`` for 3, which is the grid's own order.
+    The layout is checked again by :func:`~defuqumat.scf.berryfield.string_layout`
+    when the run is set up.
+    """
+    values = [int(fortran_float(v)) for v in pwin.card("K_POINTS").lines[0].split()[:6]]
+    n, shift = values[:3], values[3:6]
+    # nx_el's two slower indices, the slowest first, then gdir itself fastest
+    slower = {0: (1, 2), 1: (2, 0), 2: (0, 1)}[gdir]
+    lines = []
+    for a in range(n[slower[0]]):
+        for b in range(n[slower[1]]):
+            for c in range(n[gdir]):
+                index = [0, 0, 0]
+                index[slower[0]], index[slower[1]], index[gdir] = a, b, c
+                point = [(index[d] + shift[d] / 2.0) / n[d] for d in range(3)]
+                lines.append(" ".join(repr(float(x)) for x in point) + " 1.0")
+    card = Card("K_POINTS", "crystal", (str(len(lines)),) + tuple(lines))
+    return dataclasses.replace(pwin, cards={**pwin.cards, "K_POINTS": card})
 
 
 def _warn_if_the_spiral_grid_cannot_shift(spiral_q, kpoints) -> None:

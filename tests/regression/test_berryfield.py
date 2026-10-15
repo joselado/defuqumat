@@ -194,3 +194,31 @@ def test_a_nonmagnetic_spin_regime_has_the_unpolarized_forces(spin):
     for method in ("autodiff", "analytic"):
         forces = compute_forces(calculation, result, method=method).forces
         np.testing.assert_allclose(forces, reference.forces, atol=FORCE)
+
+
+def test_an_automatic_grid_is_pw_x_l3dstring_field():
+    """I57: ``K_POINTS automatic 3 3 7`` with ``efield_cart(3)``, against ``pw.x``'s own
+    ``l3dstring`` run of the same input (``reference.out.si8-lelfield-automatic``), whose
+    total, forces and ``el_pol`` along z match its explicit-list run to every printed
+    digit. Here the grid becomes the same 63 points, so the run is the explicit one's."""
+    _, zero = _zero()
+    system, pseudos, calculation = _load("si8-lelfield-automatic")
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11,
+                     mixing_beta=0.5, max_iterations=100, starting_from=zero)
+    assert result.converged
+    reference = read_qe_output(CASES / "reference.out.si8-lelfield-automatic")
+    text = (CASES / "reference.out.si8-lelfield-automatic").read_text()
+    # each iteration prints the three directions in order; the last is z
+    electronic = float(text.rsplit("Electronic Dipole per cell (Ry a.u.)", 1)[1].split()[0])
+    ionic = float(text.rsplit("Ionic Dipole per cell (Ry a.u.)", 1)[1].split()[0])
+    _, explicit = _field()
+    print(f"\nautomatic: dE(pw.x) = {result.total_energy - reference.total_energy:.3e}, "
+          f"dE(explicit) = {result.total_energy - explicit.total_energy:.3e}, "
+          f"d el_pol(pw.x) = {result.berry_dipoles[0] - electronic:.3e}")
+    assert result.total_energy == pytest.approx(reference.total_energy, abs=ENERGY)
+    el, ion, acc = result.berry_dipoles
+    assert ion == pytest.approx(ionic, abs=1e-10)
+    assert el == pytest.approx(electronic, abs=DIPOLE)
+    forces = compute_forces(calculation, result, method="analytic").forces
+    np.testing.assert_allclose(forces, reference.forces, atol=FORCE)
+    assert result.total_energy == pytest.approx(explicit.total_energy, abs=1e-10)
