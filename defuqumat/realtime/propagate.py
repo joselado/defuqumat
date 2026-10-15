@@ -192,10 +192,15 @@ def require_a_realtime_regime(calculation) -> None:
             "spinor components sit on spheres at k + q/2 and k - q/2")
     if calculation.gamma_only:
         raise NotImplementedError(
-            "real-time propagation with gamma-only storage is not implemented: "
-            "H(k + kappa) is not real at kappa != 0, so half of each (G, -G) "
-            "pair does not describe the state; run the cell with an explicit "
-            "k = 0 (K_POINTS automatic 1 1 1 0 0 0)")
+            "real-time propagation of states in gamma-only storage is not "
+            "implemented: H(k + kappa) is not real at kappa != 0, so half of each "
+            "(G, -G) pair does not describe the state. The workflows "
+            "(defuqumat.workflows.realtime, Calculator.get_realtime and its "
+            "siblings) re-solve the states on the whole sphere and take a "
+            "K_POINTS gamma ground state as it is; this is reached by a "
+            "Calculation built on the half sphere and handed to the driver "
+            "directly, which wants one built at an explicit k = 0 "
+            "(K_POINTS automatic 1 1 1 0 0 0) instead")
     if calculation.is_hubbard:
         raise NotImplementedError(
             "real-time propagation with DFT+U is not implemented: at a frozen "
