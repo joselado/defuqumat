@@ -157,6 +157,7 @@ def ultracell_energy(
     dispersion: float = 0.0,
     onecentre: float = 0.0,
     paw_deband: float = 0.0,
+    efield: float | None = None,
 ) -> dict:
     """The energy terms of one ultracell iteration, per unit cell, in Ry.
 
@@ -194,6 +195,12 @@ def ultracell_energy(
             the grid's ``deband`` because that is what it is: the one-centre
             potential is inside every eigenvalue through ``D_ij``, so ``eband``
             double-counts it exactly the way it double-counts ``int rho v``.
+        efield: the saw-tooth field's ``E_f`` (``etotefield``), **per unit
+            cell**, at the output density, or ``None`` without ``tefield``. It
+            is in the total, as ``run_scf`` has it: the electrons' half of the
+            field is inside ``v_scf`` and ``deband`` takes it out of the
+            one-electron term, so adding the whole ``E_f`` back is what leaves
+            the electrons' and the ions' energy in the field counted once.
 
     Returns a dict whose non-underscored entries sum to the total energy, in
     the shape ``SCFResult.energy_terms`` uses, plus ``_field_energy``, which is
@@ -232,6 +239,8 @@ def ultracell_energy(
         terms["one_center_paw"] = float(onecentre)
     if dispersion:
         terms["dispersion"] = float(dispersion)
+    if efield is not None:
+        terms["efield"] = float(efield)
     if entropy:
         terms["smearing"] = float(entropy)
     terms["_field_energy"] = field_energy

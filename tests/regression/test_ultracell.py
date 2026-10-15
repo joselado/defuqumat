@@ -1102,12 +1102,14 @@ def test_the_hubbard_refusal_fires(tmp_path, pseudo_dir):
 
 
 def test_the_refusals_name_themselves():
-    """Every regime stage 1 has not been measured in is refused by name."""
+    """Every functional regime the box has not been measured in is refused by name."""
     from defuqumat.ultracell.potential import require_an_ultracell_functional
     from defuqumat.xc.functional import get_functional
 
+    # A GGA runs at nspin = 1 and 2 (``test_ultracell_regimes.py``); on a
+    # noncollinear magnetization its local-frame rotation is not measured.
     with pytest.raises(NotImplementedError, match="gradient-corrected"):
-        require_an_ultracell_functional(get_functional("PBE"))
+        require_an_ultracell_functional(get_functional("PBE"), nspin_mag=4)
 
     # and the meta-GGA branch, which refuses for a different reason: tau is a
     # property of the states, not of the density the ultracell loop carries.
@@ -1203,18 +1205,22 @@ def test_the_collinear_field_carries_add_bfields_own_sign():
 
 @pytest.mark.slow
 def test_a_field_converged_ground_state_is_refused(tmp_path, pseudo_dir):
-    """The frozen eigenvalues would carry a Zeeman term ``dV`` does not.
+    """A penalty-converged reference: its field is not a fixed potential.
 
-    ``dV`` is rebuilt here from the density alone, where the eigenvalues the
-    matrix diagonal is made of were converged under whatever field the SCF
-    *ended* with -- which ``reducebf`` and the fixed-spin-moment scheme both
-    make different from the input. The difference is a rigid shift between the
-    channels, and an ultracell would report it as a modulation.
+    An applied field and a feedback scheme's converged field are carried
+    (``test_ultracell_regimes.py``): their potential is the same at every
+    density, so it is tiled and cancels out of ``dV`` as ``vltot`` does. A
+    penalty's potential is ``lambda (m - m_target)`` and moves with the
+    magnetization, so holding the converged one fixed would be a different
+    functional from the supercell's under the same constraint.
     """
+    import types
+
     calculator = _silicon(tmp_path, pseudo_dir, (2, 2, 2))
     scf = calculator.get_scf(conv_thr=1e-10, nbnd=8)
-    under_field = _Overridden(scf, magnetic_field=object())
-    with pytest.raises(NotImplementedError, match="converged under a magnetic"):
+    under_field = _Overridden(
+        scf, magnetic_field=types.SimpleNamespace(constraint="total"))
+    with pytest.raises(NotImplementedError, match="penalty constraint"):
         run_ultracell(
             calculator.system, calculator.pseudos, under_field, (2, 1, 1),
             (1, 2, 2), nbnd=8, conv_thr=1e-8,
