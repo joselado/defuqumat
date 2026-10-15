@@ -39,10 +39,10 @@ import warnings
 import numpy as np
 
 from defuqumat.basis.builder import build_basis
-from defuqumat.basis.gvectors import refuse_gamma_storage
 from defuqumat.basis.fft import r_to_g
 from defuqumat.basis.sample import sample_coefficients, sample_wavefunctions
-from defuqumat.scf.driver import Calculation, gamma_storage_is_consumable
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.stm.image import (
     STMImage,
     constant_current_height,
@@ -158,20 +158,11 @@ def run_stm(
     refuse_an_ultracell_result(
         result, "an STM image", "defuqumat.workflows.ultracell.run_ultracell_stm")
     _refuse_what_has_no_fermi_level(system, result)
-    # A real-space wavefunction from a half sphere loses the conjugate half and
-    # gains a spurious imaginary part, and nothing downstream notices.
-    #
-    # **The test is whether the run *consumed* the storage, not whether the
-    # input asked for it.** An ultrasoft or symmetric ``K_POINTS gamma`` run is
-    # substituted to an explicit k = 0 before the SCF starts
-    # (``_without_gamma_storage``), so its states are on the whole sphere and
-    # there is nothing here to refuse; reading ``system.kpoints.gamma_only``
-    # would stop a run whose wavefunctions are perfectly good.
-    refuse_gamma_storage(
-        gamma_storage_is_consumable(system, pseudos), "an STM image",
-        "psi(r) is evaluated as a bare sum over the stored k + G list "
-        "(basis/sample.py)",
-    )
+    # Gamma-only storage needs nothing here. The image is the tunnelling
+    # density built by the calculation's own density routine, which on a half
+    # sphere is ``sum_band``'s ``g_to_r_gamma`` (the SCF's), and it is sampled
+    # from that density's coefficients on the dense set, which is never halved;
+    # ``basis/sample.py``'s ``psi(r)`` is the spectrum's route, not this one.
 
     if kpoints is None and grid is not None:
         kpoints = denser_grid(system, grid, shift)
@@ -345,11 +336,6 @@ def run_sts(
         result, "a tunnelling spectrum",
         "defuqumat.workflows.ultracell.run_ultracell_sts")
     _refuse_what_has_no_fermi_level(system, result)
-    refuse_gamma_storage(
-        gamma_storage_is_consumable(system, pseudos), "a tunnelling spectrum",
-        "psi(r) is evaluated as a bare sum over the stored k + G list "
-        "(basis/sample.py)",
-    )
     _refuse_a_window_under_an_axis(bias, mode)
 
     from defuqumat.workflows.transport import (
@@ -391,6 +377,9 @@ def run_sts(
             "result carries none: run the SCF without discarding them, or pass "
             "a grid so the bands are re-solved"
         )
+    # ``psi(r)`` below is a bare sum over the k + G list (``basis/sample.py``),
+    # so a half sphere is put on the whole one first (``scf/whole_sphere.py``).
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
     _refuse_a_reduced_k_set(calculation.system)
     axis_energies, fermi = _spectrum_energies(energies, levels)

@@ -82,12 +82,12 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.basis.fft import g_to_r, r_to_g
-from defuqumat.basis.gvectors import refuse_gamma_storage
 from defuqumat.batching import map_k, sum_bands, sum_k
 from defuqumat.response.walk import (
     chunk_size, padded, row_leaves, store_rows, walk, with_rows,
 )
 from defuqumat.scf.occupations import smearing_order, w0gauss
+from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.system.kpoints import is_reduced
 
 __all__ = [
@@ -232,14 +232,9 @@ def require_a_transverse_regime(calculation) -> None:
         needs the grid to be closed anyway. Run with ``nosym`` and ``noinv``.
     """
     system = calculation.system
-    refuse_gamma_storage(
-        bool(getattr(calculation, "gamma_only", False)),
-        "a transverse spin susceptibility",
-        "the pair densities are formed with the full-sphere g_to_r over a "
-        "stored half sphere, which is the refusal its unpolarized sibling "
-        "chi0.py already carries -- a magnon spectrum would come back "
-        "plausible and wrong"
-    )
+    # Gamma-only storage is not refused: :func:`transverse_response` puts the
+    # states on the whole sphere before its full-sphere ``g_to_r``, as the
+    # unpolarized ``chi0.py`` does (``scf/whole_sphere.py``).
     if calculation.is_paw:
         raise NotImplementedError(
             "a transverse spin susceptibility with a PAW dataset is not "
@@ -461,6 +456,7 @@ def transverse_response(
             majority direction, and the cheap way to find out is to look.
     """
     require_a_transverse_regime(calculation)
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
     # The states stay where they are, a streamed store in host memory or a
     # device array, and cross to the device a k-chunk at a time below.

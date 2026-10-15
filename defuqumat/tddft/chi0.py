@@ -128,11 +128,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.basis.fft import g_to_r, r_to_g
-from defuqumat.basis.gvectors import refuse_gamma_storage
 from defuqumat.batching import (
     map_axis, map_windows, resolve_pair_batch, resolve_w_batch, sum_k,
 )
 from defuqumat.response.velocity import VelocityOperator
+from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.response.walk import (
     chunk_size, padded, row_leaves, store_rows, walk, with_rows,
 )
@@ -308,9 +308,11 @@ def require_a_sum_over_states_regime(calculation) -> None:
         the kernel acquires spin components (Elk's ``nscfxc``, and a separate
         routine ``tddftsplr.f90``).
     gamma-only storage
-        the pair densities go through the **full-sphere** ``g_to_r``, and the
-        stored half sphere is not the whole one. See
-        :func:`~defuqumat.basis.gvectors.refuse_gamma_storage`.
+        **not refused**: the pair densities go through the full-sphere
+        ``g_to_r`` and ``dH/dk`` leaves the half sphere, so
+        :func:`independent_response` puts the states on the whole sphere first
+        (:func:`~defuqumat.scf.whole_sphere.unfold_gamma_states`), and the
+        workflow moves the calculation there before its fixed-density solve.
     a reduced k-set
         ``genvchi0`` sums the **full** non-reduced grid, and so does this.
         Symmetrising ``chi_0(G, G')`` on a wedge is a rotation in *two* G
@@ -319,14 +321,6 @@ def require_a_sum_over_states_regime(calculation) -> None:
         does not apply here, because nothing is being symmetrised.
     """
     system = calculation.system
-    refuse_gamma_storage(
-        bool(getattr(calculation, "gamma_only", False)),
-        "a sum-over-states chi_0",
-        "the pair densities are formed by transforming the states with the "
-        "full-sphere g_to_r, so an optical spectrum of a molecule in a box -- "
-        "the archetypal gamma case -- would be built from wrong real-space "
-        "states",
-    )
     if calculation.is_ultrasoft or calculation.is_paw:
         raise NotImplementedError(
             "a sum-over-states chi_0 with an ultrasoft or PAW pseudopotential "
@@ -462,6 +456,10 @@ def independent_response(
         nothing to put back.
     """
     require_a_sum_over_states_regime(calculation)
+    # A half sphere's pair densities through the full-sphere ``g_to_r`` lose
+    # the conjugate half, and ``dH/dk`` is not a real operator; both are the
+    # full-sphere ones on the unfolded states (``scf/whole_sphere.py``).
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
     # The states stay where they are, a streamed store in host memory or a
     # device array, and cross to the device a k-chunk at a time below.

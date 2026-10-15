@@ -50,7 +50,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from defuqumat.basis.gvectors import refuse_gamma_storage
 
 from defuqumat.batching import k_chunks, map_k
 from defuqumat.eager import compiled
@@ -58,6 +57,7 @@ from defuqumat.hubbard.projectors import build_atomic_projectors
 from defuqumat.paw.symmetry import harmonic_rotations
 from defuqumat.projwfc.channels import AtomicChannel, projection_channels
 from defuqumat.scf.streaming import is_host_store
+from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.system.symmetry import atom_mapping, spin_rotations
 
 #: How much of the atomic projector set memory mode builds at once, bytes: a
@@ -256,12 +256,12 @@ def atomic_projections(
         raise ValueError(
             f"unknown projector set {kind!r}; expected one of {PROJECTION_KINDS}"
         )
-    refuse_gamma_storage(
-        bool(getattr(calculation, "gamma_only", False)),
-        "the projected density of states",
-        "<phi|S|psi> here is a plain sum over the stored k + G list, so a "
-        "Loewdin charge comes out at roughly a quarter of its value",
-    )
+    # ``<phi|S|psi>`` below is a plain sum over the k + G list, which on a
+    # half sphere puts a Loewdin charge at roughly a quarter of its value; the
+    # states and the projectors are therefore put on the whole sphere first,
+    # where that sum is the ``2 Re(sum) - G0`` one by construction
+    # (:mod:`defuqumat.scf.whole_sphere`).
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
     system = calculation.system
     noncolin = bool(system.noncolin)
     lspinorb = bool(getattr(system, "lspinorb", False))

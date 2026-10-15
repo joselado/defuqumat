@@ -457,23 +457,16 @@ def test_the_transcribed_force_and_stress_refuse_gamma_storage(entry, term):
     assert "gamma" not in str(raised.value)
 
 
-@pytest.mark.parametrize(
-    "entry, sibling",
-    [
-        ("angular_momenta", "projwfc/projections.py"),
-        ("spin_chi0", "tddft/chi0.py"),
-    ],
-)
-def test_two_more_consumers_refuse_gamma_storage(entry, sibling):
-    """Each has a sibling one file over that carries the rule, and did not.
+@pytest.mark.parametrize("entry", ["angular_momenta", "spin_chi0"])
+def test_two_more_consumers_take_gamma_storage_and_keep_their_siblings(entry):
+    """Gamma storage is unfolded now, and the regime refusals beside it stand.
 
-    ``projwfc/projections.py`` refuses gamma storage for the projected density
-    of states, and the site-resolved ``<L>``, ``<S>`` and ``<J>`` build their
-    projectors through ``build_atomic_projectors`` instead, never reaching that
-    guard. ``tddft/chi0.py`` refuses it for the unpolarized ``chi_0``, and its
-    spin-polarized twin did not. In both the wrong answer is the plausible one
-    -- a Loewdin charge at a quarter of its value, a magnon that is merely in
-    the wrong place -- which is what a refusal is for.
+    The site-resolved ``<L>``, ``<S>`` and ``<J>`` and the transverse ``chi_0``
+    used to refuse a half sphere here; both now put the states on the whole
+    sphere before their contraction (``scf/whole_sphere.py``,
+    ``tests/regression/test_gamma_consumers.py`` for the numbers). What must
+    not have gone with that refusal is the next one in each guard: a spin
+    spiral for the angular momenta, a PAW dataset for the magnon.
     """
     import types
 
@@ -481,37 +474,26 @@ def test_two_more_consumers_refuse_gamma_storage(entry, sibling):
         from defuqumat.projwfc.angular_momentum import (
             _refuse_what_is_not_written as guard,
         )
-        stub = types.SimpleNamespace(gamma_only=True, spiral=None)
+        gamma = types.SimpleNamespace(gamma_only=True, spiral=None, pseudos=(),
+                                      projectors=types.SimpleNamespace(qq=None))
+        sibling = types.SimpleNamespace(gamma_only=True, spiral=object())
+        word = "spiral"
     else:
         from defuqumat.tddft.spinchi0 import require_a_transverse_regime as guard
 
-        stub = types.SimpleNamespace(
-            gamma_only=True, is_paw=False, is_ultrasoft=False, spiral=None,
+        gamma = None  # the remaining checks read a whole calculation
+        sibling = types.SimpleNamespace(
+            gamma_only=True, is_paw=True, is_ultrasoft=False, spiral=None,
             is_hubbard=False, nspin=2, system=types.SimpleNamespace(),
         )
+        word = "PAW"
 
+    if gamma is not None:
+        guard(gamma)  # silent: nothing about the storage is refused
     with pytest.raises(NotImplementedError) as raised:
-        guard(stub)
-    assert "gamma-only storage" in str(raised.value)
-    assert "K_POINTS automatic, 1 1 1 0 0 0" in str(raised.value)
-
-    # The sibling that already carried the rule, named so the pair is on record.
-    from pathlib import Path as _Path
-
-    root = _Path(__file__).resolve().parents[2] / "defuqumat"
-    assert "refuse_gamma_storage(" in (root / sibling).read_text(), sibling
-
-    # ...and silent on an ordinary run, or the guard is not a guard.
-    if entry == "angular_momenta":
-        ordinary = types.SimpleNamespace(gamma_only=False, spiral=object())
-    else:
-        ordinary = types.SimpleNamespace(
-            gamma_only=False, is_paw=True, is_ultrasoft=False, spiral=None,
-            is_hubbard=False, nspin=2, system=types.SimpleNamespace(),
-        )
-    with pytest.raises(NotImplementedError) as raised:
-        guard(ordinary)
-    assert "gamma" not in str(raised.value)
+        guard(sibling)
+    assert word in str(raised.value)
+    assert "gamma-only storage" not in str(raised.value)
 
 
 def test_the_conductivity_forwards_tau_to_both_potential_builds():

@@ -194,34 +194,124 @@ def test_a_hubbard_run_cannot_consume_the_half_sphere():
     assert gamma_storage_is_consumable(plain, ())
 
 
-def test_the_post_scf_consumers_refuse_the_half_sphere_by_name():
-    """The other three are after the run, so a refusal is enough.
+def test_the_refusal_helper_still_fires_for_the_consumers_left_with_it():
+    """``refuse_gamma_storage`` stays for the transcribed force and stress.
 
-    Each has a full-sphere sibling that is an *exact* substitution -- the same
-    cell as an explicit single k-point at the origin -- so the refusal costs a
-    factor of two in storage and nothing in physics.
+    The post-SCF consumers that used to call it -- the projected density of
+    states, the site angular momenta, both ``chi_0`` and the tunnelling
+    spectrum and transmissions -- put the states on the whole sphere instead
+    (``scf/whole_sphere.py``), which the next two tests pin.
     """
     from defuqumat.basis.gvectors import refuse_gamma_storage
 
     refuse_gamma_storage(False, "anything", "on the whole sphere")  # silent
     with pytest.raises(NotImplementedError, match="2 Re"):
-        refuse_gamma_storage(True, "the projected density of states", "...")
+        refuse_gamma_storage(True, "the transcribed force", "...")
 
 
-@pytest.mark.parametrize("module,function", [
-    ("defuqumat.projwfc.projections", "atomic_projections"),
-    ("defuqumat.tddft.chi0", "require_a_sum_over_states_regime"),
-    ("defuqumat.workflows.transport", "run_vertical_transport"),
-    ("defuqumat.workflows.stm", "run_stm"),
+@pytest.mark.parametrize("module,function,helper", [
+    ("defuqumat.projwfc.projections", "atomic_projections", "unfold_gamma_states"),
+    ("defuqumat.projwfc.angular_momentum", "angular_momenta", "unfold_gamma_states"),
+    ("defuqumat.tddft.chi0", "independent_response", "unfold_gamma_states"),
+    ("defuqumat.tddft.spinchi0", "transverse_response", "unfold_gamma_states"),
+    ("defuqumat.workflows.tddft", "run_absorption", "whole_sphere_calculation"),
+    ("defuqumat.workflows.magnons", "run_spin_susceptibility",
+     "whole_sphere_calculation"),
+    ("defuqumat.workflows.magnons", "run_magnon_dispersion",
+     "whole_sphere_calculation"),
+    ("defuqumat.workflows.stm", "run_sts", "unfold_gamma_states"),
+    ("defuqumat.workflows.transport", "run_vertical_transport",
+     "unfold_gamma_states"),
+    ("defuqumat.workflows.transport", "run_momentum_transport",
+     "unfold_gamma_states"),
 ])
-def test_each_named_consumer_calls_the_guard(module, function):
-    """A set difference, not a read-through: the four sites are named here so a
-    fifth consumer added later has to be argued about rather than forgotten."""
+def test_each_named_consumer_unfolds_the_half_sphere(module, function, helper):
+    """A set difference, not a read-through: the consumers are named here so a
+    new one added later has to be argued about rather than forgotten.
+    ``run_stm`` is not in the list on purpose: its image is the density
+    routine's, which carries ``g_to_r_gamma`` itself."""
     import importlib
     import inspect
 
     source = inspect.getsource(getattr(importlib.import_module(module), function))
-    assert "refuse_gamma_storage" in source
+    assert helper + "(" in source
+    assert "refuse_gamma_storage" not in source
+
+
+def test_the_unfolded_states_are_the_half_sphere_states(pseudo_dir):
+    """The conjugate half written out is the ``2 Re(sum) - G0`` rule exactly.
+
+    No SCF: random coefficients on a gamma calculation's half sphere, with
+    ``Im c(0) = 0`` as ``force_real_g0`` leaves it, against the three primitives
+    that already carry the rule. The field from the unfolded states through the
+    ordinary ``g_to_r`` is the half sphere's ``g_to_r_gamma``, and the overlap
+    on the whole sphere is ``gamma_inner``; the streamed (host) store gives the
+    device result.
+    """
+    import warnings
+
+    from defuqumat.calculator import Calculator
+    from defuqumat.scf.whole_sphere import unfold_gamma_states
+
+    text = """
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 2, celldm(1) = 10.2, nat = 2, ntyp = 1, ecutwfc = 12.0
+  nosym = .true., nspin = 2, starting_magnetization(1) = 0.1,
+  occupations = 'smearing', degauss = 0.02
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-vbc.UPF
+ATOMIC_POSITIONS crystal
+ Si 0.00 0.00 0.00
+ Si 0.26 0.24 0.25
+K_POINTS gamma
+"""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        calculation = Calculator.from_text(text, pseudo_dir,
+                                           announce=False).calculation
+    assert calculation.gamma_only
+    mask = np.asarray(calculation.basis.planewaves.mask)
+    rng = np.random.default_rng(7)
+    shape = (2, 1, 3, mask.shape[1])
+    half = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+    half = np.where(mask[None, :, None, :], half, 0.0)
+    half[..., 0] = half[..., 0].real
+    half = jnp.asarray(half)
+
+    full, states = unfold_gamma_states(calculation, half)
+    assert not full.gamma_only
+    full_mask = np.asarray(full.basis.planewaves.mask)
+    assert int(full_mask.sum()) == 2 * int(mask.sum()) - 1
+    assert states.shape == (2, 1, 3, full_mask.shape[1])
+
+    grid = calculation.basis.smooth.grid
+    reference = g_to_r_gamma(half[:, 0], calculation.fft_index[0],
+                             calculation.fft_index_minus[0], grid)
+    field = g_to_r(states[:, 0], full.fft_index[0], grid)
+    scale = float(jnp.abs(reference).max())
+    assert float(jnp.abs(field.imag).max()) < 1e-13 * scale
+    assert float(jnp.abs(field.real - reference).max()) < 1e-13 * scale
+
+    overlap_half = gamma_inner(half[0, 0][:, None, :], half[0, 0][None, :, :], True)
+    overlap_full = jnp.sum(states[0, 0][:, None, :].conj()
+                           * states[0, 0][None, :, :], axis=-1)
+    assert float(jnp.abs(overlap_full.imag).max()) < 1e-12
+    np.testing.assert_allclose(np.asarray(overlap_full.real),
+                               np.asarray(overlap_half), atol=1e-12)
+
+    _, host = unfold_gamma_states(calculation, np.asarray(half))
+    assert isinstance(host, np.ndarray)
+    np.testing.assert_array_equal(host, np.asarray(states))
+
+    # ... and a whole-sphere calculation passes through untouched.
+    same, untouched = unfold_gamma_states(full, states)
+    assert same is full and untouched is states
 
 
 # -- trap 1: abs and sqrt at a zero symmetry forces --------------------------

@@ -45,9 +45,9 @@ import warnings
 import numpy as np
 
 from defuqumat.basis.builder import build_basis
-from defuqumat.basis.gvectors import refuse_gamma_storage
 from defuqumat.basis.sample import sample_wavefunctions
-from defuqumat.scf.driver import Calculation, gamma_storage_is_consumable
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.stm.plane import PlotPlane
 from defuqumat.workflows.stm import refuse_an_ultracell_result
 from defuqumat.transport.green import (
@@ -194,20 +194,6 @@ def run_vertical_transport(
     Returns a :class:`~defuqumat.transport.green.VerticalTransport`.
     """
     _refuse_what_has_no_fermi_level(system, result)
-    # A real-space wavefunction from a half sphere loses the conjugate half and
-    # gains a spurious imaginary part, and nothing downstream notices.
-    #
-    # **The test is whether the run *consumed* the storage, not whether the
-    # input asked for it.** An ultrasoft or symmetric ``K_POINTS gamma`` run is
-    # substituted to an explicit k = 0 before the SCF starts
-    # (``_without_gamma_storage``), so its states are on the whole sphere and
-    # there is nothing here to refuse; reading ``system.kpoints.gamma_only``
-    # would stop a run whose wavefunctions are perfectly good.
-    refuse_gamma_storage(
-        gamma_storage_is_consumable(system, pseudos), "the vertical tunnelling transmission",
-        "psi(r) is evaluated as a bare sum over the stored k + G list "
-        "(basis/sample.py)",
-    )
     if method.strip().lower() == "resolvent":
         warnings.warn(
             "method='resolvent' is the exact Landauer denominator and a "
@@ -269,6 +255,11 @@ def run_vertical_transport(
             "carries none: run the SCF without discarding them, or pass a grid "
             "so the bands are re-solved"
         )
+    # ``psi(r)`` and the exit-plane Gram matrix are bare sums over the k + G
+    # list (``basis/sample.py``, ``transport/substrate.py``), so a half sphere
+    # -- the run's own states under ``K_POINTS gamma`` -- is put on the whole
+    # one first (``scf/whole_sphere.py``). A re-solved k-set is already whole.
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
     used = calculation.system
     _refuse_a_k_set_this_cannot_sum(used, exit_axis)
@@ -436,12 +427,6 @@ def run_momentum_transport(
         "one number per ultracell k0 and the question worth asking is which Q "
         "the current leaves through")
     _refuse_what_has_no_fermi_level(system, result)
-    refuse_gamma_storage(
-        gamma_storage_is_consumable(system, pseudos),
-        "the momentum-resolved tunnelling weight",
-        "the exit-plane Gram matrix is a sum over the stored k + G list and a "
-        "half sphere is missing its conjugate partner (transport/substrate.py)",
-    )
     if method.strip().lower() == "resolvent":
         warnings.warn(
             "method='resolvent' is the exact Landauer denominator and a "
@@ -507,6 +492,11 @@ def run_momentum_transport(
             "result carries none: run the SCF without discarding them, or pass "
             "a grid so the bands are re-solved"
         )
+    # ``psi(r)`` and the exit-plane Gram matrix are bare sums over the k + G
+    # list (``basis/sample.py``, ``transport/substrate.py``), so a half sphere
+    # -- the run's own states under ``K_POINTS gamma`` -- is put on the whole
+    # one first (``scf/whole_sphere.py``). A re-solved k-set is already whole.
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
     sweep = np.atleast_1d(np.asarray(height, dtype=float))
     if sweep.ndim != 1 or sweep.size == 0:
