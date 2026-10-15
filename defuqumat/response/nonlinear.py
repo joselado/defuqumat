@@ -452,6 +452,11 @@ def raman_tensors(
             documents: a diverged first-order solution consumed by a *third*
             derivative is wrong at first order, not at second.
         response_options: passed to the two self-consistent responses.
+            **One ``tr2`` reaches both loops**, and their defaults differ: the
+            field's is :func:`~defuqumat.response.efield.default_tr2` (1e-14 in
+            a bulk cell) and the
+            displacements' :data:`~defuqumat.response.phonon.TR2` (1e-18, since
+            2026-10-15), so a ``tr2`` given here moves both to that value.
     """
     require_a_symmetrisable_response(calculation)
     require_a_sternheimer_regime(calculation)

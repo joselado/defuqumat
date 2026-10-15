@@ -159,14 +159,27 @@ __all__ = ["Phonons", "DisplacementResponse", "dynamical_matrix",
 #: rather than a value each system has to be tuned to.
 ALPHA_MIX = 0.7
 
-#: ``ph.x``'s ``tr2_ph``, in its units (:data:`defuqumat.response.efield.TR2` says
-#: what they are). The test here is the **largest single-mode** ``|ddv_scf|^2``
-#: below ``tr2 / npol``, which is ``ph.x``'s test for a one-dimensional
-#: irreducible representation and never looser than its test for a larger one:
-#: this loop mixes every mode together where ``ph.x`` mixes a representation at a
-#: time, and a test over the joint vector would loosen the per-mode one by
-#: ``(3 nat)^2``. A subset run (``atoms=``) tests over the modes it solves.
-TR2 = 1.0e-14
+#: The loop's stop, in the units of ``ph.x``'s ``tr2_ph``
+#: (:data:`defuqumat.response.efield.TR2` says what they are). The test here is
+#: the **largest single-mode** ``|ddv_scf|^2`` below ``tr2 / npol``, which is
+#: ``ph.x``'s test for a one-dimensional irreducible representation and never
+#: looser than its test for a larger one: this loop mixes every mode together
+#: where ``ph.x`` mixes a representation at a time, and a test over the joint
+#: vector would loosen the per-mode one by ``(3 nat)^2``. A subset run
+#: (``atoms=``) tests over the modes it solves.
+#:
+#: **1e-18, four orders below ``ph.x``'s 1e-14**, the user's decision of
+#: 2026-10-15 (``OPEN.md`` Part XXVII item 1, ``PLAN.md`` P149): the acoustic
+#: residue is a 1e-4 fraction of the force constants and is the first number a
+#: loop that stops early moves. On ``docs/figures/phonons_silicon_q/si.in`` it
+#: reads 5.68 cm^-1 at 1e-14 and 4.326 at 1e-18, against 4.325 from a finite
+#: difference of the energy, for 9 passes against 6; the optical mode moves by
+#: 1.5e-3 cm^-1. **``tr2=1e-14`` is ``ph.x``'s stop** and is what to pass for a
+#: like-for-like comparison with ``ph.x``; every P24 and P25 number before
+#: 2026-10-15 was taken there. The CG schedule stays the bare one
+#: (:func:`~defuqumat.response.sternheimer.pass_threshold`, uncapped), measured
+#: to reach 1e-18 on every cell the phonon tests build (P149's note).
+TR2 = 1.0e-18
 
 MAX_ITERATIONS = 60
 
@@ -314,7 +327,10 @@ def dynamical_matrix(
             sternheimer.pass_threshold`); a number holds that threshold on every
             pass (:func:`~defuqumat.response.efield.dielectric_tensor` says when
             that is wanted).
-        tr2: ``ph.x``'s ``tr2_ph``, in its units (:data:`TR2`).
+        tr2: the loop's stop on ``|ddv_scf|^2``, in the units of ``ph.x``'s
+            ``tr2_ph``. The default, :data:`TR2` (1e-18), converges the acoustic
+            residue; ``tr2=1e-14`` is ``ph.x``'s own stop, for a like-for-like
+            comparison with it.
         acoustic_sum_rule: whether to impose ``sum_b D_(a i)(b j) = 0`` before
             diagonalising. **Off by default, because ``ph.x`` does not impose
             it** and the residue is the diagnostic described in
