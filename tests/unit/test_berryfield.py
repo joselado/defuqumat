@@ -322,3 +322,12 @@ def test_a_host_store_walked_in_chunks_is_the_whole_set():
         for ik in (9, 4):
             np.testing.assert_allclose(np.asarray(chunk.apply(x, ik)),
                                        np.asarray(whole.apply(x, ik)), atol=1e-13)
+
+
+def test_efield_cart_against_a_reversed_axis_is_refused():
+    """``efield_cry`` is ``E . a_g/|a_g|``: a lattice vector along ``-x`` would flip the field."""
+    text = _INPUT.format(extra=", efield_cart(1)=0.001", kpoints="automatic\n2 2 2 0 0 0\n")
+    text = text.replace("ibrav=1, celldm(1)=10.0", "ibrav=0").replace(
+        "ATOMIC_SPECIES", "CELL_PARAMETERS bohr\n-10.0 0.0 0.0\n0.0 10.0 0.0\n0.0 0.0 10.0\nATOMIC_SPECIES")
+    with pytest.raises(NotImplementedError, match="opposite sign"):
+        build_system(parse_pw_input(text))

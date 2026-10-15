@@ -2407,6 +2407,11 @@ def _require_an_orthogonal_axis(cell: Cell, gdir: int) -> None:
             f"efield_cart along Cartesian axis {gdir + 1} on this cell is not "
             "implemented: another lattice vector has a component along it, so "
             "pw.x's efield_cry puts the field on more than one string set (l3dstring)")
+    if at[gdir, gdir] <= 0.0:
+        raise NotImplementedError(
+            f"efield_cart along Cartesian axis {gdir + 1} with a_{gdir + 1} pointing "
+            "against that axis is not implemented: pw.x's efield_cry is the field "
+            "projected on a_gdir/|a_gdir|, so it would act with the opposite sign")
 
 
 def _berry_strings_as_a_list(pwin: PwInput, gdir: int) -> PwInput:
