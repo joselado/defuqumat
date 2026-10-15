@@ -7109,10 +7109,6 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
 #: (``PLAN.md`` P129: NbSe2 10 against 9), so no film is told from a monolayer.
 ROBUST_VACUUM = 0.3
 
-#: After a rejected trial, whether the next one halves the kept input's own step
-#: (``'kept'``) or the inner mixer's new proposal, made with the rejected pair in
-#: its history (``'new'``). Read from ``DEFUQUMAT_ROBUST_RETRY``, for the A/B.
-ROBUST_RETRY = os.environ.get("DEFUQUMAT_ROBUST_RETRY", "kept")
 
 
 def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
@@ -9181,14 +9177,18 @@ def run_scf(
                 # while a supervisor that discarded the pair half-stepped to 0.53
                 # and never caught up (D22, 2026-10-16). This overrides the plan
                 # review's decision 2 on that measurement. The trial is still not
-                # the reference: the next one is cut back from the kept input.
+                # the reference: the next one is the mixer's new proposal, made
+                # with the pair in its history, cut back from the kept input.
+                # Measured against halving the kept input's old step instead
+                # (D22, 2026-10-16): the four-cell cobalt helix at 1.0 took 34
+                # against 63, fe-unstable at 0.1 20 against 24, graphene at 0.1
+                # 19 against 21, and the cobalt film at 0.1 55 either way.
                 rejected_proposal = _mix(
                     mixer, rho, rho_out, becsum_state, becsum_out,
                     ns_state if calculation.is_hubbard else None,
                     ns_out if calculation.is_hubbard else None,
                 )
-                following = supervisor.retry(
-                    rejected_proposal if ROBUST_RETRY == "new" else None)
+                following = supervisor.retry(rejected_proposal)
             history[-1]["merit"] = merit
             history[-1]["supervisor"] = supervisor.record
             if verbose:

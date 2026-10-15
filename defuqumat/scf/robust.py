@@ -234,13 +234,20 @@ class Supervisor:
         ``state`` and ``proposal`` are ``(rho, becsum, ns, tau)``, the input
         just diagonalised and what the inner mixer returned from it at its own
         damping. The next trial is the proposal at the current scale, which
-        grows back towards the mixer's own step after a step that was not cut.
+        doubles back towards the mixer's own step after every kept input, and
+        returns to it at once after one kept at the floor.
         """
         if self._last.get("reason") == "floor":
             self._floored += 1
+            # A step cut to the floor and kept says the smaller steps bought
+            # nothing, so the next trial is the mixer's own again. Without this
+            # the scale never recovered: on the PAW nickel cell under a
+            # Gaussian the run sat at a residual of 3.3e-8 for sixty iterations
+            # with every trial a 1e-5 fraction of a step, each the kept input to
+            # within its own noise and so rejected (D22, 2026-10-16).
+            self.scale = 1.0
         else:
             self._floored = 0
-        if self.cuts == 0:
             self.scale = min(1.0, 2.0 * self.scale)
         self.cuts = 0
         self._kept, self._proposal = state, proposal
