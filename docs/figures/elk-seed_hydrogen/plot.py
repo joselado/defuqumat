@@ -16,7 +16,7 @@ def draw():
                 label="converged, pseudopotential")
         ax.set_xlabel("distance from the atom (bohr)")
         ax.set_title(title, color=style.ink())
-        ax.set_xlim(0.0, r.max())
+        ax.set_xlim(-0.04 * r.max(), 1.04 * r.max())
     a.set_ylabel(r"$\rho$ (e/bohr$^3$)")
     a.set_ylim(0.0, None)
     a.legend()
