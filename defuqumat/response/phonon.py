@@ -433,6 +433,16 @@ def dynamical_matrix(
     streamed = response is None and _streams(
         calculation, wavefunctions, keep_internals=False,
         what="the dynamical matrix")
+    if streamed and chosen is not None and calculation.use_symmetry:
+        # The closed-subset symmetrisation is threaded through
+        # :class:`~defuqumat.response.chunked_phonon.StreamedDisplacements` but
+        # was measured only on the whole-k route (``notes/incompat/I51.md``).
+        raise NotImplementedError(
+            "a partial dynamical matrix with symmetry is validated on the "
+            "whole-k route only, and this run walks the k axis a chunk at a "
+            "time: switch symmetry off (nosym = .true.), or use a memory mode "
+            "that holds the whole mesh"
+        )
     weights, _ = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
     nocc = occupied_counts(calculation)
