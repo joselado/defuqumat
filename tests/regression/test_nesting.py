@@ -253,3 +253,76 @@ def test_a_cell_with_no_magnetization_nests_the_same_in_every_spin_regime():
         assert np.max(np.abs(nesting.nesting - reference.nesting)) < tolerance * scale, label
         assert nesting.fermi_dos == pytest.approx(reference.fermi_dos, rel=tolerance)
         jax.clear_caches()
+
+
+# -- two Fermi levels: a constrained moment ------------------------------------
+
+
+def test_a_constrained_moment_nests_each_channel_at_its_own_level(
+    qe_testsuite, pseudo_dir
+):
+    """Nickel at ``tot_magnetization = 2``, ``pw_lsda``'s own input.
+
+    The magnetization is constrained, so ``pw.x`` finds one Fermi level per
+    channel, and ``g(k)`` is each channel's delta at its own level. Three
+    statements, on the run's own shifted 4x4x4 mesh:
+
+    * the two levels the nesting function was built at are ``pw.x``'s, 19.9663
+      and 14.2955 eV on line 302 of the committed benchmark, to ``FERMI_EV``.
+      The scalar such a run prints is their mean, which neither channel sits
+      at, and it is what ``run_nesting`` would have read before;
+    * ``(1/N_k) sum_k g(k)`` on the unfolded grid is ``compute_dos`` on the
+      wedge, channel by channel at each channel's own level, summed;
+    * the wedge, reduced with the magnetic group, and the complete grid give the
+      same ``N(q)``. The chain of the spin-regime test above runs at zero
+      magnetization, so this is the first magnetic cell the unfold meets.
+    """
+    from defuqumat.io import read_qe_output
+    from defuqumat.units import RY_TO_EV
+    from tests.conftest import reference_output
+    from tests.tolerances import FERMI_EV
+
+    path = qe_testsuite / "pw_lsda" / "lsda-tot_magnetization.in"
+    system = build_system(read_pw_input(path))
+    assert system.two_fermi_energies
+    pseudos = tuple(
+        read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
+    )
+    result = run_scf(system, pseudos, conv_thr=1e-10, max_iterations=300)
+    reference = read_qe_output(
+        reference_output("pw_lsda", "lsda-tot_magnetization.in", qe_testsuite)
+    )
+
+    grid = (4, 4, 4)
+    wedge = run_nesting(system, pseudos, result.density, grid=grid)
+    up, down = wedge.fermi_energy_up, wedge.fermi_energy_down
+    print(f"levels {up * RY_TO_EV:.6f} {down * RY_TO_EV:.6f} eV, pw.x "
+          f"{reference.fermi_energy_up} {reference.fermi_energy_down}")
+    assert up * RY_TO_EV == pytest.approx(reference.fermi_energy_up, abs=FERMI_EV)
+    assert down * RY_TO_EV == pytest.approx(reference.fermi_energy_down, abs=FERMI_EV)
+    assert up - down > 0.3  # 5.7 eV apart: two distinct levels, not one
+    assert wedge.fermi_energy == pytest.approx(0.5 * (up + down))
+
+    kpoints = denser_grid(system, grid)
+    nscf = run_nscf(system, pseudos, result.density, kpoints, conv_thr=1e-8)
+    channels = np.asarray(nscf.eigenvalues_by_spin)
+    by_dos = sum(
+        float(np.asarray(compute_dos(
+            channels[s], kpoints.weights, jnp.asarray([level]), "gaussian",
+            degauss=wedge.degauss,
+        ).dos).ravel()[0])
+        for s, level in enumerate((up, down))
+    )
+    print(f"D(E_F) {wedge.fermi_dos!r} against compute_dos {by_dos!r}, "
+          f"rel {abs(wedge.fermi_dos / by_dos - 1):.3e}")
+    assert wedge.fermi_dos == pytest.approx(by_dos, rel=1e-9)
+
+    whole = run_nesting(system, pseudos, result.density, grid=grid, reduce=False)
+    scale = whole.nesting.max()
+    spread = np.max(np.abs(wedge.nesting - whole.nesting)) / scale
+    print(f"wedge against complete grid: {spread:.3e} of max N, levels "
+          f"{abs(whole.fermi_energy_up - up):.3e} {abs(whole.fermi_energy_down - down):.3e} Ry")
+    assert whole.fermi_energy_up == pytest.approx(up, abs=1e-8)
+    assert whole.fermi_energy_down == pytest.approx(down, abs=1e-8)
+    assert spread < 1e-8
+    assert abs(wedge.sum_rule) < 1e-10 * scale

@@ -90,7 +90,11 @@ def run_nesting(
             itself, which is the right one -- a Fermi surface resolved on one
             grid and a level found on another do not have to be consistent, and
             ``nesting.f90`` reads the stored ground-state level instead
-            (``readefm``).
+            (``readefm``). On a ``tot_magnetization`` run with a smearing each
+            channel has its own level and this is the pair ``(ef_up, ef_dw)``,
+            defaulting to the dense run's pair; a single number is refused
+            there, since the one scalar such a run reports is the mean of the
+            two and neither channel's surface sits at it.
 
     Returns:
         :class:`~defuqumat.response.nesting.NestingFunction`.
@@ -138,8 +142,26 @@ def run_nesting(
                     ns=ns, tau=tau, becsum=becsum, field=field,
                     field_scale=field_scale)
 
+    two_levels = bool(calculation.two_fermi_energies)
+    if fermi_energy is not None:
+        given = np.asarray(fermi_energy, dtype=float).ravel()
+        if two_levels and given.shape[0] != 2:
+            raise ValueError(
+                "this run constrains tot_magnetization, so each spin channel "
+                "has its own Fermi level: pass fermi_energy=(ef_up, ef_dw) in "
+                "Ry, not one number -- the scalar such a run prints is the "
+                "mean of the two, and neither channel's surface sits at it"
+            )
+        if not two_levels and given.shape[0] != 1:
+            raise ValueError(
+                "this run has one Fermi level shared by every channel: pass "
+                "fermi_energy as one number in Ry, not one per channel"
+            )
     level = fermi_energy
-    if level is None:
+    if level is None and two_levels:
+        if nscf.fermi_energy_up is not None:
+            level = (nscf.fermi_energy_up, nscf.fermi_energy_down)
+    elif level is None:
         level = nscf.fermi_energy if nscf.fermi_energy is not None else nscf.homo
     if level is None:
         raise NotImplementedError(

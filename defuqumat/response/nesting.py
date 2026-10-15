@@ -70,6 +70,7 @@ from defuqumat.scf.occupations import smearing_order, w0gauss
 __all__ = [
     "NestingFunction",
     "NESTING_METHODS",
+    "channel_weights",
     "fermi_surface_weights",
     "nesting_from_eigenvalues",
     "require_a_fermi_surface",
@@ -105,6 +106,11 @@ class NestingFunction:
     #: ``(1/N_q) sum_q N(q) - D(E_F)^2``, which is zero by construction and is
     #: carried so that the identity can be read rather than re-derived.
     sum_rule: float = 0.0
+    #: The channel levels in Ry when ``tot_magnetization`` gave each its own
+    #: (``ef_up``, ``ef_dw``); ``fermi_energy`` is then their mean, QE's printed
+    #: convention, and neither channel's delta sits at it.
+    fermi_energy_up: float | None = None
+    fermi_energy_down: float | None = None
 
     @property
     def nq(self) -> int:
@@ -172,13 +178,20 @@ class NestingFunction:
 
 
 def require_a_fermi_surface(calculation) -> None:
-    """Three refusals, each naming what is missing.
+    """Two refusals, each naming what is missing.
 
-    The nesting function is a statement about *one* Fermi surface, so what it
-    cannot take is a run that has no Fermi level or has two of them. The order
-    is by how specific the message is, not by how likely the case: a
-    ``tot_magnetization`` run is also a fixed-occupation one (``input.f90``
-    requires the pair), and the two-level statement is the informative half.
+    The nesting function is a statement about a Fermi surface, so what it
+    cannot take is a run that has no Fermi level, or a spiral, whose surface is
+    not the one the quantity is about.
+
+    **Two Fermi levels are not refused.** A ``tot_magnetization`` run with a
+    smearing (``input.f90``'s ``two_fermi_energies``) has one level per spin
+    channel, and ``g(k)`` is then each channel's delta at its *own* level,
+    summed: the same union of the two channel surfaces a shared level gives,
+    with the levels apart. A ``tot_magnetization`` run with fixed occupations
+    is caught by the fixed-occupation refusal, which is the true statement
+    about it: it fills a set number of bands per channel and searches for no
+    level at all.
     """
     system = calculation.system
     if getattr(calculation, "spiral", False):
@@ -190,21 +203,15 @@ def require_a_fermi_surface(calculation) -> None:
             "and compare its peak with relax_spiral_q's answer, which is the "
             "one validation the two have against each other"
         )
-    if getattr(system, "tot_magnetization", None) is not None:
-        raise NotImplementedError(
-            "the nesting function with a constrained tot_magnetization is not "
-            "implemented: that regime has one Fermi level per spin channel "
-            "(input.f90's two-level branch), so g(k) is two different "
-            "surfaces and N(q) would have to be resolved by channel pair. It "
-            "is P45's refusal on the same object for the same reason"
-        )
     occupations = str(getattr(system, "occupations", "") or "")
     if occupations.startswith("fixed") or occupations in ("", "from_input"):
         raise NotImplementedError(
             "the nesting function needs a Fermi level and occupations = "
             f"{occupations!r} has none: a fixed-occupation run fills a set "
             "number of bands per channel and never searches for a level, so "
-            "delta(eps - E_F) has no argument. Run the metal with a smearing"
+            "delta(eps - E_F) has no argument -- with or without a "
+            "tot_magnetization, which with a smearing gives one level per "
+            "channel and is accepted. Run the metal with a smearing"
         )
 
 
@@ -222,7 +229,10 @@ def fermi_surface_weights(
 
     Args:
         eigenvalues: ``(nspin, nk, nbnd)`` in Ry, on the **complete** grid.
-        fermi_energy: in Ry.
+        fermi_energy: in Ry. A scalar is one level shared by every channel;
+            a sequence of ``nspin`` levels puts each channel's delta at its own
+            level, which is the ``tot_magnetization`` case (``ef_up``,
+            ``ef_dw``, in that order).
         degauss: the delta's width in Ry.
         smearing: a name from
             :data:`~defuqumat.scf.occupations.SMEARING_ORDER`.
@@ -231,22 +241,58 @@ def fermi_surface_weights(
             ``degspin`` the k-point weights carry, so that ``(1/N_k) sum_k g``
             is the density of states this package's ``compute_dos`` reports.
 
-    The spin axis is *summed over*, not kept: ``nspin = 2`` has one Fermi level
-    shared between its channels (the two-level case is refused above), so the
-    surface it nests on is the union of the two.
+    The spin axis is *summed over*, not kept: the surface ``nspin = 2`` nests
+    on is the union of the two channels' surfaces, whether they share one
+    level or each sits at its own.
+    """
+    return channel_weights(
+        eigenvalues, fermi_energy, degauss, smearing, degeneracy
+    ).sum(axis=0)
+
+
+def channel_levels(fermi_energy, nspin: int) -> np.ndarray:
+    """``(nspin,)`` levels in Ry from a scalar or from one level per channel.
+
+    A pair handed to a single channel, or three levels to two, is refused
+    rather than broadcast against the band axis.
+    """
+    level = np.asarray(fermi_energy, dtype=float)
+    if level.ndim == 0:
+        return np.full(nspin, float(level))
+    level = level.ravel()
+    if level.shape[0] != nspin:
+        raise ValueError(
+            f"one Fermi level per spin channel is {nspin} levels, got "
+            f"{level.shape[0]}; a single shared level is a scalar"
+        )
+    return level
+
+
+def channel_weights(
+    eigenvalues,
+    fermi_energy,
+    degauss: float,
+    smearing: str = "gaussian",
+    degeneracy: float = 2.0,
+) -> np.ndarray:
+    """``g_s(k) = degspin sum_n delta(eps_snk - E_F^s)``, ``(nspin, nk)``.
+
+    :func:`fermi_surface_weights` before the sum over ``s``; the arguments are
+    the same.
     """
     eigenvalues = np.asarray(eigenvalues, dtype=float)
     if eigenvalues.ndim == 2:
         eigenvalues = eigenvalues[None]
     if degauss <= 0.0:
         raise ValueError(f"degauss must be positive, got {degauss}")
+    level = channel_levels(fermi_energy, eigenvalues.shape[0])
     ngauss = smearing_order(smearing)
     # ``w0gauss``'s argument convention is dosg.f90's, ``x = (E - e)/degauss``
     # with ``E`` in the role of the level: positive for a state below it. The
     # sign is invisible for a Gaussian and wrong for everything else.
-    x = (fermi_energy - eigenvalues) / degauss
+    x = (level[:, None, None] - eigenvalues) / degauss
     delta = np.asarray(w0gauss(x, ngauss)) / degauss
-    return float(degeneracy) * delta.sum(axis=(0, 2))
+    return float(degeneracy) * delta.sum(axis=2)
 
 
 def nesting_from_eigenvalues(
@@ -274,7 +320,9 @@ def nesting_from_eigenvalues(
             index fastest). :func:`~defuqumat.workflows.nesting.run_nesting`
             unfolds a symmetry-reduced wedge onto it.
         grid: the divisions ``(n1, n2, n3)``.
-        fermi_energy: in Ry.
+        fermi_energy: in Ry; a scalar, or one level per channel
+            (``(ef_up, ef_dw)`` for a ``tot_magnetization`` run), each channel's
+            delta then sitting at its own level.
         degauss: the delta's width in Ry.
         method: ``"fft"`` or ``"direct"``; see :data:`NESTING_METHODS`.
     """
@@ -287,6 +335,8 @@ def nesting_from_eigenvalues(
     g = fermi_surface_weights(
         eigenvalues, fermi_energy, degauss, smearing, degeneracy
     )
+    levels = np.asarray(fermi_energy, dtype=float).ravel()
+    two_levels = levels.shape[0] > 1
     if g.shape[0] != nk:
         raise ValueError(
             f"the nesting function needs eigenvalues on the complete "
@@ -324,11 +374,16 @@ def nesting_from_eigenvalues(
         nesting=nesting,
         weights=g,
         fermi_dos=fermi_dos,
-        fermi_energy=float(fermi_energy),
+        # QE's printed convention when the channels have a level each: the
+        # mean, kept only so that the scalar is not empty. The pair is beside it
+        # and is what ``g`` was built at.
+        fermi_energy=float(levels.mean()),
         degauss=float(degauss),
         smearing=smearing,
         method=method,
         cell_volume=float(cell_volume),
         nspin=int(nspin),
         sum_rule=float(nesting.mean() - fermi_dos**2),
+        fermi_energy_up=float(levels[0]) if two_levels else None,
+        fermi_energy_down=float(levels[1]) if two_levels else None,
     )
