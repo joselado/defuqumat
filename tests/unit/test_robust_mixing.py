@@ -185,3 +185,16 @@ def test_a_smearing_that_is_not_variational_keeps_on_the_residual_alone():
     # A merit far below with the residual up: a lower bound it is not, so cut.
     assert not sup.judge(-11.0, 1e-2, 1e-9, 0)
     assert "hamiltonian" not in [sup.next_rung() for _ in range(len(RUNGS))]
+
+
+def test_the_step_length_grows_while_every_trial_is_kept_and_falls_on_a_rejection():
+    sup = Supervisor(nelec=8.0, beta=0.1, beta_max=0.8, grow_after=2)
+    accuracy = 1e-2
+    for _ in range(4):
+        sup.judge(-10.0, accuracy, 1e-9, 0)
+        sup.kept(_state(0.0), _state(1.0), -10.0, accuracy, 1e-9)
+        accuracy *= 0.5
+    assert sup.beta == pytest.approx(0.4)
+    assert not sup.judge(-10.0, 1.0, 1e-9, 0)
+    sup.retry()
+    assert sup.beta == pytest.approx(0.2)

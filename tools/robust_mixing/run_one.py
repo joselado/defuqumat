@@ -23,6 +23,8 @@ import defuqumat.scf.driver as driver  # noqa: E402
 # The control arm: the robust mode with its inner mixer pinned (``anderson``),
 # to separate what the supervisor does from the preconditioner it would choose.
 driver.ROBUST_INNER = os.environ.get("ROBUST_INNER") or None
+# The control arm for the growing step length.
+driver.ROBUST_GROW_BETA = os.environ.get("ROBUST_GROW_BETA", "1") != "0"
 
 cell, mode, out = sys.argv[1:4]
 generated = Path(sys.argv[4]) if len(sys.argv) > 4 and "=" not in sys.argv[4] else ROOT / "tools/robust_mixing/inputs"

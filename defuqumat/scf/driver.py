@@ -7114,6 +7114,10 @@ ROBUST_VACUUM = 0.3
 #: control that separates the supervisor from the preconditioner it chose.
 ROBUST_INNER = None
 
+#: Whether the robust mode may raise plain Anderson's ``beta`` when every trial
+#: is kept at once (:attr:`~defuqumat.scf.robust.Supervisor.beta`).
+ROBUST_GROW_BETA = True
+
 
 
 def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
@@ -7703,6 +7707,8 @@ def run_scf(
             smeared=smeared,
             ldos=mixing_mode == "ldos",
             variational=variational,
+            beta=(mixer.beta if ROBUST_GROW_BETA and mixing_mode == "anderson"
+                  else None),
         )
     # Turned off for the rest of the run the first time a write is refused, so a
     # ``reducebf`` run says so once rather than once per cadence.
@@ -9189,6 +9195,9 @@ def run_scf(
                     ns_out if calculation.is_hubbard else None,
                 )
                 following = supervisor.retry(rejected_proposal)
+            if supervisor.beta is not None and mixer.precondition is None:
+                # The step length the supervisor grew or cut, for the next mix.
+                mixer.beta = supervisor.beta
             history[-1]["merit"] = merit
             history[-1]["supervisor"] = supervisor.record
             if verbose:

@@ -184,9 +184,22 @@ class Supervisor:
     #: second full window proves nothing.
     window_after: int = 15
 
+    #: The inner mixer's step length, which the supervisor may raise when every
+    #: trial is kept at once: Herbst and Levitt's growing trial damping, as a
+    #: ``beta``. ``None`` leaves the mixer's own alone (a preconditioner bakes
+    #: ``beta`` in when it is built, so the driver sets this only for plain
+    #: Anderson). It never falls below the input's ``beta`` and never rises above
+    #: :attr:`beta_max`.
+    beta: float | None = None
+    beta_max: float = 0.8
+    #: How many trials kept at once, running, before ``beta`` doubles.
+    grow_after: int = 3
+
     scale: float = 1.0
     cuts: int = 0
     rung: int = -1
+    _beta_floor: float | None = None
+    _clean: int = 0
     _kept: tuple | None = field(default=None, repr=False)
     _proposal: tuple | None = field(default=None, repr=False)
     _merit: float | None = None
@@ -251,6 +264,15 @@ class Supervisor:
         doubles back towards the mixer's own step after every kept input, and
         returns to it at once after one kept at the floor.
         """
+        if self.beta is not None:
+            if self._beta_floor is None:
+                self._beta_floor = self.beta
+                self.beta_max = max(self.beta_max, self.beta)
+            self._clean = self._clean + 1 if self.cuts == 0 else 0
+            if self._clean >= self.grow_after and self.beta < self.beta_max:
+                self.beta = min(self.beta_max, 2.0 * self.beta)
+                self._clean = 0
+            self._last["beta"] = self.beta
         if self._last.get("reason") == "floor":
             self._floored += 1
             # A step cut to the floor and kept says the smaller steps bought
@@ -283,6 +305,10 @@ class Supervisor:
         """
         if proposal is not None:
             self._proposal = proposal
+        if self.beta is not None and self._beta_floor is not None:
+            self.beta = max(self._beta_floor, 0.5 * self.beta)
+            self._clean = 0
+            self._last["beta"] = self.beta
         self.cuts += 1
         self.scale *= 0.5
         self._last["next_scale"] = self.scale
