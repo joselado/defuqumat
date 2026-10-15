@@ -374,3 +374,41 @@ Taken by fable under the user's delegation of such decisions (2026-10-10), one l
   non-smooth fixed-point iterations", arXiv:1808.03971 (safeguarding and restarts in general).
 - "Preconditioning magnetic systems in Kohn-Sham density functional theory", arXiv:2606.26693
   (the Stoner term, P130, not merged).
+
+## 8. What the implementation changed, measured (2026-10-16, D22)
+
+Everything here was measured with `tools/robust_mixing/` on `D22-0161`, the runs in
+`/l/ladovj1/review/robust/`. Where it overrides a decision of section 7, it says so.
+
+- **The bed was easier than the record.** At each input's own settings plain Anderson with the
+  `rho_ddot` fit (P146) converges all ten R0 cells, including the Co film (30), the Co helix
+  (21), fe-unstable at 4x4x4 (11, `M = 0`) and the PAW nickel of
+  `ni-tetragonal-relaxed-mae-paw.in` (77 and 71), which the older records call hard. What still
+  fails is `h4-pbe` (PZ pseudopotentials under PBE, a stress case and not a physics one) at
+  `mixing_beta` 0.3 and 0.7, and `ni-kind1-force` at 0.1. So the bed was extended to a
+  `mixing_beta` sweep (0.1, 0.4, 0.7, 1.0), Herbst and Levitt's Table I design.
+- **The merit is right.** `I(rho* + eps (rho_atomic - rho*)) - E*` is positive and goes as
+  `eps^2` on two-atom silicon, the aluminium slab and the PAW spin-orbit nickel under a
+  Gaussian (1.6e-6, 1.8e-5, 1.6e-4, 1.7e-3 Ry at `eps` = 0.003 to 0.1), and equals `E*` at
+  `eps = 0` to 8e-12 Ry (`identity.py`).
+- **Not a lower bound under Marzari-Vanderbilt**, as section 2 said: on the same nickel under
+  its own `mv` the merit went 5.4e-3 Ry below `E*` at an input with residual 2.0, and the energy
+  clause kept it. So under MV and MP the energy clause and the bottom rung are off.
+- **Decision 2 overridden: the rejected pair enters the Anderson history.** On the nickel cell
+  plain Anderson went 0.28 to 3.5 to 3.4e-3 in three iterations; a supervisor that discarded the
+  pair half-stepped to 0.53 and never caught up. The retry takes the mixer's new proposal: the
+  helix at 1.0 34 against 63 halving the old step, fe-unstable at 0.1 20 against 24.
+- **The acceptance test is nonmonotone** (worst of the last three kept inputs): a monotone one
+  rejected Anderson's ordinary steps of a factor two or three, three to six diagonalisations
+  each (helix at 0.7: 38 against 27).
+- **Fable's 1e6 conditioning bound was not taken**: no measured gain (silicon at 0.1 followed
+  the acceptance rule, 33, 54 and 14 under three versions, and not the bound).
+- **The stall window is 20 kept inputs with no new best**, from the converged Anderson traces of
+  the bed: the nickel cells sit on plateaus of 15 to 30 iterations and converge, and a window of
+  8 at a factor of two fired on eight of the 31 converged runs.
+- **A step kept at the floor resets the scale to one**: without it the nickel cell sat at a
+  residual of 3.3e-8 for sixty iterations, every trial a 1e-5 fraction of a step.
+- **The result so far (r4):** level with Anderson on the easy cells; the PAW nickel cells
+  converge at about twice Anderson's count (132 and 150 against 81 and 71); `ni-kind1-force` at
+  1.0 71 against 115, at 0.4 153 against 77, at 0.7 not converged against 69; `h4-pbe` fails
+  under both. The mode has not yet rescued a cell Anderson loses.
