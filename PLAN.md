@@ -26362,8 +26362,12 @@ against a 10x-of-best bound); a step kept at the floor resets the scale (a 60-it
 at 3.3e-8 without it); the `magnetization` and `short-history` rungs removed (never the rung a
 run converged on; `short-history` drove the PAW nickel from 1e-8 to 1e4).
 
-**What is outstanding.** `h4-pbe` (PZ pseudopotentials under PBE, a stress case) limit-cycles at
-3e-6 under every version; the bottom rung, reached on it once, did not converge it within the
-budget, and the terminal "at the eigensolver's floor" stop has not been seen to fire on a real
-cell. Checkpoint, pools and the ultracell are refused. No timing pair (DFTK, the reference for
+**What is outstanding.** Both remaining failures are slow rather than stuck, measured with 600
+iterations: `ni-kind1-force` at 0.1 converges under plain Anderson in 263, and `h4-pbe` (PZ
+pseudopotentials under PBE, a stress case) under plain Anderson at 0.3 in 516 to -3.95183879 Ry,
+under Elk's `adaptive` in 363 to **-3.96295010**, 1.1e-2 Ry lower, and under the bottom rung
+alone reaches 8e-10 at 600 on its way to the same lower state. A growing `beta` for plain
+Anderson (`Supervisor.beta`, doubled after three trials kept at once, up to 0.8) is committed
+for the first and not yet measured on the bed. The terminal "at the eigensolver's floor" stop
+has not been seen to fire on a real cell. Checkpoint, pools and the ultracell are refused. No timing pair (DFTK, the reference for
 the algorithm, is not installed anywhere here). The fast gate has not been run on the branch.
