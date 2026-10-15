@@ -4136,7 +4136,10 @@ the $i=j$ term, so the intraband Drude response is absent entirely --- Elk's
 magnetism, spin--orbit coupling, spin spirals and a Hubbard $U$; a
 symmetry-reduced $k$-set, because symmetrising $\chi^0_{\mathbf{GG}'}$ rotates
 \emph{two} $\mathbf G$ indices at once and the rank-$n$ symmetriser is
-Cartesian; the \code{alda} kernel with a gradient-corrected functional, since
+Cartesian; the half-sphere storage of \code{K\_POINTS gamma}, whose
+wavefunctions are stored on half the $\mathbf G$ sphere and would build
+$\chi^0_{\mathbf{GG}'}$ from wrong real-space products; the \code{alda} kernel
+with a gradient-corrected functional, since
 ALDA's kernel is pointwise in the density and a GGA's is not; and
 \textbf{non-convergence of the bootstrap fixed point is an error}, as it is in
 \code{tddftlr.f90}, because a spectrum from a kernel still in motion is the
@@ -4212,11 +4215,14 @@ ultrasoft AlAs, which is what says an index order transposed in either would
 have shown. A \textbf{spin spiral}, whose two spinor
 components live on different spheres. A \textbf{symmetry-reduced $k$-set},
 because the antisymmetric part is an axial vector --- the escape is the whole
-unshifted grid, which is closed under the point group. And
-\textbf{\code{nspin} = 2}, whose two channels are two band structures whose
-conductivities add; a spinor run is the regime a magneto-optical spectrum wants
-anyway, since $\sigma_{xy}$ needs spin--orbit coupling and collinear spin has
-none.
+unshifted grid, which is closed under the point group. And the
+\textbf{Drude term of a tetrahedron run}, whose weight is a Fermi-surface delta
+function that the tetrahedron method, integrating the step function itself,
+does not supply; dropping it silently would return an insulator's conductivity
+with a plasma frequency of exactly zero, so it is refused, and
+\code{intraband=False} reads the interband part alone. \code{nspin} = 2 is
+\emph{not} refused: its two channels are two band structures, and
+\code{run\_optical\_conductivity} keeps both and adds their conductivities.
 
 \textbf{Three things are reported rather than refused, and all three must be
 read.} \code{band\_cut\_gap} is the gap between the last band summed and the
