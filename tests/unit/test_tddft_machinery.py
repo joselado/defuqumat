@@ -149,15 +149,19 @@ def test_the_lrc_kernel_is_a_constant_on_the_diagonal_and_needs_its_parameter():
 
 # --- the refusals ------------------------------------------------------------
 
-def test_a_reduced_k_set_is_refused_before_anything_is_computed():
-    """``chi_0(G, G')`` on a wedge would need a rotation in two G indices.
+def test_a_reduced_k_set_passes_and_a_magnetic_one_is_refused():
+    """``chi_0(G, G')`` on a wedge is completed with both G labels rotated at once.
 
-    P36's rank-N symmetriser is Cartesian and does not do it, so the whole grid
-    is required. ``si-epsilon.in`` is the shifted wedge the Sternheimer response
-    runs on and is exactly what must be refused here.
+    ``si-epsilon-unshifted.in`` is the wedge of the unshifted grid and passes;
+    the number that says the completion is right is the slow test beside the
+    absorption tests. A magnetic wedge is still refused by name, before
+    anything is computed.
     """
-    with pytest.raises(NotImplementedError, match="full k-grid"):
-        require_a_sum_over_states_regime(_calculation("si-epsilon"))
+    require_a_sum_over_states_regime(_calculation("si-epsilon-unshifted"))
+    with pytest.raises(NotImplementedError, match="magnetic"):
+        from defuqumat.system.wedge import wedge_group
+
+        wedge_group(_calculation("ni-noncol-111-nosource").system, quantity="chi_0")
 
 
 def test_an_ultrasoft_dataset_is_refused_by_name():

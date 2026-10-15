@@ -66,6 +66,11 @@ def _drop_compiled_code():
 
 
 AMPLITUDE = 0.05
+#: The wedge's spectrum against the whole grid's, relative to the peak: what D22
+#: measured (``test_a_wedge_spectrum_is_the_whole_grid_s``) and the bound
+#: asserted, ten times it.
+WEDGE_STS_MEASURED = None
+WEDGE_STS_BOUND = 1e-6
 WIDTH = 0.02
 PLANE = dict(height=0.35, axis=2)
 
@@ -157,7 +162,7 @@ K_POINTS automatic
 """
 
 #: Symmetry left **on**, which every other cell here turns off: the one case
-#: the wedge refusal is about.
+#: the wedge completion is about.
 SYMMETRIC = SILICON.replace(" nosym=.true., noinv=.true.\n", "")
 
 _WORK = Path(tempfile.mkdtemp(prefix="defuqumat-sts-"))
@@ -528,27 +533,34 @@ def test_the_current_is_the_window_once_the_edges_are_clear_of_the_levels(
 # -- the refusals -------------------------------------------------------------
 
 
-def test_a_wedge_is_refused_and_the_whole_grid_is_not(pseudo_dir):
-    """The refusal a spectrum has and an image does not.
+def test_a_wedge_spectrum_is_the_whole_grid_s(pseudo_dir):
+    """The wedge, completed over the tip's images, against the whole grid.
 
     ``run_stm`` sums through ``Calculation.density``, which symmetrises, so a
-    reduced k-set gives it the whole zone's answer; nothing symmetrises the
-    amplitude route. Both branches are exercised, because a guard that always
-    fires and a guard that never does look the same from one side -- and the
-    ``grid=`` escape has to actually work, since it is what the message offers.
+    reduced k-set gives it the whole zone's answer; the amplitude route adds
+    ``|psi_k(r)|^2`` point by point and is completed instead by averaging the
+    wedge's spectrum over the 48 images ``g(r)`` of each tip point
+    (:func:`~defuqumat.workflows.stm._tip_orbit`). The reference is the same
+    plane from the whole unshifted 4x4x4 grid, ``grid=(4, 4, 4)``, at the same
+    density; both arms re-solve their bands at ``conv_thr = 1e-10``. Measured on
+    D22 at ``WEDGE_STS_MEASURED`` of the peak; the uncompleted wedge sum is 98
+    per cent off (the test below).
     """
     calculator, scf = _converged(str(pseudo_dir), (4, 4, 4), 12, "symmetric")
     assert np.ptp(np.asarray(calculator.system.kpoints.weights)) > 1e-8
-    energies = float(scf.homo) + np.array([-0.05, 0.0])
-    with pytest.raises(NotImplementedError, match="symmetry-reduced"):
-        run_sts(calculator.system, calculator.pseudos, scf, energies=energies,
-                width=WIDTH, shape=(4, 4), **PLANE)
-
-    spectrum = run_sts(calculator.system, calculator.pseudos, scf,
-                       energies=energies, width=WIDTH, shape=(4, 4),
-                       grid=(2, 2, 2), conv_thr=1e-8, **PLANE)
-    assert np.asarray(spectrum.values).shape == (2, 4, 4)
-    assert np.asarray(spectrum.values).min() > 0.0
+    geometry = dict(height=0.35, axis=2, shape=(12, 12))
+    energies = float(scf.homo) + np.linspace(-0.05, 0.05, 3)
+    whole = run_sts(calculator.system, calculator.pseudos, scf,
+                    energies=energies, width=WIDTH, grid=(4, 4, 4),
+                    conv_thr=1e-10, **geometry)
+    wedge = run_sts(calculator.system, calculator.pseudos, scf,
+                    energies=energies, width=WIDTH,
+                    kpoints=calculator.system.kpoints, conv_thr=1e-10,
+                    **geometry)
+    right = np.asarray(whole.values)
+    error = np.abs(np.asarray(wedge.values) - right).max() / right.max()
+    print(f"wedge against whole grid: {error:.3e} of the peak {right.max():.6e}")
+    assert error < WEDGE_STS_BOUND
 
 
 def test_the_wedge_sum_the_guard_refuses_is_wrong_by_a_whole_picture(pseudo_dir):
