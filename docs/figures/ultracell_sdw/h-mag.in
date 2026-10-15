@@ -1,0 +1,21 @@
+! Simple cubic hydrogen at a = 5.5 bohr, collinear, with the atom in the middle
+! of the cell and a moment of about 0.62 mu_B on this 4 2 2 mesh. The mesh is
+! what a (2, 1, 1) long cell with kgrid (2, 2, 2) folds onto.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 1, celldm(1) = 5.5, nat = 1, ntyp = 1, ecutwfc = 15.0,
+    nosym = .true., noinv = .true.,
+    nspin = 2, starting_magnetization(1) = 0.8,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.02
+ /
+ &electrons
+    conv_thr = 1.0d-11
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS crystal
+ H 0.5 0.5 0.5
+K_POINTS automatic
+ 4 2 2 0 0 0
