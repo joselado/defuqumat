@@ -32,7 +32,7 @@ def test_a_bulk_cell_has_no_vacuum_and_a_slab_has_it():
 
 
 def test_the_first_input_is_kept_and_a_worse_one_is_cut_back():
-    sup = Supervisor(nelec=8.0)
+    sup = Supervisor(nelec=8.0, memory=3)
     assert sup.judge(merit=-10.0, accuracy=1e-2, ethr=1e-6, unsettled=0)
     following = sup.kept(_state(0.0), _state(1.0), -10.0, 1e-2, 1e-6)
     np.testing.assert_allclose(following[0], 1.0)

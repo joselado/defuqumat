@@ -168,7 +168,13 @@ class Supervisor:
     #: new best at all.
     progress: float = 1.0
     #: How many kept inputs the acceptance test compares against the worst of.
-    memory: int = 3
+    #: Eight, from the A/B on D22 (2026-10-16): the PAW nickel under a Gaussian
+    #: at 0.7 took 72 at 8, 127 at 3 (plain Anderson 81); the DFT+U nickel at
+    #: 0.4 77 and 136, at 0.7 83 and not converged at 200 (Anderson 77 and 69);
+    #: the four-cell cobalt helix at 1.0 28 and 29 (Anderson 31). A bound of ten
+    #: times the best instead matched Anderson on the DFT+U cell and took 133 on
+    #: the PAW one.
+    memory: int = 8
     #: If set, the residual clause is instead ``accuracy < growth * best`` over
     #: the same window: a bound on how far above the best a kept input may be.
     growth: float | None = None

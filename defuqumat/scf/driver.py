@@ -7707,7 +7707,7 @@ def run_scf(
             variational=variational,
             # The A/B of the acceptance window (``tools/robust_mixing``), read
             # from the environment only while it is being measured.
-            memory=int(os.environ.get("DEFUQUMAT_ROBUST_MEMORY", "3")),
+            memory=int(os.environ.get("DEFUQUMAT_ROBUST_MEMORY", "8")),
             growth=(float(os.environ["DEFUQUMAT_ROBUST_GROWTH"])
                     if os.environ.get("DEFUQUMAT_ROBUST_GROWTH") else None),
         )
