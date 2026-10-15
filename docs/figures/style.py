@@ -2,25 +2,27 @@
 
 Every docs/figures/<id>/plot.py uses it the same way:
 
-    import os, sys
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    import numpy as np
     import style
 
-    def draw(theme):
-        c = style.colors(theme)            # c["ink"], c["ink2"], c["series"][k]
-        fig, ax = style.figure(1)          # 1, 2 or 3 panels
-        ax.plot(x, y, color=c["series"][0], lw=style.LW, label="defuqumat")
-        ax.plot(x, yref, **style.reference(theme), label="exact")
+    d = np.load("data.npz")
+
+    def draw():
+        fig, ax = style.figure()           # 1, 2 or 3 panels
+        ax.plot(d["x"], d["y"], label="defuqumat")       # series colors in turn
+        ax.plot(d["x"], d["exact"], **style.reference(), label="exact")
         ax.legend()
         return fig
 
-    style.main(draw, "<id>")   # parses --theme, writes <id>.png and <id>-dark.png
+    style.main(draw)    # calls draw() once per theme, writes both PNG files
 
-The PNG files go to docs/guide/img/. The plot is transparent, so the page
-color shows through; the ink colors switch with the theme. This module
-never imports defuqumat.
+plot.py is started by docs/figures/plot.py inside its own folder, so the
+figure id is the name of that folder. The PNG files go to docs/guide/img/.
+The plot is transparent, so the page color shows through, and the ink
+colors switch with the theme. style.ink(), style.ink2() and
+style.color(k) give the colors of the theme being drawn. This module never
+imports defuqumat.
 """
-import argparse
 import os
 
 import matplotlib
@@ -49,14 +51,32 @@ SIZES = {1: (6.4, 4.0), 2: (9.6, 3.8), 3: (11.0, 3.6)}
 DPI = 160
 
 
-def colors(theme):
-    """Ink, secondary ink and the series colors of a theme."""
-    return {"ink": INK[theme], "ink2": INK2[theme], "series": SERIES[theme]}
+THEME = "light"     # the theme being drawn, set by apply()
 
 
-def reference(theme):
+def ink():
+    """The ink color of the theme being drawn."""
+    return INK[THEME]
+
+
+def ink2():
+    """The secondary ink color of the theme being drawn."""
+    return INK2[THEME]
+
+
+def color(k):
+    """Series color k of the theme being drawn."""
+    return SERIES[THEME][k]
+
+
+def reference():
     """Line keywords of a reference curve: ink, dashed, 1.2 pt."""
-    return {"color": INK[theme], "ls": "--", "lw": LW_REF}
+    return {"color": INK[THEME], "ls": "--", "lw": LW_REF}
+
+
+def zero_line(ax, vertical=False):
+    """A thin line at zero, in the secondary ink."""
+    (ax.axvline if vertical else ax.axhline)(0.0, color=INK2[THEME], lw=0.8)
 
 
 def heatmap_line():
@@ -65,7 +85,9 @@ def heatmap_line():
 
 
 def apply(theme):
-    """Set the rcParams of a theme. Called by figure()."""
+    """Set the rcParams of a theme. Called by main()."""
+    global THEME
+    THEME = theme
     ink, ink2 = INK[theme], INK2[theme]
     plt.rcdefaults()
     plt.rcParams.update({
@@ -95,20 +117,18 @@ def apply(theme):
     })
 
 
-def figure(npanels=1, theme=None, **kwargs):
+def figure(npanels=1, **kwargs):
     """A figure with 1, 2 or 3 panels side by side, in the plan's sizes."""
-    if theme is not None:
-        apply(theme)
     fig, axs = plt.subplots(1, npanels, figsize=SIZES[npanels], **kwargs)
     return fig, axs
 
 
-def colorbar(fig, mappable, ax, label, theme):
+def colorbar(fig, mappable, ax, label):
     """A colorbar with its outline, ticks and label in the ink color."""
     cb = fig.colorbar(mappable, ax=ax)
-    cb.set_label(label, color=INK[theme])
-    cb.outline.set_edgecolor(INK[theme])
-    cb.ax.tick_params(colors=INK[theme], labelcolor=INK2[theme])
+    cb.set_label(label, color=INK[THEME])
+    cb.outline.set_edgecolor(INK[THEME])
+    cb.ax.tick_params(colors=INK[THEME], labelcolor=INK2[THEME])
     return cb
 
 
@@ -123,11 +143,15 @@ def save(fig, figid, theme):
     return path
 
 
-def main(draw, figid):
-    """Parse --theme light|dark (default: both), call draw(theme), save."""
-    p = argparse.ArgumentParser()
-    p.add_argument("--theme", choices=["light", "dark"], default=None)
-    args = p.parse_args()
-    for theme in ([args.theme] if args.theme else ["light", "dark"]):
+def main(draw, figid=None):
+    """Call draw() once per theme and save. The id is the current folder.
+
+    THEMES (set by docs/figures/plot.py --theme) limits it to one theme.
+    """
+    figid = figid or os.path.basename(os.getcwd())
+    for theme in THEMES:
         apply(theme)
-        save(draw(theme), figid, theme)
+        save(draw(), figid, theme)
+
+
+THEMES = ["light", "dark"]

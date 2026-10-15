@@ -8,21 +8,25 @@ does not import defuqumat, so a figure can be replotted on any machine with
 matplotlib. The website build never runs a calculation: `data.npz` is committed.
 
 The `pw.x` input files of a figure are in its folder. The pseudopotentials are the
-committed ones in `tests/data/pseudo/`, and `compute.py` builds that path from its
-own location, so it runs from any directory.
+committed ones in `tests/data/pseudo/`, and `common.PSEUDO` is that folder. Both
+scripts run inside their own folder, so they open their files by name.
 
 The plan of the whole guide, with the list of figures, is `plans/user-guide-web.md`.
 
 ## Shared files
 
-- `style.py`: the matplotlib style. A `plot.py` defines `draw(theme)` and ends with
-  `style.main(draw, "<id>")`, which writes both PNG files.
-- `common.py`: `common.start(params)` prints the parameters,
-  `common.save(__file__, params, **arrays)` writes `data.npz` with the parameters,
-  the git commit, the host and the wall time as JSON under `params`, and
-  `common.load(path)` reads it back.
-- `run.sh <id>`: runs `compute.py` with one thread (BLAS, OpenMP and
-  `DEFUQUMAT_THREADS=1`), `PYTHONPATH` on this checkout, at most one job per entry
+- `style.py`: the matplotlib style. A `plot.py` reads `np.load("data.npz")`,
+  defines `draw()` and ends with `style.main(draw)`, which calls it once per theme
+  and writes both PNG files. `style.color(k)`, `style.ink()`, `style.reference()`
+  and `style.zero_line(ax)` follow the theme being drawn.
+- `common.py`: `PSEUDO`, and `save(**arrays)`, which writes `data.npz` with the
+  git commit, the host and the wall time as JSON under `params`.
+  `common.load(path)` reads both back.
+- `plot.py <id> ... | all`: runs `<id>/plot.py` inside its folder, with
+  `docs/figures` on the path. `--theme light` or `--theme dark` draws one theme.
+- `run.sh <id>`: runs `compute.py` inside its folder with one thread (BLAS, OpenMP
+  and `DEFUQUMAT_THREADS=1`), `PYTHONPATH` on this checkout and on
+  `docs/figures`, at most one job per entry
   of `FIGURE_CPUS` (each pinned to its own core), and a memory cap of 8 GB. It
   writes `<id>/compute.log`, and `<id>/DONE` or `<id>/FAILED` at the end.
 
@@ -30,7 +34,7 @@ The plan of the whole guide, with the list of figures, is `plans/user-guide-web.
 
 ```bash
 bash docs/figures/run.sh <id>          # compute, writes <id>/data.npz
-python3 docs/figures/<id>/plot.py      # writes the two PNG files
+python3 docs/figures/plot.py <id>      # writes the two PNG files
 ```
 
 Do not run a `compute.py` beside a test run on a shared machine. The wall time of

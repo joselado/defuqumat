@@ -1,58 +1,32 @@
-"""Compute figure ground-state_density: the valence density of silicon.
-
-The density is on the real-space grid of the run. We take its Fourier
-coefficients and evaluate it on the (1-10) plane, which holds the bonds.
-Writes data.npz next to this file.
-    bash docs/figures/run.sh ground-state_density
-"""
-import os
-import sys
-
+"""The valence density of silicon in the (1-10) plane, which holds the bonds."""
 import numpy as np
-
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(HERE))
-import common
-
 from defuqumat import Calculator
+from common import PSEUDO, save
 
-PSEUDO = os.path.join(HERE, "..", "..", "..", "tests", "data", "pseudo")
-params = common.start(dict(input="si.in", plane="(1-10)", points=161))
-
-calc = Calculator.from_file(os.path.join(HERE, "si.in"), pseudo_dir=PSEUDO)
+calc = Calculator.from_file("si.in", pseudo_dir=PSEUDO)
 scf = calc.get_scf()
-
-rho = np.asarray(scf.density)[0]                  # electrons/bohr^3, (n1, n2, n3)
-at = np.asarray(calc.system.cell.at)              # lattice vectors in bohr, rows
+rho = np.asarray(scf.density)[0]             # electrons/bohr^3 on the FFT grid
+at = np.asarray(calc.system.cell.at)         # lattice vectors in bohr, as rows
 alat = calc.system.cell.alat
-coef = np.fft.fftn(rho) / rho.size                # rho(r) = sum_G c_G exp(iG.r)
+
+# the Fourier coefficients: rho(r) = sum_G c_G exp(i G.r)
+c = np.fft.fftn(rho).ravel() / rho.size
 m = np.meshgrid(*[np.fft.fftfreq(n) * n for n in rho.shape], indexing="ij")
-miller = np.stack([a.ravel() for a in m], axis=1)
-g = miller @ (2 * np.pi * np.linalg.inv(at).T)    # cartesian G = m @ b, 1/bohr
-coef = coef.ravel()
+g = np.stack([x.ravel() for x in m], axis=1) @ (2 * np.pi * np.linalg.inv(at).T)
 
 # the plane: [110] across, [001] up, one conventional cell
 e1 = np.array([1.0, 1.0, 0.0]) / np.sqrt(2.0)
 e2 = np.array([0.0, 0.0, 1.0])
-u = np.linspace(0.0, np.sqrt(2.0) * alat, params["points"])
-v = np.linspace(0.0, alat, params["points"] * 10 // 14)
-image = np.empty((len(u), len(v)))
-for i, ui in enumerate(u):
-    r = ui * e1[None] + v[:, None] * e2[None]
-    image[i] = (np.exp(1j * r @ g.T) @ coef).real
+u = np.linspace(0.0, np.sqrt(2.0) * alat, 161)
+v = np.linspace(0.0, alat, 115)
+image = np.array([((np.exp(1j * (a * e1 + v[:, None] * e2) @ g.T)) @ c).real
+                  for a in u])
 
-# the atoms that lie on this plane
-tau = np.asarray(calc.system.structure.positions)
-atoms = []
-for n1 in range(-3, 4):
-    for n2 in range(-3, 4):
-        for n3 in range(-3, 4):
-            for t in tau:
-                r = t + np.array([n1, n2, n3]) @ at
-                a, b = r @ e1, r @ e2
-                if (abs(r @ np.array([1.0, -1.0, 0.0])) < 1e-6
-                        and -1e-6 <= a <= u[-1] + 1e-6 and -1e-6 <= b <= v[-1] + 1e-6):
-                    atoms.append((a, b))
-
-common.save(__file__, params, u=u, v=v, density=image, atoms=np.array(atoms),
-            total_energy=scf.total_energy)
+# the atoms on this plane, from the atoms of nearby cells
+cells = np.array([[i, j, k] for i in range(-3, 4) for j in range(-3, 4)
+                  for k in range(-3, 4)]) @ at
+r = (cells[:, None, :] + np.asarray(calc.system.structure.positions)).reshape(-1, 3)
+on = ((abs(r @ [1.0, -1.0, 0.0]) < 1e-6) & (r @ e1 > -1e-6) & (r @ e1 < u[-1] + 1e-6)
+      & (r @ e2 > -1e-6) & (r @ e2 < v[-1] + 1e-6))
+save(u=u, v=v, density=image, atoms=np.stack([r[on] @ e1, r[on] @ e2], axis=1),
+     total_energy=scf.total_energy)

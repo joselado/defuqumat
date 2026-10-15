@@ -4,7 +4,8 @@
 #   bash docs/figures/run.sh <id>
 #
 # - BLAS/OpenMP and XLA threads pinned to 1 (DEFUQUMAT_THREADS=1),
-#   PYTHONPATH set to this checkout, so the run imports this defuqumat.
+#   PYTHONPATH set to this checkout and to docs/figures, so the run imports
+#   this defuqumat and common.py. compute.py runs inside its own folder.
 # - At most one job per entry of FIGURE_CPUS: a job takes one of the slot
 #   locks (flock on docs/figures/.locks/slot<n>) and waits while all are
 #   taken. Each slot is pinned with taskset to its own physical core. On the
@@ -27,7 +28,7 @@ PYTHON="${PYTHON:-python3}"
 read -r -a CPUS <<< "${FIGURE_CPUS:-0 2}"
 
 export MKL_NUM_THREADS=1 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 DEFUQUMAT_THREADS=1
-export PYTHONPATH="$repo"
+export PYTHONPATH="$repo:$here"
 
 log="$dir/compute.log"
 rm -f "$dir/DONE" "$dir/FAILED"

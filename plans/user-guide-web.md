@@ -43,10 +43,12 @@ The pieces, with the file each lives in:
 - `docs/figures/<id>/`: one folder per figure with `compute.py` (runs the code, writes
   `data.npz`), `plot.py` (reads only `data.npz`, writes `docs/guide/img/<id>.png` and
   `<id>-dark.png`, does not import the package) and the committed `data.npz`.
-- `docs/figures/common.py` (`start`, `save`, `load`, with the git commit, host and wall time
-  stored in the npz), `style.py` (the matplotlib style and `main(draw, id)` that writes both
+- `docs/figures/common.py` (`PSEUDO`, `save`, `load`, with the git commit, host and wall
+  time stored in the npz), `style.py` (the matplotlib style and `main(draw)` that writes both
   PNG files), `run.sh <id>` (one BLAS thread, a memory cap, writes `DONE` or `FAILED`),
-  `README.md`.
+  `plot.py <id>`, `README.md`. Since 2026-10-15 (the user asked for shorter scripts) both
+  scripts run inside their folder with `docs/figures` on the path, so a `compute.py` or
+  `plot.py` holds no path code and reads as a plain example.
 - Each figure on a page is the pair
   `![caption](img/<id>.png#only-light)` / `![caption](img/<id>-dark.png#only-dark)`, a
   paragraph reading the figure, and a collapsed

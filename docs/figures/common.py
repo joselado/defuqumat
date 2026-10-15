@@ -1,16 +1,18 @@
 """Helpers shared by every docs/figures/<id>/compute.py.
 
-    import os, sys
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    import common
+run.sh starts compute.py inside its own folder, with docs/figures on the
+path, so a compute.py reads
 
-    params = common.start(dict(input="si.in", grid=12))   # prints them
-    ...                                                    # compute
-    common.save(__file__, params, energy=e, dos=d)          # data.npz
+    from defuqumat import Calculator
+    from common import PSEUDO, save
 
-save() writes data.npz next to compute.py, with the parameters as one JSON
-string under the key "params", completed with the git commit, the host,
-the defuqumat path and the wall time. Read it back with common.load(path).
+    calc = Calculator.from_file("si.in", pseudo_dir=PSEUDO)
+    ...
+    save(energy=e, dos=d)
+
+save() writes data.npz in the current folder. Next to the arrays it stores
+one JSON string under the key "params": the git commit, the host, the
+defuqumat path and the wall time. load(path) reads both back.
 """
 import json
 import os
@@ -21,6 +23,7 @@ import time
 import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+PSEUDO = os.path.normpath(os.path.join(HERE, "..", "..", "tests", "data", "pseudo"))
 _T0 = time.time()
 
 
@@ -44,32 +47,19 @@ def git_commit():
             return "unknown"
 
 
-def start(params):
-    """Print the parameters before the calculation starts; return them."""
-    global _T0
-    _T0 = time.time()
-    print("parameters:")
-    for k, v in params.items():
-        print("  %s = %r" % (k, v))
-    print(flush=True)
-    return params
-
-
-def save(script, params, **arrays):
-    """Write data.npz next to `script`, with params stored as JSON."""
+def save(**arrays):
+    """Write data.npz in the current folder, with the run's metadata."""
     import defuqumat
-    p = dict(params)
-    p["git_commit"] = git_commit()
-    p["host"] = socket.gethostname()
-    p["defuqumat_path"] = os.path.dirname(defuqumat.__file__)
-    p["wall_time_s"] = round(time.time() - _T0, 1)
-    path = os.path.join(os.path.dirname(os.path.abspath(script)), "data.npz")
-    np.savez(path, params=json.dumps(p), **arrays)
-    print("wrote", path, "wall time %.1f s" % p["wall_time_s"])
+    meta = {"git_commit": git_commit(), "host": socket.gethostname(),
+            "defuqumat_path": os.path.dirname(defuqumat.__file__),
+            "wall_time_s": round(time.time() - _T0, 1)}
+    path = os.path.abspath("data.npz")
+    np.savez(path, params=json.dumps(meta), **arrays)
+    print("wrote", path, "wall time %.1f s" % meta["wall_time_s"])
     return path
 
 
 def load(path):
-    """Return (params dict, npz arrays) of a data.npz."""
+    """Return (metadata dict, npz arrays) of a data.npz."""
     d = np.load(path)
     return json.loads(str(d["params"])), d
