@@ -101,8 +101,8 @@ The figure shows the valence density of silicon in the $(1\bar10)$ plane. This
 plane holds the zigzag chains of bonds. The circles are the atoms. The density
 has its maxima in the middle of the bonds, between two atoms, and not on the
 atoms. This is the covalent bond of silicon. On the atoms the valence density is
-small, because the pseudopotential removes the core and the valence states have
-nodes there. The large dark regions are the open channels of the diamond
+small. The pseudopotential is repulsive inside the core region, so it pushes the
+valence states out into the bonds. The large dark regions are the open channels of the diamond
 structure.
 
 ??? example "Code of this figure (docs/figures/ground-state_density/)"

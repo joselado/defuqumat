@@ -62,7 +62,7 @@ The keywords of `get_dos` are:
 - **`degauss`**: the width of the smearing, in Ry.
 - **`emin`, `emax`, `delta_e`**: the energy window and its step, in Ry.
 
-`dos.energies` is in Ry and `dos.dos` in states per Ry per cell; `dos.energies_ev`
+`dos.energies` is in Ry and `dos.dos` in states per Ry per cell. `dos.energies_ev`
 and `dos.dos_ev` are the same in eV. The spin degeneracy is included. For a
 spin-polarized run, `dos.dos` has a first axis for the two spin channels.
 `dos.at(E)` is $D(E)$ and `dos.states_below(E)` is $N(E)$, both interpolated.
@@ -149,7 +149,7 @@ Lowdin Charges:
 ```
 
 `get_pdos` takes the same `grid`, `nbnd`, `scheme` and `degauss` as `get_dos`.
-`pdos.select(atom=..., l=..., species=..., m=...)` sums the channels that match;
+`pdos.select(atom=..., l=..., species=..., m=...)` sums the channels that match.
 `l` can be a number or a letter. `pdos.total` is the normal DOS on the same
 energies. `pdos.charges` holds the Löwdin charges: `charges.total` per atom,
 `charges.charges` per atom and $l$, and `charges.spilling`. `pdos.plot(by="l")`
