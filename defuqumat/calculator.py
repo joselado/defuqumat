@@ -2674,10 +2674,14 @@ def _spinor_leg(spinor):
 
 #: The facade methods that run under k-point pools (:mod:`defuqumat.parallel`,
 #: ``DEFUQUMAT_POOLS``): the ground state, the force and the stress, which walk
-#: each pool's own k-points and reduce, and the relaxations built on them.
+#: each pool's own k-points and reduce, and the relaxations built on them; and
+#: the band structure, the NSCF run and the density of states, whose
+#: fixed-density solve walks each pool's own k-points and gathers the
+#: eigenvalues (:func:`~defuqumat.workflows.nscf.fixed_density_states`).
 #: Every other ``get_*`` refuses by name under pools rather than reading one
 #: pool's share of the wavefunctions as though it were the whole set.
-POOL_AWARE = frozenset({"get_scf", "get_forces", "get_stress", "get_relax"})
+POOL_AWARE = frozenset({"get_scf", "get_forces", "get_stress", "get_relax",
+                        "get_bands", "get_nscf", "get_dos"})
 
 
 def _refused_under_pools(name, method):

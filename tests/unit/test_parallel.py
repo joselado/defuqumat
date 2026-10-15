@@ -212,8 +212,10 @@ def test_the_facade_refuses_what_is_not_pool_aware(monkeypatch):
     assert guarded == getters - POOL_AWARE
     assert POOL_AWARE <= getters
     monkeypatch.setattr(parallel, "_CURRENT", Pools(_FakeCommunicator(2, 0)))
-    with pytest.raises(NotImplementedError, match="get_bands is not available"):
-        Calculator.get_bands(object())
+    assert {"get_bands", "get_nscf", "get_dos"} <= POOL_AWARE
+    for name in ("get_pdos", "get_dielectric_tensor", "get_polarization"):
+        with pytest.raises(NotImplementedError, match=f"{name} is not available"):
+            getattr(Calculator, name)(object())
 
 
 @pytest.mark.slow
@@ -354,6 +356,82 @@ def test_pooled_forces_and_stress_reproduce_one_pool():
     for result in pooled:
         assert np.allclose(result["forces"], serial["forces"], atol=1e-10)
         assert np.allclose(result["stress"], serial["stress"], atol=1e-9)
+
+
+FIXED_DENSITY_SCRIPT = textwrap.dedent("""
+    import json, sys, warnings
+    warnings.simplefilter("ignore")
+    import numpy as np
+    import defuqumat
+    from defuqumat import Calculator
+    from defuqumat.parallel import Pools, current_pools
+    from defuqumat.scf.driver import _k_costs
+    from defuqumat.system.kpoints import KPoints
+    calculator = Calculator.from_text(sys.argv[1], "tests/data/pseudo", announce=False)
+    calculator.get_scf(conv_thr=1e-12)
+    if sys.argv[2] == "1":
+        # The defect the check has to see: a gather that forgets the layout
+        # puts each pool's rows back as contiguous blocks. Set after the SCF,
+        # whose own gather of the eigenvalues it would break as well.
+        original = Pools.gather_k
+        def forgetful(self, local, nk, axis=1, rows=None, layout=None):
+            return original(self, local, nk, axis=axis)
+        Pools.gather_k = forgetful
+    path = KPoints.band_path([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5], [0.5, 0.0, 0.5]],
+                             [4, 2, 1], calculator.system.cell, crystal=True)
+    bands = calculator.get_bands(kpoints=path, nbnd=8)
+    nscf = calculator.get_nscf(nbnd=8)
+    dos = calculator.get_dos(grid=(3, 3, 3), nbnd=8)
+    states = calculator.dos_states
+    pools = current_pools()
+    layout = [r.tolist() for r in pools.layout(
+        path.nk, costs=_k_costs(calculator.calculation.at_kpoints(path)))]
+    print(json.dumps({"rank": pools.rank, "layout": layout,
+                      "bands": np.asarray(bands.eigenvalues).tolist(),
+                      "nscf": np.asarray(nscf.eigenvalues).tolist(),
+                      "nscf_homo": float(nscf.homo),
+                      "dos_eigenvalues": np.asarray(states.eigenvalues).tolist(),
+                      "dos_nk": int(states.kpoints.nk),
+                      "dos_homo": float(states.homo), "dos_lumo": float(states.lumo),
+                      "dos": np.asarray(dos.dos).tolist()}))
+""")
+
+
+@pytest.fixture(scope="module")
+def serial_fixed_density():
+    return _run_pools(FIXED_DENSITY_SCRIPT, 1, SILICON_8K, 0, timeout=900)[0]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("size", [2, 3])
+def test_pooled_bands_nscf_and_dos_reproduce_one_pool(serial_fixed_density, size):
+    """``get_bands``, ``get_nscf`` and ``get_dos`` under pools against one pool.
+
+    Each pool solves its own rows of the fixed-density set and the eigenvalues
+    are gathered, so the pool count must not be visible beyond round-off: the
+    7-point path, the SCF's own 8 points and a 27-point ``nosym`` DOS grid,
+    then the HOMO, the LUMO and the DOS curve built on the gathered set.
+    """
+    serial = serial_fixed_density
+    pooled = _run_pools(FIXED_DENSITY_SCRIPT, size, SILICON_8K, 0, timeout=900)
+    for result in pooled:
+        for key in ("bands", "nscf", "dos_eigenvalues", "dos"):
+            assert np.allclose(result[key], serial[key], rtol=0, atol=1e-10), key
+        assert result["dos_nk"] == serial["dos_nk"] == 27
+        for key in ("nscf_homo", "dos_homo", "dos_lumo"):
+            assert abs(result[key] - serial[key]) < 1e-10, key
+    assert pooled[0]["bands"] == pooled[-1]["bands"]
+
+
+@pytest.mark.slow
+def test_the_pooled_bands_check_sees_a_misplaced_gather(serial_fixed_density):
+    """The guard: at three pools the longest-first layout is not contiguous blocks
+    (the Gamma point counts twice), so a gather that drops the layout puts rows
+    at the wrong k-points, and the comparison above must see it."""
+    broken = _run_pools(FIXED_DENSITY_SCRIPT, 3, SILICON_8K, 1, timeout=900)[0]
+    blocks = [list(r) for r in Pools(_FakeCommunicator(3, 0)).layout(7)]
+    assert broken["layout"] != blocks
+    assert np.abs(np.asarray(broken["bands"]) - np.asarray(serial_fixed_density["bands"])).max() > 1e-3
 
 
 RELAX_SCRIPT = textwrap.dedent("""
