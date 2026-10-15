@@ -1,0 +1,21 @@
+! Diamond: two carbon atoms on the fcc lattice, a = 3.567 A = 6.74 bohr.
+! LDA, ultrasoft. ecutrho is eight times ecutwfc, as an ultrasoft dataset needs.
+! nbnd = 8 gives four occupied and four empty bands.
+! The input of the figure "own-crystal_convergence".
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 6.74, nat = 2, ntyp = 1,
+    ecutwfc = 35.0, ecutrho = 280.0, nbnd = 8
+ /
+ &electrons
+    conv_thr = 1.0d-8
+ /
+ATOMIC_SPECIES
+ C  12.011  C.pz-rrkjus.UPF
+ATOMIC_POSITIONS crystal
+ C 0.00 0.00 0.00
+ C 0.25 0.25 0.25
+K_POINTS (automatic)
+ 6 6 6 0 0 0
