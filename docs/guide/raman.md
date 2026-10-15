@@ -39,9 +39,9 @@ print(f"sum over the atoms: {raman.sum_rule_relative:.1e} of the largest entry")
 
 ```
 (2, 3, 3, 3)
-Al moved along x, eps_yz: -3.137197 1/bohr
-As moved along x, eps_yz: +3.138091 1/bohr
-Al moved along x, eps_xx: +5.6e-16 1/bohr
+Al moved along x, eps_yz: -3.137192 1/bohr
+As moved along x, eps_yz: +3.138084 1/bohr
+Al moved along x, eps_xx: -7.8e-16 1/bohr
 sum over the atoms: 2.8e-04 of the largest entry
 ```
 
@@ -94,12 +94,12 @@ print(spectrum.table())
 
 ```
 # mode   [cm-1]    [THz]      IR          Raman   depol.fact
-    1      2.76    0.0827    0.3600         0.0000    0.7500
-    2      2.76    0.0827    0.3600         0.0000    0.7500
-    3      2.76    0.0827    0.3600         0.0000    0.7500
-    4    353.25   10.5902    5.9216       452.3244    0.7500
-    5    353.25   10.5902    5.9216       452.3244    0.7500
-    6    353.25   10.5902    5.9216       452.3244    0.7500
+    1      1.85    0.0554    0.3600         0.0000    0.7500
+    2      1.85    0.0554    0.3600         0.0000    0.7500
+    3      1.85    0.0554    0.3600         0.0000    0.7500
+    4    353.25   10.5902    5.9216       452.3227    0.7500
+    5    353.25   10.5902    5.9216       452.3227    0.7500
+    6    353.25   10.5902    5.9216       452.3227    0.7500
 ```
 
 The infrared activity is in (D/Å)$^2$/amu and the Raman activity in
@@ -108,7 +108,7 @@ The infrared activity is in (D/Å)$^2$/amu and the Raman activity in
 The optical triplet of AlAs at 353.25 cm$^{-1}$ is active in both channels, and
 its depolarization ratio is 3/4, because its Raman tensor has no trace. The
 acoustic triplet should be at zero frequency with no activity. It comes out at
-2.76 cm$^{-1}$ with an infrared activity of 0.36, because the acoustic sum rule
+1.85 cm$^{-1}$ with an infrared activity of 0.36, because the acoustic sum rule
 and the charge neutrality of $Z^*$ are not imposed, so these numbers measure how
 far this cell is from converged, in the cutoff and in the k-mesh. Let us now take silicon:
 
@@ -121,30 +121,30 @@ print(si.table())
 
 ```
 # mode   [cm-1]    [THz]      IR          Raman   depol.fact
-    1      5.68    0.1703    2.3509         0.0000    0.5590
-    2      5.68    0.1703    2.3509         0.0000    0.6508
-    3      5.68    0.1703    2.3509         0.0000    0.6292
-    4    519.21   15.5654    0.0000      9750.5394    0.7500
-    5    519.21   15.5654    0.0000      9750.5394    0.7500
-    6    519.21   15.5654    0.0000      9750.5394    0.7500
+    1      4.31    0.1293    2.3509         0.0000    0.5249
+    2      4.31    0.1293    2.3509         0.0000    0.3160
+    3      4.31    0.1293    2.3509         0.0000    0.4466
+    4    519.20   15.5654    0.0000      9750.4875    0.7500
+    5    519.20   15.5654    0.0000      9750.4875    0.7500
+    6    519.20   15.5654    0.0000      9750.4875    0.7500
 ```
 
-The optical triplet of silicon is at 519.21 cm$^{-1}$, against 520 cm$^{-1}$
+The optical triplet of silicon is at 519.20 cm$^{-1}$, against 520 cm$^{-1}$
 measured, which is the line every Raman spectrometer is calibrated on. This
 cell is far from converged, as we see below, so this agreement is not a measure
 of the accuracy. The line is Raman active and infrared silent. The reason is symmetry: one operation of the
 crystal maps one silicon atom onto the other, so the two atoms have the same
 $Z^*$, and the optical mode moves them against each other, so its dipole is zero.
 This is why silicon has no one-phonon infrared absorption. The acoustic triplet again
-carries the residue of the sum rules, here 5.68 cm$^{-1}$ (the basis error and
-where the response loop stops, as on the page about phonons) and an infrared
+carries the residue of the sum rules, here 4.31 cm$^{-1}$, which is the error of
+the finite basis, as on the page about phonons, and an infrared
 activity of 2.35, because on this cell each silicon atom carries $Z^* = -1.20$
 instead of zero. The $4\times4\times4$ mesh contains $\Gamma$, where the gap is
 smallest, so the dielectric constant of silicon is 23.6 here against 11.7
 measured.
 
-Note the depolarization ratios of the acoustic triplet, 0.5590, 0.6508 and
-0.6292. A degenerate multiplet has no preferred basis, so the code can return
+Note the depolarization ratios of the acoustic triplet, 0.5249, 0.3160 and
+0.4466. A degenerate multiplet has no preferred basis, so the code can return
 any rotation of its three modes, and the number of one mode inside the multiplet
 depends on that rotation. The sum over the multiplet does not, because both
 invariants are quadratic in $R^\nu$. So when you compare two runs or two codes,
@@ -156,13 +156,13 @@ for freq, raman_sum, ir_sum in si.by_manifold():
 ```
 
 ```
-   5.68 cm^-1   Raman     0.0000   IR 7.1e+00
- 519.21 cm^-1   Raman 29251.6182   IR 2.0e-30
+   4.31 cm^-1   Raman     0.0000   IR 7.1e+00
+ 519.20 cm^-1   Raman 29251.4626   IR 4.2e-30
 ```
 
 Each row is one multiplet, with its mean frequency and the activities summed over
 its modes. The infrared activity of the optical triplet of silicon is
-$2\times10^{-30}$, which is zero to round-off.
+$4\times10^{-30}$, which is zero to round-off.
 
 ## LO-TO splitting and the static dielectric constant
 
@@ -185,7 +185,7 @@ frequencies at $\Gamma$, $\omega_{\rm TO}$ and $\omega_{\rm LO}$. In silicon
 the two atoms have the same $Z^*$, and the charges must add up to zero, so $Z^*$
 is zero and the term is zero (with `neutralize=True` on this cell). Without it,
 the charge of $-1.20$ on each atom pushes one acoustic mode of silicon up to
-73.7 cm$^{-1}$, while the optical line stays at 519.21 cm$^{-1}$. The two
+73.6 cm$^{-1}$, while the optical line stays at 519.20 cm$^{-1}$. The two
 frequencies are what infrared reflectivity and Raman scattering measure, and the
 band between them is where a polar crystal reflects almost all the light. We get it with
 `loto_direction`, the direction $\hat{\mathbf q}$ in cartesian coordinates:
@@ -199,8 +199,8 @@ print(f"splitting {lo_freq - to_freq:.1f} cm^-1")
 ```
 
 ```
-[  2.8   2.8   2.8 353.3 353.3 391.4]
-[  2.8   2.8   2.8 353.3 353.3 353.3]
+[  1.8   1.8   1.8 353.3 353.3 391.4]
+[  1.8   1.8   1.8 353.3 353.3 353.3]
 splitting 38.1 cm^-1
 ```
 
@@ -221,7 +221,7 @@ print(np.round(raw.frequencies, 1))       # without neutralize
 ```
 
 ```
-[  2.8   2.8  33.9 353.3 353.3 383.6]
+[  1.8   1.8  33.9 353.3 353.3 383.6]
 ```
 
 One acoustic mode is now at 33.9 cm$^{-1}$ and the LO mode is 7.8 cm$^{-1}$
@@ -287,7 +287,7 @@ and a reflectivity measurement sees it. Silicon is a flat line at zero, which we
 figure are computed with `neutralize=True`, and this changes the infrared
 activity of the optical mode from 5.92 to 7.58 per mode, so the sum rule of the
 charges matters for the intensities as well as for the LO frequency. The figure
-takes 62 s on one core.
+takes 89 s on one core.
 
 ??? example "Code of this figure (docs/figures/raman_spectrum/)"
 

@@ -110,8 +110,8 @@ print(gamma.matrix.shape)
 ```
 
 ```
-[  5.68   5.68   5.69 519.21 519.21 519.21] cm^-1
-acoustic residue 5.69 cm^-1
+[  4.33   4.33   4.33 519.2  519.2  519.2 ] cm^-1
+acoustic residue 4.33 cm^-1
 (2, 3, 2, 3)
 ```
 
@@ -120,18 +120,24 @@ holds the modes as columns. An unstable mode has $\omega^2 < 0$, and it comes as
 negative frequency. `gamma.matrix` is the force constant matrix in Ry/bohr$^2$,
 with the shape (atom, direction, atom, direction).
 
-We see the triply degenerate optical mode of silicon at 519.21 cm$^{-1}$, which is
+We see the triply degenerate optical mode of silicon at 519.20 cm$^{-1}$, which is
 the Raman line. The three acoustic modes, a rigid translation of the crystal,
-must be at zero frequency exactly, and here they are at 5.7 cm$^{-1}$.
-`gamma.acoustic_residue` gives this number. It has two parts. The larger part is
-the finite plane-wave basis, because the energy changes a little when the atoms
-move relative to the FFT grid, so the crystal is not exactly invariant under a
-translation, and a larger `ecutrho` makes this part smaller. The other part is
-where the self-consistent response loop stops. `get_phonons()` stops at
-`tr2 = 1e-14`, and with a tighter loop the residue falls to 4.33 cm$^{-1}$ on this
-cell, which is the basis part alone. So of the 5.7 cm$^{-1}$, about 1.4 cm$^{-1}$
-is the loop, and the optical mode moves by only 0.002 cm$^{-1}$. We do not correct it by default, so you see how large
-it is, and `acoustic_sum_rule=True` removes it from the matrix by hand.
+must be at zero frequency exactly, and here they are at 4.33 cm$^{-1}$.
+`gamma.acoustic_residue` gives this number. It comes from the finite plane-wave
+basis, because the energy changes a little when the atoms move relative to the
+FFT grid, so the crystal is not exactly invariant under a translation, and a
+larger `ecutrho` makes it smaller. We checked this number in an independent way.
+We moved the whole crystal by a small step and took the second derivative of the
+energy by finite differences, and this gives 4.33 cm$^{-1}$ too.
+
+The response loop of `get_phonons()` stops at `tr2 = 1e-18`, which is tighter
+than the `tr2_ph = 1e-14` of `ph.x`. If you want the stop of `ph.x`, for example to
+compare with it number by number, you pass `tr2=1e-14`. Then the residue on this
+cell is 5.68 cm$^{-1}$, so about 1.4 cm$^{-1}$ of it is the loop that stops early,
+while the optical mode moves by only 0.0015 cm$^{-1}$. The tighter default costs
+9 passes of the loop instead of 6. We do not correct the residue by default, so
+you see how large it is, and `acoustic_sum_rule=True` removes it from the matrix
+by hand.
 
 ## Phonons at any wavevector
 
@@ -192,9 +198,9 @@ transverse branches stay degenerate, while along K-$\Gamma$ the symmetry is lowe
 and all six branches split. The upper three branches stay between 371 and
 519 cm$^{-1}$, and the longitudinal acoustic branch rises to 405 cm$^{-1}$ at X.
 At $\Gamma$ the acoustic branches start at 4.4 cm$^{-1}$ rather than at zero. This
-is the same error as above. `get_phonons_at_q` converges its response loop more
-tightly than `get_phonons()` does, so its residue is close to the 4.33 cm$^{-1}$ of
-the basis alone, where `get_phonons()` gives 5.7 cm$^{-1}$.
+is the same error as above. `get_phonons_at_q` stops its response loop a little
+earlier than `get_phonons()` does, so its residue of 4.37 cm$^{-1}$ is close to,
+but not exactly, the 4.33 cm$^{-1}$ of `get_phonons()`.
 
 ??? example "Code of this figure (docs/figures/phonons_silicon_q/)"
 
