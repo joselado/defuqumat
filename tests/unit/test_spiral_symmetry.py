@@ -210,6 +210,28 @@ def test_what_a_symmetrised_spiral_still_refuses():
         ))
 
 
+def test_an_augmented_or_hubbard_spiral_with_symmetry_is_refused():
+    """The two dataset-side regimes the four-scalar rule was not written for.
+
+    ``becsum`` and the Hubbard occupations are symmetrised with the spin turned
+    with the lattice; the guard fires before either is built, with symmetry
+    actually on (``nsym > 1``), so the refusal is this one and not a later one.
+    """
+    ultrasoft = (ROOT / "data" / "qe" / "o-chain-spiral-us.in").read_text().replace(
+        "    nosym = .true.\n", ""
+    )
+    system = build_system(parse_pw_input(ultrasoft))
+    assert not system.nosym and system.symmetry_group().nsym > 1
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW.*nosym"):
+        _calculation(ultrasoft)
+
+    hubbard = CHAIN + "HUBBARD {ortho-atomic}\n U H-1s 1.0\n"
+    system = build_system(parse_pw_input(hubbard))
+    assert system.hubbard is not None and system.symmetry_group().nsym > 1
+    with pytest.raises(NotImplementedError, match="DFT\\+U needs nosym"):
+        _calculation(hubbard)
+
+
 def test_a_k_set_that_is_already_the_wedge_is_accepted():
     """The k-set check compares points, not provenance.
 
