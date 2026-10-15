@@ -381,12 +381,16 @@ def dynamical_matrix(
     # ``metals = True``: a Fermi surface does not stop a dynamical matrix
     # existing, and the solve handles one (``PLAN.md`` P24c). What it adds is
     # ``ef_shift``, inside the loop below.
+    # Before the generic guard, so that the message names the dynamical matrix.
+    _require_no_spinor(calculation)
     # ``gamma_ok``: validated against an explicit k = 0 on the whole sphere,
     # which is the same calculation in the other storage (``PLAN.md`` P68a).
     # ``spin_polarized``: the whole-k assembly is checked against ``ph.x`` on
     # triplet O2 (:func:`occupied_pairs`); the walked one is refused below.
+    # ``noncollinear``: the spinor assembly is written and measured, and
+    # :func:`_require_no_spinor` is what refuses it, with the numbers.
     require_a_sternheimer_regime(calculation, metals=True, gamma_ok=True,
-                                 spin_polarized=True)
+                                 spin_polarized=True, noncollinear=True)
     _require_a_moving_overlap_regime(calculation)
 
     structure = calculation.system.structure
@@ -433,6 +437,18 @@ def dynamical_matrix(
         what="the dynamical matrix")
     if streamed:
         _require_one_spin_channel(calculation)
+    if streamed and calculation.noncolin:
+        # **The walked route has a collinear copy of two of the terms** this
+        # module writes for a spinor: :mod:`defuqumat.response.chunked_phonon`'s
+        # ``overlap_matrix`` contracts the scalar ``qq`` on an ``npwx``-long
+        # band, and its frozen energies do not ask for ``spinors=True``.
+        raise NotImplementedError(
+            "the dynamical matrix of a noncollinear or spin-orbit run walked a "
+            "k-chunk at a time is not implemented: the chunked route "
+            "(response/chunked_phonon.py) has the collinear overlap qq and no "
+            "spinor energy. The whole-k route is implemented; run with "
+            "memory_mode='speed' or a k_batch that holds the whole mesh"
+        )
     weights, _ = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
     nocc = occupied_counts(calculation)
@@ -1113,14 +1129,34 @@ def overlap_derivatives(calculation, solver, positions, atoms=None) -> np.ndarra
     nat = positions.shape[0]
     batch = calculation.k_batch
 
+    noncolin = bool(calculation.noncolin)
+
     def overlap_matrix(pos):
-        """``<psi_m|S(u)|psi_n>`` -- only the augmentation half moves."""
+        """``<psi_m|S(u)|psi_n>`` -- only the augmentation half moves.
+
+        For a spinor the band is ``2 npwx`` long and the metric is ``qq_so``,
+        a 2x2 matrix in spin space, which is
+        :func:`~defuqumat.response.born.constraint_sandwich_at`'s contraction:
+        a fully-relativistic dataset's overlap couples the two components
+        through ``fcoef``, and the scalar ``qq`` on each block alone is the
+        ``j``-averaged operator.
+        """
         moved = calculation.at_positions(pos)
         vkb = moved.projectors.vkb
-        qq = moved.projectors.qq.astype(psi.dtype)
+        npwx = vkb.shape[1]
+        qq = jnp.asarray(
+            moved.qq_so if noncolin else moved.projectors.qq
+        ).astype(psi.dtype)
         blocks = []
         for spin in range(psi.shape[0]):
             def one_k(ik, spin=spin):
+                if noncolin:
+                    bands = psi[spin][ik]
+                    becp = jnp.einsum(
+                        "gc,nag->nac", vkb[ik].conj(),
+                        bands.reshape(bands.shape[:-1] + (2, npwx)),
+                    )
+                    return jnp.einsum("mai,abij,nbj->mn", becp.conj(), qq, becp)
                 becp = jnp.einsum("gc,ng->nc", vkb[ik].conj(), psi[spin][ik])
                 return jnp.einsum("mi,ij,nj->mn", becp.conj(), qq, becp)
 
@@ -1602,6 +1638,7 @@ def _force_constants(
                 FrozenState(wavefunctions=states, weights=w,
                             eigenvalues=eigenvalues),
                 density=rho, becsum=parts, multipliers=lambdas,
+                spinors=True,
             )
 
         def becsum_builder(moved, built_states, occupations):
@@ -1619,6 +1656,7 @@ def _force_constants(
             calculation, pos,
             FrozenState(wavefunctions=states, weights=w, eigenvalues=eigenvalues),
             density=density_builder, becsum=becsum_builder, multipliers=lambdas,
+            spinors=True,
         )
 
     gradient = jax.grad(energy, argnums=0)
@@ -1834,6 +1872,86 @@ def _require_one_spin_channel(calculation) -> None:
             "route is memory_mode='speed' with the states held whole rather "
             "than streamed"
         )
+
+
+def _require_no_spinor(calculation) -> None:
+    """A spinor run: the assembly is written and measured, and still refused.
+
+    **What a nonmagnetic spinor needed was three terms of this module's own
+    assembly, not a new response**, and they are in (``notes/incompat/I3.md``).
+    The Sternheimer solve has had a spinor form since P81 and the augmented
+    spinor since P98; what this caller added is the ``spinors=True`` opt-in on
+    :func:`~defuqumat.forces.energy.frozen_energy` in :func:`_force_constants`
+    (the functional has had its spinor branch since P46), ``qq_so`` in
+    :func:`overlap_derivatives`, the one contraction here written for an
+    ``npwx``-long band, and the generic guard's ``noncollinear`` opt-in. The
+    rest -- the bare perturbation through ``at_positions``, the multipliers'
+    response, ``_raw_mixed_state`` and the screening, whose stop is already
+    ``tr2 / npol`` as ``dfpt_kernels.f90:435`` has it -- is shape-agnostic or
+    was made spinor-aware by the Born charges.
+
+    **The measurements, with this guard bypassed** (D22, 2026-10-16, one run
+    each, ``tests/regression/test_spinor_phonons.py``):
+
+    * the same silicon as a scalar and as a spinor with no moment gives the same
+      force constants to **2.7e-10** (norm-conserving), **1.2e-9** (ultrasoft)
+      and **1.7e-9** Ry/bohr^2 (PAW), on force constants of 0.28;
+    * fully-relativistic ultrasoft AlAs: the optical triplet at **376.717753
+      cm^-1 against ``ph.x``'s 376.714126** (376.715282 at ``ph.x``'s own
+      ``tr2 = 1e-14``, 1.2e-3 like-for-like). On this cell spin-orbit coupling
+      is worth only 0.073 cm^-1 in ``ph.x``, so the ``fcoef`` dressing is below
+      what it resolves, and the identities above cannot see it at all
+      (``fcoef = 1`` for a scalar-relativistic dataset);
+    * bismuthene (``bismuthene-epsilon-us-soc.in``), the one cell where the
+      dressing is resolvable, **does not agree**: at ``tr2 = 1e-14`` the
+      ``B_1g`` mode is 69.308519 against ``ph.x``'s 66.727386 and ``E_2g``
+      117.145263 against 117.891803 cm^-1, the acoustic modes +16.2, +16.2,
+      +18.0 against ``ph.x``'s +12.3, +12.3, -15.3. The loop itself is not
+      converged there: at ``tr2 = 1e-16`` ``E_2g`` moves to 118.212126, by
+      1.07, where AlAs moves by 2.5e-3. A central difference of this code's own
+      forces (``h = 0.01`` bohr, atom 0 along ``z``) gives the inter-atomic
+      constant ``D(0z, 1z)`` to **0.5 per cent** (-0.03625 against -0.03644)
+      and the on-site ``D(0z, 0z)`` **11 per cent** off (0.04438 against
+      0.03982). So the error sits in the self (acoustic) block, as in
+      ``OPEN.md`` Part XXVII, on a cell with vacuum, a GGA and a core charge on
+      a heavy atom -- which does not point at the spin axis and does not clear
+      it either, since no scalar cell of that kind has been put through the
+      same comparison.
+
+    That is why the refusal stays, in the form :func:`_require_one_spin_channel`
+    keeps for ``nspin = 2``. What would lift it, in order: bismuthene's DFPT at
+    ``tr2 = 1e-18`` and below against the same finite-difference row (if
+    ``D(0z, 0z)`` walks to 0.0444 it is the loop); the same comparison on a
+    scalar ultrasoft insulator with vacuum, a GGA and a core charge (whether
+    the 11 per cent is the spinor's at all); ``ph.x`` on bismuthene at a tighter
+    ``tr2_ph``.
+
+    **A magnetized spinor is refused for a separate reason**: the induced
+    potential is then ``dv_0 I + dm . sigma`` through a 4x4 kernel, and the
+    dielectric tensor of the one textured cell measured (``i-atom-soc.in``) sits
+    5.3 per cent from ``ph.x`` along the moment for an unlocated reason
+    (:func:`~defuqumat.response.efield.require_a_measured_spinor_response`).
+    """
+    if not calculation.noncolin:
+        return
+    if calculation.nspin_mag == 4:
+        raise NotImplementedError(
+            "the dynamical matrix of a noncollinear run with a magnetization "
+            "(nspin_mag = 4, a textured spinor) is not implemented: the induced "
+            "potential carries dm . sigma through the 4x4 exchange-correlation "
+            "kernel, which the dielectric tensor of a textured spin-orbit "
+            "insulator puts 5.3 per cent from ph.x for a reason not yet found"
+        )
+    raise NotImplementedError(
+        "the dynamical matrix of a noncollinear or spin-orbit run is not "
+        "implemented, although its assembly is written and measured: a spinor "
+        "without a moment reproduces the scalar run's force constants to "
+        "1.7e-9 Ry/bohr^2 and ph.x's optical triplet of spin-orbit AlAs to "
+        "1.2e-3 cm^-1, but on spin-orbit bismuthene the B_1g and E_2g modes are "
+        "2.6 and 0.75 cm^-1 from ph.x and the on-site force constant 11 per "
+        "cent from a finite difference of this code's own forces, which is "
+        "unlocated (notes/incompat/I3.md)"
+    )
 
 
 def _require_a_moving_overlap_regime(calculation) -> None:
