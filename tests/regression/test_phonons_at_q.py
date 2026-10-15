@@ -191,9 +191,9 @@ def test_q_zero_reproduces_the_gamma_machinery():
     **The two loops are compared at one ``tr2``.** Since P149 the at-``q`` route
     runs its scheduled solves capped at 1e-8 with ``tr2 = 1e-16``
     (:data:`~defuqumat.response.phononq.TR2_AT_Q_CAPPED`), while ``Gamma``'s
-    default stays ``ph.x``'s 1e-14, and the ``Gamma`` loop alone moves by
-    1.45e-5 between the two (its acoustic residue 5.68 to 4.45 cm^-1, D22,
-    2026-10-14); like for like the routes agree to 2.2e-6 capped and 1.95e-6
+    default was ``ph.x``'s 1e-14 until 2026-10-15 and is 1e-18 since, and the
+    ``Gamma`` loop alone moved by 1.45e-5 between 1e-14 and 1e-16 (its
+    acoustic residue 5.68 to 4.45 cm^-1, D22, 2026-10-14); like for like the routes agree to 2.2e-6 capped and 1.95e-6
     uncapped at either ``tr2``, which is the Ewald residue
     :data:`GAMMA_AGREEMENT` is about. So ``Gamma`` is asked for the at-``q``
     default's ``tr2`` here, and the bound keeps its meaning.

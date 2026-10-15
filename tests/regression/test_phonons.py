@@ -138,10 +138,11 @@ WEDGE_TOLERANCE = 1e-10
 #: tested per mode since 2026-10-03; 1e-24 is about where the loop stopped
 #: before then on these 20^3 to 32^3 grids (a raw ``sum(dV^2)`` of 1e-14 over
 #: every mode, against a per-mode ``(2 nnr)^2`` of 1.6e9 to 4.3e9), and the CG
-#: threshold is the fixed one it held until then. At the defaults the wedge and
-#: the whole grid agree to 2.1e-7 on the matrix and the PAW induced densities to
-#: 2.1e-6 (measured on D22), which is both routes converged where ``ph.x``
-#: stops and says nothing about the symmetrisation this file checks.
+#: threshold is the fixed one it held until then. At the defaults of the time
+#: (``tr2 = 1e-14``, ``ph.x``'s, until 2026-10-15) the wedge and the whole grid
+#: agreed to 2.1e-7 on the matrix and the PAW induced densities to 2.1e-6
+#: (measured on D22), which is both routes converged where ``ph.x`` stops and
+#: says nothing about the symmetrisation this file checks.
 IDENTITY = {"tr2": 1.0e-24, "threshold": 1.0e-12}
 
 

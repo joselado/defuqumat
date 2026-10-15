@@ -647,9 +647,9 @@ def vibrational_spectrum(
         response_options: passed to both responses.
             **One ``tr2`` reaches both loops**, and their defaults differ: the
             field's is :func:`~defuqumat.response.efield.default_tr2` (1e-14 in
-            a bulk cell) and the
-            displacements' :data:`~defuqumat.response.phonon.TR2` (1e-18, since
-            2026-10-15), so a ``tr2`` given here moves both to that value.
+            a bulk cell) and the displacements'
+            :data:`~defuqumat.response.phonon.TR2` (1e-18, since 2026-10-15), so
+            a ``tr2`` given here moves both to that value.
 
     Returns a :class:`VibrationalSpectrum`. Its permittivity is always built
     from the **analytic** modes, whatever ``loto_direction`` says: the sum over
