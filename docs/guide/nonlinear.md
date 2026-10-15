@@ -211,7 +211,7 @@ the current density at each time of `run.times`, in Hartree atomic units, and
 `run.efield` and `run.kappa` are the field and the shift on the same times. Two
 numbers check the run. The work that the field does on the current,
 $\Omega\int\mathbf J\cdot\mathbf E\,dt$, is the energy that the crystal gains,
-here to the last digit printed. This check does not depend on the units, so it
+here to a few parts in $10^5$. This check does not depend on the units, so it
 sees a step that does not conserve the norm or a current that is not the
 derivative of the Hamiltonian. And `run.excited` counts the electrons that the
 pulse leaves in the conduction bands, 0.215 per cell of the eight valence
@@ -267,7 +267,7 @@ $\epsilon_{xx}$ at the three energies. The local fields and the adiabatic LDA
 lower the response by roughly 4 per cent at 0.5 eV and by 7 per cent in the
 imaginary part at 3.5 eV, where the absorption is. Note that these values are
 those of the $4\times4\times4$ mesh, which is far from converged for silicon, so
-$\epsilon_{xx}$ reads 23 near zero frequency. On a coarse mesh the propagation
+$\epsilon_{xx}$ reads 23.7 at 0.5 eV. On a coarse mesh the propagation
 also carries a false Drude term, a sum of the band curvature over the mesh that
 goes to zero only for a dense mesh and grows as $1/\eta^2$ at low frequency.
 `subtract_static=True` removes the constant part of the current before the

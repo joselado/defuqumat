@@ -10,7 +10,7 @@ def draw():
     xyz = d["xyz"]
     ax.plot(d["ev"], xyz.real, color=style.color(0), label=r"Re $\chi^{xyz}$")
     ax.plot(d["ev"], xyz.imag, color=style.color(1), label=r"Im $\chi^{xyz}$")
-    ax.plot(d["ev"], np.abs(xyz), color=style.ink(), lw=0.9, label=r"$|\chi^{xyz}|$")
+    ax.plot(d["ev"], np.abs(xyz), color=style.ink(), lw=1.2, label=r"$|\chi^{xyz}|$")
     ax.plot(d["si_ev"], d["si_xyz"].real, color=style.color(2), ls=":",
             label=r"silicon, Re $\chi^{xyz}$")
     style.zero_line(ax)
