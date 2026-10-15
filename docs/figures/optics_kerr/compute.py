@@ -1,4 +1,4 @@
-"""The optical conductivity and the Kerr angle of fcc nickel, on two k-meshes."""
+"""The optical conductivity and the Kerr angle of fcc nickel, on three k-meshes."""
 from defuqumat import Calculator
 from defuqumat.system.kpoints import KPoints
 from common import PSEUDO, save
@@ -8,7 +8,7 @@ scf = calc.get_scf()
 cell = calc.system.cell
 
 out = {"moment": scf.magnetization_vector[2]}
-for n in (4, 6):
+for n in (4, 6, 8):
     mesh = KPoints.automatic((n, n, n), (0, 0, 0), cell, precision=cell.precision)
     sigma = calc.get_optical_conductivity(kpoints=mesh, nbnd=36, window=0.6,
                                           nw=200, broadening=0.01,
