@@ -20,7 +20,7 @@ where $\tau_{a,k}$ is the position of atom $a$ along the cartesian direction
 $k$. It is a third derivative of the energy, two times with respect to an
 electric field and one time with respect to a position, and it is the quantity
 from which a Raman intensity is built. We take it as a derivative of the energy
-itself, so no displaced cells and no second SCF are needed. Here we take
+itself, so no displaced cells are needed. Here we take
 zincblende AlAs, and we compute it with `calc.get_raman_tensors()`:
 
 ```python
@@ -54,7 +54,7 @@ entry is zero to $10^{-16}$. The code averages the tensors over the operations
 of the crystal, so these zeros are exact by construction. The sum over the atoms
 is not imposed by this average. Moving the whole crystal cannot change $\varepsilon$, so the
 tensors of the two atoms should add up to zero. Here they cancel to
-$2.8\times10^{-4}$ of their size, which is the error of the plane-wave basis. The
+$2.8\times10^{-4}$ of their size, which is the error of this unconverged cell. The
 code reports this sum and does not force it to zero.
 
 ## Modes and their activities
@@ -110,7 +110,7 @@ its depolarization ratio is 3/4, because its Raman tensor has no trace. The
 acoustic triplet should be at zero frequency with no activity. It comes out at
 2.76 cm$^{-1}$ with an infrared activity of 0.36, because the acoustic sum rule
 and the charge neutrality of $Z^*$ are not imposed, so these numbers measure how
-far the basis is from converged. Let us now take silicon:
+far this cell is from converged, in the cutoff and in the k-mesh. Let us now take silicon:
 
 ```python
 silicon = Calculator.from_file("docs/figures/raman_spectrum/si.in",
@@ -130,14 +130,17 @@ print(si.table())
 ```
 
 The optical triplet of silicon is at 519.21 cm$^{-1}$, against 520 cm$^{-1}$
-measured, which is the line every Raman spectrometer is calibrated on. It is
-Raman active and infrared silent. The reason is symmetry: one operation of the
+measured, which is the line every Raman spectrometer is calibrated on. This
+cell is far from converged, as we see below, so this agreement is not a measure
+of the accuracy. The line is Raman active and infrared silent. The reason is symmetry: one operation of the
 crystal maps one silicon atom onto the other, so the two atoms have the same
 $Z^*$, and the optical mode moves them against each other, so its dipole is zero.
 This is why silicon has no one-phonon infrared absorption. The acoustic triplet again
 carries the residue of the sum rules, here 5.68 cm$^{-1}$ and an infrared
-activity of 2.35, because the two equal $Z^*$ of silicon are not exactly zero on
-this basis.
+activity of 2.35, because on this cell each silicon atom carries $Z^* = -1.20$
+instead of zero. The $4\times4\times4$ mesh contains $\Gamma$, where the gap is
+smallest, so the dielectric constant of silicon is 23.6 here against 11.7
+measured.
 
 Note the depolarization ratios of the acoustic triplet, 0.5590, 0.6508 and
 0.6292. A degenerate multiplet has no preferred basis, so the code can return
@@ -166,10 +169,10 @@ We now add the long-range electric field. In AlAs the two atoms carry opposite
 charges, so the optical mode that moves them against each other creates a
 macroscopic electric field across the crystal. This field costs energy, and how
 much depends on the direction $\hat{\mathbf q}$ from which we approach $\Gamma$,
-so the dynamical matrix gets a non-analytic term of rank one:
+so the force-constant matrix $C$ gets a non-analytic term of rank one:
 
 $$
-D_{a\alpha,b\beta} \;\to\; D_{a\alpha,b\beta}
+C_{a\alpha,b\beta} \;\to\; C_{a\alpha,b\beta}
   + \frac{4\pi e^2}{\Omega}\,
     \frac{(\hat{\mathbf q}\cdot Z^{*}_a)_\alpha\,(\hat{\mathbf q}\cdot Z^{*}_b)_\beta}
          {\hat{\mathbf q}\cdot\varepsilon^\infty\cdot\hat{\mathbf q}} .
@@ -178,7 +181,10 @@ $$
 The term pushes up the mode that is longitudinal along $\hat{\mathbf q}$ and
 leaves the two transverse ones alone, so a polar crystal has two optical
 frequencies at $\Gamma$, $\omega_{\rm TO}$ and $\omega_{\rm LO}$. In silicon
-$Z^*$ is zero by symmetry, so the term is zero and there is one line. The two
+the two atoms have the same $Z^*$, and the charges must add up to zero, so $Z^*$
+is zero and the term is zero (with `neutralize=True` on this cell). Without it,
+the charge of $-1.20$ on each atom pushes one acoustic mode of silicon up to
+73.7 cm$^{-1}$, while the optical line stays at 519.21 cm$^{-1}$. The two
 frequencies are what infrared reflectivity and Raman scattering measure, and the
 band between them is where a polar crystal reflects almost all the light. We get it with
 `loto_direction`, the direction $\hat{\mathbf q}$ in cartesian coordinates:
@@ -220,7 +226,8 @@ print(np.round(raw.frequencies, 1))       # without neutralize
 One acoustic mode is now at 33.9 cm$^{-1}$ and the LO mode is 7.8 cm$^{-1}$
 lower, at 383.6 cm$^{-1}$, which are both wrong. `neutralize=True` shares the
 missing charge equally over the atoms before anything else is computed. So for a
-polar crystal you should always give it with `loto_direction`.
+polar crystal you should always pass `neutralize=True` together with
+`loto_direction`.
 
 The same charges also screen a static field. Each polar mode is an oscillator
 that the field drives, so the static dielectric constant is the electronic one
