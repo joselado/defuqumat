@@ -108,8 +108,9 @@ class ProjectionSymmetry(eqx.Module):
 
     indices: jnp.ndarray  # (nsym, natomwfc, mmax), int
     coefficients: jnp.ndarray  # (nsym, natomwfc, mmax): real, or complex
-    # on a spinor run, where the coefficient is ``D^l x U`` and ``mmax``
-    # covers both spin halves of a shell.
+    # on a spinor run, where the coefficient is ``D^l x conj(U)`` and ``mmax``
+    # covers both spin halves of a shell, or, on a spin-orbit run, that
+    # operator in the ``|j m_j>`` basis (``D^j``, ``2j+1`` columns).
     nsym: int = eqx.field(static=True)
     #: ``(natomwfc,)``: the column holding each column's Kramers partner
     #: (``m_j -> -m_j`` in the same ``j`` shell), or ``None``. Set on a
@@ -184,8 +185,11 @@ def build_projection_symmetry(
 
         coefficients_s[m_j, m_j'] = ( conj(M_j) A_s M_j^T )[m_j, m_j']
 
-    which is how ``d_matrix_so.f90`` itself makes it, from the ``l`` rotation and
-    the SU(2) matrix through the same Clebsch-Gordan coefficients. The block
+    which is the representation ``d_matrix_so.f90`` builds too: it fits the
+    ``l`` rotation of the complex harmonics from random points on a sphere,
+    multiplies it by ``conj(find_u)`` and changes basis with its Clebsch-Gordan
+    matrices ``Ul*C``; here the ``l`` rotation is the real-harmonic one already
+    in hand and the basis change is ``M_j``. The block
     between the two ``j`` of one ``l``, ``conj(M_j) A_s M_j'^T``, has to vanish,
     and it vanishes only if the SU(2) convention of
     :func:`~defuqumat.system.symmetry.spin_rotations` and the complex-harmonic
