@@ -75,3 +75,21 @@ After: "The pseudopotentials are UPF files. The code reads their names from the
 own crystal, you write an input file and put the UPF files in that folder."
 
 `README.md` as of 2026-10-13 is the reference example of the whole style.
+
+### The user guide speaks as "we" (the user's decision, 2026-10-15)
+
+For the user guide website (`docs/guide/*.md`) the user asked for first person and simple
+English "like 'here we will compute...', similar to how it is in pyqula user guide". The
+model is `documentation/guide/` of the pyqula repository (`bands-and-dos.md`,
+`mean-field.md`). What that changes from the rule above, for the guide only:
+
+- A page opens with "In this page we compute ...", a section with what we do next ("We
+  now ...", "Let us now ...", "Here we take ..."), and the code is introduced by "We
+  compute it with `calc.get_x()`". "We" is the default subject, "you" is the reader's own
+  choice, never "I".
+- Sentences stay simple but are not choppy: two facts may be joined with ", so", "and",
+  "which is", "meaning that", or an appositive ("the density of states, the number of
+  states at each energy"). A long run of very short sentences is what to avoid now. No
+  semicolons and no long colon chains, as before.
+- Everything under "What stays" above still holds: every formula, call, number, link and
+  printed output is kept exactly.

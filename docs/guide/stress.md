@@ -1,7 +1,7 @@
 # Stress and the cell
 
-On this page we compute the stress tensor, the equation of state, a relaxation of
-the cell at an applied pressure, and the elastic constants.
+In this page we compute the stress tensor and the equation of state, we relax
+the cell at an applied pressure, and we compute the elastic constants.
 
 ## The stress tensor
 
@@ -17,10 +17,11 @@ P = \tfrac13\,\mathrm{tr}\,\sigma .
 $$
 
 As for the forces, the wavefunctions stay fixed, because the energy is
-stationary in them. The code takes this derivative with automatic
-differentiation. A positive pressure means that the crystal wants to expand. The
-stress tells whether the lattice constant is at its equilibrium, and it is what
-a diamond anvil cell or a strained substrate puts on the crystal.
+stationary in them, and we take this derivative with automatic differentiation.
+A positive pressure means that the crystal wants to expand. The stress tells us
+whether the lattice constant is at its equilibrium, and it is what a diamond
+anvil cell or a strained substrate puts on the crystal. We compute it with
+`calc.get_stress()`:
 
 ```python
 from defuqumat import Calculator
@@ -39,37 +40,37 @@ pressure 7.37 kbar
 
 `stress.kbar` is the tensor in kbar, and `stress.tensor` the same in
 Ry/bohr$^3$. The cubic symmetry makes the tensor diagonal with three equal
-entries. `calc.get_stress(terms=True).terms` gives the kinetic, Hartree, local,
-nonlocal, exchange-correlation and Ewald parts. If the input has
-`tstress = .true.`, the SCF already computes the stress and `get_stress()`
-returns it.
+entries, and the three printed entries are indeed equal. `calc.get_stress(terms=True).terms` gives
+the kinetic, Hartree, local, nonlocal, exchange-correlation and Ewald parts. If
+the input has `tstress = .true.`, the SCF already computes the stress and
+`get_stress()` returns it.
 
 ## The equation of state
 
-The pressure is also $P = -dE/dV$, a derivative along a series of separate SCF
-runs at different volumes. This curve $E(V)$ is the equation of state. Its
-minimum is the equilibrium volume, and its curvature gives the bulk modulus,
-$B = V\,d^2E/dV^2$.
+We now get the pressure in a second way. The pressure is also $P = -dE/dV$, a
+derivative along a series of separate SCF runs at different volumes. This curve
+$E(V)$ is the equation of state. Its minimum is the equilibrium volume, and its
+curvature gives the bulk modulus, $B = V\,d^2E/dV^2$.
 
 ![The equation of state of silicon, and the pressure from the stress and from -dE/dV.](img/stress_eos.png#only-light)
 ![The equation of state of silicon, and the pressure from the stress and from -dE/dV.](img/stress_eos-dark.png#only-dark)
 
 The left panel is the total energy of silicon against the volume, at 40 Ry, for
-nine lattice constants from 0.96 to 1.04 times 10.20 bohr. The right panel is the
-pressure in two ways. The line with points is the pressure from the stress, one
-SCF per volume. The dashed line is $-dE/dV$ along the curve on the left. It uses
-central differences, so it has no value at the two end points. On the seven inner
-volumes the two agree to 1.9 kbar or better, on a pressure from $-83$ to 161 kbar.
-The difference comes from the finite difference along the curve and from the
-Pulay stress, below. The pressure is zero at 267.5 bohr$^3$, a lattice constant
-of 10.23 bohr. This is the equilibrium of silicon in LDA with this
-pseudopotential. The measured lattice constant is 10.26 bohr.
+nine lattice constants from 0.96 to 1.04 times 10.20 bohr. The right panel shows
+the pressure in two ways. The line with points is the pressure from the stress,
+one SCF per volume. The dashed line is $-dE/dV$ along the curve on the left,
+which uses central differences, so it has no value at the two end points. On the
+seven inner volumes the two agree to 1.9 kbar or better, on a pressure from
+$-83$ to 161 kbar. The difference comes from the finite difference along the
+curve and from the Pulay stress, below. The pressure is zero at 267.5
+bohr$^3$, a lattice constant of 10.23 bohr, which is the equilibrium of silicon
+in LDA with this pseudopotential. The measured lattice constant is 10.26 bohr.
 
 The Pulay stress is an error of the basis. At a fixed `ecutwfc`, a larger cell
 holds more plane waves, so the energy also falls because the basis gets better.
 On this cell it is about 44 kbar at 12 Ry, 1.1 kbar at 40 Ry and 0.11 kbar at
-60 Ry. So converge the cutoff on the stress, not only on the energy, before you
-trust a lattice constant.
+60 Ry. So you should converge the cutoff on the stress, not only on the energy,
+before you trust a lattice constant.
 
 ??? example "Code of this figure (docs/figures/stress_eos/)"
 
@@ -83,17 +84,18 @@ trust a lattice constant.
 
 ## Relaxing the cell at a pressure
 
-`get_relax(variable_cell=True)` is the `vc-relax` of `pw.x`. It moves the atoms
-and the lattice vectors together, and it minimizes the enthalpy
+Let us now relax the cell. `get_relax(variable_cell=True)` is the `vc-relax` of
+`pw.x`, which moves the atoms and the lattice vectors together and minimizes the
+enthalpy
 
 $$
 H = E + P\,\Omega .
 $$
 
 $P$ is the applied pressure, `press` in the `&cell` namelist, in kbar. At the
-minimum of $H$ the stress is $\sigma = P\,\mathbf 1$. So a relaxed crystal
-carries the applied pressure and not zero stress. Here the eight-atom cubic cell
-of silicon is relaxed at 100 kbar:
+minimum of $H$ the stress is $\sigma = P\,\mathbf 1$, so a relaxed crystal
+carries the applied pressure and not zero stress. Here we relax the eight-atom
+cubic cell of silicon at 100 kbar:
 
 ```python
 cell = Calculator.from_file("docs/figures/stress_eos/si8-pressure.in",
@@ -113,26 +115,27 @@ enthalpy -62.71117414 Ry
 Pulay error 2.4e-03 Ry
 ```
 
-The volume falls by 8%. The relaxation runs in the plane-wave basis of the first
-cell. At the end the code runs one more SCF in the basis of the relaxed cell. The
-energy difference between the two is `result.pulay_error`, the error of the fixed
-basis. If it is large, the relaxed volume is not converged in the cutoff.
-`result.cell` holds the relaxed lattice vectors in bohr, and `result.stress` the
-stress at the end. `cell_dofree` in `&cell` chooses which parts of the cell can
-move, as in `pw.x`.
+We see that the volume falls by 8%. The relaxation runs in the plane-wave basis
+of the first cell, and at the end the code runs one more SCF in the basis of the
+relaxed cell. The energy difference between the two is `result.pulay_error`, the
+error of the fixed basis, and if it is large, the relaxed volume is not
+converged in the cutoff. `result.cell` holds the relaxed lattice vectors in
+bohr, and `result.stress` the stress at the end. `cell_dofree` in `&cell`
+chooses which parts of the cell can move, as in `pw.x`.
 
 ## Elastic constants
 
-The elastic constants are the second derivative of the energy with respect to
-the strain:
+Finally we compute the elastic constants, the second derivative of the energy
+with respect to the strain:
 
 $$
 C_{ijkl} = \frac{1}{\Omega}\,\frac{\partial^2 E}{\partial \epsilon_{ij}\,\partial \epsilon_{kl}} .
 $$
 
 They give the speed of sound, which ultrasound and Brillouin scattering measure.
-The code computes them from the linear response of the wavefunctions to a
-strain, in one calculation and with no strained cells.
+We compute them from the linear response of the wavefunctions to a strain, in
+one calculation and with no strained cells, with
+`silicon.get_elastic_constants()`:
 
 ```python
 silicon = Calculator.from_file("docs/figures/stress_eos/si-elastic.in",
@@ -150,17 +153,17 @@ bulk modulus 115.1 GPa
 
 `c.voigt` is the $6\times6$ matrix in Voigt notation, in GPa, and `c.tensor` the
 full tensor in Ry/bohr$^3$. The measured values of silicon are $C_{11} = 165.7$,
-$C_{12} = 63.9$ and $C_{44} = 79.6$ GPa. Two things make the numbers here larger.
-This cell has a 12 Ry cutoff and a $2\times2\times2$ mesh, which is far from
-converged. And the elastic constants here are clamped-ion. This means that the atoms
-keep their crystal coordinates inside the strained cell. In the diamond structure this is the
-full answer for $C_{11}$ and $C_{12}$, by symmetry. For $C_{44}$ it is not. A
-shear strain moves the two atoms of the cell against each other, and this
-internal relaxation lowers $C_{44}$.
+$C_{12} = 63.9$ and $C_{44} = 79.6$ GPa, and two things make the numbers here
+larger. First, this cell has a 12 Ry cutoff and a $2\times2\times2$ mesh, which
+is far from converged. Second, the elastic constants here are clamped-ion,
+meaning that the atoms keep their crystal coordinates inside the strained cell.
+In the diamond structure this is the full answer for $C_{11}$ and $C_{12}$, by
+symmetry, but for $C_{44}$ it is not. A shear strain moves the two atoms of the
+cell against each other, and this internal relaxation lowers $C_{44}$.
 
 !!! note "Limits"
     The elastic constants need a norm-conserving dataset and the full k-mesh
-    (`nosym`). They give an error for a noncollinear or spin-orbit run. The
+    (`nosym`), and they give an error for a noncollinear or spin-orbit run. The
     page about piezoelectric and strain responses has the other strain
     responses, which also work for ultrasoft and PAW.
 
