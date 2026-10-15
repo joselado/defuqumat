@@ -10,6 +10,8 @@ orthonormal blocks in an abstract basis common to every k, so the gathers are
 the identity and the test is about the algebra alone.
 """
 
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -152,3 +154,26 @@ def test_an_automatic_grid_is_refused():
     text = _INPUT.format(extra="", kpoints="automatic\n2 2 2 0 0 0\n")
     with pytest.raises(NotImplementedError, match="automatic"):
         build_system(parse_pw_input(text))
+
+
+def _calculation(extra_system="", kpoints=_LIST):
+    """A one-atom ``Calculation`` with the field, built and not run: the regime gate fires here."""
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf import Calculation
+
+    text = _INPUT.format(extra="", kpoints=kpoints).replace(
+        "ecutwfc=20", "ecutwfc=12" + extra_system)
+    system = build_system(parse_pw_input(text))
+    pseudo = Path(__file__).resolve().parents[1] / "data" / "pseudo"
+    pseudos = tuple(read_upf(pseudo / s.pseudo_file) for s in system.structure.species)
+    return Calculation(system, pseudos)
+
+
+def test_nspin_two_is_refused():
+    with pytest.raises(NotImplementedError, match="nspin = 2"):
+        _calculation(", nspin=2, tot_magnetization=0")
+
+
+def test_a_spinor_is_refused():
+    with pytest.raises(NotImplementedError, match="nspin = 4"):
+        _calculation(", noncolin=.true.")
