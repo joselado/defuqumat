@@ -1,0 +1,25 @@
+! Zincblende AlAs, LDA, norm-conserving, at 30 Ry, the cutoff a second-order
+! susceptibility needs. nosym and noinv keep the whole unshifted k-mesh, because
+! a rank-3 tensor like chi^(2) or the shift current is summed over the whole zone.
+ &control
+    calculation = 'scf'
+    prefix = 'alas'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.575, nat = 2, ntyp = 2,
+    ecutwfc = 30.0
+    nosym = .true.
+    noinv = .true.
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al  26.98  Al.pz-vbc.UPF
+ As  74.92  As.pz-bhs.UPF
+ATOMIC_POSITIONS (alat)
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 4 4 4 0 0 0
