@@ -32,22 +32,26 @@ PSEUDO = ROOT / "data" / "pseudo"
 
 #: fcc hydrogen with ``q = b3/4``, a ``[111]``-type direction in cartesian axes,
 #: so the stabiliser in ``O_h`` is ``C3v``: 6 operations, ``f = 0``.
+#: ``q = b3/8``, where the scan in that file's header converges in 10
+#: iterations with ``|m| = 0.40``; at ``b3/4`` it does not converge, and at a
+#: larger smearing the moment is gone (``|m| = 5e-5`` at ``degauss = 0.05``,
+#: measured), which would make the comparison blind to the magnetization.
 FCC = (ROOT / "data" / "qe" / "h-fcc-spiral-scan.in").read_text().replace(
     "nosym = .true., noinv = .true.", "noinv = .true."
-).replace("spiral_q(3) = 0.0", "spiral_q(3) = 0.25").replace(
-    "degauss = 0.01", "degauss = 0.05"
-)
+).replace("spiral_q(3) = 0.0", "spiral_q(3) = 0.125")
 
 #: A zigzag hydrogen chain along ``z``: two atoms per cell related by the
 #: screw ``{C2z | c/2}`` and the glide ``{m_x | c/2}``, so two of the four
 #: operations carry ``q . f = 2 pi (1/4)(1/2)``, the one arm where the
-#: four-scalar rule and a leftover spin rotation read differently.
+#: four-scalar rule and a leftover spin rotation read differently. The atoms
+#: are 5 bohr apart along the chain, ``h-chain-spiral.in``'s spacing: at 4 bohr
+#: the chain converges nonmagnetic (``|m| = 2e-5``, measured).
 ZIGZAG = """\
  &control
     calculation = 'scf'
  /
  &system
-    ibrav = 6, celldm(1) = 10.0, celldm(3) = 0.8,
+    ibrav = 6, celldm(1) = 12.0, celldm(3) = 0.83333333333333,
     nat = 2, ntyp = 1, ecutwfc = 25.0,
     occupations = 'smearing', smearing = 'gaussian', degauss = 0.10
     noncolin = .true.
@@ -70,6 +74,14 @@ K_POINTS {automatic}
 """
 
 
+#: The hydrogen chain every spiral test runs on, with symmetry and an in-plane
+#: grid: ``C4v`` about the chain, ``f = 0``, the one cell known to be magnetic
+#: at every ``q`` (``h-chain-spiral.in``).
+CHAIN = (ROOT / "data" / "qe" / "h-chain-spiral.in").read_text().replace(
+    "    nosym = .true.\n", ""
+).replace(" 1 1 4 0 0 0", " 3 3 4 0 0 0")
+
+
 def _nosym(text: str) -> str:
     if "noinv = .true." in text:
         return text.replace("noinv = .true.", "noinv = .true., nosym = .true.")
@@ -85,7 +97,8 @@ def _calculation(text: str):
 @pytest.mark.parametrize("text, nsym, nk_sym, nk_full", [
     (FCC, 6, 20, 64),
     (ZIGZAG, 4, 16, 36),
-], ids=["fcc", "zigzag"])
+    (CHAIN, 8, 12, 36),
+], ids=["fcc", "zigzag", "chain"])
 def test_the_spin_space_group_and_its_wedge(text, nsym, nk_sym, nk_full):
     """The stabiliser of ``q`` that keeps the seed, counted by hand, and its wedge.
 
@@ -113,6 +126,7 @@ def test_the_zigzag_group_carries_a_spiral_phase():
     group = system.symmetry_group()
     phases = 2 * np.pi * group.translation_array() @ np.asarray(system.spiral_q)
     assert sorted(np.round(np.degrees(phases), 6)) == [0.0, 0.0, 45.0, 45.0]
+
 
 
 def _relative(a, b):

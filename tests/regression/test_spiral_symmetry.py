@@ -1,16 +1,18 @@
 """A spiral on the wedge of its spin space group, against the same spiral with ``nosym``.
 
 The check for the spin space group (``notes/INCOMPATIBILITIES.md`` I50) is the
-``nosym`` run: the same input on the full grid, with nothing symmetrised. Two
+``nosym`` run: the same input on the full grid, with nothing symmetrised. Three
 cells, because each discriminates something the other cannot:
 
-* fcc hydrogen with ``q = b3/4`` (``h-fcc-spiral-scan.in`` at a larger
-  smearing), a three-dimensional metal on a non-orthogonal cell whose wedge is
+* fcc hydrogen with ``q = b3/8`` (``h-fcc-spiral-scan.in``), a
+  three-dimensional metal on a non-orthogonal cell whose wedge is
   20 of 64 points under ``C3v``, all with ``f = 0``;
 * a zigzag hydrogen chain whose screw ``{C2z|c/2}`` and glide ``{m_x|c/2}`` carry
   ``q . f = 45`` degrees, which is the only arm where permuting the rotated-frame
   components as four scalars and leaving a ``Rot_z(q . f)`` behind read
-  differently; 16 of 36 points.
+  differently; 16 of 36 points;
+* the hydrogen chain of ``h-chain-spiral.in`` on a 3x3x4 grid, ``C4v``, 12 of
+  36 points, the cell every other spiral test runs on.
 
 The seed residuals that make the four-scalar rule a discriminator rather than
 a null result, and the group counts, are ``tests/unit/test_spiral_symmetry.py``.
@@ -25,14 +27,14 @@ from defuqumat.io.pwin import parse_pw_input
 from defuqumat.pseudo import read_upf
 from defuqumat.scf import run_scf
 from defuqumat.system import build_system
-from tests.unit.test_spiral_symmetry import FCC, ZIGZAG, _nosym
+from tests.unit.test_spiral_symmetry import CHAIN, FCC, ZIGZAG, _nosym
 
 pytestmark = [pytest.mark.regression, pytest.mark.slow]
 
 
 @pytest.fixture(autouse=True)
 def _bound_compilation_cache():
-    """Four cells of different shapes in one process; see ``CLAUDE.md`` on memory."""
+    """Six cells of different shapes in one process; see ``CLAUDE.md`` on memory."""
     yield
     import jax
 
@@ -55,7 +57,8 @@ def _run(text: str, pseudo_dir: Path):
 @pytest.mark.parametrize("text, nk_sym, nk_full, tolerance", [
     (FCC, 20, 64, 1e-8),
     (ZIGZAG, 16, 36, 1e-8),
-], ids=["fcc", "zigzag"])
+    (CHAIN, 12, 36, 1e-8),
+], ids=["fcc", "zigzag", "chain"])
 def test_the_spiral_on_its_wedge_is_the_nosym_spiral(text, nk_sym, nk_full,
                                                      tolerance, pseudo_dir):
     """The total energy and the moment on the wedge, against the full grid."""
