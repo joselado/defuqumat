@@ -7679,6 +7679,8 @@ def run_scf(
         vacuum = vacuum_fraction(np.asarray(calculation.system.structure.positions),
                                  np.asarray(calculation.system.cell.at))
         mixing_mode = "ldos" if smeared and vacuum > ROBUST_VACUUM else "anderson"
+        # For the A/B that separates the supervisor from the preconditioner.
+        mixing_mode = os.environ.get("DEFUQUMAT_ROBUST_INNER", mixing_mode)
         if verbose:
             print(f"  mixing_mode = 'robust': vacuum fraction {vacuum:.2f}, "
                   f"inner mixer {mixing_mode!r}")
