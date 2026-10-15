@@ -26156,6 +26156,58 @@ uncapped at one `tr2`, 6.4e-7 and 1.2e-6). The test now asks `Gamma` for the at-
 and keeps its bound and its meaning; `Gamma`'s own default stays `ph.x`'s 1e-14, since every number
 P24 and P25 validated against `ph.x` was taken there.
 
+**2026-10-15, later: `Gamma`'s default moved to `tr2 = 1e-18`, the user's decision** (`OPEN.md`
+Part XXVII item 1, closed). `phonon.TR2` is 1e-18 under the bare schedule, so `dynamical_matrix`,
+`self_consistent_response` and `screening_loop` and everything that reaches them at the default
+follow: `Calculator.get_phonons`, the `atoms=`/`on_row` column-at-a-time route, the walked
+(`chunked_phonon`) route, the displacement half of `raman_tensors` and `_walked_raman`, and so
+`vibrational_spectrum` and its LO-TO branch, which assemble from that displacement response.
+Not moved: `efield.TR2` and `default_tr2` (the field response, 1e-14 or 1e-16 with vacuum),
+`strain.TR2`, and the at-`q` pair (`elph` resolves through `resolve_tr2_at_q`). `raman_tensors`
+hands one `**response_options` to both of its loops, so their defaults now differ (field 1e-14,
+displacements 1e-18) and an explicit `tr2` moves both; its docstring and `vibrational_spectrum`'s
+say so. `tr2=1e-14` is `ph.x`'s stop, kept as the explicit way to it. No CG cap was needed: every
+cell below reaches 1e-18 under the bare schedule well inside `MAX_ITERATIONS = 60`. (When the cap is
+hit the loop returns `converged = False` with no warning from `dynamical_matrix`; `raman_tensors`
+raises unless `allow_unconverged`.)
+
+Measured on `D22-0161` at `2e00404`, one slot core a cell (`review/phonon-tr2/meas-*.log`,
+`meas.py`: `dynamical_matrix` called directly after a 2-pass warm-up, both arms in one process, the
+SCF at `conv_thr = 1e-12`), passes and CG steps a band a solve (`av.it.`) being counts and the wall
+clock secondary on a loaded box (load 13):
+
+| cell | passes 1e-14 -> 1e-18 | `av.it.` | acoustic residue, cm^-1 | optical moves by | time, s |
+|---|---|---|---|---|---|
+| `phonons_silicon_q/si.in` (= `si-epsilon-unshifted-nosym`) | 6 -> 9 | 10.67 -> 10.89 | 5.6856 -> 4.3261 | 1.45e-3 | 20.3 -> 29.8 |
+| `si-epsilon` | 6 -> 8 | 10.78 -> 11.17 | 5.4424 -> 4.1029 | 1.34e-3 | 8.8 -> 11.6 |
+| `al2-metal` | 6 -> 9 | 7.67 -> 7.70 | 2.0142 -> 1.7117 | 1.66e-3 | 12.5 -> 16.3 |
+| `al4-metal` | 5 -> 9 | 7.58 -> 7.80 | 3.9085 -> 3.1551 | 1.86e-2 | 14.4 -> 25.9 |
+| `si-epsilon-us` | 6 -> 9 | 12.44 -> 12.70 | 2.8973i -> 6.1125i | 3.29e-2 | 16.5 -> 22.9 |
+| `si-epsilon-paw` | 6 -> 9 | 12.44 -> 12.74 | 2.7120i -> 6.2073i | 3.03e-2 | 18.8 -> 23.4 |
+| `si-epsilon-paw-unshifted-nosym` | 7 -> 10 | 12.14 -> 11.88 | 7.3618 -> 6.9647 | 1.52e-3 | 12.7 -> 17.0 |
+| `si-us-nosym` | 8 -> 10 | 11.23 -> 11.33 | 15.6481i -> 15.6439i | 4.4e-4 | 14.4 -> 18.0 |
+| `si-paw-nosym` | 7 -> 10 | 11.29 -> 11.10 | 15.4834i -> 15.6614i | 5.5e-4 | 10.1 -> 13.5 |
+| `alas-raman-wedge` | 6 -> 8 | 9.61 -> 9.90 | 2.7922 -> 1.8803 | 1.70e-3 | 7.3 -> 9.4 |
+| `alas-epsilon-us-unshifted-nosym` | 7 -> 10 | 11.12 -> 11.27 | 2.1225i -> 0.8270i | 2.8e-3 | 25.4 -> 34.4 |
+| silicon on the half sphere (`K_POINTS gamma`) | 8 -> 11 | 9.71 -> 9.70 | 10.6136 -> 10.4216 | 5.5e-6 | 4.9 -> 6.7 |
+
+So the cost is 2 to 4 more passes at the same CG steps a solve, 1.3x to 1.8x the time of the loop.
+**The tighter stop gives back the numbers P25, P28 and P39 validated**, which were taken before
+2026-10-03 at a loop that stopped near 1e-24 in these units, and which the 1e-14 default had moved
+without a test seeing it: `si-epsilon`'s acoustic residue 4.10 (the "4.09" `test_phonons.py` and
+notebook 20 quote; 5.44 at 1e-14), `al4-metal`'s three optical multiplets 0.020, 0.034 and 0.026
+from `ph.x` (the figures `AL4_TOLERANCE`'s comment records; 0.007, 0.021 and 0.008 at 1e-14),
+`al2-metal`'s zone-centre mode 311.0335 (the comment's figure; 311.0349 at 1e-14), and P39's
+ultrasoft and PAW silicon at **513.2950 and 513.4212** with acoustic residues **6.11i and 6.21i**
+(P39's 513.2947, 513.4210, 6.1, 6.2; at 1e-14 513.2621, 513.3909, 2.90i, 2.71i). Against `ph.x`
+the like-for-like agreement is therefore at `tr2=1e-14` (0.013 and 0.014 for the two moving-overlap
+cells, `ph.x`'s own loop stopping there too), and the default's is P39's 0.020 and 0.017; every
+one is inside its unchanged tolerance (0.2, 0.05). That the ultrasoft and PAW residues *grow* is
+not the loop running away: on `si-epsilon-paw` (`probe-si-epsilon-paw.log`) `tr2 = 1e-22` moves the
+matrix by 3.0e-7 from the 1e-18 one and the residue to 6.218i, and a fixed CG threshold of 1e-12 at
+1e-18 moves it by 3.3e-8 (on `si-epsilon-us` 3.1e-7, 6.124i and 2.6e-8), so the 1e-18 matrix is converged to 3e-7 and the 1e-14 one was 6.6e-5 off,
+on the side that hid half the residue.
+
 **Verification, D22, `regress/`, the P149 working tree over `cf1ebe2`.** The fast gate on cores 0-7
 (`gate.log`): **3663 passed, 72 skipped, 0 failed in 10:28**. The regression files the change reaches,
 one capped process each: `test_electron_phonon.py` 10 passed under the cap and again under the pair;

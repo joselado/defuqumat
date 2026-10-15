@@ -10484,6 +10484,11 @@ are counts and do not depend on the machine's load:
 | `si-epsilon`, `Gamma` phonon | 10 -> 6 | 27.7 -> 10.8 |
 | `si-electrostriction`, strain | 11 -> 7 | 22.0 -> 6.7 |
 
+*2026-10-15:* the `Gamma` phonon's default stop moved from `ph.x`'s `tr2 = 1e-14` to 1e-18 (`PLAN.md`
+P149's dated note, the user's decision), so its row is now 6 -> 8 passes at 11.2 CG steps a solve on
+`si-epsilon` (6 at 10.8 at `tr2=1e-14`, which is still the like-for-like setting against `ph.x`), 1.3x
+to 1.8x the loop's time across the cells the phonon tests build.
+
 **The wall clock against `ph.x`**, on `D22-0161` because this workstation carried another session's test
 suite that night: one performance core each (`taskset -c 0`, `OMP_NUM_THREADS=1`, `DEFUQUMAT_THREADS=1`),
 nothing else on the machine, `ph.x` the serial 7.5 build copied from this workstation (the same binary

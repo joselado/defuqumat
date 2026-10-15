@@ -9380,7 +9380,7 @@ residual norm.
 
 # Part XXVII -- the acoustic residue of silicon through the two phonon routes, 2026-10-15
 
-## 1. `get_phonons()` reports an acoustic residue of 5.68 cm^-1 where the converged response gives 4.33, because its loop stops at `ph.x`'s `tr2 = 1e-14` **[open 2026-10-15; no term is missing in either route, the default is the user's decision]**
+## 1. `get_phonons()` reports an acoustic residue of 5.68 cm^-1 where the converged response gives 4.33, because its loop stops at `ph.x`'s `tr2 = 1e-14` **[closed 2026-10-15, `PLAN.md` P149's dated note: the user chose the first option, `phonon.TR2` is 1e-18 under the bare schedule, and `get_phonons()` prints 4.33]**
 
 On `docs/figures/phonons_silicon_q/si.in` (the cell of `tests/data/qe/si-epsilon-unshifted-nosym.in`:
 silicon, `Si.pz-vbc`, 18 Ry, unshifted 4x4x4, `nosym`) the user guide's `get_phonons()` prints the
@@ -9448,3 +9448,14 @@ which is below everything P25 validated against `ph.x`.
 **How to know it worked:** `get_phonons()` and `get_phonons_at_q(q=0)` at their defaults give the
 same acoustic triplet to 0.01 cm^-1 on this cell, or the guide's printed residue is the one the
 finite difference of the forces gives, 4.33.
+
+**Closed 2026-10-15.** `phonon.TR2` is 1e-18 and the CG schedule stays the bare one, which reaches it
+on every cell the phonon tests build in 8 to 11 passes against 5 to 8 (the table in `PLAN.md` P149's
+dated note). On this cell the default now gives 4.3260, 4.3260, 4.3261 cm^-1 in 9 passes against 6,
+the guide prints 4.33, and the optical mode moves from 519.2063 to 519.2049. Of the two criteria
+above the second is met; the first is not to 0.01, since `get_phonons_at_q(q=0)` at its own default
+(1e-16, capped) still reads 4.372, 0.046 above, which is the at-`q` pair's stop and was left as it
+is. `tr2=1e-14` gives `ph.x`'s stop on `get_phonons()`, and the guide says so. The 1e-18 stop also
+gives back the numbers P25, P28 and P39 validated before 2026-10-03, which the 1e-14 default had
+moved by up to 0.033 cm^-1 in an optical mode and by a factor of two in the ultrasoft and PAW
+acoustic residues.
