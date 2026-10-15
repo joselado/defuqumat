@@ -122,15 +122,18 @@ class WannierFlow:
     def gap_step(self) -> float:
         """The largest single-step motion of the reference line, as a fraction.
 
-        **The convergence diagnostic of this method**, and the one number to
-        look at before believing the integer. The crossing count asks which
-        charge centres the reference line swept past between two pumping steps;
-        if the line moves a fifth of the way round the circle in one step, the
-        sweep is not resolved and the count is a guess. Measured on bismuthene:
-        0.20 on a 7-point pumping mesh, where the answer disagreed with the
-        exact parity product, and it is the *only* thing in the output that says
-        so. There is no upper bound that is safe in general -- refine until the
-        integer stops moving.
+        A resolution reading, **not a convergence diagnostic**: the crossing
+        count asks which charge centres the reference line swept past between
+        two pumping steps, and a line that moves a large fraction of the circle
+        in one step has swept past them unresolved. No value separates a right
+        count from a wrong one. On bismuthene it read 0.20 on a 7-point pumping
+        mesh whose answer disagreed with the exact parity product, and on
+        germanene it reads 0.30-0.43 on the runs that are right and on the one
+        that is wrong alike, so it does not make the module's known
+        reference-line defect visible (see the module docstring). Refine the
+        mesh until the integer stops moving, and cross-check against
+        :func:`defuqumat.topology.parity.fu_kane_z2` wherever there is an
+        inversion centre.
         """
         if len(self.gap_center) < 2:
             return 0.0

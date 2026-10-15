@@ -89,9 +89,11 @@ class BerryCurvature:
     """The curvature on a plane mesh, and its Brillouin-zone integral."""
 
     mesh: PlaneMesh
-    #: ``(n1, n2)`` in units of (crystal k-area)^-1, so that the mean times
-    #: ``2 pi`` is the Chern number. Multiply by the reciprocal cell's area to
-    #: put it in bohr^2, which is what a plot usually wants.
+    #: ``(n1, n2)`` per unit area in the mesh's crystal coordinates, in which
+    #: the zone has area 1, so the mean over the mesh **divided** by ``2 pi``
+    #: is the Chern number (:attr:`chern_number`). To put it in bohr^2,
+    #: divide by the area in bohr^-2 of the parallelogram the two reciprocal
+    #: lattice vectors spanned by the mesh make, ``|b1 x b2|``.
     curvature: np.ndarray
     #: ``(n1, n2)`` the plaquette phases themselves, for the ``fhs`` method:
     #: the curvature times the plaquette area, each in ``(-pi, pi]``.
