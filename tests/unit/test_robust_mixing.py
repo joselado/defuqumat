@@ -178,3 +178,12 @@ def test_a_stall_after_an_action_that_paid_repeats_the_restart():
     assert sup.on_stall() == "restart"
     # Nothing since: the next rung.
     assert sup.on_stall() == "ldos"
+
+
+def test_a_smearing_that_is_not_variational_keeps_on_the_residual_alone():
+    sup = Supervisor(nelec=8.0, variational=False, smeared=True)
+    sup.judge(-10.0, 1e-3, 1e-9, 0)
+    sup.kept(_state(0.0), _state(1.0), -10.0, 1e-3, 1e-9)
+    # A merit far below with the residual up: a lower bound it is not, so cut.
+    assert not sup.judge(-11.0, 1e-2, 1e-9, 0)
+    assert "hamiltonian" not in [sup.next_rung() for _ in range(len(RUNGS))]

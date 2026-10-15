@@ -150,6 +150,7 @@ from defuqumat.scf.robust import (CONDITION_LIMIT, CONDITION_LIMIT_RESTART,
                                   ROBUST_MODES, HamiltonianDamping, Supervisor,
                                   vacuum_fraction)
 from defuqumat.scf.solvers import get_scf_solver
+from defuqumat.scf.occupations import smearing_order
 from defuqumat.scf.occupations import (
     _nint,
     cut_gaps,
@@ -7684,11 +7685,23 @@ def run_scf(
     supervisor = damping = hamiltonian_in = None
     if robust:
         mixer.condition_limit = CONDITION_LIMIT
+        smeared = calculation.system.occupations == "smearing"
+        variational = (not smeared
+                       or smearing_order(calculation.system.smearing) in (0, -99))
+        if not variational:
+            warnings.warn(
+                f"mixing_mode = 'robust' with smearing = "
+                f"{calculation.system.smearing!r}: its occupations leave [0, 1], so "
+                f"the energy of the output states is not a lower bound and the "
+                f"supervisor keeps a step on the residual alone, without its last "
+                f"rung. A Gaussian or Fermi-Dirac smearing gives it both",
+                RuntimeWarning, stacklevel=2)
         supervisor = Supervisor(
             nelec=float(calculation.nelec),
             magnetic=calculation.nspin_mag > 1,
-            smeared=calculation.system.occupations == "smearing",
+            smeared=smeared,
             ldos=mixing_mode == "ldos",
+            variational=variational,
         )
     # Turned off for the rest of the run the first time a write is refused, so a
     # ``reducebf`` run says so once rather than once per cadence.

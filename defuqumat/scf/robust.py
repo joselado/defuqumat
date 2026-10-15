@@ -141,6 +141,17 @@ class Supervisor:
     smeared: bool = False
     #: Whether the LDOS preconditioner is already installed.
     ldos: bool = False
+    #: Whether the merit is a lower bound: false under Methfessel-Paxton and
+    #: Marzari-Vanderbilt smearing, whose occupations leave ``[0, 1]``. Then
+    #: the energy clause is off, the acceptance is on the residual alone, and
+    #: the bottom rung, whose line search is energy-only, is not taken.
+    #: Measured on D22 (2026-10-16) on the fully relativistic PAW nickel of
+    #: ``ni-tetragonal-relaxed-mae-paw.in``: under its own ``smearing = 'mv'``
+    #: the merit went 5.4e-3 Ry *below* the converged energy at an input whose
+    #: residual was 2.0, and the energy clause kept that input; the same cell
+    #: under a Gaussian of the same width stayed above it over the same
+    #: fourteen iterations.
+    variational: bool = True
     #: How many halvings a step takes before the trial is kept regardless.
     max_cuts: int = 4
     #: The window, in kept inputs, a stall is judged over.
@@ -194,7 +205,7 @@ class Supervisor:
         noise = self.nelec * max(ethr, self._ethr or ethr)
         recent = slice(-self.memory, None)
         residual_fell = accuracy < max(self._window_accuracies[recent])
-        energy_fell = (unsettled == 0
+        energy_fell = (self.variational and unsettled == 0
                        and merit < max(self._window_merits[recent]) - noise)
         if residual_fell or energy_fell:
             reason = "residual" if residual_fell else "energy"
@@ -287,6 +298,8 @@ class Supervisor:
             if name == "ldos" and (self.ldos or not self.smeared):
                 continue
             if name == "magnetization" and not self.magnetic:
+                continue
+            if name == "hamiltonian" and not self.variational:
                 continue
             self._accuracies.clear()
             self._merits.clear()

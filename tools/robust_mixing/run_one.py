@@ -44,6 +44,7 @@ try:
         energy=float(result.total_energy),
         accuracies=[float(h["accuracy"]) for h in history],
         energies=[float(h["total_energy"]) for h in history],
+        merits=[h.get("merit") for h in history],
         steps=[h.get("supervisor") for h in history if h.get("supervisor")],
     )
     if result.magnetization is not None:
