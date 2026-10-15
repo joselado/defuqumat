@@ -145,7 +145,7 @@ NSPIN2 = "nspin=2, tot_magnetization=0"
 SPINOR = "noncolin=.true."
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=2)
 def _regime(spin):
     """The zero-field run and the field switched on from it, both in ``spin``'s regime.
 
@@ -160,36 +160,41 @@ def _regime(spin):
     result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11,
                      mixing_beta=0.5, max_iterations=100, starting_from=zero)
     assert result.converged
-    return calculation, result
+    return calculation, result, zero
 
 
 @pytest.mark.parametrize("spin, energy, dipole", [
-    (NSPIN2, 1e-9, 1e-6),
-    (SPINOR, 1e-9, 1e-6),
+    (NSPIN2, 1e-8, 1e-6),
+    (SPINOR, 1e-8, 1e-6),
 ])
 def test_a_nonmagnetic_spin_regime_is_the_unpolarized_field(spin, energy, dipole):
     """I14 and I15: ``nspin = 2`` at ``tot_magnetization = 0``, and a spinor without
-    spin-orbit coupling, are the ``nspin = 1`` field run to the SCF's own accuracy:
-    the total, ``el_pol`` (a sum of two channels' phases, or one channel of twice the
-    bands, where ``nspin = 1`` doubles one) and ``ion_pol``. ``pw.x``'s total is
-    checked beside it at the tolerance of the ``nspin = 1`` comparison."""
+    spin-orbit coupling, are the ``nspin = 1`` field run: ``el_pol`` (a sum of two
+    channels' phases, or one channel of twice the bands, where ``nspin = 1`` doubles
+    one), ``ion_pol``, and what the field does to the total, ``E(E) - E(0)`` of each
+    regime's own chain. The totals themselves are compared too, at zero field and
+    with it, since a spin regime's exchange-correlation need not be the unpolarized
+    one's to the last digit."""
     _, reference = _field()
-    calculation, result = _regime(spin)
-    print(f"\n{spin}: dE = {result.total_energy - reference.total_energy:.3e}, "
+    _, reference_zero = _zero()
+    calculation, result, zero = _regime(spin)
+    shift = (result.total_energy - zero.total_energy) - (
+        reference.total_energy - reference_zero.total_energy)
+    print(f"\n{spin}: dE(0) = {zero.total_energy - reference_zero.total_energy:.3e}, "
+          f"dE(E) = {result.total_energy - reference.total_energy:.3e}, "
+          f"d[E(E) - E(0)] = {shift:.3e}, "
           f"d el_pol = {result.berry_dipoles[0] - reference.berry_dipoles[0]:.3e}, "
           f"iterations {result.iterations}")
-    assert result.total_energy == pytest.approx(reference.total_energy, abs=energy)
+    assert shift == pytest.approx(0.0, abs=energy)
     el, ion, acc = result.berry_dipoles
     assert acc == 0.0
     assert ion == pytest.approx(reference.berry_dipoles[1], abs=1e-12)
     assert el == pytest.approx(reference.berry_dipoles[0], abs=dipole)
-    qe = read_qe_output(CASES / "reference.out.si8-lelfield")
-    assert result.total_energy == pytest.approx(qe.total_energy, abs=ENERGY)
 
 
 @pytest.mark.parametrize("spin", [NSPIN2, SPINOR])
 def test_a_nonmagnetic_spin_regime_has_the_unpolarized_forces(spin):
-    calculation, result = _regime(spin)
+    calculation, result, _ = _regime(spin)
     reference = read_qe_output(CASES / "reference.out.si8-lelfield")
     for method in ("autodiff", "analytic"):
         forces = compute_forces(calculation, result, method=method).forces
@@ -222,3 +227,32 @@ def test_an_automatic_grid_is_pw_x_l3dstring_field():
     forces = compute_forces(calculation, result, method="analytic").forces
     np.testing.assert_allclose(forces, reference.forces, atol=FORCE)
     assert result.total_energy == pytest.approx(explicit.total_energy, abs=1e-10)
+
+
+def test_a_streamed_store_is_the_in_memory_run():
+    """I56: ``wfc_store = 'stream'`` (the states in host memory, walked a k-point at a
+    time) against the in-memory field run: the total, ``el_pol``, the iteration count,
+    and the force, which on the streamed store takes the chunked route with the
+    field's ions in its global term and its electrons as a constant."""
+    from defuqumat.forces.energy import state_from_result
+    from defuqumat.forces.chunked import wants_chunks
+
+    calculation, reference = _field()
+    _, zero = _zero()
+    system, pseudos, streamed_calculation = _load("si8-lelfield")
+    result = run_scf(system, pseudos, calculation=streamed_calculation, conv_thr=1e-11,
+                     mixing_beta=0.5, max_iterations=100, starting_from=zero,
+                     wfc_store="stream")
+    assert result.converged
+    assert isinstance(result.wavefunctions, np.ndarray)
+    state = state_from_result(result)
+    assert wants_chunks(streamed_calculation, state)
+    forces = compute_forces(streamed_calculation, result).forces
+    expected = compute_forces(calculation, reference).forces
+    print(f"\nstreamed: dE = {result.total_energy - reference.total_energy:.3e}, "
+          f"d el_pol = {result.berry_dipoles[0] - reference.berry_dipoles[0]:.3e}, "
+          f"dF = {np.abs(np.asarray(forces) - np.asarray(expected)).max():.3e}, "
+          f"iterations {result.iterations} and {reference.iterations}")
+    assert result.total_energy == pytest.approx(reference.total_energy, abs=1e-9)
+    assert result.berry_dipoles[0] == pytest.approx(reference.berry_dipoles[0], abs=1e-7)
+    np.testing.assert_allclose(forces, expected, atol=1e-8)

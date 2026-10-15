@@ -65,7 +65,14 @@ the three regimes just named, a metal, ``efield_cart`` (three directions,
 whose ``a_gdir`` is not along Cartesian axis ``gdir`` (QE's ionic dipole takes
 the Cartesian component while the electronic one is along ``a_gdir``), the
 stress (QE's field stress terms are commented out, ``stress.f90``), and
-streaming and pools.
+k-point pools.
+
+**A streamed store** (``wfc_store = 'stream'``) keeps the states in host memory.
+The operator is built from it a chunk at a time into host arrays before each
+walk (:meth:`BerryFieldSetup.host_term`), and each chunk's solve is handed its
+rows of it (:meth:`BerryFieldSetup.chunk_term`); the string phases are taken a
+chunk at a time too. The device then holds one chunk's states, its
+neighbours, and its rows of ``u`` and ``a``.
 """
 
 from __future__ import annotations
@@ -115,18 +122,28 @@ class BerryTerm(eqx.Module):
 
     ``u`` and ``a`` are ``(nk, nocc, npol * npwx)``. ``u`` is a copy of the states the
     term was built from, never the block the eigensolver donates.
+
+    ``rows`` is ``None`` for the whole k-set. For one chunk of a streamed store
+    it is ``(nk,)`` and maps the global k index the solve passes (``indices``
+    in :func:`~defuqumat.scf.streaming.stream_diagonalize`) to the row of ``u``
+    and ``a``, which then hold that chunk's k-points only.
     """
 
     u: jnp.ndarray
     a: jnp.ndarray
+    rows: jnp.ndarray | None = None
+
+    def _at(self, ik):
+        row = ik if self.rows is None else self.rows[ik]
+        return self.u[row], self.a[row]
 
     def apply(self, psi: jnp.ndarray, ik) -> jnp.ndarray:
-        u, a = self.u[ik], self.a[ik]
+        u, a = self._at(ik)
         return (jnp.einsum("ng,...n->...g", a, jnp.einsum("ng,...g->...n", jnp.conj(u), psi))
                 + jnp.einsum("ng,...n->...g", u, jnp.einsum("ng,...g->...n", jnp.conj(a), psi)))
 
     def matrix(self, ik) -> jnp.ndarray:
-        u, a = self.u[ik], self.a[ik]
+        u, a = self._at(ik)
         return a.T @ jnp.conj(u) + u.T @ jnp.conj(a)
 
     def diagonal(self, ik) -> jnp.ndarray:
@@ -206,6 +223,8 @@ class BerryFieldSetup:
     #: the factor ``c_phase_field`` puts on ``el_pol`` at ``nspin = 1`` only.
     npol: int = 1
     spin_factor: float = 2.0
+    #: The chunk a streamed store is walked in (the calculation's ``k_batch``).
+    k_batch: int | None = None
     #: ``el_pol_acc`` and ``el_pol_old`` of ``calc_pol``: host state carried
     #: across the iterations of one run.
     accumulated: float = 0.0
@@ -255,7 +274,7 @@ class BerryFieldSetup:
         return cls(
             gdir=gdir, nppstr=nppstr, efield=float(efield), nberrycyc=int(nberrycyc),
             nocc=nocc, strings=strings, npol=int(system.npol),
-            spin_factor=2.0 if system.nspin == 1 else 1.0,
+            spin_factor=2.0 if system.nspin == 1 else 1.0, k_batch=calculation.k_batch,
             plus_index=plus_index, minus_index=minus_index,
             plus_gather=plus_gather, plus_found=plus_found,
             minus_gather=minus_gather, minus_found=minus_found,
@@ -283,6 +302,73 @@ class BerryFieldSetup:
     def fact(self) -> complex:
         """``fact_hepsi``: ``-i E sqrt(2)/(2 dkfact)``, ``dkfact = 2 pi/(|a_gdir| nppstr)``."""
         return -1j * self.efield * SQRT2 * self.length * self.nppstr / (4.0 * np.pi)
+
+    # --- a streamed store: the same quantities a chunk of k at a time --------
+    def _host_chunks(self, store, spin: int):
+        """``(rows, live, u, plus, minus)`` for each chunk of a host store, on the device.
+
+        Only the chunk's own states and its neighbours' cross: the neighbours
+        are gathered on the host from the rows ``plus_index``/``minus_index``
+        name, by the same Miller index the whole-set path gathers by.
+        """
+        from defuqumat.batching import k_chunks
+
+        nocc = self.occupied(spin)
+        sides = [(self.plus_index, np.asarray(self.plus_gather), np.asarray(self.plus_found)),
+                 (self.minus_index, np.asarray(self.minus_gather),
+                  np.asarray(self.minus_found))]
+
+        def gathered(index, gather, found, rows):
+            source = store[spin, index[rows], :nocc]
+            nk, nb, ndim = source.shape
+            split = source.reshape(nk, nb, self.npol, ndim // self.npol)
+            picked = np.take_along_axis(split, gather[rows][:, None, None, :], axis=3)
+            picked = np.where(found[rows][:, None, None, :], picked, 0.0)
+            return jnp.asarray(picked.reshape(nk, nb, ndim))
+
+        for rows, live in k_chunks(store.shape[1], self.k_batch):
+            yield (rows, live, jnp.asarray(store[spin, rows, :nocc]),
+                   gathered(*sides[0], rows), gathered(*sides[1], rows))
+
+    def host_term(self, store, spin: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        """``(u, a)`` of channel ``spin`` for the whole k-set, in host memory.
+
+        Built from the states **before** the walk that diagonalises, as
+        ``h_epsi_her_set`` builds every dual before ``c_bands``: the walk
+        overwrites the store chunk by chunk, so a term built as it goes would
+        see a neighbour already solved. ``(nk, nocc, npol * npwx)`` twice, on
+        the host beside the store, where QE writes the duals to disk.
+        """
+        nocc = self.occupied(spin)
+        u_host = np.array(store[spin, :, :nocc])
+        a_host = np.empty_like(u_host)
+        for rows, live, u, plus, minus in self._host_chunks(store, spin):
+            e_plus, e_minus = _duals(u, plus, minus)
+            a = (self.fact * (e_minus - e_plus)).astype(u.dtype)
+            a_host[rows[:live]] = np.asarray(a)[:live]
+        return u_host, a_host
+
+    @staticmethod
+    def chunk_term(host, rows) -> BerryTerm:
+        """One chunk's :class:`BerryTerm` from :meth:`host_term`'s arrays, indexed globally."""
+        u_host, a_host = host
+        lookup = np.zeros(u_host.shape[0], dtype=np.int32)
+        lookup[np.asarray(rows)] = np.arange(len(rows), dtype=np.int32)
+        return BerryTerm(u=jnp.asarray(u_host[rows]), a=jnp.asarray(a_host[rows]),
+                         rows=jnp.asarray(lookup))
+
+    def _link_signs(self, wavefunctions, spin: int) -> np.ndarray:
+        """``det M+(k) / |det M+(k)|`` at every k, ``(nk,)``, a chunk at a time for a host store."""
+        if isinstance(wavefunctions, np.ndarray):
+            signs = np.empty(wavefunctions.shape[1], dtype=complex)
+            for rows, live, u, plus, _ in self._host_chunks(wavefunctions, spin):
+                sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
+                signs[rows[:live]] = np.asarray(sign)[:live]
+            return signs
+        u = wavefunctions[spin, :, : self.occupied(spin)]
+        plus, _ = self.neighbours(u)
+        sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
+        return np.asarray(sign)
 
     def term(self, wavefunctions, spin: int = 0) -> BerryTerm:
         """``H_E`` of channel ``spin`` from ``wavefunctions`` ``(nspin, nk, nbnd, npol * npwx)``."""
@@ -319,10 +405,8 @@ class BerryFieldSetup:
         """Each string's principal phase, ``Im ln prod det M+``, radians, ``(nchannel, nkort)``."""
         phases = []
         for spin in range(wavefunctions.shape[0]):
-            u = wavefunctions[spin, :, : self.occupied(spin)]
-            plus, _ = self.neighbours(u)
-            sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
-            phases.append(np.angle(np.prod(np.asarray(sign)[self.strings], axis=1)))
+            sign = self._link_signs(wavefunctions, spin)
+            phases.append(np.angle(np.prod(sign[self.strings], axis=1)))
         return np.array(phases)
 
     @property
@@ -334,6 +418,21 @@ class BerryFieldSetup:
         """``el_pol`` in Ry a.u.: each channel's string average, summed, times 2 at ``nspin = 1``."""
         phases = self.string_phases(wavefunctions)
         return float(self.spin_factor * self.fc_pol * np.sum(np.mean(phases, axis=1)))
+
+    def ionic_enthalpy(self, positions):
+        """``-E (ion_pol + acc)`` as a traced function of the positions.
+
+        The part of :meth:`enthalpy` that moves with the atoms on a
+        norm-conserving dataset, so the whole of the field's term in a force
+        that walks a streamed store a chunk at a time
+        (:mod:`defuqumat.forces.chunked`); the electronic part is a constant
+        there and is added to the energy on the host.
+        """
+        if not self.active:
+            return jnp.zeros((), dtype=positions.dtype)
+        charges = jnp.asarray(self.charges, dtype=positions.dtype)
+        ionic = SQRT2 * jnp.sum(charges * positions[:, self.gdir])
+        return -self.efield * (ionic + self.accumulated)
 
     def ionic_dipole(self, positions) -> float:
         """``ion_pol``: ``sqrt(2) sum Z tau(gdir)``, unwrapped positions in bohr."""

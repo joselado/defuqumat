@@ -96,12 +96,17 @@ def walks_chunks(calculation, wavefunctions) -> bool:
     nk = calculation.system.kpoints.nk
     if getattr(calculation, "berry_field", None) is not None:
         # ``lelfield``'s ``-E . P`` couples every k-point to its neighbours on
-        # the string, so it is not a sum of chunks; the single pass takes it.
-        if is_host_store(wavefunctions) or isinstance(wavefunctions, PoolStore):
+        # the string, so it is not a sum of chunks, and the single pass takes
+        # it wherever the states are on the device. On a streamed store the
+        # walk takes it: its electronic part does not move with the atoms on a
+        # norm-conserving dataset (the only one the field runs on), so the
+        # walk carries the ions' part in the global term and adds the
+        # electrons' to the energy as a constant (:func:`chunked_gradient`).
+        if isinstance(wavefunctions, PoolStore):
             raise NotImplementedError(
-                "the force with lelfield on a streamed or pooled store is not "
-                "implemented: the Berry term needs the whole k-set at once")
-        return False
+                "the force with lelfield on a pooled store is not implemented: "
+                "the Berry term needs every k-point of a string at once")
+        return is_host_store(wavefunctions)
     if is_host_store(wavefunctions) or isinstance(wavefunctions, PoolStore):
         # A k-point pool's share is walked as the pool's own rows.
         return True
@@ -154,6 +159,11 @@ def _global(moved, becsum_, rho_smooth, ns):
     local = volume / rho[0].size * jnp.sum(moved.vltot * total_charge(rho))
     energy = (local + potential.ehart + potential.etxc + potential.e_sawtooth
               + epaw + moved.ewald + moved.dispersion)
+    field = getattr(moved, "berry_field", None)
+    if field is not None:
+        # ``lelfield``'s ions, ``-E (ion_pol + acc)``; its electrons are added on
+        # the host by :func:`chunked_gradient`, being constant in ``x`` here.
+        energy = energy + field.ionic_enthalpy(moved.system.structure.positions)
     if ns is not None:
         energy = energy + hubbard_energy(
             moved.finish_occupation_matrix(ns), moved.hubbard_coefficients)
@@ -308,6 +318,11 @@ def chunked_gradient(calculation, state: FrozenState, kind: str, x,
         pulled = pulled + slope
     if pooled:
         separable, pulled = pools.allreduce_sum((jnp.asarray(separable), pulled))
+    field = getattr(calculation, "berry_field", None)
+    if field is not None and field.active:
+        # ``-E el_pol``, the electrons' half of the field's term: a phase of
+        # the frozen states, walked a chunk at a time, with no position in it.
+        separable = separable - field.efield * field.electronic_dipole(store)
     return e_glob + state.entropy + separable, g_x + pulled
 
 

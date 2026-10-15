@@ -298,3 +298,27 @@ def test_a_spinor_is_gathered_component_by_component():
         part = _gathered(coefficients[..., c * NPW:(c + 1) * NPW], gather, found)
         np.testing.assert_array_equal(np.asarray(spinor[..., c * NPW:(c + 1) * NPW]),
                                       np.asarray(part))
+
+
+def test_a_host_store_walked_in_chunks_is_the_whole_set():
+    """I56: the operator, its chunk view and the string phases from a host store,
+    three k-points at a time, are the whole-set ones. Ten k-points in chunks of
+    three leave a padded last chunk, and two channels check the channel index."""
+    setup = _setup()
+    setup.nocc, setup.spin_factor, setup.k_batch = (NOCC, NOCC), 1.0, 3
+    psi = jnp.concatenate([_states(21), _states(22)])
+    host = np.array(psi)
+    np.testing.assert_allclose(setup.string_phases(host), setup.string_phases(psi),
+                               atol=1e-14)
+    rng = np.random.default_rng(3)
+    x = jnp.asarray(rng.normal(size=NPW) + 1j * rng.normal(size=NPW))
+    for spin in range(2):
+        whole = setup.term(psi, spin)
+        u_host, a_host = setup.host_term(host, spin)
+        np.testing.assert_allclose(a_host, np.asarray(whole.a), atol=1e-13)
+        np.testing.assert_array_equal(u_host, np.asarray(whole.u))
+        rows = np.array([9, 9, 4])
+        chunk = setup.chunk_term((u_host, a_host), rows)
+        for ik in (9, 4):
+            np.testing.assert_allclose(np.asarray(chunk.apply(x, ik)),
+                                       np.asarray(whole.apply(x, ik)), atol=1e-13)
