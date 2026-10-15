@@ -26,8 +26,8 @@ $$
 To put this density on our grid, the code asks for each grid point which region it
 is in, and then it interpolates the radial functions or sums the Fourier series.
 The points inside a sphere are evaluated one by one, so the cusp is not cut by a
-Fourier truncation. The full electron density, with the core, is what X-ray
-diffraction measures through the structure factors.
+Fourier truncation on the grid. The run itself cuts it at its first iteration, as
+we will see in the next section.
 
 We compute it with `calc.get_elk_seed()`:
 
@@ -88,8 +88,10 @@ is the bridge itself: an all-electron ground state, computed in a different basi
 on the grid of this code, where you can compare it with the pseudopotential
 density point by point.
 
-The run also prints a warning about the symmetry of the starting density. You can
-ignore it here, because this seed has the full symmetry of the cube.
+The run also prints a warning that 2 per cent of the starting density is not
+symmetric. This is the part of the cusp at wave vectors beyond the cutoff of the
+run, which the first iteration drops. The seed itself has the full symmetry of the
+cube, so you can ignore the warning here.
 
 ## Where the two densities differ
 
@@ -116,10 +118,12 @@ the middle of the cell, along $x$ (left) and along the diagonal of the cube
 (right). We see that the all-electron density falls steeply from the atom while the
 pseudopotential density is flat there. At 0.2 bohr along $x$ they are still 15 per
 cent apart, and from 0.4 bohr outwards they agree to within 3 per cent on both
-lines, the largest difference being 2.8 per cent at 0.6 bohr along $x$. This small
-difference outside the core region is a real difference between two converged
-ground states in two different bases, and it measures how well the pseudopotential
-reproduces the true atom. Note that the grid has a spacing of 0.2 bohr along $x$
+lines, the largest difference being 2.8 per cent at 0.6 bohr along $x$. Both runs use a
+$4\times4\times4$ k-mesh, which is not converged for this metal, and the Elk run
+uses its default smearing, LDA parametrization and basis, not the Gaussian smearing
+of 0.02 Ry and the PZ LDA of `h.in`. So this 3 per cent is an upper estimate, which
+includes the error of the pseudopotential but also these differences in the
+settings. Note that the grid has a spacing of 0.2 bohr along $x$
 and 0.35 bohr along the diagonal, so the cusp is seen at one grid point only, and
 the lines between the points are only a guide to the eye.
 
