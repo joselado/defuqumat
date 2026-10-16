@@ -111,3 +111,39 @@ def test_a_norm_conserving_cell_passes_this_guard_and_meets_the_next(pseudo_dir)
     symmetric = Calculation(system, (read_upf(pseudo_dir / "Si.pz-vbc.UPF"),))
     with pytest.raises(NotImplementedError, match="small group of q"):
         require_a_two_sphere_regime(symmetric, np.array([0.5, 0.0, 0.0]))
+
+
+# The parts of the message the earlier one (126d6ec) did not have, each a
+# substring of the text as it is raised. The earlier message named four terms;
+# the one asserted here says the route is a second implementation, adds P39's
+# orthogonality set at q, the q-dependent frozen Hessian (addusdynmat's int2
+# and int5), the PAW one-centre response, and points an insulator to a
+# commensurate supercell. Matching on "ultrasoft or PAW" alone cannot tell the
+# two apart, which is why this test exists.
+_NEW_MESSAGE_PARTS = (
+    "a second implementation rather than four missing terms",
+    "(4) P39's whole orthogonality set at q",
+    "compute_drhous.f90 builds vkb at ikq",
+    "(5) a frozen Hessian that is not atom-diagonal",
+    "addusdynmat contracts dvanqq's int2 and int5",
+    "frozen_force_constants' 'the same matrix at every q' is a "
+    "norm-conserving fact",
+    "(6) for PAW the one-centre response at q",
+    "Use a norm-conserving dataset, or, for an insulator, the Gamma phonon "
+    "of a commensurate supercell",
+)
+
+
+@pytest.mark.parametrize("dataset", _AUGMENTED)
+def test_the_refusal_names_what_the_route_lacks(pseudo_dir, dataset):
+    """The message is pinned (the user's decision, 2026-10-16): every part the
+    earlier four-term message lacked is present, and the earlier opening is not."""
+    from defuqumat.response.phononq import require_a_two_sphere_regime
+
+    calculation = _calculation(pseudo_dir, dataset)
+    with pytest.raises(NotImplementedError) as raised:
+        require_a_two_sphere_regime(calculation, np.array([0.5, 0.0, 0.0]))
+    message = " ".join(str(raised.value).split())
+    missing = [part for part in _NEW_MESSAGE_PARTS if part not in message]
+    assert not missing, missing
+    assert "four absent terms rather than the one" not in message
