@@ -43,7 +43,7 @@ from defuqumat.tddft.spinchi0 import (
 )
 from defuqumat.tddft.spinkernel import (
     goldstone_residual,
-    transverse_kernel_matrix,
+    response_kernel,
 )
 from defuqumat.units import RY_TO_EV
 from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
@@ -248,6 +248,7 @@ def run_spin_susceptibility(
     states=None,
     field=None,
     field_scale: float | None = None,
+    ns=None,
 ) -> SpinSusceptibility:
     """``X^{+-}(q, omega)`` for a converged collinear magnet.
 
@@ -313,6 +314,11 @@ def run_spin_susceptibility(
             fixed-density states are solved in it, which is what gaps the
             magnon, and the ``q = 0`` identity is read at the Larmor frequency
             ``2 B`` it gives (I58).
+        ns: ``SCFResult.ns``, the converged occupation matrix of a run with a
+            Hubbard ``U`` (the :class:`~defuqumat.Calculator` passes it). The
+            states are solved with its potential, and the response gains the
+            Hubbard channel, whose moment and field are read off it (I61,
+            :func:`~defuqumat.tddft.spinchi0.hubbard_pairs`).
     """
     from defuqumat.scf.driver import Calculation
 
@@ -349,7 +355,7 @@ def run_spin_susceptibility(
             system, pseudos, density,
             nbnd=nbnd or _default_nbnd(calculation),
             conv_thr=conv_thr, k_batch=k_batch, calculation=calculation,
-            field=field, field_scale=field_scale,
+            field=field, field_scale=field_scale, ns=ns,
         )
     calculation, system, eigenvalues, wavefunctions = states
     if calculation.magnetic_field is not None and field is None:
@@ -392,14 +398,13 @@ def run_spin_susceptibility(
     residual = None
     if goldstone:
         residual = goldstone_residual(
-            chi0, calculation, jnp.asarray(density), index=nstatic - 1)
+            chi0, calculation, jnp.asarray(density), index=nstatic - 1, ns=ns)
 
     x0 = np.asarray(chi0.x)
     kernel = None
     if interacting:
-        kernel = float(kernel_scale) * np.asarray(
-            transverse_kernel_matrix(calculation, jnp.asarray(density), chi0.sphere)
-        )
+        kernel = float(kernel_scale) * response_kernel(
+            calculation, jnp.asarray(density), chi0, ns=ns)
         identity = np.eye(chi0.nm)
         x = np.linalg.solve(identity[None] - x0 @ kernel[None], x0)
     else:
@@ -501,6 +506,7 @@ def run_magnon_dispersion(
     goldstone_correction: bool = False,
     field=None,
     field_scale: float | None = None,
+    ns=None,
     **kwargs,
 ) -> MagnonDispersion:
     """``omega(q)`` along a list of wavevectors, on **one** set of states.
@@ -551,9 +557,9 @@ def run_magnon_dispersion(
     states = fixed_density_states(
         system, pseudos, density, nbnd=nbnd or _default_nbnd(calculation),
         conv_thr=conv_thr, k_batch=k_batch, calculation=calculation,
-        field=field, field_scale=field_scale,
+        field=field, field_scale=field_scale, ns=ns,
     )
-    kwargs = dict(kwargs, field=field, field_scale=field_scale)
+    kwargs = dict(kwargs, field=field, field_scale=field_scale, ns=ns)
     # The solve re-checks the dials at its own band count (``Calculation.
     # for_bands``); what follows runs at whatever it resolved to.
     k_batch = states[0].k_batch

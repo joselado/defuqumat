@@ -97,6 +97,7 @@ __all__ = [
     "transverse_response",
     "require_a_transverse_regime",
     "larmor_frequency",
+    "hubbard_pairs",
     "commensurate_shift",
     "occupation_slope",
 ]
@@ -159,6 +160,12 @@ class SpinChiZero(eqx.Module):
     #: Whether the two spin channels were exchanged, which turns ``X^{+-}``
     #: into ``X^{-+}`` and moves the pole to the other sign of ``omega``.
     flip: bool = eqx.field(static=True, default=False)
+    #: The Hubbard channel under a ``U`` (I61): one ``(slot, a, c)`` per entry
+    #: of the per-atom blocks, the operator ``|phi_a><phi_c|`` of that slot, in
+    #: :meth:`~defuqumat.hubbard.manifold.HubbardSetup.block_indices`' order.
+    #: Its entries follow the sphere's ``sphere.nm`` in ``x``; empty without a
+    #: ``U``. See :func:`hubbard_pairs`.
+    hubbard: tuple = eqx.field(static=True, default=())
 
     @property
     def nm(self) -> int:
@@ -290,12 +297,39 @@ def require_a_transverse_regime(calculation) -> None:
             "kernel B_xc/m does not exist"
         )
     if getattr(calculation, "is_hubbard", False):
-        raise NotImplementedError(
-            "a transverse spin susceptibility with a Hubbard U is not "
-            "implemented: the Hubbard term responds to the magnetization as "
-            "well, so omitting it from the enhancement is a silent "
-            "approximation rather than a missing feature"
-        )
+        # The simplified functional is taken (I61): its exchange field on the
+        # correlated block is linear in the block's moment, so the channel's
+        # kernel is one number per atom and the rotation argument holds as it
+        # does for B_xc/m. What is still refused, each by name: the full
+        # functional, whose field is a contraction with the Slater integrals
+        # and has no per-atom constant to check; ``Hubbard_beta``, a field put
+        # on the block by hand, which breaks the rotation invariance as an
+        # applied field does; and a tensor-moment constraint.
+        coefficients = calculation.hubbard_coefficients
+        if coefficients["kind"] != 0:
+            raise NotImplementedError(
+                "a transverse spin susceptibility with the full DFT+U "
+                "functional (lda_plus_u_kind = 1, a Hubbard J) is not "
+                "implemented: the simplified one is, whose exchange field on "
+                "each correlated block is -(U_eff + J0)/2 times the block's "
+                "moment, and the full one's field is a contraction with the "
+                "Slater integrals that has no such per-atom kernel"
+            )
+        if np.any(np.asarray(coefficients["beta"]) != 0.0):
+            raise NotImplementedError(
+                "a transverse spin susceptibility with Hubbard_beta is not "
+                "implemented: beta is a field on the correlated block put in "
+                "by hand, which breaks the global spin rotation the kernel "
+                "rests on, as an applied field does, and unlike a uniform "
+                "B_field it has no single Larmor frequency"
+            )
+        if coefficients.get("constraints") is not None:
+            raise NotImplementedError(
+                "a transverse spin susceptibility under a TENSOR_MOMENTS "
+                "constraint is not implemented: the constraint is a penalty on "
+                "the occupation matrix, so the ground state is stationary for "
+                "a different functional"
+            )
     field = getattr(calculation, "magnetic_field", None)
     if field is not None and field.constraint != "none":
         raise NotImplementedError(
@@ -371,6 +405,39 @@ def larmor_frequency(field, field_scale: float | None = None,
     uniform = np.asarray(field.uniform, dtype=float).reshape(-1)
     strength = 2.0 * scale * float(uniform[-1])
     return -strength if flip else strength
+
+
+def hubbard_pairs(calculation):
+    """``((slot, a, c), ...)`` and the ``wfcU`` columns of each, or ``None``.
+
+    **A Hubbard ``U`` puts a nonlocal piece into ``H_up - H_dn``**, the
+    separable ``sum |phi_i> (v_up - v_dn)_ij <phi_j|`` of
+    :class:`~defuqumat.hubbard.operator.HubbardTerm`, and the Goldstone proof
+    (:mod:`defuqumat.tddft.spinkernel`) needs the exchange field to be one
+    operator expanded in the channels the response is a matrix over. So the
+    response gains one channel per operator ``O_p = |phi_a><phi_c|`` of each
+    correlated atom's block, beside the plane waves: its matrix element is
+    ``<psi_up|phi_a><phi_c|psi_dn> = conj(<phi_a|psi_up>) <phi_c|psi_dn>``,
+    the minority projection taken at ``k + q`` exactly as the ultrasoft term
+    takes its ``<beta|psi>`` (the Bloch sum of a projector is the same at
+    ``k + q`` and at its grid image), and it enters ``X_0`` with the same
+    ``2/Omega`` as every plane wave. The channel's moment is then
+    ``(ns_up - ns_dn)_ca / Omega`` and its field ``(v_up - v_dn)_ac / 2``
+    (:func:`~defuqumat.tddft.spinkernel.hubbard_moment`, ``hubbard_field``).
+
+    The columns are a correlated atom's own block only, since
+    ``lda_plus_u_kind = 0`` has no intersite term, and they include the
+    ``(a, c)`` and ``(c, a)`` entries separately: a transverse ``ns^{+-}`` at
+    finite ``q`` is not symmetric.
+    """
+    if not getattr(calculation, "is_hubbard", False):
+        return None
+    _, slots, rows, columns = calculation.hubbard.block_indices()
+    a, c = calculation.hubbard.padded_indices()
+    triples = tuple(
+        (int(t), int(i), int(j)) for t, i, j in zip(slots, a, c)
+    )
+    return triples, np.asarray(rows, dtype=np.int32), np.asarray(columns, dtype=np.int32)
 
 
 def commensurate_shift(calculation, q):
@@ -564,6 +631,15 @@ def transverse_response(
     # and the geometry and on nothing that varies with k or with the band.
     factors = augmentation_factors(calculation, q, sphere)
     augmented = factors is not None
+    # The Hubbard channel (I61): ``None`` without a ``U``, which keeps the
+    # placeholder below out of every contraction exactly as ``augmented`` does.
+    pairs = hubbard_pairs(calculation)
+    hub_rows = hub_cols = None
+    if pairs is not None:
+        triples, hub_rows, hub_cols = pairs
+        wfcU = calculation.wfcU
+    else:
+        triples = ()
     if not augmented:
         # A norm-conserving run carries no augmentation, and the projections it
         # would contract are not built either -- there is nothing to project on.
@@ -573,17 +649,20 @@ def transverse_response(
 
     def one_k(arrays):
         (psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
-         psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn, gather) = arrays
+         psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn, gather,
+         wfc_up, wfc_dn) = arrays
         return _one_k_terms(
             psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
             psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn,
             gather, grid, volume, zomega, factors, augmented,
+            wfc_up, wfc_dn, hub_rows, hub_cols,
         )
 
     batch = chunk_size(calculation, k_batch)
 
     def share(psi_up, index_up, mask_up, eig_up, occ_up, slope_up,
-              psi_dn, index_dn, mask_dn, eig_dn, occ_dn, gather, *rowsets):
+              psi_dn, index_dn, mask_dn, eig_dn, occ_dn, gather,
+              wfc_up, wfc_dn, *rowsets):
         """One chunk's share of ``(nw, nm, nm)``: majority at ``k``, minority at ``k + q``."""
         if augmented:
             # ``<beta|psi>`` on each channel's own rows, the minority's at
@@ -596,6 +675,7 @@ def transverse_response(
         return sum_k(one_k, (
             psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
             psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn, gather,
+            wfc_up, wfc_dn,
         ), batch=batch)
 
     eig_up, eig_dn = (np.asarray(eigenvalues[spin]) for spin in (majority, minority))
@@ -618,6 +698,14 @@ def transverse_response(
             jnp.asarray(mask[down]), jnp.asarray(eig_dn[down]),
             jnp.asarray(padded(occ_dn, down, live)), jnp.asarray(flat[rows]),
         )
+        # The Hubbard projectors at ``k`` and ``k + q``, the chunk's rows as
+        # arguments rather than the whole ``wfcU`` closed over (a compiled
+        # program keeps the constants it was traced with).
+        if pairs is not None:
+            args = args + (wfcU[jnp.asarray(rows)], wfcU[jnp.asarray(down)])
+        else:
+            placeholder = jnp.zeros((len(rows), 1, 1), dtype=precision.complex)
+            args = args + (placeholder, placeholder)
         if augmented:
             args = args + (row_leaves(calculation, rows), row_leaves(calculation, down))
         return (args,)  # one stage: the projections are a chunk's few numbers
@@ -630,12 +718,14 @@ def transverse_response(
         q=tuple(float(component) for component in np.asarray(q).reshape(3)),
         nbnd=int(eigenvalues.shape[-1]),
         flip=bool(flip),
+        hubbard=triples,
     )
 
 
 def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
                  psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn,
-                 gather, grid, volume, zomega, factors, augmented):
+                 gather, grid, volume, zomega, factors, augmented,
+                 wfc_up=None, wfc_dn=None, hub_rows=None, hub_cols=None):
     """One k-point's contribution, walked one majority band at a time.
 
     The pair axis is ``nbnd^2`` and a pair density is a whole FFT box, so
@@ -670,8 +760,20 @@ def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
     fields_up = g_to_r(psi_up * mask_up[None, :], index_up, grid)
     fields_dn = g_to_r(psi_dn * mask_dn[None, :], index_dn, grid)
 
+    # ``<phi_i|psi>`` in each channel, the minority's at ``k + q``, gathered
+    # onto the Hubbard channel's pairs: the bra's column ``a`` and the ket's
+    # ``c`` of every ``O_p = |phi_a><phi_c|`` (:func:`hubbard_pairs`).
+    hubbard = hub_rows is not None
+    if hubbard:
+        proj_up = jnp.einsum("gi,bg->bi", jnp.conj(wfc_up), psi_up * mask_up[None, :])
+        proj_dn = jnp.einsum("gi,bg->bi", jnp.conj(wfc_dn), psi_dn * mask_dn[None, :])
+        hub_up = proj_up[:, hub_rows]  # (nbnd, np)
+        hub_dn = proj_dn[:, hub_cols]  # (nbnd, np)
+    else:
+        hub_up = jnp.zeros((psi_up.shape[0], 1), dtype=psi_up.dtype)
+
     def one_band(carry):
-        field, energy, occupation, slope, projection = carry
+        field, energy, occupation, slope, projection, hub = carry
         # ``M_G = <psi_up| e^{-i(q+G).r} |psi_dn>`` for every minority band, at
         # the shifted gather.
         matrix = r_to_g(jnp.conj(field)[None] * fields_dn, gather)  # (nbnd, nm)
@@ -684,6 +786,11 @@ def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
                 "ai,gij,maj->mg", jnp.conj(projection),
                 factors.astype(matrix.dtype), bec_dn,
             )
+        if hubbard:
+            # ``<psi_up|phi_a><phi_c|psi_dn>``, the Hubbard channel's entries
+            # after the sphere's.
+            matrix = jnp.concatenate(
+                [matrix, jnp.conj(hub)[None, :].astype(matrix.dtype) * hub_dn], axis=1)
 
         difference = occupation - occ_dn  # f_up - f_dn, (nbnd,)
         denominator = zomega[:, None] + (energy - eig_dn)[None, :]
@@ -706,7 +813,7 @@ def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
         return jnp.einsum("wp,pa,pb->wab", scalars, jnp.conj(matrix), matrix)
 
     return sum_bands(
-        one_band, (fields_up, eig_up, occ_up, slope_up, bec_up), batch=1
+        one_band, (fields_up, eig_up, occ_up, slope_up, bec_up, hub_up), batch=1
     )
 
 

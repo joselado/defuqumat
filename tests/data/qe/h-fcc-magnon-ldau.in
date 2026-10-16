@@ -1,0 +1,34 @@
+! h-fcc-magnon.in with a Hubbard U of 2 eV on the hydrogen 1s shell: the DFT+U
+! case of the transverse spin susceptibility (notes/incompat/I61.md).
+!
+! The simplified functional puts -(U/2)(ns_up - ns_dn) into the exchange field
+! on the 1s block, a nonlocal operator, so H_up - H_dn is no longer 2 B_xc(r)
+! and the Goldstone identity X_0 B = m closes only once the response carries
+! the Hubbard channel beside the plane waves. One s shell gives that channel a
+! single entry, which is what makes the cell cheap; everything else is
+! h-fcc-magnon.in, seed included, and that file's header says why.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 6.5,
+    nat = 1, ntyp = 1,
+    ecutwfc = 25.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.01,
+    nspin = 2
+    nosym = .true., noinv = .true.
+    starting_magnetization(1) = 0.9
+    nbnd = 8
+ /
+ &electrons
+    mixing_beta = 0.3
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS (crystal)
+ H 0.0 0.0 0.0
+K_POINTS {automatic}
+ 4 4 4 0 0 0
+HUBBARD {atomic}
+U H-1s 2.0

@@ -97,6 +97,10 @@ __all__ = [
     "exchange_field",
     "goldstone_residual",
     "node_limit",
+    "hubbard_field",
+    "hubbard_kernel",
+    "hubbard_moment",
+    "response_kernel",
 ]
 
 #: Below this density (electrons/bohr^3) the kernel is held at zero. QE's own
@@ -225,7 +229,108 @@ def transverse_kernel_matrix(calculation, density, sphere, **kwargs) -> jnp.ndar
     return coefficients[index[..., 0], index[..., 1], index[..., 2]]
 
 
-def goldstone_residual(chi0, calculation, density, index: int = 0, **kwargs) -> float:
+def _pairs(chi0):
+    triples = np.asarray(chi0.hubbard, dtype=int).reshape(-1, 3)
+    return triples[:, 0], triples[:, 1], triples[:, 2]
+
+
+def hubbard_moment(calculation, ns, chi0) -> np.ndarray:
+    """``(ns_up - ns_dn)_ca / Omega`` on the Hubbard channel's pairs, ``(np,)``.
+
+    The channel's half of the target ``m`` of the identity, from the closure
+    sum: the entry for ``O_p = |phi_a><phi_c|`` is ``<O_p^dagger>/Omega``
+    summed over the occupied states of each channel, and
+    ``<psi|phi_c><phi_a|psi>`` is ``ns_ca`` in
+    :func:`~defuqumat.hubbard.occupations.occupation_matrix`'s convention
+    (``ns_ac = sum w conj(<phi_a|psi>) <phi_c|psi>``). The ``1/Omega`` is what
+    puts the channel on the plane waves' footing, ``m(G)`` being a density.
+    """
+    ns = np.asarray(ns)
+    slot, a, c = _pairs(chi0)
+    volume = float(calculation.system.cell.volume)
+    return (ns[0, slot, c, a] - ns[1, slot, c, a]) / volume
+
+
+def hubbard_field(calculation, ns, chi0) -> np.ndarray:
+    """``(v_up - v_dn)_ac / 2`` on the Hubbard channel's pairs, ``(np,)``, Ry.
+
+    The coefficient of ``O_p = |phi_a><phi_c|`` in ``(H_up - H_dn)/2``, since
+    :class:`~defuqumat.hubbard.operator.HubbardTerm` applies
+    ``sum v_ac |phi_a><phi_c|``: the channel's half of ``B``, with the
+    potential differentiated from the energy as the SCF does it.
+    """
+    from defuqumat.hubbard.energy import hubbard_potential
+
+    potential = np.asarray(
+        hubbard_potential(jnp.asarray(ns), calculation.hubbard_coefficients))
+    slot, a, c = _pairs(chi0)
+    return 0.5 * (potential[0, slot, a, c] - potential[1, slot, a, c])
+
+
+def hubbard_kernel(calculation, chi0) -> np.ndarray:
+    """The Hubbard channel's kernel, ``(np,)``: ``-(U_eff + J0) Omega / 2``.
+
+    **The rotation argument of the module docstring, on the correlated
+    block.** The simplified functional's spin-dependent part is
+    ``-(U_eff/2) sum_s Tr(ns_s ns_s) + (J0/2) sum_s Tr(ns_s ns_-s)``, whose
+    derivative makes ``(v_up - v_dn)/2 = -(U_eff + J0)/2 (ns_up - ns_dn)^T``:
+    linear in the block's moment, with one coefficient per atom. A rotation
+    of the moment rotates that field with it, so the transverse kernel is the
+    same coefficient, and with the channel's moment carrying ``1/Omega``
+    (:func:`hubbard_moment`) it is multiplied by the volume. ``U_eff`` and
+    ``J0`` are ``coefficients_from_setup``'s ``2 quadratic`` and
+    ``2 exchange``.
+
+    The other flavours are refused in
+    :func:`~defuqumat.tddft.spinchi0.require_a_transverse_regime`, and
+    :func:`response_kernel` checks the relation on the converged ``ns``
+    before trusting it.
+    """
+    coefficients = calculation.hubbard_coefficients
+    per_slot = np.asarray(coefficients["quadratic"]) + np.asarray(coefficients["exchange"])
+    slot, _, _ = _pairs(chi0)
+    return -per_slot[slot] * float(calculation.system.cell.volume)
+
+
+def response_kernel(calculation, density, chi0, ns=None, **kwargs) -> np.ndarray:
+    """The whole kernel over ``chi0``'s channels, ``(nm, nm)``.
+
+    ``F(G, G')`` (:func:`transverse_kernel_matrix`) on the plane waves and,
+    under a Hubbard ``U``, :func:`hubbard_kernel` on the diagonal of the
+    Hubbard channel, with no coupling between the two: the Hubbard energy is a
+    functional of ``ns`` alone and ``E_xc`` of the grid density alone. Before
+    the Hubbard block is used, ``K m = B`` is checked on the converged ``ns``
+    (it is ``F m = B_xc`` for that channel), which is what would catch a
+    functional whose field is not linear in the block's moment.
+    """
+    grid_part = np.asarray(
+        transverse_kernel_matrix(calculation, jnp.asarray(density), chi0.sphere, **kwargs))
+    if not chi0.hubbard:
+        return grid_part
+    if ns is None:
+        raise ValueError(
+            "the kernel of a run with a Hubbard U needs the converged "
+            "occupation matrix: pass ns = scf_result.ns"
+        )
+    kernel = hubbard_kernel(calculation, chi0)
+    field = hubbard_field(calculation, ns, chi0)
+    moment = hubbard_moment(calculation, ns, chi0)
+    scale = max(float(np.abs(field).max()), 1.0e-12)
+    if np.abs(kernel * moment - field).max() > 1.0e-8 * scale:
+        raise RuntimeError(  # pragma: no cover -- the flavours are refused
+            "the Hubbard channel's exchange field is not -(U_eff + J0)/2 times "
+            "its moment on this occupation matrix, so its kernel is not the "
+            "one hubbard_kernel writes down"
+        )
+    nm = grid_part.shape[0]
+    total = np.zeros((nm + kernel.size,) * 2, dtype=grid_part.dtype)
+    total[:nm, :nm] = grid_part
+    total[nm:, nm:] = np.diag(kernel)
+    return total
+
+
+def goldstone_residual(chi0, calculation, density, index: int = 0, ns=None,
+                       **kwargs) -> float:
     """How far ``X_0 B_xc = m`` is from holding, relative to ``|m|``.
 
     **The one check on a magnon that needs no second code and has no free
@@ -264,5 +369,17 @@ def goldstone_residual(chi0, calculation, density, index: int = 0, **kwargs) -> 
         return np.conj(coefficients[miller[:, 0], miller[:, 1], miller[:, 2]])
 
     target = plus(magnetization)
-    got = np.asarray(chi0.x[index]) @ plus(field)
+    source = plus(field)
+    if chi0.hubbard:
+        # The Hubbard channel's halves of ``m`` and ``B`` (I61): the identity
+        # is one equation over every channel ``X_0`` is a matrix over, and
+        # without them ``H_up - H_dn`` is not ``2 B`` and it does not close.
+        if ns is None:
+            raise ValueError(
+                "the Goldstone identity of a run with a Hubbard U needs the "
+                "converged occupation matrix: pass ns = scf_result.ns"
+            )
+        target = np.concatenate([target, hubbard_moment(calculation, ns, chi0)])
+        source = np.concatenate([source, hubbard_field(calculation, ns, chi0)])
+    got = np.asarray(chi0.x[index]) @ source
     return float(np.linalg.norm(got - target) / np.linalg.norm(target))
