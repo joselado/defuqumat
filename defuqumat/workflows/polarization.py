@@ -54,7 +54,7 @@ from defuqumat.topology.polarization import (
     polarization_quantum,
     string_phase,
 )
-from defuqumat.workflows.topology import _source
+from defuqumat.workflows.topology import _refuse_potential_only_meta, _source
 
 __all__ = ["run_polarization"]
 
@@ -160,6 +160,7 @@ def run_polarization(
     else:
         sources = [_source(system, pseudos, density, nocc, nbnd, conv_thr,
                            k_batch, **options)]
+    _refuse_potential_only_meta(sources[0], "a Berry-phase polarization")
 
     # One string at a time: the states of the whole mesh are never resident.
     # The mappings are the other resource and they are not freed by ``del``,

@@ -105,6 +105,15 @@ class DFTSource:
     #: those eigenvalues, so the invariant is a confident integer taken off the
     #: wrong bands.
     ns: jnp.ndarray | None = None
+    #: The converged kinetic energy density (``SCFResult.tau``), needed under a
+    #: potential-only meta-GGA (``tb09``, ``bj06``) and ignored otherwise. The
+    #: Becke-Roussel potential and the Tran-Blaha ``c`` are functions of
+    #: ``tau``, which is a property of the occupied states over the whole zone
+    #: and cannot be rebuilt from the density -- the argument
+    #: :func:`~defuqumat.workflows.nscf.fixed_density_states` makes for a band
+    #: path. With it the Hamiltonian is an ordinary local one, so nothing past
+    #: the potential knows the functional is a meta-GGA.
+    tau: jnp.ndarray | None = None
     #: ``SCFResult.magnetic_field`` and ``SCFResult.field_scale``, needed for
     #: the same reason ``becsum`` and ``ns`` are: what the run *converged*
     #: under is not what the input asked for. Elk's ``reducebf`` scales a
@@ -207,7 +216,7 @@ class DFTSource:
 
         return resolve_wfc_store("default", self._base().memory_mode) == "stream"
 
-    def _ddd_paw(self):
+    def _ddd_paw(self, meta_c=None):
         """PAW's one-centre coefficients, built once and kept.
 
         A function of ``becsum`` alone, so it is k-independent and belongs with
@@ -215,11 +224,18 @@ class DFTSource:
         diagonalisation: a streaming Wilson loop calls :meth:`states` once per
         k-point, and rebuilding the radial one-centre terms there would put a
         Gauss-Legendre quadrature over every sphere in the inner loop.
+
+        ``meta_c`` is the potential's cell-averaged Tran-Blaha coefficient,
+        which the spheres cannot compute for themselves and which
+        :meth:`~defuqumat.scf.driver.Calculation.onecenter` refuses to default
+        under a meta-GGA; it is passed on the first call, which is the one that
+        builds the frozen potential, and the cached value is what every later
+        call returns.
         """
         if not self.becsum:
             return None
         if getattr(self, "_ddd", None) is None:
-            _, ddd = self._base().onecenter(self.becsum)
+            _, ddd = self._base().onecenter(self.becsum, meta_c)
             object.__setattr__(self, "_ddd", ddd)
         return self._ddd
 
@@ -302,19 +318,21 @@ class DFTSource:
                     "produce an integer"
                 )
             _, _, hubbard_terms = calculation.hubbard_terms(jnp.asarray(self.ns))
-        if calculation.functional.is_meta:
-            # Refused at the boundary rather than threaded. ``tau`` could be
-            # carried the way ``ns`` and ``becsum`` are, and then a Tran-Blaha
-            # invariant would run -- unvalidated, on a functional whose total
-            # energy is not the value of anything it minimised. The refusal is
-            # the honest state of it; what it replaces is ``v_of_rho`` raising
-            # about a missing keyword deep inside the potential builder.
+        if calculation.functional.is_meta and self.tau is None:
+            # ``fixed_density_states``' refusal, for the same reason: ``tau``
+            # is a property of the occupied states over the whole zone, so it
+            # crosses with the density the way ``ns`` and ``becsum`` do. The
+            # invariant itself needs no energy -- it is a property of the
+            # manifold of a local Hamiltonian -- so once ``tau`` is here the
+            # functional being a potential rather than a derivative changes
+            # nothing downstream (``notes/incompat/I13.md``: the states
+            # reproduce the SCF's eigenvalues).
             raise NotImplementedError(
                 f"a topological invariant under {calculation.functional.name} "
-                "is not implemented: the functional is a potential rather than "
-                "the derivative of an energy, and the combination is "
-                "unvalidated. The band structure and the density of states are "
-                "unaffected"
+                "needs the converged kinetic energy density as well as the "
+                "density: pass tau = scf_result.tau. It is a property of the "
+                "occupied states over the whole zone and cannot be rebuilt "
+                "from the density"
             )
         nbnd = self.nbnd or max(
             self.nocc + 2,
@@ -350,10 +368,12 @@ class DFTSource:
                 self.density,
                 1.0 if self.field_scale is None else float(self.field_scale),
                 self.field,
+                tau=self.tau,
             )
+            meta_c = None if self.tau is None else potential.meta_c
             object.__setattr__(self, "_frozen", (
                 potential.v_scf,
-                calculation.local_terms(potential.v_scf, self._ddd_paw()),
+                calculation.local_terms(potential.v_scf, self._ddd_paw(meta_c)),
             ))
         v_scf, terms = self._frozen
         # One channel's Hamiltonian, diagonalised alone: at ``nspin = 2``
@@ -424,7 +444,7 @@ class DFTSource:
 
 def _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
             becsum=(), ns=None, field=None, field_scale=None,
-            calculation=None, spin=None) -> DFTSource:
+            calculation=None, spin=None, tau=None) -> DFTSource:
     if nocc is None and not (system.nspin == 2 and spin is None):
         # (with no channel named the source's own refusal is the one to see)
         nocc = _occupied_bands(system, pseudos, density, spin)
@@ -435,6 +455,7 @@ def _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
         nocc=0 if nocc is None else int(nocc),
         becsum=tuple(becsum or ()),
         ns=ns,
+        tau=tau,
         field=field,
         field_scale=field_scale,
         nbnd=nbnd,
@@ -443,6 +464,24 @@ def _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
         calculation=calculation,
         spin=spin,
     )
+
+
+def _refuse_potential_only_meta(source: DFTSource, what: str) -> None:
+    """The refusal :meth:`DFTSource.states` made for every caller until I13.
+
+    The invariants now take ``tau`` and are checked against the SCF's own
+    eigenvalues (``notes/incompat/I13.md``); the Berry-phase polarization and
+    the orbital magnetization share the source but not that check, so they keep
+    the old refusal, word for word, until each has a number of its own.
+    """
+    functional = source._base().functional
+    if functional.is_meta:
+        raise NotImplementedError(
+            f"{what} under {functional.name} is not implemented: the "
+            "functional is a potential rather than the derivative of an "
+            "energy, and the combination is unvalidated. The band structure "
+            "and the density of states are unaffected"
+        )
 
 
 def _occupied_bands(system: System, pseudos, density=None, spin=None) -> int:
@@ -509,6 +548,7 @@ def run_berry_curvature(
     k_batch: int | None | str = "default",
     becsum: tuple = (),
     ns: jnp.ndarray | None = None,
+    tau: jnp.ndarray | None = None,
     field=None,
     field_scale: float | None = None,
     stream: bool | None = None,
@@ -553,7 +593,7 @@ def run_berry_curvature(
     if degeneracy_tol is not None and method == "kubo":
         kwargs["degeneracy_tol"] = degeneracy_tol
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
-                     becsum=becsum, ns=ns,
+                     becsum=becsum, ns=ns, tau=tau,
                      field=field, field_scale=field_scale,
                      calculation=calculation, spin=spin)
     return _chern_number(
@@ -578,6 +618,7 @@ def run_z2(
     k_batch: int | None | str = "default",
     becsum: tuple = (),
     ns: jnp.ndarray | None = None,
+    tau: jnp.ndarray | None = None,
     field=None,
     field_scale: float | None = None,
     calculation=None,
@@ -595,7 +636,7 @@ def run_z2(
     """
     _require_spinors(system, "the Z2 invariant")
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
-                     becsum=becsum, ns=ns,
+                     becsum=becsum, ns=ns, tau=tau,
                      field=field, field_scale=field_scale,
                      calculation=calculation)
     kwargs = dict(axis=axis, offset=offset)
@@ -620,6 +661,7 @@ def run_z2_3d(
     k_batch: int | None | str = "default",
     becsum: tuple = (),
     ns: jnp.ndarray | None = None,
+    tau: jnp.ndarray | None = None,
     field=None,
     field_scale: float | None = None,
     calculation=None,
@@ -632,7 +674,7 @@ def run_z2_3d(
     """
     _require_spinors(system, "the Z2 invariants")
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
-                     becsum=becsum, ns=ns,
+                     becsum=becsum, ns=ns, tau=tau,
                      field=field, field_scale=field_scale,
                      calculation=calculation)
     kwargs = {}

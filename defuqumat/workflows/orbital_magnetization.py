@@ -48,7 +48,7 @@ from defuqumat.topology.orbital_magnetization import (
     orbital_magnetization,
     streamed_orbital_magnetization_sums,
 )
-from defuqumat.workflows.topology import _source
+from defuqumat.workflows.topology import _refuse_potential_only_meta, _source
 
 __all__ = ["run_orbital_magnetization"]
 
@@ -132,6 +132,7 @@ def run_orbital_magnetization(
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
                      becsum=becsum, ns=ns, field=field, field_scale=field_scale,
                      calculation=calculation)
+    _refuse_potential_only_meta(source, "an orbital magnetization")
     source.gap_tol = gap_tol
     mesh = volume_mesh(_divisions(system, divisions), shift)
     if source.streams if stream is None else stream:
