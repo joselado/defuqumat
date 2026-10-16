@@ -392,10 +392,47 @@ def _transfer(result, calculation, magnetization: str) -> _SpinTransfer:
     if not seeded and source == 2 and target == 4:
         direction = _common_direction(calculation)
     if not seeded and source == 4 and target == 2:
+        # Before the axis is read: a spiral's density is in the rotated frame,
+        # where a laboratory helix is a uniform moment, so the axis read here
+        # would be the wrong field's.
+        _refuse_spiral_demotion(result, calculation)
         project = _collinear_axis(result.density)
     return _SpinTransfer(
         source, target, mode="seed" if seeded else "carry",
         direction=direction, project=project,
+    )
+
+
+def _refuse_spiral_demotion(result, calculation) -> None:
+    """Refuse a spiral's vector magnetization into a collinear run.
+
+    The frame phase of :func:`_spiral_frame` acts on a ``(4, ...)`` density and
+    the collinear projection reads its axis off the same array, so the two have
+    to be done in the laboratory frame and in that order. At an integer
+    ``q != 0`` the laboratory field is ``m'_+ exp(-i q . r)``, a helix inside the
+    cell for any spiral that is not a helix in its own frame, so nothing
+    collinear is there to carry; at any other ``q`` it is not a field of this
+    cell at all. Only ``q = 0`` crosses, where the two frames are the same.
+    Measured at 87ff5bb8, which lifted the spiral boundary without it:
+    ``spiral_q = (0, 0, 1)`` into ``nspin = 2`` returned a ``(4, ...)`` stack
+    built by clamped indexing of a ``(2, ...)`` array, with no error.
+    """
+    system = getattr(result, "system", None)
+    if system is None or calculation.system.spiral_q is not None:
+        return
+    q = getattr(system, "spiral_q", None)
+    if q is None or not np.any(np.asarray(q, dtype=float)):
+        return
+    raise NotImplementedError(
+        "the source run is a spin spiral at q = "
+        f"{tuple(float(x) for x in np.asarray(q, dtype=float).reshape(3))} and "
+        "this one is collinear (nspin = 2), and a spiral's vector magnetization "
+        "does not cross into a collinear run: its transverse components are "
+        "measured in the frame that turns with q, and in the laboratory frame "
+        "the moment turns from point to point (a helix), so it has no single "
+        "axis to be laid on. Pass magnetization='seed' to keep the converged "
+        "charge and take the moment from this run's starting_magnetization, or "
+        "continue into a noncollinear (nspin = 4) run instead"
     )
 
 
@@ -468,6 +505,12 @@ def _spiral_frame(result, calculation, transfer: _SpinTransfer) -> tuple | None:
         return None
     source = system.spiral_q is not None
     if source == target or transfer.source != 4:
+        return None
+    if transfer.target != 4:
+        # :func:`_transfer` refuses a spiral into a collinear run before it
+        # reads the axis; this keeps ``_rotate_frame`` off a ``(2, ...)`` array,
+        # which JAX would index by clamping rather than raise on.
+        _refuse_spiral_demotion(result, calculation)
         return None
     q = np.asarray(system.spiral_q if source else calculation.system.spiral_q,
                    dtype=float).reshape(3)
@@ -1107,6 +1150,11 @@ class ContinuedState:
     #: What happened to the magnetization: ``"carry"``, ``"seed"`` or
     #: ``"none"``. Resolved, so ``"auto"`` never appears here.
     magnetization: str = "none"
+    #: The integer wavevector of the spiral frame change the density was taken
+    #: through (:func:`_spiral_frame`), or ``None``. A consumer carrying any
+    #: other field of the source across reads it here: such a field is still
+    #: in the source's frame (:func:`carried_tau`).
+    frame: tuple | None = None
 
     @property
     def seeded(self) -> bool:
@@ -1171,7 +1219,42 @@ def continued_state(
         wavefunctions=span,
         regimes=(transfer.source, transfer.target),
         magnetization=transfer.mode,
+        frame=transfer.frame,
     )
+
+
+def carried_tau(state: ContinuedState, tau, expected_shape):
+    """The source's kinetic energy density as the target's start, or ``None``.
+
+    ``None`` means the target builds its own Thomas-Fermi guess, which costs
+    iterations and cannot be wrong. ``tau`` crosses only when its shape is the
+    target density's, whole (``tau`` has ``nspin_mag`` channels), and then only
+    as far as the magnetization did: depolarized for ``'none'``, dropped for
+    ``'seed'``, since a potential-only meta-GGA reads ``tau`` straight into
+    ``v_x`` and a ``tau`` still carrying the source's moment would split the
+    first Hamiltonian by a magnetization the density does not have.
+
+    **Dropped across a spiral boundary** (``state.frame`` set). A spiral's
+    ``tau`` is in the rotated frame like its density, and :func:`promote_density`
+    rotates only the density. Measured on the H chain with ``tb09`` and
+    ``noncollinear_gga = 'kubler'`` at ``q = b3``: the spiral's ``tau`` handed
+    to the plain run as it is is off from the plain run's own by 3.0e-1 in the
+    transverse part against a maximum of 1.5e-1, and that run did not converge
+    in 200 iterations, against 78 with ``tau`` dropped and 99 from scratch.
+    Rotating it with the density's phase brought the difference to 1.47e-3,
+    not to zero: ``tau`` pairs gradients of the two components, which sit at
+    ``k + q/2`` and ``k - q/2``, so whether the phase alone carries it has not
+    been shown, and dropping is the choice that cannot be wrong.
+    """
+    if tau is None:
+        return None
+    if tuple(np.shape(tau)) != tuple(expected_shape):
+        return None
+    if state.frame is not None or state.magnetization == "seed":
+        return None
+    if state.magnetization == "none":
+        return depolarize_tau(jnp.asarray(tau))
+    return tau
 
 
 def nc_magnetization_from_lsda(density, direction, axis_from=None):
