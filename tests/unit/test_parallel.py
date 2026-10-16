@@ -138,25 +138,39 @@ def _start_pools(script: str, size: int, *args, timeout: float = 300.0,
     base.update(JAX_PLATFORMS="cpu", DEFUQUMAT_THREADS="2",
                 PYTHONPATH=str(REPO) + os.pathsep + base.get("PYTHONPATH", ""))
     base.update(env_extra or {})
-    processes = []
-    for rank in range(size):
-        env = dict(base)
-        if size > 1:
-            env.update(DEFUQUMAT_POOLS=str(size), DEFUQUMAT_POOL_RANK=str(rank),
-                       DEFUQUMAT_COORDINATOR=f"localhost:{port}",
-                       DEFUQUMAT_POOL_TIMEOUT="120")
-        processes.append(subprocess.Popen(
-            [sys.executable, "-c", script, *map(str, args)], env=env, cwd=REPO,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
-    outcomes = []
-    try:
-        for process in processes:
-            out, err = process.communicate(timeout=timeout)
-            outcomes.append((process.returncode, out, err))
-    finally:
-        for process in processes:
-            if process.poll() is None:
-                process.kill()
+    # Each rank writes to files rather than pipes. With pipes only the rank being
+    # waited on is drained, so a later rank whose output passes the 64 KiB pipe
+    # buffer blocks in its write, never reaches the shutdown barrier, and rank 0
+    # aborts there (``Shutdown barrier has failed ... 1/2``, exit -6): what a
+    # DOS curve in the JSON did on D22.
+    processes, files = [], []
+    with tempfile.TemporaryDirectory() as scratch:
+        try:
+            for rank in range(size):
+                env = dict(base)
+                if size > 1:
+                    env.update(DEFUQUMAT_POOLS=str(size), DEFUQUMAT_POOL_RANK=str(rank),
+                               DEFUQUMAT_COORDINATOR=f"localhost:{port}",
+                               DEFUQUMAT_POOL_TIMEOUT="120")
+                out = open(Path(scratch) / f"out{rank}", "w+")
+                err = open(Path(scratch) / f"err{rank}", "w+")
+                files.append((out, err))
+                processes.append(subprocess.Popen(
+                    [sys.executable, "-c", script, *map(str, args)], env=env, cwd=REPO,
+                    stdout=out, stderr=err, text=True))
+            outcomes = []
+            for process, (out, err) in zip(processes, files):
+                process.wait(timeout=timeout)
+                out.seek(0)
+                err.seek(0)
+                outcomes.append((process.returncode, out.read(), err.read()))
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+            for out, err in files:
+                out.close()
+                err.close()
     return outcomes
 
 
@@ -386,7 +400,14 @@ FIXED_DENSITY_SCRIPT = textwrap.dedent("""
     pools = current_pools()
     layout = [r.tolist() for r in pools.layout(
         path.nk, costs=_k_costs(calculator.calculation.at_kpoints(path)))]
-    print(json.dumps({"rank": pools.rank, "layout": layout,
+    # A sibling that is not pool-aware must still refuse under real pools.
+    refused = None
+    if pools.size > 1:
+        try:
+            calculator.get_pdos(grid=(2, 2, 2))
+        except NotImplementedError as error:
+            refused = str(error)
+    print(json.dumps({"rank": pools.rank, "layout": layout, "refused": refused,
                       "bands": np.asarray(bands.eigenvalues).tolist(),
                       "nscf": np.asarray(nscf.eigenvalues).tolist(),
                       "nscf_homo": float(nscf.homo),
@@ -428,6 +449,7 @@ def test_pooled_bands_nscf_and_dos_reproduce_one_pool(serial_fixed_density, size
         assert result["dos_nk"] == serial["dos_nk"] == 27
         for key in ("nscf_homo", "dos_homo", "dos_lumo"):
             assert abs(result[key] - serial[key]) < 1e-10, key
+        assert "get_pdos is not available" in result["refused"]
     assert pooled[0]["bands"] == pooled[-1]["bands"]
 
 
