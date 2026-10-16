@@ -233,8 +233,8 @@ def test_a_spin_polarized_run_cannot_take_an_unpolarized_seed():
 
     Splitting a charge density evenly between two channels would start a
     magnetic run from a non-magnetic guess without saying so, which is a
-    physics error dressed as a convenience. Transferring Elk's magnetization is
-    a second field with a transfer rule of its own and is not implemented.
+    physics error dressed as a convenience. A spin-polarized Elk state carries
+    its magnetization across (``h_sc_spin``); an unpolarized one has none to give.
     """
     polarized = calculator().with_spin(2, starting_magnetization=0.5)
     with pytest.raises(NotImplementedError, match="nspin_mag"):
@@ -308,4 +308,65 @@ def test_the_charges_of_a_two_species_crystal_match_the_printed_ones():
     assert elk.interstitial_charge() == pytest.approx(3.430423495, abs=1e-8)
     assert float(charges.sum()) + elk.interstitial_charge() == pytest.approx(
         20.0, abs=1e-8
+    )
+
+
+# --- a collinear spin-polarized state (I69) -----------------------------------
+
+SPIN = ROOT / "data" / "elk" / "h_sc_spin"
+
+needs_spin = pytest.mark.skipif(
+    not (SPIN / "STATE.OUT").is_file(), reason=f"no Elk fixture at {SPIN}"
+)
+
+
+def _moment(rho, omega):
+    rho = np.asarray(rho)
+    return float((rho[0] - rho[1]).sum()) * omega / rho[0].size
+
+
+@needs_spin
+def test_a_spin_polarized_seed_and_an_atomic_one_converge_to_the_same_state():
+    """The identity of P72 for a magnetic run, and two controls that make it bite.
+
+    Simple cubic hydrogen at ``a = 5.0`` bohr, ``nspin = 2``, ``conv_thr =
+    1e-10``. Elk's state (moment -0.3220 after renormalisation) and the atomic
+    superposition with ``starting_magnetization = -0.5`` land on the same
+    ferromagnet: measured on D22, dE = 2.6e-11 Ry, max|d rho_sigma| = 2.6e-6,
+    moment -0.29091774 against -0.29089652, in 6 and 7 iterations.
+
+    The identity alone could not see a transfer that dropped the moment, since
+    the atomic run is polarized by its own input. The controls can: the same
+    seed with ``m`` flipped lands on the mirror state (+0.29091774, dE 1e-16
+    Ry), and the same seed with ``m = 0`` stays unpolarized, 1.35e-4 Ry above.
+    So the magnetization the seed carries is what decides the fixed point.
+    """
+    omega = read_elk_state(SPIN).omega
+
+    def fresh():
+        return Calculator.from_file(SPIN / "scf.in", pseudo_dir=PSEUDO)
+
+    seed = np.asarray(fresh().get_elk_seed(SPIN))
+    seeded = fresh().get_scf(starting_density=seed)
+    atomic = fresh().get_scf()
+    flipped = fresh().get_scf(starting_density=seed[::-1].copy())
+    unpolarized = fresh().get_scf(
+        starting_density=np.repeat(seed.mean(axis=0, keepdims=True), 2, axis=0)
+    )
+
+    assert abs(seeded.total_energy - atomic.total_energy) < 2e-10
+    difference = np.abs(np.asarray(seeded.density) - np.asarray(atomic.density))
+    assert difference.max() < 1e-5
+    assert _moment(seeded.density, omega) == pytest.approx(-0.2909, abs=1e-3)
+    assert _moment(seeded.density, omega) == pytest.approx(
+        _moment(atomic.density, omega), abs=1e-4
+    )
+
+    assert flipped.total_energy == pytest.approx(seeded.total_energy, abs=1e-12)
+    assert _moment(flipped.density, omega) == pytest.approx(
+        -_moment(seeded.density, omega), abs=1e-8
+    )
+    assert abs(_moment(unpolarized.density, omega)) < 1e-8
+    assert unpolarized.total_energy - seeded.total_energy == pytest.approx(
+        1.35e-4, rel=2e-2
     )

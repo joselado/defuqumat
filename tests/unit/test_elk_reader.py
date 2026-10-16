@@ -269,7 +269,8 @@ def test_the_committed_geometry_is_the_cell_the_defuqumat_input_uses(state):
 
 # --- the refusals -------------------------------------------------------------
 
-def write_header(path, *, spinpol=False, dftu=0, ftmtype=0, version=(11, 0, 2)):
+def write_header(path, *, spinpol=False, dftu=0, ftmtype=0, version=(11, 0, 2),
+                 ndmag=0, fsmtype=0):
     """A synthetic ``STATE.OUT`` that stops after the header.
 
     Every refusal fires before the first density record, so a file with no
@@ -293,9 +294,9 @@ def write_header(path, *, spinpol=False, dftu=0, ftmtype=0, version=(11, 0, 2)):
         f.write_record(np.linspace(1e-6, 1.4, 6))              # rcmt(:, 1)
         f.write_record(np.array([4, 4, 4], dtype=np.int32))    # ngridg
         f.write_record(np.array([13], dtype=np.int32))         # ngvec
-        f.write_record(np.array([0], dtype=np.int32))          # ndmag
+        f.write_record(np.array([ndmag], dtype=np.int32))
         f.write_record(np.array([1], dtype=np.int32))          # nspinor
-        f.write_record(np.array([0], dtype=np.int32))          # fsmtype
+        f.write_record(np.array([fsmtype], dtype=np.int32))
         f.write_record(np.array([ftmtype], dtype=np.int32))
         f.write_record(np.array([dftu], dtype=np.int32))
         f.write_record(np.array([0], dtype=np.int32))          # lmmaxdm
@@ -317,7 +318,8 @@ def write_geometry(path):
 @pytest.mark.parametrize(
     "kwargs, wanted",
     [
-        ({"spinpol": True}, "spin"),
+        ({"spinpol": True, "ndmag": 3}, "noncollinear"),
+        ({"spinpol": True, "ndmag": 1, "fsmtype": 2}, "fixed spin moment"),
         ({"dftu": 1}, "dftu"),
         ({"ftmtype": 1}, "tensor moment"),
         ({"version": (1, 4, 18)}, "2.0.0"),
@@ -392,6 +394,161 @@ def test_the_two_arrays_in_one_record_framing_is_asserted(tmp_path):
             f.write_record(np.zeros(49 * 12 * 1))   # rhomt alone, no rhoir
     with pytest.raises(ValueError, match="ONE record"):
         read_elk_state(tmp_path)
+
+
+def test_the_coarse_mesh_of_the_kohn_sham_field_is_asserted(tmp_path):
+    """``bsmt`` is packed on the coarse radial mesh ``nrcmtmax``, the other two
+    magnetic pairs on ``nrmtmax``.
+
+    A reader that sized the third magnetic record like the first two reads past
+    it; this file writes it that way and the length check has to say so.
+    """
+    from scipy.io import FortranFile
+
+    path = write_header(tmp_path / "STATE.OUT", spinpol=True, ndmag=1)
+    write_geometry(tmp_path / "GEOMETRY.OUT")
+    fine = 49 * 12 * 1 + 4 * 4 * 4        # (lmmaxo nrmtmax natmtot + ngtot) ndmag
+    with open(path, "ab") as handle:
+        with FortranFile(handle, "w") as f:
+            for _ in range(4 + 2):           # rho, vcl, vxc, vs; mag, bxc
+                f.write_record(np.zeros(fine))
+            f.write_record(np.zeros(fine))   # bs at nrmtmax: wrong
+    with pytest.raises(ValueError, match="coarse mesh"):
+        read_elk_state(tmp_path)
+
+
+# --- a collinear spin-polarized state ------------------------------------------
+#
+# ``h_sc_spin`` is the same hydrogen at ``a = 5.0`` bohr, where the one electron
+# polarizes partially (Elk's total moment -0.3219731543). Its magnetization is
+# checked the way the density is: against Elk's own integrals in INFO.OUT and
+# pointwise against MAG3D.OUT, which ``vecplot`` (task 73) builds by handing
+# ``magmt``/``magir`` to the same ``plot3d``/``rfpts`` route as RHO3D.OUT.
+
+SPIN = Path(__file__).resolve().parents[1] / "data" / "elk" / "h_sc_spin"
+
+needs_spin = pytest.mark.skipif(
+    not (SPIN / "STATE.OUT").is_file(), reason=f"no Elk fixture at {SPIN}"
+)
+
+
+@pytest.fixture(scope="module")
+def spin() -> ElkState:
+    return read_elk_state(SPIN)
+
+
+@needs_spin
+def test_a_collinear_state_reads_its_magnetic_records(spin):
+    assert spin.spinpol and spin.ndmag == 1 and spin.fsmtype == 0
+    assert spin.magmt.shape == (spin.lmmaxo, spin.nrmtmax, 1, 1)
+    assert spin.magir.shape == (*spin.ngridg, 1)
+    assert spin.bxcmt.shape == spin.magmt.shape
+    # The Kohn-Sham field is on the coarse radial mesh.
+    assert spin.bsmt.shape == (spin.lmmaxo, spin.nrcmtmax, 1, 1)
+    assert spin.nrcmtmax < spin.nrmtmax
+
+
+@needs_spin
+def test_the_moments_match_the_printed_ones(spin):
+    """``mommt`` and ``momir`` from ``moment.f90``, to every printed digit.
+
+    Both are ``chgmt``/``chgir``'s expressions applied to ``magmt``/``magir``:
+    a spline quadrature of the ``l = 0`` channel in the sphere and the
+    Fourier-truncated step on the grid outside it.
+    """
+    m = spin.magnetization_component(0)
+    assert m.muffin_tin_charges()[0] == pytest.approx(-0.1726933960, abs=6e-11)
+    assert m.interstitial_charge() == pytest.approx(-0.1492797583, abs=6e-11)
+    assert spin.muffin_tin_charges()[0] == pytest.approx(0.4342551995, abs=6e-11)
+
+
+@needs_spin
+def test_the_magnetization_matches_elks_own_evaluation_of_it(spin):
+    """MAG3D.OUT pointwise, 4096 points, at the print floor of ``G18.10``.
+
+    The collinear moment is the third column (``vecplot`` puts ``m_z`` there
+    and zeros in the other two). Measured: worst absolute 1.5e-11, median
+    relative 6.6e-11, the same floor as RHO3D.OUT on the same file (3.9e-11,
+    6.0e-11).
+    """
+    rows = []
+    with open(SPIN / "MAG3D.OUT") as handle:
+        handle.readline()
+        for line in handle:
+            rows.append([float(x) for x in line.split()])
+    data = np.array(rows)
+    assert data.shape == (4096, 6)
+    assert np.all(data[:, 3:5] == 0.0)
+    got = spin.magnetization_component(0).evaluate_at(
+        data[:, :3], coordinates="cartesian"
+    )
+    residual = np.abs(got - data[:, 5])
+    assert residual.max() < 5e-11
+    assert np.median(residual / np.abs(data[:, 5])) < 2e-10
+    # Not a check that could pass on the density: the two fields differ.
+    assert np.abs(data[:, 5]).max() > 0.05
+
+
+# --- the collinear seed, and the regimes it is refused in ----------------------
+
+PSEUDO = Path(__file__).resolve().parents[1] / "data" / "pseudo"
+
+
+@pytest.fixture(scope="module")
+def spin_calculator():
+    from defuqumat import Calculator
+
+    return Calculator.from_file(SPIN / "scf.in", pseudo_dir=PSEUDO)
+
+
+@needs_spin
+def test_a_collinear_seed_carries_elks_moment(spin_calculator, spin):
+    """``(up, down) = (rho + m, rho - m) / 2``, with ``m`` scaled by the charge.
+
+    Before renormalisation the grid moment is Elk's -0.3219731543 up to the
+    sharp-sphere-against-truncated-step difference ``integral`` carries for the
+    charge; after it, the charge is one electron and ``m`` has taken the same
+    factor, so ``zeta = m / rho`` is Elk's at every grid point.
+    """
+    report = []
+    seed = np.asarray(spin_calculator.get_elk_seed(SPIN, report=report))
+    measured = report[0]
+    assert seed.shape[0] == 2
+    assert measured.moment == pytest.approx(-0.3219731543, abs=2e-3)
+    omega = spin.omega
+    charge = float(seed.sum()) * omega / seed[0].size
+    moment = float((seed[0] - seed[1]).sum()) * omega / seed[0].size
+    assert charge == pytest.approx(1.0, abs=1e-12)
+    assert moment == pytest.approx(measured.moment / measured.integral, abs=1e-12)
+
+
+@needs_spin
+def test_a_polarized_state_cannot_seed_an_unpolarized_run(spin_calculator):
+    """Keeping the charge and dropping the moment is refused by name."""
+    with pytest.raises(NotImplementedError, match="spin-polarized"):
+        spin_calculator.with_spin(1, starting_magnetization=[0.0]).get_elk_seed(SPIN)
+
+
+@needs_spin
+def test_a_noncollinear_run_cannot_take_an_elk_seed(spin_calculator):
+    """``nspin_mag = 4`` would need Elk's magnetization as a vector field."""
+    with pytest.raises(NotImplementedError, match="nspin_mag = 4"):
+        spin_calculator.with_spin(4).get_elk_seed(SPIN)
+
+
+def test_an_unpolarized_state_cannot_seed_a_polarized_run():
+    """The gate's twin of ``test_elk_seed.py``'s slow test of the same name.
+
+    Splitting a charge evenly between two channels would start a magnetic run
+    from a non-magnetic guess without saying so.
+    """
+    from defuqumat import Calculator
+
+    polarized = Calculator.from_file(FIXTURE / "scf.in", pseudo_dir=PSEUDO).with_spin(
+        2, starting_magnetization=0.5
+    )
+    with pytest.raises(NotImplementedError, match="nspin_mag = 2 and the Elk state is"):
+        polarized.get_elk_seed(FIXTURE)
 
 
 # --- the two traps only a second species can reach ----------------------------

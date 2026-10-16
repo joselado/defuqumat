@@ -853,8 +853,10 @@ class Calculator:
         pseudopotential code, so the two converged densities are different
         functions wherever there is a core; defuqumat's own SCF still runs on top.
         Passing an Elk density as a *fixed* density is refused
-        (:func:`defuqumat.io.elk_density.density_on`), as are a spin-polarized Elk
-        state, a spin spiral and a DFT+U one.
+        (:func:`defuqumat.io.elk_density.density_on`). A collinear spin-polarized
+        Elk state seeds an ``nspin = 2`` run, charge and magnetization; a
+        noncollinear one, and a spiral with it (``STATE.OUT`` does not mark
+        ``spinsprl``), a fixed spin moment state and a DFT+U one are refused.
         """
         from defuqumat.io.elk import ElkState
 
