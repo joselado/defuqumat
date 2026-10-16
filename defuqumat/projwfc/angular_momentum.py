@@ -265,7 +265,9 @@ def _refuse_what_is_not_written(calculation) -> None:
         "build_atomic_projectors and never reaches that guard, so <L>, <S> and "
         "<J> come back small, smooth and wrong rather than raising"
     )
-    if calculation.spiral and calculation.is_ultrasoft:
+    if getattr(calculation, "spiral", None) and getattr(
+        calculation, "is_ultrasoft", False
+    ):
         # A norm-conserving spiral is projected below, each component on the
         # orbitals of its own sphere. An augmented one would need ``S`` on each
         # sphere and the displaced overlap between them, and has no check.
