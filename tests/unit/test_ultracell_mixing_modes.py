@@ -117,3 +117,10 @@ def test_a_pointwise_mixer_under_kerker_is_still_refused():
     pseudo = SimpleNamespace(is_ultrasoft=False, is_paw=False)
     with pytest.raises(ValueError, match="does not take a preconditioner"):
         run_ultracell(None, [pseudo], None, (2, 1, 1), mixing_mode="adaptive")
+
+
+def test_ldos_on_a_spinor_ultracell_is_refused():
+    pseudo = SimpleNamespace(is_ultrasoft=False, is_paw=False)
+    system = SimpleNamespace(noncolin=True)
+    with pytest.raises(NotImplementedError, match="noncollinear"):
+        run_ultracell(system, [pseudo], None, (2, 1, 1), mixing_mode="ldos")

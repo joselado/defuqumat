@@ -1162,6 +1162,15 @@ def run_ultracell(
             "half of it on a d-metal, and the combination is unmeasured. Use "
             "'anderson' with kerker=True"
         )
+    if ldos_mode and bool(getattr(system, "noncolin", False)):
+        # The box LDOS of a spinor run would be the charge channel of the
+        # spinor density, which is the unit cell's rule too, but no spinor
+        # ultracell has been converged under it and compared with Kerker.
+        raise NotImplementedError(
+            "mixing_mode = 'ldos' on a noncollinear (spinor) ultracell is not "
+            "measured: the fixed-point check against 'anderson' with Kerker was "
+            "run at nspin = 1 and 2 only. Use 'anderson' with kerker=True"
+        )
     # ``'ldos'`` installs its own preconditioner and ``kerker`` is not read:
     # the LDOS solve already starts from, and is preconditioned by, Kerker at
     # the box-averaged LDOS, and falls back to the plain step on an insulator.
