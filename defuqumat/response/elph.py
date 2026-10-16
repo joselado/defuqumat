@@ -305,6 +305,15 @@ def electron_phonon_at_q(
             "empty and gamma and lambda are not defined. Run the ground state "
             "with occupations = 'smearing'"
         )
+    if calculation.system.nspin != 1:
+        raise NotImplementedError(
+            "electron-phonon coupling of a spin-polarized or spinor calculation "
+            "(nspin = 2 or 4) is not implemented: elphsum_simple counts one "
+            "channel, with the k-point weights summing to 2 and N(E_F) halved to "
+            "per spin, and nothing here sums the channels' double delta; the "
+            "phonon at q of a spin-polarized metal is itself refused. Run with "
+            "nspin = 1"
+        )
     from defuqumat.response.phononq import _reciprocal_lattice_vector
 
     cell = calculation.system.cell
