@@ -736,6 +736,93 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_field():
     assert abs(free.total_energy - mixed.total_energy) > 1e-5
 
 
+#: The fixed-spin-moment cells of the I73 feedback round: ``fe-fsm.in`` as
+#: committed (collinear, ``'fsm'``, 2.0 mu_B), and the canted iron pair of
+#: ``test_holding_a_texture._iron`` under the two per-atom schemes, with Elk's
+#: adaptive mixer the loop needs there.
+FEEDBACK_CASES = ("fsm", "atomic fsm", "atomic fsm direction")
+
+
+def _feedback_text(case):
+    root = Path(__file__).resolve().parents[1] / "data" / "qe"
+    if case == "fsm":
+        return (root / "fe-fsm.in").read_text()
+    text = (root / "fe2-canted-nosoc.in").read_text().replace(
+        "    nosym = .true.\n",
+        f"    nosym = .true.\n    constrained_magnetization = '{case}'\n"
+        "    lambda = 0.02\n")
+    return text + "STARTING_MOMENTS\n  1.868 0 0\n  0 1.868 0\n"
+
+
+def _energy_at_target(result):
+    """The reported total moved to the target moment, to second order.
+
+    The total leaves out the Zeeman term and ``dE/dm = B`` along the
+    constrained family, so a run that stopped ``dm`` off its target reads
+    ``B . dm`` off in ``E``, first order; ``E + B . (m_fix - m)`` removes it.
+    """
+    field = result.magnetic_field
+    b = np.asarray(field.driven(), dtype=float)
+    targets = np.asarray(field.targets, dtype=float)
+    if field.driven_leaf == "atomic":
+        m = np.asarray(result.site_moments, dtype=float)
+    else:
+        m = np.atleast_1d(np.asarray(result.magnetization, dtype=float))
+    return float(result.total_energy + np.sum(b * (targets - m)))
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+@pytest.mark.parametrize("case", FEEDBACK_CASES)
+def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_feedback_field(
+        case, monkeypatch):
+    """I73 feedback round: the driven field in Newton's state lands where mixing does.
+
+    The reference is the mixing loop held to its own fixed point:
+    ``FSM_TOLERANCE`` (1e-3 mu_B by default, and the loop stops there, 1.5e-4
+    mu_B off on ``fe-fsm.in``) is set to 1e-8 for that run only. Newton runs
+    at the defaults, so ``tau |m - m_fix|^2 < conv_thr`` bounds its moment to
+    about 2e-5 mu_B and its reported total is ``B . dm`` off, first order;
+    the energy is therefore compared at the target moment, and the raw total
+    at that first-order tolerance. Measured on D22 (``notes/incompat/I73.md``,
+    "The feedback field").
+
+    **The loop iteration count carries the claim.** With the field row of
+    ``F`` replaced by the identity Newton holds the starting field and solves
+    the unconstrained problem, and the loop after the hand-over then drives
+    the field itself: 45 iterations on ``fe-fsm.in`` and 93 on the canted pair,
+    against 1 clean.
+    """
+    from defuqumat import Calculator
+    from defuqumat.scf import fields
+
+    pseudo_dir = str(Path(__file__).resolve().parents[1] / "data" / "pseudo")
+    text = _feedback_text(case)
+    options = ({"mixing_beta": 0.3} if case == "fsm"
+               else {"mixing_mode": "adaptive", "mixing_beta": 0.05})
+    options.update(conv_thr=1e-11, max_iterations=400, verbose=False)
+    with monkeypatch.context() as patch:
+        patch.setattr(fields, "FSM_TOLERANCE", 1e-8)
+        patch.setattr(fields, "FSM_ANGLE_TOLERANCE", 1e-8)
+        mixed = Calculator.from_text(text, pseudo_dir, announce=False).get_scf(**options)
+    newton = Calculator.from_text(text, pseudo_dir, announce=False).get_scf(
+        scf_solver="newton-krylov",
+        scf_solver_options={"forcing": 0.5, "warmup": 6, "max_iterations": 40},
+        **options)
+    assert mixed.converged and newton.converged
+    assert newton.solver is not None and newton.solver.converged
+    assert newton.iterations <= 2
+    assert _energy_at_target(newton) == pytest.approx(_energy_at_target(mixed), abs=1e-9)
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=2e-6)
+    np.testing.assert_allclose(np.asarray(newton.magnetic_field.driven()),
+                               np.asarray(mixed.magnetic_field.driven()), atol=2e-6)
+    if case == "fsm":
+        assert newton.magnetization == pytest.approx(2.0, abs=5e-5)
+    else:
+        np.testing.assert_allclose(np.asarray(newton.site_moments),
+                                   np.asarray(mixed.site_moments), atol=5e-5)
+
+
 @pytest.mark.regression
 @pytest.mark.slow
 def test_newton_krylov_matches_the_mixer_with_a_hubbard_u():
