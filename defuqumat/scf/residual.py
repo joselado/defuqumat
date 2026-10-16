@@ -71,7 +71,10 @@ projectors ``wfcU`` are fixed while the atoms are.
 **An applied field or a penalty constraint is part of ``F`` already** (I73):
 ``potential(rho)`` applies ``calculation.magnetic_field`` at full strength and a
 penalty's field is ``jax.grad`` of the penalty, so both are functions of the
-density. **Refused rather than approximated:** the two cases where the mixing
+density. A uniform field and the ``atomic``, ``atomic direction`` and ``total``
+penalties run, each measured; a ``LOCAL_MAGNETIC_FIELDS`` card and the
+``total direction`` and ``atomic texture`` penalties are refused until they are
+measured. **Refused rather than approximated:** the two cases where the mixing
 loop moves the field between iterations, a feedback (fixed-spin-moment)
 constraint, whose field is a second unknown, and ``reducebf < 1``, whose fixed
 point depends on the iteration count; tetrahedron and ``from_input``
@@ -542,6 +545,12 @@ def _weights(calculation, eigenvalues):
     return wg
 
 
+#: Penalty constraints whose field is a function of the density, as for the
+#: three measured against ``pw.x`` (I73), but which no reference input carries,
+#: so they stay refused until a Newton-against-mixing pair is measured on them.
+UNMEASURED_PENALTIES = frozenset({"total direction", "atomic texture"})
+
+
 def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
     """Build the residual for a calculation, refusing the regimes it cannot hold."""
     system = calculation.system
@@ -553,7 +562,9 @@ def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
         # every *penalty* constraint, whose field is ``jax.grad`` of the
         # penalty and so a function of the density -- needs nothing here (I73).
         # ``run_scf`` changes the field in exactly two places, and those two
-        # are what stays refused.
+        # are refused as physics. A local-field card and the two penalty
+        # schemes no reference input carries are refused only because they
+        # have not been measured.
         if field.constraint in FEEDBACK:
             raise NotImplementedError(
                 f"constrained_magnetization = {field.constraint!r} has no "
@@ -564,6 +575,23 @@ def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
                 "penalty constraint ('atomic', 'atomic direction', 'total', "
                 "'total direction', 'atomic texture') runs with a residual "
                 "solver"
+            )
+        if field.constraint in UNMEASURED_PENALTIES:
+            raise NotImplementedError(
+                f"constrained_magnetization = {field.constraint!r} is not yet "
+                "checked with a residual solver: its field is jax.grad of a "
+                "penalty like 'atomic', 'atomic direction' and 'total', which "
+                "match pw.x under Newton to 8e-8 Ry, but no reference input "
+                "carries this scheme and it has not been measured. Use the "
+                "mixing loop (scf_solver='mixing')"
+            )
+        if field.atomic is not None:
+            raise NotImplementedError(
+                "a LOCAL_MAGNETIC_FIELDS card is not yet checked with a "
+                "residual solver: the field is held fixed by the loop, as a "
+                "uniform b_field is (which runs, and matches the mixing loop "
+                "to 2e-8 Ry), but the per-atom field has not been measured. "
+                "Use the mixing loop (scf_solver='mixing')"
             )
         if field.reducebf != 1.0:
             raise NotImplementedError(
