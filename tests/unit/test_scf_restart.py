@@ -597,9 +597,9 @@ def test_a_driven_field_crosses_the_manual_resume_as_well(pseudo_dir, tmp_path):
     against -0.08 here, and 2.2e-6 Ry off at convergence on ``fe-fsm.in``).
     This route restores neither ``ethr`` nor the occupations, so iteration
     three runs on a fresh Davidson threshold and the end state is not the
-    uninterrupted one to the last bit; the tolerances are the measured
-    difference with margin, and the field's is far below the 0.04 a dropped
-    field gives.
+    uninterrupted one to the last bit; the density and energy tolerances are
+    the measured difference with margin, and the field's is far below the 0.04
+    a dropped field gives.
     """
     from defuqumat.scf.checkpoint import load_state
 
@@ -621,10 +621,14 @@ def test_a_driven_field_crosses_the_manual_resume_as_well(pseudo_dir, tmp_path):
     reference = np.asarray(whole.magnetic_field.uniform)
     input_field = np.asarray(calculator.calculation.magnetic_field.uniform)
     assert np.max(np.abs(np.asarray(first.magnetic_field.uniform) - input_field)) > 1.0e-3
-    np.testing.assert_allclose(field, reference, rtol=0, atol=1.0e-6)
+    # Measured on D22 (2026-10-16): the field 1.4e-17 from the uninterrupted
+    # run's, the density 2.0e-6 and the energy 1.0e-5 Ry. The last two are the
+    # fresh Davidson threshold, and read the same with the field dropped; the
+    # field is the assertion that can fail.
+    np.testing.assert_allclose(field, reference, rtol=0, atol=1.0e-9)
     np.testing.assert_allclose(np.asarray(resumed.density),
-                               np.asarray(whole.density), rtol=0, atol=1.0e-6)
-    assert resumed.total_energy == pytest.approx(whole.total_energy, abs=1.0e-7)
+                               np.asarray(whole.density), rtol=0, atol=1.0e-5)
+    assert resumed.total_energy == pytest.approx(whole.total_energy, abs=5.0e-5)
 
 
 def test_a_driven_field_from_another_controller_is_not_carried(pseudo_dir, tmp_path):
