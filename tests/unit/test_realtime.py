@@ -349,6 +349,89 @@ def test_what_is_refused_is_refused_by_name(pseudo_dir):
     assert group.nsym == 8 and not group.symmorphic
 
 
+def _orbit_average_sum(kset_crystal, weights, rotations, field):
+    """``sum_k w_k (1/|G|) sum_S f(S k)`` over a wedge, as the current's average is."""
+    total = 0.0
+    for k, w in zip(kset_crystal, weights):
+        total += w * np.mean([field(k @ np.asarray(r).T) for r in rotations])
+    return total
+
+
+def test_a_shifted_grid_reduces_by_the_members_of_the_little_group_it_keeps():
+    """Silicon at ``4 4 4 1 1 1``: two of the eight operations of a [100] field, 40 of 64 points.
+
+    No SCF. The identity is the one the current rests on, a periodic scalar of
+    no symmetry summed over the whole shifted grid against its group average
+    summed over the wedge: with the two operations the grid keeps they agree
+    to round-off, and with the whole little group of eight, whose wedge
+    ``irreducible_wedge`` builds by skipping the off-grid images, they do not,
+    which is what the refusal this replaces was guarding against.
+    """
+    from defuqumat.realtime.pulse import Kick
+    from defuqumat.system.kpoints import grid_stabilizer, irreducible_wedge, monkhorst_pack
+    from defuqumat.workflows.realtime import _kset, field_symmetries
+
+    silicon = build_system(read_pw_input(CASES / "si2-shifted-symmetric.in"))
+    assert silicon.kpoints.shift == (1, 1, 1)
+    counts = {}
+    for direction in [(1, 0, 0), (1, 1, 0), (1, 1, 1)]:
+        kick = Kick(strength=1.0, direction=direction)
+        group = field_symmetries(silicon, kick)
+        kset, rotations, kept = _kset(silicon, kick, None, None, True)
+        counts[direction] = (group.nsym, kept.nsym, kset.nk)
+        assert kset.reduced and kset.shift == (1, 1, 1)
+        assert len(rotations) == kept.nsym
+    assert counts == {(1, 0, 0): (8, 2, 40), (1, 1, 0): (4, 2, 32), (1, 1, 1): (6, 2, 40)}
+    # an unshifted grid keeps the whole little group
+    _, _, unshifted = _kset(silicon, Kick(strength=1.0, direction=(1, 0, 0)), None,
+                            (4, 4, 4), True)
+    assert unshifted.nsym == 8
+    # little_group=False is the whole shifted grid, unreduced
+    whole, rotations, _ = _kset(silicon, Kick(strength=1.0, direction=(1, 0, 0)), None,
+                                None, False)
+    assert whole.nk == 64 and rotations is None
+
+    # Fourier orders that are multiples of the grid's 4, which a 4x4x4 sum
+    # aliases onto the constant: with orders below 4 every one of these sums is
+    # the exact zone average and no wedge, right or wrong, could differ from it.
+    rng = np.random.default_rng(7)
+    orders = 4 * rng.integers(-1, 2, size=(12, 3)) + rng.integers(0, 2, size=(12, 3))
+    phases = rng.uniform(0, 2 * np.pi, 12)
+    amplitudes = rng.normal(size=12)
+
+    def field(k):
+        return float(np.sum(amplitudes * np.cos(2 * np.pi * orders @ k + phases)))
+
+    points, weights = monkhorst_pack((4, 4, 4), (1, 1, 1))
+    reference = sum(w * field(k) for k, w in zip(points, weights))
+    assert abs(reference) > 1e-2
+    little = field_symmetries(silicon, Kick(strength=1.0, direction=(1, 0, 0)))
+    every = little.rotation_array()
+    kept = every[grid_stabilizer((4, 4, 4), (1, 1, 1), every)]
+    assert len(kept) == 2
+    wedge, wedge_weights = irreducible_wedge((4, 4, 4), (1, 1, 1), kept, time_reversal=False)
+    assert abs(_orbit_average_sum(wedge, wedge_weights, kept, field) - reference) < 1e-13
+    wrong, wrong_weights = irreducible_wedge((4, 4, 4), (1, 1, 1), every, time_reversal=False)
+    error = abs(_orbit_average_sum(wrong, wrong_weights, every, field) - reference)
+    assert error > 1e-3 * abs(reference), "the whole little group would read differently"
+
+
+def test_a_reduced_k_set_with_no_grid_is_refused_by_name():
+    """The sibling of the shifted-grid case: a wedge with no grid to rebuild the zone from."""
+    import equinox as eqx
+
+    from defuqumat.realtime.pulse import Kick
+    from defuqumat.workflows.realtime import _kset
+
+    silicon = build_system(read_pw_input(CASES / "si2-symmetric.in"))
+    assert silicon.kpoints.reduced
+    wedge = KPoints(coords=silicon.kpoints.coords, weights=silicon.kpoints.weights,
+                    reduced=True)
+    gridless = eqx.tree_at(lambda s: s.kpoints, silicon, wedge)
+    with pytest.raises(NotImplementedError, match="carries no grid"):
+        _kset(gridless, Kick(strength=1.0, direction=(1, 0, 0)), None, None, True)
+
+
 def test_what_the_updated_potential_refuses_is_refused_by_name(pseudo_dir):
     """An unknown mode, a reduced k-set without its group, and a checkpoint."""
     from defuqumat.realtime.selfconsistent import require_a_potential_mode

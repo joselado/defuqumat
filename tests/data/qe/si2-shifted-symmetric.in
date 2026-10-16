@@ -1,0 +1,25 @@
+! Silicon on a shifted 4x4x4 grid with symmetry kept, for real-time propagation
+! on the wedge of the field's little group.
+!
+! `si2-symmetric.in` with the grid shifted by half a step on every axis. A
+! shifted grid is not closed under the point group: of the eight operations that
+! fix a field along [100], two map this grid onto itself, and the 64 points
+! reduce to 40 under those two. The wedge of those two, with the current averaged
+! over them, is checked against the whole shifted grid propagated point by point.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.2, nat = 2, ntyp = 1,
+    ecutwfc = 12.0
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-vbc.UPF
+ATOMIC_POSITIONS crystal
+ Si 0.00 0.00 0.00
+ Si 0.25 0.25 0.25
+K_POINTS (automatic)
+ 4 4 4 1 1 1
