@@ -270,7 +270,7 @@ def test_the_committed_geometry_is_the_cell_the_defuqumat_input_uses(state):
 # --- the refusals -------------------------------------------------------------
 
 def write_header(path, *, spinpol=False, dftu=0, ftmtype=0, version=(11, 0, 2),
-                 ndmag=0, fsmtype=0):
+                 ndmag=0, fsmtype=0, lmmaxdm=0, xcgrad=0):
     """A synthetic ``STATE.OUT`` that stops after the header.
 
     Every refusal fires before the first density record, so a file with no
@@ -299,8 +299,8 @@ def write_header(path, *, spinpol=False, dftu=0, ftmtype=0, version=(11, 0, 2),
         f.write_record(np.array([fsmtype], dtype=np.int32))
         f.write_record(np.array([ftmtype], dtype=np.int32))
         f.write_record(np.array([dftu], dtype=np.int32))
-        f.write_record(np.array([0], dtype=np.int32))          # lmmaxdm
-        f.write_record(np.array([0], dtype=np.int32))          # xcgrad
+        f.write_record(np.array([lmmaxdm], dtype=np.int32))
+        f.write_record(np.array([xcgrad], dtype=np.int32))
         f.write_record(np.array([0.1]))                        # efermi
         f.write_record(np.array([0.0]))                        # dlefe
     return path
@@ -320,8 +320,9 @@ def write_geometry(path):
     [
         ({"spinpol": True, "ndmag": 3}, "noncollinear"),
         ({"spinpol": True, "ndmag": 1, "fsmtype": 2}, "fixed spin moment"),
-        ({"dftu": 1}, "dftu"),
+        ({"spinpol": True, "ndmag": 1, "dftu": 1}, "spin-polarized DFT\\+U"),
         ({"ftmtype": 1}, "tensor moment"),
+        ({"ftmtype": 1, "dftu": 1}, "tensor moment"),
         ({"version": (1, 4, 18)}, "2.0.0"),
     ],
 )
@@ -339,6 +340,139 @@ def test_a_state_carrying_physics_this_cannot_transfer_is_refused(
     write_geometry(tmp_path / "GEOMETRY.OUT")
     with pytest.raises(NotImplementedError, match=wanted):
         read_elk_state(tmp_path)
+
+
+def write_body(path, *, pairs=4, vmatmt=None):
+    """Append ``pairs`` density/potential records and an optional DFT+U record.
+
+    Each pair is the synthetic header's one record of ``49 x 12 x 1`` muffin-tin
+    reals and ``4^3`` interstitial ones, filled with the pair's own index so a
+    record read in the wrong order shows as the wrong constant.
+    """
+    from scipy.io import FortranFile
+
+    with open(path, "ab") as handle:
+        with FortranFile(handle, "w") as f:
+            for i in range(pairs):
+                f.write_record(np.full(49 * 12 + 64, float(i + 1)))
+            if vmatmt is not None:
+                f.write_record(np.asarray(vmatmt, dtype=np.complex128))
+    return path
+
+
+def vmatmt_record(lmmaxdm=16, nspinor=1, natmtot=1):
+    n = lmmaxdm * nspinor * lmmaxdm * nspinor * natmtot
+    return np.arange(n) * (1.0 + 0.5j)
+
+
+def test_a_dftu_state_is_read_with_its_potential_matrix(tmp_path):
+    """I70: ``dftu`` is no longer refused at read time.
+
+    The one extra record is ``vmatmt``, the Hubbard potential matrix, written
+    after the four pairs (``writestate.f90:122-125``) as one complex record in
+    Fortran order ``(lmmaxdm, nspinor, lmmaxdm, nspinor, natmtot)``. It is in
+    Hartree on disk and Ry here, like the other potentials, and the density in
+    front of it is untouched.
+    """
+    path = write_header(tmp_path / "STATE.OUT", dftu=1, lmmaxdm=16)
+    write_body(path, vmatmt=vmatmt_record())
+    write_geometry(tmp_path / "GEOMETRY.OUT")
+    state = read_elk_state(tmp_path)
+    assert state.dftu == 1
+    assert state.vmatmt.shape == (16, 1, 16, 1, 1)
+    flat = vmatmt_record().reshape((16, 1, 16, 1, 1), order="F")
+    assert np.array_equal(state.vmatmt, 2.0 * flat)
+    assert state.vmatmt[3, 0, 2, 0, 0] == 2.0 * (3 + 16 * 2) * (1.0 + 0.5j)
+    assert np.all(state.rhoir == 1.0)
+    assert np.all(state.vsir == 2.0 * 4.0)
+
+
+def test_a_state_without_dftu_has_no_potential_matrix(tmp_path):
+    path = write_header(tmp_path / "STATE.OUT")
+    write_body(path)
+    write_geometry(tmp_path / "GEOMETRY.OUT")
+    assert read_elk_state(tmp_path).vmatmt is None
+
+
+def test_a_meta_gga_dftu_state_consumes_the_wxc_pair_first(tmp_path):
+    """``writestate.f90:112-119`` writes ``wxcmt, wxcir`` before ``vmatmt``.
+
+    Without consuming it the reader takes the meta-GGA pair as the DFT+U record
+    and its length check fires; with it, the matrix reads as written.
+    """
+    path = write_header(tmp_path / "STATE.OUT", dftu=1, lmmaxdm=16, xcgrad=3)
+    write_body(path, pairs=5, vmatmt=vmatmt_record())
+    write_geometry(tmp_path / "GEOMETRY.OUT")
+    state = read_elk_state(tmp_path)
+    assert np.array_equal(
+        state.vmatmt, 2.0 * vmatmt_record().reshape((16, 1, 16, 1, 1), order="F")
+    )
+
+
+def test_a_dftu_record_of_the_wrong_length_is_refused(tmp_path):
+    """The framing check on the new record: a short one says so by name."""
+    path = write_header(tmp_path / "STATE.OUT", dftu=1, lmmaxdm=16)
+    write_body(path, vmatmt=vmatmt_record(lmmaxdm=9))
+    write_geometry(tmp_path / "GEOMETRY.OUT")
+    with pytest.raises(ValueError, match="DFT\\+U record"):
+        read_elk_state(tmp_path)
+
+
+def test_a_dftu_seed_warns_that_only_the_density_crosses(tmp_path):
+    """The seed-time half of I70: a warning, not a refusal.
+
+    ``density_on`` warns before any reconstruction, so a calculation whose cell
+    differs stops right after the warning; that is enough to see it fire
+    without an SCF or a real Elk run.
+    """
+    import types
+    import warnings
+
+    from defuqumat.io.elk_density import density_on
+
+    path = write_header(tmp_path / "STATE.OUT", dftu=1, lmmaxdm=16)
+    write_body(path, vmatmt=vmatmt_record())
+    write_geometry(tmp_path / "GEOMETRY.OUT")
+    state = read_elk_state(tmp_path)
+    system = types.SimpleNamespace(
+        hubbard=object(), cell=types.SimpleNamespace(at=np.eye(3) * 5.0)
+    )
+    calculation = types.SimpleNamespace(nspin_mag=1, system=system)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="not the same cell"):
+            density_on(state, calculation)
+    messages = [str(w.message) for w in caught]
+    assert any("only its density" in m and "starting_ns" in m for m in messages)
+
+
+DFTU_FIXTURE = Path(__file__).resolve().parents[1] / "data" / "elk" / "h_sc_dftu"
+
+
+@pytest.mark.skipif(not (DFTU_FIXTURE / "STATE.OUT").is_file(),
+                    reason=f"no Elk fixture at {DFTU_FIXTURE}")
+def test_a_real_dftu_state_reads_against_elks_own_printout():
+    """I70 on a genuine Elk 11.0.2 file: hydrogen with U = 4 eV on 1s.
+
+    ``vmatmt`` against ``VMATMT.OUT``, the text form Elk prints of the same
+    matrix: 0.3306372221e-1 Ha in the one ``l = 0`` entry and zero in every
+    other of the 256. The charges against ``INFO.OUT`` say the four pairs in
+    front of it were read as before.
+    """
+    state = read_elk_state(DFTU_FIXTURE)
+    assert state.version == (11, 0, 2)
+    assert (state.dftu, state.lmmaxdm, state.nspinor) == (1, 16, 1)
+    assert state.vmatmt.shape == (16, 1, 16, 1, 1)
+    # Half a unit in the last digit ``VMATMT.OUT`` prints (E10 format).
+    assert state.vmatmt[0, 0, 0, 0, 0].real / 2.0 == pytest.approx(
+        0.3306372221e-1, abs=5e-12
+    )
+    assert state.vmatmt[0, 0, 0, 0, 0].imag == 0.0
+    rest = state.vmatmt.copy()
+    rest[0, 0, 0, 0, 0] = 0.0
+    assert np.abs(rest).max() == 0.0
+    assert state.muffin_tin_charges()[0] == pytest.approx(0.6054875069, abs=1e-8)
+    assert state.interstitial_charge() == pytest.approx(0.3945124931, abs=1e-8)
 
 
 def test_a_run_directory_without_a_geometry_is_refused(tmp_path):

@@ -856,7 +856,11 @@ class Calculator:
         (:func:`defuqumat.io.elk_density.density_on`). A collinear spin-polarized
         Elk state seeds an ``nspin = 2`` run, charge and magnetization; a
         noncollinear one, and a spiral with it (``STATE.OUT`` does not mark
-        ``spinsprl``), a fixed spin moment state and a DFT+U one are refused.
+        ``spinsprl``), a fixed spin moment state, a fixed tensor moment and a
+        spin-polarized DFT+U state are refused. An unpolarized DFT+U state seeds
+        with its density alone and a warning: ``STATE.OUT`` carries no occupation
+        matrix, so the Hubbard occupations start from this run's own
+        ``starting_ns``.
         """
         from defuqumat.io.elk import ElkState
 
