@@ -191,13 +191,17 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     one grid point gives an error, but the usual FFT sizes leave room, so in
     practice this does not happen.
 
-    A spiral with a meta-GGA gives an error under either `noncollinear_gga`,
-    because the two spinor components live on different spheres and their
-    kinetic energy density is not periodic. DFT+U on a spiral gives an error.
-    An explicit `noncollinear_gga = 'grad_m'` gives an error on a collinear or
+    A spiral with a meta-GGA works on a norm-conserving dataset with
+    `noncollinear_gga = 'kubler'`, and each spinor component gives its kinetic
+    energy density on its own sphere. Under `'grad_m'`, the default, and on a
+    PAW dataset it gives an error. DFT+U on a norm-conserving spiral works, and
+    the Hubbard projector of each spinor component is built on its own sphere.
+    On an ultrasoft or PAW spiral it gives an error, and so do the forces, the
+    stress and the first-order spin-orbit energy of a spiral with DFT+U. An
+    explicit `noncollinear_gga = 'grad_m'` gives an error on a collinear or
     unpolarized run and with a local functional such as LDA, which have nothing
-    for it to change, and with `nosource`, because its projection was written for
-    a field parallel to $\mathbf m$. These runs keep `'kubler'` by default.
+    for it to change, and with `nosource`, because its projection was written
+    for a field parallel to $\mathbf m$. These runs keep `'kubler'` by default.
 
     $dE/d\mathbf q$, and with it the relaxation of $\mathbf q$ and the scan with
     `gradients=True`, gives an error under a magnetic field or a constrained
@@ -221,8 +225,7 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     error for two shells in the same star, because their two $J$ would be one
     parameter and the fit would be singular.
 
-    A spin spiral has no force on the atoms, no stress, no site angular momenta,
-    no orbital magnetization and no magnons in the code.
+    A spin spiral has no orbital magnetization and no magnons in the code.
 
 The notebooks for this page are
 [12, spin spirals](https://github.com/joselado/defuqumat/blob/master/notebooks/12_spin_spirals.ipynb),

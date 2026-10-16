@@ -98,6 +98,7 @@ from defuqumat.response.photocurrent import (
     _safe_ratio,
     _warn_about_the_cut,
     _warn_about_the_grid,
+    wedge,
     # Defined there rather than here because the shift current needs the same
     # multiplet average for the same reason, and ``shg`` imports from
     # ``photocurrent`` and not the other way round. It stays in this module's
@@ -475,7 +476,7 @@ _TRIPLES = [(a, b, c) for a in range(3)
 
 
 def _chi_at_k(energies, energies_bare, velocity, filling, weight,
-              frequencies, eta, swidth, epsocc):
+              frequencies, eta, swidth, epsocc, time_reversed: bool = False):
     """One k-point's contribution, ``(3, nw, 3, 3, 3)`` -- the three parts.
 
     Laid out in the two stages ``nonlinopt.f90`` uses, and for its reason: the
@@ -484,6 +485,15 @@ def _chi_at_k(energies, energies_bare, velocity, filling, weight,
     ``O(nb^2 nw)``. The loop is over the six independent **field pairs** on the
     outside and the three current directions inside, because the ``nb^3``
     products depend on the field pair alone.
+
+    ``time_reversed`` replaces every coefficient by its real part, which is the
+    average of this k-point's term and its time-reversed partner's: under
+    ``k -> -k`` the dipoles go to their conjugates and the band-velocity
+    differences change sign, so each of the five coefficient matrices goes to
+    its conjugate while the two resonances stay where they are. It is what a
+    wedge cut with time reversal needs before its rotation average
+    (:func:`~defuqumat.response.photocurrent.wedge`), and it leaves a whole
+    grid's sum unchanged on a crystal with time reversal.
     """
     r = dipole_matrix(energies_bare[None], velocity[:, None], swidth)[:, 0]
     delta = band_velocity_difference(energies_bare, velocity, swidth)
@@ -511,6 +521,8 @@ def _chi_at_k(energies, energies_bare, velocity, filling, weight,
     second = jnp.stack([  # the two that resonate at 2w
         jnp.stack([table[t][i] for t in _TRIPLES]) for i in (1, 3)
     ])
+    if time_reversed:
+        first, second = jnp.real(first), jnp.real(second)
     at_omega = jnp.einsum("ptmn,wmn->ptw", first, zv1)
     at_two_omega = jnp.einsum("qtmn,wmn->qtw", second, zv2)
     parts = jnp.concatenate([
@@ -595,6 +607,8 @@ def second_harmonic(
     1095 pm/V on the same silicon cut at 12 bands.
     """
     require_an_shg_regime(calculation)
+    group = wedge(calculation, "second-harmonic generation")
+    time_reversed = group is not None and group.has_antiunitary
     _warn_about_the_grid(
         calculation, "the second-harmonic tensor chi^abc", _GRID_RESIDUE_SHG
     )
@@ -673,7 +687,7 @@ def second_harmonic(
             return _chi_at_k(
                 e_k[:bands], e0_k[:bands], v_k[:, :bands, :bands],
                 f_k[:bands], wk_k, frequencies, eta, degeneracy_tol,
-                OCCUPATION_TOL,
+                OCCUPATION_TOL, time_reversed,
             )
         return term
 
@@ -737,14 +751,15 @@ def second_harmonic(
     sums = walk(int(wk.shape[0]), batch, arguments, *stages,
                 shares=len(band_counts))
     sums = sums if len(band_counts) > 1 else (sums,)
-    parts = np.asarray(sums[0]) * scale
+    parts = _completed(np.asarray(sums[0]) * scale, group)
     chi_au = parts.sum(axis=0)
     chi = chi_au * CHI2_AU_TO_PM_PER_V
 
     reference = float(np.max(np.abs(chi)))
     truncation = float("nan")
     if len(band_counts) > 1 and reference > 0.0:
-        coarse = (np.asarray(sums[1]) * scale).sum(axis=0) * CHI2_AU_TO_PM_PER_V
+        coarse = (_completed(np.asarray(sums[1]) * scale, group).sum(axis=0)
+                  * CHI2_AU_TO_PM_PER_V)
         truncation = float(np.max(np.abs(coarse - chi)) / reference)
 
     return SecondHarmonic(
@@ -761,6 +776,13 @@ def second_harmonic(
         truncation=truncation,
         band_cut_gap=float(band_cut_gap),
     )
+
+
+def _completed(parts, group):
+    """The three parts' ``(3, nw, 3, 3, 3)`` wedge sum averaged over its group."""
+    if group is None:
+        return parts
+    return group.average(parts, (2, 3, 4))
 
 
 # -- the refusals --------------------------------------------------------------

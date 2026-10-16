@@ -116,8 +116,34 @@ chunk follows, so the states are never on the device for the whole k axis. The
 chunk is the calculation's ``k_batch`` and moves the matrix at round-off, through
 the order of the k sum.
 
-Refused by name: finite ``q``, ultrasoft and PAW, metals, ``nspin != 1``,
-noncollinear magnetism and spin-orbit coupling, and a **reduced k-set** -- see
+**Collinear spin is a sum over the two channels** (``nspin = 2``). The pair
+``(i, j)`` of the Adler-Wiser sum is a pair of states of one spin, since
+``e^{-iG.r}`` and ``dH/dk`` are both diagonal in spin, so the charge response
+is ``chi_0 = chi_0^up + chi_0^dn``, each channel with its own occupied count
+(:func:`~defuqumat.scf.occupations.occupied_counts`, QE's ``nbnd_occ``, which
+is what makes the two depths of a magnetic insulator different) and its own
+``wg``, which already carries one electron a band rather than two. The pair
+lists differ in length between the channels, so each channel is its own
+static shape and the k walk contracts both. What the matrix does *not* carry
+is the magnetization's response: it is the charge-charge block of the 2x2
+``(n, m)`` response, and a kernel that couples ``n`` to ``m`` -- ALDA on a
+polarized density -- is refused where it is built
+(:func:`~defuqumat.tddft.kernels.alda_matrix`), not here.
+
+**A spinor is a doubled space, not a new formula.** With ``noncolin`` the
+states are ``(up, down)`` on one sphere, both components are transformed with
+the same ``fft_index``, and the pair density is the spin trace
+``sum_s conj(u_i,s) u_j,s``. That is the charge-charge block of ``chi_0``, and
+when the ground state carries no moment (``nspin_mag = 1``) it is all the
+Coulomb and the unpolarized kernels see, with or without spin-orbit coupling,
+whose whole effect is in the states and in ``dH/dk``. Each band then holds one
+electron, so ``nocc`` is ``nelec`` and ``npairs`` is four times the scalar
+run's on the same cell; ``fields`` is ``nbnd npol`` boxes. Checked in
+``tests/regression/test_spinor_chi0.py``: silicon as a spinor against the scalar
+run, and spin-orbit selenium against the spinor Sternheimer solve.
+
+Refused by name: finite ``q``, ultrasoft and PAW, metals, a spinor carrying a
+moment (``nspin_mag = 4``), a spin spiral, and a **reduced k-set** -- see
 :func:`require_a_sum_over_states_regime`.
 """
 
@@ -128,16 +154,19 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.basis.fft import g_to_r, r_to_g
-from defuqumat.basis.gvectors import refuse_gamma_storage
 from defuqumat.batching import (
     map_axis, map_windows, resolve_pair_batch, resolve_w_batch, sum_k,
 )
 from defuqumat.response.velocity import VelocityOperator
+from defuqumat.scf.occupations import occupied_counts
+from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.response.walk import (
     chunk_size, padded, row_leaves, store_rows, walk, with_rows,
 )
-from defuqumat.units import E2, FPI
+from defuqumat.scf.occupations import occupied_counts
 from defuqumat.system.kpoints import is_reduced
+from defuqumat.units import E2, FPI
+from defuqumat.system.wedge import wedge_group
 
 __all__ = [
     "ResponseSphere",
@@ -253,11 +282,16 @@ class ChiZero(eqx.Module):
     x: jnp.ndarray
     frequencies: jnp.ndarray  # (nw,) complex: omega + i eta
     sphere: ResponseSphere
-    #: How many valence-conduction pairs went into it, per k-point. Reported
-    #: because band truncation is this phase's one unrefusable error.
+    #: How many valence-conduction pairs went into it, per k-point, summed over
+    #: the spin channels. Reported because band truncation is this phase's one
+    #: unrefusable error.
     npairs: int = eqx.field(static=True)
+    #: The occupied count, the deeper channel's at ``nspin = 2``
+    #: (:attr:`occupied` has both).
     nocc: int = eqx.field(static=True)
     nbnd: int = eqx.field(static=True)
+    #: One occupied count per spin channel, ``(nocc,)`` at ``nspin = 1``.
+    occupied: tuple = eqx.field(static=True, default=())
 
     @property
     def nm(self) -> int:
@@ -304,29 +338,34 @@ def require_a_sum_over_states_regime(calculation) -> None:
         the ``f_i - f_j`` weight kills the ``i = j`` term, so the intraband
         (Drude) response is missing entirely at ``q = 0``. Elk's ``tddftlr``
         does not add it either.
-    ``nspin != 1``, noncollinear, spin-orbit
+    a spinor with a moment (``nspin_mag = 4``)
         the kernel acquires spin components (Elk's ``nscfxc``, and a separate
-        routine ``tddftsplr.f90``).
+        routine ``tddftsplr.f90``): the charge couples to the magnetization
+        response through ``f_xc``. Collinear ``nspin = 2`` is *not* refused:
+        the matrix is the sum of the two channels' (see the module docstring),
+        and what has spin components there is the kernel, which
+        ``alda_matrix`` refuses on a polarized density. A **nonmagnetic** spinor, with or without
+        spin-orbit coupling, is not refused: its charge-only pair density is
+        the spin trace, and that is the whole response. Until 2026-10-16 every
+        spinor was refused, by the collinear branch, since a noncollinear
+        :class:`~defuqumat.scf.driver.Calculation` reads ``nspin = 4``.
+    a spin spiral
+        the two components live on spheres at ``k +- q/2``, so a pair density
+        is not one gather. Checked first, since a spiral carries a moment too.
     gamma-only storage
-        the pair densities go through the **full-sphere** ``g_to_r``, and the
-        stored half sphere is not the whole one. See
-        :func:`~defuqumat.basis.gvectors.refuse_gamma_storage`.
+        **not refused**: the pair densities go through the full-sphere
+        ``g_to_r`` and ``dH/dk`` leaves the half sphere, so
+        :func:`independent_response` puts the states on the whole sphere first
+        (:func:`~defuqumat.scf.whole_sphere.unfold_gamma_states`), and the
+        workflow moves the calculation there before its fixed-density solve.
     a reduced k-set
-        ``genvchi0`` sums the **full** non-reduced grid, and so does this.
-        Symmetrising ``chi_0(G, G')`` on a wedge is a rotation in *two* G
-        indices at once, which the rank-N symmetriser P36 wrote is not -- it is
-        Cartesian. The compensation is that the shifted-grid refusal of P24
-        does not apply here, because nothing is being symmetrised.
+        **not refused** when the group it was cut with tiles it: the wedge's
+        matrix is averaged over that group with both G labels rotated at once
+        (:func:`_completed`). A magnetic group, a reduced set on a ``nosym`` run
+        and a set the group does not tile (a shifted grid) are refused by
+        :func:`~defuqumat.system.wedge.wedge_group`.
     """
     system = calculation.system
-    refuse_gamma_storage(
-        bool(getattr(calculation, "gamma_only", False)),
-        "a sum-over-states chi_0",
-        "the pair densities are formed by transforming the states with the "
-        "full-sphere g_to_r, so an optical spectrum of a molecule in a box -- "
-        "the archetypal gamma case -- would be built from wrong real-space "
-        "states",
-    )
     if calculation.is_ultrasoft or calculation.is_paw:
         raise NotImplementedError(
             "a sum-over-states chi_0 with an ultrasoft or PAW pseudopotential "
@@ -335,24 +374,25 @@ def require_a_sum_over_states_regime(calculation) -> None:
             "is wrong by the whole augmentation and still looks like a "
             "dielectric function. Use a norm-conserving dataset"
         )
-    if calculation.nspin != 1:
-        raise NotImplementedError(
-            f"chi_0 here is restricted to nspin = 1 and this run has "
-            f"nspin = {calculation.nspin}: with spin the kernel becomes a "
-            "tensor in the spin components (Elk reaches it through a separate "
-            "routine, tddftsplr.f90)"
-        )
-    if system.noncolin:
-        raise NotImplementedError(
-            "a noncollinear or spin-orbit chi_0 is not implemented here: the "
-            "states are two-component spinors and the matrix element carries "
-            "the spin trace"
-        )
     if calculation.spiral:
+        # Checked before the spin regime, which a spiral also fails (it always
+        # carries a moment, so ``nspin_mag = 4``): the spiral is the one regime
+        # whose missing term is a different one, and it should say so.
         raise NotImplementedError(
             "chi_0 on a spin spiral is not implemented: the two spinor "
             "components live on spheres centred at k +- q/2, so a plane-wave "
             "matrix element is not a single gather"
+        )
+    if system.noncolin and calculation.nspin_mag != 1:
+        raise NotImplementedError(
+            "a sum-over-states chi_0 of a textured spinor (nspin_mag = 4, a "
+            "run carrying a magnetization) is not implemented: the "
+            "charge-charge chi_0 is only the first of four spin-trace blocks, "
+            "and once the ground state carries a moment the exchange-"
+            "correlation kernel couples the charge to the magnetization "
+            "response, which nothing here builds. The Sternheimer referee "
+            "refuses the same regime (P83). A nonmagnetic spinor, with or "
+            "without spin-orbit coupling, is supported"
         )
     if getattr(calculation, "is_hubbard", False):
         raise NotImplementedError(
@@ -368,15 +408,17 @@ def require_a_sum_over_states_regime(calculation) -> None:
             "intraband (Drude) term is absent from this expression entirely "
             "and the spectrum would be an interband one wearing a metal's name"
         )
-    if _kpoints_are_reduced(calculation):
+    # A symmetry-reduced k-set is completed by the group it was cut with, both
+    # G labels rotated at once (:func:`_completed`); a set that group does not
+    # tile and a magnetic group are still refused there.
+    if is_reduced(system.kpoints) and (int(system.nspin) != 1 or system.noncolin):
         raise NotImplementedError(
-            "chi_0 needs the full k-grid, not a symmetry-reduced wedge: "
-            "chi_0(G, G') is a matrix in two G indices and symmetrising it "
-            "under the point group rotates both at once, which nothing here "
-            "implements. Run with nosym = .true. and noinv = .true. (an "
-            "unshifted grid is closed under the point group, which is what "
-            "makes that sound -- see PLAN.md P24 and P28b)"
+            "chi_0 on a symmetry-reduced k-set is measured for an nspin = 1 "
+            "run only (silicon and AlAs against their whole grids): a "
+            "collinear nspin = 2 or a spinor wedge reaches the same completion "
+            "with no number behind it. Pass the whole unshifted grid as kpoints="
         )
+    wedge_group(calculation.system, quantity="chi_0")
 
 
 def _is_an_insulator(system) -> bool:
@@ -414,8 +456,8 @@ def independent_response(
 
     Args:
         calculation: the :class:`~defuqumat.scf.driver.Calculation` the states
-            belong to. It must be on the **whole** k-grid; see
-            :func:`require_a_sum_over_states_regime`.
+            belong to, on the whole k-grid or on a wedge, which is completed by
+            its group (:func:`_completed`).
         wavefunctions: ``(nspin, nk, nbnd, npwx)``, from a fixed-density run
             with empty states -- :func:`~defuqumat.workflows.nscf.
             fixed_density_states`. ``nbnd`` is the convergence parameter of this
@@ -458,10 +500,15 @@ def independent_response(
             frequencies are independent, so it moves nothing beyond round-off.
 
     Returns:
-        A :class:`ChiZero`. Nothing is symmetrised: on the full grid there is
-        nothing to put back.
+        A :class:`ChiZero`. On the whole grid nothing is symmetrised, since
+        there is nothing to put back; on a wedge the sum is completed by the
+        group it was cut with (:func:`_completed`).
     """
     require_a_sum_over_states_regime(calculation)
+    # A half sphere's pair densities through the full-sphere ``g_to_r`` lose
+    # the conjugate half, and ``dH/dk`` is not a real operator; both are the
+    # full-sphere ones on the unfolded states (``scf/whole_sphere.py``).
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
     # The states stay where they are, a streamed store in host memory or a
     # device array, and cross to the device a k-chunk at a time below.
@@ -472,14 +519,17 @@ def independent_response(
         eigenvalues = eigenvalues[None]
 
     nbnd = int(eigenvalues.shape[-1])
-    nocc = _occupied_bands(calculation, eigenvalues, nbnd)
+    counts = _occupied_bands(calculation, eigenvalues, nbnd)
     sphere = response_sphere(calculation, ecut_response)
     precision = calculation.system.cell.precision
 
     # The scissors shift moves the empty states and nothing else. It is applied
     # here rather than by the caller so that the matrix elements below can be
-    # renormalised consistently -- the two are one approximation, not two.
-    shifted = eigenvalues.at[..., nocc:].add(precision.as_real(scissor))
+    # renormalised consistently -- the two are one approximation, not two. Each
+    # channel's empty states start at its own count.
+    shifted = eigenvalues
+    for spin, nocc in enumerate(counts):
+        shifted = shifted.at[spin, :, nocc:].add(precision.as_real(scissor))
 
     # Built on the whole set for its refusals and for the point it
     # differentiates around; each chunk's operator is handed its rows of
@@ -487,9 +537,15 @@ def independent_response(
     kcart = np.asarray(VelocityOperator(calculation, v_scf).kcart)
 
     weights, _ = calculation.occupations(eigenvalues)
-    weights = np.asarray(weights)[0]  # (nk, nbnd), summing to nelec
+    # (nspin, nk, nbnd), summing to nelec over both channels: one electron a
+    # band at nspin = 2, two at nspin = 1.
+    weights = np.asarray(weights)
 
-    rows, columns = _pairs(nocc, nbnd)
+    # One pair list per channel, ``(i, j)`` with ``i`` occupied in *that*
+    # channel. A channel with nothing occupied (a hydrogen atom's minority)
+    # has no pair and is skipped rather than given an empty static shape.
+    channels = [(spin,) + _pairs(nocc, nbnd)
+                for spin, nocc in enumerate(counts) if nocc > 0]
     zomega = jnp.asarray(frequencies) + 1j * precision.as_real(broadening)
     zomega = zomega.astype(precision.complex)
 
@@ -497,44 +553,57 @@ def independent_response(
     volume = calculation.system.cell.volume
     batch = chunk_size(calculation, k_batch)
     itemsize = np.dtype(precision.complex).itemsize
-    pairs = resolve_pair_batch(
-        pair_batch, npairs=int(rows.size),
-        box_bytes=int(np.prod(grid)) * itemsize)
-    # One frequency's pair-weighted block, ``(2 npairs, nm)`` complex.
-    chunk = resolve_w_batch(
-        w_batch, nw=int(zomega.shape[0]),
-        block_bytes=2 * int(rows.size) * sphere.nm * itemsize)
 
-    def one_k(arrays):
-        psi, fft_index, band_mask, eig, occupation, element = arrays
-        vectors, scalars = _pair_terms(
-            psi, fft_index, band_mask, eig, occupation, element,
-            rows, columns, sphere, grid, volume, zomega, scissor, precision,
-            pairs,
-        )
-        # ``(nw, nm, nm)``: one matrix product per frequency, the pair axis
-        # contracted away. This is the whole frequency cost of the phase.
-        return _assemble(scalars, vectors, chunk)
+    def channel_term(rows, columns):
+        """One spin channel's ``one_k``, with its own pair list and dials."""
+        pairs = resolve_pair_batch(
+            pair_batch, npairs=int(rows.size),
+            box_bytes=int(np.prod(grid)) * itemsize)
+        # One frequency's pair-weighted block, ``(2 npairs, nm)`` complex.
+        chunk = resolve_w_batch(
+            w_batch, nw=int(zomega.shape[0]),
+            block_bytes=2 * int(rows.size) * sphere.nm * itemsize)
+
+        def one_k(arrays):
+            psi, fft_index, band_mask, eig, occupation, element = arrays
+            vectors, scalars = _pair_terms(
+                psi, fft_index, band_mask, eig, occupation, element,
+                rows, columns, sphere, grid, volume, zomega, scissor, precision,
+                pairs,
+            )
+            # ``(nw, nm, nm)``: one matrix product per frequency, the pair
+            # axis contracted away. This is the whole frequency cost.
+            return _assemble(scalars, vectors, chunk)
+
+        return one_k
+
+    terms_by_spin = [(spin, channel_term(rows, columns))
+                     for spin, rows, columns in channels]
 
     # The potential on the smooth grid, k-independent, built once here rather
     # than in every chunk and direction.
     terms = calculation.local_terms(v_scf)
 
     def elements_of(rowset, psi, kcart):
-        """One chunk's ``<m|dH/dk_a|n>``, ``(chunk, 3, nbnd, nbnd)``."""
+        """One chunk's ``<m|dH/dk_a|n>``, ``(nspin, chunk, 3, nbnd, nbnd)``."""
         # ``dH/dk``, the head's ingredient and the reason this is not a pure
-        # transcription. One jvp per cartesian direction over the chunk's rows.
+        # transcription. One jvp per cartesian direction over the chunk's rows;
+        # each channel's states see that channel's Hamiltonian.
         velocity = VelocityOperator(with_rows(calculation, rowset), v_scf, kcart=kcart,
                                     local_terms=terms)
-        elements = velocity.matrix_elements(psi, sequential=True)  # (3, 1, chunk, nb, nb)
-        return jnp.moveaxis(elements[:, 0], 0, 1)
+        elements = velocity.matrix_elements(psi, sequential=True)  # (3, nspin, chunk, nb, nb)
+        return jnp.moveaxis(elements, 0, 2)
 
     def contract(elements, psi, fft_index, mask, energies, occupation):
-        """One chunk's share of ``(nw, nm, nm)``."""
-        return sum_k(one_k, (psi[0], fft_index, mask, energies, occupation,
-                             elements), batch=batch)
+        """One chunk's share of ``(nw, nm, nm)``, both spin channels summed."""
+        total = 0.0
+        for spin, one_k in terms_by_spin:
+            total = total + sum_k(
+                one_k, (psi[spin], fft_index, mask, energies[spin],
+                        occupation[spin], elements[spin]), batch=batch)
+        return total
 
-    shifted = np.asarray(shifted[0])
+    shifted = np.asarray(shifted)
     fft_index = np.asarray(calculation.fft_index)
     mask = np.asarray(calculation.basis.planewaves.mask)
 
@@ -545,18 +614,82 @@ def independent_response(
         return ((row_leaves(calculation, chunk_rows), psi,
                  jnp.asarray(kcart[chunk_rows])),
                 (psi, jnp.asarray(fft_index[chunk_rows]), jnp.asarray(mask[chunk_rows]),
-                 jnp.asarray(shifted[chunk_rows]),
-                 jnp.asarray(padded(weights, chunk_rows, live))))
+                 jnp.asarray(shifted[:, chunk_rows]),
+                 jnp.asarray(padded(weights, chunk_rows, live, axis=1))))
 
-    x = walk(int(weights.shape[0]), batch, arguments, elements_of, contract)
+    x = walk(int(weights.shape[1]), batch, arguments, elements_of, contract)
+    x = _completed(x, sphere, wedge_group(calculation.system, quantity="chi_0"))
     return ChiZero(
         x=x,
         frequencies=zomega,
         sphere=sphere,
-        npairs=int(rows.size),
-        nocc=nocc,
+        npairs=int(sum(rows.size for _, rows, _ in channels)),
+        nocc=max(counts),
         nbnd=nbnd,
+        occupied=tuple(counts),
     )
+
+
+def _completed(x, sphere, group):
+    """A wedge's ``(nw, nm, nm)`` averaged over the group it was cut with.
+
+    **Both labels at once**, which is what the refusal this replaces named. For
+    an operation ``c -> c M + t`` (crystal rows, :class:`~defuqumat.system.
+    symmetry.Symmetries`'s convention) the pair density at the image k-point is
+    ``rho^{gk}(m) = exp(-2 pi i m.t) rho^k(M m)``, the Coulomb factor being a
+    function of ``|G|`` alone, and the head, the ``q -> 0`` limit of the same
+    vector, rotates as the velocity does, ``r(gk) = R r(k)``. So each operation
+    acts on the matrix as ``U X U^dagger`` with ``U`` the rotation on the head
+    and a phased permutation on the body.
+
+    **Time reversal is a transpose with a parity**: ``r_G(-k) = conj(r_{-G}(k))``
+    and ``r_a(-k) = -conj(r_a(k))``, so the time-reversed image of a k-point's
+    term is ``P X^T P`` with ``P`` the reflection ``G -> -G`` on the body and
+    ``-1`` on the head -- the reflection :attr:`ResponseSphere.reflection`
+    already carries for the antiresonant term.
+
+    Every term is ``jnp`` and the maps are static, so a derivative through the
+    matrix passes through the average.
+    """
+    if group is None:
+        return x
+    miller = np.asarray(sphere.miller, dtype=int).reshape(-1, 3)
+    nbody = miller.shape[0]
+    where = {tuple(m): n for n, m in enumerate(miller)}
+    head = np.arange(3)
+    reflect = np.concatenate([head, 3 + np.asarray(sphere.reflection, dtype=int)])
+    sign = np.concatenate([-np.ones(3), np.ones(nbody)])
+    transposed = jnp.swapaxes(x, -1, -2)[:, reflect[:, None], reflect[None, :]]
+    reversed_ = transposed * jnp.asarray(sign[:, None] * sign[None, :], dtype=x.dtype)
+
+    total = jnp.zeros_like(x)
+    for rotation, crystal, shift, anti in zip(group.rotations, group.crystal,
+                                              group.translations, group.antiunitary):
+        images = np.rint(miller @ np.asarray(crystal).T).astype(int)
+        try:
+            index = np.array([where[tuple(m)] for m in images], dtype=int)
+        except KeyError:
+            raise NotImplementedError(
+                "chi_0 on a symmetry-reduced k-set needs a response sphere the "
+                "point group maps onto itself, and this one is cut through a "
+                "shell of equal |G| by round-off at ecut_response: move the "
+                "cutoff off the shell, or pass the whole grid"
+            ) from None
+        full = np.concatenate([head, 3 + index])
+        phase = np.concatenate([
+            np.ones(3, dtype=complex),
+            np.exp(-2j * np.pi * (miller @ np.asarray(shift, dtype=float))),
+        ])
+        source = reversed_ if anti else x
+        # The precision of ``x`` and not a literal one: the phases and the
+        # rotation are host tables, cast to the matrix they act on.
+        term = source[:, full[:, None], full[None, :]] * jnp.asarray(
+            phase[:, None] * np.conj(phase)[None, :], dtype=x.dtype)
+        rot = jnp.asarray(np.asarray(rotation, dtype=float), dtype=x.dtype)
+        term = term.at[:, :3, :].set(jnp.einsum("ab,wbn->wan", rot, term[:, :3, :]))
+        term = term.at[:, :, :3].set(jnp.einsum("wnb,ab->wna", term[:, :, :3], rot))
+        total = total + term
+    return total / group.order
 
 
 def _assemble(scalars, vectors, batch):
@@ -607,9 +740,17 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
     which are the same states read the other way round.
     """
     if sphere.nbody:
-        # The states in real space, once. Padding must be zeroed before the
-        # scatter, since padding entries share the index of G = 0.
-        fields = g_to_r(psi * band_mask[None, :], fft_index, grid)
+        # The states in real space, once, one field per spinor component:
+        # ``(nbnd, npol, n1, n2, n3)``. A spinor is ``(up, down)`` on the one
+        # sphere at ``k``, each ``npwx`` long, so both components go through
+        # the same ``fft_index`` -- which is exactly what a spiral, whose two
+        # components sit on spheres at ``k +- q/2``, does not allow. Padding
+        # must be zeroed before the scatter, since padding entries share the
+        # index of G = 0.
+        npwx = band_mask.shape[-1]
+        npol = psi.shape[-1] // npwx
+        components = psi.reshape(psi.shape[:-1] + (npol, npwx))
+        fields = g_to_r(components * band_mask, fft_index, grid)
 
         def one_pair(index):
             # ``<u_i| e^{-iG.r} |u_j>``, from one transform. The product is
@@ -617,8 +758,12 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
             # wavefunctions has, and it is **the** allocation of this phase:
             # one whole complex box per pair, against ``nm`` numbers kept.
             # Forming every pair's at once is what ``pair_batch`` bounds.
+            # For a spinor the pair density is the **spin trace**
+            # ``sum_s conj(u_i,s) u_j,s``, the charge-charge block, which is
+            # the whole of what the Coulomb and the unpolarized kernels see
+            # when the ground state carries no moment (``nspin_mag = 1``).
             i, j = index
-            product = jnp.conj(fields[i]) * fields[j]
+            product = jnp.sum(jnp.conj(fields[i]) * fields[j], axis=0)
             return r_to_g(product, sphere.fft_index) * sphere.sqrt_coulomb
 
         body = map_axis(one_pair, (jnp.asarray(rows), jnp.asarray(columns)),
@@ -663,31 +808,38 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
     )
 
 
-def _occupied_bands(calculation, eigenvalues, nbnd: int) -> int:
-    """How many bands are filled, and a check that the question is well posed.
+def _occupied_bands(calculation, eigenvalues, nbnd: int) -> tuple:
+    """How many bands each channel fills, and a check that the question is well posed.
 
     An insulator has the same number at every k-point, which is what makes the
     valence-conduction split a *static* shape and the pair list a compile-time
     object. A run where it is not is a metal, and metals are refused above --
     but the refusal reads the input's ``occupations``, and a fixed-occupation
     input can still be handed a state that crosses. This catches that.
+
+    One count per spin channel (:func:`~defuqumat.scf.occupations.
+    occupied_counts`), since a magnetic insulator fills its two channels to
+    different depths; ``nelec / 2`` for both would put a majority state among
+    the empty ones. A channel may be empty (``0``), but not every one.
     """
-    nocc = int(round(calculation.nelec / 2))
-    if nocc < 1 or nocc >= nbnd:
+    counts = tuple(int(n) for n in occupied_counts(calculation))
+    if max(counts) < 1 or max(counts) >= nbnd:
         raise ValueError(
             f"a sum-over-states chi_0 needs empty states: this run has "
-            f"{nocc} occupied bands out of {nbnd}. Run a fixed-density "
+            f"{max(counts)} occupied bands out of {nbnd}. Run a fixed-density "
             "calculation with more bands (nbnd), which is the convergence "
             "parameter of the whole spectrum"
         )
     weights, _ = calculation.occupations(jnp.asarray(eigenvalues))
-    weights = np.asarray(weights)[0]
-    empty = np.abs(weights[:, nocc:]).max()
-    if empty > _OCCUPATION_TOLERANCE:
-        raise NotImplementedError(
-            f"band {nocc} carries occupation {empty:.3e} at some k-point, so "
-            "this state has no clean valence-conduction split -- it is a metal "
-            "or a zero-gap system. The sum-over-states chi_0 here is the "
-            "interband expression and has no intraband term"
-        )
-    return nocc
+    weights = np.asarray(weights)
+    for spin, nocc in enumerate(counts):
+        empty = np.abs(weights[spin][:, nocc:]).max()
+        if empty > _OCCUPATION_TOLERANCE:
+            raise NotImplementedError(
+                f"band {nocc} of spin channel {spin} carries occupation "
+                f"{empty:.3e} at some k-point, so this state has no clean "
+                "valence-conduction split -- it is a metal or a zero-gap "
+                "system. The sum-over-states chi_0 here is the interband "
+                "expression and has no intraband term"
+            )
+    return counts

@@ -215,6 +215,116 @@ def test_q_zero_reproduces_the_gamma_machinery():
     assert np.abs(np.imag(np.asarray(here.matrix))).max() < 1e-7
 
 
+# ---------------------------------------------------------------------------
+# A metal at q = 0: ph.x's ef_shift on this route (I4).
+# ---------------------------------------------------------------------------
+
+#: ``reference.out.ph-al2-metal:435-437``, the three optical modes ``ph.x``
+#: prints for ``al2-metal.in`` at ``Gamma``, in cm^-1.
+QE_AL2_OPTICAL = (146.710511, 146.714378, 311.035401)
+
+#: In cm^-1. Measured 2026-10-16 on D22 (CPU, one core): **2.9e-3** on the
+#: worst of the three, 146.709565, 146.713471 and 311.032515, where the
+#: ``Gamma`` route on the same state gives 3.2e-3. The bound is
+#: ``test_phonons.py``'s ``AL2_OPTICAL_TOLERANCE``, for its reason.
+AL2_OPTICAL_TOLERANCE = 0.05
+
+#: ``q = 0`` through this route against the ``Gamma`` route on the same metal,
+#: in Ry/bohr^2. Measured 2026-10-16 on D22: **5.7e-7** on ``al2-metal.in``
+#: (on-site 0.048) and **7.2e-7** on :data:`_OFF_CENTRE` (on-site 0.069), the
+#: Ewald swap :data:`GAMMA_AGREEMENT` describes on silicon.
+METAL_GAMMA_AGREEMENT = 5e-6
+
+#: ``al2-metal.in`` with the second atom moved off its inversion centre, to
+#: (-0.45, 0.50, 0.08) alat. On ``al2-metal.in`` every atom sits at an inversion
+#: centre, so ``def`` is zero by symmetry for every mode (a scalar odd in the
+#: displacement) and the route with the Fermi level held gives the same matrix
+#: to 1e-10: a check there could not have read differently. Here ``def`` is
+#: 1.13e-2 to 1.22e-2 per mode on both routes (agreeing to 1e-7), and holding
+#: the level is worth **5.1e-2** Ry/bohr^2 on the matrix and an imaginary mode
+#: at -197 cm^-1, measured 2026-10-16 on D22.
+_OFF_CENTRE = """&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 0, celldm(1) = 7.50, nat = 2, ntyp = 1, ecutwfc = 15.0,
+  nosym = .true., noinv = .true.,
+  occupations = 'smearing', smearing = 'marzari-vanderbilt', degauss = 0.05
+/
+&electrons
+  conv_thr = 1.0d-12
+/
+CELL_PARAMETERS alat
+  -0.50  0.00  0.50
+   0.00  0.50  0.50
+  -1.00  1.00  0.00
+ATOMIC_SPECIES
+ Al 26.98 Al.pz-vbc.UPF
+ATOMIC_POSITIONS alat
+ Al  0.00  0.00  0.00
+ Al -0.45  0.50  0.08
+K_POINTS automatic
+ 4 4 2 0 0 0
+"""
+
+
+def _metal_pair(calculator):
+    """``(Gamma route, q route at q = 0)`` on one converged state, at one ``tr2``."""
+    from defuqumat.response.phononq import TR2_AT_Q_CAPPED
+
+    gamma = calculator.get_phonons(tr2=TR2_AT_Q_CAPPED)
+    here = calculator.get_phonons_at_q((0.0, 0.0, 0.0))
+    assert gamma.converged and here.converged
+    difference = np.abs(np.asarray(here.matrix) - np.asarray(gamma.matrix)).max()
+    assert np.abs(np.imag(np.asarray(here.matrix))).max() < 1e-7
+    return gamma, here, difference
+
+
+def test_a_metal_at_q_zero_matches_quantum_espresso():
+    """``al2-metal.in`` at ``q = 0`` through two spheres, against ``ph.x``.
+
+    The route carries ``dfpt_kernels.f90``'s three ``lmetq0`` terms (``def
+    ldos`` in the density, ``def`` off ``dV_scf``, ``ef_shift_wfc`` on
+    ``dpsi``). On this cell ``def`` vanishes by symmetry, so this test is the
+    route's metallic assembly at ``q = 0``;
+    :func:`test_a_metal_off_an_inversion_centre_moves_the_fermi_level` is the
+    one the shift itself is checked by.
+    """
+    from defuqumat import Calculator
+
+    calculator = Calculator.from_file(CASES / "al2-metal.in", pseudo_dir=PSEUDO)
+    calculator.get_scf()
+    _, here, difference = _metal_pair(calculator)
+    assert difference < METAL_GAMMA_AGREEMENT, difference
+    optical = np.sort(np.asarray(here.frequencies))[3:]
+    assert optical[1] - optical[0] == pytest.approx(
+        QE_AL2_OPTICAL[1] - QE_AL2_OPTICAL[0], abs=1e-3)
+    assert np.abs(optical - np.asarray(QE_AL2_OPTICAL)).max() < AL2_OPTICAL_TOLERANCE
+
+
+def test_a_metal_off_an_inversion_centre_moves_the_fermi_level():
+    """Where ``def != 0``, the route at ``q = 0`` is the ``Gamma`` route.
+
+    The ``Gamma`` route's ``ef_shift`` is the one validated against ``ph.x``
+    (``test_phonons.py``), and the two share the shift's arithmetic but not
+    the sphere, the projector, the kernel or the assembly; without the shift
+    this cell's matrices are 5.1e-2 apart (:data:`_OFF_CENTRE`).
+    """
+    import warnings
+
+    from defuqumat import Calculator
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        calculator = Calculator.from_text(_OFF_CENTRE, str(PSEUDO), announce=False)
+    calculator.get_scf()
+    gamma, here, difference = _metal_pair(calculator)
+    assert difference < METAL_GAMMA_AGREEMENT, difference
+    # The optical modes, 127.06, 202.55 and 343.30 cm^-1, measured 1.4e-4 apart.
+    assert np.abs(np.sort(here.frequencies)[3:]
+                  - np.sort(gamma.frequencies)[3:]).max() < 1e-3
+
+
 def test_the_ewald_term_reproduces_the_ground_state_hessian_at_q_zero():
     """``d2ionq(0)`` against ``jax.hessian`` of the Ewald energy already here.
 

@@ -169,17 +169,43 @@ def test_a_spin_spiral_is_refused_for_its_two_spheres():
         require_a_conductivity_regime(_calculation("si2-nosym", spiral=True))
 
 
-def test_a_symmetry_reduced_k_set_is_refused_because_sigma_xy_is_axial():
-    """The wedge refusal, and the ``nosym`` run that passes it.
+def test_a_symmetry_reduced_k_set_is_completed_and_what_it_cannot_complete_is_refused():
+    """The wedge is completed by its group now; three k-sets still refuse.
 
-    ``si-epsilon.in`` is silicon on a reduced set; ``si2-nosym.in`` is the
-    same cell on the whole grid. The antisymmetric part of ``sigma`` is the
-    Berry-curvature integral in the static limit, so it is an axial vector and
-    a wedge does not sum to the cell's.
+    ``si-epsilon.in`` is silicon on a reduced set and passes, carrying the 48
+    operations of ``Oh`` twice over (time reversal), which is what the average
+    of :func:`~defuqumat.response.conductivity._wedge` runs over. What still
+    refuses, each by name: a magnetic wedge (``ni-noncol-111-nosource.in``,
+    no measured number), a set whose weights the group does not unfold
+    uniformly (the wedge of ``si-epsilon.in`` with its weights permuted), and a
+    reduced explicit set on a ``nosym`` run, which was cut by a group the run
+    does not carry.
     """
-    with pytest.raises(NotImplementedError, match="axial vector"):
-        require_a_conductivity_regime(_calculation("si-epsilon"))
+    import dataclasses
+
+    from defuqumat.response.conductivity import _wedge
+    from defuqumat.system.kpoints import KPoints
+
+    group = _wedge(_calculation("si-epsilon"))
+    assert group.order == 96 and group.has_antiunitary
+    require_a_conductivity_regime(_calculation("si-epsilon"))
     require_a_conductivity_regime(_calculation("si2-nosym"))
+    assert _wedge(_calculation("si2-nosym")) is None
+
+    with pytest.raises(NotImplementedError, match="magnetic"):
+        require_a_conductivity_regime(_calculation("ni-noncol-111-nosource"))
+
+    wedge = _calculation("si-epsilon").system
+    weights = np.asarray(wedge.kpoints.weights)
+    scrambled = KPoints.from_crystal(
+        np.asarray(wedge.kpoints.crystal(wedge.cell)), weights[::-1].copy(),
+        wedge.cell, precision=wedge.kpoints.precision)
+    with pytest.raises(NotImplementedError, match="tile it uniformly"):
+        require_a_conductivity_regime(SimpleNamespace(
+            spiral=False, system=dataclasses.replace(wedge, kpoints=scrambled)))
+    with pytest.raises(NotImplementedError, match="nosym run"):
+        require_a_conductivity_regime(SimpleNamespace(
+            spiral=False, system=dataclasses.replace(wedge, nosym=True)))
 
 
 # -- the degeneracy guard, and which route actually needs it -------------------
@@ -372,8 +398,12 @@ K_POINTS automatic
     reduced = build_system(parse_pw_input(text.format(extra="")))
     assert reduced.kpoints.nk == 32
     assert float(np.ptp(np.asarray(reduced.kpoints.weights))) == 0.0
-    with pytest.raises(NotImplementedError, match="wedge"):
-        require_a_conductivity_regime(Calculation(reduced, pseudo))
+    # Seen as the wedge it is, and completed by the group it was cut with:
+    # the identity and time reversal, so the average is (sigma + sigma^T)/2.
+    from defuqumat.response.conductivity import _wedge
+
+    group = _wedge(Calculation(reduced, pseudo))
+    assert group is not None and group.order == 2 and group.has_antiunitary
 
     whole = build_system(parse_pw_input(text.format(extra=",\n  nosym = .true.")))
     assert whole.kpoints.nk == 64

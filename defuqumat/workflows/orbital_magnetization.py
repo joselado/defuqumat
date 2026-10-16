@@ -48,7 +48,7 @@ from defuqumat.topology.orbital_magnetization import (
     orbital_magnetization,
     streamed_orbital_magnetization_sums,
 )
-from defuqumat.workflows.topology import _source
+from defuqumat.workflows.topology import _refuse_potential_only_meta, _source
 
 __all__ = ["run_orbital_magnetization"]
 
@@ -114,9 +114,13 @@ def run_orbital_magnetization(
         )
     if getattr(system, "spiral_q", None) is not None:
         raise NotImplementedError(
-            "an orbital magnetization of a spin spiral is not implemented: the "
-            "two spinor components live on different plane-wave spheres, so the "
-            "overlap between neighbouring manifolds is not a single gather"
+            "an orbital magnetization of a spin spiral is refused: the quantity "
+            "needs spin-orbit coupling, which a spiral refuses (it breaks the "
+            "generalized Bloch theorem), and at soc_scale = 0 a flat spiral's "
+            "orbital magnetization is zero by the combined symmetry of time "
+            "reversal and a half turn of the spins about an axis in the spiral "
+            "plane. The commensurate supercell with spin-orbit coupling is the "
+            "calculation that carries it"
         )
 
     if any(p.is_ultrasoft or p.is_paw for p in pseudos):
@@ -132,6 +136,7 @@ def run_orbital_magnetization(
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
                      becsum=becsum, ns=ns, field=field, field_scale=field_scale,
                      calculation=calculation)
+    _refuse_potential_only_meta(source, "an orbital magnetization")
     source.gap_tol = gap_tol
     mesh = volume_mesh(_divisions(system, divisions), shift)
     if source.streams if stream is None else stream:

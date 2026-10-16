@@ -326,6 +326,13 @@ that is what caps each file's memory and makes a kill cost one file instead of t
 session. The skill carries the measured sizes, the drift history, the rule for deciding
 whether a new test belongs in the gate, the cgroup cap and the RSS watchdog.
 
+**Slow tests are run only when the user asks for them explicitly** (the user's rule,
+2026-10-16). That covers anything marked `slow`, `-m slow`, `-m 'slow or not slow'` and
+`tools/run_regression.sh`, here, on D22 and on Triton, and it binds every subagent and
+workflow a session starts: their prompts must not ask for slow files, and a record or a
+plan lists the slow files a change touches for the user to run rather than running them.
+The fast gate and a single named non-slow test stay as before.
+
 ## JAX rules
 
 - **`jax.config.update("jax_enable_x64", True)` must be set before any array is created.**

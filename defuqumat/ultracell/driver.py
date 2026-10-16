@@ -177,14 +177,25 @@ from defuqumat.ultracell.seed import (
     seeded_becsum,
     seeded_density,
 )
+from defuqumat.ultracell.density import ultracell_kinetic_density
+from defuqumat.ultracell.hubbard import (
+    copy_hubbard_matrix,
+    copy_occupations,
+    copy_projections,
+    ultracell_hubbard_terms,
+)
+from defuqumat.hubbard.energy import hubbard_energy, hubbard_potential
+from defuqumat.hubbard.operator import block_potential
 from defuqumat.ultracell.potential import (
     delta_potential,
     hartree_kernel,
     require_an_ultracell_functional,
     ultracell_potential,
+    ultracell_sphere,
 )
 from defuqumat.units import E2, FPI, RY_TO_EV
-from defuqumat.scf.sawtooth import refuse_sawtooth
+from defuqumat.scf.sawtooth import sawtooth_potential
+from defuqumat.scf.fields import FEEDBACK
 
 #: Below this gap (Ry) the ``nbnd`` truncation is cutting a degenerate
 #: multiplet rather than falling in a gap, and the basis is then whatever the
@@ -391,6 +402,13 @@ class UltracellResult:
     #: it, in words, and ``None`` when it was, when there is no field, or when
     #: ``seed_from_field=False`` asked for the tiled start.
     field_seed_skipped: str | None = None
+    #: ``(N, nspin, nslot, ldmx, ldmx)``, the occupation matrix of each atom
+    #: copy for a DFT+U run, ``None`` otherwise: copy ``c`` is the unit cell's
+    #: Hubbard atoms at ``tau + R_c``, ``R_c = ultracell.q_triples[c]`` in the
+    #: unit cell's crystal basis, so ``hubbard_ns[c]`` compares slot by slot
+    #: with a supercell's ``ns`` for those atoms. It is the matrix the reported
+    #: density was mixed with, the output of the last iteration once converged.
+    hubbard_ns: jnp.ndarray | None = None
 
     @property
     def eigenvalues_ev(self) -> np.ndarray:
@@ -474,8 +492,12 @@ class UltracellResult:
 def require_an_ultracell_regime(system, pseudos, basis) -> None:
     """Refuse every regime this has not been measured in, by name.
 
-    A saw-tooth field (``tefield``) is refused first: the ultracell builds its
-    own potential and has no saw-tooth term.
+    A finite field by the Berry phase (``lelfield``) is refused first: its
+    operator couples each k-point to its neighbours on a string, and the
+    ultracell's ``k0`` are not such a string. A saw-tooth field (``tefield``)
+    runs, on the box, and is refused in :func:`run_ultracell` only when the
+    ultracell is longer than one cell along the field, which needs the
+    ``supercell`` this function is not handed.
 
     Called **before** the frozen states are computed, not after: that
     diagonalisation is the expensive step of the whole method, and a run
@@ -504,11 +526,18 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
     component and a field has nothing to be added to). Both depend on the call
     rather than on the system, which is why neither is in this function.
     """
-    refuse_sawtooth(system, "an ultracell run",
-                    "the ultracell builds its own potential, with no saw-tooth term")
+    if getattr(system, "berry_field", None) is not None:
+        raise NotImplementedError(
+            "an ultracell run with a finite electric field by the Berry phase "
+            "(lelfield) is not implemented: it would need the field's "
+            "operator, which couples each k-point to its neighbours on the "
+            "string, and -E.P in its energy"
+        )
     require_an_ultracell_functional(
         resolve_functional([p.functional for p in pseudos], system.input_dft),
         bool(getattr(system, "nosource", False)),
+        int(system.nspin_mag),
+        any(p.is_ultrasoft or p.is_paw for p in pseudos),
     )
     # **Two occupation schemes reach this loop, and anything else would be
     # read as the smeared one.** ``_occupy`` has a fixed branch and a smeared
@@ -536,11 +565,35 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
             f"band left to hold a prescribed occupation. Use 'fixed' or "
             f"'smearing'"
         )
-    if getattr(system, "hubbard", None) is not None:
-        raise NotImplementedError(
-            "the ultracell refuses DFT+U: the occupation matrix is per atom and "
-            "an ultracell holds N copies of every atom, each with its own"
-        )
+    hubbard = getattr(system, "hubbard", None)
+    if hubbard is not None:
+        # **One occupation matrix per atom copy** (:mod:`defuqumat.ultracell.hubbard`),
+        # each projected through the unit cell's own ``wfcU`` at the folded
+        # points with a phase per copy. What that construction does not cover
+        # is refused here, before the frozen solve.
+        augmented = any(p.is_ultrasoft or p.is_paw for p in pseudos)
+        reasons = []
+        if augmented:
+            reasons.append("an ultrasoft or PAW dataset, whose Hubbard projection "
+                           "carries the overlap S")
+        if int(system.nspin) == 4:
+            reasons.append("a spinor, whose ns has four spin blocks per copy")
+        if int(system.nspin) == 2:
+            reasons.append("a collinear spin-polarized cell, whose two channels' "
+                           "ns per copy are built but measured against a "
+                           "supercell at nspin = 1 only")
+        if getattr(hubbard, "tensor_moments", ()):
+            reasons.append("a TENSOR_MOMENTS constraint on the occupation matrix")
+        if getattr(hubbard, "projectors", "atomic") != "atomic":
+            reasons.append(f"{hubbard.projectors!r} projectors, measured with "
+                           f"'atomic' only (a Lowdin-orthogonalised manifold "
+                           f"decomposes over Q in the same way and is not measured)")
+        if reasons:
+            raise NotImplementedError(
+                "the ultracell runs DFT+U with one occupation matrix per atom "
+                "copy, on a norm-conserving unpolarized cell with atomic "
+                "projectors, and refuses " + "; ".join(reasons)
+            )
     if getattr(system, "spiral_q", None) is not None:
         raise NotImplementedError(
             "the ultracell refuses a spin spiral: it is a second modulation of "
@@ -1182,31 +1235,70 @@ def run_ultracell(
             "Converge it first, with a looser conv_thr, more max_iterations or "
             "a different mixing"
         )
-    # **A unit cell converged under a field is not a basis this can expand
-    # around**, and the reason is the same one ``fixed_density_states`` gives
-    # one layer down. The frozen eigenvalues carry whatever field the SCF ended
-    # with -- which ``reducebf`` and the fixed-spin-moment scheme both make
-    # different from the input -- while ``dV`` subtracts a potential rebuilt
-    # here from the density alone. The two would then disagree by a Zeeman
-    # term, and an ultracell would report a modulation that is a rigid shift.
-    if getattr(reference, "magnetic_field", None) is not None:
-        raise NotImplementedError(
-            "the ultracell refuses a ground state converged under a magnetic "
-            "field or a constrained moment: the frozen eigenvalues carry the "
-            "field the SCF *ended* with, which reducebf and the "
-            "fixed-spin-moment scheme both change from the input, and the dV "
-            "this subtracts is rebuilt from the density alone -- so the two "
-            "differ by a Zeeman term that would read as a modulation. Converge "
-            "the unit cell without a field and apply the modulation here, "
-            "through magnetic_field=, which is the quantity a Q-resolved "
-            "susceptibility is anyway"
-        )
+    # **A unit cell converged under a field is a basis this can expand around
+    # when the field it ended with is a fixed potential**, and the reason is
+    # the one ``fixed_density_states`` gives one layer down. The frozen
+    # eigenvalues carry whatever field the SCF *ended* with -- which
+    # ``reducebf`` and the fixed-spin-moment scheme both make different from
+    # the input -- so that field, ``SCFResult.magnetic_field`` at
+    # ``SCFResult.field_scale``, is the one handed to every frozen solve and
+    # to the reference potential, and it is then held fixed and tiled over
+    # the ultracell, as ``vltot`` is: it cancels out of ``dV`` exactly and
+    # stays inside every eigenvalue. An applied field and a feedback scheme's
+    # converged field are linear in the magnetization in their energy, so
+    # their potential is the same at every density; a **penalty** is not
+    # (``lambda (m - m_target)`` moves with ``m``), so holding it fixed would
+    # be a different functional from the supercell's, and it stays refused.
+    reference_field = getattr(reference, "magnetic_field", None)
+    reference_field_scale = float(getattr(reference, "field_scale", 1.0) or 1.0)
+    if reference_field is not None:
+        constraint = str(getattr(reference_field, "constraint", "none"))
+        if constraint != "none" and constraint not in FEEDBACK:
+            raise NotImplementedError(
+                f"the ultracell refuses a ground state converged under the "
+                f"penalty constraint constrained_magnetization = "
+                f"{constraint!r}: its potential is lambda (m - m_target) and "
+                f"moves with the magnetization, so the field the frozen "
+                f"eigenvalues carry is not a fixed potential the ultracell can "
+                f"tile, and holding it fixed is a different functional from "
+                f"the supercell's under the same constraint. An applied field "
+                f"(B_field, a LOCAL_MAGNETIC_FIELDS card, reducebf) and the "
+                f"feedback schemes ('fsm', 'atomic fsm') are carried"
+            )
+        if int(system.nspin) == 4:
+            raise NotImplementedError(
+                "the ultracell refuses a noncollinear ground state converged "
+                "under a magnetic field: the converged field is carried into "
+                "dV for nspin = 2 and measured against a supercell under the "
+                "same field there, and the spinor case, with its Kramers "
+                "partners solved under the reversed reference, has not been. "
+                "Converge the unit cell without a field and apply the "
+                "modulation here, through magnetic_field="
+            )
     ultracell = Ultracell.build(supercell, basis.dense.grid, precision=system.kpoints.precision)
     k0, folded = folded_kpoints(ultracell, kgrid, cell, precision=system.kpoints.precision)
     # After the two constructors, so a malformed supercell or kgrid is refused
     # by their own messages; before the frozen solve, which is the expensive
     # step a mismatched reference should not pay for.
     require_the_folded_grid(system, supercell, kgrid)
+    # **A saw-tooth is periodic over the cell it is put in**, so the box, which
+    # is a supercell's, carries the supercell's saw-tooth: the same one tiled
+    # when the ultracell is one cell long along the field, and a field of a
+    # different period -- one ramp over ``n`` cells where the frozen states
+    # were solved under ``n`` ramps -- when it is longer. The second is what a
+    # ``pw.x`` supercell run would do and it is not measured here, so it is
+    # refused rather than expanded around a basis solved under another field.
+    efield = getattr(system, "efield", None)
+    if efield is not None and supercell[int(efield[0])] != 1:
+        raise NotImplementedError(
+            f"the ultracell refuses a saw-tooth field (tefield) along edir = "
+            f"{int(efield[0]) + 1} with {supercell[int(efield[0])]} cells "
+            f"along it: the box's saw-tooth then has the ultracell's period, "
+            f"one ramp where the frozen states were solved under "
+            f"{supercell[int(efield[0])]}, and that pair is not measured. "
+            f"Modulate across the field (supercell = 1 along edir), which is "
+            f"the slab geometry tefield is for"
+        )
 
     # A caller-built k-set is a ``for_spin`` boundary: every constructor applies
     # the unpolarized degeneracy factor unconditionally, and a k-set that
@@ -1228,6 +1320,14 @@ def run_ultracell(
         # round-off.
         becsum=tuple(getattr(reference, "becsum", ()) or ()),
         **({} if states_conv_thr is None else {"conv_thr": states_conv_thr}),
+        **({} if reference_field is None else {
+            "field": reference_field, "field_scale": reference_field_scale}),
+        # A potential-only meta-GGA's frozen states are eigenstates of the
+        # potential at the converged ``tau`` as well as the converged density.
+        **({} if getattr(reference, "tau", None) is None else {
+            "tau": jnp.asarray(reference.tau)}),
+        **({} if getattr(system, "hubbard", None) is None else {
+            "ns": jnp.asarray(reference.ns)}),
         david=david,
     )
     kept = _kept_bands(system, pseudos, nbnd)
@@ -1379,7 +1479,8 @@ def run_ultracell(
         if calculation.is_paw:
             _, ddd_reference = calculation.onecenter(tuple(frozen["becsum"]))
         reference_hamiltonian = calculation.hamiltonian(
-            calculation.potential(jnp.asarray(reference.density)).v_scf,
+            calculation.potential(jnp.asarray(reference.density),
+                                  reference_field_scale, reference_field).v_scf,
             ddd_reference,
         )[0]
         kramers = kramers_closed_basis(
@@ -1395,6 +1496,26 @@ def run_ultracell(
         )
 
     box_index = jnp.asarray(_box_indices(ultracell, calculation, nk0))
+
+    # **DFT+U: every frozen state's projection onto every atom copy**, built
+    # once, since both the states and the projectors are frozen
+    # (:mod:`defuqumat.ultracell.hubbard`). The reference's block potential is
+    # what every frozen eigenvalue carries and what the matrix subtracts.
+    hubbard_projections, hubbard_reference, ns_state = None, None, None
+    if calculation.is_hubbard:
+        kq_crystal = (np.asarray(k0.crystal(cell))[:, None, :]
+                      + np.asarray(ultracell.q_crystal)[None, :, :])
+        wfcU = jnp.asarray(calculation.wfcU)
+        hubbard_projections = copy_projections(
+            wfcU.reshape(nk0, cells, wfcU.shape[-2], wfcU.shape[-1]),
+            coefficients, kq_crystal, ultracell.q_triples,
+        )
+        reference_ns = jnp.asarray(reference.ns)
+        hubbard_reference = block_potential(
+            hubbard_potential(reference_ns, calculation.hubbard_coefficients),
+            calculation._hubbard_blocks,
+        )
+        ns_state = jnp.broadcast_to(reference_ns, (cells,) + reference_ns.shape)
     grid = ultracell.grid
 
     # **The augmented layer, and it is built once.** The ``N`` displaced tables
@@ -1427,7 +1548,66 @@ def run_ultracell(
     rho_core_tiled = None
     if calculation.rho_core is not None:
         rho_core_tiled = ultracell.tile(jnp.asarray(calculation.rho_core))
-    reference_potential = calculation.potential(jnp.asarray(reference.density)).v_scf
+    reference_tau = None
+    if calculation.functional.is_meta:
+        reference_tau = jnp.asarray(reference.tau)
+    reference_potential = calculation.potential(
+        jnp.asarray(reference.density), reference_field_scale, reference_field,
+        tau=reference_tau,
+    ).v_scf
+    # The converged field, held fixed: inside every frozen eigenvalue, so out
+    # of ``dV`` (subtracted from the reference potential here, never added on
+    # the box), and paired into ``deband`` with the applied field below so that
+    # its Zeeman energy stays outside the total, where ``run_scf`` reports it.
+    reference_field_potential = None
+    if reference_field is not None:
+        reference_field_potential = reference_field.potential(
+            jnp.asarray(reference.density), cell, reference_field_scale,
+        )[0]
+        reference_potential = reference_potential - reference_field_potential
+    # **The box is a supercell's box**, so its potential is ``v_of_rho`` on the
+    # supercell's own reciprocal vectors restricted to the tiled sphere
+    # (:mod:`defuqumat.ultracell.potential`), with the unit cell's functional,
+    # axis and ``nosource`` so that the box and the frozen eigenvalues are the
+    # same functional and the tiled null cancels.
+    sphere = ultracell_sphere(
+        ultracell, cell, np.asarray(keep), calculation.basis.dense,
+        calculation.rho_core_g,
+    )
+
+    # **The saw-tooth on the box is the supercell's**, built by the same
+    # ``SawtoothField`` from the box density, the ultracell lattice and every
+    # atom copy: its ramp runs along ``x_edir`` over the box, which is one cell
+    # long along the field (refused above otherwise), and the dipole ``D`` of
+    # ``dipfield`` is the ultracell's average, which is what a supercell's
+    # dipole correction is.
+    sawtooth = calculation.sawtooth
+    if sawtooth is not None:
+        copies = np.asarray(ultracell.q_triples, dtype=float) @ np.asarray(cell.at)
+        box_positions = jnp.asarray(
+            (np.asarray(system.structure.positions)[None, :, :]
+             + copies[:, None, :]).reshape(-1, 3),
+            dtype=ultracell.precision.real,
+        )
+        box_charges = jnp.asarray(
+            np.tile(np.asarray(calculation.charges, dtype=float), cells),
+            dtype=ultracell.precision.real,
+        )
+
+    def box_potential(rho, tau=None):
+        potential = ultracell_potential(
+            rho, sphere, rho_core_tiled, calculation.functional,
+            quantization_axis=calculation._axis_argument(),
+            source_free=calculation.source_free,
+            noncollinear_gga=calculation.noncollinear_gga,
+            tau=tau,
+        )
+        if sawtooth is not None:
+            v_saw, e_saw, _ = sawtooth_potential(
+                sawtooth, rho, box_positions, box_charges, sphere.cell)
+            potential.v_scf = potential.v_scf + v_saw
+            potential.e_sawtooth = e_saw
+        return potential
 
     # **The field is evaluated once, on the host, in float64**, and the array
     # goes to every consumer: the potential, the field's own energy and the
@@ -1447,6 +1627,10 @@ def run_ultracell(
     # again where the scalar potential's stays in it -- see
     # :func:`~defuqumat.ultracell.energy.ultracell_energy`.
     magnetic_potential = _magnetic_potential(magnetic_field, ultracell, nspin_mag)
+    if reference_field_potential is not None:
+        tiled_field = ultracell.tile(jnp.asarray(reference_field_potential))
+        magnetic_potential = (tiled_field if magnetic_potential is None
+                              else magnetic_potential + tiled_field)
 
     weights0 = np.asarray(k0.weights)
     # **A pair sum over the nuclei, and the nuclei do not move**, so this enters
@@ -1536,6 +1720,22 @@ def run_ultracell(
     # integral of the potential, and the potential is a functional of the
     # density the box already carries.
     becsum_state = ()
+    # **A potential-only meta-GGA's second carried field**, ``tau``, built
+    # from the ultracell states and mixed beside the density in one packed
+    # vector, which is what ``pw.x`` does with ``kin_r`` (``scf_mod.f90``'s
+    # ``mix_type``). It starts tiled, as the density does, and the folded
+    # spheres' ``k0 + Q + G`` are the unit-cell calculation's own ``kplusg``.
+    tau_state, kplusg = None, None
+    if reference_tau is not None:
+        tau_state = ultracell.tile(reference_tau).astype(density.dtype)
+        kplusg = jnp.asarray(calculation.kplusg).reshape(nk0, cells, npwx, 3)
+        warnings.warn(
+            f"{calculation.functional.name} is a potential and not the "
+            "derivative of an energy, so the ultracell's total energy is not "
+            "the value of anything the loop minimised and carries no bound; "
+            "the density and the eigenvalues are what this run is for",
+            RuntimeWarning, stacklevel=2,
+        )
     if augmentation is not None:
         becsum_state = _tiled_becsum(reference.becsum, cells)
         if seed_field is not None:
@@ -1556,10 +1756,7 @@ def run_ultracell(
     energies = []
 
     for iteration in range(1, max_iterations + 1):
-        potential = ultracell_potential(
-            density, ultracell, cell, rho_core_tiled, calculation.functional,
-            g2_inverse, keep,
-        )
+        potential = box_potential(density, tau_state)
         delta_v = delta_potential(
             potential.v_scf, reference_potential, ultracell, external_field
         )
@@ -1604,6 +1801,13 @@ def run_ultracell(
                     deeq, calculation.fcoef_matrix, float(system.soc_scale),
                 )
 
+        hubbard_in = None
+        if hubbard_projections is not None:
+            hubbard_in = ultracell_hubbard_terms(
+                ns_state, calculation.hubbard_coefficients,
+                calculation._hubbard_blocks, hubbard_reference,
+            )
+
         levels = np.empty((blocks, nk0, cells * nbnd))
         vectors = [[] for _ in range(blocks)]
         for spin in range(blocks):
@@ -1620,6 +1824,12 @@ def run_ultracell(
                             becp[spin, ik], deeq[spin], augmentation.difference,
                         )
                     )
+                if hubbard_in is not None:
+                    term = copy_hubbard_matrix(
+                        hubbard_projections[spin, ik],
+                        hubbard_in.delta_blocks[spin],
+                    )
+                    extra = term if extra is None else extra + term
                 matrix = ultracell_matrix(
                     coefficients[spin, ik], jnp.asarray(eigenvalues[spin, ik]),
                     box_index[ik], channel, grid, batch=state_batch, npol=npol,
@@ -1643,6 +1853,16 @@ def run_ultracell(
             float(cell.volume), npol=npol, nspin_mag=nspin_mag,
             batch=state_batch, dtype=density.dtype,
         )
+        new_tau = None
+        if tau_state is not None:
+            new_tau = jnp.stack([
+                sum(ultracell_kinetic_density(
+                        coefficients[spin, ik], vectors[spin][ik],
+                        jnp.asarray(occupations[spin][ik]), box_index[ik],
+                        kplusg[ik], grid, float(cell.volume), batch=state_batch)
+                    for ik in range(nk0))
+                for spin in range(blocks)
+            ]).astype(density.dtype)
 
         # **The charge inside the projector spheres, which no state carries.**
         # ``becsum`` here is resolved by Q-difference rather than by atom copy,
@@ -1703,6 +1923,21 @@ def run_ultracell(
         accuracy, charge_dr2, magnetic_dr2 = _accuracy(
             new - density, ultracell, cell, g2_inverse, keep
         )
+        ns_out, hubbard_energy_out, hubbard_deband = None, None, 0.0
+        if hubbard_in is not None:
+            ns_out = copy_occupations(
+                hubbard_projections, vectors, occupations,
+                calculation._hubbard_columns, calculation._hubbard_mask, nspin,
+            )
+            # ``ns_ddot`` per copy, an ultracell total as the density's ``dr2``.
+            accuracy += sum(
+                float(calculation.ns_accuracy(ns_out[c] - ns_state[c]))
+                for c in range(cells))
+            hubbard_energy_out = sum(
+                float(hubbard_energy(ns_out[c], calculation.hubbard_coefficients))
+                for c in range(cells)) / cells
+            overlap = float(jnp.real(jnp.sum(ns_out * hubbard_in.v_ns))) / cells
+            hubbard_deband = -(2.0 * overlap if nspin == 1 else overlap)
 
         # **The energy of the state this iteration produced**, which is not the
         # density the next one will start from. ``eband`` carries the potential
@@ -1713,10 +1948,7 @@ def run_ultracell(
         # every iteration's number is then the Kohn-Sham energy of a state that
         # exists, rather than a mixture's corrected to first order.
         band = float(np.sum(occupations * levels))
-        potential_out = ultracell_potential(
-            new, ultracell, cell, rho_core_tiled, calculation.functional,
-            g2_inverse, keep,
-        )
+        potential_out = box_potential(new, new_tau)
         entropy = 0.0
         if smearing:
             entropy = ultracell_entropy(levels, weights0, fermi, ultracell, system)
@@ -1738,6 +1970,9 @@ def run_ultracell(
             new, potential, potential_out, band, ultracell, cell,
             float(calculation.ewald), magnetic_potential, entropy,
             dispersion=dispersion, onecentre=onecentre, paw_deband=paw_deband,
+            efield=(None if sawtooth is None
+                    else float(potential_out.e_sawtooth) / cells),
+            hubbard=hubbard_energy_out, hubbard_deband=hubbard_deband,
         )
         energy = total_of(terms)
 
@@ -1776,6 +2011,30 @@ def run_ultracell(
                     vector[:size].reshape(head_in.shape), dtype=density.dtype
                 )
                 becsum_state = _unflatten_becsum(vector[size:], becsum_copies)
+            elif ns_state is not None:
+                vector = mixer.mix(
+                    np.concatenate([head_in.ravel(), np.asarray(ns_state).ravel()]),
+                    np.concatenate([head_out.ravel(), np.asarray(ns_out).ravel()]),
+                )
+                size = head_in.size
+                density = jnp.asarray(
+                    vector[:size].reshape(head_in.shape), dtype=density.dtype
+                )
+                ns_state = jnp.asarray(
+                    vector[size:].reshape(ns_out.shape), dtype=ns_out.dtype
+                )
+            elif tau_state is not None:
+                vector = mixer.mix(
+                    np.concatenate([head_in.ravel(), np.asarray(tau_state).ravel()]),
+                    np.concatenate([head_out.ravel(), np.asarray(new_tau).ravel()]),
+                )
+                size = head_in.size
+                density = jnp.asarray(
+                    vector[:size].reshape(head_in.shape), dtype=density.dtype
+                )
+                tau_state = jnp.asarray(
+                    vector[size:].reshape(tau_state.shape), dtype=density.dtype
+                )
             else:
                 density = jnp.asarray(
                     mixer.mix(head_in, head_out), dtype=density.dtype
@@ -1784,6 +2043,10 @@ def run_ultracell(
             density = new
             if calculation.is_paw and becsum_copies is not None:
                 becsum_state = becsum_copies
+            if new_tau is not None:
+                tau_state = new_tau
+            if ns_out is not None:
+                ns_state = ns_out
 
         if converged:
             result = _result(
@@ -1838,6 +2101,7 @@ def run_ultracell(
             augmentation_residual,
         )
     result.seed_origin = seed_origin
+    result.hubbard_ns = ns_state
     result.field_seed_skipped = field_seed_skipped
     if kramers is not None:
         result.kramers_ranks = np.asarray(kramers.ranks)

@@ -57,6 +57,13 @@ MAGNETS = {
 }
 
 
+#: Graphene's vertical map on the 6x6x1 wedge against the whole grid, relative to
+#: the peak: what D22 measured, the uncompleted wedge sum, and the bound asserted.
+WEDGE_TRANSPORT_MEASURED = 3.3e-9
+WEDGE_TRANSPORT_RAW = 0.42
+WEDGE_TRANSPORT_BOUND = 1e-6
+
+
 @pytest.fixture(autouse=True)
 def _drop_compiled_code():
     """``CLAUDE.md``'s rule for a file that sweeps cells: keep the results and
@@ -609,17 +616,42 @@ def test_a_k_set_with_two_divisions_along_the_normal_is_refused():
                                calculator.get_scf(), exit_height=0.1, height=0.9)
 
 
-def test_a_symmetry_reduced_k_set_is_refused():
-    """A wedge sums to the map symmetrised over the *whole* point group, and
-    only the subgroup that leaves the exit plane where it is belongs to this
-    geometry: a mirror through the slab exchanges the tip side with the
-    substrate side, which is not a symmetry of a tip above a substrate.
+def test_a_symmetry_reduced_k_set_is_completed_over_its_image_geometries():
+    """The vertical map on a wedge, against the whole grid at the same density.
+
+    A wedge sums to the map averaged over the whole point group, and a mirror
+    through the slab exchanges the tip side with the substrate side, which is
+    not a symmetry of a tip above a substrate. So the term at a wedge point's
+    image is evaluated in the image *geometry* -- tip at ``g^-1 r``, exit plane
+    through the mirror -- and averaged, which is exact. Graphene, the 6x6x1
+    grid whole (36 points) and reduced by ``D6h`` with time reversal. Measured
+    on D22 at ``WEDGE_TRANSPORT_MEASURED`` of the peak; the uncompleted wedge
+    sum was ``WEDGE_TRANSPORT_RAW`` off. A spin-selective lead is still refused
+    on a wedge, its acceptance being an axial vector the operations turn.
     """
-    calculator = _converged("h-sheet")
-    other = Calculator.from_file(CASES / "graphene-bilayer.in", pseudo_dir=PSEUDO)
-    with pytest.raises(NotImplementedError, match="symmetry-reduced"):
-        run_vertical_transport(other.system, other.pseudos,
-                               calculator.get_scf(), exit_height=0.1, height=0.9)
+    from defuqumat.workflows.nscf import denser_grid
+
+    calculator = _converged("graphene-monolayer")
+    scf = calculator.get_scf()
+    # Away from the Dirac point, where the generic k-points carry the map: at
+    # E_F only K and K' do, which time reversal already pairs, and there the
+    # uncompleted wedge sum happens to be right too (1.6e-8 against 1.8e-8).
+    energies = float(scf.fermi_energy) + np.array([-0.35, -0.2, 0.15])
+    options = dict(exit_height=0.38, height=0.62, shape=(5, 5), broadening=0.03,
+                   nbnd=12, conv_thr=1e-10, energies=energies)
+    whole = run_vertical_transport(calculator.system, calculator.pseudos, scf,
+                                   grid=(6, 6, 1), **options)
+    wedge_k = denser_grid(calculator.system, (6, 6, 1))
+    assert wedge_k.nk < 36
+    wedge = run_vertical_transport(calculator.system, calculator.pseudos, scf,
+                                   kpoints=wedge_k, **options)
+    right = np.asarray(whole.values)
+    error = np.max(np.abs(np.asarray(wedge.values) - right)) / np.max(np.abs(right))
+    print(f"wedge against whole grid: {error:.3e} of the peak {np.max(np.abs(right)):.6e}")
+    assert error < WEDGE_TRANSPORT_BOUND
+    with pytest.raises(NotImplementedError, match="spin-selective lead"):
+        run_vertical_transport(calculator.system, calculator.pseudos, scf,
+                               kpoints=wedge_k, spin="up", **options)
 
 
 def test_the_dense_grid_is_built_whole_rather_than_reduced():

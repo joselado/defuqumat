@@ -1,12 +1,11 @@
 ! Fcc platinum with spin-orbit coupling, for the j-resolved projected density of
 ! states. `test-suite/pw_spinorbit/spinorbit.in` with three changes and no others.
 !
-! `nosym`/`noinv` and an unshifted grid, because a spinor projection cannot yet
-! be symmetrised here: `sym_proj_so` averages over the point group with the SU(2)
-! representation of each operation beside the rotation of the harmonics, and
-! nothing in defuqumat builds those. Run this way both codes use the whole grid and
-! neither averages, so the comparison is of the projection itself. `projwfc.x`
-! is given `lsym = .false.` to match.
+! `nosym`/`noinv` and an unshifted grid, so that both codes use the whole grid
+! and neither averages, and the comparison is of the projection itself;
+! `projwfc.x` is given `lsym = .false.` to match. The symmetrised projection,
+! `sym_proj_so`, is checked against this closed grid by its wedge twin
+! `pt-soc.in`.
 !
 ! 2x2x2 rather than 4x4x4: what is being compared is a projection at fixed
 ! states, so the k-set only has to be the same one on both sides.
