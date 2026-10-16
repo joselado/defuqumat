@@ -178,8 +178,16 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
 !!! note "Limits"
     A spiral with spin-orbit coupling switched on gives an error, because the
     coupling breaks the generalized Bloch theorem, and Elk refuses this too. At
-    `soc_scale = 0` a fully relativistic dataset is allowed. A spiral needs
-    `nosym` and the full k-mesh, because the spin space group is not in the code.
+    `soc_scale = 0` a fully relativistic dataset is allowed. A spiral uses
+    symmetry. The code keeps the operations that leave $\mathbf q$ unchanged and
+    that map the moment of each atom onto the moment of its image, and it reduces
+    the k-mesh with them, without time reversal. The energy, the moments, the
+    forces, the stress and the density of states are then the same as with
+    `nosym`. Some runs still need `nosym`: an ultrasoft or PAW dataset, DFT+U, a
+    fully relativistic dataset, an explicit list of k-points (so also a band
+    structure along a path), the site angular momenta and the projected density
+    of states. A change of $\mathbf q$ also needs `nosym`, so $dE/d\mathbf q$,
+    the relaxation of $\mathbf q$ and the scan need it too.
     It also needs starting moments off the rotation axis $z$, because a moment
     along $z$ does not turn and the run would converge to the ferromagnet, so you
     set `angle1` or give the moments a transverse part.

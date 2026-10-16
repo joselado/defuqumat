@@ -286,18 +286,22 @@ several cards are in
 !!! note "Limits"
     With pools, only `get_scf`, `get_forces`, `get_stress` and `get_relax`
     run. Every other method gives an error that names it. More pools than
-    k-points give an error. An SCF with a `scf_solver` other than the normal
-    mixing gives an error with pools, and so do the forces and the stress
-    with a `method` other than the default `"autodiff"`. A starting state
-    (`starting_from`) whose wavefunctions were held by a different number of
-    pools gives an error, so you start from its density instead, or use the
-    same number of pools. A checkpoint does not have this limit.
+    k-points give an error. With pools, `scf_solver='newton-krylov'` runs with
+    its default Jacobian, `jvp='finite-difference'`. With `jvp='autodiff'` or
+    `jvp='sternheimer'` it gives an error. The forces and the stress give an
+    error with a `method` other than the default `"autodiff"`. A starting state
+    (`starting_from`) from a run with pools also works when the k-points are
+    shared out differently in the new run. The states move to the pool that
+    needs them. A starting state from a run with pools, given to a run without
+    pools, gives an error. In that case you start from its density.
 
-    The SCF does not write a checkpoint when the magnetic field comes from a
-    fixed-spin-moment scheme (`constrained_magnetization = 'fsm'`,
-    `'atomic fsm'` or `'atomic fsm direction'`). It says so once and runs on
-    without one, because this field changes at every iteration and no input
-    file says what it reached, so a restart would go back to the input field.
+    A fixed-spin-moment run (`constrained_magnetization = 'fsm'`, `'atomic fsm'`
+    or `'atomic fsm direction'`) also writes a checkpoint. This field changes at
+    every iteration, so the checkpoint stores the field that the scheme reached,
+    and a restart continues from that field. On bcc iron the restarted run takes
+    the same 26 iterations as a run without a stop. If you load such a state
+    yourself with `load_state`, you give `calculation=`, because the rest of the
+    field comes from the input file.
     An applied field and a penalty constraint are saved normally.
     `checkpoint_every`, the number of iterations between two checkpoints (10
     if you do not give it), must be at least 1. A run that continues from its

@@ -49,8 +49,10 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   augmentation charge is the resident table displaced to `Q_ij(G - q)`, and that table is
   a function of `q` exactly as `|k ± q/2 + G|^2` and `vkb` are, so `dE/dq` rebuilds it
   rather than differentiating at a frozen one. Refused for a spiral: spin-orbit coupling
-  switched on, permanently, symmetry (until the spin space group is written, so `nosym`
-  and the full grid), and — for `dE/dq` alone — a *tabulated* augmentation table, which
+  switched on, permanently, symmetry beside an augmented dataset, DFT+U, `lspinorb`, an
+  explicit k-list, the site angular momenta, the symmetrised projections or a change of
+  `q` (the spin space group that keeps `q` and the moments is used otherwise, P155, I50),
+  and — for `dE/dq` alone — a *tabulated* augmentation table, which
   reads `|q|` on the host and cannot take a tracer.
 - **Spin-orbit coupling on a spiral, to first order** (P123, `workflows/spiral_soc.py`).
   The spiral runs on a fully-relativistic dataset at `soc_scale = 0`, the one form of the
@@ -205,9 +207,10 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   can be in it (P138, `potential = 'hxc'`, the outer fixed point a GMRES, never the static
   response's mixing, which diverges at a resonance). Ultrasoft, PAW, `nspin = 2` and
   spinors run at a frozen potential (P139 to P141), and a `K_POINTS gamma` ground state is
-  propagated on the whole sphere (P154, I39). Refused: DFT+U, a spin spiral, a ground state
-  under a magnetic field or a constrained moment, and a half-sphere `Calculation` handed to
-  the driver directly.
+  propagated on the whole sphere (P154, I39). A ground state under a magnetic field or a
+  constrained moment propagates under the field the SCF ended with (P155, I64), a penalty
+  constraint at `frozen` only. Refused: DFT+U, a spin spiral, and a half-sphere
+  `Calculation` handed to the driver directly.
 - **Converging a cell with vacuum** (P129, `mixing_mode = 'ldos'`): Herbst and Levitt's
   preconditioner, screening built from the LDOS at `e_F` out of the density's own pass. Two
   rules bind it. The LDOS is a **Gaussian** whatever the run smears with, because the inner
@@ -221,8 +224,9 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   `tshift` moves the origin. `rfpts` is transcribed **literally** so the check can be
   Elk's own `RHO3D.OUT`, pointwise. The result is a **null**: the seed buys no iterations,
   because the cusp it carries lives inside the pseudisation radius where the pseudo
-  density is built not to look like it. A spin-polarized state, a spiral, DFT+U, an element
-  with a **core** and a *fixed* Elk density are refused by name.
+  density is built not to look like it. A collinear spin-polarized state seeds an
+  `nspin = 2` run (P155, I69); a noncollinear state, a spiral, a fixed spin moment, DFT+U,
+  an element with a **core** and a *fixed* Elk density are refused by name.
 
 **One calculation on many cores** (P124, `defuqumat/parallel.py`): `DEFUQUMAT_POOLS` runs
 one calculation as that many processes by k-point, `pw.x -nk`, joined through

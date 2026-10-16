@@ -109,9 +109,12 @@ flips its spin.
 
 !!! note "Limits"
     Magnons need `nspin = 2`, because without a collinear magnetization there
-    is no transverse channel and the kernel $B_{xc}/m$ does not exist. A
-    noncollinear ground state gives an error, since it needs the full
-    $4\times4$ spin-density response, which is a different object.
+    is no transverse channel and the kernel $B_{xc}/m$ does not exist. A spinor
+    run (`noncolin = .true.`) works when its moment points along $z$ and there is
+    no spin-orbit coupling. It gives the same numbers as the `nspin = 2` run. A
+    noncollinear texture gives an error, since it needs the full $4\times4$
+    spin-density response. Spin-orbit coupling and an ultrasoft spinor run give
+    an error.
 
     Magnons need the full k-mesh, so a symmetry-reduced k-set gives an error and
     you run with `nosym = .true.` and `noinv = .true.`. The reason is that
@@ -128,11 +131,16 @@ flips its spin.
 
     A spin spiral gives an error, because its two spinor components live on
     plane-wave spheres centred at $\mathbf k$ plus and minus half the spiral
-    wave vector, and the matrix elements we compute need one sphere. A
-    Hubbard $U$ gives an error, because it responds to the magnetization too.
-    A magnetic field or a constrained moment gives an error, because a field
-    breaks the rotation symmetry that Goldstone's theorem rests on, and the magnon in a field has a Zeeman gap that we do
-    not include. A potential-only meta-GGA gives an error, because it has no
+    wave vector, and the matrix elements we compute need one sphere. A Hubbard
+    $U$ works with the simplified functional. The response then has one more
+    entry for each pair of orbitals of a correlated atom, and you pass nothing
+    new. A Hubbard $J$ (the full functional) and `BETA` give an error.
+
+    A uniform `B_field` works. The magnon at $\mathbf q = 0$ then sits at the
+    Zeeman energy $2B$, not at zero, and `.goldstone` is read there. `.larmor`
+    gives this energy. A constrained moment gives an error, because it changes
+    the functional. A `LOCAL_MAGNETIC_FIELDS` card gives an error, because a
+    field inside spheres has no single Zeeman energy. A potential-only meta-GGA gives an error, because it has no
     exchange-correlation energy, and the kernel comes from the energy staying
     the same under a global spin rotation. A run with `nosource` gives
     an error, because the kernel $B_{xc}/m$ is a scalar only while $B_{xc}$ is

@@ -355,10 +355,17 @@ what we read is the torque on each site.
     collinear channels. In both cases `magnetization='seed'` keeps the converged
     charge and takes the moment from the new starting moments.
     `magnetization='carry'` gives an error when the source has no moment. A
-    source with a noncollinear magnetization does not cross into a spin spiral,
-    or out of one, because a spiral measures $m_x$ and $m_y$ in the frame that
-    turns with $\mathbf q$. A collinear source does cross, and a spiral continues
-    from another spiral at any $\mathbf q$.
+    spiral measures $m_x$ and $m_y$ in the frame that turns with $\mathbf q$. So
+    a noncollinear magnetization crosses into a spiral, or out of one, only when
+    $\mathbf q$ is a reciprocal lattice vector of the cell, for example
+    `spiral_q = (0, 0, 1)` or zero. Then the code turns $m_x$ and $m_y$ by the
+    angle $\mathbf q\cdot\mathbf r$, and the new run starts on its fixed point.
+    For any other $\mathbf q$ the spiral repeats only in a supercell, so it gives
+    an error. A DFT+U state does not cross this boundary. A collinear source does
+    cross, and a spiral continues from another spiral at any $\mathbf q$. A
+    spiral does not continue into a collinear run (`nspin = 2`), because its
+    moment turns from point to point. The kinetic energy density of a meta-GGA
+    run does not cross this boundary, so the new run builds its own.
 
     The source of a continuation must have the same
     cell, the same grid and the same number of electrons, so a dataset with

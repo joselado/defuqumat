@@ -416,8 +416,17 @@ which we compute in the page about stress with `get_elastic_constants()`.
     With `nosym`, the dielectric constant, the Born charges, the phonons at
     $\Gamma$, the Raman tensors, the strain response and the electrostriction
     tensors need an unshifted k-mesh, and a shifted one gives an error,
-    because a shifted mesh does not have the symmetry of the crystal. The
-    phonons of a part of the atoms (`atoms=`) need `nosym`.
+    because a shifted mesh does not have the symmetry of the crystal.
+
+    With symmetry, the phonons of a part of the atoms (`atoms=`) need a set of
+    atoms that the symmetry operations map onto itself. For another set you get
+    an error, and it names the smallest such set that contains yours. With
+    `nosym` any set works. On a GPU in `memory_mode = 'memory'`, or with a
+    streamed wavefunction store, a part of the atoms with symmetry also gives an
+    error. Use `nosym` there, or a memory mode that holds the whole k-mesh. You
+    can also get the phonons of a part of the atoms from the response that the
+    Raman tensors keep (`keep_internals=True`). With `nosym` this works on the
+    k-chunked route too.
 
     The electron-phonon coupling gives an error for an insulator, where there
     are no states at the Fermi level, at $\mathbf q = 0$, and for everything

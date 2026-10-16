@@ -208,7 +208,8 @@ ground state then give an error, because they need a converged density.
     A checkpoint holds the state and not the report of the run. The stress, the
     solver, the history and the site charges and moments are not stored. A
     DFT+U state is saved, and its Hubbard manifold is built again from the
-    `HUBBARD` card when it is loaded.
+    `HUBBARD` card when it is loaded. A fixed-spin-moment state is saved with
+    the field that the scheme reached.
 
     A functional that the pseudopotentials name and that we do not implement
     gives an error, and it is never replaced by LDA.
