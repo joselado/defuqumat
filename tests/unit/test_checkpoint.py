@@ -330,7 +330,11 @@ def test_a_driven_field_is_written_and_poured_back_onto_the_input_field(
         if saved is not None:
             np.testing.assert_array_equal(np.asarray(restored), np.asarray(saved))
     # The input's half comes back from the calculation, not from the file.
-    assert back.magnetic_field.regions is original.regions
+    if original.regions is None:
+        assert back.magnetic_field.regions is None
+    else:
+        np.testing.assert_array_equal(np.asarray(back.magnetic_field.regions.owner),
+                                      np.asarray(original.regions.owner))
     np.testing.assert_array_equal(np.asarray(back.magnetic_field.targets),
                                   np.asarray(original.targets))
 

@@ -576,6 +576,51 @@ def test_a_driven_field_resumes_where_the_controller_left_it(pseudo_dir, tmp_pat
     assert resumed.total_energy == pytest.approx(whole.total_energy, abs=1.0e-9)
 
 
+@pytest.mark.parametrize("update,stop", [("elk", 10), ("secant", 12)])
+@pytest.mark.slow
+def test_an_interrupted_fixed_spin_moment_run_costs_the_same_iterations(
+    pseudo_dir, tmp_path, update, stop
+):
+    """The count is the assertion, as for a run with no field (I65).
+
+    ``fe-fsm.in`` holds bcc iron at 2.0 mu_B. Measured on D22 (2026-10-16):
+    under Elk's update the run converges in 26 iterations, interrupted at 10
+    and resumed it takes 10 + 16 = 26 with the energy 1.2e-11 Ry away, and the
+    same resume with the input's field in place of the driven one takes 57 and
+    lands 1.2e-5 Ry away. Under the secant update 30 against 30, and 32 with
+    the field dropped. The secant case is the one that exercises the previous
+    pair, since its steps fall on both sides of the interruption.
+    """
+    from tests.conftest import GENERATED
+
+    path = GENERATED / "fe-fsm.in"
+    if not path.is_file():
+        pytest.skip(f"{path} is not present")
+    text = path.read_text().replace(
+        "lambda = 0.02", f"lambda = 0.02\n    fsm_update = '{update}'")
+    cell = tmp_path / "fe.in"
+    cell.write_text(text)
+    out = tmp_path / "ckpt"
+    options = dict(conv_thr=1.0e-8, verbose=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        calculator = Calculator.from_file(cell, pseudo_dir=pseudo_dir,
+                                          announce=False)
+        whole = run_scf(calculator.system, calculator.pseudos, **options)
+        stopped = run_scf(calculator.system, calculator.pseudos,
+                          max_iterations=stop, checkpoint_dir=out,
+                          checkpoint_every=1, **options)
+        resumed = run_scf(calculator.system, calculator.pseudos,
+                          checkpoint_dir=out, checkpoint_every=1, **options)
+
+    assert whole.converged and resumed.converged and not stopped.converged
+    assert resumed.iterations == whole.iterations
+    assert resumed.total_energy == pytest.approx(whole.total_energy, abs=1.0e-9)
+    np.testing.assert_allclose(np.asarray(resumed.magnetic_field.uniform),
+                               np.asarray(whole.magnetic_field.uniform),
+                               rtol=0, atol=1.0e-10)
+
+
 def test_a_checkpoint_beats_a_seed_passed_on_the_same_line(tmp_path, pseudo_dir):
     """The recovery this feature advertises is "resubmit the same line".
 
