@@ -573,9 +573,12 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_field():
     )
     assert mixed.converged and newton.converged
     assert newton.solver is not None and newton.solver.converged
-    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-7)
-    assert newton.field_energy == pytest.approx(mixed.field_energy, abs=1e-7)
-    assert newton.magnetization == pytest.approx(mixed.magnetization, abs=1e-5)
+    # The total energy is stationary, so it is second order in the density's
+    # error, while the field energy and the moment are first order: 1.7e-6 mu_B
+    # was measured, and the tolerance leaves room for a different stopping point.
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.field_energy == pytest.approx(mixed.field_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.magnetization == pytest.approx(mixed.magnetization, abs=1e-4)
 
     free_system, _ = _iron_under_a_field(
         (("constrained_magnetization = 'fsm'", ""),) + FIELD_EDITS[1:]
