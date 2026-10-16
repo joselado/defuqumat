@@ -37,6 +37,7 @@ from defuqumat.tddft.chi0 import (
     independent_response,
     require_a_sum_over_states_regime,
 )
+from defuqumat.scf.whole_sphere import whole_sphere_calculation
 from defuqumat.tddft.dyson import MAX_ITERATIONS, TOLERANCE, solve_dyson
 from defuqumat.tddft.kernels import (
     DEFAULT_KERNEL, alda_matrix, get_kernel, refuse_a_polarized_alda,
@@ -243,6 +244,12 @@ def run_absorption(
     # only the electron count, which no chunk size touches.
     if calculation is None:
         calculation = Calculation(system, pseudos, k_batch=k_batch)
+    # Gamma-only storage: the bands are solved on the whole sphere at k = 0,
+    # since everything after the solve -- the pair densities, ``dH/dk``, the
+    # static residual's Sternheimer solve -- is written for it
+    # (``scf/whole_sphere.py``). The SCF keeps its half sphere.
+    calculation = whole_sphere_calculation(calculation)
+    system = calculation.system
     require_a_sum_over_states_regime(calculation)
     if rule.name == "alda":
         refuse_a_polarized_alda(density, calculation.system.cell)

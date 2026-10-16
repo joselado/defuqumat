@@ -101,13 +101,14 @@ of states holds, and the site matrix ``(natomwfc, natomwfc)``.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
 
-from defuqumat.basis.gvectors import refuse_gamma_storage
 from defuqumat.pseudo.spinorbit import LMAXX, rot_ylm
 from defuqumat.scf.streaming import is_host_store
+from defuqumat.scf.whole_sphere import unfold_gamma_states
 
 __all__ = [
     "SiteAngularMomentum",
@@ -275,6 +276,10 @@ def angular_momenta(
             "on, so there is no site to resolve an angular momentum onto"
         )
 
+    calculation, states = unfold_gamma_states(calculation, result.wavefunctions)
+    if states is not result.wavefunctions:
+        result = _StatesAndWeights(states, result.occupations)
+
     if _on_spin_angle_functions(calculation):
         from defuqumat.projwfc.projections import calculation_channels
 
@@ -300,16 +305,18 @@ def _on_spin_angle_functions(calculation) -> bool:
                 and calculation.projectors.qq is not None)
 
 
+class _StatesAndWeights(NamedTuple):
+    """What :func:`_site_density_matrix` reads off a result, with the states replaced."""
+
+    wavefunctions: object
+    occupations: object
+
+
 def _refuse_what_is_not_written(calculation) -> None:
-    refuse_gamma_storage(
-        bool(getattr(calculation, "gamma_only", False)),
-        "site-resolved angular momenta and the Loewdin charge",
-        "<phi|S|psi> is a plain sum over the stored k + G list here, exactly as "
-        "it is in the projected density of states, which refuses this in "
-        "projections.py -- but this path builds its projectors through "
-        "build_atomic_projectors and never reaches that guard, so <L>, <S> and "
-        "<J> come back small, smooth and wrong rather than raising"
-    )
+    # Gamma-only storage is not refused: ``angular_momenta`` puts the states on
+    # the whole sphere first (:mod:`defuqumat.scf.whole_sphere`), because
+    # ``<phi|S|psi>`` below is a plain sum over the k + G list and on a half
+    # sphere <L>, <S> and <J> come back small, smooth and wrong.
     if getattr(calculation, "spiral", None) and getattr(
         calculation, "is_ultrasoft", False
     ):
