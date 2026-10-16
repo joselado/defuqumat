@@ -41,6 +41,11 @@ couples two atoms' cores inside the nonlinear ``E_xc`` and is swapped to ``q``
 like the Ewald sum (:func:`swap_core`), and the bare perturbation carries
 ``f_xc drho_core`` (:func:`core_displacements_at_q`), ``ph.x``'s ``addcore``
 and ``dynmat_nlcc``.
+That is a norm-conserving statement: for an ultrasoft or PAW dataset
+``addusdynmat`` adds ``dvanqq``'s ``int2`` and ``int5``, which pair the local
+potential of one atom with the augmentation charge of another at ``G + q``, so
+the frozen Hessian is not atom-diagonal there and is a function of ``q``
+(``notes/incompat/I81.md``; the dataset is refused).
 
 **What is refused, and it is most things.** This lands the norm-conserving
 insulator and the norm-conserving metal on a full k-grid: no ultrasoft or PAW
@@ -1593,7 +1598,11 @@ def frozen_force_constants(calculation, solver, positions, density, q_cart,
     ``dynmat_us.f90:105-124`` writes into ``dynwrk(na_icart, na_jcart)`` -- one
     atom index, used twice -- and ``init_us_2`` there is called at ``ikk``, so
     nothing in the routine is a function of ``xq``. A second derivative taken
-    twice at the *same* site carries ``e^{iqR} e^{-iqR} = 1``.
+    twice at the *same* site carries ``e^{iqR} e^{-iqR} = 1``. That reading
+    covers the norm-conserving routine only: ``dynmat_us.f90:236`` then calls
+    ``addusdynmat``, whose ``int2``/``int5`` terms are cross-atom and carry
+    ``xq`` (``dvanqq.f90:106-191``), which is one of the reasons an ultrasoft or
+    PAW dataset is refused at ``q != 0``.
 
     **A core charge adds one term that does know about** ``q`` (I80). The
     Gamma functional differentiates ``E_xc[rho + rho_core(tau)]`` twice at a
@@ -1661,23 +1670,29 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
     if calculation.is_ultrasoft:
         raise NotImplementedError(
             "a phonon at q != 0 with an ultrasoft or PAW dataset is not "
-            "implemented, and it is four absent terms rather than the one "
-            "this message used to name. (1) The response density has no "
-            "augmentation: response_density_at_q returns the pseudo pair "
-            "density and stops, where addusddens.f90 adds sum_ij dbecsum_ij "
-            "Q_ij(q+G), the table evaluated at the *shifted* modulus (its "
-            "setqmod call before qvan2). (2) The induced potential has no "
-            "int3: induced_perturbation_at_q applies dV_scf as a local "
-            "operator, where int3_ij = int dV_scf Q_ij e^{iqr} multiplies the "
-            "projectors (LR_Modules/adddvscf.f90). (3) The bare term freezes "
-            "D_ij: bare_displacements_at_q closes over the unperturbed "
-            "coefficients, so d/du of int V_eff Q_ij is missing "
-            "(dvanqq.f90's int1/int2). (4) The orthonormality multipliers do "
-            "not exist at q != 0 at all -- P39's overlap_derivatives pairs "
-            "becp at one k-point, which is the Gamma case by construction. "
-            "The object the first two need is q_ij(q+G), which is written "
-            "(defuqumat.tddft.spinchi0.augmentation_factors, over "
-            "topology.augmentation.augmentation_at_q)"
+            "implemented, and it is a second implementation rather than four "
+            "missing terms (notes/incompat/I81.md, read in PHonon/PH). At "
+            "Gamma every augmented term falls out of one jvp of the force's "
+            "gradient (P39); at q != 0 there is no cell energy to "
+            "differentiate, and response_force_constants is the "
+            "hand-transcribed drhodv contraction, so each term is a "
+            "transcription with no tangent to check it against. Absent here: "
+            "(1) addusddens's sum_ij dbecsum_ij Q_ij(q+G) and the moving "
+            "Q_ij's own term in drho, (2) adddvscf's int3 = int dV_scf Q_ij "
+            "e^{iqr} in the perturbation, (3) dvanqq's int1 and int2 in the "
+            "bare term (bare_displacements_at_q freezes D_ij), (4) P39's whole "
+            "orthogonality set at q: dpsi^ort pairs evq at k+q with evc at k "
+            "(compute_drhous.f90 builds vkb at ikq), drhous and becsumort in "
+            "the screening, dLambda, drhodvus in the assembly and the int1/"
+            "int2 half of drhodvnl, (5) a frozen Hessian that is not "
+            "atom-diagonal: addusdynmat contracts dvanqq's int2 and int5, "
+            "which pair V_loc(G+q) of one atom with Q_ij(G+q) of another under "
+            "eigqts(na) conj(eigqts(nb)), so frozen_force_constants' 'the "
+            "same matrix at every q' is a norm-conserving fact, and (6) for "
+            "PAW the one-centre response at q. q_ij(q+G) itself is written "
+            "(defuqumat.tddft.spinchi0.augmentation_factors). Use a "
+            "norm-conserving dataset, or, for an insulator, the Gamma phonon "
+            "of a commensurate supercell"
         )
     if system.noncolin:
         # ``nspin = 2`` runs (I82): the solve, the bare term and the assembly
