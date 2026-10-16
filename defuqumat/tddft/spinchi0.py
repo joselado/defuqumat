@@ -249,6 +249,32 @@ def require_a_transverse_regime(calculation) -> None:
             "beside it -- so the enhancement would be wrong where the matrix "
             "element is right. Use an ultrasoft or norm-conserving dataset"
         )
+    # The spiral and ``nosource`` are both noncollinear, so they are asked
+    # first: behind the generic noncollinear refusal their own reasons were
+    # unreachable (I59, I62).
+    if calculation.spiral:
+        raise NotImplementedError(
+            "a transverse spin susceptibility on a spin spiral is not "
+            "implemented: the spinor components live on spheres centred at "
+            "k +- q/2, so a plane-wave matrix element is not a single gather, "
+            "and the transverse response of a spiral is the 4x4 one taken in "
+            "the rotating frame at its own q (notes/MAGNETISM-NEXT.md, D)"
+        )
+    if getattr(calculation, "source_free", False):
+        # The sharpest of the nosource refusals, because the kernel *is* the
+        # assumption the projection breaks: f_xc^{+-} = B_xc/m is a scalar only
+        # while B_xc is parallel to m, which is exactly what projecting the
+        # longitudinal part out stops being true. Dividing the two anyway gives
+        # a finite kernel and a plausible magnon.
+        raise NotImplementedError(
+            "a transverse spin susceptibility under nosource is not "
+            "implemented: the kernel B_xc/m is a scalar only because the local "
+            "functional makes B_xc parallel to m at every point, and the "
+            "source-free projection is precisely what breaks that -- the "
+            "quotient is still finite and the magnon it gives is meaningless. "
+            "What is missing is a tensor kernel dB_xc/dm in the transverse "
+            "plane, on top of the noncollinear response itself"
+        )
     if system.noncolin:
         raise NotImplementedError(
             "a transverse spin susceptibility of a noncollinear ground state "
@@ -262,12 +288,6 @@ def require_a_transverse_regime(calculation) -> None:
             f"has nspin = {calculation.nspin}: without a collinear "
             "magnetization there is no transverse channel to separate and the "
             "kernel B_xc/m does not exist"
-        )
-    if calculation.spiral:
-        raise NotImplementedError(
-            "a transverse spin susceptibility on a spin spiral is not "
-            "implemented: the spinor components live on spheres centred at "
-            "k +- q/2, so a plane-wave matrix element is not a single gather"
         )
     if getattr(calculation, "is_hubbard", False):
         raise NotImplementedError(
@@ -302,19 +322,6 @@ def require_a_transverse_regime(calculation) -> None:
             "a transverse spin susceptibility with a potential-only meta-GGA "
             "is not implemented: there is no exchange-correlation energy for "
             "the rotation argument to be about"
-        )
-    if getattr(calculation, "source_free", False):
-        # The sharpest of the nosource refusals, because the kernel *is* the
-        # assumption the projection breaks: f_xc^{+-} = B_xc/m is a scalar only
-        # while B_xc is parallel to m, which is exactly what projecting the
-        # longitudinal part out stops being true. Dividing the two anyway gives
-        # a finite kernel and a plausible magnon.
-        raise NotImplementedError(
-            "a transverse spin susceptibility under nosource is not "
-            "implemented: the kernel B_xc/m is a scalar only because the local "
-            "functional makes B_xc parallel to m at every point, and the "
-            "source-free projection is precisely what breaks that -- the "
-            "quotient is still finite and the magnon it gives is meaningless"
         )
     if is_reduced(calculation.system.kpoints):
         raise NotImplementedError(

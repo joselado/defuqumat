@@ -68,3 +68,37 @@ def test_a_constrained_moment_is_refused():
     calculation = _calculation(text)
     with pytest.raises(NotImplementedError, match="constrained moment"):
         require_a_transverse_regime(calculation)
+
+
+# --- I59 and I62: the noncollinear family -------------------------------------
+
+
+def test_a_spiral_is_refused_for_its_own_reason():
+    """``h-chain-spiral.in``: the spiral branch used to sit behind ``noncolin``.
+
+    A spiral is noncollinear by construction, so the generic refusal fired
+    first and the spiral's own reason (two spheres, the rotating frame) was
+    never reached.
+    """
+    calculation = _calculation((CASES / "h-chain-spiral.in").read_text())
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        require_a_transverse_regime(calculation)
+
+
+def test_nosource_is_refused_for_its_own_reason():
+    """``ni-noncol-111-nosource.in``: the source-free branch, reached.
+
+    ``nosource`` needs ``noncolin`` (``refuse_source_free``), so before this
+    branch was moved ahead of the noncollinear one it could not fire at all.
+    """
+    calculation = _calculation((CASES / "ni-noncol-111-nosource.in").read_text())
+    assert calculation.source_free
+    with pytest.raises(NotImplementedError, match="under nosource"):
+        require_a_transverse_regime(calculation)
+
+
+def test_a_noncollinear_magnet_is_still_refused():
+    """``h-chain-90deg.in``: a texture, which needs the 4x4 response."""
+    calculation = _calculation((CASES / "h-chain-90deg.in").read_text())
+    with pytest.raises(NotImplementedError, match="noncollinear ground state"):
+        require_a_transverse_regime(calculation)

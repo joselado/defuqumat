@@ -195,8 +195,10 @@ def test_an_unpolarized_run_is_refused():
 
 
 def test_a_noncollinear_run_is_refused():
+    # A spiral is refused for its own reason now (I59), ahead of the generic
+    # noncollinear one; ``test_magnon_regimes.py`` fires both.
     calculation = _calculation("h-chain-spiral.in")
-    with pytest.raises(NotImplementedError, match="noncollinear"):
+    with pytest.raises(NotImplementedError, match="spin spiral"):
         require_a_transverse_regime(calculation)
 
 
