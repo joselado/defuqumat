@@ -6564,6 +6564,9 @@ def _result_for_stress(calculation, eigenvalues, wg, wavefunctions, rho, terms):
 #: when one directory is given to both.
 SCF_CHECKPOINT = "scf_iteration.npz"
 SCF_MIXER = "scf_mixer.npz"
+#: ``mixing_mode = 'robust'``'s supervisor, written beside the two above only by
+#: a robust run (:func:`~defuqumat.scf.checkpoint.save_supervisor`).
+SCF_SUPERVISOR = "scf_supervisor.npz"
 
 
 class _InProgressState:
@@ -6639,7 +6642,27 @@ class _InProgressState:
         self.hubbard_setup = None
 
 
-def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
+def _write_supervisor(directory, robust, mixer, iteration) -> None:
+    """The robust mode's supervisor beside the mixer, or no stale one.
+
+    ``robust`` is ``(supervisor, damping, hamiltonian_in)``, or ``None`` for a
+    run in another mode, which removes a supervisor file a robust run left in
+    the same directory: a later robust resume would otherwise pour another
+    run's line search into its own (the iteration stamp catches a resume from
+    the checkpoint, not a ``mixing_from`` alone).
+    """
+    from defuqumat.scf.checkpoint import save_supervisor
+
+    path = Path(directory) / SCF_SUPERVISOR
+    if robust is None:
+        path.unlink(missing_ok=True)
+        return
+    supervisor, damping, hamiltonian_in = robust
+    save_supervisor(path, supervisor, damping, hamiltonian_in, mixer, iteration)
+
+
+def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None,
+                      robust=None):
     """One checkpoint: the state and the mixer's history, beside each other.
 
     **Both, or neither is worth writing.** A resume that restores the density
@@ -6652,16 +6675,21 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
     cadence and never every iteration. Failures are reported and do not stop the
     run: a full disk should cost the checkpoint, not the calculation that has
     been running for six hours.
+
+    Under ``mixing_mode = 'robust'`` the supervisor is the third part
+    (``robust``, see :func:`_write_supervisor`), since the next input is a
+    fraction of a step the supervisor holds and the mixer does not.
     """
     from defuqumat.scf.checkpoint import save_mixer, save_state
 
     directory = Path(directory)
     if isinstance(state.wavefunctions, PoolStore):
         return _write_pooled_checkpoint(directory, state, mixer, iteration,
-                                        verbose, pools)
+                                        verbose, pools, robust)
     try:
         save_state(state, directory / SCF_CHECKPOINT)
         save_mixer(mixer, directory / SCF_MIXER)
+        _write_supervisor(directory, robust, mixer, iteration)
     except NotImplementedError as refused:
         # ``reducebf`` and the fixed-spin-moment feedback change the field
         # between iterations, and ``save_state`` refuses to write a state whose
@@ -7027,7 +7055,8 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
         )
 
 
-def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools):
+def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools,
+                             robust=None):
     """A checkpoint written by k-point pools: every pool's rows, then rank 0's state.
 
     **The order is what keeps the set whole.** Every pool writes its rows to a
@@ -7069,6 +7098,9 @@ def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools)
         try:
             save_state(state, path)
             save_mixer(mixer, directory / SCF_MIXER)
+            # The supervisor is rank 0's alone, as the mixer is: only rank 0
+            # judges a trial, and every pool reads this file on a resume.
+            _write_supervisor(directory, robust, mixer, iteration)
             remove_stale_pool_rows(path, iteration)
         except OSError as failure:
             written = False
@@ -7186,17 +7218,24 @@ ROBUST_GROW_BETA = True
 
 
 
-def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
-                   checkpoint_dir, mixing_from, mixing_beta_mag) -> None:
+def _refuse_robust(calculation, *, scf_solver, rotate_moments,
+                   mixing_beta_mag) -> None:
     """Every regime ``mixing_mode = 'robust'`` does not take, by name, at setup.
 
     Where the merit function does not exist or is not one functional over the
     run: a potential-only meta-GGA has no energy, the Berry-phase field's energy
     is on the states, tetrahedra give no smooth ``I``, and a feedback field, a
     fading one or the orientation stepper change the functional between
-    iterations. The others are not implemented for it yet: k-point pools, a
-    checkpoint (the supervisor's state is not in one), a residual solver, and a
+    iterations. The others are not implemented for it: a residual solver, and a
     separate magnetization step, which the mode sets itself.
+
+    K-point pools and a checkpoint are not refused (``notes/incompat/I76.md``).
+    Under pools only rank 0 judges a trial, as only it mixes, and what it
+    decides reaches the others through the broadcast of the mixed state, plus,
+    on the bottom rung, the mixed Hamiltonian, the step ``alpha`` and the stop
+    (the loop's ``pooled and robust`` block). A checkpoint carries the
+    supervisor in a third file (:func:`_write_supervisor`), which a resume or a
+    ``mixing_from`` pours back (:func:`_restore_supervisor`).
     """
     reasons = []
     if calculation.functional.is_meta:
@@ -7214,10 +7253,6 @@ def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
         reasons.append("rotate_moments turns the input between iterations")
     if get_scf_solver(scf_solver) is not None:
         reasons.append(f"scf_solver = {scf_solver!r} replaces the mixing loop")
-    if pooled:
-        reasons.append("k-point pools are not implemented for it")
-    if checkpoint_dir is not None or mixing_from is not None:
-        reasons.append("a checkpoint does not carry the supervisor's state yet")
     if mixing_beta_mag is not None:
         reasons.append("the mode sets the magnetization's step itself")
     if reasons:
@@ -7281,6 +7316,67 @@ def _take_rung(rung, mixer, calculation, layout, rho) -> None:
             ldos_preconditioner(calculation.basis.dense, calculation.system.cell,
                                 tuple(np.shape(rho)), beta=mixer.beta))
     mixer.reset()
+
+
+def _restore_supervisor(supervisor, mixer, directory, resumed_at, calculation,
+                        layout, rho, verbose):
+    """Pour a saved supervisor back; ``(damping, hamiltonian_in)`` for the loop.
+
+    The counterpart of :func:`_write_supervisor`, called after the mixer
+    history is restored. With no file, or one stamped with another iteration
+    than the checkpoint being resumed, the supervisor starts afresh: the first
+    input is kept and the line search starts from it, which costs at most the
+    window and never the fixed point, and is said. The mixer's ``beta`` and
+    ``condition_limit`` come back as the supervisor left them, and an LDOS rung
+    already taken is installed again *without* the history reset
+    :func:`_take_rung` does, since the history restored is the one built under
+    it.
+    """
+    from defuqumat.scf.checkpoint import load_supervisor
+    from defuqumat.scf.robust import RUNGS
+
+    path = Path(directory) / SCF_SUPERVISOR
+    if not path.exists():
+        if verbose:
+            print(f"  no supervisor state in {directory}: mixing_mode = 'robust' "
+                  f"starts its line search from this input")
+        return None, None
+    try:
+        saved = load_supervisor(path)
+    except Exception as failure:       # noqa: BLE001 -- the mixer's reason
+        warnings.warn(
+            f"could not restore mixing_mode = 'robust''s supervisor from "
+            f"{directory} ({type(failure).__name__}: {failure}); its line search "
+            f"starts from this input. The density is unaffected",
+            RuntimeWarning, stacklevel=3)
+        return None, None
+    if resumed_at and saved["iteration"] != resumed_at:
+        warnings.warn(
+            f"the supervisor in {directory} was written at iteration "
+            f"{saved['iteration']} and the checkpoint resumed is iteration "
+            f"{resumed_at}, so it belongs to another run and is not used; "
+            f"mixing_mode = 'robust' starts its line search from this input",
+            RuntimeWarning, stacklevel=3)
+        return None, None
+    for name, value in saved["supervisor"].items():
+        setattr(supervisor, name, value)
+    if saved["mixer_beta"] is not None:
+        mixer.beta = saved["mixer_beta"]
+    if saved["condition_limit"] is not None:
+        mixer.condition_limit = saved["condition_limit"]
+    if (supervisor.rung >= RUNGS.index("ldos") and supervisor.smeared
+            and not supervisor.ldos):
+        mixer.precondition = (
+            ldos_preconditioner_g(layout, calculation.basis.dense,
+                                  calculation.system.cell, beta=mixer.beta)
+            if layout is not None else
+            ldos_preconditioner(calculation.basis.dense, calculation.system.cell,
+                                tuple(np.shape(rho)), beta=mixer.beta))
+    if verbose:
+        print(f"  supervisor restored from {directory}: rung "
+              f"{supervisor.record['rung']}, step x{supervisor.scale:.3f}"
+              f"{', damped Hamiltonian mixing' if saved['damping'] else ''}")
+    return saved["damping"], saved["hamiltonian_in"]
 
 
 def run_scf(
@@ -7741,9 +7837,8 @@ def run_scf(
         # supervisor below decides what is kept. Everything after this line sees
         # the inner mode, so the preconditioner and the fit are installed exactly
         # as they would be for it.
-        _refuse_robust(calculation, scf_solver=scf_solver, pooled=pooled,
-                       rotate_moments=rotate_moments, checkpoint_dir=checkpoint_dir,
-                       mixing_from=mixing_from, mixing_beta_mag=mixing_beta_mag)
+        _refuse_robust(calculation, scf_solver=scf_solver,
+                       rotate_moments=rotate_moments, mixing_beta_mag=mixing_beta_mag)
         smeared = calculation.system.occupations == "smearing"
         vacuum = vacuum_fraction(np.asarray(calculation.system.structure.positions),
                                  np.asarray(calculation.system.cell.at))
@@ -8352,6 +8447,13 @@ def run_scf(
         # scalars across the setup, and all four are plain Python floats and
         # ints by now.
         resumed_state = None
+
+    if robust and mixing_from is not None:
+        # After the mixer history, and after ``resumed_at``, which the
+        # supervisor file's stamp is checked against.
+        damping, hamiltonian_in = _restore_supervisor(
+            supervisor, mixer, mixing_from, resumed_at, calculation, layout, rho,
+            verbose)
 
     stopped_early = False
     berry_dipoles = None

@@ -198,3 +198,59 @@ def test_the_step_length_grows_while_every_trial_is_kept_and_falls_on_a_rejectio
     assert not sup.judge(-10.0, 1.0, 1e-9, 0)
     sup.retry()
     assert sup.beta == pytest.approx(0.2)
+
+
+def _fake_calculation(**overrides):
+    from types import SimpleNamespace
+
+    settings = dict(is_meta=False, berry_field=None, occupations="smearing",
+                    magnetic_field=None)
+    settings.update(overrides)
+    return SimpleNamespace(
+        functional=SimpleNamespace(is_meta=settings["is_meta"]),
+        berry_field=settings["berry_field"],
+        system=SimpleNamespace(occupations=settings["occupations"]),
+        magnetic_field=settings["magnetic_field"])
+
+
+_QUIET = dict(scf_solver="mixing", pooled=False, rotate_moments=False,
+              checkpoint_dir=None, mixing_from=None, mixing_beta_mag=None)
+
+
+def test_the_regimes_the_mode_takes_pass_its_guard():
+    from defuqumat.scf.driver import _refuse_robust
+
+    _refuse_robust(_fake_calculation(), **_QUIET)
+
+
+@pytest.mark.parametrize("calculation,options,words", [
+    (dict(is_meta=True), {}, "meta-GGA"),
+    (dict(berry_field=object()), {}, "lelfield"),
+    (dict(occupations="tetrahedra_opt"), {}, "tetrahedron"),
+    ({}, dict(rotate_moments=True), "rotate_moments"),
+    ({}, dict(scf_solver="newton-krylov"), "replaces the mixing loop"),
+    ({}, dict(mixing_beta_mag=0.1), "magnetization's step"),
+])
+def test_each_sibling_refusal_still_fires(calculation, options, words):
+    from defuqumat.scf.driver import _refuse_robust
+
+    with pytest.raises(NotImplementedError, match=words):
+        _refuse_robust(_fake_calculation(**calculation), **{**_QUIET, **options})
+
+
+def test_a_fading_field_is_still_refused():
+    from types import SimpleNamespace
+
+    from defuqumat.scf.driver import _refuse_robust
+
+    field = SimpleNamespace(constraint="none", reducebf=0.5)
+    with pytest.raises(NotImplementedError, match="fading"):
+        _refuse_robust(_fake_calculation(magnetic_field=field), **_QUIET)
+
+
+@pytest.mark.parametrize("options", [dict(pooled=True), dict(checkpoint_dir="x"),
+                                     dict(mixing_from="x")])
+def test_pools_and_checkpoints_pass_the_guard(options):
+    from defuqumat.scf.driver import _refuse_robust
+
+    _refuse_robust(_fake_calculation(), **{**_QUIET, **options})
