@@ -187,6 +187,18 @@ class ScfResidual:
     # ---- the map -------------------------------------------------------
     def step(self, x, psi0):
         """One SCF iteration as a pure function: ``x -> F(x)``, and the ``psi``."""
+        fx, psi, _ = self.step_states(x, psi0)
+        return fx, psi
+
+    def step_states(self, x, psi0):
+        """:meth:`step`, with the eigenvalues as well: ``(F(x), psi, eigenvalues)``.
+
+        For a caller outside the differentiated map that needs more of the
+        iteration than ``F``: the Newton-Krylov warm-up under
+        ``warmup_mixing = 'ldos'`` builds the LDOS at the Fermi level from these
+        states and eigenvalues. :meth:`jvp` differentiates :meth:`step`, whose
+        first return is this one's.
+        """
         calculation = self.calculation
         rho, becsum_, ns, tau = self.unpack(x)
         potential = calculation.potential(rho, tau=tau)
@@ -209,7 +221,7 @@ class ScfResidual:
         rho_out = calculation.density(psi, wg, becsum_out)
         ns_out = None if ns is None else calculation.occupation_matrix(psi, wg)
         tau_out = None if tau is None else calculation.kinetic_energy_density(psi, wg)
-        return self.flatten(rho_out, becsum_out, ns_out, tau_out), psi
+        return self.flatten(rho_out, becsum_out, ns_out, tau_out), psi, eigenvalues
 
     def flatten(self, rho, becsum_, ns=None, tau=None):
         """:meth:`pack`, inside a trace -- ``jnp`` rather than ``np``."""

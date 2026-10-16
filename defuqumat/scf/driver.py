@@ -5491,19 +5491,41 @@ class Calculation:
         derivatives go negative, and :func:`~defuqumat.scf.mixing.ldos_preconditioner`
         needs ``D >= 0``. Each channel at its own level when the magnetization is
         constrained (``two_fermi_energies``). ``None`` where there are no states
-        at the Fermi level to weight: fixed occupations and ``from_input``. A
-        tetrahedron run has no width to build the delta with and is refused.
+        at the Fermi level to weight: fixed occupations and ``from_input``.
+
+        **Tetrahedra take their own delta**, ``d wg_nk / d e_F``
+        (:func:`~defuqumat.scf.tetrahedra.tetrahedron_fermi_weights`), with no
+        width and no ``w_k`` factor, since the tetrahedra carry the zone
+        measure. Its sum over states is the tetrahedron DOS at ``e_F`` exactly,
+        and it is signed (Bloechl's correction, Kawamura's ``wlsm``), which the
+        preconditioner's clamp to ``D >= 0`` deals with and records
+        (``LDOSPreconditioner.clamped``).
         """
         scheme = self.system.occupations
         if scheme in ("fixed", "from_input"):
             return None
-        if scheme.startswith("tetrahedra"):
-            raise NotImplementedError(
-                "the LDOS at the Fermi level needs a smooth delta, and the tetrahedron "
-                "method has none; run_scf refuses mixing_mode = 'ldos' with it")
-        sigma = max(float(self.system.degauss), mixing_module.LDOS_SIGMA_MIN)
         eigenvalues = jnp.asarray(eigenvalues)
-        if eigenvalues.shape[0] == 2 and "fermi_energy_up" in levels:
+        two_levels = eigenvalues.shape[0] == 2 and "fermi_energy_up" in levels
+        if scheme.startswith("tetrahedra"):
+            from defuqumat.scf.tetrahedra import tetrahedron_fermi_weights
+
+            if getattr(self, "_tetrahedra", None) is None:
+                # The same construction as :meth:`occupations`, which is where
+                # the attribute is normally filled.
+                self._tetrahedra = tetrahedra_for(
+                    scheme, self.system.kpoints, self.symmetries,
+                    self.system.cell, self.system.grid_symmetry()
+                )
+            weights = jnp.asarray(self.system.kpoints.weights)
+            channel_levels = (
+                (levels["fermi_energy_up"], levels["fermi_energy_down"]) if two_levels
+                else (levels["fermi_energy"],) * eigenvalues.shape[0])
+            return jnp.stack([
+                tetrahedron_fermi_weights(self._tetrahedra, channel, weights, level)
+                for channel, level in zip(eigenvalues, channel_levels)
+            ])
+        sigma = max(float(self.system.degauss), mixing_module.LDOS_SIGMA_MIN)
+        if two_levels:
             level = jnp.asarray([levels["fermi_energy_up"],
                                  levels["fermi_energy_down"]])[:, None, None]
         else:
@@ -6796,13 +6818,18 @@ def _solve_residual(
         # a bad one, and the superposition of atomic charges is a bad one for
         # exactly the systems this solver is worth using on.
         warmup_mixing = options.pop("warmup_mixing", "kerker")
-        if warmup_mixing.lower() in LDOS_DEPENDENT:
-            raise ValueError(
-                "warmup_mixing = 'ldos' is not implemented: the Newton-Krylov "
-                "warm-up has no LDOS to hand the preconditioner, and without one it "
-                "would run plain anderson under the name. Use 'kerker' or 'anderson'"
-            )
+        warm_ldos = warmup_mixing.lower() in LDOS_DEPENDENT
         warm_mixer = get_mixer(warmup_mixing, beta=mixing_beta)
+        if warm_ldos:
+            # Herbst and Levitt's preconditioner at ``mixing_beta``, handed the
+            # LDOS at the Fermi level of each warm-up step's own states below.
+            # Real space, as the residual is: ``residual.shapes[0]`` is the
+            # dense-grid density. Without an LDOS it would be plain anderson
+            # under the name, which is why this was refused until I75.
+            warm_mixer.precondition = ldos_preconditioner(
+                calculation.basis.dense, calculation.system.cell, residual.shapes[0],
+                beta=warm_mixer.beta,
+            )
         if warmup_mixing.lower() in PRECONDITIONED:
             # Its own preconditioner at ``mixing_beta``, *not* the Krylov
             # system's, which is built at beta = 1 because a preconditioner for
@@ -6827,7 +6854,19 @@ def _solve_residual(
                        if (RHO_DDOT_FIT if fit_in_rho_ddot is None else fit_in_rho_ddot)
                        and isinstance(warm_mixer, AndersonMixer) else None)
         for _ in range(warmup):
-            fx, wavefunctions = residual.step(x0, wavefunctions)
+            fx, wavefunctions, eigenvalues = residual.step_states(x0, wavefunctions)
+            if warm_ldos:
+                # One more density pass a warm-up step, with ``w_k delta(e_F -
+                # e_nk)`` in place of the occupations (``ldos_weights``); zero,
+                # and so the plain step, where there are no states at ``e_F``.
+                # Tetrahedra never reach here: the residual refuses them.
+                _, levels = calculation.occupations(eigenvalues)
+                weights_at_ef = calculation.ldos_weights(eigenvalues, levels)
+                warm_mixer.precondition.update_ldos(
+                    jnp.zeros(int(np.prod(calculation.basis.dense.grid)))
+                    if weights_at_ef is None else
+                    calculation.charge_channel(
+                        calculation.density(wavefunctions, weights_at_ef)))
             fit = None
             if warm_metric is not None:
                 # The residual's own layout, unpacked: ``unpack`` is linear, so
@@ -8033,22 +8072,12 @@ def run_scf(
             RuntimeWarning, stacklevel=2,
         )
 
-    if mixing_mode.lower() in LDOS_DEPENDENT and scheme.startswith("tetrahedra"):
-        # Measured and not settled (``notes/VACUUM-MIXING-NEXT.md``): with a Gaussian of
-        # 0.01 Ry in place of a width the method does not have, the aluminium slab
-        # under tetrahedra_opt did not converge in 200 iterations, and neither did
-        # plain anderson, so the combination has no number behind it.
-        raise ValueError(
-            f"mixing_mode = 'ldos' with occupations = {scheme!r} is not implemented: "
-            f"the LDOS at the Fermi level needs a smooth delta, which the tetrahedron "
-            f"method does not have, and building it with a Gaussian is unmeasured. "
-            f"Use smearing, or another mixing_mode"
-        )
-
     if mixing_mode.lower() in LDOS_DEPENDENT:
         # Herbst and Levitt's preconditioner reads the LDOS at the Fermi level,
         # which the loop below builds in the density's own pass and hands it at
-        # every iteration (``Calculation.density_and_ldos``).
+        # every iteration (``Calculation.density_and_ldos``). Under tetrahedra
+        # the delta is the method's own, ``d wg / d e_F`` (``ldos_weights``);
+        # it was refused until I75 for want of a width, which it does not need.
         mixer.precondition = (
             ldos_preconditioner_g(layout, calculation.basis.dense,
                                   calculation.system.cell, beta=mixer.beta)

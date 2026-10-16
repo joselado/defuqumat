@@ -31,6 +31,7 @@ import numpy as np
 import pytest
 
 import defuqumat.scf.mixing as mixing
+from tests.tolerances import TOTAL_ENERGY_RY
 from defuqumat.scf.mixing import (
     kerker_preconditioner,
     ldos_dielectric,
@@ -326,32 +327,145 @@ def test_the_screened_modes_warn_on_an_insulator():
         _silicon().get_scf(mixing_mode="TF")
 
 
-def test_tetrahedra_are_refused(tmp_path):
-    """No smooth delta at ``e_F``; a Gaussian in its place was tried on the aluminium
-    slab and neither it nor plain anderson converged there, so it is refused."""
+QE_CASES = Path(__file__).resolve().parents[1] / "data" / "qe"
+
+#: ``tests/data/qe/reference.out.al-tetrahedra:202``, Bloechl's tetrahedra on fcc
+#: aluminium, ``pw.x`` 7.5 at ``conv_thr = 1e-10``.
+AL_TETRAHEDRA_RY = -4.19789860
+
+#: ``tests/data/qe/reference.out.al10-metal-tetra:686``, Kawamura's tetrahedra on the
+#: elongated ten-site aluminium cell, ``pw.x`` at ``conv_thr = 1e-8``, 55 iterations.
+AL10_TETRA_RY = -41.82613452
+
+
+def _aluminium(tmp_path, occupations="occupations = 'tetrahedra'"):
+    """``al-tetrahedra.in`` (Bloechl's tetrahedra) with its occupations line replaced."""
     from defuqumat import Calculator
 
-    text = SLAB.read_text()
-    text = text.replace("occupations = 'smearing', smearing = 'gaussian', degauss = 0.05",
-                        "occupations = 'tetrahedra_opt'")
-    assert "tetrahedra_opt" in text
-    path = tmp_path / "al-slab-tetra.in"
+    text = (QE_CASES / "al-tetrahedra.in").read_text()
+    text = text.replace("occupations = 'tetrahedra'", occupations)
+    assert occupations in text
+    path = tmp_path / "al.in"
     path.write_text(text)
-    calc = Calculator.from_file(path, pseudo_dir=PSEUDO, announce=False)
-    with pytest.raises(ValueError, match="tetrahedron"):
-        calc.get_scf(mixing_mode="ldos")
+    return Calculator.from_file(path, pseudo_dir=PSEUDO, announce=False)
+
+
+@pytest.mark.parametrize("scheme", ["tetrahedra", "tetrahedra_lin", "tetrahedra_opt"])
+@pytest.mark.parametrize("nspin", [1, 2])
+def test_the_tetrahedron_ldos_integrates_to_the_tetrahedron_dos(tmp_path, scheme, nspin):
+    """The tetrahedron LDOS weights, ``d wg / d e_F``, summed over the states, are the
+    tetrahedron DOS at ``e_F``. The two sides differentiate different functions (the
+    corner weights, against ``_occupied_fraction``), and a ``w_k`` factor on the weights,
+    which the smeared branch has and this one must not, would read 2/nk times smaller.
+    Two channels at two levels is the constrained-moment branch."""
+    from defuqumat.scf.tetrahedra import tetrahedron_dos
+
+    calculation = _aluminium(tmp_path, f"occupations = {scheme!r}").calculation
+    nk = calculation.system.kpoints.nk
+    rng = np.random.default_rng(1)
+    eigenvalues = jnp.asarray(np.sort(rng.uniform(-0.5, 1.0, (nspin, nk, 6)), axis=-1))
+    channel_levels = [0.31] if nspin == 1 else [0.27, 0.36]
+    levels = ({"fermi_energy": 0.31} if nspin == 1 else
+              {"fermi_energy_up": 0.27, "fermi_energy_down": 0.36, "fermi_energy": 0.315})
+    weights_at_ef = calculation.ldos_weights(eigenvalues, levels)
+    assert weights_at_ef.shape == eigenvalues.shape
+    tetra = calculation._tetrahedra
+    wk = jnp.asarray(calculation.system.kpoints.weights)
+    for spin, level in enumerate(channel_levels):
+        dos, _ = tetrahedron_dos(tetra, eigenvalues[spin], wk, jnp.asarray([level]))
+        assert float(dos[0]) > 1.0
+        assert float(jnp.sum(weights_at_ef[spin])) == pytest.approx(float(dos[0]),
+                                                                    rel=1e-10)
+
+
+def test_the_tetrahedron_ldos_is_built_without_the_occupations_first(tmp_path):
+    """``_tetrahedra`` is dropped by every geometry change; ``ldos_weights`` builds it
+    when it is absent, the same object ``occupations`` would have built."""
+    calculation = _aluminium(tmp_path, "occupations = 'tetrahedra_opt'").calculation
+    nk = calculation.system.kpoints.nk
+    eigenvalues = jnp.asarray(np.sort(
+        np.random.default_rng(2).uniform(-0.5, 1.0, (1, nk, 6)), axis=-1))
+    assert getattr(calculation, "_tetrahedra", None) is None
+    cold = calculation.ldos_weights(eigenvalues, {"fermi_energy": 0.3})
+    calculation.__dict__.pop("_tetrahedra")
+    calculation.occupations(eigenvalues)
+    warm = calculation.ldos_weights(eigenvalues, {"fermi_energy": 0.3})
+    assert np.array_equal(np.asarray(cold), np.asarray(warm))
+
+
+def test_tetrahedra_under_ldos_reach_pw_x(tmp_path):
+    """Bloechl's tetrahedra with the LDOS preconditioner: ``pw.x``'s total energy, and the
+    plain mixing loop's fixed point. Refused until I75 for want of a width the method
+    does not need."""
+    ldos = _aluminium(tmp_path).get_scf(mixing_mode="ldos")
+    plain = _aluminium(tmp_path).get_scf()
+    assert ldos.converged and plain.converged
+    assert ldos.total_energy == pytest.approx(AL_TETRAHEDRA_RY, abs=TOTAL_ENERGY_RY)
+    assert ldos.total_energy == pytest.approx(plain.total_energy, abs=1e-8)
+
+
+@pytest.mark.slow
+def test_optimised_tetrahedra_under_ldos_reach_pw_x_on_ten_sites():
+    """Kawamura's tetrahedra on the elongated ten-site aluminium cell, where ``pw.x``
+    takes 55 iterations: the LDOS preconditioner reaches ``pw.x``'s energy, in fewer."""
+    from defuqumat import Calculator
+
+    calc = Calculator.from_file(QE_CASES / "al10-metal-tetra.in", pseudo_dir=PSEUDO,
+                                announce=False)
+    result = calc.get_scf(mixing_mode="ldos")
+    assert result.converged
+    assert result.total_energy == pytest.approx(AL10_TETRA_RY, abs=TOTAL_ENERGY_RY)
+    assert len(result.history) < 55
+
+
+def test_newton_krylov_still_refuses_tetrahedra(tmp_path):
+    """The sibling the warm-up does not lift: the residual has no differentiable form of
+    the tetrahedron weights."""
+    from defuqumat.scf import run_scf
+
+    calc = _aluminium(tmp_path)
+    with pytest.raises(NotImplementedError, match="no differentiable form"):
+        run_scf(calc.system, calc.pseudos, scf_solver="newton-krylov",
+                scf_solver_options={"warmup": 1, "warmup_mixing": "ldos"})
+
+
+def _newton(calc, warmup_mixing, **options):
+    from defuqumat.scf import run_scf
+
+    return run_scf(calc.system, calc.pseudos, scf_solver="newton-krylov",
+                   scf_solver_options={"warmup": 3, "warmup_mixing": warmup_mixing,
+                                       **options})
+
+
+def test_the_ldos_warm_up_on_an_insulator_is_the_anderson_warm_up():
+    """No states at ``e_F``: every warm-up step is ``beta R``, so the Newton solve starts
+    from the anderson warm-up's point, to the bit."""
+    ldos = _newton(_silicon(), "ldos", max_iterations=2)
+    plain = _newton(_silicon(), "anderson", max_iterations=2)
+    assert ldos.solver.history == plain.solver.history
+    assert ldos.total_energy == plain.total_energy
+
+
+@pytest.mark.slow
+def test_the_ldos_warm_up_reaches_the_mixer_s_fixed_point(tmp_path):
+    """On a metal the warm-up is screened: the Newton solve starts somewhere else than
+    after an anderson warm-up, converges on its own, and lands on the mixing loop's
+    fixed point."""
+    calc = _aluminium(
+        tmp_path, "occupations = 'smearing', smearing = 'gaussian', degauss = 0.05")
+    ldos = _newton(calc, "ldos")
+    plain = _newton(calc, "anderson")
+    mixed = calc.get_scf()
+    assert ldos.solver.converged and mixed.converged
+    assert ldos.solver.history[0]["accuracy"] != plain.solver.history[0]["accuracy"]
+    assert ldos.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
 
 
 def test_places_without_an_ldos_refuse_the_mode():
     from defuqumat.response.mixing import ResponseMixer
-    from defuqumat.scf import run_scf
     from defuqumat.ultracell.driver import run_ultracell
 
     with pytest.raises(ValueError, match="response loop"):
         ResponseMixer("ldos")
     with pytest.raises(ValueError, match="ultracell"):
         run_ultracell(None, None, None, (2, 1, 1), mixing_mode="ldos")
-    calc = _silicon()
-    with pytest.raises(ValueError, match="warmup_mixing = 'ldos'"):
-        run_scf(calc.system, calc.pseudos, scf_solver="newton-krylov",
-                scf_solver_options={"warmup": 2, "warmup_mixing": "ldos"})

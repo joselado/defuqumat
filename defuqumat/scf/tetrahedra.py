@@ -711,6 +711,35 @@ def tetrahedron_weights_at(
     return wg
 
 
+def tetrahedron_fermi_weights(
+    tetra: Tetrahedra, eigenvalues: jnp.ndarray, weights: jnp.ndarray, ef
+):
+    """``d wg_nk / d ef``: the weight each state carries in the DOS at ``ef``.
+
+    The tetrahedron method's own delta at the Fermi level, and the reason it
+    needs no width: :func:`tetrahedron_weights_at` is a piecewise polynomial in
+    ``ef``, so one ``jvp`` in ``ef`` gives the per-state weights whose sum is
+    ``N'(ef)``. Used in place of the occupations, the density routine returns
+    the local density of states at ``ef`` (``mixing_mode = 'ldos'``).
+
+    The zone measure is already in, through ``spin / ntetra``, so the k-point
+    weights are read for their sum only, as in :func:`tetrahedron_weights_at`;
+    multiplying by ``wk`` again would be wrong. The sum over states equals
+    :func:`tetrahedron_dos` at ``ef`` for every kind: for the linear and
+    optimised methods because the corner weights of each tetrahedron sum to its
+    occupied fraction and ``wlsm``'s rows sum to one, and for Bloechl's because
+    his correction sums to zero over the four corners. That correction is why
+    Bloechl's per-state weights here can be negative, and Kawamura's ``wlsm``
+    has negative entries too, so the LDOS built from them is a signed field.
+    """
+    eigenvalues = jnp.asarray(eigenvalues)
+    ef = jnp.asarray(ef, dtype=eigenvalues.dtype)
+    return jax.jvp(
+        lambda level: tetrahedron_weights_at(tetra, eigenvalues, weights, level),
+        (ef,), (jnp.ones_like(ef),),
+    )[1]
+
+
 @jax.jit
 def tetrahedron_occupations(
     tetra: Tetrahedra, eigenvalues: jnp.ndarray, weights: jnp.ndarray, nelec
