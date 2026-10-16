@@ -143,7 +143,9 @@ from defuqumat.response.sternheimer import (
 )
 from defuqumat.response.velocity import over_kpoints
 from defuqumat.batching import map_k
-from defuqumat.system.symmetry import atom_mapping, cartesian_rotations
+from defuqumat.system.symmetry import (
+    atom_mapping, cartesian_rotations, orbit_closure, subset_atom_mapping,
+)
 from defuqumat.units import AMU_TO_RY, RY_TO_CMM1, RY_TO_THZ
 from defuqumat.eager import compiled_jvp
 
@@ -354,11 +356,13 @@ def dynamical_matrix(
             An ultrasoft or PAW **metal** stays refused, for the reason
             :func:`_require_a_moving_overlap_regime` gives and not for this one.
 
-            **What is refused with a subset** is a symmetrised run, because
-            ``symdvscf`` symmetrises the ``3 nat`` responses *together* -- an
-            operation rotates the direction and permutes the atom, so it mixes a
-            mode inside the subset with one outside it, and a partial stack is
-            not something the group can act on.
+            **With symmetry the subset must be a union of orbits**, because
+            ``symdvscf`` symmetrises the responses *together* -- an operation
+            rotates the direction and permutes the atom, so for any other subset
+            it mixes a mode inside with one outside, and the refusal names the
+            smallest closed subset that contains the one asked for. A closed
+            subset is symmetrised with the group restricted to it, and its block
+            is the whole cell's block of the same calculation.
 
             The acoustic sum rule is unavailable for the same reason the columns
             outside the subset are not solved -- it is a sum over *all* atoms --
@@ -433,6 +437,16 @@ def dynamical_matrix(
         what="the dynamical matrix")
     if streamed:
         _require_one_spin_channel(calculation)
+    if streamed and chosen is not None and calculation.use_symmetry:
+        # The closed-subset symmetrisation is threaded through
+        # :class:`~defuqumat.response.chunked_phonon.StreamedDisplacements` but
+        # was measured only on the whole-k route (``notes/incompat/I51.md``).
+        raise NotImplementedError(
+            "a partial dynamical matrix with symmetry is validated on the "
+            "whole-k route only, and this run walks the k axis a chunk at a "
+            "time: switch symmetry off (nosym = .true.), or use a memory mode "
+            "that holds the whole mesh"
+        )
     weights, _ = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
     nocc = occupied_counts(calculation)
@@ -503,10 +517,13 @@ def _phonons_of(calculation, matrix, drho, history, average_iterations,
         # the gradient against every atom, so the columns outside the subset are
         # computed and then dropped: they are the force the molecule's
         # displacement exerts on the frozen substrate, which is a real quantity
-        # and not one a frozen-substrate mode can respond to. Nothing is
-        # symmetrised -- the guard above established the run is ``nosym``, where
-        # ``symmetrize_atom_pair_tensor`` is the identity anyway.
+        # and not one a frozen-substrate mode can respond to. Then
+        # ``symdynph_gq`` on the block: the guard established that the subset is
+        # a union of orbits, so the group average of an entry inside it reads
+        # only entries inside it, and is the whole matrix's average restricted to
+        # the block exactly. Under ``nosym`` it is the identity.
         matrix = matrix[:, :, list(chosen), :]
+        matrix = calculation.symmetrize_atom_pair_tensor(matrix, atoms=chosen)
         masses = np.asarray(structure.masses)[list(chosen)]
     asymmetry = float(np.abs(matrix - matrix.transpose(2, 3, 0, 1)).max())
     matrix = 0.5 * (matrix + matrix.transpose(2, 3, 0, 1))
@@ -552,13 +569,14 @@ def _whole_k(calculation, solver, positions, wavefunctions, eigenvalues,
     )
     drhous_stacked = moved_stacked = becsumort = bec_moved_sym = None
     if rho_moved is not None:
-        moved_stacked = _stack_modes(_symmetrize_modes(calculation, rho_moved))
+        moved_stacked = _stack_modes(
+            _symmetrize_modes(calculation, rho_moved, chosen))
         drhous_stacked = moved_stacked + _stack_modes(
-            _symmetrize_modes(calculation, rho_ort)
+            _symmetrize_modes(calculation, rho_ort, chosen)
         )
-        bec_moved_sym = symmetrize_becsum_modes(calculation, bec_moved)
+        bec_moved_sym = symmetrize_becsum_modes(calculation, bec_moved, chosen)
         becsumort = _add_becsum(
-            bec_moved_sym, symmetrize_becsum_modes(calculation, bec_ort)
+            bec_moved_sym, symmetrize_becsum_modes(calculation, bec_ort, chosen)
         )
 
     if response is None:
@@ -775,9 +793,10 @@ def screening_loop(
     nat = calculation.system.structure.nat
     # ``rows`` is how many perturbations are being solved and ``chosen`` which
     # atoms they belong to. They are the same thing only for a whole-cell run;
-    # a subset is refused unless the symmetrisation below is inert, because an
-    # operation *mixes* the modes and a partial stack is not something it can
-    # act on (see :func:`dynamical_matrix`).
+    # with symmetry a subset is accepted only when it is a union of orbits,
+    # because an operation *mixes* the modes and the symmetrisation below can
+    # act on a partial stack only when it never leaves it (see
+    # :func:`_require_a_subsettable_regime`).
     chosen = tuple(range(nat)) if atoms is None else tuple(atoms)
     rows = len(chosen)
     grid_shape = tuple(np.shape(density))
@@ -845,7 +864,8 @@ def screening_loop(
         # (``host_fields`` is set only then), so it is not called on a stack the
         # device would have to hold.
         symmetrised = (stacked if host
-                       else calculation.symmetrize_atom_displacement(stacked))
+                       else calculation.symmetrize_atom_displacement(
+                           stacked, atoms=atoms))
 
         # ``dv_of_drho``: one jvp of the potential this code already writes.
         def screened(field):
@@ -882,7 +902,7 @@ def screening_loop(
                     index += 1
             if becsumort is not None:
                 per_mode = _add_becsum(per_mode, becsumort)
-            per_mode = symmetrize_becsum_modes(calculation, per_mode)
+            per_mode = symmetrize_becsum_modes(calculation, per_mode, atoms)
             induced_onecentre = jnp.stack([
                 paw_response(calculation, per_mode[row, cart], solver.becsum)
                 for row in range(rows) for cart in range(3)
@@ -1270,7 +1290,7 @@ def non_variational_response(calculation, positions, psi, weights, density,
     return halves["moved"], halves["ort"]
 
 
-def symmetrize_becsum_modes(calculation, per_mode):
+def symmetrize_becsum_modes(calculation, per_mode, atoms=None):
     """``PAW_dusymmetrize`` on the ``3 nat`` displacement patterns.
 
     The counterpart of :meth:`~defuqumat.scf.driver.Calculation.
@@ -1283,6 +1303,12 @@ def symmetrize_becsum_modes(calculation, per_mode):
     ``per_mode`` is an object array of shape ``(nat, 3)`` whose entries are
     per-species ``becsum`` tuples; the result has the same layout. A no-op when
     there is no PAW species or no symmetry to average over.
+
+    ``atoms``: the displaced atoms when ``per_mode`` is a subset's
+    ``(len(atoms), 3)``, a union of orbits. Only the *displaced* axis is
+    restricted: the ``becsum`` blocks inside each entry still run over every
+    atom of their species, and ``apply_atom_displacement`` permutes those with
+    its own full table.
     """
     if per_mode is None or calculation._becsum_symmetry is None:
         return per_mode
@@ -1301,6 +1327,8 @@ def symmetrize_becsum_modes(calculation, per_mode):
     mapping = atom_mapping(
         calculation.system.cell, calculation.system.structure, calculation.symmetries
     )
+    if atoms is not None:
+        mapping = subset_atom_mapping(mapping, atoms)
     symmetrised = calculation._becsum_symmetry.apply_atom_displacement(
         stacked, rotations, mapping
     )
@@ -1314,14 +1342,15 @@ def symmetrize_becsum_modes(calculation, per_mode):
     return out
 
 
-def _symmetrize_modes(calculation, per_mode):
-    """``symdvscf`` on an object array of ``3 nat`` grid responses."""
+def _symmetrize_modes(calculation, per_mode, atoms=None):
+    """``symdvscf`` on an object array of ``3 nat`` grid responses, or of a
+    subset's ``3 len(atoms)`` when ``atoms`` is a union of orbits."""
     nat, ncart = per_mode.shape
     stacked = jnp.stack([
         jnp.stack([per_mode[atom, cart] for cart in range(ncart)])
         for atom in range(nat)
     ])
-    symmetrised = calculation.symmetrize_atom_displacement(stacked)
+    symmetrised = calculation.symmetrize_atom_displacement(stacked, atoms=atoms)
     out = np.empty((nat, ncart), dtype=object)
     for atom in range(nat):
         for cart in range(ncart):
@@ -1764,10 +1793,14 @@ def _require_a_subsettable_regime(calculation, atoms, nat):
     takes, left bit for bit as it was -- and a validated tuple of indices
     otherwise.
 
-    The two refusals are in :func:`dynamical_matrix`'s docstring. Both are
-    structural rather than cautious: ``symdvscf`` acts on the ``3 nat`` stack as
-    one object, and P39's ultrasoft tangents are each a ``(nat, 3)`` array that
-    nothing here has subsetted.
+    What is refused is a symmetrised run whose subset is **not a union of
+    orbits**. The wedge was reduced by the whole group, so completing the wedge
+    sum for ``drho_{a,i}`` reads ``drho_{S^-1(a),j}`` for every operation ``S``
+    of it (``symdvscf``); that is available exactly when every operation maps
+    the subset into itself, and then every symmetriser here acts on the partial
+    stack through :func:`~defuqumat.system.symmetry.subset_atom_mapping`.
+    Averaging over the subset's own stabiliser instead would be an average over
+    a group the k-set was not reduced by, and wrong rather than slow.
     """
     if atoms is None:
         return None
@@ -1781,14 +1814,20 @@ def _require_a_subsettable_regime(calculation, atoms, nat):
             f"atoms indexes outside the structure's {nat} atoms: {chosen}"
         )
     if calculation.use_symmetry:
-        raise NotImplementedError(
-            "a partial dynamical matrix needs nosym = .true.: symdvscf "
-            "symmetrises the 3 nat responses together -- an operation rotates "
-            "the cartesian direction and permutes the atom, so it mixes a mode "
-            "inside the subset with one outside it, and the partial stack is "
-            "not something the group can act on. Run the whole cell, or run the "
-            "subset with symmetry switched off"
-        )
+        mapping = atom_mapping(calculation.system.cell,
+                               calculation.system.structure,
+                               calculation.symmetries)
+        closure = orbit_closure(mapping, chosen)
+        if set(closure) != set(chosen):
+            raise NotImplementedError(
+                f"a partial dynamical matrix with symmetry needs a subset that "
+                f"is a union of orbits, and atoms={chosen} is not: symdvscf "
+                f"symmetrises the responses together, and an operation rotates "
+                f"the cartesian direction and carries the atom to atoms "
+                f"{tuple(sorted(set(closure) - set(chosen)))}, outside the "
+                f"subset. Ask for atoms={closure}, the smallest closed subset "
+                f"containing it, or switch symmetry off (nosym = .true.)"
+            )
     return chosen
 
 
