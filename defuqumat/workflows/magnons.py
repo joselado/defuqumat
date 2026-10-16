@@ -37,6 +37,7 @@ import numpy as np
 
 from defuqumat.scf.whole_sphere import whole_sphere_calculation
 from defuqumat.tddft.spinchi0 import (
+    larmor_frequency,
     require_a_transverse_regime,
     transverse_response,
 )
@@ -74,8 +75,16 @@ class SpinSusceptibility(eqx.Module):
     #: How far ``X_0 B_xc = m`` is from holding, relative to ``|m|``. Zero for
     #: an exact calculation at ``q = 0``; a double truncation in ``nbnd`` and
     #: ``ecut_response`` otherwise. ``None`` when ``q != 0``, where the
-    #: identity is not a statement.
+    #: identity is not a statement. Under a uniform field it is read at the
+    #: Larmor frequency, :attr:`larmor`, rather than at zero.
     goldstone: float | None = eqx.field(static=True, default=None)
+    #: Where the uniform mode sits, Ry: ``2 B`` under a uniform ``B_field``
+    #: (:func:`~defuqumat.tddft.spinchi0.larmor_frequency`), zero without one.
+    larmor: float = eqx.field(static=True, default=0.0)
+    #: ``lambda_max(X_0 F)`` at ``omega = larmor`` and no broadening, the
+    #: crossing value of the uniform mode. One for an exact calculation at
+    #: ``q = 0``; equal to :attr:`enhancement` without a field.
+    larmor_enhancement: float = eqx.field(static=True, default=0.0)
     #: The magnon energy (Ry): the frequency at which the spectral function
     #: peaks, refined by a parabola through its three highest points. ``None``
     #: when the maximum is at the edge of the frequency grid, which means the
@@ -237,6 +246,8 @@ def run_spin_susceptibility(
     calculation=None,
     goldstone: bool | None = None,
     states=None,
+    field=None,
+    field_scale: float | None = None,
 ) -> SpinSusceptibility:
     """``X^{+-}(q, omega)`` for a converged collinear magnet.
 
@@ -296,6 +307,12 @@ def run_spin_susceptibility(
         calculation: the SCF's own, used on its own k-set or moved to
             ``kpoints`` rather than a second one built beside it
             (:func:`~defuqumat.workflows.nscf.threaded_calculation`).
+        field, field_scale: ``SCFResult.magnetic_field`` and
+            ``SCFResult.field_scale``, the uniform field the ground state was
+            converged in (the :class:`~defuqumat.Calculator` passes them). The
+            fixed-density states are solved in it, which is what gaps the
+            magnon, and the ``q = 0`` identity is read at the Larmor frequency
+            ``2 B`` it gives (I58).
     """
     from defuqumat.scf.driver import Calculation
 
@@ -332,8 +349,20 @@ def run_spin_susceptibility(
             system, pseudos, density,
             nbnd=nbnd or _default_nbnd(calculation),
             conv_thr=conv_thr, k_batch=k_batch, calculation=calculation,
+            field=field, field_scale=field_scale,
         )
     calculation, system, eigenvalues, wavefunctions = states
+    if calculation.magnetic_field is not None and field is None:
+        # The states were handed in, and the field they were solved in was
+        # not: the Larmor frequency below would read zero and the identity
+        # would be checked at the wrong frequency, failing by the Zeeman term.
+        raise ValueError(
+            "a spin susceptibility under a magnetic field needs the field the "
+            "SCF ended with: pass field = scf_result.magnetic_field and "
+            "field_scale = scf_result.field_scale, which is where the uniform "
+            "mode sits (2 B) and where the q = 0 identity is read"
+        )
+    larmor = larmor_frequency(field, field_scale, flip)
     # The solve re-checks the dials at its own band count (``Calculation.
     # for_bands``); what follows runs at whatever it resolved to.
     k_batch = calculation.k_batch
@@ -345,9 +374,14 @@ def run_spin_susceptibility(
     # read there are exact statements rather than spectra -- the Goldstone
     # identity, and ``lambda_max`` at ``omega = 0``, which is the enhancement --
     # and an ``eta`` puts an ``O(eta)`` error into each that reads as an
-    # assembly bug.
-    grid = np.concatenate([[0.0], frequencies])
-    imaginary = np.concatenate([[0.0], np.full(len(frequencies), broadening)])
+    # assembly bug. **Under a uniform field the two come apart** and index 1 is
+    # the Larmor point, also unbroadened: the identity is read there, while the
+    # enhancement stays at ``omega = 0``, where a gapped mode reads below one
+    # and an antiparallel moment above it.
+    static = [0.0] if larmor == 0.0 else [0.0, larmor]
+    nstatic = len(static)
+    grid = np.concatenate([static, frequencies])
+    imaginary = np.concatenate([np.zeros(nstatic), np.full(len(frequencies), broadening)])
 
     chi0 = transverse_response(
         calculation, wavefunctions, eigenvalues, q, grid + 1j * imaginary,
@@ -357,7 +391,8 @@ def run_spin_susceptibility(
 
     residual = None
     if goldstone:
-        residual = goldstone_residual(chi0, calculation, jnp.asarray(density))
+        residual = goldstone_residual(
+            chi0, calculation, jnp.asarray(density), index=nstatic - 1)
 
     x0 = np.asarray(chi0.x)
     kernel = None
@@ -373,15 +408,21 @@ def run_spin_susceptibility(
     enhancement = 0.0 if kernel is None else float(
         np.linalg.eigvals(x0[0] @ kernel).real.max()
     )
+    at_larmor = enhancement if nstatic == 1 or kernel is None else float(
+        np.linalg.eigvals(x0[nstatic - 1] @ kernel).real.max()
+    )
     energy, method = _locate(
-        frequencies, x0[1:], kernel, x[1:, 0, 0], enhancement, crossing_points,
+        frequencies, x0[nstatic:], kernel, x[nstatic:, 0, 0], enhancement,
+        crossing_points,
     )
     return SpinSusceptibility(
         q=tuple(float(component) for component in q),
         frequencies=frequencies,
-        chi=x[1:, 0, 0],
-        chi0=x0[1:, 0, 0],
+        chi=x[nstatic:, 0, 0],
+        chi0=x0[nstatic:, 0, 0],
         goldstone=residual,
+        larmor=float(larmor),
+        larmor_enhancement=at_larmor,
         magnon=energy,
         method=method,
         enhancement=enhancement,
@@ -458,6 +499,8 @@ def run_magnon_dispersion(
     k_batch: int | None | str = "default",
     calculation=None,
     goldstone_correction: bool = False,
+    field=None,
+    field_scale: float | None = None,
     **kwargs,
 ) -> MagnonDispersion:
     """``omega(q)`` along a list of wavevectors, on **one** set of states.
@@ -508,7 +551,9 @@ def run_magnon_dispersion(
     states = fixed_density_states(
         system, pseudos, density, nbnd=nbnd or _default_nbnd(calculation),
         conv_thr=conv_thr, k_batch=k_batch, calculation=calculation,
+        field=field, field_scale=field_scale,
     )
+    kwargs = dict(kwargs, field=field, field_scale=field_scale)
     # The solve re-checks the dials at its own band count (``Calculation.
     # for_bands``); what follows runs at whatever it resolved to.
     k_batch = states[0].k_batch
@@ -520,13 +565,17 @@ def run_magnon_dispersion(
             system, pseudos, density, np.zeros(3), frequencies,
             states=states, k_batch=k_batch, **kwargs,
         )
-        if uniform.enhancement <= 0.0:
+        # The uniform mode's crossing value, which is ``lambda_max`` at the
+        # Larmor frequency: at zero without a field, at ``2 B`` with one, where
+        # ``omega = 0`` is gapped and its eigenvalue says nothing about the
+        # truncation.
+        if uniform.larmor_enhancement <= 0.0:
             raise RuntimeError(
                 "the Goldstone correction needs the interacting response: "
                 "lambda_max at q = 0 came back non-positive, which happens "
                 "when interacting = False"
             )
-        scale = 1.0 / uniform.enhancement
+        scale = 1.0 / uniform.larmor_enhancement
 
     results = tuple(
         run_spin_susceptibility(

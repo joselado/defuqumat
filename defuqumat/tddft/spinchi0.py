@@ -96,6 +96,7 @@ __all__ = [
     "spin_response_sphere",
     "transverse_response",
     "require_a_transverse_regime",
+    "larmor_frequency",
     "commensurate_shift",
     "occupation_slope",
 ]
@@ -218,11 +219,14 @@ def require_a_transverse_regime(calculation) -> None:
     a Hubbard ``U``
         the Hubbard term responds to the magnetization too, so leaving it out
         of the enhancement is a silent approximation.
-    an applied magnetic field
-        the rotation argument the kernel rests on assumes the energy is
-        invariant under a global spin rotation, and an applied field is exactly
-        what breaks that -- a magnon in a field is gapped by the Zeeman energy,
-        which this construction would not produce.
+    a constrained moment, or a per-atom field
+        a constraint changes the functional the state is stationary for, and
+        a field confined to spheres is not a ``G = 0`` term. A **uniform**
+        ``B_field`` is taken (I58): the kernel ``B_xc/m`` is the rotation
+        kernel of ``E_xc`` alone and stays right, the fixed-density states
+        carry the Zeeman term, and the uniform mode then sits at the Larmor
+        frequency :func:`larmor_frequency` rather than at zero, which is
+        where the identity is read.
     a potential-only meta-GGA
         there is no ``E_xc`` to be rotationally invariant, and ``v_of_rho``
         would want ``tau``.
@@ -272,13 +276,26 @@ def require_a_transverse_regime(calculation) -> None:
             "well, so omitting it from the enhancement is a silent "
             "approximation rather than a missing feature"
         )
-    if getattr(calculation, "magnetic_field", None) is not None:
+    field = getattr(calculation, "magnetic_field", None)
+    if field is not None and field.constraint != "none":
         raise NotImplementedError(
-            "a transverse spin susceptibility with an applied magnetic field "
-            "or a constrained moment is not implemented: the kernel B_xc/m "
-            "comes from the energy being invariant under a global spin "
-            "rotation, and an applied field breaks exactly that -- the magnon "
-            "acquires a Zeeman gap this construction does not carry"
+            "a transverse spin susceptibility with a constrained moment "
+            f"(constrained_magnetization = '{field.constraint}') is not "
+            "implemented: a penalty or a feedback field makes the ground state "
+            "stationary for a different functional, whose transverse kernel "
+            "has the constraint's own second derivative beside B_xc/m, and a "
+            "feedback field is itself a response to the moment it holds. A "
+            "uniform B_field is taken (the magnon is gapped by its Larmor "
+            "frequency, which the states carry)"
+        )
+    if field is not None and field.atomic is not None:
+        raise NotImplementedError(
+            "a transverse spin susceptibility with a per-atom field (a "
+            "LOCAL_MAGNETIC_FIELDS card) is not implemented: Larmor's theorem "
+            "puts the uniform precession at one frequency, 2 B, only when the "
+            "applied field is the same everywhere, and a field confined to "
+            "spheres has structure in G that no single frequency closes. A "
+            "uniform B_field is taken"
         )
     if calculation.functional.is_meta:
         raise NotImplementedError(
@@ -313,6 +330,40 @@ def require_a_transverse_regime(calculation) -> None:
             "magnetic group of q, whose time-reversed operations swap the "
             "+- and -+ blocks. Run with nosym = .true. and noinv = .true."
         )
+
+
+def larmor_frequency(field, field_scale: float | None = None,
+                     flip: bool = False) -> float:
+    """Where the uniform mode of ``X^{+-}`` sits under a uniform field, Ry.
+
+    **Larmor's theorem, in the form the Goldstone proof gives it.** The proof
+    (:mod:`defuqumat.tddft.spinkernel`) uses ``H_up - H_dn = 2 B_tot`` with
+    ``B_tot`` local, and an applied field adds a constant to it: the field
+    enters the potential as ``-B`` (``E = -int B.m``,
+    :meth:`~defuqumat.scf.fields.MagneticField.field_energy`), so
+    ``B_tot = B_xc - B`` and
+
+        X_0(0, omega) B_xc = m - X_0(0, omega) (omega/2 - B) u,
+
+    ``u`` the ``G = 0`` unit vector. The right-hand side is ``m`` exactly at
+    ``omega = 2 B``, so that is where ``1 - X_0 F`` is singular with ``m`` its
+    null vector: the uniform precession at the Zeeman energy ``g mu_B B`` with
+    ``g = 2``, whatever the exchange splitting. ``flip`` exchanges the
+    channels, which turns ``B_tot`` into ``-(B_xc - B)`` and moves the mode to
+    ``-2 B``.
+
+    ``field`` is the :class:`~defuqumat.scf.fields.MagneticField` the states
+    were solved in (``SCFResult.magnetic_field``) and ``field_scale`` what
+    ``reducebf`` left of it; zero when there is no field. Only the uniform
+    collinear part is read, which is all :func:`require_a_transverse_regime`
+    admits.
+    """
+    if field is None:
+        return 0.0
+    scale = 1.0 if field_scale is None else float(field_scale)
+    uniform = np.asarray(field.uniform, dtype=float).reshape(-1)
+    strength = 2.0 * scale * float(uniform[-1])
+    return -strength if flip else strength
 
 
 def commensurate_shift(calculation, q):

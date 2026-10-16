@@ -245,7 +245,11 @@ def goldstone_residual(chi0, calculation, density, index: int = 0, **kwargs) -> 
 
     ``index`` selects the frequency, which must be ``omega = 0`` with **no
     broadening** -- an ``eta`` puts an ``O(eta)`` error into the identity that
-    reads as an assembly bug.
+    reads as an assembly bug. Under a uniform applied field it is the Larmor
+    frequency instead, ``2 B``
+    (:func:`~defuqumat.tddft.spinchi0.larmor_frequency`): ``B_xc`` here is
+    field-free, the states are not, and the identity closes where the Zeeman
+    term in ``H_up - H_dn`` is cancelled by the frequency.
     """
     field = np.asarray(exchange_field(calculation, jnp.asarray(density)))
     magnetization = np.asarray(density[0] - density[1])

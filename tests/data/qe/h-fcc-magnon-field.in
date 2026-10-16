@@ -1,0 +1,32 @@
+! h-fcc-magnon.in in a uniform field along the moment, B_field(3) = 0.002 Ry:
+! the Larmor case of the transverse spin susceptibility (notes/incompat/I58.md).
+!
+! The field enters the potential as -B on the up channel (E = -int B.m), so a
+! majority-up moment is parallel to it and the uniform precession sits at the
+! Zeeman energy 2 B = 0.004 Ry (54.4 meV) rather than at zero, well below the
+! Stoner onset of this cell. Everything else is h-fcc-magnon.in, seed included,
+! and that file's header says why the seed is 0.9 and not 1.0.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 6.5,
+    nat = 1, ntyp = 1,
+    ecutwfc = 25.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.01,
+    nspin = 2
+    nosym = .true., noinv = .true.
+    starting_magnetization(1) = 0.9
+    B_field(3) = 0.002
+    nbnd = 8
+ /
+ &electrons
+    mixing_beta = 0.3
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS (crystal)
+ H 0.0 0.0 0.0
+K_POINTS {automatic}
+ 4 4 4 0 0 0
