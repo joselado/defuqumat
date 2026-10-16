@@ -9459,3 +9459,50 @@ is. `tr2=1e-14` gives `ph.x`'s stop on `get_phonons()`, and the guide says so. T
 gives back the numbers P25, P28 and P39 validated before 2026-10-03, which the 1e-14 default had
 moved by up to 0.033 cm^-1 in an optical mode and by a factor of two in the ultrasoft and PAW
 acoustic residues.
+
+
+# Part XXVIII -- the gradient-corrected functional in the phonon, 2026-10-16
+
+Both entries come from I82's fix round (`notes/incompat/I82.md`, "The GGA refusal" and "OPEN.md").
+
+## 1. The phonon at `q != 0` under a GGA was wrong at every `nspin`, and is now refused **[open 2026-10-16, P155]**
+
+**What it affects.** `dynamical_matrix_at_q`, `get_phonons_at_q` and the electron-phonon coupling
+built on them, under PBE, PBEsol or any gradient-corrected functional, before I82. On a dimerized H2
+chain at `nspin = 1` (H at 0 and 1.5 bohr, `c = 4`, 1x1x8, against the doubled cell `c = 8`, 1x1x4 at
+`Gamma`) the LDA reads 3.36e-5 Ry/bohr^2 and PBE 1.33e-2 Ry/bohr^2, 77.08 cm^-1 in the worst
+frequency partner, with no error raised (`/l/ladovj1/review/incompat/I82/h2-lda.log`, `h2-pbe.log`);
+on the magnetic H3 chain at `b3/2` the verifier read 7.97e-3 Ry/bohr^2 and 60.55 cm^-1 under PBE
+against 1.52e-5 and 0.051 under the LDA (`review/incompat/I82-ver/pbe.log`). No test at `q` used a
+GGA: every input of `test_phonons_at_q.py` and `test_electron_phonon.py` is `*.pz-vbc.UPF`.
+
+**The term, read in the code and not measured term by term.** `induced_potential_at_q` takes the
+`jvp` of `v_scf` on the periodic part of `drho e^{iqr}`. Under the LDA that is the whole kernel,
+since `f_xc drho` is pointwise. Under a GGA every gradient of `drho e^{iqr}` is
+`e^{iqr} (grad + iq) drho`, which `dgradcorr.f90` carries through `fft_qgradient` (lines 63, 98) and
+`fft_qgraddot` (line 199), both called with `xq`; the `jvp` on the periodic field has no `iq`.
+
+**What to do.** Add the `iq` to the gradients of the GGA kernel at `q` (the `dgradcorr.f90` form),
+then lift the refusal in `require_a_two_sphere_regime` (`calculation.functional.is_gradient`).
+
+**How to know it worked:** the doubled-cell identity under PBE, max |D(b/2) - (S_aa - S_ab)| on the
+H2 chain at the LDA's level (about 3e-5), which the verifier's `ver.py` already runs, and the same on
+the magnetic H3 chain at `nspin = 2`.
+
+## 2. The PBE phonon at `Gamma` folds 125 times worse than the LDA one, and no GGA `Gamma` phonon is checked against `ph.x` **[open 2026-10-16]**
+
+**What it affects.** Possibly every `Gamma` phonon under a GGA. On the same H2 chain the fold
+|D(0) - (S_aa + S_ab)| reads 4.8e-4 under PBE against 3.8e-6 under the LDA. It may be the
+convergence of the GGA kernel on a cell with vacuum rather than a missing term; nothing measured
+tells the two apart. `tests/regression/test_gamma_only.py`'s PBE case compares the half sphere with
+the whole sphere, which is the same code twice, so no test checks a GGA phonon at `Gamma` against an
+outside number.
+
+**What to do.** Run `ph.x` 7.5 at `Gamma` under PBE on a small committed cell (a bulk insulator, to
+keep the vacuum out) and compare element by element; then repeat the H2 fold with a finer FFT grid
+and a larger `ecutrho` to see whether the 4.8e-4 moves.
+
+**How to know it worked:** a GGA `Gamma` dynamical matrix within the LDA cases' tolerance of `ph.x`,
+and the H2 fold either falling with the grid (a convergence) or located as a term. Until then the
+refusal message of the phonon at `q` and the guide say "use an LDA functional", not "a supercell at
+`Gamma`".
