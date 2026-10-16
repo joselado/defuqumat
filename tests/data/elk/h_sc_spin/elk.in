@@ -1,0 +1,67 @@
+! Simple cubic hydrogen, one atom at the origin, a = A_LATTICE bohr, spin-polarized.
+!
+! The spin-polarized counterpart of ../h_sc: a ferromagnetic STATE.OUT whose
+! magnetization a reader can be checked against pointwise (MAG3D.OUT, task 73,
+! built by the same rfpts route as RHO3D.OUT, task 33). Hydrogen has no core, so
+! the all-electron and valence densities are the same function, and the cell
+! is stretched until the one electron polarizes.
+!
+! Collinear (ndmag = 1). The global seed field fades (reducebf = 0.5), so the
+! converged state is field-free: what STATE.OUT holds is the spontaneous moment.
+
+tasks
+  0
+  33
+  73
+
+sppath
+  './'
+
+spinpol
+  .true.
+
+bfieldc
+  0.0  0.0  0.05
+
+reducebf
+  0.5
+
+! Gaussian smearing of 0.01 Ha, the 0.02 Ry of scf.in in this directory.
+stype
+  0
+
+swidth
+  0.01
+
+epspot
+  1.e-8
+
+epsengy
+  1.e-8
+
+maxscl
+  200
+
+avec
+  A_LATTICE  0.0  0.0
+  0.0  A_LATTICE  0.0
+  0.0  0.0  A_LATTICE
+
+atoms
+  1
+  'H.in'
+  1
+  0.0  0.0  0.0    0.0  0.0  0.0
+
+ngridk
+  4  4  4
+
+tshift
+  .false.
+
+plot3d
+  0.0  0.0  0.0
+  1.0  0.0  0.0
+  0.0  1.0  0.0
+  0.0  0.0  1.0
+  16  16  16
