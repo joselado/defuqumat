@@ -99,12 +99,33 @@ def test_a_box_that_would_fold_two_members_together_is_refused():
         displaced_gvectors(system.cell, narrow, -q)
 
 
-def test_g_space_mixing_is_refused_on_a_magnetic_spiral(pseudo_dir):
-    """``mixing_space = 'g'`` keeps every channel on the resident sphere, so a spiral refuses it."""
+def test_g_space_mixing_on_a_magnetic_spiral_keeps_the_pair_on_its_own_sphere(
+        pseudo_dir, monkeypatch):
+    """``mixing_space = 'g'`` installs the spiral's layout, where it used to refuse (I74).
+
+    Stopped as the layout is built, so nothing is diagonalised: the hydrogen
+    chain is norm-conserving at dual 4 and its displaced sphere does not fit
+    the box, so ``m'_+`` is kept on the whole box. That the run then reaches
+    the real-space fixed point is the slow
+    ``tests/unit/test_spiral_mixing_space.py::test_a_spiral_mixed_in_g_reaches_the_real_space_fixed_point``.
+    """
+    import defuqumat.scf.driver as driver
     from defuqumat.pseudo import read_upf
     from defuqumat.scf import run_scf
 
+    class Reached(Exception):
+        pass
+
+    class Probe(driver.SpiralSphereLayout):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            raise Reached(self)
+
+    monkeypatch.setattr(driver, "SpiralSphereLayout", Probe)
     system = build_system(parse_pw_input((GENERATED / "h-chain-spiral.in").read_text()))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
-    with pytest.raises(NotImplementedError, match="mixing_space = 'g' on a magnetic spin spiral"):
+    with pytest.raises(Reached) as caught:
         run_scf(system, pseudos, mixing_space="g", max_iterations=1)
+    layout = caught.value.args[0]
+    assert layout.npair == layout.points and layout.npair_shell == 0
+    assert layout.stored_shape == (4, layout.points)
