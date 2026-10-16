@@ -429,11 +429,11 @@ def test_newton_krylov_still_refuses_tetrahedra(tmp_path):
                 scf_solver_options={"warmup": 1, "warmup_mixing": "ldos"})
 
 
-def _newton(calc, warmup_mixing, **options):
+def _newton(calc, warmup_mixing, warmup=3, **options):
     from defuqumat.scf import run_scf
 
     return run_scf(calc.system, calc.pseudos, scf_solver="newton-krylov",
-                   scf_solver_options={"warmup": 3, "warmup_mixing": warmup_mixing,
+                   scf_solver_options={"warmup": warmup, "warmup_mixing": warmup_mixing,
                                        **options})
 
 
@@ -450,13 +450,15 @@ def test_the_ldos_warm_up_on_an_insulator_is_the_anderson_warm_up():
 def test_the_ldos_warm_up_reaches_the_mixer_s_fixed_point(tmp_path):
     """On a metal the warm-up is screened: the Newton solve starts somewhere else than
     after an anderson warm-up, converges on its own, and lands on the mixing loop's
-    fixed point."""
+    fixed point. One warm-up step, because three converge this cell before Newton
+    takes a step."""
     calc = _aluminium(
         tmp_path, "occupations = 'smearing', smearing = 'gaussian', degauss = 0.05")
-    ldos = _newton(calc, "ldos")
-    plain = _newton(calc, "anderson")
+    ldos = _newton(calc, "ldos", warmup=1)
+    plain = _newton(calc, "anderson", warmup=1)
     mixed = calc.get_scf()
     assert ldos.solver.converged and mixed.converged
+    assert ldos.solver.iterations > 0
     assert ldos.solver.history[0]["accuracy"] != plain.solver.history[0]["accuracy"]
     assert ldos.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
 
