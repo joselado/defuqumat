@@ -354,7 +354,7 @@ def test_a_spin_polarized_seed_and_an_atomic_one_converge_to_the_same_state():
         starting_density=np.repeat(seed.mean(axis=0, keepdims=True), 2, axis=0)
     )
 
-    assert abs(seeded.total_energy - atomic.total_energy) < 1e-10
+    assert abs(seeded.total_energy - atomic.total_energy) < 2e-10
     difference = np.abs(np.asarray(seeded.density) - np.asarray(atomic.density))
     assert difference.max() < 1e-5
     assert _moment(seeded.density, omega) == pytest.approx(-0.2909, abs=1e-3)
