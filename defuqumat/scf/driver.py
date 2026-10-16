@@ -1378,7 +1378,8 @@ def _warn_if_the_field_did_not_fade(field, field_scale, converged, e_field) -> N
         f"of a functional that includes the field. Lower reducebf, or raise "
         f"electron_maxstep so the decay has iterations to work in; "
         f"SCFResult.field_scale and .field_energy are what this density belongs "
-        f"to, and every response entry point refuses such a state by name",
+        f"to; the Sternheimer response refuses such a state by name, and the "
+        f"real-time entry points take the pair",
         RuntimeWarning,
         stacklevel=2,
     )
