@@ -70,9 +70,10 @@ projectors ``wfcU`` are fixed while the atoms are.
 
 **Refused rather than approximated:** external and constrained magnetic fields
 (the field is driven by a secant *outside* the density, so ``F`` would not be a
-function of ``x`` alone), tetrahedron and ``from_input`` occupations (built on
-the host, and the second is not a function of the eigenvalues at all), and spin
-spirals. Each raises by name.
+function of ``x`` alone), and tetrahedron and ``from_input`` occupations (built on
+the host, and the second is not a function of the eigenvalues at all). Each
+raises by name. A spin spiral runs (``notes/incompat/I72.md``): its map is the
+mixing loop's own, with no term of its own here.
 
 Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum`` and
 ``ns``, and a Krylov subspace holds a few tens of those -- tens of MB,
@@ -539,7 +540,6 @@ def _weights(calculation, eigenvalues):
 
 def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
     """Build the residual for a calculation, refusing the regimes it cannot hold."""
-    system = calculation.system
     if calculation.magnetic_field is not None:
         raise NotImplementedError(
             "an external or constraining magnetic field has no residual form "
@@ -547,8 +547,17 @@ def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
             "(reducebf, the fixed-spin-moment feedback), so F changes between "
             "evaluations and is not a function of the state alone"
         )
-    if getattr(system, "spiral_q", None) is not None:
-        raise NotImplementedError("spin spirals are not supported by a residual solver")
+    # A spin spiral is not refused (``notes/incompat/I72.md``): every call in
+    # :meth:`ScfResidual.step` is the mixing loop's own, and the spiral lives
+    # inside them -- the two spheres at ``k +- q/2`` in ``hamiltonian`` and
+    # ``diagonalize``, the rotated-frame density and its displaced augmentation
+    # in ``becsum`` and ``density`` -- so ``F`` is the loop's map. The packed
+    # state is the rotated-frame ``(n, m_x, m_y, m_z)`` on the dense grid, which
+    # the real-space Kerker screens on the charge alone and ``accuracy_of``
+    # measures as the loop's ``dr2`` does; ``_weights`` takes the unshifted
+    # k-set's weights, as ``Calculation.occupations`` does. ``jvp='sternheimer'``
+    # stays refused (a magnetic noncollinear run, and ``response/sternheimer``
+    # refuses a spiral by name behind it).
 
     rho = calculation.starting_density()
     becsum_ = calculation.starting_becsum()
