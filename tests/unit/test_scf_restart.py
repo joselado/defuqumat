@@ -515,7 +515,7 @@ def test_reducebf_is_picked_up_where_the_resume_left_it(pseudo_dir, tmp_path):
     assert resumed.field_scale <= stopped.field_scale
 
 
-def _with_fsm(pseudo_dir, tmp_path, atomic=False):
+def _with_fsm(pseudo_dir, tmp_path, atomic=False, update=None):
     """The same hydrogen atom under a fixed-spin-moment scheme instead of a field."""
     from tests.conftest import GENERATED
 
@@ -525,6 +525,8 @@ def _with_fsm(pseudo_dir, tmp_path, atomic=False):
     extra = f"\n    constrained_magnetization = '{scheme}'\n    lambda = 0.05\n"
     if not atomic:
         extra += "    fixed_magnetization(3) = 0.6\n"
+    if update is not None:
+        extra += f"    fsm_update = '{update}'\n"
     text = text[:marker] + extra + text[marker:]
     if atomic:
         # The per-atom scheme drives a vector field, so it needs spinors.
@@ -584,6 +586,81 @@ def test_a_driven_field_resumes_where_the_controller_left_it(pseudo_dir, tmp_pat
     np.testing.assert_allclose(np.asarray(resumed.density),
                                np.asarray(whole.density), rtol=0, atol=1.0e-9)
     assert resumed.total_energy == pytest.approx(whole.total_energy, abs=1.0e-9)
+
+
+def test_a_driven_field_crosses_the_manual_resume_as_well(pseudo_dir, tmp_path):
+    """The other route ``run_scf`` documents: ``starting_from`` plus ``mixing_from``.
+
+    ``starting_from=load_state(..., calculation=c)`` with ``mixing_from=dir``
+    used to drop the driven field the file carries and restart the controller
+    from the input's field, with no warning (I65's verifier, D22: field -0.04
+    against -0.08 here, and 2.2e-6 Ry off at convergence on ``fe-fsm.in``).
+    This route restores neither ``ethr`` nor the occupations, so iteration
+    three runs on a fresh Davidson threshold and the end state is not the
+    uninterrupted one to the last bit; the tolerances are the measured
+    difference with margin, and the field's is far below the 0.04 a dropped
+    field gives.
+    """
+    from defuqumat.scf.checkpoint import load_state
+
+    calculator = _with_fsm(pseudo_dir, tmp_path / "cell")
+    out = tmp_path / "ckpt"
+    options = dict(conv_thr=1.0e-12, verbose=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        whole = run_scf(calculator.system, calculator.pseudos, max_iterations=4,
+                        **options)
+        first = run_scf(calculator.system, calculator.pseudos, max_iterations=2,
+                        checkpoint_dir=out, checkpoint_every=1, **options)
+        back = load_state(out / SCF_CHECKPOINT, system=calculator.system,
+                          calculation=calculator.calculation)
+        resumed = run_scf(calculator.system, calculator.pseudos, max_iterations=2,
+                          starting_from=back, mixing_from=out, **options)
+
+    field = np.asarray(resumed.magnetic_field.uniform)
+    reference = np.asarray(whole.magnetic_field.uniform)
+    input_field = np.asarray(calculator.calculation.magnetic_field.uniform)
+    assert np.max(np.abs(np.asarray(first.magnetic_field.uniform) - input_field)) > 1.0e-3
+    np.testing.assert_allclose(field, reference, rtol=0, atol=1.0e-6)
+    np.testing.assert_allclose(np.asarray(resumed.density),
+                               np.asarray(whole.density), rtol=0, atol=1.0e-6)
+    assert resumed.total_energy == pytest.approx(whole.total_energy, abs=1.0e-7)
+
+
+def test_a_driven_field_from_another_controller_is_not_carried(pseudo_dir, tmp_path):
+    """A seed whose driven field belongs to another update rule is warned about by
+    name and the run keeps the input's field, and a ``magnetization='seed'``
+    continuation keeps the input's field without a warning, since it asked to
+    start the moment again (I65)."""
+    elk = _with_fsm(pseudo_dir, tmp_path / "elk")
+    secant = _with_fsm(pseudo_dir, tmp_path / "secant", update="secant")
+    options = dict(conv_thr=1.0e-12, verbose=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        source = run_scf(elk.system, elk.pseudos, max_iterations=2, **options)
+    input_field = float(np.asarray(secant.calculation.magnetic_field.uniform)[0])
+    assert abs(float(np.asarray(source.magnetic_field.uniform)[0]) - input_field) > 1.0e-3
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        run_scf(secant.system, secant.pseudos, max_iterations=1,
+                starting_from=source, **options)
+    messages = [str(w.message) for w in caught]
+    assert any("driven field" in m and "input's field" in m for m in messages), messages
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        reseeded = run_scf(elk.system, elk.pseudos, max_iterations=1,
+                           starting_from=source, magnetization="seed", **options)
+    assert not any("driven field" in str(w.message) for w in caught)
+    # One Elk step from the input's field (a step of 0.02 here, the moment
+    # being saturated), not a third from the source's 0.04.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fresh = run_scf(elk.system, elk.pseudos, max_iterations=1, **options)
+    np.testing.assert_allclose(np.asarray(reseeded.magnetic_field.uniform),
+                               np.asarray(fresh.magnetic_field.uniform),
+                               rtol=0, atol=1.0e-3)
 
 
 @pytest.mark.parametrize("update,stop", [("elk", 10), ("secant", 12)])
