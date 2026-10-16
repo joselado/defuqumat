@@ -213,6 +213,16 @@ def require_a_fermi_surface(calculation) -> None:
             "tot_magnetization, which with a smearing gives one level per "
             "channel and is accepted. Run the metal with a smearing"
         )
+    if occupations.startswith("tetrahedra") and getattr(
+        system, "two_fermi_energies", False
+    ):
+        raise NotImplementedError(
+            "the nesting function of a tetrahedron run with a constrained "
+            "tot_magnetization has not been checked: the two levels such a run "
+            "finds come from tetrahedron_occupations channel by channel, and "
+            "only the smeared two-level case has been compared with pw.x "
+            "(nickel, pw_lsda/lsda-tot_magnetization). Run it with a smearing"
+        )
 
 
 # -- the assembly --------------------------------------------------------------

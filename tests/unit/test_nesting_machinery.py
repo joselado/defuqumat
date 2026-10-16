@@ -26,6 +26,7 @@ Four kinds of thing live here.
   wrong ``N(q)``.
 """
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -322,6 +323,24 @@ def test_a_smeared_constrained_moment_is_accepted():
     assert system.two_fermi_energies
     stub = type("Stub", (), {"system": system, "spiral": False})()
     require_a_fermi_surface(stub)
+
+
+def test_a_tetrahedron_constrained_moment_is_refused():
+    """The same input with tetrahedra: two levels, but never compared, refused."""
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / "al-metal.in").read_text().replace(
+        "degauss=0.05",
+        "degauss=0.05,\n    nspin = 2, starting_magnetization(1) = 0.1, "
+        "tot_magnetization = 1",
+    )
+    text = re.sub(r"occupations\s*=\s*'[^']*'", "occupations='tetrahedra'", text)
+    system = build_system(parse_pw_input(text))
+    assert system.two_fermi_energies
+    assert str(system.occupations).startswith("tetrahedra")
+    stub = type("Stub", (), {"system": system, "spiral": False})()
+    with pytest.raises(NotImplementedError, match="tetrahedron run"):
+        require_a_fermi_surface(stub)
 
 
 # -- two Fermi levels ----------------------------------------------------------
