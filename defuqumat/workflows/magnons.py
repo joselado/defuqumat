@@ -42,6 +42,7 @@ from defuqumat.tddft.spinchi0 import (
     transverse_response,
 )
 from defuqumat.tddft.spinkernel import (
+    collinear_channels,
     goldstone_residual,
     response_kernel,
 )
@@ -324,6 +325,13 @@ def run_spin_susceptibility(
 
     frequencies = np.atleast_1d(np.asarray(frequencies, dtype=float))
     q = np.asarray(q, dtype=float).reshape(3)
+    if np.shape(density)[0] == 4:
+        # A spinor run's moment is read here, before any band is paid for: the
+        # kernel refuses a texture where it reads the density, but the bare
+        # ``X_0`` (``interacting = False`` away from ``q = 0``) never builds the
+        # kernel, and without this it returned the up and down components'
+        # response for a moment along x (I59, ``notes/INCOMPATIBILITIES-T2.md``).
+        collinear_channels(calculation, jnp.asarray(density))
 
     if states is None:
         # The caller's own calculation, when handed one, is used on its own k-set or

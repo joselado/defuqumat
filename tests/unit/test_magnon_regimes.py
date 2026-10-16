@@ -128,6 +128,32 @@ def test_a_texture_is_refused_where_the_density_is_read():
         collinear_channels(None, texture)
 
 
+@pytest.mark.parametrize("interacting", [False, True])
+def test_the_workflow_refuses_a_texture_before_the_bands(interacting):
+    """A moment along x reaches no ``X_0``, interacting or bare, at ``q != 0``.
+
+    The bare response builds no kernel, so the kernel's own texture check was
+    never reached there, and a moment along x came back as the response of
+    the up and down components (D22, ``review/incompat/magnon/ver2/
+    texture.log``). The density here is placeholder data: the refusal comes
+    before the fixed-density run, which is what keeps this test free of an SCF.
+    """
+    import numpy as np
+
+    from defuqumat.workflows.magnons import run_spin_susceptibility
+
+    calculation = _calculation(HYDROGEN.replace(
+        "    nspin = 2\n", "    noncolin = .true.\n    angle1(1) = 90.0\n"))
+    density = np.zeros((4, 4, 4, 4))
+    density[0] = 1.0
+    density[1] = 0.3
+    with pytest.raises(NotImplementedError, match="not along z"):
+        run_spin_susceptibility(
+            calculation.system, calculation.pseudos, density, (0.0, 0.0, 0.25),
+            np.linspace(0.005, 0.04, 4), interacting=interacting,
+            calculation=calculation)
+
+
 def test_spin_orbit_coupling_is_refused():
     """``ni-soc-nosym.in``: a fully-relativistic spinor run."""
     calculation = _calculation((CASES / "ni-soc-nosym.in").read_text())
