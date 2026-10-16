@@ -237,7 +237,7 @@ def test_a_partial_matrix_from_a_kept_response_is_its_rows(case):
 
     calculation, result = _converged(case, 3)
     assert not calculation.use_symmetry
-    atoms, a = (1,), [1]
+    atoms, a = (1,), np.asarray([1])
     density = jax.numpy.asarray(result.density)
     hosted = dataclasses.replace(
         result, wavefunctions=np.asarray(result.wavefunctions))
@@ -253,9 +253,12 @@ def test_a_partial_matrix_from_a_kept_response_is_its_rows(case):
                                on_row=lambda at, c, r: rows.append((at, c)))
     assert np.array_equal(partial.matrix, whole.matrix[a][:, :, a, :])
     assert rows == [(1, 0), (1, 1), (1, 2)]
-    fresh = dynamical_matrix(calculation, np.asarray(result.wavefunctions),
-                             result.eigenvalues, density, result.becsum,
-                             atoms=atoms, **KEPT)
+    # The fresh solve at the states the kept response was solved at, the
+    # re-diagonalised ones (``refined_states``): at the SCF's own states the two
+    # differ by the mixing step's 1e-7, which read 7.0e-8 on silicon.
+    eigenvalues, store = refined_states(calculation, hosted, stream=True)
+    fresh = dynamical_matrix(calculation, store, eigenvalues, density,
+                             result.becsum, atoms=atoms, **KEPT)
     np.testing.assert_allclose(partial.matrix, fresh.matrix, rtol=0,
                                atol=SUBSET_AGAINST_FRESH)
 

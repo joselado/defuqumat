@@ -415,7 +415,7 @@ def dynamical_matrix(
                                         on_row=on_row, atoms=chosen)
         drho, history = response.drho, response.history
         if chosen is not None:
-            drho = drho[[walked.atoms.index(a) for a in chosen]]
+            drho = drho[np.asarray([walked.atoms.index(a) for a in chosen])]
         average_iterations, converged = float("nan"), response.converged
         return _phonons_of(calculation, matrix, drho, history, average_iterations,
                            converged, chosen, acoustic_sum_rule)
@@ -637,7 +637,8 @@ def _response_rows(response, chosen, nat):
             f"the response holds {held} atoms' perturbations, neither the cell's "
             f"{nat} nor the {len(chosen)} asked for, so its rows cannot be "
             "matched to atoms")
-    rows = list(chosen)
+    # An index array, not a list: a jax array refuses a list as an index.
+    rows = np.asarray(chosen)
 
     def cut(stack):
         return None if stack is None else stack[rows]

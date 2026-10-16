@@ -62,6 +62,20 @@ def test_a_whole_response_is_cut_to_the_subsets_rows():
     assert extras["onecentre"] is None
 
 
+def test_a_response_on_the_device_is_cut_too():
+    """The whole-k loop hands back jax arrays, which refuse a list as an index."""
+    response = _response(3)
+    response = DisplacementResponse(
+        dpsi=response.dpsi, drho=jnp.asarray(response.drho), history=[],
+        bare=jnp.asarray(response.bare),
+        extras={"dvscf": jnp.asarray(response.drho), "onecentre": None,
+                "dbecsum": None})
+    _, drho, bare, extras = _response_rows(response, (2,), 3)
+    assert float(drho[0, 0, 0, 0]) == 2.0
+    assert float(bare[0, 0, 0, 0]) == 2.0
+    assert float(extras["dvscf"][0, 0, 0, 0]) == 2.0
+
+
 def test_a_whole_cell_or_a_subsets_own_response_is_taken_as_it_is():
     response = _response(3)
     assert _response_rows(response, None, 3)[1] is response.drho
