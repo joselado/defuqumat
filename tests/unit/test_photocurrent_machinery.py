@@ -330,3 +330,48 @@ def test_the_multiplet_average_is_exactly_the_diagonal_where_nothing_is_degenera
         band_velocity_difference, in_axes=(0, 1, None), out_axes=1
     )(jnp.asarray(energies), jnp.asarray(velocity), DEGENERACY_TOL))
     assert np.max(np.abs(averaged - bare)) == 0.0
+
+
+class _Magnet:
+    """What :func:`~defuqumat.scf.occupations.occupied_counts` reads of a fixed LSDA run."""
+
+    nspin, noncolin, nelec, nelup, neldw = 2, False, 8.0, 5.0, 3.0
+
+
+def _two_channels(split: float):
+    """``(2, 2, 8)`` eigenvalues: a singlet, a triplet, a singlet, a triplet per channel.
+
+    Five bands are filled up and three down, so the minority's cut falls after
+    the second member of the valence triplet; ``split`` opens that triplet at
+    the second k-point only, so the cut is degenerate at the first.
+    """
+    one = np.array([-1.0, 0.0, 0.0, 0.0, 0.3, 0.5, 0.5, 0.5])
+    lifted = one + split * np.array([0, -1, 0, 1, 0, 0, 0, 0])
+    return np.stack([np.stack([one - 0.05, lifted - 0.05]),
+                     np.stack([one + 0.05, lifted + 0.05])])
+
+
+def test_a_filling_that_cuts_a_shell_is_refused():
+    """A collinear magnet whose minority stops inside the valence triplet at one k-point.
+
+    The sum over pairs carries ``f_n - f_m``, so a shell occupied in part makes
+    the tensor depend on the eigensolver's rotation inside it, and summing the
+    two channels is what makes the filling reachable.
+    """
+    from defuqumat.response.photocurrent import _require_a_gap_at_the_filling
+
+    with pytest.raises(NotImplementedError, match="spin channel 1 occupies 3 bands"):
+        _require_a_gap_at_the_filling(_Magnet(), _two_channels(0.0))
+
+
+def test_a_filling_at_a_gap_is_not_refused():
+    """The control: the same channels with the triplet split at every k-point pass.
+
+    Every k-point's triplet is lifted, so the minority's cut is gapped everywhere,
+    and the majority's (five bands, the singlet above the triplet) always was.
+    """
+    from defuqumat.response.photocurrent import _require_a_gap_at_the_filling
+
+    eigenvalues = _two_channels(0.02)
+    eigenvalues[:, 0] = eigenvalues[:, 1]
+    _require_a_gap_at_the_filling(_Magnet(), eigenvalues)

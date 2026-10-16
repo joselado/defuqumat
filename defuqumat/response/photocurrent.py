@@ -119,7 +119,8 @@ a Python loop over triples.
 Scope
 -----
 
-Norm-conserving, ``nspin = 1`` or a spinor run, an **insulator** with fixed
+Norm-conserving; ``nspin = 1``, a collinear ``nspin = 2`` (whose two channels
+add) or a spinor run; an **insulator** with fixed
 occupations, on a k-grid closed under the point group. Refused by name, each
 for its own missing term, in :func:`require_a_shift_current_regime`.
 
@@ -536,6 +537,9 @@ def shift_current(
             Calculation` the states came from.
         wavefunctions: ``(nspin, nk, nbnd, ndim)`` -- **every** diagonalised
             band, not the occupied manifold: the intermediate sum needs them.
+            At a collinear ``nspin = 2`` each channel is its own band
+            structure, with its own Hamiltonian, occupations and intermediate
+            sum, and the two channels' tensors add.
         eigenvalues: ``(nspin, nk, nbnd)`` in Ry.
         v_scf: the self-consistent potential the Hamiltonian was built with.
         frequencies: an explicit photon-energy axis in Ry; ``None`` builds a
@@ -577,12 +581,14 @@ def shift_current(
     # device array, and cross to the device a k-chunk at a time below.
     if eigenvalues.ndim == 2:
         eigenvalues, wavefunctions = eigenvalues[None], wavefunctions[None]
-    if eigenvalues.shape[0] != 1:
-        raise NotImplementedError(
-            "the shift current of a collinear spin-polarized run is not "
-            "implemented: the two channels are two band structures whose "
-            "currents add, which is a loop this assembly does not have"
-        )
+    # A collinear spin-polarized run is two band structures, one per channel,
+    # whose currents add: the channel axis is kept below, each channel's first
+    # and second velocity elements are built with its own Hamiltonian
+    # (``VelocityOperator._hamiltonians``), and the contraction folds the
+    # channels into the k axis, since every term -- the intermediate sum of the
+    # generalised derivative included -- runs over one channel's bands at one
+    # k-point. :func:`defuqumat.response.shg.second_harmonic` folds the same way.
+    _require_a_gap_at_the_filling(calculation, eigenvalues)
 
     precision = calculation.system.cell.precision
     volume = float(calculation.system.cell.volume)
@@ -594,11 +600,11 @@ def shift_current(
     kcart = np.asarray(VelocityOperator(calculation, v_scf).kcart)
 
     wg, _ = calculation.occupations(eigenvalues)
-    wg = jnp.asarray(wg)[0]
+    wg = jnp.asarray(wg)  # (nspin, nk, nbnd)
     wk = jnp.asarray(calculation.system.kpoints.weights)
-    filling = wg / wk[:, None]  # in [0, 1] per spin channel
+    filling = wg / wk[None, :, None]  # in [0, 1] per spin channel
     # On the host, where each chunk takes its rows from.
-    energies = np.asarray(eigenvalues[0])
+    energies = np.asarray(eigenvalues)
     wk, filling = np.asarray(wk), np.asarray(filling)
 
     if frequencies is None:
@@ -637,24 +643,30 @@ def shift_current(
     terms = calculation.local_terms(v_scf)
 
     def first_of(rowset, psi, kcart):
-        """One chunk's ``<m|dH/dk_a|n>``, ``(3, chunk, nbnd, nbnd)``."""
+        """One chunk's ``<m|dH/dk_a|n>``, ``(3, nspin, chunk, nbnd, nbnd)``."""
         velocity = VelocityOperator(with_rows(calculation, rowset), v_scf, kcart=kcart,
                                     local_terms=terms)
-        return velocity.matrix_elements(psi, sequential=True)[:, 0]
+        return velocity.matrix_elements(psi, sequential=True)
 
     def second_of(v, rowset, psi, kcart):
-        """One chunk's ``<m|d2H/dk_a dk_b|n>``, ``(3, 3, chunk, nbnd, nbnd)``."""
+        """One chunk's ``<m|d2H/dk_a dk_b|n>``, ``(3, 3, nspin, chunk, nbnd, nbnd)``."""
         velocity = VelocityOperator(with_rows(calculation, rowset), v_scf, kcart=kcart,
                                     local_terms=terms)
-        return velocity.second_matrix_elements(psi, sequential=True)[:, :, 0]
+        return velocity.second_matrix_elements(psi, sequential=True)
 
     def contraction(bands: int, position: int):
         def stage(*args):
             """One chunk's share of ``sigma^abc``, summed over ``bands`` bands."""
             v, w = args[0], args[1]
             energies, fill, weight = args[position:]
-            arrays = (energies, jnp.moveaxis(v, 0, 1), jnp.moveaxis(w, 2, 0),
-                      fill, weight)
+            # (nspin, chunk, ...), the channel folded into the k axis: v to
+            # (nspin chunk, 3, nb, nb) and w to (nspin chunk, 3, 3, nb, nb)
+            nspin = energies.shape[0]
+            v = jnp.moveaxis(v, 0, 2)
+            w = jnp.moveaxis(w, (0, 1), (2, 3))
+            v, w, energies, fill = (x.reshape((-1,) + x.shape[2:])
+                                    for x in (v, w, energies, fill))
+            arrays = (energies, v, w, fill, jnp.tile(weight, nspin))
             return sum_k(one_k(bands), arrays, batch=batch)
         return stage
 
@@ -663,7 +675,7 @@ def shift_current(
         # which multiplies the whole of a k-point's term.
         states = (row_leaves(calculation, rows), store_rows(wavefunctions, rows),
                   jnp.asarray(kcart[rows]))
-        last = (jnp.asarray(energies[rows]), jnp.asarray(filling[rows]),
+        last = (jnp.asarray(energies[:, rows]), jnp.asarray(filling[:, rows]),
                 jnp.asarray(padded(wk, rows, live)))
         return (states, states) + (last,) * len(band_counts)
 
@@ -785,6 +797,46 @@ def require_a_velocity_sum_regime(calculation) -> None:
             "and the intraband part of the shift) are a different assembly. "
             "Use occupations = 'fixed'"
         )
+
+
+def _require_a_gap_at_the_filling(calculation, eigenvalues) -> None:
+    """Refuse fixed occupations whose boundary lands inside a degenerate multiplet.
+
+    Reachable once the channels are summed: a collinear ``nspin = 2`` run with
+    ``tot_magnetization`` fills each channel to its own depth, and a depth that
+    stops inside a shell (three electrons in a channel whose valence top is a
+    triplet) occupies an arbitrary member of it. Every pair ``(n, m)`` the
+    tensor sums carries ``f_n - f_m``, so the tensor then depends on the
+    rotation the eigensolver returned inside the shell rather than on the
+    density -- the same reason :mod:`defuqumat.response.sternheimer` and
+    :func:`defuqumat.workflows.realtime._solved_states` refuse it. The
+    threshold is the empty-band floor the fixed-density solve converges the
+    band over the cut to (:data:`~defuqumat.solvers.davidson.EMPTY_ETHR_FLOOR`).
+    A channel whose cut is at or beyond ``nbnd`` reads NaN and is not refused.
+
+    Checked at ``nspin = 2`` alone, the one regime where fixed occupations can
+    stop inside a shell of an insulator the other refusals admit; at
+    ``nspin = 1`` and for a spinor the filling is ``nelec / 2`` or ``nelec``
+    bands, as before this was written.
+    """
+    from defuqumat.scf.occupations import cut_gaps, occupied_counts
+    from defuqumat.solvers.davidson import EMPTY_ETHR_FLOOR
+
+    if int(eigenvalues.shape[0]) != 2:
+        return
+    counts = tuple(occupied_counts(calculation))
+    gaps = cut_gaps(np.asarray(eigenvalues), counts)
+    for spin, (count, gap) in enumerate(zip(counts, gaps)):
+        if float(gap) < EMPTY_ETHR_FLOOR:
+            raise NotImplementedError(
+                f"the shift current of a filling that cuts a degenerate multiplet "
+                f"is not defined: spin channel {spin} occupies {count} bands and "
+                f"the gap to the first empty one is {float(gap):.2e} Ry at some "
+                "k-point, so which member of the shell is occupied is the "
+                "eigensolver's choice and every f_n - f_m across it with it. "
+                "Occupy the whole shell (another tot_magnetization), or use a "
+                "k-set on which the occupied manifold is gapped"
+            )
 
 
 def _kpoints_are_reduced(calculation) -> bool:
