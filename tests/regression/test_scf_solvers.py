@@ -660,6 +660,82 @@ def test_an_inexact_newton_is_only_as_stability_blind_as_its_inner_solve():
 # play, and that it reaches a solution the mixer cannot.
 
 
+#: bcc iron at one k-point under a uniform field: ``tests/data/qe/fe-fsm.in``
+#: with its feedback constraint replaced by ``b_field(3) = 0.01``, which the
+#: mixing loop holds fixed, so the residual's ``F`` is the loop's map (I73).
+FIELD_EDITS = (
+    ("constrained_magnetization = 'fsm'", "b_field(3) = 0.01"),
+    ("lambda = 0.02", ""),
+    ("fixed_magnetization(3) = 2.0", ""),
+)
+
+
+def _iron_under_a_field(edits):
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (Path(__file__).resolve().parents[1] / "data" / "qe" / "fe-fsm.in").read_text()
+    for old, new in edits:
+        assert old in text, old
+        text = text.replace(old, new)
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(
+        read_upf(Path(__file__).parents[1] / "data" / "pseudo" / s.pseudo_file)
+        for s in system.structure.species
+    )
+    return system, pseudos
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_field():
+    """I73: an applied field is part of ``F``, so Newton lands where mixing does.
+
+    Measured on D22 (``review/incompat/I73/harnessBC.log``, one sample): total
+    energy 1.7e-8 Ry apart, field energy 1.7e-8, moment 1.7e-6 mu_B, with
+    Newton at 7 outer steps and 58 evaluations of ``F`` against the mixer's 14
+    iterations. The field-free cell is the alternative a solver that dropped
+    the Zeeman term would land on, and it is asserted to be far away.
+
+    **The Newton run's loop iteration count is what carries the claim.** A
+    Newton whose ``F`` dropped the field converges on the field-free residual,
+    and the mixing loop after it (``max_iterations = 300``) still carries the
+    field and finishes at the mixer's fixed point, so the energy, field energy
+    and moment asserts all pass. Measured on D22 with that mutation
+    (``make_residual`` handed the calculation with ``magnetic_field = None``):
+    the loop takes 11 iterations, against 1 clean.
+    """
+    system, pseudos = _iron_under_a_field(FIELD_EDITS)
+    assert Calculation(system, pseudos).magnetic_field is not None
+    mixed = run_scf(system, pseudos, calculation=Calculation(system, pseudos),
+                    conv_thr=1e-10, max_iterations=300, mixing_beta=0.3)
+    newton = run_scf(
+        system, pseudos, calculation=Calculation(system, pseudos), conv_thr=1e-10,
+        max_iterations=300, mixing_beta=0.3, scf_solver="newton-krylov",
+        scf_solver_options={"forcing": 0.5, "warmup": 6},
+    )
+    assert mixed.converged and newton.converged
+    assert newton.solver is not None and newton.solver.converged
+    # A Newton converged on the wrong problem is finished by the mixing loop,
+    # which would then take more than a step or two (11 measured).
+    assert newton.iterations <= 2
+    # The reported total leaves out the Zeeman term, so it is not the
+    # stationary functional: E + E_field is, and dE = -dE_field to 1e-10 at
+    # b_field(3) = 0.01 and 0.02. The E and E_field asserts are one first-order
+    # check in the moment, read twice; 1.7e-8 Ry and 1.7e-6 mu_B were measured,
+    # and the tolerances leave room for a different stopping point.
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.field_energy == pytest.approx(mixed.field_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.magnetization == pytest.approx(mixed.magnetization, abs=1e-4)
+
+    free_system, _ = _iron_under_a_field(
+        (("constrained_magnetization = 'fsm'", ""),) + FIELD_EDITS[1:]
+    )
+    free = run_scf(free_system, pseudos, conv_thr=1e-10, max_iterations=300,
+                   mixing_beta=0.3)
+    assert abs(free.magnetization - mixed.magnetization) > 1e-3
+    assert abs(free.total_energy - mixed.total_energy) > 1e-5
+
+
 @pytest.mark.regression
 @pytest.mark.slow
 def test_newton_krylov_matches_the_mixer_with_a_hubbard_u():
