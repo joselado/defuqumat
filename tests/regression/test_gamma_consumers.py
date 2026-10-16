@@ -141,8 +141,8 @@ def _quietly(method, *args, **kwargs):
 def test_the_projected_density_of_states():
     gamma, whole = _pair("silicon")
     a, b = _quietly(gamma.get_pdos), _quietly(whole.get_pdos)
-    assert _relative("pdos", a.pdos, b.pdos) < 1e-10  # 1.7e-12 measured
-    assert _relative("pdos integrated", a.integrated, b.integrated) < 1e-10  # 6.4e-13
+    assert _relative("pdos", a.pdos, b.pdos) < 1e-10  # 3.9e-12 measured
+    assert _relative("pdos integrated", a.integrated, b.integrated) < 1e-10  # 1.2e-12
 
 
 def test_the_optical_spectrum():
@@ -152,35 +152,35 @@ def test_the_optical_spectrum():
     frequencies = np.linspace(0.05, 0.6, 6)
     a = _quietly(gamma.get_absorption, frequencies, **options)
     b = _quietly(whole.get_absorption, frequencies, **options)
-    assert _relative("eps_M", a.epsilon, b.epsilon) < 1e-8  # 9.9e-10 measured
+    assert _relative("eps_M", a.epsilon, b.epsilon) < 1e-8  # 1.4e-9 measured
     assert _relative("eps_M (no local fields)", a.epsilon_no_local_fields,
-                     b.epsilon_no_local_fields) < 1e-8  # 5.3e-10
+                     b.epsilon_no_local_fields) < 1e-8  # 6.2e-10
 
 
 def test_the_stm_image_and_the_tunnelling_spectrum():
     gamma, whole = _pair("h-sheet")
     a = _quietly(gamma.get_stm, height=0.85, shape=(6, 6))
     b = _quietly(whole.get_stm, height=0.85, shape=(6, 6))
-    assert _relative("stm image", a.values, b.values) < 5e-7
+    assert _relative("stm image", a.values, b.values) < 5e-7  # 3.0e-8 measured
 
     fermi = float(whole.get_scf().fermi_energy)
     energies = fermi + np.linspace(-0.1, 0.1, 5)
     a = _quietly(gamma.get_sts, energies, height=0.85, shape=(4, 4))
     b = _quietly(whole.get_sts, energies, height=0.85, shape=(4, 4))
-    assert _relative("sts", a.values, b.values) < 5e-7
+    assert _relative("sts", a.values, b.values) < 5e-7  # 8.2e-8 measured
 
 
 def test_the_vertical_and_the_momentum_transmission():
     gamma, whole = _pair("h-sheet")
     a = _quietly(gamma.get_vertical_transport, shape=(4, 4), **SHEET)
     b = _quietly(whole.get_vertical_transport, shape=(4, 4), **SHEET)
-    assert _relative("vertical transmission", a.image, b.image) < 5e-7
+    assert _relative("vertical transmission", a.image, b.image) < 5e-7  # 3.9e-8 measured
 
     a = _quietly(gamma.get_momentum_transport, **SHEET)
     b = _quietly(whole.get_momentum_transport, **SHEET)
-    assert _relative("momentum weight", a.weight, b.weight) < 5e-7
+    assert _relative("momentum weight", a.weight, b.weight) < 5e-7  # 1.2e-8
     assert _relative("momentum tersoff-hamann", a.tersoff_hamann,
-                     b.tersoff_hamann) < 5e-7
+                     b.tersoff_hamann) < 5e-7  # 4.2e-9
 
 
 def test_the_transverse_susceptibility_and_the_site_moments():
@@ -196,7 +196,7 @@ def test_the_transverse_susceptibility_and_the_site_moments():
                  **options)
     b = _quietly(whole.get_spin_susceptibility, (0.0, 0.0, 0.0), frequencies,
                  **options)
-    assert _relative("X_0^{+-}", a.chi, b.chi) < 1e-9  # 1.0e-11 measured
+    assert _relative("X_0^{+-}", a.chi, b.chi) < 1e-9  # 8.0e-13 measured
 
     a, b = _quietly(gamma.get_angular_momenta), _quietly(whole.get_angular_momenta)
-    assert _relative("site <S>", a.spin, b.spin) < 1e-9  # 3.8e-11 measured
+    assert _relative("site <S>", a.spin, b.spin) < 1e-9  # 6.4e-11 measured
