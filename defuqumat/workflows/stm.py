@@ -157,7 +157,7 @@ def run_stm(
     """
     refuse_an_ultracell_result(
         result, "an STM image", "defuqumat.workflows.ultracell.run_ultracell_stm")
-    _refuse_what_has_no_fermi_level(system, result)
+    _refuse_what_has_no_fermi_level(system, result, charge_image=spin is None)
     # A real-space wavefunction from a half sphere loses the conjugate half and
     # gains a spurious imaginary part, and nothing downstream notices.
     #
@@ -235,8 +235,10 @@ def run_stm(
 
     geometry = _plane(calculation.system.cell, height, axis, plane, shape)
     coefficients = np.asarray(r_to_g(field, dense.fft_index))
+    # A spiral's transverse pair is stored in the frame that turns with ``q``,
+    # so its channels are not the laboratory ones and are not reported.
     channels = (np.asarray(r_to_g(density, dense.fft_index))
-                if density.shape[0] > 1 else None)
+                if density.shape[0] > 1 and not calculation.spiral else None)
 
     if mode == "constant-height":
         values = sample_coefficients(coefficients, dense, geometry.flat())
@@ -843,17 +845,26 @@ def refuse_an_ultracell_result(result, quantity: str, instead: str):
     )
 
 
-def _refuse_what_has_no_fermi_level(system, result):
+def _refuse_what_has_no_fermi_level(system, result, charge_image: bool = False):
     """The combinations whose energy selection is not one number.
 
     Every one of them is a statement about what "the states at the tip energy"
-    means, not about the plane or the sampling.
+    means, not about the plane or the sampling -- except the spiral's, which is
+    about what can be put on one cell's plane. ``charge_image`` is
+    :func:`run_stm` without a ``spin``: the charge of a spin spiral,
+    ``|U_up|^2 + |U_dn|^2``, is lattice periodic, and the tip-energy density
+    :meth:`~defuqumat.scf.driver.Calculation.density` builds from the two
+    spheres is exactly it, so that image is computed.
     """
-    if getattr(system, "spiral_q", None) is not None:
+    if getattr(system, "spiral_q", None) is not None and not charge_image:
         raise NotImplementedError(
-            "an STM image of a spin spiral is refused: the two spinor "
-            "components live on different plane-wave spheres, so |psi(r)|^2 is "
-            "not the lattice-periodic object this sum builds"
+            "a spin-resolved STM image, a tunnelling spectrum or a tunnelling "
+            "map of a spin spiral is refused: the charge image is computed (its "
+            "|psi(r)|^2 = |U_up|^2 + |U_dn|^2 is lattice periodic), but the "
+            "laboratory transverse moment turns by q . R from cell to cell, so "
+            "a spin projection is not a function on one cell's plane; and the "
+            "spectrum and the maps sample psi(r) on one k + G list, where a "
+            "spiral's components are on k + q/2 + G and k - q/2 + G"
         )
     if getattr(result, "fermi_energy_up", None) is not None:
         raise NotImplementedError(

@@ -310,11 +310,18 @@ def _refuse_what_is_not_written(calculation) -> None:
         "build_atomic_projectors and never reaches that guard, so <L>, <S> and "
         "<J> come back small, smooth and wrong rather than raising"
     )
-    if calculation.spiral:
+    if getattr(calculation, "spiral", None) and getattr(
+        calculation, "is_ultrasoft", False
+    ):
+        # A norm-conserving spiral is projected below, each component on the
+        # orbitals of its own sphere. An augmented one would need ``S`` on each
+        # sphere and the displaced overlap between them, and has no check.
         raise NotImplementedError(
-            "site angular momenta on a spin spiral are not implemented: the two "
-            "spinor components live on spheres centred at k + q/2 and k - q/2, "
-            "so a single set of atomic orbitals does not project both"
+            "site angular momenta on an ultrasoft or PAW spin spiral are not "
+            "implemented: the norm-conserving spiral is (each spinor component "
+            "projected on the atomic orbitals of its own sphere, k + q/2 or "
+            "k - q/2, checked against the NiI supercell), but the augmented one "
+            "needs S on each sphere and has no check"
         )
     relativistic = any(
         getattr(pseudo, "has_so", False) for pseudo in calculation.pseudos
@@ -450,10 +457,24 @@ def _site_density_matrix(calculation, result, projectors, channels,
         states = jnp.asarray(psi)[channel]
         return states if whole else states[jnp.asarray(rows)]
 
+    # **A spin spiral's basis list is doubled**, ``k + q/2`` for the up
+    # component and ``k - q/2`` for the down, so its orbitals are built on
+    # ``2 nk`` rows and each component is projected on its own half. The pair
+    # ``<phi(k + q/2)|psi_up>``, ``<phi(k - q/2)|psi_dn>`` is the projection of
+    # the laboratory spinor ``(U_up e^{i(k+q/2).r}, U_dn e^{i(k-q/2).r})`` on
+    # the orbitals of the atom in the home cell, so the site matrix below is
+    # the laboratory one there, and the cross block is not in a rotating frame.
+    spiral = bool(getattr(calculation, "spiral", False))
+    if spiral and host:
+        raise NotImplementedError(
+            "site angular momenta of a spin spiral from a streamed store are not "
+            "implemented: the blocks are built on one list of nk rows, where a "
+            "spiral's orbitals are rows ik and nk + ik of a list of 2 nk")
+    blocks = ([(np.arange(nk), nk)] if spiral else _projection_blocks(
+        calculation, psi, channels, projectors is not None,
+        width=None if projectors is None else int(np.shape(projectors)[-1])))
     computed = [None] * len(wanted)
-    for rows, live in _projection_blocks(
-            calculation, psi, channels, projectors is not None,
-            width=None if projectors is None else int(np.shape(projectors)[-1])):
+    for rows, live in blocks:
         whole = live == nk and len(rows) == nk
         if projectors is not None:
             block = jnp.asarray(projectors if whole else np.asarray(projectors)[rows])
@@ -466,8 +487,11 @@ def _site_density_matrix(calculation, result, projectors, channels,
         for slot, (channel, columns) in enumerate(wanted):
             if channel not in uploaded:
                 uploaded[channel] = states_of(channel, rows, whole)
+            orbitals = conjugate
+            if spiral:
+                orbitals = conjugate[:nk] if slot == 0 else conjugate[nk:]
             part = np.asarray(jnp.einsum(
-                "kgi,kbg->kbi", conjugate, uploaded[channel][..., columns]))
+                "kgi,kbg->kbi", orbitals, uploaded[channel][..., columns]))
             if computed[slot] is None:
                 computed[slot] = np.empty((nk,) + part.shape[1:], part.dtype)
             computed[slot][rows[:live]] = part[:live]

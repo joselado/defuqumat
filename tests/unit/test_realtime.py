@@ -453,3 +453,15 @@ def test_the_cutoff_is_the_end_of_an_unbroken_plateau():
                                 intensity=total[:, None] * np.ones(3), total=total,
                                 omega=1.0, window="none")
     assert spectrum.cutoff(floor=1e-3) == 9
+
+
+def test_a_spin_spiral_is_refused_by_name():
+    """The chunk builds one sphere per k-point; a spiral's components have two."""
+    from types import SimpleNamespace
+
+    from defuqumat.realtime.propagate import require_a_realtime_regime
+
+    calculation = SimpleNamespace(spiral=True, gamma_only=False, is_hubbard=False,
+                                  magnetic_field=None)
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        require_a_realtime_regime(calculation)

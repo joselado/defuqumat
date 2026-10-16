@@ -189,7 +189,11 @@ def require_a_realtime_regime(calculation) -> None:
     if calculation.spiral:
         raise NotImplementedError(
             "real-time propagation of a spin spiral is not implemented: the two "
-            "spinor components sit on spheres at k + q/2 and k - q/2")
+            "spinor components sit on spheres at k + q/2 and k - q/2, and the "
+            "propagated chunk (_Chunk) holds one k0, one G list, one mask and one "
+            "projector core per k-point, with vkb applied to both components; a "
+            "spiral needs each of them per component (rows ik and nk + ik of "
+            "the doubled list) and the kick kappa added to both")
     if calculation.gamma_only:
         raise NotImplementedError(
             "real-time propagation with gamma-only storage is not implemented: "

@@ -3092,9 +3092,15 @@ class Calculation:
         and stops. Here ``tau`` is carried as the 2x2 matrix it is and resolved
         onto the density's local spin axis
         (:func:`~defuqumat.scf.potential._noncollinear_meta_exchange`).
-        * **Spin spirals.** The two spinor components live on different spheres,
-          so ``grad psi`` carries two different ``k + q/2`` sets and the sum is
-          not the kinetic energy density of anything periodic.
+        * **Spin spirals under ``noncollinear_gga = 'grad_m'``, or on a PAW
+          dataset.** A norm-conserving spiral under ``'kubler'`` runs: each
+          component is differentiated with its own ``k +- q/2 + G``
+          (:func:`~defuqumat.scf.density.spinor_band_kinetic_density`), which
+          gives a ``tau`` in the frame that turns with ``q``, resolved onto the
+          local axis as the density is. ``'grad_m'`` takes the laboratory
+          gradient of the transverse pair, ``i (G - q)``, which its meta-GGA
+          branch does not carry, and PAW's one-centre ``tau`` on a spiral has
+          no check.
         """
         if any(p.is_ultrasoft and not p.is_paw for p in self.pseudos):
             # **Ultrasoft, but not PAW.** The distinction is the partial waves:
@@ -3113,11 +3119,16 @@ class Calculation:
                 "pw.x refuses both (setup.f90: 'Meta-GGA not implemented with "
                 "USPP/PAW')"
             )
-        if getattr(system, "spiral_q", None) is not None:
+        if getattr(system, "spiral_q", None) is not None and (
+                getattr(system, "noncollinear_gga", None) != "kubler"
+                or any(p.is_paw for p in self.pseudos)):
             raise NotImplementedError(
-                f"{self.functional.name} with a spin spiral is not implemented: "
-                "the two spinor components live on different plane-wave spheres, "
-                "so their gradients do not add to a lattice-periodic tau"
+                f"{self.functional.name} with a spin spiral is implemented for a "
+                "norm-conserving dataset under noncollinear_gga = 'kubler' only: "
+                "the default 'grad_m' takes the laboratory gradient of the "
+                "transverse pair, i (G - q), which its meta-GGA branch does not "
+                "carry, and PAW's one-centre tau on a spiral has no check. Set "
+                "noncollinear_gga = 'kubler'"
             )
         if getattr(system, "hubbard", None):
             # Nothing in the physics forbids it -- ``vhpsi`` is a separate term
@@ -3152,11 +3163,17 @@ class Calculation:
             return
 
         setup = self.hubbard
-        if self.spiral:
+        if self.spiral and self.is_ultrasoft:
+            # A norm-conserving spiral's ``wfcU`` is built on both spheres
+            # (:meth:`_build_hubbard_projectors`). An augmented one would need
+            # ``S`` on each sphere inside the orthogonalisation, whose row index
+            # here is the doubled list's, and has no check.
             raise NotImplementedError(
-                "DFT+U together with a spin spiral is not implemented: the two "
-                "spinor components live on different plane-wave spheres, so a "
-                "projector would have to be built on each"
+                "DFT+U together with an ultrasoft or PAW spin spiral is not "
+                "implemented: the norm-conserving spiral is (each spinor "
+                "component's Hubbard projector built on its own sphere), but "
+                "the augmented one needs S on each sphere in the "
+                "orthogonalisation and has no check"
             )
         if (
             not self.noncolin
@@ -3261,11 +3278,30 @@ class Calculation:
         (``workflows/nscf.py``), so no reverse-mode gradient reaches ``wfcU``
         that way today.
         """
-        return build_hubbard_projectors(
+        projectors = build_hubbard_projectors(
             self.hubbard, self.pseudos, self.system.structure, self.system.cell,
             self.basis.smooth, self.basis.planewaves, self.basis_kpoints,
             self._spinor_overlap if self.noncolin else self._overlap, kcart,
         )
+        if not self.spiral:
+            return projectors
+        # **A spin spiral's spinor projector takes its two halves from two
+        # rows.** Built on the doubled list, row ``ik`` is the orbital set at
+        # ``k + q/2`` and row ``nk + ik`` the one at ``k - q/2``, each a whole
+        # spinor set in the ``'updown'`` basis -- every column pure up or pure
+        # down. The up component of a spiral state lives on the first sphere and
+        # the down on the second, so the projector it meets is the up half of
+        # row ``ik`` laid beside the down half of row ``nk + ik``. A pure-up
+        # column has nothing in its down half and the reverse, so nothing is
+        # lost in the splice, and the Löwdin orthogonalisation of each row is
+        # block diagonal in spin (``S = 1`` on a norm-conserving dataset), so
+        # each half is orthogonalised in its own sphere. The site matrix ``ns``
+        # it measures is the laboratory one of the atoms in the home cell,
+        # which the rotationally invariant energy needs no frame for.
+        nk = self.system.kpoints.nk
+        npwx = self.basis.planewaves.npwx
+        return jnp.concatenate(
+            [projectors[:nk, :npwx], projectors[nk:, npwx:]], axis=1)
 
     @property
     def is_hubbard(self) -> bool:
@@ -3799,12 +3835,21 @@ class Calculation:
         charge, the projector core and the projectors are then built as the
         constructor builds them rather than for a tape.
         """
-        if self.spiral:
+        if self.spiral and (_moving or self.cross_augmentation is not None):
+            # A norm-conserving spiral is strained below, its two spheres at
+            # ``k +- q/2`` with ``q`` held in lattice coordinates. What is not:
+            # an augmented one, whose displaced table ``Q_ij(G - q)`` sits on the
+            # laboratory sphere and would have to be rebuilt at the strained
+            # ``G - q``; and a cell that *moves* (``at_cell``, a variable-cell
+            # relaxation), which rebuilds the projector core the constructor's
+            # way on the unshifted list.
             raise NotImplementedError(
-                "the stress of a spin spiral is not implemented: the two "
-                "components' spheres are centred at k +- q/2, so a strain moves "
-                "q as well and the generalized Bloch theorem's own term would "
-                "be missing"
+                "the stress of an ultrasoft or PAW spin spiral, and a moving "
+                "cell under one, are not implemented: the displaced "
+                "augmentation table Q_ij(G - q) lives on the laboratory sphere "
+                "and is not rebuilt at the strained G - q, and at_cell rebuilds "
+                "the projectors on the unshifted k-list. The norm-conserving "
+                "spiral's stress is (q held in lattice coordinates)"
             )
 
         strain = jnp.asarray(strain)
@@ -3845,6 +3890,17 @@ class Calculation:
         # -- silently, and exactly zero at Gamma. What is fixed under a strain is
         # k in crystal coordinates, which is the same rule the G-vectors follow.
         kcart = jnp.asarray(self._kcrystal) @ cell.bg
+        if self.spiral:
+            # **A spiral's basis list is ``k + q/2`` then ``k - q/2``**, and
+            # ``q`` is fixed under a strain in lattice coordinates exactly as
+            # ``k`` is: a commensurate spiral is a supercell whose moments sit
+            # on its atoms, and straining that supercell carries the atoms, so
+            # the moments, along in crystal coordinates. The two spheres'
+            # plane waves are then the supercell's at its own frozen sphere,
+            # which is why the stress of the one is the stress of the other.
+            half = 0.5 * jnp.asarray(
+                np.asarray(self.system.spiral_q, dtype=float)) @ cell.bg
+            kcart = jnp.concatenate([kcart + half, kcart - half])
         # Recorded because *nothing else can recover it*: ``KPoints.coords`` are
         # cartesian in units of ``2 pi / alat``, so
         # ``kpoints.cartesian(strained_cell)`` gives the unstrained k-points back
@@ -4383,14 +4439,15 @@ class Calculation:
         reads it back. For an actual *move* of the k-list, use
         :meth:`at_kpoints`, which rebuilds the sphere.
         """
-        if self.spiral:
-            # A spiral has its spheres centred at ``k +- q/2``, so one cartesian
-            # k-list is not what its arrays are built on. :meth:`at_spiral_q`
-            # moves both halves together and is what a spiral differentiates.
-            raise NotImplementedError(
-                "at_kcart on a spin spiral is not implemented: the basis is "
-                "built at k +- q/2, so moving k means moving both halves "
-                "(see at_spiral_q)"
+        if self.spiral and np.shape(kcart)[0] != 2 * self.system.kpoints.nk:
+            # A spiral has its spheres centred at ``k +- q/2``, so its arrays are
+            # built on the doubled list, up component first, and that is the
+            # list this takes (:func:`~defuqumat.system.spiral.spiral_kcart`).
+            # An ``nk``-row list would put both components on one sphere.
+            raise ValueError(
+                "at_kcart on a spin spiral takes the doubled basis list, "
+                "k + q/2 then k - q/2 (2 nk rows; see spiral_kcart), got "
+                f"{np.shape(kcart)[0]} rows for nk = {self.system.kpoints.nk}"
             )
         if self.gamma_only:
             # **This is the one chokepoint for the velocity operator**, which
@@ -5593,7 +5650,15 @@ class Calculation:
         kplusg = self.kplusg
         if self.noncolin:
             index = self.state_fft_index
-            if rows is not None:
+            if self.spiral:
+                # ``(nk, 2, npwx, 3)``, :attr:`state_fft_index`'s layout: the
+                # up component's ``k + q/2 + G`` and the down's ``k - q/2 + G``
+                # at each k-point, rows ``ik`` and ``nk + ik`` of the basis list.
+                nk = self.system.kpoints.nk
+                kplusg = jnp.stack([kplusg[:nk], kplusg[nk:]], axis=1)
+                if rows is not None:
+                    index, kplusg = index[rows], kplusg[rows]
+            elif rows is not None:
                 index, kplusg = index[rows], kplusg[self.basis_rows(rows)]
             # ``tau`` is a 2x2 matrix in spin space, carried on the Pauli basis
             # exactly as the density is -- a trace and an axial vector, and the

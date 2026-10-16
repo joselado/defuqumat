@@ -155,11 +155,20 @@ class VelocityOperator:
 
     def __init__(self, calculation, v_scf, ddd_paw=None, ns=None, kcart=None,
                  dipole=None, local_terms=None):
-        if calculation.spiral:
+        if calculation.spiral and calculation.is_hubbard:
             raise NotImplementedError(
-                "the velocity operator on a spin spiral is not implemented: the "
-                "two spinor components sit on spheres centred at k + q/2 and "
-                "k - q/2, so dH/dk moves both (see Calculation.at_spiral_q)"
+                "the velocity operator on a spin spiral with DFT+U is not "
+                "implemented: the Hubbard projectors carry k on both spheres "
+                "and that tangent has no check")
+        if calculation.spiral and calculation.is_ultrasoft:
+            # The norm-conserving spiral is carried below. The augmented one
+            # would need ``dS/dk`` and the displaced table's own ``k``
+            # dependence through both spheres, and nothing has checked it.
+            raise NotImplementedError(
+                "the velocity operator on an ultrasoft or PAW spin spiral is not "
+                "implemented: the norm-conserving spiral is (both spheres "
+                "k + q/2 and k - q/2 moved together, checked against the NiI "
+                "supercell), but the augmented one has no check"
             )
         if calculation.is_paw and ddd_paw is None:
             # The same rule the Hubbard branch below follows, and for the same
@@ -198,9 +207,23 @@ class VelocityOperator:
         # outright, which is what a *traced* strain needs.
         if kcart is None:
             kcart = getattr(calculation, "_kcart", None)
+        if kcart is None and calculation.spiral:
+            # **A spiral's basis list is the doubled one**, ``k + q/2`` for the
+            # up component and ``k - q/2`` for the down, and ``dH/dk`` moves
+            # both halves by the same ``dk`` -- the tangent below is broadcast
+            # over every row, which is exactly that. ``q`` itself does not move.
+            from defuqumat.system.spiral import spiral_kcart
+
+            kcart = spiral_kcart(calculation.system.kpoints,
+                                 calculation.system.spiral_q, calculation.system.cell)
         if kcart is None:
             kcart = calculation.system.kpoints.cartesian(calculation.system.cell)
         self.kcart = jnp.asarray(kcart)
+        if calculation.spiral and self.kcart.shape[0] != 2 * calculation.system.kpoints.nk:
+            raise ValueError(
+                "a spin spiral's velocity operator differentiates its doubled "
+                "basis list, k + q/2 then k - q/2: kcart must have 2 nk rows, got "
+                f"{self.kcart.shape[0]} for nk = {calculation.system.kpoints.nk}")
         # ``dpqq`` for :meth:`augmentation_connection`, when the caller has built
         # it already (:func:`~defuqumat.response.efield._augmentation_dipole`). It
         # is k-independent, and an operator built inside a compiled walk over

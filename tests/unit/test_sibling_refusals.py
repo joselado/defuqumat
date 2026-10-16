@@ -501,9 +501,14 @@ def test_two_more_consumers_refuse_gamma_storage(entry, sibling):
     root = _Path(__file__).resolve().parents[2] / "defuqumat"
     assert "refuse_gamma_storage(" in (root / sibling).read_text(), sibling
 
-    # ...and silent on an ordinary run, or the guard is not a guard.
+    # ...and silent on an ordinary run, or the guard is not a guard. A
+    # norm-conserving spiral is projected now, so the ordinary refused case for
+    # the angular momenta is the augmented spiral, whose refusal must not be the
+    # gamma-only one.
     if entry == "angular_momenta":
-        ordinary = types.SimpleNamespace(gamma_only=False, spiral=object())
+        ordinary = types.SimpleNamespace(
+            gamma_only=False, spiral=object(), is_ultrasoft=True
+        )
     else:
         ordinary = types.SimpleNamespace(
             gamma_only=False, is_paw=True, is_ultrasoft=False, spiral=None,
@@ -512,6 +517,8 @@ def test_two_more_consumers_refuse_gamma_storage(entry, sibling):
     with pytest.raises(NotImplementedError) as raised:
         guard(ordinary)
     assert "gamma" not in str(raised.value)
+    if entry == "angular_momenta":
+        assert "ultrasoft or PAW spin spiral" in str(raised.value)
 
 
 def test_the_conductivity_forwards_tau_to_both_potential_builds():
