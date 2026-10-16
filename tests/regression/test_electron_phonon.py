@@ -250,13 +250,15 @@ def test_one_atom_at_half_b3_is_two_atoms_at_gamma():
                        atol=FOLDING_TOLERANCE), phonons.frequencies
 
 
-def test_a_metal_at_q_zero_is_refused_by_name():
-    """At ``q = 0`` the Fermi level moves and this route has no ``ef_shift``."""
+def test_a_metal_at_a_lattice_vector_is_refused_by_name():
+    """At ``q = G != 0`` the Fermi level moves and ``ef_shift_wfc`` would mix
+    two spheres; the coupling is refused at ``q = 0`` too. The phonon at
+    ``q = 0`` itself runs (I4, ``test_phonons_at_q.py``)."""
     calc = _calculator("al-metal-nosym")
     with pytest.raises(NotImplementedError, match="ef_shift"):
-        calc.get_phonons_at_q((0.0, 0.0, 0.0))
-    with pytest.raises(NotImplementedError, match="ef_shift"):
         calc.get_phonons_at_q((1.0, 0.0, 0.0))
+    with pytest.raises(NotImplementedError, match="ef_shift"):
+        calc.get_electron_phonon((0.0, 0.0, 0.0))
 
 
 #: Streamed against whole on one converged state, both loops 13 iterations

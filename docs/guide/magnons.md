@@ -113,14 +113,13 @@ flips its spin.
     noncollinear ground state gives an error, since it needs the full
     $4\times4$ spin-density response, which is a different object.
 
-    Magnons need the full k-mesh, so a symmetry-reduced k-set gives an error
-    and you run with `nosym = .true.` and `noinv = .true.`. The reason is that
-    $\chi_0^{+-}(\mathbf G,\mathbf G')$ is a matrix in two $\mathbf G$
-    indices that we do not symmetrise, and the states at
-    $\mathbf k + \mathbf q$ must come from the same mesh. A $\mathbf q$ that
-    is not a difference of two k-points of the mesh gives an error. A run with
-    `K_POINTS gamma` gives an error too, and a negative `ecut_response` gives
-    an error, while `ecut_response = 0` keeps $\mathbf G = 0$ alone.
+    Magnons need the full k-mesh, so a symmetry-reduced k-set gives an error and
+    you run with `nosym = .true.` and `noinv = .true.`. The reason is that
+    $\chi_0^{+-}(\mathbf G,\mathbf G')$ is a matrix in two $\mathbf G$ indices
+    that we do not symmetrise, and the states at $\mathbf k + \mathbf q$ must
+    come from the same mesh. A $\mathbf q$ that is not a difference of two
+    k-points of the mesh gives an error. A negative `ecut_response` gives an
+    error, while `ecut_response = 0` keeps $\mathbf G = 0$ alone.
 
     A PAW dataset gives an error, because its exchange field has a part on the
     spheres that the kernel does not see, so the enhancement would be wrong.

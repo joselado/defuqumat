@@ -26,6 +26,7 @@ Four kinds of thing live here.
   wrong ``N(q)``.
 """
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -293,9 +294,118 @@ def test_it_refuses_a_run_with_no_fermi_level():
 
 
 def test_it_refuses_two_fermi_levels():
-    """``tot_magnetization`` gives one level per channel, so ``g`` is two surfaces."""
-    with pytest.raises(NotImplementedError, match="tot_magnetization"):
+    """A fixed ``tot_magnetization`` run is refused for having no level at all.
+
+    With fixed occupations the constraint fills a set number of bands per
+    channel and searches for no level, so the refusal that fires is the
+    fixed-occupation one, and it names the smearing case that is accepted.
+    Two levels themselves are no longer refused (the test below).
+    """
+    with pytest.raises(NotImplementedError, match="never searches for a level"):
         require_a_fermi_surface(_calculation("o2-fixed-lsda"))
+
+
+def test_a_smeared_constrained_moment_is_accepted():
+    """``tot_magnetization`` with a smearing: one level per channel, accepted.
+
+    The complement of the refusal above, on aluminium's own input with the
+    moment constrained, so that the two are not told apart by anything but the
+    occupation scheme.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / "al-metal.in").read_text().replace(
+        "degauss=0.05",
+        "degauss=0.05,\n    nspin = 2, starting_magnetization(1) = 0.1, "
+        "tot_magnetization = 1",
+    )
+    system = build_system(parse_pw_input(text))
+    assert system.two_fermi_energies
+    stub = type("Stub", (), {"system": system, "spiral": False})()
+    require_a_fermi_surface(stub)
+
+
+def test_a_tetrahedron_constrained_moment_is_refused():
+    """The same input with tetrahedra: two levels, but never compared, refused."""
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / "al-metal.in").read_text().replace(
+        "degauss=0.05",
+        "degauss=0.05,\n    nspin = 2, starting_magnetization(1) = 0.1, "
+        "tot_magnetization = 1",
+    )
+    text = re.sub(r"occupations\s*=\s*'[^']*'", "occupations='tetrahedra'", text)
+    system = build_system(parse_pw_input(text))
+    assert system.two_fermi_energies
+    assert str(system.occupations).startswith("tetrahedra")
+    stub = type("Stub", (), {"system": system, "spiral": False})()
+    with pytest.raises(NotImplementedError, match="tetrahedron run"):
+        require_a_fermi_surface(stub)
+
+
+# -- two Fermi levels ----------------------------------------------------------
+
+
+def test_two_equal_levels_are_the_shared_level():
+    """``(E, E)`` gives the scalar-``E`` nesting function, to round-off.
+
+    The per-channel path and the shared one take the same delta at the same
+    argument, so anything but agreement is the level being broadcast against
+    the wrong axis.
+    """
+    rng = np.random.default_rng(3)
+    eigenvalues = rng.uniform(-0.5, 0.5, size=(2, 64, 5))
+    shared = nesting_from_eigenvalues(eigenvalues, (4, 4, 4), 0.1, 0.05,
+                                      degeneracy=1.0, nspin=2)
+    paired = nesting_from_eigenvalues(eigenvalues, (4, 4, 4), (0.1, 0.1), 0.05,
+                                      degeneracy=1.0, nspin=2)
+    assert np.max(np.abs(paired.nesting - shared.nesting)) < 1e-14 * shared.nesting.max()
+    assert paired.fermi_energy_up == paired.fermi_energy_down == 0.1
+    assert shared.fermi_energy_up is None
+
+
+def test_each_channel_nests_at_its_own_level():
+    """Two exchange-split free-electron channels are one spin-degenerate band.
+
+    ``eps_dw = eps_up + Delta`` with the levels ``(E_F, E_F + Delta)``: each
+    channel's Fermi surface is the same sphere, so with ``degeneracy = 1`` per
+    channel ``N(q)`` must be the unpolarized one, ``degeneracy = 2``, to
+    round-off. This is the check that reaches two *distinct* levels. The mean
+    level, which is the scalar a ``tot_magnetization`` run prints, puts the two
+    channels on two different spheres, ``Delta`` apart in energy, and with
+    ``Delta`` four widths wide their shells no longer overlap: ``N(0)`` reads
+    0.48 of the right one (measured), while ``D(E_F)`` moves by only 5 per
+    cent, which is why the comparison is on ``N`` and not on the density of
+    states.
+    """
+    eigenvalues, grid, fermi, degauss, volume, _ = _free_electrons(24)
+    split = 4.0 * degauss
+    channels = np.stack([eigenvalues, eigenvalues + split])
+    reference = nesting_from_eigenvalues(
+        eigenvalues, grid, fermi, degauss, cell_volume=volume
+    )
+    both = nesting_from_eigenvalues(
+        channels, grid, (fermi, fermi + split), degauss,
+        degeneracy=1.0, cell_volume=volume, nspin=2,
+    )
+    scale = reference.nesting.max()
+    assert np.max(np.abs(both.nesting - reference.nesting)) < 1e-12 * scale
+    assert both.fermi_dos == pytest.approx(reference.fermi_dos, rel=1e-13)
+    assert abs(both.sum_rule) < 1e-12 * scale
+    assert both.fermi_energy == pytest.approx(fermi + split / 2)
+
+    mean = nesting_from_eigenvalues(
+        channels, grid, fermi + split / 2, degauss,
+        degeneracy=1.0, cell_volume=volume, nspin=2,
+    )
+    assert mean.nesting[0] < 0.6 * reference.nesting[0]
+
+
+def test_a_level_count_that_is_not_the_channel_count_is_refused():
+    with pytest.raises(ValueError, match="one Fermi level per spin channel"):
+        fermi_surface_weights(np.zeros((2, 8, 2)), (0.0, 0.1, 0.2), 0.1)
+    with pytest.raises(ValueError, match="one Fermi level per spin channel"):
+        fermi_surface_weights(np.zeros((1, 8, 2)), (0.0, 0.1), 0.1)
 
 
 def test_it_refuses_a_spin_spiral():

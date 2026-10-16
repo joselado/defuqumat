@@ -125,6 +125,11 @@ class SpinorHamiltonian(eqx.Module):
     #: projector columns that are themselves spinors, so it applies to the
     #: ``2 npwx`` vector exactly as the collinear one applies to ``npwx``.
     hubbard: object | None = None
+    #: ``lelfield``'s ``H_E`` (:class:`~defuqumat.scf.berryfield.BerryTerm`) on
+    #: the ``2 npwx`` vector, or ``None``. Its ``u`` and ``a`` are spinors, so it
+    #: applies to the whole state as the collinear one does to ``npwx``
+    #: (``h_epsi_her_apply`` with ``npol = 2``).
+    berry: object | None = None
     #: How many plane waves the smallest sphere holds, over every row of the
     #: k-indexed arrays -- both components' rows, for a spiral -- as the
     #: collinear operator's :attr:`~defuqumat.hamiltonian.operator.Hamiltonian.npw`
@@ -297,6 +302,8 @@ class SpinorHamiltonian(eqx.Module):
             # the projectors are spinors and the potential's off-diagonal spin
             # blocks are what turn the shell's moment.
             result = result + self.hubbard.apply(psi, ik)
+        if self.berry is not None:
+            result = result + self.berry.apply(psi, ik)
         return result
 
     def apply_s(self, psi: jnp.ndarray, ik: int) -> jnp.ndarray:
@@ -559,6 +566,8 @@ class SpinorHamiltonian(eqx.Module):
         matrix = jnp.concatenate(blocks, axis=0)
         if self.hubbard is not None:
             matrix = matrix + self.hubbard.matrix(ik)
+        if self.berry is not None:
+            matrix = matrix + self.berry.matrix(ik)
         return 0.5 * (matrix + matrix.conj().T)
 
     def matrix_by_application(self, ik: int) -> jnp.ndarray:

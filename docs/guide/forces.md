@@ -192,13 +192,16 @@ some binding in it.
     variable `DEFUQUMAT_AUG_MAX_BYTES` moves the 2 GiB limit. The default method
     works on such a cell and gives the same force.
 
-    `get_forces()` gives an error for a spin spiral, because its two spinor
-    components live on different plane-wave spheres and the nonlocal term then
-    needs the projectors of both. So `get_relax()` gives an error for a spiral
-    too. `get_stress()` also gives an error for a spiral, because `spiral_q` is
-    given in units of the reciprocal lattice vectors, so a strain turns the
-    spiral as well. What we compute for a spiral instead is the derivative of
-    the energy with respect to its wavevector, on the page about spin spirals.
+    `get_forces()` works for a norm-conserving spin spiral, where each spinor
+    component meets the projectors of its own sphere. We checked it against the
+    four-cell supercell of the NiI chain, to 1e-8 Ry/bohr. It gives an error for
+    an ultrasoft or PAW spiral and for a spiral with DFT+U, which have no check.
+    `get_relax()` on a spiral has not been run. `get_stress()` works for a
+    norm-conserving spiral. A strain keeps `spiral_q` fixed in units of the
+    reciprocal lattice vectors, as it keeps the k-points, which is the strain of
+    the supercell. It gives an error for an ultrasoft or PAW spiral and with
+    DFT+U. What we compute for a spiral instead is the derivative of the energy
+    with respect to its wavevector, on the page about spin spirals.
 
     A noncollinear or spin-orbit run has forces, a stress and a relaxation, but
     the elastic constants and the electrostriction give an error, because they

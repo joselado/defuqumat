@@ -185,22 +185,25 @@ ground state then give an error, because they need a converged density.
     `nosym = .true.` is the way to keep the half sphere. `calc.estimate()` makes
     the same choice as the run, so it sizes the run either way.
 
-    After a run on the half sphere, the following give an error, because
-    their plane-wave sums are not written for it. These are the projected density
-    of states, the Löwdin charges and the site-resolved angular momenta, the
-    sum-over-states $\chi_0$, the transverse spin susceptibility, an STM image, a
-    tunnelling spectrum, the tunnelling transmission and its momentum-resolved
-    weight, and the forces and the stress with `method='analytic'`. The velocity
-    operator gives an error too, and with it the band velocities, the optical
-    conductivity, the Kerr angle, second-harmonic generation, the shift current
-    and the nesting function. So does a response to an electric field, which is
-    the dielectric tensor, the Born charges, the Raman tensor and the strain
-    response, and so do real-time propagation and the ultracell. For all of these
-    the way out is the same cell at `K_POINTS automatic` with `1 1 1 0 0 0`,
-    which is exact. A Berry-phase field, `lelfield`, gives an error with
-    `K_POINTS gamma`, as in `pw.x`. The dynamical matrix, also a partial one,
-    the topological invariants and a potential-only meta-GGA work on the half
-    sphere.
+    After a run on the half sphere, the following give an error, because their
+    plane-wave sums are not written for it. These are the forces and the stress
+    with `method='analytic'`. The optical conductivity, the Kerr angle,
+    second-harmonic generation and the shift current still give an error. So
+    does a response to an electric field, which is the dielectric tensor, the
+    Born charges, the Raman tensor and the strain response, and so does the
+    ultracell. For all of these the way out is the same cell at `K_POINTS
+    automatic` with `1 1 1 0 0 0`, which is exact. A Berry-phase field,
+    `lelfield`, gives an error with `K_POINTS gamma`, as in `pw.x`. The
+    dynamical matrix, also a partial one, the topological invariants and a
+    potential-only meta-GGA work on the half sphere.
+
+    The projected density of states, the site angular momenta, the absorption
+    spectrum, the transverse spin susceptibility, the STM image, the tunnelling
+    spectrum and both transmissions work on the half sphere. They agree with an
+    explicit $k = 0$ to 1e-7 or better. The band velocities work on the half
+    sphere too, because the code copies the states onto the whole sphere before
+    it takes $\partial H/\partial\mathbf k$. So does real-time propagation,
+    where the states are solved again on the whole sphere.
 
     A checkpoint holds the state and not the report of the run. The stress, the
     solver, the history and the site charges and moments are not stored. A

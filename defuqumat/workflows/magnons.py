@@ -35,6 +35,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import numpy as np
 
+from defuqumat.scf.whole_sphere import whole_sphere_calculation
 from defuqumat.tddft.spinchi0 import (
     require_a_transverse_regime,
     transverse_response,
@@ -321,6 +322,11 @@ def run_spin_susceptibility(
         # electron counts, which no chunk size touches.
         if calculation is None:
             calculation = Calculation(system, pseudos, k_batch=k_batch)
+        # Gamma-only storage: the bands are solved on the whole sphere at
+        # k = 0, which the pair densities are written for
+        # (``scf/whole_sphere.py``). The SCF keeps its half sphere.
+        calculation = whole_sphere_calculation(calculation)
+        system = calculation.system
         require_a_transverse_regime(calculation)
         states = fixed_density_states(
             system, pseudos, density,
@@ -495,6 +501,9 @@ def run_magnon_dispersion(
     # :func:`run_spin_susceptibility` (``OPEN.md`` Part III, H3).
     if calculation is None:
         calculation = Calculation(system, pseudos, k_batch=k_batch)
+    # Gamma-only storage, as in :func:`run_spin_susceptibility`.
+    calculation = whole_sphere_calculation(calculation)
+    system = calculation.system
     require_a_transverse_regime(calculation)
     states = fixed_density_states(
         system, pseudos, density, nbnd=nbnd or _default_nbnd(calculation),

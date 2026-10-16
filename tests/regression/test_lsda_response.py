@@ -560,6 +560,113 @@ def test_the_lsda_born_charges_match_ph_x():
     assert np.abs(charges[0] - charges[1]).max() < 5e-5
 
 
+#: ``reference.dyn.o2-fixed-lsda-phonon``, the "Dynamical Matrix in cartesian
+#: axes" block, ``(atom, cart, atom, cart)`` in Ry/bohr^2. Every imaginary part
+#: there is zero.
+O2_LSDA_DYN = np.zeros((2, 3, 2, 3))
+O2_LSDA_DYN[0, :2, 0, :2] = -0.01018884 * np.eye(2)
+O2_LSDA_DYN[0, :2, 1, :2] = 0.01889432 * np.eye(2)
+O2_LSDA_DYN[1, :2, 0, :2] = 0.01889442 * np.eye(2)
+O2_LSDA_DYN[1, :2, 1, :2] = -0.01050535 * np.eye(2)
+O2_LSDA_DYN[:, 2, :, 2] = [[1.67938263, -1.67643488], [-1.67643401, 1.67718397]]
+
+
+@pytest.mark.slow
+def test_the_lsda_dynamical_matrix_matches_ph_x():
+    """The ``Gamma`` force constants of triplet O2, element by element.
+
+    Against ``reference.dyn.o2-fixed-lsda-phonon`` (``ph.x`` on
+    ``o2-fixed-lsda.in``, ``tr2_ph = 1e-14``), at ``ph.x``'s own ``tr2`` so the
+    two loops stop at the same place.
+
+    **The bug this closes is the Born charges' bug one level up**
+    (:func:`test_the_lsda_born_charges_match_ph_x`). The solver keeps
+    ``max(occupied_counts)`` bands in every channel, so the down channel of
+    this cell carries its two empty pi*_g bands inside the block that
+    ``S'_mn = <psi_m|dS/du|psi_n>`` is built over. They entered
+    ``orthogonality_states`` as partners of the occupied bands, adding to the
+    first-order state a component along pi*_g that the Sternheimer solve had
+    already produced, and the multipliers' gauge correction as rows. With
+    them (the code before ``occupied_pairs``) the transverse block reads
+    ``D_xx(1,1) = -0.12882`` and ``D_xx(1,2) = -0.00838`` against ``ph.x``'s
+    -0.01019 and +0.01889, and the transverse modes come out at -337 and
+    -316 cm^-1; with them masked the largest deviation in the transverse block
+    is 4.0e-5 and over the whole matrix 2.6e-4 (measured on D22,
+    2026-10-16, ``notes/incompat/I2.md``).
+
+    **The ``zz`` tolerance is ``ph.x``'s own spread, not this code's.** The two
+    atoms are equivalent, and ``ph.x``'s ``D_zz(1,1)`` and ``D_zz(2,2)`` differ
+    by 2.2e-3; here they differ by 2.2e-3 as well, and the ``zz`` entries move by
+    up to 3.8e-4 between ``tr2 = 1e-14`` and ``1e-18``, which is the loop on a
+    box that is half vacuum. The stretch, which is what the two atoms do
+    against each other, does not discriminate (1664.369 cm^-1 with and without
+    the mask, against 1664.402); the transverse block is what does.
+    """
+    from defuqumat.response.phonon import dynamical_matrix
+
+    _, _, calculation, result = _oxygen_molecule(origin_tangent=False)
+    phonons = dynamical_matrix(
+        calculation, result.wavefunctions, result.eigenvalues, result.density,
+        result.becsum, tr2=1.0e-14,
+    )
+    assert phonons.converged
+    matrix = np.asarray(phonons.matrix)
+    difference = np.abs(matrix - O2_LSDA_DYN)
+    # The transverse block: 4.0e-5 measured, 0.119 before the mask.
+    assert difference[:, :2, :, :2].max() < 1.0e-4
+    # The whole matrix, the zz entries included: 2.6e-4 measured.
+    assert difference.max() < 5.0e-4
+    stretch = np.sort(phonons.frequencies)[-1]
+    assert stretch == pytest.approx(1664.401578, abs=0.1)
+
+
+@pytest.mark.slow
+def test_the_lsda_paw_phonon_matches_the_test_suite(qe_testsuite, pseudo_dir):
+    """The second reference: ``test-suite/ph_insulator_paw_magn``, PAW, ``nspin = 2``.
+
+    A trigonal crystal of triplet O2 (``O2.scf.2.in``: ``O.pz-kjpaw.UPF``, fixed
+    occupations at ``tot_magnetization = 2``, a 2x2x2 mesh reduced to 4 points
+    by 12 operations), against the frequencies of
+    ``benchmark.out.git.inp=O2.phG.in.args=2`` at its ``tr2_ph = 1e-14``. It
+    reaches what the molecule above does not: PAW, a k-point wedge and the
+    symmetrisation of a spin-polarized displacement response.
+
+    Measured on D22, 2026-10-16: the pair at -618.9922 against -618.947140 and
+    the stretch at 2374.6975 against 2374.699451 cm^-1; without the per-channel
+    mask they read -684.98 and 2374.86. **The three low modes are the acoustic
+    residue and are not compared**: here they are -11.2 (twice) and 14.0, and in
+    ``ph.x`` -16.0 and 26.2 (twice), so both codes leave a few times 1e-4
+    Ry/bohr^2 on a matrix of 1.2, ``ph.x`` the larger, and a residue that size
+    is a square root away from any number a frequency test could hold.
+    """
+    from defuqumat.response.phonon import dynamical_matrix
+    from defuqumat.scf import Calculation
+
+    directory = qe_testsuite / "ph_insulator_paw_magn"
+    system = build_system(read_pw_input(directory / "O2.scf.2.in"))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file)
+                    for s in system.structure.species)
+    # QE's ``l = 1`` tangent convention, as the ph.x comparisons above take it.
+    calculation = Calculation(system, pseudos, origin_tangent=False)
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11,
+                     max_iterations=200)
+    assert result.converged
+    phonons = dynamical_matrix(
+        calculation, result.wavefunctions, result.eigenvalues, result.density,
+        result.becsum, tr2=1.0e-14,
+    )
+    assert phonons.converged
+    text = (directory / "benchmark.out.git.inp=O2.phG.in.args=2").read_text()
+    reference = sorted(
+        float(line.split("=")[2].split("[")[0])
+        for line in text.splitlines() if line.strip().startswith("freq (")
+        and "[cm-1]" in line and "THz" in line
+    )
+    frequencies = np.sort(phonons.frequencies)
+    for mode in (0, 1, 5):
+        assert frequencies[mode] == pytest.approx(reference[mode], abs=0.2)
+
+
 # -- what is still refused, and why -------------------------------------------
 
 
@@ -657,20 +764,24 @@ def test_a_potential_only_functional_is_refused_by_name():
         require_a_sternheimer_regime(calculation)
 
 
-def test_the_dynamical_matrix_and_the_strain_response_still_refuse_nspin_two():
-    """Both refusals stay, and both messages changed.
+def test_the_walked_dynamical_matrix_and_the_strain_response_still_refuse_nspin_two():
+    """The strain response refuses ``nspin = 2``; the dynamical matrix only on its walked route.
 
-    Their old reason -- "the occupied-band count here is one number for both
-    channels" -- is gone: they derive that pair from
-    :func:`~defuqumat.response.sternheimer.occupied_counts` now. What is left is
-    the second-derivative assembly above the solve, which is a term rather than
-    a count, and the messages name it.
+    The whole-k dynamical matrix is measured against ``ph.x`` on triplet O2
+    (:func:`test_the_lsda_dynamical_matrix_matches_ph_x`). The route that walks
+    the k axis a chunk at a time (a streamed store, memory mode with a chunk
+    smaller than the mesh, memory mode on a card) carries the same mask but
+    has not been run at ``nspin = 2``, so it is refused through the front door:
+    a ``(nspin, nk, nbnd, ndim)`` numpy array is a streamed store, which is
+    enough to take that route with no SCF at all.
     """
-    from defuqumat.response.phonon import _require_one_spin_channel as phonon_guard
+    from defuqumat.response.phonon import dynamical_matrix
     from defuqumat.response.strain import _require_one_spin_channel as strain_guard
 
     calculation = _calculation("h-chain-afm")
-    with pytest.raises(NotImplementedError, match="second-derivative assembly"):
-        phonon_guard(calculation)
+    assert calculation.nspin == 2
+    with pytest.raises(NotImplementedError, match="walks the k axis"):
+        dynamical_matrix(calculation, np.zeros((2, 2, 12, 4)),
+                         jnp.zeros((2, 2, 12)), None)
     with pytest.raises(NotImplementedError, match="assembly above it"):
         strain_guard(calculation)

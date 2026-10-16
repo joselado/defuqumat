@@ -41,7 +41,8 @@ import jax.numpy as jnp
 
 from defuqumat.batching import sum_k
 
-__all__ = ["ultracell_density", "spinor_ultracell_density"]
+__all__ = ["ultracell_density", "spinor_ultracell_density",
+           "ultracell_kinetic_density"]
 
 
 def ultracell_density(
@@ -182,6 +183,64 @@ def _spinor_ultracell_density(coefficients, vectors, weights, box_index, grid, v
             2.0 * jnp.imag(cross),
             up_density - down_density,
         ])
+
+    total = sum_k(one_state, {"a": vectors.T, "w": weights}, batch=batch)
+    return total / volume
+
+
+def ultracell_kinetic_density(
+    coefficients: jnp.ndarray,
+    vectors: jnp.ndarray,
+    weights: jnp.ndarray,
+    box_index: jnp.ndarray,
+    kplusg: jnp.ndarray,
+    grid: tuple[int, int, int],
+    volume: float,
+    batch: int | None = 1,
+) -> jnp.ndarray:
+    """``tau`` on the ultracell box from one ``k0``'s ultracell states, Ry.
+
+    :func:`ultracell_density` with ``grad Psi`` in place of ``Psi``, which is
+    ``sum_band.f90``'s meta-GGA branch one level up: the scattered state is
+    multiplied by ``i (k0 + Q + G)`` in each direction before the transform, so
+    three transforms per state instead of one, and the weights and the
+    normalisation are the density's (per unit cell, no factor of one half,
+    :func:`~defuqumat.scf.density.band_kinetic_density`).
+
+    Args:
+        kplusg: ``(N, npwx, 3)`` cartesian ``k0 + Q + G`` in 1/bohr of the
+            folded spheres, the unit-cell calculation's own ``kplusg`` on the
+            folded k-set; a padded entry multiplies a zero coefficient.
+
+    The rest as :func:`ultracell_density`. Collinear only: a spinor ``tau`` is a
+    2x2 matrix and the spinor meta-GGA is refused on the ultracell. The peak is
+    three ultracell boxes per state in flight, against one for the density.
+    """
+    return _ultracell_kinetic_density(
+        coefficients, vectors, weights, box_index, kplusg,
+        tuple(int(n) for n in grid), volume, batch)
+
+
+@partial(jax.jit, static_argnames=("grid", "batch"))
+def _ultracell_kinetic_density(coefficients, vectors, weights, box_index,
+                               kplusg, grid, volume, batch):
+    """:func:`ultracell_kinetic_density`, compiled; ``grid`` and ``batch`` are static."""
+    cells, nbnd, _ = coefficients.shape
+    points = int(grid[0]) * int(grid[1]) * int(grid[2])
+    flat_index = box_index.reshape(-1)
+    directions = kplusg.reshape(-1, 3).T  # (3, N npwx)
+
+    def one_state(state):
+        amplitudes = state["a"].reshape(cells, nbnd)
+        mixed = jnp.einsum("qn,qnp->qp", amplitudes, coefficients).reshape(-1)
+        gradient = 1j * directions * mixed[None, :]
+        scattered = jnp.zeros((3, points), dtype=gradient.dtype)
+        scattered = scattered.at[:, flat_index].add(gradient)
+        field = jnp.fft.ifftn(
+            scattered.reshape((3,) + tuple(grid)), axes=(-3, -2, -1)) * points
+        # ``Re(conj z z)`` summed over the directions, not ``abs(z)**2``: a
+        # derivative of a state has nodes wherever the state has extrema.
+        return state["w"] * jnp.sum(jnp.real(jnp.conj(field) * field), axis=0)
 
     total = sum_k(one_state, {"a": vectors.T, "w": weights}, batch=batch)
     return total / volume

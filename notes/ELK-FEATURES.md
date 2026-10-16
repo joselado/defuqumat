@@ -681,9 +681,11 @@ prediction above held in the direction that matters: almost all the effort was i
 bookkeeping that the existing machinery did not cover, and almost none in physics that had
 to be written twice. The induced density of a two-cell ultracell converges to a real
 four-atom supercell's monotonically over `nbnd = 8` to `80`, 43 per cent down to 0.2. What
-is *not* here is the magnetism the entry was argued on: `nspin = 2` and `4` are refused by
-name and are stage 3, so the spin density wave this method was published for is still a
-plan. `PLAN.md` P88 has both halves.
+was *not* here at stage 1 is the magnetism the entry was argued on: `nspin = 2` and `4`
+were refused by name, and they run now (`ultracell/driver.py`). DFT+U on a norm-conserving,
+unpolarized cell with `'atomic'` projectors and a gradient-corrected functional at
+`nspin = 1` were added on 2026-10-16 (`PLAN.md` P154, I31 and I32); a GGA at `nspin = 2` or
+`4`, a meta-GGA, `nosource` and a spiral are still refused. `PLAN.md` P88 has both halves.
 
 ---
 

@@ -203,7 +203,7 @@ def stream_start(calculation, hamiltonians, nbnd: int, span=None, rows=None):
 
 
 def stream_diagonalize(calculation, hamiltonians, nbnd: int, store: np.ndarray,
-                       ethr=None):
+                       ethr=None, per_chunk=None):
     """The Davidson solve of every k-point of every channel, one chunk at a time.
 
     ``store`` is the previous states and is **overwritten in place** with the
@@ -213,6 +213,11 @@ def stream_diagonalize(calculation, hamiltonians, nbnd: int, store: np.ndarray,
     ``(nspin, nk, nbnd)`` per-band array, as there. A
     :class:`~defuqumat.parallel.PoolStore` is solved at its own rows only, and the
     three arrays then carry those rows, ``(nspin, len(store.rows), ...)``.
+
+    ``per_chunk(spin, hamiltonian, rows)`` returns the Hamiltonian a chunk is
+    solved with, for a term held per chunk (``lelfield``'s, whose rows are
+    :meth:`~defuqumat.scf.berryfield.BerryFieldSetup.chunk_term`); ``None`` is
+    the same Hamiltonian for every chunk.
 
     **Chunks are settled one at a time, and launching the next one early was
     measured not to help.** On a GTX 1060 (jax 0.11.1) the call that launches a
@@ -245,8 +250,10 @@ def stream_diagonalize(calculation, hamiltonians, nbnd: int, store: np.ndarray,
             # its states into the same buffer; the host store still holds the
             # block, which is what a robust retry is handed instead
             # (``notes/GPU-MEMORY-NEXT.md`` item 11).
+            solved = (hamiltonian if per_chunk is None
+                      else per_chunk(spin, hamiltonian, chunk_rows))
             energies, states, taken, stuck = calculation.eigensolver(
-                hamiltonian, nbnd, rows_to_device(array, positions, spin), threshold,
+                solved, nbnd, rows_to_device(array, positions, spin), threshold,
                 k_batch=calculation.k_batch, return_steps=True,
                 indices=jnp.asarray(chunk_rows),
                 psi0_again=lambda spin=spin, positions=positions: rows_to_device(
