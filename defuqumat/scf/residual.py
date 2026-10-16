@@ -662,6 +662,27 @@ class SternheimerJacobian:
         return np.asarray(norm * tangent) - v
 
 
+def refuse_residual_occupations(system) -> None:
+    """Raise by name for the occupation schemes ``F`` has no form for.
+
+    Called by :func:`_weights` and, before anything else, by
+    :func:`make_residual`, which every pool runs before
+    :class:`PooledScfResidual`'s protocol opens: raised inside ``_evaluate``
+    instead, after the eigenvalue gather, the serving pools leave ``serve()``
+    while rank 0 waits in ``abort()``'s broadcast, and the run hangs until the
+    pool heartbeat with rank 0's traceback never printed (measured on D22, Si
+    8k tetrahedra at 2 pools: both ranks exit -6 after 315 s).
+    """
+    scheme = system.occupations
+    if scheme.startswith("tetrahedra") or scheme == "from_input":
+        raise NotImplementedError(
+            f"occupations={scheme!r} has no differentiable form here: the "
+            "tetrahedron weights are built on the host from the k-grid and the "
+            "symmetry, and 'from_input' is not a function of the eigenvalues at "
+            "all. Use occupations='smearing' or 'fixed' with a residual solver"
+        )
+
+
 def _weights(calculation, eigenvalues):
     """``wg`` alone, and traceable.
 
@@ -673,13 +694,7 @@ def _weights(calculation, eigenvalues):
     """
     system = calculation.system
     scheme = system.occupations
-    if scheme.startswith("tetrahedra") or scheme == "from_input":
-        raise NotImplementedError(
-            f"occupations={scheme!r} has no differentiable form here: the "
-            "tetrahedron weights are built on the host from the k-grid and the "
-            "symmetry, and 'from_input' is not a function of the eigenvalues at "
-            "all. Use occupations='smearing' or 'fixed' with a residual solver"
-        )
+    refuse_residual_occupations(system)
     degeneracy = 1 if calculation.noncolin else 2
     weights = system.kpoints.weights
 
@@ -706,6 +721,7 @@ def _weights(calculation, eigenvalues):
 def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
     """Build the residual for a calculation, refusing the regimes it cannot hold."""
     system = calculation.system
+    refuse_residual_occupations(system)
     if calculation.magnetic_field is not None:
         raise NotImplementedError(
             "an external or constraining magnetic field has no residual form "

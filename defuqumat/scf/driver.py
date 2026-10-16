@@ -145,7 +145,8 @@ from defuqumat.scf.mixing import (
     ldos_preconditioner_g,
     resolve_mixing_space,
 )
-from defuqumat.scf.residual import PooledScfResidual, make_residual
+from defuqumat.scf.residual import (PooledScfResidual, make_residual,
+                                    refuse_residual_occupations)
 from defuqumat.scf.robust import (CONDITION_LIMIT, CONDITION_LIMIT_RESTART,
                                   ROBUST_MODES, HamiltonianDamping, Supervisor,
                                   vacuum_fraction)
@@ -7207,6 +7208,11 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
     # refused: ``autodiff`` traces the whole-set eigensolver, which a pool's
     # host store cannot enter, and ``sternheimer``'s solve reads every state.
     # ``residual_solver`` is the ``jvp`` backend's name, ``None`` for mixing.
+    # The occupation schemes ``F`` has no form for are refused here too, on
+    # every rank before any pool work: raised inside a pooled evaluation they
+    # hung the run until the heartbeat (``refuse_residual_occupations``).
+    if residual_solver not in (None, False):
+        refuse_residual_occupations(calculation.system)
     if residual_solver not in (None, False, "finite-difference"):
         refused.append(f"a residual scf_solver with jvp={residual_solver!r} (it "
                        "differentiates the whole set; jvp='finite-difference', "
