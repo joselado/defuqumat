@@ -460,9 +460,9 @@ because that is what decides whether it is a session or a phase.
   image rather than at the run.
 - **Transferring more than a charge density from Elk** (P72). The reader and the seed are
   in for an unpolarized state of an element with no core, validated pointwise against
-  Elk's own `RHO3D.OUT` on hydrogen and on SiC. What is missing is a **magnetization** (an
-  Elk moment is a second field with its own transfer rule, and spin spirals fall under the
-  same refusal); an element **with a core**, where `STATE.OUT` alone cannot separate core
+  Elk's own `RHO3D.OUT` on hydrogen and on SiC, and for a collinear spin-polarized state
+  since P155 (I69). What is missing is a **noncollinear** magnetization (a noncollinear
+  state and a spiral, which `STATE.OUT` does not mark, and a fixed-spin-moment state); an element **with a core**, where `STATE.OUT` alone cannot separate core
   from valence inside a sphere — a difference against Elk's *initialisation* state does not
   close it either, because that state's core is the free-atom one and relaxes by 1.9e-3
   electrons inside `r < 0.2` bohr on diamond; **DFT+U**, whose matrices are trailing
@@ -14309,8 +14309,10 @@ identity checked on every push.
 
 **What is outstanding.**
 
-- **Spin (stage 4).** An Elk magnetization is a second field with a transfer rule of its
-  own. Spin spirals fall under the same refusal, being spin-polarized Elk runs.
+- **Spin (stage 4).** Collinear done in P155 (I69, `notes/incompat/I69.md`): the charge
+  and the moment are carried with one renormalisation, pointwise against `MAG3D.OUT` to
+  1.5e-11. Left: a noncollinear state and a spiral, which `STATE.OUT` does not mark, and a
+  fixed-spin-moment state.
 - **An element with a core (stage 5).** `rhomt` includes the core and `STATE.OUT` alone
   cannot separate it — there is nothing in the file that distinguishes core from valence
   charge inside a sphere, and it is not subtle: the density at a carbon nucleus is 129.83
@@ -26560,3 +26562,35 @@ The merges that needed a hand: I9 and I12 both added `DFTSource.spin` (I12's fie
 **The verification found a refusal that did not fire.** `wedge_group` was documented to refuse a shifted grid, and its test was uniformity over the union of the orbits, which a shifted wedge passes: on fcc `4 4 4 1 1 1` the 10-point wedge unfolds uniformly onto its 256-point star closure. The completion is right for the closure (`chi_0` 4.2e-6, STS 2.6e-8 against the explicit 256 points) and 0.41 and 0.14 off the 64-point grid the run asked for. The merge adds the missing check (orbit union against the recorded grid's size, non-scalar quantities only), which I40, I41 and I47 inherit, and refuses `chi_0` and STS on a collinear `nspin = 2` or a spinor wedge, which `wedge_group`'s magnetic test does not see and no number covers; both in `tests/unit/test_wedge_refusals.py`. The I47 vertical-map lift (3.3e-9 on graphene) and the I48 force-theorem lift (5.4e-11 meV on tetragonal Co) land with the merge on the implementer's numbers, not reverified; their Limits notes are not written. Fast gate on D22 at `9b1353b`: 2 failed (the `yaml` pair), 3765 passed, 71 skipped. The merge's one hand-resolved hunk is `independent_response`, where I7's spin-leading `weights.shape[1]` is kept and the completion is applied to the spin-summed matrix.
 
 What is left: the guide sections with executed snippets and figures, the notebooks and the timings for every landed item (only the Limits notes and three README cells are written); I47's and I48's lifted parts reverified and their Limits notes written.
+
+### P155 -- Seventeen refusals lifted from tier T2 of `notes/INCOMPATIBILITIES.md`, integration one of I33 to I36 and I49 to I85. ⏳ FAST GATE PENDING 2026-10-16, each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-t2` (`notes/INCOMPATIBILITIES-T2.md`), not merged into master. Slow tests not run (the user's rule of 2026-10-16), listed in the record for the user.
+
+Each unit's record is `notes/incompat/<ID>.md`, with its run directories, the mutations its verifier tried and what each read. The landed items, one sample each, deterministic:
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I33 ultracell x potential-only meta-GGA | TB09 3x1x1 against the TB09 supercell at matched grids, 8.144e-3 at 48 bands, falling; `tau` frozen at the tiled one rises 1.246e-1 to 1.636e-1; at 16 Ry 1.259e-1, 3.091e-2, 8.152e-3, 6.294e-3 | supercell bound (P88), discriminating arm | `incompat/ultracell2-fix` da3c996 |
+| I34 ultracell x `nosource` | charge 7.13e-5, `m` 1.47e-4, 1.74e-4, 1.60e-4 at 16 bands; the projection dropped at `Q != 0` gives `m_x` 2.5e-1; modulation along y 7.13e-5, 1.60e-4, 1.42e-4, 1.69e-4 | same | same |
+| I35 ultracell x saw-tooth (`tefield`, `dipfield`) | field energy per cell against the supercell's 0.53840044 Ry: 6.514e-5, 1.224e-5, 3.585e-6 at 12, 24, 48 bands; frozen saw-tooth 1.721e-4, 1.215e-4, 1.118e-4 (the 1e-5 bound at 48 separates them); energy above the supercell +4.789e-7 Ry at 48 | same, with the frozen dipole as the alternative | same |
+| I49 real-time x shifted grid | Si `4 4 4 1 1 1`, [100]: 2 of 8 operations, 40 of 64 points, against `little_group=False` 1.398e-8 (frozen), 1.717e-8 (`hxc`, old base); all eight operations 0.823, transverse | whole shifted grid propagated point by point | `incompat/I49` 91b1b9b |
+| I50 spin spiral x crystal symmetry | SCF, forces, stress, DOS on the spin-space-group wedge against `nosym`: zigzag force 5.6e-8, stress 2.1e-10; clean cells 7e-14 to 1.6e-12 Ry; `dE/dq` refused with symmetry on every `k_batch` | `nosym` identity | `worktree-wf_93b36bbe-189-57` 9ec1c09 (incompat/I50 fast-forward) |
+| I51 partial dynamical matrix x symmetry (closed subset) | subset block against the whole symmetrised block: AlAs nc 1.738e-10, US 3.671e-10, PAW 3.556e-11, fluorite pair 1.502e-11, `nspin = 2` 1.738e-10; wedge subset against `nosym` 6.815e-10 (floor 7.910e-10); symmetrisers off 2.719e-3, 5.346e-3; verifier L1_2 1.6e-11, inverse table 2.73e-1 | whole-cell block of the same run; closed `nosym` grid | `incompat/I51-merged` 704b157 |
+| I53 Newton-Krylov x pools | Si 8k `nosym`: 2 pools 1.8e-14 Ry, 3 pools 1.1e-14 against 1 pool, 39 F evaluations everywhere; the global-reduce guard 3.5e-2; tetrahedra refused on both ranks in 10 s (hung 315 s before the fix round) | 1 pool against N | `incompat/I53` bc0b81c |
+| I54 partial dynamical matrix x walked response | subset against the block of the same kept response, 0 bit for bit (nc Si, US AlAs); routes 1.2e-14, 4.2e-14; old whole-k 2.57 on Si, `IndexError` on US AlAs and PAW Si (`atoms=(1,)`), 0.95 for `(1, 0)` | block of the same response; fresh whole-cell block | `incompat/I54` f1d8760 |
+| I55 frequency-domain hierarchy x two FFT grids (nc) | AlAs two-grid against `dense_first_order` 1.9e-11 to 5.1e-11 (Hartree), 9.5e-12 to 2.5e-11 (`hxc`); Hartree two-grid against one-grid 1.8e-14 to 3.5e-14; the one-grid `hxc` 2e-6 to 1.5e-5 off (aliasing of `f_xc drho`) | dense reference sharing no interpolation | `incompat/I55` 6e55d88 |
+| I58 magnons x uniform field | H fcc, `B = 0.01` Ry: Goldstone residual 0.00585 at `omega = 2B`, 0.171 at 0, 0.286 at `-2B`; zero field 0.00571; `B = -0.01` closes at -0.02 | Larmor's theorem | `incompat/magnon` 05303c1 |
+| I61 magnons x simplified U | H fcc, `U = 2` eV: residual 0.00473 with the Hubbard channel, 0.197 without; `lambda_max(q=0)` 1.0143 against 0.818; verifier Ni US with U 3 eV 0.0875 against 0.299 | Goldstone over plane waves plus the Hubbard channel | same |
+| I63 real-time kick inside the run x US/PAW | against the run started at the kick: US 1.71e-11 (`propagate`), 1.08e-12 (`J^(1)`); PAW 2.21e-11, 1.10e-12; without the jump the norm check stops it | shifted-kick identity | `incompat/I63` e401a6e |
+| I64 real-time x ground state under a field | Si2, sphere field, `reducebf = 0.8`: 4.31e-10 electrons out of the occupied subspace (8.93e-3 with the input field); kick drift 1.33e-7 Ha (1.03e-6 old closure), 30x down at half `dt` (old 4.2x) | stationarity; energy conservation A/B | `incompat/I64` 8a6b6e9 |
+| I65 checkpoint x fixed-spin-moment | hydrogen `fsm`, both resume routes: field -0.079999913, 1.4e-17 apart (first version's manual route -0.04); `fe-fsm.in` via `checkpoint_dir` 26 = 26 iterations, dE 1.2e-11 Ry (elk), 30 = 30, 1.1e-11 (secant); manual route 29 against 38 with the field dropped | resumed against uninterrupted | `incompat/I65` 29b3d82 |
+| I67 continuation x spiral boundary at `q = G` | H chain spiral to plain at `q = b3`: 1 iteration against 11, E 4.9e-10 Ry; PAW O chain 3 against 13, `becsum` 1.2e-5 (1.37 with the per-atom phase); a spiral into `nspin = 2` refused; `tau` dropped (78 iterations, bit-identical to the no-`tau` arm, against 200 unconverged) | fixed point of a fresh run | `incompat/I67-fix` 7e130a5 |
+| I68 seed x another pool layout | Si 8k, 2 pools, blocks to longest-first: 1.39e-13 Ry against an unseeded run, 1 iteration against 8; control in its own layout bit-identical | unseeded run in the new layout | `incompat/I68` 967c9c8 |
+| I69 Elk seed x collinear spin-polarized state | `MAG3D.OUT` pointwise worst 1.5e-11; muffin-tin moment -0.1726933960 = `INFO.OUT:4640`; seeded against atomic dE 4.3e-14 Ry at `conv_thr = 1e-13`, moment -0.29092007 against -0.29091922; flipped `m` gives the mirror state | Elk's own evaluation; seeded against unseeded | `incompat/I69` 6bb262e |
+
+Merged with a part kept refused: **I36** (a reference under a fixed `B_field`: charge 1.447e-4, moment 1.229e-4, free energy +8.838e-7 Ry above the supercell at 24 bands; feedback schemes, `reducebf < 1`, penalties and a spinor under a field refuse, since a supercell would re-adjust its field to the modulated moment, 0.00380 to 0.00451, a design question for the user), **I59** (a spinor run with its moment along z against `nspin = 2`, `lambda_max` 1.1e-5, `X_0(0,0)` 2.4e-5; a texture refuses), with **I60** partial (the PAW one-centre kernel sized, not written) and **I62** blocked (needs I59's texture response). Records only, not merged: **I52** (partial; pooled bands, NSCF and DOS against 1 pool 1.3e-14 Ry, verified, but the batch's confirmed list was empty) and **I66** (listed refuted; its third verifier round's logs read the fix bit for bit).
+
+Two additions at integration, each a guard where two lifts or a lift and its own partial met unmeasured. **The walked route refuses a closed subset with symmetry** (`response/phonon.py`): I51 admits a closed subset with symmetry on the whole-k route and refuses it on the streamed one; I54 cuts a walked response to the subset's rows, measured on `nosym` cells, and its comment still said the subset needs `nosym`, which I51 made false. A fast test on AlAs `atoms=(0,)` (`tests/unit/test_partial_walked_phonons.py`). **The magnon workflow reads a spinor's moment before the bands** (`workflows/magnons.py`): the magnon verifier found a spinor run with its moment along x reaching `interacting=False` at `q != 0` with no refusal (`review/incompat/magnon/ver2/texture.log`), because the texture check sat only where the kernel reads the density; a fast test fires it for both values of `interacting` and fails with the check patched out. I54's record and its slow test's docstring are corrected: on ultrasoft AlAs the old whole-k route raised `IndexError` for `atoms=(1,)`, it was not 5.5e-3 off (verifier's `h-rev.log`).
+
+Every merge applied without a conflict; the overlaps in `scf/driver.py` (I50, I51, I53, I64, I65, I67, I68), `response/phonon.py` (I51, I54), `realtime/` (I49, I63, I64) and `tests/unit/test_parallel.py` (I53, I68) were in separate hunks.
+
+What is left: the guide sections with executed snippets, the notebooks and the timings for every landed item (only the Limits notes, two README sentences and three `scope.md` clauses are written); I52 and I66 for the user's decision; I36's feedback-scheme question.

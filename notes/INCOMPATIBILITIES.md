@@ -148,33 +148,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n; Elk y (`gndstulr.f90:159` calls `potksu` with GGA, per queue.md's lookup).
 - Partial, 2026-10-16 (P154): a GGA on an unpolarized ultracell lands, above the PBE supercell by +4.1e-7 Ry per cell at 48 bands and falling; `nspin = 2` and `4` refuse by name (`notes/incompat/I31.md`).
 
-### I33. Ultracell x potential-only meta-GGA
-
-- Axis: functional.
-- Guard: `defuqumat/ultracell/potential.py:require_an_ultracell_functional:77`.
-- Test: `tests/regression/test_ultracell.py:1114` `test_the_refusals_name_themselves`.
-- Missing: `tau` from the states rather than the carried density (guard message).
-- Check: the explicit supercell SCF of the same modulation, exact by the nested basis (P88).
-- QE/Elk: QE n; Elk unread.
-
-### I34. Ultracell x `nosource`
-
-- Axis: spinor.
-- Guard: `defuqumat/ultracell/potential.py:require_an_ultracell_functional:84`.
-- Test: none.
-- Missing: the `1/|G|^2` projection couples all cells, so the potential is not per cell (guard message).
-- Check: the explicit supercell SCF of the same modulation, exact by the nested basis (P88).
-- QE/Elk: QE n; Elk unread.
-
-### I35. Ultracell x saw-tooth field (`tefield`)
-
-- Axis: applied electric field.
-- Guard: `defuqumat/ultracell/driver.py:require_an_ultracell_regime:507` (`refuse_sawtooth`).
-- Test: none.
-- Missing: a saw-tooth term in the ultracell potential (guard message).
-- Check: the explicit supercell SCF of the same modulation, exact by the nested basis (P88).
-- QE/Elk: QE n (no ultracell); Elk unread.
-
 ### I36. Ultracell x a reference converged under a magnetic field or constrained moment
 
 - Axis: magnetic field.
@@ -183,6 +156,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: the final field (after `reducebf` or fixed spin moment) carried into `dV` (guard message).
 - Check: the explicit supercell SCF of the same modulation, exact by the nested basis (P88), under the same field.
 - QE/Elk: QE n; Elk unread.
+- Partial, merged 2026-10-16 (P155): a reference under a fixed `B_field` or `LOCAL_MAGNETIC_FIELDS` lands, converging to the supercell under the same field (charge 1.447e-4, moment 1.229e-4, free energy +8.838e-7 Ry above it at 24 bands); feedback schemes, `reducebf < 1`, penalty constraints and a spinor under a field refuse, a design question for the user (`notes/incompat/I36.md`).
 
 ### I43. Transverse spin susceptibility (magnons) x symmetry-reduced k-set
 
@@ -234,34 +208,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n (no anisotropy workflow).
 - Merged with the wedge unit, 2026-10-16 (`incompat/wedge-r2`): partial: the force theorem on a wedge is lifted (implementer's 5.4e-11 meV on tetragonal Co, not reverified), the relaxed route, the torque and the frozen expectation value still refuse; record in `notes/incompat/I48.md`.
 
-### I49. Real-time propagation with the field's little group x shifted Monkhorst-Pack grid
-
-- Axis: execution mode.
-- Guard: `defuqumat/workflows/realtime.py:_kset:146`.
-- Test: none.
-- Missing: a shifted grid is not closed under the point group, so its wedge does not sum the current (P24's rule) (sweep-workflows).
-- Check: `little_group=False`, the whole shifted grid, which runs.
-- QE/Elk: QE out of scope.
-
-### I50. Spin spiral x crystal symmetry (only `nosym` runs)
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:Calculation.__init__:2891`; `system/builder.py:_spiral_q:2455`.
-- Test: `tests/unit/test_geometry_invalidation.py:133` `test_a_spiral_built_without_the_reader_still_refuses_symmetry`; `tests/regression/test_spin_spirals.py:277` `test_what_a_spiral_refuses`.
-- Missing: the spin-space group: operations with `S^T q = q` acting with their own spin rotation (sweep-core).
-- Check: the `nosym` run.
-- QE/Elk: QE n; Elk unread.
-
-### I51. Partial dynamical matrix (`atoms=`) x symmetry
-
-- Axis: execution mode.
-- Guard: `defuqumat/response/phonon.py:_require_a_subsettable_regime:1742`.
-- Test: `tests/regression/test_phonons.py:759` `test_a_subset_of_a_symmetrised_run_is_refused`.
-- Missing: `symdvscf` acts on the `3 nat` stack as one object; a subset needs the stabiliser of the subset (guard message).
-- Check: the subset block of the whole-cell matrix, or the subset with `nosym`.
-- QE/Elk: QE n (no subset).
-- Note: queue.md excludes it as not fixable; sweep-response lists it. The quantity is defined and only the speed-up is refused, so it is kept as an execution mode.
-
 ### I52. Every `Calculator.get_*` beyond SCF, forces, stress and relaxation, and the response stack x k-point pools
 
 - Axis: execution mode.
@@ -270,43 +216,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: a pool-aware reduction in each workflow (comment at `calculator.py:2675-2679`).
 - Check: one pool against N on the same input; easiest `get_bands`, `get_dos`, `get_nscf`.
 - QE/Elk: QE y (pools everywhere).
-
-### I53. Residual (Newton) SCF solver x k-point pools
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:_refuse_under_pools:7101`.
-- Test: `tests/unit/test_parallel.py:117` `test_refusals_name_what_pools_do_not_cover`.
-- Missing: it differentiates the whole set (guard message).
-- Check: one pool against N.
-- QE/Elk: QE n (no residual solver).
-
-### I54. Partial dynamical matrix x k-chunked response
-
-- Axis: execution mode.
-- Guard: `defuqumat/response/phonon.py:410`.
-- Test: none.
-- Missing: unread.
-- Check: the whole-store run, bit for bit.
-- QE/Elk: QE n.
-
-### I55. Self-consistent frequency-domain hierarchy x two FFT grids (norm-conserving, `ecutrho > 4 ecutwfc`)
-
-- Axis: execution mode.
-- Guard: `defuqumat/realtime/hierarchy.py:hierarchy_linear_self_consistent:663`.
-- Test: none.
-- Missing: the dense-to-smooth interpolation of `dv` at every product (guard message).
-- Check: a norm-conserving density is band-limited at `4 ecutwfc`, so the two-grid run equals the one-grid run to round-off.
-- QE/Elk: QE out of scope.
-- Note: `realtime/dense.py:dense_first_order:161` refuses the same and is a reference tool for the tests, not a feature; folded in here.
-
-### I58. Transverse spin susceptibility (magnons) x applied field or constrained moment
-
-- Axis: magnetic field.
-- Guard: `defuqumat/tddft/spinchi0.py:require_a_transverse_regime:281`.
-- Test: none (`tests/unit/test_sibling_refusals.py:486` `test_two_more_consumers_refuse_gamma_storage` imports the guard; not shown to fire this branch).
-- Missing: the Zeeman gap; the kernel `B_xc/m` rests on global spin-rotation invariance, which the field breaks (guard message).
-- Check: Larmor's theorem: the `q = 0` mode at the Zeeman energy of the applied field.
-- QE/Elk: QE out of scope; Elk unread.
+- Partial, record only, 2026-10-16 (P155): `get_bands`, `get_nscf` and `get_dos` under 2 and 3 pools against 1 pool, eigenvalues 1.3e-14 Ry, DOS 1.9e-12 of its peak, the misplaced-gather guard 0.99 Ry; not merged, since the batch's confirmed list was empty; the other 57 `get_*` refuse (`notes/incompat/I52.md`, branch `incompat/I52-r2` 87f1691).
 
 ### I59. Transverse spin susceptibility (magnons) x noncollinear ground state (the spiral branch is behind it)
 
@@ -316,6 +226,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: the 4x4 spin-density response, which no longer block-diagonalises; the cheaper half is a spiral at its own `q` in the rotating frame (MAGNETISM-NEXT D).
 - Check: a collinear moment run as a spinor (no SOC) reproduces the `nspin = 2` magnon; Goldstone; T4 against Elk tasks 330/331.
 - QE/Elk: Elk y (`tddftsplr.f90` `ncmag` branches, `genspchi0.f90:147`, per queue.md's lookup).
+- Partial, merged 2026-10-16 (P155): a spinor run with its moment along z, no SOC, norm-conserving, against `nspin = 2`, `lambda_max` 1.1e-5, Goldstone 0.005745 against 0.005708; a texture refuses, on the bare `X_0` as well since the integration (`workflows/magnons.py`); spin-orbit coupling, an ultrasoft spinor, a U or a field on a spinor refuse (`notes/incompat/I59.md`).
 
 ### I60. Transverse spin susceptibility (magnons) x PAW
 
@@ -326,15 +237,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Check: the Goldstone identity `X_0(q=0, w=0) B_xc = m` (`goldstone_residual`; ultrasoft nickel 0.071 to 0.0128 with cutoff, so read at a converged cutoff).
 - QE/Elk: QE out of scope; Elk y (LAPW).
 - Note: `tddft/spinkernel.py:51-67` still names ultrasoft as a reason for refusal, which is stale since P93.
-
-### I61. Transverse spin susceptibility (magnons) x DFT+U
-
-- Axis: DFT+U.
-- Guard: `defuqumat/tddft/spinchi0.py:require_a_transverse_regime:274`.
-- Test: none.
-- Missing: the Hubbard term's response to `m` in the enhancement; `spinkernel.py` says a nonlocal piece (guard message).
-- Check: the Goldstone identity `X_0(q=0, w=0) B_xc = m` (`goldstone_residual`; ultrasoft nickel 0.071 to 0.0128 with cutoff, so read at a converged cutoff); it fails without the term, so the check is sharp.
-- QE/Elk: QE out of scope; Elk unread.
+- Partial, 2026-10-16 (P155): sized, the one-centre kernel (sphere integrals of `B^1/m^1`, all-electron minus pseudo) not written, refusal kept and naming the channel; the stale `tddft/spinkernel.py` text is corrected by the magnon merge (`notes/incompat/I60.md`).
 
 ### I62. Transverse spin susceptibility (magnons) x `nosource`
 
@@ -344,33 +247,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: a tensor kernel, since the projection makes `B_xc` not parallel to `m` (guard comment).
 - Check: the Goldstone identity `X_0(q=0, w=0) B_xc = m` (`goldstone_residual`; ultrasoft nickel 0.071 to 0.0128 with cutoff, so read at a converged cutoff).
 - QE/Elk: QE out of scope; Elk unread.
-
-### I63. Real-time kick after `t0` x ultrasoft or PAW
-
-- Axis: dataset (US/PAW).
-- Guard: `defuqumat/realtime/propagate.py:require_a_smooth_field:1012`.
-- Test: none.
-- Missing: `_Chunk.jump` applied at a step inside the run as well as at the start (sweep-tddft).
-- Check: a kick at `t1` gives the current of a run started at `t1`, shifted in time.
-- QE/Elk: QE out of scope.
-
-### I64. Real-time propagation x a ground state under a magnetic field or constrained moment
-
-- Axis: magnetic field.
-- Guard: `defuqumat/realtime/propagate.py:require_a_realtime_regime:206`.
-- Test: none.
-- Missing: the frozen potential is rebuilt from the input field, while `reducebf` and the fixed-spin-moment scheme change it (guard message).
-- Check: a zero-amplitude pulse leaves the states stationary, which fails today exactly because of the missing term.
-- QE/Elk: QE out of scope.
-
-### I65. Checkpoint x fixed-spin-moment (feedback field) run
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/checkpoint.py:save_state:238`.
-- Test: `tests/unit/test_checkpoint.py:253` `test_a_driven_field_is_refused_because_no_input_determines_it`.
-- Missing: the controller's driven field in the file (sweep-core).
-- Check: resumed against uninterrupted.
-- QE/Elk: QE n.
+- Blocked, 2026-10-16 (P155): the guard now fires for its own reason; the projection gives a z-collinear spinor transverse components, so it needs I59's texture response and a tensor kernel (`notes/incompat/I62.md`).
 
 ### I66. Checkpoint x real-time run with the potential updated
 
@@ -380,33 +257,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: saving every state and two potentials (guard message).
 - Check: resumed against uninterrupted, bit for bit.
 - QE/Elk: QE out of scope.
-
-### I67. Continuation across the spiral boundary (spiral source and plain target, or the reverse)
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/continuation.py:_check_spiral:453`.
-- Test: `tests/unit/test_continuation_machinery.py:801` `test_a_vector_magnetization_does_not_cross_into_a_spirals_frame`; `tests/unit/test_continuation_machinery.py:812` `test_a_spirals_magnetization_does_not_cross_out_of_its_frame_either`.
-- Missing: the frame rotation of the transverse magnetization by `q.r` (sweep-core).
-- Check: the continued run reaches the fixed point of a fresh one.
-- QE/Elk: QE n.
-
-### I68. Wavefunction seed held under a different pool layout
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:starting_wavefunctions:6161`.
-- Test: `tests/unit/test_parallel.py:555` `test_a_span_from_another_pool_layout_is_refused_by_name`.
-- Missing: redistribution of rows between layouts (sweep-core).
-- Check: the same converged state as an unseeded run.
-- QE/Elk: QE n.
-
-### I69. Elk `STATE.OUT` seed x spin-polarized state
-
-- Axis: execution mode.
-- Guard: `defuqumat/io/elk.py:read_elk_state:458`; `io/elk_density.py:density_on:576`.
-- Test: `tests/unit/test_elk_reader.py:326` `test_a_state_carrying_physics_this_cannot_transfer_is_refused`; `tests/regression/test_elk_seed.py:240` `test_a_spin_polarized_run_cannot_take_an_unpolarized_seed`.
-- Missing: a transfer rule for the magnetization (PLAN.md P72).
-- Check: seeded and unseeded runs reach the same fixed point.
-- QE/Elk: Elk writes it.
+- Not merged, 2026-10-16 (P155): the batch lists it refuted (the first fix's digest was blind to `k_batch`); the third verifier round's logs at 592240e (`/l/ladovj1/review/incompat/I66-ver3/hA.log`) read the resume bit for bit and a file of another `k_batch` ignored, a decision for the user; record only (`notes/incompat/I66.md`, branch `incompat/I66-r2` 9d58999).
 
 ### I70. Elk `STATE.OUT` seed x DFT+U or a fixed tensor moment
 
@@ -1140,6 +991,26 @@ Landed on 2026-10-16 in P154, the wedge unit (branch `incompat-night`, merge of 
 - I41, shift current and SHG on a wedge: the same cell, 2.1e-9 and 1.4e-8 (uncompleted 0.96 and 2.5 off); with `noinv` (`Td` alone, 10 points) 2.8e-9 and 1.4e-8 (`incompat/wedge-r2`).
 - I42, `chi_0(G, G')` on a wedge, both G labels and time reversal: Si `si-epsilon-unshifted.in` 8 of 64 points against the whole grid 2.1e-10 of `max|x|` (implementer, reproduced to every printed digit by the verifier), AlAs 6.3e-10; the verifier's Si at 3x3x3 (4 of 27 points), `ecut_response = 6` (61 G vectors), whole arm first, 3.9e-10; with the completion removed 0.73. `nspin = 2` and spinor wedges refuse, unmeasured (`incompat/wedge-r2`).
 - I46, STS on a wedge, averaged over the tip's images: Si 4x4x4 symmetric, 4.5e-8 of the peak at `conv_thr = 1e-12` (implementer 4.2e-8 on a 12x12 plane); the verifier's 3x3x3, plane normal to x at 0.13, whole arm first, 4.0e-7; with the completion removed 0.99. `nspin = 2` and spinor wedges refuse, unmeasured (`incompat/wedge-r2`).
+
+Landed on 2026-10-16 in P155, integration one of the rest of T2 (branch `incompat-t2`), each with its record in `notes/incompat/<ID>.md`:
+
+- I33, ultracell under a potential-only meta-GGA: the TB09 3x1x1 ultracell at matched grids against the TB09 supercell, 8.144e-3 at 48 bands and falling with the band count; with `tau` frozen at the tiled unit-cell `tau` the ladder rises, 1.246e-1 to 1.636e-1. A spin-polarized cell and an augmented dataset refuse (`incompat/ultracell2-fix`).
+- I34, ultracell under `nosource`: charge 7.13e-5 and magnetization 1.47e-4, 1.74e-4, 1.60e-4 against the supercell at 16 bands; dropping the projection at `Q != 0` moves `m_x` to 2.5e-1 (`incompat/ultracell2-fix`).
+- I35, ultracell under a saw-tooth field, one cell along `edir`: with `dipfield` the field energy per cell against the supercell's 0.53840044 Ry, 6.514e-5, 1.224e-5, 3.585e-6 Ry at 12, 24, 48 bands (a frozen saw-tooth 1.118e-4 at 48); the energy above the supercell +4.789e-7 Ry at 48. More than one cell along `edir` and `lelfield` refuse (`incompat/ultracell2-fix`).
+- I49, real-time propagation on a shifted grid: Si `4 4 4 1 1 1`, field along [100], the 2 kept operations and 40 points against the whole 64-point grid, 1.398e-8 of the current (frozen), 1.717e-8 (`hxc`); all eight operations 0.823 off (`incompat/I49`).
+- I50, spin spiral with crystal symmetry, the spin space group that keeps `q` and the moments: SCF, forces, stress and DOS against `nosym`, zigzag force 5.6e-8, stress 2.1e-10, clean cells 7e-14 to 1.6e-12 Ry. Augmented datasets, DFT+U, `lspinorb`, explicit k-lists, site angular momenta, projections and `dE/dq` keep `nosym` (`incompat/I50`, merged from `worktree-wf_93b36bbe-189-57` 9ec1c09).
+- I51, partial dynamical matrix of a closed subset with symmetry: the subset block against the whole symmetrised block, AlAs 1.7e-10 (nc), 3.7e-10 (US), 3.6e-11 (PAW), the fluorite pair 1.5e-11, the verifier's L1_2 1.6e-11 (the inverse atom table 2.73e-1); the wedge subset against `nosym` 6.8e-10 at a floor of 7.9e-10. A subset that is not closed, the streamed and the walked routes with symmetry, and the acoustic sum rule refuse (`incompat/I51-merged`).
+- I53, Newton-Krylov SCF under pools: Si 8k at 2 and 3 pools against 1 pool, 1.8e-14 and 1.1e-14 Ry, 39 F evaluations on every rank. Tetrahedra and `from_input` refuse on every rank before any collective; `jvp='autodiff'` and `'sternheimer'` refuse (`incompat/I53`).
+- I54, partial dynamical matrix from a walked response: the subset against the block of the same kept response's whole matrix, 0 bit for bit on nc Si and US AlAs, the two routes 1.2e-14 and 4.2e-14 apart; the old whole-k route was 2.57 off on Si and raised `IndexError` on US AlAs (corrected at integration) (`incompat/I54`).
+- I55, self-consistent frequency-domain hierarchy on two FFT grids, norm-conserving: two-grid AlAs against the dense two-grid solve, 1.9e-11 to 5.1e-11 (Hartree) and 9.5e-12 to 2.5e-11 (`hxc`); Hartree two-grid against one-grid 1.8e-14 to 3.5e-14. Ultrasoft on two grids and a meta-GGA kernel refuse (`incompat/I55`).
+- I58, magnons under a uniform field: H fcc at `B = 0.01` Ry, Goldstone residual 0.00585 at `omega = 2B`, against 0.171 at 0 and 0.286 at `-2B` (zero field 0.00571). A constrained moment and a per-atom field refuse (`incompat/magnon`).
+- I61, magnons under a simplified U: H fcc with `U = 2` eV, Goldstone residual 0.00473 with the Hubbard channel against 0.197 without, `lambda_max(q=0)` 1.0143 against 0.818. `J` and `BETA` refuse (`incompat/magnon`).
+- I63, real-time kick inside the run on ultrasoft and PAW: against the run started at the kick, 1.71e-11 (US, `propagate`), 1.08e-12 (US, orders), 2.21e-11 and 1.10e-12 (PAW). A kick off the time grid refuses (`incompat/I63`).
+- I64, real-time propagation from a ground state under a field: Si2 under a sphere field with `reducebf = 0.8`, 4.31e-10 electrons out of the occupied subspace against 8.93e-3 with the input field; the kick energy drift 1.33e-7 Ha against 1.03e-6 with the old closure. A penalty constraint with the potential updated refuses (`incompat/I64`).
+- I65, checkpoint of a fixed-spin-moment run: hydrogen `fsm` stopped and resumed, field -0.079999913 on both resume routes, 1.4e-17 apart (the old manual route -0.04); `fe-fsm.in` through `checkpoint_dir` 26 against 26 iterations, dE 1.2e-11 Ry (`incompat/I65`).
+- I67, continuation across the spiral boundary at a reciprocal-lattice `q`: H chain spiral to plain at `q = b3`, 1 iteration against 11, E 4.9e-10 Ry; PAW O chain 3 against 13, `becsum` 1.2e-5 against 1.37 with the per-atom phase. A spiral into `nspin = 2`, a non-integer `q` and DFT+U refuse; `tau` is dropped across the frame (`incompat/I67-fix`).
+- I68, seed under another pool layout: Si 8k, two pools, blocks to longest-first, against an unseeded run 1.39e-13 Ry in 1 iteration against 8. A span of another layout outside a pooled `run_scf` refuses (`incompat/I68`).
+- I69, Elk seed from a collinear spin-polarized state: the magnetization against `MAG3D.OUT` worst 1.5e-11, the muffin-tin moment to every digit of `INFO.OUT`; seeded against atomic start dE 4.3e-14 Ry at `conv_thr = 1e-13`, moment -0.29092007 against -0.29091922; a flipped moment lands on the mirror state. Noncollinear, fixed-spin-moment and mismatched-channel seeds refuse (`incompat/I69`).
 
 Earlier:
 
