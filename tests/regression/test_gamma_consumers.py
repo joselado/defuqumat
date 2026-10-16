@@ -80,18 +80,35 @@ def _text(case: str, kpoints: str) -> str:
         # one shell of eight above the lowest state, so nothing is cut at Gamma
         assert "nbnd = 8" in head
         head = head.replace("nbnd = 8", "nbnd = 9")
+    # The single atom off every inversion centre of the cell's origin, so that
+    # c(G) = exp(-i G.tau) phi(G) is complex and an unfold that drops the
+    # conjugation reads differently: with the atom at the origin (h-fcc) or at
+    # z = 1/2 (the sheet) the stored coefficients are real and that mutation
+    # passed every test on these two cells (D22, 2026-10-16). A translation of
+    # the one atom is the same physics.
+    if case == "h-sheet":
+        assert " H 0.0 0.0 0.5" in head
+        head = head.replace(" H 0.0 0.0 0.5", " H 0.13 0.29 0.5")
+    if case == "h-fcc-magnon":
+        assert " H 0.0 0.0 0.0" in head
+        head = head.replace(" H 0.0 0.0 0.0", " H 0.11 0.23 0.37")
     # ``diago_full_acc``: the empty bands are converged as tightly as the
     # occupied ones. Without it the sheet's image and transmission, which weight
     # the partly filled bands at the Fermi level, differed by 3.4e-6 and 4.2e-6
-    # between the two storages -- the empty-band floor of two independent SCFs,
-    # since the image does not go through the unfold at all.
+    # between the two storages. With it, at conv_thr = 1e-12, they still
+    # differed by 1.0e-6 (image) and 1.4e-6 (vertical transmission), and at
+    # 1e-15 by 2.6e-8 and 2.4e-8, falling with the density difference of the two
+    # SCFs (6.2e-8 to 4.1e-9): the floor of two independent SCFs, since the
+    # image does not go through the unfold at all. So the sheet is run at 1e-15.
+    threshold = "1.0d-15" if case == "h-sheet" else "1.0d-12"
     return re.sub(r"conv_thr = [0-9.d-]+",
-                  "conv_thr = 1.0d-12, diago_full_acc = .true.", head) + kpoints
+                  f"conv_thr = {threshold}, diago_full_acc = .true.",
+                  head) + kpoints
 
 
 @lru_cache(maxsize=2)
 def _pair(case: str):
-    """``(gamma, whole)`` calculators, each converged to 1e-12."""
+    """``(gamma, whole)`` calculators, each converged to 1e-12 (the sheet 1e-15)."""
     out = []
     for kpoints in (GAMMA, WHOLE):
         with warnings.catch_warnings():
@@ -144,26 +161,26 @@ def test_the_stm_image_and_the_tunnelling_spectrum():
     gamma, whole = _pair("h-sheet")
     a = _quietly(gamma.get_stm, height=0.85, shape=(6, 6))
     b = _quietly(whole.get_stm, height=0.85, shape=(6, 6))
-    assert _relative("stm image", a.values, b.values) < 1e-8
+    assert _relative("stm image", a.values, b.values) < 5e-7
 
     fermi = float(whole.get_scf().fermi_energy)
     energies = fermi + np.linspace(-0.1, 0.1, 5)
     a = _quietly(gamma.get_sts, energies, height=0.85, shape=(4, 4))
     b = _quietly(whole.get_sts, energies, height=0.85, shape=(4, 4))
-    assert _relative("sts", a.values, b.values) < 1e-8
+    assert _relative("sts", a.values, b.values) < 5e-7
 
 
 def test_the_vertical_and_the_momentum_transmission():
     gamma, whole = _pair("h-sheet")
     a = _quietly(gamma.get_vertical_transport, shape=(4, 4), **SHEET)
     b = _quietly(whole.get_vertical_transport, shape=(4, 4), **SHEET)
-    assert _relative("vertical transmission", a.image, b.image) < 1e-8
+    assert _relative("vertical transmission", a.image, b.image) < 5e-7
 
     a = _quietly(gamma.get_momentum_transport, **SHEET)
     b = _quietly(whole.get_momentum_transport, **SHEET)
-    assert _relative("momentum weight", a.weight, b.weight) < 1e-8
+    assert _relative("momentum weight", a.weight, b.weight) < 5e-7
     assert _relative("momentum tersoff-hamann", a.tersoff_hamann,
-                     b.tersoff_hamann) < 1e-8
+                     b.tersoff_hamann) < 5e-7
 
 
 def test_the_transverse_susceptibility_and_the_site_moments():
