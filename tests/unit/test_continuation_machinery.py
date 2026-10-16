@@ -819,8 +819,8 @@ def test_a_spirals_frame_is_undone_by_the_phase_at_a_reciprocal_lattice_q():
 
     At ``q = b3`` the phase is lattice periodic, so the laboratory spiral is a
     density of this cell and the crossing is that phase alone: on the Fourier
-    side every transverse component moves by ``-q`` and nothing else changes,
-    and the round trip is the identity.
+    side every transverse component moves by ``-q`` out of the spiral and by
+    ``+q`` into it, and nothing else changes.
     """
     spiral = _spiral(q=(0.0, 0.0, 1.0))
     plain = _calculation(4, (0.5,), ((90.0,), (0.0,)))
@@ -840,9 +840,17 @@ def test_a_spirals_frame_is_undone_by_the_phase_at_a_reciprocal_lattice_q():
     assert np.max(np.abs(np.roll(before, 1, axis=2) - after)) > 1e-2 * np.max(
         np.abs(before))
 
-    back = continued_state(_result(out, 4, nspin_mag=4, system=plain.system),
+    # Into the spiral: the spiral's box is larger here (16 against 15, it holds
+    # the sphere displaced by q), so the reverse is checked on its own grid.
+    grid = tuple(spiral.basis.dense.grid)
+    source = _random_density(grid, 4, calculation=spiral)
+    into = continued_state(_result(source, 4, nspin_mag=4, system=plain.system),
                            spiral, wavefunctions=False)
-    assert np.max(np.abs(np.asarray(back.density) - source)) < 1e-13
+    into = np.asarray(into.density)
+    before = np.fft.fftn(source[1] + 1j * source[2])
+    after = np.fft.fftn(into[1] + 1j * into[2])
+    assert np.max(np.abs(np.roll(before, 1, axis=2) - after)) < 1e-10 * np.max(
+        np.abs(before))
 
 
 def test_a_zero_spiral_crosses_with_no_phase_at_all():
