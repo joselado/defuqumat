@@ -41,6 +41,34 @@ PSEUDO = Path(__file__).resolve().parents[1] / "data" / "pseudo"
 
 CORE = "Si.pz-oncv-nlcc.UPF"
 NO_CORE = "Si.pz-vbc.UPF"
+#: :data:`CORE` with its model core replaced by a broad Gaussian, so that two
+#: atoms' cores overlap; see :func:`_broad_core`.
+BROAD = "broad"
+
+#: The Gaussian of :data:`BROAD`: one electron, ``exp(-r^2 / rc^2)``, in bohr.
+BROAD_RADIUS = 1.6
+
+
+@lru_cache(maxsize=1)
+def _broad_core():
+    """``CORE`` with ``rho_core(r) = exp(-r^2/rc^2) / (pi^{3/2} rc^3)``.
+
+    The ONCV model core is compact: the core-core term ``C(q) - C(0)`` it gives
+    at ``b1/2`` is 9.1e-7 Ry/bohr^2, below the 2.8e-6 at which the supercell
+    identity holds, so on it the identity cannot see the swap. At
+    ``rc = 1.6`` bohr the Gaussian is 15 per cent of its peak at half the bond
+    (2.2 bohr) and the swap is well above the floor (``notes/incompat/I80.md``).
+    The dataset is not a physical one; the identity does not need it to be.
+    """
+    import dataclasses
+
+    from defuqumat.pseudo import read_upf
+
+    pseudo = read_upf(PSEUDO / CORE)
+    r = np.asarray(pseudo.r)
+    rc = BROAD_RADIUS
+    core = np.exp(-(r / rc) ** 2) / (np.pi ** 1.5 * rc ** 3)
+    return dataclasses.replace(pseudo, rho_core=core)
 
 _HEAD = """&control
   calculation = 'scf'
@@ -98,11 +126,20 @@ def _calculator(cell: str, pseudo: str):
 
     from defuqumat import Calculator
 
+    from defuqumat.calculator import electrons_defaults
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system import build_system
+
     text = (_UNIT if cell == "unit" else _SUPER).format(
-        nat=2 if cell == "unit" else 4, pseudo=pseudo)
+        nat=2 if cell == "unit" else 4, pseudo=CORE if pseudo == BROAD else pseudo)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        calculator = Calculator.from_text(text, str(PSEUDO), announce=False)
+        if pseudo == BROAD:
+            pwin = parse_pw_input(text)
+            calculator = Calculator(build_system(pwin), (_broad_core(),),
+                                    announce=False, **electrons_defaults(pwin))
+        else:
+            calculator = Calculator.from_text(text, str(PSEUDO), announce=False)
     calculator.get_scf()
     return calculator
 
@@ -130,7 +167,7 @@ def at_q(pseudo: str, q=Q_FOLDED) -> np.ndarray:
 SUPERCELL_AGREEMENT = 5e-6
 
 
-@pytest.mark.parametrize("pseudo", [NO_CORE, CORE])
+@pytest.mark.parametrize("pseudo", [NO_CORE, CORE, BROAD])
 def test_a_commensurate_q_is_the_supercell_gamma_phonon(pseudo):
     """``D(b1/2)`` against the doubled cell's ``Gamma`` matrix, unfolded."""
     difference = np.abs(at_q(pseudo) - unfolded(pseudo)).max()
