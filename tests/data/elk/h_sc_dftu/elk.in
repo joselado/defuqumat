@@ -1,0 +1,38 @@
+! Simple cubic hydrogen, one atom at the origin, a = 3.0 Bohr, with a
+! Hubbard U on the 1s shell. The same run as ../h_sc/elk.in plus the dft+u
+! block, so that STATE.OUT carries the DFT+U record (vmatmt) after the
+! density and the potentials.
+!
+! Non-spin-polarised, and hydrogen has no core, so the all-electron and
+! valence densities are the same function and the state can seed a
+! pseudopotential run (scf.in in this directory, same U).
+
+tasks
+  0
+
+sppath
+  './'
+
+avec
+  3.0  0.0  0.0
+  0.0  3.0  0.0
+  0.0  0.0  3.0
+
+atoms
+  1
+  'H.in'
+  1
+  0.0  0.0  0.0    0.0  0.0  0.0
+
+ngridk
+  4  4  4
+
+tshift
+  .false.
+
+! dftu = 1 (fully localised limit), inpdftu = 1 (U and J given directly).
+! Species 1, l = 0, U = 4 eV = 0.1469972 Ha, J = 0.
+dft+u
+  1  1
+  1  0  0.1469972  0.0
+

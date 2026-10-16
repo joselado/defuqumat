@@ -582,6 +582,26 @@ def density_on(state, calculation, renormalise: bool = True, report=None):
         )
 
     system = calculation.system
+    if getattr(state, "dftu", 0) != 0:
+        # ``STATE.OUT`` holds Elk's Hubbard *potential* matrix in its own
+        # muffin-tin basis and no occupation matrix, so the only thing that
+        # crosses is the density; the run builds its occupations from its own
+        # ``starting_ns`` (Hund's rule, ``init_ns``) and its own projectors.
+        import warnings
+
+        hubbard = getattr(system, "hubbard", None) is not None
+        warnings.warn(
+            f"the Elk state is DFT+U (dftu = {state.dftu}) and only its density "
+            "is carried into this seed: STATE.OUT holds Elk's Hubbard "
+            "potential matrix in Elk's muffin-tin basis, not an occupation "
+            "matrix, and this run's Hubbard projectors are different orbitals. "
+            + ("The occupations start from this run's own starting_ns, which "
+               "decides which DFT+U solution it finds; pass starting_ns= to "
+               "choose one." if hubbard else
+               "This run has no Hubbard term, so it converges to the plain "
+               "functional's state from Elk's DFT+U density."),
+            stacklevel=3,
+        )
     cell = np.asarray(system.cell.at, dtype=float)
     if not np.allclose(cell, state.geometry.avec, atol=1e-6, rtol=1e-6):
         raise ValueError(

@@ -854,7 +854,10 @@ class Calculator:
         functions wherever there is a core; defuqumat's own SCF still runs on top.
         Passing an Elk density as a *fixed* density is refused
         (:func:`defuqumat.io.elk_density.density_on`), as are a spin-polarized Elk
-        state, a spin spiral and a DFT+U one.
+        state, a spin spiral and a fixed tensor moment. A DFT+U state seeds with
+        its density alone and a warning: ``STATE.OUT`` carries no occupation
+        matrix, so the Hubbard occupations start from this run's own
+        ``starting_ns``.
         """
         from defuqumat.io.elk import ElkState
 

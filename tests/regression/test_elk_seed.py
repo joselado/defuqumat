@@ -211,6 +211,49 @@ def test_a_seeded_run_and_an_atomic_one_converge_to_the_same_state():
     assert difference.max() < 1e-6
 
 
+# --- a DFT+U state (I70) -------------------------------------------------------
+
+DFTU = ROOT / "data" / "elk" / "h_sc_dftu"
+
+needs_dftu_fixture = pytest.mark.skipif(
+    not (DFTU / "STATE.OUT").is_file(),
+    reason=f"no Elk fixture at {DFTU}",
+)
+
+
+@needs_dftu_fixture
+def test_a_dftu_seed_and_an_atomic_dftu_run_converge_to_the_same_state():
+    """I70: an Elk DFT+U state seeds a DFT+U run and lands where it would anyway.
+
+    Elk 11.0.2 on the same hydrogen cell with ``U = 4`` eV on 1s, and this run
+    with the same ``U``. ``STATE.OUT`` carries Elk's Hubbard potential matrix
+    and no occupation matrix, so only the density crosses, with a warning, and
+    ``ns`` starts from this run's own ``init_ns``. Measured on D22 (one run):
+    ``dE = -6.7e-16`` Ry, ``max|drho| = 7.0e-9``, ``max|dns| = 5.3e-9``, five
+    iterations each.
+
+    The check could have failed: the same cell without ``U`` is 3.756e-2 Ry
+    lower and its density 3.9e-4 away, so a seed that dragged the run off the
+    Hubbard fixed point would show at that scale, not at 1e-9.
+    """
+    seeded_calc = Calculator.from_file(DFTU / "scf.in", pseudo_dir=PSEUDO)
+    with pytest.warns(UserWarning, match="only its density"):
+        seed = seeded_calc.get_elk_seed(DFTU)
+    seeded = seeded_calc.get_scf(starting_density=seed)
+    atomic = Calculator.from_file(DFTU / "scf.in", pseudo_dir=PSEUDO).get_scf()
+
+    assert abs(seeded.total_energy - atomic.total_energy) < 1e-12
+    assert seeded.iterations == atomic.iterations
+    difference = np.abs(np.asarray(seeded.density) - np.asarray(atomic.density))
+    assert difference.max() < 1e-6
+    assert np.abs(np.asarray(seeded.ns) - np.asarray(atomic.ns)).max() < 1e-6
+
+    plain = calculator().get_scf()
+    assert atomic.total_energy - plain.total_energy == pytest.approx(
+        3.756223e-2, abs=1e-6
+    )
+
+
 # --- what it refuses ----------------------------------------------------------
 
 @needs_fixture

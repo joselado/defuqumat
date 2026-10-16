@@ -259,6 +259,13 @@ class ElkState:
     vsmt: np.ndarray
     vsir: np.ndarray
     directory: Path
+    # ``vmatmt``, Elk's DFT+U potential matrix in each muffin tin, in Ry, as
+    # ``(lmmaxdm, nspinor, lmmaxdm, nspinor, natmtot)`` (``readstate.f90:251``),
+    # or ``None`` when the state is not DFT+U. It is in Elk's own muffin-tin
+    # ``lm`` basis, built on Elk's radial functions, and is read so the file is
+    # consumed to its end and its framing checked; nothing here transfers it,
+    # since a pseudopotential run's Hubbard projectors are different orbitals.
+    vmatmt: np.ndarray | None = None
 
     # -- what the file says about itself --------------------------------------
 
@@ -368,11 +375,21 @@ def read_elk_state(directory) -> ElkState:
     * a **spin-polarized** state (``spinpol``), because a magnetization is a
       second field with its own transfer rule and its own defuqumat side. That
       covers spin spirals too, which are spin-polarized runs in Elk;
-    * a **DFT+U** state (``dftu``) and a **fixed tensor moment** one
-      (``ftmtype``), whose occupation matrices sit in trailing records that
-      nothing here consumes;
+    * a **fixed tensor moment** state (``ftmtype``). Elk refuses tensor
+      moments without spin-orbit coupling (``init0.f90:239-247``), and
+      spin-orbit coupling switches ``spinpol`` on (``init0.f90:126``), so a
+      genuine file of this kind is refused by the first point already; the
+      guard is kept by name because the moment it fixes is a constraint on
+      Elk's functional that nothing here implements;
     * anything written by Elk **older than 2.0.0**, which ``readstate.f90``
       refuses itself.
+
+    A **DFT+U** state (``dftu``) is read. Its one extra record is ``vmatmt``,
+    the Hubbard *potential* matrix in Elk's muffin-tin basis, written after
+    the four density and potential pairs (``writestate.f90:122-125``); the
+    occupation matrix is not in the file at all, since Elk rebuilds it from
+    its states (``gndstate.f90:194-201``). What a seed carries is the density
+    alone, see :func:`defuqumat.io.elk_density.density_on`.
     """
     from scipy.io import FortranFile
 
@@ -463,13 +480,15 @@ def read_elk_state(directory) -> ElkState:
                 "would start a magnetic run from a non-magnetic guess. Spin "
                 "spirals are spin-polarized Elk runs and are refused here too."
             )
-        if dftu != 0 or ftmtype != 0:
+        if ftmtype != 0:
             raise NotImplementedError(
-                f"this STATE.OUT carries DFT+U (dftu = {dftu}) or a fixed "
-                f"tensor moment (ftmtype = {ftmtype}). The occupation and "
-                "potential matrices are trailing records that nothing here "
-                "reads, and a Hubbard ground state seeded by its density alone "
-                "is not the state Elk converged."
+                f"this STATE.OUT carries a fixed tensor moment (ftmtype = "
+                f"{ftmtype}). The moment is a constraint on Elk's functional, "
+                "with its own potential matrix (vmftm), and nothing here "
+                "implements it, so a seed taken from it would start a run "
+                "whose functional is not the one the density was converged "
+                "for. Elk itself only writes this for a spin-orbit, and so "
+                "spin-polarized, run (init0.f90:126 and :239-247)."
             )
 
         # ``natmtot`` is the sum of ``natoms(is)`` over **all** species, not
@@ -507,6 +526,32 @@ def read_elk_state(directory) -> ElkState:
         vxcmt, vxcir = _pair()
         vsmt, vsir = _pair()
 
+        # ``writestate.f90:112-119``: a meta-GGA state carries one more pair,
+        # ``wxcmt, wxcir``, *before* the DFT+U record. Nothing here uses it,
+        # but it has to be consumed or ``vmatmt`` below is read from the
+        # wrong record.
+        if xcgrad in (3, 4, 5, 6):
+            _pair()
+
+        # ``writestate.f90:122-125`` and ``readstate.f90:251``: one complex
+        # record ``vmatmt(lmmaxdm, nspinor, lmmaxdm, nspinor, natmtot)``.
+        vmatmt = None
+        if dftu != 0:
+            nvmat = lmmaxdm * nspinor * lmmaxdm * nspinor * natmtot
+            record = f.read_record(np.complex128)
+            if record.size != nvmat:
+                raise ValueError(
+                    f"DFT+U record of {record.size} complex numbers where "
+                    f"{nvmat} = lmmaxdm^2 nspinor^2 natmtot were expected "
+                    f"(lmmaxdm = {lmmaxdm}, nspinor = {nspinor}, natmtot = "
+                    f"{natmtot}). Either the file was written by an Elk whose "
+                    "layout this reader does not know, or a record before it "
+                    "was not consumed."
+                )
+            vmatmt = record.reshape(
+                (lmmaxdm, nspinor, lmmaxdm, nspinor, natmtot), order="F"
+            ) * HARTREE_TO_RY
+
     return ElkState(
         version=version,
         geometry=geometry,
@@ -537,4 +582,5 @@ def read_elk_state(directory) -> ElkState:
         vsmt=vsmt * HARTREE_TO_RY,
         vsir=vsir * HARTREE_TO_RY,
         directory=directory,
+        vmatmt=vmatmt,
     )
