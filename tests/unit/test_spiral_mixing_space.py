@@ -217,7 +217,12 @@ def test_a_spiral_mixed_in_g_reaches_the_real_space_fixed_point(name, pseudo_dir
     The hydrogen chain is norm-conserving at dual 4, so ``m'_+`` is kept on the
     whole box; the oxygen chain is ultrasoft at dual 8, so it is kept on the
     displaced smooth sphere and its shell is the displaced augmentation charge
-    rebuilt from the mixed ``becsum``. Numbers in ``notes/incompat/I74.md``.
+    rebuilt from the mixed ``becsum``. Measured on D22 at these settings: the
+    hydrogen chain 6.7e-16 Ry and 1.3e-13 in the density, the oxygen chain
+    1.9e-12 Ry and 8.0e-7 in the density against a largest 0.881, so the
+    density bound has a factor of eleven of room and the energy one of 500;
+    at the default ``conv_thr = 1e-6`` the oxygen chain read 1.9e-4, which is
+    why the inputs' own threshold is passed. ``notes/incompat/I74.md``.
     """
     # The inputs' own ``&electrons``, which ``run_scf`` does not read.
     results = {space: _run(name, pseudo_dir, space, conv_thr=1e-11, mixing_beta=0.3)
