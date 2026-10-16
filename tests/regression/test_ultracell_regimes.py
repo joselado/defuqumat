@@ -221,6 +221,42 @@ def test_a_penalty_converged_reference_is_still_refused(tmp_path, pseudo_dir):
                           (2, 1, 1), (1, 1, 1), nbnd=8)
 
 
+def test_a_feedback_or_fading_field_reference_is_refused(tmp_path, pseudo_dir):
+    """Only a fixed applied field is carried: a feedback scheme and ``reducebf`` refuse.
+
+    The ultracell holds the unit cell's converged field fixed on every copy,
+    which is the supercell under that field (measured) and not the supercell
+    under a scheme that moves its field until the modulated cell is on target,
+    or one whose field fades along its own iterations.
+    """
+    calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))
+    for constraint in ("fsm", "atomic fsm", "atomic fsm direction"):
+        stand_in = types.SimpleNamespace(
+            converged=True, field_scale=1.0,
+            magnetic_field=types.SimpleNamespace(constraint=constraint,
+                                                 reducebf=1.0))
+        with pytest.raises(NotImplementedError, match="feedback scheme"):
+            run_ultracell(calculator.system, calculator.pseudos, stand_in,
+                          (2, 1, 1), (1, 1, 1), nbnd=8)
+    stand_in = types.SimpleNamespace(
+        converged=True, field_scale=0.25,
+        magnetic_field=types.SimpleNamespace(constraint="none", reducebf=0.9))
+    with pytest.raises(NotImplementedError, match="reducebf = 0.9"):
+        run_ultracell(calculator.system, calculator.pseudos, stand_in,
+                      (2, 1, 1), (1, 1, 1), nbnd=8)
+
+
+def test_a_spinor_reference_under_a_field_is_refused(tmp_path, pseudo_dir):
+    """The converged field is measured at ``nspin = 2`` only; a spinor reference refuses."""
+    calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))
+    stand_in = types.SimpleNamespace(
+        converged=True, field_scale=1.0,
+        magnetic_field=types.SimpleNamespace(constraint="none", reducebf=1.0))
+    with pytest.raises(NotImplementedError, match="noncollinear ground state"):
+        run_ultracell(_Overridden(calculator.system, nspin=4), calculator.pseudos,
+                      stand_in, (2, 1, 1), (1, 1, 1), nbnd=8)
+
+
 # -- I31: a gradient-corrected functional --------------------------------------
 
 
@@ -468,28 +504,39 @@ def test_a_tb09_ultracell_converges_to_the_tb09_supercell(tmp_path, pseudo_dir):
     ultracell states and mixed beside the density, and ``c``, the cell
     average Tran and Blaha's potential carries, is the ultracell's average,
     which is the supercell's.
+
+    **At ``MATCHED_ECUT``, not at 12 Ry.** At 12 Ry the box is (30, 15, 15)
+    and the supercell's own grid (32, 15, 15), and TB09, whose potential is
+    built from ``tau / rho`` and ``|grad rho| / rho`` on the real-space grid,
+    feels the two samplings where the LDA does not: measured on D22, the
+    ladder stopped at 1.084e-2 and 1.080e-2 at ``nbnd = 48`` and 64, a floor.
+    On the matched pair (36, 18, 18) it reads 1.243e-1, 2.816e-2, 8.144e-3 and
+    6.218e-3 at ``nbnd = 12, 24, 48, 64`` (``notes/incompat/I33.md``), about
+    twice the LDA ladder of P88 at the same rungs and still falling.
     """
     shape, kgrid = (2, 1, 1), (1, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
     tb09 = ",\n input_dft='tb09'"
-    calculator = _silicon(tmp_path, pseudo_dir, folded, ecut=12.0, system=tb09,
-                          tag="tb09")
+    calculator = _silicon(tmp_path, pseudo_dir, folded, ecut=MATCHED_ECUT,
+                          system=tb09, tag="tb09")
     assert calculator.system.input_dft is not None
     scf = calculator.get_scf(conv_thr=1e-11, nbnd=8)
     assert scf.converged and scf.tau is not None
     _tiled_null(calculator, scf, shape, kgrid, nbnd=12)
 
-    supercell = _silicon(tmp_path, pseudo_dir, kgrid, shape=shape, ecut=12.0,
-                         system=tb09, tag="tb09-sup")
+    supercell = _silicon(tmp_path, pseudo_dir, kgrid, shape=shape,
+                         ecut=MATCHED_ECUT, system=tb09, tag="tb09-sup")
     reference, grid = _supercell_reference(supercell, shape, nbnd=12)
     from defuqumat.basis.builder import build_basis as _build
     miller = np.asarray(_build(supercell.system).dense.miller)
     exact = _fourier(np.asarray(reference.density)[0], grid, miller)
 
     errors = {}
-    # 80 is the top: at 96 the frozen solve has 169 plane waves for 96 bands
-    # and Davidson needs 2 nbnd of room (cegterg.f90:125), which it refuses.
-    for nbnd in (12, 24, 48, 80):
+    # 64 is the top rung: at 80 on the 12 Ry cell (169 plane waves) one
+    # k-point's frozen solve did not settle in 100 Davidson steps and the error
+    # jumped to 5.4 (D22, the previous batch); 2 nbnd has to fit
+    # (cegterg.f90:125).
+    for nbnd in (12, 24, 48, 64):
         result = run_ultracell(
             calculator.system, calculator.pseudos, scf, shape, kgrid,
             nbnd=nbnd, external=_modulation(shape), conv_thr=1e-10,
@@ -505,8 +552,8 @@ def test_a_tb09_ultracell_converges_to_the_tb09_supercell(tmp_path, pseudo_dir):
         jax.clear_caches()
     print("  induced density error: "
           + ", ".join(f"nbnd={n}: {e:.3e}" for n, e in errors.items()))
-    assert errors[80] < errors[48] < errors[24] < errors[12]
-    assert errors[80] < 0.01, errors
+    assert errors[64] < errors[48] < errors[24] < errors[12]
+    assert errors[64] < 0.01, errors
 
 
 # -- I34: nosource -------------------------------------------------------------
@@ -560,6 +607,12 @@ def test_a_source_free_ultracell_converges_to_the_supercell(tmp_path, pseudo_dir
     modulation runs along ``x`` too, so ``(G+Q) . B_xc`` is non-zero at the
     modulation's own ``Q`` and the projection there couples the two cells --
     the term the refusal named, and the term a per-cell projection misses.
+
+    **The check can tell the two apart** (D22, ``notes/incompat/I34.md``): at
+    ``nbnd = 16`` the box projection reads 7.1e-5, 1.5e-4, 1.7e-4, 1.6e-4 for
+    the charge and the three magnetization components, and the same run with
+    the projection dropped at every ``Q != 0`` reads 1.1e-3 on the charge and
+    2.5e-1 on ``m_x``, 1700 times the box's.
     """
     shape, kgrid = (2, 1, 1), (2, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
@@ -629,24 +682,42 @@ def test_a_saw_tooth_ultracell_bounds_the_supercell_from_above(
     the tiled unit cell's: ``b'_3 = b_3`` for a supercell doubled along ``a1``.
     ``dipfield`` makes the field a function of the density's dipole, which on
     the box is the ultracell's average and in the supercell the supercell's.
+
+    **The ``dipfield`` arm is smeared (Gaussian, 0.02 Ry).** Bulk silicon has
+    no vacuum for the ramp to sit in, so its dipole correction is large (0.54
+    Ry of ``E_f`` against 0.025 without it) and it closes the gap: with fixed
+    occupations the unit cell's fourth band tops out at 0.474 Ry over the
+    folded k-points and the fifth bottoms out at 0.380 (D22, measured), so
+    "four bands at every k-point" is not the lowest four of the folded set the
+    ultracell fills, and the tiled null stalled at dr2 = 4.4e-3 for that reason
+    alone. Smeared, the occupations are a function of the energies and the two
+    fillings agree; a Gaussian keeps the free energy variational, so the bound
+    still holds. Measured on D22 (``notes/incompat/I35.md``): +8.092e-5,
+    +3.528e-6, +3.636e-7 Ry per cell without ``dipfield`` and +1.952e-5,
+    +4.408e-6, +4.789e-7 with it, at ``nbnd = 12, 24, 48``.
     """
     shape, kgrid = (2, 1, 1), (1, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
     control = TEFIELD.format(dipfield=".true." if dipfield else ".false.")
+    system = SAWTOOTH + (
+        ",\n occupations='smearing', smearing='gaussian', degauss=0.02"
+        if dipfield else "")
     calculator = _silicon(tmp_path, pseudo_dir, folded, control=control,
-                          system=SAWTOOTH, tag="saw")
+                          system=system, tag="saw")
     assert calculator.system.efield is not None
     scf = calculator.get_scf(conv_thr=1e-12, nbnd=12)
     assert scf.converged and "efield" in scf.energy_terms
     null, null_energy = _tiled_null(calculator, scf, shape, kgrid, nbnd=12)
     assert abs(null_energy) < 1e-10
-    # ``E_f`` alone is linear in the density, so it moves at first order with
-    # the frozen states' 7e-8 (6.6e-10 Ry measured) where the total does not.
+    # ``E_f`` alone moves at first order with the frozen states' density
+    # (7e-8 relative, 6.6e-10 Ry measured without ``dipfield``; 2.3e-6 and
+    # 2.0e-6 Ry with it, whose ``D^2`` term is 20 times the bare ramp's
+    # energy), where the total does not.
     assert null.energy_terms["efield"] == pytest.approx(
-        scf.energy_terms["efield"], abs=1e-8)
+        scf.energy_terms["efield"], abs=1e-5 if dipfield else 1e-8)
 
     supercell = _silicon(tmp_path, pseudo_dir, kgrid, shape=shape,
-                         control=control, system=SAWTOOTH, tag="saw-sup")
+                         control=control, system=system, tag="saw-sup")
     reference, _ = _supercell_reference(supercell, shape, nbnd=12)
     gaps = _energy_ladder(calculator, scf, shape, kgrid, reference, (12, 24, 48))
     assert gaps[48] < gaps[24] < gaps[12]
@@ -688,12 +759,26 @@ def test_a_field_converged_reference_converges_to_the_supercell_under_it(
 
     supercell = _hydrogen(tmp_path, pseudo_dir, kgrid, shape=shape,
                           system=field, tag="h-field-sup")
-    # Under the field the two-atom supercell stalls at 2.3e-7 Ry after 100
-    # iterations at the default mixing (measured), so it is mixed at 0.3.
+    # **Both sides are mixed adaptively.** Under the field the two-atom
+    # supercell stalled at 2.3e-7 Ry after 100 Anderson iterations, at 3.7e-6
+    # after 300 at beta 0.3, and did not close under 'robust' either, while
+    # 'adaptive' converged it in 39 (D22); the ultracell loop stalled at dr2
+    # 3.7e-7 to 2.9e-5 Ry after 800 Kerker-Anderson iterations at beta 0.2 at
+    # every rung and converged in 70 to 71 adaptively, which takes no Kerker.
+    # The soft direction is the moment's size: the modulation moves the mean
+    # moment density from 0.00380 (tiled) to 0.00451.
     reference, grid = _supercell_reference(supercell, shape, nbnd=16,
-                                           max_iterations=300, mixing_beta=0.3)
-    rows, _ = _density_ladder(calculator, scf, shape, kgrid, reference, grid,
-                              (8, 16, 24))
+                                           max_iterations=300,
+                                           mixing_mode="adaptive")
+    rows, exact = _density_ladder(calculator, scf, shape, kgrid, reference, grid,
+                                  (8, 16, 24), mixing_mode="adaptive",
+                                  kerker=False, max_iterations=600)
+    # Measured (``notes/incompat/I36.md``): charge 6.5e-4, 2.0e-4, 1.4e-4,
+    # moment 9.0e-4, 2.9e-4, 1.2e-4, and the free energy above the supercell's
+    # by 9.1e-6, 2.2e-6, 8.8e-7 Ry per cell at nbnd = 8, 16, 24.
+    frees = [r[3] for r in rows]
+    assert frees == sorted(frees, reverse=True), frees
+    assert min(frees) > exact, (frees, exact)
     charges = [r[1] for r in rows]
     moments = [r[2] for r in rows]
     assert charges == sorted(charges, reverse=True), charges
