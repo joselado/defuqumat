@@ -276,7 +276,7 @@ def stream_diagonalize(calculation, hamiltonians, nbnd: int, store: np.ndarray,
     return eigenvalues, steps, unsettled
 
 
-def stream_eigenvalues(calculation, hamiltonians, nbnd: int, ethr):
+def stream_eigenvalues(calculation, hamiltonians, nbnd: int, ethr, rows=None):
     """A solve from scratch at every k-point, keeping the eigenvalues only.
 
     QE's ``c_bands_nscf``: a band structure, an NSCF grid or a density of
@@ -286,12 +286,18 @@ def stream_eigenvalues(calculation, hamiltonians, nbnd: int, ethr):
     starts from Davidson's own random vectors (``psi0 = None``), which are
     drawn per k-point, so the chunks together are the whole-set solve.
 
+    ``rows`` solves at those global k indices only, a k-point pool's share
+    (:mod:`defuqumat.parallel`), and the three arrays then carry those rows,
+    ``(nspin, len(rows))`` in their order; each solve still addresses the whole
+    set's tables by its global index, so a row is the same solve whichever
+    pool takes it.
+
     Returns ``(eigenvalues, steps, unsettled)`` as numpy arrays shaped as
     :meth:`~defuqumat.scf.driver.Calculation.diagonalize` returns them with
     ``return_steps``.
     """
     eigenvalues, _, steps, unsettled = _stream_from_scratch(
-        calculation, hamiltonians, nbnd, ethr, keep=False)
+        calculation, hamiltonians, nbnd, ethr, keep=False, rows=rows)
     return eigenvalues, steps, unsettled
 
 
@@ -310,12 +316,14 @@ def stream_states(calculation, hamiltonians, nbnd: int, ethr):
     return _stream_from_scratch(calculation, hamiltonians, nbnd, ethr, keep=True)
 
 
-def _stream_from_scratch(calculation, hamiltonians, nbnd, ethr, *, keep):
+def _stream_from_scratch(calculation, hamiltonians, nbnd, ethr, *, keep, rows=None):
     extra = {} if calculation.david is None else {"david": calculation.david}
-    nspin, nk = len(hamiltonians), hamiltonians[0].nk
+    nspin = len(hamiltonians)
+    held = np.arange(hamiltonians[0].nk) if rows is None else np.asarray(rows)
+    nk = len(held)
     eigenvalues = store = steps = unsettled = None
     for spin, hamiltonian in enumerate(hamiltonians):
-        for rows, live in k_chunks(nk, calculation.k_batch):
+        for positions, rows, live in _local_chunks(held, calculation.k_batch):
             energies, states, taken, stuck = calculation.eigensolver(
                 hamiltonian, nbnd, None, ethr, k_batch=calculation.k_batch,
                 return_steps=True, indices=jnp.asarray(rows), **extra,
@@ -325,7 +333,7 @@ def _stream_from_scratch(calculation, hamiltonians, nbnd, ethr, *, keep):
                 eigenvalues = np.empty((nspin, nk, nbnd), energies.dtype)
                 steps = np.empty((nspin, nk), np.asarray(taken).dtype)
                 unsettled = np.empty((nspin, nk), np.asarray(stuck).dtype)
-            live_rows = _rows(rows[:live])
+            live_rows = _rows(positions[:live])
             if keep:
                 states = np.asarray(states)
                 if store is None:
