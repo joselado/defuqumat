@@ -402,6 +402,13 @@ class UltracellResult:
     #: it, in words, and ``None`` when it was, when there is no field, or when
     #: ``seed_from_field=False`` asked for the tiled start.
     field_seed_skipped: str | None = None
+    #: ``(N, nspin, nslot, ldmx, ldmx)``, the occupation matrix of each atom
+    #: copy for a DFT+U run, ``None`` otherwise: copy ``c`` is the unit cell's
+    #: Hubbard atoms at ``tau + R_c``, ``R_c = ultracell.q_triples[c]`` in the
+    #: unit cell's crystal basis, so ``hubbard_ns[c]`` compares slot by slot
+    #: with a supercell's ``ns`` for those atoms. It is the matrix the reported
+    #: density was mixed with, the output of the last iteration once converged.
+    hubbard_ns: jnp.ndarray | None = None
 
     @property
     def eigenvalues_ev(self) -> np.ndarray:
@@ -2094,6 +2101,7 @@ def run_ultracell(
             augmentation_residual,
         )
     result.seed_origin = seed_origin
+    result.hubbard_ns = ns_state
     result.field_seed_skipped = field_seed_skipped
     if kramers is not None:
         result.kramers_ranks = np.asarray(kramers.ranks)

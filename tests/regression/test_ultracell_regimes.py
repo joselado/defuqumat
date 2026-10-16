@@ -135,8 +135,12 @@ def _tiled_null(calculator, scf, shape, kgrid, nbnd, conv_thr=1e-10,
     return result, energy
 
 
-def _energy_ladder(calculator, scf, shape, kgrid, reference, ladder, **options):
-    """Total energy per cell at each ``nbnd``, minus the supercell's."""
+def _energy_ladder(calculator, scf, shape, kgrid, reference, ladder, keep=None,
+                   **options):
+    """Total energy per cell at each ``nbnd``, minus the supercell's.
+
+    ``keep``, a dict, receives the ultracell result at each ``nbnd``.
+    """
     exact = reference.total_energy / int(np.prod(shape))
     gaps = {}
     for nbnd in ladder:
@@ -147,6 +151,8 @@ def _energy_ladder(calculator, scf, shape, kgrid, reference, ladder, **options):
         )
         assert result.converged
         gaps[nbnd] = result.total_energy - exact
+        if keep is not None:
+            keep[nbnd] = result
         jax.clear_caches()
     print("  energy above the supercell: "
           + ", ".join(f"nbnd={n}: {g:+.3e}" for n, g in gaps.items()))
@@ -371,12 +377,18 @@ HUBBARD = "HUBBARD {atomic}\nU Si-3p 2.0\n"
 @pytest.mark.slow
 def test_a_hubbard_ultracell_bounds_the_hubbard_supercell_from_above(
         tmp_path, pseudo_dir):
-    """U on Si 3p, three cells: the tiled null, then the energy ladder.
+    """U on Si 3p, three cells: the tiled null, the energy ladder, and each copy's ``ns``.
 
-    Three cells rather than two, because the projection onto copy ``c`` carries
-    ``exp(i (k0+Q) . R_c)`` and at two cells ``R_1`` and ``-R_1`` are the same
-    copy, so a sign error in the phase would be invisible; at three it puts the
-    occupation of one copy on the other.
+    The energy cannot tell the copies apart: replacing every copy's ``ns`` by
+    their mean still lies above the supercell and falls with ``nbnd``
+    (+3.0e-7 Ry at 48 bands, measured), and flipping the sign of the phase in
+    the projection onto a copy relabels copy ``c`` as copy ``-c`` in the
+    occupations and in the matrix together, which leaves the energy
+    bit-identical. So the per-copy statement is checked on the matrices
+    themselves: copy ``c``'s ``ns`` from the ultracell against the supercell's
+    ``ns`` on the atoms at ``tau + R_c``, which an average and a relabelling
+    both fail, since the three copies sit at three different phases of the
+    modulation and no operation of the cell maps ``R_1`` onto ``-R_1``.
     """
     shape, kgrid = (3, 1, 1), (1, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
@@ -394,14 +406,52 @@ def test_a_hubbard_ultracell_bounds_the_hubbard_supercell_from_above(
     # their own accuracy (3.9e-9 Ry measured) where the total is stationary.
     assert null.energy_terms["hubbard"] == pytest.approx(
         scf.energy_terms["hubbard"], abs=1e-8)
+    unit_ns = np.asarray(scf.ns)
+    null_ns = np.asarray(null.hubbard_ns)
+    assert null_ns.shape == (3,) + unit_ns.shape
+    null_gap = float(np.abs(null_ns - unit_ns[None]).max())
+    print(f"  null: every copy's ns against the unit cell's {null_gap:.2e}")
+    assert null_gap < 1e-6
 
     supercell = _silicon(tmp_path, pseudo_dir, kgrid, shape=shape, ecut=14.0,
                          cards=HUBBARD, tag="u-sup")
     reference, _ = _supercell_reference(supercell, shape, nbnd=18)
-    gaps = _energy_ladder(calculator, scf, shape, kgrid, reference, (12, 24, 48))
+    kept = {}
+    gaps = _energy_ladder(calculator, scf, shape, kgrid, reference, (12, 24, 48),
+                          keep=kept)
     assert gaps[48] < gaps[24] < gaps[12]
     assert all(g > 0.0 for g in gaps.values()), gaps
-    assert gaps[48] < 1e-6, gaps
+    # 6.2e-8 measured; one ``ns`` averaged over the copies gives 3.0e-7.
+    assert gaps[48] < 1.5e-7, gaps
+
+    # The supercell's atoms are the unit cell's two at each shift ``s`` along
+    # ``a_1``, in that order (``_silicon``), so the slots of shift ``s`` are
+    # ``2 s`` and ``2 s + 1``; copy ``c`` is the shift ``R_c``.
+    nat = unit_ns.shape[1]
+    triples = np.asarray(kept[48].ultracell.q_triples)
+    whole = np.asarray(reference.ns)
+    exact = np.stack([whole[:, nat * int(t[0] % shape[0]):
+                            nat * (int(t[0] % shape[0]) + 1)] for t in triples])
+    copies = np.asarray(kept[48].hubbard_ns)
+    assert copies.shape == exact.shape
+    cells = len(triples)
+    errors = np.array([[float(np.abs(copies[c] - exact[d]).max())
+                        for d in range(cells)] for c in range(cells)])
+    spread = min(float(np.abs(exact[c] - exact[d]).max())
+                 for c in range(cells) for d in range(cells) if c != d)
+    average = float(np.abs(copies.mean(axis=0)[None] - exact).max())
+    print("  ns of copy c against the supercell's atoms at shift d:\n"
+          + "\n".join("    " + "  ".join(f"{e:.2e}" for e in row) for row in errors))
+    print(f"  closest pair of supercell shifts {spread:.2e}; "
+          f"the copies' mean against each {average:.2e}")
+    own = np.diag(errors)
+    # Each copy's own atoms are the closest, by a factor that a relabelling
+    # (an off-diagonal entry) or an average cannot reach.
+    for c in range(cells):
+        others = [errors[c, d] for d in range(cells) if d != c]
+        assert own[c] < 0.2 * min(others), errors
+    assert own.max() < 0.2 * spread, (own, spread)
+    assert own.max() < 0.2 * average, (own, average)
 
 
 # -- I33: a potential-only meta-GGA --------------------------------------------
