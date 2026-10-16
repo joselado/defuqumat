@@ -403,9 +403,18 @@ which we compute in the page about stress with `get_elastic_constants()`.
     small group of $\mathbf q$, which is not the group of the crystal. We run
     them with `noinv` as well and on an unshifted mesh, which is the mesh that
     is closed under the point group. They give an error for ultrasoft and PAW
-    datasets, for a nonlinear core correction, for spin polarization, spinors,
-    spin spirals, DFT+U and `nosource`, and for a potential-only meta-GGA
-    (`tb09`, `bj06`), as every response does. For a metal they work at
+    datasets, for a GGA functional such as PBE, for spinors, spin spirals,
+    DFT+U and `nosource`, and for a potential-only meta-GGA (`tb09`, `bj06`), as
+    every response does. A norm-conserving dataset with a nonlinear core
+    correction works. The GGA error is there with and without spin, because with
+    a GGA the result at $\mathbf q$ was wrong by tens of cm$^{-1}$, so you use an
+    LDA functional. With the LDA they work for `nspin = 2` in an insulator, which
+    we checked on a magnetic hydrogen chain against the same chain doubled, at
+    $\Gamma$. A spin-polarized metal gives an error, and so does `nspin = 2`
+    together with a nonlinear core correction, because we have not checked the
+    two together. With `nspin = 2` they also give an error when the run walks the
+    k-points in chunks, as the phonons at $\Gamma$ do, and the electron-phonon
+    coupling works only for `nspin = 1`. For a metal they work at
     $\mathbf q = 0$, where the Fermi level moves and the code moves it as `ph.x`
     does. At a reciprocal lattice vector other than zero they give an error, and
     you use $\mathbf q = 0$ instead. On the k-chunked route, which a GPU takes in

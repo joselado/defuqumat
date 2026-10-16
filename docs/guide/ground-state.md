@@ -228,9 +228,11 @@ ground state then give an error, because they need a converged density.
     bound, so it keeps a step on the residual only, has no last step, and warns.
     It gives an error for tetrahedra, a potential-only meta-GGA, `lelfield`, a
     magnetic field that is updated or reduced during the run, `rotate_moments`,
-    `scf_solver`, k-point pools, a checkpoint, a continued mixer state
-    (`mixing_from`) and `mixing_beta_mag`, which the mode sets itself. The
-    ultracell does not take it.
+    `scf_solver` and `mixing_beta_mag`, which the mode sets itself. It runs with
+    k-point pools and with a checkpoint. A run that continues from a checkpoint
+    takes the same steps as a run that was not stopped. With `mixing_from` alone,
+    the mixer history is kept and the step control starts again. The ultracell
+    does not take it.
 
     `mixing_mode='ldos'` screens only the charge, so the magnetization takes
     `mixing_beta` and the soft direction of a magnet is not helped. With fixed or
@@ -239,10 +241,14 @@ ground state then give an error, because they need a converged density.
     semiconductor or a $d$-electron magnet, and on a bulk $d$-metal it takes more
     iterations than `anderson`. Near a magnetic transition it can also change
     the state found. On `benchmarks/fe-unstable.in` it lands on a moment of
-    0.42 $\mu_B$, where plain `anderson` stops at the nonmagnetic state. It gives
-    an error with tetrahedra, because it needs a smooth delta at the Fermi
-    level, and also as the `warmup_mixing` of
-    the Newton solver, in the ultracell and in a response loop. Under
+    0.42 $\mu_B$, where plain `anderson` stops at the nonmagnetic state. It also
+    works with tetrahedra. Then the delta at the Fermi level is the derivative of
+    the tetrahedron weights, so no width is needed. On a bulk metal it gives the
+    same energy as `anderson`, and on the ten-site aluminium cell
+    `al10-metal-tetra.in` it needs 19 iterations, where `pw.x` needs 55. It can
+    also be the `warmup_mixing` of the Newton solver, but not together with
+    tetrahedra, because we have not checked that case. It gives an error in the
+    ultracell and in a response loop. Under
     `scf_solver='newton-krylov'` the solver uses Kerker and `mixing_mode` does
     not reach it.
 
@@ -277,6 +283,20 @@ ground state then give an error, because they need a converged density.
     that cuts a degenerate multiplet, tetrahedra, `from_input` occupations,
     `tot_magnetization` with a smearing, a spin spiral, a saw-tooth or
     Berry-phase electric field, and a magnetic field or a constrained moment.
+
+    The Newton solver takes tetrahedra and `from_input` occupations with the
+    default `"finite-difference"` Jacobian and with `"autodiff"`. On
+    `al-tetrahedra.in` it gives the total energy of `pw.x` to 3e-9 Ry. With
+    k-point pools these two occupations give an error, because we have not
+    checked them there. The Newton solver also runs with a uniform magnetic field
+    (`B_field`) in a collinear run, and with a constrained moment of the kind
+    `atomic`, `atomic direction` or `total` in a noncollinear run. It gives an
+    error for `fsm`, `atomic fsm` and `atomic fsm direction`, and for `reducebf`
+    below 1, because in these cases the field changes from one iteration to the
+    next. It also gives an error for `total direction`, `atomic texture`, a
+    `LOCAL_MAGNETIC_FIELDS` card, a uniform field in a noncollinear run, a
+    constrained moment in a collinear run, and `"jvp": "autodiff"` with any
+    field, because these are not checked yet.
 
 The notebooks for this page are
 [02, silicon](https://github.com/joselado/defuqumat/blob/master/notebooks/02_silicon_scf_and_bands.ipynb)

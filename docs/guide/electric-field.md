@@ -251,10 +251,13 @@ the formal charge 3, so the bond of AlAs is far from ionic.
     ultrasoft or PAW dataset, because the overlap between two k-points then
     needs the augmentation, and the force needs its derivative. It works for
     `nspin = 2` when the two channels hold the same number of electrons
-    (`tot_magnetization = 0`), and for a spinor run without spin-orbit coupling
-    and without a magnetization. It gives an error for a magnet, for spin-orbit
-    coupling and for a magnetized spinor, because `pw.x` counts the occupied
-    bands of a channel as `nelec/2` and so has no number to check against. A
+    (`tot_magnetization = 0`). It gives an error for a collinear magnet, because
+    `pw.x` counts the occupied bands of a channel as `nelec/2`, so there is no
+    number to check against. It works for a spinor run without spin-orbit
+    coupling, with or without a magnetization, and for a spin spiral. For a
+    spiral, each spinor component is moved along the string on its own sphere.
+    We checked a spiral against its commensurate supercell, and the supercell
+    against `pw.x`. Spin-orbit coupling gives an error. A
     streamed wavefunction store (`wfc_store = 'stream'`) works, and k-point pools
     give an error. Only `occupations = 'fixed'` is accepted, so smearing or
     `from_input` gives an error, even for an insulator, because a Berry phase
@@ -265,7 +268,7 @@ the formal charge 3, so the bond of AlAs is far from ionic.
     gives an error, and so does an automatic mesh with `efield_cart` zero, which
     in `pw.x` is a run with no field. A cell where $\mathbf a_g$ is not along
     the Cartesian axis $g$ gives an error. The stress gives an error, and the
-    field terms of the stress are not in `pw.x` either. DFT+U, a spin spiral,
+    field terms of the stress are not in `pw.x` either. DFT+U,
     `tefield` at the same time, gamma-only storage, every linear response,
     real-time propagation and the ultracell give an error too.
 

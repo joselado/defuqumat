@@ -155,9 +155,13 @@ the lines between the points are only a guide to the eye.
     spin moment also gives an error. A spin-polarized Elk state with an `nspin=1`
     run gives an error, because the moment would be lost. An unpolarized Elk
     state with an `nspin=2` run gives an error, because the seed would have no
-    moment. A noncollinear run gives an error with any Elk state. A DFT+U state,
-    or one with fixed tensor moments, also gives an error, because the code does
-    not read their occupation matrices.
+    moment. A noncollinear run gives an error with any Elk state. A DFT+U state
+    works as a seed. `STATE.OUT` does not contain the occupation matrix of Elk, so
+    only the density is used, and the code gives a warning. The Hubbard
+    occupations then start from `starting_ns` of the run, as in a normal DFT+U
+    run. A spin-polarized DFT+U state gives an error, because we have not checked
+    the two together. A state with fixed tensor moments gives an error, because
+    the code does not have this constraint.
 
     An element with core electrons gives an error. The muffin-tin density of Elk
     contains the core states, and nothing in `STATE.OUT` separates them from the

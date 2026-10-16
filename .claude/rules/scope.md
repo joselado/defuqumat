@@ -225,7 +225,9 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   Elk's own `RHO3D.OUT`, pointwise. The result is a **null**: the seed buys no iterations,
   because the cusp it carries lives inside the pseudisation radius where the pseudo
   density is built not to look like it. A collinear spin-polarized state seeds an
-  `nspin = 2` run (P155, I69); a noncollinear state, a spiral, a fixed spin moment, DFT+U,
+  `nspin = 2` run (P155, I69), and an unpolarized DFT+U state seeds with its density alone
+  and a warning, since `STATE.OUT` holds no occupation matrix (P155, I70); a noncollinear
+  state, a spiral, a fixed spin moment, a fixed tensor moment, a spin-polarized DFT+U state,
   an element with a **core** and a *fixed* Elk density are refused by name.
 
 **One calculation on many cores** (P124, `defuqumat/parallel.py`): `DEFUQUMAT_POOLS` runs
