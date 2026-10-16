@@ -1031,8 +1031,8 @@ def _with_rotation(system: System, rotation) -> System:
 def _turned_on_its_own_wedge(system: System, direction) -> System:
     """:func:`_with_quantization_axis` for a run with symmetry: the k-set rebuilt too.
 
-    **What lifted the force theorem's and the relaxed route's** ``nosym``
-    **refusal.** A magnetic noncollinear run reduces its grid with the magnetic
+    **What lifted the force theorem's** ``nosym`` **refusal** (the relaxed route keeps
+    its own, :func:`run_relaxed_direction`, until its check converges). A magnetic noncollinear run reduces its grid with the magnetic
     group of where the moment points, so a turned direction has a different
     wedge; the refusal said the two band energies would then differ "by the
     k-sampling rather than by the physics". That is true of a wedge that is not
@@ -2219,6 +2219,18 @@ def run_relaxed_direction(
     # the physics, and the control would fail for a reason unrelated to what it
     # is controlling.
     _refuse_relaxed(system, pseudos, require_spin_orbit)
+    if not system.nosym:
+        raise ValueError(
+            "a relaxed magnetic anisotropy needs nosym = .true.: a magnetic "
+            "noncollinear run reduces its k-grid with the magnetic symmetry "
+            "group, which depends on where the moment points. Running each "
+            "direction on its own magnetic wedge (_turned_on_its_own_wedge) "
+            "is what the force theorem now does, and for a total energy it is "
+            "not yet verified: on tetragonal cobalt, direction (1,0,1), the "
+            "wedge and the nosym run differed by 0.678 meV with neither SCF "
+            "reaching conv_thr = 1e-10 in 100 iterations (5.5e-10 and 7.0e-9 "
+            "Ry), so it is refused until that comparison converges and agrees"
+        )
 
     if direction is None:
         direction = _reference_axis(system)
@@ -2228,10 +2240,8 @@ def run_relaxed_direction(
     # reads its quantization axis off ``angle1``/``angle2``, so rotating where
     # the moment is started without rotating the axis leaves the functional
     # differentiating ``|m|`` through its own kinks
-    # (:func:`_with_quantization_axis` has the 36.8 meV that cost). With
-    # symmetry on, the k-set is the turned direction's own wedge.
-    system = (_with_quantization_axis(system, direction) if system.nosym
-              else _turned_on_its_own_wedge(system, direction))
+    # (:func:`_with_quantization_axis` has the 36.8 meV that cost).
+    system = _with_quantization_axis(system, direction)
 
     options.setdefault("conv_thr", 1.0e-10)
     from defuqumat.scf.driver import run_scf
