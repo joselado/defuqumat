@@ -361,10 +361,17 @@ SILICON_SMEARED_8K = SILICON_8K.replace(
     "nosym = .true., noinv = .true.",
     "nosym = .true., noinv = .true.,\n  occupations = 'smearing', smearing = 'mv', degauss = 0.02")
 
+# The augmented cells: ``becsum`` is part of the residual's state vector there,
+# and its sum over k is all-reduced with the density's.
+SILICON_US_8K = SILICON_8K.replace("ecutwfc = 12.0", "ecutwfc = 20.0, ecutrho = 160.0").replace(
+    "Si.pz-vbc.UPF", "Si.pz-n-rrkjus_psl.0.1.UPF")
+SILICON_PAW_8K = SILICON_US_8K.replace("Si.pz-n-rrkjus_psl.0.1.UPF", "Si.pz-n-kjpaw_psl.0.1.UPF")
+
 
 @pytest.mark.slow
-@pytest.mark.parametrize("text, sizes", [(SILICON_8K, (2, 3)), (SILICON_SMEARED_8K, (2,))],
-                         ids=["insulator", "smeared"])
+@pytest.mark.parametrize("text, sizes", [(SILICON_8K, (2, 3)), (SILICON_SMEARED_8K, (2,)),
+                                         (SILICON_US_8K, (2,)), (SILICON_PAW_8K, (2,))],
+                         ids=["insulator", "smeared", "ultrasoft", "paw"])
 def test_newton_krylov_under_pools_reproduces_one_pool(text, sizes):
     """``scf_solver = 'newton-krylov'`` at 1 pool against 2 and 3 (I53).
 
@@ -375,8 +382,9 @@ def test_newton_krylov_under_pools_reproduces_one_pool(text, sizes):
     routes start Davidson differently on the first evaluation (QE's random
     guess against the atomic start of ``stream_start``), so the 1-against-N
     figure is the converged energy, not the bits, and the pooled runs
-    against each other are compared too. The guard drops the all-reduce: a
-    Newton solve on each pool's own share must not pass.
+    against each other are compared too. The ultrasoft and PAW cells carry
+    ``becsum`` in the state. The guard drops the all-reduce: a Newton solve on
+    each pool's own share must not pass.
     """
     assert NEWTON_SCRIPT != SCF_SCRIPT
     serial = _run_pools(NEWTON_SCRIPT, 1, text, 0, timeout=900)[0]
