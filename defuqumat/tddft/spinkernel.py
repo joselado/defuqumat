@@ -93,6 +93,7 @@ from defuqumat.scf.potential import v_of_rho
 
 __all__ = [
     "transverse_kernel_field",
+    "collinear_channels",
     "transverse_kernel_matrix",
     "exchange_field",
     "goldstone_residual",
@@ -115,13 +116,63 @@ DENSITY_THRESHOLD = 1.0e-6
 POLARIZATION_THRESHOLD = 1.0e-4
 
 
+#: How large ``m_x`` and ``m_y`` may be, against ``max |m_z|``, for a spinor
+#: run's moment to count as collinear along ``z``.
+COLLINEAR_TOLERANCE = 1.0e-6
+
+
+def collinear_channels(calculation, density):
+    """``(n_up, n_dn)`` of a collinear density, ``(2, ...)``, from either regime.
+
+    A spinor run's density is ``(n, m_x, m_y, m_z)``; with its moment along
+    ``z`` it is the collinear pair ``((n + m_z)/2, (n - m_z)/2)`` (I59), and
+    anything else is a texture, refused here because this is where the
+    density is first read: the ``+-`` block of a texture does not decouple.
+    """
+    density = jnp.asarray(density)
+    if density.shape[0] == 2:
+        return density
+    if density.shape[0] != 4:
+        raise ValueError(
+            "the transverse kernel needs a spin-polarized density, (2, ...) "
+            f"or (4, ...); got leading axis {density.shape[0]}"
+        )
+    transverse = float(jnp.max(jnp.abs(density[1:3])))
+    longitudinal = float(jnp.max(jnp.abs(density[3])))
+    if transverse > COLLINEAR_TOLERANCE * max(longitudinal, 1.0e-300):
+        raise NotImplementedError(
+            "a transverse spin susceptibility of a noncollinear magnetization "
+            f"is not implemented: max |m_x|, |m_y| = {transverse:.3e} against "
+            f"max |m_z| = {longitudinal:.3e}, so the moment is not along z and "
+            "the 4x4 spin-density response no longer block-diagonalises (Elk's "
+            "genspchi0 carries all sixteen blocks). A spinor run whose moment "
+            "is collinear along z (angle1 = 0 or 180) is taken"
+        )
+    return jnp.stack([0.5 * (density[0] + density[3]), 0.5 * (density[0] - density[3])])
+
+
 def exchange_field(calculation, density) -> jnp.ndarray:
     """``B_xc(r)``, ``(n1, n2, n3)`` in Ry, from a converged collinear density.
 
     The spin splitting of the self-consistent potential, halved. No magnetic
-    field is applied -- see the module docstring.
+    field is applied -- see the module docstring. A spinor run's density
+    (``(4, ...)``, moment along ``z``) gives ``B_z`` of its own potential, the
+    field the spinor Hamiltonian carries as ``sigma_z B_z``, so a functional
+    whose spinor form is not the collinear one (``noncollinear_gga``) is read
+    as the states felt it.
     """
     density = jnp.asarray(density)
+    if density.shape[0] == 4:
+        collinear_channels(calculation, density)  # refuses a texture
+        from defuqumat.scf.driver import _potential_of_rho
+
+        potential = _potential_of_rho(
+            density, calculation.basis.dense, calculation.system.cell,
+            calculation.rho_core, calculation.functional, calculation.rho_core_g,
+            calculation._axis_argument(), None, calculation.source_free,
+            calculation.noncollinear_gga, calculation._spiral_q_argument(),
+        )
+        return potential.v_scf[3]
     if density.shape[0] != 2:
         raise ValueError(
             "the transverse kernel needs a collinear spin-polarized density, "
@@ -158,10 +209,10 @@ def transverse_kernel_field(
       ``m -> 0`` limit, :func:`node_limit`;
     * density below ``density_threshold``: zero.
     """
-    density = jnp.asarray(density)
+    field = exchange_field(calculation, density)
+    density = collinear_channels(calculation, density)
     charge = density[0] + density[1]
     magnetization = density[0] - density[1]
-    field = exchange_field(calculation, density)
 
     dense = charge > density_threshold
     polarized = jnp.abs(magnetization) > polarization_threshold * jnp.abs(charge)
@@ -357,7 +408,8 @@ def goldstone_residual(chi0, calculation, density, index: int = 0, ns=None,
     term in ``H_up - H_dn`` is cancelled by the frequency.
     """
     field = np.asarray(exchange_field(calculation, jnp.asarray(density)))
-    magnetization = np.asarray(density[0] - density[1])
+    channels = np.asarray(collinear_channels(calculation, density))
+    magnetization = channels[0] - channels[1]
     grid = np.asarray(calculation.basis.dense.grid)
     miller = np.asarray(chi0.sphere.miller) % grid
 

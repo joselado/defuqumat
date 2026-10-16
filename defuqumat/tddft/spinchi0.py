@@ -283,13 +283,51 @@ def require_a_transverse_regime(calculation) -> None:
             "plane, on top of the noncollinear response itself"
         )
     if system.noncolin:
-        raise NotImplementedError(
-            "a transverse spin susceptibility of a noncollinear ground state "
-            "is not implemented: the 4x4 spin-density response no longer "
-            "block-diagonalises, so the transverse channel is not a matrix in "
-            "(G, G') on its own (Elk's genspchi0 carries all sixteen blocks)"
-        )
-    if calculation.nspin != 2:
+        # A spinor run is taken when its moment is collinear along z (I59):
+        # the +- block then decouples exactly as it does at nspin = 2, with
+        # the up and down components of every spinor band in the two roles.
+        # Whether the moment *is* along z is a property of the density, so it
+        # is checked where the density is read
+        # (:func:`~defuqumat.tddft.spinkernel.collinear_channels`).
+        if getattr(system, "lspinorb", False):
+            raise NotImplementedError(
+                "a transverse spin susceptibility with spin-orbit coupling is "
+                "not implemented: the coupling makes H_up - H_dn more than a "
+                "local exchange field (the Goldstone proof's first step), "
+                "the up and down components of a band are no longer separate "
+                "spin channels, and the uniform mode is gapped by the "
+                "anisotropy, which this kernel does not carry. A spinor run "
+                "without the coupling, with its moment along z, is taken"
+            )
+        if calculation.nspin_mag != 4:
+            raise NotImplementedError(
+                "the transverse spin susceptibility needs a magnetization, and "
+                "this spinor run carries none (nspin_mag = 1): there is no "
+                "transverse channel to separate and no kernel B_xc/m"
+            )
+        if calculation.augmentation is not None:
+            raise NotImplementedError(
+                "a transverse spin susceptibility of a spinor run with an "
+                "ultrasoft dataset is not implemented: the spinor augmentation "
+                "pairs the projections of the two components through "
+                "becsum's spin blocks, and only the collinear form of "
+                "Q_ij(q+G) is carried. A norm-conserving spinor run is taken, "
+                "and an ultrasoft one at nspin = 2"
+            )
+        if getattr(calculation, "is_hubbard", False):
+            raise NotImplementedError(
+                "a transverse spin susceptibility of a spinor run with a "
+                "Hubbard U is not implemented: the Hubbard channel is carried "
+                "at nspin = 2, where ns has one block per spin, and a spinor "
+                "ns keeps four"
+            )
+        if getattr(calculation, "magnetic_field", None) is not None:
+            raise NotImplementedError(
+                "a transverse spin susceptibility of a spinor run under a "
+                "magnetic field is not implemented: a uniform B_field is taken "
+                "at nspin = 2"
+            )
+    elif calculation.nspin != 2:
         raise NotImplementedError(
             f"the transverse spin susceptibility needs nspin = 2 and this run "
             f"has nspin = {calculation.nspin}: without a collinear "
@@ -593,12 +631,41 @@ def transverse_response(
     # The states stay where they are, a streamed store in host memory or a
     # device array, and cross to the device a k-chunk at a time below.
     eigenvalues = jnp.asarray(eigenvalues)
-    if wavefunctions.ndim != 4 or wavefunctions.shape[0] != 2:
-        raise ValueError(
-            "the transverse susceptibility needs both spin channels' "
-            f"wavefunctions, (2, nk, nbnd, npwx); got {wavefunctions.shape}"
-        )
-    majority, minority = (1, 0) if flip else (0, 1)
+    # **A spinor run (I59) has one channel of bands with two components each**,
+    # and with the moment along z the up component of every band is its
+    # majority part and the down component its minority part: the +- block is
+    # then the sum over *all* band pairs at k and k + q of
+    # <psi_n^up| e^{-i(q+G).r} |psi_m^dn>, which for pure-spin bands is the
+    # nspin = 2 sum term by term (a pair of two up bands has no down
+    # component and adds nothing) and is unchanged by any mixing a degenerate
+    # solve leaves inside the band set (rule D4), being a trace over it.
+    spinor = bool(getattr(calculation, "noncolin", False))
+    npwx = int(calculation.basis.planewaves.npwx)
+    if spinor:
+        if wavefunctions.ndim == 3:
+            wavefunctions = wavefunctions[None]
+        if eigenvalues.ndim == 2:
+            eigenvalues = eigenvalues[None]
+        if wavefunctions.ndim != 4 or wavefunctions.shape[-1] != 2 * npwx:
+            raise ValueError(
+                "the transverse susceptibility of a spinor run needs its "
+                f"spinor bands, (1, nk, nbnd, 2 npwx); got {wavefunctions.shape}"
+            )
+        # The channel both roles read, and which component each takes.
+        majority = minority = 0
+        up_part, down_part = (1, 0) if flip else (0, 1)
+    else:
+        if wavefunctions.ndim != 4 or wavefunctions.shape[0] != 2:
+            raise ValueError(
+                "the transverse susceptibility needs both spin channels' "
+                f"wavefunctions, (2, nk, nbnd, npwx); got {wavefunctions.shape}"
+            )
+        majority, minority = (1, 0) if flip else (0, 1)
+        up_part = down_part = 0
+
+    def component(states, part):
+        # A spinor band's ``part`` component, or the channel's states as they are.
+        return states[..., part * npwx:(part + 1) * npwx] if spinor else states
 
     sphere = spin_response_sphere(calculation, ecut_response)
     precision = calculation.system.cell.precision
@@ -690,11 +757,13 @@ def transverse_response(
         # degenerate, so zeroing one channel alone would leave ``-f_dn``.
         down = index[rows]
         args = (
-            store_rows(wavefunctions, rows, majority), jnp.asarray(fft_index[rows]),
+            component(store_rows(wavefunctions, rows, majority), up_part),
+            jnp.asarray(fft_index[rows]),
             jnp.asarray(mask[rows]), jnp.asarray(eig_up[rows]),
             jnp.asarray(padded(occ_up, rows, live)),
             jnp.asarray(padded(slope_up, rows, live)),
-            store_rows(wavefunctions, down, minority), jnp.asarray(fft_index[down]),
+            component(store_rows(wavefunctions, down, minority), down_part),
+            jnp.asarray(fft_index[down]),
             jnp.asarray(mask[down]), jnp.asarray(eig_dn[down]),
             jnp.asarray(padded(occ_dn, down, live)), jnp.asarray(flat[rows]),
         )
