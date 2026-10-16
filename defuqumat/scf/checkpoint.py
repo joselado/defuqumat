@@ -795,3 +795,131 @@ def unhandled_optimizer_fields(optimizer) -> set:
         ):
             stored.add(name)
     return set(vars(optimizer)) - stored - set(_OPTIMIZER_DERIVED)
+
+
+# ------------------------------------------------- the robust mode's supervisor
+
+#: Rebuilt by ``run_scf`` from the cell and the input before the loop starts
+#: (the electron count, whether the run is smeared, whether the LDOS
+#: preconditioner is already the inner mixer's, whether the smearing is
+#: variational), so a resume reads them from the run and not from the file.
+_SUPERVISOR_DERIVED = frozenset({"nelec", "smeared", "ldos", "variational"})
+
+
+def _encode(value, payload: dict):
+    """A JSON-able image of ``value``, its arrays moved into ``payload``.
+
+    The supervisor's states are ``(rho, becsum, ns, tau)`` tuples with ``None``
+    for what a run does not have, and its ``_last`` record is a dict of
+    scalars, so this walks tuples, lists and string-keyed dicts. Whether an
+    array was a JAX array is kept, so the resumed run combines the same kinds
+    of array the uninterrupted one did.
+    """
+    import jax
+
+    if isinstance(value, np.generic):
+        value = value.item()
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, (np.ndarray, jax.Array)):
+        key = f"array_{len(payload)}"
+        payload[key] = np.asarray(value)
+        return {"__array__": key, "jax": isinstance(value, jax.Array)}
+    if isinstance(value, tuple):
+        return {"__tuple__": [_encode(entry, payload) for entry in value]}
+    if isinstance(value, list):
+        return [_encode(entry, payload) for entry in value]
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {"__dict__": {key: _encode(entry, payload)
+                             for key, entry in value.items()}}
+    raise NotImplementedError(
+        f"the robust mode's state holds a {type(value).__name__}, which this "
+        "checkpoint cannot represent; extend checkpoint._encode rather than drop it")
+
+
+def _decode(value, handle):
+    if isinstance(value, list):
+        return [_decode(entry, handle) for entry in value]
+    if isinstance(value, dict):
+        if "__array__" in value:
+            array = np.array(handle[value["__array__"]])
+            return jnp.asarray(array) if value["jax"] else array
+        if "__tuple__" in value:
+            return tuple(_decode(entry, handle) for entry in value["__tuple__"])
+        return {key: _decode(entry, handle) for key, entry in value["__dict__"].items()}
+    return value
+
+
+def save_supervisor(path, supervisor, damping, hamiltonian_in, mixer,
+                    iteration: int) -> Path:
+    """Write ``mixing_mode = 'robust'``'s loop state beside the mixer's history.
+
+    What a resume needs and neither the state file nor the mixer file holds:
+    every evolving field of the :class:`~defuqumat.scf.robust.Supervisor` (the
+    kept input and the inner mixer's proposal from it, of which the next trial
+    is a fraction; the windows the acceptance test and the stall are judged
+    over; the rung; the step scale); the
+    :class:`~defuqumat.scf.robust.HamiltonianDamping` of the bottom rung with
+    its kept Hamiltonian and residual; ``hamiltonian_in``, the Hamiltonian the
+    next iteration diagonalises on that rung, which is not a function of the
+    saved density; and the mixer's ``beta`` and ``condition_limit``, which
+    ``save_mixer`` treats as settings and the supervisor changes (an LDOS rung
+    bakes the ``beta`` of its moment into the preconditioner). Every field of
+    both dataclasses is written except :data:`_SUPERVISOR_DERIVED`, so a field
+    added to either is carried, or raises here, and is never dropped.
+    """
+    path = Path(path)
+    payload = {}
+    meta = {
+        "format": FORMAT_VERSION,
+        "iteration": int(iteration),
+        "supervisor": {f.name: _encode(getattr(supervisor, f.name), payload)
+                       for f in dataclasses.fields(supervisor)
+                       if f.name not in _SUPERVISOR_DERIVED},
+        "damping": (None if damping is None else
+                    {f.name: _encode(getattr(damping, f.name), payload)
+                     for f in dataclasses.fields(damping)}),
+        "hamiltonian_in": _encode(hamiltonian_in, payload),
+        "mixer_beta": _encode(getattr(mixer, "beta", None), payload),
+        "condition_limit": _encode(getattr(mixer, "condition_limit", None), payload),
+    }
+    payload["__meta__"] = np.frombuffer(json.dumps(meta).encode("utf-8"),
+                                        dtype=np.uint8)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    scratch = path.with_suffix(path.suffix + ".partial")
+    np.savez(scratch, **payload)
+    written = (scratch if scratch.suffix.endswith(".npz")
+               else scratch.with_suffix(scratch.suffix + ".npz"))
+    written.replace(path)
+    return path
+
+
+def load_supervisor(path) -> dict:
+    """Read what :func:`save_supervisor` wrote.
+
+    Returns a dict: ``supervisor`` (field name to value, to be set on a
+    supervisor built the normal way), ``damping`` (a rebuilt
+    :class:`~defuqumat.scf.robust.HamiltonianDamping`, or ``None``),
+    ``hamiltonian_in``, ``mixer_beta``, ``condition_limit`` and ``iteration``.
+    """
+    from defuqumat.scf.robust import HamiltonianDamping
+
+    path = Path(path)
+    with np.load(path, allow_pickle=False) as handle:
+        meta = json.loads(bytes(handle["__meta__"]).decode("utf-8"))
+        if meta.get("format") != FORMAT_VERSION:
+            raise ValueError(
+                f"{path} is checkpoint format {meta.get('format')}, and this is "
+                f"version {FORMAT_VERSION}")
+        fields = {name: _decode(value, handle)
+                  for name, value in meta["supervisor"].items()}
+        damping = None
+        if meta["damping"] is not None:
+            damping = HamiltonianDamping()
+            for name, value in meta["damping"].items():
+                setattr(damping, name, _decode(value, handle))
+        return {"supervisor": fields, "damping": damping,
+                "hamiltonian_in": _decode(meta["hamiltonian_in"], handle),
+                "mixer_beta": meta["mixer_beta"],
+                "condition_limit": meta["condition_limit"],
+                "iteration": int(meta["iteration"])}

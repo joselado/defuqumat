@@ -409,6 +409,12 @@ def stream_densities(calculation, store, weights, *,
             ns = _add(ns, calculation.occupation_matrix(
                 psi, w, rows=rows, symmetrize=False))
         del psi
+    if accumulate and becsum_ is None:
+        # The LDOS branch accumulates ``becsum`` only on an ultrasoft run, so a
+        # norm-conserving one arrives here with ``None`` where the plain branch
+        # has ``calculation.becsum``'s ``()``; the mixer then failed on it
+        # (``notes/incompat/I76.md``: a pooled, smeared silicon on the LDOS rung).
+        becsum_ = ()
     if reduce is not None:
         if with_ldos:
             raw_becsum, rho, tau, ns, ldos, ldos_becsum = reduce(

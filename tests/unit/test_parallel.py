@@ -1255,3 +1255,160 @@ GATHER_ROWS_SCRIPT = textwrap.dedent("""
 def test_the_gather_scatters_any_rows_into_global_order():
     for result in _run_pools(GATHER_ROWS_SCRIPT, 2):
         assert result["whole"] == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+
+# ------------------------------------------- mixing_mode = 'robust' under pools
+
+#: ``mixing_mode = 'robust'`` with its ladder forced (``notes/incompat/I76.md``).
+#: ``hamiltonian`` and ``ldos`` shorten the ladder to that rung and declare a stall
+#: at every kept input, so the rung is taken at iteration 2 and everything the
+#: pooled loop broadcasts for the supervisor (the rescaled ``accuracy``, the mixed
+#: Hamiltonian, the LDOS flag) is on the path; ``plain`` is the mode as shipped.
+#: ``stop`` writes a checkpoint at every iteration and stops after five;
+#: ``resume`` continues it; ``resume-nosup`` does so with the supervisor's file
+#: removed, the witness that the resume reads it.
+ROBUST_SCRIPT = textwrap.dedent("""
+    import json, sys, tempfile, warnings
+    warnings.simplefilter("ignore")
+    from pathlib import Path
+    import defuqumat
+    import defuqumat.scf.robust as robust
+    from defuqumat.parallel import current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import SCF_SUPERVISOR, run_scf
+    from defuqumat.system import build_system
+    text, ladder, directory, mode = sys.argv[1:5]
+    if ladder != "plain":
+        robust.RUNGS = (ladder,)
+        robust.Supervisor.stalled = lambda self: True
+    with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
+        f.write(text)
+    system = build_system(read_pw_input(Path(f.name)))
+    pseudos = tuple(read_upf(Path("tests/data/pseudo") / s.pseudo_file)
+                    for s in system.structure.species)
+    if mode == "resume-nosup":
+        if current_pools().rank == 0:
+            (Path(directory) / SCF_SUPERVISOR).unlink()
+        current_pools().barrier("nosup")
+    options = {"whole": {},
+               "stop": {"max_iterations": 5, "checkpoint_dir": directory,
+                        "checkpoint_every": 1},
+               "resume": {"checkpoint_dir": directory},
+               "resume-nosup": {"checkpoint_dir": directory}}[mode]
+    options.setdefault("max_iterations", 200)
+    result = run_scf(system, pseudos, conv_thr=1e-10, mixing_mode="robust",
+                     **options)
+    records = [(h["iteration"], h["supervisor"].get("rung"),
+                bool(h["supervisor"].get("kept")), h["supervisor"].get("reason"))
+               for h in result.history if "supervisor" in h]
+    print(json.dumps({"rank": current_pools().rank, "energy": float(result.total_energy),
+                      "iterations": result.iterations, "converged": bool(result.converged),
+                      "history": [(h["iteration"], h["total_energy"])
+                                  for h in result.history],
+                      "records": records,
+                      "files": sorted(p.name for p in Path(directory).glob("*"))}))
+""")
+
+#: ``SILICON_8K`` smeared, so the LDOS rung applies (the LDOS at ``e_F`` of an
+#: insulator is about zero, so this checks that every pool sums what rank 0's
+#: preconditioner asks for, not the preconditioner's physics).
+SILICON_8K_SMEARED = SILICON_8K.replace(
+    "nosym = .true., noinv = .true.",
+    "nosym = .true., noinv = .true., nbnd = 8,\n"
+    "  occupations = 'smearing', smearing = 'gaussian', degauss = 0.02")
+
+
+#: fcc aluminium (``tests/data/qe/al-tetrahedra.in``) under a Gaussian smearing on
+#: a 2x2x2 grid: a metal, so the LDOS preconditioner is not the identity and a
+#: resume that came back without it would read differently.
+ALUMINIUM_8K = """\
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 2, celldm(1) = 7.50, nat = 1, ntyp = 1, ecutwfc = 15.0,
+  nosym = .true., noinv = .true.,
+  occupations = 'smearing', smearing = 'gaussian', degauss = 0.05
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Al 26.98 Al.pz-vbc.UPF
+ATOMIC_POSITIONS alat
+ Al 0.00 0.00 0.00
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+
+
+def _same_robust_run(a, b, energy=1e-10):
+    assert a["converged"] and b["converged"]
+    assert a["iterations"] == b["iterations"]
+    assert abs(a["energy"] - b["energy"]) < energy
+    assert [r[1:] for r in a["records"]] == [r[1:] for r in b["records"]]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("ladder,text", [("hamiltonian", SILICON_8K),
+                                         ("ldos", SILICON_8K_SMEARED),
+                                         ("ldos", ALUMINIUM_8K),
+                                         ("plain", SILICON_8K)])
+def test_two_pools_take_the_robust_modes_decisions_of_one(ladder, text, tmp_path):
+    """I76: rank 0 judges, the others are told; the run is the one-pool run.
+
+    Same iterations, the same energy to 1e-10 Ry and the same sequence of rungs
+    and kept or rejected trials, read off rank 0's ``history``. A pool that
+    missed the LDOS flag would leave a collective the others are in, and one
+    that missed the bottom rung's Hamiltonian would diagonalise another one.
+    """
+    serial = _run_pools(ROBUST_SCRIPT, 1, text, ladder, tmp_path, "whole",
+                        timeout=900)[0]
+    pooled = _run_pools(ROBUST_SCRIPT, 2, text, ladder, tmp_path, "whole",
+                        timeout=900)
+    if ladder != "plain":
+        assert ladder in {r[1] for r in serial["records"]}
+    _same_robust_run(serial, pooled[0])
+    assert pooled[0]["energy"] == pooled[1]["energy"]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("ladder,size", [("hamiltonian", 1), ("plain", 1),
+                                         ("hamiltonian", 2), ("ldos", 1)])
+def test_a_robust_checkpoint_resumes_where_it_stopped(ladder, size, tmp_path):
+    """I76: the supervisor crosses the file, so a resume is the uninterrupted run.
+
+    Stopped at iteration 5, which on the forced ladder is inside the bottom
+    rung's line search (``damping`` and ``hamiltonian_in`` are in the file), and
+    resumed: the same total iteration count, energy and decisions, and the first
+    iteration back is the uninterrupted run's to round-off. The witness, on the
+    forced ladder: the same resume with the supervisor's file removed reads
+    differently.
+    """
+    import shutil
+
+    # On the LDOS rung the resume must install the preconditioner again.
+    text = ALUMINIUM_8K if ladder == "ldos" else SILICON_8K
+    whole = _run_pools(ROBUST_SCRIPT, size, text, ladder, tmp_path / "w",
+                       "whole", timeout=900)[0]
+    stopped_dir = tmp_path / "stopped"
+    stopped = _run_pools(ROBUST_SCRIPT, size, text, ladder, stopped_dir,
+                         "stop", timeout=900)[0]
+    assert not stopped["converged"] and stopped["iterations"] == 5
+    assert "scf_supervisor.npz" in stopped["files"]
+    directory = tmp_path / "resume"
+    shutil.copytree(stopped_dir, directory)
+    resumed = _run_pools(ROBUST_SCRIPT, size, text, ladder, directory,
+                         "resume", timeout=900)[0]
+    _same_robust_run(whole, {**resumed,
+                             "records": stopped["records"] + resumed["records"]})
+    first, energy = resumed["history"][0]
+    assert first == 6 and abs(energy - dict(whole["history"])[6]) < 1e-11
+    if ladder == "plain":
+        return
+    directory = tmp_path / "nosup"
+    shutil.copytree(stopped_dir, directory)
+    blind = _run_pools(ROBUST_SCRIPT, size, text, ladder, directory,
+                       "resume-nosup", timeout=900)[0]
+    assert ([r[1:] for r in stopped["records"] + blind["records"]]
+            != [r[1:] for r in whole["records"]])
