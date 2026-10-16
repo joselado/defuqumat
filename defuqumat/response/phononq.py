@@ -1578,8 +1578,7 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "e^{iqr} (grad + iq), so the iq terms of dgradcorr.f90 (its "
             "fft_qgradient and fft_qgraddot, both called with xq) are absent. Measured against the "
             "doubled cell at Gamma, the error is 1e-2 Ry/bohr^2 and 60 to 77 "
-            "cm^-1 where the LDA agrees to 1.5e-5. Use an LDA functional, or "
-            "the doubled cell at Gamma (get_phonons)"
+            "cm^-1 where the LDA agrees to 1.5e-5. Use an LDA functional"
         )
     if getattr(calculation, "source_free", False):
         raise NotImplementedError(
