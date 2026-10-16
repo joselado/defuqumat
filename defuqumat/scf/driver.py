@@ -7036,6 +7036,21 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
             "keeps only the identity and the inversion, which every turned "
             "texture has, and rebuilds the k-set with them"
         )
+    if not system.nosym and calculation.is_paw:
+        # **Kept on PAW, by measurement rather than by argument** (I78): the
+        # turned ``becsum``, the density rebuilt from the turned states and the
+        # one-centre torque all pass through the group-averaged ``becsum``, so
+        # the wedge sums read as complete, but the nickel check could not show
+        # it. Both arms were far from convergence and apart after five steps
+        # (0.0024 Ry, torque 1e-2), with the torques already 1.45e-5 against
+        # 1.97e-5 at the first iteration, at the loose first threshold where
+        # the torque is the eigensolver's noise. ``notes/incompat/I78.md``.
+        raise NotImplementedError(
+            "rotate_moments on a PAW dataset with symmetry (with_turning_moments): "
+            "the turning group is checked against nosym on an ultrasoft cell "
+            "only, and on PAW nickel the two runs could not be compared; use "
+            "nosym = .true. for a PAW run"
+        )
 
 
 def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools):

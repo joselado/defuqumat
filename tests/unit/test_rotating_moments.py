@@ -171,9 +171,9 @@ def _cobalt_system(*, nosym: bool, angle: float = 45.0):
     return build_system(parse_pw_input(text))
 
 
-def _stub(*, nosym=False, turning=False, hubbard=False):
+def _stub(*, nosym=False, turning=False, hubbard=False, paw=False):
     return SimpleNamespace(
-        is_hubbard=hubbard,
+        is_hubbard=hubbard, is_paw=paw,
         system=SimpleNamespace(nosym=nosym, turning_moments=turning))
 
 
@@ -243,3 +243,10 @@ def test_the_turning_group_rebuilds_the_cobalt_k_set_between_the_two_ends():
     assert full.with_turning_moments().kpoints.nk == 18
     # And switching it off gives the starting group's wedge back.
     assert turning.with_turning_moments(False).kpoints.nk == start.kpoints.nk
+
+
+def test_a_paw_run_on_the_turning_group_is_refused_and_nosym_paw_is_not():
+    """PAW keeps the refusal under symmetry (I78 measured it on ultrasoft only)."""
+    with pytest.raises(NotImplementedError, match="PAW"):
+        _refuse_rotating_moments(_stub(turning=True, paw=True), None, True)
+    _refuse_rotating_moments(_stub(nosym=True, paw=True), None, True)
