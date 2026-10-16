@@ -519,8 +519,9 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
     other way round.
 
     What is *not* here and is refused where it is reached: a
-    ground state converged under a field (:func:`run_ultracell`, because the
-    frozen eigenvalues then carry a field ``dV`` does not), and an applied
+    ground state converged under a penalty, a feedback scheme or ``reducebf``,
+    or a spinor one under any field (:func:`run_ultracell`, which carries a
+    fixed applied field into every frozen solve and refuses the rest), and an applied
     field on a noncollinear cell that carries no magnetization
     (:func:`_as_field`, because its density and its potential have one
     component and a field has nothing to be added to). Both depend on the call
@@ -1244,11 +1245,13 @@ def run_ultracell(
     # ``SCFResult.field_scale``, is the one handed to every frozen solve and
     # to the reference potential, and it is then held fixed and tiled over
     # the ultracell, as ``vltot`` is: it cancels out of ``dV`` exactly and
-    # stays inside every eigenvalue. An applied field and a feedback scheme's
-    # converged field are linear in the magnetization in their energy, so
-    # their potential is the same at every density; a **penalty** is not
-    # (``lambda (m - m_target)`` moves with ``m``), so holding it fixed would
-    # be a different functional from the supercell's, and it stays refused.
+    # stays inside every eigenvalue. An applied field is linear in the
+    # magnetization in its energy, so its potential is the same at every
+    # density and the ultracell under it is the supercell under it (measured,
+    # ``notes/incompat/I36.md``); a **penalty** is not (``lambda (m -
+    # m_target)`` moves with ``m``), and a feedback scheme or ``reducebf``
+    # would be held at the unmodulated cell's field where the supercell moves
+    # its own, so all three stay refused.
     reference_field = getattr(reference, "magnetic_field", None)
     reference_field_scale = float(getattr(reference, "field_scale", 1.0) or 1.0)
     if reference_field is not None:
@@ -1262,8 +1265,43 @@ def run_ultracell(
                 f"eigenvalues carry is not a fixed potential the ultracell can "
                 f"tile, and holding it fixed is a different functional from "
                 f"the supercell's under the same constraint. An applied field "
-                f"(B_field, a LOCAL_MAGNETIC_FIELDS card, reducebf) and the "
-                f"feedback schemes ('fsm', 'atomic fsm') are carried"
+                f"(B_field, a LOCAL_MAGNETIC_FIELDS card) is carried"
+            )
+        # **A feedback scheme's field is a fixed potential, and that is the
+        # reason to refuse it rather than the reason to carry it.** The frozen
+        # field is the one that put the *unmodulated* cell on its target
+        # moment; the supercell under the same scheme readjusts it until the
+        # *modulated* cell is on target, and on the hydrogen lattice the check
+        # below was measured on, the modulation moves the moment by 18 per cent
+        # (mean moment density 0.00380 tiled, 0.00451 modulated), so the two
+        # are different states at first order. What the ultracell computes is
+        # the supercell under the frozen field, which is the applied-field
+        # case, measured; ``reducebf`` is the same argument, since the
+        # supercell's field decays along its own iterations and ends at its own
+        # scale.
+        if constraint in FEEDBACK:
+            raise NotImplementedError(
+                f"the ultracell refuses a ground state converged under the "
+                f"feedback scheme constrained_magnetization = {constraint!r}: "
+                f"its converged field would be held fixed on every copy, which "
+                f"is the supercell under that field and not the supercell under "
+                f"the same scheme, whose field moves until the modulated cell "
+                f"is on target (the modulation moved the moment of the measured "
+                f"hydrogen cell by 18 per cent). A fixed applied field "
+                f"(B_field, a LOCAL_MAGNETIC_FIELDS card) is carried; B_field "
+                f"is measured, 1.2e-4 in the moment against a supercell under "
+                f"the same field at nbnd = 24"
+            )
+        if float(getattr(reference_field, "reducebf", 1.0)) != 1.0:
+            raise NotImplementedError(
+                f"the ultracell refuses a ground state converged with reducebf "
+                f"= {float(reference_field.reducebf)}: the field it ended with "
+                f"(field_scale = {reference_field_scale:.3e}) would be held fixed "
+                f"on every copy, while a supercell run with the same reducebf "
+                f"decays its own field along its own iterations and ends at a "
+                f"different scale, and that pair is not measured. Converge the "
+                f"unit cell with reducebf = 1 under a fixed field, or without a "
+                f"field, and apply the modulation here"
             )
         if int(system.nspin) == 4:
             raise NotImplementedError(
