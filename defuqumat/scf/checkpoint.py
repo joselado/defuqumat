@@ -25,13 +25,23 @@ dropped -- which is the failure mode that matters here, since a checkpoint that
 quietly loses ``becsum`` reloads as a *different* state that converges to
 something plausible.
 
-**One thing is refused by name** rather than half-saved, because losing it is
-silent: a **magnetic field the run drove away from the input's** -- the
-fixed-spin-moment schemes, Elk's ``fsmtype``, where the field *is* the
-controller's state and is replaced after every iteration -- cannot be rebuilt
-from the input file, and reloading without it applies a rigid Zeeman shift that
-a later invariant still returns an integer for (``PLAN.md`` P56 is the record of
-that bug found the hard way).
+**A magnetic field the run drove away from the input's is written as the
+controller's state**, not refused. Under the fixed-spin-moment schemes
+(:data:`~defuqumat.scf.fields.FEEDBACK`, Elk's ``fsmtype``) the field *is* the
+controller's state and is replaced after every iteration, so it cannot be
+rebuilt from the input file, and reloading without it applies the input's field
+to a density mixed beside another one, which a later invariant still returns an
+integer for (``PLAN.md`` P56 is the record of that bug found the hard way). So
+the leaves the controller changes, :data:`~defuqumat.scf.fields.DRIVEN_LEAVES`
+(the field, and the secant's previous field and moment), are written beside the
+density, with the scheme and its update rule in the metadata, and
+:func:`load_state` pours them back onto the field a ``calculation`` built from
+the same input -- the regions, the targets and the gain are the input's and come
+back from it, as ``system`` does. A file holding a driven field is refused
+without a ``calculation`` to pour it onto, and refused against a calculation
+whose scheme, update rule or array shapes differ, since either would apply a
+field to the wrong problem without a word. This used to be the one field
+refused by name (``notes/incompat/I65.md``).
 
 **A Hubbard setup used to be the second, and it was the same mistake as the
 blanket field refusal one paragraph down.** "``ns`` without its setup is an
@@ -60,13 +70,14 @@ leave :class:`~defuqumat.scf.fields.MagneticField` exactly as the input built it
 the resume rebuilds the calculator from ``scf.in`` and gets the same object
 back. Elk's ``reducebf`` does not change it either -- it multiplies a *scalar*,
 ``field_scale``, which is saved here and restored by the driver on resume. So
-what has to be refused is the feedback set (:data:`~defuqumat.scf.fields.FEEDBACK`)
-and nothing wider.
+what has to be carried is the feedback set's driven leaves
+(:data:`~defuqumat.scf.fields.FEEDBACK`) and nothing wider.
 
-**The scale and the refusal are one mechanism, not two.** ``field_scale``
+**The scale and the driven field are one mechanism, not two.** ``field_scale``
 riding in :data:`_SCALARS` while the loop reset it to 1.0 on resume was a
 ``reducebf`` run silently coming back at full field, which is the same silent
-loss this refusal exists to prevent, taken one level up.
+loss the driven leaves are carried to prevent, taken one level up; ``run_scf``
+restores both in the same place on resume.
 """
 
 from __future__ import annotations
@@ -80,7 +91,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.parallel import PoolStore
-from defuqumat.scf.fields import FEEDBACK
+from defuqumat.scf.fields import DRIVEN_LEAVES, FEEDBACK
 
 __all__ = ["save_state", "load_state", "state_fingerprint",
            "save_mixer", "load_mixer", "save_pool_rows", "remove_stale_pool_rows"]
@@ -120,12 +131,17 @@ _SCALARS = (
 #: Handled specially: a tuple of arrays, one per ultrasoft/PAW species.
 _TUPLES = ("becsum",)
 
-#: Not saved, and refused rather than dropped. See the module docstring.
-#: ``magnetic_field`` is here because the coverage check
-#: (``tests/unit/test_checkpoint.py``) has to see every field of ``SCFResult``
-#: accounted for -- but it is *conditionally* refused, by :func:`_refusal`,
-#: which is the only entry left in this tuple.
-_REFUSED = ("magnetic_field",)
+#: Not saved, and refused rather than dropped. Empty since I65: the one entry
+#: it had, ``magnetic_field``, is :data:`_DRIVEN` now.
+_REFUSED = ()
+
+#: Half saved and half rebuilt. A feedback scheme's driven leaves
+#: (:data:`~defuqumat.scf.fields.DRIVEN_LEAVES`) are written as ``field_<leaf>``
+#: arrays; the rest of the field (the integration spheres, the targets, the
+#: gain) is the input's and comes back from the ``calculation`` the state is
+#: loaded against, as ``system`` does. A field no controller drove is the
+#: calculation's own, unchanged.
+_DRIVEN = ("magnetic_field",)
 
 #: Saved by nothing and dropped on purpose: these are what the run *reported*,
 #: not what it converged to. A checkpoint is a state to continue from -- the
@@ -202,27 +218,99 @@ def _describe(fingerprint) -> str:
 def _refusal(result) -> str | None:
     """Why this state cannot be written, or ``None`` if it can.
 
-    One place rather than two: the mid-SCF checkpoint and the converged one go
-    through the same test, which is the half that was missing. The in-progress
-    state used to carry no field at all, so a fixed-spin-moment run wrote a
-    checkpoint every cadence with its driven field silently dropped, while a
-    plain applied field -- which a resume rebuilds perfectly from the input --
-    was refused at the end of the run. Both are the same question and it is
-    asked here.
+    One place rather than two: the mid-SCF checkpoint, the pooled one and the
+    converged one go through the same test. It refused a fixed-spin-moment
+    run's driven field until the controller's leaves were written
+    (:func:`_driven_payload`), and nothing else has needed refusing since; it
+    is kept as the one hook a future refusal belongs in, which the pooled
+    writer calls before any pool writes its rows.
+    """
+    return None
+
+
+def _driven_payload(result) -> tuple[dict, dict | None]:
+    """The feedback controller's leaves as ``field_<leaf>`` arrays, and its metadata.
+
+    ``({}, None)`` for a run with no field, or with a field no controller
+    drives: an applied field and a penalty constraint are the input's to the
+    end, and a resume rebuilds them from ``scf.in``.
     """
     field = getattr(result, "magnetic_field", None)
-    if field is not None and getattr(field, "constraint", "none") in FEEDBACK:
-        return (
-            f"this run's magnetic field is driven by the "
-            f"{field.constraint!r} fixed-spin-moment scheme, so the field is "
-            "the controller's state rather than the input's: it is replaced "
-            "after every iteration and no input file determines what it "
-            "reached. A checkpoint without it resumes at the input field and "
-            "converges somewhere else without saying so, which is why saving "
-            "is refused rather than lossy. An applied field, and a penalty "
-            "constraint, are saved normally -- they are the input's to the end"
-        )
-    return None
+    if field is None or getattr(field, "constraint", "none") not in FEEDBACK:
+        return {}, None
+    arrays = {}
+    for leaf in DRIVEN_LEAVES:
+        value = getattr(field, leaf)
+        if value is not None:
+            arrays[f"field_{leaf}"] = np.asarray(value)
+    meta = {"constraint": field.constraint, "fsm_update": field.fsm_update,
+            "leaves": sorted(name[len("field_"):] for name in arrays)}
+    return arrays, meta
+
+
+def _restore_driven_field(driven, saved, calculation, path, strict):
+    """The field the run held: the input's, with the controller's leaves poured back.
+
+    ``driven`` is the file's ``driven_field`` metadata or ``None``; ``saved``
+    the ``field_<leaf>`` arrays. Returns ``None`` where there is nothing to
+    rebuild against, which is what a load without a ``calculation`` has always
+    given back for a field.
+    """
+    import equinox as eqx
+
+    template = None if calculation is None else calculation.magnetic_field
+    if driven is None:
+        if template is not None and template.constraint in FEEDBACK:
+            # A file from a run with no controller, loaded against one that
+            # has: the resume would drive the field from the input's value
+            # while the density was converged beside another field or none.
+            _refuse(f"{path} carries no driven field and this calculation's "
+                    f"field is driven by the {template.constraint!r} "
+                    "fixed-spin-moment scheme: the state was written by a "
+                    "different run", strict)
+        return template
+    if template is None:
+        _refuse(f"{path} holds a field driven by the {driven['constraint']!r} "
+                "fixed-spin-moment scheme, which is only its controller's leaves: "
+                "the integration spheres, the targets and the gain are the "
+                "input's. Pass calculation= built from the same input to load it"
+                if calculation is None else
+                f"{path} holds a field driven by the {driven['constraint']!r} "
+                "fixed-spin-moment scheme and this calculation has no field at "
+                "all", strict)
+        return None
+    if (template.constraint != driven["constraint"]
+            or template.fsm_update != driven["fsm_update"]):
+        _refuse(f"{path} holds a field driven by {driven['constraint']!r} with the "
+                f"{driven['fsm_update']!r} update, and this calculation's field "
+                f"is {template.constraint!r} with {template.fsm_update!r}: the "
+                "controller's state belongs to another problem", strict)
+        return template
+    dtype = jnp.asarray(template.uniform).dtype
+    field = template
+    for leaf in DRIVEN_LEAVES:
+        value = saved.get(f"field_{leaf}")
+        if value is None:
+            # Absent in the file is ``None`` in the run that wrote it: the
+            # secant's previous pair before its first step. The input's field
+            # has ``None`` there as well, except ``uniform``, which is never
+            # ``None`` and so is always written.
+            continue
+        current = getattr(template, leaf)
+        if current is not None and np.shape(current) != np.shape(value):
+            _refuse(f"{path} holds the driven {leaf} with shape {np.shape(value)} "
+                    f"and this calculation's is {np.shape(current)}", strict)
+            return template
+        field = eqx.tree_at(lambda f, leaf=leaf: getattr(f, leaf), field,
+                            jnp.asarray(value, dtype=dtype),
+                            is_leaf=lambda x: x is None)
+    return field
+
+
+def _refuse(message, strict) -> None:
+    if strict:
+        raise ValueError(message)
+    warnings.warn(message, stacklevel=4)
 
 
 def save_state(result, path) -> Path:
@@ -252,6 +340,10 @@ def save_state(result, path) -> Path:
             payload[name] = np.asarray(value)
     for name in _SCALARS:
         meta[name] = getattr(result, name, None)
+    driven_arrays, driven_meta = _driven_payload(result)
+    payload.update(driven_arrays)
+    if driven_meta is not None:
+        meta["driven_field"] = driven_meta
     becsum = result.becsum or ()
     meta["nbecsum"] = len(becsum)
     for index, block in enumerate(becsum):
@@ -335,6 +427,8 @@ def load_state(path, system=None, calculation=None, strict: bool = True, rows=No
             jnp.asarray(handle[f"becsum_{index}"])
             for index in range(int(meta.get("nbecsum", 0)))
         )
+        saved_field = {name: np.asarray(handle[name]) for name in handle.files
+                       if name.startswith("field_")}
     pooled = meta.get("pooled_wavefunctions")
     # A state may be written without its states (a pooled relaxation's rank 0
     # does, since its resume reads the density and ``becsum`` alone); it comes
@@ -357,6 +451,11 @@ def load_state(path, system=None, calculation=None, strict: bool = True, rows=No
         # -- which is what ``_InProgressState`` has always written, and what
         # every mid-SCF DFT+U resume has always reloaded.
         hubbard_setup=None if calculation is None else calculation.hubbard,
+        # The input's field, with a feedback controller's leaves poured back
+        # (:data:`_DRIVEN`); refused rather than guessed where the file and the
+        # calculation do not describe the same controller.
+        magnetic_field=_restore_driven_field(
+            meta.get("driven_field"), saved_field, calculation, path, strict),
     )
     if system is not None:
         _check_fingerprint(meta["fingerprint"], state_fingerprint(result),
@@ -475,7 +574,7 @@ def _check_fingerprint(stored, rebuilt, path, strict) -> None:
 def _covered_fields() -> set:
     """Every field name the lists above claim to handle."""
     return (set(_ARRAYS) | set(_SCALARS) | set(_TUPLES) | set(_REFUSED)
-            | set(_FROM_CALLER) | set(_DROPPED))
+            | set(_DRIVEN) | set(_FROM_CALLER) | set(_DROPPED))
 
 
 def unhandled_fields() -> set:

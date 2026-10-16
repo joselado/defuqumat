@@ -12,6 +12,7 @@ import gc
 import warnings
 import weakref
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -237,21 +238,154 @@ def test_a_loaded_hubbard_state_without_a_calculation_has_no_setup(pseudo_dir,
     assert back.ns is not None
 
 
-@pytest.mark.parametrize(
-    "constraint", ["fsm", "atomic fsm", "atomic fsm direction"])
-def test_a_driven_field_is_refused_because_no_input_determines_it(
-    pseudo_dir, tmp_path, constraint
+def _h_fsm_calculator(pseudo_dir, tmp_path, update="elk", atomic=False,
+                     constraint=True):
+    """One hydrogen atom, LSDA, under a fixed-spin-moment scheme (or none).
+
+    The cheapest cell a feedback controller drives a field on. ``atomic`` puts
+    it on Elk's ``fsmtype = 2``, one field per atom from a ``STARTING_MOMENTS``
+    card, which drives a vector and so runs noncollinear; ``constraint=False`` is the same cell with no field at all, which
+    shares the fixed-spin-moment run's fingerprint and so is what a state
+    written by the wrong run looks like.
+    """
+    from tests.conftest import GENERATED
+
+    text = (GENERATED / "h-atom-lsda.in").read_text()
+    marker = text.lower().index("&system") + len("&system")
+    extra = ""
+    if constraint:
+        scheme = "atomic fsm" if atomic else "fsm"
+        extra = (f"\n    constrained_magnetization = '{scheme}'\n"
+                 f"    lambda = 0.05\n    fsm_update = '{update}'\n")
+        if not atomic:
+            extra += "    fixed_magnetization(3) = 0.6\n"
+    text = text[:marker] + extra + text[marker:]
+    if constraint and atomic:
+        # The per-atom schemes drive a vector field, so they need spinors.
+        text = text.replace("nspin = 2", "noncolin = .true.")
+        text += "STARTING_MOMENTS\n 0.0 0.0 0.6\n"
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / f"h-{update}-{atomic}-{constraint}.in"
+    path.write_text(text)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return Calculator.from_file(path, pseudo_dir=pseudo_dir, announce=False)
+
+
+def _two_iterations(calculator):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return run_scf(calculator.system, calculator.pseudos,
+                       calculation=calculator.calculation, max_iterations=2,
+                       conv_thr=1.0e-12, verbose=False)
+
+
+@pytest.mark.parametrize("atomic", [False, True], ids=["fsm", "atomic fsm"])
+def test_a_driven_field_is_written_and_poured_back_onto_the_input_field(
+    pseudo_dir, tmp_path, atomic
 ):
     """The fixed-spin-moment schemes: the field *is* the controller's state.
 
     ``MagneticField.feedback`` replaces the field after every iteration, so what
-    a run reached is not what any input file says. A checkpoint without it
-    resumes at the input field and converges somewhere else in silence.
+    a run reached is not what any input file says. This was refused until I65;
+    the file now carries the six leaves the controller changes and the load
+    pours them onto the field the calculation built from the same input. The
+    secant's previous pair is set by hand (the cell-wide one under ``fsm``, the
+    per-atom one under ``atomic fsm``), since two iterations of Elk's update
+    leave it ``None`` and a leaf that is never written cannot be told from one
+    that is dropped; across the two cases all six leaves cross the file.
     """
-    _, result = _converged(SILICON, pseudo_dir)
-    result.magnetic_field = _field(constraint)
-    with pytest.raises(NotImplementedError, match="fixed-spin-moment"):
-        save_state(result, tmp_path / "refused.npz")
+    import equinox as eqx
+
+    from defuqumat.scf.fields import DRIVEN_LEAVES
+
+    calculator = _h_fsm_calculator(pseudo_dir, tmp_path, atomic=atomic)
+    result = _two_iterations(calculator)
+    field = result.magnetic_field
+    driven = np.asarray(field.atomic if atomic else field.uniform)
+    original = calculator.calculation.magnetic_field
+    reference = np.asarray(original.atomic if atomic else original.uniform)
+    # The alternative hypothesis reads differently: after two steps the driven
+    # field is away from the input's, so a load that returned the input's field
+    # would fail the comparison below.
+    assert np.max(np.abs(driven - reference)) > 1.0e-3
+    pair = (("previous_atomic", "previous_site_moments") if atomic
+            else ("previous_uniform", "previous_moment"))
+    shape = np.shape(field.atomic if atomic else field.uniform)
+    for value, leaf in enumerate(pair):
+        field = eqx.tree_at(
+            lambda f, leaf=leaf: getattr(f, leaf), field,
+            jnp.asarray(np.full(shape, 0.125 + value)),
+            is_leaf=lambda x: x is None)
+    result.magnetic_field = field
+
+    path = save_state(result, tmp_path / "driven.npz")
+    back = load_state(path, system=calculator.system,
+                      calculation=calculator.calculation)
+
+    assert back.magnetic_field.constraint == field.constraint
+    for leaf in DRIVEN_LEAVES:
+        saved, restored = getattr(field, leaf), getattr(back.magnetic_field, leaf)
+        assert (saved is None) == (restored is None), leaf
+        if saved is not None:
+            np.testing.assert_array_equal(np.asarray(restored), np.asarray(saved))
+    # The input's half comes back from the calculation, not from the file.
+    assert back.magnetic_field.regions is original.regions
+    np.testing.assert_array_equal(np.asarray(back.magnetic_field.targets),
+                                  np.asarray(original.targets))
+
+
+def test_a_driven_field_is_refused_without_a_calculation_to_pour_it_onto(
+    pseudo_dir, tmp_path
+):
+    """The file holds the controller's leaves and nothing else of the field.
+
+    The integration spheres, the targets and the gain are the input's, so a
+    load with a bare ``system`` has nothing to rebuild the field against and
+    refuses, where it used to return ``magnetic_field = None`` and let a
+    consumer apply no field at all. ``strict=False`` is for inspecting a file
+    and warns instead.
+    """
+    calculator = _h_fsm_calculator(pseudo_dir, tmp_path)
+    path = save_state(_two_iterations(calculator), tmp_path / "driven.npz")
+
+    with pytest.raises(ValueError, match="Pass calculation="):
+        load_state(path, system=calculator.system)
+    with pytest.warns(UserWarning, match="Pass calculation="):
+        back = load_state(path, system=calculator.system, strict=False)
+    assert back.magnetic_field is None
+
+
+def test_a_driven_field_is_refused_against_another_controller(pseudo_dir,
+                                                               tmp_path):
+    """The leaves belong to one scheme and one update rule.
+
+    Elk's update leaves the secant's previous pair empty and the secant reads
+    it, so pouring one into the other would start a different controller from
+    a state it did not write. Refused by name, like a fingerprint mismatch.
+    """
+    calculator = _h_fsm_calculator(pseudo_dir, tmp_path, update="elk")
+    path = save_state(_two_iterations(calculator), tmp_path / "driven.npz")
+    other = _h_fsm_calculator(pseudo_dir, tmp_path, update="secant")
+
+    with pytest.raises(ValueError, match="another problem"):
+        load_state(path, system=other.system, calculation=other.calculation)
+
+
+def test_a_state_with_no_driven_field_is_refused_by_a_driven_run(pseudo_dir,
+                                                                  tmp_path):
+    """The other direction: a file a run without a controller wrote.
+
+    Same cell, same grid, same spin regime, so the fingerprint passes; resuming
+    it would start the controller from the input's field beside a density that
+    was converged under no field at all.
+    """
+    plain = _h_fsm_calculator(pseudo_dir, tmp_path, constraint=False)
+    path = save_state(_two_iterations(plain), tmp_path / "plain.npz")
+    driven = _h_fsm_calculator(pseudo_dir, tmp_path)
+
+    with pytest.raises(ValueError, match="different run"):
+        load_state(path, system=driven.system, calculation=driven.calculation)
 
 
 @pytest.mark.parametrize(

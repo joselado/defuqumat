@@ -165,7 +165,7 @@ from defuqumat.scf.occupations import (
 )
 from defuqumat.scf.sawtooth import build_sawtooth, sawtooth_potential
 from defuqumat.scf.berryfield import BerryFieldSetup, require_a_berry_field_regime
-from defuqumat.scf.fields import (ATOM_RESOLVED, FADED_FIELD, FEEDBACK,
+from defuqumat.scf.fields import (ATOM_RESOLVED, DRIVEN_LEAVES, FADED_FIELD, FEEDBACK,
                                 FEEDBACK_ATOMIC, FSM_ANGLE_TOLERANCE,
                                 FSM_TOLERANCE, VANISHING_MOMENT, MagneticField,
                                 constraint_targets)
@@ -6663,9 +6663,9 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
         save_state(state, directory / SCF_CHECKPOINT)
         save_mixer(mixer, directory / SCF_MIXER)
     except NotImplementedError as refused:
-        # ``reducebf`` and the fixed-spin-moment feedback change the field
-        # between iterations, and ``save_state`` refuses to write a state whose
-        # field is not the input's rather than write a lossy one. Say it once
+        # ``save_state`` refuses a state it cannot write whole rather than
+        # write a lossy one (``checkpoint._refusal``; a fixed-spin-moment
+        # run's driven field was refused here until I65 wrote it). Say it once
         # and stop trying, instead of once per cadence for the rest of the run.
         if verbose:
             print(f"  checkpointing is off for this run: {refused}")
@@ -7081,9 +7081,9 @@ def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools)
 
 
 #: The leaves of a :class:`~defuqumat.scf.fields.MagneticField` its controller
-#: changes between iterations; everything else on it is the input's.
-_DRIVEN_FIELD_LEAVES = ("uniform", "atomic", "previous_uniform", "previous_moment",
-                        "previous_atomic", "previous_site_moments")
+#: changes between iterations; everything else on it is the input's. The same
+#: list the checkpoint writes (:data:`~defuqumat.scf.fields.DRIVEN_LEAVES`).
+_DRIVEN_FIELD_LEAVES = DRIVEN_LEAVES
 
 
 def _broadcast_field(field, pools):
@@ -8319,6 +8319,20 @@ def run_scf(
         resumed_scale = getattr(resumed_state, "field_scale", None)
         if resumed_scale is not None:
             field_scale = float(resumed_scale)
+        # **And the fixed-spin-moment controller's field, for the same reason.**
+        # Under a feedback scheme the field is replaced after every iteration,
+        # so ``calculation.magnetic_field`` is the *input's* field and not the
+        # one this density was mixed beside. ``load_state`` poured the driven
+        # leaves the checkpoint carries (the field and the secant's previous
+        # pair) back onto the input's field; taking anything else here would
+        # restart the controller from the input field, which converges to the
+        # same target by a different route and in more iterations, saying
+        # nothing. Only on the checkpoint path, as ``field_scale``: an explicit
+        # ``starting_from`` is another run's state.
+        resumed_field = getattr(resumed_state, "magnetic_field", None)
+        if (resumed_field is not None and field is not None
+                and field.constraint in FEEDBACK):
+            field = resumed_field
         # **The occupations are loop state as well, and leaving them out cost a
         # whole Davidson budget.** ``band_thresholds`` reads ``wg = None`` as
         # "the first iteration of a fresh run, which has no occupations yet"
