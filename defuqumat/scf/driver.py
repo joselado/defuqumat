@@ -7234,8 +7234,9 @@ def _refuse_robust(calculation, *, scf_solver, rotate_moments,
     decides reaches the others through the broadcast of the mixed state, plus,
     on the bottom rung, the mixed Hamiltonian, the step ``alpha`` and the stop
     (the loop's ``pooled and robust`` block). A checkpoint carries the
-    supervisor in a third file (:func:`_write_supervisor`), which a resume or a
-    ``mixing_from`` pours back (:func:`_restore_supervisor`).
+    supervisor in a third file (:func:`_write_supervisor`), which a resume pours
+    back (:func:`_restore_supervisor`); a ``mixing_from`` alone carries the mixer
+    history and starts the line search afresh.
     """
     reasons = []
     if calculation.functional.is_meta:
@@ -7326,7 +7327,16 @@ def _restore_supervisor(supervisor, mixer, directory, resumed_at, calculation,
     history is restored. With no file, or one stamped with another iteration
     than the checkpoint being resumed, the supervisor starts afresh: the first
     input is kept and the line search starts from it, which costs at most the
-    window and never the fixed point, and is said. The mixer's ``beta`` and
+    window and never the fixed point, and is said.
+
+    **Only on a resume from a checkpoint** (``resumed_at > 0``). A
+    ``mixing_from`` alone borrows a mixer history for a run whose input is not
+    the checkpoint's, and Anderson can take a foreign history because it reads
+    residual pairs; the supervisor cannot, since a rejected trial is rebuilt as
+    ``_combine(_kept, _proposal, scale)``, a density of the other run. So there
+    the mixer history crosses and the line search starts from this input.
+
+    The mixer's ``beta`` and
     ``condition_limit`` come back as the supervisor left them, and an LDOS rung
     already taken is installed again *without* the history reset
     :func:`_take_rung` does, since the history restored is the one built under
@@ -7336,6 +7346,12 @@ def _restore_supervisor(supervisor, mixer, directory, resumed_at, calculation,
     from defuqumat.scf.robust import RUNGS
 
     path = Path(directory) / SCF_SUPERVISOR
+    if not resumed_at:
+        if verbose:
+            print(f"  mixing_from = {directory} without a resumed state: "
+                  f"mixing_mode = 'robust' keeps the mixer history and starts its "
+                  f"line search from this input")
+        return None, None
     if not path.exists():
         if verbose:
             print(f"  no supervisor state in {directory}: mixing_mode = 'robust' "
@@ -7350,7 +7366,7 @@ def _restore_supervisor(supervisor, mixer, directory, resumed_at, calculation,
             f"starts from this input. The density is unaffected",
             RuntimeWarning, stacklevel=3)
         return None, None
-    if resumed_at and saved["iteration"] != resumed_at:
+    if saved["iteration"] != resumed_at:
         warnings.warn(
             f"the supervisor in {directory} was written at iteration "
             f"{saved['iteration']} and the checkpoint resumed is iteration "
@@ -7364,7 +7380,9 @@ def _restore_supervisor(supervisor, mixer, directory, resumed_at, calculation,
         mixer.beta = saved["mixer_beta"]
     if saved["condition_limit"] is not None:
         mixer.condition_limit = saved["condition_limit"]
-    if (supervisor.rung >= RUNGS.index("ldos") and supervisor.smeared
+    # The rungs taken so far, read off the module's ladder (which a control
+    # run may have shortened, so ``RUNGS.index`` cannot be assumed).
+    if ("ldos" in RUNGS[:supervisor.rung + 1] and supervisor.smeared
             and not supervisor.ldos):
         mixer.precondition = (
             ldos_preconditioner_g(layout, calculation.basis.dense,
@@ -8592,6 +8610,7 @@ def run_scf(
             state = starting_wavefunctions = None
 
         davidson_steps, davidson_unconverged = 0.0, 0
+        robust_stop = False
         threshold_shape = (len(hamiltonians), hamiltonians[0].nk, nbnd)
         if wg is not None and np.size(wg) != int(np.prod(threshold_shape)):
             # **A resume is allowed to change ``nbnd`` and the checkpoint's
@@ -8956,6 +8975,11 @@ def run_scf(
             # at ``conv_thr = 1e-8``).
             unscaled_accuracy = accuracy
             accuracy = accuracy / damping.alpha ** 2
+        if pooled and robust:
+            # Only rank 0's supervisor holds the step ``alpha`` (the others never
+            # judge a trial), so the rescaled residual the ``ethr`` schedule and
+            # the stop read is rank 0's.
+            accuracy = pools.broadcast_scalar(accuracy)
 
         if record_orientation:
             # ``potential`` is still the input's here, which is the field the
@@ -9331,7 +9355,8 @@ def run_scf(
                     f"a smearing is the usual cure",
                     RuntimeWarning, stacklevel=2)
                 history[-1]["supervisor"]["terminal"] = True
-                break
+                # Out of the loop below the chain, after every pool has heard.
+                robust_stop = True
         elif supervisor is not None and iteration > mixing_fixed_ns:
             # ``mixing_mode = 'robust'`` (``scf/robust.py``): keep this input or
             # cut the step back, on the merit and the residual. The inner mixer
@@ -9406,6 +9431,32 @@ def run_scf(
             )
             if tau_state is not None:
                 tau_state = mixed_tau
+        if pooled and robust:
+            # **The pooled robust mode: rank 0 decides, the others are told.**
+            # Only rank 0 judges a trial, as only it mixes; the next input
+            # reaches the others through the broadcast of the mixed state just
+            # below. Three of its decisions act outside that state and are
+            # broadcast here: whether the LDOS preconditioner is installed (it
+            # changes what every pool's density pass sums and reduces, so a pool
+            # without it would leave a collective the others are in; the
+            # preconditioner a pool other than 0 builds is never applied, only its
+            # flag and its LDOS update are), the Hamiltonian the bottom rung
+            # mixes, and the stop at that rung's floor.
+            ldos_now = getattr(getattr(mixer, "precondition", None), "needs_ldos",
+                               False)
+            if pools.broadcast_flag(ldos_now) and not ldos_now:
+                _take_rung("ldos", mixer, calculation, layout, rho)
+            if pools.broadcast_flag(hamiltonian_in is not None):
+                own = (hamiltonian_in if hamiltonian_in is not None else
+                       (potential.v_scf, ddd_paw if calculation.is_paw else None,
+                        v_ns if calculation.is_hubbard else None))
+                hamiltonian_in = jax.tree_util.tree_map(jnp.asarray,
+                                                        pools.broadcast(own))
+            else:
+                hamiltonian_in = None
+            robust_stop = pools.broadcast_flag(robust_stop)
+        if robust_stop:
+            break
         if pooled:
             # ``electrons.f90:877``: the root pool's mixed density is every
             # pool's, so that pools whose reductions differ in the last bit (an
@@ -9600,6 +9651,7 @@ def run_scf(
                     magnetization_vector=moment,
                 ),
                 mixer, iteration, verbose, pools,
+                robust=(supervisor, damping, hamiltonian_in) if robust else None,
             )
 
     # ``iteration > resumed_at + 1`` is "at least one iteration body ran": a
@@ -9634,6 +9686,7 @@ def run_scf(
                 magnetization_vector=moment,
             ),
             mixer, completed, verbose, pools,
+            robust=(supervisor, damping, hamiltonian_in) if robust else None,
         )
 
     _warn_if_the_field_did_not_fade(
