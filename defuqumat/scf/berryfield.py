@@ -52,15 +52,21 @@ occupied count (``NINT(nelup)``, ``NINT(neldw)``) and its own operator, and
 no factor 2 (``l_cal``, ``h_epsi_her_set.f90:225``), and the Miller gather is
 applied to each component, as ``c_phase_field`` maps ``psi(ig+npwx)``.
 ``fact`` does not change in either: the factor 2 the energy loses is the
-factor 2 the k weight ``w_k = 1/nk`` loses. Refused: ``nelup /= neldw``, where
-``pw.x`` itself builds the phase on ``nelec/2`` bands per channel (``l_cal``
-reads ``f_inp`` only for ``occupations = 'from_input'``) whatever the channel
-holds, and a spinor with spin-orbit coupling or a magnetization, for which
-no identity is measured here.
+factor 2 the k weight ``w_k = 1/nk`` loses. A magnetized spinor is the same
+code (measured against ``pw.x`` on the 90-degree hydrogen chain,
+``reference.out.h-chain-90deg-lelfield``). A **spin spiral** keeps its two
+components on the spheres of ``k + q/2`` and ``k - q/2`` (plane-wave rows
+``ik`` and ``nk + ik``), so each component is gathered by its own index; both
+spheres move by the same ``dk`` along a string, so the Miller shift at a
+string end is ``e_gdir`` for both, and the spiral is the commensurate
+supercell exactly (I85). Refused: ``nelup /= neldw``, where ``pw.x`` itself
+builds the phase on ``nelec/2`` bands per channel (``l_cal`` reads ``f_inp``
+only for ``occupations = 'from_input'``) whatever the channel holds, and a
+spinor with spin-orbit coupling, for which no identity is measured here.
 
 **What is not here**, refused by name at input: ultrasoft and PAW (the cross
 overlap ``q_dk`` and the structure phase in ``M``, and ``forces_us_efield``),
-the three regimes just named, a metal, ``efield_cart`` (three directions,
+the two regimes just named, a metal, ``efield_cart`` (three directions,
 ``l3dstring``), an automatic k-grid (QE turns that into ``l3dstring``), a cell
 whose ``a_gdir`` is not along Cartesian axis ``gdir`` (QE's ionic dipole takes
 the Cartesian component while the electronic one is along ``a_gdir``), the
@@ -510,17 +516,11 @@ def require_a_berry_field_regime(calculation) -> None:
     if system.nspin == 4 and system.lspinorb:
         reasons.append(
             "nspin = 4 with spin-orbit coupling: the spinor field is measured only "
-            "without it (against nspin = 1)")
-    if system.nspin == 4 and system.domag:
-        reasons.append(
-            "nspin = 4 with a magnetization: the spinor field is measured only on a "
-            "nonmagnetic spinor (against nspin = 1)")
+            "without it (against nspin = 1, and against pw.x on a magnetized chain)")
     if system.occupations != "fixed":
         reasons.append(
             f"occupations = '{system.occupations}': a Berry phase belongs to a "
             "gapped manifold (pw.x refuses smearing with lelfield too)")
-    if calculation.spiral:
-        reasons.append("a spin spiral")
     if calculation.is_hubbard:
         reasons.append("DFT+U, never run with the field here")
     if getattr(calculation, "sawtooth", None) is not None:
