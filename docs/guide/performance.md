@@ -254,8 +254,9 @@ with one Slurm task per pool and `--cpus-per-task` threads in each. The best
 use of the cores is many pools with one or two cores each, since the threads
 of one k-point give little. A calculation without symmetry, for example a
 magnet with spin-orbit coupling, has the whole mesh as its k-points, and this
-is where pools give the most. The ground state, the forces, the stress and the
-relaxations run with pools, also for a spin spiral, a magnetic field and a
+is where pools give the most. The ground state, the forces, the stress, the
+relaxations, the band structure, the NSCF run and the density of states run
+with pools, also for a spin spiral, a magnetic field and a
 constrained moment. If you give `checkpoint_dir`, the SCF writes a checkpoint,
 and it can continue with any number of pools, also with one process. The line
 `#SBATCH --signal=TERM@600` asks Slurm for a SIGTERM ten minutes before the end
@@ -284,9 +285,11 @@ several cards are in
 [PERFORMANCE.md](https://github.com/joselado/defuqumat/blob/master/PERFORMANCE.md).
 
 !!! note "Limits"
-    With pools, only `get_scf`, `get_forces`, `get_stress` and `get_relax`
-    run. Every other method gives an error that names it. More pools than
-    k-points give an error. With pools, `scf_solver='newton-krylov'` runs with
+    With pools, only `get_scf`, `get_forces`, `get_stress`, `get_relax`,
+    `get_bands`, `get_nscf` and `get_dos` run. Every other method gives an
+    error that names it. More pools than k-points give an error in the SCF.
+    A band path or a grid with fewer k-points than pools runs, but each pool
+    then solves all of it. With pools, `scf_solver='newton-krylov'` runs with
     its default Jacobian, `jvp='finite-difference'`. With `jvp='autodiff'` or
     `jvp='sternheimer'` it gives an error. The forces and the stress give an
     error with a `method` other than the default `"autodiff"`. A starting state

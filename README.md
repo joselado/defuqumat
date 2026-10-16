@@ -112,7 +112,8 @@ srun python3 run.py
 ```
 
 The numbers are the same as with one process, up to round-off. The ground state,
-forces, stress and relaxations work in this way. The Newton solver
+forces, stress, relaxations, band structures, NSCF runs and densities of states
+work in this way. The Newton solver
 (`scf_solver='newton-krylov'`) also works, with its default Jacobian. Spin
 spirals, magnetic fields and constrained moments also work. A checkpoint written
 with pools can continue with any number of pools. A run with pools can also start

@@ -496,7 +496,9 @@ period you compare the energies of several long cells, one run each.
     An ultrasoft or PAW dataset runs, but with `ecutrho` at four times
     `ecutwfc` the code warns that the augmentation charge is then on the
     wavefunction grid, so you set `ecutrho` to 8 to 12 times `ecutwfc`. The
-    mixers `mixing_mode='robust'` and `mixing_mode='ldos'` give an error, and a
+    mixer `mixing_mode='ldos'` works with smearing and a norm-conserving
+    dataset. It gives an error with an ultrasoft or PAW dataset and with
+    spin-orbit or noncollinear spin. `mixing_mode='robust'` gives an error. A
     mixer that takes no preconditioner needs `kerker=False`.
 
     A seed with $|s| > 1$ gives an error, because it asks for more magnetization

@@ -218,6 +218,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE y (pools everywhere).
 - Partial, record only, 2026-10-16 (P155): `get_bands`, `get_nscf` and `get_dos` under 2 and 3 pools against 1 pool, eigenvalues 1.3e-14 Ry, DOS 1.9e-12 of its peak, the misplaced-gather guard 0.99 Ry; not merged, since the batch's confirmed list was empty; the other 57 `get_*` refuse (`notes/incompat/I52.md`, branch `incompat/I52-r2` 87f1691).
 
+- Merged 2026-10-16 onto `incompat-t2` on the user's decision; what is refused above still refuses.
 ### I59. Transverse spin susceptibility (magnons) x noncollinear ground state (the spiral branch is behind it)
 
 - Axis: spinor.
@@ -269,6 +270,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n.
 - Partial, record only 2026-10-16 (P155, integration two): `'ldos'` in the ultracell lands on the branch `incompat/I77` (91e35a2), the ultracell fixed point under `'ldos'` against `'anderson'` with Kerker 1.19e-7 (`nspin = 1`) and 3.47e-7 (`nspin = 2`) in the density, 3.4e-13 and 2.1e-12 Ry; the box LDOS 27.528 against the Gaussian sum 27.542. `'robust'` is not written and keeps the refusal. Not merged: the batch's confirmed list is empty for a partial unit (`notes/incompat/I77.md`).
 
+- Merged 2026-10-16 onto `incompat-t2` on the user's decision; what is refused above still refuses.
 ### I79. Gamma phonon x magnetic spinor (`noncolin` with `domag`), with the axial symmetrisation of a displacement response
 
 - Axis: spinor.
@@ -279,6 +281,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE y for phonons (`dfpt_kernels.f90:212-213`); `phq_readin.f90:546-548` refuses `epsil`, `zue`, `lraman`, `elop` under `magnetic_sym`, which sweep-response reads as never firing because `magnetic_sym` is assigned later (`phq_setup.f90:211`, see the textured-spinor dielectric entry); PAW refused at `:807`.
 - Partial, record only 2026-10-16 (P155, integration two): the collinear limit, a spinor along z without SOC against `nspin = 2`, reads 8.3e-6 Ry/bohr^2 on triplet O2 (force constants of 1.68) and 1.9e-6 on `h-chain-afm`; on a shared ground state 2.3e-6 and 1.4e-6, so about 1e-6 to 2e-6 belongs to the spinor response route and is unlocated (the nonmagnetic spinor identity of I3 reaches 2.7e-10). The phonon refusal stays. The axial displacement average at `nspin_mag = 4` (atom sum against `symmetrize_directional` 7.1e-15) and the axial `becsum` average are on the branch `incompat/I79` (b6ff6d0), not merged (`notes/incompat/I79.md`).
 
+- Merged 2026-10-16 onto `incompat-t2` on the user's decision; what is refused above still refuses.
 ### I81. Phonon at `q != 0` x ultrasoft or PAW (and the electron-phonon coupling on it)
 
 - Axis: dataset (US/PAW).
@@ -289,6 +292,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE y, including `elphon.f90:79-82`.
 - Partial, record only 2026-10-16 (P155, integration two): the refusal stays, and the entry undercounts. Beyond the four terms, the `q` route lacks P39's orthogonality set at `q` (`dpsi^ort`, `drhous`, `becsumort`, `dLambda`, `drhodvus`, the `deff`/`int1`/`int2` half of `drhodvnl`), cross-sphere objects (`compute_drhous.f90:99-114`), and the frozen Hessian is not atom-diagonal for an augmented dataset (`addusdynmat.f90:141-195` through `dvanqq.f90:106-191`), so `frozen_force_constants`' claim that it is the same at every `q` holds for norm-conserving datasets only (`notes/incompat/I81.md`).
 
+- Merged 2026-10-16 onto `incompat-t2` on the user's decision; what is refused above still refuses.
 ### I83. Phonon at `q != 0` x DFT+U
 
 - Axis: DFT+U.
