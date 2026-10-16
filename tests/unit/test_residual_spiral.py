@@ -128,7 +128,10 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_on_a_spiral(path, _clear_co
     # ``10 CONV_THR`` asserted above that is 4.8e-3 on the hydrogen chain, where
     # the two solvers were measured 4.5e-4 apart (``notes/incompat/I72.md``), so
     # a fixed tolerance tighter than the bound would test the stopping rule, not
-    # the fixed point.
+    # the fixed point. The bound holds for the part of ``dm`` the resident
+    # sphere carries; the transverse components it cuts are in
+    # ``absolute_magnetization`` and not in ``dr2``, and the 10x margin measured
+    # is what covers them.
     volume = float(system.cell.volume)
     weight = 2.0 * 4.0 * np.pi / (2.0 * np.pi) ** 2
     bound = volume * np.sqrt(10.0 * CONV_THR / (0.5 * volume * weight))
