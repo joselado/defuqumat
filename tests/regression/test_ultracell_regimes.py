@@ -16,6 +16,7 @@ whole modulation, and the saw-tooth and a converged field are carried the way
 """
 
 import types
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -25,6 +26,7 @@ import jax.numpy as jnp
 
 from defuqumat import Calculator
 from defuqumat.basis.builder import build_basis
+from defuqumat.scf import fields as fields_module
 from defuqumat.scf.driver import Calculation, run_scf
 from defuqumat.ultracell import run_ultracell, with_external_potential
 from tests.regression.test_ultracell import (
@@ -807,7 +809,7 @@ def test_a_field_converged_reference_converges_to_the_supercell_under_it(
 # -- I36-feedback: the feedback field and reducebf on the box -------------------
 
 
-FSM = (",\n constrained_magnetization='fsm', lambda=2.0,"
+FSM = (",\n constrained_magnetization='fsm', lambda=0.25,"
        " fixed_magnetization(3)={target}")
 FADING = ",\n B_field(3)=0.02, reducebf={reducebf}"
 
@@ -877,6 +879,7 @@ def _driven_ladder(calculator, scf, shape, kgrid, reference, grid, ladder,
 
 
 @pytest.mark.slow
+@mock.patch.object(fields_module, "FSM_TOLERANCE", 1e-6)
 def test_a_feedback_reference_converges_to_the_supercell_under_the_same_scheme(
         tmp_path, pseudo_dir):
     """``'fsm'`` on the unit cell, run again on the box: null, then the supercell.
@@ -890,17 +893,22 @@ def test_a_feedback_reference_converges_to_the_supercell_under_the_same_scheme(
     shape, kgrid = (2, 1, 1), (2, 2, 2)
     cells = int(np.prod(shape))
     folded = tuple(n * m for n, m in zip(shape, kgrid))
-    # **The target sits just above the free moment, and the gain is near
-    # 1/chi.** The cell's moment is stiff: 0.62343 free and 0.62510 under
-    # B = +0.01 Ry, so chi = 0.17 mu_B/Ry, and B = -0.01 flips it onto the
-    # other branch. At the default gain 0.02 the controller's step is
-    # 0.003 of the error and 0.4 or 0.5 never converged in 300 to 400
-    # iterations (D22, d1.log, d2.log); at 0.626 and lambda = 1 to 3 it
-    # converges in 12 to 25 with B = +0.0147 to +0.0149 Ry (d4.log).
+    # **The target sits just above the free moment, the gain below 2/chi0,
+    # and the controller's tolerance at 1e-6.** The cell's moment is stiff
+    # self-consistently: 0.62343 free and 0.62510 under B = +0.01 Ry, so
+    # chi = 0.17 mu_B/Ry, and B = -0.01 flips it onto the other branch; 0.4
+    # and 0.5 never converged (D22, d1.log, d2.log). The box's first output
+    # at fixed input responds with chi0 near 7 mu_B/Ry, so lambda = 2 threw
+    # the moment between +1 and -1 for 40 iterations (d5.log); 0.25
+    # converges (d6.log). And FSM_TOLERANCE = 1e-3 mu_B leaves the field
+    # undetermined by 1e-3 / chi = 6e-3 Ry, above the 3e-3 the modulation
+    # moves it by: at lambda = 0.1 the unit cell stopped at M = 0.62500, a
+    # miss of exactly the tolerance (d6.log). So the check is taken with the
+    # tolerance at 1e-6 on all three runs, which is what defines the state.
     target = 0.626
     calculator = _hydrogen(tmp_path, pseudo_dir, folded,
                            system=FSM.format(target=target), tag="h-fsm")
-    scf = calculator.get_scf(conv_thr=1e-12, nbnd=8, max_iterations=300)
+    scf = calculator.get_scf(conv_thr=1e-12, nbnd=8, max_iterations=1500)
     assert scf.converged and scf.magnetic_field is not None
     b_ref = _field_of(scf)
     m_ref = _moment_per_cell(scf.density, calculator.system.cell.volume)
@@ -915,12 +923,12 @@ def test_a_feedback_reference_converges_to_the_supercell_under_the_same_scheme(
                           system=FSM.format(target=cells * target),
                           tag="h-fsm-sup")
     reference, grid = _supercell_reference(supercell, shape, nbnd=16,
-                                           conv_thr=1e-12, max_iterations=300,
+                                           conv_thr=1e-12, max_iterations=1500,
                                            mixing_mode="adaptive")
     rows, b_sup, m_sup = _driven_ladder(
         calculator, scf, shape, kgrid, reference, grid, (8, 16, 24), target,
         conv_thr=1e-11, mixing_mode="adaptive", kerker=False,
-        max_iterations=600)
+        max_iterations=1500)
     print(f"  supercell: B {b_sup:+.6e} Ry, M per cell {m_sup:.6f}; "
           f"B_sup - B_ref {b_sup - b_ref:+.3e} Ry")
 
@@ -937,7 +945,7 @@ def test_a_feedback_reference_converges_to_the_supercell_under_the_same_scheme(
     frozen = run_ultracell(
         calculator.system, calculator.pseudos, held, shape, kgrid, nbnd=24,
         external=_modulation(shape, 0), states_conv_thr=1e-8, conv_thr=1e-11,
-        mixing_mode="adaptive", kerker=False, max_iterations=600)
+        mixing_mode="adaptive", kerker=False, max_iterations=1500)
     m_frozen = _moment_per_cell(frozen.density, calculator.system.cell.volume)
     print(f"  frozen field at nbnd=24: M per cell {m_frozen:.6f} against the "
           f"target {target}")
@@ -951,7 +959,7 @@ def test_a_feedback_reference_converges_to_the_supercell_under_the_same_scheme(
     energies = [r["energy"] for r in rows]
     assert energies == sorted(energies, reverse=True), energies
     assert min(energies) > 0.0, energies
-    assert all(abs(r["m"] - target) < 1e-3 for r in rows), rows
+    assert all(abs(r["m"] - target) < 1e-6 for r in rows), rows
     assert abs(m_frozen - target) > 5 * max(abs(r["m"] - target) for r in rows)
 
 
