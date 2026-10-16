@@ -9,7 +9,8 @@ with the spiral's band limits goes through the layout unchanged, smooth part and
 shell, while the resident layout loses the pair's shell; the stored flat dot is
 the real-space dot; at dual 4 with the whole-box pair the layout is the
 real-space mixer to round-off, with ``beta_mag``, Kerker and local-TF; and a
-converged run lands on the real-space fixed point (slow, two cells).
+converged run lands on the real-space fixed point at a threshold the resident
+layout does not reach (slow, two cells).
 """
 
 from functools import lru_cache
@@ -195,6 +196,29 @@ def test_a_history_written_at_another_q_is_tagged_apart():
     assert other.tag != layout.tag
 
 
+@pytest.mark.parametrize("name", ["h-chain-spiral.in", "co-helix4-spiral.in"])
+def test_the_size_report_counts_the_spiral_block(name, pseudo_dir):
+    """The mixer-history line holds at least the stored blocks a spiral keeps.
+
+    Each history entry is an input and a residual, each a ``(4, max(ngms,
+    npair))`` block; on the hydrogen chain ``npair`` is the whole box, which the
+    report used to count as ``ngms``, a factor of about two short.
+    """
+    from defuqumat.pseudo import read_upf
+    from defuqumat.sizing import estimate_size
+
+    system, basis, q = _pieces(name)
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    if name == "h-chain-spiral.in":
+        layout = _whole_box_layout(name)[2]
+    else:
+        layout = _displaced_layout(name)[2]
+    size = estimate_size(system, pseudos, mixing_space="g", mixing_ndim=8)
+    (history,) = [v for k, v in size.host_arrays.items() if k.startswith("mixer history")]
+    blocks = 8 * 2 * int(np.prod(layout.stored_shape)) * 8
+    assert history >= blocks
+
+
 # --- whole runs ----------------------------------------------------------------
 
 
@@ -212,23 +236,36 @@ def _run(name, pseudo_dir, space, **options):
 @pytest.mark.slow
 @pytest.mark.parametrize("name", ["h-chain-spiral.in", "o-chain-spiral-us.in"])
 def test_a_spiral_mixed_in_g_reaches_the_real_space_fixed_point(name, pseudo_dir):
-    """The same fixed point as ``mixing_space = 'r'``: energy and density.
+    """The same fixed point as ``mixing_space = 'r'``, at a threshold the cut layout cannot reach.
 
     The hydrogen chain is norm-conserving at dual 4, so ``m'_+`` is kept on the
     whole box; the oxygen chain is ultrasoft at dual 8, so it is kept on the
     displaced smooth sphere and its shell is the displaced augmentation charge
-    rebuilt from the mixed ``becsum``. Measured on D22 at these settings: the
-    hydrogen chain 6.7e-16 Ry and 1.3e-13 in the density, the oxygen chain
-    1.9e-12 Ry and 8.0e-7 in the density against a largest 0.881, so the
-    density bound has a factor of eleven of room and the energy one of 500;
-    at the default ``conv_thr = 1e-6`` the oxygen chain read 1.9e-4, which is
-    why the inputs' own threshold is passed. ``notes/incompat/I74.md``.
+    rebuilt from the mixed ``becsum``.
+
+    **The threshold is what makes this a check.** At the inputs' own
+    ``conv_thr = 1e-11`` the resident layout, which cuts the pair (the code
+    without the refusal), also converges on the oxygen chain, 12 iterations and
+    8.2e-12 Ry from ``'r'``, so a bound there cannot tell the two layouts apart.
+    At ``conv_thr = 1e-13`` it stalls: 60 of 60 iterations unconverged and
+    3.55e-9 Ry off, while :class:`SpiralSphereLayout` converges in 13 to
+    1.1e-13 Ry. Hence convergence within 40 iterations and 1e-10 Ry.
+
+    **The density is compared as ``n`` and ``|m|``, not channel by channel.**
+    Without spin-orbit coupling a rigid rotation of every moment costs nothing,
+    so the two runs may land on the same state turned by a small angle, which
+    reads as a difference in ``m_x``, ``m_y`` and ``m_z`` that does not shrink with
+    ``conv_thr`` (2.8e-5 in ``m_y`` on the oxygen chain at ``q_z = 0.4``). The
+    charge and ``|m|(r)`` are invariant under it. ``notes/incompat/I74.md``.
     """
-    # The inputs' own ``&electrons``, which ``run_scf`` does not read.
-    results = {space: _run(name, pseudo_dir, space, conv_thr=1e-11, mixing_beta=0.3)
+    results = {space: _run(name, pseudo_dir, space, conv_thr=1e-13, mixing_beta=0.3,
+                           max_iterations=40)
                for space in ("r", "g")}
     assert results["r"].converged and results["g"].converged
     assert results["g"].total_energy == pytest.approx(results["r"].total_energy,
-                                                      abs=1e-9)
+                                                      abs=1e-10)
     rho_r, rho_g = (np.asarray(results[s].density) for s in ("r", "g"))
-    assert np.max(np.abs(rho_g - rho_r)) < 1e-5 * np.max(np.abs(rho_r))
+    scale = np.max(np.abs(rho_r[0]))
+    assert np.max(np.abs(rho_g[0] - rho_r[0])) < 1e-5 * scale
+    m_r, m_g = (np.linalg.norm(rho[1:], axis=0) for rho in (rho_r, rho_g))
+    assert np.max(np.abs(m_g - m_r)) < 1e-5 * scale
