@@ -77,3 +77,32 @@ def test_the_spiral_on_its_wedge_is_the_nosym_spiral(text, nk_sym, nk_full,
     assert reduced.absolute_magnetization == pytest.approx(
         full.absolute_magnetization, abs=2e-5
     )
+
+
+#: Measured on D22 on the merged head, one sample each (``notes/incompat/I50.md``):
+#: on the zigzag the force 5.6e-8 Ry/bohr apart out of 4.79e-3 (the ``nosym``
+#: arm's own forbidden ``z`` component is that 5.6e-8) and the stress 2.1e-10
+#: Ry/bohr^3 out of 7.7e-5; on the chain, whose one atom carries no force, the
+#: stress 4.0e-10 out of 1.1e-4.
+@pytest.mark.parametrize("text", [ZIGZAG, CHAIN], ids=["zigzag", "chain"])
+def test_the_force_and_stress_on_the_wedge_are_the_nosym_ones(text, pseudo_dir):
+    """The two derivatives master lifted for a norm-conserving spiral, on the wedge.
+
+    Both are a polar vector and a polar tensor, symmetrised with the spatial
+    part of the spin space group; the ``nosym`` arm symmetrises nothing.
+    """
+    import numpy as np
+
+    from defuqumat import Calculator
+
+    def derivatives(t):
+        calc = Calculator.from_text(t, pseudo_dir, max_iterations=300)
+        calc.get_scf()
+        return (np.asarray(calc.get_forces().forces),
+                np.asarray(calc.get_stress().tensor), calc.calculation.use_symmetry)
+
+    forces, stress, used = derivatives(text)
+    full_forces, full_stress, full_used = derivatives(_nosym(text))
+    assert used and not full_used
+    np.testing.assert_allclose(forces, full_forces, atol=1e-6)
+    np.testing.assert_allclose(stress, full_stress, atol=5e-9)
