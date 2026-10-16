@@ -744,8 +744,9 @@ def test_a_frozen_partner_raises_the_frequency_by_the_reduced_mass():
 #: What a closed subset and the whole cell agree to at :data:`IDENTITY`, and it
 #: is the loop's stop rather than the symmetrisation: the two solve different
 #: sets of modes and stop at different passes. Measured on D22: 6.3e-11 to
-#: 3.7e-10 on the six AlAs blocks (nc, US, PAW), 1.7e-10 on fluorite, and 6.2e-10
-#: from the wedge to the ``nosym`` grid, against **7.9e-10** between the two
+#: 3.7e-10 on the six AlAs blocks (nc, US, PAW), 1.7e-10 on fluorite, the same
+#: 6.3e-11 and 1.7e-10 on the AlAs wedge at ``nspin = 2``, and 6.8e-10 from the
+#: wedge to the ``nosym`` grid, against **7.9e-10** between the two
 #: whole-cell routes themselves on the same AlAs pair. At ``tr2 = 1e-28`` and a
 #: CG threshold of 1e-14 the AlAs blocks fall to 3.9e-14 and 4.7e-13, so the
 #: residue moves with the loop's convergence. Switching off the subset's
@@ -865,6 +866,36 @@ def test_a_closed_orbit_of_two_atoms_is_the_whole_block(pseudo_dir):
     # The pair's block is not diagonal in the atoms, so the permutation is
     # doing work rather than being the identity on two independent blocks.
     assert np.abs(whole.matrix[1, :, 2, :]).max() > 1e-3
+
+
+@pytest.mark.slow
+def test_a_closed_subset_at_nspin_2_is_the_whole_block():
+    """The AlAs wedge spin-polarized, fixed counts at ``tot_magnetization = 0``.
+
+    The subset's symmetrisers act on each spin channel through the same atom
+    table, so ``nspin = 2`` is the same identity; measured on D22 at 6.3e-11 and
+    1.7e-10, the ``nspin = 1`` figures to the digits printed.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / "alas-raman-wedge.in").read_text().replace(
+        "ecutwfc = 10.0",
+        "ecutwfc = 10.0, nspin = 2, starting_magnetization(1) = 0.3, "
+        "tot_magnetization = 0")
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file)
+                    for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    assert calculation.nspin == 2 and calculation.use_symmetry
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                     max_iterations=100)
+    args = (calculation, result.wavefunctions, result.eigenvalues,
+            result.density, result.becsum)
+    whole = dynamical_matrix(*args, **IDENTITY)
+    for atoms in [(0,), (1,)]:
+        part = dynamical_matrix(*args, atoms=atoms, **IDENTITY)
+        block = whole.matrix[list(atoms)][:, :, list(atoms)]
+        assert np.abs(part.matrix - block).max() < CLOSED_SUBSET_TOLERANCE
 
 
 @pytest.mark.slow
