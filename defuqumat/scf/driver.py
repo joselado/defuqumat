@@ -6894,7 +6894,7 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None,
 def _solve_residual(
     calculation, system, nbnd, rho, becsum_, ns_, conv_thr,
     scf_solver, options, mixing_beta, verbose, tau_=None, fit_in_rho_ddot=None,
-    pools=None, pool_rows=None, pool_layout=None,
+    pools=None, pool_rows=None, pool_layout=None, field=None,
 ):
     """:func:`_solve_residual_body`, and under k-point pools its protocol's ends.
 
@@ -6911,7 +6911,7 @@ def _solve_residual(
             calculation, system, nbnd, rho, becsum_, ns_, conv_thr, scf_solver,
             options, mixing_beta, verbose, tau_, fit_in_rho_ddot,
             pools=pools, pool_rows=pool_rows, pool_layout=pool_layout,
-            holder=holder,
+            holder=holder, field=field,
         )
     except BaseException:
         residual = holder.get("residual")
@@ -6929,9 +6929,14 @@ def _solve_residual(
 def _solve_residual_body(
     calculation, system, nbnd, rho, becsum_, ns_, conv_thr,
     scf_solver, options, mixing_beta, verbose, tau_=None, fit_in_rho_ddot=None,
-    *, pools=None, pool_rows=None, pool_layout=None, holder=None,
+    *, pools=None, pool_rows=None, pool_layout=None, holder=None, field=None,
 ):
     """Find the fixed point with a residual solver, before the mixing loop runs.
+
+    ``field`` is the loop's starting field. Under a feedback (fixed-spin-moment)
+    constraint its driven leaf is part of the solved state, and the solved
+    field comes back on the result as ``result.field`` for the loop to carry on
+    from (I73).
 
     Returns the converged state in the loop's own variables, plus the solver's
     own record of what it cost.
@@ -6972,7 +6977,7 @@ def _solve_residual_body(
     precondition = options.pop("precondition", None)
     wavefunctions = None
 
-    residual = make_residual(calculation, nbnd, ethr)
+    residual = make_residual(calculation, nbnd, ethr, field=field)
     if pools is not None and pools.size > 1:
         # Rank 0 solves and the other pools serve its evaluations of ``F``
         # (``PooledScfResidual``); everything below this block is rank 0's.
@@ -7045,7 +7050,9 @@ def _solve_residual_body(
                 jnp.asarray(residual.unpack(r)[3]),
                 calculation.basis.dense, calculation.system.cell,
             )
-        return float(accuracy)
+        # The feedback field's share, ``tau |m - m_fix|^2`` (I73); zero
+        # without a feedback scheme. Last, as the field is last in the state.
+        return float(accuracy) + residual.field_accuracy(r)
 
     if warmup:
         # Ordinary mixing, run through the *residual's* own step so that the
@@ -7134,6 +7141,7 @@ def _solve_residual_body(
         residual, x0, wavefunctions, accuracy_of, conv_thr=conv_thr,
         precondition=precondition, verbose=verbose, **options,
     )
+    result.field = residual.field_at(result.x)
     rho_out, becsum_out, ns_out, tau_out = residual.unpack(result.x)
     return rho_out, becsum_out, ns_out, tau_out, result.psi, result
 
@@ -8796,8 +8804,13 @@ def run_scf(
             scf_solver, dict(scf_solver_options or {}), mixing_beta, verbose,
             starting_tau, fit_in_rho_ddot=fit_in_rho_ddot,
             pools=pools if pooled else None, pool_rows=pool_rows,
-            pool_layout=pool_layout,
+            pool_layout=pool_layout, field=field,
         )
+        if solver_result.field is not None:
+            # The driven field Newton solved for beside the density (I73). The
+            # loop carries on from it; handed the input's field instead, it
+            # would drive the field again from where it started.
+            field = solver_result.field
         # The density is converged, so the eigenvalues must be too: the loose
         # start of the ``ethr`` schedule would otherwise throw the hand-off away
         # on the very first diagonalisation.

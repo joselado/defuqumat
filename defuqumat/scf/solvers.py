@@ -96,6 +96,11 @@ class NewtonKrylovResult:
     steps: int
     jvps: int
     history: list = field(default_factory=list)
+    #: The solved feedback (fixed-spin-moment) field, the
+    #: :class:`~defuqumat.scf.fields.MagneticField` whose driven leaf is
+    #: ``x``'s, or ``None`` without one. Set by the driver, which hands it to
+    #: the mixing loop that runs after the solve (I73).
+    field: object = None
 
 
 def newton_krylov(
