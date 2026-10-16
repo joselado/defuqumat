@@ -526,7 +526,7 @@ def test_a_collinear_seed_carries_elks_moment(spin_calculator, spin):
 def test_a_polarized_state_cannot_seed_an_unpolarized_run(spin_calculator):
     """Keeping the charge and dropping the moment is refused by name."""
     with pytest.raises(NotImplementedError, match="spin-polarized"):
-        spin_calculator.with_spin(1).get_elk_seed(SPIN)
+        spin_calculator.with_spin(1, starting_magnetization=[0.0]).get_elk_seed(SPIN)
 
 
 @needs_spin
