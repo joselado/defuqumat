@@ -23,26 +23,6 @@ come from a `reference-source` lookup made for the queue; no Elk tree was read f
 
 Energies and eigenvalues first, then derivatives.
 
-### I1. Band gap (`BandStructure.gap`) x `nspin = 2`
-
-- Axis: spin.
-- Guard: `defuqumat/workflows/bands.py:BandStructure.gap:131`.
-- Test: none.
-- Missing: the per-channel filling, taken from `eigenvalues_by_spin` with each channel's occupation (guard message).
-- Check: eigenvalue: `tests/data/qe/reference.out.pw_atom-atom-lsda:295` ("highest occupied, lowest unoccupied level", -6.6338 and -0.4658 eV) and `reference.out.o-atom-fixed-lsda:261`.
-- QE/Elk: QE y (`PW/src/print_ks_energies.f90` prints the LSDA HOMO and LUMO over both channels).
-- Note: Only in sweep-workflows (C3); queue.md missed it.
-
-### I2. Dynamical matrix at Gamma x `nspin = 2`
-
-- Axis: spin.
-- Guard: `defuqumat/response/phonon.py:_require_one_spin_channel:1850` (and the gate's `spin_polarized` flag, `response/sternheimer.py:require_a_sternheimer_regime:1679`).
-- Test: `tests/regression/test_phonons.py:655` `test_a_spin_polarized_calculation_is_refused`; `tests/regression/test_lsda_response.py:673` `test_the_dynamical_matrix_and_the_strain_response_still_refuse_nspin_two`.
-- Missing: the spin axis of the second-derivative assembly above the solve (`phonon.py` docstring, HOLES #3). Measured with the guards bypassed on triplet O2: the stretch 1664.3992 against 1664.401578 cm^-1 (1.4e-6), both `D_zz` entries shifted by a common -0.0022, `D_xx` off by up to 0.12; nonmagnetic `nspin = 2` equals `nspin = 1` to 1.6e-14. Next step named: per-term decomposition against a finite difference of the LSDA forces (`o2-lsda-force.in`).
-- Check: derivative: `tests/data/qe/reference.dyn.o2-fixed-lsda-phonon` element by element (not the acoustic sum, which `ph.x` itself violates by 0.0087), with `reference.out.ph-o2-fixed-lsda-phonon`; second reference `test-suite/ph_insulator_paw_magn/benchmark.out.git.inp=O2.phG.in.args=2` (PAW, `O.pz-kjpaw.UPF`, committed).
-- QE/Elk: QE y (`ph.x`; no LSDA refusal in `phq_readin.f90`, `phq_setup.f90`).
-- Note: queue.md quotes 1.4e-6 (frequency) and sweep-response 7.8e-6 (matrix element); both are in the docstring, no disagreement.
-
 ### I3. Gamma phonon x nonmagnetic spinor (`noncolin`, no moment, with or without `lspinorb`)
 
 - Axis: spinor.
@@ -51,15 +31,7 @@ Energies and eigenvalues first, then derivatives.
 - Missing: the caller's assembly on a two-component state; the solve (P81) and the augmented spinor (P98) need no new term (MAGNETISM-NEXT A, HOLES #10).
 - Check: derivative: Gamma frequencies in `tests/data/qe/reference.out.ph-alas-epsilon-us-soc` (8 `freq` lines, 376.714126 cm^-1 triplet) and `reference.out.ph-bismuthene-epsilon-us-soc`; beside it T2, silicon as `noncolin` without SOC equals `nspin = 1`.
 - QE/Elk: QE y (`dfpt_kernels.f90:212`, `nsolv = 1` without `domag`).
-
-### I4. Phonon of a metal at `q = 0` (or `q = G`) through the `q != 0` route
-
-- Axis: occupations (metal).
-- Guard: `defuqumat/response/phononq.py:_require_a_metallic_q:1493`.
-- Test: `tests/unit/test_metallic_q_refusals.py:26` `test_a_metal_at_a_reciprocal_lattice_vector_is_refused`; `tests/regression/test_electron_phonon.py:256` `test_a_metal_at_q_zero_is_refused_by_name`.
-- Missing: `ef_shift` on this route (`get_phonons` has it) (guard message).
-- Check: derivative: `tests/data/qe/reference.out.ph-al2-metal` (12 `freq` lines); T2 beside it, equality with the Gamma route on the same state.
-- QE/Elk: QE y (`lmetq0`).
+- Partial, 2026-10-16 (P154): written and measured, refusal kept; the discrepancy is in `notes/incompat/I3.md`.
 
 ### I5. Linear response with DFT+U at Gamma (dynamical matrix, dielectric tensor, Born charges)
 
@@ -69,38 +41,11 @@ Energies and eigenvalues first, then derivatives.
 - Missing: `adddvhubscf`: the self-consistent `dns` and its `dV`, `dnsbare` (HOLES #16).
 - Check: derivative: `test-suite/ph_U_insulator_us/benchmark.out.git.inp=BN.phG.in.args=2` and `ph_U_insulator_paw/...BN.phG.in.args=2` (nspin = 1, fixed, `epsil`); datasets `B/N.pbe-n-rrkjus_psl.1.0.0.UPF` and `B/N.pbe-n-kjpaw_psl.1.0.0.UPF` are in neither `tests/data/pseudo/` nor `$QE/pseudo/`, so a fetch comes first.
 - QE/Elk: QE y (`ph.x` refuses U only for non-atomic projectors, `lda_plus_u_kind /= 0`, background, `elph`, `lraman`).
+- Partial, 2026-10-16 (P154): written and measured, refusal kept; the discrepancy is in `notes/incompat/I5.md`.
 
 ## T2: an exact internal identity, no new reference
 
 Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then execution modes with a bit-level identity, then Goldstone, Larmor and the time-shift checks, then the fixed-point and resumed-run identities, and last the identities that need another entry here to land first.
-
-### I6. Shift current x `nspin = 2`
-
-- Axis: spin.
-- Guard: `defuqumat/response/photocurrent.py:shift_current:581`.
-- Test: none.
-- Missing: the loop over two channels whose currents add, which SHG already has (guard message).
-- Check: a nonmagnetic cell at `nspin = 2` equals `nspin = 1`; on a magnet the per-channel sum against SHG's own channel sum.
-- QE/Elk: QE n; Elk unread.
-
-### I7. Sum-over-states `chi_0` x `nspin = 2`
-
-- Axis: spin.
-- Guard: `defuqumat/tddft/chi0.py:require_a_sum_over_states_regime:339`.
-- Test: none.
-- Missing: the spin-tensor kernel (guard message).
-- Check: nonmagnetic `nspin = 2` equals `nspin = 1`; then T3, the static limit against `tests/data/qe/reference.out.ph-o2-fixed-lsda` ("Dielectric constant", line 170), converged in `nbnd`.
-- QE/Elk: QE out of scope (TDDFPT); Elk `tddftsplr` (tasks 330/331) per queue.md's reference-source lookup.
-- Note: sweep-tddft ranks it tier 1 through the static limit; that is a `ph.x` quantity reached by an `nbnd` convergence, so T2 on the exact identity.
-
-### I8. Sum-over-states `chi_0` x spinor (noncollinear, spin-orbit; the spiral branch is behind it)
-
-- Axis: spinor.
-- Guard: `defuqumat/tddft/chi0.py:require_a_sum_over_states_regime:346`; the spiral branch `:352` is unreachable as written, `noncolin` fires first.
-- Test: none (`tests/regression/test_spinor_dielectric.py:494` `test_the_opt_in_is_what_lifts_the_refusal` matches the same words but fires the Sternheimer gate).
-- Missing: two-component pair densities with a spin trace (guard message).
-- Check: a nonmagnetic spinor without SOC equals `nspin = 1`; with SOC, T3, the static limit against the code's own spinor Sternheimer `eps_inf`.
-- QE/Elk: QE out of scope; Elk `tddftlr` has no spin-orbit reference per queue.md's lookup.
 
 ### I9. Berry-phase polarization x `nspin = 2`
 
@@ -1352,6 +1297,17 @@ Not ranked with the pairs. A committed reference is named where one exists.
 - Constant-current STS (`workflows/stm.py:_refuse_a_window_under_an_axis:660`), a magnetic plane tip in momentum-resolved transport (no `tip_spin`), a tilted exit plane (`transport/substrate.py:40`).
 
 ## Closed since the notes were written
+
+Landed on 2026-10-16 in P154 (branch `incompat-night`), each with its record in `notes/incompat/<ID>.md`:
+
+- I1, band gap at `nspin = 2`: `o-atom-fixed-lsda` HOMO and LUMO -6.633898 eV against `pw.x`'s -6.6339 (`reference.out.o-atom-fixed-lsda:261`); `atom-lsda` gap 6.164453 against 6.1680, the LUMO 2e-5 eV from `pw.x`'s full-sphere run (`incompat/I1`).
+- I2, dynamical matrix at Gamma at `nspin = 2`: triplet O2 transverse block to 3.9e-5 Ry/bohr^2 against `reference.dyn.o2-fixed-lsda-phonon` (0.119 before), stretch 1664.369 against 1664.402 cm^-1; PAW `ph_insulator_paw_magn` stretch 2374.6975 against 2374.699451 cm^-1. The k-chunked route still refuses (`incompat/I2`).
+- I4, a metal at `q = 0` through the `q != 0` route: the q route against the Gamma route on an off-centre `al2-metal` where `def` is 1.2e-2, 7.2e-7 Ry/bohr^2 (5.1e-2 without the shift); against `ph.x` on `al2-metal.in` 2.9e-3 cm^-1. A metal at `q = G != 0`, the k-chunked route at `q = 0` and the electron-phonon coupling at any `q = G` still refuse (`incompat/I4`).
+- I6, shift current at `nspin = 2`: unpolarized AlAs `nspin = 2` against `nspin = 1` 6.4e-10 of max|sigma| = 5.66e-5 A/V^2; magnetic AlAs (`tot_magnetization = 2`) channel sum against the same states as spinors 1.6e-16 of 1.08e-5 A/V^2. A filling that cuts a degenerate shell is refused (`incompat/I6`).
+- I7, sum-over-states `chi_0` at `nspin = 2`: unpolarized Si, the whole `chi_0` 3.0e-9 relative, eps_M(0) 1.6e-11 (RPA) and 1.5e-11 (ALDA); magnetic H3 chain eps_M(0) 8.65363 against the Sternheimer 8.64013, the residual from the response sphere. ALDA on a polarized density refuses; the `ph.x` O2 check is ultrasoft and stays out of reach (`incompat/I7`).
+- I8, sum-over-states `chi_0` on a nonmagnetic spinor: Si as a spinor against the scalar run 5.8e-11 relative over the whole matrix, eps_M(0) 5.0e-10; spin-orbit Se eps_M(0) 16.51019387 against the spinor Sternheimer 16.55406495 (-2.65e-3, the scalar control -2.57e-3). A textured spinor and a spiral refuse by name (`incompat/I8`).
+
+Earlier:
 
 - LSDA kernel at `|zeta| >= 1` for the LDA (HOLES #1): `_fully_polarized`, 5.1e-6 against `ph.x` on O2; the GGA half is the T4 entry on the screening kernel.
 - LSDA Born charges (HOLES #2): no `nspin` raise remains.

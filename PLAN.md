@@ -26498,3 +26498,22 @@ Anderson (`Supervisor.beta`, doubled after three trials kept at once, up to 0.8)
 for the first and not yet measured on the bed. The terminal "at the eigensolver's floor" stop
 has not been seen to fire on a real cell. Checkpoint, pools and the ultracell are refused. No timing pair (DFTK, the reference for
 the algorithm, is not installed anywhere here). The fast gate has not been run on the branch.
+
+### P154 -- Six refusals lifted from `notes/INCOMPATIBILITIES.md`, integration one of the overnight work (I1 to I8). ⏳ GATE PENDING 2026-10-16, the overnight incompatibility work run on fable's decisions, each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-night` (`notes/INCOMPATIBILITIES-NIGHT.md`), not merged into master.
+
+Each unit's record is `notes/incompat/<ID>.md`, which carries the run directories, the mutations its verifier tried and what each one read. The six landed items, one sample each, deterministic:
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I1 band gap x `nspin = 2` | `o-atom-fixed-lsda` HOMO and LUMO -6.633898 eV against `pw.x` -6.6339; `atom-lsda` HOMO -6.633877 against -6.6338, gap 6.164453 against 6.1680, LUMO -0.469423 against the `gamma_only` -0.4658 and the full-sphere -0.4694 | `reference.out.o-atom-fixed-lsda:261`, `:250`; `reference.out.pw_atom-atom-lsda:295`; `print_ks_energies.f90:get_homo_lumo` | `incompat/I1` 5b31cac |
+| I2 Gamma dynamical matrix x `nspin = 2` | triplet O2 transverse block 3.9e-5 Ry/bohr^2 (0.119 before), whole matrix 2.6e-4 (the `zz` residue is `ph.x`'s own 2.2e-3 spread), stretch 1664.369 against 1664.402 cm^-1; PAW `ph_insulator_paw_magn` pair -618.9922 against -618.947140, stretch 2374.6975 against 2374.699451 | `reference.dyn.o2-fixed-lsda-phonon` element by element; the test-suite benchmark | `incompat/I2` b6c74ac |
+| I4 metal at `q = 0` through the `q != 0` route | off-centre `al2-metal`, `def` 1.2e-2: q route against Gamma route 7.2e-7 Ry/bohr^2, 5.1e-2 and a mode at -197 cm^-1 without the shift; `al2-metal.in` 2.9e-3 cm^-1 against `ph.x` | T2 identity with a discriminating arm; `reference.out.ph-al2-metal:435-437` | `incompat/I4` 5f8408d |
+| I6 shift current x `nspin = 2` | unpolarized AlAs 6.4e-10 of max\|sigma\| = 5.66e-5 A/V^2; magnet (5 up, 3 down) channel sum against the spinor route 1.6e-16 of 1.08e-5 | exact identities; the verifier's channel-swap mutant reads 2.97e-5 | `incompat/I6` 67c051f |
+| I7 sum-over-states `chi_0` x `nspin = 2` | unpolarized Si whole `chi_0` 3.0e-9 relative, eps_M(0) 1.6e-11 (RPA), 1.5e-11 (ALDA); H3 chain (2,1) eps_M(0) 8.65363 against the Sternheimer 8.64013 at `nbnd = 80`, `ecut_response = 8` | T2 identity; band-complete Sternheimer with Hartree screening | `incompat/I7` c216761 |
+| I8 sum-over-states `chi_0` x nonmagnetic spinor | Si spinor against scalar 5.8e-11 relative over the matrix, eps_M(0) 5.0e-10; Se with SOC 16.51019387 against 16.55406495 (-2.65e-3, scalar control -2.57e-3) | T2 identity; T3 against the spinor Sternheimer | `incompat/I8` 96f270f |
+
+Two partial units are written and keep their refusal, with the discrepancy measured. **I3** (Gamma phonon of a nonmagnetic spinor): the scalar identity holds to 1.7e-9 Ry/bohr^2 on NC, US and PAW, and spin-orbit AlAs lands 1.2e-3 cm^-1 from `ph.x`, but spin-orbit bismuthene misses `ph.x`'s B_1g by 2.6 cm^-1 (69.308519 against 66.727386), in the onsite block only, unlocated. **I5** (DFT+U field response): the U's own change of eps and Z* matches `ph.x` 7.5 to 7.4e-4 and 3.5e-4, but the direct eps misses by 1.3e-3, a miss the same BN cell already has without a U (2.1e-3), so it predates I5.
+
+The merge of I8 onto I7 conflicts in `require_a_sum_over_states_regime`, where each branch lifts one spin regime and kept a sibling test asserting the other's refusal; both lifted guards and both sibling tests are dropped, and the occupied count is I7's `max(occupied_counts(...))`, which is `nelec` for a spinor.
+
+What is left: the guide sections with executed snippets and figures, the notebooks and the timings for the six items (only the Limits notes and one README line are written), and the other fifteen units of integration one, I9 to I48, are integrated in the next session.
