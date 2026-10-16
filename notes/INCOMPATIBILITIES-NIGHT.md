@@ -41,7 +41,11 @@ below so that session can start from this file.
 - Step 0: branch made, this file written.
 - Step 1: merged I1, I2, I4, I6, I7, I8 with `--no-ff`, one commit each; record files only from I3 and I5. Every branch tip matched the reported sha. I8 conflicted with I7 in `defuqumat/tddft/chi0.py`, `defuqumat/workflows/tddft.py` and `tests/unit/test_tddft_machinery.py`, neighbouring arms of one guard; resolved by keeping both lifts, dropping the sibling test of each branch that asserted the other's refusal, and taking I7's `max(occupied_counts(...))`. `tests/unit/test_tddft_machinery.py` passes locally after the merge (20 passed).
 - Step 2: the guide Limits notes of the six (`bands.md`, `phonons.md` twice plus the linewidth paragraph, `nonlinear.md`, `optics.md` with I7 and I8 written as one sentence) and the README phonon bullet; the six entries moved into "Closed since" of `notes/INCOMPATIBILITIES.md` with their numbers, I3 and I5 marked partial in place; `PLAN.md` P154. Of the stale texts, none is touched by I1 to I8: `.claude/rules/scope.md`'s real-time bullet is I39's, `notes/ELK-FEATURES.md` §9 the ultracell's, `response/piezo.py:374` the strain family's, and `tddft/spinkernel.py:51-67` is the magnon kernel's, not the `chi_0` of I7 and I8, so all four are left for the session that lands those units.
-- Step 3: the fast gate on D22, worktree `/l/ladovj1/w-inc-night` at `136c768`, cores 0-3 and 12-15, `MemoryMax=16G`, followed by the two slow regression files of the I7 and I8 merge (`test_tddft_spin.py`, `test_spinor_chi0.py`); logs in `/l/ladovj1/review/incompat/night/`. Still running at this commit.
+- Step 3: the fast gate on D22, worktree `/l/ladovj1/w-inc-night` at `136c768`, cores 0-3 and 12-15, `MemoryMax=16G`, followed by the two slow regression files of the I7 and I8 merge (`test_tddft_spin.py`, `test_spinor_chi0.py`); logs in `/l/ladovj1/review/incompat/night/`. Result: the fast gate read 2 failed, 3707 passed, 71 skipped, 1634 deselected in 1621.67 s (08:08 to 08:35), and both failures are `tests/unit/test_check_guide.py`'s, `ModuleNotFoundError: No module named 'yaml'`, the D22 venv's and not ours; the two slow files read 5 passed in 334.90 s. Nothing attributable to I1 to I8.
+
+### Integration two, the fifteen units I9 to wedge
+
+- Step 0: every branch tip matched the table's sha.
 
 ## Outcome per ID
 
