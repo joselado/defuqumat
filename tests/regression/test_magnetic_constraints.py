@@ -150,24 +150,28 @@ def test_constraint_energy_matches_qe(qe_testsuite, pseudo_dir, benchmark):
     )
 
 
+@pytest.mark.parametrize(("name", "scheme"), CASES)
 def test_newton_krylov_reproduces_pw_x_under_a_constrained_moment(
-    qe_testsuite, pseudo_dir, benchmark
+    name, scheme, qe_testsuite, pseudo_dir, benchmark
 ):
-    """I73: the residual solver on ``noncolin-constrain_atomic.in``, against ``pw.x``.
+    """I73: the residual solver on QE's three constrained iron inputs, against ``pw.x``.
 
     A penalty constraint's field is ``jax.grad`` of the penalty, so it is a
     function of the density and part of the residual's ``F``. Measured on D22
-    (``review/incompat/I73/harnessA.log``, one sample): total energy 7.8e-8 Ry
-    from ``pw.x``'s -55.69055687, constraint energy 0.00646111 against the
-    0.00646103 ``pw.x`` prints last, moment (1.680, 0, 0.147) against its
-    (1.68, -0.00, 0.15); Newton reached 7.5e-14 in 13 outer steps and 104
-    evaluations of ``F``, and the mixing loop it hands over to stopped after
-    one iteration. The unconstrained moment is about 3 mu_B, so a solver that
-    lost the penalty would not land near any of these.
+    at ``conv_thr = 1e-13``, one sample each (``review/incompat/I73/harnessA.log``,
+    ``h3-angle.log``, ``h3-total.log``): the total energy is 7.8e-8 Ry from
+    ``pw.x`` for ``atomic``, 2.7e-9 for ``atomic direction`` and 1.3e-8 for
+    ``total``, against the 3e-7 the mixing route is held to; Newton converged
+    in 13, 13 and 29 outer steps, and the mixing loop it hands over to stopped
+    after one iteration each time, so the number is Newton's. On ``atomic`` the
+    constraint energy is 0.00646111 against the 0.00646103 ``pw.x`` prints last;
+    the unconstrained moment there is about 3 mu_B, so a solver that lost the
+    penalty would not land near (1.68, 0, 0.15). The ``total`` case took 370 s
+    on one core, the other two under 90 s.
     """
-    name = "noncolin-constrain_atomic.in"
     pwin = read_pw_input(qe_testsuite / "pw_noncolin" / name)
     system = build_system(pwin)
+    assert system.constrained_magnetization == scheme
     pseudos = tuple(
         read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
     )
@@ -185,12 +189,13 @@ def test_newton_krylov_reproduces_pw_x_under_a_constrained_moment(
     assert np.asarray(result.magnetization_vector) == pytest.approx(
         np.asarray(reference.magnetization_vector), abs=6e-3
     )
-    printed = [
-        float(line.split("=")[1])
-        for line in Path(benchmark("pw_noncolin", name)).read_text().splitlines()
-        if "constraint energy" in line
-    ]
-    assert result.constraint_energy == pytest.approx(printed[-1], abs=1e-6)
+    if scheme == "atomic":
+        printed = [
+            float(line.split("=")[1])
+            for line in Path(benchmark("pw_noncolin", name)).read_text().splitlines()
+            if "constraint energy" in line
+        ]
+        assert result.constraint_energy == pytest.approx(printed[-1], abs=1e-6)
 
 
 def test_no_constraint_is_no_change(qe_testsuite, pseudo_dir, tmp_path_factory):
