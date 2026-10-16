@@ -144,3 +144,133 @@ def test_a_measured_flat_direction_is_held_and_the_rest_converges():
             np.testing.assert_allclose(np.abs(stepper.flat[0]), [0.0, 0.0, 1.0],
                                        atol=1e-6)
             assert np.linalg.norm(w[:2]) < 1.0e-5
+
+
+# ---------------------------------------------------------------------------
+# I78: rotate_moments on a run that keeps its symmetry.
+# ---------------------------------------------------------------------------
+
+from pathlib import Path
+from types import SimpleNamespace
+
+from defuqumat.scf.driver import _refuse_rotating_moments
+from defuqumat.system.symmetry import Symmetries, orientation_free_symmetries
+
+_COBALT = Path(__file__).resolve().parents[1] / "data" / "qe" / "co-tetragonal-relaxed-mae.in"
+
+
+def _cobalt_system(*, nosym: bool, angle: float = 45.0):
+    """Tetragonal cobalt with the coupling, ``angle`` degrees off ``c`` in the xz plane."""
+    from defuqumat.system.builder import build_system
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = _COBALT.read_text().replace(
+        "angle1(1) = 0.0, angle2(1) = 0.0,", f"angle1(1) = {angle}, angle2(1) = 0.0,")
+    if not nosym:
+        text = text.replace("nosym = .true.,", "")
+    return build_system(parse_pw_input(text))
+
+
+def _stub(*, nosym=False, turning=False, hubbard=False, paw=False):
+    return SimpleNamespace(
+        is_hubbard=hubbard, is_paw=paw,
+        system=SimpleNamespace(nosym=nosym, turning_moments=turning))
+
+
+def test_a_symmetric_run_without_the_turning_group_is_refused():
+    """The starting orientation's group is refused; nosym and the turning group are not.
+
+    Not because the run breaks it (it does not, see the stepper test below) but
+    because it pins the moments to its fixed subspace (I78)."""
+    with pytest.raises(ValueError, match="with_turning_moments"):
+        _refuse_rotating_moments(_stub(), None, True)
+    # Either way out of the refusal is accepted.
+    _refuse_rotating_moments(_stub(nosym=True), None, True)
+    _refuse_rotating_moments(_stub(turning=True), None, True)
+
+
+def test_the_sibling_refusals_of_rotate_moments_still_fire_on_the_turning_group():
+    """Coupling, Hubbard U and field are refused whatever the group."""
+    with pytest.raises(ValueError, match="spin-orbit"):
+        _refuse_rotating_moments(_stub(turning=True), None, False)
+    with pytest.raises(NotImplementedError, match="Hubbard"):
+        _refuse_rotating_moments(_stub(turning=True, hubbard=True), None, True)
+    with pytest.raises(NotImplementedError, match="magnetic field"):
+        _refuse_rotating_moments(_stub(turning=True), object(), True)
+
+
+def test_the_orientation_free_group_keeps_identity_and_inversion_only():
+    """``det(R) R = 1`` and no time reversal; translations are carried."""
+    e = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+    i = ((-1, 0, 0), (0, -1, 0), (0, 0, -1))
+    c2 = ((-1, 0, 0), (0, -1, 0), (0, 0, 1))
+    group = Symmetries(rotations=(e, c2, i, e, i),
+                       translations=((0, 0, 0), (0, 0, 0), (0, 0, 0.5),
+                                     (0.5, 0.5, 0.5), (0, 0, 0)),
+                       time_reversed=(0, 0, 0, 0, 1))
+    kept = orientation_free_symmetries(group)
+    assert kept.rotations == (e, i, e)
+    assert kept.translations == ((0, 0, 0), (0, 0, 0.5), (0.5, 0.5, 0.5))
+    assert not kept.magnetic
+
+
+def test_the_turning_group_rebuilds_the_cobalt_k_set_between_the_two_ends():
+    """Cobalt 45 degrees off ``c``: 18 points nosym, 10 with ``{E, I}``, fewer at the start's group.
+
+    The 3x3x2 grid has two points equal to their own inverse (``k_z = 0, 1/2``
+    at ``k_x = k_y = 0``), so inversion leaves ``(18 - 2) / 2 + 2 = 10``. The
+    starting orientation's magnetic group is larger than ``{E, I}`` (the
+    two-fold axis along ``y`` with time reversal, and its mirror), so its
+    wedge is smaller still: the k-set the refusal keeps out, since that group
+    pins the moment to the ``xz`` plane.
+    """
+    full = _cobalt_system(nosym=True)
+    start = _cobalt_system(nosym=False)
+    turning = start.with_turning_moments()
+
+    assert full.kpoints.nk == 18
+    assert turning.kpoints.nk == 10
+    assert start.kpoints.nk < 10
+    assert start.symmetry_group().nsym > 2
+
+    group = turning.symmetry_group()
+    assert group.nsym == 2 and not group.magnetic
+    assert {tuple(map(tuple, r)) for r in group.rotation_array()} == {
+        ((1, 0, 0), (0, 1, 0), (0, 0, 1)), ((-1, 0, 0), (0, -1, 0), (0, 0, -1))}
+    # The k-set and the symmetrisation group are one group: the grid rebuilt
+    # from grid_symmetry is the k-set the System carries.
+    rotations, time_reversal, t_rev = turning.grid_symmetry()
+    assert len(rotations) == 2 and not time_reversal
+    assert np.isclose(float(np.sum(turning.kpoints.weights)),
+                      float(np.sum(full.kpoints.weights)))
+    # Under nosym the flag changes nothing about the sampling.
+    assert full.with_turning_moments().kpoints.nk == 18
+    # And switching it off gives the starting group's wedge back.
+    assert turning.with_turning_moments(False).kpoints.nk == start.kpoints.nk
+
+
+def test_a_paw_run_on_the_turning_group_is_refused_and_nosym_paw_is_not():
+    """PAW keeps the refusal under symmetry (I78 measured it on ultrasoft only)."""
+    with pytest.raises(NotImplementedError, match="PAW"):
+        _refuse_rotating_moments(_stub(turning=True, paw=True), None, True)
+    _refuse_rotating_moments(_stub(nosym=True, paw=True), None, True)
+
+
+def test_the_stepper_keeps_the_starting_group_when_the_torque_respects_it():
+    """Every step is built from torques alone, so it commutes with their symmetry.
+
+    The 45-degree cobalt start has ``C2y`` and ``sigma_y`` with time reversal;
+    each acts on a rotation vector as ``det(R) R = C2y``, so a torque that
+    respects the group lies along ``y``, and the turn it gives keeps the moment
+    in the ``xz`` plane. This is why the starting group's wedge stays complete
+    along the run (I78, the verifier's argument) and also why that group pins
+    the moment. Fed torques along ``y`` of varying size, through the first step,
+    the BFGS updates and the trust radius, every step stays along ``y``.
+    """
+    stepper = OrientationStepper()
+    for g in (0.3, 0.1, -0.05, 0.02, 0.001, -0.0004):
+        step = stepper.propose(np.array([0.0, g, 0.0]), accuracy=1.0e-9)
+        assert step is not None
+        assert step[0] == 0.0 and step[2] == 0.0
+    m = stepper.total @ np.array([np.sin(np.pi / 4), 0.0, np.cos(np.pi / 4)])
+    assert abs(m[1]) < 1.0e-15

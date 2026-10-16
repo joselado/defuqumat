@@ -36,6 +36,7 @@ from defuqumat.system.symmetry import (
     find_symmetries,
     lattice_point_group,
     magnetic_symmetries,
+    orientation_free_symmetries,
 )
 from defuqumat.units import ANGSTROM_TO_BOHR, RY_TO_EV
 from defuqumat.vdw.registry import canonical_vdw_corr
@@ -171,6 +172,16 @@ class System(eqx.Module):
     #: magnetic_sym``, so it is independent of :attr:`nosym` -- a run may keep
     #: the rotations and still want both halves of the star.
     noinv: bool = eqx.field(static=True, default=False)
+    #: ``turning_moments``: keep only the operations that stay symmetries when
+    #: every moment is turned by the same rotation
+    #: (:func:`~defuqumat.system.symmetry.orientation_free_symmetries`: the
+    #: identity and the inversion, with their translations), in the group and
+    #: in the k-set it reduces. What ``run_scf(rotate_moments=True)`` asks for
+    #: on a run that keeps its symmetry: the group that constrains no
+    #: orientation, where the starting orientation's group would hold the
+    #: moments in its fixed subspace (I78). Not a ``pw.x`` keyword; set it with
+    #: :meth:`with_turning_moments`, which rebuilds the k-points.
+    turning_moments: bool = eqx.field(static=True, default=False)
     #: ``tstress`` (``&control``): compute the stress tensor once the SCF has
     #: converged. It is a property of the *run* rather than of the system, and
     #: it lives here for the same reason :attr:`calculation` does -- this is the
@@ -717,6 +728,33 @@ class System(eqx.Module):
             ),
         )
 
+    def with_turning_moments(self, turning: bool = True) -> "System":
+        """The same run with the group a turning orientation keeps, k-points rebuilt.
+
+        ``run_scf(rotate_moments=True)`` turns every moment by one rotation
+        after each mix, with the k-set fixed before the first iteration. The
+        stepper keeps the starting orientation's magnetic group (each turn is
+        built from a torque that respects it), so that group's wedge stays
+        complete, but it also holds the moments exactly in the group's fixed
+        subspace, which is why ``run_scf`` refuses it. The operations that are
+        symmetries of every turned texture, and constrain no orientation, are
+        the identity and the inversion, with their
+        fractional translations
+        (:func:`~defuqumat.system.symmetry.orientation_free_symmetries`), and
+        this keeps exactly those, in :meth:`symmetry_group` and in the k-set,
+        which is rebuilt as :meth:`with_moments` rebuilds it. On a
+        centrosymmetric cell that halves the k-set, roughly, against
+        ``nosym``. Under ``nosym`` the k-set is the full grid either way.
+        """
+        replaced = dataclasses.replace(self, turning_moments=bool(turning))
+        return dataclasses.replace(
+            replaced,
+            kpoints=replaced._respin_kpoints(
+                self.nspin, self.starting_magnetization, self.angle1,
+                self.angle2,
+            ),
+        )
+
     def with_cell(self, at, positions=None) -> "System":
         """The same crystal in a relaxed cell, with its k-points rebuilt.
 
@@ -830,6 +868,10 @@ class System(eqx.Module):
                 self.cell, self.structure, symmetries, moments,
                 fields=self.atomic_b_field,
             )
+        if getattr(self, "turning_moments", False):
+            # The same filter :meth:`symmetry_group` applies, or the k-set and
+            # the symmetrisation group would disagree.
+            symmetries = orientation_free_symmetries(symmetries)
         rotations = None if self.nosym else symmetries.rotation_array()
         t_rev = None if self.nosym else symmetries.t_rev_array()
 
@@ -955,6 +997,8 @@ class System(eqx.Module):
                 self.cell, self.structure, symmetries, self.local_moments,
                 fields=self.atomic_b_field,
             )
+        if getattr(self, "turning_moments", False):
+            symmetries = orientation_free_symmetries(symmetries)
         return symmetries
 
 

@@ -2421,6 +2421,17 @@ class Calculator:
         return self._derived(self.system.with_moments(per_atom), seed=True,
                              magnetization=magnetization)
 
+    def with_turning_moments(self, turning: bool = True) -> "Calculator":
+        """A calculator whose group and k-set survive ``get_scf(rotate_moments=True)``.
+
+        See :meth:`~defuqumat.system.builder.System.with_turning_moments`: the
+        identity and the inversion are kept, with their translations, and the
+        k-points are rebuilt with them. The converged state crosses as a seed,
+        as it does through :meth:`with_kpoints`, since the crystal has not moved
+        and only the sampling has.
+        """
+        return self._derived(self.system.with_turning_moments(turning), seed=True)
+
     def _derived(self, system: System, *, seed: bool = False, scf=None,
                  magnetization: str = "auto", basis=None) -> "Calculator":
         """A calculator on ``system``, sharing this one's pseudos and options.

@@ -47,7 +47,7 @@ __all__ = ["Symmetries", "lattice_point_group", "find_symmetries", "is_supercell
            "symmetrize_atom_cartesian_tensor",
            "check_symmetry", "check_lattice_symmetry",
            "magnetic_symmetries", "magnetization_signs",
-           "collinear_symmetries",
+           "collinear_symmetries", "orientation_free_symmetries",
            "symmetrize_magnetization", "symmetrize_vector_density",
            "symmetrize_tensor_density"]
 
@@ -598,6 +598,47 @@ def collinear_symmetries(
             np.all(np.abs(values[mapping[s]] - values) < tolerance)
             for values, tolerance in patterns
         ):
+            kept.append(symmetries.rotations[s])
+            translations.append(symmetries.translations[s])
+    return Symmetries(rotations=tuple(kept), translations=tuple(translations))
+
+
+def orientation_free_symmetries(symmetries: Symmetries) -> Symmetries:
+    """The operations that stay symmetries however the moments are turned together.
+
+    What a run that turns its moments (``rotate_moments``, Route C of
+    ``notes/ORIENTATION-NEXT.md``) may reduce its k-set with and symmetrise with,
+    since the k-set is fixed before the first iteration and the orientation is
+    not. A global spin rotation ``Q`` takes every moment to ``Q m``; an
+    operation acts on an axial vector as ``det(R) R`` (times ``-1`` under time
+    reversal), and it remains a symmetry of ``Q m`` for every ``Q`` only if that
+    action commutes with all of SO(3), so only if ``det(R) R = 1``: ``R = E`` or
+    ``R = -E`` (the inversion, ``-1`` in crystal coordinates in any basis), each
+    with any fractional translation. The texture test has already been passed
+    by ``symmetries`` (the output of :func:`magnetic_symmetries`), and a rigid
+    rotation preserves it, since ``m_{g(a)} = m_a`` holds for ``Q m`` exactly
+    when it holds for ``m``.
+
+    **The operations kept with time reversal are dropped**, conservatively:
+    ``{+-E | t}`` followed by time reversal acts as ``-1`` on every moment, which
+    also commutes with ``Q``, so they are symmetries of every turned texture in
+    principle; no cell here has measured them under the stepper, and a smaller
+    group is always a correct one.
+
+    The entry in ``notes/INCOMPATIBILITIES.md`` (I78) asked for the magnetic
+    group and the k-set to be rebuilt as the moments turn. That is not needed:
+    the stepper keeps the starting orientation's group exactly, since every
+    turn is built from a torque that respects it, but that group also pins
+    the moments in its fixed subspace. This group never needs rebuilding and
+    pins nothing.
+    """
+    identity = np.eye(3, dtype=int)
+    t_rev = symmetries.t_rev_array()
+    kept, translations = [], []
+    for s, rotation in enumerate(symmetries.rotation_array()):
+        if t_rev[s]:
+            continue
+        if np.array_equal(rotation, identity) or np.array_equal(rotation, -identity):
             kept.append(symmetries.rotations[s])
             translations.append(symmetries.translations[s])
     return Symmetries(rotations=tuple(kept), translations=tuple(translations))
