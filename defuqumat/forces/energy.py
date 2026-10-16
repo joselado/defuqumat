@@ -382,13 +382,13 @@ def frozen_energy(
     if not spinors:
         # ``spinors`` is opt-in here for the same reason it is on
         # :func:`energy_at`: the *force* asks for it
-        # (:func:`defuqumat.forces.autodiff.autodiff_forces`), and
-        # :mod:`defuqumat.response.phonon` and :mod:`defuqumat.response.born`
-        # call this same function for a **second** derivative, whose first-order
-        # wavefunctions come from a Sternheimer solve that has no spinor form.
-        # Their own guard is
-        # :func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime`;
-        # this keeps that from being the only one.
+        # (:func:`defuqumat.forces.autodiff.autodiff_forces`), and so do
+        # :mod:`defuqumat.response.born` and the ``Gamma`` dynamical matrix of
+        # :mod:`defuqumat.response.phonon`, each after its own guard has passed
+        # the spinor regime it was measured in
+        # (:func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime`).
+        # A caller that never asks -- the elastic constants, the walked phonon
+        # route -- is refused here, so the Sternheimer guard is not the only one.
         reject_spinors(calculation)
     reject_spinor_spiral(calculation)
     return energy_at(
