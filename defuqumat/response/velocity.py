@@ -95,6 +95,91 @@ __all__ = ["VelocityOperator", "BandVelocities", "band_velocities",
 _CARTESIAN = jnp.eye(3)
 
 
+def whole_sphere(calculation):
+    """A gamma-storage calculation on the whole sphere, and the map onto it.
+
+    Returns ``(whole, (source, conjugate, mask))``: ``whole`` is
+    ``calculation.at_kpoints`` at the same ``k = 0`` with the half-sphere flag
+    dropped, which shares every k-independent array and rebuilds only the
+    sphere, ``|k+G|^2`` and ``vkb``; ``source[j]`` is the stored plane wave that
+    whole-sphere slot ``j`` reads, ``conjugate[j]`` whether it reads it as
+    ``c(-G) = conj(c(G))``, and ``mask`` the whole sphere's padding.
+
+    **Why not a half-sphere rule.** ``dH/dk`` is odd in ``G``, so a real
+    state's tangent obeys ``dc(-G) = -conj(dc(G))`` and the exact half-sum
+    would be ``2i Im(sum) - (G = 0)`` where every packed kernel the ``jvp``
+    passes through applies ``2 Re(sum) - (G = 0)``. Measured on displaced
+    two-atom silicon before this existed: ``max|v| = 0.863 Ry bohr`` under the
+    half sphere against ``1.8e-15`` on the whole one.
+
+    The slots are aligned by **Miller index** on the shared smooth set, never
+    by position in a list. The map is built on the host from the k-point list
+    and the sphere, so it refuses a calculation whose arrays are traced (a
+    chunk inside a compiled walk), naming the route that works.
+
+    **Memory.** The operator then carries the whole sphere's ``vkb`` and
+    ``|k+G|^2`` (``2 npwx - 1`` wide against ``npwx``) and the unfolded states,
+    ``nspin nbnd (2 npwx - 1)`` complex numbers: the factor of two the storage
+    saved, given back for the velocity only, at the one k-point it has.
+    """
+    from defuqumat.scf.driver import _is_traced
+
+    kpoints = calculation.system.kpoints
+    half = calculation.basis.planewaves
+    if any(_is_traced(x) for x in (half.indices, half.mask, kpoints.coords,
+                                    calculation.system.cell.at)):
+        raise NotImplementedError(
+            "the velocity operator dH/dk under gamma-only storage (K_POINTS "
+            "gamma) is built on the whole sphere at k = 0, which is a host-side "
+            "rebuild and cannot be made inside a compiled walk over k-chunks; "
+            "this consumer builds its operator there. band_velocities and "
+            "VelocityOperator.matrix_elements on the whole calculation unfold "
+            "the states themselves. Otherwise run the same cell with an "
+            "explicit k = 0 (K_POINTS automatic, 1 1 1 0 0 0), which is the "
+            "same physics on the whole sphere"
+        )
+    import dataclasses
+
+    whole = calculation.at_kpoints(dataclasses.replace(kpoints, gamma_only=False))
+    if whole.gamma_only:
+        raise AssertionError("at_kpoints kept the half sphere")
+    miller = np.asarray(calculation.basis.smooth.miller)
+    # The slot of each stored plane wave in the padded ``psi``, not its rank
+    # among the unmasked ones: the two agree only for a prefix mask.
+    slots = np.flatnonzero(np.asarray(half.mask)[0])
+    stored = np.asarray(half.indices)[0][slots]
+    lookup = {tuple(g): int(slot) for slot, g in zip(slots, miller[stored])}
+    wanted = miller[np.asarray(whole.basis.planewaves.indices)[0]]
+    mask = np.asarray(whole.basis.planewaves.mask)[0]
+    source = np.zeros(mask.shape, dtype=np.int32)
+    conjugate = np.zeros(mask.shape, dtype=bool)
+    for j in np.flatnonzero(mask):
+        g = tuple(wanted[j])
+        if g in lookup:
+            source[j] = lookup[g]
+        else:
+            source[j] = lookup[tuple(-wanted[j])]
+            conjugate[j] = True
+    return whole, (source, conjugate, mask)
+
+
+def _unfold(half_sphere, psi):
+    """Half-sphere states ``(..., npwx_half)`` onto the whole sphere, by :func:`whole_sphere`'s map.
+
+    ``jnp`` throughout, so a derivative taken through the states survives.
+    Idempotent by width: states already on the whole sphere pass unchanged.
+    """
+    psi = upload(psi)
+    if half_sphere is None:
+        return psi
+    source, conjugate, mask = half_sphere
+    if psi.shape[-1] == mask.shape[0]:
+        return psi
+    gathered = jnp.take(psi, jnp.asarray(source), axis=-1)
+    gathered = jnp.where(jnp.asarray(conjugate), gathered.conj(), gathered)
+    return jnp.where(jnp.asarray(mask), gathered, jnp.zeros_like(gathered))
+
+
 @dataclass
 class BandVelocities:
     """``d(eps_n)/dk`` at every band and k-point, in Ry bohr.
@@ -155,11 +240,20 @@ class VelocityOperator:
 
     def __init__(self, calculation, v_scf, ddd_paw=None, ns=None, kcart=None,
                  dipole=None, local_terms=None):
-        if calculation.spiral:
+        if calculation.spiral and calculation.is_hubbard:
             raise NotImplementedError(
-                "the velocity operator on a spin spiral is not implemented: the "
-                "two spinor components sit on spheres centred at k + q/2 and "
-                "k - q/2, so dH/dk moves both (see Calculation.at_spiral_q)"
+                "the velocity operator on a spin spiral with DFT+U is not "
+                "implemented: the Hubbard projectors carry k on both spheres "
+                "and that tangent has no check")
+        if calculation.spiral and calculation.is_ultrasoft:
+            # The norm-conserving spiral is carried below. The augmented one
+            # would need ``dS/dk`` and the displaced table's own ``k``
+            # dependence through both spheres, and nothing has checked it.
+            raise NotImplementedError(
+                "the velocity operator on an ultrasoft or PAW spin spiral is not "
+                "implemented: the norm-conserving spiral is (both spheres "
+                "k + q/2 and k - q/2 moved together, checked against the NiI "
+                "supercell), but the augmented one has no check"
             )
         if calculation.is_paw and ddd_paw is None:
             # The same rule the Hubbard branch below follows, and for the same
@@ -184,6 +278,17 @@ class VelocityOperator:
                 "carries a velocity of its own, and leaving the term out gives "
                 "a plausible operator that is missing the Hubbard shift"
             )
+        # **Gamma storage is unfolded, not differentiated in place.** The
+        # operator is odd in G, so its tangent has the opposite conjugation
+        # parity from the states and every gamma-packed kernel it passes
+        # through (``calbec_gamma``'s ``2 Re``, the conjugate fill of the
+        # local term) would need its own rule under the ``jvp``. The whole
+        # sphere at an explicit ``k = 0`` is the same physics, so the operator
+        # is built there and the states are unfolded onto it on entry
+        # (:func:`whole_sphere`).
+        self._half_sphere = None
+        if getattr(calculation, "gamma_only", False):
+            calculation, self._half_sphere = whole_sphere(calculation)
         self.calculation = calculation
         self.v_scf = v_scf
         self.ddd_paw = ddd_paw
@@ -198,9 +303,23 @@ class VelocityOperator:
         # outright, which is what a *traced* strain needs.
         if kcart is None:
             kcart = getattr(calculation, "_kcart", None)
+        if kcart is None and calculation.spiral:
+            # **A spiral's basis list is the doubled one**, ``k + q/2`` for the
+            # up component and ``k - q/2`` for the down, and ``dH/dk`` moves
+            # both halves by the same ``dk`` -- the tangent below is broadcast
+            # over every row, which is exactly that. ``q`` itself does not move.
+            from defuqumat.system.spiral import spiral_kcart
+
+            kcart = spiral_kcart(calculation.system.kpoints,
+                                 calculation.system.spiral_q, calculation.system.cell)
         if kcart is None:
             kcart = calculation.system.kpoints.cartesian(calculation.system.cell)
         self.kcart = jnp.asarray(kcart)
+        if calculation.spiral and self.kcart.shape[0] != 2 * calculation.system.kpoints.nk:
+            raise ValueError(
+                "a spin spiral's velocity operator differentiates its doubled "
+                "basis list, k + q/2 then k - q/2: kcart must have 2 nk rows, got "
+                f"{self.kcart.shape[0]} for nk = {calculation.system.kpoints.nk}")
         # ``dpqq`` for :meth:`augmentation_connection`, when the caller has built
         # it already (:func:`~defuqumat.response.efield._augmentation_dipole`). It
         # is k-independent, and an operator built inside a compiled walk over
@@ -232,6 +351,7 @@ class VelocityOperator:
         cartesian 3-vector in the reciprocal-space basis ``k`` is written in
         (1/bohr); it need not be normalised, and the result is linear in it.
         """
+        self._refuse_a_sphere_shaped_output("apply")
         return self._tangent(psi, direction, overlap=False)
 
     def apply_s(self, psi: jnp.ndarray, direction) -> jnp.ndarray:
@@ -241,6 +361,7 @@ class VelocityOperator:
         carries a velocity whenever ``qq`` is not ``None``. Skipping it is what
         would make an ultrasoft band velocity wrong by the norm's own motion.
         """
+        self._refuse_a_sphere_shaped_output("apply_s")
         return self._tangent(psi, direction, overlap=True)
 
     def projectors(self, direction) -> jnp.ndarray:
@@ -268,6 +389,7 @@ class VelocityOperator:
         carries ``<d(beta)/dk|psi>`` beside the augmentation dipole, and the two
         are on the same convention: ``dpqq`` is also about the atom's centre.
         """
+        self._refuse_a_sphere_shaped_output("projectors")
         tangent = jnp.broadcast_to(
             jnp.asarray(direction, dtype=self.kcart.dtype), self.kcart.shape
         )
@@ -301,10 +423,31 @@ class VelocityOperator:
         which needs both, asks for them together rather than paying for the
         rebuild twice per direction.
         """
+        self._refuse_a_sphere_shaped_output("both")
         return self._tangent(psi, direction, overlap=None)
 
+    def _refuse_a_sphere_shaped_output(self, name):
+        """Refuse, under gamma storage, a method whose output is as wide as the sphere.
+
+        The operator is built on the whole sphere (:func:`whole_sphere`), so
+        ``dH/dk|psi>`` comes out there, and it has no half-sphere form a caller
+        could contract with its own states by ``2 Re(sum) - (G = 0)``: the
+        tangent is odd in ``G``. The matrix elements and the band velocities
+        are contracted here and need no such form.
+        """
+        if self._half_sphere is not None:
+            raise NotImplementedError(
+                f"VelocityOperator.{name} under gamma-only storage (K_POINTS "
+                f"gamma) is not implemented: the velocity operator dH/dk is odd "
+                f"in G, so dH/dk|psi> has no half-sphere storage a caller could "
+                f"contract with 2 Re(sum) minus the G = 0 term. The matrix "
+                f"elements and band_velocities are computed on the whole sphere "
+                f"and are available; for the rest run the same cell with an "
+                f"explicit k = 0 (K_POINTS automatic, 1 1 1 0 0 0)"
+            )
+
     def _tangent(self, psi, direction, overlap, contract=False):
-        psi = jnp.asarray(psi)
+        psi = _unfold(self._half_sphere, psi)
         tangent = jnp.broadcast_to(
             jnp.asarray(direction, dtype=self.kcart.dtype), self.kcart.shape
         )
@@ -533,6 +676,7 @@ class VelocityOperator:
         (:mod:`defuqumat.response.photocurrent`) -- which has no such term to
         lose: it is the second derivative of ``H``, not of a solution of ``H``.
         """
+        self._refuse_a_sphere_shaped_output("apply_second")
         return self._second_tangent(psi, first, second, contract=False)
 
     def _second_tangent(self, psi, first, second, contract):
@@ -552,7 +696,7 @@ class VelocityOperator:
             return jax.jvp(inner, (kcart,), (first,))[1]
 
         # Compiled whole, as :meth:`_tangent` is (:mod:`defuqumat.eager`).
-        return compiled(nested, jnp.asarray(psi), self.kcart, broadcast(first),
+        return compiled(nested, _unfold(self._half_sphere, psi), self.kcart, broadcast(first),
                         broadcast(second))
 
     def second_matrix_elements(self, psi: jnp.ndarray,
@@ -607,7 +751,7 @@ class VelocityOperator:
         (:func:`~defuqumat.batching.upload`), at its own size on a card where
         ``jnp.asarray`` peaks at twice it.
         """
-        psi = upload(psi)
+        psi = _unfold(self._half_sphere, psi)
         eigenvalues = jnp.asarray(eigenvalues)
         if eigenvalues.ndim == 2:  # (nk, nbnd) -- the squeezed unpolarized shape
             eigenvalues = eigenvalues[None]
@@ -625,7 +769,7 @@ class VelocityOperator:
         for axis in _CARTESIAN:
             # One ``jvp`` for the pair: the projector rebuild is the whole cost
             # and both tangents come out of the same one.
-            velocity, overlap = self.both(psi, axis)
+            velocity, overlap = self._tangent(psi, axis, overlap=None)
             if labels is None:
                 dh = jnp.einsum("skng,skng->skn", psi.conj(), velocity)
                 ds = jnp.einsum("skng,skng->skn", psi.conj(), overlap)

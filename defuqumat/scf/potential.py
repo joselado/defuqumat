@@ -664,7 +664,13 @@ def spiral_box_frequencies(grid, cell: Cell, q_crystal, ecut: float):
         j = np.arange(n)
         axes.append(j - n * np.round((j - qi) / n))
     miller = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
-    bg = np.asarray(jax.device_get(cell.bg), dtype=float)
+    # ``bg`` from the lattice vectors on the host, not ``cell.bg``: that is a
+    # JAX computation, so inside a trace it returns a tracer even of a captured
+    # concrete cell, and the first ``'grad_m'`` spiral potential a force or a
+    # stress traced on a cold cache died here with a
+    # ``TracerArrayConversionError``. ``a_i . b_j = 2 pi delta_ij``.
+    at = np.asarray(jax.device_get(cell.at), dtype=float)
+    bg = 2.0 * np.pi * np.linalg.inv(at).T
     g2 = np.sum(((miller - q) @ bg) ** 2, axis=-1)
     return miller.astype(np.int32), g2 <= float(ecut) * (1.0 + 1.0e-12)
 

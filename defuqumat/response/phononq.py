@@ -40,8 +40,9 @@ therefore in the Ewald sum, ``d2ionq``.
 **What is refused, and it is most things.** This lands the norm-conserving
 insulator and the norm-conserving metal on a full k-grid: no ultrasoft or PAW
 (``S`` moves with the atoms and the multiplier matrix has no two-sphere form),
-no metal at ``q = 0`` (that is ``ef_shift``, and :func:`~defuqumat.response.
-phonon.dynamical_matrix` has it), no spin polarization,
+no metal at a *nonzero* reciprocal lattice vector ``q = G`` (``ef_shift_wfc``
+would add the states at ``k`` to a ``dpsi`` on the ``k + G`` sphere; a metal at
+``q = 0`` carries ``ef_shift`` here as at ``Gamma``), no spin polarization,
 no spinor, no nonlinear core correction (``dynmatcc.f90:105`` calls
 ``set_drhoc(xq, drc)``, so unlike ``dynmat_us`` the core term *is* a function of
 ``q``), and no symmetry -- the small group of ``q`` and the star of ``q`` are
@@ -304,10 +305,10 @@ class TwoSphereSolver(SternheimerSolver):
         ``deltae = et(jbnd, ikq) - et(ibnd, ikk)``. The ``alpha_pv`` piece is
         admitted for ``j`` inside ``nbnd_occ(ikq)``, the column mask.
 
-        There is no ``ef_shift`` anywhere on this route: ``ph.x`` shifts the
-        Fermi level only at ``q = 0`` (``lmetq0``), where a uniform change of
-        the electron count is possible, and :func:`dynamical_matrix_at_q`
-        refuses a metal there.
+        The Fermi level's shift is not here: ``ph.x`` shifts it only at
+        ``q = 0`` (``lmetq0``), where a uniform change of the electron count is
+        possible, and it acts on the density and on ``dpsi`` after the solve,
+        not on the projector (:func:`screening_loop_at_q`).
         """
         occupation, weights = self._projection_at(
             self.eigenvalues[spin][ik], self.eigenvalues_kq[spin][ik],
@@ -968,11 +969,33 @@ class _WholeDisplacementsAtQ:
             response.append(solver.response_density_at_q(solution.dpsi))
         return response
 
+    def shift_states(self, shifts) -> None:
+        """``ef_shift_wfc`` on every mode's ``dpsi``, ``shifts`` in mode order.
+
+        Only at ``q = 0``, where the ``k + q`` sphere is the ``k`` sphere and
+        ``psi_k`` is added to ``dpsi`` index by index; the shapes are checked
+        rather than assumed. The rows are the solver's, cut at the grid's
+        widest ``nbnd_occ``; a row past a k-point's own cut has
+        ``delta(ef - eps)`` below the cut's threshold, where ``ef_shift_wfc``
+        stops at ``nbnd_occ(ik)``, and the Gamma route keeps every band.
+        """
+        solver = self.solver
+        for index in range(3 * self.nat):
+            atom, cart = divmod(index, 3)
+            dpsi = self.dpsi[atom, cart]
+            if jnp.shape(dpsi) != jnp.shape(solver.psi):
+                raise ValueError(
+                    f"ef_shift_wfc needs dpsi on the k sphere: dpsi is "
+                    f"{jnp.shape(dpsi)} and psi {jnp.shape(solver.psi)}")
+            self.dpsi[atom, cart] = solver.fermi_level_shift_states(
+                dpsi, shifts[index])
+
 
 def screening_loop_at_q(
     calculation, displacements, density, q_cart, alpha_mix: float = 0.7,
     tr2: float = 1e-14, max_iterations: int = 100, mixing_mode: str = "anderson",
     verbose: bool = False, threshold_cap: float | None = None,
+    shift_fermi_level: bool = False,
 ):
     """:func:`self_consistent_response_at_q`'s loop around a set of solves.
 
@@ -980,6 +1003,19 @@ def screening_loop_at_q(
     every k-point in one array, or a k-chunk at a time
     (:mod:`defuqumat.response.chunked_phonon`) -- and everything here acts on
     whole-grid objects: the kernel at ``q``, the convergence test and the mixer.
+
+    ``shift_fermi_level`` is ``ph.x``'s ``lmetq0``, a metal at ``q = 0``, and
+    it is three terms of ``dfpt_kernels.f90``, not one: inside the loop each
+    mode's response density takes ``def ldos`` before it is screened
+    (``ef_shift``, ``:359-365``), with ``def = -int drho / N(ef)`` complex as
+    ``efermi_shift.f90`` declares it; after the loop ``def`` is subtracted from
+    that mode's ``dV_scf`` (``:542-551``), which only a consumer of
+    ``dvscf`` reads; and ``dpsi`` takes ``(1/2) def delta(ef - eps) psi``
+    (``ef_shift_wfc``), which is what the assembly contracts. Each mode keeps
+    the ``def`` of the pass its ``dpsi`` was solved at, so a mode that stopped
+    early is shifted by its own last value. Only the whole route has the
+    displacements' ``shift_states``; :func:`dynamical_matrix_at_q` refuses the
+    k-chunked one at ``q = 0`` for a metal.
     """
     from defuqumat.response.mixing import ResponseMixer, ddv_scf
 
@@ -1023,8 +1059,12 @@ def screening_loop_at_q(
     # worst mode's ``|ddv_scf|^2`` per pass, the test the loop as a whole meets.
     modes = 3 * nat
     changes = [None] * modes
+    shifts = [0.0] * modes
     active = list(range(modes))
     drho = None
+    if shift_fermi_level:
+        # ``localdos``, once: the ground state does not change in the loop.
+        levels = displacements.solver.local_density_of_states()
     for iteration in range(max_iterations):
         thresholds = [_capped(pass_threshold(displacements.solver,
                                              [] if changes[index] is None
@@ -1039,6 +1079,10 @@ def screening_loop_at_q(
             drho = xp.zeros((nat, 3) + tuple(np.shape(response[0])), dtype=dtype)
         for index, field in zip(active, response):
             atom, cart = divmod(index, 3)
+            if shift_fermi_level:
+                # ``ef_shift``: ``drho <- drho + def ldos`` before the kernel.
+                field, shifts[index] = displacements.solver.fermi_level_shift(
+                    field, levels=levels)
             drho = _set(drho, (atom, cart), field)
 
         # ``ph.x``'s ``|ddv_scf|^2`` of each mode, as the Gamma loop tests it
@@ -1072,6 +1116,14 @@ def screening_loop_at_q(
                 host=host,
             )
             dvscf = _set(dvscf, (atom, cart), real + 1j * imaginary)
+
+    if shift_fermi_level:
+        # ``dfpt_kernels.f90:542-551``: ``dvscfp(:, is, ipert) - def(ipert)``
+        # on every channel, then ``ef_shift_wfc`` on ``dpsi``.
+        for index in range(modes):
+            atom, cart = divmod(index, 3)
+            dvscf = _set(dvscf, (atom, cart), dvscf[atom, cart] - shifts[index])
+        displacements.shift_states(shifts)
 
     # The input ``dV_scf`` the last ``dpsi`` was solved at, which on
     # convergence is the one kept (``ph.x``'s ``dvscfins``, what ``elphel``
@@ -1482,20 +1534,41 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
         )
 
 
+def _reciprocal_lattice_vector(cell, q_cart):
+    """``q`` in crystal coordinates rounded to integers when it is a reciprocal
+    lattice vector (to 1e-8), else ``None``. ``q_cart`` in 1/bohr."""
+    crystal = np.asarray(cell.k_to_crystal(np.asarray(q_cart) / cell.tpiba))
+    nearest = np.rint(crystal)
+    if np.max(np.abs(crystal - nearest)) < 1.0e-8:
+        return nearest
+    return None
+
+
+def at_zone_centre(cell, q_cart) -> bool:
+    """Whether ``q`` is ``0`` itself (to 1e-8 in crystal coordinates), where a
+    metal's Fermi level moves: ``ph.x``'s ``lgamma`` for ``lmetq0``."""
+    nearest = _reciprocal_lattice_vector(cell, q_cart)
+    return nearest is not None and not np.any(nearest)
+
+
 def _require_a_metallic_q(cell, q_cart) -> None:
-    """Where a metal is refused on this route: at ``q = 0``, by its missing term.
+    """Where a metal is refused on this route: at a nonzero ``q = G``, by its missing term.
 
     Both routes, whole and k-chunked, carry the metal branch of the two-sphere
-    projector, so the only refusal left is ``ef_shift``.
+    projector, and the whole route carries ``ef_shift`` at ``q = 0`` (I4), so
+    what is left is a reciprocal lattice vector other than zero.
     """
-    crystal = np.asarray(cell.k_to_crystal(np.asarray(q_cart) / cell.tpiba))
-    if np.max(np.abs(crystal - np.rint(crystal))) < 1.0e-8:
+    nearest = _reciprocal_lattice_vector(cell, q_cart)
+    if nearest is not None and np.any(nearest):
         raise NotImplementedError(
-            "a metal at q = 0 (or at a reciprocal lattice vector) through the "
-            "q != 0 route is not implemented: there the perturbation can change "
-            "the number of electrons and the Fermi level moves, which is "
-            "ph.x's ef_shift (lmetq0 = lgauss .AND. lgamma), and this route "
-            "carries none. Use get_phonons(), which does"
+            "a metal at a nonzero reciprocal lattice vector q = G through the "
+            "q != 0 route is not implemented: the perturbation there is lattice "
+            "periodic, so the Fermi level moves as at q = 0 (ph.x's ef_shift), "
+            "but the k + q sphere is the k + G sphere, and ef_shift_wfc adds "
+            "(1/2) def delta(ef - eps) psi_k, a state on the k sphere, to dpsi on "
+            "it, which needs the Miller-index map between the two spheres; "
+            "ph.x itself shifts the level only at xq = 0 (lmetq0 = lgauss .AND. "
+            "lgamma). Use q = 0, which this route carries, or get_phonons()"
         )
 
 
@@ -1572,6 +1645,15 @@ def dynamical_matrix_at_q(
     metal = calculation.system.occupations != "fixed"
     if metal:
         _require_a_metallic_q(cell, q_cart)
+    shift_fermi_level = metal and at_zone_centre(cell, q_cart)
+    if shift_fermi_level and streamed:
+        raise NotImplementedError(
+            "a metal at q = 0 through the k-chunked route of the dynamical "
+            "matrix at q is not implemented: its displacements have no ldos or "
+            "ef_shift_wfc pass at q (the Gamma route's StreamedDisplacements "
+            "has both), so the Fermi level's shift is not carried. Use "
+            "get_phonons(), whose k-chunked route does"
+        )
     result = _GroundState(wavefunctions, eigenvalues, density, becsum)
     # A metal's Fermi level is re-derived from these eigenvalues by the call
     # the SCF made, as the ``Gamma`` route does (``phonon._fermi_level``).
@@ -1632,6 +1714,7 @@ def dynamical_matrix_at_q(
             calculation, displacements, density, q_cart,
             alpha_mix=alpha_mix, tr2=tr2, max_iterations=max_iterations,
             verbose=verbose, threshold_cap=threshold_cap,
+            shift_fermi_level=shift_fermi_level,
         )
 
         matrix = (

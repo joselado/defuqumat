@@ -149,15 +149,19 @@ def test_the_lrc_kernel_is_a_constant_on_the_diagonal_and_needs_its_parameter():
 
 # --- the refusals ------------------------------------------------------------
 
-def test_a_reduced_k_set_is_refused_before_anything_is_computed():
-    """``chi_0(G, G')`` on a wedge would need a rotation in two G indices.
+def test_a_reduced_k_set_passes_and_a_magnetic_one_is_refused():
+    """``chi_0(G, G')`` on a wedge is completed with both G labels rotated at once.
 
-    P36's rank-N symmetriser is Cartesian and does not do it, so the whole grid
-    is required. ``si-epsilon.in`` is the shifted wedge the Sternheimer response
-    runs on and is exactly what must be refused here.
+    ``si-epsilon-unshifted.in`` is the wedge of the unshifted grid and passes;
+    the number that says the completion is right is the slow test beside the
+    absorption tests. A magnetic wedge is still refused by name, before
+    anything is computed.
     """
-    with pytest.raises(NotImplementedError, match="full k-grid"):
-        require_a_sum_over_states_regime(_calculation("si-epsilon"))
+    require_a_sum_over_states_regime(_calculation("si-epsilon-unshifted"))
+    with pytest.raises(NotImplementedError, match="magnetic"):
+        from defuqumat.system.wedge import wedge_group
+
+        wedge_group(_calculation("ni-noncol-111-nosource").system, quantity="chi_0")
 
 
 def test_an_ultrasoft_dataset_is_refused_by_name():
@@ -169,6 +173,115 @@ def test_an_ultrasoft_dataset_is_refused_by_name():
 def test_the_whole_grid_norm_conserving_insulator_is_accepted():
     """The complement of the refusals: the one regime that is supported."""
     require_a_sum_over_states_regime(_calculation("si-epsilon-unshifted-nosym"))
+
+
+def _spin_calculation(case: str, nspin: int, **spin) -> Calculation:
+    system = build_system(read_pw_input(CASES / f"{case}.in")).with_spin(nspin, **spin)
+    pseudos = tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+    )
+    return Calculation(system, pseudos)
+
+
+def _spinor_silicon() -> Calculation:
+    """``si-epsilon-unshifted-nosym`` with ``noncolin`` switched on and nothing else."""
+    parsed = read_pw_input(CASES / "si-epsilon-unshifted-nosym.in")
+    parsed.namelists["system"]["noncolin"] = True
+    system = build_system(parsed)
+    pseudos = tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+    )
+    return Calculation(system, pseudos)
+
+
+def test_collinear_spin_is_accepted():
+    """``nspin = 2`` is a sum over the two channels, not a refusal.
+
+    The pair ``(i, j)`` is a pair of states of one spin, since ``e^{-iG.r}``
+    and ``dH/dk`` are diagonal in spin, so the charge ``chi_0`` is the sum of
+    the channels' and nothing about it needs a tensor. Until the sum was
+    written this raised "restricted to nspin = 1"; the identity that it equals
+    the ``nspin = 1`` matrix on an unpolarized cell is in
+    ``tests/regression/test_tddft.py``.
+    """
+    require_a_sum_over_states_regime(
+        _spin_calculation("si-epsilon-unshifted-nosym", 2, tot_magnetization=0))
+
+
+def test_the_alda_kernel_refuses_a_polarized_density_and_halves_the_tangent():
+    """ALDA on a moment needs the 2x2 ``(n, m)`` kernel, which is not here.
+
+    Two halves, both without an SCF. A density with a moment is refused by
+    name. An unpolarized ``nspin = 2`` density gives the same matrix as the
+    ``nspin = 1`` density it splits, which is what the ``1/nspin`` tangent is
+    for: with a tangent of ones in both channels the kernel would come out
+    doubled, ``f_upup + f_updn`` instead of ``dv/dn``.
+    """
+    from defuqumat.tddft import alda_matrix
+
+    one = _calculation("si-epsilon-unshifted-nosym")
+    two = _spin_calculation("si-epsilon-unshifted-nosym", 2, tot_magnetization=0)
+    grid = tuple(int(n) for n in one.basis.dense.grid)
+    x = np.arange(grid[0])[:, None, None] / grid[0]
+    total = 0.03 * (1.0 + 0.4 * np.cos(2 * np.pi * x)) * np.ones(grid)
+    sphere = response_sphere(one, 4.0)
+
+    reference = np.asarray(alda_matrix(one, jnp.asarray(total[None]), sphere))
+    split = np.asarray(alda_matrix(two, jnp.asarray(np.stack([total, total]) / 2),
+                                   sphere))
+    assert np.abs(split - reference).max() <= 1e-12 * np.abs(reference).max()
+
+    polarized = np.stack([0.6 * total, 0.4 * total])
+    with pytest.raises(NotImplementedError, match="magnetized ground state"):
+        alda_matrix(two, jnp.asarray(polarized), sphere)
+
+
+def test_a_nonmagnetic_spinor_is_accepted_with_and_without_spin_orbit():
+    """A spinor with no moment is a charge-only response, which is what is built.
+
+    Until 2026-10-16 every spinor was refused, and by the **wrong** branch: a
+    noncollinear :class:`~defuqumat.scf.driver.Calculation` reads ``nspin = 4``,
+    so the collinear ``nspin != 1`` refusal fired first and the spinor and
+    spiral branches below it were unreachable. Both cells must *be* the regime
+    or the acceptance means nothing: a spinor (``noncolin``), carrying no
+    moment (``nspin_mag = 1``), one without and one with spin-orbit coupling.
+    """
+    plain = _spinor_silicon()
+    relativistic = _calculation("se-trigonal-soc")
+    for calculation in (plain, relativistic):
+        assert calculation.noncolin and calculation.nspin_mag == 1
+        assert not calculation.spiral
+        require_a_sum_over_states_regime(calculation)
+    assert not plain.system.lspinorb and relativistic.system.lspinorb
+
+
+def test_a_textured_spinor_is_still_refused_by_name():
+    """``nspin_mag = 4`` is the regime the charge-only pair density does not cover.
+
+    With a moment in the ground state the exchange-correlation kernel couples
+    the charge to the magnetization response, which nothing builds; the
+    Sternheimer referee refuses the same regime (P83). ``i-atom-soc`` is a
+    norm-conserving fully relativistic magnetic insulator, so the refusal that
+    fires is this one and not the ultrasoft or the metal one.
+    """
+    calculation = _calculation("i-atom-soc")
+    assert calculation.noncolin and calculation.nspin_mag == 4
+    assert not calculation.spiral and not calculation.is_ultrasoft
+    with pytest.raises(NotImplementedError, match="textured spinor"):
+        require_a_sum_over_states_regime(calculation)
+
+
+def test_a_spin_spiral_is_refused_by_its_own_reason():
+    """A spiral carries a moment too, so it must be checked before ``nspin_mag``.
+
+    Its missing term is a different one -- the two components sit on spheres at
+    ``k +- q/2``, so a pair density is not one gather -- and that is the message
+    a spiral has to reach.
+    """
+    calculation = _calculation("h-chain-spiral")
+    assert calculation.spiral and calculation.nspin_mag == 4
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        require_a_sum_over_states_regime(calculation)
 
 
 # --- the pair axis's working set ---------------------------------------------

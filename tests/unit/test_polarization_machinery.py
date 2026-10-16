@@ -208,9 +208,53 @@ def test_a_metal_is_refused_by_name():
     _refuse_ungapped(_System(occupations="from_input"))
 
 
-def test_two_spin_channels_are_refused_by_name():
-    with pytest.raises(NotImplementedError, match="nspin = 2"):
-        run_polarization(_System(nspin=2), (), None)
+def test_two_spin_channels_from_input_occupations_are_refused_by_name():
+    """``nspin = 2`` runs on ``tot_magnetization``'s counts and nothing else."""
+    with pytest.raises(NotImplementedError, match="from_input"):
+        run_polarization(_System(occupations="from_input", nspin=2), (), None)
+
+
+def test_a_two_channel_source_needs_its_channel_named():
+    """The invariants keep refusing ``nspin = 2``; only a named channel passes.
+
+    The Chern, Z2 and orbital-magnetization routes build a source without a
+    channel, and at ``nspin = 2`` they have two independent answers, so that
+    refusal must still fire. The polarization names the channel, whose phases
+    add, and a channel named on a run without two is a mistake.
+    """
+    from defuqumat.workflows.topology import DFTSource
+
+    with pytest.raises(NotImplementedError, match="two independent"):
+        DFTSource(system=_System(nspin=2), pseudos=(), density=None, nocc=4)
+    for spin in (0, 1):
+        DFTSource(system=_System(nspin=2), pseudos=(), density=None, nocc=4,
+                  spin=spin)
+    with pytest.raises(ValueError, match="nspin = 2"):
+        DFTSource(system=_System(nspin=1), pseudos=(), density=None, nocc=4,
+                  spin=0)
+    with pytest.raises(ValueError, match="0 or 1"):
+        DFTSource(system=_System(nspin=2), pseudos=(), density=None, nocc=4,
+                  spin=2)
+
+
+def test_two_channels_fold_apart_and_add_without_a_factor():
+    """``bp_c_phase.f90:775-782``: fold each channel, then add, then stop.
+
+    Up at 0.4 and down at 0.3 turns is 0.7, not the -0.3 a fold of the sum
+    gives, and not a doubled anything. At equal channels the sum is the
+    ``nspin = 1`` doubled phase, which is what a nonmagnetic two-channel run
+    must reproduce.
+    """
+    weights = np.array([0.5, 0.5])
+    up = combine_string_phases(2 * np.pi * np.array([0.4, 0.4]), weights, nspin=2)
+    down = combine_string_phases(2 * np.pi * np.array([0.3, 0.3]), weights, nspin=2)
+    assert up.total == pytest.approx(0.4, abs=1e-12)
+    assert down.total == pytest.approx(0.3, abs=1e-12)
+    assert up.total + down.total == pytest.approx(0.7, abs=1e-12)
+    single = combine_string_phases(2 * np.pi * np.array([0.3, 0.3]), weights, nspin=1)
+    assert single.total == pytest.approx(2 * down.total, abs=1e-12)
+    assert polarization_quantum([3.0, 5.0], nspin=2) == 1.0
+    assert polarization_quantum([4.0, 4.0], nspin=2) == 1.0
 
 
 def test_a_spin_spiral_is_refused_by_name():

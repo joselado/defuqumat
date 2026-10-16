@@ -26498,3 +26498,65 @@ Anderson (`Supervisor.beta`, doubled after three trials kept at once, up to 0.8)
 for the first and not yet measured on the bed. The terminal "at the eigensolver's floor" stop
 has not been seen to fire on a real cell. Checkpoint, pools and the ultracell are refused. No timing pair (DFTK, the reference for
 the algorithm, is not installed anywhere here). The fast gate has not been run on the branch.
+
+### P154 -- Twenty-nine refusals lifted from `notes/INCOMPATIBILITIES.md`, the overnight work on I1 to I48 in three integrations. ✅ FAST GATE (integration three) 2026-10-16 (slow files of integration two partly run), the overnight incompatibility work run on fable's decisions, each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-night` (`notes/INCOMPATIBILITIES-NIGHT.md`), not merged into master.
+
+Each unit's record is `notes/incompat/<ID>.md`, which carries the run directories, the mutations its verifier tried and what each one read. The six landed items, one sample each, deterministic:
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I1 band gap x `nspin = 2` | `o-atom-fixed-lsda` HOMO and LUMO -6.633898 eV against `pw.x` -6.6339; `atom-lsda` HOMO -6.633877 against -6.6338, gap 6.164453 against 6.1680, LUMO -0.469423 against the `gamma_only` -0.4658 and the full-sphere -0.4694 | `reference.out.o-atom-fixed-lsda:261`, `:250`; `reference.out.pw_atom-atom-lsda:295`; `print_ks_energies.f90:get_homo_lumo` | `incompat/I1` 5b31cac |
+| I2 Gamma dynamical matrix x `nspin = 2` | triplet O2 transverse block 3.9e-5 Ry/bohr^2 (0.119 before), whole matrix 2.6e-4 (the `zz` residue is `ph.x`'s own 2.2e-3 spread), stretch 1664.369 against 1664.402 cm^-1; PAW `ph_insulator_paw_magn` pair -618.9922 against -618.947140, stretch 2374.6975 against 2374.699451 | `reference.dyn.o2-fixed-lsda-phonon` element by element; the test-suite benchmark | `incompat/I2` b6c74ac |
+| I4 metal at `q = 0` through the `q != 0` route | off-centre `al2-metal`, `def` 1.2e-2: q route against Gamma route 7.2e-7 Ry/bohr^2, 5.1e-2 and a mode at -197 cm^-1 without the shift; `al2-metal.in` 2.9e-3 cm^-1 against `ph.x` | T2 identity with a discriminating arm; `reference.out.ph-al2-metal:435-437` | `incompat/I4` 5f8408d |
+| I6 shift current x `nspin = 2` | unpolarized AlAs 6.4e-10 of max\|sigma\| = 5.66e-5 A/V^2; magnet (5 up, 3 down) channel sum against the spinor route 1.6e-16 of 1.08e-5 | exact identities; the verifier's channel-swap mutant reads 2.97e-5 | `incompat/I6` 67c051f |
+| I7 sum-over-states `chi_0` x `nspin = 2` | unpolarized Si whole `chi_0` 3.0e-9 relative, eps_M(0) 1.6e-11 (RPA), 1.5e-11 (ALDA); H3 chain (2,1) eps_M(0) 8.65363 against the Sternheimer 8.64013 at `nbnd = 80`, `ecut_response = 8` | T2 identity; band-complete Sternheimer with Hartree screening | `incompat/I7` c216761 |
+| I8 sum-over-states `chi_0` x nonmagnetic spinor | Si spinor against scalar 5.8e-11 relative over the matrix, eps_M(0) 5.0e-10; Se with SOC 16.51019387 against 16.55406495 (-2.65e-3, scalar control -2.57e-3) | T2 identity; T3 against the spinor Sternheimer | `incompat/I8` 96f270f |
+
+Two partial units are written and keep their refusal, with the discrepancy measured. **I3** (Gamma phonon of a nonmagnetic spinor): the scalar identity holds to 1.7e-9 Ry/bohr^2 on NC, US and PAW, and spin-orbit AlAs lands 1.2e-3 cm^-1 from `ph.x`, but spin-orbit bismuthene misses `ph.x`'s B_1g by 2.6 cm^-1 (69.308519 against 66.727386), in the onsite block only, unlocated. **I5** (DFT+U field response): the U's own change of eps and Z* matches `ph.x` 7.5 to 7.4e-4 and 3.5e-4, but the direct eps misses by 1.3e-3, a miss the same BN cell already has without a U (2.1e-3), so it predates I5.
+
+The merge of I8 onto I7 conflicts in `require_a_sum_over_states_regime`, where each branch lifts one spin regime and kept a sibling test asserting the other's refusal; both lifted guards and both sibling tests are dropped, and the occupied count is I7's `max(occupied_counts(...))`, which is `nelec` for a spinor.
+
+Integration one's fast gate on D22 at `136c768`: 2 failed, 3707 passed, 71 skipped, both failures `test_check_guide.py`'s missing `yaml` in the D22 venv; `test_tddft_spin.py` and `test_spinor_chi0.py`, 5 passed.
+
+**Integration two** (the other fifteen units, I9 to I48) lands nineteen items; the numbers are the records', one sample each, deterministic:
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I9 polarization x `nspin = 2` | triplet O2 channel phases 0.19500066 and 0.42500024 against 0.19500 and 0.42500; each channel's lowest seven eigenvalues against `eigenvalues_by_spin` to 1e-6 Ry, the fifth band split by more than 1e-2 | `reference.out.o2-lsda-berry` (new `pw.x` 7.5 `lberry` run); `reference.out.alas-berry` | `incompat/I9` 30b2574 |
+| I12 Berry curvature x collinear `nspin = 2` | nonmagnetic AlAs per channel against `nspin = 1` 9.7e-13 on plaquette fluxes of 4.1e-2; triplet O2 channel sources against their SCF eigenvalues 6.6e-8 and 1.5e-7 Ry against a 0.131 Ry splitting | T2 identity; a swapped channel fails by 0.131 Ry | `incompat/I12` 129e30b |
+| I13 invariants x potential-only meta-GGA | fixed-density source against the converged `tb09` eigenvalues 1.1e-7 Ry (NC), 8.9e-7 (spinor), 2.5e-6 (PAW) | T2, at the band path's self-consistency floor | `incompat/I13` 41e6e90 |
+| I14 `lelfield` x `nspin = 2` | Si8 chain at `tot_magnetization = 0` against `nspin = 1`: `E(E) - E(0)` 1.1e-10 Ry, `el_pol` 2.3e-7; forces against `pw.x` at 1e-6 Ry/bohr | T2; `reference.out.si8-lelfield` | `incompat/finitefield` efa53c9 |
+| I15 `lelfield` x nonmagnetic spinor | against `nspin = 1`: `E(E) - E(0)` 2.1e-14 Ry, `el_pol` 5.2e-11 | T2 | same |
+| I56 `lelfield` x streamed store | against in memory: total 0.0 Ry, `el_pol` 3.9e-14, forces 4.6e-15 Ry/bohr | bit-level identity | same |
+| I57 `lelfield` x `K_POINTS automatic` | total 1.2e-8 Ry, `el_pol` 5.8e-6 from `pw.x` | `reference.out.si8-lelfield-automatic` (new `pw.x` 7.5 run) | same |
+| I17 symmetrised PDOS x spin-orbit (nonmagnetic) | fcc Pt wedge against closed grid 3.7e-7 (US), 5.2e-9 (PAW); against `projwfc.x` 1.7e-6, 2.2e-6 | T2; `reference.<stem>.projwfc_up` | `incompat/I17` cbece28 |
+| I18 site angular momenta x FR ultrasoft/PAW | Pt Loewdin charges to every printed digit (5e-5) of `projwfc.x`; tetragonal Co `\|<L>\|` 0.117097947 along x and y | `reference.projwfc.pt-soc:673-675`, `-paw:712-714`; C4 | `incompat/I18` 92f079f |
+| I19 nesting x constrained `tot_magnetization` | Ni levels 20.704251 and 14.299028 eV against 20.7043 and 14.2991; `D(E_F)` against the wedge DOS 2.2e-16 | `reference.out.pw_lsda-lsda-tot_magnetization:368` | `incompat/I19-v2` 132267d |
+| I20 force x spin spiral (NC) | NiI at `q = b3/4` against the four-cell supercell 1.17e-8 Ry/bohr on 1.23e-2 | supercell identity at one density | `incompat/spiral-fix` 0b24bd2 |
+| I21 stress x spin spiral (NC) | the same pair 7.8e-10 Ry/bohr^3 on 2.80e-2 | same | same |
+| I24 site angular momenta x spin spiral (NC) | supercell atoms against the turned spiral 2.1e-10; the opposite turn 0.69 | same, with a discriminating arm | same |
+| I27 meta-GGA x spin spiral (NC, `kubler`) | H chain under `tb09` lowest twelve levels 4.8e-14 Ry; without the transverse `tau` 0.54 Ry | same | same |
+| I28 DFT+U x spin spiral (NC) | NiI with U = 4 eV, supercell `ns` against the turned spiral one 1.2e-10 | same | same |
+| I32 ultracell x DFT+U | Si `U Si-3p 2.0`, tiled null dV 6.7e-16, 3x1x1 above the DFT+U supercell +4.9e-6, +7.9e-7 Ry/cell at 12, 24 bands | variational bound on the nested basis (P88) | `incompat/ultracell-i32fix` cbbad0d |
+| I37 velocity operator x gamma storage | `<m\|dH/dk\|n>` blocks 2.3e-13 on 1.1 Ry bohr, `Tr(v_x v_x)` 4.2e-13 against `k = 0` on the whole sphere | storage identity | `incompat/I37` 6fdd9a2 |
+| I38 real-space consumers x gamma storage | PDOS 3.9e-12, `eps_M` 1.4e-9, STM 3.0e-8, STS 8.2e-8, transmission 3.9e-8, momentum weight 1.2e-8, `X_0^{+-}` 8.0e-13 | storage identity, off-centre atoms | `incompat/I38` e9a02fe |
+| I39 real-time x gamma storage | `max\|J_gamma - J_k0\| / max\|J_k0\|` 1.8e-13 under a one-cycle pulse | storage identity | `incompat/I39` ef35116 |
+
+Merged with a part kept refused: **I22** (the velocity operator on a spiral, trace 5.5e-10 against the supercell; its consumers refuse), **I25** (the charge STM image of a spiral, 2.9e-9; spin-resolved image, STS and maps refuse), **I31** (a GGA on an unpolarized ultracell, +4.1e-7 Ry/cell above the PBE supercell at 48 bands; polarized refuses). Blocked with the refusal sharpened and tested: I23, I26, I29 (physics: the projection does not commute with the spiral's turn), I30; I33 to I36 were not addressed. Records only, not merged: strain (I10, I11, partial) and I16 (blocked).
+
+Integration two's fast gate on D22 at `30d5e80` read 3 failed, 3759 passed, 71 skipped: the two `yaml` failures and I37's, which was reverted; the re-gate at `903fb1f` read 2 failed (the `yaml` pair), 3760 passed, 71 skipped. I37 was then re-landed (the revert reverted) with that test patching `VelocityOperator._tangent`, the method `band_velocities` now calls; with `upload` in `_unfold` replaced by `jnp.asarray` the patched test fails, so it still watches the host store. Of the slow regression files the records name, seven ran and passed before the user's rule of fast tests only (`test_polarization.py` 11, `test_topology.py` 17, `test_mbj.py` 19, `test_berryfield.py` 12, `test_spinor_pdos.py` 17, `test_spinor_projection_symmetry.py` 5, `test_nesting.py` 7); `test_spiral_supercell.py`, `test_stress.py`, `test_ultracell.py`, `test_ultracell_regimes.py`, `test_gamma_only.py`, `test_gamma_consumers.py` and `test_realtime_gamma.py` were not run on the merged head.
+
+The merges that needed a hand: I9 and I12 both added `DFTSource.spin` (I12's field and checks kept, I9's refusal of a one-channel velocity operator beside it); I13 gives `_source` both `spin` and `tau`, and applies the polarization's kept meta-GGA refusal to the first of I9's per-channel sources; I38 unfolds the states before I18's spin-angle branch in `angular_momenta`, drops the gamma guard and keeps spiral-fix's augmented-spiral one, and its sibling test's refused angular-momentum case becomes the ultrasoft spiral; I39 and spiral-fix each added a test at one place in `test_realtime.py`. Finitefield is merged although the night table had I56 and I57 unverified: the verifier's run of the whole `test_berryfield.py` at `ffa9faa`, which differs from the tip only in a note, includes both tests (12 passed).
+
+**Integration three** re-lands I37 (above) and merges the wedge unit (`incompat/wedge-r2` cf684fb) after an independent check of I42 and I46 on D22 (harnesses, since the two checks are slow tests; `notes/incompat/I42.md`, `I46.md`, "Independent verification"):
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I40 optical conductivity x wedge | AlAs 8 of 64 points against the whole unshifted grid 2.8e-10 (uncompleted 1.1) | group completion against the whole grid | `incompat/wedge-r2` cf684fb |
+| I41 shift current, SHG x wedge | same cell 2.1e-9, 1.4e-8 (uncompleted 0.96, 2.5) | same | same |
+| I42 `chi_0(G, G')` x wedge | Si 8 of 64 2.136e-10 (reproduced), Si 3x3x3 at `ecut_response = 6`, whole arm first 3.9e-10; completion removed 0.73 | same | same |
+| I46 STS x wedge | Si 4x4x4 4.5e-8 of the peak, 3x3x3 on a plane normal to x, whole arm first 4.0e-7; completion removed 0.99 | same | same |
+
+**The verification found a refusal that did not fire.** `wedge_group` was documented to refuse a shifted grid, and its test was uniformity over the union of the orbits, which a shifted wedge passes: on fcc `4 4 4 1 1 1` the 10-point wedge unfolds uniformly onto its 256-point star closure. The completion is right for the closure (`chi_0` 4.2e-6, STS 2.6e-8 against the explicit 256 points) and 0.41 and 0.14 off the 64-point grid the run asked for. The merge adds the missing check (orbit union against the recorded grid's size, non-scalar quantities only), which I40, I41 and I47 inherit, and refuses `chi_0` and STS on a collinear `nspin = 2` or a spinor wedge, which `wedge_group`'s magnetic test does not see and no number covers; both in `tests/unit/test_wedge_refusals.py`. The I47 vertical-map lift (3.3e-9 on graphene) and the I48 force-theorem lift (5.4e-11 meV on tetragonal Co) land with the merge on the implementer's numbers, not reverified; their Limits notes are not written. Fast gate on D22 at `9b1353b`: 2 failed (the `yaml` pair), 3765 passed, 71 skipped. The merge's one hand-resolved hunk is `independent_response`, where I7's spin-leading `weights.shape[1]` is kept and the completion is applied to the spin-summed matrix.
+
+What is left: the guide sections with executed snippets and figures, the notebooks and the timings for every landed item (only the Limits notes and three README cells are written); I47's and I48's lifted parts reverified and their Limits notes written.

@@ -400,6 +400,21 @@ def test_the_noncollinear_potential_rotates_with_the_magnetization(
     assert np.abs(transverse).max() < 1.0e-14
 
 
+@lru_cache(maxsize=None)
+def _paw_converged(testsuite: Path, pseudo_dir: Path):
+    """QE's silicon under ``tb09`` with the PAW dataset, converged once.
+
+    Shared between the coefficient test and the topological source, which
+    need the same state.
+    """
+    system, _ = _system(testsuite, pseudo_dir, input_dft="tb09", ecutwfc=12.0)
+    pseudos = (read_upf(pseudo_dir / "Si.pz-n-kjpaw_psl.0.1.UPF"),)
+    with pytest.warns(RuntimeWarning):
+        result = run_scf(system, pseudos, nbnd=10, conv_thr=1.0e-9,
+                         max_iterations=120, tstress=False)
+    return system, pseudos, result
+
+
 def test_paw_recovers_the_all_electron_coefficient(qe_testsuite, pseudo_dir):
     """PAW measures ``c = 1.11`` where the norm-conserving dataset measures 1.00.
 
@@ -413,13 +428,7 @@ def test_paw_recovers_the_all_electron_coefficient(qe_testsuite, pseudo_dir):
     The gap follows: 0.589 -> 1.285 eV with PAW against 0.645 -> 1.163 with
     norm-conserving, where experiment is 1.17.
     """
-    paw_system, paw_pseudos = _system(
-        qe_testsuite, pseudo_dir, input_dft="tb09", ecutwfc=12.0,
-    )
-    paw_pseudos = (read_upf(pseudo_dir / "Si.pz-n-kjpaw_psl.0.1.UPF"),)
-    with pytest.warns(RuntimeWarning):
-        paw = run_scf(paw_system, paw_pseudos, nbnd=10, conv_thr=1.0e-9,
-                      max_iterations=120, tstress=False)
+    _, _, paw = _paw_converged(qe_testsuite, pseudo_dir)
 
     assert paw.converged
     assert paw.meta_c == pytest.approx(1.107, abs=0.02)
@@ -483,3 +492,134 @@ def test_unsupported_regimes_are_refused_by_name(
         pseudos = (read_upf(pseudo_dir / pseudo),)
     with pytest.raises(NotImplementedError):
         Calculation(system, pseudos)
+
+
+# --- Topological invariants: ``tau`` crosses with the density (I13) ----------
+
+
+def _source_states(system, pseudos, result, nocc, nbnd, **state):
+    """The fixed-density source's states at the SCF's own k-points."""
+    from defuqumat.workflows.topology import DFTSource
+
+    points = np.asarray(system.kpoints.crystal(system.cell))
+    source = DFTSource(system=system, pseudos=pseudos, density=result.density,
+                       nocc=nocc, nbnd=nbnd, conv_thr=1.0e-10, **state)
+    return source.states(points)
+
+
+def test_an_invariant_needs_the_converged_tau(qe_testsuite, pseudo_dir):
+    """Without ``tau`` the source is refused; with it, it is the SCF again.
+
+    ``tau`` is a property of the occupied states over the whole zone, so a
+    source handed the density alone cannot rebuild the Becke-Roussel potential
+    -- the refusal :func:`test_a_band_path_needs_the_converged_tau` pins for a
+    band path. With it, at the SCF's *own* k-points the fixed-density
+    diagonalisation is the last SCF iteration over again, so the manifold must
+    reproduce the converged eigenvalues to the self-consistency error, which
+    at ``conv_thr = 1e-10`` is ~7e-7 Ry on this cell (the same scale and the
+    same tolerance as the band path). Leaving ``tau`` out is not a small
+    error: it is the LDA-like potential against a gap that opens by 0.48 eV
+    (:func:`test_the_gap_opens_over_the_local_functional`).
+
+    ``nbnd = 10`` for the reason :func:`_converged` gives: the top of the
+    Davidson window converges last under this functional, and the default
+    window would put it two bands above the manifold.
+    """
+    from defuqumat.workflows.topology import DFTSource
+
+    system, pseudos, result = _converged(qe_testsuite, pseudo_dir, "tb09")
+    with pytest.raises(NotImplementedError, match="kinetic energy density"):
+        DFTSource(system=system, pseudos=pseudos, density=result.density,
+                  nocc=NOCC).states(np.array([[0.0, 0.0, 0.0]]))
+
+    states = _source_states(system, pseudos, result, NOCC, 10, tau=result.tau)
+    reference = np.asarray(result.eigenvalues)[:, :NOCC]
+    assert np.max(np.abs(np.asarray(states.energies)[:, :NOCC] - reference)) < 5.0e-6
+
+
+def test_a_tran_blaha_chern_number_is_an_integer(qe_testsuite, pseudo_dir):
+    """The ``fhs`` Chern number of a ``tb09`` plane is the integer 0.
+
+    Silicon is nonmagnetic, so the zero is forced by time reversal and this is
+    a check of the machinery under the functional rather than physics -- the
+    module docstring of :mod:`defuqumat.workflows.topology` says so for every
+    nonmagnetic Chern number. What it establishes is that the whole route, the
+    plane mesh walked through the source with ``tau`` frozen, runs and lands
+    on an integer.
+    """
+    from defuqumat.workflows.topology import run_berry_curvature
+
+    system, pseudos, result = _converged(qe_testsuite, pseudo_dir, "tb09")
+    with pytest.raises(NotImplementedError, match="kinetic energy density"):
+        run_berry_curvature(system, pseudos, result.density, shape=(4, 4),
+                            nocc=NOCC, nbnd=10)
+    curvature = run_berry_curvature(system, pseudos, result.density,
+                                    shape=(6, 6), nocc=NOCC, nbnd=10,
+                                    conv_thr=1.0e-10, tau=result.tau)
+    assert abs(curvature.chern_number - round(curvature.chern_number)) < 1.0e-8
+    assert round(curvature.chern_number) == 0
+
+
+def test_a_tran_blaha_spinor_z2_by_parity(qe_testsuite, pseudo_dir):
+    """The spinor source reproduces its SCF and gives a Fu-Kane ``nu = 0``.
+
+    The spinor route is the one a Z2 is taken on, and it is where this code
+    goes beyond ``pw.x`` (P31). The scalar-relativistic dataset has no
+    spin-orbit term, so every band is a Kramers pair: the parity eigenvalues
+    are +-1 in pairs and the product over the four TRIM of the plane is
+    trivial, which pins the arithmetic, while the eigenvalue check is the
+    sharp part -- it says the 2x2 ``tau`` crossed with the density.
+    """
+    from defuqumat.workflows.topology import run_z2
+
+    system, pseudos, result = _converged(qe_testsuite, pseudo_dir, "tb09",
+                                         noncolin=True)
+    nocc = 2 * NOCC
+    states = _source_states(system, pseudos, result, nocc, 20, tau=result.tau)
+    reference = np.asarray(result.eigenvalues)[:, :nocc]
+    assert np.max(np.abs(np.asarray(states.energies)[:, :nocc] - reference)) < 5.0e-6
+
+    z2 = run_z2(system, pseudos, result.density, method="parity", nocc=nocc,
+                nbnd=20, conv_thr=1.0e-10, axis=2, tau=result.tau)
+    for values in z2.eigenvalues.values():
+        assert len(values) == nocc
+        assert set(np.round(values).astype(int)) <= {-1, 1}
+        assert int(np.sum(values < 0)) % 2 == 0
+    assert z2.z2 == 0
+
+
+def test_a_paw_tran_blaha_source_reproduces_the_scf(qe_testsuite, pseudo_dir):
+    """PAW under ``tb09``: ``becsum`` and the cell's ``c`` both reach the spheres.
+
+    :meth:`~defuqumat.scf.driver.Calculation.onecenter` refuses to default the
+    Tran-Blaha ``c`` under a meta-GGA, so the source has to hand the
+    potential's own one down. Measured against the SCF's eigenvalues at its
+    own k-points; the tolerance is ``conv_thr = 1e-9``'s self-consistency
+    error rather than the norm-conserving cell's.
+    """
+    system, pseudos, result = _paw_converged(qe_testsuite, pseudo_dir)
+    states = _source_states(system, pseudos, result, NOCC, 10,
+                            tau=result.tau, becsum=result.becsum)
+    reference = np.asarray(result.eigenvalues)[:, :NOCC]
+    assert np.max(np.abs(np.asarray(states.energies)[:, :NOCC] - reference)) < 2.0e-5
+
+
+def test_polarization_and_orbital_magnetization_still_refuse_tb09(
+    qe_testsuite, pseudo_dir
+):
+    """The two siblings that share the source keep the old refusal.
+
+    The invariants were measured; the Berry-phase polarization and the orbital
+    magnetization were not, so neither may inherit the lifted guard.
+    """
+    from defuqumat.workflows.orbital_magnetization import run_orbital_magnetization
+    from defuqumat.workflows.polarization import run_polarization
+
+    system, pseudos, result = _converged(qe_testsuite, pseudo_dir, "tb09")
+    with pytest.raises(NotImplementedError, match="Berry-phase polarization under"):
+        run_polarization(system, pseudos, result.density, nocc=NOCC)
+
+    system, pseudos, result = _converged(qe_testsuite, pseudo_dir, "tb09",
+                                         noncolin=True)
+    with pytest.raises(NotImplementedError, match="orbital magnetization under"):
+        run_orbital_magnetization(system, pseudos, result.density, nocc=2 * NOCC)

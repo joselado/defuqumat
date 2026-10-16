@@ -439,14 +439,33 @@ def test_the_three_parts_agree_with_elks_three_parts():
 
 
 @pytest.mark.slow
-def test_a_symmetry_reduced_wedge_is_refused_by_name():
-    """``chi^abc`` is a polar rank-3 tensor and a wedge sum is not the cell's."""
+def test_a_symmetry_reduced_wedge_is_completed_and_one_it_cannot_tile_is_refused():
+    """The wedge passes the guard now; a set its group does not tile does not.
+
+    ``alas-raman-wedge.in`` is AlAs on 8 of 64 points, cut by ``Td`` and time
+    reversal, the 48 operations the wedge is completed with
+    (:func:`~defuqumat.response.photocurrent.wedge`); the number against the
+    whole grid is ``tests/regression/test_wedge_completion.py``. The same
+    points with their weights reversed are not a wedge of that group and stay
+    refused by name. No SCF here.
+    """
+    import dataclasses
+
+    from defuqumat.response.photocurrent import wedge
+
     system = build_system(read_pw_input(CASES / "alas-raman-wedge.in"))
     pseudos = tuple(
         read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
     )
-    with pytest.raises(NotImplementedError, match="whole k-grid"):
-        require_an_shg_regime(Calculation(system, pseudos))
+    require_an_shg_regime(Calculation(system, pseudos))
+    group = wedge(Calculation(system, pseudos), "second-harmonic generation")
+    assert group.order == 48 and group.has_antiunitary
+    weights = np.asarray(system.kpoints.weights)
+    scrambled = KPoints.from_crystal(
+        np.asarray(system.kpoints.crystal(system.cell)), weights[::-1].copy(),
+        system.cell, precision=system.kpoints.precision)
+    with pytest.raises(NotImplementedError, match="tile it uniformly"):
+        require_an_shg_regime(Calculation(dataclasses.replace(system, kpoints=scrambled), pseudos))
 
 
 @pytest.mark.slow

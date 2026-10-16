@@ -1,0 +1,31 @@
+! The symmetry-reduced twin of `pt-soc-paw-nosym.in`: the same input with `nosym` and
+! `noinv` removed and nothing else changed, the unshifted 2x2x2 grid kept, so that
+! the k-set is the irreducible wedge of the grid `pt-soc-paw-nosym.in` runs whole.
+!
+! It exists for the j-resolved projection's group average, `sym_proj_so`: the
+! wedge's symmetrised Loewdin charges, column by column, have to reproduce the
+! closed grid's, which `pt-soc-paw-nosym.in` checks against `projwfc.x` itself
+! (`reference.projwfc.pt-soc-paw`, `lsym = .false.`).
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 7.42, nat = 1, ntyp = 1,
+    lspinorb = .true.,
+    noncolin = .true.,
+    starting_magnetization = 0.0,
+    occupations = 'smearing',
+    degauss = 0.02,
+    smearing = 'mp',
+    ecutwfc = 30.0,
+    ecutrho = 250.0,
+ /
+ &electrons
+    conv_thr = 1.0e-8
+ /
+ATOMIC_SPECIES
+Pt  195.08   Pt.rel-pbe-n-kjpaw_psl.0.1.UPF
+ATOMIC_POSITIONS {alat}
+Pt  0.0000000   0.00000000   0.0
+K_POINTS AUTOMATIC
+2 2 2 0 0 0

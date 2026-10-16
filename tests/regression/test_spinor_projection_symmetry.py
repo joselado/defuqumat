@@ -35,10 +35,14 @@ harmonic factor already does one index over: the contraction is on the *first*
 index, so what multiplies the projection is ``D^T = D^{-1}``, the inverse
 operation, and the spin factor has to be the inverse of the same operation.
 
-The spin-orbit case stays refused -- its columns are ``|j m_j>`` and
-``sym_proj_so`` contracts ``d_matrix_so``'s ``D^j``, a different matrix -- and
-the refusal is tested here so that lifting one regime is not read as lifting
-both.
+**The spin-orbit case is the same operator in another basis.** Its columns are
+``|j m_j>`` and ``sym_proj_so`` contracts ``d_matrix_so``'s ``D^j``, which is
+``conj(M_j) (D^l x conj(U)) M_j^T`` with ``M_j`` the spin-angle map the orbitals
+are built with; a nonmagnetic run averages each column with its Kramers partner
+as well. It is checked on fcc platinum, ultrasoft and PAW, by the same wedge
+against the closed grid, and the closed grid's columns against ``projwfc.x``'s
+own (``lsym = .false.``). A magnetic spin-orbit run stays refused, and the
+refusal is tested by name in ``tests/unit/test_projwfc.py``.
 """
 
 from functools import lru_cache
@@ -149,15 +153,82 @@ def test_the_operator_is_unitary_per_operation():
             assert np.abs(product - identity).max() < 1.0e-10
 
 
-def test_spin_orbit_is_still_refused():
-    """Lifting the noncollinear regime must not lift the spin-orbit one: the
-    matrix ``sym_proj_so`` needs is ``D^j``, which nothing here builds."""
-    # The cell has to *reach* the guard, which needs ``use_symmetry`` as well
-    # as ``lspinorb``: ``fe-kind1-noncol.in`` and ``i-atom-soc.in`` both carry
-    # sixteen operations and both run ``nosym``, so neither of them ever gets
-    # there and a test written on one reports a pass for a refusal that was
-    # never consulted.
-    calc = Calculator.from_file(CASES / "pt2-soc-force.in", pseudo_dir=PSEUDO)
-    scf = calc.get_scf()
-    with pytest.raises(NotImplementedError, match="spin-orbit"):
-        atomic_projections(calc.calculation, scf.wavefunctions, symmetrize=True)
+def _read_filproj(path):
+    """``projwfc.x``'s ``filproj``: ``proj[nwfc, nbnd, nk]``, ten decimals."""
+    lines = path.read_text().splitlines()
+    index = 0
+    while True:
+        parts = lines[index].split()
+        if len(parts) == 3 and all(p.lstrip("-").isdigit() for p in parts):
+            natomwfc, nk, nbnd = map(int, parts)
+            break
+        index += 1
+    index += 2
+    proj = np.zeros((natomwfc, nbnd, nk))
+    for column in range(natomwfc):
+        index += 1
+        for _ in range(nk * nbnd):
+            ik, ibnd, value = lines[index].split()
+            proj[column, int(ibnd) - 1, int(ik) - 1] = float(value)
+            index += 1
+    return proj
+
+
+#: ``(wedge, closed, the stem of projwfc.x's files for the closed grid)``.
+SPIN_ORBIT = (
+    ("pt-soc.in", "pt-soc-nosym.in", "pt-soc"),
+    pytest.param("pt-soc-paw.in", "pt-soc-paw-nosym.in", "pt-soc-paw",
+                 id="pt-soc-paw"),
+)
+
+
+@pytest.mark.parametrize("wedge, closed, stem", SPIN_ORBIT)
+def test_the_spin_orbit_wedge_reproduces_the_closed_grid(wedge, closed, stem):
+    """``sym_proj_so``: the wedge's ``|j m_j>`` charges, column by column.
+
+    Three numbers, each on the occupation-weighted column charge, which is blind
+    to the rotation a degenerate eigensolver is free in (rule D4) where a single
+    band's projection is not:
+
+    * the symmetrised wedge against the closed grid of this code;
+    * the symmetrised wedge against ``projwfc.x``'s columns on the closed grid,
+      weighted with the closed run's occupations, which shares nothing with the
+      wedge but the input;
+    * the unsymmetrised wedge, which has to miss, or the first two prove nothing.
+
+    The Kramers partner average is invisible here: platinum has inversion, so a
+    Kramers pair at one ``k`` already carries equal ``m_j`` and ``-m_j`` weight
+    once summed, and only a per-band projection could see it.
+    """
+    filproj = CASES / f"reference.{stem}.projwfc_up"
+    calc_w, scf_w = _converged(wedge)
+    assert calc_w.calculation.use_symmetry
+    assert calc_w.calculation.symmetries.nsym == 48
+    assert not calc_w.system.domag
+    calc_c, scf_c = _converged(closed)
+    assert scf_w.converged and scf_c.converged
+    energy_gap = abs(scf_w.total_energy - scf_c.total_energy)
+    assert energy_gap < 1.0e-6
+
+    symmetrised = _column_charges(calc_w, scf_w, symmetrize=True)
+    closed_grid = _column_charges(calc_c, scf_c, symmetrize=False)
+    raw = _column_charges(calc_w, scf_w, symmetrize=False)
+
+    occupations = np.asarray(scf_c.occupations).reshape(
+        np.asarray(scf_c.eigenvalues).shape[-2:])  # (nk, nbnd)
+    reference = np.einsum("cnk,kn->c", _read_filproj(filproj), occupations)
+
+    against_closed = np.abs(symmetrised - closed_grid).max()
+    against_qe = np.abs(symmetrised - reference).max()
+    unsymmetrised = np.abs(raw - closed_grid).max()
+    print(f"\n{stem}: |E_wedge - E_closed| = {energy_gap:.3e} Ry; columns: "
+          f"wedge-closed {against_closed:.3e}, wedge-projwfc {against_qe:.3e}, "
+          f"closed-projwfc {np.abs(closed_grid - reference).max():.3e}, "
+          f"unsymmetrised {unsymmetrised:.3e}")
+    # Measured on D22 (2026-10-16): wedge against closed grid 3.7e-7 (ultrasoft)
+    # and 5.2e-9 (PAW) electrons; against projwfc.x 1.7e-6 and 2.2e-6, which is
+    # the closed grid's own distance from projwfc.x (2.0e-6 and 2.2e-6); the
+    # unsymmetrised wedge misses by 7.5e-2 on both.
+    assert against_closed < 1.0e-5
+    assert against_qe < 1.0e-5
+    assert unsymmetrised > 1.0e-2

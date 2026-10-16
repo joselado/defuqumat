@@ -44,14 +44,35 @@ the ``+-2 pi fc_pol`` that ``calc_pol`` adds when the phase jumps by more than
 ``pi fc_pol`` between iterations. ``sqrt(2)`` is the electron's charge in
 Rydberg units; ``efield`` is in Ry a.u. (36.3609e10 V/m).
 
+**Spin.** At ``nspin = 2`` each channel has its own string set, its own
+occupied count (``NINT(nelup)``, ``NINT(neldw)``) and its own operator, and
+``el_pol`` is the sum of the two channels' string averages with no factor 2
+(``c_phase_field.f90:612`` doubles only at ``nspin = 1``). A spinor (``npol =
+2``) is one channel of ``NINT(nelec)`` occupied two-component states, again with
+no factor 2 (``l_cal``, ``h_epsi_her_set.f90:225``), and the Miller gather is
+applied to each component, as ``c_phase_field`` maps ``psi(ig+npwx)``.
+``fact`` does not change in either: the factor 2 the energy loses is the
+factor 2 the k weight ``w_k = 1/nk`` loses. Refused: ``nelup /= neldw``, where
+``pw.x`` itself builds the phase on ``nelec/2`` bands per channel (``l_cal``
+reads ``f_inp`` only for ``occupations = 'from_input'``) whatever the channel
+holds, and a spinor with spin-orbit coupling or a magnetization, for which
+no identity is measured here.
+
 **What is not here**, refused by name at input: ultrasoft and PAW (the cross
 overlap ``q_dk`` and the structure phase in ``M``, and ``forces_us_efield``),
-``nspin`` 2 and 4, a metal, ``efield_cart`` (three directions,
+the three regimes just named, a metal, ``efield_cart`` (three directions,
 ``l3dstring``), an automatic k-grid (QE turns that into ``l3dstring``), a cell
 whose ``a_gdir`` is not along Cartesian axis ``gdir`` (QE's ionic dipole takes
 the Cartesian component while the electronic one is along ``a_gdir``), the
 stress (QE's field stress terms are commented out, ``stress.f90``), and
-streaming and pools.
+k-point pools.
+
+**A streamed store** (``wfc_store = 'stream'``) keeps the states in host memory.
+The operator is built from it a chunk at a time into host arrays before each
+walk (:meth:`BerryFieldSetup.host_term`), and each chunk's solve is handed its
+rows of it (:meth:`BerryFieldSetup.chunk_term`); the string phases are taken a
+chunk at a time too. The device then holds one chunk's states, its
+neighbours, and its rows of ``u`` and ``a``.
 """
 
 from __future__ import annotations
@@ -99,20 +120,30 @@ def string_layout(kcrystal: np.ndarray, gdir: int, nppstr: int) -> np.ndarray:
 class BerryTerm(eqx.Module):
     """``H_E`` for one spin channel: ``sum_n |a_n><u_n| + |u_n><a_n|`` at every k.
 
-    ``u`` and ``a`` are ``(nk, nocc, npwx)``. ``u`` is a copy of the states the
+    ``u`` and ``a`` are ``(nk, nocc, npol * npwx)``. ``u`` is a copy of the states the
     term was built from, never the block the eigensolver donates.
+
+    ``rows`` is ``None`` for the whole k-set. For one chunk of a streamed store
+    it is ``(nk,)`` and maps the global k index the solve passes (``indices``
+    in :func:`~defuqumat.scf.streaming.stream_diagonalize`) to the row of ``u``
+    and ``a``, which then hold that chunk's k-points only.
     """
 
     u: jnp.ndarray
     a: jnp.ndarray
+    rows: jnp.ndarray | None = None
+
+    def _at(self, ik):
+        row = ik if self.rows is None else self.rows[ik]
+        return self.u[row], self.a[row]
 
     def apply(self, psi: jnp.ndarray, ik) -> jnp.ndarray:
-        u, a = self.u[ik], self.a[ik]
+        u, a = self._at(ik)
         return (jnp.einsum("ng,...n->...g", a, jnp.einsum("ng,...g->...n", jnp.conj(u), psi))
                 + jnp.einsum("ng,...n->...g", u, jnp.einsum("ng,...g->...n", jnp.conj(a), psi)))
 
     def matrix(self, ik) -> jnp.ndarray:
-        u, a = self.u[ik], self.a[ik]
+        u, a = self._at(ik)
         return a.T @ jnp.conj(u) + u.T @ jnp.conj(a)
 
     def diagonal(self, ik) -> jnp.ndarray:
@@ -120,10 +151,16 @@ class BerryTerm(eqx.Module):
         return jnp.zeros(self.u.shape[-1], dtype=jnp.real(self.u).dtype)
 
 
-def _gathered(coefficients, gather, found):
-    """``u_{k'}`` on the sphere of ``k``: ``(nk, nb, npwx)`` gathered by Miller index."""
-    picked = jnp.take_along_axis(coefficients, gather[:, None, :], axis=2)
-    return jnp.where(found[:, None, :], picked, 0.0)
+def _gathered(coefficients, gather, found, npol: int = 1):
+    """``u_{k'}`` on the sphere of ``k``: ``(nk, nb, npol * npwx)`` gathered by Miller index.
+
+    The gather is one spinor component's; a spinor's components are stored end
+    to end (``evc(npwx*npol, nbnd)``), so each is gathered with the same index.
+    """
+    nk, nb, ndim = coefficients.shape
+    split = coefficients.reshape(nk, nb, npol, ndim // npol)
+    picked = jnp.take_along_axis(split, gather[:, None, None, :], axis=3)
+    return jnp.where(found[:, None, None, :], picked, 0.0).reshape(nk, nb, ndim)
 
 
 def _overlaps(u, neighbour):
@@ -171,7 +208,8 @@ class BerryFieldSetup:
     nppstr: int
     efield: float
     nberrycyc: int
-    nocc: int
+    #: Occupied bands: one count, or one per channel at ``nspin = 2``.
+    nocc: int | tuple
     strings: np.ndarray
     plus_index: np.ndarray  # (nk,) neighbour k
     minus_index: np.ndarray
@@ -181,6 +219,12 @@ class BerryFieldSetup:
     minus_found: jnp.ndarray
     length: float  # |a_gdir| in bohr
     charges: np.ndarray
+    #: Spinor components of a state, and how many electrons one band holds:
+    #: the factor ``c_phase_field`` puts on ``el_pol`` at ``nspin = 1`` only.
+    npol: int = 1
+    spin_factor: float = 2.0
+    #: The chunk a streamed store is walked in (the calculation's ``k_batch``).
+    k_batch: int | None = None
     #: ``el_pol_acc`` and ``el_pol_old`` of ``calc_pol``: host state carried
     #: across the iterations of one run.
     accumulated: float = 0.0
@@ -220,9 +264,17 @@ class BerryFieldSetup:
         plus_gather, plus_found = stack(gathers["plus"])
         minus_gather, minus_found = stack(gathers["minus"])
         at = np.asarray(cell.at)
+        nint = lambda x: int(np.floor(float(x) + 0.5))
+        if system.nspin == 2:
+            nocc = (nint(calculation.nelup), nint(calculation.neldw))
+        elif system.nspin == 4:
+            nocc = nint(calculation.nelec)
+        else:
+            nocc = nint(calculation.nelec / 2)
         return cls(
             gdir=gdir, nppstr=nppstr, efield=float(efield), nberrycyc=int(nberrycyc),
-            nocc=int(round(calculation.nelec / 2)), strings=strings,
+            nocc=nocc, strings=strings, npol=int(system.npol),
+            spin_factor=2.0 if system.nspin == 1 else 1.0, k_batch=calculation.k_batch,
             plus_index=plus_index, minus_index=minus_index,
             plus_gather=plus_gather, plus_found=plus_found,
             minus_gather=minus_gather, minus_found=minus_found,
@@ -235,10 +287,15 @@ class BerryFieldSetup:
     def active(self) -> bool:
         return abs(self.efield) >= NO_FIELD
 
+    def occupied(self, spin: int = 0) -> int:
+        """The occupied count of channel ``spin``."""
+        return self.nocc[spin] if isinstance(self.nocc, tuple) else self.nocc
+
     def neighbours(self, u):
         """The forward and backward neighbours of each k, gathered onto its sphere."""
-        plus = _gathered(u[self.plus_index], self.plus_gather, self.plus_found)
-        minus = _gathered(u[self.minus_index], self.minus_gather, self.minus_found)
+        plus = _gathered(u[self.plus_index], self.plus_gather, self.plus_found, self.npol)
+        minus = _gathered(u[self.minus_index], self.minus_gather, self.minus_found,
+                          self.npol)
         return plus, minus
 
     @property
@@ -246,9 +303,76 @@ class BerryFieldSetup:
         """``fact_hepsi``: ``-i E sqrt(2)/(2 dkfact)``, ``dkfact = 2 pi/(|a_gdir| nppstr)``."""
         return -1j * self.efield * SQRT2 * self.length * self.nppstr / (4.0 * np.pi)
 
-    def term(self, wavefunctions) -> BerryTerm:
-        """``H_E`` from the occupied states of ``wavefunctions`` ``(1, nk, nbnd, npwx)``."""
-        u = jnp.array(wavefunctions[0, :, : self.nocc], copy=True)
+    # --- a streamed store: the same quantities a chunk of k at a time --------
+    def _host_chunks(self, store, spin: int):
+        """``(rows, live, u, plus, minus)`` for each chunk of a host store, on the device.
+
+        Only the chunk's own states and its neighbours' cross: the neighbours
+        are gathered on the host from the rows ``plus_index``/``minus_index``
+        name, by the same Miller index the whole-set path gathers by.
+        """
+        from defuqumat.batching import k_chunks
+
+        nocc = self.occupied(spin)
+        sides = [(self.plus_index, np.asarray(self.plus_gather), np.asarray(self.plus_found)),
+                 (self.minus_index, np.asarray(self.minus_gather),
+                  np.asarray(self.minus_found))]
+
+        def gathered(index, gather, found, rows):
+            source = store[spin, index[rows], :nocc]
+            nk, nb, ndim = source.shape
+            split = source.reshape(nk, nb, self.npol, ndim // self.npol)
+            picked = np.take_along_axis(split, gather[rows][:, None, None, :], axis=3)
+            picked = np.where(found[rows][:, None, None, :], picked, 0.0)
+            return jnp.asarray(picked.reshape(nk, nb, ndim))
+
+        for rows, live in k_chunks(store.shape[1], self.k_batch):
+            yield (rows, live, jnp.asarray(store[spin, rows, :nocc]),
+                   gathered(*sides[0], rows), gathered(*sides[1], rows))
+
+    def host_term(self, store, spin: int = 0) -> tuple[np.ndarray, np.ndarray]:
+        """``(u, a)`` of channel ``spin`` for the whole k-set, in host memory.
+
+        Built from the states **before** the walk that diagonalises, as
+        ``h_epsi_her_set`` builds every dual before ``c_bands``: the walk
+        overwrites the store chunk by chunk, so a term built as it goes would
+        see a neighbour already solved. ``(nk, nocc, npol * npwx)`` twice, on
+        the host beside the store, where QE writes the duals to disk.
+        """
+        nocc = self.occupied(spin)
+        u_host = np.array(store[spin, :, :nocc])
+        a_host = np.empty_like(u_host)
+        for rows, live, u, plus, minus in self._host_chunks(store, spin):
+            e_plus, e_minus = _duals(u, plus, minus)
+            a = (self.fact * (e_minus - e_plus)).astype(u.dtype)
+            a_host[rows[:live]] = np.asarray(a)[:live]
+        return u_host, a_host
+
+    @staticmethod
+    def chunk_term(host, rows) -> BerryTerm:
+        """One chunk's :class:`BerryTerm` from :meth:`host_term`'s arrays, indexed globally."""
+        u_host, a_host = host
+        lookup = np.zeros(u_host.shape[0], dtype=np.int32)
+        lookup[np.asarray(rows)] = np.arange(len(rows), dtype=np.int32)
+        return BerryTerm(u=jnp.asarray(u_host[rows]), a=jnp.asarray(a_host[rows]),
+                         rows=jnp.asarray(lookup))
+
+    def _link_signs(self, wavefunctions, spin: int) -> np.ndarray:
+        """``det M+(k) / |det M+(k)|`` at every k, ``(nk,)``, a chunk at a time for a host store."""
+        if isinstance(wavefunctions, np.ndarray):
+            signs = np.empty(wavefunctions.shape[1], dtype=wavefunctions.dtype)
+            for rows, live, u, plus, _ in self._host_chunks(wavefunctions, spin):
+                sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
+                signs[rows[:live]] = np.asarray(sign)[:live]
+            return signs
+        u = wavefunctions[spin, :, : self.occupied(spin)]
+        plus, _ = self.neighbours(u)
+        sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
+        return np.asarray(sign)
+
+    def term(self, wavefunctions, spin: int = 0) -> BerryTerm:
+        """``H_E`` of channel ``spin`` from ``wavefunctions`` ``(nspin, nk, nbnd, npol * npwx)``."""
+        u = jnp.array(wavefunctions[spin, :, : self.occupied(spin)], copy=True)
         plus, minus = self.neighbours(u)
         e_plus, e_minus = _duals(u, plus, minus)
         a = (self.fact * (e_minus - e_plus)).astype(u.dtype)
@@ -266,20 +390,24 @@ class BerryFieldSetup:
         """
         if not self.active:
             return jnp.zeros((), dtype=jnp.real(wavefunctions).dtype)
-        u = wavefunctions[0, :, : self.nocc]
-        plus, _ = self.neighbours(u)
-        prefactor = -self.efield * 2.0 * self.fc_pol / self.strings.shape[0]
-        electronic = phase_energy(u, plus, self.strings, prefactor)
+        prefactor = (-self.efield * self.spin_factor * self.fc_pol
+                     / self.strings.shape[0])
+        electronic = 0.0
+        for spin in range(wavefunctions.shape[0]):
+            u = wavefunctions[spin, :, : self.occupied(spin)]
+            plus, _ = self.neighbours(u)
+            electronic = electronic + phase_energy(u, plus, self.strings, prefactor)
         charges = jnp.asarray(self.charges, dtype=positions.dtype)
         ionic = SQRT2 * jnp.sum(charges * positions[:, self.gdir])
         return electronic - self.efield * (ionic + self.accumulated)
 
     def string_phases(self, wavefunctions) -> np.ndarray:
-        """Each string's principal phase, ``Im ln prod det M+``, radians."""
-        u = wavefunctions[0, :, : self.nocc]
-        plus, _ = self.neighbours(u)
-        sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
-        return np.angle(np.prod(np.asarray(sign)[self.strings], axis=1))
+        """Each string's principal phase, ``Im ln prod det M+``, radians, ``(nchannel, nkort)``."""
+        phases = []
+        for spin in range(wavefunctions.shape[0]):
+            sign = self._link_signs(wavefunctions, spin)
+            phases.append(np.angle(np.prod(sign[self.strings], axis=1)))
+        return np.array(phases)
 
     @property
     def fc_pol(self) -> float:
@@ -287,9 +415,24 @@ class BerryFieldSetup:
         return SQRT2 * self.length / (2.0 * np.pi)
 
     def electronic_dipole(self, wavefunctions) -> float:
-        """``el_pol`` in Ry a.u., the spin factor 2 included (``nspin = 1``)."""
+        """``el_pol`` in Ry a.u.: each channel's string average, summed, times 2 at ``nspin = 1``."""
         phases = self.string_phases(wavefunctions)
-        return float(2.0 * self.fc_pol * np.mean(phases))
+        return float(self.spin_factor * self.fc_pol * np.sum(np.mean(phases, axis=1)))
+
+    def ionic_enthalpy(self, positions):
+        """``-E (ion_pol + acc)`` as a traced function of the positions.
+
+        The part of :meth:`enthalpy` that moves with the atoms on a
+        norm-conserving dataset, so the whole of the field's term in a force
+        that walks a streamed store a chunk at a time
+        (:mod:`defuqumat.forces.chunked`); the electronic part is a constant
+        there and is added to the energy on the host.
+        """
+        if not self.active:
+            return jnp.zeros((), dtype=positions.dtype)
+        charges = jnp.asarray(self.charges, dtype=positions.dtype)
+        ionic = SQRT2 * jnp.sum(charges * positions[:, self.gdir])
+        return -self.efield * (ionic + self.accumulated)
 
     def ionic_dipole(self, positions) -> float:
         """``ion_pol``: ``sqrt(2) sum Z tau(gdir)``, unwrapped positions in bohr."""
@@ -326,10 +469,24 @@ def require_a_berry_field_regime(calculation) -> None:
             "an ultrasoft or PAW dataset: the string overlap needs the cross "
             "augmentation q_dk with the structure phase e^{-i dk.tau} "
             "(h_epsi_her_set's becp sandwich), and the force forces_us_efield")
-    if system.nspin != 1:
+    if system.nspin == 2:
+        nint = lambda x: int(np.floor(float(x) + 0.5))
+        up, down = nint(calculation.nelup), nint(calculation.neldw)
+        if up != down:
+            reasons.append(
+                f"nspin = 2 with {up} and {down} occupied bands in the two channels: "
+                "pw.x builds the Berry phase on NINT(nelec/2) bands in each channel "
+                "whatever the channel holds (l_cal in c_phase_field and "
+                "h_epsi_her_set reads f_inp only for occupations = 'from_input'), "
+                "so there is no pw.x number for a magnet, and none is measured here")
+    if system.nspin == 4 and system.lspinorb:
         reasons.append(
-            f"nspin = {system.nspin}: one string set per channel, and the spinor "
-            "duals, are not built")
+            "nspin = 4 with spin-orbit coupling: the spinor field is measured only "
+            "without it (against nspin = 1)")
+    if system.nspin == 4 and system.domag:
+        reasons.append(
+            "nspin = 4 with a magnetization: the spinor field is measured only on a "
+            "nonmagnetic spinor (against nspin = 1)")
     if system.occupations != "fixed":
         reasons.append(
             f"occupations = '{system.occupations}': a Berry phase belongs to a "
