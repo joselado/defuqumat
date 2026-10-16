@@ -208,6 +208,7 @@ from defuqumat.system.symmetry import (
     magnetization_signs,
     symmetry_maps,
     symmetrize_atom_displacement_density,
+    symmetrize_atom_displacement_spin_density,
     symmetrize_tensor_density,
     symmetrize_magnetization,
     symmetrize_spin_vector_density,
@@ -5365,31 +5366,22 @@ class Calculation:
         On diamond silicon the operations that exchange the two sublattices are
         half the group.
 
-        **Refused for a spinor with a magnetization**, and it is the same
-        landmine :meth:`symmetrize_directional` carries: at ``nspin_mag = 4``
-        three of the channels below are the magnetization and are an **axial**
-        vector, so they rotate with ``det(R) (-1)^t_rev`` beside the atom
-        permutation and the polar rotation of the displacement. The fix is
-        :func:`~defuqumat.system.symmetry.symmetrize_spin_vector_density`'s double
-        rotation with one more index; what it does not have is a number, and a
-        symmetriser that has never been checked against the whole zone is worse
-        than a refusal -- the wrong rotation there was measured at **66 per
-        cent** on the response's own version of this method, and worse than
-        leaving the wedge sum alone (``PLAN.md`` P81).
+        **A spinor with a magnetization** (I79): at ``nspin_mag = 4`` three of
+        the channels are the magnetization and are an **axial** vector, so they
+        rotate with ``det(R) (-1)^t_rev`` beside the atom permutation and the
+        polar rotation of the displacement
+        (:func:`~defuqumat.system.symmetry.symmetrize_atom_displacement_spin_density`),
+        while the charge channel takes the scalar rule above. Rotating the
+        magnetization as three scalars was measured at 66 per cent on the
+        field-direction version of this method (``PLAN.md`` P81), which is why
+        the double rotation is not optional. Checked as a wedge against the
+        whole zone on the helix ``h4-cycloid-90`` (``notes/incompat/I79.md``).
 
         Args:
             fields: ``(nat, 3, nspin_mag, n1, n2, n3)`` real, on the dense grid.
         """
         if self._symmetry_maps is None:
             return fields
-        if self.nspin_mag == 4:
-            raise NotImplementedError(
-                "a noncollinear displacement response cannot be symmetrised "
-                "yet: its three magnetization channels are an axial vector and "
-                "carry det(R) and the time-reversal sign, which this average "
-                "does not apply. Run the whole k-grid (nosym), which for a "
-                "genuine texture is usually a small group anyway"
-            )
         gvectors = self.basis.dense
         permutations, phases = self._symmetry_maps
         rotations = jnp.asarray(cartesian_rotations(self.system.cell, self.symmetries))
@@ -5413,7 +5405,37 @@ class Calculation:
             return back.reshape(patterns.shape)
 
         moved = jnp.moveaxis(jnp.asarray(fields), 2, 0)  # (nspin, nat, 3, ...)
-        return jnp.moveaxis(jnp.stack([channel(c) for c in moved]), 0, 2)
+        if self.nspin_mag != 4:
+            return jnp.moveaxis(jnp.stack([channel(c) for c in moved]), 0, 2)
+
+        rotated_spin = (
+            jnp.asarray(magnetization_signs(self.system.cell, self.symmetries))
+            [:, None, None] * rotations
+        )
+        nat, ncart = moved.shape[1:3]
+        charge = channel(moved[0])
+        # ``(nat, 3 directions, 3 spin components, ngm)``: the magnetization
+        # block with every index live.
+        block = jnp.stack([
+            jnp.stack([r_to_g(f, gvectors.fft_index)
+                       for f in moved[1 + i].reshape((nat * ncart,)
+                                                     + moved.shape[3:])])
+            .reshape((nat, ncart, -1))
+            for i in range(3)
+        ], axis=2)
+        out_g = symmetrize_atom_displacement_spin_density(
+            block, permutations, phases, rotations, rotated_spin, mapping,
+        )
+        magnetization = jnp.stack([
+            jnp.stack([
+                jnp.real(g_to_r(component, gvectors.fft_index, gvectors.grid))
+                for component in out_g[:, :, i].reshape((nat * ncart, -1))
+            ]).reshape(charge.shape)
+            for i in range(3)
+        ])
+        return jnp.moveaxis(
+            jnp.concatenate([charge[None], magnetization], axis=0), 0, 2
+        )
 
     def symmetrize_strain_response(self, fields: jnp.ndarray) -> jnp.ndarray:
         """:meth:`symmetrize_directional` for the nine **strain** perturbations.

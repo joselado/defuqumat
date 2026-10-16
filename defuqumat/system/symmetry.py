@@ -728,6 +728,18 @@ def _walked_atom_displacement(field_g, permutations, phases, rotations, inverse)
 
 
 @jax.jit
+def _walked_atom_displacement_spin(field_g, permutations, phases, rotations,
+                                   spin_rotations, inverse):
+    def term(op):
+        perm, phase, rotation, spin, inv = op
+        gathered = phase[None, None, None, :] * field_g[inv][:, :, :, perm]
+        return jnp.einsum("ab,ij,cbjg->caig", rotation, spin, gathered)
+    return _operation_mean(
+        term, (permutations, phases, rotations, spin_rotations, inverse),
+        field_g.shape, jnp.result_type(field_g, phases, rotations))
+
+
+@jax.jit
 def _walked_tensor(field_g, permutations, phases, rotations):
     def term(op):
         perm, phase, rotation = op
@@ -873,6 +885,54 @@ def symmetrize_atom_displacement_density(
         permutations[:, None, None, :],
     ]
     return jnp.mean(jnp.einsum("sij,sajg->saig", rotations, gathered), axis=0)
+
+
+def symmetrize_atom_displacement_spin_density(
+    field_g: jnp.ndarray, permutations, phases, rotations: jnp.ndarray,
+    spin_rotations: jnp.ndarray, mapping,
+) -> jnp.ndarray:
+    """The magnetization of ``3 nat`` displacement responses, averaged over the group.
+
+    :func:`symmetrize_atom_displacement_density` with the spin index of
+    :func:`symmetrize_spin_vector_density` added, which is ``symdvscf`` at
+    ``q = 0`` for a noncollinear magnet (``LR_Modules/symdvscf.f90``, the
+    ``domag`` branch with ``t_rev``):
+
+        dm_{c,a,i}(G) = (1/N) sum_S R_ab d_S R_ij e^{-i G . f_S}
+                        dm_{S^-1(c),b,j}(S^T G)
+
+    Three labels move under one operation and each moves its own way: the
+    displaced atom ``c`` by the inverse of ``irt`` (the reason is in
+    :func:`symmetrize_atom_displacement_density`), the displacement direction
+    ``a`` by the plain rotation, since it is polar, and the magnetization
+    component ``i`` by ``det(R) (-1)^t_rev R``, since it is axial
+    (:func:`magnetization_signs`). Rotating ``i`` without the sign, or not at
+    all, is a different group rather than a coarser average, and was measured at
+    0.665 of the response on the field-direction version of this average
+    (``tests/regression/test_spinor_response.py``).
+
+    Args:
+        field_g: ``(nat, 3, 3, ngm)`` -- displaced atom, its direction, then
+            the magnetization component, all cartesian.
+        rotations: ``(nsym, 3, 3)``, the plain cartesian rotations.
+        spin_rotations: ``(nsym, 3, 3)``, the same with the axial signs folded in.
+        mapping: ``(nsym, nat)`` from :func:`atom_mapping`, ``irt`` itself.
+    """
+    inverse = jnp.asarray(np.argsort(np.asarray(mapping), axis=1))
+    if _walks_operations(permutations.shape[0], field_g, copies=4):
+        return _walked_atom_displacement_spin(field_g, permutations, phases,
+                                              rotations, spin_rotations, inverse)
+    # ``gathered[s, c, b, j, g] = phase[s, g] field_g[irt^-1[s, c], b, j, S^T G_g]``
+    gathered = phases[:, None, None, None, :] * field_g[
+        inverse[:, :, None, None, None],
+        jnp.arange(3)[None, None, :, None, None],
+        jnp.arange(3)[None, None, None, :, None],
+        permutations[:, None, None, None, :],
+    ]
+    return jnp.mean(
+        jnp.einsum("sab,sij,scbjg->scaig", rotations, spin_rotations, gathered),
+        axis=0,
+    )
 
 
 def symmetrize_tensor_density(
