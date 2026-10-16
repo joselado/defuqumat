@@ -8,7 +8,7 @@ iteration with a mixer. This module writes the same fixed point as a *residual*
 so that a solver which knows the derivative of ``r`` can drive it to zero
 instead. ``F`` is one SCF iteration with every host-side decision frozen -- one
 diagonalisation at a fixed ``ethr``, no retry, no ``ethr`` schedule, no field
-feedback -- which is what makes it a *function* rather than a step of a loop.
+feedback (so a feedback constraint and ``reducebf < 1`` are refused) -- which is what makes it a *function* rather than a step of a loop.
 
 **Calibration, because this is easy to oversell.** Anderson mixing already is a
 quasi-Newton method on this residual: ``mixing.py`` builds a secant
@@ -68,11 +68,15 @@ same footing, for the same reason, and nothing about the Jacobian action changes
 ``v_hubbard`` is already ``jax.grad`` of the Hubbard energy (P20) and the
 projectors ``wfcU`` are fixed while the atoms are.
 
-**Refused rather than approximated:** external and constrained magnetic fields
-(the field is driven by a secant *outside* the density, so ``F`` would not be a
-function of ``x`` alone), tetrahedron and ``from_input`` occupations (built on
-the host, and the second is not a function of the eigenvalues at all), and spin
-spirals. Each raises by name.
+**An applied field or a penalty constraint is part of ``F`` already** (I73):
+``potential(rho)`` applies ``calculation.magnetic_field`` at full strength and a
+penalty's field is ``jax.grad`` of the penalty, so both are functions of the
+density. **Refused rather than approximated:** the two cases where the mixing
+loop moves the field between iterations, a feedback (fixed-spin-moment)
+constraint, whose field is a second unknown, and ``reducebf < 1``, whose fixed
+point depends on the iteration count; tetrahedron and ``from_input``
+occupations (built on the host, and the second is not a function of the
+eigenvalues at all); and spin spirals. Each raises by name.
 
 Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum`` and
 ``ns``, and a Krylov subspace holds a few tens of those -- tens of MB,
@@ -91,6 +95,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.eager import compiled
+from defuqumat.scf.fields import FEEDBACK
 from defuqumat.scf.occupations import fixed_occupations, smeared_occupations
 
 __all__ = ["ScfResidual", "SternheimerJacobian", "make_residual"]
@@ -540,13 +545,35 @@ def _weights(calculation, eigenvalues):
 def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
     """Build the residual for a calculation, refusing the regimes it cannot hold."""
     system = calculation.system
-    if calculation.magnetic_field is not None:
-        raise NotImplementedError(
-            "an external or constraining magnetic field has no residual form "
-            "here: the field is driven by a secant *outside* the density "
-            "(reducebf, the fixed-spin-moment feedback), so F changes between "
-            "evaluations and is not a function of the state alone"
-        )
+    field = calculation.magnetic_field
+    if field is not None:
+        # ``step`` builds its potential with ``calculation.potential(rho)``,
+        # which applies this field at full strength, so a field the mixing loop
+        # holds fixed -- a uniform ``B_field``, a ``LOCAL_MAGNETIC_FIELDS`` card,
+        # every *penalty* constraint, whose field is ``jax.grad`` of the
+        # penalty and so a function of the density -- needs nothing here (I73).
+        # ``run_scf`` changes the field in exactly two places, and those two
+        # are what stays refused.
+        if field.constraint in FEEDBACK:
+            raise NotImplementedError(
+                f"constrained_magnetization = {field.constraint!r} has no "
+                "residual form here: a feedback (fixed-spin-moment) constraint "
+                "drives its field from the moment's error between iterations, "
+                "so the field is a second unknown solved for beside the "
+                "density and F at a fixed field is not the loop's map. A "
+                "penalty constraint ('atomic', 'atomic direction', 'total', "
+                "'total direction', 'atomic texture') runs with a residual "
+                "solver"
+            )
+        if field.reducebf != 1.0:
+            raise NotImplementedError(
+                f"reducebf = {field.reducebf} has no residual form here: the "
+                "mixing loop multiplies the applied field by reducebf after "
+                "every iteration, so the state it converges to depends on how "
+                "many iterations it took, and no map of the density alone has "
+                "it as its fixed point. A field held fixed (reducebf = 1) runs "
+                "with a residual solver"
+            )
     if getattr(system, "spiral_q", None) is not None:
         raise NotImplementedError("spin spirals are not supported by a residual solver")
 
