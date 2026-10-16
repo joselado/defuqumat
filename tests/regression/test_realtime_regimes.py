@@ -259,3 +259,63 @@ def test_a_collinear_magnet_written_as_spinors_is_itself(pseudo_dir, tmp_path):
         frozen = a["frozen"][(1, 1)][0]
         assert np.abs(x - y).max() < 1e-9 * np.abs(x).max(), (potential, x, y)
         assert np.abs(x - frozen).max() > 1e-2 * np.abs(x).max(), "the update is load-bearing"
+
+
+def _generalised_ground_states(calc, v_scf):
+    """The occupied generalised eigenstates of the dense ``H(k)``, ``S(k)`` and their weights."""
+    terms = calc.local_terms(v_scf)
+    nk, nocc = len(KSET[1]), int(round(calc.nelec / 2))
+    kcart = np.asarray(calc.system.kpoints.cartesian(calc.system.cell))
+    ham = calc.at_kcart(jnp.asarray(kcart)).hamiltonian_from(terms)[0]
+    mask = np.asarray(ham.state_mask)
+    psi = np.zeros((nk, nocc, mask.shape[1]), dtype=complex)
+    for ik in range(nk):
+        keep = np.flatnonzero(mask[ik])
+        h, s = np.asarray(ham.matrix(ik)), np.asarray(ham.overlap_matrix(ik))
+        psi[ik][:, keep] = sla.eigh(h[np.ix_(keep, keep)], s[np.ix_(keep, keep)])[1][:, :nocc].T
+    return jnp.asarray(psi), np.repeat(2.0 * KSET[1][:, None], nocc, axis=1)
+
+
+@pytest.mark.parametrize("case, ecutrho, drop", [
+    ("alas-epsilon-us", 40.0, ()),
+    ("alas-piezo-tiny-paw", 44.0, ("nosym",)),
+])
+def test_a_kick_inside_the_run_is_the_run_started_at_the_kick(pseudo_dir, tmp_path, case,
+                                                              ecutrho, drop):
+    """``J_A(t1 + s) = J_B(s)``: a kick at ``t1 = 1`` against one at the start, ultrasoft and PAW.
+
+    At the superposition of atomic charges on :data:`KSET`, 10 Ry, ``dt =
+    0.05`` and blocks of 20 steps, so the kick's jump is the last step of the
+    first block. Before the kick run A carries the generalised eigenstates,
+    each of which a step multiplies by a number, so at ``t1`` its states are
+    run B's initial ones up to a phase and a norm loss of order ``y^6`` a step:
+    the two currents agree after the shift, nonperturbatively at a kick of
+    0.01/bohr and for the first order of the orders route. The guard lifted
+    alone, with no jump and the kick in the midpoint rate, reads differently
+    (``notes/incompat/I63.md`` has both numbers).
+    """
+    path = _input(tmp_path, case, 10.0, ecutrho, drop=drop)
+    system = build_system(read_pw_input(path))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    system = eqx.tree_at(lambda s: s.kpoints, system,
+                         for_spin(KPoints(coords=KSET[0], weights=KSET[1]), system.nspin))
+    calc = Calculation(system, pseudos)
+    v_scf = calc.potential(calc.starting_density()).v_scf
+    psi, weights = _generalised_ground_states(calc, v_scf)
+    from defuqumat.realtime.propagate import propagate
+
+    n, dt = 20, 0.05
+    common = dict(dt=dt, start=0.0, block_steps=20)
+    b = propagate(calc, psi, weights, v_scf, Kick(0.01, (1.0, 0.0, 0.0), 0.0), duration=2.0,
+                  **common)
+    a = propagate(calc, psi, weights, v_scf, Kick(0.01, (1.0, 0.0, 0.0), n * dt),
+                  duration=2.0 + n * dt, **common)
+    jb, ja = np.asarray(b.current), np.asarray(a.current)
+    assert np.abs(ja[n:] - jb).max() < 1e-8 * np.abs(jb - jb[0]).max()
+    ob = propagate_orders(calc, psi, weights, v_scf, Kick(1.0, (1.0, 0.0, 0.0), 0.0), order=1,
+                          duration=2.0, **common)
+    oa = propagate_orders(calc, psi, weights, v_scf, Kick(1.0, (1.0, 0.0, 0.0), n * dt),
+                          order=1, duration=2.0 + n * dt, **common)
+    j1b, j1a = np.asarray(ob.currents[1]), np.asarray(oa.currents[1])
+    assert np.abs(j1a[n:] - j1b).max() < 1e-8 * np.abs(j1b).max()
+    assert np.abs(j1a[:n]).max() < 1e-12 * np.abs(j1b).max(), "no response before the kick"
