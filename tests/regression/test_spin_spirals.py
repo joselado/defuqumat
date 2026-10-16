@@ -268,7 +268,8 @@ def test_a_continuation_crosses_the_spiral_boundary_at_a_reciprocal_lattice_q(
         name, iterations, pseudo_dir):
     """I67: the transverse pair crosses by ``exp(-+ i q . r)`` and lands on the fixed point.
 
-    Measured on D22 (``notes/incompat/I67.md``). Hydrogen: each continued run
+    Measured on D22 (``notes/incompat/I67.md``), one run each, so the
+    iteration bounds are a tolerance on one sample. Hydrogen: each continued run
     converges in **one** iteration (first estimated accuracy 5.8e-12 and
     1.9e-12 Ry) where a fresh one takes 11, its energy is the fresh target's to
     4.9e-10 and 5.2e-10 Ry, and its density moves 1.3e-6 and 7.4e-7 from the
