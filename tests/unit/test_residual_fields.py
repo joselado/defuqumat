@@ -147,7 +147,8 @@ def test_a_noncollinear_uniform_field_is_refused(pseudo_dir):
 def test_autodiff_jacobian_is_refused_under_a_field(pseudo_dir):
     """Every residual-solver number with a field used the central difference.
 
-    The guard fires before the first evaluation of ``F``, so the state handed
+    The guard fires before the solver's first evaluation of ``F`` (the driver's
+    warm-up mixing steps still run before it), so the state handed
     to the solver is never read.
     """
     from defuqumat.scf.solvers import newton_krylov
