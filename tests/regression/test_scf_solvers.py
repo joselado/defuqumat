@@ -328,9 +328,13 @@ def test_weights_agree_with_the_driver(case):
 AL_TETRAHEDRA = Path(__file__).resolve().parents[1] / "data" / "qe" / "al-tetrahedra.in"
 AL_TETRAHEDRA_REFERENCE = AL_TETRAHEDRA.with_name("reference.out.al-tetrahedra")
 
-#: How far the autodiff ``J v`` may sit from the central difference on the
-#: tetrahedron cell, warm. Set from the D22 measurement in ``notes/incompat/I71.md``.
-AUTODIFF_TETRAHEDRA_BOUND = 1.0e-2
+#: How far the autodiff ``dF v`` may sit from the central difference on the
+#: tetrahedron cell, warm, relative to ``|dF v|`` (not to ``|J v| = |dF v - v|``,
+#: which is about 1 here and would hide the whole occupation term). Measured on
+#: D22 (``notes/incompat/I71.md``): 2.6e-2, 1.1e-2, 2.3e-2 on three random
+#: directions with the implicit tangent, 1.22, 0.045, 1.38 with the bare
+#: bisection's.
+AUTODIFF_TETRAHEDRA_BOUND = 0.1
 
 
 def _occupation_cell(name, qe_testsuite=None):
@@ -432,13 +436,15 @@ def test_newton_krylov_with_from_input_is_pw_x_s_fixed_point(qe_testsuite):
 
 @pytest.mark.regression
 @pytest.mark.slow
-def test_autodiff_jacobian_with_tetrahedra_matches_finite_differences():
+def test_autodiff_jacobian_with_tetrahedra_matches_finite_differences(monkeypatch):
     """``J v`` by ``jax.jvp`` through the tetrahedron weights, against ``r``'s difference.
 
     What the custom tangent of the tetrahedron Fermi level buys: without it the
     level's tangent is the bracket's, and the autodiff action is off by the
     whole Fermi-shift term (``test_bz_integration.py`` measures that alone).
     """
+    import defuqumat.scf.tetrahedra as tetrahedra
+
     system, pseudos, calculation, residual = _setup(AL_TETRAHEDRA)
     converged = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11)
     x = residual.pack(converged.density, calculation.starting_becsum())
@@ -446,10 +452,20 @@ def test_autodiff_jacobian_with_tetrahedra_matches_finite_differences():
     rng = np.random.default_rng(0)
     direction = rng.normal(size=x.shape)
     direction /= np.linalg.norm(direction)
-    autodiff, _ = residual.jvp(x, direction, psi)
     difference = residual.jvp_finite_difference(x, direction, psi)
-    relative = np.linalg.norm(autodiff - difference) / np.linalg.norm(difference)
-    assert relative < AUTODIFF_TETRAHEDRA_BOUND
+    response = np.linalg.norm(difference + direction)
+
+    def relative():
+        autodiff, _ = residual.jvp(x, direction, psi)
+        return np.linalg.norm(autodiff - difference) / response
+
+    assert relative() < AUTODIFF_TETRAHEDRA_BOUND
+    # The guard fires: with the bare bisection's tangent the same check fails.
+    monkeypatch.setattr(tetrahedra, "_fermi_level", tetrahedra._bisect)
+    import jax
+
+    jax.clear_caches()
+    assert relative() > 5 * AUTODIFF_TETRAHEDRA_BOUND
 
 
 @pytest.mark.regression
