@@ -2276,11 +2276,18 @@ def test_the_ldos_mode_reaches_the_kerker_fixed_point(polarized, tmp_path, pseud
     The preconditioner is an approximate inverse Jacobian and sets the path,
     never the fixed point, so the same modulated metallic ultracell under the
     two mixers has to land on the same density and energy to the two runs'
-    ``conv_thr``. The LDOS is checked to be live: states at ``e_F`` on every
-    mix and at least one conjugate-gradient solve that did not stop at its
-    Kerker first guess, which is what a modulated ``D`` gives and a uniform one
-    does not. ``polarized`` runs the ``nspin = 2`` cell, where only the charge
-    is screened and the magnetization takes ``beta``.
+    ``conv_thr``. The LDOS is checked to be live and normalised: states at
+    ``e_F`` on every mix, and the last mix's ``integral D dV`` over the box
+    equal to ``sum w_k0 delta(e_F - e_j)`` over the ultracell's own levels, the
+    number a wrong ``1/N`` or a missing spin factor would move by a factor.
+    ``polarized`` runs the ``nspin = 2`` cell, where only the charge is
+    screened and the magnetization takes ``beta``.
+
+    Measured on D22 (2026-10-16, ``notes/incompat/I77.md``, one sample each):
+    density 1.19e-7 and 3.47e-7 apart (1.9e-5 and 6.2e-5 of the induced
+    density), energies 3.4e-13 and 2.1e-12 Ry, at 13 and 13, 8 and 11
+    iterations; the box integral 27.528 against 27.542 and 8.43333 against
+    8.43347, the record being one iteration behind the converged levels.
     """
     shape, kgrid = (2, 1, 1), (2, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
@@ -2303,12 +2310,18 @@ def test_the_ldos_mode_reaches_the_kerker_fixed_point(polarized, tmp_path, pseud
     assert kerker.ldos_record is None
     assert len(ldos.ldos_record) == ldos.iterations - 1
     assert all(states > 1.0 for states, _, _ in ldos.ldos_record)
-    assert max(solves for _, _, solves in ldos.ldos_record) > 0
+    assert all(clamped == 0.0 for _, clamped, _ in ldos.ldos_record)
+    sigma = float(calculator.system.degauss)
+    levels = np.asarray(ldos.eigenvalues)
+    levels = levels.reshape((-1,) + levels.shape[-2:])
+    weights = np.asarray(calculator.system.kpoints.weights)
+    w0 = np.full(levels.shape[1], weights.sum() / levels.shape[1])
+    x = (float(np.atleast_1d(ldos.fermi_energy)[0]) - levels) / sigma
+    box = float(np.sum(w0[None, :, None] * np.exp(-x * x))) / (sigma * np.sqrt(np.pi))
+    assert ldos.ldos_record[-1][0] == pytest.approx(box, rel=2e-3)
 
     a, b = np.asarray(kerker.density), np.asarray(ldos.density)
     induced = np.abs(np.asarray(kerker.modulation)).max()
-    assert induced > 1e-4 * np.abs(a).max()
-    # Measured on D22 (``notes/incompat/I77.md``); the bound is the two runs'
-    # residual, dr2 < 1e-11, read as a pointwise density.
-    assert np.abs(a - b).max() < 1e-4 * induced
-    assert abs(kerker.total_energy - ldos.total_energy) < 1e-9
+    assert induced > 1e-2 * np.abs(a).max()
+    assert np.abs(a - b).max() < 1.5e-6
+    assert abs(kerker.total_energy - ldos.total_energy) < 1e-11
