@@ -259,70 +259,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE out of scope.
 - Not merged, 2026-10-16 (P155): the batch lists it refuted (the first fix's digest was blind to `k_batch`); the third verifier round's logs at 592240e (`/l/ladovj1/review/incompat/I66-ver3/hA.log`) read the resume bit for bit and a file of another `k_batch` ignored, a decision for the user; record only (`notes/incompat/I66.md`, branch `incompat/I66-r2` 9d58999).
 
-### I70. Elk `STATE.OUT` seed x DFT+U or a fixed tensor moment
-
-- Axis: execution mode.
-- Guard: `defuqumat/io/elk.py:read_elk_state:467`.
-- Test: `tests/unit/test_elk_reader.py:326` `test_a_state_carrying_physics_this_cannot_transfer_is_refused` (parametrized on `dftu` and `ftmtype`).
-- Missing: reading the trailing occupation and potential records (guard message).
-- Check: seeded and unseeded runs reach the same fixed point.
-- QE/Elk: Elk writes it.
-- Note: sweep-core says no test; the parametrized test covers it, read.
-
-### I71. Residual (Newton) solver x tetrahedra or `from_input` occupations
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/residual.py:_weights:511`.
-- Test: `tests/regression/test_scf_solvers.py:335` `test_unsupported_occupations_are_refused_by_name`.
-- Missing: differentiable tetrahedron weights (sweep-core).
-- Check: the same fixed point as the mixing loop, to `conv_thr`.
-- QE/Elk: QE n.
-
-### I72. Residual (Newton) solver x spin spiral
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/residual.py:make_residual:551`.
-- Test: none.
-- Missing: unread.
-- Check: the same fixed point as the mixing loop, to `conv_thr`.
-- QE/Elk: QE n.
-
-### I73. Residual (Newton) solver x applied or constraining magnetic field
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/residual.py:make_residual:544`.
-- Test: none.
-- Missing: a field that is a function of the state; the field secant sits outside the density (sweep-core, queue A13).
-- Check: the same fixed point as the mixing loop, to `conv_thr`.
-- QE/Elk: QE n.
-
-### I74. `mixing_space = 'g'` x magnetic spiral
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:run_scf:7880`.
-- Test: `tests/unit/test_spiral_gvectors.py:109` `test_g_space_mixing_is_refused_on_a_magnetic_spiral`.
-- Missing: the transverse channel on the sphere displaced by `q` (sweep-core).
-- Check: the same fixed point as `mixing_space = 'r'`.
-- QE/Elk: QE n.
-
-### I75. `mixing_mode = 'ldos'` x tetrahedra, and as the warm-up of a Newton-Krylov solve
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:run_scf:7975` (`ValueError`); `Calculation.ldos_weights:5443`; `_solve_residual:6734`.
-- Test: `tests/unit/test_ldos_mixing.py:341` `test_tetrahedra_are_refused`; `tests/unit/test_ldos_mixing.py:355` `test_places_without_an_ldos_refuse_the_mode`.
-- Missing: a smooth Fermi-level delta for tetrahedra; a Gaussian substitute is unmeasured (sweep-core).
-- Check: the same fixed point as the mixing loop, to `conv_thr`.
-- QE/Elk: QE n (`local-TF` is a different mixer).
-
-### I76. `mixing_mode = 'robust'` x k-point pools, and x a checkpoint or `mixing_from`
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:_refuse_robust:7158`.
-- Test: none for these clauses (`tests/unit/test_robust_mixing.py:118` `test_tetrahedra_are_refused_by_name` fires the tetrahedron clause, which is a refusal by definition).
-- Missing: the supervisor's state in the checkpoint; pool support (docstring at `:7140-7146`).
-- Check: the same fixed point as the mixing loop, to `conv_thr`; resumed against uninterrupted.
-- QE/Elk: QE n.
-
 ### I77. Ultracell x `mixing_mode = 'robust'` and `'ldos'`
 
 - Axis: execution mode.
@@ -331,15 +267,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: the robust supervisor lives in `run_scf`'s loop; an LDOS handed to the mixer (guard messages).
 - Check: the ultracell fixed point does not depend on the mixer.
 - QE/Elk: QE n.
-
-### I78. `rotate_moments` x crystal symmetry
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:_refuse_rotating_moments:6957` (`ValueError`).
-- Test: none.
-- Missing: rebuilding the magnetic group and the k-set as the moments turn (sweep-core).
-- Check: the `nosym` run.
-- QE/Elk: QE n.
+- Partial, record only 2026-10-16 (P155, integration two): `'ldos'` in the ultracell lands on the branch `incompat/I77` (91e35a2), the ultracell fixed point under `'ldos'` against `'anderson'` with Kerker 1.19e-7 (`nspin = 1`) and 3.47e-7 (`nspin = 2`) in the density, 3.4e-13 and 2.1e-12 Ry; the box LDOS 27.528 against the Gaussian sum 27.542. `'robust'` is not written and keeps the refusal. Not merged: the batch's confirmed list is empty for a partial unit (`notes/incompat/I77.md`).
 
 ### I79. Gamma phonon x magnetic spinor (`noncolin` with `domag`), with the axial symmetrisation of a displacement response
 
@@ -349,16 +277,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: everything of the nonmagnetic spinor phonon plus the second linear system for the time-reversed partners (`nsolv = 2`, Urru and Dal Corso), and for ultrasoft `int3_nc_save`, `dbecsum_aux` (HOLES #17); the axial rotation with `det(R)` and the `t_rev` sign.
 - Check: after the `nspin = 2` Gamma phonon: a collinear `nspin = 2` dynamical matrix against the same cell as a spinor with the moment along z; `test-suite/ph_Ni_nc_spinorbit_mag` is at `q != 0`, a metal, with an uncommitted dataset.
 - QE/Elk: QE y for phonons (`dfpt_kernels.f90:212-213`); `phq_readin.f90:546-548` refuses `epsil`, `zue`, `lraman`, `elop` under `magnetic_sym`, which sweep-response reads as never firing because `magnetic_sym` is assigned later (`phq_setup.f90:211`, see the textured-spinor dielectric entry); PAW refused at `:807`.
-
-### I80. Phonon at `q != 0` x nonlinear core correction
-
-- Axis: dataset (NLCC).
-- Guard: `defuqumat/response/phononq.py:require_a_two_sphere_regime:1441`.
-- Test: none.
-- Missing: `dynmatcc` at `q` (`set_drhoc(xq)`, `dynmatcc.f90:105`), the one frozen term that depends on `q` (PLAN.md index).
-- Check: a commensurate `q` equals the Gamma phonon of the supercell, whose route carries the core correction.
-- QE/Elk: QE y (`dynmatcc.f90`).
-- Note: queue.md ranks it T1 on `test-suite/ph_2d`; its `scf.in` sets `assume_isolated='2D'`, which is refused (plain missing feature), so that reference is not usable. sweep-response's identity is the check.
+- Partial, record only 2026-10-16 (P155, integration two): the collinear limit, a spinor along z without SOC against `nspin = 2`, reads 8.3e-6 Ry/bohr^2 on triplet O2 (force constants of 1.68) and 1.9e-6 on `h-chain-afm`; on a shared ground state 2.3e-6 and 1.4e-6, so about 1e-6 to 2e-6 belongs to the spinor response route and is unlocated (the nonmagnetic spinor identity of I3 reaches 2.7e-10). The phonon refusal stays. The axial displacement average at `nspin_mag = 4` (atom sum against `symmetrize_directional` 7.1e-15) and the axial `becsum` average are on the branch `incompat/I79` (b6ff6d0), not merged (`notes/incompat/I79.md`).
 
 ### I81. Phonon at `q != 0` x ultrasoft or PAW (and the electron-phonon coupling on it)
 
@@ -368,15 +287,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: four terms: `addusddens`'s `Q_ij(q+G)` in the response density, `adddvscf`'s `int3` with `e^{iqr}`, `dvanqq`'s `int1`/`int2`, the multipliers at `q != 0`; `q_ij(q+G)` exists in `tddft.spinchi0.augmentation_factors` (PLAN.md index P97, AUGMENTATION-NEXT §1c).
 - Check: a commensurate `q` equals the Gamma phonon of the supercell (ultrasoft and PAW insulators run at Gamma); T1 only stacked with `nspin = 2` and a metal (`test-suite/ph_base/ni.phX.in`, `nipaw.phX.in`).
 - QE/Elk: QE y, including `elphon.f90:79-82`.
-
-### I82. Phonon at `q != 0` x `nspin = 2` (and noncollinear)
-
-- Axis: spin.
-- Guard: `defuqumat/response/phononq.py:require_a_two_sphere_regime:1434`.
-- Test: none.
-- Missing: the `k+q` ground state, projector and response density per channel, plus the Gamma assembly's spin axis (guard message).
-- Check: after the `nspin = 2` Gamma phonon: supercell identity; T1 once the ultrasoft `q` phonon also lands, `test-suite/ph_base/ni.phX.in` (`Ni.pbe-nd-rrkjus.UPF`, committed).
-- QE/Elk: QE y.
+- Partial, record only 2026-10-16 (P155, integration two): the refusal stays, and the entry undercounts. Beyond the four terms, the `q` route lacks P39's orthogonality set at `q` (`dpsi^ort`, `drhous`, `becsumort`, `dLambda`, `drhodvus`, the `deff`/`int1`/`int2` half of `drhodvnl`), cross-sphere objects (`compute_drhous.f90:99-114`), and the frozen Hessian is not atom-diagonal for an augmented dataset (`addusdynmat.f90:141-195` through `dvanqq.f90:106-191`), so `frozen_force_constants`' claim that it is the same at every `q` holds for norm-conserving datasets only (`notes/incompat/I81.md`).
 
 ### I83. Phonon at `q != 0` x DFT+U
 
@@ -395,15 +306,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: four shifted spheres (sweep-response).
 - Check: after the magnetic spinor Gamma phonon: a commensurate spiral equals the noncollinear supercell, exactly (P19, 1e-12 Ry).
 - QE/Elk: QE n.
-
-### I85. Berry-phase finite field (`lelfield`) x spin spiral
-
-- Axis: spiral.
-- Guard: `defuqumat/scf/berryfield.py:require_a_berry_field_regime:353`.
-- Test: none.
-- Missing: unread (reason string "a spin spiral").
-- Check: after `lelfield` on a spinor: a commensurate spiral equals the noncollinear supercell, exactly (P19, 1e-12 Ry).
-- QE/Elk: QE n; Elk unread.
+- Skipped 2026-10-16 (P155, integration two): its prerequisite, the magnetic spinor Gamma phonon (I79), is partial.
 
 ## T3: an approximate identity, or one that needs a convergence
 
@@ -1011,6 +914,20 @@ Landed on 2026-10-16 in P155, integration one of the rest of T2 (branch `incompa
 - I67, continuation across the spiral boundary at a reciprocal-lattice `q`: H chain spiral to plain at `q = b3`, 1 iteration against 11, E 4.9e-10 Ry; PAW O chain 3 against 13, `becsum` 1.2e-5 against 1.37 with the per-atom phase. A spiral into `nspin = 2`, a non-integer `q` and DFT+U refuse; `tau` is dropped across the frame (`incompat/I67-fix`).
 - I68, seed under another pool layout: Si 8k, two pools, blocks to longest-first, against an unseeded run 1.39e-13 Ry in 1 iteration against 8. A span of another layout outside a pooled `run_scf` refuses (`incompat/I68`).
 - I69, Elk seed from a collinear spin-polarized state: the magnetization against `MAG3D.OUT` worst 1.5e-11, the muffin-tin moment to every digit of `INFO.OUT`; seeded against atomic start dE 4.3e-14 Ry at `conv_thr = 1e-13`, moment -0.29092007 against -0.29091922; a flipped moment lands on the mirror state. Noncollinear, fixed-spin-moment and mismatched-channel seeds refuse (`incompat/I69`).
+
+Landed on 2026-10-16 in P155, integration two of the rest of T2 (branch `incompat-t2`), each with its record in `notes/incompat/<ID>.md`:
+
+- I70, Elk seed from a DFT+U state: seeded against unseeded DFT+U SCF of sc hydrogen at `U = 4` eV, dE -6.7e-16 Ry, `max|drho|` 7.0e-9, `max|dns|` 5.3e-9, five iterations each (U itself moves E by 3.756e-2 Ry); `vmatmt` against Elk's `VMATMT.OUT` to every printed digit. Only the density crosses, with a warning. A fixed tensor moment refuses, and a spin-polarized DFT+U state, where I69 meets I70, refuses unmeasured (`incompat/I70`).
+- I71, Newton-Krylov with tetrahedra and `from_input`: `al-tetrahedra.in` -4.1978985974 Ry, 2.6e-9 from `pw.x`'s -4.19789860; `scf-occ.in` 8.8e-10 from `pw.x`; the autodiff Jacobian within 1 to 7 per cent of a central difference (the verifier puts the residue in the eigensolver). The Sternheimer Jacobian and pools (I53's refusal, now pooled only) refuse (`incompat/I71`).
+- I72, Newton-Krylov on a spin spiral: `F(x*) - x*` at the mixing loop's converged state 1.32e-10 (NC), 2.70e-10 (US), 1.35e-11 (PAW), and the loop takes 1 iteration after the hand-off (10 under the verifier's map with `m_x`, `m_y` scaled by 0.97). A Hubbard U (Im `ns` dropped, 2.34e-4) and a meta-GGA refuse, and a spiral under a field, where I72 meets I73, refuses unmeasured (`incompat/I72`).
+- I73, Newton-Krylov under a field or a penalty: against `pw.x` 7.8e-8 Ry (`atomic`), 2.7e-9 (`atomic direction`), 1.3e-8 (`total`); a collinear uniform field against mixing 1.7e-8 Ry, 1.7e-6 mu_B; the mixing loop after the hand-off 1 iteration, 11 to 41 when Newton's F drops the field. Feedback schemes, `reducebf < 1`, the two unmeasured penalties, a local-field card and `jvp='autodiff'` refuse (`incompat/I73`).
+- I74, `mixing_space = 'g'` on a magnetic spiral: `o-chain-spiral-us.in` at `conv_thr = 1e-13`, `SpiralSphereLayout` 13 iterations, E 1.1e-13 Ry from `'r'`, charge and `|m|` 1.2e-7; the cutting layout does not converge in 40 and stops 3.5e-9 Ry off (`incompat/I74-fix`).
+- I75, `mixing_mode = 'ldos'` with tetrahedra and as a Newton warm-up: Bloechl `al-tetrahedra` -4.1978985966 Ry against `pw.x` -4.19789860; Kawamura `al10-metal-tetra` 19 iterations against `pw.x`'s 55; the summed LDOS weights equal the tetrahedron DOS at `e_F` to 1e-10; the warm-up then Newton 3.7e-9 Ry from mixing (Gaussian). The tetrahedron LDOS as a Newton warm-up, where I71 meets I75, refuses unmeasured (`incompat/I75`).
+- I76, `mixing_mode = 'robust'` under pools and across a checkpoint: 2 pools against 1, the same iteration counts, rungs and decisions, dE at most 8.9e-15 Ry; resumed from iteration 5 against uninterrupted, the same count, dE at most 7.1e-15 Ry; without the supervisor file iteration 6 is 2.3e-3 Ry off (`incompat/I76`).
+- I78, `rotate_moments` with crystal symmetry, on the turning group `{E, I}`: tetragonal Co started 45 degrees off c, 10 points against `nosym`'s 18, dE 5.7e-14 Ry; the shifted grid 9 against 18, -2.8e-14 Ry. The starting orientation's group refuses, and PAW keeps `nosym`. No test covers a pooled run on the turning group (`incompat/I78-fix`).
+- I80, phonon at `q != 0` with a nonlinear core correction: `D(b1/2)` against the doubled cell at Gamma, 2.79e-6 Ry/bohr^2 (ONCV Si, 0.74 e core), 4.81e-6 (broad Gaussian core), at a floor of 4.40e-6 without a core; with no core terms 1.26e-1 and 7.8e-2. A core at `nspin = 2`, where I80 meets I82, refuses unmeasured (`incompat/I80`).
+- I82, phonon at `q != 0` for a collinear `nspin = 2` insulator under the LDA: the H3 chain at `b3/2` against the doubled cell at Gamma, 1.522e-5 Ry/bohr^2, worst partner 0.051 cm^-1. A GGA at any `nspin` refuses (7.97e-3 and 60.55 cm^-1 under PBE at `nspin = 2`, 1.33e-2 and 77 cm^-1 at `nspin = 1`, silently wrong before), as do a spin-polarized metal, the k-chunked route at `nspin = 2` and the coupling at `nspin = 2` (`incompat/I82-fix`).
+- I85, `lelfield` on a spin spiral and on a magnetized spinor: the spiral at `q = b3/4` against the 90-degree supercell, `E(E) - E(0)` 8.3e-12 Ry, `el_pol` 8.9e-8 mod the quantum (one gather for both components 6.9e-8 Ry and 5.5e-4); the supercell against a new `pw.x` 7.5 run 2.2e-9 Ry (zero field), 1.0e-9 Ry and `el_pol` 2.0e-7 (field). A metal, an ultrasoft dataset and spin-orbit coupling refuse (`incompat/I85`).
 
 Earlier:
 
