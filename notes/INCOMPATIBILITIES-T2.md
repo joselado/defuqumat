@@ -1,4 +1,4 @@
-# The rest of tier T2 of the incompatibility work, integration one
+# The rest of tier T2 of the incompatibility work, integrations one and two
 
 This file is the record of how the units of `notes/INCOMPATIBILITIES.md` in the rest of tier T2
 (I33 to I36 and I49 to I85, with I83 left out because its prerequisite I5 is partial) are brought
@@ -114,3 +114,38 @@ Of the merged units, once `incompat-t2` is accepted: `w-inc-ultracell2`, `-v2`, 
 Three code changes on this branch are mine and are in no `notes/incompat/<ID>.md`, so no verifier ran them: the walked-route refusal of a closed subset with symmetry in `response/phonon.py` (where I51 meets I54), the texture check in `workflows/magnons.py:run_spin_susceptibility` (I59's gap), and its `np.ndim` repair after the first gate. Each has a fast test that fails with the change patched out, and the re-gate covers them.
 
 Three `incompat/*` refs lag what was merged, because each is checked out in another agent worktree that this one may not touch: `incompat/I50` at 3e584d6 (merged from `worktree-wf_93b36bbe-189-57` 9ec1c09), `incompat/I51` at 72a0d2e (merged from `incompat/I51-merged` 704b157), `incompat/I67` at 87ff5bb (merged from `incompat/I67-fix` 7e130a5). Once those worktrees are released, `git branch -f` brings each up, or the merge of `incompat-t2` makes them moot.
+
+# Integration two
+
+Integration two takes the units that were still running at integration one: I70 to I82, I84 and
+I85. The rules are the same. It works on the branch in the agent worktree
+`.claude/worktrees/wf_93b36bbe-189-84` (branch `worktree-wf_93b36bbe-189-84`, fast-forwarded to
+`incompat-t2` at `1f8957e`), since `incompat-t2` itself is checked out in the worktree
+`wf_93b36bbe-189-82`, which this agent may not touch; `incompat-t2` is brought up to this branch's
+head once that worktree is released (the head is a descendant, so it is a fast-forward).
+
+## The fifteen units, as reported, and what integration two does
+
+| unit | branch | commit | reported | integration |
+|---|---|---|---|---|
+| I70 | incompat/I70 | 0ce3e5e | done, confirmed | to merge |
+| I71 | incompat/I71 | d58e46d | done, confirmed | to merge |
+| I72 | incompat/I72 | 50cb57a | done, confirmed (fix round: the fixed-point identity and the one-iteration discriminator) | to merge |
+| I73 | incompat/I73 | 4fd7d6b | done, confirmed (fix round: the loop-iteration discriminator) | to merge |
+| I74 | incompat/I74-fix | 693c186 | done, confirmed (fix round: the check at `conv_thr = 1e-13`) | to merge |
+| I75 | incompat/I75 | 74b9dea | done, confirmed | to merge |
+| I76 | incompat/I76 | e627366 | done, confirmed | to merge |
+| I77 | incompat/I77 | 91e35a2 | partial, nothing in the confirmed list | record only |
+| I78 | incompat/I78-fix | 084598e | done, confirmed (fix round) | to merge |
+| I79 | incompat/I79 | b6ff6d0 | partial, nothing in the confirmed list | record only |
+| I80 | incompat/I80 | 58fc138 | done, confirmed | to merge |
+| I81 | incompat/I81 | 5db26ea | partial, nothing in the confirmed list | record only |
+| I82 | incompat/I82-fix | 89e0787 | done, confirmed (fix round: the GGA refused) | to merge |
+| I84 | none | none | skipped, prerequisite not confirmed | nothing to take |
+| I85 | incompat/I85 | 106978a | done, confirmed | to merge |
+
+Every branch tip matched the reported sha.
+
+## Progress of integration two
+
+- Step 0: this section written.
