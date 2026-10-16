@@ -465,3 +465,66 @@ def test_a_spin_spiral_is_refused_by_name():
                                   magnetic_field=None)
     with pytest.raises(NotImplementedError, match="spin spiral"):
         require_a_realtime_regime(calculation)
+
+
+_GAMMA_SILICON = """
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 2, celldm(1) = 10.20, nat = 2, ntyp = 1, ecutwfc = 12.0, nosym = .true.
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-vbc.UPF
+ATOMIC_POSITIONS alat
+ Si 0.01 0.00 0.00
+ Si 0.26 0.24 0.25
+K_POINTS gamma
+"""
+
+
+def test_gamma_storage_is_refused_by_the_driver_and_taken_off_by_the_workflows():
+    """``K_POINTS gamma``: the driver refuses half-sphere states, the workflows never hand it any.
+
+    ``H(k + kappa)`` is complex, so a propagated state is not real and one plane
+    wave of each ``(G, -G)`` pair cannot carry it. The refusal stays on
+    :func:`require_a_realtime_regime` for a half-sphere ``Calculation`` handed
+    to the driver directly (a stub is the whole input, as in
+    ``test_sibling_refusals.py``), and the k-set every workflow solves on comes
+    back on the whole sphere with its weights untouched. The current against an
+    explicit ``k = 0`` is ``tests/regression/test_realtime_gamma.py``.
+    """
+    import types
+
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.realtime.propagate import require_a_realtime_regime
+    from defuqumat.realtime.pulse import Sin2
+    from defuqumat.workflows.realtime import _kset
+
+    system = build_system(parse_pw_input(_GAMMA_SILICON))
+    assert system.kpoints.gamma_only
+    stub = types.SimpleNamespace(system=system, gamma_only=True, spiral=None,
+                                 is_hubbard=False, magnetic_field=None)
+    with pytest.raises(NotImplementedError, match="gamma-only storage"):
+        require_a_realtime_regime(stub)
+    # the siblings still fire on the same stub
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        require_a_realtime_regime(types.SimpleNamespace(
+            system=system, gamma_only=False, spiral=object(), is_hubbard=False))
+    with pytest.raises(NotImplementedError, match="DFT\\+U"):
+        require_a_realtime_regime(types.SimpleNamespace(
+            system=system, gamma_only=False, spiral=None, is_hubbard=True))
+    require_a_realtime_regime(types.SimpleNamespace(**{**vars(stub), "gamma_only": False}))
+
+    pulse = Sin2.from_intensity(1e11, 1.55, 1)
+    for kpoints in (None, system.kpoints):
+        kset, rotations, group = _kset(system, pulse, kpoints, None, True)
+        assert not kset.gamma_only
+        assert rotations is None and group is None
+        np.testing.assert_array_equal(np.asarray(kset.coords), np.zeros((1, 3)))
+        np.testing.assert_array_equal(np.asarray(kset.weights),
+                                      np.asarray(system.kpoints.weights))
+        assert kset.spin_normalized == system.kpoints.spin_normalized
+
