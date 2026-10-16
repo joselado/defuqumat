@@ -60,6 +60,28 @@ def moment(r):
                       else r.magnetization_vector, dtype=float)
 
 
+def at_target(r):
+    """The reported total moved to the target moment, to second order.
+
+    The reported total leaves out the Zeeman term, and along the constrained
+    family dE/dm = B (E + E_field stationary at fixed B, E_field = -B.m), so a
+    run that stopped dm off its target reads B.dm off in E, first order.
+    E + B.(m_fix - m) removes that and leaves an error of order dm^2 / chi.
+    For the direction scheme B is perpendicular to the unit target, so the
+    correction is -B.m, which is E_field.
+    """
+    field = r.magnetic_field
+    if field is None or field.driven_leaf is None:
+        return None
+    b = np.asarray(field.driven(), dtype=float)
+    targets = np.asarray(field.targets, dtype=float)
+    if field.driven_leaf == "atomic":
+        m = np.asarray(r.site_moments, dtype=float)
+    else:
+        m = np.atleast_1d(moment(r))
+    return float(r.total_energy + np.sum(b * (targets - m)))
+
+
 def show(tag, r, t0):
     s = r.solver
     field = r.magnetic_field
@@ -77,6 +99,7 @@ def show(tag, r, t0):
         print(f"   site_moments={np.asarray(sites).tolist()}", flush=True)
     if driven is not None:
         print(f"   driven_field={driven.tolist()}", flush=True)
+        print(f"   E at target = {at_target(r):.12f}", flush=True)
     if s is not None:
         print(f"   newton conv={s.converged} acc={s.accuracy:.3e} outer={s.iterations} "
               f"steps={s.steps} jvps={s.jvps}", flush=True)
@@ -84,9 +107,22 @@ def show(tag, r, t0):
 
 real_elk = fields_module.MagneticField.elk_driven
 
+# The loop stops once dr2 < conv_thr and the moment is within FSM_TOLERANCE
+# (1e-3 mu_B) of its target, so at the default its answer carries the moment
+# error it stopped at (1.5e-4 mu_B on fe-fsm.in, worth B dm = 1.7e-6 Ry in the
+# reported total). FSM_TOL tightens both tolerances so the loop is held to its
+# own fixed point as tightly as Newton is.
+if os.environ.get("FSM_TOL"):
+    fields_module.FSM_TOLERANCE = float(os.environ["FSM_TOL"])
+    fields_module.FSM_ANGLE_TOLERANCE = float(os.environ["FSM_TOL"])
+    print(f"# FSM_TOLERANCE = FSM_ANGLE_TOLERANCE = {fields_module.FSM_TOLERANCE}",
+          flush=True)
+
 for arg in sys.argv[1:]:
     arg, _, thr = arg.partition(":")
+    thr, _, newton_thr = thr.partition(":")
     conv_thr = float(thr) if thr else 1e-11
+    newton_thr = float(newton_thr) if newton_thr else conv_thr
     mutant = arg.startswith("mutant-")
     free = arg.startswith("free-")
     case = arg.removeprefix("mutant-").removeprefix("free-")
@@ -107,13 +143,14 @@ for arg in sys.argv[1:]:
     newton = Calculator.from_text(text, PSEUDO, announce=False).get_scf(
         scf_solver="newton-krylov",
         scf_solver_options={"forcing": 0.5, "warmup": 6, "max_iterations": 40},
-        **options)
-    show(f"{arg} newton conv_thr={conv_thr}", newton, t0)
+        **dict(options, conv_thr=newton_thr))
+    show(f"{arg} newton conv_thr={newton_thr}", newton, t0)
     if not mutant:
         print(f"   dE = {newton.total_energy - mixed.total_energy:.3e} Ry  "
               f"d e_field = {newton.field_energy - mixed.field_energy:.3e}  "
               f"dm = {(moment(newton) - moment(mixed)).tolist()}",
               flush=True)
+        print(f"   dE at target = {at_target(newton) - at_target(mixed):.3e} Ry", flush=True)
         a = np.asarray(newton.magnetic_field.driven())
         b = np.asarray(mixed.magnetic_field.driven())
         print(f"   d field max = {np.max(np.abs(a - b)):.3e} Ry", flush=True)
