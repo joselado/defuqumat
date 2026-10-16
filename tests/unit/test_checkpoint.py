@@ -25,6 +25,16 @@ from defuqumat.scf.driver import (SCF_CHECKPOINT, Calculation, SCFResult,
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture(autouse=True)
+def _drop_compiled_code():
+    """The file runs more than three distinct cells, so the compiled code goes
+    after each test (``.claude/rules/memory-design.md``)."""
+    yield
+    import jax
+
+    jax.clear_caches()
+
+
 SILICON = """
 &control
   calculation = 'scf'

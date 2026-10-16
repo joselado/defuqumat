@@ -49,6 +49,16 @@ from defuqumat.scf.mixing import get_mixer
 
 pytestmark = pytest.mark.unit
 
+
+@pytest.fixture(autouse=True)
+def _drop_compiled_code():
+    """The file runs more than three distinct cells, so the compiled code goes
+    after each test (``.claude/rules/memory-design.md``)."""
+    yield
+    import jax
+
+    jax.clear_caches()
+
 QE_SILICON = "quantum_espresso/qe-7.5-ReleasePack/qe-7.5/test-suite/pw_scf/scf.in"
 
 
