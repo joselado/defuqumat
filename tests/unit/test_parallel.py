@@ -127,6 +127,28 @@ def test_refusals_name_what_pools_do_not_cover():
         _refuse_under_pools(pools, few, **quiet)
 
 
+
+def test_a_pooled_residual_refuses_the_jacobians_that_differentiate():
+    """``PooledScfResidual`` (I53) has only the central difference; the other two raise.
+
+    The entry refusal (above) stops ``autodiff`` and ``sternheimer`` before a
+    pooled residual exists; this is the second line, on the object itself, and
+    the check that only rank 0 may open an evaluation.
+    """
+    from defuqumat.scf.residual import PooledScfResidual, ScfResidual
+
+    serial = ScfResidual(None, 4, 1e-10, ((1, 2, 2, 2),), 8)
+    pooled = PooledScfResidual.of(serial, Pools(_FakeCommunicator(2, 0)), [0, 1], None)
+    x = np.zeros(8)
+    with pytest.raises(NotImplementedError, match="jvp='autodiff' is not available"):
+        pooled.jvp(x, x, 0)
+    with pytest.raises(NotImplementedError, match="jvp='sternheimer' is not available"):
+        pooled.sternheimer_jacobian(x, 0)
+    other = PooledScfResidual.of(serial, Pools(_FakeCommunicator(2, 1)), [2, 3], None)
+    with pytest.raises(RuntimeError, match="only rank 0 drives"):
+        other.step(x, None)
+
+
 # ----------------------------------------------------------------- processes
 
 
