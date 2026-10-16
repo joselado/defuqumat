@@ -564,36 +564,78 @@ def test_tau_is_the_whole_sphere_s_tau_under_a_meta_gga(pseudo_dir):
 
 
 @pytest.mark.slow
-def test_the_velocity_operator_refuses_gamma_storage(pseudo_dir):
-    """A real state at ``Gamma`` does not move, and the half-sum said it did.
+def test_the_velocity_operator_unfolds_gamma_storage(pseudo_dir):
+    """``dH/dk`` under gamma storage, against the whole sphere at an explicit ``k = 0``.
 
-    ``dH/dk`` is **odd** in ``G``, so unlike a density the stored half does not
-    cancel where the whole sphere does: the full-sphere sum is
-    ``2i Im(sum_half)`` and the diagonal of a real state is exactly zero by
-    time reversal. Measured on this cell: ``max|v| = 0.863 Ry bohr`` under
-    gamma storage against ``1.8e-15`` at an explicit ``k = 0``. That is the
-    whole error rather than half of it, so ``2 Re(sum)`` minus ``G = 0`` is not
-    even the right repair, which is why this refuses rather than correcting.
+    ``dH/dk`` is **odd** in ``G``, so the half-sum ``2 Re(sum) - (G = 0)`` that
+    every packed kernel applies is the wrong rule for its tangent: before the
+    unfold the band velocities read ``max|v| = 0.863 Ry bohr`` here against
+    ``1.8e-15`` on the whole sphere. ``VelocityOperator`` now builds the operator
+    on the whole sphere and unfolds the stored half onto it by Miller index
+    (``response/velocity.py:whole_sphere``), so the two storages are one
+    calculation and must agree to round-off.
 
-    ``Calculation.at_kcart`` is the one chokepoint: every consumer of the
-    operator -- the optical conductivity, the Kerr angle, second-harmonic
-    generation, the shift current, the nesting function and
-    ``band_velocities`` -- reaches it through ``VelocityOperator``, which is
-    its only caller. A topological invariant is **not** affected, because
-    ``at_kpoints`` rebuilds the sphere whole, and that is asserted here so the
-    refusal cannot quietly widen.
+    The check is not only the diagonal, which time reversal forces to zero and
+    which a broken operator could also return. The off-diagonal elements are
+    order one (the largest ``1.10 Ry bohr``), and two gauge-invariant reductions
+    of them are compared: the Frobenius norm of every block between two
+    multiplets, and ``Tr(v_a v_b)``. Measured on D22: ``2.3e-13`` and ``4.2e-13``
+    apart, against a ``Tr(v_x v_x)`` of 6.30, with the eigenvalues ``1.9e-15``
+    apart.
+
+    What still refuses: ``at_kcart`` called directly on the half sphere, the
+    methods whose output is as wide as the sphere (``apply`` and its siblings),
+    and a consumer that builds its operator inside a compiled walk over
+    k-chunks (the optical conductivity), where the sphere cannot be rebuilt. A
+    topological invariant is **not** affected, because ``at_kpoints`` rebuilds
+    the sphere whole, and that is asserted here so no refusal quietly widens.
     """
-    from defuqumat.response.velocity import band_velocities
+    from defuqumat.response.velocity import VelocityOperator, band_velocities
+    from defuqumat.scf.occupations import multiplet_labels
     from defuqumat.workflows.topology import run_berry_curvature
 
-    whole, full, _ = _run(pseudo_dir, "", "crystal\n 1\n 0.0 0.0 0.0 1.0")
-    velocities = np.asarray(
-        band_velocities(whole.calculation, full).velocities)
-    assert np.abs(velocities).max() < 1e-10, "a real state at Gamma does not move"
+    whole, full, _ = _run(pseudo_dir, ", nbnd = 8", "crystal\n 1\n 0.0 0.0 0.0 1.0")
+    half, gamma, _ = _run(pseudo_dir, ", nbnd = 8", "gamma")
+    assert half.calculation.gamma_only and not whole.calculation.gamma_only
 
-    half, gamma, _ = _run(pseudo_dir, "", "gamma")
+    for calculator, result in ((whole, full), (half, gamma)):
+        velocities = np.asarray(
+            band_velocities(calculator.calculation, result).velocities)
+        assert np.abs(velocities).max() < 1e-10, "a real state at Gamma does not move"
+
+    def elements(calculator, result):
+        potential = calculator.calculation.potential(result.density)
+        operator = VelocityOperator(calculator.calculation, potential.v_scf)
+        return operator, np.asarray(
+            operator.matrix_elements(result.wavefunctions))[:, 0, 0]
+
+    _, reference = elements(whole, full)
+    operator, unfolded = elements(half, gamma)
+
+    energies = np.asarray(full.eigenvalues)[0]
+    labels = np.asarray(multiplet_labels(energies[None, None], 1e-6))[0, 0]
+    groups = sorted(set(labels.tolist()))
+
+    def block_norms(v):
+        return np.array([[[np.linalg.norm(v[a][np.ix_(labels == i, labels == j)])
+                           for j in groups] for i in groups] for a in range(3)])
+
+    norms = block_norms(reference)
+    assert norms.max() > 0.5, "the elements compared must be of order one"
+    np.testing.assert_allclose(block_norms(unfolded), norms, atol=1e-10)
+    np.testing.assert_allclose(
+        np.einsum("amn,bnm->ab", unfolded, unfolded).real,
+        np.einsum("amn,bnm->ab", reference, reference).real, atol=1e-10)
+
+    # The refusals that stay.
+    with pytest.raises(NotImplementedError, match="odd"):
+        operator.apply(gamma.wavefunctions, np.eye(3)[0])
     with pytest.raises(NotImplementedError, match="velocity operator"):
-        band_velocities(half.calculation, gamma)
+        half.calculation.at_kcart(np.zeros((1, 3)))
+    with pytest.raises(NotImplementedError, match="compiled walk"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            half.get_optical_conductivity()
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
