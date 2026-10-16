@@ -249,6 +249,19 @@ def test_a_per_atom_or_secant_feedback_reference_is_refused(tmp_path, pseudo_dir
                       (2, 1, 1), (1, 1, 1), nbnd=8)
 
 
+def test_a_fading_reference_whose_field_is_still_on_is_refused(tmp_path, pseudo_dir):
+    """``reducebf`` is measured where the unit cell's field has faded; above 1e-3 Ry it refuses."""
+    calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))
+    stand_in = types.SimpleNamespace(
+        converged=True, field_scale=0.5,
+        magnetic_field=types.SimpleNamespace(
+            constraint="none", reducebf=0.9, fsm_update="elk",
+            residual=lambda scale: scale * 0.02))
+    with pytest.raises(NotImplementedError, match="has not faded"):
+        run_ultracell(calculator.system, calculator.pseudos, stand_in,
+                      (2, 1, 1), (1, 1, 1), nbnd=8)
+
+
 def test_a_spinor_reference_under_a_field_is_refused(tmp_path, pseudo_dir):
     """The converged field is measured at ``nspin = 2`` only; a spinor reference refuses."""
     calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))

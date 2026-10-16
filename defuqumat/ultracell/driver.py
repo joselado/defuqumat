@@ -253,6 +253,13 @@ __all__ = ["UltracellResult", "run_ultracell", "require_an_ultracell_regime",
            "require_the_folded_grid", "DEGENERATE_CUT", "ULTRACELL_OCCUPATIONS"]
 
 
+#: The largest field, in Ry, a ``reducebf`` reference may still carry when the
+#: box continues its decay (I36-feedback): measured at 1.18e-4, and set where
+#: ``chi B`` on the measured hydrogen cell reaches the ladder's moment
+#: resolution, so a reference above it is a state that is not measured.
+_FADING_RESIDUAL = 1.0e-3
+
+
 @dataclasses.dataclass
 class UltracellResult:
     """What an ultracell run produces."""
@@ -1336,6 +1343,29 @@ def run_ultracell(
                 f"supercell; the secant rule steps only on a converged inner "
                 f"loop and is not measured on the box"
             )
+        # **A fading field is measured only where it has faded.** The box
+        # continues the decay from the reference's scale and the supercell
+        # runs its own from full strength; at reducebf = 0.8 both landed on
+        # the field-free modulated state (residuals 4e-6 and 3.1e-5 Ry, the
+        # reference's 1.2e-4), where holding the field frozen would have
+        # read the same. A reference that stopped with a larger field still
+        # on is a state whose continuation and whose supercell differ at
+        # first order in chi B, and that is not measured: at 1e-3 Ry, chi B
+        # reaches the ladder's moment resolution (1.4e-4 at nbnd = 24).
+        if float(getattr(reference_field, "reducebf", 1.0)) != 1.0:
+            residual = float(reference_field.residual(reference_field_scale))
+            if residual > _FADING_RESIDUAL:
+                raise NotImplementedError(
+                    f"the ultracell refuses a ground state converged with "
+                    f"reducebf = {float(reference_field.reducebf)} whose field "
+                    f"has not faded: {residual:.3e} Ry is still applied, above "
+                    f"the {_FADING_RESIDUAL:.0e} Ry the box is measured at. "
+                    f"The box continues the decay from where the unit cell "
+                    f"stopped while a supercell starts its own from full "
+                    f"strength, and the two agree where both have faded "
+                    f"(notes/incompat/I36-feedback.md). Let the unit cell fade "
+                    f"first, with a smaller reducebf or more iterations"
+                )
         if int(system.nspin) == 4:
             raise NotImplementedError(
                 "the ultracell refuses a noncollinear ground state converged "
