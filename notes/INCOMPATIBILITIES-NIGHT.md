@@ -46,6 +46,7 @@ below so that session can start from this file.
 ### Integration two, the fifteen units I9 to wedge
 
 - Step 0: every branch tip matched the table's sha.
+- Step 1, so far: merged I9, I12, I13, finitefield, I17, I18 and I19 (`incompat/I19-v2`) with `--no-ff`; record files only from strain and I16. I12 conflicted with I9 in `workflows/topology.py`, where both had added the same `DFTSource.spin` field: I12's field and checks kept, I9's refusal of a one-channel velocity operator kept beside I12's channel selection, and the channel message worded as `0 or 1 (up or down)` so both branches' tests match. I13 conflicted with both: `_source` takes `spin` and `tau`, and the polarization's kept meta-GGA refusal is applied to the first of I9's per-channel sources. `test_topology_spin_channels.py`, `test_polarization_machinery.py`, `test_sibling_refusals.py` (58 passed) and `test_berryfield.py` (22 passed) pass locally after these merges. Finitefield is merged although the table has I56 and I57 as not verified: the verifier's whole-file run of `tests/regression/test_berryfield.py` at `ffa9faa` (`review/incompat/finitefield-verify/vf-file.log`, 12 passed in 816 s) includes `test_a_streamed_store_is_the_in_memory_run` and `test_an_automatic_grid_is_pw_x_l3dstring_field`, and `ffa9faa` differs from the tip `efa53c9` only in `notes/incompat/I57.md`.
 
 ## Outcome per ID
 
