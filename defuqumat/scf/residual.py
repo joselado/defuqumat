@@ -75,7 +75,7 @@ the host, and the second is not a function of the eigenvalues at all). Each
 raises by name. A spin spiral runs (``notes/incompat/I72.md``): its map is the
 mixing loop's own, with no term of its own here, except under a Hubbard U, which
 is refused: a spinor ``ns`` is complex and :meth:`ScfResidual.pack` keeps its real
-part only.
+part only. A spiral under a meta-GGA is refused too, as not measured.
 
 Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum`` and
 ``ns``, and a Krylov subspace holds a few tens of those -- tens of MB,
@@ -562,6 +562,17 @@ def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
             "occupation matrix of a spinor run is complex and the residual's "
             "packed state keeps only its real part, so F is not the mixing "
             "loop's map (notes/incompat/I72.md); use the mixing loop"
+        )
+    if calculation.spiral and calculation.functional.is_meta:
+        # Not measured, so not admitted: ``tau`` joins the packed state, and the
+        # one harness run of Newton on the hydrogen chain under ``tb09`` and
+        # ``'kubler'`` had not returned after 36 minutes on one core, where the
+        # same cell without the meta-GGA takes 4 s (``notes/incompat/I72.md``).
+        raise NotImplementedError(
+            "a spin spiral under a meta-GGA has no measured residual form here: "
+            "tau joins the packed state and Newton on a spiral with it has not "
+            "been checked against the mixing loop (notes/incompat/I72.md); use "
+            "the mixing loop"
         )
     # A spin spiral is not refused (``notes/incompat/I72.md``): every call in
     # :meth:`ScfResidual.step` is the mixing loop's own, and the spiral lives

@@ -6,9 +6,10 @@ spheres at ``k +- q/2``, the rotated-frame density and the displaced
 augmentation all live inside the ``Calculation`` methods the loop calls too, so
 the residual's map is the loop's map and the check is that both land on the
 same fixed point. That is the slow test below, on a norm-conserving, an
-ultrasoft and a PAW chain; the fast tests pin the packing and the two sibling
+ultrasoft and a PAW chain; the fast tests pin the packing, the two sibling
 refusals that must keep firing on a spiral (a field, and the Sternheimer
-Jacobian).
+Jacobian), and the two spiral regimes still refused (a Hubbard U, whose complex
+``ns`` the packing cuts to its real part, and a meta-GGA, not measured).
 """
 
 from functools import lru_cache
@@ -86,6 +87,20 @@ def test_a_spiral_with_a_hubbard_u_is_refused():
 
 
 @pytest.mark.unit
+def test_a_spiral_under_a_meta_gga_is_refused():
+    """``tau`` joins the packed state, and that regime was not measured on a spiral."""
+    text = SPIRAL.read_text().replace(
+        "celldm(3) = 0.41666666666667", "celldm(3) = 0.43333333333333").replace(
+        "    nosym = .true.",
+        "    nosym = .true.\n    input_dft = 'tb09'\n    noncollinear_gga = 'kubler'", 1)
+    system, pseudos = _system(text)
+    calculation = Calculation(system, pseudos)
+    assert calculation.spiral and calculation.functional.is_meta
+    with pytest.raises(NotImplementedError, match="meta-GGA"):
+        make_residual(calculation, 6, 1e-10)
+
+
+@pytest.mark.unit
 def test_the_sternheimer_jacobian_is_still_refused_on_a_spiral():
     """``jvp='sternheimer'`` has no spiral response; it refuses before computing."""
     system, pseudos = _system(SPIRAL.read_text())
@@ -149,7 +164,10 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_on_a_spiral(path, _clear_co
     size = int(np.prod(residual.shapes[0]))
     fixed_point = float(scf_accuracy(np.asarray(r)[:size].reshape(residual.shapes[0]),
                                      calculation.basis.dense, system.cell))
-    assert fixed_point < CONV_THR
+    # Measured 1.3e-10, 2.7e-10 and 1.3e-11 (NC, US, PAW) against the loop's
+    # last accuracy of 2.5e-10, 7.3e-10 and 1.3e-10; the scaled map read 3.3e-6.
+    # The loop stops anywhere below ``CONV_THR``, so the bound is ten times that.
+    assert fixed_point < 10.0 * CONV_THR
     assert newton.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
     # The distance between the two converged states is the stopping residual
     # magnified along a soft magnetic direction, not a property of the map:
