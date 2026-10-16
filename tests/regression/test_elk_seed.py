@@ -233,8 +233,8 @@ def test_a_spin_polarized_run_cannot_take_an_unpolarized_seed():
 
     Splitting a charge density evenly between two channels would start a
     magnetic run from a non-magnetic guess without saying so, which is a
-    physics error dressed as a convenience. Transferring Elk's magnetization is
-    a second field with a transfer rule of its own and is not implemented.
+    physics error dressed as a convenience. A spin-polarized Elk state carries
+    its magnetization across (``h_sc_spin``); an unpolarized one has none to give.
     """
     polarized = calculator().with_spin(2, starting_magnetization=0.5)
     with pytest.raises(NotImplementedError, match="nspin_mag"):

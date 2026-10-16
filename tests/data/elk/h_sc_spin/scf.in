@@ -1,0 +1,32 @@
+! Simple cubic hydrogen, one atom at the origin, a = 5.0 bohr, collinear spin --
+! the same cell as the Elk run in this directory, so its spin-polarized ground
+! state can seed this one.
+!
+! Elk converges to a partial moment of -0.322 (INFO.OUT, "total moment"), the
+! sign set by the fading seed field. The starting magnetization here is negative
+! for the same reason: a ferromagnet has two equivalent fixed points, and the
+! seeded and unseeded runs are compared on the same one.
+&CONTROL
+  calculation = 'scf'
+/
+&SYSTEM
+  ibrav = 1
+  celldm(1) = 5.0
+  nat = 1
+  ntyp = 1
+  ecutwfc = 40.0
+  occupations = 'smearing'
+  smearing = 'gaussian'
+  degauss = 0.02
+  nspin = 2
+  starting_magnetization(1) = -0.5
+/
+&ELECTRONS
+  conv_thr = 1.0d-10
+/
+ATOMIC_SPECIES
+  H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS crystal
+  H 0.0 0.0 0.0
+K_POINTS automatic
+  4 4 4 0 0 0
