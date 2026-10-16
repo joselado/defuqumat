@@ -571,7 +571,8 @@ def test_two_grids_keep_the_imaginary_part():
 #: ``Gamma``, **1.52e-5** Ry/bohr^2 on force constants up to 0.46, the nine
 #: frequencies at ``q`` 0.051 cm^-1 at worst from their partners among the
 #: doubled cell's eighteen. The two loops stop at different ``tr2`` (1e-16 at
-#: ``q``, 1e-18 at ``Gamma``), which is where the residue is.
+#: ``q``, 1e-18 at ``Gamma``) and the T2 pair on one state reads 4.7e-6; how
+#: the residue splits between the two is unmeasured.
 MAGNETIC_FOLDING_MATRIX = 1.0e-4
 MAGNETIC_FOLDING_FREQUENCY = 0.2
 
