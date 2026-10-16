@@ -1494,8 +1494,8 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "same matrix at every q' is a norm-conserving fact, and (6) for "
             "PAW the one-centre response at q. q_ij(q+G) itself is written "
             "(defuqumat.tddft.spinchi0.augmentation_factors). Use a "
-            "norm-conserving dataset, or the Gamma phonon of a commensurate "
-            "supercell"
+            "norm-conserving dataset, or, for an insulator, the Gamma phonon "
+            "of a commensurate supercell"
         )
     if system.nspin != 1 or system.noncolin:
         raise NotImplementedError(
