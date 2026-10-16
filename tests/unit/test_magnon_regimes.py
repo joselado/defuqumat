@@ -181,3 +181,18 @@ def test_the_full_functional_is_refused():
     assert calculation.hubbard_coefficients["kind"] == 1
     with pytest.raises(NotImplementedError, match="full DFT\\+U"):
         require_a_transverse_regime(calculation)
+
+
+# --- I60: PAW -----------------------------------------------------------------
+
+
+def test_paw_is_refused_for_its_one_centre_kernel():
+    """``o2-paw-texture.in``: the refusal names the projector channel it lacks.
+
+    The construction-only twin of the slow file's
+    ``test_ultrasoft_magnon.py::test_paw_is_still_refused``.
+    """
+    calculation = _calculation((CASES / "o2-paw-texture.in").read_text())
+    assert calculation.is_paw
+    with pytest.raises(NotImplementedError, match="projector channel"):
+        require_a_transverse_regime(calculation)

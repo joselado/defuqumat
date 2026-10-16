@@ -48,7 +48,7 @@ functional (:func:`node_limit`), so the ratio and its limit come from one
 functional and agree by construction where they meet.
 
 
-**The identity's proof names a condition that is a second reason for two of the refusals.**
+**The identity's proof names a condition, and it is what decides which regimes are taken.**
 Step one is `F m = B_xc`, exact by construction. Step two is
 `X_0(0,0) B_xc = m`, and it goes through because
 
@@ -56,13 +56,20 @@ Step one is `F m = B_xc`, exact by construction. Step two is
                        = (1/2) (eps_n^up - eps_m^dn) <n up|m dn>,
 
 the energy denominator cancelling exactly, after which two closure sums over the minority
-manifold give `n_up - n_dn`. That first line needs `H_up - H_dn` to be **a local
-multiplicative potential**, which is true for LDA and GGA on a norm-conserving dataset and
-false the moment the Hamiltonian's spin dependence acquires a nonlocal part: ultrasoft and
-PAW have spin-dependent `D_ij`, and a Hubbard `U` has a spin-dependent projector term. So
-those refusals are not only about the missing `Q_ij(q+G)` in the matrix elements -- the
-**kernel** would need a nonlocal piece too, and `B_xc/m` would no longer be the whole of it.
-Spin-orbit coupling breaks the same step.
+manifold give `n_up - n_dn`. That first line needs `H_up - H_dn` to be `2 B` for a `B` the
+response is a matrix over. On a norm-conserving dataset that is the local `B_xc(r)` and the
+plane waves. On an **ultrasoft** one the spin-dependent part of `D_ij` is `int B_xc Q_ij`, the
+augmentation of the same local field, so the augmented matrix element `M_G + Q_ij(q+G)` term
+carries it and nothing else is needed (P93). Under a **Hubbard U** it is not: the simplified
+functional adds `sum |phi_a> (v_up - v_dn)_ac <phi_c|`, so the response gains one channel per
+`|phi_a><phi_c|` of each correlated block and the kernel a block there (I61,
+:func:`hubbard_kernel`). Under a **uniform applied field** the field adds a constant to `B`,
+which moves the identity to the Larmor frequency (I58,
+:func:`~defuqumat.tddft.spinchi0.larmor_frequency`). **PAW** adds the one-centre
+`(ddd_paw_up - ddd_paw_dn)/2` on the projectors, a channel of the Hubbard kind whose kernel is
+not a constant but the sphere integral of `B^1/m^1` against products of partial waves,
+all-electron minus pseudo, which is not written (I60). Spin-orbit coupling breaks the step
+outright.
 
 **And the vacuum is where it has to be clipped, which is measured rather than
 feared.** ``B_xc/m`` grows without bound as the density falls -- exchange alone
@@ -137,6 +144,10 @@ def collinear_channels(calculation, density):
             "the transverse kernel needs a spin-polarized density, (2, ...) "
             f"or (4, ...); got leading axis {density.shape[0]}"
         )
+    if isinstance(density, jax.core.Tracer):
+        # Under a trace the check has no value to read; the untraced call that
+        # every entry point makes first has already made it.
+        return jnp.stack([0.5 * (density[0] + density[3]), 0.5 * (density[0] - density[3])])
     transverse = float(jnp.max(jnp.abs(density[1:3])))
     longitudinal = float(jnp.max(jnp.abs(density[3])))
     if transverse > COLLINEAR_TOLERANCE * max(longitudinal, 1.0e-300):

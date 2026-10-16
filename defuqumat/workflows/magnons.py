@@ -622,7 +622,9 @@ def _default_nbnd(calculation) -> int:
         if count is not None:
             counts.append(float(count))
     filled = max(counts)
-    return max(int(4 * filled), int(filled) + 8)
+    per_channel = max(int(4 * filled), int(filled) + 8)
+    # A spinor band set holds both channels (I59), so it needs both counts.
+    return 2 * per_channel if getattr(calculation, "noncolin", False) else per_channel
 
 
 def _peak(frequencies, weight):

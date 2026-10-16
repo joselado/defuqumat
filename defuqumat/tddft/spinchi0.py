@@ -205,27 +205,34 @@ def occupation_slope(calculation, eigenvalues, levels) -> jnp.ndarray:
 def require_a_transverse_regime(calculation) -> None:
     """What the transverse susceptibility refuses, on the calculation alone.
 
-    ``nspin != 2``
+    an unpolarized run, or a noncollinear magnetization
         the ground state has to be collinear and polarized for the transverse
-        block to decouple. A noncollinear one needs Elk's full 4x4
-        ``genspchi0``, which is a different object rather than a spin axis on
-        this one; an unpolarized one has ``m = 0`` and no kernel at all.
+        block to decouple. A texture needs Elk's full 4x4 ``genspchi0``, which
+        is a different object rather than a spin axis on this one; an
+        unpolarized run has ``m = 0`` and no kernel at all. A **spinor** run
+        whose moment is collinear along ``z`` is taken (I59), without
+        spin-orbit coupling, on a norm-conserving dataset, with no ``U`` and no
+        field; the moment's direction is read off the density
+        (:func:`~defuqumat.tddft.spinkernel.collinear_channels`).
     PAW
         ``<u_i|e^{-i(q+G).r}|u_j>`` gains the augmentation charge
         ``Q_ij(q+G)`` when the charge is not all in ``|psi|^2``, and that term
         is carried for an **ultrasoft** dataset (see
         :func:`augmentation_factors`). PAW is refused for a *second* term that
         is not this one: its exchange-correlation field has a one-centre part
-        on the spheres which the kernel ``B_xc/m`` is built from the grid
-        alone, so a PAW magnon would carry the right matrix element and the
-        wrong enhancement.
+        on the spheres, ``(ddd_paw_up - ddd_paw_dn)/2`` on the projectors,
+        which needs a projector channel beside the plane waves (the Hubbard
+        one is the template) with a kernel from sphere integrals of
+        ``B^1/m^1``; without it a PAW magnon would carry the right matrix
+        element and the wrong enhancement.
     a spin spiral
         the two spinor components live on spheres centred at ``k +- q/2``, and
         the generalized Bloch theorem's rotating frame is not the frame this
         kernel was derived in.
-    a Hubbard ``U``
-        the Hubbard term responds to the magnetization too, so leaving it out
-        of the enhancement is a silent approximation.
+    a Hubbard ``U`` beyond the simplified functional
+        the simplified one is taken (I61), with its own channel in the
+        response (:func:`hubbard_pairs`); the full functional, ``Hubbard_beta``
+        and a tensor-moment constraint are refused.
     a constrained moment, or a per-atom field
         a constraint changes the functional the state is stationary for, and
         a field confined to spheres is not a ``G = 0`` term. A **uniform**
@@ -250,11 +257,15 @@ def require_a_transverse_regime(calculation) -> None:
         raise NotImplementedError(
             "a transverse spin susceptibility with a PAW dataset is not "
             "implemented: the matrix element's augmentation charge Q_ij(q+G) "
-            "is carried (it is the same one the Berry phase uses), but the "
-            "kernel B_xc/m is built from the grid field alone and a PAW run's "
-            "exchange-correlation field has a one-centre part on the spheres "
-            "beside it -- so the enhancement would be wrong where the matrix "
-            "element is right. Use an ultrasoft or norm-conserving dataset"
+            "is carried (it is the same one the Berry phase uses), but a PAW "
+            "run's exchange-correlation field has a one-centre part on the "
+            "spheres, (ddd_paw_up - ddd_paw_dn)/2 on the projectors, which the "
+            "response would carry as a projector channel beside the plane "
+            "waves (as it carries the Hubbard one) with a kernel from sphere "
+            "integrals of B^1/m^1 against partial-wave products, all-electron "
+            "minus pseudo -- and that kernel is not written. Without it the "
+            "enhancement would be wrong where the matrix element is right. Use "
+            "an ultrasoft or norm-conserving dataset"
         )
     # The spiral and ``nosource`` are both noncollinear, so they are asked
     # first: behind the generic noncollinear refusal their own reasons were
