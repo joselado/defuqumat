@@ -247,8 +247,8 @@ def test_what_a_spiral_refuses(pseudo_dir, qe_testsuite):
     generalized Bloch theorem. At ``soc_scale = 0`` it is admitted (P123), the
     coupling-free spiral of a fully-relativistic dataset being the zeroth
     order of ``spiral_spin_orbit_energy``; ``tests/unit/test_spiral_soc.py``
-    holds both sides of that line. Symmetry: until the spin space group is
-    written.
+    holds both sides of that line. Symmetry: only beside a fully-relativistic
+    dataset, since the spin space group was written.
 
     **Ultrasoft and PAW used to be the third and are not any more**: the
     augmentation charge between the two components is the resident table
@@ -274,8 +274,15 @@ def test_what_a_spiral_refuses(pseudo_dir, qe_testsuite):
             "    nosym = .true.", "    nosym = .true.\n    lspinorb = .true."
         )))
 
+    # Symmetry is no longer one of them (the spin space group,
+    # ``tests/unit/test_spiral_symmetry.py``) except beside a fully-relativistic
+    # dataset, whose coupling on top breaks the group.
+    assert build_system(parse_pw_input(
+        text.replace("    nosym = .true.", ""))).symmetry_group().nsym > 1
     with pytest.raises(ValueError, match="nosym"):
-        build_system(parse_pw_input(text.replace("    nosym = .true.", "")))
+        build_system(parse_pw_input(text.replace(
+            "    nosym = .true.", "    lspinorb = .true.\n    soc_scale = 0.0"
+        )))
 
     with pytest.raises(ValueError, match="noncolin"):
         build_system(parse_pw_input(text.replace("    noncolin = .true.", "")))

@@ -394,6 +394,20 @@ def atomic_projections(
             "the whole k-grid, which is the same physics, or pass "
             "symmetrize=False"
         )
+    if calculation.spiral and symmetrize and calculation.use_symmetry and (
+        calculation.symmetries is not None and calculation.symmetries.nsym > 1
+    ):
+        # ``build_projection_symmetry`` turns a spinor column with the SU(2)
+        # image of the spatial rotation, and an operation of a spiral's spin
+        # space group (:mod:`defuqumat.system.spiral`) carries no such turn:
+        # it carries ``Rot_z(q . f)`` about the spiral axis. Not written.
+        raise NotImplementedError(
+            "a symmetrised projection of a spin spiral is not implemented: the "
+            "group average turns each spinor with the spatial rotation, where "
+            "an operation of the spin space group turns it about the spiral "
+            "axis by q . f. Run with nosym = .true. and the whole k-grid, or "
+            "pass symmetrize=False"
+        )
     channels = calculation_channels(calculation)
     if not channels:
         raise ValueError(

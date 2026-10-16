@@ -583,7 +583,7 @@ def _energy_and_gradient(calculation):
 
 
 def _require_a_differentiable_spiral(calculation) -> None:
-    """The two things that make ``dE/dq`` at frozen state not be the answer.
+    """The three things that make ``dE/dq`` at frozen state not be the answer.
 
     An ultrasoft or PAW dataset **was** the third and is no longer (P96): the
     displaced table is rebuilt with a traced ``q`` inside
@@ -603,6 +603,19 @@ def _require_a_differentiable_spiral(calculation) -> None:
             "reported total (see defuqumat.scf.fields), so the converged state "
             "is stationary for a different functional than the one being "
             "differentiated and the missing term would be silent"
+        )
+    if getattr(calculation, "use_symmetry", False):
+        # ``compute_spiral_gradient``'s chunked route (the CPU default) builds
+        # the shifted spheres itself and never goes through ``at_spiral_q``,
+        # whose own refusal therefore does not cover it. On the spin-space-group
+        # wedge the sum over k is a vector in q-space that the group would have
+        # to complete, and nothing here completes it: measured on the zigzag
+        # chain (I50) the uncompleted sum agreed with nosym to 1.0e-6 of
+        # 5.97e-3 in dE/dq_z, which is not an argument that it always will.
+        raise NotImplementedError(
+            "dE/dq of a spin spiral needs nosym = .true.: the k-set is the "
+            "wedge of the spin space group of this q, and the sum of dE/dq "
+            "over that wedge is not completed by the group"
         )
 
 

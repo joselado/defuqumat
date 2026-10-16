@@ -119,12 +119,19 @@ def test_a_spiral_built_without_the_reader_still_refuses_symmetry(pseudo_dir):
 
     ``at_spiral_q`` and ``workflows.spiral`` install ``spiral_q`` through
     ``dataclasses.replace``, which never passes ``build_system`` -- and a
-    ``System`` can simply be constructed. Symmetrising a spiral averages the
-    rotated-frame magnetization over operations of the crystal point group that
-    are not symmetries of the spiral, and reduces the k-set to the same wrong
-    wedge, converging to an energy that is silently wrong.
+    ``System`` can simply be constructed. Since the spin space group was
+    written a symmetrised spiral is a calculation, but only on the wedge of
+    *its* group: a k-set reduced with the magnetic group of a moment along
+    ``x`` (with time reversal folded into the operations that flip it) is not
+    the wedge of the operations that fix ``q`` along ``z``, and a run on it
+    would converge to an energy that is silently wrong. The k-set is compared
+    with the spiral's own wedge and refused when it differs.
     """
-    system, _ = _build(_NC_NONCOLLINEAR, pseudo_dir)
+    text = _NC_NONCOLLINEAR.replace(
+        "starting_magnetization(1) = 0.5,",
+        "starting_magnetization(1) = 0.5, angle1(1) = 90.0,",
+    )
+    system, _ = _build(text, pseudo_dir)
     pseudos = tuple(
         read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
     )
