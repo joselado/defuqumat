@@ -47,8 +47,12 @@ insulator and the norm-conserving metal on a full k-grid: no ultrasoft or PAW
 (``S`` moves with the atoms and the multiplier matrix has no two-sphere form),
 no metal at a *nonzero* reciprocal lattice vector ``q = G`` (``ef_shift_wfc``
 would add the states at ``k`` to a ``dpsi`` on the ``k + G`` sphere; a metal at
-``q = 0`` carries ``ef_shift`` here as at ``Gamma``), no spin polarization,
-no spinor, and no symmetry -- the small group of ``q`` and the star of ``q`` are
+``q = 0`` carries ``ef_shift`` here as at ``Gamma``), no spin-polarized metal
+(a ``nspin = 2`` insulator runs under the LDA, I82: the response density keeps
+one sum per channel and the kernel acts on the two apart), no nonlinear core
+correction at ``nspin = 2`` (the core term runs at ``nspin = 1``, I80; the pair
+was measured by neither), no spinor, and no symmetry -- the small group of ``q``
+and the star of ``q`` are
 what a dispersion needs and are not written. Each is named at the door.
 
 References: Baroni, de Gironcoli, Dal Corso and Giannozzi, *Rev. Mod. Phys.*
@@ -113,9 +117,18 @@ def kpoints_plus_q(kpoints: KPoints, q_cart, cell: Cell) -> KPoints:
     """
     shift = np.asarray(q_cart, dtype=float) / cell.tpiba
     coords = np.asarray(kpoints.coords) + shift[None, :]
-    return KPoints.from_cartesian(
+    moved = KPoints.from_cartesian(
         coords, np.asarray(kpoints.weights), precision=kpoints.precision
     )
+    # ``from_cartesian`` renormalises to the unpolarized convention (weights
+    # summing to 2), so a polarized run's set takes ``for_spin`` back at this
+    # boundary, read off the set it came from (the trap list's caller-built
+    # k-set; nothing at ``k + q`` reads the weights today, I82).
+    if kpoints.spin_normalized:
+        from defuqumat.system.kpoints import for_spin
+
+        moved = for_spin(moved, 2)
+    return moved
 
 
 def states_at_k_plus_q(calculation, v_scf, q_cart, nbnd, ethr: float = 1e-13,
@@ -500,23 +513,28 @@ class TwoSphereSolver(SternheimerSolver):
 
             return sum_bands(one_band, (states, tangent, weight))
 
+        # **One sum per channel**, ``incdrhoscf``'s ``drhoscf(:, current_spin)``:
+        # the channels are not added, because at ``nspin = 2`` the kernel acts
+        # on the up and down response apart (I82), and adding them is a shape
+        # error in its ``jvp`` rather than a wrong number. ``(nspin, *grid)``.
         def summed(psi, dpsi):
-            total = jnp.zeros(grid, dtype=psi.dtype)
-            for spin in range(self.nspin):
-                total = total + sum_k(
+            return jnp.stack([
+                sum_k(
                     one_k,
                     (psi[spin], dpsi[spin], index_k, index_kq,
                      self.density_weights[spin]),
                     batch=calculation.k_batch,
                 )
-            return total
+                for spin in range(self.nspin)
+            ])
 
         def grouped(psi, dpsi, groups):
             # A metal's rows past ``nbnd_occ(k)`` hold zeros (:meth:`solve`), so
             # each group of :meth:`row_groups` is summed at its own width:
             # ``incdrhoscf``'s ``DO ibnd = 1, nbnd_occ(ikk)``.
-            total = jnp.zeros(grid, dtype=psi.dtype)
+            channels = []
             for spin in range(self.nspin):
+                total = jnp.zeros(grid, dtype=psi.dtype)
                 for (width, _), chosen in zip(self.row_groups(spin), groups[spin]):
                     total = total + sum_k(
                         one_k,
@@ -525,7 +543,8 @@ class TwoSphereSolver(SternheimerSolver):
                          self.density_weights[spin][chosen, :width]),
                         batch=calculation.k_batch,
                     )
-            return total
+                channels.append(total)
+            return jnp.stack(channels)
 
         # Called once per displacement per iteration with new closures, so it is
         # compiled by its structure (:mod:`defuqumat.eager`).
@@ -538,12 +557,16 @@ class TwoSphereSolver(SternheimerSolver):
 
     def finish_response_at_q(self, total) -> jnp.ndarray:
         """``2 total / Omega`` on the **dense** grid, like every other density
-        here, with the ``(nspin_mag, ...)`` leading axis every consumer of one
-        expects. Linear in ``total``."""
+        here, channel by channel: ``total`` is ``(nspin, *smooth grid)`` and the
+        result ``(nspin_mag, *dense grid)``, the leading axis every consumer of
+        one expects (collinear only, where ``nspin_mag = nspin``). Linear in
+        ``total``."""
         calculation = self.calculation
         volume = calculation.system.cell.volume
         smooth, dense = calculation.basis.smooth, calculation.basis.dense
-        return complex_to_dense(2.0 * total / volume, smooth, dense)[None]
+        total = jnp.asarray(total)
+        return jnp.stack([complex_to_dense(2.0 * channel / volume, smooth, dense)
+                          for channel in total])
 
 
 def _one_grid(smooth, dense) -> bool:
@@ -1251,6 +1274,12 @@ def screening_loop_at_q(
         for index in active:
             atom, cart = divmod(index, 3)
             induced[index] = screened(drho[atom, cart])
+            if grid_shape[0] == 2:
+                # The LSDA kernel at a point a channel empties (I82): a NaN
+                # here never meets ``tr2`` and would run the whole budget.
+                from defuqumat.response.efield import _require_a_finite_kernel
+
+                _require_a_finite_kernel(calculation, induced[index], density)
             changes[index] = ddv_scf([induced[index] - dvscf[atom, cart]],
                                      joint=False)
         change = max(changes)
@@ -1650,12 +1679,41 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "(defuqumat.tddft.spinchi0.augmentation_factors, over "
             "topology.augmentation.augmentation_at_q)"
         )
-    if system.nspin != 1 or system.noncolin:
+    if system.noncolin:
+        # ``nspin = 2`` runs (I82): the solve, the bare term and the assembly
+        # already walked the channel axis, and the response density keeps one
+        # sum per channel (:meth:`TwoSphereSolver.response_parts_at_q`).
         raise NotImplementedError(
-            "a phonon at q != 0 needs one spin channel: the k+q ground state, "
-            "the projector and the response density are each written for a "
-            "single channel here, and a magnetic one is P45's refusal (the "
-            "assembly rather than the solve) on a second sphere"
+            "a phonon at q != 0 of a noncollinear or spin-orbit (spinor) "
+            "calculation is not implemented, and it is three absent terms: the "
+            "response density is a spinor pair density across two spheres, "
+            "conj(psi_k) sigma dpsi_{k+q}, with four components and no "
+            "counterpart of spinor_sum_band at q (response_parts_at_q sums "
+            "channels of a collinear density); applied_at_q's nonlocal term "
+            "would pair the two spheres' projectors through D as a 2x2 matrix "
+            "in spin space; and the Gamma phonon of a spinor, which the frozen "
+            "Hessian is taken from, is itself refused. nspin = 2 collinear runs"
+        )
+    if system.nspin == 2 and system.occupations != "fixed":
+        raise NotImplementedError(
+            "a spin-polarized metal at q != 0 is not implemented: the two "
+            "channels' solve and response density are in place and the "
+            "insulator is checked (a magnetic hydrogen chain at q = b3/2 against "
+            "its doubled cell at Gamma), but the smeared two-sphere projector "
+            "with two channels sharing one Fermi level has not been run against "
+            "anything. Use occupations = 'fixed' with tot_magnetization, or "
+            "nspin = 1"
+        )
+    if system.nspin == 2 and calculation.rho_core_g is not None:
+        # I80 measured the core term at nspin = 1 and I82 the two channels on
+        # datasets without a core; the core charge split between two channels
+        # inside the spin-polarized kernel was measured by neither.
+        raise NotImplementedError(
+            "a phonon at q != 0 of a spin-polarized (nspin = 2) calculation "
+            "with a nonlinear core correction is not measured: the core term "
+            "at q runs at nspin = 1 and the two channels run on datasets "
+            "without a core, but the pair has not been checked. Use a dataset "
+            "without PP_NLCC, or nspin = 1"
         )
     if calculation.use_symmetry:
         raise NotImplementedError(
@@ -1678,6 +1736,22 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "any q: tb09 and bj06 are potentials with no energy functional, so "
             "there is no second derivative of an energy to take (P30)"
         )
+    if calculation.functional.is_gradient:
+        # Measured (I82 verifier, D22): the supercell identity that holds to
+        # 1.5e-5 Ry/bohr^2 under the LDA reads 7.97e-3 and 60.55 cm^-1 under
+        # PBE on the magnetic H3 chain at b3/2 (nspin = 2), and 1.33e-2 and
+        # 77 cm^-1 on a dimerized H2 chain at nspin = 1, silently.
+        raise NotImplementedError(
+            "a phonon at q != 0 under a gradient-corrected functional is not "
+            "implemented, at any nspin: induced_potential_at_q takes the jvp "
+            "of v_scf on the periodic part of drho e^{iqr}, which is the whole "
+            "kernel only for a functional local in the density. A GGA kernel "
+            "differentiates the field, and on drho e^{iqr} every gradient is "
+            "e^{iqr} (grad + iq), so the iq terms of dgradcorr.f90 (its "
+            "fft_qgradient and fft_qgraddot, both called with xq) are absent. Measured against the "
+            "doubled cell at Gamma, the error is 1e-2 Ry/bohr^2 and 60 to 77 "
+            "cm^-1 where the LDA agrees to 1.5e-5. Use an LDA functional"
+        )
     if getattr(calculation, "source_free", False):
         raise NotImplementedError(
             "a phonon under nosource is not implemented, at any q: the "
@@ -1690,6 +1764,25 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "projectors move with the atoms and their q-modulated response is "
             "dnsq_bare/dnsq_scf, which is a second implementation rather than "
             "a shift of this one"
+        )
+
+
+def _require_one_channel_when_walked(calculation, streamed: bool) -> None:
+    """``nspin = 2`` on the k-chunked route at ``q``: refused, as at ``Gamma``.
+
+    The route's frozen Hessian is the ``Gamma`` route's walked passes, which
+    refuse two channels (:func:`~defuqumat.response.phonon._require_one_spin_channel`),
+    and its own passes have not been run at ``nspin = 2``.
+    """
+    if streamed and calculation.system.nspin == 2:
+        raise NotImplementedError(
+            "the dynamical matrix at q of a spin-polarized calculation is "
+            "implemented on the whole-k route only; this run walks the k axis "
+            "a chunk at a time (the k-chunked route: a streamed store, memory "
+            "mode with a chunk smaller than the mesh, or memory mode on a card), "
+            "whose frozen Hessian is the Gamma route's walked passes, and those "
+            "refuse nspin = 2. The whole-k route is memory_mode='speed' with "
+            "the states held whole rather than streamed"
         )
 
 
@@ -1806,6 +1899,7 @@ def dynamical_matrix_at_q(
     core = core_displacements_at_q(calculation, density, q_cart, positions,
                                    host=streamed)
     dv_core = None if core is None else core[1]
+    _require_one_channel_when_walked(calculation, streamed)
     metal = calculation.system.occupations != "fixed"
     if metal:
         _require_a_metallic_q(cell, q_cart)
@@ -1831,7 +1925,7 @@ def dynamical_matrix_at_q(
     # loop's are scheduled unless a number is given (``pass_threshold``).
     solver = make_sternheimer(
         calculation, result, threshold=1.0e-14 if threshold is None else threshold,
-        metals=True, host_store=streamed)
+        metals=True, spin_polarized=True, host_store=streamed)
     solver.schedule = threshold is None
     potential = calculation.potential(density)
 

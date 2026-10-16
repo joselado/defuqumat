@@ -26,10 +26,12 @@ def _calculation(**changes):
     """A stand-in carrying exactly the fields the guard reads, every one in the
     regime the route carries and with a core charge; ``changes`` moves one of
     them out of it."""
-    system = SimpleNamespace(nspin=1, noncolin=False, spiral_q=None)
+    system = SimpleNamespace(nspin=1, noncolin=False, spiral_q=None,
+                             occupations="fixed")
     fields = dict(
         is_ultrasoft=False, rho_core_g=object(), use_symmetry=False,
-        functional=SimpleNamespace(is_meta=False), source_free=False,
+        functional=SimpleNamespace(is_meta=False, is_gradient=False),
+        source_free=False,
         is_hubbard=False, system=system,
     )
     for name, value in changes.items():
@@ -46,8 +48,10 @@ def test_a_core_correction_is_admitted():
 
 @pytest.mark.parametrize("change, message", [
     (dict(is_ultrasoft=True), "ultrasoft or PAW"),
-    (dict(nspin=2), "one spin channel"),
-    (dict(noncolin=True), "one spin channel"),
+    # Since I82 two channels run without a core; with one, the pair is
+    # refused as unmeasured (added at the integration of I80 and I82).
+    (dict(nspin=2), "nonlinear core"),
+    (dict(noncolin=True), "spinor"),
     (dict(use_symmetry=True), "small group of q"),
     (dict(spiral_q=(0.0, 0.0, 0.1)), "spin spiral"),
     (dict(functional=SimpleNamespace(is_meta=True)), "meta-GGA"),
