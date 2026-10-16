@@ -157,7 +157,7 @@ def _energy_ladder(calculator, scf, shape, kgrid, reference, ladder, **options):
 
 
 def test_what_the_box_still_refuses(tmp_path, pseudo_dir):
-    """What the box has not been measured in refuses; GGA, ``nosource`` and TB09 pass."""
+    """What the box has not been measured in refuses; an unpolarized GGA, ``nosource`` and TB09 pass."""
     from defuqumat.ultracell.potential import require_an_ultracell_functional
     from defuqumat.xc.functional import get_functional
 
@@ -168,7 +168,9 @@ def test_what_the_box_still_refuses(tmp_path, pseudo_dir):
     require_an_ultracell_functional(get_functional("tb09"))
     with pytest.raises(NotImplementedError, match="noncollinear magnetization"):
         require_an_ultracell_functional(get_functional("PBE"), nspin_mag=4)
-    require_an_ultracell_functional(get_functional("PBE"), nspin_mag=2)
+    with pytest.raises(NotImplementedError, match="collinear spin-polarized"):
+        require_an_ultracell_functional(get_functional("PBE"), nspin_mag=2)
+    require_an_ultracell_functional(get_functional("PBE"))
     require_an_ultracell_functional(get_functional("PZ"), source_free=True,
                                     nspin_mag=4)
 
@@ -318,6 +320,10 @@ def _density_ladder(calculator, scf, shape, kgrid, reference, grid, ladder,
 
 
 @pytest.mark.slow
+@pytest.mark.xfail(strict=True, raises=NotImplementedError,
+                   reason="a polarized GGA ultracell is refused: three D22 runs "
+                   "of this check did not close (the guard's message has the "
+                   "numbers); lift the marker with the guard")
 def test_a_polarized_gga_ultracell_converges_to_the_supercell(tmp_path, pseudo_dir):
     """PBE at ``nspin = 2``: the null, then charge and moment against a supercell.
 

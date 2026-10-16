@@ -180,9 +180,10 @@ def require_an_ultracell_functional(functional, source_free: bool = False,
     A gradient-corrected functional, ``nosource`` and a potential-only
     meta-GGA all run through ``v_of_rho`` on the box (module docstring), the
     last with ``tau`` built from the ultracell states and mixed beside the
-    density. What is still refused is a GGA or a meta-GGA on a noncollinear
-    magnetization, whose local-frame rotation has not been checked against a
-    supercell, and a meta-GGA on an ultrasoft or PAW dataset, whose one-centre
+    density. What is still refused is a GGA on a collinear spin-polarized
+    cell, whose supercell check did not close (the message says where), a GGA
+    or a meta-GGA on a noncollinear magnetization, whose local-frame rotation
+    has not been checked against a supercell, and a meta-GGA on an ultrasoft or PAW dataset, whose one-centre
     ``tau`` the ultracell's per-copy terms do not carry.
     """
     if functional.is_meta and int(nspin_mag) != 1:
@@ -201,12 +202,24 @@ def require_an_ultracell_functional(functional, source_free: bool = False,
             "handed no meta_c, so the two halves would be different "
             "functionals. Use a norm-conserving dataset"
         )
+    if functional.is_gradient and int(nspin_mag) == 2:
+        raise NotImplementedError(
+            f"the ultracell refuses the gradient-corrected functional "
+            f"{functional.name} on a collinear spin-polarized cell: the box "
+            "gradient is measured against a supercell at nspin = 1 only (PBE "
+            "silicon, two cells, 4.1e-7 Ry above the supercell at 48 bands). "
+            "The polarized check, PBE on the partly polarized hydrogen lattice, "
+            "never closed: its tiled null left the density 1.2e-4 from the "
+            "frozen states' own at the 1e-9 SCF stop, and its ultracell loop "
+            "stalled at dr2 = 2.4e-5 Ry after 200 iterations at nbnd = 8. "
+            "Use an LDA, or an unpolarized run"
+        )
     if functional.is_gradient and int(nspin_mag) == 4:
         raise NotImplementedError(
             f"the ultracell refuses the gradient-corrected functional "
             f"{functional.name} on a noncollinear magnetization: the gradient "
             "of the box density is taken over the whole modulation and is "
-            "measured against a supercell for nspin = 1 and 2, while the "
+            "measured against a supercell for nspin = 1, while the "
             "local spin frame the noncollinear GGA is evaluated in has not "
             "been. Use an LDA, or a collinear run"
         )

@@ -1119,10 +1119,13 @@ def test_the_refusals_name_themselves():
     from defuqumat.ultracell.potential import require_an_ultracell_functional
     from defuqumat.xc.functional import get_functional
 
-    # A GGA runs at nspin = 1 and 2 (``test_ultracell_regimes.py``); on a
-    # noncollinear magnetization its local-frame rotation is not measured.
-    with pytest.raises(NotImplementedError, match="gradient-corrected"):
-        require_an_ultracell_functional(get_functional("PBE"), nspin_mag=4)
+    # A GGA runs at nspin = 1 (``test_ultracell_regimes.py``); its polarized
+    # check did not close, and on a noncollinear magnetization its local-frame
+    # rotation is not measured.
+    for nspin_mag in (2, 4):
+        with pytest.raises(NotImplementedError, match="gradient-corrected"):
+            require_an_ultracell_functional(get_functional("PBE"),
+                                            nspin_mag=nspin_mag)
 
     # and the meta-GGA on a magnetic cell: its tau is built on the box and
     # measured on an unpolarized cell only.
