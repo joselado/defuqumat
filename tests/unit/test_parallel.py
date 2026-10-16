@@ -556,6 +556,131 @@ def test_a_span_from_another_pool_layout_is_refused_by_name():
         calculation.starting_wavefunctions(hamiltonians, 4, span=span, rows=[2, 3])
 
 
+
+class _ThreadCommunicator:
+    """``size`` pools as threads of one process, meeting at a barrier per all-gather."""
+
+    def __init__(self, size, rank, board, barrier):
+        self.size, self.rank, self.board, self.barrier = size, rank, board, barrier
+        self.calls = 0
+
+    def allgather(self, array):
+        self.calls += 1
+        self.board[self.rank] = np.asarray(array).copy()
+        self.barrier.wait()
+        gathered = np.stack([self.board[pool] for pool in range(self.size)])
+        self.barrier.wait()
+        return gathered
+
+
+def _redistribute_in_threads(stores, layout):
+    import threading
+
+    size = len(stores)
+    board, barrier = [None] * size, threading.Barrier(size)
+    results, errors, calls = [None] * size, [None] * size, [0] * size
+
+    def work(rank):
+        communicator = _ThreadCommunicator(size, rank, board, barrier)
+        try:
+            results[rank] = Pools(communicator).redistribute(stores[rank], layout)
+        except Exception as error:  # noqa: BLE001 - reported per rank below
+            errors[rank] = error
+        calls[rank] = communicator.calls
+
+    threads = [threading.Thread(target=work, args=(rank,)) for rank in range(size)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    return results, errors, calls
+
+
+def test_a_seed_moves_between_pool_layouts_row_for_row():
+    """``Pools.redistribute`` (I68): every pool ends with exactly its new rows.
+
+    A seed held as contiguous blocks over three pools, moved into the
+    longest-first layout of uneven costs, must hold each global row's bits at
+    the row's new position; a layout every pool already covers must move
+    nothing past the two small gathers; and a row no pool holds is refused on
+    every pool, not on the one that needs it only.
+    """
+    from defuqumat.parallel import balance
+
+    size, nk = 3, 8
+    rng = np.random.default_rng(7)
+    whole = rng.normal(size=(2, nk, 3, 5)) + 1j * rng.normal(size=(2, nk, 3, 5))
+    blocks = [Pools(_FakeCommunicator(size, rank)).rows(nk) for rank in range(size)]
+    stores = [PoolStore(whole[:, rows], rows, nk) for rows in blocks]
+    layout = balance(np.array([2.0, 1, 1, 1, 1, 1, 3, 1]), size)
+    assert any(set(a) != set(b) for a, b in zip(layout, blocks))
+    results, errors, calls = _redistribute_in_threads(stores, layout)
+    assert errors == [None] * size
+    for rank, moved in enumerate(results):
+        assert isinstance(moved, PoolStore) and moved.nk == nk
+        assert np.array_equal(moved.rows, layout[rank])
+        assert moved.array.dtype == whole.dtype
+        assert np.array_equal(moved.array, whole[:, layout[rank]])
+    assert calls[0] > 2
+
+    # Already in place, held in another order: re-indexed, no rows sent.
+    shuffled = [PoolStore(whole[:, rows[::-1]], rows[::-1], nk) for rows in layout]
+    results, errors, calls = _redistribute_in_threads(shuffled, layout)
+    assert errors == [None] * size and calls == [2] * size
+    for rank, moved in enumerate(results):
+        assert np.array_equal(moved.array, whole[:, layout[rank]])
+
+    # Row 7 held by nobody: every pool refuses by name.
+    partial = [PoolStore(whole[:, rows[rows != 7]], rows[rows != 7], nk)
+               for rows in blocks]
+    results, errors, calls = _redistribute_in_threads(partial, layout)
+    assert all(isinstance(e, NotImplementedError) and "[7]" in str(e) for e in errors)
+
+
+CONTINUE_LAYOUT_SCRIPT = textwrap.dedent("""
+    import json, os, sys, tempfile, warnings
+    warnings.simplefilter("ignore")
+    from pathlib import Path
+    import defuqumat
+    from defuqumat.parallel import current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, run_scf
+    from defuqumat.system import build_system
+    with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
+        f.write(sys.argv[1])
+    system = build_system(read_pw_input(Path(f.name)))
+    pseudos = tuple(read_upf(Path("tests/data/pseudo") / s.pseudo_file)
+                    for s in system.structure.species)
+    os.environ["DEFUQUMAT_POOL_BALANCE"] = "blocks"
+    calculation = Calculation(system, pseudos)
+    first = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12)
+    os.environ.pop("DEFUQUMAT_POOL_BALANCE")
+    again = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                    starting_from=first)
+    print(json.dumps({"rank": current_pools().rank,
+                      "first_rows": first.wavefunctions.rows.tolist(),
+                      "again_rows": again.wavefunctions.rows.tolist(),
+                      "first": float(first.total_energy), "first_it": first.iterations,
+                      "again": float(again.total_energy), "again_it": again.iterations}))
+""")
+
+
+@pytest.mark.slow
+def test_a_pooled_run_continues_from_a_seed_held_under_another_layout():
+    """I68: a seed held as contiguous blocks, continued under the longest-first shares.
+
+    The two layouts must differ on some pool (else the test proves nothing),
+    and the continuation must land on the seed's energy in one or two
+    iterations, the bar of the same-layout continuation above; before
+    ``Pools.redistribute`` this run refused with "a different k-point pool
+    layout".
+    """
+    for result in _run_pools(CONTINUE_LAYOUT_SCRIPT, 2, SILICON_8K, timeout=900):
+        assert result["first_rows"] != result["again_rows"]
+        assert abs(result["again"] - result["first"]) < 1e-10
+        assert result["again_it"] <= 2 and result["first_it"] > 4
+
 CHECKPOINT_SCRIPT = textwrap.dedent("""
     import json, sys, tempfile, warnings
     warnings.simplefilter("ignore")

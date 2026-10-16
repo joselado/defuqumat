@@ -6212,9 +6212,12 @@ class Calculation:
             if isinstance(span, PoolStore):
                 # **A k-point pool's span is addressed by position, not by
                 # row.** Its array holds the rows ``span.rows`` names, so the
-                # global rows asked for are looked up there; a row it does not
-                # hold is a seed from a different pool layout, refused rather
-                # than read from the wrong k-point.
+                # global rows asked for are looked up there. Under pools
+                # ``run_scf`` has already moved the rows into this run's layout
+                # (``Pools.redistribute``), so a row it does not hold here is a
+                # pool's share handed to a caller with no transport to the other
+                # pools (one process, or this method called directly), refused
+                # rather than read from the wrong k-point.
                 if span.nk != nk or span.array.shape[-1] != expected:
                     raise ValueError(
                         f"a pool's span of {span.nk} k-points and "
@@ -6227,8 +6230,10 @@ class Calculation:
                     raise NotImplementedError(
                         f"the seed's states were held by a different k-point pool "
                         f"layout: this pool needs rows {missing_rows} and the seed "
-                        f"holds {span.rows[0]} to {span.rows[-1]}; run with the "
-                        f"seed's pool count, or seed from the density alone")
+                        f"holds {span.rows[0]} to {span.rows[-1]}, and only "
+                        f"run_scf under k-point pools moves rows between pools; "
+                        f"seed a pooled run_scf with it, or seed from the density "
+                        f"alone")
                 span = span.array[..., [where[int(row)] for row in wanted], :, :]
                 held, sliced = len(wanted), True
             if np.shape(span)[-1] != expected or np.shape(span)[-3] != held:
@@ -7149,8 +7154,8 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
     # six iterations; the ultrasoft ``o-chain-spiral-us.in``, 7e-14.
     # A seed is not refused: a whole-set span is sliced to the pool's rows by
     # ``stream_start``, and a pool's own span (a ``PoolStore``, what a pooled
-    # result carries) is taken by position when its rows are this pool's and
-    # refused by name inside ``starting_wavefunctions`` when they are not.
+    # result carries) is moved into this run's layout by ``Pools.redistribute``
+    # before the loop and then taken by position.
     # A checkpoint is not refused: every pool writes its rows and rank 0 the
     # state (``_write_pooled_checkpoint``), and a load of any pool count
     # assembles the rows it holds (``checkpoint.load_state(rows=...)``).
@@ -8204,6 +8209,15 @@ def run_scf(
         # A pool keeps its own rows in host memory and walks them: the
         # streamed passes are the ones that take ``rows``.
         wfc_store = "stream"
+        # A seed held under another pool layout (a source run whose k costs, and
+        # so whose longest-first shares, differ from this one's) is moved into
+        # this run's layout here, once and collectively, and not inside
+        # ``starting_wavefunctions``: that is called once per k-chunk, and the
+        # pools hold unequal numbers of chunks.
+        if (isinstance(starting_wavefunctions, PoolStore)
+                and starting_wavefunctions.nk == calculation.system.kpoints.nk):
+            starting_wavefunctions = pools.redistribute(starting_wavefunctions,
+                                                        pool_layout)
     streaming = wfc_store == "stream"
     if verbose:
         # **What is in force, said once.** All three of these are resolved from
