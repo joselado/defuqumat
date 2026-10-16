@@ -1564,6 +1564,23 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "any q: tb09 and bj06 are potentials with no energy functional, so "
             "there is no second derivative of an energy to take (P30)"
         )
+    if calculation.functional.is_gradient:
+        # Measured (I82 verifier, D22): the supercell identity that holds to
+        # 1.5e-5 Ry/bohr^2 under the LDA reads 7.97e-3 and 60.55 cm^-1 under
+        # PBE on the magnetic H3 chain at b3/2 (nspin = 2), and 1.33e-2 and
+        # 77 cm^-1 on a dimerized H2 chain at nspin = 1, silently.
+        raise NotImplementedError(
+            "a phonon at q != 0 under a gradient-corrected functional is not "
+            "implemented, at any nspin: induced_potential_at_q takes the jvp "
+            "of v_scf on the periodic part of drho e^{iqr}, which is the whole "
+            "kernel only for a functional local in the density. A GGA kernel "
+            "differentiates the field, and on drho e^{iqr} every gradient is "
+            "e^{iqr} (grad + iq), so the iq terms of dgradcorr.f90 (its "
+            "fft_qgradient and fft_qgraddot, both called with xq) are absent. Measured against the "
+            "doubled cell at Gamma, the error is 1e-2 Ry/bohr^2 and 60 to 77 "
+            "cm^-1 where the LDA agrees to 1.5e-5. Use an LDA functional, or "
+            "the doubled cell at Gamma (get_phonons)"
+        )
     if getattr(calculation, "source_free", False):
         raise NotImplementedError(
             "a phonon under nosource is not implemented, at any q: the "
