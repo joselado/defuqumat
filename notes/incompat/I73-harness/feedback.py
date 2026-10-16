@@ -112,11 +112,22 @@ real_elk = fields_module.MagneticField.elk_driven
 # error it stopped at (1.5e-4 mu_B on fe-fsm.in, worth B dm = 1.7e-6 Ry in the
 # reported total). FSM_TOL tightens both tolerances so the loop is held to its
 # own fixed point as tightly as Newton is.
-if os.environ.get("FSM_TOL"):
-    fields_module.FSM_TOLERANCE = float(os.environ["FSM_TOL"])
-    fields_module.FSM_ANGLE_TOLERANCE = float(os.environ["FSM_TOL"])
-    print(f"# FSM_TOLERANCE = FSM_ANGLE_TOLERANCE = {fields_module.FSM_TOLERANCE}",
-          flush=True)
+# Only the mixing reference is tightened: the loop that runs after Newton's
+# hand-over keeps the defaults, so Newton's numbers are Newton's (run 2 had it
+# tightened for both, and the hand-over loop then ran 11 to 29 iterations).
+DEFAULT_TOLERANCES = (fields_module.FSM_TOLERANCE, fields_module.FSM_ANGLE_TOLERANCE)
+
+
+def tolerances(tight):
+    if tight and os.environ.get("FSM_TOL"):
+        value = float(os.environ["FSM_TOL"])
+        fields_module.FSM_TOLERANCE = fields_module.FSM_ANGLE_TOLERANCE = value
+    else:
+        fields_module.FSM_TOLERANCE, fields_module.FSM_ANGLE_TOLERANCE = DEFAULT_TOLERANCES
+
+
+print(f"# mixing reference FSM_TOLERANCE = {os.environ.get('FSM_TOL', 'default')}",
+      flush=True)
 
 for arg in sys.argv[1:]:
     arg, _, thr = arg.partition(":")
@@ -134,11 +145,13 @@ for arg in sys.argv[1:]:
                    verbose=False)
     text = text_of(case, free=free)
     if not mutant:
+        tolerances(True)
         t0 = time.perf_counter()
         mixed = Calculator.from_text(text, PSEUDO, announce=False).get_scf(**options)
         show(f"{arg} mixing conv_thr={conv_thr}", mixed, t0)
     if free:
         continue
+    tolerances(False)
     t0 = time.perf_counter()
     newton = Calculator.from_text(text, PSEUDO, announce=False).get_scf(
         scf_solver="newton-krylov",
