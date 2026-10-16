@@ -38,7 +38,10 @@ from defuqumat.tddft.chi0 import (
     require_a_sum_over_states_regime,
 )
 from defuqumat.tddft.dyson import MAX_ITERATIONS, TOLERANCE, solve_dyson
-from defuqumat.tddft.kernels import DEFAULT_KERNEL, alda_matrix, get_kernel
+from defuqumat.tddft.kernels import (
+    DEFAULT_KERNEL, alda_matrix, get_kernel, refuse_a_polarized_alda,
+)
+from defuqumat.scf.occupations import occupied_counts
 from defuqumat.units import RY_TO_EV
 from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
 
@@ -241,6 +244,8 @@ def run_absorption(
     if calculation is None:
         calculation = Calculation(system, pseudos, k_batch=k_batch)
     require_a_sum_over_states_regime(calculation)
+    if rule.name == "alda":
+        refuse_a_polarized_alda(density, calculation.system.cell)
 
     calculation, system, eigenvalues, wavefunctions = fixed_density_states(
         system, pseudos, density, nbnd=nbnd or _default_nbnd(calculation),
@@ -250,7 +255,8 @@ def run_absorption(
     # The solve re-checks the dials at its own band count (``Calculation.
     # for_bands``); what follows runs at whatever it resolved to.
     k_batch = calculation.k_batch
-    nocc = int(round(calculation.nelec / 2))
+    # The deeper channel's count at ``nspin = 2``, ``nelec / 2`` otherwise.
+    nocc = max(occupied_counts(calculation))
     nbnd = int(eigenvalues.shape[-1])
     potential = calculation.potential(jnp.asarray(density))
 
@@ -315,7 +321,7 @@ def _default_nbnd(calculation) -> int:
     calculation; building one here to read it was a whole constructor for one
     number (``OPEN.md`` Part III, H3).
     """
-    nocc = int(round(calculation.nelec / 2))
+    nocc = max(occupied_counts(calculation))
     return max(4 * nocc, nocc + 8)
 
 
@@ -344,7 +350,9 @@ def _static_residual(calculation, wavefunctions, eigenvalues, density, chi, *,
     """
     from defuqumat.response.efield import dielectric_tensor
 
-    nocc = int(round(calculation.nelec / 2))
+    # The deeper channel's count: the solver masks the other channel's extra
+    # bands itself, from ``occupied_counts`` (``SternheimerSolver``).
+    nocc = max(occupied_counts(calculation))
     reference = dielectric_tensor(
         calculation, wavefunctions[:, :, :nocc], eigenvalues[:, :, :nocc],
         jnp.asarray(density), screening="hartree", born_charges=False,

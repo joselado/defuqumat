@@ -116,8 +116,22 @@ chunk follows, so the states are never on the device for the whole k axis. The
 chunk is the calculation's ``k_batch`` and moves the matrix at round-off, through
 the order of the k sum.
 
-Refused by name: finite ``q``, ultrasoft and PAW, metals, ``nspin != 1``,
-noncollinear magnetism and spin-orbit coupling, and a **reduced k-set** -- see
+**Collinear spin is a sum over the two channels** (``nspin = 2``). The pair
+``(i, j)`` of the Adler-Wiser sum is a pair of states of one spin, since
+``e^{-iG.r}`` and ``dH/dk`` are both diagonal in spin, so the charge response
+is ``chi_0 = chi_0^up + chi_0^dn``, each channel with its own occupied count
+(:func:`~defuqumat.scf.occupations.occupied_counts`, QE's ``nbnd_occ``, which
+is what makes the two depths of a magnetic insulator different) and its own
+``wg``, which already carries one electron a band rather than two. The pair
+lists differ in length between the channels, so each channel is its own
+static shape and the k walk contracts both. What the matrix does *not* carry
+is the magnetization's response: it is the charge-charge block of the 2x2
+``(n, m)`` response, and a kernel that couples ``n`` to ``m`` -- ALDA on a
+polarized density -- is refused where it is built
+(:func:`~defuqumat.tddft.kernels.alda_matrix`), not here.
+
+Refused by name: finite ``q``, ultrasoft and PAW, metals, noncollinear
+magnetism and spin-orbit coupling, and a **reduced k-set** -- see
 :func:`require_a_sum_over_states_regime`.
 """
 
@@ -133,6 +147,7 @@ from defuqumat.batching import (
     map_axis, map_windows, resolve_pair_batch, resolve_w_batch, sum_k,
 )
 from defuqumat.response.velocity import VelocityOperator
+from defuqumat.scf.occupations import occupied_counts
 from defuqumat.response.walk import (
     chunk_size, padded, row_leaves, store_rows, walk, with_rows,
 )
@@ -253,11 +268,16 @@ class ChiZero(eqx.Module):
     x: jnp.ndarray
     frequencies: jnp.ndarray  # (nw,) complex: omega + i eta
     sphere: ResponseSphere
-    #: How many valence-conduction pairs went into it, per k-point. Reported
-    #: because band truncation is this phase's one unrefusable error.
+    #: How many valence-conduction pairs went into it, per k-point, summed over
+    #: the spin channels. Reported because band truncation is this phase's one
+    #: unrefusable error.
     npairs: int = eqx.field(static=True)
+    #: The occupied count, the deeper channel's at ``nspin = 2``
+    #: (:attr:`occupied` has both).
     nocc: int = eqx.field(static=True)
     nbnd: int = eqx.field(static=True)
+    #: One occupied count per spin channel, ``(nocc,)`` at ``nspin = 1``.
+    occupied: tuple = eqx.field(static=True, default=())
 
     @property
     def nm(self) -> int:
@@ -304,9 +324,12 @@ def require_a_sum_over_states_regime(calculation) -> None:
         the ``f_i - f_j`` weight kills the ``i = j`` term, so the intraband
         (Drude) response is missing entirely at ``q = 0``. Elk's ``tddftlr``
         does not add it either.
-    ``nspin != 1``, noncollinear, spin-orbit
-        the kernel acquires spin components (Elk's ``nscfxc``, and a separate
-        routine ``tddftsplr.f90``).
+    noncollinear, spin-orbit
+        the states are spinors and the matrix element carries the spin trace.
+        Collinear ``nspin = 2`` is *not* refused: the matrix is the sum of the
+        two channels' (see the module docstring), and what has spin
+        components there is the kernel, which ``alda_matrix`` refuses on a
+        polarized density.
     gamma-only storage
         the pair densities go through the **full-sphere** ``g_to_r``, and the
         stored half sphere is not the whole one. See
@@ -334,13 +357,6 @@ def require_a_sum_over_states_regime(calculation) -> None:
             "charge Q_ij(G) in every matrix element, and without it the matrix "
             "is wrong by the whole augmentation and still looks like a "
             "dielectric function. Use a norm-conserving dataset"
-        )
-    if calculation.nspin != 1:
-        raise NotImplementedError(
-            f"chi_0 here is restricted to nspin = 1 and this run has "
-            f"nspin = {calculation.nspin}: with spin the kernel becomes a "
-            "tensor in the spin components (Elk reaches it through a separate "
-            "routine, tddftsplr.f90)"
         )
     if system.noncolin:
         raise NotImplementedError(
@@ -472,14 +488,17 @@ def independent_response(
         eigenvalues = eigenvalues[None]
 
     nbnd = int(eigenvalues.shape[-1])
-    nocc = _occupied_bands(calculation, eigenvalues, nbnd)
+    counts = _occupied_bands(calculation, eigenvalues, nbnd)
     sphere = response_sphere(calculation, ecut_response)
     precision = calculation.system.cell.precision
 
     # The scissors shift moves the empty states and nothing else. It is applied
     # here rather than by the caller so that the matrix elements below can be
-    # renormalised consistently -- the two are one approximation, not two.
-    shifted = eigenvalues.at[..., nocc:].add(precision.as_real(scissor))
+    # renormalised consistently -- the two are one approximation, not two. Each
+    # channel's empty states start at its own count.
+    shifted = eigenvalues
+    for spin, nocc in enumerate(counts):
+        shifted = shifted.at[spin, :, nocc:].add(precision.as_real(scissor))
 
     # Built on the whole set for its refusals and for the point it
     # differentiates around; each chunk's operator is handed its rows of
@@ -487,9 +506,15 @@ def independent_response(
     kcart = np.asarray(VelocityOperator(calculation, v_scf).kcart)
 
     weights, _ = calculation.occupations(eigenvalues)
-    weights = np.asarray(weights)[0]  # (nk, nbnd), summing to nelec
+    # (nspin, nk, nbnd), summing to nelec over both channels: one electron a
+    # band at nspin = 2, two at nspin = 1.
+    weights = np.asarray(weights)
 
-    rows, columns = _pairs(nocc, nbnd)
+    # One pair list per channel, ``(i, j)`` with ``i`` occupied in *that*
+    # channel. A channel with nothing occupied (a hydrogen atom's minority)
+    # has no pair and is skipped rather than given an empty static shape.
+    channels = [(spin,) + _pairs(nocc, nbnd)
+                for spin, nocc in enumerate(counts) if nocc > 0]
     zomega = jnp.asarray(frequencies) + 1j * precision.as_real(broadening)
     zomega = zomega.astype(precision.complex)
 
@@ -497,44 +522,57 @@ def independent_response(
     volume = calculation.system.cell.volume
     batch = chunk_size(calculation, k_batch)
     itemsize = np.dtype(precision.complex).itemsize
-    pairs = resolve_pair_batch(
-        pair_batch, npairs=int(rows.size),
-        box_bytes=int(np.prod(grid)) * itemsize)
-    # One frequency's pair-weighted block, ``(2 npairs, nm)`` complex.
-    chunk = resolve_w_batch(
-        w_batch, nw=int(zomega.shape[0]),
-        block_bytes=2 * int(rows.size) * sphere.nm * itemsize)
 
-    def one_k(arrays):
-        psi, fft_index, band_mask, eig, occupation, element = arrays
-        vectors, scalars = _pair_terms(
-            psi, fft_index, band_mask, eig, occupation, element,
-            rows, columns, sphere, grid, volume, zomega, scissor, precision,
-            pairs,
-        )
-        # ``(nw, nm, nm)``: one matrix product per frequency, the pair axis
-        # contracted away. This is the whole frequency cost of the phase.
-        return _assemble(scalars, vectors, chunk)
+    def channel_term(rows, columns):
+        """One spin channel's ``one_k``, with its own pair list and dials."""
+        pairs = resolve_pair_batch(
+            pair_batch, npairs=int(rows.size),
+            box_bytes=int(np.prod(grid)) * itemsize)
+        # One frequency's pair-weighted block, ``(2 npairs, nm)`` complex.
+        chunk = resolve_w_batch(
+            w_batch, nw=int(zomega.shape[0]),
+            block_bytes=2 * int(rows.size) * sphere.nm * itemsize)
+
+        def one_k(arrays):
+            psi, fft_index, band_mask, eig, occupation, element = arrays
+            vectors, scalars = _pair_terms(
+                psi, fft_index, band_mask, eig, occupation, element,
+                rows, columns, sphere, grid, volume, zomega, scissor, precision,
+                pairs,
+            )
+            # ``(nw, nm, nm)``: one matrix product per frequency, the pair
+            # axis contracted away. This is the whole frequency cost.
+            return _assemble(scalars, vectors, chunk)
+
+        return one_k
+
+    terms_by_spin = [(spin, channel_term(rows, columns))
+                     for spin, rows, columns in channels]
 
     # The potential on the smooth grid, k-independent, built once here rather
     # than in every chunk and direction.
     terms = calculation.local_terms(v_scf)
 
     def elements_of(rowset, psi, kcart):
-        """One chunk's ``<m|dH/dk_a|n>``, ``(chunk, 3, nbnd, nbnd)``."""
+        """One chunk's ``<m|dH/dk_a|n>``, ``(nspin, chunk, 3, nbnd, nbnd)``."""
         # ``dH/dk``, the head's ingredient and the reason this is not a pure
-        # transcription. One jvp per cartesian direction over the chunk's rows.
+        # transcription. One jvp per cartesian direction over the chunk's rows;
+        # each channel's states see that channel's Hamiltonian.
         velocity = VelocityOperator(with_rows(calculation, rowset), v_scf, kcart=kcart,
                                     local_terms=terms)
-        elements = velocity.matrix_elements(psi, sequential=True)  # (3, 1, chunk, nb, nb)
-        return jnp.moveaxis(elements[:, 0], 0, 1)
+        elements = velocity.matrix_elements(psi, sequential=True)  # (3, nspin, chunk, nb, nb)
+        return jnp.moveaxis(elements, 0, 2)
 
     def contract(elements, psi, fft_index, mask, energies, occupation):
-        """One chunk's share of ``(nw, nm, nm)``."""
-        return sum_k(one_k, (psi[0], fft_index, mask, energies, occupation,
-                             elements), batch=batch)
+        """One chunk's share of ``(nw, nm, nm)``, both spin channels summed."""
+        total = 0.0
+        for spin, one_k in terms_by_spin:
+            total = total + sum_k(
+                one_k, (psi[spin], fft_index, mask, energies[spin],
+                        occupation[spin], elements[spin]), batch=batch)
+        return total
 
-    shifted = np.asarray(shifted[0])
+    shifted = np.asarray(shifted)
     fft_index = np.asarray(calculation.fft_index)
     mask = np.asarray(calculation.basis.planewaves.mask)
 
@@ -545,17 +583,18 @@ def independent_response(
         return ((row_leaves(calculation, chunk_rows), psi,
                  jnp.asarray(kcart[chunk_rows])),
                 (psi, jnp.asarray(fft_index[chunk_rows]), jnp.asarray(mask[chunk_rows]),
-                 jnp.asarray(shifted[chunk_rows]),
-                 jnp.asarray(padded(weights, chunk_rows, live))))
+                 jnp.asarray(shifted[:, chunk_rows]),
+                 jnp.asarray(padded(weights, chunk_rows, live, axis=1))))
 
-    x = walk(int(weights.shape[0]), batch, arguments, elements_of, contract)
+    x = walk(int(weights.shape[1]), batch, arguments, elements_of, contract)
     return ChiZero(
         x=x,
         frequencies=zomega,
         sphere=sphere,
-        npairs=int(rows.size),
-        nocc=nocc,
+        npairs=int(sum(rows.size for _, rows, _ in channels)),
+        nocc=max(counts),
         nbnd=nbnd,
+        occupied=tuple(counts),
     )
 
 
@@ -663,31 +702,38 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
     )
 
 
-def _occupied_bands(calculation, eigenvalues, nbnd: int) -> int:
-    """How many bands are filled, and a check that the question is well posed.
+def _occupied_bands(calculation, eigenvalues, nbnd: int) -> tuple:
+    """How many bands each channel fills, and a check that the question is well posed.
 
     An insulator has the same number at every k-point, which is what makes the
     valence-conduction split a *static* shape and the pair list a compile-time
     object. A run where it is not is a metal, and metals are refused above --
     but the refusal reads the input's ``occupations``, and a fixed-occupation
     input can still be handed a state that crosses. This catches that.
+
+    One count per spin channel (:func:`~defuqumat.scf.occupations.
+    occupied_counts`), since a magnetic insulator fills its two channels to
+    different depths; ``nelec / 2`` for both would put a majority state among
+    the empty ones. A channel may be empty (``0``), but not every one.
     """
-    nocc = int(round(calculation.nelec / 2))
-    if nocc < 1 or nocc >= nbnd:
+    counts = tuple(int(n) for n in occupied_counts(calculation))
+    if max(counts) < 1 or max(counts) >= nbnd:
         raise ValueError(
             f"a sum-over-states chi_0 needs empty states: this run has "
-            f"{nocc} occupied bands out of {nbnd}. Run a fixed-density "
+            f"{max(counts)} occupied bands out of {nbnd}. Run a fixed-density "
             "calculation with more bands (nbnd), which is the convergence "
             "parameter of the whole spectrum"
         )
     weights, _ = calculation.occupations(jnp.asarray(eigenvalues))
-    weights = np.asarray(weights)[0]
-    empty = np.abs(weights[:, nocc:]).max()
-    if empty > _OCCUPATION_TOLERANCE:
-        raise NotImplementedError(
-            f"band {nocc} carries occupation {empty:.3e} at some k-point, so "
-            "this state has no clean valence-conduction split -- it is a metal "
-            "or a zero-gap system. The sum-over-states chi_0 here is the "
-            "interband expression and has no intraband term"
-        )
-    return nocc
+    weights = np.asarray(weights)
+    for spin, nocc in enumerate(counts):
+        empty = np.abs(weights[spin][:, nocc:]).max()
+        if empty > _OCCUPATION_TOLERANCE:
+            raise NotImplementedError(
+                f"band {nocc} of spin channel {spin} carries occupation "
+                f"{empty:.3e} at some k-point, so this state has no clean "
+                "valence-conduction split -- it is a metal or a zero-gap "
+                "system. The sum-over-states chi_0 here is the interband "
+                "expression and has no intraband term"
+            )
+    return counts
