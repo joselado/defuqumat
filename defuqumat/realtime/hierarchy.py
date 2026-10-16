@@ -633,6 +633,18 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
     as two densities (the symmetrisation keeps the real part of what it is
     given), a spinor's magnetization as an axial vector.
 
+    **On two FFT grids** (norm-conserving, ``ecutrho > 4 ecutwfc``) the
+    unknown ``dv_+`` and the cross density are on the smooth grid, where the
+    states are transformed: each density goes up to the dense grid by a
+    zero-pad in ``G`` (exact, the product of two states holding nothing above
+    ``2 G_wfc``), is symmetrised and goes through the kernel there, and the
+    potential comes back by keeping its smooth-sphere coefficients, which is
+    :meth:`~defuqumat.scf.driver.Calculation.local_terms`'s ``interpolate``
+    and loses nothing a matrix element between two states can see. The
+    exchange-correlation kernel's product ``f_xc drho`` is formed on the dense
+    grid, as the ground state's ``v_xc`` is, so the result is the two-grid
+    calculation's and not the one-grid one's.
+
     The induced potential has the ground state's components: ``(up, down)`` for
     a collinear ``nspin = 2`` run, whose channels it couples, and
     ``(v, m_x, m_y, m_z)`` for a magnetic spinor run, acting as ``v + m.sigma``.
@@ -644,7 +656,7 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
     """
     import scipy.sparse.linalg as sla
 
-    from defuqumat.basis.interpolate import to_dense
+    from defuqumat.basis.interpolate import to_dense, to_smooth
     from defuqumat.batching import k_chunks
     from defuqumat.realtime.propagate import _batch, _prepare, channel_arrays
     from defuqumat.realtime.selfconsistent import POTENTIALS, require_a_potential_mode
@@ -658,12 +670,9 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
     if potential == "hxc" and calculation.functional.is_meta:
         raise NotImplementedError("the exchange-correlation kernel of a meta-GGA is not here")
     dense, smooth = calculation.basis.dense, calculation.basis.smooth
-    grid = tuple(int(n) for n in dense.grid)
-    if tuple(int(n) for n in smooth.grid) != grid:
-        raise NotImplementedError(
-            "the self-consistent hierarchy on two FFT grids is not implemented: the "
-            "induced potential would go from the dense grid to the smooth one at every "
-            "product, and nothing checks that path yet")
+    # the unknown ``dv_+`` and the cross density live on the smooth grid, where
+    # the states are transformed; the kernel is taken on the dense one
+    grid = tuple(int(n) for n in smooth.grid)
     if symmetrise is not None and density_symmetry is None:
         raise ValueError("a reduced k-set needs the field's little group for its density")
     basis = np.asarray(basis)
@@ -732,10 +741,13 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
     phase_only = jnp.asarray([True] * nspin_mag if not noncolin
                              else [True] + [False] * (nspin_mag - 1))
 
+    def kernel_part(x):
+        """A real smooth-grid density to its real smooth-grid potential, through the dense grid."""
+        return to_smooth(kernel_real(symmetrize(to_dense(x, smooth, dense))), dense, smooth)
+
     @jax.jit
     def kernel(drho):
-        dv = (kernel_real(symmetrize(jnp.real(drho)))
-              + 1j * kernel_real(symmetrize(jnp.imag(drho))))
+        dv = kernel_part(jnp.real(drho)) + 1j * kernel_part(jnp.imag(drho))
         mean = jnp.mean(dv, axis=(1, 2, 3), keepdims=True)
         return dv - jnp.where(phase_only[:, None, None, None], mean, 0.0)
 
