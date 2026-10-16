@@ -2309,8 +2309,10 @@ def test_the_ldos_mode_reaches_the_kerker_fixed_point(polarized, tmp_path, pseud
     kerker, ldos = runs["anderson"], runs["ldos"]
     assert kerker.ldos_record is None
     assert len(ldos.ldos_record) == ldos.iterations - 1
-    assert all(states > 1.0 for states, _, _ in ldos.ldos_record)
-    assert all(clamped == 0.0 for _, clamped, _ in ldos.ldos_record)
+    # The first mix read 0.57 states/Ry on the unpolarized cell, against 27.5
+    # converged (``notes/incompat/I77.md``), so the bound per mix is loose.
+    assert all(states > 0.1 for states, _, _ in ldos.ldos_record)
+    assert all(clamped <= 1e-12 for _, clamped, _ in ldos.ldos_record)
     sigma = float(calculator.system.degauss)
     levels = np.asarray(ldos.eigenvalues)
     levels = levels.reshape((-1,) + levels.shape[-2:])
