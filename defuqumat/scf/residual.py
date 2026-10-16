@@ -70,7 +70,11 @@ projectors ``wfcU`` are fixed while the atoms are.
 
 **Refused rather than approximated:** external and constrained magnetic fields
 (the field is driven by a secant *outside* the density, so ``F`` would not be a
-function of ``x`` alone) and spin spirals. Each raises by name.
+function of ``x`` alone). It raises by name. A spin spiral runs
+(``notes/incompat/I72.md``): its map is the mixing loop's own, with no term of
+its own here, except under a Hubbard U, which is refused: a spinor ``ns`` is
+complex and :meth:`ScfResidual.pack` keeps its real part only. A spiral under a
+meta-GGA is refused too, as not measured.
 
 **Tetrahedron and ``from_input`` occupations are in** (I71). Both were refused
 on the grounds that the first is "built on the host" and the second "is not a
@@ -761,7 +765,6 @@ def _weights(calculation, eigenvalues):
 
 def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
     """Build the residual for a calculation, refusing the regimes it cannot hold."""
-    system = calculation.system
     if calculation.magnetic_field is not None:
         raise NotImplementedError(
             "an external or constraining magnetic field has no residual form "
@@ -769,8 +772,42 @@ def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
             "(reducebf, the fixed-spin-moment feedback), so F changes between "
             "evaluations and is not a function of the state alone"
         )
-    if getattr(system, "spiral_q", None) is not None:
-        raise NotImplementedError("spin spirals are not supported by a residual solver")
+    if calculation.spiral and calculation.is_hubbard:
+        # Measured (``notes/incompat/I72.md``): on ``nii-chain-spiral.in`` with
+        # U = 4 eV on Ni-3d, ``accuracy_of(F(x*) - x*)`` at the mixing loop's
+        # converged state is 2.3e-4 against the loop's own 8.9e-10, and Newton
+        # lands 7.3e-3 Ry away. A spinor ``ns`` is complex; the mixing loop
+        # carries it as real and imaginary pairs (``driver._pack_ns``), while
+        # :meth:`ScfResidual.pack` and :meth:`ScfResidual.flatten` keep only its
+        # real part, so ``F`` here is not the loop's map.
+        raise NotImplementedError(
+            "a spin spiral with a Hubbard U has no residual form here: the "
+            "occupation matrix of a spinor run is complex and the residual's "
+            "packed state keeps only its real part, so F is not the mixing "
+            "loop's map (notes/incompat/I72.md); use the mixing loop"
+        )
+    if calculation.spiral and calculation.functional.is_meta:
+        # Not measured, so not admitted: ``tau`` joins the packed state, and the
+        # one harness run of Newton on the hydrogen chain under ``tb09`` and
+        # ``'kubler'`` had not returned after 36 minutes on one core, where the
+        # same cell without the meta-GGA takes 4 s (``notes/incompat/I72.md``).
+        raise NotImplementedError(
+            "a spin spiral under a meta-GGA has no measured residual form here: "
+            "tau joins the packed state and Newton on a spiral with it has not "
+            "been checked against the mixing loop (notes/incompat/I72.md); use "
+            "the mixing loop"
+        )
+    # A spin spiral is not refused (``notes/incompat/I72.md``): every call in
+    # :meth:`ScfResidual.step` is the mixing loop's own, and the spiral lives
+    # inside them -- the two spheres at ``k +- q/2`` in ``hamiltonian`` and
+    # ``diagonalize``, the rotated-frame density and its displaced augmentation
+    # in ``becsum`` and ``density`` -- so ``F`` is the loop's map. The packed
+    # state is the rotated-frame ``(n, m_x, m_y, m_z)`` on the dense grid, which
+    # the real-space Kerker screens on the charge alone and ``accuracy_of``
+    # measures as the loop's ``dr2`` does; ``_weights`` takes the unshifted
+    # k-set's weights, as ``Calculation.occupations`` does. ``jvp='sternheimer'``
+    # stays refused (a magnetic noncollinear run, and ``response/sternheimer``
+    # refuses a spiral by name behind it).
 
     rho = calculation.starting_density()
     becsum_ = calculation.starting_becsum()

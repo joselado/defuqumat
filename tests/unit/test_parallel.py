@@ -161,10 +161,13 @@ def test_a_pooled_residual_refuses_tetrahedra_before_any_collective(scheme):
     fixed = SimpleNamespace(kpoints=system.kpoints, occupations="fixed", spiral_q=None)
     with pytest.raises(NotImplementedError, match="magnetic field"):
         make_residual(SimpleNamespace(system=fixed, magnetic_field=object()), 4, 1e-10)
+    # A plain spiral is admitted on one process since I72; its Hubbard
+    # sibling is the refusal that stays (``tests/unit/test_residual_spiral.py``).
     spiral = SimpleNamespace(kpoints=system.kpoints, occupations="fixed",
                              spiral_q=(0.0, 0.0, 0.1))
-    with pytest.raises(NotImplementedError, match="spin spirals"):
-        make_residual(SimpleNamespace(system=spiral, magnetic_field=None), 4, 1e-10)
+    with pytest.raises(NotImplementedError, match="Hubbard U"):
+        make_residual(SimpleNamespace(system=spiral, magnetic_field=None,
+                                      spiral=True, is_hubbard=True), 4, 1e-10)
 
 
 
