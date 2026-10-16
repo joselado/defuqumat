@@ -1,10 +1,17 @@
-! h-fcc-magnon.in in a uniform field along the moment, B_field(3) = 0.002 Ry:
+! h-fcc-magnon.in in a uniform field along the moment, B_field(3) = 0.02 Ry:
 ! the Larmor case of the transverse spin susceptibility (notes/incompat/I58.md).
 !
 ! The field enters the potential as -B on the up channel (E = -int B.m), so a
 ! majority-up moment is parallel to it and the uniform precession sits at the
-! Zeeman energy 2 B = 0.004 Ry (54.4 meV) rather than at zero, well below the
-! Stoner onset of this cell. Everything else is h-fcc-magnon.in, seed included,
+! Zeeman energy 2 B = 0.04 Ry (544 meV) rather than at zero, below the Stoner
+! onset of this cell (0.146 Ry at zero field, the smallest eps_dn - eps_up of
+! an empty minority and an occupied majority state at one k).
+!
+! The field is this large on purpose. On this 4x4x4 mesh no eigenvalue lies
+! within a few degauss of the Fermi level, so at B = 0.002 the bands only shift
+! rigidly (up by -B, down by +B, m moved by 2e-6) and the field run is the
+! zero-field run relabelled, which is a check of the sign and nothing more. At
+! 0.02 levels cross the Fermi level and the moment answers the field. Everything else is h-fcc-magnon.in, seed included,
 ! and that file's header says why the seed is 0.9 and not 1.0.
  &control
     calculation = 'scf'
@@ -17,7 +24,7 @@
     nspin = 2
     nosym = .true., noinv = .true.
     starting_magnetization(1) = 0.9
-    B_field(3) = 0.002
+    B_field(3) = 0.02
     nbnd = 8
  /
  &electrons
