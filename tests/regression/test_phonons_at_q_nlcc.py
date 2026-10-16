@@ -121,7 +121,7 @@ def _bounded_compilation_cache():
 
 
 @lru_cache(maxsize=2)
-def _calculator(cell: str, pseudo: str):
+def _calculator(cell: str, pseudo: str, k_batch=None):
     import warnings
 
     from defuqumat import Calculator
@@ -137,9 +137,12 @@ def _calculator(cell: str, pseudo: str):
         if pseudo == BROAD:
             pwin = parse_pw_input(text)
             calculator = Calculator(build_system(pwin), (_broad_core(),),
-                                    announce=False, **electrons_defaults(pwin))
+                                    announce=False, **electrons_defaults(pwin),
+                                    **({} if k_batch is None else {"k_batch": k_batch}))
         else:
-            calculator = Calculator.from_text(text, str(PSEUDO), announce=False)
+            calculator = Calculator.from_text(
+                text, str(PSEUDO), announce=False,
+                **({} if k_batch is None else {"k_batch": k_batch}))
     calculator.get_scf()
     return calculator
 
@@ -162,9 +165,22 @@ def at_q(pseudo: str, q=Q_FOLDED) -> np.ndarray:
     return np.asarray(phonons.matrix).reshape(6, 6)
 
 
-#: In Ry/bohr^2, on force constants of order 0.2. To be set from the D22
-#: measurement recorded in ``notes/incompat/I80.md``.
-SUPERCELL_AGREEMENT = 5e-6
+#: In Ry/bohr^2, on force constants of 0.30. Measured 2026-10-16 on D22 (CPU,
+#: one core, one run each): **4.40e-6** without a core (the floor, which is
+#: the Ewald swap :data:`tests.regression.test_phonons_at_q.GAMMA_AGREEMENT`
+#: names: the supercell's ``Gamma`` Hessian carries the ground state's Ewald
+#: sum, cut at ``4/sqrt(alpha)``), **2.79e-6** on the ONCV core and **4.81e-6**
+#: on the broad one. What the alternatives read on the same states: the guard
+#: lifted with no core term at all 1.26e-1 (ONCV) and 7.8e-2 (broad); the
+#: bare term in and the core-core swap left at ``q = 0`` 2.79e-6 on ONCV,
+#: where ``C(q) - C(0)`` is 9.1e-7 and below the floor, and **3.18e-3** on the
+#: broad core, which is why that dataset is here.
+SUPERCELL_AGREEMENT = 1e-5
+
+#: ``q = 0`` through two spheres against the ``Gamma`` route on one state, in
+#: Ry/bohr^2. Measured on D22: 8.8e-7 on the ONCV core, 3.0e-7 on the broad
+#: one; :data:`tests.regression.test_phonons_at_q.GAMMA_AGREEMENT`'s bound.
+GAMMA_AGREEMENT = 5e-6
 
 
 @pytest.mark.parametrize("pseudo", [NO_CORE, CORE, BROAD])
@@ -186,5 +202,29 @@ def test_q_zero_reproduces_the_gamma_route_with_a_core_charge():
     calculator = _calculator("unit", CORE)
     gamma = np.asarray(calculator.get_phonons(tr2=TR2_AT_Q_CAPPED).matrix).reshape(6, 6)
     difference = np.abs(at_q(CORE, (0.0, 0.0, 0.0)) - gamma).max()
-    assert difference < SUPERCELL_AGREEMENT, difference
+    assert difference < GAMMA_AGREEMENT, difference
+
+
+#: The k-chunked route against the whole one, one k-point a chunk, in
+#: Ry/bohr^2: ``tests/regression/test_streamed_phonons.py``'s bound.
+STREAMED_AGREEMENT = 1e-11
+
+
+def test_the_streamed_route_carries_the_core_correction():
+    """The k-chunked route adds ``dv_core`` to each chunk's bare vectors and
+    swaps the core-core term; on the broad core, at one k-point a chunk, it is
+    the whole route's matrix."""
+    from defuqumat.response.phononq import dynamical_matrix_at_q
+
+    calculator = _calculator("unit", BROAD, 1)
+    calculation, result = calculator.calculation, calculator.get_scf()
+
+    def matrix(wavefunctions):
+        return np.asarray(dynamical_matrix_at_q(
+            calculation, wavefunctions, result.eigenvalues, result.density,
+            result.becsum, q=Q_FOLDED).matrix)
+
+    whole = matrix(result.wavefunctions)
+    streamed = matrix(np.asarray(result.wavefunctions))
+    assert np.abs(streamed - whole).max() < STREAMED_AGREEMENT
 
