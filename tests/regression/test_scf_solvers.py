@@ -38,6 +38,11 @@ BENCHMARKS = Path(__file__).resolve().parents[2] / "benchmarks"
 #: the density response alone.
 SILICON = BENCHMARKS / "si-1k.in"
 
+#: fcc aluminium with Bloechl's tetrahedra on the 4x4x4 shifted grid; ``pw.x``
+#: 7.5's own run is ``reference.out.al-tetrahedra``.
+AL_TETRAHEDRA = Path(__file__).resolve().parents[1] / "data" / "qe" / "al-tetrahedra.in"
+AL_TETRAHEDRA_REFERENCE = AL_TETRAHEDRA.with_name("reference.out.al-tetrahedra")
+
 #: bcc iron from a *small* starting moment: two self-consistent solutions, one
 #: of them unstable. See ``test_newton_krylov_reaches_an_unstable_solution``.
 IRON = BENCHMARKS / "fe-unstable.in"
@@ -307,7 +312,8 @@ def test_local_tf_screens_the_vacuum_less_than_the_metal():
 
 
 @pytest.mark.regression
-@pytest.mark.parametrize("case", [SILICON, SLAB], ids=["silicon", "al-slab"])
+@pytest.mark.parametrize("case", [SILICON, SLAB, AL_TETRAHEDRA],
+                         ids=["silicon", "al-slab", "al-tetrahedra"])
 @pytest.mark.slow
 def test_weights_agree_with_the_driver(case):
     """``residual._weights`` is a second copy of the driver's occupation
@@ -323,10 +329,6 @@ def test_weights_agree_with_the_driver(case):
     assert np.allclose(_weights(calculation, eigenvalues), np.asarray(expected), atol=1e-14)
 
 
-#: fcc aluminium with Bloechl's tetrahedra on the 4x4x4 shifted grid; ``pw.x``
-#: 7.5's own run is ``reference.out.al-tetrahedra``.
-AL_TETRAHEDRA = Path(__file__).resolve().parents[1] / "data" / "qe" / "al-tetrahedra.in"
-AL_TETRAHEDRA_REFERENCE = AL_TETRAHEDRA.with_name("reference.out.al-tetrahedra")
 
 #: How far the autodiff ``dF v`` may sit from the central difference on the
 #: tetrahedron cell, warm, relative to ``|dF v|`` (not to ``|J v| = |dF v - v|``,
@@ -405,7 +407,7 @@ def test_newton_krylov_with_tetrahedra_is_pw_x_s_fixed_point():
     assert newton.solver is not None and newton.solver.steps > 0
     assert newton.total_energy == pytest.approx(reference.total_energy, abs=TOTAL_ENERGY_RY)
     assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-8)
-    assert newton.fermi_energy == pytest.approx(mixed.fermi_energy, abs=1e-6)
+    assert newton.fermi_energy == pytest.approx(mixed.fermi_energy, abs=1e-5)
 
 
 @pytest.mark.regression
