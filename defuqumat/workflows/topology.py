@@ -44,7 +44,7 @@ from defuqumat.pseudo.upf import Pseudopotential
 from defuqumat.scf.driver import Calculation, default_nbnd
 from defuqumat.workflows.nscf import fixed_density_ethr
 from defuqumat.system.builder import System
-from defuqumat.system.kpoints import KPoints
+from defuqumat.system.kpoints import KPoints, for_spin
 from defuqumat.topology.berry import BerryCurvature
 from defuqumat.topology.invariants import chern_number as _chern_number
 from defuqumat.topology.invariants import z2_invariant, z2_invariant_3d
@@ -136,14 +136,29 @@ class DFTSource:
     #: -- it shares the augmentation and PAW tables and keeps the caller's
     #: memory mode (``notes/GPU-MEMORY-NEXT.md`` item 20). ``None`` builds one.
     calculation: object = None
+    #: Which channel of a collinear ``nspin = 2`` run this source diagonalises,
+    #: 0 (up) or 1 (down); ``None`` everywhere else. A polarization is the one
+    #: consumer that asks for it, because its two channels' phases *add*
+    #: (``bp_c_phase.f90``'s ``pdl_elec_up + pdl_elec_dw``): the invariants
+    #: below have two independent answers at ``nspin = 2`` and keep refusing.
+    #: With a channel named, only that channel's Hamiltonian is solved, and
+    #: ``nocc`` is that channel's count.
+    spin: int | None = None
 
     def __post_init__(self):
-        if self.system.nspin == 2:
+        if self.system.nspin == 2 and self.spin is None:
             raise NotImplementedError(
                 "a collinear spin-polarized calculation has two independent "
                 "Hamiltonians and therefore two independent sets of invariants; "
                 "which is meant is not defined here. Run the noncollinear "
                 "spinor path instead, where there is one Hamiltonian"
+            )
+        if self.spin is not None and (
+            self.system.nspin != 2 or int(self.spin) not in (0, 1)
+        ):
+            raise ValueError(
+                f"spin = {self.spin} names a channel of a collinear nspin = 2 "
+                f"run (0 or 1), and this run has nspin = {self.system.nspin}"
             )
 
     def _base(self) -> Calculation:
@@ -219,6 +234,14 @@ class DFTSource:
             self.system.cell,
             precision=self.system.kpoints.precision,
         )
+        if self.spin is not None:
+            # ``for_spin`` at the boundary of a polarized run's caller-built
+            # k-set, as the trap list asks. Nothing a channel source returns
+            # reads the weights -- an overlap, a phase and a gap do not -- so
+            # this is for whatever is built on the set later. The other
+            # regimes keep the set they had: changing a spinor's weights here
+            # would move every invariant route that does not need it to.
+            kpoints = for_spin(kpoints, self.system.nspin)
         calculation = self._base().at_kpoints(kpoints)
         system = calculation.system
         if calculation.is_paw and not self.becsum:
@@ -306,6 +329,18 @@ class DFTSource:
             ))
         v_scf, terms = self._frozen
         hamiltonians = calculation.hamiltonian_from(terms, hubbard_terms)
+        if self.spin is not None:
+            # One channel's Hamiltonian, so a string solves one channel and not
+            # both; ``diagonalize`` enumerates whatever tuple it is handed, and
+            # everything below reads its leading axis at 0.
+            if keep_velocity:
+                raise NotImplementedError(
+                    "a velocity operator of one channel of an nspin = 2 run is "
+                    "not implemented: VelocityOperator carries the whole "
+                    "calculation's channels, and no consumer of a channel "
+                    "source needs it"
+                )
+            hamiltonians = (hamiltonians[int(self.spin)],)
         ethr = fixed_density_ethr(self.conv_thr, calculation.nelec)
         eigenvalues, wavefunctions = calculation.diagonalize(
             hamiltonians, nbnd, None, ethr
@@ -361,7 +396,7 @@ class DFTSource:
 
 def _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
             becsum=(), ns=None, field=None, field_scale=None,
-            calculation=None) -> DFTSource:
+            calculation=None, spin=None) -> DFTSource:
     if nocc is None:
         nocc = _occupied_bands(system, pseudos)
     return DFTSource(
@@ -377,6 +412,7 @@ def _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
         conv_thr=conv_thr,
         k_batch=k_batch,
         calculation=calculation,
+        spin=spin,
     )
 
 
