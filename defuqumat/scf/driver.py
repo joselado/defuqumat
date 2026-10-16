@@ -8290,11 +8290,11 @@ def run_scf(
     stopped_early = False
     berry_dipoles = None
     if calculation.berry_field is not None:
-        if streaming or pooled:
+        if pooled:
             raise NotImplementedError(
-                "lelfield with a streamed wavefunction store or k-point pools is "
-                "not implemented: the Berry operator couples every k-point to its "
-                "neighbours on the string, so it needs the whole set on the device")
+                "lelfield with k-point pools is not implemented: the Berry operator "
+                "couples every k-point to its neighbours on the string, which a "
+                "pool's rows do not hold; a streamed store on one process runs it")
         # ``calc_pol``'s branch state belongs to one run, as QE's does to one
         # process: a fresh run starts on the principal branch with no jump.
         calculation.berry_field.previous = None
@@ -8483,8 +8483,24 @@ def run_scf(
                 # arrived on the device -- a resume, a caller's span -- is
                 # brought across once here and stays.
                 wavefunctions = park_wavefunctions(wavefunctions, "stream")
-                eigenvalues, steps, unsettled = stream_diagonalize(
-                    calculation, hamiltonians, nbnd, wavefunctions, thresholds)
+                berry = calculation.berry_field
+                if berry is not None and berry.active:
+                    # ``c_bands_efield`` on the store: the whole operator is built
+                    # on the host before each walk, from the states the walk is
+                    # about to overwrite, and each chunk is handed its rows.
+                    steps = 0
+                    for _cycle in range(berry.nberrycyc):
+                        terms = tuple(berry.host_term(wavefunctions, spin)
+                                      for spin in range(len(hamiltonians)))
+                        eigenvalues, cycle_steps, unsettled = stream_diagonalize(
+                            calculation, hamiltonians, nbnd, wavefunctions, thresholds,
+                            per_chunk=lambda spin, h, rows: eqx.tree_at(
+                                lambda h: h.berry, h, berry.chunk_term(terms[spin], rows),
+                                is_leaf=lambda x: x is None))
+                        steps = steps + cycle_steps
+                else:
+                    eigenvalues, steps, unsettled = stream_diagonalize(
+                        calculation, hamiltonians, nbnd, wavefunctions, thresholds)
                 if pooled:
                     # The occupations read every k-point (a Fermi level, the
                     # tetrahedra), so every pool evaluates them on the whole
@@ -8501,11 +8517,13 @@ def run_scf(
                 wavefunctions = fetch_wavefunctions(wavefunctions)
                 steps = 0.0
                 for _cycle in range(calculation.berry_field.nberrycyc):
-                    term = calculation.berry_field.term(wavefunctions)
+                    # One operator per channel, each from its own states
+                    # (``h_epsi_her_set``'s ``is`` at ``nspin = 2``).
                     fielded = tuple(
-                        eqx.tree_at(lambda h: h.berry, h, term,
+                        eqx.tree_at(lambda h: h.berry, h,
+                                    calculation.berry_field.term(wavefunctions, spin),
                                     is_leaf=lambda x: x is None)
-                        for h in hamiltonians)
+                        for spin, h in enumerate(hamiltonians))
                     eigenvalues, wavefunctions, cycle_steps, unsettled = (
                         calculation.diagonalize(fielded, nbnd, wavefunctions,
                                                 thresholds, return_steps=True))
