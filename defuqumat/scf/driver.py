@@ -5374,8 +5374,13 @@ class Calculation:
         while the charge channel takes the scalar rule above. Rotating the
         magnetization as three scalars was measured at 66 per cent on the
         field-direction version of this method (``PLAN.md`` P81), which is why
-        the double rotation is not optional. Checked as a wedge against the
-        whole zone on the helix ``h4-cycloid-90`` (``notes/incompat/I79.md``).
+        the double rotation is not optional. Summed over the displaced atom it
+        equals :meth:`symmetrize_directional` to 7.1e-15 on the helix
+        ``h4-cycloid-90``, and that method's axial rule is checked against the
+        whole zone on the same helix; it is a projector, and its walked form
+        equals the batched one (``tests/unit/test_magnetic_displacement_symmetry.py``).
+        The wedge of a whole dynamical matrix against the whole zone is not yet
+        measured (``notes/incompat/I79.md``).
 
         Args:
             fields: ``(nat, 3, nspin_mag, n1, n2, n3)`` real, on the dense grid.

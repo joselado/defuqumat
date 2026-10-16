@@ -301,9 +301,12 @@ def test_the_walked_route_refuses_a_spinor_even_past_the_spinor_guard(
 #: it in the transverse block), **1.9e-6** on the antiferromagnetic chain (0.038).
 #: Not round-off: on the collinear ground state written as a spinor the two are
 #: still 2.3e-6 and 1.4e-6 apart, against 2.7e-10 for a nonmagnetic spinor, and
-#: the reason is unlocated (``notes/incompat/I79.md``). The bounds hold that
-#: residue and catch what a dropped spin block or a factor of two would do.
-MAGNETIC_IDENTITY = {"o2": 3e-5, "hafm": 1e-5}
+#: the reason is unlocated (``notes/incompat/I79.md``). Each is one sample, it
+#: sits in the transverse and acoustic blocks, which move with the loop's stop
+#: (``OPEN.md`` Part XXVII), and the spinor loop stops at ``tr2 / npol`` over
+#: four channels, so the bounds are 12x and 11x over it; a dropped spin block or
+#: a factor of two is of the order of 1e-2 and is still caught.
+MAGNETIC_IDENTITY = {"o2": 1e-4, "hafm": 2e-5}
 
 
 @pytest.mark.slow
@@ -367,3 +370,25 @@ def test_an_antiferromagnetic_spinor_metal_gives_the_lsda_force_constants(
     difference = float(np.abs(spinor.matrix - lsda.matrix).max())
     print(f"\nAFM chain spinor against LSDA: {difference:.3e}")
     assert difference < MAGNETIC_IDENTITY["hafm"]
+
+
+@pytest.mark.slow
+def test_the_textured_wedge_is_the_whole_zone(spinor_guard_bypassed):
+    """The helix on its 4-operation wedge against the whole zone, the whole matrix.
+
+    The end-to-end check of the axial displacement average, on a texture where
+    the transverse magnetization is not zero and the axial rule is therefore
+    not the scalar one. **Not measured yet**: queued on D22 on 2026-10-16
+    (``/l/ladovj1/review/incompat/I79/helix.log``, which also runs the scalar
+    rule and no symmetrisation), its ``nosym`` leg alone ran past 35 minutes on
+    one core. The bound is the relative one the field-direction version of
+    this average reached against the whole zone (2.6e-5 axial, 9.0e-4 with no
+    average, 0.665 with three scalars, ``test_spinor_response.py``), times four.
+    """
+    _, _, free = _magnetic("h4-cycloid-90-nosym", None)
+    calculation, _, wedge = _magnetic("h4-cycloid-90", None)
+    assert calculation.use_symmetry and calculation.nspin_mag == 4
+    scale = float(np.abs(free.matrix).max())
+    relative = float(np.abs(wedge.matrix - free.matrix).max()) / scale
+    print(f"\nhelix wedge against the whole zone: {relative:.3e} of {scale:.4e}")
+    assert relative < 1e-4

@@ -130,3 +130,54 @@ def test_summed_over_atoms_it_is_the_field_direction_average():
     difference = float(jnp.abs(jnp.sum(by_atom, axis=0) - direction).max())
     print(f"\natom sum against the direction average: {difference:.3e} on {scale:.3e}")
     assert difference < 1e-12 * max(scale, 1.0)
+
+
+def test_the_becsum_displacement_average_rotates_the_magnetization():
+    """``BecsumSymmetry.apply_atom_displacement`` at ``nspin_mag = 4``.
+
+    The ultrasoft triplet O2 as a spinor along ``z`` with its eight magnetic
+    operations; no SCF. A random displacement-labelled ``becsum`` is averaged
+    twice (a projector) and against the old rule that left the four spin
+    components as spectators, which differs on ``m_x`` and ``m_y``. Reachable in
+    a calculation only past the phonon refusal of a magnetized spinor.
+    """
+    from defuqumat.scf import Calculation
+    from defuqumat.system.symmetry import atom_mapping, cartesian_rotations
+
+    parsed = read_pw_input(CASES / "o2-fixed-lsda.in")
+    namelist = parsed.namelists["system"]
+    namelist.pop("nspin")
+    namelist.pop("tot_magnetization")
+    namelist["noncolin"] = True
+    namelist["nbnd"] = 16
+    system = build_system(parsed)
+    pseudos = tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+    )
+    calculation = Calculation(system, pseudos)
+    assert calculation.nspin_mag == 4 and calculation.is_ultrasoft
+    symmetry = calculation._becsum_symmetry
+    assert symmetry is not None and symmetry.rotations is not None
+    nat = system.structure.nat
+    rng = np.random.default_rng(4)
+    sample = calculation.becsum(
+        jnp.zeros((1, 1, 16, 2 * calculation.projectors.vkb.shape[-2]),
+                  dtype=calculation.projectors.vkb.dtype),
+        jnp.zeros((1, 1, 16)), symmetrize=False)
+    shape = sample[0].shape  # (nspin_mag, nat_t, nh, nh)
+    assert shape[0] == 4
+    values = rng.normal(size=(nat, 3) + shape)
+    values = jnp.asarray(values + np.swapaxes(values, -1, -2))
+    rotations = cartesian_rotations(system.cell, calculation.symmetries)
+    mapping = atom_mapping(system.cell, system.structure, calculation.symmetries)
+    once = symmetry.apply_atom_displacement((values,), rotations, mapping)[0]
+    twice = symmetry.apply_atom_displacement((once,), rotations, mapping)[0]
+    assert float(jnp.abs(twice - once).max()) < 1e-12 * float(jnp.abs(once).max())
+    signed, symmetry.rotations = symmetry.rotations, None
+    try:
+        spectator = symmetry.apply_atom_displacement((values,), rotations,
+                                                     mapping)[0]
+    finally:
+        symmetry.rotations = signed
+    np.testing.assert_allclose(once[:, :, 0], spectator[:, :, 0], atol=1e-12)
+    assert float(jnp.abs(once[:, :, 1:3] - spectator[:, :, 1:3]).max()) > 1e-2
