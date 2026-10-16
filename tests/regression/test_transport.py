@@ -647,6 +647,7 @@ def test_a_symmetry_reduced_k_set_is_completed_over_its_image_geometries():
                                    kpoints=wedge_k, **options)
     right = np.asarray(whole.values)
     error = np.max(np.abs(np.asarray(wedge.values) - right)) / np.max(np.abs(right))
+    print(f"wedge against whole grid: {error:.3e} of the peak {np.max(np.abs(right)):.6e}")
     assert error < WEDGE_TRANSPORT_BOUND
     with pytest.raises(NotImplementedError, match="spin-selective lead"):
         run_vertical_transport(calculator.system, calculator.pseudos, scf,
