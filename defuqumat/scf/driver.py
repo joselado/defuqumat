@@ -7030,9 +7030,10 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
     # ``flat_curvature`` off), so each turn commutes with it and its wedge stays
     # complete; measured on cobalt 45 degrees off ``c``, 8 points against
     # ``nosym``'s 18, 1.8e-13 Ry. It is refused because it holds the moments in
-    # its fixed subspace (``m_y = 0`` on that start) exactly, where ``nosym`` and
-    # the turning group hold them there only up to round-off, so a start on a
-    # symmetric saddle stays on it; whether to accept that for the smaller
+    # its fixed subspace (``m_y = 0`` on that start) exactly, 6e-20 at the end,
+    # where ``nosym`` and the turning group only drift from it as far as the
+    # stepper's noise and stopping threshold let them (6.6e-8 and -4.9e-6 mu_B
+    # there), so a start on a symmetric saddle stays on it; whether to accept that for the smaller
     # k-set is the user's open choice (``notes/incompat/I78.md``).
     system = calculation.system
     if not system.nosym and not getattr(system, "turning_moments", False):
