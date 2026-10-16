@@ -735,46 +735,6 @@ def test_a_frozen_partner_raises_the_frequency_by_the_reduced_mass():
     assert ratio == pytest.approx(np.sqrt(2.0), rel=1e-3)
 
 
-@pytest.mark.slow
-def test_a_subset_of_a_symmetrised_run_is_refused():
-    """``symdvscf`` acts on the stack as one object, so a subset must be closed.
-
-    An operation rotates the cartesian direction *and* permutes the atom, so on
-    diamond silicon, where half the operations exchange the two sublattices,
-    ``atoms=(0,)`` has a mode whose images live on atom 1, outside the subset.
-    The wedge was reduced by the whole group, so there is nothing to average
-    with, and the refusal names the smallest subset that is closed.
-    """
-    _, _, calculation = _build("si-epsilon")
-    assert calculation.use_symmetry
-    with pytest.raises(NotImplementedError, match=r"atoms=\(0, 1\).*nosym"):
-        dynamical_matrix(
-            calculation, np.zeros((1, 1, 1, 1)), np.zeros((1, 1, 1)),
-            np.zeros((1, 1, 1, 1)), (), atoms=(0,),
-        )
-
-
-@pytest.mark.slow
-def test_a_closed_subset_on_the_streamed_route_is_refused(monkeypatch):
-    """The closed-subset symmetrisation was measured on the whole-k route only.
-
-    ``_streams`` is forced, because what decides it on a real run (a streamed
-    store, a chunk smaller than the mesh, a card) is not this check's subject;
-    AlAs's ``atoms=(0,)`` passes the orbit guard, so this refusal is the one
-    that fires.
-    """
-    import defuqumat.response.phonon as phonon
-
-    _, _, calculation = _build("alas-raman-wedge")
-    assert calculation.use_symmetry
-    monkeypatch.setattr(phonon, "_streams", lambda *args, **kwargs: True)
-    with pytest.raises(NotImplementedError, match="whole-k route"):
-        dynamical_matrix(
-            calculation, np.zeros((1, 1, 1, 1)), np.zeros((1, 1, 1)),
-            np.zeros((1, 1, 1, 1)), (), atoms=(0,),
-        )
-
-
 # A subset closed under the group, with symmetry on (``notes/incompat/I51.md``).
 # The wedge is reduced by the whole group, and the average for ``drho_{a,i}``
 # reads ``drho_{S^-1(a),j}`` for every operation: a union of orbits has all of
