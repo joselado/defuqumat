@@ -1287,10 +1287,10 @@ def run_ultracell(
                 f"is the supercell under that field and not the supercell under "
                 f"the same scheme, whose field moves until the modulated cell "
                 f"is on target (the modulation moved the moment of the measured "
-                f"hydrogen cell by 18 per cent). Only a fixed applied field "
-                f"(B_field, a LOCAL_MAGNETIC_FIELDS card) is measured: 1.2e-4 "
-                f"in the moment against a supercell under the same field at "
-                f"nbnd = 24"
+                f"hydrogen cell by 18 per cent). A fixed applied field "
+                f"(B_field, a LOCAL_MAGNETIC_FIELDS card) is carried; B_field "
+                f"is measured, 1.2e-4 in the moment against a supercell under "
+                f"the same field at nbnd = 24"
             )
         if float(getattr(reference_field, "reducebf", 1.0)) != 1.0:
             raise NotImplementedError(
