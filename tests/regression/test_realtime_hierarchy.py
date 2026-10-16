@@ -215,7 +215,10 @@ def test_the_self_consistent_first_order_on_two_grids_is_the_dense_one(pseudo_di
     goes through the dense one for the kernel; ``dense_first_order`` builds the
     density in the dense box by Miller index and reads ``v(G - G')`` off the
     dense transform, so the two share the kernel and nothing of the
-    interpolation. Measured in ``notes/incompat/I55.md``.
+    interpolation. Measured (D22, one sample): **1.9e-11 to 5.1e-11** with the
+    Hartree kernel and 9.5e-12 to 2.5e-11 with ``'hxc'``, in 9 to 12 outer
+    products, where the update moves the current by 2.1 to 11.5 and 0.08 to
+    2.1 per cent; the frozen current 2.6e-13 to 9.2e-13.
     """
     calculation, v_scf, _, basis, energies = _dense_cell(pseudo_dir, "alas-shg", 4.0, 12,
                                                          ecutrho=32.0)
@@ -249,7 +252,8 @@ def test_the_hartree_first_order_on_two_grids_is_the_one_grid_one(pseudo_dir):
     spheres are checked to hold the same Miller indices in the same order
     before the states are shared. The exchange-correlation kernel has no such
     identity: ``f_xc drho`` is a pointwise product and is formed on a finer
-    grid in the two-grid run. Measured in ``notes/incompat/I55.md``.
+    grid in the two-grid run, and the two differ there by 2.0e-6 to 1.5e-5.
+    Measured (D22, one sample): **1.8e-14 to 3.5e-14**.
     """
     from defuqumat.basis.interpolate import to_smooth
 
