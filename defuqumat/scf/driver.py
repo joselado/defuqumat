@@ -4450,12 +4450,13 @@ class Calculation:
                 f"{np.shape(kcart)[0]} rows for nk = {self.system.kpoints.nk}"
             )
         if self.gamma_only:
-            # **The velocity operator never reaches this any more**:
-            # :class:`~defuqumat.response.velocity.VelocityOperator` unfolds a
-            # gamma-storage calculation onto the whole sphere at ``k = 0``
-            # (:func:`~defuqumat.response.velocity.whole_sphere`) before it
-            # differentiates, so this refuses only a direct call, for the
-            # reason below.
+            # **This is the one chokepoint for the velocity operator**, which
+            # is what makes a refusal here worth more than five: every
+            # consumer of ``dH/dk`` -- the optical conductivity, the Kerr
+            # angle, second-harmonic generation, the shift current, the
+            # nesting function and ``band_velocities`` itself -- reaches it
+            # through :class:`~defuqumat.response.velocity.VelocityOperator`,
+            # and that is the only caller of this method.
             #
             # **The usual half-sphere rule is not the fix here**, which is why
             # this does not go through
@@ -4481,9 +4482,7 @@ class Calculation:
                 "velocity at Gamma is exactly zero by time reversal and the "
                 "half-sum returns an O(1) number instead (0.863 Ry bohr "
                 "against 1.8e-15 on two-atom silicon). Unlike a density, this "
-                "is not recoverable by 2 Re(sum) minus the G = 0 term. "
-                "VelocityOperator unfolds the states onto the whole sphere and "
-                "is the route to dH/dk; otherwise run the "
+                "is not recoverable by 2 Re(sum) minus the G = 0 term. Run the "
                 "same cell with an explicit k = 0 (K_POINTS automatic, "
                 "1 1 1 0 0 0), which is the same physics on the whole sphere"
             )
