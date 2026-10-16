@@ -63,6 +63,7 @@ __all__ = [
     "ATOM_RESOLVED",
     "FEEDBACK",
     "FEEDBACK_ATOMIC",
+    "DRIVEN_LEAVES",
     "DIRECTION_ONLY",
     "FSM_UPDATES",
     "DEFAULT_FSM_UPDATE",
@@ -108,6 +109,15 @@ FEEDBACK = frozenset({"fsm", "atomic fsm", "atomic fsm direction"})
 #: The feedback schemes that drive one field **per atom** (Elk's ``fsmtype``
 #: 2 and -2) rather than one over the cell (``fsmtype = 1``).
 FEEDBACK_ATOMIC = frozenset({"atomic fsm", "atomic fsm direction"})
+
+#: The leaves of a :class:`MagneticField` that a feedback controller changes
+#: between iterations; everything else on it is the input's. One list for every
+#: place that has to carry the controller's state: the k-point pools broadcast
+#: these from rank 0 after each step, and a checkpoint writes them, since a
+#: resume rebuilds the rest of the field from the input file and cannot rebuild
+#: these.
+DRIVEN_LEAVES = ("uniform", "atomic", "previous_uniform", "previous_moment",
+                 "previous_atomic", "previous_site_moments")
 
 #: The schemes -- of either kind -- that fix a **direction** and leave the
 #: length of the moment free. For a penalty that means a ``1/|m|`` in the

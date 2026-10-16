@@ -166,7 +166,7 @@ from defuqumat.scf.occupations import (
 )
 from defuqumat.scf.sawtooth import build_sawtooth, sawtooth_potential
 from defuqumat.scf.berryfield import BerryFieldSetup, require_a_berry_field_regime
-from defuqumat.scf.fields import (ATOM_RESOLVED, FADED_FIELD, FEEDBACK,
+from defuqumat.scf.fields import (ATOM_RESOLVED, DRIVEN_LEAVES, FADED_FIELD, FEEDBACK,
                                 FEEDBACK_ATOMIC, FSM_ANGLE_TOLERANCE,
                                 FSM_TOLERANCE, VANISHING_MOMENT, MagneticField,
                                 constraint_targets)
@@ -6765,9 +6765,9 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
         save_state(state, directory / SCF_CHECKPOINT)
         save_mixer(mixer, directory / SCF_MIXER)
     except NotImplementedError as refused:
-        # ``reducebf`` and the fixed-spin-moment feedback change the field
-        # between iterations, and ``save_state`` refuses to write a state whose
-        # field is not the input's rather than write a lossy one. Say it once
+        # ``save_state`` refuses a state it cannot write whole rather than
+        # write a lossy one (``checkpoint._refusal``; a fixed-spin-moment
+        # run's driven field was refused here until I65 wrote it). Say it once
         # and stop trying, instead of once per cadence for the rest of the run.
         if verbose:
             print(f"  checkpointing is off for this run: {refused}")
@@ -7229,9 +7229,63 @@ def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools)
 
 
 #: The leaves of a :class:`~defuqumat.scf.fields.MagneticField` its controller
-#: changes between iterations; everything else on it is the input's.
-_DRIVEN_FIELD_LEAVES = ("uniform", "atomic", "previous_uniform", "previous_moment",
-                        "previous_atomic", "previous_site_moments")
+#: changes between iterations; everything else on it is the input's. The same
+#: list the checkpoint writes (:data:`~defuqumat.scf.fields.DRIVEN_LEAVES`).
+_DRIVEN_FIELD_LEAVES = DRIVEN_LEAVES
+
+
+def _carried_driven_field(field, seed_field, magnetization, resumed):
+    """The field a run started from another state's continues with, and why not.
+
+    Returns ``(field, None)`` with the seed's driven leaves poured onto this
+    run's ``field``, or ``(field, reason)`` with this run's own field untouched
+    and the reason the seed's could not be taken (``None`` reason and the input
+    field where there is nothing to carry). Under a fixed-spin-moment scheme the
+    field is the controller's state, replaced after every iteration, so a run
+    that took the seed's density and not its field restarted the controller from
+    the input's field beside a density converged under another, and said nothing
+    (I65). Both routes reach this: the ``checkpoint_dir`` resume, whose
+    ``load_state`` poured the leaves onto this calculation's field already, and
+    an explicit ``starting_from`` -- ``load_state(..., calculation=c)`` or
+    another run's result in memory, which no loader has checked.
+
+    Only the leaves cross (:data:`~defuqumat.scf.fields.DRIVEN_LEAVES`); the
+    spheres, the targets and the gain are this run's. Not carried, with a
+    reason: another scheme or update rule, a leaf of another shape (a spin
+    promotion reshapes the density and not the field). Not carried and not
+    worth a reason: a continuation that reseeds or zeroes the magnetization
+    (``magnetization = 'seed'`` or ``'none'``), which asked for the moment to
+    start again, except on a resume, where the argument is refused anyway.
+    """
+    import equinox as eqx
+
+    if (field is None or field.constraint not in FEEDBACK
+            or not isinstance(seed_field, MagneticField)
+            or seed_field.constraint not in FEEDBACK):
+        return field, None
+    if not resumed and magnetization in ("seed", "none"):
+        return field, None
+    if (seed_field.constraint != field.constraint
+            or seed_field.fsm_update != field.fsm_update):
+        return field, (
+            f"the starting state's field is driven by {seed_field.constraint!r} "
+            f"with the {seed_field.fsm_update!r} update and this run's by "
+            f"{field.constraint!r} with {field.fsm_update!r}")
+    carried = field
+    for leaf in DRIVEN_LEAVES:
+        value = getattr(seed_field, leaf)
+        if value is None:
+            continue
+        current = getattr(field, leaf)
+        if current is not None and np.shape(current) != np.shape(value):
+            return field, (
+                f"the starting state's driven {leaf} has shape "
+                f"{np.shape(value)} and this run's {np.shape(current)}")
+        dtype = jnp.asarray(field.uniform).dtype
+        carried = eqx.tree_at(lambda f, leaf=leaf: getattr(f, leaf), carried,
+                              jnp.asarray(value, dtype=dtype),
+                              is_leaf=lambda x: x is None)
+    return carried, None
 
 
 def _broadcast_field(field, pools):
@@ -7587,16 +7641,29 @@ def run_scf(
 
     ``checkpoint_dir`` writes the run's state and its **mixer history** every
     ``checkpoint_every`` iterations, so a job killed at its wall clock loses at
-    most that many rather than all of them. Resume with
+    most that many rather than all of them. Pass the same ``checkpoint_dir``
+    again to resume (below); by hand, the state is
     ``starting_from=load_state(dir / "scf-state.npz", system=..., calculation=...)``
-    and ``mixing_from=dir``, which is what carries the history: a resume that
+    and the history ``mixing_from=dir``, which is what carries it: a resume that
     restores only the density restarts Anderson empty and pays back the
     iterations it saved. **The write is the wavefunctions**, tens of gigabytes
     on a large cell, so the interval is a knob and not every iteration -- and it
-    is a scratch-directory operation. Refused, once and by name, for a run whose
-    field changes between iterations (``reducebf``, a fixed spin moment): the
-    state's field is then not the input's and ``save_state`` will not write a
-    lossy one.
+    is a scratch-directory operation. A run whose field changes between
+    iterations checkpoints too: ``reducebf``'s scale and a fixed-spin-moment
+    controller's field (the field and the secant's previous pair) are in the
+    file, and the field comes back only with ``calculation=``, since its
+    spheres, targets and gain are the input's.
+
+    **The two resume routes do not restore the same things.** Passing the same
+    ``checkpoint_dir`` again (below) is the resume: it also restores the loop's
+    iteration count, ``ethr``, ``accuracy``, the occupations and
+    ``reducebf``'s scale, so the resumed run is the uninterrupted one. The
+    explicit ``starting_from`` route carries the density, ``becsum``, ``ns``,
+    the wavefunctions and a fixed-spin-moment field, and starts the loop's
+    schedule afresh, so it converges to the same state on a different
+    schedule, and it does not carry ``reducebf``'s scale. A starting state whose
+    driven field belongs to another scheme or update rule is warned about and
+    the run keeps the input's field.
 
     **Two things about a resume that the argument names do not say.** Passing
     ``checkpoint_dir`` at a directory that already holds a state *resumes from
@@ -7728,6 +7795,7 @@ def run_scf(
     # run's* converged state, whose iteration count and threshold say nothing
     # about this one's schedule.
     resumed_state = None
+    seed_field = seed_magnetization = None
     # ``run_relax(checkpoint_dir=...)`` resumes from its own directory rather
     # than making the caller wire the state back by hand, and an sbatch that is
     # resubmitted after a wall-clock kill wants exactly that: the same command,
@@ -7877,6 +7945,11 @@ def run_scf(
                 starting_tau = depolarize_tau(jnp.asarray(starting_tau))
         if verbose:
             print(f"  continuing a previous run: {state.description}")
+        # The driven field goes with the density (I65), applied below where the
+        # run's ``field`` is set; ``_carried_driven_field`` says when it cannot.
+        # A ``ContinuedState`` carries no field, so ``None`` there.
+        seed_field = getattr(starting_from, "magnetic_field", None)
+        seed_magnetization = state.magnetization
         # **Released here because a *parameter* is a reference too, and it is
         # the one that does not look like an allocation anybody owns.** On a
         # resume ``starting_from`` is rebound above to the whole ``SCFResult``
@@ -8343,6 +8416,23 @@ def run_scf(
     # *calculation* untouched, so the same object can be reused afterwards.
     field = calculation.magnetic_field
     field_scale = 1.0
+    # **A fixed-spin-moment field continues from the state the run starts
+    # from**, on the checkpoint resume and on an explicit ``starting_from``
+    # alike (I65): under a feedback scheme ``calculation.magnetic_field`` is the
+    # *input's* field, not the one the starting density was mixed beside, and
+    # taking it restarted the controller from there -- the same target by a
+    # different route, more iterations, 2.2e-6 Ry off at ``conv_thr = 1e-8`` on
+    # ``fe-fsm.in``, and no word said. Where the seed's field cannot be taken
+    # the run says so and keeps its own.
+    field, not_carried = _carried_driven_field(
+        field, seed_field, seed_magnetization, resumed_state is not None)
+    if not_carried is not None:
+        warnings.warn(
+            f"{not_carried}, so the driven field is not carried over: the "
+            "fixed-spin-moment controller restarts from the input's field "
+            f"({field.constraint!r}) beside a density converged under another",
+            stacklevel=2)
+    seed_field = None
     # **Where the store lives between the points that read it** (QE's
     # ``io_level``). ``device`` is this package's own history and is what a CPU
     # wants, since there the host *is* the device and parking is a memcpy of the
@@ -8485,6 +8575,9 @@ def run_scf(
         resumed_scale = getattr(resumed_state, "field_scale", None)
         if resumed_scale is not None:
             field_scale = float(resumed_scale)
+        # The fixed-spin-moment controller's field is loop state too, and is
+        # taken where ``field`` is set, above, for this route and for an
+        # explicit ``starting_from`` alike (``_carried_driven_field``).
         # **The occupations are loop state as well, and leaving them out cost a
         # whole Davidson budget.** ``band_thresholds`` reads ``wg = None`` as
         # "the first iteration of a fresh run, which has no occupations yet"
