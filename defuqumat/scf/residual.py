@@ -70,9 +70,20 @@ projectors ``wfcU`` are fixed while the atoms are.
 
 **Refused rather than approximated:** external and constrained magnetic fields
 (the field is driven by a secant *outside* the density, so ``F`` would not be a
-function of ``x`` alone), tetrahedron and ``from_input`` occupations (built on
-the host, and the second is not a function of the eigenvalues at all), and spin
-spirals. Each raises by name.
+function of ``x`` alone) and spin spirals. Each raises by name.
+
+**Tetrahedron and ``from_input`` occupations are in** (I71). Both were refused
+on the grounds that the first is "built on the host" and the second "is not a
+function of the eigenvalues at all"; neither stops ``F`` being a function of
+``x``. The tetrahedra are a table of the k-grid and the group, built once like
+``wk`` (``Calculation.tetrahedron_table``), and the weights on them were
+already JAX; ``from_input`` is a constant, whose zero tangent is the right one.
+What was missing for the autodiff Jacobian was the Fermi level's tangent: the
+tetrahedron bisection now carries the implicit derivative of
+``N(E_F) = nelec``, as ``bisect_fermi`` does for a smearing. The Sternheimer
+Jacobian still refuses both (``require_a_sternheimer_regime``): it needs the
+tetrahedron response weight ``dfpt_tetra_beta``, and for ``from_input`` a
+projector for a filling that is not a function of the levels.
 
 Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum`` and
 ``ns``, and a Krylov subspace holds a few tens of those -- tens of MB,
@@ -91,7 +102,10 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.eager import compiled
-from defuqumat.scf.occupations import fixed_occupations, smeared_occupations
+from defuqumat.scf.occupations import (
+    fixed_occupations, input_occupations, smeared_occupations,
+)
+from defuqumat.scf.tetrahedra import tetrahedron_occupations_spin
 
 __all__ = ["ScfResidual", "SternheimerJacobian", "make_residual"]
 
@@ -507,15 +521,32 @@ def _weights(calculation, eigenvalues):
     """
     system = calculation.system
     scheme = system.occupations
-    if scheme.startswith("tetrahedra") or scheme == "from_input":
-        raise NotImplementedError(
-            f"occupations={scheme!r} has no differentiable form here: the "
-            "tetrahedron weights are built on the host from the k-grid and the "
-            "symmetry, and 'from_input' is not a function of the eigenvalues at "
-            "all. Use occupations='smearing' or 'fixed' with a residual solver"
-        )
     degeneracy = 1 if calculation.noncolin else 2
     weights = system.kpoints.weights
+
+    if scheme == "from_input":
+        # The card's numbers times ``wk``: a constant of the eigenvalues, so its
+        # tangent is zero, which is the right derivative of a filling fixed by
+        # hand. ``F`` is still a function of ``x`` alone.
+        if system.input_occupations is None:
+            raise ValueError("occupations='from_input' needs an OCCUPATIONS card")
+        return input_occupations(
+            system.input_occupations, eigenvalues, weights, degeneracy
+        )
+    if scheme.startswith("tetrahedra"):
+        # The tetrahedra are host-built from the k-grid and the group, not from
+        # the density, so they are a constant here like ``wk``; the weights
+        # themselves are JAX on the eigenvalues, and the Fermi level carries the
+        # implicit tangent of ``N(E_F) = nelec`` (``scf/tetrahedra.py``,
+        # ``_fermi_level``), which is what ``jvp = 'autodiff'`` reads.
+        counts = (
+            (calculation.nelup, calculation.neldw)
+            if calculation.two_fermi_energies else None
+        )
+        return tetrahedron_occupations_spin(
+            calculation.tetrahedron_table(), eigenvalues, weights,
+            calculation.nelec, counts=counts,
+        )[0]
 
     if scheme == "fixed":
         # The same ``counts`` the smeared branch below takes, for the same
