@@ -221,27 +221,28 @@ def test_a_penalty_converged_reference_is_still_refused(tmp_path, pseudo_dir):
                           (2, 1, 1), (1, 1, 1), nbnd=8)
 
 
-def test_a_feedback_or_fading_field_reference_is_refused(tmp_path, pseudo_dir):
-    """Only a fixed applied field is carried: a feedback scheme and ``reducebf`` refuse.
+def test_a_per_atom_or_secant_feedback_reference_is_refused(tmp_path, pseudo_dir):
+    """The box runs the cell-wide ``'fsm'`` under Elk's rule; the rest refuse.
 
-    The ultracell holds the unit cell's converged field fixed on every copy,
-    which is the supercell under that field (measured) and not the supercell
-    under a scheme that moves its field until the modulated cell is on target,
-    or one whose field fades along its own iterations.
+    A per-atom scheme would need one field per atom copy, and the box carries
+    the unit cell's spheres; the secant rule steps on a converged inner loop
+    and is not measured on the box. ``'fsm'`` and ``reducebf`` are measured
+    (``test_a_feedback_reference_converges_to_the_supercell_under_the_same_scheme``).
     """
     calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))
-    for constraint in ("fsm", "atomic fsm", "atomic fsm direction"):
+    for constraint in ("atomic fsm", "atomic fsm direction"):
         stand_in = types.SimpleNamespace(
             converged=True, field_scale=1.0,
             magnetic_field=types.SimpleNamespace(constraint=constraint,
-                                                 reducebf=1.0))
-        with pytest.raises(NotImplementedError, match="feedback scheme"):
+                                                 reducebf=1.0, fsm_update="elk"))
+        with pytest.raises(NotImplementedError, match="per-atom feedback"):
             run_ultracell(calculator.system, calculator.pseudos, stand_in,
                           (2, 1, 1), (1, 1, 1), nbnd=8)
     stand_in = types.SimpleNamespace(
-        converged=True, field_scale=0.25,
-        magnetic_field=types.SimpleNamespace(constraint="none", reducebf=0.9))
-    with pytest.raises(NotImplementedError, match="reducebf = 0.9"):
+        converged=True, field_scale=1.0,
+        magnetic_field=types.SimpleNamespace(constraint="fsm", reducebf=1.0,
+                                             fsm_update="secant"))
+    with pytest.raises(NotImplementedError, match="fsm_update = 'secant'"):
         run_ultracell(calculator.system, calculator.pseudos, stand_in,
                       (2, 1, 1), (1, 1, 1), nbnd=8)
 
@@ -801,3 +802,193 @@ def test_a_field_converged_reference_converges_to_the_supercell_under_it(
     assert charges == sorted(charges, reverse=True), charges
     assert moments == sorted(moments, reverse=True), moments
     assert charges[-1] < 5e-4 and moments[-1] < 5e-4, rows
+
+
+# -- I36-feedback: the feedback field and reducebf on the box -------------------
+
+
+FSM = (",\n constrained_magnetization='fsm', lambda=0.02,"
+       " fixed_magnetization(3)={target}")
+FADING = ",\n B_field(3)=0.02, reducebf={reducebf}"
+
+
+def _field_of(result):
+    """The field a converged run ended with, ``B z`` in Ry (scale included)."""
+    field = result.magnetic_field
+    return float(np.asarray(field.uniform).ravel()[0]) * float(result.field_scale)
+
+
+def _moment_per_cell(density, cell_volume):
+    """``int (rho_up - rho_down)`` over one cell; both densities are per cell."""
+    rho = np.asarray(density)
+    return float((rho[0] - rho[1]).mean()) * float(cell_volume)
+
+
+def _driven_ladder(calculator, scf, shape, kgrid, reference, grid, ladder,
+                   target, **options):
+    """Densities, field, moment and the matched-moment energy against the supercell.
+
+    ``E - B (M - M_target)`` per cell removes the moment's miss to first order:
+    at matched moment the nested bases bound ``total_energy`` from above, and a
+    miss ``dM`` inside ``FSM_TOLERANCE`` moves it by ``B dM``, which is above
+    the ladder's steps. Without a target (``reducebf``) it is the total.
+    """
+    cells = int(np.prod(shape))
+    miller = np.stack(np.meshgrid(
+        np.arange(-4, 5), np.arange(-2, 3), np.arange(-2, 3), indexing="ij"
+    ), axis=-1).reshape(-1, 3)
+    theirs = np.asarray(reference.density)
+    their_charge = _fourier(theirs.sum(axis=0), grid, miller)
+    their_moment = _fourier(theirs[0] - theirs[1], grid, miller)
+    volume = float(calculator.system.cell.volume)
+    their_field = _field_of(reference)
+    their_m = _moment_per_cell(theirs, volume)
+    their_e = reference.total_energy / cells
+    if target is not None:
+        their_e -= their_field * (their_m - target)
+    rows = []
+    for nbnd in ladder:
+        result = run_ultracell(
+            calculator.system, calculator.pseudos, scf, shape, kgrid, nbnd=nbnd,
+            external=_modulation(shape, 0), states_conv_thr=1e-8, **options,
+        )
+        assert result.converged, (nbnd, result.accuracy)
+        box = result.ultracell.grid
+        ours = np.asarray(result.density)
+        charge = float(np.abs(_fourier(ours.sum(axis=0), box, miller)
+                              - their_charge).max() / np.abs(their_charge).max())
+        moment = float(np.abs(_fourier(ours[0] - ours[1], box, miller)
+                              - their_moment).max() / np.abs(their_moment).max())
+        b = _field_of(result)
+        m = _moment_per_cell(ours, volume)
+        e = result.total_energy
+        if target is not None:
+            e -= b * (m - target)
+        rows.append(dict(nbnd=nbnd, charge=charge, moment=moment, field=b, m=m,
+                         energy=e - their_e, iterations=result.iterations,
+                         scale=float(result.field_scale)))
+        print(f"  nbnd={nbnd}: charge {charge:.3e}  moment {moment:.3e}  "
+              f"B {b:+.6e} (supercell {their_field:+.6e}, diff {b - their_field:+.2e})"
+              f"  M {m:.6f} (supercell {their_m:.6f})  energy - supercell "
+              f"{e - their_e:+.3e} Ry  scale {result.field_scale:.3e}  "
+              f"in {result.iterations} iterations")
+        jax.clear_caches()
+    return rows, their_field, their_m
+
+
+@pytest.mark.slow
+def test_a_feedback_reference_converges_to_the_supercell_under_the_same_scheme(
+        tmp_path, pseudo_dir):
+    """``'fsm'`` on the unit cell, run again on the box: null, then the supercell.
+
+    The supercell under the same scheme targets ``N`` times the unit cell's
+    moment, and the box reads its moment per cell, so the targets match. What
+    discriminates is the field: the supercell's moves away from the unit
+    cell's because the modulation moves the moment, and the box's has to follow
+    it rather than stay at the reference's.
+    """
+    shape, kgrid = (2, 1, 1), (2, 2, 2)
+    cells = int(np.prod(shape))
+    folded = tuple(n * m for n, m in zip(shape, kgrid))
+    target = 0.4
+    calculator = _hydrogen(tmp_path, pseudo_dir, folded,
+                           system=FSM.format(target=target), tag="h-fsm")
+    scf = calculator.get_scf(conv_thr=1e-11, nbnd=8, max_iterations=300,
+                             mixing_mode="adaptive")
+    assert scf.converged and scf.magnetic_field is not None
+    b_ref = _field_of(scf)
+    m_ref = _moment_per_cell(scf.density, calculator.system.cell.volume)
+    print(f"  unit cell: B {b_ref:+.6e} Ry, M {m_ref:.6f} (target {target}) "
+          f"in {scf.iterations} iterations")
+    assert abs(b_ref) > 1e-3, "the unit-cell controller was not exercised"
+
+    null, _ = _tiled_null(calculator, scf, shape, kgrid, nbnd=8)
+    assert _field_of(null) == pytest.approx(b_ref, abs=1e-14)
+
+    supercell = _hydrogen(tmp_path, pseudo_dir, kgrid, shape=shape,
+                          system=FSM.format(target=cells * target),
+                          tag="h-fsm-sup")
+    reference, grid = _supercell_reference(supercell, shape, nbnd=16,
+                                           max_iterations=300,
+                                           mixing_mode="adaptive")
+    rows, b_sup, m_sup = _driven_ladder(
+        calculator, scf, shape, kgrid, reference, grid, (8, 16, 24), target,
+        conv_thr=1e-10, mixing_mode="adaptive", kerker=False,
+        max_iterations=600)
+    print(f"  supercell: B {b_sup:+.6e} Ry, M per cell {m_sup:.6f}; "
+          f"B_sup - B_ref {b_sup - b_ref:+.3e} Ry")
+
+    # The alternative the lift replaces: the reference's field held fixed.
+    import copy
+
+    from defuqumat.scf.fields import MagneticField
+
+    held = copy.copy(scf)
+    field = scf.magnetic_field
+    held.magnetic_field = MagneticField(
+        regions=field.regions, uniform=field.uniform, atomic=field.atomic,
+        targets=None, penalty=0.0)
+    frozen = run_ultracell(
+        calculator.system, calculator.pseudos, held, shape, kgrid, nbnd=24,
+        external=_modulation(shape, 0), states_conv_thr=1e-8, conv_thr=1e-10,
+        mixing_mode="adaptive", kerker=False, max_iterations=600)
+    m_frozen = _moment_per_cell(frozen.density, calculator.system.cell.volume)
+    print(f"  frozen field at nbnd=24: M per cell {m_frozen:.6f} against the "
+          f"target {target}")
+
+    fields = [abs(r["field"] - b_sup) for r in rows]
+    assert fields == sorted(fields, reverse=True), fields
+    assert fields[-1] < 0.1 * abs(b_sup - b_ref), (fields, b_sup, b_ref)
+    for key in ("charge", "moment"):
+        errors = [r[key] for r in rows]
+        assert errors == sorted(errors, reverse=True), (key, errors)
+    energies = [r["energy"] for r in rows]
+    assert energies == sorted(energies, reverse=True), energies
+    assert min(energies) > 0.0, energies
+    assert all(abs(r["m"] - target) < 1e-3 for r in rows), rows
+    assert abs(m_frozen - target) > 10 * max(abs(r["m"] - target) for r in rows)
+
+
+@pytest.mark.slow
+def test_a_fading_field_reference_converges_to_the_supercell_under_it(
+        tmp_path, pseudo_dir):
+    """``reducebf`` on the unit cell, continued on the box: null, then the supercell.
+
+    The box continues the decay from the scale the reference ended at; the
+    supercell runs its own from full strength. Both end with the field faded,
+    and the state they reach is the modulated field-free one, which the
+    ladder compares.
+    """
+    shape, kgrid = (2, 1, 1), (2, 2, 2)
+    folded = tuple(n * m for n, m in zip(shape, kgrid))
+    reducebf = 0.8
+    calculator = _hydrogen(tmp_path, pseudo_dir, folded,
+                           system=FADING.format(reducebf=reducebf), tag="h-fade")
+    scf = calculator.get_scf(conv_thr=1e-11, nbnd=8, max_iterations=300,
+                             mixing_mode="adaptive")
+    assert scf.converged and scf.magnetic_field is not None
+    print(f"  unit cell: field_scale {scf.field_scale:.3e}, residual "
+          f"{scf.magnetic_field.residual(scf.field_scale):.3e} Ry in "
+          f"{scf.iterations} iterations")
+    null, _ = _tiled_null(calculator, scf, shape, kgrid, nbnd=8)
+    assert null.field_scale == scf.field_scale
+
+    supercell = _hydrogen(tmp_path, pseudo_dir, kgrid, shape=shape,
+                          system=FADING.format(reducebf=reducebf),
+                          tag="h-fade-sup")
+    reference, grid = _supercell_reference(supercell, shape, nbnd=16,
+                                           max_iterations=300,
+                                           mixing_mode="adaptive")
+    print(f"  supercell: field_scale {reference.field_scale:.3e} in "
+          f"{reference.iterations} iterations")
+    rows, _, _ = _driven_ladder(
+        calculator, scf, shape, kgrid, reference, grid, (8, 16, 24), None,
+        conv_thr=1e-10, mixing_mode="adaptive", kerker=False,
+        max_iterations=600)
+    energies = [r["energy"] for r in rows]
+    assert energies == sorted(energies, reverse=True), energies
+    assert min(energies) > 0.0, energies
+    for key in ("charge", "moment"):
+        errors = [r[key] for r in rows]
+        assert errors == sorted(errors, reverse=True), (key, errors)
+    assert all(r["scale"] < scf.field_scale for r in rows), rows
