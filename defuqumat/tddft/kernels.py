@@ -71,6 +71,13 @@ __all__ = [
 
 DEFAULT_KERNEL = "bootstrap"
 
+#: Below this absolute magnetization (electrons a cell) an ``nspin = 2``
+#: density counts as unpolarized for the ``alda`` kernel. A run started at zero
+#: moment keeps its two channels equal to round-off, and a polarized one
+#: carries a moment of order one, so the value sits between the two rather
+#: than at either.
+ALDA_UNPOLARIZED_MOMENT = 1.0e-6
+
 _KERNELS: dict = {}
 
 
@@ -208,13 +215,21 @@ def alda_matrix(calculation, density, sphere) -> jnp.ndarray:
 
     density = jnp.asarray(density)
     cell = calculation.system.cell
+    nspin = int(density.shape[0])
+    refuse_a_polarized_alda(density, cell)
 
     def potential(rho):
         return exchange_correlation(rho, cell, calculation.rho_core, functional)[0]
 
     # A pointwise kernel's ``jvp`` along a tangent of ones *is* the kernel:
     # ``dv_xc/drho`` at every grid point, in one pass rather than one per point.
-    _, kernel_r = jax.jvp(potential, (density,), (jnp.ones_like(density),))
+    # At ``nspin = 2`` the channels are ``(up, down)`` and a charge
+    # perturbation of an unpolarized density goes half into each, so the
+    # tangent is ``1/2`` per channel and ``kernel_r[0]`` is
+    # ``(f_upup + f_updn)/2 = dv_up/dn`` at fixed ``m``, the ``nspin = 1``
+    # kernel exactly. A tangent of ones there would double it.
+    tangent = jnp.full_like(density, 1.0 / nspin)
+    _, kernel_r = jax.jvp(potential, (density,), (tangent,))
 
     # **On the dense box, not the smooth one.** The density and the potential
     # live on the dense grid, so that is the box this field is sampled on, while
@@ -234,6 +249,30 @@ def alda_matrix(calculation, density, sphere) -> jnp.ndarray:
 
     coulomb = sphere.sqrt_coulomb
     return matrix / (coulomb[:, None] * coulomb[None, :])
+
+
+def refuse_a_polarized_alda(density, cell) -> None:
+    """Refuse the ``alda`` kernel on an ``nspin = 2`` density that carries a moment.
+
+    Host-side, on the converged density, so that :func:`~defuqumat.workflows.
+    tddft.run_absorption` can ask before it pays for the empty states. The
+    density is ``(up, down)``; the moment is the absolute magnetization
+    ``int |n_up - n_dn|``, as ``pw.x`` prints it.
+    """
+    density = np.asarray(density)
+    if density.shape[0] != 2:
+        return
+    moment = float(np.abs(density[0] - density[1]).mean() * cell.volume)
+    if moment > ALDA_UNPOLARIZED_MOMENT:
+        raise NotImplementedError(
+            f"the 'alda' kernel on a magnetized ground state (absolute "
+            f"magnetization {moment:.3e}) is not implemented: with a "
+            "moment the LSDA kernel is a 2x2 tensor in (n, m) and the "
+            "charge couples to the magnetization through f_nm, so the "
+            "Dyson equation is a 2x2 block one (Elk's tddftsplr.f90). "
+            "chi_0 here is the charge-charge block alone. Use 'rpa', "
+            "'lrc' or 'bootstrap', whose kernels act on the charge only"
+        )
 
 
 # --- bootstrap ---------------------------------------------------------------

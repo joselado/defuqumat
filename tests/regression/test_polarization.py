@@ -233,3 +233,114 @@ def test_an_ultrasoft_crystal_matches_pw_x_with_a_phase_that_is_not_zero():
     assert polarization.ionic_phase == pytest.approx(1.0, abs=1.0e-6)
     assert polarization.total_phase == pytest.approx(0.99030, abs=1.0e-5)
     assert polarization.quantum == pytest.approx(2.0)
+
+
+# --- two spin channels ------------------------------------------------------
+
+def _two_channel(name: str, scf_grid: str, extra: str):
+    """A committed input at ``nspin = 2``, converged; ``extra`` goes into &system."""
+    text = (CASES / name).read_text()
+    if scf_grid:
+        text = re.sub(r"^ *\d+ +\d+ +\d+ +\d+ +\d+ +\d+ *$", f" {scf_grid}",
+                      text, count=1, flags=re.M)
+    text = text.replace("calculation = 'nscf'", "calculation = 'scf'")
+    text = text.replace("    noinv = .true.\n", "    noinv = .true.\n" + extra, 1)
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
+    return system, pseudos, run_scf(system, pseudos, conv_thr=1.0e-12)
+
+
+@pytest.mark.slow
+def test_two_channels_at_zero_moment_reproduce_pw_x_unpolarized_numbers():
+    """``reference.out.alas-berry`` from an ``nspin = 2`` run that converges to ``m = 0``.
+
+    AlAs seeded with a moment on Al and held at ``tot_magnetization = 0``: the
+    two channels are then the same channel, each folds onto ``[-1/2, 1/2)`` on
+    its own, and the sum must be pw.x's unpolarized electronic phase 0.00876
+    and total -0.24124, with each channel's strings half of pw.x's four. The
+    quantum is 1 either way, AlAs having an odd valence.
+
+    This is the check the unpolarized doubling and the two-channel sum agree
+    on; it cannot tell one channel solved twice from two, which is what
+    ``alas-mag-berry.in`` below is for.
+    """
+    system, pseudos, result = _two_channel(
+        "alas-raman.in", "",
+        "    nspin = 2\n    starting_magnetization(1) = 0.5\n"
+        "    tot_magnetization = 0\n",
+    )
+    assert system.nspin == 2
+    polarization = run_polarization(system, pseudos, result.density, gdir=2,
+                                    nppstr=6, transverse=(2, 2),
+                                    conv_thr=1.0e-12)
+    up, down = polarization.strings_by_spin
+    assert np.allclose(up.phases, np.array(QE_STRINGS) / 2, atol=1.0e-5)
+    assert np.allclose(down.phases, up.phases, atol=1.0e-8)
+    assert len(polarization.strings) == 8
+    assert polarization.electronic_phase == pytest.approx(QE_ELECTRONIC, abs=1.0e-5)
+    assert polarization.total_phase == pytest.approx(QE_TOTAL, abs=1.0e-5)
+    assert polarization.quantum == pytest.approx(1.0)
+    # and against this code's own unpolarized run, past pw.x's five decimals
+    plain = alas_polarization()
+    assert polarization.electronic_phase == pytest.approx(
+        plain.electronic_phase, abs=1.0e-8)
+
+
+@pytest.mark.slow
+def test_triplet_o2_matches_pw_x_channel_by_channel():
+    """``reference.out.o2-lsda-berry``: two channels that hold different bands.
+
+    Triplet O2 at ``tot_magnetization = 2`` fills seven bands up and five down,
+    one string of three distinct points along ``b_3``, on the ground state of
+    ``o2-fixed-lsda.in`` (``reference.out.o2-fixed-lsda``). ``pw.x`` prints up
+    0.19500, down 0.42500, electronic 0.62000 (the sum, not folded again),
+    ionic -0.62000 and a total of 0.00000 with ``MOD_TOT: 1``, and
+    ``P = 0.0000164 (e/Omega).bohr``.
+
+    For a centrosymmetric molecule in a box each channel's phase is
+    ``-N_s z_c`` mod 1, with the centre at ``z_c = 0.115``: -7 x 0.115 is
+    0.195 and -5 x 0.115 is 0.425 mod 1, which is what pw.x prints. So this
+    case separates every wrong bookkeeping the ``m = 0`` check cannot: one
+    channel solved twice reads 0.39 or 0.85, one count for both channels
+    reads the same, and a fold of the sum reads -0.38.
+    """
+    system, pseudos, result = _two_channel("o2-fixed-lsda.in", "", "")
+    assert system.nspin == 2
+    polarization = run_polarization(
+        system, pseudos, result.density, gdir=2, nppstr=4, transverse=(1, 1),
+        becsum=result.becsum, conv_thr=1.0e-10,
+    )
+    up, down = polarization.strings_by_spin
+    assert up.total == pytest.approx(0.19500, abs=1.0e-5)
+    assert down.total == pytest.approx(0.42500, abs=1.0e-5)
+    assert np.allclose(polarization.strings.phases, [0.19500, 0.42500],
+                       atol=1.0e-5)
+    assert polarization.electronic_phase == pytest.approx(0.62000, abs=1.0e-5)
+    assert polarization.ionic_phase == pytest.approx(-0.62000, abs=1.0e-6)
+    assert polarization.total_phase == pytest.approx(0.0, abs=1.0e-5)
+    assert polarization.quantum == pytest.approx(1.0)
+    # pw.x's P is its total phase, 0.00000 to five decimals, times |a_3| = 10,
+    # so the five-decimal resolution is 1e-4 here.
+    assert polarization.polarization == pytest.approx(0.0000164, abs=1.0e-4)
+
+    # The phases separate the two counts but not which Hamiltonian each channel
+    # reads: any isolated manifold of this molecule centres at z_c, so the up
+    # Hamiltonian's lowest five bands give 0.425 as well. The eigenvalues do
+    # separate them, the exchange splitting of triplet O2 being of order an eV.
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.scf.occupations import occupied_counts
+    from defuqumat.workflows.topology import _source
+
+    calculation = Calculation(system, pseudos)
+    counts = occupied_counts(calculation)
+    assert counts == (7, 5)
+    reference = np.asarray(result.eigenvalues_by_spin)  # (nspin, nk, nbnd), Ry
+    assert reference.shape[1] == 1          # the ground state is at Gamma alone
+    gamma = 0
+    for spin in (0, 1):
+        source = _source(system, pseudos, result.density, counts[spin], None,
+                         1.0e-10, "default", becsum=result.becsum,
+                         calculation=calculation, spin=spin)
+        energies = np.asarray(source.states([[0.0, 0.0, 0.0]]).energies)[0]
+        assert np.allclose(energies[:7], reference[spin, gamma, :7], atol=1.0e-6)
+    assert abs(reference[0, gamma, 4] - reference[1, gamma, 4]) > 1.0e-2

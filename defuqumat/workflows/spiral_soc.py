@@ -330,6 +330,9 @@ def _refuse(system: System, pseudos) -> None:
         )
     if system.hubbard:
         raise NotImplementedError(
-            "spiral_spin_orbit_energy with a Hubbard U: DFT+U on a spiral is "
-            "refused by the SCF itself"
+            "spiral_spin_orbit_energy with a Hubbard U is not implemented: the "
+            "spiral's SCF carries a U on a norm-conserving dataset, but the "
+            "first-order operator here is dvan_so(1) - dvan_so(0) alone, and "
+            "how a U turned with the spins enters the coupling's first order "
+            "has no check"
         )

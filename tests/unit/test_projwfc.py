@@ -194,17 +194,87 @@ def _stub(nsym: int = 1, use_symmetry: bool = False, **system):
     )
 
 
-def test_a_symmetrised_spinor_projection_is_refused_by_name():
-    """What is refused is ``sym_proj_so``, not the spinor projection itself.
+def test_a_symmetrised_magnetic_spin_orbit_projection_is_refused_by_name():
+    """What is still refused is ``sym_proj_so``'s ``domag`` branch.
 
-    The projector set is implemented (``atomic_wfc_so``); what is missing is the
-    SU(2) representation of each point-group operation that its group average
-    needs, so the refusal names that and offers ``nosym`` as the way out.
+    The nonmagnetic group average is implemented and measured
+    (``tests/regression/test_spinor_projection_symmetry.py``); a magnetic run
+    drops the Kramers average and swaps ``m_j -> -m_j`` under a time-reversed
+    operation, and no wedge of one has been compared with a closed grid, so the
+    refusal names that branch and offers ``nosym`` as the way out.
     """
-    with pytest.raises(NotImplementedError, match="sym_proj_so"):
+    with pytest.raises(NotImplementedError, match="domag"):
         atomic_projections(
-            _stub(noncolin=True, lspinorb=True, nsym=48, use_symmetry=True), None
+            _stub(noncolin=True, lspinorb=True, domag=True, nsym=48,
+                  use_symmetry=True), None
         )
+
+
+def test_a_symmetrised_nonmagnetic_spin_orbit_projection_is_not_refused():
+    """The other half of the same guard: ``domag = False`` gets past it.
+
+    It fails later for want of a real calculation -- an ``AttributeError`` on
+    the stub -- which is what says no refusal stopped it.
+    """
+    with pytest.raises(Exception) as caught:
+        atomic_projections(
+            _stub(noncolin=True, lspinorb=True, domag=False, nsym=48,
+                  use_symmetry=True), None
+        )
+    assert not isinstance(caught.value, NotImplementedError), caught.value
+
+
+def test_the_spin_orbit_rotation_keeps_each_j_shell_to_itself(pseudo_dir):
+    """``d_matrix_so``'s ``D^j`` as ``conj(M_j) (D^l x conj(U)) M_j^T``.
+
+    A rotation commutes with ``J^2``, so between the two ``j = l +- 1/2``
+    shells of one ``l`` the block has to vanish and each shell's own block has
+    to be unitary. Both hold only if the SU(2) convention of
+    ``spin_rotations`` and the complex-harmonic one of ``rot_ylm`` and
+    ``spinor`` agree, which no ground state is needed to test. On fcc platinum's
+    48 operations, ``l = 1, 2, 3``: ``conj(U)`` leaves a cross block of 1.1e-15;
+    ``U``, ``U^T`` and ``U^dagger`` leave 0.99, so the check can tell them
+    apart.
+    """
+    from pathlib import Path
+
+    from defuqumat import Calculator
+    from defuqumat.paw.symmetry import harmonic_rotations
+    from defuqumat.pseudo.atomic import _spin_angle_matrix
+    from defuqumat.system.symmetry import spin_rotations
+
+    case = Path(__file__).resolve().parents[1] / "data" / "qe" / "pt-soc.in"
+    # The system alone: the group is the input's, and building the plane-wave
+    # basis to reach ``Calculation.symmetries`` would be most of the cost.
+    system = Calculator.from_file(case, pseudo_dir=pseudo_dir).system
+    symmetries = system.symmetry_group()
+    assert symmetries.nsym == 48 and not system.domag
+    rotations = harmonic_rotations(system.cell, symmetries, 3)
+    spins = spin_rotations(system.cell, symmetries)
+
+    def cross_and_unitarity(spin):
+        cross = unitarity = 0.0
+        for l in (1, 2, 3):
+            width = 2 * l + 1
+            a = np.einsum("sqp,snm->spmqn", spin, rotations[l]).reshape(
+                symmetries.nsym, 2 * width, 2 * width)
+            shells = [_spin_angle_matrix(l, j).reshape(-1, 2 * width)
+                      for j in (l - 0.5, l + 0.5)]
+            for i, left in enumerate(shells):
+                for k, right in enumerate(shells):
+                    block = np.einsum("ca,sab,db->scd", np.conj(left), a, right)
+                    if i != k:
+                        cross = max(cross, np.abs(block).max())
+                        continue
+                    product = np.einsum("scd,sed->sce", block, np.conj(block))
+                    unitarity = max(unitarity, np.abs(
+                        product - np.eye(len(left))).max())
+        return cross, unitarity
+
+    cross, unitarity = cross_and_unitarity(np.conj(spins))
+    assert cross < 1.0e-12 and unitarity < 1.0e-12
+    # The guard fires: the unconjugated spin matrix mixes the two shells.
+    assert cross_and_unitarity(spins)[0] > 0.5
 
 
 def test_a_noncollinear_projection_without_spin_orbit_is_no_longer_refused():

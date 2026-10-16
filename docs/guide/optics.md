@@ -118,7 +118,7 @@ The keywords of `get_absorption` are:
 - **`scissor`**: a rigid shift of the empty bands in Ry, which corrects the LDA
   gap. It is applied to the energies and to the velocity matrix elements.
 - **`kpoints`**: a denser full k-grid for the spectrum than the one of the SCF.
-  It must be the whole grid, not the irreducible wedge.
+  It can be the whole grid or its irreducible wedge.
 
 `spectrum.absorption` is $\mathrm{Im}\,\epsilon_M$ averaged over the three
 directions, on `spectrum.frequencies_ev`. `spectrum.epsilon` is the whole complex
@@ -234,7 +234,7 @@ The keywords of `get_optical_conductivity` are:
 - **`intraband`**: `False` leaves out the Drude term.
 - **`scissor`**: a rigid shift of the empty bands in Ry.
 - **`kpoints`**: a denser full grid for the sum, in place of the grid of the SCF.
-  It must be the whole grid, not the irreducible wedge.
+  It can be the whole grid or its irreducible wedge.
 - **`fermi_energy`**: the Fermi level in Ry. With a denser grid you give the one of
   the SCF, `fermi_energy=scf.fermi_energy`, so the occupations stay those of the
   ground state.
@@ -353,23 +353,32 @@ here.
     response would be missing, and the code gives an error. A state where an empty
     band carries occupation at some k-point also gives an error. Ultrasoft and PAW
     datasets give an error, because every matrix element would need the
-    augmentation charge, and so do `nspin = 2`, noncollinear magnetism, spin-orbit
-    coupling, a spin spiral and a Hubbard $U$. The spectrum is at
+    augmentation charge, and so do a noncollinear magnetization, a spin spiral
+    and a Hubbard $U$. A spinor run without a magnetization works, with or
+    without spin-orbit coupling. On selenium with spin-orbit coupling the static
+    value is 0.27 per cent from the Sternheimer solve at 144 bands and
+    `ecut_response = 12`. With `nspin = 2` the spectrum is the response of the
+    charge, and the `alda` kernel gives an error if the ground state has a
+    moment, because then the kernel couples the charge to the magnetization. The
+    `bootstrap` and `lrc` kernels act on the charge only. The spectrum is at
     $\mathbf q = 0$ only, since a finite $\mathbf q$ needs the states at
     $\mathbf k + \mathbf q$.
 
-    Both the absorption spectrum and the optical conductivity need the whole
-    k-grid, and a symmetry-reduced k-set gives an error. For the spectrum the
-    reason is that symmetrizing $\chi^0_{\mathbf G\mathbf G'}$ rotates two
-    $\mathbf G$ indices at once, and for the conductivity it is that the
-    antisymmetric part is an axial vector, which a wedge does not sum to the
-    whole cell. So you run with `nosym = .true.` and `noinv = .true.` on an
-    unshifted grid, which is closed under the point group. A shifted whole grid
-    works for the spectrum itself, but the band-truncation check
-    `static_residual` gives an error on it, so you pass `static_residual=False`.
-    The half-sphere storage of `K_POINTS gamma` gives an error for the absorption
-    spectrum, because the pair densities would be built from wrong real-space
-    products.
+    On a symmetry-reduced k-set both the absorption spectrum and the optical
+    conductivity are averaged over the group the k-set was cut with, so they
+    come out the same as on the whole grid. For the spectrum this rotates the
+    two $\mathbf G$ indices of $\chi^0_{\mathbf G\mathbf G'}$ at once, and for
+    the conductivity it makes the antisymmetric part zero when there is time
+    reversal. A magnetic run gives an error on a reduced k-set. So does a
+    shifted mesh, because the group does not map a shifted mesh onto itself.
+    The spectrum also gives an error on a reduced k-set with `nspin = 2` or a
+    spinor, because that case has not been checked. Then you pass the whole
+    unshifted grid as `kpoints`. A shifted whole grid works for the spectrum
+    itself, but the band-truncation check `static_residual` gives an error on
+    it, so you pass `static_residual=False`.
+    The absorption spectrum works with `K_POINTS gamma`. The bands are solved
+    again on the whole sphere, and the spectrum agrees with an explicit $k = 0$
+    to 1.4e-9.
 
     The `alda` kernel gives an error with a gradient-corrected or meta-GGA
     functional, because the ALDA kernel is local in the density and a GGA kernel

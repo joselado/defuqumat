@@ -330,9 +330,13 @@ topological insulator, and for a real three-dimensional crystal you want
 $\nu_0$, which here is zero because the layers do not talk to each other.
 
 !!! note "Limits"
-    A collinear run with `nspin = 2` gives an error, because it has two
-    Hamiltonians and so two sets of invariants. For a magnet, you use the
-    noncollinear run.
+    A collinear run with `nspin = 2` has two Hamiltonians, one for each spin. So
+    you give the spin channel, `spin=0` or `spin=1`, to `get_berry_curvature`
+    and `get_chern`, and without it you get an error. The number of occupied
+    bands is the number of electrons in that channel. Without spin-orbit
+    coupling the Chern number of one channel is always zero, by time reversal
+    inside the channel, while the curvature at each k-point is not. The `kubo` method
+    and the orbital magnetization still give an error at `nspin = 2`.
 
     Every invariant gives an error if the occupied bands come closer than
     1e-4 Ry to the band above them at any point of the mesh, because the
@@ -366,12 +370,14 @@ $\nu_0$, which here is zero because the layers do not talk to each other.
     is 1e-6 Ry. If you give a value below the one we would take, we warn you
     and still use your value.
 
-    The invariants give an error with a potential-only meta-GGA (`tb09` or
-    `bj06`).
-
     With a PAW dataset the invariants need the converged `becsum` beside the
     density, because it cannot be rebuilt from the density. The `Calculator`
     methods pass it for you.
+
+    With a potential-only meta-GGA (`tb09` or `bj06`) the invariants need the
+    converged `tau` beside the density, for the same reason. The `Calculator`
+    methods pass it for you. The Berry-phase polarization and the orbital
+    magnetization still give an error with these functionals.
 
 The notebook for this page is
 [10, the topological invariants](https://github.com/joselado/defuqumat/blob/master/notebooks/10_topological_invariants.ipynb).

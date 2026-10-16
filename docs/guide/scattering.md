@@ -324,12 +324,16 @@ the plateau can change on a denser mesh or with a smaller `degauss`.
     `reduce=False`.
 
     The nesting function gives an error for a run with fixed occupations
-    (`occupations = 'fixed'` or `'from_input'`), which has no Fermi level, and for
-    a run with `tot_magnetization`, which has one Fermi level for each spin
-    channel. It also gives an error for a spin spiral, because the nesting
-    function is a property of the state the spiral grows from. So you compute it
-    on the non-magnetic or collinear state and compare its peak with the
-    wavevector of the relaxed spiral.
+    (`occupations = 'fixed'` or `'from_input'`), which has no Fermi level, also
+    when it has `tot_magnetization`. With a smearing, a run with
+    `tot_magnetization` has one Fermi level for each spin channel, and the delta
+    function of each channel is then at its own level. In that case
+    `fermi_energy` must be the pair `(ef_up, ef_dw)` if you give it, and the
+    result has `fermi_energy_up` and `fermi_energy_down`. A run with tetrahedra
+    and `tot_magnetization` still gives an error. It also gives an error for a
+    spin spiral, because the nesting function is a property of the state the
+    spiral grows from. So you compute it on the non-magnetic or collinear state
+    and compare its peak with the wavevector of the relaxed spiral.
 
     The delta function of the nesting function is a Gaussian by default, even
     when the SCF used Methfessel-Paxton or cold smearing, because those go

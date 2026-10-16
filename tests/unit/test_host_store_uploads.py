@@ -128,12 +128,12 @@ def test_the_band_velocities_take_a_host_store_through_device_put(monkeypatch):
     operator = VelocityOperator(calculation, v_scf)
     handed = []
 
-    def both(self, psi, direction):
+    def tangent(self, psi, direction, overlap, contract=False):
         handed.append(psi)
         raise _Stop
 
     seen = _host_uploads(monkeypatch, host)
-    monkeypatch.setattr(VelocityOperator, "both", both)
+    monkeypatch.setattr(VelocityOperator, "_tangent", tangent)
     with pytest.raises(_Stop):
         operator.band_velocities(host, eigenvalues)
     monkeypatch.undo()

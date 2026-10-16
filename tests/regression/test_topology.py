@@ -29,7 +29,7 @@ from defuqumat.pseudo.upf import read_upf
 from defuqumat.scf.driver import run_scf
 from defuqumat.system.builder import build_system
 from defuqumat.topology.augmentation import augmentation_at_q
-from defuqumat.workflows.topology import DFTSource, run_berry_curvature, run_z2
+from defuqumat.workflows.topology import DFTSource, _source, run_berry_curvature, run_z2
 
 pytestmark = pytest.mark.regression
 
@@ -314,3 +314,90 @@ def test_a_paw_chern_number_is_an_exact_integer():
     curvature = run_berry_curvature(system, pseudos, result.density,
                                     becsum=result.becsum, nocc=4, shape=(6, 6))
     assert abs(curvature.chern_number) < 1.0e-8
+
+
+# --- a collinear spin-polarized run, one channel at a time -------------------
+
+@lru_cache(maxsize=2)
+def _channels_of(name: str, nspin: int, conv_thr: float):
+    """An SCF of a committed input, at ``nspin = 2`` with no moment if asked.
+
+    ``with_spin(2, tot_magnetization=0)`` from an ``nspin = 1`` input starts
+    spin-degenerate and stays there, since nothing in an SCF breaks spin
+    symmetry on its own, so its two channels are the unpolarized run twice.
+    """
+    system = build_system(read_pw_input(CASES / name))
+    if nspin != system.nspin:
+        system = system.with_spin(nspin, tot_magnetization=0)
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
+    return system, pseudos, run_scf(system, pseudos, conv_thr=conv_thr)
+
+
+@pytest.mark.slow
+def test_each_collinear_channel_reproduces_its_own_scf_eigenvalues():
+    """The check that ``spin`` selects the channel it names, on a magnet.
+
+    Triplet O2 at fixed occupations, ``tot_magnetization = 2``: seven up and
+    five down electrons, each channel gapped at its own count. At the SCF's own
+    k-point a fixed-density diagonalisation of channel ``s`` is the SCF's last
+    one over again, so its eigenvalues are ``eigenvalues_by_spin[s]``; the two
+    channels are an exchange splitting apart, so a source that read channel 0
+    whatever ``spin`` said fails the down channel by that splitting. The
+    occupied counts are not passed: they are what the density integrates to.
+    """
+    system, pseudos, result = _channels_of("o2-fixed-lsda.in", 2, 1.0e-12)
+    points = np.asarray(system.kpoints.crystal(system.cell))
+    reference = np.asarray(result.eigenvalues_by_spin)
+    worst, counts = [], []
+    for spin in (0, 1):
+        source = _source(
+            system, pseudos, result.density, None, None, 1.0e-10, "default",
+            spin=spin,
+        )
+        counts.append(source.nocc)
+        energies = np.asarray(source.states(points).energies)[:, :source.nocc]
+        worst.append(np.max(np.abs(energies - reference[spin][:, :source.nocc])))
+    assert counts == [7, 5]
+    splitting = np.max(np.abs(reference[0][:, :5] - reference[1][:, :5]))
+    print(f"\nO2 per-channel |e - e_SCF| max: up {worst[0]:.3e}, down "
+          f"{worst[1]:.3e} Ry; exchange splitting {splitting:.3e} Ry")
+    assert splitting > 1.0e-2  # the channels are distinguishable
+    assert max(worst) < 1.0e-6
+
+
+@pytest.mark.slow
+def test_a_nonmagnetic_channel_has_the_unpolarized_curvature():
+    """``nspin = 2`` with no moment, per channel, is ``nspin = 1``, pointwise.
+
+    AlAs is zincblende, so its Berry flux is nonzero plaquette by plaquette
+    (odd in ``k``, the Chern number zero), and the comparison is about a field
+    rather than a null integer. Each channel of the unpolarized ``nspin = 2``
+    run, at the count its own density holds, must give the ``nspin = 1`` flux.
+    The two SCFs and every diagonalisation are separate runs, and they agreed
+    to 9.7e-13 against a largest flux of 4.1e-2 (D22, 2026-10-16): at zero
+    moment nothing in the ``nspin = 2`` run differs from the ``nspin = 1`` one.
+    """
+    shape = (4, 4)
+    _, pseudos, one = _channels_of("alas-berry.in", 1, 1.0e-10)
+    system1 = build_system(read_pw_input(CASES / "alas-berry.in"))
+    reference = run_berry_curvature(system1, pseudos, one.density, shape=shape,
+                                    nocc=4, conv_thr=1.0e-10)
+    system2, pseudos, two = _channels_of("alas-berry.in", 2, 1.0e-10)
+    assert system2.nspin == 2
+    moment = float(np.max(np.abs(np.asarray(two.density[0] - two.density[1]))))
+    assert moment < 1.0e-8
+    channels = [
+        run_berry_curvature(system2, pseudos, two.density, shape=shape,
+                            conv_thr=1.0e-10, spin=spin)
+        for spin in (0, 1)
+    ]
+    differences = [float(np.max(np.abs(np.asarray(c.flux)
+                                       - np.asarray(reference.flux))))
+                   for c in channels]
+    print(f"\nAlAs 4x4 flux: max |flux| {reference.max_flux:.3e}; per-channel "
+          f"max |flux_s - flux_nspin1| {differences[0]:.3e}, "
+          f"{differences[1]:.3e}; Chern {[c.chern_number for c in channels]}")
+    assert reference.max_flux > 1.0e-2  # a flux, not a null
+    for curvature in channels:
+        assert abs(curvature.chern_number) < 1.0e-9
+    assert max(differences) < 1.0e-6

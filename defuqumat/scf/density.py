@@ -260,7 +260,9 @@ def spinor_band_kinetic_density(psi, fft_index, grid, weights, cell: Cell,
     Args:
         psi: ``(nbnd, 2 npwx)`` spinors, the two components stored one after
             the other, as :func:`spinor_band_density` takes them.
-        kplusg: ``(npwx, 3)`` in 1/bohr.
+        kplusg: ``(npwx, 3)`` in 1/bohr, and ``(2, npwx, 3)`` for a spin spiral,
+            whose ``fft_index`` is ``(2, npwx)``: each component's own
+            ``k +- q/2 + G``.
         nspin_mag: 1 for the trace alone, 4 for ``(tau, tau_x, tau_y, tau_z)``.
 
     **The kinetic energy density of a spinor is a 2x2 matrix**, not a number and
@@ -282,20 +284,36 @@ def spinor_band_kinetic_density(psi, fft_index, grid, weights, cell: Cell,
     """
     npwx = psi.shape[-1] // 2
     fft_index = jnp.asarray(fft_index)
-    if fft_index.ndim != 1:
-        raise NotImplementedError(
-            "a spin spiral's two spinor components live on different "
-            "plane-wave spheres, so their gradients do not add to a "
-            "lattice-periodic tau; meta-GGA with spiral_q is refused"
-        )
+    kplusg = jnp.asarray(kplusg)
+    spiral = fft_index.ndim != 1
+    if spiral and kplusg.ndim != 3:
+        raise ValueError(
+            "a spin spiral's tau needs each component's own k +- q/2 + G: "
+            "kplusg (2, npwx, 3) beside fft_index (2, npwx)")
 
     def one_band(arrays):
         state, weight = arrays
         components = state.reshape((2, npwx))
-        # ``(2, 3, npwx)`` -> ``(2, 3, n1, n2, n3)``: the spin component, then
-        # the cartesian direction of the gradient.
-        gradients = 1j * kplusg.T[None, :, :] * components[:, None, :]
-        field = g_to_r(gradients, fft_index, grid)
+        if not spiral:
+            # ``(2, 3, npwx)`` -> ``(2, 3, n1, n2, n3)``: the spin component,
+            # then the cartesian direction of the gradient.
+            gradients = 1j * kplusg.T[None, :, :] * components[:, None, :]
+            field = g_to_r(gradients, fft_index, grid)
+        else:
+            # **A spin spiral.** Each component is differentiated with its own
+            # sphere's ``k +- q/2 + G`` and transformed with its own index map,
+            # so what comes back is the gradient of ``U_a e^{i(k +- q/2).r}``
+            # with the plane-wave factor taken off -- lattice periodic, as the
+            # density's ``U_up``, ``U_dn`` are (:func:`spinor_band_density`).
+            # The cross term ``conj(grad psi_up) . grad psi_dn`` then carries
+            # the same ``e^{-i q.r}`` the transverse magnetization does, and
+            # is stored in the frame that turns with ``q`` exactly as it is,
+            # which is what lets the two be resolved onto one local axis.
+            field = jnp.stack([
+                g_to_r(1j * kplusg[spin].T * components[spin][None, :],
+                       fft_index[spin], grid)
+                for spin in range(2)
+            ])
         up, down = field[0], field[1]
 
         # Summed over the cartesian axis *first*: these are dot products of

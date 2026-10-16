@@ -37,8 +37,12 @@ from defuqumat.tddft.chi0 import (
     independent_response,
     require_a_sum_over_states_regime,
 )
+from defuqumat.scf.whole_sphere import whole_sphere_calculation
 from defuqumat.tddft.dyson import MAX_ITERATIONS, TOLERANCE, solve_dyson
-from defuqumat.tddft.kernels import DEFAULT_KERNEL, alda_matrix, get_kernel
+from defuqumat.tddft.kernels import (
+    DEFAULT_KERNEL, alda_matrix, get_kernel, refuse_a_polarized_alda,
+)
+from defuqumat.scf.occupations import occupied_counts
 from defuqumat.units import RY_TO_EV
 from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
 
@@ -168,10 +172,9 @@ def run_absorption(
         system: the converged :class:`~defuqumat.system.builder.System`.
         density: the converged density (``SCFResult.density``).
         kpoints: the k-set the spectrum is computed on, if it is not the one
-            the density was converged on. It must be the **whole** grid, not a
-            symmetry-reduced wedge -- see
-            :func:`~defuqumat.tddft.chi0.require_a_sum_over_states_regime` -- and
-            that is exactly why this argument exists: a density converges
+            the density was converged on. The whole grid or a wedge of one,
+            which :func:`~defuqumat.tddft.chi0.independent_response` completes
+            over its group -- and the reason this argument exists is that a density converges
             perfectly well on a wedge, and an optical spectrum needs both a
             closed grid and a denser one than any ground state does. An
             **unshifted** grid is what makes the whole-grid route sound (P24,
@@ -240,7 +243,15 @@ def run_absorption(
     # only the electron count, which no chunk size touches.
     if calculation is None:
         calculation = Calculation(system, pseudos, k_batch=k_batch)
+    # Gamma-only storage: the bands are solved on the whole sphere at k = 0,
+    # since everything after the solve -- the pair densities, ``dH/dk``, the
+    # static residual's Sternheimer solve -- is written for it
+    # (``scf/whole_sphere.py``). The SCF keeps its half sphere.
+    calculation = whole_sphere_calculation(calculation)
+    system = calculation.system
     require_a_sum_over_states_regime(calculation)
+    if rule.name == "alda":
+        refuse_a_polarized_alda(density, calculation.system.cell)
 
     calculation, system, eigenvalues, wavefunctions = fixed_density_states(
         system, pseudos, density, nbnd=nbnd or _default_nbnd(calculation),
@@ -250,7 +261,8 @@ def run_absorption(
     # The solve re-checks the dials at its own band count (``Calculation.
     # for_bands``); what follows runs at whatever it resolved to.
     k_batch = calculation.k_batch
-    nocc = int(round(calculation.nelec / 2))
+    # The deeper channel's count at ``nspin = 2``, ``nelec / 2`` otherwise.
+    nocc = max(occupied_counts(calculation))
     nbnd = int(eigenvalues.shape[-1])
     potential = calculation.potential(jnp.asarray(density))
 
@@ -315,7 +327,7 @@ def _default_nbnd(calculation) -> int:
     calculation; building one here to read it was a whole constructor for one
     number (``OPEN.md`` Part III, H3).
     """
-    nocc = int(round(calculation.nelec / 2))
+    nocc = max(occupied_counts(calculation))
     return max(4 * nocc, nocc + 8)
 
 
@@ -344,7 +356,9 @@ def _static_residual(calculation, wavefunctions, eigenvalues, density, chi, *,
     """
     from defuqumat.response.efield import dielectric_tensor
 
-    nocc = int(round(calculation.nelec / 2))
+    # The deeper channel's count: the solver masks the other channel's extra
+    # bands itself, from ``occupied_counts`` (``SternheimerSolver``).
+    nocc = max(occupied_counts(calculation))
     reference = dielectric_tensor(
         calculation, wavefunctions[:, :, :nocc], eigenvalues[:, :, :nocc],
         jnp.asarray(density), screening="hartree", born_charges=False,

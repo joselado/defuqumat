@@ -112,29 +112,121 @@ class BandStructure:
             ax.legend()
         return ax
 
-    def gap(self, nelec: float) -> float:
+    def band_edges(
+        self,
+        nelec: float | None = None,
+        tot_magnetization: float | None = None,
+        *,
+        occupied=None,
+    ) -> tuple[float, float]:
+        """Highest occupied and lowest empty level on the path, in eV.
+
+        ``pw.x``'s "highest occupied, lowest unoccupied level" for a filling
+        that is fixed band by band (``get_homo_lumo`` in
+        ``PW/src/print_ks_energies.f90``): the HOMO is the largest occupied
+        eigenvalue over every k-point *and* every spin channel, and the LUMO the
+        smallest empty one, so at ``nspin = 2`` the two edges may sit in
+        different channels.
+
+        The filling is given in one of two ways.
+
+        * ``nelec`` (and, at ``nspin = 2``, ``tot_magnetization``): a band holds
+          two electrons when spin-degenerate, one when it is a spinor
+          (``nspin = 4``), and one in each channel at ``nspin = 2``, where the
+          channels fill ``(nelec + m)/2`` and ``(nelec - m)/2`` bands -- QE's
+          ``nelup`` and ``neldw`` for fixed occupations. Both must be whole
+          numbers, which is ``input.f90:784-800``'s own condition.
+        * ``occupied``: the number of occupied bands directly, an integer, or
+          ``(n_up, n_down)`` at ``nspin = 2``. This is the form for a filling
+          given band by band (``occupations = 'from_input'``), where
+          ``get_homo_lumo`` counts a band as occupied once its weight passes
+          1e-3, so a channel with one electron spread over a p triplet has
+          four occupied bands, not two.
+
+        Where the filling cuts a degenerate multiplet the two edges are members
+        of the same multiplet and their difference is the eigensolver's residue,
+        not a gap.
+        """
+        levels = np.asarray(self.eigenvalues_by_spin) * RY_TO_EV
+        nbnd = levels.shape[-1]
+        if self.nspin == 2:
+            counts = self._channel_counts(nelec, tot_magnetization, occupied)
+        else:
+            if occupied is None:
+                if nelec is None:
+                    raise ValueError("give nelec or occupied")
+                occupied = int(round(nelec / (1 if self.nspin == 4 else 2)))
+            counts = (int(occupied),)
+        homo, lumo = -np.inf, np.inf
+        for channel, n in zip(levels, counts):
+            if not 0 <= n <= nbnd:
+                raise ValueError(
+                    f"{n} occupied bands in a channel with {nbnd} computed"
+                )
+            if n > 0:
+                homo = max(homo, float(channel[:, n - 1].max()))
+            if n < nbnd:
+                lumo = min(lumo, float(channel[:, n].min()))
+        if not np.isfinite(homo):
+            raise ValueError("no occupied band: the filling is empty")
+        if not np.isfinite(lumo):
+            raise ValueError(
+                "no empty band was computed above the filling; raise nbnd"
+            )
+        return homo, lumo
+
+    def _channel_counts(self, nelec, tot_magnetization, occupied):
+        """The occupied band count of each channel at ``nspin = 2``."""
+        if occupied is not None:
+            counts = tuple(int(n) for n in np.atleast_1d(occupied))
+            if len(counts) != 2:
+                raise ValueError(
+                    "at nspin = 2, occupied is (n_up, n_down), one count per channel"
+                )
+            return counts
+        if nelec is None or tot_magnetization is None:
+            raise NotImplementedError(
+                "a spin-polarized gap needs the filling of each channel, which "
+                "this band structure does not carry: give tot_magnetization "
+                "beside nelec (a fixed filling, nelup = (nelec + m)/2 and "
+                "neldw = (nelec - m)/2) or occupied = (n_up, n_down)"
+            )
+        up = (nelec + tot_magnetization) / 2
+        down = (nelec - tot_magnetization) / 2
+        if abs(up - round(up)) > 1e-8 or abs(down - round(down)) > 1e-8:
+            raise ValueError(
+                f"nelec = {nelec} and tot_magnetization = {tot_magnetization} do "
+                "not fill a whole number of bands in each channel, so there is no "
+                "fixed-filling gap; give occupied = (n_up, n_down)"
+            )
+        return int(round(up)), int(round(down))
+
+    def gap(
+        self,
+        nelec: float | None = None,
+        tot_magnetization: float | None = None,
+        *,
+        occupied=None,
+    ) -> float:
         """Fundamental band gap in eV, for a system with fixed filling.
 
         The lowest conduction level anywhere on the path minus the highest
         valence level anywhere on it -- the *indirect* gap, which is the smaller
         of the two and equals the direct one when both extrema sit at the same
-        k-point.
+        k-point. At ``nspin = 2`` "anywhere" includes both channels, so the gap
+        may run from one channel's valence top to the other's conduction bottom,
+        as ``pw.x`` reports it.
 
         How many bands are filled depends on how many electrons a band holds:
         two for a spin-degenerate calculation, one for a noncollinear one, where
-        each band is a spinor. Getting that wrong halves or doubles the count of
-        occupied bands and reports the gap between the wrong pair.
+        each band is a spinor, and one in each channel at ``nspin = 2``, which
+        therefore needs ``tot_magnetization`` (or ``occupied``) to say how the
+        electrons split. Getting that wrong halves or doubles the count of
+        occupied bands and reports the gap between the wrong pair. The arguments
+        are those of :meth:`band_edges`.
         """
-        occupied = int(round(nelec / (1 if self.nspin == 4 else 2)))
-        levels = self.eigenvalues_ev
-        if self.nspin == 2:
-            raise NotImplementedError(
-                "a fixed-filling gap is not defined channel by channel; take it "
-                "from eigenvalues_by_spin with the occupation of each channel"
-            )
-        return float(
-            levels[:, occupied].min() - levels[:, occupied - 1].max()
-        )
+        homo, lumo = self.band_edges(nelec, tot_magnetization, occupied=occupied)
+        return lumo - homo
 
 
 def run_bands(
