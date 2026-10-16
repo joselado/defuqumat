@@ -131,7 +131,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.basis.builder import build_basis
-from defuqumat.scf.mixing import LDOS_DEPENDENT, MIXERS, get_mixer
+from defuqumat.scf.mixing import LDOS_DEPENDENT, LDOS_SIGMA_MIN, MIXERS, get_mixer
 from defuqumat.xc.functional import resolve_functional
 from defuqumat.scf.driver import default_nbnd
 from defuqumat.scf.occupations import (
@@ -164,7 +164,7 @@ from defuqumat.ultracell.augmentation import (
 from defuqumat.ultracell.grid import Ultracell, folded_kpoints
 from defuqumat.ultracell.hamiltonian import multiplet_cut, ultracell_matrix
 from defuqumat.ultracell.kramers import kramers_closed_basis, time_reversed
-from defuqumat.ultracell.mixing import box_kerker
+from defuqumat.ultracell.mixing import box_kerker, box_ldos
 from defuqumat.ultracell.states import (
     UltracellStates,
     ultracell_band_density,
@@ -402,6 +402,13 @@ class UltracellResult:
     #: it, in words, and ``None`` when it was, when there is no field, or when
     #: ``seed_from_field=False`` asked for the tiled start.
     field_seed_skipped: str | None = None
+    #: Under ``mixing_mode = 'ldos'``, one ``(states, clamped, solves)`` per
+    #: mix: ``integral D dV`` over the box in states per Ry, the share of the
+    #: LDOS the clamp to ``D >= 0`` removed, and the conjugate-gradient
+    #: iterations of that mix's screening solve (0 when ``states`` was below
+    #: :data:`~defuqumat.scf.mixing.LDOS_EMPTY` and the step was the plain
+    #: ``beta R``). ``None`` under every other mode.
+    ldos_record: list | None = None
     #: ``(N, nspin, nslot, ldmx, ldmx)``, the occupation matrix of each atom
     #: copy for a DFT+U run, ``None`` otherwise: copy ``c`` is the unit cell's
     #: Hubbard atoms at ``tau + R_c``, ``R_c = ultracell.q_triples[c]`` in the
@@ -1143,13 +1150,32 @@ def run_ultracell(
             "supervisor lives in run_scf's loop (scf/robust.py), and this driver "
             "has its own. Use 'anderson' with kerker=True"
         )
-    if str(mixing_mode).lower() in LDOS_DEPENDENT:
-        raise ValueError(
-            "mixing_mode = 'ldos' is not implemented for the ultracell: its mixer is "
-            "built here and never handed an LDOS, so it would run plain anderson "
-            "under the name. Its own Kerker (kerker=True) is the screened mode here"
+    ldos_mode = str(mixing_mode).lower() in LDOS_DEPENDENT
+    if ldos_mode and any(p.is_ultrasoft or p.is_paw for p in pseudos):
+        # The LDOS here is the box density with the occupations replaced, and
+        # on an augmented dataset half of it on a d-metal is the augmentation
+        # charge at e_F, which this loop would have to accumulate a second time
+        # from ``becsum``. Not built and not measured.
+        raise NotImplementedError(
+            "mixing_mode = 'ldos' on an ultrasoft or PAW ultracell is not "
+            "implemented: the LDOS at the Fermi level is built from the states "
+            "on the box without the augmentation charge at e_F, which is about "
+            "half of it on a d-metal, and the combination is unmeasured. Use "
+            "'anderson' with kerker=True"
         )
-    if kerker and not MIXERS[str(mixing_mode).lower()].accepts_precondition:
+    if ldos_mode and bool(getattr(system, "noncolin", False)):
+        # The box LDOS of a spinor run would be the charge channel of the
+        # spinor density, which is the unit cell's rule too, but no spinor
+        # ultracell has been converged under it and compared with Kerker.
+        raise NotImplementedError(
+            "mixing_mode = 'ldos' on a noncollinear (spinor) ultracell is not "
+            "measured: the fixed-point check against 'anderson' with Kerker was "
+            "run at nspin = 1 and 2 only. Use 'anderson' with kerker=True"
+        )
+    # ``'ldos'`` installs its own preconditioner and ``kerker`` is not read:
+    # the LDOS solve already starts from, and is preconditioned by, Kerker at
+    # the box-averaged LDOS, and falls back to the plain step on an insulator.
+    if kerker and not ldos_mode and not MIXERS[str(mixing_mode).lower()].accepts_precondition:
         raise ValueError(
             f"mixing_mode = {mixing_mode!r} does not take a preconditioner and "
             f"kerker is on. Its step is pointwise in real space with a factor "
@@ -1741,7 +1767,26 @@ def run_ultracell(
     # mixer its own default and ``mixing_mode = "linear"``, which has no
     # history at all, is not a TypeError.
     mixer = get_mixer(mixing_mode, beta=mixing_beta, history=mixing_ndim)
-    if kerker:
+    ldos_record = None
+    if ldos_mode:
+        # **Herbst and Levitt's preconditioner on the box**
+        # (:func:`~defuqumat.ultracell.mixing.box_ldos`), handed the LDOS at
+        # the Fermi level at every iteration below, before the mix -- the one
+        # thing the unit cell's ``run_scf`` does for it that this loop did not.
+        mixer.precondition = box_ldos(
+            ultracell, cell, (nspin_mag,) + grid, beta=mixer.beta,
+        )
+        ldos_record = []
+        if not smearing:
+            warnings.warn(
+                f"mixing_mode = 'ldos' with occupations = "
+                f"{system.occupations!r}: there are no states at the Fermi "
+                f"level, so every step is the plain one, beta R, with no "
+                f"screening at all, where kerker=True would screen the long "
+                f"wavelengths the box adds",
+                RuntimeWarning, stacklevel=2,
+            )
+    elif kerker:
         # A cell ``N`` times longer carries a smallest ``|G+Q|`` that is ``N``
         # times smaller, so the Hartree kernel there is ``N^2`` larger and the
         # sloshing an ordinary SCF merely tolerates becomes the whole problem.
@@ -2039,6 +2084,14 @@ def run_ultracell(
             # to say about a quantity that lives on the atoms rather than on the
             # grid, which gets the plain ``beta`` instead.
             head_in, head_out = np.asarray(density), np.asarray(new)
+            if ldos_record is not None:
+                ldos = _box_ldos(
+                    coefficients, vectors, levels, fermi, weights0, cells,
+                    box_index, grid, float(cell.volume), npol, nspin_mag,
+                    state_batch, density.dtype, system, smearing,
+                )
+                mixer.precondition.update_ldos(ldos)
+                solved = len(mixer.precondition.solves)
             if calculation.is_paw and becsum_copies is not None:
                 vector = mixer.mix(
                     np.concatenate([head_in.ravel(), _flatten_becsum(becsum_state)]),
@@ -2077,6 +2130,12 @@ def run_ultracell(
                 density = jnp.asarray(
                     mixer.mix(head_in, head_out), dtype=density.dtype
                 )
+            if ldos_record is not None:
+                screen = mixer.precondition
+                cost = (screen.solves[-1][0]
+                        if len(screen.solves) > solved else 0)
+                ldos_record.append(
+                    (float(screen.states), float(screen.clamped), int(cost)))
         else:
             density = new
             if calculation.is_paw and becsum_copies is not None:
@@ -2141,6 +2200,7 @@ def run_ultracell(
     result.seed_origin = seed_origin
     result.hubbard_ns = ns_state
     result.field_seed_skipped = field_seed_skipped
+    result.ldos_record = ldos_record
     if kramers is not None:
         result.kramers_ranks = np.asarray(kramers.ranks)
         result.kramers_overlap = float(kramers.smallest_overlap)
@@ -2346,6 +2406,41 @@ def _result(density, delta_v, levels, occupations, fermi, converged, iterations,
                       else float(terms["_field_energy"])),
         cell_volume=cell_volume,
     )
+
+
+def _box_ldos(coefficients, vectors, levels, fermi, weights, cells, box_index,
+              grid, volume, npol, nspin_mag, batch, dtype, system, smearing):
+    """``D(r)``, the local density of states at the Fermi level on the box.
+
+    The box density with ``w_k0 delta_sigma(e_F - e_j) / N`` in place of the
+    occupations, which is ``Calculation.ldos_weights`` with the ``1/N``
+    :func:`_occupy` puts on its occupations: a **Gaussian** of width
+    ``max(degauss, LDOS_SIGMA_MIN)`` whatever the run smears with, since the
+    preconditioner needs ``D >= 0``, each channel at its own level when the
+    moment is constrained, and summed over spin as the charge. It is a field
+    per unit cell volume in states per Ry, the unit cell's ``D`` tiled when
+    nothing is modulated. Zero without smearing, where the step is the plain
+    one. A second pass over the states each iteration, the same cost as the
+    density's: the unit cell shares the transforms between the two weight sets
+    (``density_and_ldos``) and the box streams its states, so it cannot.
+    """
+    if not smearing:
+        return jnp.zeros(tuple(grid), dtype=dtype)
+    sigma = max(float(system.degauss), LDOS_SIGMA_MIN)
+    levels = jnp.asarray(levels)
+    level = jnp.asarray(fermi, dtype=levels.dtype)
+    if level.ndim > 0 and levels.shape[0] == 2:
+        level = level.reshape(2, 1, 1)
+    x = (level - levels) / sigma
+    delta = jnp.exp(-x * x) / (sigma * np.sqrt(np.pi))
+    ldos_weights = jnp.asarray(weights)[None, :, None] * delta / cells
+    field = ultracell_band_density(
+        coefficients, vectors, np.asarray(ldos_weights), box_index, grid, volume,
+        npol=npol, nspin_mag=nspin_mag, batch=batch, dtype=dtype,
+    )
+    if nspin_mag == 2:
+        return field[0] + field[1]
+    return field[0]
 
 
 def _occupy(levels, weights, nelec, cells, system, smearing, calculation):

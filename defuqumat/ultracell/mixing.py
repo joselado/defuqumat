@@ -29,11 +29,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from defuqumat.scf.mixing import thomas_fermi_screening
+from defuqumat.scf.mixing import ldos_preconditioner, thomas_fermi_screening
 from defuqumat.system.cell import Cell
 from defuqumat.ultracell.grid import Ultracell
 
-__all__ = ["box_kerker"]
+__all__ = ["box_kerker", "box_ldos"]
 
 
 def box_kerker(
@@ -96,3 +96,55 @@ def box_kerker(
         return np.asarray(apply(jnp.asarray(np.asarray(residual).ravel())))
 
     return preconditioner
+
+
+class _WholeBox:
+    """The ultracell box as the G-set :func:`ldos_preconditioner` reads.
+
+    Three attributes and nothing else: the box shape, a flat index that is the
+    identity (every point of the box's reciprocal grid is a ``G + Q`` the box
+    carries, which is the set :func:`box_kerker` acts on), and ``|G + Q|^2`` in
+    1/bohr^2, the units of :meth:`GVectors.kinetic`.
+    """
+
+    def __init__(self, ultracell: Ultracell, cell: Cell):
+        self.grid = tuple(int(n) for n in ultracell.grid)
+        points = int(np.prod(self.grid))
+        self.fft_index = jnp.arange(points)
+        self._g2 = jnp.asarray(ultracell.g2(cell).reshape(-1),
+                               dtype=ultracell.precision.real)
+
+    def kinetic(self, cell=None):
+        return self._g2
+
+
+class _UltracellVolume:
+    """The box's volume, ``N`` unit cells, for the LDOS integral."""
+
+    def __init__(self, volume: float):
+        self.volume = float(volume)
+
+
+def box_ldos(ultracell: Ultracell, cell: Cell, shape, beta: float = 0.7):
+    """Herbst and Levitt's LDOS preconditioner on the ultracell box.
+
+    :func:`~defuqumat.scf.mixing.ldos_preconditioner` itself, handed the whole
+    box as its G-set (:class:`_WholeBox`): the operator, the conjugate-gradient
+    solve, the clamp to ``D >= 0`` and the record of what each solve cost are the
+    unit cell's to the line. ``shape`` is the density's ``(nspin_mag, *box)``,
+    and the driver hands the returned object the LDOS at the Fermi level on the
+    box at every iteration through ``update_ldos``, before the mix.
+
+    **What it adds over :func:`box_kerker`.** Kerker screens with one
+    Thomas-Fermi wavevector for the whole box, the unit cell's own; this
+    screens with ``8 pi D(r)``, which is Kerker at the box-averaged ``D`` where
+    the LDOS is uniform (that Kerker is the inner solve's preconditioner and
+    first guess), nothing where there are no states at ``e_F``, and the plain
+    ``beta`` step on an insulator. The volume is the box's, ``N`` unit cells,
+    so the recorded ``states`` is ``dN/de_F`` per unit cell times ``N``.
+    """
+    return ldos_preconditioner(
+        _WholeBox(ultracell, cell),
+        _UltracellVolume(float(cell.volume) * int(ultracell.cells)),
+        tuple(shape), beta=beta,
+    )

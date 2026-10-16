@@ -468,9 +468,8 @@ def test_the_ldos_warm_up_reaches_the_mixer_s_fixed_point(tmp_path):
 
 def test_places_without_an_ldos_refuse_the_mode():
     from defuqumat.response.mixing import ResponseMixer
-    from defuqumat.ultracell.driver import run_ultracell
 
+    # The ultracell builds its LDOS on the box since I77
+    # (``tests/unit/test_ultracell_mixing_modes.py``); an augmented one refuses.
     with pytest.raises(ValueError, match="response loop"):
         ResponseMixer("ldos")
-    with pytest.raises(ValueError, match="ultracell"):
-        run_ultracell(None, None, None, (2, 1, 1), mixing_mode="ldos")
