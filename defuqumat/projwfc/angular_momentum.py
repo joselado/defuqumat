@@ -330,6 +330,20 @@ def _refuse_what_is_not_written(calculation) -> None:
             "k - q/2, checked against the NiI supercell), but the augmented one "
             "needs S on each sphere and has no check"
         )
+    if getattr(calculation, "spiral", None) and getattr(
+        calculation, "use_symmetry", False
+    ):
+        # The wedge of the spin space group (:mod:`defuqumat.system.spiral`) is
+        # completed by :func:`_symmetrise_axial` with ``det(S) S`` on the site
+        # spin, which is the laboratory spin at the home-cell atom: an operation
+        # of that group turns it by ``Rot_z(q . (f + R))`` instead, ``R`` the
+        # lattice vector to the image's cell, and nothing here writes that.
+        raise NotImplementedError(
+            "site angular momenta of a spin spiral need nosym = .true.: the "
+            "wedge of the spin space group is completed with the site spin "
+            "turned by det(S) S, where an operation of that group turns it "
+            "about the spiral axis by q . (f + R)"
+        )
     relativistic = any(
         getattr(pseudo, "has_so", False) for pseudo in calculation.pseudos
     )

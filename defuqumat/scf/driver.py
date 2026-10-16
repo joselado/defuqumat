@@ -460,6 +460,16 @@ def _require_a_spiral_wedge(system, symmetries, augmented: bool) -> None:
             "matrices are symmetrised with the spin turned with the lattice, "
             "which the spin space group does not do"
         )
+    if getattr(system, "lspinorb", False):
+        # The reader refuses this pair (``_spiral_q``); a ``System`` built
+        # without it reaches here at ``soc_scale = 0``, and the one use of such
+        # a spiral is ``spiral_spin_orbit_energy``, a wedge sum of a term that
+        # breaks the group.
+        raise NotImplementedError(
+            "a spin spiral with lspinorb = .true. needs nosym = .true.: the "
+            "spin space group the k-set is reduced with is not a symmetry of "
+            "the spin-orbit coupling that spiral_spin_orbit_energy adds on top"
+        )
     kpoints = system.kpoints
     if kpoints.grid is None:
         raise NotImplementedError(

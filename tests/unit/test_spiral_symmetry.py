@@ -242,3 +242,43 @@ def test_a_k_set_that_is_already_the_wedge_is_accepted():
     same = dataclasses.replace(system, spiral_q=tuple(system.spiral_q))
     pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in same.structure.species)
     assert Calculation(same, pseudos).use_symmetry
+
+
+def test_the_consumers_master_lifted_refuse_a_symmetrised_spiral():
+    """What the merge with I1 to I48 made reachable, and the wedge was not written for.
+
+    Site angular momenta and the atomic projections of a norm-conserving spiral
+    run since I1 to I48, written against a ``nosym`` spiral on the whole grid;
+    their wedge completion turns the site spin and the spinor column with the
+    spatial rotation, which an operation of the spin space group does not. A
+    ``System`` built with ``lspinorb`` without the reader is refused in the
+    driver as the reader refuses it. Each fires with ``use_symmetry`` on.
+    """
+    from defuqumat.projwfc.angular_momentum import angular_momenta
+    from defuqumat.projwfc.projections import atomic_projections
+
+    _, calculation = _calculation(ZIGZAG)
+    assert calculation.use_symmetry and calculation.symmetries.nsym > 1
+    with pytest.raises(NotImplementedError, match="angular momenta of a spin spiral need nosym"):
+        angular_momenta(calculation, None)
+    with pytest.raises(NotImplementedError, match="symmetrised projection of a spin spiral"):
+        atomic_projections(calculation, None)
+
+    # P123's NiI chain, read with nosym (the reader refuses it otherwise) and
+    # the switch turned off afterwards: its one mirror fixes q along the chain.
+    system = build_system(parse_pw_input(
+        (ROOT / "data" / "qe" / "nii-chain-spiral.in").read_text()))
+    relativistic = dataclasses.replace(system, nosym=False)
+    assert relativistic.lspinorb and relativistic.symmetry_group().nsym > 1
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
+    with pytest.raises(NotImplementedError, match="lspinorb = .true. needs nosym"):
+        Calculation(relativistic, pseudos)
+
+
+def test_the_same_consumers_are_not_refused_on_a_nosym_spiral():
+    """The new guards are the wedge's, not the spiral's: ``nosym`` passes them."""
+    from defuqumat.projwfc.angular_momentum import _refuse_what_is_not_written
+
+    _, calculation = _calculation(_nosym(ZIGZAG))
+    assert not calculation.use_symmetry
+    _refuse_what_is_not_written(calculation)
