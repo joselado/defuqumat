@@ -26,7 +26,7 @@ P19, Elk's ``gengkqvec``), one perturbation instead of one spinor component.
 | the bare local term | ``jvp`` of ``V_loc(G)`` | ``jvp`` of ``V_loc(G+q)`` |
 | the Hartree kernel | ``8 pi / |G|^2``, ``G = 0`` dropped | ``8 pi / |G+q|^2``, **``G = 0`` kept** |
 | ``drho`` | ``2 Re[psi* dpsi]`` | ``2 psi* dpsi``, complex |
-| the frozen Hessian | ``dynmat_us + d2ionq(0)`` | ``dynmat_us`` unchanged ``+ d2ionq(q)`` |
+| the frozen Hessian | ``dynmat_us + d2ionq(0)`` | ``dynmat_us`` unchanged ``+ d2ionq(q)``, and ``C(q)`` for a core charge (below) |
 
 The last row is the one worth reading twice, and it was checked in the Fortran
 rather than assumed. ``dynmat_us.f90:105-124`` fills ``dynwrk(na_icart,
