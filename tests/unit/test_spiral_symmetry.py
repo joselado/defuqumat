@@ -186,6 +186,13 @@ def test_what_a_symmetrised_spiral_still_refuses():
     with pytest.raises(NotImplementedError, match="nosym"):
         calculation.at_spiral_q((0.0, 0.0, 0.3))
 
+    # dE/dq itself: the chunked route (the CPU default) never calls
+    # at_spiral_q, so the refusal is its own and fires before the state is read.
+    from defuqumat.forces.spiral import compute_spiral_gradient
+    for k_batch in ("default", 1, None):
+        with pytest.raises(NotImplementedError, match="dE/dq of a spin spiral needs nosym"):
+            compute_spiral_gradient(calculation, None, k_batch=k_batch)
+
     # A k-set reduced with another group: the zigzag chain's k-set handed to a
     # spiral along x, whose stabiliser is a different subgroup.
     moved = dataclasses.replace(system, spiral_q=(0.25, 0.0, 0.0))
@@ -282,3 +289,6 @@ def test_the_same_consumers_are_not_refused_on_a_nosym_spiral():
     _, calculation = _calculation(_nosym(ZIGZAG))
     assert not calculation.use_symmetry
     _refuse_what_is_not_written(calculation)
+
+    from defuqumat.forces.spiral import _require_a_differentiable_spiral
+    _require_a_differentiable_spiral(calculation)
