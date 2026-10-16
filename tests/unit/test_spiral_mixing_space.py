@@ -124,7 +124,7 @@ def test_the_whole_box_pair_keeps_any_transverse_field():
                            smooth=basis.smooth)
     _, _, layout = _whole_box_layout()
     rng = np.random.default_rng(3)
-    field = _field(layout, rng, shell=False)
+    field = np.array(_field(layout, rng, shell=False))
     field[1:3] = rng.normal(size=field[1:3].shape)
     np.testing.assert_allclose(np.asarray(layout.field(layout.stored_of(field)))[1:3],
                                field[1:3], rtol=0, atol=1e-12 * np.max(np.abs(field)))
@@ -143,8 +143,8 @@ def test_at_dual_four_the_whole_box_layout_is_the_real_space_mixer(beta_mag):
     rng = np.random.default_rng(4)
     pairs = [(_field(layout, rng, shell=False), _field(layout, rng, shell=False))
              for _ in range(4)]
-    real = get_mixer("anderson", beta=0.5, beta_mag=beta_mag)
-    sphere = get_mixer("anderson", beta=0.5, beta_mag=beta_mag)
+    real, sphere = get_mixer("anderson", beta=0.5), get_mixer("anderson", beta=0.5)
+    real.beta_mag = sphere.beta_mag = beta_mag
     real.shape = layout.shape
     sphere.layout, sphere.shape = layout, layout.stored_shape
     for rho_in, rho_out in pairs:
@@ -219,7 +219,9 @@ def test_a_spiral_mixed_in_g_reaches_the_real_space_fixed_point(name, pseudo_dir
     displaced smooth sphere and its shell is the displaced augmentation charge
     rebuilt from the mixed ``becsum``. Numbers in ``notes/incompat/I74.md``.
     """
-    results = {space: _run(name, pseudo_dir, space) for space in ("r", "g")}
+    # The inputs' own ``&electrons``, which ``run_scf`` does not read.
+    results = {space: _run(name, pseudo_dir, space, conv_thr=1e-11, mixing_beta=0.3)
+               for space in ("r", "g")}
     assert results["r"].converged and results["g"].converged
     assert results["g"].total_energy == pytest.approx(results["r"].total_energy,
                                                       abs=1e-9)
