@@ -104,20 +104,90 @@ def test_refusals_name_what_pools_do_not_cover():
     from defuqumat.scf.driver import _refuse_under_pools
 
     pools = Pools(_FakeCommunicator(2, 0))
-    calculation = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=8)),
+    calculation = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=8),
+                                                         occupations="fixed"),
                                   spiral=False)
-    quiet = dict(checkpointing=False, residual_solver=False, rotate_moments=False,
+    quiet = dict(checkpointing=False, residual_solver=None, rotate_moments=False,
                  field=None)
     _refuse_under_pools(pools, calculation, **quiet)
     _refuse_under_pools(pools, calculation, **{**quiet, "checkpointing": True})
     _refuse_under_pools(pools, calculation, **{**quiet, "field": object()})
     _refuse_under_pools(pools, calculation, **{**quiet, "rotate_moments": True})
-    for name, value, words in [("residual_solver", True, "residual scf_solver")]:
+    # The residual solver runs under pools with its default Jacobian, the
+    # central difference; the two that differentiate stay refused.
+    _refuse_under_pools(pools, calculation,
+                        **{**quiet, "residual_solver": "finite-difference"})
+    for name, value, words in [
+            ("residual_solver", "autodiff", "residual scf_solver with jvp='autodiff'"),
+            ("residual_solver", "sternheimer",
+             "residual scf_solver with jvp='sternheimer'")]:
         with pytest.raises(NotImplementedError, match=words):
             _refuse_under_pools(pools, calculation, **{**quiet, name: value})
-    few = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=1)), spiral=False)
+    few = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=1),
+                                                 occupations="fixed"), spiral=False)
     with pytest.raises(NotImplementedError, match="2 pools for 1 k-points"):
         _refuse_under_pools(pools, few, **quiet)
+
+
+@pytest.mark.parametrize("scheme", ["tetrahedra", "tetrahedra_opt", "from_input"])
+def test_a_pooled_residual_refuses_tetrahedra_before_any_collective(scheme):
+    """The occupations ``F`` has no form for stop every rank before the protocol (I53).
+
+    Raised inside ``PooledScfResidual._evaluate`` instead, after the eigenvalue
+    gather, they hung a two-pool run until the heartbeat (D22, Si 8k
+    tetrahedra: both ranks exit -6 after 315 s, rank 0's traceback never
+    printed). So the entry guard refuses them for any residual solver, and
+    ``make_residual``, which every rank calls before ``PooledScfResidual.of``,
+    refuses them first, ahead of its other refusals; mixing is not refused.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.scf.driver import _refuse_under_pools
+    from defuqumat.scf.residual import make_residual
+
+    pools = Pools(_FakeCommunicator(2, 1))
+    system = SimpleNamespace(kpoints=SimpleNamespace(nk=8), occupations=scheme,
+                             spiral_q=None)
+    calculation = SimpleNamespace(system=system, spiral=False, magnetic_field=None)
+    quiet = dict(checkpointing=False, residual_solver=None, rotate_moments=False,
+                 field=None)
+    _refuse_under_pools(pools, calculation, **quiet)
+    for jvp in ("finite-difference", "autodiff"):
+        with pytest.raises(NotImplementedError, match="no differentiable form"):
+            _refuse_under_pools(pools, calculation, **{**quiet, "residual_solver": jvp})
+    # ``starting_density`` is never reached: the refusal comes first.
+    with pytest.raises(NotImplementedError, match=f"occupations={scheme!r}"):
+        make_residual(calculation, 4, 1e-10)
+    # The sibling refusals of ``make_residual`` still fire on their own.
+    fixed = SimpleNamespace(kpoints=system.kpoints, occupations="fixed", spiral_q=None)
+    with pytest.raises(NotImplementedError, match="magnetic field"):
+        make_residual(SimpleNamespace(system=fixed, magnetic_field=object()), 4, 1e-10)
+    spiral = SimpleNamespace(kpoints=system.kpoints, occupations="fixed",
+                             spiral_q=(0.0, 0.0, 0.1))
+    with pytest.raises(NotImplementedError, match="spin spirals"):
+        make_residual(SimpleNamespace(system=spiral, magnetic_field=None), 4, 1e-10)
+
+
+
+def test_a_pooled_residual_refuses_the_jacobians_that_differentiate():
+    """``PooledScfResidual`` (I53) has only the central difference; the other two raise.
+
+    The entry refusal (above) stops ``autodiff`` and ``sternheimer`` before a
+    pooled residual exists; this is the second line, on the object itself, and
+    the check that only rank 0 may open an evaluation.
+    """
+    from defuqumat.scf.residual import PooledScfResidual, ScfResidual
+
+    serial = ScfResidual(None, 4, 1e-10, ((1, 2, 2, 2),), 8)
+    pooled = PooledScfResidual.of(serial, Pools(_FakeCommunicator(2, 0)), [0, 1], None)
+    x = np.zeros(8)
+    with pytest.raises(NotImplementedError, match="jvp='autodiff' is not available"):
+        pooled.jvp(x, x, 0)
+    with pytest.raises(NotImplementedError, match="jvp='sternheimer' is not available"):
+        pooled.sternheimer_jacobian(x, 0)
+    other = PooledScfResidual.of(serial, Pools(_FakeCommunicator(2, 1)), [2, 3], None)
+    with pytest.raises(RuntimeError, match="only rank 0 drives"):
+        other.step(x, None)
 
 
 # ----------------------------------------------------------------- processes
@@ -336,6 +406,96 @@ def test_pools_reproduce_one_under_the_ldos_mixer():
     for result in pooled:
         assert abs(result["energy"] - serial["energy"]) < 1e-10
         assert result["iterations"] == serial["iterations"] == 8
+
+
+NEWTON_SCRIPT = SCF_SCRIPT.replace(
+    "max_iterations=iterations)",
+    "max_iterations=iterations, scf_solver='newton-krylov',\n"
+    "                     scf_solver_options={'forcing': 0.5, 'warmup': 3})",
+).replace(
+    '"store": type(result.wavefunctions).__name__}',
+    '"store": type(result.wavefunctions).__name__,\n'
+    '                      "steps": result.solver.steps, "newton": result.solver.iterations,\n'
+    '                      "solved": bool(result.solver.converged),\n'
+    '                      "accuracy": float(result.solver.accuracy)}',
+)
+
+SILICON_SMEARED_8K = SILICON_8K.replace(
+    "nosym = .true., noinv = .true.",
+    "nosym = .true., noinv = .true.,\n  occupations = 'smearing', smearing = 'mv', degauss = 0.02")
+
+# The augmented cells: ``becsum`` is part of the residual's state vector there,
+# and its sum over k is all-reduced with the density's.
+SILICON_US_8K = SILICON_8K.replace("ecutwfc = 12.0", "ecutwfc = 20.0, ecutrho = 160.0").replace(
+    "Si.pz-vbc.UPF", "Si.pz-n-rrkjus_psl.0.1.UPF")
+SILICON_PAW_8K = SILICON_US_8K.replace("Si.pz-n-rrkjus_psl.0.1.UPF", "Si.pz-n-kjpaw_psl.0.1.UPF")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("text, sizes", [(SILICON_8K, (2, 3)), (SILICON_SMEARED_8K, (2,)),
+                                         (SILICON_US_8K, (2,)), (SILICON_PAW_8K, (2,))],
+                         ids=["insulator", "smeared", "ultrasoft", "paw"])
+def test_newton_krylov_under_pools_reproduces_one_pool(text, sizes):
+    """``scf_solver = 'newton-krylov'`` at 1 pool against 2 and 3 (I53).
+
+    One pool is the whole-set residual (``ScfResidual.step``); several are the
+    pooled one, each pool solving its rows and rank 0 running the solver while
+    the others serve it (``PooledScfResidual``). The smeared cell is the one
+    whose ``F`` needs the gathered eigenvalues, for its Fermi level. The two
+    routes start Davidson differently on the first evaluation (QE's random
+    guess against the atomic start of ``stream_start``), so the 1-against-N
+    figure is the converged energy, not the bits, and the pooled runs
+    against each other are compared too. The ultrasoft and PAW cells carry
+    ``becsum`` in the state. The guard drops the all-reduce: a Newton solve on
+    each pool's own share must not pass.
+    """
+    assert NEWTON_SCRIPT != SCF_SCRIPT
+    serial = _run_pools(NEWTON_SCRIPT, 1, text, 0, timeout=900)[0]
+    assert serial["solved"] and serial["store"] != "PoolStore"
+    runs = {}
+    for size in sizes:
+        pooled = _run_pools(NEWTON_SCRIPT, size, text, 0, timeout=900)
+        runs[size] = pooled
+        print(f"pools={size}: dE = {pooled[0]['energy'] - serial['energy']:.3e} Ry, "
+              f"F evaluations {pooled[0]['steps']} against {serial['steps']}, "
+              f"newton {pooled[0]['newton']} against {serial['newton']}")
+        for result in pooled:
+            assert result["solved"] and result["store"] == "PoolStore"
+            assert abs(result["energy"] - serial["energy"]) < 1e-10
+            assert result["energy"] == pooled[0]["energy"]
+            # The count of F evaluations is what tells a right pooled F from one
+            # whose reduce is missing inside the evaluation alone: there the
+            # mixing tail still lands on the energy and Newton does not solve.
+            assert result["steps"] == pooled[0]["steps"] == serial["steps"]
+    if len(sizes) > 1:
+        a, b = (runs[size][0] for size in sizes[:2])
+        assert abs(a["energy"] - b["energy"]) < 1e-10
+    if text is SILICON_8K:
+        broken = _start_pools(NEWTON_SCRIPT, 2, text, 1, timeout=900)
+        energies = [json.loads(out.strip().splitlines()[-1])["energy"]
+                    for code, out, _ in broken if code == 0 and out.strip()]
+        # Both broken ranks must finish, or the check below passes on nothing.
+        assert len(energies) == 2, [err[-2000:] for _, _, err in broken]
+        assert all(abs(e - serial["energy"]) > 1e-3 for e in energies)
+
+
+TETRAHEDRA_8K = SILICON_8K.replace(
+    "nosym = .true., noinv = .true.",
+    "nosym = .true., noinv = .true., occupations = 'tetrahedra'")
+
+
+@pytest.mark.slow
+def test_a_pooled_newton_run_refuses_tetrahedra_on_every_rank():
+    """Tetrahedra with ``scf_solver = 'newton-krylov'`` at 2 pools (I53).
+
+    Before the refusal moved ahead of the protocol, this input hung both ranks
+    until the heartbeat (exit -6 after 315 s on D22) and rank 0 never printed
+    the reason; now every rank raises the same error at once.
+    """
+    outcomes = _start_pools(NEWTON_SCRIPT, 2, TETRAHEDRA_8K, 0, timeout=200)
+    for code, _, err in outcomes:
+        assert code == 1, err[-2000:]
+        assert "occupations='tetrahedra' has no differentiable form" in err
 
 
 SILICON_DISPLACED_8K = SILICON_8K.replace(" Si 0.25 0.25 0.25", " Si 0.27 0.25 0.24")
