@@ -271,26 +271,29 @@ def test_a_spinor_projection_has_no_m_resolved_charge(_projection):
     assert "Spilling" in charges.format()  # still formats
 
 
-def test_a_symmetrised_spinor_projection_is_refused(qe_testsuite, pseudo_dir):
-    """``sym_proj_so`` needs the SU(2) representation of each operation.
+def test_a_symmetrised_nonmagnetic_spinor_projection_is_not_refused(
+        qe_testsuite, pseudo_dir):
+    """``sym_proj_so`` is implemented for a nonmagnetic run.
 
-    Refused rather than approximated by averaging the ``m`` indices alone, which
-    would mix ``m_j`` across a spin frame that the operation has turned. Checked
-    on ``pw_spinorbit/spinorbit.in``, which keeps its symmetry -- the cases above
-    run ``nosym``, where there is correctly nothing to refuse over and the guard
-    must *not* fire.
-
-    The refusal is made before the states are touched, so no SCF is run here.
+    Checked on ``pw_spinorbit/spinorbit.in``, which keeps its symmetry: the
+    symmetrised projection now runs where it used to be refused. Its numbers
+    are in ``tests/regression/test_spinor_projection_symmetry.py`` (the wedge
+    against the closed grid and ``projwfc.x``); this only says the guard no
+    longer fires, on zero states, so no SCF is run. A magnetic spin-orbit run
+    is still refused (``tests/unit/test_projwfc.py``).
     """
     calculator = Calculator.from_file(
         qe_testsuite / "pw_spinorbit" / "spinorbit.in", pseudo_dir=pseudo_dir
     )
     calculation = calculator.calculation
     assert calculation.use_symmetry and calculation.symmetries.nsym > 1
+    assert not calculation.system.domag
     states = np.zeros((1, calculation.system.kpoints.nk, 1,
                        2 * calculation.basis.planewaves.npwx), dtype=complex)
-    with pytest.raises(NotImplementedError, match="sym_proj_so"):
-        atomic_projections(calculation, states, symmetrize=True)
+    projections = np.asarray(
+        atomic_projections(calculation, states, symmetrize=True))
+    assert projections.shape[:2] == (1, calculation.system.kpoints.nk)
+    assert np.all(projections == 0.0)
 
 
 @_cases(PAW, US)
