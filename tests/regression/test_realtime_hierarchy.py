@@ -11,7 +11,10 @@ Two comparisons, each an identity rather than an agreement:
   frequency, which shares the table of the projectors and nothing of the solve;
 * the first order with the induced potential, self-consistent, against the dense
   self-consistent solve of :func:`~defuqumat.realtime.dense.dense_first_order`, and
-  its static shift against the Sternheimer stack's.
+  its static shift against the Sternheimer stack's;
+* the same first order on two FFT grids (``ecutrho = 8 ecutwfc``) against the
+  dense solve, and with the Hartree kernel against the one-grid run of the same
+  states.
 
 ``PLAN.md`` P137 has the measurements.
 """
