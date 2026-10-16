@@ -49,6 +49,7 @@ third scheme addresses:
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import warnings
 from dataclasses import dataclass, field
 from functools import partial
@@ -1830,7 +1831,7 @@ class SphereLayout:
 
     def history_bytes(self, depth: int, itemsize: int = 8) -> int:
         """Resident bytes of a full history's density blocks: densities and residuals."""
-        return 2 * int(depth) * self.nspin * self.ngms * int(itemsize)
+        return 2 * int(depth) * int(np.prod(self.stored_shape)) * int(itemsize)
 
     def forward(self, field):
         """A real field ``(nspin, n1, n2, n3)`` -> ``(nspin, nsmooth + nshell)`` complex."""
@@ -1843,6 +1844,15 @@ class SphereLayout:
         the imaginary parts of the rest of the smooth half, scaled as the class
         docstring says. ``shell`` is the shell's half, complex and unscaled.
         """
+        return self.pack_half(coefficients)
+
+    def pack_half(self, coefficients):
+        """:meth:`pack` for any number of real channels on the resident half sphere.
+
+        The packing itself, which :class:`SpiralSphereLayout` keeps for the
+        charge and ``m_z`` and :func:`local_tf_preconditioner_g` applies to the
+        screened charge alone.
+        """
         c = np.asarray(coefficients)
         n = self.nsmooth
         stored = np.concatenate(
@@ -1852,7 +1862,11 @@ class SphereLayout:
 
     def unpack(self, stored):
         """``(nspin, ngms)`` stored reals -> ``(nspin, nsmooth)`` complex coefficients."""
-        stored = np.asarray(stored).reshape(self.stored_shape)
+        return self.unpack_half(np.asarray(stored).reshape(self.stored_shape))
+
+    def unpack_half(self, stored):
+        """The inverse of :meth:`pack_half`: ``(nchannels, ngms)`` reals -> complex."""
+        stored = np.asarray(stored)
         n = self.nsmooth
         real = np.concatenate([stored[:, :1] / self._w0, stored[:, 1:n] / self._w],
                               axis=1)
@@ -1930,6 +1944,157 @@ class SphereLayout:
             weight = 0.5 * self._volume * E2 * FPI / (2.0 * np.pi) ** 2 / self.points
             parts.append(np.sqrt(weight) * moment)
         return np.concatenate([np.ravel(p) for p in parts])
+
+
+@partial(jax.jit, static_argnames=("grid",))
+def _to_pair(pair, index, grid):
+    """A real pair ``(f_x, f_y)`` on the box -> ``f_x + i f_y``'s coefficients at ``index``."""
+    points = grid[0] * grid[1] * grid[2]
+    box = jnp.fft.fftn(jax.lax.complex(pair[0], pair[1]), axes=(-3, -2, -1)) / points
+    return box.reshape(points)[index]
+
+
+@partial(jax.jit, static_argnames=("grid",))
+def _from_pair(coefficients, index, grid):
+    """Coefficients of ``f_x + i f_y`` at ``index`` -> the real pair on the box."""
+    points = grid[0] * grid[1] * grid[2]
+    box = put_unique(jnp.zeros(points, dtype=coefficients.dtype), index, coefficients)
+    field = jnp.fft.ifftn(box.reshape(grid), axes=(-3, -2, -1)) * points
+    return jnp.stack([jnp.real(field), jnp.imag(field)])
+
+
+class SpiralSphereLayout(SphereLayout):
+    """:class:`SphereLayout` for a magnetic spin spiral: the transverse pair on its own sphere.
+
+    **Why the resident layout cannot hold a spiral.** The charge and ``m_z``
+    are real fields band-limited to the resident sphere, and are kept exactly as
+    :class:`SphereLayout` keeps them. The transverse pair is not: the density's
+    channels 1 and 2 are the real and imaginary parts of the rotating-frame
+    ``m'_+ = 2 conj(u_up) u_dn``, whose coefficients lie on the sphere displaced
+    by ``q``, ``{G : |G - q| < G_s}`` on the smooth grid and ``|G - q| < G_rho``
+    on the dense one (:meth:`~defuqumat.scf.driver.Calculation.lift_density`,
+    ``OPEN.md`` Part XXI item 1). Each real channel then lives on the union of
+    that sphere and its mirror, and the resident half sphere cuts the shell
+    between the two at every step.
+
+    **What is stored instead.** ``m'_+`` as one complex field, every coefficient
+    on the displaced smooth sphere, its real part in row 1 of the stored block
+    and its imaginary part in row 2, each scaled by ``sqrt(N)``: the displaced
+    sphere has no ``(G, -G)`` pairing (``-G - q`` is not ``-(G - q)``, the
+    argument of :func:`~defuqumat.scf.driver._addusdens_spiral`), and with
+    ``c = fwfft(f)`` Parseval gives ``sum_r (f_x g_x + f_y g_y) = N Re sum_G
+    conj(c_f) c_g``, so the flat dot of two stored blocks is still the
+    real-space one, as the parent's scaling makes it for the charge and ``m_z``.
+    The block is ``(4, L)`` with ``L`` the larger of the resident ``ngms`` and
+    the displaced count, the shorter rows padded with zeros, which every step
+    keeps at zero (Anderson combines with real coefficients, both
+    preconditioners and :meth:`Mixer.magnetic_step` act row by row), so the
+    consumers that read the block as ``(nspin, ...)`` -- the magnetic step,
+    Kerker's charge row, ``rho_ddot``'s flat magnetization weight -- read it
+    unchanged. :attr:`kinetic` is padded with ones, multiplied only by zeros.
+
+    **The shell** is the parent's two-channel shell followed by the displaced
+    dense list past its smooth prefix, complex, in one flat array; with the
+    augmentation charge installed it is rebuilt from the mixed ``becsum``
+    through the same :attr:`augmentation`, whose displaced table is the
+    transverse pair's (:func:`~defuqumat.scf.driver._augmentation_of`).
+
+    **Without a separate smooth grid and without augmentation** the run builds no
+    displaced set (:func:`~defuqumat.scf.driver._spiral_gvectors`) and the
+    density's transverse pair is whatever the box holds -- on the hydrogen chain
+    at ``ecutwfc = 25`` the displaced dense sphere spans 16 Miller indices along
+    ``c`` on a 15-point axis, so the product the density is built from aliases
+    onto the box. There ``pair_index`` is the whole box and nothing of the pair
+    is cut, which is the real-space layout's content for those two channels
+    exactly, and the history holds ``4 N`` reals a channel set, as real space
+    does.
+    """
+
+    def __init__(self, dense: GVectors, ngms: int, cell, shape, pair_index,
+                 npair_smooth: int, augmentation=None):
+        super().__init__(dense, ngms, cell, shape, augmentation)
+        if self.nspin != 4:
+            raise ValueError(f"a spiral's density has four channels, not {self.nspin}")
+        pair_index = np.asarray(pair_index)
+        npair_smooth = int(npair_smooth)
+        if not 0 < npair_smooth <= pair_index.size:
+            raise ValueError(
+                f"the displaced smooth sphere ({npair_smooth}) is not inside the "
+                f"displaced list of {pair_index.size}")
+        if np.unique(pair_index).size != pair_index.size:
+            raise AssertionError("two members of the displaced sphere share a box index")
+        self._pair_index = jnp.asarray(pair_index)
+        #: Complex coefficients of ``m'_+`` kept (the displaced smooth sphere)
+        #: and in its shell (the displaced dense list past that prefix).
+        self.npair, self.npair_shell = npair_smooth, int(pair_index.size) - npair_smooth
+        self._resident_shell = self.nshell
+        #: Every shell entry, the resident pair of channels and ``m'_+``'s.
+        self.nshell = 2 * self._resident_shell + self.npair_shell
+        self.width = max(self.ngms, self.npair)
+        self.stored_shape = (4, self.width)
+        self.kinetic = np.concatenate(
+            [self.kinetic, np.ones(self.width - self.ngms)])
+        self._wp = float(np.sqrt(self.points))
+        digest = hashlib.sha1(np.ascontiguousarray(pair_index, dtype=np.int64).tobytes())
+        digest.update(np.asarray([self.ngm, self.ngms, npair_smooth]).tobytes())
+        #: The tag the history is written under: ``'g'`` and the displaced
+        #: sphere, so a resume at another ``q`` or cutoff drops the history
+        #: rather than combining vectors in two different layouts.
+        self.tag = f"g-spiral-{digest.hexdigest()[:16]}"
+
+    def forward(self, field):
+        """``(nspin, n1, n2, n3)`` real -> (charge and ``m_z`` half sphere, ``m'_+``)."""
+        field = jnp.asarray(field)
+        resident = _to_half_sphere(field[::3], self._index, self.grid)
+        return resident, _to_pair(field[1:3], self._pair_index, self.grid)
+
+    def pack(self, coefficients):
+        """``(resident, pair)`` coefficients -> ``(stored (4, L), shell)``, host arrays."""
+        resident, pair = (np.asarray(c) for c in coefficients)
+        head, shell = self.pack_half(resident)
+        stored = np.zeros(self.stored_shape, dtype=head.dtype)
+        stored[0, :self.ngms], stored[3, :self.ngms] = head[0], head[1]
+        stored[1, :self.npair] = pair[:self.npair].real * self._wp
+        stored[2, :self.npair] = pair[:self.npair].imag * self._wp
+        return stored, np.concatenate([np.ravel(shell), pair[self.npair:]])
+
+    def unpack(self, stored):
+        """The stored block -> the charge and ``m_z`` on the resident half sphere, complex.
+
+        Row 0 is the charge, which is what :func:`local_tf_preconditioner_g`
+        reads; ``m'_+`` is :meth:`unpack_pair`.
+        """
+        stored = np.asarray(stored).reshape(self.stored_shape)
+        return self.unpack_half(stored[::3, :self.ngms])
+
+    def unpack_pair(self, stored):
+        """The stored block -> ``m'_+``'s coefficients on the displaced smooth sphere."""
+        stored = np.asarray(stored).reshape(self.stored_shape)
+        return (stored[1, :self.npair] + 1j * stored[2, :self.npair]) / self._wp
+
+    def field(self, stored, shell=None):
+        """The real ``(4, n1, n2, n3)`` field of ``stored`` and ``shell``, on the device."""
+        resident = self.unpack(stored)
+        pair = self.unpack_pair(stored)
+        nres = self._resident_shell
+        if shell is None:
+            shell = np.zeros(self.nshell, dtype=resident.dtype)
+        shell = np.asarray(shell, dtype=resident.dtype)
+        resident = np.concatenate([resident, shell[:2 * nres].reshape(2, nres)], axis=1)
+        pair = np.concatenate([pair, shell[2 * nres:]])
+        scalar = _from_half_sphere(jnp.asarray(resident), self._index,
+                                   self._index_minus, self.grid)
+        transverse = _from_pair(jnp.asarray(pair), self._pair_index, self.grid)
+        return jnp.stack([scalar[0], transverse[0], transverse[1], scalar[1]])
+
+    def shell_step(self, residual, beta: float, beta_mag: float | None = None):
+        """``beta`` times the shell's residual, every magnetization entry at ``beta_mag``."""
+        stepped = beta * np.asarray(residual)
+        if beta_mag is None:
+            return stepped
+        stepped = np.array(stepped, copy=True)
+        stepped[self._resident_shell:] *= float(beta_mag) / float(beta)
+        return stepped
 
 
 def kerker_preconditioner_g(layout: SphereLayout, cell, beta=0.7, screening=None,
@@ -2057,8 +2222,11 @@ def local_tf_preconditioner_g(layout: SphereLayout, smooth: GVectors, cell, beta
             pair = np.stack([0.5 * (charge + moment), 0.5 * (charge - moment)])
             out[:size] = layout.pack(pair)[0].ravel()
         else:
+            # Row 0 of the stored block is the charge in every layout, its
+            # first ``ngms`` entries the resident half sphere
+            # (:class:`SpiralSphereLayout` carries the transverse pair after it).
             charge = beta * solve(head[0], rho[0])
-            out[:layout.ngms] = layout.pack(charge[None])[0].ravel()
+            out[:layout.ngms] = layout.pack_half(charge[None])[0].ravel()
         return out
 
     return preconditioner

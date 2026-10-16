@@ -136,6 +136,7 @@ from defuqumat.scf.mixing import (
     PRECONDITIONED,
     AndersonMixer,
     SphereLayout,
+    SpiralSphereLayout,
     get_mixer,
     kerker_preconditioner,
     kerker_preconditioner_g,
@@ -645,6 +646,21 @@ def _augmentation_of(calculation):
 
     return augmentation
 
+
+
+def _spiral_pair_index(calculation):
+    """``(pair_index, npair_smooth)``: where :class:`SpiralSphereLayout` keeps ``m'_+``.
+
+    The displaced dense list, its smooth prefix first, where the run built one
+    (:attr:`Calculation.spiral_dense`); otherwise the whole box in its own
+    order, every coefficient of it kept, since there the density's transverse
+    pair is not cut in G anywhere and may fill the box.
+    """
+    if calculation.spiral_dense is not None:
+        index = np.asarray(calculation.spiral_dense.fft_index)
+        return index, int(calculation.spiral_smooth.ngm)
+    points = int(np.prod(calculation.basis.dense.grid))
+    return np.arange(points), points
 
 
 def _mix(mixer, rho, rho_out, becsum_in, becsum_out, ns_in=None, ns_out=None,
@@ -7935,51 +7951,62 @@ def run_scf(
     space = resolve_mixing_space(mixing_space, mixer)
     fit_in_rho_ddot = resolve_mixing_fit(mixing_fit)
     layout = None
-    if space == "g" and calculation.spiral and calculation.nspin_mag == 4:
-        # The layout keeps each real channel on the *resident* smooth sphere
-        # and its mirror, and a spiral's transverse pair lives on the
-        # laboratory sphere ``|G - q| < G_s`` (:meth:`Calculation.lift_density`),
-        # so every step would drop the shell between the two -- the cut
-        # ``OPEN.md`` Part XXI item 1 removed from the density and the
-        # potential, put back in the mixer. Refused rather than given a complex
-        # block on the displaced sphere, which nothing has asked for.
-        raise NotImplementedError(
-            "mixing_space = 'g' on a magnetic spin spiral is not implemented: "
-            "the layout keeps every channel on the resident smooth sphere, and a "
-            "spiral's transverse magnetization lives on the sphere displaced by "
-            "q, |G - q| < G_s, so each mixing step would cut the shell between "
-            "the two. Leave mixing_space unset or set it to 'r', which mixes on "
-            "the whole dense grid in real space"
-        )
     if space == "g":
-        layout = SphereLayout(calculation.basis.dense, calculation.basis.ngms,
-                              calculation.system.cell, tuple(np.shape(rho)))
+        if calculation.spiral and calculation.nspin_mag == 4:
+            # The resident layout keeps each real channel on the *resident*
+            # smooth sphere and its mirror, and a spiral's transverse pair lives
+            # on the laboratory sphere ``|G - q| < G_s``
+            # (:meth:`Calculation.lift_density`), so it would drop the shell
+            # between the two at every step -- the cut ``OPEN.md`` Part XXI item
+            # 1 removed from the density and the potential. The spiral's layout
+            # keeps ``m'_+`` on that sphere instead, or on the whole box where
+            # the run builds no displaced set (:class:`SpiralSphereLayout`).
+            layout = SpiralSphereLayout(
+                calculation.basis.dense, calculation.basis.ngms,
+                calculation.system.cell, tuple(np.shape(rho)),
+                *_spiral_pair_index(calculation))
+        else:
+            layout = SphereLayout(calculation.basis.dense, calculation.basis.ngms,
+                                  calculation.system.cell, tuple(np.shape(rho)))
         if layout.nshell:
             layout.augmentation = _augmentation_of(calculation)
         mixer.layout = layout
         mixer.shape = layout.stored_shape
     restored_space = getattr(mixer, "_history_space", None) or "r"
-    if restored_space != space and getattr(mixer, "_residuals", None):
+    # A spiral's layout is tagged with the displaced sphere it was built on
+    # (:attr:`SpiralSphereLayout.tag`), so a history written at another ``q``, or
+    # by the resident layout, is dropped rather than combined with this run's.
+    tag = getattr(layout, "tag", space)
+
+    def described(t):
+        if t == "r":
+            return "real space"
+        if t == "g":
+            return "G on the smooth sphere"
+        return "G with a spiral's transverse pair on its displaced sphere"
+
+    if restored_space != tag and getattr(mixer, "_residuals", None):
         # A history written in the other layout -- every checkpoint from before
         # the layout existed is real space and carries no tag -- is not a set of
         # vectors this run can combine with its own, so it is dropped here, said
         # beside "mixer history restored", which would otherwise be the last
         # word on it.
+        keep = (f"resume with mixing_space = {restored_space!r} to keep it"
+                if restored_space in ("r", "g") else
+                "only a run at the same spiral_q and cutoffs with mixing_space = "
+                "'g' can keep it")
         warnings.warn(
             f"the mixer history restored from {mixing_from} keeps the density in "
-            f"{'real space' if restored_space == 'r' else 'G on the smooth sphere'}"
-            f" and this run mixes it "
-            f"{'in real space' if space == 'r' else 'in G on the smooth sphere'} "
-            f"(mixing_space = {space!r}), so it is dropped. The density is "
-            f"unaffected -- this costs the iterations the saved history would have "
-            f"saved, and nothing else; resume with mixing_space = "
-            f"{restored_space!r} to keep it",
+            f"{described(restored_space)} and this run mixes it in "
+            f"{described(tag)} (mixing_space = {space!r}), so it is dropped. The "
+            f"density is unaffected -- this costs the iterations the saved history "
+            f"would have saved, and nothing else; {keep}",
             RuntimeWarning, stacklevel=2,
         )
         mixer.reset()
     # Written with the history (``save_mixer`` stores a string), so a resume can
     # tell which layout its vectors are in.
-    mixer._history_space = space
+    mixer._history_space = tag
 
     if mixing_mode.lower() in PRECONDITIONED:
         # A preconditioner's ``beta`` is an operator on the grid, so it cannot
