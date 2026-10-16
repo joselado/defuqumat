@@ -373,6 +373,11 @@ def dynamical_matrix(
             :func:`~defuqumat.response.nonlinear.raman_tensors` solves the same
             object and hands it back through its ``keep_internals``, which is
             what lets a spectrum cost one displacement response rather than two.
+            With ``atoms``, a response solved for every atom (which both of
+            those are) is cut to those atoms' rows -- :func:`_response_rows`
+            on the whole-k route, ``force_constants(atoms=)`` on the walked
+            one -- and gives the block of the whole matrix exactly; a response
+            whose row count is neither the cell's nor the subset's is refused.
     """
     eigenvalues = jnp.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
