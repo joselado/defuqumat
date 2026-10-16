@@ -108,3 +108,25 @@ def test_the_walked_average_is_the_batched_one(monkeypatch):
     monkeypatch.setenv("DEFUQUMAT_GATHER_BUDGET", "0")
     walked = calculation.symmetrize_atom_displacement(fields)
     np.testing.assert_allclose(walked, batched, atol=1e-12)
+
+
+def test_summed_over_atoms_it_is_the_field_direction_average():
+    """The atom sum of the displacement average is the direction average.
+
+    Summing ``drho_{c,a,i}`` over the displaced atom ``c`` removes the atom
+    permutation, which is a relabelling of that sum, and leaves a field
+    labelled by a polar direction and an axial spin component: exactly what
+    :meth:`~defuqumat.scf.driver.Calculation.symmetrize_directional` averages,
+    and that method's axial rule is checked against the whole zone on this same
+    helix (``test_spinor_response.py``: 2.6e-5 with the axial rule, 0.665 with
+    three scalars). So this ties the sign convention of the new average to a
+    measured one, which the projector test above cannot do.
+    """
+    calculation = _calculation("h4-cycloid-90")
+    fields = _random_fields(calculation, seed=3)
+    by_atom = calculation.symmetrize_atom_displacement(fields)
+    direction = calculation.symmetrize_directional(jnp.sum(fields, axis=0))
+    scale = float(jnp.abs(direction).max())
+    difference = float(jnp.abs(jnp.sum(by_atom, axis=0) - direction).max())
+    print(f"\natom sum against the direction average: {difference:.3e} on {scale:.3e}")
+    assert difference < 1e-12 * max(scale, 1.0)

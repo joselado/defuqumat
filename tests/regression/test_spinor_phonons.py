@@ -24,6 +24,11 @@ gate test asserts that both refusals fire through the front door.
    (``reference.out.ph-alas-epsilon-us-soc``), where ``fcoef`` is not the
    identity, though the coupling is small there (see the test).
 
+The second half of the file is the **magnetic** spinor (I79,
+``notes/incompat/I79.md``), also refused and measured with its guard bypassed:
+the collinear limit, a spinor with the moment along ``z`` against the
+``nspin = 2`` run, on triplet O2 and on the antiferromagnetic hydrogen chain.
+
 The file visits more than three cells, so it clears the compiled code between
 tests and keeps two converged states at most (``CLAUDE.md``, memory).
 """
@@ -210,3 +215,155 @@ def test_a_spinor_phonon_is_refused_by_name():
             plain, jnp.zeros((1, 1, 1, 1)), jnp.zeros((1, 1, 1)),
             jnp.zeros((1, 1, 1, 1)),
         )
+
+
+# --- I79: a spinor with a magnetization ------------------------------------
+
+
+@pytest.fixture
+def textured_guard_bypassed(monkeypatch, spinor_guard_bypassed):
+    """The spinor phonon refusal and the textured dielectric one, both off."""
+    from defuqumat.response import efield
+
+    monkeypatch.setattr(efield, "require_a_measured_spinor_response",
+                        lambda calculation: None)
+
+
+def _magnetic(case: str, edit, origin_tangent: bool = True):
+    """``case`` with ``edit`` applied to its ``&system``, converged and solved."""
+    from defuqumat.scf import Calculation
+
+    parsed = read_pw_input(CASES / f"{case}.in")
+    if edit is not None:
+        edit(parsed.namelists["system"])
+    system = build_system(parsed)
+    pseudos = tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+    )
+    calculation = Calculation(system, pseudos, origin_tangent=origin_tangent)
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                     max_iterations=200)
+    assert result.converged
+    phonons = dynamical_matrix(
+        calculation, result.wavefunctions, result.eigenvalues, result.density,
+        result.becsum, max_iterations=80,
+    )
+    assert phonons.converged
+    return calculation, result, phonons
+
+
+def _o2_spinor(nosym: bool):
+    """Triplet O2 as a spinor, the moment along z and no spin-orbit coupling."""
+    def edit(namelist):
+        namelist.pop("nspin")
+        namelist.pop("tot_magnetization")
+        namelist["noncolin"] = True
+        namelist["nbnd"] = 16
+        if nosym:
+            namelist["nosym"] = True
+    return edit
+
+
+def _afm_spinor(namelist):
+    """The antiferromagnetic chain as a spinor, the moments along +z and -z."""
+    namelist.pop("nspin")
+    namelist["noncolin"] = True
+    namelist["nbnd"] = 24
+
+
+def test_the_walked_route_refuses_a_spinor_even_past_the_spinor_guard(
+        spinor_guard_bypassed):
+    """The sibling refusal behind ``_require_no_spinor``: the k-chunked route.
+
+    ``chunked_phonon.py`` has the collinear ``qq`` and no spinor energy, so a
+    spinor that reached it would be assembled with the wrong overlap. A numpy
+    store is a streamed one, which takes that route with no SCF. Run with the
+    front-door guard bypassed, or the test would pass on the wrong message.
+    """
+    parsed = read_pw_input(CASES / "h-chain-afm.in")
+    _afm_spinor(parsed.namelists["system"])
+    system = build_system(parsed)
+    pseudos = tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+    )
+    from defuqumat.scf import Calculation
+
+    calculation = Calculation(system, pseudos)
+    assert calculation.noncolin and calculation.nspin_mag == 4
+    with pytest.raises(NotImplementedError, match="walked a k-chunk at a time"):
+        dynamical_matrix(calculation, np.zeros((1, 2, 24, 8)),
+                         jnp.zeros((1, 2, 24)), None)
+
+
+#: ``max|D_spinor - D_lsda|`` in Ry/bohr^2 for the collinear limit of a magnetic
+#: spinor, measured on D22 (2026-10-16, one run each, ``conv_thr = 1e-12``, the
+#: default ``tr2``): **8.3e-6** on triplet O2 (force constants of 1.68, all of
+#: it in the transverse block), **1.9e-6** on the antiferromagnetic chain (0.038).
+#: Not round-off: on the collinear ground state written as a spinor the two are
+#: still 2.3e-6 and 1.4e-6 apart, against 2.7e-10 for a nonmagnetic spinor, and
+#: the reason is unlocated (``notes/incompat/I79.md``). The bounds hold that
+#: residue and catch what a dropped spin block or a factor of two would do.
+MAGNETIC_IDENTITY = {"o2": 3e-5, "hafm": 1e-5}
+
+
+@pytest.mark.slow
+def test_a_magnetic_spinor_along_z_gives_the_lsda_force_constants(
+        textured_guard_bypassed):
+    """Triplet O2 as a spinor with the moment along ``z`` against ``nspin = 2``.
+
+    Without spin-orbit coupling a displacement induces no transverse moment, so
+    the 4x4 kernel's longitudinal block is the LSDA kernel and the two runs are
+    one calculation. Both take ``origin_tangent=False``, the convention the
+    LSDA run was checked against ``ph.x`` in (``test_lsda_response.py``). The
+    dielectric tensor of the pair is printed beside it: 1.110915839 against
+    1.11091585 across the axis and 1.198006816 against 1.198006981 along it.
+    """
+    from defuqumat.response.efield import dielectric_tensor
+
+    _, _, lsda = _magnetic("o2-fixed-lsda", None, origin_tangent=False)
+    calculation, result, spinor = _magnetic(
+        "o2-fixed-lsda", _o2_spinor(nosym=True), origin_tangent=False)
+    assert calculation.noncolin and calculation.nspin_mag == 4
+    assert not any(p.has_so for p in calculation.pseudos)
+    difference = float(np.abs(spinor.matrix - lsda.matrix).max())
+    epsilon = dielectric_tensor(
+        calculation, result.wavefunctions, result.eigenvalues, result.density,
+        result.becsum, max_iterations=40).epsilon
+    print(f"\nO2 spinor against LSDA: {difference:.3e}; "
+          f"eps {np.array2string(np.diag(np.asarray(epsilon)), precision=9)}")
+    assert difference < MAGNETIC_IDENTITY["o2"]
+
+
+@pytest.mark.slow
+def test_the_symmetrised_magnetic_spinor_is_the_nosym_one(spinor_guard_bypassed):
+    """The same O2 spinor with its eight magnetic operations, against ``nosym``.
+
+    Measured at **2.3e-8**. It exercises the axial displacement average on the
+    grid and in ``becsum`` end to end, but **it cannot tell the axial rule from
+    the scalar one**: the response of a collinear state has no transverse
+    magnetization, and on ``m_z`` alone the magnetic group's signs are all +1.
+    The rule itself is checked in
+    ``tests/unit/test_magnetic_displacement_symmetry.py``.
+    """
+    _, _, free = _magnetic("o2-fixed-lsda", _o2_spinor(nosym=True),
+                           origin_tangent=False)
+    calculation, _, wedge = _magnetic("o2-fixed-lsda", _o2_spinor(nosym=False),
+                                      origin_tangent=False)
+    assert calculation.use_symmetry and calculation.symmetries.nsym > 1
+    assert float(np.abs(wedge.matrix - free.matrix).max()) < 1e-6
+
+
+@pytest.mark.slow
+def test_an_antiferromagnetic_spinor_metal_gives_the_lsda_force_constants(
+        spinor_guard_bypassed):
+    """The hydrogen chain with moments along ``+z`` and ``-z``, a metal.
+
+    The smeared branch of the solve and the Fermi level's shift at ``q = 0``,
+    with the magnetization's own local density of states in it.
+    """
+    _, _, lsda = _magnetic("h-chain-afm", None)
+    calculation, _, spinor = _magnetic("h-chain-afm", _afm_spinor)
+    assert calculation.noncolin and calculation.nspin_mag == 4
+    difference = float(np.abs(spinor.matrix - lsda.matrix).max())
+    print(f"\nAFM chain spinor against LSDA: {difference:.3e}")
+    assert difference < MAGNETIC_IDENTITY["hafm"]

@@ -1931,6 +1931,31 @@ def _require_no_spinor(calculation) -> None:
     dielectric tensor of the one textured cell measured (``i-atom-soc.in``) sits
     5.3 per cent from ``ph.x`` along the moment for an unlocated reason
     (:func:`~defuqumat.response.efield.require_a_measured_spinor_response`).
+
+    **What I79 measured for it** (D22, 2026-10-16, one run each, this guard
+    bypassed, ``notes/incompat/I79.md``). Nothing in the assembly is new for a
+    moment: the second solve ``ph.x`` runs under ``domag`` (``nsolv = 2``,
+    ``dfpt_kernels.f90:212-213``) supplies the ``dpsi^* psi`` half that its
+    density formula leaves to the time-reversed partner, and the density
+    response here is a ``jvp``, ``2 Re`` of both halves already. The
+    displacement average is axial on the grid and in ``becsum``
+    (:meth:`~defuqumat.scf.driver.Calculation.symmetrize_atom_displacement`).
+    The collinear limit is then an identity, and it is close but not exact:
+
+    * triplet O2 (ultrasoft, the moment along ``z``, no spin-orbit coupling)
+      against its ``nspin = 2`` run: **8.3e-6** Ry/bohr^2 on force constants of
+      1.68, all of it in the transverse block (entries 0.010 to 0.019); the
+      symmetrised spinor against the ``nosym`` one 2.3e-8;
+    * the antiferromagnetic hydrogen chain (a norm-conserving metal):
+      **1.9e-6** on 0.038;
+    * the same, solved on the collinear ground state written as a spinor, so
+      that the two runs share a fixed point: **2.3e-6** and **1.4e-6**.
+
+    So about 1e-6 belongs to the spinor response route itself, four orders
+    above the 2.7e-10 a nonmagnetic spinor reaches against the scalar run, and
+    it is unlocated. It is below ``ph.x``'s own distance on O2 (4.0e-5), and the
+    identity cannot see the transverse kernel or spin-orbit coupling at all,
+    which is where the 5.3 per cent above sits.
     """
     if not calculation.noncolin:
         return
@@ -1940,7 +1965,11 @@ def _require_no_spinor(calculation) -> None:
             "(nspin_mag = 4, a textured spinor) is not implemented: the induced "
             "potential carries dm . sigma through the 4x4 exchange-correlation "
             "kernel, which the dielectric tensor of a textured spin-orbit "
-            "insulator puts 5.3 per cent from ph.x for a reason not yet found"
+            "insulator puts 5.3 per cent from ph.x for a reason not yet found; "
+            "in the collinear limit, triplet O2 as a spinor against its "
+            "nspin = 2 run, the force constants agree to 8.3e-6 Ry/bohr^2 and "
+            "not to round-off, and 2.3e-6 of that remains on a shared ground "
+            "state, which is unlocated (notes/incompat/I79.md)"
         )
     raise NotImplementedError(
         "the dynamical matrix of a noncollinear or spin-orbit run is not "
