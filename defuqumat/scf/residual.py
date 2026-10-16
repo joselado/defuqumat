@@ -70,9 +70,20 @@ projectors ``wfcU`` are fixed while the atoms are.
 
 **Refused rather than approximated:** external and constrained magnetic fields
 (the field is driven by a secant *outside* the density, so ``F`` would not be a
-function of ``x`` alone), tetrahedron and ``from_input`` occupations (built on
-the host, and the second is not a function of the eigenvalues at all), and spin
-spirals. Each raises by name.
+function of ``x`` alone) and spin spirals. Each raises by name.
+
+**Tetrahedron and ``from_input`` occupations are in** (I71). Both were refused
+on the grounds that the first is "built on the host" and the second "is not a
+function of the eigenvalues at all"; neither stops ``F`` being a function of
+``x``. The tetrahedra are a table of the k-grid and the group, built once like
+``wk`` (``Calculation.tetrahedron_table``), and the weights on them were
+already JAX; ``from_input`` is a constant, whose zero tangent is the right one.
+What was missing for the autodiff Jacobian was the Fermi level's tangent: the
+tetrahedron bisection now carries the implicit derivative of
+``N(E_F) = nelec``, as ``bisect_fermi`` does for a smearing. The Sternheimer
+Jacobian still refuses both (``require_a_sternheimer_regime``): it needs the
+tetrahedron response weight ``dfpt_tetra_beta``, and for ``from_input`` a
+projector for a filling that is not a function of the levels.
 
 Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum`` and
 ``ns``, and a Krylov subspace holds a few tens of those -- tens of MB,
@@ -91,7 +102,10 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.eager import compiled
-from defuqumat.scf.occupations import fixed_occupations, smeared_occupations
+from defuqumat.scf.occupations import (
+    fixed_occupations, input_occupations, smeared_occupations,
+)
+from defuqumat.scf.tetrahedra import tetrahedron_occupations_spin
 
 __all__ = ["PooledScfResidual", "ScfResidual", "SternheimerJacobian", "make_residual"]
 
@@ -663,23 +677,27 @@ class SternheimerJacobian:
 
 
 def refuse_residual_occupations(system) -> None:
-    """Raise by name for the occupation schemes ``F`` has no form for.
+    """Raise by name for the occupation schemes ``F`` has no *pooled* form for.
 
-    Called by :func:`_weights` and, before anything else, by
-    :func:`make_residual`, which every pool runs before
-    :class:`PooledScfResidual`'s protocol opens: raised inside ``_evaluate``
+    On one process tetrahedra and ``from_input`` are in (I71, :func:`_weights`).
+    Under k-point pools they are not measured: ``PooledScfResidual`` gathers the
+    eigenvalues but nothing built the tetrahedron table's pooled use, so the
+    driver's pool guard calls this on every rank before
+    :class:`PooledScfResidual`'s protocol opens. Raised inside ``_evaluate``
     instead, after the eigenvalue gather, the serving pools leave ``serve()``
     while rank 0 waits in ``abort()``'s broadcast, and the run hangs until the
     pool heartbeat with rank 0's traceback never printed (measured on D22, Si
-    8k tetrahedra at 2 pools: both ranks exit -6 after 315 s).
+    8k tetrahedra at 2 pools: both ranks exit -6 after 315 s; I53).
     """
     scheme = system.occupations
     if scheme.startswith("tetrahedra") or scheme == "from_input":
         raise NotImplementedError(
-            f"occupations={scheme!r} has no differentiable form here: the "
-            "tetrahedron weights are built on the host from the k-grid and the "
-            "symmetry, and 'from_input' is not a function of the eigenvalues at "
-            "all. Use occupations='smearing' or 'fixed' with a residual solver"
+            f"occupations={scheme!r} has no pooled form here: a residual "
+            "solver takes it on one process (the tetrahedron table is a "
+            "constant of the k-grid and 'from_input' a constant of the "
+            "eigenvalues), but under k-point pools the pair has not been "
+            "measured. Run it on one process, or use occupations='smearing' "
+            "or 'fixed' with a pooled residual solver"
         )
 
 
@@ -694,9 +712,32 @@ def _weights(calculation, eigenvalues):
     """
     system = calculation.system
     scheme = system.occupations
-    refuse_residual_occupations(system)
     degeneracy = 1 if calculation.noncolin else 2
     weights = system.kpoints.weights
+
+    if scheme == "from_input":
+        # The card's numbers times ``wk``: a constant of the eigenvalues, so its
+        # tangent is zero, which is the right derivative of a filling fixed by
+        # hand. ``F`` is still a function of ``x`` alone.
+        if system.input_occupations is None:
+            raise ValueError("occupations='from_input' needs an OCCUPATIONS card")
+        return input_occupations(
+            system.input_occupations, eigenvalues, weights, degeneracy
+        )
+    if scheme.startswith("tetrahedra"):
+        # The tetrahedra are host-built from the k-grid and the group, not from
+        # the density, so they are a constant here like ``wk``; the weights
+        # themselves are JAX on the eigenvalues, and the Fermi level carries the
+        # implicit tangent of ``N(E_F) = nelec`` (``scf/tetrahedra.py``,
+        # ``_fermi_level``), which is what ``jvp = 'autodiff'`` reads.
+        counts = (
+            (calculation.nelup, calculation.neldw)
+            if calculation.two_fermi_energies else None
+        )
+        return tetrahedron_occupations_spin(
+            calculation.tetrahedron_table(), eigenvalues, weights,
+            calculation.nelec, counts=counts,
+        )[0]
 
     if scheme == "fixed":
         # The same ``counts`` the smeared branch below takes, for the same
@@ -721,7 +762,6 @@ def _weights(calculation, eigenvalues):
 def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
     """Build the residual for a calculation, refusing the regimes it cannot hold."""
     system = calculation.system
-    refuse_residual_occupations(system)
     if calculation.magnetic_field is not None:
         raise NotImplementedError(
             "an external or constraining magnetic field has no residual form "

@@ -38,6 +38,11 @@ BENCHMARKS = Path(__file__).resolve().parents[2] / "benchmarks"
 #: the density response alone.
 SILICON = BENCHMARKS / "si-1k.in"
 
+#: fcc aluminium with Bloechl's tetrahedra on the 4x4x4 shifted grid; ``pw.x``
+#: 7.5's own run is ``reference.out.al-tetrahedra``.
+AL_TETRAHEDRA = Path(__file__).resolve().parents[1] / "data" / "qe" / "al-tetrahedra.in"
+AL_TETRAHEDRA_REFERENCE = AL_TETRAHEDRA.with_name("reference.out.al-tetrahedra")
+
 #: bcc iron from a *small* starting moment: two self-consistent solutions, one
 #: of them unstable. See ``test_newton_krylov_reaches_an_unstable_solution``.
 IRON = BENCHMARKS / "fe-unstable.in"
@@ -307,7 +312,8 @@ def test_local_tf_screens_the_vacuum_less_than_the_metal():
 
 
 @pytest.mark.regression
-@pytest.mark.parametrize("case", [SILICON, SLAB], ids=["silicon", "al-slab"])
+@pytest.mark.parametrize("case", [SILICON, SLAB, AL_TETRAHEDRA],
+                         ids=["silicon", "al-slab", "al-tetrahedra"])
 @pytest.mark.slow
 def test_weights_agree_with_the_driver(case):
     """``residual._weights`` is a second copy of the driver's occupation
@@ -323,17 +329,145 @@ def test_weights_agree_with_the_driver(case):
     assert np.allclose(_weights(calculation, eigenvalues), np.asarray(expected), atol=1e-14)
 
 
-@pytest.mark.unit
-def test_unsupported_occupations_are_refused_by_name():
-    """A residual solver that silently substituted a scheme it cannot
-    differentiate would converge to the wrong physics, so it raises instead."""
+
+#: How far the autodiff ``dF v`` may sit from the central difference on the
+#: tetrahedron cell, warm, relative to ``|dF v|`` (not to ``|J v| = |dF v - v|``,
+#: which is about 1 here and would hide the whole occupation term). Measured on
+#: D22 (``notes/incompat/I71.md``): 2.6e-2, 1.1e-2, 2.3e-2 on three random
+#: directions with the implicit tangent, 1.22, 0.045, 1.38 with the bare
+#: bisection's.
+AUTODIFF_TETRAHEDRA_BOUND = 0.1
+
+
+def _occupation_cell(name, qe_testsuite=None):
+    """``al-tetrahedra.in`` (committed) or ``pw_scf/scf-occ.in`` (test-suite)."""
+    if name == "tetrahedra":
+        return _setup(AL_TETRAHEDRA)
+    return _setup(qe_testsuite / "pw_scf" / "scf-occ.in")
+
+
+@pytest.mark.regression
+@pytest.mark.parametrize("name", ["tetrahedra", "from_input"])
+def test_weights_take_tetrahedra_and_from_input_like_the_driver(request, name):
+    """``_weights`` against ``Calculation.occupations`` for the two schemes I71 added.
+
+    Any eigenvalues of the right shape will do -- the dispatch is what is being
+    compared, not a converged state -- so this runs no SCF. Random sorted
+    levels put the Fermi level inside bands, where the tetrahedron weights are
+    least trivial.
+    """
     from defuqumat.scf.residual import _weights
 
-    class _Calculation:
-        system = type("S", (), {"occupations": "tetrahedra"})()
+    testsuite = None if name == "tetrahedra" else request.getfixturevalue("qe_testsuite")
+    system, _, calculation, residual = _occupation_cell(name, testsuite)
+    nk = len(system.kpoints.weights)
+    rng = np.random.default_rng(0)
+    eigenvalues = np.sort(rng.uniform(-0.5, 1.5, size=(1, nk, residual.nbnd)), axis=-1)
+    expected, _ = calculation.occupations(eigenvalues)
+    ours = _weights(calculation, jnp.asarray(eigenvalues))
+    assert np.allclose(np.asarray(ours), np.asarray(expected), atol=1e-14)
+    assert float(np.sum(ours)) == pytest.approx(calculation.nelec, abs=1e-9)
 
-    with pytest.raises(NotImplementedError, match="tetrahedron"):
-        _weights(_Calculation(), np.zeros((1, 1, 4)))
+
+@pytest.mark.regression
+@pytest.mark.parametrize("name", ["tetrahedra", "from_input"])
+def test_the_sternheimer_jacobian_still_refuses_these_occupations(request, name):
+    """The residual takes both schemes; the implicit Jacobian does not.
+
+    It needs ``dfpt_tetra_beta`` for tetrahedra and a projector for a filling
+    fixed by hand, neither of which is here, so ``jvp = 'sternheimer'`` keeps
+    its refusal by name while the finite-difference and autodiff backends run.
+    """
+    testsuite = None if name == "tetrahedra" else request.getfixturevalue("qe_testsuite")
+    _, _, _, residual = _occupation_cell(name, testsuite)
+    match = "tetrahedron" if name == "tetrahedra" else "from_input"
+    with pytest.raises(NotImplementedError, match=match):
+        residual._refuse_sternheimer(None)
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_newton_krylov_with_tetrahedra_is_pw_x_s_fixed_point():
+    """Newton-Krylov on Bloechl tetrahedra: ``pw.x``'s total, and the mixer's.
+
+    ``reference.out.al-tetrahedra:202`` is -4.19789860 Ry and ``:200`` the Fermi
+    level 8.5257 eV, from ``pw.x`` 7.5 at ``conv_thr = 1e-10``.
+    """
+    from defuqumat.io import read_qe_output
+
+    system, pseudos, _, _ = _setup(AL_TETRAHEDRA)
+    reference = read_qe_output(AL_TETRAHEDRA_REFERENCE)
+    mixed = run_scf(system, pseudos, calculation=Calculation(system, pseudos),
+                    conv_thr=1e-10)
+    newton = run_scf(
+        system, pseudos, calculation=Calculation(system, pseudos), conv_thr=1e-10,
+        scf_solver="newton-krylov", scf_solver_options={"forcing": 0.5, "warmup": 3},
+    )
+    assert newton.converged and mixed.converged
+    assert newton.solver is not None and newton.solver.steps > 0
+    assert newton.total_energy == pytest.approx(reference.total_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-8)
+    assert newton.fermi_energy == pytest.approx(mixed.fermi_energy, abs=1e-5)
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_newton_krylov_with_from_input_is_pw_x_s_fixed_point(qe_testsuite):
+    """Newton-Krylov on ``pw_scf/scf-occ.in``: ``pw.x``'s -15.79449557 Ry.
+
+    ``reference.out.pw_scf-scf-occ:185``, the regenerated 7.5 reference
+    ``test_scf.py`` reads for the same cell.
+    """
+    from defuqumat.io import read_qe_output
+    from tests.conftest import reference_output
+
+    path = qe_testsuite / "pw_scf" / "scf-occ.in"
+    system, pseudos, _, _ = _setup(path)
+    reference = read_qe_output(reference_output("pw_scf", "scf-occ.in", qe_testsuite))
+    mixed = run_scf(system, pseudos, calculation=Calculation(system, pseudos),
+                    conv_thr=1e-10)
+    newton = run_scf(
+        system, pseudos, calculation=Calculation(system, pseudos), conv_thr=1e-10,
+        scf_solver="newton-krylov", scf_solver_options={"forcing": 0.5, "warmup": 3},
+    )
+    assert newton.converged and mixed.converged
+    assert newton.solver is not None and newton.solver.steps > 0
+    assert newton.total_energy == pytest.approx(reference.total_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-8)
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_autodiff_jacobian_with_tetrahedra_matches_finite_differences(monkeypatch):
+    """``J v`` by ``jax.jvp`` through the tetrahedron weights, against ``r``'s difference.
+
+    What the custom tangent of the tetrahedron Fermi level buys: without it the
+    level's tangent is the bracket's, and the autodiff action is off by the
+    whole Fermi-shift term (``test_bz_integration.py`` measures that alone).
+    """
+    import defuqumat.scf.tetrahedra as tetrahedra
+
+    system, pseudos, calculation, residual = _setup(AL_TETRAHEDRA)
+    converged = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11)
+    x = residual.pack(converged.density, calculation.starting_becsum())
+    _, psi = residual.residual(x, converged.wavefunctions)
+    rng = np.random.default_rng(0)
+    direction = rng.normal(size=x.shape)
+    direction /= np.linalg.norm(direction)
+    difference = residual.jvp_finite_difference(x, direction, psi)
+    response = np.linalg.norm(difference + direction)
+
+    def relative():
+        autodiff, _ = residual.jvp(x, direction, psi)
+        return np.linalg.norm(autodiff - difference) / response
+
+    assert relative() < AUTODIFF_TETRAHEDRA_BOUND
+    # The guard fires: with the bare bisection's tangent the same check fails.
+    monkeypatch.setattr(tetrahedra, "_fermi_level", tetrahedra._bisect)
+    import jax
+
+    jax.clear_caches()
+    assert relative() > 5 * AUTODIFF_TETRAHEDRA_BOUND
 
 
 @pytest.mark.regression

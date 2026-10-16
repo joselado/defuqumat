@@ -136,9 +136,10 @@ def test_a_pooled_residual_refuses_tetrahedra_before_any_collective(scheme):
     Raised inside ``PooledScfResidual._evaluate`` instead, after the eigenvalue
     gather, they hung a two-pool run until the heartbeat (D22, Si 8k
     tetrahedra: both ranks exit -6 after 315 s, rank 0's traceback never
-    printed). So the entry guard refuses them for any residual solver, and
-    ``make_residual``, which every rank calls before ``PooledScfResidual.of``,
-    refuses them first, ahead of its other refusals; mixing is not refused.
+    printed). So the entry guard refuses them for any residual solver on every
+    rank; mixing is not refused. ``make_residual`` no longer refuses them, since
+    on one process a residual solver takes both (I71); the pooled pair is the
+    one left unmeasured.
     """
     from types import SimpleNamespace
 
@@ -153,11 +154,9 @@ def test_a_pooled_residual_refuses_tetrahedra_before_any_collective(scheme):
                  field=None)
     _refuse_under_pools(pools, calculation, **quiet)
     for jvp in ("finite-difference", "autodiff"):
-        with pytest.raises(NotImplementedError, match="no differentiable form"):
+        with pytest.raises(NotImplementedError,
+                           match=f"occupations={scheme!r} has no pooled form"):
             _refuse_under_pools(pools, calculation, **{**quiet, "residual_solver": jvp})
-    # ``starting_density`` is never reached: the refusal comes first.
-    with pytest.raises(NotImplementedError, match=f"occupations={scheme!r}"):
-        make_residual(calculation, 4, 1e-10)
     # The sibling refusals of ``make_residual`` still fire on their own.
     fixed = SimpleNamespace(kpoints=system.kpoints, occupations="fixed", spiral_q=None)
     with pytest.raises(NotImplementedError, match="magnetic field"):
@@ -495,7 +494,7 @@ def test_a_pooled_newton_run_refuses_tetrahedra_on_every_rank():
     outcomes = _start_pools(NEWTON_SCRIPT, 2, TETRAHEDRA_8K, 0, timeout=200)
     for code, _, err in outcomes:
         assert code == 1, err[-2000:]
-        assert "occupations='tetrahedra' has no differentiable form" in err
+        assert "occupations='tetrahedra' has no pooled form" in err
 
 
 SILICON_DISPLACED_8K = SILICON_8K.replace(" Si 0.25 0.25 0.25", " Si 0.27 0.25 0.24")

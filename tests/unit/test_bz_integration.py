@@ -420,3 +420,90 @@ def test_w0gauss_matches_finite_differences_of_wgauss(ngauss):
     h = 1e-5
     numeric = (wgauss(x + h, ngauss) - wgauss(x - h, ngauss)) / (2.0 * h)
     assert np.asarray(w0gauss(x, ngauss)) == pytest.approx(np.asarray(numeric), abs=1e-7)
+
+
+# --------------------------------------------------------------------------
+# The Fermi level's tangent (I71: the residual solver's autodiff Jacobian)
+# --------------------------------------------------------------------------
+
+
+def _rough_band(n: int, seed: int = 0):
+    """Two free-electron-like bands with a random ripple, on the unreduced grid.
+
+    The ripple breaks every symmetry degeneracy, so the eigenvalues are a
+    generic point of the map and a central difference measures its derivative
+    rather than the kink of a tie.
+    """
+    eigenvalues, weights = _free_electron(n)
+    rng = np.random.default_rng(seed)
+    ripple = 0.01 * rng.normal(size=(eigenvalues.shape[0], 2))
+    bands = jnp.concatenate([eigenvalues, eigenvalues + 0.3], axis=1) + ripple
+    return bands, weights, rng
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_the_fermi_level_tangent_is_the_implicit_derivative(kind):
+    """``jvp`` of the tetrahedron Fermi level and weights against a central difference.
+
+    The tangent is the implicit one of ``N(E_F) = nelec``. The raw bisection's
+    tangent is asserted to be *wrong* on the same input, since a test passing
+    on both would not show that the ``custom_jvp`` is what is being read.
+    """
+    from defuqumat.scf.tetrahedra import _bisect
+
+    n = 6
+    tetra = _tetrahedra(kind, n)
+    eigenvalues, weights, rng = _rough_band(n)
+    nelec = 1.3
+    direction = jnp.asarray(rng.normal(size=eigenvalues.shape))
+    eps = 1.0e-6
+
+    def level(e):
+        return tetrahedron_occupations(tetra, e, weights, nelec)[1]
+
+    def occupied(e):
+        return tetrahedron_occupations(tetra, e, weights, nelec)[0]
+
+    _, d_level = jax.jvp(level, (eigenvalues,), (direction,))
+    central = (level(eigenvalues + eps * direction)
+               - level(eigenvalues - eps * direction)) / (2 * eps)
+    assert float(d_level) == pytest.approx(float(central), rel=1e-5, abs=1e-8)
+
+    _, d_weights = jax.jvp(occupied, (eigenvalues,), (direction,))
+    central_w = (occupied(eigenvalues + eps * direction)
+                 - occupied(eigenvalues - eps * direction)) / (2 * eps)
+    scale = float(jnp.max(jnp.abs(central_w)))
+    assert float(jnp.max(jnp.abs(d_weights - central_w))) < 1e-5 * scale
+    # The count is conserved, so the weights' tangent sums to zero.
+    assert abs(float(jnp.sum(d_weights))) < 1e-10
+
+    def raw(e):
+        e_sorted, _ = _sorted_corners(tetra, e)
+        return _bisect(e_sorted, tetra.ntetra, nelec, jnp.sum(weights))
+
+    _, d_raw = jax.jvp(raw, (eigenvalues,), (direction,))
+    assert abs(float(d_raw) - float(central)) > 1e-3 * abs(float(central))
+
+
+def test_the_spin_fermi_level_tangent_is_the_implicit_derivative():
+    """The same on two channels: one shared level, and the constrained pair."""
+    from defuqumat.scf.tetrahedra import tetrahedron_occupations_spin
+
+    n = 6
+    tetra = _tetrahedra("bloechl", n)
+    up, weights, rng = _rough_band(n, seed=1)
+    down = up + 0.05 + 0.01 * jnp.asarray(rng.normal(size=up.shape))
+    eigenvalues = jnp.stack([up, down])
+    weights = weights / DEGSPIN
+    direction = jnp.asarray(rng.normal(size=eigenvalues.shape))
+    eps = 1.0e-6
+
+    for counts in (None, (0.8, 0.5)):
+        def occupied(e, counts=counts):
+            return tetrahedron_occupations_spin(tetra, e, weights, 1.3, counts=counts)[0]
+
+        _, d_weights = jax.jvp(occupied, (eigenvalues,), (direction,))
+        central = (occupied(eigenvalues + eps * direction)
+                   - occupied(eigenvalues - eps * direction)) / (2 * eps)
+        scale = float(jnp.max(jnp.abs(central)))
+        assert float(jnp.max(jnp.abs(d_weights - central))) < 1e-5 * scale, counts

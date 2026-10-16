@@ -38,7 +38,7 @@ compiled path only gathers through.
 
 from __future__ import annotations
 
-
+from functools import partial
 
 import equinox as eqx
 import jax
@@ -439,13 +439,66 @@ def _bisect(e_sorted, ntetra: int, nelec, spin):
     return 0.5 * (low + high)
 
 
-#: :func:`_bisect` for a caller outside any ``jit``. Its loop is a ``fori_loop``
+@partial(jax.custom_jvp, nondiff_argnums=(1,))
+def _fermi_level(e_sorted, ntetra: int, nelec, spin):
+    """:func:`_bisect`, with the implicit derivative as its tangent.
+
+    The bisection's own tangent is a convex mixture of the tangents of the
+    bracket's two ends, ``min e`` and ``max e``, which has no relation to how
+    the Fermi level moves; differentiating it does not fail, it returns that
+    mixture. This is the same trap ``scf/occupations.py``'s ``bisect_fermi``
+    carries a ``custom_jvp`` for, and the same cure: differentiate
+    ``N(E_F; e, spin) = nelec`` at fixed count,
+
+        dE_F = (dnelec - dN/de . de - dN/dspin dspin) / (dN/dE),
+
+    with both pieces taken from :func:`integrated_states` by ``jax.jvp``, so
+    the denominator is the tetrahedron density of states at ``E_F`` exactly as
+    :func:`tetrahedron_dos` builds it. In a gap ``N`` is flat, the level is not
+    a differentiable function of the eigenvalues, and the tangent is zero
+    there rather than infinite; nothing downstream reads it there, since every
+    weight is then 0 or full.
+    """
+    return _bisect(e_sorted, ntetra, nelec, spin)
+
+
+@_fermi_level.defjvp
+def _fermi_level_jvp(ntetra, primals, tangents):
+    e_sorted, nelec, spin = primals
+    d_e, d_nelec, d_spin = tangents
+    ef = _fermi_level(e_sorted, ntetra, nelec, spin)
+    _, d_count = jax.jvp(
+        lambda e, s: integrated_states(e, ef, ntetra, s), (e_sorted, spin), (d_e, d_spin)
+    )
+    _, dos = jax.jvp(
+        lambda energy: integrated_states(e_sorted, energy, ntetra, spin),
+        (ef,), (jnp.ones_like(ef),),
+    )
+    live = dos > _DEGENERATE
+    tangent = jnp.where(live, (d_nelec - d_count) / jnp.where(live, dos, 1.0), 0.0)
+    return ef, tangent
+
+
+def _level(e_sorted, ntetra: int, nelec, spin):
+    """:func:`_fermi_level` with its two scalars cast to the energies' dtype.
+
+    ``custom_jvp`` hands an integer argument a ``float0`` tangent, and ``nelec``
+    arrives as a Python number; casting here keeps the tangent arithmetic in
+    the precision policy's real type, whatever the caller passed.
+    """
+    dtype = e_sorted.dtype
+    return _fermi_level(
+        e_sorted, ntetra, jnp.asarray(nelec, dtype=dtype), jnp.asarray(spin, dtype=dtype)
+    )
+
+
+#: :func:`_level` for a caller outside any ``jit``. Its loop is a ``fori_loop``
 #: over a closure built at the call, so called eagerly it was compiled again at
 #: every call: once an SCF iteration with ``occupations = 'tetrahedra'``, six
 #: compilations over a warm five-iteration SCF on ``tests/data/qe/al-tetrahedra.in``.
 #: Jitted here, the loop is compiled once per shape; :func:`tetrahedron_occupations`
 #: is jitted itself and keeps the plain call.
-_bisect_compiled = jax.jit(_bisect, static_argnames=("ntetra",))
+_bisect_compiled = jax.jit(_level, static_argnames=("ntetra",))
 
 
 # --------------------------------------------------------------------------
@@ -724,7 +777,7 @@ def tetrahedron_occupations(
     """
     spin = jnp.sum(weights)
     e_sorted, _ = _sorted_corners(tetra, eigenvalues)
-    ef = _bisect(e_sorted, tetra.ntetra, nelec, spin)
+    ef = _level(e_sorted, tetra.ntetra, nelec, spin)
     return tetrahedron_weights_at(tetra, eigenvalues, weights, ef), ef
 
 

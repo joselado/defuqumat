@@ -6542,6 +6542,28 @@ class Calculation:
         """
         return self.system.two_fermi_energies
 
+    def tetrahedron_table(self):
+        """The tetrahedra of this run's k-grid, built once and kept.
+
+        A property of the k-grid and the symmetry, not of the density, so it is
+        host-side integer work done at the first call and a constant of every
+        compiled path after it. Shared by :meth:`occupations` and the residual
+        solver's ``_weights`` (``scf/residual.py``), so the two cannot build
+        different tables.
+        """
+        if getattr(self, "_tetrahedra", None) is None:
+            # **The triple, not the rotations alone.** The corners are
+            # looked up in the list the k-set was reduced to, so the
+            # tetrahedra have to be built with the group that reduced it --
+            # under ``nosym`` the run diagonalises the complete grid while
+            # the corners were folded onto half of it, and the Fermi level
+            # this scheme produces comes off the wrong points.
+            self._tetrahedra = tetrahedra_for(
+                self.system.occupations, self.system.kpoints, self.symmetries,
+                self.system.cell, self.system.grid_symmetry()
+            )
+        return self._tetrahedra
+
     def occupations(self, eigenvalues):
         """Occupation weights, plus whichever level statistic applies.
 
@@ -6601,20 +6623,10 @@ class Calculation:
             # of the density, so they are built once and kept. There is no
             # ``-TS`` term: the method integrates the true step function, which
             # is why QE prints no "smearing contrib." for a tetrahedron run.
-            if getattr(self, "_tetrahedra", None) is None:
-                # **The triple, not the rotations alone.** The corners are
-                # looked up in the list the k-set was reduced to, so the
-                # tetrahedra have to be built with the group that reduced it --
-                # under ``nosym`` the run diagonalises the complete grid while
-                # the corners were folded onto half of it, and the Fermi level
-                # this scheme produces comes off the wrong points.
-                self._tetrahedra = tetrahedra_for(
-                    scheme, self.system.kpoints, self.symmetries,
-                    self.system.cell, self.system.grid_symmetry()
-                )
             counts = (self.nelup, self.neldw) if self.two_fermi_energies else None
             wg, ef = tetrahedron_occupations_spin(
-                self._tetrahedra, eigenvalues, weights, self.nelec, counts=counts
+                self.tetrahedron_table(), eigenvalues, weights, self.nelec,
+                counts=counts,
             )
             if counts is None:
                 return wg, {"fermi_energy": float(ef)}
@@ -7368,9 +7380,11 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
     # refused: ``autodiff`` traces the whole-set eigensolver, which a pool's
     # host store cannot enter, and ``sternheimer``'s solve reads every state.
     # ``residual_solver`` is the ``jvp`` backend's name, ``None`` for mixing.
-    # The occupation schemes ``F`` has no form for are refused here too, on
-    # every rank before any pool work: raised inside a pooled evaluation they
-    # hung the run until the heartbeat (``refuse_residual_occupations``).
+    # Tetrahedra and ``from_input`` with a residual solver are refused here
+    # under pools, on every rank before any pool work: one process takes them
+    # (I71), the pooled pair is unmeasured, and raised inside a pooled
+    # evaluation a refusal hung the run until the heartbeat
+    # (``refuse_residual_occupations``).
     if residual_solver not in (None, False):
         refuse_residual_occupations(calculation.system)
     if residual_solver not in (None, False, "finite-difference"):
