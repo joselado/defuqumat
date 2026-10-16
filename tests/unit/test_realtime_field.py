@@ -198,3 +198,52 @@ def test_under_a_reduced_field_a_zero_pulse_leaves_the_states_stationary(pseudo_
     assert numbers["scf_states_converged_excited"] < 1e-8
     assert numbers["scf_states_input_excited"] > 1e3 * max(
         numbers["scf_states_converged_excited"], 1e-12)
+
+
+def energy_after_a_kick_under_a_field(pseudo_dir, strength=0.05, dt=0.05, duration=50.0,
+                                      input_field_in_u=False):
+    """The conserved energy's drift after a kick at ``potential = 'hxc'``, field cell.
+
+    ``input_field_in_u`` puts the input field back into ``U`` at full strength,
+    the closure as it stood before I64, by patching ``Calculation.potential``
+    for the duration: ``U[rho(t)] - U[rho0]`` still cancels it from the
+    potential, but the energy, whose ``E_U`` is ``ehart + etxc``, is then one
+    ``int v_field (rho(t) - rho0)`` from the potential the states move in.
+    Returns ``(max |E(t) - E(0)|, potential_change)``.
+    """
+    from defuqumat.realtime.pulse import Kick
+    from defuqumat.workflows.realtime import run_realtime
+
+    system, pseudos, calculation, result = _ground_state(pseudo_dir)
+    kind = type(calculation)
+    original = kind.potential
+
+    def full_strength(self, rho, field_scale=1.0, field=None, tau=None):
+        return original(self, rho, 1.0 if field_scale == 0.0 else field_scale, field, tau)
+
+    if input_field_in_u:
+        kind.potential = full_strength
+    try:
+        run = run_realtime(system, pseudos, result.density,
+                           Kick(strength=strength, direction=(1.0, 0.0, 0.0)), dt=dt,
+                           start=0.0, duration=duration, calculation=calculation,
+                           field=result.magnetic_field, field_scale=result.field_scale,
+                           potential="hxc", block_steps=50)
+    finally:
+        kind.potential = original
+    return (float(np.abs(run.energy - run.energy[0]).max()),
+            float(run.extras["potential_change"]))
+
+
+@pytest.mark.slow
+def test_under_a_field_the_updated_potential_conserves_the_energy(pseudo_dir):
+    """A kick at ``'hxc'`` on the field cell: the drift is the step's, not the field's.
+
+    The A/B of the ``field_scale = 0`` in ``_Run``'s closure; the numbers are in
+    ``notes/incompat/I64.md``.
+    """
+    drift, change = energy_after_a_kick_under_a_field(pseudo_dir)
+    wrong, _ = energy_after_a_kick_under_a_field(pseudo_dir, input_field_in_u=True)
+    assert change > 1e-3, "the potential moved"
+    assert drift < 1e-7
+    assert wrong > 100.0 * drift
