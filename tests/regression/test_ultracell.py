@@ -2257,3 +2257,58 @@ def test_fixed_occupations_fill_spinor_bands_one_electron_at_a_time(pseudo_dir):
     reference = _total_moment(scf.density, float(calculator.system.cell.volume))
     assert moment == pytest.approx(reference, abs=5e-5)
     assert abs(moment[2]) > 0.2 and np.abs(moment[:2]).max() < 1e-5
+
+
+# -- the mixer does not choose the fixed point (I77) -------------------------
+
+#: The unpolarized form of :data:`HYDROGEN`: a metal at every k-grid, so the
+#: LDOS at the Fermi level is not zero and ``mixing_mode = 'ldos'`` screens
+#: with it rather than falling back to the plain step.
+METALLIC_HYDROGEN = HYDROGEN.replace(
+    " nspin=2, starting_magnetization(1)=0.8,\n", "")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("polarized", [False, True])
+def test_the_ldos_mode_reaches_the_kerker_fixed_point(polarized, tmp_path, pseudo_dir):
+    """``'ldos'`` and ``'anderson'`` with Kerker converge to one state (I77).
+
+    The preconditioner is an approximate inverse Jacobian and sets the path,
+    never the fixed point, so the same modulated metallic ultracell under the
+    two mixers has to land on the same density and energy to the two runs'
+    ``conv_thr``. The LDOS is checked to be live: states at ``e_F`` on every
+    mix and at least one conjugate-gradient solve that did not stop at its
+    Kerker first guess, which is what a modulated ``D`` gives and a uniform one
+    does not. ``polarized`` runs the ``nspin = 2`` cell, where only the charge
+    is screened and the magnetization takes ``beta``.
+    """
+    shape, kgrid = (2, 1, 1), (2, 2, 2)
+    folded = tuple(n * m for n, m in zip(shape, kgrid))
+    path = tmp_path / "h.in"
+    template = HYDROGEN if polarized else METALLIC_HYDROGEN
+    path.write_text(template.format(k0=folded[0], k1=folded[1], k2=folded[2]))
+    calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir)
+    scf = calculator.get_scf(conv_thr=1e-11, nbnd=8)
+    assert scf.converged
+
+    runs = {}
+    for mode in ("anderson", "ldos"):
+        runs[mode] = run_ultracell(
+            calculator.system, calculator.pseudos, scf, shape, kgrid,
+            nbnd=8, external=_modulation(shape), conv_thr=1e-11,
+            states_conv_thr=1e-10, mixing_mode=mode,
+        )
+        assert runs[mode].converged
+    kerker, ldos = runs["anderson"], runs["ldos"]
+    assert kerker.ldos_record is None
+    assert len(ldos.ldos_record) == ldos.iterations - 1
+    assert all(states > 1.0 for states, _, _ in ldos.ldos_record)
+    assert max(solves for _, _, solves in ldos.ldos_record) > 0
+
+    a, b = np.asarray(kerker.density), np.asarray(ldos.density)
+    induced = np.abs(np.asarray(kerker.modulation)).max()
+    assert induced > 1e-4 * np.abs(a).max()
+    # Measured on D22 (``notes/incompat/I77.md``); the bound is the two runs'
+    # residual, dr2 < 1e-11, read as a pointwise density.
+    assert np.abs(a - b).max() < 1e-4 * induced
+    assert abs(kerker.total_energy - ldos.total_energy) < 1e-9

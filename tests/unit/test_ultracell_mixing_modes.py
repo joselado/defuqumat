@@ -37,8 +37,23 @@ def _box(silicon, shape=(2, 1, 1), cell_grid=(8, 8, 8)):
 
 
 def _residual(grid, nspin, seed=0):
+    """A random residual with its Nyquist planes removed.
+
+    On an even box the plane ``n/2`` holds ``G`` and ``-G`` on one point, where
+    ``|G + Q|^2`` is not symmetric, so the two operators take the real part of
+    a different non-Hermitian factor there; with those planes in, uniform ``D``
+    reads 1.4e-4 relative apart, and with them out 3e-16. Neither is the
+    physics, and the fixed point does not depend on either.
+    """
     rng = np.random.default_rng(seed)
-    return rng.standard_normal((nspin,) + tuple(grid))
+    field = rng.standard_normal((nspin,) + tuple(grid))
+    spectrum = np.fft.fftn(field, axes=(1, 2, 3))
+    for axis, n in enumerate(grid):
+        if n % 2 == 0:
+            index = [slice(None)] * 4
+            index[axis + 1] = n // 2
+            spectrum[tuple(index)] = 0.0
+    return np.real(np.fft.ifftn(spectrum, axes=(1, 2, 3)))
 
 
 @pytest.mark.parametrize("nspin", [1, 2])
