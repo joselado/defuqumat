@@ -1480,7 +1480,11 @@ def test_turning_the_moments_on_the_turning_group_is_the_nosym_run():
     Inversion acts on an axial vector as the identity, so it is a symmetry of
     every turned texture and ``E(k) = E(-k)`` holds along the whole run: the
     wedge sum is exact, and the run on 10 points must converge on ``c`` with the
-    energy of the run on 18. Measured on D22 (``notes/incompat/I78.md``).
+    energy of the run on 18. Measured on D22 (``notes/incompat/I78.md``, one
+    sample each): 52 iterations against 53, both converged, 0.0019 and 0.0011
+    degrees from ``c``, torque 9.6e-10 and 9.2e-11 Ry/rad, and total energies
+    5.7e-14 Ry apart. The 1e-9 asserted below is the stepper's freedom to stop
+    at a different point inside ``torque_conv_thr``, not that spread.
     """
     options = dict(rotate_moments=True, max_iterations=150, conv_thr=1.0e-12,
                    torque_conv_thr=1.0e-9)
@@ -1497,7 +1501,7 @@ def test_turning_the_moments_on_the_turning_group_is_the_nosym_run():
     assert turned.converged and reference.converged
     assert angle_of(turned) < 0.05
     assert np.linalg.norm(turned.orientation_torque) < 1.0e-9
-    assert turned.total_energy == pytest.approx(reference.total_energy, abs=1.0e-8)
+    assert turned.total_energy == pytest.approx(reference.total_energy, abs=1.0e-9)
 
 
 def test_the_rotation_plane_must_be_orthogonal():
