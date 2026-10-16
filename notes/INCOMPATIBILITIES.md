@@ -184,6 +184,16 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Check: the explicit supercell SCF of the same modulation, exact by the nested basis (P88), under the same field.
 - QE/Elk: QE n; Elk unread.
 
+### I37. Velocity operator `dH/dk` x gamma-only storage
+
+- Axis: execution mode.
+- Guard: `defuqumat/scf/driver.py:Calculation.at_kcart:4420`.
+- Test: `tests/regression/test_gamma_only.py:595` `test_the_velocity_operator_refuses_gamma_storage`.
+- Missing: `dH/dk` is odd in G, so the stored half needs its own rule; measured 0.863 against 1.8e-15 (sweep-core, queue B).
+- Check: the same cell with an explicit `K_POINTS automatic 1 1 1 0 0 0` on the whole sphere.
+- QE/Elk: QE n (no velocity operator in `pw.x`).
+- Unmerged, 2026-10-16: merged and then reverted after the fast gate, which failed `tests/unit/test_host_store_uploads.py::test_the_band_velocities_take_a_host_store_through_device_put` (DID NOT RAISE): `incompat/I37` 6fdd9a2 routes `band_velocities` through `_tangent`, and the test patches `both`. The number stands in `notes/incompat/I37.md`.
+
 ### I40. Optical conductivity x symmetry-reduced k-set
 
 - Axis: execution mode.
@@ -1168,7 +1178,6 @@ Landed on 2026-10-16 in P154, integration two (branch `incompat-night`), each wi
 - I27, meta-GGA on a spin spiral, norm-conserving, `noncollinear_gga = 'kubler'`: the hydrogen chain under `tb09` against its four-cell supercell at the same `(rho, tau)`, lowest twelve levels 4.8e-14 Ry; dropping the transverse `tau` moves them 0.54 Ry. `'grad_m'` and PAW refuse (`incompat/spiral-fix`).
 - I28, DFT+U on a norm-conserving spin spiral: NiI with `U = 4 eV` against the four-cell supercell at the turned occupation matrix, the supercell's measured `ns` equals the turned spiral one to 1.2e-10. Ultrasoft and PAW spirals, and the forces, stress and first-order spin-orbit energy with U, refuse (`incompat/spiral-fix`).
 - I32, ultracell with DFT+U, norm-conserving, unpolarized, `'atomic'` projectors: Si with `U Si-3p 2.0`, the tiled null at dV 6.7e-16, the 3x1x1 ultracell above the explicit DFT+U supercell by +4.9e-6, +7.9e-7 Ry per cell at 12 and 24 bands, falling monotonically. Every other Hubbard regime refuses (`incompat/ultracell-i32fix`).
-- I37, velocity operator on gamma-only storage: displaced Si, half sphere unfolded against `k = 0` on the whole sphere, every block of `<m|dH/dk|n>` 2.3e-13 on norms of 1.1 Ry bohr, `Tr(v_x v_x)` 4.2e-13. The conductivity, the Kerr angle, SHG and the shift current still refuse (`incompat/I37`).
 - I38, the real-space consumers on gamma-only storage, against `K_POINTS automatic 1 1 1 0 0 0`: projected DOS 3.9e-12, `eps_M` from `chi_0` 1.4e-9, STM 3.0e-8, STS 8.2e-8, vertical transmission 3.9e-8, momentum weight 1.2e-8, `X_0^{+-}` 8.0e-13 (`incompat/I38`).
 - I39, real-time propagation from a `K_POINTS gamma` ground state: displaced Si under a one-cycle pulse against `k = 0` on the whole sphere, `max |J_gamma - J_k0| / max |J_k0|` 1.8e-13. A half-sphere `Calculation` handed to the driver directly still refuses (`incompat/I39`).
 - I56, `lelfield` on a streamed wavefunction store: against the in-memory run, total 0.0 Ry (bit-identical), `el_pol` 3.9e-14, forces 4.6e-15 Ry/bohr. Pools refuse (`incompat/finitefield`).
