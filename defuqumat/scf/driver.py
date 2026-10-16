@@ -113,7 +113,7 @@ from defuqumat.batching import (
 )
 from defuqumat.eager import compiled
 from defuqumat.scf.continuation import (
-    ContinuedState, continued_state, depolarize_tau,
+    ContinuedState, carried_tau, continued_state, depolarize_tau,
 )
 from defuqumat.parallel import PoolStore, current_pools, poll_stop
 from defuqumat.scf.streaming import (
@@ -7922,10 +7922,11 @@ def run_scf(
         if starting_tau is None and source_tau is not None:
             # The density's own shape, whole: ``tau`` has ``nspin_mag`` channels
             # and rebuilding the count from ``nspin`` made every promotion into a
-            # spin-orbit run drop its converged ``tau`` without a word.
+            # spin-orbit run drop its converged ``tau`` without a word. What
+            # else decides it (the magnetization, a spiral frame) is
+            # ``carried_tau``'s, so the rule has one home and a unit test.
             expected = tuple(np.shape(calculation.starting_density()))
-            if tuple(np.shape(source_tau)) == expected:
-                starting_tau = source_tau
+            starting_tau = carried_tau(state, source_tau, expected)
         # **...and the shape is only half the question.** The other half is the
         # one ``promote_ns`` had to be taught as well: a continuation that
         # reseeds or zeroes the magnetization must not hand the next run a
@@ -7937,8 +7938,9 @@ def run_scf(
         # not have. ``'seed'`` drops it for ``promote_ns``'s reason: the
         # Thomas-Fermi guess ``_starting_tau`` builds costs iterations and
         # cannot be wrong, which is what the comment above already says about
-        # dropping it.
-        if starting_tau is not None and state.magnetization in ("none", "seed"):
+        # dropping it. ``carried_tau`` applies the same rule to the source's
+        # ``tau``; this branch is a ``starting_tau`` the caller passed.
+        elif starting_tau is not None and state.magnetization in ("none", "seed"):
             if state.magnetization == "seed":
                 starting_tau = None
             else:
