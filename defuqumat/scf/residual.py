@@ -73,7 +73,9 @@ projectors ``wfcU`` are fixed while the atoms are.
 function of ``x`` alone), and tetrahedron and ``from_input`` occupations (built on
 the host, and the second is not a function of the eigenvalues at all). Each
 raises by name. A spin spiral runs (``notes/incompat/I72.md``): its map is the
-mixing loop's own, with no term of its own here.
+mixing loop's own, with no term of its own here, except under a Hubbard U, which
+is refused: a spinor ``ns`` is complex and :meth:`ScfResidual.pack` keeps its real
+part only.
 
 Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum`` and
 ``ns``, and a Krylov subspace holds a few tens of those -- tens of MB,
@@ -546,6 +548,20 @@ def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
             "here: the field is driven by a secant *outside* the density "
             "(reducebf, the fixed-spin-moment feedback), so F changes between "
             "evaluations and is not a function of the state alone"
+        )
+    if calculation.spiral and calculation.is_hubbard:
+        # Measured (``notes/incompat/I72.md``): on ``nii-chain-spiral.in`` with
+        # U = 4 eV on Ni-3d, ``accuracy_of(F(x*) - x*)`` at the mixing loop's
+        # converged state is 2.3e-4 against the loop's own 8.9e-10, and Newton
+        # lands 7.3e-3 Ry away. A spinor ``ns`` is complex; the mixing loop
+        # carries it as real and imaginary pairs (``driver._pack_ns``), while
+        # :meth:`ScfResidual.pack` and :meth:`ScfResidual.flatten` keep only its
+        # real part, so ``F`` here is not the loop's map.
+        raise NotImplementedError(
+            "a spin spiral with a Hubbard U has no residual form here: the "
+            "occupation matrix of a spinor run is complex and the residual's "
+            "packed state keeps only its real part, so F is not the mixing "
+            "loop's map (notes/incompat/I72.md); use the mixing loop"
         )
     # A spin spiral is not refused (``notes/incompat/I72.md``): every call in
     # :meth:`ScfResidual.step` is the mixing loop's own, and the spiral lives

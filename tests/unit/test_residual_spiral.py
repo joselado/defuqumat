@@ -71,6 +71,21 @@ def test_a_spiral_under_a_field_is_still_refused():
 
 
 @pytest.mark.unit
+def test_a_spiral_with_a_hubbard_u_is_refused():
+    """A spinor ``ns`` is complex and the packed state keeps its real part only.
+
+    Measured before the refusal (``notes/incompat/I72.md``): on this cell the
+    residual's ``F`` at the mixing loop's fixed point is 2.3e-4 away from it.
+    """
+    text = (GENERATED / "nii-chain-spiral.in").read_text() + "HUBBARD {atomic}\nU Ni-3d 4.0\n"
+    system, pseudos = _system(text)
+    calculation = Calculation(system, pseudos)
+    assert calculation.spiral and calculation.is_hubbard
+    with pytest.raises(NotImplementedError, match="Hubbard U"):
+        make_residual(calculation, 34, 1e-10)
+
+
+@pytest.mark.unit
 def test_the_sternheimer_jacobian_is_still_refused_on_a_spiral():
     """``jvp='sternheimer'`` has no spiral response; it refuses before computing."""
     system, pseudos = _system(SPIRAL.read_text())
@@ -117,15 +132,36 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_on_a_spiral(path, _clear_co
     system, pseudos, mixed, newton = _both(path)
     assert mixed.converged and newton.converged
     assert newton.solver is not None and newton.solver.steps > 0
-    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
+    # ``run_scf`` hands the Newton state to the mixing loop, which iterates with
+    # its own methods until it converges, so a final state compared with the
+    # mixer's cannot tell a wrong residual map from a right one: a map with
+    # ``m_x, m_y`` scaled by 0.97 passed every assertion below, with the loop
+    # taking 10 iterations after the hand-off (``notes/incompat/I72.md``). What
+    # tells them apart is that Newton converged on its own and the loop had
+    # nothing left to do (1 iteration on all three cells, 10 for the wrong map),
+    # and the residual's own ``F`` evaluated at the mixer's fixed point.
+    assert newton.solver.converged
+    assert newton.iterations == 1
     calculation = Calculation(system, pseudos)
+    residual = make_residual(calculation, system.nbnd, 1e-13)
+    r, _ = residual.residual(
+        residual.pack(mixed.density, mixed.becsum, mixed.ns, None), None)
+    size = int(np.prod(residual.shapes[0]))
+    fixed_point = float(scf_accuracy(np.asarray(r)[:size].reshape(residual.shapes[0]),
+                                     calculation.basis.dense, system.cell))
+    assert fixed_point < CONV_THR
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
+    # The distance between the two converged states is the stopping residual
+    # magnified along a soft magnetic direction, not a property of the map:
+    # with ``warmup = 0`` it read 1.3e-8 on the hydrogen chain, both solvers
+    # converged. So it is bounded loosely here, and the map is tested above.
     apart = float(scf_accuracy(np.asarray(newton.density) - np.asarray(mixed.density),
                                calculation.basis.dense, system.cell))
-    assert apart < 10.0 * CONV_THR
+    assert apart < 100.0 * CONV_THR
     # The moment is bounded by ``dr2`` only weakly: its half is
     # ``V/2 w sum_G |dm_G|^2`` with ``w = e2 4 pi / (2 pi)^2``, and Cauchy-Schwarz
-    # gives ``|d int|m|| <= int |dm| <= V sqrt(sum_G |dm_G|^2)``. At the
-    # ``10 CONV_THR`` asserted above that is 4.8e-3 on the hydrogen chain, where
+    # gives ``|d int|m|| <= int |dm| <= V sqrt(sum_G |dm_G|^2)``. At
+    # ``10 CONV_THR`` that is 4.8e-3 on the hydrogen chain, where
     # the two solvers were measured 4.5e-4 apart (``notes/incompat/I72.md``), so
     # a fixed tolerance tighter than the bound would test the stopping rule, not
     # the fixed point. The bound holds for the part of ``dm`` the resident
