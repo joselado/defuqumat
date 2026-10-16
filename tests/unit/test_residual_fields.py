@@ -6,12 +6,15 @@ the loop never changes the map ``x -> F(x)`` is already a function of the
 state alone. The mixing loop changes the field in exactly two places
 (``run_scf``: ``field_scale *= field.reducebf`` and ``field.feedback``), and
 ``feedback`` is the identity outside :data:`~defuqumat.scf.fields.FEEDBACK`.
-So a uniform ``B_field`` and the measured *penalty* constraints run, and what
+So a uniform ``B_field`` in a collinear run and the measured *penalty*
+constraints in a noncollinear run (neither beside the other) run, and what
 stays refused as physics is the two cases where the loop moves the field: a
 feedback (fixed-spin-moment) constraint, whose field is a second unknown solved
 for beside the density, and ``reducebf < 1``, whose fixed point moves with the
 accumulated scale. A ``LOCAL_MAGNETIC_FIELDS`` card and the ``total direction``
-and ``atomic texture`` penalties are refused only because nothing measured them.
+and ``atomic texture`` penalties, a noncollinear uniform field, a collinear
+penalty and ``jvp='autodiff'`` under any field are refused only because nothing
+measured them; a field together with a penalty is refused at input.
 
 These tests build a ``Calculation`` and nothing more; the fixed point itself,
 Newton against the mixing loop, is ``tests/regression/test_scf_solvers.py``'s
@@ -53,10 +56,17 @@ K_POINTS automatic
 """
 
 
+#: Replaces ``nspin = 2`` in :data:`_SILICON` by a noncollinear run.
+NONCOLLINEAR = "noncolin = .true., angle1(1) = 90.0, angle2(1) = 0.0"
+
+
 def _calculation(pseudo_dir, extra):
     from defuqumat.pseudo import read_upf
 
-    system = build_system(parse_pw_input(_SILICON.format(extra=extra)))
+    text = _SILICON.format(extra=extra)
+    if "noncolin" in extra:
+        text = text.replace("nspin = 2, ", "")
+    system = build_system(parse_pw_input(text))
     pseudos = tuple(
         read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
     )
@@ -87,15 +97,65 @@ def test_a_decaying_field_is_refused(pseudo_dir):
     [
         "b_field(3) = 0.01",
         "b_field(3) = 0.01, reducebf = 1.0",
-        "constrained_magnetization = 'atomic', lambda = 0.5",
     ],
-    ids=["uniform-field", "reducebf-one", "atomic-penalty"],
+    ids=["uniform-field", "reducebf-one"],
 )
 def test_a_field_the_loop_holds_fixed_builds_a_residual(pseudo_dir, extra):
     calculation = _calculation(pseudo_dir, extra)
     assert calculation.magnetic_field is not None
     residual = make_residual(calculation, 8, 1e-10)
     assert residual.size > 0
+
+
+def test_a_noncollinear_penalty_builds_a_residual(pseudo_dir):
+    """The measured penalty regime: noncollinear, no uniform field beside it."""
+    calculation = _calculation(
+        pseudo_dir, NONCOLLINEAR + ", constrained_magnetization = 'atomic', lambda = 0.5"
+    )
+    assert calculation.noncolin
+    assert calculation.magnetic_field.constraint == "atomic"
+    residual = make_residual(calculation, 16, 1e-10)
+    assert residual.size > 0
+
+
+def test_a_collinear_penalty_is_refused(pseudo_dir):
+    """Measured against pw.x only on noncollinear inputs; collinear is not."""
+    calculation = _calculation(pseudo_dir, "constrained_magnetization = 'atomic', lambda = 0.5")
+    assert not calculation.noncolin
+    with pytest.raises(NotImplementedError, match="collinear run is not yet checked"):
+        make_residual(calculation, 8, 1e-10)
+
+
+def test_a_field_together_with_a_penalty_never_reaches_the_residual(pseudo_dir):
+    """Refused at input, as ``pw.x`` refuses it, so no residual guard is needed."""
+    with pytest.raises(ValueError, match="together with constrained_magnetization"):
+        _calculation(
+            pseudo_dir,
+            NONCOLLINEAR
+            + ", b_field(3) = 0.01, constrained_magnetization = 'atomic', lambda = 0.5",
+        )
+
+
+def test_a_noncollinear_uniform_field_is_refused(pseudo_dir):
+    """Only the collinear uniform field is measured against the mixing loop."""
+    calculation = _calculation(pseudo_dir, NONCOLLINEAR + ", b_field(3) = 0.01")
+    assert calculation.noncolin
+    with pytest.raises(NotImplementedError, match="noncollinear run is not yet checked"):
+        make_residual(calculation, 16, 1e-10)
+
+
+def test_autodiff_jacobian_is_refused_under_a_field(pseudo_dir):
+    """Every residual-solver number with a field used the central difference.
+
+    The guard fires before the first evaluation of ``F``, so the state handed
+    to the solver is never read.
+    """
+    from defuqumat.scf.solvers import newton_krylov
+
+    calculation = _calculation(pseudo_dir, "b_field(3) = 0.01")
+    residual = make_residual(calculation, 8, 1e-10)
+    with pytest.raises(NotImplementedError, match="autodiff"):
+        newton_krylov(residual, None, None, None, jvp="autodiff")
 
 
 def test_the_sternheimer_jacobian_still_refuses_a_field(pseudo_dir):

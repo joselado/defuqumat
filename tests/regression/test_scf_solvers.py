@@ -561,6 +561,14 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_field():
     Newton at 7 outer steps and 58 evaluations of ``F`` against the mixer's 14
     iterations. The field-free cell is the alternative a solver that dropped
     the Zeeman term would land on, and it is asserted to be far away.
+
+    **The Newton run's loop iteration count is what carries the claim.** A
+    Newton whose ``F`` dropped the field converges on the field-free residual,
+    and the mixing loop after it (``max_iterations = 300``) still carries the
+    field and finishes at the mixer's fixed point, so the energy, field energy
+    and moment asserts all pass. Measured on D22 with that mutation
+    (``make_residual`` handed the calculation with ``magnetic_field = None``):
+    the loop takes 11 iterations, against 1 clean.
     """
     system, pseudos = _iron_under_a_field(FIELD_EDITS)
     assert Calculation(system, pseudos).magnetic_field is not None
@@ -573,9 +581,14 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_field():
     )
     assert mixed.converged and newton.converged
     assert newton.solver is not None and newton.solver.converged
-    # The total energy is stationary, so it is second order in the density's
-    # error, while the field energy and the moment are first order: 1.7e-6 mu_B
-    # was measured, and the tolerance leaves room for a different stopping point.
+    # A Newton converged on the wrong problem is finished by the mixing loop,
+    # which would then take more than a step or two (11 measured).
+    assert newton.iterations <= 2
+    # The reported total leaves out the Zeeman term, so it is not the
+    # stationary functional: E + E_field is, and dE = -dE_field to 1e-10 at
+    # b_field(3) = 0.01 and 0.02. The E and E_field asserts are one first-order
+    # check in the moment, read twice; 1.7e-8 Ry and 1.7e-6 mu_B were measured,
+    # and the tolerances leave room for a different stopping point.
     assert newton.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
     assert newton.field_energy == pytest.approx(mixed.field_energy, abs=TOTAL_ENERGY_RY)
     assert newton.magnetization == pytest.approx(mixed.magnetization, abs=1e-4)

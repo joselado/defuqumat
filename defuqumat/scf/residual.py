@@ -72,8 +72,11 @@ projectors ``wfcU`` are fixed while the atoms are.
 ``potential(rho)`` applies ``calculation.magnetic_field`` at full strength and a
 penalty's field is ``jax.grad`` of the penalty, so both are functions of the
 density. A uniform field and the ``atomic``, ``atomic direction`` and ``total``
-penalties run, each measured; a ``LOCAL_MAGNETIC_FIELDS`` card and the
-``total direction`` and ``atomic texture`` penalties are refused until they are
+penalties run, each measured: the field in a collinear run, the penalties in
+a noncollinear one (the two together are refused at input, as ``pw.x`` does).
+A ``LOCAL_MAGNETIC_FIELDS`` card, the ``total direction`` and ``atomic texture``
+penalties, a noncollinear uniform field, a collinear penalty and
+``jvp='autodiff'`` under any field (``solvers.py``) are refused until they are
 measured. **Refused rather than approximated:** the two cases where the mixing
 loop moves the field between iterations, a feedback (fixed-spin-moment)
 constraint, whose field is a second unknown, and ``reducebf < 1``, whose fixed
@@ -601,6 +604,31 @@ def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
                 "many iterations it took, and no map of the density alone has "
                 "it as its fixed point. A field held fixed (reducebf = 1) runs "
                 "with a residual solver"
+            )
+        # What was measured is a collinear uniform field alone (Newton against
+        # the mixing loop) and a noncollinear penalty alone (against pw.x).
+        # The other two combinations run the same code, but are refused until
+        # they are measured, as the local-field card is. A field together with
+        # a penalty never reaches here: build_system refuses it, as pw.x does.
+        noncolin = bool(getattr(calculation, "noncolin", False))
+        uniform = getattr(field, "uniform", None)
+        has_uniform = uniform is not None and bool(np.any(np.asarray(uniform) != 0.0))
+        has_penalty = field.constraint != "none"
+        if has_uniform and noncolin:
+            raise NotImplementedError(
+                "a uniform b_field in a noncollinear run is not yet checked "
+                "with a residual solver: only the collinear field is measured "
+                "(against the mixing loop, to 2e-8 Ry). Use the mixing loop "
+                "(scf_solver='mixing')"
+            )
+        if has_penalty and not noncolin:
+            raise NotImplementedError(
+                f"constrained_magnetization = {field.constraint!r} in a "
+                "collinear run is not yet checked with a residual solver: the "
+                "penalties are measured against pw.x on noncollinear inputs "
+                "only, and on the one collinear cell tried neither Newton nor "
+                "the mixing loop converged. Use the mixing loop "
+                "(scf_solver='mixing')"
             )
     if getattr(system, "spiral_q", None) is not None:
         raise NotImplementedError("spin spirals are not supported by a residual solver")

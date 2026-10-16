@@ -163,11 +163,20 @@ def test_newton_krylov_reproduces_pw_x_under_a_constrained_moment(
     ``pw.x`` for ``atomic``, 2.7e-9 for ``atomic direction`` and 1.3e-8 for
     ``total``, against the 3e-7 the mixing route is held to; Newton converged
     in 13, 13 and 29 outer steps, and the mixing loop it hands over to stopped
-    after one iteration each time, so the number is Newton's. On ``atomic`` the
-    constraint energy is 0.00646111 against the 0.00646103 ``pw.x`` prints last;
-    the unconstrained moment there is about 3 mu_B, so a solver that lost the
-    penalty would not land near (1.68, 0, 0.15). The ``total`` case took 370 s
-    on one core, the other two under 90 s.
+    after one iteration each time, so the number is Newton's.
+
+    **The loop's iteration count is what carries the claim**, not
+    ``solver.converged``: a Newton whose ``F`` dropped the penalty converges on
+    its own field-free residual, and the mixing loop after it (``max_iterations
+    = 200``) then finishes the job and lands on ``pw.x`` anyway. Measured on D22
+    with that mutation (``make_residual`` handed the calculation with
+    ``magnetic_field = None``): every other assertion passes, and the loop takes
+    14 iterations on ``atomic`` and 41 on ``total``, against 1 clean.
+    ``atomic direction`` does not discriminate at all: its constraint energy at
+    convergence is 5e-33, so the field-free root is the same root, and it is
+    kept as a pw.x regression only. On ``atomic`` the constraint energy is
+    0.00646111 against the 0.00646103 ``pw.x`` prints last. The ``total`` case
+    took 370 s on one core, the other two under 90 s.
     """
     pwin = read_pw_input(qe_testsuite / "pw_noncolin" / name)
     system = build_system(pwin)
@@ -182,6 +191,9 @@ def test_newton_krylov_reproduces_pw_x_under_a_constrained_moment(
     )
     assert result.converged
     assert result.solver is not None and result.solver.converged
+    # A Newton converged on the wrong problem is finished by the mixing loop,
+    # which would then take more than a step or two (14 and 41 measured).
+    assert result.iterations <= 2
     reference = read_qe_output(benchmark("pw_noncolin", name))
     assert result.total_energy == pytest.approx(
         reference.total_energy, abs=CONSTRAINED_RY

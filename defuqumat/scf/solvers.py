@@ -166,6 +166,19 @@ def newton_krylov(
     """
     if jvp not in ("autodiff", "finite-difference", "sternheimer"):
         raise ValueError(f"unknown jvp backend {jvp!r}")
+    if jvp == "autodiff" and getattr(
+        getattr(residual, "calculation", None), "magnetic_field", None
+    ) is not None:
+        # I73: not measured under a field. On the one-k-point iron cell at the
+        # mixing fixed point it reads 0.53 to 0.81 of |J v| off the central
+        # difference with b_field(3) = 0.01, and 1.7 to 2.0 off without it, so
+        # the disagreement is not the field's, but no number backs this regime.
+        raise NotImplementedError(
+            "jvp='autodiff' under a magnetic field or a constrained moment is "
+            "not yet checked: every residual-solver number with a field was "
+            "taken with the central difference. Use jvp='finite-difference' "
+            "(the default)"
+        )
 
     x = np.asarray(x0, dtype=float).copy()
     psi = psi0
