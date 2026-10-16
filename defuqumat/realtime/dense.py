@@ -148,7 +148,11 @@ def dense_first_order(calculation, terms, direction, omega: float, eta: float, n
 
     ``omega`` and ``eta`` in Ry. Returns ``(J_(1,1) in Ry bohr as dense_orders
     sums it, states (nk, nocc, npwx) on the frozen spheres, the GMRES
-    residual)``; a norm-conserving dataset on one grid is assumed.
+    residual)``; a norm-conserving dataset is assumed. Everything here is on the
+    dense grid, on two grids too: the states are put in its box by Miller
+    index, so their products are exact there, and ``v(G - G')`` is read off its
+    transform, so nothing passes through the smooth grid or the interpolation
+    between the two.
     """
     import scipy.sparse.linalg as sla
 
@@ -157,8 +161,6 @@ def dense_first_order(calculation, terms, direction, omega: float, eta: float, n
 
     dense, smooth = calculation.basis.dense, calculation.basis.smooth
     grid = tuple(int(n) for n in dense.grid)
-    if tuple(int(n) for n in smooth.grid) != grid:
-        raise NotImplementedError("the dense first order assumes one FFT grid")
     mask = np.asarray(calculation.basis.planewaves.mask)
     indices = np.asarray(calculation.basis.planewaves.indices)
     smooth_miller = np.asarray(smooth.miller)
