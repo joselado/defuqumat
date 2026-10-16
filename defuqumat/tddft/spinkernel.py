@@ -48,7 +48,7 @@ functional (:func:`node_limit`), so the ratio and its limit come from one
 functional and agree by construction where they meet.
 
 
-**The identity's proof names a condition that is a second reason for two of the refusals.**
+**The identity's proof names a condition, and it is what decides which regimes are taken.**
 Step one is `F m = B_xc`, exact by construction. Step two is
 `X_0(0,0) B_xc = m`, and it goes through because
 
@@ -56,13 +56,20 @@ Step one is `F m = B_xc`, exact by construction. Step two is
                        = (1/2) (eps_n^up - eps_m^dn) <n up|m dn>,
 
 the energy denominator cancelling exactly, after which two closure sums over the minority
-manifold give `n_up - n_dn`. That first line needs `H_up - H_dn` to be **a local
-multiplicative potential**, which is true for LDA and GGA on a norm-conserving dataset and
-false the moment the Hamiltonian's spin dependence acquires a nonlocal part: ultrasoft and
-PAW have spin-dependent `D_ij`, and a Hubbard `U` has a spin-dependent projector term. So
-those refusals are not only about the missing `Q_ij(q+G)` in the matrix elements -- the
-**kernel** would need a nonlocal piece too, and `B_xc/m` would no longer be the whole of it.
-Spin-orbit coupling breaks the same step.
+manifold give `n_up - n_dn`. That first line needs `H_up - H_dn` to be `2 B` for a `B` the
+response is a matrix over. On a norm-conserving dataset that is the local `B_xc(r)` and the
+plane waves. On an **ultrasoft** one the spin-dependent part of `D_ij` is `int B_xc Q_ij`, the
+augmentation of the same local field, so the augmented matrix element `M_G + Q_ij(q+G)` term
+carries it and nothing else is needed (P93). Under a **Hubbard U** it is not: the simplified
+functional adds `sum |phi_a> (v_up - v_dn)_ac <phi_c|`, so the response gains one channel per
+`|phi_a><phi_c|` of each correlated block and the kernel a block there (I61,
+:func:`hubbard_kernel`). Under a **uniform applied field** the field adds a constant to `B`,
+which moves the identity to the Larmor frequency (I58,
+:func:`~defuqumat.tddft.spinchi0.larmor_frequency`). **PAW** adds the one-centre
+`(ddd_paw_up - ddd_paw_dn)/2` on the projectors, a channel of the Hubbard kind whose kernel is
+not a constant but the sphere integral of `B^1/m^1` against products of partial waves,
+all-electron minus pseudo, which is not written (I60). Spin-orbit coupling breaks the step
+outright.
 
 **And the vacuum is where it has to be clipped, which is measured rather than
 feared.** ``B_xc/m`` grows without bound as the density falls -- exchange alone
@@ -93,10 +100,15 @@ from defuqumat.scf.potential import v_of_rho
 
 __all__ = [
     "transverse_kernel_field",
+    "collinear_channels",
     "transverse_kernel_matrix",
     "exchange_field",
     "goldstone_residual",
     "node_limit",
+    "hubbard_field",
+    "hubbard_kernel",
+    "hubbard_moment",
+    "response_kernel",
 ]
 
 #: Below this density (electrons/bohr^3) the kernel is held at zero. QE's own
@@ -111,13 +123,67 @@ DENSITY_THRESHOLD = 1.0e-6
 POLARIZATION_THRESHOLD = 1.0e-4
 
 
+#: How large ``m_x`` and ``m_y`` may be, against ``max |m_z|``, for a spinor
+#: run's moment to count as collinear along ``z``.
+COLLINEAR_TOLERANCE = 1.0e-6
+
+
+def collinear_channels(calculation, density):
+    """``(n_up, n_dn)`` of a collinear density, ``(2, ...)``, from either regime.
+
+    A spinor run's density is ``(n, m_x, m_y, m_z)``; with its moment along
+    ``z`` it is the collinear pair ``((n + m_z)/2, (n - m_z)/2)`` (I59), and
+    anything else is a texture, refused here because this is where the
+    density is first read: the ``+-`` block of a texture does not decouple.
+    """
+    density = jnp.asarray(density)
+    if density.shape[0] == 2:
+        return density
+    if density.shape[0] != 4:
+        raise ValueError(
+            "the transverse kernel needs a spin-polarized density, (2, ...) "
+            f"or (4, ...); got leading axis {density.shape[0]}"
+        )
+    if isinstance(density, jax.core.Tracer):
+        # Under a trace the check has no value to read; the untraced call that
+        # every entry point makes first has already made it.
+        return jnp.stack([0.5 * (density[0] + density[3]), 0.5 * (density[0] - density[3])])
+    transverse = float(jnp.max(jnp.abs(density[1:3])))
+    longitudinal = float(jnp.max(jnp.abs(density[3])))
+    if transverse > COLLINEAR_TOLERANCE * max(longitudinal, 1.0e-300):
+        raise NotImplementedError(
+            "a transverse spin susceptibility of a noncollinear magnetization "
+            f"is not implemented: max |m_x|, |m_y| = {transverse:.3e} against "
+            f"max |m_z| = {longitudinal:.3e}, so the moment is not along z and "
+            "the 4x4 spin-density response no longer block-diagonalises (Elk's "
+            "genspchi0 carries all sixteen blocks). A spinor run whose moment "
+            "is collinear along z (angle1 = 0 or 180) is taken"
+        )
+    return jnp.stack([0.5 * (density[0] + density[3]), 0.5 * (density[0] - density[3])])
+
+
 def exchange_field(calculation, density) -> jnp.ndarray:
     """``B_xc(r)``, ``(n1, n2, n3)`` in Ry, from a converged collinear density.
 
     The spin splitting of the self-consistent potential, halved. No magnetic
-    field is applied -- see the module docstring.
+    field is applied -- see the module docstring. A spinor run's density
+    (``(4, ...)``, moment along ``z``) gives ``B_z`` of its own potential, the
+    field the spinor Hamiltonian carries as ``sigma_z B_z``, so a functional
+    whose spinor form is not the collinear one (``noncollinear_gga``) is read
+    as the states felt it.
     """
     density = jnp.asarray(density)
+    if density.shape[0] == 4:
+        collinear_channels(calculation, density)  # refuses a texture
+        from defuqumat.scf.driver import _potential_of_rho
+
+        potential = _potential_of_rho(
+            density, calculation.basis.dense, calculation.system.cell,
+            calculation.rho_core, calculation.functional, calculation.rho_core_g,
+            calculation._axis_argument(), None, calculation.source_free,
+            calculation.noncollinear_gga, calculation._spiral_q_argument(),
+        )
+        return potential.v_scf[3]
     if density.shape[0] != 2:
         raise ValueError(
             "the transverse kernel needs a collinear spin-polarized density, "
@@ -154,10 +220,10 @@ def transverse_kernel_field(
       ``m -> 0`` limit, :func:`node_limit`;
     * density below ``density_threshold``: zero.
     """
-    density = jnp.asarray(density)
+    field = exchange_field(calculation, density)
+    density = collinear_channels(calculation, density)
     charge = density[0] + density[1]
     magnetization = density[0] - density[1]
-    field = exchange_field(calculation, density)
 
     dense = charge > density_threshold
     polarized = jnp.abs(magnetization) > polarization_threshold * jnp.abs(charge)
@@ -225,7 +291,108 @@ def transverse_kernel_matrix(calculation, density, sphere, **kwargs) -> jnp.ndar
     return coefficients[index[..., 0], index[..., 1], index[..., 2]]
 
 
-def goldstone_residual(chi0, calculation, density, index: int = 0, **kwargs) -> float:
+def _pairs(chi0):
+    triples = np.asarray(chi0.hubbard, dtype=int).reshape(-1, 3)
+    return triples[:, 0], triples[:, 1], triples[:, 2]
+
+
+def hubbard_moment(calculation, ns, chi0) -> np.ndarray:
+    """``(ns_up - ns_dn)_ca / Omega`` on the Hubbard channel's pairs, ``(np,)``.
+
+    The channel's half of the target ``m`` of the identity, from the closure
+    sum: the entry for ``O_p = |phi_a><phi_c|`` is ``<O_p^dagger>/Omega``
+    summed over the occupied states of each channel, and
+    ``<psi|phi_c><phi_a|psi>`` is ``ns_ca`` in
+    :func:`~defuqumat.hubbard.occupations.occupation_matrix`'s convention
+    (``ns_ac = sum w conj(<phi_a|psi>) <phi_c|psi>``). The ``1/Omega`` is what
+    puts the channel on the plane waves' footing, ``m(G)`` being a density.
+    """
+    ns = np.asarray(ns)
+    slot, a, c = _pairs(chi0)
+    volume = float(calculation.system.cell.volume)
+    return (ns[0, slot, c, a] - ns[1, slot, c, a]) / volume
+
+
+def hubbard_field(calculation, ns, chi0) -> np.ndarray:
+    """``(v_up - v_dn)_ac / 2`` on the Hubbard channel's pairs, ``(np,)``, Ry.
+
+    The coefficient of ``O_p = |phi_a><phi_c|`` in ``(H_up - H_dn)/2``, since
+    :class:`~defuqumat.hubbard.operator.HubbardTerm` applies
+    ``sum v_ac |phi_a><phi_c|``: the channel's half of ``B``, with the
+    potential differentiated from the energy as the SCF does it.
+    """
+    from defuqumat.hubbard.energy import hubbard_potential
+
+    potential = np.asarray(
+        hubbard_potential(jnp.asarray(ns), calculation.hubbard_coefficients))
+    slot, a, c = _pairs(chi0)
+    return 0.5 * (potential[0, slot, a, c] - potential[1, slot, a, c])
+
+
+def hubbard_kernel(calculation, chi0) -> np.ndarray:
+    """The Hubbard channel's kernel, ``(np,)``: ``-(U_eff + J0) Omega / 2``.
+
+    **The rotation argument of the module docstring, on the correlated
+    block.** The simplified functional's spin-dependent part is
+    ``-(U_eff/2) sum_s Tr(ns_s ns_s) + (J0/2) sum_s Tr(ns_s ns_-s)``, whose
+    derivative makes ``(v_up - v_dn)/2 = -(U_eff + J0)/2 (ns_up - ns_dn)^T``:
+    linear in the block's moment, with one coefficient per atom. A rotation
+    of the moment rotates that field with it, so the transverse kernel is the
+    same coefficient, and with the channel's moment carrying ``1/Omega``
+    (:func:`hubbard_moment`) it is multiplied by the volume. ``U_eff`` and
+    ``J0`` are ``coefficients_from_setup``'s ``2 quadratic`` and
+    ``2 exchange``.
+
+    The other flavours are refused in
+    :func:`~defuqumat.tddft.spinchi0.require_a_transverse_regime`, and
+    :func:`response_kernel` checks the relation on the converged ``ns``
+    before trusting it.
+    """
+    coefficients = calculation.hubbard_coefficients
+    per_slot = np.asarray(coefficients["quadratic"]) + np.asarray(coefficients["exchange"])
+    slot, _, _ = _pairs(chi0)
+    return -per_slot[slot] * float(calculation.system.cell.volume)
+
+
+def response_kernel(calculation, density, chi0, ns=None, **kwargs) -> np.ndarray:
+    """The whole kernel over ``chi0``'s channels, ``(nm, nm)``.
+
+    ``F(G, G')`` (:func:`transverse_kernel_matrix`) on the plane waves and,
+    under a Hubbard ``U``, :func:`hubbard_kernel` on the diagonal of the
+    Hubbard channel, with no coupling between the two: the Hubbard energy is a
+    functional of ``ns`` alone and ``E_xc`` of the grid density alone. Before
+    the Hubbard block is used, ``K m = B`` is checked on the converged ``ns``
+    (it is ``F m = B_xc`` for that channel), which is what would catch a
+    functional whose field is not linear in the block's moment.
+    """
+    grid_part = np.asarray(
+        transverse_kernel_matrix(calculation, jnp.asarray(density), chi0.sphere, **kwargs))
+    if not chi0.hubbard:
+        return grid_part
+    if ns is None:
+        raise ValueError(
+            "the kernel of a run with a Hubbard U needs the converged "
+            "occupation matrix: pass ns = scf_result.ns"
+        )
+    kernel = hubbard_kernel(calculation, chi0)
+    field = hubbard_field(calculation, ns, chi0)
+    moment = hubbard_moment(calculation, ns, chi0)
+    scale = max(float(np.abs(field).max()), 1.0e-12)
+    if np.abs(kernel * moment - field).max() > 1.0e-8 * scale:
+        raise RuntimeError(  # pragma: no cover -- the flavours are refused
+            "the Hubbard channel's exchange field is not -(U_eff + J0)/2 times "
+            "its moment on this occupation matrix, so its kernel is not the "
+            "one hubbard_kernel writes down"
+        )
+    nm = grid_part.shape[0]
+    total = np.zeros((nm + kernel.size,) * 2, dtype=grid_part.dtype)
+    total[:nm, :nm] = grid_part
+    total[nm:, nm:] = np.diag(kernel)
+    return total
+
+
+def goldstone_residual(chi0, calculation, density, index: int = 0, ns=None,
+                       **kwargs) -> float:
     """How far ``X_0 B_xc = m`` is from holding, relative to ``|m|``.
 
     **The one check on a magnon that needs no second code and has no free
@@ -245,10 +412,15 @@ def goldstone_residual(chi0, calculation, density, index: int = 0, **kwargs) -> 
 
     ``index`` selects the frequency, which must be ``omega = 0`` with **no
     broadening** -- an ``eta`` puts an ``O(eta)`` error into the identity that
-    reads as an assembly bug.
+    reads as an assembly bug. Under a uniform applied field it is the Larmor
+    frequency instead, ``2 B``
+    (:func:`~defuqumat.tddft.spinchi0.larmor_frequency`): ``B_xc`` here is
+    field-free, the states are not, and the identity closes where the Zeeman
+    term in ``H_up - H_dn`` is cancelled by the frequency.
     """
     field = np.asarray(exchange_field(calculation, jnp.asarray(density)))
-    magnetization = np.asarray(density[0] - density[1])
+    channels = np.asarray(collinear_channels(calculation, density))
+    magnetization = channels[0] - channels[1]
     grid = np.asarray(calculation.basis.dense.grid)
     miller = np.asarray(chi0.sphere.miller) % grid
 
@@ -260,5 +432,17 @@ def goldstone_residual(chi0, calculation, density, index: int = 0, **kwargs) -> 
         return np.conj(coefficients[miller[:, 0], miller[:, 1], miller[:, 2]])
 
     target = plus(magnetization)
-    got = np.asarray(chi0.x[index]) @ plus(field)
+    source = plus(field)
+    if chi0.hubbard:
+        # The Hubbard channel's halves of ``m`` and ``B`` (I61): the identity
+        # is one equation over every channel ``X_0`` is a matrix over, and
+        # without them ``H_up - H_dn`` is not ``2 B`` and it does not close.
+        if ns is None:
+            raise ValueError(
+                "the Goldstone identity of a run with a Hubbard U needs the "
+                "converged occupation matrix: pass ns = scf_result.ns"
+            )
+        target = np.concatenate([target, hubbard_moment(calculation, ns, chi0)])
+        source = np.concatenate([source, hubbard_field(calculation, ns, chi0)])
+    got = np.asarray(chi0.x[index]) @ source
     return float(np.linalg.norm(got - target) / np.linalg.norm(target))
