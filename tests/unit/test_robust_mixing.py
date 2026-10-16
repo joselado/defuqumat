@@ -359,6 +359,32 @@ def test_a_restore_pours_the_supervisor_back_and_refuses_another_runs(tmp_path):
     assert other._kept is None
 
 
+@pytest.mark.parametrize("reduce", [None, lambda tree: tree])
+def test_the_streamed_ldos_pass_hands_a_norm_conserving_run_an_empty_becsum(reduce):
+    """The LDOS branch of ``stream_densities`` left ``becsum`` at ``None`` on a
+    norm-conserving run, where the mixer zips over it; found by I76's pooled
+    LDOS rung on smeared silicon, which died in ``_mix``."""
+    from types import SimpleNamespace
+
+    import jax.numpy as jnp
+
+    from defuqumat.scf.streaming import stream_densities
+
+    calc = SimpleNamespace(
+        is_ultrasoft=False, k_batch=1,
+        becsum=lambda psi, w, rows=None, symmetrize=False: (),
+        smooth_density=lambda psi, w, rows=None: jnp.sum(w) * jnp.ones(4),
+        finish_density=lambda rho, becsum: rho,
+        charge_channel=lambda ldos: ldos)
+    store = np.ones((1, 2, 1, 3))
+    weights = np.full((1, 2, 1), 0.5)
+    plain = stream_densities(calc, store, weights, reduce=reduce)
+    with_ldos = stream_densities(calc, store, weights, reduce=reduce,
+                                 ldos_weights=weights)
+    assert plain[0] == () and with_ldos[0] == ()
+    np.testing.assert_allclose(with_ldos[1], plain[1])
+
+
 def test_a_run_in_another_mode_removes_a_stale_supervisor(tmp_path):
     from defuqumat.scf.driver import SCF_SUPERVISOR, _write_supervisor
     from defuqumat.scf.mixing import get_mixer
