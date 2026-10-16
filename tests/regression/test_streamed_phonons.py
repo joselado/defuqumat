@@ -209,13 +209,9 @@ def test_a_second_streamed_call_compiles_nothing():
 # A partial matrix from the response the Raman tensors keep (I54).
 # ---------------------------------------------------------------------------
 
-#: The CG at a fixed threshold, so that the kept response and the fresh solve it
-#: is compared with differ only by having solved more modes together.
+#: The CG at a fixed threshold on every call, so that the kept response and the
+#: fresh solve run the same passes.
 KEPT = {"threshold": 1.0e-12}
-
-#: Against a fresh subset solve, which stops its loop on its own modes' residue
-#: rather than on every atom's: SUBSET_AGAINST_FRESH below.
-SUBSET_AGAINST_FRESH = 1e-8
 
 
 @pytest.mark.parametrize("case", ["si-epsilon-unshifted-nosym",
@@ -227,8 +223,16 @@ def test_a_partial_matrix_from_a_kept_response_is_its_rows(case):
     store and whole from the device store. Assembled with ``atoms=(1,)``, the
     walked matrix is the block of the same response's whole matrix **bit for
     bit**, since each row reads only its own atom's response; and both routes
-    agree with a fresh solve of the subset alone, which is the regime the
-    subset is defined in (``nosym``, where nothing couples the modes).
+    give the block of a fresh whole-cell solve at the same states (measured on
+    D22: 0 bit for bit, 1.2e-14 and 4.2e-14 between the routes). Read row by
+    row, as the whole-k route did before, the AlAs block was 5.5e-3 off and the
+    silicon one 2.57.
+
+    The block is the reference rather than a fresh *subset* solve because the
+    two are not the same number on an ultrasoft dataset, independently of this
+    assembly: on AlAs the fresh subset solve is 3.7e-8 from the fresh whole
+    block (10 passes each, different histories), where on norm-conserving
+    silicon it is 1e-14.
     """
     import dataclasses
 
@@ -252,15 +256,8 @@ def test_a_partial_matrix_from_a_kept_response_is_its_rows(case):
                                response=walked, atoms=atoms, **KEPT,
                                on_row=lambda at, c, r: rows.append((at, c)))
     assert np.array_equal(partial.matrix, whole.matrix[a][:, :, a, :])
+    assert np.abs(partial.matrix).max() > 0.1, "a block of zeros agreeing"
     assert rows == [(1, 0), (1, 1), (1, 2)]
-    # The fresh solve at the states the kept response was solved at, the
-    # re-diagonalised ones (``refined_states``): at the SCF's own states the two
-    # differ by the mixing step's 1e-7, which read 7.0e-8 on silicon.
-    eigenvalues, store = refined_states(calculation, hosted, stream=True)
-    fresh = dynamical_matrix(calculation, store, eigenvalues, density,
-                             result.becsum, atoms=atoms, **KEPT)
-    np.testing.assert_allclose(partial.matrix, fresh.matrix, rtol=0,
-                               atol=SUBSET_AGAINST_FRESH)
 
     kept = raman_tensors(calculation, result, keep_internals=True,
                          **KEPT).displacement
@@ -270,9 +267,9 @@ def test_a_partial_matrix_from_a_kept_response_is_its_rows(case):
                                  result.becsum, response=kept, atoms=atoms,
                                  **KEPT)
     fresh = dynamical_matrix(calculation, psi, eigenvalues, density,
-                             result.becsum, atoms=atoms, **KEPT)
-    np.testing.assert_allclose(from_kept.matrix, fresh.matrix, rtol=0,
-                               atol=SUBSET_AGAINST_FRESH)
+                             result.becsum, **KEPT).matrix[a][:, :, a, :]
+    np.testing.assert_allclose(from_kept.matrix, fresh, rtol=0, atol=TOLERANCE)
+    np.testing.assert_allclose(partial.matrix, fresh, rtol=0, atol=TOLERANCE)
 
 
 # ---------------------------------------------------------------------------
