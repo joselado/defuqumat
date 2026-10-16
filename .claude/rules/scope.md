@@ -203,8 +203,11 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   exactly through a projector, the rest by BiCGStab, and a solve that reaches its budget is
   refused rather than used, since `1/(2 eta)` amplifies it; at first order the induced potential
   can be in it (P138, `potential = 'hxc'`, the outer fixed point a GMRES, never the static
-  response's mixing, which diverges at a resonance). Refused: ultrasoft/PAW
-  (`P_kappa`), `nspin = 2`, spinors, DFT+U.
+  response's mixing, which diverges at a resonance). Ultrasoft, PAW, `nspin = 2` and
+  spinors run at a frozen potential (P139 to P141), and a `K_POINTS gamma` ground state is
+  propagated on the whole sphere (P154, I39). Refused: DFT+U, a spin spiral, a ground state
+  under a magnetic field or a constrained moment, and a half-sphere `Calculation` handed to
+  the driver directly.
 - **Converging a cell with vacuum** (P129, `mixing_mode = 'ldos'`): Herbst and Levitt's
   preconditioner, screening built from the LDOS at `e_F` out of the density's own pass. Two
   rules bind it. The LDOS is a **Gaussian** whatever the run smears with, because the inner
