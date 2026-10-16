@@ -1,11 +1,11 @@
 # I36-feedback. The ultracell runs the fixed-spin-moment feedback and `reducebf` on the box
 
-Status: done for the cell-wide scheme `'fsm'` under Elk's update rule and for `reducebf < 1`,
-collinear. The user decided (2026-10-16) that the ultracell should run a feedback scheme on the
+Status: done for the cell-wide scheme `'fsm'` under Elk's update rule and for `reducebf < 1`
+where the unit cell's field has faded below 1e-3 Ry, collinear. The user decided (2026-10-16) that the ultracell should run a feedback scheme on the
 box rather than refuse it, which lifts the part of `I36.md` that was still refused. Still refused,
 each by name and each with a test: the per-atom schemes `'atomic fsm'` and `'atomic fsm
 direction'`, the secant rule `fsm_update = 'secant'`, a penalty, and a spinor reference under any
-field.
+field, and a `reducebf` reference whose field is still above 1e-3 Ry.
 
 ## What changed
 
@@ -75,7 +75,11 @@ fields of 4e-6 Ry (box) and 3.1e-5 Ry (supercell), and the frozen alternative wo
 1.2e-4 Ry, whose effect on the state is second order in the field (`FADED_FIELD`'s table: 1e-4 Ry
 is near 1e-10 Ry in the total). What it does establish is that continuing the decay on the box
 converges to the supercell under the same `reducebf`; it is not a measurement of a state with a
-finite residual field, and a run that stops with one is warned.
+finite residual field. So a `reducebf` reference whose residual
+`MagneticField.residual(field_scale)` is above 1e-3 Ry refuses by name (`_FADING_RESIDUAL` in
+`ultracell/driver.py`): there the continuation and the supercell differ at first order in
+`chi B`, and at 1e-3 Ry that reaches the ladder's moment resolution, 1.4e-4 at `nbnd = 24`. The
+measured reference carried 1.18e-4 Ry.
 
 ## Two things the measurement found about the scheme, not about the box
 
@@ -101,12 +105,17 @@ finite residual field, and a run that stops with one is warned.
   `test_ultracell_regimes.py::test_a_per_atom_or_secant_feedback_reference_is_refused` (replaces
   `test_a_feedback_or_fading_field_reference_is_refused`, whose `'fsm'` and `reducebf` arms are now
   measured instead);
+- a `reducebf` reference whose field has not faded below 1e-3 Ry:
+  `test_a_fading_reference_whose_field_is_still_on_is_refused` (new, written with the guard);
 - penalty: `test_a_penalty_converged_reference_is_still_refused` and
   `test_ultracell.py::test_a_field_converged_ground_state_is_refused`;
 - spinor reference under a field: `test_a_spinor_reference_under_a_field_is_refused`.
 
 `r1-fast.log` (5749b21) and `r3-fast.log` (d8bf94b): `-m 'not slow'` on both ultracell files, 14
-passed, 38 deselected, no skips.
+passed, 38 deselected, no skips. `r4-fast.log` (6b8b8c4, the guard added): `-m 'not slow'` on
+both ultracell regression files, every `tests/unit/test_ultracell_*.py`, and the consumers of the
+result object (`test_stm_machinery`, `test_transport_machinery`, `test_cut_gap`,
+`test_degeneracy_tolerance`, `test_ldos_mixing`): 306 passed, 40 deselected, no skips.
 
 ## User guide
 
@@ -124,8 +133,9 @@ converged under a fixed magnetic field" becomes
 > the gain small, because the first steps of the long cell react much more
 > strongly than the unit cell did: on a hydrogen lattice `lambda = 2` did not
 > converge in the long cell and `lambda = 0.25` did. A ground state converged
-> with `reducebf` below 1 also runs, and the long cell keeps reducing the field
-> from where the unit cell stopped. The penalty schemes, the per-atom schemes
+> with `reducebf` below 1 also runs if the field of the unit cell has faded
+> below 1e-3 Ry, and the long cell keeps reducing the field from where the unit
+> cell stopped. Otherwise it gives an error. The penalty schemes, the per-atom schemes
 > `'atomic fsm'` and `'atomic fsm direction'`, and `fsm_update = 'secant'` give
 > an error. A fixed total moment with `tot_magnetization` still runs, with one
 > Fermi level for each spin channel. A noncollinear ground state converged
