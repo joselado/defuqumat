@@ -345,12 +345,11 @@ def test_tetrahedra_are_refused(tmp_path):
 def test_places_without_an_ldos_refuse_the_mode():
     from defuqumat.response.mixing import ResponseMixer
     from defuqumat.scf import run_scf
-    from defuqumat.ultracell.driver import run_ultracell
 
+    # The ultracell builds its LDOS on the box since I77
+    # (``tests/unit/test_ultracell_mixing_modes.py``); an augmented one refuses.
     with pytest.raises(ValueError, match="response loop"):
         ResponseMixer("ldos")
-    with pytest.raises(ValueError, match="ultracell"):
-        run_ultracell(None, None, None, (2, 1, 1), mixing_mode="ldos")
     calc = _silicon()
     with pytest.raises(ValueError, match="warmup_mixing = 'ldos'"):
         run_scf(calc.system, calc.pseudos, scf_solver="newton-krylov",
