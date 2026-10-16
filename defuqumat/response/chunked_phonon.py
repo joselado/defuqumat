@@ -742,11 +742,14 @@ class StreamedDisplacementsAtQ:
 
     ``solver`` is the whole set's solver at ``k``, built on the host store;
     ``states_kq`` the ``k + q`` states, a host store from
-    :func:`~defuqumat.scf.streaming.stream_states`.
+    :func:`~defuqumat.scf.streaming.stream_states`. ``core`` is the core
+    correction's ``dv_core`` per mode
+    (:func:`~defuqumat.response.phononq.core_displacements_at_q`), or ``None``,
+    added to each chunk's bare vectors as the whole route adds it.
     """
 
     def __init__(self, calculation, calculation_kq, solver, hamiltonians_kq,
-                 eigenvalues_kq, states_kq, q_cart, positions):
+                 eigenvalues_kq, states_kq, q_cart, positions, core=None):
         self.calculation = calculation
         self.calculation_kq = calculation_kq
         self.solver = solver
@@ -774,6 +777,7 @@ class StreamedDisplacementsAtQ:
         self.q_cart = jnp.asarray(np.asarray(q_cart, dtype=float))
         self.positions = jnp.asarray(positions)
         self.nat = int(self.positions.shape[0])
+        self.core = core
         self.modes = [(atom, cart) for atom in range(self.nat) for cart in range(3)]
         self.chunks = list(k_chunks(calculation.system.kpoints.nk,
                                     calculation.k_batch))
@@ -824,9 +828,11 @@ class StreamedDisplacementsAtQ:
             psi = _rows_of(self.solver.psi, rows)
             written = rows[:live]
             for atom, cart in self.modes:
+                core = (None if self.core is None
+                        else jax.device_put(self.core[atom, cart]))
                 bare = self.passes["bare"](
                     self.big, leaves, leaves_kq, psi, self.positions,
-                    self._tangent(atom, cart), self.q_cart, self.dij)
+                    self._tangent(atom, cart), self.q_cart, self.dij, core)
                 self.bare[atom, cart][:, written] = np.asarray(bare)[:, :live]
 
     def respond(self, dvscf, include_induced: bool, threshold=None, modes=None):
@@ -953,7 +959,7 @@ def _phonon_q_passes(calculation, key) -> dict:
         return cached[1][key]
     from defuqumat.response.elph import mode_matrix_elements
     from defuqumat.response.phononq import (
-        TwoSphereSolver, applied_at_q, induced_perturbation_at_q,
+        TwoSphereSolver, applied_at_q, induced_perturbation_at_q, local_at_q,
     )
 
     keep, counts, smearing, rows = key[1:]
@@ -961,11 +967,16 @@ def _phonon_q_passes(calculation, key) -> dict:
     def local(big, rowset):
         return with_rows(with_hoisted(calculation, big), rowset)
 
-    def bare(big, rowset, rowset_kq, psi, x, dx, q_cart, dij):
+    def bare(big, rowset, rowset_kq, psi, x, dx, q_cart, dij, core):
+        """One mode's bare vectors on one chunk; ``core`` its ``dv_core`` or
+        ``None`` (a separate trace, as ``None`` is an empty pytree)."""
         sub, sub_kq = local(big, rowset), local(big, rowset_kq)
-        return jax.jvp(
+        vectors = jax.jvp(
             lambda position: applied_at_q(sub, sub_kq, psi, position, q_cart, dij),
             (x,), (dx,))[1]
+        if core is None:
+            return vectors
+        return vectors + local_at_q(sub, sub_kq, psi, core)
 
     def respond(big, rowset, rowset_kq, hamiltonians, hamiltonians_kq, psi,
                 psi_kq, eigenvalues_kq, arrays, scalars, bare_c, dv, start_c):

@@ -35,7 +35,12 @@ no ``xq`` anywhere in the routine. The second derivative of the external
 potential at frozen density is diagonal in the atom index, so under a modulated
 displacement its two phases cancel and it is *the same matrix at every* ``q``.
 The whole ``q`` dependence of the part that does not involve the response is
-therefore in the Ewald sum, ``d2ionq``.
+therefore in the Ewald sum, ``d2ionq`` -- **without a core charge**. With one
+(I80) the frozen Hessian also holds ``int drho_core_i f_xc drho_core_j``, which
+couples two atoms' cores inside the nonlinear ``E_xc`` and is swapped to ``q``
+like the Ewald sum (:func:`swap_core`), and the bare perturbation carries
+``f_xc drho_core`` (:func:`core_displacements_at_q`), ``ph.x``'s ``addcore``
+and ``dynmat_nlcc``.
 
 **What is refused, and it is most things.** This lands the norm-conserving
 insulator and the norm-conserving metal on a full k-grid: no ultrasoft or PAW
@@ -43,9 +48,7 @@ insulator and the norm-conserving metal on a full k-grid: no ultrasoft or PAW
 no metal at a *nonzero* reciprocal lattice vector ``q = G`` (``ef_shift_wfc``
 would add the states at ``k`` to a ``dpsi`` on the ``k + G`` sphere; a metal at
 ``q = 0`` carries ``ef_shift`` here as at ``Gamma``), no spin polarization,
-no spinor, no nonlinear core correction (``dynmatcc.f90:105`` calls
-``set_drhoc(xq, drc)``, so unlike ``dynmat_us`` the core term *is* a function of
-``q``), and no symmetry -- the small group of ``q`` and the star of ``q`` are
+no spinor, and no symmetry -- the small group of ``q`` and the star of ``q`` are
 what a dispersion needs and are not written. Each is named at the door.
 
 References: Baroni, de Gironcoli, Dal Corso and Giannozzi, *Rev. Mod. Phys.*
@@ -77,7 +80,8 @@ __all__ = [
     "TwoSphereSolver", "bare_displacements_at_q", "self_consistent_response_at_q",
     "hartree_at_q", "induced_potential_at_q", "induced_perturbation_at_q",
     "ewald_dynamical_matrix", "frozen_force_constants", "response_force_constants",
-    "require_a_two_sphere_regime",
+    "require_a_two_sphere_regime", "core_displacements_at_q",
+    "core_force_constants", "swap_core", "local_at_q",
 ]
 
 
@@ -585,7 +589,7 @@ def complex_to_smooth(field, dense, smooth):
 # ---------------------------------------------------------------------------
 
 def bare_displacements_at_q(calculation, calculation_kq, solver, q_cart, positions,
-                            atoms=None) -> np.ndarray:
+                            atoms=None, core=None) -> np.ndarray:
     """``dV_bare_q/du |psi_k>`` for every atom and direction, on the ``k+q`` sphere.
 
     ``dvqpsi_us.f90``, and it stays what P25 made it: **one ``jvp`` through the
@@ -612,6 +616,11 @@ def bare_displacements_at_q(calculation, calculation_kq, solver, q_cart, positio
     :func:`~defuqumat.response.phonon._bare_displacements` already makes at
     ``Gamma``.
 
+    ``core`` is :func:`core_displacements_at_q`'s ``dv_core``, ``(nat, 3,
+    nspin, n1, n2, n3)``, or ``None`` without a core charge: the XC potential
+    the travelling core charge changes at a frozen valence density
+    (``dvqpsi_us``'s ``addnlcc`` branch), applied as a local operator and added.
+
     Returns an object array of shape ``(nat, 3)`` -- or ``(len(atoms), 3)`` --
     whose entries are ``(nspin, nk, nocc, npwx_kq)``.
     """
@@ -630,6 +639,9 @@ def bare_displacements_at_q(calculation, calculation_kq, solver, q_cart, positio
             tangent = jnp.zeros_like(positions).at[atom, cart].set(1.0)
             bare[row, cart] = compiled(
                 lambda u, du: jax.jvp(applied, (u,), (du,))[1], positions, tangent)
+            if core is not None:
+                bare[row, cart] = bare[row, cart] + local_at_q(
+                    calculation, calculation_kq, psi, core[atom, cart])
     return bare
 
 
@@ -805,6 +817,153 @@ def induced_perturbation_at_q(calculation, calculation_kq, dv):
         return jnp.where(mask[ik], map_bands(block, states), 0.0)
 
     return apply
+
+
+# ---------------------------------------------------------------------------
+# The nonlinear core correction at q (I80).
+# ---------------------------------------------------------------------------
+
+def core_displacements_at_q(calculation, density, q_cart, positions,
+                            host: bool = False):
+    """``(drho_core, dv_core)`` per mode at ``q``, or ``None`` without a core charge.
+
+    Each is ``(nat, 3, nspin, n1, n2, n3)`` on the dense grid, complex, and the
+    periodic part of a field carrying ``e^{i q . r}``:
+
+    * ``drho_core[a, i]`` is ``addcore.f90``: the core charge travelling with
+      atom ``a`` displaced along ``i`` with ``e^{i q R}``, one ``jvp`` through the
+      positions of :func:`~defuqumat.pseudo.potentials.core_charge_at_q`;
+    * ``dv_core[a, i]`` is the exchange-correlation response to it,
+      ``f_xc drho_core``, at the ground state's ``rho + rho_core``. ``ph.x``
+      adds ``drhoc`` to ``drho`` inside ``dv_of_drho`` for the XC part alone
+      and never in the Hartree term; this is :func:`induced_potential_at_q`
+      with its Hartree term at ``q`` subtracted again, so the XC kernel is the
+      one the valence response uses, gradient terms included.
+
+    ``dv_core`` goes into the **bare** perturbation (:func:`bare_displacements_at_q`),
+    not into ``dV_scf`` as ``ph.x`` has it: the fixed point is the same, and
+    with it there :func:`response_force_constants` carries the cross term
+    ``int conj(drho_i) f_xc drho_core_j`` of ``dynmat_nlcc.f90`` with its
+    measured factor 2 and conjugation, and the electron-phonon ``g`` sees it
+    once. What is left of ``dynmat_nlcc`` is the core-core term,
+    :func:`core_force_constants`. Memory: ``2 x 3 nat`` complex dense grids,
+    in host memory with ``host``.
+    """
+    if calculation.rho_core_g is None:
+        return None
+    import equinox as eqx
+
+    from defuqumat.pseudo.potentials import core_charge_at_q
+
+    density = jnp.asarray(density)
+    if density.shape[0] != 1:
+        raise NotImplementedError(
+            "the core correction's response at q is written for one spin "
+            "channel; require_a_two_sphere_regime refuses the others first")
+    dense = calculation.basis.dense
+    cell = calculation.system.cell
+    structure = calculation.system.structure
+    pseudos = calculation.pseudos
+    positions = jnp.asarray(positions)
+    q_cart = jnp.asarray(np.asarray(q_cart, dtype=float))
+
+    def charge(pos, shift):
+        moved = eqx.tree_at(lambda s: s.positions, structure, pos)
+        return g_to_r(core_charge_at_q(pseudos, moved, cell, dense, shift),
+                      dense.fft_index, dense.grid)
+
+    nat = positions.shape[0]
+    charges, potentials = [], []
+    for atom in range(nat):
+        for cart in range(3):
+            tangent = jnp.zeros_like(positions).at[atom, cart].set(1.0)
+            drhoc = compiled(
+                lambda u, du, shift: jax.jvp(lambda p: charge(p, shift),
+                                             (u,), (du,))[1],
+                positions, tangent, q_cart)[None]
+            dv = (induced_potential_at_q(calculation, density, drhoc, q_cart)
+                  - hartree_at_q(calculation, drhoc, q_cart))
+            charges.append(np.asarray(drhoc) if host else drhoc)
+            potentials.append(np.asarray(dv) if host else dv)
+    stack = np.stack if host else jnp.stack
+    shape = (nat, 3) + tuple(density.shape)
+    return stack(charges).reshape(shape), stack(potentials).reshape(shape)
+
+
+def core_force_constants(calculation, core) -> np.ndarray:
+    """``(3 nat, 3 nat)``: ``int conj(drho_core_i) f_xc drho_core_j``, the core-core
+    term of ``dynmat_nlcc.f90`` (its ``dot_product(dvaux, drhoc) omega / nrtot``
+    with ``drho`` set to zero). ``core`` is :func:`core_displacements_at_q`'s pair.
+
+    It is the one part of the frozen Hessian that couples the cores of two
+    *different* atoms, so it is a function of ``q``; the same-atom term
+    ``int v_xc d^2 rho_core`` (``dynmatcc.f90``, which says "q-independent" in
+    its own header) is not.
+    """
+    drhoc, dvcore = core
+    nat = np.shape(drhoc)[0]
+    grid = calculation.basis.dense.grid
+    points = grid[0] * grid[1] * grid[2]
+    left = np.conj(np.asarray(drhoc)).reshape(3 * nat, -1)
+    right = np.asarray(dvcore).reshape(3 * nat, -1)
+    return (left @ right.T) * (calculation.system.cell.volume / points)
+
+
+def swap_core(calculation, density, positions, frozen, q_cart, core=None):
+    """``frozen - C(0) + C(q)``: the core-core term moved to ``q``, ``C`` being
+    :func:`core_force_constants`; ``frozen`` unchanged without a core charge.
+
+    The Gamma functional's frozen Hessian is the second derivative of
+    ``E_xc[rho + rho_core(tau)]`` at a fixed ``rho``, so it holds ``C(0)``
+    beside the same-atom term; ``C(0)`` is taken here by the same expression as
+    ``C(q)``, so the swap is exact at ``q = 0`` and its residue against the
+    Hessian's own ``C(0)`` is what the supercell check measures. ``core`` is
+    :func:`core_displacements_at_q` at ``q``, built here when ``None``.
+    """
+    if calculation.rho_core_g is None:
+        return frozen
+    if core is None:
+        core = core_displacements_at_q(calculation, density, q_cart, positions)
+    at_zero = core_displacements_at_q(calculation, density, np.zeros(3), positions)
+    return (frozen - core_force_constants(calculation, at_zero)
+            + core_force_constants(calculation, core))
+
+
+def local_at_q(calculation, calculation_kq, psi, field):
+    """``field(r) psi_k`` gathered onto the ``k + q`` sphere, at every k-point
+    ``psi`` holds: ``(nspin, nk, nbnd, npwx_kq)``.
+
+    :func:`induced_perturbation_at_q` applied to a whole block through
+    :func:`~defuqumat.batching.map_k`, for a field fixed before the loop (the
+    core correction's ``dv_core``). ``field`` is ``(nspin, n1, n2, n3)`` on the
+    dense grid, complex.
+    """
+    from defuqumat.basis.fft import gather_from_box
+    from defuqumat.batching import map_bands, map_k
+
+    smooth, dense = calculation.basis.smooth, calculation.basis.dense
+    grid = smooth.grid
+    points = grid[0] * grid[1] * grid[2]
+    smooth_field = jnp.stack([complex_to_smooth(component, dense, smooth)
+                              for component in jnp.asarray(field)])
+    index_k, index_kq = calculation.fft_index, calculation_kq.fft_index
+    mask_kq = calculation_kq.basis.planewaves.mask
+
+    blocks = []
+    for spin in range(psi.shape[0]):
+        def one_k(item, potential=smooth_field[spin]):
+            states, here, there, keep = item
+
+            def block(chunk):
+                box = jnp.fft.fftn(g_to_r(chunk, here, grid) * potential,
+                                   axes=(-3, -2, -1)) / points
+                return gather_from_box(box, there)
+
+            return jnp.where(keep, map_bands(block, states), 0.0)
+
+        blocks.append(map_k(one_k, (psi[spin], index_k, index_kq, mask_kq),
+                            batch=calculation.k_batch))
+    return jnp.stack(blocks)
 
 
 def self_consistent_response_at_q(
@@ -1382,10 +1541,12 @@ def response_force_constants(solver, dpsi, bare, nat) -> np.ndarray:
     return matrix
 
 
-def frozen_force_constants(calculation, solver, positions, density, q_cart):
+def frozen_force_constants(calculation, solver, positions, density, q_cart,
+                           core=None):
     """``dynmat0`` at ``q``: the second derivative at a frozen electronic state.
 
-    Three terms, and only the last of them knows about ``q``:
+    Three terms, and without a core charge only the last of them knows about
+    ``q``:
 
         dynmat0(q) = dynmat_us + dynmatcc + d2ionq(q)
 
@@ -1405,11 +1566,16 @@ def frozen_force_constants(calculation, solver, positions, density, q_cart):
     nothing in the routine is a function of ``xq``. A second derivative taken
     twice at the *same* site carries ``e^{iqR} e^{-iqR} = 1``.
 
-    ``dynmatcc`` is the exception that is refused rather than handled:
-    ``dynmatcc.f90:105`` calls ``set_drhoc(xq, drc)``, because the core charge
-    of two *different* atoms overlaps inside a nonlinear ``E_xc`` and that
-    second derivative is not diagonal. :func:`dynamical_matrix_at_q` refuses a
-    dataset with a nonlinear core correction for that reason.
+    **A core charge adds one term that does know about** ``q`` (I80). The
+    Gamma functional differentiates ``E_xc[rho + rho_core(tau)]`` twice at a
+    fixed ``rho``, which is ``dynmatcc``'s same-atom ``int v_xc d^2 rho_core``
+    (q-independent, as ``dynmatcc.f90``'s header says; its
+    ``set_drhoc(xq, drc)`` at ``:105`` only prepares the table for
+    ``addcore``) **plus** ``int drho_core_i f_xc drho_core_j``, which couples
+    two *different* atoms' cores inside a nonlinear ``E_xc`` and is the
+    core-core half of ``dynmat_nlcc.f90``. That one is swapped like the Ewald
+    sum, :func:`swap_core`; ``core`` is :func:`core_displacements_at_q` at
+    ``q``, built when ``None``.
     """
     from defuqumat.response.phonon import _force_constants, _state_weights
 
@@ -1425,7 +1591,9 @@ def frozen_force_constants(calculation, solver, positions, density, q_cart):
         jnp.zeros((nat, 3) + jnp.asarray(density).shape), solver.nocc,
     )).reshape(3 * nat, 3 * nat)
 
-    return swap_ewald(calculation, positions, frozen, q_cart)
+    return swap_core(calculation, density, positions,
+                     swap_ewald(calculation, positions, frozen, q_cart),
+                     q_cart, core)
 
 
 def swap_ewald(calculation, positions, frozen, q_cart):
@@ -1488,15 +1656,6 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "the projector and the response density are each written for a "
             "single channel here, and a magnetic one is P45's refusal (the "
             "assembly rather than the solve) on a second sphere"
-        )
-    if calculation.rho_core_g is not None:
-        raise NotImplementedError(
-            "a phonon at q != 0 with a nonlinear core correction is not "
-            "implemented: unlike the rest of the frozen Hessian the core term "
-            "IS a function of q (dynmatcc.f90:105 calls set_drhoc(xq, drc)), "
-            "because two atoms' core charges overlap inside a nonlinear E_xc "
-            "and that second derivative is not diagonal in the atom. Use a "
-            "dataset without PP_NLCC"
         )
     if calculation.use_symmetry:
         raise NotImplementedError(
@@ -1642,6 +1801,11 @@ def dynamical_matrix_at_q(
 
     streamed = _streams(calculation, wavefunctions, keep_internals=False,
                         what="the dynamical matrix at q")
+    # The core correction's two fields per mode, ``None`` without one (I80),
+    # in host memory beside the loop's own grids on the streamed route.
+    core = core_displacements_at_q(calculation, density, q_cart, positions,
+                                   host=streamed)
+    dv_core = None if core is None else core[1]
     metal = calculation.system.occupations != "fixed"
     if metal:
         _require_a_metallic_q(cell, q_cart)
@@ -1683,7 +1847,7 @@ def dynamical_matrix_at_q(
 
         displacements = StreamedDisplacementsAtQ(
             calculation, kq, solver, hamiltonians_kq, eigenvalues_kq, psi_kq,
-            q_cart, positions,
+            q_cart, positions, core=dv_core,
         )
         displacements.prepare()
         dpsi, drho, history, average, converged = screening_loop_at_q(
@@ -1692,8 +1856,11 @@ def dynamical_matrix_at_q(
             verbose=verbose, threshold_cap=threshold_cap,
         )
         matrix = (
-            swap_ewald(calculation, positions,
-                       displacements.frozen_force_constants(density), q_cart)
+            swap_core(calculation, density, positions,
+                      swap_ewald(calculation, positions,
+                                 displacements.frozen_force_constants(density),
+                                 q_cart),
+                      q_cart, core)
             + displacements.response_force_constants()
         )
     else:
@@ -1704,7 +1871,8 @@ def dynamical_matrix_at_q(
         # ``keep_internals`` the bare vectors are built on the whole block and
         # the solve takes their leading rows.
         whole = bare_displacements_at_q(
-            calculation, kq, solver if keep_internals else two, q_cart, positions)
+            calculation, kq, solver if keep_internals else two, q_cart, positions,
+            core=dv_core)
         rows = two.psi.shape[2]
         bare = np.empty_like(whole)
         for index in np.ndindex(whole.shape):
@@ -1718,7 +1886,8 @@ def dynamical_matrix_at_q(
         )
 
         matrix = (
-            frozen_force_constants(calculation, solver, positions, density, q_cart)
+            frozen_force_constants(calculation, solver, positions, density, q_cart,
+                                   core=core)
             + response_force_constants(two, dpsi, bare, nat)
         )
     asymmetry = float(np.max(np.abs(matrix - matrix.conj().T)))
