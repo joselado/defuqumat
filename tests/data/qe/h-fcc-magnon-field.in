@@ -12,7 +12,9 @@
 ! (up by -B, down by +B; measured at B = 0.002 and 0.02, the moment moved by
 ! 2e-6 and not at all): the field run is then the zero-field run relabelled,
 ! and the Larmor check tests the sign and nothing more. At 0.05 the cell is a
-! metal on this mesh and the moment answers the field.
+! metal on this mesh and the moment is the field's doing: 0.321 mu_B with the
+! field, and -6e-5 (the nonmagnetic solution, 32 iterations) from the same seed
+! without it (D22, notes/incompat/I58.md).
  &control
     calculation = 'scf'
  /
