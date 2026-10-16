@@ -1462,8 +1462,11 @@ def test_turning_the_moments_on_the_starting_orientation_s_group_is_refused():
     """I78: the k-set reduced with the 45-degree start's magnetic group is refused.
 
     The group of the start (``E``, ``I`` and the two-fold axis along ``y`` and
-    its mirror with time reversal) is not the group of the easy axis the run
-    turns to, and its 8-point wedge is not complete once the moment moves.
+    its mirror with time reversal) is kept by every step of the stepper, so its
+    8-point wedge stays complete (with the guard bypassed it ends 1.8e-13 Ry
+    from ``nosym``, ``notes/incompat/I78.md``); it is refused because it holds
+    the moment exactly in the ``xz`` plane, and accepting that is the user's
+    open choice. The message must name the way out.
     """
     from defuqumat.scf.driver import run_scf
 

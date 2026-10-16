@@ -626,9 +626,11 @@ def orientation_free_symmetries(symmetries: Symmetries) -> Symmetries:
     group is always a correct one.
 
     The entry in ``notes/INCOMPATIBILITIES.md`` (I78) asked for the magnetic
-    group and the k-set to be rebuilt as the moments turn. That is a different
-    k-set every step, which the wavefunction store, the mixer history and the
-    warm start all forbid; this group is the one that never needs rebuilding.
+    group and the k-set to be rebuilt as the moments turn. That is not needed:
+    the stepper keeps the starting orientation's group exactly, since every
+    turn is built from a torque that respects it, but that group also pins
+    the moments in its fixed subspace. This group never needs rebuilding and
+    pins nothing.
     """
     identity = np.eye(3, dtype=int)
     t_rev = symmetries.t_rev_array()

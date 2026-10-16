@@ -178,7 +178,10 @@ def _stub(*, nosym=False, turning=False, hubbard=False, paw=False):
 
 
 def test_a_symmetric_run_without_the_turning_group_is_refused():
-    """The k-set of the starting orientation's group is broken by the first turn."""
+    """The starting orientation's group is refused; nosym and the turning group are not.
+
+    Not because the run breaks it (it does not, see the stepper test below) but
+    because it pins the moments to its fixed subspace (I78)."""
     with pytest.raises(ValueError, match="with_turning_moments"):
         _refuse_rotating_moments(_stub(), None, True)
     # Either way out of the refusal is accepted.
@@ -218,7 +221,8 @@ def test_the_turning_group_rebuilds_the_cobalt_k_set_between_the_two_ends():
     at ``k_x = k_y = 0``), so inversion leaves ``(18 - 2) / 2 + 2 = 10``. The
     starting orientation's magnetic group is larger than ``{E, I}`` (the
     two-fold axis along ``y`` with time reversal, and its mirror), so its
-    wedge is smaller still, which is the k-set the first turn would break.
+    wedge is smaller still: the k-set the refusal keeps out, since that group
+    pins the moment to the ``xz`` plane.
     """
     full = _cobalt_system(nosym=True)
     start = _cobalt_system(nosym=False)
@@ -250,3 +254,23 @@ def test_a_paw_run_on_the_turning_group_is_refused_and_nosym_paw_is_not():
     with pytest.raises(NotImplementedError, match="PAW"):
         _refuse_rotating_moments(_stub(turning=True, paw=True), None, True)
     _refuse_rotating_moments(_stub(nosym=True, paw=True), None, True)
+
+
+def test_the_stepper_keeps_the_starting_group_when_the_torque_respects_it():
+    """Every step is built from torques alone, so it commutes with their symmetry.
+
+    The 45-degree cobalt start has ``C2y`` and ``sigma_y`` with time reversal;
+    each acts on a rotation vector as ``det(R) R = C2y``, so a torque that
+    respects the group lies along ``y``, and the turn it gives keeps the moment
+    in the ``xz`` plane. This is why the starting group's wedge stays complete
+    along the run (I78, the verifier's argument) and also why that group pins
+    the moment. Fed torques along ``y`` of varying size, through the first step,
+    the BFGS updates and the trust radius, every step stays along ``y``.
+    """
+    stepper = OrientationStepper()
+    for g in (0.3, 0.1, -0.05, 0.02, 0.001, -0.0004):
+        step = stepper.propose(np.array([0.0, g, 0.0]), accuracy=1.0e-9)
+        assert step is not None
+        assert step[0] == 0.0 and step[2] == 0.0
+    m = stepper.total @ np.array([np.sin(np.pi / 4), 0.0, np.cos(np.pi / 4)])
+    assert abs(m[1]) < 1.0e-15

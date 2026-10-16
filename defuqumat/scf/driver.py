@@ -7019,22 +7019,33 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
             "field holds the orientation the step is moving, and the fixed point "
             "would belong to a different functional"
         )
-    # **A symmetric run is taken on the group the orientation cannot break**
-    # (I78): the identity and the inversion with their translations, the only
+    # **A symmetric run is taken on the group that constrains nothing** (I78):
+    # the identity and the inversion with their translations, the only
     # operations whose action on an axial vector commutes with every global
-    # spin rotation, in the group and in the k-set alike. ``with_turning_moments``
-    # rebuilds the k-set with that group; a ``System`` without it has a k-set
-    # reduced with the starting orientation's magnetic group, which the first
-    # turn breaks, so it stays refused here.
+    # spin rotation, so they hold for any orientation the run could reach.
+    # ``with_turning_moments`` rebuilds the k-set with that group. The starting
+    # orientation's magnetic group is *not* broken by the run: the stepper
+    # builds every rotation from the torque and its BFGS inverse Hessian, both
+    # invariant under that group (``scf/orientation.py:propose``, with
+    # ``flat_curvature`` off), so each turn commutes with it and its wedge stays
+    # complete; measured on cobalt 45 degrees off ``c``, 8 points against
+    # ``nosym``'s 18, 1.8e-13 Ry. It is refused because it holds the moments in
+    # its fixed subspace (``m_y = 0`` on that start) exactly, where ``nosym`` and
+    # the turning group hold them there only up to round-off, so a start on a
+    # symmetric saddle stays on it; whether to accept that for the smaller
+    # k-set is the user's open choice (``notes/incompat/I78.md``).
     system = calculation.system
     if not system.nosym and not getattr(system, "turning_moments", False):
         raise ValueError(
             "rotate_moments needs nosym = .true. or a System from "
-            "with_turning_moments() (Calculator.with_turning_moments()): the "
-            "magnetic symmetry group, and with it the k-set, depends on where "
-            "the moments point, and the run turns them. with_turning_moments "
-            "keeps only the identity and the inversion, which every turned "
-            "texture has, and rebuilds the k-set with them"
+            "with_turning_moments() (Calculator.with_turning_moments()). The "
+            "k-set here is reduced with the starting orientation's magnetic "
+            "group. The run keeps that group (every step is built from a torque "
+            "that respects it), so the k-set stays complete, but it also holds "
+            "the moments exactly inside the group's fixed subspace, and a start "
+            "on a symmetric saddle would stay there; with_turning_moments keeps "
+            "only the identity and the inversion, which constrain no "
+            "orientation, and rebuilds the k-set with them"
         )
     if not system.nosym and calculation.is_paw:
         # **Kept on PAW, by measurement rather than by argument** (I78): the

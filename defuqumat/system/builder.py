@@ -175,9 +175,10 @@ class System(eqx.Module):
     #: every moment is turned by the same rotation
     #: (:func:`~defuqumat.system.symmetry.orientation_free_symmetries`: the
     #: identity and the inversion, with their translations), in the group and
-    #: in the k-set it reduces. What ``run_scf(rotate_moments=True)`` needs on
-    #: a run that keeps its symmetry, since the k-set is fixed and the
-    #: orientation is not. Not a ``pw.x`` keyword; set it with
+    #: in the k-set it reduces. What ``run_scf(rotate_moments=True)`` asks for
+    #: on a run that keeps its symmetry: the group that constrains no
+    #: orientation, where the starting orientation's group would hold the
+    #: moments in its fixed subspace (I78). Not a ``pw.x`` keyword; set it with
     #: :meth:`with_turning_moments`, which rebuilds the k-points.
     turning_moments: bool = eqx.field(static=True, default=False)
     #: ``tstress`` (``&control``): compute the stress tensor once the SCF has
@@ -730,10 +731,13 @@ class System(eqx.Module):
         """The same run with the group a turning orientation keeps, k-points rebuilt.
 
         ``run_scf(rotate_moments=True)`` turns every moment by one rotation
-        after each mix, and the magnetic group of the starting orientation is
-        not the group of the orientation it ends on, while the k-set is fixed
-        before the first iteration. The operations that are symmetries of
-        every turned texture are the identity and the inversion, with their
+        after each mix, with the k-set fixed before the first iteration. The
+        stepper keeps the starting orientation's magnetic group (each turn is
+        built from a torque that respects it), so that group's wedge stays
+        complete, but it also holds the moments exactly in the group's fixed
+        subspace, which is why ``run_scf`` refuses it. The operations that are
+        symmetries of every turned texture, and constrain no orientation, are
+        the identity and the inversion, with their
         fractional translations
         (:func:`~defuqumat.system.symmetry.orientation_free_symmetries`), and
         this keeps exactly those, in :meth:`symmetry_group` and in the k-set,
