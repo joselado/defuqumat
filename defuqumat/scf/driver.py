@@ -7019,11 +7019,22 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
             "field holds the orientation the step is moving, and the fixed point "
             "would belong to a different functional"
         )
-    if not calculation.system.nosym:
+    # **A symmetric run is taken on the group the orientation cannot break**
+    # (I78): the identity and the inversion with their translations, the only
+    # operations whose action on an axial vector commutes with every global
+    # spin rotation, in the group and in the k-set alike. ``with_turning_moments``
+    # rebuilds the k-set with that group; a ``System`` without it has a k-set
+    # reduced with the starting orientation's magnetic group, which the first
+    # turn breaks, so it stays refused here.
+    system = calculation.system
+    if not system.nosym and not getattr(system, "turning_moments", False):
         raise ValueError(
-            "rotate_moments needs nosym = .true.: the magnetic symmetry group, "
-            "and with it the k-set, depends on where the moments point, and the "
-            "run turns them"
+            "rotate_moments needs nosym = .true. or a System from "
+            "with_turning_moments() (Calculator.with_turning_moments()): the "
+            "magnetic symmetry group, and with it the k-set, depends on where "
+            "the moments point, and the run turns them. with_turning_moments "
+            "keeps only the identity and the inversion, which every turned "
+            "texture has, and rebuilds the k-set with them"
         )
 
 
