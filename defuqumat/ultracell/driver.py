@@ -571,6 +571,10 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
                            "carries the overlap S")
         if int(system.nspin) == 4:
             reasons.append("a spinor, whose ns has four spin blocks per copy")
+        if int(system.nspin) == 2:
+            reasons.append("a collinear spin-polarized cell, whose two channels' "
+                           "ns per copy are built but measured against a "
+                           "supercell at nspin = 1 only")
         if getattr(hubbard, "tensor_moments", ()):
             reasons.append("a TENSOR_MOMENTS constraint on the occupation matrix")
         if getattr(hubbard, "projectors", "atomic") != "atomic":
@@ -580,7 +584,7 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
         if reasons:
             raise NotImplementedError(
                 "the ultracell runs DFT+U with one occupation matrix per atom "
-                "copy, on a norm-conserving collinear cell with atomic "
+                "copy, on a norm-conserving unpolarized cell with atomic "
                 "projectors, and refuses " + "; ".join(reasons)
             )
     if getattr(system, "spiral_q", None) is not None:

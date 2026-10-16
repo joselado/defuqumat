@@ -34,7 +34,9 @@ projections times the copies, which is ``N`` times the unit cell's ``proj`` for
 the same states, and an ``(N nbnd)^2`` matrix product per copy per iteration.
 
 Refused, each by name in the driver: an ultrasoft or PAW dataset (the
-projection carries ``S``), a spinor (four spin blocks per copy), a
+projection carries ``S``), a spinor (four spin blocks per copy), a collinear
+spin-polarized cell (the two channels are carried, but the supercell check is
+silicon at ``nspin = 1`` only), a
 ``TENSOR_MOMENTS`` constraint on ``ns``, and any projector but ``'atomic'``.
 A Lowdin-orthogonalised manifold decomposes over ``Q`` the same way, since the
 supercell's atomic overlap at ``k0`` is block diagonal in ``Q``, and it is not

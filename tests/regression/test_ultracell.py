@@ -1092,7 +1092,7 @@ def test_the_hubbard_refusal_fires(tmp_path, pseudo_dir):
 
     calculator = _silicon(tmp_path, pseudo_dir, (2, 2, 2))
     basis = build_basis(calculator.system)
-    # Atomic projectors on a norm-conserving collinear cell run since the
+    # Atomic projectors on a norm-conserving unpolarized cell run since the
     # copies carry their own occupation matrices (``test_ultracell_regimes.py``);
     # a Lowdin-orthogonalised manifold is not measured and still refuses.
     hubbard = HubbardInput(projectors="ortho-atomic",
@@ -1100,6 +1100,16 @@ def test_the_hubbard_refusal_fires(tmp_path, pseudo_dir):
     with pytest.raises(NotImplementedError, match="DFT\\+U"):
         require_an_ultracell_regime(
             _Overridden(calculator.system, hubbard=hubbard),
+            calculator.pseudos, basis,
+        )
+
+    # Atomic projectors at nspin = 2: the two channels' ns per copy are built,
+    # and the supercell check is unpolarized silicon only.
+    atomic = HubbardInput(projectors="atomic",
+                          parameters=(("Si", 3, 1, 0.1, 0.0, 0.0, 0.0),))
+    with pytest.raises(NotImplementedError, match="collinear spin-polarized"):
+        require_an_ultracell_regime(
+            _Overridden(calculator.system, hubbard=atomic, nspin=2),
             calculator.pseudos, basis,
         )
 
