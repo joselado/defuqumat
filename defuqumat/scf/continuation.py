@@ -74,6 +74,7 @@ different ways is refused, with the message naming the way out.
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 from dataclasses import dataclass
 
@@ -206,6 +207,12 @@ class _SpinTransfer:
     #: The reverse: the axis a *vector* magnetization is projected onto on its
     #: way down to a collinear one, or ``None`` when it is already ``z``.
     project: tuple | None = None
+    #: An integer wavevector ``w`` in lattice coordinates, or ``None``: the
+    #: target's transverse pair is the source's times ``exp(2 pi i w . x)``,
+    #: ``x`` the fractional position. It is the frame change across a spiral
+    #: boundary (:func:`_spiral_frame`), ``-q`` out of a spiral and ``+q`` into
+    #: one, and it exists only where ``q`` is a reciprocal-lattice vector.
+    frame: tuple | None = None
 
     @property
     def seeded(self) -> bool:
@@ -392,43 +399,57 @@ def _transfer(result, calculation, magnetization: str) -> _SpinTransfer:
     )
 
 
-def _check_spiral(result, calculation, transfer: _SpinTransfer) -> None:
-    """A spiral on one side of the continuation and not on the other.
+def _spiral_frame(result, calculation, transfer: _SpinTransfer) -> tuple | None:
+    """The frame change across a spiral boundary, or a refusal.
 
     **A spin spiral keeps its density in the rotated frame**, the frame that
-    turns with ``q``, and nothing in this package rebuilds a laboratory-frame
-    copy of it (``scf/density.py`` says the laboratory spiral is "recovered on
-    output", and what is recovered is the reported *moment*, not the array). So
-    the charge and ``m_z`` mean the same thing on both sides of a spiral
-    boundary and the transverse pair ``(m_x, m_y)`` does not: carrying it across
-    reads one frame's numbers as the other's. That is refused here for a source
-    that has a transverse pair to carry, which is any source with
-    ``nspin_mag = 4``.
+    turns with ``q`` (``scf/density.py``): the charge and ``m_z`` are the
+    laboratory ones, and the transverse pair is ``m'_+ = m'_x + i m'_y = 2
+    conj(U_up) U_dn`` of the periodic parts. With the up component at
+    ``k + q/2`` and the down at ``k - q/2`` the laboratory pair is ``m_+ =
+    m'_+ exp(-i q . r)``, which is the relation
+    :func:`~defuqumat.workflows.spiral.unfold_spiral_density` is built on. So a
+    vector magnetization crosses the boundary by that one phase, ``-q`` out of
+    a spiral and ``+q`` into one, and returned here is the integer wavevector
+    ``w`` in lattice coordinates with ``m_+(target) = m_+(source) exp(2 pi i w . x)``.
+
+    **The phase is lattice periodic only when ``q`` is a reciprocal-lattice
+    vector**, an integer ``spiral_q``, ``q = 0`` included. For any other ``q`` the
+    laboratory spiral turns by ``-q . R`` from one cell to the next, so it has
+    no representation in the unit cell at all: its Fourier components sit at
+    ``G - q``, off the cell's reciprocal lattice, and the cell-periodic part of
+    it is zero. That is refused, and it is physics rather than a missing term:
+    the continuation that exists is into the supercell the spiral repeats in,
+    which ``unfold_spiral_density`` builds, and a change of cell is what
+    :func:`_check_grid` refuses for every continuation.
+
+    **What crosses unchanged.** ``becsum`` pairs ``vkb(k + q/2)`` with
+    ``vkb(k - q/2)``, whose Bloch factors put ``exp(-i q . tau_a)`` into the
+    transverse block, so it is already the laboratory value at the atom: the
+    augmentation charge it multiplies is ``Q_ij(G - q) exp(-i (G - q) . tau_a)``
+    in the rotated frame, which is ``Q_ij(G') exp(-i G' . tau_a)`` at the
+    laboratory wavevector ``G' = G - q``, the ordinary table of the plain run.
+    So ``becsum`` needs no phase at an integer ``q``. The Hubbard ``ns`` of a
+    norm-conserving spiral is built from projectors on the same two spheres and
+    should behave the same way, but nothing has measured it, so a DFT+U state
+    is refused across the boundary.
 
     **A collinear source is a different matter and is allowed through.** What
     crosses then is one scalar field, and :func:`_common_direction` lays it
     along the *target's* own ``angle1``/``angle2`` -- a seed direction the target
     chose, not a transverse field transferred from somewhere else.
 
-    **The moment on the rotation axis is refused one layer earlier now.** A
-    magnetization along ``z`` is invariant under the spiral's own rotation, so
-    it is a cone of zero opening angle, the ferromagnet, and a stationary point
-    at **every** ``q``; carried into a spiral the run converges, reports a
-    moment, and has computed the ferromagnet with ``q`` playing no part. This
-    module refused that and no longer needs to: a spiral whose starting moments
-    are all on the axis is refused when the :class:`~defuqumat.scf.driver.
-    Calculation` is built (``driver.py``, beside the ``nosym`` refusal), which
-    catches the run started from scratch as well as the continued one. What
-    reaches here is therefore a target with a transverse component already, and
-    a branch nothing can trip is worse than no branch: it reads as a guard and
-    is a decoration.
+    **The moment on the rotation axis is refused one layer earlier**, when the
+    :class:`~defuqumat.scf.driver.Calculation` is built (``driver.py``, beside
+    the ``nosym`` refusal): a magnetization along ``z`` is invariant under the
+    spiral's rotation, a stationary point at every ``q``.
 
-    Spiral to spiral is allowed at any ``q``, in both senses: it is the
-    checkpoint resume, and it is what a sweep over ``q`` wants, since the
+    Spiral to spiral is allowed at any ``q``, in both senses, with no phase: it
+    is the checkpoint resume, and it is what a sweep over ``q`` wants, since the
     rotated-frame density at one wavevector is a good guess at the next.
     """
     if transfer.mode != "carry":
-        return
+        return None
     target = calculation.system.spiral_q is not None
     system = getattr(result, "system", None)
     if system is None:
@@ -444,22 +465,63 @@ def _check_spiral(result, calculation, transfer: _SpinTransfer) -> None:
                 "magnetization='seed' to keep only the converged charge",
                 RuntimeWarning, stacklevel=3,
             )
-        return
+        return None
     source = system.spiral_q is not None
-    if source == target:
-        return
-    if transfer.source == 4:
-        was, now = ("a spin spiral", "one") if source else ("one", "a spin spiral")
+    if source == target or transfer.source != 4:
+        return None
+    q = np.asarray(system.spiral_q if source else calculation.system.spiral_q,
+                   dtype=float).reshape(3)
+    was, now = ("a spin spiral", "one") if source else ("one", "a spin spiral")
+    if np.max(np.abs(q - np.round(q))) > 1.0e-8:
         raise NotImplementedError(
             f"the source run is {was} and this one is {now}, and a vector "
-            "magnetization does not cross that boundary: a spiral's transverse "
-            "components (m_x, m_y) are measured in the frame that turns with q "
-            "while an ordinary noncollinear run's are measured in the "
-            "laboratory, and the two are not the same numbers. The charge and "
-            "m_z are, so pass magnetization='seed' to keep the converged charge "
-            "and take the moment from this run's starting_magnetization, or "
+            "magnetization does not cross that boundary at "
+            f"q = {tuple(float(x) for x in q)}: a spiral's transverse "
+            "components (m_x, m_y) are measured in the frame that turns with q, "
+            "and the laboratory pair is m_+ = m'_+ exp(-i q.r), which is "
+            "periodic in this cell only when q is a reciprocal-lattice vector "
+            "(an integer spiral_q). At this q the laboratory spiral repeats in "
+            "a supercell and not in this cell, so no density of this cell "
+            "means the same thing; workflows.spiral.unfold_spiral_density lays "
+            "it out on the supercell. The charge and m_z do cross, so pass "
+            "magnetization='seed' to keep the converged charge and take the "
+            "moment from this run's starting_magnetization, or "
             "magnetization='none' to start unpolarized"
         )
+    q = np.round(q)
+    frame = -q if source else q
+    if not np.any(frame):
+        return None
+    if calculation.is_hubbard and getattr(result, "ns", None) is not None:
+        raise NotImplementedError(
+            f"the source run is {was} and this one is {now}, and the density "
+            "crosses that boundary at an integer q but a DFT+U occupation "
+            "matrix has not been checked to: its transverse spin blocks come "
+            "from projectors on the spiral's two spheres and their frame at "
+            "the site is not measured. Pass magnetization='seed' to keep the "
+            "converged charge and build ns from this run's starting moments"
+        )
+    return tuple(float(x) for x in frame)
+
+
+def _rotate_frame(density, frame):
+    """``m_+ -> m_+ exp(2 pi i w . x)`` on a ``(4, n1, n2, n3)`` density.
+
+    ``x`` is the fractional position of each grid point, so at an integer ``w``
+    this is an exact cyclic shift of the Fourier components by ``w`` and no
+    interpolation. Written as the real rotation of ``(m_x, m_y)`` by the angle
+    ``2 pi w . x``, so no complex array is formed and the charge and ``m_z``
+    are not touched.
+    """
+    density = jnp.asarray(density)
+    grid = density.shape[1:]
+    axes = [jnp.arange(n, dtype=density.dtype) / n for n in grid]
+    x = jnp.meshgrid(*axes, indexing="ij")
+    angle = 2.0 * np.pi * sum(float(w) * xi for w, xi in zip(frame, x))
+    cos, sin = jnp.cos(angle), jnp.sin(angle)
+    m_x = cos * density[1] - sin * density[2]
+    m_y = sin * density[1] + cos * density[2]
+    return jnp.stack([density[0], m_x, m_y, density[3]])
 
 
 def _constraints(system) -> tuple:
@@ -600,7 +662,10 @@ def _check_grid(result, calculation) -> None:
 def promote_density(result, calculation, transfer: _SpinTransfer):
     """The target run's starting density, from the source's converged one."""
     seed = calculation.starting_density() if transfer.seeded else None
-    return transfer.apply(result.density, seed)
+    density = transfer.apply(result.density, seed)
+    if transfer.frame is not None:
+        density = _rotate_frame(density, transfer.frame)
+    return density
 
 
 def promote_becsum(result, calculation, transfer: _SpinTransfer) -> tuple:
@@ -919,6 +984,19 @@ def promote_wavefunctions(result, calculation):
 
 def _promote_rows(psi, held_nk, result, calculation):
     """:func:`promote_wavefunctions` on an array of rows; ``held_nk`` is a pool's whole-set count."""
+    source_system = getattr(result, "system", None)
+    if (source_system is not None
+            and (source_system.spiral_q is None) != (not calculation.spiral)):
+        # **First, and before the same-layout branch, which would otherwise
+        # take it at equal shapes**: a spiral's spinor keeps its two components
+        # on the spheres ``k + q/2`` and ``k - q/2`` and an ordinary one keeps
+        # both on ``k``, so equal shapes index different plane waves. Whatever
+        # the magnetization does.
+        return _dropped(
+            "one run is a spin spiral and the other is not, so the two "
+            "spinor components are stored on different plane-wave spheres "
+            "(k +- q/2 against k)"
+        )
     # **Where the source set lives, it stays**: a streamed result or a loaded
     # checkpoint holds it in host RAM, and the target's start slices the span a
     # chunk at a time when it streams, so the promotion is done in numpy there
@@ -1079,7 +1157,9 @@ def continued_state(
     """
     _check_grid(result, calculation)
     transfer = _transfer(result, calculation, magnetization)
-    _check_spiral(result, calculation, transfer)
+    frame = _spiral_frame(result, calculation, transfer)
+    if frame is not None:
+        transfer = dataclasses.replace(transfer, frame=frame)
     _check_fields(result, calculation, transfer)
     span = None
     if wavefunctions:
