@@ -126,6 +126,19 @@ def test_a_walked_response_still_refuses_a_symmetrised_subset():
                          response=_response(2, walked=_Walked(2)), atoms=(1,))
 
 
+def test_a_walked_response_refuses_a_closed_subset_with_symmetry():
+    """I51 lifts a closed subset with symmetry on the whole-k route only.
+
+    AlAs's ``atoms=(0,)`` is a union of orbits, so the orbit guard passes it,
+    and the walked route keeps the streamed route's refusal.
+    """
+    calculation = _calculation("alas-raman-wedge")
+    assert calculation.use_symmetry
+    with pytest.raises(NotImplementedError, match="whole-k route"):
+        dynamical_matrix(calculation, None, jnp.zeros((10, 4)), None,
+                         response=_response(2, walked=_Walked(2)), atoms=(0,))
+
+
 def test_a_walked_response_still_refuses_nspin_two():
     calculation = _calculation("h-chain-afm")
     assert calculation.nspin == 2

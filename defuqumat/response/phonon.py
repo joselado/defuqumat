@@ -412,12 +412,19 @@ def dynamical_matrix(
     walked = None if response is None else getattr(response, "walked", None)
     if walked is not None:
         _require_one_spin_channel(calculation)
+        if chosen is not None and calculation.use_symmetry:
+            # I51 admits a closed subset with symmetry on the whole-k route
+            # only; I54's row map on the walked route was measured on ``nosym``
+            # cells. The two meet here, unmeasured, so the walked subset keeps
+            # the streamed route's refusal (``notes/INCOMPATIBILITIES-T2.md``).
+            raise NotImplementedError(_SYMMETRISED_SUBSET_WALKED)
         # **A response solved a k-chunk at a time is assembled the same way**,
         # from its own stores (:meth:`~defuqumat.response.chunked_phonon.
         # StreamedDisplacements.force_constants`): the states it was solved at
         # are the ones it holds, so ``wavefunctions`` is not read. It solved
         # every atom, and a subset is its rows for those atoms: the subset
-        # needs ``nosym`` (checked above), where nothing couples the modes, so
+        # is on a ``nosym`` run (refused otherwise, just above), where nothing
+        # couples the modes, so
         # the rows of the whole response *are* the subset's response, and each
         # row of the assembly reads only its own (``force_constants(atoms=)``).
         matrix = walked.force_constants(response.drho, response.extras,
@@ -447,12 +454,7 @@ def dynamical_matrix(
         # The closed-subset symmetrisation is threaded through
         # :class:`~defuqumat.response.chunked_phonon.StreamedDisplacements` but
         # was measured only on the whole-k route (``notes/incompat/I51.md``).
-        raise NotImplementedError(
-            "a partial dynamical matrix with symmetry is validated on the "
-            "whole-k route only, and this run walks the k axis a chunk at a "
-            "time: switch symmetry off (nosym = .true.), or use a memory mode "
-            "that holds the whole mesh"
-        )
+        raise NotImplementedError(_SYMMETRISED_SUBSET_WALKED)
     weights, _ = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
     nocc = occupied_counts(calculation)
@@ -1829,6 +1831,16 @@ def _diagonalize(matrix: np.ndarray, masses: np.ndarray):
     omega2, vectors = np.linalg.eigh(0.5 * (weighted + weighted.T))
     frequencies = np.sign(omega2) * np.sqrt(np.abs(omega2)) * RY_TO_CMM1
     return frequencies, vectors
+
+
+#: The refusal of a closed subset with symmetry on either route that walks the
+#: k axis a chunk at a time (a streamed solve, or a walked response handed in).
+_SYMMETRISED_SUBSET_WALKED = (
+    "a partial dynamical matrix with symmetry is validated on the "
+    "whole-k route only, and this run walks the k axis a chunk at a "
+    "time: switch symmetry off (nosym = .true.), or use a memory mode "
+    "that holds the whole mesh"
+)
 
 
 def _require_a_subsettable_regime(calculation, atoms, nat):

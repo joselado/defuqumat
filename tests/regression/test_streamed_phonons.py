@@ -225,8 +225,9 @@ def test_a_partial_matrix_from_a_kept_response_is_its_rows(case):
     bit**, since each row reads only its own atom's response; and both routes
     give the block of a fresh whole-cell solve at the same states (measured on
     D22: 0 bit for bit, 1.2e-14 and 4.2e-14 between the routes). Read row by
-    row, as the whole-k route did before, the AlAs block was 5.5e-3 off and the
-    silicon one 2.57.
+    row, as the whole-k route did before, the silicon block was 2.57 off, and on
+    AlAs ``atoms=(1,)`` raised ``IndexError`` while ``atoms=(1, 0)`` was 0.95 off
+    (``/l/ladovj1/review/incompat/I54-ver/h-rev.log``).
 
     The block is the reference rather than a fresh *subset* solve because the
     two are not the same number on an ultrasoft dataset, independently of this
