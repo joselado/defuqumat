@@ -694,7 +694,9 @@ def test_a_saw_tooth_ultracell_bounds_the_supercell_from_above(
     fillings agree; a Gaussian keeps the free energy variational, so the bound
     still holds. Measured on D22 (``notes/incompat/I35.md``): +8.092e-5,
     +3.528e-6, +3.636e-7 Ry per cell without ``dipfield`` and +1.952e-5,
-    +4.408e-6, +4.789e-7 with it, at ``nbnd = 12, 24, 48``.
+    +4.408e-6, +4.789e-7 with it, at ``nbnd = 12, 24, 48``. In the
+    ``dipfield`` arm the energy is second order in the dipole's response and
+    does not see it, so ``E_f`` per cell is asserted as well.
     """
     shape, kgrid = (2, 1, 1), (1, 2, 2)
     folded = tuple(n * m for n, m in zip(shape, kgrid))
@@ -719,10 +721,25 @@ def test_a_saw_tooth_ultracell_bounds_the_supercell_from_above(
     supercell = _silicon(tmp_path, pseudo_dir, kgrid, shape=shape,
                          control=control, system=system, tag="saw-sup")
     reference, _ = _supercell_reference(supercell, shape, nbnd=12)
-    gaps = _energy_ladder(calculator, scf, shape, kgrid, reference, (12, 24, 48))
+    kept = {}
+    gaps = _energy_ladder(calculator, scf, shape, kgrid, reference, (12, 24, 48),
+                          keep=kept)
     assert gaps[48] < gaps[24] < gaps[12]
     assert all(g > 0.0 for g in gaps.values()), gaps
     assert gaps[48] < 1e-6, gaps
+    if dipfield:
+        # The energy cannot tell the box dipole from a frozen one: the dipole
+        # moves by 3.4e-5 under this modulation, so holding the saw-tooth at
+        # the tiled density's moves the gaps by 1e-8 and the induced density
+        # by 2e-3 of itself. ``E_f`` per cell can, at first order in that
+        # move: 3.6e-6 Ry from the supercell's at 48 bands with the box
+        # dipole, 1.1e-4 and levelling off with the frozen one (D22, I35).
+        field = reference.energy_terms["efield"] / int(np.prod(shape))
+        errors = [abs(kept[n].energy_terms["efield"] - field) for n in (12, 24, 48)]
+        print("  E_f per cell from the supercell's: "
+              + ", ".join(f"{e:.3e}" for e in errors))
+        assert errors == sorted(errors, reverse=True), errors
+        assert errors[-1] < 1e-5, errors
 
 
 # -- I36: a reference converged under a field ----------------------------------
