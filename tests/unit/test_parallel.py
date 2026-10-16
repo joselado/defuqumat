@@ -1030,6 +1030,29 @@ SILICON_8K_SMEARED = SILICON_8K.replace(
     "  occupations = 'smearing', smearing = 'gaussian', degauss = 0.02")
 
 
+#: fcc aluminium (``tests/data/qe/al-tetrahedra.in``) under a Gaussian smearing on
+#: a 2x2x2 grid: a metal, so the LDOS preconditioner is not the identity and a
+#: resume that came back without it would read differently.
+ALUMINIUM_8K = """\
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 2, celldm(1) = 7.50, nat = 1, ntyp = 1, ecutwfc = 15.0,
+  nosym = .true., noinv = .true.,
+  occupations = 'smearing', smearing = 'gaussian', degauss = 0.05
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Al 26.98 Al.pz-vbc.UPF
+ATOMIC_POSITIONS alat
+ Al 0.00 0.00 0.00
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+
+
 def _same_robust_run(a, b, energy=1e-10):
     assert a["converged"] and b["converged"]
     assert a["iterations"] == b["iterations"]
@@ -1040,6 +1063,7 @@ def _same_robust_run(a, b, energy=1e-10):
 @pytest.mark.slow
 @pytest.mark.parametrize("ladder,text", [("hamiltonian", SILICON_8K),
                                          ("ldos", SILICON_8K_SMEARED),
+                                         ("ldos", ALUMINIUM_8K),
                                          ("plain", SILICON_8K)])
 def test_two_pools_take_the_robust_modes_decisions_of_one(ladder, text, tmp_path):
     """I76: rank 0 judges, the others are told; the run is the one-pool run.
@@ -1061,7 +1085,7 @@ def test_two_pools_take_the_robust_modes_decisions_of_one(ladder, text, tmp_path
 
 @pytest.mark.slow
 @pytest.mark.parametrize("ladder,size", [("hamiltonian", 1), ("plain", 1),
-                                         ("hamiltonian", 2)])
+                                         ("hamiltonian", 2), ("ldos", 1)])
 def test_a_robust_checkpoint_resumes_where_it_stopped(ladder, size, tmp_path):
     """I76: the supervisor crosses the file, so a resume is the uninterrupted run.
 
@@ -1074,16 +1098,18 @@ def test_a_robust_checkpoint_resumes_where_it_stopped(ladder, size, tmp_path):
     """
     import shutil
 
-    whole = _run_pools(ROBUST_SCRIPT, size, SILICON_8K, ladder, tmp_path / "w",
+    # On the LDOS rung the resume must install the preconditioner again.
+    text = ALUMINIUM_8K if ladder == "ldos" else SILICON_8K
+    whole = _run_pools(ROBUST_SCRIPT, size, text, ladder, tmp_path / "w",
                        "whole", timeout=900)[0]
     stopped_dir = tmp_path / "stopped"
-    stopped = _run_pools(ROBUST_SCRIPT, size, SILICON_8K, ladder, stopped_dir,
+    stopped = _run_pools(ROBUST_SCRIPT, size, text, ladder, stopped_dir,
                          "stop", timeout=900)[0]
     assert not stopped["converged"] and stopped["iterations"] == 5
     assert "scf_supervisor.npz" in stopped["files"]
     directory = tmp_path / "resume"
     shutil.copytree(stopped_dir, directory)
-    resumed = _run_pools(ROBUST_SCRIPT, size, SILICON_8K, ladder, directory,
+    resumed = _run_pools(ROBUST_SCRIPT, size, text, ladder, directory,
                          "resume", timeout=900)[0]
     _same_robust_run(whole, {**resumed,
                              "records": stopped["records"] + resumed["records"]})
@@ -1093,7 +1119,7 @@ def test_a_robust_checkpoint_resumes_where_it_stopped(ladder, size, tmp_path):
         return
     directory = tmp_path / "nosup"
     shutil.copytree(stopped_dir, directory)
-    blind = _run_pools(ROBUST_SCRIPT, size, SILICON_8K, ladder, directory,
+    blind = _run_pools(ROBUST_SCRIPT, size, text, ladder, directory,
                        "resume-nosup", timeout=900)[0]
     assert ([r[1:] for r in stopped["records"] + blind["records"]]
             != [r[1:] for r in whole["records"]])
