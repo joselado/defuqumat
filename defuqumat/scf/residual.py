@@ -119,8 +119,8 @@ Jacobian still refuses both (``require_a_sternheimer_regime``): it needs the
 tetrahedron response weight ``dfpt_tetra_beta``, and for ``from_input`` a
 projector for a filling that is not a function of the levels.
 
-Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum`` and
-``ns``, and a Krylov subspace holds a few tens of those -- tens of MB,
+Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum``,
+``ns`` and, under a feedback constraint, the driven field (a few floats), and a Krylov subspace holds a few tens of those -- tens of MB,
 negligible beside the wavefunctions. One ``jvp`` doubles the wavefunction
 working set for the duration of the call, because the tangent ``psi`` has the
 same shape as ``psi``; that is the number to watch, and it is why the JVP goes

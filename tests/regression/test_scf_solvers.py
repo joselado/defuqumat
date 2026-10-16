@@ -790,8 +790,9 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_feedback_field(
     **The loop iteration count carries the claim.** With the field row of
     ``F`` replaced by the identity Newton holds the starting field and solves
     the unconstrained problem, and the loop after the hand-over then drives
-    the field itself: 45 iterations on ``fe-fsm.in`` and 93 on the canted pair,
-    against 1 clean.
+    the field itself: 45 iterations on ``fe-fsm.in`` and 93 on the canted pair
+    under ``'atomic fsm'``, against 1 clean (``'atomic fsm direction'`` was not
+    mutated).
     """
     from defuqumat import Calculator
     from defuqumat.scf import fields
