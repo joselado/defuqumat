@@ -373,9 +373,9 @@ here.
     unshifted grid, which is closed under the point group. A shifted whole grid
     works for the spectrum itself, but the band-truncation check
     `static_residual` gives an error on it, so you pass `static_residual=False`.
-    The half-sphere storage of `K_POINTS gamma` gives an error for the absorption
-    spectrum, because the pair densities would be built from wrong real-space
-    products.
+    The absorption spectrum works with `K_POINTS gamma`. The bands are solved
+    again on the whole sphere, and the spectrum agrees with an explicit $k = 0$
+    to 1.4e-9.
 
     The `alda` kernel gives an error with a gradient-corrected or meta-GGA
     functional, because the ALDA kernel is local in the density and a GGA kernel

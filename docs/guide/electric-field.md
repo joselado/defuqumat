@@ -249,25 +249,35 @@ the formal charge 3, so the bond of AlAs is far from ionic.
 
     A finite field by the Berry phase (`lelfield`) gives an error for an
     ultrasoft or PAW dataset, because the overlap between two k-points then
-    needs the augmentation, and the force needs its derivative. It gives an
-    error for `nspin = 2` and spinors. Only `occupations = 'fixed'` is
-    accepted, so smearing or `from_input` gives an error, even for an insulator, because a
-    Berry phase belongs to a gapped set of bands. `efield_cart` (the field in three
-    directions) and an automatic k-mesh, which `pw.x` turns into that form, give
-    an error, so you give the strings as an explicit list of k-points with
-    `gdir` and `nppstr`. A cell where $\mathbf a_g$ is not along the Cartesian
-    axis $g$ gives an error. The stress gives an error, and the field terms of
-    the stress are not in `pw.x` either. DFT+U, a spin spiral, `tefield` at the
-    same time, gamma-only storage, every linear response, real-time propagation
-    and the ultracell give an error too.
+    needs the augmentation, and the force needs its derivative. It works for
+    `nspin = 2` when the two channels hold the same number of electrons
+    (`tot_magnetization = 0`), and for a spinor run without spin-orbit coupling
+    and without a magnetization. It gives an error for a magnet, for spin-orbit
+    coupling and for a magnetized spinor, because `pw.x` counts the occupied
+    bands of a channel as `nelec/2` and so has no number to check against. A
+    streamed wavefunction store (`wfc_store = 'stream'`) works, and k-point pools
+    give an error. Only `occupations = 'fixed'` is accepted, so smearing or
+    `from_input` gives an error, even for an insulator, because a Berry phase
+    belongs to a gapped set of bands. With an automatic k-mesh, `pw.x` reads the
+    field from `efield_cart` and ignores `efield` and `gdir`. This works when
+    `efield_cart` points along one Cartesian axis and the other two lattice
+    vectors have no component along it. `efield_cart` in more than one direction
+    gives an error, and so does an automatic mesh with `efield_cart` zero, which
+    in `pw.x` is a run with no field. A cell where $\mathbf a_g$ is not along
+    the Cartesian axis $g$ gives an error. The stress gives an error, and the
+    field terms of the stress are not in `pw.x` either. DFT+U, a spin spiral,
+    `tefield` at the same time, gamma-only storage, every linear response,
+    real-time propagation and the ultracell give an error too.
 
     The Berry-phase polarization gives an error for a metal, because a smeared
-    occupation does not say which bands the string carries. It gives an error
-    for `nspin = 2`, because the two channels would need two separate sets of
-    strings. A spin spiral gives an error, because its two spinor components
-    live on spheres centred at $\mathbf k \pm \mathbf q/2$. It works for a
-    spinor run (`noncolin`), where the quantum is half the scalar one because a
-    spinor band holds one electron, and for ultrasoft and PAW datasets.
+    occupation does not say which bands the string carries. For `nspin = 2` each
+    spin channel has its own strings, and the two phases add, as in `pw.x`. The
+    quantum is then 1. This needs `occupations = 'fixed'` with
+    `tot_magnetization`, and `from_input` gives an error. A spin spiral gives an
+    error, because its two spinor components live on spheres centred at $\mathbf
+    k \pm \mathbf q/2$. It works for a spinor run (`noncolin`), where the
+    quantum is half the scalar one because a spinor band holds one electron, and
+    for ultrasoft and PAW datasets.
 
 The notebooks for this page are
 [53, a molecule in an electric field](https://github.com/joselado/defuqumat/blob/master/notebooks/53_electric_field_molecule.ipynb),

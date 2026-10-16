@@ -447,27 +447,26 @@ broadening of 0.03 Ry.
     ```
 
 !!! note "Limits"
-    The STM image gives an error for a spin spiral, because its two spinor
-    components live on different plane-wave spheres and $|\psi(\mathbf r)|^2$ is
-    then not periodic in the cell. A run with a fixed total magnetization
-    (`tot_magnetization`) gives an error, because it has one Fermi level per spin
-    and a tip sees one energy. A run in an applied magnetic field also gives an
-    error, because the energy of the field is not in the total, so its Fermi level
-    is not the one of the run without the field. A magnetic tip gives an error on
-    a run with no magnetization, and a tip direction across the axis of a
-    collinear run also gives an error, because such a run has no transverse
-    magnetization, which is not the same as a zero one.
+    The STM image of a spin spiral works for the charge, which is periodic in
+    the cell. A spin-resolved image of a spiral gives an error, because the
+    moment turns from cell to cell, and so does a denser `grid`. A run with a
+    fixed total magnetization (`tot_magnetization`) gives an error, because it
+    has one Fermi level per spin and a tip sees one energy. A run in an applied
+    magnetic field also gives an error, because the energy of the field is not
+    in the total, so its Fermi level is not the one of the run without the
+    field. A magnetic tip gives an error on a run with no magnetization, and a
+    tip direction across the axis of a collinear run also gives an error,
+    because such a run has no transverse magnetization, which is not the same as
+    a zero one.
 
     A constant-current scan longer than the period of the cell along the normal
     gives an error, because there the tip meets the next copy of the surface. A
     point where the tip never reaches the set-point comes back as `nan`, with a
     warning that says how many points. At zero bias the image of an insulator is
     zero, because the delta sits in the gap, and the code warns about it, so for
-    an insulator you give a `bias`. All four calculations of this page give an
-    error with the half-sphere storage of `K_POINTS gamma`, and an explicit
-    $k = 0$ gives the same states. Not every `K_POINTS gamma` input keeps that
-    storage. An ultrasoft run or a symmetric run is switched to an explicit
-    $k = 0$ before the SCF, and then all four calculations work.
+    an insulator you give a `bias`. All four calculations of this page work with
+    `K_POINTS gamma`. They agree with an explicit $k = 0$ to 1e-7, which is what
+    two SCFs at `conv_thr = 1e-15` agree to.
 
     The tunnelling spectrum gives the same errors as the image, and two more,
     because here $\psi(\mathbf r)$ is sampled and squared at the tip. A
@@ -504,13 +503,14 @@ broadening of 0.03 Ry.
     and in the vacuum these datasets need nothing extra. A magnetic tip or a
     magnetic substrate gives an error on a run with no magnetization, and a
     direction across the axis of a collinear run gives an error for both. A spin
-    spiral, a fixed `tot_magnetization` and an applied field give an error, as
-    for the image. A `bias` window whose energy step is larger than `broadening`
-    gives an error, since the current would be wrong by orders of magnitude, and
-    the error says which `nenergies` is enough. If the atoms are not between the
-    two planes, the code warns. The tip is an s-wave tip, the substrate is
-    infinite and flat, and the map has no absolute scale, because the couplings
-    of the tip and of the substrate are unknown constants.
+    spiral gives an error, because the spectrum samples each state on one
+    plane-wave list, and so do a fixed `tot_magnetization` and an applied field,
+    as for the image. A `bias` window whose energy step is larger than
+    `broadening` gives an error, since the current would be wrong by orders of
+    magnitude, and the error says which `nenergies` is enough. If the atoms are
+    not between the two planes, the code warns. The tip is an s-wave tip, the
+    substrate is infinite and flat, and the map has no absolute scale, because
+    the couplings of the tip and of the substrate are unknown constants.
 
     The momentum-resolved transport gives the same errors as the vertical
     transport for the k-mesh, the two planes and the substrate, and the code warns if both planes are on the same side of the

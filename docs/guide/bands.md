@@ -201,15 +201,15 @@ removed, 0.034 in units of $1/m_e$ for this band.
     the bands that the multiplet splits into, in ascending order, and
     `v.degenerate_by_spin` marks these rows.
 
-    `get_effective_mass()` gives an error on a spin spiral, because the two
-    spinor components sit on plane-wave spheres centred at
-    $\mathbf k + \mathbf q/2$ and $\mathbf k - \mathbf q/2$, and a k-stencil
-    moves both of them. Two eigenvalues closer than
-    `degeneracy_tol = 1e-5` Ry at the k-point form a degenerate multiplet.
-    Inside it a single band has no mass tensor, because the eigensolver can
-    rotate the bands inside the multiplet. These bands are `nan` in `mass.inverse_mass`,
-    `mass.principal(n)` gives an error for them, and `mass.multiplets` holds the
-    summed inverse mass of the multiplet, which is invariant.
+    `get_effective_mass()` gives an error on a spin spiral, because its stencil
+    needs the bands at new k-points, and a spiral cannot yet move its two
+    spheres to another k-list. The band velocities on the k-points of the SCF
+    work. Two eigenvalues closer than `degeneracy_tol = 1e-5` Ry at the k-point
+    form a degenerate multiplet. Inside it a single band has no mass tensor,
+    because the eigensolver can rotate the bands inside the multiplet. These
+    bands are `nan` in `mass.inverse_mass`, `mass.principal(n)` gives an error
+    for them, and `mass.multiplets` holds the summed inverse mass of the
+    multiplet, which is invariant.
 
     The step `delta`, 0.025 1/bohr by default, is the outermost point of the
     stencil with both `method="velocity"` and `method="eigenvalue"`. The code does not tune it,

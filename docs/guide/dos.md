@@ -182,20 +182,18 @@ valence charge here.
     ```
 
 !!! note "Limits"
-    The projected density of states gives an error with the half-sphere storage
-    of `K_POINTS gamma`. In this case you can use an explicit $k = 0$ instead,
-    which gives the same result.
+    The projected density of states works with `K_POINTS gamma`. It agrees with
+    an explicit $k = 0$ to 4e-12.
 
     The tetrahedron schemes need an automatic k-mesh. If you do not give `grid`
     and the SCF used an explicit list of k-points, tetrahedra give an error,
     because a list of points carries no tetrahedra.
 
-    For a spin-orbit run (`lspinorb`), the symmetrized projection gives an error,
-    because its channels are $|j\,m_j\rangle$ and the rotation matrix they need
-    is not built. You run with `nosym = .true.` and the full k-mesh, which is
-    the same physics, or pass `symmetrize=False`. A noncollinear run without
-    spin-orbit coupling is symmetrized, with the spin rotated together with the
-    orbitals.
+    A noncollinear run is symmetrized, with the spin rotated together with the
+    orbitals. A spin-orbit run (`lspinorb`) is symmetrized too when it is not
+    magnetic. A magnetic spin-orbit run with symmetry gives an error. For it you
+    run with `nosym = .true.` and the full k-mesh, which is the same physics, or
+    pass `symmetrize=False`.
 
     A noncollinear run, with or without spin-orbit coupling, has no
     $m$-resolved charges, and `charges.charges_lm` is `None`. The charges per

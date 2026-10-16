@@ -216,7 +216,8 @@ invariant form of Liechtenstein, with $J$. `HUBBARD` card, notebook
   Becke-Johnson meta-GGA. It is a potential, and there is no energy functional
   behind it. For silicon it moves the gap from 0.49 eV in LDA to 1.13 eV, and
   the experimental gap is 1.17 eV. Forces, stress and response give an error,
-  because the total energy is not variational. `input_dft = 'tb09'`, notebook
+  because the total energy is not variational. The topological invariants work
+  with it. `input_dft = 'tb09'`, notebook
   [24](notebooks/24_tran_blaha_band_gaps.ipynb).
 - **Tensor moments of the correlated shell**. The occupation matrix is written
   in an orthonormal basis of multipoles. In this basis the charge, the spin
@@ -663,7 +664,7 @@ task of the other code that it refers to.
 | **Slater integrals from the orbital** | `hubbard_slater = 'yukawa'` | | ✓ |
 | **Van der Waals dispersion**, Grimme's D2 | `vdw_corr = 'grimme-d2'` | ✓ | |
 | **An electric field across a slab**, and the dipole correction | `tefield`, `dipfield` | ✓ | (✓)²⁰ |
-| **A finite electric field in a crystal**, by the Berry phase | `lelfield`, `calc.get_scf().berry_dipoles` | ✓ | |
+| **A finite electric field in a crystal**, by the Berry phase | `lelfield`, `efield_cart` on an automatic mesh, `calc.get_scf().berry_dipoles` | ✓ | |
 | **Forces on the atoms** | `calc.get_forces()` | ✓ | ✓ |
 | **Structural relaxation** | `calc.get_relax()` | ✓ | ✓ |
 | **Variable-cell relaxation** at an applied pressure | `calc.get_relax(variable_cell=True)` | ✓ | ✓ |
@@ -704,7 +705,7 @@ task of the other code that it refers to.
 | **Second-harmonic generation** | `calc.get_shg()` | (✓)¹⁴ | ✓ |
 | **Real-time response to a laser pulse**: the current in time, the dielectric function from a kick, the high-harmonic spectrum | `calc.get_realtime(pulse)`, `calc.get_realtime_dielectric()`, `calc.get_hhg(pulse)` | | (✓)¹⁹ |
 | **Third-harmonic susceptibility** $\chi^{(3)}$, at one frequency or as a spectrum | `calc.get_third_harmonic(frequency)`, `calc.get_harmonic_orders(frequency)` | | |
-| **Berry curvature and Chern numbers** | `calc.get_chern()` | | |
+| **Berry curvature and Chern numbers** | `calc.get_chern()`, `calc.get_chern(spin=0)` at `nspin = 2` | | |
 | **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
 | **Magnetoelectric tensor** | `calc.get_magnetoelectric_tensor()` | | ✓ |

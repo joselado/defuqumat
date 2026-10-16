@@ -503,15 +503,18 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     tensor is zero, so for the SCF you keep the symmetry and pass the whole mesh
     as `kpoints`, as we do for silicon.
 
-    The real-time methods give an error for DFT+U, a spin spiral, `K_POINTS
-    gamma`, a ground state under a magnetic field or with a constrained moment,
-    a static electric field (`tefield` or `lelfield`), and a symmetry-reduced
-    k-set passed as `kpoints` (you pass `grid=` instead, which builds the right
-    reduction for the field). A shifted mesh gives an error, because it is not
-    closed under the point group, and `little_group=False` propagates the whole
-    shifted mesh instead. They also give an error when `occupations = 'fixed'`
-    cuts a degenerate level, because the current then depends on an arbitrary
-    choice inside the level, and for a time step that is too long to be stable.
+    The real-time methods give an error for DFT+U, a spin spiral, a ground state
+    under a magnetic field or with a constrained moment, a static electric field
+    (`tefield` or `lelfield`), and a symmetry-reduced k-set passed as `kpoints`
+    (you pass `grid=` instead, which builds the right reduction for the field).
+    A shifted mesh gives an error, because it is not closed under the point
+    group, and `little_group=False` propagates the whole shifted mesh instead.
+    They also give an error when `occupations = 'fixed'` cuts a degenerate
+    level, because the current then depends on an arbitrary choice inside the
+    level, and for a time step that is too long to be stable.
+
+    A `K_POINTS gamma` ground state works. The states are solved again on the
+    whole sphere, so the run costs twice the plane waves of the SCF.
 
     A magnet, a spinor run with spin-orbit coupling, and ultrasoft and PAW
     datasets work in real time. With an ultrasoft or PAW dataset, the potential
