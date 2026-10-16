@@ -257,6 +257,41 @@ def local_potential_at_q(
     return _contract_species(tuple(values), factors)
 
 
+def core_charge_at_q(
+    pseudos: tuple[Pseudopotential, ...],
+    structure: Structure,
+    cell: Cell,
+    gvectors: GVectors,
+    q_cart,
+) -> jnp.ndarray | None:
+    """``sum_t rho_core_t(|G+q|) sum_{a in t} e^{-i (G+q) . tau_a}``, or ``None``.
+
+    :func:`core_charge` with the argument shifted, for the reason
+    :func:`local_potential_at_q` gives: its derivative in ``tau_a`` is the
+    periodic part of the core charge carried by a displacement ``u e^{i q R}``,
+
+        drho_core_a(G) = -i (G+q)_alpha rho_core_t(|G+q|) e^{-i (G+q) . tau_a} u_alpha
+
+    which is ``addcore.f90``'s ``drc(ig, nt) * gu * fact * gtau``, with the
+    table ``set_drhoc(xq, drc)`` builds at ``|q+G|``. The value is not a
+    physical charge; only the tangent is used. ``q = 0`` returns
+    :func:`core_charge` to round-off. ``q_cart`` in 1/bohr.
+    """
+    if not any(p.has_nlcc for p in pseudos):
+        return None
+    g = gvectors.cartesian(cell) + jnp.asarray(q_cart)[None, :]
+    gmod = modulus(g)
+    volume = cell.volume
+    values = tuple(
+        core_charge_of_g(pseudos[t], gmod, volume) if pseudos[t].has_nlcc
+        else jnp.zeros_like(gmod)
+        for t in range(structure.ntyp)
+    )
+    membership = _membership(structure)
+    factors = _structure_factors_at(g, structure.positions, membership)
+    return _contract_species(tuple(values), factors)
+
+
 @jax.jit
 @jax.checkpoint
 def _structure_factors_at(g, positions, membership):
