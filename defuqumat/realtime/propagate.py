@@ -180,6 +180,15 @@ def require_a_realtime_regime(calculation) -> None:
     two independent channels at a frozen potential, the second one Hamiltonian
     on ``2 npwx`` whose coupling to the field is the scalar one, and the third
     the generalised equation of motion of :meth:`_Chunk.generator`.
+
+    A ground state converged under a magnetic field or a constrained moment
+    runs too (``notes/incompat/I64.md``): nothing here rebuilds the potential
+    from the field, which is frozen inside the ``v_scf`` the caller hands in,
+    so that has to be the converged one, ``Calculation.potential(density,
+    field_scale, field)`` with ``SCFResult.field_scale`` and
+    ``SCFResult.magnetic_field``, which is what the workflows build.
+    The updated potentials' refusal of a penalty constraint is
+    :func:`~defuqumat.realtime.selfconsistent.require_a_potential_mode`'s.
     """
     refuse_sawtooth(
         calculation, "real-time propagation",
@@ -211,12 +220,6 @@ def require_a_realtime_regime(calculation) -> None:
             "occupation matrix the Hubbard projectors move with k + kappa as "
             "the beta functions do, and that mode is refused until its linear "
             "check against the optical conductivity is run")
-    if getattr(calculation, "magnetic_field", None) is not None:
-        raise NotImplementedError(
-            "real-time propagation of a ground state converged under a magnetic "
-            "field or a constrained moment is not implemented, for the reason the "
-            "response stack gives: the potential is rebuilt from the input field, "
-            "which reducebf and the fixed-spin-moment scheme make wrong")
 
 
 def time_grid(pulse, dt: float, duration: float | None, start: float | None = None):
