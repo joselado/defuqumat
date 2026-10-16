@@ -151,16 +151,27 @@ class BerryTerm(eqx.Module):
         return jnp.zeros(self.u.shape[-1], dtype=jnp.real(self.u).dtype)
 
 
+def _per_component(gather, found):
+    """``(nk, ncomp, npwx)`` views of a gather: ``ncomp`` is 1 when every component shares it."""
+    if gather.ndim == 2:
+        return gather[:, None, :], found[:, None, :]
+    return gather, found
+
+
 def _gathered(coefficients, gather, found, npol: int = 1):
     """``u_{k'}`` on the sphere of ``k``: ``(nk, nb, npol * npwx)`` gathered by Miller index.
 
-    The gather is one spinor component's; a spinor's components are stored end
-    to end (``evc(npwx*npol, nbnd)``), so each is gathered with the same index.
+    A spinor's components are stored end to end (``evc(npwx*npol, nbnd)``).
+    A ``(nk, npwx)`` gather is shared by every component, as ``c_phase_field``
+    maps ``psi(ig+npwx)`` with the index of ``psi(ig)``. A spin spiral's
+    components sit on two spheres, ``k + q/2`` and ``k - q/2``, and its gather
+    is ``(nk, npol, npwx)``, one per component.
     """
     nk, nb, ndim = coefficients.shape
+    gather, found = _per_component(gather, found)
     split = coefficients.reshape(nk, nb, npol, ndim // npol)
-    picked = jnp.take_along_axis(split, gather[:, None, None, :], axis=3)
-    return jnp.where(found[:, None, None, :], picked, 0.0).reshape(nk, nb, ndim)
+    picked = jnp.take_along_axis(split, gather[:, None, :, :], axis=3)
+    return jnp.where(found[:, None, :, :], picked, 0.0).reshape(nk, nb, ndim)
 
 
 def _overlaps(u, neighbour):
@@ -247,6 +258,22 @@ class BerryFieldSetup:
         unit[gdir] = 1
         plus_index = np.empty(nk, dtype=int)
         minus_index = np.empty(nk, dtype=int)
+        spiral = bool(getattr(calculation, "spiral", False))
+
+        def aligned(ik, jk, shift):
+            """One gather shared by every component, or a spiral's two.
+
+            A spiral's plane-wave rows are ``k + q/2`` then ``k - q/2``
+            (:func:`~defuqumat.system.spiral.spiral_kpoints`), so the down
+            component of ``ik`` lives on row ``nk + ik`` and its neighbour's on
+            ``nk + jk``. The Miller shift at a string end is the same ``e_gdir``
+            for both, since both spheres move by the same ``dk``.
+            """
+            if not spiral:
+                return states._alignment(ik, jk, shift)
+            pairs = [states._alignment(ik, jk, shift),
+                     states._alignment(nk + ik, nk + jk, shift)]
+            return jnp.stack([g for g, _ in pairs]), jnp.stack([f for _, f in pairs])
         gathers = {"plus": [], "minus": []}
         for row in strings:
             for position, ik in enumerate(row):
@@ -255,8 +282,8 @@ class BerryFieldSetup:
                 jp = row[0] if last else row[position + 1]
                 jm = row[-1] if first else row[position - 1]
                 plus_index[ik], minus_index[ik] = jp, jm
-                gathers["plus"].append((ik, states._alignment(ik, jp, unit if last else None)))
-                gathers["minus"].append((ik, states._alignment(ik, jm, -unit if first else None)))
+                gathers["plus"].append((ik, aligned(ik, jp, unit if last else None)))
+                gathers["minus"].append((ik, aligned(ik, jm, -unit if first else None)))
         def stack(entries):
             entries = sorted(entries, key=lambda e: e[0])
             return (jnp.stack([g for _, (g, f) in entries]),
@@ -322,8 +349,9 @@ class BerryFieldSetup:
             source = store[spin, index[rows], :nocc]
             nk, nb, ndim = source.shape
             split = source.reshape(nk, nb, self.npol, ndim // self.npol)
-            picked = np.take_along_axis(split, gather[rows][:, None, None, :], axis=3)
-            picked = np.where(found[rows][:, None, None, :], picked, 0.0)
+            gather_r, found_r = _per_component(gather[rows], found[rows])
+            picked = np.take_along_axis(split, gather_r[:, None, :, :], axis=3)
+            picked = np.where(found_r[:, None, :, :], picked, 0.0)
             return jnp.asarray(picked.reshape(nk, nb, ndim))
 
         for rows, live in k_chunks(store.shape[1], self.k_batch):

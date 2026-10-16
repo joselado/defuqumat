@@ -244,6 +244,16 @@ def test_a_magnetized_spinor_is_refused():
         _calculation(", noncolin=.true., starting_magnetization(1)=0.5")
 
 
+_SPIRAL = (", noncolin=.true., starting_magnetization(1)=0.5, angle1(1)=90.0, "
+           "spiral_q(1)=0.0, spiral_q(2)=0.0, spiral_q(3)=0.25")
+
+
+def test_a_spin_spiral_is_refused_by_name():
+    """I85: a spiral ``Calculation`` with the field stops at the regime gate, naming the spiral."""
+    with pytest.raises(NotImplementedError, match="a spin spiral"):
+        _calculation(_SPIRAL)
+
+
 def test_a_spinor_with_spin_orbit_coupling_is_refused():
     from defuqumat.scf.berryfield import require_a_berry_field_regime
 
