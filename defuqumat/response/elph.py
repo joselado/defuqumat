@@ -55,7 +55,9 @@ invariant:
 **What is refused.** Everything :func:`~defuqumat.response.phononq.
 dynamical_matrix_at_q` refuses, so ultrasoft and PAW (whose ``dvpsi`` carries
 ``adddvscf``'s ``int3``, P97's second term), spin, spinors, a reduced k-set and
-a metal at ``q = 0`` (``ef_shift``, and ``def`` subtracted from ``dvscf``);
+a metal at ``q = G`` (``0`` included, refused here by its own guard: the
+phonon at ``q = 0`` carries ``ef_shift`` and ``def`` off ``dvscf``, but the
+coupling on it is not checked against anything);
 and an insulator, for which the double delta at ``E_F`` is empty and the
 coupling to the Fermi surface is not defined. The ``'interpolated'`` route
 (dense-grid eigenvalues, ``alpha^2 F``, ``T_c``) is not here.
@@ -302,6 +304,21 @@ def electron_phonon_at_q(
             "fixed occupations there are no states at E_F, the double delta is "
             "empty and gamma and lambda are not defined. Run the ground state "
             "with occupations = 'smearing'"
+        )
+    from defuqumat.response.phononq import _reciprocal_lattice_vector
+
+    cell = calculation.system.cell
+    q_cart = (np.asarray(q, dtype=float) if q_cartesian
+              else np.asarray(cell.k_to_cartesian(np.asarray(q, dtype=float)))
+              ) * cell.tpiba
+    if _reciprocal_lattice_vector(cell, q_cart) is not None:
+        raise NotImplementedError(
+            "electron-phonon coupling at q = 0 (or at a reciprocal lattice "
+            "vector) is not implemented: the dynamical matrix at q = 0 carries "
+            "ph.x's ef_shift and subtracts def from dV_scf as dfpt_kernels.f90 "
+            "does, but the coupling built on it has no reference here, and its "
+            "three acoustic modes have omega = 0, where lambda = gamma / "
+            "(pi N(E_F) omega^2) is not defined"
         )
     phonons = dynamical_matrix_at_q(
         calculation, wavefunctions, eigenvalues, density, becsum, q=q,

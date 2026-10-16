@@ -251,6 +251,38 @@ def test_the_lowdin_charges_match_every_digit_projwfc_prints(_projection):
 
 
 @_cases(PAW, US)
+def test_the_site_angular_momenta_carry_projwfcs_lowdin_charges(_projection):
+    """``<L>``, ``<S>`` and ``<J>`` on a fully-relativistic augmented dataset.
+
+    ``projwfc/angular_momentum.py`` builds its site matrix on the spin-angle
+    functions orthonormalised against the spinor overlap with ``qq_so``, so its
+    trace is ``print_lowdin``'s charge: the same metric this file holds to
+    ``projwfc.x``, reached through the angular-momentum module's own build. The
+    scalar ``S`` on each component, the route that was refused here, gives the
+    ``j``-averaged metric and other charges. Platinum is nonmagnetic, so
+    ``<L>`` and ``<S>`` are zero by Kramers, here on the whole grid
+    (``nosym``, ``noinv``) where nothing completes them, and they are measured.
+    """
+    from defuqumat.projwfc.angular_momentum import (
+        _site_density_matrix, angular_momenta,
+    )
+
+    calculation, scf = _projection["calculation"], _projection["scf"]
+    channels = _projection["channels"]
+    momenta = angular_momenta(calculation, scf)
+    density = _site_density_matrix(calculation, scf, None, channels,
+                                   spin_angle=True)
+    diagonal = np.real(np.diag(density))
+    reference, total, _ = _qe_lowdin(_projection["stdout"])
+    for l, label in enumerate("spd"):
+        ours = sum(d for d, c in zip(diagonal, channels) if c.l == l)
+        assert ours == pytest.approx(reference[label], abs=5.0e-5), label
+    assert momenta.atoms[0].charge == pytest.approx(total, abs=5.0e-5)
+    assert np.abs(momenta.orbital).max() < 1.0e-6, momenta.orbital
+    assert np.abs(momenta.spin).max() < 1.0e-6, momenta.spin
+
+
+@_cases(PAW, US)
 def test_a_spinor_projection_has_no_m_resolved_charge(_projection):
     """``print_lowdin`` allocates ``charges_lm`` only ``IF ( nspin /= 4 )``.
 
@@ -271,26 +303,29 @@ def test_a_spinor_projection_has_no_m_resolved_charge(_projection):
     assert "Spilling" in charges.format()  # still formats
 
 
-def test_a_symmetrised_spinor_projection_is_refused(qe_testsuite, pseudo_dir):
-    """``sym_proj_so`` needs the SU(2) representation of each operation.
+def test_a_symmetrised_nonmagnetic_spinor_projection_is_not_refused(
+        qe_testsuite, pseudo_dir):
+    """``sym_proj_so`` is implemented for a nonmagnetic run.
 
-    Refused rather than approximated by averaging the ``m`` indices alone, which
-    would mix ``m_j`` across a spin frame that the operation has turned. Checked
-    on ``pw_spinorbit/spinorbit.in``, which keeps its symmetry -- the cases above
-    run ``nosym``, where there is correctly nothing to refuse over and the guard
-    must *not* fire.
-
-    The refusal is made before the states are touched, so no SCF is run here.
+    Checked on ``pw_spinorbit/spinorbit.in``, which keeps its symmetry: the
+    symmetrised projection now runs where it used to be refused. Its numbers
+    are in ``tests/regression/test_spinor_projection_symmetry.py`` (the wedge
+    against the closed grid and ``projwfc.x``); this only says the guard no
+    longer fires, on zero states, so no SCF is run. A magnetic spin-orbit run
+    is still refused (``tests/unit/test_projwfc.py``).
     """
     calculator = Calculator.from_file(
         qe_testsuite / "pw_spinorbit" / "spinorbit.in", pseudo_dir=pseudo_dir
     )
     calculation = calculator.calculation
     assert calculation.use_symmetry and calculation.symmetries.nsym > 1
+    assert not calculation.system.domag
     states = np.zeros((1, calculation.system.kpoints.nk, 1,
                        2 * calculation.basis.planewaves.npwx), dtype=complex)
-    with pytest.raises(NotImplementedError, match="sym_proj_so"):
-        atomic_projections(calculation, states, symmetrize=True)
+    projections = np.asarray(
+        atomic_projections(calculation, states, symmetrize=True))
+    assert projections.shape[:2] == (1, calculation.system.kpoints.nk)
+    assert np.all(projections == 0.0)
 
 
 @_cases(PAW, US)

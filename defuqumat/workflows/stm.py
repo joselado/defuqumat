@@ -39,10 +39,10 @@ import warnings
 import numpy as np
 
 from defuqumat.basis.builder import build_basis
-from defuqumat.basis.gvectors import refuse_gamma_storage
 from defuqumat.basis.fft import r_to_g
 from defuqumat.basis.sample import sample_coefficients, sample_wavefunctions
-from defuqumat.scf.driver import Calculation, gamma_storage_is_consumable
+from defuqumat.scf.driver import Calculation
+from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.stm.image import (
     STMImage,
     constant_current_height,
@@ -157,21 +157,12 @@ def run_stm(
     """
     refuse_an_ultracell_result(
         result, "an STM image", "defuqumat.workflows.ultracell.run_ultracell_stm")
-    _refuse_what_has_no_fermi_level(system, result)
-    # A real-space wavefunction from a half sphere loses the conjugate half and
-    # gains a spurious imaginary part, and nothing downstream notices.
-    #
-    # **The test is whether the run *consumed* the storage, not whether the
-    # input asked for it.** An ultrasoft or symmetric ``K_POINTS gamma`` run is
-    # substituted to an explicit k = 0 before the SCF starts
-    # (``_without_gamma_storage``), so its states are on the whole sphere and
-    # there is nothing here to refuse; reading ``system.kpoints.gamma_only``
-    # would stop a run whose wavefunctions are perfectly good.
-    refuse_gamma_storage(
-        gamma_storage_is_consumable(system, pseudos), "an STM image",
-        "psi(r) is evaluated as a bare sum over the stored k + G list "
-        "(basis/sample.py)",
-    )
+    _refuse_what_has_no_fermi_level(system, result, charge_image=spin is None)
+    # Gamma-only storage needs nothing here. The image is the tunnelling
+    # density built by the calculation's own density routine, which on a half
+    # sphere is ``sum_band``'s ``g_to_r_gamma`` (the SCF's), and it is sampled
+    # from that density's coefficients on the dense set, which is never halved;
+    # ``basis/sample.py``'s ``psi(r)`` is the spectrum's route, not this one.
 
     if kpoints is None and grid is not None:
         kpoints = denser_grid(system, grid, shift)
@@ -235,8 +226,10 @@ def run_stm(
 
     geometry = _plane(calculation.system.cell, height, axis, plane, shape)
     coefficients = np.asarray(r_to_g(field, dense.fft_index))
+    # A spiral's transverse pair is stored in the frame that turns with ``q``,
+    # so its channels are not the laboratory ones and are not reported.
     channels = (np.asarray(r_to_g(density, dense.fft_index))
-                if density.shape[0] > 1 else None)
+                if density.shape[0] > 1 and not calculation.spiral else None)
 
     if mode == "constant-height":
         values = sample_coefficients(coefficients, dense, geometry.flat())
@@ -345,11 +338,6 @@ def run_sts(
         result, "a tunnelling spectrum",
         "defuqumat.workflows.ultracell.run_ultracell_sts")
     _refuse_what_has_no_fermi_level(system, result)
-    refuse_gamma_storage(
-        gamma_storage_is_consumable(system, pseudos), "a tunnelling spectrum",
-        "psi(r) is evaluated as a bare sum over the stored k + G list "
-        "(basis/sample.py)",
-    )
     _refuse_a_window_under_an_axis(bias, mode)
 
     from defuqumat.workflows.transport import (
@@ -391,8 +379,11 @@ def run_sts(
             "result carries none: run the SCF without discarding them, or pass "
             "a grid so the bands are re-solved"
         )
+    # ``psi(r)`` below is a bare sum over the k + G list (``basis/sample.py``),
+    # so a half sphere is put on the whole one first (``scf/whole_sphere.py``).
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
-    _refuse_a_reduced_k_set(calculation.system)
+    group = _refuse_a_reduced_k_set(calculation.system)
     axis_energies, fermi = _spectrum_energies(energies, levels)
     width = _tip_width(width, system)
     used = calculation.system
@@ -401,11 +392,15 @@ def run_sts(
     _refuse_an_augmented_plane(
         used, pseudos, axis, np.unique(np.round(points[:, axis], 10)),
         "a tunnelling spectrum's tip")
+    sampled_at, nop = (points, 1) if group is None else _tip_orbit(group, points)
     channels, dos = sample_spectrum(
-        _geometry(calculation), wavefunctions, eigenvalues, points,
+        _geometry(calculation), wavefunctions, eigenvalues, sampled_at,
         energies=axis_energies, width=width, smearing=smearing, bias=bias,
         band_cutoff=band_cutoff, nspin_mag=int(used.nspin_mag),
     )
+    if nop > 1:
+        # The wedge's spectrum averaged over the tip's images: the whole zone's.
+        channels = channels.reshape(channels.shape[:2] + (nop, -1)).mean(axis=2)
     return _finish_spectrum(
         channels, dos, axis_energies, points, geometry, spin, polarization,
         width=width, smearing=smearing, bias=bias, fermi=fermi,
@@ -605,45 +600,57 @@ def _spectrum_energies(energies, levels):
 
 
 def _refuse_a_reduced_k_set(system):
-    """A wedge sum of ``|psi_k(r)|^2`` is not the local density of states.
+    """The group a wedge's spectrum is completed with, or ``None`` on a whole set.
 
-    **This is the one thing a spectrum does not inherit from an image**, and it
-    is the wedge trap ``CLAUDE.md`` lists. :func:`run_stm` sums through
-    :meth:`~defuqumat.scf.driver.Calculation.density`, which **symmetrises**, so a
-    reduced k-set gives it the whole zone's answer; the amplitude route adds
-    ``|psi_k(r)|^2`` point by point with nothing to symmetrise it, so on a wedge
-    it returns the sum over that wedge alone -- a plausible, smooth, wrong
-    density of states everywhere off a symmetry axis. Unfolding is not the
-    escape it is for a scalar: unfolding a *wavefunction* means rotating it,
-    which is :func:`~defuqumat.workflows.transport.whole_grid`'s own argument.
+    A wedge sum of ``|psi_k(r)|^2`` is not the local density of states: the
+    amplitude route adds it point by point, where :func:`run_stm` goes through
+    :meth:`~defuqumat.scf.driver.Calculation.density`, which symmetrises. **This
+    was a refusal**, and the escape it named was a re-solve on the whole grid.
+    The completion is cheaper than that and exact: the density of states at a
+    point is a scalar field, and ``|psi_{gk}(r)|^2 = |psi_k(g^-1 r)|^2`` for an
+    operation ``g`` of the group the wedge was cut with, so the whole zone's
+    spectrum at ``r`` is the wedge's averaged over the images ``g(r)`` of the
+    tip (:func:`_tip_orbit`). Time reversal leaves ``|psi|^2`` where it was, so
+    its copy of the group adds no point.
 
-    The test is :func:`~defuqumat.system.kpoints.is_reduced`, exactly as
-    :func:`~defuqumat.workflows.transport._refuse_a_k_set_this_cannot_sum` tests
-    it, and it is the flag :meth:`KPoints.automatic` records with the weight
-    spread underneath as a fallback.
+    What is still refused is :func:`~defuqumat.system.wedge.wedge_group`'s: a
+    set the group does not unfold uniformly, a reduced set on a ``nosym`` run,
+    and a magnetic group, under which a spin channel or a magnetization is not
+    a scalar.
 
-    **This paragraph used to say the test was the weight spread alone, and that
-    a run meaning to do this "passes ``nosym = .true.`` or ``grid=``, both of
-    which are complete by construction". Both halves were wrong.** The spread
-    is exactly zero on a symmetry-reduced *shifted* Monkhorst-Pack grid whenever
-    the group acts freely on it, which is what a shift arranges -- 32 of 64
-    points at ``ptp(weights) = 0`` on the ordinary ``4 4 4 1 1 1``. And
-    ``grid=`` goes through :func:`~defuqumat.workflows.nscf.denser_grid`, which
-    reduces with ``grid_symmetry(system)``, so it is complete only for a system
-    that already carries ``nosym``, where it adds nothing. ``nosym = .true.``
-    **is** a complete escape and remains the one named in the message: it sets
-    ``rotations = None`` (``system/builder.py``), which
-    :meth:`KPoints.automatic` reads as "return the whole grid" without applying
-    time reversal either, so ``noinv`` is not needed beside it here.
+    The wedge test underneath is :func:`~defuqumat.system.kpoints.is_reduced`:
+    the flag :meth:`KPoints.automatic` records with the weight spread as a
+    fallback, which matters because the spread alone is exactly zero on a
+    symmetry-reduced *shifted* Monkhorst-Pack grid whenever the group acts
+    freely on it -- 32 of 64 points at ``ptp(weights) = 0`` on the ordinary
+    ``4 4 4 1 1 1``.
     """
-    if is_reduced(system.kpoints):
+    from defuqumat.system.wedge import wedge_group
+
+    if is_reduced(system.kpoints) and (int(getattr(system, "nspin", 1)) != 1
+                                       or getattr(system, "noncolin", False)):
         raise NotImplementedError(
-            "a tunnelling spectrum on a symmetry-reduced k-set is refused: "
-            "psi(r) is sampled and squared point by point, so the sum is over "
-            "the wedge alone and nothing symmetrises it -- unlike an image, "
-            "which goes through the density and is symmetrised there. Pass "
-            "grid= to re-solve on the whole grid, or run with nosym = .true."
+            "a tunnelling spectrum on a symmetry-reduced k-set is measured for "
+            "an nspin = 1 run only (silicon against its whole grid): a "
+            "collinear nspin = 2 or a spinor wedge has spin channels the "
+            "completion has not been checked on. Pass grid= to re-solve on the "
+            "whole grid, or run with nosym = .true."
         )
+    return wedge_group(system, quantity="a tunnelling spectrum")
+
+
+def _tip_orbit(group, points):
+    """``(nop * npoints, 3)``: every image ``c M + t`` of the tip, operation-major.
+
+    :class:`~defuqumat.system.symmetry.Symmetries`'s convention for a position in
+    crystal coordinates. Only the unitary half of the group is taken, the
+    time-reversed copy being the same points again.
+    """
+    keep = ~np.asarray(group.antiunitary)
+    rotations = np.asarray(group.crystal)[keep]
+    shifts = np.asarray(group.translations)[keep]
+    images = np.einsum("pi,sij->spj", points, rotations) + shifts[:, None, :]
+    return images.reshape(-1, 3), int(rotations.shape[0])
 
 
 def _refuse_a_window_under_an_axis(bias, mode):
@@ -843,17 +850,26 @@ def refuse_an_ultracell_result(result, quantity: str, instead: str):
     )
 
 
-def _refuse_what_has_no_fermi_level(system, result):
+def _refuse_what_has_no_fermi_level(system, result, charge_image: bool = False):
     """The combinations whose energy selection is not one number.
 
     Every one of them is a statement about what "the states at the tip energy"
-    means, not about the plane or the sampling.
+    means, not about the plane or the sampling -- except the spiral's, which is
+    about what can be put on one cell's plane. ``charge_image`` is
+    :func:`run_stm` without a ``spin``: the charge of a spin spiral,
+    ``|U_up|^2 + |U_dn|^2``, is lattice periodic, and the tip-energy density
+    :meth:`~defuqumat.scf.driver.Calculation.density` builds from the two
+    spheres is exactly it, so that image is computed.
     """
-    if getattr(system, "spiral_q", None) is not None:
+    if getattr(system, "spiral_q", None) is not None and not charge_image:
         raise NotImplementedError(
-            "an STM image of a spin spiral is refused: the two spinor "
-            "components live on different plane-wave spheres, so |psi(r)|^2 is "
-            "not the lattice-periodic object this sum builds"
+            "a spin-resolved STM image, a tunnelling spectrum or a tunnelling "
+            "map of a spin spiral is refused: the charge image is computed (its "
+            "|psi(r)|^2 = |U_up|^2 + |U_dn|^2 is lattice periodic), but the "
+            "laboratory transverse moment turns by q . R from cell to cell, so "
+            "a spin projection is not a function on one cell's plane; and the "
+            "spectrum and the maps sample psi(r) on one k + G list, where a "
+            "spiral's components are on k + q/2 + G and k - q/2 + G"
         )
     if getattr(result, "fermi_energy_up", None) is not None:
         raise NotImplementedError(

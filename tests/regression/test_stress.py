@@ -442,12 +442,13 @@ def test_an_input_asking_for_an_impossible_stress_warns_rather_than_raising(pseu
     cluster node in ``OPEN.md`` Part XIII item 4. What the test is about is the
     switching-off, not the regime, so it now uses a regime
     :func:`~defuqumat.stress.energy.require_a_differentiable_cell` still refuses:
-    a spin spiral, whose ``q`` is given in lattice coordinates, so a strain
-    turns the spiral too. The spinor stress itself is covered by
+    an ultrasoft spin spiral, whose displaced augmentation table is not rebuilt
+    at the strained ``G - q`` (the norm-conserving spiral's stress is computed,
+    ``test_spiral_supercell.py``). The spinor stress itself is covered by
     ``test_spinor_forces.py::test_stress_matches_quantum_espresso``, against
     ``pw.x``, which is where that claim belongs.
     """
-    system = build_system(read_pw_input(CASES / "h-chain-spiral.in"))
+    system = build_system(read_pw_input(CASES / "o-chain-spiral-us.in"))
     assert not system.tstress
     assert system.spiral_q is not None  # the refusal under test hangs on this
     system = dataclasses.replace(system, tstress=True)

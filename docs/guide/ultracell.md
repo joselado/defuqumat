@@ -451,23 +451,28 @@ period you compare the energies of several long cells, one run each.
     cell keeps fixed. The long cell must be a whole number of unit cells along
     each lattice vector.
 
-    The functional must be LDA. A gradient-corrected functional gives an error,
-    because the gradient of the density then contains the gradient of the
-    envelope, and a meta-GGA also gives an error. `nosource` gives an error,
-    because its projection couples every cell of the long cell to every other
-    one. The occupations must be `'fixed'` or `'smearing'`. Tetrahedra give an
-    error, because a state of the long cell mixes bands from the $N$ folded
-    k-points and is not a band of any mesh, and `'from_input'` gives an error
-    because there is no single band left to hold the occupation you give.
+    The functional must be LDA, or a gradient-corrected functional on a cell
+    with no spin polarization. The code takes the gradient over the whole long
+    cell, so it contains the gradient of the envelope. A gradient-corrected
+    functional on a spin-polarized or noncollinear cell gives an error, because
+    only the unpolarized case has been checked against a supercell. A meta-GGA
+    also gives an error. `nosource` gives an error, because its projection
+    couples every cell of the long cell to every other one. The occupations must
+    be `'fixed'` or `'smearing'`. Tetrahedra give an error, because a state of
+    the long cell mixes bands from the $N$ folded k-points and is not a band of
+    any mesh, and `'from_input'` gives an error because there is no single band
+    left to hold the occupation you give.
 
-    DFT+U gives an error, because its occupation matrix is per atom and the long
-    cell has $N$ copies of each atom. Spin spirals, `K_POINTS gamma` and a
-    saw-tooth electric field (`tefield`) also give an error. A ground state
-    converged under a magnetic field or a constrained moment gives an error,
-    because its eigenvalues carry the field the SCF ended with while the long
-    cell rebuilds its potential from the density alone. For a field, you
-    converge the unit cell without it and give it with `magnetic_field` in the
-    long cell instead.
+    DFT+U runs, with one occupation matrix for each of the $N$ copies of each
+    atom. It needs a norm-conserving dataset, a cell with no spin polarization
+    and `'atomic'` projectors. Other projectors, an ultrasoft or PAW dataset, a
+    spin-polarized or noncollinear cell and `TENSOR_MOMENTS` give an error. Spin
+    spirals, `K_POINTS gamma` and a saw-tooth electric field (`tefield`) also
+    give an error. A ground state converged under a magnetic field or a
+    constrained moment gives an error, because its eigenvalues carry the field
+    the SCF ended with while the long cell rebuilds its potential from the
+    density alone. For a field, you converge the unit cell without it and give
+    it with `magnetic_field` in the long cell instead.
 
     An ultrasoft or PAW dataset runs, but with `ecutrho` at four times
     `ecutwfc` the code warns that the augmentation charge is then on the

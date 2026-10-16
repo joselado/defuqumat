@@ -190,25 +190,26 @@ removed, 0.034 in units of $1/m_e$ for this band.
     ```
 
 !!! note "Limits"
-    `bands.gap(nelec)` gives an error for a spin-polarized run (`nspin = 2`),
-    because a gap at fixed filling is not defined for each channel. In this case
-    you take it from `bands.eigenvalues_by_spin` with the occupation of each
-    channel.
+    For a spin-polarized run (`nspin = 2`), `bands.gap(nelec)` needs the filling
+    of each channel. You give it as `bands.gap(nelec, tot_magnetization=m)`, or as
+    `bands.gap(occupied=(n_up, n_down))`. Without one of them it gives an error.
+    The gap is taken over both channels, so it can go from the top of one channel
+    to the bottom of the other. `bands.band_edges(...)` gives the two levels.
 
     Inside a degenerate multiplet a single band has no well-defined velocity.
     There, each row of `v.velocities` holds, for each direction, the slopes of
     the bands that the multiplet splits into, in ascending order, and
     `v.degenerate_by_spin` marks these rows.
 
-    `get_effective_mass()` gives an error on a spin spiral, because the two
-    spinor components sit on plane-wave spheres centred at
-    $\mathbf k + \mathbf q/2$ and $\mathbf k - \mathbf q/2$, and a k-stencil
-    moves both of them. Two eigenvalues closer than
-    `degeneracy_tol = 1e-5` Ry at the k-point form a degenerate multiplet.
-    Inside it a single band has no mass tensor, because the eigensolver can
-    rotate the bands inside the multiplet. These bands are `nan` in `mass.inverse_mass`,
-    `mass.principal(n)` gives an error for them, and `mass.multiplets` holds the
-    summed inverse mass of the multiplet, which is invariant.
+    `get_effective_mass()` gives an error on a spin spiral, because its stencil
+    needs the bands at new k-points, and a spiral cannot yet move its two
+    spheres to another k-list. The band velocities on the k-points of the SCF
+    work. Two eigenvalues closer than `degeneracy_tol = 1e-5` Ry at the k-point
+    form a degenerate multiplet. Inside it a single band has no mass tensor,
+    because the eigensolver can rotate the bands inside the multiplet. These
+    bands are `nan` in `mass.inverse_mass`, `mass.principal(n)` gives an error
+    for them, and `mass.multiplets` holds the summed inverse mass of the
+    multiplet, which is invariant.
 
     The step `delta`, 0.025 1/bohr by default, is the outermost point of the
     stencil with both `method="velocity"` and `method="eigenvalue"`. The code does not tune it,

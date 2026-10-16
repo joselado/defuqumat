@@ -381,11 +381,12 @@ def dynamical_matrix(
     # ``metals = True``: a Fermi surface does not stop a dynamical matrix
     # existing, and the solve handles one (``PLAN.md`` P24c). What it adds is
     # ``ef_shift``, inside the loop below.
-    # Before the generic guard, so that the message names the dynamical matrix.
-    _require_one_spin_channel(calculation)
     # ``gamma_ok``: validated against an explicit k = 0 on the whole sphere,
     # which is the same calculation in the other storage (``PLAN.md`` P68a).
-    require_a_sternheimer_regime(calculation, metals=True, gamma_ok=True)
+    # ``spin_polarized``: the whole-k assembly is checked against ``ph.x`` on
+    # triplet O2 (:func:`occupied_pairs`); the walked one is refused below.
+    require_a_sternheimer_regime(calculation, metals=True, gamma_ok=True,
+                                 spin_polarized=True)
     _require_a_moving_overlap_regime(calculation)
 
     structure = calculation.system.structure
@@ -401,6 +402,7 @@ def dynamical_matrix(
 
     walked = None if response is None else getattr(response, "walked", None)
     if walked is not None:
+        _require_one_spin_channel(calculation)
         # **A response solved a k-chunk at a time is assembled the same way**,
         # from its own stores (:meth:`~defuqumat.response.chunked_phonon.
         # StreamedDisplacements.force_constants`): the states it was solved at
@@ -429,6 +431,8 @@ def dynamical_matrix(
     streamed = response is None and _streams(
         calculation, wavefunctions, keep_internals=False,
         what="the dynamical matrix")
+    if streamed:
+        _require_one_spin_channel(calculation)
     weights, _ = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
     nocc = occupied_counts(calculation)
@@ -1124,12 +1128,50 @@ def overlap_derivatives(calculation, solver, positions, atoms=None) -> np.ndarra
         return jnp.stack(blocks)
 
     chosen = tuple(range(nat)) if atoms is None else tuple(atoms)
+    pairs = occupied_pairs(solver.occupied_counts, solver.smearing, psi.shape[2])
     out = np.empty((len(chosen), 3), dtype=object)
     for row, atom in enumerate(chosen):
         for cart in range(3):
             tangent = jnp.zeros_like(positions).at[atom, cart].set(1.0)
-            out[row, cart] = compiled_jvp(overlap_matrix, (positions,), (tangent,))[1]
+            value = compiled_jvp(overlap_matrix, (positions,), (tangent,))[1]
+            out[row, cart] = (value if pairs is None
+                              else jnp.where(pairs, value, 0.0))
     return out
+
+
+def occupied_pairs(counts, smearing, width):
+    """``(nspin, 1, width, width)``: which ``(m, n)`` of ``S'_mn`` are occupied pairs.
+
+    **The occupied block of a spin channel is that channel's own**, and for a
+    magnetic insulator the two are not the same size. The solver keeps
+    ``max(occupied_counts)`` bands in every channel because the shape has to be
+    static, so on triplet O2, at counts ``(7, 5)``, the down channel's block
+    carries its two empty pi*_g bands. Left in ``S'``, they enter
+    :func:`orthogonality_states` as partners ``m`` of an occupied ``n`` --
+    ``-1/2 psi_pi* <pi*|dS/du|psi_n>`` added to a first-order state whose
+    component along ``pi*`` the Sternheimer solve has *already* produced, since
+    ``P_c`` keeps a band that is conduction in its own channel -- and they enter
+    :func:`multiplier_response`'s gauge correction as rows. QE cannot write
+    either down: ``compute_drhous.f90`` and ``drhodvus.f90`` run their band
+    loops over ``nbnd_occ(ikk)``, the spin-resolved k-point's own count.
+
+    Measured on triplet O2 against ``reference.dyn.o2-fixed-lsda-phonon``
+    (``notes/incompat/I2.md``). Nothing validated before could see it: ``S'``
+    is zero for a norm-conserving dataset, and the mask is all ones wherever
+    the two channels are filled to the same depth.
+
+    ``None`` -- no mask -- for a metal, where every band is in the block and the
+    occupation rides inside ``dpsi`` instead, and wherever the mask would be all
+    ones, which keeps those paths bit for bit what they were.
+    """
+    if smearing is not None:
+        return None
+    counts = np.asarray(counts)
+    if np.all(counts >= width):
+        return None
+    bands = np.arange(width)
+    occupied = bands[None, :] < counts[:, None]
+    return jnp.asarray(occupied[:, None, :, None] & occupied[:, None, None, :])
 
 
 
@@ -1751,112 +1793,46 @@ def _require_a_subsettable_regime(calculation, atoms, nat):
 
 
 def _require_one_spin_channel(calculation) -> None:
-    """``nspin = 2``: the *solve* is spin-polarized now; this assembly is not.
+    """``nspin = 2`` on the route that walks the k axis a chunk at a time.
 
-    **The reason this refusal used to give is gone.** It was that the occupied
-    band count is one number for both channels; it is one number *per* channel
-    now (:func:`~defuqumat.response.sternheimer.occupied_counts`), the solver
-    masks the deficient channel's extra bands, and ``chi_0`` is validated
-    against a finite difference of the density for a spin-polarized metal and
-    for a spin-polarized insulator alike
-    (``tests/regression/test_lsda_response.py``). The ``nocc`` this module
-    derives is that pair.
+    **The whole-k route is spin-polarized now, and it is measured against
+    ``ph.x``.** On triplet O2 (``tests/data/qe/o2-fixed-lsda.in``, ultrasoft,
+    fixed occupations at ``tot_magnetization = 2``, counts ``(7, 5)``) every
+    element of the force constants agrees with
+    ``tests/data/qe/reference.dyn.o2-fixed-lsda-phonon`` to 2.6e-4 Ry/bohr^2,
+    and the transverse block to 4.0e-5, at ``ph.x``'s ``tr2 = 1e-14``
+    (``notes/incompat/I2.md``). Two earlier measurements stand beside it: a
+    nonmagnetic cell run as ``nspin = 1`` and as ``nspin = 2`` gives the same
+    matrix to 1.6e-14 Ry/bohr^2 (unshifted ``nosym`` silicon), and one column of
+    the antiferromagnetic hydrogen chain, a smeared metal, agrees with a finite
+    difference of the forces to 3.6e-7 on a column of 6.0e-3.
 
-    What is left is the second-derivative *assembly* above the solve.
+    **What was missing was not a spin axis of the assembly** but each
+    channel's own occupied block. The solver keeps ``max(occupied_counts)``
+    bands in every channel, so the down channel of O2 carried its two empty
+    pi*_g bands inside ``S'_mn``, and they entered :func:`orthogonality_states`
+    and :func:`multiplier_response` as occupied partners: ``D_xx(1,1)`` read
+    -0.1288 against ``ph.x``'s -0.0102. :func:`occupied_pairs` is the fix. The
+    earlier reading of this docstring, that the ultrasoft terms could not be
+    what blocked an LSDA run, was argued for a norm-conserving cell while the
+    cell measured was ultrasoft.
 
-    **The reason above was a guess and it has now been measured, so what
-    follows is data rather than an argument.** The two terms it names --
-    :func:`non_variational_response` and :func:`_multiplier_response` -- are
-    ultrasoft and PAW terms, and they are identically inert for a
-    norm-conserving dataset, so they cannot be what blocks a norm-conserving
-    LSDA run. Three measurements, with both guards bypassed:
-
-    * **A nonmagnetic cell run as ``nspin = 1`` and as ``nspin = 2`` gives the
-      same dynamical matrix to 1.6e-14 Ry/bohr^2** on force constants of 0.287,
-      and the same frequencies to 8.3e-10 cm^-1 (unshifted ``nosym`` silicon).
-      That is the check that catches a factor of two in the spin sum, which is
-      what P45, P51 and P52 each found the hard way, so the normalisation and
-      the plumbing are right.
-    * **One column against a finite difference of the forces agrees to 3.6e-7**
-      on a column of scale 6.0e-3 (the antiferromagnetic hydrogen chain, a
-      *smeared metal* -- so this is the one measurement that reaches P28's
-      ``wg``/``wk`` split, which is indistinguishable wherever the occupations
-      are 0 or 1).
-    * **The alarming acoustic residue on that cell is the cell**, not the spin
-      axis: 992.9 cm^-1 at ``nspin = 2`` against **1168.5 at ``nspin = 1``** on
-      the same geometry. A hydrogen chain in vacuum at ``degauss = 0.10`` has
-      almost no transverse restoring force. Running the control is what stopped
-      that number being read as evidence against the assembly.
-
-    **The refusal stays, and it is measured against ``ph.x`` now rather than
-    argued.** The paragraph this replaces asked for "one cell that *stays*
-    magnetic checked against a generated ``ph.x`` LSDA reference"; that cell is
-    triplet O2 (``tests/data/qe/o2-fixed-lsda.in``, fixed occupations at
-    ``tot_magnetization = 2``, so it does not demagnetise the way the hydrogen
-    chain does), the reference is
-    ``tests/data/qe/reference.out.ph-o2-fixed-lsda-phonon`` with its ``.dyn``
-    file beside it, and the answer is that **the assembly is wrong in the block
-    a rigid translation reaches and right in the one it does not**:
-
-    ===========================  ============  ============  ==========
-    ..                           here          ``ph.x``      error
-    ===========================  ============  ============  ==========
-    ``D_zz(1,1)``                 1.67717946    1.67938263    -0.00220
-    ``D_zz(1,2)``                -1.67864588   -1.67643488    -0.00221
-    **the stretch** (difference)  3.35582534    3.35581751    **+7.8e-6**
-    the acoustic sum             -0.00147       0.00295       -0.0044
-    ``D_xx(1,1)``                -0.12879253   -0.01018884    -0.1186
-    ``D_xx(1,2)``                -0.00833895    0.01889432    -0.0272
-    ===========================  ============  ============  ==========
-
-    The O-O stretch is **1664.3992 cm^-1 against 1664.401578**, 1.4e-6 relative,
-    so the part of the assembly in which the two atoms move against each other
-    is right. The ``zz`` row says where the rest goes wrong with unusual
-    precision: **both of its entries are shifted by the same -0.0022**, which
-    cancels in the difference and doubles in the sum. Transverse it is thirty
-    times larger and is *not* a common shift.
-
-    **Do not use the acoustic sum rule as the arbiter on this cell.** ``ph.x``
-    violates its own by +0.0087 in ``xx`` and +0.0029 in ``zz`` -- a 10-bohr box
-    at ``ecutwfc = 25`` has almost no restoring force against translating the
-    molecule, which is why its translational modes print at -155 cm^-1. Only the
-    element-by-element comparison against the committed ``.dyn`` decides.
-
-    **Two candidates are eliminated by measurement, which is the useful part.**
-
-    * **Not the density threshold.** ``dmxc_lsda`` cuts at ``small = 1e-30``
-      (``qe_drivers_d_lda_lsda.f90:218``) where the kernel here is the derivative
-      of a potential ``_spin_channels`` zeroes below ``RHO_THRESHOLD = 1e-10``,
-      which is a twenty-order-of-magnitude asymmetry living entirely in vacuum --
-      exactly where the acoustic block lives and the bond does not. It is not the
-      cause: **zero** of this cell's 91125 grid points are below 1e-10, and the
-      whole matrix is bit-identical with the threshold moved to 1e-30.
-    * **Not ``nbnd > nocc``.** This is the first phonon cell here whose stored
-      states outnumber its occupied ones, and it exposed a real shape bug in
-      ``ort`` (see :func:`_pad_to_bands`) that no other cell could reach -- so the
-      obvious reading is that the remaining error is the same regime rather than
-      the spin axis. It is not: ultrasoft silicon with two empty bands gives
-      **513.294847 cm^-1 against 513.294706** at ``nbnd = nocc``, a difference of
-      1.4e-4 and below its own convergence noise.
-
-    So what is left is what this refusal has always named: the second-derivative
-    assembly's **spin axis**. The next thing to do is a per-term decomposition
-    against a finite difference of the LSDA forces, which are themselves
-    ``pw.x``-validated on a magnetic O2 (``tests/data/qe/o2-lsda-force.in``) --
-    P43's method, which localised the Raman tensor's two missing tangents by
-    measuring each partial separately instead of guessing among them.
+    **What stays refused is the walked route** -- a streamed store, memory mode
+    with a chunk smaller than the mesh, and memory mode on a card whatever the
+    chunk (:func:`~defuqumat.response.efield._streams`).
+    :mod:`~defuqumat.response.chunked_phonon` carries the same mask, but it has
+    not been run at ``nspin = 2``; the check it needs is no new reference, only
+    the walked matrix against the whole-k one on this same cell.
     """
     if calculation.nspin == 2:
         raise NotImplementedError(
-            "the dynamical matrix for a spin-polarized calculation is not "
-            "implemented. The Sternheimer solve is spin-polarized (the "
-            "occupied-band count is per channel now, and chi_0 for nspin = 2 is "
-            "validated against a finite difference of the density); what is not "
-            "is the second-derivative assembly on top of it -- becsum and the "
-            "orthonormality multipliers carry a spin axis here, and P28's split "
-            "between the frozen Hessian's wg and the electronic term's 2 wk has "
-            "not been checked per channel. A generated ph.x LSDA reference is "
-            "what it needs"
+            "the dynamical matrix of a spin-polarized calculation is implemented "
+            "on the whole-k route only (checked against ph.x on triplet O2); "
+            "this run walks the k axis a chunk at a time -- a streamed store, "
+            "memory mode with a chunk smaller than the mesh, or memory mode on a "
+            "card -- and that route has not been run at nspin = 2. The whole-k "
+            "route is memory_mode='speed' with the states held whole rather "
+            "than streamed"
         )
 
 

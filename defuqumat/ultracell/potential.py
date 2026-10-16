@@ -17,14 +17,37 @@ the **code** and not the manual: the manual says the Green's function is zeroed
 for every ``|G+Q| < q0cut``, while ``gengclqu.f90`` applies the cut-off only to
 ``gclq``, the ``G = 0`` element of each ``Q``. The two differ.
 
-**Exchange-correlation.** Evaluated pointwise on the ultracell real-space grid.
-For an LDA that is *exact* -- the functional is local, so the ultracell
-functional is the unit-cell one evaluated at the ultracell density -- and it is
-a strict improvement on Elk's ``potxcu``, which calls ``potxc`` once per cell
-``R`` on that cell's own density. The difference is invisible for an LDA and is
-not for a GGA: the gradient taken inside one cell misses the envelope's own
-gradient, an error of order ``Q`` in ``grad rho``. A GGA is therefore refused
-here by name rather than inherited silently.
+**Exchange-correlation, and why it is the supercell's own.** The box *is* a
+supercell's FFT box: its reciprocal lattice is the supercell's, so the set
+``{G + Q}`` it carries is a set of the supercell's own reciprocal vectors, and
+``v_of_rho`` run on that set with the supercell's lattice is the supercell's
+``v_of_rho`` with one difference, which is the sphere: the tiled unit-cell
+dense sphere (``keep``, Elk's choice and the one that makes ``N = 1`` the unit
+cell exactly) rather than a sphere in the supercell's own reciprocal space.
+So :func:`ultracell_sphere` builds that set once, as a
+:class:`~defuqumat.basis.gvectors.GVectors` on the box, and the potential is
+then ``v_of_rho`` and nothing written for the ultracell. What that buys is
+every term ``v_of_rho`` has, each taken over the *whole* modulation:
+
+* the **gradient correction**, whose ``grad rho`` then carries the envelope's
+  own gradient. Elk's ``potxcu`` calls ``potxc`` once per cell ``R`` on that
+  cell's density, so its gradient misses the envelope's at order ``Q``; this
+  one does not, because it is the gradient of the ultracell density on the
+  ultracell's own reciprocal vectors.
+* ``nosource``'s projection, ``(G+Q)((G+Q).B)/|G+Q|^2`` over the whole box,
+  which couples every cell to every other one exactly as the supercell's does.
+  The per-cell potential the refusal used to name was Elk's, not this code's.
+* the Tran-Blaha coefficient ``c``, an average over the ultracell, which is
+  the supercell's average.
+
+At a tiled density every non-zero component sits at ``Q = 0``, where ``keep``
+is exactly the unit cell's dense sphere, so the gradient and its divergence
+are the unit cell's to round-off and the tiled null survives.
+
+**What it costs**: the box ``GVectors`` holds ``N ngm`` integer triples, a
+supercell SCF's ``ngm``, and the cartesian ``G + Q`` it computes on demand is
+three reals per entry; a GGA adds four box transforms per potential build,
+three for ``grad rho`` and one for the divergence, as it does in the unit cell.
 
 **The subtraction, which is the first thing to get wrong.** The ultracell
 Hamiltonian's diagonal is the *unit cell's* eigenvalue ``eps_{k+Q,n}``, and
@@ -46,110 +69,206 @@ from __future__ import annotations
 import jax.numpy as jnp
 import numpy as np
 
-from defuqumat.scf.potential import as_potential_components, exchange_correlation
+import jax
+
+from defuqumat.basis.gvectors import GVectors
+from defuqumat.scf.potential import v_of_rho
 from defuqumat.system.cell import Cell
 from defuqumat.ultracell.grid import Ultracell
-from defuqumat.units import E2, FPI
 
 __all__ = [
     "UltracellPotential",
+    "UltracellSphere",
     "ultracell_potential",
+    "ultracell_sphere",
     "delta_potential",
     "with_external_potential",
     "require_an_ultracell_functional",
 ]
 
 
+#: ``v_of_rho`` compiled once per box shape, with ``source_free`` and
+#: ``noncollinear_gga`` static as :mod:`defuqumat.scf.driver` has them.
+_box_potential = jax.jit(v_of_rho, static_argnums=(8, 9))
+
+
 class UltracellPotential:
-    """Hartree plus exchange-correlation on the ultracell box, and its pieces."""
+    """Hartree plus exchange-correlation on the ultracell box, and its pieces.
 
-    __slots__ = ("v_scf", "ehart", "etxc")
+    ``ehart`` and ``etxc`` are **ultracell** totals, ``N`` times a unit cell's
+    at a tiled density; ``meta_c`` is the Tran-Blaha coefficient, zero for any
+    other functional; ``e_sawtooth`` is the saw-tooth field's ``E_f`` over the
+    ultracell, zero without ``tefield``, set by the driver, which holds the atom
+    copies the ionic dipole needs.
+    """
 
-    def __init__(self, v_scf, ehart, etxc):
+    __slots__ = ("v_scf", "ehart", "etxc", "meta_c", "e_sawtooth")
+
+    def __init__(self, v_scf, ehart, etxc, meta_c=0.0, e_sawtooth=0.0):
         self.v_scf = v_scf
         self.ehart = ehart
         self.etxc = etxc
+        self.meta_c = meta_c
+        self.e_sawtooth = e_sawtooth
 
 
-def require_an_ultracell_functional(functional, source_free: bool = False) -> None:
-    """Refuse what the box's pointwise exchange-correlation cannot represent."""
-    if functional.is_meta:
+class UltracellSphere:
+    """The box's reciprocal vectors as a ``GVectors``, and the supercell they belong to.
+
+    Built once per run by :func:`ultracell_sphere`. ``gvectors`` is the tiled
+    dense sphere ``keep`` written as ultracell Miller indices on the box, so
+    its ``fft_index`` is a gather from and a scatter to the box; ``cell`` is
+    the ultracell lattice, ``a^u_i = n_i a_i``, whose reciprocal vectors are
+    ``b_i / n_i``, which is what makes ``gvectors.cartesian(cell)`` the
+    cartesian ``G + Q``. ``rho_core_g`` is the tiled core charge on that set,
+    taken from the unit cell's own ``rho_core_g`` rather than from a transform
+    of its real-space copy, so that a GGA's core gradient at ``Q = 0`` is the
+    unit cell's exactly.
+    """
+
+    __slots__ = ("gvectors", "cell", "rho_core_g")
+
+    def __init__(self, gvectors, cell, rho_core_g=None):
+        self.gvectors = gvectors
+        self.cell = cell
+        self.rho_core_g = rho_core_g
+
+
+def ultracell_sphere(ultracell: Ultracell, cell: Cell, keep, dense=None,
+                     rho_core_g=None) -> UltracellSphere:
+    """The box ``GVectors`` and the ultracell lattice, for ``v_of_rho`` on the box.
+
+    Args:
+        keep: the boolean box mask, the tiled unit-cell dense sphere.
+        dense: the unit cell's dense ``GVectors``, needed only with
+            ``rho_core_g``, whose entries it labels.
+        rho_core_g: the unit cell's core charge on its dense sphere, or ``None``.
+
+    ``G = 0`` is put first, as :func:`~defuqumat.basis.gvectors.generate_gvectors`
+    does and as consumers of a ``GVectors`` may assume; nothing else about the
+    order matters, since every use is a gather and a scatter through
+    ``fft_index``.
+    """
+    flat = np.flatnonzero(np.asarray(keep).reshape(-1))
+    miller = ultracell.miller_at(flat)
+    order = np.argsort(np.sum(miller.astype(np.float64) ** 2, axis=-1), kind="stable")
+    miller = miller[order]
+    gvectors = GVectors(
+        miller=jnp.asarray(miller), grid=tuple(int(n) for n in ultracell.grid),
+        ecut=0.0,
+    )
+    lattice = Cell(
+        at=jnp.asarray(cell.at) * jnp.asarray(ultracell.shape, dtype=cell.at.dtype)[:, None],
+        alat=float(cell.alat), precision=cell.precision,
+    )
+    core_g = None
+    if rho_core_g is not None:
+        # The core charge lives at ``Q = 0`` only, at box index ``n G``; every
+        # other entry of the set is zero.
+        box = np.zeros(ultracell.points, dtype=np.asarray(rho_core_g).dtype)
+        at_q0 = ultracell.box_index(np.asarray(dense.miller), 0)
+        box[at_q0] = np.asarray(rho_core_g)
+        core_g = jnp.asarray(box[np.asarray(gvectors.fft_index)])
+    return UltracellSphere(gvectors, lattice, core_g)
+
+
+def require_an_ultracell_functional(functional, source_free: bool = False,
+                                    nspin_mag: int = 1,
+                                    augmented: bool = False) -> None:
+    """Refuse what has not been measured on the box, each by name.
+
+    A gradient-corrected functional, ``nosource`` and a potential-only
+    meta-GGA all run through ``v_of_rho`` on the box (module docstring), the
+    last with ``tau`` built from the ultracell states and mixed beside the
+    density. What is still refused is a GGA on a collinear spin-polarized
+    cell, whose supercell check did not close (the message says where), a GGA
+    or a meta-GGA on a noncollinear magnetization, whose local-frame rotation
+    has not been checked against a supercell, and a meta-GGA on an ultrasoft or PAW dataset, whose one-centre
+    ``tau`` the ultracell's per-copy terms do not carry.
+    """
+    if functional.is_meta and int(nspin_mag) != 1:
         raise NotImplementedError(
-            f"the ultracell refuses the meta-GGA {functional.name}: a "
-            "potential-only functional has no energy to be self-consistent in "
-            "per cell, and tau is a property of the states rather than of the "
-            "density the loop carries"
+            f"the ultracell refuses the meta-GGA {functional.name} on a "
+            f"magnetic cell (nspin_mag = {int(nspin_mag)}): tau is built on the "
+            "box per collinear channel and measured against a supercell on an "
+            "unpolarized cell only, and a spinor tau is a 2x2 matrix the "
+            "ultracell does not build"
         )
-    if source_free:
+    if functional.is_meta and augmented:
         raise NotImplementedError(
-            "the ultracell refuses nosource: the projection is a division by "
-            "|G|^2 over the *whole* modulation, so it couples every cell of "
-            "the ultracell to every other one, and the per-cell potential this "
-            "loop carries is not a function of that cell's density any more"
+            f"the ultracell refuses the meta-GGA {functional.name} with an "
+            "ultrasoft or PAW dataset: tau is built from the smooth states on "
+            "the box, and the one-centre terms evaluated per atom copy are "
+            "handed no meta_c, so the two halves would be different "
+            "functionals. Use a norm-conserving dataset"
         )
-    if functional.is_gradient:
+    if functional.is_gradient and int(nspin_mag) == 2:
         raise NotImplementedError(
             f"the ultracell refuses the gradient-corrected functional "
-            f"{functional.name} (PLAN.md P88, stage 1 is LDA). The gradient of "
-            "the ultracell density is not the gradient of any one cell's "
-            "density -- it carries the envelope's own gradient, an error of "
-            "order Q that Elk's potxcu takes silently by calling potxc once per "
-            "cell. Use an LDA dataset, or input_dft = 'LDA'"
+            f"{functional.name} on a collinear spin-polarized cell: the box "
+            "gradient is measured against a supercell at nspin = 1 only (PBE "
+            "silicon, two cells, 4.1e-7 Ry above the supercell at 48 bands). "
+            "The polarized check, PBE on the partly polarized hydrogen lattice, "
+            "never closed: its tiled null left the density 1.2e-4 from the "
+            "frozen states' own at the 1e-9 SCF stop, and its ultracell loop "
+            "stalled at dr2 = 2.4e-5 Ry after 200 iterations at nbnd = 8. "
+            "Use an LDA, or an unpolarized run"
+        )
+    if functional.is_gradient and int(nspin_mag) == 4:
+        raise NotImplementedError(
+            f"the ultracell refuses the gradient-corrected functional "
+            f"{functional.name} on a noncollinear magnetization: the gradient "
+            "of the box density is taken over the whole modulation and is "
+            "measured against a supercell for nspin = 1, while the "
+            "local spin frame the noncollinear GGA is evaluated in has not "
+            "been. Use an LDA, or a collinear run"
         )
 
 
 def ultracell_potential(
     rho_r: jnp.ndarray,
-    ultracell: Ultracell,
-    cell: Cell,
+    sphere: UltracellSphere,
     rho_core_tiled: jnp.ndarray | None,
     functional,
-    g2_inverse: jnp.ndarray,
-    keep: jnp.ndarray,
+    quantization_axis=None,
+    source_free: bool = False,
+    noncollinear_gga: str = "kubler",
+    tau: jnp.ndarray | None = None,
 ) -> UltracellPotential:
-    """``v_of_rho`` on the ultracell box.
+    """``v_of_rho`` on the ultracell box: the supercell's, on the tiled sphere.
 
     Args:
         rho_r: ``(nspin, *box)`` real density, normalised per unit cell -- so
             its integral over the ultracell is ``N`` times the electron count.
-        g2_inverse: ``1/|G+Q|^2`` on the box, zero at ``G = Q = 0``, already
-            masked to the tiled dense sphere. Precomputed because it is fixed
-            for the whole run.
-        keep: the same mask as a boolean, for the density.
+        sphere: :func:`ultracell_sphere`, built once for the run.
+        rho_core_tiled: the unit cell's core charge tiled onto the box, or
+            ``None``.
+        quantization_axis, source_free, noncollinear_gga: the unit-cell
+            calculation's own, passed through so that the box and the frozen
+            eigenvalues are built from the same functional.
+        tau: ``(nspin, *box)`` kinetic energy density in Ry, for a meta-GGA
+            and only for one, from
+            :func:`~defuqumat.ultracell.density.ultracell_kinetic_density`.
 
-    The density is masked to the tiled dense sphere before the Hartree term and
-    the exchange-correlation term is **not** masked, which is what the unit-cell
-    path does and therefore what the ``Q = 0`` subtraction needs: masking one
-    side and not the other would leave a residual ``dV`` at the null.
+    The Hartree term is ``4 pi rho(G+Q)/|G+Q|^2`` with only ``G = Q = 0``
+    dropped, and the energies are ultracell totals: ``v_of_rho`` integrates over
+    the cell it is handed, which is the ultracell. Masking happens in the
+    gather, on both the Hartree side and the gradient side, and the
+    exchange-correlation term is evaluated on the unmasked grid density, which
+    is what the unit cell does and therefore what the ``Q = 0`` subtraction
+    needs.
     """
-    points = ultracell.points
-    volume = ultracell.volume(cell)
-    nspin = rho_r.shape[0]
-
-    charge = rho_r[0] if nspin == 4 else jnp.sum(rho_r, axis=0)
-    rho_g = jnp.fft.fftn(charge, axes=(-3, -2, -1)) / points
-    rho_g = jnp.where(keep, rho_g, 0.0)
-
-    v_g = E2 * FPI * rho_g * g2_inverse
-    # ``Re(conj(rho) rho)`` rather than ``|rho|^2``, for the reason
-    # ``scf.potential.hartree`` gives: a structure factor vanishing *exactly* is
-    # what symmetry arranges, and ``abs`` has no derivative there.
-    ehart = 0.5 * volume * E2 * FPI * jnp.sum(
-        jnp.real(jnp.conj(rho_g) * rho_g) * g2_inverse
+    potential = _box_potential(
+        jnp.asarray(rho_r), sphere.gvectors, sphere.cell, rho_core_tiled,
+        functional, sphere.rho_core_g, quantization_axis,
+        None if tau is None else jnp.asarray(tau),
+        bool(source_free), str(noncollinear_gga), None,
     )
-    v_hartree = jnp.real(jnp.fft.ifftn(v_g, axes=(-3, -2, -1)) * points)
-
-    v_xc, etxc = exchange_correlation(rho_r, cell, rho_core_tiled, functional)
-    # ``exchange_correlation`` scales its energy by ``cell.volume / n`` with
-    # ``n`` the number of points it was handed, which is the ultracell's. The
-    # element of volume is the same on both grids, so what it applied is the
-    # unit cell's share of the integral and the ultracell's is ``N`` times it.
-    etxc = etxc * ultracell.cells
-
     return UltracellPotential(
-        v_scf=as_potential_components(v_hartree, nspin) + v_xc,
-        ehart=ehart,
-        etxc=etxc,
+        v_scf=potential.v_scf,
+        ehart=potential.ehart,
+        etxc=potential.etxc,
+        meta_c=potential.meta_c,
     )
 
 
