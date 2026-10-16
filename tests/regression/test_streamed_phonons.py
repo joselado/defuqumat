@@ -206,6 +206,73 @@ def test_a_second_streamed_call_compiles_nothing():
 
 
 # ---------------------------------------------------------------------------
+# A partial matrix from the response the Raman tensors keep (I54).
+# ---------------------------------------------------------------------------
+
+#: The CG at a fixed threshold on every call, so that the kept response and the
+#: fresh solve run the same passes.
+KEPT = {"threshold": 1.0e-12}
+
+
+@pytest.mark.parametrize("case", ["si-epsilon-unshifted-nosym",
+                                  "alas-epsilon-us-unshifted-nosym"])
+def test_a_partial_matrix_from_a_kept_response_is_its_rows(case):
+    """``atoms=`` with a response solved for every atom, on both routes.
+
+    The response is the Raman tensors' (``keep_internals``), walked from a host
+    store and whole from the device store. Assembled with ``atoms=(1,)``, the
+    walked matrix is the block of the same response's whole matrix **bit for
+    bit**, since each row reads only its own atom's response; and both routes
+    give the block of a fresh whole-cell solve at the same states (measured on
+    D22: 0 bit for bit, 1.2e-14 and 4.2e-14 between the routes). Read row by
+    row, as the whole-k route did before, the AlAs block was 5.5e-3 off and the
+    silicon one 2.57.
+
+    The block is the reference rather than a fresh *subset* solve because the
+    two are not the same number on an ultrasoft dataset, independently of this
+    assembly: on AlAs the fresh subset solve is 3.7e-8 from the fresh whole
+    block (10 passes each, different histories), where on norm-conserving
+    silicon it is 1e-14.
+    """
+    import dataclasses
+
+    from defuqumat.response.electrostriction import refined_states
+    from defuqumat.response.nonlinear import raman_tensors
+
+    calculation, result = _converged(case, 3)
+    assert not calculation.use_symmetry
+    atoms, a = (1,), np.asarray([1])
+    density = jax.numpy.asarray(result.density)
+    hosted = dataclasses.replace(
+        result, wavefunctions=np.asarray(result.wavefunctions))
+
+    walked = raman_tensors(calculation, hosted, keep_internals=True,
+                           **KEPT).displacement
+    assert walked.walked is not None
+    whole = dynamical_matrix(calculation, None, result.eigenvalues, density,
+                             response=walked, **KEPT)
+    rows = []
+    partial = dynamical_matrix(calculation, None, result.eigenvalues, density,
+                               response=walked, atoms=atoms, **KEPT,
+                               on_row=lambda at, c, r: rows.append((at, c)))
+    assert np.array_equal(partial.matrix, whole.matrix[a][:, :, a, :])
+    assert np.abs(partial.matrix).max() > 0.1, "a block of zeros agreeing"
+    assert rows == [(1, 0), (1, 1), (1, 2)]
+
+    kept = raman_tensors(calculation, result, keep_internals=True,
+                         **KEPT).displacement
+    assert kept.walked is None
+    eigenvalues, psi = refined_states(calculation, result)
+    from_kept = dynamical_matrix(calculation, psi, eigenvalues, density,
+                                 result.becsum, response=kept, atoms=atoms,
+                                 **KEPT)
+    fresh = dynamical_matrix(calculation, psi, eigenvalues, density,
+                             result.becsum, **KEPT).matrix[a][:, :, a, :]
+    np.testing.assert_allclose(from_kept.matrix, fresh, rtol=0, atol=TOLERANCE)
+    np.testing.assert_allclose(partial.matrix, fresh, rtol=0, atol=TOLERANCE)
+
+
+# ---------------------------------------------------------------------------
 # The phonon at q.
 # ---------------------------------------------------------------------------
 

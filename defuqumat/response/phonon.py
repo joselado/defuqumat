@@ -377,6 +377,11 @@ def dynamical_matrix(
             :func:`~defuqumat.response.nonlinear.raman_tensors` solves the same
             object and hands it back through its ``keep_internals``, which is
             what lets a spectrum cost one displacement response rather than two.
+            With ``atoms``, a response solved for every atom (which both of
+            those are) is cut to those atoms' rows -- :func:`_response_rows`
+            on the whole-k route, ``force_constants(atoms=)`` on the walked
+            one -- and gives the block of the whole matrix exactly; a response
+            whose row count is neither the cell's nor the subset's is refused.
     """
     eigenvalues = jnp.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
@@ -411,14 +416,15 @@ def dynamical_matrix(
         # from its own stores (:meth:`~defuqumat.response.chunked_phonon.
         # StreamedDisplacements.force_constants`): the states it was solved at
         # are the ones it holds, so ``wavefunctions`` is not read. It solved
-        # every atom.
-        if chosen is not None:
-            raise ValueError(
-                "a displacement response walked a k-chunk at a time holds every "
-                "atom's perturbations; ask for the whole matrix (atoms=None)")
+        # every atom, and a subset is its rows for those atoms: the subset
+        # needs ``nosym`` (checked above), where nothing couples the modes, so
+        # the rows of the whole response *are* the subset's response, and each
+        # row of the assembly reads only its own (``force_constants(atoms=)``).
         matrix = walked.force_constants(response.drho, response.extras,
-                                        on_row=on_row)
+                                        on_row=on_row, atoms=chosen)
         drho, history = response.drho, response.history
+        if chosen is not None:
+            drho = drho[np.asarray([walked.atoms.index(a) for a in chosen])]
         average_iterations, converged = float("nan"), response.converged
         return _phonons_of(calculation, matrix, drho, history, average_iterations,
                            converged, chosen, acoustic_sum_rule)
@@ -596,10 +602,10 @@ def _whole_k(calculation, solver, positions, wavefunctions, eigenvalues,
             )
         )
     else:
-        dpsi, drho = response.dpsi, response.drho
+        dpsi, drho, bare, extras = _response_rows(
+            response, chosen, calculation.system.structure.nat)
         history, converged = response.history, response.converged
         average_iterations = float("nan")
-        bare, extras = response.bare, response.extras
 
     # 2b. The three tangents ``S``'s motion adds to the assembly. ``dLambda``
     #     is a matrix element of the *same* perturbation the last solve was
@@ -625,6 +631,45 @@ def _whole_k(calculation, solver, positions, wavefunctions, eigenvalues,
         multipliers=multipliers, ort=ort, atoms=chosen, on_row=on_row,
     )
     return matrix, drho, history, average_iterations, converged
+
+
+def _response_rows(response, chosen, nat):
+    """``(dpsi, drho, bare, extras)`` of a handed-in response, at ``chosen``'s rows.
+
+    Every per-mode store of a :class:`DisplacementResponse` leads with the
+    perturbed atom, in the order it was solved, and the assembly below reads
+    row ``r`` of each as the response to ``chosen[r]``. A response solved for
+    every atom (what :func:`~defuqumat.response.nonlinear.raman_tensors` keeps)
+    handed in with a subset therefore has to be cut to the subset's rows first:
+    read whole, row 0 is atom 0's response whichever atom ``chosen[0]`` is, and
+    the matrix comes out wrong with no error. A response with exactly
+    ``len(chosen)`` rows (fewer than ``nat``) is taken to be the subset's own,
+    as before; any other row count cannot be matched to the atoms and is
+    refused.
+    """
+    held = int(np.shape(response.drho)[0])
+    wanted = nat if chosen is None else len(chosen)
+    if chosen is None or (held == wanted and held != nat):
+        if held != wanted:
+            raise ValueError(
+                f"the response holds {held} atoms' perturbations and the "
+                f"matrix asked for needs {wanted}")
+        return response.dpsi, response.drho, response.bare, response.extras
+    if held != nat:
+        raise ValueError(
+            f"the response holds {held} atoms' perturbations, neither the cell's "
+            f"{nat} nor the {len(chosen)} asked for, so its rows cannot be "
+            "matched to atoms")
+    # An index array, not a list: a jax array refuses a list as an index.
+    rows = np.asarray(chosen)
+
+    def cut(stack):
+        return None if stack is None else stack[rows]
+
+    extras = None if response.extras is None else {
+        key: cut(value) for key, value in response.extras.items()}
+    return (cut(response.dpsi), cut(response.drho), cut(response.bare),
+            extras)
 
 
 class _Levels:

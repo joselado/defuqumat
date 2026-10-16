@@ -361,16 +361,40 @@ class StreamedDisplacements:
                 self.multipliers[row, cart][:, written] = (
                     np.asarray(dlambda)[:, :live])
 
-    def force_constants(self, drho, extras, on_row=None) -> np.ndarray:
+    def force_constants(self, drho, extras, on_row=None,
+                        atoms=None) -> np.ndarray:
         """``(rows, 3, nat, 3)``: :func:`~defuqumat.response.phonon._force_constants`
-        walked, one perturbation at a time."""
+        walked, one perturbation at a time.
+
+        ``atoms`` assembles only those atoms' rows, in that order, from a
+        response solved for more of them -- a partial dynamical matrix from a
+        response kept for something else (the Raman tensors). Each row is read
+        from the response's own row for its atom, ``self.atoms.index(atom)``,
+        in every per-mode store (``dpsi``, ``drho``, ``dbecsum``, the overlaps
+        and the multipliers), so it is the same number the whole assembly puts
+        in that row: no row of the assembly reads another row's response.
+        """
         nat = self.positions.shape[0]
-        matrix = np.zeros((self.rows, 3, nat, 3))
+        if atoms is None:
+            modes = self.modes
+            rows_out = self.rows
+        else:
+            missing = [a for a in atoms if a not in self.atoms]
+            if missing:
+                raise ValueError(
+                    f"the response was solved for atoms {self.atoms} and holds "
+                    f"no perturbation of {tuple(missing)}")
+            modes = [(self.atoms.index(atom), atom, cart) for atom in atoms
+                     for cart in range(3)]
+            rows_out = len(atoms)
+        out_row = {atom: index for index, atom in
+                   enumerate(self.atoms if atoms is None else atoms)}
+        matrix = np.zeros((rows_out, 3, nat, 3))
         rowset = row_leaves(self.calculation, self.chunks[0][0])
         if self.ultrasoft:
             self._multipliers(extras)
             raw = self._raw_sums()
-        for row, atom, cart in self.modes:
+        for row, atom, cart in modes:
             tangent = self._tangent(atom, cart)
             if self.ultrasoft:
                 dbecsum = extras.get("dbecsum")
@@ -390,9 +414,9 @@ class StreamedDisplacements:
                         self.positions, tangent, psi, weights,
                         self._state_weights(arrays, weights), eigenvalues,
                         _rows_of(self.dpsi[row, cart], rows)))
-            matrix[row, cart] = column
+            matrix[out_row[atom], cart] = column
             if on_row is not None:
-                on_row(atom, cart, matrix[row, cart])
+                on_row(atom, cart, matrix[out_row[atom], cart])
         return matrix
 
     def _raw_sums(self):
