@@ -7000,6 +7000,19 @@ def _solve_residual_body(
         # exactly the systems this solver is worth using on.
         warmup_mixing = options.pop("warmup_mixing", "kerker")
         warm_ldos = warmup_mixing.lower() in LDOS_DEPENDENT
+        if warm_ldos and calculation.system.occupations.startswith("tetrahedra"):
+            # Each piece is measured on its own: Newton-Krylov with tetrahedra
+            # (I71, against pw.x) and the LDOS warm-up under a smearing and the
+            # LDOS mixing loop with tetrahedra (I75). The warm-up's tetrahedron
+            # LDOS in front of a Newton solve, the three together, is not.
+            raise NotImplementedError(
+                f"warmup_mixing={warmup_mixing!r} with "
+                f"occupations={calculation.system.occupations!r} is not "
+                "measured: a residual solver takes tetrahedra (I71) and the "
+                "LDOS warm-up runs under a smearing (I75), but the tetrahedron "
+                "LDOS as a Newton warm-up has not been checked; use "
+                "warmup_mixing='kerker' or 'anderson' with tetrahedra"
+            )
         warm_mixer = get_mixer(warmup_mixing, beta=mixing_beta)
         if warm_ldos:
             # Herbst and Levitt's preconditioner at ``mixing_beta``, handed the
@@ -7040,7 +7053,7 @@ def _solve_residual_body(
                 # One more density pass a warm-up step, with ``w_k delta(e_F -
                 # e_nk)`` in place of the occupations (``ldos_weights``); zero,
                 # and so the plain step, where there are no states at ``e_F``.
-                # Tetrahedra never reach here: the residual refuses them.
+                # Tetrahedra never reach here: refused above.
                 _, levels = calculation.occupations(eigenvalues)
                 weights_at_ef = calculation.ldos_weights(eigenvalues, levels)
                 warm_mixer.precondition.update_ldos(

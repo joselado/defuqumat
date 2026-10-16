@@ -419,12 +419,15 @@ def test_optimised_tetrahedra_under_ldos_reach_pw_x_on_ten_sites():
 
 
 def test_newton_krylov_still_refuses_tetrahedra(tmp_path):
-    """The sibling the warm-up does not lift: the residual has no differentiable form of
-    the tetrahedron weights."""
+    """The LDOS warm-up in front of a Newton solve with tetrahedra stays refused.
+
+    The residual itself takes tetrahedra since I71; what neither I71 nor I75
+    measured is the tetrahedron LDOS as the warm-up, so that is the refusal the
+    test now reads (retargeted at the integration of the two)."""
     from defuqumat.scf import run_scf
 
     calc = _aluminium(tmp_path)
-    with pytest.raises(NotImplementedError, match="no differentiable form"):
+    with pytest.raises(NotImplementedError, match="tetrahedron\\s+LDOS as a Newton warm-up"):
         run_scf(calc.system, calc.pseudos, scf_solver="newton-krylov",
                 scf_solver_options={"warmup": 1, "warmup_mixing": "ldos"})
 
