@@ -562,17 +562,19 @@ def test_the_two_knobs_an_energy_axis_turns_into_another_experiment():
     assert _refuse_a_window_under_an_axis(None, "constant-height") is None
 
 
-def test_a_wedge_is_refused_because_nothing_here_symmetrises_it():
+def test_a_wedge_with_no_group_to_complete_it_is_refused():
     """The one thing a spectrum does not inherit from an image.
 
     ``run_stm`` sums through ``Calculation.density``, which symmetrises; the
-    amplitude route adds ``|psi_k(r)|^2`` with nothing to symmetrise it, so a
-    reduced k-set would give the sum over the wedge alone. Both branches are
-    checked, since a guard that never fires and a guard that always fires look
-    the same from one side.
+    amplitude route adds ``|psi_k(r)|^2`` point by point, and on a wedge it is
+    now averaged over the tip's images under the group the wedge was cut with.
+    A reduced set on a ``nosym`` run has no such group and is still refused;
+    the number that says the average is right is the slow regression test.
+    Both branches are checked, since a guard that never fires and a guard that
+    always fires look the same from one side.
     """
     reduced = SimpleNamespace(kpoints=SimpleNamespace(
-        weights=np.array([0.25, 0.75])))
+        weights=np.array([0.25, 0.75])), nosym=True)
     with pytest.raises(NotImplementedError, match="symmetry-reduced"):
         _refuse_a_reduced_k_set(reduced)
     whole = SimpleNamespace(kpoints=SimpleNamespace(weights=np.full(4, 0.5)))

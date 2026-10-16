@@ -172,10 +172,9 @@ def run_absorption(
         system: the converged :class:`~defuqumat.system.builder.System`.
         density: the converged density (``SCFResult.density``).
         kpoints: the k-set the spectrum is computed on, if it is not the one
-            the density was converged on. It must be the **whole** grid, not a
-            symmetry-reduced wedge -- see
-            :func:`~defuqumat.tddft.chi0.require_a_sum_over_states_regime` -- and
-            that is exactly why this argument exists: a density converges
+            the density was converged on. The whole grid or a wedge of one,
+            which :func:`~defuqumat.tddft.chi0.independent_response` completes
+            over its group -- and the reason this argument exists is that a density converges
             perfectly well on a wedge, and an optical spectrum needs both a
             closed grid and a denser one than any ground state does. An
             **unshifted** grid is what makes the whole-grid route sound (P24,

@@ -173,6 +173,7 @@ from defuqumat.scf.occupations import smearing_order, w0gauss
 from defuqumat.solvers.davidson import EMPTY_ETHR_FLOOR
 from defuqumat.units import AU_TO_S_PER_CM, FPI, RY_TO_EV
 from defuqumat.system.kpoints import is_reduced
+from defuqumat.system.wedge import wedge_group
 
 __all__ = [
     "OpticalConductivity",
@@ -419,16 +420,32 @@ def require_a_conductivity_regime(calculation) -> None:
             "are rows ik and nk + ik of a list of 2 nk, and its NSCF with "
             "empty states needs at_kpoints, which a spiral refuses"
         )
-    if _kpoints_are_reduced(calculation):
-        raise NotImplementedError(
-            "the optical conductivity needs the whole k-grid, not a "
-            "symmetry-reduced wedge: the antisymmetric part of sigma_ab is an "
-            "axial vector -- it is the Berry curvature integral in the static "
-            "limit -- and a wedge does not sum to the cell's, which is the "
-            "refusal P48b's angular momenta make. Run with nosym = .true. and "
-            "noinv = .true. on an *unshifted* grid, which is closed under the "
-            "point group"
-        )
+    # A symmetry-reduced k-set is completed by the group it was cut with
+    # (:func:`_wedge`, P24's rule one rank up from the forces); what is still
+    # refused is a set that group does not tile and a magnetic group.
+    _wedge(calculation)
+
+
+def _wedge(calculation):
+    """The group that completes this run's wedge sum, or ``None`` on a whole grid.
+
+    **Lifted from a refusal**, which said the antisymmetric part is an axial
+    vector and a wedge does not sum to the cell's. Both halves were true and
+    neither needed the whole grid: ``R sigma R^T`` is the right image of the
+    whole tensor under a rotation, proper or improper, because the dual of its
+    antisymmetric part picks up ``det R`` by itself; and the time-reversed
+    image of a k-point's Kubo-Greenwood term is its **transpose**
+    (``v_nm(-k) = -conj(v_nm(k))``, so ``v^a_nm v^b_mn`` at ``-k`` is
+    ``v^b_nm v^a_mn`` at ``k``), which is what makes the antisymmetric part
+    vanish on a time-reversal-invariant crystal and is what
+    :meth:`~defuqumat.system.wedge.WedgeGroup.average` is told below.
+    """
+    return wedge_group(calculation.system, quantity="the optical conductivity")
+
+
+def _transposed(tensor):
+    """An anti-unitary image of a conductivity-shaped tensor: its last two labels swapped."""
+    return np.swapaxes(np.asarray(tensor), -1, -2)
 
 
 def _kpoints_are_reduced(calculation) -> bool:
@@ -479,7 +496,8 @@ def optical_conductivity(
 
     Args:
         calculation: the :class:`~defuqumat.scf.driver.Calculation` the states
-            belong to, on the **whole** k-grid.
+            belong to, on the whole k-grid or a wedge completed by its group
+            (:func:`_wedge`).
         wavefunctions: ``(nspin, nk, nbnd, ndim)``. ``ndim`` is ``2 npwx`` for
             a spinor, which is the regime a magneto-optical spectrum wants;
             ``nspin = 2`` is a collinear run, whose two channels' conductivities
@@ -528,6 +546,7 @@ def optical_conductivity(
         above means there is nothing to put back.
     """
     require_a_conductivity_regime(calculation)
+    wedge = _wedge(calculation)
     if method not in ("frequency", "curvature"):
         raise ValueError(
             f"method must be 'frequency' or 'curvature', not {method!r}"
@@ -693,8 +712,16 @@ def optical_conductivity(
     total = walk(int(wk.shape[0]), batch, arguments, *stages)
     inter = np.asarray(total[0]) * (1.0 / volume)
     dropped = int(np.asarray(total[1]))
+    raw_plasma = None if delta is None else np.asarray(total[2])
+    if wedge is not None:
+        # The wedge sum completed by its group: the interband tensor and the
+        # Fermi-surface sum of the Drude term are both ``sum_k`` of a per-k
+        # rank-2 term that time reversal transposes (:func:`_wedge`).
+        inter = wedge.average(inter, (-2, -1), _transposed)
+        if raw_plasma is not None:
+            raw_plasma = wedge.average(raw_plasma, (-2, -1), _transposed)
     plasma, intra = _drude(
-        None if delta is None else total[2], frequencies, volume,
+        raw_plasma, frequencies, volume,
         broadening if relaxation is None else relaxation,
     )
     # The same test ``_fermi_surface_delta`` makes, and for the neighbouring

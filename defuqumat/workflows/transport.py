@@ -262,7 +262,7 @@ def run_vertical_transport(
     calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
     used = calculation.system
-    _refuse_a_k_set_this_cannot_sum(used, exit_axis)
+    group = _vertical_wedge(used, exit_axis, spin, tip_spin)
     _refuse_an_augmented_plane(used, pseudos, exit_axis,
                               (float(exit_height),), "the exit plane")
 
@@ -281,15 +281,22 @@ def run_vertical_transport(
     # to the host at once, beside the device copy the result still holds.
     degeneracy_tol = _resolved_degeneracy_tol(
         degeneracy_tol, resolve, result, conv_thr, calculation)
-    values, extras = _assemble(
-        _geometry(calculation), wavefunctions, eigenvalues, points,
-        exit_height=float(exit_height), exit_axis=exit_axis,
+    assemble = dict(
+        exit_axis=exit_axis,
         energies=grid_energies, broadening=float(broadening),
         spin=spin, polarization=float(polarization),
         tip_spin=tip_spin, tip_polarization=float(tip_polarization),
         incoherent=bool(incoherent), exit_region=exit_region,
         method=method, smearing=smearing, degeneracy_tol=degeneracy_tol,
     )
+    if group is None:
+        values, extras = _assemble(
+            _geometry(calculation), wavefunctions, eigenvalues, points,
+            exit_height=float(exit_height), **assemble)
+    else:
+        values, extras = _completed_on_a_wedge(
+            group, _geometry(calculation), wavefunctions, eigenvalues, points,
+            float(exit_height), exit_axis, used, pseudos, assemble)
 
     if bias is not None:
         # The finite-bias current: the conductance integrated over the window.
@@ -1383,6 +1390,91 @@ def _energies(energies, levels, bias, nenergies, broadening):
     _check_bias_axis(bias, nenergies, broadening)
     low, high = sorted((float(grid[0]), float(grid[0]) + float(bias)))
     return np.linspace(low, high, int(nenergies))
+
+
+def _vertical_wedge(system, exit_axis, spin, tip_spin):
+    """The group a vertical map's wedge is completed with, or ``None``.
+
+    **This was** :func:`_refuse_a_k_set_this_cannot_sum`'s **refusal**, which
+    said that a wedge sums to the map symmetrised over the whole point group
+    while only the subgroup keeping the exit plane in place belongs to the
+    geometry -- a mirror through the slab exchanges the tip side with the
+    substrate side. Both halves are true and neither needs the whole grid. The
+    term at the image ``gk`` of a wedge point is the term at ``k`` *of the
+    image geometry*: tip at ``g^-1 r`` and exit plane at ``g^-1`` of the exit
+    plane, which for a mirror through the slab is the plane on the other side.
+    So the wedge is completed by evaluating it in every image geometry and
+    averaging (:func:`_completed_on_a_wedge`), which is exact, rather than by
+    pretending the mirror is a symmetry of the junction, which it is not.
+
+    Still refused: what :func:`~defuqumat.system.wedge.wedge_group` refuses (a
+    set the group does not tile, a reduced set under ``nosym``, a magnetic
+    group), a spin-selective lead on a wedge, whose acceptance is an axial
+    vector the operations turn, and an operation that tilts the stacking axis
+    rather than keeping it or reversing it.
+    """
+    from defuqumat.system.wedge import wedge_group
+
+    crystal = np.asarray(system.kpoints.crystal(system.cell))
+    along = np.unique(np.round(crystal[:, exit_axis], 8))
+    if along.size > 1:
+        _refuse_a_k_set_this_cannot_sum(system, exit_axis)
+    group = wedge_group(system, quantity="a vertical transmission map")
+    if group is None:
+        return None
+    if spin is not None or tip_spin is not None:
+        raise NotImplementedError(
+            "a spin-selective lead on a symmetry-reduced k-set is not "
+            "implemented: the lead's acceptance is an axial vector that the "
+            "operations completing the wedge turn. Run the whole grid "
+            "(grid=, or nosym = .true.)"
+        )
+    return group
+
+
+def _completed_on_a_wedge(group, geometry, wavefunctions, eigenvalues, points,
+                          exit_height, exit_axis, system, pseudos, options):
+    """The vertical map on a wedge, averaged over every image geometry.
+
+    For an operation ``c -> c M + t`` (crystal rows) the tip goes to ``r M + t``
+    and the exit plane, ``c_axis = h``, to ``c_axis = h M[axis, axis] +
+    t_axis`` -- a plane again only when ``M`` keeps the stacking axis, which a
+    slab's operations do. The operations are grouped by where they put the exit
+    plane (two places at most: here, and through a mirror), and each group is
+    one :func:`_assemble` over all of its tip images.
+    """
+    keep = ~np.asarray(group.antiunitary)
+    rotations = np.asarray(group.crystal)[keep]
+    shifts = np.asarray(group.translations)[keep]
+    others = [i for i in range(3) if i != exit_axis]
+    if np.any(np.abs(rotations[:, others, exit_axis]) > 1e-8):
+        raise NotImplementedError(
+            "a vertical transmission map on this symmetry-reduced k-set is "
+            "refused: one of the operations completing the wedge tilts the "
+            "stacking axis rather than keeping or reversing it, so it carries "
+            "the exit plane onto no plane. Run the whole grid"
+        )
+    heights = np.mod(exit_height * rotations[:, exit_axis, exit_axis]
+                     + shifts[:, exit_axis], 1.0)
+    heights = np.round(heights, 10) % 1.0
+    _refuse_an_augmented_plane(system, pseudos, exit_axis,
+                               tuple(float(h) for h in np.unique(heights)),
+                               "the exit plane's image")
+    points = np.atleast_2d(np.asarray(points, dtype=float))
+    total, extras = None, None
+    for height in np.unique(heights):
+        chosen = np.flatnonzero(heights == height)
+        images = (np.einsum("pi,sij->spj", points, rotations[chosen])
+                  + shifts[chosen][:, None, :]).reshape(-1, 3)
+        values, found = _assemble(geometry, wavefunctions, eigenvalues, images,
+                                  exit_height=float(height), **options)
+        summed = {key: np.asarray(array).reshape(
+                      array.shape[:-1] + (len(chosen), points.shape[0])).sum(axis=-2)
+                  for key, array in values.items()}
+        total = summed if total is None else {
+            key: total[key] + summed[key] for key in total}
+        extras = found if extras is None else extras
+    return {key: array / rotations.shape[0] for key, array in total.items()}, extras
 
 
 def _refuse_a_k_set_this_cannot_sum(system, exit_axis):

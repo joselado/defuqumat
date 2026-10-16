@@ -469,9 +469,12 @@ broadening of 0.03 Ry.
     two SCFs at `conv_thr = 1e-15` agree to.
 
     The tunnelling spectrum gives the same errors as the image, and two more,
-    because here $\psi(\mathbf r)$ is sampled and squared at the tip. A
-    symmetry-reduced k-mesh gives an error, because nothing symmetrises the sum,
-    so a wedge would give a smooth but wrong spectrum. You pass `grid`, which
+    because here $\psi(\mathbf r)$ is sampled and squared at the tip. On a
+    symmetry-reduced k-mesh the spectrum at each tip point is averaged over the
+    images of the point under the symmetry operations, so it is the same as on
+    the full mesh. A reduced k-mesh still gives an error for a magnetic run, for
+    `nspin = 2` and for a spinor, which have not been checked, and for a shifted
+    mesh, which the group does not map onto itself. There you pass `grid`, which
     builds the full mesh, or run with `nosym`. A tip inside the augmentation
     sphere of an ultrasoft or PAW atom gives an error, because there the
     pseudo-wavefunction is not the true one. So the tip has to be farther from

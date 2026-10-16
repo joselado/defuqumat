@@ -166,6 +166,7 @@ from defuqumat.response.walk import (
 from defuqumat.scf.occupations import occupied_counts
 from defuqumat.system.kpoints import is_reduced
 from defuqumat.units import E2, FPI
+from defuqumat.system.wedge import wedge_group
 
 __all__ = [
     "ResponseSphere",
@@ -358,11 +359,11 @@ def require_a_sum_over_states_regime(calculation) -> None:
         (:func:`~defuqumat.scf.whole_sphere.unfold_gamma_states`), and the
         workflow moves the calculation there before its fixed-density solve.
     a reduced k-set
-        ``genvchi0`` sums the **full** non-reduced grid, and so does this.
-        Symmetrising ``chi_0(G, G')`` on a wedge is a rotation in *two* G
-        indices at once, which the rank-N symmetriser P36 wrote is not -- it is
-        Cartesian. The compensation is that the shifted-grid refusal of P24
-        does not apply here, because nothing is being symmetrised.
+        **not refused** when the group it was cut with tiles it: the wedge's
+        matrix is averaged over that group with both G labels rotated at once
+        (:func:`_completed`). A magnetic group, a reduced set on a ``nosym`` run
+        and a set the group does not tile (a shifted grid) are refused by
+        :func:`~defuqumat.system.wedge.wedge_group`.
     """
     system = calculation.system
     if calculation.is_ultrasoft or calculation.is_paw:
@@ -407,15 +408,17 @@ def require_a_sum_over_states_regime(calculation) -> None:
             "intraband (Drude) term is absent from this expression entirely "
             "and the spectrum would be an interband one wearing a metal's name"
         )
-    if _kpoints_are_reduced(calculation):
+    # A symmetry-reduced k-set is completed by the group it was cut with, both
+    # G labels rotated at once (:func:`_completed`); a set that group does not
+    # tile and a magnetic group are still refused there.
+    if is_reduced(system.kpoints) and (int(system.nspin) != 1 or system.noncolin):
         raise NotImplementedError(
-            "chi_0 needs the full k-grid, not a symmetry-reduced wedge: "
-            "chi_0(G, G') is a matrix in two G indices and symmetrising it "
-            "under the point group rotates both at once, which nothing here "
-            "implements. Run with nosym = .true. and noinv = .true. (an "
-            "unshifted grid is closed under the point group, which is what "
-            "makes that sound -- see PLAN.md P24 and P28b)"
+            "chi_0 on a symmetry-reduced k-set is measured for an nspin = 1 "
+            "run only (silicon and AlAs against their whole grids): a "
+            "collinear nspin = 2 or a spinor wedge reaches the same completion "
+            "with no number behind it. Pass the whole unshifted grid as kpoints="
         )
+    wedge_group(calculation.system, quantity="chi_0")
 
 
 def _is_an_insulator(system) -> bool:
@@ -453,8 +456,8 @@ def independent_response(
 
     Args:
         calculation: the :class:`~defuqumat.scf.driver.Calculation` the states
-            belong to. It must be on the **whole** k-grid; see
-            :func:`require_a_sum_over_states_regime`.
+            belong to, on the whole k-grid or on a wedge, which is completed by
+            its group (:func:`_completed`).
         wavefunctions: ``(nspin, nk, nbnd, npwx)``, from a fixed-density run
             with empty states -- :func:`~defuqumat.workflows.nscf.
             fixed_density_states`. ``nbnd`` is the convergence parameter of this
@@ -497,8 +500,9 @@ def independent_response(
             frequencies are independent, so it moves nothing beyond round-off.
 
     Returns:
-        A :class:`ChiZero`. Nothing is symmetrised: on the full grid there is
-        nothing to put back.
+        A :class:`ChiZero`. On the whole grid nothing is symmetrised, since
+        there is nothing to put back; on a wedge the sum is completed by the
+        group it was cut with (:func:`_completed`).
     """
     require_a_sum_over_states_regime(calculation)
     # A half sphere's pair densities through the full-sphere ``g_to_r`` lose
@@ -614,6 +618,7 @@ def independent_response(
                  jnp.asarray(padded(weights, chunk_rows, live, axis=1))))
 
     x = walk(int(weights.shape[1]), batch, arguments, elements_of, contract)
+    x = _completed(x, sphere, wedge_group(calculation.system, quantity="chi_0"))
     return ChiZero(
         x=x,
         frequencies=zomega,
@@ -623,6 +628,68 @@ def independent_response(
         nbnd=nbnd,
         occupied=tuple(counts),
     )
+
+
+def _completed(x, sphere, group):
+    """A wedge's ``(nw, nm, nm)`` averaged over the group it was cut with.
+
+    **Both labels at once**, which is what the refusal this replaces named. For
+    an operation ``c -> c M + t`` (crystal rows, :class:`~defuqumat.system.
+    symmetry.Symmetries`'s convention) the pair density at the image k-point is
+    ``rho^{gk}(m) = exp(-2 pi i m.t) rho^k(M m)``, the Coulomb factor being a
+    function of ``|G|`` alone, and the head, the ``q -> 0`` limit of the same
+    vector, rotates as the velocity does, ``r(gk) = R r(k)``. So each operation
+    acts on the matrix as ``U X U^dagger`` with ``U`` the rotation on the head
+    and a phased permutation on the body.
+
+    **Time reversal is a transpose with a parity**: ``r_G(-k) = conj(r_{-G}(k))``
+    and ``r_a(-k) = -conj(r_a(k))``, so the time-reversed image of a k-point's
+    term is ``P X^T P`` with ``P`` the reflection ``G -> -G`` on the body and
+    ``-1`` on the head -- the reflection :attr:`ResponseSphere.reflection`
+    already carries for the antiresonant term.
+
+    Every term is ``jnp`` and the maps are static, so a derivative through the
+    matrix passes through the average.
+    """
+    if group is None:
+        return x
+    miller = np.asarray(sphere.miller, dtype=int).reshape(-1, 3)
+    nbody = miller.shape[0]
+    where = {tuple(m): n for n, m in enumerate(miller)}
+    head = np.arange(3)
+    reflect = np.concatenate([head, 3 + np.asarray(sphere.reflection, dtype=int)])
+    sign = np.concatenate([-np.ones(3), np.ones(nbody)])
+    transposed = jnp.swapaxes(x, -1, -2)[:, reflect[:, None], reflect[None, :]]
+    reversed_ = transposed * jnp.asarray(sign[:, None] * sign[None, :], dtype=x.dtype)
+
+    total = jnp.zeros_like(x)
+    for rotation, crystal, shift, anti in zip(group.rotations, group.crystal,
+                                              group.translations, group.antiunitary):
+        images = np.rint(miller @ np.asarray(crystal).T).astype(int)
+        try:
+            index = np.array([where[tuple(m)] for m in images], dtype=int)
+        except KeyError:
+            raise NotImplementedError(
+                "chi_0 on a symmetry-reduced k-set needs a response sphere the "
+                "point group maps onto itself, and this one is cut through a "
+                "shell of equal |G| by round-off at ecut_response: move the "
+                "cutoff off the shell, or pass the whole grid"
+            ) from None
+        full = np.concatenate([head, 3 + index])
+        phase = np.concatenate([
+            np.ones(3, dtype=complex),
+            np.exp(-2j * np.pi * (miller @ np.asarray(shift, dtype=float))),
+        ])
+        source = reversed_ if anti else x
+        # The precision of ``x`` and not a literal one: the phases and the
+        # rotation are host tables, cast to the matrix they act on.
+        term = source[:, full[:, None], full[None, :]] * jnp.asarray(
+            phase[:, None] * np.conj(phase)[None, :], dtype=x.dtype)
+        rot = jnp.asarray(np.asarray(rotation, dtype=float), dtype=x.dtype)
+        term = term.at[:, :3, :].set(jnp.einsum("ab,wbn->wan", rot, term[:, :3, :]))
+        term = term.at[:, :, :3].set(jnp.einsum("wnb,ab->wna", term[:, :, :3], rot))
+        total = total + term
+    return total / group.order
 
 
 def _assemble(scalars, vectors, batch):

@@ -383,7 +383,7 @@ def run_sts(
     # so a half sphere is put on the whole one first (``scf/whole_sphere.py``).
     calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
 
-    _refuse_a_reduced_k_set(calculation.system)
+    group = _refuse_a_reduced_k_set(calculation.system)
     axis_energies, fermi = _spectrum_energies(energies, levels)
     width = _tip_width(width, system)
     used = calculation.system
@@ -392,11 +392,15 @@ def run_sts(
     _refuse_an_augmented_plane(
         used, pseudos, axis, np.unique(np.round(points[:, axis], 10)),
         "a tunnelling spectrum's tip")
+    sampled_at, nop = (points, 1) if group is None else _tip_orbit(group, points)
     channels, dos = sample_spectrum(
-        _geometry(calculation), wavefunctions, eigenvalues, points,
+        _geometry(calculation), wavefunctions, eigenvalues, sampled_at,
         energies=axis_energies, width=width, smearing=smearing, bias=bias,
         band_cutoff=band_cutoff, nspin_mag=int(used.nspin_mag),
     )
+    if nop > 1:
+        # The wedge's spectrum averaged over the tip's images: the whole zone's.
+        channels = channels.reshape(channels.shape[:2] + (nop, -1)).mean(axis=2)
     return _finish_spectrum(
         channels, dos, axis_energies, points, geometry, spin, polarization,
         width=width, smearing=smearing, bias=bias, fermi=fermi,
@@ -596,45 +600,57 @@ def _spectrum_energies(energies, levels):
 
 
 def _refuse_a_reduced_k_set(system):
-    """A wedge sum of ``|psi_k(r)|^2`` is not the local density of states.
+    """The group a wedge's spectrum is completed with, or ``None`` on a whole set.
 
-    **This is the one thing a spectrum does not inherit from an image**, and it
-    is the wedge trap ``CLAUDE.md`` lists. :func:`run_stm` sums through
-    :meth:`~defuqumat.scf.driver.Calculation.density`, which **symmetrises**, so a
-    reduced k-set gives it the whole zone's answer; the amplitude route adds
-    ``|psi_k(r)|^2`` point by point with nothing to symmetrise it, so on a wedge
-    it returns the sum over that wedge alone -- a plausible, smooth, wrong
-    density of states everywhere off a symmetry axis. Unfolding is not the
-    escape it is for a scalar: unfolding a *wavefunction* means rotating it,
-    which is :func:`~defuqumat.workflows.transport.whole_grid`'s own argument.
+    A wedge sum of ``|psi_k(r)|^2`` is not the local density of states: the
+    amplitude route adds it point by point, where :func:`run_stm` goes through
+    :meth:`~defuqumat.scf.driver.Calculation.density`, which symmetrises. **This
+    was a refusal**, and the escape it named was a re-solve on the whole grid.
+    The completion is cheaper than that and exact: the density of states at a
+    point is a scalar field, and ``|psi_{gk}(r)|^2 = |psi_k(g^-1 r)|^2`` for an
+    operation ``g`` of the group the wedge was cut with, so the whole zone's
+    spectrum at ``r`` is the wedge's averaged over the images ``g(r)`` of the
+    tip (:func:`_tip_orbit`). Time reversal leaves ``|psi|^2`` where it was, so
+    its copy of the group adds no point.
 
-    The test is :func:`~defuqumat.system.kpoints.is_reduced`, exactly as
-    :func:`~defuqumat.workflows.transport._refuse_a_k_set_this_cannot_sum` tests
-    it, and it is the flag :meth:`KPoints.automatic` records with the weight
-    spread underneath as a fallback.
+    What is still refused is :func:`~defuqumat.system.wedge.wedge_group`'s: a
+    set the group does not unfold uniformly, a reduced set on a ``nosym`` run,
+    and a magnetic group, under which a spin channel or a magnetization is not
+    a scalar.
 
-    **This paragraph used to say the test was the weight spread alone, and that
-    a run meaning to do this "passes ``nosym = .true.`` or ``grid=``, both of
-    which are complete by construction". Both halves were wrong.** The spread
-    is exactly zero on a symmetry-reduced *shifted* Monkhorst-Pack grid whenever
-    the group acts freely on it, which is what a shift arranges -- 32 of 64
-    points at ``ptp(weights) = 0`` on the ordinary ``4 4 4 1 1 1``. And
-    ``grid=`` goes through :func:`~defuqumat.workflows.nscf.denser_grid`, which
-    reduces with ``grid_symmetry(system)``, so it is complete only for a system
-    that already carries ``nosym``, where it adds nothing. ``nosym = .true.``
-    **is** a complete escape and remains the one named in the message: it sets
-    ``rotations = None`` (``system/builder.py``), which
-    :meth:`KPoints.automatic` reads as "return the whole grid" without applying
-    time reversal either, so ``noinv`` is not needed beside it here.
+    The wedge test underneath is :func:`~defuqumat.system.kpoints.is_reduced`:
+    the flag :meth:`KPoints.automatic` records with the weight spread as a
+    fallback, which matters because the spread alone is exactly zero on a
+    symmetry-reduced *shifted* Monkhorst-Pack grid whenever the group acts
+    freely on it -- 32 of 64 points at ``ptp(weights) = 0`` on the ordinary
+    ``4 4 4 1 1 1``.
     """
-    if is_reduced(system.kpoints):
+    from defuqumat.system.wedge import wedge_group
+
+    if is_reduced(system.kpoints) and (int(getattr(system, "nspin", 1)) != 1
+                                       or getattr(system, "noncolin", False)):
         raise NotImplementedError(
-            "a tunnelling spectrum on a symmetry-reduced k-set is refused: "
-            "psi(r) is sampled and squared point by point, so the sum is over "
-            "the wedge alone and nothing symmetrises it -- unlike an image, "
-            "which goes through the density and is symmetrised there. Pass "
-            "grid= to re-solve on the whole grid, or run with nosym = .true."
+            "a tunnelling spectrum on a symmetry-reduced k-set is measured for "
+            "an nspin = 1 run only (silicon against its whole grid): a "
+            "collinear nspin = 2 or a spinor wedge has spin channels the "
+            "completion has not been checked on. Pass grid= to re-solve on the "
+            "whole grid, or run with nosym = .true."
         )
+    return wedge_group(system, quantity="a tunnelling spectrum")
+
+
+def _tip_orbit(group, points):
+    """``(nop * npoints, 3)``: every image ``c M + t`` of the tip, operation-major.
+
+    :class:`~defuqumat.system.symmetry.Symmetries`'s convention for a position in
+    crystal coordinates. Only the unitary half of the group is taken, the
+    time-reversed copy being the same points again.
+    """
+    keep = ~np.asarray(group.antiunitary)
+    rotations = np.asarray(group.crystal)[keep]
+    shifts = np.asarray(group.translations)[keep]
+    images = np.einsum("pi,sij->spj", points, rotations) + shifts[:, None, :]
+    return images.reshape(-1, 3), int(rotations.shape[0])
 
 
 def _refuse_a_window_under_an_axis(bias, mode):
