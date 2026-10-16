@@ -279,9 +279,9 @@ sharp, with a width of 0.5 per cent of its frequency.
 
 Here we computed the coupling at 12 wavevectors from L to X on the
 $8\times8\times8$ mesh, in 485 s on one core. $\Gamma$ itself is missing, because
-in a metal the phonon at $\mathbf q = 0$ moves the Fermi level, which this route
-does not include, so the code gives an error there and you use `get_phonons()`
-for the zone centre. On the left we see the branches, which go from 147 and
+the coupling at $\mathbf q = 0$ gives an error: its acoustic modes have zero
+frequency, and we have no reference for it. For the phonons at the zone centre
+you use `get_phonons()`. On the left we see the branches, which go from 147 and
 314 cm$^{-1}$ at L to 202 and 329 cm$^{-1}$ at X. On the right we see the
 linewidths, at $\sigma = 0.10$ Ry (solid) and 0.04 Ry (dotted). The
 longitudinal mode couples much more than the transverse ones, with a linewidth
@@ -385,8 +385,13 @@ which we compute in the page about stress with `get_elastic_constants()`.
 
     The phonons, the Raman tensors, the strain response, the elastic constants
     and the electrostriction tensors give an error for a noncollinear or
-    spin-orbit run, and for `nspin = 2`. The phonons at $\Gamma$ of an
-    ultrasoft or PAW metal give an error.
+    spin-orbit run. The Raman tensors, the strain response, the elastic constants
+    and the electrostriction tensors also give an error for `nspin = 2`. The
+    phonons at $\Gamma$ work for `nspin = 2`. They give an error there only when
+    the run walks the k-points in chunks. This is `memory_mode = 'memory'`,
+    which is the default on a GPU, and a streamed store. On a CPU the default
+    `memory_mode = 'speed'` works. The phonons at $\Gamma$ of an ultrasoft
+    or PAW metal give an error.
 
     The static $\chi^{(2)}$ and the electro-optic tensor from this response give
     an error, because the term $\langle u_i|r_k|u_j\rangle$, where the field
@@ -400,9 +405,12 @@ which we compute in the page about stress with `get_elastic_constants()`.
     is closed under the point group. They give an error for ultrasoft and PAW
     datasets, for a nonlinear core correction, for spin polarization, spinors,
     spin spirals, DFT+U and `nosource`, and for a potential-only meta-GGA
-    (`tb09`, `bj06`), as every response does. For a metal they give an error at
-    $\mathbf q = 0$ or at a reciprocal lattice vector, because only there the
-    Fermi level moves, and you use `get_phonons()`. There is no interpolation
+    (`tb09`, `bj06`), as every response does. For a metal they work at
+    $\mathbf q = 0$, where the Fermi level moves and the code moves it as `ph.x`
+    does. At a reciprocal lattice vector other than zero they give an error, and
+    you use $\mathbf q = 0$ instead. On the k-chunked route, which a GPU takes in
+    `memory_mode = 'memory'`, a metal at $\mathbf q = 0$ gives an error, and you
+    use `get_phonons()`. There is no interpolation
     of the force constants, so a dispersion is one calculation per wavevector.
 
     With `nosym`, the dielectric constant, the Born charges, the phonons at

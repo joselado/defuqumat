@@ -67,8 +67,8 @@ The keywords of `get_shift_current` and of `get_shg` below are:
   intermediate state is exact only over a complete basis. `.truncation` is the
   change of the result when the top quarter of the bands is left out, so you read
   it before you trust a number.
-- **`kpoints`**: a denser k-set to evaluate on. It must be the whole unshifted
-  grid, not a wedge. If you do not give it, the code uses the k-points of the
+- **`kpoints`**: a denser k-set to evaluate on. It can be the whole unshifted
+  grid or its wedge. If you do not give it, the code uses the k-points of the
   SCF.
 - **`window`, `nw`, `frequencies`**: the photon energies, as a window in Ry with
   `nw` points or as an explicit list in Ry.
@@ -477,20 +477,24 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
 !!! note "Limits"
     The shift current gives an error for an ultrasoft or PAW dataset, because
     one term, the second derivative of the projectors in $\mathbf k$, is not
-    implemented. It also gives an error for a spin spiral, DFT+U, `nspin = 2`, a
-    symmetry-reduced k-set and a metal, where the partly filled bands give
-    transitions of zero energy and every denominator of the sum diverges. A
-    spinor run works.
+    implemented. It also gives an error for a spin spiral, DFT+U and a metal, where the partly filled bands give transitions of zero
+    energy and every denominator of the sum diverges. A spinor run works, and so
+    does a collinear spin-polarized run (`nspin = 2`), where the two channels
+    add. With `nspin = 2` it gives an error when `tot_magnetization` makes a
+    channel stop inside a degenerate level, because the result then depends on
+    an arbitrary choice inside the level.
 
-    Second-harmonic generation gives an error for a spin spiral, a metal, DFT+U
-    and a symmetry-reduced k-set. It works for a spinor run, for a collinear
+    Second-harmonic generation gives an error for a spin spiral, a metal and
+    DFT+U. It works for a spinor run, for a collinear
     spin-polarized run (`nspin = 2`), where the two channels add, and for
     ultrasoft and PAW datasets. The static $\chi^{(2)}$ and the electro-optic
     tensor of the [Raman page](raman.md) still give an error, because that route
     needs a term which this sum over states does not use.
 
-    For both tensors you pass the whole unshifted mesh as `kpoints`, because a
-    polar tensor of rank 3 summed on a wedge is not the tensor of the crystal.
+    For both tensors a symmetry-reduced k-set is averaged over the group it was
+    cut with, so the tensor is the same as on the whole mesh. A magnetic run,
+    and a shifted mesh, still give an error. Then you pass the whole unshifted
+    mesh as `kpoints`.
     The band count is not converged for you, so read `.truncation`. The code
     warns when `nbnd` cuts a degenerate level (`band_cut_gap` below $10^{-8}$
     Ry), because then the result depends on an arbitrary choice inside the
@@ -500,15 +504,18 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     tensor is zero, so for the SCF you keep the symmetry and pass the whole mesh
     as `kpoints`, as we do for silicon.
 
-    The real-time methods give an error for DFT+U, a spin spiral, `K_POINTS
-    gamma`, a ground state under a magnetic field or with a constrained moment,
-    a static electric field (`tefield` or `lelfield`), and a symmetry-reduced
-    k-set passed as `kpoints` (you pass `grid=` instead, which builds the right
-    reduction for the field). A shifted mesh gives an error, because it is not
-    closed under the point group, and `little_group=False` propagates the whole
-    shifted mesh instead. They also give an error when `occupations = 'fixed'`
-    cuts a degenerate level, because the current then depends on an arbitrary
-    choice inside the level, and for a time step that is too long to be stable.
+    The real-time methods give an error for DFT+U, a spin spiral, a ground state
+    under a magnetic field or with a constrained moment, a static electric field
+    (`tefield` or `lelfield`), and a symmetry-reduced k-set passed as `kpoints`
+    (you pass `grid=` instead, which builds the right reduction for the field).
+    A shifted mesh gives an error, because it is not closed under the point
+    group, and `little_group=False` propagates the whole shifted mesh instead.
+    They also give an error when `occupations = 'fixed'` cuts a degenerate
+    level, because the current then depends on an arbitrary choice inside the
+    level, and for a time step that is too long to be stable.
+
+    A `K_POINTS gamma` ground state works. The states are solved again on the
+    whole sphere, so the run costs twice the plane waves of the SCF.
 
     A magnet, a spinor run with spin-orbit coupling, and ultrasoft and PAW
     datasets work in real time. With an ultrasoft or PAW dataset, the potential

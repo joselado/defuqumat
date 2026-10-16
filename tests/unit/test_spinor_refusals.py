@@ -105,14 +105,19 @@ def test_the_sternheimer_refusal_still_stands(pseudo_dir):
         require_a_sternheimer_regime(_calculation("h4-noncolin-force", pseudo_dir))
 
 
-def test_a_spiral_force_is_refused_by_name(pseudo_dir):
-    """A spiral is ``noncolin`` with two spheres, and P46 writes down one.
+def test_an_augmented_spiral_force_is_refused_by_name(pseudo_dir):
+    """The augmented spiral is the regime the spiral force does not cover.
 
-    Before the narrowing it was caught by ``reject_spinors`` along with
-    everything else; afterwards it would have walked into the spinor projector
-    contraction and died on an einsum shape instead of on a refusal.
+    A norm-conserving spiral's force is ``grad`` of the functional with the
+    pair ``vkb(k + q/2)``, ``vkb(k - q/2)`` in its nonlocal term, checked
+    against the NiI supercell (``tests/regression/test_spiral_supercell.py``).
+    The ultrasoft one has no check, since its only cells have one atom each,
+    and this is that refusal; the norm-conserving one must pass the guard.
     """
-    calculation = _calculation("h-chain-spiral", pseudo_dir)
-    assert calculation.spiral
-    with pytest.raises(NotImplementedError, match="spin spiral"):
+    calculation = _calculation("o-chain-spiral-us", pseudo_dir)
+    assert calculation.spiral and calculation.is_ultrasoft
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW spin spiral"):
         reject_spinor_spiral(calculation)
+    plain = _calculation("h-chain-spiral", pseudo_dir)
+    assert plain.spiral and not plain.is_ultrasoft
+    reject_spinor_spiral(plain)

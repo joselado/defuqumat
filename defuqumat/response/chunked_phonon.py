@@ -484,7 +484,7 @@ def _phonon_passes(calculation, key) -> dict:
     if key in cached[1]:
         return cached[1][key]
     from defuqumat.response.born import _multiplier_response
-    from defuqumat.response.phonon import _ground_state_multipliers
+    from defuqumat.response.phonon import _ground_state_multipliers, occupied_pairs
 
     nocc, counts, smearing = key[1:]
     batch = calculation.k_batch
@@ -547,6 +547,12 @@ def _phonon_passes(calculation, key) -> dict:
             return jnp.einsum("skmi,ij,sknj->skmn", becp.conj(), qq, becp)
 
         overlap = jax.jvp(overlap_matrix, (x,), (dx,))[1]
+        # Each channel's own occupied block (:func:`~defuqumat.response.phonon.
+        # occupied_pairs`): the empty pi*_g of triplet O2's down channel are
+        # not partners of its occupied bands.
+        pairs = occupied_pairs(counts, smearing, nocc)
+        if pairs is not None:
+            overlap = jnp.where(pairs, overlap, 0.0)
         _, moved_tangent = jax.jvp(
             lambda position: sums(sub.at_positions(position), psi, weights),
             (x,), (dx,))

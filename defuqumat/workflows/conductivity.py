@@ -68,7 +68,8 @@ def run_conductivity(
         pseudos: its pseudopotentials.
         density: the converged density (``SCFResult.density``).
         kpoints: the k-set the conductivity is evaluated on, if it is not the
-            one the density converged on. It must be the **whole** grid; see
+            one the density converged on. The whole grid, or a wedge of one the
+            group maps onto itself, which is completed by that group; see
             :func:`~defuqumat.response.conductivity.require_a_conductivity_regime`.
         nbnd: how many bands the fixed-density run resolves. Defaults to three
             times the occupied count. It is the truncation the f-sum rule

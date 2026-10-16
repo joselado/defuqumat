@@ -1,0 +1,41 @@
+! Triplet O2 in a box: the Berry-phase polarization at nspin = 2 where the two
+! channels hold different numbers of bands, seven up and five down.
+!
+! The ground state is `o2-fixed-lsda.in` beside this file, run first by pw.x
+! with the same (default) prefix; this input is the `lberry` run on top of it,
+! one string of four points along b_3 (nppstr counts the repeated endpoint, so
+! three distinct points). Both channels are gapped: up fills through the pi*
+! pair, down stops below it.
+!
+! The case is chosen because the channels differ. At tot_magnetization = 0 the
+! two channels are one channel twice, and a code that solved channel 0 twice,
+! or filled both to the same depth, reads the same as pw.x; here it does not.
+! AlAs at tot_magnetization = 2 was tried first and is unusable: its down
+! channel of three bands cuts the p-like triplet at Gamma, and pw.x prints a
+! string phase of exactly 0.00000 where the overlap determinant vanished.
+ &control
+    calculation = 'nscf'
+    lberry = .true.
+    gdir = 3
+    nppstr = 4
+ /
+ &system
+    ibrav = 1, celldm(1) = 10.0,
+    nat = 2, ntyp = 1,
+    nbnd = 9,
+    ecutwfc = 25.0, ecutrho = 200.0,
+    occupations = 'fixed',
+    nspin = 2,
+    tot_magnetization = 2,
+    starting_magnetization(1) = 0.5
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ O  15.99994  O.pz-rrkjus.UPF
+ATOMIC_POSITIONS (bohr)
+ O 0.00 0.00 0.00
+ O 0.00 0.00 2.30
+K_POINTS (automatic)
+ 1 1 4 0 0 0

@@ -314,39 +314,202 @@ def test_a_negative_occupation_enters_with_its_sign(pseudo_dir):
     assert charge > 0.95 * nelec
 
 
-@pytest.mark.slow
-def test_a_relativistic_ultrasoft_dataset_is_refused(pseudo_dir):
-    """``qq_so``: the spinor overlap's off-diagonal spin blocks are not applied.
+@pytest.mark.parametrize("l", [0, 1, 2, 3])
+def test_the_spin_angle_operators_are_l_and_s_in_another_basis(l):
+    """``L`` and ``S`` on ``|l j m_j>``, which is what an augmented
+    fully-relativistic dataset is decomposed on.
 
-    The projection here applies the *scalar* ``S`` to each spinor component,
-    which is ``projwfc.x``'s validated path in every other regime and is missing
-    a term in this one -- so it is named rather than silently run. Platinum
-    because its relativistic ultrasoft dataset is already committed; the nickel
-    one is 3.4 MB and nothing else needs it.
+    The columns are ``spinor_orbital_blocks``'s, so the checks are the ones
+    that fail on a wrong conjugation, ordering or basis: ``J_z`` diagonal with
+    ``m_j`` in the order the channels label, ``J^2 = j(j+1)``, ``L^2 =
+    l(l+1)``, both algebras, and ``L.S = [j(j+1) - l(l+1) - 3/4]/2``, which
+    fixes the relative sign of the two.
     """
-    platinum = """
+    from defuqumat.projwfc.angular_momentum import spin_angle_operators
+    from defuqumat.projwfc.channels import _compute_mj
+    from defuqumat.pseudo.spinorbit import spinor
+
+    js = [j for j in (l - 0.5, l + 0.5) if j > 0]
+    orbital, spin = spin_angle_operators(l, js)
+    total = orbital + spin
+    mj, jj = [], []
+    for j in js:
+        for m in range(-l - 1, l + 1):
+            if abs(spinor(l, j, m, 0)) > 1e-8 or abs(spinor(l, j, m, 1)) > 1e-8:
+                mj.append(_compute_mj(j, l, m))
+                jj.append(j)
+    mj, jj = np.array(mj), np.array(jj)
+    n = 2 * (2 * l + 1)
+    assert total.shape == (3, n, n)
+    np.testing.assert_allclose(total[2], np.diag(mj), atol=1e-13)
+    np.testing.assert_allclose(sum(a @ a for a in total),
+                               np.diag(jj * (jj + 1)), atol=1e-12)
+    np.testing.assert_allclose(sum(a @ a for a in orbital),
+                               l * (l + 1) * np.eye(n), atol=1e-12)
+    for ops in (orbital, spin):
+        np.testing.assert_allclose(ops[0] @ ops[1] - ops[1] @ ops[0],
+                                   1j * ops[2], atol=1e-12)
+    np.testing.assert_allclose(
+        sum(orbital[i] @ spin[i] for i in range(3)),
+        np.diag((jj * (jj + 1) - l * (l + 1) - 0.75) / 2), atol=1e-12)
+
+
+def test_a_relativistic_augmented_dataset_without_lspinorb_is_still_refused():
+    """The guard that stays: the scalar ``S`` is never applied to a ``qq_so`` metric.
+
+    Fires without ``lspinorb``, and is silent on the spin-angle route, or it is
+    not a guard.
+    """
+    import types
+
+    from defuqumat.projwfc.angular_momentum import _refuse_what_is_not_written
+
+    def stub(noncolin, lspinorb):
+        return types.SimpleNamespace(
+            gamma_only=False, spiral=None, noncolin=noncolin,
+            pseudos=[types.SimpleNamespace(has_so=True)],
+            projectors=types.SimpleNamespace(qq=object()),
+            system=types.SimpleNamespace(lspinorb=lspinorb))
+
+    with pytest.raises(NotImplementedError, match="qq_so"):
+        _refuse_what_is_not_written(stub(True, False))
+    _refuse_what_is_not_written(stub(True, True))
+
+
+def test_the_two_j_of_a_shell_are_paired_without_a_label():
+    """A file with no ``els`` gets counter labels, ``3D`` and ``4D`` for one pair.
+
+    The pairing is on adjacency, ``l`` and the other ``j``, so the dojo order
+    ``s1/2, p3/2, p1/2, d5/2, d3/2, s1/2`` gives four shells, the two ``s``
+    apart.
+    """
+    from defuqumat.projwfc.angular_momentum import _spin_angle_shells
+    from defuqumat.projwfc.channels import AtomicChannel
+
+    channels, wfc = [], 0
+    for l, j, label in ((0, 0.5, "1S"), (1, 1.5, "2P"), (1, 0.5, "3P"),
+                        (2, 2.5, "3D"), (2, 1.5, "4D"), (0, 0.5, "2S")):
+        wfc += 1
+        for m in range(int(2 * j + 1)):
+            channels.append(AtomicChannel(
+                index=len(channels), atom=0, species="Ni", wfc=wfc, l=l, m=m,
+                label=label, j=j, mj=m - j))
+    shells = _spin_angle_shells(tuple(channels))
+    assert [(l, js) for _, l, js in shells] == [
+        (0, (0.5,)), (1, (1.5, 0.5)), (2, (2.5, 1.5)), (0, (0.5,))]
+    assert [len(indices) for indices, _, _ in shells] == [2, 6, 10, 2]
+
+
+_COBALT = """
 &control
   calculation = 'scf'
 /
 &system
-  ibrav = 2, celldm(1) = 7.42, nat = 1, ntyp = 1, ecutwfc = 30.0,
-  ecutrho = 250.0, occupations = 'smearing', smearing = 'mv', degauss = 0.02,
-  nosym = .true., noncolin = .true., lspinorb = .true.
+  ibrav = 6, celldm(1) = 4.60, celldm(3) = 1.30, nat = 1, ntyp = 1,
+  noncolin = .true., lspinorb = .true., nosym = .true., ecutwfc = 20.0,
+  ecutrho = 160.0, occupations = 'smearing', smearing = 'mv', degauss = 0.02,
+  starting_magnetization(1) = 0.6, angle1(1) = {angle1}, angle2(1) = {angle2}
 /
 &electrons
-  conv_thr = 1e-6
+  conv_thr = 1e-11
 /
 ATOMIC_SPECIES
- Pt 195.08 Pt.rel-pz-n-rrkjus.UPF
+ Co 58.933 Co.rel-pbe-nd-rrkjus.UPF
 ATOMIC_POSITIONS crystal
- Pt 0.00 0.00 0.00
+ Co 0.0 0.0 0.0
 K_POINTS automatic
- 2 2 2 0 0 0
+ 3 3 2 0 0 0
 """
-    calculator = Calculator.from_text(platinum, pseudo_dir, announce=False)
+
+
+def _cobalt(pseudo_dir, angle1, angle2, soc_scale=1.0):
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
+
+    text = _COBALT.format(angle1=angle1, angle2=angle2)
+    system = build_system(parse_pw_input(text)).with_soc_scale(soc_scale)
+    calculator = Calculator(system, pseudo_dir=pseudo_dir, announce=False)
     scf = calculator.get_scf()
-    with pytest.raises(NotImplementedError, match="qq_so"):
-        angular_momenta(calculator.calculation, scf)
+    return calculator.calculation, scf
+
+
+def _one_radial_function(pseudo):
+    """Both ``j`` chi of each shell replaced by their ``(l+1, l)``-weighted average."""
+    import dataclasses
+
+    orbitals = list(pseudo.orbitals)
+    shells = {}
+    for index, orbital in enumerate(orbitals):
+        if orbital.j is not None:
+            shells.setdefault((orbital.label, orbital.l), []).append(index)
+    for (_, l), indices in shells.items():
+        if len(indices) != 2:
+            continue
+        weights = [l + 1 if abs(orbitals[i].j - l - 0.5) < 1e-6 else l
+                   for i in indices]
+        chi = sum(w * orbitals[i].chi for w, i in zip(weights, indices)) / sum(weights)
+        for i in indices:
+            orbitals[i] = dataclasses.replace(orbitals[i], chi=chi)
+    return dataclasses.replace(pseudo, orbitals=tuple(orbitals))
+
+
+@pytest.mark.slow
+def test_a_relativistic_ultrasoft_magnet_has_a_site_orbital_moment(
+        pseudo_dir, monkeypatch):
+    """``<L>`` on a fully-relativistic ultrasoft dataset, tetragonal cobalt.
+
+    Three runs. With the coupling on, the moment along ``x`` and along ``y``
+    are related by the ``C4`` of the cell, so ``|<L>|`` must agree and ``<L>``
+    must follow ``<S>``: measured **0.117097947** in both, ``<S> = 0.890135``.
+
+    At ``soc_scale = 0`` nothing locks the orbital moment to the lattice and
+    ``<L>`` is quenched, **but only to the cross-``j`` approximation**: the
+    site operators take the two ``j`` radial functions of a shell as one, and
+    the 3D pair of ``Co.rel-pbe-nd-rrkjus`` overlaps to ``1 - 2.9e-5``.
+    Measured ``<L_z> = -1.014e-3`` at ``<S_z> = 0.891``. **The A/B is what
+    makes that a check**: projecting on the same set with the two chi of each
+    shell replaced by their ``j``-weighted average, which is the one radial
+    function the operators assume, takes it to **1.7e-7** on the same states,
+    so the residue is the approximation and not the operator transform. The
+    same average moves the coupled ``<L>`` from 0.11710 to 0.11914. The
+    metric, ``qq_so``, is held to ``projwfc.x`` in
+    ``tests/regression/test_spinor_pdos.py``.
+    """
+    from defuqumat.hubbard.projectors import build_atomic_projectors
+    from defuqumat.projwfc import angular_momentum
+
+    quenched_calc, quenched_scf = _cobalt(pseudo_dir, 0.0, 0.0, soc_scale=0.0)
+    quenched = angular_momenta(quenched_calc, quenched_scf)
+    along_x = angular_momenta(*_cobalt(pseudo_dir, 90.0, 0.0))
+    along_y = angular_momenta(*_cobalt(pseudo_dir, 90.0, 90.0))
+
+    lx, ly = along_x.orbital[0], along_y.orbital[0]
+    sx, sy = along_x.spin[0], along_y.spin[0]
+    assert np.linalg.norm(lx) == pytest.approx(0.1171, abs=2.0e-4)
+    assert abs(np.linalg.norm(lx) - np.linalg.norm(ly)) < 1.0e-7
+    np.testing.assert_allclose([lx[0], lx[1]], [ly[1], -ly[0]], atol=1.0e-7)
+    for orbital, spin in ((lx, sx), (ly, sy)):
+        cosine = orbital @ spin / (np.linalg.norm(orbital) * np.linalg.norm(spin))
+        assert cosine > 1.0 - 1.0e-9, cosine
+
+    assert quenched.spin[0][2] > 0.8
+    # The lower bound is the approximation being present; it fails on correct
+    # code the day the radial overlap of the two j is carried exactly, and then
+    # it goes, with the A/B below kept.
+    assert 5.0e-4 < np.linalg.norm(quenched.orbital[0]) < 2.0e-3
+
+    def one_radial(calculation, kind):
+        system = calculation.system
+        return build_atomic_projectors(
+            tuple(_one_radial_function(p) for p in calculation.pseudos),
+            system.structure, system.cell, calculation.basis.smooth,
+            calculation.basis.planewaves, calculation.basis_kpoints,
+            calculation._spinor_overlap, kind=kind, noncolin=True,
+            spinor_basis="jmj")
+
+    monkeypatch.setattr(angular_momentum, "_spin_angle_projectors", one_radial)
+    averaged = angular_momenta(quenched_calc, quenched_scf)
+    assert np.linalg.norm(averaged.orbital[0]) < 1.0e-5
 
 
 # --- the block build ----------------------------------------------------------

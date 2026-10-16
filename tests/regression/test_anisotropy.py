@@ -58,6 +58,10 @@ pytestmark = [pytest.mark.regression]
 #: ``PP/examples/ForceTheorem_example`` (``eband, Ef (eV)`` in ``par.out`` and
 #: ``per.out``). ``par`` is ``angle1 = 90``, in the slab plane; ``per`` is
 #: ``angle1 = 0``, along the surface normal.
+#: The force-theorem anisotropy of tetragonal cobalt on each direction's own
+#: wedge against the whole grid, in meV: what D22 measured and the bound asserted.
+WEDGE_FT_MEASURED = 5.4e-11
+WEDGE_FT_BOUND = 1e-4
 QE_EBAND = {"par": -75.5059287216436, "per": -75.5062821245659}
 QE_FERMI = {"par": -0.454721315571854, "per": -0.457778043909281}
 
@@ -609,13 +613,61 @@ def test_co_slab_reproduces_pw_x_on_the_force_theorem():
 # ----------------------------------------------------------------------
 
 @pytest.mark.slow
-def test_a_direction_other_than_the_system_s_own_needs_nosym():
-    """Two directions on two different magnetic wedges is the silent failure."""
-    scalar, scf = _smoke_pair()
-    text = _SMOKE_SOC.replace("nosym = .true., ", "")
-    soc = Calculator.from_text(text, pseudo_dir=GENERATED.parent / "pseudo")
-    with pytest.raises(ValueError, match="nosym"):
-        run_force_theorem(soc.system, soc.pseudos, scf.density, direction=(1, 0, 0))
+def test_a_direction_off_the_system_s_own_runs_on_its_own_wedge():
+    """Each direction on the wedge of its own magnetic group, against ``nosym``.
+
+    The refusal this replaces said two directions on two magnetic wedges would
+    differ by the k-sampling. Not when each wedge is the direction's own: a band
+    energy is a scalar, and a scalar's wedge sum is the whole grid's whenever
+    the group maps the grid onto itself. Tetragonal cobalt, the same frozen
+    density in both arms: 18 points with ``nosym``, and with symmetry 6 along
+    ``z``, 8 along ``x`` and ``(1,1,0)``, 10 at a generic direction. Measured on
+    D22 at ``WEDGE_FT_MEASURED`` meV in the anisotropy against the whole grid.
+
+    A projected decomposition is still refused off the axis on a wedge: the
+    group permutes its site and orbital labels.
+    """
+    import re
+
+    scalar, spinor = _tetragonal()
+    text = re.sub(r"nosym\s*=\s*\.true\.,?", "",
+                  (GENERATED / "co-tetragonal-anisotropy-soc.in").read_text())
+    reduced = Calculator.from_text(text, GENERATED.parent / "pseudo",
+                                   announce=False)
+    scf = scalar.get_scf()
+    energies = {}
+    for name, calc in (("whole", spinor), ("wedge", reduced)):
+        for d in ((0.0, 0.0, 1.0), (1.0, 0.0, 0.0), (0.3, 0.5, 0.8)):
+            energies[name, d] = run_force_theorem(
+                calc.system, calc.pseudos, scf.density, direction=d).band_energy
+    for d in ((1.0, 0.0, 0.0), (0.3, 0.5, 0.8)):
+        whole = energies["whole", d] - energies["whole", (0.0, 0.0, 1.0)]
+        wedge = energies["wedge", d] - energies["wedge", (0.0, 0.0, 1.0)]
+        assert abs(wedge - whole) * RY_TO_EV * 1000 < WEDGE_FT_BOUND
+    with pytest.raises(ValueError, match="projected"):
+        run_force_theorem(reduced.system, reduced.pseudos, scf.density,
+                          direction=(1.0, 0.0, 0.0), projected=True)
+
+
+def test_a_relaxed_direction_with_symmetry_on_is_still_refused():
+    """The relaxed route keeps its ``nosym`` refusal; the force theorem does not.
+
+    Running each direction on its own magnetic wedge was tried on tetragonal
+    cobalt and is not verified for a total energy: at ``(1,0,1)`` the wedge and
+    the ``nosym`` run read 0.678 meV apart on D22 with neither SCF reaching
+    ``conv_thr = 1e-10`` in 100 iterations (5.5e-10 and 7.0e-9 Ry). No SCF here.
+    """
+    import re
+
+    from defuqumat.workflows.anisotropy import run_relaxed_direction
+
+    text = re.sub(r"nosym\s*=\s*\.true\.,?", "",
+                  (GENERATED / "co-tetragonal-anisotropy-soc.in").read_text())
+    reduced = Calculator.from_text(text, GENERATED.parent / "pseudo",
+                                   announce=False)
+    with pytest.raises(ValueError, match="needs nosym"):
+        run_relaxed_direction(reduced.system, reduced.pseudos,
+                              direction=(1.0, 0.0, 1.0))
 
 
 def test_a_scalar_relativistic_one_shot_leg_is_refused_by_default():

@@ -159,12 +159,17 @@ occupations. This is the quantity `pw.x` computes with `lorbm`.
     breaks the generalized Bloch theorem that the spiral rests on. At
     `soc_scale = 0` a fully relativistic file is accepted.
 
-    The site angular momenta give an error for a fully relativistic ultrasoft or
-    PAW dataset, because the projection uses the scalar overlap for each spinor
-    component and misses its spin off-diagonal part. A fully relativistic
-    norm-conserving file is exact. A spin spiral also gives an error, because its
-    two spinor components do not share one set of atomic orbitals, and so does a
-    run with `K_POINTS gamma`. A k-set reduced by symmetry works.
+    For a fully relativistic ultrasoft or PAW dataset, the site angular momenta
+    use the $|l\,j\,m_j\rangle$ orbitals of `projwfc.x`. So the charge on each
+    atom is the Löwdin charge of `projwfc.x`. In such a file the two $j$ shells
+    of one $l$ have two radial functions. $\langle L\rangle$ and $\langle
+    S\rangle$ treat them as one function. On cobalt with the coupling switched
+    off, this gives $|\langle L\rangle| = 1\times10^{-3}\,\hbar$, where the
+    exact value is zero. With the coupling on, it changes $\langle L\rangle$ by
+    1.7 per cent. A norm-conserving spin spiral works, and each spinor component
+    is projected on the atomic orbitals of its own sphere. An ultrasoft or PAW
+    spiral gives an error. A run with `K_POINTS gamma` works, and a k-set
+    reduced by symmetry works.
 
     The orbital magnetization gives an error for an ultrasoft or PAW dataset, as
     in `pw.x`. It gives an error without spinors (`noncolin = .false.`) and for

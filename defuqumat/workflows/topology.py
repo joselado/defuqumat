@@ -44,7 +44,7 @@ from defuqumat.pseudo.upf import Pseudopotential
 from defuqumat.scf.driver import Calculation, default_nbnd
 from defuqumat.workflows.nscf import fixed_density_ethr
 from defuqumat.system.builder import System
-from defuqumat.system.kpoints import KPoints
+from defuqumat.system.kpoints import KPoints, for_spin
 from defuqumat.topology.berry import BerryCurvature
 from defuqumat.topology.invariants import chern_number as _chern_number
 from defuqumat.topology.invariants import z2_invariant, z2_invariant_3d
@@ -105,6 +105,15 @@ class DFTSource:
     #: those eigenvalues, so the invariant is a confident integer taken off the
     #: wrong bands.
     ns: jnp.ndarray | None = None
+    #: The converged kinetic energy density (``SCFResult.tau``), needed under a
+    #: potential-only meta-GGA (``tb09``, ``bj06``) and ignored otherwise. The
+    #: Becke-Roussel potential and the Tran-Blaha ``c`` are functions of
+    #: ``tau``, which is a property of the occupied states over the whole zone
+    #: and cannot be rebuilt from the density -- the argument
+    #: :func:`~defuqumat.workflows.nscf.fixed_density_states` makes for a band
+    #: path. With it the Hamiltonian is an ordinary local one, so nothing past
+    #: the potential knows the functional is a meta-GGA.
+    tau: jnp.ndarray | None = None
     #: ``SCFResult.magnetic_field`` and ``SCFResult.field_scale``, needed for
     #: the same reason ``becsum`` and ``ns`` are: what the run *converged*
     #: under is not what the input asked for. Elk's ``reducebf`` scales a
@@ -136,15 +145,43 @@ class DFTSource:
     #: -- it shares the augmentation and PAW tables and keeps the caller's
     #: memory mode (``notes/GPU-MEMORY-NEXT.md`` item 20). ``None`` builds one.
     calculation: object = None
+    #: The collinear channel, 0 (up) or 1 (down), at ``nspin = 2`` and
+    #: nowhere else. A collinear spin-polarized run has one Hamiltonian per
+    #: channel, so one occupied manifold per channel and one set of invariants
+    #: per channel; this source serves one of them, and ``nocc`` is that
+    #: channel's count. Without spin-orbit coupling each channel's Hamiltonian
+    #: is real in real space, so ``H_s(-k) = H_s(k)*`` and the channel's own
+    #: Chern number is zero by symmetry in every collinear case, magnetic or
+    #: not; what a channel carries is its pointwise curvature, odd in ``k``.
+    spin: int | None = None
 
     def __post_init__(self):
         if self.system.nspin == 2:
-            raise NotImplementedError(
-                "a collinear spin-polarized calculation has two independent "
-                "Hamiltonians and therefore two independent sets of invariants; "
-                "which is meant is not defined here. Run the noncollinear "
-                "spinor path instead, where there is one Hamiltonian"
+            if self.spin is None:
+                raise NotImplementedError(
+                    "a collinear spin-polarized calculation has two independent "
+                    "Hamiltonians and therefore two independent sets of "
+                    "invariants, one per channel: pass spin = 0 or spin = 1 "
+                    "(with that channel's nocc), or run the noncollinear "
+                    "spinor path, where there is one Hamiltonian"
+                )
+            if self.spin not in (0, 1):
+                raise ValueError(
+                    f"spin = {self.spin}: a collinear channel is 0 or 1 (up or "
+                    "down)"
+                )
+        elif self.spin is not None:
+            raise ValueError(
+                f"spin = {self.spin} names a collinear channel, which exists "
+                f"only at nspin = 2; this calculation has nspin = "
+                f"{self.system.nspin}"
             )
+
+    @property
+    def channel(self) -> int:
+        """The index into the channel axis :meth:`states` diagonalises: ``spin``
+        at ``nspin = 2``, and the one channel there is otherwise."""
+        return 0 if self.spin is None else int(self.spin)
 
     def _base(self) -> Calculation:
         """The k-independent setup, built once and kept.
@@ -179,7 +216,7 @@ class DFTSource:
 
         return resolve_wfc_store("default", self._base().memory_mode) == "stream"
 
-    def _ddd_paw(self):
+    def _ddd_paw(self, meta_c=None):
         """PAW's one-centre coefficients, built once and kept.
 
         A function of ``becsum`` alone, so it is k-independent and belongs with
@@ -187,11 +224,18 @@ class DFTSource:
         diagonalisation: a streaming Wilson loop calls :meth:`states` once per
         k-point, and rebuilding the radial one-centre terms there would put a
         Gauss-Legendre quadrature over every sphere in the inner loop.
+
+        ``meta_c`` is the potential's cell-averaged Tran-Blaha coefficient,
+        which the spheres cannot compute for themselves and which
+        :meth:`~defuqumat.scf.driver.Calculation.onecenter` refuses to default
+        under a meta-GGA; it is passed on the first call, which is the one that
+        builds the frozen potential, and the cached value is what every later
+        call returns.
         """
         if not self.becsum:
             return None
         if getattr(self, "_ddd", None) is None:
-            _, ddd = self._base().onecenter(self.becsum)
+            _, ddd = self._base().onecenter(self.becsum, meta_c)
             object.__setattr__(self, "_ddd", ddd)
         return self._ddd
 
@@ -212,13 +256,36 @@ class DFTSource:
         needs) and nothing else: the operator holds the frozen potential and
         the shared setup by reference and does no work until it is applied.
         """
+        if keep_velocity and self.system.nspin == 2:
+            # ``VelocityOperator`` builds every channel's ``dH/dk`` and the
+            # Kubo sum (``topology/kubo.py``) hands it one channel's states as
+            # ``psi[None]`` and reads channel 0 back, so at ``nspin = 2`` it
+            # would pair the down states with the up Hamiltonian's velocity.
+            raise NotImplementedError(
+                "the kubo Berry curvature of one collinear channel is not "
+                "implemented: the velocity operator is built for every channel "
+                "and the sum reads the first. Use method = 'fhs', which is "
+                "per channel"
+            )
         points = np.asarray(points, dtype=float).reshape(-1, 3)
+        # Not passed through ``for_spin``: the weights of this hand-built set
+        # are never summed over (fixed density, no occupations, every quantity
+        # here a per-k overlap), so the ``nspin = 2`` weight convention does
+        # not reach anything.
         kpoints = KPoints.from_crystal(
             points,
             np.full(len(points), 1.0 / len(points)),
             self.system.cell,
             precision=self.system.kpoints.precision,
         )
+        if self.spin is not None:
+            # ``for_spin`` at the boundary of a polarized run's caller-built
+            # k-set, as the trap list asks. Nothing a channel source returns
+            # reads the weights -- an overlap, a phase and a gap do not -- so
+            # this is for whatever is built on the set later. The other
+            # regimes keep the set they had: changing a spinor's weights here
+            # would move every invariant route that does not need it to.
+            kpoints = for_spin(kpoints, self.system.nspin)
         calculation = self._base().at_kpoints(kpoints)
         system = calculation.system
         if calculation.is_paw and not self.becsum:
@@ -251,19 +318,21 @@ class DFTSource:
                     "produce an integer"
                 )
             _, _, hubbard_terms = calculation.hubbard_terms(jnp.asarray(self.ns))
-        if calculation.functional.is_meta:
-            # Refused at the boundary rather than threaded. ``tau`` could be
-            # carried the way ``ns`` and ``becsum`` are, and then a Tran-Blaha
-            # invariant would run -- unvalidated, on a functional whose total
-            # energy is not the value of anything it minimised. The refusal is
-            # the honest state of it; what it replaces is ``v_of_rho`` raising
-            # about a missing keyword deep inside the potential builder.
+        if calculation.functional.is_meta and self.tau is None:
+            # ``fixed_density_states``' refusal, for the same reason: ``tau``
+            # is a property of the occupied states over the whole zone, so it
+            # crosses with the density the way ``ns`` and ``becsum`` do. The
+            # invariant itself needs no energy -- it is a property of the
+            # manifold of a local Hamiltonian -- so once ``tau`` is here the
+            # functional being a potential rather than a derivative changes
+            # nothing downstream (``notes/incompat/I13.md``: the states
+            # reproduce the SCF's eigenvalues).
             raise NotImplementedError(
                 f"a topological invariant under {calculation.functional.name} "
-                "is not implemented: the functional is a potential rather than "
-                "the derivative of an energy, and the combination is "
-                "unvalidated. The band structure and the density of states are "
-                "unaffected"
+                "needs the converged kinetic energy density as well as the "
+                "density: pass tau = scf_result.tau. It is a property of the "
+                "occupied states over the whole zone and cannot be rebuilt "
+                "from the density"
             )
         nbnd = self.nbnd or max(
             self.nocc + 2,
@@ -299,13 +368,27 @@ class DFTSource:
                 self.density,
                 1.0 if self.field_scale is None else float(self.field_scale),
                 self.field,
+                tau=self.tau,
             )
+            meta_c = None if self.tau is None else potential.meta_c
             object.__setattr__(self, "_frozen", (
                 potential.v_scf,
-                calculation.local_terms(potential.v_scf, self._ddd_paw()),
+                calculation.local_terms(potential.v_scf, self._ddd_paw(meta_c)),
             ))
         v_scf, terms = self._frozen
+        # One channel's Hamiltonian, diagonalised alone: at ``nspin = 2``
+        # ``hamiltonian_from`` builds one per channel from ``terms.potentials
+        # [spin]`` and ``deeq[spin]``, and ``diagonalize`` walks whatever tuple
+        # it is given, so the result's channel axis has length one either way.
         hamiltonians = calculation.hamiltonian_from(terms, hubbard_terms)
+        if self.spin is not None and keep_velocity:
+            raise NotImplementedError(
+                "a velocity operator of one channel of an nspin = 2 run is "
+                "not implemented: VelocityOperator carries the whole "
+                "calculation's channels, and no consumer of a channel "
+                "source needs it"
+            )
+        hamiltonians = (hamiltonians[self.channel],)
         ethr = fixed_density_ethr(self.conv_thr, calculation.nelec)
         eigenvalues, wavefunctions = calculation.diagonalize(
             hamiltonians, nbnd, None, ethr
@@ -361,33 +444,71 @@ class DFTSource:
 
 def _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
             becsum=(), ns=None, field=None, field_scale=None,
-            calculation=None) -> DFTSource:
-    if nocc is None:
-        nocc = _occupied_bands(system, pseudos)
+            calculation=None, spin=None, tau=None) -> DFTSource:
+    if nocc is None and not (system.nspin == 2 and spin is None):
+        # (with no channel named the source's own refusal is the one to see)
+        nocc = _occupied_bands(system, pseudos, density, spin)
     return DFTSource(
         system=system,
         pseudos=tuple(pseudos),
         density=density,
-        nocc=int(nocc),
+        nocc=0 if nocc is None else int(nocc),
         becsum=tuple(becsum or ()),
         ns=ns,
+        tau=tau,
         field=field,
         field_scale=field_scale,
         nbnd=nbnd,
         conv_thr=conv_thr,
         k_batch=k_batch,
         calculation=calculation,
+        spin=spin,
     )
 
 
-def _occupied_bands(system: System, pseudos) -> int:
+def _refuse_potential_only_meta(source: DFTSource, what: str) -> None:
+    """The refusal :meth:`DFTSource.states` made for every caller until I13.
+
+    The invariants now take ``tau`` and are checked against the SCF's own
+    eigenvalues (``notes/incompat/I13.md``); the Berry-phase polarization and
+    the orbital magnetization share the source but not that check, so they keep
+    the old refusal, word for word, until each has a number of its own.
+    """
+    functional = source._base().functional
+    if functional.is_meta:
+        raise NotImplementedError(
+            f"{what} under {functional.name} is not implemented: the "
+            "functional is a potential rather than the derivative of an "
+            "energy, and the combination is unvalidated. The band structure "
+            "and the density of states are unaffected"
+        )
+
+
+def _occupied_bands(system: System, pseudos, density=None, spin=None) -> int:
     """How many bands a band insulator fills: one electron each, or two.
 
     A spinor band holds one electron and a spin-degenerate band two, which is
     the same rule :meth:`defuqumat.workflows.bands.BandStructure.gap` uses.
     Getting it wrong halves or doubles the manifold, and every invariant here is
     a property of the manifold.
+
+    At ``nspin = 2`` the count is the channel's own, ``spin``'s, read off the
+    density it integrates to -- ``nelup`` or ``neldw`` -- because neither the
+    electron count nor ``starting_magnetization`` says how a converged moment
+    split them. A channel holding a fractional count (a smeared magnet) has no
+    gapped manifold to name, and is refused rather than rounded.
     """
+    if system.nspin == 2:
+        rho = np.asarray(density[spin], dtype=float)
+        count = float(rho.mean()) * float(system.cell.volume)
+        if abs(count - round(count)) > 1.0e-6:
+            raise ValueError(
+                f"channel {spin} holds {count:.8f} electrons, not a whole "
+                "number of bands; a topological invariant needs a gapped "
+                "manifold, so the channel's occupied band count must be given "
+                "explicitly"
+            )
+        return int(round(count))
     nelec = sum(
         float(pseudos[t].z_valence) for t in np.asarray(system.structure.types)
     )
@@ -427,11 +548,13 @@ def run_berry_curvature(
     k_batch: int | None | str = "default",
     becsum: tuple = (),
     ns: jnp.ndarray | None = None,
+    tau: jnp.ndarray | None = None,
     field=None,
     field_scale: float | None = None,
     stream: bool | None = None,
     degeneracy_tol: float | None = None,
     calculation=None,
+    spin: int | None = None,
     **kwargs,
 ) -> BerryCurvature:
     """Berry curvature and the Chern number on one plane of the zone.
@@ -456,6 +579,12 @@ def run_berry_curvature(
             (:func:`~defuqumat.solvers.davidson.degeneracy_tolerance`), a
             number is honoured as asked. Named here so that the facade
             forwards it.
+        spin: the collinear channel, 0 or 1, at ``nspin = 2`` and nowhere
+            else; required there, since the two channels are two
+            Hamiltonians and two answers. ``nocc`` is then the channel's count
+            and defaults to what the density holds in it. A channel's Chern
+            number is zero by time reversal within the channel; its pointwise
+            curvature is not. Only ``method = "fhs"``.
         kwargs: forwarded to the curvature method.
     """
     # Only the Kubo route has a degeneracy tolerance; the plaquette route is a
@@ -464,9 +593,9 @@ def run_berry_curvature(
     if degeneracy_tol is not None and method == "kubo":
         kwargs["degeneracy_tol"] = degeneracy_tol
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
-                     becsum=becsum, ns=ns,
+                     becsum=becsum, ns=ns, tau=tau,
                      field=field, field_scale=field_scale,
-                     calculation=calculation)
+                     calculation=calculation, spin=spin)
     return _chern_number(
         source, shape=shape, axis=axis, offset=offset, method=method,
         k_batch=k_batch, stream=stream, **kwargs,
@@ -489,6 +618,7 @@ def run_z2(
     k_batch: int | None | str = "default",
     becsum: tuple = (),
     ns: jnp.ndarray | None = None,
+    tau: jnp.ndarray | None = None,
     field=None,
     field_scale: float | None = None,
     calculation=None,
@@ -506,7 +636,7 @@ def run_z2(
     """
     _require_spinors(system, "the Z2 invariant")
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
-                     becsum=becsum, ns=ns,
+                     becsum=becsum, ns=ns, tau=tau,
                      field=field, field_scale=field_scale,
                      calculation=calculation)
     kwargs = dict(axis=axis, offset=offset)
@@ -531,6 +661,7 @@ def run_z2_3d(
     k_batch: int | None | str = "default",
     becsum: tuple = (),
     ns: jnp.ndarray | None = None,
+    tau: jnp.ndarray | None = None,
     field=None,
     field_scale: float | None = None,
     calculation=None,
@@ -543,7 +674,7 @@ def run_z2_3d(
     """
     _require_spinors(system, "the Z2 invariants")
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
-                     becsum=becsum, ns=ns,
+                     becsum=becsum, ns=ns, tau=tau,
                      field=field, field_scale=field_scale,
                      calculation=calculation)
     kwargs = {}

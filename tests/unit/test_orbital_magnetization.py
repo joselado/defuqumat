@@ -251,3 +251,14 @@ def test_the_chern_vector_comes_out_of_the_same_sums():
     )
     assert result.dm_dmu[2] == pytest.approx(expected, rel=1e-12)
     assert result.chern[2] == pytest.approx(-1.0, abs=2e-2)
+
+
+def test_a_spin_spiral_is_refused_by_name():
+    """Spin-orbit coupling is refused on a spiral, and a flat one without it has none."""
+    from types import SimpleNamespace
+
+    from defuqumat.workflows.orbital_magnetization import run_orbital_magnetization
+
+    system = SimpleNamespace(nspin=4, noncolin=True, spiral_q=(0.0, 0.0, 0.25))
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        run_orbital_magnetization(system, (), None)

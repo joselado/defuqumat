@@ -393,9 +393,18 @@ def test_a_scan_measures_its_reach_from_the_plane_not_from_an_axis():
 
 
 def test_a_spin_spiral_is_refused():
+    """Everything but the charge image: spectra, maps, a spin-resolved image."""
     system = SimpleNamespace(spiral_q=(0.0, 0.0, 0.5))
     with pytest.raises(NotImplementedError, match="spin spiral"):
         _refuse_what_has_no_fermi_level(system, SimpleNamespace())
+
+
+def test_the_charge_image_of_a_spin_spiral_passes():
+    """``|U_up|^2 + |U_dn|^2`` is lattice periodic; the check is the supercell's
+    image (``tests/regression/test_spiral_supercell.py``)."""
+    system = SimpleNamespace(spiral_q=(0.0, 0.0, 0.5))
+    result = SimpleNamespace(fermi_energy_up=None, magnetic_field=None)
+    _refuse_what_has_no_fermi_level(system, result, charge_image=True)
 
 
 def test_two_fermi_levels_are_refused():
@@ -553,17 +562,19 @@ def test_the_two_knobs_an_energy_axis_turns_into_another_experiment():
     assert _refuse_a_window_under_an_axis(None, "constant-height") is None
 
 
-def test_a_wedge_is_refused_because_nothing_here_symmetrises_it():
+def test_a_wedge_with_no_group_to_complete_it_is_refused():
     """The one thing a spectrum does not inherit from an image.
 
     ``run_stm`` sums through ``Calculation.density``, which symmetrises; the
-    amplitude route adds ``|psi_k(r)|^2`` with nothing to symmetrise it, so a
-    reduced k-set would give the sum over the wedge alone. Both branches are
-    checked, since a guard that never fires and a guard that always fires look
-    the same from one side.
+    amplitude route adds ``|psi_k(r)|^2`` point by point, and on a wedge it is
+    now averaged over the tip's images under the group the wedge was cut with.
+    A reduced set on a ``nosym`` run has no such group and is still refused;
+    the number that says the average is right is the slow regression test.
+    Both branches are checked, since a guard that never fires and a guard that
+    always fires look the same from one side.
     """
     reduced = SimpleNamespace(kpoints=SimpleNamespace(
-        weights=np.array([0.25, 0.75])))
+        weights=np.array([0.25, 0.75])), nosym=True)
     with pytest.raises(NotImplementedError, match="symmetry-reduced"):
         _refuse_a_reduced_k_set(reduced)
     whole = SimpleNamespace(kpoints=SimpleNamespace(weights=np.full(4, 0.5)))

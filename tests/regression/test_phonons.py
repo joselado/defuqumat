@@ -632,23 +632,12 @@ def test_an_ultrasoft_metal_is_refused(tmp_path):
                          jnp.zeros((1, 1, 1)), None)
 
 
-def test_a_spin_polarized_calculation_is_refused():
-    """``nspin = 2``, and the reason is a shared occupied-band count.
+def test_a_spin_polarized_calculation_is_refused_only_on_the_walked_route():
+    """``nspin = 2`` is refused where the k axis is walked a chunk at a time.
 
-    ``nocc`` here is a single ``nelec / 2`` applied to both channels, which is
-    right for an unpolarized insulator and wrong for a magnetic one -- and wrong
-    invisibly, since the shapes still fit and the solve still converges. The same
-    line is in ``dielectric_tensor`` and is not refused there; ``PLAN.md`` P25
-    names that as a gap in P24 rather than a decision.
-
-    The guard is exercised directly rather than through
-    :func:`dynamical_matrix`, because every ``nspin = 2`` input committed here is
-    a *metal*, and what fires first through the front door is
-    ``require_a_sternheimer_regime``'s own ``nspin = 2`` refusal -- the same fact
-    stated one layer down, where every response entry point inherits it. (Before
-    P28 it was the metal refusal that fired first; that one is gone.) Reaching
-    *this* message needs a magnetic insulator, which is the same thing the fix
-    needs, and neither is here.
+    The guard is exercised directly, on a calculation with no SCF behind it;
+    the front-door form, and the whole-k route's measurement against ``ph.x``,
+    are in ``tests/regression/test_lsda_response.py``.
     """
     _, _, calculation = _build("h-atom-lsda")
     assert calculation.nspin == 2

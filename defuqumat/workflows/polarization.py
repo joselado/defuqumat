@@ -48,12 +48,13 @@ from defuqumat.system.builder import System
 from defuqumat.topology.mesh import string_mesh
 from defuqumat.topology.polarization import (
     Polarization,
+    StringPhases,
     combine_string_phases,
     ionic_phase,
     polarization_quantum,
     string_phase,
 )
-from defuqumat.workflows.topology import _source
+from defuqumat.workflows.topology import _refuse_potential_only_meta, _source
 
 __all__ = ["run_polarization"]
 
@@ -93,7 +94,17 @@ def run_polarization(
             what keeps a long mesh inside the process's mapping limit; ``None``
             never drops it. The module docstring carries the measurement.
         nocc: the occupied band count, defaulting to the electron count over
-            one or two as a band is a spinor or not.
+            one or two as a band is a spinor or not. At ``nspin = 2`` it is a
+            pair ``(n_up, n_down)``, defaulting to ``(NINT(nelup),
+            NINT(neldw))`` from ``tot_magnetization``.
+
+    At ``nspin = 2`` each channel is its own string set on its own
+    Hamiltonian, its phase placed and folded onto ``[-1/2, 1/2)`` alone, and
+    the electronic phase is the sum of the two with no factor of two and no
+    second fold, which is ``bp_c_phase.f90:775-782``; the quantum is 1.
+    :attr:`~defuqumat.topology.polarization.Polarization.strings` then holds
+    the up strings followed by the down ones, pw.x's table order, and
+    ``strings_by_spin`` the two channels apart.
 
     The polarization is defined **modulo a quantum** and the result carries it.
     A single value is not a physical statement on its own: what is meaningful is
@@ -101,42 +112,93 @@ def run_polarization(
     what a Born effective charge and a piezoelectric constant are made of.
     """
     _refuse_ungapped(system)
-    if system.nspin == 2:
+    nspin = int(system.nspin)
+    if nspin == 2 and str(getattr(system, "occupations", "fixed")).lower() != "fixed":
         raise NotImplementedError(
-            "a Berry-phase polarization with nspin = 2 is not implemented: the "
-            "two channels give two independent string sets and one phase each, "
-            "which is a layout this does not have rather than a missing term "
-            "(pw.x carries them as nspin_lsda and sums the two at the end)"
+            "a Berry-phase polarization with nspin = 2 and occupations = "
+            "'from_input' is not implemented: each channel's occupied count is "
+            "read from tot_magnetization (pw.x reads it off wg per channel), "
+            "and an input occupation list can leave a channel with a partly "
+            "filled band, which is not a manifold a string phase is defined on"
         )
     if getattr(system, "spiral_q", None) is not None:
         raise NotImplementedError(
             "a Berry-phase polarization of a spin spiral is not implemented: "
             "the two spinor components live on spheres centred at k +- q/2, so "
-            "an overlap between neighbouring k-points is not a single gather"
+            "each string's states need an NSCF on the doubled list at new "
+            "k-points (at_kpoints, which a spiral refuses), and the overlap "
+            "between neighbouring k-points is two gathers by Miller index, one "
+            "per component on its own sphere, where the string phase does one"
         )
 
-    source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
-                     becsum=becsum, ns=ns, field=field, field_scale=field_scale)
     axis = int(gdir) % 3
     mesh = string_mesh(transverse, int(nppstr) - 1, gdir=axis, shift=shift)
     nstring, npoints = mesh.shape
+    weights = np.full(nstring, 1.0 / nstring)
+    options = dict(becsum=becsum, ns=ns, field=field, field_scale=field_scale)
+
+    if nspin == 2:
+        # Two channels, two string sets, one Hamiltonian each, sharing one
+        # k-independent setup. Each channel's manifold is its own occupied
+        # count, ``(NINT(nelup), NINT(neldw))`` -- which is what
+        # ``bp_c_phase.f90:439`` reads off ``wg`` per channel -- and the two
+        # sources share the calculation so the setup is built once.
+        from defuqumat.scf.driver import Calculation
+        from defuqumat.scf.occupations import occupied_counts
+
+        calculation = Calculation(system, pseudos, k_batch=k_batch)
+        counts = occupied_counts(calculation)
+        if nocc is not None:
+            if np.ndim(nocc) != 1 or len(nocc) != 2:
+                raise ValueError(
+                    "nocc for an nspin = 2 run is one count per channel, "
+                    f"(n_up, n_down); got {nocc!r}"
+                )
+            counts = tuple(int(n) for n in nocc)
+        sources = [
+            _source(system, pseudos, density, counts[spin], nbnd, conv_thr,
+                    k_batch, calculation=calculation, spin=spin, **options)
+            for spin in (0, 1)
+        ]
+    else:
+        sources = [_source(system, pseudos, density, nocc, nbnd, conv_thr,
+                           k_batch, **options)]
+    _refuse_potential_only_meta(sources[0], "a Berry-phase polarization")
 
     # One string at a time: the states of the whole mesh are never resident.
     # The mappings are the other resource and they are not freed by ``del``,
     # so the compiled code goes with them every ``clear_caches`` strings --
-    # see the module docstring for the count and what it costs.
+    # see the module docstring for the count and what it costs. The count runs
+    # over (channel, string), so a second channel does not halve the bound.
     every = None if clear_caches is None else max(1, int(clear_caches))
-    phases = np.empty(nstring)
-    for index in range(nstring):
-        states = source.states(mesh.points[index])
-        phases[index] = string_phase(states, k_batch=k_batch,
-                                     closing_shift=mesh.span2)
-        del states
-        if every is not None and (index + 1) % every == 0:
-            jax.clear_caches()
+    walked = 0
+    by_spin = []
+    for source in sources:
+        phases = np.empty(nstring)
+        for index in range(nstring):
+            states = source.states(mesh.points[index])
+            phases[index] = string_phase(states, k_batch=k_batch,
+                                         closing_shift=mesh.span2)
+            del states
+            walked += 1
+            if every is not None and walked % every == 0:
+                jax.clear_caches()
+        # Each channel is placed and folded on its own, and the two folded
+        # channel phases add with no factor (``bp_c_phase.f90:775-782``); the
+        # doubling is the ``nspin = 1`` branch alone, inside this call.
+        by_spin.append(combine_string_phases(phases, weights, nspin=nspin))
 
-    weights = np.full(nstring, 1.0 / nstring)
-    strings = combine_string_phases(phases, weights, nspin=int(system.nspin))
+    if nspin == 2:
+        # pw.x's table order, up strings then down strings (``:874-889``), and
+        # the electronic phase the sum of the two folded channels, not folded
+        # again (``pdl_elec_tot = pdl_elec_up + pdl_elec_dw``).
+        strings = StringPhases(
+            phases=np.concatenate([one.phases for one in by_spin]),
+            weights=np.concatenate([one.weights for one in by_spin]),
+            total=float(by_spin[0].total + by_spin[1].total),
+        )
+    else:
+        strings = by_spin[0]
 
     valences = np.array(
         [float(pseudos[t].z_valence) for t in np.asarray(system.structure.types)]
@@ -144,7 +206,7 @@ def run_polarization(
     positions = np.asarray(system.structure.positions_crystal(system.cell))
     ion_phases, ionic, _ = ionic_phase(positions, valences, axis)
 
-    quantum = polarization_quantum(valences, nspin=int(system.nspin))
+    quantum = polarization_quantum(valences, nspin=nspin)
     # Not reduced again. ``bp_c_phase.f90`` adds the two contributions and
     # reports the sum against ``mod_tot`` without folding it, and each half has
     # already been reduced by *its own* quantum -- which is not always the
@@ -169,6 +231,7 @@ def run_polarization(
         volume=float(cell.volume),
         direction=lattice_vector / length,
         points_per_string=int(npoints),
+        strings_by_spin=tuple(by_spin),
     )
 
 

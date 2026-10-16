@@ -36,11 +36,15 @@ The electronic phase is **doubled for** ``nspin = 1``, which is the same
 ``degspin`` trap :mod:`defuqumat.response.conductivity` records: the strings hold
 one spin channel and an unpolarized band holds two electrons.
 
+At ``nspin = 2`` the two channels are two string sets on two Hamiltonians, each
+folded onto ``[-1/2, 1/2)`` on its own and summed with no factor, which is
+``bp_c_phase.f90``'s ``pdl_elec_up + pdl_elec_dw``; the quantum is then 1.
+
 Refused by name: a metal (a Berry phase is a property of a gapped manifold and
 there is none), a spin spiral (the two spinor components live on different
-spheres, so a string overlap is not a single gather), and ``nspin = 2`` (two
-channels give two independent string sets, which is a layout this does not have
-rather than a missing term).
+spheres, so a string overlap is not a single gather), and ``nspin = 2`` with
+``occupations = 'from_input'`` (each channel's count comes from
+``tot_magnetization``).
 """
 
 from __future__ import annotations
@@ -266,6 +270,10 @@ class Polarization:
     direction: np.ndarray
     #: How many k-points each string carried, and how many strings there were.
     points_per_string: int = 0
+    #: One :class:`StringPhases` per spin channel: one entry at ``nspin = 1``
+    #: or for a spinor, two at ``nspin = 2``, each folded on its own and not
+    #: doubled, whose totals add to :attr:`electronic_phase`.
+    strings_by_spin: tuple = ()
 
     @property
     def polarization(self) -> float:

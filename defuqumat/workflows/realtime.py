@@ -33,6 +33,7 @@ except the susceptibilities, which are in SI: ``chi^(3)`` in m^2/V^2, from
 
 from __future__ import annotations
 
+import dataclasses
 import math
 from dataclasses import dataclass, field
 
@@ -113,12 +114,40 @@ def field_little_group(system, pulse, tolerance: float = 1e-8):
     return group.rotation_array(), cartesian_rotations(system.cell, group)
 
 
+def _whole_sphere(kset):
+    """``kset`` with the half-sphere storage of ``K_POINTS gamma`` taken off.
+
+    ``H(k + kappa)`` is complex at ``kappa != 0``, so the propagated state has
+    no ``c(-G) = conj(c(G))`` and one plane wave of each ``(G, -G)`` pair does
+    not describe it (:func:`~defuqumat.realtime.propagate.require_a_realtime_regime`).
+    Every entry point here re-solves the states from the density on the k-set
+    this returns, so the substitution is exact: the same ``k = 0`` on the whole
+    sphere, which is what an explicit ``K_POINTS automatic 1 1 1 0 0 0`` gives,
+    at twice the plane waves. ``replace`` keeps the weights and the
+    ``spin_normalized`` flag, as :func:`~defuqumat.scf.driver._without_gamma_storage`
+    does and for its reason. A caller's calculation moved by ``at_kpoints``
+    rebuilds the sphere whole already (``_adopt_rebuilt_sphere``); this is the
+    route without one, where a fresh ``Calculation`` would otherwise consume
+    the storage.
+    """
+    if not kset.gamma_only:
+        return kset
+    return dataclasses.replace(kset, gamma_only=False)
+
+
 def _kset(system, pulse, kpoints, grid, little_group: bool):
     """``(k-set, cartesian rotations, Symmetries)``: what a run propagates and its group.
 
     The rotations average the current and the group completes the density
-    when the potential is updated; both are ``None`` on a whole k-set.
+    when the potential is updated; both are ``None`` on a whole k-set. The
+    k-set is always on the whole sphere (:func:`_whole_sphere`).
     """
+    kset, rotations, group = _kset_with_storage(system, pulse, kpoints, grid, little_group)
+    return _whole_sphere(kset), rotations, group
+
+
+def _kset_with_storage(system, pulse, kpoints, grid, little_group: bool):
+    """:func:`_kset` before the storage is decided."""
     from defuqumat.system.kpoints import KPoints, for_spin, is_reduced
 
     cell = system.cell
