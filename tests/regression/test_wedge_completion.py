@@ -97,3 +97,37 @@ def test_chi0_on_a_wedge_is_the_whole_grid_s():
     wedge = _chi0(system, pseudos, scf.density, None, 20)
     whole = _chi0(system, pseudos, scf.density, full_mesh(system, 4), 20)
     assert relative(wedge, whole) < 1.0e-8
+
+
+def test_optics_on_a_wedge_is_the_whole_grid_s():
+    """``sigma^ab``, the shift current and SHG on a wedge (``PLAN`` I40, I41).
+
+    AlAs, ``alas-raman-wedge.in``: 8 of 64 points, ``Td`` with time reversal,
+    48 operations. ``nbnd = 14`` cuts a 6.7e-2 Ry gap at every point of the
+    whole grid. Measured on D22, relative to the largest component of the
+    whole grid's tensor: ``sigma`` 2.8e-10, the shift current 2.1e-9, SHG
+    1.4e-8; the uncompleted wedge sums were 1.1, 0.96 and 2.5 off, and the
+    same cell with ``noinv`` (``Td`` alone, 10 points) read 1.8e-10, 2.8e-9
+    and 1.4e-8.
+    """
+    from defuqumat.workflows.conductivity import run_conductivity
+    from defuqumat.workflows.photocurrent import run_shift_current
+    from defuqumat.workflows.shg import run_shg
+
+    system, pseudos, scf = converged("alas-raman-wedge.in")
+    assert system.kpoints.nk == 8
+    whole_k = full_mesh(system, 4)
+    runs = {
+        "sigma": lambda **k: run_conductivity(
+            system, pseudos, scf.density, nbnd=14, nw=60, window=1.2,
+            broadening=0.02, **k).sigma,
+        "shift": lambda **k: run_shift_current(
+            system, pseudos, scf.density, nbnd=14, window=0.9, nw=90,
+            broadening=0.02, **k).sigma,
+        "shg": lambda **k: run_shg(
+            system, pseudos, scf.density, nbnd=14, window=0.6, nw=120, **k).chi,
+    }
+    for name, run in runs.items():
+        error = relative(run(), run(kpoints=whole_k))
+        print(f"{name}: wedge against whole grid {error:.3e}")
+        assert error < 1.0e-6, name

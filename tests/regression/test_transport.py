@@ -59,8 +59,8 @@ MAGNETS = {
 
 #: Graphene's vertical map on the 6x6x1 wedge against the whole grid, relative to
 #: the peak: what D22 measured, the uncompleted wedge sum, and the bound asserted.
-WEDGE_TRANSPORT_MEASURED = None
-WEDGE_TRANSPORT_RAW = None
+WEDGE_TRANSPORT_MEASURED = 3.3e-9
+WEDGE_TRANSPORT_RAW = 0.42
 WEDGE_TRANSPORT_BOUND = 1e-6
 
 
@@ -633,8 +633,12 @@ def test_a_symmetry_reduced_k_set_is_completed_over_its_image_geometries():
 
     calculator = _converged("graphene-monolayer")
     scf = calculator.get_scf()
-    options = dict(exit_height=0.38, height=0.62, shape=(4, 4), broadening=0.02,
-                   nbnd=12, conv_thr=1e-10, nenergies=3)
+    # Away from the Dirac point, where the generic k-points carry the map: at
+    # E_F only K and K' do, which time reversal already pairs, and there the
+    # uncompleted wedge sum happens to be right too (1.6e-8 against 1.8e-8).
+    energies = float(scf.fermi_energy) + np.array([-0.35, -0.2, 0.15])
+    options = dict(exit_height=0.38, height=0.62, shape=(5, 5), broadening=0.03,
+                   nbnd=12, conv_thr=1e-10, energies=energies)
     whole = run_vertical_transport(calculator.system, calculator.pseudos, scf,
                                    grid=(6, 6, 1), **options)
     wedge_k = denser_grid(calculator.system, (6, 6, 1))
