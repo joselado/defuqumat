@@ -437,7 +437,7 @@ and its `.born_charges` the shape `(nat, 3, 3)`.
   $C_{I\alpha,J\beta} = \partial^2 E/\partial\tau_{I\alpha}\,\partial\tau_{J\beta}$
   and the frequencies of the modes at the zone centre. These are the eigenvalues
   of $C_{I\alpha,J\beta}/\sqrt{M_I M_J}$, in cm⁻¹, and an unstable mode comes as
-  a negative number. It works for insulators and metals. `calc.get_phonons()`,
+  a negative number. It works for insulators and metals, and for `nspin = 2`. `calc.get_phonons()`,
   notebook [20](notebooks/20_phonons.ipynb). Its `.frequencies` has the shape
   `(3 nat,)`.
 - **Phonons at $\mathbf q \neq 0$**. This is the dynamical matrix at one

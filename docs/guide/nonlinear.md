@@ -477,10 +477,13 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
 !!! note "Limits"
     The shift current gives an error for an ultrasoft or PAW dataset, because
     one term, the second derivative of the projectors in $\mathbf k$, is not
-    implemented. It also gives an error for a spin spiral, DFT+U, `nspin = 2`, a
-    symmetry-reduced k-set and a metal, where the partly filled bands give
-    transitions of zero energy and every denominator of the sum diverges. A
-    spinor run works.
+    implemented. It also gives an error for a spin spiral, DFT+U, a symmetry-reduced
+    k-set and a metal, where the partly filled bands give transitions of zero
+    energy and every denominator of the sum diverges. A spinor run works, and so
+    does a collinear spin-polarized run (`nspin = 2`), where the two channels
+    add. With `nspin = 2` it gives an error when `tot_magnetization` makes a
+    channel stop inside a degenerate level, because the result then depends on
+    an arbitrary choice inside the level.
 
     Second-harmonic generation gives an error for a spin spiral, a metal, DFT+U
     and a symmetry-reduced k-set. It works for a spinor run, for a collinear

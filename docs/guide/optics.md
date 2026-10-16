@@ -353,8 +353,14 @@ here.
     response would be missing, and the code gives an error. A state where an empty
     band carries occupation at some k-point also gives an error. Ultrasoft and PAW
     datasets give an error, because every matrix element would need the
-    augmentation charge, and so do `nspin = 2`, noncollinear magnetism, spin-orbit
-    coupling, a spin spiral and a Hubbard $U$. The spectrum is at
+    augmentation charge, and so do a noncollinear magnetization, a spin spiral
+    and a Hubbard $U$. A spinor run without a magnetization works, with or
+    without spin-orbit coupling. On selenium with spin-orbit coupling the static
+    value is 0.27 per cent from the Sternheimer solve at 144 bands and
+    `ecut_response = 12`. With `nspin = 2` the spectrum is the response of the
+    charge, and the `alda` kernel gives an error if the ground state has a
+    moment, because then the kernel couples the charge to the magnetization. The
+    `bootstrap` and `lrc` kernels act on the charge only. The spectrum is at
     $\mathbf q = 0$ only, since a finite $\mathbf q$ needs the states at
     $\mathbf k + \mathbf q$.
 

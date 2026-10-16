@@ -190,10 +190,11 @@ removed, 0.034 in units of $1/m_e$ for this band.
     ```
 
 !!! note "Limits"
-    `bands.gap(nelec)` gives an error for a spin-polarized run (`nspin = 2`),
-    because a gap at fixed filling is not defined for each channel. In this case
-    you take it from `bands.eigenvalues_by_spin` with the occupation of each
-    channel.
+    For a spin-polarized run (`nspin = 2`), `bands.gap(nelec)` needs the filling
+    of each channel. You give it as `bands.gap(nelec, tot_magnetization=m)`, or as
+    `bands.gap(occupied=(n_up, n_down))`. Without one of them it gives an error.
+    The gap is taken over both channels, so it can go from the top of one channel
+    to the bottom of the other. `bands.band_edges(...)` gives the two levels.
 
     Inside a degenerate multiplet a single band has no well-defined velocity.
     There, each row of `v.velocities` holds, for each direction, the slopes of
