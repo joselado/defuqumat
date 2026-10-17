@@ -254,10 +254,16 @@ __all__ = ["UltracellResult", "run_ultracell", "require_an_ultracell_regime",
 
 
 #: The largest field, in Ry, a ``reducebf`` reference may still carry when the
-#: box continues its decay (I36-feedback): measured at 1.18e-4, and set where
-#: ``chi B`` on the measured hydrogen cell reaches the ladder's moment
-#: resolution, so a reference above it is a state that is not measured.
-_FADING_RESIDUAL = 1.0e-3
+#: box continues its decay (I36-feedback). The box's leftover field differs
+#: from a supercell's by up to this much (each stops after its own iteration
+#: count), and near zero field the measured hydrogen box responds with
+#: ``chi = 0.42`` to ``0.47`` mu_B/Ry per cell (D22, I36-feedback-ver/f-0.9.log
+#: and f-0.93.log), so 1.5e-4 Ry moves the moment per cell by at most 7e-5
+#: mu_B, 1.1e-4 of the net 0.624: below the ladder's moment resolution, 1.4e-4
+#: at nbnd = 24, which a larger leftover is not (at 6.1e-4 the box missed the
+#: supercell's moment by 4.1e-5 mu_B and the ladder could not see it).
+#: Measured at 1.18e-4.
+_FADING_RESIDUAL = 1.5e-4
 
 
 @dataclasses.dataclass
@@ -1343,15 +1349,35 @@ def run_ultracell(
                 f"supercell; the secant rule steps only on a converged inner "
                 f"loop and is not measured on the box"
             )
+        # **reducebf under a feedback scheme is refused by the input builder
+        # (system/builder.py), and a hand-built field gets the same refusal
+        # here**: the decay scales the applied field while the controller
+        # steps the field it stores, undecayed, so the two disagree from the
+        # first iteration and the box would converge onto whatever field that
+        # arithmetic lands on.
+        if (constraint in FEEDBACK
+                and float(getattr(reference_field, "reducebf", 1.0)) != 1.0):
+            raise NotImplementedError(
+                f"the ultracell refuses a ground state converged under the "
+                f"feedback scheme constrained_magnetization = {constraint!r} "
+                f"with reducebf = {float(reference_field.reducebf)}: reducebf "
+                f"decays the applied field after every iteration while the "
+                f"feedback steps the field it stores, which is not decayed, so "
+                f"the two are inconsistent from the first step. The input "
+                f"builder refuses the pair for the same reason; the box runs "
+                f"'fsm' with reducebf = 1, and reducebf under a fixed field"
+            )
         # **A fading field is measured only where it has faded.** The box
         # continues the decay from the reference's scale and the supercell
-        # runs its own from full strength; at reducebf = 0.8 both landed on
-        # the field-free modulated state (residuals 4e-6 and 3.1e-5 Ry, the
-        # reference's 1.2e-4), where holding the field frozen would have
-        # read the same. A reference that stopped with a larger field still
-        # on is a state whose continuation and whose supercell differ at
-        # first order in chi B, and that is not measured: at 1e-3 Ry, chi B
-        # reaches the ladder's moment resolution (1.4e-4 at nbnd = 24).
+        # runs its own from full strength, so their leftover fields differ by
+        # what their iteration counts make of it, up to the reference's own
+        # residual. Near zero field the box responds with chi = 0.42 to 0.47
+        # mu_B/Ry per cell, and the moment follows the leftover gap exactly:
+        # at references of 3.65e-4 and 6.14e-4 Ry the gaps of +3.1e-5 and
+        # -9.0e-5 Ry moved it by +1.4e-5 and -4.1e-5 mu_B (D22,
+        # I36-feedback-ver/f-0.9.log, f-0.93.log), which the moment ladder
+        # (1.4e-4 at nbnd = 24) could not see. At _FADING_RESIDUAL that gap is
+        # below the ladder's resolution; above it the state is not measured.
         if float(getattr(reference_field, "reducebf", 1.0)) != 1.0:
             residual = float(reference_field.residual(reference_field_scale))
             if residual > _FADING_RESIDUAL:
@@ -1359,7 +1385,7 @@ def run_ultracell(
                     f"the ultracell refuses a ground state converged with "
                     f"reducebf = {float(reference_field.reducebf)} whose field "
                     f"has not faded: {residual:.3e} Ry is still applied, above "
-                    f"the {_FADING_RESIDUAL:.0e} Ry the box is measured at. "
+                    f"the {_FADING_RESIDUAL:.1e} Ry the box is measured at. "
                     f"The box continues the decay from where the unit cell "
                     f"stopped while a supercell starts its own from full "
                     f"strength, and the two agree where both have faded "

@@ -250,14 +250,39 @@ def test_a_per_atom_or_secant_feedback_reference_is_refused(tmp_path, pseudo_dir
 
 
 def test_a_fading_reference_whose_field_is_still_on_is_refused(tmp_path, pseudo_dir):
-    """``reducebf`` is measured where the unit cell's field has faded; above 1e-3 Ry it refuses."""
+    """``reducebf`` is measured where the unit cell's field has faded; above 1.5e-4 Ry it refuses.
+
+    The stand-in carries 2e-4 Ry, between the guard and the 1e-3 Ry the
+    guard used to sit at, so it fires only at the corrected threshold.
+    """
     calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))
     stand_in = types.SimpleNamespace(
-        converged=True, field_scale=0.5,
+        converged=True, field_scale=0.01,
         magnetic_field=types.SimpleNamespace(
             constraint="none", reducebf=0.9, fsm_update="elk",
             residual=lambda scale: scale * 0.02))
     with pytest.raises(NotImplementedError, match="has not faded"):
+        run_ultracell(calculator.system, calculator.pseudos, stand_in,
+                      (2, 1, 1), (1, 1, 1), nbnd=8)
+
+
+def test_a_feedback_reference_with_a_fading_field_is_refused(tmp_path, pseudo_dir):
+    """``'fsm'`` with ``reducebf < 1``, built by hand, refuses as the input builder does.
+
+    The builder refuses the pair because the decay scales the applied field
+    while the controller steps the stored one; a ``MagneticField`` built
+    without the builder would otherwise pass every other guard (its residual
+    is set to zero here so the fading guard cannot be the one that fires).
+    """
+    calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))
+    stand_in = types.SimpleNamespace(
+        converged=True, field_scale=1e-6,
+        magnetic_field=types.SimpleNamespace(
+            constraint="fsm", reducebf=0.8, fsm_update="elk",
+            residual=lambda scale: 0.0))
+    with pytest.raises(NotImplementedError,
+                       match="feedback scheme constrained_magnetization = 'fsm' "
+                             "with reducebf = 0.8"):
         run_ultracell(calculator.system, calculator.pseudos, stand_in,
                       (2, 1, 1), (1, 1, 1), nbnd=8)
 
@@ -908,16 +933,22 @@ def test_a_feedback_reference_converges_to_the_supercell_under_the_same_scheme(
     folded = tuple(n * m for n, m in zip(shape, kgrid))
     # **The target sits just above the free moment, the gain below 2/chi0,
     # and the controller's tolerance at 1e-6.** The cell's moment is stiff
-    # self-consistently: 0.62343 free and 0.62510 under B = +0.01 Ry, so
-    # chi = 0.17 mu_B/Ry, and B = -0.01 flips it onto the other branch; 0.4
-    # and 0.5 never converged (D22, d1.log, d2.log). The box's first output
-    # at fixed input responds with chi0 near 7 mu_B/Ry, so lambda = 2 threw
-    # the moment between +1 and -1 for 40 iterations (d5.log); 0.25
-    # converges (d6.log). And FSM_TOLERANCE = 1e-3 mu_B leaves the field
-    # undetermined by 1e-3 / chi = 6e-3 Ry, above the 3e-3 the modulation
-    # moves it by: at lambda = 0.1 the unit cell stopped at M = 0.62500, a
-    # miss of exactly the tolerance (d6.log). So the check is taken with the
-    # tolerance at 1e-6 on all three runs, which is what defines the state.
+    # at the operating field and not near zero: 0.62343 free and 0.62510
+    # under B = +0.01 Ry is a secant chi = 0.17 mu_B/Ry (0.19 between 0.01
+    # and the 0.0148 the unit cell converges to), while near zero field the
+    # modulated box responds with 0.42 to 0.47 on the positive side
+    # (I36-feedback-ver/f-0.9.log, f-0.93.log) and 0.93 at B = -1e-3 to
+    # -1.9e-3 (h1-neg.log), and B = -0.01 flips it onto the other branch;
+    # targets 0.4 and 0.5 never converged (D22, d1.log, d2.log). The box's
+    # first output at fixed input responds with chi0 near 7 mu_B/Ry, so
+    # lambda = 2 threw the moment between +1 and -1 for 40 iterations
+    # (d5.log); 0.25 converges (d6.log). And FSM_TOLERANCE = 1e-3 mu_B
+    # leaves the field undetermined by 1e-3 / chi, about 6e-3 Ry with the
+    # chi of 0.17 to 0.19 at the operating field, above the 4.1e-3 the
+    # modulation moves it by: at lambda = 0.1 the unit cell stopped at
+    # M = 0.62500, a miss of exactly the tolerance (d6.log). So the check is
+    # taken with the tolerance at 1e-6 on all three runs, which is what
+    # defines the state.
     target = 0.626
     calculator = _hydrogen(tmp_path, pseudo_dir, folded,
                            system=FSM.format(target=target), tag="h-fsm")
@@ -1008,7 +1039,7 @@ def test_a_fading_field_reference_converges_to_the_supercell_under_it(
                                            mixing_mode="adaptive")
     print(f"  supercell: field_scale {reference.field_scale:.3e} in "
           f"{reference.iterations} iterations")
-    rows, _, _ = _driven_ladder(
+    rows, b_sup, m_sup = _driven_ladder(
         calculator, scf, shape, kgrid, reference, grid, (8, 16, 24), None,
         conv_thr=1e-10, mixing_mode="adaptive", kerker=False,
         max_iterations=600)
@@ -1019,3 +1050,23 @@ def test_a_fading_field_reference_converges_to_the_supercell_under_it(
         errors = [r[key] for r in rows]
         assert errors == sorted(errors, reverse=True), (key, errors)
     assert all(r["scale"] < scf.field_scale for r in rows), rows
+    # **The moment follows the decay the iteration counts predict.** The box
+    # and the supercell stop after their own iteration counts, so their
+    # leftover fields differ, and the moment per cell differs by chi times
+    # that gap. The box's field is predicted from the reference's residual
+    # and the box's own count (one decay after every iteration but the
+    # converged one, so reducebf ** (iterations - 1): 4.154e-6 Ry from the
+    # 1.181e-4 reference in 16), not read from the result, so a field held
+    # frozen at the reference's residual would leave chi (R_ref - B_pred),
+    # 5e-5 mu_B on this cell, against the 3e-6 the decayed box leaves
+    # (D22, r5-check.log). chi = 0.45 mu_B/Ry per cell is the near-zero
+    # response on the positive side, 0.42 to 0.47 in
+    # I36-feedback-ver/f-0.9.log and f-0.93.log.
+    chi = 0.45
+    r_ref = float(scf.magnetic_field.residual(scf.field_scale))
+    for r in rows:
+        b_pred = r_ref * reducebf ** (r["iterations"] - 1)
+        miss = (r["m"] - m_sup) - chi * (b_pred - b_sup)
+        print(f"  nbnd={r['nbnd']}: predicted B {b_pred:.4e} Ry, moment miss "
+              f"after chi dB {miss:+.3e} mu_B")
+        assert abs(miss) < 1e-5, (r, b_pred, b_sup, m_sup, miss)
