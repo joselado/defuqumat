@@ -159,10 +159,11 @@ def test_a_pooled_residual_refuses_tetrahedra_before_any_collective(scheme):
             _refuse_under_pools(pools, calculation, **{**quiet, "residual_solver": jvp})
     # The sibling refusals of ``make_residual`` still fire on their own.
     fixed = SimpleNamespace(kpoints=system.kpoints, occupations="fixed", spiral_q=None)
-    # A held field runs since I73; the feedback constraint is what stays refused.
-    feedback = SimpleNamespace(constraint="fsm")
-    with pytest.raises(NotImplementedError, match="feedback"):
-        make_residual(SimpleNamespace(system=fixed, magnetic_field=feedback), 4, 1e-10)
+    # A held field runs since I73 and a feedback field since its feedback
+    # round; a decaying field (reducebf < 1) is what stays refused.
+    decaying = SimpleNamespace(constraint="none", reducebf=0.9, atomic=None)
+    with pytest.raises(NotImplementedError, match="reducebf"):
+        make_residual(SimpleNamespace(system=fixed, magnetic_field=decaying), 4, 1e-10)
     # A plain spiral is admitted on one process since I72; its Hubbard
     # sibling is the refusal that stays (``tests/unit/test_residual_spiral.py``).
     spiral = SimpleNamespace(kpoints=system.kpoints, occupations="fixed",

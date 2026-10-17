@@ -703,6 +703,53 @@ class MagneticField(eqx.Module):
             )
         return self._secant_step(moment, error)
 
+    @property
+    def driven_leaf(self) -> str | None:
+        """The leaf a feedback scheme drives, ``'uniform'`` or ``'atomic'``, or ``None``."""
+        if self.constraint not in FEEDBACK:
+            return None
+        return "atomic" if self.constraint in FEEDBACK_ATOMIC else "uniform"
+
+    def driven(self) -> jnp.ndarray | None:
+        """The driven field itself, the leaf :attr:`driven_leaf` names."""
+        leaf = self.driven_leaf
+        return None if leaf is None else getattr(self, leaf)
+
+    def with_driven(self, values) -> "MagneticField":
+        """This field with its driven leaf replaced by ``values``."""
+        leaf = self.driven_leaf
+        if leaf is None:
+            raise ValueError(
+                f"constrained_magnetization = {self.constraint!r} drives no field"
+            )
+        return eqx.tree_at(lambda f: getattr(f, leaf), self, values)
+
+    def elk_driven(self, rho_r: jnp.ndarray, cell: Cell) -> jnp.ndarray:
+        """The driven field after one step of Elk's rule, read off ``rho_r``.
+
+        ``B - tau (m - m_fix)``, with the error orthogonalised against the
+        targets for ``'atomic fsm direction'``: the same arithmetic as the
+        ``fsm_update = 'elk'`` branches of :meth:`feedback` and
+        :meth:`_atomic_step`, as a function of the state rather than a step of
+        a loop, which is what the residual solver's field row is (I73). It
+        carries no secant history, and that is the reason the residual solver
+        takes this rule whatever ``fsm_update`` says: its zero is the same
+        field, the one at which the moment read off a self-consistent density
+        is the target.
+        """
+        targets = jnp.asarray(self.targets)
+        if self.constraint in FEEDBACK_ATOMIC:
+            error = self.sphere_moments(rho_r, cell) - targets
+            if self.constraint == "atomic fsm direction":
+                error = _orthogonalize(error, targets)
+            return self.atomic - self.penalty * error
+        if self.constraint in FEEDBACK:
+            error = self.total_moment(rho_r, cell) - targets
+            return self.uniform - self.penalty * error
+        raise ValueError(
+            f"constrained_magnetization = {self.constraint!r} drives no field"
+        )
+
     def _atomic_step(self, rho_r: jnp.ndarray, cell: Cell) -> "MagneticField":
         """Elk's ``bfieldfsm.f90:50-73``: one constraining field per atom.
 
