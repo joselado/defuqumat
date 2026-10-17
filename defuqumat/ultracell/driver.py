@@ -254,9 +254,9 @@ __all__ = ["UltracellResult", "run_ultracell", "require_an_ultracell_regime",
 
 
 #: The largest field, in Ry, a ``reducebf`` reference may still carry when the
-#: box continues its decay (I36-feedback). The box's leftover field differs
-#: from a supercell's by up to this much (each stops after its own iteration
-#: count), and near zero field the measured hydrogen box responds with
+#: box continues its decay (I36-feedback). The box carries at most this much
+#: after its own iteration count, and in every measured run the supercell had
+#: faded further, so the gap between them was at most this; near zero field the measured hydrogen box responds with
 #: ``chi = 0.42`` to ``0.47`` mu_B/Ry per cell (D22, I36-feedback-ver/f-0.9.log
 #: and f-0.93.log), so 1.5e-4 Ry moves the moment per cell by at most 7e-5
 #: mu_B, 1.1e-4 of the net 0.624: below the ladder's moment resolution, 1.4e-4

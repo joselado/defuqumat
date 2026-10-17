@@ -111,8 +111,11 @@ the negative side it is softer still: the verifier's `h1-neg.log` (target 0.6225
 mu_B, so the ladder's resolution of 1.4e-4 is 9e-5 mu_B per cell absolute and 4.1e-5 is below it.
 That is why the old test could not tell a continued decay from a frozen field.
 
-The guard is set from this. The box's leftover differs from the supercell's by at most the
-reference's own residual `R`, which moves the moment per cell by at most `chi R`; asking this to
+The guard is set from this. The box carries at most the reference's own residual `R`, and in
+every run here the supercell had faded further than the reference (3.1e-5, 4.4e-5 and 2.97e-4 Ry
+against 1.18e-4, 3.65e-4 and 6.14e-4), so the gap between the two was at most `R`, which moves the
+moment per cell by at most `chi R` (the supercell's own leftover is set by its own iteration count
+and is not something the box's guard controls); asking this to
 stay below the 9e-5 mu_B resolution with `chi = 0.45` gives `R < 1.9e-4` Ry, and the guard is at
 1.5e-4 Ry with that margin: 7e-5 mu_B per cell, 1.1e-4 of the net moment. The measured reference
 (1.181e-4) passes it and both verifier references are now refused. With the negative-side 0.93 the
