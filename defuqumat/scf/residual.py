@@ -86,16 +86,15 @@ the user's decision of 2026-10-16). The mixing loop moves it between
 iterations by Elk's rule ``B <- B - tau (m(rho_out) - m_fix)``, so it is a
 second unknown beside the density; carried in ``x``, with that rule as its row
 of ``F`` (:meth:`MagneticField.elk_driven`), the residual's field rows are
-``-tau (m - m_fix)`` in Ry and vanish exactly where the moment of the self-consistent
-density is the target, which is the loop's own fixed point. ``x`` carries the
-field in units of ``tau`` (:attr:`ScfResidual.field_unit`), so the rows as
-stored read ``-(m - m_fix)`` in mu_B and weigh in the 2-norm GMRES reads.
-``tau`` is kept in the update rather than solving ``m - m_fix = 0`` directly
-because it is Elk's estimate of ``1/chi`` (0.02 against a measured 0.022 on ``fe-fsm.in``), so the
+``-tau (m - m_fix)`` and vanish exactly where the moment of the self-consistent
+density is the target, which is the loop's own fixed point. ``tau`` is kept in
+the row rather than solving ``m - m_fix = 0`` directly because it is Elk's
+estimate of ``1/chi`` (0.02 against a measured 0.022 on ``fe-fsm.in``), so the
 field block of the Jacobian sits near ``-1``, the scale of the density block,
 and the identity the Kerker preconditioner applies past the density is right
-for it. The convergence measure adds ``|r_B|^2 / tau = tau |m - m_fix|^2``, a
-Rydberg number like ``rho_ddot`` (``driver._solve_residual_body``). The secant
+for it. The convergence measure adds ``|dm| (|B| + tau |dm|)``, ``dm = m -
+m_fix``, a Rydberg number like ``rho_ddot`` that bounds the first-order error
+``B . dm`` of the reported total (:meth:`ScfResidual.field_accuracy`). The secant
 controller (``fsm_update = 'secant'``) has memory and is refused; its zero is
 the same field. **Refused rather than approximated:** ``reducebf < 1``, whose
 decay ``s -> reducebf s`` has the one root ``s = 0``, the field-free problem,
@@ -194,9 +193,8 @@ class ScfResidual:
     #: drives; both ``None`` otherwise. The driven field joins the state as
     #: ``ns`` did, last in the vector, and its row of ``F`` is Elk's update
     #: ``B - tau (m(rho_out) - m_fix)`` (:meth:`MagneticField.elk_driven`), so
-    #: the residual's field rows are ``-tau (m - m_fix)`` in Ry (``-(m - m_fix)``
-    #: as stored, :attr:`field_unit`) and vanish exactly where the moment of
-    #: the self-consistent density is the target (I73).
+    #: the residual's field rows are ``-tau (m - m_fix)`` and vanish exactly
+    #: where the moment of the self-consistent density is the target (I73).
     feedback_field: object = None
     field_shape: tuple | None = None
 
@@ -223,7 +221,7 @@ class ScfResidual:
         if self.field_shape is not None:
             if driven is None:
                 driven = self.feedback_field.driven()
-            flat.append(np.asarray(driven, dtype=float).ravel() / self.field_unit)
+            flat.append(np.asarray(driven, dtype=float).ravel())
         return np.concatenate(flat)
 
     def unpack(self, x):
@@ -261,30 +259,13 @@ class ScfResidual:
         if self.field_shape is None:
             return None
         n = int(np.prod(self.field_shape))
-        return jnp.asarray(x)[self.size - n:].reshape(self.field_shape) * self.field_unit
-
-    @property
-    def field_unit(self) -> float:
-        """The unit the driven field is carried in inside ``x``: the gain ``tau``.
-
-        ``x`` holds ``B / tau``, so the field rows of ``r`` read ``-(m - m_fix)``
-        in mu_B rather than ``-tau (m - m_fix)``. The Jacobian's field block,
-        ``-tau dm/dB``, is the same in either unit; what changes is the weight
-        the rows carry in the raw 2-norm, which is what GMRES's relative
-        tolerance and the backtracking test read. In Ry the rows were 2e-2 of
-        the moment error and, once the density was converged, too small
-        beside the density rows for either to see (I73-feedback: Newton then
-        stalled with the moment 1.7e-8 mu_B off on the canted iron pair while
-        the mixing loop holds it to 1e-12).
-        """
-        return float(self.feedback_field.penalty)
+        return jnp.asarray(x)[self.size - n:].reshape(self.field_shape)
 
     def field_accuracy(self, r, x) -> float:
         """The feedback field's share of the convergence measure, in Ry.
 
         ``|dm| (|B| + tau |dm|)``, with ``B`` the field ``x`` holds and ``dm =
-        m - m_fix`` read off the field rows of ``r`` (:meth:`unpack_field`
-        returns them in Ry, ``-tau dm``);
+        m - m_fix`` read off the field rows of ``r``, which are ``-tau dm``;
         both norms are over the whole driven leaf (every atom and component).
         The reported total leaves out the Zeeman term and along the
         constrained family ``dE/dm = B``, so a state that stopped ``dm`` off
@@ -296,8 +277,12 @@ class ScfResidual:
         ``|dm|``, so the sum bounds ``|B'| |dm|`` and stays above zero at
         ``B = 0``, where ``|B| |dm|`` alone would pass a state converged in
         the density at no field and any moment. At ``conv_thr = 1e-11`` and
-        the 1.1e-2 Ry field of ``fe-fsm.in`` it holds the moment to 1e-9
-        mu_B, where the loop's own test (``FSM_TOLERANCE``) is 1e-3.
+        the 1.1e-2 Ry field of ``fe-fsm.in`` it asks the moment to 9e-10 mu_B
+        and Newton stopped at 6.2e-11, where the loop's own test
+        (``FSM_TOLERANCE``) is 1e-3. On the canted iron pair (8 k-points,
+        fields of 2.6e-2 to 3.0e-2 Ry) Newton does not reach it: it stalls at
+        7e-10 to 7e-9 Ry, the moment 1.7e-8 to 1.6e-7 mu_B off, and hands over
+        to the loop (``notes/incompat/I73.md``, "The feedback field").
         Zero without a feedback scheme. Host-side, never traced.
         """
         if self.field_shape is None:
@@ -373,7 +358,7 @@ class ScfResidual:
         if tau is not None:
             flat.append(jnp.reshape(jnp.real(tau), (-1,)))
         if driven is not None:
-            flat.append(jnp.reshape(jnp.real(driven), (-1,)) / self.field_unit)
+            flat.append(jnp.reshape(jnp.real(driven), (-1,)))
         return jnp.concatenate(flat)
 
     def residual(self, x, psi0):

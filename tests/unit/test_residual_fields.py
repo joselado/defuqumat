@@ -113,13 +113,12 @@ def test_a_feedback_field_joins_the_state(pseudo_dir, extra, card, leaf, shape):
     driven = np.arange(1, int(np.prod(shape)) + 1, dtype=float).reshape(shape) * 1e-3
     x = residual.pack(rho, becsum_, driven=driven)
     assert x.size == residual.size
-    # ``x`` carries ``B / tau``; the round trip is exact to one rounding each way.
-    np.testing.assert_allclose(np.asarray(residual.unpack_field(x)), driven, rtol=1e-15)
+    np.testing.assert_array_equal(np.asarray(residual.unpack_field(x)), driven)
     np.testing.assert_array_equal(np.asarray(residual.unpack(x)[0]), np.asarray(rho))
-    np.testing.assert_allclose(np.asarray(residual.field_at(x).driven()), driven, rtol=1e-15)
+    np.testing.assert_array_equal(np.asarray(residual.field_at(x).driven()), driven)
     # Without ``driven`` the starting field's is packed, zero for a fresh run.
     start = residual.pack(rho, becsum_)
-    np.testing.assert_allclose(np.asarray(residual.unpack_field(start)),
+    np.testing.assert_array_equal(np.asarray(residual.unpack_field(start)),
                                   np.asarray(field.driven()))
 
 
@@ -128,8 +127,7 @@ def test_the_field_rows_count_towards_convergence(pseudo_dir):
 
     Such a state is self-consistent at the field it holds and is not the
     constrained one; a convergence measure that read the density alone would
-    pass it. The share is ``|dm| (|B| + tau |dm|)`` with ``r_B = -dm`` (``x``
-    carries the field in units of the gain, ``ScfResidual.field_unit``)
+    pass it. The share is ``|dm| (|B| + tau |dm|)`` with ``r_B = -tau dm``
     and ``B`` the field the state holds, so it fires at ``B = 0`` too, where
     ``|B| |dm|`` alone would read zero for any moment.
     """
@@ -141,12 +139,12 @@ def test_the_field_rows_count_towards_convergence(pseudo_dir):
     bare = residual.pack(rho, becsum_, driven=np.zeros(residual.field_shape))
     r = np.zeros(residual.size)
     assert residual.field_accuracy(r, held) == 0.0
-    r[-1] = -1e-3      # a moment 1e-3 mu_B off its target
+    r[-1] = -0.02 * 1e-3      # a moment 1e-3 mu_B off its target
     assert residual.field_accuracy(r, held) == pytest.approx(
         1e-3 * (0.011 + 0.02 * 1e-3), rel=1e-12)
     assert residual.field_accuracy(r, bare) == pytest.approx(0.02 * 1e-6, rel=1e-12)
     assert residual.field_accuracy(r, bare) > 1e-11
-    r[-1] = -1e-9      # 1e-9 mu_B off: B dm = 1.1e-11 Ry
+    r[-1] = -0.02 * 1e-9      # 1e-9 mu_B off: B dm = 1.1e-11 Ry
     assert residual.field_accuracy(r, held) > 1e-11
     assert residual.field_accuracy(r, bare) < 1e-11
 
