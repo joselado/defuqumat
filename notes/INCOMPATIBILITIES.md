@@ -157,6 +157,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Check: the explicit supercell SCF of the same modulation, exact by the nested basis (P88), under the same field.
 - QE/Elk: QE n; Elk unread.
 - Partial, merged 2026-10-16 (P155): a reference under a fixed `B_field` or `LOCAL_MAGNETIC_FIELDS` lands, converging to the supercell under the same field (charge 1.447e-4, moment 1.229e-4, free energy +8.838e-7 Ry above it at 24 bands); feedback schemes, `reducebf < 1`, penalty constraints and a spinor under a field refuse, a design question for the user (`notes/incompat/I36.md`).
+- Feedback on the box, merged 2026-10-17 on the user's decision (`incompat/I36-feedback`): `'fsm'` against the 2x1x1 supercell under the same scheme, field +1.32e-5, -9.4e-7, -4.6e-6 Ry and `E - B(M - Mt)` +3.6e-6, +1.1e-6, +6.0e-7 Ry per cell at nbnd 8, 16, 24, where the frozen reference field misses the target by 3.8e-3 mu_B; a reference faded below 1.5e-4 Ry under `reducebf` continues its decay (misses 3.0e-6 to 4.9e-6 mu_B, frozen 5.2e-5). Per-atom schemes, `'secant'`, penalties, `'fsm'` with `reducebf` and a spinor refuse (`notes/incompat/I36-feedback.md`).
 
 ### I43. Transverse spin susceptibility (magnons) x symmetry-reduced k-set
 

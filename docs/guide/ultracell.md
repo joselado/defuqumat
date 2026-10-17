@@ -482,13 +482,26 @@ period you compare the energies of several long cells, one run each.
     A collinear ground state converged under a fixed magnetic field (`B_field`
     or a `LOCAL_MAGNETIC_FIELDS` card) runs. The code keeps the same field on
     every copy of the unit cell, so the result is the supercell under the same
-    field. A ground state converged with `constrained_magnetization` gives an
-    error. This covers the penalty schemes and the fixed-spin-moment schemes
-    `'fsm'`, `'atomic fsm'` and `'atomic fsm direction'`. Also `reducebf` below
-    1 gives an error. In a supercell these schemes change the field when the
-    modulation changes the moment, and the long cell would keep the field of the
-    unit cell. A fixed total moment with `tot_magnetization` still runs, with
-    one Fermi level for each spin channel. A noncollinear ground state converged
+    field. A ground state converged with `constrained_magnetization = 'fsm'`
+    also runs. Here the long cell keeps moving the field until the moment per
+    cell is on the target again, which is what a supercell under the same scheme
+    does, because the modulation changes the moment. This uses the update of Elk
+    (`fsm_update = 'elk'`) with the `lambda` of the unit cell as the gain. A
+    gain that converges the unit cell can fail in any longer cell, the long cell
+    and the supercell alike. In the long cell the first steps react much more
+    strongly than in the unit cell. In a supercell the step acts on the moment
+    of all `N` cells, so the gain is `N` times larger. On a hydrogen lattice,
+    `lambda = 2` did not converge in a 2x1x1 long cell and `lambda = 0.25` did.
+    On a 3x1x1 supercell `lambda = 0.25` did not converge and `lambda = 0.08`
+    did. So start from a smaller gain than the unit cell needs, and lower it
+    again if the long cell or the supercell does not converge. A ground state
+    converged with `reducebf` below 1 also runs if the field of the unit cell
+    has faded below 1.5e-4 Ry, and the long cell keeps reducing the field from
+    where the unit cell stopped. Otherwise it gives an error. The penalty
+    schemes, the per-atom schemes `'atomic fsm'` and `'atomic fsm direction'`,
+    `fsm_update = 'secant'`, and `'fsm'` together with `reducebf` below 1 give
+    an error. A fixed total moment with `tot_magnetization` still runs, with one
+    Fermi level for each spin channel. A noncollinear ground state converged
     under a field also gives an error. For these cases, you converge the unit
     cell without the field and give it with `magnetic_field` in the long cell
     instead.

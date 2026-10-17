@@ -26629,3 +26629,7 @@ Fast gate on D22 at the code head `d07df07` (worktree `/l/ladovj1/w-inc-t2b`, lo
 | I81 message pinned | the new test fails on both datasets against the message of 126d6ec and of 152615f1, passes at the head (8 passed) | the guard's text | `incompat/I81` 5db26ea, `incompat/I81-pin` cb6e648 |
 
 I82's two `OPEN.md` entries are written (Part XXVIII). I66 stays unmerged, awaiting the user.
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I36 ultracell x feedback field | `'fsm'` (target 0.626 mu_B per cell) against the 2x1x1 supercell under the same scheme: field +1.32e-5, -9.4e-7, -4.6e-6 Ry and `E - B(M - Mt)` +3.6e-6, +1.1e-6, +6.0e-7 Ry per cell at nbnd 8, 16, 24; the frozen reference field misses the target by 3.8e-3 mu_B; faded `reducebf` reference (below 1.5e-4 Ry) misses the supercell moment by 3.0e-6 to 4.9e-6 mu_B, frozen 5.2e-5; verified twice | supercell under the same scheme | `incompat/I36-feedback` deadfc8 |
