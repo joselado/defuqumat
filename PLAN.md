@@ -26618,3 +26618,14 @@ Partial, record only: **I77** (the ultracell under `'ldos'` against Kerker 1.19e
 Conflicts, resolved by keeping both lifts and refusing their pair where neither unit measured it, each with a fast test that reads the refusal: `io/elk.py` (I69 with I70: a spin-polarized DFT+U state), `scf/residual.py` (I53, I71, I72, I73: I53's refusal of tetrahedra and `from_input` is now the pooled one only; a spiral under a field), `response/phononq.py` (I80 with I82: a core charge at `nspin = 2`). One semantic clash with no textual conflict: I75's test asserted the residual's tetrahedron refusal, which I71 lifts, so the tetrahedron LDOS as a Newton warm-up is refused (`scf/driver.py`). Four sibling-refusal tests of earlier merges were retargeted (`test_parallel.py` twice, `test_phonon_q_nlcc.py`, `test_two_sphere_refusals.py`).
 
 Fast gate on D22 at the code head `d07df07` (worktree `/l/ladovj1/w-inc-t2b`, logs in `/l/ladovj1/review/incompat/t2b/`): 2 failed (the `yaml` pair, the D22 venv's), 3961 passed, 71 skipped, 1750 deselected in 1007 s; no merge reverted. Slow tests not run, listed in `notes/INCOMPATIBILITIES-T2.md`. What is left of integration two: guide sections, notebooks and timings for the eleven, I82's two `OPEN.md` entries, and I77, I79 and I81 for the user.
+
+**The user's decisions, 2026-10-16 to 17** (merged on `incompat-t2` after integration two; conflicts in `tests/unit/test_ldos_mixing.py`, where each side asserted a refusal the other lifts, and in the docstrings and guards of `response/phononq.py` and `response/phonon.py`, both sides kept):
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I52 pools x bands, NSCF, DOS | 2 and 3 pools against 1: eigenvalues 1.3e-14 Ry, DOS 1.9e-12 of its peak; a misplaced gather reads 0.99 Ry; the other 57 `get_*` refuse | one pool | `incompat/I52-r2` 87f1691 |
+| I77 ultracell x `'ldos'` | fixed point under `'ldos'` against `'anderson'` with Kerker: density 1.19e-7 (`nspin = 1`), 3.47e-7 (`nspin = 2`), 3.4e-13 and 2.1e-12 Ry; box LDOS 27.528 against the Gaussian sum 27.542; `'robust'` refuses | the Kerker fixed point | `incompat/I77` 91e35a2 |
+| I79 axial averages (refusal kept) | displacement average at `nspin_mag = 4`, atom sum against `symmetrize_directional` 7.1e-15; the axial `becsum` average; the magnetic spinor phonon still refuses (about 2e-6 unlocated) | an exact identity | `incompat/I79` b6ff6d0 (with I3's spinor assembly beneath it) |
+| I81 message pinned | the new test fails on both datasets against the message of 126d6ec and of 152615f1, passes at the head (8 passed) | the guard's text | `incompat/I81` 5db26ea, `incompat/I81-pin` cb6e648 |
+
+I82's two `OPEN.md` entries are written (Part XXVIII). I66 stays unmerged, awaiting the user.
