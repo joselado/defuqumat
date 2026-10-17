@@ -101,6 +101,10 @@ class NewtonKrylovResult:
     #: ``x``'s, or ``None`` without one. Set by the driver, which hands it to
     #: the mixing loop that runs after the solve (I73).
     field: object = None
+    #: The feedback field's share of :attr:`accuracy` at the returned state,
+    #: ``ScfResidual.field_accuracy``, in Ry; 0.0 without one. Set by the
+    #: driver, which warns with it when an unconverged solve is handed over.
+    field_accuracy: float = 0.0
 
 
 def newton_krylov(

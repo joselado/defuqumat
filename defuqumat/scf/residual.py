@@ -280,10 +280,13 @@ class ScfResidual:
         the 1.1e-2 Ry field of ``fe-fsm.in`` it asks the moment to 9e-10 mu_B
         and Newton stopped at 6.2e-11, where the loop's own test
         (``FSM_TOLERANCE``) is 1e-3. On the canted iron pair (8 k-points,
-        fields of 2.6e-2 to 3.0e-2 Ry) Newton does not reach it: it stalls at
-        7e-10 to 7e-9 Ry, the moment 1.7e-8 to 1.6e-7 mu_B off, and hands over
-        to the loop (``notes/incompat/I73.md``, "The feedback field").
-        Zero without a feedback scheme. Host-side, never traced.
+        fields of 2.6e-2 to 3.0e-2 Ry) Newton reaches it in 63 outer steps
+        under ``'atomic fsm'`` and 60 under ``'atomic fsm direction'``
+        (``forcing = 0.5``, ``warmup = 6``), about 3 to 5 times the mixing
+        loop's time; a budget of 40 stops it short at 7e-10 to 4e-9 Ry
+        (``notes/incompat/I73.md``, "The feedback field"), and ``run_scf``
+        then warns at the hand-over. Zero without a feedback scheme.
+        Host-side, never traced.
         """
         if self.field_shape is None:
             return 0.0
@@ -907,6 +910,56 @@ UNMEASURED_PENALTIES = frozenset({"total direction", "atomic texture"})
 MEASURED_FEEDBACK = {"fsm": False, "atomic fsm": True, "atomic fsm direction": True}
 
 
+def _refuse_unmeasured_feedback(calculation, field) -> None:
+    """Refuse a feedback field beside a term neither measured cell carries.
+
+    The two cells the feedback rows were measured on (``fe-fsm.in`` and the
+    canted iron pair, ``notes/incompat/I73.md``) both use a smearing, no
+    Hubbard U, a functional with no ``tau``, and the full plane-wave sphere.
+    Each of the other four joins the state or the occupations in a way the
+    field rows were never checked against, so each is refused by name rather
+    than let through by :data:`MEASURED_FEEDBACK`, which keys only on the
+    scheme and on ``noncolin``. A noncollinear Hubbard U is refused for every
+    run further down, field or not.
+    """
+    scheme = field.constraint
+    system = calculation.system
+    occupations = str(getattr(system, "occupations", "smearing"))
+    if occupations != "smearing":
+        raise NotImplementedError(
+            f"constrained_magnetization = {scheme!r} with occupations = "
+            f"{occupations!r} is not yet checked with a residual solver: the "
+            "feedback field's rows were measured against the mixing loop with "
+            "a smearing only. Use a smearing, or the mixing loop "
+            "(scf_solver='mixing')"
+        )
+    if bool(getattr(calculation, "is_hubbard", False)):
+        raise NotImplementedError(
+            f"constrained_magnetization = {scheme!r} with a Hubbard U is not "
+            "yet checked with a residual solver: the state would carry ns "
+            "beside the feedback field, and neither measured cell has a U. Use "
+            "the mixing loop (scf_solver='mixing')"
+        )
+    functional = getattr(calculation, "functional", None)
+    if bool(getattr(functional, "is_meta", False)):
+        raise NotImplementedError(
+            f"constrained_magnetization = {scheme!r} under the meta-GGA "
+            f"{functional.name} is not yet checked with a residual solver: the "
+            "state would carry tau beside the feedback field, and neither "
+            "measured cell has a meta-GGA. Use the mixing loop "
+            "(scf_solver='mixing')"
+        )
+    kpoints = getattr(system, "kpoints", None)
+    if bool(getattr(kpoints, "gamma_only", False)):
+        raise NotImplementedError(
+            f"constrained_magnetization = {scheme!r} with K_POINTS gamma "
+            "(half-sphere storage) is not yet checked with a residual solver: "
+            "both measured cells store the full sphere. Use an explicit Gamma "
+            "point (K_POINTS automatic 1 1 1 0 0 0), or the mixing loop "
+            "(scf_solver='mixing')"
+        )
+
+
 def make_residual(calculation, nbnd: int, ethr: float, field=None) -> ScfResidual:
     """Build the residual for a calculation, refusing the regimes it cannot hold.
 
@@ -969,6 +1022,7 @@ def make_residual(calculation, nbnd: int, ethr: float, field=None) -> ScfResidua
                     "and 'atomic fsm direction' in a noncollinear one, and "
                     "nothing else. Use the mixing loop (scf_solver='mixing')"
                 )
+            _refuse_unmeasured_feedback(calculation, field)
         if field.constraint in UNMEASURED_PENALTIES:
             raise NotImplementedError(
                 f"constrained_magnetization = {field.constraint!r} is not yet "
@@ -1047,6 +1101,21 @@ def make_residual(calculation, nbnd: int, ethr: float, field=None) -> ScfResidua
             "occupation matrix of a spinor run is complex and the residual's "
             "packed state keeps only its real part, so F is not the mixing "
             "loop's map (notes/incompat/I72.md); use the mixing loop"
+        )
+    if bool(getattr(calculation, "noncolin", False)) and bool(
+        getattr(calculation, "is_hubbard", False)
+    ):
+        # The same packing hole as the spiral's, with no spiral: a spinor ``ns``
+        # is complex (``starting_ns`` is complex128 of shape (4, ...) on the
+        # canted iron pair with U on Fe-3d), the mixing loop carries it as real
+        # and imaginary pairs (``driver._pack_ns``), and :meth:`ScfResidual.pack`
+        # keeps only the real part, so ``F`` would not be the loop's map. No
+        # residual run of a noncollinear Hubbard cell was ever measured.
+        raise NotImplementedError(
+            "a noncollinear run with a Hubbard U has no residual form here: the "
+            "occupation matrix of a spinor run is complex and the residual's "
+            "packed state keeps only its real part, so F is not the mixing "
+            "loop's map; use the mixing loop (scf_solver='mixing')"
         )
     if calculation.spiral and calculation.functional.is_meta:
         # Not measured, so not admitted: ``tau`` joins the packed state, and the

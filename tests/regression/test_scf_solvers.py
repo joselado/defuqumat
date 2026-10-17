@@ -789,13 +789,16 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_feedback_field(
 
     Newton's field share is ``|dm| (|B| + tau |dm|)`` (the user's decision of
     2026-10-17), a bound on the first-order error ``B . dm`` of the reported
-    total, which leaves out the Zeeman term. On ``fe-fsm.in`` Newton reaches
-    it and the raw totals agree to 7.8e-13 Ry; on the canted pair it stalls
-    at 7e-10 to 7e-9 within its 40 outer steps and hands the state over, and
-    the loop accepts it in one iteration at its own 1e-3 tolerance, so the run
-    reports converged with the raw total 1.2e-10 Ry (``'atomic fsm'``) and
-    2.5e-9 Ry (``'atomic fsm direction'``) off the loop's. Measured on D22
-    (``notes/incompat/I73.md``, "The feedback field").
+    total, which leaves out the Zeeman term. With 80 outer steps Newton
+    reaches it on all three (``forcing = 0.5``, ``warmup = 6``; measured on
+    D22, one sample each, ``notes/incompat/I73.md``, "The feedback field"):
+    39 steps on ``fe-fsm.in``, raw totals 7.8e-13 Ry apart; 63 under
+    ``'atomic fsm'``, 7.0e-13 Ry, fields 2.4e-12 Ry apart, 166 s against 52 s
+    for the loop; 60 under ``'atomic fsm direction'``, where the raw totals
+    differ by -1.01e-9 Ry, which is the reference's own ``arccos`` offset
+    (Newton's raw total is the reference's energy at the target, to 2.8e-14).
+    At 40 steps the canted pair stopped short and the loop accepted the state
+    at its own 1e-3 tolerance; ``run_scf`` now warns when that happens.
 
     **The loop iteration count carries the claim.** With the field row of
     ``F`` replaced by the identity Newton holds the starting field and solves
@@ -818,33 +821,43 @@ def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_feedback_field(
         mixed = Calculator.from_text(text, pseudo_dir, announce=False).get_scf(**options)
     newton = Calculator.from_text(text, pseudo_dir, announce=False).get_scf(
         scf_solver="newton-krylov",
-        scf_solver_options={"forcing": 0.5, "warmup": 6, "max_iterations": 40},
+        scf_solver_options={"forcing": 0.5, "warmup": 6, "max_iterations": 80},
         **options)
     assert mixed.converged and newton.converged
-    assert newton.solver is not None
+    assert newton.solver is not None and newton.solver.converged
     assert newton.iterations <= 2
     assert _energy_at_target(newton) == pytest.approx(_energy_at_target(mixed), abs=1e-11)
     if case == "fsm":
-        # Converged numbers: measured 7.8e-13 Ry, a moment 6.2e-11 off and the
+        # Measured 7.8e-13 Ry at 39 outer steps, a moment 6.2e-11 off and the
         # field 6.0e-11 Ry apart.
-        assert newton.solver.converged
         assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-11)
         assert newton.magnetization == pytest.approx(2.0, abs=1e-9)
         np.testing.assert_allclose(np.asarray(newton.magnetic_field.driven()),
                                    np.asarray(mixed.magnetic_field.driven()), atol=1e-9)
-    else:
-        # **Stall levels, not convergence claims.** Newton does not reach the
-        # measure on the canted pair, so these differences are set by where it
-        # wanders, one sample each on one D22 core: raw totals 1.2e-10 and
-        # 2.5e-9 Ry (3.5e-10 and 8.4e-10 in the run with the field scaled),
-        # fields 1.6e-9 and 4.8e-9 Ry, site moments 1.5e-8 and 3.6e-7 mu_B.
-        # The bounds are about ten times those.
-        raw = {"atomic fsm": 5e-9, "atomic fsm direction": 3e-8}[case]
-        assert newton.total_energy == pytest.approx(mixed.total_energy, abs=raw)
+    elif case == "atomic fsm":
+        # Measured 7.0e-13 Ry at 63 outer steps, the fields 2.4e-12 Ry apart
+        # and Newton's site moments 2.7e-10 mu_B off their targets (the
+        # reference's 1.1e-12).
+        assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-11)
         np.testing.assert_allclose(np.asarray(newton.magnetic_field.driven()),
-                                   np.asarray(mixed.magnetic_field.driven()), atol=5e-8)
+                                   np.asarray(mixed.magnetic_field.driven()), atol=1e-10)
         np.testing.assert_allclose(np.asarray(newton.site_moments),
-                                   np.asarray(mixed.site_moments), atol=4e-6)
+                                   np.asarray(mixed.site_moments), atol=3e-9)
+    else:
+        # The reference has the floor here, not Newton: ``site_residuals``
+        # reads the angle as ``arccos`` of a cosine within one ulp of 1, so the
+        # loop stops 2.5e-8 mu_B off in the perpendicular moment and its raw
+        # total sits B . dm = 1.0e-9 Ry from its own energy at the target.
+        # Newton's raw total is that energy at the target (measured to the
+        # last printed digit, 1e-12, at 60 outer steps), so the raw totals
+        # differ by exactly the reference's offset; the field's 3.7e-9 Ry
+        # difference is the same floor. The site moments were not compared
+        # in the measurement and are not asserted.
+        offset = _energy_at_target(mixed) - mixed.total_energy
+        assert newton.total_energy - mixed.total_energy == pytest.approx(offset, abs=1e-11)
+        assert newton.total_energy == pytest.approx(_energy_at_target(mixed), abs=1e-11)
+        np.testing.assert_allclose(np.asarray(newton.magnetic_field.driven()),
+                                   np.asarray(mixed.magnetic_field.driven()), atol=2e-8)
 
 
 @pytest.mark.regression

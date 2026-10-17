@@ -26,6 +26,7 @@ Newton against the mixing loop, is ``tests/regression/test_scf_solvers.py``'s
 (both slow).
 """
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -334,3 +335,174 @@ def test_a_local_field_card_is_refused():
     )
     with pytest.raises(NotImplementedError, match="LOCAL_MAGNETIC_FIELDS"):
         make_residual(calculation, 8, 1e-10)
+
+
+_QE = Path(__file__).resolve().parents[1] / "data" / "qe"
+
+#: A Hubbard U on the iron 3d shell, as in the verifier's probes.
+_IRON_U = "HUBBARD {atomic}\nU Fe-3d 4.0\n"
+
+
+def _from_text(pseudo_dir, text):
+    from defuqumat.pseudo import read_upf
+
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(
+        read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
+    )
+    return Calculation(system, pseudos)
+
+
+def _canted(scheme=None):
+    """``fe2-canted-nosoc.in``, under a per-atom feedback scheme when given one."""
+    text = (_QE / "fe2-canted-nosoc.in").read_text()
+    if scheme is None:
+        return text
+    text = text.replace(
+        "    nosym = .true.\n",
+        f"    nosym = .true.\n    constrained_magnetization = '{scheme}'\n"
+        "    lambda = 0.02\n")
+    return text + "STARTING_MOMENTS\n  1.868 0 0\n  0 1.868 0\n"
+
+
+def _fe_fsm_tetrahedra():
+    return (_QE / "fe-fsm.in").read_text().replace(
+        "occupations = 'smearing', smearing = 'marzari-vanderbilt', degauss = 0.05",
+        "occupations = 'tetrahedra_opt'",
+    ).replace(
+        "K_POINTS\n 1\n   0.1875000  0.1875000  0.4375000   1.00",
+        "K_POINTS automatic\n 2 2 2 0 0 0",
+    )
+
+
+@pytest.mark.parametrize(
+    "case, match",
+    [
+        ("fsm-hubbard", "'fsm' with a Hubbard U is not yet checked"),
+        ("fsm-tetrahedra", "occupations = 'tetrahedra_opt' is not yet checked"),
+        ("fsm-gamma", "K_POINTS gamma"),
+        ("fsm-meta-gga", "under the meta-GGA"),
+        ("atomic-fsm-hubbard", "'atomic fsm' with a Hubbard U is not yet checked"),
+    ],
+)
+def test_a_feedback_field_beside_an_unmeasured_term_is_refused(pseudo_dir, case, match):
+    """``MEASURED_FEEDBACK`` keys on the scheme and ``noncolin`` only.
+
+    Each of these pairs got through it before (the verifier's probes on
+    ``fe-fsm.in`` and the canted pair): a Hubbard U, a tetrahedron
+    occupation, half-sphere storage and a meta-GGA, none of which either
+    measured cell carries. The gamma case is collinear and norm-conserving
+    with ``nosym``, the one way to reach half-sphere storage: a spinor or an
+    ultrasoft run at ``K_POINTS gamma`` is substituted to the full sphere at
+    input, which is an ordinary one-point k-set.
+    """
+    if case == "fsm-hubbard":
+        text = (_QE / "fe-fsm.in").read_text() + _IRON_U
+        calculation = _from_text(pseudo_dir, text)
+    elif case == "fsm-tetrahedra":
+        calculation = _from_text(pseudo_dir, _fe_fsm_tetrahedra())
+    elif case == "fsm-gamma":
+        text = _SILICON.format(extra=FSM + ", nosym = .true.").replace(
+            "K_POINTS automatic\n 2 2 2 0 0 0", "K_POINTS gamma")
+        calculation = _from_text(pseudo_dir, text)
+        assert calculation.system.kpoints.gamma_only
+    elif case == "fsm-meta-gga":
+        calculation = _calculation(pseudo_dir, FSM + ", input_dft = 'tb09'")
+    else:
+        calculation = _from_text(pseudo_dir, _canted("atomic fsm") + _IRON_U)
+    with pytest.raises(NotImplementedError, match=match):
+        make_residual(calculation, 16, 1e-10)
+
+
+def test_the_unmeasured_terms_pass_without_a_feedback_field(pseudo_dir):
+    """The converse: the same cells without the constraint still build a residual.
+
+    So the refusals above are keyed on the pair, not on the term alone.
+    """
+    text = (_QE / "fe-fsm.in").read_text().replace(
+        "    constrained_magnetization = 'fsm'\n", "")
+    residual = make_residual(_from_text(pseudo_dir, text + _IRON_U), 16, 1e-10)
+    assert residual.ns_shape is not None and residual.field_shape is None
+    tetra = _fe_fsm_tetrahedra().replace("    constrained_magnetization = 'fsm'\n", "")
+    assert make_residual(_from_text(pseudo_dir, tetra), 16, 1e-10).field_shape is None
+
+
+def test_a_noncollinear_hubbard_u_is_refused_with_or_without_a_field(pseudo_dir):
+    """A spinor ``ns`` is complex and ``ScfResidual.pack`` keeps its real part only.
+
+    So ``F`` is not the mixing loop's map for any noncollinear Hubbard run,
+    with or without a field (the spiral one was refused already, I72).
+    """
+    calculation = _from_text(pseudo_dir, _canted() + _IRON_U)
+    assert calculation.magnetic_field is None
+    assert np.iscomplexobj(np.asarray(calculation.starting_ns()))
+    with pytest.raises(NotImplementedError, match="noncollinear run with a Hubbard U"):
+        make_residual(calculation, 16, 1e-10)
+
+
+def _unconverged(scheme, converged=False):
+    return SimpleNamespace(
+        field=SimpleNamespace(constraint=scheme), converged=converged,
+        accuracy=6.5e-10, iterations=40, field_accuracy=6.48e-10,
+    )
+
+
+@pytest.mark.parametrize(
+    "scheme, tolerance",
+    [("fsm", "0.001 Bohr magnetons"), ("atomic fsm", "0.001 Bohr magnetons"),
+     ("atomic fsm direction", "0.1 degrees")],
+)
+def test_an_unconverged_hand_over_under_a_feedback_field_warns(scheme, tolerance):
+    """The guard that has to fire: Newton stopped short and the loop takes over.
+
+    The loop accepts the field at its own moment tolerance, so
+    ``SCFResult.converged`` would read True with the total off by the field
+    share; the warning names that share and the tolerance.
+    """
+    from defuqumat.scf.driver import _warn_unconverged_hand_over
+
+    with pytest.warns(RuntimeWarning, match="stopped without converging") as record:
+        _warn_unconverged_hand_over(_unconverged(scheme), 1e-11)
+    message = str(record[0].message)
+    assert "6.480e-10 Ry" in message and tolerance in message
+    assert repr(scheme) in message
+
+
+@pytest.mark.parametrize("converged, field", [(True, True), (False, False)])
+def test_the_hand_over_is_silent_when_newton_converged_or_has_no_field(converged, field):
+    """The converse: a converged solve, or one with no feedback field, says nothing."""
+    import warnings
+
+    from defuqumat.scf.driver import _warn_unconverged_hand_over
+
+    result = _unconverged("fsm", converged=converged)
+    if not field:
+        result.field = None
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        _warn_unconverged_hand_over(result, 1e-11)
+
+
+def test_run_scf_warns_when_newton_hands_over_short_under_a_feedback_field(pseudo_dir):
+    """The same guard from inside ``run_scf``: one Newton step cannot reach 1e-11.
+
+    The silicon cell under ``'fsm'``, Newton cut to one outer step and the
+    loop after it to two iterations, so the run costs a few diagonalisations;
+    what is asserted is only that the hand-over says so.
+    """
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import run_scf
+
+    calculation = _calculation(pseudo_dir, FSM)
+    system = calculation.system
+    pseudos = tuple(
+        read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species
+    )
+    with pytest.warns(RuntimeWarning, match="Newton-Krylov solver stopped without converging"):
+        result = run_scf(
+            system, pseudos, calculation=calculation, conv_thr=1e-11, max_iterations=2,
+            scf_solver="newton-krylov",
+            scf_solver_options={"max_iterations": 1, "gmres_maxiter": 2, "warmup": 0},
+        )
+    assert result.solver is not None and not result.solver.converged
+    assert result.solver.field_accuracy > 0.0

@@ -6891,6 +6891,48 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None,
     return True
 
 
+def _warn_unconverged_hand_over(solver_result, conv_thr) -> None:
+    """Say so when Newton stops short under a feedback field and the loop takes over.
+
+    The mixing loop after the solve stops when the density is below
+    ``conv_thr`` *and* the moment is within :data:`FSM_TOLERANCE` (mu_B) of its
+    target, :data:`FSM_ANGLE_TOLERANCE` (degrees) for ``'atomic fsm
+    direction'``. A Newton state handed over with the density converged and the
+    moment 1e-8 mu_B off passes both in one iteration, so ``SCFResult.converged``
+    reads True while the reported total, which leaves the Zeeman term out, is
+    off by about ``B . dm`` to first order: measured 1e-10 to 2.5e-9 Ry on the
+    canted iron pair at a budget of 40 outer steps, and 1.8e-11 Ry on
+    ``fe-fsm.in`` with the solver's default options (``notes/incompat/I73.md``,
+    "The feedback field"). The field share of the accuracy bounds that error,
+    so it is the number named. Silent when Newton converged or carried no
+    feedback field: without one the loop's own test is the density's, which is
+    ``conv_thr`` itself.
+    """
+    field = getattr(solver_result, "field", None)
+    if field is None or solver_result.converged:
+        return
+    scheme = field.constraint
+    tolerance = (f"{FSM_ANGLE_TOLERANCE} degrees" if scheme == "atomic fsm direction"
+                 else f"{FSM_TOLERANCE} Bohr magnetons")
+    share = float(getattr(solver_result, "field_accuracy", 0.0))
+    warnings.warn(
+        f"the Newton-Krylov solver stopped without converging under "
+        f"constrained_magnetization = {scheme!r}: accuracy = "
+        f"{float(solver_result.accuracy):.3e} Ry against conv_thr = {conv_thr:.3e} "
+        f"after {solver_result.iterations} outer steps, of which the feedback "
+        f"field's share |dm| (|B| + lambda |dm|) is {share:.3e} Ry. The mixing loop "
+        f"takes over and accepts the field once the moment is within {tolerance} "
+        "of its target, so SCFResult.converged can read True while the total "
+        f"energy is off by up to about {share:.1e} Ry (it leaves the Zeeman term "
+        "out, and B . dm is its first-order error). Raise "
+        "scf_solver_options['max_iterations'] (the canted iron pair needed 60 to "
+        "63 outer steps at conv_thr = 1e-11 with forcing 0.5 and warmup 6), or use "
+        "the mixing loop (scf_solver='mixing')",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 def _solve_residual(
     calculation, system, nbnd, rho, becsum_, ns_, conv_thr,
     scf_solver, options, mixing_beta, verbose, tau_=None, fit_in_rho_ddot=None,
@@ -7006,6 +7048,8 @@ def _solve_residual_body(
     shape = residual.shapes[0]
     size = int(np.prod(shape))
 
+    last_field_share = [0.0]
+
     def accuracy_of(r, x):
         """The mixing loop's own convergence measure, so ``conv_thr`` means one
         thing in this file.
@@ -7053,8 +7097,13 @@ def _solve_residual_body(
         # The feedback field's share, ``|dm| (|B| + tau |dm|)`` with ``B``
         # the field ``x`` holds (I73): a bound on the first-order error of the
         # reported total, which leaves the Zeeman term out. Zero without a
-        # feedback scheme. Last, as the field is last in the state.
-        return float(accuracy) + residual.field_accuracy(r, x)
+        # feedback scheme. Last, as the field is last in the state. The last
+        # value is kept: ``newton_krylov`` calls this on each accepted state and
+        # on nothing else, so it is the share at the state it returns, which
+        # ``run_scf`` names when an unconverged solve is handed over.
+        field_share = residual.field_accuracy(r, x)
+        last_field_share[0] = field_share
+        return float(accuracy) + field_share
 
     if warmup:
         # Ordinary mixing, run through the *residual's* own step so that the
@@ -7144,6 +7193,7 @@ def _solve_residual_body(
         precondition=precondition, verbose=verbose, **options,
     )
     result.field = residual.field_at(result.x)
+    result.field_accuracy = float(last_field_share[0])
     rho_out, becsum_out, ns_out, tau_out = residual.unpack(result.x)
     return rho_out, becsum_out, ns_out, tau_out, result.psi, result
 
@@ -8813,6 +8863,7 @@ def run_scf(
             # loop carries on from it; handed the input's field instead, it
             # would drive the field again from where it started.
             field = solver_result.field
+            _warn_unconverged_hand_over(solver_result, conv_thr)
         # The density is converged, so the eigenvalues must be too: the loose
         # start of the ``ethr`` schedule would otherwise throw the hand-off away
         # on the very first diagonalisation.
