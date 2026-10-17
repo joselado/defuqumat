@@ -288,15 +288,36 @@ ground state then give an error, because they need a converged density.
     default `"finite-difference"` Jacobian and with `"autodiff"`. On
     `al-tetrahedra.in` it gives the total energy of `pw.x` to 3e-9 Ry. With
     k-point pools these two occupations give an error, because we have not
-    checked them there. The Newton solver also runs with a uniform magnetic field
-    (`B_field`) in a collinear run, and with a constrained moment of the kind
-    `atomic`, `atomic direction` or `total` in a noncollinear run. It gives an
-    error for `fsm`, `atomic fsm` and `atomic fsm direction`, and for `reducebf`
-    below 1, because in these cases the field changes from one iteration to the
-    next. It also gives an error for `total direction`, `atomic texture`, a
+    checked them there. The Newton solver also runs with a uniform magnetic
+    field (`B_field`) in a collinear run, and with a constrained moment of the
+    kind `atomic`, `atomic direction` or `total` in a noncollinear run. The
+    Newton solver also runs with the field schemes `fsm` in a collinear run, and
+    `atomic fsm` and `atomic fsm direction` in a noncollinear run. Here the
+    field is solved together with the density. The solver stops when the field
+    times the moment error is below `conv_thr`. This is the error of the total
+    energy, which does not contain the field energy. We measured it with
+    `scf_solver_options={"forcing": 0.5, "warmup": 6, "max_iterations": 80}` at
+    `conv_thr = 1e-11`. On `fe-fsm.in` it stops after 39 steps, and the total
+    energy agrees with the mixing loop to 8e-13 Ry. On a canted iron pair with 8
+    k-points it needs 63 steps (`atomic fsm`) and 60 steps (`atomic fsm
+    direction`). The total energy then agrees with the mixing loop to 7e-13 Ry,
+    or to the mixing loop's own error of 1e-9 Ry for `atomic fsm direction`.
+    This takes 3 to 5 times the time of the mixing loop. We did not measure the
+    default options of the Newton solver here. With 40 steps or with the
+    defaults the solver can stop before it converges. The mixing loop then takes
+    over and accepts the moment to 1e-3 Bohr magnetons, so the run reports
+    converged while the total energy can be off by 1e-11 to 3e-9 Ry. The code
+    warns when this happens. With `fsm_update = 'secant'`, with `fsm` in a
+    noncollinear run, with k-point pools, and together with a Hubbard $U$, a
+    meta-GGA, tetrahedra or `from_input` occupations, or `K_POINTS gamma`, it
+    gives an error. It also gives an error for `reducebf` below 1, because there
+    the field goes to zero, so the solver would solve the problem without the
+    field. It also gives an error for `total direction`, `atomic texture`, a
     `LOCAL_MAGNETIC_FIELDS` card, a uniform field in a noncollinear run, a
     constrained moment in a collinear run, and `"jvp": "autodiff"` with any
-    field, because these are not checked yet.
+    field, because these are not checked yet.  The Newton solver gives an error
+    for a Hubbard $U$ in a noncollinear run, with or without a field. There the
+    occupation matrix is complex, and the solver keeps only its real part.
 
 The notebooks for this page are
 [02, silicon](https://github.com/joselado/defuqumat/blob/master/notebooks/02_silicon_scf_and_bands.ipynb)

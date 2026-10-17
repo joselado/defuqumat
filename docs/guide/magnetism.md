@@ -324,14 +324,18 @@ what we read is the torque on each site.
     The field schemes `'fsm'`, `'atomic fsm'` and `'atomic fsm direction'`
     together with `lspinorb = .true.` give an error, because the search updates
     each Cartesian component of the field from the same component of the moment,
-    and spin-orbit coupling couples the components. So there you use `'total'` or
-    `'atomic'`. These three schemes with `reducebf` below 1 also give an error.
-    `'atomic fsm'` and `'atomic fsm direction'` need `noncolin = .true.` and a
-    `STARTING_MOMENTS` card, and they cannot be used together with a
-    `LOCAL_MAGNETIC_FIELDS` card. `'atomic fsm direction'` gives an error for a
-    zero row in the card. With these two schemes and `fsm_update = 'elk'`, the default, the
-    code warns unless `mixing_mode = 'adaptive'`, because the other mixers run
-    away. `mixing_mode = 'adaptive'` with `mixing_beta = 0.05` is what Elk uses.
+    and spin-orbit coupling couples the components. So there you use `'total'`
+    or `'atomic'`. These three schemes with `reducebf` below 1 also give an
+    error. The Newton solver (`scf_solver = 'newton-krylov'`) runs with these
+    three schemes, with the limits listed on the ground-state page. On a canted
+    pair it needs about 60 steps, so give it
+    `scf_solver_options={"max_iterations": 80}`. `'atomic fsm'` and `'atomic fsm
+    direction'` need `noncolin = .true.` and a `STARTING_MOMENTS` card, and they
+    cannot be used together with a `LOCAL_MAGNETIC_FIELDS` card. `'atomic fsm
+    direction'` gives an error for a zero row in the card. With these two
+    schemes and `fsm_update = 'elk'`, the default, the code warns unless
+    `mixing_mode = 'adaptive'`, because the other mixers run away. `mixing_mode
+    = 'adaptive'` with `mixing_beta = 0.05` is what Elk uses.
 
     In a collinear run, a symmetry operation that reverses every moment is a
     symmetry only when combined with time reversal. The code drops these
