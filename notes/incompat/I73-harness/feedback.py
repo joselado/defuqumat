@@ -123,6 +123,8 @@ def show(tag, r, t0):
               f"steps={s.steps} jvps={s.jvps}", flush=True)
         tail = [f"{h['accuracy']:.2e}" for h in s.history[-8:]]
         print(f"   newton accuracy, last outer steps: {' '.join(tail)}", flush=True)
+        norms = [f"{h['norm']:.2e}" for h in s.history[-8:] if "norm" in h]
+        print(f"   newton |r|_2, last outer steps: {' '.join(norms)}", flush=True)
 
 
 real_elk = fields_module.MagneticField.elk_driven

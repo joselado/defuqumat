@@ -330,7 +330,8 @@ def newton_krylov(
         accuracy = float(accuracy_of(r, x))
         converged = accuracy < conv_thr
         history.append(
-            {"iteration": iteration, "accuracy": accuracy, "step": taken,
+            {"iteration": iteration, "accuracy": accuracy, "norm": float(np.linalg.norm(r)),
+             "step": taken,
              "gmres": info, "steps": counters["steps"], "jvps": counters["jvps"],
              "seconds": time.perf_counter() - started}
         )
