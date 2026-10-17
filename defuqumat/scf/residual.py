@@ -260,22 +260,33 @@ class ScfResidual:
         n = int(np.prod(self.field_shape))
         return jnp.asarray(x)[self.size - n:].reshape(self.field_shape)
 
-    def field_accuracy(self, r) -> float:
+    def field_accuracy(self, r, x) -> float:
         """The feedback field's share of the convergence measure, in Ry.
 
-        The field rows of ``r`` are ``-tau (m - m_fix)``, so ``|r_B|^2 / tau``
-        is ``tau |m - m_fix|^2``: a field in Ry times a moment in mu_B, a
-        Rydberg number like ``rho_ddot``, so ``conv_thr`` keeps meaning one
-        thing. Without it a solver would stop wherever the density is
-        self-consistent at the field it holds, which it is at any field. At
-        ``conv_thr = 1e-11`` and the default gain 0.02 it pins the moment to
-        2e-5 mu_B, where the loop's own test (``FSM_TOLERANCE``) is 1e-3.
+        ``|dm| (|B| + tau |dm|)``, with ``B`` the field ``x`` holds and ``dm =
+        m - m_fix`` read off the field rows of ``r``, which are ``-tau dm``;
+        both norms are over the whole driven leaf (every atom and component).
+        The reported total leaves out the Zeeman term and along the
+        constrained family ``dE/dm = B``, so a state that stopped ``dm`` off
+        its target reads ``B . dm`` off in the total, first order, and
+        ``|B . dm| <= |B| |dm|``: the first term bounds that error in the
+        quantity ``conv_thr`` is a statement about (the user's decision,
+        2026-10-17). The second, ``tau |dm|^2``, is the field's step to the
+        target, ``|B - B'|`` with ``B' = B - tau dm`` Elk's update, times
+        ``|dm|``, so the sum bounds ``|B'| |dm|`` and stays above zero at
+        ``B = 0``, where ``|B| |dm|`` alone would pass a state converged in
+        the density at no field and any moment. At ``conv_thr = 1e-11`` and
+        the 1.1e-2 Ry field of ``fe-fsm.in`` it holds the moment to 1e-9
+        mu_B, where the loop's own test (``FSM_TOLERANCE``) is 1e-3.
         Zero without a feedback scheme. Host-side, never traced.
         """
         if self.field_shape is None:
             return 0.0
-        rows = np.asarray(self.unpack_field(r), dtype=float)
-        return float(np.sum(rows**2)) / float(self.feedback_field.penalty)
+        tau = float(self.feedback_field.penalty)
+        moment_error = float(np.linalg.norm(
+            np.asarray(self.unpack_field(r), dtype=float))) / tau
+        field = float(np.linalg.norm(np.asarray(self.unpack_field(x), dtype=float)))
+        return moment_error * (field + tau * moment_error)
 
     def field_at(self, x):
         """The :class:`MagneticField` whose driven leaf is ``x``'s, or ``None``."""

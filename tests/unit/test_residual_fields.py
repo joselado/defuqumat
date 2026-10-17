@@ -127,15 +127,26 @@ def test_the_field_rows_count_towards_convergence(pseudo_dir):
 
     Such a state is self-consistent at the field it holds and is not the
     constrained one; a convergence measure that read the density alone would
-    pass it. The share is ``tau |m - m_fix|^2`` with ``r_B = -tau (m - m_fix)``.
+    pass it. The share is ``|dm| (|B| + tau |dm|)`` with ``r_B = -tau dm``
+    and ``B`` the field the state holds, so it fires at ``B = 0`` too, where
+    ``|B| |dm|`` alone would read zero for any moment.
     """
     calculation = _calculation(pseudo_dir, FSM)
     residual = make_residual(calculation, 8, 1e-10)
+    rho = calculation.starting_density()
+    becsum_ = calculation.starting_becsum()
+    held = residual.pack(rho, becsum_, driven=np.full(residual.field_shape, -0.011))
+    bare = residual.pack(rho, becsum_, driven=np.zeros(residual.field_shape))
     r = np.zeros(residual.size)
-    assert residual.field_accuracy(r) == 0.0
+    assert residual.field_accuracy(r, held) == 0.0
     r[-1] = -0.02 * 1e-3      # a moment 1e-3 mu_B off its target
-    assert residual.field_accuracy(r) == pytest.approx(0.02 * 1e-6, rel=1e-12)
-    assert residual.field_accuracy(r) > 1e-11
+    assert residual.field_accuracy(r, held) == pytest.approx(
+        1e-3 * (0.011 + 0.02 * 1e-3), rel=1e-12)
+    assert residual.field_accuracy(r, bare) == pytest.approx(0.02 * 1e-6, rel=1e-12)
+    assert residual.field_accuracy(r, bare) > 1e-11
+    r[-1] = -0.02 * 1e-9      # 1e-9 mu_B off: B dm = 1.1e-11 Ry
+    assert residual.field_accuracy(r, held) > 1e-11
+    assert residual.field_accuracy(r, bare) < 1e-11
 
 
 def test_no_field_rows_without_a_feedback_scheme(pseudo_dir):
@@ -143,7 +154,7 @@ def test_no_field_rows_without_a_feedback_scheme(pseudo_dir):
     residual = make_residual(calculation, 8, 1e-10)
     assert residual.field_shape is None and residual.feedback_field is None
     assert residual.unpack_field(np.zeros(residual.size)) is None
-    assert residual.field_accuracy(np.ones(residual.size)) == 0.0
+    assert residual.field_accuracy(np.ones(residual.size), np.ones(residual.size)) == 0.0
 
 
 @pytest.mark.parametrize(

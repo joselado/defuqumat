@@ -82,6 +82,20 @@ def at_target(r):
     return float(r.total_energy + np.sum(b * (targets - m)))
 
 
+def moment_error(r):
+    """m - m_fix on the driven leaf, the moment the field is driven against."""
+    field = r.magnetic_field
+    targets = np.asarray(field.targets, dtype=float)
+    if field.driven_leaf == "atomic":
+        m = np.asarray(r.site_moments, dtype=float)
+        if field.constraint == "atomic fsm direction":
+            # Only the part perpendicular to each target is driven.
+            hats = targets / np.linalg.norm(targets, axis=-1, keepdims=True)
+            return m - np.sum(m * hats, axis=-1, keepdims=True) * hats
+        return m - targets
+    return np.atleast_1d(moment(r)) - targets
+
+
 def show(tag, r, t0):
     s = r.solver
     field = r.magnetic_field
@@ -100,9 +114,15 @@ def show(tag, r, t0):
     if driven is not None:
         print(f"   driven_field={driven.tolist()}", flush=True)
         print(f"   E at target = {at_target(r):.12f}", flush=True)
+        dm = moment_error(r)
+        print(f"   own offset: B.(m_fix - m) = {at_target(r) - r.total_energy:.3e} Ry  "
+              f"|dm| = {np.linalg.norm(dm):.3e} mu_B  "
+              f"|B||dm| = {np.linalg.norm(driven) * np.linalg.norm(dm):.3e} Ry", flush=True)
     if s is not None:
         print(f"   newton conv={s.converged} acc={s.accuracy:.3e} outer={s.iterations} "
               f"steps={s.steps} jvps={s.jvps}", flush=True)
+        tail = [f"{h['accuracy']:.2e}" for h in s.history[-8:]]
+        print(f"   newton accuracy, last outer steps: {' '.join(tail)}", flush=True)
 
 
 real_elk = fields_module.MagneticField.elk_driven

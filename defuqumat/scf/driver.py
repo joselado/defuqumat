@@ -7006,7 +7006,7 @@ def _solve_residual_body(
     shape = residual.shapes[0]
     size = int(np.prod(shape))
 
-    def accuracy_of(r):
+    def accuracy_of(r, x):
         """The mixing loop's own convergence measure, so ``conv_thr`` means one
         thing in this file.
 
@@ -7050,9 +7050,11 @@ def _solve_residual_body(
                 jnp.asarray(residual.unpack(r)[3]),
                 calculation.basis.dense, calculation.system.cell,
             )
-        # The feedback field's share, ``tau |m - m_fix|^2`` (I73); zero
-        # without a feedback scheme. Last, as the field is last in the state.
-        return float(accuracy) + residual.field_accuracy(r)
+        # The feedback field's share, ``|dm| (|B| + tau |dm|)`` with ``B``
+        # the field ``x`` holds (I73): a bound on the first-order error of the
+        # reported total, which leaves the Zeeman term out. Zero without a
+        # feedback scheme. Last, as the field is last in the state.
+        return float(accuracy) + residual.field_accuracy(r, x)
 
     if warmup:
         # Ordinary mixing, run through the *residual's* own step so that the
