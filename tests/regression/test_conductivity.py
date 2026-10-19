@@ -344,6 +344,9 @@ def test_the_tetrahedron_drude_term_is_the_degauss_to_zero_limit_of_the_smeared_
         wp = np.asarray(sigma.plasma_ev)
         assert np.max(np.abs(wp - np.diag(np.diag(wp)))) < 1e-3
         assert float(np.real(sigma.intraband[0, 0, 0])) > 0.0  # wp^2 > 0
+        # seven 48^3 runs in one test: the harness that measured them under
+        # D22's 6 GB cap cleared the compiled code after each one
+        jax.clear_caches()
         return float(wp[0, 0]) ** 2
 
     tolerance = 0.05  # eV
