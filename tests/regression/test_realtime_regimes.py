@@ -433,13 +433,15 @@ KSET_OFF_GAMMA = (np.array([[0.1, 0.05, 0.02], [0.25, 0.1, -0.05]]), np.array([0
 def test_the_first_order_with_a_hubbard_u_is_the_kubo_sum_plus_the_band_curvature(pseudo_dir):
     """:func:`hubbard_identity` at ``dt = 0.05``, ``eta = 0.02`` Hartree, atomic projectors.
 
-    The tolerance is the converged number's (``notes/incompat/I100.md``): the
-    discrepancy falls with ``dt`` as the fourth-order step predicts to a floor
-    set by the window and the curvature's stencil, and holding the Hubbard
-    projectors at ``kappa = 0`` reads far above it.
+    The tolerance is the converged number's (``notes/incompat/I100.md``,
+    D22): 8.125e-7, 8.075e-7 and 8.073e-7 at ``dt`` = 0.1, 0.05 and 0.025, the
+    step's share falling 25x on a halving (fourth order) to a floor that
+    ``eta`` = 0.05 leaves at 8.6e-7. Holding the Hubbard projectors at
+    ``kappa = 0`` reads 0.90, and dropping the term from the propagation, the
+    driver as it was found, 0.69.
     """
     assert hubbard_identity(pseudo_dir, dt=0.05) < HUBBARD_IDENTITY_TOLERANCE
 
 
-#: Set from the D22 measurement in ``notes/incompat/I100.md``.
-HUBBARD_IDENTITY_TOLERANCE = 5e-5
+#: 2.5 times the converged floor, 8.07e-7 (``notes/incompat/I100.md``).
+HUBBARD_IDENTITY_TOLERANCE = 2e-6
