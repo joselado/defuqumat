@@ -132,5 +132,70 @@ def test_the_augmented_update_is_a_fixed_point_and_conserves_its_energy(pseudo_d
     assert np.ptp(run(0.01).energy) > 1e-4, "without the term the energy is not conserved"
 
 
-# The shift's measured values and their convergence are filled in from the D22
-# runs of notes/incompat/I98.md.
+def _shift(pseudo_dir, tmp_path, case, monkeypatch, dual):
+    """``(hxc - frozen, full - none)``: the kick's local-field shift of ``eps(i eta)`` and the static one.
+
+    2x2x2 unshifted at 12 Ry, ``conv_thr = 1e-12``, a kick of 1e-3/bohr along x,
+    ``dt = 0.2``, 22/(0.2 eV) of propagation, ``eps`` read at ``eta = 0.4`` eV
+    without the static part of ``J`` removed. For PAW ``screening = 'none'``
+    still carries ``PAW_dpotential``, so it is taken with ``paw_response`` set to
+    zero, the independent-particle response the frozen propagation computes.
+    """
+    import defuqumat.response.efield as efield
+
+    path = _input(tmp_path, case, 12.0, dual, mesh="2 2 2 0 0 0")
+    calc = Calculator.from_file(path, pseudo_dir=pseudo_dir, announce=False, conv_thr=1e-12)
+    calc.get_scf()
+    full = float(calc.get_dielectric_tensor(screening="full", born_charges=False,
+                                            threshold=1e-14).epsilon[0, 0])
+    if calc.calculation.is_paw:
+        original = efield.paw_response
+        monkeypatch.setattr(efield, "paw_response",
+                            lambda c, d, b: jnp.zeros_like(original(c, d, b)))
+    none = float(calc.get_dielectric_tensor(screening="none", born_charges=False,
+                                            threshold=1e-14).epsilon[0, 0])
+    monkeypatch.undo()
+    kappa, direction = 1e-3, (1.0, 0.0, 0.0)
+    eps = {}
+    for potential in ("frozen", "hxc"):
+        run = calc.get_realtime(Kick(strength=kappa, direction=direction), dt=0.2, start=0.0,
+                                duration=22.0 / (0.2 * EV_TO_HA), potential=potential,
+                                block_steps=500)
+        eps[potential] = complex(conductivity_from_kick(
+            run.times, run.current, kappa, direction, [0.0], 0.4 * EV_TO_HA).epsilon[0, 0])
+    return eps["hxc"].real - eps["frozen"].real, full - none
+
+
+@pytest.mark.parametrize("case", ["si-epsilon-us", "si-epsilon-paw"])
+def test_the_local_field_shift_of_a_kick_is_the_sternheimer_one(pseudo_dir, tmp_path, case,
+                                                                monkeypatch):
+    """The augmented shift misses the static one by what the norm-conserving shift misses.
+
+    ``eps_hxc(i eta) - eps_frozen(i eta)`` against ``get_dielectric_tensor``'s
+    ``'full'`` less ``'none'``, measured on D22 (``notes/incompat/I98.md``):
+
+    =========  ==============  ==============  =====================
+    2x2x2      kick shift      static shift    relative residual
+    =========  ==============  ==============  =====================
+    ultrasoft  -3.18656        -3.31521        -3.88e-2
+    PAW        -3.29523        -3.42789        -3.87e-2
+    NC         -2.40127        -2.49258        -3.66e-2
+    =========  ==============  ==============  =====================
+
+    The residual is the kick route's on a coarse mesh, the same within 0.2
+    points for the three datasets, and it does not move with ``dt`` (0.1 reads
+    -3.86e-2 and -3.84e-2) or with ``eta`` (0.2 eV reads -3.86e-2 and
+    -3.76e-2). It falls with the k-mesh, the convergence parameter: on 4x4x4
+    (8 points) ultrasoft reads -1.03001 against -1.05207 (-2.10e-2) and the
+    norm-conserving control -0.86662 against -0.88344 (-1.90e-2), at 0.2 eV
+    -1.65e-2 and -1.67e-2. With the augmentation charge of
+    ``rho(t)`` held at the ground state's ``becsum`` (the term the refusal named,
+    switched off) the residual is +1.64e-1 and +1.54e-1, so the test asks that
+    the augmented residual sits within 1e-2 of the norm-conserving one.
+    """
+    shift, static = _shift(pseudo_dir, tmp_path, case, monkeypatch, 8.0)
+    control, control_static = _shift(pseudo_dir, tmp_path, "si-epsilon-unshifted",
+                                     monkeypatch, 4.0)
+    residual, control_residual = shift / static - 1.0, control / control_static - 1.0
+    assert abs(residual) < 5e-2, (shift, static)
+    assert abs(residual - control_residual) < 1e-2, (residual, control_residual)
