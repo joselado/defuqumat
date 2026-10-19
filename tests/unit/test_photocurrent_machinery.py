@@ -191,13 +191,14 @@ def test_the_generalized_derivative_is_hermitian_in_the_band_pair():
 
 
 class _Stub:
-    """The four attributes :func:`require_a_shift_current_regime` reads.
+    """The five attributes :func:`require_a_shift_current_regime` reads.
 
     A stand-in and not a :class:`~defuqumat.scf.driver.Calculation`, because the
-    branch under test is unreachable from any committed input: every DFT+U case
-    in this suite uses an ultrasoft dataset, so the ultrasoft refusal fires
-    first and the Hubbard message is never seen. The guard is four independent
-    conditions on four flags, and this checks the one a crystal cannot reach.
+    branches under test are cheap to reach this way and expensive otherwise.
+    Since ``notes/incompat/I92.md`` a norm-conserving collinear DFT+U run passes
+    (``alas-ldau.in`` is the cell it was measured on); what is still refused is
+    DFT+U beside a noncollinear run and, for the second-harmonic tensor that
+    reaches it, beside an augmented dataset.
     """
 
     class _System:
@@ -213,6 +214,7 @@ class _Stub:
         self.is_paw = flags.get("paw", False)
         self.is_hubbard = flags.get("hubbard", False)
         self.spiral = flags.get("spiral", False)
+        self.noncolin = flags.get("noncolin", False)
         self.system = self._System()
 
 
@@ -222,13 +224,38 @@ class _Stub:
         ({"ultrasoft": True}, "ultrasoft or PAW"),
         ({"paw": True}, "ultrasoft or PAW"),
         ({"spiral": True}, "spin spiral"),
-        ({"hubbard": True}, r"DFT\+U"),
+        ({"hubbard": True, "noncolin": True}, r"noncollinear DFT\+U"),
     ],
 )
 def test_each_refusal_names_its_own_missing_term(flags, message):
     """Four flags, four refusals, each naming what it lacks rather than failing late."""
     with pytest.raises(NotImplementedError, match=message):
         require_a_shift_current_regime(_Stub(**flags))
+
+
+def test_an_augmented_dft_plus_u_second_harmonic_is_still_refused():
+    """The sibling the shift current cannot reach: its dataset clause fires first.
+
+    The second-harmonic tensor admits an ultrasoft or PAW dataset (P99), so the
+    Hubbard clause for an augmented dataset is reached only through its guard,
+    and that is where it is checked. ``notes/incompat/I92.md``.
+    """
+    from defuqumat.response.shg import require_an_shg_regime
+
+    with pytest.raises(NotImplementedError,
+                       match=r"second-harmonic generation of a DFT\+U calculation "
+                             r"with an ultrasoft or PAW"):
+        require_an_shg_regime(_Stub(hubbard=True, ultrasoft=True))
+    # The same dataset with no U passes, so the refusal is the Hubbard clause's.
+    require_an_shg_regime(_Stub(ultrasoft=True))
+
+
+def test_a_norm_conserving_collinear_dft_plus_u_run_is_not_refused():
+    """Lifted (``notes/incompat/I92.md``): both guards pass a plain DFT+U run."""
+    from defuqumat.response.shg import require_an_shg_regime
+
+    require_a_shift_current_regime(_Stub(hubbard=True))
+    require_an_shg_regime(_Stub(hubbard=True))
 
 
 def test_a_regime_the_assembly_covers_is_not_refused():

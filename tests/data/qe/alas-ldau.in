@@ -1,0 +1,34 @@
+! AlAs (alas-raman.in, same cell, cutoff, closed 4x4x4 grid and nosym) with a
+! Hubbard U of 3 eV on the arsenic 4p shell: the norm-conserving, gapped,
+! fixed-occupation DFT+U cell the shift current and second-harmonic tensor are
+! checked on (notes/incompat/I92.md). Every other committed DFT+U input uses an
+! ultrasoft dataset or smears its occupations, and both are refused by these
+! two assemblies for reasons of their own, so the Hubbard branch had no cell.
+!
+! The U is on the anion p shell because that is the valence top: the term then
+! moves the bands the optical edge is made of, and the Hubbard velocity is not
+! a correction to states that carry no weight on the projectors.
+ &control
+    calculation = 'scf'
+    prefix = 'alas'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.575, nat = 2, ntyp = 2,
+    ecutwfc = 10.0
+    nosym = .true.
+    noinv = .true.
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al  26.98  Al.pz-vbc.UPF
+ As  74.92  As.pz-bhs.UPF
+ATOMIC_POSITIONS (alat)
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 4 4 4 0 0 0
+HUBBARD {atomic}
+U As-4p 3.0

@@ -121,8 +121,9 @@ Scope
 
 Norm-conserving; ``nspin = 1``, a collinear ``nspin = 2`` (whose two channels
 add) or a spinor run; an **insulator** with fixed
-occupations, on a k-grid closed under the point group. Refused by name, each
-for its own missing term, in :func:`require_a_shift_current_regime`.
+occupations, on a k-grid closed under the point group. DFT+U on a collinear
+run, with the converged ``ns`` passed (``notes/incompat/I92.md``). Refused by
+name, each for its own missing term, in :func:`require_a_shift_current_regime`.
 
 **The k axis is walked a chunk at a time** (:mod:`defuqumat.response.walk`): a
 chunk's states cross to the device, its first and second velocity matrix
@@ -530,6 +531,7 @@ def shift_current(
     k_batch: int | None | str = "default",
     degeneracy_tol: float | None = None,
     cut_tol: float | None = None,
+    ns=None,
 ) -> ShiftCurrent:
     """``sigma^abc(0; w, -w)``, the shift-current tensor, in A/V^2.
 
@@ -557,6 +559,11 @@ def shift_current(
             broadening cannot resolve is a multiplet as far as the spectrum is
             concerned, and a multiplet's individual matrix elements are not
             defined (rule D4).
+        ns: the converged Hubbard occupation matrix (``SCFResult.ns``), which
+            a DFT+U run needs and nothing else takes: ``wfcU(k+G)`` moves with
+            ``k``, so the Hubbard term carries a velocity and a second velocity
+            of its own, and :class:`~defuqumat.response.velocity.
+            VelocityOperator` builds both from it.
 
     The frequency axis carries ``hbar omega`` in Ry, so a visible-light photon
     is around 0.15-0.25.
@@ -599,7 +606,7 @@ def shift_current(
     # Built on the whole set for its refusals and for the point it
     # differentiates around; each chunk's operator is handed its rows of
     # ``kcart`` (:mod:`defuqumat.response.walk`).
-    kcart = np.asarray(VelocityOperator(calculation, v_scf).kcart)
+    kcart = np.asarray(VelocityOperator(calculation, v_scf, ns=ns).kcart)
 
     wg, _ = calculation.occupations(eigenvalues)
     wg = jnp.asarray(wg)  # (nspin, nk, nbnd)
@@ -646,14 +653,14 @@ def shift_current(
 
     def first_of(rowset, psi, kcart):
         """One chunk's ``<m|dH/dk_a|n>``, ``(3, nspin, chunk, nbnd, nbnd)``."""
-        velocity = VelocityOperator(with_rows(calculation, rowset), v_scf, kcart=kcart,
-                                    local_terms=terms)
+        velocity = VelocityOperator(with_rows(calculation, rowset), v_scf, ns=ns,
+                                    kcart=kcart, local_terms=terms)
         return velocity.matrix_elements(psi, sequential=True)
 
     def second_of(v, rowset, psi, kcart):
         """One chunk's ``<m|d2H/dk_a dk_b|n>``, ``(3, 3, nspin, chunk, nbnd, nbnd)``."""
-        velocity = VelocityOperator(with_rows(calculation, rowset), v_scf, kcart=kcart,
-                                    local_terms=terms)
+        velocity = VelocityOperator(with_rows(calculation, rowset), v_scf, ns=ns,
+                                    kcart=kcart, local_terms=terms)
         return velocity.second_matrix_elements(psi, sequential=True)
 
     def contraction(bands: int, position: int):
@@ -774,15 +781,7 @@ def require_a_velocity_sum_regime(calculation) -> None:
     # are still refused there.
     wedge(calculation, "the shift current")
     if calculation.is_hubbard:
-        raise NotImplementedError(
-            "the shift current of a DFT+U calculation is not implemented: the "
-            "Hubbard term is another separable operator built from wfcU(k+G), "
-            "so it carries a velocity and a second velocity of its own, and "
-            "both would have to be threaded through with the converged ns. "
-            "Nothing here has been validated against a Hubbard dH/dk^2. It is "
-            "refused rather than left to surface as VelocityOperator's request "
-            "for an ns this entry point has no way to pass it"
-        )
+        _require_a_checked_hubbard_velocity(calculation)
     scheme = str(getattr(calculation.system, "occupations", "fixed")).lower()
     if scheme != "fixed":
         raise NotImplementedError(
@@ -794,6 +793,51 @@ def require_a_velocity_sum_regime(calculation) -> None:
             "The Fermi-surface terms that replace them (an injection current, "
             "and the intraband part of the shift) are a different assembly. "
             "Use occupations = 'fixed'"
+        )
+
+
+def _require_a_checked_hubbard_velocity(calculation) -> None:
+    """The DFT+U regimes whose Hubbard velocity has not been measured.
+
+    **Lifted for a norm-conserving collinear run** (``notes/incompat/I92.md``).
+    The refusal named the Hubbard velocity and second velocity as missing, and
+    neither was: :class:`~defuqumat.response.velocity.VelocityOperator`
+    differentiates ``calculation.hamiltonian`` with the converged ``ns`` through
+    :meth:`~defuqumat.scf.driver.Calculation.at_kcart`, which rebuilds
+    ``wfcU(k+G)`` from the traced ``k``, so ``dH/dk`` and ``d^2H/dk^2`` carry
+    the term already. What was missing was the ``ns`` argument on the two
+    assemblies and their entry points, and a measurement: on ``alas-ldau.in``
+    at a generic k-point, both derivatives against a frozen-sphere central
+    difference of ``H(k)`` with the Hubbard term in it, falling as ``h^2``, for
+    all three projector kinds (``tests/unit/test_hubbard_velocity.py``).
+
+    Two regimes stay refused because nothing measured them:
+
+    * an **ultrasoft or PAW** dataset, which only the second-harmonic tensor
+      reaches (the shift current refuses the dataset first). There
+      ``wfcU = S phi`` (or ``O^{-1/2} S phi``), so ``dS/dk`` enters the
+      Hubbard projector itself, and the tensor needs the generalised velocity
+      on top; the operator identity was not run on such a cell;
+    * a **noncollinear** run, whose spinor ``wfcU`` is built by a different
+      routine (the averaged ``j`` channels) that the check did not cover.
+    """
+    if calculation.is_ultrasoft or calculation.is_paw:
+        raise NotImplementedError(
+            "the shift current of a DFT+U calculation with an ultrasoft or PAW "
+            "dataset is not implemented: the Hubbard projector is S phi there, "
+            "so dS/dk enters wfcU(k+G) beside the orbitals' own k-dependence, "
+            "and the Hubbard velocity and second velocity have been measured "
+            "against a finite difference of H(k) on a norm-conserving cell only "
+            "(notes/incompat/I92.md). Use a norm-conserving dataset"
+        )
+    if getattr(calculation, "noncolin", False):
+        raise NotImplementedError(
+            "the shift current of a noncollinear DFT+U calculation is not "
+            "implemented: the spinor Hubbard projectors are built from the "
+            "averaged j = l +- 1/2 orbitals by a routine of their own, and the "
+            "Hubbard velocity and second velocity have been measured against a "
+            "finite difference of H(k) for a collinear run only "
+            "(notes/incompat/I92.md)"
         )
 
 
