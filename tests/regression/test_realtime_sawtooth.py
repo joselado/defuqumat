@@ -1,7 +1,8 @@
 """Real-time propagation of a saw-tooth (``tefield``) ground state, at a frozen potential.
 
 ``tests/data/qe/h2-box-tefield.in``: H2 along z in a 16-bohr box, ``eamp = 0.01``
-along z, one k-point at Gamma on the whole sphere (``notes/incompat/I101.md``).
+along z, two k-points along the field (1x1x2) on the whole sphere
+(``notes/incompat/I101.md``).
 
 The saw-tooth is a periodic scalar potential inside the frozen ``v_scf`` the
 workflows hand the driver, and the laser couples to the kinetic and nonlocal
@@ -9,7 +10,7 @@ terms through ``kappa``, so the two are one ordinary Hamiltonian. Two checks,
 each read against the arm with the saw-tooth left out of the propagated
 potential:
 
-- **Stationarity.** With no pulse the ground state does not move: 2.0e-12 is
+- **Stationarity.** With no pulse the ground state does not move: 1.1e-12 is
   the largest current over 1000 steps. The same states propagated under
   ``v_scf - v_saw`` are not eigenstates and carry 9.9e-6.
 - **The static polarizability through the other gauge.** A slow
@@ -17,15 +18,12 @@ potential:
   ``P(t) = int J dt``, fitted to ``alpha E(t)/Omega + b int kappa dt``. Here
   ``alpha`` is compared with the frozen-potential polarizability from a central
   difference of the band energy in ``eamp`` (the length gauge,
-  ``fixed_density_states``). ``b`` is a Drude-like term. Its first part is the
-  band's dispersion through the box at one k-point: ``n = -b Omega`` is 0.022
-  on the 12-bohr cell's Gamma and 0.0046 on its 1x1x2 and 1x1x4 meshes. The
-  remainder, 0.0049 at 16 bohr, does not move with the mesh and is the same at
-  ``eamp = 0``. It is not the saw-tooth's. Measured on D22 at
-  ``T = 100, 200, 400``: ``alpha`` lies 0.8, 0.03 and 0.2 per cent from the
-  static 10.118 bohr^3. In the 12-bohr box, with 1x1x2, the figures are 2.5,
-  1.6 and 1.4 per cent, and with the saw-tooth left out -36 per cent.
-"""
+  ``fixed_density_states``), 10.1187 bohr^3. ``b`` is a Drude-like term,
+  ``n = -b Omega = 0.0041``, present at ``eamp = 0`` too. The pulse keeps
+  ``E0 T = 0.04``, since the response is nonlinear as ``E0^2 T^4``. Measured
+  on D22 at ``T = 200, 400, 800, 1600``: +0.27, +0.065, +0.041 and +0.13 per
+  cent, and -45 per cent at ``T = 400`` with the saw-tooth left out.
+
 
 import math
 import re
@@ -52,16 +50,19 @@ pytestmark = pytest.mark.regression
 
 INPUT = Path(__file__).resolve().parents[1] / "data" / "qe" / "h2-box-tefield.in"
 
-#: Measured on D22 (``notes/incompat/I101.md``, one run): 2.0e-12 with the
-#: saw-tooth and 9.9e-6 without it; 1.1e-10 when the states are solved to 1e-8.
+#: Measured on D22 (``notes/incompat/I101.md``, one run): 1.1e-12 with the
+#: saw-tooth and 9.9e-6 without it; 1.1e-10 when the states are solved to 1e-8
+#: (12-bohr cell).
 NULL_CURRENT_ATOL = 1.0e-9
 TERM_OFF_CURRENT_MIN = 1.0e-6
-#: The adiabatic limit's convergence parameter. At 16 bohr alpha is 0.8, 0.03 and 0.2
-#: per cent off at T = 100, 200, 400 (a floor, not monotone); at 12 bohr 1.4 at T = 400.
-#: 1 per cent sits above the three 16-bohr points and below the 12-bohr box.
+#: The adiabatic limit's convergence parameter, with ``E0 T`` held at 0.04: alpha is
+#: +0.27, +0.065, +0.041 and +0.13 per cent off at T = 200, 400, 800, 1600 (the rise
+#: past 800 is the ``E0^2 T^4`` nonlinearity). 0.5 per cent holds over the whole
+#: series; at 12 bohr (1x1x2) the gap is 1.4 per cent at T = 400.
 PULSE_LENGTH = 400.0
-ALPHA_RTOL = 1.0e-2
-#: ``-b Omega``, 0.0049 measured: a basis term, below the 1x1x1 12-bohr cell's 0.022.
+PULSE_AREA = 0.04
+ALPHA_RTOL = 5.0e-3
+#: ``-b Omega``, 0.0041 measured: a basis term, below the 1x1x1 12-bohr cell's 0.022.
 DRUDE_MAX = 1.0e-2
 
 
@@ -115,10 +116,13 @@ def _alpha_static(calculator, density, step=1e-3):
     energies = []
     for s in (-step, 0.0, step):
         system = build_system(parse_pw_input(_text(0.01 + s)))
-        _, _, eig, _ = fixed_density_states(system, calculator.pseudos, density, nbnd=4,
-                                            conv_thr=1e-13)
-        # Two electrons at eps/2 Hartree each: the band energy in Ha is eps in Ry.
-        energies.append(float(np.asarray(eig).reshape(-1)[0]))
+        _, moved, eig, _ = fixed_density_states(system, calculator.pseudos, density, nbnd=4,
+                                                conv_thr=1e-13)
+        # Two electrons at eps/2 Hartree each: the band energy in Ha is eps in Ry,
+        # the lowest band averaged over the k-points with their weights.
+        lowest = np.asarray(eig).reshape(-1, 4)[:, 0]
+        w = np.asarray(moved.kpoints.weights).reshape(-1)
+        energies.append(float(np.dot(w, lowest) / w.sum()))
     return -(energies[0] - 2.0 * energies[1] + energies[2]) / step**2
 
 
@@ -143,10 +147,13 @@ def test_a_sawtooth_ground_state_is_stationary_and_the_term_is_what_holds_it(pse
 
 @pytest.mark.slow
 def test_a_slow_pulse_on_a_sawtooth_ground_state_reads_the_static_polarizability(pseudo_dir):
-    """``P(t) = alpha E(t)/Omega + b int kappa`` at ``T = 400``, ``alpha`` from the length gauge."""
+    """``P(t) = alpha E(t)/Omega + b int kappa`` at ``T = 400``, ``E0 = 1e-4``.
+
+    ``alpha`` is read against the length gauge's static value.
+    """
     calculator, result, c, states, weights, v_scf, _ = _ground(pseudo_dir)
     alpha = _alpha_static(calculator, np.asarray(result.density))
-    e0 = 1e-4
+    e0 = PULSE_AREA / PULSE_LENGTH
     plus = propagate(c, states, weights, v_scf, _Smooth(e0, PULSE_LENGTH), dt=0.1,
                      duration=PULSE_LENGTH, block_steps=500)
     minus = propagate(c, states, weights, v_scf, _Smooth(-e0, PULSE_LENGTH), dt=0.1,
