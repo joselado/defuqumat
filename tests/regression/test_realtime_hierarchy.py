@@ -313,10 +313,42 @@ def test_the_self_consistent_static_shift_is_the_sternheimer_shift(pseudo_dir):
         assert abs(shift.imag) < 1e-2 * abs(reference)
 
 
-def test_the_updated_potential_above_first_order_is_refused(pseudo_dir):
-    from defuqumat import Calculator
+@pytest.mark.parametrize("potential", ["hartree", "hxc"])
+def test_the_self_consistent_orders_are_the_self_consistent_propagation(pseudo_dir, potential):
+    """Orders one to three with the potential updated against the propagation's, AlAs at 4 Ry.
 
-    calculator = Calculator.from_file(CASES / "si2-symmetric.in", pseudo_dir=pseudo_dir,
-                                      announce=False)
-    with pytest.raises(NotImplementedError, match="first order only"):
-        calculator.get_nonlinear_spectrum([1.0], order=2, potential="hxc")
+    Gamma and a general point at the superposition of atomic charges, ``w = 0.05``
+    and ``eta = 0.01`` Hartree, the propagation over ``eta T = 20`` with the
+    potential updated (``propagate_orders_self_consistent``, whose nested
+    ``jvp`` carries ``K``, ``K2`` and ``K3`` of the potential by itself) against
+    :func:`~defuqumat.realtime.hierarchy.hierarchy_self_consistent` on the same
+    states. The two share the table of the projectors and the potential's
+    functional and nothing of the solve. MEASURED
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.realtime.hierarchy import hierarchy_self_consistent
+    from defuqumat.realtime.orders import propagate_orders
+    from defuqumat.realtime.pulse import Adiabatic
+
+    calculation, v_scf, _, basis, energies = _dense_cell(pseudo_dir, "alas-shg", 4.0, 12)
+    nocc = int(round(calculation.nelec / 2))
+    weights = np.repeat(np.asarray(calculation.system.kpoints.weights)[:, None], nocc, axis=1)
+    omega, eta = 0.05, 0.01
+    out = hierarchy_self_consistent(calculation, basis, energies, weights, v_scf,
+                                    omegas=(omega,), eta=eta, direction=(1.0, 0.0, 0.0),
+                                    order=3, potential=potential)
+    period = 2 * math.pi / omega
+    length = math.ceil(20.0 / eta / period) * period
+    shape = Adiabatic(amplitude=1.0, omega=omega, eta=eta, eta_t=length * eta)
+    result = propagate_orders(calculation, jnp.asarray(basis[:, :nocc]), weights, v_scf, shape,
+                              dt=period / 800, order=3, start=-length, duration=length,
+                              k_batch=None, potential=potential)
+    references = {key: complex(result.component(*key, axis=0)) for key in COMPONENTS}
+    for key in COMPONENTS:
+        value = out["components"][key][0, 0]
+        frozen = out["frozen"][key][0, 0]
+        scale = max(abs(v) for k, v in references.items() if k[0] == key[0])
+        assert abs(value - references[key]) < TOLERANCE * scale, (key, value, references[key])
+        if key[0] > 1:
+            assert abs(frozen - references[key]) > SHIFT * scale, "the update is load-bearing"
