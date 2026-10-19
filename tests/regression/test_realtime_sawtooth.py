@@ -56,8 +56,9 @@ INPUT = Path(__file__).resolve().parents[1] / "data" / "qe" / "h2-box-tefield.in
 #: saw-tooth and 9.9e-6 without it; 1.1e-10 when the states are solved to 1e-8.
 NULL_CURRENT_ATOL = 1.0e-9
 TERM_OFF_CURRENT_MIN = 1.0e-6
-#: The convergence parameter of the adiabatic limit; 0.2 per cent measured at it,
-#: 1.4 at the same T in a 12-bohr box, so 1 per cent is the box's, not the pulse's.
+#: The adiabatic limit's convergence parameter. At 16 bohr alpha is 0.8, 0.03 and 0.2
+#: per cent off at T = 100, 200, 400 (a floor, not monotone); at 12 bohr 1.4 at T = 400.
+#: 1 per cent sits above the three 16-bohr points and below the 12-bohr box.
 PULSE_LENGTH = 400.0
 ALPHA_RTOL = 1.0e-2
 #: ``-b Omega``, 0.0049 measured: a basis term, below the 1x1x1 12-bohr cell's 0.022.
