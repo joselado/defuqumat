@@ -121,7 +121,8 @@ def fsum(nk: int, nbnd: int = 16, height: float = 1.0e4):
         chi = independent_response(calculation, psi, eigenvalues, v_scf, z,
                                    ecut_response=0.0, broadening=0.0)
         head = np.asarray(chi.head)[0]
-        return float(np.real(np.trace(head)) / 3.0 * height ** 2)
+        # ``X_head -> C/z^2`` and ``z^2 = -Y^2``, so ``C = -Y^2 X_head``.
+        return -float(np.real(np.trace(head)) / 3.0 * height ** 2)
 
     total = weight()
     original = chi0_module._drude_block

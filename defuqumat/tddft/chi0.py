@@ -167,12 +167,13 @@ from defuqumat.batching import (
     map_axis, map_windows, resolve_pair_batch, resolve_w_batch, sum_k,
 )
 from defuqumat.response.velocity import VelocityOperator
+from defuqumat.response.velocity import with_connections
 from defuqumat.scf.occupations import occupied_counts
 from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.response.walk import (
     chunk_size, padded, row_leaves, store_rows, walk, with_rows,
 )
-from defuqumat.scf.occupations import occupied_counts
+from defuqumat.tddft.spinchi0 import augmentation_factors, state_projections
 from defuqumat.system.kpoints import is_reduced
 from defuqumat.units import E2, FPI
 from defuqumat.system.wedge import wedge_group
@@ -389,13 +390,23 @@ def require_a_sum_over_states_regime(calculation) -> None:
         :func:`~defuqumat.system.wedge.wedge_group`.
     """
     system = calculation.system
-    if calculation.is_ultrasoft or calculation.is_paw:
+    if calculation.is_paw:
         raise NotImplementedError(
-            "a sum-over-states chi_0 with an ultrasoft or PAW pseudopotential "
-            "is not implemented: <u_i|e^{-iG.r}|u_j> gains the augmentation "
-            "charge Q_ij(G) in every matrix element, and without it the matrix "
-            "is wrong by the whole augmentation and still looks like a "
-            "dielectric function. Use a norm-conserving dataset"
+            "a sum-over-states chi_0 with a PAW dataset is not implemented: "
+            "beside the augmentation charge Q_ij(G) of every matrix element, "
+            "which the ultrasoft branch carries, PAW's Hartree and "
+            "exchange-correlation energies have one-centre parts on the "
+            "spheres whose response the plane-wave matrix does not hold. Use a "
+            "norm-conserving or an ultrasoft dataset"
+        )
+    if calculation.is_ultrasoft and (system.noncolin or _is_smeared(system)
+                                     or int(system.nspin) != 1):
+        raise NotImplementedError(
+            "a sum-over-states chi_0 with an ultrasoft dataset is measured for "
+            "an unpolarized insulator only (silicon against the Sternheimer "
+            "solve): a spinor's augmentation pairs the projections of the two "
+            "components through qq_so, and a smeared or spin-polarized "
+            "ultrasoft run reaches the same matrix with no number behind it"
         )
     if calculation.spiral:
         # Checked before the spin regime, which a spiral also fails (it always
@@ -584,6 +595,11 @@ def independent_response(
         counts = _occupied_bands(calculation, eigenvalues, nbnd)
         windows = tuple((nocc, nocc) for nocc in counts)
     sphere = response_sphere(calculation, ecut_response)
+    # An ultrasoft dataset's augmentation charge on the response sphere, at
+    # ``q = 0`` (the body's ``G != 0`` only); PAW is refused above.
+    augmented = getattr(calculation, "augmentation", None) is not None
+    factors = (augmentation_factors(calculation, np.zeros(3), sphere)
+               if augmented and sphere.nbody else None)
 
     # The scissors shift moves the empty states and nothing else. It is applied
     # here rather than by the caller so that the matrix elements below can be
@@ -634,17 +650,19 @@ def independent_response(
 
         def one_k(arrays):
             psi, fft_index, band_mask, eig, occupation, element, *rest = arrays
+            weight = rest.pop(0) if drude is not None else None
+            augmentation = (factors, rest.pop(0)) if factors is not None else None
             vectors, scalars = _pair_terms(
                 psi, fft_index, band_mask, eig, occupation, element,
                 rows, columns, sphere, grid, volume, zomega, scissor, precision,
-                pairs, tol,
+                pairs, tol, augmentation,
             )
             # ``(nw, nm, nm)``: one matrix product per frequency, the pair
             # axis contracted away. This is the whole frequency cost.
             x = _assemble(scalars, vectors, chunk)
-            if rest:
+            if weight is not None:
                 x = x.at[:, :3, :3].add(
-                    _drude_block(rest[0], eig, element, zomega, volume, tol))
+                    _drude_block(weight, eig, element, zomega, volume, tol))
             return x
 
         return one_k
@@ -666,34 +684,83 @@ def independent_response(
         elements = velocity.matrix_elements(psi, sequential=True)  # (3, nspin, chunk, nb, nb)
         return jnp.moveaxis(elements, 0, 2)
 
-    def contract(elements, psi, fft_index, mask, energies, occupation, *rest):
+    # An ultrasoft dataset's head is the **generalised** velocity,
+    # ``<n|dH_a - e_m dS_a|m> + (e_m - e_n) K^a_nm`` (P99,
+    # :meth:`~defuqumat.response.velocity.VelocityOperator.
+    # generalised_matrix_elements`), whose ratio to ``e_n - e_m`` is the dipole
+    # of the true states ``T|psi>``, built in the conductivity's two stages.
+    # ``dpqq``, k-independent, is built here once.
+    dipole = None
+    if augmented:
+        from defuqumat.response.efield import _augmentation_dipole
+
+        dipole = _augmentation_dipole(calculation)
+
+    def velocity_on(rowset, kcart):
+        return VelocityOperator(with_rows(calculation, rowset), v_scf, kcart=kcart,
+                                dipole=dipole, local_terms=terms)
+
+    def tangents_of(rowset, psi, energies, kcart):
+        """``<n|dH_a - e_m dS_a|m>`` on one chunk, ``(3, nspin, chunk, nb, nb)``."""
+        return velocity_on(rowset, kcart).tangent_elements(psi, energies, sequential=True)
+
+    def connections_of(tangents, rowset, psi, kcart):
+        """The augmentation dipole's connection, and ``<beta|psi>`` per channel."""
+        connections = velocity_on(rowset, kcart).connections(psi, sequential=True)
+        chunk = with_rows(calculation, rowset)
+        projections = jnp.stack([state_projections(chunk, psi[spin])
+                                 for spin in range(psi.shape[0])])
+        return connections, projections
+
+    def contract(elements, *rest):
         """One chunk's share of ``(nw, nm, nm)``, both spin channels summed."""
+        projections = None
+        if augmented:
+            connections, projections = rest[0]
+            psi, fft_index, mask, energies, occupation, bare, *extra = rest[1:]
+            elements = jnp.moveaxis(
+                with_connections(elements, bare, connections), 0, 2)
+        else:
+            psi, fft_index, mask, energies, occupation, *extra = rest
         total = 0.0
         for spin, one_k in terms_by_spin:
-            extra = (rest[0][spin],) if rest else ()
+            more = tuple(x[spin] for x in extra)
+            if projections is not None and factors is not None:
+                more = more + (projections[spin],)
             total = total + sum_k(
                 one_k, (psi[spin], fft_index, mask, energies[spin],
-                        occupation[spin], elements[spin]) + extra, batch=batch)
+                        occupation[spin], elements[spin]) + more, batch=batch)
         return total
 
     shifted = np.asarray(shifted)
     fft_index = np.asarray(calculation.fft_index)
     mask = np.asarray(calculation.basis.planewaves.mask)
 
+    bare = np.asarray(eigenvalues)
+
     def arguments(chunk_rows, live):
         # The padded rows are a repeat of a real one and carry zero ``wg``,
         # which every pair's weight ``(wg_i - wg_j)/Omega`` is linear in, and
         # zero Drude weight, which the Drude block is linear in.
         psi = store_rows(wavefunctions, chunk_rows)
+        rowset, kc = row_leaves(calculation, chunk_rows), jnp.asarray(kcart[chunk_rows])
         last = (psi, jnp.asarray(fft_index[chunk_rows]), jnp.asarray(mask[chunk_rows]),
                 jnp.asarray(shifted[:, chunk_rows]),
                 jnp.asarray(padded(weights, chunk_rows, live, axis=1)))
+        if augmented:
+            # The *unshifted* eigenvalues for the generalised velocity's
+            # ``e_m dS``, the ones the eigenproblem was solved with.
+            last = last + (jnp.asarray(bare[:, chunk_rows]),)
         if drude is not None:
             last = last + (jnp.asarray(padded(drude, chunk_rows, live, axis=1)),)
-        return ((row_leaves(calculation, chunk_rows), psi,
-                 jnp.asarray(kcart[chunk_rows])), last)
+        if augmented:
+            energies = jnp.asarray(bare[:, chunk_rows])
+            return (rowset, psi, energies, kc), (rowset, psi, kc), last
+        return (rowset, psi, kc), last
 
-    x = walk(int(weights.shape[1]), batch, arguments, elements_of, contract)
+    stages = ((tangents_of, connections_of, contract) if augmented
+              else (elements_of, contract))
+    x = walk(int(weights.shape[1]), batch, arguments, *stages)
     x = _completed(x, sphere, wedge_group(calculation.system, quantity="chi_0"))
     return ChiZero(
         x=x,
@@ -817,7 +884,7 @@ def _pairs(low: int, high: int, nbnd: int):
 
 def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
                 rows, columns, sphere, grid, volume, zomega, scissor,
-                precision, pair_batch=None, tol=None):
+                precision, pair_batch=None, tol=None, augmentation=None):
     """One k-point's pair vectors ``r`` and their frequency weights.
 
     Returns ``(vectors, scalars)`` of shapes ``(2 npairs, nm)`` and
@@ -828,6 +895,13 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
     carries no weight here, because its two orderings together are the Drude
     form and are counted in :func:`_drude_block`. ``None`` (an insulator)
     masks nothing.
+
+    ``augmentation`` is an ultrasoft dataset's ``(factors, projections)``:
+    ``q_ij(G)`` on the response sphere, ``(nbody, nkb, nkb)``
+    (:func:`~defuqumat.tddft.spinchi0.augmentation_factors` at ``q = 0``), and
+    this k-point's ``<beta_i|psi_n>``, ``(nbnd, npol, nkb)``. The pair density
+    then gains ``sum_ij <psi_i|beta_a> q_ab(G) <beta_b|psi_j>``, the charge
+    that is not in ``|psi|^2``.
     """
     if sphere.nbody:
         # The states in real space, once, one field per spinor component:
@@ -854,7 +928,16 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
             # when the ground state carries no moment (``nspin_mag = 1``).
             i, j = index
             product = jnp.sum(jnp.conj(fields[i]) * fields[j], axis=0)
-            return r_to_g(product, sphere.fft_index) * sphere.sqrt_coulomb
+            density = r_to_g(product, sphere.fft_index)
+            if augmentation is not None:
+                # Contracted as ``spinchi0``'s matrix element and the Berry
+                # phase's augmented overlap are: the bra's projection
+                # conjugated, the ket's not, the block between them.
+                factors, projections = augmentation
+                density = density + jnp.einsum(
+                    "pa,gab,pb->g", jnp.conj(projections[i]),
+                    factors.astype(density.dtype), projections[j])
+            return density * sphere.sqrt_coulomb
 
         body = map_axis(one_pair, (jnp.asarray(rows), jnp.asarray(columns)),
                         batch=pair_batch)

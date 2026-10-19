@@ -164,10 +164,31 @@ def test_a_reduced_k_set_passes_and_a_magnetic_one_is_refused():
         wedge_group(_calculation("ni-noncol-111-nosource").system, quantity="chi_0")
 
 
-def test_an_ultrasoft_dataset_is_refused_by_name():
-    """The plane-wave matrix element gains ``Q_ij(G)`` and nothing here adds it."""
-    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
-        require_a_sum_over_states_regime(_calculation("si-epsilon-us"))
+def test_an_ultrasoft_insulator_is_accepted_and_paw_is_refused_by_name():
+    """The ultrasoft pair density carries ``Q_ij(G)`` and its head the generalised velocity.
+
+    PAW is refused for its one-centre terms, which are a different term; an
+    ultrasoft run that is smeared, polarized or a spinor is refused for want of
+    a number. The number for the accepted regime is in
+    ``tests/regression/test_tddft_ultrasoft.py``.
+    """
+    ultrasoft = _calculation("si-us-nosym")
+    assert ultrasoft.is_ultrasoft and not ultrasoft.is_paw
+    require_a_sum_over_states_regime(ultrasoft)
+    paw = _calculation("si-epsilon-paw-unshifted-nosym")
+    assert paw.is_paw
+    with pytest.raises(NotImplementedError, match="PAW dataset"):
+        require_a_sum_over_states_regime(paw)
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / "si-us-nosym.in").read_text()
+    assert "ecutwfc" in text
+    text = text.replace("&system", "&system\n    occupations = 'smearing', degauss = 0.01,", 1)
+    smeared = build_system(parse_pw_input(text))
+    calculation = Calculation(smeared, tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in smeared.structure.species))
+    with pytest.raises(NotImplementedError, match="ultrasoft dataset is measured"):
+        require_a_sum_over_states_regime(calculation)
 
 
 def _smeared(case: str, *, extra: str = "", degauss: float = 0.01) -> Calculation:
@@ -216,7 +237,7 @@ def test_the_sibling_refusals_still_fire_on_a_smeared_cell():
         ("ni-soc-nosym", "textured spinor"),
         ("h-chain-spiral", "spin spiral"),
         ("h-fcc-magnon-ldau", "Hubbard"),
-        ("co-hcp-anisotropy-sr", "ultrasoft or PAW"),
+        ("co-hcp-anisotropy-sr", "ultrasoft dataset is measured"),
     )
     for case, reason in cases:
         calculation = _calculation(case)
