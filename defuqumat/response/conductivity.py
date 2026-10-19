@@ -1018,11 +1018,29 @@ def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool,
         from defuqumat.scf.tetrahedra import tetrahedron_fermi_weights
 
         weights = np.asarray(calculation.system.kpoints.weights, dtype=float)
-        dwg = tetrahedron_fermi_weights(
-            calculation.tetrahedron_table(), jnp.asarray(energies),
-            jnp.asarray(weights), float(fermi_energy))
-        delta = np.asarray(dwg) / weights[:, None]  # (nk, nbnd), 1/Ry
-        return _multiplet_average(delta, np.asarray(energies), tol)
+        energies = np.asarray(energies)
+        table = calculation.tetrahedron_table()
+        delta = np.zeros(energies.shape)
+        # **One band at a time, and only the bands that cross the level.** A
+        # tetrahedron weight of band ``n`` reads band ``n``'s corner energies
+        # and nothing else (the corners are sorted within a band), so the
+        # bands are independent and a band wholly above or below ``E_F`` has
+        # ``d wg / d E_F = 0`` at every k. The one cross-band step, the
+        # degenerate average of the linear and optimised kinds, is redone
+        # below by :func:`_multiplet_average` on the whole set, where a band
+        # that does not cross gives its partner's share a zero, as
+        # ``_average_degenerate`` would. Not a speed choice: the optimised
+        # kind's scatter holds ``(ntetra, nbnd, 4, 20)`` reals, 3.8 GB at
+        # ``nbnd = 9`` on a 48^3 grid before the ``jvp`` doubles it, and the
+        # run was killed at a 6 GB cap that way (I93, run 3).
+        crossing = [n for n in range(energies.shape[1])
+                    if energies[:, n].min() <= fermi_energy <= energies[:, n].max()]
+        for n in crossing:
+            dwg = tetrahedron_fermi_weights(
+                table, jnp.asarray(energies[:, n:n + 1]), jnp.asarray(weights),
+                float(fermi_energy))
+            delta[:, n] = np.asarray(dwg)[:, 0] / weights  # 1/Ry
+        return _multiplet_average(delta, energies, tol)
     if not enabled or degauss <= 0.0 or "smearing" not in scheme:
         return None
 
