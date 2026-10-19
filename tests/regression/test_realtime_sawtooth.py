@@ -23,7 +23,7 @@ potential:
   ``E0 T = 0.04``, since the response is nonlinear as ``E0^2 T^4``. Measured
   on D22 at ``T = 200, 400, 800, 1600``: +0.27, +0.065, +0.041 and +0.13 per
   cent, and -45 per cent at ``T = 400`` with the saw-tooth left out.
-
+"""
 
 import math
 import re
