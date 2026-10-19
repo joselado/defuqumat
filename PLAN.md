@@ -229,13 +229,13 @@ because that is what decides whether it is a session or a phase.
   gradient; refused under either functional).
 - **Real-time propagation** (P134 frozen, P136 with the potential updated, P137 the spectrum of the
   orders at a frozen potential, P139 to P141 collinear magnets, spinors and ultrasoft and PAW
-  datasets): the potential updated in time with an ultrasoft or PAW dataset (the augmentation charge
-  of `rho(t)` from the projections at `k + kappa(t)`, `newd`'s `D(t)`, PAW's one-centre `D(t)`), DFT+U (the Hubbard
-  projectors' own row at `k + G = 0`, `OPEN.md`), re-centring the sphere for a `kappa` past half a
-  reciprocal vector, a checkpoint of a self-consistent run, and **the self-consistent
-  frequency-domain hierarchy above first order** (P138 has the first: the induced potentials at `2w`
-  and `3w`, each a fixed point at every frequency, and the velocity gauge's second-order density
-  artefact, 7 per cent of `rho` on 2^3, which no affordable mesh converges away). And `get_shg`'s missing curvature of the projectors, 5 to 9 per cent on AlAs
+  datasets): ~~the potential updated in time with an ultrasoft or PAW dataset~~ (at `nspin = 1`, P156,
+  I98), DFT+U (at a frozen potential and a frozen `ns` in `get_realtime` and
+  `get_realtime_dielectric`, P156, I100; still the Hubbard
+  projectors' own row at `k + G = 0`, `OPEN.md`, and the updated potential), re-centring the sphere for a `kappa` past half a
+  reciprocal vector, a checkpoint of a self-consistent run, and the velocity gauge's second-order
+  density artefact of the self-consistent frequency-domain hierarchy, 7 per cent of `rho` on 2^3,
+  which no affordable mesh converges away (~~the hierarchy above first order~~, P156, I102). And `get_shg`'s missing curvature of the projectors, 5 to 9 per cent on AlAs
   (`OPEN.md`), which `get_nonlinear_spectrum(order=2)` carries.
 - **The electron-phonon coupling summed over the zone** (P132 has it at one `q`):
   `ph.x`'s `'interpolated'` route, which needs the dense-grid band structure (`la2F`), the
@@ -267,10 +267,11 @@ because that is what decides whether it is a session or a phase.
   `pw.x` pair** (2026-09-23): the same two totals to `pw.x`'s printed eight decimals and
   0.447302 against 0.4474 meV. What is left of the entry is `average_pp`, which belongs
   to the *frozen* route, and an external number for the frozen route itself.
-- **The dynamical matrix of an ultrasoft or PAW *metal*** (P39: `addusdynmat`, the
-  density's cross derivative, needs both tangents in one `jvp` where P28's weight split
-  puts them in two).
-- **The elastic constants of an ultrasoft or PAW dataset** (P100). The *third*
+- ~~**The dynamical matrix of an ultrasoft or PAW *metal***~~ (P39) -- **closed by P156,
+  I86** at one spin channel and `nosym`, against `ph.x` to 0.014 and 0.023 cm^-1.
+- ~~**The elastic constants of an ultrasoft or PAW dataset**~~ (P100) -- **closed by P156,
+  I87** on the whole-k route (both terms wired, at the 1e-7 floor of the energy difference); the
+  record of what was missing follows. The *third*
   derivatives in the strain coordinate are no longer refused on any dataset: `C_ijkl` is
   what is left, and it is a second derivative that shares no electric-field solution with
   them, so the refusal it used to inherit could never have been about it. Measured on its
@@ -26634,3 +26635,28 @@ I82's two `OPEN.md` entries are written (Part XXVIII). I66 stays unmerged, await
 |---|---|---|---|
 | I36 ultracell x feedback field | `'fsm'` (target 0.626 mu_B per cell) against the 2x1x1 supercell under the same scheme: field +1.32e-5, -9.4e-7, -4.6e-6 Ry and `E - B(M - Mt)` +3.6e-6, +1.1e-6, +6.0e-7 Ry per cell at nbnd 8, 16, 24; the frozen reference field misses the target by 3.8e-3 mu_B; faded `reducebf` reference (below 1.5e-4 Ry) misses the supercell moment by 3.0e-6 to 4.9e-6 mu_B, frozen 5.2e-5; verified twice | supercell under the same scheme | `incompat/I36-feedback` deadfc8 |
 | I73 Newton x feedback field | `|dm| (|B| + tau |dm|)` measure (the user's choice): raw total against the mixing loop at `conv_thr = 1e-11`, `fe-fsm.in` `'fsm'` 7.8e-13 Ry in 39 steps; canted iron pair `'atomic fsm'` 7.0e-13 in 63 of 80 steps, `'atomic fsm direction'` -1.01e-9, the reference's own arccos offset (energy at target 2.8e-14); 3 to 5 times the loop's time; field rows replaced by the identity: 45 to 102 loop iterations after the hand-over against 1; four unmeasured pairs and the noncollinear Hubbard residual refused by name; a non-converged hand-over warns; verified, then one fix round | mixing loop at its own fixed point (no `pw.x`: QE has no Elk fsm scheme) | `incompat/I73-feedback` 4450fe9 |
+
+### P156 -- Ten refusals lifted from tier T3 of `notes/INCOMPATIBILITIES.md`, integration one of I86 to I122. ⏳ FAST GATE PENDING 2026-10-19 (slow tests not run), each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-t3` (`notes/INCOMPATIBILITIES-T3.md`), not merged into master. The workflow stopped early at a usage limit, so this covers what had finished: ten units landed, twelve recorded without merging, and I111 to I113 and I115 to I122 not started.
+
+Each unit's record is `notes/incompat/<ID>.md`, with its run directories; the verifier's logs are in `/l/ladovj1/review/incompat/<ID>-ver*/`. The landed items, one sample each, deterministic:
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I86 Gamma phonon x US/PAW metal | al2-metal against `ph.x`: at most 0.0136 cm^-1 (US), 0.023 (PAW); sum rule 6.7e-6, 4.2e-6 Ry/bohr^2 (4.3e-2 term off); force difference 6.6e-6 (3.25e-2 unfixed); the folded pair degenerate here, split 0.008 and 0.011 cm^-1 by `ph.x` | `ph.x` on the same input (T4, references committed); central difference of the forces | `incompat/I86` 90d92f55 |
+| I87 elastic constants x US/PAW | Si2 `C_1111` -1.6e-8 to -3.8e-8 (US), -7.5e-8 to -8.9e-8 (PAW) at h = 8e-3 to 2e-3, norm-conserving floor 1e-7; neither term 22.1 per cent, `ort` alone 10.0; the energy reference is rough on other cells and tangents (an xc step of 4.7e-6 Ry, cause open, verifier), confirmed by the stress difference to 5e-6 | five-point second difference of the energy, stress difference | `incompat/I87` 9d858042 |
+| I89 piezoelectric tensor x PAW | AlAs `e_14` deficit against `pw.x`'s Berry difference 0.693273 C/m^2: 15.22, 3.71, 0.86, 0.17, -0.001 per cent at 4 to 12; reference good to 0.10 per cent; the one-centre cross term is 0.08 per cent, below what the check resolves | `pw.x` `lberry` finite difference (references committed), the mesh ladder | `incompat/I89` 3ad688ca |
+| I92 shift current, SHG x DFT+U (nc, collinear) | Hubbard velocity against a difference of `H(k)`: 6.72e-6, 1.68e-6, 4.20e-7 at h = 4e-3 to 1e-3 (term 8.54e-2); complete-basis sum rule 1.63e-3, 4.37e-2 with the Hubbard `w` off; end to end -43m forbidden components 3e-14 | finite difference of `H(k)`; complete-basis sum rule | `incompat/I92` 3aae8e8e |
+| I97 ALDA kernel x GGA | PBE Dyson against PBE Sternheimer 21.8318: +0.0312 to -0.0042 at `ecut_response` 8 to 28 Ry (90 bands); local part alone -0.27; the 1.5e-2 bound is the committed cell's (verifier: -0.019 on a core-charge cell, its RPA truncation -0.024) | static limit against the code's own Sternheimer | `incompat/I97` c189b039 |
+| I98 real-time updated potential x US/PAW (`nspin = 1`) | kick local-field shift against the Sternheimer shift: residual equal to the nc control on 2^3, 3^3, 4^3 (not monotone in the mesh at 0.2 eV, verifier); augmentation held +1.79e-1; fixed point 5.3e-12; energy after a kick 1.07e-10 Ha (2.8e-3 held); pulse identity 1.75e-4 against frozen 1.10e-4 (verifier, no test) | Sternheimer static shift, nc control, A/B | `incompat/I98` 549c2b3a |
+| I100 real-time x DFT+U | first order from a kick against Kubo plus band curvature: 8.125e-7, 8.075e-7, 8.073e-7 at dt 0.1 to 0.025; projectors held 0.904, term dropped 0.691 | resolvent sum over dense `H(k)` with U | `incompat/I100` 59f27d1f |
+| I102 hierarchy with induced potential x orders 2, 3 | against `propagate_orders`, AlAs 4 Ry: hxc 3.7e-6 to 7.6e-6 at 800 steps, 2.1e-7 to 4.4e-7 at 3200 (verifier), dt^2; frozen 3.5e-3 to 5.0e-2; no K2, K3 5.2e-3 to 2.3e-2; wedge 8.8e-11 to 6.0e-9 | the self-consistent propagation, steps per period | `incompat/I102` 39f91dbb |
+| I103 `lelfield` x US/PAW (`nspin = 1`) | Si8 along y against `pw.x` 7.5: total 4.7e-9 (US), 7.5e-9 Ry (PAW); `el_pol` 1.7e-6, 6.6e-6; forces 5.7e-8, 8.9e-8 Ry/bohr; cross term off 0.134; plain `u` for `S u` 0.0487 (verifier); along z `pw.x` uses `Q_ij(0)` (`qvan2.f90:237`), reproduced to 5.4e-9 Ry | `pw.x` on the same input (references committed), `conv_thr` 1e-8 to 1e-11 | `incompat/I103` ee7325ae |
+| I110 spin torque x potential-only meta-GGA | h-chain TB09: against m x B_xc of `SCFResult.potential` 5.2e-18 Ry per site; `tau` vector dropped 3.7e-6 to 1.2e-4; against the applied field 2.0e-5 to 7.1e-7 (the SCF residual); site torques a symmetry residue | identity on the converged fields | `incompat/I110` 8efa0ec4 |
+
+Recorded, not merged (records in `notes/incompat/`). Refuted, awaiting a fix round: **I88** (right on Marzari-Vanderbilt, but Methfessel-Paxton on the same cell misses by 4.6e-4, flat in h, from `sternheimer._SMALL = 6.96e-5`), **I90** (a polar crystal on a reduced k-set reaches the norm-conserving branch that never completes the wedge, about 1e-3 C/m^2), **I93** (the crossing filter drops bands `tetrahedra_opt` still weights, 1.0 per cent at a 1e-3 Ry gap), **I99** (no `Calculator` route passes `tau` to the real-time workflows), **I101** (the 1 per cent polarizability at T = 400 breaks at T = 800, +6.2 per cent, cubic in E0), **I104** (partial, its precision claims break below h = 0.0035 bohr on a force roughness of 3.5e-7 Ry/bohr). Partial with a measured discrepancy, refusal kept: **I91** (sum-rule floor 4.1e-3 on US/PAW, flat in the step), **I105** (an unlocated -5e-4 offset in `eps_zz` of a textured spinor), **I106** (field force measured; Fe stress floor 4e-4 to 6e-4 Ry; PAW and noncollinear admitted untested), **I107** (sized, nothing lifted), **I114** (verifier did not run). Done but unverified: **I94 to I96** (chi0, the verifier's jobs still queued in `/l/ladovj1/review/incompat/chi0-ver/`), **I108, I109** (sourcefree, the verifier did not run).
+
+Two merges conflicted, both in neighbouring edits of one call or guard, and both sides were kept: I100 with I98 in `realtime/propagate.py` and `workflows/realtime.py` (`ns` in the update dict under I98's condition for the one-centre `D`), I102 with I98 in `realtime/hierarchy.py` (the order check and `route="hierarchy"`). The fast files of both sides pass locally after each overlap.
+
+Fast gate on D22: pending (`notes/INCOMPATIBILITIES-T3.md`).
+
+What is left: the guide sections with executed snippets, the notebooks and the timings for every landed item (only the Limits notes, two README cells and the `scope.md` real-time clause are written); I87's record and slow-test docstring on the roughness of the energy reference, and its refusal message on the walked route; I98's record sentence on the mesh and a test of the pulse path; I103's four record corrections; notebook 28's PAW sentence (I89); the fix rounds of the six refuted units; the user's decisions listed in `notes/INCOMPATIBILITIES-T3.md`. Slow tests not run (the user's rule of 2026-10-16), listed in the record for the user.
