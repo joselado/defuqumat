@@ -516,3 +516,37 @@ def test_the_tetrahedron_drude_delta_keeps_its_sibling_refusals():
         listed.grid_symmetry()))
     with pytest.raises(ValueError, match="automatic k-point grid"):
         _fermi_surface_delta(stand_in, 0.05, bands, enabled=True)
+
+
+def test_the_tetrahedron_drude_delta_is_averaged_over_a_multiplet():
+    """Rule D4 for I93: a tetrahedron delta is not equal across a degenerate pair.
+
+    ``_plasma_sum`` contracts ``delta_n v^nm v^mn`` over each multiplet, which
+    is invariant under a rotation inside the multiplet only when ``delta_n`` is
+    the same for every member. A smeared delta is, a tetrahedron weight is not,
+    so the delta is block-averaged; the pair here is rotated by a unitary and
+    the plasma sum must not move, where with the unequal delta it does.
+    """
+    from defuqumat.response.conductivity import _multiplet_average, _plasma_sum
+
+    rng = np.random.default_rng(3)
+    nb = 4
+    energies = np.array([[0.1, 0.5, 0.5 + 1e-9, 0.9]])
+    v = rng.normal(size=(3, nb, nb)) + 1j * rng.normal(size=(3, nb, nb))
+    v = v + np.conj(np.swapaxes(v, -1, -2))
+    theta, phase = 0.7, np.exp(0.4j)
+    u = np.eye(nb, dtype=complex)
+    u[1:3, 1:3] = [[np.cos(theta), -np.sin(theta) * phase],
+                   [np.sin(theta) * np.conj(phase), np.cos(theta)]]
+    rotated = np.einsum("ji,ajk,kl->ail", np.conj(u), v, u)
+    raw = np.array([[0.0, 2.0, 6.0, 0.0]])
+    averaged = _multiplet_average(raw, energies, 1e-5)
+    assert np.allclose(averaged, [[0.0, 4.0, 4.0, 0.0]])
+
+    def plasma(delta, elements):
+        return np.asarray(_plasma_sum(jnp.ones(1), jnp.asarray(delta),
+                                      jnp.asarray(energies),
+                                      jnp.asarray(elements[None]), 1e-5))
+
+    assert np.allclose(plasma(averaged, v), plasma(averaged, rotated), atol=1e-12)
+    assert not np.allclose(plasma(raw, v), plasma(raw, rotated), atol=1e-3)

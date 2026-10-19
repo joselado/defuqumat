@@ -645,7 +645,8 @@ def optical_conductivity(
     # moment and the two channels are occupied separately.
     levels = np.broadcast_to(np.asarray(fermi_energy, dtype=float).reshape(-1), (nspin,))
     deltas = [_fermi_surface_delta(calculation, float(levels[s]), shifted[s],
-                                   enabled=intraband and method == "frequency")
+                                   enabled=intraband and method == "frequency",
+                                   tol=tol)
               for s in range(nspin)]
     delta = None if deltas[0] is None else np.stack(deltas)  # (nspin, nk, nbnd)
     bare = np.asarray(eigenvalues)
@@ -971,7 +972,8 @@ def _curvature_sum(element, energies, wg, filling, tol):
     return (2.0 * jnp.einsum("nm,nmij->ij", weight, jnp.imag(z)))[None], dropped
 
 
-def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool):
+def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool,
+                         tol: float = DEGENERACY_TOL):
     """The Drude term's delta function at the Fermi level, ``(nk, nbnd)`` in 1/Ry, or ``None``.
 
     ``dielectric.f90``'s intraband branch. The delta function is the smearing
@@ -999,6 +1001,16 @@ def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool):
     it is the choice :meth:`~defuqumat.scf.driver.Calculation.ldos_weights`
     made for the same delta. Not differentiable in the eigenvalues, like the
     smeared branch, which also leaves through the host.
+
+    **Then averaged over each multiplet of width ``tol``** (rule D4), the
+    partition :func:`_plasma_sum` contracts as one block. A smeared delta is a
+    function of the energy and is equal across a multiplet by construction; a
+    tetrahedron weight is not, because band ``n`` at the other corners of a
+    tetrahedron is a different band for each member, and Bloechl's weights are
+    not averaged at all by ``tetra.f90``. With unequal ``delta_n`` inside a
+    block, ``sum_nm delta_n v^nm v^mn`` moves with the rotation a degenerate
+    eigensolver is free in; with the block average it does not, and the sum over
+    states (the DOS) is unchanged.
     """
     scheme = str(getattr(calculation.system, "occupations", "fixed")).lower()
     degauss = float(getattr(calculation.system, "degauss", 0.0) or 0.0)
@@ -1009,7 +1021,8 @@ def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool):
         dwg = tetrahedron_fermi_weights(
             calculation.tetrahedron_table(), jnp.asarray(energies),
             jnp.asarray(weights), float(fermi_energy))
-        return np.asarray(dwg) / weights[:, None]  # (nk, nbnd), 1/Ry
+        delta = np.asarray(dwg) / weights[:, None]  # (nk, nbnd), 1/Ry
+        return _multiplet_average(delta, np.asarray(energies), tol)
     if not enabled or degauss <= 0.0 or "smearing" not in scheme:
         return None
 
@@ -1030,6 +1043,24 @@ def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool):
     # that identity rather than merely reweighting.
     x = (float(fermi_energy) - energies) / degauss
     return np.asarray(w0gauss(x, ngauss) / degauss)  # (nk, nbnd), 1/Ry
+
+
+def _multiplet_average(values, energies, tol):
+    """``values`` ``(nk, nbnd)`` averaged over each run of bands within ``tol`` of its first.
+
+    The partition :func:`~defuqumat.scf.tetrahedra._average_degenerate` makes,
+    on the host: the bands are sorted, a group opens where a band is ``tol`` or
+    more above the first of the current group, and every member gets the
+    group's mean, so the total over a k-point is conserved exactly.
+    """
+    out = np.array(values, dtype=float, copy=True)
+    for ik in range(out.shape[0]):
+        start = 0
+        for n in range(1, out.shape[1] + 1):
+            if n == out.shape[1] or abs(energies[ik, n] - energies[ik, start]) >= tol:
+                out[ik, start:n] = np.mean(out[ik, start:n])
+                start = n
+    return out
 
 
 def _plasma_sum(wk, delta, energies, elements, tol):
