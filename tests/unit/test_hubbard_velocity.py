@@ -170,8 +170,10 @@ def test_the_hubbard_velocity_matches_a_difference_of_h(tmp_path, pseudo_dir, ki
 
     The tolerances are set from the measured numbers in ``notes/incompat/I92.md``,
     not from a single passing point: the smaller step's discrepancy is at least
-    ten times below the larger one's (``h^2`` gives sixteen), and at least a
-    thousand times below the Hubbard term it is checking.
+    ten times below the larger one's (``h^2`` gives sixteen, and sixteen to four
+    figures is what D22 read for every kind and both derivatives), and at least
+    a thousand times below the Hubbard term it is checking (measured 2.7e-5 of
+    it at worst, ortho-atomic's first derivative at ``h = 1e-3``).
     """
     errors = hubbard_velocity_errors(tmp_path, pseudo_dir, kind)
     for name in ("first", "second"):
