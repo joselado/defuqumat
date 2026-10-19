@@ -58,6 +58,16 @@ which gives the current along all three axes at once. The table agrees with the
 radial transform the dense reference uses to 5e-15 in ``h_0`` and 6e-10 in
 ``h_4`` at 12 Ry (measured in review).
 
+**With the potential updated** (:func:`hierarchy_self_consistent`) the induced
+local potential ``dv^(p)_m`` of every order and harmonic enters the right-hand
+sides beside the field's terms, and the orders' fixed points are solved one
+after the other (orders do not feed back downwards), the nonlinear
+exchange-correlation kernel at orders two and three taken by nested ``jvp`` at
+``2N + 1`` phases of the drive. Its memory adds the induced potentials and
+densities on the smooth grid, ``2 x 5 nspin_mag nr`` complex at third order,
+and GMRES's Krylov basis of up to sixty vectors of ``2 x 2 nspin_mag nr``
+reals, which on a small cell is larger than the states.
+
 **Memory**, per k-point: the nine components and ``c0`` (``10 nocc npwx``),
 BiCGStab's six vectors for the largest order's ``4 nocc`` right-hand sides, the
 computed bands (``nb npwx``), complex; the k-points are independent at a frozen
@@ -76,7 +86,8 @@ from defuqumat.basis.fft import g_to_r, r_to_g
 from defuqumat.eager import compiled_function
 from defuqumat.realtime.propagate import _times_i
 
-__all__ = ["hierarchy_orders", "hierarchy_linear_self_consistent", "HierarchyError"]
+__all__ = ["hierarchy_orders", "hierarchy_linear_self_consistent",
+           "hierarchy_self_consistent", "HierarchyError"]
 
 
 #: The smallest right-hand side, relative to the largest of its batch, that a
@@ -166,7 +177,7 @@ def _derivative(f, order: int):
 
 def _orders_at(chunk, basis, energies, weights, precondition, omega, eta, alpha, direction,
                starts, induced=None, *, nocc: int, order: int, tolerance: float,
-               max_iterations: int):
+               max_iterations: int, currents: bool = True):
     """At one k-point: ``{(N, M): sum_n w <..|J|..>}`` (3,), iterations, residuals.
 
     ``basis`` is ``(nb, ndim)``, the computed bands with the occupied first,
@@ -174,12 +185,18 @@ def _orders_at(chunk, basis, energies, weights, precondition, omega, eta, alpha,
     occupations times the k-weight, ``omega`` and ``eta`` in Ry. ``starts`` is
     one ``((N+1) nocc, ndim)`` first iterate per order, the complement's
     solution at the previous frequency of a sweep, and the new ones are
-    returned beside the currents. ``induced``, at first order only, is the
-    local potential ``dv_+`` the field induces, complex on the FFT box, which
-    drives ``c_+`` as ``dv_+ c0`` and ``c_-`` as ``conj(dv_+) c0``; with it the
-    weighted cross density ``sum_n w (conj(u0) u_+ + u0 conj(u_-))`` of those
-    components is returned last, the first-order density at ``e^{-iwt}`` times
-    the cell volume.
+    returned beside the currents. ``induced`` is the local potential the
+    field induces, ``{(p, m'): dv}`` for every order ``p <= order`` and
+    harmonic ``m' >= 0`` of it, complex on the FFT box (zero where not yet
+    known); the harmonic ``-m'`` is ``conj(dv)``, since the potential is real
+    in time. It adds ``dv^(p)_m' c^(n-p)_(m-m')`` to the right-hand side of
+    ``c^(n)_m`` with weight one (the ``1/(p! 2^p)`` of the field's terms come
+    from expanding ``cos^p`` and ``dv^(p)`` is already a harmonic coefficient
+    of ``lam^p``). With it the weighted densities ``{(N, M): sum_n w
+    conj(c_(n1,m1)) c_(n2,m2)}`` over ``n1 + n2 = N``, ``m2 - m1 = M >= 0`` are
+    returned last, the density at ``e^{-i(M w + i N eta) t}`` times the cell
+    volume (at first order ``conj(u0) u_+ + conj(u_-) u0``). ``currents =
+    False`` skips the currents, which an outer product does not read.
 
     **With an overlap** (ultrasoft, PAW) the components solve
     ``(z S0 - H0) c = rhs``, with ``h_p - z' s_p`` where ``h_p`` stands alone
@@ -300,8 +317,6 @@ def _orders_at(chunk, basis, energies, weights, precondition, omega, eta, alpha,
         return applied[("x", p, key)]
 
     if induced is not None:
-        if order != 1:
-            raise NotImplementedError("an induced potential is written at first order only")
         fft_index, grid = chunk.template.fft_index[0], chunk.template.grid
         mask_pw = chunk.mask[0]
         npwx = mask_pw.shape[0]
@@ -338,9 +353,16 @@ def _orders_at(chunk, basis, energies, weights, precondition, omega, eta, alpha,
                         rate = (2 * s - p) * omega + 1j * p * eta
                         term = term + _times_i(rate * apply_x(p - 1, key))
                     total = total + weight * term
-            if induced is not None and n == 1:
-                # the field at -w is the Hermitian conjugate of the one at w
-                total = total + local_field(induced if m == 1 else jnp.conj(induced), occupied)
+            if induced is not None:
+                # dv^(p)_m' c^(n-p)_(m-m'); the field at -m' is the conjugate of the one at m'
+                for p in range(1, n + 1):
+                    for mp in range(-p, p + 1, 2):
+                        key = (n - p, m - mp)
+                        if key not in components:
+                            continue
+                        field = induced[(p, abs(mp))]
+                        total = total + local_field(field if mp >= 0 else jnp.conj(field),
+                                                    components[key])
             rhs.append(total)
         z = jnp.concatenate([e_occ + m * omega + 1j * n * eta for m in harmonics])
         band = jnp.tile(jnp.arange(nocc), len(harmonics))
@@ -353,7 +375,7 @@ def _orders_at(chunk, basis, energies, weights, precondition, omega, eta, alpha,
         outsides.append(outside)
 
     totals = {}
-    keys = list(components)
+    keys = list(components) if currents else []
     # The local potential carries no kappa, so ``H(kappa) c`` is ``V c`` from
     # one transform, taken once per component, and the kinetic and nonlocal
     # parts at kappa; only an augmented current reads it.
@@ -379,17 +401,25 @@ def _orders_at(chunk, basis, energies, weights, precondition, omega, eta, alpha,
                 totals[big] = totals.get(big, 0.0) + weight * values[index]
     if induced is None:
         return totals, jnp.concatenate(counts), jnp.concatenate(residuals), tuple(outsides)
-    u0, up, um = to_r(occupied), to_r(components[(1, 1)]), to_r(components[(1, -1)])
     weights_c = weights.astype(basis.dtype)
-    if chunk.spinor:
-        count = induced.shape[0]
-        cross = (_spinor_density(u0, up, weights_c, count)
-                 + _spinor_density(um, u0, weights_c, count))
-    else:
-        cross = jnp.einsum("n,nxyz->xyz", weights_c,
-                           jnp.conj(u0[:, 0]) * up[:, 0] + u0[:, 0] * jnp.conj(um[:, 0]))
+    real_space = {key: to_r(value) for key, value in components.items()}
+    count = induced[(1, 1)].shape[0]
+    densities = {}
+    for big in induced:
+        cross = 0.0
+        for k1 in components:
+            for k2 in components:
+                if k1[0] + k2[0] != big[0] or k2[1] - k1[1] != big[1]:
+                    continue
+                a, b = real_space[k1], real_space[k2]
+                if chunk.spinor:
+                    cross = cross + _spinor_density(a, b, weights_c, count)
+                else:
+                    cross = cross + jnp.einsum("n,nxyz->xyz", weights_c,
+                                               jnp.conj(a[:, 0]) * b[:, 0])
+        densities[big] = cross
     return (totals, jnp.concatenate(counts), jnp.concatenate(residuals), tuple(outsides),
-            cross)
+            densities)
 
 
 def _spinor_field(field, spinors):
@@ -611,48 +641,99 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
                                      max_iterations: int = 500, outer_iterations: int = 200,
                                      kcart=None, symmetrise=None, density_symmetry=None,
                                      k_batch="default") -> dict:
-    """``J_(1,1)`` with the induced potential at ``w``, self-consistent, at every frequency.
+    """``J_(1,1)`` with the induced potential at ``w``: :func:`hierarchy_self_consistent` at first order.
 
-    The first order of :func:`hierarchy_orders` with ``dv_+ = K drho_+`` in the
-    right-hand side, ``K`` the Hartree kernel (``potential = 'hartree'``) or the
-    derivative of the whole potential at the states' own density (``'hxc'``),
-    which is the propagation's difference form of
-    :mod:`defuqumat.realtime.selfconsistent` linearised. The fixed point in
-    ``dv_+`` is a GMRES solve on its real and imaginary parts, each product one
-    pass over every k-point with the inner solves from a zero start at the
-    fixed ``tolerance`` (a scheduled or warm inner solve would change the
-    operator between Krylov steps). Measured in review on two-atom silicon:
-    10 to 28 products at 1 and 4 eV and on an interband transition, where the
-    mixing of the static response (``ph.x``'s, history 4) took 200 and diverged
-    with the Hartree kernel. The uniform part of ``dv_+`` is set to zero where it
-    is a global phase: the Hartree potential has none, and a uniform shift of
-    the exchange-correlation potential of the charge, or of one collinear
-    channel, moves nothing; a spinor's uniform magnetic field is kept, since it
-    turns the spins. The density of a wedge is completed with
-    ``density_symmetry``, the field's little group, real and imaginary parts
-    as two densities (the symmetrisation keeps the real part of what it is
-    given), a spinor's magnetization as an axial vector.
+    Measured in review on two-atom silicon: 10 to 28 outer products at 1 and
+    4 eV and on an interband transition, where the mixing of the static
+    response (``ph.x``'s, history 4) took 200 and diverged with the Hartree
+    kernel.
+    """
+    return hierarchy_self_consistent(
+        calculation, basis, energies, weights, v_scf, omegas=omegas, eta=eta,
+        direction=direction, order=1, potential=potential, tolerance=tolerance,
+        outer_tolerance=outer_tolerance, max_iterations=max_iterations,
+        outer_iterations=outer_iterations, kcart=kcart, symmetrise=symmetrise,
+        density_symmetry=density_symmetry, k_batch=k_batch)
 
-    **On two FFT grids** (norm-conserving, ``ecutrho > 4 ecutwfc``) the
-    unknown ``dv_+`` and the cross density are on the smooth grid, where the
-    states are transformed: each density goes up to the dense grid by a
-    zero-pad in ``G`` (exact, the product of two states holding nothing above
-    ``2 G_wfc``), is symmetrised and goes through the kernel there, and the
-    potential comes back by keeping its smooth-sphere coefficients, which is
-    :meth:`~defuqumat.scf.driver.Calculation.local_terms`'s ``interpolate``
-    and loses nothing a matrix element between two states can see. The
-    exchange-correlation kernel's product ``f_xc drho`` is formed on the dense
-    grid, as the ground state's ``v_xc`` is, so the result is the two-grid
-    calculation's and not the one-grid one's.
 
-    The induced potential has the ground state's components: ``(up, down)`` for
-    a collinear ``nspin = 2`` run, whose channels it couples, and
-    ``(v, m_x, m_y, m_z)`` for a magnetic spinor run, acting as ``v + m.sigma``.
+def _induced_keys(order: int):
+    """``(p, m)`` for every order ``p <= order`` and harmonic ``m >= 0`` of it."""
+    return [(p, m) for p in range(1, order + 1) for m in range(p % 2, p + 1, 2)]
 
-    Returns ``{"components": {(1, 1): (nw, 3)}, "frozen": {(1, 1): (nw, 3)},
-    "outer": (nw,) products, "outer_residual": (nw,), ...}``, the frozen
-    current being the same run's at ``dv = 0``. A frequency whose outer solve
-    does not reach ``outer_tolerance`` is refused by name.
+
+def hierarchy_self_consistent(calculation, basis, energies, weights, v_scf, *, omegas,
+                              eta: float, direction, order: int = 1, potential: str = "hxc",
+                              tolerance: float = 1e-10, outer_tolerance: float = 1e-8,
+                              max_iterations: int = 500, outer_iterations: int = 200,
+                              kcart=None, symmetrise=None, density_symmetry=None,
+                              k_batch="default", nonlinear_kernel: bool = True) -> dict:
+    """``J_(N,M)`` to ``order`` with the induced potential, self-consistent, at every frequency.
+
+    :func:`hierarchy_orders` with ``dv^(p)_m`` in the right-hand sides
+    (:func:`_orders_at`): the potential ``v(t) = v_scf + U[rho(t)] - U[rho0]``
+    of :mod:`defuqumat.realtime.selfconsistent` expanded in the field, ``U``
+    the Hartree potential (``potential = 'hartree'``) or the Hartree and
+    exchange-correlation potential of the ground state's functional
+    (``'hxc'``). With ``drho = lam d1 + lam^2 d2 + lam^3 d3``
+
+        dv^(1) = K d1,
+        dv^(2) = K d2 + (1/2) K2[d1, d1],
+        dv^(3) = K d3 + K2[d1, d2] + (1/6) K3[d1, d1, d1],
+
+    ``K``, ``K2``, ``K3`` the first three derivatives of ``U`` at the states'
+    own density, harmonic by harmonic. Orders do not feed back downwards, so
+    they are solved in turn: at order ``N`` the lower potentials are fixed and
+    the fixed point ``dv^(N) = K dN(dv^(N)) + S^(N)`` is a GMRES solve on the
+    real and imaginary parts of ``dv^(N)_M`` for the harmonics ``M >= 0``
+    (``M = 0`` kept real, since the secular ``1/(2 i eta)`` along each state
+    cancels in the density only for a real potential), each product one pass
+    over every k-point with the inner solves from a zero start at the fixed
+    ``tolerance`` (a scheduled or warm inner solve would change the operator
+    between Krylov steps). Each product solves the lower orders again, at most
+    twice the order's own solves; holding them per k-point is the cheaper
+    route and the larger memory. Measured in review at first order on two-atom
+    silicon: 10 to 28 products at 1 and 4 eV and on an interband transition,
+    where the mixing of the static response (``ph.x``'s, history 4) took 200
+    and diverged with the Hartree kernel.
+
+    **The nonlinear kernel** ``S^(N)`` (``'hxc'`` only: the Hartree potential is
+    linear and has none) is taken in time rather than harmonic by harmonic. At
+    ``2N + 1`` phases ``theta`` of the drive the lower orders' densities
+    ``d_n(theta) = sum_M d_(n,M) e^{-i M theta}`` are real, the ``lam^N``
+    coefficient of ``U[rho0 + sum_(n<N) lam^n d_n(theta)]`` is ``N`` nested
+    ``jvp``, and its harmonics are a discrete Fourier sum, exact since no
+    product of the lower orders reaches past harmonic ``N`` (the
+    ``exp(N eta t)`` of every product at order ``N`` is common and drops out).
+    ``nonlinear_kernel = False`` leaves it out, which is the check that it is
+    load-bearing, not a physical choice.
+
+    The rest is the first order's (P138): the uniform part of each ``dv`` is
+    set to zero where it is a global phase (every collinear channel, a
+    spinor's charge; a spinor's uniform magnetic field turns the spins and is
+    kept), the density of a wedge is completed with ``density_symmetry``, the
+    field's little group, real and imaginary parts as two densities, a
+    spinor's magnetization as an axial vector. On two FFT grids
+    (norm-conserving, ``ecutrho > 4 ecutwfc``) the unknown ``dv`` and the
+    densities are on the smooth grid, where the states are transformed; each
+    density goes up to the dense grid by a zero-pad in ``G``, is symmetrised
+    and goes through the kernel there, and the potential comes back by keeping
+    its smooth-sphere coefficients. The induced potential has the ground
+    state's components: ``(up, down)`` for a collinear ``nspin = 2`` run, whose
+    channels it couples, and ``(v, m_x, m_y, m_z)`` for a magnetic spinor run.
+
+    **What this does not converge away.** At second order the velocity gauge's
+    frozen-sphere density ``sum_k w d^2 rho_k/dkappa^2`` is nonzero on any
+    finite mesh (1.27 against a density maximum of 0.095 on silicon's 2x2x2,
+    falling by about three a mesh step, ``PLAN.md`` P136) and is fed into
+    ``dv^(2)`` at ``2w`` and ``0``; the real-time route carries the same term,
+    so the two agree with each other, and ``chi^(2)``, ``chi^(3)`` with the
+    potential updated are physical only on a mesh that converges it.
+
+    Returns ``{"components": {(N, M): (nw, 3)}, "frozen": {(N, M): (nw, 3)},
+    "outer": (nw,) products summed over the orders, "outer_residual": (nw,) the
+    largest over the orders, ...}``, the frozen currents being the same run's
+    at ``dv = 0``. A frequency whose outer solve does not reach
+    ``outer_tolerance`` at some order is refused by name.
     """
     import scipy.sparse.linalg as sla
 
@@ -666,13 +747,13 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
 
     if potential not in POTENTIALS or potential == "frozen":
         raise ValueError(f"potential must be 'hartree' or 'hxc', not {potential!r}")
+    if order not in (1, 2, 3):
+        raise NotImplementedError("the hierarchy is written to third order")
     require_a_potential_mode(calculation, potential, symmetrise, density_symmetry,
                              route="hierarchy")
     if potential == "hxc" and calculation.functional.is_meta:
         raise NotImplementedError("the exchange-correlation kernel of a meta-GGA is not here")
     dense, smooth = calculation.basis.dense, calculation.basis.smooth
-    # the unknown ``dv_+`` and the cross density live on the smooth grid, where
-    # the states are transformed; the kernel is taken on the dense one
     grid = tuple(int(n) for n in smooth.grid)
     if symmetrise is not None and density_symmetry is None:
         raise ValueError("a reduced k-set needs the field's little group for its density")
@@ -707,24 +788,26 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
 
     channels = []
     alpha = 0.0
-    densities = []
+    densities0 = []
     for channel, (_, carried) in enumerate(pairs):
         nocc = carried.shape[1]
         own, own_e, own_w = basis[channel], energies[channel], weights[channel][:, :nocc]
         setup = _prepare(calculation, own[:, :nocc], own_w, v_scf, 0.0, None, "taylor4",
                          1, kcart, bounds=False, channel=channel)
         alpha = max(alpha, 2.0 * (float(own_e.max()) - float(own_e[:, :nocc].min())))
-        densities.append(calculation.smooth_density(
+        densities0.append(calculation.smooth_density(
             jnp.asarray(own[:, :nocc])[None], jnp.asarray(own_w, dtype=setup.real)[None]))
         channels.append((setup, own, own_e, own_w, nocc))
     alpha += 3.0 * float(omegas_ry.max()) + 1.0
     real = channels[0][0].real
     volume = channels[0][0].volume
     dtype = basis.dtype
+    field_shape = (nspin_mag,) + grid
+    size = int(np.prod(field_shape))
 
     # the states' own density, where the kernel is taken, completed as the
     # propagation completes it
-    rho0 = symmetrize(to_dense(jnp.concatenate(densities), smooth, dense))
+    rho0 = symmetrize(to_dense(jnp.concatenate(densities0), smooth, dense))
 
     if potential == "hxc":
         def kernel_real(x):
@@ -742,29 +825,54 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
     phase_only = jnp.asarray([True] * nspin_mag if not noncolin
                              else [True] + [False] * (nspin_mag - 1))
 
+    def without_phase(dv):
+        mean = jnp.mean(dv, axis=(1, 2, 3), keepdims=True)
+        return dv - jnp.where(phase_only[:, None, None, None], mean, 0.0)
+
     def kernel_part(x):
         """A real smooth-grid density to its real smooth-grid potential, through the dense grid."""
         return to_smooth(kernel_real(symmetrize(to_dense(x, smooth, dense))), dense, smooth)
 
     @jax.jit
     def kernel(drho):
-        dv = kernel_part(jnp.real(drho)) + 1j * kernel_part(jnp.imag(drho))
-        mean = jnp.mean(dv, axis=(1, 2, 3), keepdims=True)
-        return dv - jnp.where(phase_only[:, None, None, None], mean, 0.0)
+        return without_phase(kernel_part(jnp.real(drho)) + 1j * kernel_part(jnp.imag(drho)))
+
+    def phase_function(n):
+        """The ``lam^n`` coefficient of ``U[rho0 + sum_p lam^p d_p]``, compiled once per order."""
+        def at_phase(parts):
+            def u(lam):
+                total, power = rho0, jnp.ones((), dtype=rho0.dtype)
+                for d in parts:
+                    power = power * lam
+                    total = total + power * d
+                return calculation.potential(total).v_scf
+            return _derivative(u, n)(jnp.zeros((), dtype=rho0.dtype)) / math.factorial(n)
+        return jax.jit(at_phase)
+
+    # built once per order and kept across the frequencies, since a jit made
+    # inside the frequency loop would compile the nested jvp at every frequency
+    phase_functions = {n: phase_function(n) for n in range(2, order + 1)}
+
+    def nonlinear_source(n, lower):
+        """``S^(n)_M`` for ``M >= 0`` from the lower orders' densities ``{(p, M): d}``, ``p < n``."""
+        phases = 2.0 * math.pi * np.arange(2 * n + 1) / (2 * n + 1)
+        at_phase = phase_functions[n]
+        sums = {key: jnp.zeros(field_shape, dtype=dtype) for key in _induced_keys(n)
+                if key[0] == n}
+        for theta in phases:
+            parts = []
+            for p in range(1, n):
+                d = sum((1.0 if m == 0 else 2.0)
+                        * jnp.real(lower[(p, m)] * complex(np.exp(-1j * m * theta)))
+                        for m in range(p % 2, p + 1, 2))
+                parts.append(symmetrize(to_dense(d, smooth, dense)))
+            coefficient = to_smooth(at_phase(tuple(parts)), dense, smooth)
+            for key in sums:
+                sums[key] = sums[key] + coefficient * complex(np.exp(1j * key[1] * theta))
+        return {key: without_phase(value / len(phases)) for key, value in sums.items()}
 
     held = []
     for channel, (setup, own, own_e, own_w, nocc) in enumerate(channels):
-        def at(chunk, u, e, w, precondition, omega, eta_, alpha_, direction_, starts, induced,
-               nocc=nocc):
-            return _orders_at(chunk, u, e, w, precondition, omega, eta_, alpha_, direction_,
-                              starts, induced, nocc=nocc, order=1, tolerance=float(tolerance),
-                              max_iterations=int(max_iterations))
-
-        if batch > 1:
-            at = jax.vmap(at, in_axes=(0, 0, 0, 0, 0, None, None, None, None, 0, None))
-            preconditioner = jax.vmap(_preconditioner)
-        else:
-            preconditioner = _preconditioner
         ndim = own.shape[-1]
         pieces = []
         for rows, live in k_chunks(nk, batch):
@@ -775,56 +883,69 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
                 u = jnp.asarray(own[rows])
                 e = jnp.asarray(own_e[rows], dtype=real)
                 occupied, shape = u[:, :nocc], (len(rows),)
+                precondition = jax.vmap(_preconditioner)(chunk, occupied).astype(real)
             else:
                 chunk = setup.chunk(int(rows[0]), np.asarray([rows[0]]))
                 w = own_w[rows[0]]
                 u = jnp.asarray(own[rows[0]])
                 e = jnp.asarray(own_e[rows[0]], dtype=real)
                 occupied, shape = u[:nocc], ()
-            precondition = preconditioner(chunk, occupied).astype(real)
-            starts = (jnp.zeros(shape + (2 * nocc, ndim), dtype=u.dtype),)
+                precondition = _preconditioner(chunk, occupied).astype(real)
+            starts = tuple(jnp.zeros(shape + ((n + 1) * nocc, ndim), dtype=u.dtype)
+                           for n in range(1, order + 1))
             pieces.append(((chunk, u, e, jnp.asarray(w, dtype=real), precondition), starts,
                            rows, live))
-        held.append((at, pieces))
+        held.append((nocc, pieces))
 
-    runs = [None] * len(held)
-    field_shape = (nspin_mag,) + grid
-    size = int(np.prod(field_shape))
+    runs = {}
 
-    def sweep(omega, induced):
+    def program(nocc, n, currents):
+        def at(chunk, u, e, w, precondition, omega, eta_, alpha_, direction_, starts, induced):
+            return _orders_at(chunk, u, e, w, precondition, omega, eta_, alpha_, direction_,
+                              starts, induced, nocc=nocc, order=n, tolerance=float(tolerance),
+                              max_iterations=int(max_iterations), currents=currents)
+        if batch > 1:
+            # a padded row carries zero weight
+            at = jax.vmap(at, in_axes=(0, 0, 0, 0, 0, None, None, None, None, 0, None))
+        return at
+
+    def sweep(omega, induced, n, currents):
+        """One pass over every k-point at order ``n``: currents, densities / volume, iterations."""
         totals = {}
-        cross = jnp.zeros(field_shape, dtype=dtype)
+        densities = {key: jnp.zeros(field_shape, dtype=dtype) for key in induced}
         worst, count_max = 0.0, 0
-        for channel, (at, pieces) in enumerate(held):
-            field = induced if noncolin else induced[channel]
+        for channel, (nocc, pieces) in enumerate(held):
+            field = induced if noncolin else {key: v[channel] for key, v in induced.items()}
             for fixed, starts, rows, live in pieces:
                 arguments = fixed + (jnp.asarray(omega, dtype=real),
                                      jnp.asarray(eta_ry, dtype=real),
                                      jnp.asarray(alpha, dtype=real),
-                                     jnp.asarray(unit, dtype=real), starts, field)
-                if runs[channel] is None:
-                    runs[channel] = compiled_function(at, *arguments)
-                out, count, res, _, density = runs[channel](*arguments)
+                                     jnp.asarray(unit, dtype=real), starts[:n], field)
+                tag = (channel, n, currents)
+                if tag not in runs:
+                    runs[tag] = compiled_function(program(nocc, n, currents), *arguments)
+                out, count, res, _, density = runs[tag](*arguments)
                 count, res = np.asarray(count), np.asarray(res)
                 if batch > 1:
-                    count, res, density = count[:live], res[:live], density.sum(axis=0)
+                    count, res = count[:live], res[:live]
+                    density = {key: value.sum(axis=0) for key, value in density.items()}
                     out = {key: value.sum(axis=0) for key, value in out.items()}
                 worst, count_max = max(worst, float(res.max())), max(count_max, int(count.max()))
-                cross = cross + density if noncolin else cross.at[channel].add(density)
+                for key, value in density.items():
+                    densities[key] = (densities[key] + value if noncolin
+                                      else densities[key].at[channel].add(value))
                 for key, value in out.items():
                     totals[key] = totals.get(key, 0.0) + np.asarray(value)
         if worst > 10.0 * tolerance:
             raise HierarchyError(
                 f"an inner solve did not converge at w = {omega / 2.0:.5f} Ha: relative "
                 f"residual {worst:.2e} against {tolerance:.1e}")
-        return totals, cross / volume, count_max
+        return totals, {key: value / volume for key, value in densities.items()}, count_max
 
-    def flat(x):
-        x = np.asarray(x)
-        return np.concatenate([x.real.ravel(), x.imag.ravel()])
-
-    def unflat(x):
-        return jnp.asarray((x[:size] + 1j * x[size:]).reshape(field_shape), dtype=dtype)
+    def potential_of(densities, keys):
+        """``K d`` for each key, the harmonic ``M = 0`` real."""
+        return {key: (jnp.real(kernel(jnp.real(densities[key]))).astype(dtype) if key[1] == 0
+                      else kernel(densities[key])) for key in keys}
 
     def finish(totals):
         components = {key: -np.asarray(value) / (2.0 * volume) for key, value in totals.items()}
@@ -834,39 +955,73 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
                           for key, value in components.items()}
         return components
 
-    sc = np.zeros((len(omegas), 3), dtype=complex)
-    frozen = np.zeros((len(omegas), 3), dtype=complex)
+    def store(target, iw, totals):
+        for key, value in finish(totals).items():
+            target.setdefault(key, np.zeros((len(omegas), 3), dtype=complex))[iw] = value
+
+    sc, frozen = {}, {}
     products = np.zeros(len(omegas), dtype=int)
     outer_residual = np.zeros(len(omegas))
     inner = np.zeros(len(omegas), dtype=int)
-    previous = None
+    previous = {}
     zero = jnp.zeros(field_shape, dtype=dtype)
     for iw, omega in enumerate(omegas_ry):
-        bare_totals, bare_density, inner[iw] = sweep(omega, zero)
-        frozen[iw] = finish(bare_totals)[(1, 1)]
-        bare = flat(kernel(bare_density))
-        calls = [0]
+        induced = {key: zero for key in _induced_keys(order)}
+        bare_totals, _, inner[iw] = sweep(omega, induced, order, True)
+        store(frozen, iw, bare_totals)
+        converged = {}
+        for n in range(1, order + 1):
+            keys = [key for key in _induced_keys(n) if key[0] == n]
+            own = {key: induced[key] for key in _induced_keys(n)}
 
-        def linear(x):
-            calls[0] += 1
-            _, density, _ = sweep(omega, unflat(x))
-            return x - (flat(kernel(density)) - bare)
+            def flat(fields, keys=keys):
+                return np.concatenate([np.concatenate([np.asarray(fields[key]).real.ravel(),
+                                                       np.asarray(fields[key]).imag.ravel()])
+                                       for key in keys])
 
-        operator = sla.LinearOperator((2 * size, 2 * size), matvec=linear, dtype=float)
-        x, _ = sla.gmres(operator, bare, x0=previous, rtol=outer_tolerance, atol=0.0,
-                         restart=60, maxiter=max(1, outer_iterations // 60 + 1))
-        totals, density, _ = sweep(omega, unflat(x))
-        residual = float(np.linalg.norm(x - flat(kernel(density)))
-                         / max(np.linalg.norm(bare), 1e-300))
-        if residual > 10.0 * outer_tolerance:
-            raise HierarchyError(
-                f"the induced potential did not converge at w = {omega / 2.0:.5f} Ha: "
-                f"relative residual {residual:.2e} after {calls[0]} products against "
-                f"{outer_tolerance:.1e}")
-        sc[iw] = finish(totals)[(1, 1)]
-        products[iw], outer_residual[iw] = calls[0], residual
-        previous = x
-    return {"components": {(1, 1): sc}, "frozen": {(1, 1): frozen}, "outer": products,
+            def unflat(x, keys=keys, own=own):
+                fields = dict(own)
+                for i, key in enumerate(keys):
+                    block = x[2 * i * size:2 * (i + 1) * size]
+                    fields[key] = jnp.asarray((block[:size] + 1j * block[size:]).reshape(
+                        field_shape), dtype=dtype)
+                return fields
+
+            _, bare_density, _ = sweep(omega, own, n, False)
+            bare_kernel = flat(potential_of(bare_density, keys))
+            source = np.zeros_like(bare_kernel)
+            if potential == "hxc" and n >= 2 and nonlinear_kernel:
+                source = flat(nonlinear_source(n, converged))
+            right = bare_kernel + source
+            calls = [0]
+
+            def linear(x, omega=omega, n=n, keys=keys, flat=flat, unflat=unflat,
+                       bare_kernel=bare_kernel, calls=calls):
+                calls[0] += 1
+                _, density, _ = sweep(omega, unflat(x), n, False)
+                return x - (flat(potential_of(density, keys)) - bare_kernel)
+
+            operator = sla.LinearOperator((right.size, right.size), matvec=linear, dtype=float)
+            x, _ = sla.gmres(operator, right, x0=previous.get(n), rtol=outer_tolerance,
+                             atol=0.0, restart=60, maxiter=max(1, outer_iterations // 60 + 1))
+            fields = unflat(x)
+            _, density, _ = sweep(omega, fields, n, False)
+            residual = float(np.linalg.norm(x - flat(potential_of(density, keys)) - source)
+                             / max(np.linalg.norm(right), 1e-300))
+            if residual > 10.0 * outer_tolerance:
+                raise HierarchyError(
+                    f"the induced potential at order {n} did not converge at "
+                    f"w = {omega / 2.0:.5f} Ha: relative residual {residual:.2e} after "
+                    f"{calls[0]} products against {outer_tolerance:.1e}")
+            for key in keys:
+                induced[key] = fields[key]
+                converged[key] = density[key]
+            products[iw] += calls[0]
+            outer_residual[iw] = max(outer_residual[iw], residual)
+            previous[n] = x
+        totals, _, _ = sweep(omega, induced, order, True)
+        store(sc, iw, totals)
+    return {"components": sc, "frozen": frozen, "outer": products,
             "outer_residual": outer_residual, "iterations": inner, "volume": volume,
             "alpha": alpha, "nocc": tuple(c[4] for c in channels),
             "computed_bands": basis.shape[2]}

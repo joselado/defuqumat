@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import warnings
 from dataclasses import dataclass, field
 
 import equinox as eqx
@@ -687,8 +688,9 @@ class NonlinearSpectrum:
     computed_bands: int
     volume: float
     #: With the potential updated, the same run's currents at the ground
-    #: state's potential, ``{(1, 1): (nw, 3)}``; the shift between the two is
-    #: free of the frozen route's band-curvature term. ``None`` otherwise.
+    #: state's potential, ``{(n, m): (nw, 3)}``; at first order the shift
+    #: between the two is free of the frozen route's band-curvature term.
+    #: ``None`` otherwise.
     frozen_components: dict | None = None
     #: With the potential updated, the outer GMRES products of each frequency.
     outer: np.ndarray | None = None
@@ -759,16 +761,16 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
     ground-state occupations, so there is no occupation response, as in the
     real-time route.
     """
-    from defuqumat.realtime.hierarchy import hierarchy_linear_self_consistent, hierarchy_orders
+    from defuqumat.realtime.hierarchy import hierarchy_orders, hierarchy_self_consistent
 
-    if potential != "frozen" and order != 1:
-        raise NotImplementedError(
-            "the frequency-domain hierarchy with the potential updated is implemented at "
-            "first order only: the second and third orders need the induced potentials at 2w "
-            "and 3w, each a fixed point at every frequency, and they would carry the velocity "
-            "gauge's second-order density artefact, 7 per cent of rho on a 2x2x2 mesh. The "
-            "real-time route has them at one frequency a run "
-            "(get_harmonic_orders(potential='hxc'))")
+    if potential != "frozen" and order >= 2:
+        warnings.warn(
+            "the second and third orders with the potential updated carry the velocity "
+            "gauge's second-order density artefact, sum_k w d^2 rho_k/dkappa^2, fed into the "
+            "induced potential at 2w and 0: 7 per cent of rho on a 2x2x2 mesh of silicon, "
+            "falling by about three a mesh step. The real-time route carries the same term; "
+            "read chi^(2) and chi^(3) with local fields on a mesh that converges it",
+            stacklevel=2)
     frequencies = np.atleast_1d(np.asarray(frequencies, dtype=float))
     unit = np.asarray(direction, dtype=float)
     unit = unit / np.linalg.norm(unit)
@@ -796,10 +798,9 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
                                  direction=unit, components=out["components"],
                                  iterations=out["iterations"], residual=out["residual"],
                                  computed_bands=computed, volume=out["volume"])
-    out = hierarchy_linear_self_consistent(calc, bands[:, :, :computed],
-                                           energies[:, :, :computed],
-                                           weights, v_scf, potential=potential,
-                                           density_symmetry=group, **common)
+    out = hierarchy_self_consistent(calc, bands[:, :, :computed], energies[:, :, :computed],
+                                    weights, v_scf, order=order, potential=potential,
+                                    density_symmetry=group, **common)
     return NonlinearSpectrum(frequencies=frequencies, broadening=float(broadening),
                              direction=unit, components=out["components"],
                              iterations=out["iterations"], residual=out["outer_residual"],
