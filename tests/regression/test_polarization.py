@@ -235,6 +235,35 @@ def test_an_ultrasoft_crystal_matches_pw_x_with_a_phase_that_is_not_zero():
     assert polarization.quantum == pytest.approx(2.0)
 
 
+@pytest.mark.slow
+def test_a_paw_crystal_matches_pw_x():
+    """``reference.out.alas-paw-berry``: the PAW Berry phase, before it is a reference.
+
+    The piezoelectric tensor's PAW refusal was lifted against a Berry-phase
+    finite difference (``notes/incompat/I89.md``), and this package's own Berry
+    phase had been compared with ``pw.x`` only for norm-conserving and
+    ultrasoft datasets. A PAW dataset reaches the overlap through the same
+    augmentation charge, so nothing new is expected, and this says so with a
+    number: ``alas-piezo-paw.in``'s crystal (Al/As ``kjpaw_psl.1.0.0``, 25/200
+    Ry) at ``sic-berry.in``'s settings. Measured 2026-10-19: the strings to
+    3.2e-06 (``pw.x`` prints five decimals), the electronic phase to 2.4e-06,
+    ``P`` to 1.0e-07 e/Omega bohr, the energy to 3e-09 Ry.
+    """
+    system, pseudos, result = converged("alas-paw-berry.in", "4 4 4 0 0 0")
+    assert all(p.is_paw for p in pseudos)
+    assert float(result.total_energy) == pytest.approx(-215.55389405, abs=1.0e-7)
+    polarization = run_polarization(
+        system, pseudos, result.density, gdir=2, nppstr=6, transverse=(2, 2),
+        becsum=result.becsum, conv_thr=1.0e-11,
+    )
+    assert np.allclose(polarization.strings.phases,
+                       [-0.03191, -0.00178, -0.00178, -0.00158], atol=1.0e-5)
+    assert polarization.electronic_phase == pytest.approx(-0.00926, abs=1.0e-5)
+    assert polarization.total_phase == pytest.approx(0.24074, abs=1.0e-5)
+    assert polarization.quantum == pytest.approx(1.0)
+    assert polarization.polarization == pytest.approx(1.8066896, abs=1.0e-6)
+
+
 # --- two spin channels ------------------------------------------------------
 
 def _two_channel(name: str, scf_grid: str, extra: str):

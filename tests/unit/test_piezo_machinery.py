@@ -176,13 +176,27 @@ def test_an_ultrasoft_input_passes_the_chain_on_a_coarse_mesh(no_calculation):
     The ultrasoft mesh condition was dropped by the user's decision (``OPEN.md``
     Part XIII item 3), so the whole chain, asked of the input, lets this cell
     through, and what it gets instead is the k-mesh warning
-    (:func:`test_an_ultrasoft_dataset_is_warned_about_its_mesh_and_paw_refused`).
+    (:func:`test_an_augmented_dataset_is_warned_about_its_mesh_with_its_own_offsets`).
     The cell carries an explicit list of two points, which has no divisions to
     compare with eight, and on the old code it raised "denser k-mesh than an
     explicit k-point list".
     """
     system, pseudos = _input("si2-us")
     assert getattr(system.kpoints, "grid", None) is None
+    require_a_piezoelectric_tensor(system, pseudos=pseudos)
+
+
+def test_a_paw_input_passes_the_chain(no_calculation):
+    """``alas-piezo-paw.in``, the cell the PAW refusal was measured on and lifted.
+
+    Until 2026-10-19 the chain refused any PAW dataset with "not implemented
+    for a PAW dataset". The tensor on this cell was then measured against
+    pw.x's Berry-phase finite difference, a deficit of 15.22, 3.71 and 0.86 per
+    cent at 4 4 4, 6 6 6 and 8 8 8 (``notes/incompat/I89.md``), so the whole
+    chain, asked of the input, lets it through. On the old code this raised.
+    """
+    system, pseudos = _input("alas-piezo-paw")
+    assert all(p.pseudo_type.upper() == "PAW" for p in pseudos)
     require_a_piezoelectric_tensor(system, pseudos=pseudos)
 
 
@@ -417,7 +431,7 @@ def test_an_unknown_route_is_refused_before_anything_is_solved():
         piezoelectric_tensor(_calculation("alas-raman"), None, method="zstar-eu")
 
 
-def test_the_transcribed_route_refuses_paw_and_no_longer_refuses_ultrasoft():
+def test_the_transcribed_route_refuses_paw_and_the_quantity_no_longer_does():
     """``zstar_eu`` refuses **PAW**, and *separately* from the tensor's own guard.
 
     The two refusals are about different things and the test is that lifting
@@ -450,11 +464,14 @@ def test_the_transcribed_route_refuses_paw_and_no_longer_refuses_ultrasoft():
     with pytest.raises(NotImplementedError, match="PAW"):
         require_a_norm_conserving_transcription(_calculation("o2-paw-afm"))
     # ... and the dataset refusal is the other function: since 2026-10-11 it
-    # lets the ultrasoft cell through on any mesh and still refuses PAW, so the
-    # two agree on both datasets now while answering different questions.
+    # lets the ultrasoft cell through on any mesh, and since 2026-10-19 PAW as
+    # well (measured against pw.x's Berry-phase value, notes/incompat/I89.md),
+    # so lifting the quantity's refusal has not lifted this route's.
     require_a_measured_dataset(ultrasoft)
-    with pytest.raises(NotImplementedError, match="PAW"):
-        require_a_measured_dataset(_calculation("o2-paw-afm"))
+    require_a_measured_dataset(_calculation("o2-paw-afm"))
+    # The route's refusal now quotes the size of the term it lacks.
+    with pytest.raises(NotImplementedError, match="5.4e-04"):
+        require_a_norm_conserving_transcription(_calculation("o2-paw-afm"))
 
 
 def test_the_kmesh_guard_fires_and_says_what_the_mesh_was():
@@ -532,8 +549,8 @@ def test_the_ladder_refuses_an_order_that_would_read_as_a_drift():
         piezoelectric_kmesh_ladder(system, pseudos, meshes=())
 
 
-def test_an_ultrasoft_dataset_is_warned_about_its_mesh_and_paw_refused():
-    """PAW refused, and an ultrasoft dataset on any mesh warned about with its own numbers.
+def test_an_augmented_dataset_is_warned_about_its_mesh_with_its_own_offsets():
+    """No dataset refused, and an ultrasoft or PAW one warned about with its own numbers.
 
     **What was measured and what it licenses** (``OPEN.md`` Part XIII item 3,
     re-measured 2026-10-10 at a converged cutoff). On zincblende AlAs the
@@ -547,10 +564,11 @@ def test_an_ultrasoft_dataset_is_warned_about_its_mesh_and_paw_refused():
     for an ultrasoft run. On the old code the coarse stand-in raised "denser"
     and no warning text held "15.30", so both halves below fail there.
 
-    PAW keeps the whole refusal, and the difference is the kind of evidence
-    that exists for each: the PAW wedge completion is measured against **its own
-    closed grid**, which is an internal identity, and no PAW crystal has been
-    compared with anything outside this code.
+    PAW kept the whole refusal until 2026-10-19, when ``alas-piezo-paw.in``
+    was measured against **pw.x's** Berry-phase finite difference: 15.22, 3.71
+    and 0.86 per cent at the same three meshes (``notes/incompat/I89.md``). On
+    the code before that the PAW stand-in raised and no warning held "15.22",
+    so the PAW half below fails there.
 
     The stand-in is a namespace rather than a ``Calculation`` because what the
     guard and the warning read is two flags and a grid.
@@ -578,8 +596,8 @@ def test_an_ultrasoft_dataset_is_warned_about_its_mesh_and_paw_refused():
         require_a_measured_dataset(stand_in(grid))
     require_a_measured_dataset(stand_in((4, 4, 4)), 10 * KMESH_STEP)
     require_a_measured_dataset(stand_in((4, 4, 4)), allow_a_coarse_mesh=True)
-    with pytest.raises(NotImplementedError, match="PAW"):
-        require_a_measured_dataset(stand_in((10, 10, 10), paw=True))
+    require_a_measured_dataset(stand_in((10, 10, 10), paw=True))
+    require_a_measured_dataset(stand_in((4, 4, 4), paw=True))
 
     # The guard that replaced the refusal fires on the coarse ultrasoft run and
     # carries the dataset's own offsets beside the calibration's ...
@@ -587,10 +605,18 @@ def test_an_ultrasoft_dataset_is_warned_about_its_mesh_and_paw_refused():
         _warn_about_the_kmesh(stand_in((4, 4, 4)), None)
     assert "14.54, 3.65, 1.01" in str(caught[0].message)
     assert "integrated over 64 k-points (4 4 4)" in str(caught[0].message)
+    # ... a PAW run carries its own offsets, measured against pw.x, and not
+    # the ultrasoft ones ...
+    with pytest.warns(RuntimeWarning, match="15.22, 3.71, 0.86") as caught:
+        _warn_about_the_kmesh(stand_in((4, 4, 4), paw=True), None)
+    assert "14.54, 3.65, 1.01" in str(caught[0].message)
+    assert "15.30" not in str(caught[0].message)
+    assert "PAW" in str(caught[0].message)
     # ... a norm-conserving run gets the warning without them ...
     with pytest.warns(RuntimeWarning, match="k-convergence has not been measured") as caught:
         _warn_about_the_kmesh(stand_in((4, 4, 4), ultrasoft=False), None)
     assert "15.30" not in str(caught[0].message)
+    assert "15.22" not in str(caught[0].message)
     # ... and a measured ladder below the step silences it for both.
     with _warnings.catch_warnings():
         _warnings.simplefilter("error")
