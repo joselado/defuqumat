@@ -154,7 +154,8 @@ An **ultrasoft** pair density carries ``Q_ij(G)`` and its head the generalised
 velocity (:func:`require_a_sum_over_states_regime`, I94).
 
 Refused by name: finite ``q``, PAW, an ultrasoft run that is smeared,
-polarized or a spinor, tetrahedron occupations, a
+polarized or a spinor, tetrahedron occupations, a smeared run that is
+polarized, a spinor or on a reduced k-set (no number yet), a
 spinor carrying a moment (``nspin_mag = 4``), a spin spiral, a scissors shift
 on a smeared run, and a **reduced k-set** at ``nspin = 2`` -- see
 :func:`require_a_sum_over_states_regime`.
@@ -451,6 +452,15 @@ def require_a_sum_over_states_regime(calculation) -> None:
             "responds to the density too (QE's adddvhubscf), and leaving it "
             "out of the screening is a silent approximation rather than a "
             "missing feature"
+        )
+    if _is_smeared(system) and (system.noncolin or is_reduced(system.kpoints)):
+        raise NotImplementedError(
+            "a smeared chi_0 on a spinor or on a symmetry-reduced k-set is not "
+            "implemented: the pair window and the Drude block are written for "
+            "both, but the numbers behind the smeared path are for a scalar run "
+            "on the whole grid (aluminium and silicon), and these reach the "
+            "same matrix with none. Pass the whole unshifted grid with nosym, "
+            "or use fixed occupations"
         )
     if _is_smeared(system) and int(system.nspin) == 2:
         raise NotImplementedError(
