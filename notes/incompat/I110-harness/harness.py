@@ -7,14 +7,17 @@ default, which for a noncollinear meta-GGA is ``'grad_m'``. For each
 
 * ``rebuilt``: ``torque_of_result(calc, scf)``, ``v_of_rho`` at the result's
   ``(density, tau)``, which are the last iteration's output.
-* ``scf``: ``exchange_torque(scf.density, scf.potential)``, the field the SCF
-  itself built from the last iteration's *input* ``(rho, tau)``; components 1
-  to 3 of ``scf.potential`` are ``B_xc`` alone (``vltot`` is in the charge
-  component only, and there is no field).
+* ``scf``: ``exchange_torque(scf.density, scf.potential)``. Run 2 showed that
+  ``scf.potential`` is rebuilt at convergence on the *output* ``(rho, tau)``
+  (``driver.py``, the ``vnew`` block), so this is the same field and the gap is
+  round-off at every ``conv_thr``: an identity of the plumbing.
+* ``input``: ``exchange_torque(scf.density, scf.potential -
+  scf.potential_change)``, ``m_out x B_xc[rho_in, tau_in]``, the field the last
+  iteration actually applied. This gap is the self-consistency residual and
+  falls with ``conv_thr``.
 
-The two differ by the self-consistency residual, so their gap falls with
-``conv_thr``. The term switched off: the same rebuild with ``tau``'s vector
-part zeroed, and with ``tau`` replaced by Thomas-Fermi of the charge.
+The term switched off: the same rebuild with ``tau``'s vector part zeroed, and
+with ``tau`` replaced by Thomas-Fermi of the charge.
 Run with ``python3 harness.py`` from the repository root.
 """
 
@@ -88,6 +91,11 @@ for thr in THRESHOLDS:
         thomas_fermi_tau(jnp.real(jnp.asarray(scf.density)[0]), 1))
     thomas_fermi = torque_of_result(calculation, scf, density=scf.density, tau=tf)
 
+    v_in = jnp.asarray(scf.potential) - jnp.asarray(scf.potential_change)
+    applied = exchange_torque(scf.density, v_in, cell, regions)
+    s_in = np.asarray(applied.sites)
+    print(f"max |B_out - B_in| = "
+          f"{float(jnp.max(jnp.abs(jnp.asarray(scf.potential_change)[1:]))):.3e} Ry")
     s_new = np.asarray(rebuilt.sites)
     s_own = np.asarray(own.sites)
     print(f"parallel_fraction rebuilt {float(rebuilt.parallel_fraction):.8f} "
@@ -100,6 +108,11 @@ for thr in THRESHOLDS:
           f"(relative {np.abs(s_new - s_own).max() / np.abs(s_new).max():.3e})")
     print(f"total rebuilt {np.asarray(rebuilt.total).tolist()}  |.| = {norm(rebuilt.total):.3e}")
     print(f"total scf     {np.asarray(own.total).tolist()}  |.| = {norm(own.total):.3e}")
+    print(f"input-field sites gap = {np.abs(s_new - s_in).max():.3e}  "
+          f"(relative {np.abs(s_new - s_in).max() / np.abs(s_new).max():.3e}); "
+          f"total gap {norm(np.asarray(rebuilt.total) - np.asarray(applied.total)):.3e}")
+    print(f"tau vector off: sites gap to input = "
+          f"{np.abs(np.asarray(no_vector.sites) - s_in).max():.3e}")
     print(f"tau vector off: sites gap to scf = "
           f"{np.abs(np.asarray(no_vector.sites) - s_own).max():.3e}")
     print(f"Thomas-Fermi tau: sites gap to scf = "
