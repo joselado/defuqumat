@@ -591,7 +591,7 @@ def test_the_gga_kernel_is_hermitian_nonlocal_and_halves_the_tangent():
 
 
 def test_the_alda_kernel_still_refuses_a_meta_functional_and_a_gga_spinor():
-    """The two regimes I97's kernel does not cover keep their refusals."""
+    """The three regimes I97's kernel does not cover keep their refusals."""
     from defuqumat.tddft import alda_matrix
 
     meta = _functional_silicon("tb09")
@@ -605,3 +605,9 @@ def test_the_alda_kernel_still_refuses_a_meta_functional_and_a_gga_spinor():
     four[0] = density
     with pytest.raises(NotImplementedError, match="4-component density"):
         alda_matrix(pbe, jnp.asarray(four), sphere)
+
+    # The polarized refusal runs before the gradient branch, so it holds for PBE.
+    pbe_two = _functional_silicon("pbe", nspin=2)
+    polarized = np.stack([0.6 * density, 0.4 * density])
+    with pytest.raises(NotImplementedError, match="magnetized ground state"):
+        alda_matrix(pbe_two, jnp.asarray(polarized), sphere)
