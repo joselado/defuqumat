@@ -449,13 +449,21 @@ def test_the_elastic_constants_match_a_second_difference_of_the_energy(component
 #: own truncation falling as ``h^4`` above that step (``(0,1)``: 3.8e-5 at
 #: 8e-3, 2.4e-6 at 4e-3). With the Fermi-level shift off ``(0,0)`` is 454 times
 #: too large, and with the ``wg``/``wk`` split off it is 81 per cent high and
-#: ``(0,1)`` 34 per cent low (``notes/incompat/I88.md``).
-METAL_ELASTIC_TOLERANCE = 2e-6
+#: ``(0,1)`` 34 per cent low (``notes/incompat/I88.md``). Measured on the two
+#: components tested only: a random symmetric strain reads 3.5e-6 at
+#: ``h = 2e-3``, which is the stencil's truncation (5.5e-5 at 4e-3, x15.9).
+#: ``al2-metal-mp`` (fix round) reads -1.35e-6 and +6.2e-7 at ``h = 2e-3``,
+#: -2.2e-5 and +9.6e-6 at 4e-3 (truncation, x16), and at QE's projector cutoff
+#: in place of :data:`~defuqumat.response.strain.STRAIN_SMEARING_SMALL` it
+#: reads -4.6e-4 and +2.2e-5, flat in the step.
+METAL_ELASTIC_TOLERANCE = {"al2-metal": 2e-6, "al2-metal-mp": 3e-6}
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("case", ["al2-metal", "al2-metal-mp"])
 @pytest.mark.parametrize("component", [(0, 0), (0, 1)])
-def test_the_elastic_constants_of_a_metal_match_a_second_difference_of_the_free_energy(component):
+def test_the_elastic_constants_of_a_metal_match_a_second_difference_of_the_free_energy(
+        case, component):
     """``I88``: a smeared metal against a five-point difference of ``F = E - TS``.
 
     ``al2-metal.in`` is ``nosym`` on an unshifted grid, so the elastic
@@ -463,16 +471,19 @@ def test_the_elastic_constants_of_a_metal_match_a_second_difference_of_the_free_
     strained cells on the same frozen sphere, as the silicon test above does;
     the ``(0,0)`` strain is the one the Fermi-level shift acts on (it is
     proportional to ``Tr T``), and the shear is the one that shows the rest of
-    the plumbing is intact.
+    the plumbing is intact. ``al2-metal-mp`` is the same cell with
+    Methfessel-Paxton smearing, whose tail reaches past QE's projector cutoff
+    where Marzari-Vanderbilt's does not; it is the case that fails without
+    :data:`~defuqumat.response.strain.STRAIN_SMEARING_SMALL`.
     """
     from defuqumat.response.elastic import elastic_constants
 
     step = 2e-3
     a, b = component
     tangent = strain_tangent(a, b)
-    _, _, calculation, result, eigenvalues, psi = _converged("al2-metal")
+    _, _, calculation, result, eigenvalues, psi = _converged(case)
     energies = {
-        offset: _reconverged("al2-metal", offset * step * tangent)[1].total_energy
+        offset: _reconverged(case, offset * step * tangent)[1].total_energy
         for offset in (-2, -1, 0, 1, 2)
     }
     second = (
@@ -481,11 +492,11 @@ def test_the_elastic_constants_of_a_metal_match_a_second_difference_of_the_free_
     ) / (12 * step**2)
     reference = second / calculation.system.cell.volume
 
-    response = _strain("al2-metal")
+    response = _strain(case)
     assert response.converged
     ours = elastic_constants(calculation, psi, eigenvalues,
                              jnp.asarray(result.density), response).tensor[a, b, a, b]
-    assert abs(ours - reference) / abs(reference) < METAL_ELASTIC_TOLERANCE
+    assert abs(ours - reference) / abs(reference) < METAL_ELASTIC_TOLERANCE[case]
 
 
 # -- the reporting boundary ---------------------------------------------------
