@@ -56,7 +56,7 @@ import numpy as np
 
 from defuqumat.scf.potential import as_potential_components, total_charge
 
-__all__ = ["SawtoothField", "saw", "build_sawtooth"]
+__all__ = ["SawtoothField", "saw", "build_sawtooth", "refuse_sawtooth", "refuse_berry_field"]
 
 E2 = 2.0
 FPI = 4.0 * np.pi
@@ -180,8 +180,17 @@ def refuse_sawtooth(owner, quantity: str, missing: str) -> None:
             f"{quantity} with a saw-tooth electric field (tefield) is not "
             f"implemented: {missing}"
         )
-    # The Berry-phase field (``lelfield``) is refused by the same consumers:
-    # none of them carries ``-E . P`` or the operator that couples the k-points.
+    refuse_berry_field(owner, quantity)
+
+
+def refuse_berry_field(owner, quantity: str) -> None:
+    """Stop when ``owner`` carries ``lelfield``, whatever it says about ``tefield``.
+
+    The Berry-phase field is refused by every consumer :func:`refuse_sawtooth`
+    guards, and by the one that lifts the saw-tooth (the dynamical matrix at
+    ``Gamma``, ``notes/incompat/I104.md``) as well: none of them carries
+    ``-E . P`` or the operator that couples the k-points.
+    """
     if (getattr(owner, "berry_field", None) is not None):
         raise NotImplementedError(
             f"{quantity} with a finite electric field by the Berry phase (lelfield) "

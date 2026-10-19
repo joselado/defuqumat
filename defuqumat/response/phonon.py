@@ -405,8 +405,13 @@ def dynamical_matrix(
     # triplet O2 (:func:`occupied_pairs`); the walked one is refused below.
     # ``noncollinear``: the spinor assembly is written and measured, and
     # :func:`_require_no_spinor` is what refuses it, with the numbers.
+    # ``sawtooth_ok``: under ``tefield`` (and ``dipfield``) the whole-k
+    # assembly of an insulator agrees with a central difference of the forces
+    # (``notes/incompat/I104.md``); what was not measured is refused next.
     require_a_sternheimer_regime(calculation, metals=True, gamma_ok=True,
-                                 spin_polarized=True, noncollinear=True)
+                                 spin_polarized=True, noncollinear=True,
+                                 sawtooth_ok=True)
+    _require_a_measured_sawtooth_regime(calculation)
     # The ultrasoft or PAW *metal* is implemented on the whole-k route
     # (``notes/incompat/I86.md``); what is still refused of it is decided here,
     # and the walked route refuses it below.
@@ -425,6 +430,7 @@ def dynamical_matrix(
 
     walked = None if response is None else getattr(response, "walked", None)
     if walked is not None:
+        _require_a_measured_sawtooth_regime(calculation, route="walked")
         _require_one_spin_channel(calculation)
         _require_no_walked_overlap_metal(calculation)
         if chosen is not None and calculation.use_symmetry:
@@ -464,6 +470,7 @@ def dynamical_matrix(
         calculation, wavefunctions, keep_internals=False,
         what="the dynamical matrix")
     if streamed:
+        _require_a_measured_sawtooth_regime(calculation, route="walked")
         _require_one_spin_channel(calculation)
         _require_no_walked_overlap_metal(calculation)
     if streamed and chosen is not None and calculation.use_symmetry:
@@ -1109,15 +1116,30 @@ def _core_charge_response(calculation, density, positions, atoms=None,
     ``ph.x``'s 513. It is the same omission ``force_cc`` exists for one
     derivative down, and :func:`~defuqumat.forces.energy.frozen_energy` already
     carries it there -- so the assembly was right and only the response was not.
+
+    **The dipole correction is the second term of the same shape**
+    (``notes/incompat/I104.md``). Under ``dipfield`` the saw-tooth's amplitude
+    is ``eamp - D`` and ``D`` carries the ions' dipole ``ion_dip(tau)``, so
+    ``v_scf`` moves with an atom at a frozen density exactly as ``v_xc`` does
+    with a core charge; the ``jvp`` below through ``at_positions(pos).potential``
+    is that term too, and the slot fires for either. Without it the ultrasoft
+    CO molecule of ``efield-co-dipole.in`` (at ``eamp = 0.01``) has its C ``z``
+    column moved by 0.60 Ry/bohr^2 against force constants of 1.86, and misses
+    the central difference of the forces by 0.12 where it agrees to about
+    2e-4 with it.
     """
-    if calculation.rho_core is None:
+    sawtooth = getattr(calculation, "sawtooth", None)
+    dipole = sawtooth is not None and sawtooth.dipfield
+    if calculation.rho_core is None and not dipole:
         return None
     if positions is None:
         raise ValueError(
             "the displacement response of a dataset with a nonlinear core "
-            "correction needs the positions: the core charge travels with its "
-            "atom, so v_xc changes at a frozen valence density (addcore). "
-            "Pass positions=... to self_consistent_response"
+            "correction, or under dipfield, needs the positions: the core "
+            "charge travels with its atom, so v_xc changes at a frozen valence "
+            "density (addcore), and the ions' dipole moves the dipole "
+            "correction's saw-tooth. Pass positions=... to "
+            "self_consistent_response"
         )
     positions = jnp.asarray(positions)
     nat = positions.shape[0]
@@ -2238,6 +2260,69 @@ def _require_no_spinor(calculation) -> None:
         "cent from a finite difference of this code's own forces, which is "
         "unlocated (notes/incompat/I3.md)"
     )
+
+
+def _require_a_measured_sawtooth_regime(calculation, route: str = "whole") -> None:
+    """The dynamical matrix under ``tefield``: what the check covered, and no more.
+
+    **What the field adds to a displacement response**, read off
+    :mod:`defuqumat.scf.sawtooth`'s one energy ``E_f(rho, tau)``. Without
+    ``dipfield`` its potential ``e2 eamp saw(x) d`` depends on neither the
+    density nor the positions, so it sits in the ground state's ``v_scf``,
+    which the Sternheimer operator and the frozen ``dV_bare`` already carry,
+    and contributes nothing to the screening kernel; the frozen Hessian takes
+    the ions' term from :func:`~defuqumat.forces.energy.frozen_energy`, which
+    already holds ``e_sawtooth``. With ``dipfield`` the potential is
+    ``e2 (eamp - D) saw(x) d`` with ``D = ion_dip(tau) - el_dip(rho)``: the
+    density half of ``dD`` is in the screening ``jvp`` of ``v_of_rho``, and the
+    ions' half is the one term a frozen ``v_scf`` leaves out of ``dV_bare``,
+    which :func:`_core_charge_response` now adds (0.60 Ry/bohr^2 on CO's C
+    ``z`` column, ``notes/incompat/I104.md``).
+
+    **Measured**: the ultrasoft CO molecule of ``efield-co.in`` and
+    ``efield-co-dipole.in`` at ``eamp = 0.01``, fixed occupations,
+    ``nspin = 1``, a single explicit ``k = 0`` on the whole sphere, on the
+    route that holds every k-point at once. The two ``z`` columns agree with a
+    central difference of the forces (net force removed on both sides) to
+    about 2e-4 Ry/bohr^2, one part in 10^4, with or without ``dipfield``:
+    the Richardson pair at steps 0.02/0.01 and 0.01/0.005 bohr leaves 1.4e-5
+    to 2.5e-5 on C ``z`` and 1.5e-4 to 1.9e-4 on O ``z``, and below about
+    0.0035 bohr a single step measures a deterministic roughness of the force
+    difference (about 3.5e-7 Ry/bohr, not moved by ``conv_thr``) rather than
+    the force constants. The field itself moves the columns by 4.9e-3 and
+    1.2e-3 (``tests/regression/test_sawtooth_phonons.py``). Every other regime
+    of the matrix is refused here under the field, because none of them was
+    run with it: the check is ultrasoft without a Hubbard term, so PAW and
+    DFT+U are refused too.
+    """
+    if getattr(calculation, "sawtooth", None) is None:
+        return
+    unmeasured = []
+    if route != "whole":
+        unmeasured.append("the route that walks the k axis a chunk at a time "
+                          "(response/chunked_phonon.py, which has its own "
+                          "assembly); run with memory_mode='speed' or a k_batch "
+                          "that holds the whole mesh")
+    if calculation.system.occupations != "fixed":
+        unmeasured.append("a metal (the Fermi-level shift under the field)")
+    if calculation.nspin != 1 or calculation.noncolin:
+        unmeasured.append("a spin-polarized, noncollinear or spin-orbit run")
+    if getattr(calculation, "gamma_only", False):
+        unmeasured.append("half-sphere storage (K_POINTS gamma); use an "
+                          "explicit k = 0 (K_POINTS 1 / 0 0 0 1)")
+    if getattr(calculation, "is_paw", False):
+        unmeasured.append("a PAW dataset (the check is ultrasoft)")
+    if getattr(calculation, "hubbard", None) is not None:
+        unmeasured.append("DFT+U")
+    if unmeasured:
+        raise NotImplementedError(
+            "the dynamical matrix with a saw-tooth electric field (tefield) is "
+            "measured only for a fixed-occupation nspin = 1 insulator on the "
+            "whole sphere, on an ultrasoft dataset (norm-conserving as its "
+            "special case) without a Hubbard term, where it agrees with a central difference of the "
+            "forces (notes/incompat/I104.md); not measured here: "
+            + "; ".join(unmeasured)
+        )
 
 
 def _require_a_moving_overlap_regime(calculation) -> None:
