@@ -59,6 +59,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from defuqumat.basis.fft import g_to_r, r_to_g
 from defuqumat.units import FPI
 
 __all__ = [
@@ -178,9 +179,11 @@ def _alda(chi, epsi, context):
     The kernel itself comes from one ``jvp`` of
     :func:`~defuqumat.scf.potential.exchange_correlation` with a tangent of ones.
     That is exact where ``v_xc`` is a pointwise function of the density -- which
-    is what "adiabatic **local** density approximation" means, and why a
-    gradient-corrected functional is refused rather than silently truncated to
-    its local part.
+    is what "adiabatic **local** density approximation" means. A
+    gradient-corrected functional is not truncated to its local part: its
+    adiabatic kernel is built a column at a time with the gradient terms in
+    (:func:`_adiabatic_gga_matrix`, I97), under the same name, since it is the
+    same approximation (adiabatic, ground-state functional) one rung up.
     """
     matrix = context["alda_matrix"]  # (nbody, nbody), built once
     nw, nm, _ = chi.x.shape
@@ -203,20 +206,29 @@ def alda_matrix(calculation, density, sphere) -> jnp.ndarray:
     from defuqumat.scf.potential import exchange_correlation
 
     functional = calculation.functional
-    if functional.is_gradient or functional.is_meta:
+    density = jnp.asarray(density)
+    nspin = int(density.shape[0])
+    if functional.is_meta:
         raise NotImplementedError(
             f"the 'alda' kernel with the {functional.name} functional is not "
-            "implemented: ALDA is the adiabatic *local* density approximation "
-            "and its kernel is pointwise in the density, which a "
-            "gradient-corrected or meta functional's is not. Truncating one to "
-            "its local part is an approximation with no name, so it is refused "
-            "rather than taken"
+            "implemented: a meta-GGA's potential depends on the kinetic energy "
+            "density, which comes from the states and not from the density, so "
+            "dv_xc/drho at fixed tau is not its kernel. The tau response is the "
+            "missing term"
+        )
+    if functional.is_gradient and nspin not in (1, 2):
+        raise NotImplementedError(
+            f"the 'alda' kernel with the {functional.name} functional on a "
+            f"{nspin}-component density is not implemented: the noncollinear "
+            "gradient correction rotates onto |m|, which has no derivative at "
+            "the m = 0 of a nonmagnetic spinor. The adiabatic GGA kernel is "
+            "built for nspin = 1 and an unpolarized nspin = 2 density only"
         )
 
-    density = jnp.asarray(density)
     cell = calculation.system.cell
-    nspin = int(density.shape[0])
     refuse_a_polarized_alda(density, cell)
+    if functional.is_gradient:
+        return _adiabatic_gga_matrix(calculation, density, sphere)
 
     def potential(rho):
         return exchange_correlation(rho, cell, calculation.rho_core, functional)[0]
@@ -247,6 +259,102 @@ def alda_matrix(calculation, density, sphere) -> jnp.ndarray:
     index = (body[:, None, :] - body[None, :, :]) % grid
     matrix = kernel_g[index[..., 0], index[..., 1], index[..., 2]]
 
+    coulomb = sphere.sqrt_coulomb
+    return matrix / (coulomb[:, None] * coulomb[None, :])
+
+
+def _xc_potential_of(calculation):
+    """``rho -> v_xc(rho)``, the whole exchange-correlation potential and nothing else.
+
+    :func:`~defuqumat.scf.potential.v_of_rho` with its Hartree term taken off
+    again, so that the gradient correction is the one the SCF and the
+    Sternheimer stack use (``gradcorr`` with the core charge on both grids),
+    not a second copy of it. Hartree is linear in the density, so subtracting
+    it changes the tangent by exactly ``v_H[drho]`` and nothing else.
+    """
+    from defuqumat.scf.potential import hartree, total_charge, v_of_rho
+
+    gvectors = calculation.basis.dense
+    cell = calculation.system.cell
+
+    def potential(rho):
+        total = v_of_rho(rho, gvectors, cell, calculation.rho_core,
+                         calculation.functional, calculation.rho_core_g).v_scf
+        rho_g = jax.vmap(r_to_g, in_axes=(0, None))(rho, gvectors.fft_index)
+        v_g, _ = hartree(total_charge(rho_g), gvectors, cell)
+        v_h = jnp.real(g_to_r(v_g, gvectors.fft_index, gvectors.grid))
+        return total - v_h[None]
+
+    return potential
+
+
+def _kernel_columns(potential, density, miller, grid):
+    """``f_xc(G, G')`` for every ``G'`` of ``miller``, one ``jvp`` per column.
+
+    The adiabatic kernel of a functional that is not pointwise is not a
+    function of ``G - G'``, so it cannot come from one transform of one field
+    as ALDA's does. What is still true for any functional is that the kernel is
+    the linear map ``drho -> dv_xc``, so its column ``G'`` is that map applied
+    to ``e^{i G'.r}``,
+
+        f_xc(G, G') = (1/N) sum_r e^{-i G.r} [dv_xc/drho](e^{i G'.r})(r),
+
+    which is the definition ALDA's matrix satisfies too: for a pointwise
+    ``f(r)`` the bracket is ``f(r) e^{i G'.r}`` and the sum is ALDA's
+    ``ktilde(G - G')`` (``test_the_column_route_is_alda_for_a_local_functional``
+    holds the two to round-off). ``v_xc`` is real in a real density, so the
+    complex tangent is its cosine and sine taken as two real ``jvp``.
+
+    The tangent is ``1/nspin`` in each channel, as in :func:`alda_matrix`: a
+    charge perturbation of an unpolarized density goes half into each, and the
+    column read off channel 0 is ``dv_up/dn`` at fixed ``m``.
+
+    Every array here is an argument of the compiled map rather than a closure,
+    so one compilation serves every density and sphere of one shape.
+    """
+    nspin = density.shape[0]
+    shape = tuple(int(n) for n in grid)
+    axes = [jnp.arange(n, dtype=density.dtype) / n for n in shape]
+    frac = jnp.stack(jnp.meshgrid(*axes, indexing="ij"))  # (3, n1, n2, n3)
+    body = jnp.asarray(miller)
+    index = jnp.mod(body, jnp.asarray(shape))
+
+    def column(m):
+        phase = 2.0 * jnp.pi * jnp.tensordot(m.astype(density.dtype), frac, axes=1)
+        tangents = jnp.stack([jnp.cos(phase), jnp.sin(phase)]) / nspin
+        tangents = jnp.broadcast_to(tangents[:, None], (2,) + density.shape)
+
+        def one(t):
+            return jax.jvp(potential, (density,), (t,))[1][0]
+
+        dv_cos, dv_sin = jax.vmap(one)(tangents)
+        response = jax.lax.complex(dv_cos, dv_sin)
+        transform = jnp.fft.fftn(response) / float(np.prod(shape))
+        return transform[index[:, 0], index[:, 1], index[:, 2]]
+
+    # ``(nbody, nbody)`` with the column index leading; transposed below.
+    return jax.lax.map(column, body).T
+
+
+def _adiabatic_gga_matrix(calculation, density, sphere) -> jnp.ndarray:
+    """The adiabatic kernel of a gradient-corrected functional, symmetrised.
+
+    ``f_xc(G, G') / sqrt(v_G v_G')`` over the response sphere's body, with the
+    gradient terms in: ``v_xc = v1 - div(v2 grad rho)`` differentiated as it
+    stands, which is the same ``jvp`` of the same ``v_of_rho`` that the
+    Sternheimer screening (``dv_of_drho``, :func:`~defuqumat.response.efield.
+    _screening_kernel`) takes, so its static limit is the ``epsilon_infinity``
+    of that solve once ``chi_0`` is converged in bands and in the response
+    cutoff (I97). The head and wings are still zero in the optical limit:
+    ``f_xc(q, q + G')`` stays finite as ``q -> 0`` while ``v^{-1/2}`` vanishes.
+
+    Cost: ``2 nbody`` ``jvp`` of the potential on the dense grid, against one
+    for ALDA, and an ``(nbody, ndense)`` complex block at most in flight at once.
+    """
+    grid = np.asarray(calculation.basis.dense.grid)
+    potential = _xc_potential_of(calculation)
+    run = jax.jit(lambda d, m: _kernel_columns(potential, d, m, grid))
+    matrix = run(density, jnp.asarray(np.asarray(sphere.miller)))
     coulomb = sphere.sqrt_coulomb
     return matrix / (coulomb[:, None] * coulomb[None, :])
 
