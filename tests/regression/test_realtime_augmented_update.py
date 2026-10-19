@@ -132,7 +132,7 @@ def test_the_augmented_update_is_a_fixed_point_and_conserves_its_energy(pseudo_d
     assert np.ptp(run(0.01).energy) > 1e-4, "without the term the energy is not conserved"
 
 
-def _shift(pseudo_dir, tmp_path, case, monkeypatch, dual):
+def _shift(pseudo_dir, tmp_path, case, dual, monkeypatch=None):
     """``(hxc - frozen, full - none)``: the kick's local-field shift of ``eps(i eta)`` and the static one.
 
     2x2x2 unshifted at 12 Ry, ``conv_thr = 1e-12``, a kick of 1e-3/bohr along x,
@@ -149,12 +149,14 @@ def _shift(pseudo_dir, tmp_path, case, monkeypatch, dual):
     full = float(calc.get_dielectric_tensor(screening="full", born_charges=False,
                                             threshold=1e-14).epsilon[0, 0])
     if calc.calculation.is_paw:
+        assert monkeypatch is not None, "a PAW case patches paw_response"
         original = efield.paw_response
         monkeypatch.setattr(efield, "paw_response",
                             lambda c, d, b: jnp.zeros_like(original(c, d, b)))
     none = float(calc.get_dielectric_tensor(screening="none", born_charges=False,
                                             threshold=1e-14).epsilon[0, 0])
-    monkeypatch.undo()
+    if monkeypatch is not None:
+        monkeypatch.undo()
     kappa, direction = 1e-3, (1.0, 0.0, 0.0)
     eps = {}
     for potential in ("frozen", "hxc"):
@@ -166,9 +168,16 @@ def _shift(pseudo_dir, tmp_path, case, monkeypatch, dual):
     return eps["hxc"].real - eps["frozen"].real, full - none
 
 
+@pytest.fixture(scope="module")
+def norm_conserving_shift(pseudo_dir, tmp_path_factory):
+    """The control's ``(kick shift, static shift)`` on the same mesh, computed once for both cases."""
+    return _shift(pseudo_dir, tmp_path_factory.mktemp("control"), "si-epsilon-unshifted", 4.0)
+
+
 @pytest.mark.parametrize("case", ["si-epsilon-us", "si-epsilon-paw"])
 def test_the_local_field_shift_of_a_kick_is_the_sternheimer_one(pseudo_dir, tmp_path, case,
-                                                                monkeypatch):
+                                                                monkeypatch,
+                                                                norm_conserving_shift):
     """The augmented shift misses the static one by what the norm-conserving shift misses.
 
     ``eps_hxc(i eta) - eps_frozen(i eta)`` against ``get_dielectric_tensor``'s
@@ -186,16 +195,16 @@ def test_the_local_field_shift_of_a_kick_is_the_sternheimer_one(pseudo_dir, tmp_
     points for the three datasets, and it does not move with ``dt`` (0.1 reads
     -3.86e-2 and -3.84e-2) or with ``eta`` (0.2 eV reads -3.86e-2 and
     -3.76e-2). It falls with the k-mesh, the convergence parameter: on 4x4x4
-    (8 points) ultrasoft reads -1.03001 against -1.05207 (-2.10e-2) and the
-    norm-conserving control -0.86662 against -0.88344 (-1.90e-2), at 0.2 eV
-    -1.65e-2 and -1.67e-2. With the augmentation charge of
+    (8 points) ultrasoft reads -1.03001 against -1.05207 (-2.10e-2), PAW
+    -1.05122 against -1.07391 (-2.11e-2) and the norm-conserving control
+    -0.86662 against -0.88344 (-1.90e-2), at 0.2 eV -1.65e-2, -1.63e-2 and
+    -1.67e-2. With the augmentation charge of
     ``rho(t)`` held at the ground state's ``becsum`` (the term the refusal named,
     switched off) the residual is +1.64e-1 and +1.54e-1, so the test asks that
     the augmented residual sits within 1e-2 of the norm-conserving one.
     """
-    shift, static = _shift(pseudo_dir, tmp_path, case, monkeypatch, 8.0)
-    control, control_static = _shift(pseudo_dir, tmp_path, "si-epsilon-unshifted",
-                                     monkeypatch, 4.0)
+    shift, static = _shift(pseudo_dir, tmp_path, case, 8.0, monkeypatch)
+    control, control_static = norm_conserving_shift
     residual, control_residual = shift / static - 1.0, control / control_static - 1.0
     assert abs(residual) < 5e-2, (shift, static)
     assert abs(residual - control_residual) < 1e-2, (residual, control_residual)
