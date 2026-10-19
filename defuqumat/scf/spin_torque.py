@@ -29,6 +29,13 @@ there are two of those here:
   saying so matters, because a DFT+U run whose torque reads zero has not been
   shown to be stationary.
 
+A third is ``noncollinear_gga = 'grad_m'`` (the default for a noncollinear
+gradient or meta functional), whose field is built from ``grad m`` and, under a
+potential-only meta-GGA, from ``tau``'s vector part, neither of which is along
+``m``. The meta-GGA case reads ``tau`` off the result (I110,
+``notes/incompat/I110.md``); under ``'kubler'`` its field is attached to
+``m``-hat and the torque is the same null.
+
 The function therefore returns the field's own torque together with the
 magnitude of the field's component along ``m``, so that a zero can be told from
 a silence: ``parallel_fraction`` near one means the field is collinear with the
@@ -145,7 +152,7 @@ def exchange_torque(density, v_xc, cell, regions=None) -> ExchangeTorque:
     return ExchangeTorque(total, sites, parallel_fraction)
 
 
-def torque_of_result(calculation, result, density=None) -> ExchangeTorque:
+def torque_of_result(calculation, result, density=None, tau=None) -> ExchangeTorque:
     """:func:`exchange_torque` for a run, against its own exchange-correlation
     field.
 
@@ -167,9 +174,48 @@ def torque_of_result(calculation, result, density=None) -> ExchangeTorque:
     added by ``add_bfield`` after this point, it is an external field rather
     than the exchange-correlation one, and a torque taken against their sum is
     the torque of something else.
+
+    **A potential-only meta-GGA needs ``tau`` beside the density**, the kinetic
+    energy density of the states, which no density determines. With
+    ``density`` left at its default it is the run's own converged one,
+    ``result.tau``, the partner of ``result.density`` (both are the last
+    iteration's output). A caller who passes a ``density`` passes the ``tau``
+    that belongs to it: ``tau``'s vector part is a spin-space vector that turns
+    with the spins, so pairing a turned magnetization with the converged,
+    unturned ``tau`` would be the field of a state that does not exist, and is
+    refused rather than defaulted. Under ``noncollinear_gga = 'kubler'`` the
+    meta field is attached to ``m``-hat and the torque is the same null as the
+    local functional's; under ``'grad_m'`` the parity form builds the field
+    from ``m``, ``grad n . grad m_k``, ``lap m_k`` and ``tau_k``, which need not
+    be along ``m``, and the torque is a number. Checked against ``m x B_xc``
+    read off the SCF's own last potential, to the self-consistency residual
+    (``notes/incompat/I110.md``). And since such a functional has no energy,
+    the global-rotation argument for a zero *total* without spin-orbit coupling
+    does not apply to it.
     """
     from defuqumat.scf.potential import v_of_rho
 
+    if calculation.functional.is_meta:
+        if density is None and tau is None:
+            tau = getattr(result, "tau", None)
+            if tau is None:
+                raise NotImplementedError(
+                    "the exchange-correlation spin torque of a potential-only "
+                    "meta-GGA needs the run's kinetic energy density tau, and "
+                    "this result carries none (SCFResult.tau is None)"
+                )
+        elif tau is None:
+            raise NotImplementedError(
+                "the exchange-correlation spin torque of a potential-only "
+                "meta-GGA at a density other than the run's own needs the "
+                "kinetic energy density tau that belongs to that density, "
+                "passed as tau=: tau comes from the states, its vector part "
+                "turns with the spins, and the converged tau beside another "
+                "magnetization would be the field of a state that does not exist"
+            )
+        tau = jnp.asarray(tau)
+    else:
+        tau = None
     if density is None:
         # ``SCFResult.density`` keeps its ``(nspin_mag, ...)`` axis at one
         # channel -- it is the *eigenvalue-shaped* quantities and the DOS that
@@ -178,13 +224,6 @@ def torque_of_result(calculation, result, density=None) -> ExchangeTorque:
         # because both broadcast over leading axes.
         density = result.density
     density = jnp.asarray(density)
-    if calculation.functional.is_meta:
-        raise NotImplementedError(
-            "the exchange-correlation spin torque of a potential-only "
-            "meta-GGA is not implemented: its potential needs tau, which comes "
-            "from the states rather than from the density, and a torque "
-            "evaluated at a density alone would be of a different potential"
-        )
     potential = v_of_rho(
         density,
         calculation.basis.dense,
@@ -193,7 +232,7 @@ def torque_of_result(calculation, result, density=None) -> ExchangeTorque:
         calculation.functional,
         calculation.rho_core_g,
         calculation.quantization_axis,
-        None,
+        tau,
         calculation.source_free,
         getattr(calculation, "noncollinear_gga", "kubler"),
         calculation._spiral_q_argument(),
