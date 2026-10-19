@@ -134,17 +134,20 @@ def test_a_polar_wedge_is_its_closed_grid_on_both_routes(monkeypatch):
     polar direction: zero on zincblende, not zero here. Measured before the
     completion went in (D22): the wedge's ``e_31`` and ``e_33`` sat 1.11e-3
     C/m^2 above the closed grid at ``4 4 4``, with ``e_15`` and ``e_14``
-    untouched. With it in, both routes on the wedge read the closed grid to
-    the numbers in ``notes/incompat/I90.md``; the falsifier, the same run with
+    untouched. With it in, the taped route on the wedge reads the closed grid
+    to 1.1e-9 and the contracted one to 2.7e-6; the falsifier, the same run with
     the shift zeroed, has to read the old split again, or this test could not
     have failed.
     """
     closed = _polar_tensor(False, "autodiff")
     taped = _polar_tensor(True, "autodiff")
     contracted = _polar_tensor(True, "zstar_eu")
-    assert np.abs(taped - closed).max() < 2e-5
-    assert np.abs(contracted - closed).max() < 2e-5
+    # Measured on D22 (notes/incompat/I90.md): 1.1e-9 and 2.7e-6 C/m^2, the
+    # second being the two routes' own split at the response's convergence.
+    assert np.abs(taped - closed).max() < 1e-7
+    assert np.abs(contracted - closed).max() < 1e-5
     without = _polar_tensor(True, "autodiff", monkeypatch, full_zone=False)
     split = without - closed
+    # Measured: +1.111e-3 on e31, e32 and e33; e15 and e14 equal to 7 digits.
     assert split[2, 0, 0] > 5e-4 and split[2, 2, 2] > 5e-4
-    assert abs(split[0, 0, 2]) < 2e-5 and abs(split[0, 1, 2]) < 2e-5
+    assert abs(split[0, 0, 2]) < 1e-7 and abs(split[0, 1, 2]) < 1e-7
