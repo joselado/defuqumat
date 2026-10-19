@@ -392,19 +392,25 @@ def test_soc_scale_zero_gives_exactly_no_anisotropy():
 
 
 @pytest.mark.slow
-def test_an_intermediate_soc_scale_is_refused_on_an_augmented_dataset():
-    """Between 0 and 1 the scale needs every dataset norm-conserving (P123).
+def test_an_intermediate_soc_scale_is_admitted_on_an_augmented_dataset():
+    """Between 0 and 1 the scale blends all four sandwiches on ultrasoft (I114).
 
-    This cell's cobalt is ultrasoft, so 0.5 is refused where the calculation
-    meets the datasets; ``System`` cannot know them and admits it. Outside
-    ``[0, 1]`` it is not a blend of anything and is refused by ``System``.
+    This cell's cobalt is ultrasoft, so 0.5 is admitted, and the calculation's
+    spinor overlap is the blend of the two ends' (it was refused until I114,
+    on a measurement taken with the reduction P115 replaced). Outside
+    ``[0, 1]`` it is not a blend of anything and is refused by ``System``. The
+    fully-relativistic PAW refusal is held in ``tests/unit/test_spiral_soc.py``
+    and ``tests/unit/test_soc_scale.py``.
     """
     from defuqumat.scf.driver import Calculation
 
-    scalar, _ = _smoke_pair()
     soc = Calculator.from_text(_SMOKE_SOC, pseudo_dir=GENERATED.parent / "pseudo")
-    with pytest.raises(ValueError, match="ultrasoft or PAW"):
-        Calculation(soc.system.with_soc_scale(0.5), soc.pseudos)
+    ends = [np.asarray(Calculation(soc.system.with_soc_scale(s), soc.pseudos).qq_so)
+            for s in (0.0, 1.0)]
+    half = np.asarray(Calculation(soc.system.with_soc_scale(0.5), soc.pseudos).qq_so)
+    np.testing.assert_allclose(half, 0.5 * (ends[0] + ends[1]), rtol=0.0,
+                               atol=1e-12 * np.abs(ends[1]).max())
+    assert np.abs(ends[1] - ends[0]).max() > 1e-3
     with pytest.raises(ValueError, match="not a blend"):
         soc.system.with_soc_scale(1.5)
 
