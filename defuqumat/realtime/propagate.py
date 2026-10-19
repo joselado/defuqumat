@@ -167,7 +167,7 @@ class RealTimeResult:
         return float(self.volume * np.trapezoid(power, self.times))
 
 
-def require_a_realtime_regime(calculation) -> None:
+def require_a_realtime_regime(calculation, ns=None) -> None:
     """Refuse, by name, every regime whose missing term is known (``notes/HARMONICS-NEXT.md``).
 
     A static saw-tooth field (``tefield``) is refused first: the propagation
@@ -189,6 +189,14 @@ def require_a_realtime_regime(calculation) -> None:
     ``SCFResult.magnetic_field``, which is what the workflows build.
     The updated potentials' refusal of a penalty constraint is
     :func:`~defuqumat.realtime.selfconsistent.require_a_potential_mode`'s.
+
+    DFT+U runs when the ground state's occupation matrix ``ns`` is handed in
+    (``notes/incompat/I100.md``): the Hubbard term is frozen at it and its
+    projectors move with ``k + kappa`` (:mod:`defuqumat.realtime.hubbard`),
+    on a collinear norm-conserving run with ``atomic`` or ``norm-atomic``
+    projectors. Without ``ns`` it is refused, which is every route that does
+    not carry it yet: the workflows, the frequency-domain hierarchy and the
+    updated potentials.
     """
     refuse_sawtooth(
         calculation, "real-time propagation",
@@ -215,11 +223,43 @@ def require_a_realtime_regime(calculation) -> None:
             "directly, which wants one built at an explicit k = 0 "
             "(K_POINTS automatic 1 1 1 0 0 0) instead")
     if calculation.is_hubbard:
+        _require_a_hubbard_regime(calculation, ns)
+    elif ns is not None:
+        raise ValueError("an occupation matrix ns was handed to a run with no Hubbard U")
+
+
+def _require_a_hubbard_regime(calculation, ns) -> None:
+    """The DFT+U regimes the moving Hubbard projectors do not cover, refused by name."""
+    from defuqumat.realtime.hubbard import MOVING_PROJECTORS
+
+    if ns is None:
         raise NotImplementedError(
-            "real-time propagation with DFT+U is not implemented: at a frozen "
-            "occupation matrix the Hubbard projectors move with k + kappa as "
-            "the beta functions do, and that mode is refused until its linear "
-            "check against the optical conductivity is run")
+            "real-time propagation with DFT+U needs the ground state's occupation "
+            "matrix, which cannot be rebuilt from the density: pass ns = "
+            "scf_result.ns to propagate or propagate_orders, the routes that carry "
+            "it. The workflows (run_realtime and its siblings, Calculator.get_realtime), "
+            "the frequency-domain hierarchy and the updated potentials do not carry "
+            "it yet and refuse")
+    if calculation.noncolin:
+        raise NotImplementedError(
+            "real-time propagation with DFT+U on spinors is not implemented: the "
+            "spinor Hubbard term is one operator on 2 npwx over the 'updown' orbital "
+            "set with the two j channels averaged, which the moving table does not "
+            "build; collinear DFT+U runs")
+    if calculation.is_ultrasoft:
+        raise NotImplementedError(
+            "real-time propagation with DFT+U on an ultrasoft or PAW dataset is not "
+            "implemented: its wfcU is S(k + kappa) phi, which moves with the overlap, "
+            "and the term beside the augmented equation of motion has no check; "
+            "norm-conserving DFT+U runs")
+    if calculation.hubbard.projectors not in MOVING_PROJECTORS:
+        raise NotImplementedError(
+            f"real-time propagation with Hubbard_projectors = "
+            f"{calculation.hubbard.projectors!r} is not implemented: the Löwdin "
+            "O^(-1/2) of 'ortho-atomic' goes through an eigendecomposition whose "
+            "second derivative, which a kick's first order and the perturbative "
+            "orders take, carries 1/(w_i - w_j) at the degeneracies symmetry puts "
+            "in O; 'atomic' and 'norm-atomic' run")
 
 
 def time_grid(pulse, dt: float, duration: float | None, start: float | None = None):
@@ -286,13 +326,17 @@ class _Chunk(eqx.Module):
     #: ``dpqq`` as ``(3, nkb, nkb)``, or ``dpqq_so`` as ``(3, 2, 2, nkb, nkb)``
     #: for a spinor (:func:`~defuqumat.response.efield._augmentation_dipole`).
     dipole: jnp.ndarray | None = None
+    #: The Hubbard term's table and frozen ``v``
+    #: (:class:`~defuqumat.realtime.hubbard.HubbardMotion`), ``None`` without a U.
+    hubbard: object | None = None
 
     @classmethod
-    def build(cls, calculation, rows, terms, table, kcart, channel: int = 0, dipole=None):
+    def build(cls, calculation, rows, terms, table, kcart, channel: int = 0, dipole=None,
+              hubbard=None):
         row = calculation.at_rows(rows)
         cell = calculation.system.cell
         indices = row.basis.planewaves.indices
-        return cls(
+        chunk = cls(
             k0=jnp.asarray(np.asarray(kcart)[rows]),
             gcart=calculation.basis.smooth.cartesian(cell)[indices],
             mask=row.basis.planewaves.mask,
@@ -306,7 +350,15 @@ class _Chunk(eqx.Module):
             nk=len(rows),
             channel=int(channel),
             dipole=dipole,
+            hubbard=hubbard,
         )
+        if hubbard is None:
+            return chunk
+        # The template carries the term so its tree has the field the step
+        # replaces at every kappa (:meth:`hamiltonian`).
+        zero = jnp.zeros(3, dtype=chunk.k0.dtype)
+        return eqx.tree_at(lambda c: c.template, chunk, dataclasses.replace(
+            chunk.template, hubbard=chunk.hubbard_at(zero)))
 
     # -- the shape of a state ---------------------------------------------
 
@@ -391,9 +443,27 @@ class _Chunk(eqx.Module):
                            (columns.astype(self.core.columns.dtype), kg))
         return core.at_positions(self.positions).vkb
 
+    def hubbard_at(self, kappa):
+        """The Hubbard term at ``k + kappa`` at the frozen ``v`` (:mod:`defuqumat.realtime.hubbard`); ``None`` without one."""
+        if self.hubbard is None:
+            return None
+        kg = self.gcart + (self.k0 + kappa)[:, None, :]
+        return self.hubbard.term(kg, self.positions, self.mask, self.channel)
+
+    def _hubbard_applied(self, term, components):
+        """``V_U x`` on components ``(nk, n, npol, npwx)``; zero without a U."""
+        if term is None:
+            return jnp.zeros_like(components)
+        wfcU = term.wfcU.astype(components.dtype)
+        return self._expand(wfcU, self._contract(term.vns[None, None],
+                                                 self._project(wfcU, components)))
+
     def hamiltonian(self, kappa):
         kinetic, projectors = self.moved(kappa)
-        return dataclasses.replace(self.template, kinetic=kinetic, projectors=projectors)
+        if self.hubbard is None:
+            return dataclasses.replace(self.template, kinetic=kinetic, projectors=projectors)
+        return dataclasses.replace(self.template, kinetic=kinetic, projectors=projectors,
+                                   hubbard=self.hubbard_at(kappa))
 
     def kinetic_nonlocal(self, kappa, x):
         """``(T + V_NL)(k + kappa) x`` for ``x`` of shape ``(nk, n, ndim)``, no transform."""
@@ -402,11 +472,16 @@ class _Chunk(eqx.Module):
         components = self._components(x)
         becp = self._project(vkb, components)
         out = (kinetic[:, None, None, :].astype(components.dtype) * components
-               + self._expand(vkb, self._contract(self._d(), becp)))
+               + self._expand(vkb, self._contract(self._d(), becp))
+               + self._hubbard_applied(self.hubbard_at(kappa), components))
         return self._join(jnp.where(self.mask[:, None, None, :], out, 0.0))
 
     def band_form(self, kappa, c1, c2, weights):
-        """``sum_kn w <c1|T + V_NL|c2>`` at ``k + kappa``, complex, Ry; no transform."""
+        """``sum_kn w <c1|T + V_NL + V_U|c2>`` at ``k + kappa``, complex, Ry; no transform.
+
+        ``V_U`` is the Hubbard term when there is one, the third term that
+        carries ``kappa``, so the current's ``jax.grad`` holds its velocity.
+        """
         kinetic, projectors = self.moved(kappa)
         vkb = projectors.vkb
         a, b = self._components(c1), self._components(c2)
@@ -414,7 +489,13 @@ class _Chunk(eqx.Module):
         kin = jnp.einsum("kn,knag,kg,knag->", w, jnp.conj(a), kinetic.astype(a.dtype), b)
         nonlocal_ = jnp.einsum("kn,knai,knai->", w, jnp.conj(self._project(vkb, a)),
                                self._contract(self._d(), self._project(vkb, b)))
-        return kin + nonlocal_
+        term = self.hubbard_at(kappa)
+        if term is None:
+            return kin + nonlocal_
+        wfcU = term.wfcU.astype(a.dtype)
+        hubbard = jnp.einsum("kn,knai,knai->", w, jnp.conj(self._project(wfcU, a)),
+                             self._contract(term.vns[None, None], self._project(wfcU, b)))
+        return kin + nonlocal_ + hubbard
 
     def kappa_energy(self, kappa, psi, weights):
         """The kinetic and nonlocal band energy at ``k + kappa``, Ry; ``psi`` is ``(nk, nbnd, ndim)``."""
@@ -670,6 +751,21 @@ def _chunk_spectrum(chunk, psi, terms, kappa_max):
         nl_min, nl_max = min(nl_min, float(eig.min())), max(nl_max, float(eig.max()))
         if overlap is not None:
             s_min = min(s_min, 1.0 + float(np.linalg.eigvalsh(root @ overlap @ root).min()))
+    term = chunk.hubbard_at(jnp.zeros(3, dtype=chunk.k0.dtype))
+    if term is not None:
+        # Weyl's inequality on one more term: the Hubbard operator's extreme
+        # eigenvalues, ``G^(1/2) v G^(1/2)`` with ``G`` the Gram matrix of
+        # ``wfcU``, added to the nonlocal ones (an upper and a lower bound on
+        # the sum of the two).
+        wfcU = np.asarray(term.wfcU)
+        vns = np.asarray(term.vns)
+        hub_min, hub_max = 0.0, 0.0
+        for ik in range(wfcU.shape[0]):
+            values, vectors = np.linalg.eigh(wfcU[ik].conj().T @ wfcU[ik])
+            root = (vectors * np.sqrt(np.clip(values, 0.0, None))) @ vectors.conj().T
+            eig = np.linalg.eigvalsh(root @ vns @ root)
+            hub_min, hub_max = min(hub_min, float(eig.min())), max(hub_max, float(eig.max()))
+        nl_min, nl_max = nl_min + hub_min, nl_max + hub_max
     energies = np.asarray(compiled_function(_energies_of, chunk, psi)(chunk, psi))
     top = None
     if overlap is not None:
@@ -696,7 +792,7 @@ def _potential_maximum(potential) -> float:
 
 
 def spectral_bounds(calculation, states, weights, terms, table, kcart, chunks,
-                    kappa_max: float, channel: int = 0, dipole=None):
+                    kappa_max: float, channel: int = 0, dipole=None, hubbard=None):
     """``(lower, upper, centre, carried)`` in Ry, over **every** k-point of the run.
 
     ``upper`` is Weyl's inequality on the three terms of ``H(k + kappa)`` for
@@ -728,7 +824,8 @@ def spectral_bounds(calculation, states, weights, terms, table, kcart, chunks,
     kinetic_max, nl_min, nl_max = 0.0, 0.0, 0.0
     radius, top = 0.0, None
     for rows, live in chunks:
-        chunk = _Chunk.build(calculation, rows, terms, table, kcart, channel, dipole)
+        chunk = _Chunk.build(calculation, rows, terms, table, kcart, channel, dipole,
+                             hubbard)
         values, kin, low, high, _, edge = _chunk_spectrum(
             chunk, jnp.asarray(states[rows]), terms, kappa_max)
         energies[rows[:live]] = values[:live]
@@ -757,7 +854,7 @@ def _reach(lower, upper, centre):
 
 def largest_stable_step(calculation, states, weights, v_scf, kappa_max: float = 0.0,
                         propagator: str = "taylor4", k_batch="default", kcart=None,
-                        ddd_paw=None) -> float:
+                        ddd_paw=None, ns=None) -> float:
     """The largest ``dt`` in Hartree atomic units the propagator is stable for here.
 
     ``2 bound / reach`` with ``reach`` the distance from the centre of the step
@@ -771,7 +868,7 @@ def largest_stable_step(calculation, states, weights, v_scf, kappa_max: float = 
     steps = []
     for channel, (own, carried) in enumerate(channel_arrays(calculation, states, weights)):
         setup = _prepare(calculation, own, carried, v_scf, kappa_max, None, propagator,
-                         k_batch, kcart, channel=channel, ddd_paw=ddd_paw)
+                         k_batch, kcart, channel=channel, ddd_paw=ddd_paw, ns=ns)
         steps.append(2.0 * setup.bound / _reach(setup.lower, setup.upper, setup.centre))
     return min(steps)
 
@@ -834,29 +931,31 @@ class _Setup:
     calculation: object = None
     channel: int = 0
     dipole: object = None
+    hubbard: object = None
 
     def chunk(self, index: int, rows):
         """The ``index``-th k-chunk's :class:`_Chunk`, the first one already built."""
         if index == 0:
             return self.first
         return _Chunk.build(self.calculation, rows, self.terms, self.table, self.kcart,
-                            self.channel, self.dipole)
+                            self.channel, self.dipole, self.hubbard)
 
 
 def _prepare(calculation, states, weights, v_scf, kappa_max, dt, propagator,
              k_batch, kcart, bounds: bool = True, channel: int = 0,
-             ddd_paw=None) -> _Setup:
+             ddd_paw=None, ns=None) -> _Setup:
     """The table, the k-chunks, the spectrum and the centre; refuses an unstable step.
 
     ``dt = None`` skips the refusal, for :func:`largest_stable_step`;
     ``bounds = False`` skips the spectrum as well, a pass over every k-point
     that the frequency-domain hierarchy, which takes no time step, has no use
     for. ``channel`` is the collinear spin channel the states belong to and
-    ``ddd_paw`` PAW's one-centre ``D``, frozen with the potential.
+    ``ddd_paw`` PAW's one-centre ``D``, frozen with the potential, and ``ns``
+    the Hubbard occupation matrix, frozen with it.
     """
     from defuqumat.response.efield import _augmentation_dipole
 
-    require_a_realtime_regime(calculation)
+    require_a_realtime_regime(calculation, ns)
     step_fn, bound = get_propagator(propagator)
     cell = calculation.system.cell
     volume = float(cell.volume)
@@ -884,13 +983,19 @@ def _prepare(calculation, states, weights, v_scf, kappa_max, dt, propagator,
                         (table.coefficients.astype(cell.precision.real),
                          table.s_max.astype(cell.precision.real)))
     effective_cutoff = max(0.0, radius - kappa_max) ** 2
+    hubbard = None
+    if calculation.is_hubbard:
+        from defuqumat.realtime.hubbard import HubbardMotion
+
+        hubbard = HubbardMotion.build(calculation, ns, (radius + kappa_max + 0.5) ** 2)
 
     chunks = list(k_chunks(nk, _batch(calculation, k_batch)))
-    first = _Chunk.build(calculation, chunks[0][0], terms, table, kcart, channel, dipole)
+    first = _Chunk.build(calculation, chunks[0][0], terms, table, kcart, channel, dipole,
+                         hubbard)
     if bounds:
         lower, upper, centre, carried = spectral_bounds(
             calculation, states, weights, terms, table, kcart, chunks, kappa_max,
-            channel, dipole)
+            channel, dipole, hubbard)
     else:
         lower = upper = centre = float("nan")
         carried = (float("nan"), float("nan"))
@@ -923,7 +1028,7 @@ def _prepare(calculation, states, weights, v_scf, kappa_max, dt, propagator,
                   bound=bound, lower=lower, upper=upper, centre=centre, carried=carried,
                   dt_ry=dt_ry, volume=volume, effective_cutoff=effective_cutoff,
                   real=cell.precision.real, kcart=kcart, calculation=calculation,
-                  channel=channel, dipole=dipole)
+                  channel=channel, dipole=dipole, hubbard=hubbard)
 
 
 def _check_growth(norms, live, where: str):
@@ -1214,7 +1319,7 @@ def propagate(calculation, states, weights, v_scf, pulse, *, dt: float,
               propagator: str = "taylor4", k_batch="default",
               block_steps: int = 400, kcart=None, checkpoint=None,
               symmetrise=None, potential: str = "frozen", corrector: int = 1,
-              density_symmetry=None, ddd_paw=None) -> RealTimeResult:
+              density_symmetry=None, ddd_paw=None, ns=None) -> RealTimeResult:
     """Propagate ``states`` under ``pulse`` at the frozen potential ``v_scf``.
 
     Args:
@@ -1251,8 +1356,13 @@ def propagate(calculation, states, weights, v_scf, pulse, *, dt: float,
             group, which completes the density.
         ddd_paw: PAW's one-centre ``D`` of the ground state, frozen with the
             potential (``Calculation.onecenter``).
+        ns: the Hubbard occupation matrix of the ground state
+            (``SCFResult.ns``), required with a U and frozen with the
+            potential; the Hubbard projectors move with ``k + kappa``
+            (:mod:`defuqumat.realtime.hubbard`).
     """
     if potential != "frozen":
+        refuse_an_updated_hubbard(calculation, ns, potential)
         from defuqumat.realtime.selfconsistent import (
             propagate_self_consistent, require_a_potential_mode)
 
@@ -1278,13 +1388,24 @@ def propagate(calculation, states, weights, v_scf, pulse, *, dt: float,
             calculation, own, carried, v_scf, pulse, dt=dt, duration=duration,
             start=start, propagator=propagator, k_batch=k_batch,
             block_steps=block_steps, kcart=kcart, checkpoint=path,
-            symmetrise=symmetrise, channel=channel, ddd_paw=ddd_paw))
+            symmetrise=symmetrise, channel=channel, ddd_paw=ddd_paw, ns=ns))
     return _combined(results)
+
+
+def refuse_an_updated_hubbard(calculation, ns, potential: str) -> None:
+    """Refuse a U with the potential updated in time: ``ns(t)`` would have to move with it."""
+    if calculation.is_hubbard or ns is not None:
+        raise NotImplementedError(
+            f"real-time propagation with DFT+U and potential = {potential!r} is not "
+            "implemented: with the Hartree and exchange-correlation potentials updated "
+            "from rho(t), the Hubbard potential would have to be updated from the "
+            "occupation matrix of the propagated states, ns(t), and freezing it beside "
+            "an updated rho is neither response; potential = 'frozen' runs with ns")
 
 
 def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, duration, start,
                        propagator, k_batch, block_steps, kcart, checkpoint, symmetrise,
-                       channel, ddd_paw) -> RealTimeResult:
+                       channel, ddd_paw, ns=None) -> RealTimeResult:
     """:func:`propagate` at a frozen potential for one channel's states, ``(nk, nbnd, ndim)``."""
     # The states stay where they are, a host array in the frozen mode, and go to
     # the device one chunk at a time: the peak is one chunk whatever the mesh.
@@ -1295,7 +1416,7 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
     nsteps = len(times) - 1
     kappa_max = float(np.max(np.linalg.norm(np.concatenate([kappa_t, kappa_mid]), axis=-1)))
     setup = _prepare(calculation, states, weights, v_scf, kappa_max, dt, propagator,
-                     k_batch, kcart, channel=channel, ddd_paw=ddd_paw)
+                     k_batch, kcart, channel=channel, ddd_paw=ddd_paw, ns=ns)
     chunks, step_fn, centre = setup.chunks, setup.step_fn, setup.centre
     dt_ry, volume, kcart, real = setup.dt_ry, setup.volume, setup.kcart, setup.real
     lower, upper = setup.lower, setup.upper
@@ -1317,7 +1438,7 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
     signature = _checkpoint_signature(
         np.asarray(times), np.asarray(kappa_t), np.asarray(kappa_mid), propagator,
         block_steps, np.concatenate([rows for rows, _ in chunks]), centre,
-        states, weights, kcart, channel)
+        states, weights, kcart, channel, None if ns is None else np.asarray(ns))
     if checkpoint is not None and Path(checkpoint).exists():
         saved = np.load(checkpoint)
         if str(saved["signature"]) == signature:

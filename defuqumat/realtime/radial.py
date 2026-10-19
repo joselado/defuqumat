@@ -42,11 +42,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from defuqumat.pseudo.formfactors import projector_form_factors
+from defuqumat.pseudo.formfactors import atomic_form_factors, projector_form_factors
 from defuqumat.pseudo.harmonics import real_solid_harmonics
 from defuqumat.pseudo.projectors import first_declared_datasets, projector_channels
 
-__all__ = ["RadialTable", "radial_table", "column_layout", "max_error"]
+__all__ = ["RadialTable", "radial_table", "column_layout", "max_error",
+           "atomic_layout", "atomic_table"]
 
 
 def column_layout(pseudos):
@@ -159,6 +160,69 @@ def _radial_values(datasets, s, volume):
     return np.asarray(rows)
 
 
+def _atomic_values(datasets, s, volume):
+    """``chi_l(sqrt s)/sqrt(s)^l`` from :func:`~defuqumat.pseudo.formfactors.atomic_form_factors`.
+
+    One row per kept orbital (non-negative occupation) of each dataset, in the
+    order :func:`atomic_layout` indexes them.
+    """
+    q = np.sqrt(s)
+    rows = []
+    for pseudo in datasets:
+        table = np.asarray(atomic_form_factors(pseudo, jnp.asarray(q), volume))
+        kept = [o for o in pseudo.orbitals if o.occupation >= 0.0]
+        for n, orbital in enumerate(kept):
+            rows.append(table[n] / q**orbital.l)
+    return np.asarray(rows)
+
+
+def atomic_layout(pseudos, types):
+    """``(datasets, chi_of, lm_of, l_of, atom_of, column_of)`` as :func:`~defuqumat.pseudo.atomic.atomic_wavefunctions` orders them.
+
+    One column per orbital channel of each distinct dataset (the atomic key,
+    which reads ``PP_PSWFC``), and one row per atomic orbital of the crystal,
+    atoms outermost: ``atom_of`` and ``column_of`` are the gathers
+    :func:`~defuqumat.pseudo.projectors._apply_phases` takes. ``natomwfc`` is
+    ``len(atom_of)``, in QE's order, the order DFT+U's columns index.
+    """
+    from defuqumat.pseudo.atomic import _atomic_dataset_key, atomic_channels
+    from defuqumat.pseudo.projectors import first_declared_datasets
+
+    channels_by_species = [atomic_channels(p) for p in pseudos]
+    species_list, slot_of = first_declared_datasets(pseudos, _atomic_dataset_key)
+    datasets = tuple(pseudos[species] for species in species_list)
+    chi_of, lm_of, l_of, column_offset = [], [], [], [0]
+    offset = 0
+    for species in species_list:
+        for nb, l, lm in channels_by_species[species]:
+            chi_of.append(offset + nb)
+            lm_of.append(lm)
+            l_of.append(l)
+        offset += len([o for o in pseudos[species].orbitals if o.occupation >= 0.0])
+        column_offset.append(len(chi_of))
+    atom_of, column_of = [], []
+    for atom, species in enumerate(types):
+        for index in range(len(channels_by_species[species])):
+            atom_of.append(atom)
+            column_of.append(column_offset[slot_of[species]] + index)
+    return datasets, chi_of, lm_of, l_of, atom_of, column_of
+
+
+def atomic_table(pseudos, types, volume: float, s_max: float, **kwargs) -> RadialTable:
+    """:func:`radial_table` for the pseudo-atomic orbitals, ``chi_l(q)/q^l``.
+
+    The columns are the datasets' orbital channels (:func:`atomic_layout`),
+    real and without the ``i^l`` the orbitals carry, which the caller
+    multiplies in; ``4 pi / sqrt(Omega)`` is folded in as for the projectors.
+    The real-time route's Hubbard projectors at ``k + kappa`` are built from it
+    (``notes/incompat/I100.md``).
+    """
+    datasets, chi_of, lm_of, _, _, _ = atomic_layout(pseudos, types)
+    lmax = max([0] + [o.l for p in datasets for o in p.orbitals if o.occupation >= 0.0])
+    return _fit(lambda s: _atomic_values(datasets, s, volume), chi_of, lm_of, lmax,
+                s_max, **kwargs)
+
+
 def radial_table(pseudos, volume: float, s_max: float, *, tolerance: float = 1e-13,
                  start: int = 32, limit: int = 512) -> RadialTable:
     """The table for these datasets on ``[0, s_max]``, ``s_max`` in bohr^-2.
@@ -176,6 +240,13 @@ def radial_table(pseudos, volume: float, s_max: float, *, tolerance: float = 1e-
     """
     datasets, beta_of, lm_of, l_of = column_layout(pseudos)
     lmax = max([0] + [p.lmax for p in datasets])
+    return _fit(lambda s: _radial_values(datasets, s, volume), beta_of, lm_of, lmax,
+                s_max, tolerance=tolerance, start=start, limit=limit)
+
+
+def _fit(values, beta_of, lm_of, lmax, s_max, *, tolerance: float = 1e-13,
+         start: int = 32, limit: int = 512) -> RadialTable:
+    """The Chebyshev series of ``values(s)``, ``(nrow, ns)``, on ``[0, s_max]``; :func:`radial_table`'s rule."""
     if not beta_of:
         return RadialTable(coefficients=jnp.zeros((0, 1)), beta_of=jnp.zeros((0,), int),
                            lm_of=jnp.zeros((0,), int), s_max=jnp.asarray(float(s_max)),
@@ -185,7 +256,7 @@ def radial_table(pseudos, volume: float, s_max: float, *, tolerance: float = 1e-
     while True:
         nodes = np.cos(np.pi * (np.arange(n) + 0.5) / n)
         s = 0.5 * float(s_max) * (nodes + 1.0)
-        coefficients = _chebyshev(_radial_values(datasets, s, volume))
+        coefficients = _chebyshev(values(s))
         scale = np.abs(coefficients).max(axis=-1, keepdims=True)
         tail = np.abs(coefficients[:, -max(1, n // 8):]).max(axis=-1, keepdims=True)
         relative = float(np.max(tail / np.maximum(scale, 1e-300)))
