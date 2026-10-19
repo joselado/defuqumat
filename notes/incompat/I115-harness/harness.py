@@ -30,7 +30,11 @@ DATASETS = {"ultrasoft": "Si.pz-n-rrkjus_psl.0.1.UPF",
             "paw": "Si.pz-n-kjpaw_psl.0.1.UPF"}
 SHAPE, KGRID = (2, 1, 1), (2, 4, 1)
 AMPLITUDE = 0.05
-THRESHOLDS = tuple(float(x) for x in (sys.argv[1:] or ["1e-8", "1e-11"]))
+#: ``noncolin`` as the first argument runs the spinor sheet (a magnetic one,
+#: so that the spinor ultracell is not refused as a closed Kramers set).
+SPINOR = bool(sys.argv[1:]) and sys.argv[1] == "noncolin"
+THRESHOLDS = tuple(float(x) for x in (
+    (sys.argv[2:] if SPINOR else sys.argv[1:]) or ["1e-8", "1e-11"]))
 
 
 def modulation(x):
@@ -60,6 +64,11 @@ def main():
     lines = []
     for dataset, name in DATASETS.items():
         text = CASE.read_text().replace(DATASETS["paw"], name)
+        if SPINOR:
+            text = text.replace(
+                "nat = 1, ntyp = 1,",
+                "nat = 1, ntyp = 1, noncolin = .true.,\n"
+                "    starting_magnetization(1) = 0.5, angle1(1) = 90.0,")
         path = out / f"sheet-{dataset}.in"
         path.write_text(text)
         calculator = Calculator.from_file(path, pseudo_dir=PSEUDO)

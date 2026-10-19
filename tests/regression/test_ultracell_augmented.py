@@ -1040,9 +1040,14 @@ def test_the_augmented_exit_plane_transmission_is_the_unit_cell_s_tiled(
 
 
 #: I115, set from the D22 harness (notes/incompat/I115.md): the whole-cell
-#: transmission against the image, and the Gram matrix against the identity.
-IMAGE_TOL_I115 = 1.0e-9
-GRAM_TOL_I115 = 1.0e-9
+#: transmission against the image measured 3.7e-14 (ultrasoft) and 3.9e-14
+#: (PAW) relative at ``states_conv_thr = 1e-11``, 9.6e-14 and 9.1e-14 at 1e-8,
+#: and 2.8e-2 both with ``S`` switched off; the Gram matrix against the
+#: identity 3.3e-14 and 3.8e-14, against 0.28 without ``S``. The test bound is
+#: the norm-conserving identity's own (``test_ultracell_stm.py``), with two
+#: orders of room over the worst figure.
+IMAGE_TOL_I115 = 1.0e-11
+GRAM_TOL_I115 = 1.0e-12
 
 
 @pytest.mark.slow
@@ -1055,9 +1060,10 @@ def test_the_augmented_whole_cell_transmission_is_the_image(
     Gram matrix is ``<Psi|S|Psi>`` with ``S`` summed over the ``N`` copies of
     every atom. On a **modulated** state, so that the ultracell state mixes
     ``Q`` and the cross-``Q`` augmentation term is something the Gram matrix
-    could carry. NUMBERS_I115 below are what the D22 harness measured
-    (notes/incompat/I115.md); with ``S`` switched off the same two numbers are
-    the augmentation charge, a few per cent, which is what makes this a check.
+    could carry. The bounds (``IMAGE_TOL_I115``, ``GRAM_TOL_I115``) are set
+    from what the D22 harness measured, 4e-14 on both datasets; with ``S``
+    switched off the same two numbers read 2.8e-2 and 0.28, which is what makes
+    this a check.
     """
     shape, kgrid = (2, 1, 1), (2, 4, 1)
     calculator = _sheet(tmp_path, pseudo_dir, dataset)
@@ -1094,7 +1100,7 @@ def test_the_augmented_whole_cell_transmission_is_the_image(
         plain = volume_overlap(block, states.mask(ik), int(states.npol))
         eye = np.eye(gram.shape[0])
         assert np.abs(gram - eye).max() < GRAM_TOL_I115
-        assert np.abs(np.diag(plain) - 1.0).max() > 1.0e-2
+        assert np.abs(np.diag(plain) - 1.0).max() > 0.1
 
 
 @pytest.mark.slow
