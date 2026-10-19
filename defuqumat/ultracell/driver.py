@@ -131,7 +131,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.basis.builder import build_basis
-from defuqumat.scf.mixing import LDOS_DEPENDENT, MIXERS, get_mixer
+from defuqumat.scf.mixing import LDOS_DEPENDENT, LDOS_SIGMA_MIN, MIXERS, get_mixer
 from defuqumat.xc.functional import resolve_functional
 from defuqumat.scf.driver import default_nbnd
 from defuqumat.scf.occupations import (
@@ -164,7 +164,7 @@ from defuqumat.ultracell.augmentation import (
 from defuqumat.ultracell.grid import Ultracell, folded_kpoints
 from defuqumat.ultracell.hamiltonian import multiplet_cut, ultracell_matrix
 from defuqumat.ultracell.kramers import kramers_closed_basis, time_reversed
-from defuqumat.ultracell.mixing import box_kerker
+from defuqumat.ultracell.mixing import box_kerker, box_ldos
 from defuqumat.ultracell.states import (
     UltracellStates,
     ultracell_band_density,
@@ -195,7 +195,7 @@ from defuqumat.ultracell.potential import (
 )
 from defuqumat.units import E2, FPI, RY_TO_EV
 from defuqumat.scf.sawtooth import sawtooth_potential
-from defuqumat.scf.fields import FEEDBACK
+from defuqumat.scf.fields import FEEDBACK, FEEDBACK_ATOMIC
 
 #: Below this gap (Ry) the ``nbnd`` truncation is cutting a degenerate
 #: multiplet rather than falling in a gap, and the basis is then whatever the
@@ -251,6 +251,19 @@ ULTRACELL_OCCUPATIONS = ("fixed", "smearing")
 
 __all__ = ["UltracellResult", "run_ultracell", "require_an_ultracell_regime",
            "require_the_folded_grid", "DEGENERATE_CUT", "ULTRACELL_OCCUPATIONS"]
+
+
+#: The largest field, in Ry, a ``reducebf`` reference may still carry when the
+#: box continues its decay (I36-feedback). The box carries at most this much
+#: after its own iteration count, and in every measured run the supercell had
+#: faded further, so the gap between them was at most this; near zero field the measured hydrogen box responds with
+#: ``chi = 0.42`` to ``0.47`` mu_B/Ry per cell (D22, I36-feedback-ver/f-0.9.log
+#: and f-0.93.log), so 1.5e-4 Ry moves the moment per cell by at most 7e-5
+#: mu_B, 1.1e-4 of the net 0.624: below the ladder's moment resolution, 1.4e-4
+#: at nbnd = 24, which a larger leftover is not (at 6.1e-4 the box missed the
+#: supercell's moment by 4.1e-5 mu_B and the ladder could not see it).
+#: Measured at 1.18e-4.
+_FADING_RESIDUAL = 1.5e-4
 
 
 @dataclasses.dataclass
@@ -372,6 +385,16 @@ class UltracellResult:
     #: recover the quantity the calculation actually minimises, which is the
     #: one that converges with a sign.
     field_energy: float | None = None
+    #: The field the last iteration was built with, as the reference's
+    #: :class:`~defuqumat.scf.fields.MagneticField`, and ``None`` when the
+    #: reference was converged without one. Under ``'fsm'`` it is the box's
+    #: own converged feedback field, which differs from the reference's by
+    #: what the modulation did to the moment; under a fixed field it is the
+    #: reference's, unchanged. ``SCFResult.magnetic_field``'s counterpart.
+    magnetic_field: object | None = None
+    #: The accumulated ``reducebf`` factor of :attr:`magnetic_field`, which
+    #: the box continues from the reference's ``field_scale``; 1.0 otherwise.
+    field_scale: float = 1.0
     #: The **unit cell's** volume in bohr^3, carried so that an integral over
     #: one cell of the ultracell can be taken without the caller holding the
     #: system as well as the result.
@@ -402,6 +425,13 @@ class UltracellResult:
     #: it, in words, and ``None`` when it was, when there is no field, or when
     #: ``seed_from_field=False`` asked for the tiled start.
     field_seed_skipped: str | None = None
+    #: Under ``mixing_mode = 'ldos'``, one ``(states, clamped, solves)`` per
+    #: mix: ``integral D dV`` over the box in states per Ry, the share of the
+    #: LDOS the clamp to ``D >= 0`` removed, and the conjugate-gradient
+    #: iterations of that mix's screening solve (0 when ``states`` was below
+    #: :data:`~defuqumat.scf.mixing.LDOS_EMPTY` and the step was the plain
+    #: ``beta R``). ``None`` under every other mode.
+    ldos_record: list | None = None
     #: ``(N, nspin, nslot, ldmx, ldmx)``, the occupation matrix of each atom
     #: copy for a DFT+U run, ``None`` otherwise: copy ``c`` is the unit cell's
     #: Hubbard atoms at ``tau + R_c``, ``R_c = ultracell.q_triples[c]`` in the
@@ -519,8 +549,10 @@ def require_an_ultracell_regime(system, pseudos, basis) -> None:
     other way round.
 
     What is *not* here and is refused where it is reached: a
-    ground state converged under a field (:func:`run_ultracell`, because the
-    frozen eigenvalues then carry a field ``dV`` does not), and an applied
+    ground state converged under a penalty, a per-atom feedback scheme or the
+    secant feedback rule, or a spinor one under any field (:func:`run_ultracell`,
+    which carries a fixed applied field into every frozen solve, runs ``'fsm'``
+    and ``reducebf`` on the box, and refuses the rest), and an applied
     field on a noncollinear cell that carries no magnetization
     (:func:`_as_field`, because its density and its potential have one
     component and a field has nothing to be added to). Both depend on the call
@@ -1142,13 +1174,32 @@ def run_ultracell(
             "supervisor lives in run_scf's loop (scf/robust.py), and this driver "
             "has its own. Use 'anderson' with kerker=True"
         )
-    if str(mixing_mode).lower() in LDOS_DEPENDENT:
-        raise ValueError(
-            "mixing_mode = 'ldos' is not implemented for the ultracell: its mixer is "
-            "built here and never handed an LDOS, so it would run plain anderson "
-            "under the name. Its own Kerker (kerker=True) is the screened mode here"
+    ldos_mode = str(mixing_mode).lower() in LDOS_DEPENDENT
+    if ldos_mode and any(p.is_ultrasoft or p.is_paw for p in pseudos):
+        # The LDOS here is the box density with the occupations replaced, and
+        # on an augmented dataset half of it on a d-metal is the augmentation
+        # charge at e_F, which this loop would have to accumulate a second time
+        # from ``becsum``. Not built and not measured.
+        raise NotImplementedError(
+            "mixing_mode = 'ldos' on an ultrasoft or PAW ultracell is not "
+            "implemented: the LDOS at the Fermi level is built from the states "
+            "on the box without the augmentation charge at e_F, which is about "
+            "half of it on a d-metal, and the combination is unmeasured. Use "
+            "'anderson' with kerker=True"
         )
-    if kerker and not MIXERS[str(mixing_mode).lower()].accepts_precondition:
+    if ldos_mode and bool(getattr(system, "noncolin", False)):
+        # The box LDOS of a spinor run would be the charge channel of the
+        # spinor density, which is the unit cell's rule too, but no spinor
+        # ultracell has been converged under it and compared with Kerker.
+        raise NotImplementedError(
+            "mixing_mode = 'ldos' on a noncollinear (spinor) ultracell is not "
+            "measured: the fixed-point check against 'anderson' with Kerker was "
+            "run at nspin = 1 and 2 only. Use 'anderson' with kerker=True"
+        )
+    # ``'ldos'`` installs its own preconditioner and ``kerker`` is not read:
+    # the LDOS solve already starts from, and is preconditioned by, Kerker at
+    # the box-averaged LDOS, and falls back to the plain step on an insulator.
+    if kerker and not ldos_mode and not MIXERS[str(mixing_mode).lower()].accepts_precondition:
         raise ValueError(
             f"mixing_mode = {mixing_mode!r} does not take a preconditioner and "
             f"kerker is on. Its step is pointwise in real space with a factor "
@@ -1244,11 +1295,12 @@ def run_ultracell(
     # ``SCFResult.field_scale``, is the one handed to every frozen solve and
     # to the reference potential, and it is then held fixed and tiled over
     # the ultracell, as ``vltot`` is: it cancels out of ``dV`` exactly and
-    # stays inside every eigenvalue. An applied field and a feedback scheme's
-    # converged field are linear in the magnetization in their energy, so
-    # their potential is the same at every density; a **penalty** is not
-    # (``lambda (m - m_target)`` moves with ``m``), so holding it fixed would
-    # be a different functional from the supercell's, and it stays refused.
+    # stays inside every eigenvalue. An applied field is linear in the
+    # magnetization in its energy, so its potential is the same at every
+    # density and the ultracell under it is the supercell under it (measured,
+    # ``notes/incompat/I36.md``); a **penalty** is not (``lambda (m -
+    # m_target)`` moves with ``m``) and stays refused. A feedback scheme and
+    # ``reducebf`` start from that pair and move it on the box (below).
     reference_field = getattr(reference, "magnetic_field", None)
     reference_field_scale = float(getattr(reference, "field_scale", 1.0) or 1.0)
     if reference_field is not None:
@@ -1262,9 +1314,84 @@ def run_ultracell(
                 f"eigenvalues carry is not a fixed potential the ultracell can "
                 f"tile, and holding it fixed is a different functional from "
                 f"the supercell's under the same constraint. An applied field "
-                f"(B_field, a LOCAL_MAGNETIC_FIELDS card, reducebf) and the "
-                f"feedback schemes ('fsm', 'atomic fsm') are carried"
+                f"(B_field, a LOCAL_MAGNETIC_FIELDS card) is carried"
             )
+        # **A feedback scheme moves its field until the modulated cell is on
+        # target, so the box runs the same controller** (the user's decision
+        # of 2026-10-16, ``notes/incompat/I36-feedback.md``): the reference's
+        # converged field is the starting point, the loop carries it as state
+        # and steps it on every iteration's output moment per cell, which is
+        # what a supercell under the same scheme does with its own. Holding it
+        # frozen instead is the supercell under that field, a different state
+        # at first order (the modulation moved the moment of the measured
+        # hydrogen cell by 18 per cent). ``reducebf`` is the same loop state:
+        # the box continues the decay from the scale the reference ended at.
+        # What is not measured keeps its refusal.
+        if constraint in FEEDBACK_ATOMIC:
+            raise NotImplementedError(
+                f"the ultracell refuses a ground state converged under the "
+                f"per-atom feedback scheme constrained_magnetization = "
+                f"{constraint!r}: a supercell under it drives one field per "
+                f"atom copy, and the box carries the unit cell's integration "
+                f"spheres, one per atom, so there is no per-copy field to "
+                f"drive. The cell-wide scheme 'fsm' runs on the box, and a "
+                f"fixed applied field (B_field, a LOCAL_MAGNETIC_FIELDS card) "
+                f"is carried"
+            )
+        if (constraint in FEEDBACK
+                and str(getattr(reference_field, "fsm_update", "elk")) != "elk"):
+            raise NotImplementedError(
+                f"the ultracell refuses a ground state converged under "
+                f"constrained_magnetization = {constraint!r} with fsm_update = "
+                f"{reference_field.fsm_update!r}: the box steps the field "
+                f"after every iteration on its output moment, Elk's rule "
+                f"(fsm_update = 'elk'), which is the one measured against the "
+                f"supercell; the secant rule steps only on a converged inner "
+                f"loop and is not measured on the box"
+            )
+        # **reducebf under a feedback scheme is refused by the input builder
+        # (system/builder.py), and a hand-built field gets the same refusal
+        # here**: the decay scales the applied field while the controller
+        # steps the field it stores, undecayed, so the two disagree from the
+        # first iteration and the box would converge onto whatever field that
+        # arithmetic lands on.
+        if (constraint in FEEDBACK
+                and float(getattr(reference_field, "reducebf", 1.0)) != 1.0):
+            raise NotImplementedError(
+                f"the ultracell refuses a ground state converged under the "
+                f"feedback scheme constrained_magnetization = {constraint!r} "
+                f"with reducebf = {float(reference_field.reducebf)}: reducebf "
+                f"decays the applied field after every iteration while the "
+                f"feedback steps the field it stores, which is not decayed, so "
+                f"the two are inconsistent from the first step. The input "
+                f"builder refuses the pair for the same reason; the box runs "
+                f"'fsm' with reducebf = 1, and reducebf under a fixed field"
+            )
+        # **A fading field is measured only where it has faded.** The box
+        # continues the decay from the reference's scale and the supercell
+        # runs its own from full strength, so their leftover fields differ by
+        # what their iteration counts make of it, up to the reference's own
+        # residual. Near zero field the box responds with chi = 0.42 to 0.47
+        # mu_B/Ry per cell, and the moment follows the leftover gap exactly:
+        # at references of 3.65e-4 and 6.14e-4 Ry the gaps of +3.1e-5 and
+        # -9.0e-5 Ry moved it by +1.4e-5 and -4.1e-5 mu_B (D22,
+        # I36-feedback-ver/f-0.9.log, f-0.93.log), which the moment ladder
+        # (1.4e-4 at nbnd = 24) could not see. At _FADING_RESIDUAL that gap is
+        # below the ladder's resolution; above it the state is not measured.
+        if float(getattr(reference_field, "reducebf", 1.0)) != 1.0:
+            residual = float(reference_field.residual(reference_field_scale))
+            if residual > _FADING_RESIDUAL:
+                raise NotImplementedError(
+                    f"the ultracell refuses a ground state converged with "
+                    f"reducebf = {float(reference_field.reducebf)} whose field "
+                    f"has not faded: {residual:.3e} Ry is still applied, above "
+                    f"the {_FADING_RESIDUAL:.1e} Ry the box is measured at. "
+                    f"The box continues the decay from where the unit cell "
+                    f"stopped while a supercell starts its own from full "
+                    f"strength, and the two agree where both have faded "
+                    f"(notes/incompat/I36-feedback.md). Let the unit cell fade "
+                    f"first, with a smaller reducebf or more iterations"
+                )
         if int(system.nspin) == 4:
             raise NotImplementedError(
                 "the ultracell refuses a noncollinear ground state converged "
@@ -1626,11 +1753,31 @@ def run_ultracell(
     # The field's half of that, kept apart because its energy leaves the total
     # again where the scalar potential's stays in it -- see
     # :func:`~defuqumat.ultracell.energy.ultracell_energy`.
-    magnetic_potential = _magnetic_potential(magnetic_field, ultracell, nspin_mag)
+    applied_potential = _magnetic_potential(magnetic_field, ultracell, nspin_mag)
+    magnetic_potential = applied_potential
     if reference_field_potential is not None:
         tiled_field = ultracell.tile(jnp.asarray(reference_field_potential))
         magnetic_potential = (tiled_field if magnetic_potential is None
                               else magnetic_potential + tiled_field)
+    # **The reference's field as loop state** (I36-feedback): under ``'fsm'``
+    # or ``reducebf < 1`` the box carries ``(field, scale)``, starting at the
+    # pair the reference ended with, and moves it between iterations exactly
+    # as ``run_scf`` moves its own -- the scale by ``reducebf``, the field by
+    # Elk's feedback on the iteration's output moment per cell. The frozen
+    # eigenvalues carry the reference's field, so only the difference enters
+    # ``dV``; ``magnetic_potential`` is refreshed with it, so ``deband`` and
+    # ``field_energy`` pair with the field the matrix was built from.
+    box_field, box_field_scale = reference_field, reference_field_scale
+    driven_field = reference_field is not None and (
+        reference_field.constraint in FEEDBACK
+        or float(reference_field.reducebf) != 1.0)
+
+    def driven_terms(field, scale):
+        v_cell = field.potential(jnp.asarray(reference.density), cell, scale)[0]
+        offset = ultracell.tile(v_cell - reference_field_potential)
+        tiled = ultracell.tile(v_cell)
+        return offset, (tiled if applied_potential is None
+                        else applied_potential + tiled)
 
     weights0 = np.asarray(k0.weights)
     # **A pair sum over the nuclei, and the nuclei do not move**, so this enters
@@ -1703,7 +1850,26 @@ def run_ultracell(
     # mixer its own default and ``mixing_mode = "linear"``, which has no
     # history at all, is not a TypeError.
     mixer = get_mixer(mixing_mode, beta=mixing_beta, history=mixing_ndim)
-    if kerker:
+    ldos_record = None
+    if ldos_mode:
+        # **Herbst and Levitt's preconditioner on the box**
+        # (:func:`~defuqumat.ultracell.mixing.box_ldos`), handed the LDOS at
+        # the Fermi level at every iteration below, before the mix -- the one
+        # thing the unit cell's ``run_scf`` does for it that this loop did not.
+        mixer.precondition = box_ldos(
+            ultracell, cell, (nspin_mag,) + grid, beta=mixer.beta,
+        )
+        ldos_record = []
+        if not smearing:
+            warnings.warn(
+                f"mixing_mode = 'ldos' with occupations = "
+                f"{system.occupations!r}: there are no states at the Fermi "
+                f"level, so every step is the plain one, beta R, with no "
+                f"screening at all, where kerker=True would screen the long "
+                f"wavelengths the box adds",
+                RuntimeWarning, stacklevel=2,
+            )
+    elif kerker:
         # A cell ``N`` times longer carries a smallest ``|G+Q|`` that is ``N``
         # times smaller, so the Hartree kernel there is ``N^2`` larger and the
         # sloshing an ordinary SCF merely tolerates becomes the whole problem.
@@ -1757,8 +1923,13 @@ def run_ultracell(
 
     for iteration in range(1, max_iterations + 1):
         potential = box_potential(density, tau_state)
+        external_now = external_field
+        if driven_field:
+            offset, magnetic_potential = driven_terms(box_field, box_field_scale)
+            external_now = (offset if external_field is None
+                            else jnp.asarray(external_field) + offset)
         delta_v = delta_potential(
-            potential.v_scf, reference_potential, ultracell, external_field
+            potential.v_scf, reference_potential, ultracell, external_now
         )
 
         # **How many matrices there are per ``k0`` is the regime.** For a
@@ -1990,6 +2161,13 @@ def run_ultracell(
                   f"E = {energy:.8f} Ry{extra}")
 
         converged = accuracy < conv_thr
+        if converged and driven_field and not box_field.satisfied(new, cell):
+            # The feedback field is outside the density, so ``dr2`` can fall
+            # below ``conv_thr`` while the moment per cell is still off its
+            # target -- the second condition ``run_scf`` tests. The box
+            # density is normalised per cell, so ``total_moment`` on the unit
+            # cell reads the moment per cell and the target is the unit cell's.
+            converged = False
         if not converged:
             # **One packed vector, because a mixer with a history cannot be
             # asked to mix two states independently** -- two Anderson instances
@@ -2001,6 +2179,14 @@ def run_ultracell(
             # to say about a quantity that lives on the atoms rather than on the
             # grid, which gets the plain ``beta`` instead.
             head_in, head_out = np.asarray(density), np.asarray(new)
+            if ldos_record is not None:
+                ldos = _box_ldos(
+                    coefficients, vectors, levels, fermi, weights0, cells,
+                    box_index, grid, float(cell.volume), npol, nspin_mag,
+                    state_batch, density.dtype, system, smearing,
+                )
+                mixer.precondition.update_ldos(ldos)
+                solved = len(mixer.precondition.solves)
             if calculation.is_paw and becsum_copies is not None:
                 vector = mixer.mix(
                     np.concatenate([head_in.ravel(), _flatten_becsum(becsum_state)]),
@@ -2039,6 +2225,19 @@ def run_ultracell(
                 density = jnp.asarray(
                     mixer.mix(head_in, head_out), dtype=density.dtype
                 )
+            if ldos_record is not None:
+                screen = mixer.precondition
+                cost = (screen.solves[-1][0]
+                        if len(screen.solves) > solved else 0)
+                ldos_record.append(
+                    (float(screen.states), float(screen.clamped), int(cost)))
+            if driven_field:
+                # After the mix and before the next potential, as in
+                # ``run_scf``; the moment is the output density's, as Elk's
+                # ``bfieldfsm`` reads it, never the mixed one, whose lag winds
+                # a fixed-gain controller up (``PLAN.md`` P108).
+                box_field_scale *= float(box_field.reducebf)
+                box_field = box_field.feedback(new, cell)
         else:
             density = new
             if calculation.is_paw and becsum_copies is not None:
@@ -2100,9 +2299,17 @@ def run_ultracell(
             float(cell.volume), blocks, band, terms, energies,
             augmentation_residual,
         )
+    result.magnetic_field = box_field
+    result.field_scale = float(box_field_scale)
+    if driven_field and result.converged:
+        from defuqumat.scf.driver import _warn_if_the_field_did_not_fade
+
+        _warn_if_the_field_did_not_fade(
+            box_field, box_field_scale, True, result.field_energy or 0.0)
     result.seed_origin = seed_origin
     result.hubbard_ns = ns_state
     result.field_seed_skipped = field_seed_skipped
+    result.ldos_record = ldos_record
     if kramers is not None:
         result.kramers_ranks = np.asarray(kramers.ranks)
         result.kramers_overlap = float(kramers.smallest_overlap)
@@ -2308,6 +2515,41 @@ def _result(density, delta_v, levels, occupations, fermi, converged, iterations,
                       else float(terms["_field_energy"])),
         cell_volume=cell_volume,
     )
+
+
+def _box_ldos(coefficients, vectors, levels, fermi, weights, cells, box_index,
+              grid, volume, npol, nspin_mag, batch, dtype, system, smearing):
+    """``D(r)``, the local density of states at the Fermi level on the box.
+
+    The box density with ``w_k0 delta_sigma(e_F - e_j) / N`` in place of the
+    occupations, which is ``Calculation.ldos_weights`` with the ``1/N``
+    :func:`_occupy` puts on its occupations: a **Gaussian** of width
+    ``max(degauss, LDOS_SIGMA_MIN)`` whatever the run smears with, since the
+    preconditioner needs ``D >= 0``, each channel at its own level when the
+    moment is constrained, and summed over spin as the charge. It is a field
+    per unit cell volume in states per Ry, the unit cell's ``D`` tiled when
+    nothing is modulated. Zero without smearing, where the step is the plain
+    one. A second pass over the states each iteration, the same cost as the
+    density's: the unit cell shares the transforms between the two weight sets
+    (``density_and_ldos``) and the box streams its states, so it cannot.
+    """
+    if not smearing:
+        return jnp.zeros(tuple(grid), dtype=dtype)
+    sigma = max(float(system.degauss), LDOS_SIGMA_MIN)
+    levels = jnp.asarray(levels)
+    level = jnp.asarray(fermi, dtype=levels.dtype)
+    if level.ndim > 0 and levels.shape[0] == 2:
+        level = level.reshape(2, 1, 1)
+    x = (level - levels) / sigma
+    delta = jnp.exp(-x * x) / (sigma * np.sqrt(np.pi))
+    ldos_weights = jnp.asarray(weights)[None, :, None] * delta / cells
+    field = ultracell_band_density(
+        coefficients, vectors, np.asarray(ldos_weights), box_index, grid, volume,
+        npol=npol, nspin_mag=nspin_mag, batch=batch, dtype=dtype,
+    )
+    if nspin_mag == 2:
+        return field[0] + field[1]
+    return field[0]
 
 
 def _occupy(levels, weights, nelec, cells, system, smearing, calculation):

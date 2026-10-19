@@ -38,7 +38,7 @@ compiled path only gathers through.
 
 from __future__ import annotations
 
-
+from functools import partial
 
 import equinox as eqx
 import jax
@@ -439,13 +439,66 @@ def _bisect(e_sorted, ntetra: int, nelec, spin):
     return 0.5 * (low + high)
 
 
-#: :func:`_bisect` for a caller outside any ``jit``. Its loop is a ``fori_loop``
+@partial(jax.custom_jvp, nondiff_argnums=(1,))
+def _fermi_level(e_sorted, ntetra: int, nelec, spin):
+    """:func:`_bisect`, with the implicit derivative as its tangent.
+
+    The bisection's own tangent is a convex mixture of the tangents of the
+    bracket's two ends, ``min e`` and ``max e``, which has no relation to how
+    the Fermi level moves; differentiating it does not fail, it returns that
+    mixture. This is the same trap ``scf/occupations.py``'s ``bisect_fermi``
+    carries a ``custom_jvp`` for, and the same cure: differentiate
+    ``N(E_F; e, spin) = nelec`` at fixed count,
+
+        dE_F = (dnelec - dN/de . de - dN/dspin dspin) / (dN/dE),
+
+    with both pieces taken from :func:`integrated_states` by ``jax.jvp``, so
+    the denominator is the tetrahedron density of states at ``E_F`` exactly as
+    :func:`tetrahedron_dos` builds it. In a gap ``N`` is flat, the level is not
+    a differentiable function of the eigenvalues, and the tangent is zero
+    there rather than infinite; nothing downstream reads it there, since every
+    weight is then 0 or full.
+    """
+    return _bisect(e_sorted, ntetra, nelec, spin)
+
+
+@_fermi_level.defjvp
+def _fermi_level_jvp(ntetra, primals, tangents):
+    e_sorted, nelec, spin = primals
+    d_e, d_nelec, d_spin = tangents
+    ef = _fermi_level(e_sorted, ntetra, nelec, spin)
+    _, d_count = jax.jvp(
+        lambda e, s: integrated_states(e, ef, ntetra, s), (e_sorted, spin), (d_e, d_spin)
+    )
+    _, dos = jax.jvp(
+        lambda energy: integrated_states(e_sorted, energy, ntetra, spin),
+        (ef,), (jnp.ones_like(ef),),
+    )
+    live = dos > _DEGENERATE
+    tangent = jnp.where(live, (d_nelec - d_count) / jnp.where(live, dos, 1.0), 0.0)
+    return ef, tangent
+
+
+def _level(e_sorted, ntetra: int, nelec, spin):
+    """:func:`_fermi_level` with its two scalars cast to the energies' dtype.
+
+    ``custom_jvp`` hands an integer argument a ``float0`` tangent, and ``nelec``
+    arrives as a Python number; casting here keeps the tangent arithmetic in
+    the precision policy's real type, whatever the caller passed.
+    """
+    dtype = e_sorted.dtype
+    return _fermi_level(
+        e_sorted, ntetra, jnp.asarray(nelec, dtype=dtype), jnp.asarray(spin, dtype=dtype)
+    )
+
+
+#: :func:`_level` for a caller outside any ``jit``. Its loop is a ``fori_loop``
 #: over a closure built at the call, so called eagerly it was compiled again at
 #: every call: once an SCF iteration with ``occupations = 'tetrahedra'``, six
 #: compilations over a warm five-iteration SCF on ``tests/data/qe/al-tetrahedra.in``.
 #: Jitted here, the loop is compiled once per shape; :func:`tetrahedron_occupations`
 #: is jitted itself and keeps the plain call.
-_bisect_compiled = jax.jit(_bisect, static_argnames=("ntetra",))
+_bisect_compiled = jax.jit(_level, static_argnames=("ntetra",))
 
 
 # --------------------------------------------------------------------------
@@ -711,6 +764,35 @@ def tetrahedron_weights_at(
     return wg
 
 
+def tetrahedron_fermi_weights(
+    tetra: Tetrahedra, eigenvalues: jnp.ndarray, weights: jnp.ndarray, ef
+):
+    """``d wg_nk / d ef``: the weight each state carries in the DOS at ``ef``.
+
+    The tetrahedron method's own delta at the Fermi level, and the reason it
+    needs no width: :func:`tetrahedron_weights_at` is a piecewise polynomial in
+    ``ef``, so one ``jvp`` in ``ef`` gives the per-state weights whose sum is
+    ``N'(ef)``. Used in place of the occupations, the density routine returns
+    the local density of states at ``ef`` (``mixing_mode = 'ldos'``).
+
+    The zone measure is already in, through ``spin / ntetra``, so the k-point
+    weights are read for their sum only, as in :func:`tetrahedron_weights_at`;
+    multiplying by ``wk`` again would be wrong. The sum over states equals
+    :func:`tetrahedron_dos` at ``ef`` for every kind: for the linear and
+    optimised methods because the corner weights of each tetrahedron sum to its
+    occupied fraction and ``wlsm``'s rows sum to one, and for Bloechl's because
+    his correction sums to zero over the four corners. That correction is why
+    Bloechl's per-state weights here can be negative, and Kawamura's ``wlsm``
+    has negative entries too, so the LDOS built from them is a signed field.
+    """
+    eigenvalues = jnp.asarray(eigenvalues)
+    ef = jnp.asarray(ef, dtype=eigenvalues.dtype)
+    return jax.jvp(
+        lambda level: tetrahedron_weights_at(tetra, eigenvalues, weights, level),
+        (ef,), (jnp.ones_like(ef),),
+    )[1]
+
+
 @jax.jit
 def tetrahedron_occupations(
     tetra: Tetrahedra, eigenvalues: jnp.ndarray, weights: jnp.ndarray, nelec
@@ -724,7 +806,7 @@ def tetrahedron_occupations(
     """
     spin = jnp.sum(weights)
     e_sorted, _ = _sorted_corners(tetra, eigenvalues)
-    ef = _bisect(e_sorted, tetra.ntetra, nelec, spin)
+    ef = _level(e_sorted, tetra.ntetra, nelec, spin)
     return tetrahedron_weights_at(tetra, eigenvalues, weights, ef), ef
 
 

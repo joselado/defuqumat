@@ -814,6 +814,165 @@ def test_a_spirals_magnetization_does_not_cross_out_of_its_frame_either():
                         plain, wavefunctions=False)
 
 
+def test_a_spirals_frame_is_undone_by_the_phase_at_a_reciprocal_lattice_q():
+    """``m_+ = m'_+ exp(-i q . r)`` out of the spiral, ``exp(+i q . r)`` back in.
+
+    At ``q = b3`` the phase is lattice periodic, so the laboratory spiral is a
+    density of this cell and the crossing is that phase alone: on the Fourier
+    side every transverse component moves by ``-q`` out of the spiral and by
+    ``+q`` into it, and nothing else changes.
+    """
+    spiral = _spiral(q=(0.0, 0.0, 1.0))
+    plain = _calculation(4, (0.5,), ((90.0,), (0.0,)))
+    grid = tuple(plain.basis.dense.grid)
+    source = _random_density(grid, 4, calculation=plain)
+    out = continued_state(_result(source, 4, nspin_mag=4, system=spiral.system),
+                          plain, wavefunctions=False)
+    out = np.asarray(out.density)
+
+    assert np.array_equal(out[0], source[0]) and np.array_equal(out[3], source[3])
+    before = np.fft.fftn(source[1] + 1j * source[2])
+    after = np.fft.fftn(out[1] + 1j * out[2])
+    # Component at G lands at G - q, q = (0, 0, 1) in grid indices.
+    assert np.max(np.abs(np.roll(before, -1, axis=2) - after)) < 1e-10 * np.max(
+        np.abs(before))
+    # The wrong sign would land it at G + q, which is a different array.
+    assert np.max(np.abs(np.roll(before, 1, axis=2) - after)) > 1e-2 * np.max(
+        np.abs(before))
+
+    # Into the spiral: the spiral's box is larger here (16 against 15, it holds
+    # the sphere displaced by q), so the reverse is checked on its own grid.
+    grid = tuple(spiral.basis.dense.grid)
+    source = _random_density(grid, 4, calculation=spiral)
+    into = continued_state(_result(source, 4, nspin_mag=4, system=plain.system),
+                           spiral, wavefunctions=False)
+    into = np.asarray(into.density)
+    before = np.fft.fftn(source[1] + 1j * source[2])
+    after = np.fft.fftn(into[1] + 1j * into[2])
+    assert np.max(np.abs(np.roll(before, 1, axis=2) - after)) < 1e-10 * np.max(
+        np.abs(before))
+
+
+def test_a_zero_spiral_crosses_with_no_phase_at_all():
+    """``q = 0`` is the identity, and refusing it was a decoration."""
+    spiral = _spiral(q=(0.0, 0.0, 0.0))
+    plain = _calculation(4, (0.5,), ((90.0,), (0.0,)))
+    grid = tuple(plain.basis.dense.grid)
+    source = _random_density(grid, 4, calculation=plain)
+    state = continued_state(_result(source, 4, nspin_mag=4, system=spiral.system),
+                            plain, wavefunctions=False)
+    assert np.array_equal(np.asarray(state.density), source)
+
+
+def test_a_dftu_state_does_not_cross_the_spiral_boundary_even_at_an_integer_q():
+    """The density crosses at ``q = b3``; ``ns`` has not been measured to."""
+    from defuqumat.scf.continuation import _SpinTransfer, _spiral_frame
+
+    transfer = _SpinTransfer(4, 4, mode="carry")
+    spiral = types.SimpleNamespace(spiral_q=(0.0, 0.0, 1.0))
+    plain = types.SimpleNamespace(spiral_q=None)
+    result = types.SimpleNamespace(system=spiral, ns=np.zeros((4, 1, 5, 5)))
+    target = types.SimpleNamespace(system=plain, is_hubbard=True)
+    with pytest.raises(NotImplementedError, match="DFT\\+U occupation"):
+        _spiral_frame(result, target, transfer)
+    # Without a U the same crossing is the phase.
+    target = types.SimpleNamespace(system=plain, is_hubbard=False)
+    assert _spiral_frame(result, target, transfer) == (0.0, 0.0, -1.0)
+    # And at a q off the reciprocal lattice the density refusal comes first.
+    result = types.SimpleNamespace(system=types.SimpleNamespace(
+        spiral_q=(0.0, 0.0, 0.5)), ns=None)
+    with pytest.raises(NotImplementedError, match="reciprocal-lattice vector"):
+        _spiral_frame(result, target, transfer)
+
+
+@pytest.mark.parametrize("magnetization", ["carry", "seed", "none"])
+def test_a_span_does_not_cross_the_spiral_boundary(magnetization):
+    """The two components sit on ``k +- q/2`` in a spiral and on ``k`` otherwise.
+
+    Equal shapes index different plane waves, so the span is dropped whatever
+    the magnetization does -- ``seed`` and ``none`` never reach the frame check.
+    """
+    spiral = _spiral(q=(0.0, 0.0, 1.0))
+    plain = _calculation(4, (0.5,), ((90.0,), (0.0,)))
+    for source, target in ((plain, spiral), (spiral, plain)):
+        psi = np.zeros((1, target.system.kpoints.nk, 2, 2 * target.basis.npwx),
+                       dtype=complex)
+        result = _result(_random_density(tuple(target.basis.dense.grid), 4,
+                                         calculation=target), 4, nspin_mag=4,
+                         system=source.system, wavefunctions=psi)
+        with pytest.warns(RuntimeWarning, match="different plane-wave spheres"):
+            state = continued_state(result, target, magnetization=magnetization)
+        assert state.wavefunctions is None
+
+
+@pytest.mark.parametrize("magnetization", ["carry", "auto"])
+def test_a_spiral_at_an_integer_q_does_not_cross_into_a_collinear_run(magnetization):
+    """The laboratory field of a spiral at ``q = b3`` is a helix in the cell.
+
+    87ff5bb8 let this through with no error: the frame was set for a
+    collinear target, ``promote_density`` projected to ``(2, ...)`` first and
+    the phase then indexed channels 1 to 3 of it, which JAX clamps, so a
+    ``(4, ...)`` stack reached a two-channel run.
+    """
+    spiral = _spiral(q=(0.0, 0.0, 1.0))
+    collinear = _calculation(2, (0.5,))
+    grid = tuple(collinear.basis.dense.grid)
+    source = np.array(_random_density(grid, 4, calculation=collinear))
+    # Collinear along x *in the spiral's frame*, which is a helix in the
+    # laboratory: the case that read as collinear and passed at 87ff5bb8,
+    # where a random vector field is refused by the axis test anyway.
+    source[1] = 0.3 * source[0]
+    source[2] = source[3] = 0.0
+    with pytest.raises(NotImplementedError, match="helix"):
+        continued_state(_result(source, 4, nspin_mag=4, system=spiral.system),
+                        collinear, magnetization=magnetization,
+                        wavefunctions=False)
+    # The charge still crosses, and in the shape the target wants.
+    state = continued_state(_result(source, 4, nspin_mag=4, system=spiral.system),
+                            collinear, magnetization="seed", wavefunctions=False)
+    assert state.density.shape == (2,) + grid and state.frame is None
+
+
+def test_a_spiral_crossing_records_its_frame_on_the_continued_state():
+    """The density is rotated; whatever else crosses has to know it was."""
+    spiral = _spiral(q=(0.0, 0.0, 1.0))
+    plain = _calculation(4, (0.5,), ((90.0,), (0.0,)))
+    grid = tuple(plain.basis.dense.grid)
+    source = _random_density(grid, 4, calculation=plain)
+    state = continued_state(_result(source, 4, nspin_mag=4, system=spiral.system),
+                            plain, wavefunctions=False)
+    assert state.frame == (0.0, 0.0, -1.0)
+    same = continued_state(_result(source, 4, nspin_mag=4, system=plain.system),
+                           plain, wavefunctions=False)
+    assert same.frame is None
+
+
+def test_tau_does_not_cross_the_spiral_boundary():
+    """A spiral's ``tau`` is in the rotated frame and only the density is turned.
+
+    The driver hands the next run ``carried_tau``'s answer, so this is the
+    driver's rule: dropped when a frame was applied, whatever the shapes say.
+    """
+    from defuqumat.scf.continuation import ContinuedState, carried_tau
+
+    grid = (4, 4, 4)
+    tau = np.random.default_rng(5).uniform(0.1, 1.0, (4,) + grid)
+    density = np.zeros((4,) + grid)
+    shape = (4,) + grid
+    crossed = ContinuedState(density=density, regimes=(4, 4),
+                             magnetization="carry", frame=(0.0, 0.0, -1.0))
+    assert carried_tau(crossed, tau, shape) is None
+    plain = ContinuedState(density=density, regimes=(4, 4), magnetization="carry")
+    assert carried_tau(plain, tau, shape) is tau
+    # The guard has siblings, and each still decides its own case.
+    assert carried_tau(plain, tau[:2], shape) is None
+    seeded = ContinuedState(density=density, regimes=(4, 4), magnetization="seed")
+    assert carried_tau(seeded, tau, shape) is None
+    zeroed = ContinuedState(density=density, regimes=(4, 4), magnetization="none")
+    out = np.asarray(carried_tau(zeroed, tau, shape))
+    assert np.array_equal(out[0], tau[0]) and not np.any(out[1:])
+
+
 def test_a_moment_on_the_spiral_axis_is_refused_as_the_ferromagnet_it_is():
     """``z`` is the axis the spiral turns about, so a moment on it does not turn.
 

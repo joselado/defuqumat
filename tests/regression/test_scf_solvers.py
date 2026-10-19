@@ -38,6 +38,11 @@ BENCHMARKS = Path(__file__).resolve().parents[2] / "benchmarks"
 #: the density response alone.
 SILICON = BENCHMARKS / "si-1k.in"
 
+#: fcc aluminium with Bloechl's tetrahedra on the 4x4x4 shifted grid; ``pw.x``
+#: 7.5's own run is ``reference.out.al-tetrahedra``.
+AL_TETRAHEDRA = Path(__file__).resolve().parents[1] / "data" / "qe" / "al-tetrahedra.in"
+AL_TETRAHEDRA_REFERENCE = AL_TETRAHEDRA.with_name("reference.out.al-tetrahedra")
+
 #: bcc iron from a *small* starting moment: two self-consistent solutions, one
 #: of them unstable. See ``test_newton_krylov_reaches_an_unstable_solution``.
 IRON = BENCHMARKS / "fe-unstable.in"
@@ -307,7 +312,8 @@ def test_local_tf_screens_the_vacuum_less_than_the_metal():
 
 
 @pytest.mark.regression
-@pytest.mark.parametrize("case", [SILICON, SLAB], ids=["silicon", "al-slab"])
+@pytest.mark.parametrize("case", [SILICON, SLAB, AL_TETRAHEDRA],
+                         ids=["silicon", "al-slab", "al-tetrahedra"])
 @pytest.mark.slow
 def test_weights_agree_with_the_driver(case):
     """``residual._weights`` is a second copy of the driver's occupation
@@ -323,17 +329,145 @@ def test_weights_agree_with_the_driver(case):
     assert np.allclose(_weights(calculation, eigenvalues), np.asarray(expected), atol=1e-14)
 
 
-@pytest.mark.unit
-def test_unsupported_occupations_are_refused_by_name():
-    """A residual solver that silently substituted a scheme it cannot
-    differentiate would converge to the wrong physics, so it raises instead."""
+
+#: How far the autodiff ``dF v`` may sit from the central difference on the
+#: tetrahedron cell, warm, relative to ``|dF v|`` (not to ``|J v| = |dF v - v|``,
+#: which is about 1 here and would hide the whole occupation term). Measured on
+#: D22 (``notes/incompat/I71.md``): 2.6e-2, 1.1e-2, 2.3e-2 on three random
+#: directions with the implicit tangent, 1.22, 0.045, 1.38 with the bare
+#: bisection's.
+AUTODIFF_TETRAHEDRA_BOUND = 0.1
+
+
+def _occupation_cell(name, qe_testsuite=None):
+    """``al-tetrahedra.in`` (committed) or ``pw_scf/scf-occ.in`` (test-suite)."""
+    if name == "tetrahedra":
+        return _setup(AL_TETRAHEDRA)
+    return _setup(qe_testsuite / "pw_scf" / "scf-occ.in")
+
+
+@pytest.mark.regression
+@pytest.mark.parametrize("name", ["tetrahedra", "from_input"])
+def test_weights_take_tetrahedra_and_from_input_like_the_driver(request, name):
+    """``_weights`` against ``Calculation.occupations`` for the two schemes I71 added.
+
+    Any eigenvalues of the right shape will do -- the dispatch is what is being
+    compared, not a converged state -- so this runs no SCF. Random sorted
+    levels put the Fermi level inside bands, where the tetrahedron weights are
+    least trivial.
+    """
     from defuqumat.scf.residual import _weights
 
-    class _Calculation:
-        system = type("S", (), {"occupations": "tetrahedra"})()
+    testsuite = None if name == "tetrahedra" else request.getfixturevalue("qe_testsuite")
+    system, _, calculation, residual = _occupation_cell(name, testsuite)
+    nk = len(system.kpoints.weights)
+    rng = np.random.default_rng(0)
+    eigenvalues = np.sort(rng.uniform(-0.5, 1.5, size=(1, nk, residual.nbnd)), axis=-1)
+    expected, _ = calculation.occupations(eigenvalues)
+    ours = _weights(calculation, jnp.asarray(eigenvalues))
+    assert np.allclose(np.asarray(ours), np.asarray(expected), atol=1e-14)
+    assert float(np.sum(ours)) == pytest.approx(calculation.nelec, abs=1e-9)
 
-    with pytest.raises(NotImplementedError, match="tetrahedron"):
-        _weights(_Calculation(), np.zeros((1, 1, 4)))
+
+@pytest.mark.regression
+@pytest.mark.parametrize("name", ["tetrahedra", "from_input"])
+def test_the_sternheimer_jacobian_still_refuses_these_occupations(request, name):
+    """The residual takes both schemes; the implicit Jacobian does not.
+
+    It needs ``dfpt_tetra_beta`` for tetrahedra and a projector for a filling
+    fixed by hand, neither of which is here, so ``jvp = 'sternheimer'`` keeps
+    its refusal by name while the finite-difference and autodiff backends run.
+    """
+    testsuite = None if name == "tetrahedra" else request.getfixturevalue("qe_testsuite")
+    _, _, _, residual = _occupation_cell(name, testsuite)
+    match = "tetrahedron" if name == "tetrahedra" else "from_input"
+    with pytest.raises(NotImplementedError, match=match):
+        residual._refuse_sternheimer(None)
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_newton_krylov_with_tetrahedra_is_pw_x_s_fixed_point():
+    """Newton-Krylov on Bloechl tetrahedra: ``pw.x``'s total, and the mixer's.
+
+    ``reference.out.al-tetrahedra:202`` is -4.19789860 Ry and ``:200`` the Fermi
+    level 8.5257 eV, from ``pw.x`` 7.5 at ``conv_thr = 1e-10``.
+    """
+    from defuqumat.io import read_qe_output
+
+    system, pseudos, _, _ = _setup(AL_TETRAHEDRA)
+    reference = read_qe_output(AL_TETRAHEDRA_REFERENCE)
+    mixed = run_scf(system, pseudos, calculation=Calculation(system, pseudos),
+                    conv_thr=1e-10)
+    newton = run_scf(
+        system, pseudos, calculation=Calculation(system, pseudos), conv_thr=1e-10,
+        scf_solver="newton-krylov", scf_solver_options={"forcing": 0.5, "warmup": 3},
+    )
+    assert newton.converged and mixed.converged
+    assert newton.solver is not None and newton.solver.steps > 0
+    assert newton.total_energy == pytest.approx(reference.total_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-8)
+    assert newton.fermi_energy == pytest.approx(mixed.fermi_energy, abs=1e-5)
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_newton_krylov_with_from_input_is_pw_x_s_fixed_point(qe_testsuite):
+    """Newton-Krylov on ``pw_scf/scf-occ.in``: ``pw.x``'s -15.79449557 Ry.
+
+    ``reference.out.pw_scf-scf-occ:185``, the regenerated 7.5 reference
+    ``test_scf.py`` reads for the same cell.
+    """
+    from defuqumat.io import read_qe_output
+    from tests.conftest import reference_output
+
+    path = qe_testsuite / "pw_scf" / "scf-occ.in"
+    system, pseudos, _, _ = _setup(path)
+    reference = read_qe_output(reference_output("pw_scf", "scf-occ.in", qe_testsuite))
+    mixed = run_scf(system, pseudos, calculation=Calculation(system, pseudos),
+                    conv_thr=1e-10)
+    newton = run_scf(
+        system, pseudos, calculation=Calculation(system, pseudos), conv_thr=1e-10,
+        scf_solver="newton-krylov", scf_solver_options={"forcing": 0.5, "warmup": 3},
+    )
+    assert newton.converged and mixed.converged
+    assert newton.solver is not None and newton.solver.steps > 0
+    assert newton.total_energy == pytest.approx(reference.total_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-8)
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_autodiff_jacobian_with_tetrahedra_matches_finite_differences(monkeypatch):
+    """``J v`` by ``jax.jvp`` through the tetrahedron weights, against ``r``'s difference.
+
+    What the custom tangent of the tetrahedron Fermi level buys: without it the
+    level's tangent is the bracket's, and the autodiff action is off by the
+    whole Fermi-shift term (``test_bz_integration.py`` measures that alone).
+    """
+    import defuqumat.scf.tetrahedra as tetrahedra
+
+    system, pseudos, calculation, residual = _setup(AL_TETRAHEDRA)
+    converged = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11)
+    x = residual.pack(converged.density, calculation.starting_becsum())
+    _, psi = residual.residual(x, converged.wavefunctions)
+    rng = np.random.default_rng(0)
+    direction = rng.normal(size=x.shape)
+    direction /= np.linalg.norm(direction)
+    difference = residual.jvp_finite_difference(x, direction, psi)
+    response = np.linalg.norm(difference + direction)
+
+    def relative():
+        autodiff, _ = residual.jvp(x, direction, psi)
+        return np.linalg.norm(autodiff - difference) / response
+
+    assert relative() < AUTODIFF_TETRAHEDRA_BOUND
+    # The guard fires: with the bare bisection's tangent the same check fails.
+    monkeypatch.setattr(tetrahedra, "_fermi_level", tetrahedra._bisect)
+    import jax
+
+    jax.clear_caches()
+    assert relative() > 5 * AUTODIFF_TETRAHEDRA_BOUND
 
 
 @pytest.mark.regression
@@ -524,6 +658,206 @@ def test_an_inexact_newton_is_only_as_stability_blind_as_its_inner_solve():
 # potential is built from it before the Hamiltonian exists. Two things are
 # checked -- that the solver still lands on the mixer's fixed point with a U in
 # play, and that it reaches a solution the mixer cannot.
+
+
+#: bcc iron at one k-point under a uniform field: ``tests/data/qe/fe-fsm.in``
+#: with its feedback constraint replaced by ``b_field(3) = 0.01``, which the
+#: mixing loop holds fixed, so the residual's ``F`` is the loop's map (I73).
+FIELD_EDITS = (
+    ("constrained_magnetization = 'fsm'", "b_field(3) = 0.01"),
+    ("lambda = 0.02", ""),
+    ("fixed_magnetization(3) = 2.0", ""),
+)
+
+
+def _iron_under_a_field(edits):
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (Path(__file__).resolve().parents[1] / "data" / "qe" / "fe-fsm.in").read_text()
+    for old, new in edits:
+        assert old in text, old
+        text = text.replace(old, new)
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(
+        read_upf(Path(__file__).parents[1] / "data" / "pseudo" / s.pseudo_file)
+        for s in system.structure.species
+    )
+    return system, pseudos
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_field():
+    """I73: an applied field is part of ``F``, so Newton lands where mixing does.
+
+    Measured on D22 (``review/incompat/I73/harnessBC.log``, one sample): total
+    energy 1.7e-8 Ry apart, field energy 1.7e-8, moment 1.7e-6 mu_B, with
+    Newton at 7 outer steps and 58 evaluations of ``F`` against the mixer's 14
+    iterations. The field-free cell is the alternative a solver that dropped
+    the Zeeman term would land on, and it is asserted to be far away.
+
+    **The Newton run's loop iteration count is what carries the claim.** A
+    Newton whose ``F`` dropped the field converges on the field-free residual,
+    and the mixing loop after it (``max_iterations = 300``) still carries the
+    field and finishes at the mixer's fixed point, so the energy, field energy
+    and moment asserts all pass. Measured on D22 with that mutation
+    (``make_residual`` handed the calculation with ``magnetic_field = None``):
+    the loop takes 11 iterations, against 1 clean.
+    """
+    system, pseudos = _iron_under_a_field(FIELD_EDITS)
+    assert Calculation(system, pseudos).magnetic_field is not None
+    mixed = run_scf(system, pseudos, calculation=Calculation(system, pseudos),
+                    conv_thr=1e-10, max_iterations=300, mixing_beta=0.3)
+    newton = run_scf(
+        system, pseudos, calculation=Calculation(system, pseudos), conv_thr=1e-10,
+        max_iterations=300, mixing_beta=0.3, scf_solver="newton-krylov",
+        scf_solver_options={"forcing": 0.5, "warmup": 6},
+    )
+    assert mixed.converged and newton.converged
+    assert newton.solver is not None and newton.solver.converged
+    # A Newton converged on the wrong problem is finished by the mixing loop,
+    # which would then take more than a step or two (11 measured).
+    assert newton.iterations <= 2
+    # The reported total leaves out the Zeeman term, so it is not the
+    # stationary functional: E + E_field is, and dE = -dE_field to 1e-10 at
+    # b_field(3) = 0.01 and 0.02. The E and E_field asserts are one first-order
+    # check in the moment, read twice; 1.7e-8 Ry and 1.7e-6 mu_B were measured,
+    # and the tolerances leave room for a different stopping point.
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.field_energy == pytest.approx(mixed.field_energy, abs=TOTAL_ENERGY_RY)
+    assert newton.magnetization == pytest.approx(mixed.magnetization, abs=1e-4)
+
+    free_system, _ = _iron_under_a_field(
+        (("constrained_magnetization = 'fsm'", ""),) + FIELD_EDITS[1:]
+    )
+    free = run_scf(free_system, pseudos, conv_thr=1e-10, max_iterations=300,
+                   mixing_beta=0.3)
+    assert abs(free.magnetization - mixed.magnetization) > 1e-3
+    assert abs(free.total_energy - mixed.total_energy) > 1e-5
+
+
+#: The fixed-spin-moment cells of the I73 feedback round: ``fe-fsm.in`` as
+#: committed (collinear, ``'fsm'``, 2.0 mu_B), and the canted iron pair of
+#: ``test_holding_a_texture._iron`` under the two per-atom schemes, with Elk's
+#: adaptive mixer the loop needs there.
+FEEDBACK_CASES = ("fsm", "atomic fsm", "atomic fsm direction")
+
+
+def _feedback_text(case):
+    root = Path(__file__).resolve().parents[1] / "data" / "qe"
+    if case == "fsm":
+        return (root / "fe-fsm.in").read_text()
+    text = (root / "fe2-canted-nosoc.in").read_text().replace(
+        "    nosym = .true.\n",
+        f"    nosym = .true.\n    constrained_magnetization = '{case}'\n"
+        "    lambda = 0.02\n")
+    return text + "STARTING_MOMENTS\n  1.868 0 0\n  0 1.868 0\n"
+
+
+def _energy_at_target(result):
+    """The reported total moved to the target moment, to second order.
+
+    The total leaves out the Zeeman term and ``dE/dm = B`` along the
+    constrained family, so a run that stopped ``dm`` off its target reads
+    ``B . dm`` off in ``E``, first order; ``E + B . (m_fix - m)`` removes it.
+    """
+    field = result.magnetic_field
+    b = np.asarray(field.driven(), dtype=float)
+    targets = np.asarray(field.targets, dtype=float)
+    if field.driven_leaf == "atomic":
+        m = np.asarray(result.site_moments, dtype=float)
+    else:
+        m = np.atleast_1d(np.asarray(result.magnetization, dtype=float))
+    return float(result.total_energy + np.sum(b * (targets - m)))
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+@pytest.mark.parametrize("case", FEEDBACK_CASES)
+def test_newton_krylov_finds_the_mixer_s_fixed_point_under_a_feedback_field(
+        case, monkeypatch):
+    """I73 feedback round: the driven field in Newton's state lands where mixing does.
+
+    The reference is the mixing loop held to its own fixed point:
+    ``FSM_TOLERANCE`` (1e-3 mu_B by default, and the loop stops there, 1.5e-4
+    mu_B off on ``fe-fsm.in``) is set to 1e-12 for that run only, which holds
+    the moment to 1.6e-13 mu_B on ``fe-fsm.in`` and 1.1e-12 on the canted pair
+    under ``'atomic fsm'``. The direction scheme's angle cannot be held below
+    about 8.5e-7 degrees, since ``site_residuals`` reads it as an ``arccos``
+    of a cosine within one ulp of 1, so that reference is 2.5e-8 mu_B off in
+    the perpendicular moment and 1.0e-9 Ry off in its own raw total.
+
+    Newton's field share is ``|dm| (|B| + tau |dm|)`` (the user's decision of
+    2026-10-17), a bound on the first-order error ``B . dm`` of the reported
+    total, which leaves out the Zeeman term. With 80 outer steps Newton
+    reaches it on all three (``forcing = 0.5``, ``warmup = 6``; measured on
+    D22, one sample each, ``notes/incompat/I73.md``, "The feedback field"):
+    39 steps on ``fe-fsm.in``, raw totals 7.8e-13 Ry apart; 63 under
+    ``'atomic fsm'``, 7.0e-13 Ry, fields 2.4e-12 Ry apart, 166 s against 52 s
+    for the loop; 60 under ``'atomic fsm direction'``, where the raw totals
+    differ by -1.01e-9 Ry, which is the reference's own ``arccos`` offset
+    (Newton's raw total is the reference's energy at the target, to 2.8e-14).
+    At 40 steps the canted pair stopped short and the loop accepted the state
+    at its own 1e-3 tolerance; ``run_scf`` now warns when that happens.
+
+    **The loop iteration count carries the claim.** With the field row of
+    ``F`` replaced by the identity Newton holds the starting field and solves
+    the unconstrained problem, and the loop after the hand-over then drives
+    the field itself: 45 iterations on ``fe-fsm.in`` and 93 on the canted pair
+    under ``'atomic fsm'``, against 1 clean (``'atomic fsm direction'`` was not
+    mutated; measured under the earlier measure ``tau |dm|^2``).
+    """
+    from defuqumat import Calculator
+    from defuqumat.scf import fields
+
+    pseudo_dir = str(Path(__file__).resolve().parents[1] / "data" / "pseudo")
+    text = _feedback_text(case)
+    options = ({"mixing_beta": 0.3} if case == "fsm"
+               else {"mixing_mode": "adaptive", "mixing_beta": 0.05})
+    options.update(conv_thr=1e-11, max_iterations=400, verbose=False)
+    with monkeypatch.context() as patch:
+        patch.setattr(fields, "FSM_TOLERANCE", 1e-12)
+        patch.setattr(fields, "FSM_ANGLE_TOLERANCE", 1e-12)
+        mixed = Calculator.from_text(text, pseudo_dir, announce=False).get_scf(**options)
+    newton = Calculator.from_text(text, pseudo_dir, announce=False).get_scf(
+        scf_solver="newton-krylov",
+        scf_solver_options={"forcing": 0.5, "warmup": 6, "max_iterations": 80},
+        **options)
+    assert mixed.converged and newton.converged
+    assert newton.solver is not None and newton.solver.converged
+    assert newton.iterations <= 2
+    assert _energy_at_target(newton) == pytest.approx(_energy_at_target(mixed), abs=1e-11)
+    if case == "fsm":
+        # Measured 7.8e-13 Ry at 39 outer steps, a moment 6.2e-11 off and the
+        # field 6.0e-11 Ry apart.
+        assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-11)
+        assert newton.magnetization == pytest.approx(2.0, abs=1e-9)
+        np.testing.assert_allclose(np.asarray(newton.magnetic_field.driven()),
+                                   np.asarray(mixed.magnetic_field.driven()), atol=1e-9)
+    elif case == "atomic fsm":
+        # Measured 7.0e-13 Ry at 63 outer steps, the fields 2.4e-12 Ry apart
+        # and Newton's site moments 2.7e-10 mu_B off their targets (the
+        # reference's 1.1e-12).
+        assert newton.total_energy == pytest.approx(mixed.total_energy, abs=1e-11)
+        np.testing.assert_allclose(np.asarray(newton.magnetic_field.driven()),
+                                   np.asarray(mixed.magnetic_field.driven()), atol=1e-10)
+        np.testing.assert_allclose(np.asarray(newton.site_moments),
+                                   np.asarray(mixed.site_moments), atol=3e-9)
+    else:
+        # The reference has the floor here, not Newton: ``site_residuals``
+        # reads the angle as ``arccos`` of a cosine within one ulp of 1, so the
+        # loop stops 2.5e-8 mu_B off in the perpendicular moment and its raw
+        # total sits B . dm = 1.0e-9 Ry from its own energy at the target.
+        # Newton's raw total is that energy at the target (measured to the
+        # last printed digit, 1e-12, at 60 outer steps), so the raw totals
+        # differ by exactly the reference's offset; the field's 3.7e-9 Ry
+        # difference is the same floor. The site moments were not compared
+        # in the measurement and are not asserted.
+        offset = _energy_at_target(mixed) - mixed.total_energy
+        assert newton.total_energy - mixed.total_energy == pytest.approx(offset, abs=1e-11)
+        assert newton.total_energy == pytest.approx(_energy_at_target(mixed), abs=1e-11)
+        np.testing.assert_allclose(np.asarray(newton.magnetic_field.driven()),
+                                   np.asarray(mixed.magnetic_field.driven()), atol=2e-8)
 
 
 @pytest.mark.regression

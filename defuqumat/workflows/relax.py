@@ -485,8 +485,13 @@ def run_relax(
         if state_path.is_file():
             # The state belongs to the *previous* geometry, so it is carried as
             # a starting density rather than as an answer -- which is what the
-            # loop does with the extrapolated density anyway.
-            resumed_state = load_state(state_path, system=calculation.system)
+            # loop does with the extrapolated density anyway. The calculation
+            # goes in as well: a fixed-spin-moment state carries its driven
+            # field, which ``load_state`` refuses to load without one to pour
+            # it onto (I65). Only the density and ``becsum`` are used here,
+            # since every ionic step's SCF starts from the input's field.
+            resumed_state = load_state(state_path, system=calculation.system,
+                                       calculation=calculation)
         if verbose:
             print(f"resuming from {checkpoint_dir} at ionic step {first_step}")
 

@@ -1448,6 +1448,65 @@ def test_turning_the_moments_without_the_coupling_is_refused():
                 rotate_moments=True)
 
 
+def _oblique_coupled_cobalt_with_symmetry():
+    """The same cell with ``nosym`` removed: the 45-degree start's group, ``nsym = 4``, 8 points."""
+    text = (GENERATED / "co-tetragonal-relaxed-mae.in").read_text().replace(
+        "angle1(1) = 0.0, angle2(1) = 0.0,", "angle1(1) = 45.0, angle2(1) = 0.0,"
+    ).replace("nosym = .true.,", "")
+    assert "nosym" not in text.split("&system")[1].split("/")[0]
+    return Calculator.from_text(text, pseudo_dir=GENERATED.parent / "pseudo",
+                                announce=False)
+
+
+def test_turning_the_moments_on_the_starting_orientation_s_group_is_refused():
+    """I78: the k-set reduced with the 45-degree start's magnetic group is refused.
+
+    The group of the start (``E``, ``I`` and the two-fold axis along ``y`` and
+    its mirror with time reversal) is kept by every step of the stepper, so its
+    8-point wedge stays complete (with the guard bypassed it ends 1.8e-13 Ry
+    from ``nosym``, ``notes/incompat/I78.md``); it is refused because it holds
+    the moment exactly in the ``xz`` plane, and accepting that is the user's
+    open choice. The message must name the way out.
+    """
+    from defuqumat.scf.driver import run_scf
+
+    calculator = _oblique_coupled_cobalt_with_symmetry()
+    assert calculator.system.kpoints.nk == 8
+    with pytest.raises(ValueError, match="with_turning_moments"):
+        run_scf(calculator.system, calculator.pseudos, rotate_moments=True)
+
+
+@pytest.mark.slow
+def test_turning_the_moments_on_the_turning_group_is_the_nosym_run():
+    """I78: ``with_turning_moments`` (``{E, I}``, 10 points) against ``nosym`` (18 points).
+
+    Inversion acts on an axial vector as the identity, so it is a symmetry of
+    every turned texture and ``E(k) = E(-k)`` holds along the whole run: the
+    wedge sum is exact, and the run on 10 points must converge on ``c`` with the
+    energy of the run on 18. Measured on D22 (``notes/incompat/I78.md``, one
+    sample each): 52 iterations against 53, both converged, 0.0019 and 0.0011
+    degrees from ``c``, torque 9.6e-10 and 9.2e-11 Ry/rad, and total energies
+    5.7e-14 Ry apart. The 1e-9 asserted below is the stepper's freedom to stop
+    at a different point inside ``torque_conv_thr``, not that spread.
+    """
+    options = dict(rotate_moments=True, max_iterations=150, conv_thr=1.0e-12,
+                   torque_conv_thr=1.0e-9)
+    reduced = _oblique_coupled_cobalt_with_symmetry().with_turning_moments()
+    assert reduced.system.kpoints.nk == 10
+    full = _oblique_coupled_cobalt()
+    assert full.system.kpoints.nk == 18
+    turned, reference = reduced.get_scf(**options), full.get_scf(**options)
+
+    def angle_of(result):
+        m = np.asarray(result.magnetization_vector)
+        return np.degrees(np.arccos(abs(m[2]) / np.linalg.norm(m)))
+
+    assert turned.converged and reference.converged
+    assert angle_of(turned) < 0.05
+    assert np.linalg.norm(turned.orientation_torque) < 1.0e-9
+    assert turned.total_energy == pytest.approx(reference.total_energy, abs=1.0e-9)
+
+
 def test_the_rotation_plane_must_be_orthogonal():
     scalar, spinor = _tetragonal()
     with pytest.raises(ValueError, match="orthogonal"):

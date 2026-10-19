@@ -240,6 +240,76 @@ def test_the_scan_workflow_reproduces_single_runs(pseudo_dir):
     assert moved.basis.planewaves is not base.basis.planewaves
 
 
+def _boundary_inputs(name: str) -> tuple:
+    """The doubled AFM chain as a plain noncollinear run and as a spiral at ``q = b3``.
+
+    Plain: moments ``+x`` and ``-x`` on the two atoms. At ``q = b3`` of the
+    doubled cell the laboratory texture is ``m'_+ exp(-i q . r)``, a factor
+    ``-1`` at the second atom, so the spiral's rotated-frame start is ``+x`` on
+    both. The 1x1x2 grid is invariant under the ``G/2`` shift, so the two runs
+    are the same calculation.
+    """
+    text = (GENERATED / name).read_text()
+    plain = text.replace("    nspin = 2\n", "    noncolin = .true.\n"
+                         "    angle1(1) = 90.0, angle1(2) = 90.0\n")
+    spiral = plain.replace(
+        "starting_magnetization(2) = -0.6", "starting_magnetization(2) =  0.6"
+    ).replace(
+        "    nosym = .true.\n",
+        "    nosym = .true.\n    spiral_q(1) = 0.0, spiral_q(2) = 0.0, spiral_q(3) = 1.0\n",
+    )
+    assert plain != text and "spiral_q(3) = 1.0" in spiral
+    return plain, spiral
+
+
+@pytest.mark.parametrize("name, iterations", [("h-chain-afm.in", 2),
+                                              ("o-chain-afm-paw.in", 4)])
+def test_a_continuation_crosses_the_spiral_boundary_at_a_reciprocal_lattice_q(
+        name, iterations, pseudo_dir):
+    """I67: the transverse pair crosses by ``exp(-+ i q . r)`` and lands on the fixed point.
+
+    Measured on D22 (``notes/incompat/I67.md``), one run each, so the
+    iteration bounds are a tolerance on one sample. Hydrogen: each continued run
+    converges in **one** iteration (first estimated accuracy 5.8e-12 and
+    1.9e-12 Ry) where a fresh one takes 11, its energy is the fresh target's to
+    4.9e-10 and 5.2e-10 Ry, and its density moves 1.3e-6 and 7.4e-7 from the
+    carried start. With no phase the plain run takes 27 iterations into a
+    different state (5.5e-3 Ry above), and with the phase reversed 13 and a move
+    of 4.8e-2, so the bounds below tell the three apart. PAW oxygen: 3
+    iterations against 13, 3.3e-10 Ry, and the carried ``becsum`` is the plain
+    run's to 1.2e-5 of a transverse 0.686 -- given the per-atom phase
+    ``exp(-i q . tau)`` instead it is 1.37 off at the second atom and the run
+    takes 21 iterations, which is why ``becsum`` crosses unchanged.
+    """
+    from defuqumat.scf import Calculation
+    from defuqumat.scf.continuation import continued_state
+
+    plain_text, spiral_text = _boundary_inputs(name)
+    conv_thr = float(parse_pw_input(plain_text).get("electrons", "conv_thr"))
+    plain_system, plain = _run(plain_text, pseudo_dir)
+    spiral_system, spiral = _run(spiral_text, pseudo_dir)
+    assert plain.converged and spiral.converged
+    # The AFM, not a collapsed state: the spiral's rotated frame is ferro.
+    assert np.linalg.norm(spiral.magnetization_vector) > 1.0
+
+    for source, system, fresh in ((spiral, plain_system, plain),
+                                  (plain, spiral_system, spiral)):
+        pseudos = _pseudos(system, pseudo_dir)
+        continued = run_scf(system, pseudos, conv_thr=conv_thr, mixing_beta=0.3,
+                            max_iterations=200, starting_from=source,
+                            magnetization="carry")
+        assert continued.converged
+        assert continued.iterations <= iterations
+        assert continued.total_energy == pytest.approx(fresh.total_energy, abs=1e-8)
+        start = continued_state(source, Calculation(system, pseudos),
+                                magnetization="carry", wavefunctions=False)
+        assert float(np.max(np.abs(np.asarray(continued.density)
+                                   - np.asarray(start.density)))) < 1e-5
+        for carried, held in zip(start.becsum, fresh.becsum):
+            assert float(np.max(np.abs(np.asarray(carried)
+                                       - np.asarray(held)))) < 1e-4
+
+
 def test_what_a_spiral_refuses(pseudo_dir, qe_testsuite):
     """The two combinations that are refused, and why each one is.
 
@@ -247,8 +317,8 @@ def test_what_a_spiral_refuses(pseudo_dir, qe_testsuite):
     generalized Bloch theorem. At ``soc_scale = 0`` it is admitted (P123), the
     coupling-free spiral of a fully-relativistic dataset being the zeroth
     order of ``spiral_spin_orbit_energy``; ``tests/unit/test_spiral_soc.py``
-    holds both sides of that line. Symmetry: until the spin space group is
-    written.
+    holds both sides of that line. Symmetry: only beside a fully-relativistic
+    dataset, since the spin space group was written.
 
     **Ultrasoft and PAW used to be the third and are not any more**: the
     augmentation charge between the two components is the resident table
@@ -274,8 +344,15 @@ def test_what_a_spiral_refuses(pseudo_dir, qe_testsuite):
             "    nosym = .true.", "    nosym = .true.\n    lspinorb = .true."
         )))
 
+    # Symmetry is no longer one of them (the spin space group,
+    # ``tests/unit/test_spiral_symmetry.py``) except beside a fully-relativistic
+    # dataset, whose coupling on top breaks the group.
+    assert build_system(parse_pw_input(
+        text.replace("    nosym = .true.", ""))).symmetry_group().nsym > 1
     with pytest.raises(ValueError, match="nosym"):
-        build_system(parse_pw_input(text.replace("    nosym = .true.", "")))
+        build_system(parse_pw_input(text.replace(
+            "    nosym = .true.", "    lspinorb = .true.\n    soc_scale = 0.0"
+        )))
 
     with pytest.raises(ValueError, match="noncolin"):
         build_system(parse_pw_input(text.replace("    noncolin = .true.", "")))

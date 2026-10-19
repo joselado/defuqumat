@@ -44,9 +44,8 @@ import numpy as np
 
 from defuqumat.eager import compiled_function
 from defuqumat.realtime.propagate import (
-    _block_function, _check_growth, _chunk_weights, _norms_of, _padded, _padded_grid,
-    _prepare, _warn_damping, channel_arrays, kappa_rate, require_a_smooth_field,
-    time_grid)
+    _block_function, _check_growth, _chunk_weights, _extra_slice, _norms_of, _padded_grid,
+    _prepare, _warn_damping, channel_arrays, jump_arrays, kappa_rate, kick_jumps, time_grid)
 
 __all__ = ["OrdersResult", "propagate_orders", "fourier_component"]
 
@@ -202,7 +201,7 @@ def _orders_channel(calculation, states, weights, v_scf, shape, *, dt, order, du
     states = np.asarray(states)
     weights = np.asarray(weights, dtype=float)
     times, a_t, a_mid, _ = time_grid(shape, dt, duration, start)
-    require_a_smooth_field(calculation, shape, times[0])
+    jumped = kick_jumps(calculation, shape, times)
     nsteps = len(times) - 1
     # The primal is the unperturbed evolution: the field is zero at lam = 0, so
     # the spectrum the step has to be stable for is that of H(k).
@@ -211,13 +210,19 @@ def _orders_channel(calculation, states, weights, v_scf, shape, *, dt, order, du
     real = setup.real
     a_mid_p, a_end_p, dts, nblocks = _padded_grid(a_mid, a_t[1:], nsteps, block_steps,
                                                   setup.dt_ry)
-    a_rate_p = _padded(kappa_rate(a_t, setup.dt_ry), nsteps, block_steps)
-    base = _block_function(setup.step_fn, setup.centre)
+    a_rate = kappa_rate(a_t, setup.dt_ry)
+    if jumped is not None:
+        # a kick inside the run is crossed by the jump, not by the rate
+        a_rate = a_rate - jumped[0] / setup.dt_ry
+    a_rate_p, extra_p = jump_arrays(jumped, a_rate, nsteps, block_steps)
+    base = _block_function(setup.step_fn, setup.centre, jumping=bool(extra_p))
     depth = int(order)
 
-    def lifted(chunk, w, tower, lam, amid, aend, arate, steps):
+    def lifted(chunk, w, tower, lam, amid, aend, arate, steps, *extra):
+        # the jump scales with lam as kappa does; whether a step jumps does not
         def f(psi, l):
-            return base(chunk, w, psi, l * amid, l * aend, l * arate, steps)
+            more = () if not extra else (l * extra[0], extra[1])
+            return base(chunk, w, psi, l * amid, l * aend, l * arate, steps, *more)
         return _lift(f, depth)(tower, lam)
 
     def initial(chunk, w, tower, lam, a0):
@@ -242,7 +247,8 @@ def _orders_channel(calculation, states, weights, v_scf, shape, *, dt, order, du
             args = (chunk, w, tower, lam, jnp.asarray(a_mid_p[:block_steps], dtype=real),
                     jnp.asarray(a_end_p[:block_steps], dtype=real),
                     jnp.asarray(a_rate_p[:block_steps], dtype=real),
-                    jnp.asarray(dts[:block_steps], dtype=real))
+                    jnp.asarray(dts[:block_steps], dtype=real),
+                    *_extra_slice(extra_p, slice(0, block_steps), real))
             run = compiled_function(lifted, *args)
             start_run = compiled_function(initial, chunk, w, tower, lam, a0)
             norms_of = compiled_function(_norms_of, chunk, _derivative(tower, 0, depth),
@@ -255,7 +261,8 @@ def _orders_channel(calculation, states, weights, v_scf, shape, *, dt, order, du
             tower, out = run(chunk, w, tower, lam, jnp.asarray(a_mid_p[sl], dtype=real),
                              jnp.asarray(a_end_p[sl], dtype=real),
                              jnp.asarray(a_rate_p[sl], dtype=real),
-                             jnp.asarray(dts[sl], dtype=real))
+                             jnp.asarray(dts[sl], dtype=real),
+                             *_extra_slice(extra_p, sl, real))
             stop = min((b + 1) * block_steps, nsteps)
             for k in range(depth + 1):
                 raw[k, b * block_steps + 1:stop + 1] += np.asarray(

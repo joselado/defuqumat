@@ -63,6 +63,7 @@ __all__ = [
     "ATOM_RESOLVED",
     "FEEDBACK",
     "FEEDBACK_ATOMIC",
+    "DRIVEN_LEAVES",
     "DIRECTION_ONLY",
     "FSM_UPDATES",
     "DEFAULT_FSM_UPDATE",
@@ -108,6 +109,15 @@ FEEDBACK = frozenset({"fsm", "atomic fsm", "atomic fsm direction"})
 #: The feedback schemes that drive one field **per atom** (Elk's ``fsmtype``
 #: 2 and -2) rather than one over the cell (``fsmtype = 1``).
 FEEDBACK_ATOMIC = frozenset({"atomic fsm", "atomic fsm direction"})
+
+#: The leaves of a :class:`MagneticField` that a feedback controller changes
+#: between iterations; everything else on it is the input's. One list for every
+#: place that has to carry the controller's state: the k-point pools broadcast
+#: these from rank 0 after each step, and a checkpoint writes them, since a
+#: resume rebuilds the rest of the field from the input file and cannot rebuild
+#: these.
+DRIVEN_LEAVES = ("uniform", "atomic", "previous_uniform", "previous_moment",
+                 "previous_atomic", "previous_site_moments")
 
 #: The schemes -- of either kind -- that fix a **direction** and leave the
 #: length of the moment free. For a penalty that means a ``1/|m|`` in the
@@ -692,6 +702,53 @@ class MagneticField(eqx.Module):
                 lambda field: field.uniform, self, self.uniform - self.penalty * error
             )
         return self._secant_step(moment, error)
+
+    @property
+    def driven_leaf(self) -> str | None:
+        """The leaf a feedback scheme drives, ``'uniform'`` or ``'atomic'``, or ``None``."""
+        if self.constraint not in FEEDBACK:
+            return None
+        return "atomic" if self.constraint in FEEDBACK_ATOMIC else "uniform"
+
+    def driven(self) -> jnp.ndarray | None:
+        """The driven field itself, the leaf :attr:`driven_leaf` names."""
+        leaf = self.driven_leaf
+        return None if leaf is None else getattr(self, leaf)
+
+    def with_driven(self, values) -> "MagneticField":
+        """This field with its driven leaf replaced by ``values``."""
+        leaf = self.driven_leaf
+        if leaf is None:
+            raise ValueError(
+                f"constrained_magnetization = {self.constraint!r} drives no field"
+            )
+        return eqx.tree_at(lambda f: getattr(f, leaf), self, values)
+
+    def elk_driven(self, rho_r: jnp.ndarray, cell: Cell) -> jnp.ndarray:
+        """The driven field after one step of Elk's rule, read off ``rho_r``.
+
+        ``B - tau (m - m_fix)``, with the error orthogonalised against the
+        targets for ``'atomic fsm direction'``: the same arithmetic as the
+        ``fsm_update = 'elk'`` branches of :meth:`feedback` and
+        :meth:`_atomic_step`, as a function of the state rather than a step of
+        a loop, which is what the residual solver's field row is (I73). It
+        carries no secant history, and that is the reason the residual solver
+        takes this rule whatever ``fsm_update`` says: its zero is the same
+        field, the one at which the moment read off a self-consistent density
+        is the target.
+        """
+        targets = jnp.asarray(self.targets)
+        if self.constraint in FEEDBACK_ATOMIC:
+            error = self.sphere_moments(rho_r, cell) - targets
+            if self.constraint == "atomic fsm direction":
+                error = _orthogonalize(error, targets)
+            return self.atomic - self.penalty * error
+        if self.constraint in FEEDBACK:
+            error = self.total_moment(rho_r, cell) - targets
+            return self.uniform - self.penalty * error
+        raise ValueError(
+            f"constrained_magnetization = {self.constraint!r} drives no field"
+        )
 
     def _atomic_step(self, rho_r: jnp.ndarray, cell: Cell) -> "MagneticField":
         """Elk's ``bfieldfsm.f90:50-73``: one constraining field per atom.

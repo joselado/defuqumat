@@ -52,6 +52,6 @@ def test_the_coupling_at_a_reciprocal_lattice_vector_is_refused(crystal):
     from defuqumat.response.elph import electron_phonon_at_q
 
     calculation = SimpleNamespace(
-        system=SimpleNamespace(occupations="smearing", cell=FCC))
+        system=SimpleNamespace(occupations="smearing", cell=FCC, nspin=1))
     with pytest.raises(NotImplementedError, match="ef_shift"):
         electron_phonon_at_q(calculation, None, None, None, q=crystal)

@@ -239,9 +239,65 @@ def test_a_nonmagnetic_spinor_is_built():
     assert field.nocc == 4 and field.npol == 2 and field.spin_factor == 1.0
 
 
-def test_a_magnetized_spinor_is_refused():
-    with pytest.raises(NotImplementedError, match="nspin = 4 with a magnetization"):
-        _calculation(", noncolin=.true., starting_magnetization(1)=0.5")
+def test_a_magnetized_spinor_is_built():
+    """I85: a magnetized spinor runs the nonmagnetic spinor's code (checked against
+    ``pw.x`` in ``tests/regression/test_berryfield.py``), one gather for both components."""
+    field = _calculation(", noncolin=.true., starting_magnetization(1)=0.5").berry_field
+    assert field.nocc == 4 and field.npol == 2 and field.plus_gather.ndim == 2
+
+
+_SPIRAL = (", noncolin=.true., starting_magnetization(1)=0.5, angle1(1)=90.0, "
+           "spiral_q(1)=0.0, spiral_q(2)=0.0, spiral_q(3)=0.25")
+
+
+def test_a_spin_spiral_gathers_each_component_from_its_own_rows():
+    """I85: a spiral's down component is on plane-wave rows ``nk + ik``, ``k - q/2``.
+
+    The up component's gather is the one a plain spinor at ``k + q/2`` would
+    have, and the down component's is built from the other half of the rows,
+    so the two differ at a string's wrap (the shift ``e_gdir`` lands on
+    different Miller sets of the two spheres) or within it.
+    """
+    from defuqumat.topology.states import build_plane_wave_states
+
+    calculation = _calculation(_SPIRAL)
+    field = calculation.berry_field
+    nk = field.plus_index.shape[0]
+    npwx = calculation.basis.planewaves.mask.shape[1]
+    assert field.plus_gather.shape == (nk, 2, npwx)
+    assert field.minus_found.shape == (nk, 2, npwx)
+    states = build_plane_wave_states(
+        calculation, jnp.zeros((nk, 1, 2 * npwx),
+                               dtype=calculation.system.cell.precision.complex))
+    unit = np.array([0, 0, 1])
+    for ik in range(nk):
+        jp = field.plus_index[ik]
+        shift = unit if jp < ik else None
+        for c, (i, j) in enumerate([(ik, jp), (nk + ik, nk + jp)]):
+            gather, found = states._alignment(i, j, shift)
+            np.testing.assert_array_equal(np.asarray(field.plus_found[ik, c]), np.asarray(found))
+            np.testing.assert_array_equal(
+                np.where(found, np.asarray(field.plus_gather[ik, c]), -1),
+                np.where(found, np.asarray(gather), -1))
+    assert not np.array_equal(np.asarray(field.plus_found[:, 0]),
+                              np.asarray(field.plus_found[:, 1]))
+
+
+def test_a_spin_spiral_still_refuses_a_metal_and_an_ultrasoft_dataset():
+    """The refusals beside the spiral still fire on a spiral."""
+    from defuqumat.scf.berryfield import require_a_berry_field_regime
+
+    with pytest.raises(NotImplementedError, match="occupations = 'smearing'"):
+        _calculation(_SPIRAL + ", occupations='smearing', degauss=0.01")
+    calculation = type("C", (), {})()
+    calculation.system = build_system(parse_pw_input(_INPUT.format(extra="", kpoints=_LIST)
+                                                     .replace("ecutwfc=20", "ecutwfc=12" + _SPIRAL)))
+    calculation.augmentation, calculation.spiral, calculation.is_hubbard = object(), True, False
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
+        require_a_berry_field_regime(calculation)
+    calculation.augmentation, calculation.is_hubbard = None, True
+    with pytest.raises(NotImplementedError, match="DFT\\+U"):
+        require_a_berry_field_regime(calculation)
 
 
 def test_a_spinor_with_spin_orbit_coupling_is_refused():
@@ -298,6 +354,39 @@ def test_a_spinor_is_gathered_component_by_component():
         part = _gathered(coefficients[..., c * NPW:(c + 1) * NPW], gather, found)
         np.testing.assert_array_equal(np.asarray(spinor[..., c * NPW:(c + 1) * NPW]),
                                       np.asarray(part))
+
+
+def test_a_spiral_gathers_each_component_on_its_own_sphere():
+    """I85: a ``(nk, 2, npwx)`` gather takes each component by its own index,
+    and the host path (a streamed store) does the same."""
+    rng = np.random.default_rng(5)
+    from defuqumat.scf.berryfield import _gathered
+
+    coefficients = jnp.asarray(rng.normal(size=(3, 2, 2 * NPW)) + 1j * rng.normal(size=(3, 2, 2 * NPW)))
+    gathers = [jnp.asarray(np.stack([rng.permutation(NPW) for _ in range(3)])) for _ in range(2)]
+    founds = [jnp.asarray(rng.random((3, NPW)) > 0.3) for _ in range(2)]
+    spinor = _gathered(coefficients, jnp.stack(gathers, axis=1), jnp.stack(founds, axis=1),
+                       npol=2)
+    for c in range(2):
+        part = _gathered(coefficients[..., c * NPW:(c + 1) * NPW], gathers[c], founds[c])
+        np.testing.assert_array_equal(np.asarray(spinor[..., c * NPW:(c + 1) * NPW]),
+                                      np.asarray(part))
+    assert not np.allclose(np.asarray(spinor[..., NPW:]),
+                           np.asarray(_gathered(coefficients, gathers[0], founds[0],
+                                                npol=2)[..., NPW:]))
+    # the host store, walked in chunks, against the whole set
+    setup = _setup()
+    setup.npol, setup.nocc, setup.spin_factor, setup.k_batch = 2, NOCC, 1.0, 3
+    setup.plus_gather = jnp.stack([setup.plus_gather, jnp.roll(setup.plus_gather, 1, axis=1)], 1)
+    setup.plus_found = jnp.stack([setup.plus_found, setup.plus_found], 1)
+    setup.minus_gather = jnp.stack([setup.minus_gather, jnp.roll(setup.minus_gather, -1, axis=1)], 1)
+    setup.minus_found = jnp.stack([setup.minus_found, setup.minus_found], 1)
+    psi = jnp.concatenate([_states(31), _states(32)], axis=-1) / np.sqrt(2.0)
+    whole = setup.term(psi, 0)
+    u_host, a_host = setup.host_term(np.array(psi), 0)
+    np.testing.assert_allclose(a_host, np.asarray(whole.a), atol=1e-13)
+    np.testing.assert_allclose(setup.string_phases(np.array(psi)), setup.string_phases(psi),
+                               atol=1e-14)
 
 
 def test_a_host_store_walked_in_chunks_is_the_whole_set():

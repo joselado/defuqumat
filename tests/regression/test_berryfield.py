@@ -259,3 +259,61 @@ def test_a_streamed_store_is_the_in_memory_run():
     assert result.total_energy == pytest.approx(reference.total_energy, abs=1e-9)
     assert result.berry_dipoles[0] == pytest.approx(reference.berry_dipoles[0], abs=1e-7)
     np.testing.assert_allclose(forces, expected, atol=1e-8)
+
+
+# --- I85: a magnetized spinor against pw.x, and a spin spiral against its supercell
+
+
+@lru_cache(maxsize=2)
+def _chain(name):
+    """``(calculation, zero, field)`` for the P19 hydrogen chain at fixed occupations.
+
+    ``h-chain-90deg`` is the 90-degree noncollinear supercell, ``h-chain-spiral``
+    the spiral at ``q = b3/4``, both with the field along ``x`` on strings of 3
+    points; the field run starts from the zero-field state, as ``pw.x`` did.
+    """
+    zero_system, pseudos, zero_calculation = _load(f"{name}-fixed")
+    zero = run_scf(zero_system, pseudos, calculation=zero_calculation, conv_thr=1e-11,
+                   mixing_beta=0.3, max_iterations=200)
+    system, pseudos, calculation = _load(f"{name}-lelfield")
+    field = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-11,
+                    mixing_beta=0.3, max_iterations=200, starting_from=zero)
+    assert zero.converged and field.converged
+    return calculation, zero, field
+
+
+def test_a_magnetized_spinor_is_pw_x():
+    """I85: the 90-degree chain (3.75 Bohr mag of absolute moment in four cells),
+    against ``pw.x`` 7.5. Measured on D22: totals 2.2e-9 Ry (zero field) and 1.0e-9
+    (field), ``el_pol`` 2.0e-7, inside the 2.4e-7 by which ``pw.x``'s own value moves
+    between its last two iterations."""
+    _, zero, field = _chain("h-chain-90deg")
+    assert zero.total_energy == pytest.approx(
+        read_qe_output(CASES / "reference.out.h-chain-90deg-fixed").total_energy, abs=ENERGY)
+    reference = read_qe_output(CASES / "reference.out.h-chain-90deg-lelfield")
+    assert field.total_energy == pytest.approx(reference.total_energy, abs=ENERGY)
+    text = (CASES / "reference.out.h-chain-90deg-lelfield").read_text()
+    electronic = float(text.rsplit("Electronic Dipole per cell (Ry a.u.)", 1)[1].split()[0])
+    assert field.berry_dipoles[0] == pytest.approx(electronic, abs=1e-6)
+
+
+def test_a_spin_spiral_is_its_commensurate_supercell():
+    """I85: the spiral at ``q = b3/4`` (12 k-points) against the 90-degree supercell
+    (its 3 k-points are the 12 folded), both under the field.
+
+    ``E(E) - E(0)`` per primitive cell, which leaves out the 8.7e-8 Ry by which the
+    two cells' Ewald sums differ (P19): measured 8.3e-12 Ry on D22. ``el_pol`` of
+    the supercell is four times the spiral's, modulo the quantum ``2 pi fc_pol``:
+    measured 8.9e-8 Ry a.u. The control, the up component's gather used for the
+    down one as well, misses the first by 6.9e-8 Ry and the second by 5.5e-4.
+    """
+    _, spiral_zero, spiral = _chain("h-chain-spiral")
+    calculation, super_zero, supercell = _chain("h-chain-90deg")
+    d_spiral = spiral.total_energy - spiral_zero.total_energy
+    d_super = (supercell.total_energy - super_zero.total_energy) / 4.0
+    print(f"\nE(E) - E(0) per cell: spiral {d_spiral:.12e}, supercell {d_super:.12e}, "
+          f"difference {d_spiral - d_super:.2e}")
+    assert d_spiral == pytest.approx(d_super, abs=1e-10)
+    quantum = 2.0 * np.pi * calculation.berry_field.fc_pol
+    turns = (supercell.berry_dipoles[0] - 4.0 * spiral.berry_dipoles[0]) / quantum
+    assert abs(turns - round(turns)) * quantum < 1e-6

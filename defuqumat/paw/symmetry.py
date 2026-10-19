@@ -284,7 +284,11 @@ class BecsumSymmetry:
             mapping: ``(nsym, nat)`` from
                 :func:`~defuqumat.system.symmetry.atom_mapping` -- ``irt``
                 itself, inverted here so that call sites keep passing it
-                unchanged.
+                unchanged. It indexes the *displaced* axis only, so a subset's
+                ``(nsym, len(atoms))`` table from
+                :func:`~defuqumat.system.symmetry.subset_atom_mapping` is passed
+                here for a partial stack; the ``becsum`` atoms are permuted by
+                this object's own full table.
         """
         if self.nsym <= 1:
             return becsum
@@ -310,11 +314,31 @@ class BecsumSymmetry:
                 values[jnp.asarray(inverse[s])][:, :, :, jnp.asarray(sources[s])]
                 for s in range(self.nsym)
             ])  # (nsym, nat, 3, nspin, nat_t, nh, nh)
+            if self.rotations is None:
+                out.append(
+                    jnp.einsum(
+                        "sik,sjl,scd,sadznkl->acznij",
+                        operator, operator, rotations, gathered,
+                    ) / self.nsym
+                )
+                continue
+            # ``nspin_mag = 4`` (I79): the charge component takes the rule
+            # above, and the three magnetization components are an axial vector
+            # carried by the signed rotations beside the polar one of the
+            # displacement -- :meth:`apply`'s magnetization branch with the
+            # displaced atom and its direction added.
+            charge = jnp.einsum(
+                "sik,sjl,scd,sadnkl->acnij",
+                operator, operator, rotations, gathered[:, :, :, 0],
+            )
+            magnetization = jnp.einsum(
+                "sik,sjl,scd,sef,sadfnkl->acenij",
+                operator, operator, rotations, self.rotations,
+                gathered[:, :, :, 1:],
+            )
             out.append(
-                jnp.einsum(
-                    "sik,sjl,scd,sadznkl->acznij",
-                    operator, operator, rotations, gathered,
-                ) / self.nsym
+                jnp.concatenate([charge[:, :, None], magnetization], axis=2)
+                / self.nsym
             )
         return tuple(out)
 

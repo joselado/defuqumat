@@ -198,3 +198,199 @@ def test_the_step_length_grows_while_every_trial_is_kept_and_falls_on_a_rejectio
     assert not sup.judge(-10.0, 1.0, 1e-9, 0)
     sup.retry()
     assert sup.beta == pytest.approx(0.2)
+
+
+def _fake_calculation(**overrides):
+    from types import SimpleNamespace
+
+    settings = dict(is_meta=False, berry_field=None, occupations="smearing",
+                    magnetic_field=None)
+    settings.update(overrides)
+    return SimpleNamespace(
+        functional=SimpleNamespace(is_meta=settings["is_meta"]),
+        berry_field=settings["berry_field"],
+        system=SimpleNamespace(occupations=settings["occupations"]),
+        magnetic_field=settings["magnetic_field"])
+
+
+_QUIET = dict(scf_solver="mixing", rotate_moments=False, mixing_beta_mag=None)
+
+
+def test_the_regimes_the_mode_takes_pass_its_guard():
+    from defuqumat.scf.driver import _refuse_robust
+
+    _refuse_robust(_fake_calculation(), **_QUIET)
+
+
+@pytest.mark.parametrize("calculation,options,words", [
+    (dict(is_meta=True), {}, "meta-GGA"),
+    (dict(berry_field=object()), {}, "lelfield"),
+    (dict(occupations="tetrahedra_opt"), {}, "tetrahedron"),
+    ({}, dict(rotate_moments=True), "rotate_moments"),
+    ({}, dict(scf_solver="newton-krylov"), "replaces the mixing loop"),
+    ({}, dict(mixing_beta_mag=0.1), "magnetization's step"),
+])
+def test_each_sibling_refusal_still_fires(calculation, options, words):
+    from defuqumat.scf.driver import _refuse_robust
+
+    with pytest.raises(NotImplementedError, match=words):
+        _refuse_robust(_fake_calculation(**calculation), **{**_QUIET, **options})
+
+
+def test_a_fading_field_is_still_refused():
+    from types import SimpleNamespace
+
+    from defuqumat.scf.driver import _refuse_robust
+
+    field = SimpleNamespace(constraint="none", reducebf=0.5)
+    with pytest.raises(NotImplementedError, match="fading"):
+        _refuse_robust(_fake_calculation(magnetic_field=field), **_QUIET)
+
+
+def test_pools_and_a_checkpoint_are_no_longer_arguments_of_the_guard():
+    """I76: the clauses are gone, so the guard cannot be handed them at all."""
+    import inspect
+
+    from defuqumat.scf.driver import _refuse_robust
+
+    taken = set(inspect.signature(_refuse_robust).parameters)
+    assert not taken & {"pooled", "checkpoint_dir", "mixing_from"}
+
+
+# ------------------------------------------------- the supervisor in a checkpoint
+
+
+def _exercised_supervisor():
+    """A supervisor that has kept, rejected and taken a rung, and a damping."""
+    import jax.numpy as jnp
+
+    sup = Supervisor(nelec=8.0, smeared=True, beta=0.3)
+    state = (jnp.full(3, 1.0), (np.full(2, 0.5), None), None, None)
+    sup.judge(-1.0, 1.0, 1e-6, 0)
+    sup.kept(state, (jnp.full(3, 2.0), (np.full(2, 0.7), None), None, None),
+             -1.0, 1.0, 1e-6)
+    sup.next_rung()
+    sup.judge(-0.5, 2.0, 1e-6, 0)
+    sup.retry((jnp.full(3, 1.5), (np.full(2, 0.6), None), None, None))
+    sup.window = 15
+    damping = HamiltonianDamping()
+    h = (jnp.zeros(3), None, None)
+    damping.judge(-1.0, 0)
+    hamiltonian_in = damping.kept(h, (jnp.ones(3), None, None), -1.0)
+    return sup, damping, hamiltonian_in
+
+
+def test_the_supervisor_crosses_the_file_exactly(tmp_path):
+    """Every evolving field of both dataclasses comes back, arrays to the bit."""
+    import dataclasses
+
+    import jax
+
+    from defuqumat.scf.checkpoint import (_SUPERVISOR_DERIVED, load_supervisor,
+                                          save_supervisor)
+    from defuqumat.scf.mixing import get_mixer
+
+    sup, damping, hamiltonian_in = _exercised_supervisor()
+    mixer = get_mixer("anderson", beta=0.45)
+    mixer.condition_limit = 1e5
+    path = save_supervisor(tmp_path / "s.npz", sup, damping, hamiltonian_in, mixer, 7)
+    saved = load_supervisor(path)
+    assert saved["iteration"] == 7
+    assert saved["mixer_beta"] == 0.45 and saved["condition_limit"] == 1e5
+    names = {f.name for f in dataclasses.fields(sup)} - _SUPERVISOR_DERIVED
+    assert set(saved["supervisor"]) == names
+
+    def same(a, b):
+        flat_a, tree_a = jax.tree_util.tree_flatten(a)
+        flat_b, tree_b = jax.tree_util.tree_flatten(b)
+        assert tree_a == tree_b
+        for x, y in zip(flat_a, flat_b):
+            assert isinstance(x, jax.Array) == isinstance(y, jax.Array)
+            np.testing.assert_array_equal(np.asarray(x), np.asarray(y))
+
+    for name in names:
+        same(getattr(sup, name), saved["supervisor"][name])
+    for f in dataclasses.fields(damping):
+        same(getattr(damping, f.name), getattr(saved["damping"], f.name))
+    same(hamiltonian_in, saved["hamiltonian_in"])
+
+
+def test_an_unrepresentable_field_raises_rather_than_being_dropped(tmp_path):
+    from defuqumat.scf.checkpoint import save_supervisor
+    from defuqumat.scf.mixing import get_mixer
+
+    sup, damping, hamiltonian_in = _exercised_supervisor()
+    sup._last = {"odd": object()}
+    with pytest.raises(NotImplementedError, match="_encode"):
+        save_supervisor(tmp_path / "s.npz", sup, damping, hamiltonian_in,
+                        get_mixer("anderson"), 1)
+
+
+def test_a_restore_pours_the_supervisor_back_and_refuses_another_runs(tmp_path):
+    """The stamp: a supervisor written at another iteration is not used, and said."""
+    from defuqumat.scf.checkpoint import save_supervisor
+    from defuqumat.scf.driver import SCF_SUPERVISOR, _restore_supervisor
+    from defuqumat.scf.mixing import get_mixer
+
+    sup, damping, hamiltonian_in = _exercised_supervisor()
+    sup.rung = 0                      # "restart": no preconditioner to rebuild
+    save_supervisor(tmp_path / SCF_SUPERVISOR, sup, damping, hamiltonian_in,
+                    get_mixer("anderson", beta=0.45), 7)
+
+    fresh, mixer = Supervisor(nelec=8.0, smeared=True, beta=0.3), get_mixer("anderson")
+    restored = _restore_supervisor(fresh, mixer, tmp_path, 7, None, None, None, False)
+    assert restored[0] is not None and restored[1] is not None
+    assert fresh.scale == sup.scale == 0.5 and fresh.cuts == sup.cuts == 1
+    assert fresh.window == 15 and fresh.rung == 0 and mixer.beta == 0.45
+    np.testing.assert_array_equal(np.asarray(fresh._kept[0]), np.asarray(sup._kept[0]))
+
+    other = Supervisor(nelec=8.0, smeared=True, beta=0.3)
+    with pytest.warns(RuntimeWarning, match="belongs to another run"):
+        assert _restore_supervisor(other, get_mixer("anderson"), tmp_path, 9,
+                                   None, None, None, False) == (None, None)
+    assert other._kept is None and other.scale == 1.0
+
+    assert _restore_supervisor(other, get_mixer("anderson"), tmp_path / "none", 7,
+                               None, None, None, False) == (None, None)
+    # ``mixing_from`` without a resumed state: the file is there and stamped, and
+    # it is still not poured, since this run's input is not the one it kept.
+    assert _restore_supervisor(other, get_mixer("anderson"), tmp_path, 0,
+                               None, None, None, False) == (None, None)
+    assert other._kept is None
+
+
+@pytest.mark.parametrize("reduce", [None, lambda tree: tree])
+def test_the_streamed_ldos_pass_hands_a_norm_conserving_run_an_empty_becsum(reduce):
+    """The LDOS branch of ``stream_densities`` left ``becsum`` at ``None`` on a
+    norm-conserving run, where the mixer zips over it; found by I76's pooled
+    LDOS rung on smeared silicon, which died in ``_mix``."""
+    from types import SimpleNamespace
+
+    import jax.numpy as jnp
+
+    from defuqumat.scf.streaming import stream_densities
+
+    calc = SimpleNamespace(
+        is_ultrasoft=False, k_batch=1,
+        becsum=lambda psi, w, rows=None, symmetrize=False: (),
+        smooth_density=lambda psi, w, rows=None: jnp.sum(w) * jnp.ones(4),
+        finish_density=lambda rho, becsum: rho,
+        charge_channel=lambda ldos: ldos)
+    store = np.ones((1, 2, 1, 3))
+    weights = np.full((1, 2, 1), 0.5)
+    plain = stream_densities(calc, store, weights, reduce=reduce)
+    with_ldos = stream_densities(calc, store, weights, reduce=reduce,
+                                 ldos_weights=weights)
+    assert plain[0] == () and with_ldos[0] == ()
+    np.testing.assert_allclose(with_ldos[1], plain[1])
+
+
+def test_a_run_in_another_mode_removes_a_stale_supervisor(tmp_path):
+    from defuqumat.scf.driver import SCF_SUPERVISOR, _write_supervisor
+    from defuqumat.scf.mixing import get_mixer
+
+    sup, damping, hamiltonian_in = _exercised_supervisor()
+    _write_supervisor(tmp_path, (sup, damping, hamiltonian_in), get_mixer("anderson"), 3)
+    assert (tmp_path / SCF_SUPERVISOR).exists()
+    _write_supervisor(tmp_path, None, get_mixer("anderson"), 4)
+    assert not (tmp_path / SCF_SUPERVISOR).exists()

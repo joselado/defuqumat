@@ -7,8 +7,10 @@ iteration with a mixer. This module writes the same fixed point as a *residual*
 
 so that a solver which knows the derivative of ``r`` can drive it to zero
 instead. ``F`` is one SCF iteration with every host-side decision frozen -- one
-diagonalisation at a fixed ``ethr``, no retry, no ``ethr`` schedule, no field
-feedback -- which is what makes it a *function* rather than a step of a loop.
+diagonalisation at a fixed ``ethr``, no retry, no ``ethr`` schedule, no
+``reducebf`` decay (refused), and a feedback field carried in the state rather
+than stepped between iterations -- which is what makes it a *function* rather
+than a step of a loop.
 
 **Calibration, because this is easy to oversell.** Anderson mixing already is a
 quasi-Newton method on this residual: ``mixing.py`` builds a secant
@@ -68,14 +70,58 @@ same footing, for the same reason, and nothing about the Jacobian action changes
 ``v_hubbard`` is already ``jax.grad`` of the Hubbard energy (P20) and the
 projectors ``wfcU`` are fixed while the atoms are.
 
-**Refused rather than approximated:** external and constrained magnetic fields
-(the field is driven by a secant *outside* the density, so ``F`` would not be a
-function of ``x`` alone), tetrahedron and ``from_input`` occupations (built on
-the host, and the second is not a function of the eigenvalues at all), and spin
-spirals. Each raises by name.
+**An applied field or a penalty constraint is part of ``F`` already** (I73):
+``potential(rho)`` applies ``calculation.magnetic_field`` at full strength and a
+penalty's field is ``jax.grad`` of the penalty, so both are functions of the
+density. A uniform field and the ``atomic``, ``atomic direction`` and ``total``
+penalties run, each measured: the field in a collinear run, the penalties in
+a noncollinear one (the two together are refused at input, as ``pw.x`` does).
+A ``LOCAL_MAGNETIC_FIELDS`` card, the ``total direction`` and ``atomic texture``
+penalties, a noncollinear uniform field, a collinear penalty and
+``jvp='autodiff'`` under any field (``solvers.py``) are refused until they are
+measured.
 
-Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum`` and
-``ns``, and a Krylov subspace holds a few tens of those -- tens of MB,
+**A feedback (fixed-spin-moment) field joins the state, as ``ns`` did** (I73,
+the user's decision of 2026-10-16). The mixing loop moves it between
+iterations by Elk's rule ``B <- B - tau (m(rho_out) - m_fix)``, so it is a
+second unknown beside the density; carried in ``x``, with that rule as its row
+of ``F`` (:meth:`MagneticField.elk_driven`), the residual's field rows are
+``-tau (m - m_fix)`` and vanish exactly where the moment of the self-consistent
+density is the target, which is the loop's own fixed point. ``tau`` is kept in
+the row rather than solving ``m - m_fix = 0`` directly because it is Elk's
+estimate of ``1/chi`` (0.02 against a measured 0.022 on ``fe-fsm.in``), so the
+field block of the Jacobian sits near ``-1``, the scale of the density block,
+and the identity the Kerker preconditioner applies past the density is right
+for it. The convergence measure adds ``|dm| (|B| + tau |dm|)``, ``dm = m -
+m_fix``, a Rydberg number like ``rho_ddot`` that bounds the first-order error
+``B . dm`` of the reported total (:meth:`ScfResidual.field_accuracy`). The secant
+controller (``fsm_update = 'secant'``) has memory and is refused; its zero is
+the same field. **Refused rather than approximated:** ``reducebf < 1``, whose
+decay ``s -> reducebf s`` has the one root ``s = 0``, the field-free problem,
+while the loop stops at whatever field is left, so the two answers differ by
+that field rather than by ``conv_thr``.
+
+A spin spiral runs (``notes/incompat/I72.md``): its map is the mixing loop's
+own, with no term of its own here, except under a Hubbard U, which is refused:
+a spinor ``ns`` is complex and :meth:`ScfResidual.pack` keeps its real part
+only. A spiral under a meta-GGA is refused too, as not measured, and so is a
+spiral under a field or a constraint, a pair neither I72 nor I73 measured.
+
+**Tetrahedron and ``from_input`` occupations are in** (I71). Both were refused
+on the grounds that the first is "built on the host" and the second "is not a
+function of the eigenvalues at all"; neither stops ``F`` being a function of
+``x``. The tetrahedra are a table of the k-grid and the group, built once like
+``wk`` (``Calculation.tetrahedron_table``), and the weights on them were
+already JAX; ``from_input`` is a constant, whose zero tangent is the right one.
+What was missing for the autodiff Jacobian was the Fermi level's tangent: the
+tetrahedron bisection now carries the implicit derivative of
+``N(E_F) = nelec``, as ``bisect_fermi`` does for a smearing. The Sternheimer
+Jacobian still refuses both (``require_a_sternheimer_regime``): it needs the
+tetrahedron response weight ``dfpt_tetra_beta``, and for ``from_input`` a
+projector for a filling that is not a function of the levels.
+
+Memory: the packed state is ``nspin * dense_grid`` floats plus ``becsum``,
+``ns`` and, under a feedback constraint, the driven field (a few floats), and a Krylov subspace holds a few tens of those -- tens of MB,
 negligible beside the wavefunctions. One ``jvp`` doubles the wavefunction
 working set for the duration of the call, because the tangent ``psi`` has the
 same shape as ``psi``; that is the number to watch, and it is why the JVP goes
@@ -84,16 +130,20 @@ through the same ``k_batch`` dial the primal does.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.eager import compiled
-from defuqumat.scf.occupations import fixed_occupations, smeared_occupations
+from defuqumat.scf.fields import FEEDBACK, FEEDBACK_ATOMIC
+from defuqumat.scf.occupations import (
+    fixed_occupations, input_occupations, smeared_occupations,
+)
+from defuqumat.scf.tetrahedra import tetrahedron_occupations_spin
 
-__all__ = ["ScfResidual", "SternheimerJacobian", "make_residual"]
+__all__ = ["PooledScfResidual", "ScfResidual", "SternheimerJacobian", "make_residual"]
 
 
 @dataclass(frozen=True)
@@ -138,10 +188,22 @@ class ScfResidual:
     #: Jacobian block, which is a property of the solver rather than of the
     #: state.
     tau_shape: tuple | None = None
+    #: The loop's starting :class:`~defuqumat.scf.fields.MagneticField` under a
+    #: feedback (fixed-spin-moment) constraint, and the shape of the field it
+    #: drives; both ``None`` otherwise. The driven field joins the state as
+    #: ``ns`` did, last in the vector, and its row of ``F`` is Elk's update
+    #: ``B - tau (m(rho_out) - m_fix)`` (:meth:`MagneticField.elk_driven`), so
+    #: the residual's field rows are ``-tau (m - m_fix)`` and vanish exactly
+    #: where the moment of the self-consistent density is the target (I73).
+    feedback_field: object = None
+    field_shape: tuple | None = None
 
     # ---- packing -------------------------------------------------------
-    def pack(self, rho, becsum_, ns=None, tau=None) -> np.ndarray:
-        """The mixed state as one flat real vector, exactly ``_mix``'s packing."""
+    def pack(self, rho, becsum_, ns=None, tau=None, driven=None) -> np.ndarray:
+        """The mixed state as one flat real vector, exactly ``_mix``'s packing.
+
+        ``driven`` is the feedback field, the starting field's when ``None``.
+        """
         flat = [np.asarray(rho, dtype=float).ravel()]
         for part in becsum_:
             if part is not None:
@@ -156,6 +218,10 @@ class ScfResidual:
                     "this calculation runs a meta-GGA; tau is part of the state"
                 )
             flat.append(np.asarray(tau, dtype=float).ravel())
+        if self.field_shape is not None:
+            if driven is None:
+                driven = self.feedback_field.driven()
+            flat.append(np.asarray(driven, dtype=float).ravel())
         return np.concatenate(flat)
 
     def unpack(self, x):
@@ -184,12 +250,79 @@ class ScfResidual:
             tau = x[offset : offset + n].reshape(self.tau_shape)
         return rho, tuple(becsum_), ns, tau
 
+    def unpack_field(self, x):
+        """The driven field's block of ``x``, or ``None`` without a feedback scheme.
+
+        Last in the vector, so :meth:`unpack` reads the same offsets with or
+        without it.
+        """
+        if self.field_shape is None:
+            return None
+        n = int(np.prod(self.field_shape))
+        return jnp.asarray(x)[self.size - n:].reshape(self.field_shape)
+
+    def field_accuracy(self, r, x) -> float:
+        """The feedback field's share of the convergence measure, in Ry.
+
+        ``|dm| (|B| + tau |dm|)``, with ``B`` the field ``x`` holds and ``dm =
+        m - m_fix`` read off the field rows of ``r``, which are ``-tau dm``;
+        both norms are over the whole driven leaf (every atom and component).
+        The reported total leaves out the Zeeman term and along the
+        constrained family ``dE/dm = B``, so a state that stopped ``dm`` off
+        its target reads ``B . dm`` off in the total, first order, and
+        ``|B . dm| <= |B| |dm|``: the first term bounds that error in the
+        quantity ``conv_thr`` is a statement about (the user's decision,
+        2026-10-17). The second, ``tau |dm|^2``, is the field's step to the
+        target, ``|B - B'|`` with ``B' = B - tau dm`` Elk's update, times
+        ``|dm|``, so the sum bounds ``|B'| |dm|`` and stays above zero at
+        ``B = 0``, where ``|B| |dm|`` alone would pass a state converged in
+        the density at no field and any moment. At ``conv_thr = 1e-11`` and
+        the 1.1e-2 Ry field of ``fe-fsm.in`` it asks the moment to 9e-10 mu_B
+        and Newton stopped at 6.2e-11, where the loop's own test
+        (``FSM_TOLERANCE``) is 1e-3. On the canted iron pair (8 k-points,
+        fields of 2.6e-2 to 3.0e-2 Ry) Newton reaches it in 63 outer steps
+        under ``'atomic fsm'`` and 60 under ``'atomic fsm direction'``
+        (``forcing = 0.5``, ``warmup = 6``), about 3 to 5 times the mixing
+        loop's time; a budget of 40 stops it short at 7e-10 to 4e-9 Ry
+        (``notes/incompat/I73.md``, "The feedback field"), and ``run_scf``
+        then warns at the hand-over. Zero without a feedback scheme.
+        Host-side, never traced.
+        """
+        if self.field_shape is None:
+            return 0.0
+        tau = float(self.feedback_field.penalty)
+        moment_error = float(np.linalg.norm(
+            np.asarray(self.unpack_field(r), dtype=float))) / tau
+        field = float(np.linalg.norm(np.asarray(self.unpack_field(x), dtype=float)))
+        return moment_error * (field + tau * moment_error)
+
+    def field_at(self, x):
+        """The :class:`MagneticField` whose driven leaf is ``x``'s, or ``None``."""
+        if self.field_shape is None:
+            return None
+        return self.feedback_field.with_driven(self.unpack_field(x))
+
     # ---- the map -------------------------------------------------------
     def step(self, x, psi0):
         """One SCF iteration as a pure function: ``x -> F(x)``, and the ``psi``."""
+        fx, psi, _ = self.step_states(x, psi0)
+        return fx, psi
+
+    def step_states(self, x, psi0):
+        """:meth:`step`, with the eigenvalues as well: ``(F(x), psi, eigenvalues)``.
+
+        For a caller outside the differentiated map that needs more of the
+        iteration than ``F``: the Newton-Krylov warm-up under
+        ``warmup_mixing = 'ldos'`` builds the LDOS at the Fermi level from these
+        states and eigenvalues. :meth:`jvp` differentiates :meth:`step`, whose
+        first return is this one's.
+        """
         calculation = self.calculation
         rho, becsum_, ns, tau = self.unpack(x)
-        potential = calculation.potential(rho, tau=tau)
+        # ``None`` reads ``calculation.magnetic_field``, which is right for every
+        # field the loop holds fixed; a feedback field is ``x``'s own.
+        field = self.field_at(x)
+        potential = calculation.potential(rho, field=field, tau=tau)
         # The spheres must use the *same* Tran-Blaha ``c`` the grid used, and
         # only the grid can compute it.
         _, ddd_paw = calculation.onecenter(
@@ -209,9 +342,15 @@ class ScfResidual:
         rho_out = calculation.density(psi, wg, becsum_out)
         ns_out = None if ns is None else calculation.occupation_matrix(psi, wg)
         tau_out = None if tau is None else calculation.kinetic_energy_density(psi, wg)
-        return self.flatten(rho_out, becsum_out, ns_out, tau_out), psi
+        # The moment read off the *output* density, as the loop's feedback reads
+        # it (``run_scf``, after the mix) and as Elk's ``bfieldfsm`` reads
+        # ``mommt``.
+        driven_out = (None if field is None
+                      else field.elk_driven(rho_out, calculation.system.cell))
+        return (self.flatten(rho_out, becsum_out, ns_out, tau_out, driven_out),
+                psi, eigenvalues)
 
-    def flatten(self, rho, becsum_, ns=None, tau=None):
+    def flatten(self, rho, becsum_, ns=None, tau=None, driven=None):
         """:meth:`pack`, inside a trace -- ``jnp`` rather than ``np``."""
         flat = [jnp.reshape(jnp.real(rho), (-1,))]
         for part in becsum_:
@@ -221,6 +360,8 @@ class ScfResidual:
             flat.append(jnp.reshape(jnp.real(ns), (-1,)))
         if tau is not None:
             flat.append(jnp.reshape(jnp.real(tau), (-1,)))
+        if driven is not None:
+            flat.append(jnp.reshape(jnp.real(driven), (-1,)))
         return jnp.concatenate(flat)
 
     def residual(self, x, psi0):
@@ -335,6 +476,183 @@ class ScfResidual:
             calculation, metals=True, spin_polarized=True, gamma_ok=True,
             noncollinear=True,
         )
+
+
+#: The command codes of :class:`PooledScfResidual`'s protocol, the first entry
+#: of the vector rank 0 broadcasts before every collective step.
+_EVALUATE, _FINISH, _ABORT = 1.0, 0.0, -1.0
+
+
+@dataclass(frozen=True)
+class PooledScfResidual(ScfResidual):
+    """``F`` under k-point pools, each pool solving its own rows.
+
+    The same map as :meth:`ScfResidual.step`, evaluated the way the mixing
+    loop's pooled iteration is: each pool diagonalises its rows of a streamed
+    :class:`~defuqumat.parallel.PoolStore` at the fixed ``ethr``, the
+    eigenvalues are gathered so that the occupations see the whole set, and
+    the raw sums over k are all-reduced before they are finished
+    (:func:`~defuqumat.scf.streaming.stream_densities`). It is a host-side
+    function and not a traceable one, so only the central-difference Jacobian
+    (``jvp = 'finite-difference'``, the default) is available; ``autodiff`` and
+    ``sternheimer`` raise by name. Nothing here is differentiated, which is why
+    the ``np.asarray`` calls in :meth:`_evaluate` are harmless.
+
+    **Rank 0 runs the solver and the other pools serve it.** GMRES, the line
+    search and the convergence test are host decisions, and pools whose thread
+    counts differ can differ in the last bit, so a solver run on every rank
+    could take one more GMRES iteration on one of them and leave the others
+    waiting at a collective. So the solver runs on rank 0 alone, every
+    evaluation of ``F`` is a collective it opens by broadcasting
+    ``[command, warm, x]`` (every pool evaluates at rank 0's ``x`` to the
+    bit), and the others sit in :meth:`serve` until :meth:`finish` hands them
+    the result: the pooled loop's rule, every decision is rank 0's, carried to
+    the whole solver.
+
+    **The warm start is an integer token, the same on every pool.** Each
+    evaluation is collective, so a counter numbers the stores alike everywhere,
+    and rank 0's solver passes the tokens where the serial one passes arrays.
+    A pool keeps two stores, the warm start just used and the one just made,
+    which is all ``newton_krylov`` reads: every matvec and line-search trial of
+    an outer iteration starts from the accepted point's states, and an
+    accepted trial is always the last one evaluated. The warm store is
+    **copied** before the solve, since ``stream_diagonalize`` writes in place
+    and the central difference evaluates ``x + eps v`` and ``x - eps v`` from
+    the same start (the warm start changes ``F``'s derivative, module
+    docstring).
+
+    Memory: three of the pool's stores, the two kept and the copy being solved.
+    """
+
+    pools: object = None
+    rows: object = None
+    layout: object = None
+    held: dict = field(default_factory=dict, compare=False)
+
+    @classmethod
+    def of(cls, residual: ScfResidual, pools, rows, layout) -> "PooledScfResidual":
+        if residual.field_shape is not None:
+            # ``_evaluate`` builds its potential from the calculation's field
+            # and flattens no field row, so a feedback state would be dropped
+            # on the pools' side. Refused rather than half carried.
+            raise NotImplementedError(
+                f"constrained_magnetization = {residual.feedback_field.constraint!r} with "
+                "a residual solver under k-point pools is not implemented: the "
+                "driven field is part of the residual's state and the pooled "
+                "evaluation of F does not carry it. Run without pools "
+                "(DEFUQUMAT_POOLS unset) or use scf_solver='mixing'"
+            )
+        return cls(residual.calculation, residual.nbnd, residual.ethr,
+                   residual.shapes, residual.size, residual.ns_shape,
+                   residual.tau_shape, pools=pools, rows=np.asarray(rows),
+                   layout=layout)
+
+    # ---- the collective evaluation --------------------------------------
+    def _evaluate(self, x, warm):
+        from defuqumat.parallel import PoolStore
+        from defuqumat.scf.streaming import (
+            stream_densities, stream_diagonalize, stream_start,
+        )
+
+        calculation = self.calculation
+        rho, becsum_, ns, tau = self.unpack(x)
+        potential = calculation.potential(rho, tau=tau)
+        _, ddd_paw = calculation.onecenter(
+            becsum_, None if tau is None else potential.meta_c
+        )
+        hubbard_terms = None
+        if ns is not None:
+            _, _, hubbard_terms = calculation.hubbard_terms(ns)
+        hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw, hubbard_terms)
+        if warm is None:
+            store = stream_start(calculation, hamiltonians, self.nbnd, rows=self.rows)
+        else:
+            source = self.held[warm]
+            store = PoolStore(source.array.copy(), source.rows, source.nk)
+        eigenvalues, _, _ = stream_diagonalize(
+            calculation, hamiltonians, self.nbnd, store, self.ethr)
+        eigenvalues = self.pools.gather_k(
+            eigenvalues, calculation.system.kpoints.nk, layout=self.layout)
+        wg = np.asarray(_weights(calculation, jnp.asarray(eigenvalues)))
+        becsum_out, rho_out, tau_out, ns_out = stream_densities(
+            calculation, store, wg, kinetic=tau is not None,
+            hubbard=ns is not None, reduce=self.pools.allreduce_sum,
+        )
+        fx = np.asarray(self.flatten(rho_out, becsum_out, ns_out, tau_out))
+        token = self.held.pop("next", 0)
+        kept = {} if warm is None else {warm: self.held[warm]}
+        self.held.clear()
+        self.held.update(kept)
+        self.held[token] = store
+        self.held["next"] = token + 1
+        return fx, token
+
+    def _command(self, code, warm, x):
+        vector = np.empty(self.size + 2, dtype=np.float64)
+        vector[0] = code
+        vector[1] = -1.0 if warm is None else float(warm)
+        vector[2:] = np.asarray(x, dtype=np.float64)
+        return np.asarray(self.pools.broadcast(vector))
+
+    # ---- rank 0: the solver's view ---------------------------------------
+    def step(self, x, psi0):
+        """``F(x)`` and a token for the pools' states; a collective rank 0 opens."""
+        if self.pools.rank != 0:
+            raise RuntimeError("only rank 0 drives a pooled residual; the others serve")
+        sent = self._command(_EVALUATE, psi0, x)
+        return self._evaluate(sent[2:], psi0)
+
+    def jvp(self, x, v, psi0):
+        raise NotImplementedError(
+            "jvp='autodiff' is not available with k-point pools: a pool's F is "
+            "evaluated on the host through the streamed store, which jax.jvp "
+            "cannot trace. Use jvp='finite-difference' (the default)")
+
+    def sternheimer_jacobian(self, x, psi0, threshold=None):
+        raise NotImplementedError(
+            "jvp='sternheimer' is not available with k-point pools: its "
+            "Sternheimer solve reads the whole set's states. Use "
+            "jvp='finite-difference' (the default)")
+
+    def store(self, token):
+        """The pool's states behind ``token``."""
+        return self.held[token]
+
+    def finish(self, result) -> None:
+        """Hand the solver's result to the serving pools and release them."""
+        self._command(_FINISH, result.psi, result.x)
+        self.pools.broadcast(np.asarray(
+            [result.accuracy, float(result.converged), result.iterations,
+             result.steps, result.jvps], dtype=np.float64))
+        result.psi = self.store(result.psi)
+
+    def abort(self) -> None:
+        """Release the serving pools after rank 0's solver has raised."""
+        self._command(_ABORT, None, np.zeros(self.size))
+
+    # ---- every other pool --------------------------------------------------
+    def serve(self):
+        """Evaluate ``F`` whenever rank 0 asks, until it finishes; its result."""
+        from defuqumat.scf.solvers import NewtonKrylovResult
+
+        while True:
+            # The placeholder is overwritten by rank 0's command.
+            sent = self._command(_ABORT, None, np.zeros(self.size))
+            code, warm = float(sent[0]), int(sent[1])
+            warm = None if warm < 0 else warm
+            if code == _EVALUATE:
+                self._evaluate(sent[2:], warm)
+            elif code == _FINISH:
+                record = np.asarray(self.pools.broadcast(np.zeros(5, dtype=np.float64)))
+                return NewtonKrylovResult(
+                    x=np.asarray(sent[2:]), psi=self.store(warm),
+                    converged=bool(record[1]), accuracy=float(record[0]),
+                    iterations=int(record[2]), steps=int(record[3]),
+                    jvps=int(record[4]))
+            else:
+                raise RuntimeError(
+                    "rank 0's residual solver raised, so this pool stops with it; "
+                    "rank 0's log has the reason")
 
 
 class SternheimerJacobian:
@@ -496,6 +814,31 @@ class SternheimerJacobian:
         return np.asarray(norm * tangent) - v
 
 
+def refuse_residual_occupations(system) -> None:
+    """Raise by name for the occupation schemes ``F`` has no *pooled* form for.
+
+    On one process tetrahedra and ``from_input`` are in (I71, :func:`_weights`).
+    Under k-point pools they are not measured: ``PooledScfResidual`` gathers the
+    eigenvalues but nothing built the tetrahedron table's pooled use, so the
+    driver's pool guard calls this on every rank before
+    :class:`PooledScfResidual`'s protocol opens. Raised inside ``_evaluate``
+    instead, after the eigenvalue gather, the serving pools leave ``serve()``
+    while rank 0 waits in ``abort()``'s broadcast, and the run hangs until the
+    pool heartbeat with rank 0's traceback never printed (measured on D22, Si
+    8k tetrahedra at 2 pools: both ranks exit -6 after 315 s; I53).
+    """
+    scheme = system.occupations
+    if scheme.startswith("tetrahedra") or scheme == "from_input":
+        raise NotImplementedError(
+            f"occupations={scheme!r} has no pooled form here: a residual "
+            "solver takes it on one process (the tetrahedron table is a "
+            "constant of the k-grid and 'from_input' a constant of the "
+            "eigenvalues), but under k-point pools the pair has not been "
+            "measured. Run it on one process, or use occupations='smearing' "
+            "or 'fixed' with a pooled residual solver"
+        )
+
+
 def _weights(calculation, eigenvalues):
     """``wg`` alone, and traceable.
 
@@ -507,15 +850,32 @@ def _weights(calculation, eigenvalues):
     """
     system = calculation.system
     scheme = system.occupations
-    if scheme.startswith("tetrahedra") or scheme == "from_input":
-        raise NotImplementedError(
-            f"occupations={scheme!r} has no differentiable form here: the "
-            "tetrahedron weights are built on the host from the k-grid and the "
-            "symmetry, and 'from_input' is not a function of the eigenvalues at "
-            "all. Use occupations='smearing' or 'fixed' with a residual solver"
-        )
     degeneracy = 1 if calculation.noncolin else 2
     weights = system.kpoints.weights
+
+    if scheme == "from_input":
+        # The card's numbers times ``wk``: a constant of the eigenvalues, so its
+        # tangent is zero, which is the right derivative of a filling fixed by
+        # hand. ``F`` is still a function of ``x`` alone.
+        if system.input_occupations is None:
+            raise ValueError("occupations='from_input' needs an OCCUPATIONS card")
+        return input_occupations(
+            system.input_occupations, eigenvalues, weights, degeneracy
+        )
+    if scheme.startswith("tetrahedra"):
+        # The tetrahedra are host-built from the k-grid and the group, not from
+        # the density, so they are a constant here like ``wk``; the weights
+        # themselves are JAX on the eigenvalues, and the Fermi level carries the
+        # implicit tangent of ``N(E_F) = nelec`` (``scf/tetrahedra.py``,
+        # ``_fermi_level``), which is what ``jvp = 'autodiff'`` reads.
+        counts = (
+            (calculation.nelup, calculation.neldw)
+            if calculation.two_fermi_energies else None
+        )
+        return tetrahedron_occupations_spin(
+            calculation.tetrahedron_table(), eigenvalues, weights,
+            calculation.nelec, counts=counts,
+        )[0]
 
     if scheme == "fixed":
         # The same ``counts`` the smeared branch below takes, for the same
@@ -537,18 +897,248 @@ def _weights(calculation, eigenvalues):
     return wg
 
 
-def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
-    """Build the residual for a calculation, refusing the regimes it cannot hold."""
+#: Penalty constraints whose field is a function of the density, as for the
+#: three measured against ``pw.x`` (I73), but which no reference input carries,
+#: so they stay refused until a Newton-against-mixing pair is measured on them.
+UNMEASURED_PENALTIES = frozenset({"total direction", "atomic texture"})
+
+
+#: The feedback schemes measured with a residual solver, each in the one regime
+#: it was measured in (``notes/incompat/I73.md``, "The feedback field"):
+#: ``'fsm'`` on the collinear ``fe-fsm.in``, the two per-atom schemes on the
+#: noncollinear canted iron pair. The value is whether the run is noncollinear.
+MEASURED_FEEDBACK = {"fsm": False, "atomic fsm": True, "atomic fsm direction": True}
+
+
+def _refuse_unmeasured_feedback(calculation, field) -> None:
+    """Refuse a feedback field beside a term neither measured cell carries.
+
+    The two cells the feedback rows were measured on (``fe-fsm.in`` and the
+    canted iron pair, ``notes/incompat/I73.md``) both use a smearing, no
+    Hubbard U, a functional with no ``tau``, and the full plane-wave sphere.
+    Each of the other four joins the state or the occupations in a way the
+    field rows were never checked against, so each is refused by name rather
+    than let through by :data:`MEASURED_FEEDBACK`, which keys only on the
+    scheme and on ``noncolin``. A noncollinear Hubbard U is refused for every
+    run further down, field or not.
+    """
+    scheme = field.constraint
     system = calculation.system
-    if calculation.magnetic_field is not None:
+    occupations = str(getattr(system, "occupations", "smearing"))
+    if occupations != "smearing":
         raise NotImplementedError(
-            "an external or constraining magnetic field has no residual form "
-            "here: the field is driven by a secant *outside* the density "
-            "(reducebf, the fixed-spin-moment feedback), so F changes between "
-            "evaluations and is not a function of the state alone"
+            f"constrained_magnetization = {scheme!r} with occupations = "
+            f"{occupations!r} is not yet checked with a residual solver: the "
+            "feedback field's rows were measured against the mixing loop with "
+            "a smearing only. Use a smearing, or the mixing loop "
+            "(scf_solver='mixing')"
         )
-    if getattr(system, "spiral_q", None) is not None:
-        raise NotImplementedError("spin spirals are not supported by a residual solver")
+    if bool(getattr(calculation, "is_hubbard", False)):
+        raise NotImplementedError(
+            f"constrained_magnetization = {scheme!r} with a Hubbard U is not "
+            "yet checked with a residual solver: the state would carry ns "
+            "beside the feedback field, and neither measured cell has a U. Use "
+            "the mixing loop (scf_solver='mixing')"
+        )
+    functional = getattr(calculation, "functional", None)
+    if bool(getattr(functional, "is_meta", False)):
+        raise NotImplementedError(
+            f"constrained_magnetization = {scheme!r} under the meta-GGA "
+            f"{functional.name} is not yet checked with a residual solver: the "
+            "state would carry tau beside the feedback field, and neither "
+            "measured cell has a meta-GGA. Use the mixing loop "
+            "(scf_solver='mixing')"
+        )
+    kpoints = getattr(system, "kpoints", None)
+    if bool(getattr(kpoints, "gamma_only", False)):
+        raise NotImplementedError(
+            f"constrained_magnetization = {scheme!r} with K_POINTS gamma "
+            "(half-sphere storage) is not yet checked with a residual solver: "
+            "both measured cells store the full sphere. Use an explicit Gamma "
+            "point (K_POINTS automatic 1 1 1 0 0 0), or the mixing loop "
+            "(scf_solver='mixing')"
+        )
+
+
+def make_residual(calculation, nbnd: int, ethr: float, field=None) -> ScfResidual:
+    """Build the residual for a calculation, refusing the regimes it cannot hold.
+
+    ``field`` is the loop's starting field, which under a feedback scheme can
+    differ from ``calculation.magnetic_field`` (a driven field carried over from
+    a starting state, ``driver._carried_driven_field``); ``None`` takes the
+    calculation's.
+    """
+    system = calculation.system
+    if field is None:
+        field = calculation.magnetic_field
+    if field is not None and getattr(calculation, "spiral", False):
+        # Neither unit measured the pair: I72 measured a spiral with no field,
+        # I73 a field and the penalties on cells without a spiral.
+        raise NotImplementedError(
+            "a spin spiral under a magnetic field or a constraint has no "
+            "measured residual form here: Newton on a spiral (I72) and Newton "
+            "under a field (I73) were each checked on their own, the pair was "
+            "not; use the mixing loop"
+        )
+    if field is not None:
+        # ``step`` builds its potential with ``calculation.potential(rho)``,
+        # which applies this field at full strength, so a field the mixing loop
+        # holds fixed -- a uniform ``B_field``, a ``LOCAL_MAGNETIC_FIELDS`` card,
+        # every *penalty* constraint, whose field is ``jax.grad`` of the
+        # penalty and so a function of the density -- needs nothing here (I73).
+        # ``run_scf`` changes the field in exactly two places. The feedback
+        # field joins the state, as ``ns`` does, with Elk's update as its row
+        # of ``F``; ``reducebf < 1`` stays refused (below). A local-field card
+        # and the two penalty schemes no reference input carries are refused
+        # only because they have not been measured.
+        feedback = field.constraint in FEEDBACK
+        if feedback:
+            if field.fsm_update != "elk":
+                raise NotImplementedError(
+                    f"fsm_update = {field.fsm_update!r} has no residual form "
+                    "here: the secant controller steps only on converged pairs "
+                    "and carries the previous (field, moment) pair as memory, "
+                    "so it is not a function of the state. The residual solver "
+                    "carries the driven field in its state with Elk's row "
+                    "B - tau (m - m_fix), whose zero is the same field, and "
+                    "its Jacobian is the susceptibility the secant estimates. "
+                    "Use fsm_update = 'elk' (the default) or scf_solver='mixing'"
+                )
+            if not field.penalty > 0.0:
+                raise ValueError(
+                    f"lambda = {field.penalty} is the feedback gain of "
+                    f"constrained_magnetization = {field.constraint!r} and must "
+                    "be positive: the residual's field rows are -lambda (m - "
+                    "m_fix), and its convergence measure divides by lambda"
+                )
+            noncolin = bool(getattr(calculation, "noncolin", False))
+            if (field.constraint not in MEASURED_FEEDBACK
+                    or MEASURED_FEEDBACK[field.constraint] != noncolin):
+                raise NotImplementedError(
+                    f"constrained_magnetization = {field.constraint!r} in a "
+                    f"{'noncollinear' if noncolin else 'collinear'} run is not "
+                    "yet checked with a residual solver: 'fsm' is measured "
+                    "against the mixing loop in a collinear run, 'atomic fsm' "
+                    "and 'atomic fsm direction' in a noncollinear one, and "
+                    "nothing else. Use the mixing loop (scf_solver='mixing')"
+                )
+            _refuse_unmeasured_feedback(calculation, field)
+        if field.constraint in UNMEASURED_PENALTIES:
+            raise NotImplementedError(
+                f"constrained_magnetization = {field.constraint!r} is not yet "
+                "checked with a residual solver: its field is jax.grad of a "
+                "penalty like 'atomic', 'atomic direction' and 'total', which "
+                "match pw.x under Newton to 8e-8 Ry, but no reference input "
+                "carries this scheme and it has not been measured. Use the "
+                "mixing loop (scf_solver='mixing')"
+            )
+        if field.atomic is not None and field.constraint not in FEEDBACK_ATOMIC:
+            raise NotImplementedError(
+                "a LOCAL_MAGNETIC_FIELDS card is not yet checked with a "
+                "residual solver: the field is held fixed by the loop, as a "
+                "uniform b_field is (which runs, and matches the mixing loop "
+                "to 2e-8 Ry), but the per-atom field has not been measured. "
+                "Use the mixing loop (scf_solver='mixing')"
+            )
+        if field.reducebf != 1.0:
+            # The scale's own map, ``s -> reducebf s``, has one root, s = 0, so
+            # a residual solver carrying the scale would solve the field-free
+            # problem, while the loop stops at a finite scale (FADED_FIELD's
+            # table: 1.8e-3 Ry left and 2.2e-8 Ry of error at reducebf = 0.9).
+            # The two answers then differ by the field the loop had not shed,
+            # not by conv_thr, and the field's one job, breaking a symmetry on
+            # the way, belongs to the start rather than to the fixed point.
+            raise NotImplementedError(
+                f"reducebf = {field.reducebf} has no residual form here: the "
+                "mixing loop multiplies the applied field by reducebf after "
+                "every iteration and stops at whatever field is left, so its "
+                "answer depends on how many iterations it took. The decay's "
+                "only fixed point is the field at zero, which is the run "
+                "without the field; a residual solver would solve that and "
+                "drop the symmetry breaking the field is for. Run the mixing "
+                "loop, or run the residual solver without the field (from a "
+                "starting state that already breaks the symmetry). A field "
+                "held fixed (reducebf = 1) runs with a residual solver"
+            )
+        # What was measured is a collinear uniform field alone (Newton against
+        # the mixing loop) and a noncollinear penalty alone (against pw.x).
+        # The other two combinations run the same code, but are refused until
+        # they are measured, as the local-field card is. A field together with
+        # a penalty never reaches here: build_system refuses it, as pw.x does.
+        noncolin = bool(getattr(calculation, "noncolin", False))
+        uniform = getattr(field, "uniform", None)
+        # A feedback scheme's uniform field is its driven field, not an
+        # applied one, and its regimes are checked above.
+        has_uniform = (not feedback and uniform is not None
+                       and bool(np.any(np.asarray(uniform) != 0.0)))
+        has_penalty = field.constraint != "none" and not feedback
+        if has_uniform and noncolin:
+            raise NotImplementedError(
+                "a uniform b_field in a noncollinear run is not yet checked "
+                "with a residual solver: only the collinear field is measured "
+                "(against the mixing loop, to 2e-8 Ry). Use the mixing loop "
+                "(scf_solver='mixing')"
+            )
+        if has_penalty and not noncolin:
+            raise NotImplementedError(
+                f"constrained_magnetization = {field.constraint!r} in a "
+                "collinear run is not yet checked with a residual solver: the "
+                "penalties are measured against pw.x on noncollinear inputs "
+                "only, and on the one collinear cell tried neither Newton nor "
+                "the mixing loop converged. Use the mixing loop "
+                "(scf_solver='mixing')"
+            )
+    if calculation.spiral and calculation.is_hubbard:
+        # Measured (``notes/incompat/I72.md``): on ``nii-chain-spiral.in`` with
+        # U = 4 eV on Ni-3d, ``accuracy_of(F(x*) - x*)`` at the mixing loop's
+        # converged state is 2.3e-4 against the loop's own 8.9e-10, and Newton
+        # lands 7.3e-3 Ry away. A spinor ``ns`` is complex; the mixing loop
+        # carries it as real and imaginary pairs (``driver._pack_ns``), while
+        # :meth:`ScfResidual.pack` and :meth:`ScfResidual.flatten` keep only its
+        # real part, so ``F`` here is not the loop's map.
+        raise NotImplementedError(
+            "a spin spiral with a Hubbard U has no residual form here: the "
+            "occupation matrix of a spinor run is complex and the residual's "
+            "packed state keeps only its real part, so F is not the mixing "
+            "loop's map (notes/incompat/I72.md); use the mixing loop"
+        )
+    if bool(getattr(calculation, "noncolin", False)) and bool(
+        getattr(calculation, "is_hubbard", False)
+    ):
+        # The same packing hole as the spiral's, with no spiral: a spinor ``ns``
+        # is complex (``starting_ns`` is complex128 of shape (4, ...) on the
+        # canted iron pair with U on Fe-3d), the mixing loop carries it as real
+        # and imaginary pairs (``driver._pack_ns``), and :meth:`ScfResidual.pack`
+        # keeps only the real part, so ``F`` would not be the loop's map. No
+        # residual run of a noncollinear Hubbard cell was ever measured.
+        raise NotImplementedError(
+            "a noncollinear run with a Hubbard U has no residual form here: the "
+            "occupation matrix of a spinor run is complex and the residual's "
+            "packed state keeps only its real part, so F is not the mixing "
+            "loop's map; use the mixing loop (scf_solver='mixing')"
+        )
+    if calculation.spiral and calculation.functional.is_meta:
+        # Not measured, so not admitted: ``tau`` joins the packed state, and the
+        # one harness run of Newton on the hydrogen chain under ``tb09`` and
+        # ``'kubler'`` had not returned after 36 minutes on one core, where the
+        # same cell without the meta-GGA takes 4 s (``notes/incompat/I72.md``).
+        raise NotImplementedError(
+            "a spin spiral under a meta-GGA has no measured residual form here: "
+            "tau joins the packed state and Newton on a spiral with it has not "
+            "been checked against the mixing loop (notes/incompat/I72.md); use "
+            "the mixing loop"
+        )
+    # A spin spiral is not refused (``notes/incompat/I72.md``): every call in
+    # :meth:`ScfResidual.step` is the mixing loop's own, and the spiral lives
+    # inside them -- the two spheres at ``k +- q/2`` in ``hamiltonian`` and
+    # ``diagonalize``, the rotated-frame density and its displaced augmentation
+    # in ``becsum`` and ``density`` -- so ``F`` is the loop's map. The packed
+    # state is the rotated-frame ``(n, m_x, m_y, m_z)`` on the dense grid, which
+    # the real-space Kerker screens on the charge alone and ``accuracy_of``
+    # measures as the loop's ``dr2`` does; ``_weights`` takes the unshifted
+    # k-set's weights, as ``Calculation.occupations`` does. ``jvp='sternheimer'``
+    # stays refused (a magnetic noncollinear run, and ``response/sternheimer``
+    # refuses a spiral by name behind it).
 
     rho = calculation.starting_density()
     becsum_ = calculation.starting_becsum()
@@ -574,4 +1164,10 @@ def make_residual(calculation, nbnd: int, ethr: float) -> ScfResidual:
         size += int(np.prod(ns_shape))
     if tau_shape is not None:
         size += int(np.prod(tau_shape))
-    return ScfResidual(calculation, nbnd, ethr, shapes, size, ns_shape, tau_shape)
+    feedback_field = field_shape = None
+    if field is not None and field.constraint in FEEDBACK:
+        feedback_field = field
+        field_shape = tuple(np.shape(field.driven()))
+        size += int(np.prod(field_shape))
+    return ScfResidual(calculation, nbnd, ethr, shapes, size, ns_shape, tau_shape,
+                       feedback_field, field_shape)

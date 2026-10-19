@@ -143,7 +143,9 @@ from defuqumat.response.sternheimer import (
 )
 from defuqumat.response.velocity import over_kpoints
 from defuqumat.batching import map_k
-from defuqumat.system.symmetry import atom_mapping, cartesian_rotations
+from defuqumat.system.symmetry import (
+    atom_mapping, cartesian_rotations, orbit_closure, subset_atom_mapping,
+)
 from defuqumat.units import AMU_TO_RY, RY_TO_CMM1, RY_TO_THZ
 from defuqumat.eager import compiled_jvp
 
@@ -354,11 +356,13 @@ def dynamical_matrix(
             An ultrasoft or PAW **metal** stays refused, for the reason
             :func:`_require_a_moving_overlap_regime` gives and not for this one.
 
-            **What is refused with a subset** is a symmetrised run, because
-            ``symdvscf`` symmetrises the ``3 nat`` responses *together* -- an
-            operation rotates the direction and permutes the atom, so it mixes a
-            mode inside the subset with one outside it, and a partial stack is
-            not something the group can act on.
+            **With symmetry the subset must be a union of orbits**, because
+            ``symdvscf`` symmetrises the responses *together* -- an operation
+            rotates the direction and permutes the atom, so for any other subset
+            it mixes a mode inside with one outside, and the refusal names the
+            smallest closed subset that contains the one asked for. A closed
+            subset is symmetrised with the group restricted to it, and its block
+            is the whole cell's block of the same calculation.
 
             The acoustic sum rule is unavailable for the same reason the columns
             outside the subset are not solved -- it is a sum over *all* atoms --
@@ -373,6 +377,11 @@ def dynamical_matrix(
             :func:`~defuqumat.response.nonlinear.raman_tensors` solves the same
             object and hands it back through its ``keep_internals``, which is
             what lets a spectrum cost one displacement response rather than two.
+            With ``atoms``, a response solved for every atom (which both of
+            those are) is cut to those atoms' rows -- :func:`_response_rows`
+            on the whole-k route, ``force_constants(atoms=)`` on the walked
+            one -- and gives the block of the whole matrix exactly; a response
+            whose row count is neither the cell's nor the subset's is refused.
     """
     eigenvalues = jnp.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
@@ -381,12 +390,16 @@ def dynamical_matrix(
     # ``metals = True``: a Fermi surface does not stop a dynamical matrix
     # existing, and the solve handles one (``PLAN.md`` P24c). What it adds is
     # ``ef_shift``, inside the loop below.
+    # Before the generic guard, so that the message names the dynamical matrix.
+    _require_no_spinor(calculation)
     # ``gamma_ok``: validated against an explicit k = 0 on the whole sphere,
     # which is the same calculation in the other storage (``PLAN.md`` P68a).
     # ``spin_polarized``: the whole-k assembly is checked against ``ph.x`` on
     # triplet O2 (:func:`occupied_pairs`); the walked one is refused below.
+    # ``noncollinear``: the spinor assembly is written and measured, and
+    # :func:`_require_no_spinor` is what refuses it, with the numbers.
     require_a_sternheimer_regime(calculation, metals=True, gamma_ok=True,
-                                 spin_polarized=True)
+                                 spin_polarized=True, noncollinear=True)
     _require_a_moving_overlap_regime(calculation)
 
     structure = calculation.system.structure
@@ -403,18 +416,26 @@ def dynamical_matrix(
     walked = None if response is None else getattr(response, "walked", None)
     if walked is not None:
         _require_one_spin_channel(calculation)
+        if chosen is not None and calculation.use_symmetry:
+            # I51 admits a closed subset with symmetry on the whole-k route
+            # only; I54's row map on the walked route was measured on ``nosym``
+            # cells. The two meet here, unmeasured, so the walked subset keeps
+            # the streamed route's refusal (``notes/INCOMPATIBILITIES-T2.md``).
+            raise NotImplementedError(_SYMMETRISED_SUBSET_WALKED)
         # **A response solved a k-chunk at a time is assembled the same way**,
         # from its own stores (:meth:`~defuqumat.response.chunked_phonon.
         # StreamedDisplacements.force_constants`): the states it was solved at
         # are the ones it holds, so ``wavefunctions`` is not read. It solved
-        # every atom.
-        if chosen is not None:
-            raise ValueError(
-                "a displacement response walked a k-chunk at a time holds every "
-                "atom's perturbations; ask for the whole matrix (atoms=None)")
+        # every atom, and a subset is its rows for those atoms: the subset
+        # is on a ``nosym`` run (refused otherwise, just above), where nothing
+        # couples the modes, so
+        # the rows of the whole response *are* the subset's response, and each
+        # row of the assembly reads only its own (``force_constants(atoms=)``).
         matrix = walked.force_constants(response.drho, response.extras,
-                                        on_row=on_row)
+                                        on_row=on_row, atoms=chosen)
         drho, history = response.drho, response.history
+        if chosen is not None:
+            drho = drho[np.asarray([walked.atoms.index(a) for a in chosen])]
         average_iterations, converged = float("nan"), response.converged
         return _phonons_of(calculation, matrix, drho, history, average_iterations,
                            converged, chosen, acoustic_sum_rule)
@@ -433,6 +454,23 @@ def dynamical_matrix(
         what="the dynamical matrix")
     if streamed:
         _require_one_spin_channel(calculation)
+    if streamed and chosen is not None and calculation.use_symmetry:
+        # The closed-subset symmetrisation is threaded through
+        # :class:`~defuqumat.response.chunked_phonon.StreamedDisplacements` but
+        # was measured only on the whole-k route (``notes/incompat/I51.md``).
+        raise NotImplementedError(_SYMMETRISED_SUBSET_WALKED)
+    if streamed and calculation.noncolin:
+        # **The walked route has a collinear copy of two of the terms** this
+        # module writes for a spinor: :mod:`defuqumat.response.chunked_phonon`'s
+        # ``overlap_matrix`` contracts the scalar ``qq`` on an ``npwx``-long
+        # band, and its frozen energies do not ask for ``spinors=True``.
+        raise NotImplementedError(
+            "the dynamical matrix of a noncollinear or spin-orbit run walked a "
+            "k-chunk at a time is not implemented: the chunked route "
+            "(response/chunked_phonon.py) has the collinear overlap qq and no "
+            "spinor energy. The whole-k route is implemented; run with "
+            "memory_mode='speed' or a k_batch that holds the whole mesh"
+        )
     weights, _ = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
     nocc = occupied_counts(calculation)
@@ -503,10 +541,13 @@ def _phonons_of(calculation, matrix, drho, history, average_iterations,
         # the gradient against every atom, so the columns outside the subset are
         # computed and then dropped: they are the force the molecule's
         # displacement exerts on the frozen substrate, which is a real quantity
-        # and not one a frozen-substrate mode can respond to. Nothing is
-        # symmetrised -- the guard above established the run is ``nosym``, where
-        # ``symmetrize_atom_pair_tensor`` is the identity anyway.
+        # and not one a frozen-substrate mode can respond to. Then
+        # ``symdynph_gq`` on the block: the guard established that the subset is
+        # a union of orbits, so the group average of an entry inside it reads
+        # only entries inside it, and is the whole matrix's average restricted to
+        # the block exactly. Under ``nosym`` it is the identity.
         matrix = matrix[:, :, list(chosen), :]
+        matrix = calculation.symmetrize_atom_pair_tensor(matrix, atoms=chosen)
         masses = np.asarray(structure.masses)[list(chosen)]
     asymmetry = float(np.abs(matrix - matrix.transpose(2, 3, 0, 1)).max())
     matrix = 0.5 * (matrix + matrix.transpose(2, 3, 0, 1))
@@ -552,13 +593,14 @@ def _whole_k(calculation, solver, positions, wavefunctions, eigenvalues,
     )
     drhous_stacked = moved_stacked = becsumort = bec_moved_sym = None
     if rho_moved is not None:
-        moved_stacked = _stack_modes(_symmetrize_modes(calculation, rho_moved))
+        moved_stacked = _stack_modes(
+            _symmetrize_modes(calculation, rho_moved, chosen))
         drhous_stacked = moved_stacked + _stack_modes(
-            _symmetrize_modes(calculation, rho_ort)
+            _symmetrize_modes(calculation, rho_ort, chosen)
         )
-        bec_moved_sym = symmetrize_becsum_modes(calculation, bec_moved)
+        bec_moved_sym = symmetrize_becsum_modes(calculation, bec_moved, chosen)
         becsumort = _add_becsum(
-            bec_moved_sym, symmetrize_becsum_modes(calculation, bec_ort)
+            bec_moved_sym, symmetrize_becsum_modes(calculation, bec_ort, chosen)
         )
 
     if response is None:
@@ -578,10 +620,10 @@ def _whole_k(calculation, solver, positions, wavefunctions, eigenvalues,
             )
         )
     else:
-        dpsi, drho = response.dpsi, response.drho
+        dpsi, drho, bare, extras = _response_rows(
+            response, chosen, calculation.system.structure.nat)
         history, converged = response.history, response.converged
         average_iterations = float("nan")
-        bare, extras = response.bare, response.extras
 
     # 2b. The three tangents ``S``'s motion adds to the assembly. ``dLambda``
     #     is a matrix element of the *same* perturbation the last solve was
@@ -607,6 +649,45 @@ def _whole_k(calculation, solver, positions, wavefunctions, eigenvalues,
         multipliers=multipliers, ort=ort, atoms=chosen, on_row=on_row,
     )
     return matrix, drho, history, average_iterations, converged
+
+
+def _response_rows(response, chosen, nat):
+    """``(dpsi, drho, bare, extras)`` of a handed-in response, at ``chosen``'s rows.
+
+    Every per-mode store of a :class:`DisplacementResponse` leads with the
+    perturbed atom, in the order it was solved, and the assembly below reads
+    row ``r`` of each as the response to ``chosen[r]``. A response solved for
+    every atom (what :func:`~defuqumat.response.nonlinear.raman_tensors` keeps)
+    handed in with a subset therefore has to be cut to the subset's rows first:
+    read whole, row 0 is atom 0's response whichever atom ``chosen[0]`` is, and
+    the matrix comes out wrong with no error. A response with exactly
+    ``len(chosen)`` rows (fewer than ``nat``) is taken to be the subset's own,
+    as before; any other row count cannot be matched to the atoms and is
+    refused.
+    """
+    held = int(np.shape(response.drho)[0])
+    wanted = nat if chosen is None else len(chosen)
+    if chosen is None or (held == wanted and held != nat):
+        if held != wanted:
+            raise ValueError(
+                f"the response holds {held} atoms' perturbations and the "
+                f"matrix asked for needs {wanted}")
+        return response.dpsi, response.drho, response.bare, response.extras
+    if held != nat:
+        raise ValueError(
+            f"the response holds {held} atoms' perturbations, neither the cell's "
+            f"{nat} nor the {len(chosen)} asked for, so its rows cannot be "
+            "matched to atoms")
+    # An index array, not a list: a jax array refuses a list as an index.
+    rows = np.asarray(chosen)
+
+    def cut(stack):
+        return None if stack is None else stack[rows]
+
+    extras = None if response.extras is None else {
+        key: cut(value) for key, value in response.extras.items()}
+    return (cut(response.dpsi), cut(response.drho), cut(response.bare),
+            extras)
 
 
 class _Levels:
@@ -775,9 +856,10 @@ def screening_loop(
     nat = calculation.system.structure.nat
     # ``rows`` is how many perturbations are being solved and ``chosen`` which
     # atoms they belong to. They are the same thing only for a whole-cell run;
-    # a subset is refused unless the symmetrisation below is inert, because an
-    # operation *mixes* the modes and a partial stack is not something it can
-    # act on (see :func:`dynamical_matrix`).
+    # with symmetry a subset is accepted only when it is a union of orbits,
+    # because an operation *mixes* the modes and the symmetrisation below can
+    # act on a partial stack only when it never leaves it (see
+    # :func:`_require_a_subsettable_regime`).
     chosen = tuple(range(nat)) if atoms is None else tuple(atoms)
     rows = len(chosen)
     grid_shape = tuple(np.shape(density))
@@ -845,7 +927,8 @@ def screening_loop(
         # (``host_fields`` is set only then), so it is not called on a stack the
         # device would have to hold.
         symmetrised = (stacked if host
-                       else calculation.symmetrize_atom_displacement(stacked))
+                       else calculation.symmetrize_atom_displacement(
+                           stacked, atoms=atoms))
 
         # ``dv_of_drho``: one jvp of the potential this code already writes.
         def screened(field):
@@ -882,7 +965,7 @@ def screening_loop(
                     index += 1
             if becsumort is not None:
                 per_mode = _add_becsum(per_mode, becsumort)
-            per_mode = symmetrize_becsum_modes(calculation, per_mode)
+            per_mode = symmetrize_becsum_modes(calculation, per_mode, atoms)
             induced_onecentre = jnp.stack([
                 paw_response(calculation, per_mode[row, cart], solver.becsum)
                 for row in range(rows) for cart in range(3)
@@ -1113,14 +1196,34 @@ def overlap_derivatives(calculation, solver, positions, atoms=None) -> np.ndarra
     nat = positions.shape[0]
     batch = calculation.k_batch
 
+    noncolin = bool(calculation.noncolin)
+
     def overlap_matrix(pos):
-        """``<psi_m|S(u)|psi_n>`` -- only the augmentation half moves."""
+        """``<psi_m|S(u)|psi_n>`` -- only the augmentation half moves.
+
+        For a spinor the band is ``2 npwx`` long and the metric is ``qq_so``,
+        a 2x2 matrix in spin space, which is
+        :func:`~defuqumat.response.born.constraint_sandwich_at`'s contraction:
+        a fully-relativistic dataset's overlap couples the two components
+        through ``fcoef``, and the scalar ``qq`` on each block alone is the
+        ``j``-averaged operator.
+        """
         moved = calculation.at_positions(pos)
         vkb = moved.projectors.vkb
-        qq = moved.projectors.qq.astype(psi.dtype)
+        npwx = vkb.shape[1]
+        qq = jnp.asarray(
+            moved.qq_so if noncolin else moved.projectors.qq
+        ).astype(psi.dtype)
         blocks = []
         for spin in range(psi.shape[0]):
             def one_k(ik, spin=spin):
+                if noncolin:
+                    bands = psi[spin][ik]
+                    becp = jnp.einsum(
+                        "gc,nag->nac", vkb[ik].conj(),
+                        bands.reshape(bands.shape[:-1] + (2, npwx)),
+                    )
+                    return jnp.einsum("mai,abij,nbj->mn", becp.conj(), qq, becp)
                 becp = jnp.einsum("gc,ng->nc", vkb[ik].conj(), psi[spin][ik])
                 return jnp.einsum("mi,ij,nj->mn", becp.conj(), qq, becp)
 
@@ -1270,7 +1373,7 @@ def non_variational_response(calculation, positions, psi, weights, density,
     return halves["moved"], halves["ort"]
 
 
-def symmetrize_becsum_modes(calculation, per_mode):
+def symmetrize_becsum_modes(calculation, per_mode, atoms=None):
     """``PAW_dusymmetrize`` on the ``3 nat`` displacement patterns.
 
     The counterpart of :meth:`~defuqumat.scf.driver.Calculation.
@@ -1283,6 +1386,12 @@ def symmetrize_becsum_modes(calculation, per_mode):
     ``per_mode`` is an object array of shape ``(nat, 3)`` whose entries are
     per-species ``becsum`` tuples; the result has the same layout. A no-op when
     there is no PAW species or no symmetry to average over.
+
+    ``atoms``: the displaced atoms when ``per_mode`` is a subset's
+    ``(len(atoms), 3)``, a union of orbits. Only the *displaced* axis is
+    restricted: the ``becsum`` blocks inside each entry still run over every
+    atom of their species, and ``apply_atom_displacement`` permutes those with
+    its own full table.
     """
     if per_mode is None or calculation._becsum_symmetry is None:
         return per_mode
@@ -1301,6 +1410,8 @@ def symmetrize_becsum_modes(calculation, per_mode):
     mapping = atom_mapping(
         calculation.system.cell, calculation.system.structure, calculation.symmetries
     )
+    if atoms is not None:
+        mapping = subset_atom_mapping(mapping, atoms)
     symmetrised = calculation._becsum_symmetry.apply_atom_displacement(
         stacked, rotations, mapping
     )
@@ -1314,14 +1425,15 @@ def symmetrize_becsum_modes(calculation, per_mode):
     return out
 
 
-def _symmetrize_modes(calculation, per_mode):
-    """``symdvscf`` on an object array of ``3 nat`` grid responses."""
+def _symmetrize_modes(calculation, per_mode, atoms=None):
+    """``symdvscf`` on an object array of ``3 nat`` grid responses, or of a
+    subset's ``3 len(atoms)`` when ``atoms`` is a union of orbits."""
     nat, ncart = per_mode.shape
     stacked = jnp.stack([
         jnp.stack([per_mode[atom, cart] for cart in range(ncart)])
         for atom in range(nat)
     ])
-    symmetrised = calculation.symmetrize_atom_displacement(stacked)
+    symmetrised = calculation.symmetrize_atom_displacement(stacked, atoms=atoms)
     out = np.empty((nat, ncart), dtype=object)
     for atom in range(nat):
         for cart in range(ncart):
@@ -1602,6 +1714,7 @@ def _force_constants(
                 FrozenState(wavefunctions=states, weights=w,
                             eigenvalues=eigenvalues),
                 density=rho, becsum=parts, multipliers=lambdas,
+                spinors=True,
             )
 
         def becsum_builder(moved, built_states, occupations):
@@ -1619,6 +1732,7 @@ def _force_constants(
             calculation, pos,
             FrozenState(wavefunctions=states, weights=w, eigenvalues=eigenvalues),
             density=density_builder, becsum=becsum_builder, multipliers=lambdas,
+            spinors=True,
         )
 
     gradient = jax.grad(energy, argnums=0)
@@ -1757,6 +1871,16 @@ def _diagonalize(matrix: np.ndarray, masses: np.ndarray):
     return frequencies, vectors
 
 
+#: The refusal of a closed subset with symmetry on either route that walks the
+#: k axis a chunk at a time (a streamed solve, or a walked response handed in).
+_SYMMETRISED_SUBSET_WALKED = (
+    "a partial dynamical matrix with symmetry is validated on the "
+    "whole-k route only, and this run walks the k axis a chunk at a "
+    "time: switch symmetry off (nosym = .true.), or use a memory mode "
+    "that holds the whole mesh"
+)
+
+
 def _require_a_subsettable_regime(calculation, atoms, nat):
     """Which atoms to perturb, and what a subset is refused for.
 
@@ -1764,10 +1888,14 @@ def _require_a_subsettable_regime(calculation, atoms, nat):
     takes, left bit for bit as it was -- and a validated tuple of indices
     otherwise.
 
-    The two refusals are in :func:`dynamical_matrix`'s docstring. Both are
-    structural rather than cautious: ``symdvscf`` acts on the ``3 nat`` stack as
-    one object, and P39's ultrasoft tangents are each a ``(nat, 3)`` array that
-    nothing here has subsetted.
+    What is refused is a symmetrised run whose subset is **not a union of
+    orbits**. The wedge was reduced by the whole group, so completing the wedge
+    sum for ``drho_{a,i}`` reads ``drho_{S^-1(a),j}`` for every operation ``S``
+    of it (``symdvscf``); that is available exactly when every operation maps
+    the subset into itself, and then every symmetriser here acts on the partial
+    stack through :func:`~defuqumat.system.symmetry.subset_atom_mapping`.
+    Averaging over the subset's own stabiliser instead would be an average over
+    a group the k-set was not reduced by, and wrong rather than slow.
     """
     if atoms is None:
         return None
@@ -1781,14 +1909,20 @@ def _require_a_subsettable_regime(calculation, atoms, nat):
             f"atoms indexes outside the structure's {nat} atoms: {chosen}"
         )
     if calculation.use_symmetry:
-        raise NotImplementedError(
-            "a partial dynamical matrix needs nosym = .true.: symdvscf "
-            "symmetrises the 3 nat responses together -- an operation rotates "
-            "the cartesian direction and permutes the atom, so it mixes a mode "
-            "inside the subset with one outside it, and the partial stack is "
-            "not something the group can act on. Run the whole cell, or run the "
-            "subset with symmetry switched off"
-        )
+        mapping = atom_mapping(calculation.system.cell,
+                               calculation.system.structure,
+                               calculation.symmetries)
+        closure = orbit_closure(mapping, chosen)
+        if set(closure) != set(chosen):
+            raise NotImplementedError(
+                f"a partial dynamical matrix with symmetry needs a subset that "
+                f"is a union of orbits, and atoms={chosen} is not: symdvscf "
+                f"symmetrises the responses together, and an operation rotates "
+                f"the cartesian direction and carries the atom to atoms "
+                f"{tuple(sorted(set(closure) - set(chosen)))}, outside the "
+                f"subset. Ask for atoms={closure}, the smallest closed subset "
+                f"containing it, or switch symmetry off (nosym = .true.)"
+            )
     return chosen
 
 
@@ -1834,6 +1968,115 @@ def _require_one_spin_channel(calculation) -> None:
             "route is memory_mode='speed' with the states held whole rather "
             "than streamed"
         )
+
+
+def _require_no_spinor(calculation) -> None:
+    """A spinor run: the assembly is written and measured, and still refused.
+
+    **What a nonmagnetic spinor needed was three terms of this module's own
+    assembly, not a new response**, and they are in (``notes/incompat/I3.md``).
+    The Sternheimer solve has had a spinor form since P81 and the augmented
+    spinor since P98; what this caller added is the ``spinors=True`` opt-in on
+    :func:`~defuqumat.forces.energy.frozen_energy` in :func:`_force_constants`
+    (the functional has had its spinor branch since P46), ``qq_so`` in
+    :func:`overlap_derivatives`, the one contraction here written for an
+    ``npwx``-long band, and the generic guard's ``noncollinear`` opt-in. The
+    rest -- the bare perturbation through ``at_positions``, the multipliers'
+    response, ``_raw_mixed_state`` and the screening, whose stop is already
+    ``tr2 / npol`` as ``dfpt_kernels.f90:435`` has it -- is shape-agnostic or
+    was made spinor-aware by the Born charges.
+
+    **The measurements, with this guard bypassed** (D22, 2026-10-16, one run
+    each, ``tests/regression/test_spinor_phonons.py``):
+
+    * the same silicon as a scalar and as a spinor with no moment gives the same
+      force constants to **2.7e-10** (norm-conserving), **1.2e-9** (ultrasoft)
+      and **1.7e-9** Ry/bohr^2 (PAW), on force constants of 0.28;
+    * fully-relativistic ultrasoft AlAs: the optical triplet at **376.717753
+      cm^-1 against ``ph.x``'s 376.714126** (376.715282 at ``ph.x``'s own
+      ``tr2 = 1e-14``, 1.2e-3 like-for-like). On this cell spin-orbit coupling
+      is worth only 0.073 cm^-1 in ``ph.x``, so the ``fcoef`` dressing is below
+      what it resolves, and the identities above cannot see it at all
+      (``fcoef = 1`` for a scalar-relativistic dataset);
+    * bismuthene (``bismuthene-epsilon-us-soc.in``), the one cell where the
+      dressing is resolvable, **does not agree**: at ``tr2 = 1e-14`` the
+      ``B_1g`` mode is 69.308519 against ``ph.x``'s 66.727386 and ``E_2g``
+      117.145263 against 117.891803 cm^-1, the acoustic modes +16.2, +16.2,
+      +18.0 against ``ph.x``'s +12.3, +12.3, -15.3. The loop itself is not
+      converged there: at ``tr2 = 1e-16`` ``E_2g`` moves to 118.212126, by
+      1.07, where AlAs moves by 2.5e-3. A central difference of this code's own
+      forces (``h = 0.01`` bohr, atom 0 along ``z``) gives the inter-atomic
+      constant ``D(0z, 1z)`` to **0.5 per cent** (-0.03625 against -0.03644)
+      and the on-site ``D(0z, 0z)`` **11 per cent** off (0.04438 against
+      0.03982). So the error sits in the self (acoustic) block, as in
+      ``OPEN.md`` Part XXVII, on a cell with vacuum, a GGA and a core charge on
+      a heavy atom -- which does not point at the spin axis and does not clear
+      it either, since no scalar cell of that kind has been put through the
+      same comparison.
+
+    That is why the refusal stays, in the form :func:`_require_one_spin_channel`
+    keeps for ``nspin = 2``. What would lift it, in order: bismuthene's DFPT at
+    ``tr2 = 1e-18`` and below against the same finite-difference row (if
+    ``D(0z, 0z)`` walks to 0.0444 it is the loop); the same comparison on a
+    scalar ultrasoft insulator with vacuum, a GGA and a core charge (whether
+    the 11 per cent is the spinor's at all); ``ph.x`` on bismuthene at a tighter
+    ``tr2_ph``.
+
+    **A magnetized spinor is refused for a separate reason**: the induced
+    potential is then ``dv_0 I + dm . sigma`` through a 4x4 kernel, and the
+    dielectric tensor of the one textured cell measured (``i-atom-soc.in``) sits
+    5.3 per cent from ``ph.x`` along the moment for an unlocated reason
+    (:func:`~defuqumat.response.efield.require_a_measured_spinor_response`).
+
+    **What I79 measured for it** (D22, 2026-10-16, one run each, this guard
+    bypassed, ``notes/incompat/I79.md``). Nothing in the assembly is new for a
+    moment: the second solve ``ph.x`` runs under ``domag`` (``nsolv = 2``,
+    ``dfpt_kernels.f90:212-213``) supplies the ``dpsi^* psi`` half that its
+    density formula leaves to the time-reversed partner, and the density
+    response here is a ``jvp``, ``2 Re`` of both halves already. The
+    displacement average is axial on the grid and in ``becsum``
+    (:meth:`~defuqumat.scf.driver.Calculation.symmetrize_atom_displacement`).
+    The collinear limit is then an identity, and it is close but not exact:
+
+    * triplet O2 (ultrasoft, the moment along ``z``, no spin-orbit coupling)
+      against its ``nspin = 2`` run: **8.3e-6** Ry/bohr^2 on force constants of
+      1.68, all of it in the transverse block (entries 0.010 to 0.019); the
+      symmetrised spinor against the ``nosym`` one 2.3e-8;
+    * the antiferromagnetic hydrogen chain (a norm-conserving metal):
+      **1.9e-6** on 0.038;
+    * the same, solved on the collinear ground state written as a spinor, so
+      that the two runs share a fixed point: **2.3e-6** and **1.4e-6**.
+
+    So about 1e-6 belongs to the spinor response route itself, four orders
+    above the 2.7e-10 a nonmagnetic spinor reaches against the scalar run, and
+    it is unlocated. It is below ``ph.x``'s own distance on O2 (4.0e-5), and the
+    identity cannot see the transverse kernel or spin-orbit coupling at all,
+    which is where the 5.3 per cent above sits.
+    """
+    if not calculation.noncolin:
+        return
+    if calculation.nspin_mag == 4:
+        raise NotImplementedError(
+            "the dynamical matrix of a noncollinear run with a magnetization "
+            "(nspin_mag = 4, a textured spinor) is not implemented: the induced "
+            "potential carries dm . sigma through the 4x4 exchange-correlation "
+            "kernel, which the dielectric tensor of a textured spin-orbit "
+            "insulator puts 5.3 per cent from ph.x for a reason not yet found; "
+            "in the collinear limit, triplet O2 as a spinor against its "
+            "nspin = 2 run, the force constants agree to 8.3e-6 Ry/bohr^2 and "
+            "not to round-off, and 2.3e-6 of that remains on a shared ground "
+            "state, which is unlocated (notes/incompat/I79.md)"
+        )
+    raise NotImplementedError(
+        "the dynamical matrix of a noncollinear or spin-orbit run is not "
+        "implemented, although its assembly is written and measured: a spinor "
+        "without a moment reproduces the scalar run's force constants to "
+        "1.7e-9 Ry/bohr^2 and ph.x's optical triplet of spin-orbit AlAs to "
+        "1.2e-3 cm^-1, but on spin-orbit bismuthene the B_1g and E_2g modes are "
+        "2.6 and 0.75 cm^-1 from ph.x and the on-site force constant 11 per "
+        "cent from a finite difference of this code's own forces, which is "
+        "unlocated (notes/incompat/I3.md)"
+    )
 
 
 def _require_a_moving_overlap_regime(calculation) -> None:

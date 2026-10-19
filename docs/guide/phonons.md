@@ -403,9 +403,18 @@ which we compute in the page about stress with `get_elastic_constants()`.
     small group of $\mathbf q$, which is not the group of the crystal. We run
     them with `noinv` as well and on an unshifted mesh, which is the mesh that
     is closed under the point group. They give an error for ultrasoft and PAW
-    datasets, for a nonlinear core correction, for spin polarization, spinors,
-    spin spirals, DFT+U and `nosource`, and for a potential-only meta-GGA
-    (`tb09`, `bj06`), as every response does. For a metal they work at
+    datasets, for a GGA functional such as PBE, for spinors, spin spirals,
+    DFT+U and `nosource`, and for a potential-only meta-GGA (`tb09`, `bj06`), as
+    every response does. A norm-conserving dataset with a nonlinear core
+    correction works. The GGA error is there with and without spin, because with
+    a GGA the result at $\mathbf q$ was wrong by tens of cm$^{-1}$, so you use an
+    LDA functional. With the LDA they work for `nspin = 2` in an insulator, which
+    we checked on a magnetic hydrogen chain against the same chain doubled, at
+    $\Gamma$. A spin-polarized metal gives an error, and so does `nspin = 2`
+    together with a nonlinear core correction, because we have not checked the
+    two together. With `nspin = 2` they also give an error when the run walks the
+    k-points in chunks, as the phonons at $\Gamma$ do, and the electron-phonon
+    coupling works only for `nspin = 1`. For a metal they work at
     $\mathbf q = 0$, where the Fermi level moves and the code moves it as `ph.x`
     does. At a reciprocal lattice vector other than zero they give an error, and
     you use $\mathbf q = 0$ instead. On the k-chunked route, which a GPU takes in
@@ -416,8 +425,17 @@ which we compute in the page about stress with `get_elastic_constants()`.
     With `nosym`, the dielectric constant, the Born charges, the phonons at
     $\Gamma$, the Raman tensors, the strain response and the electrostriction
     tensors need an unshifted k-mesh, and a shifted one gives an error,
-    because a shifted mesh does not have the symmetry of the crystal. The
-    phonons of a part of the atoms (`atoms=`) need `nosym`.
+    because a shifted mesh does not have the symmetry of the crystal.
+
+    With symmetry, the phonons of a part of the atoms (`atoms=`) need a set of
+    atoms that the symmetry operations map onto itself. For another set you get
+    an error, and it names the smallest such set that contains yours. With
+    `nosym` any set works. On a GPU in `memory_mode = 'memory'`, or with a
+    streamed wavefunction store, a part of the atoms with symmetry also gives an
+    error. Use `nosym` there, or a memory mode that holds the whole k-mesh. You
+    can also get the phonons of a part of the atoms from the response that the
+    Raman tensors keep (`keep_internals=True`). With `nosym` this works on the
+    k-chunked route too.
 
     The electron-phonon coupling gives an error for an insulator, where there
     are no states at the Fermi level, at $\mathbf q = 0$, and for everything

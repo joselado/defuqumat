@@ -91,6 +91,7 @@ from defuqumat.basis.fft import g_to_r, r_to_g
 from defuqumat.basis.interpolate import to_dense
 from defuqumat.batching import map_k
 from defuqumat.eager import compiled_function
+from defuqumat.scf.fields import FEEDBACK
 
 __all__ = ["POTENTIALS", "require_a_potential_mode", "propagate_self_consistent",
            "propagate_orders_self_consistent"]
@@ -113,6 +114,22 @@ def require_a_potential_mode(calculation, potential: str, symmetrise, density_sy
             "k + kappa(t), D(t) has to be rebuilt by newd from v(t) at every step, "
             "and PAW's one-centre D(t) from the one-centre densities. "
             "potential = 'frozen' runs")
+    field = getattr(calculation, "magnetic_field", None)
+    if field is not None and field.constraint != "none" and field.constraint not in FEEDBACK:
+        # A field put in by hand, a reducebf-scaled one and a feedback (fsm)
+        # field all have an energy linear in m, so their potential does not move
+        # with rho(t): it sits frozen inside v_scf and ``U`` leaves it out
+        # (``_Run``, ``field_scale = 0``). A penalty ``lambda (m - m0)^2`` is
+        # quadratic, and updating it in time would put its curvature, a
+        # restoring force on the moment whose stiffness is a convergence
+        # parameter, into the response. Whether the dynamics should carry it is
+        # a choice not taken here (notes/incompat/I64.md).
+        raise NotImplementedError(
+            f"the potential updated in time with constrained_magnetization = "
+            f"{field.constraint!r} is not implemented: the penalty lambda (m - m0)^2 "
+            "is quadratic in the moment, so updating it would put its stiffness, a "
+            "convergence parameter, into the response as a restoring force. "
+            "potential = 'frozen' runs, with the converged constraint field frozen")
     if potential == "hxc" and calculation.functional.is_meta:
         raise NotImplementedError(
             "the exchange-correlation potential updated in time is not implemented "
@@ -265,8 +282,14 @@ class _Run:
             return rho
 
         if potential == "hxc":
+            # ``field_scale = 0``: no applied field in ``U``. Its energy is
+            # linear in m, so its potential is the same at rho(t) as at rho0 and
+            # stays in ``v_scf`` at the converged strength; left in ``U`` at
+            # the input's it would cancel from ``v`` but not from the energy,
+            # whose ``E_U`` is ``ehart + etxc``. A penalty constraint, the one
+            # term that does move, is refused by ``require_a_potential_mode``.
             def field(rho):
-                result = calculation.potential(rho)
+                result = calculation.potential(rho, 0.0)
                 return result.v_scf, result.ehart + result.etxc
         else:
             def field(rho):

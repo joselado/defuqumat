@@ -853,8 +853,14 @@ class Calculator:
         pseudopotential code, so the two converged densities are different
         functions wherever there is a core; defuqumat's own SCF still runs on top.
         Passing an Elk density as a *fixed* density is refused
-        (:func:`defuqumat.io.elk_density.density_on`), as are a spin-polarized Elk
-        state, a spin spiral and a DFT+U one.
+        (:func:`defuqumat.io.elk_density.density_on`). A collinear spin-polarized
+        Elk state seeds an ``nspin = 2`` run, charge and magnetization; a
+        noncollinear one, and a spiral with it (``STATE.OUT`` does not mark
+        ``spinsprl``), a fixed spin moment state, a fixed tensor moment and a
+        spin-polarized DFT+U state are refused. An unpolarized DFT+U state seeds
+        with its density alone and a warning: ``STATE.OUT`` carries no occupation
+        matrix, so the Hubbard occupations start from this run's own
+        ``starting_ns``.
         """
         from defuqumat.io.elk import ElkState
 
@@ -2415,6 +2421,17 @@ class Calculator:
         return self._derived(self.system.with_moments(per_atom), seed=True,
                              magnetization=magnetization)
 
+    def with_turning_moments(self, turning: bool = True) -> "Calculator":
+        """A calculator whose group and k-set survive ``get_scf(rotate_moments=True)``.
+
+        See :meth:`~defuqumat.system.builder.System.with_turning_moments`: the
+        identity and the inversion are kept, with their translations, and the
+        k-points are rebuilt with them. The converged state crosses as a seed,
+        as it does through :meth:`with_kpoints`, since the crystal has not moved
+        and only the sampling has.
+        """
+        return self._derived(self.system.with_turning_moments(turning), seed=True)
+
     def _derived(self, system: System, *, seed: bool = False, scf=None,
                  magnetization: str = "auto", basis=None) -> "Calculator":
         """A calculator on ``system``, sharing this one's pseudos and options.
@@ -2674,10 +2691,14 @@ def _spinor_leg(spinor):
 
 #: The facade methods that run under k-point pools (:mod:`defuqumat.parallel`,
 #: ``DEFUQUMAT_POOLS``): the ground state, the force and the stress, which walk
-#: each pool's own k-points and reduce, and the relaxations built on them.
+#: each pool's own k-points and reduce, and the relaxations built on them; and
+#: the band structure, the NSCF run and the density of states, whose
+#: fixed-density solve walks each pool's own k-points and gathers the
+#: eigenvalues (:func:`~defuqumat.workflows.nscf.fixed_density_states`).
 #: Every other ``get_*`` refuses by name under pools rather than reading one
 #: pool's share of the wavefunctions as though it were the whole set.
-POOL_AWARE = frozenset({"get_scf", "get_forces", "get_stress", "get_relax"})
+POOL_AWARE = frozenset({"get_scf", "get_forces", "get_stress", "get_relax",
+                        "get_bands", "get_nscf", "get_dos"})
 
 
 def _refused_under_pools(name, method):

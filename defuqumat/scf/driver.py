@@ -113,7 +113,7 @@ from defuqumat.batching import (
 )
 from defuqumat.eager import compiled
 from defuqumat.scf.continuation import (
-    ContinuedState, continued_state, depolarize_tau,
+    ContinuedState, carried_tau, continued_state, depolarize_tau,
 )
 from defuqumat.parallel import PoolStore, current_pools, poll_stop
 from defuqumat.scf.streaming import (
@@ -136,6 +136,7 @@ from defuqumat.scf.mixing import (
     PRECONDITIONED,
     AndersonMixer,
     SphereLayout,
+    SpiralSphereLayout,
     get_mixer,
     kerker_preconditioner,
     kerker_preconditioner_g,
@@ -145,7 +146,8 @@ from defuqumat.scf.mixing import (
     ldos_preconditioner_g,
     resolve_mixing_space,
 )
-from defuqumat.scf.residual import make_residual
+from defuqumat.scf.residual import (PooledScfResidual, make_residual,
+                                    refuse_residual_occupations)
 from defuqumat.scf.robust import (CONDITION_LIMIT, CONDITION_LIMIT_RESTART,
                                   ROBUST_MODES, HamiltonianDamping, Supervisor,
                                   vacuum_fraction)
@@ -165,7 +167,7 @@ from defuqumat.scf.occupations import (
 )
 from defuqumat.scf.sawtooth import build_sawtooth, sawtooth_potential
 from defuqumat.scf.berryfield import BerryFieldSetup, require_a_berry_field_regime
-from defuqumat.scf.fields import (ATOM_RESOLVED, FADED_FIELD, FEEDBACK,
+from defuqumat.scf.fields import (ATOM_RESOLVED, DRIVEN_LEAVES, FADED_FIELD, FEEDBACK,
                                 FEEDBACK_ATOMIC, FSM_ANGLE_TOLERANCE,
                                 FSM_TOLERANCE, VANISHING_MOMENT, MagneticField,
                                 constraint_targets)
@@ -206,8 +208,10 @@ from defuqumat.system.symmetry import (
     atom_mapping,
     cartesian_rotations,
     magnetization_signs,
+    subset_atom_mapping,
     symmetry_maps,
     symmetrize_atom_displacement_density,
+    symmetrize_atom_displacement_spin_density,
     symmetrize_tensor_density,
     symmetrize_magnetization,
     symmetrize_spin_vector_density,
@@ -435,6 +439,72 @@ def _symmetrize(rho_r, fft_index, grid, maps):
     return jax.vmap(channel)(rho_r)
 
 
+def _require_a_spiral_wedge(system, symmetries, augmented: bool) -> None:
+    """Refuse a symmetrised spiral the spin space group was not written for.
+
+    Three regimes, each by name: an augmented dataset, whose ``becsum`` is
+    symmetrised as an axial vector (:mod:`defuqumat.paw.symmetry`) where a
+    spiral's is a scalar per component; DFT+U, whose occupation matrices are
+    turned the same way; and a k-set that is not the wedge of *this* group --
+    an explicit list, or a grid reduced with another group, which is what a
+    ``System`` built by ``dataclasses.replace`` from a non-spiral one carries.
+    The k-set is compared with the wedge the group gives on the same grid,
+    point by point and weight by weight, so a k-set that happens to equal it is
+    accepted, being exactly the one a reader-built spiral would have.
+    """
+    if augmented:
+        raise NotImplementedError(
+            "a spin spiral with an ultrasoft or PAW dataset needs nosym = .true.: "
+            "becsum is symmetrised as an axial vector, and a spiral's "
+            "rotated-frame becsum is permuted without turning"
+        )
+    if system.hubbard is not None:
+        raise NotImplementedError(
+            "a spin spiral with DFT+U needs nosym = .true.: the occupation "
+            "matrices are symmetrised with the spin turned with the lattice, "
+            "which the spin space group does not do"
+        )
+    if getattr(system, "lspinorb", False):
+        # The reader refuses this pair (``_spiral_q``); a ``System`` built
+        # without it reaches here at ``soc_scale = 0``, and the one use of such
+        # a spiral is ``spiral_spin_orbit_energy``, a wedge sum of a term that
+        # breaks the group.
+        raise NotImplementedError(
+            "a spin spiral with lspinorb = .true. needs nosym = .true.: the "
+            "spin space group the k-set is reduced with is not a symmetry of "
+            "the spin-orbit coupling that spiral_spin_orbit_energy adds on top"
+        )
+    kpoints = system.kpoints
+    if kpoints.grid is None:
+        raise NotImplementedError(
+            "a spin spiral with symmetry needs an automatic k-grid, or nosym = "
+            ".true.: an explicit list cannot be checked to be the wedge of the "
+            "spin space group"
+        )
+    wedge = KPoints.automatic(
+        kpoints.grid, kpoints.shift or (0, 0, 0), system.cell,
+        precision=kpoints.precision,
+        rotations=symmetries.rotation_array(), time_reversal=False,
+    )
+    ours = np.asarray(kpoints.crystal(system.cell))
+    theirs = np.asarray(wedge.crystal(system.cell))
+    same = ours.shape == theirs.shape and bool(
+        np.allclose(ours, theirs, atol=1.0e-8)
+        and np.allclose(np.asarray(kpoints.weights) / np.sum(kpoints.weights),
+                        np.asarray(wedge.weights) / np.sum(wedge.weights),
+                        atol=1.0e-12)
+    )
+    if not same:
+        raise NotImplementedError(
+            f"a spin spiral needs nosym = .true. or the k-set reduced with its "
+            f"spin space group: this one has {len(ours)} points where the "
+            f"{symmetries.nsym} operations that fix q = {tuple(system.spiral_q)} "
+            f"give {len(theirs)} -- built from a system that was not a spiral, "
+            f"or at another q -- and a k-set reduced with another group is "
+            f"the wrong wedge"
+        )
+
+
 @partial(jax.jit, static_argnames=("grid",))
 def _symmetrize_noncollinear(rho_r, fft_index, grid, maps, rotations):
     """``sym_rho``'s ``nspin = 4`` branch: a scalar and an axial vector field.
@@ -645,6 +715,21 @@ def _augmentation_of(calculation):
 
     return augmentation
 
+
+
+def _spiral_pair_index(calculation):
+    """``(pair_index, npair_smooth)``: where :class:`SpiralSphereLayout` keeps ``m'_+``.
+
+    The displaced dense list, its smooth prefix first, where the run built one
+    (:attr:`Calculation.spiral_dense`); otherwise the whole box in its own
+    order, every coefficient of it kept, since there the density's transverse
+    pair is not cut in G anywhere and may fill the box.
+    """
+    if calculation.spiral_dense is not None:
+        index = np.asarray(calculation.spiral_dense.fft_index)
+        return index, int(calculation.spiral_smooth.ngm)
+    points = int(np.prod(calculation.basis.dense.grid))
+    return np.arange(points), points
 
 
 def _mix(mixer, rho, rho_out, becsum_in, becsum_out, ns_in=None, ns_out=None,
@@ -1310,7 +1395,8 @@ def _warn_if_the_field_did_not_fade(field, field_scale, converged, e_field) -> N
         f"of a functional that includes the field. Lower reducebf, or raise "
         f"electron_maxstep so the decay has iterations to work in; "
         f"SCFResult.field_scale and .field_energy are what this density belongs "
-        f"to, and every response entry point refuses such a state by name",
+        f"to; the Sternheimer response refuses such a state by name, and the "
+        f"real-time entry points take the pair",
         RuntimeWarning,
         stacklevel=2,
     )
@@ -2879,22 +2965,14 @@ class Calculation:
         self.use_symmetry = bool(not system.nosym and self.symmetries.nsym > 1)
         use_symmetry = self.use_symmetry
         if self.spiral and use_symmetry:
-            # The reader refuses this pair too (``_spiral_q``), but a ``System``
-            # can be built without going through it -- directly, or through the
+            # The spin space group (:func:`~defuqumat.system.spiral.spiral_symmetries`)
+            # is what :attr:`symmetries` is for a spiral, but a ``System`` can
+            # reach here without the reader -- directly, or through the
             # ``dataclasses.replace`` that ``at_spiral_q`` and
-            # ``workflows/spiral`` use -- and then nothing else here looks at the
-            # combination. Symmetrising a spiral averages the rotated-frame
-            # magnetization over operations of the *crystal* point group, which
-            # are not symmetries of the spiral, and reduces the k-set to the same
-            # wrong wedge; the run converges and reports an energy that is
-            # silently wrong. The spin space group is what would make it right.
-            raise NotImplementedError(
-                "a spin spiral needs nosym = .true.: the symmetry group here is "
-                "the crystal's, and an operation that is a symmetry of the "
-                "lattice need not be one of the spiral -- the spin space group "
-                "is not implemented, so the density symmetrisation and the "
-                "k-point reduction would both be wrong"
-            )
+            # ``workflows/spiral`` use -- carrying a k-set reduced with some
+            # other group, and the regimes the group was not written for are
+            # refused by name.
+            _require_a_spiral_wedge(system, self.symmetries, self.is_ultrasoft)
         if self.spiral and self.lspinorb and float(system.soc_scale) != 0.0:
             # The reader refuses this pair too (``_spiral_q``), and for the
             # reason the ``nosym`` check above gives a ``System`` can reach here
@@ -2946,11 +3024,8 @@ class Calculation:
         # The axial-vector rotations, signs folded in, that the magnetization
         # needs and the charge does not.
         self._magnetization_rotations = (
-            jnp.asarray(
-                magnetization_signs(system.cell, self.symmetries)[:, None, None]
-                * cartesian_rotations(system.cell, self.symmetries)
-            )
-            if use_symmetry and self.nspin_mag == 4 else None
+            jnp.asarray(self._spin_rotations()) if use_symmetry and self.nspin_mag == 4
+            else None
         )
         # The projector occupations of every augmented species get the group
         # average -- see defuqumat.paw.symmetry: PAW needs it for the one-centre
@@ -4565,6 +4640,17 @@ class Calculation:
                 "at_spiral_q needs a calculation that is already a spiral: "
                 "spiral_q decides the basis, which is built once"
             )
+        if self.use_symmetry:
+            # The group is the stabiliser of *this* q, so another q has another
+            # group and another wedge; and ``dE/dq`` on a wedge is a vector in
+            # q-space that the group's completion would have to finish, which
+            # ``forces/spiral.py`` does not (its ``finish_becsum`` is the
+            # identity a ``nosym`` run gives).
+            raise NotImplementedError(
+                "at_spiral_q needs nosym = .true.: this spiral's k-set is reduced "
+                "with the operations that fix its own q, which are not those of "
+                "another q, and dE/dq on that wedge is not completed by the group"
+            )
         if widths is not None and not rebuild_basis:
             raise ValueError(
                 "at_spiral_q pads a rebuilt basis to widths; with "
@@ -5109,6 +5195,23 @@ class Calculation:
         nk = self.system.kpoints.nk
         return jnp.concatenate([self.kinetic[:nk], self.kinetic[nk:]], axis=-1)
 
+    def _spin_rotations(self) -> np.ndarray:
+        """``(nsym, 3, 3)``: what each operation does to the magnetization's components.
+
+        ``det(S) (-1)^t_rev S`` -- an axial vector -- in every noncollinear run
+        but a spiral, and the **identity** in a spiral: there the operation of
+        the spin space group carries the laboratory spin rotation
+        ``Rot_z(q . f)``, which the spiral's own phase cancels on the
+        rotated-frame components the SCF holds, so each is permuted as a scalar
+        (:mod:`defuqumat.system.spiral`). One place for the rule, read by the
+        density's symmetriser and by :meth:`symmetrize_directional`.
+        """
+        rotations = cartesian_rotations(self.system.cell, self.symmetries)
+        if self.spiral:
+            return np.broadcast_to(np.eye(3), rotations.shape).copy()
+        return (magnetization_signs(self.system.cell, self.symmetries)[:, None, None]
+                * rotations)
+
     def symmetrize(self, rho_r: jnp.ndarray) -> jnp.ndarray:
         """Impose the crystal symmetry on a real-space density."""
         if self._symmetry_maps is None:
@@ -5252,16 +5355,13 @@ class Calculation:
         if self.nspin_mag != 4:
             return jnp.moveaxis(jnp.stack([channel(c) for c in moved]), 0, 1)
 
-        signs = jnp.asarray(
-            magnetization_signs(self.system.cell, self.symmetries)
-        )
         charge = channel(moved[0])
         # ``(3 directions, 3 spin components, ngm)``: the magnetization block,
         # with both indices live.
         block = jnp.stack([to_g(moved[i]) for i in (1, 2, 3)], axis=1)
         rotated = symmetrize_spin_vector_density(
             block, permutations, phases, rotations,
-            signs[:, None, None] * rotations,
+            jnp.asarray(self._spin_rotations()),
         )
         magnetization = jnp.stack([to_r(rotated[:, i]) for i in range(3)])
         return jnp.moveaxis(
@@ -5290,7 +5390,7 @@ class Calculation:
             atom_mapping(self.system.cell, self.system.structure, self.symmetries),
         ))
 
-    def symmetrize_atom_pair_tensor(self, tensors) -> np.ndarray:
+    def symmetrize_atom_pair_tensor(self, tensors, atoms=None) -> np.ndarray:
         """``symdynph_gq`` at ``q = 0``: the force constants' two atom indices.
 
         The companion of :meth:`symmetrize_atom_displacement` and **not** its
@@ -5299,15 +5399,24 @@ class Calculation:
         (``PLAN.md`` P28a, and the docstrings of both functions in
         :mod:`defuqumat.system.symmetry`). Guarded on :attr:`use_symmetry` for
         the reason :meth:`symmetrize_atom_tensor` is.
+
+        ``atoms``: the tensor is the ``(len(atoms), 3, len(atoms), 3)`` block of
+        a subset, which must be a union of orbits; the average over the group
+        then reads only entries inside the block, so it is the whole matrix's
+        average restricted to it, exactly.
         """
-        from defuqumat.system.symmetry import atom_mapping, symmetrize_atom_pair_tensor
+        from defuqumat.system.symmetry import (
+            atom_mapping, subset_atom_mapping, symmetrize_atom_pair_tensor,
+        )
 
         tensors = np.asarray(tensors)
         if not self.use_symmetry:
             return tensors
+        mapping = atom_mapping(self.system.cell, self.system.structure, self.symmetries)
+        if atoms is not None:
+            mapping = subset_atom_mapping(mapping, atoms)
         return np.asarray(symmetrize_atom_pair_tensor(
-            tensors, self.system.cell, self.symmetries,
-            atom_mapping(self.system.cell, self.system.structure, self.symmetries),
+            tensors, self.system.cell, self.symmetries, mapping,
         ))
 
     def symmetrize_cartesian_tensor(self, tensor) -> np.ndarray:
@@ -5354,7 +5463,8 @@ class Calculation:
             atom_mapping(self.system.cell, self.system.structure, self.symmetries),
         ))
 
-    def symmetrize_atom_displacement(self, fields: jnp.ndarray) -> jnp.ndarray:
+    def symmetrize_atom_displacement(self, fields: jnp.ndarray,
+                                     atoms=None) -> jnp.ndarray:
         """:meth:`symmetrize_directional` for the ``3 nat`` displacement patterns.
 
         ``LR_Modules/symdvscf.f90`` at ``q = 0``, for the *phonon* perturbation
@@ -5365,37 +5475,42 @@ class Calculation:
         On diamond silicon the operations that exchange the two sublattices are
         half the group.
 
-        **Refused for a spinor with a magnetization**, and it is the same
-        landmine :meth:`symmetrize_directional` carries: at ``nspin_mag = 4``
-        three of the channels below are the magnetization and are an **axial**
-        vector, so they rotate with ``det(R) (-1)^t_rev`` beside the atom
-        permutation and the polar rotation of the displacement. The fix is
-        :func:`~defuqumat.system.symmetry.symmetrize_spin_vector_density`'s double
-        rotation with one more index; what it does not have is a number, and a
-        symmetriser that has never been checked against the whole zone is worse
-        than a refusal -- the wrong rotation there was measured at **66 per
-        cent** on the response's own version of this method, and worse than
-        leaving the wedge sum alone (``PLAN.md`` P81).
+        **A spinor with a magnetization** (I79): at ``nspin_mag = 4`` three of
+        the channels are the magnetization and are an **axial** vector, so they
+        rotate with ``det(R) (-1)^t_rev`` beside the atom permutation and the
+        polar rotation of the displacement
+        (:func:`~defuqumat.system.symmetry.symmetrize_atom_displacement_spin_density`),
+        while the charge channel takes the scalar rule above. Rotating the
+        magnetization as three scalars was measured at 66 per cent on the
+        field-direction version of this method (``PLAN.md`` P81), which is why
+        the double rotation is not optional. Summed over the displaced atom it
+        equals :meth:`symmetrize_directional` to 7.1e-15 on the helix
+        ``h4-cycloid-90``, and that method's axial rule is checked against the
+        whole zone on the same helix; it is a projector, and its walked form
+        equals the batched one (``tests/unit/test_magnetic_displacement_symmetry.py``).
+        The wedge of a whole dynamical matrix against the whole zone is not yet
+        measured (``notes/incompat/I79.md``).
 
         Args:
-            fields: ``(nat, 3, nspin_mag, n1, n2, n3)`` real, on the dense grid.
+            fields: ``(nat, 3, nspin_mag, n1, n2, n3)`` real, on the dense grid,
+                or ``(len(atoms), 3, ...)`` for a subset.
+            atoms: the displaced atoms when they are a subset of the cell. It
+                must be a union of orbits (:func:`~defuqumat.system.symmetry.
+                subset_atom_mapping`): the average for ``drho_{a,i}`` reads
+                ``drho_{S^-1(a),j}`` for every operation of the group the wedge
+                was reduced by, so a subset the group carries outside itself
+                has nothing to read there.
         """
         if self._symmetry_maps is None:
             return fields
-        if self.nspin_mag == 4:
-            raise NotImplementedError(
-                "a noncollinear displacement response cannot be symmetrised "
-                "yet: its three magnetization channels are an axial vector and "
-                "carry det(R) and the time-reversal sign, which this average "
-                "does not apply. Run the whole k-grid (nosym), which for a "
-                "genuine texture is usually a small group anyway"
-            )
         gvectors = self.basis.dense
         permutations, phases = self._symmetry_maps
         rotations = jnp.asarray(cartesian_rotations(self.system.cell, self.symmetries))
         mapping = atom_mapping(
             self.system.cell, self.system.structure, self.symmetries
         )
+        if atoms is not None:
+            mapping = subset_atom_mapping(mapping, atoms)
 
         def channel(patterns):
             """``patterns``: (nat, 3, n1, n2, n3) for one spin channel."""
@@ -5413,7 +5528,37 @@ class Calculation:
             return back.reshape(patterns.shape)
 
         moved = jnp.moveaxis(jnp.asarray(fields), 2, 0)  # (nspin, nat, 3, ...)
-        return jnp.moveaxis(jnp.stack([channel(c) for c in moved]), 0, 2)
+        if self.nspin_mag != 4:
+            return jnp.moveaxis(jnp.stack([channel(c) for c in moved]), 0, 2)
+
+        rotated_spin = (
+            jnp.asarray(magnetization_signs(self.system.cell, self.symmetries))
+            [:, None, None] * rotations
+        )
+        nat, ncart = moved.shape[1:3]
+        charge = channel(moved[0])
+        # ``(nat, 3 directions, 3 spin components, ngm)``: the magnetization
+        # block with every index live.
+        block = jnp.stack([
+            jnp.stack([r_to_g(f, gvectors.fft_index)
+                       for f in moved[1 + i].reshape((nat * ncart,)
+                                                     + moved.shape[3:])])
+            .reshape((nat, ncart, -1))
+            for i in range(3)
+        ], axis=2)
+        out_g = symmetrize_atom_displacement_spin_density(
+            block, permutations, phases, rotations, rotated_spin, mapping,
+        )
+        magnetization = jnp.stack([
+            jnp.stack([
+                jnp.real(g_to_r(component, gvectors.fft_index, gvectors.grid))
+                for component in out_g[:, :, i].reshape((nat * ncart, -1))
+            ]).reshape(charge.shape)
+            for i in range(3)
+        ])
+        return jnp.moveaxis(
+            jnp.concatenate([charge[None], magnetization], axis=0), 0, 2
+        )
 
     def symmetrize_strain_response(self, fields: jnp.ndarray) -> jnp.ndarray:
         """:meth:`symmetrize_directional` for the nine **strain** perturbations.
@@ -5491,19 +5636,41 @@ class Calculation:
         derivatives go negative, and :func:`~defuqumat.scf.mixing.ldos_preconditioner`
         needs ``D >= 0``. Each channel at its own level when the magnetization is
         constrained (``two_fermi_energies``). ``None`` where there are no states
-        at the Fermi level to weight: fixed occupations and ``from_input``. A
-        tetrahedron run has no width to build the delta with and is refused.
+        at the Fermi level to weight: fixed occupations and ``from_input``.
+
+        **Tetrahedra take their own delta**, ``d wg_nk / d e_F``
+        (:func:`~defuqumat.scf.tetrahedra.tetrahedron_fermi_weights`), with no
+        width and no ``w_k`` factor, since the tetrahedra carry the zone
+        measure. Its sum over states is the tetrahedron DOS at ``e_F`` exactly,
+        and it is signed (Bloechl's correction, Kawamura's ``wlsm``), which the
+        preconditioner's clamp to ``D >= 0`` deals with and records
+        (``LDOSPreconditioner.clamped``).
         """
         scheme = self.system.occupations
         if scheme in ("fixed", "from_input"):
             return None
-        if scheme.startswith("tetrahedra"):
-            raise NotImplementedError(
-                "the LDOS at the Fermi level needs a smooth delta, and the tetrahedron "
-                "method has none; run_scf refuses mixing_mode = 'ldos' with it")
-        sigma = max(float(self.system.degauss), mixing_module.LDOS_SIGMA_MIN)
         eigenvalues = jnp.asarray(eigenvalues)
-        if eigenvalues.shape[0] == 2 and "fermi_energy_up" in levels:
+        two_levels = eigenvalues.shape[0] == 2 and "fermi_energy_up" in levels
+        if scheme.startswith("tetrahedra"):
+            from defuqumat.scf.tetrahedra import tetrahedron_fermi_weights
+
+            if getattr(self, "_tetrahedra", None) is None:
+                # The same construction as :meth:`occupations`, which is where
+                # the attribute is normally filled.
+                self._tetrahedra = tetrahedra_for(
+                    scheme, self.system.kpoints, self.symmetries,
+                    self.system.cell, self.system.grid_symmetry()
+                )
+            weights = jnp.asarray(self.system.kpoints.weights)
+            channel_levels = (
+                (levels["fermi_energy_up"], levels["fermi_energy_down"]) if two_levels
+                else (levels["fermi_energy"],) * eigenvalues.shape[0])
+            return jnp.stack([
+                tetrahedron_fermi_weights(self._tetrahedra, channel, weights, level)
+                for channel, level in zip(eigenvalues, channel_levels)
+            ])
+        sigma = max(float(self.system.degauss), mixing_module.LDOS_SIGMA_MIN)
+        if two_levels:
             level = jnp.asarray([levels["fermi_energy_up"],
                                  levels["fermi_energy_down"]])[:, None, None]
         else:
@@ -6212,9 +6379,12 @@ class Calculation:
             if isinstance(span, PoolStore):
                 # **A k-point pool's span is addressed by position, not by
                 # row.** Its array holds the rows ``span.rows`` names, so the
-                # global rows asked for are looked up there; a row it does not
-                # hold is a seed from a different pool layout, refused rather
-                # than read from the wrong k-point.
+                # global rows asked for are looked up there. Under pools
+                # ``run_scf`` has already moved the rows into this run's layout
+                # (``Pools.redistribute``), so a row it does not hold here is a
+                # pool's share handed to a caller with no transport to the other
+                # pools (one process, or this method called directly), refused
+                # rather than read from the wrong k-point.
                 if span.nk != nk or span.array.shape[-1] != expected:
                     raise ValueError(
                         f"a pool's span of {span.nk} k-points and "
@@ -6227,8 +6397,10 @@ class Calculation:
                     raise NotImplementedError(
                         f"the seed's states were held by a different k-point pool "
                         f"layout: this pool needs rows {missing_rows} and the seed "
-                        f"holds {span.rows[0]} to {span.rows[-1]}; run with the "
-                        f"seed's pool count, or seed from the density alone")
+                        f"holds {span.rows[0]} to {span.rows[-1]}, and only "
+                        f"run_scf under k-point pools moves rows between pools; "
+                        f"seed a pooled run_scf with it, or seed from the density "
+                        f"alone")
                 span = span.array[..., [where[int(row)] for row in wanted], :, :]
                 held, sliced = len(wanted), True
             if np.shape(span)[-1] != expected or np.shape(span)[-3] != held:
@@ -6435,6 +6607,28 @@ class Calculation:
         """
         return self.system.two_fermi_energies
 
+    def tetrahedron_table(self):
+        """The tetrahedra of this run's k-grid, built once and kept.
+
+        A property of the k-grid and the symmetry, not of the density, so it is
+        host-side integer work done at the first call and a constant of every
+        compiled path after it. Shared by :meth:`occupations` and the residual
+        solver's ``_weights`` (``scf/residual.py``), so the two cannot build
+        different tables.
+        """
+        if getattr(self, "_tetrahedra", None) is None:
+            # **The triple, not the rotations alone.** The corners are
+            # looked up in the list the k-set was reduced to, so the
+            # tetrahedra have to be built with the group that reduced it --
+            # under ``nosym`` the run diagonalises the complete grid while
+            # the corners were folded onto half of it, and the Fermi level
+            # this scheme produces comes off the wrong points.
+            self._tetrahedra = tetrahedra_for(
+                self.system.occupations, self.system.kpoints, self.symmetries,
+                self.system.cell, self.system.grid_symmetry()
+            )
+        return self._tetrahedra
+
     def occupations(self, eigenvalues):
         """Occupation weights, plus whichever level statistic applies.
 
@@ -6494,20 +6688,10 @@ class Calculation:
             # of the density, so they are built once and kept. There is no
             # ``-TS`` term: the method integrates the true step function, which
             # is why QE prints no "smearing contrib." for a tetrahedron run.
-            if getattr(self, "_tetrahedra", None) is None:
-                # **The triple, not the rotations alone.** The corners are
-                # looked up in the list the k-set was reduced to, so the
-                # tetrahedra have to be built with the group that reduced it --
-                # under ``nosym`` the run diagonalises the complete grid while
-                # the corners were folded onto half of it, and the Fermi level
-                # this scheme produces comes off the wrong points.
-                self._tetrahedra = tetrahedra_for(
-                    scheme, self.system.kpoints, self.symmetries,
-                    self.system.cell, self.system.grid_symmetry()
-                )
             counts = (self.nelup, self.neldw) if self.two_fermi_energies else None
             wg, ef = tetrahedron_occupations_spin(
-                self._tetrahedra, eigenvalues, weights, self.nelec, counts=counts
+                self.tetrahedron_table(), eigenvalues, weights, self.nelec,
+                counts=counts,
             )
             if counts is None:
                 return wg, {"fermi_energy": float(ef)}
@@ -6564,6 +6748,9 @@ def _result_for_stress(calculation, eigenvalues, wg, wavefunctions, rho, terms):
 #: when one directory is given to both.
 SCF_CHECKPOINT = "scf_iteration.npz"
 SCF_MIXER = "scf_mixer.npz"
+#: ``mixing_mode = 'robust'``'s supervisor, written beside the two above only by
+#: a robust run (:func:`~defuqumat.scf.checkpoint.save_supervisor`).
+SCF_SUPERVISOR = "scf_supervisor.npz"
 
 
 class _InProgressState:
@@ -6639,7 +6826,27 @@ class _InProgressState:
         self.hubbard_setup = None
 
 
-def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
+def _write_supervisor(directory, robust, mixer, iteration) -> None:
+    """The robust mode's supervisor beside the mixer, or no stale one.
+
+    ``robust`` is ``(supervisor, damping, hamiltonian_in)``, or ``None`` for a
+    run in another mode, which removes a supervisor file a robust run left in
+    the same directory: a later robust resume would otherwise pour another
+    run's line search into its own (the iteration stamp catches a resume from
+    the checkpoint, not a ``mixing_from`` alone).
+    """
+    from defuqumat.scf.checkpoint import save_supervisor
+
+    path = Path(directory) / SCF_SUPERVISOR
+    if robust is None:
+        path.unlink(missing_ok=True)
+        return
+    supervisor, damping, hamiltonian_in = robust
+    save_supervisor(path, supervisor, damping, hamiltonian_in, mixer, iteration)
+
+
+def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None,
+                      robust=None):
     """One checkpoint: the state and the mixer's history, beside each other.
 
     **Both, or neither is worth writing.** A resume that restores the density
@@ -6652,20 +6859,25 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
     cadence and never every iteration. Failures are reported and do not stop the
     run: a full disk should cost the checkpoint, not the calculation that has
     been running for six hours.
+
+    Under ``mixing_mode = 'robust'`` the supervisor is the third part
+    (``robust``, see :func:`_write_supervisor`), since the next input is a
+    fraction of a step the supervisor holds and the mixer does not.
     """
     from defuqumat.scf.checkpoint import save_mixer, save_state
 
     directory = Path(directory)
     if isinstance(state.wavefunctions, PoolStore):
         return _write_pooled_checkpoint(directory, state, mixer, iteration,
-                                        verbose, pools)
+                                        verbose, pools, robust)
     try:
         save_state(state, directory / SCF_CHECKPOINT)
         save_mixer(mixer, directory / SCF_MIXER)
+        _write_supervisor(directory, robust, mixer, iteration)
     except NotImplementedError as refused:
-        # ``reducebf`` and the fixed-spin-moment feedback change the field
-        # between iterations, and ``save_state`` refuses to write a state whose
-        # field is not the input's rather than write a lossy one. Say it once
+        # ``save_state`` refuses a state it cannot write whole rather than
+        # write a lossy one (``checkpoint._refusal``; a fixed-spin-moment
+        # run's driven field was refused here until I65 wrote it). Say it once
         # and stop trying, instead of once per cadence for the rest of the run.
         if verbose:
             print(f"  checkpointing is off for this run: {refused}")
@@ -6679,11 +6891,94 @@ def _write_checkpoint(directory, state, mixer, iteration, verbose, pools=None):
     return True
 
 
+def _warn_unconverged_hand_over(solver_result, conv_thr) -> None:
+    """Say so when Newton stops short under a feedback field and the loop takes over.
+
+    The mixing loop after the solve stops when the density is below
+    ``conv_thr`` *and* the moment is within :data:`FSM_TOLERANCE` (mu_B) of its
+    target, :data:`FSM_ANGLE_TOLERANCE` (degrees) for ``'atomic fsm
+    direction'``. A Newton state handed over with the density converged and the
+    moment 1e-8 mu_B off passes both in one iteration, so ``SCFResult.converged``
+    reads True while the reported total, which leaves the Zeeman term out, is
+    off by about ``B . dm`` to first order: measured 1e-10 to 2.5e-9 Ry on the
+    canted iron pair at a budget of 40 outer steps, and 1.8e-11 Ry on
+    ``fe-fsm.in`` with the solver's default options (``notes/incompat/I73.md``,
+    "The feedback field"). The field share of the accuracy bounds that error,
+    so it is the number named. Silent when Newton converged or carried no
+    feedback field: without one the loop's own test is the density's, which is
+    ``conv_thr`` itself.
+    """
+    field = getattr(solver_result, "field", None)
+    if field is None or solver_result.converged:
+        return
+    scheme = field.constraint
+    tolerance = (f"{FSM_ANGLE_TOLERANCE} degrees" if scheme == "atomic fsm direction"
+                 else f"{FSM_TOLERANCE} Bohr magnetons")
+    share = float(getattr(solver_result, "field_accuracy", 0.0))
+    warnings.warn(
+        f"the Newton-Krylov solver stopped without converging under "
+        f"constrained_magnetization = {scheme!r}: accuracy = "
+        f"{float(solver_result.accuracy):.3e} Ry against conv_thr = {conv_thr:.3e} "
+        f"after {solver_result.iterations} outer steps, of which the feedback "
+        f"field's share |dm| (|B| + lambda |dm|) is {share:.3e} Ry. The mixing loop "
+        f"takes over and accepts the field once the moment is within {tolerance} "
+        "of its target, so SCFResult.converged can read True while the total "
+        f"energy is off by up to about {share:.1e} Ry (it leaves the Zeeman term "
+        "out, and B . dm is its first-order error). Raise "
+        "scf_solver_options['max_iterations'] (the canted iron pair needed 60 to "
+        "63 outer steps at conv_thr = 1e-11 with forcing 0.5 and warmup 6), or use "
+        "the mixing loop (scf_solver='mixing')",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+
+
 def _solve_residual(
     calculation, system, nbnd, rho, becsum_, ns_, conv_thr,
     scf_solver, options, mixing_beta, verbose, tau_=None, fit_in_rho_ddot=None,
+    pools=None, pool_rows=None, pool_layout=None, field=None,
+):
+    """:func:`_solve_residual_body`, and under k-point pools its protocol's ends.
+
+    With pools the residual is a :class:`~defuqumat.scf.residual.PooledScfResidual`:
+    rank 0 runs the solver and the others serve its evaluations of ``F``, so
+    rank 0 has to release them, with the result when the solve returns
+    (``finish``, after which its ``psi`` is the pool's store rather than a
+    token) and with an abort when it raises, or they would wait at the next
+    collective until the heartbeat took them down.
+    """
+    holder = {}
+    try:
+        out = _solve_residual_body(
+            calculation, system, nbnd, rho, becsum_, ns_, conv_thr, scf_solver,
+            options, mixing_beta, verbose, tau_, fit_in_rho_ddot,
+            pools=pools, pool_rows=pool_rows, pool_layout=pool_layout,
+            holder=holder, field=field,
+        )
+    except BaseException:
+        residual = holder.get("residual")
+        if isinstance(residual, PooledScfResidual) and residual.pools.rank == 0:
+            residual.abort()
+        raise
+    residual = holder.get("residual")
+    if isinstance(residual, PooledScfResidual) and residual.pools.rank == 0:
+        result = out[-1]
+        residual.finish(result)
+        out = out[:4] + (result.psi, result)
+    return out
+
+
+def _solve_residual_body(
+    calculation, system, nbnd, rho, becsum_, ns_, conv_thr,
+    scf_solver, options, mixing_beta, verbose, tau_=None, fit_in_rho_ddot=None,
+    *, pools=None, pool_rows=None, pool_layout=None, holder=None, field=None,
 ):
     """Find the fixed point with a residual solver, before the mixing loop runs.
+
+    ``field`` is the loop's starting field. Under a feedback (fixed-spin-moment)
+    constraint its driven leaf is part of the solved state, and the solved
+    field comes back on the result as ``result.field`` for the loop to carry on
+    from (I73).
 
     Returns the converged state in the loop's own variables, plus the solver's
     own record of what it cost.
@@ -6724,7 +7019,17 @@ def _solve_residual(
     precondition = options.pop("precondition", None)
     wavefunctions = None
 
-    residual = make_residual(calculation, nbnd, ethr)
+    residual = make_residual(calculation, nbnd, ethr, field=field)
+    if pools is not None and pools.size > 1:
+        # Rank 0 solves and the other pools serve its evaluations of ``F``
+        # (``PooledScfResidual``); everything below this block is rank 0's.
+        residual = PooledScfResidual.of(residual, pools, pool_rows, pool_layout)
+        if pools.rank != 0:
+            result = residual.serve()
+            rho_out, becsum_out, ns_out, tau_out = residual.unpack(result.x)
+            return rho_out, becsum_out, ns_out, tau_out, result.psi, result
+    if holder is not None:
+        holder["residual"] = residual
     x0 = residual.pack(
         rho, becsum_, ns_,
         None if residual.tau_shape is None
@@ -6743,7 +7048,9 @@ def _solve_residual(
     shape = residual.shapes[0]
     size = int(np.prod(shape))
 
-    def accuracy_of(r):
+    last_field_share = [0.0]
+
+    def accuracy_of(r, x):
         """The mixing loop's own convergence measure, so ``conv_thr`` means one
         thing in this file.
 
@@ -6787,7 +7094,16 @@ def _solve_residual(
                 jnp.asarray(residual.unpack(r)[3]),
                 calculation.basis.dense, calculation.system.cell,
             )
-        return float(accuracy)
+        # The feedback field's share, ``|dm| (|B| + tau |dm|)`` with ``B``
+        # the field ``x`` holds (I73): a bound on the first-order error of the
+        # reported total, which leaves the Zeeman term out. Zero without a
+        # feedback scheme. Last, as the field is last in the state. The last
+        # value is kept: ``newton_krylov`` calls this on each accepted state and
+        # on nothing else, so it is the share at the state it returns, which
+        # ``run_scf`` names when an unconverged solve is handed over.
+        field_share = residual.field_accuracy(r, x)
+        last_field_share[0] = field_share
+        return float(accuracy) + field_share
 
     if warmup:
         # Ordinary mixing, run through the *residual's* own step so that the
@@ -6796,13 +7112,31 @@ def _solve_residual(
         # a bad one, and the superposition of atomic charges is a bad one for
         # exactly the systems this solver is worth using on.
         warmup_mixing = options.pop("warmup_mixing", "kerker")
-        if warmup_mixing.lower() in LDOS_DEPENDENT:
-            raise ValueError(
-                "warmup_mixing = 'ldos' is not implemented: the Newton-Krylov "
-                "warm-up has no LDOS to hand the preconditioner, and without one it "
-                "would run plain anderson under the name. Use 'kerker' or 'anderson'"
+        warm_ldos = warmup_mixing.lower() in LDOS_DEPENDENT
+        if warm_ldos and calculation.system.occupations.startswith("tetrahedra"):
+            # Each piece is measured on its own: Newton-Krylov with tetrahedra
+            # (I71, against pw.x) and the LDOS warm-up under a smearing and the
+            # LDOS mixing loop with tetrahedra (I75). The warm-up's tetrahedron
+            # LDOS in front of a Newton solve, the three together, is not.
+            raise NotImplementedError(
+                f"warmup_mixing={warmup_mixing!r} with "
+                f"occupations={calculation.system.occupations!r} is not "
+                "measured: a residual solver takes tetrahedra (I71) and the "
+                "LDOS warm-up runs under a smearing (I75), but the tetrahedron "
+                "LDOS as a Newton warm-up has not been checked; use "
+                "warmup_mixing='kerker' or 'anderson' with tetrahedra"
             )
         warm_mixer = get_mixer(warmup_mixing, beta=mixing_beta)
+        if warm_ldos:
+            # Herbst and Levitt's preconditioner at ``mixing_beta``, handed the
+            # LDOS at the Fermi level of each warm-up step's own states below.
+            # Real space, as the residual is: ``residual.shapes[0]`` is the
+            # dense-grid density. Without an LDOS it would be plain anderson
+            # under the name, which is why this was refused until I75.
+            warm_mixer.precondition = ldos_preconditioner(
+                calculation.basis.dense, calculation.system.cell, residual.shapes[0],
+                beta=warm_mixer.beta,
+            )
         if warmup_mixing.lower() in PRECONDITIONED:
             # Its own preconditioner at ``mixing_beta``, *not* the Krylov
             # system's, which is built at beta = 1 because a preconditioner for
@@ -6827,7 +7161,19 @@ def _solve_residual(
                        if (RHO_DDOT_FIT if fit_in_rho_ddot is None else fit_in_rho_ddot)
                        and isinstance(warm_mixer, AndersonMixer) else None)
         for _ in range(warmup):
-            fx, wavefunctions = residual.step(x0, wavefunctions)
+            fx, wavefunctions, eigenvalues = residual.step_states(x0, wavefunctions)
+            if warm_ldos:
+                # One more density pass a warm-up step, with ``w_k delta(e_F -
+                # e_nk)`` in place of the occupations (``ldos_weights``); zero,
+                # and so the plain step, where there are no states at ``e_F``.
+                # Tetrahedra never reach here: refused above.
+                _, levels = calculation.occupations(eigenvalues)
+                weights_at_ef = calculation.ldos_weights(eigenvalues, levels)
+                warm_mixer.precondition.update_ldos(
+                    jnp.zeros(int(np.prod(calculation.basis.dense.grid)))
+                    if weights_at_ef is None else
+                    calculation.charge_channel(
+                        calculation.density(wavefunctions, weights_at_ef)))
             fit = None
             if warm_metric is not None:
                 # The residual's own layout, unpacked: ``unpack`` is linear, so
@@ -6846,6 +7192,8 @@ def _solve_residual(
         residual, x0, wavefunctions, accuracy_of, conv_thr=conv_thr,
         precondition=precondition, verbose=verbose, **options,
     )
+    result.field = residual.field_at(result.x)
+    result.field_accuracy = float(last_field_share[0])
     rho_out, becsum_out, ns_out, tau_out = residual.unpack(result.x)
     return rho_out, becsum_out, ns_out, tau_out, result.psi, result
 
@@ -7019,15 +7367,54 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
             "field holds the orientation the step is moving, and the fixed point "
             "would belong to a different functional"
         )
-    if not calculation.system.nosym:
+    # **A symmetric run is taken on the group that constrains nothing** (I78):
+    # the identity and the inversion with their translations, the only
+    # operations whose action on an axial vector commutes with every global
+    # spin rotation, so they hold for any orientation the run could reach.
+    # ``with_turning_moments`` rebuilds the k-set with that group. The starting
+    # orientation's magnetic group is *not* broken by the run: the stepper
+    # builds every rotation from the torque and its BFGS inverse Hessian, both
+    # invariant under that group (``scf/orientation.py:propose``, with
+    # ``flat_curvature`` off), so each turn commutes with it and its wedge stays
+    # complete; measured on cobalt 45 degrees off ``c``, 8 points against
+    # ``nosym``'s 18, 1.8e-13 Ry. It is refused because it holds the moments in
+    # its fixed subspace (``m_y = 0`` on that start) exactly, 6e-20 at the end,
+    # where ``nosym`` and the turning group only drift from it as far as the
+    # stepper's noise and stopping threshold let them (6.6e-8 and -4.9e-6 mu_B
+    # there), so a start on a symmetric saddle stays on it; whether to accept that for the smaller
+    # k-set is the user's open choice (``notes/incompat/I78.md``).
+    system = calculation.system
+    if not system.nosym and not getattr(system, "turning_moments", False):
         raise ValueError(
-            "rotate_moments needs nosym = .true.: the magnetic symmetry group, "
-            "and with it the k-set, depends on where the moments point, and the "
-            "run turns them"
+            "rotate_moments needs nosym = .true. or a System from "
+            "with_turning_moments() (Calculator.with_turning_moments()). The "
+            "k-set here is reduced with the starting orientation's magnetic "
+            "group. The run keeps that group (every step is built from a torque "
+            "that respects it), so the k-set stays complete, but it also holds "
+            "the moments exactly inside the group's fixed subspace, and a start "
+            "on a symmetric saddle would stay there; with_turning_moments keeps "
+            "only the identity and the inversion, which constrain no "
+            "orientation, and rebuilds the k-set with them"
+        )
+    if not system.nosym and calculation.is_paw:
+        # **Kept on PAW, by measurement rather than by argument** (I78): the
+        # turned ``becsum``, the density rebuilt from the turned states and the
+        # one-centre torque all pass through the group-averaged ``becsum``, so
+        # the wedge sums read as complete, but the nickel check could not show
+        # it. Both arms were far from convergence and apart after five steps
+        # (0.0024 Ry, torque 1e-2), with the torques already 1.45e-5 against
+        # 1.97e-5 at the first iteration, at the loose first threshold where
+        # the torque is the eigensolver's noise. ``notes/incompat/I78.md``.
+        raise NotImplementedError(
+            "rotate_moments on a PAW dataset with symmetry (with_turning_moments): "
+            "the turning group is checked against nosym on an ultrasoft cell "
+            "only, and on PAW nickel the two runs could not be compared; use "
+            "nosym = .true. for a PAW run"
         )
 
 
-def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools):
+def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools,
+                             robust=None):
     """A checkpoint written by k-point pools: every pool's rows, then rank 0's state.
 
     **The order is what keeps the set whole.** Every pool writes its rows to a
@@ -7069,6 +7456,9 @@ def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools)
         try:
             save_state(state, path)
             save_mixer(mixer, directory / SCF_MIXER)
+            # The supervisor is rank 0's alone, as the mixer is: only rank 0
+            # judges a trial, and every pool reads this file on a resume.
+            _write_supervisor(directory, robust, mixer, iteration)
             remove_stale_pool_rows(path, iteration)
         except OSError as failure:
             written = False
@@ -7081,9 +7471,63 @@ def _write_pooled_checkpoint(directory, state, mixer, iteration, verbose, pools)
 
 
 #: The leaves of a :class:`~defuqumat.scf.fields.MagneticField` its controller
-#: changes between iterations; everything else on it is the input's.
-_DRIVEN_FIELD_LEAVES = ("uniform", "atomic", "previous_uniform", "previous_moment",
-                        "previous_atomic", "previous_site_moments")
+#: changes between iterations; everything else on it is the input's. The same
+#: list the checkpoint writes (:data:`~defuqumat.scf.fields.DRIVEN_LEAVES`).
+_DRIVEN_FIELD_LEAVES = DRIVEN_LEAVES
+
+
+def _carried_driven_field(field, seed_field, magnetization, resumed):
+    """The field a run started from another state's continues with, and why not.
+
+    Returns ``(field, None)`` with the seed's driven leaves poured onto this
+    run's ``field``, or ``(field, reason)`` with this run's own field untouched
+    and the reason the seed's could not be taken (``None`` reason and the input
+    field where there is nothing to carry). Under a fixed-spin-moment scheme the
+    field is the controller's state, replaced after every iteration, so a run
+    that took the seed's density and not its field restarted the controller from
+    the input's field beside a density converged under another, and said nothing
+    (I65). Both routes reach this: the ``checkpoint_dir`` resume, whose
+    ``load_state`` poured the leaves onto this calculation's field already, and
+    an explicit ``starting_from`` -- ``load_state(..., calculation=c)`` or
+    another run's result in memory, which no loader has checked.
+
+    Only the leaves cross (:data:`~defuqumat.scf.fields.DRIVEN_LEAVES`); the
+    spheres, the targets and the gain are this run's. Not carried, with a
+    reason: another scheme or update rule, a leaf of another shape (a spin
+    promotion reshapes the density and not the field). Not carried and not
+    worth a reason: a continuation that reseeds or zeroes the magnetization
+    (``magnetization = 'seed'`` or ``'none'``), which asked for the moment to
+    start again, except on a resume, where the argument is refused anyway.
+    """
+    import equinox as eqx
+
+    if (field is None or field.constraint not in FEEDBACK
+            or not isinstance(seed_field, MagneticField)
+            or seed_field.constraint not in FEEDBACK):
+        return field, None
+    if not resumed and magnetization in ("seed", "none"):
+        return field, None
+    if (seed_field.constraint != field.constraint
+            or seed_field.fsm_update != field.fsm_update):
+        return field, (
+            f"the starting state's field is driven by {seed_field.constraint!r} "
+            f"with the {seed_field.fsm_update!r} update and this run's by "
+            f"{field.constraint!r} with {field.fsm_update!r}")
+    carried = field
+    for leaf in DRIVEN_LEAVES:
+        value = getattr(seed_field, leaf)
+        if value is None:
+            continue
+        current = getattr(field, leaf)
+        if current is not None and np.shape(current) != np.shape(value):
+            return field, (
+                f"the starting state's driven {leaf} has shape "
+                f"{np.shape(value)} and this run's {np.shape(current)}")
+        dtype = jnp.asarray(field.uniform).dtype
+        carried = eqx.tree_at(lambda f, leaf=leaf: getattr(f, leaf), carried,
+                              jnp.asarray(value, dtype=dtype),
+                              is_leaf=lambda x: x is None)
+    return carried, None
 
 
 def _broadcast_field(field, pools):
@@ -7149,13 +7593,29 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
     # six iterations; the ultrasoft ``o-chain-spiral-us.in``, 7e-14.
     # A seed is not refused: a whole-set span is sliced to the pool's rows by
     # ``stream_start``, and a pool's own span (a ``PoolStore``, what a pooled
-    # result carries) is taken by position when its rows are this pool's and
-    # refused by name inside ``starting_wavefunctions`` when they are not.
+    # result carries) is moved into this run's layout by ``Pools.redistribute``
+    # before the loop and then taken by position.
     # A checkpoint is not refused: every pool writes its rows and rank 0 the
     # state (``_write_pooled_checkpoint``), and a load of any pool count
     # assembles the rows it holds (``checkpoint.load_state(rows=...)``).
-    if residual_solver:
-        refused.append("a residual scf_solver (it differentiates the whole set)")
+    # A residual solver is not refused with its default Jacobian, the central
+    # difference: ``F`` is the pooled iteration's own sequence at a fixed
+    # ``ethr`` (``PooledScfResidual``), rank 0 runs the solver and the other
+    # pools serve its evaluations. The two backends that differentiate stay
+    # refused: ``autodiff`` traces the whole-set eigensolver, which a pool's
+    # host store cannot enter, and ``sternheimer``'s solve reads every state.
+    # ``residual_solver`` is the ``jvp`` backend's name, ``None`` for mixing.
+    # Tetrahedra and ``from_input`` with a residual solver are refused here
+    # under pools, on every rank before any pool work: one process takes them
+    # (I71), the pooled pair is unmeasured, and raised inside a pooled
+    # evaluation a refusal hung the run until the heartbeat
+    # (``refuse_residual_occupations``).
+    if residual_solver not in (None, False):
+        refuse_residual_occupations(calculation.system)
+    if residual_solver not in (None, False, "finite-difference"):
+        refused.append(f"a residual scf_solver with jvp={residual_solver!r} (it "
+                       "differentiates the whole set; jvp='finite-difference', "
+                       "the default, runs under pools)")
     # ``rotate_moments`` is not refused: the torque is rank 0's before the
     # stepper sees it, and the states it turns and the sums it rebuilds from
     # them are each pool's rows, reduced.
@@ -7186,17 +7646,25 @@ ROBUST_GROW_BETA = True
 
 
 
-def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
-                   checkpoint_dir, mixing_from, mixing_beta_mag) -> None:
+def _refuse_robust(calculation, *, scf_solver, rotate_moments,
+                   mixing_beta_mag) -> None:
     """Every regime ``mixing_mode = 'robust'`` does not take, by name, at setup.
 
     Where the merit function does not exist or is not one functional over the
     run: a potential-only meta-GGA has no energy, the Berry-phase field's energy
     is on the states, tetrahedra give no smooth ``I``, and a feedback field, a
     fading one or the orientation stepper change the functional between
-    iterations. The others are not implemented for it yet: k-point pools, a
-    checkpoint (the supervisor's state is not in one), a residual solver, and a
+    iterations. The others are not implemented for it: a residual solver, and a
     separate magnetization step, which the mode sets itself.
+
+    K-point pools and a checkpoint are not refused (``notes/incompat/I76.md``).
+    Under pools only rank 0 judges a trial, as only it mixes, and what it
+    decides reaches the others through the broadcast of the mixed state, plus,
+    on the bottom rung, the mixed Hamiltonian, the step ``alpha`` and the stop
+    (the loop's ``pooled and robust`` block). A checkpoint carries the
+    supervisor in a third file (:func:`_write_supervisor`), which a resume pours
+    back (:func:`_restore_supervisor`); a ``mixing_from`` alone carries the mixer
+    history and starts the line search afresh.
     """
     reasons = []
     if calculation.functional.is_meta:
@@ -7214,10 +7682,6 @@ def _refuse_robust(calculation, *, scf_solver, pooled, rotate_moments,
         reasons.append("rotate_moments turns the input between iterations")
     if get_scf_solver(scf_solver) is not None:
         reasons.append(f"scf_solver = {scf_solver!r} replaces the mixing loop")
-    if pooled:
-        reasons.append("k-point pools are not implemented for it")
-    if checkpoint_dir is not None or mixing_from is not None:
-        reasons.append("a checkpoint does not carry the supervisor's state yet")
     if mixing_beta_mag is not None:
         reasons.append("the mode sets the magnetization's step itself")
     if reasons:
@@ -7281,6 +7745,84 @@ def _take_rung(rung, mixer, calculation, layout, rho) -> None:
             ldos_preconditioner(calculation.basis.dense, calculation.system.cell,
                                 tuple(np.shape(rho)), beta=mixer.beta))
     mixer.reset()
+
+
+def _restore_supervisor(supervisor, mixer, directory, resumed_at, calculation,
+                        layout, rho, verbose):
+    """Pour a saved supervisor back; ``(damping, hamiltonian_in)`` for the loop.
+
+    The counterpart of :func:`_write_supervisor`, called after the mixer
+    history is restored. With no file, or one stamped with another iteration
+    than the checkpoint being resumed, the supervisor starts afresh: the first
+    input is kept and the line search starts from it, which costs at most the
+    window and never the fixed point, and is said.
+
+    **Only on a resume from a checkpoint** (``resumed_at > 0``). A
+    ``mixing_from`` alone borrows a mixer history for a run whose input is not
+    the checkpoint's, and Anderson can take a foreign history because it reads
+    residual pairs; the supervisor cannot, since a rejected trial is rebuilt as
+    ``_combine(_kept, _proposal, scale)``, a density of the other run. So there
+    the mixer history crosses and the line search starts from this input.
+
+    The mixer's ``beta`` and
+    ``condition_limit`` come back as the supervisor left them, and an LDOS rung
+    already taken is installed again *without* the history reset
+    :func:`_take_rung` does, since the history restored is the one built under
+    it.
+    """
+    from defuqumat.scf.checkpoint import load_supervisor
+    from defuqumat.scf.robust import RUNGS
+
+    path = Path(directory) / SCF_SUPERVISOR
+    if not resumed_at:
+        if verbose:
+            print(f"  mixing_from = {directory} without a resumed state: "
+                  f"mixing_mode = 'robust' keeps the mixer history and starts its "
+                  f"line search from this input")
+        return None, None
+    if not path.exists():
+        if verbose:
+            print(f"  no supervisor state in {directory}: mixing_mode = 'robust' "
+                  f"starts its line search from this input")
+        return None, None
+    try:
+        saved = load_supervisor(path)
+    except Exception as failure:       # noqa: BLE001 -- the mixer's reason
+        warnings.warn(
+            f"could not restore mixing_mode = 'robust''s supervisor from "
+            f"{directory} ({type(failure).__name__}: {failure}); its line search "
+            f"starts from this input. The density is unaffected",
+            RuntimeWarning, stacklevel=3)
+        return None, None
+    if saved["iteration"] != resumed_at:
+        warnings.warn(
+            f"the supervisor in {directory} was written at iteration "
+            f"{saved['iteration']} and the checkpoint resumed is iteration "
+            f"{resumed_at}, so it belongs to another run and is not used; "
+            f"mixing_mode = 'robust' starts its line search from this input",
+            RuntimeWarning, stacklevel=3)
+        return None, None
+    for name, value in saved["supervisor"].items():
+        setattr(supervisor, name, value)
+    if saved["mixer_beta"] is not None:
+        mixer.beta = saved["mixer_beta"]
+    if saved["condition_limit"] is not None:
+        mixer.condition_limit = saved["condition_limit"]
+    # The rungs taken so far, read off the module's ladder (which a control
+    # run may have shortened, so ``RUNGS.index`` cannot be assumed).
+    if ("ldos" in RUNGS[:supervisor.rung + 1] and supervisor.smeared
+            and not supervisor.ldos):
+        mixer.precondition = (
+            ldos_preconditioner_g(layout, calculation.basis.dense,
+                                  calculation.system.cell, beta=mixer.beta)
+            if layout is not None else
+            ldos_preconditioner(calculation.basis.dense, calculation.system.cell,
+                                tuple(np.shape(rho)), beta=mixer.beta))
+    if verbose:
+        print(f"  supervisor restored from {directory}: rung "
+              f"{supervisor.record['rung']}, step x{supervisor.scale:.3f}"
+              f"{', damped Hamiltonian mixing' if saved['damping'] else ''}")
+    return saved["damping"], saved["hamiltonian_in"]
 
 
 def run_scf(
@@ -7425,16 +7967,29 @@ def run_scf(
 
     ``checkpoint_dir`` writes the run's state and its **mixer history** every
     ``checkpoint_every`` iterations, so a job killed at its wall clock loses at
-    most that many rather than all of them. Resume with
+    most that many rather than all of them. Pass the same ``checkpoint_dir``
+    again to resume (below); by hand, the state is
     ``starting_from=load_state(dir / "scf-state.npz", system=..., calculation=...)``
-    and ``mixing_from=dir``, which is what carries the history: a resume that
+    and the history ``mixing_from=dir``, which is what carries it: a resume that
     restores only the density restarts Anderson empty and pays back the
     iterations it saved. **The write is the wavefunctions**, tens of gigabytes
     on a large cell, so the interval is a knob and not every iteration -- and it
-    is a scratch-directory operation. Refused, once and by name, for a run whose
-    field changes between iterations (``reducebf``, a fixed spin moment): the
-    state's field is then not the input's and ``save_state`` will not write a
-    lossy one.
+    is a scratch-directory operation. A run whose field changes between
+    iterations checkpoints too: ``reducebf``'s scale and a fixed-spin-moment
+    controller's field (the field and the secant's previous pair) are in the
+    file, and the field comes back only with ``calculation=``, since its
+    spheres, targets and gain are the input's.
+
+    **The two resume routes do not restore the same things.** Passing the same
+    ``checkpoint_dir`` again (below) is the resume: it also restores the loop's
+    iteration count, ``ethr``, ``accuracy``, the occupations and
+    ``reducebf``'s scale, so the resumed run is the uninterrupted one. The
+    explicit ``starting_from`` route carries the density, ``becsum``, ``ns``,
+    the wavefunctions and a fixed-spin-moment field, and starts the loop's
+    schedule afresh, so it converges to the same state on a different
+    schedule, and it does not carry ``reducebf``'s scale. A starting state whose
+    driven field belongs to another scheme or update rule is warned about and
+    the run keeps the input's field.
 
     **Two things about a resume that the argument names do not say.** Passing
     ``checkpoint_dir`` at a directory that already holds a state *resumes from
@@ -7566,6 +8121,7 @@ def run_scf(
     # run's* converged state, whose iteration count and threshold say nothing
     # about this one's schedule.
     resumed_state = None
+    seed_field = seed_magnetization = None
     # ``run_relax(checkpoint_dir=...)`` resumes from its own directory rather
     # than making the caller wire the state back by hand, and an sbatch that is
     # resubmitted after a wall-clock kill wants exactly that: the same command,
@@ -7692,10 +8248,11 @@ def run_scf(
         if starting_tau is None and source_tau is not None:
             # The density's own shape, whole: ``tau`` has ``nspin_mag`` channels
             # and rebuilding the count from ``nspin`` made every promotion into a
-            # spin-orbit run drop its converged ``tau`` without a word.
+            # spin-orbit run drop its converged ``tau`` without a word. What
+            # else decides it (the magnetization, a spiral frame) is
+            # ``carried_tau``'s, so the rule has one home and a unit test.
             expected = tuple(np.shape(calculation.starting_density()))
-            if tuple(np.shape(source_tau)) == expected:
-                starting_tau = source_tau
+            starting_tau = carried_tau(state, source_tau, expected)
         # **...and the shape is only half the question.** The other half is the
         # one ``promote_ns`` had to be taught as well: a continuation that
         # reseeds or zeroes the magnetization must not hand the next run a
@@ -7707,14 +8264,20 @@ def run_scf(
         # not have. ``'seed'`` drops it for ``promote_ns``'s reason: the
         # Thomas-Fermi guess ``_starting_tau`` builds costs iterations and
         # cannot be wrong, which is what the comment above already says about
-        # dropping it.
-        if starting_tau is not None and state.magnetization in ("none", "seed"):
+        # dropping it. ``carried_tau`` applies the same rule to the source's
+        # ``tau``; this branch is a ``starting_tau`` the caller passed.
+        elif starting_tau is not None and state.magnetization in ("none", "seed"):
             if state.magnetization == "seed":
                 starting_tau = None
             else:
                 starting_tau = depolarize_tau(jnp.asarray(starting_tau))
         if verbose:
             print(f"  continuing a previous run: {state.description}")
+        # The driven field goes with the density (I65), applied below where the
+        # run's ``field`` is set; ``_carried_driven_field`` says when it cannot.
+        # A ``ContinuedState`` carries no field, so ``None`` there.
+        seed_field = getattr(starting_from, "magnetic_field", None)
+        seed_magnetization = state.magnetization
         # **Released here because a *parameter* is a reference too, and it is
         # the one that does not look like an allocation anybody owns.** On a
         # resume ``starting_from`` is rebound above to the whole ``SCFResult``
@@ -7741,9 +8304,8 @@ def run_scf(
         # supervisor below decides what is kept. Everything after this line sees
         # the inner mode, so the preconditioner and the fit are installed exactly
         # as they would be for it.
-        _refuse_robust(calculation, scf_solver=scf_solver, pooled=pooled,
-                       rotate_moments=rotate_moments, checkpoint_dir=checkpoint_dir,
-                       mixing_from=mixing_from, mixing_beta_mag=mixing_beta_mag)
+        _refuse_robust(calculation, scf_solver=scf_solver,
+                       rotate_moments=rotate_moments, mixing_beta_mag=mixing_beta_mag)
         smeared = calculation.system.occupations == "smearing"
         vacuum = vacuum_fraction(np.asarray(calculation.system.structure.positions),
                                  np.asarray(calculation.system.cell.at))
@@ -7935,51 +8497,62 @@ def run_scf(
     space = resolve_mixing_space(mixing_space, mixer)
     fit_in_rho_ddot = resolve_mixing_fit(mixing_fit)
     layout = None
-    if space == "g" and calculation.spiral and calculation.nspin_mag == 4:
-        # The layout keeps each real channel on the *resident* smooth sphere
-        # and its mirror, and a spiral's transverse pair lives on the
-        # laboratory sphere ``|G - q| < G_s`` (:meth:`Calculation.lift_density`),
-        # so every step would drop the shell between the two -- the cut
-        # ``OPEN.md`` Part XXI item 1 removed from the density and the
-        # potential, put back in the mixer. Refused rather than given a complex
-        # block on the displaced sphere, which nothing has asked for.
-        raise NotImplementedError(
-            "mixing_space = 'g' on a magnetic spin spiral is not implemented: "
-            "the layout keeps every channel on the resident smooth sphere, and a "
-            "spiral's transverse magnetization lives on the sphere displaced by "
-            "q, |G - q| < G_s, so each mixing step would cut the shell between "
-            "the two. Leave mixing_space unset or set it to 'r', which mixes on "
-            "the whole dense grid in real space"
-        )
     if space == "g":
-        layout = SphereLayout(calculation.basis.dense, calculation.basis.ngms,
-                              calculation.system.cell, tuple(np.shape(rho)))
+        if calculation.spiral and calculation.nspin_mag == 4:
+            # The resident layout keeps each real channel on the *resident*
+            # smooth sphere and its mirror, and a spiral's transverse pair lives
+            # on the laboratory sphere ``|G - q| < G_s``
+            # (:meth:`Calculation.lift_density`), so it would drop the shell
+            # between the two at every step -- the cut ``OPEN.md`` Part XXI item
+            # 1 removed from the density and the potential. The spiral's layout
+            # keeps ``m'_+`` on that sphere instead, or on the whole box where
+            # the run builds no displaced set (:class:`SpiralSphereLayout`).
+            layout = SpiralSphereLayout(
+                calculation.basis.dense, calculation.basis.ngms,
+                calculation.system.cell, tuple(np.shape(rho)),
+                *_spiral_pair_index(calculation))
+        else:
+            layout = SphereLayout(calculation.basis.dense, calculation.basis.ngms,
+                                  calculation.system.cell, tuple(np.shape(rho)))
         if layout.nshell:
             layout.augmentation = _augmentation_of(calculation)
         mixer.layout = layout
         mixer.shape = layout.stored_shape
     restored_space = getattr(mixer, "_history_space", None) or "r"
-    if restored_space != space and getattr(mixer, "_residuals", None):
+    # A spiral's layout is tagged with the displaced sphere it was built on
+    # (:attr:`SpiralSphereLayout.tag`), so a history written at another ``q``, or
+    # by the resident layout, is dropped rather than combined with this run's.
+    tag = getattr(layout, "tag", space)
+
+    def described(t):
+        if t == "r":
+            return "real space"
+        if t == "g":
+            return "G on the smooth sphere"
+        return "G with a spiral's transverse pair on its displaced sphere"
+
+    if restored_space != tag and getattr(mixer, "_residuals", None):
         # A history written in the other layout -- every checkpoint from before
         # the layout existed is real space and carries no tag -- is not a set of
         # vectors this run can combine with its own, so it is dropped here, said
         # beside "mixer history restored", which would otherwise be the last
         # word on it.
+        keep = (f"resume with mixing_space = {restored_space!r} to keep it"
+                if restored_space in ("r", "g") else
+                "only a run at the same spiral_q and cutoffs with mixing_space = "
+                "'g' can keep it")
         warnings.warn(
             f"the mixer history restored from {mixing_from} keeps the density in "
-            f"{'real space' if restored_space == 'r' else 'G on the smooth sphere'}"
-            f" and this run mixes it "
-            f"{'in real space' if space == 'r' else 'in G on the smooth sphere'} "
-            f"(mixing_space = {space!r}), so it is dropped. The density is "
-            f"unaffected -- this costs the iterations the saved history would have "
-            f"saved, and nothing else; resume with mixing_space = "
-            f"{restored_space!r} to keep it",
+            f"{described(restored_space)} and this run mixes it in "
+            f"{described(tag)} (mixing_space = {space!r}), so it is dropped. The "
+            f"density is unaffected -- this costs the iterations the saved history "
+            f"would have saved, and nothing else; {keep}",
             RuntimeWarning, stacklevel=2,
         )
         mixer.reset()
     # Written with the history (``save_mixer`` stores a string), so a resume can
     # tell which layout its vectors are in.
-    mixer._history_space = space
+    mixer._history_space = tag
 
     if mixing_mode.lower() in PRECONDITIONED:
         # A preconditioner's ``beta`` is an operator on the grid, so it cannot
@@ -8033,22 +8606,12 @@ def run_scf(
             RuntimeWarning, stacklevel=2,
         )
 
-    if mixing_mode.lower() in LDOS_DEPENDENT and scheme.startswith("tetrahedra"):
-        # Measured and not settled (``notes/VACUUM-MIXING-NEXT.md``): with a Gaussian of
-        # 0.01 Ry in place of a width the method does not have, the aluminium slab
-        # under tetrahedra_opt did not converge in 200 iterations, and neither did
-        # plain anderson, so the combination has no number behind it.
-        raise ValueError(
-            f"mixing_mode = 'ldos' with occupations = {scheme!r} is not implemented: "
-            f"the LDOS at the Fermi level needs a smooth delta, which the tetrahedron "
-            f"method does not have, and building it with a Gaussian is unmeasured. "
-            f"Use smearing, or another mixing_mode"
-        )
-
     if mixing_mode.lower() in LDOS_DEPENDENT:
         # Herbst and Levitt's preconditioner reads the LDOS at the Fermi level,
         # which the loop below builds in the density's own pass and hands it at
-        # every iteration (``Calculation.density_and_ldos``).
+        # every iteration (``Calculation.density_and_ldos``). Under tetrahedra
+        # the delta is the method's own, ``d wg / d e_F`` (``ldos_weights``);
+        # it was refused until I75 for want of a width, which it does not need.
         mixer.precondition = (
             ldos_preconditioner_g(layout, calculation.basis.dense,
                                   calculation.system.cell, beta=mixer.beta)
@@ -8181,6 +8744,23 @@ def run_scf(
     # *calculation* untouched, so the same object can be reused afterwards.
     field = calculation.magnetic_field
     field_scale = 1.0
+    # **A fixed-spin-moment field continues from the state the run starts
+    # from**, on the checkpoint resume and on an explicit ``starting_from``
+    # alike (I65): under a feedback scheme ``calculation.magnetic_field`` is the
+    # *input's* field, not the one the starting density was mixed beside, and
+    # taking it restarted the controller from there -- the same target by a
+    # different route, more iterations, 2.2e-6 Ry off at ``conv_thr = 1e-8`` on
+    # ``fe-fsm.in``, and no word said. Where the seed's field cannot be taken
+    # the run says so and keeps its own.
+    field, not_carried = _carried_driven_field(
+        field, seed_field, seed_magnetization, resumed_state is not None)
+    if not_carried is not None:
+        warnings.warn(
+            f"{not_carried}, so the driven field is not carried over: the "
+            "fixed-spin-moment controller restarts from the input's field "
+            f"({field.constraint!r}) beside a density converged under another",
+            stacklevel=2)
+    seed_field = None
     # **Where the store lives between the points that read it** (QE's
     # ``io_level``). ``device`` is this package's own history and is what a CPU
     # wants, since there the host *is* the device and parking is a memcpy of the
@@ -8198,12 +8778,23 @@ def run_scf(
     if pooled:
         _refuse_under_pools(
             pools, calculation, checkpointing=checkpointing,
-            residual_solver=get_scf_solver(scf_solver) is not None,
+            residual_solver=(
+                dict(scf_solver_options or {}).get("jvp", "finite-difference")
+                if get_scf_solver(scf_solver) is not None else None),
             rotate_moments=rotate_moments, field=field,
         )
         # A pool keeps its own rows in host memory and walks them: the
         # streamed passes are the ones that take ``rows``.
         wfc_store = "stream"
+        # A seed held under another pool layout (a source run whose k costs, and
+        # so whose longest-first shares, differ from this one's) is moved into
+        # this run's layout here, once and collectively, and not inside
+        # ``starting_wavefunctions``: that is called once per k-chunk, and the
+        # pools hold unequal numbers of chunks.
+        if (isinstance(starting_wavefunctions, PoolStore)
+                and starting_wavefunctions.nk == calculation.system.kpoints.nk):
+            starting_wavefunctions = pools.redistribute(starting_wavefunctions,
+                                                        pool_layout)
     streaming = wfc_store == "stream"
     if verbose:
         # **What is in force, said once.** All three of these are resolved from
@@ -8264,7 +8855,15 @@ def run_scf(
             calculation, system, nbnd, rho, becsum_state, ns_state, conv_thr,
             scf_solver, dict(scf_solver_options or {}), mixing_beta, verbose,
             starting_tau, fit_in_rho_ddot=fit_in_rho_ddot,
+            pools=pools if pooled else None, pool_rows=pool_rows,
+            pool_layout=pool_layout, field=field,
         )
+        if solver_result.field is not None:
+            # The driven field Newton solved for beside the density (I73). The
+            # loop carries on from it; handed the input's field instead, it
+            # would drive the field again from where it started.
+            field = solver_result.field
+            _warn_unconverged_hand_over(solver_result, conv_thr)
         # The density is converged, so the eigenvalues must be too: the loose
         # start of the ``ethr`` schedule would otherwise throw the hand-off away
         # on the very first diagonalisation.
@@ -8319,6 +8918,9 @@ def run_scf(
         resumed_scale = getattr(resumed_state, "field_scale", None)
         if resumed_scale is not None:
             field_scale = float(resumed_scale)
+        # The fixed-spin-moment controller's field is loop state too, and is
+        # taken where ``field`` is set, above, for this route and for an
+        # explicit ``starting_from`` alike (``_carried_driven_field``).
         # **The occupations are loop state as well, and leaving them out cost a
         # whole Davidson budget.** ``band_thresholds`` reads ``wg = None`` as
         # "the first iteration of a fresh run, which has no occupations yet"
@@ -8352,6 +8954,13 @@ def run_scf(
         # scalars across the setup, and all four are plain Python floats and
         # ints by now.
         resumed_state = None
+
+    if robust and mixing_from is not None:
+        # After the mixer history, and after ``resumed_at``, which the
+        # supervisor file's stamp is checked against.
+        damping, hamiltonian_in = _restore_supervisor(
+            supervisor, mixer, mixing_from, resumed_at, calculation, layout, rho,
+            verbose)
 
     stopped_early = False
     berry_dipoles = None
@@ -8490,6 +9099,7 @@ def run_scf(
             state = starting_wavefunctions = None
 
         davidson_steps, davidson_unconverged = 0.0, 0
+        robust_stop = False
         threshold_shape = (len(hamiltonians), hamiltonians[0].nk, nbnd)
         if wg is not None and np.size(wg) != int(np.prod(threshold_shape)):
             # **A resume is allowed to change ``nbnd`` and the checkpoint's
@@ -8854,6 +9464,11 @@ def run_scf(
             # at ``conv_thr = 1e-8``).
             unscaled_accuracy = accuracy
             accuracy = accuracy / damping.alpha ** 2
+        if pooled and robust:
+            # Only rank 0's supervisor holds the step ``alpha`` (the others never
+            # judge a trial), so the rescaled residual the ``ethr`` schedule and
+            # the stop read is rank 0's.
+            accuracy = pools.broadcast_scalar(accuracy)
 
         if record_orientation:
             # ``potential`` is still the input's here, which is the field the
@@ -9229,7 +9844,8 @@ def run_scf(
                     f"a smearing is the usual cure",
                     RuntimeWarning, stacklevel=2)
                 history[-1]["supervisor"]["terminal"] = True
-                break
+                # Out of the loop below the chain, after every pool has heard.
+                robust_stop = True
         elif supervisor is not None and iteration > mixing_fixed_ns:
             # ``mixing_mode = 'robust'`` (``scf/robust.py``): keep this input or
             # cut the step back, on the merit and the residual. The inner mixer
@@ -9304,6 +9920,32 @@ def run_scf(
             )
             if tau_state is not None:
                 tau_state = mixed_tau
+        if pooled and robust:
+            # **The pooled robust mode: rank 0 decides, the others are told.**
+            # Only rank 0 judges a trial, as only it mixes; the next input
+            # reaches the others through the broadcast of the mixed state just
+            # below. Three of its decisions act outside that state and are
+            # broadcast here: whether the LDOS preconditioner is installed (it
+            # changes what every pool's density pass sums and reduces, so a pool
+            # without it would leave a collective the others are in; the
+            # preconditioner a pool other than 0 builds is never applied, only its
+            # flag and its LDOS update are), the Hamiltonian the bottom rung
+            # mixes, and the stop at that rung's floor.
+            ldos_now = getattr(getattr(mixer, "precondition", None), "needs_ldos",
+                               False)
+            if pools.broadcast_flag(ldos_now) and not ldos_now:
+                _take_rung("ldos", mixer, calculation, layout, rho)
+            if pools.broadcast_flag(hamiltonian_in is not None):
+                own = (hamiltonian_in if hamiltonian_in is not None else
+                       (potential.v_scf, ddd_paw if calculation.is_paw else None,
+                        v_ns if calculation.is_hubbard else None))
+                hamiltonian_in = jax.tree_util.tree_map(jnp.asarray,
+                                                        pools.broadcast(own))
+            else:
+                hamiltonian_in = None
+            robust_stop = pools.broadcast_flag(robust_stop)
+        if robust_stop:
+            break
         if pooled:
             # ``electrons.f90:877``: the root pool's mixed density is every
             # pool's, so that pools whose reductions differ in the last bit (an
@@ -9498,6 +10140,7 @@ def run_scf(
                     magnetization_vector=moment,
                 ),
                 mixer, iteration, verbose, pools,
+                robust=(supervisor, damping, hamiltonian_in) if robust else None,
             )
 
     # ``iteration > resumed_at + 1`` is "at least one iteration body ran": a
@@ -9532,6 +10175,7 @@ def run_scf(
                 magnetization_vector=moment,
             ),
             mixer, completed, verbose, pools,
+            robust=(supervisor, damping, hamiltonian_in) if robust else None,
         )
 
     _warn_if_the_field_did_not_fade(

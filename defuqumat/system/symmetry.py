@@ -47,7 +47,7 @@ __all__ = ["Symmetries", "lattice_point_group", "find_symmetries", "is_supercell
            "symmetrize_atom_cartesian_tensor",
            "check_symmetry", "check_lattice_symmetry",
            "magnetic_symmetries", "magnetization_signs",
-           "collinear_symmetries",
+           "collinear_symmetries", "orientation_free_symmetries",
            "symmetrize_magnetization", "symmetrize_vector_density",
            "symmetrize_tensor_density"]
 
@@ -603,6 +603,47 @@ def collinear_symmetries(
     return Symmetries(rotations=tuple(kept), translations=tuple(translations))
 
 
+def orientation_free_symmetries(symmetries: Symmetries) -> Symmetries:
+    """The operations that stay symmetries however the moments are turned together.
+
+    What a run that turns its moments (``rotate_moments``, Route C of
+    ``notes/ORIENTATION-NEXT.md``) may reduce its k-set with and symmetrise with,
+    since the k-set is fixed before the first iteration and the orientation is
+    not. A global spin rotation ``Q`` takes every moment to ``Q m``; an
+    operation acts on an axial vector as ``det(R) R`` (times ``-1`` under time
+    reversal), and it remains a symmetry of ``Q m`` for every ``Q`` only if that
+    action commutes with all of SO(3), so only if ``det(R) R = 1``: ``R = E`` or
+    ``R = -E`` (the inversion, ``-1`` in crystal coordinates in any basis), each
+    with any fractional translation. The texture test has already been passed
+    by ``symmetries`` (the output of :func:`magnetic_symmetries`), and a rigid
+    rotation preserves it, since ``m_{g(a)} = m_a`` holds for ``Q m`` exactly
+    when it holds for ``m``.
+
+    **The operations kept with time reversal are dropped**, conservatively:
+    ``{+-E | t}`` followed by time reversal acts as ``-1`` on every moment, which
+    also commutes with ``Q``, so they are symmetries of every turned texture in
+    principle; no cell here has measured them under the stepper, and a smaller
+    group is always a correct one.
+
+    The entry in ``notes/INCOMPATIBILITIES.md`` (I78) asked for the magnetic
+    group and the k-set to be rebuilt as the moments turn. That is not needed:
+    the stepper keeps the starting orientation's group exactly, since every
+    turn is built from a torque that respects it, but that group also pins
+    the moments in its fixed subspace. This group never needs rebuilding and
+    pins nothing.
+    """
+    identity = np.eye(3, dtype=int)
+    t_rev = symmetries.t_rev_array()
+    kept, translations = [], []
+    for s, rotation in enumerate(symmetries.rotation_array()):
+        if t_rev[s]:
+            continue
+        if np.array_equal(rotation, identity) or np.array_equal(rotation, -identity):
+            kept.append(symmetries.rotations[s])
+            translations.append(symmetries.translations[s])
+    return Symmetries(rotations=tuple(kept), translations=tuple(translations))
+
+
 def magnetization_signs(cell: Cell, symmetries: Symmetries) -> np.ndarray:
     """``det(R) * (-1)^t_rev`` per operation -- the sign an axial vector picks up.
 
@@ -725,6 +766,18 @@ def _walked_atom_displacement(field_g, permutations, phases, rotations, inverse)
     return _operation_mean(term, (permutations, phases, rotations, inverse),
                            field_g.shape,
                            jnp.result_type(field_g, phases, rotations))
+
+
+@jax.jit
+def _walked_atom_displacement_spin(field_g, permutations, phases, rotations,
+                                   spin_rotations, inverse):
+    def term(op):
+        perm, phase, rotation, spin, inv = op
+        gathered = phase[None, None, None, :] * field_g[inv][:, :, :, perm]
+        return jnp.einsum("ab,ij,cbjg->caig", rotation, spin, gathered)
+    return _operation_mean(
+        term, (permutations, phases, rotations, spin_rotations, inverse),
+        field_g.shape, jnp.result_type(field_g, phases, rotations))
 
 
 @jax.jit
@@ -873,6 +926,54 @@ def symmetrize_atom_displacement_density(
         permutations[:, None, None, :],
     ]
     return jnp.mean(jnp.einsum("sij,sajg->saig", rotations, gathered), axis=0)
+
+
+def symmetrize_atom_displacement_spin_density(
+    field_g: jnp.ndarray, permutations, phases, rotations: jnp.ndarray,
+    spin_rotations: jnp.ndarray, mapping,
+) -> jnp.ndarray:
+    """The magnetization of ``3 nat`` displacement responses, averaged over the group.
+
+    :func:`symmetrize_atom_displacement_density` with the spin index of
+    :func:`symmetrize_spin_vector_density` added, which is ``symdvscf`` at
+    ``q = 0`` for a noncollinear magnet (``LR_Modules/symdvscf.f90``, the
+    ``domag`` branch with ``t_rev``):
+
+        dm_{c,a,i}(G) = (1/N) sum_S R_ab d_S R_ij e^{-i G . f_S}
+                        dm_{S^-1(c),b,j}(S^T G)
+
+    Three labels move under one operation and each moves its own way: the
+    displaced atom ``c`` by the inverse of ``irt`` (the reason is in
+    :func:`symmetrize_atom_displacement_density`), the displacement direction
+    ``a`` by the plain rotation, since it is polar, and the magnetization
+    component ``i`` by ``det(R) (-1)^t_rev R``, since it is axial
+    (:func:`magnetization_signs`). Rotating ``i`` without the sign, or not at
+    all, is a different group rather than a coarser average, and was measured at
+    0.665 of the response on the field-direction version of this average
+    (``tests/regression/test_spinor_response.py``).
+
+    Args:
+        field_g: ``(nat, 3, 3, ngm)`` -- displaced atom, its direction, then
+            the magnetization component, all cartesian.
+        rotations: ``(nsym, 3, 3)``, the plain cartesian rotations.
+        spin_rotations: ``(nsym, 3, 3)``, the same with the axial signs folded in.
+        mapping: ``(nsym, nat)`` from :func:`atom_mapping`, ``irt`` itself.
+    """
+    inverse = jnp.asarray(np.argsort(np.asarray(mapping), axis=1))
+    if _walks_operations(permutations.shape[0], field_g, copies=4):
+        return _walked_atom_displacement_spin(field_g, permutations, phases,
+                                              rotations, spin_rotations, inverse)
+    # ``gathered[s, c, b, j, g] = phase[s, g] field_g[irt^-1[s, c], b, j, S^T G_g]``
+    gathered = phases[:, None, None, None, :] * field_g[
+        inverse[:, :, None, None, None],
+        jnp.arange(3)[None, None, :, None, None],
+        jnp.arange(3)[None, None, None, :, None],
+        permutations[:, None, None, None, :],
+    ]
+    return jnp.mean(
+        jnp.einsum("sab,sij,scbjg->scaig", rotations, spin_rotations, gathered),
+        axis=0,
+    )
 
 
 def symmetrize_tensor_density(
@@ -1096,6 +1197,43 @@ def atom_mapping(cell: Cell, structure: Structure, symmetries: Symmetries) -> np
                 )
             mapping[s, a] = matches[0]
     return mapping
+
+
+def orbit_closure(mapping: np.ndarray, atoms) -> tuple:
+    """The smallest union of orbits under ``irt`` that contains ``atoms``.
+
+    A set of atoms the group can act on by itself is one that every operation
+    maps into itself, and that is a union of whole orbits. Sorted, so that a
+    refusal can name it and a caller can pass it straight back.
+    """
+    mapping = np.asarray(mapping)
+    return tuple(sorted({int(b) for a in atoms for b in mapping[:, int(a)]}))
+
+
+def subset_atom_mapping(mapping: np.ndarray, atoms) -> np.ndarray:
+    """``irt`` restricted to a subset closed under the group, in its own indices.
+
+    ``out[s, r]`` is the position *in* ``atoms`` of the atom that operation
+    ``s`` sends ``atoms[r]`` to, so the result is ``(nsym, len(atoms))`` and is
+    a permutation of ``range(len(atoms))`` for every ``s``. That is what lets a
+    symmetriser written for the ``3 nat`` stack act on a partial one unchanged:
+    it only ever indexes the atom axis through this table.
+
+    Raises ``ValueError`` when the subset is not a union of orbits, where an
+    operation would carry a mode inside it onto an atom outside it and there is
+    no table to write.
+    """
+    mapping = np.asarray(mapping)
+    atoms = tuple(int(a) for a in atoms)
+    position = {a: r for r, a in enumerate(atoms)}
+    images = mapping[:, list(atoms)]
+    outside = sorted({int(b) for b in images.ravel()} - set(atoms))
+    if outside:
+        raise ValueError(
+            f"atoms {atoms} is not closed under the symmetry group: operations "
+            f"carry it onto atoms {tuple(outside)}"
+        )
+    return np.vectorize(position.__getitem__, otypes=[int])(images)
 
 
 def cartesian_rotations(cell: Cell, symmetries: Symmetries) -> np.ndarray:

@@ -2257,3 +2257,73 @@ def test_fixed_occupations_fill_spinor_bands_one_electron_at_a_time(pseudo_dir):
     reference = _total_moment(scf.density, float(calculator.system.cell.volume))
     assert moment == pytest.approx(reference, abs=5e-5)
     assert abs(moment[2]) > 0.2 and np.abs(moment[:2]).max() < 1e-5
+
+
+# -- the mixer does not choose the fixed point (I77) -------------------------
+
+#: The unpolarized form of :data:`HYDROGEN`: a metal at every k-grid, so the
+#: LDOS at the Fermi level is not zero and ``mixing_mode = 'ldos'`` screens
+#: with it rather than falling back to the plain step.
+METALLIC_HYDROGEN = HYDROGEN.replace(
+    " nspin=2, starting_magnetization(1)=0.8,\n", "")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("polarized", [False, True])
+def test_the_ldos_mode_reaches_the_kerker_fixed_point(polarized, tmp_path, pseudo_dir):
+    """``'ldos'`` and ``'anderson'`` with Kerker converge to one state (I77).
+
+    The preconditioner is an approximate inverse Jacobian and sets the path,
+    never the fixed point, so the same modulated metallic ultracell under the
+    two mixers has to land on the same density and energy to the two runs'
+    ``conv_thr``. The LDOS is checked to be live and normalised: states at
+    ``e_F`` on every mix, and the last mix's ``integral D dV`` over the box
+    equal to ``sum w_k0 delta(e_F - e_j)`` over the ultracell's own levels, the
+    number a wrong ``1/N`` or a missing spin factor would move by a factor.
+    ``polarized`` runs the ``nspin = 2`` cell, where only the charge is
+    screened and the magnetization takes ``beta``.
+
+    Measured on D22 (2026-10-16, ``notes/incompat/I77.md``, one sample each):
+    density 1.19e-7 and 3.47e-7 apart (1.9e-5 and 6.2e-5 of the induced
+    density), energies 3.4e-13 and 2.1e-12 Ry, at 13 and 13, 8 and 11
+    iterations; the box integral 27.528 against 27.542 and 8.43333 against
+    8.43347, the record being one iteration behind the converged levels.
+    """
+    shape, kgrid = (2, 1, 1), (2, 2, 2)
+    folded = tuple(n * m for n, m in zip(shape, kgrid))
+    path = tmp_path / "h.in"
+    template = HYDROGEN if polarized else METALLIC_HYDROGEN
+    path.write_text(template.format(k0=folded[0], k1=folded[1], k2=folded[2]))
+    calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir)
+    scf = calculator.get_scf(conv_thr=1e-11, nbnd=8)
+    assert scf.converged
+
+    runs = {}
+    for mode in ("anderson", "ldos"):
+        runs[mode] = run_ultracell(
+            calculator.system, calculator.pseudos, scf, shape, kgrid,
+            nbnd=8, external=_modulation(shape), conv_thr=1e-11,
+            states_conv_thr=1e-10, mixing_mode=mode,
+        )
+        assert runs[mode].converged
+    kerker, ldos = runs["anderson"], runs["ldos"]
+    assert kerker.ldos_record is None
+    assert len(ldos.ldos_record) == ldos.iterations - 1
+    # The first mix read 0.57 states/Ry on the unpolarized cell, against 27.5
+    # converged (``notes/incompat/I77.md``), so the bound per mix is loose.
+    assert all(states > 0.1 for states, _, _ in ldos.ldos_record)
+    assert all(clamped <= 1e-12 for _, clamped, _ in ldos.ldos_record)
+    sigma = float(calculator.system.degauss)
+    levels = np.asarray(ldos.eigenvalues)
+    levels = levels.reshape((-1,) + levels.shape[-2:])
+    weights = np.asarray(calculator.system.kpoints.weights)
+    w0 = np.full(levels.shape[1], weights.sum() / levels.shape[1])
+    x = (float(np.atleast_1d(ldos.fermi_energy)[0]) - levels) / sigma
+    box = float(np.sum(w0[None, :, None] * np.exp(-x * x))) / (sigma * np.sqrt(np.pi))
+    assert ldos.ldos_record[-1][0] == pytest.approx(box, rel=2e-3)
+
+    a, b = np.asarray(kerker.density), np.asarray(ldos.density)
+    induced = np.abs(np.asarray(kerker.modulation)).max()
+    assert induced > 1e-2 * np.abs(a).max()
+    assert np.abs(a - b).max() < 1.5e-6
+    assert abs(kerker.total_energy - ldos.total_energy) < 1e-11

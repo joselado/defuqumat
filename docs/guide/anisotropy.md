@@ -169,9 +169,15 @@ on the torque, in Ry per radian.
     so it gives an error without `lspinorb` or with `soc_scale = 0`, where every
     orientation has the same energy and the step would only follow noise. It
     also gives an error for a spin spiral, for a Hubbard $U$, whose occupation
-    matrix would have to turn with the density, for a magnetic field or a
-    constrained moment, which holds the orientation that the step moves, and
-    without `nosym`. It does take PAW datasets. On PAW nickel the run stalls with the torque near
+    matrix would have to turn with the density, and for a magnetic field or a
+    constrained moment, which holds the orientation that the step moves. A run
+    with symmetry needs `calc.with_turning_moments()` first. This keeps only the
+    identity and the inversion, because only these stay symmetries when all
+    moments turn together, and it builds the k-points again with them. Without
+    it, the run gives an error, because the symmetry of the starting direction
+    would keep the moments in a fixed plane or axis, so the run could not leave
+    it. For a PAW dataset `rotate_moments` still needs `nosym`. It does take PAW
+    datasets. On PAW nickel the run stalls with the torque near
     $10^{-4}$, and there you should use `get_relaxed_orientation` instead.
 
     `get_relaxed_anisotropy` gives an error for a magnetic field or constrained

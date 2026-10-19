@@ -147,12 +147,21 @@ the lines between the points are only a guide to the eye.
     the same run. A `STATE.OUT` written by Elk older than version 2.0.0 gives an
     error.
 
-    A spin-polarized Elk state and a spin spiral give an error, because the
-    magnetization is a second field, and a seed without it would start a magnetic
-    run from a non-magnetic density. A run that carries a magnetization, with
-    `nspin=2` or noncollinear, gives an error for the same reason. A DFT+U state,
-    or one with fixed tensor moments, also gives an error, because the code does
-    not read their occupation matrices.
+    A collinear spin-polarized Elk state can start a run with `nspin=2`. The code
+    moves the charge and the magnetization of Elk to the grid. Both are scaled by
+    the same factor, so the polarization at each point is the one of Elk. A
+    noncollinear Elk state gives an error. This includes a spin spiral, because
+    `STATE.OUT` does not say that the run was a spiral. An Elk state with a fixed
+    spin moment also gives an error. A spin-polarized Elk state with an `nspin=1`
+    run gives an error, because the moment would be lost. An unpolarized Elk
+    state with an `nspin=2` run gives an error, because the seed would have no
+    moment. A noncollinear run gives an error with any Elk state. A DFT+U state
+    works as a seed. `STATE.OUT` does not contain the occupation matrix of Elk, so
+    only the density is used, and the code gives a warning. The Hubbard
+    occupations then start from `starting_ns` of the run, as in a normal DFT+U
+    run. A spin-polarized DFT+U state gives an error, because we have not checked
+    the two together. A state with fixed tensor moments gives an error, because
+    the code does not have this constraint.
 
     An element with core electrons gives an error. The muffin-tin density of Elk
     contains the core states, and nothing in `STATE.OUT` separates them from the

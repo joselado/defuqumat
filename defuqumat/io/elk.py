@@ -259,8 +259,50 @@ class ElkState:
     vsmt: np.ndarray
     vsir: np.ndarray
     directory: Path
+    # The magnetic records, present only for a spin-polarized state
+    # (``writestate.f90:84-108``). ``magmt`` is ``(lmmaxo, nrmtmax, natmtot,
+    # ndmag)`` and ``magir`` is ``ngridg + (ndmag,)``, in e/bohr^3 like the
+    # density -- ``m = n_up - n_down``, no factor. ``bxc`` and ``bs`` are the
+    # exchange-correlation and Kohn-Sham magnetic fields, energies conjugate to
+    # ``m`` and so in **Rydberg** like the potentials; ``bsmt`` is on the
+    # **coarse** radial mesh ``nrcmt``. Nothing downstream consumes the two
+    # fields; they are read so the file is read whole and its framing checked.
+    magmt: np.ndarray | None = None
+    magir: np.ndarray | None = None
+    bxcmt: np.ndarray | None = None
+    bxcir: np.ndarray | None = None
+    bsmt: np.ndarray | None = None
+    bsir: np.ndarray | None = None
+    # ``vmatmt``, Elk's DFT+U potential matrix in each muffin tin, in Ry, as
+    # ``(lmmaxdm, nspinor, lmmaxdm, nspinor, natmtot)`` (``readstate.f90:251``),
+    # or ``None`` when the state is not DFT+U. It is in Elk's own muffin-tin
+    # ``lm`` basis, built on Elk's radial functions, and is read so the file is
+    # consumed to its end and its framing checked; nothing here transfers it,
+    # since a pseudopotential run's Hubbard projectors are different orbitals.
+    vmatmt: np.ndarray | None = None
 
     # -- what the file says about itself --------------------------------------
+
+    @property
+    def spinpol(self) -> bool:
+        """Whether the state carries a magnetization (Elk's ``spinpol``)."""
+        return self.magmt is not None
+
+    def magnetization_component(self, idm: int = 0) -> "ElkState":
+        """This state with component ``idm`` of the magnetization in the density's place.
+
+        Every reconstruction routine in :mod:`defuqumat.io.elk_density` reads
+        ``rhomt``/``rhoir``, and a magnetization component is reconstructed by
+        exactly the same ``rfpts`` route (Elk's own ``vecplot`` hands
+        ``magmt``/``magir`` to ``plot3d`` as it hands ``rhomt``/``rhoir`` to
+        it in ``rhoplot``), so the view is the whole of the transfer rule's
+        reconstruction: nothing is reimplemented for the second field.
+        """
+        if self.magmt is None:
+            raise ValueError("this Elk state is not spin-polarized")
+        return dataclasses.replace(
+            self, rhomt=self.magmt[..., idm], rhoir=self.magir[..., idm]
+        )
 
     @property
     def natmtot(self) -> int:
@@ -365,14 +407,34 @@ def read_elk_state(directory) -> ElkState:
     physics rather than a format detail, and a seed built from a state whose
     extra content is silently dropped is a wrong answer that starts:
 
-    * a **spin-polarized** state (``spinpol``), because a magnetization is a
-      second field with its own transfer rule and its own defuqumat side. That
-      covers spin spirals too, which are spin-polarized runs in Elk;
-    * a **DFT+U** state (``dftu``) and a **fixed tensor moment** one
-      (``ftmtype``), whose occupation matrices sit in trailing records that
-      nothing here consumes;
+    * a **noncollinear** spin-polarized state (``ndmag = 3``), and spin
+      spirals with it: ``STATE.OUT`` records neither ``spinsprl`` nor
+      ``vqlss``, so a spiral's magnetization, which Elk stores in the frame
+      that turns with ``q``, cannot be told from a noncollinear texture's at
+      read time. A **collinear** one (``ndmag = 1``) is read, magnetization
+      and fields included;
+    * a **fixed spin moment** state (``fsmtype``), whose constraint fields are
+      trailing records and whose moment is the constrained one rather than the
+      ground state's;
+    * a **spin-polarized DFT+U** state (``spinpol`` with ``dftu``): each piece
+      is read on its own, and the pair, with ``vmatmt`` at ``nspinor = 2`` after
+      the magnetic records, has been measured by neither (refused at the
+      integration of the two);
+    * a **fixed tensor moment** state (``ftmtype``). Elk refuses tensor
+      moments without spin-orbit coupling (``init0.f90:239-247``), and
+      spin-orbit coupling switches ``spinpol`` on (``init0.f90:126``), so a
+      genuine file of this kind is spin-polarized; the guard is kept by name
+      because the moment it fixes is a constraint on Elk's functional that
+      nothing here implements;
     * anything written by Elk **older than 2.0.0**, which ``readstate.f90``
       refuses itself.
+
+    An unpolarized **DFT+U** state (``dftu``) is read. Its one extra record is ``vmatmt``,
+    the Hubbard *potential* matrix in Elk's muffin-tin basis, written after
+    the four density and potential pairs (``writestate.f90:122-125``); the
+    occupation matrix is not in the file at all, since Elk rebuilds it from
+    its states (``gndstate.f90:194-201``). What a seed carries is the density
+    alone, see :func:`defuqumat.io.elk_density.density_on`.
     """
     from scipy.io import FortranFile
 
@@ -454,22 +516,42 @@ def read_elk_state(directory) -> ElkState:
         else:
             dlefe = float("nan")
 
-        if spinpol:
+        if spinpol and ndmag != 1:
             raise NotImplementedError(
-                "this STATE.OUT is spin-polarized (spinpol = .true.), and only "
-                "an unpolarized Elk state can be transferred. A magnetization "
-                "is a second field with a transfer rule of its own, and a "
-                "seed that carries the charge and silently drops the moment "
-                "would start a magnetic run from a non-magnetic guess. Spin "
-                "spirals are spin-polarized Elk runs and are refused here too."
+                f"this STATE.OUT is noncollinear spin-polarized (ndmag = "
+                f"{ndmag}), and only an unpolarized or a collinear (ndmag = 1) "
+                "Elk state can be transferred. STATE.OUT records neither "
+                "spinsprl nor vqlss, so a spin spiral, whose magnetization Elk "
+                "stores in the frame that turns with q, cannot be told apart "
+                "from a noncollinear texture here, and seeding a noncollinear "
+                "run from it would start from the wrong magnetization without "
+                "saying so."
             )
-        if dftu != 0 or ftmtype != 0:
+        if spinpol and fsmtype != 0:
             raise NotImplementedError(
-                f"this STATE.OUT carries DFT+U (dftu = {dftu}) or a fixed "
-                f"tensor moment (ftmtype = {ftmtype}). The occupation and "
-                "potential matrices are trailing records that nothing here "
-                "reads, and a Hubbard ground state seeded by its density alone "
-                "is not the state Elk converged."
+                f"this STATE.OUT is a fixed spin moment state (fsmtype = "
+                f"{fsmtype}). Its moment is the constrained one and its "
+                "constraint fields are trailing records nothing here consumes; "
+                "seeding from it is not implemented."
+            )
+        if spinpol and dftu != 0:
+            raise NotImplementedError(
+                f"this STATE.OUT is a spin-polarized DFT+U state (spinpol, "
+                f"dftu = {dftu}). A collinear spin-polarized state and an "
+                "unpolarized DFT+U state are each read, but the pair, with the "
+                "DFT+U record at nspinor = 2 after the magnetic records, has "
+                "not been measured against Elk, so seeding from it is not "
+                "implemented."
+            )
+        if ftmtype != 0:
+            raise NotImplementedError(
+                f"this STATE.OUT carries a fixed tensor moment (ftmtype = "
+                f"{ftmtype}). The moment is a constraint on Elk's functional, "
+                "with its own potential matrix (vmftm), and nothing here "
+                "implements it, so a seed taken from it would start a run "
+                "whose functional is not the one the density was converged "
+                "for. Elk itself only writes this for a spin-orbit, and so "
+                "spin-polarized, run (init0.f90:126 and :239-247)."
             )
 
         # ``natmtot`` is the sum of ``natoms(is)`` over **all** species, not
@@ -507,6 +589,66 @@ def read_elk_state(directory) -> ElkState:
         vxcmt, vxcir = _pair()
         vsmt, vsir = _pair()
 
+        magnetic = {}
+        if spinpol:
+            # ``writestate.f90:84-108``: three more one-record pairs, each with
+            # ``ndmag`` as its slowest axis on both halves. ``bsmt`` is packed
+            # on the **coarse** radial mesh, ``nrcmtmax``, so its record is
+            # shorter than the other two and a reader that sized it like
+            # ``magmt`` reads past it.
+            def _vector_pair(nradial, name):
+                nblock = lmmaxo * nradial * natmtot
+                record = f.read_reals(np.float64)
+                if record.size != ndmag * (nblock + ngtot):
+                    raise ValueError(
+                        f"{name} record of {record.size} reals where "
+                        f"{ndmag * (nblock + ngtot)} were expected "
+                        f"(ndmag = {ndmag}, radial mesh {nradial}). Elk writes "
+                        "the muffin-tin and interstitial arrays as ONE record, "
+                        "and bsmt is on the coarse mesh nrcmtmax rather than "
+                        "nrmtmax."
+                    )
+                mt = record[:ndmag * nblock].reshape(
+                    (lmmaxo, nradial, natmtot, ndmag), order="F"
+                )
+                ir = record[ndmag * nblock:].reshape((*ngridg, ndmag), order="F")
+                return mt, ir
+
+            magmt, magir = _vector_pair(nrmtmax, "magnetization")
+            bxcmt, bxcir = _vector_pair(nrmtmax, "B_xc")
+            bsmt, bsir = _vector_pair(nrcmtmax, "B_s")
+            magnetic = dict(
+                magmt=magmt, magir=magir,
+                bxcmt=bxcmt * HARTREE_TO_RY, bxcir=bxcir * HARTREE_TO_RY,
+                bsmt=bsmt * HARTREE_TO_RY, bsir=bsir * HARTREE_TO_RY,
+            )
+
+        # ``writestate.f90:112-119``: a meta-GGA state carries one more pair,
+        # ``wxcmt, wxcir``, *before* the DFT+U record. Nothing here uses it,
+        # but it has to be consumed or ``vmatmt`` below is read from the
+        # wrong record.
+        if xcgrad in (3, 4, 5, 6):
+            _pair()
+
+        # ``writestate.f90:122-125`` and ``readstate.f90:251``: one complex
+        # record ``vmatmt(lmmaxdm, nspinor, lmmaxdm, nspinor, natmtot)``.
+        vmatmt = None
+        if dftu != 0:
+            nvmat = lmmaxdm * nspinor * lmmaxdm * nspinor * natmtot
+            record = f.read_record(np.complex128)
+            if record.size != nvmat:
+                raise ValueError(
+                    f"DFT+U record of {record.size} complex numbers where "
+                    f"{nvmat} = lmmaxdm^2 nspinor^2 natmtot were expected "
+                    f"(lmmaxdm = {lmmaxdm}, nspinor = {nspinor}, natmtot = "
+                    f"{natmtot}). Either the file was written by an Elk whose "
+                    "layout this reader does not know, or a record before it "
+                    "was not consumed."
+                )
+            vmatmt = record.reshape(
+                (lmmaxdm, nspinor, lmmaxdm, nspinor, natmtot), order="F"
+            ) * HARTREE_TO_RY
+
     return ElkState(
         version=version,
         geometry=geometry,
@@ -537,4 +679,6 @@ def read_elk_state(directory) -> ElkState:
         vsmt=vsmt * HARTREE_TO_RY,
         vsir=vsir * HARTREE_TO_RY,
         directory=directory,
+        **magnetic,
+        vmatmt=vmatmt,
     )

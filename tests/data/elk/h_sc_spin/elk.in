@@ -1,0 +1,74 @@
+! Simple cubic hydrogen, one atom at the origin, a = 5.0 bohr, spin-polarized.
+!
+! The spin-polarized counterpart of ../h_sc: a ferromagnetic STATE.OUT whose
+! magnetization a reader can be checked against pointwise (MAG3D.OUT, task 73,
+! built by the same rfpts route as RHO3D.OUT, task 33). Hydrogen has no core, so
+! the all-electron and valence densities are the same function, and the cell
+! is stretched until the one electron polarizes.
+!
+! Collinear (ndmag = 1). The global seed field fades (reducebf = 0.9, so it is
+! below 1e-6 of its start after about 130 iterations), and the converged state
+! is field-free: what STATE.OUT holds is the spontaneous moment. With 0.5 the
+! field is gone in a dozen iterations and the mixer lands on the unpolarized
+! fixed point at a = 5 and 6 bohr.
+
+tasks
+  0
+  33
+  73
+
+sppath
+  './'
+
+spinpol
+  .true.
+
+bfieldc
+  0.0  0.0  0.05
+
+reducebf
+  0.9
+
+! adaptive linear mixing, steadier than Broyden while the moment forms
+mixtype
+  1
+
+! Gaussian smearing of 0.01 Ha, the 0.02 Ry of scf.in in this directory.
+stype
+  0
+
+swidth
+  0.01
+
+epspot
+  1.e-8
+
+epsengy
+  1.e-8
+
+maxscl
+  500
+
+avec
+  5.0  0.0  0.0
+  0.0  5.0  0.0
+  0.0  0.0  5.0
+
+atoms
+  1
+  'H.in'
+  1
+  0.0  0.0  0.0    0.0  0.0  0.0
+
+ngridk
+  4  4  4
+
+tshift
+  .false.
+
+plot3d
+  0.0  0.0  0.0
+  1.0  0.0  0.0
+  0.0  1.0  0.0
+  0.0  0.0  1.0
+  16  16  16

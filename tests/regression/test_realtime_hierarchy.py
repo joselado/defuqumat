@@ -11,7 +11,10 @@ Two comparisons, each an identity rather than an agreement:
   frequency, which shares the table of the projectors and nothing of the solve;
 * the first order with the induced potential, self-consistent, against the dense
   self-consistent solve of :func:`~defuqumat.realtime.dense.dense_first_order`, and
-  its static shift against the Sternheimer stack's.
+  its static shift against the Sternheimer stack's;
+* the same first order on two FFT grids (``ecutrho = 8 ecutwfc``) against the
+  dense solve, and with the Hartree kernel against the one-grid run of the same
+  states.
 
 ``PLAN.md`` P137 has the measurements.
 """
@@ -51,16 +54,18 @@ def _bounded_compilation():
 
 
 @lru_cache(maxsize=2)
-def _dense_cell(pseudo_dir, case, ecut, computed):
+def _dense_cell(pseudo_dir, case, ecut, computed, ecutrho=None):
     """``(calculation, v_scf, hamiltonians, basis, energies)`` on :data:`KSET` at ``ecut``.
 
     At the superposition of atomic charges, where the identity holds as at any
     frozen potential; ``basis`` is the lowest ``computed`` dense eigenstates of
-    each sphere.
+    each sphere. ``ecutrho`` above ``4 ecut`` puts the density on a second,
+    denser grid.
     """
-    text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", f"ecutwfc = {ecut}",
+    replacement = f"ecutwfc = {ecut}" + ("" if ecutrho is None else f", ecutrho = {ecutrho}")
+    text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", replacement,
                   (CASES / f"{case}.in").read_text())
-    path = Path("/tmp") / f"defuqumat-hierarchy-{case}-{ecut}.in"
+    path = Path("/tmp") / f"defuqumat-hierarchy-{case}-{ecut}-{ecutrho}.in"
     path.write_text(text)
     system = build_system(read_pw_input(path))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
@@ -203,6 +208,78 @@ def test_the_self_consistent_first_order_is_the_dense_one(pseudo_dir, potential)
         assert abs(value - reference) < 1e-9 * abs(reference), (omega, value, reference)
         assert abs(out["frozen"][(1, 1)][iw, 0] - frozen) < 1e-11 * abs(frozen)
         assert abs(reference - frozen) > 5e-4 * abs(frozen), "the update is load-bearing"
+
+
+@pytest.mark.parametrize("potential", ["hartree", "hxc"])
+def test_the_self_consistent_first_order_on_two_grids_is_the_dense_one(pseudo_dir, potential):
+    """The same comparison on two FFT grids, AlAs at 4 Ry with ``ecutrho = 32``.
+
+    The hierarchy carries ``dv_+`` and the cross density on the smooth grid and
+    goes through the dense one for the kernel; ``dense_first_order`` builds the
+    density in the dense box by Miller index and reads ``v(G - G')`` off the
+    dense transform, so the two share the kernel and nothing of the
+    interpolation. Measured (D22, one sample): **1.9e-11 to 5.1e-11** with the
+    Hartree kernel and 9.5e-12 to 2.5e-11 with ``'hxc'``, in 9 to 12 outer
+    products, where the update moves the current by 2.1 to 11.5 and 0.08 to
+    2.1 per cent; the frozen current 2.6e-13 to 9.2e-13.
+    """
+    calculation, v_scf, _, basis, energies = _dense_cell(pseudo_dir, "alas-shg", 4.0, 12,
+                                                         ecutrho=32.0)
+    assert calculation.basis.smooth.grid != calculation.basis.dense.grid
+    terms = calculation.local_terms(v_scf)
+    nocc = int(round(calculation.nelec / 2))
+    weights = np.repeat(np.asarray(calculation.system.kpoints.weights)[:, None], nocc, axis=1)
+    volume = float(calculation.system.cell.volume)
+    direction = np.array([1.0, 0.0, 0.0])
+    omegas, eta = (0.02, 0.05, 0.11), 0.01
+    out = hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_scf,
+                                           omegas=omegas, eta=eta, direction=direction,
+                                           potential=potential)
+    for iw, omega in enumerate(omegas):
+        reference, _, _ = dense_first_order(calculation, terms, direction, 2 * omega,
+                                            2 * eta, nocc, potential=potential)
+        frozen, _, _ = dense_first_order(calculation, terms, direction, 2 * omega, 2 * eta, nocc)
+        reference, frozen = -reference / (2.0 * volume), -frozen / (2.0 * volume)
+        value = out["components"][(1, 1)][iw, 0]
+        assert abs(value - reference) < 1e-9 * abs(reference), (omega, value, reference)
+        assert abs(out["frozen"][(1, 1)][iw, 0] - frozen) < 1e-11 * abs(frozen)
+        assert abs(reference - frozen) > 5e-4 * abs(frozen), "the update is load-bearing"
+
+
+def test_the_hartree_first_order_on_two_grids_is_the_one_grid_one(pseudo_dir):
+    """A norm-conserving density is band-limited at ``4 ecutwfc``, so with the Hartree
+    kernel, diagonal in ``G``, the two-grid run is the one-grid run of the same states.
+
+    The states, energies and potential are the two-grid cell's, the potential
+    handed to the one-grid cell resampled onto its grid; the wavefunction
+    spheres are checked to hold the same Miller indices in the same order
+    before the states are shared. The exchange-correlation kernel has no such
+    identity: ``f_xc drho`` is a pointwise product and is formed on a finer
+    grid in the two-grid run, and the two differ there by 2.0e-6 to 1.5e-5.
+    Measured (D22, one sample): **1.8e-14 to 3.5e-14**.
+    """
+    from defuqumat.basis.interpolate import to_smooth
+
+    two, v_two, _, basis, energies = _dense_cell(pseudo_dir, "alas-shg", 4.0, 12, ecutrho=32.0)
+    one, _, _, _, _ = _dense_cell(pseudo_dir, "alas-shg", 4.0, 12)
+    assert tuple(one.basis.dense.grid) == tuple(two.basis.smooth.grid)
+    assert tuple(one.basis.dense.grid) != tuple(two.basis.dense.grid)
+    mask = np.asarray(one.basis.planewaves.mask)
+    assert np.array_equal(mask, np.asarray(two.basis.planewaves.mask))
+    miller = [np.asarray(c.basis.smooth.miller)[np.asarray(c.basis.planewaves.indices)][mask]
+              for c in (one, two)]
+    assert np.array_equal(*miller)
+    v_one = to_smooth(v_two, two.basis.dense, two.basis.smooth)
+    nocc = int(round(two.nelec / 2))
+    weights = np.repeat(np.asarray(two.system.kpoints.weights)[:, None], nocc, axis=1)
+    options = dict(omegas=(0.02, 0.05, 0.11), eta=0.01, direction=(1.0, 0.0, 0.0),
+                   potential="hartree")
+    a = hierarchy_linear_self_consistent(two, basis, energies, weights, v_two, **options)
+    b = hierarchy_linear_self_consistent(one, basis, energies, weights, v_one, **options)
+    value, reference = a["components"][(1, 1)][:, 0], b["components"][(1, 1)][:, 0]
+    frozen = a["frozen"][(1, 1)][:, 0]
+    assert np.all(np.abs(value - reference) < 1e-9 * np.abs(reference)), (value, reference)
+    assert np.all(np.abs(reference - frozen) > 5e-4 * np.abs(frozen)), "the update is load-bearing"
 
 
 def test_the_self_consistent_static_shift_is_the_sternheimer_shift(pseudo_dir):

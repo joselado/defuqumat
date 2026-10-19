@@ -564,3 +564,56 @@ def test_two_grids_keep_the_imaginary_part():
     assert basis.smooth.grid != basis.dense.grid
     assert np.abs(two.matrix - one.matrix).max() < 5e-4
     assert np.abs(two.frequencies - one.frequencies).max() < 1.0
+
+
+#: I82, measured on D22 2026-10-16 (one run, CPU, one core): ``D(q = b3/2)`` of
+#: the magnetic trimer chain against the doubled cell's ``S_aa - S_ab`` at
+#: ``Gamma``, **1.52e-5** Ry/bohr^2 on force constants up to 0.46, the nine
+#: frequencies at ``q`` 0.051 cm^-1 at worst from their partners among the
+#: doubled cell's eighteen. The two loops stop at different ``tr2`` (1e-16 at
+#: ``q``, 1e-18 at ``Gamma``) and the T2 pair on one state reads 4.7e-6; how
+#: the residue splits between the two is unmeasured.
+MAGNETIC_FOLDING_MATRIX = 1.0e-4
+MAGNETIC_FOLDING_FREQUENCY = 0.2
+
+
+def test_a_magnetic_insulator_at_half_b3_is_the_doubled_cell_at_gamma():
+    """``nspin = 2`` at ``q != 0``: the supercell identity (I82).
+
+    ``h3-chain-lsda-fixed.in`` is a magnetic insulator, one Bohr magneton a
+    trimer by fixed occupations, and ``h3-chain-lsda-fixed-x2.in`` is the same
+    chain doubled along ``a_3`` with both trimers polarized the same way and
+    the 1x1x8 grid folded to 1x1x4. A pattern ``u e^{i q R}`` at ``q = b_3/2``
+    is the doubled cell's antiphase pattern, so with ``S`` the doubled cell's
+    ``Gamma`` matrix and ``a``, ``b`` the two trimers,
+
+        D(b_3/2) = S_aa - S_ab,     D(0) = S_aa + S_ab.
+
+    The two sides share no response machinery: ``D(q)`` is the two-sphere
+    route, whose response density keeps one sum per spin channel, and ``S`` is
+    the ``Gamma`` route's ``jvp`` of the density builder, checked against
+    ``ph.x`` on triplet O2. With the channels added before the LSDA kernel the
+    two-sphere route did not run at all; a spin-blind kernel would differ by
+    ``f_xc``'s spin part acting on a magnetization response that is not zero
+    here.
+    """
+    calculation, result = _ground_state("h3-chain-lsda-fixed")
+    assert calculation.nspin == 2
+    at_q = dynamical_matrix_at_q(
+        calculation, result.wavefunctions, result.eigenvalues, result.density,
+        result.becsum, q=(0.0, 0.0, 0.5))
+    assert at_q.converged
+    doubled_calculation, doubled = _ground_state("h3-chain-lsda-fixed-x2")
+    supercell = dynamical_matrix(
+        doubled_calculation, doubled.wavefunctions, doubled.eigenvalues,
+        doubled.density, doubled.becsum)
+    assert supercell.converged
+
+    s = np.asarray(supercell.matrix)
+    a, b = slice(0, 3), slice(3, 6)
+    folded = s[a, :, a, :] - s[a, :, b, :]
+    assert np.abs(np.asarray(at_q.matrix) - folded).max() < MAGNETIC_FOLDING_MATRIX
+    partners = np.asarray(supercell.frequencies)
+    for frequency in np.asarray(at_q.frequencies):
+        assert np.abs(partners - frequency).min() < MAGNETIC_FOLDING_FREQUENCY, (
+            frequency, np.sort(partners))

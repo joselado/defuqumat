@@ -178,18 +178,34 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
 !!! note "Limits"
     A spiral with spin-orbit coupling switched on gives an error, because the
     coupling breaks the generalized Bloch theorem, and Elk refuses this too. At
-    `soc_scale = 0` a fully relativistic dataset is allowed. A spiral needs
-    `nosym` and the full k-mesh, because the spin space group is not in the code.
+    `soc_scale = 0` a fully relativistic dataset is allowed. A spiral uses
+    symmetry. The code keeps the operations that leave $\mathbf q$ unchanged and
+    that map the moment of each atom onto the moment of its image, and it reduces
+    the k-mesh with them, without time reversal. The energy, the moments, the
+    forces, the stress and the density of states are then the same as with
+    `nosym`. Some runs still need `nosym`: an ultrasoft or PAW dataset, DFT+U, a
+    fully relativistic dataset, an explicit list of k-points (so also a band
+    structure along a path), the site angular momenta and the projected density
+    of states. A change of $\mathbf q$ also needs `nosym`, so $dE/d\mathbf q$,
+    the relaxation of $\mathbf q$ and the scan need it too.
     It also needs starting moments off the rotation axis $z$, because a moment
     along $z$ does not turn and the run would converge to the ferromagnet, so you
     set `angle1` or give the moments a transverse part.
 
-    `mixing_space = 'g'` gives an error for a magnetic spiral, because the
-    transverse magnetization lives on the sphere displaced by $\mathbf q$ and
-    each mixing step would cut it. The default, `'r'`, mixes the whole dense grid.
+    `mixing_space = 'g'` works for a magnetic spiral. The transverse
+    magnetization is mixed on the sphere displaced by $\mathbf q$, so nothing is
+    cut. It gives the same result as `'r'`: on the ultrasoft oxygen chain at
+    `conv_thr = 1e-13` the two energies differ by $1\times10^{-13}$ Ry.
     A spiral whose FFT grid would put two plane waves of the displaced sphere on
     one grid point gives an error, but the usual FFT sizes leave room, so in
     practice this does not happen.
+
+    The Newton solver, `scf_solver='newton-krylov'`, works on a spiral and finds
+    the same state as mixing. It gives an error for a spiral with a Hubbard $U$,
+    because it keeps only the real part of the occupation matrix. It also gives
+    an error for a spiral with a meta-GGA and for a spiral under a magnetic field
+    or a constrained moment, because we have not checked these cases. Its
+    `"jvp": "sternheimer"` Jacobian gives an error on a spiral.
 
     A spiral with a meta-GGA works on a norm-conserving dataset with
     `noncollinear_gga = 'kubler'`, and each spinor component gives its kinetic

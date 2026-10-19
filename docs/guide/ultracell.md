@@ -456,8 +456,13 @@ period you compare the energies of several long cells, one run each.
     cell, so it contains the gradient of the envelope. A gradient-corrected
     functional on a spin-polarized or noncollinear cell gives an error, because
     only the unpolarized case has been checked against a supercell. A meta-GGA
-    also gives an error. `nosource` gives an error, because its projection
-    couples every cell of the long cell to every other one. The occupations must
+    that is only a potential (`tb09`, `bj06`) also runs, on a cell with no spin
+    polarization and a norm-conserving dataset. The code builds `tau` from the
+    states of the long cell, so it is the same `tau` as in a supercell. On a
+    spin-polarized cell, or with an ultrasoft or PAW dataset, a meta-GGA gives an
+    error. `nosource` also runs. Its projection couples every cell of the long
+    cell to every other one, and the code takes it over the whole long cell, as a
+    supercell does. The occupations must
     be `'fixed'` or `'smearing'`. Tetrahedra give an error, because a state of
     the long cell mixes bands from the $N$ folded k-points and is not a band of
     any mesh, and `'from_input'` gives an error because there is no single band
@@ -467,17 +472,46 @@ period you compare the energies of several long cells, one run each.
     atom. It needs a norm-conserving dataset, a cell with no spin polarization
     and `'atomic'` projectors. Other projectors, an ultrasoft or PAW dataset, a
     spin-polarized or noncollinear cell and `TENSOR_MOMENTS` give an error. Spin
-    spirals, `K_POINTS gamma` and a saw-tooth electric field (`tefield`) also
-    give an error. A ground state converged under a magnetic field or a
-    constrained moment gives an error, because its eigenvalues carry the field
-    the SCF ended with while the long cell rebuilds its potential from the
-    density alone. For a field, you converge the unit cell without it and give
-    it with `magnetic_field` in the long cell instead.
+    spirals and `K_POINTS gamma` also give an error. A saw-tooth electric field
+    (`tefield`, also with `dipfield`) runs when the long cell is one unit cell
+    long along the field, `edir`. This is the slab geometry the saw-tooth is
+    for. Along a direction with more than one cell it gives an error, because
+    the saw-tooth of the long cell then has a different period. A field from the
+    Berry phase (`lelfield`) gives an error.
+
+    A collinear ground state converged under a fixed magnetic field (`B_field`
+    or a `LOCAL_MAGNETIC_FIELDS` card) runs. The code keeps the same field on
+    every copy of the unit cell, so the result is the supercell under the same
+    field. A ground state converged with `constrained_magnetization = 'fsm'`
+    also runs. Here the long cell keeps moving the field until the moment per
+    cell is on the target again, which is what a supercell under the same scheme
+    does, because the modulation changes the moment. This uses the update of Elk
+    (`fsm_update = 'elk'`) with the `lambda` of the unit cell as the gain. A
+    gain that converges the unit cell can fail in any longer cell, the long cell
+    and the supercell alike. In the long cell the first steps react much more
+    strongly than in the unit cell. In a supercell the step acts on the moment
+    of all `N` cells, so the gain is `N` times larger. On a hydrogen lattice,
+    `lambda = 2` did not converge in a 2x1x1 long cell and `lambda = 0.25` did.
+    On a 3x1x1 supercell `lambda = 0.25` did not converge and `lambda = 0.08`
+    did. So start from a smaller gain than the unit cell needs, and lower it
+    again if the long cell or the supercell does not converge. A ground state
+    converged with `reducebf` below 1 also runs if the field of the unit cell
+    has faded below 1.5e-4 Ry, and the long cell keeps reducing the field from
+    where the unit cell stopped. Otherwise it gives an error. The penalty
+    schemes, the per-atom schemes `'atomic fsm'` and `'atomic fsm direction'`,
+    `fsm_update = 'secant'`, and `'fsm'` together with `reducebf` below 1 give
+    an error. A fixed total moment with `tot_magnetization` still runs, with one
+    Fermi level for each spin channel. A noncollinear ground state converged
+    under a field also gives an error. For these cases, you converge the unit
+    cell without the field and give it with `magnetic_field` in the long cell
+    instead.
 
     An ultrasoft or PAW dataset runs, but with `ecutrho` at four times
     `ecutwfc` the code warns that the augmentation charge is then on the
     wavefunction grid, so you set `ecutrho` to 8 to 12 times `ecutwfc`. The
-    mixers `mixing_mode='robust'` and `mixing_mode='ldos'` give an error, and a
+    mixer `mixing_mode='ldos'` works with smearing and a norm-conserving
+    dataset. It gives an error with an ultrasoft or PAW dataset and with
+    spin-orbit or noncollinear spin. `mixing_mode='robust'` gives an error. A
     mixer that takes no preconditioner needs `kerker=False`.
 
     A seed with $|s| > 1$ gives an error, because it asks for more magnetization

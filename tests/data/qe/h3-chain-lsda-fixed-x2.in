@@ -1,0 +1,38 @@
+! h3-chain-lsda-fixed.in doubled along z: two hydrogen trimers a cell, the
+! same spacings (1.6, 1.8 and 2.0 bohr), the chains 7 bohr apart, held at two
+! Bohr magnetons a cell by fixed occupations, both trimers polarized the same
+! way. Its zone-centre phonon is the primitive cell's at q = 0 and at
+! q = b3/2 together (I82). The 1x1x4 grid is the exact folding of the
+! primitive 1x1x8: the doubled cell's b3 is half the primitive's.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 0, nat = 6, ntyp = 1,
+    ecutwfc = 25.0,
+    nspin = 2
+    occupations = 'fixed'
+    tot_magnetization = 2
+    starting_magnetization(1) = 0.3
+    nosym = .true.
+    noinv = .true.
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.4
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+CELL_PARAMETERS bohr
+ 7.0 0.0 0.0
+ 0.0 7.0 0.0
+ 0.0 0.0 10.8
+ATOMIC_POSITIONS bohr
+ H 0.0 0.0 0.0
+ H 0.0 0.0 1.6
+ H 0.0 0.0 3.4
+ H 0.0 0.0 5.4
+ H 0.0 0.0 7.0
+ H 0.0 0.0 8.8
+K_POINTS (automatic)
+ 1 1 4 0 0 0

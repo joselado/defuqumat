@@ -96,6 +96,8 @@ __all__ = [
     "spin_response_sphere",
     "transverse_response",
     "require_a_transverse_regime",
+    "larmor_frequency",
+    "hubbard_pairs",
     "commensurate_shift",
     "occupation_slope",
 ]
@@ -158,6 +160,12 @@ class SpinChiZero(eqx.Module):
     #: Whether the two spin channels were exchanged, which turns ``X^{+-}``
     #: into ``X^{-+}`` and moves the pole to the other sign of ``omega``.
     flip: bool = eqx.field(static=True, default=False)
+    #: The Hubbard channel under a ``U`` (I61): one ``(slot, a, c)`` per entry
+    #: of the per-atom blocks, the operator ``|phi_a><phi_c|`` of that slot, in
+    #: :meth:`~defuqumat.hubbard.manifold.HubbardSetup.block_indices`' order.
+    #: Its entries follow the sphere's ``sphere.nm`` in ``x``; empty without a
+    #: ``U``. See :func:`hubbard_pairs`.
+    hubbard: tuple = eqx.field(static=True, default=())
 
     @property
     def nm(self) -> int:
@@ -197,32 +205,42 @@ def occupation_slope(calculation, eigenvalues, levels) -> jnp.ndarray:
 def require_a_transverse_regime(calculation) -> None:
     """What the transverse susceptibility refuses, on the calculation alone.
 
-    ``nspin != 2``
+    an unpolarized run, or a noncollinear magnetization
         the ground state has to be collinear and polarized for the transverse
-        block to decouple. A noncollinear one needs Elk's full 4x4
-        ``genspchi0``, which is a different object rather than a spin axis on
-        this one; an unpolarized one has ``m = 0`` and no kernel at all.
+        block to decouple. A texture needs Elk's full 4x4 ``genspchi0``, which
+        is a different object rather than a spin axis on this one; an
+        unpolarized run has ``m = 0`` and no kernel at all. A **spinor** run
+        whose moment is collinear along ``z`` is taken (I59), without
+        spin-orbit coupling, on a norm-conserving dataset, with no ``U`` and no
+        field; the moment's direction is read off the density
+        (:func:`~defuqumat.tddft.spinkernel.collinear_channels`).
     PAW
         ``<u_i|e^{-i(q+G).r}|u_j>`` gains the augmentation charge
         ``Q_ij(q+G)`` when the charge is not all in ``|psi|^2``, and that term
         is carried for an **ultrasoft** dataset (see
         :func:`augmentation_factors`). PAW is refused for a *second* term that
         is not this one: its exchange-correlation field has a one-centre part
-        on the spheres which the kernel ``B_xc/m`` is built from the grid
-        alone, so a PAW magnon would carry the right matrix element and the
-        wrong enhancement.
+        on the spheres, ``(ddd_paw_up - ddd_paw_dn)/2`` on the projectors,
+        which needs a projector channel beside the plane waves (the Hubbard
+        one is the template) with a kernel from sphere integrals of
+        ``B^1/m^1``; without it a PAW magnon would carry the right matrix
+        element and the wrong enhancement.
     a spin spiral
         the two spinor components live on spheres centred at ``k +- q/2``, and
         the generalized Bloch theorem's rotating frame is not the frame this
         kernel was derived in.
-    a Hubbard ``U``
-        the Hubbard term responds to the magnetization too, so leaving it out
-        of the enhancement is a silent approximation.
-    an applied magnetic field
-        the rotation argument the kernel rests on assumes the energy is
-        invariant under a global spin rotation, and an applied field is exactly
-        what breaks that -- a magnon in a field is gapped by the Zeeman energy,
-        which this construction would not produce.
+    a Hubbard ``U`` beyond the simplified functional
+        the simplified one is taken (I61), with its own channel in the
+        response (:func:`hubbard_pairs`); the full functional, ``Hubbard_beta``
+        and a tensor-moment constraint are refused.
+    a constrained moment, or a per-atom field
+        a constraint changes the functional the state is stationary for, and
+        a field confined to spheres is not a ``G = 0`` term. A **uniform**
+        ``B_field`` is taken (I58): the kernel ``B_xc/m`` is the rotation
+        kernel of ``E_xc`` alone and stays right, the fixed-density states
+        carry the Zeeman term, and the uniform mode then sits at the Larmor
+        frequency :func:`larmor_frequency` rather than at zero, which is
+        where the identity is read.
     a potential-only meta-GGA
         there is no ``E_xc`` to be rotationally invariant, and ``v_of_rho``
         would want ``tau``.
@@ -239,52 +257,26 @@ def require_a_transverse_regime(calculation) -> None:
         raise NotImplementedError(
             "a transverse spin susceptibility with a PAW dataset is not "
             "implemented: the matrix element's augmentation charge Q_ij(q+G) "
-            "is carried (it is the same one the Berry phase uses), but the "
-            "kernel B_xc/m is built from the grid field alone and a PAW run's "
-            "exchange-correlation field has a one-centre part on the spheres "
-            "beside it -- so the enhancement would be wrong where the matrix "
-            "element is right. Use an ultrasoft or norm-conserving dataset"
+            "is carried (it is the same one the Berry phase uses), but a PAW "
+            "run's exchange-correlation field has a one-centre part on the "
+            "spheres, (ddd_paw_up - ddd_paw_dn)/2 on the projectors, which the "
+            "response would carry as a projector channel beside the plane "
+            "waves (as it carries the Hubbard one) with a kernel from sphere "
+            "integrals of B^1/m^1 against partial-wave products, all-electron "
+            "minus pseudo -- and that kernel is not written. Without it the "
+            "enhancement would be wrong where the matrix element is right. Use "
+            "an ultrasoft or norm-conserving dataset"
         )
-    if system.noncolin:
-        raise NotImplementedError(
-            "a transverse spin susceptibility of a noncollinear ground state "
-            "is not implemented: the 4x4 spin-density response no longer "
-            "block-diagonalises, so the transverse channel is not a matrix in "
-            "(G, G') on its own (Elk's genspchi0 carries all sixteen blocks)"
-        )
-    if calculation.nspin != 2:
-        raise NotImplementedError(
-            f"the transverse spin susceptibility needs nspin = 2 and this run "
-            f"has nspin = {calculation.nspin}: without a collinear "
-            "magnetization there is no transverse channel to separate and the "
-            "kernel B_xc/m does not exist"
-        )
+    # The spiral and ``nosource`` are both noncollinear, so they are asked
+    # first: behind the generic noncollinear refusal their own reasons were
+    # unreachable (I59, I62).
     if calculation.spiral:
         raise NotImplementedError(
             "a transverse spin susceptibility on a spin spiral is not "
             "implemented: the spinor components live on spheres centred at "
-            "k +- q/2, so a plane-wave matrix element is not a single gather"
-        )
-    if getattr(calculation, "is_hubbard", False):
-        raise NotImplementedError(
-            "a transverse spin susceptibility with a Hubbard U is not "
-            "implemented: the Hubbard term responds to the magnetization as "
-            "well, so omitting it from the enhancement is a silent "
-            "approximation rather than a missing feature"
-        )
-    if getattr(calculation, "magnetic_field", None) is not None:
-        raise NotImplementedError(
-            "a transverse spin susceptibility with an applied magnetic field "
-            "or a constrained moment is not implemented: the kernel B_xc/m "
-            "comes from the energy being invariant under a global spin "
-            "rotation, and an applied field breaks exactly that -- the magnon "
-            "acquires a Zeeman gap this construction does not carry"
-        )
-    if calculation.functional.is_meta:
-        raise NotImplementedError(
-            "a transverse spin susceptibility with a potential-only meta-GGA "
-            "is not implemented: there is no exchange-correlation energy for "
-            "the rotation argument to be about"
+            "k +- q/2, so a plane-wave matrix element is not a single gather, "
+            "and the transverse response of a spiral is the 4x4 one taken in "
+            "the rotating frame at its own q (notes/MAGNETISM-NEXT.md, D)"
         )
     if getattr(calculation, "source_free", False):
         # The sharpest of the nosource refusals, because the kernel *is* the
@@ -297,7 +289,122 @@ def require_a_transverse_regime(calculation) -> None:
             "implemented: the kernel B_xc/m is a scalar only because the local "
             "functional makes B_xc parallel to m at every point, and the "
             "source-free projection is precisely what breaks that -- the "
-            "quotient is still finite and the magnon it gives is meaningless"
+            "quotient is still finite and the magnon it gives is meaningless. "
+            "What is missing is a tensor kernel dB_xc/dm in the transverse "
+            "plane, on top of the noncollinear response itself"
+        )
+    if system.noncolin:
+        # A spinor run is taken when its moment is collinear along z (I59):
+        # the +- block then decouples exactly as it does at nspin = 2, with
+        # the up and down components of every spinor band in the two roles.
+        # Whether the moment *is* along z is a property of the density, so it
+        # is checked where the density is read
+        # (:func:`~defuqumat.tddft.spinkernel.collinear_channels`).
+        if getattr(system, "lspinorb", False):
+            raise NotImplementedError(
+                "a transverse spin susceptibility with spin-orbit coupling is "
+                "not implemented: the coupling makes H_up - H_dn more than a "
+                "local exchange field (the Goldstone proof's first step), "
+                "the up and down components of a band are no longer separate "
+                "spin channels, and the uniform mode is gapped by the "
+                "anisotropy, which this kernel does not carry. A spinor run "
+                "without the coupling, with its moment along z, is taken"
+            )
+        if calculation.nspin_mag != 4:
+            raise NotImplementedError(
+                "the transverse spin susceptibility needs a magnetization, and "
+                "this spinor run carries none (nspin_mag = 1): there is no "
+                "transverse channel to separate and no kernel B_xc/m"
+            )
+        if calculation.augmentation is not None:
+            raise NotImplementedError(
+                "a transverse spin susceptibility of a spinor run with an "
+                "ultrasoft dataset is not implemented: the spinor augmentation "
+                "pairs the projections of the two components through "
+                "becsum's spin blocks, and only the collinear form of "
+                "Q_ij(q+G) is carried. A norm-conserving spinor run is taken, "
+                "and an ultrasoft one at nspin = 2"
+            )
+        if getattr(calculation, "is_hubbard", False):
+            raise NotImplementedError(
+                "a transverse spin susceptibility of a spinor run with a "
+                "Hubbard U is not implemented: the Hubbard channel is carried "
+                "at nspin = 2, where ns has one block per spin, and a spinor "
+                "ns keeps four"
+            )
+        if getattr(calculation, "magnetic_field", None) is not None:
+            raise NotImplementedError(
+                "a transverse spin susceptibility of a spinor run under a "
+                "magnetic field is not implemented: a uniform B_field is taken "
+                "at nspin = 2"
+            )
+    elif calculation.nspin != 2:
+        raise NotImplementedError(
+            f"the transverse spin susceptibility needs nspin = 2 and this run "
+            f"has nspin = {calculation.nspin}: without a collinear "
+            "magnetization there is no transverse channel to separate and the "
+            "kernel B_xc/m does not exist"
+        )
+    if getattr(calculation, "is_hubbard", False):
+        # The simplified functional is taken (I61): its exchange field on the
+        # correlated block is linear in the block's moment, so the channel's
+        # kernel is one number per atom and the rotation argument holds as it
+        # does for B_xc/m. What is still refused, each by name: the full
+        # functional, whose field is a contraction with the Slater integrals
+        # and has no per-atom constant to check; ``Hubbard_beta``, a field put
+        # on the block by hand, which breaks the rotation invariance as an
+        # applied field does; and a tensor-moment constraint.
+        coefficients = calculation.hubbard_coefficients
+        if coefficients["kind"] != 0:
+            raise NotImplementedError(
+                "a transverse spin susceptibility with the full DFT+U "
+                "functional (lda_plus_u_kind = 1, a Hubbard J) is not "
+                "implemented: the simplified one is, whose exchange field on "
+                "each correlated block is -(U_eff + J0)/2 times the block's "
+                "moment, and the full one's field is a contraction with the "
+                "Slater integrals that has no such per-atom kernel"
+            )
+        if np.any(np.asarray(coefficients["beta"]) != 0.0):
+            raise NotImplementedError(
+                "a transverse spin susceptibility with Hubbard_beta is not "
+                "implemented: beta is a field on the correlated block put in "
+                "by hand, which breaks the global spin rotation the kernel "
+                "rests on, as an applied field does, and unlike a uniform "
+                "B_field it has no single Larmor frequency"
+            )
+        if coefficients.get("constraints") is not None:
+            raise NotImplementedError(
+                "a transverse spin susceptibility under a TENSOR_MOMENTS "
+                "constraint is not implemented: the constraint is a penalty on "
+                "the occupation matrix, so the ground state is stationary for "
+                "a different functional"
+            )
+    field = getattr(calculation, "magnetic_field", None)
+    if field is not None and field.constraint != "none":
+        raise NotImplementedError(
+            "a transverse spin susceptibility with a constrained moment "
+            f"(constrained_magnetization = '{field.constraint}') is not "
+            "implemented: a penalty or a feedback field makes the ground state "
+            "stationary for a different functional, whose transverse kernel "
+            "has the constraint's own second derivative beside B_xc/m, and a "
+            "feedback field is itself a response to the moment it holds. A "
+            "uniform B_field is taken (the magnon is gapped by its Larmor "
+            "frequency, which the states carry)"
+        )
+    if field is not None and field.atomic is not None:
+        raise NotImplementedError(
+            "a transverse spin susceptibility with a per-atom field (a "
+            "LOCAL_MAGNETIC_FIELDS card) is not implemented: Larmor's theorem "
+            "puts the uniform precession at one frequency, 2 B, only when the "
+            "applied field is the same everywhere, and a field confined to "
+            "spheres has structure in G that no single frequency closes. A "
+            "uniform B_field is taken"
+        )
+    if calculation.functional.is_meta:
+        raise NotImplementedError(
+            "a transverse spin susceptibility with a potential-only meta-GGA "
+            "is not implemented: there is no exchange-correlation energy for "
+            "the rotation argument to be about"
         )
     if is_reduced(calculation.system.kpoints):
         raise NotImplementedError(
@@ -313,6 +420,73 @@ def require_a_transverse_regime(calculation) -> None:
             "magnetic group of q, whose time-reversed operations swap the "
             "+- and -+ blocks. Run with nosym = .true. and noinv = .true."
         )
+
+
+def larmor_frequency(field, field_scale: float | None = None,
+                     flip: bool = False) -> float:
+    """Where the uniform mode of ``X^{+-}`` sits under a uniform field, Ry.
+
+    **Larmor's theorem, in the form the Goldstone proof gives it.** The proof
+    (:mod:`defuqumat.tddft.spinkernel`) uses ``H_up - H_dn = 2 B_tot`` with
+    ``B_tot`` local, and an applied field adds a constant to it: the field
+    enters the potential as ``-B`` (``E = -int B.m``,
+    :meth:`~defuqumat.scf.fields.MagneticField.field_energy`), so
+    ``B_tot = B_xc - B`` and
+
+        X_0(0, omega) B_xc = m - X_0(0, omega) (omega/2 - B) u,
+
+    ``u`` the ``G = 0`` unit vector. The right-hand side is ``m`` exactly at
+    ``omega = 2 B``, so that is where ``1 - X_0 F`` is singular with ``m`` its
+    null vector: the uniform precession at the Zeeman energy ``g mu_B B`` with
+    ``g = 2``, whatever the exchange splitting. ``flip`` exchanges the
+    channels, which turns ``B_tot`` into ``-(B_xc - B)`` and moves the mode to
+    ``-2 B``.
+
+    ``field`` is the :class:`~defuqumat.scf.fields.MagneticField` the states
+    were solved in (``SCFResult.magnetic_field``) and ``field_scale`` what
+    ``reducebf`` left of it; zero when there is no field. Only the uniform
+    collinear part is read, which is all :func:`require_a_transverse_regime`
+    admits.
+    """
+    if field is None:
+        return 0.0
+    scale = 1.0 if field_scale is None else float(field_scale)
+    uniform = np.asarray(field.uniform, dtype=float).reshape(-1)
+    strength = 2.0 * scale * float(uniform[-1])
+    return -strength if flip else strength
+
+
+def hubbard_pairs(calculation):
+    """``((slot, a, c), ...)`` and the ``wfcU`` columns of each, or ``None``.
+
+    **A Hubbard ``U`` puts a nonlocal piece into ``H_up - H_dn``**, the
+    separable ``sum |phi_i> (v_up - v_dn)_ij <phi_j|`` of
+    :class:`~defuqumat.hubbard.operator.HubbardTerm`, and the Goldstone proof
+    (:mod:`defuqumat.tddft.spinkernel`) needs the exchange field to be one
+    operator expanded in the channels the response is a matrix over. So the
+    response gains one channel per operator ``O_p = |phi_a><phi_c|`` of each
+    correlated atom's block, beside the plane waves: its matrix element is
+    ``<psi_up|phi_a><phi_c|psi_dn> = conj(<phi_a|psi_up>) <phi_c|psi_dn>``,
+    the minority projection taken at ``k + q`` exactly as the ultrasoft term
+    takes its ``<beta|psi>`` (the Bloch sum of a projector is the same at
+    ``k + q`` and at its grid image), and it enters ``X_0`` with the same
+    ``2/Omega`` as every plane wave. The channel's moment is then
+    ``(ns_up - ns_dn)_ca / Omega`` and its field ``(v_up - v_dn)_ac / 2``
+    (:func:`~defuqumat.tddft.spinkernel.hubbard_moment`, ``hubbard_field``).
+
+    The columns are a correlated atom's own block only, since
+    ``lda_plus_u_kind = 0`` has no intersite term, and they include the
+    ``(a, c)`` and ``(c, a)`` entries separately: a transverse ``ns^{+-}`` at
+    finite ``q`` is not symmetric.
+    """
+    if not getattr(calculation, "is_hubbard", False):
+        return None
+    _, slots, rows, columns = calculation.hubbard.block_indices()
+    a, c = calculation.hubbard.padded_indices()
+    triples = tuple(
+        (int(t), int(i), int(j)) for t, i, j in zip(slots, a, c)
+    )
+    return triples, np.asarray(rows, dtype=np.int32), np.asarray(columns, dtype=np.int32)
 
 
 def commensurate_shift(calculation, q):
@@ -468,12 +642,41 @@ def transverse_response(
     # The states stay where they are, a streamed store in host memory or a
     # device array, and cross to the device a k-chunk at a time below.
     eigenvalues = jnp.asarray(eigenvalues)
-    if wavefunctions.ndim != 4 or wavefunctions.shape[0] != 2:
-        raise ValueError(
-            "the transverse susceptibility needs both spin channels' "
-            f"wavefunctions, (2, nk, nbnd, npwx); got {wavefunctions.shape}"
-        )
-    majority, minority = (1, 0) if flip else (0, 1)
+    # **A spinor run (I59) has one channel of bands with two components each**,
+    # and with the moment along z the up component of every band is its
+    # majority part and the down component its minority part: the +- block is
+    # then the sum over *all* band pairs at k and k + q of
+    # <psi_n^up| e^{-i(q+G).r} |psi_m^dn>, which for pure-spin bands is the
+    # nspin = 2 sum term by term (a pair of two up bands has no down
+    # component and adds nothing) and is unchanged by any mixing a degenerate
+    # solve leaves inside the band set (rule D4), being a trace over it.
+    spinor = bool(getattr(calculation, "noncolin", False))
+    npwx = int(calculation.basis.planewaves.npwx)
+    if spinor:
+        if wavefunctions.ndim == 3:
+            wavefunctions = wavefunctions[None]
+        if eigenvalues.ndim == 2:
+            eigenvalues = eigenvalues[None]
+        if wavefunctions.ndim != 4 or wavefunctions.shape[-1] != 2 * npwx:
+            raise ValueError(
+                "the transverse susceptibility of a spinor run needs its "
+                f"spinor bands, (1, nk, nbnd, 2 npwx); got {wavefunctions.shape}"
+            )
+        # The channel both roles read, and which component each takes.
+        majority = minority = 0
+        up_part, down_part = (1, 0) if flip else (0, 1)
+    else:
+        if wavefunctions.ndim != 4 or wavefunctions.shape[0] != 2:
+            raise ValueError(
+                "the transverse susceptibility needs both spin channels' "
+                f"wavefunctions, (2, nk, nbnd, npwx); got {wavefunctions.shape}"
+            )
+        majority, minority = (1, 0) if flip else (0, 1)
+        up_part = down_part = 0
+
+    def component(states, part):
+        # A spinor band's ``part`` component, or the channel's states as they are.
+        return states[..., part * npwx:(part + 1) * npwx] if spinor else states
 
     sphere = spin_response_sphere(calculation, ecut_response)
     precision = calculation.system.cell.precision
@@ -506,6 +709,15 @@ def transverse_response(
     # and the geometry and on nothing that varies with k or with the band.
     factors = augmentation_factors(calculation, q, sphere)
     augmented = factors is not None
+    # The Hubbard channel (I61): ``None`` without a ``U``, which keeps the
+    # placeholder below out of every contraction exactly as ``augmented`` does.
+    pairs = hubbard_pairs(calculation)
+    hub_rows = hub_cols = None
+    if pairs is not None:
+        triples, hub_rows, hub_cols = pairs
+        wfcU = calculation.wfcU
+    else:
+        triples = ()
     if not augmented:
         # A norm-conserving run carries no augmentation, and the projections it
         # would contract are not built either -- there is nothing to project on.
@@ -515,17 +727,20 @@ def transverse_response(
 
     def one_k(arrays):
         (psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
-         psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn, gather) = arrays
+         psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn, gather,
+         wfc_up, wfc_dn) = arrays
         return _one_k_terms(
             psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
             psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn,
             gather, grid, volume, zomega, factors, augmented,
+            wfc_up, wfc_dn, hub_rows, hub_cols,
         )
 
     batch = chunk_size(calculation, k_batch)
 
     def share(psi_up, index_up, mask_up, eig_up, occ_up, slope_up,
-              psi_dn, index_dn, mask_dn, eig_dn, occ_dn, gather, *rowsets):
+              psi_dn, index_dn, mask_dn, eig_dn, occ_dn, gather,
+              wfc_up, wfc_dn, *rowsets):
         """One chunk's share of ``(nw, nm, nm)``: majority at ``k``, minority at ``k + q``."""
         if augmented:
             # ``<beta|psi>`` on each channel's own rows, the minority's at
@@ -538,6 +753,7 @@ def transverse_response(
         return sum_k(one_k, (
             psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
             psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn, gather,
+            wfc_up, wfc_dn,
         ), batch=batch)
 
     eig_up, eig_dn = (np.asarray(eigenvalues[spin]) for spin in (majority, minority))
@@ -552,14 +768,24 @@ def transverse_response(
         # degenerate, so zeroing one channel alone would leave ``-f_dn``.
         down = index[rows]
         args = (
-            store_rows(wavefunctions, rows, majority), jnp.asarray(fft_index[rows]),
+            component(store_rows(wavefunctions, rows, majority), up_part),
+            jnp.asarray(fft_index[rows]),
             jnp.asarray(mask[rows]), jnp.asarray(eig_up[rows]),
             jnp.asarray(padded(occ_up, rows, live)),
             jnp.asarray(padded(slope_up, rows, live)),
-            store_rows(wavefunctions, down, minority), jnp.asarray(fft_index[down]),
+            component(store_rows(wavefunctions, down, minority), down_part),
+            jnp.asarray(fft_index[down]),
             jnp.asarray(mask[down]), jnp.asarray(eig_dn[down]),
             jnp.asarray(padded(occ_dn, down, live)), jnp.asarray(flat[rows]),
         )
+        # The Hubbard projectors at ``k`` and ``k + q``, the chunk's rows as
+        # arguments rather than the whole ``wfcU`` closed over (a compiled
+        # program keeps the constants it was traced with).
+        if pairs is not None:
+            args = args + (wfcU[jnp.asarray(rows)], wfcU[jnp.asarray(down)])
+        else:
+            placeholder = jnp.zeros((len(rows), 1, 1), dtype=precision.complex)
+            args = args + (placeholder, placeholder)
         if augmented:
             args = args + (row_leaves(calculation, rows), row_leaves(calculation, down))
         return (args,)  # one stage: the projections are a chunk's few numbers
@@ -572,12 +798,14 @@ def transverse_response(
         q=tuple(float(component) for component in np.asarray(q).reshape(3)),
         nbnd=int(eigenvalues.shape[-1]),
         flip=bool(flip),
+        hubbard=triples,
     )
 
 
 def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
                  psi_dn, index_dn, mask_dn, eig_dn, occ_dn, bec_dn,
-                 gather, grid, volume, zomega, factors, augmented):
+                 gather, grid, volume, zomega, factors, augmented,
+                 wfc_up=None, wfc_dn=None, hub_rows=None, hub_cols=None):
     """One k-point's contribution, walked one majority band at a time.
 
     The pair axis is ``nbnd^2`` and a pair density is a whole FFT box, so
@@ -612,8 +840,20 @@ def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
     fields_up = g_to_r(psi_up * mask_up[None, :], index_up, grid)
     fields_dn = g_to_r(psi_dn * mask_dn[None, :], index_dn, grid)
 
+    # ``<phi_i|psi>`` in each channel, the minority's at ``k + q``, gathered
+    # onto the Hubbard channel's pairs: the bra's column ``a`` and the ket's
+    # ``c`` of every ``O_p = |phi_a><phi_c|`` (:func:`hubbard_pairs`).
+    hubbard = hub_rows is not None
+    if hubbard:
+        proj_up = jnp.einsum("gi,bg->bi", jnp.conj(wfc_up), psi_up * mask_up[None, :])
+        proj_dn = jnp.einsum("gi,bg->bi", jnp.conj(wfc_dn), psi_dn * mask_dn[None, :])
+        hub_up = proj_up[:, hub_rows]  # (nbnd, np)
+        hub_dn = proj_dn[:, hub_cols]  # (nbnd, np)
+    else:
+        hub_up = jnp.zeros((psi_up.shape[0], 1), dtype=psi_up.dtype)
+
     def one_band(carry):
-        field, energy, occupation, slope, projection = carry
+        field, energy, occupation, slope, projection, hub = carry
         # ``M_G = <psi_up| e^{-i(q+G).r} |psi_dn>`` for every minority band, at
         # the shifted gather.
         matrix = r_to_g(jnp.conj(field)[None] * fields_dn, gather)  # (nbnd, nm)
@@ -626,6 +866,11 @@ def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
                 "ai,gij,maj->mg", jnp.conj(projection),
                 factors.astype(matrix.dtype), bec_dn,
             )
+        if hubbard:
+            # ``<psi_up|phi_a><phi_c|psi_dn>``, the Hubbard channel's entries
+            # after the sphere's.
+            matrix = jnp.concatenate(
+                [matrix, jnp.conj(hub)[None, :].astype(matrix.dtype) * hub_dn], axis=1)
 
         difference = occupation - occ_dn  # f_up - f_dn, (nbnd,)
         denominator = zomega[:, None] + (energy - eig_dn)[None, :]
@@ -648,7 +893,7 @@ def _one_k_terms(psi_up, index_up, mask_up, eig_up, occ_up, slope_up, bec_up,
         return jnp.einsum("wp,pa,pb->wab", scalars, jnp.conj(matrix), matrix)
 
     return sum_bands(
-        one_band, (fields_up, eig_up, occ_up, slope_up, bec_up), batch=1
+        one_band, (fields_up, eig_up, occ_up, slope_up, bec_up, hub_up), batch=1
     )
 
 

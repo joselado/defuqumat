@@ -523,7 +523,9 @@ class SeedReport:
     the term that explains a residual concentrated at small ``r``.
     """
 
-    def __init__(self, integral, nelec, muffin_tin, outside_fraction, ngvec_kept, ngvec):
+    def __init__(self, integral, nelec, muffin_tin, outside_fraction, ngvec_kept, ngvec,
+                 moment=None):
+        self.moment = None if moment is None else float(moment)
         self.integral = float(integral)
         self.nelec = float(nelec)
         self.muffin_tin = float(muffin_tin)
@@ -536,8 +538,43 @@ class SeedReport:
             f"SeedReport(integral={self.integral:.6f}, nelec={self.nelec:g}, "
             f"muffin_tin={self.muffin_tin:.6f}, "
             f"outside_fraction={self.outside_fraction:.3e}, "
-            f"ngvec_kept={self.ngvec_kept}/{self.ngvec})"
+            f"ngvec_kept={self.ngvec_kept}/{self.ngvec}"
+            + ("" if self.moment is None else f", moment={self.moment:.6f}")
+            + ")"
         )
+
+
+def _on_grid(state, grid, gcut):
+    """``rhomt``/``rhoir`` on a regular grid: the interstitial cut to ``gcut``,
+    the muffin tins overwritten pointwise. Returns the field and how many G it
+    kept."""
+    # -- the interstitial, straight onto the target grid.
+    # For a *regular* grid the Fourier sum is an inverse FFT rather than a
+    # quadratic point-by-G contraction, which is both exact and orders of
+    # magnitude cheaper. Only the coefficients inside defuqumat's own sphere go in.
+    miller, _, coefficients = interstitial_coefficients(state, gmax2=gcut)
+    reachable = np.all(np.abs(miller) <= np.array(grid) // 2, axis=1)
+    miller = miller[reachable]
+    coefficients = coefficients[reachable]
+    box = np.zeros(grid, dtype=complex)
+    np.add.at(
+        box,
+        (miller[:, 0] % grid[0], miller[:, 1] % grid[1], miller[:, 2] % grid[2]),
+        coefficients,
+    )
+    field = np.real(np.fft.ifftn(box) * box.size)
+
+    # -- the muffin tins, pointwise, overwriting the interstitial there.
+    fractional = np.stack(
+        np.meshgrid(*[np.arange(n) / n for n in grid], indexing="ij"), axis=-1
+    ).reshape(-1, 3)
+    atom, _, _ = _find_muffin_tin(state, fractional)
+    inside = np.nonzero(atom >= 0)[0]
+    if inside.size:
+        flat = field.reshape(-1)
+        flat[inside] = evaluate_at(state, fractional[inside])
+        field = flat.reshape(grid)
+    return field, len(miller)
 
 
 def density_on(state, calculation, renormalise: bool = True, report=None):
@@ -545,6 +582,14 @@ def density_on(state, calculation, renormalise: bool = True, report=None):
 
     Returns ``(nspin_mag, n1, n2, n3)`` in e/bohr^3, ready to hand to
     :func:`~defuqumat.scf.driver.run_scf` as ``starting_density``.
+
+    **A collinear spin-polarized Elk state** (``ndmag = 1``) seeds an
+    ``nspin_mag = 2`` run: Elk's ``m_z = n_up - n_down`` is reconstructed by the
+    charge's own route and returned as the ``(up, down)`` pair
+    ``(rho + m, rho - m) / 2``, with ``m`` scaled by the charge's
+    renormalisation factor. An unpolarized state into an ``nspin_mag = 2`` run,
+    a polarized one into an ``nspin_mag = 1`` run, and anything into a
+    noncollinear run are refused.
 
     **This is a seed and it is not a substitute for defuqumat's own SCF.** Elk's
     density is all-electron: it carries the core and the nuclear cusp, where
@@ -572,16 +617,50 @@ def density_on(state, calculation, renormalise: bool = True, report=None):
     # cannot take this seed should say so in the first line rather than after a
     # reconstruction it will throw away.
     nspin_mag = calculation.nspin_mag
-    if nspin_mag != 1:
+    if nspin_mag not in (1, 2):
         raise NotImplementedError(
-            f"this calculation has nspin_mag = {nspin_mag}, and only an "
-            "unpolarized seed is implemented. An Elk magnetization is a second "
-            "field with a transfer rule of its own, and splitting a charge "
-            "density evenly between two channels would seed a magnetic run "
-            "from a non-magnetic guess without saying so."
+            f"this calculation has nspin_mag = {nspin_mag}, and an Elk seed is "
+            "implemented for an unpolarized (nspin_mag = 1) or a collinear "
+            "(nspin_mag = 2) run only. A noncollinear or spiral run would need "
+            "Elk's magnetization as a vector field, and a noncollinear Elk "
+            "state is refused at read time."
+        )
+    if nspin_mag == 2 and not state.spinpol:
+        raise NotImplementedError(
+            "this calculation has nspin_mag = 2 and the Elk state is "
+            "unpolarized. Splitting a charge density evenly between two "
+            "channels would seed a magnetic run from a non-magnetic guess "
+            "without saying so; seed it from a spin-polarized Elk state, or "
+            "start it from its own starting_magnetization."
+        )
+    if nspin_mag == 1 and state.spinpol:
+        raise NotImplementedError(
+            "this calculation has nspin_mag = 1 and the Elk state is "
+            "spin-polarized. Seeding it would keep the charge and silently drop "
+            "the moment; run it with nspin = 2 to carry the magnetization over."
         )
 
     system = calculation.system
+    if getattr(state, "dftu", 0) != 0:
+        # ``STATE.OUT`` holds Elk's Hubbard *potential* matrix in its own
+        # muffin-tin basis and no occupation matrix, so the only thing that
+        # crosses is the density; the run builds its occupations from its own
+        # ``starting_ns`` (Hund's rule, ``init_ns``) and its own projectors.
+        import warnings
+
+        hubbard = getattr(system, "hubbard", None) is not None
+        warnings.warn(
+            f"the Elk state is DFT+U (dftu = {state.dftu}) and only its density "
+            "is carried into this seed: STATE.OUT holds Elk's Hubbard "
+            "potential matrix in Elk's muffin-tin basis, not an occupation "
+            "matrix, and this run's Hubbard projectors are different orbitals. "
+            + ("The occupations start from this run's own starting_ns, which "
+               "decides which DFT+U solution it finds; pass starting_ns= to "
+               "choose one." if hubbard else
+               "This run has no Hubbard term, so it converges to the plain "
+               "functional's state from Elk's DFT+U density."),
+            stacklevel=3,
+        )
     cell = np.asarray(system.cell.at, dtype=float)
     if not np.allclose(cell, state.geometry.avec, atol=1e-6, rtol=1e-6):
         raise ValueError(
@@ -594,36 +673,17 @@ def density_on(state, calculation, renormalise: bool = True, report=None):
 
     dense = calculation.basis.dense
     grid = tuple(int(n) for n in dense.grid)
-    miller_target = np.asarray(dense.miller)
     gcut = float(np.asarray(dense.kinetic(system.cell)).max())
 
-    # -- the interstitial, straight onto the target grid.
-    # For a *regular* grid the Fourier sum is an inverse FFT rather than a
-    # quadratic point-by-G contraction, which is both exact and orders of
-    # magnitude cheaper. Only the coefficients inside defuqumat's own sphere go in.
-    miller, gcart, coefficients = interstitial_coefficients(state, gmax2=gcut)
-    reachable = np.all(np.abs(miller) <= np.array(grid) // 2, axis=1)
-    miller = miller[reachable]
-    coefficients = coefficients[reachable]
-    box = np.zeros(grid, dtype=complex)
-    np.add.at(
-        box,
-        (miller[:, 0] % grid[0], miller[:, 1] % grid[1], miller[:, 2] % grid[2]),
-        coefficients,
+    rho, nkept = _on_grid(state, grid, gcut)
+    # The magnetization takes exactly the charge's route: Elk's ``vecplot``
+    # hands ``magmt``/``magir`` to ``plot3d`` the way ``rhoplot`` hands it
+    # ``rhomt``/``rhoir``, so the same truncation to defuqumat's dense sphere and
+    # the same pointwise muffin-tin overwrite apply, component by component.
+    magnetization = (
+        _on_grid(state.magnetization_component(0), grid, gcut)[0]
+        if nspin_mag == 2 else None
     )
-    rho = np.real(np.fft.ifftn(box) * box.size)
-
-    # -- the muffin tins, pointwise, overwriting the interstitial there.
-    fractional = np.stack(
-        np.meshgrid(*[np.arange(n) / n for n in grid], indexing="ij"), axis=-1
-    ).reshape(-1, 3)
-    atom, radius, direction = _find_muffin_tin(state, fractional)
-    inside = np.nonzero(atom >= 0)[0]
-    if inside.size:
-        values = evaluate_at(state, fractional[inside])
-        flat = rho.reshape(-1)
-        flat[inside] = values
-        rho = flat.reshape(grid)
 
     omega = state.omega
     integral = float(rho.sum()) * omega / rho.size
@@ -642,8 +702,10 @@ def density_on(state, calculation, renormalise: bool = True, report=None):
         nelec=nelec,
         muffin_tin=float(muffin_tin_charges(state).sum()),
         outside_fraction=outside_fraction,
-        ngvec_kept=len(miller),
+        ngvec_kept=nkept,
         ngvec=state.ngvec,
+        moment=(None if magnetization is None
+                else float(magnetization.sum()) * omega / magnetization.size),
     )
 
     if abs(integral - nelec) > 0.5 * max(nelec, 1.0):
@@ -659,10 +721,17 @@ def density_on(state, calculation, renormalise: bool = True, report=None):
             "for."
         )
 
-    if renormalise:
-        rho = rho * (nelec / integral)
+    scale = nelec / integral if renormalise else 1.0
+    rho = rho * scale
 
     if report is not None:
         report.append(measured)
 
-    return jnp.asarray(rho)[None]
+    if magnetization is None:
+        return jnp.asarray(rho)[None]
+    # The collinear layout ``Calculation.starting_density`` builds, ``(up,
+    # down) = (rho + m, rho - m) / 2``. The magnetization takes the charge's
+    # renormalisation factor, so the polarization ``m / rho`` is Elk's at
+    # every point and the moment is scaled with the charge it belongs to.
+    m = magnetization * scale
+    return jnp.asarray(np.stack([rho + m, rho - m]) / 2.0)

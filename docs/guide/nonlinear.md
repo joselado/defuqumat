@@ -504,12 +504,22 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     tensor is zero, so for the SCF you keep the symmetry and pass the whole mesh
     as `kpoints`, as we do for silicon.
 
-    The real-time methods give an error for DFT+U, a spin spiral, a ground state
-    under a magnetic field or with a constrained moment, a static electric field
-    (`tefield` or `lelfield`), and a symmetry-reduced k-set passed as `kpoints`
-    (you pass `grid=` instead, which builds the right reduction for the field).
-    A shifted mesh gives an error, because it is not closed under the point
-    group, and `little_group=False` propagates the whole shifted mesh instead.
+    The real-time methods give an error for DFT+U, a spin spiral, a static
+    electric field (`tefield` or `lelfield`), and a symmetry-reduced k-set passed
+    as `kpoints` (you pass `grid=` instead, which builds the right reduction for
+    the field). A ground state under a magnetic field or with a constrained
+    moment works. The run uses the field that the SCF ended with, not the field
+    in the input. With `potential='hartree'` or `'hxc'`, a penalty constraint
+    (for example `constrained_magnetization = 'atomic'`) gives an error. With
+    `potential='frozen'` it works.
+
+    A shifted mesh works. It is not closed under the point group, so the code
+    keeps only the operations that map the mesh onto itself. For silicon on
+    `4 4 4 1 1 1` with a field along [100], that is two of eight, and 40 of 64
+    points. The result is the same as `little_group=False` to 1e-8. Note that a
+    shifted mesh on a cubic cell is not cubic, so it gives a small current
+    across the field that the crystal does not have. For a cubic cell, use an
+    unshifted mesh.
     They also give an error when `occupations = 'fixed'` cuts a degenerate
     level, because the current then depends on an arbitrary choice inside the
     level, and for a time step that is too long to be stable.
@@ -519,8 +529,9 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
 
     A magnet, a spinor run with spin-orbit coupling, and ultrasoft and PAW
     datasets work in real time. With an ultrasoft or PAW dataset, the potential
-    updated in time (`"hartree"` or `"hxc"`) and a kick after the start of the
-    run give an error. With the potential updated, a meta-GGA with `"hxc"` and a
+    updated in time (`"hartree"` or `"hxc"`) gives an error. A kick after the
+    start of the run works, but it must land on a point of the time grid, so its
+    time must be the start plus a whole number of steps `dt`. With the potential updated, a meta-GGA with `"hxc"` and a
     checkpoint give an error. A metal runs with the occupations of the ground
     state held fixed, and its intraband response converges slowly in
     $\mathbf k$.
@@ -529,10 +540,12 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     residual) when a solve or the outer solve does not converge, since an
     unconverged first order is amplified by $1/(2\eta)$ in the second.
     It also gives an error for the potential updated in time above first order
-    (the real-time route has it, one frequency per run), for two FFT grids with
-    the potential updated, for a meta-GGA with `"hxc"`, because its
+    (the real-time route has it, one frequency per run), for a meta-GGA with
+    `"hxc"`, because its
     exchange-correlation kernel is not implemented, for an order above three,
-    and for an `nbnd` that leaves no conduction band below the top four.
+    and for an `nbnd` that leaves no conduction band below the top four. A
+    norm-conserving run with `ecutrho` above `4 ecutwfc` works with the
+    potential updated.
 
 The notebooks for this page are
 [32, the shift current](https://github.com/joselado/defuqumat/blob/master/notebooks/32_shift_current.ipynb),

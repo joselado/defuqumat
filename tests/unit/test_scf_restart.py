@@ -49,6 +49,16 @@ from defuqumat.scf.mixing import get_mixer
 
 pytestmark = pytest.mark.unit
 
+
+@pytest.fixture(autouse=True)
+def _drop_compiled_code():
+    """The file runs more than three distinct cells, so the compiled code goes
+    after each test (``.claude/rules/memory-design.md``)."""
+    yield
+    import jax
+
+    jax.clear_caches()
+
 QE_SILICON = "quantum_espresso/qe-7.5-ReleasePack/qe-7.5/test-suite/pw_scf/scf.in"
 
 
@@ -505,39 +515,201 @@ def test_reducebf_is_picked_up_where_the_resume_left_it(pseudo_dir, tmp_path):
     assert resumed.field_scale <= stopped.field_scale
 
 
-def test_a_driven_field_refuses_the_mid_scf_checkpoint_too(pseudo_dir, tmp_path,
-                                                            capsys):
-    """The half that was missing, and it failed silently in the other direction.
+def _with_fsm(pseudo_dir, tmp_path, atomic=False, update=None):
+    """The same hydrogen atom under a fixed-spin-moment scheme instead of a field."""
+    from tests.conftest import GENERATED
 
-    ``_InProgressState`` hardcoded ``magnetic_field = None`` under a comment
-    saying that was what made the refusal fire -- ``None`` is exactly what makes
-    it pass. So a fixed-spin-moment run, whose field is the controller's state
-    and is replaced after every iteration, wrote a checkpoint every cadence with
-    that field dropped in silence. The state carries the loop's field now, so
-    the mid-SCF write asks the same question the converged one does.
+    text = (GENERATED / "h-atom-lsda.in").read_text()
+    marker = text.lower().index("&system") + len("&system")
+    scheme = "atomic fsm" if atomic else "fsm"
+    extra = f"\n    constrained_magnetization = '{scheme}'\n    lambda = 0.05\n"
+    if not atomic:
+        extra += "    fixed_magnetization(3) = 0.6\n"
+    if update is not None:
+        extra += f"    fsm_update = '{update}'\n"
+    text = text[:marker] + extra + text[marker:]
+    if atomic:
+        # The per-atom scheme drives a vector field, so it needs spinors.
+        text = text.replace("nspin = 2", "noncolin = .true.")
+        text += "STARTING_MOMENTS\n 0.0 0.0 0.6\n"
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / "fsm.in"
+    path.write_text(text)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return Calculator.from_file(path, pseudo_dir=pseudo_dir, announce=False)
+
+
+@pytest.mark.parametrize("atomic", [False, True], ids=["fsm", "atomic fsm"])
+def test_a_driven_field_resumes_where_the_controller_left_it(pseudo_dir, tmp_path,
+                                                              capsys, atomic):
+    """Resumed against uninterrupted, at the same iteration count (I65).
+
+    The mid-SCF write used to refuse a fixed-spin-moment run, since the field
+    is the controller's state and is replaced after every iteration. The file
+    now carries the driven leaves and ``run_scf`` takes them back on resume, so
+    two iterations, a checkpoint and two more are the four-iteration run. The
+    comparison is at a fixed count rather than at convergence: Elk's update
+    drives the field to the same target from any start, so a resume that
+    restarted the controller from the input's field would reach the same
+    endpoint in more iterations, and only the field and the density at a fixed
+    count tell the two apart. That they do is asserted too.
+    """
+    calculator = _with_fsm(pseudo_dir, tmp_path / "cell", atomic=atomic)
+    out = tmp_path / "ckpt"
+    options = dict(conv_thr=1.0e-12, verbose=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        whole = run_scf(calculator.system, calculator.pseudos, max_iterations=4,
+                        **options)
+        first = run_scf(calculator.system, calculator.pseudos, max_iterations=2,
+                        checkpoint_dir=out, checkpoint_every=1, verbose=True,
+                        conv_thr=1.0e-12)
+        printed = capsys.readouterr().out
+        resumed = run_scf(calculator.system, calculator.pseudos, max_iterations=2,
+                          checkpoint_dir=out, checkpoint_every=1, **options)
+
+    assert "checkpointing is off" not in printed
+    assert {p.name for p in out.iterdir()} == {SCF_CHECKPOINT, SCF_MIXER}
+    assert first.iterations == 2 and resumed.iterations == 4
+
+    def driven(result):
+        field = result.magnetic_field
+        return np.asarray(field.atomic if atomic else field.uniform)
+
+    template = calculator.calculation.magnetic_field
+    input_field = np.asarray(template.atomic if atomic else template.uniform)
+    # What dropping the field would have resumed from is far from what the
+    # checkpoint holds, so the comparison below can fail.
+    assert np.max(np.abs(driven(first) - input_field)) > 1.0e-3
+    np.testing.assert_allclose(driven(resumed), driven(whole), rtol=0, atol=1.0e-9)
+    np.testing.assert_allclose(np.asarray(resumed.density),
+                               np.asarray(whole.density), rtol=0, atol=1.0e-9)
+    assert resumed.total_energy == pytest.approx(whole.total_energy, abs=1.0e-9)
+
+
+def test_a_driven_field_crosses_the_manual_resume_as_well(pseudo_dir, tmp_path):
+    """The other route ``run_scf`` documents: ``starting_from`` plus ``mixing_from``.
+
+    ``starting_from=load_state(..., calculation=c)`` with ``mixing_from=dir``
+    used to drop the driven field the file carries and restart the controller
+    from the input's field, with no warning (I65's verifier, D22: field -0.04
+    against -0.08 here, and 2.2e-6 Ry off at convergence on ``fe-fsm.in``).
+    This route restores neither ``ethr`` nor the occupations, so iteration
+    three runs on a fresh Davidson threshold and the end state is not the
+    uninterrupted one to the last bit; the density and energy tolerances are
+    the measured difference with margin, and the field's is far below the 0.04
+    a dropped field gives.
+    """
+    from defuqumat.scf.checkpoint import load_state
+
+    calculator = _with_fsm(pseudo_dir, tmp_path / "cell")
+    out = tmp_path / "ckpt"
+    options = dict(conv_thr=1.0e-12, verbose=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        whole = run_scf(calculator.system, calculator.pseudos, max_iterations=4,
+                        **options)
+        first = run_scf(calculator.system, calculator.pseudos, max_iterations=2,
+                        checkpoint_dir=out, checkpoint_every=1, **options)
+        back = load_state(out / SCF_CHECKPOINT, system=calculator.system,
+                          calculation=calculator.calculation)
+        resumed = run_scf(calculator.system, calculator.pseudos, max_iterations=2,
+                          starting_from=back, mixing_from=out, **options)
+
+    field = np.asarray(resumed.magnetic_field.uniform)
+    reference = np.asarray(whole.magnetic_field.uniform)
+    input_field = np.asarray(calculator.calculation.magnetic_field.uniform)
+    assert np.max(np.abs(np.asarray(first.magnetic_field.uniform) - input_field)) > 1.0e-3
+    # Measured on D22 (2026-10-16): the field 1.4e-17 from the uninterrupted
+    # run's, the density 2.0e-6 and the energy 1.0e-5 Ry. The last two are the
+    # fresh Davidson threshold, and read the same with the field dropped; the
+    # field is the assertion that can fail.
+    np.testing.assert_allclose(field, reference, rtol=0, atol=1.0e-9)
+    np.testing.assert_allclose(np.asarray(resumed.density),
+                               np.asarray(whole.density), rtol=0, atol=1.0e-5)
+    assert resumed.total_energy == pytest.approx(whole.total_energy, abs=5.0e-5)
+
+
+def test_a_driven_field_from_another_controller_is_not_carried(pseudo_dir, tmp_path):
+    """A seed whose driven field belongs to another update rule is warned about by
+    name and the run keeps the input's field, and a ``magnetization='seed'``
+    continuation keeps the input's field without a warning, since it asked to
+    start the moment again (I65)."""
+    elk = _with_fsm(pseudo_dir, tmp_path / "elk")
+    secant = _with_fsm(pseudo_dir, tmp_path / "secant", update="secant")
+    options = dict(conv_thr=1.0e-12, verbose=False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        source = run_scf(elk.system, elk.pseudos, max_iterations=2, **options)
+    input_field = float(np.asarray(secant.calculation.magnetic_field.uniform)[0])
+    assert abs(float(np.asarray(source.magnetic_field.uniform)[0]) - input_field) > 1.0e-3
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        run_scf(secant.system, secant.pseudos, max_iterations=1,
+                starting_from=source, **options)
+    messages = [str(w.message) for w in caught]
+    assert any("driven field" in m and "input's field" in m for m in messages), messages
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        reseeded = run_scf(elk.system, elk.pseudos, max_iterations=1,
+                           starting_from=source, magnetization="seed", **options)
+    assert not any("driven field" in str(w.message) for w in caught)
+    # One Elk step from the input's field (a step of 0.02 here, the moment
+    # being saturated), not a third from the source's 0.04.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fresh = run_scf(elk.system, elk.pseudos, max_iterations=1, **options)
+    np.testing.assert_allclose(np.asarray(reseeded.magnetic_field.uniform),
+                               np.asarray(fresh.magnetic_field.uniform),
+                               rtol=0, atol=1.0e-3)
+
+
+@pytest.mark.parametrize("update,stop", [("elk", 10), ("secant", 12)])
+@pytest.mark.slow
+def test_an_interrupted_fixed_spin_moment_run_costs_the_same_iterations(
+    pseudo_dir, tmp_path, update, stop
+):
+    """The count is the assertion, as for a run with no field (I65).
+
+    ``fe-fsm.in`` holds bcc iron at 2.0 mu_B. Measured on D22 (2026-10-16):
+    under Elk's update the run converges in 26 iterations, interrupted at 10
+    and resumed it takes 10 + 16 = 26 with the energy 1.2e-11 Ry away, and the
+    same resume with the input's field in place of the driven one takes 57 and
+    lands 1.2e-5 Ry away. Under the secant update 30 against 30, and 32 with
+    the field dropped. The secant case is the one that exercises the previous
+    pair, since its steps fall on both sides of the interruption.
     """
     from tests.conftest import GENERATED
 
     path = GENERATED / "fe-fsm.in"
     if not path.is_file():
         pytest.skip(f"{path} is not present")
+    text = path.read_text().replace(
+        "lambda = 0.02", f"lambda = 0.02\n    fsm_update = '{update}'")
+    cell = tmp_path / "fe.in"
+    cell.write_text(text)
+    out = tmp_path / "ckpt"
+    options = dict(conv_thr=1.0e-8, verbose=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir,
+        calculator = Calculator.from_file(cell, pseudo_dir=pseudo_dir,
                                           announce=False)
-        assert calculator.calculation.magnetic_field.constraint == "fsm"
-        out = tmp_path / "ckpt"
-        run_scf(calculator.system, calculator.pseudos, max_iterations=2,
-                checkpoint_dir=out, checkpoint_every=1, verbose=True)
+        whole = run_scf(calculator.system, calculator.pseudos, **options)
+        stopped = run_scf(calculator.system, calculator.pseudos,
+                          max_iterations=stop, checkpoint_dir=out,
+                          checkpoint_every=1, **options)
+        resumed = run_scf(calculator.system, calculator.pseudos,
+                          checkpoint_dir=out, checkpoint_every=1, **options)
 
-    assert not out.exists() or list(out.iterdir()) == [], (
-        "a driven field must not be half-saved")
-    # **Say which refusal fired.** An empty directory is also what a crash, a
-    # full disk or a cadence that never came round leaves, and the whole reason
-    # this test exists is that a silent no-op read as a working feature.
-    printed = capsys.readouterr().out
-    assert "checkpointing is off for this run" in printed
-    assert "fixed-spin-moment" in printed
+    assert whole.converged and resumed.converged and not stopped.converged
+    assert resumed.iterations == whole.iterations
+    assert resumed.total_energy == pytest.approx(whole.total_energy, abs=1.0e-9)
+    np.testing.assert_allclose(np.asarray(resumed.magnetic_field.uniform),
+                               np.asarray(whole.magnetic_field.uniform),
+                               rtol=0, atol=1.0e-10)
 
 
 def test_a_checkpoint_beats_a_seed_passed_on_the_same_line(tmp_path, pseudo_dir):

@@ -25,6 +25,7 @@ import warnings
 import numpy as np
 
 from defuqumat.batching import resolve_k_batch, resolve_wfc_store
+from defuqumat.parallel import current_pools
 from defuqumat.pseudo.upf import Pseudopotential
 from defuqumat.scf.driver import Calculation
 from defuqumat.solvers.davidson import DAVID_NDIM, ETHR_MIN
@@ -312,6 +313,34 @@ def fixed_density_states(
     # route: each chunk's states go into a numpy store as its solve returns, the
     # store a streamed SCF keeps, and the consumers walk it a chunk at a time
     # (``Calculation.density``, the projections) rather than stacking it.
+    pools = current_pools()
+    if (pools.size > 1 and not keep_states and kcart is None
+            and calculation.system.kpoints.nk >= pools.size):
+        # **k-point pools, ``c_bands_nscf`` under ``-nk``**: each pool solves its
+        # own rows of the whole set (the layout ``run_scf`` uses, longest
+        # first) and the eigenvalues are gathered, so every pool returns the
+        # whole set and occupies it alike. Nothing is reduced: a fixed-density
+        # solve is independent per k-point, and each row is addressed by its
+        # global index on the whole set's tables, so the starting vectors, the
+        # sphere and the Davidson cap are the one-pool run's. What is not split
+        # -- a caller keeping the states, ``kcart`` (the effective mass's frozen
+        # basis), a set with fewer k-points than pools -- is solved whole by
+        # every pool: the same answer at the one-pool cost, never one pool's
+        # share read as the whole.
+        from defuqumat.scf.driver import _k_costs
+        from defuqumat.scf.streaming import stream_eigenvalues
+
+        nk = calculation.system.kpoints.nk
+        layout = pools.layout(nk, costs=_k_costs(calculation))
+        local, steps, notcnv = stream_eigenvalues(
+            calculation, hamiltonians, nbnd, ethr, rows=layout[pools.rank])
+        # gloo makes its context at the first collective, and a pool that
+        # arrives late makes it fail (``Pools.barrier``).
+        pools.barrier("fixed_density_states")
+        eigenvalues, steps, notcnv = pools.gather_k(
+            (local, steps, notcnv), nk, axis=1, layout=layout)
+        _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd)
+        return calculation, system, np.asarray(eigenvalues), None
     if resolve_wfc_store(wfc_store, calculation.memory_mode) == "stream":
         from defuqumat.scf.streaming import stream_eigenvalues, stream_states
 

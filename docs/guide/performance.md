@@ -254,8 +254,9 @@ with one Slurm task per pool and `--cpus-per-task` threads in each. The best
 use of the cores is many pools with one or two cores each, since the threads
 of one k-point give little. A calculation without symmetry, for example a
 magnet with spin-orbit coupling, has the whole mesh as its k-points, and this
-is where pools give the most. The ground state, the forces, the stress and the
-relaxations run with pools, also for a spin spiral, a magnetic field and a
+is where pools give the most. The ground state, the forces, the stress, the
+relaxations, the band structure, the NSCF run and the density of states run
+with pools, also for a spin spiral, a magnetic field and a
 constrained moment. If you give `checkpoint_dir`, the SCF writes a checkpoint,
 and it can continue with any number of pools, also with one process. The line
 `#SBATCH --signal=TERM@600` asks Slurm for a SIGTERM ten minutes before the end
@@ -284,20 +285,26 @@ several cards are in
 [PERFORMANCE.md](https://github.com/joselado/defuqumat/blob/master/PERFORMANCE.md).
 
 !!! note "Limits"
-    With pools, only `get_scf`, `get_forces`, `get_stress` and `get_relax`
-    run. Every other method gives an error that names it. More pools than
-    k-points give an error. An SCF with a `scf_solver` other than the normal
-    mixing gives an error with pools, and so do the forces and the stress
-    with a `method` other than the default `"autodiff"`. A starting state
-    (`starting_from`) whose wavefunctions were held by a different number of
-    pools gives an error, so you start from its density instead, or use the
-    same number of pools. A checkpoint does not have this limit.
+    With pools, only `get_scf`, `get_forces`, `get_stress`, `get_relax`,
+    `get_bands`, `get_nscf` and `get_dos` run. Every other method gives an
+    error that names it. More pools than k-points give an error in the SCF.
+    A band path or a grid with fewer k-points than pools runs, but each pool
+    then solves all of it. With pools, `scf_solver='newton-krylov'` runs with
+    its default Jacobian, `jvp='finite-difference'`. With `jvp='autodiff'` or
+    `jvp='sternheimer'` it gives an error. The forces and the stress give an
+    error with a `method` other than the default `"autodiff"`. A starting state
+    (`starting_from`) from a run with pools also works when the k-points are
+    shared out differently in the new run. The states move to the pool that
+    needs them. A starting state from a run with pools, given to a run without
+    pools, gives an error. In that case you start from its density.
 
-    The SCF does not write a checkpoint when the magnetic field comes from a
-    fixed-spin-moment scheme (`constrained_magnetization = 'fsm'`,
-    `'atomic fsm'` or `'atomic fsm direction'`). It says so once and runs on
-    without one, because this field changes at every iteration and no input
-    file says what it reached, so a restart would go back to the input field.
+    A fixed-spin-moment run (`constrained_magnetization = 'fsm'`, `'atomic fsm'`
+    or `'atomic fsm direction'`) also writes a checkpoint. This field changes at
+    every iteration, so the checkpoint stores the field that the scheme reached,
+    and a restart continues from that field. On bcc iron the restarted run takes
+    the same 26 iterations as a run without a stop. If you load such a state
+    yourself with `load_state`, you give `calculation=`, because the rest of the
+    field comes from the input file.
     An applied field and a penalty constraint are saved normally.
     `checkpoint_every`, the number of iterations between two checkpoints (10
     if you do not give it), must be at least 1. A run that continues from its

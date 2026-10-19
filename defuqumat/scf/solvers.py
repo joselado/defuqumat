@@ -96,6 +96,15 @@ class NewtonKrylovResult:
     steps: int
     jvps: int
     history: list = field(default_factory=list)
+    #: The solved feedback (fixed-spin-moment) field, the
+    #: :class:`~defuqumat.scf.fields.MagneticField` whose driven leaf is
+    #: ``x``'s, or ``None`` without one. Set by the driver, which hands it to
+    #: the mixing loop that runs after the solve (I73).
+    field: object = None
+    #: The feedback field's share of :attr:`accuracy` at the returned state,
+    #: ``ScfResidual.field_accuracy``, in Ry; 0.0 without one. Set by the
+    #: driver, which warns with it when an unconverged solve is handed over.
+    field_accuracy: float = 0.0
 
 
 def newton_krylov(
@@ -114,10 +123,12 @@ def newton_krylov(
 ) -> NewtonKrylovResult:
     """Drive ``r(x)`` to zero by inexact Newton with a GMRES inner solve.
 
-    ``accuracy_of(r)`` is the *same* measure the mixing loop converges on --
+    ``accuracy_of(r, x)`` is the *same* measure the mixing loop converges on --
     QE's ``dr2``, the Hartree energy of the residual -- so ``conv_thr`` means
     here what it means in a ``pw.x`` input and the two solvers can be compared
-    at all.
+    at all. It takes the state ``x`` beside the residual ``r`` because a
+    feedback field's share is weighted by the field the state holds
+    (``ScfResidual.field_accuracy``).
 
     ``forcing`` is the inexact-Newton forcing term: the inner solve is only
     asked for a relative residual of ``forcing``, because an exactly solved
@@ -166,6 +177,19 @@ def newton_krylov(
     """
     if jvp not in ("autodiff", "finite-difference", "sternheimer"):
         raise ValueError(f"unknown jvp backend {jvp!r}")
+    if jvp == "autodiff" and getattr(
+        getattr(residual, "calculation", None), "magnetic_field", None
+    ) is not None:
+        # I73: not measured under a field. On the one-k-point iron cell at the
+        # mixing fixed point it reads 0.53 to 0.81 of |J v| off the central
+        # difference with b_field(3) = 0.01, and 1.7 to 2.0 off without it, so
+        # the disagreement is not the field's, but no number backs this regime.
+        raise NotImplementedError(
+            "jvp='autodiff' under a magnetic field or a constrained moment is "
+            "not yet checked: every residual-solver number with a field was "
+            "taken with the central difference. Use jvp='finite-difference' "
+            "(the default)"
+        )
 
     x = np.asarray(x0, dtype=float).copy()
     psi = psi0
@@ -182,7 +206,7 @@ def newton_krylov(
         return np.asarray(r, dtype=float), psi_new
 
     r, psi = evaluate(x, psi)
-    accuracy = float(accuracy_of(r))
+    accuracy = float(accuracy_of(r, x))
     converged = accuracy < conv_thr
     # The starting point is recorded so that a convergence history plotted
     # against ``steps`` begins where the mixer's does, and so that a solve that
@@ -307,10 +331,11 @@ def newton_krylov(
             pass
         x, r, psi = trial, r_trial, psi_trial
 
-        accuracy = float(accuracy_of(r))
+        accuracy = float(accuracy_of(r, x))
         converged = accuracy < conv_thr
         history.append(
-            {"iteration": iteration, "accuracy": accuracy, "step": taken,
+            {"iteration": iteration, "accuracy": accuracy, "norm": float(np.linalg.norm(r)),
+             "step": taken,
              "gmres": info, "steps": counters["steps"], "jvps": counters["jvps"],
              "seconds": time.perf_counter() - started}
         )

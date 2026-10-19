@@ -1,0 +1,108 @@
+"""A spiral on the wedge of its spin space group, against the same spiral with ``nosym``.
+
+The check for the spin space group (``notes/INCOMPATIBILITIES.md`` I50) is the
+``nosym`` run: the same input on the full grid, with nothing symmetrised. Three
+cells, because each discriminates something the other cannot:
+
+* fcc hydrogen with ``q = b3/8`` (``h-fcc-spiral-scan.in``), a
+  three-dimensional metal on a non-orthogonal cell whose wedge is
+  20 of 64 points under ``C3v``, all with ``f = 0``;
+* a zigzag hydrogen chain whose screw ``{C2z|c/2}`` and glide ``{m_x|c/2}`` carry
+  ``q . f = 45`` degrees, which is the only arm where permuting the rotated-frame
+  components as four scalars and leaving a ``Rot_z(q . f)`` behind read
+  differently; 16 of 36 points;
+* the hydrogen chain of ``h-chain-spiral.in`` on a 3x3x4 grid, ``C4v``, 12 of
+  36 points, the cell every other spiral test runs on.
+
+The seed residuals that make the four-scalar rule a discriminator rather than
+a null result, and the group counts, are ``tests/unit/test_spiral_symmetry.py``.
+"""
+
+from functools import lru_cache
+from pathlib import Path
+
+import pytest
+
+from defuqumat.io.pwin import parse_pw_input
+from defuqumat.pseudo import read_upf
+from defuqumat.scf import run_scf
+from defuqumat.system import build_system
+from tests.unit.test_spiral_symmetry import CHAIN, FCC, ZIGZAG, _nosym
+
+pytestmark = [pytest.mark.regression, pytest.mark.slow]
+
+
+@pytest.fixture(autouse=True)
+def _bound_compilation_cache():
+    """Six cells of different shapes in one process; see ``CLAUDE.md`` on memory."""
+    yield
+    import jax
+
+    jax.clear_caches()
+
+
+@lru_cache(maxsize=2)
+def _run(text: str, pseudo_dir: Path):
+    pwin = parse_pw_input(text)
+    system = build_system(pwin)
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    return system, run_scf(
+        system, pseudos,
+        conv_thr=float(pwin.get("electrons", "conv_thr")),
+        mixing_beta=float(pwin.get("electrons", "mixing_beta")),
+        max_iterations=200,
+    )
+
+
+#: Measured on D22, one sample each (``notes/incompat/I50.md``): the energy
+#: 1.1e-12, 2.3e-12 and 1.3e-13 Ry apart, ``|m|`` 1.1e-7, 3.0e-6 and 2.9e-6.
+@pytest.mark.parametrize("text, nk_sym, nk_full, tolerance", [
+    (FCC, 20, 64, 1e-10),
+    (ZIGZAG, 16, 36, 1e-10),
+    (CHAIN, 12, 36, 1e-10),
+], ids=["fcc", "zigzag", "chain"])
+def test_the_spiral_on_its_wedge_is_the_nosym_spiral(text, nk_sym, nk_full,
+                                                     tolerance, pseudo_dir):
+    """The total energy and the moment on the wedge, against the full grid."""
+    full_system, full = _run(_nosym(text), pseudo_dir)
+    system, reduced = _run(text, pseudo_dir)
+
+    assert system.symmetry_group().nsym > 1 and not system.nosym
+    assert system.kpoints.nk == nk_sym and full_system.kpoints.nk == nk_full
+    assert full.converged and reduced.converged
+    # A magnetic state, or the comparison would not see the magnetization's rule.
+    assert full.absolute_magnetization > 0.1
+
+    assert reduced.total_energy == pytest.approx(full.total_energy, abs=tolerance)
+    assert reduced.absolute_magnetization == pytest.approx(
+        full.absolute_magnetization, abs=2e-5
+    )
+
+
+#: Measured on D22 on the merged head, one sample each (``notes/incompat/I50.md``):
+#: on the zigzag the force 5.6e-8 Ry/bohr apart out of 4.79e-3 (the ``nosym``
+#: arm's own forbidden ``z`` component is that 5.6e-8) and the stress 2.1e-10
+#: Ry/bohr^3 out of 7.7e-5; on the chain, whose one atom carries no force, the
+#: stress 4.0e-10 out of 1.1e-4.
+@pytest.mark.parametrize("text", [ZIGZAG, CHAIN], ids=["zigzag", "chain"])
+def test_the_force_and_stress_on_the_wedge_are_the_nosym_ones(text, pseudo_dir):
+    """The two derivatives master lifted for a norm-conserving spiral, on the wedge.
+
+    Both are a polar vector and a polar tensor, symmetrised with the spatial
+    part of the spin space group; the ``nosym`` arm symmetrises nothing.
+    """
+    import numpy as np
+
+    from defuqumat import Calculator
+
+    def derivatives(t):
+        calc = Calculator.from_text(t, pseudo_dir, max_iterations=300)
+        calc.get_scf()
+        return (np.asarray(calc.get_forces().forces),
+                np.asarray(calc.get_stress().tensor), calc.calculation.use_symmetry)
+
+    forces, stress, used = derivatives(text)
+    full_forces, full_stress, full_used = derivatives(_nosym(text))
+    assert used and not full_used
+    np.testing.assert_allclose(forces, full_forces, atol=1e-6)
+    np.testing.assert_allclose(stress, full_stress, atol=5e-9)

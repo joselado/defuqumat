@@ -1025,6 +1025,17 @@ def estimate_size(
     if isinstance(mixer, AndersonMixer) and mixer.history:
         space = resolve_mixing_space(mixing_space, mixer)
         head = nspin_mag * (ngms if space == "g" else int(np.prod(dense_grid)))
+        if space == "g" and system.spiral and nspin_mag == 4:
+            # A spiral's block is ``(4, max(ngms, npair))``
+            # (:class:`~defuqumat.scf.mixing.SpiralSphereLayout`): ``m'_+`` on the
+            # displaced smooth sphere where the run builds one (an augmented
+            # spiral, or a separate smooth grid; ``_spiral_gvectors``), counted
+            # here at the resident ``ngms``, which it equals up to the shell's
+            # asymmetry, and on the whole box otherwise.
+            displaced = doublegrid or any(
+                p.is_ultrasoft and projector_channels(p) for p in pseudos)
+            npair = ngms if displaced else int(np.prod(dense_grid))
+            head = nspin_mag * max(ngms, npair)
         packed = head + int(functional.is_meta) * nspin_mag * int(np.prod(dense_grid))
         for index in sorted(set(structure.types)):
             pseudo = pseudos[index]

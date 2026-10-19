@@ -403,6 +403,67 @@ class Pools:
             wholes.append(whole)
         return wholes[0] if single else tuple(wholes)
 
+    def redistribute(self, store: "PoolStore", layout) -> "PoolStore":
+        """``store``'s rows moved into ``layout``, every pool's new global k indices.
+
+        A seed held under one pool layout and needed under another: each pool
+        holds ``store.rows`` and must end with ``layout[self.rank]``, in that
+        order. **Collective**, so every pool calls it, whether or not its own
+        rows move. Two small all-gathers tell every pool what every other one
+        holds; if every pool already holds its new rows the store comes back
+        re-indexed with nothing else sent. Otherwise the rows travel in rounds:
+        at each round every pool sends the next ``w`` rows it holds, ``w`` the
+        largest share over the pool count rounded up, and keeps what it needs
+        of what arrives. The transient is therefore about one share in transit
+        beside the old store and the new one, never the whole set, which is
+        what a pool exists not to hold. A row held by no pool is refused by
+        name, identically on every pool, since every pool tests the same
+        gathered layout.
+        """
+        nk = store.nk
+        held = np.asarray(store.rows, dtype=int)
+        wanted = np.asarray(layout[self.rank], dtype=int)
+        if self.size == 1:
+            sources = [held]
+        else:
+            shares = np.asarray(self.communicator.allgather(
+                np.asarray([len(held)])))[:, 0]
+            width = int(shares.max())
+            where = np.asarray(self.communicator.allgather(
+                np.pad(held, (0, width - len(held)), constant_values=-1)))
+            sources = [where[pool][: int(shares[pool])].astype(int)
+                       for pool in range(self.size)]
+        covered = set(int(row) for rows in sources for row in rows)
+        absent = sorted(set(int(row) for rows in layout for row in rows) - covered)
+        if absent:
+            raise NotImplementedError(
+                f"the seed's states hold no copy of k rows {absent} on any of the "
+                f"{self.size} pools, so they cannot be moved to the pool that needs "
+                "them; seed from the density alone")
+        array = store.array
+        if all(set(int(r) for r in np.asarray(layout[pool])) <= set(int(r) for r in rows)
+               for pool, rows in enumerate(sources)):
+            position = {int(row): i for i, row in enumerate(held)}
+            return PoolStore(np.ascontiguousarray(
+                array[:, [position[int(row)] for row in wanted]]), wanted, nk)
+        target = {int(row): i for i, row in enumerate(wanted)}
+        out = np.empty((array.shape[0], len(wanted)) + array.shape[2:], array.dtype)
+        width = max(len(rows) for rows in sources)
+        step = max(1, -(-width // self.size))
+        for start in range(0, width, step):
+            block = np.zeros((array.shape[0], step) + array.shape[2:], array.dtype)
+            mine = array[:, start:start + step]
+            block[:, : mine.shape[1]] = mine
+            arrived = np.asarray(self.communicator.allgather(
+                np.ascontiguousarray(block).reshape(-1).view(np.uint8)))
+            for pool, rows in enumerate(sources):
+                part = np.ascontiguousarray(arrived[pool]).view(array.dtype).reshape(
+                    block.shape)
+                for offset, row in enumerate(rows[start:start + step]):
+                    if int(row) in target:
+                        out[:, target[int(row)]] = part[:, offset]
+        return PoolStore(out, wanted, nk)
+
     def allreduce_sum(self, tree):
         return self.communicator.allreduce_sum(tree)
 

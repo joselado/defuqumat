@@ -104,20 +104,95 @@ def test_refusals_name_what_pools_do_not_cover():
     from defuqumat.scf.driver import _refuse_under_pools
 
     pools = Pools(_FakeCommunicator(2, 0))
-    calculation = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=8)),
+    calculation = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=8),
+                                                         occupations="fixed"),
                                   spiral=False)
-    quiet = dict(checkpointing=False, residual_solver=False, rotate_moments=False,
+    quiet = dict(checkpointing=False, residual_solver=None, rotate_moments=False,
                  field=None)
     _refuse_under_pools(pools, calculation, **quiet)
     _refuse_under_pools(pools, calculation, **{**quiet, "checkpointing": True})
     _refuse_under_pools(pools, calculation, **{**quiet, "field": object()})
     _refuse_under_pools(pools, calculation, **{**quiet, "rotate_moments": True})
-    for name, value, words in [("residual_solver", True, "residual scf_solver")]:
+    # The residual solver runs under pools with its default Jacobian, the
+    # central difference; the two that differentiate stay refused.
+    _refuse_under_pools(pools, calculation,
+                        **{**quiet, "residual_solver": "finite-difference"})
+    for name, value, words in [
+            ("residual_solver", "autodiff", "residual scf_solver with jvp='autodiff'"),
+            ("residual_solver", "sternheimer",
+             "residual scf_solver with jvp='sternheimer'")]:
         with pytest.raises(NotImplementedError, match=words):
             _refuse_under_pools(pools, calculation, **{**quiet, name: value})
-    few = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=1)), spiral=False)
+    few = SimpleNamespace(system=SimpleNamespace(kpoints=SimpleNamespace(nk=1),
+                                                 occupations="fixed"), spiral=False)
     with pytest.raises(NotImplementedError, match="2 pools for 1 k-points"):
         _refuse_under_pools(pools, few, **quiet)
+
+
+@pytest.mark.parametrize("scheme", ["tetrahedra", "tetrahedra_opt", "from_input"])
+def test_a_pooled_residual_refuses_tetrahedra_before_any_collective(scheme):
+    """The occupations ``F`` has no form for stop every rank before the protocol (I53).
+
+    Raised inside ``PooledScfResidual._evaluate`` instead, after the eigenvalue
+    gather, they hung a two-pool run until the heartbeat (D22, Si 8k
+    tetrahedra: both ranks exit -6 after 315 s, rank 0's traceback never
+    printed). So the entry guard refuses them for any residual solver on every
+    rank; mixing is not refused. ``make_residual`` no longer refuses them, since
+    on one process a residual solver takes both (I71); the pooled pair is the
+    one left unmeasured.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.scf.driver import _refuse_under_pools
+    from defuqumat.scf.residual import make_residual
+
+    pools = Pools(_FakeCommunicator(2, 1))
+    system = SimpleNamespace(kpoints=SimpleNamespace(nk=8), occupations=scheme,
+                             spiral_q=None)
+    calculation = SimpleNamespace(system=system, spiral=False, magnetic_field=None)
+    quiet = dict(checkpointing=False, residual_solver=None, rotate_moments=False,
+                 field=None)
+    _refuse_under_pools(pools, calculation, **quiet)
+    for jvp in ("finite-difference", "autodiff"):
+        with pytest.raises(NotImplementedError,
+                           match=f"occupations={scheme!r} has no pooled form"):
+            _refuse_under_pools(pools, calculation, **{**quiet, "residual_solver": jvp})
+    # The sibling refusals of ``make_residual`` still fire on their own.
+    fixed = SimpleNamespace(kpoints=system.kpoints, occupations="fixed", spiral_q=None)
+    # A held field runs since I73 and a feedback field since its feedback
+    # round; a decaying field (reducebf < 1) is what stays refused.
+    decaying = SimpleNamespace(constraint="none", reducebf=0.9, atomic=None)
+    with pytest.raises(NotImplementedError, match="reducebf"):
+        make_residual(SimpleNamespace(system=fixed, magnetic_field=decaying), 4, 1e-10)
+    # A plain spiral is admitted on one process since I72; its Hubbard
+    # sibling is the refusal that stays (``tests/unit/test_residual_spiral.py``).
+    spiral = SimpleNamespace(kpoints=system.kpoints, occupations="fixed",
+                             spiral_q=(0.0, 0.0, 0.1))
+    with pytest.raises(NotImplementedError, match="Hubbard U"):
+        make_residual(SimpleNamespace(system=spiral, magnetic_field=None,
+                                      spiral=True, is_hubbard=True), 4, 1e-10)
+
+
+
+def test_a_pooled_residual_refuses_the_jacobians_that_differentiate():
+    """``PooledScfResidual`` (I53) has only the central difference; the other two raise.
+
+    The entry refusal (above) stops ``autodiff`` and ``sternheimer`` before a
+    pooled residual exists; this is the second line, on the object itself, and
+    the check that only rank 0 may open an evaluation.
+    """
+    from defuqumat.scf.residual import PooledScfResidual, ScfResidual
+
+    serial = ScfResidual(None, 4, 1e-10, ((1, 2, 2, 2),), 8)
+    pooled = PooledScfResidual.of(serial, Pools(_FakeCommunicator(2, 0)), [0, 1], None)
+    x = np.zeros(8)
+    with pytest.raises(NotImplementedError, match="jvp='autodiff' is not available"):
+        pooled.jvp(x, x, 0)
+    with pytest.raises(NotImplementedError, match="jvp='sternheimer' is not available"):
+        pooled.sternheimer_jacobian(x, 0)
+    other = PooledScfResidual.of(serial, Pools(_FakeCommunicator(2, 1)), [2, 3], None)
+    with pytest.raises(RuntimeError, match="only rank 0 drives"):
+        other.step(x, None)
 
 
 # ----------------------------------------------------------------- processes
@@ -138,25 +213,39 @@ def _start_pools(script: str, size: int, *args, timeout: float = 300.0,
     base.update(JAX_PLATFORMS="cpu", DEFUQUMAT_THREADS="2",
                 PYTHONPATH=str(REPO) + os.pathsep + base.get("PYTHONPATH", ""))
     base.update(env_extra or {})
-    processes = []
-    for rank in range(size):
-        env = dict(base)
-        if size > 1:
-            env.update(DEFUQUMAT_POOLS=str(size), DEFUQUMAT_POOL_RANK=str(rank),
-                       DEFUQUMAT_COORDINATOR=f"localhost:{port}",
-                       DEFUQUMAT_POOL_TIMEOUT="120")
-        processes.append(subprocess.Popen(
-            [sys.executable, "-c", script, *map(str, args)], env=env, cwd=REPO,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
-    outcomes = []
-    try:
-        for process in processes:
-            out, err = process.communicate(timeout=timeout)
-            outcomes.append((process.returncode, out, err))
-    finally:
-        for process in processes:
-            if process.poll() is None:
-                process.kill()
+    # Each rank writes to files rather than pipes. With pipes only the rank being
+    # waited on is drained, so a later rank whose output passes the 64 KiB pipe
+    # buffer blocks in its write, never reaches the shutdown barrier, and rank 0
+    # aborts there (``Shutdown barrier has failed ... 1/2``, exit -6): what a
+    # DOS curve in the JSON did on D22.
+    processes, files = [], []
+    with tempfile.TemporaryDirectory() as scratch:
+        try:
+            for rank in range(size):
+                env = dict(base)
+                if size > 1:
+                    env.update(DEFUQUMAT_POOLS=str(size), DEFUQUMAT_POOL_RANK=str(rank),
+                               DEFUQUMAT_COORDINATOR=f"localhost:{port}",
+                               DEFUQUMAT_POOL_TIMEOUT="120")
+                out = open(Path(scratch) / f"out{rank}", "w+")
+                err = open(Path(scratch) / f"err{rank}", "w+")
+                files.append((out, err))
+                processes.append(subprocess.Popen(
+                    [sys.executable, "-c", script, *map(str, args)], env=env, cwd=REPO,
+                    stdout=out, stderr=err, text=True))
+            outcomes = []
+            for process, (out, err) in zip(processes, files):
+                process.wait(timeout=timeout)
+                out.seek(0)
+                err.seek(0)
+                outcomes.append((process.returncode, out.read(), err.read()))
+        finally:
+            for process in processes:
+                if process.poll() is None:
+                    process.kill()
+            for out, err in files:
+                out.close()
+                err.close()
     return outcomes
 
 
@@ -212,8 +301,10 @@ def test_the_facade_refuses_what_is_not_pool_aware(monkeypatch):
     assert guarded == getters - POOL_AWARE
     assert POOL_AWARE <= getters
     monkeypatch.setattr(parallel, "_CURRENT", Pools(_FakeCommunicator(2, 0)))
-    with pytest.raises(NotImplementedError, match="get_bands is not available"):
-        Calculator.get_bands(object())
+    assert {"get_bands", "get_nscf", "get_dos"} <= POOL_AWARE
+    for name in ("get_pdos", "get_dielectric_tensor", "get_polarization"):
+        with pytest.raises(NotImplementedError, match=f"{name} is not available"):
+            getattr(Calculator, name)(object())
 
 
 @pytest.mark.slow
@@ -338,6 +429,96 @@ def test_pools_reproduce_one_under_the_ldos_mixer():
         assert result["iterations"] == serial["iterations"] == 8
 
 
+NEWTON_SCRIPT = SCF_SCRIPT.replace(
+    "max_iterations=iterations)",
+    "max_iterations=iterations, scf_solver='newton-krylov',\n"
+    "                     scf_solver_options={'forcing': 0.5, 'warmup': 3})",
+).replace(
+    '"store": type(result.wavefunctions).__name__}',
+    '"store": type(result.wavefunctions).__name__,\n'
+    '                      "steps": result.solver.steps, "newton": result.solver.iterations,\n'
+    '                      "solved": bool(result.solver.converged),\n'
+    '                      "accuracy": float(result.solver.accuracy)}',
+)
+
+SILICON_SMEARED_8K = SILICON_8K.replace(
+    "nosym = .true., noinv = .true.",
+    "nosym = .true., noinv = .true.,\n  occupations = 'smearing', smearing = 'mv', degauss = 0.02")
+
+# The augmented cells: ``becsum`` is part of the residual's state vector there,
+# and its sum over k is all-reduced with the density's.
+SILICON_US_8K = SILICON_8K.replace("ecutwfc = 12.0", "ecutwfc = 20.0, ecutrho = 160.0").replace(
+    "Si.pz-vbc.UPF", "Si.pz-n-rrkjus_psl.0.1.UPF")
+SILICON_PAW_8K = SILICON_US_8K.replace("Si.pz-n-rrkjus_psl.0.1.UPF", "Si.pz-n-kjpaw_psl.0.1.UPF")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("text, sizes", [(SILICON_8K, (2, 3)), (SILICON_SMEARED_8K, (2,)),
+                                         (SILICON_US_8K, (2,)), (SILICON_PAW_8K, (2,))],
+                         ids=["insulator", "smeared", "ultrasoft", "paw"])
+def test_newton_krylov_under_pools_reproduces_one_pool(text, sizes):
+    """``scf_solver = 'newton-krylov'`` at 1 pool against 2 and 3 (I53).
+
+    One pool is the whole-set residual (``ScfResidual.step``); several are the
+    pooled one, each pool solving its rows and rank 0 running the solver while
+    the others serve it (``PooledScfResidual``). The smeared cell is the one
+    whose ``F`` needs the gathered eigenvalues, for its Fermi level. The two
+    routes start Davidson differently on the first evaluation (QE's random
+    guess against the atomic start of ``stream_start``), so the 1-against-N
+    figure is the converged energy, not the bits, and the pooled runs
+    against each other are compared too. The ultrasoft and PAW cells carry
+    ``becsum`` in the state. The guard drops the all-reduce: a Newton solve on
+    each pool's own share must not pass.
+    """
+    assert NEWTON_SCRIPT != SCF_SCRIPT
+    serial = _run_pools(NEWTON_SCRIPT, 1, text, 0, timeout=900)[0]
+    assert serial["solved"] and serial["store"] != "PoolStore"
+    runs = {}
+    for size in sizes:
+        pooled = _run_pools(NEWTON_SCRIPT, size, text, 0, timeout=900)
+        runs[size] = pooled
+        print(f"pools={size}: dE = {pooled[0]['energy'] - serial['energy']:.3e} Ry, "
+              f"F evaluations {pooled[0]['steps']} against {serial['steps']}, "
+              f"newton {pooled[0]['newton']} against {serial['newton']}")
+        for result in pooled:
+            assert result["solved"] and result["store"] == "PoolStore"
+            assert abs(result["energy"] - serial["energy"]) < 1e-10
+            assert result["energy"] == pooled[0]["energy"]
+            # The count of F evaluations is what tells a right pooled F from one
+            # whose reduce is missing inside the evaluation alone: there the
+            # mixing tail still lands on the energy and Newton does not solve.
+            assert result["steps"] == pooled[0]["steps"] == serial["steps"]
+    if len(sizes) > 1:
+        a, b = (runs[size][0] for size in sizes[:2])
+        assert abs(a["energy"] - b["energy"]) < 1e-10
+    if text is SILICON_8K:
+        broken = _start_pools(NEWTON_SCRIPT, 2, text, 1, timeout=900)
+        energies = [json.loads(out.strip().splitlines()[-1])["energy"]
+                    for code, out, _ in broken if code == 0 and out.strip()]
+        # Both broken ranks must finish, or the check below passes on nothing.
+        assert len(energies) == 2, [err[-2000:] for _, _, err in broken]
+        assert all(abs(e - serial["energy"]) > 1e-3 for e in energies)
+
+
+TETRAHEDRA_8K = SILICON_8K.replace(
+    "nosym = .true., noinv = .true.",
+    "nosym = .true., noinv = .true., occupations = 'tetrahedra'")
+
+
+@pytest.mark.slow
+def test_a_pooled_newton_run_refuses_tetrahedra_on_every_rank():
+    """Tetrahedra with ``scf_solver = 'newton-krylov'`` at 2 pools (I53).
+
+    Before the refusal moved ahead of the protocol, this input hung both ranks
+    until the heartbeat (exit -6 after 315 s on D22) and rank 0 never printed
+    the reason; now every rank raises the same error at once.
+    """
+    outcomes = _start_pools(NEWTON_SCRIPT, 2, TETRAHEDRA_8K, 0, timeout=200)
+    for code, _, err in outcomes:
+        assert code == 1, err[-2000:]
+        assert "occupations='tetrahedra' has no pooled form" in err
+
+
 SILICON_DISPLACED_8K = SILICON_8K.replace(" Si 0.25 0.25 0.25", " Si 0.27 0.25 0.24")
 
 
@@ -354,6 +535,98 @@ def test_pooled_forces_and_stress_reproduce_one_pool():
     for result in pooled:
         assert np.allclose(result["forces"], serial["forces"], atol=1e-10)
         assert np.allclose(result["stress"], serial["stress"], atol=1e-9)
+
+
+FIXED_DENSITY_SCRIPT = textwrap.dedent("""
+    import json, sys, warnings
+    warnings.simplefilter("ignore")
+    import numpy as np
+    import defuqumat
+    from defuqumat import Calculator
+    from defuqumat.parallel import Pools, current_pools
+    from defuqumat.scf.driver import _k_costs
+    from defuqumat.system.kpoints import KPoints
+    calculator = Calculator.from_text(sys.argv[1], "tests/data/pseudo", announce=False)
+    calculator.get_scf(conv_thr=1e-12)
+    if sys.argv[2] == "1":
+        # The defect the check has to see: a gather that forgets the layout
+        # puts each pool's rows back as contiguous blocks. Set after the SCF,
+        # whose own gather of the eigenvalues it would break as well.
+        original = Pools.gather_k
+        def forgetful(self, local, nk, axis=1, rows=None, layout=None):
+            return original(self, local, nk, axis=axis)
+        Pools.gather_k = forgetful
+    path = KPoints.band_path([[0.0, 0.0, 0.0], [0.5, 0.5, 0.5], [0.5, 0.0, 0.5]],
+                             [4, 2, 1], calculator.system.cell, crystal=True)
+    bands = calculator.get_bands(kpoints=path, nbnd=8)
+    nscf = calculator.get_nscf(nbnd=8)
+    dos = calculator.get_dos(grid=(3, 3, 3), nbnd=8)
+    states = calculator.dos_states
+    pools = current_pools()
+    layout = [r.tolist() for r in pools.layout(
+        path.nk, costs=_k_costs(calculator.calculation.at_kpoints(path)))]
+    # A sibling that is not pool-aware must still refuse under real pools.
+    refused = None
+    if pools.size > 1:
+        try:
+            calculator.get_pdos(grid=(2, 2, 2))
+        except NotImplementedError as error:
+            refused = str(error)
+    print(json.dumps({"rank": pools.rank, "layout": layout, "refused": refused,
+                      "bands": np.asarray(bands.eigenvalues).tolist(),
+                      "nscf": np.asarray(nscf.eigenvalues).tolist(),
+                      "nscf_homo": float(nscf.homo),
+                      "dos_eigenvalues": np.asarray(states.eigenvalues).tolist(),
+                      "dos_nk": int(states.kpoints.nk),
+                      "dos_homo": float(states.homo), "dos_lumo": float(states.lumo),
+                      "energies": np.asarray(dos.energies).tolist(),
+                      "dos": np.asarray(dos.dos).tolist()}))
+""")
+
+
+@pytest.fixture(scope="module")
+def serial_fixed_density():
+    return _run_pools(FIXED_DENSITY_SCRIPT, 1, SILICON_8K, 0, timeout=900)[0]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("size", [2, 3])
+def test_pooled_bands_nscf_and_dos_reproduce_one_pool(serial_fixed_density, size):
+    """``get_bands``, ``get_nscf`` and ``get_dos`` under pools against one pool.
+
+    Each pool solves its own rows of the fixed-density set and the eigenvalues
+    are gathered, so the pool count must not be visible beyond round-off: the
+    7-point path, the SCF's own 8 points and a 27-point ``nosym`` DOS grid,
+    then the HOMO, the LUMO and the DOS curve built on the gathered set.
+    """
+    serial = serial_fixed_density
+    pooled = _run_pools(FIXED_DENSITY_SCRIPT, size, SILICON_8K, 0, timeout=900)
+    for result in pooled:
+        spread = {key: float(np.abs(np.subtract(result[key], serial[key])).max())
+                  for key in ("bands", "nscf", "dos_eigenvalues", "energies", "dos")}
+        print(f"pools {size} rank {result['rank']}: {spread}")
+        for key in ("bands", "nscf", "dos_eigenvalues", "energies"):
+            assert spread[key] < 1e-10, (key, spread)
+        # The curve is a sum of Gaussians of width DeltaE, whose slope turns a
+        # round-off in an eigenvalue into a far larger one in the value, so it
+        # is held relative to its peak.
+        assert spread["dos"] < 1e-10 * np.abs(serial["dos"]).max(), spread
+        assert result["dos_nk"] == serial["dos_nk"] == 27
+        for key in ("nscf_homo", "dos_homo", "dos_lumo"):
+            assert abs(result[key] - serial[key]) < 1e-10, key
+        assert "get_pdos is not available" in result["refused"]
+    assert pooled[0]["bands"] == pooled[-1]["bands"]
+
+
+@pytest.mark.slow
+def test_the_pooled_bands_check_sees_a_misplaced_gather(serial_fixed_density):
+    """The guard: at three pools the longest-first layout is not contiguous blocks
+    (the Gamma point counts twice), so a gather that drops the layout puts rows
+    at the wrong k-points, and the comparison above must see it."""
+    broken = _run_pools(FIXED_DENSITY_SCRIPT, 3, SILICON_8K, 1, timeout=900)[0]
+    blocks = [list(r) for r in Pools(_FakeCommunicator(3, 0)).layout(7)]
+    assert broken["layout"] != blocks
+    assert np.abs(np.asarray(broken["bands"]) - np.asarray(serial_fixed_density["bands"])).max() > 1e-3
 
 
 RELAX_SCRIPT = textwrap.dedent("""
@@ -555,6 +828,131 @@ def test_a_span_from_another_pool_layout_is_refused_by_name():
     with pytest.raises(NotImplementedError, match="different k-point pool layout"):
         calculation.starting_wavefunctions(hamiltonians, 4, span=span, rows=[2, 3])
 
+
+
+class _ThreadCommunicator:
+    """``size`` pools as threads of one process, meeting at a barrier per all-gather."""
+
+    def __init__(self, size, rank, board, barrier):
+        self.size, self.rank, self.board, self.barrier = size, rank, board, barrier
+        self.calls = 0
+
+    def allgather(self, array):
+        self.calls += 1
+        self.board[self.rank] = np.asarray(array).copy()
+        self.barrier.wait()
+        gathered = np.stack([self.board[pool] for pool in range(self.size)])
+        self.barrier.wait()
+        return gathered
+
+
+def _redistribute_in_threads(stores, layout):
+    import threading
+
+    size = len(stores)
+    board, barrier = [None] * size, threading.Barrier(size)
+    results, errors, calls = [None] * size, [None] * size, [0] * size
+
+    def work(rank):
+        communicator = _ThreadCommunicator(size, rank, board, barrier)
+        try:
+            results[rank] = Pools(communicator).redistribute(stores[rank], layout)
+        except Exception as error:  # noqa: BLE001 - reported per rank below
+            errors[rank] = error
+        calls[rank] = communicator.calls
+
+    threads = [threading.Thread(target=work, args=(rank,)) for rank in range(size)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    return results, errors, calls
+
+
+def test_a_seed_moves_between_pool_layouts_row_for_row():
+    """``Pools.redistribute`` (I68): every pool ends with exactly its new rows.
+
+    A seed held as contiguous blocks over three pools, moved into the
+    longest-first layout of uneven costs, must hold each global row's bits at
+    the row's new position; a layout every pool already covers must move
+    nothing past the two small gathers; and a row no pool holds is refused on
+    every pool, not on the one that needs it only.
+    """
+    from defuqumat.parallel import balance
+
+    size, nk = 3, 8
+    rng = np.random.default_rng(7)
+    whole = rng.normal(size=(2, nk, 3, 5)) + 1j * rng.normal(size=(2, nk, 3, 5))
+    blocks = [Pools(_FakeCommunicator(size, rank)).rows(nk) for rank in range(size)]
+    stores = [PoolStore(whole[:, rows], rows, nk) for rows in blocks]
+    layout = balance(np.array([2.0, 1, 1, 1, 1, 1, 3, 1]), size)
+    assert any(set(a) != set(b) for a, b in zip(layout, blocks))
+    results, errors, calls = _redistribute_in_threads(stores, layout)
+    assert errors == [None] * size
+    for rank, moved in enumerate(results):
+        assert isinstance(moved, PoolStore) and moved.nk == nk
+        assert np.array_equal(moved.rows, layout[rank])
+        assert moved.array.dtype == whole.dtype
+        assert np.array_equal(moved.array, whole[:, layout[rank]])
+    assert calls[0] > 2
+
+    # Already in place, held in another order: re-indexed, no rows sent.
+    shuffled = [PoolStore(whole[:, rows[::-1]], rows[::-1], nk) for rows in layout]
+    results, errors, calls = _redistribute_in_threads(shuffled, layout)
+    assert errors == [None] * size and calls == [2] * size
+    for rank, moved in enumerate(results):
+        assert np.array_equal(moved.array, whole[:, layout[rank]])
+
+    # Row 7 held by nobody: every pool refuses by name.
+    partial = [PoolStore(whole[:, rows[rows != 7]], rows[rows != 7], nk)
+               for rows in blocks]
+    results, errors, calls = _redistribute_in_threads(partial, layout)
+    assert all(isinstance(e, NotImplementedError) and "[7]" in str(e) for e in errors)
+
+
+CONTINUE_LAYOUT_SCRIPT = textwrap.dedent("""
+    import json, os, sys, tempfile, warnings
+    warnings.simplefilter("ignore")
+    from pathlib import Path
+    import defuqumat
+    from defuqumat.parallel import current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import Calculation, run_scf
+    from defuqumat.system import build_system
+    with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
+        f.write(sys.argv[1])
+    system = build_system(read_pw_input(Path(f.name)))
+    pseudos = tuple(read_upf(Path("tests/data/pseudo") / s.pseudo_file)
+                    for s in system.structure.species)
+    os.environ["DEFUQUMAT_POOL_BALANCE"] = "blocks"
+    calculation = Calculation(system, pseudos)
+    first = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12)
+    os.environ.pop("DEFUQUMAT_POOL_BALANCE")
+    again = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                    starting_from=first)
+    print(json.dumps({"rank": current_pools().rank,
+                      "first_rows": first.wavefunctions.rows.tolist(),
+                      "again_rows": again.wavefunctions.rows.tolist(),
+                      "first": float(first.total_energy), "first_it": first.iterations,
+                      "again": float(again.total_energy), "again_it": again.iterations}))
+""")
+
+
+@pytest.mark.slow
+def test_a_pooled_run_continues_from_a_seed_held_under_another_layout():
+    """I68: a seed held as contiguous blocks, continued under the longest-first shares.
+
+    The two layouts must differ on some pool (else the test proves nothing),
+    and the continuation must land on the seed's energy in one or two
+    iterations, the bar of the same-layout continuation above; before
+    ``Pools.redistribute`` this run refused with "a different k-point pool
+    layout".
+    """
+    for result in _run_pools(CONTINUE_LAYOUT_SCRIPT, 2, SILICON_8K, timeout=900):
+        assert result["first_rows"] != result["again_rows"]
+        assert abs(result["again"] - result["first"]) < 1e-10
+        assert result["again_it"] <= 2 and result["first_it"] > 4
 
 CHECKPOINT_SCRIPT = textwrap.dedent("""
     import json, sys, tempfile, warnings
@@ -966,3 +1364,160 @@ GATHER_ROWS_SCRIPT = textwrap.dedent("""
 def test_the_gather_scatters_any_rows_into_global_order():
     for result in _run_pools(GATHER_ROWS_SCRIPT, 2):
         assert result["whole"] == [0.0, 1.0, 2.0, 3.0, 4.0]
+
+
+# ------------------------------------------- mixing_mode = 'robust' under pools
+
+#: ``mixing_mode = 'robust'`` with its ladder forced (``notes/incompat/I76.md``).
+#: ``hamiltonian`` and ``ldos`` shorten the ladder to that rung and declare a stall
+#: at every kept input, so the rung is taken at iteration 2 and everything the
+#: pooled loop broadcasts for the supervisor (the rescaled ``accuracy``, the mixed
+#: Hamiltonian, the LDOS flag) is on the path; ``plain`` is the mode as shipped.
+#: ``stop`` writes a checkpoint at every iteration and stops after five;
+#: ``resume`` continues it; ``resume-nosup`` does so with the supervisor's file
+#: removed, the witness that the resume reads it.
+ROBUST_SCRIPT = textwrap.dedent("""
+    import json, sys, tempfile, warnings
+    warnings.simplefilter("ignore")
+    from pathlib import Path
+    import defuqumat
+    import defuqumat.scf.robust as robust
+    from defuqumat.parallel import current_pools
+    from defuqumat.io.pwin import read_pw_input
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf.driver import SCF_SUPERVISOR, run_scf
+    from defuqumat.system import build_system
+    text, ladder, directory, mode = sys.argv[1:5]
+    if ladder != "plain":
+        robust.RUNGS = (ladder,)
+        robust.Supervisor.stalled = lambda self: True
+    with tempfile.NamedTemporaryFile("w", suffix=".in", delete=False) as f:
+        f.write(text)
+    system = build_system(read_pw_input(Path(f.name)))
+    pseudos = tuple(read_upf(Path("tests/data/pseudo") / s.pseudo_file)
+                    for s in system.structure.species)
+    if mode == "resume-nosup":
+        if current_pools().rank == 0:
+            (Path(directory) / SCF_SUPERVISOR).unlink()
+        current_pools().barrier("nosup")
+    options = {"whole": {},
+               "stop": {"max_iterations": 5, "checkpoint_dir": directory,
+                        "checkpoint_every": 1},
+               "resume": {"checkpoint_dir": directory},
+               "resume-nosup": {"checkpoint_dir": directory}}[mode]
+    options.setdefault("max_iterations", 200)
+    result = run_scf(system, pseudos, conv_thr=1e-10, mixing_mode="robust",
+                     **options)
+    records = [(h["iteration"], h["supervisor"].get("rung"),
+                bool(h["supervisor"].get("kept")), h["supervisor"].get("reason"))
+               for h in result.history if "supervisor" in h]
+    print(json.dumps({"rank": current_pools().rank, "energy": float(result.total_energy),
+                      "iterations": result.iterations, "converged": bool(result.converged),
+                      "history": [(h["iteration"], h["total_energy"])
+                                  for h in result.history],
+                      "records": records,
+                      "files": sorted(p.name for p in Path(directory).glob("*"))}))
+""")
+
+#: ``SILICON_8K`` smeared, so the LDOS rung applies (the LDOS at ``e_F`` of an
+#: insulator is about zero, so this checks that every pool sums what rank 0's
+#: preconditioner asks for, not the preconditioner's physics).
+SILICON_8K_SMEARED = SILICON_8K.replace(
+    "nosym = .true., noinv = .true.",
+    "nosym = .true., noinv = .true., nbnd = 8,\n"
+    "  occupations = 'smearing', smearing = 'gaussian', degauss = 0.02")
+
+
+#: fcc aluminium (``tests/data/qe/al-tetrahedra.in``) under a Gaussian smearing on
+#: a 2x2x2 grid: a metal, so the LDOS preconditioner is not the identity and a
+#: resume that came back without it would read differently.
+ALUMINIUM_8K = """\
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 2, celldm(1) = 7.50, nat = 1, ntyp = 1, ecutwfc = 15.0,
+  nosym = .true., noinv = .true.,
+  occupations = 'smearing', smearing = 'gaussian', degauss = 0.05
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Al 26.98 Al.pz-vbc.UPF
+ATOMIC_POSITIONS alat
+ Al 0.00 0.00 0.00
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+
+
+def _same_robust_run(a, b, energy=1e-10):
+    assert a["converged"] and b["converged"]
+    assert a["iterations"] == b["iterations"]
+    assert abs(a["energy"] - b["energy"]) < energy
+    assert [r[1:] for r in a["records"]] == [r[1:] for r in b["records"]]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("ladder,text", [("hamiltonian", SILICON_8K),
+                                         ("ldos", SILICON_8K_SMEARED),
+                                         ("ldos", ALUMINIUM_8K),
+                                         ("plain", SILICON_8K)])
+def test_two_pools_take_the_robust_modes_decisions_of_one(ladder, text, tmp_path):
+    """I76: rank 0 judges, the others are told; the run is the one-pool run.
+
+    Same iterations, the same energy to 1e-10 Ry and the same sequence of rungs
+    and kept or rejected trials, read off rank 0's ``history``. A pool that
+    missed the LDOS flag would leave a collective the others are in, and one
+    that missed the bottom rung's Hamiltonian would diagonalise another one.
+    """
+    serial = _run_pools(ROBUST_SCRIPT, 1, text, ladder, tmp_path, "whole",
+                        timeout=900)[0]
+    pooled = _run_pools(ROBUST_SCRIPT, 2, text, ladder, tmp_path, "whole",
+                        timeout=900)
+    if ladder != "plain":
+        assert ladder in {r[1] for r in serial["records"]}
+    _same_robust_run(serial, pooled[0])
+    assert pooled[0]["energy"] == pooled[1]["energy"]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("ladder,size", [("hamiltonian", 1), ("plain", 1),
+                                         ("hamiltonian", 2), ("ldos", 1)])
+def test_a_robust_checkpoint_resumes_where_it_stopped(ladder, size, tmp_path):
+    """I76: the supervisor crosses the file, so a resume is the uninterrupted run.
+
+    Stopped at iteration 5, which on the forced ladder is inside the bottom
+    rung's line search (``damping`` and ``hamiltonian_in`` are in the file), and
+    resumed: the same total iteration count, energy and decisions, and the first
+    iteration back is the uninterrupted run's to round-off. The witness, on the
+    forced ladder: the same resume with the supervisor's file removed reads
+    differently.
+    """
+    import shutil
+
+    # On the LDOS rung the resume must install the preconditioner again.
+    text = ALUMINIUM_8K if ladder == "ldos" else SILICON_8K
+    whole = _run_pools(ROBUST_SCRIPT, size, text, ladder, tmp_path / "w",
+                       "whole", timeout=900)[0]
+    stopped_dir = tmp_path / "stopped"
+    stopped = _run_pools(ROBUST_SCRIPT, size, text, ladder, stopped_dir,
+                         "stop", timeout=900)[0]
+    assert not stopped["converged"] and stopped["iterations"] == 5
+    assert "scf_supervisor.npz" in stopped["files"]
+    directory = tmp_path / "resume"
+    shutil.copytree(stopped_dir, directory)
+    resumed = _run_pools(ROBUST_SCRIPT, size, text, ladder, directory,
+                         "resume", timeout=900)[0]
+    _same_robust_run(whole, {**resumed,
+                             "records": stopped["records"] + resumed["records"]})
+    first, energy = resumed["history"][0]
+    assert first == 6 and abs(energy - dict(whole["history"])[6]) < 1e-11
+    if ladder == "plain":
+        return
+    directory = tmp_path / "nosup"
+    shutil.copytree(stopped_dir, directory)
+    blind = _run_pools(ROBUST_SCRIPT, size, text, ladder, directory,
+                       "resume-nosup", timeout=900)[0]
+    assert ([r[1:] for r in stopped["records"] + blind["records"]]
+            != [r[1:] for r in whole["records"]])

@@ -80,7 +80,7 @@ from defuqumat.batching import k_chunks, map_k
 from defuqumat.eager import compiled_function
 from defuqumat.hamiltonian.noncollinear import SpinorHamiltonian
 from defuqumat.realtime.propagators import get_propagator
-from defuqumat.realtime.pulse import Kick, Sum
+from defuqumat.realtime.pulse import Kick, Sum, _unit
 from defuqumat.realtime.radial import radial_table
 from defuqumat.units import AU_SEC
 from defuqumat.scf.sawtooth import refuse_sawtooth
@@ -180,6 +180,15 @@ def require_a_realtime_regime(calculation) -> None:
     two independent channels at a frozen potential, the second one Hamiltonian
     on ``2 npwx`` whose coupling to the field is the scalar one, and the third
     the generalised equation of motion of :meth:`_Chunk.generator`.
+
+    A ground state converged under a magnetic field or a constrained moment
+    runs too (``notes/incompat/I64.md``): nothing here rebuilds the potential
+    from the field, which is frozen inside the ``v_scf`` the caller hands in,
+    so that has to be the converged one, ``Calculation.potential(density,
+    field_scale, field)`` with ``SCFResult.field_scale`` and
+    ``SCFResult.magnetic_field``, which is what the workflows build.
+    The updated potentials' refusal of a penalty constraint is
+    :func:`~defuqumat.realtime.selfconsistent.require_a_potential_mode`'s.
     """
     refuse_sawtooth(
         calculation, "real-time propagation",
@@ -211,12 +220,6 @@ def require_a_realtime_regime(calculation) -> None:
             "occupation matrix the Hubbard projectors move with k + kappa as "
             "the beta functions do, and that mode is refused until its linear "
             "check against the optical conductivity is run")
-    if getattr(calculation, "magnetic_field", None) is not None:
-        raise NotImplementedError(
-            "real-time propagation of a ground state converged under a magnetic "
-            "field or a constrained moment is not implemented, for the reason the "
-            "response stack gives: the potential is rebuilt from the input field, "
-            "which reducebf and the fixed-spin-moment scheme make wrong")
 
 
 def time_grid(pulse, dt: float, duration: float | None, start: float | None = None):
@@ -937,7 +940,7 @@ def _check_growth(norms, live, where: str):
     return norms
 
 
-def _block_function(step_fn, centre):
+def _block_function(step_fn, centre, jumping: bool = False):
     """``block(chunk, w, psi, kappa_mid, kappa_end, rate, steps) -> (psi, currents)``, one ``lax.scan``.
 
     Each step applies the propagator at ``H(k + kappa_mid)`` and records the
@@ -949,24 +952,44 @@ def _block_function(step_fn, centre):
     shape. Everything with a k index arrives as an argument (``chunk``, ``w``),
     so one kept program serves every chunk; only the propagator and the
     centre, the same for the whole run, are closed over.
+
+    ``jumping`` adds two scanned arguments, ``block(..., steps, jumps, at)``:
+    a step whose ``at`` is set ends with the augmented states crossing the
+    step ``jumps`` in ``kappa`` to ``kappa_end`` (:func:`kick_jumps`,
+    :meth:`_Chunk.jump`), before its current is taken. The crossing is behind
+    a ``lax.cond`` on ``at``, never on ``jumps``: under the perturbative orders'
+    ``jvp`` the primal ``jumps`` is zero while its tangent is not.
     """
     # an array rather than a float, so that it is a constant of the kept
     # program and not a literal in it: a run from other states, or a second
     # run, then reuses the program
     centre = jnp.asarray(centre)
 
-    def block(chunk, w, psi, kmid, kend, rate, steps):
+    def advance(chunk, state, k_mid, k_rate, step):
+        if chunk.augmented:
+            return step_fn(chunk.generator(k_mid, k_rate), state, step, centre)
+        ham = chunk.hamiltonian(k_mid)
+        return map_k(
+            lambda ik: step_fn(lambda v: ham.apply(v, ik), state[ik], step, centre),
+            jnp.arange(chunk.nk), batch=None)
+
+    if not jumping:
+        def block(chunk, w, psi, kmid, kend, rate, steps):
+            def body(state, x):
+                k_mid, k_end, k_rate, step = x
+                moved = advance(chunk, state, k_mid, k_rate, step)
+                return moved, chunk.current(k_end, moved, w)
+            return jax.lax.scan(body, psi, (kmid, kend, rate, steps))
+        return block
+
+    def block(chunk, w, psi, kmid, kend, rate, steps, jumps, at):
         def body(state, x):
-            k_mid, k_end, k_rate, step = x
-            if chunk.augmented:
-                moved = step_fn(chunk.generator(k_mid, k_rate), state, step, centre)
-            else:
-                ham = chunk.hamiltonian(k_mid)
-                moved = map_k(
-                    lambda ik: step_fn(lambda v: ham.apply(v, ik), state[ik], step, centre),
-                    jnp.arange(chunk.nk), batch=None)
+            k_mid, k_end, k_rate, step, jump, here = x
+            moved = advance(chunk, state, k_mid, k_rate, step)
+            moved = jax.lax.cond(
+                here, lambda y: chunk.jump(k_end - jump, k_end, y), lambda y: y, moved)
             return moved, chunk.current(k_end, moved, w)
-        return jax.lax.scan(body, psi, (kmid, kend, rate, steps))
+        return jax.lax.scan(body, psi, (kmid, kend, rate, steps, jumps, at))
     return block
 
 
@@ -990,6 +1013,14 @@ def _jumped(chunk, psi, kappa_from, kappa_to):
     return chunk.jump(kappa_from, kappa_to, psi)
 
 
+def _extra_slice(extra, sl, real):
+    """The block's jump arrays (:func:`jump_arrays`) for the steps ``sl``, on the device."""
+    if not extra:
+        return ()
+    jumps, at = extra
+    return jnp.asarray(jumps[sl], dtype=real), jnp.asarray(at[sl])
+
+
 def kappa_rate(kappa_t, dt_ry: float) -> np.ndarray:
     """``dkappa/dt`` at the midpoints, ``(kappa(t + dt) - kappa(t))/dt`` in the Rydberg time unit.
 
@@ -1005,25 +1036,68 @@ def kappa_rate(kappa_t, dt_ry: float) -> np.ndarray:
     return (kappa_t[1:] - kappa_t[:-1]) / float(dt_ry)
 
 
-def require_a_smooth_field(calculation, pulse, start: float) -> None:
-    """Refuse a step in ``kappa`` after the start for an augmented dataset.
+def _kicks(pulse):
+    """Every :class:`Kick` in ``pulse``, through nested sums."""
+    if isinstance(pulse, Kick):
+        return [pulse]
+    if isinstance(pulse, Sum):
+        return [k for part in pulse.pulses for k in _kicks(part)]
+    return []
 
-    A step is a delta in the field that the time grid cannot hold, and the
-    augmented states have to cross it with :meth:`_Chunk.jump`; the one at the
-    start is crossed that way, a later one would be missed. A norm-conserving
-    run crosses any step unchanged, since its states are the all-electron ones.
+
+def kick_jumps(calculation, pulse, times):
+    """``(jumps, at)``: the step in ``kappa`` each step ends with, for an augmented dataset.
+
+    A kick is a step in ``kappa``, a delta in the field that the time grid
+    cannot hold, and an augmented state crosses it by :meth:`_Chunk.jump`
+    rather than through its equation of motion (the all-electron state does
+    not move under a delta). The one at or before the start is crossed by the
+    jump a run starts with; one at ``times[n]``, ``n >= 1``, is crossed at the
+    end of step ``n - 1``, so ``jumps[n - 1]`` is its ``strength * direction``
+    and ``at[n - 1]`` is set. The step ends on ``kappa_t[n]``, which holds the
+    kick (:meth:`Kick.kappa_at` switches on at ``t >= time``) while the midpoint
+    before it does not, so the propagator runs at the old ``kappa`` and the
+    current at ``times[n]`` is taken on the jumped states, as the run started
+    at ``times[n]`` takes it. The midpoint rate (:func:`kappa_rate`) has the
+    jump's ``strength * direction / dt`` taken out by the caller: through the
+    ``-kappadot . X`` term of :meth:`_Chunk.generator` it would be the same jump
+    taken a second time, by a Taylor step it is not small for.
+
+    ``None`` for a norm-conserving dataset, whose states are the all-electron
+    ones and cross any step unchanged, and when no kick falls inside the run.
+    A kick between two grid points is refused for an augmented dataset: the
+    norm-conserving grid moves it to a grid point by the midpoint rule, and
+    which point is not a decision this function takes.
     """
     if getattr(calculation, "augmentation", None) is None:
-        return
-    pulses = pulse.pulses if isinstance(pulse, Sum) else (pulse,)
-    for part in pulses:
-        if isinstance(part, Kick) and float(part.time) > float(start) + 1e-12:
+        return None
+    times = np.asarray(times, dtype=float)
+    nsteps = len(times) - 1
+    jumps = np.zeros((max(nsteps, 0), 3))
+    at = np.zeros(max(nsteps, 0), dtype=bool)
+    dt = float(times[1] - times[0]) if nsteps else 1.0
+    for kick in _kicks(pulse):
+        time = float(kick.time)
+        if time <= float(times[0]) + 1e-12:
+            continue
+        # the comparison Kick.kappa_at makes
+        on = np.flatnonzero(times >= time - 1.0e-14)
+        if len(on) == 0:
+            continue
+        n = int(on[0])
+        if abs(float(times[n]) - time) > 1e-9 * dt + 1e-12:
             raise NotImplementedError(
-                "a kick after the start of the run is not implemented for an "
-                "ultrasoft or PAW dataset: its step in kappa is a delta in the field "
-                "that the augmented states cross by a transformation of their own "
-                "(the jump at the start does it), and the time grid cannot hold a "
-                "delta. Start the run at the kick")
+                f"a kick at t = {time} between two points of the time grid "
+                f"(t = {times[n - 1]} and {times[n]}) is not implemented for an "
+                "ultrasoft or PAW dataset: its step in kappa is crossed by a "
+                "transformation of the augmented states at a grid point, and which "
+                "point a kick between two of them belongs to is not decided. Choose "
+                "start and dt so that the kick lands on a grid point")
+        jumps[n - 1] += float(kick.strength) * _unit(kick.direction)
+        at[n - 1] = True
+    if not at.any():
+        return None
+    return jumps, at
 
 
 def _chunk_weights(weights, rows, live, real):
@@ -1044,6 +1118,27 @@ def _padded(a, nsteps, block_steps):
     """``a`` padded to whole blocks by repeating its last row."""
     pad = int(math.ceil(nsteps / block_steps)) * block_steps - nsteps
     return np.concatenate([a, np.repeat(a[-1:], pad, axis=0)]) if pad else a
+
+
+def _zero_padded(a, nsteps, block_steps):
+    """``a`` padded to whole blocks with zeros: a padded step must not jump again."""
+    pad = int(math.ceil(nsteps / block_steps)) * block_steps - nsteps
+    return np.concatenate([a, np.zeros((pad,) + a.shape[1:], dtype=a.dtype)]) if pad else a
+
+
+def jump_arrays(jumped, rate, nsteps, block_steps):
+    """``(rate, extra)`` padded to whole blocks: the midpoint rate and the block's jump arrays.
+
+    ``jumped`` is :func:`kick_jumps`'s, ``rate`` the midpoint rate with the
+    kicks already taken out. ``extra`` is ``(jumps, at)`` padded with zeros,
+    or ``()`` without a kick inside the run, which keeps the block without
+    the crossing (:func:`_block_function`).
+    """
+    if jumped is None:
+        return _padded(rate, nsteps, block_steps), ()
+    jumps, at = jumped
+    return (_padded(rate, nsteps, block_steps),
+            (_zero_padded(jumps, nsteps, block_steps), _zero_padded(at, nsteps, block_steps)))
 
 
 def _warn_damping(setup, nsteps: int, tolerance: float = 1e-4) -> None:
@@ -1196,7 +1291,7 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
     states = np.asarray(states)
     weights = np.asarray(weights, dtype=float)
     times, kappa_t, kappa_mid, efield = time_grid(pulse, dt, duration, start)
-    require_a_smooth_field(calculation, pulse, times[0])
+    jumped = kick_jumps(calculation, pulse, times)
     nsteps = len(times) - 1
     kappa_max = float(np.max(np.linalg.norm(np.concatenate([kappa_t, kappa_mid]), axis=-1)))
     setup = _prepare(calculation, states, weights, v_scf, kappa_max, dt, propagator,
@@ -1209,7 +1304,11 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
 
     kappa_mid_p, kappa_end_p, dts, nblocks = _padded_grid(
         kappa_mid, kappa_t[1:], nsteps, block_steps, dt_ry)
-    rate_p = _padded(kappa_rate(kappa_t, dt_ry), nsteps, block_steps)
+    rate = kappa_rate(kappa_t, dt_ry)
+    if jumped is not None:
+        # the kick's step in kappa is crossed by the jump, not by the rate
+        rate = rate - jumped[0] / dt_ry
+    rate_p, extra_p = jump_arrays(jumped, rate, nsteps, block_steps)
 
     current = np.zeros((nsteps + 1, 3))
     energy_index = [0] + [min((b + 1) * block_steps, nsteps) for b in range(nblocks)]
@@ -1240,8 +1339,10 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
             args = (chunk, w, psi, jnp.asarray(kappa_mid_p[:block_steps], dtype=real),
                     jnp.asarray(kappa_end_p[:block_steps], dtype=real),
                     jnp.asarray(rate_p[:block_steps], dtype=real),
-                    jnp.asarray(dts[:block_steps], dtype=real))
-            run = compiled_function(_block_function(step_fn, centre), *args)
+                    jnp.asarray(dts[:block_steps], dtype=real),
+                    *_extra_slice(extra_p, slice(0, block_steps), real))
+            run = compiled_function(
+                _block_function(step_fn, centre, jumping=bool(extra_p)), *args)
             measure = compiled_function(_energy_of, chunk, w, psi, kappa0)
             slope = compiled_function(_gradient_of, chunk, w, psi, kappa0)
             norms_of = compiled_function(_norms_of, chunk, psi, kappa0)
@@ -1259,7 +1360,8 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
             psi, gradients = run(chunk, w, psi, jnp.asarray(kappa_mid_p[sl], dtype=real),
                                  jnp.asarray(kappa_end_p[sl], dtype=real),
                                  jnp.asarray(rate_p[sl], dtype=real),
-                                 jnp.asarray(dts[sl], dtype=real))
+                                 jnp.asarray(dts[sl], dtype=real),
+                                 *_extra_slice(extra_p, sl, real))
             stop = min((b + 1) * block_steps, nsteps)
             # the padded steps of the last block are the identity and their
             # current is a repeat; it is dropped here

@@ -182,8 +182,9 @@ of the penalty is not part of the reported total energy.
     whether the shell is bound inside the cutoff. `J0`, `ALPHA` and `BETA` give
     an error with `'yukawa'`.
 
-    A Hubbard $U$ gives an error in the force theorem for the anisotropy, in the
-    magnons and in the linear response. The relaxed anisotropy works.
+    A Hubbard $U$ gives an error in the force theorem for the anisotropy and in
+    the linear response. The magnons work with the simplified functional. The
+    relaxed anisotropy works.
 
 The notebook for this page is
 [13, DFT+U](https://github.com/joselado/defuqumat/blob/master/notebooks/13_dft_plus_u.ipynb).

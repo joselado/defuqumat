@@ -112,9 +112,12 @@ srun python3 run.py
 ```
 
 The numbers are the same as with one process, up to round-off. The ground state,
-forces, stress and relaxations work in this way. Spin spirals, magnetic fields
-and constrained moments also work. A checkpoint written with pools can continue
-with any number of pools. If the job gets a SIGTERM, all pools stop at the same
+forces, stress, relaxations, band structures, NSCF runs and densities of states
+work in this way. The Newton solver
+(`scf_solver='newton-krylov'`) also works, with its default Jacobian. Spin
+spirals, magnetic fields and constrained moments also work. A checkpoint written
+with pools can continue with any number of pools. A run with pools can also start
+from the result of another run with pools. If the job gets a SIGTERM, all pools stop at the same
 iteration and write a checkpoint. All other calculations give an error with
 pools, and the error says which calculation it is. The speedups against
 `pw.x -nk` are in [`PERFORMANCE.md`](PERFORMANCE.md).
@@ -339,7 +342,8 @@ how well a Heisenberg model describes the energy surface.
   [11](notebooks/11_noncollinear_magnetism_and_fields.ipynb).
 - **Spin spirals** at any wavevector $\mathbf q$, with the generalized Bloch
   theorem. The up component is at $\mathbf k + \mathbf q/2$ and the down
-  component at $\mathbf k - \mathbf q/2$. You need `nosym`. With spin-orbit
+  component at $\mathbf k - \mathbf q/2$. Symmetry is used, with the operations
+  that leave $\mathbf q$ unchanged. With spin-orbit
   coupling the code gives an error, because spin-orbit coupling breaks the
   theorem. `spiral_q`, notebook [12](notebooks/12_spin_spirals.ipynb).
 - **The Dzyaloshinskii-Moriya energy of a spin spiral**. We take the spiral
@@ -386,7 +390,9 @@ how well a Heisenberg model describes the energy surface.
   supercell. `calc.get_relaxed_orientation(spinor)`, notebook
   [47](notebooks/47_turning_a_magnet.ipynb). You can also do it inside a
   self-consistent run with `calc.get_scf(rotate_moments=True)`. Then the run
-  converges to the easy orientation and does not wander around it.
+  converges to the easy orientation and does not wander around it. On a cell
+  with inversion, `calc.with_turning_moments()` keeps that symmetry during the
+  run.
 - **Source-free exchange-correlation field, and its torque**. The code removes
   the longitudinal part of $\mathbf B_{xc}$, so that
   $\nabla\cdot\mathbf B_{xc} = 0$. Only with this can a local functional turn a

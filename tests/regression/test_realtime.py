@@ -237,3 +237,32 @@ def test_the_little_group_of_the_field_gives_the_whole_mesh_current(pseudo_dir, 
     # the transverse components vanish on the wedge by the symmetrisation, and
     # on the whole mesh by the same symmetry to the solve's threshold
     assert np.abs(wedge.current[:, 1:]).max() < 1e-12
+
+
+@pytest.mark.parametrize("potential", ["frozen", "hxc"])
+def test_on_a_shifted_grid_the_wedge_of_the_kept_operations_gives_the_whole_grid_current(
+        pseudo_dir, potential):
+    """A [100] pulse on silicon's ``4 4 4 1 1 1`` mesh: 40 points and two operations against 64.
+
+    A shifted grid is not closed under the field's little group; two of its
+    eight operations map it onto itself, and the wedge, the current's average
+    and the density's completion use those two. The whole shifted grid
+    propagated point by point is the reference, so the check is an identity
+    with no external code in it. All three components are compared: with two
+    operations nothing forces the transverse current to zero on this grid.
+    Measured on D22 in ``notes/incompat/I49.md``.
+    """
+    from defuqumat import Calculator
+    from defuqumat.realtime.pulse import Sin2
+
+    calculator = Calculator.from_file(CASES / "si2-shifted-symmetric.in",
+                                      pseudo_dir=pseudo_dir, announce=False)
+    calculator.get_scf(conv_thr=1e-10)
+    pulse = Sin2.from_intensity(5e11, 1.55, 2, (1, 0, 0))
+    whole = calculator.get_realtime(pulse, little_group=False, dt=0.2, potential=potential)
+    wedge = calculator.get_realtime(pulse, little_group=True, dt=0.2, potential=potential)
+    assert whole.symmetry_operations == 1
+    assert wedge.symmetry_operations == 2
+    scale = np.abs(whole.current).max()
+    assert scale > 1e-4
+    assert np.abs(whole.current - wedge.current).max() < 1e-6 * scale

@@ -11,7 +11,7 @@ ground-state potential, for one material, the LDA and one weak mid-infrared
 pulse). The update of the potential in time is a later stage of
 ``notes/HARMONICS-NEXT.md``.
 
-**The k-set** is a whole unshifted Monkhorst-Pack grid, because the current is
+**The k-set** is a whole Monkhorst-Pack grid, because the current is
 a polar vector and a wedge of the crystal's group does not sum to it, and time
 reversal does not hold under a field: the state at ``-k`` evolves under
 ``-kappa``, which is not the same field. What may reduce the grid is the
@@ -20,8 +20,10 @@ of the pulse invariant at every time, with time reversal off (Elk's
 ``tdinit.f90``): each k-point of its wedge then stands for its star, the
 current is averaged over the group as a polar vector afterwards, and a field
 along ``[100]`` in silicon keeps eight of the 48 operations. A shifted grid is
-not closed under the group and is refused, by the rule P24 found for the
-response stack.
+not closed under the group (the rule P24 found for the response stack), so on
+one the wedge is that of the group's members that map the grid onto itself,
+two of the eight on silicon's ``4 4 4 1 1 1``, which sum exactly what the whole
+shifted grid sums.
 
 **Units at this boundary.** Times are Hartree atomic units of time (24.189 as)
 as in Elk, frequencies and broadenings are given in eV where an entry point
@@ -114,6 +116,30 @@ def field_little_group(system, pulse, tolerance: float = 1e-8):
     return group.rotation_array(), cartesian_rotations(system.cell, group)
 
 
+def _grid_little_group(group, grid, shift):
+    """The members of the field's little group ``group`` that map the grid onto itself.
+
+    A shifted Monkhorst-Pack grid is not closed under the point group, nor in
+    general under the field's little group: on silicon at ``4 4 4 1 1 1`` two
+    of the eight operations that fix a field along ``[100]`` keep it. Those two
+    are a group, the grid's own stabilizer inside the field's, and the wedge
+    built with them, the current averaged over them and the density completed
+    with them sum exactly what the whole grid sums, which the whole little
+    group would not (``irreducible_wedge`` skips an off-grid image silently).
+    An unshifted grid with equal divisions keeps every operation.
+    """
+    from defuqumat.system.kpoints import grid_stabilizer
+    from defuqumat.system.symmetry import Symmetries
+
+    rotations = group.rotation_array()
+    keep = grid_stabilizer(grid, shift, rotations)
+    if group.nsym and not any(np.array_equal(r, np.eye(3)) for r in rotations[keep]):
+        raise AssertionError("the identity does not map the grid onto itself")
+    return Symmetries(
+        rotations=tuple(r for r, k in zip(group.rotations, keep) if k),
+        translations=tuple(t for t, k in zip(group.translations, keep) if k))
+
+
 def _whole_sphere(kset):
     """``kset`` with the half-sphere storage of ``K_POINTS gamma`` taken off.
 
@@ -171,22 +197,14 @@ def _kset_with_storage(system, pulse, kpoints, grid, little_group: bool):
                     "the run's own k-set is reduced and carries no grid to "
                     "rebuild the whole one from; pass grid= or kpoints=")
             return for_spin(system.kpoints, system.nspin), None, None
-        if little_group and any(shift):
-            raise NotImplementedError(
-                "the little group of the field on a shifted Monkhorst-Pack grid is "
-                "not implemented: a shifted grid is not closed under the point "
-                "group, so its wedge does not sum the current correctly (the rule "
-                "P24 found for the response stack). Pass little_group=False to "
-                "propagate the whole shifted grid, whose k-points are independent "
-                "at a frozen potential, or grid= for an unshifted one")
     grid = tuple(int(n) for n in grid)
     group = None
     if little_group:
         from defuqumat.system.symmetry import cartesian_rotations
 
-        group = field_symmetries(system, pulse)
+        group = _grid_little_group(field_symmetries(system, pulse), grid, shift)
         rotations = cartesian_rotations(cell, group)
-        kset = KPoints.automatic(grid, (0, 0, 0), cell, rotations=group.rotation_array(),
+        kset = KPoints.automatic(grid, shift, cell, rotations=group.rotation_array(),
                                  time_reversal=False)
         if len(rotations) <= 1:
             rotations, group = None, None
@@ -212,7 +230,7 @@ def _occupied_count(system, nelec: float) -> int:
 
 
 def _occupied_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
-                     calculation, becsum=()):
+                     calculation, becsum=(), field=None, field_scale=None):
     """``(calculation, states, weights, v_scf, ddd_paw)`` with fixed occupations.
 
     ``states`` is ``(nchannel, nk, nb, ndim)`` and ``weights``
@@ -225,12 +243,13 @@ def _occupied_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     """
     calc, states, weights, v_scf, _, _, ddd_paw = _solved_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
-        calculation=calculation, becsum=becsum)
+        calculation=calculation, becsum=becsum,
+        field=field, field_scale=field_scale)
     return calc, states, weights, v_scf, ddd_paw
 
 
 def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
-                   calculation, becsum=()):
+                   calculation, becsum=(), field=None, field_scale=None):
     """:func:`_occupied_states` and every band the solve resolved, with their energies.
 
     Returns ``(calculation, states, weights, v_scf, bands, energies, ddd_paw)``:
@@ -262,7 +281,8 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
         kpoints = None
     calc, _, eigenvalues, wavefunctions = fixed_density_states(
         moved, pseudos, density, kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr,
-        k_batch=k_batch, calculation=calculation, becsum=becsum)
+        k_batch=k_batch, calculation=calculation, becsum=becsum,
+        field=field, field_scale=field_scale)
     require_a_realtime_regime(calc)
     eigenvalues = np.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
@@ -304,7 +324,16 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     for c in range(channels):
         weights[c, :, :keeps[c]] = wg[c, :, :keeps[c]]
     states = wavefunctions[:, :, :keep]
-    v_scf = calc.potential(jnp.asarray(density)).v_scf
+    # The field the ground state converged under, not the input's: ``reducebf``
+    # scales the applied field down over the SCF and the fixed-spin-moment
+    # scheme replaces it, so ``calc.potential(density)`` alone re-applies a
+    # field the states above were not solved in, and they are then not
+    # stationary at a zero field. The same pair went into the solve, so the
+    # frozen potential and the states agree by construction. ``is None``, not
+    # ``or``: a field ``reducebf`` took to zero has ``field_scale = 0.0``.
+    v_scf = calc.potential(jnp.asarray(density),
+                           1.0 if field_scale is None else float(field_scale),
+                           field).v_scf
     _, ddd_paw = calc.onecenter(becsum)
     return calc, states, weights, v_scf, wavefunctions, eigenvalues, ddd_paw
 
@@ -316,7 +345,8 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
                  k_batch="default", block_steps: int = 400,
                  propagator: str = "taylor4", checkpoint=None,
                  potential: str = "frozen", corrector: int = 1,
-                 calculation=None, becsum=()) -> RealTimeResult:
+                 calculation=None, becsum=(),
+                 field=None, field_scale=None) -> RealTimeResult:
     """The current ``J(t)`` of a crystal driven by ``pulse``.
 
     Args:
@@ -326,8 +356,10 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
         duration, start: the run's span; the pulse's own when not given.
         kpoints: an explicit whole k-set; refused if it is a wedge.
         grid: an unshifted Monkhorst-Pack grid to build, reduced by the field's
-            little group when ``little_group`` is set; the run's own grid when
-            neither this nor ``kpoints`` is given.
+            little group when ``little_group`` is set; the run's own grid,
+            shifted or not, when neither this nor ``kpoints`` is given, a
+            shifted one reduced by the members of the little group that map it
+            onto itself.
         nbnd: how many bands the fixed-density solve resolves before the
             occupied ones are kept.
         conv_thr: that solve's threshold. The ground state's residual is a
@@ -341,11 +373,19 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
             (:mod:`defuqumat.realtime.selfconsistent`).
         corrector: with the potential updated, the corrections of the midpoint
             potential after its extrapolation; 0 is the extrapolation alone.
+        field, field_scale: the pair ``SCFResult.magnetic_field`` and
+            ``SCFResult.field_scale`` of a ground state converged under a
+            magnetic field or a constrained moment, required then (the
+            fixed-density solve refuses without them) and filled by
+            :class:`~defuqumat.calculator.Calculator`. The same pair is
+            frozen into the potential, so with no pulse the states are
+            stationary; every entry point of this module takes it.
     """
     kset, rotations, group = _kset(system, pulse, kpoints, grid, little_group)
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
-        k_batch=k_batch, calculation=calculation, becsum=becsum)
+        k_batch=k_batch, calculation=calculation, becsum=becsum,
+        field=field, field_scale=field_scale)
     return propagate(calc, states, weights, v_scf, pulse, dt=dt, duration=duration,
                      start=start, propagator=propagator, k_batch=k_batch,
                      block_steps=block_steps, checkpoint=checkpoint,
@@ -362,7 +402,8 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
                             conv_thr: float = 1.0e-10, k_batch="default",
                             block_steps: int = 1000, subtract_static: bool = False,
                             potential: str = "frozen", corrector: int = 1,
-                            calculation=None, becsum=()) -> KickResponse:
+                            calculation=None, becsum=(),
+                            field=None, field_scale=None) -> KickResponse:
     """``sigma(w + i eta)`` and ``eps`` from a kick, Elk's task 481.
 
     ``broadening`` and ``frequencies`` (or ``window`` and ``nw``) are in eV.
@@ -389,7 +430,8 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
     kset, rotations, group = _kset(system, kick, kpoints, grid, little_group)
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
-        k_batch=k_batch, calculation=calculation, becsum=becsum)
+        k_batch=k_batch, calculation=calculation, becsum=becsum,
+        field=field, field_scale=field_scale)
     update = dict(potential=potential, corrector=corrector, symmetrise=rotations,
                   density_symmetry=group)
     if potential == "frozen":
@@ -413,7 +455,8 @@ def run_hhg(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
             samples: int = 4000, kpoints=None, grid=None, little_group: bool = True,
             nbnd: int | None = None, conv_thr: float = 1.0e-10, k_batch="default",
             block_steps: int = 400, checkpoint=None, potential: str = "frozen",
-            corrector: int = 1, calculation=None, becsum=()) -> HarmonicSpectrum:
+            corrector: int = 1, calculation=None, becsum=(),
+            field=None, field_scale=None) -> HarmonicSpectrum:
     """The high-harmonic spectrum ``|w J(w)|^2`` of a crystal driven by ``pulse``.
 
     The propagation of :func:`run_realtime`, then
@@ -432,7 +475,8 @@ def run_hhg(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
                           nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
                           block_steps=block_steps, checkpoint=checkpoint,
                           potential=potential, corrector=corrector,
-                          calculation=calculation, becsum=becsum)
+                          calculation=calculation, becsum=becsum,
+                          field=field, field_scale=field_scale)
     spectrum = harmonic_spectrum(result.times, result.current, float(omega),
                                  window=window, highest=highest, samples=samples)
     spectrum.realtime = result
@@ -446,7 +490,8 @@ def run_harmonic_orders(system, pseudos, density, *, frequency: float,
                         little_group: bool = True, nbnd: int | None = None,
                         conv_thr: float = 1.0e-10, k_batch="default",
                         block_steps: int = 400, potential: str = "frozen",
-                        corrector: int = 1, calculation=None, becsum=()) -> OrdersResult:
+                        corrector: int = 1, calculation=None, becsum=(),
+                        field=None, field_scale=None) -> OrdersResult:
     """``J^(n)(t)`` under the adiabatic field ``lam exp(eta t) cos(w t) e``, ``n <= order``.
 
     ``frequency`` and ``broadening`` in eV. The run starts ``eta_t/eta``
@@ -471,7 +516,8 @@ def run_harmonic_orders(system, pseudos, density, *, frequency: float,
     kset, rotations, group = _kset(system, shape, kpoints, grid, little_group)
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
-        k_batch=k_batch, calculation=calculation, becsum=becsum)
+        k_batch=k_batch, calculation=calculation, becsum=becsum,
+        field=field, field_scale=field_scale)
     if steps_per_period is None:
         from defuqumat.realtime.propagate import largest_stable_step
 
@@ -568,7 +614,8 @@ def run_third_harmonic(system, pseudos, density, *, frequency: float,
                        nbnd: int | None = None, conv_thr: float = 1.0e-10,
                        k_batch="default", block_steps: int = 400,
                        potential: str = "frozen", corrector: int = 1,
-                       calculation=None, becsum=()) -> ThirdHarmonic:
+                       calculation=None, becsum=(),
+                       field=None, field_scale=None) -> ThirdHarmonic:
     """``chi^(3)`` of a cubic crystal at ``frequency`` (eV) by the real-time route.
 
     A field along ``[100]`` gives ``chi_xxxx``; one along ``[110]`` gives
@@ -581,7 +628,8 @@ def run_third_harmonic(system, pseudos, density, *, frequency: float,
                    steps_per_period=steps_per_period, kpoints=kpoints, grid=grid,
                    little_group=little_group, nbnd=nbnd, conv_thr=conv_thr,
                    k_batch=k_batch, block_steps=block_steps, potential=potential,
-                   corrector=corrector, calculation=calculation, becsum=becsum)
+                   corrector=corrector, calculation=calculation, becsum=becsum,
+                   field=field, field_scale=field_scale)
     along = run_harmonic_orders(system, pseudos, density, direction=(1.0, 0.0, 0.0),
                                 **options)
     third, first = chi3_from_orders(along, axis=0)
@@ -689,7 +737,7 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
                            conv_thr: float = 1.0e-10, k_batch="default",
                            tolerance: float = 1.0e-10, max_iterations: int = 500,
                            potential: str = "frozen", calculation=None,
-                           becsum=()) -> NonlinearSpectrum:
+                           becsum=(), field=None, field_scale=None) -> NonlinearSpectrum:
     """The orders of the current, ``chi^(2)`` and ``chi^(3)`` over ``frequencies`` (eV).
 
     The frequency-domain hierarchy at the ground state's frozen potential, the
@@ -723,7 +771,8 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
         nbnd = 3 * _occupied_count(system, nelec_guess) + 4
     calc, states, weights, v_scf, bands, energies, ddd_paw = _solved_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
-        calculation=calculation, becsum=becsum)
+        calculation=calculation, becsum=becsum,
+        field=field, field_scale=field_scale)
     computed = bands.shape[-2] - 4
     if computed <= weights.shape[-1]:
         raise ValueError(
