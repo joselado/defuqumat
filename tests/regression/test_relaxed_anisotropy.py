@@ -331,7 +331,7 @@ def test_an_intermediate_soc_scale_follows_the_coupling_order_on_ultrasoft_cobal
     parameter:
 
     * the Richardson slope ``2 D(0.01) - D(0.02)``, ``D(s) = (E(s) - E(0))/s``,
-      against the expectation: measured 0.010121 against 0.010135 meV along z
+      against the expectation, held at 2e-4 meV: measured 0.010121 against 0.010135 meV along z
       and 0.011898 against 0.011906 along x. The same estimate from
       ``(0.0625, 0.125)`` is 5.5e-4 and 3.7e-4 meV off, 40 and 47 times more,
       where an error ``O(s^2)`` predicts 39;
@@ -372,9 +372,12 @@ def test_an_intermediate_soc_scale_follows_the_coupling_order_on_ultrasoft_cobal
 
     for axis in axes:
         richardson = 2.0 * difference(axis, 0.01) - difference(axis, 0.02)
-        # Measured 1.4e-5 and 8e-6 meV off; 5e-5 is room for the O(s^2) error
-        # the coarser pair predicts at this step and for the SCF's 1e-12.
-        assert richardson == pytest.approx(slope[axis], abs=5.0e-5)
+        # Measured 1.4e-5 and 8e-6 meV off. The estimate multiplies an error in
+        # E(0.01) by 200, so a 1e-12 stop sitting 2e-11 Ry off (one stop in the
+        # record sat 60 times its accuracy) is 5e-5 meV here; 2e-4 is still under
+        # the coarse pair's 5.5e-4 and five orders under the -21 meV with the
+        # overlap unblended.
+        assert richardson == pytest.approx(slope[axis], abs=2.0e-4)
 
     first = slope["x"] - slope["z"]
 

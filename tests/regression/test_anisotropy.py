@@ -391,7 +391,6 @@ def test_soc_scale_zero_gives_exactly_no_anisotropy():
     assert result.anisotropy_mev == pytest.approx(0.0, abs=1.0e-7)
 
 
-@pytest.mark.slow
 def test_an_intermediate_soc_scale_is_admitted_on_an_augmented_dataset():
     """Between 0 and 1 the scale blends all four sandwiches on ultrasoft (I114).
 
