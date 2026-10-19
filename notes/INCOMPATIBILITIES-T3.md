@@ -135,9 +135,12 @@ I100, I102) were combined by hand in `realtime/propagate.py`, `realtime/hierarch
 - I98: the record and docstring sentence "falls with the k-mesh" (false at 0.2 eV across 2^3, 3^3,
   4^3), and a test of the pulse path (the verifier's identity, 1.75e-4 against frozen 1.10e-4,
   `/l/ladovj1/review/incompat/I98-ver/identities.py`).
-- I103: the four record corrections of its verifier (the energy gap does not fall as the square of
-  the state error; the field force through the cross term is 3.2e-4 Ry/bohr along `gdir`, not below
-  1e-7; two more in `/l/ladovj1/review/incompat/I103-ver/`) and one test gap.
+- I103: the record corrections of its verifier. The forces are 8.7e-8 (US) and 1.05e-7 Ry/bohr
+  (PAW) from `pw.x`, not 5.7e-8 and 8.9e-8, so the docstring "under 1e-7 on both datasets" is false
+  for PAW; the energy gap does not fall as the square of the state error; the frozen-enthalpy
+  position gradient is 3.2e-4 Ry/bohr along `gdir`, nearly uniform, so after the net-force removal
+  at most 3.0e-7 survives and the regression force assertion (1e-6) cannot see the cross term. The
+  test gap: a fast unit test of that gradient against a central difference.
 - I97: the 1.5e-2 bound is the committed cell's; a core-charge cell reads -0.019 at 20 Ry.
 - I89: notebook 28's sentence on PAW (the record has the replacement), with its `.md` export.
 - I92: whether the result depends on `k_batch` with `ns` was not measured.
