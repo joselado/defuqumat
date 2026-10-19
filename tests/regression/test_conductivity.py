@@ -295,6 +295,90 @@ def test_the_plasma_frequency_of_aluminium_is_of_the_free_electron_scale():
     assert sigma.sigma_s_per_cm[0, 0, 0].real > 1e4
 
 
+def _aluminium_on(occupations: str, mesh: int):
+    """``al-conductivity.in`` on the wedge of an unshifted ``mesh^3`` grid."""
+    text = (CASES / "al-conductivity.in").read_text()
+    text = text.replace(
+        "occupations = 'smearing', smearing = 'marzari-vanderbilt', degauss = 0.05",
+        occupations).replace(" 8 8 8 0 0 0", f" {mesh} {mesh} {mesh} 0 0 0")
+    return build_system(parse_pw_input(text.replace(" nosym = .true.,", "")))
+
+
+def test_the_tetrahedron_drude_term_is_the_degauss_to_zero_limit_of_the_smeared_one():
+    """I93: aluminium's plasma frequency from tetrahedra against smearing at ``degauss -> 0``.
+
+    One density (``tetrahedra_opt`` on 12^3), then the Drude term on the wedge
+    of denser grids. The smeared plasma frequency has a ``degauss^2`` error on a
+    grid that resolves the smearing, so ``wp^2(sigma) = a + b sigma^2`` over
+    Gaussian ``degauss`` 0.06 to 0.02 Ry on 48^3 is extrapolated to ``a``, and
+    the linear and optimised tetrahedron numbers on the same grid, which need
+    no width, have to land on it. Measured on D22 (``notes/incompat/I93.md``,
+    one run each, deterministic), tetrahedron minus limit in eV:
+
+        mesh   limit     tetrahedra   tetrahedra_lin   tetrahedra_opt
+        32^3   12.4193   -0.226       -0.088           -0.017
+        40^3   12.4460   -0.151       -0.016           +0.021
+        48^3   12.4858   -0.092       -0.017           -0.011
+        56^3   12.4608   -0.097       -0.029
+        64^3   12.4663   -0.073       -0.034           (6 GB cap)
+        72^3   12.4655   -0.051       -0.022
+
+    The linear kind's gap to the fit levels off at -0.02 to -0.03 eV past
+    40^3 rather than falling, and the fit is itself biased high (smaller
+    widths on 80^3 put ``degauss -> 0`` at roughly 12.39 to 12.44), so the
+    comparison resolves about 0.03 to 0.05 eV and the tolerance is 0.05 eV
+    (worst linear case -0.034). The three kinds converge towards each other
+    (lin minus Bloechl 0.136, 0.068, 0.029 eV on 40, 56, 72 cubed), Bloechl
+    is still moving on these grids and is held to 0.15 eV, which is a 48^3
+    statement (it is -0.151 on 40^3). The limit itself is pinned at its
+    48^3 value, which is a regression pin and not the converged number: the
+    48^3 point is high by about 0.02 eV, a k-mesh fluctuation. Below
+    ``degauss = 0.02`` the smeared value stops following ``degauss^2`` on
+    48^3 (the grid no longer resolves the width), which is why the fit stops
+    there.
+
+    What it would read without the term: zero, which is what the code
+    returned before the refusal was written, and what ``intraband = False``
+    still returns.
+    """
+    system = _aluminium_on("occupations = 'tetrahedra_opt'", 12)
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
+    density = run_scf(system, pseudos, conv_thr=1e-10, max_iterations=200).density
+
+    def plasma2(occupations, mesh):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            sigma = run_conductivity(_aluminium_on(occupations, mesh), pseudos,
+                                     density, nbnd=8,
+                                     frequencies=np.array([0.0, 0.1]))
+        wp = np.asarray(sigma.plasma_ev)
+        assert np.max(np.abs(wp - np.diag(np.diag(wp)))) < 1e-3
+        assert float(np.real(sigma.intraband[0, 0, 0])) > 0.0  # wp^2 > 0
+        # seven 48^3 runs in one test: the harness that measured them under
+        # D22's 6 GB cap cleared the compiled code after each one
+        jax.clear_caches()
+        return float(wp[0, 0]) ** 2
+
+    tolerance = 0.05  # eV
+    widths = np.array([0.06, 0.04, 0.03, 0.02])
+    smeared = np.array([plasma2(
+        f"occupations = 'smearing', smearing = 'gaussian', degauss = {d}", 48)
+        for d in widths])
+    _, limit = np.polyfit(widths ** 2, smeared, 1)
+    limit = np.sqrt(limit)
+    assert np.all(np.diff(smeared) < 0)  # falls towards the limit as sigma^2
+    # a 48^3 regression pin, not the degauss -> 0 value (about 12.466 from the
+    # same fit on 56 to 72 cubed, and lower than that with smaller widths)
+    assert limit == pytest.approx(12.4858, abs=5e-3)
+    # the widest smearing is outside the tolerance, so the limit is read
+    assert np.sqrt(smeared[0]) - limit > 2 * tolerance
+    for kind in ("tetrahedra_lin", "tetrahedra_opt"):
+        wp = np.sqrt(plasma2(f"occupations = '{kind}'", 48))
+        assert wp == pytest.approx(limit, abs=tolerance), kind
+    bloechl = np.sqrt(plasma2("occupations = 'tetrahedra'", 48))
+    assert bloechl == pytest.approx(limit, abs=0.15)
+
+
 # -- the magneto-optical part, which needs a magnet ---------------------------
 
 
