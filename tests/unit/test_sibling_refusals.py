@@ -226,15 +226,11 @@ def test_the_elastic_constants_call_the_refusal_that_names_them():
     :mod:`defuqumat.response.electrostriction` refuses the elastic half early, so
     the hole this test was written for was on the direct path --
     :meth:`defuqumat.calculator.Calculator.get_elastic_constants`, which is the
-    one a user takes. **The reason changed with P100 and the test did not.** The
-    guard used to be ``require_norm_conserving``, inherited from a measurement
-    of the *third* derivative in the strain coordinate -- which runs on all
-    three dataset kinds now, and which ``C_ijkl`` shares no electric-field
-    solution with, so that measurement could never have been about it. What is
-    guarded now is ``C_ijkl`` measured on its own: 22.2 per cent from a
-    five-point second difference of the total energy on ``C_1111`` and 2.9 per
-    cent on ``C_1212``, the same on ultrasoft and PAW, where the
-    norm-conserving control through the identical script is 6.2e-8.
+    one a user takes. P100 measured ``C_ijkl`` of an augmented dataset 22 per
+    cent off and refused it outright; since I87 the two missing tangents
+    (``ort`` and ``dLambda``) are in, the whole-k route runs, and the guard
+    refuses only the walked route and a strain response without them
+    (``tests/unit/test_elastic_augmented.py`` fires each).
     """
     import inspect
 
