@@ -111,8 +111,8 @@ and the gate; the real-time slow files above are what would test them further.
 | I105 | partial: textured spinor `eps_zz` against the finite field, unlocated offset -5e-4, refusal kept |
 | I106 | partial: field force on US O2 measured, Fe stress floor 4e-4 to 6e-4 Ry; PAW and noncollinear admitted untested |
 | I107 | partial, nothing lifted; guard and argument confirmed by the verifier |
-| I108 | landed in integration two: projected `grad_m` divergence 6.97e-31 against 3.456 |
-| I109 | landed in integration two: TB09 sphere divergence 1e-31 projected |
+| I108 | fix round confirmed (text only), merged and reverted in integration two: a round-one I110 test asserts the meta-GGA refusal under `nosource` that I109 lifts; projected `grad_m` divergence 6.97e-31 against 3.456 |
+| I109 | fix round confirmed, merged and reverted with I108; TB09 sphere divergence 1e-31 projected |
 | I110 | landed: meta-GGA spin torque against m x B_xc of its own field, 5.2e-18 Ry |
 | I111 | not started (worktrees `w-inc-I111*` exist on D22, no result reported) |
 | I112, I113 | not started (rotate; `w-inc-rotate*` exist, no result reported) |
@@ -284,3 +284,114 @@ Each unit's notes as reported (implementer, then verifier after the bar), 2026-1
 - **sourcefree**: 2026-10-19: The fast gate run as one pytest process through slot.sh (one core, one thread, 6 GB cap) took 24:25 at ed915e24: 4016 passed, 73 skipped, and the 2 known test_check_guide.py yaml failures. It fits in the 6 GB scope. The slot queue was full (all six slots busy) for about 3 minutes at 17:27 and for longer later, so expect to wait. Separately, not D22-specific: the session scratchpad directory is shared with a parallel incompatibility agent (I111). My run1.sh, run2.sh and run3.sh there were overwritten by its files of the same names after mine had been copied to D22. Give scratchpad launch scripts names that include the unit.
 - **I110**: The fast unit file tests/unit/test_spin_torque_meta.py takes 15 s on a D22 slot (one pinned core, one thread) and 4.8 s on this workstation, about 3x slower. A "five seconds" judgement for whether a test belongs in the gate should therefore be timed on the workstation, not read off a D22 log. | I made two worktrees, /l/ladovj1/w-inc-I110-ver at incompat-I110 (8efa0ec4) and /l/ladovj1/w-inc-I110-ver-rev, where spin_torque.py and calculator.py were checked out from 6c5b3a36 and then restored to the branch. The logs are in /l/ladovj1/review/incompat/I110-ver/. Four jobs ran in parallel through slot.sh without trouble. The harness, four SCFs on h-chain-90deg under TB09 in the 5 bohr box, took 80 s on one core, and the ecutwfc=35 run took 28 s. Nothing I hit is missing from the D22 notes.
 - **I114**: With the shared /l/ladovj1/jaxcache warm, one noncollinear ultrasoft SCF of the one-atom tetragonal cobalt cell (18 k-points, nosym, ecutwfc 20) takes about 8 to 14 s on one slot core, compile included, so a sweep of 19 such SCFs as separate slot.sh jobs finishes in about 2 minutes with six slots.
+
+## Integration two (2026-10-20)
+
+The fix rounds of the overnight log (`night-log.md` in the session scratchpad), each verified again
+in a separate session, merged with `--no-ff` in item order, one commit each. The harness would not
+let this session work in the locked worktree `agent-a155b466dfdcaf047` (it refuses any git command
+aimed outside the session's own worktree), so the merges were made on the session's own branch
+`worktree-agent-a67b42707eb2a1190`, reset first to `incompat-t3`'s head `82a0ff05`. **The ref
+`incompat-t3` in the workstation repository is still at `82a0ff05`**; the integrated head is a
+fast-forward of it (`git merge --ff-only <head>` inside `agent-a155b466dfdcaf047`). On D22 the ref
+`incompat-t3` was fetched to the integrated head.
+
+| unit | tip | outcome |
+|---|---|---|
+| I90 | 101f5665 | merged; record file add/add conflict, the branch's taken |
+| I93 | 06d1aadb | merged; record file conflict, the branch's taken |
+| chi0 (I94 to I96) | c2a83c97 | merged clean |
+| I99 | 624cf2ea | **not merged**: besides the expected `ns=None, tau=None` lines of `workflows/realtime.py`, `realtime/selfconsistent.py` conflicts with I98 in five hunks: I98 made the density callable return `(rho, becsum)` and the potential take `(rho, becsum)`, I99 made them carry a `(rho, tau)` state, and the block scan, the energy function and the start of `propagate_self_consistent` differ in the same way. That is a combination by hand, not keep-both, so the merge was aborted |
+| I101 | cd14815d | merged; `run_nonlinear_spectrum` keeps I102's warning on orders 2 and 3 with the potential updated and adds I101's refusal of `tefield` (I101's side still carried the pre-I102 raise, which was dropped); `hierarchy.py` merged clean |
+| I104 | 5f6b310b | merged (partial); `dynamical_matrix` keeps `sawtooth_ok=True` and `_require_a_measured_sawtooth_regime(calculation)` and takes `_require_a_measured_overlap_metal(calculation, atoms)` in place of `_require_a_moving_overlap_regime` (still used by `nonlinear.py`); the walked and streamed blocks auto-merged with both guards |
+| sourcefree (I107 to I109) | 22cb6267 | merged clean (record files from the branch; `22cb6267` descends from the verified `c5401217` and changes only records, a harness line and test comments and docstrings), then **reverted** after the first gate (below); the fix-round records of I108 and I109 kept |
+| I114 | e80bc66f | merged clean (partial) |
+| I88 | 325df4ea | not merged (refuted twice) |
+
+After the conflicted merges the touched fast files were run on this workstation (they need no
+SCF): `tests/unit/test_realtime.py` 15 passed, 11 deselected (after I101);
+`tests/unit/test_sawtooth_response.py` with `tests/unit/test_overlap_metal_phonon.py` 24 passed
+(after I104).
+
+**Record corrections applied** (from the verifiers' reports, recovered from their session
+transcripts): I90 (the `zstar_eu` column is a gap between methods, wedge against its own closed grid
+1.3e-9 to 6.7e-9; the defect argued from its signature, since the split falls with the mesh on the
+3m cell; the proposed Limits sentence reworded; the tolerance point was already resolved at the tip,
+which tightened the test to the record's 1e-7, 1e-5, 1e-7 after the verifier read `< 2e-5` at
+110efefb, unrun); I93 (36^3 and 44^3 rows, the linear kind within 0.035 eV of the fit from 40^3 to
+72^3 and between 12.43 and 12.49 eV with the mesh, in the record, the guide text and the slow test's
+docstring, which also now says 12.39 to 12.47); I94 (50 and 76 band rows, the `K`-off control, the
+ALDA, wedge and scissor numbers); I96 (the band fall steepens, not `nbnd^-1.4`); I101 (the gauge gap
+crosses zero between 16 and 20 bohr, -0.08 to -0.10 per cent at 24 bohr; the guide says within about
+0.1 per cent from 16 bohr up); I104 (the DFT+U guard is a second, unreachable one behind
+`sternheimer.py:1653`; the O z offset varies with the step pair and is largest at `eamp = 0`; NLCC
+under `dipfield` and norm-conserving named as admitted unmeasured); I114 (measured against admitted
+on the variational argument, in the record and the Limits note; fast count 53; the Pt ultracell at
+`Q_d = 0` in place of "no ultracell has run below 1"). Code: `tests/regression/test_tddft_metal.py`'s
+Drude identity relative, `< 1e-11 * max|there|` (was absolute 1e-10); the `_drude_block` docstring.
+**I99's guide follow-up is open**: `docs/guide/nonlinear.md` (the meta-GGA sentence near line 543 on
+the I99 branch) describes a meta-GGA refusal, but `get_nonlinear_spectrum(potential='hxc')` under
+tb09 refuses first with "first order only"; it goes with I99's merge.
+
+Guide and README: `piezo.md` (I90), `optics.md` (I93 to I96, with the optional I94 sentence on ALDA,
+scissors and the wedge), `nonlinear.md` (I101), `electric-field.md` (I101, I104), `magnetism.md` and
+`spirals.md` (I108, I109, then restored by the revert), `anisotropy.md` (I114); README's piezoelectric bullet, the optics
+paragraph (a metal with smearing) and the slab-field bullet and table row (phonons at Gamma).
+`tools/check_guide.py` passes and `tests/unit/test_facade_documentation.py` 6 passed locally. The
+ledger moved I90, I93 to I96 and I101 into "Closed since", marked I104 and I114 partial in place
+and updated I88, I99, I107, I108 and I109; `PLAN.md` P156 has the integration-two table, and its
+outstanding index is struck for the ultrasoft `chi_0` and the Gamma phonon under `tefield`.
+
+**Fast gate on D22** (worktree `/l/ladovj1/w-inc-t3b`, `tools/test-fast.sh -rs -q` under
+`taskset -c 0-3,12-15` in a 16 GB `systemd-run` scope, `DEFUQUMAT_QE_ROOT` set, logs in
+`/l/ladovj1/review/incompat/t3b/`). First run at `25aadef9` (`gate1.log`): 3 failed, 4103 passed, 71
+skipped, 1833 deselected in 1080.58 s. Two failures are the known `tests/unit/test_check_guide.py`
+pair (no `yaml` in the D22 venv); the third is
+`tests/unit/test_spin_torque_meta.py::test_the_source_free_field_still_refuses_a_meta_gga`, round
+one's I110 test, which asserts that `refuse_source_free` refuses a potential-only meta-GGA, the
+refusal I109 lifts by design. The file is I110's, but the merge that broke it is
+`incompat/sourcefree`, so that merge was reverted (`git revert -m 1`, commit `9b9d4bcc`), with the
+fix-round records of I108 and I109 kept and their guide, ledger and P156 rows undone (`3d715272`).
+Re-gate at `3d715272` (`gate.log`): **2 failed (the `yaml` pair), 4096 passed, 71 skipped, 1831
+deselected, in 1039.59 s**. The 71 skips are the count round one saw. Landing I108 and I109 needs only
+that one test changed to the lifted behaviour (or removed), which is the user's call.
+
+### Slow files the merges of integration two touch, for the user
+
+None was run (the user's rule).
+
+- `tests/regression/test_piezoelectric.py`, `tests/regression/test_piezoelectric_wedge.py`, `tests/regression/test_streamed_piezo.py` (I90; the wedge test's tolerances tightened at the tip, never run), and as unchanged-branch guards `test_piezoelectric_augmented.py`, `test_piezoelectric_paw.py`
+- `tests/regression/test_conductivity.py` (I93, all slow; and the plasma frequency `chi_0` is checked against, I96)
+- `tests/regression/test_tddft_ultrasoft.py`, `tests/regression/test_tddft_metal.py` (I94 to I96; the Drude identity's tolerance changed at integration), `tests/regression/test_tddft.py`, `tests/regression/test_spinor_chi0.py`
+- `tests/regression/test_realtime_sawtooth.py`, `tests/regression/test_realtime_regimes.py`, `tests/regression/test_realtime.py`, `tests/regression/test_realtime_hierarchy.py` (I101; `run_nonlinear_spectrum` was combined by hand with I102)
+- `tests/regression/test_sawtooth_phonons.py`, `tests/regression/test_phonons.py`, `tests/regression/test_streamed_phonons.py`, `tests/regression/test_sawtooth.py` (I104; `dynamical_matrix` was combined by hand with I103 and I86's overlap-metal guard)
+- `tests/regression/test_relaxed_anisotropy.py`, `tests/regression/test_anisotropy.py`, and the slow tests of `tests/unit/test_soc_scale.py` (I114)
+
+### D22 notes from the second verifiers, for `docs/d22-notes.local.md`
+
+Not edited into that file.
+
+- **I90**: a harness that uses `multiprocessing` with spawn re-imports its own script in every child, so it must not be overwritten while it runs, even after the parent started (use a new file). At 22:13 on 2026-10-19 the slot pool was empty; four jobs took 38 s (fast tests), 69, 71 and 354 s. Worktrees `/l/ladovj1/w-inc-I90-ver3` (110efefb) and `-ver3-base` (6c5b3a36), logs in `/l/ladovj1/review/incompat/I90-ver3/`.
+- **I93**: at 22:30 on 2026-10-19 D22 was idle and eight jobs got slots within 20 s. Al 44^3 on the wedge (2168 k) takes 30 to 53 s per conductivity row, 36^3 18 to 49 s, and `tetrahedra_opt` on 44^3 fits in 6 GB. `-ver3-mf` and `-ver3-md` carry uncommitted mutants and must not be reused as clean trees.
+- **chi0**: on al-conductivity at `ecutwfc = 15` the Davidson room check refuses 56 bands (2 nbnd must fit in 97 plane waves), so 48 is the largest; at 48 bands on 8x8x8 the solve falls back from Cholesky to canonical orthogonalisation on 80 of 512 k-points. Worktree `/l/ladovj1/w-inc-chi0-ver2`.
+- **I99**: AlAs tb09 at 10 Ry, 27 k on the whole mesh, `'hxc'`: 64, 155, 180 s at dt 0.2, 0.1, 0.05; the 6-operation wedge 23, 42, 73 s. `/l/ladovj1/w-inc-I99-fix-mut` is clean (its mutant is not recoverable); `w-inc-I99-ver2-mut` carries an uncommitted mutant. The local sandbox blocks `sleep N; ssh ...` while `ssh host 'sleep N; ...'` works.
+- **I101**: the ref `incompat-I101` on D22 was at fff605f3; the fix commits lived under `incompat-I101-fix*`, and cd14815d was fetched as `incompat-I101-ver2`. At 24 bohr 1x1x2 (29174 plane waves) a T=400 pair takes about 6 min and T=800 about 11; at 16 bohr 2.5 and 3.5 min.
+- **I104**: at 00:06 on 2026-10-20 the queue was empty; a CO SCF at `ecutrho = 300`, `conv_thr = 1e-13` takes about 10 s; a `Calculation` with a HUBBARD card on CO about 20 s to build; `slot.sh` passes extra arguments through, so one harness can take a case name.
+- **I114**: `tests/data/qe/pt-ultracell-soc.in` is used by no test; its SCF (nbnd 20, `conv_thr = 1e-11`) plus a two-cell spinor ultracell (nbnd 36) converges in about 37 s on one slot with the jaxcache warm. A relaxed-direction SCF of tetragonal Co takes 7 to 12 s. `w-inc-I114-ver` and `-ver-rev` predate the second verifier.
+- **I88**: `/l/ladovj1/w-inc-I88-ver2` already existed, so the second verifier used `-ver3` at f458168f; run `git worktree list` before picking a suffix. `CONV=` and `FULL=` exported before `nohup bash slot.sh` reach the python. With 2e-5 in the top band the SCF free energy moves 3.9e-6 Ry between default and full diagonalisation accuracy, since the empty-band threshold `max(5 ethr, 1e-5)` applies to bands below 0.01 occupation.
+- **sourcefree**: `incompat-sourcefree` on D22 was two commits behind c5401217, but the object was present, so `git worktree add --detach <path> c5401217` worked without a re-ship. The sandbox refuses an `scp` whose path is a shell variable in a compound command.
+- **This integration**: the worktree-isolation guard of an agent session refuses `git -C <other worktree>` and `cd <other worktree> && git ...`, so an integrator cannot work in a worktree it was not started in; and it refuses a `python3 $VAR/script.py` line and inline Python containing `| I88 |`-style table text, so such edits go in a script file run by literal path.
+
+### D22 worktrees that can be removed after integration two (none removed)
+
+Once `incompat-t3` is merged: `/l/ladovj1/w-inc-t3b` (this gate), and for the landed units
+`/l/ladovj1/w-inc-I90*`, `w-inc-I93*`, `w-inc-chi0*`, `w-inc-I101*`, `w-inc-I104*`,
+and `w-inc-I114*`; keep `w-inc-sourcefree*` until I108 and I109 land. The mutant trees are removable now: `w-inc-I93-ver3-mf`, `w-inc-I93-ver3-md`,
+`w-inc-I99-ver2-mut`. Keep `w-inc-I99*` until I99 is combined with I98, and `w-inc-I88*` until its
+next fix round.
+
+### What the user decides, after integration two
+
+- I108 and I109: re-merge `incompat/sourcefree` with `test_the_source_free_field_still_refuses_a_meta_gga` turned into a check that the meta-GGA is now admitted under `nosource`; or keep them out until the I110 test is reconsidered. The earlier question on the default of `noncollinear_gga` under `nosource` now has the verifier's facts: `'kubler'` does not stall, it takes 371 steps to a nearly nonmagnetic state, where `'grad_m'` takes 62 to up-up-down-down.
+- I99: combine its `(rho, tau)` state with I98's `(rho, becsum)` in `realtime/selfconsistent.py` by hand (a new session), or leave it recorded.
+- I88: a third fix round (an occupation limit below 1e-6 or tied to `small = 1e-12`), or leave it refused.

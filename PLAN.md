@@ -26697,3 +26697,7 @@ Code changed at integration beyond the merges: `tests/regression/test_tddft_meta
 held to 1e-11 relative (an absolute 1e-10 fails at 6x6x6, `eta = 0.03`, where it is 1e-12 relative),
 the `_drude_block` docstring, and the slow conductivity test's docstring (the 36^3 and 44^3 rows).
 
+Fast gate on D22 (worktree `/l/ladovj1/w-inc-t3b`, logs in `/l/ladovj1/review/incompat/t3b/`): at
+`25aadef9` 3 failed, the `yaml` pair and `test_spin_torque_meta.py::test_the_source_free_field_still_refuses_a_meta_gga`
+(I110's assertion of the refusal I109 lifts), so `incompat/sourcefree` was reverted; at `3d715272`
+2 failed (the `yaml` pair), 4096 passed, 71 skipped, 1831 deselected in 1039.59 s.
