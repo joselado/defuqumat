@@ -356,3 +356,44 @@ def test_on_a_shifted_grid_the_wedge_of_the_kept_operations_gives_the_whole_grid
     scale = np.abs(whole.current).max()
     assert scale > 1e-4
     assert np.abs(whole.current - wedge.current).max() < 1e-6 * scale
+
+
+def test_a_meta_gga_through_the_calculator_gives_the_whole_mesh_current_on_the_wedge(
+        pseudo_dir, tmp_path):
+    """I99 fix round: tb09 with ``'hxc'`` through ``get_realtime``, wedge against whole mesh.
+
+    Silicon at 8 Ry under tb09, the [100] pulse of the LDA test above on the
+    4x4x4 mesh: ``SCFResult.tau`` reaches the fixed-density solve and
+    ``v_scf`` through the calculator, and on the wedge ``tau(t)`` is completed
+    with the field's little group like ``rho(t)``. Measured on D22
+    (``notes/incompat/I99.md``): the two currents agree to **1.1e-8** of
+    ``max |J|`` at ``dt = 0.2``; with ``tau``'s completion switched off (a
+    mutant) the wedge is **9.8e-2** away, so the tolerance sees it ten
+    thousand times over.
+    """
+    from defuqumat import Calculator
+    from defuqumat.realtime.pulse import Sin2
+
+    text = re.sub(r"ecutwfc\s*=\s*[0-9.]+", "ecutwfc = 8.0, input_dft = 'tb09'",
+                  (CASES / "si2-symmetric.in").read_text())
+    path = tmp_path / "si2-symmetric-tb09.in"
+    path.write_text(text)
+    calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir, announce=False)
+    import warnings
+
+    with warnings.catch_warnings():
+        # tb09's total energy is not the value of a functional, and run_scf says so
+        warnings.simplefilter("ignore")
+        calculator.get_scf(conv_thr=1e-10)
+    pulse = Sin2.from_intensity(5e11, 1.55, 2, (1, 0, 0))
+    with pytest.warns(UserWarning, match="no conserved energy"):
+        whole = calculator.get_realtime(pulse, grid=(4, 4, 4), little_group=False, dt=0.2,
+                                        potential="hxc")
+    with pytest.warns(UserWarning, match="no conserved energy"):
+        wedge = calculator.get_realtime(pulse, grid=(4, 4, 4), little_group=True, dt=0.2,
+                                        potential="hxc")
+    assert wedge.symmetry_operations == 8
+    scale = np.abs(whole.current).max()
+    assert scale > 1e-4
+    assert np.abs(whole.current - wedge.current).max() < 1e-6 * scale
+    assert np.all(np.isnan(wedge.energy))
