@@ -317,15 +317,18 @@ def test_the_tetrahedron_drude_term_is_the_degauss_to_zero_limit_of_the_smeared_
 
         mesh   limit     tetrahedra   tetrahedra_lin   tetrahedra_opt
         32^3   12.4193   -0.226       -0.088           -0.017
+        36^3   12.3944   -0.164       -0.017
         40^3   12.4460   -0.151       -0.016           +0.021
+        44^3   12.4935   -0.128       -0.002           +0.007
         48^3   12.4858   -0.092       -0.017           -0.011
         56^3   12.4608   -0.097       -0.029
         64^3   12.4663   -0.073       -0.034           (6 GB cap)
         72^3   12.4655   -0.051       -0.022
 
-    The linear kind's gap to the fit levels off at -0.02 to -0.03 eV past
-    40^3 rather than falling, and the fit is itself biased high (smaller
-    widths on 80^3 put ``degauss -> 0`` at roughly 12.39 to 12.44), so the
+    The linear kind lies within 0.035 eV of the fit on every grid from 40^3
+    to 72^3 and fluctuates between 12.43 and 12.49 eV with the mesh, and the
+    fit is itself biased high (smaller widths on 80^3 put ``degauss -> 0`` at
+    roughly 12.39 to 12.47), so the
     comparison resolves about 0.03 to 0.05 eV and the tolerance is 0.05 eV
     (worst linear case -0.034). The three kinds converge towards each other
     (lin minus Bloechl 0.136, 0.068, 0.029 eV on 40, 56, 72 cubed), Bloechl
