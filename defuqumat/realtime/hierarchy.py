@@ -836,11 +836,8 @@ def hierarchy_self_consistent(calculation, basis, energies, weights, v_scf, *, o
     def kernel(drho):
         return without_phase(kernel_part(jnp.real(drho)) + 1j * kernel_part(jnp.imag(drho)))
 
-    def nonlinear_source(n, lower):
-        """``S^(n)_M`` for ``M >= 0`` from the lower orders' densities ``{(p, M): d}``, ``p < n``."""
-        phases = 2.0 * math.pi * np.arange(2 * n + 1) / (2 * n + 1)
-
-        @jax.jit
+    def phase_function(n):
+        """The ``lam^n`` coefficient of ``U[rho0 + sum_p lam^p d_p]``, compiled once per order."""
         def at_phase(parts):
             def u(lam):
                 total, power = rho0, jnp.ones((), dtype=rho0.dtype)
@@ -849,7 +846,16 @@ def hierarchy_self_consistent(calculation, basis, energies, weights, v_scf, *, o
                     total = total + power * d
                 return calculation.potential(total).v_scf
             return _derivative(u, n)(jnp.zeros((), dtype=rho0.dtype)) / math.factorial(n)
+        return jax.jit(at_phase)
 
+    # built once per order and kept across the frequencies, since a jit made
+    # inside the frequency loop would compile the nested jvp at every frequency
+    phase_functions = {n: phase_function(n) for n in range(2, order + 1)}
+
+    def nonlinear_source(n, lower):
+        """``S^(n)_M`` for ``M >= 0`` from the lower orders' densities ``{(p, M): d}``, ``p < n``."""
+        phases = 2.0 * math.pi * np.arange(2 * n + 1) / (2 * n + 1)
+        at_phase = phase_functions[n]
         sums = {key: jnp.zeros(field_shape, dtype=dtype) for key in _induced_keys(n)
                 if key[0] == n}
         for theta in phases:
