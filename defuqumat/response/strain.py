@@ -114,6 +114,7 @@ from defuqumat.response.sternheimer import (
     pass_threshold,
     require_a_sternheimer_regime,
     smearing_of,
+    _SMALL,
 )
 from defuqumat.response.velocity import over_kpoints
 from defuqumat.scf.density import becsum as becsum_of
@@ -956,7 +957,7 @@ def _require_a_measured_metal_regime(calculation) -> None:
 #: The occupation of the highest computed band above which a metal's strain
 #: response is refused: QE's ``setup_nbnd_occ`` value, where ``ph.x`` prints
 #: "Possibly too few bands at point".
-_TOP_BAND_OCCUPATION = 6.9626525973374e-5
+_TOP_BAND_OCCUPATION = _SMALL
 
 
 def _require_an_empty_top_band(calculation, eigenvalues, fermi_energy) -> None:
