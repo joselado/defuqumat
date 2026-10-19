@@ -671,3 +671,45 @@ def test_the_magnetoelectric_ground_states_take_the_inputs_mixing(monkeypatch):
     except Stop:
         pass
     assert seen.get("mixing_beta") == 0.7
+
+
+def test_the_strain_response_refuses_a_metal_with_a_full_top_band():
+    """``I88`` fix round: a metal whose highest band holds weight is refused.
+
+    The guard reads the occupation of the highest computed band at the run's
+    own level; the measured case is Fermi-Dirac ``degauss = 0.05`` on
+    ``al2-metal.in`` at ``nbnd = 7`` (1.2e-2 in band 7), whose response did
+    not return. The same eigenvalues with the top band far above the level
+    pass, so the test also shows the guard is not always firing.
+    """
+    import numpy as np
+
+    from defuqumat.response.strain import _require_an_empty_top_band
+
+    calculation = _metallic_calculation()
+    hot = np.array([[[0.1, 0.3, 0.5]]])
+    with pytest.raises(NotImplementedError) as raised:
+        _require_an_empty_top_band(calculation, hot, 0.5)
+    assert "Raise nbnd" in str(raised.value)
+    assert "band 3" in str(raised.value)
+    cold = np.array([[[0.1, 0.3, 1.5]]])
+    _require_an_empty_top_band(calculation, cold, 0.5)
+
+
+def test_the_strain_route_cuts_the_smearing_tighter_than_the_phonon():
+    """The phonon keeps QE's cutoff (it is checked against ``ph.x``); the
+    strain response's projector runs to where the smearing is 1e-12, which is
+    what took a Methfessel-Paxton and a Gaussian metal from -4.6e-4 and
+    +8.7e-5 to the stencil's truncation (``notes/incompat/I88.md``)."""
+    import types
+
+    from defuqumat.response.sternheimer import _SMALL, smearing_of
+    from defuqumat.response.strain import STRAIN_SMEARING_SMALL
+
+    calculation = _metallic_calculation()
+    level = types.SimpleNamespace(fermi_energy=0.5)
+    phonon = smearing_of(calculation, level)
+    strain = smearing_of(calculation, level, small=STRAIN_SMEARING_SMALL)
+    assert phonon.small == _SMALL
+    assert strain.small == 1e-12
+    assert strain.cutoff > phonon.cutoff > 0.5

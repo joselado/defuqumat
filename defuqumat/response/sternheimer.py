@@ -289,15 +289,21 @@ class Smearing:
     ef: float
     degauss: float
     ngauss: int
+    #: Where the smearing function counts as fallen to zero for the cutoff.
+    #: QE's value by default, which is what the phonon is checked against
+    #: ``ph.x`` with; the strain response passes a tighter one
+    #: (:data:`defuqumat.response.strain.STRAIN_SMEARING_SMALL`).
+    small: float = _SMALL
 
     @property
     def cutoff(self) -> float:
         """``ef + xmax degauss`` -- ``setup_nbnd_occ``'s ``target``."""
+        small = self.small
         if self.ngauss == -99:
-            factor = 1.0 / np.sqrt(_SMALL)
+            factor = 1.0 / np.sqrt(small)
             xmax = 2.0 * np.log(0.5 * (factor + np.sqrt(factor * factor - 4.0)))
         else:
-            xmax = np.sqrt(-np.log(np.sqrt(np.pi) * _SMALL))
+            xmax = np.sqrt(-np.log(np.sqrt(np.pi) * small))
         return self.ef + xmax * self.degauss
 
 
@@ -1687,7 +1693,7 @@ def require_a_sternheimer_regime(
             )
 
 
-def smearing_of(calculation, result) -> Smearing | None:
+def smearing_of(calculation, result, small: float | None = None) -> Smearing | None:
     """The :class:`Smearing` of a converged run, or ``None`` if it is an insulator.
 
     ``result`` is anything carrying a ``fermi_energy``. The level is **taken
@@ -1700,6 +1706,9 @@ def smearing_of(calculation, result) -> Smearing | None:
     :meth:`~defuqumat.scf.driver.Calculation.occupations` on those same
     eigenvalues, which is the same call the SCF made on the same numbers and so
     the same level, not an independent bisection.
+
+    ``small`` overrides QE's cutoff value (:attr:`Smearing.small`); ``None``
+    keeps it.
     """
     scheme = calculation.system.occupations
     if scheme == "fixed":
@@ -1708,6 +1717,7 @@ def smearing_of(calculation, result) -> Smearing | None:
         ef=float(result.fermi_energy),
         degauss=float(calculation.system.degauss),
         ngauss=smearing_order(calculation.system.smearing),
+        small=_SMALL if small is None else float(small),
     )
 
 

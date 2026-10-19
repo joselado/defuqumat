@@ -313,6 +313,9 @@ def strain_response(
         raise NotImplementedError(_NO_WALKED_METAL)
     weights, levels = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
+    if metallic:
+        _require_an_empty_top_band(calculation, eigenvalues,
+                                   levels.get("fermi_energy"))
     nocc = occupied_counts(calculation)
     potential = calculation.potential(density)
     _, ddd_paw = calculation.onecenter(becsum)
@@ -326,8 +329,10 @@ def strain_response(
         # for an insulator. ``kpoint_weights`` makes the density response
         # accumulate with ``wk`` (``incdrhoscf``), since a metal's ``dpsi``
         # carries its occupation already.
+        # At :data:`STRAIN_SMEARING_SMALL`, not QE's cutoff: see there.
         smearing=smearing_of(calculation, _Level(
-            levels.get("fermi_energy") if metallic else None)),
+            levels.get("fermi_energy") if metallic else None),
+            small=STRAIN_SMEARING_SMALL),
         kpoint_weights=calculation.system.kpoints.weights,
     )
     solver.schedule = threshold is None
@@ -877,6 +882,23 @@ def _require_one_spin_channel(calculation) -> None:
         )
 
 
+#: Where the smearing counts as zero for the metal's projector on the strain
+#: route: the band set ``alpha_pv`` and the level-shift correction run over is
+#: ``eps < ef + xmax degauss`` with the smearing fallen to this value at
+#: ``xmax``. QE's ``setup_nbnd_occ`` value, 6.96e-5, which the phonon keeps
+#: because it is checked against ``ph.x``, leaves the bands with an occupation
+#: below it out of the correction, and a Gaussian or Methfessel-Paxton tail
+#: still has weight there. The phonon cannot see it (``ph.x`` makes the same
+#: cut); a free-energy difference does. Measured on D22 against a five-point
+#: difference of ``F`` (``notes/incompat/I88.md``, fix round): at QE's value a
+#: Methfessel-Paxton ``degauss = 0.04`` copy of ``al2-metal.in`` is off by
+#: -4.6e-4 on ``C_1111``, flat in the step, and a Gaussian ``0.03`` cell by
+#: +8.7e-5; at 1e-12 both fall to the stencil's own ``h^4`` truncation.
+#: Marzari-Vanderbilt's upper tail is already below either value, which is why
+#: ``al2-metal.in`` itself did not move.
+STRAIN_SMEARING_SMALL = 1.0e-12
+
+
 class _Level:
     """The one field :func:`~defuqumat.response.sternheimer.smearing_of` reads."""
 
@@ -891,7 +913,9 @@ _NO_WALKED_METAL = (
     "density, ef_shift_wfc on dpsi) is written for the whole-k route only, and "
     "response/chunked_strain.py has neither, nor the local density of states "
     "walked over the chunks that response/chunked_phonon.py builds for the "
-    "phonon. Run with memory_mode='speed' or a k_batch that holds the whole mesh"
+    "phonon. On a CPU, run with memory_mode='speed' or a k_batch that holds "
+    "the whole mesh; on an accelerator, memory_mode='memory' walks the mesh "
+    "whatever the chunk, so only memory_mode='speed' runs it"
 )
 
 
@@ -926,4 +950,45 @@ def _require_a_measured_metal_regime(calculation) -> None:
             "dpsi^ort and the cross term d^2(rho)/d(eps)d(psi) meet the wk "
             "weight of a metal's dpsi, which is the phonon's refusal of an "
             "ultrasoft metal one coordinate over, and nothing has been measured"
+        )
+
+
+#: The occupation of the highest computed band above which a metal's strain
+#: response is refused: QE's ``setup_nbnd_occ`` value, where ``ph.x`` prints
+#: "Possibly too few bands at point".
+_TOP_BAND_OCCUPATION = 6.9626525973374e-5
+
+
+def _require_an_empty_top_band(calculation, eigenvalues, fermi_energy) -> None:
+    """Refuse a metal whose highest computed band still holds weight.
+
+    The ground state's free energy is the one of ``nbnd`` bands, while the
+    Sternheimer solve works in the whole complement of the projected ones, so
+    the two describe different systems by the weight left in the missing
+    bands. ``ph.x`` warns ("Possibly too few bands") and carries on; here the
+    case is refused because its one measurement did not return:
+    ``al2-metal.in`` with Fermi-Dirac ``degauss = 0.05`` and the default
+    ``nbnd = 7`` puts 1.2e-2 in band 7 and 1.05e-1 in band 6, and the strain
+    response had not finished after 31 minutes against 30 to 90 s on every
+    other cell (``notes/incompat/I88.md``, fix round).
+    """
+    from defuqumat.scf.occupations import smearing_order, wgauss
+
+    system = calculation.system
+    top = np.asarray(eigenvalues)[..., -1]
+    occupation = np.abs(np.asarray(wgauss(
+        (float(fermi_energy) - top) / float(system.degauss),
+        smearing_order(system.smearing))))
+    worst = float(np.max(occupation))
+    if worst > _TOP_BAND_OCCUPATION:
+        raise NotImplementedError(
+            f"the strain response of a metal needs an empty highest band, and "
+            f"band {np.asarray(eigenvalues).shape[-1]} holds an "
+            f"occupation of {worst:.3e} at its fullest k-point (the limit is "
+            f"{_TOP_BAND_OCCUPATION:.2e}, where ph.x prints 'Possibly too few "
+            "bands'): the free energy is then that of too few bands while the "
+            "Sternheimer solve works in all of them. Measured on al2-metal.in "
+            "with fermi-dirac degauss=0.05 at nbnd=7 (1.2e-2 in band 7), the "
+            "response did not return in 31 minutes. Raise nbnd until the "
+            "highest band is empty"
         )
