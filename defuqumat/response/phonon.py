@@ -82,11 +82,11 @@ constraint ``<psi|S(u)|psi> - 1``. Differentiating a second time leaves a term
 move with the atoms -- that is, for a norm-conserving dataset, where ``S = 1``.
 For an ultrasoft or PAW one it does not vanish, and there is a second gap beside
 it: the augmentation charge ``Q_ij(r - tau)`` moves at frozen ``becsum``, which
-``addusdynmat`` and ``drhodvus`` account for. Both are written now (P39); the
-measurement that stood behind refusing them is kept in
-:func:`~defuqumat.response.elastic.require_a_measured_elastic_regime`, which
-guards the *elastic constants* today for reasons of their own (``PLAN.md``
-P100), and it is the same shape as ``zstar_eu_us``'s: with the guard lifted and
+``addusdynmat`` and ``drhodvus`` account for. Both are written now (P39), and
+the elastic constants carry the strain coordinate's counterparts of the first
+since I87 (``ort`` and ``dLambda``, :func:`~defuqumat.response.strain.
+multiplier_response`). The measurement that stood behind refusing them is the
+same shape as ``zstar_eu_us``'s: with the guard lifted and
 the terms unwritten, ultrasoft silicon's
 optical mode comes out at **-504.3 cm^-1** against ``ph.x``'s **+513.3** --
 imaginary where the crystal is stable -- from a run that converges and gives a

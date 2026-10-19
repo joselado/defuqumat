@@ -978,12 +978,6 @@ def electrostriction(
         # average of the assembled tensor repairs that, so a wedge run has to
         # ask for ``elastic=False``.
         _require_closed_for_elastic(calculation)
-        # The same for an augmented dataset, and checked **here** rather than
-        # where the constants are built so that the refusal does not cost two
-        # self-consistent responses first: the third derivative this function
-        # is about runs on all three dataset kinds (``PLAN.md`` P100) and
-        # ``C_ijkl`` does not.
-        require_a_measured_elastic_regime(calculation)
 
     # **The route is decided before the states are touched**, by the field
     # response's rule (:func:`~defuqumat.response.efield._streams`): where it walks
@@ -994,6 +988,12 @@ def electrostriction(
 
     walked = _streams(calculation, result.wavefunctions, False,
                       what="the electrostriction")
+    if elastic:
+        # An augmented dataset's ``C_ijkl`` runs on the whole-k route only
+        # (I87), and the refusal is checked **here** rather than where the
+        # constants are built so that it does not cost two self-consistent
+        # responses first.
+        require_a_measured_elastic_regime(calculation, streamed=walked)
     eigenvalues, psi = refined_states(calculation, result, stream=walked)
     density = jnp.asarray(result.density)
 
