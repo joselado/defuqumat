@@ -69,6 +69,12 @@ full verifier reports are in the D22 log directories each one names, `/l/ladovj1
   `docs/`, `README.md`, `notes/`, `PLAN.md` and `.claude/rules/`), worktree `/l/ladovj1/w-inc-t3`,
   logs in `/l/ladovj1/review/incompat/t3/`, `taskset -c 0-3,12-15`, 16 GB scope,
   `DEFUQUMAT_QE_ROOT` set.
+- Step 3, result: the gate at `8819131e` read 2 failed, 4061 passed, 71 skipped, 1815 deselected,
+  34 warnings in 1101.37 s. Both failures are `tests/unit/test_check_guide.py`'s missing `yaml`, the
+  D22 venv's; `tools/check_guide.py` itself passes locally on the final head. The 71 skips are the
+  set T2 saw (the worktree has no `quantum_espresso/` symlink, so `test_scf_restart.py` skips six
+  and `test_units.py` one, and the rest are QE inputs this code refuses), none in a file a T3 merge
+  touched. Nothing is attributable to a merge, and no merge is reverted.
 
 ## Outcome per ID
 
