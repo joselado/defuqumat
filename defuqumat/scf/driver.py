@@ -10189,7 +10189,7 @@ def run_scf(
                 turns_ns = calculation.is_hubbard and ns_state is not None
                 if turns_ns:
                     ns_dtype, ns_real = _ns_dtypes(ns_state)
-                    ns_shape = tuple(np.shape(ns_state))
+                    turned_ns_shape = tuple(np.shape(ns_state))
 
                 def turn_packed(vector, turn=turn, shapes=history_shapes,
                                 shifts=history_shifts, shifted=True):
@@ -10204,14 +10204,14 @@ def run_scf(
                         vector[offset:offset + size] = block.ravel()
                         offset += size
                     if turns_ns:
-                        size = _pack_ns(np.zeros(ns_shape, ns_dtype), ns_dtype,
+                        size = _pack_ns(np.zeros(turned_ns_shape, ns_dtype), ns_dtype,
                                         ns_real).size
                         packed = np.ascontiguousarray(
                             vector[offset:offset + size], dtype=ns_real)
                         if np.issubdtype(ns_dtype, np.complexfloating):
                             packed = packed.view(ns_dtype)
                         vector[offset:offset + size] = _pack_ns(
-                            rotate_ns(packed.reshape(ns_shape), step),
+                            rotate_ns(packed.reshape(turned_ns_shape), step),
                             ns_dtype, ns_real)
                     return vector
 

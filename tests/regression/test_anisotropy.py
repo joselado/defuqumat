@@ -1438,6 +1438,59 @@ def test_turning_the_moments_inside_the_scf_converges_on_the_easy_axis():
     assert angle_of(back) < 5.0
 
 
+def _cobalt_in_a_field(b_x: float, angle: float = 30.0):
+    """Tetragonal cobalt with the coupling, a uniform field ``B_field(1) = b_x`` Ry along ``x``."""
+    text = (GENERATED / "co-tetragonal-relaxed-mae.in").read_text().replace(
+        "angle1(1) = 0.0, angle2(1) = 0.0,",
+        f"angle1(1) = {angle}, angle2(1) = 0.0,\n   B_field(1) = {b_x},")
+    assert f"B_field(1) = {b_x}" in text
+    return Calculator.from_text(text, pseudo_dir=GENERATED.parent / "pseudo",
+                                announce=False)
+
+
+@pytest.mark.slow
+def test_turning_the_moments_in_a_field_balances_the_anisotropy_against_the_zeeman_term():
+    """I113: ``rotate_moments`` under a field along ``x`` stops where ``dE/dtheta = B M cos(theta)``.
+
+    The anisotropy of this cell is ``E = K1 sin^2 + K2 sin^4`` to the order the
+    check needs, and the field's energy ``-B M sin(theta)``, so the minimum
+    satisfies ``kappa = B M / (2 sin(theta)) = K1 + 2 K2 sin^2(theta)``. Two
+    fields give ``K1`` and ``K2``, and ``K1 + K2`` must be the relaxed
+    anisotropy ``E(x) - E(z)`` of two plain runs, which share no machinery with
+    the step. Measured on D22 (``notes/incompat/I113.md``): 25.974 and 55.712
+    degrees at 1.5e-5 and 2.9e-5 Ry, ``K1 + K2 = 3.1032e-5`` against
+    ``3.1054e-5`` Ry, 0.07 per cent, where one field alone reads the relaxed
+    anisotropy to -1.6 and +0.9 per cent, which is ``2 K2 (sin^2 - 1/2)``. With
+    the field's share left in the step the run sat at 0.04 degrees, on the
+    easy axis, unconverged after 150 iterations.
+    """
+    options = dict(conv_thr=1.0e-12, max_iterations=200)
+    along_z = _cobalt_in_a_field(0.0, angle=0.0).get_scf(**options)
+    along_x = _cobalt_in_a_field(0.0, angle=90.0).get_scf(**options)
+    relaxed = along_x.total_energy - along_z.total_energy
+    assert relaxed == pytest.approx(3.1054e-5, rel=1.0e-3)
+
+    points = []
+    for b in (1.5e-5, 2.9e-5):
+        result = _cobalt_in_a_field(b).get_scf(rotate_moments=True,
+                                               torque_conv_thr=1.0e-9, **options)
+        assert result.converged
+        m = np.asarray(result.magnetization_vector)
+        sine = np.hypot(m[0], m[1]) / np.linalg.norm(m)
+        assert abs(m[1]) < 1.0e-6
+        points.append((sine ** 2, b * np.linalg.norm(m) / (2.0 * sine)))
+    (s1, k1), (s2, k2) = points
+    assert np.degrees(np.arcsin(np.sqrt(s1))) == pytest.approx(25.974, abs=0.01)
+    assert np.degrees(np.arcsin(np.sqrt(s2))) == pytest.approx(55.712, abs=0.01)
+    slope = (k2 - k1) / (s2 - s1)        # 2 K2
+    first = k1 - slope * s1              # K1
+    # 0.07 per cent measured; K3 is the next term and is not in the model.
+    assert first + 0.5 * slope == pytest.approx(relaxed, rel=5.0e-3)
+    # One field alone is off by 2 K2 (sin^2 - 1/2), which is what the
+    # extrapolation removes.
+    assert abs(k1 - relaxed) > 1.0e-2 * relaxed
+
+
 def test_turning_the_moments_without_the_coupling_is_refused():
     """Without the coupling the orientation is not a coordinate, so no step is taken."""
     from defuqumat.scf.driver import run_scf
