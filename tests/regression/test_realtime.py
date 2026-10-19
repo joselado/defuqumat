@@ -368,8 +368,8 @@ def test_a_meta_gga_through_the_calculator_gives_the_whole_mesh_current_on_the_w
     with the field's little group like ``rho(t)``. Measured on D22
     (``notes/incompat/I99.md``): the two currents agree to **1.1e-8** of
     ``max |J|`` at ``dt = 0.2``; with ``tau``'s completion switched off (a
-    mutant) the wedge is **9.8e-2** away, so the tolerance sees it ten
-    thousand times over.
+    mutant) the wedge is **9.8e-2** away at both ``dt = 0.2`` and
+    0.1, a hundred thousand times the tolerance.
     """
     from defuqumat import Calculator
     from defuqumat.realtime.pulse import Sin2
