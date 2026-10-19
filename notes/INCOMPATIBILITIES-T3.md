@@ -294,7 +294,7 @@ aimed outside the session's own worktree), so the merges were made on the sessio
 `worktree-agent-a67b42707eb2a1190`, reset first to `incompat-t3`'s head `82a0ff05`. **The ref
 `incompat-t3` in the workstation repository is still at `82a0ff05`**; the integrated head is a
 fast-forward of it (`git merge --ff-only <head>` inside `agent-a155b466dfdcaf047`). On D22 the ref
-`incompat-t3` was fetched to the integrated head.
+`incompat-t3` was fetched to `3d715272`, the head the gate ran on (later commits are notes only).
 
 | unit | tip | outcome |
 |---|---|---|
@@ -353,7 +353,7 @@ refusal I109 lifts by design. The file is I110's, but the merge that broke it is
 `incompat/sourcefree`, so that merge was reverted (`git revert -m 1`, commit `9b9d4bcc`), with the
 fix-round records of I108 and I109 kept and their guide, ledger and P156 rows undone (`3d715272`).
 Re-gate at `3d715272` (`gate.log`): **2 failed (the `yaml` pair), 4096 passed, 71 skipped, 1831
-deselected, in 1039.59 s**. The 71 skips are the count round one saw. Landing I108 and I109 needs only
+deselected, in 1039.59 s**. The 71 skips are the same set as round one's (compared by name). Landing I108 and I109 needs only
 that one test changed to the lifted behaviour (or removed), which is the user's call.
 
 ### Slow files the merges of integration two touch, for the user
