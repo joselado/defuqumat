@@ -231,7 +231,8 @@ because that is what decides whether it is a session or a phase.
 - **Real-time propagation** (P134 frozen, P136 with the potential updated, P137 the spectrum of the
   orders at a frozen potential, P139 to P141 collinear magnets, spinors and ultrasoft and PAW
   datasets): ~~the potential updated in time with an ultrasoft or PAW dataset~~ (at `nspin = 1`, P156,
-  I98), DFT+U (at a frozen potential and a frozen `ns` in `get_realtime` and
+  I98), ~~the potential updated in time under a potential-only meta-GGA~~ (at `nspin = 1`, P156,
+  I99; not on PAW), DFT+U (at a frozen potential and a frozen `ns` in `get_realtime` and
   `get_realtime_dielectric`, P156, I100; still the Hubbard
   projectors' own row at `k + G = 0`, `OPEN.md`, and the updated potential), re-centring the sphere for a `kappa` past half a
   reciprocal vector, a checkpoint of a self-consistent run, and the velocity gauge's second-order
@@ -26680,10 +26681,11 @@ again in a separate session, and merged with `--no-ff` in item order on `incompa
 | I108 `grad_m` x `nosource` | h4 chain projected divergence 6.97e-31 against 3.456; the SCF's own field divergence-free to 1e-30; 62 iterations to up-up-down-down, `'kubler'` 371 to nearly nonmagnetic | `G . B(G) = 0` on the sphere | `incompat/sourcefree` 22cb6267 |
 | I109 potential-only meta-GGA x `nosource` | TB09 sphere divergence 1e-31 projected; box residue 0.18 to 0.64 on converged meta-GGA runs, flat (outside the sphere the run reads) | as I108 | `incompat/sourcefree` 22cb6267 |
 | I114 (partial) `soc_scale` in (0, 1) x ultrasoft | Co Richardson slope 0.010121 against Hellmann-Feynman 0.010135 meV; verifier's `s = 0.37` coefficient 0.45804 against the law's 0.4585 (1.12 term off); Pt ultracell at 0.5, 2.3e-12 Ry at `Q_d = 0`; fully relativistic PAW refused | Hellmann-Feynman slope; endpoints; the ultracell identity | `incompat/I114` e80bc66f |
+| I99 real-time updated potential x potential-only meta-GGA (`nspin = 1`) | tb09 against the dense self-consistent solve: Si2 2.13e-4, 3.76e-5, 8.92e-6 at 400, 800, 1600 steps a period (dt^2), AlAs 7.43e-5, 1.52e-5; `tau` held at `tau0` 0.281 and 0.0217; `Calculator.get_realtime` wedge against the whole 4x4x4 mesh 1.104e-8 at dt 0.2 (`tau` not completed 9.777e-2; verifier AlAs 3.8e-9 against 3.4e-2); on the combined head (`t3-I99`, after I98) the same 1.104e-8 and 9.777e-2, I98's fixed point 5.308e-12 and kick shift -3.18656 and I100's 8.075e-7 to every printed digit; a meta-GGA on PAW under `hxc` refused (neither side's pair) | `realtime/dense.py:dense_first_order` with a kernel in `(rho, tau)`; the whole mesh | `incompat/I99` 624cf2ea, combined on `t3-I99` |
 
-Not merged: **I99** (fix round confirmed, `tau` reaches the real-time workflows; the merge was aborted
-because `realtime/selfconsistent.py` conflicts with I98's augmented density in the signatures of the
-density and potential callables, which needs the two combined by hand) and **I88** (refuted twice:
+Not merged at integration two: **I99** (fix round confirmed, `tau` reaches the real-time workflows; the
+merge was aborted because `realtime/selfconsistent.py` conflicts with I98's augmented density in the
+signatures of the density and potential callables; landed afterwards, combined by hand, the row below) and **I88** (refuted twice:
 the top-band occupation guard at 6.96e-5 admits Fermi-Dirac states with 2e-5 in the top band, 6 to 7
 per cent off on `C_1111`). I107 stays partial (guard and argument confirmed). I108 and I109 were
 first merged and reverted, because I110's round-one test asserted the meta-GGA refusal under `nosource`

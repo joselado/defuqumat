@@ -335,16 +335,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n; Elk unread.
 - Partial 2026-10-19 (P156), record in `notes/incompat/I91.md`: the new augmentation term takes the complete-basis sum-rule miss from 5.29e-2 to 4.1e-3, flat in the step, against a norm-conserving control falling as the step squared, so a piece is still missing; the refusal stays and names the numbers. The verifier found some numbers hold only at the one k-point and pair used.
 
-### I99. Real-time propagation with the potential updated (`hxc`) x meta-GGA
-
-- Axis: functional.
-- Guard: `defuqumat/realtime/selfconsistent.py:require_a_potential_mode:117`; `realtime/hierarchy.py:659` is unreachable behind it.
-- Test: none.
-- Missing: `tau(t)` propagated; for `tb09`/`bj06` there is no conserved energy (guard message).
-- Check: the linear limit against the optical conductivity under the same functional.
-- QE/Elk: QE out of scope.
-- Fix round confirmed 2026-10-20, not merged, record in `notes/incompat/I99.md`: `tau` now reaches the real-time workflows from `Calculator` (the verifier's own AlAs C3 case, wedge 3.8e-9 against a mutant's 3.4e-2, at rest 1e-11). Integration two aborted the merge: `realtime/selfconsistent.py` conflicts with I98's augmented density (the density and potential callables carry `(rho, becsum)` there and a `(rho, tau)` state here), which is not a keep-both resolution. It needs the two combined by hand.
-
 ### I104. Any Sternheimer response x saw-tooth or Berry-phase field (`tefield`, `lelfield`)
 
 - Axis: applied electric field.
@@ -799,6 +789,7 @@ Landed on 2026-10-20 in P156, integration two of tier T3 (branch `incompat-t3`),
 - I101, Real-time propagation under `tefield` at a frozen potential: stationarity 1.1e-12 against 9.9e-6 with the term out; H2 static polarizability within about 0.1 per cent from a 16-bohr box up (1.4 per cent at 12 bohr), the error growing as `E0^2 T^4`; the updated potential and the frequency-domain hierarchy still refuse a saw-tooth.
 - I108, `noncollinear_gga = 'grad_m'` under `nosource`: the projected divergence 6.97e-31 against 3.456 unprojected on the h4 chain, the SCF's own field divergence-free to 1e-30; 62 iterations to an up-up-down-down state, where `'kubler'` takes 371 to a nearly nonmagnetic one.
 - I109, `nosource` with a potential-only meta-GGA: TB09 sphere divergence 1e-31 projected; the box residue on converged meta-GGA runs is 0.18 to 0.64 and does not fall, a property of the array outside the sphere the run reads.
+- I99, Real-time propagation with the potential updated (`hxc`) under a potential-only meta-GGA, `nspin = 1`: `tau(t)` rebuilt at `k + kappa(t) + G` beside `rho(t)`, against the dense self-consistent solve 3.76e-5 (Si2 tb09, 800 steps a period) and 1.52e-5 (AlAs), falling as dt^2; `tau` held at `tau0` 0.281 and 0.0217. Through `Calculator.get_realtime` the 8-operation wedge against the whole 4x4x4 mesh 1.10e-8, 9.78e-2 with `tau` not completed by the little group (verifier: AlAs 3.8e-9 against 3.4e-2). Landed after integration two, combined by hand with I98 (the propagated state is `(rho, becsum, tau)`), and reproduced on the combined head to every printed digit. `energy` is NaN; `nspin = 2`, spinors, PAW under `hxc` (a pair neither side covered) and the hierarchy's meta-GGA kernel refuse (`incompat/I99`).
 
 Partial in the same integration, merged for the part measured: I104 (the Gamma phonon under `tefield`, to about 2e-4 Ry/bohr^2) and I114 (`soc_scale` between 0 and 1 on ultrasoft), each marked in place above.
 
