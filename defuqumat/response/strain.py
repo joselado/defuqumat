@@ -78,8 +78,8 @@ elastic constants consume ``dpsi`` as a tangent.
 **Refused rather than approximated**: everything
 :func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime` refuses, which
 for this perturbation means a **noncollinear** run, tetrahedra and an
-``OCCUPATIONS`` card; and, of a metal, an ultrasoft or PAW dataset and the
-k-walked route.
+``OCCUPATIONS`` card; and, of a metal, an ultrasoft or PAW dataset, a
+symmetry-reduced k-set and the k-walked route.
 
 *This paragraph used to refuse collinear ultrasoft and PAW as well, on the grounds
 that the augmentation charge ``Q_ij(r)`` is a function of the cell so ``dbecsum``
@@ -905,6 +905,18 @@ def _require_a_measured_metal_regime(calculation) -> None:
     ``wg``, and with ``S`` and ``Q_ij`` deforming the two meet in a cross term
     and in an occupied block (``ort``) whose metallic form is not written.
     """
+    if getattr(calculation, "_symmetry_maps", None) is not None:
+        # Not wrong by any argument here -- ``ldos`` is a scalar field and the
+        # shift is applied before the rank-2 symmetrisation, as the phonon
+        # applies it -- but measured only on a ``nosym`` cell, and the elastic
+        # constants the shift exists for refuse a wedge anyway.
+        raise NotImplementedError(
+            "the strain response of a metal on a symmetry-reduced k-set is not "
+            "implemented: the Fermi-level shift is measured on a nosym cell "
+            "only (al2-metal.in, notes/incompat/I88.md), and the elastic "
+            "constants it serves need the whole grid. Run the whole grid -- an "
+            "unshifted Monkhorst-Pack grid with nosym"
+        )
     if calculation.is_ultrasoft:
         raise NotImplementedError(
             "the strain response of a metal with an ultrasoft or PAW dataset is "

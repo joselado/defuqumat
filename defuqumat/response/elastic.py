@@ -40,6 +40,14 @@ a strained calculation gives a reference on the same footing. Measured that way,
 ``jvp`` and **209.38** from a five-point second difference of the energy, against
 a measured 166 -- and the cutoff dependence of the difference is flat, so the
 residual is the functional and the pseudopotential rather than the basis.
+
+**A smeared metal** (``notes/incompat/I88.md``) differs from an insulator in
+one weight: its ``dpsi`` carries the occupation already, so the states' tangent
+is contracted at ``wk`` while the coordinate keeps ``wg``. The phonon splits its
+``jvp`` for this; here the functional builds its own density, so the split is
+written on the density matrix instead, as two copies of the band block
+(:func:`_split_weights`). Norm-conserving only, on the whole-k route, on a
+closed grid.
 """
 
 from __future__ import annotations

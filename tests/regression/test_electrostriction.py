@@ -444,6 +444,50 @@ def test_the_elastic_constants_match_a_second_difference_of_the_energy(component
     assert abs(ours - reference) / abs(reference) < ELASTIC_TOLERANCE
 
 
+#: The metal's agreement with its five-point reference at ``h = 2e-3``,
+#: measured on D22 at 1.6e-7 (``(0,0)``) and 1.5e-7 (``(0,1)``), the reference's
+#: own truncation falling as ``h^4`` above that step (``(0,1)``: 3.8e-5 at
+#: 8e-3, 2.4e-6 at 4e-3). With the Fermi-level shift off ``(0,0)`` is 454 times
+#: too large, and with the ``wg``/``wk`` split off it is 81 per cent high and
+#: ``(0,1)`` 34 per cent low (``notes/incompat/I88.md``).
+METAL_ELASTIC_TOLERANCE = 2e-6
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("component", [(0, 0), (0, 1)])
+def test_the_elastic_constants_of_a_metal_match_a_second_difference_of_the_free_energy(component):
+    """``I88``: a smeared metal against a five-point difference of ``F = E - TS``.
+
+    ``al2-metal.in`` is ``nosym`` on an unshifted grid, so the elastic
+    constants' closed-grid rule holds. The reference re-converges the SCF in
+    strained cells on the same frozen sphere, as the silicon test above does;
+    the ``(0,0)`` strain is the one the Fermi-level shift acts on (it is
+    proportional to ``Tr T``), and the shear is the one that shows the rest of
+    the plumbing is intact.
+    """
+    from defuqumat.response.elastic import elastic_constants
+
+    step = 2e-3
+    a, b = component
+    tangent = strain_tangent(a, b)
+    _, _, calculation, result, eigenvalues, psi = _converged("al2-metal")
+    energies = {
+        offset: _reconverged("al2-metal", offset * step * tangent)[1].total_energy
+        for offset in (-2, -1, 0, 1, 2)
+    }
+    second = (
+        -energies[2] + 16 * energies[1] - 30 * energies[0]
+        + 16 * energies[-1] - energies[-2]
+    ) / (12 * step**2)
+    reference = second / calculation.system.cell.volume
+
+    response = _strain("al2-metal")
+    assert response.converged
+    ours = elastic_constants(calculation, psi, eigenvalues,
+                             jnp.asarray(result.density), response).tensor[a, b, a, b]
+    assert abs(ours - reference) / abs(reference) < METAL_ELASTIC_TOLERANCE
+
+
 # -- the reporting boundary ---------------------------------------------------
 
 

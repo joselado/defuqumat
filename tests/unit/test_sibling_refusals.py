@@ -308,6 +308,19 @@ def test_the_strain_response_refuses_an_augmented_metal():
     assert "epsilon_infinity" not in message
 
 
+def test_the_strain_response_refuses_a_metal_on_a_wedge():
+    """The shift is measured on a ``nosym`` cell only; a wedge metal is refused."""
+    import types
+
+    from defuqumat.response.strain import strain_response
+
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=False,
+                                 _symmetry_maps=object())
+    with pytest.raises(NotImplementedError) as raised:
+        strain_response(stub, None, [[0.0]], None)
+    assert "symmetry-reduced k-set" in str(raised.value)
+
+
 def test_the_strain_response_refuses_a_walked_metal(monkeypatch):
     """The k-walked route has no Fermi-level shift, so a metal there is refused.
 
