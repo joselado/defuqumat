@@ -172,7 +172,7 @@ def test_a_derivative_of_the_energy_is_refused():
 
 # --- I108 and I109: 'grad_m' and a potential-only meta-GGA under nosource ----
 #
-# The four-site hydrogen chain of ``h4-noncolin-force.in`` (moments 90 degrees
+# The four-site hydrogen chain of ``h4-noncolin-force.in`` (starting moments 90 degrees
 # apart), with the functional changed and ``conv_thr`` loosened to 1e-8, which
 # is ``notes/incompat/sourcefree-harness/run_sourcefree.py``'s computation (D22,
 # 2026-10-19, one sample each; ``notes/incompat/I108.md`` and ``I109.md``).
@@ -212,8 +212,9 @@ def test_grad_m_under_nosource_converges_source_free_on_a_texture():
     """I108. Measured: 62 iterations, ``int |div B|^2`` 6.97e-31 projected
     against 3.456 unprojected, site 0 moment 0.2432, parallel fraction 0.98865.
     The same chain without nosource does not converge under either PBE branch
-    in 300 iterations (``pw.x`` limit-cycles on it too), and under
-    ``'kubler'`` with nosource it stalls at 9.8e-8."""
+    in 300 iterations (``pw.x`` limit-cycles on it too). Under ``'kubler'``
+    with nosource it is at 9.8e-8 after 300 and converges at 371, to a nearly
+    nonmagnetic state."""
     calc, scf = _chain("PBE", "grad_m")
     assert scf.converged and calc.calculation.noncollinear_gga == "grad_m"
     on, off = _sphere_divergences(calc, scf)

@@ -190,9 +190,10 @@ def test_the_source_free_field_of_a_spiral_is_not_a_spiral(grid):
 # dense G sphere, which is every component a Hamiltonian matrix element between
 # two states inside the wavefunction cutoff reads, ``G . B(G) = 0`` to
 # round-off. On the whole FFT box the projection leaves the corners alone (the
-# module says why), so a residue stays there and falls with ``ecutrho``. Measured
-# on the texture below (2026-10-19), the box residue over its value without the
-# projection:
+# module says why), so a residue stays there. The run reads only the sphere, so
+# the box residue is a property of the array, not the physical approximation.
+# Measured on the texture below (2026-10-19), the box residue over its value
+# without the projection:
 #
 #     ecutrho (Ry)        40        80        160
 #     PBE  'grad_m'    6.03e-3   1.70e-3   1.82e-4
@@ -203,7 +204,11 @@ def test_the_source_free_field_of_a_spiral_is_not_a_spiral(grid):
 #
 # ``'grad_m'`` falls faster than ``'kubler'`` because its field has no kink
 # where ``|m|`` is small, which is the opposite of what the old refusal of
-# ``'grad_m'`` under ``nosource`` implied.
+# ``'grad_m'`` under ``nosource`` implied. The rates belong to this texture: on
+# a different hand texture TB09 ``'grad_m'`` fell only 0.76x from 60 to 120 Ry,
+# the PBE ``'grad_m'`` residue of a converged hydrogen chain falls as roughly
+# ecutrho^-1.3 or ^-0.7 rather than ^-2.5, and on converged meta-GGA runs it is
+# 0.18 to 0.64 and does not fall (notes/incompat/I108.md and I109.md).
 
 
 def _texture(gvectors):
@@ -285,10 +290,11 @@ def test_the_sphere_is_divergence_free_for_a_field_not_parallel_to_m(grid, name,
     ("PBE", "kubler", 4.92e-2, 2.56e-2),
 ])
 def test_the_box_residue_falls_with_the_cutoff(grid, name, choice, at40, at80):
-    """The convergence half: what is left on the box corners, over its value
-    without the projection, at 40 and 80 Ry, to 2 per cent of the measured
-    numbers (the table above). It has to fall, and ``'grad_m'`` has to sit
-    below ``'kubler'`` at the same cutoff."""
+    """What is left on the box corners of this texture, over its value without
+    the projection, at 40 and 80 Ry, to 2 per cent of the measured numbers (the
+    table above), and its fall between the two (measured 0.28x, 0.38x and
+    0.52x). The fall is a property of this texture, not a convergence rule for
+    the run, which reads only the sphere (the comment above)."""
     cell, _ = grid
     fractions = []
     for ecut in (40.0, 80.0):
