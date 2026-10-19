@@ -1015,7 +1015,7 @@ def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool,
     scheme = str(getattr(calculation.system, "occupations", "fixed")).lower()
     degauss = float(getattr(calculation.system, "degauss", 0.0) or 0.0)
     if enabled and scheme.startswith("tetrahedra"):
-        from defuqumat.scf.tetrahedra import tetrahedron_fermi_weights
+        from defuqumat.scf.tetrahedra import _corner_energies, tetrahedron_fermi_weights
 
         weights = np.asarray(calculation.system.kpoints.weights, dtype=float)
         energies = np.asarray(energies)
@@ -1024,8 +1024,15 @@ def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool,
         # **One band at a time, and only the bands that cross the level.** A
         # tetrahedron weight of band ``n`` reads band ``n``'s corner energies
         # and nothing else (the corners are sorted within a band), so the
-        # bands are independent and a band wholly above or below ``E_F`` has
-        # ``d wg / d E_F = 0`` at every k. The one cross-band step, the
+        # bands are independent, and a band whose **interpolation energies**
+        # lie wholly above or below ``E_F`` has ``d wg / d E_F = 0`` at every
+        # k. Those are the corner energies of :func:`_corner_energies`, not
+        # the grid eigenvalues: for the linear and Bloechl kinds the two are
+        # the same, but the optimised kind's 20-point ``wlsm`` combinations
+        # have negative entries and reach past a band's grid extrema, so a
+        # band whose grid minimum is ``1e-3`` Ry above ``E_F`` still carries
+        # a share of the DOS there (I93 fix round: filtering on the grid
+        # eigenvalues dropped 1.0 per cent of it). The one cross-band step, the
         # degenerate average of the linear and optimised kinds, is redone
         # below by :func:`_multiplet_average` on the whole set, where a band
         # that does not cross gives its partner's share a zero, as
@@ -1033,8 +1040,11 @@ def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool,
         # kind's scatter holds ``(ntetra, nbnd, 4, 20)`` reals, 3.8 GB at
         # ``nbnd = 9`` on a 48^3 grid before the ``jvp`` doubles it, and the
         # run was killed at a 6 GB cap that way (I93, run 3).
-        crossing = [n for n in range(energies.shape[1])
-                    if energies[:, n].min() <= fermi_energy <= energies[:, n].max()]
+        crossing = []
+        for n in range(energies.shape[1]):
+            corners = np.asarray(_corner_energies(table, jnp.asarray(energies[:, n:n + 1])))
+            if corners.min() <= fermi_energy <= corners.max():
+                crossing.append(n)
         for n in crossing:
             dwg = tetrahedron_fermi_weights(
                 table, jnp.asarray(energies[:, n:n + 1]), jnp.asarray(weights),

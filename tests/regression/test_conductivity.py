@@ -317,15 +317,25 @@ def test_the_tetrahedron_drude_term_is_the_degauss_to_zero_limit_of_the_smeared_
 
         mesh   limit     tetrahedra   tetrahedra_lin   tetrahedra_opt
         32^3   12.4193   -0.226       -0.088           -0.017
+        40^3   12.4460   -0.151       -0.016           +0.021
         48^3   12.4858   -0.092       -0.017           -0.011
+        56^3   12.4608   -0.097       -0.029
         64^3   12.4663   -0.073       -0.034           (6 GB cap)
+        72^3   12.4655   -0.051       -0.022
 
-    So the tolerance is 0.05 eV, from the converged 48^3 and 64^3 pairs.
-    Bloechl's corrected weights stay 0.07 to 0.09 eV low on the two dense
-    grids, where they no longer move (12.3937 and 12.3933), and are held to
-    0.15. The fit's own residual is 0.25 eV^2 on 156, and below
-    ``degauss = 0.02`` the smeared value stops falling on 48^3 (the grid no
-    longer resolves the width), which is why the fit stops there.
+    The linear kind's gap to the fit levels off at -0.02 to -0.03 eV past
+    40^3 rather than falling, and the fit is itself biased high (smaller
+    widths on 80^3 put ``degauss -> 0`` at roughly 12.39 to 12.44), so the
+    comparison resolves about 0.03 to 0.05 eV and the tolerance is 0.05 eV
+    (worst linear case -0.034). The three kinds converge towards each other
+    (lin minus Bloechl 0.136, 0.068, 0.029 eV on 40, 56, 72 cubed), Bloechl
+    is still moving on these grids and is held to 0.15 eV, which is a 48^3
+    statement (it is -0.151 on 40^3). The limit itself is pinned at its
+    48^3 value, which is a regression pin and not the converged number: the
+    48^3 point is high by about 0.02 eV, a k-mesh fluctuation. Below
+    ``degauss = 0.02`` the smeared value stops following ``degauss^2`` on
+    48^3 (the grid no longer resolves the width), which is why the fit stops
+    there.
 
     What it would read without the term: zero, which is what the code
     returned before the refusal was written, and what ``intraband = False``
@@ -357,6 +367,8 @@ def test_the_tetrahedron_drude_term_is_the_degauss_to_zero_limit_of_the_smeared_
     _, limit = np.polyfit(widths ** 2, smeared, 1)
     limit = np.sqrt(limit)
     assert np.all(np.diff(smeared) < 0)  # falls towards the limit as sigma^2
+    # a 48^3 regression pin, not the degauss -> 0 value (about 12.466 from the
+    # same fit on 56 to 72 cubed, and lower than that with smaller widths)
     assert limit == pytest.approx(12.4858, abs=5e-3)
     # the widest smearing is outside the tolerance, so the limit is read
     assert np.sqrt(smeared[0]) - limit > 2 * tolerance

@@ -550,3 +550,81 @@ def test_the_tetrahedron_drude_delta_is_averaged_over_a_multiplet():
 
     assert np.allclose(plasma(averaged, v), plasma(averaged, rotated), atol=1e-12)
     assert not np.allclose(plasma(raw, v), plasma(raw, rotated), atol=1e-3)
+
+
+@pytest.mark.parametrize("occupations", ["tetrahedra", "tetrahedra_lin",
+                                         "tetrahedra_opt"])
+def test_the_tetrahedron_drude_delta_keeps_a_band_just_above_the_level(occupations):
+    """I93 fix round: a band whose grid minimum is 1e-3 Ry above ``E_F`` still counts.
+
+    The optimised kind interpolates with Kawamura's 20-point ``wlsm``
+    combinations, which have negative entries and reach below a band's grid
+    minimum, so such a band carries part of the tetrahedron DOS at ``E_F``.
+    The delta is computed one crossing band at a time, and the crossing test
+    has to read the interpolation energies: on the grid eigenvalues it
+    dropped this band and missed 1.0 per cent of the DOS (5.4401 against
+    5.4977 on this 6^3 grid). For the other two kinds the band's share is
+    exactly zero and the test is the plain identity.
+    """
+    from defuqumat.response.conductivity import _fermi_surface_delta
+    from defuqumat.scf.tetrahedra import tetrahedron_dos, tetrahedron_fermi_weights
+
+    # Off every grid eigenvalue: at a level that sits on one, the ``jvp``
+    # of the piecewise weights is one-sided at a kink and the identity
+    # breaks for reasons that have nothing to do with the filter.
+    fermi, gap = 0.05 + 1e-7, 1e-3
+    for nosym in (True, False):
+        run = _tetrahedron_run(occupations, nosym=nosym, grid=6)
+        tb = _fcc_bands(run.system)[:, 0]
+        upper = 0.6 * tb
+        upper = upper - upper.min() + fermi + gap
+        bands = np.sort(np.stack([tb, upper], axis=1), axis=1)
+        wk = np.asarray(run.system.kpoints.weights)
+        delta = _fermi_surface_delta(run, fermi, bands, enabled=True)
+        total = float(np.sum(wk[:, None] * delta))
+        dos, _ = tetrahedron_dos(run.tetrahedron_table(), bands, wk, np.array([fermi]))
+        assert total == pytest.approx(float(dos[0]), rel=1e-10)
+        share = float(np.sum(np.asarray(tetrahedron_fermi_weights(
+            run.tetrahedron_table(), jnp.asarray(bands), jnp.asarray(wk), fermi))[:, 1]))
+        if occupations == "tetrahedra_opt":
+            assert share > 1e-3 * float(dos[0])  # the case the old filter dropped
+        else:
+            assert share == 0.0
+
+
+@pytest.mark.parametrize("occupations", ["tetrahedra", "tetrahedra_lin",
+                                         "tetrahedra_opt"])
+def test_the_tetrahedron_drude_delta_is_averaged_where_it_is_built(occupations):
+    """Rule D4 for I93, through ``_fermi_surface_delta`` itself.
+
+    Two bands that cross, sorted per k, are exactly degenerate on the planes
+    ``k1 = +-k2`` of the grid, and at a corner of a tetrahedron band ``n`` is
+    the other branch for each member of the pair, so their per-band
+    tetrahedron weights differ there. The returned delta must be equal across
+    every degenerate pair, and the raw per-band weights, built the same way
+    without the block average, must not be, or this test could not tell the
+    average from its absence.
+    """
+    from defuqumat.response.conductivity import _fermi_surface_delta
+    from defuqumat.scf.tetrahedra import tetrahedron_fermi_weights
+
+    fermi, tol = 0.01, 1e-5
+    run = _tetrahedron_run(occupations, nosym=True, grid=6)
+    k = np.asarray(run.system.kpoints.crystal(run.system.cell))
+    c = np.cos(2 * np.pi * k)
+    a = -0.1 * (c[:, 0] + 0.5 * c[:, 2])
+    b = -0.1 * (c[:, 1] + 0.5 * c[:, 2])
+    bands = np.sort(np.stack([a, b, a + b + 0.8], axis=1), axis=1)
+    wk = np.asarray(run.system.kpoints.weights)
+    pair = np.abs(bands[:, 1] - bands[:, 0]) < tol
+    assert pair.sum() >= 10
+
+    delta = _fermi_surface_delta(run, fermi, bands, enabled=True, tol=tol)
+    assert np.allclose(delta[pair, 0], delta[pair, 1], rtol=0, atol=1e-12)
+
+    raw = np.stack([np.asarray(tetrahedron_fermi_weights(
+        run.tetrahedron_table(), jnp.asarray(bands[:, n:n + 1]), jnp.asarray(wk),
+        fermi))[:, 0] / wk for n in range(2)], axis=1)
+    assert np.max(np.abs(raw[pair, 0] - raw[pair, 1])) > 1e-2 * np.max(np.abs(raw))
+    assert np.sum(wk[:, None] * delta[:, :2]) == pytest.approx(
+        np.sum(wk[:, None] * raw), rel=1e-12)
