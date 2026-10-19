@@ -420,3 +420,122 @@ def test_efield_cart_against_a_reversed_axis_is_refused():
         "ATOMIC_SPECIES", "CELL_PARAMETERS bohr\n-10.0 0.0 0.0\n0.0 10.0 0.0\n0.0 0.0 10.0\nATOMIC_SPECIES")
     with pytest.raises(NotImplementedError, match="opposite sign"):
         build_system(parse_pw_input(text))
+
+
+_US = "Si.pbe-n-rrkjus_psl.0.1.UPF"
+_PAW = "Si.pbe-n-kjpaw_psl.0.1.UPF"
+
+
+def _augmented_calculation(dataset, extra_system="", kpoints=_LIST, nppstr=2):
+    """``_calculation`` on an augmented dataset: the cell, the strings and the field are its."""
+    from defuqumat.pseudo import read_upf
+    from defuqumat.scf import Calculation
+
+    text = _INPUT.format(extra="", kpoints=kpoints).replace(
+        "ecutwfc=20", "ecutwfc=12" + extra_system).replace("Si.pbe-rrkj.UPF", dataset)
+    text = text.replace("nppstr=2", f"nppstr={nppstr}")
+    system = build_system(parse_pw_input(text))
+    pseudo = Path(__file__).resolve().parents[1] / "data" / "pseudo"
+    pseudos = tuple(read_upf(pseudo / s.pseudo_file) for s in system.structure.species)
+    return Calculation(system, pseudos)
+
+
+_STRING3 = "crystal\n3\n0.0 0.0 0.0 1\n0.0 0.0 0.3333333333333333 1\n0.0 0.0 0.6666666666666666 1\n"
+
+
+def _augmented_states(calculation, seed=0):
+    """Random occupied blocks on each k's sphere, made ``S``-orthonormal there."""
+    field = calculation.berry_field
+    mask = np.asarray(calculation.basis.planewaves.mask)
+    nk, npwx = mask.shape
+    rng = np.random.default_rng(seed)
+    u = (rng.normal(size=(nk, field.occupied(), npwx))
+         + 1j * rng.normal(size=(nk, field.occupied(), npwx))) * mask[:, None, :]
+    su, _, _ = field.augmented_neighbours(jnp.asarray(u), calculation)
+    for ik in range(nk):
+        gram = np.conj(u[ik]) @ np.asarray(su[ik]).T  # <u_m|S|u_n>
+        u[ik] = np.linalg.inv(np.linalg.cholesky(gram.T)) @ u[ik]
+    return jnp.asarray(u)[None]
+
+
+@pytest.mark.parametrize("dataset", [_US, _PAW])
+def test_an_augmented_field_is_the_derivative_of_its_energy(dataset):
+    """I103: on an ultrasoft or PAW dataset ``a = (1/w_k) dE_P/d conj(u_k)``,
+    ``H_E u = a`` and ``<a|u> = 0``, with ``M+`` carrying ``q_ij(dk)``.
+
+    ``u_k`` enters ``M+(k)`` as a bra and ``M+(k - dk)`` as a ket, so the
+    gradient holds the backward link through ``q_ij(dk)^dagger``, and the duals
+    hold it through ``q_ij(-dk)`` computed on its own: the two agree only if the
+    backward cross term is the adjoint of the forward one.
+    """
+    calculation = _augmented_calculation(dataset, kpoints=_STRING3, nppstr=3)
+    field = calculation.berry_field
+    assert field.augmented
+    # dk is b_3/3, unwrapped, read where the string wraps
+    bg = np.asarray(calculation.system.cell.bg)
+    tpiba = np.linalg.norm(field.dk) * 3 / np.linalg.norm(bg[2])
+    np.testing.assert_allclose(field.dk * 3, tpiba * bg[2], atol=1e-12)
+    psi = _augmented_states(calculation)
+    u = psi[0]
+    nk = u.shape[0]
+    term = field.term(psi, 0, calculation)
+    prefactor = -field.efield * 2.0 * field.fc_pol / field.strings.shape[0]
+
+    def energy(x):
+        _, plus, _ = field.augmented_neighbours(x, calculation)
+        return phase_energy(x, plus, field.strings, prefactor)
+
+    derivative = jnp.conj(jax.grad(energy)(u)) / 2.0
+    scale = float(jnp.max(jnp.abs(term.a)))
+    np.testing.assert_allclose(np.asarray(term.a), np.asarray(derivative * nk / 2.0),
+                               atol=1e-10 * scale)
+    for ik in range(nk):
+        np.testing.assert_allclose(np.asarray(term.apply(u[ik], ik)), np.asarray(term.a[ik]),
+                                   atol=1e-10 * scale)
+        assert float(jnp.max(jnp.abs(jnp.conj(term.a[ik]) @ u[ik].T))) < 1e-10 * scale
+    # the enthalpy is the same energy, the ions aside
+    positions = jnp.asarray(calculation.system.structure.positions)
+    ionic = -field.efield * field.ionic_dipole(positions)
+    assert float(field.enthalpy(psi, positions, calculation)) == pytest.approx(
+        float(energy(u)) + ionic, abs=1e-12)
+
+
+def test_the_cross_term_is_what_makes_the_operator_the_derivative():
+    """The same identity with ``q_ij(+-dk)`` dropped from the duals only fails:
+    the check above can tell the term from its absence."""
+    calculation = _augmented_calculation(_US, kpoints=_STRING3, nppstr=3)
+    field = calculation.berry_field
+    psi = _augmented_states(calculation, seed=1)
+    prefactor = -field.efield * 2.0 * field.fc_pol / field.strings.shape[0]
+
+    def energy(x):
+        _, plus, _ = field.augmented_neighbours(x, calculation)
+        return phase_energy(x, plus, field.strings, prefactor)
+
+    derivative = jnp.conj(jax.grad(energy)(psi[0])) / 2.0 * psi.shape[1] / 2.0
+    field.cross_off = True
+    try:
+        term = field.term(psi, 0, calculation)
+    finally:
+        field.cross_off = False
+    gap = float(jnp.max(jnp.abs(term.a - derivative)) / jnp.max(jnp.abs(derivative)))
+    assert gap > 1e-3
+
+
+def test_an_augmented_dataset_refuses_nspin_two_and_the_streamed_store():
+    """The regimes the fix does not cover still refuse by name (I103)."""
+    from defuqumat.forces.chunked import walks_chunks
+
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW dataset at nspin = 2"):
+        _augmented_calculation(_US, ", nspin=2, tot_magnetization=0")
+    calculation = _augmented_calculation(_US, kpoints=_STRING3, nppstr=3)
+    host = np.asarray(_augmented_states(calculation))
+    with pytest.raises(NotImplementedError, match="streamed store"):
+        calculation.berry_field.host_term(host, 0)
+    with pytest.raises(NotImplementedError, match="streamed store"):
+        calculation.berry_field.string_phases(host, calculation)
+    with pytest.raises(NotImplementedError, match="forces_us_efield"):
+        walks_chunks(calculation, host)
+    from defuqumat.forces.analytic import analytic_forces
+    with pytest.raises(NotImplementedError, match="forces_us_efield"):
+        analytic_forces(calculation, None)

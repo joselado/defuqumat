@@ -64,9 +64,32 @@ builds the phase on ``nelec/2`` bands per channel (``l_cal`` reads ``f_inp``
 only for ``occupations = 'from_input'``) whatever the channel holds, and a
 spinor with spin-orbit coupling, for which no identity is measured here.
 
-**What is not here**, refused by name at input: ultrasoft and PAW (the cross
-overlap ``q_dk`` and the structure phase in ``M``, and ``forces_us_efield``),
-the two regimes just named, a metal, ``efield_cart`` (three directions,
+**Ultrasoft and PAW** (I103). Every product of two states becomes an ``S``
+product, and the one between neighbours on a string is ``S`` between two
+k-points (:mod:`defuqumat.topology.augmentation`):
+
+    M+_{nm} = <u_{k,n}|u_{k+dk,m}>
+              + sum_a sum_ij <psi_kn|beta_i^a> q^a_ij(dk) <beta_j^a|psi_{k+dk,m}>,
+    q^a_ij(b) = Omega Q_ij(b) e^{-i b . tau_a},
+
+``b`` the unwrapped step (``q_dk`` with ``struc`` in ``c_phase_field``, and
+``q_dkp`` with ``CONJG(struc)`` for the backward link in ``h_epsi_her_set``).
+The duals carry the same term: ``e+ = sum_n S(dk)|u_{k+dk,n}> (M+^-1)_{nm}``
+with ``S(dk)|u'> = |u'> + sum |beta_i^k> q_ij(dk) <beta_j^{k+dk}|u'>``
+("add US terms into evcm"), and ``h_epsi_her_apply`` puts ``S|u>`` where the
+norm-conserving operator has ``|u>``: ``H_E = sum_n |a_n><S u_n| + |S u_n><a_n|``.
+So ``<u_j|e_m> = delta_jm`` with the plain product, ``<S u_j|u_n> = delta_jn``,
+and ``H_E u_n = a_n`` again. A neighbour's projections need no Miller gather,
+since ``<beta^{k+G}|psi_{k+G}> = <beta^k|psi_k>``. The force
+``forces_us_efield`` is not transcribed: :meth:`BerryFieldSetup.enthalpy`
+builds ``M+`` from the projectors and structure phases of the moved
+calculation, so ``jax.grad`` in the positions carries it. Measured against
+``pw.x`` at ``nspin = 1`` only; ``nspin = 2``, a spinor and a spiral on an
+augmented dataset are refused, as are the streamed store and the transcribed
+force route, neither of which carries the term.
+
+**What is not here**, refused by name at input: an augmented dataset outside
+the regime just named, the two regimes named under **Spin**, a metal, ``efield_cart`` (three directions,
 ``l3dstring``), an automatic k-grid (QE turns that into ``l3dstring``), a cell
 whose ``a_gdir`` is not along Cartesian axis ``gdir`` (QE's ionic dipole takes
 the Cartesian component while the electronic one is along ``a_gdir``), the
@@ -196,6 +219,38 @@ def _duals(u, plus, minus):
     return e_plus, e_minus
 
 
+@eqx.filter_jit
+def _augment(u, plus, minus, plus_index, minus_index, projectors, mask, qq, q_plus,
+             q_minus, batch):
+    """``(S u, S(+dk) plus, S(-dk) minus)`` on the sphere of each k, ``(nk, nocc, npwx)`` each.
+
+    ``S(b)|u'> = |u'> + sum_ij |beta_i^k> q_ij(b) <beta_j^{k'}|u'>``, with the
+    projections of the neighbour taken at the neighbour's own k-point (no
+    gather: ``<beta^{k+G}|psi_{k+G}> = <beta^k|psi_k>``), and ``b = 0`` giving
+    ``S`` itself through ``qq``. One k-point's projectors at a time
+    (:meth:`~defuqumat.pseudo.projectors.Projectors.at_k`), walked by ``map_k``;
+    the states are arguments, never closed over by an eager loop.
+    """
+    from defuqumat.batching import map_k
+
+    rows = jnp.arange(u.shape[0])
+
+    def projectors_at(ik):
+        return jnp.where(mask[ik][:, None], projectors.at_k(ik), 0.0)
+
+    becp = map_k(lambda ik: jnp.einsum("gi,ng->ni", jnp.conj(projectors_at(ik)), u[ik]),
+                 rows, batch=batch)
+
+    def apply(ik):
+        vkb = projectors_at(ik)
+        return (u[ik] + jnp.einsum("gi,ij,nj->ng", vkb, qq, becp[ik]),
+                plus[ik] + jnp.einsum("gi,ij,nj->ng", vkb, q_plus, becp[plus_index[ik]]),
+                minus[ik] + jnp.einsum("gi,ij,nj->ng", vkb, q_minus,
+                                       becp[minus_index[ik]]))
+
+    return map_k(apply, rows, batch=batch)
+
+
 def phase_energy(u, plus, strings, prefactor):
     """``-E el_pol`` as a function of the states: the Berry term of the enthalpy.
 
@@ -246,6 +301,16 @@ class BerryFieldSetup:
     #: across the iterations of one run.
     accumulated: float = 0.0
     previous: float | None = field(default=None)
+    #: An ultrasoft or PAW dataset (I103): ``Omega Q_ij(+dk)`` and
+    #: ``Omega Q_ij(-dk)`` of each species, ``(nh, nh)`` or ``None``, with no
+    #: structure phase (that is applied with the positions, traced), and the
+    #: forward step ``dk`` in cartesian 1/bohr. ``None`` on a norm-conserving
+    #: dataset, where ``S`` is the identity.
+    cross: tuple | None = None
+    dk: np.ndarray | None = None
+    #: Drops ``q_ij(+-dk)`` from the overlaps and the duals and keeps ``S u``:
+    #: the missing term of I103 switched off, for the record's A/B only.
+    cross_off: bool = False
 
     @classmethod
     def build(cls, calculation, settings):
@@ -304,7 +369,19 @@ class BerryFieldSetup:
             nocc = nint(calculation.nelec)
         else:
             nocc = nint(calculation.nelec / 2)
+        cross, dk = None, None
+        if calculation.augmentation is not None:
+            from defuqumat.topology.augmentation import augmentation_species_at_q
+
+            # The unwrapped step, read where the string wraps: the last point's
+            # neighbour is the first plus e_gdir, and the difference is the same
+            # b_gdir/nppstr as everywhere else on the string.
+            row = strings[0]
+            dk = np.asarray(states._difference(int(row[-1]), int(row[0]), unit))
+            cross = (augmentation_species_at_q(calculation, dk),
+                     augmentation_species_at_q(calculation, -dk))
         return cls(
+            cross=cross, dk=dk,
             gdir=gdir, nppstr=nppstr, efield=float(efield), nberrycyc=int(nberrycyc),
             nocc=nocc, strings=strings, npol=int(system.npol),
             spin_factor=2.0 if system.nspin == 1 else 1.0, k_batch=calculation.k_batch,
@@ -332,6 +409,67 @@ class BerryFieldSetup:
         return plus, minus
 
     @property
+    def augmented(self) -> bool:
+        """Whether the dataset carries an augmentation charge, so ``S`` is not the identity."""
+        return self.cross is not None
+
+    def _cross_matrix(self, calculation, side: int, dtype) -> jnp.ndarray:
+        """``q^a_ij(+-dk) = Omega Q_ij(+-dk) e^{-i (+-dk) . tau_a}``, ``(nkb, nkb)``.
+
+        ``side`` 0 is the forward link, 1 the backward one. The phase is taken
+        from the calculation's positions with ``jnp``, so that under
+        ``jax.grad`` in the positions it is part of the force.
+        """
+        augmentation = calculation.augmentation
+        sign = 1.0 if side == 0 else -1.0
+        real = jnp.finfo(dtype).dtype
+        positions = jnp.asarray(calculation.system.structure.positions, dtype=real)
+        phases = jnp.exp(-1j * (positions @ jnp.asarray(sign * self.dk, dtype=real)))
+        phases = phases.astype(dtype)
+        blocks = tuple(
+            None if values is None or not atoms
+            else jnp.asarray(values, dtype=dtype)[None]
+            * phases[jnp.asarray(atoms)][:, None, None]
+            for values, atoms in zip(self.cross[side], augmentation.species_atoms))
+        return augmentation.block_matrix(blocks).astype(dtype)
+
+    def augmented_neighbours(self, u, calculation=None):
+        """``(S u, S(+dk) u_{k+dk}, S(-dk) u_{k-dk})`` on the sphere of each k.
+
+        On a norm-conserving dataset this is ``(u, plus, minus)`` of
+        :meth:`neighbours`. On an augmented one it needs the calculation, for
+        its projectors, ``qq`` and positions: the projectors and positions of a
+        moved copy are what put ``forces_us_efield`` in the gradient.
+        """
+        from defuqumat.batching import resolve_k_batch
+
+        plus, minus = self.neighbours(u)
+        if not self.augmented:
+            return u, plus, minus
+        if calculation is None:
+            raise ValueError(
+                "lelfield on an ultrasoft or PAW dataset needs the calculation: "
+                "the string overlap is an S product between two k-points")
+        dtype = u.dtype
+        q_plus = self._cross_matrix(calculation, 0, dtype)
+        q_minus = self._cross_matrix(calculation, 1, dtype)
+        if self.cross_off:
+            q_plus, q_minus = jnp.zeros_like(q_plus), jnp.zeros_like(q_minus)
+        projectors = calculation.projectors
+        return _augment(u, plus, minus, jnp.asarray(self.plus_index),
+                        jnp.asarray(self.minus_index), projectors,
+                        jnp.asarray(calculation.basis.planewaves.mask),
+                        projectors.qq.astype(dtype), q_plus, q_minus,
+                        resolve_k_batch(self.k_batch))
+
+    def _no_augmented_host_store(self):
+        if self.augmented:
+            raise NotImplementedError(
+                "lelfield on an ultrasoft or PAW dataset with a streamed store "
+                "(wfc_store = 'stream') is not implemented: the cross augmentation "
+                "is built only on the in-memory store")
+
+    @property
     def fact(self) -> complex:
         """``fact_hepsi``: ``-i E sqrt(2)/(2 dkfact)``, ``dkfact = 2 pi/(|a_gdir| nppstr)``."""
         return -1j * self.efield * SQRT2 * self.length * self.nppstr / (4.0 * np.pi)
@@ -346,6 +484,7 @@ class BerryFieldSetup:
         """
         from defuqumat.batching import k_chunks
 
+        self._no_augmented_host_store()
         nocc = self.occupied(spin)
         sides = [(self.plus_index, np.asarray(self.plus_gather), np.asarray(self.plus_found)),
                  (self.minus_index, np.asarray(self.minus_gather),
@@ -391,7 +530,7 @@ class BerryFieldSetup:
         return BerryTerm(u=jnp.asarray(u_host[rows]), a=jnp.asarray(a_host[rows]),
                          rows=jnp.asarray(lookup))
 
-    def _link_signs(self, wavefunctions, spin: int) -> np.ndarray:
+    def _link_signs(self, wavefunctions, spin: int, calculation=None) -> np.ndarray:
         """``det M+(k) / |det M+(k)|`` at every k, ``(nk,)``, a chunk at a time for a host store."""
         if isinstance(wavefunctions, np.ndarray):
             signs = np.empty(wavefunctions.shape[1], dtype=wavefunctions.dtype)
@@ -400,27 +539,35 @@ class BerryFieldSetup:
                 signs[rows[:live]] = np.asarray(sign)[:live]
             return signs
         u = wavefunctions[spin, :, : self.occupied(spin)]
-        plus, _ = self.neighbours(u)
+        _, plus, _ = self.augmented_neighbours(u, calculation)
         sign, _ = jnp.linalg.slogdet(_overlaps(u, plus))
         return np.asarray(sign)
 
-    def term(self, wavefunctions, spin: int = 0) -> BerryTerm:
-        """``H_E`` of channel ``spin`` from ``wavefunctions`` ``(nspin, nk, nbnd, npol * npwx)``."""
+    def term(self, wavefunctions, spin: int = 0, calculation=None) -> BerryTerm:
+        """``H_E`` of channel ``spin`` from ``wavefunctions`` ``(nspin, nk, nbnd, npol * npwx)``.
+
+        On an augmented dataset the term holds ``S u`` in place of ``u``
+        (``h_epsi_her_apply``'s ``evct``), so it applies
+        ``|a><S u| + |S u><a|``.
+        """
         u = jnp.array(wavefunctions[spin, :, : self.occupied(spin)], copy=True)
-        plus, minus = self.neighbours(u)
+        su, plus, minus = self.augmented_neighbours(u, calculation)
         e_plus, e_minus = _duals(u, plus, minus)
         a = (self.fact * (e_minus - e_plus)).astype(u.dtype)
-        return BerryTerm(u=u, a=a)
+        return BerryTerm(u=su if self.augmented else u, a=a)
 
     # --- the polarization and the energy -------------------------------------
-    def enthalpy(self, wavefunctions, positions):
+    def enthalpy(self, wavefunctions, positions, calculation=None):
         """``-E (el_pol + ion_pol + acc)`` as a traced function, for the frozen-energy force.
 
         The same number :meth:`energy` returns at the converged state, written
         in ``jnp`` so that ``jax.grad`` in the positions gives
         ``forces_ion_efield``, ``sqrt(2) E Z`` along Cartesian ``gdir``. The
         electronic part has no position dependence for a norm-conserving
-        dataset and contributes nothing to the force.
+        dataset and contributes nothing to the force. On an augmented one it
+        does, through the projections and the structure phase in ``M+``, and
+        ``calculation`` (the moved copy, traced) is what carries them: that
+        gradient is ``forces_us_efield``.
         """
         if not self.active:
             return jnp.zeros((), dtype=jnp.real(wavefunctions).dtype)
@@ -429,17 +576,17 @@ class BerryFieldSetup:
         electronic = 0.0
         for spin in range(wavefunctions.shape[0]):
             u = wavefunctions[spin, :, : self.occupied(spin)]
-            plus, _ = self.neighbours(u)
+            _, plus, _ = self.augmented_neighbours(u, calculation)
             electronic = electronic + phase_energy(u, plus, self.strings, prefactor)
         charges = jnp.asarray(self.charges, dtype=positions.dtype)
         ionic = SQRT2 * jnp.sum(charges * positions[:, self.gdir])
         return electronic - self.efield * (ionic + self.accumulated)
 
-    def string_phases(self, wavefunctions) -> np.ndarray:
+    def string_phases(self, wavefunctions, calculation=None) -> np.ndarray:
         """Each string's principal phase, ``Im ln prod det M+``, radians, ``(nchannel, nkort)``."""
         phases = []
         for spin in range(wavefunctions.shape[0]):
-            sign = self._link_signs(wavefunctions, spin)
+            sign = self._link_signs(wavefunctions, spin, calculation)
             phases.append(np.angle(np.prod(sign[self.strings], axis=1)))
         return np.array(phases)
 
@@ -448,9 +595,9 @@ class BerryFieldSetup:
         """``fact_pola``: ``sqrt(2)/tpiba * |a_gdir|/alat``, i.e. ``sqrt(2) |a_gdir|/(2 pi)``."""
         return SQRT2 * self.length / (2.0 * np.pi)
 
-    def electronic_dipole(self, wavefunctions) -> float:
+    def electronic_dipole(self, wavefunctions, calculation=None) -> float:
         """``el_pol`` in Ry a.u.: each channel's string average, summed, times 2 at ``nspin = 1``."""
-        phases = self.string_phases(wavefunctions)
+        phases = self.string_phases(wavefunctions, calculation)
         return float(self.spin_factor * self.fc_pol * np.sum(np.mean(phases, axis=1)))
 
     def ionic_enthalpy(self, positions):
@@ -472,7 +619,8 @@ class BerryFieldSetup:
         """``ion_pol``: ``sqrt(2) sum Z tau(gdir)``, unwrapped positions in bohr."""
         return float(SQRT2 * np.sum(self.charges * np.asarray(positions)[:, self.gdir]))
 
-    def energy(self, wavefunctions, positions) -> tuple[float, float, float]:
+    def energy(self, wavefunctions, positions,
+               calculation=None) -> tuple[float, float, float]:
         """``calc_pol``: ``(en_el, el_pol, ion_pol)``, updating the branch on the way.
 
         Called once per SCF iteration, as QE does. The jump rule is QE's
@@ -480,7 +628,7 @@ class BerryFieldSetup:
         spin factor and ``fc_pol`` does not, so it fires at half a turn of the
         average phase and corrects by half a quantum.
         """
-        el = self.electronic_dipole(wavefunctions)
+        el = self.electronic_dipole(wavefunctions, calculation)
         ion = self.ionic_dipole(positions)
         if self.previous is not None:
             sca = (el - self.previous) / self.fc_pol
@@ -498,11 +646,13 @@ def require_a_berry_field_regime(calculation) -> None:
     """Refuse, by name, every regime ``lelfield`` has not been built or measured in."""
     system = calculation.system
     reasons = []
-    if calculation.augmentation is not None:
+    spiral = bool(getattr(calculation, "spiral", False))
+    if calculation.augmentation is not None and (system.nspin != 1 or spiral):
         reasons.append(
-            "an ultrasoft or PAW dataset: the string overlap needs the cross "
-            "augmentation q_dk with the structure phase e^{-i dk.tau} "
-            "(h_epsi_her_set's becp sandwich), and the force forces_us_efield")
+            f"an ultrasoft or PAW dataset at nspin = {system.nspin}"
+            + (" on a spin spiral" if spiral else "")
+            + ": the cross augmentation q_ij(dk) e^{-i dk.tau} in the string "
+            "overlap is measured against pw.x at nspin = 1 only")
     if system.nspin == 2:
         nint = lambda x: int(np.floor(float(x) + 0.5))
         up, down = nint(calculation.nelup), nint(calculation.neldw)
