@@ -588,6 +588,11 @@ class System(eqx.Module):
                 "density has nothing for it to split, so it would be ignored "
                 "rather than honoured"
             )
+        if lspinorb:
+            # The same refusal the input reader makes, so that turning
+            # spin-orbit coupling on here does not walk around it.
+            _refuse_feedback_spin_orbit(self.constrained_magnetization,
+                                        self.fsm_update)
         if self.spiral and nspin != 4:
             raise ValueError(
                 "a spin spiral is a noncollinear calculation by construction "
@@ -1306,25 +1311,7 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
             "component to compare it against (input.f90's i_cons = 3)"
         )
     if constrained_magnetization in FEEDBACK and lspinorb:
-        # Not QE's -- ``fsm`` is Elk's scheme and QE has no counterpart -- and
-        # not a limit of the physics either: it is a limit of *this* secant.
-        # ``MagneticField._secant_step`` measures ``chi = dm/dB`` component by
-        # component and inverts it the same way, which models the
-        # susceptibility as diagonal. Spin-orbit coupling ties the moment to
-        # the lattice, so pushing along x moves the moment along z as well and
-        # the three components stop being three independent one-dimensional
-        # searches. The scheme would still converge sometimes and would find
-        # the wrong field the rest of the time, with nothing in the output to
-        # say which had happened.
-        raise ValueError(
-            f"constrained_magnetization = {constrained_magnetization!r} with "
-            "lspinorb = .true. is "
-            "refused: the fixed-spin-moment search updates each cartesian "
-            "component of the field from its own component of the moment, "
-            "which assumes dm_a/dB_b is diagonal, and spin-orbit coupling is "
-            "exactly what makes it not. Use a penalty scheme ('total', "
-            "'atomic') for a moment held under spin-orbit coupling"
-        )
+        _refuse_feedback_spin_orbit(constrained_magnetization, _fsm_update(pwin))
     given_magnetization = pwin.get("system", "starting_magnetization") is not None
     # ``input.f90:1506``, in the ``'none'`` branch of the same SELECT CASE:
     # ``lscf .AND. lsda .AND. (.NOT. tfixed_occ) .AND. (.not.
@@ -2655,6 +2642,52 @@ def _fsm_update(pwin) -> str:
             f"fsm_update = {name!r}: implemented are {', '.join(FSM_UPDATES)}"
         )
     return name
+
+
+def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
+    """The feedback schemes under ``lspinorb`` that are still refused (I111).
+
+    Not QE's -- the feedback schemes are Elk's and QE has none -- and not a
+    limit of the physics: a limit of two controllers and of what was measured.
+
+    * ``fsm_update = 'secant'`` measures ``chi = dm/dB`` component by component
+      and inverts it the same way (``MagneticField._secant_step``, and the
+      non-``'elk'`` branch of ``_atomic_step``), which models the
+      susceptibility as diagonal. Spin-orbit coupling ties the moment to the
+      lattice, so a push along x moves the moment along z as well. What is
+      missing is a secant with the full 3x3 ``dm_a/dB_b``.
+    * ``fsm_update = 'elk'`` (the default) is ``B <- B - tau (m - m_fix)``, a
+      fixed gain with no susceptibility measured or inverted, so it assumes
+      nothing about ``dm_a/dB_b`` and its fixed point is where the moment read
+      off a self-consistent density is the target. It is admitted for
+      ``'fsm'`` under ``lspinorb``, measured against the ``'total'`` penalty
+      on the same moment as ``lambda`` grows (``notes/incompat/I111.md``).
+      ``'atomic fsm'`` and ``'atomic fsm direction'`` run the same rule per
+      atom but were not measured under spin-orbit coupling, so they stay
+      refused until they are.
+    """
+    from defuqumat.scf.fields import FEEDBACK, FEEDBACK_ATOMIC
+
+    if constraint not in FEEDBACK:
+        return
+    if constraint in FEEDBACK_ATOMIC:
+        raise ValueError(
+            f"constrained_magnetization = {constraint!r} with lspinorb = .true. "
+            "is refused: the per-atom feedback field has not been measured "
+            "under spin-orbit coupling. 'fsm' (the moment of the cell, with "
+            "fsm_update = 'elk') is, and so are the penalty schemes 'atomic' "
+            "and 'total'"
+        )
+    if fsm_update != "elk":
+        raise ValueError(
+            f"constrained_magnetization = {constraint!r} with fsm_update = "
+            f"{fsm_update!r} and lspinorb = .true. is refused: the secant "
+            "updates each cartesian component of the field from its own "
+            "component of the moment, which assumes dm_a/dB_b is diagonal, and "
+            "spin-orbit coupling is exactly what makes it not. Use "
+            "fsm_update = 'elk' (the default), whose fixed gain assumes "
+            "nothing about dm_a/dB_b, or a penalty scheme ('total')"
+        )
 
 
 def _atomic_b_field(pwin: PwInput, nat: int) -> tuple:
