@@ -40,6 +40,16 @@ a strained calculation gives a reference on the same footing. Measured that way,
 ``jvp`` and **209.38** from a five-point second difference of the energy, against
 a measured 166 -- and the cutoff dependence of the difference is flat, so the
 residual is the functional and the pseudopotential rather than the basis.
+
+**An ultrasoft or PAW dataset adds two components to the tangent** (I87), both
+zero when ``S`` is the identity: the occupied block of the first-order state,
+:attr:`~defuqumat.response.strain.StrainResponse.ort`, and the orthonormality
+multipliers' own tangent ``dLambda``
+(:func:`~defuqumat.response.strain.multiplier_response`), carried through the
+constraint written with the matrix ``Lambda_mn``. Against the same five-point
+difference, on two-atom ultrasoft and PAW silicon at ``ecutwfc = 12``, ``C_1111``
+is 22 per cent off with neither, 10 per cent with ``ort`` alone, and within
+1e-7 with both, where the norm-conserving control reads 1.1e-7.
 """
 
 from __future__ import annotations
