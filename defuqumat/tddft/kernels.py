@@ -216,13 +216,17 @@ def alda_matrix(calculation, density, sphere) -> jnp.ndarray:
             "dv_xc/drho at fixed tau is not its kernel. The tau response is the "
             "missing term"
         )
+    # A belt for a direct call: a nonmagnetic spinor reaches here with a
+    # one-component density, and a textured one is refused upstream by
+    # ``require_a_sum_over_states_regime``.
     if functional.is_gradient and nspin not in (1, 2):
         raise NotImplementedError(
             f"the 'alda' kernel with the {functional.name} functional on a "
             f"{nspin}-component density is not implemented: the noncollinear "
-            "gradient correction rotates onto |m|, which has no derivative at "
-            "the m = 0 of a nonmagnetic spinor. The adiabatic GGA kernel is "
-            "built for nspin = 1 and an unpolarized nspin = 2 density only"
+            "gradient correction rotates onto |m|, and with a moment the kernel "
+            "is a 4x4 tensor in (n, m) that a charge-only chi_0 cannot use. The "
+            "adiabatic GGA kernel is built for a one-component density and an "
+            "unpolarized nspin = 2 one only"
         )
 
     cell = calculation.system.cell
@@ -263,8 +267,8 @@ def alda_matrix(calculation, density, sphere) -> jnp.ndarray:
     return matrix / (coulomb[:, None] * coulomb[None, :])
 
 
-def _xc_potential_of(calculation):
-    """``rho -> v_xc(rho)``, the whole exchange-correlation potential and nothing else.
+def _xc_potential(rho, gvectors, cell, functional, rho_core, rho_core_g):
+    """``v_xc(rho)``, the whole exchange-correlation potential and nothing else.
 
     :func:`~defuqumat.scf.potential.v_of_rho` with its Hartree term taken off
     again, so that the gradient correction is the one the SCF and the
@@ -274,16 +278,19 @@ def _xc_potential_of(calculation):
     """
     from defuqumat.scf.potential import hartree, total_charge, v_of_rho
 
-    gvectors = calculation.basis.dense
-    cell = calculation.system.cell
+    total = v_of_rho(rho, gvectors, cell, rho_core, functional, rho_core_g).v_scf
+    rho_g = jax.vmap(r_to_g, in_axes=(0, None))(rho, gvectors.fft_index)
+    v_g, _ = hartree(total_charge(rho_g), gvectors, cell)
+    v_h = jnp.real(g_to_r(v_g, gvectors.fft_index, gvectors.grid))
+    return total - v_h[None]
 
+
+def _xc_potential_of(calculation):
+    """:func:`_xc_potential` with a calculation's grid, functional and core charge."""
     def potential(rho):
-        total = v_of_rho(rho, gvectors, cell, calculation.rho_core,
-                         calculation.functional, calculation.rho_core_g).v_scf
-        rho_g = jax.vmap(r_to_g, in_axes=(0, None))(rho, gvectors.fft_index)
-        v_g, _ = hartree(total_charge(rho_g), gvectors, cell)
-        v_h = jnp.real(g_to_r(v_g, gvectors.fft_index, gvectors.grid))
-        return total - v_h[None]
+        return _xc_potential(rho, calculation.basis.dense, calculation.system.cell,
+                             calculation.functional, calculation.rho_core,
+                             calculation.rho_core_g)
 
     return potential
 
@@ -308,9 +315,6 @@ def _kernel_columns(potential, density, miller, grid):
     The tangent is ``1/nspin`` in each channel, as in :func:`alda_matrix`: a
     charge perturbation of an unpolarized density goes half into each, and the
     column read off channel 0 is ``dv_up/dn`` at fixed ``m``.
-
-    Every array here is an argument of the compiled map rather than a closure,
-    so one compilation serves every density and sphere of one shape.
     """
     nspin = density.shape[0]
     shape = tuple(int(n) for n in grid)
@@ -336,6 +340,22 @@ def _kernel_columns(potential, density, miller, grid):
     return jax.lax.map(column, body).T
 
 
+@jax.jit
+def _gga_columns(density, miller, gvectors, cell, functional, rho_core, rho_core_g):
+    """:func:`_kernel_columns` compiled once per shape, every array an argument.
+
+    The density, the core charge and the sphere are arguments rather than
+    constants of a closure, so a second density (or a second sphere of the same
+    size) reuses the executable instead of compiling one with the first folded
+    in. The grid is ``gvectors``'s static field, the functional's every field is
+    static, so both are part of the signature.
+    """
+    def potential(rho):
+        return _xc_potential(rho, gvectors, cell, functional, rho_core, rho_core_g)
+
+    return _kernel_columns(potential, density, miller, gvectors.grid)
+
+
 def _adiabatic_gga_matrix(calculation, density, sphere) -> jnp.ndarray:
     """The adiabatic kernel of a gradient-corrected functional, symmetrised.
 
@@ -349,12 +369,14 @@ def _adiabatic_gga_matrix(calculation, density, sphere) -> jnp.ndarray:
     ``f_xc(q, q + G')`` stays finite as ``q -> 0`` while ``v^{-1/2}`` vanishes.
 
     Cost: ``2 nbody`` ``jvp`` of the potential on the dense grid, against one
-    for ALDA, and an ``(nbody, ndense)`` complex block at most in flight at once.
+    for ALDA, done one column at a time (``lax.map``), so the working set is two
+    dense-grid tangents and their responses beside the ``(nbody, nbody)`` result.
     """
-    grid = np.asarray(calculation.basis.dense.grid)
-    potential = _xc_potential_of(calculation)
-    run = jax.jit(lambda d, m: _kernel_columns(potential, d, m, grid))
-    matrix = run(density, jnp.asarray(np.asarray(sphere.miller)))
+    matrix = _gga_columns(
+        density, jnp.asarray(np.asarray(sphere.miller)), calculation.basis.dense,
+        calculation.system.cell, calculation.functional, calculation.rho_core,
+        calculation.rho_core_g,
+    )
     coulomb = sphere.sqrt_coulomb
     return matrix / (coulomb[:, None] * coulomb[None, :])
 

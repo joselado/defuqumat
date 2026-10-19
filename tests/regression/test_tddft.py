@@ -80,9 +80,21 @@ IDENTITY_TOLERANCE = 3.0e-2
 
 
 @lru_cache(maxsize=None)
-def _silicon(nbnd: int = NBND):
-    """The converged ground state, and a fixed-density run with empty states."""
-    system = build_system(read_pw_input(CASES / f"{CASE}.in"))
+def _silicon(nbnd: int = NBND, input_dft: str | None = None):
+    """The converged ground state, and a fixed-density run with empty states.
+
+    ``input_dft`` overrides the functional on the same LDA dataset (I97's
+    ``'pbe'``): the checks here are identities between two routes through the
+    code, which do not care which functional generated the pseudopotential.
+    """
+    import warnings
+
+    parsed = read_pw_input(CASES / f"{CASE}.in")
+    if input_dft is not None:
+        parsed.namelists["system"]["input_dft"] = input_dft
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="input_dft asks for")
+        system = build_system(parsed)
     pseudos = tuple(
         read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
     )
@@ -96,8 +108,8 @@ def _silicon(nbnd: int = NBND):
 
 
 @lru_cache(maxsize=None)
-def _chi(nbnd: int = NBND, ecut: float = ECUT_RESPONSE):
-    _, _, scf, calculation, eigenvalues, wavefunctions = _silicon(nbnd)
+def _chi(nbnd: int = NBND, ecut: float = ECUT_RESPONSE, input_dft: str | None = None):
+    _, _, scf, calculation, eigenvalues, wavefunctions = _silicon(nbnd, input_dft)
     potential = calculation.potential(jnp.asarray(scf.density))
     # Index 0 is the static point and carries **no** broadening, so that it is
     # comparable with a Sternheimer solve, which has none either.
@@ -108,11 +120,11 @@ def _chi(nbnd: int = NBND, ecut: float = ECUT_RESPONSE):
 
 
 @lru_cache(maxsize=None)
-def _sternheimer(screening: str) -> float:
+def _sternheimer(screening: str, input_dft: str | None = None) -> float:
     """``epsilon_infinity`` from the projected CG solve, isotropic average."""
     from defuqumat.response.efield import dielectric_tensor
 
-    _, _, scf, calculation, eigenvalues, wavefunctions = _silicon()
+    _, _, scf, calculation, eigenvalues, wavefunctions = _silicon(NBND, input_dft)
     nocc = int(round(calculation.nelec / 2))
     response = dielectric_tensor(
         calculation, wavefunctions[:, :, :nocc], eigenvalues[:, :, :nocc],
