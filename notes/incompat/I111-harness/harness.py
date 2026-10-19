@@ -8,7 +8,8 @@ Usage: harness.py <case> <run> [<run> ...]
   run:  'fsm' (elk rule, SOC), 'free' (no constraint, SOC),
         'pen<lambda>' (the 'total' penalty, SOC), 'fsm-tight' (FSM_TOLERANCE 1e-5),
         each optionally followed by ':key=value' modifiers:
-        tau=<gain> (fsm), soc=<soc_scale>, beta=<mixing_beta>
+        tau=<gain> (fsm), soc=<soc_scale>, beta=<mixing_beta>,
+        mix=<mixing_mode> (run 3: adaptive), it=<max_iterations>
         ('fsm-nosoc' is refused for this dataset: no average_pp; soc=0 is the control)
 
 For the penalty the equivalent uniform field is B = -2 lambda (M - M_fix), the
@@ -82,10 +83,10 @@ def case_of(name):
 
 def parse(run):
     head, *mods = run.split(":")
-    opts = dict(tau=0.02, soc=1.0, beta=0.3)
+    opts = dict(tau=0.02, soc=1.0, beta=0.3, mix="anderson", it=400)
     for mod in mods:
         key, value = mod.split("=")
-        opts[key] = float(value)
+        opts[key] = value if key == "mix" else (int(value) if key == "it" else float(value))
     return head, opts
 
 
@@ -116,8 +117,8 @@ def main():
         system = build_system(parse_pw_input(text(case, run)))
         pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
         t0 = time.time()
-        result = run_scf(system, pseudos, conv_thr=1e-10, max_iterations=400,
-                         mixing_beta=opts["beta"])
+        result = run_scf(system, pseudos, conv_thr=1e-10, max_iterations=opts["it"],
+                         mixing_beta=opts["beta"], mixing_mode=opts["mix"])
         m = np.asarray(result.magnetization_vector, dtype=float)
         if head.startswith("pen"):
             b = -2.0 * float(head[3:]) * (m - target)
