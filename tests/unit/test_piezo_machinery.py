@@ -19,6 +19,7 @@ from defuqumat.io.pwin import parse_pw_input, read_pw_input
 from defuqumat.pseudo import read_upf
 from defuqumat.response.piezo import (
     VOIGT,
+    is_a_polar_crystal,
     polar_direction,
     require_a_measured_polar_crystal,
     require_a_piezoelectric_tensor,
@@ -141,6 +142,13 @@ def test_the_polar_guard_reads_the_dataset_and_the_crystal():
     with pytest.raises(NotImplementedError, match="polar crystal"):
         require_a_measured_polar_crystal(SimpleNamespace(system=polar,
                                                          is_ultrasoft=True))
+    # The I90 fix round: the guard fails closed on a stand-in that does not
+    # say what its dataset is, and the polar test is the one the wedge
+    # completion is gated on.
+    with pytest.raises(AttributeError):
+        require_a_measured_polar_crystal(SimpleNamespace(system=polar))
+    assert is_a_polar_crystal(SimpleNamespace(system=polar))
+    assert not is_a_polar_crystal(SimpleNamespace(system=cubic))
 
 
 def _input(case: str, edit: tuple[str, str] | None = None):

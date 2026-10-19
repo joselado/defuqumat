@@ -168,6 +168,7 @@ __all__ = [
     "require_a_measured_dataset",
     "require_a_measured_polar_crystal",
     "polar_direction",
+    "is_a_polar_crystal",
     "to_voigt",
 ]
 
@@ -372,6 +373,11 @@ def polar_direction(calculation) -> np.ndarray:
     return cartesian_rotations(cell, symmetries).mean(axis=0)
 
 
+def is_a_polar_crystal(calculation) -> bool:
+    """Whether :func:`polar_direction` is nonzero: the crystal's class is polar."""
+    return bool(np.abs(polar_direction(calculation)).max() > 1.0e-6)
+
+
 def require_a_measured_polar_crystal(calculation) -> None:
     """A polar crystal runs on a norm-conserving dataset and is refused on an
     augmented one.
@@ -389,7 +395,10 @@ def require_a_measured_polar_crystal(calculation) -> None:
     ``mm2``) it agrees with a Berry-phase finite difference of the proper form
     on the components the ``delta P`` terms reach; ``notes/incompat/I90.md``
     has the numbers. So nothing is added and a polar norm-conserving crystal
-    is not refused.
+    is not refused. What a polar crystal does need, on a symmetry-reduced
+    k-set and on the differentiated route, is the wedge completion of the
+    field's density response (:func:`_polar_norm_conserving`), since the
+    residue a diagonal strain leaves lands exactly on the polar direction.
 
     **An augmented dataset is still refused on a polar crystal**, for a reason
     of its own. The argument above needs the reduced polarization at frozen
@@ -400,10 +409,10 @@ def require_a_measured_polar_crystal(calculation) -> None:
     only on zincblende ``e_14``, where every polar component is zero by
     symmetry. PAW is refused earlier, by :func:`require_a_measured_dataset`.
     """
-    if not getattr(calculation, "is_ultrasoft", False):
+    if not calculation.is_ultrasoft:
         return
-    projector = polar_direction(calculation)
-    if np.abs(projector).max() > 1.0e-6:
+    if is_a_polar_crystal(calculation):
+        projector = polar_direction(calculation)
         directions = np.linalg.matrix_rank(projector, tol=1.0e-6)
         raise NotImplementedError(
             "the piezoelectric tensor of a polar crystal with an ultrasoft "
@@ -928,7 +937,10 @@ def clamped_ion_piezoelectric(
     first two extra terms are contracted with ``dS/d(eps)``, and ``S`` is the
     identity for a norm-conserving dataset; the third multiplies the
     frozen-state density response, which at frozen plane-wave coefficients is
-    ``-delta_ab rho`` and therefore zero for every traceless strain. All of them
+    ``-delta_ab rho`` and therefore zero for every traceless strain (on a
+    diagonal strain it is not, and on a polar crystal its wedge residue
+    survives the average, so a polar norm-conserving crystal takes the third
+    term alone, :func:`_polar_norm_conserving`). All of them
     are identically zero on a norm-conserving shear rather than small -- which
     is why this assembly agreed with the transcribed one to 6.2e-15 on a
     norm-conserving cell while both were missing all three. The cost of
@@ -955,7 +967,7 @@ def clamped_ion_piezoelectric(
         and field_perturbations is not None
         and commutators is not None
     )
-    if not augmented:
+    if not augmented and not is_a_polar_crystal(calculation):
         gradient = jax.grad(
             lambda strain, states: energy(calculation.at_strain(strain), states),
             argnums=0,
@@ -965,6 +977,12 @@ def clamped_ion_piezoelectric(
             for axis in range(3)
         ])
         return calculation.symmetrize_cartesian_tensor(tensor)
+
+    if not augmented:
+        return _polar_norm_conserving(
+            calculation, psi, eigenvalues, weights, density, becsum, dpsi,
+            nocc, full_zone,
+        )
 
     from defuqumat.response.born import (
         _full_zone_field_response, _ground_state_multipliers,
@@ -1047,6 +1065,63 @@ def clamped_ion_piezoelectric(
     # completion -- the one term that was not is the shift above, and it is
     # completed before it enters rather than after.
     return calculation.symmetrize_cartesian_tensor(tensor)
+
+
+def _polar_norm_conserving(calculation, psi, eigenvalues, weights, density,
+                           becsum, dpsi, nocc, full_zone):
+    """The norm-conserving assembly with the field's density response made whole.
+
+    **Why a norm-conserving polar crystal needs the completion** (I90 fix
+    round). At frozen plane-wave coefficients the density still moves with a
+    *diagonal* strain, as ``-delta_ab rho`` through its ``1/Omega``, so the
+    mixed derivative carries ``-delta_ab int rho_raw K (drho/dE_k)_raw``, a
+    product of two raw wedge sums. On a symmetry-reduced k-set it leaves a
+    residue ``T_(k)ab = delta_ab w_k`` that the rank-3 average maps onto
+    :func:`polar_direction`; that is zero for a non-polar class, which is why
+    the cheaper branch above is exact there, and it is not zero here. Measured
+    on AlAs with As at ``a(1/4, 1/4, 0.29)`` (``mm2``), without this the wedge
+    read ``e_31`` and ``e_33`` 1.11e-3, 0.88e-3 and 0.87e-3 C/m^2 above the
+    closed grid at ``4 4 4``, ``6 6 6`` and ``8 8 8``, the same on both and
+    zero on ``e_15`` and ``e_14``. The cure is the augmented branch's: the
+    field response enters as the full-zone object
+    (:func:`~defuqumat.response.born._full_zone_field_response`, whose
+    ``becsum`` half is empty here), and the strain factor stays raw.
+
+    ``full_zone=False`` zeroes the shift and nothing else, which is the
+    falsifier: it is the uncompleted assembly exactly.
+    """
+    from defuqumat.response.born import _full_zone_field_response
+
+    energy, density_of, becsum_of = _shifted_frozen_energy_of(
+        calculation, psi, eigenvalues, weights, density, becsum
+    )
+    zero = jnp.zeros((3, 3))
+    volume = calculation.system.cell.volume
+    positions = jnp.asarray(calculation.system.structure.positions)
+    states_by_axis = [
+        jnp.zeros_like(psi).at[:, :, :nocc].set(dpsi[axis]) for axis in range(3)
+    ]
+    shifts, _ = _full_zone_field_response(
+        calculation, positions, psi, weights, density_of, becsum_of,
+        states_by_axis,
+    )
+    if not full_zone:
+        shifts = jnp.zeros_like(shifts)
+    gradient = jax.grad(
+        lambda strain, states, shift: energy(
+            calculation.at_strain(strain), states, None, shift, ()
+        ),
+        argnums=0,
+    )
+    unshifted = jnp.zeros_like(shifts[0])
+    columns = []
+    for axis in range(3):
+        _, column = compiled_jvp(
+            gradient, (zero, psi, unshifted),
+            (jnp.zeros_like(zero), states_by_axis[axis], shifts[axis]),
+        )
+        columns.append(-np.asarray(column) / volume)
+    return calculation.symmetrize_cartesian_tensor(np.stack(columns))
 
 
 def born_charges_from_stress_route(
