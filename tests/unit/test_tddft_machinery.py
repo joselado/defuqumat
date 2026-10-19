@@ -244,10 +244,14 @@ def test_the_sibling_refusals_still_fire_on_a_smeared_cell():
         assert calculation.system.occupations == "smearing"
         with pytest.raises(NotImplementedError, match=reason):
             require_a_sum_over_states_regime(calculation)
+    polarized = _calculation("h10-chain-lsda")
+    assert polarized.system.occupations == "smearing" and polarized.system.nspin == 2
+    with pytest.raises(NotImplementedError, match="smeared chi_0 at nspin = 2"):
+        require_a_sum_over_states_regime(polarized)
     wedge = _smeared("si-epsilon-unshifted",
                      extra=", nspin = 2, starting_magnetization(1) = 0.5")
     assert wedge.system.nspin == 2 and wedge.system.kpoints.nk == 8
-    with pytest.raises(NotImplementedError, match="nspin = 1 run only"):
+    with pytest.raises(NotImplementedError, match="nspin = 2"):
         require_a_sum_over_states_regime(wedge)
 
 

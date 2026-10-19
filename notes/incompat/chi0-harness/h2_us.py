@@ -62,6 +62,16 @@ if part == "us":
             here, res = residual(system, pseudos, result, nbnd, ecut)
             stamp(f"US ecut_response={ecut} nbnd={nbnd}: eps_M(0) {here:.4f} residual {res:+.4f}")
 
+if part == "us2":
+    system, pseudos, result = converged(US)
+    for ecut, nbnd in ((8.0, 45), (8.0, 70), (16.0, 30), (16.0, 60)):
+        try:
+            here, res = residual(system, pseudos, result, nbnd, ecut)
+            stamp(f"US ecut_response={ecut} nbnd={nbnd}: eps_M(0) {here:.4f} residual {res:+.4f}")
+        except Exception as exc:  # the referee at a large nbnd, seen at 80
+            stamp(f"US ecut_response={ecut} nbnd={nbnd}: {type(exc).__name__} {str(exc)[:120]}")
+            jax.clear_caches()
+
 if part == "nc":
     if "ecutwfc = 12.0, ecutrho" in NC:
         raise SystemExit("NC text still has ecutrho")

@@ -208,23 +208,34 @@ def smeared_silicon(degauss: float | None, drude: bool = True, nbnd: int = 16,
 def test_the_drude_weight_of_aluminium_is_the_conductivitys():
     """The head-only ``eps`` is ``1 + 4 pi i sigma/w``, interband and Drude together."""
     here, there, plasma2, z = drude_identity()
-    assert np.max(np.abs(here - there)) < 1e-8
+    assert np.max(np.abs(here - there)) < 1e-10  # measured 3.8e-13 on D22
     # The control: the Drude block is what carries the agreement.
     off, _, _, _ = drude_identity(drude=False)
     assert np.allclose(off - here, plasma2 / z[:, None] ** 2, rtol=1e-6)
 
 
 def test_the_f_sum_rule_of_aluminium_converges_onto_the_diamagnetic_weight():
-    """``C_inter + C_Drude -> (8 pi/Omega) sum W <d2H/dk^2>`` with the k-mesh."""
-    ratios, interband = {}, {}
-    for nk in (4, 8):
-        total, inter, diamagnetic = fsum(nk)
-        ratios[nk] = total / diamagnetic
-        interband[nk] = inter / diamagnetic
-    assert abs(ratios[8] - 1.0) < abs(ratios[4] - 1.0)
-    assert ratios[8] == pytest.approx(1.0, abs=0.02)
-    # Without the Drude block a nearly free-electron metal keeps a fraction.
-    assert interband[8] < 0.5
+    """``C_inter + C_Drude -> (8 pi/Omega) sum W <d2H/dk^2>`` with the k-mesh and ``nbnd``.
+
+    At ``degauss = 0.2`` Ry (Gaussian) the k-sum of ``d(f de/dk)/dk`` is
+    converged by 8x8x8: measured on D22 the ratio is 1.07793, 0.97196,
+    0.97934, 0.97979, 0.97979 on 4 to 12 (16 bands), so what is left at 8 is
+    the band sum, 0.97934, 0.98555, 0.99037, 0.99410 at 16, 24, 32, 40 bands.
+    At the input's ``marzari-vanderbilt`` 0.05 the same ratio is 2.614,
+    0.597, 0.974, 1.024, 0.978 on 4 to 12: the delta is not resolved on these
+    meshes, which is why the check is made at the wider smearing.
+    """
+    ratio, interband = {}, {}
+    for nk, nbnd in ((4, 16), (8, 16), (8, 40)):
+        total, inter, diamagnetic = fsum(nk, nbnd=nbnd, smearing="gaussian", degauss=0.2)
+        ratio[nk, nbnd] = total / diamagnetic
+        interband[nk, nbnd] = inter / diamagnetic
+    assert ratio[4, 16] == pytest.approx(1.07793, abs=1e-3)
+    assert ratio[8, 16] == pytest.approx(0.97934, abs=1e-3)
+    assert ratio[8, 40] == pytest.approx(0.99410, abs=1e-3)
+    assert abs(1.0 - ratio[8, 40]) < abs(1.0 - ratio[8, 16]) / 3.0
+    # Without the Drude block a nearly free-electron metal keeps about a third.
+    assert interband[8, 40] == pytest.approx(0.36865, abs=1e-3)
 
 
 def test_smeared_silicon_falls_onto_its_fixed_spectrum_as_degauss_falls():

@@ -145,12 +145,16 @@ run, and spin-orbit selenium against the spinor Sternheimer solve.
 **A smeared run carries its intraband term**, the ``q -> 0`` limit of the
 ``i = j`` pairs that ``f_i - f_j`` removes: ``wp_ab^2/(omega + i eta)^2`` on
 the head and nothing on the wings or the body (:func:`_drude_block`). The
-pair list then runs over every band that is partly filled anywhere, which on
-a metal is more pairs than the rectangle: on aluminium at ``nbnd = 12`` with
-two partly filled bands it is 45 rather than the 18 a fixed count of two
-would give.
+pair list then runs over every band that is partly filled anywhere, ``(low,
+high)`` per channel (:func:`_band_windows`), so a metal has
+``low (nbnd - low) + (high - low)(2 nbnd - high - low - 1)/2`` pairs where
+the rectangle has ``nocc (nbnd - nocc)``, and the assembly grows with it.
 
-Refused by name: finite ``q``, ultrasoft and PAW, tetrahedron occupations, a
+An **ultrasoft** pair density carries ``Q_ij(G)`` and its head the generalised
+velocity (:func:`require_a_sum_over_states_regime`, I94).
+
+Refused by name: finite ``q``, PAW, an ultrasoft run that is smeared,
+polarized or a spinor, tetrahedron occupations, a
 spinor carrying a moment (``nspin_mag = 4``), a spin spiral, a scissors shift
 on a smeared run, and a **reduced k-set** at ``nspin = 2`` -- see
 :func:`require_a_sum_over_states_regime`.
@@ -348,7 +352,20 @@ def require_a_sum_over_states_regime(calculation) -> None:
         -1.20. And the residual is positive at every band count and does not
         tend to zero where the norm-conserving control does, so it is neither
         a truncation nor a missing normalisation. Only the *body* was corrected
-        there; the head still carries no ``-e_n dS/dk`` and no ``dpqq``.
+        there; the head still carried no ``-e_n dS/dk`` and no ``dpqq``.
+
+        **The third term was the head, and an ultrasoft insulator is no
+        longer refused** (I94). With the body's ``Q_ij(G)`` from
+        ``augmentation_at_q`` (P94's route) and the head built from the
+        generalised velocity ``<n|dH_a - e_m dS_a|m> + (e_m - e_n) K^a_nm``
+        (P99, which also holds the augmentation dipole ``dpqq``), the same
+        cell at ``ecut_response = 8`` gives residuals of **-0.3369 and
+        -0.0522** at 30 and 60 bands, negative and falling by 6.5, against the
+        norm-conserving control's -0.2885 and -0.0601 on the same cell; the
+        plain head reproduces P94's +0.2498 and +0.5405. Still refused: PAW
+        (its one-centre Hartree and exchange-correlation terms are a
+        different term), and an ultrasoft run that is smeared, polarized or a
+        spinor, for want of a number.
     tetrahedron occupations
         the ``f_i - f_j`` weight kills the ``i = j`` term, so the intraband
         (Drude) response has to be added by hand (Elk's ``tddftlr`` does not
@@ -434,6 +451,14 @@ def require_a_sum_over_states_regime(calculation) -> None:
             "responds to the density too (QE's adddvhubscf), and leaving it "
             "out of the screening is a silent approximation rather than a "
             "missing feature"
+        )
+    if _is_smeared(system) and int(system.nspin) == 2:
+        raise NotImplementedError(
+            "a smeared chi_0 at nspin = 2 is not implemented: the pair window, "
+            "the Drude block and the per-channel Fermi level are written for "
+            "it, but the number behind the smeared path is unpolarized "
+            "(aluminium and silicon), and a polarized metal reaches the same "
+            "matrix with none. Use nspin = 1, or fixed occupations"
         )
     if not _is_an_insulator(system) and not _is_smeared(system):
         # A smeared run carries its intraband term (:func:`_drude_block`); a
