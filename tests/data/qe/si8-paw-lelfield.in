@@ -4,7 +4,10 @@
 ! pw_electric chain at conv_thr = 1e-11: the plain SCF, the Berry operator at
 ! efield = 0 (reference.out.si8-paw-lelfield-zero) and the field at 0.001
 ! (reference.out.si8-paw-lelfield), and 0.002 (reference.out.si8-paw-lelfield-2),
-! each from the state before it.
+! each from the state before it. Along z pw.x 7.5 is NOT the reference for the physics:
+! compute_qqc (upflib/qvan2.f90) takes |q|^2 = q(1)^2 + q(2)^2 + q(1)^2, which is 0 for
+! q = dk along z, so pw.x uses Q_ij(0) e^{-i dk.tau} for the cross augmentation. These
+! outputs pin that reading of pw.x; si8-paw-lelfield-y.in is the comparison.
  &control
     calculation='scf'
     gdir=3,
