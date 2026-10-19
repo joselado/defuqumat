@@ -18,15 +18,21 @@ the way the deficit falls with it, not one point. The taped route on the wedges
 of ``4 4 4``, ``6 6 6`` and ``8 8 8`` reads 0.817718, 0.720006 and 0.699317
 C/m^2 against ``pw.x``'s 0.693273, deficits of 15.22, 3.71 and 0.86 per cent,
 beside 15.30, 3.73, 0.86 for the ultrasoft cell and 14.54, 3.65, 1.01 for the
-norm-conserving calibration. The tolerance on the converged comparison is set
-from the calibration: its response sits 0.24 per cent from its own Berry value
-at ``12 12 12``, so the extrapolated PAW value is held to 0.2 per cent, where
-it reads 0.07.
+norm-conserving calibration. Two more rungs were run and are not in the test
+for their cost: 0.694466 at ``10 10 10`` and 0.693264 at ``12 12 12``, deficits
+of 0.17 and -0.001 per cent. The tolerance on the converged comparison is set
+from what the reference itself is worth, not from that lucky last point:
+``pw.x`` at 21 strings over 12x12 reads 0.693927 at 30 Ry against 0.693240 at
+15 over 8x8, so the string mesh alone is 0.10 per cent, and the ``12 12 12``
+rung scatters by 0.05 per cent between 25, 30 and 35 Ry (0.693264, 0.693625,
+0.693404). The extrapolated PAW value of the three rungs here is held to 0.2
+per cent, where it reads 0.07.
 
 **What this comparison cannot see** is the one-centre cross term that
-``method='zstar_eu'`` lacks on PAW: it moves ``e_14`` by 5.4e-04 C/m^2 at
-``8 8 8``, 0.08 per cent, below that floor. The tensor is checked as a whole
-here, and the term is carried because the taped route differentiates the energy.
+``method='zstar_eu'`` lacks on PAW: it moves ``e_14`` by 5.3e-04 C/m^2 at
+every mesh from ``8 8 8`` to ``12 12 12``, 0.08 per cent, below that 0.10.
+The tensor is checked as a whole here, and the term is carried because the
+taped route differentiates the energy.
 """
 
 import re

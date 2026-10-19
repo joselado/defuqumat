@@ -443,17 +443,21 @@ def require_a_measured_dataset(calculation, drift=None,
     ultrasoft cell's 15.30, 3.73 and 0.86 and the norm-conserving
     calibration's 14.54, 3.65 and 1.01: the dataset moves the deficit by less
     than a tenth of a point at ``8 8 8`` and the mesh is the error, as it is
-    for the other two. Aitken's extrapolation of the three rungs is 0.693760,
-    0.07 per cent from the pw.x value. This package's own PAW Berry phase was
-    checked against ``pw.x`` on the same cell (strings to 3.2e-06, ``P`` to
-    1.0e-07 e/Omega bohr) before it was used as anything.
+    for the other two. The ``10 10 10`` and ``12 12 12`` rungs read 0.694466
+    and 0.693264, deficits of 0.17 and -0.001 per cent, and the last of those
+    is better than the reference: ``pw.x`` moves by 0.10 per cent from 15
+    strings over 8x8 to 21 over 12x12 (0.693240 to 0.693927 at 30 Ry), and the
+    ``12 12 12`` rung by 0.05 per cent across 25, 30 and 35 Ry. This
+    package's own PAW Berry phase was checked against ``pw.x`` on the same
+    cell (strings to 3.2e-06, ``P`` to 1.0e-07 e/Omega bohr), and its finite
+    difference reads 0.693263 against ``pw.x``'s 0.693273.
 
     **What the comparison can and cannot see.** The one term this route has
     and ``method='zstar_eu'`` lacks on a PAW dataset, the one-centre cross
     term of :func:`require_a_norm_conserving_transcription`, moves ``e_14`` by
-    7.5e-04 at ``4 4 4`` and 5.4e-04 at ``8 8 8`` (0.08 per cent), which is
-    below the 0.2 per cent the norm-conserving calibration itself still sits
-    from its Berry value at ``12 12 12``. So the Berry value checks the PAW
+    7.5e-04 at ``4 4 4`` and 5.3e-04 at every mesh from ``8 8 8`` to
+    ``12 12 12`` (0.08 per cent), which is below the 0.10 per cent the
+    reference's own string mesh is worth. So the Berry value checks the PAW
     tensor as a whole, the dataset and the mesh, and it does not resolve that
     one term; what says the term is carried is that this route differentiates
     the energy, whose one-centre part is a function of ``becsum``.
