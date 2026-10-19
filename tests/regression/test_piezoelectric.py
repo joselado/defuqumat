@@ -353,10 +353,12 @@ POLAR_P_Z = -0.179617
 #: What the response route at 8^3 may sit from the proper finite difference.
 #: Measured, in the order e31, e33, e15, e14: 1.1e-2, 6.6e-2, 6.1e-2, 1.24e-1
 #: at 4^3; 3.5e-3, 1.1e-2, 1.2e-2, 3.0e-2 at 6^3; 2.8e-3, 5.4e-4, 1.6e-3,
-#: 1.17e-2 at 8^3. What is left of e14 is the 10 Ry cutoff, which the finite
-#: difference feels and the response does not (1.2 per cent on zincblende,
-#: ``OPEN.md`` Part XIII item 3), and the finite difference's own floor is
-#: 5e-3 (its forbidden ``e_(x)zz``, and e31 moves 2.6e-3 between the steps).
+#: 1.17e-2 at 8^3. Below about 5e-3 the residuals are not resolved: a denser
+#: finite difference (8^3 SCF, 8x8 strings of 15) moves the reference by 1e-3
+#: to 3.4e-3, and e33 crosses it between 8^3 and 10^3. What is left of e14 is
+#: not one parameter's: 1.17e-2 at 8^3 and 10 Ry, 7.9e-3 at 10^3 and 10 Ry,
+#: 7.5e-3 at 8^3 against a finite difference both at 16 Ry
+#: (``notes/incompat/I90.md``, fix round).
 POLAR_TOLERANCE = 0.02
 
 
