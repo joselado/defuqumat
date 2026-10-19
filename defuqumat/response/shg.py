@@ -62,7 +62,9 @@ Scope
 
 Norm-conserving, ultrasoft or PAW; ``nspin = 1``, a collinear ``nspin = 2``
 (whose two channels add) or a spinor run; an **insulator** with fixed
-occupations, on a k-grid closed under the point group.
+occupations, on a k-grid closed under the point group. DFT+U on a
+norm-conserving collinear run, with the converged ``ns`` passed
+(``notes/incompat/I92.md``).
 Refused by name, each for its own missing term, in
 :func:`require_an_shg_regime`.
 
@@ -567,6 +569,7 @@ def second_harmonic(
     k_batch: int | None | str = "default",
     degeneracy_tol: float | None = None,
     cut_tol: float | None = None,
+    ns=None,
 ) -> SecondHarmonic:
     """``chi^(2)(-2 omega; omega, omega)`` in pm/V.
 
@@ -592,6 +595,9 @@ def second_harmonic(
         degeneracy_tol: how close in Ry two bands may be before every
             ``1/w_nm`` between them is dropped. ``None`` -- the default -- is
             ``broadening``, which is Elk's rule.
+        ns: the converged Hubbard occupation matrix (``SCFResult.ns``) of a
+            DFT+U run: ``wfcU(k+G)`` moves with ``k``, so the Hubbard term is
+            part of ``dH/dk`` and the velocity operator is built with it.
 
     The frequency axis carries the **fundamental** ``hbar omega`` in Ry, so a
     semiconductor's two-photon absorption edge sits at half its gap.
@@ -636,7 +642,7 @@ def second_harmonic(
     # Built on the whole set for its refusals and for the point it
     # differentiates around; each chunk's operator is handed its rows of
     # ``kcart`` (:mod:`defuqumat.response.walk`).
-    kcart = np.asarray(VelocityOperator(calculation, v_scf, ddd_paw).kcart)
+    kcart = np.asarray(VelocityOperator(calculation, v_scf, ddd_paw, ns).kcart)
     # ``dpqq``, k-independent, built here once: the chunk's operator is traced
     # inside a compiled pass, where it cannot be built (``None`` without an
     # augmentation charge).
@@ -702,7 +708,7 @@ def second_harmonic(
     augmented = getattr(calculation, "augmentation", None) is not None
 
     def velocity_on(rowset, kcart):
-        return VelocityOperator(with_rows(calculation, rowset), v_scf, ddd_paw,
+        return VelocityOperator(with_rows(calculation, rowset), v_scf, ddd_paw, ns,
                                 kcart=kcart, dipole=dipole, local_terms=terms)
 
     def tangents_of(rowset, psi, energies, kcart):
@@ -794,8 +800,9 @@ def require_an_shg_regime(calculation) -> None:
     The four are :func:`~defuqumat.response.photocurrent.
     require_a_velocity_sum_regime`'s, because this module is the same velocity
     matrix elements contracted a different way: a spiral's two spheres, a wedge
-    that a polar rank-3 tensor is not summed over, a Hubbard term with a
-    velocity of its own, and a metal whose partially filled bands put a
+    that a polar rank-3 tensor is not summed over, a Hubbard term on a
+    noncollinear run or beside an augmented dataset (the regimes its velocity
+    was not measured in, ``notes/incompat/I92.md``), and a metal whose partially filled bands put a
     vanishing denominator in every term.
 
     **An ultrasoft or PAW dataset is not among them**, and inheriting it was

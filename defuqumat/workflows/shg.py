@@ -62,6 +62,7 @@ def run_shg(
     conv_thr: float = 1.0e-10,
     k_batch="default",
     calculation=None,
+    ns=None,
 ) -> SecondHarmonic:
     """``chi^(2)(-2w; w, w)`` in pm/V for a converged run.
 
@@ -75,6 +76,10 @@ def run_shg(
         calculation: the SCF's own, used on its own k-set or moved to
             ``kpoints`` rather than a second one built beside it
             (:func:`~defuqumat.workflows.nscf.threaded_calculation`).
+        ns: the converged Hubbard occupation matrix of a DFT+U run
+            (``SCFResult.ns``; :class:`~defuqumat.calculator.Calculator`
+            passes it). The fixed-density run needs it for ``H`` and the
+            assembly for ``dH/dk``, and it cannot be rebuilt from the density.
 
     The remaining arguments are
     :func:`~defuqumat.response.shg.second_harmonic`'s.
@@ -118,7 +123,7 @@ def run_shg(
 
     calculation, system, eigenvalues, wavefunctions = fixed_density_states(
         system, pseudos, density, nbnd=nbnd + 1,
-        conv_thr=conv_thr, k_batch=k_batch, becsum=becsum,
+        conv_thr=conv_thr, k_batch=k_batch, ns=ns, becsum=becsum,
         calculation=calculation,
     )
     # The solve re-checks the dials at its own band count (``Calculation.
@@ -150,5 +155,5 @@ def run_shg(
         frequencies=frequencies, window=window, nw=nw, broadening=broadening,
         scissor=scissor, degeneracy_tol=degeneracy_tol, ddd_paw=ddd_paw,
         band_cut_gap=band_cut_gap, k_batch=k_batch,
-        cut_tol=resolve_degeneracy_tol(DEGENERACY_TOL, ethr),
+        cut_tol=resolve_degeneracy_tol(DEGENERACY_TOL, ethr), ns=ns,
     )

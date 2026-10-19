@@ -57,6 +57,7 @@ def run_shift_current(
     conv_thr: float = 1.0e-10,
     k_batch="default",
     calculation=None,
+    ns=None,
 ) -> ShiftCurrent:
     """``sigma^abc(0; w, -w)`` in A/V^2 for a converged run.
 
@@ -70,6 +71,10 @@ def run_shift_current(
         calculation: the SCF's own, used on its own k-set or moved to
             ``kpoints`` rather than a second one built beside it
             (:func:`~defuqumat.workflows.nscf.threaded_calculation`).
+        ns: the converged Hubbard occupation matrix of a DFT+U run
+            (``SCFResult.ns``; :class:`~defuqumat.calculator.Calculator`
+            passes it). The fixed-density run needs it for ``H`` and the
+            assembly for ``dH/dk``, and it cannot be rebuilt from the density.
 
     The remaining arguments are
     :func:`~defuqumat.response.photocurrent.shift_current`'s.
@@ -117,7 +122,7 @@ def run_shift_current(
     # reason: where the truncation falls matters more than how far out it is.
     calculation, system, eigenvalues, wavefunctions = fixed_density_states(
         system, pseudos, density, nbnd=nbnd + 1,
-        conv_thr=conv_thr, k_batch=k_batch, calculation=calculation,
+        conv_thr=conv_thr, k_batch=k_batch, ns=ns, calculation=calculation,
     )
     # The solve re-checks the dials at its own band count (``Calculation.
     # for_bands``); what follows runs at whatever it resolved to.
@@ -146,5 +151,5 @@ def run_shift_current(
         frequencies=frequencies, window=window, nw=nw, broadening=broadening,
         smearing=smearing, degeneracy_tol=degeneracy_tol,
         band_cut_gap=band_cut_gap, k_batch=k_batch,
-        cut_tol=resolve_degeneracy_tol(DEGENERACY_TOL, ethr),
+        cut_tol=resolve_degeneracy_tol(DEGENERACY_TOL, ethr), ns=ns,
     )

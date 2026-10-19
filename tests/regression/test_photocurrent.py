@@ -111,8 +111,11 @@ def full_mesh(system, n: int) -> KPoints:
 # --- the generalised derivative against a parallel-transport difference -------
 
 
-def _frozen_sphere_pieces(system, pseudos, density, k_crystal, kcart, nbnd):
+def _frozen_sphere_pieces(system, pseudos, density, k_crystal, kcart, nbnd, ns=None):
     """``(energies, states, v, w)`` at ``kcart`` on the sphere built for ``k_crystal``.
+
+    ``ns`` is a Hubbard occupation matrix, for a DFT+U ``system``: the dense
+    ``H`` and both derivatives then carry the Hubbard term.
 
     Everything is held on **one** sphere: ``at_kcart`` moves ``k`` and leaves
     the plane-wave set alone, which is what the velocity operator differentiates
@@ -130,11 +133,13 @@ def _frozen_sphere_pieces(system, pseudos, density, k_crystal, kcart, nbnd):
     calculation = Calculation(system, pseudos).at_kpoints(kp)
     v_scf = calculation.potential(density).v_scf
     moved = calculation.at_kcart(jnp.asarray(kcart))
-    energies, states = exact_eigenpairs_all(moved.hamiltonian(v_scf, None, None)[0], nbnd)
+    hubbard = None if ns is None else moved.hubbard_terms(jnp.asarray(ns))[2]
+    energies, states = exact_eigenpairs_all(
+        moved.hamiltonian(v_scf, None, hubbard)[0], nbnd)
 
     from defuqumat.response.velocity import VelocityOperator
 
-    operator = VelocityOperator(calculation, v_scf, kcart=jnp.asarray(kcart))
+    operator = VelocityOperator(calculation, v_scf, ns=ns, kcart=jnp.asarray(kcart))
     psi = jnp.asarray(states)[None]
     bg = np.asarray(system.cell.bg)
 
@@ -221,6 +226,178 @@ def test_the_sum_rule_is_an_identity_over_a_complete_basis():
         "the residue did not fall at completeness, so what is being measured is "
         f"not truncation: {truncated} at 120 bands against {exact} at {complete}"
     )
+
+
+def hubbard_sum_rule_residues(bands=(120,), delta=1.0e-3):
+    """The complete-basis identity of the DFT+U cell, and the same with ``U`` left out of ``w``.
+
+    ``notes/incompat/I92.md``. No SCF: the identity holds for any ``H(k)``, so
+    the starting potential and the starting ``ns`` (plus a fixed Hermitian part)
+    serve. Returns ``{bands: residue}`` for ``r^{c;a}`` built from the DFT+U
+    ``v`` and ``w``, at each truncation in ``bands`` and at completeness, and
+    ``"w_off"``: the residue at completeness when ``w`` is the second velocity
+    of the same cell **without** its Hubbard term while ``v``, the energies and
+    the states keep it -- the size of what a missing Hubbard second velocity
+    would have done to the shift current's central object.
+    """
+    from defuqumat.response.velocity import VelocityOperator
+
+    system = build_system(read_pw_input(CASES / "alas-ldau.in"))
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
+    whole = Calculation(system, pseudos)
+    density = whole.starting_density()
+    start = np.asarray(whole.starting_ns())
+    extra = np.random.default_rng(3).normal(size=start.shape) * 0.1
+    ns = jnp.asarray(start + extra + np.swapaxes(extra, -1, -2))
+    step = np.array([delta, 0.0, 0.0])
+
+    def cartesian(point):
+        return np.asarray(KPoints.from_crystal(
+            np.asarray(point).reshape(1, 3), np.ones(1), system.cell,
+            precision=system.kpoints.precision,
+        ).cartesian(system.cell))
+
+    probe = whole.at_kpoints(
+        KPoints.from_crystal(GENERIC_K.reshape(1, 3), np.ones(1), system.cell,
+                             precision=system.kpoints.precision)
+    )
+    complete = int(probe.basis.npwx)
+    assert complete < 400
+
+    pieces = [
+        _frozen_sphere_pieces(system, pseudos, density, GENERIC_K,
+                              cartesian(GENERIC_K + s), complete, ns=ns)
+        for s in (np.zeros(3), step, -step)
+    ]
+    energies, states, velocity, second, calculation = pieces[0]
+    a, c = 0, 1
+    difference = (
+        _transported_dipole(states, pieces[1][1], pieces[1][0], pieces[1][2], c)
+        - _transported_dipole(states, pieces[2][1], pieces[2][0], pieces[2][2], c)
+    ) / (2 * delta)
+    window = difference[:8, :8]
+    large = np.abs(window) > 1.0e-2 * np.abs(window).max()
+    assert large.sum() > 10
+
+    # The same states through the operator of the cell with no U.
+    bare_system = build_system(read_pw_input(CASES / "alas-raman.in"))
+    bare = Calculation(bare_system, pseudos).at_kpoints(probe.system.kpoints)
+    bare_v = bare.potential(density).v_scf
+    operator = VelocityOperator(bare, bare_v, kcart=jnp.asarray(cartesian(GENERIC_K)))
+    psi = jnp.asarray(states)[None]
+    bg = np.asarray(system.cell.bg)
+
+    def block(applied):
+        return np.asarray(jnp.einsum("skmg,skng->skmn", psi.conj(), applied)[0])
+
+    second_off = np.stack([
+        np.stack([block(operator.apply_second(psi, bg[i], bg[j])) for j in range(3)])
+        for i in range(3)
+    ])
+
+    def residue(count, w):
+        analytic = np.asarray(generalized_derivative(
+            energies[:, :count], velocity[:, :, :count, :count],
+            w[:, :, :, :count, :count],
+        ))[a, c, 0][:8, :8]
+        return float(np.max(np.abs(analytic - window)[large] / np.abs(window)[large]))
+
+    out = {count: residue(count, second) for count in tuple(bands) + (complete,)}
+    out["w_off"] = residue(complete, second_off)
+    out["complete"] = complete
+    out["hubbard_w"] = float(np.abs(second - second_off)[..., :8, :8].max())
+    return out
+
+
+@pytest.mark.slow
+def test_the_sum_rule_is_an_identity_with_a_hubbard_term():
+    """``r^{c;a}`` of a DFT+U cell against a parallel-transport difference.
+
+    ``notes/incompat/I92.md``. The shift current's one non-trivial object, built
+    from the Hubbard ``v`` and ``w``, against the derivative of the dipole of
+    the dense DFT+U ``H``. At completeness it is an identity, so what is left is
+    the difference's ``O(delta^2)``; truncated at 120 bands it is not. With the
+    Hubbard part of ``w`` left out the identity fails at completeness by an
+    amount far above that floor, which is what makes the agreement evidence for
+    the term rather than an agreement a missing term would also give.
+    Measured on D22 (2026-10-19): 1.63e-3 at completeness against 5.30e-2 at
+    120 bands, with the complete residue falling 6.53e-3 -> 1.63e-3 as
+    ``delta`` halves (``delta^2``), and 4.37e-2 with the Hubbard ``w`` left out.
+    """
+    out = hubbard_sum_rule_residues()
+    exact, truncated = out[out["complete"]], out[120]
+    assert exact < 3.0e-3, out
+    assert truncated > 20 * exact, out
+    assert out["w_off"] > 10 * exact, out
+
+
+ZINCBLENDE = {(0, 1, 2), (0, 2, 1), (1, 0, 2), (1, 2, 0), (2, 0, 1), (2, 1, 0)}
+
+
+def _pattern(tensor):
+    """``(largest allowed peak, largest forbidden peak, spread of the allowed)``.
+
+    ``tensor`` is ``(nw, 3, 3, 3)``; the allowed set is ``-43m``'s.
+    """
+    peaks = {(a, b, c): float(np.max(np.abs(tensor[:, a, b, c])))
+             for a in range(3) for b in range(3) for c in range(3)}
+    allowed = [peaks[i] for i in ZINCBLENDE]
+    forbidden = max(v for i, v in peaks.items() if i not in ZINCBLENDE)
+    return max(allowed), forbidden, float(np.ptp(allowed))
+
+
+def dft_plus_u_tensors(n=4, nbnd=14):
+    """The shift current and the SHG tensor of ``alas-ldau.in`` and of ``alas-raman.in``.
+
+    Through :class:`~defuqumat.calculator.Calculator`, so that ``ns`` reaches
+    both assemblies the way a user's call sends it (``_call_options``), on the
+    whole closed ``n^3`` grid. The second cell is the same AlAs without its
+    ``U``. Returns the tensors and each one's :func:`_pattern`.
+    """
+    from defuqumat import Calculator
+
+    out = {}
+    for name in ("alas-ldau.in", "alas-raman.in"):
+        calculator = Calculator.from_file(CASES / name, pseudo_dir=PSEUDO, announce=False)
+        scf = calculator.get_scf(conv_thr=1.0e-10)
+        mesh = full_mesh(calculator.system, n)
+        shift = calculator.get_shift_current(
+            kpoints=mesh, nbnd=nbnd, window=0.9, nw=90, broadening=0.02)
+        shg = calculator.get_shg(kpoints=mesh, nbnd=nbnd, window=0.6, nw=60)
+        out[name] = dict(
+            sigma=np.asarray(shift.sigma), chi=np.asarray(shg.chi),
+            shift_pattern=_pattern(np.asarray(shift.sigma)),
+            shg_pattern=_pattern(np.asarray(shg.chi)),
+            shift_truncation=float(shift.truncation),
+            shg_truncation=float(shg.truncation),
+            has_ns=scf.ns is not None,
+        )
+    return out
+
+
+@pytest.mark.slow
+def test_a_dft_plus_u_shift_current_and_shg_run_and_are_zincblende():
+    """Both assemblies on norm-conserving DFT+U AlAs, through the front door.
+
+    ``notes/incompat/I92.md``. The correctness of the Hubbard ``v`` and ``w``
+    is the operator check (``tests/unit/test_hubbard_velocity.py``) and the
+    complete-basis identity above; this is that the two tensors take the
+    converged ``ns`` where a user's call sends it, keep ``-43m``'s form on a
+    ``nosym`` grid that imposes nothing, and move with the ``U``. Tolerances
+    are the ones the plain AlAs tests use.
+    """
+    out = dft_plus_u_tensors()
+    plus_u, plain = out["alas-ldau.in"], out["alas-raman.in"]
+    assert plus_u["has_ns"] and not plain["has_ns"]
+    for key in ("shift_pattern", "shg_pattern"):
+        survives, forbidden, spread = plus_u[key]
+        assert survives > 0.0
+        assert forbidden < 1.0e-3 * survives, (key, plus_u[key])
+        assert spread < 1.0e-3 * survives, (key, plus_u[key])
+    # The U moves the tensors: the run is not the plain one under another name.
+    for key in ("sigma", "chi"):
+        moved = np.max(np.abs(plus_u[key] - plain[key]))
+        assert moved > 1.0e-2 * np.max(np.abs(plain[key])), key
 
 
 # --- the tensor ---------------------------------------------------------------
@@ -395,13 +572,12 @@ def test_dft_plus_u_does_not_fall_through_to_a_ragged_error():
     is there -- would be kept by accident and reported by the wrong error.
 
     **What this actually exercises is narrower than the guard**, and saying so
-    is the point: every DFT+U input committed here uses ``Ni.pz-nd-rrkjus``, so
-    the *ultrasoft* refusal fires first on all of them and the Hubbard branch is
-    unreachable without a norm-conserving Hubbard cell, which this suite does
-    not have. What is checked is that such a run stops with a refusal naming a
-    missing term rather than with a missing keyword argument; the Hubbard
-    branch's own message is asserted by
-    ``tests/unit/test_photocurrent_machinery.py`` on the function directly.
+    is the point: ``ni-ldau-nospin.in`` uses ``Ni.pz-nd-rrkjus``, so the
+    *ultrasoft* refusal fires first. Since ``notes/incompat/I92.md`` a
+    norm-conserving collinear DFT+U run is not refused at all (``alas-ldau.in``,
+    with ``ns`` passed, and the test of it above); the Hubbard clauses still
+    standing are asserted by ``tests/unit/test_photocurrent_machinery.py`` on
+    the function directly.
     """
     system = build_system(read_pw_input(CASES / "ni-ldau-nospin.in"))
     pseudos = tuple(
