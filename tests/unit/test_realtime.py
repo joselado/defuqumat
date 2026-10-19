@@ -613,6 +613,45 @@ def test_gamma_storage_is_refused_by_the_driver_and_taken_off_by_the_workflows()
 
 
 
+def test_a_sawtooth_runs_frozen_and_its_siblings_are_refused():
+    """``tefield`` propagates at a frozen potential; updated, and ``lelfield``, are refused.
+
+    The saw-tooth is a static term of the ``v_scf`` the driver is handed, so
+    :func:`require_a_realtime_regime` lets it through (it refused it at
+    6c5b3a36, "a length gauge and a velocity gauge in one Hamiltonian"); the
+    stationarity and the polarizability on a saw-tooth ground state are
+    ``tests/regression/test_realtime_sawtooth.py`` (``notes/incompat/I101.md``).
+    The potential updated in time with a saw-tooth stays refused by
+    :func:`require_a_potential_mode`, and the Berry-phase field by the
+    realtime guard. Stubs are the whole input, as in the gamma test above.
+    """
+    import types
+
+    from defuqumat.realtime.propagate import require_a_realtime_regime
+    from defuqumat.realtime.selfconsistent import require_a_potential_mode
+    from defuqumat.scf.sawtooth import SawtoothField
+
+    saw = SawtoothField(eamp=jnp.asarray(0.01), edir=2, emaxpos=0.9, eopreg=0.2,
+                        dipfield=False)
+    plain = dict(gamma_only=False, spiral=None, is_hubbard=False, magnetic_field=None,
+                 augmentation=None)
+    sawtooth = types.SimpleNamespace(sawtooth=saw, berry_field=None, **plain)
+    require_a_realtime_regime(sawtooth)
+    require_a_potential_mode(sawtooth, "frozen", None, None)
+    for mode in ("hartree", "hxc"):
+        with pytest.raises(NotImplementedError, match="saw-tooth field \\(tefield\\)"):
+            require_a_potential_mode(sawtooth, mode, None, None)
+    with pytest.raises(NotImplementedError, match="lelfield"):
+        require_a_realtime_regime(types.SimpleNamespace(
+            sawtooth=None, berry_field=object(), **plain))
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        require_a_realtime_regime(types.SimpleNamespace(
+            sawtooth=saw, berry_field=None, **{**plain, "spiral": object()}))
+    with pytest.raises(NotImplementedError, match="DFT\\+U"):
+        require_a_realtime_regime(types.SimpleNamespace(
+            sawtooth=saw, berry_field=None, **{**plain, "is_hubbard": True}))
+
+
 def test_a_kick_inside_the_run_is_crossed_at_its_grid_point(pseudo_dir):
     """Where an augmented run crosses a kick after its start, and what it refuses.
 
