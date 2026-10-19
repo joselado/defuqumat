@@ -408,3 +408,13 @@ K_POINTS automatic
     whole = build_system(parse_pw_input(text.format(extra=",\n  nosym = .true.")))
     assert whole.kpoints.nk == 64
     require_a_conductivity_regime(Calculation(whole, pseudo))
+
+
+def test_the_drude_term_of_a_tetrahedron_run_is_refused():
+    """I93's guard, before it is lifted: fired on a bare tetrahedron run."""
+    from defuqumat.response.conductivity import _fermi_surface_delta
+
+    calculation = SimpleNamespace(system=SimpleNamespace(occupations="tetrahedra",
+                                                         degauss=0.0))
+    with pytest.raises(NotImplementedError, match="tetrahedron run"):
+        _fermi_surface_delta(calculation, 0.5, np.zeros((2, 3)), enabled=True)
