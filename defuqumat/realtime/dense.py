@@ -124,7 +124,8 @@ def dense_orders(hamiltonians, energies, states, weights, omega: float, eta: flo
 
 
 def dense_first_order(calculation, terms, direction, omega: float, eta: float, nocc: int,
-                      potential: str = "frozen", tolerance: float = 1e-12, kcart=None):
+                      potential: str = "frozen", tolerance: float = 1e-12, kcart=None,
+                      tau_response=True):
     """``J_(1,1)`` with the local potential's linear response, every band of each sphere.
 
     The first order of :func:`dense_orders` with the potential of
@@ -137,7 +138,16 @@ def dense_first_order(calculation, terms, direction, omega: float, eta: float, n
     and ``dv_-1 = conj(dv_+1)`` (the density is real), and ``K`` the Hartree
     kernel (``'hartree'``) or the derivative of the whole potential at the
     states' own density (``'hxc'``), where the difference form of the
-    propagation linearises; ``'frozen'`` is ``K = 0``. The fixed point in
+    propagation linearises; ``'frozen'`` is ``K = 0``. Under a potential-only
+    meta-GGA (tb09, bj06) ``K`` is the derivative in ``(rho, tau)`` at the
+    states' own pair, and ``dtau_+1`` is the states' part,
+    ``sum w (conj(g_0) . g_+1 + g_0 . conj(g_-1))`` with ``g = (k + G) u`` on
+    the grid, plus the explicit one of ``k + kappa + G`` at fixed states,
+    ``sum w Re(conj(e . g_0) u_0)``; the time stepping's ``tau`` is built by
+    ``kinetic_energy_density`` and this one by FFT here; ``tau_response =
+    False`` holds ``tau`` at the ground state's, the update with that term
+    missing, which is what the comparison is measured against, and
+    ``'states'`` keeps the states' part and drops the explicit one. The fixed point in
     ``dv_+1`` is solved by GMRES on its real and imaginary parts to
     ``tolerance``. The density is built from the dense coefficients by FFT
     here, the potential's local term is applied as the matrix
@@ -191,7 +201,40 @@ def dense_first_order(calculation, terms, direction, omega: float, eta: float, n
     rho0 = sum(weights[ik] * np.abs(u) ** 2 for ik in range(nk) for u in occupied[ik]).real
     rho0 = rho0 / volume
 
-    if potential == "hartree":
+    meta = potential == "hxc" and calculation.functional.is_meta
+    if meta:
+        # A potential-only meta-GGA is a function of ``tau`` too, so ``K`` acts
+        # on ``(drho, dtau)``: ``tau = sum w |(k + kappa + G) u|^2`` (Ry, the
+        # package's convention) has a first-order part from the states and one
+        # from ``kappa`` itself, whose harmonic ``+1`` is ``e/2`` like ``h_1``'s.
+        if kcart is None:
+            kcart = calculation.system.kpoints.cartesian(calculation.system.cell)
+        kcart = np.asarray(kcart)
+        gcart = np.asarray(calculation.basis.smooth.cartesian(calculation.system.cell))
+        unit = np.asarray(direction, dtype=float)
+        kplusg = [kcart[ik][None, :] + gcart[indices[ik][keep]]
+                  for ik, (_, _, _, keep, _) in enumerate(blocks)]
+
+        def gradients(c, ik):
+            """``(k + G)_j u`` on the grid, ``(3,) + grid``; ``|i (k+G) u|^2`` drops the ``i``."""
+            miller = blocks[ik][4]
+            return np.stack([field(kplusg[ik][:, j] * c, miller) for j in range(3)])
+
+        grads0 = [[gradients(blocks[ik][2][:, n], ik) for n in range(nocc)]
+                  for ik in range(nk)]
+        tau0 = sum(weights[ik] * np.sum(np.abs(g) ** 2, axis=0)
+                   for ik in range(nk) for g in grads0[ik]).real / volume
+        explicit = sum(weights[ik] * np.real(np.conj(np.einsum("j,j...->...", unit, g))
+                                             * occupied[ik][n])
+                       for ik in range(nk) for n, g in enumerate(grads0[ik])) / volume
+        at = (jnp.asarray(rho0)[None], jnp.asarray(tau0)[None])
+
+        def real_kernel(x):
+            drho, dtau = x
+            return np.asarray(jax.jvp(
+                lambda r, t: calculation.potential(r, tau=t).v_scf, at,
+                (jnp.asarray(drho)[None], jnp.asarray(dtau)[None]))[1])[0]
+    elif potential == "hartree":
         def real_kernel(x):
             vg, _ = hartree(r_to_g(jnp.asarray(x), dense.fft_index), dense,
                             calculation.system.cell)
@@ -209,6 +252,9 @@ def dense_first_order(calculation, terms, direction, omega: float, eta: float, n
         raise ValueError(f"unknown potential {potential!r}")
 
     def kernel(drho):
+        if meta:
+            (dr, dt) = drho
+            return real_kernel((dr.real, dt.real)) + 1j * real_kernel((dr.imag, dt.imag))
         return real_kernel(drho.real) + 1j * real_kernel(drho.imag)
 
     def components(dv):
@@ -234,7 +280,19 @@ def dense_first_order(calculation, terms, direction, omega: float, eta: float, n
                 u0 = occupied[ik][n]
                 total += weights[ik] * (np.conj(u0) * field(comp[ik][n][0], miller)
                                         + u0 * np.conj(field(comp[ik][n][1], miller)))
-        return total / volume
+        if not meta:
+            return total / volume
+        if not tau_response:
+            return total / volume, np.zeros(grid, dtype=complex)
+        kin = (np.zeros(grid, dtype=complex) if tau_response == "states"
+               else explicit.astype(complex))
+        for ik in range(nk):
+            for n in range(nocc):
+                g0 = grads0[ik][n]
+                plus, minus = gradients(comp[ik][n][0], ik), gradients(comp[ik][n][1], ik)
+                kin = kin + weights[ik] * np.sum(np.conj(g0) * plus + g0 * np.conj(minus),
+                                                 axis=0) / volume
+        return total / volume, kin
 
     def residual(dv):
         return dv - kernel(density(components(dv)))

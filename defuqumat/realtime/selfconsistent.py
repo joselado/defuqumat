@@ -28,6 +28,20 @@ whose derivative in ``rho`` is ``vltot + v(t)``, with ``E_U`` the Hartree
 energy or the Hartree and exchange-correlation energies (``E_xc`` of
 ``rho + rho_core``). With ``U = 0`` it is the band energy of the frozen route.
 
+**A potential-only meta-GGA** (tb09, bj06; I99) is a function of the kinetic
+energy density as well, so with ``'hxc'`` the step rebuilds ``tau(t)`` beside
+``rho(t)`` and ``U`` is ``v_H[rho] + v_xc[rho, tau]`` with Tran and Blaha's
+``c[rho(t)]`` taken afresh, the adiabatic functional. ``tau`` is built at the
+kinetic momentum ``k + kappa(t) + G``, the one the band energy carries, so it is
+the gauge-invariant kinetic energy density and moves with ``kappa`` at fixed
+states (``kappa . j_p(r)``, zero summed over a time-reversal-symmetric mesh, plus
+``kappa^2 rho / 2``); the reference ``tau0`` is at ``kappa = 0``, and a field
+already on at the first time (a kick) starts the run at the potential it gives.
+These functionals have no exchange energy, so nothing the dynamics conserves is
+on offer and :func:`propagate_self_consistent` reports its energy as NaN. A
+spinor's ``tau``, a 2x2 matrix in spin space, is refused, and so is ``nspin = 2``,
+whose channels the code carries but no check has measured.
+
 **The applied field is the whole macroscopic field.** The Hartree potential
 has no ``G = 0`` term (``potential.hartree``), so no induced macroscopic field
 is fed back, the current over the applied field is the macroscopic
@@ -81,6 +95,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import warnings
 
 import equinox as eqx
 import jax
@@ -92,7 +107,7 @@ from defuqumat.basis.interpolate import to_dense
 from defuqumat.batching import map_k
 from defuqumat.eager import compiled_function
 from defuqumat.hamiltonian.noncollinear import SpinorHamiltonian
-from defuqumat.scf.density import _becsum
+from defuqumat.scf.density import _becsum, kinetic_energy_density
 from defuqumat.scf.fields import FEEDBACK
 
 __all__ = ["POTENTIALS", "require_a_potential_mode", "propagate_self_consistent",
@@ -146,6 +161,16 @@ def require_a_potential_mode(calculation, potential: str, symmetrise, density_sy
                 "PAW dataset on spinors: becsum(t) would need the spinor projections "
                 "at k + kappa(t) and D(t) the spin-orbit sandwich of newd at every "
                 "step. potential = 'frozen' runs")
+        if potential == "hxc" and calculation.functional.is_meta:
+            # I98 (becsum(t), D(t)) was written with every meta-GGA refused and
+            # I99 (tau(t)) with every augmented dataset refused, so the pair is
+            # neither side's: tau(t) would need the augmentation's share and,
+            # for PAW, the one-centre kinetic densities at k + kappa(t).
+            raise NotImplementedError(
+                "the exchange-correlation potential updated in time under a meta-GGA "
+                "is not implemented for an ultrasoft or PAW dataset: tau(t) would need "
+                "the augmentation's part and, for PAW, the one-centre kinetic energy "
+                "densities at k + kappa(t) at every step. potential = 'frozen' runs")
         if calculation.nspin != 1:
             raise NotImplementedError(
                 "the potential updated in time is not implemented for an ultrasoft or "
@@ -186,12 +211,19 @@ def require_a_potential_mode(calculation, potential: str, symmetrise, density_sy
             "(e_sawtooth) from the recorded energy, and with dipfield the dipole "
             "correction would move with rho(t) in 'hxc' but not in 'hartree', "
             "neither measured. potential = 'frozen' runs, with the field inside v_scf")
-    if potential == "hxc" and calculation.functional.is_meta:
+    if potential == "hxc" and calculation.functional.is_meta and (
+            calculation.noncolin or calculation.nspin_mag != 1):
+        # ``nspin = 1`` carries tau(t) beside rho(t) (``_Run``, I99) and is
+        # measured against the dense solve. A spinor's tau is a 2x2 matrix in
+        # spin space whose propagation and little-group completion (an axial
+        # vector part) are not written; ``nspin = 2``'s (up, down) channels go
+        # through the same code but no number has been taken on them.
         raise NotImplementedError(
-            "the exchange-correlation potential updated in time is not implemented "
-            "for a meta-GGA: a potential-only one (tb09, bj06) has no energy for the "
-            "dynamics to conserve, and either kind needs tau(t) propagated beside "
-            "rho(t). potential = 'hartree' keeps the ground state's v_xc and runs")
+            "the exchange-correlation potential updated in time under a meta-GGA is "
+            "implemented and measured for nspin = 1 only: on spinors tau(t) is a 2x2 "
+            "matrix in spin space whose update is not written, and nspin = 2 has no "
+            "check against the dense solve yet (notes/incompat/I99.md). "
+            "potential = 'hartree' keeps the ground state's v_xc and runs")
     if symmetrise is not None and density_symmetry is None:
         raise ValueError(
             "a k-set reduced by symmetry needs the group its density is completed "
@@ -305,15 +337,19 @@ class _Run:
     ``nspin = 2`` run has two, each with its own number of carried bands, and
     every other run one. ``density(parts, table, positions, w, psi, kappa)``
     takes the stacked states, one ``(nchunks, kb, nbnd, ndim)`` per channel,
-    and returns ``(rho, becsum)``: the density on the dense grid,
-    ``(nspin_mag, n1, n2, n3)`` -- the two channels' ``(up, down)``, or a
-    spinor's ``(n, m_x, m_y, m_z)`` -- symmetrised with the little group's maps
-    when there are any, and for an augmented dataset the augmentation charge
-    from ``becsum`` at ``k + kappa`` in it (``()`` otherwise). The local
-    potential is the pair ``(v, ddd)``, ``ddd`` PAW's one-centre ``D`` (``None``
-    without PAW); ``potential(rho, becsum)`` returns ``((v(t), ddd(t)),
-    E_U)``; ``local_energy(rho, becsum)`` is the part of the conserved energy
-    that is not the band's kinetic and nonlocal energy at :attr:`band_deeq`.
+    and returns the state the potential is a function of, ``(rho, becsum,
+    tau)``: the density on the dense grid, ``(nspin_mag, n1, n2, n3)`` -- the
+    two channels' ``(up, down)``, or a spinor's ``(n, m_x, m_y, m_z)`` --
+    symmetrised with the little group's maps when there are any, and for an
+    augmented dataset the augmentation charge from ``becsum`` at ``k + kappa``
+    in it (``becsum`` is ``()`` otherwise); under a meta-GGA with ``'hxc'``
+    ``tau`` at ``k + kappa + G`` (I99), ``None`` otherwise. The two are never
+    both present (:func:`require_a_potential_mode`). The local potential is the
+    pair ``(v, ddd)``, ``ddd`` PAW's one-centre ``D`` (``None`` without PAW);
+    ``potential(state)`` returns ``((v(t), ddd(t)), E_U)``;
+    ``local_energy(state)`` is the part of the conserved energy that is not
+    the band's kinetic and nonlocal energy at :attr:`band_deeq` (not conserved
+    under a potential-only meta-GGA, which has no exchange energy).
 
     **An augmented dataset** (``notes/incompat/I98.md``). The density is
 
@@ -382,6 +418,8 @@ class _Run:
             rotations = jnp.asarray(np.sign(np.linalg.det(cartesian))[:, None, None] * cartesian)
         order, flat_weights = self.order, self.weights
         augmented = self.augmented
+        meta = potential == "hxc" and calculation.functional.is_meta
+        self.meta = meta
         species_channels = calculation.species_channels if augmented else ()
         becsum_symmetry = None
         if augmented and density_symmetry is not None:
@@ -412,6 +450,35 @@ class _Run:
                 values = becsum_symmetry.apply(values)
             return values
 
+        def complete(rho):
+            if maps is not None:
+                if rotations is not None:
+                    rho = _symmetrize_noncollinear(rho, dense.fft_index, dense.grid, maps,
+                                                   rotations)
+                else:
+                    rho = _symmetrize(rho, dense.fft_index, dense.grid, maps)
+            return rho
+
+        def kinetic(parts, psi, kappa):
+            """``tau(t)`` at ``k + kappa(t) + G``, Ry, ``(nspin, n1, n2, n3)`` on the dense grid.
+
+            The kinetic momentum of the velocity gauge, the one the band
+            energy's kinetic term carries (``_Chunk.moved``), so ``tau`` is the
+            gauge-invariant kinetic energy density; at ``kappa = 0`` it is
+            ``Calculation.kinetic_energy_density`` of the same states. A scalar
+            field like ``rho``, completed with the same little group.
+            """
+            channels = []
+            for part_set, states, weights in zip(parts, psi, flat_weights):
+                whole = states.reshape((-1,) + states.shape[2:])[order]
+                kg = part_set.gcart + (part_set.k0 + kappa)[..., None, :]
+                kg = jnp.where(part_set.mask[..., None], kg, 0.0)
+                kg = kg.reshape((-1,) + kg.shape[2:])[order]
+                channels.append(kinetic_energy_density(
+                    whole[None], calculation.fft_index, smooth.grid, weights[None], cell,
+                    kg, calculation.k_batch, False, calculation.band_batch))
+            return complete(to_dense(jnp.concatenate(channels), smooth, dense))
+
         def density(parts, table, positions, w, psi, kappa):
             channels = []
             for states, weights in zip(psi, flat_weights):
@@ -422,26 +489,31 @@ class _Run:
             if augmented:
                 becsum_ = becsum_of(parts, table, positions, w, psi, kappa)
                 rho = calculation.augmented(rho, becsum_)
-            if maps is not None:
-                if rotations is not None:
-                    rho = _symmetrize_noncollinear(rho, dense.fft_index, dense.grid, maps,
-                                                   rotations)
-                else:
-                    rho = _symmetrize(rho, dense.fft_index, dense.grid, maps)
-            return rho, becsum_
+            # what the potential is a function of: ``(rho, becsum, tau)``
+            tau = kinetic(parts, psi, kappa) if meta else None
+            return complete(rho), becsum_, tau
 
-        if potential == "hxc":
+        if meta:
+            # A potential-only meta-GGA (tb09, bj06): ``v_x`` of ``rho(t)``,
+            # ``tau(t)`` and ``c[rho(t)]``, the adiabatic functional. ``etxc``
+            # holds the correlation energy alone, so ``E_U`` below is not the
+            # functional the potential is the derivative of and the run
+            # reports no conserved energy (``propagate_self_consistent``).
+            def field(rho, tau):
+                result = calculation.potential(rho, 0.0, tau=tau)
+                return result.v_scf, result.ehart + result.etxc
+        elif potential == "hxc":
             # ``field_scale = 0``: no applied field in ``U``. Its energy is
             # linear in m, so its potential is the same at rho(t) as at rho0 and
             # stays in ``v_scf`` at the converged strength; left in ``U`` at
             # the input's it would cancel from ``v`` but not from the energy,
             # whose ``E_U`` is ``ehart + etxc``. A penalty constraint, the one
             # term that does move, is refused by ``require_a_potential_mode``.
-            def field(rho):
+            def field(rho, tau):
                 result = calculation.potential(rho, 0.0)
                 return result.v_scf, result.ehart + result.etxc
         else:
-            def field(rho):
+            def field(rho, tau):
                 total = rho[0] if calculation.noncolin or rho.shape[0] == 1 else rho.sum(axis=0)
                 vg, energy = hartree(r_to_g(total, dense.fft_index), dense, cell)
                 v = jnp.real(g_to_r(vg, dense.fft_index, dense.grid))
@@ -452,15 +524,22 @@ class _Run:
         if kappa0 is None:
             kappa0 = jnp.zeros(3, dtype=real)
         kappa0 = jnp.asarray(kappa0, dtype=real)
+        zero = jnp.zeros(3, dtype=real)
+        reference = zero
         if augmented:
             # the step in kappa the run starts with, from the ground state's
-            # zero, crossed as the frozen route crosses it (``_Chunk.jump``)
-            zero = jnp.zeros(3, dtype=real)
+            # zero, crossed as the frozen route crosses it (``_Chunk.jump``);
+            # the jumped states at ``kappa0`` are the reference
             self.psi = compiled_function(_jumped_all, *fixed[:3], self.psi, zero, kappa0)(
                 *fixed[:3], self.psi, zero, kappa0)
-        self.rho0, self.becsum0 = compiled_function(density, *fixed, self.psi, kappa0)(
-            *fixed, self.psi, kappa0)
-        u0, _ = field(self.rho0)
+            reference = kappa0
+        # Otherwise the reference is at ``kappa = 0``: a norm-conserving ``rho``
+        # does not see ``kappa``, and a meta-GGA's ``tau0`` is the ground
+        # state's, so that a field already on at the start is seen by ``U``
+        # (I99). The two are never both present (``require_a_potential_mode``).
+        self.rho0, self.becsum0, self.tau0 = compiled_function(
+            density, *fixed, self.psi, reference)(*fixed, self.psi, reference)
+        u0, _ = field(self.rho0, self.tau0)
         v_scf = jnp.asarray(v_scf)
         self.v_scf = v_scf
         paw = self.paw
@@ -478,16 +557,18 @@ class _Run:
         constant = as_potential_components(jnp.asarray(calculation.vltot), nspin_mag) + (v_scf - u0)
         volume = float(cell.volume)
 
-        def potential_of(rho, becsum_):
-            u, energy = field(rho)
+        def potential_of(state):
+            rho, becsum_, tau = state
+            u, energy = field(rho, tau)
             v = v_scf + u - u0
             if not paw:
                 return (v, None), energy
             e1, d1 = calculation.onecenter(becsum_)
             return (v, ddd_scf + d1 - d0), energy + e1
 
-        def local_energy(rho, becsum_):
-            _, energy = potential_of(rho, becsum_)
+        def local_energy(state):
+            _, energy = potential_of(state)
+            rho = state[0]
             return volume / rho[0].size * jnp.sum(constant * rho) + energy
 
         def local_terms(p):
@@ -612,8 +693,7 @@ def _block_function(run: _Run, step_fn, centres, corrector: int):
                                 local_terms(p_mid), k_mid, k_rate, step)
 
             def updated(moved):
-                rho, becsum_ = density(parts, table, positions, w, moved, k_end)
-                return potential_of(rho, becsum_)[0]
+                return potential_of(density(parts, table, positions, w, moved, k_end))[0]
 
             moved = advance(_extrapolated(p_now, p_prev))
             p_next = updated(moved)
@@ -631,9 +711,8 @@ def _energy_function(run: _Run):
     density, local_energy, band_deeq = run.density, run.local_energy, run.band_deeq
 
     def energy(parts, table, positions, w, psi, kappa):
-        rho, becsum_ = density(parts, table, positions, w, psi, kappa)
         return (_band(parts, table, positions, w, psi, kappa, band_deeq)
-                + local_energy(rho, becsum_))
+                + local_energy(density(parts, table, positions, w, psi, kappa)))
     return energy
 
 
@@ -705,6 +784,14 @@ def propagate_self_consistent(calculation, states, weights, v_scf, pulse, *, dt:
 
     fixed = (run.parts, run.table, run.positions, run.w)
     carry = (run.psi, run.p0, run.p0)
+    if run.meta:
+        # ``tau`` reads ``k + kappa``, so a field already on at the first time
+        # (a kick) moves the potential there; ``rho`` does not, and every other
+        # run starts at ``(v_scf, ddd_scf)`` exactly
+        p_start = compiled_function(
+            lambda *args: run.potential(run.density(*args))[0], *fixed, run.psi, kappa0)(
+                *fixed, run.psi, kappa0)
+        carry = (run.psi, p_start, p_start)
     block = compiled_function(
         _block_function(run, setups[0].step_fn, [s.centre for s in setups], int(corrector)),
         *fixed, carry,
@@ -754,6 +841,15 @@ def propagate_self_consistent(calculation, states, weights, v_scf, pulse, *, dt:
     if symmetrise is not None:
         rotations = np.asarray(symmetrise, dtype=float)
         current = np.einsum("sab,tb->ta", rotations, current) / len(rotations)
+    if run.meta:
+        # tb09 and bj06 are potentials with no exchange energy, so nothing the
+        # dynamics conserves is on offer: the energy is not reported rather
+        # than reported as the value of a functional that is not this one
+        warnings.warn(
+            f"{calculation.functional.name} is a potential-only meta-GGA: with its "
+            "potential updated in time there is no conserved energy, and "
+            "RealTimeResult.energy is NaN", stacklevel=2)
+        energy = np.full_like(energy, np.nan)
     lower = min(s.lower for s in setups)
     upper = max(s.upper for s in setups)
     return RealTimeResult(
