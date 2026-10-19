@@ -154,6 +154,96 @@ def test_the_self_consistent_first_order_is_the_dense_self_consistent_solve(pseu
     assert abs(reference - frozen) > 2e-3 * abs(frozen), "the update is load-bearing"
 
 
+@lru_cache(maxsize=1)
+def _tb09_cell(pseudo_dir, ecut):
+    """``(calculation, terms, v_scf)`` for two-atom silicon under tb09 on :data:`KSET`.
+
+    At the superposition of atomic charges with the Thomas-Fermi ``tau``: the
+    identity holds at any frozen potential, so none needs a converged one.
+    """
+    from defuqumat.scf.driver import _starting_tau
+
+    text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", f"ecutwfc = {ecut}",
+                  (CASES / "si2-tb09.in").read_text())
+    path = Path("/tmp") / f"defuqumat-realtime-si2-tb09-{ecut}.in"
+    path.write_text(text)
+    system = build_system(read_pw_input(path))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    system = eqx.tree_at(lambda s: s.kpoints, system,
+                         KPoints(coords=KSET[0], weights=KSET[1]))
+    calculation = Calculation(system, pseudos)
+    rho = calculation.starting_density()
+    v_scf = calculation.potential(rho, tau=_starting_tau(rho, calculation)).v_scf
+    return calculation, calculation.local_terms(v_scf), v_scf
+
+
+def test_the_meta_gga_update_is_the_dense_self_consistent_solve(pseudo_dir):
+    """I99: ``J_(1,1)`` with tb09's potential updated, ``tau(t)`` and ``c[rho(t)]`` in it.
+
+    Two-atom silicon at 5 Ry on Gamma and a general point, ``w = 0.05`` and
+    ``eta = 0.01`` Hartree over ``eta T = 20``, against
+    :func:`~defuqumat.realtime.dense.dense_first_order`, whose kernel is the
+    derivative of the potential in ``(rho, tau)`` and whose ``dtau`` is built
+    by FFT from the dense coefficients, the explicit ``k + kappa`` part
+    included. Measured on D22 (``notes/incompat/I99.md``): **2.13e-4** of
+    ``|J|`` at 400 steps a period, **3.76e-5** at 800 and **8.92e-6** at 1600
+    (ratios 5.7 and 4.2, the midpoint rule's ``dt^2``); holding ``tau`` at the
+    ground state's (the update with the term missing) moves the reference by
+    **28 per cent**, dropping only the explicit ``k + kappa`` part of ``dtau`` by
+    1.7e-3, and the frozen potential is 42 per cent away. The tolerance is 2.3
+    times the 400-step figure.
+    """
+    calculation, terms, v_scf = _tb09_cell(pseudo_dir, 5.0)
+    omega, eta, direction = 0.05, 0.01, np.array([1.0, 0.0, 0.0])
+    nocc = int(round(calculation.nelec / 2))
+    weights = np.asarray(calculation.system.kpoints.weights)
+    volume = float(calculation.system.cell.volume)
+    reference, states, residual = dense_first_order(
+        calculation, terms, direction, 2 * omega, 2 * eta, nocc, potential="hxc")
+    missing, _, _ = dense_first_order(calculation, terms, direction, 2 * omega, 2 * eta,
+                                      nocc, potential="hxc", tau_response=False)
+    assert residual < 1e-10
+    period = 2 * math.pi / omega
+    length = math.ceil(20.0 / eta / period) * period
+    shape = Adiabatic(amplitude=1.0, omega=omega, eta=eta, eta_t=length * eta)
+    result = propagate_orders(
+        calculation, jnp.asarray(states), np.repeat(weights[:, None], nocc, axis=1),
+        v_scf, shape, dt=period / 400, order=1, start=-length, duration=length,
+        k_batch=None, potential="hxc")
+    value = complex(result.component(1, 1, axis=0))
+    reference = -reference / (2.0 * volume)
+    missing = -missing / (2.0 * volume)
+    assert abs(value - reference) < 5e-4 * abs(reference), (value, reference)
+    assert abs(reference - missing) > 0.1 * abs(reference), "tau(t) is load-bearing"
+
+
+def test_a_meta_gga_run_starts_at_rest_and_reports_no_energy(pseudo_dir):
+    """I99: a zero kick leaves tb09's updated potential where it was; the energy is NaN.
+
+    The difference form makes ``rho0, tau0`` a fixed point; measured on D22,
+    ``max |v(T) - v_scf|`` 8.4e-8 Ry after 100 steps of 0.2 a.u., the Taylor
+    step's own drift. tb09 has no exchange energy, so nothing is conserved and
+    the energy is reported as NaN with a warning rather than as a number.
+    """
+    calculation, terms, v_scf = _tb09_cell(pseudo_dir, 5.0)
+    nocc = int(round(calculation.nelec / 2))
+    weights = np.asarray(calculation.system.kpoints.weights)
+    mask = np.asarray(calculation.basis.planewaves.mask)
+    states = np.zeros((len(weights), nocc, mask.shape[1]), dtype=complex)
+    for ik in range(len(weights)):
+        h = dense_hamiltonians(calculation, terms, ik, (1.0, 0.0, 0.0), 0)[0]
+        states[ik][:, np.flatnonzero(mask[ik])] = np.linalg.eigh(h)[1][:, :nocc].T
+    from defuqumat.realtime.selfconsistent import propagate_self_consistent
+
+    with pytest.warns(UserWarning, match="no conserved energy"):
+        result = propagate_self_consistent(
+            calculation, jnp.asarray(states), np.repeat(weights[:, None], nocc, axis=1),
+            v_scf, Kick(strength=0.0), dt=0.2, duration=20.0, k_batch=None,
+            potential="hxc")
+    assert result.extras["potential_change"] < 1e-6
+    assert np.all(np.isnan(result.energy))
+
+
 def test_the_linear_response_is_the_kubo_sum_plus_the_band_curvature(pseudo_dir):
     """``sigma_RT(z) = sigma_Kubo(z) + i D / (Omega z)`` on silicon at 6 Ry.
 

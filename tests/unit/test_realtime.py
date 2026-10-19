@@ -432,6 +432,35 @@ def test_a_reduced_k_set_with_no_grid_is_refused_by_name():
         _kset(gridless, Kick(strength=1.0, direction=(1, 0, 0)), None, None, True)
 
 
+def test_a_meta_gga_is_updated_at_nspin_1_and_refused_elsewhere():
+    """I99: ``'hxc'`` under tb09 or bj06 runs with ``tau(t)`` for ``nspin = 1``.
+
+    What stays refused: the spinor's ``tau``, a 2x2 matrix in spin space,
+    ``nspin = 2``, which has no measured check, and the frequency-domain
+    hierarchy's meta-GGA kernel, which the guard used to shadow and which now
+    fires by itself.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.realtime.hierarchy import hierarchy_linear_self_consistent
+    from defuqumat.realtime.selfconsistent import require_a_potential_mode
+
+    def fake(noncolin, nspin_mag=1):
+        return SimpleNamespace(augmentation=None, magnetic_field=None, noncolin=noncolin,
+                               nspin_mag=nspin_mag, functional=SimpleNamespace(is_meta=True))
+
+    for potential in ("frozen", "hartree", "hxc"):
+        require_a_potential_mode(fake(False), potential, None, None)
+    for refused in (fake(True), fake(True, 4), fake(False, 2)):
+        require_a_potential_mode(refused, "hartree", None, None)
+        with pytest.raises(NotImplementedError, match="measured for nspin = 1 only"):
+            require_a_potential_mode(refused, "hxc", None, None)
+    with pytest.raises(NotImplementedError, match="kernel of a meta-GGA"):
+        hierarchy_linear_self_consistent(fake(False), None, None, None, None,
+                                         omegas=[0.1], eta=0.01, direction=(1.0, 0.0, 0.0),
+                                         potential="hxc")
+
+
 def test_what_the_updated_potential_refuses_is_refused_by_name(pseudo_dir):
     """An unknown mode, a reduced k-set without its group, and a checkpoint."""
     from defuqumat.realtime.selfconsistent import require_a_potential_mode
