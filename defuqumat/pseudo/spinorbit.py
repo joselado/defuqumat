@@ -291,28 +291,43 @@ class SpinOrbitCoupling:
                 "(0) with the coupled dataset (1), and outside [0, 1] it is not "
                 "a blend of anything"
             )
-        # **Between 0 and 1 on a norm-conserving species it is exact**: the
-        # only object the scale reaches there is ``dvan_so``, and the blend
-        # below is linear in it, so ``soc_scale = s`` is ``H(0) + s dD`` with
-        # ``dD`` the first-order operator (P123 uses it to take the weak-coupling
-        # limit). An augmented species is where the reason below applies.
-        if self.soc_scale not in (0.0, 1.0) and pseudo.is_ultrasoft and pseudo.has_so:
+        # **Between 0 and 1 the scale blends four sandwiches linearly**:
+        # ``dvan_so`` and ``qq_so`` here, ``newd_so``'s sandwich one Pauli
+        # component at a time (``scf/driver.py:_newd_noncollinear``) and, by
+        # the transposed map, ``becsum`` (:func:`becsum_transform`). The four
+        # are one blend, so the run at ``soc_scale = s`` is a variational
+        # functional whose Hamiltonian is its derivative at every ``s``, and
+        # the overlap stays a metric: ``qq_so(s)`` is a convex combination of
+        # its spin trace, which is the coupled overlap averaged over global
+        # spin rotations, and of the coupled overlap, both positive definite.
+        # On a norm-conserving species only ``dvan_so`` is reached, so
+        # ``soc_scale = s`` is ``H(0) + s dD`` exactly (P123).
+        #
+        # This was refused on an ultrasoft dataset until I114, on a measurement
+        # taken with the reduction P115 replaced (-132 meV of anisotropy at 0.25
+        # where the answer is under a meV); with the consistent blend tetragonal
+        # cobalt gives the second-order law (``notes/incompat/I114.md``).
+        #
+        # **A fully-relativistic PAW species is still refused**: its one-centre
+        # energy carries the Dirac small component's magnetization, which
+        # ``build_paw`` scales by ``soc_scale`` linearly as the strength of that
+        # term rather than as a blend of two energies, and whether that is what
+        # an intermediate scale should mean is a definition nobody has chosen
+        # (``PLAN.md`` P117), and no intermediate PAW scale is measured.
+        if self.soc_scale not in (0.0, 1.0) and pseudo.is_paw and pseudo.has_so:
             raise ValueError(
-                f"soc_scale = {self.soc_scale} on an augmented dataset: only 0 "
-                "and 1 are implemented there, "
-                "and the reason is the overlap rather than the potential. "
-                "qq_so's coupling-free end is its spin trace, which is "
-                "spin-independent -- so at soc_scale = 0 the anisotropy "
-                "vanishes identically whatever else that operator is -- but a "
-                "blend of it with the true qq_so partway is not the overlap of "
-                "any set of projectors, and S = 1 + sum |beta> qq_so <beta| "
-                "stops being a usable metric. Measured on the cobalt slab, "
-                "where the answer is under a meV: -132 meV at 0.25 and -102 "
-                "at 0.5, against exactly 0.000000 at 0 and a value validated "
-                "against pw.x at 1. Elk's socscf takes any value because it "
-                "scales a genuinely additive sigma.L term in an all-electron "
-                "second-variational Hamiltonian; a pseudopotential has no such "
-                "term to scale"
+                f"soc_scale = {self.soc_scale} on a fully-relativistic PAW "
+                "dataset: only 0 and 1 are admitted there. The four fcoef "
+                "sandwiches blend linearly and consistently, which is measured "
+                "on ultrasoft cobalt (the anisotropy follows the second-order "
+                "law in soc_scale, notes/incompat/I114.md), but the PAW "
+                "one-centre energy also carries the Dirac small component's "
+                "magnetization, scaled linearly as a strength rather than "
+                "blended, and an intermediate scale on PAW is neither defined "
+                "by a decision nor measured. Elk's socscf takes any value "
+                "because it scales a genuinely additive sigma.L term in an "
+                "all-electron second-variational Hamiltonian; a pseudopotential "
+                "has no such term to scale"
             )
 
         if not self.has_so:
@@ -634,7 +649,8 @@ def becsum_transform(fcoef, becsum_nc, nspin_mag: int, real: bool = True,
             orbital index (`PLAN.md` P115). Between the two the result is
             ``reduced + soc_scale (full - reduced)``, the blend ``dvan_so``,
             ``qq_so`` and ``newd_so`` take, so the density stays the adjoint of
-            the Hamiltonian at a scale the constructor still refuses.
+            the Hamiltonian at every scale (an intermediate one is admitted for every
+            dataset but a fully-relativistic PAW one, I114).
 
     Returns ``(nspin_mag, nat, nh, nh)``, real unless ``real`` is false: the
     projector occupations in the representation the augmentation charge and the
