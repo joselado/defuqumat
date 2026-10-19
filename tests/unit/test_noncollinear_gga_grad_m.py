@@ -182,8 +182,9 @@ def test_the_choice_is_refused_where_it_would_mix_two_functionals():
         refuse_noncollinear_gga("grad_m", 4, lda, False, False)
     assert refuse_noncollinear_gga("grad_m", 4, PBE, True, False) == "grad_m"
     assert refuse_noncollinear_gga("grad_m", 4, get_functional("TB09"), False, False) == "grad_m"
-    with pytest.raises(NotImplementedError, match="nosource"):
-        refuse_noncollinear_gga("grad_m", 4, PBE, False, True)
+    # Under nosource since I108: the projection is applied to the 'grad_m'
+    # field as to any other (tests/unit/test_source_free_field.py).
+    assert refuse_noncollinear_gga("grad_m", 4, PBE, False, True) == "grad_m"
 
 
 def test_grad_m_is_the_default_wherever_it_applies():
@@ -194,6 +195,9 @@ def test_grad_m_is_the_default_wherever_it_applies():
     assert resolve_noncollinear_gga(None, 2, PBE, False, False) == "kubler"
     assert resolve_noncollinear_gga(None, 4, lda, False, False) == "kubler"
     assert resolve_noncollinear_gga("kubler", 4, PBE, False, False) == "kubler"
+    # nosource keeps 'kubler' unless 'grad_m' is asked for (I108's record).
+    assert resolve_noncollinear_gga(None, 4, PBE, False, True) == "kubler"
+    assert resolve_noncollinear_gga("grad_m", 4, PBE, False, True) == "grad_m"
 
 
 # --- the meta-GGA's parity form, on the grid --------------------------------
