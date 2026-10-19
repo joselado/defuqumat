@@ -1,17 +1,18 @@
-! An H2 molecule along z in a 12-bohr box under a saw-tooth field (tefield)
+! An H2 molecule along z in a 16-bohr box under a saw-tooth field (tefield)
 ! along z, eamp = 0.01 Hartree a.u. (about 5 V/A). The saw-tooth falls back
-! over crystal z in [0.9, 1.1], 4 bohr from the nearer atom, so the molecule
+! over crystal z in [0.9, 1.1], 5.7 bohr from the nearer atom, so the molecule
 ! sits in its rising part and feels a uniform field. One k-point at Gamma on
 ! the whole sphere (automatic 1 1 1), so real-time propagation runs on it.
 ! The real-time check of notes/incompat/I101.md: the ground state is
 ! stationary under no pulse, and the response to a slow pulse is the
-! static polarizability at the same frozen potential.
+! static polarizability at the same frozen potential. In a 12-bohr box the
+! two gauges part by 1.4 per cent; here by 0.2 (the record).
  &control
     calculation = 'scf'
     tefield = .true.
  /
  &system
-    ibrav = 1, celldm(1) = 12.0,
+    ibrav = 1, celldm(1) = 16.0,
     nat = 2, ntyp = 1,
     ecutwfc = 25.0,
     occupations = 'fixed'
@@ -28,7 +29,7 @@
 ATOMIC_SPECIES
  H  1.008  H.pz-vbc.UPF
 ATOMIC_POSITIONS (bohr)
- H 6.0 6.0 5.3
- H 6.0 6.0 6.7
+ H 8.0 8.0 7.3
+ H 8.0 8.0 8.7
 K_POINTS {automatic}
  1 1 1 0 0 0
