@@ -58,25 +58,39 @@ def test_zero_scale_makes_dvan_spin_diagonal_and_spin_independent():
     assert np.abs(full[:, :, 0, 1]).max() > 1.0
 
 
-def test_the_knob_has_two_ends_and_nothing_in_between_on_an_augmented_dataset():
-    """This cobalt is ultrasoft, so 0.5 is refused; on a norm-conserving dataset
-    it is admitted (P123, ``tests/unit/test_spiral_soc.py``)."""
+def test_an_intermediate_scale_is_the_blend_on_ultrasoft_and_refused_on_relativistic_paw():
+    """This cobalt is ultrasoft, so 0.5 is admitted and is the linear blend (I114).
+
+    It was refused until I114 on a measurement taken with the reduction P115
+    replaced. A fully-relativistic PAW dataset is still refused, since its
+    one-centre small component is scaled as a strength rather than blended and
+    no intermediate PAW scale is measured; a scalar-relativistic PAW dataset
+    has nothing the scale reaches and is admitted.
+    """
     pseudo = _pseudo(RELATIVISTIC)
     zero = SpinOrbitCoupling(pseudo, 0.0)
     one = SpinOrbitCoupling(pseudo, 1.0)
     np.testing.assert_allclose(zero.dvan_so, one.dvan_scalar, atol=1e-15)
-    with pytest.raises(ValueError, match="only 0 and 1"):
-        SpinOrbitCoupling(pseudo, 0.5)
+    half = SpinOrbitCoupling(pseudo, 0.5)
+    np.testing.assert_allclose(half.dvan_so, 0.5 * (zero.dvan_so + one.dvan_so), atol=1e-14)
+    assert np.abs(half.dvan_so[:, :, 0, 1]).max() > 0.1
     with pytest.raises(ValueError, match="not a blend"):
         SpinOrbitCoupling(pseudo, 1.5)
-    # ``soc_scale = 1`` must be bit-for-bit the unscaled operator: it is the
-    # branch every ordinary run takes, and a rounding-level change there would
-    # move validated numbers.
     # ``soc_scale = 1`` takes the branch that skips the blend entirely, so it
     # is bit-for-bit the unscaled operator -- a rounding-level change there
     # would move every validated spin-orbit number in the package.
     assert one.dvan_so is not None
     assert np.abs(one.dvan_so).max() > 0.0
+
+    paw = _pseudo(PAW_RELATIVISTIC)
+    assert paw.is_paw and paw.has_so
+    with pytest.raises(ValueError, match="fully-relativistic PAW"):
+        SpinOrbitCoupling(paw, 0.5)
+    for scale in (0.0, 1.0):
+        SpinOrbitCoupling(paw, scale)
+    scalar_paw = _pseudo("Pt.pbe-n-kjpaw_psl.0.1.UPF")
+    assert scalar_paw.is_paw and not scalar_paw.has_so
+    SpinOrbitCoupling(scalar_paw, 0.5)
 
 
 def test_a_scalar_relativistic_species_ignores_the_knob():
@@ -107,7 +121,9 @@ def test_the_overlap_is_scaled_the_same_way_and_stays_spin_free_at_zero():
     values = rng.random((pseudo.nh, pseudo.nh))
     qq = 0.5 * (values + values.T) + pseudo.nh * np.eye(pseudo.nh)
 
-    for scale in (0.0, 1.0):
+    # The intermediate scales are a convex combination of the two ends, both
+    # positive definite, so they are too (I114 admits them on ultrasoft).
+    for scale in (0.0, 0.25, 0.5, 0.75, 1.0):
         blocks = SpinOrbitCoupling(pseudo, scale).qq_so(qq)
         matrix = blocks.transpose(0, 2, 1, 3).reshape(2 * pseudo.nh, 2 * pseudo.nh)
         matrix = 0.5 * (matrix + matrix.conj().T)
@@ -144,8 +160,9 @@ def test_the_system_carries_it_without_moving_the_k_points():
         with pytest.raises(ValueError, match="not a blend"):
             system.with_soc_scale(bad)
     # Between the ends ``System`` cannot know the datasets and admits it; the
-    # calculation refuses it on this ultrasoft cobalt
-    # (``test_an_intermediate_soc_scale_is_refused_on_an_augmented_dataset``).
+    # calculation admits it on this ultrasoft cobalt and refuses it on a
+    # fully-relativistic PAW dataset (I114,
+    # ``tests/regression/test_anisotropy.py::test_an_intermediate_soc_scale_is_admitted_on_an_augmented_dataset``).
     assert system.with_soc_scale(0.5).soc_scale == 0.5
 
 
@@ -182,27 +199,19 @@ def _becsum(coupling, spin_density, nspin_mag, scale):
 
 
 def _coupling(pseudo, scale):
-    """The coupling at ``scale``, and at a scale the constructor refuses, its ``fcoef``.
-
-    ``fcoef`` does not depend on the scale, so the coupled end serves for it.
-    """
-    return SpinOrbitCoupling(pseudo, scale if scale in (0.0, 1.0) else 1.0)
+    """The coupling at ``scale``, built directly at every scale since I114."""
+    return SpinOrbitCoupling(pseudo, scale)
 
 
 def _qq_so(pseudo, qq, scale):
-    """``qq_so`` at ``scale``: ``scalar + scale (full - scalar)``, which is what
-    :meth:`SpinOrbitCoupling.qq_so` computes, written out for a scale the
-    constructor refuses so that the other three sandwiches can be held to it."""
-    if scale in (0.0, 1.0):
-        return SpinOrbitCoupling(pseudo, scale).qq_so(qq)
-    scalar = SpinOrbitCoupling(pseudo, 0.0).qq_so(qq)
-    full = SpinOrbitCoupling(pseudo, 1.0).qq_so(qq)
-    return scalar + scale * (full - scalar)
+    """``qq_so`` at ``scale``, from :meth:`SpinOrbitCoupling.qq_so` itself, so
+    that the identities below hold the method the Hamiltonian uses."""
+    return SpinOrbitCoupling(pseudo, scale).qq_so(qq)
 
 
-# 0.5 is refused as an input (the overlap's blend is not a set of projectors'),
-# and it is kept here because OPEN.md Part XIX item 2 plans to lift that refusal:
-# the four sandwiches have to be one blend for the measurement to mean anything.
+# 0.5 is an admitted input on this ultrasoft dataset since I114, and the
+# identities at 0.5 are what admitting it rests on: the four sandwiches have to
+# be one blend for the run at an intermediate scale to be variational.
 @pytest.mark.parametrize("scale", [0.0, 0.5, 1.0])
 def test_the_augmentation_charge_is_the_overlap_the_eigenproblem_normalises_by(scale):
     """``sum_ij qq_ij becsum_ij = sum <psi|beta> qq_so <beta|psi>``, at both ends.

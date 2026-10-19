@@ -2744,23 +2744,31 @@ class Calculation:
                 shift=-self.spiral_qcart,
             )
 
-        # ``soc_scale`` strictly between 0 and 1 is exact only where it reaches
-        # ``dvan_so`` alone, which is a calculation whose every dataset is
-        # norm-conserving: an augmented one blends ``qq_so`` too, and a blend of
-        # overlaps is not the overlap of any projectors
-        # (:class:`~defuqumat.pseudo.spinorbit.SpinOrbitCoupling`). Refused for
-        # the whole calculation rather than per species, a scalar-relativistic
-        # ultrasoft species included, so the rule has one statement.
+        # ``soc_scale`` strictly between 0 and 1 blends the four ``fcoef``
+        # sandwiches (``dvan_so``, ``qq_so``, ``newd_so``, ``becsum``) linearly
+        # and consistently, so on a norm-conserving or ultrasoft dataset the run
+        # at ``s`` is variational and its overlap a metric
+        # (:class:`~defuqumat.pseudo.spinorbit.SpinOrbitCoupling`; measured on
+        # ultrasoft cobalt, ``notes/incompat/I114.md``). A **fully-relativistic
+        # PAW** dataset is still refused: its one-centre small component is
+        # scaled as a strength, not blended, and no intermediate PAW scale is
+        # measured. A scalar-relativistic PAW species has nothing the scale
+        # reaches, so it is admitted. Checked for the whole calculation here,
+        # where the datasets are known, and again per species in
+        # ``SpinOrbitCoupling``.
         soc_scale = float(system.soc_scale)
-        if 0.0 < soc_scale < 1.0 and any(p.is_ultrasoft for p in self.pseudos):
+        if 0.0 < soc_scale < 1.0 and any(p.is_paw and p.has_so for p in self.pseudos):
             raise ValueError(
-                f"soc_scale = {soc_scale} with an ultrasoft or PAW dataset: "
-                "between 0 and 1 the scale is admitted only when every dataset "
-                "is norm-conserving, where it reaches dvan_so alone and "
-                "linearly. On an augmented dataset it blends qq_so as well, and "
-                "a blend of overlaps is not the overlap of any set of projectors "
-                "(defuqumat.pseudo.spinorbit.SpinOrbitCoupling says what that "
-                "costs, measured)"
+                f"soc_scale = {soc_scale} with a fully-relativistic PAW dataset: "
+                "between 0 and 1 the scale is admitted on norm-conserving and "
+                "ultrasoft datasets, where it blends dvan_so, qq_so, newd_so and "
+                "becsum linearly and consistently (measured on ultrasoft cobalt: "
+                "the anisotropy follows the second-order law in soc_scale). On a "
+                "fully-relativistic PAW dataset the one-centre energy also "
+                "carries the Dirac small component's magnetization, scaled "
+                "linearly as a strength rather than blended, and an intermediate "
+                "PAW scale is neither defined by a decision nor measured. Run at "
+                "0 or 1, or with the ultrasoft dataset of the same element"
             )
 
         # PAW adds the one-centre corrections on top of everything ultrasoft

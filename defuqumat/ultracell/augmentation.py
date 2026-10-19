@@ -289,9 +289,9 @@ def spinor_ultracell_deeq(components, fcoef, soc_scale: float = 1.0):
             ``_spin_block_diagonal``). For a scalar-relativistic species it is
             the identity on each diagonal spin block and the sandwich collapses
             to the plain recombination.
-        soc_scale: Elk's ``socscf``, 0 or 1: the spin-traced sandwich
-            (:func:`~defuqumat.pseudo.spinorbit.spin_traced_sandwich`) or the
-            sandwich itself.
+        soc_scale: Elk's ``socscf``, in ``[0, 1]``: the spin-traced sandwich
+            (:func:`~defuqumat.pseudo.spinorbit.spin_traced_sandwich`) at 0,
+            the sandwich itself at 1, and the linear blend of the two between.
 
     Returns ``(N, 2, 2, nkb, nkb)`` complex.
 

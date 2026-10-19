@@ -442,8 +442,8 @@ class System(eqx.Module):
             raise ValueError(
                 f"soc_scale = {soc_scale}: it blends the coupling-free end (0) "
                 "with the coupled dataset (1), and outside [0, 1] it is not a "
-                "blend of anything. Between them it needs every dataset "
-                "norm-conserving, which the Calculation checks "
+                "blend of anything. Between them a fully-relativistic PAW "
+                "dataset is refused, which the Calculation checks "
                 "(defuqumat.pseudo.spinorbit.SpinOrbitCoupling says why)"
             )
         return dataclasses.replace(self, soc_scale=soc_scale)
@@ -1114,8 +1114,8 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         raise ValueError(
             f"soc_scale = {soc_scale}: it blends the coupling-free end (0) with "
             "the coupled dataset (1), and outside [0, 1] it is not a blend of "
-            "anything. Between them it needs every dataset norm-conserving "
-            "(defuqumat.pseudo.spinorbit.SpinOrbitCoupling says why)"
+            "anything. Between them a fully-relativistic PAW dataset is "
+            "refused (defuqumat.pseudo.spinorbit.SpinOrbitCoupling says why)"
         )
     nspin = int(pwin.get("system", "nspin", 1))
     if noncolin:
