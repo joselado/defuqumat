@@ -26687,7 +26687,7 @@ density and potential callables, which needs the two combined by hand) and **I88
 the top-band occupation guard at 6.96e-5 admits Fermi-Dirac states with 2e-5 in the top band, 6 to 7
 per cent off on `C_1111`). I107 stays partial (guard and argument confirmed). I108 and I109 were
 first merged and reverted, because I110's round-one test asserted the meta-GGA refusal under `nosource`
-that I109 lifts; they landed on the second pass with that test retargeted to the lift (the guard admits
+that I109 lifts; they were re-landed after integration two (branch `t3-sourcefree`) with that test retargeted to the lift (the guard admits
 TB09 and BJ06 under `nosource`, PAW and a spiral still refused), and with the I109 slow test's torque
 refusal replaced by I110's identity (`torque_of_result` against m x B_xc of the SCF's own projected field).
 

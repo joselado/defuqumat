@@ -1,4 +1,4 @@
-# Tier T3 of the incompatibility work, integrations one and two
+# Tier T3 of the incompatibility work, integrations one and two, and the re-landing of sourcefree
 
 This file is the record of how the units of `notes/INCOMPATIBILITIES.md` in tier T3 (I86 to
 I122) are brought onto the branch `incompat-t3`, which starts from master at `63804fc5`
@@ -111,8 +111,8 @@ and the gate; the real-time slow files above are what would test them further.
 | I105 | partial: textured spinor `eps_zz` against the finite field, unlocated offset -5e-4, refusal kept |
 | I106 | partial: field force on US O2 measured, Fe stress floor 4e-4 to 6e-4 Ry; PAW and noncollinear admitted untested |
 | I107 | partial, nothing lifted; guard and argument confirmed by the verifier |
-| I108 | fix round confirmed (text only), merged and reverted in integration two: a round-one I110 test asserts the meta-GGA refusal under `nosource` that I109 lifts; projected `grad_m` divergence 6.97e-31 against 3.456 |
-| I109 | fix round confirmed, merged and reverted with I108; TB09 sphere divergence 1e-31 projected |
+| I108 | landed after integration two (branch `t3-sourcefree`, I110's guard test retargeted): projected `grad_m` divergence 6.97e-31 against 3.456 |
+| I109 | landed after integration two with I108: TB09 sphere divergence 1e-31 projected |
 | I110 | landed: meta-GGA spin torque against m x B_xc of its own field, 5.2e-18 Ry |
 | I111 | not started (worktrees `w-inc-I111*` exist on D22, no result reported) |
 | I112, I113 | not started (rotate; `w-inc-rotate*` exist, no result reported) |
@@ -190,9 +190,8 @@ I100, I102) were combined by hand in `realtime/propagate.py`, `realtime/hierarch
 - I105, textured spinor dielectric tensor. Options: keep the refusal (as now); or lift it for
   epsilon with `born_charges=False`, accepting the unlocated -5e-4 offset (0.16 per cent of
   eps - 1).
-- I108 and I109, the default of `noncollinear_gga` under `nosource`. Options: keep `'kubler'` (as
-  now); or switch to `'grad_m'`, which converged on the h4 chain where `'kubler'` stalled at 9.8e-8
-  (PBE) or oscillated (BJ06). This waits for their verifier.
+- I108 and I109, the default of `noncollinear_gga` under `nosource`: superseded by the entry in
+  "What the user decides, after integration two" (the verifier found `'kubler'` converges at 371).
 - I102, `get_nonlinear_spectrum(order >= 2, potential != 'frozen')`. Options: keep its warning about
   the mesh artefact (as now); drop it, to match the real-time route; or add the same warning to
   `get_harmonic_orders`.
@@ -304,7 +303,7 @@ fast-forward of it (`git merge --ff-only <head>` inside `agent-a155b466dfdcaf047
 | I99 | 624cf2ea | **not merged**: besides the expected `ns=None, tau=None` lines of `workflows/realtime.py`, `realtime/selfconsistent.py` conflicts with I98 in five hunks: I98 made the density callable return `(rho, becsum)` and the potential take `(rho, becsum)`, I99 made them carry a `(rho, tau)` state, and the block scan, the energy function and the start of `propagate_self_consistent` differ in the same way. That is a combination by hand, not keep-both, so the merge was aborted |
 | I101 | cd14815d | merged; `run_nonlinear_spectrum` keeps I102's warning on orders 2 and 3 with the potential updated and adds I101's refusal of `tefield` (I101's side still carried the pre-I102 raise, which was dropped); `hierarchy.py` merged clean |
 | I104 | 5f6b310b | merged (partial); `dynamical_matrix` keeps `sawtooth_ok=True` and `_require_a_measured_sawtooth_regime(calculation)` and takes `_require_a_measured_overlap_metal(calculation, atoms)` in place of `_require_a_moving_overlap_regime` (still used by `nonlinear.py`); the walked and streamed blocks auto-merged with both guards |
-| sourcefree (I107 to I109) | 22cb6267 | merged clean (record files from the branch; `22cb6267` descends from the verified `c5401217` and changes only records, a harness line and test comments and docstrings), then **reverted** after the first gate (below); the fix-round records of I108 and I109 kept |
+| sourcefree (I107 to I109) | 22cb6267 | merged clean (record files from the branch; `22cb6267` descends from the verified `c5401217` and changes only records, a harness line and test comments and docstrings), then **reverted** after the first gate (below); the fix-round records of I108 and I109 kept; re-landed on `t3-sourcefree` (below) |
 | I114 | e80bc66f | merged clean (partial) |
 | I88 | 325df4ea | not merged (refuted twice) |
 
@@ -353,8 +352,49 @@ refusal I109 lifts by design. The file is I110's, but the merge that broke it is
 `incompat/sourcefree`, so that merge was reverted (`git revert -m 1`, commit `9b9d4bcc`), with the
 fix-round records of I108 and I109 kept and their guide, ledger and P156 rows undone (`3d715272`).
 Re-gate at `3d715272` (`gate.log`): **2 failed (the `yaml` pair), 4096 passed, 71 skipped, 1831
-deselected, in 1039.59 s**. The 71 skips are the same set as round one's (compared by name). Landing I108 and I109 needs only
-that one test changed to the lifted behaviour (or removed), which is the user's call.
+deselected, in 1039.59 s**. The 71 skips are the same set as round one's (compared by name). Landing I108 and I109 needed only
+that one test changed to the lifted behaviour, which the next section does.
+
+### The re-landing of sourcefree (I108, I109; I107 stays partial)
+
+On branch `t3-sourcefree` from `incompat-t3` at `008403c7`: `git revert 9b9d4bcc` restores the merge,
+and the sourcefree files then equal `22cb6267`'s tree exactly (`git diff` empty for `potential.py`,
+`sourcefree.py`, `I108.md`, `I109.md`, the harness and the three test files). The rule that a sibling
+test asserting the other's refusal is retargeted was applied to two tests, not one:
+
+- `tests/unit/test_spin_torque_meta.py::test_the_source_free_field_still_refuses_a_meta_gga` is now
+  `::test_the_source_free_field_admits_a_meta_gga_and_keeps_its_other_refusals`. It asserts that
+  `refuse_source_free` admits a potential-only meta-GGA on a noncollinear cell, and that with a
+  meta-GGA it still refuses a PAW dataset and a spin spiral, each by its own message (the two refusals
+  I109 did not lift; the collinear refusal is `test_source_free_field.py`'s).
+- `tests/regression/test_source_free_run.py::test_a_potential_only_meta_gga_under_nosource_converges_source_free`
+  (I109's, slow) asserted `torque_of_result` refuses a meta-GGA, which I110 lifted in integration one.
+  It now asserts I110's identity under the lift: the site torques of `torque_of_result` (which rebuilds
+  the field with `calculation.source_free` and the run's own `tau`) against `exchange_torque` of the
+  SCF's own projected potential, to 1e-12. **That number is unmeasured on this chain**; I110 measured
+  5e-18 Ry on its spiral, and the rebuild is from the last iteration's own density and `tau`, so it
+  should hold to rounding whatever `conv_thr` is. The forces refusal is kept.
+
+Beside them: the `sourcefree.py` comment no longer lists the torque among the consumers that refuse
+(so that file is not byte-equal to `22cb6267` any more), and `I109.md` has a paragraph saying that its
+"no torque number exists" sentence is out of date. No grep hit for "potential-only meta-GGA" in a test
+asserts the refusal elsewhere. Restored from `3d715272`'s undo: the Limits sentences in
+`docs/guide/magnetism.md` and `docs/guide/spirals.md`, the "Closed since" bullets of I108 and I109 in
+`notes/INCOMPATIBILITIES.md` (and their T3 entries removed), the P156 table rows and the struck
+outstanding index line in `PLAN.md`, plus one P156 sentence on the re-landing. README needs no change
+(both records). `tools/check_guide.py` passes; the two fast unit files: 20 passed locally.
+
+**Fast gate on D22** at `9dcdb7e0` (worktree `/l/ladovj1/w-inc-t3c`, `tools/test-fast.sh -q -rs
+--tb=line` under `taskset -c 0-3,12-15` in a 16 GB `systemd-run` scope, `DEFUQUMAT_QE_ROOT` set, log
+`/l/ladovj1/review/incompat/t3c/gate.log`): **2 failed (the `yaml` pair), 4104 passed, 71 skipped, 1833
+deselected, in 1057.68 s**. That is integration two's first gate with the I110 failure gone: the
+sourcefree merge adds 8 fast tests and 2 slow ones, and the retarget renames a test rather than adding
+one.
+
+**Slow files for the user** (none run, the user's rule):
+`tests/regression/test_source_free_run.py` (I108's and I109's new tests, the second with the torque
+identity above as its first measurement) and `tests/regression/test_spin_torque_meta_run.py` (I110,
+unchanged, the meta torque on the path the lift now reaches).
 
 ### Slow files the merges of integration two touch, for the user
 
@@ -384,14 +424,14 @@ Not edited into that file.
 
 ### D22 worktrees that can be removed after integration two (none removed)
 
-Once `incompat-t3` is merged: `/l/ladovj1/w-inc-t3b` (this gate), and for the landed units
+Once `incompat-t3` is merged: `/l/ladovj1/w-inc-t3b` (this gate), `/l/ladovj1/w-inc-t3c` (the re-landing's gate), and for the landed units
 `/l/ladovj1/w-inc-I90*`, `w-inc-I93*`, `w-inc-chi0*`, `w-inc-I101*`, `w-inc-I104*`,
-and `w-inc-I114*`; keep `w-inc-sourcefree*` until I108 and I109 land. The mutant trees are removable now: `w-inc-I93-ver3-mf`, `w-inc-I93-ver3-md`,
+`w-inc-I114*` and `w-inc-sourcefree*` (I108 and I109 have landed). The mutant trees are removable now: `w-inc-I93-ver3-mf`, `w-inc-I93-ver3-md`,
 `w-inc-I99-ver2-mut`. Keep `w-inc-I99*` until I99 is combined with I98, and `w-inc-I88*` until its
 next fix round.
 
 ### What the user decides, after integration two
 
-- I108 and I109: re-merge `incompat/sourcefree` with `test_the_source_free_field_still_refuses_a_meta_gga` turned into a check that the meta-GGA is now admitted under `nosource`; or keep them out until the I110 test is reconsidered. The earlier question on the default of `noncollinear_gga` under `nosource` now has the verifier's facts: `'kubler'` does not stall, it takes 371 steps to a nearly nonmagnetic state, where `'grad_m'` takes 62 to up-up-down-down.
+- I108 and I109 (landed): the default of `noncollinear_gga` under `nosource`, left at `'kubler'`. Options: keep `'kubler'`, which preserves every `nosource` GGA run made before I108; or switch to `'grad_m'`. The verifier's facts on the PBE h4 chain: `'kubler'` takes 371 steps to a nearly nonmagnetic state, `'grad_m'` 62 to up-up-down-down. For a meta-GGA there is no earlier run to preserve; BJ06 on the chains is 160 against 46 steps, on Ni TB09 22 each.
 - I99: combine its `(rho, tau)` state with I98's `(rho, becsum)` in `realtime/selfconsistent.py` by hand (a new session), or leave it recorded.
 - I88: a third fix round (an occupation limit below 1e-6 or tied to `small = 1e-12`), or leave it refused.
