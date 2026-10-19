@@ -461,6 +461,33 @@ def test_a_meta_gga_is_updated_at_nspin_1_and_refused_elsewhere():
                                          potential="hxc")
 
 
+def test_every_realtime_entry_point_takes_the_meta_gga_tau():
+    """I99 fix round: ``Calculator`` forwards ``SCFResult.tau`` only to a ``tau`` parameter.
+
+    ``_call_options`` fills ``tau`` when the workflow names it, and the
+    fixed-density solve refuses a meta-GGA without it, so an entry point that
+    lacks the parameter cannot be reached from the front door under tb09 or
+    bj06 at all (the verifier's refutation: every ``get_realtime`` route raised
+    from ``workflows/nscf.py``).
+    """
+    import inspect
+    from types import SimpleNamespace
+
+    from defuqumat.calculator import Calculator
+    from defuqumat.workflows import realtime as workflows
+
+    marker = object()
+    for name in ("run_realtime", "run_realtime_dielectric", "run_hhg",
+                 "run_harmonic_orders", "run_third_harmonic", "run_nonlinear_spectrum",
+                 "_occupied_states", "_solved_states"):
+        func = getattr(workflows, name)
+        assert "tau" in inspect.signature(func).parameters, name
+        if name.startswith("run_"):
+            fake = SimpleNamespace(_defaults_for=lambda f, o, exclude=frozenset(): {})
+            result = SimpleNamespace(tau=marker)
+            assert Calculator._call_options(fake, func, result, {})["tau"] is marker, name
+
+
 def test_what_the_updated_potential_refuses_is_refused_by_name(pseudo_dir):
     """An unknown mode, a reduced k-set without its group, and a checkpoint."""
     from defuqumat.realtime.selfconsistent import require_a_potential_mode

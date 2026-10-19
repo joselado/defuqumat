@@ -230,7 +230,7 @@ def _occupied_count(system, nelec: float) -> int:
 
 
 def _occupied_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
-                     calculation, becsum=(), field=None, field_scale=None):
+                     calculation, becsum=(), field=None, field_scale=None, tau=None):
     """``(calculation, states, weights, v_scf, ddd_paw)`` with fixed occupations.
 
     ``states`` is ``(nchannel, nk, nb, ndim)`` and ``weights``
@@ -244,12 +244,12 @@ def _occupied_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     calc, states, weights, v_scf, _, _, ddd_paw = _solved_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
         calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, tau=tau)
     return calc, states, weights, v_scf, ddd_paw
 
 
 def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
-                   calculation, becsum=(), field=None, field_scale=None):
+                   calculation, becsum=(), field=None, field_scale=None, tau=None):
     """:func:`_occupied_states` and every band the solve resolved, with their energies.
 
     Returns ``(calculation, states, weights, v_scf, bands, energies, ddd_paw)``:
@@ -282,7 +282,7 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     calc, _, eigenvalues, wavefunctions = fixed_density_states(
         moved, pseudos, density, kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, tau=tau)
     require_a_realtime_regime(calc)
     eigenvalues = np.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
@@ -331,9 +331,11 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     # stationary at a zero field. The same pair went into the solve, so the
     # frozen potential and the states agree by construction. ``is None``, not
     # ``or``: a field ``reducebf`` took to zero has ``field_scale = 0.0``.
+    # ``tau``: a meta-GGA's ground-state kinetic energy density, the one the
+    # states were solved in (I99); ``None`` for every other functional.
     v_scf = calc.potential(jnp.asarray(density),
                            1.0 if field_scale is None else float(field_scale),
-                           field).v_scf
+                           field, tau=None if tau is None else jnp.asarray(tau)).v_scf
     _, ddd_paw = calc.onecenter(becsum)
     return calc, states, weights, v_scf, wavefunctions, eigenvalues, ddd_paw
 
@@ -346,7 +348,7 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
                  propagator: str = "taylor4", checkpoint=None,
                  potential: str = "frozen", corrector: int = 1,
                  calculation=None, becsum=(),
-                 field=None, field_scale=None) -> RealTimeResult:
+                 field=None, field_scale=None, tau=None) -> RealTimeResult:
     """The current ``J(t)`` of a crystal driven by ``pulse``.
 
     Args:
@@ -380,12 +382,16 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
             :class:`~defuqumat.calculator.Calculator`. The same pair is
             frozen into the potential, so with no pulse the states are
             stationary; every entry point of this module takes it.
+        tau: the kinetic energy density of a meta-GGA ground state
+            (``SCFResult.tau``, filled by the calculator), which the
+            fixed-density solve and ``v_scf`` are built with; with ``'hxc'``
+            the propagation then updates it in time (I99, ``nspin = 1``).
     """
     kset, rotations, group = _kset(system, pulse, kpoints, grid, little_group)
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, tau=tau)
     return propagate(calc, states, weights, v_scf, pulse, dt=dt, duration=duration,
                      start=start, propagator=propagator, k_batch=k_batch,
                      block_steps=block_steps, checkpoint=checkpoint,
@@ -403,7 +409,7 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
                             block_steps: int = 1000, subtract_static: bool = False,
                             potential: str = "frozen", corrector: int = 1,
                             calculation=None, becsum=(),
-                            field=None, field_scale=None) -> KickResponse:
+                            field=None, field_scale=None, tau=None) -> KickResponse:
     """``sigma(w + i eta)`` and ``eps`` from a kick, Elk's task 481.
 
     ``broadening`` and ``frequencies`` (or ``window`` and ``nw``) are in eV.
@@ -431,7 +437,7 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, tau=tau)
     update = dict(potential=potential, corrector=corrector, symmetrise=rotations,
                   density_symmetry=group)
     if potential == "frozen":
@@ -456,7 +462,7 @@ def run_hhg(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
             nbnd: int | None = None, conv_thr: float = 1.0e-10, k_batch="default",
             block_steps: int = 400, checkpoint=None, potential: str = "frozen",
             corrector: int = 1, calculation=None, becsum=(),
-            field=None, field_scale=None) -> HarmonicSpectrum:
+            field=None, field_scale=None, tau=None) -> HarmonicSpectrum:
     """The high-harmonic spectrum ``|w J(w)|^2`` of a crystal driven by ``pulse``.
 
     The propagation of :func:`run_realtime`, then
@@ -476,7 +482,7 @@ def run_hhg(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
                           block_steps=block_steps, checkpoint=checkpoint,
                           potential=potential, corrector=corrector,
                           calculation=calculation, becsum=becsum,
-                          field=field, field_scale=field_scale)
+                          field=field, field_scale=field_scale, tau=tau)
     spectrum = harmonic_spectrum(result.times, result.current, float(omega),
                                  window=window, highest=highest, samples=samples)
     spectrum.realtime = result
@@ -491,7 +497,7 @@ def run_harmonic_orders(system, pseudos, density, *, frequency: float,
                         conv_thr: float = 1.0e-10, k_batch="default",
                         block_steps: int = 400, potential: str = "frozen",
                         corrector: int = 1, calculation=None, becsum=(),
-                        field=None, field_scale=None) -> OrdersResult:
+                        field=None, field_scale=None, tau=None) -> OrdersResult:
     """``J^(n)(t)`` under the adiabatic field ``lam exp(eta t) cos(w t) e``, ``n <= order``.
 
     ``frequency`` and ``broadening`` in eV. The run starts ``eta_t/eta``
@@ -517,7 +523,7 @@ def run_harmonic_orders(system, pseudos, density, *, frequency: float,
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, tau=tau)
     if steps_per_period is None:
         from defuqumat.realtime.propagate import largest_stable_step
 
@@ -615,7 +621,7 @@ def run_third_harmonic(system, pseudos, density, *, frequency: float,
                        k_batch="default", block_steps: int = 400,
                        potential: str = "frozen", corrector: int = 1,
                        calculation=None, becsum=(),
-                       field=None, field_scale=None) -> ThirdHarmonic:
+                       field=None, field_scale=None, tau=None) -> ThirdHarmonic:
     """``chi^(3)`` of a cubic crystal at ``frequency`` (eV) by the real-time route.
 
     A field along ``[100]`` gives ``chi_xxxx``; one along ``[110]`` gives
@@ -629,7 +635,7 @@ def run_third_harmonic(system, pseudos, density, *, frequency: float,
                    little_group=little_group, nbnd=nbnd, conv_thr=conv_thr,
                    k_batch=k_batch, block_steps=block_steps, potential=potential,
                    corrector=corrector, calculation=calculation, becsum=becsum,
-                   field=field, field_scale=field_scale)
+                   field=field, field_scale=field_scale, tau=tau)
     along = run_harmonic_orders(system, pseudos, density, direction=(1.0, 0.0, 0.0),
                                 **options)
     third, first = chi3_from_orders(along, axis=0)
@@ -737,7 +743,8 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
                            conv_thr: float = 1.0e-10, k_batch="default",
                            tolerance: float = 1.0e-10, max_iterations: int = 500,
                            potential: str = "frozen", calculation=None,
-                           becsum=(), field=None, field_scale=None) -> NonlinearSpectrum:
+                           becsum=(), field=None, field_scale=None,
+                           tau=None) -> NonlinearSpectrum:
     """The orders of the current, ``chi^(2)`` and ``chi^(3)`` over ``frequencies`` (eV).
 
     The frequency-domain hierarchy at the ground state's frozen potential, the
@@ -772,7 +779,7 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
     calc, states, weights, v_scf, bands, energies, ddd_paw = _solved_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
         calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, tau=tau)
     computed = bands.shape[-2] - 4
     if computed <= weights.shape[-1]:
         raise ValueError(
