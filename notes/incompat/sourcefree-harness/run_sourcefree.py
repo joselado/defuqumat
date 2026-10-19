@@ -1,7 +1,7 @@
 """I108 and I109 on a converged cell: nosource under 'grad_m' and under TB09.
 
 The four-site hydrogen chain of ``tests/data/qe/h4-noncolin-force.in`` (each
-moment 90 degrees from the one before in the starting guess), with the functional, ``nosource`` and
+moment 90 degrees from the one before), with the functional, ``nosource`` and
 ``noncollinear_gga`` changed, and ``conv_thr`` loosened to 1e-8. For each run:
 whether it converged and in how many steps, the moments, ``int |div B_xc|^2`` on
 the dense sphere at the converged density with the projection on and off, the

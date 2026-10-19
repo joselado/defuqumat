@@ -688,20 +688,10 @@ def resolve_noncollinear_gga(choice, nspin_mag, functional, is_paw, source_free)
     ``None`` (nothing asked for) is ``'grad_m'`` wherever that branch applies --
     a noncollinear magnetization under a gradient functional -- and ``'kubler'``
     wherever it does not, where the two are the same arithmetic or the run is
-    one :func:`refuse_noncollinear_gga` refuses ``'grad_m'`` for, and under
-    ``nosource``, where it stays ``'kubler'`` (see the branch). An explicit
+    one :func:`refuse_noncollinear_gga` refuses ``'grad_m'`` for. An explicit
     choice goes through that refusal unchanged.
     """
     if choice is None:
-        if source_free:
-            # Kept at ``'kubler'`` when nothing is asked for: ``'grad_m'`` under
-            # ``nosource`` was refused until I108, so every ``nosource`` run with
-            # a gradient functional ran ``'kubler'``, and a default that moved
-            # would change those runs' numbers silently. Whether the default
-            # should follow the rule everywhere else is the user's question,
-            # recorded in ``notes/incompat/I108.md``; an explicit ``'grad_m'``
-            # is honoured.
-            return "kubler"
         try:
             return refuse_noncollinear_gga("grad_m", nspin_mag, functional,
                                            is_paw, source_free)
@@ -715,8 +705,8 @@ def refuse_noncollinear_gga(choice, nspin_mag, functional, is_paw, source_free) 
 
     ``'grad_m'`` changes the gradient-dependent part of exchange on the grid and
     on the PAW spheres, and the meta-GGA's potential on both
-    (:mod:`defuqumat.xc.noncollinear`); it is refused where it would mean
-    nothing.
+    (:mod:`defuqumat.xc.noncollinear`); it is refused where it would mean nothing
+    and under ``nosource``.
     """
     if choice not in NONCOLLINEAR_GGA:
         raise ValueError(
@@ -737,11 +727,12 @@ def refuse_noncollinear_gga(choice, nspin_mag, functional, is_paw, source_free) 
             f"of exchange, and {functional.name} has none (a local functional is "
             "a function of |m|^2 and the same under either)"
         )
-    # ``nosource`` is not refused: the projection is linear and is applied to
-    # whatever field the functional built, after the gradient correction, so a
-    # ``'grad_m'`` field with a transverse part is projected as a ``'kubler'``
-    # one is (I108, ``notes/incompat/I108.md``). ``source_free`` stays in the
-    # signature because the *default* reads it (:func:`resolve_noncollinear_gga`).
+    if source_free:
+        raise NotImplementedError(
+            "noncollinear_gga = 'grad_m' under nosource is not implemented: "
+            "the projection was written and checked for a field parallel to m, "
+            "and this functional's field already has a transverse part"
+        )
     return choice
 
 
