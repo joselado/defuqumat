@@ -1,0 +1,30 @@
+! The PAW Berry phase of alas-piezo-paw.in, for pw.x against defuqumat
+! (notes/incompat/I89.md): sic-berry.in's settings on PAW AlAs at 25/200 Ry.
+! Run with serial pw.x 7.5 on D22-0161, 2026-10-19, after alas-paw-berry.scf.in;
+! outdir and pseudo_dir were absolute paths there.
+ &control
+    calculation = 'nscf'
+    prefix = 'alaspaw'
+    outdir = './out'
+    pseudo_dir = '../pseudo'
+    lberry = .true.
+    gdir = 3
+    nppstr = 6
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.6134, nat = 2, ntyp = 2,
+    ecutwfc = 25.0, ecutrho = 200.0
+    nosym = .true., noinv = .true.
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al 26.98 Al.pbe-n-kjpaw_psl.1.0.0.UPF
+ As 74.92 As.pbe-n-kjpaw_psl.1.0.0.UPF
+ATOMIC_POSITIONS crystal
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 2 2 6 0 0 0

@@ -1,0 +1,33 @@
+! AlAs, nonmagnetic, zincblende, **PAW**: `alas-piezo.in` with the two
+! `kjpaw_psl.1.0.0` datasets in place of the `rrkjus_psl.1.0.0` pair, and
+! nothing else changed -- same `celldm`, same crystal positions (so the same
+! enantiomorph and a positive `e_14`), same cutoffs, symmetry on.
+!
+! This is the cell the piezoelectric tensor's PAW refusal was measured on
+! (`notes/incompat/I89.md`): the response route on wedges of 4 4 4, 6 6 6 and
+! 8 8 8 against a Berry-phase finite difference of its own (15 strings over
+! 8x8, eps_4 = 0.01, ground state on 6 6 6), and against `pw.x`'s Berry phase
+! on the same two strained cells. `alas-piezo-tiny-paw.in` is the cheap
+! 10/44 Ry pair of this one for the wedge identity and is not physics.
+!
+! Al's PAW file suggests 29/143 Ry and As's 20/103; the measurement was taken
+! here at 25/200 and at 30/240, and the two agree (the record has the numbers).
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.6134, nat = 2, ntyp = 2,
+    ecutwfc = 25.0, ecutrho = 200.0
+ /
+ &electrons
+    conv_thr = 1.0d-10
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al 26.98 Al.pbe-n-kjpaw_psl.1.0.0.UPF
+ As 74.92 As.pbe-n-kjpaw_psl.1.0.0.UPF
+ATOMIC_POSITIONS crystal
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 4 4 4 0 0 0

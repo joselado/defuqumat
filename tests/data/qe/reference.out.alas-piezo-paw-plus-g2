@@ -1,0 +1,303 @@
+Authorization required, but no authorization protocol specified
+
+Authorization required, but no authorization protocol specified
+
+Authorization required, but no authorization protocol specified
+
+Authorization required, but no authorization protocol specified
+
+
+     Program PWSCF v.7.5 starts on 19Oct2026 at 10:31:52 
+
+     This program is part of the open-source Quantum ESPRESSO suite
+     for quantum simulation of materials; please cite
+         "P. Giannozzi et al., J. Phys.:Condens. Matter 21 395502 (2009);
+         "P. Giannozzi et al., J. Phys.:Condens. Matter 29 465901 (2017);
+         "P. Giannozzi et al., J. Chem. Phys. 152 154105 (2020);
+          URL http://www.quantum-espresso.org", 
+     in publications or presentations arising from this work. More details at
+     http://www.quantum-espresso.org/quote
+
+     Parallel version (MPI), running on     1 processors
+
+     MPI processes distributed on     1 nodes
+     1688 MiB available memory on the printing compute node when the environment starts
+
+     Reading input from /l/ladovj1/review/incompat/I89/pwx25/nscf_plus_g2.in
+
+     Current dimensions of program PWSCF are:
+     Max number of different atomic species (ntypx) = 10
+     Max number of k-points (npk) =  40000
+     Max angular momentum in pseudopotentials (lmaxx) =  4
+     file Al.pbe-n-kjpaw_psl.1.0.0.UPF: wavefunction(s)  3S 3P renormalized
+
+     Atomic positions and unit cell read from directory:
+     /l/ladovj1/review/incompat/I89/pwx25/out/alasplus.save/
+
+
+     Subspace diagonalization in iterative solution of the eigenvalue problem:
+     a serial algorithm will be used
+
+
+     G-vector sticks info
+     --------------------
+     sticks:   dense  smooth     PW     G-vecs:    dense   smooth      PW
+     Sum         769     381    163                14255     5031    1363
+
+     Using Slab Decomposition
+
+
+
+     bravais-lattice index     =            0
+     lattice parameter (alat)  =       7.5049  a.u.
+     unit-cell volume          =     298.8772 (a.u.)^3
+     number of atoms/cell      =            2
+     number of atomic types    =            2
+     number of electrons       =         8.00
+     number of Kohn-Sham states=            4
+     kinetic-energy cutoff     =      25.0000  Ry
+     charge density cutoff     =     200.0000  Ry
+     Exchange-correlation= SLA  PW   PBX  PBC
+                           (   1   4   3   4   0   0   0)
+
+     celldm(1)=   7.504854  celldm(2)=   0.000000  celldm(3)=   0.000000
+     celldm(4)=   0.000000  celldm(5)=   0.000000  celldm(6)=   0.000000
+
+     crystal axes: (cart. coord. in units of alat)
+               a(1) = (  -0.707102   0.003536   0.707102 )  
+               a(2) = (   0.000000   0.710638   0.710638 )  
+               a(3) = (  -0.707102   0.707102   0.003536 )  
+
+     reciprocal axes: (cart. coord. in units 2 pi/alat)
+               b(1) = ( -0.707111 -0.710665  0.710665 )  
+               b(2) = (  0.707111  0.703593  0.703593 )  
+               b(3) = ( -0.707111  0.710665 -0.710665 )  
+
+
+     PseudoPot. # 1 for Al read from file:
+     /l/ladovj1/w-inc-I89/tests/data/pseudo/Al.pbe-n-kjpaw_psl.1.0.0.UPF
+     MD5 check sum: 502b6b27b9c6270cab5dd1084b96fa6d
+     Pseudo is Projector augmented-wave + core cor, Zval =  3.0
+     Generated using &quot;atomic&quot; code by A. Dal Corso  v.6.3
+     Shape of augmentation charge: PSQ
+     Using radial grid of 1135 points,  6 beta functions with: 
+                l(1) =   0
+                l(2) =   0
+                l(3) =   1
+                l(4) =   1
+                l(5) =   2
+                l(6) =   2
+     Q(r) pseudized with 0 coefficients 
+
+
+     PseudoPot. # 2 for As read from file:
+     /l/ladovj1/w-inc-I89/tests/data/pseudo/As.pbe-n-kjpaw_psl.1.0.0.UPF
+     MD5 check sum: 21b474db91924651be503153fb2dbf55
+     Pseudo is Projector augmented-wave + core cor, Zval =  5.0
+     Generated using &quot;atomic&quot; code by A. Dal Corso  v.6.3
+     Shape of augmentation charge: PSQ
+     Using radial grid of 1209 points,  4 beta functions with: 
+                l(1) =   0
+                l(2) =   0
+                l(3) =   1
+                l(4) =   1
+     Q(r) pseudized with 0 coefficients 
+
+
+     atomic species   valence    mass     pseudopotential
+     Al                3.00    26.98000     Al( 1.00)
+     As                5.00    74.92000     As( 1.00)
+
+     No symmetry found
+
+
+
+   Cartesian axes
+
+     site n.     atom                  positions (alat units)
+         1        Al     tau(   1) = (   0.0000000   0.0000000   0.0000000  )
+         2        As     tau(   2) = (  -0.3535512   0.3553189   0.3553189  )
+
+     number of k points=   510
+
+     Number of k-points >= 100: set verbosity='high' to print them.
+
+     Dense  grid:    14255 G-vectors     FFT dimensions: (  36,  36,  36)
+
+     Smooth grid:     5031 G-vectors     FFT dimensions: (  24,  25,  24)
+
+     Estimated max dynamical RAM per process >      48.68 MB
+
+     The potential is recalculated from file :
+     /l/ladovj1/review/incompat/I89/pwx25/out/alasplus.save/charge-density
+
+     Starting wfcs are    8 randomized atomic wfcs
+     Checking if some PAW data can be deallocated... 
+
+     Band Structure Calculation
+     Davidson diagonalization with overlap
+
+     ethr =  1.00E-13,  avg # of iterations = 36.6
+
+     total cpu time spent up to now is       11.9 secs
+
+     End of band structure calculation
+
+     Number of k-points >= 100: set verbosity='high' to print the bands.
+
+     highest occupied level (ev):     5.1292
+
+
+
+               ==================================================
+                            POLARIZATION CALCULATION
+               --------------------------------------------------
+
+
+                     K-POINTS STRINGS USED IN CALCULATIONS
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+       G-vector along string (2 pi/a):  0.70711  0.70359  0.70359
+       Modulus of the vector (1/bohr):  1.02198
+       Number of k-points per string:  15
+       Number of different strings  :  34
+
+
+                               IONIC POLARIZATION
+                               ~~~~~~~~~~~~~~~~~~
+
+  ============================================================================
+    Ion    Species    Charge              Position                Phase
+  ----------------------------------------------------------------------------
+     1        Al       3.000       0.0000  0.0000  0.0000     0.00000 (mod 1)
+     2        As       5.000      -0.3536  0.3553  0.3553     0.25000 (mod 1)
+  ----------------------------------------------------------------------------
+                                               IONIC PHASE:   0.25000 (mod 1)
+  ============================================================================
+
+
+                            ELECTRONIC POLARIZATION
+                            ~~~~~~~~~~~~~~~~~~~~~~~
+
+  ============================================================================
+    String     Weight      First k-point in string         Phase
+  ----------------------------------------------------------------------------
+       1      0.015625      0.0000  0.0000  0.0000    -0.03162
+       2      0.031250     -0.0884  0.0888 -0.0888    -0.01412
+       3      0.031250     -0.1768  0.1777 -0.1777    -0.00183
+       4      0.031250     -0.2652  0.2665 -0.2665    -0.00113
+       5      0.015625      0.3536 -0.3553  0.3553    -0.00222
+       6      0.031250     -0.0884 -0.0888  0.0888    -0.01412
+       7      0.031250     -0.1768  0.0000  0.0000    -0.01333
+       8      0.031250     -0.2652  0.0888 -0.0888     0.00325
+       9      0.031250     -0.3536  0.1777 -0.1777     0.00975
+      10      0.031250      0.2652 -0.4442  0.4442     0.00824
+      11      0.031250      0.1768 -0.3553  0.3553     0.00807
+      12      0.031250      0.0884 -0.2665  0.2665     0.00913
+      13      0.031250      0.0000 -0.1777  0.1777     0.00196
+      14      0.031250     -0.1768 -0.1777  0.1777    -0.00183
+      15      0.031250     -0.2652 -0.0888  0.0888     0.00325
+      16      0.031250     -0.3536  0.0000  0.0000    -0.00098
+      17      0.031250     -0.4419  0.0888 -0.0888     0.01008
+      18      0.031250      0.1768 -0.5330  0.5330     0.01322
+      19      0.031250      0.0884 -0.4442  0.4442     0.01232
+      20      0.031250      0.0000 -0.3553  0.3553     0.01282
+      21      0.031250     -0.0884 -0.2665  0.2665     0.00913
+      22      0.031250     -0.2652 -0.2665  0.2665    -0.00113
+      23      0.031250     -0.3536 -0.1777  0.1777     0.00975
+      24      0.031250     -0.4419 -0.0888  0.0888     0.01008
+      25      0.031250     -0.5303  0.0000  0.0000    -0.00029
+      26      0.031250      0.0884 -0.6218  0.6218     0.00879
+      27      0.031250      0.0000 -0.5330  0.5330     0.01255
+      28      0.031250     -0.0884 -0.4442  0.4442     0.01232
+      29      0.031250     -0.1768 -0.3553  0.3553     0.00807
+      30      0.015625      0.3536  0.3553 -0.3553    -0.00222
+      31      0.031250      0.2652  0.4442 -0.4442     0.00824
+      32      0.031250      0.1768  0.5330 -0.5330     0.01322
+      33      0.031250      0.0884  0.6218 -0.6218     0.00879
+      34      0.015625      0.7071  0.0000  0.0000    -0.00137
+  ----------------------------------------------------------------------------
+                                          ELECTRONIC PHASE:   0.00392
+  ============================================================================
+
+
+                               SUMMARY OF PHASES
+                               ~~~~~~~~~~~~~~~~~
+
+                          Ionic Phase:  0.25000
+                     Electronic Phase:  0.00392
+                          TOTAL PHASE:  0.25392 MOD_TOT: 1
+
+
+                             VALUES OF POLARIZATION
+                             ~~~~~~~~~~~~~~~~~~~~~~
+
+        The calculation of phases done along the direction of vector 2
+        of the reciprocal lattice gives the following contribution to
+        the polarization vector (in different units, and being Omega
+        the volume of the unit cell):
+
+           P =   1.9151665  (mod   7.5423311)  (e/Omega).bohr
+
+           P =   0.0064079  (mod   0.0252356)  e/bohr^2
+
+           P =   0.3666249  (mod   1.4438463)  C/m^2
+
+        The polarization direction is:  ( 0.00000 , 0.70711 , 0.70711 )
+
+
+               ==================================================
+
+
+
+     Writing all to output data dir /l/ladovj1/review/incompat/I89/pwx25/out/alasplus.save/ :
+     XML data file, pseudopotentials, collected wavefunctions
+
+     init_run     :      0.60s CPU      0.63s WALL (       1 calls)
+     electrons    :     11.18s CPU     11.47s WALL (       1 calls)
+
+     Called by init_run:
+     wfcinit      :      0.00s CPU      0.00s WALL (       1 calls)
+     potinit      :      0.20s CPU      0.22s WALL (       1 calls)
+     hinit0       :      0.34s CPU      0.34s WALL (       1 calls)
+
+     Called by electrons:
+     c_bands      :     10.88s CPU     11.14s WALL (       1 calls)
+     v_of_rho     :      0.01s CPU      0.01s WALL (       1 calls)
+     newd         :      0.03s CPU      0.04s WALL (       1 calls)
+     PAW_pot      :      0.12s CPU      0.14s WALL (       1 calls)
+
+     Called by c_bands:
+     init_us_2    :      0.16s CPU      0.17s WALL (    1462 calls)
+     cegterg      :     10.05s CPU     10.28s WALL (    1104 calls)
+
+     Called by *egterg:
+     cdiaghg      :      0.30s CPU      0.31s WALL (   19154 calls)
+     h_psi        :      8.88s CPU      9.10s WALL (   20258 calls)
+     s_psi        :      0.36s CPU      0.37s WALL (   20258 calls)
+     g_psi        :      0.10s CPU      0.11s WALL (   18644 calls)
+
+     Called by h_psi:
+     h_psi:calbec :      0.39s CPU      0.40s WALL (   20258 calls)
+     vloc_psi     :      8.05s CPU      8.25s WALL (   20258 calls)
+                                        0.00s GPU  (   20258 calls)
+     add_vuspsi   :      0.37s CPU      0.38s WALL (   20258 calls)
+
+     General routines
+     calbec       :      0.40s CPU      0.41s WALL (   21210 calls)
+     fft          :      0.11s CPU      0.11s WALL (      13 calls)
+     ffts         :      0.07s CPU      0.07s WALL (       1 calls)
+     fftw         :      7.00s CPU      7.17s WALL (  153690 calls)
+     interpolate  :      0.07s CPU      0.07s WALL (       1 calls)
+     davcio       :      0.02s CPU      0.02s WALL (    1972 calls)
+
+     Parallel routines
+
+     PWSCF        :     11.97s CPU     12.31s WALL
+
+
+   This run was terminated on:  10:32: 4  19Oct2026            
+
+=------------------------------------------------------------------------------=
+   JOB DONE.
+=------------------------------------------------------------------------------=

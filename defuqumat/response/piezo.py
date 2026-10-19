@@ -151,6 +151,7 @@ __all__ = [
     "require_a_piezoelectric_tensor",
     "KMESH_STEP",
     "ULTRASOFT_MESH",
+    "PAW_KMESH_DEFICIT",
     "require_a_measured_dataset",
     "require_a_nonpolar_crystal",
     "polar_direction",
@@ -260,6 +261,13 @@ KMESH_CURVE = (-0.763786, -0.687475, -0.672897, -0.669907)
 ULTRASOFT_KMESH_DEFICIT = (15.30, 3.73, 0.86)
 CALIBRATION_KMESH_DEFICIT = (14.54, 3.65, 1.01)
 
+#: The same deficit on the PAW cell, ``tests/data/qe/alas-piezo-paw.in`` at
+#: 25/200 Ry, against **pw.x's** Berry-phase finite difference on the two
+#: strained cells (0.693273 C/m^2; 0.693240 at 30/240 Ry, where the ``8 8 8``
+#: deficit is 0.92), 2026-10-19 (``notes/incompat/I89.md``). Quoted in the
+#: k-mesh warning of a PAW run, which is what replaced refusing one.
+PAW_KMESH_DEFICIT = (15.22, 3.71, 0.86)
+
 
 def _kmesh_of(calculation):
     """``(nk, grid)`` of the set the response will be integrated over."""
@@ -296,8 +304,20 @@ def _warn_about_the_kmesh(calculation, drift) -> None:
               "12 12 12, so a committed-quality 4 4 4 mesh is 14 per cent out "
               "there and 8 8 8 is 0.6"
         )
-        if getattr(calculation, "is_ultrasoft", False) and not getattr(
-                calculation, "is_paw", False):
+        if getattr(calculation, "is_paw", False):
+            # The PAW counterpart of the branch below, measured against pw.x's
+            # Berry-phase value on the same crystal (2026-10-19).
+            measured += (
+                ". On a PAW dataset of the same crystal the deficit from pw.x's "
+                "Berry-phase value is "
+                + ", ".join(f"{value:.2f}" for value in PAW_KMESH_DEFICIT)
+                + " per cent at 4 4 4, 6 6 6 and 8 8 8, against "
+                + ", ".join(f"{value:.2f}" for value in CALIBRATION_KMESH_DEFICIT)
+                + " for the norm-conserving cell at a converged cutoff, so the "
+                  "dataset moves it by less than a point and the mesh is the "
+                  "error"
+            )
+        elif getattr(calculation, "is_ultrasoft", False):
             # The one place the dataset enters this warning: what an
             # ultrasoft run on a coarse mesh used to be refused for, measured
             # (``ULTRASOFT_MESH``, 2026-10-10 at a converged cutoff).
@@ -409,7 +429,38 @@ ULTRASOFT_MESH = 8
 
 def require_a_measured_dataset(calculation, drift=None,
                                allow_a_coarse_mesh: bool = False) -> None:
-    """PAW, and nothing else since 2026-10-11.
+    """Nothing since 2026-10-19: the PAW half was lifted by a measurement.
+
+    **PAW is measured and no longer refused** (``notes/incompat/I89.md``).
+    On ``tests/data/qe/alas-piezo-paw.in``, zincblende AlAs with
+    ``Al/As.pbe-n-kjpaw_psl.1.0.0`` at 25/200 Ry, the taped route on the
+    wedges of ``4 4 4``, ``6 6 6`` and ``8 8 8`` reads ``e_14`` = 0.817718,
+    0.720006 and 0.699317 C/m^2 (0.699698 at 30/240 Ry), against **pw.x's own
+    Berry-phase finite difference** on the two strained cells, 0.693273
+    (0.693240 at 30/240 Ry; 15 strings over 8x8, ``eps_4 = 0.01``, ground
+    state on ``6 6 6``), which shares no code with this package. The deficit
+    is :data:`PAW_KMESH_DEFICIT`, 15.22, 3.71 and 0.86 per cent, beside the
+    ultrasoft cell's 15.30, 3.73 and 0.86 and the norm-conserving
+    calibration's 14.54, 3.65 and 1.01: the dataset moves the deficit by less
+    than a tenth of a point at ``8 8 8`` and the mesh is the error, as it is
+    for the other two. The ``10 10 10`` and ``12 12 12`` rungs read 0.694466
+    and 0.693264, deficits of 0.17 and -0.001 per cent, and the last of those
+    is better than the reference: ``pw.x`` moves by 0.10 per cent from 15
+    strings over 8x8 to 21 over 12x12 (0.693240 to 0.693927 at 30 Ry), and the
+    ``12 12 12`` rung by 0.05 per cent across 25, 30 and 35 Ry. This
+    package's own PAW Berry phase was checked against ``pw.x`` on the same
+    cell (strings to 3.2e-06, ``P`` to 1.0e-07 e/Omega bohr), and its finite
+    difference reads 0.693263 against ``pw.x``'s 0.693273.
+
+    **What the comparison can and cannot see.** The one term this route has
+    and ``method='zstar_eu'`` lacks on a PAW dataset, the one-centre cross
+    term of :func:`require_a_norm_conserving_transcription`, moves ``e_14`` by
+    7.5e-04 at ``4 4 4`` and 5.3e-04 at every mesh from ``8 8 8`` to
+    ``12 12 12`` (0.08 per cent), which is below the 0.10 per cent the
+    reference's own string mesh is worth. So the Berry value checks the PAW
+    tensor as a whole, the dataset and the mesh, and it does not resolve that
+    one term; what says the term is carried is that this route differentiates
+    the energy, whose one-centre part is a function of ``becsum``.
 
     **The ultrasoft mesh condition was dropped on 2026-10-11** (the user's
     decision, ``OPEN.md`` Part XIII item 3): at a converged cutoff the
@@ -446,6 +497,10 @@ def require_a_measured_dataset(calculation, drift=None,
     below describes is what the refusal was protecting against until then, and
     the refusal stays for the separate reason the last paragraph gives.*
 
+    *(History, 2026-09-19: the two paragraphs below are what the PAW refusal
+    rested on until 2026-10-19. The first stays true -- ``zstar_eu`` still
+    refuses PAW -- and the second is closed by
+    ``tests/regression/test_piezoelectric_paw.py`` and the measurement above.)*
     **Two things about PAW, and both are reasons this refusal is not a
     formality.** :func:`piezoelectric_zstar_eu_style` refuses it outright
     (:func:`require_a_norm_conserving_transcription`), and in the taped route
@@ -510,23 +565,9 @@ def require_a_measured_dataset(calculation, drift=None,
     mesh against a Berry-phase value on the same cell, and the cell is
     committed.
     """
-    if not calculation.is_ultrasoft:
-        return
-    if calculation.is_paw:
-        raise NotImplementedError(
-            "the piezoelectric tensor is not implemented for a PAW dataset. "
-            "The ultrasoft half of this refusal was lifted by a ladder against "
-            "a Berry-phase finite difference on zincblende AlAs, 0.86 per cent "
-            "at 8 8 8 against the norm-conserving calibration's 1.01 on the "
-            "same mesh, both at a converged cutoff, and no such comparison "
-            "exists for PAW: no non-centrosymmetric PAW crystal has been run "
-            "against an independent reference at all. What is measured for PAW "
-            "is internal only, the wedge completion's one-centre half against "
-            "its own closed grid (1.58e-06, a factor of 440 over the same run "
-            "with the completion off, tests/regression/test_piezoelectric_paw.py). "
-            "An internal identity is not a reference. Use an ultrasoft or "
-            "norm-conserving dataset"
-        )
+    # PAW was refused here until 2026-10-19 and is measured now (the
+    # docstring); nothing is left to refuse, and the function is kept so that
+    # no caller breaks.
     # ``drift`` and ``allow_a_coarse_mesh`` are no longer read: an ultrasoft
     # run on any mesh goes on to the k-mesh warning, where the mesh's error is
     # quoted for both datasets (2026-10-11).
@@ -1112,6 +1153,14 @@ def require_a_norm_conserving_transcription(calculation) -> None:
     term with the field's ``dbecsum`` is on no grid at all and is not in this
     route. :func:`clamped_ion_piezoelectric` has it because it differentiates
     the energy rather than an operator, which is why the default stays there.
+
+    **The size of that term, measured 2026-10-19** (``notes/incompat/I89.md``),
+    on ``alas-piezo-paw.in`` with this refusal patched out in a harness: this
+    route reads ``e_14`` = 0.818464 and 0.699860 C/m^2 on the ``4 4 4`` and
+    ``8 8 8`` wedges against the taped route's 0.817718 and 0.699317, so the
+    one-centre cross term is 7.5e-04 and 5.4e-04 C/m^2 (0.09 and 0.08 per
+    cent), where the same pair agrees to 1e-07 on ultrasoft. The refusal stays:
+    the gap is the term, not round-off, and it is small rather than absent.
     """
     if calculation.is_paw:
         raise NotImplementedError(
@@ -1120,6 +1169,10 @@ def require_a_norm_conserving_transcription(calculation) -> None:
             "grid, which is the whole coupling for ultrasoft and not for PAW, "
             "whose one-centre energy is a function of becsum directly and "
             "whose cross term with the field's dbecsum is on no grid. "
+            "Measured on alas-piezo-paw.in with this refusal patched out, the "
+            "route without that term reads e_14 7.5e-04 C/m^2 above "
+            "method='autodiff' at 4 4 4 and 5.4e-04 at 8 8 8 (0.08 per cent), "
+            "where the two agree to 1e-07 on ultrasoft. "
             "Ultrasoft runs here and agrees with method='autodiff' to 2.6e-09 "
             "C/m^2 on alas-piezo-tiny.in at ecutwfc = 12. Use "
             "method='autodiff', which "
