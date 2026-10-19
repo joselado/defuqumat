@@ -292,26 +292,72 @@ def _metallic_calculation():
     )
 
 
-def test_the_strain_response_refuses_a_metal_for_the_right_reason():
-    """Aluminium *has* elastic constants. A Born effective charge does not
-    exist for any metal, and the two refusals are not the same refusal.
+def test_the_strain_response_refuses_an_augmented_metal():
+    """A smeared norm-conserving metal runs (``notes/incompat/I88.md``); an
+    ultrasoft or PAW one stays refused, for the phonon's reason one coordinate
+    over, and the message must name that rather than the old missing shift."""
+    import types
 
-    Left to the shared default, asking for the elastic constants of a metal
-    came back with a message about ``epsilon_infinity`` and Born charges --
-    a true statement about a different quantity, with nothing in it to say that
-    what is actually missing is the Fermi-level shift the phonon branch already
-    carries.
-    """
     from defuqumat.response.strain import strain_response
 
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=True)
     with pytest.raises(NotImplementedError) as raised:
-        strain_response(_metallic_calculation(), None, [[0.0]], None)
+        strain_response(stub, None, [[0.0]], None)
     message = str(raised.value)
-    assert "Fermi-level shift" in message
-    assert "localdos" in message and "ef_shift" in message
-    # And it must not go on answering the question that was not asked.
+    assert "ultrasoft or PAW" in message and "metal" in message
     assert "epsilon_infinity" not in message
-    assert "Born effective charge" not in message
+
+
+def test_the_strain_response_refuses_a_walked_metal(monkeypatch):
+    """The k-walked route has no Fermi-level shift, so a metal there is refused.
+
+    ``_streams`` is the function :func:`strain_response` asks; patching it is
+    seen only if the refusal below fires with its own message, which is what is
+    asserted, so a rename that stopped the call would fail this test.
+    """
+    import types
+
+    import defuqumat.response.efield as efield
+    from defuqumat.response.strain import strain_response
+
+    monkeypatch.setattr(efield, "_streams", lambda *args, **kwargs: True)
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=False)
+    with pytest.raises(NotImplementedError) as raised:
+        strain_response(stub, None, [[0.0]], None)
+    message = str(raised.value)
+    assert "walked a k-chunk" in message and "Fermi-level shift" in message
+
+
+def test_the_strain_response_admits_a_smeared_metal_past_its_guards():
+    """The shared guard no longer refuses a smearing metal for the strain.
+
+    The stub carries no states, so the call fails *after* every refusal; what
+    is asserted is that the failure is not a ``NotImplementedError``.
+    """
+    import types
+
+    from defuqumat.response.strain import strain_response
+
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=False)
+    with pytest.raises(Exception) as raised:
+        strain_response(stub, None, [[0.0]], None)
+    assert not isinstance(raised.value, NotImplementedError), str(raised.value)
+
+
+def test_the_strain_response_still_refuses_tetrahedra():
+    """Tetrahedra stay refused inside the shared guard (``dfpt_tetra_beta``)."""
+    import types
+
+    from defuqumat.response.strain import strain_response
+
+    system = build_system(parse_pw_input(
+        _SILICON.format(extra="occupations = 'tetrahedra_opt'")
+    ))
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=False)
+    stub.system = system
+    with pytest.raises(NotImplementedError) as raised:
+        strain_response(stub, None, [[0.0]], None)
+    assert "dfpt_tetra_beta" in str(raised.value)
 
 
 def test_the_electric_field_still_refuses_a_metal_by_definition():

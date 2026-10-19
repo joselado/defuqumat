@@ -1501,22 +1501,6 @@ _NO_METAL_BY_DEFINITION = (
     "epsil for one too"
 )
 
-#: ...and what is actually missing where the quantity *is* defined for a metal.
-#: The solve handles one; the self-consistent loop above it does not yet move
-#: the Fermi level, which is a term the phonon branch already has.
-_NO_METAL_YET = (
-    "the quantity being asked for is perfectly well defined for a metal and "
-    "the machinery is not here yet. What is missing is the Fermi-level shift: "
-    "a perturbation at q = 0 changes the number of states below E_F, so the "
-    "level moves and the response density has to be corrected by the local "
-    "density of states at it (localdos/ef_shift, SternheimerSolver.local_dos "
-    "and fermi_level_shift), together with the wg/2wk weight split the "
-    "occupied projector needs. Both are written for the displacement "
-    "coordinate and are what response/phonon.py passes metals = True on; "
-    "neither has been carried onto this perturbation"
-)
-
-
 def require_a_sternheimer_regime(
     calculation, metals: bool = False, spin_polarized: bool = False,
     gamma_ok: bool = False, metals_missing: str = _NO_METAL_BY_DEFINITION,
@@ -1535,13 +1519,13 @@ def require_a_sternheimer_regime(
     (:meth:`SternheimerSolver._smeared_projection`). ``epsilon_infinity`` and
     the Born charges do not, and are refused here rather than in three places.
 
-    ``metals_missing`` is *why*, and it has two answers rather than one. For the
-    two static electronic responses the quantity itself does not exist for a
-    metal (:data:`_NO_METAL_BY_DEFINITION`). For the **strain** response it does
-    -- aluminium has elastic constants, and they are the textbook case -- and
-    what is missing is the Fermi-level shift (:data:`_NO_METAL_YET`). Inheriting
-    the first message there answered a question the user had not asked, and left
-    nothing in the output to say what the real gap was.
+    ``metals_missing`` is *why*. For the two static electronic responses the
+    quantity itself does not exist for a metal
+    (:data:`_NO_METAL_BY_DEFINITION`). The **strain** response used to pass a
+    second message here, naming the Fermi-level shift it lacked; it carries
+    that shift now and passes ``metals = True`` (``notes/incompat/I88.md``), so
+    a caller whose quantity exists for a metal and lacks a term passes its own
+    message.
 
     **A noncollinear ultrasoft or PAW dataset is no longer refused here** (P98).
     ``int3`` is a 2x2 matrix in spin space for a spinor, which is what

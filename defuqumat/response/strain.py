@@ -69,9 +69,17 @@ first-order states are then host stores, and so are ``dpsi``, ``ort`` and
 ``overlap_derivatives`` on the :class:`StrainResponse` it returns. The
 self-consistent loop is one function for both routes.
 
+**A smeared metal runs** (``notes/incompat/I88.md``), with the phonon's two
+metallic terms carried onto the strain: ``ef_shift`` on the states' half of the
+density -- *not* on ``frozen_drho``, which already holds the electron count of
+the deformed cell -- and ``ef_shift_wfc`` on ``dpsi`` after the loop, since the
+elastic constants consume ``dpsi`` as a tangent.
+
 **Refused rather than approximated**: everything
 :func:`~defuqumat.response.sternheimer.require_a_sternheimer_regime` refuses, which
-for this perturbation means a **noncollinear** ultrasoft or PAW dataset.
+for this perturbation means a **noncollinear** run, tetrahedra and an
+``OCCUPATIONS`` card; and, of a metal, an ultrasoft or PAW dataset and the
+k-walked route.
 
 *This paragraph used to refuse collinear ultrasoft and PAW as well, on the grounds
 that the augmentation charge ``Q_ij(r)`` is a function of the cell so ``dbecsum``
@@ -105,7 +113,7 @@ from defuqumat.response.sternheimer import (
     occupied_counts,
     pass_threshold,
     require_a_sternheimer_regime,
-    _NO_METAL_YET,
+    smearing_of,
 )
 from defuqumat.response.velocity import over_kpoints
 from defuqumat.scf.density import becsum as becsum_of
@@ -281,12 +289,16 @@ def strain_response(
     require_a_symmetrisable_response(calculation)
     # Before the generic guard, so that the message names the strain response.
     _require_one_spin_channel(calculation)
-    # **A metal is refused here for a different reason than a field is.** An
-    # elastic constant exists for aluminium; a Born effective charge does not
-    # exist for any metal. Left to the default the refusal talked about
-    # epsilon_infinity, which is not the quantity that was asked for and not the
-    # term that is missing.
-    require_a_sternheimer_regime(calculation, metals_missing=_NO_METAL_YET)
+    # **A smeared metal is admitted** (``notes/incompat/I88.md``): an elastic
+    # constant exists for aluminium where a Born effective charge exists for no
+    # metal, and what this perturbation lacked was the phonon's ``ef_shift``,
+    # which :func:`_self_consistent_response` now applies to the states' half of
+    # the density. Tetrahedra and an ``OCCUPATIONS`` card stay refused inside
+    # the shared guard, for its reasons.
+    require_a_sternheimer_regime(calculation, metals=True)
+    metallic = calculation.system.occupations != "fixed"
+    if metallic:
+        _require_a_measured_metal_regime(calculation)
 
     # **The route is decided before anything converts the states**, by the
     # field response's rule (:func:`~defuqumat.response.efield._streams`): where it
@@ -297,7 +309,9 @@ def strain_response(
 
     streamed = _streams(calculation, wavefunctions, False,
                         what="the strain response")
-    weights, _ = calculation.occupations(eigenvalues)
+    if metallic and streamed:
+        raise NotImplementedError(_NO_WALKED_METAL)
+    weights, levels = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
     nocc = occupied_counts(calculation)
     potential = calculation.potential(density)
@@ -307,6 +321,14 @@ def strain_response(
         calculation, hamiltonians, wavefunctions, eigenvalues, weights,
         nocc, FIXED_THRESHOLD if threshold is None else threshold,
         v_scf=potential.v_scf, becsum=becsum,
+        # The level the occupations were just evaluated at, which is the call
+        # the SCF made on the same eigenvalues (:func:`smearing_of`); ``None``
+        # for an insulator. ``kpoint_weights`` makes the density response
+        # accumulate with ``wk`` (``incdrhoscf``), since a metal's ``dpsi``
+        # carries its occupation already.
+        smearing=smearing_of(calculation, _Level(
+            levels.get("fermi_energy") if metallic else None)),
+        kpoint_weights=calculation.system.kpoints.weights,
     )
     solver.schedule = threshold is None
     density = jnp.asarray(density)
@@ -581,6 +603,12 @@ class _WholeStrains:
                     becsum_response[a, b] = becsum_response[b, a] = parts
         return response, becsum_response
 
+    def shift_states(self, shifts) -> None:
+        """``ef_shift_wfc`` on each strain's ``dpsi``, ``shifts`` keyed ``(a, b)``."""
+        for (a, b), shift in shifts.items():
+            self.dpsi[a, b] = self.dpsi[b, a] = (
+                self.solver.fermi_level_shift_states(self.dpsi[a, b], shift))
+
 
 def _self_consistent_response(
     calculation, solver, strains, frozen_drho, density,
@@ -609,10 +637,28 @@ def _self_consistent_response(
         (3, 3) + solver.ddd_paw.shape
     )
 
+    shifts = None
     for iteration in range(max_iterations):
         response, becsum_response = strains.respond(
             dvscf, onecentre, iteration > 0, frozen_becsum,
             threshold=pass_threshold(solver, history))
+
+        # ``ef_shift`` on the **states' half only**, before ``frozen_drho`` is
+        # added. At frozen coefficients the density of a strained cell holds N
+        # electrons for every strain -- ``frozen_drho`` integrates to
+        # ``-N Tr(T)`` over the undeformed cell, which is exactly what
+        # ``d(Omega)`` takes back -- so the count the Fermi level has to restore
+        # is the Sternheimer part's, which must integrate to zero. Shifting the
+        # sum instead would impose the wrong condition on every
+        # volume-changing strain, by ``N Tr(T) / N(e_F)``. It is the phonon
+        # loop's ordering, where ``drhous`` is added after the shift too.
+        if solver.smearing is not None:
+            shifts = {}
+            for a in range(3):
+                for b in range(a, 3):
+                    corrected, shift = solver.fermi_level_shift(response[a, b])
+                    response[a, b] = response[b, a] = corrected
+                    shifts[a, b] = float(shift)
 
         stacked = jnp.stack([
             jnp.stack([response[a, b] for b in range(3)]) for a in range(3)
@@ -699,6 +745,13 @@ def _self_consistent_response(
             )
             dvscf = symmetric_from(mixed)
             onecentre = symmetric_from(mixed_onecentre)
+
+    # ``ef_shift_wfc``, once, on the states the last pass solved, as
+    # :func:`~defuqumat.response.phonon.screening_loop` applies it: the loop is
+    # driven by the density, which already carries the shift, while the elastic
+    # constants consume ``dpsi`` as a tangent.
+    if shifts is not None:
+        strains.shift_states(shifts)
 
     return symmetrised, dvscf, history, converged
 
@@ -821,4 +874,44 @@ def _require_one_spin_channel(calculation) -> None:
             "occupied-band count is per channel now); the assembly above it is "
             "not, and ph.x has no strain perturbation to generate a reference "
             "from, so it is refused rather than run"
+        )
+
+
+class _Level:
+    """The one field :func:`~defuqumat.response.sternheimer.smearing_of` reads."""
+
+    def __init__(self, fermi_energy):
+        self.fermi_energy = fermi_energy
+
+
+#: Why the k-walked route refuses a metal.
+_NO_WALKED_METAL = (
+    "the strain response of a metal walked a k-chunk at a time is not "
+    "implemented: the Fermi-level shift (ef_shift on the states' half of the "
+    "density, ef_shift_wfc on dpsi) is written for the whole-k route only, and "
+    "response/chunked_strain.py has neither, nor the local density of states "
+    "walked over the chunks that response/chunked_phonon.py builds for the "
+    "phonon. Run with memory_mode='speed' or a k_batch that holds the whole mesh"
+)
+
+
+def _require_a_measured_metal_regime(calculation) -> None:
+    """A smeared metal with an ultrasoft or PAW dataset stays refused.
+
+    The norm-conserving metal is measured (``notes/incompat/I88.md``). An
+    augmented one meets the phonon's reason one coordinate over
+    (:func:`~defuqumat.response.phonon._require_a_moving_overlap_regime`): the
+    metal's weight split puts the states at ``wk`` and the coordinate at
+    ``wg``, and with ``S`` and ``Q_ij`` deforming the two meet in a cross term
+    and in an occupied block (``ort``) whose metallic form is not written.
+    """
+    if calculation.is_ultrasoft:
+        raise NotImplementedError(
+            "the strain response of a metal with an ultrasoft or PAW dataset is "
+            "not implemented: the norm-conserving metal is (the Fermi-level "
+            "shift on the states' half of the density, and the wg/wk split in "
+            "the elastic constants), but with S deforming the occupied block "
+            "dpsi^ort and the cross term d^2(rho)/d(eps)d(psi) meet the wk "
+            "weight of a metal's dpsi, which is the phonon's refusal of an "
+            "ultrasoft metal one coordinate over, and nothing has been measured"
         )
