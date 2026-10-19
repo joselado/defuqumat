@@ -164,13 +164,15 @@ def require_a_potential_mode(calculation, potential: str, symmetrise, density_sy
         if potential == "hxc" and calculation.functional.is_meta:
             # I98 (becsum(t), D(t)) was written with every meta-GGA refused and
             # I99 (tau(t)) with every augmented dataset refused, so the pair is
-            # neither side's: tau(t) would need the augmentation's share and,
-            # for PAW, the one-centre kinetic densities at k + kappa(t).
+            # neither side's. A plain ultrasoft dataset never gets here (the SCF
+            # refuses a meta-GGA on one, ``Calculation._require_meta_supported``);
+            # PAW would need its one-centre kinetic energy densities of
+            # becsum(t) inside the spheres beside tau(t) on the grid.
             raise NotImplementedError(
                 "the exchange-correlation potential updated in time under a meta-GGA "
-                "is not implemented for an ultrasoft or PAW dataset: tau(t) would need "
-                "the augmentation's part and, for PAW, the one-centre kinetic energy "
-                "densities at k + kappa(t) at every step. potential = 'frozen' runs")
+                "is not implemented for a PAW dataset: the one-centre kinetic energy "
+                "densities would have to be rebuilt from becsum(t) at every step beside "
+                "tau(t) on the grid. potential = 'frozen' runs")
         if calculation.nspin != 1:
             raise NotImplementedError(
                 "the potential updated in time is not implemented for an ultrasoft or "

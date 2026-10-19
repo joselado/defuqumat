@@ -555,8 +555,12 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     after the start of the run, for the perturbative orders and for
     `get_nonlinear_spectrum`. A kick after the
     start of the run works, but it must land on a point of the time grid, so its
-    time must be the start plus a whole number of steps `dt`. With the potential updated, a meta-GGA with `"hxc"` and a
-    checkpoint give an error. A metal runs with the occupations of the ground
+    time must be the start plus a whole number of steps `dt`. With the potential
+    updated, a checkpoint gives an error. A meta-GGA (`tb09`, `bj06`) works with
+    `"hxc"` for `nspin = 1`. The kinetic energy density is then updated in time with
+    the density. These functionals have no exchange energy, so the run has no
+    conserved energy and `energy` is NaN. A meta-GGA with `"hxc"` gives an error for
+    `nspin = 2`, for spinors and with a PAW dataset. A metal runs with the occupations of the ground
     state held fixed, and its intraband response converges slowly in
     $\mathbf k$.
 

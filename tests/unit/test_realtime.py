@@ -501,14 +501,14 @@ def test_a_meta_gga_is_updated_at_nspin_1_and_refused_elsewhere():
         require_a_potential_mode(refused, "hartree", None, None)
         with pytest.raises(NotImplementedError, match="measured for nspin = 1 only"):
             require_a_potential_mode(refused, "hxc", None, None)
-    # I98 x I99: an ultrasoft dataset updates becsum(t) and a meta-GGA tau(t),
-    # but not both in one run; 'hartree' keeps the ground state's v_xc and runs
-    ultrasoft = SimpleNamespace(**{**vars(fake(False)), "augmentation": object(),
-                                   "is_paw": False, "nspin": 1})
-    require_a_potential_mode(ultrasoft, "hartree", None, None)
+    # I98 x I99: PAW updates becsum(t) and a meta-GGA tau(t), but not both in
+    # one run (a plain ultrasoft dataset refuses a meta-GGA at the SCF)
+    paw = SimpleNamespace(**{**vars(fake(False)), "augmentation": object(),
+                             "is_paw": True, "nspin": 1})
+    require_a_potential_mode(paw, "frozen", None, None)
     with pytest.raises(NotImplementedError,
-                       match="under a meta-GGA is not implemented for an ultrasoft"):
-        require_a_potential_mode(ultrasoft, "hxc", None, None)
+                       match="under a meta-GGA is not implemented for a PAW"):
+        require_a_potential_mode(paw, "hxc", None, None)
     with pytest.raises(NotImplementedError, match="kernel of a meta-GGA"):
         hierarchy_linear_self_consistent(fake(False), None, None, None, None,
                                          omegas=[0.1], eta=0.01, direction=(1.0, 0.0, 0.0),
