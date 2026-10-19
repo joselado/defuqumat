@@ -74,6 +74,10 @@ CASELIST = {
     "tb09-kubler-free": ("TB09", True, None, None),
     "tb09-gradm-free": ("TB09", True, "grad_m", None),
     "tb09-kubler-plain": ("TB09", False, "kubler", None),
+    "pbe-kubler-plain": ("PBE", False, "kubler", None),
+    "bj06-kubler-free": ("BJ06", True, "kubler", None),
+    "bj06-kubler-plain": ("BJ06", False, "kubler", None),
+    "bj06-gradm-free": ("BJ06", True, "grad_m", None),
 }
 
 names = sys.argv[1:] or list(CASELIST)
@@ -104,11 +108,14 @@ for name in names:
         print(f"   torque sites {np.round(np.asarray(t.sites), 8).tolist()} "
               f"parallel_fraction {float(t.parallel_fraction):.6f} "
               f"total {np.linalg.norm(np.asarray(t.total)):.2e}")
-    if nosource:
+    if nosource and scf.converged:
         for what, call in (("forces", calc.get_forces),):
             try:
                 call()
                 print(f"   {what}: NOT REFUSED")
             except NotImplementedError as error:
                 print(f"   {what}: refused ({str(error)[:60]}...)")
+    tail = ["%.2e/%.2e/%s" % (e["accuracy"], e.get("magnetic_accuracy") or 0.0,
+                             e.get("tau_accuracy")) for e in (scf.history or [])[-4:]]
+    print(f"   last accuracy/magnetic/tau {tail}")
     sys.stdout.flush()
