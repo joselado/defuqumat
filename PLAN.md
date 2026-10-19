@@ -26563,7 +26563,7 @@ The merges that needed a hand: I9 and I12 both added `DFTSource.spin` (I12's fie
 
 What is left: the guide sections with executed snippets and figures, the notebooks and the timings for every landed item (only the Limits notes and three README cells are written); I47's and I48's lifted parts reverified and their Limits notes written.
 
-### P155 -- Twenty-eight refusals lifted from tier T2 of `notes/INCOMPATIBILITIES.md`, integrations one and two of I33 to I36 and I49 to I85. ✅ FAST GATE 2026-10-16 (slow tests not run), each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-t2` (`notes/INCOMPATIBILITIES-T2.md`), not merged into master. Slow tests not run (the user's rule of 2026-10-16), listed in the record for the user.
+### P155 -- Twenty-eight refusals lifted from tier T2 of `notes/INCOMPATIBILITIES.md`, integrations one and two of I33 to I36 and I49 to I85. ✅ FAST GATE 2026-10-16 (slow tests not run), each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-t2` (`notes/INCOMPATIBILITIES-T2.md`), merged into master 2026-10-19 as `6c5b3a36` after a second fast gate at `0789f4cc` (4010 passed, 2 failed, both `check_guide` with no `yaml`). Slow tests not run (the user's rule of 2026-10-16), listed in the record for the user.
 
 Each unit's record is `notes/incompat/<ID>.md`, with its run directories, the mutations its verifier tried and what each read. The landed items, one sample each, deterministic:
 
