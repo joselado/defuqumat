@@ -76,6 +76,15 @@ full verifier reports are in the D22 log directories each one names, `/l/ladovj1
   and `test_units.py` one, and the rest are QE inputs this code refuses), none in a file a T3 merge
   touched. Nothing is attributable to a merge, and no merge is reverted.
 
+## Integrator's changes that no second session has seen
+
+The two conflict resolutions are code no verifier read: in `workflows/realtime.py` the update dict
+of `run_realtime_dielectric` carries I100's `ns` under I98's condition for the one-centre `D`
+(`potential == "frozen" or strength is not None`), and in `realtime/hierarchy.py`
+`hierarchy_self_consistent` runs I102's order check and then I98's `require_a_potential_mode(...,
+route="hierarchy")`. The evidence is the fast files of both sides passing locally after each merge
+and the gate; the real-time slow files above are what would test them further.
+
 ## Outcome per ID
 
 | ID | outcome |
@@ -158,6 +167,11 @@ I100, I102) were combined by hand in `realtime/propagate.py`, `realtime/hierarch
   cheap tests to add.
 - I89: notebook 28's sentence on PAW (the record has the replacement), with its `.md` export.
 - I92: whether the result depends on `k_batch` with `ns` was not measured.
+- Record sentences elsewhere that the landed records name and that are now stale:
+  `notes/AUGMENTATION-NEXT.md` §1h ("PAW open" for the piezoelectric tensor, I89) and §3b's "What
+  is left" on the elastic constants (I87), `PERFORMANCE.md:4560` ("PAW is what stays refused", I89),
+  `PLAN.md` P100's closing paragraph (I87) and P50 (I89), and README's footnote mark 19 on the
+  real-time row, which the I100 record found undefined.
 - Fix rounds for I88, I90, I93, I99, I101 and I104, from their verifier findings (full text in each
   record's D22 directory and in the workflow's results).
 - chi0 (I94 to I96): the verifier's queued jobs land in `/l/ladovj1/review/incompat/chi0-ver/`
@@ -187,7 +201,7 @@ I100, I102) were combined by hand in `realtime/propagate.py`, `realtime/hierarch
 
 Once `incompat-t3` is merged, the worktrees of the landed units: `/l/ladovj1/w-inc-I86*`,
 `w-inc-I87*`, `w-inc-I89*`, `w-inc-I92*`, `w-inc-I97*`, `w-inc-I98*`, `w-inc-I100*`,
-`w-inc-I102*`, `w-inc-I103*`, `w-inc-I110*`. The revert and mutation worktrees of the other
+`w-inc-I102*`, `w-inc-I103*`, `w-inc-I110*`, and the gate's `w-inc-t3`. The revert and mutation worktrees of the other
 units (`*-rev`, `*-verrev`, `*-ver2r`, `*-ver2-rev`, `w-inc-I93-ver-all`, `w-inc-I93-ver-nod4`,
 `w-inc-sourcefree-ver-mg`, `-ver-mm`) are removable now. Keep the others until their fix round,
 and keep `w-inc-chi0-ver` and `w-inc-I90-ver2` while their queued jobs run.
