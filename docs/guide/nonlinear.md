@@ -477,15 +477,19 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
 !!! note "Limits"
     The shift current gives an error for an ultrasoft or PAW dataset, because
     one term, the second derivative of the projectors in $\mathbf k$, is not
-    implemented. It also gives an error for a spin spiral, DFT+U and a metal, where the partly filled bands give transitions of zero
-    energy and every denominator of the sum diverges. A spinor run works, and so
+    implemented. It also gives an error for a spin spiral and a metal, where the partly
+    filled bands give transitions of zero energy and every denominator of the sum
+    diverges. DFT+U works for a norm-conserving collinear run. It gives an error for a
+    noncollinear DFT+U run, because we have not checked the Hubbard velocity there. A spinor run works, and so
     does a collinear spin-polarized run (`nspin = 2`), where the two channels
     add. With `nspin = 2` it gives an error when `tot_magnetization` makes a
     channel stop inside a degenerate level, because the result then depends on
     an arbitrary choice inside the level.
 
-    Second-harmonic generation gives an error for a spin spiral, a metal and
-    DFT+U. It works for a spinor run, for a collinear
+    Second-harmonic generation gives an error for a spin spiral and a metal. DFT+U works
+    for a norm-conserving collinear run. It gives an error for DFT+U with an ultrasoft
+    or PAW dataset, and for a noncollinear DFT+U run, because we have not checked the
+    Hubbard velocity there. It works for a spinor run, for a collinear
     spin-polarized run (`nspin = 2`), where the two channels add, and for
     ultrasoft and PAW datasets. The static $\chi^{(2)}$ and the electro-optic
     tensor of the [Raman page](raman.md) still give an error, because that route
@@ -504,10 +508,17 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     tensor is zero, so for the SCF you keep the symmetry and pass the whole mesh
     as `kpoints`, as we do for silicon.
 
-    The real-time methods give an error for DFT+U, a spin spiral, a static
-    electric field (`tefield` or `lelfield`), and a symmetry-reduced k-set passed
-    as `kpoints` (you pass `grid=` instead, which builds the right reduction for
-    the field). A ground state under a magnetic field or with a constrained
+    The real-time methods give an error for a spin spiral, a static electric field
+    (`tefield` or `lelfield`), and a symmetry-reduced k-set passed as `kpoints` (you
+    pass `grid=` instead, which builds the right reduction for the field). DFT+U works
+    in `calc.get_realtime` and `calc.get_realtime_dielectric`. The occupation matrix
+    stays as it is in the ground state. The Hubbard projectors move with the field, as
+    the pseudopotential projectors do. This works for a collinear run with a
+    norm-conserving pseudopotential and `atomic` or `norm-atomic` projectors. It gives
+    an error for `ortho-atomic` projectors, for spinors, for ultrasoft and PAW
+    pseudopotentials, and with `potential='hartree'` or `'hxc'`. The other harmonic
+    methods (`calc.get_hhg`, the perturbative orders and the third harmonic) still give
+    an error for DFT+U. A ground state under a magnetic field or with a constrained
     moment works. The run uses the field that the SCF ended with, not the field
     in the input. With `potential='hartree'` or `'hxc'`, a penalty constraint
     (for example `constrained_magnetization = 'atomic'`) gives an error. With
@@ -528,8 +539,12 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     whole sphere, so the run costs twice the plane waves of the SCF.
 
     A magnet, a spinor run with spin-orbit coupling, and ultrasoft and PAW
-    datasets work in real time. With an ultrasoft or PAW dataset, the potential
-    updated in time (`"hartree"` or `"hxc"`) gives an error. A kick after the
+    datasets work in real time. With an ultrasoft or PAW dataset, the potential updated
+    in time works in the propagation, for a run without spin. A PAW dataset takes
+    `"hxc"` only, and `"hartree"` gives an error. With the potential updated, an
+    ultrasoft or PAW dataset gives an error for spinors, for `nspin = 2`, for a kick
+    after the start of the run, for the perturbative orders and for
+    `get_nonlinear_spectrum`. A kick after the
     start of the run works, but it must land on a point of the time grid, so its
     time must be the start plus a whole number of steps `dt`. With the potential updated, a meta-GGA with `"hxc"` and a
     checkpoint give an error. A metal runs with the occupations of the ground
@@ -539,11 +554,15 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     `get_nonlinear_spectrum` gives an error (`HierarchyError`, with its
     residual) when a solve or the outer solve does not converge, since an
     unconverged first order is amplified by $1/(2\eta)$ in the second.
-    It also gives an error for the potential updated in time above first order
-    (the real-time route has it, one frequency per run), for a meta-GGA with
-    `"hxc"`, because its
-    exchange-correlation kernel is not implemented, for an order above three,
-    and for an `nbnd` that leaves no conduction band below the top four. A
+    It also gives an error for a meta-GGA with `"hxc"`, because its exchange-correlation
+    kernel is not implemented, for an order above three, and for an `nbnd` that leaves
+    no conduction band below the top four. The second and third orders with the
+    potential updated work. We solve the induced potential of each order in turn, and we
+    checked them against the real-time route to 1e-5. On a coarse k-mesh they still have
+    an error from the velocity gauge, because the second-order density does not sum to
+    zero there (7 per cent of the density on a 2x2x2 mesh of silicon). The code gives a
+    warning about this, and the real-time route has the same error, so read them on a
+    k-mesh that converges it. A
     norm-conserving run with `ecutrho` above `4 ecutwfc` works with the
     potential updated.
 

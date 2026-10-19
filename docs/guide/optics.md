@@ -380,9 +380,13 @@ here.
     again on the whole sphere, and the spectrum agrees with an explicit $k = 0$
     to 1.4e-9.
 
-    The `alda` kernel gives an error with a gradient-corrected or meta-GGA
-    functional, because the ALDA kernel is local in the density and a GGA kernel
-    is not. The `lrc` kernel gives an error without `alpha`. If the bootstrap
+    With a gradient-corrected functional, such as PBE, the `alda` kernel is the
+    adiabatic kernel of that functional. It keeps the gradient terms. On our silicon
+    test its static limit agrees with the dielectric constant of the Sternheimer solve
+    to 2e-3, if `ecut_response` is 20 Ry. At 8 Ry the difference is 3e-2. The `alda`
+    kernel gives an error with a meta-GGA functional, because its potential depends on
+    the kinetic energy density of the states. It also gives an error with a GGA on a
+    noncollinear density. The `lrc` kernel gives an error without `alpha`. If the bootstrap
     kernel does not converge, the code gives an error and returns no spectrum,
     because a spectrum from a kernel still in motion belongs to no functional.
 

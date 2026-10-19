@@ -293,8 +293,12 @@ The two runs together took 123 s on one core.
     almost cancels the clamped-ion part. A polar crystal, one whose crystal
     class leaves a direction invariant, gives an error, because there the
     measured tensor differs from the derivative by terms built from the
-    spontaneous polarization. A PAW dataset gives an error, while
-    norm-conserving and ultrasoft datasets work on any k-mesh. The tensor
+    spontaneous polarization. Norm-conserving, ultrasoft and PAW datasets work on any
+    k-mesh. For PAW we compared AlAs with the Berry phase of `pw.x`. The tensor is 15.2,
+    3.7 and 0.86 per cent too large on the 4, 6 and 8 meshes, like the other two
+    datasets, and within 0.1 per cent on the 12 mesh. That is as close as the `pw.x`
+    Berry phase itself is converged. The `zstar_eu` method still gives an error for PAW,
+    so use the default method. The tensor
     needs an insulator with `nspin = 1`, and it gives an error for a metal, a
     spin spiral, a magnetic field, and a shifted k-mesh with `nosym`. If the
     field response under the tensor does not converge, the code gives an error
@@ -307,10 +311,12 @@ The two runs together took 123 s on one core.
     need an insulator with `nspin = 1`. In the diamond structure a tetragonal
     strain moves no atom inside the cell, so $p_{11}$ and $p_{12}$ of silicon
     are complete, while $p_{44}$ misses the term from the internal displacement
-    of the atoms. They work on norm-conserving, ultrasoft
-    and PAW datasets, but the elastic constants are norm-conserving only, so
-    for an ultrasoft or PAW dataset you pass `elastic=False`, and then `M` and
-    `Q` are `None`, because they need the elastic compliance. The elastic
+    of the atoms. They work on norm-conserving, ultrasoft and PAW datasets, and so do
+    the elastic constants. For an ultrasoft or PAW dataset the elastic constants need
+    every k-point in memory at once. If the k-points are streamed in chunks (memory mode
+    on a GPU, or `memory_mode='memory'` with a `k_batch` smaller than the k-mesh on a
+    CPU), you pass `elastic=False`, and then `M` and `Q` are `None`, because they need
+    the elastic compliance. The elastic
     constants also need the full k-mesh (`nosym`), so on a symmetry-reduced
     mesh you pass `elastic=False` as well. The elasto-optic tensor and the
     electrostriction tensors `m` and `q` work on the symmetry-reduced mesh,

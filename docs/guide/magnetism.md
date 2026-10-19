@@ -287,9 +287,14 @@ every density, converged or not. A magnetic field in nature has no sources, and
 `nosource = .true.` in `&system` makes the exchange-correlation field obey that,
 as in Elk. We remove the longitudinal part of $\mathbf B_{xc}$, the part with a
 divergence, and the field is then no longer parallel to $\mathbf m$. We compute
-the torque with `calc.get_exchange_torque()`. Its `sites` hold one torque vector
-per atom, and its `parallel_fraction` is 1 without `nosource`, so that a zero
-torque can be told from a field that is parallel to the moment by construction.
+the torque with `calc.get_exchange_torque()`. Its `sites` hold one torque vector per
+atom. Its `parallel_fraction` is 1 when the field is parallel to the moment by
+construction. This is the case for a local functional, and for a gradient or meta-GGA
+functional with `noncollinear_gga = 'kubler'`. So a zero torque can be told from a field
+that cannot turn the moment. With `nosource`, or with `noncollinear_gga = 'grad_m'`, the
+field has a part across the moment and the torque can be nonzero. A meta-GGA such as
+TB09 needs the kinetic energy density of the states, and the torque takes it from the
+converged run.
 Without spin-orbit coupling the total torque of the cell is zero by symmetry, so
 what we read is the torque on each site.
 
@@ -399,6 +404,10 @@ what we read is the torque on each site.
     is not implemented.
 
     The noncollinear linear response gives an error.
+
+    `get_exchange_torque()` under a meta-GGA uses the kinetic energy density of
+    the converged run. A call of the torque at another density must pass the
+    kinetic energy density that belongs to it.
 
 The notebooks for this page are
 [07, spin polarization](https://github.com/joselado/defuqumat/blob/master/notebooks/07_spin_polarization.ipynb),

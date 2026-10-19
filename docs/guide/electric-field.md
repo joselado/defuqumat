@@ -247,9 +247,14 @@ the formal charge 3, so the bond of AlAs is far from ionic.
     because in `pw.x` it does nothing. As in `pw.x`, the run uses no symmetry,
     and the code warns about it.
 
-    A finite field by the Berry phase (`lelfield`) gives an error for an
-    ultrasoft or PAW dataset, because the overlap between two k-points then
-    needs the augmentation, and the force needs its derivative. It works for
+    A finite field by the Berry phase (`lelfield`) works for an ultrasoft or PAW dataset
+    with `nspin = 1`. The overlap between two k-points then carries the augmentation
+    charge at the step $\Delta\mathbf k$, and the force comes from its derivative. We
+    checked it against `pw.x` with the field along $y$. Along $z$, `pw.x` 7.5 evaluates
+    this augmentation at $|\mathbf q| = 0$, so its polarization there is about 2 per
+    cent too small in our silicon test. With an ultrasoft or PAW dataset, `nspin = 2`, a
+    spinor, a spin spiral and a streamed wavefunction store give an error, and so does
+    the force with `method='analytic'`. It works for
     `nspin = 2` when the two channels hold the same number of electrons
     (`tot_magnetization = 0`). It gives an error for a collinear magnet, because
     `pw.x` counts the occupied bands of a channel as `nelec/2`, so there is no
@@ -257,8 +262,8 @@ the formal charge 3, so the bond of AlAs is far from ionic.
     coupling, with or without a magnetization, and for a spin spiral. For a
     spiral, each spinor component is moved along the string on its own sphere.
     We checked a spiral against its commensurate supercell, and the supercell
-    against `pw.x`. Spin-orbit coupling gives an error. A
-    streamed wavefunction store (`wfc_store = 'stream'`) works, and k-point pools
+    against `pw.x`. Spin-orbit coupling gives an error. A streamed wavefunction store
+    (`wfc_store = 'stream'`) works for a norm-conserving dataset, and k-point pools
     give an error. Only `occupations = 'fixed'` is accepted, so smearing or
     `from_input` gives an error, even for an insulator, because a Berry phase
     belongs to a gapped set of bands. With an automatic k-mesh, `pw.x` reads the
