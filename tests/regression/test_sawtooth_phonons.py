@@ -5,9 +5,11 @@ read it), so there is no reference output to compare with. The check is an
 identity instead: a column of the force constants is minus the derivative of
 the forces with respect to one coordinate, and the forces under the field are
 validated against ``pw.x`` on these same inputs to 3e-7 Ry/bohr
-(``tests/regression/test_sawtooth.py``). The central difference is taken at
-``conv_thr = 1e-13`` on every SCF of the stencil, since its noise floor is the
-force error over the step.
+(``tests/regression/test_sawtooth.py``). The central difference agrees with
+the column to about 2e-4 Ry/bohr^2, one part in 10^4; below a step of about
+0.0035 bohr the difference measures a deterministic roughness of the forces
+(about 3.5e-7 Ry/bohr) that ``conv_thr`` does not move, rather than the force
+constants.
 
 The cell is QE's ultrasoft CO molecule (``efield-co.in`` and
 ``efield-co-dipole.in``) at ``eamp = 0.01`` rather than the files' 0.001, so
@@ -47,13 +49,16 @@ PSEUDO = Path(__file__).resolve().parents[1] / "data" / "pseudo"
 IDENTITY = {"tr2": 1.0e-24, "threshold": 1.0e-12}
 CONV_THR = 1.0e-13
 EAMP = 0.01
-#: The step of the central difference, bohr. The residual falls with it as
-#: 4.1e-4, 1.1e-4, 8.6e-6 (plain field, C z column) and 3.8e-4, 1.1e-4, 8.1e-5
-#: (dipfield) at 0.01, 0.005, 0.0025; under dipfield 8e-5 is the force noise
-#: over the step, 2e-7 Ry/bohr / h (``notes/incompat/I104.md``).
+#: The step of the central difference, bohr. It sits in the roughness: the
+#: residual at it is 8.6e-6, 1.5e-6 (plain field) and 8.1e-5, 8.2e-5
+#: (dipfield), while the neighbouring steps 0.0035 and 0.00125 give up to
+#: 1.7e-4, and the Richardson pair at 0.01/0.005 leaves 1.9e-4 on O z
+#: (``notes/incompat/I104.md``).
 STEP = 0.0025
-#: The largest of the four residuals at ``STEP`` is 8.2e-5 Ry/bohr^2.
-COLUMN = 2.0e-4
+#: Set from the roughness and the Richardson offset (both up to 1.9e-4), not
+#: from the residual at ``STEP``; still 12 times under the field's effect and
+#: 300 times under the missing term.
+COLUMN = 4.0e-4
 #: The field moves the C z column by 4.9e-3 Ry/bohr^2 (eamp 0.01 against 0);
 #: leaving out the ions' dipole under dipfield moves it by 0.12.
 VISIBLE = 2.0e-3

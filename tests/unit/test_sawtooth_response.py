@@ -19,7 +19,10 @@ import pytest
 
 from defuqumat.io.pwin import parse_pw_input
 from defuqumat.pseudo import read_upf
-from defuqumat.response.phonon import dynamical_matrix
+from defuqumat.response.phonon import (
+    _require_a_measured_sawtooth_regime,
+    dynamical_matrix,
+)
 from defuqumat.response.sternheimer import require_a_sternheimer_regime
 from defuqumat.scf import Calculation
 from defuqumat.system import build_system
@@ -110,3 +113,28 @@ def test_the_dynamical_matrix_refuses_half_sphere_storage_under_the_field():
     assert calculation.gamma_only
     with pytest.raises(NotImplementedError, match="half-sphere"):
         _phonons(calculation)
+
+
+def _measured_regime(**changes):
+    """A stand-in for a ``Calculation`` in the one regime the field was run in."""
+    fields = dict(sawtooth=object(), system=SimpleNamespace(occupations="fixed"),
+                  nspin=1, noncolin=False, gamma_only=False, is_paw=False,
+                  hubbard=None)
+    fields.update(changes)
+    return SimpleNamespace(**fields)
+
+
+def test_the_measured_regime_passes_the_sawtooth_guard():
+    """Without this the refusals below could fire for any input."""
+    _require_a_measured_sawtooth_regime(_measured_regime())
+
+
+@pytest.mark.parametrize("changes,route,words", [
+    ({}, "walked", "walks the k axis"),
+    ({"noncolin": True}, "whole", "noncollinear"),
+    ({"is_paw": True}, "whole", "PAW"),
+    ({"hubbard": object()}, "whole", "DFT\\+U"),
+])
+def test_the_sawtooth_guard_refuses_each_unmeasured_regime(changes, route, words):
+    with pytest.raises(NotImplementedError, match=words):
+        _require_a_measured_sawtooth_regime(_measured_regime(**changes), route=route)

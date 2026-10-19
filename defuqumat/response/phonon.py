@@ -1083,8 +1083,8 @@ def _core_charge_response(calculation, density, positions, atoms=None,
     is that term too, and the slot fires for either. Without it the ultrasoft
     CO molecule of ``efield-co-dipole.in`` (at ``eamp = 0.01``) has its C ``z``
     column moved by 0.60 Ry/bohr^2 against force constants of 1.86, and misses
-    the central difference of the forces by 0.12 where it agrees to 8e-5 with
-    it.
+    the central difference of the forces by 0.12 where it agrees to about
+    2e-4 with it.
     """
     sawtooth = getattr(calculation, "sawtooth", None)
     dipole = sawtooth is not None and sawtooth.dipfield
@@ -2123,10 +2123,16 @@ def _require_a_measured_sawtooth_regime(calculation, route: str = "whole") -> No
     ``nspin = 1``, a single explicit ``k = 0`` on the whole sphere, on the
     route that holds every k-point at once. The two ``z`` columns agree with a
     central difference of the forces (net force removed on both sides) to
-    8.6e-6 and 1.5e-6 Ry/bohr^2 without ``dipfield`` and 8.2e-5 with it, at a
-    step of 0.0025 bohr, falling from 5e-4 at 0.01; the field itself moves
-    them by 4.9e-3 and 1.2e-3 (``tests/regression/test_sawtooth_phonons.py``). Every other regime of the matrix is refused here
-    under the field, because none of them was run with it.
+    about 2e-4 Ry/bohr^2, one part in 10^4, with or without ``dipfield``:
+    the Richardson pair at steps 0.02/0.01 and 0.01/0.005 bohr leaves 1.4e-5
+    to 2.5e-5 on C ``z`` and 1.5e-4 to 1.9e-4 on O ``z``, and below about
+    0.0035 bohr a single step measures a deterministic roughness of the force
+    difference (about 3.5e-7 Ry/bohr, not moved by ``conv_thr``) rather than
+    the force constants. The field itself moves the columns by 4.9e-3 and
+    1.2e-3 (``tests/regression/test_sawtooth_phonons.py``). Every other regime
+    of the matrix is refused here under the field, because none of them was
+    run with it: the check is ultrasoft without a Hubbard term, so PAW and
+    DFT+U are refused too.
     """
     if getattr(calculation, "sawtooth", None) is None:
         return
@@ -2143,11 +2149,16 @@ def _require_a_measured_sawtooth_regime(calculation, route: str = "whole") -> No
     if getattr(calculation, "gamma_only", False):
         unmeasured.append("half-sphere storage (K_POINTS gamma); use an "
                           "explicit k = 0 (K_POINTS 1 / 0 0 0 1)")
+    if getattr(calculation, "is_paw", False):
+        unmeasured.append("a PAW dataset (the check is ultrasoft)")
+    if getattr(calculation, "hubbard", None) is not None:
+        unmeasured.append("DFT+U")
     if unmeasured:
         raise NotImplementedError(
             "the dynamical matrix with a saw-tooth electric field (tefield) is "
             "measured only for a fixed-occupation nspin = 1 insulator on the "
-            "whole sphere, where it agrees with a central difference of the "
+            "whole sphere, on an ultrasoft dataset (norm-conserving as its "
+            "special case) without a Hubbard term, where it agrees with a central difference of the "
             "forces (notes/incompat/I104.md); not measured here: "
             + "; ".join(unmeasured)
         )
