@@ -12,6 +12,8 @@ Two comparisons, each an identity rather than an agreement:
 * the first order with the induced potential, self-consistent, against the dense
   self-consistent solve of :func:`~defuqumat.realtime.dense.dense_first_order`, and
   its static shift against the Sternheimer stack's;
+* orders one to three with the induced potential against the propagation with the
+  potential updated (I102), at two time steps;
 * the same first order on two FFT grids (``ecutrho = 8 ecutwfc``) against the
   dense solve, and with the Hartree kernel against the one-grid run of the same
   states.
@@ -323,7 +325,26 @@ def test_the_self_consistent_orders_are_the_self_consistent_propagation(pseudo_d
     ``jvp`` carries ``K``, ``K2`` and ``K3`` of the potential by itself) against
     :func:`~defuqumat.realtime.hierarchy.hierarchy_self_consistent` on the same
     states. The two share the table of the projectors and the potential's
-    functional and nothing of the solve. MEASURED
+    functional and nothing of the solve. Measured (D22, one sample each), relative
+    to the largest component of each order, at 400 and 800 steps a period:
+
+    ======  =================  =================  ========  ===========
+    (n,m)   hartree 400 / 800  hxc 400 / 800      frozen    linear K
+    ======  =================  =================  ========  ===========
+    (1,1)   1.4e-5 / 8.3e-7    1.6e-5 / 3.7e-6    3.5e-3    3.7e-6
+    (2,2)   4.0e-6 / 1.3e-6    2.0e-5 / 3.5e-6    1.7e-2    5.2e-3
+    (2,0)   1.7e-5 / 3.3e-6    3.0e-5 / 5.3e-6    1.9e-2    5.6e-3
+    (3,3)   3.0e-5 / 9.8e-6    3.3e-5 / 5.2e-6    5.0e-2    1.3e-2
+    (3,1)   2.6e-5 / 3.7e-6    4.7e-5 / 7.6e-6    4.2e-2    2.3e-2
+    ======  =================  =================  ========  ===========
+
+    falling with the step by 3 to 16, the propagation's ``dt^2`` over its start
+    transient; "frozen" is the same run at ``dv = 0`` against the ``'hxc'``
+    propagation at 800 steps (9.98e-2 to 1.8e-1 for ``'hartree'``) and "linear
+    K" the ``'hxc'`` hierarchy without ``K2`` and ``K3``, so the nonlinear
+    kernel is seen by a factor of 700 to 3000 and the update by 3000 and more.
+    The hierarchy took 48 s for the three runs, the propagation 151 to 235 s at
+    800 steps.
     """
     import jax.numpy as jnp
 
@@ -349,6 +370,14 @@ def test_the_self_consistent_orders_are_the_self_consistent_propagation(pseudo_d
         value = out["components"][key][0, 0]
         frozen = out["frozen"][key][0, 0]
         scale = max(abs(v) for k, v in references.items() if k[0] == key[0])
-        assert abs(value - references[key]) < TOLERANCE * scale, (key, value, references[key])
+        assert abs(value - references[key]) < 2e-5 * scale, (key, value, references[key])
         if key[0] > 1:
-            assert abs(frozen - references[key]) > SHIFT * scale, "the update is load-bearing"
+            assert abs(frozen - references[key]) > 1e-3 * scale, "the update is load-bearing"
+    if potential == "hxc":
+        linear = hierarchy_self_consistent(calculation, basis, energies, weights, v_scf,
+                                           omegas=(omega,), eta=eta, direction=(1.0, 0.0, 0.0),
+                                           order=3, potential=potential, nonlinear_kernel=False)
+        for key in COMPONENTS[1:]:
+            scale = max(abs(v) for k, v in references.items() if k[0] == key[0])
+            value = linear["components"][key][0, 0]
+            assert abs(value - references[key]) > 1e-3 * scale, "the nonlinear kernel is seen"

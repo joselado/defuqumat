@@ -58,6 +58,16 @@ which gives the current along all three axes at once. The table agrees with the
 radial transform the dense reference uses to 5e-15 in ``h_0`` and 6e-10 in
 ``h_4`` at 12 Ry (measured in review).
 
+**With the potential updated** (:func:`hierarchy_self_consistent`) the induced
+local potential ``dv^(p)_m`` of every order and harmonic enters the right-hand
+sides beside the field's terms, and the orders' fixed points are solved one
+after the other (orders do not feed back downwards), the nonlinear
+exchange-correlation kernel at orders two and three taken by nested ``jvp`` at
+``2N + 1`` phases of the drive. Its memory adds the induced potentials and
+densities on the smooth grid, ``2 x 5 nspin_mag nr`` complex at third order,
+and GMRES's Krylov basis of up to sixty vectors of ``2 x 2 nspin_mag nr``
+reals, which on a small cell is larger than the states.
+
 **Memory**, per k-point: the nine components and ``c0`` (``10 nocc npwx``),
 BiCGStab's six vectors for the largest order's ``4 nocc`` right-hand sides, the
 computed bands (``nb npwx``), complex; the k-points are independent at a frozen
