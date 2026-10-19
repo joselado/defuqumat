@@ -141,7 +141,15 @@ I100, I102) were combined by hand in `realtime/propagate.py`, `realtime/hierarch
   position gradient is 3.2e-4 Ry/bohr along `gdir`, nearly uniform, so after the net-force removal
   at most 3.0e-7 survives and the regression force assertion (1e-6) cannot see the cross term. The
   test gap: a fast unit test of that gradient against a central difference.
-- I97: the 1.5e-2 bound is the committed cell's; a core-charge cell reads -0.019 at 20 Ry.
+- I97: the 1.5e-2 bound is the committed cell's; a core-charge cell reads -0.019 at 20 Ry. The
+  record's "60-band floor -0.0073" is not a floor (-0.0088 at 28 Ry), and at 90 bands the residue
+  is -0.0054 at 32 Ry, past the RPA value, so the record should quote that point.
+- Smaller record corrections the verifiers list: I86, the PAW Fermi shift of `becsum` is now
+  measured (the force difference sides with the fixed code, 5.4e-6 against 5.0e-5 with it off);
+  I89, the 35 Ry `pw.x` run reads 0.693330 and the one-centre term is 5.43e-4 at 8 8 8, not
+  5.3e-4 "at every mesh"; I100, the floor of 8.07e-7 is the curvature stencil of the reference
+  (3.76e-8 at step 1e-4); I102, the spinor and two-grid identities extended to `order=3` are the
+  cheap tests to add.
 - I89: notebook 28's sentence on PAW (the record has the replacement), with its `.md` export.
 - I92: whether the result depends on `k_batch` with `ns` was not measured.
 - Fix rounds for I88, I90, I93, I99, I101 and I104, from their verifier findings (full text in each
