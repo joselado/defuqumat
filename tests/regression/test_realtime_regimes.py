@@ -319,3 +319,129 @@ def test_a_kick_inside_the_run_is_the_run_started_at_the_kick(pseudo_dir, tmp_pa
     j1b, j1a = np.asarray(ob.currents[1]), np.asarray(oa.currents[1])
     assert np.abs(j1a[n:] - j1b).max() < 1e-8 * np.abs(j1b).max()
     assert np.abs(j1a[:n]).max() < 1e-12 * np.abs(j1b).max(), "no response before the kick"
+
+
+def hubbard_identity(pseudo_dir, case="si2-ldau-nc", dt=0.05, eta=0.02, kind=None,
+                     hold=None, kset=None, u=None):
+    """``max |sigma_RT - sigma_Kubo - i D/(Omega z)| / max |reference|`` with a Hubbard U.
+
+    The identity of :func:`test_the_first_order_is_the_kubo_sum_plus_the_band_curvature`
+    on a DFT+U Hamiltonian at a frozen ``ns`` (Hund's rule's, ``n = 1/3`` on
+    the 3p shell, at the superposition of atomic charges): the dense ``H(k)``
+    with ``hubbard_terms(ns)`` rebuilt at every ``k`` by ``at_kcart``, the
+    velocity from :class:`~defuqumat.response.velocity.VelocityOperator` with
+    ``ns``, and the propagation with ``ns`` (``notes/incompat/I100.md``).
+    ``hold`` is for the A/B: ``'projectors'`` holds the chunk's ``wfcU`` at
+    ``kappa = 0``, ``'term'`` drops the Hubbard term from the propagation,
+    which is the driver as it was found with the guard lifted.
+
+    **The k-set has no Gamma** (:data:`KSET_OFF_GAMMA`), because the
+    reference is wrong there: ``VelocityOperator`` with ``ns`` differentiates
+    ``wfcU`` through :func:`~defuqumat.pseudo.atomic.atomic_wavefunctions`,
+    whose guarded harmonic and modulus zero the ``l = 1`` tangent on the
+    ``k + G = 0`` row (the trap ``pseudo.projectors._with_origin_rows`` repairs
+    for the beta functions only). On :data:`KSET` the identity reads 1.6e-2
+    at every ``dt``, and a central difference of ``<psi|H(k)|psi>`` at Gamma
+    agrees with the table at a step of 1e-3 and with ``VelocityOperator`` at
+    1e-4, inside the guard (``notes/incompat/I100.md``).
+    """
+    import re as _re
+    from defuqumat.realtime import propagate as rt
+    from defuqumat.response.conductivity import _resolvent_sum
+    from defuqumat.response.velocity import VelocityOperator
+
+    text = (CASES / f"{case}.in").read_text()
+    if kind is not None:
+        text = _re.sub(r"HUBBARD \{[a-z-]+\}", "HUBBARD {" + kind + "}", text)
+    if u is not None:
+        text = _re.sub(r"U Si-3p [0-9.dD+-]+", f"U Si-3p {u}", text)
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / f"{case}.in"
+        path.write_text(text)
+        system = build_system(read_pw_input(path))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    coords, kweights = KSET_OFF_GAMMA if kset is None else kset
+    system = eqx.tree_at(lambda s: s.kpoints, system,
+                         for_spin(KPoints(coords=coords, weights=kweights), system.nspin))
+    calc = Calculation(system, pseudos)
+    v_scf = calc.potential(calc.starting_density()).v_scf
+    ns = calc.starting_ns()
+    terms = calc.local_terms(v_scf)
+    weights = np.asarray(calc.system.kpoints.weights)
+    nk, volume = len(weights), float(calc.system.cell.volume)
+    nocc = int(round(calc.nelec / 2))
+    direction = np.array([1.0, 0.0, 0.0])
+    frequencies = np.linspace(0.02, 0.6, 30)
+    kcart = np.asarray(calc.system.kpoints.cartesian(calc.system.cell))
+
+    def dense(kc):
+        moved = calc.at_kcart(jnp.asarray(kc))
+        ham = moved.hamiltonian_from(terms, moved.hubbard_terms(jnp.asarray(ns))[2])[0]
+        return [np.asarray(ham.matrix(ik)) for ik in range(nk)], np.asarray(ham.state_mask)
+
+    mats, mask = dense(kcart)
+    nb = min(int(m.sum()) for m in mask)
+    psi = np.zeros((nk, nb, mask.shape[1]), dtype=complex)
+    eps = np.zeros((nk, nb))
+    for ik in range(nk):
+        keep = np.flatnonzero(mask[ik])
+        e, v = sla.eigh(mats[ik][np.ix_(keep, keep)])
+        psi[ik][:, keep] = v[:, :nb].T
+        eps[ik] = e[:nb]
+    elements = np.asarray(VelocityOperator(calc, v_scf, ns=jnp.asarray(ns))
+                          .generalised_matrix_elements(jnp.asarray(psi)[None],
+                                                       jnp.asarray(eps)[None]))[:, 0]
+    sigma_kubo = np.zeros(len(frequencies), dtype=complex)
+    curvature, step = 0.0, 3e-4
+    for ik in range(nk):
+        wg = np.where(np.arange(nb) < nocc, weights[ik], 0.0)
+        filling = np.where(np.arange(nb) < nocc, 1.0, 0.0)
+        value, _ = _resolvent_sum(jnp.asarray(elements[:, ik]), jnp.asarray(eps[ik]),
+                                  jnp.asarray(wg), jnp.asarray(filling),
+                                  jnp.asarray(2.0 * (frequencies + 1j * eta)), 1e-8)
+        sigma_kubo += np.asarray(value)[:, 0, 0] / volume
+        sums = []
+        for x in (-step, 0.0, step):
+            moved, _ = dense(kcart + x * direction[None, :])
+            keep = np.flatnonzero(mask[ik])
+            sums.append(np.sum(sla.eigvalsh(moved[ik][np.ix_(keep, keep)])[:nocc]))
+        curvature += weights[ik] * (sums[0] - 2 * sums[1] + sums[2]) / step**2
+    z = frequencies + 1j * eta
+    reference = sigma_kubo + 1j * curvature / (volume * 2.0 * z)
+    original = rt._Chunk.hubbard_at
+    if hold == "projectors":
+        rt._Chunk.hubbard_at = lambda self, kappa: original(self, jnp.zeros_like(kappa))
+    elif hold == "term":
+        rt._Chunk.hubbard_at = lambda self, kappa: None
+    try:
+        result = propagate_orders(
+            calc, psi[:, :nocc], np.repeat(weights[:, None], nocc, axis=1), v_scf,
+            Kick(strength=1.0, direction=tuple(direction)), dt=dt, order=1, start=0.0,
+            duration=22.0 / eta, k_batch=None, block_steps=1000, ns=ns)
+    finally:
+        rt._Chunk.hubbard_at = original
+    sigma = conductivity_from_kick(result.times, result.currents[1], 1.0, direction,
+                                   frequencies, eta).sigma[:, 0]
+    return float(np.abs(sigma - reference).max() / np.abs(reference).max())
+
+
+#: Two points of no symmetry and no ``k + G = 0`` row (:func:`hubbard_identity`).
+KSET_OFF_GAMMA = (np.array([[0.1, 0.05, 0.02], [0.25, 0.1, -0.05]]), np.array([0.5, 0.5]))
+
+
+def test_the_first_order_with_a_hubbard_u_is_the_kubo_sum_plus_the_band_curvature(pseudo_dir):
+    """:func:`hubbard_identity` at ``dt = 0.05``, ``eta = 0.02`` Hartree, atomic projectors.
+
+    The tolerance is the converged number's (``notes/incompat/I100.md``,
+    D22): 8.125e-7, 8.075e-7 and 8.073e-7 at ``dt`` = 0.1, 0.05 and 0.025, the
+    step's share falling 25x on a halving (fourth order) to a floor that
+    ``eta`` = 0.05 leaves at 8.6e-7. Holding the Hubbard projectors at
+    ``kappa = 0`` reads 0.90, and dropping the term from the propagation, the
+    driver as it was found, 0.69.
+    """
+    assert hubbard_identity(pseudo_dir, dt=0.05) < HUBBARD_IDENTITY_TOLERANCE
+
+
+#: 2.5 times the converged floor, 8.07e-7 (``notes/incompat/I100.md``).
+HUBBARD_IDENTITY_TOLERANCE = 2e-6

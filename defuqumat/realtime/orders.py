@@ -45,7 +45,8 @@ import numpy as np
 from defuqumat.eager import compiled_function
 from defuqumat.realtime.propagate import (
     _block_function, _check_growth, _chunk_weights, _extra_slice, _norms_of, _padded_grid,
-    _prepare, _warn_damping, channel_arrays, jump_arrays, kappa_rate, kick_jumps, time_grid)
+    _prepare, _warn_damping, channel_arrays, jump_arrays, kappa_rate, kick_jumps,
+    refuse_an_updated_hubbard, time_grid)
 
 __all__ = ["OrdersResult", "propagate_orders", "fourier_component"]
 
@@ -157,7 +158,8 @@ def propagate_orders(calculation, states, weights, v_scf, shape, *, dt: float,
                      start: float | None = None, propagator: str = "taylor4",
                      k_batch="default", block_steps: int = 400,
                      kcart=None, potential: str = "frozen", corrector: int = 1,
-                     symmetrise=None, density_symmetry=None, ddd_paw=None) -> OrdersResult:
+                     symmetrise=None, density_symmetry=None, ddd_paw=None,
+                     ns=None) -> OrdersResult:
     """``J^(n)(t)`` for ``n <= order`` under ``kappa(t) = lam * shape(t)``, at ``lam = 0``.
 
     ``shape`` is a :class:`~defuqumat.realtime.pulse.Pulse` whose amplitude is the
@@ -170,9 +172,12 @@ def propagate_orders(calculation, states, weights, v_scf, shape, *, dt: float,
     (:func:`~defuqumat.realtime.selfconsistent.propagate_orders_self_consistent`),
     where ``density_symmetry`` completes the wedge's density. A collinear
     ``nspin = 2`` run's channels are independent at a frozen potential and
-    their orders add.
+    their orders add. ``ns`` is the Hubbard occupation matrix of a DFT+U
+    ground state, frozen with the potential
+    (:mod:`defuqumat.realtime.hubbard`).
     """
     if potential != "frozen":
+        refuse_an_updated_hubbard(calculation, ns, potential)
         from defuqumat.realtime.selfconsistent import propagate_orders_self_consistent
 
         return propagate_orders_self_consistent(
@@ -185,7 +190,7 @@ def propagate_orders(calculation, states, weights, v_scf, shape, *, dt: float,
         _orders_channel(calculation, own, carried, v_scf, shape, dt=dt, order=order,
                         duration=duration, start=start, propagator=propagator,
                         k_batch=k_batch, block_steps=block_steps, kcart=kcart,
-                        symmetrise=symmetrise, channel=channel, ddd_paw=ddd_paw)
+                        symmetrise=symmetrise, channel=channel, ddd_paw=ddd_paw, ns=ns)
         for channel, (own, carried) in enumerate(channel_arrays(calculation, states, weights))]
     if len(results) == 1:
         return results[0]
@@ -196,7 +201,7 @@ def propagate_orders(calculation, states, weights, v_scf, shape, *, dt: float,
 
 def _orders_channel(calculation, states, weights, v_scf, shape, *, dt, order, duration,
                     start, propagator, k_batch, block_steps, kcart, symmetrise, channel,
-                    ddd_paw) -> OrdersResult:
+                    ddd_paw, ns=None) -> OrdersResult:
     """:func:`propagate_orders` at a frozen potential for one channel's states."""
     states = np.asarray(states)
     weights = np.asarray(weights, dtype=float)
@@ -206,7 +211,7 @@ def _orders_channel(calculation, states, weights, v_scf, shape, *, dt, order, du
     # The primal is the unperturbed evolution: the field is zero at lam = 0, so
     # the spectrum the step has to be stable for is that of H(k).
     setup = _prepare(calculation, states, weights, v_scf, 0.0, dt, propagator,
-                     k_batch, kcart, channel=channel, ddd_paw=ddd_paw)
+                     k_batch, kcart, channel=channel, ddd_paw=ddd_paw, ns=ns)
     real = setup.real
     a_mid_p, a_end_p, dts, nblocks = _padded_grid(a_mid, a_t[1:], nsteps, block_steps,
                                                   setup.dt_ry)
