@@ -100,8 +100,15 @@ def drude_identity(nk: int = 4, nbnd: int = 12, eta: float = 0.01,
     return here, there, plasma2, w + 1j * eta
 
 
-def fsum(nk: int, nbnd: int = 16, height: float = 1.0e4):
+def fsum(nk: int, nbnd: int = 16, height: float = 1.0e4, smearing: str | None = None,
+         degauss: float | None = None):
     """``(spectral weight with the Drude block, without it, diamagnetic weight)``, Ry^2.
+
+    On the 8x8x8 density of ``al-conductivity``, the states solved on the
+    whole unshifted ``nk^3`` grid; ``smearing`` and ``degauss`` replace the
+    input's for the fixed-density run, since the identity is one about the
+    k-sum of ``d(f de/dk)/dk`` for any smooth ``f`` and not about the
+    self-consistent density.
 
     The spectral weight is ``-Y^2 X_head(iY)`` at ``Y = height``, the
     asymptote ``X_head -> C/z^2``, read off one frequency rather than an
@@ -109,9 +116,20 @@ def fsum(nk: int, nbnd: int = 16, height: float = 1.0e4):
     diamagnetic weight is ``(8 pi/Omega) sum_k sum_n wg_n <n|d2H/dk_a^2|n>``
     averaged over ``a``, the operator's second derivative at frozen states.
     """
-    import defuqumat.tddft.chi0 as chi0_module
+    import equinox as eqx
 
-    system, pseudos, result = _aluminium(nk)
+    import defuqumat.tddft.chi0 as chi0_module
+    from defuqumat.system.kpoints import KPoints
+
+    _, pseudos, result = _aluminium(8)
+    text = (CASES / "al-conductivity.in").read_text()
+    if smearing is not None:
+        text = text.replace("smearing = 'marzari-vanderbilt', degauss = 0.05",
+                            f"smearing = '{smearing}', degauss = {degauss}")
+    system, _ = _system(text)
+    points = KPoints.automatic((nk, nk, nk), (0, 0, 0), system.cell,
+                               precision=system.cell.precision)
+    system = eqx.tree_at(lambda s: s.kpoints, system, points)
     calculation, _, eigenvalues, psi = fixed_density_states(
         system, pseudos, result.density, nbnd=nbnd, conv_thr=1e-10)
     v_scf = calculation.potential(result.density).v_scf
