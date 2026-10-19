@@ -43,3 +43,14 @@ full verifier reports are in the D22 log directories each one names, `/l/ladovj1
 
 - Step 0: branch made from master `63804fc5`, this file written. Every branch tip matched the
   reported sha, and every branch sits on `6c5b3a36`.
+- Step 1: merged, with `--no-ff` and one commit each, I86, I87, I89, I92, I97, I98, I100, I102,
+  I103 and I110. Two merges conflicted, both plainly, and both sides were kept. I100 against I98
+  in `realtime/propagate.py` (two docstring lines) and `workflows/realtime.py` (the update dict
+  takes I100's `ns` under I98's condition for the one-centre `D`); I102 against I98 in
+  `realtime/hierarchy.py` (I102's order check and I98's `route="hierarchy"` on the same guard).
+  After each overlap the fast files of both sides were run here: `test_overlap_metal_phonon.py`,
+  `test_elastic_augmented.py` and `test_sibling_refusals.py` after I87 (49 passed),
+  `test_realtime.py` and `test_realtime_hubbard.py` after I100 (23 passed, 11 deselected), and
+  those two with `test_hierarchy_two_grids.py` after I102 (32 passed, 11 deselected). Record files
+  only, each path under `notes/incompat/` taken by name from its branch, from I88, I90, I91, I93,
+  chi0 (I94 to I96), I99, I101, I104, I105, I106, sourcefree (I107 to I109) and I114.
