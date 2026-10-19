@@ -92,6 +92,7 @@ __all__ = [
     "as_onecentre_becsum",
     "from_onecentre_coefficients",
     "onecentre_deeq",
+    "ultracell_overlap",
 ]
 
 
@@ -711,3 +712,86 @@ def onecentre_deeq(ddd_per_copy, reference_ddd, augmentation, nspin: int):
             rows.append(table.block_matrix(blocks))
         out.append(jnp.stack(rows))
     return jnp.stack(out, axis=1)
+
+
+# -- S on an ultracell state's own plane-wave vector ---------------------------
+
+
+def ultracell_overlap(psi, ik0: int, *, projectors, k_crystal, ultracell,
+                      qq=None, qq_so=None, npol: int = 1, padding=None):
+    """``S|Psi>`` for ultracell states on their ``N npwx`` sphere, over every copy.
+
+    ``psi`` is ``(rows, npol N npwx)``, the layout
+    :meth:`~defuqumat.ultracell.states.UltracellStates.block` builds (component,
+    then ``Q``, then the plane wave). The operator is the ultracell's own,
+
+        S = 1 + sum_{a,R} sum_ij q_ij |beta^{a,R}_i><beta^{a,R}_j|,
+
+    with ``R`` running over the ``N`` unit-cell translations inside the
+    ultracell, so nothing in it assumes the answer the Gram matrix is asked
+    for. A copy's projector on the plane wave ``k0 + Q + G`` is the unit
+    cell's ``vkb`` at the folded point ``k0 + Q`` times ``e^{-i(k0+Q).R}`` (the
+    ``e^{-iG.R}`` is one), and ``N^{-1/2}`` because the state is normalised
+    over ``N Omega`` where ``vkb`` is normalised over ``Omega``. So
+
+        B^R_i = N^{-1/2} sum_Q e^{+i(k0+Q).R} <vkb_{k0+Q,i}|Psi_Q>
+
+    and ``S Psi`` adds ``N^{-1/2} e^{-i(k0+Q).R} vkb_{k0+Q} (q B^R)`` back on
+    each ``Q``-slice. The copy sum ``sum_R e^{i(Q'-Q).R}`` is ``N delta_QQ'``,
+    so this *equals* the unit cell's ``s_psi`` applied ``Q`` by ``Q``; it is
+    written with the copies rather than as that block diagonal so that the
+    vanishing of the cross-``Q`` term is computed here and not assumed, and
+    ``tests/unit/test_ultracell_overlap.py`` holds the two against each other.
+
+    Args:
+        projectors: the folded-k
+            :class:`~defuqumat.pseudo.projectors.Projectors`, ordered
+            ``ik = ik0 N + iq`` as :func:`~defuqumat.ultracell.grid.folded_kpoints`
+            builds them.
+        k_crystal: ``(nk0 N, 3)`` the folded points in the unit cell's crystal
+            basis, the k-set ``projectors`` was built on.
+        qq: ``(nkb, nkb)`` the collinear augmentation integrals; ``qq_so``
+            ``(2, 2, nkb, nkb)`` the spinor ones (spin-orbit blocks included),
+            used when ``npol = 2``.
+        padding: ``(N, npwx)`` the folded spheres' mask at this ``k0``; the
+            result is zeroed on the pad.
+
+    Peak: the ``N`` projector arrays of one ``k0``, ``N npwx nkb`` complex, and
+    ``rows x npol x N x nkb`` projections; below the ``(rows, npol N npwx)``
+    block it is applied to whenever ``nkb < rows``.
+    """
+    cells = int(ultracell.cells)
+    npol = int(npol)
+    ik0 = int(ik0)
+    rows = int(psi.shape[0])
+    npwx = int(psi.shape[-1]) // (npol * cells)
+    vkb = jnp.stack([projectors.at_k(ik0 * cells + iq) for iq in range(cells)])
+    dtype = vkb.dtype
+    blocks = jnp.asarray(psi, dtype=dtype).reshape(rows, npol, cells, npwx)
+
+    translations = np.stack(np.meshgrid(
+        *[np.arange(n) for n in ultracell.shape], indexing="ij"),
+        axis=-1).reshape(-1, 3)
+    k_here = np.asarray(k_crystal, dtype=float)[ik0 * cells:(ik0 + 1) * cells]
+    # ``(N_R, N_Q)`` the Bloch phase of each copy at each folded point.
+    phase = jnp.asarray(
+        np.exp(2j * np.pi * (translations @ k_here.T)) / np.sqrt(cells),
+        dtype=dtype)
+
+    per_q = jnp.einsum("qgk,raqg->raqk", vkb.conj(), blocks)
+    per_copy = jnp.einsum("Rq,raqk->raRk", phase, per_q)
+    if npol == 1:
+        if qq is None:
+            return psi
+        weighted = jnp.einsum("ij,raRj->raRi", jnp.asarray(qq, dtype=dtype),
+                              per_copy)
+    else:
+        if qq_so is None:
+            return psi
+        weighted = jnp.einsum("abij,rbRj->raRi", jnp.asarray(qq_so, dtype=dtype),
+                              per_copy)
+    added = jnp.einsum("qgk,Rq,raRk->raqg", vkb, phase.conj(), weighted)
+    out = blocks + added
+    if padding is not None:
+        out = jnp.where(jnp.asarray(padding, dtype=bool)[None, None], out, 0.0)
+    return out.reshape(rows, npol * cells * npwx)

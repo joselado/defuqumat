@@ -55,7 +55,10 @@ from defuqumat.basis.builder import build_basis
 from defuqumat.scf.driver import Calculation, run_scf
 from defuqumat.ultracell import run_ultracell, with_external_potential
 from defuqumat.workflows.transport import run_vertical_transport
-from defuqumat.workflows.ultracell import run_ultracell_transport
+from defuqumat.workflows.ultracell import (
+    run_ultracell_stm,
+    run_ultracell_transport,
+)
 
 pytestmark = pytest.mark.regression
 
@@ -1022,23 +1025,76 @@ def test_the_augmented_exit_plane_transmission_is_the_unit_cell_s_tiled(
     assert ours.notes["hermiticity"] < 1.0e-13
     assert ours.least_eigenvalue > -1.0e-12
 
-    # **The whole-cell diagnostic is the one thing still refused**, because it
-    # is the one Gram matrix that is <psi|S|psi>. Widening the exit region to
-    # the cell puts both planes inside the spheres by construction, so this is
-    # the refusal by name rather than the guard below.
-    with pytest.raises(NotImplementedError, match="whole-cell Gram matrix"):
-        run_ultracell_transport(calculator.system, calculator.pseudos, result,
-                                shape=(4, 4), exit_region="volume", **geometry)
-
-    # And the guard that replaces the old dataset refusal fires: a plane at the
+    # The guard that replaces the old dataset refusal fires: a plane at the
     # atom is inside the augmentation sphere, where the smooth state is not the
     # true one. Tested rather than trusted -- it is a refusal that has to be
-    # *reached* through two new call sites.
-    for moved in (dict(exit_height=0.5), dict(height=0.5)):
+    # *reached* through two new call sites. The tip's guard still fires with
+    # the whole cell as the exit region (I115 lifted only the Gram matrix's
+    # refusal there, not the tip's).
+    for moved in (dict(exit_height=0.5), dict(height=0.5),
+                  dict(height=0.5, exit_region="volume")):
         with pytest.raises(NotImplementedError, match="augmentation sphere"):
             run_ultracell_transport(
                 calculator.system, calculator.pseudos, result, shape=(4, 4),
                 **{**geometry, **moved})
+
+
+#: I115, set from the D22 harness (notes/incompat/I115.md): the whole-cell
+#: transmission against the image, and the Gram matrix against the identity.
+IMAGE_TOL_I115 = 1.0e-9
+GRAM_TOL_I115 = 1.0e-9
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("dataset", list(DATASETS))
+def test_the_augmented_whole_cell_transmission_is_the_image(
+        dataset, tmp_path, pseudo_dir):
+    """I115: ``exit_region = 'volume'`` on an augmented ultracell is its image.
+
+    ``test_ultracell_stm.py``'s whole-cell identity on the sheet, where the
+    Gram matrix is ``<Psi|S|Psi>`` with ``S`` summed over the ``N`` copies of
+    every atom. On a **modulated** state, so that the ultracell state mixes
+    ``Q`` and the cross-``Q`` augmentation term is something the Gram matrix
+    could carry. NUMBERS_I115 below are what the D22 harness measured
+    (notes/incompat/I115.md); with ``S`` switched off the same two numbers are
+    the augmentation charge, a few per cent, which is what makes this a check.
+    """
+    shape, kgrid = (2, 1, 1), (2, 4, 1)
+    calculator = _sheet(tmp_path, pseudo_dir, dataset)
+    scf = calculator.get_scf()
+    assert scf.converged
+    energy = float(scf.fermi_energy)
+    result = run_ultracell(
+        calculator.system, calculator.pseudos, scf, shape, kgrid, nbnd=12,
+        external=_modulation(shape), conv_thr=1e-10, states_conv_thr=1e-11)
+    assert result.converged
+    geometry = dict(height=0.85, axis=2, shape=(12, 4))
+    image = np.asarray(run_ultracell_stm(
+        calculator.system, calculator.pseudos, result, energy=energy,
+        width=0.05, **geometry).values)
+    ours = run_ultracell_transport(
+        calculator.system, calculator.pseudos, result, exit_height=0.15,
+        exit_axis=2, energies=energy, broadening=0.05, exit_region="volume",
+        **geometry)
+    assert image.max() > 0.0
+    assert (np.abs(np.asarray(ours.image) - image).max() / image.max()
+            < IMAGE_TOL_I115)
+
+    # The Gram matrix itself, one level down, against the identity; and the
+    # same matrix without ``S``, which has to miss by the augmentation charge.
+    import defuqumat.workflows.ultracell as workflow
+    from defuqumat.transport.substrate import volume_overlap
+    states = result.states
+    apply_s = workflow._ultracell_overlap_operator(
+        calculator.system, calculator.pseudos, states, "volume")
+    for ik in range(states.nk0):
+        block = np.asarray(states.block(0, ik))
+        gram = volume_overlap(block, states.mask(ik), int(states.npol),
+                              overlap=lambda p, i=ik: apply_s(p, i))
+        plain = volume_overlap(block, states.mask(ik), int(states.npol))
+        eye = np.eye(gram.shape[0])
+        assert np.abs(gram - eye).max() < GRAM_TOL_I115
+        assert np.abs(np.diag(plain) - 1.0).max() > 1.0e-2
 
 
 @pytest.mark.slow

@@ -300,10 +300,11 @@ def run_ultracell_transport(
         exit_region: ``"plane"``, the substrate, or ``"volume"``, which widens
             the exit region to the whole ultracell and must then reproduce
             :func:`run_ultracell_stm` exactly -- the Tersoff-Hamann limit, and
-            the check that the two normalisations agree. The diagnostic is the
-            one part of this that an **ultrasoft or PAW** dataset is refused
-            for, because the whole cell's Gram matrix is ``<psi|S|psi>`` where
-            the plane's is not; the transmission itself runs.
+            the check that the two normalisations agree. On an **ultrasoft or
+            PAW** dataset the whole cell's Gram matrix is ``<psi|S|psi>``, with
+            ``S`` summed over the ``N`` copies of every atom, where the plane's
+            needs no ``S``; the diagnostic builds a folded-k
+            :class:`~defuqumat.scf.driver.Calculation` for the projectors.
 
     **What is held at once** is one ``k0``'s block of ``N nbnd`` states, built
     on demand (:meth:`~defuqumat.ultracell.states.UltracellStates.block`), and the
@@ -324,7 +325,6 @@ def run_ultracell_transport(
         axis = exit_axis
     _check_bias_axis(bias, nenergies, broadening)
     _refuse_what_has_no_tip_energy(system, result)
-    _refuse_an_augmented_volume_diagnostic(pseudos, exit_region)
     _refuse_a_stacked_ultracell(states, exit_axis)
     _refuse_a_k_set_this_cannot_sum(states, exit_axis)
     # **Both planes have to clear the augmentation spheres**, which is the one
@@ -365,7 +365,10 @@ def run_ultracell_transport(
         degeneracy_tol, DEGENERACY_TOL, ethr=0.0,
         site="the ultracell transport's channel basis")
     values, extras = _assemble(
-        _ultracell_geometry(states), states, np.asarray(states.eigenvalues),
+        _ultracell_geometry(
+            states, _ultracell_overlap_operator(system, pseudos, states,
+                                                exit_region)),
+        states, np.asarray(states.eigenvalues),
         points / scale,
         exit_height=float(exit_height), exit_axis=exit_axis,
         energies=grid_energies, broadening=float(broadening),
@@ -510,64 +513,107 @@ def run_ultracell_sts(
     )
 
 
-def _refuse_an_augmented_volume_diagnostic(pseudos, exit_region: str) -> None:
+def _ultracell_overlap_operator(system, pseudos, states, exit_region: str):
     """``S`` over the whole ultracell, which only the diagnostic asks for.
 
-    **The plane needs no ``S`` and that is where the wider refusal was wrong.**
-    What stood here refused an augmented dataset outright, on the reading that
-    an exit-plane Gram matrix is built from the whole state and that the unit
-    cell's route hands the assembly ``calculation._overlap`` for it. Neither
-    half holds. ``_assemble`` passes that operator to
+    **The plane needs no ``S``.** ``_assemble`` passes the operator to
     :func:`~defuqumat.transport.substrate.volume_overlap` alone; the plane goes
     through :func:`~defuqumat.transport.substrate.exit_overlap`, which collapses
     the sphere onto its shadow on the surface reciprocal lattice at one height
     in the **vacuum**, where a pseudo-wavefunction is the true one and the
-    augmentation charge is zero. It is the same argument that lets the image
-    and the spectrum run, and the guard that goes with it is the same one --
-    :func:`~defuqumat.workflows.transport._refuse_an_augmented_plane`, asked here
-    of the exit plane as well as of the tip.
+    augmentation charge is zero, and the guard that goes with it is
+    :func:`~defuqumat.workflows.transport._refuse_an_augmented_plane`, asked of
+    the exit plane as well as of the tip. So this returns ``None`` (the
+    identity) for the plane on any dataset and for the whole cell on a
+    norm-conserving one, where ``S`` *is* the identity.
 
-    So what is left to refuse is ``exit_region = "volume"``, the Tersoff-Hamann
-    diagnostic, which widens the exit region to the whole cell and therefore
-    does want ``<psi|S|psi>``. Two things are true of it and only the second is
-    a reason to refuse: ``S`` in an ultracell state's *plane-wave*
-    representation is a piece of work, because the state spans ``N`` unit-cell
-    spheres with their own projectors; and the answer is known without it, since
-    the frozen basis is exactly ``S``-orthonormal across ``Q``
-    (:mod:`defuqumat.ultracell.augmentation`), so the Gram matrix is the identity
-    by construction. Handing the assembly that identity would make the
-    diagnostic pass without looking at anything -- where the norm-conserving
-    one builds it from the coefficients and so checks the reconstruction on the
-    way -- which is a check whose null result cannot be told from a pass. The
-    plain ``sum_G c* c`` is the other option and is short by the augmentation
-    charge, 3 to 9 per cent on the cells ``volume_overlap`` measured it on.
+    **The whole cell on an ultrasoft or PAW dataset wants ``<Psi|S|Psi>``**, and
+    it is built here from the coefficients and the operator
+    (:func:`~defuqumat.ultracell.augmentation.ultracell_overlap`, the ``N``
+    copies of every atom summed explicitly), which is the norm-conserving
+    diagnostic's own construction with ``S`` in place of ``1``: the Gram matrix
+    is the identity only if the frozen states are ``S``-orthonormal at each
+    ``k0 + Q``, the envelope vectors are unitary, the ``(Q, p)`` reconstruction
+    is right and the cross-``Q`` copy sum vanishes, and none of the four is
+    assumed. Handing the assembly ``np.eye`` instead would have been the check
+    whose null cannot be told from a pass; the plain ``sum_G c* c`` is short by
+    the augmentation charge, 3 to 9 per cent where ``volume_overlap`` measured
+    it.
+
+    The projectors come from a :class:`~defuqumat.scf.driver.Calculation` on
+    the folded k-set, rebuilt here because the result does not carry it, and
+    **its spheres are checked against the states' before it is used**: the
+    folded box index of every plane wave has to equal the one the states were
+    scattered with, or the projections would pair a coefficient with another
+    plane wave's projector -- a Gram matrix off by a few per cent, which reads
+    exactly like the missing term.
     """
     if exit_region != "volume":
-        return
-    if any(p.is_ultrasoft or p.is_paw for p in pseudos):
-        raise NotImplementedError(
-            "exit_region='volume' refuses an ultrasoft or PAW dataset: the "
-            "whole-cell Gram matrix is <psi|S|psi>, and S in an ultracell "
-            "state's plane-wave representation spans N unit-cell spheres with "
-            "their own projectors and is not written. The transmission itself "
-            "(exit_region='plane') runs on such a dataset, because both planes "
-            "are in the vacuum where a pseudo-wavefunction is the true one"
-        )
+        return None
+    if not any(p.is_ultrasoft or p.is_paw for p in pseudos):
+        return None
+
+    import equinox as eqx
+
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system.kpoints import for_spin
+    from defuqumat.ultracell.augmentation import ultracell_overlap
+    from defuqumat.ultracell.driver import _box_indices
+    from defuqumat.ultracell.grid import folded_kpoints
+
+    ultracell = states.ultracell
+    k0_crystal = np.asarray(states.k0_crystal, dtype=float)
+    # The k0 mesh is unshifted Monkhorst-Pack (``folded_kpoints``), so its
+    # division along each axis is the number of distinct coordinates on it.
+    kgrid = tuple(int(np.unique(np.round(k0_crystal[:, i], 10)).size)
+                  for i in range(3))
+    k0, folded = folded_kpoints(ultracell, kgrid, system.cell,
+                                precision=system.kpoints.precision)
+    if not np.allclose(np.asarray(k0.crystal(system.cell)), k0_crystal,
+                       atol=1e-10):
+        raise RuntimeError(
+            "the ultracell's k0 points could not be rebuilt as a folded "
+            "Monkhorst-Pack set, so the whole-cell overlap has no projectors "
+            "to be built on")
+    folded_system = eqx.tree_at(lambda s: s.kpoints, system,
+                                for_spin(folded, int(system.nspin)))
+    calculation = Calculation(folded_system, pseudos)
+    if not np.array_equal(
+            _box_indices(ultracell, calculation, states.nk0),
+            np.asarray(states.box_index)):
+        raise RuntimeError(
+            "the folded spheres rebuilt for the whole-cell overlap are not the "
+            "ones the ultracell states live on; the projections would pair "
+            "coefficients with another plane wave's projector")
+
+    npol = int(states.npol)
+    qq = calculation.projectors.qq
+    qq_so = getattr(calculation, "qq_so", None)
+    k_crystal = np.asarray(folded.crystal(system.cell))
+    padding = np.asarray(states.padding)
+
+    def apply_s(psi, ik0):
+        return ultracell_overlap(
+            psi, int(ik0), projectors=calculation.projectors,
+            k_crystal=k_crystal, ultracell=ultracell, qq=qq, qq_so=qq_so,
+            npol=npol, padding=padding[int(ik0)])
+
+    return apply_s
 
 
-def _ultracell_geometry(states) -> TransportGeometry:
+def _ultracell_geometry(states, apply_s=None) -> TransportGeometry:
     """Where an ultracell's bands live, as the transmission's own bundle.
 
-    The overlap is ``None`` rather than a function, and the three cases that
-    reach this bundle are each exact with it. For the **plane**, on any dataset:
-    ``exit_overlap`` integrates over one height in the vacuum, where the
-    augmentation charge is zero and a pseudo-wavefunction is the true one, so
-    nothing between it and the answer wants ``S``. For the **whole cell** on a
-    norm-conserving dataset, because there ``S`` *is* the identity and
-    ``sum_G c* c`` is orthonormality itself -- which is what makes that
-    diagnostic a check rather than a tautology. For the whole cell on an
-    augmented one it would not be exact, and that is the one combination
-    :func:`_refuse_an_augmented_volume_diagnostic` refuses. The spectrum
+    The overlap is ``None`` rather than a function in three cases, each exact
+    with it. For the **plane**, on any dataset: ``exit_overlap`` integrates
+    over one height in the vacuum, where the augmentation charge is zero and a
+    pseudo-wavefunction is the true one, so nothing between it and the answer
+    wants ``S``. For the **whole cell** on a norm-conserving dataset, because
+    there ``S`` *is* the identity and ``sum_G c* c`` is orthonormality itself
+    -- which is what makes that diagnostic a check rather than a tautology. For
+    the whole cell on an augmented one it would be short by the augmentation
+    charge, so ``apply_s`` is the ultracell's ``S``
+    (:func:`_ultracell_overlap_operator`). The spectrum
     (:func:`run_ultracell_sts`) takes this bundle too and samples the state at a
     point, which is the first case again. The peak here is the stacked Miller
     indices, ``nk0 x N npwx x 3`` integers, which is small beside the one
@@ -581,7 +627,7 @@ def _ultracell_geometry(states) -> TransportGeometry:
         kweights=np.asarray(states.weights, dtype=float),
         cell=states.ultracell_cell,
         npol=int(states.npol),
-        apply_s=None,
+        apply_s=apply_s,
     )
 
 
