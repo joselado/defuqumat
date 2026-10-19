@@ -143,6 +143,7 @@ from defuqumat.response.sternheimer import (
 )
 from defuqumat.response.velocity import over_kpoints
 from defuqumat.batching import map_k
+from defuqumat.scf.occupations import wgauss
 from defuqumat.system.symmetry import (
     atom_mapping, cartesian_rotations, orbit_closure, subset_atom_mapping,
 )
@@ -353,8 +354,8 @@ def dynamical_matrix(
             take their shape from what they are handed (``multiplier_response``
             from ``bare``, ``orthogonality_states`` from ``derivatives``) rather
             than from ``nat``, and that is the reason to prefer such a shape.
-            An ultrasoft or PAW **metal** stays refused, for the reason
-            :func:`_require_a_moving_overlap_regime` gives and not for this one.
+            An ultrasoft or PAW **metal**'s subset is refused, because only its
+            whole cell is measured (:func:`_require_a_measured_overlap_metal`).
 
             **With symmetry the subset must be a union of orbits**, because
             ``symdvscf`` symmetrises the responses *together* -- an operation
@@ -400,7 +401,10 @@ def dynamical_matrix(
     # :func:`_require_no_spinor` is what refuses it, with the numbers.
     require_a_sternheimer_regime(calculation, metals=True, gamma_ok=True,
                                  spin_polarized=True, noncollinear=True)
-    _require_a_moving_overlap_regime(calculation)
+    # The ultrasoft or PAW *metal* is implemented on the whole-k route
+    # (``notes/incompat/I86.md``); what is still refused of it is decided here,
+    # and the walked route refuses it below.
+    _require_a_measured_overlap_metal(calculation, atoms)
 
     structure = calculation.system.structure
     positions = jnp.asarray(structure.positions)
@@ -416,6 +420,7 @@ def dynamical_matrix(
     walked = None if response is None else getattr(response, "walked", None)
     if walked is not None:
         _require_one_spin_channel(calculation)
+        _require_no_walked_overlap_metal(calculation)
         if chosen is not None and calculation.use_symmetry:
             # I51 admits a closed subset with symmetry on the whole-k route
             # only; I54's row map on the walked route was measured on ``nosym``
@@ -454,6 +459,7 @@ def dynamical_matrix(
         what="the dynamical matrix")
     if streamed:
         _require_one_spin_channel(calculation)
+        _require_no_walked_overlap_metal(calculation)
     if streamed and chosen is not None and calculation.use_symmetry:
         # The closed-subset symmetrisation is threaded through
         # :class:`~defuqumat.response.chunked_phonon.StreamedDisplacements` but
@@ -590,6 +596,7 @@ def _whole_k(calculation, solver, positions, wavefunctions, eigenvalues,
     (rho_moved, bec_moved), (rho_ort, bec_ort) = non_variational_response(
         calculation, positions, wavefunctions, weights,
         jnp.asarray(density), becsum, ort, chosen,
+        state_weights=_state_weights(solver, weights),
     )
     drhous_stacked = moved_stacked = becsumort = bec_moved_sym = None
     if rho_moved is not None:
@@ -892,6 +899,7 @@ def screening_loop(
     )
 
     mixer = ResponseMixer(mixing_mode, beta=alpha_mix)
+    fermi_becsum = None
     for iteration in range(max_iterations):
         response, becsum_response = displacements.respond(
             dvscf, onecentre, iteration > 0,
@@ -906,10 +914,38 @@ def screening_loop(
         # scalar under the group, so symmetrising ``def ldos`` as part of the
         # displacement-labelled vector field is ``sym_def`` by another route.
         shifts = None
-        if solver.smearing is not None:
+        if solver.smearing is not None and drhous is not None and not host:
+            # **The count includes ``drhous``**, as ``solve_linter`` counts it:
+            # ``ef_shift`` there acts on ``drhoscfh`` after ``addusddens`` has
+            # added the orthogonality part. Its two halves integrate to zero
+            # together in exact arithmetic (``Tr[S' gamma]`` against
+            # ``-sum wk W_nn S'_nn``), so this is QE's order rather than a term.
+            flat = drhous.reshape((rows * 3,) + grid_shape)
+            corrected = [displacements.fermi_level_shift(r + extra)
+                         for r, extra in zip(response, flat)]
+            response = [r - extra for (r, _), extra in zip(corrected, flat)]
+            shifts = [float(d) for _, d in corrected]
+        elif solver.smearing is not None:
             corrected = [displacements.fermi_level_shift(r) for r in response]
             response = [r for r, _ in corrected]
             shifts = [float(d) for _, d in corrected]
+        if shifts is not None and becsum_response:
+            # ``ef_shift``'s PAW branch: the level's motion fills the Fermi
+            # surface's projector occupations too, ``dbecsum += def becsum1``,
+            # and the one-centre potential responds to them. ``becsum1`` is the
+            # raw ``becsum`` at the smeared delta's weight -- the same builder
+            # :meth:`~defuqumat.response.sternheimer.SternheimerSolver.
+            # local_density_of_states` augments its ``ldos`` with -- and it is
+            # what :meth:`~defuqumat.response.sternheimer.SternheimerSolver.
+            # fermi_level_shift_states` will put into ``dpsi`` at the end.
+            if fermi_becsum is None:
+                fermi_becsum = solver._raw_becsum(solver.psi,
+                                                  solver._delta_weights())
+            becsum_response = [
+                tuple(None if b is None else b + shift * f
+                      for b, f in zip(parts, fermi_becsum))
+                for parts, shift in zip(becsum_response, shifts)
+            ]
 
         # ``symdvscf``: the 3 nat responses are symmetrised *together*, after
         # the loop over modes and before the kernel, because an operation mixes
@@ -1177,9 +1213,14 @@ def orthogonality_states(calculation, solver, positions, atoms=None) -> np.ndarr
     if derivatives is None:
         return None
     psi = solver.psi
+    # A metal's block carries ``compute_weight``'s ``wgg`` on each pair
+    # (:func:`pair_weights`), and with it the occupation: the tangent is then
+    # contracted at ``wk``, like the Sternheimer part beside it.
+    pairs = pair_weights(solver)
     out = np.empty(derivatives.shape, dtype=object)
     for index in np.ndindex(derivatives.shape):
-        out[index] = -0.5 * jnp.einsum("skmg,skmn->skng", psi, derivatives[index])
+        block = derivatives[index] if pairs is None else derivatives[index] * pairs
+        out[index] = -0.5 * jnp.einsum("skmg,skmn->skng", psi, block)
     return out
 
 
@@ -1277,6 +1318,40 @@ def occupied_pairs(counts, smearing, width):
     return jnp.asarray(occupied[:, None, :, None] & occupied[:, None, None, :])
 
 
+def pair_weights(solver):
+    """``(nspin, nk, nbnd, nbnd)``: ``compute_weight``'s ``wgg``, as ``W[m, n]``.
+
+    ``W_mn = f_n (1 - theta_mn) + f_m theta_mn`` with
+    ``theta_mn = wgauss((eps_m - eps_n)/degauss, 0)`` and ``f`` the smeared
+    occupation, which is the ``mixed`` weight of
+    :meth:`~defuqumat.response.sternheimer.SternheimerSolver._smeared_projection`
+    without its ``alpha_pv`` piece (that piece cancels in the solution). It is
+    symmetric, because ``theta_mn + theta_nm = 1``, and it is the whole of what
+    a metal adds to the three tangents a moving ``S`` brings
+    (``notes/incompat/I86.md``):
+
+    the Sternheimer solve of a metal puts ``theta_mn (f_n - f_m)/(eps_n - eps_m)
+    <m|dH - eps_n dS|n>`` on the occupied pair ``(m, n)``, and the exact
+    first-order density matrix differs from what that builds by
+    ``-W_mn S'_mn``. So the occupied block of the first-order state is
+    ``-1/2 sum_m psi_m S'_mn W_mn`` at the k-point weight ``wk``
+    (``incdrhous``), and the multipliers' tangent is
+    ``wk W_mn [<m|dH|n> - 1/2 (eps_m + eps_n) S'_mn]``. For an insulator ``W``
+    is 1 on the occupied block and 0 elsewhere, which is
+    :func:`occupied_pairs`' mask, and both expressions are the ones validated
+    there.
+
+    ``None`` for an insulator.
+    """
+    smearing = solver.smearing
+    if smearing is None:
+        return None
+    eps = solver.eigenvalues
+    occupation = wgauss((smearing.ef - eps) / smearing.degauss, smearing.ngauss)
+    step = wgauss((eps[..., :, None] - eps[..., None, :]) / smearing.degauss, 0)
+    return occupation[..., None, :] * (1.0 - step) + occupation[..., :, None] * step
+
+
 
 def _pad_to_bands(blocks, nbnd):
     """Widen each ``(nspin, nk, nocc, npwx)`` tangent to ``nbnd`` with zeros.
@@ -1302,7 +1377,7 @@ def _pad_to_bands(blocks, nbnd):
 
 
 def non_variational_response(calculation, positions, psi, weights, density,
-                             becsum, ort, atoms=None):
+                             becsum, ort, atoms=None, state_weights=None):
     """``drhous`` and ``becsumort``: the mixed state's change at frozen ``dpsi``.
 
     ``PHonon/PH/drho.f90``, whose own summary is the definition -- "the change
@@ -1338,6 +1413,15 @@ def non_variational_response(calculation, positions, psi, weights, density,
     which is P28a's lesson again, that an atom-sum is blind to a transfer
     between atoms.
 
+    **The two halves take different weights in a metal.** The ``moved`` half is
+    the mixed state's change at frozen states and reads ``wg``
+    (``compute_alphasum``); the ``ort`` half is a state tangent that already
+    carries its occupation (:func:`pair_weights`), so it is accumulated at
+    ``wk`` (``incdrhous`` and ``addusdbec`` at ``weight = wk``), which is
+    ``state_weights``. Both builders are linear in the weight, so the tangent
+    does not depend on which primal it is taken at. ``None`` is ``weights``,
+    which is the insulator, where the two coincide.
+
     Returns ``((drho_moved, becsum_moved), (drho_ort, becsum_ort))`` as object
     arrays of shape ``(nat, 3)``, or ``(None, None)`` for a norm-conserving
     dataset.
@@ -1349,11 +1433,13 @@ def non_variational_response(calculation, positions, psi, weights, density,
     density_of, becsum_of = _raw_mixed_state(
         calculation, positions, psi, weights, density, becsum
     )
+    tangent_weights = {"moved": weights,
+                       "ort": weights if state_weights is None else state_weights}
 
-    def mixed(pos, states):
+    def mixed(pos, states, occupations):
         moved = calculation.at_positions(pos)
-        parts = becsum_of(moved, states, weights)
-        return density_of(moved, states, weights, parts), parts
+        parts = becsum_of(moved, states, occupations)
+        return density_of(moved, states, occupations, parts), parts
 
     nat = positions.shape[0]
     chosen = tuple(range(nat)) if atoms is None else tuple(atoms)
@@ -1367,7 +1453,10 @@ def non_variational_response(calculation, positions, psi, weights, density,
             tangent = jnp.zeros_like(positions).at[atom, cart].set(1.0)
             for name, pair in (("moved", (tangent, zero_s)),
                                ("ort", (zero_p, ort[row, cart]))):
-                _, (rho, parts) = compiled_jvp(mixed, (positions, psi), pair)
+                _, (rho, parts) = compiled_jvp(
+                    lambda pos, states, w=tangent_weights[name]: mixed(
+                        pos, states, w),
+                    (positions, psi), pair)
                 halves[name][0][row, cart] = rho
                 halves[name][1][row, cart] = parts
     return halves["moved"], halves["ort"]
@@ -1504,6 +1593,7 @@ def multiplier_response(calculation, solver, bare, extras, weights, nbnd,
     eps = solver.eigenvalues[..., :nocc]
     # ``(nspin, nk, nocc, nocc)``: (eps_n - eps_m) with m the row.
     gaps = eps[..., None, :] - eps[..., :, None]
+    pairs = pair_weights(solver)
     out = np.empty((nat, 3), dtype=object)
     for atom in range(nat):
         for cart in range(3):
@@ -1511,6 +1601,20 @@ def multiplier_response(calculation, solver, bare, extras, weights, nbnd,
                 solver, bare[atom, cart], dvscf[atom, cart], True,
                 None if onecentre is None else onecentre[atom, cart],
             )
+            if pairs is not None:
+                # **A metal: ``wk W_mn`` in place of ``w_n``**
+                # (:func:`pair_weights`). The Sternheimer state of a metal is not
+                # in the hermitian gauge -- its occupied block is split between
+                # the two partners by ``theta`` -- and the exact energy-weighted
+                # density matrix minus what that state and the occupied block
+                # generate is this matrix, worked out in
+                # ``notes/incompat/I86.md``. No row mask: the weight is the one
+                # the solve used, on every band it kept.
+                elements = _occupied_matrix_elements(solver, perturbation)
+                k_weight = solver.density_weights[..., :1, None]
+                out[atom, cart] = k_weight * pairs * (
+                    elements + 0.5 * gaps * derivatives[atom, cart])
+                continue
             matrix = _multiplier_response(
                 solver, perturbation, weights, nbnd, nocc
             )
@@ -1519,6 +1623,29 @@ def multiplier_response(calculation, solver, bare, extras, weights, nbnd,
             )
             out[atom, cart] = matrix.at[:, :, :nocc, :nocc].add(correction)
     return out
+
+
+def _occupied_matrix_elements(solver, perturbation):
+    """``<psi_m|perturbation|psi_n>`` over the solver's bands, unweighted.
+
+    :func:`~defuqumat.response.born._multiplier_response`'s contraction without
+    its weight and row mask, for :func:`multiplier_response`'s metal branch.
+    """
+    from defuqumat.eager import compiled
+
+    psi = solver.psi
+    blocks = []
+    for spin in range(solver.nspin):
+        def one_k(ik, spin=spin):
+            applied = perturbation(psi[spin][ik], ik, spin)
+            return jnp.einsum("mg,ng->mn", jnp.conj(psi[spin][ik]), applied)
+
+        blocks.append(compiled(
+            lambda indices, one_k=one_k: map_k(
+                one_k, indices, batch=solver.calculation.k_batch),
+            jnp.arange(psi.shape[1]),
+        ))
+    return jnp.stack(blocks)
 
 
 def _stack_modes(per_mode):
@@ -1678,6 +1805,29 @@ def _force_constants(
     nat = positions.shape[0]
     ultrasoft = calculation.is_ultrasoft
 
+    # **An ultrasoft or PAW metal: the band set twice** (``notes/incompat/I86.md``).
+    # The state tangent has to be contracted at ``wk`` and everything else at
+    # ``wg``, as the norm-conserving split below does with two ``jvp``. Here
+    # that split is not available: the density is a function of the states
+    # *and* the weights, so evaluating ``L[wk]`` puts the Hartree and XC
+    # kernels at the wrong density, and the cross term ``d^2 rho / du dpsi``
+    # pairs the state tangent (at ``wk``) with the augmentation charge's own
+    # motion (at ``wg``) in one product. So every band is carried twice: a copy
+    # at ``wg - wk`` with no tangent and a copy at ``wk`` that carries it. Every
+    # term of ``L`` is linear in the weights, so the primal is the ground state
+    # at ``wg`` exactly (to round-off), a derivative in the coordinate sees
+    # ``wg``, and the state tangent sees ``wk`` wherever it enters. The ground
+    # multipliers split the same way, ``diag((wg - wk) eps)`` and
+    # ``diag(wk eps)``, and ``dLambda`` goes on the second copy's block. For an
+    # insulator ``state_weights is weights`` and nothing is doubled.
+    doubled = ultrasoft and state_weights is not weights
+    nbnd = psi.shape[2]
+    if doubled:
+        psi = jnp.concatenate([psi, psi], axis=2)
+        weights = jnp.concatenate(
+            [weights - state_weights, state_weights], axis=2)
+        eigenvalues = jnp.concatenate([eigenvalues, eigenvalues], axis=2)
+
     ground = (
         _ground_state_multipliers(weights, eigenvalues, psi.dtype)
         if ultrasoft else None
@@ -1771,14 +1921,17 @@ def _force_constants(
     for row, atom in enumerate(chosen):
         for cart in range(3):
             tangent = jnp.zeros_like(positions).at[atom, cart].set(1.0)
-            states = jnp.zeros_like(psi).at[:, :, :nocc].set(dpsi[row, cart])
+            # On the second copy of the bands when they are doubled.
+            first = nbnd if doubled else 0
+            states = jnp.zeros_like(psi).at[:, :, first:first + nocc].set(
+                dpsi[row, cart])
             if ort is not None:
                 # The occupied block, which the Sternheimer solve does not
                 # produce and the identity this module rests on needs: ``dpsi``
                 # in ``d^2E = ... + (d_psi d_j L).dpsi_i`` is the *whole*
                 # first-order state, and for an ultrasoft or PAW dataset its
                 # occupied part is fixed by the constraint rather than free.
-                states = states + ort[row, cart]
+                states = states.at[:, :, first:first + nbnd].add(ort[row, cart])
             if not ultrasoft:
                 _, hessian = compiled_jvp(
                     frozen, (positions, density), (tangent, drho[row, cart])
@@ -1800,8 +1953,8 @@ def _force_constants(
             # ``d^2 rho / du dpsi`` exists and a split jvp cannot see it. It is
             # ``addusdynmat``, it is 0.49 Ry/bohr^2 on two-atom ultrasoft
             # silicon against force constants of 0.37, and the acoustic sum
-            # rule is what says so. An ultrasoft *metal* is refused for exactly
-            # this reason (:func:`_require_a_moving_overlap_regime`).
+            # rule is what says so. A metal keeps the one ``jvp`` and doubles
+            # the bands instead (``doubled`` above, ``notes/incompat/I86.md``).
             raw = compiled_jvp(raw_mixed, (positions, psi), (tangent, states))[1]
             parts = (
                 tuple(None if b is None else jnp.zeros_like(b) for b in becsum)
@@ -1830,7 +1983,9 @@ def _force_constants(
                 (positions, psi, zero_density, zero_becsum, ground),
                 (tangent, states, correction, parts,
                  jnp.zeros_like(ground) if multipliers is None
-                 else multipliers[row, cart]),
+                 else jnp.zeros_like(ground).at[
+                     ..., first:first + nbnd, first:first + nbnd].set(
+                         multipliers[row, cart])),
             )
             matrix[row, cart] = np.asarray(whole)
             if on_row is not None:
@@ -2097,14 +2252,75 @@ def _require_a_moving_overlap_regime(calculation) -> None:
     answer, because there the two weights are equal. Refused rather than
     guessed: the symptom would be an acoustic sum rule that is violated by a
     plausible amount, and P28 is the record of how long that took to find once.
+
+    **The dynamical matrix no longer calls this** (``notes/incompat/I86.md``):
+    the weights are :func:`pair_weights` and the band doubling in
+    :func:`_force_constants`, measured against ``ph.x``, and what it still
+    refuses is :func:`_require_a_measured_overlap_metal`. This stays for the
+    third derivative (:func:`~defuqumat.response.nonlinear.raman_tensors`),
+    whose own Sternheimer guard refuses every metal before it is reached.
     """
     if calculation.is_ultrasoft and calculation.system.occupations != "fixed":
         raise NotImplementedError(
-            "the dynamical matrix of a *metal* with an ultrasoft or PAW "
-            "pseudopotential is not implemented: the wg/wk weight split of "
-            "PLAN.md P28 was derived for a response whose becsum dependence is "
-            "entirely inside dpsi, and an ultrasoft one has three further "
-            "tangents (dpsi^ort, becsumort, dLambda) whose weight an insulator "
-            "cannot distinguish. Insulators are implemented on all three "
-            "pseudopotential kinds; a norm-conserving metal is too"
+            "the third derivative (Raman tensor) of a *metal* with an ultrasoft "
+            "or PAW pseudopotential is not implemented: the Gamma dynamical "
+            "matrix of such a metal is (notes/incompat/I86.md), and the third "
+            "derivative of a metal is not, on any pseudopotential kind"
+        )
+
+
+def _overlap_metal(calculation) -> bool:
+    return bool(calculation.is_ultrasoft
+                and calculation.system.occupations != "fixed")
+
+
+def _require_a_measured_overlap_metal(calculation, atoms=None) -> None:
+    """What is still refused of an ultrasoft or PAW metal's ``Gamma`` phonon.
+
+    ``notes/incompat/I86.md``. The three tangents a moving ``S`` adds carry
+    ``compute_weight``'s pair weight in a metal (:func:`pair_weights`), and the
+    assembly doubles the bands so that the state tangent sees ``wk`` while the
+    coordinate sees ``wg`` (:func:`_force_constants`). Measured against
+    ``ph.x`` on ``al2-metal-us.in`` and ``al2-metal-paw.in``: one spin
+    channel, ``nosym``, the whole cell. The regimes beside that are refused
+    because they are not measured, not because a term is known to be missing.
+    """
+    if not _overlap_metal(calculation):
+        return
+    if calculation.nspin != 1:
+        raise NotImplementedError(
+            "the dynamical matrix of a spin-polarized metal with an ultrasoft "
+            "or PAW pseudopotential is not implemented: the pair weight of the "
+            "orthogonality block and of the multipliers (notes/incompat/I86.md) "
+            "is measured against ph.x at nspin = 1 only. A norm-conserving "
+            "spin-polarized metal, and an unpolarized ultrasoft or PAW metal, "
+            "are implemented"
+        )
+    if calculation.use_symmetry:
+        raise NotImplementedError(
+            "the dynamical matrix of a metal with an ultrasoft or PAW "
+            "pseudopotential is implemented on a nosym run only: it is measured "
+            "against ph.x on al2-metal-us.in (nosym, notes/incompat/I86.md), "
+            "and the symmetrisation of its pair-weighted orthogonality block on "
+            "a wedge is not. Run with nosym = .true. on an unshifted grid"
+        )
+    if atoms is not None:
+        raise NotImplementedError(
+            "a partial dynamical matrix (atoms=) of a metal with an ultrasoft or "
+            "PAW pseudopotential is not implemented: the whole cell is measured "
+            "against ph.x (notes/incompat/I86.md) and the subset is not"
+        )
+
+
+def _require_no_walked_overlap_metal(calculation) -> None:
+    """The k-chunked route has its own copies of the tangents, without the
+    metal's pair weight (:mod:`defuqumat.response.chunked_phonon`)."""
+    if _overlap_metal(calculation):
+        raise NotImplementedError(
+            "the dynamical matrix of a metal with an ultrasoft or PAW "
+            "pseudopotential walked a k-chunk at a time is not implemented: "
+            "the chunked route (response/chunked_phonon.py) builds the "
+            "orthogonality block and the multipliers without the metal's pair "
+            "weight, which the whole-k route carries (notes/incompat/I86.md). "
+            "Run with memory_mode='speed' or a k_batch that holds the whole mesh"
         )
