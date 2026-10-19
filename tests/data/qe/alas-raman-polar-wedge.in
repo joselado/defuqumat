@@ -1,0 +1,26 @@
+! Polar AlAs on its irreducible wedge: `alas-raman-wedge.in` with As moved from
+! a(1/4,1/4,1/4) to a(1/4,1/4,0.29), point group mm2, polar along z, the cell
+! notes/incompat/I90.md measured the proper piezoelectric tensor on. The
+! unshifted 4x4x4 grid reduces to 18 points. On a polar crystal the wedge
+! residue of a diagonal strain survives the rank-3 average, so this is the cell
+! that says the norm-conserving wedge completion is in (I90 fix round).
+ &control
+    calculation = 'scf'
+    prefix = 'alas'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.575, nat = 2, ntyp = 2,
+    ecutwfc = 10.0
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al  26.98  Al.pz-vbc.UPF
+ As  74.92  As.pz-bhs.UPF
+ATOMIC_POSITIONS (alat)
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.2900
+K_POINTS (automatic)
+ 4 4 4 0 0 0
