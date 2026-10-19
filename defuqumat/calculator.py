@@ -2089,8 +2089,10 @@ class Calculator:
         """``int m x B_xc``: how far the texture is from stationary.
 
         Elk's task 160. **It is identically zero unless the run set
-        ``nosource``**, because a functional of ``|m|`` alone builds a field
-        parallel to ``m`` at every point -- the result carries
+        ``nosource`` or runs under ``noncollinear_gga = 'grad_m'``** (a
+        gradient or potential-only meta functional, whose field is built from
+        ``grad m`` and ``tau`` as well), because a functional of ``|m|`` alone
+        builds a field parallel to ``m`` at every point -- the result carries
         ``parallel_fraction`` so that a zero can be told from that silence. See
         :mod:`defuqumat.scf.spin_torque`.
         """
