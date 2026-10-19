@@ -164,10 +164,158 @@ def test_a_reduced_k_set_passes_and_a_magnetic_one_is_refused():
         wedge_group(_calculation("ni-noncol-111-nosource").system, quantity="chi_0")
 
 
-def test_an_ultrasoft_dataset_is_refused_by_name():
-    """The plane-wave matrix element gains ``Q_ij(G)`` and nothing here adds it."""
-    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
-        require_a_sum_over_states_regime(_calculation("si-epsilon-us"))
+def test_an_ultrasoft_insulator_is_accepted_and_paw_is_refused_by_name():
+    """The ultrasoft pair density carries ``Q_ij(G)`` and its head the generalised velocity.
+
+    PAW is refused for its one-centre terms, which are a different term; an
+    ultrasoft run that is smeared, polarized or a spinor is refused for want of
+    a number. The number for the accepted regime is in
+    ``tests/regression/test_tddft_ultrasoft.py``.
+    """
+    ultrasoft = _calculation("si-us-nosym")
+    assert ultrasoft.is_ultrasoft and not ultrasoft.is_paw
+    require_a_sum_over_states_regime(ultrasoft)
+    paw = _calculation("si-epsilon-paw-unshifted-nosym")
+    assert paw.is_paw
+    with pytest.raises(NotImplementedError, match="PAW dataset"):
+        require_a_sum_over_states_regime(paw)
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / "si-us-nosym.in").read_text()
+    assert "ecutwfc" in text
+    text = text.replace("&system", "&system\n    occupations = 'smearing', degauss = 0.01,", 1)
+    smeared = build_system(parse_pw_input(text))
+    calculation = Calculation(smeared, tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in smeared.structure.species))
+    with pytest.raises(NotImplementedError, match="ultrasoft dataset is measured"):
+        require_a_sum_over_states_regime(calculation)
+
+
+def _smeared(case: str, *, extra: str = "", degauss: float = 0.01) -> Calculation:
+    """``case`` with a Gaussian smearing put into its ``&system``."""
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / f"{case}.in").read_text().replace(
+        "ecutwfc = 18.0",
+        f"ecutwfc = 18.0, occupations = 'smearing', smearing = 'gaussian', "
+        f"degauss = {degauss}{extra}")
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+    )
+    return Calculation(system, pseudos)
+
+
+def test_a_smeared_run_is_accepted_and_a_tetrahedron_one_is_refused():
+    """A smeared ``chi_0`` carries its Drude term; a tetrahedron run has no delta for it.
+
+    Until I95 and I96 every run whose ``occupations`` was not ``fixed`` was
+    refused, a gapped cell under a smearing as well as a metal. Both cells
+    must *be* the regime: silicon with a smearing and aluminium, whose
+    numbers are in ``tests/regression/test_tddft_metal.py``.
+    """
+    silicon = _smeared("si-epsilon-unshifted-nosym")
+    aluminium = _calculation("al-conductivity")
+    for calculation in (silicon, aluminium):
+        assert calculation.system.occupations == "smearing"
+        require_a_sum_over_states_regime(calculation)
+    tetrahedra = _calculation("al-tetrahedra")
+    assert tetrahedra.system.occupations.startswith("tetrahedra")
+    with pytest.raises(NotImplementedError, match="tetrahedron occupations"):
+        require_a_sum_over_states_regime(tetrahedra)
+
+
+def test_the_sibling_refusals_still_fire_on_a_smeared_cell():
+    """Lifting the metal refusal must not open the regimes beside it.
+
+    Each cell is smeared and is refused for its own reason: a textured
+    spinor (``ni-soc-nosym``), a spiral (``h-chain-spiral``), a Hubbard ``U``
+    (``h-fcc-magnon-ldau``), an ultrasoft dataset (``co-hcp-anisotropy-sr``)
+    and a two-channel wedge (silicon's, smeared and polarized).
+    """
+    cases = (
+        ("ni-soc-nosym", "textured spinor"),
+        ("h-chain-spiral", "spin spiral"),
+        ("h-fcc-magnon-ldau", "Hubbard"),
+        ("co-hcp-anisotropy-sr", "ultrasoft dataset is measured"),
+    )
+    for case, reason in cases:
+        calculation = _calculation(case)
+        assert calculation.system.occupations == "smearing"
+        with pytest.raises(NotImplementedError, match=reason):
+            require_a_sum_over_states_regime(calculation)
+    reduced = _calculation("al-metal")
+    assert reduced.system.occupations == "smearing" and reduced.system.kpoints.nk == 10
+    with pytest.raises(NotImplementedError, match="spinor or on a symmetry-reduced"):
+        require_a_sum_over_states_regime(reduced)
+    spinor = _smeared("si-epsilon-unshifted-nosym", extra=", noncolin = .true.")
+    assert spinor.noncolin and spinor.nspin_mag == 1
+    with pytest.raises(NotImplementedError, match="spinor or on a symmetry-reduced"):
+        require_a_sum_over_states_regime(spinor)
+    polarized = _calculation("h10-chain-lsda")
+    assert polarized.system.occupations == "smearing" and polarized.system.nspin == 2
+    with pytest.raises(NotImplementedError, match="smeared chi_0 at nspin = 2"):
+        require_a_sum_over_states_regime(polarized)
+    wedge = _smeared("si-epsilon-unshifted",
+                     extra=", nspin = 2, starting_magnetization(1) = 0.5")
+    assert wedge.system.nspin == 2 and wedge.system.kpoints.nk == 8
+    with pytest.raises(NotImplementedError, match="symmetry-reduced"):
+        require_a_sum_over_states_regime(wedge)
+
+
+def test_a_smeared_pair_list_spans_the_partly_filled_window():
+    """The pairs whose weight can be nonzero, and none of the rest.
+
+    An insulator's window is ``(nocc, nocc)`` and its list is the rectangle,
+    in the old order; a partly filled band adds its pairs with every band
+    above it.
+    """
+    from defuqumat.tddft.chi0 import _pairs
+
+    rows, columns = _pairs(4, 4, 8)
+    assert list(zip(rows, columns)) == [(i, j) for i in range(4) for j in range(4, 8)]
+    rows, columns = _pairs(1, 3, 5)
+    assert list(zip(rows, columns)) == [
+        (0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (1, 3), (1, 4), (2, 3), (2, 4)]
+
+
+def test_the_drude_block_is_the_multiplet_block_over_z_squared():
+    """``(8 pi/Omega) sum w delta v_a^nm v_b^mn / z^2`` with the multiplet block (rule D4).
+
+    A synthetic k-point: two states degenerate within the tolerance and a
+    third far away. Rotating the degenerate pair leaves the block unchanged
+    where the diagonal alone would move, and the far state contributes only
+    its own diagonal.
+    """
+    from defuqumat.tddft.chi0 import _drude_block
+
+    rng = np.random.default_rng(3)
+    a = rng.normal(size=(3, 3, 3)) + 1j * rng.normal(size=(3, 3, 3))
+    element = a + np.conj(np.swapaxes(a, 1, 2))  # Hermitian in the bands
+    eig = np.array([0.1, 0.1 + 1e-9, 0.5])
+    weight = np.array([2.0, 2.0, 0.3])
+    zomega = np.array([0.2 + 0.01j, 0.4 + 0.01j])
+    block = np.asarray(_drude_block(jnp.asarray(weight), jnp.asarray(eig),
+                                    jnp.asarray(element), jnp.asarray(zomega),
+                                    10.0, 1e-5))
+    expected = np.zeros((3, 3))
+    for n, m in ((0, 0), (0, 1), (1, 0), (1, 1), (2, 2)):
+        expected += weight[n] * np.real(np.outer(element[:, n, m], element[:, m, n]))
+    expected = E2 * FPI / 10.0 * expected
+    assert np.allclose(block, expected[None] / zomega[:, None, None] ** 2,
+                       rtol=1e-12, atol=0.0)
+
+    theta = 0.7
+    u = np.eye(3, dtype=complex)
+    u[:2, :2] = [[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]]
+    rotated = np.einsum("in,anm,mj->aij", np.conj(u).T, element, u)
+    turned = np.asarray(_drude_block(jnp.asarray(weight), jnp.asarray(eig),
+                                     jnp.asarray(rotated), jnp.asarray(zomega),
+                                     10.0, 1e-5))
+    assert np.allclose(turned, block, rtol=1e-12, atol=1e-14)
+    diagonal = sum(weight[n] * np.real(np.outer(rotated[:, n, n], rotated[:, n, n]))
+                   for n in range(3))
+    assert not np.allclose(E2 * FPI / 10.0 * diagonal, expected, rtol=1e-3)
 
 
 def test_the_whole_grid_norm_conserving_insulator_is_accepted():
@@ -318,7 +466,7 @@ def test_the_pair_densities_are_bounded_by_the_pair_dial():
     npwx = int(band_mask.shape[0])
 
     nocc, nbnd = 4, 12
-    rows, columns = _pairs(nocc, nbnd)
+    rows, columns = _pairs(nocc, nocc, nbnd)
     rng = np.random.default_rng(0)
     psi = jnp.asarray(rng.normal(size=(nbnd, npwx))
                       + 1j * rng.normal(size=(nbnd, npwx)), precision.complex)

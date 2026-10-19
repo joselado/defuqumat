@@ -34,6 +34,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.tddft.chi0 import (
+    _is_smeared,
     independent_response,
     require_a_sum_over_states_regime,
 )
@@ -250,6 +251,26 @@ def run_absorption(
     calculation = whole_sphere_calculation(calculation)
     system = calculation.system
     require_a_sum_over_states_regime(calculation)
+    smeared = _is_smeared(system)
+    if smeared and rule.name.startswith("bootstrap"):
+        # The bootstrap family builds its kernel from ``eps_M`` at ``omega =
+        # 0 + i eta``, and a metal's is ``-wp^2/eta^2``: a number set by the
+        # broadening, not by the material.
+        raise NotImplementedError(
+            f"the {rule.name!r} kernel on a smeared (metallic) run is not "
+            "implemented: it is built from the static dielectric constant, "
+            "and a metal's diverges -- with the Drude term at omega = 0 + i "
+            "eta it is -wp^2/eta^2, set by the broadening. Use 'rpa', 'alda' "
+            "or 'lrc'"
+        )
+    if smeared and static_residual:
+        raise NotImplementedError(
+            "the static residual of a smeared run is not implemented: it "
+            "differences eps_M(0) against the Sternheimer dielectric constant, "
+            "which a metal does not have (its eps_M diverges at omega = 0). "
+            "Pass static_residual = False; the band count is then checked by "
+            "running a second nbnd"
+        )
     if rule.name == "alda":
         refuse_a_polarized_alda(density, calculation.system.cell)
 
@@ -270,6 +291,10 @@ def run_absorption(
     # the residual's, index 1 carries ``i eta`` and is the kernel's.
     grid = np.concatenate([[0.0, 0.0], frequencies])
     imaginary = np.concatenate([[0.0], np.full(len(frequencies) + 1, broadening)])
+    if smeared:
+        # The residual's point is not used on a smeared run, and at ``eta =
+        # 0`` the Drude term is infinite there.
+        imaginary[0] = broadening
     chi = independent_response(
         calculation, wavefunctions, eigenvalues, potential.v_scf,
         grid + 1j * imaginary, ecut_response=ecut_response, broadening=0.0,
