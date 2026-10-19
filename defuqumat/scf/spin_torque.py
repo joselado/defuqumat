@@ -187,9 +187,12 @@ def torque_of_result(calculation, result, density=None, tau=None) -> ExchangeTor
     meta field is attached to ``m``-hat and the torque is the same null as the
     local functional's; under ``'grad_m'`` the parity form builds the field
     from ``m``, ``grad n . grad m_k``, ``lap m_k`` and ``tau_k``, which need not
-    be along ``m``, and the torque is a number. Checked against ``m x B_xc``
-    read off the SCF's own last potential, to the self-consistency residual
-    (``notes/incompat/I110.md``). And since such a functional has no energy,
+    be along ``m``, and the torque is a number. Checked on a converged TB09
+    texture against ``m x B_xc`` read off ``SCFResult.potential`` (rebuilt at
+    convergence on the same output state, so equal to round-off, 5e-18 Ry,
+    where dropping ``tau``'s vector part moves it by 1.3e-5) and off the field
+    the last iteration applied, ``potential - potential_change``, to the
+    self-consistency residual (``notes/incompat/I110.md``). And since such a functional has no energy,
     the global-rotation argument for a zero *total* without spin-orbit coupling
     does not apply to it.
     """
