@@ -341,6 +341,26 @@ def test_the_strain_response_refuses_a_walked_metal(monkeypatch):
     assert "walked a k-chunk" in message and "Fermi-level shift" in message
 
 
+def test_the_elastic_constants_refuse_a_walked_metal(monkeypatch):
+    """:meth:`Calculator.get_elastic_constants` reaches :func:`elastic_constants`
+    directly, so its own walked-metal refusal is tested apart from the strain
+    response's: ``chunked_gradient_tangent`` has no ``wg``/``wk`` split."""
+    import types
+
+    import defuqumat.response.efield as efield
+    from defuqumat.response.elastic import elastic_constants
+
+    monkeypatch.setattr(efield, "_streams", lambda *args, **kwargs: True)
+    stub = types.SimpleNamespace(
+        **vars(_metallic_calculation()), is_ultrasoft=False,
+        occupations=lambda eigenvalues: (eigenvalues, {}))
+    response = types.SimpleNamespace(converged=True, history=[])
+    with pytest.raises(NotImplementedError) as raised:
+        elastic_constants(stub, None, [[0.0]], None, response)
+    message = str(raised.value)
+    assert "metal walked a k-chunk" in message and "wg/wk split" in message
+
+
 def test_the_strain_response_admits_a_smeared_metal_past_its_guards():
     """The shared guard no longer refuses a smearing metal for the strain.
 
