@@ -202,6 +202,93 @@ def test_the_two_kernel_pairings_are_not_interchangeable():
     assert separation > 10.0 * IDENTITY_TOLERANCE
 
 
+#: I97: the response cutoff at which the PBE identity below is asserted, Ry.
+#: The residue of the identity falls with ``ecut_response`` and not with
+#: ``nbnd`` (it *rises* slightly with bands, 0.015, 0.027, 0.031 at 30, 60, 90
+#: and 8 Ry), because the adiabatic kernel, local or not, couples the body to
+#: G-vectors the response sphere leaves out while the Sternheimer solve screens
+#: on the whole dense grid. Measured on D22 (notes/incompat/I97.md), PBE, 90
+#: bands, against the Sternheimer 21.8318: +0.0312, +0.0261, +0.0155, +0.0022,
+#: -0.0028, -0.0042 at 8, 12, 16, 20, 24, 28 Ry, where what is left is the band
+#: truncation the RPA pairing shows at the same point (-0.0045). At 60 bands:
+#: -0.0020 at 20 Ry, -0.0073 at 24 (RPA -0.0143). The LDA identity above has
+#: the same cause: +0.0144, +0.0119, +0.0024, +0.0008, -0.0017, -0.0020.
+GGA_ECUT_RESPONSE = 20.0
+
+#: The bound at :data:`GGA_ECUT_RESPONSE`: the 60-band floor the residue
+#: settles to once the cutoff is converged (-0.0073 at 24 Ry, the RPA pairing's
+#: -0.014 being its upper end) with headroom, and half of what is missing at
+#: 8 Ry. Dropping the gradient terms of the kernel (its local part only) misses
+#: by -0.26 to -0.28 at every cutoff.
+GGA_TOLERANCE = 1.5e-2
+
+
+def _local_part(calculation, density, sphere):
+    """The local part of a gradient-corrected kernel, the truncation I97 refused.
+
+    ``d v_xc / d rho`` along a uniform tangent, the pointwise route ALDA takes,
+    which for PBE keeps the ``v1`` term and loses ``div(v2 grad drho)``.
+    """
+    import jax
+
+    from defuqumat.scf.potential import exchange_correlation
+
+    _, local_r = jax.jvp(
+        lambda r: exchange_correlation(r, calculation.system.cell,
+                                       calculation.rho_core,
+                                       calculation.functional)[0],
+        (density,), (jnp.ones_like(density),))
+    grid = np.asarray(calculation.basis.dense.grid)
+    local_g = np.fft.fftn(np.asarray(local_r[0])) / float(np.prod(grid))
+    body = np.asarray(sphere.miller)
+    index = (body[:, None, :] - body[None, :, :]) % grid
+    coulomb = np.asarray(sphere.sqrt_coulomb)
+    return jnp.asarray(local_g[index[..., 0], index[..., 1], index[..., 2]]
+                       / np.outer(coulomb, coulomb))
+
+
+def _pbe_dyson(ecut: float, local: bool = False) -> float:
+    _, _, scf, calculation, _, _ = _silicon(NBND, "pbe")
+    chi = _chi(NBND, ecut, "pbe")
+    density = jnp.asarray(scf.density)
+    if local:
+        matrix = _local_part(calculation, density, chi.sphere)
+    else:
+        matrix = alda_matrix(calculation, density, chi.sphere)
+    solution = solve_dyson(chi, "alda", {"alda_matrix": matrix})
+    return float(np.real(np.diag(np.asarray(solution.epsilon)[0])).mean())
+
+
+@pytest.mark.parametrize("ecut,tolerance", [(8.0, 4.0e-2), (GGA_ECUT_RESPONSE,
+                                                             GGA_TOLERANCE)])
+def test_the_adiabatic_gga_kernel_reproduces_the_pbe_sternheimer_constant(
+    ecut, tolerance
+):
+    """I97: the static limit of the adiabatic PBE kernel is PBE's ``eps_inf``.
+
+    The same identity as the ALDA one above, one rung up: ``efield`` screens
+    with one ``jvp`` of ``v_of_rho``, gradient terms included, so the
+    Dyson equation with the adiabatic PBE kernel has to land on it. The
+    tolerance is a function of the response cutoff, and the sequence is the
+    statement (:data:`GGA_ECUT_RESPONSE`). The silicon dataset is LDA and the
+    functional is overridden, which an identity between two routes does not
+    see.
+    """
+    here = _pbe_dyson(ecut)
+    assert abs(here - _sternheimer("full", "pbe")) < tolerance
+
+
+def test_the_pbe_identity_is_not_met_by_the_local_part_of_the_kernel():
+    """The A/B: without the gradient terms the identity misses by -0.27 (D22).
+
+    Asserted so that the identity above cannot pass with the gradient terms
+    gone, which is what the old refusal said a truncation would be.
+    """
+    reference = _sternheimer("full", "pbe")
+    miss = _pbe_dyson(GGA_ECUT_RESPONSE, local=True) - reference
+    assert miss < -10.0 * GGA_TOLERANCE
+
+
 @pytest.mark.parametrize("nbnd,tolerance", [(16, 0.25), (30, 0.05), (60, 0.005)])
 def test_the_body_converges_onto_the_sternheimer_operator_with_bands(nbnd, tolerance):
     """A column of ``chi_0`` against the same column from the projected CG solve.
