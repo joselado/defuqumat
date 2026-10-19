@@ -141,8 +141,9 @@ def test_the_measured_regime_passes_the_guard(tmp_path):
     for case in ("al2-metal-us", "al2-metal-paw", "al2-metal"):
         phonon._require_a_measured_overlap_metal(
             _calculation(case, None, tmp_path))
-        phonon._require_no_walked_overlap_metal(
-            _calculation(case, None, tmp_path))
+    # the walked route stays open to a norm-conserving metal
+    phonon._require_no_walked_overlap_metal(
+        _calculation("al2-metal", None, tmp_path))
 
 
 def test_the_third_derivative_still_refuses_an_ultrasoft_metal(tmp_path):

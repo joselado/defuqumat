@@ -626,9 +626,11 @@ def test_the_gamma_phonon_of_an_augmented_metal_matches_quantum_espresso(case):
     occupied block is accumulated at ``wk``; and the assembly carries the bands
     twice, so that the state tangent sees ``wk`` while the coordinate sees
     ``wg``. Measured: **0.0136, 0.0055 and 0.0082** cm^-1 on the ultrasoft
-    cell and **0.0002, 0.0098 and 0.023** on the PAW one, against ``ph.x``'s
-    pair splitting of 0.008 and 0.011 that this side does not reproduce (0 and
-    0.0005, and a finite difference of the forces has the pair degenerate too).
+    cell and **0.0002, 0.0098 and 0.023** on the PAW one. ``ph.x`` splits the
+    folded pair by 0.008 and 0.011 and this side does not (0 and 0.0005), and a
+    finite difference of this code's forces over the whole ultrasoft matrix
+    sides with it: 154.729921 and 154.729924 at a step of 1e-2 bohr, 344.652333
+    on the top mode, against 154.730099 twice and 344.665540 here.
     With the guard lifted and none of the above, the ultrasoft cell's acoustic
     modes come out at 144 cm^-1 and its pair at 199.3 and 199.6. The tolerance
     is the norm-conserving cell's, the same form-factor floor.
@@ -647,7 +649,7 @@ def test_the_force_constants_of_an_ultrasoft_metal_reproduce_a_finite_difference
     A central difference of this code's own forces on atom 0 along ``x``.
     Measured on D22 (``notes/incompat/I86.md``): **6.6e-6** at a step of 1e-2
     bohr and **1.4e-5** at 5e-3, against force constants of 0.0567, where the
-    unweighted assembly was 3.25e-2 off. The difference does not fall with the
+    unweighted assembly was 3.25e-2 off (the PAW cell: 3.1e-6 and 1.5e-5). The difference does not fall with the
     step, so what is left is the floor :data:`FD_TOLERANCE` names, not the
     truncation.
     """
