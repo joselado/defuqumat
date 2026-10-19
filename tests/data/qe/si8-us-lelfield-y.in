@@ -1,0 +1,52 @@
+! I103: si8-us-lelfield.in with the field and the strings along y (gdir = 2), the
+! strings at (kx, kz) = (0, 0) and (1/2, 1/2). This is the direction pw.x 7.5 can be
+! compared on: compute_qqc (upflib/qvan2.f90) takes |q|^2 = q(1)^2 + q(2)^2 + q(1)^2,
+! so along z it evaluates the cross augmentation at |q| = 0 and along y it is right.
+! References: pw.x 7.5 (serial, D22) as the pw_electric chain at conv_thr = 1e-11,
+! reference.out.si8-us-lelfield-y-zero (efield = 0), reference.out.si8-us-lelfield-y
+! (0.001) and reference.out.si8-us-lelfield-y-2 (0.002), each from the state before it.
+ &control
+    calculation='scf'
+    gdir=2,
+    nppstr=5,
+    lelfield=.true.,
+    nberrycyc=3
+    tprnfor=.true.
+ /
+ &system
+    ibrav= 1, 
+    celldm(1)=10.18, 
+    nat=  8,
+    ntyp= 1,
+    ecutwfc = 20.0, ecutrho = 160.0,
+    nosym=.true.
+ /
+ &electrons
+    conv_thr = 1.0d-11,
+    mixing_beta = 0.5,
+    startingwfc='random',
+    efield=0.001
+ /
+ATOMIC_SPECIES
+ Si  28.086 Si.pbe-n-rrkjus_psl.0.1.UPF
+ATOMIC_POSITIONS (alat)
+ Si -0.123 -0.123 -0.123
+ Si  0.377  0.377 -0.123
+ Si  0.377 -0.123  0.377
+ Si -0.123  0.377  0.377
+ Si  0.123  0.123  0.123
+ Si  0.623  0.623  0.123
+ Si  0.623  0.123  0.623
+ Si  0.123  0.623  0.623
+K_POINTS
+ 10
+  0.0  0.000000000  0.0 1
+  0.0  0.200000000  0.0 1
+  0.0  0.400000000  0.0 1
+  0.0  0.600000000  0.0 1
+  0.0  0.800000000  0.0 1
+  0.5  0.000000000  0.5 1
+  0.5  0.200000000  0.5 1
+  0.5  0.400000000  0.5 1
+  0.5  0.600000000  0.5 1
+  0.5  0.800000000  0.5 1

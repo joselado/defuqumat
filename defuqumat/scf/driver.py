@@ -9197,7 +9197,8 @@ def run_scf(
                     # (``h_epsi_her_set``'s ``is`` at ``nspin = 2``).
                     fielded = tuple(
                         eqx.tree_at(lambda h: h.berry, h,
-                                    calculation.berry_field.term(wavefunctions, spin),
+                                    calculation.berry_field.term(wavefunctions, spin,
+                                                                 calculation),
                                     is_leaf=lambda x: x is None)
                         for spin, h in enumerate(hamiltonians))
                     eigenvalues, wavefunctions, cycle_steps, unsettled = (
@@ -9596,7 +9597,7 @@ def run_scf(
             # is what its branch tracking assumes.
             en_el, el_pol, ion_pol = calculation.berry_field.energy(
                 fetch_wavefunctions(wavefunctions),
-                np.asarray(calculation.system.structure.positions))
+                np.asarray(calculation.system.structure.positions), calculation)
             terms["efield"] = en_el
             berry_dipoles = (el_pol, ion_pol, calculation.berry_field.accumulated)
         if calculation.sawtooth is not None:

@@ -60,7 +60,7 @@ from defuqumat.pseudo.coupling import harmonic_products
 from defuqumat.pseudo.harmonics import real_spherical_harmonics
 from defuqumat.pseudo.projectors import projector_channels
 
-__all__ = ["augmentation_at_q"]
+__all__ = ["augmentation_at_q", "augmentation_species_at_q"]
 
 
 def augmentation_at_q(calculation, qcart) -> jnp.ndarray | None:
@@ -80,12 +80,27 @@ def augmentation_at_q(calculation, qcart) -> jnp.ndarray | None:
     all -- which is a norm-conserving run, where ``S`` is the identity and the
     caller adds nothing.
     """
-    augmentation = calculation.augmentation
-    if augmentation is None:
+    if calculation.augmentation is None:
         return None
+    per_species = augmentation_species_at_q(calculation, qcart)
+    qcart = np.asarray(qcart, dtype=float).reshape(1, 3)
+    positions = np.asarray(calculation.system.structure.positions)  # cartesian, bohr
+    phases = np.exp(-1j * (positions @ qcart[0]))  # e^{-i b . tau_a}
 
+    if calculation.noncolin:
+        return _spinor_blocks(calculation, per_species, phases)
+    return _scalar_blocks(calculation, per_species, phases)
+
+
+def augmentation_species_at_q(calculation, qcart) -> list:
+    """``Omega Q_ij(b)`` of each species, ``(nh, nh)`` or ``None``: the part with no position in it.
+
+    :func:`augmentation_at_q` multiplies each atom's block by its structure
+    phase ``e^{-i b . tau_a}`` on the host. A consumer that differentiates in
+    the positions (``lelfield``'s force, :mod:`defuqumat.scf.berryfield`) takes
+    these blocks and applies the phase itself with ``jnp``.
+    """
     pseudos = calculation.pseudos
-    structure = calculation.system.structure
     cell = calculation.system.cell
     qcart = np.asarray(qcart, dtype=float).reshape(1, 3)
 
@@ -114,13 +129,7 @@ def augmentation_at_q(calculation, qcart) -> jnp.ndarray | None:
         # ``qgm`` carries a 1/Omega from its own prefactor; ``qq`` is
         # ``Omega * Q(G = 0)``, so the same factor restores the integral here.
         per_species.append(volume * np.asarray(values[:, :, 0]))
-
-    positions = np.asarray(structure.positions)  # cartesian, bohr
-    phases = np.exp(-1j * (positions @ qcart[0]))  # e^{-i b . tau_a}
-
-    if calculation.noncolin:
-        return _spinor_blocks(calculation, per_species, phases)
-    return _scalar_blocks(calculation, per_species, phases)
+    return per_species
 
 
 def _scalar_blocks(calculation, per_species, phases) -> jnp.ndarray:
