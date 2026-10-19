@@ -488,3 +488,39 @@ def test_the_frequency_dial_chunks_on_a_card_and_not_on_a_cpu(monkeypatch):
     assert batching.resolve_w_batch(block_bytes=block, nw=1000) == 5
     monkeypatch.setenv("DEFUQUMAT_W_BATCH", "all")
     assert batching.resolve_w_batch(block_bytes=block, nw=1000) is None
+
+
+def _functional_silicon(input_dft: str, nspin: int = 1) -> Calculation:
+    """``si-epsilon-unshifted-nosym`` under ``input_dft``, the dataset unchanged."""
+    import warnings
+
+    parsed = read_pw_input(CASES / "si-epsilon-unshifted-nosym.in")
+    parsed.namelists["system"]["input_dft"] = input_dft
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="input_dft asks for")
+        system = build_system(parsed)
+        if nspin == 2:
+            system = system.with_spin(2, tot_magnetization=0)
+        pseudos = tuple(
+            read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+        )
+        return Calculation(system, pseudos)
+
+
+def _modulated_density(calculation) -> np.ndarray:
+    grid = tuple(int(n) for n in calculation.basis.dense.grid)
+    x = np.arange(grid[0])[:, None, None] / grid[0]
+    y = np.arange(grid[1])[None, :, None] / grid[1]
+    return 0.03 * (1.0 + 0.4 * np.cos(2 * np.pi * x)
+                   + 0.2 * np.sin(2 * np.pi * (x + 2 * y))) * np.ones(grid)
+
+
+def test_the_alda_kernel_refuses_a_gradient_corrected_functional():
+    """I97 before the fix: the guard has to be seen to fire before it is touched."""
+    from defuqumat.tddft import alda_matrix
+
+    calculation = _functional_silicon("pbe")
+    sphere = response_sphere(calculation, 4.0)
+    density = _modulated_density(calculation)
+    with pytest.raises(NotImplementedError, match="gradient-corrected or meta"):
+        alda_matrix(calculation, jnp.asarray(density[None]), sphere)
