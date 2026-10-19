@@ -666,7 +666,8 @@ def hierarchy_linear_self_consistent(calculation, basis, energies, weights, v_sc
 
     if potential not in POTENTIALS or potential == "frozen":
         raise ValueError(f"potential must be 'hartree' or 'hxc', not {potential!r}")
-    require_a_potential_mode(calculation, potential, symmetrise, density_symmetry)
+    require_a_potential_mode(calculation, potential, symmetrise, density_symmetry,
+                             route="hierarchy")
     if potential == "hxc" and calculation.functional.is_meta:
         raise NotImplementedError("the exchange-correlation kernel of a meta-GGA is not here")
     dense, smooth = calculation.basis.dense, calculation.basis.smooth

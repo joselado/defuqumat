@@ -1249,8 +1249,8 @@ def propagate(calculation, states, weights, v_scf, pulse, *, dt: float,
         density_symmetry: with the potential updated on a reduced k-set, the
             :class:`~defuqumat.system.symmetry.Symmetries` of the field's little
             group, which completes the density.
-        ddd_paw: PAW's one-centre ``D`` of the ground state, frozen with the
-            potential (``Calculation.onecenter``).
+        ddd_paw: PAW's one-centre ``D`` of the ground state (``Calculation.onecenter``),
+            frozen with the potential, or the start of its update in time.
     """
     if potential != "frozen":
         from defuqumat.realtime.selfconsistent import (
@@ -1267,7 +1267,7 @@ def propagate(calculation, states, weights, v_scf, pulse, *, dt: float,
             start=start, propagator=propagator, k_batch=k_batch,
             block_steps=block_steps, kcart=kcart, symmetrise=symmetrise,
             density_symmetry=density_symmetry, potential=potential,
-            corrector=corrector)
+            corrector=corrector, ddd_paw=ddd_paw)
     pairs = channel_arrays(calculation, states, weights)
     results = []
     for channel, (own, carried) in enumerate(pairs):
