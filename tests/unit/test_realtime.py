@@ -620,7 +620,8 @@ def test_a_sawtooth_runs_frozen_and_its_siblings_are_refused():
     :func:`require_a_realtime_regime` lets it through (it refused it at
     6c5b3a36, "a length gauge and a velocity gauge in one Hamiltonian"); the
     stationarity and the polarizability on a saw-tooth ground state are
-    ``tests/regression/test_realtime_sawtooth.py`` (``notes/incompat/I101.md``).
+    ``tests/regression/test_realtime_sawtooth.py`` (``notes/incompat/I101.md``),
+    and the frequency-domain hierarchy keeps the refusal (the next test).
     The potential updated in time with a saw-tooth stays refused by
     :func:`require_a_potential_mode`, and the Berry-phase field by the
     realtime guard. Stubs are the whole input, as in the gamma test above.
@@ -650,6 +651,23 @@ def test_a_sawtooth_runs_frozen_and_its_siblings_are_refused():
     with pytest.raises(NotImplementedError, match="DFT\\+U"):
         require_a_realtime_regime(types.SimpleNamespace(
             sawtooth=saw, berry_field=None, **{**plain, "is_hubbard": True}))
+
+
+def test_the_frequency_domain_hierarchy_keeps_the_sawtooth_refusal():
+    """``run_nonlinear_spectrum`` refuses ``tefield`` by name (``notes/incompat/I101.md``).
+
+    I101 lifted the saw-tooth from :func:`require_a_realtime_regime`, which the
+    hierarchy's state builder calls too; the steady-state solve was not
+    measured on a saw-tooth ground state, so its entry refuses it before any
+    state is built. A stub system is the whole input.
+    """
+    import types
+
+    from defuqumat.workflows.realtime import run_nonlinear_spectrum
+
+    system = types.SimpleNamespace(efield=(2, 0.01, 0.9, 0.2, False))
+    with pytest.raises(NotImplementedError, match="hierarchy with a saw-tooth"):
+        run_nonlinear_spectrum(system, {}, None, frequencies=[1.0])
 
 
 def test_a_kick_inside_the_run_is_crossed_at_its_grid_point(pseudo_dir):

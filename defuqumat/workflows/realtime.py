@@ -761,6 +761,17 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
             "gauge's second-order density artefact, 7 per cent of rho on a 2x2x2 mesh. The "
             "real-time route has them at one frequency a run "
             "(get_harmonic_orders(potential='hxc'))")
+    if getattr(system, "efield", None) is not None:
+        # The real-time route runs a saw-tooth ground state at a frozen
+        # potential (notes/incompat/I101.md); the frequency-domain hierarchy is
+        # a different solver, its projector on the computed bands and BiCGStab
+        # not measured on one, so it keeps the refusal I101 lifted from
+        # ``require_a_realtime_regime``.
+        raise NotImplementedError(
+            "the frequency-domain hierarchy with a saw-tooth electric field (tefield) is "
+            "not implemented: the real-time route runs it at a frozen potential "
+            "(get_realtime, get_harmonic_orders), the steady-state solve has not been "
+            "measured on one")
     frequencies = np.atleast_1d(np.asarray(frequencies, dtype=float))
     unit = np.asarray(direction, dtype=float)
     unit = unit / np.linalg.norm(unit)

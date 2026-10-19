@@ -669,7 +669,10 @@ def _chunk_spectrum(chunk, psi, terms, kappa_max):
     overlap = None if q is None else _flat_blocks(q)
     npol = chunk.npol
     nl_min, nl_max, s_min = 0.0, 0.0, 1.0
-    for ik in range(vkb.shape[0]):
+    # A dataset with no projectors (``H.pz-vbc``, ``number_of_proj = 0``) has
+    # no nonlocal term, so its bounds stay at zero rather than reducing an
+    # empty spectrum (``notes/incompat/I101.md``).
+    for ik in range(vkb.shape[0] if vkb.shape[-1] else 0):
         gram = vkb[ik].conj().T @ vkb[ik]
         values, vectors = np.linalg.eigh(gram)
         root = (vectors * np.sqrt(np.clip(values, 0.0, None))) @ vectors.conj().T
