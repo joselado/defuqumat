@@ -243,6 +243,8 @@ invariant form of Liechtenstein, with $J$. `HUBBARD` card, notebook
   saw-tooth along one reciprocal vector, as in `pw.x`. The dipole correction
   cancels the artificial field that the dipole of a slab creates in the vacuum.
   The field enters the energy and the forces, so a relaxation in a field works.
+  Phonons at Gamma work in the field too, and so does real-time propagation
+  with the frozen potential.
   `tefield`, `dipfield`, notebook [53](notebooks/53_electric_field_molecule.ipynb).
 - **A finite electric field in a crystal, by the Berry phase**. The code minimises
   the electric enthalpy $E_{\mathrm{KS}} - \mathbf E\cdot\mathbf P$, with
@@ -292,8 +294,9 @@ wavefunctions. The unit is Ry/bohr. `calc.get_forces()`, notebook
   elasto-optic tensor.
 - **Piezoelectric tensor**, $e_{k,ij} = \partial P_k/\partial\varepsilon_{ij}$.
   This is the polarization that a strain creates. It is also the stress that a
-  field creates. The ions are clamped, and it works for insulators without a
-  spontaneous polarization. `calc.get_piezoelectric_tensor()`, notebook
+  field creates. The ions are clamped. It is the proper tensor, so it also
+  works for a polar crystal with a norm-conserving dataset.
+  `calc.get_piezoelectric_tensor()`, notebook
   [28](notebooks/28_piezoelectricity.ipynb).
 
 ### Magnetism
@@ -478,7 +481,8 @@ and its `.born_charges` the shape `(nat, 3, 3)`.
 ### Optical and nonlinear response
 
 This is the absorption spectrum of an insulator, with the exciton bound below the
-gap, from time-dependent density-functional theory. The response of the
+gap, from time-dependent density-functional theory. A metal with smearing
+works too, and then the spectrum has the Drude term. The response of the
 interacting electrons comes from a Dyson equation on top of the
 independent-particle response:
 
@@ -670,7 +674,7 @@ task of the other code that it refers to.
 | **Around-mean-field double counting** | `hubbard_double_counting = 'amf'` | | ✓ |
 | **Slater integrals from the orbital** | `hubbard_slater = 'yukawa'` | | ✓ |
 | **Van der Waals dispersion**, Grimme's D2 | `vdw_corr = 'grimme-d2'` | ✓ | |
-| **An electric field across a slab**, and the dipole correction | `tefield`, `dipfield` | ✓ | (✓)²⁰ |
+| **An electric field across a slab**, and the dipole correction, phonons at Gamma in the field | `tefield`, `dipfield` | ✓ | (✓)²⁰ |
 | **A finite electric field in a crystal**, by the Berry phase | `lelfield` (norm-conserving, ultrasoft and PAW), `efield_cart` on an automatic mesh, `calc.get_scf().berry_dipoles` | ✓ | |
 | **Forces on the atoms** | `calc.get_forces()` | ✓ | ✓ |
 | **Structural relaxation** | `calc.get_relax()` | ✓ | ✓ |

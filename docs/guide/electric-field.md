@@ -240,8 +240,13 @@ the formal charge 3, so the bond of AlAs is far from ionic.
 !!! note "Limits"
     With a saw-tooth field (`tefield`), the stress gives an error, so a
     `vc-relax` is not possible, and `pw.x` also switches the stress off with
-    this field. Linear response, real-time propagation and the ultracell give an
-    error too, because they have not been checked with the field. A charged
+    this field. Phonons at Gamma work with the field, with or without
+    `dipfield`. We checked them against a finite difference of the forces in the
+    field, to about 2e-4 Ry/bohr^2. This needs an insulator with fixed
+    occupations and `nspin = 1`. `K_POINTS gamma` gives an error, so use an
+    explicit k = 0. Real-time propagation works with the frozen potential (see
+    the page on nonlinear response). Other linear responses and the ultracell
+    give an error, because they have not been checked with the field. A charged
     plate (`gate`) gives an error, because it needs a charged cell and a nonzero
     `tot_charge` gives an error. `dipfield` without `tefield` gives an error,
     because in `pw.x` it does nothing. As in `pw.x`, the run uses no symmetry,

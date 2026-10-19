@@ -323,18 +323,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: the Fermi-level shift and the `wg`/`2 wk` split carried onto the strain coordinate (GAPS §3).
 - Check: a central difference of the pw.x-validated metal stress over strained cells, and a five-point energy difference, on `tests/data/qe/al2-metal.in`.
 - QE/Elk: neither.
-- Refuted 2026-10-19 (P156), not merged, record in `notes/incompat/I88.md`: right on Marzari-Vanderbilt al2-metal (1.6e-7), but the guard admits every smearing, and Methfessel-Paxton `degauss = 0.04` on the same cell misses by 4.6e-4, flat in h; the cause isolated by the verifier is `sternheimer._SMALL = 6.96e-5` (`/l/ladovj1/review/incompat/I88/ver2/`).
-
-### I90. Piezoelectric tensor x polar crystal
-
-- Axis: cell (polar).
-- Guard: `defuqumat/response/piezo.py:require_a_nonpolar_crystal:374`.
-- Test: `tests/regression/test_piezoelectric.py:358` `test_a_polar_crystal_is_refused_by_name`.
-- Missing: the improper-to-proper correction `delta_ki P_j - delta_ij P_k`; the message saying no polarization exists is stale (`run_polarization`, `Calculator.get_polarization` exist) (sweep-response).
-- Check: a Berry-phase finite difference under strain; `P` itself is T1 against `reference.out.alas-berry`.
-- QE/Elk: QE n; Elk `piezoelt.f90`.
-- Note: queue.md files it under plain missing features; it is a pair, nonpolar runs.
-- Refuted 2026-10-19 (P156), not merged, record in `notes/incompat/I90.md`: the proper tensor holds on mm2 AlAs (1.17e-2 C/m^2 at 8^3 on e14), but lifting the guard admits a polar crystal on a symmetry-reduced k-set, where the norm-conserving branch never calls `_full_zone_field_response` and leaves a wedge residue of about 1e-3 C/m^2 (`/l/ladovj1/review/incompat/I90-ver/`; the `-ver2` jobs were still queued).
+- Refuted twice 2026-10-19 and 20 (P156), not merged, record in `notes/incompat/I88.md`: right on Marzari-Vanderbilt al2-metal (1.6e-7); the fix round tied the smearing cutoff to `small = 1e-12` (holds, h^4 on three cells), but the second verifier refuted the guard half: the top-band occupation guard at 6.96e-5 admits Fermi-Dirac ground states with 2e-5 (C_1111 6 to 7 per cent off) and 1.7e-6 (4e-6, flat) in the top band, and its "where ph.x warns" wording holds only for Fermi-Dirac. Needs an occupation limit below 1e-6 or tied to 1e-12 (`/l/ladovj1/review/incompat/I88/ver3/`).
 
 ### I91. Shift current x ultrasoft or PAW
 
@@ -346,47 +335,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n; Elk unread.
 - Partial 2026-10-19 (P156), record in `notes/incompat/I91.md`: the new augmentation term takes the complete-basis sum-rule miss from 5.29e-2 to 4.1e-3, flat in the step, against a norm-conserving control falling as the step squared, so a piece is still missing; the refusal stays and names the numbers. The verifier found some numbers hold only at the one k-point and pair used.
 
-### I93. Intraband (Drude) term of the optical conductivity x tetrahedra
-
-- Axis: occupations (tetrahedra).
-- Guard: `defuqumat/response/conductivity.py:_fermi_surface_delta:953`.
-- Test: none.
-- Missing: a Fermi-surface delta from the tetrahedron weights (guard message).
-- Check: the `degauss -> 0` limit of the smeared plasma frequency on the same metal.
-- QE/Elk: unread.
-- Refuted 2026-10-19 (P156), not merged, record in `notes/incompat/I93.md`: right on fcc Al, but the crossing filter drops bands that `tetrahedra_opt` still weights (its 20-point corner energies reach below a band's grid minimum), 1.0 per cent of the DOS at a gap of 1e-3 Ry; the D4 average has no call-site test (`/l/ladovj1/review/incompat/I93-ver2/`).
-
-### I94. Sum-over-states `chi_0` x ultrasoft or PAW
-
-- Axis: dataset (US/PAW).
-- Guard: `defuqumat/tddft/chi0.py:require_a_sum_over_states_regime:331`.
-- Test: `tests/unit/test_tddft_machinery.py:165` `test_an_ultrasoft_dataset_is_refused_by_name`.
-- Missing: `Q_ij(G)` in every pair density did not close twice: P40 2.1 per cent, P94 57.200 with a residual +0.540 that does not fall with `nbnd`; the head lacks `-e_n dS/dk` and `dpqq` (PLAN.md P40, P94, AUGMENTATION-NEXT §1a).
-- Check: RPA `eps_M(0)` against `dielectric_tensor(screening='hartree')` on `si-us-nosym.in` (norm-conserving control 0.06 per cent), converged in `nbnd`; that lands on `reference.out.ph-si-epsilon-us`, `-paw`.
-- QE/Elk: QE out of scope; Elk LAPW only.
-- Note: sweep-tddft ranks it tier 1 through the static limit; an `nbnd` convergence stands between, so T3.
-- Done, unverified 2026-10-19 (P156), not merged, record in `notes/incompat/I94.md`: the verifier could not finish (D22 pool full; jobs still queued in `/l/ladovj1/review/incompat/chi0-ver/`). What it did measure matches the record (-0.3369 at 30 bands, +0.2498 and -2.4579 with each term off) and found the ALDA kernel on an ultrasoft run admitted and unmeasured.
-
-### I95. Sum-over-states `chi_0` x smearing on a gapped cell
-
-- Axis: occupations (smearing).
-- Guard: `defuqumat/tddft/chi0.py:require_a_sum_over_states_regime:365` (`_is_an_insulator:382` reads only the `occupations` string).
-- Test: none.
-- Missing: the occupation test that exists at `_occupied_bands:687` in place of the string test (sweep-tddft).
-- Check: the spectrum of the `fixed` run to within the smearing tail, on `si-epsilon-unshifted-nosym` with smearing.
-- QE/Elk: QE out of scope.
-- Done, unverified 2026-10-19 (P156), not merged, record in `notes/incompat/I95.md` (chi0 unit, verifier unfinished).
-
-### I96. Sum-over-states `chi_0` x metal
-
-- Axis: occupations (metal).
-- Guard: `defuqumat/tddft/chi0.py:require_a_sum_over_states_regime:365`; `_occupied_bands:687`.
-- Test: none.
-- Missing: the intraband (Drude) term, absent from `f_i - f_j` for `i = j` (guard message).
-- Check: the Drude weight against the optical conductivity's intraband term; the f-sum rule.
-- QE/Elk: QE out of scope; Elk `tddftlr` does not add it either, per the guard message.
-- Done, unverified 2026-10-19 (P156), not merged, record in `notes/incompat/I96.md` (chi0 unit, verifier unfinished).
-
 ### I99. Real-time propagation with the potential updated (`hxc`) x meta-GGA
 
 - Axis: functional.
@@ -395,17 +343,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: `tau(t)` propagated; for `tb09`/`bj06` there is no conserved energy (guard message).
 - Check: the linear limit against the optical conductivity under the same functional.
 - QE/Elk: QE out of scope.
-- Refuted 2026-10-19 (P156), not merged, record in `notes/incompat/I99.md`: the physics passed (J_(1,1) falling as dt^2 to 8.92e-6), but no `Calculator` route reaches it, since `run_realtime` and its siblings take no `tau` and the fixed-density solve refuses TB09 without one (`workflows/nscf.py:263`).
-
-### I101. Real-time propagation x static saw-tooth (`tefield`)
-
-- Axis: applied electric field.
-- Guard: `defuqumat/realtime/propagate.py:require_a_realtime_regime:184` (`refuse_sawtooth`).
-- Test: none.
-- Missing: the length gauge (saw-tooth) and the velocity gauge (laser) in one Hamiltonian, unmeasured (guard docstring).
-- Check: a zero-amplitude pulse gives zero current on a saw-tooth ground state; the linear response equals the field-free run plus the static polarization.
-- QE/Elk: QE out of scope.
-- Refuted 2026-10-19 (P156), not merged, record in `notes/incompat/I101.md`: the stationarity check holds (2.0e-12 against 9.9e-6), but the polarizability's 1 per cent at T = 400 is a point that passes, since T = 800 reads +6.2 per cent and T = 1600 +97, cubic in E0 (the run leaves the linear regime on one k-point).
+- Fix round confirmed 2026-10-20, not merged, record in `notes/incompat/I99.md`: `tau` now reaches the real-time workflows from `Calculator` (the verifier's own AlAs C3 case, wedge 3.8e-9 against a mutant's 3.4e-2, at rest 1e-11). Integration two aborted the merge: `realtime/selfconsistent.py` conflicts with I98's augmented density (the density and potential callables carry `(rho, becsum)` there and a `(rho, tau)` state here), which is not a keep-both resolution. It needs the two combined by hand.
 
 ### I104. Any Sternheimer response x saw-tooth or Berry-phase field (`tefield`, `lelfield`)
 
@@ -415,7 +353,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: unchecked against any reference (sweep-response).
 - Check: a finite difference of the forces under the field.
 - QE/Elk: unread.
-- Partial and refuted on its numbers 2026-10-19 (P156), not merged, record in `notes/incompat/I104.md`: the dipfield term in `dV_bare` is right, but the force difference of CO carries a deterministic roughness of about 3.5e-7 Ry/bohr, so the 8.6e-6 and 8.2e-5 precision claims break at steps the implementer did not use (1.4e-4 at h = 0.00125).
+- Partial 2026-10-20 (P156, integration two), merged for the Gamma phonon, record in `notes/incompat/I104.md`: the dynamical matrix at Gamma of a fixed-occupation `nspin = 1` insulator under `tefield`, with or without `dipfield`, against a central difference of the forces to about 2e-4 Ry/bohr^2 (the force difference's roughness); 0.12 with the ion-dipole term off. Every other Sternheimer response keeps the saw-tooth refusal, and `lelfield` stays refused everywhere. PAW is refused by name; the unshifted k-mesh, a norm-conserving dataset and a core charge under `dipfield` are admitted unmeasured.
 
 ### I105. Dielectric tensor and Born charges x textured spinor (`nspin_mag = 4` with a magnetization)
 
@@ -446,27 +384,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: one Poisson equation for `div B` across the smooth and the one-centre parts (AUGMENTATION-NEXT §1f).
 - Check: `div B_xc = 0` after projection on the combined field; the norm-conserving limit; T4 Elk `nosource`.
 - QE/Elk: QE n; Elk y (LAPW).
-- Partial 2026-10-19 (P156), record in `notes/incompat/I107.md`: sized, nothing lifted (the one-centre divergence, its multipoles and one Poisson solve are missing); verifier did not run.
-
-### I108. `noncollinear_gga = 'grad_m'` x `nosource`
-
-- Axis: functional.
-- Guard: `defuqumat/scf/potential.py:refuse_noncollinear_gga:725`.
-- Test: `tests/unit/test_noncollinear_gga_grad_m.py:185` `test_the_choice_is_refused_where_it_would_mix_two_functionals`.
-- Missing: the projection checked for a field with a transverse part; only a field parallel to `m` was checked (PLAN.md index).
-- Check: `div B_xc = 0` after projection; agreement with the `grad_m` field when `m` is collinear.
-- QE/Elk: QE n; Elk unread.
-- Done, unverified 2026-10-19 (P156), not merged, record in `notes/incompat/I108.md`: projected `grad_m` divergence 6.97e-31 against 3.456 unprojected; the verifier did not run (session limit). The `'kubler'` default under `nosource` is the user's question.
-
-### I109. Source-free exchange-correlation field x potential-only meta-GGA
-
-- Axis: functional.
-- Guard: `defuqumat/scf/sourcefree.py:refuse_source_free:182`.
-- Test: none.
-- Missing: unread (message: both are potentials with no energy functional behind them).
-- Check: `div B_xc = 0` after projection.
-- QE/Elk: QE n.
-- Done, unverified 2026-10-19 (P156), not merged, record in `notes/incompat/I109.md`: TB09 sphere divergence 1e-31 projected; the verifier did not run (session limit).
+- Partial 2026-10-19 (P156), record in `notes/incompat/I107.md`: sized, nothing lifted (the one-centre divergence, its multipoles and one Poisson solve are missing); the guard and the argument confirmed by the verifier 2026-10-20 (`/l/ladovj1/review/incompat/sourcefree-ver2/`).
 
 ### I111. Fixed-spin-moment feedback constraint x `lspinorb`
 
@@ -504,7 +422,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Check: the two endpoints, and the shape in `soc_scale` against the norm-conserving blend.
 - QE/Elk: QE n (no `soc_scale`).
 - Note: Only in sweep-core.
-- Partial, unverified 2026-10-19 (P156), not merged, record in `notes/incompat/I114.md`: tetragonal Co, the Richardson slope 0.010121 against Hellmann-Feynman 0.010135 meV and MAE(1) 0.447302 against `pw.x` 0.4474; the verifier did not run.
+- Partial 2026-10-20 (P156, integration two), merged for ultrasoft, record in `notes/incompat/I114.md`: `soc_scale` strictly between 0 and 1 on an ultrasoft dataset; tetragonal Co, the Richardson slope 0.010121 against Hellmann-Feynman 0.010135 meV, the verifier's `s = 0.37` coefficient 0.45804 against the law's 0.4585 (0.154 against 0.0634 meV with the term off), MAE(1) 0.447302 against `pw.x` 0.4474, a Pt ultracell at 0.5 to 2.3e-12 Ry at `Q_d = 0`. Forces, stress, phonons and the dielectric response at an intermediate scale rest on the variational argument. Fully relativistic PAW stays refused (its small component is scaled as a strength, P117).
 
 ### I115. Ultracell transport, `exit_region = 'volume'` x ultrasoft or PAW
 
@@ -870,6 +788,19 @@ Landed on 2026-10-19 in P156, integration one of tier T3 (branch `incompat-t3`),
 - I102, Frequency-domain hierarchy with the potential updated at orders 2 and 3: against the self-consistent propagation on AlAs, 3.7e-6 to 7.6e-6 (hxc) at 800 steps a period, falling as dt^2 to 2.1e-7 to 4.4e-7 at 3200 (the verifier's); frozen 3.5e-3 to 5.0e-2 away; wedge against whole mesh 8.8e-11 to 6.0e-9. Ultrasoft and meta-GGA at order 3 and order 4 refuse (`incompat/I102`).
 - I103, `lelfield` on an ultrasoft or PAW dataset at `nspin = 1`: Si8 along y against `pw.x` 7.5 (references made for it), total 4.7e-9 Ry (US) and 7.5e-9 (PAW), `el_pol` 1.7e-6 and 6.6e-6, forces 8.7e-8 and 1.05e-7 Ry/bohr (the verifier's comparison; the record's 5.7e-8 and 8.9e-8 misread it); the cross term off 0.134 in `el_pol`. Along z `pw.x` 7.5 evaluates the cross term at `q = 0` (`qvan2.f90:237`), reproduced here with `Q_ij(0)`. `nspin = 2`, spinors, spirals, the streamed store and `method='analytic'` refuse (`incompat/I103`).
 - I110, Spin torque under a potential-only meta-GGA: the h-chain under TB09, `torque_of_result` against m x B_xc of `SCFResult.potential` to 5.2e-18 Ry per site at every `conv_thr`, 3.7e-6 to 1.2e-4 with the vector part of `tau` dropped. The site torques there are a symmetry residue, so the nonzero `tau`-dependent torque is shown on made-up fields (`incompat/I110`).
+
+Landed on 2026-10-20 in P156, integration two of tier T3 (branch `incompat-t3`), each with its record in `notes/incompat/<ID>.md`:
+
+- I90, Piezoelectric tensor of a polar norm-conserving crystal: the proper tensor on mm2 AlAs against a Berry-phase finite difference, 2.8e-3, 5.4e-4, 1.6e-3 and 1.17e-2 C/m^2 at 8^3 on `e31`, `e33`, `e15`, `e14`; after the fix round the autodiff wedge equals the closed grid to 1.1e-9 (1.1e-3 with the completion off), and the verifier's 3m cell to 4.2e-9 (6.16e-4 off). An ultrasoft or PAW polar crystal still refuses.
+- I93, Drude term of the optical conductivity with tetrahedra: fcc Al, `tetrahedra_lin` within 0.035 eV of the `degauss^2` limit of the smeared plasma frequency on every grid from 40^3 to 72^3, between 12.43 and 12.49 eV with the mesh; `intraband = False` gives 0 exactly; the band-edge filter and the D4 multiplet average each with a mutant-tested unit test.
+- I94, Sum-over-states `chi_0` on an ultrasoft insulator at `nspin = 1`: Si RPA `eps_M(0)` minus Sternheimer -0.3369 to -0.0091 from 30 to 76 bands, monotone; +0.2498 with P94's plain head and -2.4579 without `Q_ij(G)`; ALDA xc shift 4.8395 against 4.8676, wedge 2e-9, scissor pole shift 1.35e-5. PAW, smearing, `nspin = 2` and spinors on ultrasoft still refuse.
+- I95, Sum-over-states `chi_0` with smearing on a gapped cell: Si onto the fixed-occupation spectrum 0.844, 0.3815, 0.0329, 8.95e-4, 2.2e-8 at `degauss` 0.02 to 0.005 Ry, the Gaussian tail; the fixed-occupation array bit-identical to the old code.
+- I96, Sum-over-states `chi_0` of a metal: Al Drude head against the optical conductivity 3.8e-13 (872.1 with the block off); f-sum ratio 0.99410 at 40 bands and 0.99638 at 48 (0.37 without the block).
+- I101, Real-time propagation under `tefield` at a frozen potential: stationarity 1.1e-12 against 9.9e-6 with the term out; H2 static polarizability within about 0.1 per cent from a 16-bohr box up (1.4 per cent at 12 bohr), the error growing as `E0^2 T^4`; the updated potential and the frequency-domain hierarchy still refuse a saw-tooth.
+- I108, `noncollinear_gga = 'grad_m'` under `nosource`: the projected divergence 6.97e-31 against 3.456 unprojected on the h4 chain, the SCF's own field divergence-free to 1e-30; 62 iterations to an up-up-down-down state, where `'kubler'` takes 371 to a nearly nonmagnetic one.
+- I109, `nosource` with a potential-only meta-GGA: TB09 sphere divergence 1e-31 projected; the box residue on converged meta-GGA runs is 0.18 to 0.64 and does not fall, a property of the array outside the sphere the run reads.
+
+Partial in the same integration, merged for the part measured: I104 (the Gamma phonon under `tefield`, to about 2e-4 Ry/bohr^2) and I114 (`soc_scale` between 0 and 1 on ultrasoft), each marked in place above.
 
 Earlier:
 

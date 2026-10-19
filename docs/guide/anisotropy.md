@@ -153,10 +153,14 @@ on the torque, in Ry per radian.
     one-centre occupations of the first run, which do not fit the projectors of
     the other file.
 
-    `soc_scale` outside $[0, 1]$ gives an error on every dataset. For ultrasoft
-    and PAW datasets it must be exactly 0 or 1, because a blend in between is
-    not the overlap of any set of projectors. When every dataset is
-    norm-conserving, any value in $[0, 1]$ is allowed.
+    `soc_scale` outside $[0, 1]$ gives an error on every dataset. Any value in
+    $[0, 1]$ is allowed for norm-conserving and ultrasoft datasets. For
+    ultrasoft we checked the total energy, its slope and the anisotropy energy
+    in between. Forces, stress, phonons and the dielectric response in between
+    rest on the variational argument. For a fully relativistic PAW dataset it
+    must be exactly 0 or 1. The reason is the small component in the PAW
+    sphere, which the code scales by `soc_scale`, and we have not checked that
+    this is the right meaning between 0 and 1.
 
     `get_torque`, `get_orientation_torque` and `get_relaxed_orientation` give
     an error for the same cases as the force theorem. `get_torque` also gives

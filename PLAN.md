@@ -223,9 +223,10 @@ because that is what decides whether it is a session or a phase.
   on an ultrasoft or PAW dataset (the cross overlap `q_dk` with its structure phase in the string
   overlaps, and `forces_us_efield`), with two spin channels or spinors, and along three directions
   (`efield_cart`, `l3dstring`, which is also what an automatic k-grid becomes); and either field inside
-  the Sternheimer stack. Also recorded under P144: `RHO_DDOT_FIT` off by default fails QE's own slab.
-- **The `grad m` noncollinear GGA** (P142, P143) under `nosource` (its projection was checked for a
-  field parallel to `m`), and the meta-GGA on a spiral (the kinetic energy density's laboratory
+  the Sternheimer stack (except the Gamma phonon under `tefield`, with or without `dipfield`, P156,
+  I104). Also recorded under P144: `RHO_DDOT_FIT` off by default fails QE's own slab.
+- **The `grad m` noncollinear GGA** (P142, P143) ~~under `nosource`~~ (P156, I108; a potential-only
+  meta-GGA under `nosource` too, I109), and the meta-GGA on a spiral (the kinetic energy density's laboratory
   gradient; refused under either functional).
 - **Real-time propagation** (P134 frozen, P136 with the potential updated, P137 the spectrum of the
   orders at a frozen potential, P139 to P141 collinear magnets, spinors and ultrasoft and PAW
@@ -333,7 +334,9 @@ because that is what decides whether it is a session or a phase.
   term's own **k-derivative**, which is built from `<beta|psi>` and `d(beta)/dk_a` and so
   wants `d^2(beta)/dk_a dk_b` -- a second derivative of a bare projector, which nothing
   here forms. `apply_second` differentiates `H`, not a projector on its own.
-- **The sum-over-states `chi_0` of an ultrasoft dataset** (P40, P94). Two routes to
+- ~~**The sum-over-states `chi_0` of an ultrasoft dataset**~~ (P40, P94) -- **closed by P156, I94,
+  for an insulator at `nspin = 1`** (the residual falls with `nbnd` like the norm-conserving
+  control, -0.3369 to -0.0091 from 30 to 76 bands); PAW stays open. The text as it was: Two routes to
   `Q_ij(G)` at `G != 0` disagree -- 57.200 with a residual of +0.540 through
   `augmentation_at_q` against P40's 55.5 and -1.20 through the dense table -- and the
   residual is positive at every band count where the norm-conserving control falls to
@@ -381,7 +384,8 @@ because that is what decides whether it is a session or a phase.
   augmentation charge is the resident table displaced to `Q_ij(G - q)`, and that table is a
   function of `q` like every other term the gradient differentiates. What is left of it is
   a *tabulated* table, which reads `|q|` on the host and cannot take a tracer.
-  **Ultrasoft/PAW in the sum-over-states `chi_0`** is still open (P40, two findings banked).
+  **PAW in the sum-over-states `chi_0`** is still open (P40, two findings banked; ultrasoft closed
+  by P156, I94).
 - ~~**An unidentified 83.62 GiB allocation at the first diagonalisation of a 45-atom
   slab**~~ (P73) — **closed by P74**: it was `vloc_psi_nc` transforming the whole band
   block because the spinor local term never called `map_bands`, so `DEFUQUMAT_BAND_BATCH`
@@ -26660,3 +26664,34 @@ Two merges conflicted, both in neighbouring edits of one call or guard, and both
 Fast gate on D22 at the code head `8819131e` (worktree `/l/ladovj1/w-inc-t3`, logs in `/l/ladovj1/review/incompat/t3/`): 2 failed (the `yaml` pair of `test_check_guide.py`, the D22 venv's), 4061 passed, 71 skipped, 1815 deselected in 1101 s; no merge reverted. The commits after it touch only `docs/`, `README.md`, `notes/`, `PLAN.md` and `.claude/rules/`.
 
 What is left: the guide sections with executed snippets, the notebooks and the timings for every landed item (only the Limits notes, two README cells and the `scope.md` real-time clause are written); I87's record and slow-test docstring on the roughness of the energy reference, and its refusal message on the walked route; I98's record sentence on the mesh and a test of the pulse path; I103's four record corrections; notebook 28's PAW sentence (I89); the fix rounds of the six refuted units; the user's decisions listed in `notes/INCOMPATIBILITIES-T3.md`. Slow tests not run (the user's rule of 2026-10-16), listed in the record for the user.
+
+**Integration two (2026-10-20).** The fix rounds of the refuted and unverified units, each verified
+again in a separate session, and merged with `--no-ff` in item order on `incompat-t3`. Landed:
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I90 piezoelectric tensor x polar crystal (norm-conserving) | mm2 AlAs proper tensor against the Berry finite difference 2.8e-3, 5.4e-4, 1.6e-3, 1.17e-2 C/m^2 at 8^3 (`e31`, `e33`, `e15`, `e14`); autodiff wedge against closed grid 1.1e-9 (1.1e-3 completion off); verifier's 3m cell 4.2e-9 (6.16e-4 off), its 222 non-polar cell 3.7e-9 and tip equal to base; `zstar_eu` wedge against its own closed grid 1.3e-9 to 6.7e-9, the two methods 1.1e-6 to 1.9e-6 apart | Berry-phase finite difference under strain (Elk's route); wedge against closed grid | `incompat/I90` 101f5665 |
+| I93 Drude term x tetrahedra | fcc Al, `tetrahedra_lin` within 0.035 eV of the `degauss^2` limit from 40^3 to 72^3, between 12.43 and 12.49 eV with the mesh (44^3 gap -0.002, verifier); lin minus Bloechl 0.148 to 0.029 eV, monotone 36^3 to 72^3; the band-edge filter: old 4.236 against the DOS 16.144 on the verifier's band-top case, new equal to 4e-14 | `degauss -> 0` of the smeared plasma frequency; the tetrahedron DOS | `incompat/I93` 06d1aadb |
+| I94 sum-over-states `chi_0` x ultrasoft insulator | Si RPA residual -0.3369, -0.1123, -0.0867, -0.0522, -0.0179, -0.0091 at 30 to 76 bands; plain head +0.2498, no `Q_ij(G)` -2.4579, no `K` -0.7734; ALDA xc shift 4.8395 against 4.8676 Sternheimer; wedge 2e-9; scissor pole shift 1.35e-5 (3.54e-3 control) | Sternheimer `eps` on the same states | `incompat/chi0` c2a83c97 |
+| I95 `chi_0` x smearing on a gapped cell | Si onto fixed occupations 0.844, 0.3815, 0.0329, 8.95e-4, 2.2e-8 at `degauss` 0.02 to 0.005 Ry (Gaussian tail); fixed-occupation array bit-identical to the old code | the fixed-occupation spectrum | `incompat/chi0` c2a83c97 |
+| I96 `chi_0` x metal | Al Drude head against the optical conductivity 3.8e-13 (872.1 block off); f-sum ratio 0.99410 at 40 bands, 0.99638 at 48 (0.37 off), the fall steepening | optical conductivity's intraband term; f-sum rule | `incompat/chi0` c2a83c97 |
+| I101 real-time x `tefield` (frozen potential) | null pulse 1.1e-12 against 9.9e-6 term out; H2 polarizability +1.4 per cent at 12 bohr, +0.065 at 16, -0.07 at 20, -0.08 to -0.10 at 24 (verifier), so within about 0.1 per cent from 16 bohr up; T = 600 and `E0 = 7e-5` on the `E0^2 T^4` law; term off -45 per cent | static polarizability from the energy and from Hellmann-Feynman (1.6e-5 apart) | `incompat/I101` cd14815d |
+| I104 (partial) Gamma phonon x `tefield`, `dipfield` | CO z columns against a central difference of the forces to about 2e-4 Ry/bohr^2 (the force difference's roughness), the verifier's Richardson pair 1.2e-5 to 1.46e-4; ion-dipole term off 0.124; PAW refused, DFT+U already refused upstream | central difference of the forces | `incompat/I104` 5f6b310b |
+| I108 `grad_m` x `nosource` | h4 chain projected divergence 6.97e-31 against 3.456; the SCF's own field divergence-free to 1e-30; 62 iterations to up-up-down-down, `'kubler'` 371 to nearly nonmagnetic | `G . B(G) = 0` on the sphere | `incompat/sourcefree` 22cb6267 |
+| I109 potential-only meta-GGA x `nosource` | TB09 sphere divergence 1e-31 projected; box residue 0.18 to 0.64 on converged meta-GGA runs, flat (outside the sphere the run reads) | as I108 | `incompat/sourcefree` 22cb6267 |
+| I114 (partial) `soc_scale` in (0, 1) x ultrasoft | Co Richardson slope 0.010121 against Hellmann-Feynman 0.010135 meV; verifier's `s = 0.37` coefficient 0.45804 against the law's 0.4585 (1.12 term off); Pt ultracell at 0.5, 2.3e-12 Ry at `Q_d = 0`; fully relativistic PAW refused | Hellmann-Feynman slope; endpoints; the ultracell identity | `incompat/I114` e80bc66f |
+
+Not merged: **I99** (fix round confirmed, `tau` reaches the real-time workflows; the merge was aborted
+because `realtime/selfconsistent.py` conflicts with I98's augmented density in the signatures of the
+density and potential callables, which needs the two combined by hand) and **I88** (refuted twice:
+the top-band occupation guard at 6.96e-5 admits Fermi-Dirac states with 2e-5 in the top band, 6 to 7
+per cent off on `C_1111`). I107 stays partial (guard and argument confirmed).
+
+Three merges conflicted and were resolved keeping both sides: I101 with I102 in
+`run_nonlinear_spectrum` (I102's warning on orders 2 and 3, I101's refusal of `tefield`), I104 with
+I103 in `dynamical_matrix` (I104's `sawtooth_ok` and guard, the branch's
+`_require_a_measured_overlap_metal`), and every unit's record file (the branch's version taken).
+Code changed at integration beyond the merges: `tests/regression/test_tddft_metal.py`'s Drude identity
+held to 1e-11 relative (an absolute 1e-10 fails at 6x6x6, `eta = 0.03`, where it is 1e-12 relative),
+the `_drude_block` docstring, and the slow conductivity test's docstring (the 36^3 and 44^3 rows).
+

@@ -290,11 +290,15 @@ The two runs together took 123 s on one core.
     The piezoelectric tensor is clamped-ion: the atoms move with the strain and
     do not relax. The internal-strain part, which makes the constant
     comparable with experiment, is not computed, and in zincblende crystals it
-    almost cancels the clamped-ion part. A polar crystal, one whose crystal
-    class leaves a direction invariant, gives an error, because there the
-    measured tensor differs from the derivative by terms built from the
-    spontaneous polarization. Norm-conserving, ultrasoft and PAW datasets work on any
-    k-mesh. For PAW we compared AlAs with the Berry phase of `pw.x`. The tensor is 15.2,
+    almost cancels the clamped-ion part. The code computes the proper
+    piezoelectric tensor, the one an experiment measures, which does not depend
+    on the branch of the polarization. So a polar crystal works with a
+    norm-conserving dataset, on a reduced k-set or on the whole grid. We checked
+    this on AlAs with one atom moved along $z$, against a Berry-phase finite
+    difference. A polar crystal with an ultrasoft or PAW dataset gives an error,
+    because there the projectors in the Berry overlaps change with the strain,
+    and we have not checked that term. For a crystal that is not polar,
+    norm-conserving, ultrasoft and PAW datasets work on any k-mesh. For PAW we compared AlAs with the Berry phase of `pw.x`. The tensor is 15.2,
     3.7 and 0.86 per cent too large on the 4, 6 and 8 meshes, like the other two
     datasets, and within 0.1 per cent on the 12 mesh. That is as close as the `pw.x`
     Berry phase itself is converged. The `zstar_eu` method still gives an error for PAW,

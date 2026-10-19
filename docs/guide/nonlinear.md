@@ -508,9 +508,18 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     tensor is zero, so for the SCF you keep the symmetry and pass the whole mesh
     as `kpoints`, as we do for silicon.
 
-    The real-time methods give an error for a spin spiral, a static electric field
-    (`tefield` or `lelfield`), and a symmetry-reduced k-set passed as `kpoints` (you
-    pass `grid=` instead, which builds the right reduction for the field). DFT+U works
+    The real-time methods give an error for a spin spiral, a finite field by the
+    Berry phase (`lelfield`), and a symmetry-reduced k-set passed as `kpoints` (you
+    pass `grid=` instead, which builds the right reduction for the field). A
+    saw-tooth field (`tefield`) works with the frozen potential. The field is then
+    part of the potential that stays fixed, and we checked that the ground state
+    does not move. A slow, weak pulse gives the static polarizability of H2. The
+    gap is 1.4 per cent in a 12-bohr box, and from a 16-bohr box up it is within
+    about 0.1 per cent, with two k-points along the field and a pulse of length 400
+    and strength 1e-4 (atomic units). The pulse must stay weak, because the error
+    from a strong or long pulse grows as `E0^2 T^4`. With `potential='hartree'` or
+    `'hxc'`, a saw-tooth gives an error. The spectrum from
+    `get_nonlinear_spectrum` also gives an error with a saw-tooth. DFT+U works
     in `calc.get_realtime` and `calc.get_realtime_dielectric`. The occupation matrix
     stays as it is in the ground state. The Hubbard projectors move with the field, as
     the pseudopotential projectors do. This works for a collinear run with a
