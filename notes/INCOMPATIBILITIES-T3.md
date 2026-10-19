@@ -1,4 +1,4 @@
-# Tier T3 of the incompatibility work, integration one
+# Tier T3 of the incompatibility work, integrations one and two
 
 This file is the record of how the units of `notes/INCOMPATIBILITIES.md` in tier T3 (I86 to
 I122) are brought onto the branch `incompat-t3`, which starts from master at `63804fc5`
@@ -91,32 +91,32 @@ and the gate; the real-time slow files above are what would test them further.
 |---|---|
 | I86 | landed: US/PAW al2 metal phonon against `ph.x` at most 0.0136 and 0.023 cm^-1 |
 | I87 | landed: US/PAW Si2 `C_ijkl` against a five-point energy difference at the 1e-7 floor (22.1 per cent with the terms off) |
-| I88 | refuted on scope: Methfessel-Paxton on the test's own cell misses by 4.6e-4, flat in h (`sternheimer._SMALL`) |
+| I88 | refuted twice, not merged: the fix round's smearing cutoff (`small = 1e-12`) holds, but the top-band guard at 6.96e-5 admits Fermi-Dirac states with 2e-5 (C_1111 6 to 7 per cent off) and 1.7e-6 (4e-6) in the top band; needs a limit below 1e-6 or tied to 1e-12 (`I88/ver3/`) |
 | I89 | landed: PAW AlAs `e_14` onto `pw.x`'s Berry value, -0.001 per cent at the 12 mesh |
-| I90 | refuted: a polar crystal on a reduced k-set reaches an uncompleted wedge, about 1e-3 C/m^2 |
+| I90 | landed in integration two: polar norm-conserving AlAs, wedge against closed grid 1.1e-9 (1.1e-3 off), the verifier's 3m cell 4.2e-9 |
 | I91 | partial: US/PAW sum-rule floor 4.1e-3, flat in the step (5.29e-2 without the new term), refusal kept |
 | I92 | landed: Hubbard velocity against a difference of `H(k)` falling as h^2 to 4.20e-7; DFT+U shift current and SHG reachable |
-| I93 | refuted: the crossing filter drops bands `tetrahedra_opt` weights, 1.0 per cent at a 1e-3 Ry gap |
-| I94 | unverified (chi0 verifier unfinished): US eps_M(0) residual -0.3369 and -0.0522 at 30 and 60 bands |
-| I95 | unverified (chi0): smeared Si onto fixed occupations, 2.196e-8 at degauss 0.005 Ry |
-| I96 | unverified (chi0): Al Drude head against the conductivity 3.8e-13; f-sum 0.99410 |
+| I93 | landed in integration two: Al `tetrahedra_lin` within 0.035 eV of the smeared limit from 40^3 to 72^3, 12.43 to 12.49 eV with the mesh |
+| I94 | landed in integration two: US Si residual -0.3369 to -0.0091 from 30 to 76 bands; ALDA, wedge and scissor measured |
+| I95 | landed in integration two: smeared Si onto fixed occupations, 2.2e-8 at degauss 0.005 Ry |
+| I96 | landed in integration two: Al Drude head 3.8e-13; f-sum 0.99410 at 40 bands, 0.99638 at 48 |
 | I97 | landed: adiabatic PBE Dyson against PBE Sternheimer, -0.0020 at 60 bands and 20 Ry |
 | I98 | landed: US/PAW kick local-field shift equal to the nc control on three meshes (+1.79e-1 with the augmentation held) |
-| I99 | refuted: not reachable from `Calculator` (no `tau` through the real-time workflows); physics passed |
+| I99 | fix round confirmed, not merged: the merge conflicts with I98 in `realtime/selfconsistent.py` (the density and potential signatures), not a keep-both resolution, so it was aborted |
 | I100 | landed: real-time first order with U against Kubo plus curvature, 8.07e-7 |
-| I101 | refuted: the polarizability tolerance breaks at T = 800 (+6.2 per cent), cubic in E0 |
+| I101 | landed in integration two: H2 polarizability within about 0.1 per cent from 16 bohr up, null pulse 1.1e-12 |
 | I102 | landed: hierarchy orders 2 and 3 against the propagation, 3.7e-6 to 7.6e-6 at 800 steps, dt^2 |
 | I103 | landed: US/PAW `lelfield` along y against `pw.x`, `el_pol` 1.7e-6 and 6.6e-6 |
-| I104 | partial, refuted on its numbers: the force difference has a 3.5e-7 Ry/bohr roughness, the claimed 8.6e-6 and 8.2e-5 break below h = 0.0035 |
+| I104 | partial, landed in integration two: the Gamma phonon under `tefield` (with or without `dipfield`) to about 2e-4 Ry/bohr^2; the rest refused |
 | I105 | partial: textured spinor `eps_zz` against the finite field, unlocated offset -5e-4, refusal kept |
 | I106 | partial: field force on US O2 measured, Fe stress floor 4e-4 to 6e-4 Ry; PAW and noncollinear admitted untested |
-| I107 | partial: sized, nothing lifted (verifier did not run) |
-| I108 | unverified: projected `grad_m` divergence 6.97e-31 against 3.456 |
-| I109 | unverified: TB09 sphere divergence 1e-31 projected |
+| I107 | partial, nothing lifted; guard and argument confirmed by the verifier |
+| I108 | landed in integration two: projected `grad_m` divergence 6.97e-31 against 3.456 |
+| I109 | landed in integration two: TB09 sphere divergence 1e-31 projected |
 | I110 | landed: meta-GGA spin torque against m x B_xc of its own field, 5.2e-18 Ry |
 | I111 | not started (worktrees `w-inc-I111*` exist on D22, no result reported) |
 | I112, I113 | not started (rotate; `w-inc-rotate*` exist, no result reported) |
-| I114 | partial, unverified: Co MAE slope 0.010121 against Hellmann-Feynman 0.010135 meV |
+| I114 | partial, landed in integration two: `soc_scale` in (0, 1) on ultrasoft, coefficient 0.45804 at 0.37 against 0.4585; fully relativistic PAW refused |
 | I115 | not started (`w-inc-I115*` exist, no result reported) |
 | I116, I117 | not started (ultraseed) |
 | I118 to I122 | not started |

@@ -225,8 +225,9 @@ because that is what decides whether it is a session or a phase.
   (`efield_cart`, `l3dstring`, which is also what an automatic k-grid becomes); and either field inside
   the Sternheimer stack (except the Gamma phonon under `tefield`, with or without `dipfield`, P156,
   I104). Also recorded under P144: `RHO_DDOT_FIT` off by default fails QE's own slab.
-- **The `grad m` noncollinear GGA** (P142, P143) ~~under `nosource`~~ (P156, I108; a potential-only
-  meta-GGA under `nosource` too, I109), and the meta-GGA on a spiral (the kinetic energy density's laboratory
+- **The `grad m` noncollinear GGA** (P142, P143) under `nosource` (its projection was checked for a
+  field parallel to `m`; P156's I108 and I109 lift it, verified, but were reverted for a round-one
+  test that asserts the refusal), and the meta-GGA on a spiral (the kinetic energy density's laboratory
   gradient; refused under either functional).
 - **Real-time propagation** (P134 frozen, P136 with the potential updated, P137 the spectrum of the
   orders at a frozen potential, P139 to P141 collinear magnets, spinors and ultrasoft and PAW
@@ -26677,15 +26678,16 @@ again in a separate session, and merged with `--no-ff` in item order on `incompa
 | I96 `chi_0` x metal | Al Drude head against the optical conductivity 3.8e-13 (872.1 block off); f-sum ratio 0.99410 at 40 bands, 0.99638 at 48 (0.37 off), the fall steepening | optical conductivity's intraband term; f-sum rule | `incompat/chi0` c2a83c97 |
 | I101 real-time x `tefield` (frozen potential) | null pulse 1.1e-12 against 9.9e-6 term out; H2 polarizability +1.4 per cent at 12 bohr, +0.065 at 16, -0.07 at 20, -0.08 to -0.10 at 24 (verifier), so within about 0.1 per cent from 16 bohr up; T = 600 and `E0 = 7e-5` on the `E0^2 T^4` law; term off -45 per cent | static polarizability from the energy and from Hellmann-Feynman (1.6e-5 apart) | `incompat/I101` cd14815d |
 | I104 (partial) Gamma phonon x `tefield`, `dipfield` | CO z columns against a central difference of the forces to about 2e-4 Ry/bohr^2 (the force difference's roughness), the verifier's Richardson pair 1.2e-5 to 1.46e-4; ion-dipole term off 0.124; PAW refused, DFT+U already refused upstream | central difference of the forces | `incompat/I104` 5f6b310b |
-| I108 `grad_m` x `nosource` | h4 chain projected divergence 6.97e-31 against 3.456; the SCF's own field divergence-free to 1e-30; 62 iterations to up-up-down-down, `'kubler'` 371 to nearly nonmagnetic | `G . B(G) = 0` on the sphere | `incompat/sourcefree` 22cb6267 |
-| I109 potential-only meta-GGA x `nosource` | TB09 sphere divergence 1e-31 projected; box residue 0.18 to 0.64 on converged meta-GGA runs, flat (outside the sphere the run reads) | as I108 | `incompat/sourcefree` 22cb6267 |
 | I114 (partial) `soc_scale` in (0, 1) x ultrasoft | Co Richardson slope 0.010121 against Hellmann-Feynman 0.010135 meV; verifier's `s = 0.37` coefficient 0.45804 against the law's 0.4585 (1.12 term off); Pt ultracell at 0.5, 2.3e-12 Ry at `Q_d = 0`; fully relativistic PAW refused | Hellmann-Feynman slope; endpoints; the ultracell identity | `incompat/I114` e80bc66f |
 
 Not merged: **I99** (fix round confirmed, `tau` reaches the real-time workflows; the merge was aborted
 because `realtime/selfconsistent.py` conflicts with I98's augmented density in the signatures of the
 density and potential callables, which needs the two combined by hand) and **I88** (refuted twice:
 the top-band occupation guard at 6.96e-5 admits Fermi-Dirac states with 2e-5 in the top band, 6 to 7
-per cent off on `C_1111`). I107 stays partial (guard and argument confirmed).
+per cent off on `C_1111`). **I108 and I109** (`incompat/sourcefree` at 22cb6267, verified) were
+merged and reverted after the fast gate: `tests/unit/test_spin_torque_meta.py::
+test_the_source_free_field_still_refuses_a_meta_gga` (I110, round one) asserts the meta-GGA refusal
+under `nosource` that I109 lifts. I107 stays partial (guard and argument confirmed).
 
 Three merges conflicted and were resolved keeping both sides: I101 with I102 in
 `run_nonlinear_spectrum` (I102's warning on orders 2 and 3, I101's refusal of `tefield`), I104 with

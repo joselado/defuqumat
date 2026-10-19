@@ -216,9 +216,8 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     stress and the first-order spin-orbit energy of a spiral with DFT+U. An
     explicit `noncollinear_gga = 'grad_m'` gives an error on a collinear or
     unpolarized run and with a local functional such as LDA, which have nothing
-    for it to change. These runs keep `'kubler'` by default. A `nosource` run
-    also keeps `'kubler'` by default, but `'grad_m'` works there if you ask for
-    it.
+    for it to change, and with `nosource`, because its projection was written
+    for a field parallel to $\mathbf m$. These runs keep `'kubler'` by default.
 
     $dE/d\mathbf q$, and with it the relaxation of $\mathbf q$ and the scan with
     `gradients=True`, gives an error under a magnetic field or a constrained
