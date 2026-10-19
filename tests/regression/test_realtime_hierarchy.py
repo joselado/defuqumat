@@ -381,3 +381,41 @@ def test_the_self_consistent_orders_are_the_self_consistent_propagation(pseudo_d
             scale = max(abs(v) for k, v in references.items() if k[0] == key[0])
             value = linear["components"][key][0, 0]
             assert abs(value - references[key]) > 1e-3 * scale, "the nonlinear kernel is seen"
+
+
+@pytest.mark.parametrize("potential", ["hartree", "hxc"])
+def test_the_self_consistent_orders_on_the_wedge_are_the_whole_mesh(pseudo_dir, tmp_path,
+                                                                    potential):
+    """Orders one to three with the potential updated on the field's wedge against the whole mesh.
+
+    AlAs at 6 Ry, 2x2x2, the field along [111] (six operations in its little
+    group), 1.5 eV and ``eta = 0.3`` eV. The wedge completes the densities of
+    every order, and the nonlinear kernel's phase samples, with the little
+    group; the whole unshifted mesh needs no symmetry. Measured (D22, one
+    sample): **1.1e-10 to 6.0e-9** of each order's largest component with the
+    Hartree kernel and 8.8e-11 to 4.0e-9 with ``'hxc'``, inside the outer
+    tolerance of 1e-8, where the update moves the components by 1.0e-2 to
+    1.6e-1 and 7.7e-3 to 9.3e-2; with one ``vmap`` over the wedge
+    (``k_batch = None``) against one k-point at a time, 5e-14 to 3e-11. The
+    warning about the mesh artefact fires.
+    """
+    from defuqumat import Calculator
+
+    text = (CASES / "alas-shg.in").read_text()
+    text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", "ecutwfc = 6.0", text)
+    text = re.sub(r"^\s*no(sym|inv)\s*=.*\n", "", text, flags=re.M)
+    path = tmp_path / "alas-shg-6.in"
+    path.write_text(text)
+    calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir, announce=False)
+    calculator.get_scf(conv_thr=1e-12)
+    options = dict(broadening=0.3, direction=tuple(np.ones(3) / math.sqrt(3.0)),
+                   grid=(2, 2, 2), conv_thr=1e-12, order=3, potential=potential)
+    with pytest.warns(UserWarning, match="artefact"):
+        wedge = calculator.get_nonlinear_spectrum([1.5], little_group=True, **options)
+    whole = calculator.get_nonlinear_spectrum([1.5], little_group=False, **options)
+    for key in COMPONENTS:
+        scale = max(np.abs(whole.component(*k)).max() for k in COMPONENTS if k[0] == key[0])
+        difference = np.abs(wedge.component(*key) - whole.component(*key)).max()
+        assert difference < 5e-8 * scale, (key, difference / scale)
+        shift = np.abs(wedge.component(*key) - wedge.frozen_components[key]).max()
+        assert shift > 1e-3 * scale, "the update is load-bearing"
