@@ -230,7 +230,7 @@ def _occupied_count(system, nelec: float) -> int:
 
 
 def _occupied_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
-                     calculation, becsum=(), field=None, field_scale=None):
+                     calculation, becsum=(), field=None, field_scale=None, ns=None):
     """``(calculation, states, weights, v_scf, ddd_paw)`` with fixed occupations.
 
     ``states`` is ``(nchannel, nk, nb, ndim)`` and ``weights``
@@ -244,12 +244,12 @@ def _occupied_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     calc, states, weights, v_scf, _, _, ddd_paw = _solved_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
         calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, ns=ns)
     return calc, states, weights, v_scf, ddd_paw
 
 
 def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
-                   calculation, becsum=(), field=None, field_scale=None):
+                   calculation, becsum=(), field=None, field_scale=None, ns=None):
     """:func:`_occupied_states` and every band the solve resolved, with their energies.
 
     Returns ``(calculation, states, weights, v_scf, bands, energies, ddd_paw)``:
@@ -282,8 +282,8 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     calc, _, eigenvalues, wavefunctions = fixed_density_states(
         moved, pseudos, density, kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
-    require_a_realtime_regime(calc)
+        field=field, field_scale=field_scale, ns=ns)
+    require_a_realtime_regime(calc, ns)
     eigenvalues = np.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
         eigenvalues = eigenvalues[None]
@@ -346,7 +346,7 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
                  propagator: str = "taylor4", checkpoint=None,
                  potential: str = "frozen", corrector: int = 1,
                  calculation=None, becsum=(),
-                 field=None, field_scale=None) -> RealTimeResult:
+                 field=None, field_scale=None, ns=None) -> RealTimeResult:
     """The current ``J(t)`` of a crystal driven by ``pulse``.
 
     Args:
@@ -380,17 +380,22 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
             :class:`~defuqumat.calculator.Calculator`. The same pair is
             frozen into the potential, so with no pulse the states are
             stationary; every entry point of this module takes it.
+        ns: the Hubbard occupation matrix of a DFT+U ground state
+            (``SCFResult.ns``, filled by the calculator), which the
+            fixed-density solve and the propagation freeze with the potential
+            (:mod:`defuqumat.realtime.hubbard`); a U at ``potential = 'frozen'``
+            only.
     """
     kset, rotations, group = _kset(system, pulse, kpoints, grid, little_group)
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, ns=ns)
     return propagate(calc, states, weights, v_scf, pulse, dt=dt, duration=duration,
                      start=start, propagator=propagator, k_batch=k_batch,
                      block_steps=block_steps, checkpoint=checkpoint,
                      symmetrise=rotations, potential=potential, corrector=corrector,
-                     density_symmetry=group, ddd_paw=ddd_paw)
+                     density_symmetry=group, ddd_paw=ddd_paw, ns=ns)
 
 
 def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.0),
@@ -403,7 +408,7 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
                             block_steps: int = 1000, subtract_static: bool = False,
                             potential: str = "frozen", corrector: int = 1,
                             calculation=None, becsum=(),
-                            field=None, field_scale=None) -> KickResponse:
+                            field=None, field_scale=None, ns=None) -> KickResponse:
     """``sigma(w + i eta)`` and ``eps`` from a kick, Elk's task 481.
 
     ``broadening`` and ``frequencies`` (or ``window`` and ``nw``) are in eV.
@@ -415,7 +420,7 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
     ``duration`` says otherwise, which leaves ``exp(-22)`` of the window
     uncovered. ``potential`` is :func:`run_realtime`'s: with ``'hartree'`` or
     ``'hxc'`` the result is ``eps_M`` with local fields, the applied field
-    being the whole macroscopic one.
+    being the whole macroscopic one. ``ns`` is :func:`run_realtime`'s.
     """
     eta = float(broadening) * EV_TO_HA
     if frequencies is None:
@@ -431,9 +436,9 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, ns=ns)
     update = dict(potential=potential, corrector=corrector, symmetrise=rotations,
-                  density_symmetry=group)
+                  density_symmetry=group, ns=ns)
     if potential == "frozen":
         update["ddd_paw"] = ddd_paw
     if strength is None:

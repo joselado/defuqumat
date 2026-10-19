@@ -195,7 +195,8 @@ def require_a_realtime_regime(calculation, ns=None) -> None:
     projectors move with ``k + kappa`` (:mod:`defuqumat.realtime.hubbard`),
     on a collinear norm-conserving run with ``atomic`` or ``norm-atomic``
     projectors. Without ``ns`` it is refused, which is every route that does
-    not carry it yet: the workflows, the frequency-domain hierarchy and the
+    not carry it: the harmonic workflows other than ``run_realtime`` and
+    ``run_realtime_dielectric``, the frequency-domain hierarchy and the
     updated potentials.
     """
     refuse_sawtooth(
@@ -236,10 +237,11 @@ def _require_a_hubbard_regime(calculation, ns) -> None:
         raise NotImplementedError(
             "real-time propagation with DFT+U needs the ground state's occupation "
             "matrix, which cannot be rebuilt from the density: pass ns = "
-            "scf_result.ns to propagate or propagate_orders, the routes that carry "
-            "it. The workflows (run_realtime and its siblings, Calculator.get_realtime), "
-            "the frequency-domain hierarchy and the updated potentials do not carry "
-            "it yet and refuse")
+            "scf_result.ns to propagate, propagate_orders, run_realtime or "
+            "run_realtime_dielectric (Calculator.get_realtime and "
+            "get_realtime_dielectric pass it). The other harmonic routes (get_hhg, "
+            "the perturbative orders and the third harmonic, the frequency-domain "
+            "hierarchy) and the updated potentials do not carry it and refuse")
     if calculation.noncolin:
         raise NotImplementedError(
             "real-time propagation with DFT+U on spinors is not implemented: the "

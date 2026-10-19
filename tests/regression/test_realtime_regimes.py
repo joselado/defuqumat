@@ -322,7 +322,7 @@ def test_a_kick_inside_the_run_is_the_run_started_at_the_kick(pseudo_dir, tmp_pa
 
 
 def hubbard_identity(pseudo_dir, case="si2-ldau-nc", dt=0.05, eta=0.02, kind=None,
-                     hold=None):
+                     hold=None, kset=None, u=None):
     """``max |sigma_RT - sigma_Kubo - i D/(Omega z)| / max |reference|`` with a Hubbard U.
 
     The identity of :func:`test_the_first_order_is_the_kubo_sum_plus_the_band_curvature`
@@ -334,6 +334,16 @@ def hubbard_identity(pseudo_dir, case="si2-ldau-nc", dt=0.05, eta=0.02, kind=Non
     ``hold`` is for the A/B: ``'projectors'`` holds the chunk's ``wfcU`` at
     ``kappa = 0``, ``'term'`` drops the Hubbard term from the propagation,
     which is the driver as it was found with the guard lifted.
+
+    **The k-set has no Gamma** (:data:`KSET_OFF_GAMMA`), because the
+    reference is wrong there: ``VelocityOperator`` with ``ns`` differentiates
+    ``wfcU`` through :func:`~defuqumat.pseudo.atomic.atomic_wavefunctions`,
+    whose guarded harmonic and modulus zero the ``l = 1`` tangent on the
+    ``k + G = 0`` row (the trap ``pseudo.projectors._with_origin_rows`` repairs
+    for the beta functions only). On :data:`KSET` the identity reads 1.6e-2
+    at every ``dt``, and a central difference of ``<psi|H(k)|psi>`` at Gamma
+    agrees with the table at a step of 1e-3 and with ``VelocityOperator`` at
+    1e-4, inside the guard (``notes/incompat/I100.md``).
     """
     import re as _re
     from defuqumat.realtime import propagate as rt
@@ -343,14 +353,17 @@ def hubbard_identity(pseudo_dir, case="si2-ldau-nc", dt=0.05, eta=0.02, kind=Non
     text = (CASES / f"{case}.in").read_text()
     if kind is not None:
         text = _re.sub(r"HUBBARD \{[a-z-]+\}", "HUBBARD {" + kind + "}", text)
+    if u is not None:
+        text = _re.sub(r"U Si-3p [0-9.dD+-]+", f"U Si-3p {u}", text)
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / f"{case}.in"
         path.write_text(text)
         system = build_system(read_pw_input(path))
     pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    coords, kweights = KSET_OFF_GAMMA if kset is None else kset
     system = eqx.tree_at(lambda s: s.kpoints, system,
-                         for_spin(KPoints(coords=KSET[0], weights=KSET[1]), system.nspin))
+                         for_spin(KPoints(coords=coords, weights=kweights), system.nspin))
     calc = Calculation(system, pseudos)
     v_scf = calc.potential(calc.starting_density()).v_scf
     ns = calc.starting_ns()
@@ -411,6 +424,10 @@ def hubbard_identity(pseudo_dir, case="si2-ldau-nc", dt=0.05, eta=0.02, kind=Non
     sigma = conductivity_from_kick(result.times, result.currents[1], 1.0, direction,
                                    frequencies, eta).sigma[:, 0]
     return float(np.abs(sigma - reference).max() / np.abs(reference).max())
+
+
+#: Two points of no symmetry and no ``k + G = 0`` row (:func:`hubbard_identity`).
+KSET_OFF_GAMMA = (np.array([[0.1, 0.05, 0.02], [0.25, 0.1, -0.05]]), np.array([0.5, 0.5]))
 
 
 def test_the_first_order_with_a_hubbard_u_is_the_kubo_sum_plus_the_band_curvature(pseudo_dir):

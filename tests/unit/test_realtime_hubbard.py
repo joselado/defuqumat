@@ -248,3 +248,80 @@ def test_the_augmented_and_spinor_refusals_fire(pseudo_dir, tmp_path):
         assert calc.is_hubbard
         with pytest.raises(NotImplementedError, match=match):
             require_a_realtime_regime(calc, calc.starting_ns())
+
+
+def test_the_routes_that_do_not_carry_ns_still_refuse(pseudo_dir, tmp_path):
+    """The frequency-domain hierarchy and the workflow refuse a U: neither is handed ``ns``."""
+    from defuqumat.realtime.hierarchy import hierarchy_orders
+    from defuqumat.workflows.realtime import run_realtime
+
+    calc = _calculation(pseudo_dir, tmp_path)
+    v_scf, _ = _frozen(calc)
+    basis = _states(calc, nbnd=6)
+    energies = np.tile(np.arange(6.0), (2, 1))
+    weights = np.full((2, 4), 0.5)
+    with pytest.raises(NotImplementedError, match="occupation matrix"):
+        hierarchy_orders(calc, basis, energies, weights, v_scf, omegas=[0.1], eta=0.01,
+                         direction=(1.0, 0.0, 0.0), order=1, k_batch=None)
+    with pytest.raises((NotImplementedError, ValueError), match="occupation matrix"):
+        run_realtime(calc.system, calc.pseudos, np.asarray(calc.starting_density()),
+                     Kick(strength=0.01, direction=(1, 0, 0)), dt=0.05, duration=0.1,
+                     kpoints=calc.system.kpoints, k_batch=None)
+
+
+def test_each_collinear_channel_takes_its_own_hubbard_potential(pseudo_dir, tmp_path):
+    """``nspin = 2``: channel ``c``'s chunk against ``Calculation.hamiltonian(...)[c]``.
+
+    Hund's rule with a starting magnetization fills the two channels' 3p
+    blocks differently, so the two ``v`` differ and a chunk reading the wrong
+    one fails.
+    """
+    calc = _calculation(pseudo_dir, tmp_path, extra=(
+        "nspin = 2, starting_magnetization(1) = 0.5, occupations = 'smearing', "
+        "degauss = 0.01"))
+    v_scf, ns = _frozen(calc)
+    _, _, terms = calc.hubbard_terms(jnp.asarray(ns))
+    assert np.abs(np.asarray(terms[0].vns) - np.asarray(terms[1].vns)).max() > 1e-3
+    hams = calc.hamiltonian(v_scf, None, terms)
+    psi = _states(calc)
+    weights = np.full(psi.shape[:2], 0.5)
+    for channel in (0, 1):
+        chunk = _prepare(calc, psi, weights, v_scf, 0.3, None, "taylor4", None, None,
+                         bounds=False, channel=channel, ns=ns).first
+        mine = np.asarray(chunk.applied(jnp.zeros(3), jnp.asarray(psi)))
+        theirs = np.stack([np.asarray(hams[channel].apply(jnp.asarray(psi[ik]), ik))
+                           for ik in range(psi.shape[0])])
+        assert np.abs(mine - theirs).max() < 1e-10 * np.abs(theirs).max()
+
+
+def test_the_workflow_carries_ns_to_the_propagation(pseudo_dir, tmp_path, monkeypatch):
+    """``run_realtime`` with ``ns``: the fixed-density solve and the driver both get it.
+
+    A few steps only; what is checked is that ``ns`` reaches ``propagate``
+    (the driver would refuse without it) and the run is stationary to the
+    step's error with no field, which it is not if the states were solved with
+    one Hubbard term and propagated under another: measured, the current moves
+    by 5e-12 of its 9e-4 over twenty steps.
+    """
+    from defuqumat.realtime import propagate as rt
+    from defuqumat.realtime.pulse import Kick as _Kick
+    from defuqumat.workflows import realtime as wf
+
+    calc = _calculation(pseudo_dir, tmp_path)
+    _, ns = _frozen(calc)
+    seen = {}
+    original = wf.propagate
+
+    def spy(*args, **kwargs):
+        seen["ns"] = kwargs.get("ns")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(wf, "propagate", spy)
+    result = wf.run_realtime(calc.system, calc.pseudos, np.asarray(calc.starting_density()),
+                             _Kick(strength=0.0, direction=(1, 0, 0)), dt=0.05,
+                             duration=1.0, start=0.0, kpoints=calc.system.kpoints,
+                             k_batch=None, ns=ns, conv_thr=1e-10)
+    assert seen["ns"] is not None
+    # the k-set has no -k partners, so the current is not zero, only constant
+    assert np.ptp(np.asarray(result.current), axis=0).max() < 1e-9
+    assert abs(result.energy_gained) < 1e-8
