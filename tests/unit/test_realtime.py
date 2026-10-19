@@ -669,6 +669,13 @@ def test_the_frequency_domain_hierarchy_keeps_the_sawtooth_refusal():
     with pytest.raises(NotImplementedError, match="hierarchy with a saw-tooth"):
         run_nonlinear_spectrum(system, {}, None, frequencies=[1.0])
 
+    from defuqumat.realtime.hierarchy import hierarchy_orders
+
+    calculation = types.SimpleNamespace(sawtooth=object())
+    with pytest.raises(NotImplementedError, match="hierarchy with a saw-tooth"):
+        hierarchy_orders(calculation, None, None, None, None, omegas=[1.0], eta=0.1,
+                         direction=(0.0, 0.0, 1.0))
+
 
 def test_a_kick_inside_the_run_is_crossed_at_its_grid_point(pseudo_dir):
     """Where an augmented run crosses a kick after its start, and what it refuses.

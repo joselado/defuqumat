@@ -469,6 +469,14 @@ def hierarchy_orders(calculation, basis, energies, weights, v_scf, *, omegas, et
     """
     from defuqumat.realtime.propagate import channel_arrays
 
+    if getattr(calculation, "sawtooth", None) is not None:
+        # The entry run_nonlinear_spectrum refuses tefield (notes/incompat/I101.md);
+        # a direct call reaches the same unmeasured steady-state solve.
+        raise NotImplementedError(
+            "the frequency-domain hierarchy with a saw-tooth electric field (tefield) is "
+            "not implemented: the real-time route runs it at a frozen potential "
+            "(get_realtime, get_harmonic_orders), the steady-state solve has not been "
+            "measured on one")
     basis = np.asarray(basis)
     energies = np.asarray(energies, dtype=float)
     weights = np.asarray(weights, dtype=float)
