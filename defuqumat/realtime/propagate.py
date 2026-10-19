@@ -83,7 +83,6 @@ from defuqumat.realtime.propagators import get_propagator
 from defuqumat.realtime.pulse import Kick, Sum, _unit
 from defuqumat.realtime.radial import radial_table
 from defuqumat.units import AU_SEC
-from defuqumat.scf.sawtooth import refuse_sawtooth
 
 __all__ = ["RealTimeResult", "propagate", "require_a_realtime_regime",
            "spectral_bounds", "time_grid", "largest_stable_step"]
@@ -170,10 +169,18 @@ class RealTimeResult:
 def require_a_realtime_regime(calculation, ns=None) -> None:
     """Refuse, by name, every regime whose missing term is known (``notes/HARMONICS-NEXT.md``).
 
-    A static saw-tooth field (``tefield``) is refused first: the propagation
-    would keep it in the frozen potential beside the laser's vector potential,
-    which is a length gauge and a velocity gauge in one Hamiltonian, and that
-    has not been measured.
+    A static saw-tooth field (``tefield``) runs at a frozen potential
+    (``notes/incompat/I101.md``): the saw-tooth is a periodic scalar potential
+    inside the ``v_scf`` the caller hands in, which the workflows build with
+    ``Calculation.potential`` and so with the field, and the laser couples only
+    to the kinetic and nonlocal terms through ``kappa``, so the two are one
+    ordinary Hamiltonian and nothing here reads the field. The ground state is
+    then stationary under no pulse, and is not when the saw-tooth is left out
+    of ``v_scf``; that pair is the check. The potential updated in time with a
+    saw-tooth is refused by
+    :func:`~defuqumat.realtime.selfconsistent.require_a_potential_mode`. The
+    Berry-phase field (``lelfield``) is refused here: its operator couples
+    each k-point to its neighbours on the string.
 
     Collinear spin, spinors (spin-orbit coupling and noncollinear magnetism)
     and ultrasoft and PAW datasets run (``PLAN.md`` P139 to P141): the first is
@@ -199,11 +206,12 @@ def require_a_realtime_regime(calculation, ns=None) -> None:
     ``run_realtime_dielectric``, the frequency-domain hierarchy and the
     updated potentials.
     """
-    refuse_sawtooth(
-        calculation, "real-time propagation",
-        "the static saw-tooth and the laser's vector potential would be a "
-        "length gauge and a velocity gauge in one Hamiltonian, unmeasured",
-    )
+    if getattr(calculation, "berry_field", None) is not None:
+        raise NotImplementedError(
+            "real-time propagation with a finite electric field by the Berry phase "
+            "(lelfield) is not implemented: it would need the field's operator, which "
+            "couples each k-point to its neighbours on the string, in H(k + kappa(t)), "
+            "and the k-points are propagated independently here")
     if calculation.spiral:
         raise NotImplementedError(
             "real-time propagation of a spin spiral is not implemented: the two "
@@ -744,7 +752,10 @@ def _chunk_spectrum(chunk, psi, terms, kappa_max):
     overlap = None if q is None else _flat_blocks(q)
     npol = chunk.npol
     nl_min, nl_max, s_min = 0.0, 0.0, 1.0
-    for ik in range(vkb.shape[0]):
+    # A dataset with no projectors (``H.pz-vbc``, ``number_of_proj = 0``) has
+    # no nonlocal term, so its bounds stay at zero rather than reducing an
+    # empty spectrum (``notes/incompat/I101.md``).
+    for ik in range(vkb.shape[0] if vkb.shape[-1] else 0):
         gram = vkb[ik].conj().T @ vkb[ik]
         values, vectors = np.linalg.eigh(gram)
         root = (vectors * np.sqrt(np.clip(values, 0.0, None))) @ vectors.conj().T

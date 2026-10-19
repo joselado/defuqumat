@@ -173,6 +173,19 @@ def require_a_potential_mode(calculation, potential: str, symmetrise, density_sy
             "is quadratic in the moment, so updating it would put its stiffness, a "
             "convergence parameter, into the response as a restoring force. "
             "potential = 'frozen' runs, with the converged constraint field frozen")
+    if getattr(calculation, "sawtooth", None) is not None:
+        # At a frozen potential the saw-tooth is one more static term of v_scf
+        # (notes/incompat/I101.md). Updated, ``_Run``'s 'hxc' closure takes it
+        # inside U (``calculation.potential``), so it cancels from the local
+        # energy while E_U = ehart + etxc never puts e_sawtooth back, and with
+        # dipfield the dipole correction moves with rho(t) in 'hxc' and not in
+        # 'hartree'. Neither is measured; kept refused (the user's question).
+        raise NotImplementedError(
+            "the potential updated in time with a saw-tooth field (tefield) is not "
+            "implemented: the 'hxc' update would drop the saw-tooth's energy "
+            "(e_sawtooth) from the recorded energy, and with dipfield the dipole "
+            "correction would move with rho(t) in 'hxc' but not in 'hartree', "
+            "neither measured. potential = 'frozen' runs, with the field inside v_scf")
     if potential == "hxc" and calculation.functional.is_meta:
         raise NotImplementedError(
             "the exchange-correlation potential updated in time is not implemented "
