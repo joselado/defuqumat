@@ -3,9 +3,9 @@
 The Voigt convention and the polar-crystal guard, both of which are decisions
 rather than computations -- and both of which are silent when wrong. A factor
 of two in the first makes every published ``e_14`` disagree by two with no
-symmetry saying so; the second is the difference between the improper mixed
-derivative this phase computes and the proper piezoelectric response a
-measurement sees.
+symmetry saying so; the second, since I90, refuses a polar crystal only on an
+augmented dataset, because the contraction is the proper tensor and needs no
+``delta P`` term on a norm-conserving one.
 """
 
 from pathlib import Path
@@ -20,7 +20,7 @@ from defuqumat.pseudo import read_upf
 from defuqumat.response.piezo import (
     VOIGT,
     polar_direction,
-    require_a_nonpolar_crystal,
+    require_a_measured_polar_crystal,
     require_a_piezoelectric_tensor,
     to_voigt,
 )
@@ -87,7 +87,60 @@ def test_a_cubic_crystal_admits_no_spontaneous_polarization():
     """
     for case in ("alas-raman", "si-electrostriction"):
         assert np.abs(polar_direction(_crystal(case))).max() < 1e-10
-        require_a_nonpolar_crystal(_crystal(case))
+
+
+#: As moved along ``z`` in ``alas-raman.in`` (``alat`` units): ``mm2``, polar
+#: along ``z``, the cell ``notes/incompat/I90.md`` measured the proper tensor on.
+POLAR_ALAS = (" As 0.25 0.25 0.25", " As 0.25 0.25 0.2900")
+
+
+def test_a_polar_norm_conserving_crystal_passes_the_chain(no_calculation):
+    """The contraction is the proper tensor, so a polar crystal needs no ``P``.
+
+    Refused by name until I90 as missing ``delta_ki P_j - delta_ij P_k``. The
+    cell is polar (one invariant direction, which is what the old guard read),
+    and the chain now lets it through on a norm-conserving dataset: the
+    response route reproduces the proper Berry-phase finite difference on it
+    (``notes/incompat/I90.md``).
+    """
+    system, pseudos = _input("alas-raman", POLAR_ALAS)
+    projector = polar_direction(SimpleNamespace(system=system))
+    assert np.linalg.matrix_rank(projector, tol=1e-6) == 1
+    assert abs(projector[2, 2]) > 0.5
+    require_a_piezoelectric_tensor(system, pseudos=pseudos)
+
+
+def test_a_polar_ultrasoft_crystal_is_still_refused(no_calculation):
+    """The regime the I90 check does not cover: ``S`` deforms with the cell.
+
+    The same move on the ultrasoft zincblende cell, whose non-polar form
+    passes, so the refusal fired is the polar one and not another guard.
+    """
+    system, pseudos = _input("alas-piezo")
+    require_a_piezoelectric_tensor(system, pseudos=pseudos)
+    system, pseudos = _input("alas-piezo", (" As 0.25 0.25 0.25",
+                                            " As 0.25 0.25 0.29"))
+    with pytest.raises(NotImplementedError,
+                       match="polar crystal with an ultrasoft dataset"):
+        require_a_piezoelectric_tensor(system, pseudos=pseudos)
+
+
+def test_the_polar_guard_reads_the_dataset_and_the_crystal():
+    """Silent on a non-polar ultrasoft view and on a polar norm-conserving one.
+
+    A guard that never fired would pass the two tests above only through the
+    second; this one asks it directly of the three stand-ins.
+    """
+    polar = build_system(parse_pw_input(
+        (CASES / "alas-raman.in").read_text().replace(*POLAR_ALAS)))
+    cubic = build_system(read_pw_input(CASES / "alas-raman.in"))
+    require_a_measured_polar_crystal(SimpleNamespace(system=polar,
+                                                     is_ultrasoft=False))
+    require_a_measured_polar_crystal(SimpleNamespace(system=cubic,
+                                                     is_ultrasoft=True))
+    with pytest.raises(NotImplementedError, match="polar crystal"):
+        require_a_measured_polar_crystal(SimpleNamespace(system=polar,
+                                                         is_ultrasoft=True))
 
 
 def _input(case: str, edit: tuple[str, str] | None = None):

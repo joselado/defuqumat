@@ -55,27 +55,41 @@ place of :meth:`~defuqumat.scf.driver.Calculation.at_strain` and must reproduce
 the Born charges, which are validated against ``ph.x`` to every digit it
 prints. That is the test the scale and the sign rest on.
 
-**Proper against improper, and why every target here is a crystal where they
-coincide.** The tensor above is the *improper* one -- the bare mixed second
-derivative. What a measurement sees is Vanderbilt's proper piezoelectric
-response (`J. Phys. Chem. Solids 61, 147 (2000)
+**The tensor computed is the proper one, and that is why a polar crystal needs
+no correction** (I90). What a measurement sees is Vanderbilt's proper
+piezoelectric response (`J. Phys. Chem. Solids 61, 147 (2000)
 <https://doi.org/10.1016/S0022-3697(99)00273-5>`_; QE cites it in
-``PW/src/bp_c_phase.f90`` and computes nothing from it), and the two differ by
-terms built from the polarization itself,
+``PW/src/bp_c_phase.f90`` and computes nothing from it), the strain derivative
+of the reduced Berry phases with the lattice held,
+``e^proper_(k)ij = (1/Omega) sum_g a_(g)k d(phi_g)/d(eps_ij)`` in units of the
+quantum. The improper ``dP_k/d(eps_ij)`` of the Cartesian polarization also
+moves the lattice vectors and the volume that divides them, so
 
-    e^proper_(k)ij = e^improper_(k)ij + delta_ki P_j - delta_ij P_k,
+    e^improper_(k)ij = e^proper_(k)ij + delta_ki P_j - delta_ij P_k
 
-which arise because a strain carries the charge distribution with the cell
-(``d(Omega P_k)/d(eps_ij)|_frozen = delta_ki Omega P_j``) and changes the volume
-that divides it. **Both corrections vanish identically whenever the two
-Cartesian labels they pair are different**, so the shear components with all
-three indices distinct -- ``e_14`` of a zincblende crystal, which is its only
-independent component -- carry no ambiguity at all. And they vanish for *every*
-component of a crystal whose spontaneous polarization is zero, which any
-non-pyroelectric class is: the class ``-43m`` of AlAs has no invariant vector.
-A **polar crystal is refused by name** rather than corrected, because the
-correction needs ``P`` itself and a Berry-phase polarization is not implemented
-in this package (:func:`require_a_nonpolar_crystal`).
+(symmetrised in ``ij``). Which one the contraction is follows from writing it
+as the mixed derivative of ``E - Omega E.P`` at frozen plane-wave
+coefficients: the frozen-state strain derivative of ``Omega P_k`` is
+``delta_ki Omega P_j``, exactly the lattice's part of the total
+``d(Omega P_k)/d(eps_ij)``, so the contraction ``-(d_psi d_eps E) . dpsi_k`` is
+the part the phases carry, the proper tensor. **This paragraph said the
+opposite until I90**, with the sign of the ``delta P`` terms reversed as well,
+and refused every polar crystal for a correction that was never missing. The
+check is a Berry-phase finite difference on a polar cell (AlAs with As at
+``a(1/4, 1/4, 0.29)``, ``mm2``, ``P_z = -0.180 C/m^2``): at an ``8 8 8`` mesh
+the response route sits 2.8e-3, 5.4e-4 and 1.6e-3 C/m^2 from the proper
+difference on ``e_31``, ``e_33`` and ``e_15``, where the improper reading of
+``e_31`` and ``e_15`` and the fixed-Cartesian-field reading of ``e_33`` are
+0.18, 0.09 and 0.18 away (``notes/incompat/I90.md``,
+``test_piezoelectric.py::test_a_polar_crystal_reads_the_proper_tensor``). The
+proper tensor is also the one that does not depend on the branch of ``P``,
+which the improper one does by a quantum, 1.45 C/m^2 on that cell.
+
+**An augmented dataset on a polar crystal is still refused**
+(:func:`require_a_measured_polar_crystal`): the argument needs the frozen
+phases to be strain-independent, and with ``S`` in the Berry overlaps they are
+not, a term that has been checked only on zincblende ``e_14``, where every
+polar component vanishes by symmetry.
 
 **What is left out and is not an approximation.** This is the *clamped-ion*
 constant: the atoms are carried along by the strain in crystal coordinates and
@@ -152,7 +166,7 @@ __all__ = [
     "KMESH_STEP",
     "ULTRASOFT_MESH",
     "require_a_measured_dataset",
-    "require_a_nonpolar_crystal",
+    "require_a_measured_polar_crystal",
     "polar_direction",
     "to_voigt",
 ]
@@ -358,29 +372,50 @@ def polar_direction(calculation) -> np.ndarray:
     return cartesian_rotations(cell, symmetries).mean(axis=0)
 
 
-def require_a_nonpolar_crystal(calculation) -> None:
-    """A polar class needs ``P`` itself, which this package does not have.
+def require_a_measured_polar_crystal(calculation) -> None:
+    """A polar crystal runs on a norm-conserving dataset and is refused on an
+    augmented one.
 
-    The improper-to-proper correction is ``delta_ki P_j - delta_ij P_k`` and
-    every term of it is built from the spontaneous polarization. A Berry-phase
-    polarization is not implemented here -- :mod:`defuqumat.topology` has the
-    k-string overlaps it would be built from and no polarization on top of them
-    -- so a crystal whose class *permits* a polarization is refused rather than
-    reported with a term missing that no symmetry check would catch.
+    **What this used to refuse was not a missing term** (I90). The contraction
+    this module computes, the field response against the strain derivative of
+    the energy at frozen plane-wave coefficients, is Vanderbilt's *proper*
+    tensor ``(1/Omega) sum_g a_g d(phi_g)/d(eps_ij)``, the one a measurement
+    sees, and not the improper ``dP_k/d(eps_ij)`` it was taken to be: written
+    as the mixed derivative of ``E - Omega E.P``, the frozen-state strain
+    derivative of ``Omega P_k`` is ``delta_ki Omega P_j``, which is exactly the
+    part of ``d(Omega P_k)/d(eps_ij)`` that the lattice carries, so the
+    contraction is the part that the reduced phases carry. On a polar
+    norm-conserving cell (AlAs with As moved to ``a(1/4, 1/4, 0.29)``,
+    ``mm2``) it agrees with a Berry-phase finite difference of the proper form
+    on the components the ``delta P`` terms reach; ``notes/incompat/I90.md``
+    has the numbers. So nothing is added and a polar norm-conserving crystal
+    is not refused.
+
+    **An augmented dataset is still refused on a polar crystal**, for a reason
+    of its own. The argument above needs the reduced polarization at frozen
+    coefficients to be strain-independent, which holds when the Berry overlaps
+    are ``sum_G c* c`` over the integer sphere. For an ultrasoft dataset they
+    carry ``S``, whose ``vkb`` is ``beta(|k+G|)`` and deforms with the cell, so
+    the frozen phases move under a strain, and that term has been measured
+    only on zincblende ``e_14``, where every polar component is zero by
+    symmetry. PAW is refused earlier, by :func:`require_a_measured_dataset`.
     """
+    if not getattr(calculation, "is_ultrasoft", False):
+        return
     projector = polar_direction(calculation)
     if np.abs(projector).max() > 1.0e-6:
         directions = np.linalg.matrix_rank(projector, tol=1.0e-6)
         raise NotImplementedError(
-            "the piezoelectric tensor of a polar crystal is not implemented: "
-            f"this crystal's point group leaves {directions} direction(s) "
-            "invariant, so it may carry a spontaneous polarization, and the "
-            "proper piezoelectric response then differs from the mixed second "
-            "derivative computed here by delta_ki P_j - delta_ij P_k "
-            "(Vanderbilt, J. Phys. Chem. Solids 61, 147 (2000)). P is a "
-            "Berry-phase quantity and defuqumat.topology has the overlaps but "
-            "no polarization built on them. A non-polar class -- zincblende, "
-            "diamond, rocksalt -- has no such term"
+            "the piezoelectric tensor of a polar crystal with an ultrasoft "
+            "dataset is not implemented: this crystal's point group leaves "
+            f"{directions} direction(s) invariant, and on a polar crystal the "
+            "components that pair two equal Cartesian labels (e_31, e_33, e_15) "
+            "are allowed. The proper tensor computed here equals a Berry-phase "
+            "finite difference on a norm-conserving polar crystal, but for an "
+            "augmented dataset the Berry overlaps carry S, whose projectors "
+            "deform with the cell, and that strain term has been checked only "
+            "on zincblende e_14, where those components vanish by symmetry. "
+            "A norm-conserving dataset, or a non-polar class, has no such term"
         )
 
 
@@ -476,7 +511,8 @@ def require_a_measured_dataset(calculation, drift=None,
     ``As.pbe-n-rrkjus_psl.1.0.0.UPF`` are committed and
     ``tests/data/qe/alas-magnetoelectric-nosoc.in`` already builds zincblende
     from them, which is exactly the non-polar, non-centrosymmetric class
-    :func:`require_a_nonpolar_crystal` handles. A reader who believed the
+    the polar refusal (now :func:`require_a_measured_polar_crystal`) named as
+    handled. A reader who believed the
     sentence would have gone looking for a pseudopotential; the case exists and
     ``tests/data/qe/alas-piezo.in`` is now the nonmagnetic version of it.
 
@@ -668,7 +704,7 @@ def require_a_piezoelectric_tensor(calculation, drift=None,
     require_a_differentiable_cell(calculation)
     require_a_measured_dataset(calculation, drift,
                                allow_a_coarse_mesh=allow_a_coarse_mesh)
-    require_a_nonpolar_crystal(calculation)
+    require_a_measured_polar_crystal(calculation)
 
 
 # -- the assembly ------------------------------------------------------------
@@ -1157,9 +1193,10 @@ def piezoelectric_zstar_eu_style(
 
         e_(k)ab = -(2/Omega) sum_n w_n Re <dpsi^(E_k)_n | dH/d(eps_ab) psi_n>
 
-    with no ionic term, because the frozen polarization's own strain derivative
-    is ``delta_ki Omega P_j`` and vanishes for the non-polar crystals this is
-    allowed on. The bare strain perturbation is
+    with no ionic term and no ``delta_ki Omega P_j``, the frozen polarization's
+    own strain derivative: leaving that out is what makes this the *proper*
+    tensor, on a polar crystal as on any other (I90, the module docstring).
+    The bare strain perturbation is
     :func:`~defuqumat.response.strain._bare_strains` -- the same ``jvp`` through
     :meth:`~defuqumat.scf.driver.Calculation.at_strain` P26 drives its response
     with -- so **this route needs no strain response at all**: it is three
