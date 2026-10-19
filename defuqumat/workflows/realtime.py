@@ -434,7 +434,10 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
         field=field, field_scale=field_scale)
     update = dict(potential=potential, corrector=corrector, symmetrise=rotations,
                   density_symmetry=group)
-    if potential == "frozen":
+    if potential == "frozen" or strength is not None:
+        # frozen, or the start of the one-centre D's update in time
+        # (``realtime.selfconsistent``); the orders with the potential updated
+        # take no PAW dataset
         update["ddd_paw"] = ddd_paw
     if strength is None:
         orders = propagate_orders(calc, states, weights, v_scf, kick, dt=dt, order=1,

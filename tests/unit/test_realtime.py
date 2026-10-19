@@ -322,23 +322,69 @@ def test_a_second_self_consistent_run_compiles_nothing(pseudo_dir):
     assert counts[1] == 0, counts
 
 
-def test_what_is_refused_is_refused_by_name(pseudo_dir):
-    """An ultrasoft dataset with the potential updated, and a wedge passed as the k-set.
+def _augmented(pseudo_dir, case, extra=""):
+    """``case`` at 8 Ry and a dual of 8, with ``extra`` added to ``&system``: a cheap augmented cell."""
+    import re
 
-    An ultrasoft dataset runs at a frozen potential (``PLAN.md`` P141); what is
-    refused is the update, whose density, ``D`` and one-centre terms move.
+    text = (CASES / f"{case}.in").read_text()
+    text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", "ecutwfc = 8.0", text)
+    text = re.sub(r"ecutrho\s*=\s*[0-9.dD+-]+", "ecutrho = 64.0", text)
+    if extra:
+        text = re.sub(r"&system", "&system\n    " + extra, text, count=1)
+    path = Path("/tmp") / f"defuqumat-realtime-{case}-{abs(hash(extra)) % 1000}.in"
+    path.write_text(text)
+    system = build_system(read_pw_input(path))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    return Calculation(system, pseudos)
+
+
+def test_what_is_refused_is_refused_by_name(pseudo_dir):
+    """The updated potential on an augmented dataset, its siblings, and a wedge passed as the k-set.
+
+    An ultrasoft or PAW dataset runs at a frozen potential (``PLAN.md`` P141)
+    and, since ``notes/incompat/I98.md``, with the potential updated in the
+    propagation; refused are the orders and the frequency-domain hierarchy
+    with the update, spinors, ``nspin = 2``, ``'hartree'`` on PAW, and a kick
+    inside the run.
     """
     from defuqumat.realtime.propagate import require_a_realtime_regime
-    from defuqumat.realtime.selfconsistent import require_a_potential_mode
+    from defuqumat.realtime.selfconsistent import (
+        propagate_self_consistent, require_a_potential_mode)
     from defuqumat.workflows.realtime import _kset
     from defuqumat.realtime.pulse import Sin2
 
-    system = build_system(read_pw_input(CASES / "si2-us.in"))
-    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
-    ultrasoft = Calculation(system, pseudos)
+    ultrasoft = _augmented(pseudo_dir, "si-epsilon-us")
     require_a_realtime_regime(ultrasoft)
-    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
-        require_a_potential_mode(ultrasoft, "hxc", None, None)
+    for potential in ("hartree", "hxc"):
+        require_a_potential_mode(ultrasoft, potential, None, None)
+        for route in ("orders", "hierarchy"):
+            with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
+                require_a_potential_mode(ultrasoft, potential, None, None, route=route)
+    paw = _augmented(pseudo_dir, "si-epsilon-paw")
+    require_a_potential_mode(paw, "hxc", None, None)
+    with pytest.raises(NotImplementedError, match="'hartree' is not implemented for a PAW"):
+        require_a_potential_mode(paw, "hartree", None, None)
+    spinor = _augmented(pseudo_dir, "si-epsilon-us", "noncolin = .true.,")
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW dataset on spinors"):
+        require_a_potential_mode(spinor, "hxc", None, None)
+    collinear = _augmented(pseudo_dir, "si-epsilon-us",
+                           "nspin = 2, starting_magnetization(1) = 0.5, tot_magnetization = 0,")
+    with pytest.raises(NotImplementedError, match="PAW dataset at nspin = 2"):
+        require_a_potential_mode(collinear, "hxc", None, None)
+    # the two routes that still refuse, through their own entry points
+    from defuqumat.realtime.hierarchy import hierarchy_linear_self_consistent
+    from defuqumat.realtime.selfconsistent import propagate_orders_self_consistent
+
+    with pytest.raises(NotImplementedError, match="frequency-domain hierarchy"):
+        hierarchy_linear_self_consistent(ultrasoft, None, None, None, None, omegas=[0.1],
+                                         eta=0.01, direction=(1.0, 0.0, 0.0))
+    with pytest.raises(NotImplementedError, match="perturbative orders"):
+        propagate_orders_self_consistent(ultrasoft, None, None, None, Kick(1.0), dt=0.05)
+    # a kick past the start is refused before anything is built
+    late = Kick(strength=0.01, direction=(1.0, 0.0, 0.0), time=0.5)
+    with pytest.raises(NotImplementedError, match="kick inside the run"):
+        propagate_self_consistent(ultrasoft, None, None, None, late, dt=0.05, start=0.0,
+                                  duration=1.0)
     silicon = build_system(read_pw_input(CASES / "si2-symmetric.in"))
     pulse = Sin2.from_intensity(1e11, 1.55, 1)
     with pytest.raises(NotImplementedError, match="symmetry-reduced"):
