@@ -54,3 +54,18 @@ full verifier reports are in the D22 log directories each one names, `/l/ladovj1
   those two with `test_hierarchy_two_grids.py` after I102 (32 passed, 11 deselected). Record files
   only, each path under `notes/incompat/` taken by name from its branch, from I88, I90, I91, I93,
   chi0 (I94 to I96), I99, I101, I104, I105, I106, sourcefree (I107 to I109) and I114.
+- Step 2: Limits notes on seven guide pages (`phonons.md` I86, I87; `stress.md` I87; `piezo.md`
+  I87, I89; `nonlinear.md` I92, I98, I100, I102; `optics.md` I97; `electric-field.md` I103;
+  `magnetism.md` I110, a sentence in the torque section and one in the Limits note), README's
+  `lelfield` cell (I103) and phonon bullet (I86), and `.claude/rules/scope.md`'s real-time
+  clause (I98, I100). Two record sentences were corrected on the way, from the verifiers: I87's
+  chunked route walks only in memory mode (`memory_mode='memory'` with `k_batch < nk` on a CPU,
+  any chunk on a GPU), not for any `k_batch` on a CPU; I97's 2e-3 agreement is stated for the
+  silicon test it was measured on. `tools/check_guide.py` passes, and
+  `tests/unit/test_facade_documentation.py` passes locally (6 passed). Ten ledger entries moved
+  into "Closed since", the twelve unlanded ones (eighteen IDs) marked in place; `PLAN.md` P156,
+  and its outstanding index for I86, I87, I98, I100 and I102.
+- Step 3: the fast gate launched on D22 at `8819131e` (the code head; steps 2 and on touch only
+  `docs/`, `README.md`, `notes/`, `PLAN.md` and `.claude/rules/`), worktree `/l/ladovj1/w-inc-t3`,
+  logs in `/l/ladovj1/review/incompat/t3/`, `taskset -c 0-3,12-15`, 16 GB scope,
+  `DEFUQUMAT_QE_ROOT` set.
