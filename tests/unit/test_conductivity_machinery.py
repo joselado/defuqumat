@@ -410,11 +410,109 @@ K_POINTS automatic
     require_a_conductivity_regime(Calculation(whole, pseudo))
 
 
-def test_the_drude_term_of_a_tetrahedron_run_is_refused():
-    """I93's guard, before it is lifted: fired on a bare tetrahedron run."""
-    from defuqumat.response.conductivity import _fermi_surface_delta
 
-    calculation = SimpleNamespace(system=SimpleNamespace(occupations="tetrahedra",
-                                                         degauss=0.0))
-    with pytest.raises(NotImplementedError, match="tetrahedron run"):
-        _fermi_surface_delta(calculation, 0.5, np.zeros((2, 3)), enabled=True)
+# -- the Drude term's delta on a tetrahedron run (I93) -------------------------
+
+
+def _tetrahedron_run(occupations: str, *, nosym: bool, grid: int = 4):
+    """fcc aluminium's cell with tetrahedra, and the table a Calculation builds.
+
+    A stand-in carrying the system and ``tetrahedron_table``, built by the
+    same call :meth:`~defuqumat.scf.driver.Calculation.tetrahedron_table`
+    makes, so the delta is tested without an SCF.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.scf.tetrahedra import tetrahedra_for
+
+    text = (CASES / "al-conductivity.in").read_text()
+    text = text.replace(
+        "occupations = 'smearing', smearing = 'marzari-vanderbilt', degauss = 0.05",
+        f"occupations = '{occupations}'")
+    text = text.replace(" 8 8 8 0 0 0", f" {grid} {grid} {grid} 0 0 0")
+    if not nosym:
+        text = text.replace(" nosym = .true.,", "")
+    system = build_system(parse_pw_input(text))
+    table = tetrahedra_for(occupations, system.kpoints, system.symmetry_group(),
+                           system.cell, system.grid_symmetry())
+    return SimpleNamespace(system=system, tetrahedron_table=lambda: table)
+
+
+def _fcc_bands(system):
+    """Two first-neighbour tight-binding bands on the cell's k-set, in Ry.
+
+    ``-sum_R cos(k.R)`` over the twelve first neighbours of the fcc lattice,
+    written in crystal coordinates so it is periodic and carries the whole
+    cubic group, which a wedge needs.
+    """
+    neighbours = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1],
+                           [1, -1, 0], [0, 1, -1], [1, 0, -1]])
+    k = np.asarray(system.kpoints.crystal(system.cell))
+    tb = -0.1 * np.sum(np.cos(2 * np.pi * k @ neighbours.T), axis=1)
+    return np.stack([tb, 0.5 * tb + 0.6], axis=1)  # (nk, 2)
+
+
+@pytest.mark.parametrize("occupations", ["tetrahedra", "tetrahedra_lin",
+                                         "tetrahedra_opt"])
+def test_the_tetrahedron_drude_delta_integrates_to_the_tetrahedron_dos(occupations):
+    """I93: the delta of the plasma sum on a tetrahedron run, with ``v_a v_b = 1``.
+
+    The plasma sum is ``sum_k w_k sum_n delta_kn v_a v_b``; with the velocity
+    replaced by one it must be the tetrahedron DOS at ``E_F``, computed by
+    :func:`~defuqumat.scf.tetrahedra.tetrahedron_dos` through the derivative
+    of the integrated count rather than through the corner weights. This is
+    what tells ``w_k`` once from ``w_k`` twice (the weights carry the zone
+    measure already), and a spin factor of two from none. The wedge of the
+    same grid has to give the same number: its representatives collect the
+    corners of their whole orbit.
+    """
+    from defuqumat.response.conductivity import _fermi_surface_delta
+    from defuqumat.scf.tetrahedra import tetrahedron_dos
+
+    fermi = 0.05
+    totals = {}
+    for nosym in (True, False):
+        run = _tetrahedron_run(occupations, nosym=nosym)
+        bands = _fcc_bands(run.system)
+        wk = np.asarray(run.system.kpoints.weights)
+        delta = _fermi_surface_delta(run, fermi, bands, enabled=True)
+        assert delta.shape == bands.shape
+        total = float(np.sum(wk[:, None] * delta))
+        dos, _ = tetrahedron_dos(run.tetrahedron_table(), bands, wk,
+                                 np.array([fermi]))
+        assert total == pytest.approx(float(dos[0]), rel=1e-10)
+        totals[nosym] = total
+    assert totals[True] > 1.0  # states per Ry at a level inside the band
+    assert totals[False] == pytest.approx(totals[True], rel=1e-10)
+
+
+def test_the_tetrahedron_drude_delta_keeps_its_sibling_refusals():
+    """What still gives no Drude term, or an error, next to I93's lift.
+
+    ``intraband = False`` and a fixed-occupation run return no delta, and a
+    tetrahedron run on an explicit k-list still raises ``tetrahedra_for``'s
+    error, since the method needs the grid the points came from.
+    """
+    import dataclasses
+
+    from defuqumat.response.conductivity import _fermi_surface_delta
+    from defuqumat.scf.tetrahedra import tetrahedra_for
+    from defuqumat.system.kpoints import KPoints
+
+    run = _tetrahedron_run("tetrahedra_opt", nosym=True)
+    bands = _fcc_bands(run.system)
+    assert _fermi_surface_delta(run, 0.05, bands, enabled=False) is None
+    fixed = SimpleNamespace(system=dataclasses.replace(run.system,
+                                                       occupations="fixed"))
+    assert _fermi_surface_delta(fixed, 0.05, bands, enabled=True) is None
+
+    system = run.system
+    explicit = KPoints.from_crystal(
+        np.asarray(system.kpoints.crystal(system.cell)),
+        np.asarray(system.kpoints.weights), system.cell,
+        precision=system.kpoints.precision)
+    listed = dataclasses.replace(system, kpoints=explicit)
+    stand_in = SimpleNamespace(system=listed, tetrahedron_table=lambda: tetrahedra_for(
+        listed.occupations, listed.kpoints, listed.symmetry_group(), listed.cell,
+        listed.grid_symmetry()))
+    with pytest.raises(ValueError, match="automatic k-point grid"):
+        _fermi_surface_delta(stand_in, 0.05, bands, enabled=True)

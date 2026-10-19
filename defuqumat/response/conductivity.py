@@ -84,7 +84,15 @@ is a Drude conductivity built from the plasma frequency,
 with ``delta`` the same smeared delta the SCF's occupations came from
 (``w0gauss``, QE's ``Modules/w0gauss.f90``) -- so a run with ``occupations =
 'fixed'`` has no intraband term at all, which is the statement that an insulator
-does not conduct at zero frequency. ``gamma`` is a phenomenological relaxation
+does not conduct at zero frequency. A **tetrahedron** run takes its own delta,
+``d wg_nk / d E_F`` of the tetrahedron weights
+(:func:`~defuqumat.scf.tetrahedra.tetrahedron_fermi_weights`), which is the
+Fermi-surface integral of the corner values of ``v_a v_b`` interpolated linearly
+in each tetrahedron, with no width (I93). Neither reference has it: Elk's
+``dielectric.f90`` has no tetrahedra, and QE's ``epsilon.x`` turns its intraband
+branch on for ``ltetra`` (``epsilon.f90:321``) and then divides
+``w0gauss(...)`` by ``degauss`` (``:511``), which a tetrahedron run leaves at
+zero. ``gamma`` is a phenomenological relaxation
 rate and is a knob, not a computed quantity; Elk's ``dielectric.f90`` silently
 reuses ``swidth`` for it and this module makes it an argument that defaults the
 same way.
@@ -809,7 +817,9 @@ def _report_dropped_pairs(dropped: int, tol: float, *, curvature: bool,
         "member full and its partner empty at the same eigenvalue, which is "
         "this, and moving the cut is the fix. With a real Fermi surface, use "
         "method = 'frequency' with intraband = True and "
-        "occupations = 'smearing', where the pair's content is the Drude term",
+        "occupations = 'smearing' (or a linear or optimised tetrahedron "
+        "method, whose weights are averaged over a degenerate multiplet), "
+        "where the pair's content is the Drude term",
         RuntimeWarning,
         stacklevel=3,
     )
@@ -971,24 +981,35 @@ def _fermi_surface_delta(calculation, fermi_energy, energies, *, enabled: bool):
     disabled term returns too; the tensor itself is a sum over k of matrix
     elements, accumulated chunk by chunk (:func:`_plasma_sum`) and finished by
     :func:`_drude`.
+
+    **A tetrahedron run has no smeared delta and takes its own** (I93; it was
+    refused until then, since falling through returned a plasma frequency of
+    exactly zero for a metal). The tetrahedron weights are a piecewise
+    polynomial in the level, so ``d wg_nk / d E_F`` is a per-state weight whose
+    sum is the tetrahedron DOS at ``E_F``, and contracted with a per-state
+    quantity it integrates that quantity, interpolated linearly inside each
+    tetrahedron, over the Fermi surface: the ``delta`` of the plasma sum with
+    no width. Those weights **already carry the zone measure and the spin
+    degeneracy** (``spin / ntetra``), where :func:`_plasma_sum` multiplies by
+    ``w_k`` itself, so they are divided by ``w_k`` here; on a wedge ``w_k`` is
+    the orbit's share and the corners of the whole orbit land on its
+    representative, so the quotient is the per-state delta there too. The level
+    is the one handed in, as on the smeared branch. Bloechl's correction and
+    Kawamura's ``wlsm`` make individual weights signed, which the sum absorbs;
+    it is the choice :meth:`~defuqumat.scf.driver.Calculation.ldos_weights`
+    made for the same delta. Not differentiable in the eigenvalues, like the
+    smeared branch, which also leaves through the host.
     """
     scheme = str(getattr(calculation.system, "occupations", "fixed")).lower()
     degauss = float(getattr(calculation.system, "degauss", 0.0) or 0.0)
     if enabled and scheme.startswith("tetrahedra"):
-        # **Refused rather than dropped**, because dropping it is invisible.
-        # The delta function here is the smearing's ``w0gauss``, and a
-        # tetrahedron run has none -- it integrates the true step function,
-        # which is why it has no ``-TS`` term either. Falling through would
-        # return an insulator's conductivity for a metal, with a plasma
-        # frequency of exactly zero and nothing saying why.
-        raise NotImplementedError(
-            "the intraband (Drude) term of a tetrahedron run is not "
-            "implemented: its weight is a Fermi-surface delta function and "
-            "the tetrahedron method has no smeared delta to supply one "
-            "(tetra.f90 integrates the step function itself). Run with "
-            "occupations = 'smearing', or pass intraband = False and read the "
-            "interband part alone"
-        )
+        from defuqumat.scf.tetrahedra import tetrahedron_fermi_weights
+
+        weights = np.asarray(calculation.system.kpoints.weights, dtype=float)
+        dwg = tetrahedron_fermi_weights(
+            calculation.tetrahedron_table(), jnp.asarray(energies),
+            jnp.asarray(weights), float(fermi_energy))
+        return np.asarray(dwg) / weights[:, None]  # (nk, nbnd), 1/Ry
     if not enabled or degauss <= 0.0 or "smearing" not in scheme:
         return None
 
