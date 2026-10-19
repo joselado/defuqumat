@@ -1080,9 +1080,11 @@ def _drude_block(weight, eig, element, zomega, volume, tol):
     first order in ``v`` and cancel the same way, since ``rho_ii(-G) =
     conj(rho_ii(G))`` for any state, and its body vanishes as ``q``; so it is
     the head alone. ``eps_M = 1 - X_head`` then carries ``-wp^2/(omega + i
-    eta)^2``, which is :class:`~defuqumat.response.conductivity.
-    OpticalConductivity`'s ``-wp^2/(omega (omega + i gamma))`` at ``gamma =
-    eta`` up to terms of order ``eta/omega``, with the same weight.
+    eta)^2``, which is the Drude part of :class:`~defuqumat.response.
+    conductivity.OpticalConductivity`'s dielectric function at ``gamma =
+    eta``, with the same weight, to round-off and not only to order
+    ``eta/omega``: measured 1e-12 relative at ``eta/omega = 0.6``
+    (``notes/incompat/I96.md``).
 
     **The multiplet block, not the diagonal** (rule D4): a pair degenerate
     within ``tol``, the pairs :func:`_pair_terms` excluded, contributes its

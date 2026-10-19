@@ -208,7 +208,9 @@ def smeared_silicon(degauss: float | None, drude: bool = True, nbnd: int = 16,
 def test_the_drude_weight_of_aluminium_is_the_conductivitys():
     """The head-only ``eps`` is ``1 + 4 pi i sigma/w``, interband and Drude together."""
     here, there, plasma2, z = drude_identity()
-    assert np.max(np.abs(here - there)) < 1e-10  # measured 3.8e-13 on D22
+    # Relative: measured 3.8e-13 on D22 at the committed point, and 1.0e-10
+    # absolute on a scale of 98 (1e-12 relative) at 6x6x6, eta = 0.03.
+    assert np.max(np.abs(here - there)) < 1e-11 * np.max(np.abs(there))
     # The control: the Drude block is what carries the agreement.
     off, _, _, _ = drude_identity(drude=False)
     assert np.allclose(off - here, plasma2 / z[:, None] ** 2, rtol=1e-6)
