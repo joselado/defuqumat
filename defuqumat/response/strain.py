@@ -184,6 +184,11 @@ class StrainResponse:
     #: ``<psi_m|dS/d(eps)|psi_n>``, which the multipliers' own tangent is built
     #: from. ``None`` for the same reason.
     overlap_derivatives: np.ndarray | None = None
+    #: ``dLambda_mn``, the orthonormality multipliers' own tangent in the gauge
+    #: ``ort`` fixes, ``(3, 3)`` object array of ``(nspin, nk, nocc, nocc)``
+    #: blocks (:func:`multiplier_response`). ``None`` for a norm-conserving
+    #: dataset, where what it multiplies is zero, and on the walked route.
+    multipliers: np.ndarray | None = None
     #: The ``moved`` half of the frozen-state response -- the mixed state's
     #: change at frozen *states*, without the orthogonality block. A consumer
     #: that hands the mixed state to an energy as a function of the strain
@@ -334,7 +339,7 @@ def strain_response(
         strains = _WholeStrains(solver, bare)
 
     # 2. ``solve_linter``'s loop, one loop for both routes.
-    drho, dvscf, history, converged = _self_consistent_response(
+    drho, dvscf, history, converged, onecentre = _self_consistent_response(
         calculation, solver, strains, frozen_drho, density,
         alpha_mix=alpha_mix, tr2=tr2, max_iterations=max_iterations,
         mixing_mode=mixing_mode, verbose=verbose,
@@ -343,6 +348,7 @@ def strain_response(
     average_iterations = strains.iterations / max(strains.solves, 1)
 
     # 3. The eigenvalue response, from the converged perturbation.
+    multipliers = None
     if streamed:
         dpsi = strains.first_order_states()
         derivatives, ort = strains.overlap_derivatives()
@@ -350,6 +356,13 @@ def strain_response(
     else:
         dpsi = strains.dpsi
         elements = _eigenvalue_response(solver, bare, dvscf)
+        # 4. The multipliers' own tangent, which the elastic constants of an
+        #    ultrasoft or PAW dataset need beside ``dpsi + ort`` (I87). Not
+        #    written for the walked route, which the elastic constants refuse
+        #    for such a dataset.
+        if derivatives is not None:
+            multipliers = multiplier_response(
+                solver, bare, dvscf, onecentre, weights, derivatives)
     deigenvalues = _shifts(elements, eigenvalues, degeneracy_tol)
 
     return StrainResponse(
@@ -362,6 +375,7 @@ def strain_response(
         converged=converged,
         ort=ort,
         overlap_derivatives=derivatives,
+        multipliers=multipliers,
         moved_drho=moved_drho,
         moved_becsum=moved_becsum,
     )
@@ -700,7 +714,7 @@ def _self_consistent_response(
             dvscf = symmetric_from(mixed)
             onecentre = symmetric_from(mixed_onecentre)
 
-    return symmetrised, dvscf, history, converged
+    return symmetrised, dvscf, history, converged, onecentre
 
 
 def _symmetrize_becsum_strain(calculation, per_strain):
@@ -741,6 +755,47 @@ def _bare_plus_induced(solver, bare_component, dv, include_induced: bool,
         return bare_component[spin][ik] + induced(psi, ik, spin)
 
     return perturbation
+
+
+def multiplier_response(solver, bare, dvscf, onecentre, weights,
+                        derivatives) -> np.ndarray:
+    """``dLambda_mn`` per strain: :func:`~defuqumat.response.phonon.multiplier_response`
+    in the strain coordinate.
+
+    Stationarity gives ``Lambda_mn = w_n <psi_m|H|psi_n>``, and along the branch
+    whose first-order state is ``dpsi + ort`` (``dpsi`` ``S``-orthogonal to the
+    occupied manifold, ``ort = -1/2 sum_m psi_m S'_mn``) its derivative is
+
+        dLambda_mn = w_n [ <psi_m|dH|psi_n> - 1/2 (eps_m + eps_n) S'_mn ]
+
+    with ``dH`` the bare strain derivative at the frozen density plus the
+    converged induced potential and, for PAW, the converged one-centre
+    response. ``bare`` already carries ``-eps_n dS|psi_n>`` (``compute_deff``),
+    so what is added back is ``+1/2 (eps_n - eps_m) S'_mn w_n``, the phonon's
+    correction verbatim. The weight is on the column and
+    :attr:`~defuqumat.response.sternheimer.SternheimerSolver.projector_mask` on
+    the row, as :func:`~defuqumat.response.born._multiplier_response` has them.
+
+    Returns the occupied block, ``(nspin, nk, nocc, nocc)`` per strain; the
+    consumer pads it to its own ``nbnd``.
+    """
+    from defuqumat.response.born import _multiplier_response
+
+    nocc = solver.nocc
+    eps = solver.eigenvalues[..., :nocc]
+    # (eps_n - eps_m) with m the row.
+    gaps = eps[..., None, :] - eps[..., :, None]
+    out = np.empty((3, 3), dtype=object)
+    for a in range(3):
+        for b in range(a, 3):
+            perturbation = _bare_plus_induced(
+                solver, bare[a, b], dvscf[a, b], True,
+                None if onecentre is None else onecentre[a, b],
+            )
+            matrix = _multiplier_response(solver, perturbation, weights, nocc, nocc)
+            correction = 0.5 * gaps * derivatives[a, b] * weights[:, :, None, :nocc]
+            out[a, b] = out[b, a] = matrix + correction
+    return out
 
 
 def _shifts(elements, eigenvalues, degeneracy_tol) -> np.ndarray:

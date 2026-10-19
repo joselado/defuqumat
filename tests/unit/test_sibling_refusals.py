@@ -241,7 +241,7 @@ def test_the_elastic_constants_call_the_refusal_that_names_them():
     from defuqumat.response import elastic
 
     body = inspect.getsource(elastic.elastic_constants)
-    assert "require_a_measured_elastic_regime(calculation)" in body
+    assert "require_a_measured_elastic_regime(calculation," in body
 
 
 @pytest.mark.parametrize(
