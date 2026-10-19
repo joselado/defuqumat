@@ -4,8 +4,12 @@ Usage: harness.py <case> <run> [<run> ...]
   case: 'sym'  -- bcc Fe, fully-relativistic dataset, K_POINTS gamma, target (0, 0, 2)
         'asym' -- the same cell at fe-fsm.in's one generic k-point, target
                   2 (sin 30, 0, cos 30), a direction no symmetry selects
-  run:  'fsm' (elk rule, SOC), 'fsm-nosoc', 'free' (no constraint, SOC),
-        'pen<lambda>' (the 'total' penalty, SOC), 'fsm-tight' (FSM_TOLERANCE 1e-5)
+        'asym<NN>' -- as 'asym' with |target| = NN/10 mu_B (run 2: 'asym14')
+  run:  'fsm' (elk rule, SOC), 'free' (no constraint, SOC),
+        'pen<lambda>' (the 'total' penalty, SOC), 'fsm-tight' (FSM_TOLERANCE 1e-5),
+        each optionally followed by ':key=value' modifiers:
+        tau=<gain> (fsm), soc=<soc_scale>, beta=<mixing_beta>
+        ('fsm-nosoc' is refused for this dataset: no average_pp; soc=0 is the control)
 
 For the penalty the equivalent uniform field is B = -2 lambda (M - M_fix), the
 field whose Zeeman potential equals the penalty's gradient (fields.py:
@@ -39,7 +43,8 @@ TEMPLATE = """
     noncolin = .true.
     nosym = .true.
     noinv = .true.
-    lspinorb = {soc}
+    lspinorb = .true.
+    soc_scale = {soc}
     starting_magnetization(1) = 0.5
     angle1(1) = {theta}
     angle2(1) = 0.0
@@ -47,7 +52,7 @@ TEMPLATE = """
  /
  &electrons
     conv_thr = 1.0d-10
-    mixing_beta = 0.3
+    mixing_beta = {beta}
  /
 ATOMIC_SPECIES
  Fe 55.847 Fe.rel-pbe-spn-rrkjus_psl.0.2.1.UPF
@@ -67,38 +72,56 @@ CASES = {
 }
 
 
+def case_of(name):
+    if name in CASES:
+        return CASES[name]
+    magnitude = int(name[4:]) / 10.0
+    return dict(CASES["asym"], target=(magnitude * math.sin(math.radians(30.0)), 0.0,
+                                       magnitude * math.cos(math.radians(30.0))))
+
+
+def parse(run):
+    head, *mods = run.split(":")
+    opts = dict(tau=0.02, soc=1.0, beta=0.3)
+    for mod in mods:
+        key, value = mod.split("=")
+        opts[key] = float(value)
+    return head, opts
+
+
 def text(case, run):
-    c = CASES[case]
-    soc = ".false." if run == "fsm-nosoc" else ".true."
+    c = case_of(case)
+    head, opts = parse(run)
     lines = []
-    if run.startswith("fsm"):
+    if head.startswith("fsm"):
         lines.append("    constrained_magnetization = 'fsm'")
-        lines.append("    lambda = 0.02")
-    elif run.startswith("pen"):
+        lines.append(f"    lambda = {opts['tau']}")
+    elif head.startswith("pen"):
         lines.append("    constrained_magnetization = 'total'")
-        lines.append(f"    lambda = {float(run[3:])}")
-    if run != "free":
+        lines.append(f"    lambda = {float(head[3:])}")
+    if head != "free":
         for i, v in enumerate(c["target"], 1):
             lines.append(f"    fixed_magnetization({i}) = {v:.12f}")
-    return TEMPLATE.format(soc=soc, theta=c["theta"], constraint="\n".join(lines),
-                           kpoints=c["kpoints"])
+    return TEMPLATE.format(soc=opts["soc"], theta=c["theta"], beta=opts["beta"],
+                           constraint="\n".join(lines), kpoints=c["kpoints"])
 
 
 def main():
     case, runs = sys.argv[1], sys.argv[2:]
-    target = np.asarray(CASES[case]["target"])
+    target = np.asarray(case_of(case)["target"])
     unit = target / np.linalg.norm(target)
     for run in runs:
-        fields.FSM_TOLERANCE = 1.0e-5 if run == "fsm-tight" else 1.0e-3
+        head, opts = parse(run)
+        fields.FSM_TOLERANCE = 1.0e-5 if head == "fsm-tight" else 1.0e-3
         system = build_system(parse_pw_input(text(case, run)))
         pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
         t0 = time.time()
         result = run_scf(system, pseudos, conv_thr=1e-10, max_iterations=400,
-                         mixing_beta=0.3)
+                         mixing_beta=opts["beta"])
         m = np.asarray(result.magnetization_vector, dtype=float)
-        if run.startswith("pen"):
-            b = -2.0 * float(run[3:]) * (m - target)
-        elif run.startswith("fsm"):
+        if head.startswith("pen"):
+            b = -2.0 * float(head[3:]) * (m - target)
+        elif head.startswith("fsm"):
             b = np.asarray(result.magnetic_field.uniform, dtype=float)
         else:
             b = np.zeros(3)
