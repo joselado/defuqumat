@@ -115,11 +115,22 @@ def test_grad_m_reads_tau_and_turns_the_moment():
     assert np.linalg.norm(a - b) > 1.0e-3 * np.linalg.norm(a)
 
 
-def test_the_source_free_field_still_refuses_a_meta_gga():
-    """The sibling refusal in ``sourcefree.py``: a different guard, still in place."""
+def test_the_source_free_field_admits_a_meta_gga_and_keeps_its_other_refusals():
+    """The sibling guard in ``sourcefree.py``, after I109 lifted its meta-GGA branch.
+
+    A potential-only meta-GGA under ``nosource`` is admitted, so the torque of
+    such a run is the one tested above, rebuilt by ``torque_of_result`` with
+    ``calculation.source_free`` and the run's own ``tau``. What I109 did not
+    lift still fires with a meta-GGA: PAW and a spin spiral, each by its own
+    message.
+    """
     from defuqumat.scf.sourcefree import refuse_source_free
 
     system = types.SimpleNamespace(noncolin=True, spiral_q=None)
     meta = types.SimpleNamespace(is_meta=True)
-    with pytest.raises(NotImplementedError, match="potential-only meta-GGA"):
-        refuse_source_free(system, meta)
+    refuse_source_free(system, meta)
+    with pytest.raises(NotImplementedError, match="PAW"):
+        refuse_source_free(system, meta, (types.SimpleNamespace(is_paw=True),))
+    spiral = types.SimpleNamespace(noncolin=True, spiral_q=(0, 0, 0.25))
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        refuse_source_free(spiral, meta)

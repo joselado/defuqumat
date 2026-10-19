@@ -208,8 +208,8 @@ def refuse_source_free(system, functional=None, pseudos=()) -> None:
     # functional behind them leaves nothing the run is a stationary point of.
     # That holds of ``nosource`` alone already, which is allowed: the run is a
     # fixed point of the potential map either way, and the consumers that need a
-    # stationary point (forces, stress, response, the torque) refuse each of the
-    # two by name. ``v_of_rho`` adds the meta potential to ``v_xc`` before the
+    # stationary point (forces, stress, response) refuse each of the two by
+    # name; the torque does not need one and reads the run's own ``tau`` (I110). ``v_of_rho`` adds the meta potential to ``v_xc`` before the
     # projection, so what is projected is the whole field (I109, measured in
     # ``notes/incompat/I109.md``). ``functional`` stays in the signature for the
     # callers that pass it.

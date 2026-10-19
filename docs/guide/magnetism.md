@@ -396,10 +396,14 @@ what we read is the torque on each site.
     of a `nosource` run cannot be compared with that of a run without it. The
     magnons give an error, because their kernel $B_{xc}/m$ is a scalar only while
     $\mathbf B_{xc}$ is parallel to $\mathbf m$. `nosource` also gives an error
-    in a collinear run, with a PAW dataset, on a spin spiral, with a
-    potential-only meta-GGA, with `noncollinear_gga = 'grad_m'` asked for
-    explicitly and in the ultracell. If you do not give `noncollinear_gga`, a
-    `nosource` run uses `'kubler'`. Elk calls `nosource` an experimental feature,
+    in a collinear run, with a PAW dataset, on a spin spiral and in the
+    ultracell. It works with a potential-only meta-GGA and with
+    `noncollinear_gga = 'grad_m'`. If you do not give `noncollinear_gga`, a
+    `nosource` run uses `'kubler'`, so you have to ask for `'grad_m'`. We tried
+    a chain of four hydrogen atoms with PBE, with the starting moments turned.
+    `'grad_m'` took 62 iterations and ended with the moments up, up, down, down.
+    `'kubler'` took 371 iterations and ended almost nonmagnetic, with 0.015 to
+    0.033 per atom against 0.13 to 0.24. Elk calls `nosource` an experimental feature,
     and this holds here too. The scaling of the spin part of the field, the other option of Elk,
     is not implemented.
 

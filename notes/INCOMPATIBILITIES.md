@@ -386,26 +386,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n; Elk y (LAPW).
 - Partial 2026-10-19 (P156), record in `notes/incompat/I107.md`: sized, nothing lifted (the one-centre divergence, its multipoles and one Poisson solve are missing); the guard and the argument confirmed by the verifier 2026-10-20 (`/l/ladovj1/review/incompat/sourcefree-ver2/`).
 
-### I108. `noncollinear_gga = 'grad_m'` x `nosource`
-
-- Axis: functional.
-- Guard: `defuqumat/scf/potential.py:refuse_noncollinear_gga:725`.
-- Test: `tests/unit/test_noncollinear_gga_grad_m.py:185` `test_the_choice_is_refused_where_it_would_mix_two_functionals`.
-- Missing: the projection checked for a field with a transverse part; only a field parallel to `m` was checked (PLAN.md index).
-- Check: `div B_xc = 0` after projection; agreement with the `grad_m` field when `m` is collinear.
-- QE/Elk: QE n; Elk unread.
-- Fix round confirmed 2026-10-20 (text only), merged and then reverted in P156 integration two, record in `notes/incompat/I108.md`: projected `grad_m` divergence 6.97e-31 against 3.456, the SCF's own field divergence-free to 1e-30; 62 iterations to up-up-down-down, `'kubler'` 371 to a nearly nonmagnetic state. The fast gate failed on `tests/unit/test_spin_torque_meta.py::test_the_source_free_field_still_refuses_a_meta_gga` (I110, round one), which asserts the refusal I109 lifts, so the merge `incompat/sourcefree` was reverted with I109; landing it needs that test changed to the lifted behaviour.
-
-### I109. Source-free exchange-correlation field x potential-only meta-GGA
-
-- Axis: functional.
-- Guard: `defuqumat/scf/sourcefree.py:refuse_source_free:182`.
-- Test: none.
-- Missing: unread (message: both are potentials with no energy functional behind them).
-- Check: `div B_xc = 0` after projection.
-- QE/Elk: QE n.
-- Fix round confirmed 2026-10-20 (text only), merged and then reverted with I108 (above), record in `notes/incompat/I109.md`: TB09 sphere divergence 1e-31 projected; the box residue on converged meta-GGA runs is 0.18 to 0.64 and does not fall, outside the sphere the run reads.
-
 ### I111. Fixed-spin-moment feedback constraint x `lspinorb`
 
 - Axis: spinor.
@@ -817,6 +797,8 @@ Landed on 2026-10-20 in P156, integration two of tier T3 (branch `incompat-t3`),
 - I95, Sum-over-states `chi_0` with smearing on a gapped cell: Si onto the fixed-occupation spectrum 0.844, 0.3815, 0.0329, 8.95e-4, 2.2e-8 at `degauss` 0.02 to 0.005 Ry, the Gaussian tail; the fixed-occupation array bit-identical to the old code.
 - I96, Sum-over-states `chi_0` of a metal: Al Drude head against the optical conductivity 3.8e-13 (872.1 with the block off); f-sum ratio 0.99410 at 40 bands and 0.99638 at 48 (0.37 without the block).
 - I101, Real-time propagation under `tefield` at a frozen potential: stationarity 1.1e-12 against 9.9e-6 with the term out; H2 static polarizability within about 0.1 per cent from a 16-bohr box up (1.4 per cent at 12 bohr), the error growing as `E0^2 T^4`; the updated potential and the frequency-domain hierarchy still refuse a saw-tooth.
+- I108, `noncollinear_gga = 'grad_m'` under `nosource`: the projected divergence 6.97e-31 against 3.456 unprojected on the h4 chain, the SCF's own field divergence-free to 1e-30; 62 iterations to an up-up-down-down state, where `'kubler'` takes 371 to a nearly nonmagnetic one.
+- I109, `nosource` with a potential-only meta-GGA: TB09 sphere divergence 1e-31 projected; the box residue on converged meta-GGA runs is 0.18 to 0.64 and does not fall, a property of the array outside the sphere the run reads.
 
 Partial in the same integration, merged for the part measured: I104 (the Gamma phonon under `tefield`, to about 2e-4 Ry/bohr^2) and I114 (`soc_scale` between 0 and 1 on ultrasoft), each marked in place above.
 

@@ -230,7 +230,8 @@ def test_a_potential_only_meta_gga_under_nosource_converges_source_free():
     """I109. BJ06 (fixed ``c``; TB09's cell average does not converge on a
     chain in vacuum with or without nosource) under ``'grad_m'``. Measured: 117
     iterations, ``int |div B|^2`` 2.33e-29 projected against 83.9
-    unprojected, site 0 moment 0.7362."""
+    unprojected, site 0 moment 0.7362. Forces refused; the torque (I110) is
+    the SCF field's."""
     calc, scf = _chain("BJ06", "grad_m")
     assert scf.converged and calc.calculation.source_free
     on, off = _sphere_divergences(calc, scf)
@@ -238,5 +239,12 @@ def test_a_potential_only_meta_gga_under_nosource_converges_source_free():
     assert np.linalg.norm(np.asarray(scf.site_moments)[0]) == pytest.approx(0.7362, abs=5e-3)
     with pytest.raises(NotImplementedError):
         calc.get_forces()
-    with pytest.raises(NotImplementedError, match="meta-GGA"):
-        torque_of_result(calc.calculation, scf)
+    # I110 lifted the torque's meta-GGA refusal: it reads the run's own tau and
+    # rebuilds the field with ``source_free``, so it is m x B_xc of the SCF's
+    # own projected field (5e-18 Ry on I110's spiral; by construction here).
+    from defuqumat.scf.spin_torque import exchange_torque
+
+    c = calc.calculation
+    rebuilt = torque_of_result(c, scf)
+    own = exchange_torque(scf.density, scf.potential, c.system.cell, c.local_regions())
+    assert np.abs(np.asarray(rebuilt.sites) - np.asarray(own.sites)).max() < 1.0e-12
