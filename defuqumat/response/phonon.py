@@ -1080,9 +1080,11 @@ def _core_charge_response(calculation, density, positions, atoms=None,
     is ``eamp - D`` and ``D`` carries the ions' dipole ``ion_dip(tau)``, so
     ``v_scf`` moves with an atom at a frozen density exactly as ``v_xc`` does
     with a core charge; the ``jvp`` below through ``at_positions(pos).potential``
-    is that term too, and the slot fires for either. Without it the CO
-    molecule's ``z`` column misses the finite difference of the forces by the
-    amount the record gives.
+    is that term too, and the slot fires for either. Without it the ultrasoft
+    CO molecule of ``efield-co-dipole.in`` (at ``eamp = 0.01``) has its C ``z``
+    column moved by 0.60 Ry/bohr^2 against force constants of 1.86, and misses
+    the central difference of the forces by 0.12 where it agrees to 8e-5 with
+    it.
     """
     sawtooth = getattr(calculation, "sawtooth", None)
     dipole = sawtooth is not None and sawtooth.dipfield
@@ -2113,12 +2115,17 @@ def _require_a_measured_sawtooth_regime(calculation, route: str = "whole") -> No
     ``e2 (eamp - D) saw(x) d`` with ``D = ion_dip(tau) - el_dip(rho)``: the
     density half of ``dD`` is in the screening ``jvp`` of ``v_of_rho``, and the
     ions' half is the one term a frozen ``v_scf`` leaves out of ``dV_bare``,
-    which :func:`_core_charge_response` now adds (``notes/incompat/I104.md``,
-    with the number it is worth on CO).
+    which :func:`_core_charge_response` now adds (0.60 Ry/bohr^2 on CO's C
+    ``z`` column, ``notes/incompat/I104.md``).
 
-    **Measured**: an ultrasoft CO molecule, fixed occupations, ``nspin = 1``,
-    a single explicit ``k = 0`` on the whole sphere, on the route that holds
-    every k-point at once. Every other regime of the matrix is refused here
+    **Measured**: the ultrasoft CO molecule of ``efield-co.in`` and
+    ``efield-co-dipole.in`` at ``eamp = 0.01``, fixed occupations,
+    ``nspin = 1``, a single explicit ``k = 0`` on the whole sphere, on the
+    route that holds every k-point at once. The two ``z`` columns agree with a
+    central difference of the forces (net force removed on both sides) to
+    8.6e-6 and 1.5e-6 Ry/bohr^2 without ``dipfield`` and 8.2e-5 with it, at a
+    step of 0.0025 bohr, falling from 5e-4 at 0.01; the field itself moves
+    them by 4.9e-3 and 1.2e-3 (``tests/regression/test_sawtooth_phonons.py``). Every other regime of the matrix is refused here
     under the field, because none of them was run with it.
     """
     if getattr(calculation, "sawtooth", None) is None:
