@@ -46,8 +46,8 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["OrientationStepper", "rotate_spinors", "spin_turned",
-           "spinor_rotation", "rotation_matrix"]
+__all__ = ["OrientationStepper", "rotate_ns", "rotate_spinors", "spin_turned",
+           "spin_turned_ns", "spinor_rotation", "rotation_matrix"]
 
 
 def rotation_matrix(omega) -> np.ndarray:
@@ -116,6 +116,56 @@ def spin_turned(psi, omega):
         up + half * (wz * up + (wx - 1j * wy) * down),
         down + half * ((wx + 1j * wy) * up - wz * down),
     ], axis=-1)
+
+
+def _ns_spin_blocks(ns):
+    """``(2, 2, ...)`` from a packed spinor ``ns``, ``ns[2 s + t] = N^{st}``."""
+    return ns.reshape((2, 2) + tuple(ns.shape[1:]))
+
+
+def rotate_ns(ns, omega):
+    """Turn a spinor occupation matrix ``(4, nslot, ldmx, ldmx)`` with the states.
+
+    ``ns`` is ``new_ns_nc``'s ``N^{st}_{ac} = sum conj(p_{sa}) p_{tc}``, with
+    ``p_{sa} = <phi_a s|psi>`` on the ``updown`` spinor basis that DFT+U's
+    ``wfcU`` is (:func:`defuqumat.hubbard.projectors.build_projector_functions`).
+    Turning every state by ``U = spinor_rotation(omega)`` turns ``p_s`` into
+    ``sum_u U_su p_u``, so ``N`` becomes ``conj(U) N U^T`` in its spin indices
+    and is left alone in its orbital ones. This is exact where the projector
+    set is spin-rotation invariant, which it is on a norm-conserving dataset;
+    on an ultrasoft one with the coupling ``wfcU = S phi`` and ``S`` carries
+    ``qq_so``, which is not, and the turn is then the vector turn ``becsum``
+    also takes there. Host-side, as :func:`rotate_spinors` is.
+    """
+    u = spinor_rotation(omega)
+    ns = np.asarray(ns)
+    u = u.astype(ns.dtype)
+    blocks = _ns_spin_blocks(ns)
+    turned = np.einsum("su,uv...,tv->st...", np.conj(u), blocks, u)
+    return turned.reshape(ns.shape)
+
+
+def spin_turned_ns(ns, omega):
+    """:func:`rotate_ns` to first order in ``w``, traceable: ``N + conj(g) N + N g^T``.
+
+    ``g = -i sigma . w / 2`` is the generator :func:`spin_turned` applies to the
+    states, so this is the occupation matrix of :func:`spin_turned`'s states, exact
+    in value and first derivative at ``w = 0``, where the Hubbard share of the
+    orientation torque reads it.
+    """
+    import jax.numpy as jnp
+
+    ns = jnp.asarray(ns)
+    omega = jnp.asarray(omega)
+    sigma = np.array([[[0, 1], [1, 0]], [[0, -1j], [1j, 0]], [[1, 0], [0, -1]]])
+    sigma = jnp.asarray(sigma.astype(ns.dtype))
+    # ``-i/2`` built in ``ns``'s own dtype rather than written as a literal.
+    half = jnp.asarray(np.array(-0.5j).astype(ns.dtype))
+    g = half * jnp.einsum("a,ast->st", omega.astype(ns.real.dtype), sigma)
+    blocks = _ns_spin_blocks(ns)
+    turned = (blocks + jnp.einsum("su,uv...->sv...", jnp.conj(g), blocks)
+              + jnp.einsum("su...,tu->st...", blocks, g))
+    return turned.reshape(ns.shape)
 
 
 #: The shortest step, in radians, whose secant updates the inverse Hessian.

@@ -7340,6 +7340,78 @@ def _streamed_onecenter_torque(calculation, becsum_in, becsum_out, meta_c,
     return -np.asarray(torque)
 
 
+#: Add DFT+U's share to the orientation torque (I112). Kept only so that the
+#: A/B the check measures, the torque without the term, can be re-run.
+HUBBARD_TORQUE = True
+
+#: Take the applied field's share out of the torque ``rotate_moments`` steps on
+#: (I113). Kept only so that the A/B the check measures can be re-run.
+ZEEMAN_IN_STEP = True
+
+
+def _hubbard_torque(ns_out, v_ns) -> np.ndarray:
+    """DFT+U's share of the orientation torque: the input ``v_ns`` on the output ``ns``.
+
+    The band energy pairs the Hubbard potential with the output occupations,
+    ``Re sum(ns_out * v_ns)`` (the term ``deband`` removes), exactly as it pairs
+    ``B[rho_in]`` with ``m_out`` on the grid. A rigid turn ``w`` of the output
+    states turns ``ns_out`` as ``conj(U) N U^T``
+    (:func:`~defuqumat.scf.orientation.spin_turned_ns`), so the torque's Hubbard
+    part is the derivative of that pairing in ``w`` at zero, which is the grid
+    integral's partner: ``integral of m_out x B`` is the same derivative of
+    ``integral of B . R(w) m_out``. Three forward derivatives on an
+    ``ns``-sized array.
+
+    **Why it is needed and not a correction.** The output states are
+    stationary in the input Hamiltonian, so the coupling's torque on them is
+    minus the sum of the torques of every spin-dependent potential they were
+    solved in, the exchange-correlation field's and ``v_ns``'s alike; the
+    gradient of the energy in the orientation is that sum, and the grid
+    integral alone is only its first term (I112). At self-consistency each
+    term vanishes on its own, since ``E_U`` and ``E_xc`` are invariant under a
+    global spin rotation; along the way they do not.
+    """
+    from defuqumat.scf.orientation import spin_turned_ns
+
+    ns_out = jnp.asarray(ns_out)
+    v_ns = jnp.asarray(v_ns)
+
+    def pairing(omega):
+        return jnp.real(jnp.sum(spin_turned_ns(ns_out, omega) * v_ns))
+
+    zero = jnp.zeros(3, dtype=ns_out.real.dtype)
+    return np.array([float(jax.jvp(pairing, (zero,), (axis,))[1])
+                     for axis in jnp.eye(3, dtype=zero.dtype)])
+
+
+def _zeeman_torque(field, rho_out, cell, field_scale) -> np.ndarray:
+    """The torque of an applied field on the output moments, ``integral of m_out x b``.
+
+    ``b`` is the field's own potential, :meth:`MagneticField.potential`, which for
+    a field without a constraint is ``-B`` on the magnetization components and
+    does not depend on the density. This is the derivative of the Zeeman energy
+    ``-int B . R(w) m_out`` in a rigid turn ``w``, the same derivative the grid
+    integral of :func:`~defuqumat.scf.spin_torque.exchange_torque` is of the
+    band energy.
+
+    **What the step acts on is the full torque minus this** (I113). The output
+    states are stationary in the input Hamiltonian, which holds the field, so
+    the coupling's torque on them is minus the torque of the exchange field and
+    of the applied one together, and the grid integral of the whole ``v_scf``
+    measures the gradient of the energy *without* the Zeeman term. The
+    functional with the field, ``E + E_Z``, has the gradient that integral plus
+    the Zeeman term's own derivative, which is this, with the opposite sign:
+    the two field terms cancel and what is left is the exchange field's
+    torque alone. Its fixed point is ``E + E_Z`` stationary in the
+    orientation; the full integral's would ask the moment to lie along the
+    field as well, which no self-consistent state does.
+    """
+    from defuqumat.scf.spin_torque import exchange_torque
+
+    v_field, _, _ = _field_potential(field, rho_out, cell, field_scale)
+    return np.asarray(exchange_torque(rho_out, v_field, cell).total)
+
+
 def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
     """What ``rotate_moments`` cannot turn, from the assembled calculation.
 
@@ -7355,17 +7427,56 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
             "would turn into motion; and a spiral keeps its transverse pair in "
             "the frame that turns with q"
         )
-    if calculation.is_hubbard:
+    # **A Hubbard U is turned with the step** (I112): ``ns`` turns as
+    # ``conj(U) N U^T`` in its spin indices (:func:`~defuqumat.scf.orientation.rotate_ns`)
+    # and its potential's share of the torque is added beside the grid
+    # integral's (:func:`_hubbard_torque`). Kept on PAW, where the turned
+    # ``becsum`` carries a shift measured on the states and the occupation
+    # matrix would want the same, which is neither written nor checked; and
+    # with a fixed tensor moment, which is a constraint holding the shell.
+    if calculation.is_hubbard and calculation.is_paw:
         raise NotImplementedError(
-            "rotate_moments with a Hubbard U: the occupation matrix ns is mixed "
-            "with the density and has a spin structure the step would have to "
-            "turn with it, which is not written"
+            "rotate_moments with a Hubbard U on a PAW dataset: on PAW the turned "
+            "becsum is corrected by a shift measured on the turned states, and "
+            "the occupation matrix ns would need the same correction, which is "
+            "not written; the U is turned with the step on a norm-conserving or "
+            "ultrasoft dataset"
         )
-    if field is not None:
+    if calculation.is_hubbard and getattr(
+            getattr(calculation, "hubbard", None), "constraints", None) is not None:
         raise NotImplementedError(
-            "rotate_moments with a magnetic field or a constrained moment: the "
-            "field holds the orientation the step is moving, and the fixed point "
-            "would belong to a different functional"
+            "rotate_moments with a fixed tensor moment: the constraint holds the "
+            "shell's spin structure in place while the step turns it"
+        )
+    # **A fixed applied field is in the step** (I113): the Zeeman energy
+    # ``-int B . m`` is linear in the moments, so its torque is the grid
+    # integral of the field's own potential, and the gradient of the energy
+    # *with* the Zeeman term is the exchange-correlation field's torque alone
+    # (:func:`_zeeman_torque`). What stays refused is a field that is not a
+    # fixed function of position: a penalty constraint, whose stationary point
+    # is of a modified functional and which holds the very orientation the
+    # step moves (physics, not a missing term), a feedback (fixed spin moment)
+    # field, which is driven towards a target, and ``reducebf``, which decays.
+    if field is not None and field.constraint != "none":
+        raise NotImplementedError(
+            "rotate_moments with a constrained moment "
+            f"(constrained_magnetization = '{field.constraint}'): the constraint "
+            "holds the orientation the step is moving, so the two fight; a "
+            "penalty's fixed point is a stationary point of a different "
+            "functional, and a fixed-spin-moment field is driven towards its "
+            "own target. An applied field without a constraint is turned with"
+        )
+    if field is not None and float(field.reducebf) != 1.0:
+        raise NotImplementedError(
+            "rotate_moments with reducebf != 1: the field decays between "
+            "iterations, so the energy whose minimum the step looks for changes "
+            "with the iteration count"
+        )
+    if field is not None and not calculation.system.nosym:
+        raise NotImplementedError(
+            "rotate_moments with an applied magnetic field needs nosym = .true.: "
+            "the turning group {E, I} is checked without a field only, and a "
+            "per-atom field on two atoms related by the inversion breaks it"
         )
     # **A symmetric run is taken on the group that constrains nothing** (I78):
     # the identity and the inversion with their translations, the only
@@ -8694,6 +8805,7 @@ def run_scf(
         from defuqumat.forces.torque import rotate_texture
         from defuqumat.scf.orientation import (
             OrientationStepper,
+            rotate_ns,
             rotate_spinors,
             rotation_matrix,
         )
@@ -9492,6 +9604,21 @@ def run_scf(
                     _meta_c(potential, calculation.functional.is_meta),
                     **({"wavefunctions": fetch_wavefunctions(wavefunctions),
                         "weights": wg} if report_orientation else {}))
+            if calculation.is_hubbard and calculation.noncolin and HUBBARD_TORQUE:
+                # ``v_ns`` is the input's, as ``potential`` is: the field the
+                # states were solved in (I112, :func:`_hubbard_torque`).
+                torque_now = torque_now + _hubbard_torque(ns_out, v_ns)
+            if (stepper is not None and field is not None and ZEEMAN_IN_STEP
+                    and field.has_field):
+                # Route C moves along the gradient of the energy *with* the
+                # Zeeman term, which is the torque above without the applied
+                # field's share (I113, :func:`_zeeman_torque`). What is
+                # recorded is the same number, so ``orientation_torque`` under
+                # ``rotate_moments`` is what the stop reads. A run that does not
+                # turn its moments keeps the field's share, as the comment at
+                # the head of this block says.
+                torque_now = torque_now - _zeeman_torque(
+                    field, rho_out, calculation.system.cell, field_scale)
             if pooled:
                 # The stepper keeps a quasi-Newton history of the torques it is
                 # handed, so a torque that differs between pools in its last bit
@@ -10056,6 +10183,14 @@ def run_scf(
                     if shifts[0] is not None:
                         history_shifts[0] = mixer.layout.stored_of(shifts[0])
 
+                # ``ns`` follows ``becsum`` in the packed vector (:func:`_mix`),
+                # its complex entries viewed as interleaved reals, and turns in
+                # its spin indices as the states do (I112).
+                turns_ns = calculation.is_hubbard and ns_state is not None
+                if turns_ns:
+                    ns_dtype, ns_real = _ns_dtypes(ns_state)
+                    ns_shape = tuple(np.shape(ns_state))
+
                 def turn_packed(vector, turn=turn, shapes=history_shapes,
                                 shifts=history_shifts, shifted=True):
                     vector = np.array(vector, copy=True)
@@ -10068,11 +10203,23 @@ def run_scf(
                             block = block + shift
                         vector[offset:offset + size] = block.ravel()
                         offset += size
+                    if turns_ns:
+                        size = _pack_ns(np.zeros(ns_shape, ns_dtype), ns_dtype,
+                                        ns_real).size
+                        packed = np.ascontiguousarray(
+                            vector[offset:offset + size], dtype=ns_real)
+                        if np.issubdtype(ns_dtype, np.complexfloating):
+                            packed = packed.view(ns_dtype)
+                        vector[offset:offset + size] = _pack_ns(
+                            rotate_ns(packed.reshape(ns_shape), step),
+                            ns_dtype, ns_real)
                     return vector
 
                 rho = rotate_texture(rho, turn)
                 if shifts[0] is not None:
                     rho = rho + jnp.asarray(shifts[0])
+                if turns_ns:
+                    ns_state = jnp.asarray(rotate_ns(ns_state, step))
                 species_shifts = iter(shifts[1:])
                 becsum_state = tuple(
                     None if b is None else (
