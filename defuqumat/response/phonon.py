@@ -115,7 +115,13 @@ smaller), and ``becsumort`` plus ``dLambda``, which are ``nh^2`` and ``nbnd^2``
 per mode and negligible beside either. Held together the ultrasoft peak is
 about **1.5x** the norm-conserving one at the same cell -- 3 MB on
 ``si-epsilon-us.in``. PAW adds the one-centre response beside ``dvscf`` in the
-mixer, ``3 nat`` times ``(nspin_mag, nkb, nkb)``, which is kilobytes.
+mixer, ``3 nat`` times ``(nspin_mag, nkb, nkb)``, which is kilobytes. **An
+ultrasoft or PAW metal doubles the bands inside the assembly**
+(:func:`_force_constants`, ``notes/incompat/I86.md``): the ground state, the
+tangent and the multipliers each go from ``nbnd`` to ``2 nbnd`` bands for the
+``jvp`` of one mode, so the assembly's working set is twice the
+undoubled one, while the response loop and the stored ``3 nat`` sets do not
+change.
 
 References for the method rather than the code: Baroni, de Gironcoli, Dal Corso
 and Giannozzi, *Rev. Mod. Phys.* **73**, 515 (2001), whose Eq. (14) is the
@@ -1305,8 +1311,8 @@ def occupied_pairs(counts, smearing, width):
     the two channels are filled to the same depth.
 
     ``None`` -- no mask -- for a metal, where every band is in the block and the
-    occupation rides inside ``dpsi`` instead, and wherever the mask would be all
-    ones, which keeps those paths bit for bit what they were.
+    occupation is carried by :func:`pair_weights` instead, and wherever the mask
+    would be all ones, which keeps those paths bit for bit what they were.
     """
     if smearing is not None:
         return None
