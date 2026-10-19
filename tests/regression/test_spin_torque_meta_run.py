@@ -45,9 +45,13 @@ SITE_GAP = 1.0e-15
 #: The site gap to the field the last iteration applied at ``conv_thr = 1e-10``,
 #: in Ry: measured 7.7e-6, against 2.0e-5 at 1e-6 and 7.1e-7 at 1e-12.
 SITE_GAP_APPLIED = 2.0e-5
-#: The smallest site-torque gap with ``tau``'s vector part dropped, in Ry:
-#: measured 1.3e-5 at ``conv_thr = 1e-10``.
-SITE_GAP_WITHOUT_TAU = 3.0e-6
+#: How far above the identity gap the gap with ``tau``'s vector part dropped
+#: must sit. Relative rather than a fixed floor: the dropped-``tau`` gap tracks
+#: the site torque, which is a symmetry residue on this cell and falls with
+#: where the loop stopped (1.3e-5 Ry at 1e-10, 3.7e-6 at 1e-12), while the
+#: identity gap is round-off (<= 5.2e-18), so the ratio holds at every
+#: measured ``conv_thr`` by about nine orders beyond this factor.
+WITHOUT_TAU_FACTOR = 1.0e3
 
 
 @pytest.fixture(autouse=True)
@@ -85,4 +89,6 @@ def test_the_meta_torque_is_the_scf_field_torque():
     tau = jnp.asarray(scf.tau)
     dropped = torque_of_result(calculation, scf, density=scf.density,
                                tau=tau.at[1:].set(0.0))
-    assert np.abs(np.asarray(dropped.sites) - reference).max() > SITE_GAP_WITHOUT_TAU
+    identity = max(float(np.abs(sites - reference).max()), 1.0e-17)
+    assert (np.abs(np.asarray(dropped.sites) - reference).max()
+            > WITHOUT_TAU_FACTOR * identity)

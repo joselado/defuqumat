@@ -113,3 +113,13 @@ def test_grad_m_reads_tau_and_turns_the_moment():
     a, b = np.asarray(with_tau.total), np.asarray(without.total)
     assert np.linalg.norm(a) > 1.0e-6
     assert np.linalg.norm(a - b) > 1.0e-3 * np.linalg.norm(a)
+
+
+def test_the_source_free_field_still_refuses_a_meta_gga():
+    """The sibling refusal in ``sourcefree.py``: a different guard, still in place."""
+    from defuqumat.scf.sourcefree import refuse_source_free
+
+    system = types.SimpleNamespace(noncolin=True, spiral_q=None)
+    meta = types.SimpleNamespace(is_meta=True)
+    with pytest.raises(NotImplementedError, match="potential-only meta-GGA"):
+        refuse_source_free(system, meta)
