@@ -32,12 +32,20 @@ from defuqumat.xc.mgga import thomas_fermi_tau
 ROOT = Path.cwd()
 CASE = ROOT / "tests" / "data" / "qe" / "h-chain-90deg.in"
 PSEUDO = ROOT / "tests" / "data" / "pseudo"
-THRESHOLDS = [float(x) for x in sys.argv[1:]] or [1.0e-6, 1.0e-8, 1.0e-10]
+ARGS = [a for a in sys.argv[1:] if not a.startswith("a=")]
+SIDE = [float(a[2:]) for a in sys.argv[1:] if a.startswith("a=")]
+THRESHOLDS = [float(x) for x in ARGS] or [1.0e-6, 1.0e-8, 1.0e-10]
 
 
 def text():
+    """The chain under TB09; ``a=<bohr>`` on the command line shrinks the box
+    side across the chain, keeping the chain itself (20 bohr, four atoms)."""
     body = CASE.read_text().replace(
         "    nosym = .true.", "    nosym = .true.\n    input_dft = 'tb09'", 1)
+    if SIDE:
+        body = body.replace(
+            "celldm(1) = 12.0, celldm(3) = 1.66666666666667",
+            f"celldm(1) = {SIDE[0]}, celldm(3) = {20.0 / SIDE[0]:.14f}", 1)
     return body.replace("conv_thr = 1.0d-11", "conv_thr = 1.0d-6", 1)
 
 
