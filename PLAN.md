@@ -26757,4 +26757,7 @@ with text corrections, merged with `--no-ff` on `incompat-t3` (session branch `t
 Code changed at integration beyond the merge: two docstrings of `workflows/ultracell.py` (the S-off
 Gram is off by the augmentation charge with the dataset's sign, above 1 on silicon, not short of
 it). Stale "volume refused" text in this plan's ultracell section and `notes/AUGMENTATION-NEXT.md`
-marked superseded.
+marked superseded. Fast gate on D22 at `66237bec` (worktree `/l/ladovj1/w-inc-t3f`, CPU,
+`/l/ladovj1/review/incompat/t3f/gate.log`): 2 failed (the `yaml` pair), 4123 passed, 71 skipped,
+1844 deselected in 1105 s; no merge reverted. The commit after it (`50033f44`) touched a docstring
+and the records only.

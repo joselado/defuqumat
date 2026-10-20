@@ -624,3 +624,13 @@ P156: the integration-four table.
 
 **D22 worktrees that can be removed after `incompat-t3` is merged** (none removed): `/l/ladovj1/w-inc-t3f`
 (this gate) and `w-inc-I115*`.
+
+**Fast gate on D22** at `66237bec` (worktree `/l/ladovj1/w-inc-t3f`, `tools/test-fast.sh -q -rs
+--tb=line` under `taskset -c 0-3,12-15` in a 16 GB scope, `JAX_PLATFORMS=cpu` exported first in the
+launch script, `DEFUQUMAT_QE_ROOT` set, `/l/ladovj1/venv/bin` first on `PATH`,
+`/l/ladovj1/review/incompat/t3f/gate.log`): **2 failed (the `yaml` pair of `test_check_guide.py`),
+4123 passed, 71 skipped, 1844 deselected**, 1105 s; no merge reverted. The eight more passes than
+integration three are I115's `test_ultracell_overlap.py`. `nvidia-smi --query-compute-apps` showed
+nothing on the card during and after the run. The commit after the gated one (`50033f44`) changed a
+docstring of `workflows/ultracell.py` (the 3 to 9 per cent kept as a size) and records only; the
+commit after that records this gate only.
