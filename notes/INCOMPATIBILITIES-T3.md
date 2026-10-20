@@ -102,7 +102,7 @@ and the gate; the real-time slow files above are what would test them further.
 | I96 | landed in integration two: Al Drude head 3.8e-13; f-sum 0.99410 at 40 bands, 0.99638 at 48 |
 | I97 | landed: adiabatic PBE Dyson against PBE Sternheimer, -0.0020 at 60 bands and 20 Ry |
 | I98 | landed: US/PAW kick local-field shift equal to the nc control on three meshes (+1.79e-1 with the augmentation held) |
-| I99 | fix round confirmed, not merged: the merge conflicts with I98 in `realtime/selfconsistent.py` (the density and potential signatures), not a keep-both resolution, so it was aborted |
+| I99 | landed after integration two (branch `t3-I99`), combined by hand with I98: tb09 wedge against the whole mesh through `get_realtime` 1.104e-8 (9.777e-2 with `tau` not completed); a meta-GGA on PAW under `hxc` refused |
 | I100 | landed: real-time first order with U against Kubo plus curvature, 8.07e-7 |
 | I101 | landed in integration two: H2 polarizability within about 0.1 per cent from 16 bohr up, null pulse 1.1e-12 |
 | I102 | landed: hierarchy orders 2 and 3 against the propagation, 3.7e-6 to 7.6e-6 at 800 steps, dt^2 |
@@ -396,6 +396,67 @@ one.
 identity above as its first measurement) and `tests/regression/test_spin_torque_meta_run.py` (I110,
 unchanged, the meta torque on the path the lift now reaches).
 
+### The landing of I99, combined with I98 (branch `t3-I99`, 2026-10-20)
+
+A `--no-ff` merge of `incompat/I99` (624cf2ea) onto `incompat-t3` at `8cffcf1e`, on the session's own
+branch `t3-I99`, resolved by writing the combined state rather than taking a side. In
+`realtime/selfconsistent.py` the propagated state is `(rho, becsum, tau)`, `becsum` empty without an
+augmentation and `tau` `None` without a meta-GGA under `'hxc'`, the potential is
+`v_scf + U[rho, becsum, tau] - U[rho0, becsum0, tau0]`, PAW's one-centre `D` and energy stay in the
+difference form, and `local_energy` goes through the potential so `E_1` is kept. The reference is at
+`kappa0` for an augmented dataset (I98's jumped states) and at `kappa = 0` otherwise (I99's `tau0`);
+a meta-GGA run starts at the potential of its first `kappa`. `workflows/realtime.py` keeps I100's
+`ns` beside I99's `tau` (`ns=None, tau=None`, `ns=ns, tau=tau`) and I100's `require_a_realtime_regime(calc, ns)`.
+The record file took I99's side (`incompat-t3` held its first-round version).
+
+**Guards.** Each side was written with the other's regime refused, so a meta-GGA with an augmented
+dataset under `'hxc'` is neither side's. A plain ultrasoft dataset refuses a meta-GGA at the SCF
+(`Calculation._require_meta_supported`), so the pair that reaches the real-time route is PAW, and it
+is refused by name in `require_a_potential_mode` (new, with an assertion in
+`test_a_meta_gga_is_updated_at_nspin_1_and_refused_elsewhere`). Nothing was lifted beyond the two sides.
+
+**Both sides hold, measured on D22**, CPU, one slot each, on the merge commit `6ac5dbb7` (later
+commits change a message and records), `/l/ladovj1/review/incompat/t3-I99/`:
+
+| check | record | combined head |
+|---|---|---|
+| I99: tb09 `get_realtime` `hxc`, si2 8 Ry, 4x4x4, wedge (8 ops) against whole mesh, dt 0.2 | 1.10e-8 | **1.104e-8** |
+| I99 mutant: `tau` not completed by the little group (`w-inc-t3-I99-mut`) | 9.78e-2 | **9.777e-2** |
+| I98: fixed point, US / PAW, 8 Ry, 40 steps of 0.05 | 5.3e-12 / 4.3e-12 | **5.308e-12** / 4.346e-12 |
+| I98: energy after a kick of 0.01/bohr, US / PAW (augmentation held) | 1.07e-10 / 9.9e-11 (2.78e-3 / 2.82e-3) | 1.070e-10 / 9.946e-11 (2.781e-3 / 2.822e-3) |
+| I98: kick shift, 2x2x2 US, 12 Ry, dt 0.2, `eta` 0.2 / 0.4 eV | -3.18711 / -3.18656 | **-3.18710576 / -3.18655685** |
+| I100: DFT+U first order against Kubo plus curvature, U = 6 eV atomic, dt 0.05 | 8.075e-7 | **8.075e-7** |
+
+I99's whole-mesh `max|J|` and `max|v(T) - v_scf|` equal its fix round's run to every printed digit.
+The fast real-time unit files gave 48 passed, 13 deselected (`fast-unit.log`).
+
+**The nonlinear.md follow-up needs no change here.** On `incompat-t3`, with I102,
+`get_nonlinear_spectrum(potential='hxc')` under tb09 refuses at orders 1 and 3 with "the
+exchange-correlation kernel of a meta-GGA is not here" (`nonlinear.log`), which is the guide's
+sentence; "first order only" was the I99 branch's base, which had no hierarchy above first order.
+The real-time Limits sentence of `nonlinear.md` took I99's replacement with PAW added;
+`tools/check_guide.py` passes. README unchanged (the record names no cell). Ledger: I99 to "Closed
+since"; `PLAN.md` P156 has the row and its outstanding index is struck for the meta-GGA.
+
+**Fast gate on D22** at `712c5629` (worktree `/l/ladovj1/w-inc-t3d`, `tools/test-fast.sh -q -rs
+--tb=line` under `taskset -c 0-3,12-15` in a 16 GB scope, `JAX_PLATFORMS=cpu`, `DEFUQUMAT_QE_ROOT`
+set, `gate2.log`): **2 failed (the `yaml` pair), 4106 passed, 71 skipped, 1836 deselected**, 1054 s.
+A first launch without `JAX_PLATFORMS=cpu` (`gate.log`) ran on the GPU and was stopped at 80 per cent
+(the D22 note below).
+
+**Slow files for the user** (none run): `tests/regression/test_realtime.py` (I99's three new tests,
+and the `[hxc]` tests that build `_Run`), `tests/regression/test_realtime_augmented_update.py` (I98,
+about 25 min), `tests/regression/test_realtime_orders_fd.py`, `tests/regression/test_realtime_regimes.py`
+(I100's identity), and the slow tests of `tests/unit/test_realtime.py`, `tests/unit/test_realtime_field.py`
+and `tests/unit/test_realtime_hubbard.py`.
+
+**D22 note.** The D22 venv's JAX takes the GPU when `JAX_PLATFORMS` is unset: `slot.sh` sets it, a
+gate launched outside `slot.sh` must export it. On the GPU the gate read 7 failures, the two `yaml`
+ones plus `test_davidson_zero_root.py` (two `[51]` cases), `test_ldos_mixing.py`'s tetrahedron LDOS and
+`test_residual_fields.py`'s two `fsm` rows, which looks like a regression and is the platform, and it
+ran at about a quarter of the CPU gate's speed (80 per cent in 65 min against 1054 s in all), holding
+11 GB of the card. `nvidia-smi --query-compute-apps=pid,used_memory --format=csv` is the check.
+
 ### Slow files the merges of integration two touch, for the user
 
 None was run (the user's rule).
@@ -427,11 +488,11 @@ Not edited into that file.
 Once `incompat-t3` is merged: `/l/ladovj1/w-inc-t3b` (this gate), `/l/ladovj1/w-inc-t3c` (the re-landing's gate), and for the landed units
 `/l/ladovj1/w-inc-I90*`, `w-inc-I93*`, `w-inc-chi0*`, `w-inc-I101*`, `w-inc-I104*`,
 `w-inc-I114*` and `w-inc-sourcefree*` (I108 and I109 have landed). The mutant trees are removable now: `w-inc-I93-ver3-mf`, `w-inc-I93-ver3-md`,
-`w-inc-I99-ver2-mut`. Keep `w-inc-I99*` until I99 is combined with I98, and `w-inc-I88*` until its
-next fix round.
+`w-inc-I99-ver2-mut`, `w-inc-t3-I99-mut` (I99's landing, below). Keep `w-inc-I88*` until its
+next fix round; `w-inc-I99*`, `w-inc-t3-I99` and `w-inc-t3d` go once `incompat-t3` is merged.
 
 ### What the user decides, after integration two
 
 - I108 and I109 (landed): the default of `noncollinear_gga` under `nosource`, left at `'kubler'`. Options: keep `'kubler'`, which preserves every `nosource` GGA run made before I108; or switch to `'grad_m'`. The verifier's facts on the PBE h4 chain: `'kubler'` takes 371 steps to a nearly nonmagnetic state, `'grad_m'` 62 to up-up-down-down. For a meta-GGA there is no earlier run to preserve; BJ06 on the chains is 160 against 46 steps, on Ni TB09 22 each.
-- I99: combine its `(rho, tau)` state with I98's `(rho, becsum)` in `realtime/selfconsistent.py` by hand (a new session), or leave it recorded.
+- I99 (landed, below): a meta-GGA on PAW with the potential updated stays refused; lifting it needs PAW's one-centre kinetic energy densities of `becsum(t)` beside `tau(t)`, a new item.
 - I88: a third fix round (an occupation limit below 1e-6 or tied to `small = 1e-12`), or leave it refused.
