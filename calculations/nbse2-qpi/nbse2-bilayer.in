@@ -1,0 +1,35 @@
+! 2H-NbSe2 bilayer, built from the monolayer of
+! calculations/nbse2-fermi-surface/nbse2.in so that the two compare directly:
+! the same a = 3.442 A, the same Se planes 1.68036 A from each Nb plane, the
+! same SG15 PBE datasets, 60 Ry, Fermi-Dirac 0.002 Ry and the truncated
+! 0.3333/0.6667 of the CIF. The stacking is 2H: Nb above Nb, the upper layer's
+! Se at (2/3, 1/3), with the Nb planes c_bulk/2 = 6.275 A apart (bulk 2H,
+! c = 12.55 A), which puts the Se planes facing each other 2.914 A apart. The
+! vacuum is the monolayer's, 18 - 2 x 1.68036 = 14.639 A, so c = 24.275 A.
+! 50 valence electrons, 25 occupied bands; nbnd = 32.
+ &control
+    calculation = 'scf'
+    prefix = 'nbse2-bilayer'
+ /
+ &system
+    ibrav = 4, celldm(1) = 6.5044373210, celldm(3) = 7.0525857060,
+    nat = 6, ntyp = 2,
+    ecutwfc = 60.0,
+    occupations = 'smearing', smearing = 'fermi-dirac', degauss = 0.002,
+    nbnd = 32,
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ Nb  92.906  Nb.pbe-nc-sg15.UPF
+ Se  78.971  Se.pbe-nc-sg15.UPF
+ATOMIC_POSITIONS (crystal)
+ Nb  0.0000000000  0.0000000000  0.6292481977
+ Se  0.6667000000  0.3333000000  0.6984700309
+ Se  0.6667000000  0.3333000000  0.5600263646
+ Nb  0.0000000000  0.0000000000  0.3707518023
+ Se  0.3333000000  0.6667000000  0.4399736354
+ Se  0.3333000000  0.6667000000  0.3015299691
+K_POINTS {automatic}
+ 12 12 1 0 0 0

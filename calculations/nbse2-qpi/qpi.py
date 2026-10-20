@@ -1,12 +1,13 @@
-"""1H-NbSe2: quasiparticle interference around one impurity, by the T-matrix.
+"""NbSe2 slabs: quasiparticle interference around one impurity, by the T-matrix.
 
-The ground state is calculations/nbse2-fermi-surface/nbse2.in (SG15 PBE, 60 Ry,
-the structure of elkpy's slides). The bands are solved once on the whole
-N x N grid, which is the impurity's supercell, and every QPI map below is
-post-processing of those states: two impurity sites (the Nb atom and the
-upper Se), two broadenings, three energies around E_F. The tip plane is
-3.5 A above the upper Se and the exit plane 3.5 A below the lower Se, as in
-elkpy's tunnelling slides.
+The monolayer is calculations/nbse2-fermi-surface/nbse2.in (SG15 PBE, 60 Ry,
+the structure of elkpy's slides) and the bilayer is nbse2-bilayer.in beside
+this file, built from it. The bands are solved once on the whole N x N grid,
+which is the impurity's supercell, and every QPI map below is post-processing
+of those states: two impurity sites (the Nb and the Se of the top layer, the
+highest of each), two broadenings, three energies around E_F. The tip plane is
+3.5 A above the highest Se and the exit plane 3.5 A below the lowest Se, read
+off the structure, as in elkpy's tunnelling slides.
 
 Usage:  python3 qpi.py <input.in> <N> <nbnd> <out.npz>
 """
@@ -20,12 +21,8 @@ from defuqumat import Calculator
 
 HERE = Path(__file__).resolve().parent
 PSEUDO = HERE.parents[1] / "tests" / "data" / "pseudo"
-C_HEIGHT = 18.0          # A
-SE_OFFSET = 1.68036      # A, the Se planes from the Nb plane
+BOHR = 0.529177210903    # A
 DISTANCE = 3.5           # A, tip and exit plane from the outer Se
-TIP = 0.5 + (SE_OFFSET + DISTANCE) / C_HEIGHT
-EXIT = 0.5 - (SE_OFFSET + DISTANCE) / C_HEIGHT
-SITES = {"Nb": 0, "Se_top": 1}
 POTENTIAL = 0.5          # Ry
 SIGMA = 1.0              # bohr
 BROADENINGS = (0.005, 0.01)       # Ry
@@ -37,6 +34,17 @@ clock = time.time()
 calculator = Calculator.from_file(source, pseudo_dir=PSEUDO)
 fermi = calculator.get_scf().fermi_energy
 print(f"SCF  E_F = {fermi:.6f} Ry  ({time.time() - clock:.0f} s)", flush=True)
+
+cell = calculator.system.cell
+height = float(cell.volume) / abs(np.linalg.det(np.asarray(cell.at)[:2, :2]))  # bohr
+z = np.asarray(calculator.system.structure.positions_crystal(cell))[:, 2]
+symbols = calculator.system.structure.symbols
+se = [i for i, s in enumerate(symbols) if s == "Se"]
+nb = [i for i, s in enumerate(symbols) if s == "Nb"]
+TIP = z[se].max() + DISTANCE / BOHR / height
+EXIT = z[se].min() - DISTANCE / BOHR / height
+SITES = {"Nb": max(nb, key=lambda i: z[i]), "Se_top": max(se, key=lambda i: z[i])}
+print(f"tip {TIP:.5f}, exit {EXIT:.5f}, sites {SITES}", flush=True)
 
 clock = time.time()
 states = calculator.get_qpi_bands(grid=(n, n, 1), nbnd=nbnd)

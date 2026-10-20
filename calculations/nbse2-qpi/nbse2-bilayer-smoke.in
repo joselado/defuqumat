@@ -1,0 +1,27 @@
+! A reduced-cost copy of nbse2-bilayer.in for a smoke run of the driver.
+ &control
+    calculation = 'scf'
+    prefix = 'nbse2-bilayer-smoke'
+ /
+ &system
+    ibrav = 4, celldm(1) = 6.5044373210, celldm(3) = 7.0525857060,
+    nat = 6, ntyp = 2,
+    ecutwfc = 30.0,
+    occupations = 'smearing', smearing = 'fermi-dirac', degauss = 0.002,
+    nbnd = 32,
+ /
+ &electrons
+    conv_thr = 1.0d-6
+ /
+ATOMIC_SPECIES
+ Nb  92.906  Nb.pbe-nc-sg15.UPF
+ Se  78.971  Se.pbe-nc-sg15.UPF
+ATOMIC_POSITIONS (crystal)
+ Nb  0.0000000000  0.0000000000  0.6292481977
+ Se  0.6667000000  0.3333000000  0.6984700309
+ Se  0.6667000000  0.3333000000  0.5600263646
+ Nb  0.0000000000  0.0000000000  0.3707518023
+ Se  0.3333000000  0.6667000000  0.4399736354
+ Se  0.3333000000  0.6667000000  0.3015299691
+K_POINTS {automatic}
+ 3 3 1 0 0 0
