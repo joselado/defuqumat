@@ -11,6 +11,8 @@ Usage: harness.py <case> <run> [<run> ...]
         'pen<lambda>' (the 'total' penalty, SOC), 'fsm-tight' (FSM_TOLERANCE 1e-5),
         'bfield' (a fixed uniform field bx, by, bz, no constraint),
         'bfrom' (a fixed uniform field equal to the last fsm run's converged field),
+        'bstart' (the same field, starting from the last fsm run's converged state:
+                  the identity is that iteration 1 is already self-consistent),
         each optionally followed by ':key=value' modifiers:
         tau=<gain> (fsm), soc=<soc_scale>, beta=<mixing_beta>,
         mix=<mixing_mode> (run 3: adaptive), it=<max_iterations>,
@@ -122,8 +124,8 @@ def text(case, run, bfield=None):
     c = case_of(case)
     head, opts = parse(run)
     lines = []
-    if head in ("bfield", "bfrom"):
-        b = bfield if head == "bfrom" else (opts["bx"], opts["by"], opts["bz"])
+    if head in ("bfield", "bfrom", "bstart"):
+        b = bfield if head in ("bfrom", "bstart") else (opts["bx"], opts["by"], opts["bz"])
         for i, v in enumerate(b, 1):
             lines.append(f"    b_field({i}) = {float(v):.15e}")
     if head.startswith("fsm"):
@@ -132,7 +134,7 @@ def text(case, run, bfield=None):
     elif head.startswith("pen"):
         lines.append("    constrained_magnetization = 'total'")
         lines.append(f"    lambda = {float(head[3:])}")
-    if head not in ("free", "bfield", "bfrom"):
+    if head not in ("free", "bfield", "bfrom", "bstart"):
         for i, v in enumerate(c["target"], 1):
             lines.append(f"    fixed_magnetization({i}) = {v:.12f}")
     return TEMPLATE.format(soc=opts["soc"], theta=c["theta"], beta=opts["beta"],
@@ -145,21 +147,24 @@ def main():
     target = np.asarray(case_of(case)["target"])
     unit = target / np.linalg.norm(target)
     last_fsm_field = None
+    last_fsm_result = None
     for run in runs:
         head, opts = parse(run)
         fields.FSM_TOLERANCE = 1.0e-5 if head == "fsm-tight" else 1.0e-3
         system = build_system(parse_pw_input(text(case, run, last_fsm_field)))
         pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
         t0 = time.time()
+        seed = dict(starting_from=last_fsm_result) if head == "bstart" else {}
         result = run_scf(system, pseudos, conv_thr=opts["conv"], max_iterations=opts["it"],
-                         mixing_beta=opts["beta"], mixing_mode=opts["mix"])
+                         mixing_beta=opts["beta"], mixing_mode=opts["mix"], **seed)
         m = np.asarray(result.magnetization_vector, dtype=float)
         if head.startswith("pen"):
             b = -2.0 * float(head[3:]) * (m - target)
         elif head.startswith("fsm"):
             b = np.asarray(result.magnetic_field.uniform, dtype=float)
             last_fsm_field = b.tolist()
-        elif head in ("bfield", "bfrom"):
+            last_fsm_result = result
+        elif head in ("bfield", "bfrom", "bstart"):
             b = np.asarray(system.b_field, dtype=float)
         else:
             b = np.zeros(3)
@@ -177,7 +182,11 @@ def main():
                    field_parallel=bpar, field_perp=bperp.tolist(),
                    field_perp_norm=float(np.linalg.norm(bperp)),
                    seconds=time.time() - t0,
-                   trace_every_10=trace[::10] + trace[-1:])
+                   trace_every_10=trace[::10] + trace[-1:],
+                   first=[dict(accuracy=float(h.get("accuracy", float("nan"))),
+                               moment=list(map(float, h.get("magnetization_vector", ()))),
+                               energy=float(h.get("total_energy", h.get("energy", float("nan")))))
+                          for h in result.history[:3]])
         print("RESULT " + json.dumps(out), flush=True)
 
 
