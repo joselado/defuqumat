@@ -316,3 +316,76 @@ def test_the_relaxed_anisotropy_agrees_with_pw_x():
     assert difference == pytest.approx(reference, abs=2.0e-8)
     # The easy axis is c on both sides, which the sign carries.
     assert difference > 0.0
+
+
+@pytest.mark.slow
+def test_an_intermediate_soc_scale_follows_the_coupling_order_on_ultrasoft_cobalt():
+    """Between 0 and 1 the scale is a variational blend on ultrasoft (I114).
+
+    ``soc_scale = s`` blends ``dvan_so``, ``qq_so``, ``newd_so`` and ``becsum``
+    linearly, so the self-consistent total ``E(s)`` is a smooth function whose
+    slope at 0 is the Hellmann-Feynman expectation of the first-order operator
+    at the ``s = 0`` states (``frozen_expectation`` on the converged ``s = 0``
+    density), and the anisotropy is ``a s + b s^2 + ...`` with ``a`` the
+    difference of those slopes. Two checks, each with ``s`` as the convergence
+    parameter:
+
+    * the Richardson slope ``2 D(0.01) - D(0.02)``, ``D(s) = (E(s) - E(0))/s``,
+      against the expectation, held at 2e-4 meV: measured 0.010121 against 0.010135 meV along z
+      and 0.011898 against 0.011906 along x. The same estimate from
+      ``(0.0625, 0.125)`` is 5.5e-4 and 3.7e-4 meV off, 40 and 47 times more,
+      where an error ``O(s^2)`` predicts 39;
+    * the second-order coefficient ``(MAE - a s)/s^2``: 0.46602 meV at 0.02,
+      0.46068 at 0.25 and 0.44553 at 1 (where the anisotropy is the
+      pw.x-validated 0.447302 meV), falling linearly, a cubic term of about
+      -0.021 meV.
+
+    With ``qq_so`` left at the coupled overlap while the other three blend
+    (the entry's term switched off) the slope at 0.02 is -21 meV against 0.010
+    and the anisotropy at 0.25 is 0.128 meV against 0.0292. Each SCF is about
+    10 s on one core with the kernels cached; the test runs seven.
+    """
+    from defuqumat.scf.driver import run_scf
+    from defuqumat.workflows.anisotropy import frozen_expectation, run_relaxed_direction
+
+    calculator = _calculator("co-tetragonal-relaxed-mae.in", noncollinear_gga="kubler")
+    system, pseudos = calculator.system, calculator.pseudos
+    to_mev = RY_TO_EV * 1000.0
+    axes = {"x": (1.0, 0.0, 0.0), "z": (0.0, 0.0, 1.0)}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        reference = run_scf(system.with_soc_scale(0.0), pseudos, conv_thr=1.0e-12,
+                            max_iterations=400)
+        assert reference.converged
+        slope = {axis: frozen_expectation(system, pseudos, reference.density,
+                                          direction=d, conv_thr=1.0e-12) * to_mev
+                 for axis, d in axes.items()}
+        energy = {(axis, s): run_relaxed_direction(
+                      system, pseudos, direction=d, soc_scale=s, conv_thr=1.0e-12,
+                      max_iterations=400)
+                  for axis, d in axes.items() for s in (0.01, 0.02, 0.25)}
+    assert all(r.converged for r in energy.values())
+    zero = float(reference.total_energy)
+
+    def difference(axis, s):
+        return (energy[(axis, s)].total_energy - zero) * to_mev / s
+
+    for axis in axes:
+        richardson = 2.0 * difference(axis, 0.01) - difference(axis, 0.02)
+        # Measured 1.4e-5 and 8e-6 meV off. The estimate multiplies an error in
+        # E(0.01) by 200, so a 1e-12 stop sitting 2e-11 Ry off (one stop in the
+        # record sat 60 times its accuracy) is 5e-5 meV here; 2e-4 is still under
+        # the coarse pair's 5.5e-4 and five orders under the -21 meV with the
+        # overlap unblended.
+        assert richardson == pytest.approx(slope[axis], abs=2.0e-4)
+
+    first = slope["x"] - slope["z"]
+
+    def second(s):
+        mae = (energy[("x", s)].total_energy - energy[("z", s)].total_energy) * to_mev
+        return (mae - first * s) / s**2
+
+    # 0.46602 and 0.46068 meV, a 1.2 per cent move from the cubic term. With the
+    # overlap unblended the coefficient at 0.25 reads 2.0.
+    assert second(0.02) == pytest.approx(0.466, rel=5.0e-3)
+    assert second(0.25) == pytest.approx(second(0.02), rel=3.0e-2)

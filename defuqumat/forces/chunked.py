@@ -106,6 +106,11 @@ def walks_chunks(calculation, wavefunctions) -> bool:
             raise NotImplementedError(
                 "the force with lelfield on a pooled store is not implemented: "
                 "the Berry term needs every k-point of a string at once")
+        if calculation.berry_field.augmented and is_host_store(wavefunctions):
+            raise NotImplementedError(
+                "the force with lelfield on an ultrasoft or PAW dataset with a "
+                "streamed store is not implemented: the electrons' half of the "
+                "field's term moves with the atoms there (forces_us_efield)")
         return is_host_store(wavefunctions)
     if is_host_store(wavefunctions) or isinstance(wavefunctions, PoolStore):
         # A k-point pool's share is walked as the pool's own rows.

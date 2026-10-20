@@ -769,7 +769,9 @@ def _berry_enthalpy(moved, psi):
     field = getattr(moved, "berry_field", None)
     if field is None:
         return 0.0
-    return field.enthalpy(psi, moved.system.structure.positions)
+    # ``moved`` carries the projectors and positions an ultrasoft or PAW
+    # string overlap is built from, so its gradient is ``forces_us_efield``.
+    return field.enthalpy(psi, moved.system.structure.positions, moved)
 
 
 @partial(jax.jit, static_argnames=("gamma_only",))

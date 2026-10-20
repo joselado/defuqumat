@@ -679,7 +679,28 @@ K_POINTS gamma
 """
 
 
-def test_the_fixed_spin_moment_search_refuses_spin_orbit_coupling():
+def _fsm_soc(lspinorb: str, extra: str = "") -> str:
+    marker = _FSM_SOC.index("&system") + len("&system")
+    text = _FSM_SOC[:marker] + extra + _FSM_SOC[marker:]
+    return text % lspinorb
+
+
+def test_the_fixed_spin_moment_field_runs_under_spin_orbit_coupling():
+    """Elk's rule assumes nothing about ``dm_a/dB_b``, so SOC is admitted (I111).
+
+    ``B <- B - tau (m - m_fix)`` is a fixed gain: no susceptibility is measured
+    or inverted, and its fixed point is the field at which the self-consistent
+    moment is the target whatever the off-diagonal response is. Measured by
+    holding the converged field fixed from the converged state, which is
+    self-consistent at its first iteration (``notes/incompat/I111.md``,
+    ``tests/regression/test_magnetic_constraints.py::test_fsm_under_spin_orbit_is_a_fixed_field_fixed_point``).
+    """
+    system = _build(_fsm_soc(".true."))
+    assert system.lspinorb and system.fsm_update == "elk"
+    assert system.constrained_magnetization == "fsm"
+
+
+def test_the_fixed_spin_moment_secant_refuses_spin_orbit_coupling():
     """Its secant models ``dm_a/dB_b`` as diagonal, and SOC is what breaks that.
 
     ``_secant_step`` measures a susceptibility per cartesian component and
@@ -689,9 +710,64 @@ def test_the_fixed_spin_moment_search_refuses_spin_orbit_coupling():
     exactly why it needs a refusal rather than a warning -- nothing in the
     output says which time it was.
     """
-    _build(_FSM_SOC % ".false.")  # the collinear-axis case is still allowed
+    secant = "\n    fsm_update = 'secant'\n"
+    _build(_fsm_soc(".false.", secant))  # without SOC the secant is allowed
     with pytest.raises(ValueError, match="dm_a/dB_b is diagonal"):
-        _build(_FSM_SOC % ".true.")
+        _build(_fsm_soc(".true.", secant))
+
+
+_ATOMIC_FSM_SOC = """
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 3, celldm(1) = 5.217, nat = 1, ntyp = 1,
+    ecutwfc = 25.0, ecutrho = 200.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.05
+    noncolin = .true.
+    nosym = .true.
+    lspinorb = %s
+    constrained_magnetization = '%s'
+ /
+ &electrons
+    conv_thr = 1.0d-8
+ /
+ATOMIC_SPECIES
+ Fe 55.847 Fe.rel-pbe-spn-rrkjus_psl.0.2.1.UPF
+ATOMIC_POSITIONS (alat)
+ Fe 0.0 0.0 0.0
+STARTING_MOMENTS
+ 0.0 0.0 2.0
+K_POINTS gamma
+"""
+
+
+@pytest.mark.parametrize("scheme", ["atomic fsm", "atomic fsm direction"])
+def test_the_per_atom_feedback_field_still_refuses_spin_orbit_coupling(scheme):
+    """Elk's rule per atom is unmeasured under SOC, so it stays refused (I111)."""
+    _build(_ATOMIC_FSM_SOC % (".false.", scheme))
+    with pytest.raises(ValueError, match="per-atom feedback field has not been"):
+        _build(_ATOMIC_FSM_SOC % (".true.", scheme))
+
+
+def test_with_spin_cannot_switch_spin_orbit_on_under_a_refused_feedback_field():
+    """The input reader's refusal, on the route that turns ``lspinorb`` on later.
+
+    ``with_spin`` carries the constraint across, so without its own check a
+    feedback run built without spin-orbit coupling could be given it here, and
+    before I111 it could: ``with_spin`` had no copy of the reader's refusal.
+    """
+    secant = _build(_fsm_soc(".false.", "\n    fsm_update = 'secant'\n"))
+    with pytest.raises(ValueError, match="dm_a/dB_b is diagonal"):
+        secant.with_spin(4, lspinorb=True)
+    atomic = _build(_ATOMIC_FSM_SOC % (".false.", "atomic fsm"))
+    with pytest.raises(ValueError, match="per-atom feedback field has not been"):
+        atomic.with_spin(4, lspinorb=True)
+    elk = _build(_fsm_soc(".false."))
+    assert elk.with_spin(4, lspinorb=True).lspinorb
+    # A system with no feedback field is unaffected by the check.
+    plain = _build(_REDUCEBF % "1.0").with_spin(4)
+    assert plain.with_spin(4, lspinorb=True).lspinorb
 
 
 _REDUCEBF = """

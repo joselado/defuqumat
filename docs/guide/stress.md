@@ -162,10 +162,12 @@ symmetry, but for $C_{44}$ it is not. A shear strain moves the two atoms of the
 cell against each other, and this internal relaxation lowers $C_{44}$.
 
 !!! note "Limits"
-    The elastic constants need a norm-conserving dataset. An ultrasoft or PAW
-    dataset gives an error, because two terms of the derivative for an
-    augmented dataset are still missing. They also need `nspin = 1`, an insulator and the
-    full k-mesh (`nosym`), so a spin-polarized, noncollinear or spin-orbit run,
+    The elastic constants work with norm-conserving, ultrasoft and PAW datasets. For an
+    ultrasoft or PAW dataset they need every k-point in memory at once, so a run that
+    streams the k-points in chunks gives an error. This happens in memory mode on a GPU,
+    for any chunk, and on a CPU in `memory_mode='memory'` with a `k_batch` smaller than
+    the k-mesh. The elastic constants also need `nspin = 1`, an insulator and the full
+    k-mesh (`nosym`), so a spin-polarized, noncollinear or spin-orbit run,
     a metal and a symmetry-reduced k-set each give an error. The full k-mesh
     must also be an unshifted Monkhorst-Pack grid. A shifted grid with `nosym`
     gives an error, because a shifted grid does not have the symmetry of the

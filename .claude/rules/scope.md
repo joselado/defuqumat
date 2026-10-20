@@ -206,11 +206,17 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   refused rather than used, since `1/(2 eta)` amplifies it; at first order the induced potential
   can be in it (P138, `potential = 'hxc'`, the outer fixed point a GMRES, never the static
   response's mixing, which diverges at a resonance). Ultrasoft, PAW, `nspin = 2` and
-  spinors run at a frozen potential (P139 to P141), and a `K_POINTS gamma` ground state is
+  spinors run at a frozen potential (P139 to P141), ultrasoft and PAW also with the
+  potential updated at `nspin = 1`, the augmentation charge of `rho(t)` carried (P156, I98),
+  and a `K_POINTS gamma` ground state is
   propagated on the whole sphere (P154, I39). A ground state under a magnetic field or a
   constrained moment propagates under the field the SCF ended with (P155, I64), a penalty
-  constraint at `frozen` only. Refused: DFT+U, a spin spiral, and a half-sphere
-  `Calculation` handed to the driver directly.
+  constraint at `frozen` only. DFT+U runs at a frozen potential and a frozen `ns`, the
+  Hubbard projectors moving with `k + kappa`, for a collinear norm-conserving run with
+  `atomic` or `norm-atomic` projectors, in `get_realtime` and `get_realtime_dielectric`
+  only (P156, I100). Refused: DFT+U elsewhere (`ortho-atomic`, spinors, ultrasoft and PAW,
+  the updated potential, `get_hhg`, the perturbative orders), a spin spiral, and a
+  half-sphere `Calculation` handed to the driver directly.
 - **Converging a cell with vacuum** (P129, `mixing_mode = 'ldos'`): Herbst and Levitt's
   preconditioner, screening built from the LDOS at `e_F` out of the density's own pass. Two
   rules bind it. The LDOS is a **Gaussian** whatever the run smears with, because the inner

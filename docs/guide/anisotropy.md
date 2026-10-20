@@ -153,10 +153,14 @@ on the torque, in Ry per radian.
     one-centre occupations of the first run, which do not fit the projectors of
     the other file.
 
-    `soc_scale` outside $[0, 1]$ gives an error on every dataset. For ultrasoft
-    and PAW datasets it must be exactly 0 or 1, because a blend in between is
-    not the overlap of any set of projectors. When every dataset is
-    norm-conserving, any value in $[0, 1]$ is allowed.
+    `soc_scale` outside $[0, 1]$ gives an error on every dataset. Any value in
+    $[0, 1]$ is allowed for norm-conserving and ultrasoft datasets. For
+    ultrasoft we checked the total energy, its slope and the anisotropy energy
+    in between. Forces, stress, phonons and the dielectric response in between
+    rest on the variational argument. For a fully relativistic PAW dataset it
+    must be exactly 0 or 1. The reason is the small component in the PAW
+    sphere, which the code scales by `soc_scale`, and we have not checked that
+    this is the right meaning between 0 and 1.
 
     `get_torque`, `get_orientation_torque` and `get_relaxed_orientation` give
     an error for the same cases as the force theorem. `get_torque` also gives
@@ -168,9 +172,29 @@ on the torque, in Ry per radian.
     `rotate_moments` needs a magnetic noncollinear run with spin-orbit coupling,
     so it gives an error without `lspinorb` or with `soc_scale = 0`, where every
     orientation has the same energy and the step would only follow noise. It
-    also gives an error for a spin spiral, for a Hubbard $U$, whose occupation
-    matrix would have to turn with the density, and for a magnetic field or a
-    constrained moment, which holds the orientation that the step moves. A run
+    also gives an error for a spin spiral. It takes a magnetic field that you
+    apply with `B_field`, and then the run stops where the anisotropy and the
+    energy of the field balance. This needs `nosym`. It gives an error for a
+    constrained moment, because the constraint holds the orientation that the
+    step moves, and for `reducebf`, because then the field changes during the
+    run. It takes a Hubbard $U$ on a norm-conserving or ultrasoft dataset, and
+    the occupation matrix turns with the moments. With a Hubbard $U$ the
+    occupation matrix can have more than one self-consistent solution, and the
+    run does not look for the lowest one. So the run stops at the easy
+    orientation of the solution it starts on, and a different start can give a
+    different solution with a lower energy. On tetragonal cobalt with $U = 1$ eV
+    we found six states, spread over 1.6e-3 Ry, which is about fifty times the
+    anisotropy. Three of them converged, and three were still moving after 200
+    iterations. So with a $U$ you should run from two or three starting
+    orientations and keep the lowest energy. When the run starts from a
+    density (`starting_from` or `starting_density`), the code compares $|M|$
+    at the end with $|M|$ at the start. It warns when the change is larger than
+    1e-3 Bohr magnetons, because then a different solution was likely reached.
+    A run from the atomic start does not warn, because its starting $|M|$ is
+    only a guess. An unchanged $|M|$ does not show that the lowest solution
+    was found. It
+    gives an error for a Hubbard $U$ on a PAW dataset and for a fixed tensor
+    moment. A run
     with symmetry needs `calc.with_turning_moments()` first. This keeps only the
     identity and the inversion, because only these stay symmetries when all
     moments turn together, and it builds the k-points again with them. Without

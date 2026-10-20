@@ -14,8 +14,11 @@ from defuqumat.forces.torque import rotate_texture
 from defuqumat.scf.mixing import get_mixer
 from defuqumat.scf.orientation import (
     OrientationStepper,
+    rotate_ns,
     rotate_spinors,
     rotation_matrix,
+    spin_turned,
+    spin_turned_ns,
     spinor_rotation,
 )
 
@@ -171,10 +174,16 @@ def _cobalt_system(*, nosym: bool, angle: float = 45.0):
     return build_system(parse_pw_input(text))
 
 
-def _stub(*, nosym=False, turning=False, hubbard=False, paw=False):
+def _stub(*, nosym=False, turning=False, hubbard=False, paw=False,
+          tensor_moments=False):
     return SimpleNamespace(
         is_hubbard=hubbard, is_paw=paw,
+        hubbard=SimpleNamespace(constraints=object() if tensor_moments else None),
         system=SimpleNamespace(nosym=nosym, turning_moments=turning))
+
+
+def _field_stub(constraint="none", reducebf=1.0):
+    return SimpleNamespace(constraint=constraint, reducebf=reducebf, has_field=True)
 
 
 def test_a_symmetric_run_without_the_turning_group_is_refused():
@@ -190,13 +199,73 @@ def test_a_symmetric_run_without_the_turning_group_is_refused():
 
 
 def test_the_sibling_refusals_of_rotate_moments_still_fire_on_the_turning_group():
-    """Coupling, Hubbard U and field are refused whatever the group."""
+    """The coupling is required whatever the group; a U and a field are admitted (I112, I113).
+
+    What stays refused of the two: a U on PAW and a fixed tensor moment; a
+    penalty or feedback constraint, ``reducebf`` and a field without ``nosym``.
+    """
     with pytest.raises(ValueError, match="spin-orbit"):
         _refuse_rotating_moments(_stub(turning=True), None, False)
-    with pytest.raises(NotImplementedError, match="Hubbard"):
-        _refuse_rotating_moments(_stub(turning=True, hubbard=True), None, True)
-    with pytest.raises(NotImplementedError, match="magnetic field"):
-        _refuse_rotating_moments(_stub(turning=True), object(), True)
+    # A Hubbard U on norm-conserving or ultrasoft is turned with the step.
+    _refuse_rotating_moments(_stub(nosym=True, hubbard=True), None, True)
+    _refuse_rotating_moments(_stub(turning=True, hubbard=True), None, True)
+    with pytest.raises(NotImplementedError, match="Hubbard U on a PAW"):
+        _refuse_rotating_moments(_stub(nosym=True, hubbard=True, paw=True), None, True)
+    with pytest.raises(NotImplementedError, match="tensor moment"):
+        _refuse_rotating_moments(
+            _stub(nosym=True, hubbard=True, tensor_moments=True), None, True)
+    # A fixed applied field under nosym is in the step.
+    _refuse_rotating_moments(_stub(nosym=True), _field_stub(), True)
+    for constraint in ("atomic", "atomic direction", "total", "total direction",
+                       "atomic texture", "fsm", "atomic fsm"):
+        with pytest.raises(NotImplementedError, match="constrained moment"):
+            _refuse_rotating_moments(_stub(nosym=True), _field_stub(constraint), True)
+    with pytest.raises(NotImplementedError, match="reducebf"):
+        _refuse_rotating_moments(_stub(nosym=True), _field_stub(reducebf=0.5), True)
+    with pytest.raises(NotImplementedError, match="applied magnetic field needs nosym"):
+        _refuse_rotating_moments(_stub(turning=True), _field_stub(), True)
+
+
+def test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves():
+    """I112, Fable's decision as amended by the user (2026-10-20).
+
+    The end-of-run check: from a handed-in density, ``|M|`` moved by more than
+    1e-3 mu_B warns that a different occupation-matrix solution was likely
+    reached, names the threshold and asks for two or three starting
+    orientations; within it, nothing. On an atomic start there is no
+    reference and no warning. The numbers are tetragonal Co at ``U = 1`` eV
+    (1.7783 at the end of the rotation, 1.7814 on the atomic starts,
+    ``notes/incompat/I112.md``).
+    """
+    import inspect
+    import warnings
+
+    from defuqumat.scf import driver
+    from defuqumat.scf.driver import (ROTATE_HUBBARD_MOMENT_TOL,
+                                      _warn_if_the_hubbard_moment_moved)
+
+    assert ROTATE_HUBBARD_MOMENT_TOL == 1.0e-3
+    # From a density: fires.
+    with pytest.warns(RuntimeWarning, match="different solution of the occupation matrix") as caught:
+        assert _warn_if_the_hubbard_moment_moved(1.781400, 1.778346, "the starting state handed in")
+    text = str(caught[0].message)
+    assert "1e-03" in text and "two or three starting orientations" in text
+    assert "An unchanged |M| is not evidence" in text
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        # |M| unchanged within the threshold: silent.
+        assert not _warn_if_the_hubbard_moment_moved(1.778346, 1.778346 + 9e-4, "x")
+        # An atomic start has no reference moment: silent, however far |M| moved.
+        assert not _warn_if_the_hubbard_moment_moved(None, 1.778346, "x")
+    # The driver takes a reference only from a handed-in density
+    # (``starting_from`` arrives as ``starting_density``), and has no fallback
+    # to the first iteration's output, which is what an atomic start would use.
+    source = inspect.getsource(driver.run_scf)
+    assert ("if rotate_moments and calculation.is_hubbard and starting_density is not None:"
+            in source)
+    assert "if rotate_moments and calculation.is_hubbard and moment is not None:" in source
+    assert "_warn_if_the_hubbard_moment_moved(" in source
+    assert "the first iteration's output" not in source
 
 
 def test_the_orientation_free_group_keeps_identity_and_inversion_only():
@@ -274,3 +343,152 @@ def test_the_stepper_keeps_the_starting_group_when_the_torque_respects_it():
         assert step[0] == 0.0 and step[2] == 0.0
     m = stepper.total @ np.array([np.sin(np.pi / 4), 0.0, np.cos(np.pi / 4)])
     assert abs(m[1]) < 1.0e-15
+
+
+def _spinor_projection_problem(rng, nk=2, nbnd=3, npwx=7, ldim=5):
+    """Pure up and down projector columns on one shell, and random spinor states."""
+    phi = rng.normal(size=(nk, npwx, ldim)) + 1j * rng.normal(size=(nk, npwx, ldim))
+    wfcU = np.zeros((nk, 2 * npwx, 2 * ldim), dtype=complex)
+    wfcU[:, :npwx, :ldim] = phi
+    wfcU[:, npwx:, ldim:] = phi
+    columns = np.array([[list(range(ldim)), list(range(ldim, 2 * ldim))]])
+    mask = np.ones((1, ldim), dtype=bool)
+    psi = (rng.normal(size=(1, nk, nbnd, 2 * npwx))
+           + 1j * rng.normal(size=(1, nk, nbnd, 2 * npwx)))
+    weights = rng.random((1, nk, nbnd))
+    return wfcU, psi, weights, columns, mask
+
+
+def test_the_occupation_matrix_turns_with_the_states_as_conj_u_n_u_transpose():
+    """``ns`` of the turned states is :func:`rotate_ns` of ``ns`` (I112), and to first order too.
+
+    ``new_ns_nc``'s ``N^{st} = sum conj(p_s) p_t`` turns as ``conj(U) N U^T`` when
+    every spinor turns by ``U``; on pure up and down projector columns with one
+    radial function, which is DFT+U's ``updown`` basis on a norm-conserving
+    dataset, the identity is exact. The first-order turn is the derivative of
+    the occupation matrix of :func:`spin_turned`'s states, which is what the
+    Hubbard share of the torque differentiates.
+    """
+    import jax
+    import jax.numpy as jnp
+
+    from defuqumat.hubbard.occupations import occupation_matrix
+
+    wfcU, psi, weights, columns, mask = _spinor_projection_problem(np.random.default_rng(4))
+
+    def ns_of(states):
+        return np.asarray(occupation_matrix(
+            jnp.asarray(wfcU), jnp.asarray(states), jnp.asarray(weights),
+            jnp.asarray(columns), jnp.asarray(mask)))
+
+    ns = ns_of(psi)
+    omega = np.array([0.3, -0.7, 0.4])
+    turned = ns_of(rotate_spinors(psi, omega))
+    assert np.abs(turned - ns).max() > 1.0
+    np.testing.assert_allclose(rotate_ns(ns, omega), turned, atol=1e-12)
+
+    def ns_first_order(o):
+        return occupation_matrix(jnp.asarray(wfcU), spin_turned(jnp.asarray(psi), o),
+                                 jnp.asarray(weights), jnp.asarray(columns),
+                                 jnp.asarray(mask))
+
+    for axis in np.eye(3):
+        expected = jax.jvp(ns_first_order, (jnp.zeros(3),), (jnp.asarray(axis),))[1]
+        got = jax.jvp(lambda o: spin_turned_ns(jnp.asarray(ns), o),
+                      (jnp.zeros(3),), (jnp.asarray(axis),))[1]
+        np.testing.assert_allclose(np.asarray(got), np.asarray(expected), atol=1e-12)
+
+
+def test_the_packed_mixer_vector_turns_its_ns_block_and_nothing_else():
+    """The ``ns`` block of a history vector, packed as ``_mix`` packs it, turns as ``rotate_ns``.
+
+    A density-like head, a ``becsum``-like block, then the complex ``ns`` viewed
+    as interleaved reals, then a ``tau``-like tail. Only the ``ns`` block moves,
+    and it unpacks to ``conj(U) N U^T`` exactly; the same call on a block one
+    entry off would not unpack to it, which is what an offset error would give.
+    """
+    from defuqumat.scf.driver import _ns_dtypes, _pack_ns, _turn_packed_ns
+    from defuqumat.scf.orientation import rotate_ns
+
+    rng = np.random.default_rng(11)
+    ns = rng.normal(size=(4, 1, 5, 5)) + 1j * rng.normal(size=(4, 1, 5, 5))
+    dtype, real = _ns_dtypes(ns)
+    head, becsum, tail = rng.normal(size=37), rng.normal(size=12), rng.normal(size=9)
+    vector = np.concatenate([head, becsum, _pack_ns(ns, dtype, real), tail])
+    omega = np.array([0.2, -0.4, 0.3])
+    offset = head.size + becsum.size
+    turned = _turn_packed_ns(vector, offset, ns.shape, dtype, omega)
+    size = 2 * ns.size
+    np.testing.assert_array_equal(turned[:offset], vector[:offset])
+    np.testing.assert_array_equal(turned[offset + size:], vector[offset + size:])
+    got = np.ascontiguousarray(turned[offset:offset + size]).view(dtype).reshape(ns.shape)
+    np.testing.assert_allclose(got, rotate_ns(ns, omega), rtol=0, atol=1e-14)
+    assert np.abs(got - ns).max() > 0.1
+    shifted = _turn_packed_ns(vector, offset + 1, ns.shape, dtype, omega)
+    wrong = np.ascontiguousarray(shifted[offset:offset + size]).view(dtype).reshape(ns.shape)
+    assert np.abs(wrong - rotate_ns(ns, omega)).max() > 0.1
+
+
+def test_the_hubbard_torque_is_the_derivative_of_the_pairing_under_the_exact_turn():
+    """:func:`_hubbard_torque` against a central difference of ``Re sum(R(w) ns . v)``.
+
+    The difference is taken with the *exact* turn, :func:`rotate_ns`, at
+    ``h = 1e-3`` and ``1e-4``; its error falls as ``h^2``, so the two steps
+    bracket the forward derivative and the identity is held at the smaller.
+    """
+    from defuqumat.scf.driver import _hubbard_torque
+
+    rng = np.random.default_rng(7)
+    shape = (2, 2, 1, 5, 5)
+    a = rng.normal(size=shape) + 1j * rng.normal(size=shape)
+    # Hermitian in the combined (spin, m) index, as ns and v_ns are.
+    def hermitian(x):
+        full = x.transpose(2, 0, 3, 1, 4).reshape(1, 10, 10)
+        full = 0.5 * (full + np.conj(np.swapaxes(full, -1, -2)))
+        return full.reshape(1, 2, 5, 2, 5).transpose(1, 3, 0, 2, 4).reshape(4, 1, 5, 5)
+
+    ns, v = hermitian(a), hermitian(rng.normal(size=shape) + 1j * rng.normal(size=shape))
+    torque = _hubbard_torque(ns, v)
+    assert np.linalg.norm(torque) > 1.0e-2
+
+    def pairing(omega):
+        return float(np.real(np.sum(rotate_ns(ns, omega) * v)))
+
+    errors = []
+    for h in (1.0e-3, 1.0e-4):
+        difference = np.array([(pairing(h * e) - pairing(-h * e)) / (2 * h)
+                               for e in np.eye(3)])
+        errors.append(np.abs(difference - torque).max())
+    assert errors[1] < 1.0e-6 * np.linalg.norm(torque)
+    assert errors[1] < errors[0]
+
+
+def test_the_zeeman_torque_is_the_derivative_of_the_field_energy_under_a_turn():
+    """:func:`_zeeman_torque` is ``d/dw (-B . R(w) M)`` for a uniform field (I113).
+
+    For a uniform field that is ``B x M`` exactly, the field's potential being
+    ``-B`` on the magnetization components; the turn is the one
+    :func:`~defuqumat.forces.torque.rotate_texture` applies to the density.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.scf.driver import _zeeman_torque
+    from defuqumat.scf.fields import MagneticField
+    from defuqumat.system.cell import Cell
+
+    rng = np.random.default_rng(3)
+    cell = Cell.from_vectors(np.eye(3) * 6.0)
+    rho = _field(rng, shape=(4, 4, 4, 4))
+    b = np.array([0.02, -0.01, 0.03])
+    field = MagneticField(regions=None, uniform=jnp.asarray(b), atomic=None,
+                          targets=None, penalty=0.0)
+    torque = _zeeman_torque(field, jnp.asarray(rho), cell, 1.0)
+    moment = cell.volume / rho[0].size * rho[1:].reshape(3, -1).sum(axis=1)
+    np.testing.assert_allclose(torque, np.cross(b, moment), rtol=1e-12, atol=1e-15)
+
+    h = 1.0e-5
+    difference = np.array([
+        (float(field.field_energy(jnp.asarray(rotate_texture(rho, rotation_matrix(h * e))), cell))
+         - float(field.field_energy(jnp.asarray(rotate_texture(rho, rotation_matrix(-h * e))), cell)))
+        / (2 * h) for e in np.eye(3)])
+    np.testing.assert_allclose(difference, torque, rtol=1e-7, atol=1e-12)

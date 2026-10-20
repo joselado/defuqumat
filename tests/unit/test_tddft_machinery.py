@@ -164,10 +164,158 @@ def test_a_reduced_k_set_passes_and_a_magnetic_one_is_refused():
         wedge_group(_calculation("ni-noncol-111-nosource").system, quantity="chi_0")
 
 
-def test_an_ultrasoft_dataset_is_refused_by_name():
-    """The plane-wave matrix element gains ``Q_ij(G)`` and nothing here adds it."""
-    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
-        require_a_sum_over_states_regime(_calculation("si-epsilon-us"))
+def test_an_ultrasoft_insulator_is_accepted_and_paw_is_refused_by_name():
+    """The ultrasoft pair density carries ``Q_ij(G)`` and its head the generalised velocity.
+
+    PAW is refused for its one-centre terms, which are a different term; an
+    ultrasoft run that is smeared, polarized or a spinor is refused for want of
+    a number. The number for the accepted regime is in
+    ``tests/regression/test_tddft_ultrasoft.py``.
+    """
+    ultrasoft = _calculation("si-us-nosym")
+    assert ultrasoft.is_ultrasoft and not ultrasoft.is_paw
+    require_a_sum_over_states_regime(ultrasoft)
+    paw = _calculation("si-epsilon-paw-unshifted-nosym")
+    assert paw.is_paw
+    with pytest.raises(NotImplementedError, match="PAW dataset"):
+        require_a_sum_over_states_regime(paw)
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / "si-us-nosym.in").read_text()
+    assert "ecutwfc" in text
+    text = text.replace("&system", "&system\n    occupations = 'smearing', degauss = 0.01,", 1)
+    smeared = build_system(parse_pw_input(text))
+    calculation = Calculation(smeared, tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in smeared.structure.species))
+    with pytest.raises(NotImplementedError, match="ultrasoft dataset is measured"):
+        require_a_sum_over_states_regime(calculation)
+
+
+def _smeared(case: str, *, extra: str = "", degauss: float = 0.01) -> Calculation:
+    """``case`` with a Gaussian smearing put into its ``&system``."""
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = (CASES / f"{case}.in").read_text().replace(
+        "ecutwfc = 18.0",
+        f"ecutwfc = 18.0, occupations = 'smearing', smearing = 'gaussian', "
+        f"degauss = {degauss}{extra}")
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(
+        read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+    )
+    return Calculation(system, pseudos)
+
+
+def test_a_smeared_run_is_accepted_and_a_tetrahedron_one_is_refused():
+    """A smeared ``chi_0`` carries its Drude term; a tetrahedron run has no delta for it.
+
+    Until I95 and I96 every run whose ``occupations`` was not ``fixed`` was
+    refused, a gapped cell under a smearing as well as a metal. Both cells
+    must *be* the regime: silicon with a smearing and aluminium, whose
+    numbers are in ``tests/regression/test_tddft_metal.py``.
+    """
+    silicon = _smeared("si-epsilon-unshifted-nosym")
+    aluminium = _calculation("al-conductivity")
+    for calculation in (silicon, aluminium):
+        assert calculation.system.occupations == "smearing"
+        require_a_sum_over_states_regime(calculation)
+    tetrahedra = _calculation("al-tetrahedra")
+    assert tetrahedra.system.occupations.startswith("tetrahedra")
+    with pytest.raises(NotImplementedError, match="tetrahedron occupations"):
+        require_a_sum_over_states_regime(tetrahedra)
+
+
+def test_the_sibling_refusals_still_fire_on_a_smeared_cell():
+    """Lifting the metal refusal must not open the regimes beside it.
+
+    Each cell is smeared and is refused for its own reason: a textured
+    spinor (``ni-soc-nosym``), a spiral (``h-chain-spiral``), a Hubbard ``U``
+    (``h-fcc-magnon-ldau``), an ultrasoft dataset (``co-hcp-anisotropy-sr``)
+    and a two-channel wedge (silicon's, smeared and polarized).
+    """
+    cases = (
+        ("ni-soc-nosym", "textured spinor"),
+        ("h-chain-spiral", "spin spiral"),
+        ("h-fcc-magnon-ldau", "Hubbard"),
+        ("co-hcp-anisotropy-sr", "ultrasoft dataset is measured"),
+    )
+    for case, reason in cases:
+        calculation = _calculation(case)
+        assert calculation.system.occupations == "smearing"
+        with pytest.raises(NotImplementedError, match=reason):
+            require_a_sum_over_states_regime(calculation)
+    reduced = _calculation("al-metal")
+    assert reduced.system.occupations == "smearing" and reduced.system.kpoints.nk == 10
+    with pytest.raises(NotImplementedError, match="spinor or on a symmetry-reduced"):
+        require_a_sum_over_states_regime(reduced)
+    spinor = _smeared("si-epsilon-unshifted-nosym", extra=", noncolin = .true.")
+    assert spinor.noncolin and spinor.nspin_mag == 1
+    with pytest.raises(NotImplementedError, match="spinor or on a symmetry-reduced"):
+        require_a_sum_over_states_regime(spinor)
+    polarized = _calculation("h10-chain-lsda")
+    assert polarized.system.occupations == "smearing" and polarized.system.nspin == 2
+    with pytest.raises(NotImplementedError, match="smeared chi_0 at nspin = 2"):
+        require_a_sum_over_states_regime(polarized)
+    wedge = _smeared("si-epsilon-unshifted",
+                     extra=", nspin = 2, starting_magnetization(1) = 0.5")
+    assert wedge.system.nspin == 2 and wedge.system.kpoints.nk == 8
+    with pytest.raises(NotImplementedError, match="symmetry-reduced"):
+        require_a_sum_over_states_regime(wedge)
+
+
+def test_a_smeared_pair_list_spans_the_partly_filled_window():
+    """The pairs whose weight can be nonzero, and none of the rest.
+
+    An insulator's window is ``(nocc, nocc)`` and its list is the rectangle,
+    in the old order; a partly filled band adds its pairs with every band
+    above it.
+    """
+    from defuqumat.tddft.chi0 import _pairs
+
+    rows, columns = _pairs(4, 4, 8)
+    assert list(zip(rows, columns)) == [(i, j) for i in range(4) for j in range(4, 8)]
+    rows, columns = _pairs(1, 3, 5)
+    assert list(zip(rows, columns)) == [
+        (0, 1), (0, 2), (0, 3), (0, 4), (1, 2), (1, 3), (1, 4), (2, 3), (2, 4)]
+
+
+def test_the_drude_block_is_the_multiplet_block_over_z_squared():
+    """``(8 pi/Omega) sum w delta v_a^nm v_b^mn / z^2`` with the multiplet block (rule D4).
+
+    A synthetic k-point: two states degenerate within the tolerance and a
+    third far away. Rotating the degenerate pair leaves the block unchanged
+    where the diagonal alone would move, and the far state contributes only
+    its own diagonal.
+    """
+    from defuqumat.tddft.chi0 import _drude_block
+
+    rng = np.random.default_rng(3)
+    a = rng.normal(size=(3, 3, 3)) + 1j * rng.normal(size=(3, 3, 3))
+    element = a + np.conj(np.swapaxes(a, 1, 2))  # Hermitian in the bands
+    eig = np.array([0.1, 0.1 + 1e-9, 0.5])
+    weight = np.array([2.0, 2.0, 0.3])
+    zomega = np.array([0.2 + 0.01j, 0.4 + 0.01j])
+    block = np.asarray(_drude_block(jnp.asarray(weight), jnp.asarray(eig),
+                                    jnp.asarray(element), jnp.asarray(zomega),
+                                    10.0, 1e-5))
+    expected = np.zeros((3, 3))
+    for n, m in ((0, 0), (0, 1), (1, 0), (1, 1), (2, 2)):
+        expected += weight[n] * np.real(np.outer(element[:, n, m], element[:, m, n]))
+    expected = E2 * FPI / 10.0 * expected
+    assert np.allclose(block, expected[None] / zomega[:, None, None] ** 2,
+                       rtol=1e-12, atol=0.0)
+
+    theta = 0.7
+    u = np.eye(3, dtype=complex)
+    u[:2, :2] = [[np.cos(theta), np.sin(theta)], [-np.sin(theta), np.cos(theta)]]
+    rotated = np.einsum("in,anm,mj->aij", np.conj(u).T, element, u)
+    turned = np.asarray(_drude_block(jnp.asarray(weight), jnp.asarray(eig),
+                                     jnp.asarray(rotated), jnp.asarray(zomega),
+                                     10.0, 1e-5))
+    assert np.allclose(turned, block, rtol=1e-12, atol=1e-14)
+    diagonal = sum(weight[n] * np.real(np.outer(rotated[:, n, n], rotated[:, n, n]))
+                   for n in range(3))
+    assert not np.allclose(E2 * FPI / 10.0 * diagonal, expected, rtol=1e-3)
 
 
 def test_the_whole_grid_norm_conserving_insulator_is_accepted():
@@ -318,7 +466,7 @@ def test_the_pair_densities_are_bounded_by_the_pair_dial():
     npwx = int(band_mask.shape[0])
 
     nocc, nbnd = 4, 12
-    rows, columns = _pairs(nocc, nbnd)
+    rows, columns = _pairs(nocc, nocc, nbnd)
     rng = np.random.default_rng(0)
     psi = jnp.asarray(rng.normal(size=(nbnd, npwx))
                       + 1j * rng.normal(size=(nbnd, npwx)), precision.complex)
@@ -488,3 +636,126 @@ def test_the_frequency_dial_chunks_on_a_card_and_not_on_a_cpu(monkeypatch):
     assert batching.resolve_w_batch(block_bytes=block, nw=1000) == 5
     monkeypatch.setenv("DEFUQUMAT_W_BATCH", "all")
     assert batching.resolve_w_batch(block_bytes=block, nw=1000) is None
+
+
+def _functional_silicon(input_dft: str, nspin: int = 1) -> Calculation:
+    """``si-epsilon-unshifted-nosym`` under ``input_dft``, the dataset unchanged."""
+    import warnings
+
+    parsed = read_pw_input(CASES / "si-epsilon-unshifted-nosym.in")
+    parsed.namelists["system"]["input_dft"] = input_dft
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="input_dft asks for")
+        system = build_system(parsed)
+        if nspin == 2:
+            system = system.with_spin(2, tot_magnetization=0)
+        pseudos = tuple(
+            read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species
+        )
+        return Calculation(system, pseudos)
+
+
+def _modulated_density(calculation) -> np.ndarray:
+    grid = tuple(int(n) for n in calculation.basis.dense.grid)
+    x = np.arange(grid[0])[:, None, None] / grid[0]
+    y = np.arange(grid[1])[None, :, None] / grid[1]
+    return 0.03 * (1.0 + 0.4 * np.cos(2 * np.pi * x)
+                   + 0.2 * np.sin(2 * np.pi * (x + 2 * y))) * np.ones(grid)
+
+
+def test_the_column_route_is_alda_for_a_local_functional():
+    """The GGA kernel's construction, run on LDA, is ALDA's matrix to round-off.
+
+    The adiabatic GGA kernel is built a column at a time, ``dv_xc`` applied to
+    ``e^{i G'.r}`` (I97), and ALDA from one transform of ``dv_xc/drho``
+    indexed at ``G - G'``. For a pointwise kernel the two are the same sum, so
+    this holds the column route's phase convention, its ``1/N``, its row
+    gather and its ``1/nspin`` tangent against a route that shares none of
+    them.
+    """
+    from defuqumat.tddft import kernels
+
+    calculation = _functional_silicon("pz")
+    sphere = response_sphere(calculation, 4.0)
+    density = jnp.asarray(_modulated_density(calculation)[None])
+    reference = np.asarray(kernels.alda_matrix(calculation, density, sphere))
+    columns = np.asarray(kernels._kernel_columns(
+        kernels._xc_potential_of(calculation), density,
+        jnp.asarray(np.asarray(sphere.miller)),
+        np.asarray(calculation.basis.dense.grid)))
+    coulomb = np.asarray(sphere.sqrt_coulomb)
+    columns = columns / (coulomb[:, None] * coulomb[None, :])
+    assert np.abs(columns - reference).max() <= 1e-11 * np.abs(reference).max()
+
+
+def test_the_gga_kernel_is_hermitian_nonlocal_and_halves_the_tangent():
+    """I97: the PBE kernel, and the three things that tell it from a wrong one.
+
+    Hermitian, because ``f_xc`` is the second derivative of ``E_xc`` and the
+    density is real. **Not** a function of ``G - G'``: the gradient terms make
+    entries with the same difference differ, which is what the local part
+    alone (the truncation the old refusal named) would not do, and it moves
+    the matrix by far more than round-off. And an unpolarized ``nspin = 2``
+    density gives the ``nspin = 1`` matrix, as for ALDA, to the level at which
+    the two functionals themselves agree: PBE's spin branch takes the
+    polarized PW correlation, whose ``zeta = 0`` value is not the unpolarized
+    parametrisation to the last bit, and on this density the *potential*
+    already differs by 2.4e-7 Ry out of 0.82, its ``jvp`` along ``cos(2 pi x)``
+    by 5.5e-5 out of 18. The kernel matrix differs by 1.2e-6 of its largest
+    entry, so the bound is 1e-5, not ALDA's 1e-12 (``pz`` has no such seam).
+    """
+    from defuqumat.tddft import alda_matrix
+    from defuqumat.tddft import kernels
+
+    one = _functional_silicon("pbe")
+    two = _functional_silicon("pbe", nspin=2)
+    sphere = response_sphere(one, 4.0)
+    total = _modulated_density(one)
+    gga = np.asarray(alda_matrix(one, jnp.asarray(total[None]), sphere))
+    scale = np.abs(gga).max()
+    assert np.abs(gga - gga.conj().T).max() <= 1e-12 * scale
+
+    split = np.asarray(alda_matrix(two, jnp.asarray(np.stack([total, total]) / 2),
+                                   sphere))
+    assert np.abs(split - gga).max() <= 1e-5 * scale
+
+    # The local part of the same functional, through the pointwise route.
+    from defuqumat.scf.potential import exchange_correlation
+    import jax
+
+    density = jnp.asarray(total[None])
+    _, local_r = jax.jvp(
+        lambda r: exchange_correlation(r, one.system.cell, one.rho_core,
+                                       one.functional)[0],
+        (density,), (jnp.ones_like(density),))
+    grid = np.asarray(one.basis.dense.grid)
+    local_g = np.fft.fftn(np.asarray(local_r[0])) / float(np.prod(grid))
+    body = np.asarray(sphere.miller)
+    index = (body[:, None, :] - body[None, :, :]) % grid
+    coulomb = np.asarray(sphere.sqrt_coulomb)
+    local = (local_g[index[..., 0], index[..., 1], index[..., 2]]
+             / (coulomb[:, None] * coulomb[None, :]))
+    assert np.abs(gga - local).max() > 1e-3 * scale
+
+
+def test_the_alda_kernel_still_refuses_a_meta_functional_and_a_gga_spinor():
+    """The three regimes I97's kernel does not cover keep their refusals."""
+    from defuqumat.tddft import alda_matrix
+
+    meta = _functional_silicon("tb09")
+    sphere = response_sphere(meta, 4.0)
+    density = _modulated_density(meta)
+    with pytest.raises(NotImplementedError, match="kinetic energy density"):
+        alda_matrix(meta, jnp.asarray(density[None]), sphere)
+
+    pbe = _functional_silicon("pbe")
+    four = np.zeros((4,) + density.shape)
+    four[0] = density
+    with pytest.raises(NotImplementedError, match="4-component density"):
+        alda_matrix(pbe, jnp.asarray(four), sphere)
+
+    # The polarized refusal runs before the gradient branch, so it holds for PBE.
+    pbe_two = _functional_silicon("pbe", nspin=2)
+    polarized = np.stack([0.6 * density, 0.4 * density])
+    with pytest.raises(NotImplementedError, match="magnetized ground state"):
+        alda_matrix(pbe_two, jnp.asarray(polarized), sphere)

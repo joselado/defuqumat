@@ -1,4 +1,4 @@
-"""The self-consistent frequency-domain hierarchy on two FFT grids, and its siblings.
+"""The self-consistent frequency-domain hierarchy on two FFT grids, above first order, and its siblings.
 
 A norm-conserving run with ``ecutrho > 4 ecutwfc`` has its wavefunctions on the
 smooth grid and its density and potential on the dense one. The guards here
@@ -53,3 +53,86 @@ def test_an_ultrasoft_dataset_on_two_grids_is_still_refused(pseudo_dir, potentia
 def test_a_meta_gga_kernel_is_still_refused(pseudo_dir):
     with pytest.raises(NotImplementedError, match="meta-GGA"):
         _call(_calculation("si2-tb09.in", pseudo_dir), "hxc")
+
+
+def _call_order(calculation, potential, order):
+    from defuqumat.realtime.hierarchy import hierarchy_self_consistent
+
+    return hierarchy_self_consistent(
+        calculation, np.zeros((1, 1, 1)), np.zeros((1, 1)), np.zeros((1, 1)), None,
+        omegas=(0.05,), eta=0.01, direction=(1.0, 0.0, 0.0), potential=potential, order=order)
+
+
+@pytest.mark.parametrize("potential", ["hartree", "hxc"])
+def test_an_ultrasoft_dataset_is_still_refused_above_first_order(pseudo_dir, potential):
+    """I102 lifted the first-order-only refusal; the ultrasoft one is a different machine."""
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
+        _call_order(_calculation("si2-us.in", pseudo_dir), potential, 3)
+
+
+def test_a_meta_gga_kernel_is_still_refused_above_first_order(pseudo_dir):
+    with pytest.raises(NotImplementedError, match="meta-GGA"):
+        _call_order(_calculation("si2-tb09.in", pseudo_dir), "hxc", 3)
+
+
+def test_a_fourth_order_is_refused(pseudo_dir):
+    with pytest.raises(NotImplementedError, match="third order"):
+        _call_order(_calculation("si2-nc-dual8.in", pseudo_dir), "hxc", 4)
+
+
+def test_second_order_passes_the_guard_that_refused_it(pseudo_dir):
+    """The call reaches the arrays, which are placeholders, at orders 2 and 3."""
+    calculation = _calculation("si2-nc-dual8.in", pseudo_dir)
+    for order in (2, 3):
+        with pytest.raises(Exception) as caught:
+            _call_order(calculation, "hxc", order)
+        assert "first order" not in str(caught.value)
+        assert not isinstance(caught.value, NotImplementedError)
+
+
+class _Stop(Exception):
+    """Raised by the stub system once the warning has had its chance."""
+
+
+class _StubSystem:
+    """Has no ``efield`` and fails at the first thing either route reads after the warning."""
+
+    efield = None
+
+    def __getattr__(self, name):
+        raise _Stop(name)
+
+
+@pytest.mark.parametrize("potential, order, fires", [
+    ("hartree", 2, True), ("hxc", 3, True), ("frozen", 3, False), ("hartree", 1, False),
+])
+def test_the_gauge_artefact_warning_fires_on_both_routes(potential, order, fires):
+    """I102, the user's decision (2026-10-20): the harmonics route warns as the spectrum does.
+
+    The velocity gauge's second-order density artefact is warned about with the
+    potential updated and an order of 2 or more, by ``get_nonlinear_spectrum``
+    and, since this decision, by ``get_harmonic_orders`` with the same text. The
+    warning comes before any work, so a stub system that fails right after it
+    is enough.
+    """
+    import warnings
+
+    from defuqumat.workflows.realtime import run_harmonic_orders, run_nonlinear_spectrum
+
+    calls = {
+        "harmonics": lambda: run_harmonic_orders(
+            _StubSystem(), None, None, frequency=1.0, order=order, potential=potential),
+        "spectrum": lambda: run_nonlinear_spectrum(
+            _StubSystem(), None, None, frequencies=(1.0,), order=order, potential=potential),
+    }
+    for route, call in calls.items():
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with pytest.raises(Exception):
+                call()
+        artefact = [w for w in caught if "second-order density artefact" in str(w.message)]
+        assert bool(artefact) is fires, route
+        if fires:
+            text = str(artefact[0].message)
+            assert "7 per cent of rho on a 2x2x2 mesh of silicon" in text
+            assert "on a mesh that converges it" in text

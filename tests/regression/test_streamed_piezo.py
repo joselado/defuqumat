@@ -42,6 +42,7 @@ pytestmark = [pytest.mark.regression, pytest.mark.slow]
 #: ``(case, k_batch)``: a chunk that does not divide the k-set wherever it can.
 CASES = [
     ("alas-raman-wedge", 3),
+    ("alas-raman-polar-wedge", 3),  # mm2: the polar wedge shift (I90)
     ("alas-piezo-tiny", 3),           # 8 k-points: 3, 3, 2 + 1 pad
     ("alas-piezo-tiny-wedge", 2),
     ("alas-piezo-tiny-paw-wedge", 2),

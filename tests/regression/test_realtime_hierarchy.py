@@ -12,6 +12,8 @@ Two comparisons, each an identity rather than an agreement:
 * the first order with the induced potential, self-consistent, against the dense
   self-consistent solve of :func:`~defuqumat.realtime.dense.dense_first_order`, and
   its static shift against the Sternheimer stack's;
+* orders one to three with the induced potential against the propagation with the
+  potential updated (I102), at two time steps;
 * the same first order on two FFT grids (``ecutrho = 8 ecutwfc``) against the
   dense solve, and with the Hartree kernel against the one-grid run of the same
   states.
@@ -313,10 +315,107 @@ def test_the_self_consistent_static_shift_is_the_sternheimer_shift(pseudo_dir):
         assert abs(shift.imag) < 1e-2 * abs(reference)
 
 
-def test_the_updated_potential_above_first_order_is_refused(pseudo_dir):
+@pytest.mark.parametrize("potential", ["hartree", "hxc"])
+def test_the_self_consistent_orders_are_the_self_consistent_propagation(pseudo_dir, potential):
+    """Orders one to three with the potential updated against the propagation's, AlAs at 4 Ry.
+
+    Gamma and a general point at the superposition of atomic charges, ``w = 0.05``
+    and ``eta = 0.01`` Hartree, the propagation over ``eta T = 20`` with the
+    potential updated (``propagate_orders_self_consistent``, whose nested
+    ``jvp`` carries ``K``, ``K2`` and ``K3`` of the potential by itself) against
+    :func:`~defuqumat.realtime.hierarchy.hierarchy_self_consistent` on the same
+    states. The two share the table of the projectors and the potential's
+    functional and nothing of the solve. Measured (D22, one sample each), relative
+    to the largest component of each order, at 400 and 800 steps a period:
+
+    ======  =================  =================  ========  ===========
+    (n,m)   hartree 400 / 800  hxc 400 / 800      frozen    linear K
+    ======  =================  =================  ========  ===========
+    (1,1)   1.4e-5 / 8.3e-7    1.6e-5 / 3.7e-6    3.5e-3    3.7e-6
+    (2,2)   4.0e-6 / 1.3e-6    2.0e-5 / 3.5e-6    1.7e-2    5.2e-3
+    (2,0)   1.7e-5 / 3.3e-6    3.0e-5 / 5.3e-6    1.9e-2    5.6e-3
+    (3,3)   3.0e-5 / 9.8e-6    3.3e-5 / 5.2e-6    5.0e-2    1.3e-2
+    (3,1)   2.6e-5 / 3.7e-6    4.7e-5 / 7.6e-6    4.2e-2    2.3e-2
+    ======  =================  =================  ========  ===========
+
+    falling with the step by 3 to 16, the propagation's ``dt^2`` over its start
+    transient; "frozen" is the same run at ``dv = 0`` against the ``'hxc'``
+    propagation at 800 steps (9.98e-2 to 1.8e-1 for ``'hartree'``) and "linear
+    K" the ``'hxc'`` hierarchy without ``K2`` and ``K3``, so the nonlinear
+    kernel is seen by a factor of 700 to 3000 and the update by 3000 and more.
+    The hierarchy took 48 s for the three runs, the propagation 151 to 235 s at
+    800 steps.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.realtime.hierarchy import hierarchy_self_consistent
+    from defuqumat.realtime.orders import propagate_orders
+    from defuqumat.realtime.pulse import Adiabatic
+
+    calculation, v_scf, _, basis, energies = _dense_cell(pseudo_dir, "alas-shg", 4.0, 12)
+    nocc = int(round(calculation.nelec / 2))
+    weights = np.repeat(np.asarray(calculation.system.kpoints.weights)[:, None], nocc, axis=1)
+    omega, eta = 0.05, 0.01
+    out = hierarchy_self_consistent(calculation, basis, energies, weights, v_scf,
+                                    omegas=(omega,), eta=eta, direction=(1.0, 0.0, 0.0),
+                                    order=3, potential=potential)
+    period = 2 * math.pi / omega
+    length = math.ceil(20.0 / eta / period) * period
+    shape = Adiabatic(amplitude=1.0, omega=omega, eta=eta, eta_t=length * eta)
+    result = propagate_orders(calculation, jnp.asarray(basis[:, :nocc]), weights, v_scf, shape,
+                              dt=period / 800, order=3, start=-length, duration=length,
+                              k_batch=None, potential=potential)
+    references = {key: complex(result.component(*key, axis=0)) for key in COMPONENTS}
+    for key in COMPONENTS:
+        value = out["components"][key][0, 0]
+        frozen = out["frozen"][key][0, 0]
+        scale = max(abs(v) for k, v in references.items() if k[0] == key[0])
+        assert abs(value - references[key]) < 2e-5 * scale, (key, value, references[key])
+        if key[0] > 1:
+            assert abs(frozen - references[key]) > 1e-3 * scale, "the update is load-bearing"
+    if potential == "hxc":
+        linear = hierarchy_self_consistent(calculation, basis, energies, weights, v_scf,
+                                           omegas=(omega,), eta=eta, direction=(1.0, 0.0, 0.0),
+                                           order=3, potential=potential, nonlinear_kernel=False)
+        for key in COMPONENTS[1:]:
+            scale = max(abs(v) for k, v in references.items() if k[0] == key[0])
+            value = linear["components"][key][0, 0]
+            assert abs(value - references[key]) > 1e-3 * scale, "the nonlinear kernel is seen"
+
+
+@pytest.mark.parametrize("potential", ["hartree", "hxc"])
+def test_the_self_consistent_orders_on_the_wedge_are_the_whole_mesh(pseudo_dir, tmp_path,
+                                                                    potential):
+    """Orders one to three with the potential updated on the field's wedge against the whole mesh.
+
+    AlAs at 6 Ry, 2x2x2, the field along [111] (six operations in its little
+    group), 1.5 eV and ``eta = 0.3`` eV. The wedge completes the densities of
+    every order, and the nonlinear kernel's phase samples, with the little
+    group; the whole unshifted mesh needs no symmetry. Measured (D22, one
+    sample): **1.1e-10 to 6.0e-9** of each order's largest component with the
+    Hartree kernel and 8.8e-11 to 4.0e-9 with ``'hxc'``, inside the outer
+    tolerance of 1e-8, where the update moves the components by 1.0e-2 to
+    1.6e-1 and 7.7e-3 to 9.3e-2; with one ``vmap`` over the wedge
+    (``k_batch = None``) against one k-point at a time, 5e-14 to 3e-11. The
+    warning about the mesh artefact fires.
+    """
     from defuqumat import Calculator
 
-    calculator = Calculator.from_file(CASES / "si2-symmetric.in", pseudo_dir=pseudo_dir,
-                                      announce=False)
-    with pytest.raises(NotImplementedError, match="first order only"):
-        calculator.get_nonlinear_spectrum([1.0], order=2, potential="hxc")
+    text = (CASES / "alas-shg.in").read_text()
+    text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", "ecutwfc = 6.0", text)
+    text = re.sub(r"^\s*no(sym|inv)\s*=.*\n", "", text, flags=re.M)
+    path = tmp_path / "alas-shg-6.in"
+    path.write_text(text)
+    calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir, announce=False)
+    calculator.get_scf(conv_thr=1e-12)
+    options = dict(broadening=0.3, direction=tuple(np.ones(3) / math.sqrt(3.0)),
+                   grid=(2, 2, 2), conv_thr=1e-12, order=3, potential=potential)
+    with pytest.warns(UserWarning, match="artefact"):
+        wedge = calculator.get_nonlinear_spectrum([1.5], little_group=True, **options)
+    whole = calculator.get_nonlinear_spectrum([1.5], little_group=False, **options)
+    for key in COMPONENTS:
+        scale = max(np.abs(whole.component(*k)).max() for k in COMPONENTS if k[0] == key[0])
+        difference = np.abs(wedge.component(*key) - whole.component(*key)).max()
+        assert difference < 5e-8 * scale, (key, difference / scale)
+        shift = np.abs(wedge.component(*key) - wedge.frozen_components[key]).max()
+        assert shift > 1e-3 * scale, "the update is load-bearing"

@@ -1,0 +1,35 @@
+! pw.x's Berry-phase finite difference of e_14 on PAW AlAs (notes/incompat/I89.md):
+! alas-piezo-paw.in's cell sheared by E[1,2] = E[2,1] = +-0.005, ions clamped in
+! crystal coordinates, an scf on 6 6 6 and three lberry nscf runs (15 strings over 8x8).
+! Serial pw.x 7.5 on D22-0161, 2026-10-19; outdir and pseudo_dir were absolute paths there.
+ &control
+    calculation = 'nscf'
+    prefix = 'alasplus'
+    outdir = './out'
+    pseudo_dir = '../pseudo'
+    lberry = .true.
+    gdir = 3
+    nppstr = 15
+ /
+ &system
+    ibrav = 0, nat = 2, ntyp = 2,
+    ecutwfc = 25.0, ecutrho = 200.0
+    nosym = .true.
+    noinv = .true.
+ /
+ &electrons
+    conv_thr = 1.0d-12
+    mixing_beta = 0.7
+ /
+ATOMIC_SPECIES
+ Al 26.98 Al.pbe-n-kjpaw_psl.1.0.0.UPF
+ As 74.92 As.pbe-n-kjpaw_psl.1.0.0.UPF
+CELL_PARAMETERS bohr
+ -5.306700000000 0.026533500000 5.306700000000
+ 0.000000000000 5.333233500000 5.333233500000
+ -5.306700000000 5.306700000000 0.026533500000
+ATOMIC_POSITIONS crystal
+ Al 0.00 0.00 0.00
+ As 0.25 0.25 0.25
+K_POINTS (automatic)
+ 8 8 15 0 0 0

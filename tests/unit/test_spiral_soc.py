@@ -160,8 +160,10 @@ def test_an_intermediate_soc_scale_on_a_norm_conserving_dataset_is_the_blend(pse
 
     What admitting it rests on: on a norm-conserving dataset the scale reaches
     ``dvan_so`` alone, and linearly, so a calculation at ``s`` is the
-    first-order operator's own Hamiltonian at coupling ``s``. The same scale on
-    an ultrasoft dataset is refused where the calculation meets the dataset.
+    first-order operator's own Hamiltonian at coupling ``s``. Since I114 the
+    same scale is admitted on an ultrasoft dataset, where it blends ``qq_so``
+    too, and refused on a fully-relativistic PAW one where the calculation
+    meets the dataset.
     """
     system = dataclasses.replace(_system(), spiral_q=None)
     pseudos = _pseudos(system, pseudo_dir)
@@ -171,10 +173,19 @@ def test_an_intermediate_soc_scale_on_a_norm_conserving_dataset_is_the_blend(pse
     np.testing.assert_allclose(blended, free + 0.3 * (coupled - free), rtol=0.0, atol=1e-14)
     assert np.max(np.abs(blended[0, 1])) > 1e-3
 
-    augmented = _system(INPUT.replace("I.rel-pbe-nc-dojo.UPF", "I.rel-pbe-n-rrkjus_psl.1.0.0.UPF"))
-    augmented = dataclasses.replace(augmented, spiral_q=None).with_soc_scale(0.3)
-    with pytest.raises(ValueError, match="ultrasoft or PAW"):
-        Calculation(augmented, _pseudos(augmented, pseudo_dir))
+    ultrasoft = _system(INPUT.replace("I.rel-pbe-nc-dojo.UPF", "I.rel-pbe-n-rrkjus_psl.1.0.0.UPF"))
+    ultrasoft = dataclasses.replace(ultrasoft, spiral_q=None)
+    overlaps = [np.asarray(Calculation(ultrasoft.with_soc_scale(s),
+                                       _pseudos(ultrasoft, pseudo_dir)).qq_so)
+                for s in (0.0, 0.3, 1.0)]
+    np.testing.assert_allclose(overlaps[1], overlaps[0] + 0.3 * (overlaps[2] - overlaps[0]),
+                               rtol=0.0, atol=1e-13 * np.abs(overlaps[2]).max())
+    assert np.abs(overlaps[2] - overlaps[0]).max() > 1e-3
+
+    paw = _system(INPUT.replace("I.rel-pbe-nc-dojo.UPF", "I.rel-pbe-n-kjpaw_psl.1.0.0.UPF"))
+    paw = dataclasses.replace(paw, spiral_q=None).with_soc_scale(0.3)
+    with pytest.raises(ValueError, match="fully-relativistic PAW"):
+        Calculation(paw, _pseudos(paw, pseudo_dir))
     with pytest.raises(ValueError, match="not a blend"):
         system.with_soc_scale(-0.1)
 

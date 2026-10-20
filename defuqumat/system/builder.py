@@ -442,8 +442,8 @@ class System(eqx.Module):
             raise ValueError(
                 f"soc_scale = {soc_scale}: it blends the coupling-free end (0) "
                 "with the coupled dataset (1), and outside [0, 1] it is not a "
-                "blend of anything. Between them it needs every dataset "
-                "norm-conserving, which the Calculation checks "
+                "blend of anything. Between them a fully-relativistic PAW "
+                "dataset is refused, which the Calculation checks "
                 "(defuqumat.pseudo.spinorbit.SpinOrbitCoupling says why)"
             )
         return dataclasses.replace(self, soc_scale=soc_scale)
@@ -588,6 +588,11 @@ class System(eqx.Module):
                 "density has nothing for it to split, so it would be ignored "
                 "rather than honoured"
             )
+        if lspinorb:
+            # The same refusal the input reader makes, so that turning
+            # spin-orbit coupling on here does not walk around it.
+            _refuse_feedback_spin_orbit(self.constrained_magnetization,
+                                        self.fsm_update)
         if self.spiral and nspin != 4:
             raise ValueError(
                 "a spin spiral is a noncollinear calculation by construction "
@@ -1114,8 +1119,8 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         raise ValueError(
             f"soc_scale = {soc_scale}: it blends the coupling-free end (0) with "
             "the coupled dataset (1), and outside [0, 1] it is not a blend of "
-            "anything. Between them it needs every dataset norm-conserving "
-            "(defuqumat.pseudo.spinorbit.SpinOrbitCoupling says why)"
+            "anything. Between them a fully-relativistic PAW dataset is "
+            "refused (defuqumat.pseudo.spinorbit.SpinOrbitCoupling says why)"
         )
     nspin = int(pwin.get("system", "nspin", 1))
     if noncolin:
@@ -1306,25 +1311,7 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
             "component to compare it against (input.f90's i_cons = 3)"
         )
     if constrained_magnetization in FEEDBACK and lspinorb:
-        # Not QE's -- ``fsm`` is Elk's scheme and QE has no counterpart -- and
-        # not a limit of the physics either: it is a limit of *this* secant.
-        # ``MagneticField._secant_step`` measures ``chi = dm/dB`` component by
-        # component and inverts it the same way, which models the
-        # susceptibility as diagonal. Spin-orbit coupling ties the moment to
-        # the lattice, so pushing along x moves the moment along z as well and
-        # the three components stop being three independent one-dimensional
-        # searches. The scheme would still converge sometimes and would find
-        # the wrong field the rest of the time, with nothing in the output to
-        # say which had happened.
-        raise ValueError(
-            f"constrained_magnetization = {constrained_magnetization!r} with "
-            "lspinorb = .true. is "
-            "refused: the fixed-spin-moment search updates each cartesian "
-            "component of the field from its own component of the moment, "
-            "which assumes dm_a/dB_b is diagonal, and spin-orbit coupling is "
-            "exactly what makes it not. Use a penalty scheme ('total', "
-            "'atomic') for a moment held under spin-orbit coupling"
-        )
+        _refuse_feedback_spin_orbit(constrained_magnetization, _fsm_update(pwin))
     given_magnetization = pwin.get("system", "starting_magnetization") is not None
     # ``input.f90:1506``, in the ``'none'`` branch of the same SELECT CASE:
     # ``lscf .AND. lsda .AND. (.NOT. tfixed_occ) .AND. (.not.
@@ -2655,6 +2642,66 @@ def _fsm_update(pwin) -> str:
             f"fsm_update = {name!r}: implemented are {', '.join(FSM_UPDATES)}"
         )
     return name
+
+
+def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
+    """The feedback schemes under ``lspinorb`` that are still refused (I111).
+
+    Not QE's -- the feedback schemes are Elk's and QE has none -- and not a
+    limit of the physics: a limit of one controller and of what was measured.
+
+    * ``fsm_update = 'elk'`` (the default) for ``'fsm'`` is **admitted**. It is
+      ``B <- B - tau (m - m_fix)``, a fixed gain with no susceptibility
+      measured or inverted, so it assumes nothing about ``dm_a/dB_b`` and its
+      fixed point is the pair (density, ``B*``) at which the density is
+      self-consistent under ``B*`` and its moment is the target. Measured on
+      bcc Fe with ``Fe.rel-pbe-spn-rrkjus_psl.0.2.1``, the shifted 2x2x2 mesh
+      with ``nosym``, a 1.0 mu_B target 30 degrees from z
+      (``notes/incompat/I111.md``): the same field held fixed, started from the
+      converged state, is self-consistent at its first iteration (``dr2``
+      1.1e-10), ends 2.2e-10 Ry from the fsm total and on the target to 2e-5
+      mu_B; ``B*`` carries a transverse part of 1.5e-4 Ry on that mesh and
+      target, which is 1.7e-7 Ry at ``soc_scale = 0``. The transverse part
+      depends on the cell: 1.9e-5 Ry on the 3x3x3 mesh at 1.0 mu_B and 3.7e-7
+      Ry on 2x2x2 at 1.5 mu_B, so 3.7e-7 to 1.55e-4 Ry over the three cells
+      measured. It converged with ``mixing_mode = 'adaptive'`` (gains and
+      iteration counts measured on that one Fe cell); with Anderson at
+      ``mixing_beta = 0.3`` it did not, with or without the coupling, which
+      ``run_scf`` reports as not converged.
+    * ``fsm_update = 'secant'`` measures ``chi = dm/dB`` component by component
+      and inverts it the same way (``MagneticField._secant_step``, and the
+      non-``'elk'`` branch of ``_atomic_step``), which models the
+      susceptibility as diagonal. Spin-orbit coupling ties the moment to the
+      lattice, so a push along x moves the moment along z as well. What is
+      missing is a secant with the full 3x3 ``dm_a/dB_b``.
+    * ``'atomic fsm'`` and ``'atomic fsm direction'`` run the same rules per
+      atom and were not measured under spin-orbit coupling at all.
+    """
+    from defuqumat.scf.fields import FEEDBACK, FEEDBACK_ATOMIC
+
+    if constraint not in FEEDBACK:
+        return
+    if constraint in FEEDBACK_ATOMIC:
+        raise ValueError(
+            f"constrained_magnetization = {constraint!r} with lspinorb = .true. "
+            "is refused: the per-atom feedback field has not been measured "
+            "under spin-orbit coupling. 'fsm' (the moment of the cell, with "
+            "fsm_update = 'elk') is, and so are the penalty schemes 'atomic' "
+            "and 'atomic direction'"
+        )
+    if fsm_update != "elk":
+        raise ValueError(
+            f"constrained_magnetization = {constraint!r} with fsm_update = "
+            f"{fsm_update!r} and lspinorb = .true. is refused: the secant "
+            "updates each cartesian component of the field from its own "
+            "component of the moment, which assumes dm_a/dB_b is diagonal, and "
+            "spin-orbit coupling is exactly what makes it not (on bcc Fe the "
+            "converged field on a 2x2x2 mesh at a 1.0 mu_B target has a "
+            "transverse part of 1.5e-4 Ry that is 1.7e-7 Ry without the "
+            "coupling, and it ranged from 3.7e-7 to 1.55e-4 Ry over the three "
+            "cells measured). Use fsm_update = 'elk' (the default), "
+            "whose fixed gain assumes nothing about dm_a/dB_b"
+        )
 
 
 def _atomic_b_field(pwin: PwInput, nat: int) -> tuple:

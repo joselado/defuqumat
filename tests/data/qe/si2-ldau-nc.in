@@ -1,0 +1,24 @@
+! Two-atom silicon on the norm-conserving Si.pz-vbc.UPF with a Hubbard U of
+! 6 eV on the 3p shell, atomic projectors: the real-time DFT+U case
+! (notes/incompat/I100.md). Every other DFT+U input here is ultrasoft or a
+! spinor, which the real-time Hubbard term does not cover; the check this
+! cell is for is an identity at the superposition of atomic charges and
+! Hund's-rule ns = 1/3, so it needs no pw.x reference and no SCF.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 2, celldm(1) = 10.20, nat = 2, ntyp = 1,
+    ecutwfc = 12.0, nosym = .true.
+ /
+ &electrons
+ /
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-vbc.UPF
+ATOMIC_POSITIONS alat
+ Si 0.00 0.00 0.00
+ Si 0.25 0.25 0.25
+K_POINTS automatic
+ 1 1 1 0 0 0
+HUBBARD {atomic}
+ U Si-3p 6.0

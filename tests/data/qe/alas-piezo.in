@@ -8,7 +8,7 @@
 ! already committed, and `alas-magnetoelectric-nosoc.in` already built
 ! zincblende from them -- `ibrav = 2` with the basis at (0,0,0) and
 ! (1/4,1/4,1/4), which is precisely the non-polar, non-centrosymmetric class
-! `require_a_nonpolar_crystal` names as the handled one.
+! the old polar refusal named as the handled one (I90 lifted it for norm-conserving).
 !
 ! What that file is not is *nonmagnetic*: it sets `noncolin` and a `B_field`, so
 ! it is stopped upstream by the noncollinear branch of

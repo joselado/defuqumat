@@ -380,3 +380,121 @@ def test_the_two_fixed_spin_moment_rules_find_the_same_field(pseudo_dir):
     # mixed density.
     assert elk.iterations < 60
     assert elk.iterations < secant.iterations
+
+
+_FSM_SOC = """
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 3, celldm(1) = 5.217, nat = 1, ntyp = 1,
+    ecutwfc = 25.0, ecutrho = 200.0,
+    occupations = 'smearing', smearing = 'marzari-vanderbilt', degauss = 0.05
+    noncolin = .true.
+    nosym = .true.
+    noinv = .true.
+    lspinorb = .true.
+    soc_scale = %(soc)s
+    starting_magnetization(1) = 0.5
+    angle1(1) = 30.0
+    angle2(1) = 0.0
+%(constraint)s
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ Fe 55.847 Fe.rel-pbe-spn-rrkjus_psl.0.2.1.UPF
+ATOMIC_POSITIONS (alat)
+ Fe 0.0 0.0 0.0
+K_POINTS automatic
+ 2 2 2 1 1 1
+"""
+
+#: 1.0 mu_B, 30 degrees from z in the xz plane; the free moment there is 2.01.
+_FSM_SOC_TARGET = np.array([0.5, 0.0, np.sqrt(3.0) / 2.0])
+
+
+def _fsm_soc_run(pseudo_dir, soc, constraint, starting_from=None, max_iterations=1000):
+    system = build_system(parse_pw_input(_FSM_SOC % dict(soc=soc, constraint=constraint)))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    seed = {} if starting_from is None else dict(starting_from=starting_from)
+    return system, run_scf(system, pseudos, conv_thr=1e-10, max_iterations=max_iterations,
+                           mixing_beta=0.05, mixing_mode="adaptive", **seed)
+
+
+def _fixed(field):
+    return "\n".join(f"    b_field({i}) = {float(v):.15e}" for i, v in enumerate(field, 1))
+
+
+@pytest.mark.parametrize("soc", ["1.0", "0.0"])
+def test_fsm_under_spin_orbit_is_a_fixed_field_fixed_point(pseudo_dir, soc, monkeypatch):
+    """I111: the fsm state under ``lspinorb`` is self-consistent under its own field held fixed.
+
+    Elk's rule ends at a pair (density, ``B*``). The identity, which shares no
+    code with the controller: the same ``B*`` as a plain ``b_field``, started
+    from that density, is already self-consistent and keeps the moment on the
+    target. Measured on D22 (``notes/incompat/I111.md``, ``r5-fsm.log``): first
+    ``dr2`` 1.07e-10, total 2.2e-10 Ry from the fsm run, moment 2e-5 off.
+    ``soc = 0`` is the term switched off: ``B*`` then has no transverse part
+    (1.7e-7 Ry against 1.5e-4 on this mesh and target; 3.7e-7 to 1.55e-4 over
+    the three cells of the record) and is 0.0119 Ry long against 0.0097. At
+    ``soc = 0`` the fsm run stops at the iteration cap (``dr2`` 1.28e-10, just
+    above ``conv_thr``), and its held field runs away from that state after the
+    first iteration, so only the first iteration is asserted there. The
+    alternative, the field without its transverse part, is
+    ``test_fsm_under_spin_orbit_needs_its_transverse_field``. About 90 s (soc 1)
+    and 170 s (soc 0) on one D22 core.
+    """
+    import defuqumat.scf.fields as fields
+
+    # The harness's 'fsm-tight', the setting every number above was taken at.
+    monkeypatch.setattr(fields, "FSM_TOLERANCE", 1.0e-5)
+    constraint = "    constrained_magnetization = 'fsm'\n    lambda = 0.02\n" + "\n".join(
+        f"    fixed_magnetization({i}) = {v:.12f}" for i, v in enumerate(_FSM_SOC_TARGET, 1))
+    _, fsm = _fsm_soc_run(pseudo_dir, soc, constraint, max_iterations=1200)
+    m = np.asarray(fsm.magnetization_vector, dtype=float)
+    assert np.abs(m - _FSM_SOC_TARGET).max() < 1e-3
+    field = np.asarray(fsm.magnetic_field.uniform, dtype=float)
+    perp = field - (field @ _FSM_SOC_TARGET) * _FSM_SOC_TARGET
+    if soc == "1.0":
+        assert fsm.converged
+        assert np.linalg.norm(perp) > 1e-4  # the coupling's transverse field
+    else:
+        assert np.linalg.norm(perp) < 1e-5
+    # Measured at soc 1 only: two iterations, 2.2e-10 Ry. At soc 0 only the
+    # first iteration was run (dr2 1.29e-10), so only that is asserted there.
+    budget = 50 if soc == "1.0" else 1
+    _, held = _fsm_soc_run(pseudo_dir, soc, _fixed(field), starting_from=fsm,
+                           max_iterations=budget)
+    assert held.history[0]["accuracy"] < 1e-9
+    moment = np.asarray(held.history[0]["magnetization_vector"], dtype=float)
+    assert np.abs(moment - _FSM_SOC_TARGET).max() < 1e-4
+    if soc == "1.0":
+        assert held.converged and held.iterations <= 3
+        assert abs(held.total_energy - fsm.total_energy) < 1e-8
+
+
+def test_fsm_under_spin_orbit_needs_its_transverse_field(pseudo_dir, monkeypatch):
+    """The alternative to the identity above reads differently (I111).
+
+    ``B*`` projected on the target direction, held fixed from the fsm state:
+    without the transverse 1.5e-4 Ry (this mesh and target) the first iteration is no longer
+    self-consistent: ``dr2`` 5.8e-7 against 1.07e-10 with the whole field
+    (``notes/incompat/I111.md``, ``r6-par.log``). Only the first iteration is
+    asserted: left to run, this field and the whole one both lose the state to
+    the reversed moment once it is disturbed, because the constrained state
+    under a fixed field opposing the moment is not a minimum (``bfrom`` in the
+    record), so a longer run measures that instability and not the coupling.
+    """
+    import defuqumat.scf.fields as fields
+
+    monkeypatch.setattr(fields, "FSM_TOLERANCE", 1.0e-5)
+    constraint = "    constrained_magnetization = 'fsm'\n    lambda = 0.02\n" + "\n".join(
+        f"    fixed_magnetization({i}) = {v:.12f}" for i, v in enumerate(_FSM_SOC_TARGET, 1))
+    _, fsm = _fsm_soc_run(pseudo_dir, "1.0", constraint)
+    field = np.asarray(fsm.magnetic_field.uniform, dtype=float)
+    parallel = (field @ _FSM_SOC_TARGET) * _FSM_SOC_TARGET
+    _, held = _fsm_soc_run(pseudo_dir, "1.0", _fixed(parallel), starting_from=fsm,
+                           max_iterations=1)
+    assert held.history[0]["accuracy"] > 1e-8

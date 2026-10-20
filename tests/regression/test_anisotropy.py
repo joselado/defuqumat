@@ -391,20 +391,25 @@ def test_soc_scale_zero_gives_exactly_no_anisotropy():
     assert result.anisotropy_mev == pytest.approx(0.0, abs=1.0e-7)
 
 
-@pytest.mark.slow
-def test_an_intermediate_soc_scale_is_refused_on_an_augmented_dataset():
-    """Between 0 and 1 the scale needs every dataset norm-conserving (P123).
+def test_an_intermediate_soc_scale_is_admitted_on_an_augmented_dataset():
+    """Between 0 and 1 the scale blends all four sandwiches on ultrasoft (I114).
 
-    This cell's cobalt is ultrasoft, so 0.5 is refused where the calculation
-    meets the datasets; ``System`` cannot know them and admits it. Outside
-    ``[0, 1]`` it is not a blend of anything and is refused by ``System``.
+    This cell's cobalt is ultrasoft, so 0.5 is admitted, and the calculation's
+    spinor overlap is the blend of the two ends' (it was refused until I114,
+    on a measurement taken with the reduction P115 replaced). Outside
+    ``[0, 1]`` it is not a blend of anything and is refused by ``System``. The
+    fully-relativistic PAW refusal is held in ``tests/unit/test_spiral_soc.py``
+    and ``tests/unit/test_soc_scale.py``.
     """
     from defuqumat.scf.driver import Calculation
 
-    scalar, _ = _smoke_pair()
     soc = Calculator.from_text(_SMOKE_SOC, pseudo_dir=GENERATED.parent / "pseudo")
-    with pytest.raises(ValueError, match="ultrasoft or PAW"):
-        Calculation(soc.system.with_soc_scale(0.5), soc.pseudos)
+    ends = [np.asarray(Calculation(soc.system.with_soc_scale(s), soc.pseudos).qq_so)
+            for s in (0.0, 1.0)]
+    half = np.asarray(Calculation(soc.system.with_soc_scale(0.5), soc.pseudos).qq_so)
+    np.testing.assert_allclose(half, 0.5 * (ends[0] + ends[1]), rtol=0.0,
+                               atol=1e-12 * np.abs(ends[1]).max())
+    assert np.abs(ends[1] - ends[0]).max() > 1e-3
     with pytest.raises(ValueError, match="not a blend"):
         soc.system.with_soc_scale(1.5)
 
@@ -1436,6 +1441,157 @@ def test_turning_the_moments_inside_the_scf_converges_on_the_easy_axis():
     # Turned 5 degrees about +y, so a restoring torque is along -y.
     assert back.history[0]["orientation_torque"][1] < -1.0e-6
     assert angle_of(back) < 5.0
+
+
+def _cobalt_in_a_field(b_x: float, angle: float = 30.0):
+    """Tetragonal cobalt with the coupling, a uniform field ``B_field(1) = b_x`` Ry along ``x``."""
+    text = (GENERATED / "co-tetragonal-relaxed-mae.in").read_text().replace(
+        "angle1(1) = 0.0, angle2(1) = 0.0,",
+        f"angle1(1) = {angle}, angle2(1) = 0.0,\n   B_field(1) = {b_x},")
+    assert f"B_field(1) = {b_x}" in text
+    return Calculator.from_text(text, pseudo_dir=GENERATED.parent / "pseudo",
+                                announce=False)
+
+
+@pytest.mark.slow
+def test_turning_the_moments_in_a_field_balances_the_anisotropy_against_the_zeeman_term():
+    """I113: ``rotate_moments`` under a field along ``x`` stops where ``dE/dtheta = B M cos(theta)``.
+
+    The anisotropy of this cell is ``E = K1 sin^2 + K2 sin^4`` to the order the
+    check needs, and the field's energy ``-B M sin(theta)``, so the minimum
+    satisfies ``kappa = B M / (2 sin(theta)) = K1 + 2 K2 sin^2(theta)``. Two
+    fields give ``K1`` and ``K2``, and ``K1 + K2`` must be the relaxed
+    anisotropy ``E(x) - E(z)`` of two plain runs, which share no machinery with
+    the step. Measured on D22 (``notes/incompat/I113.md``): 25.974 and 55.712
+    degrees at 1.5e-5 and 2.9e-5 Ry, ``K1 + K2 = 3.1032e-5`` against
+    ``3.1054e-5`` Ry, 0.07 per cent, where one field alone reads the relaxed
+    anisotropy to -1.6 and +0.9 per cent, which is ``2 K2 (sin^2 - 1/2)``. With
+    the field's share left in the step the run sat at 0.04 degrees, on the
+    easy axis, unconverged after 150 iterations.
+    """
+    options = dict(conv_thr=1.0e-12, max_iterations=200)
+    along_z = _cobalt_in_a_field(0.0, angle=0.0).get_scf(**options)
+    along_x = _cobalt_in_a_field(0.0, angle=90.0).get_scf(**options)
+    relaxed = along_x.total_energy - along_z.total_energy
+    assert relaxed == pytest.approx(3.1054e-5, rel=1.0e-3)
+
+    points = []
+    for b in (1.5e-5, 2.9e-5):
+        result = _cobalt_in_a_field(b).get_scf(rotate_moments=True,
+                                               torque_conv_thr=1.0e-9, **options)
+        assert result.converged
+        m = np.asarray(result.magnetization_vector)
+        sine = np.hypot(m[0], m[1]) / np.linalg.norm(m)
+        assert abs(m[1]) < 1.0e-6
+        points.append((sine ** 2, b * np.linalg.norm(m) / (2.0 * sine)))
+    (s1, k1), (s2, k2) = points
+    assert np.degrees(np.arcsin(np.sqrt(s1))) == pytest.approx(25.974, abs=0.01)
+    assert np.degrees(np.arcsin(np.sqrt(s2))) == pytest.approx(55.712, abs=0.01)
+    slope = (k2 - k1) / (s2 - s1)        # 2 K2
+    first = k1 - slope * s1              # K1
+    # -0.074 per cent measured. Not K3: a three-field fit gives K3 = -1.35e-8 Ry
+    # and leaves the gap (verifier). Cause not identified; the candidate is the
+    # 0.076 per cent difference of |M| between the plain z and x runs.
+    assert first + 0.5 * slope == pytest.approx(relaxed, rel=5.0e-3)
+    # One field alone is off by 2 K2 (sin^2 - 1/2), which is what the
+    # extrapolation removes.
+    assert abs(k1 - relaxed) > 1.0e-2 * relaxed
+
+
+def _cobalt_with_u(angle: float):
+    """Tetragonal cobalt with the coupling and ``U(Co-3d) = 1`` eV, ortho-atomic, ``nosym``."""
+    text = (GENERATED / "co-tetragonal-relaxed-mae.in").read_text().replace(
+        "angle1(1) = 0.0, angle2(1) = 0.0,", f"angle1(1) = {angle}, angle2(1) = 0.0,")
+    assert f"angle1(1) = {angle}" in text
+    text = text + "HUBBARD {ortho-atomic}\nU Co-3d 1.0\n"
+    return Calculator.from_text(text, pseudo_dir=GENERATED.parent / "pseudo",
+                                announce=False)
+
+
+@pytest.mark.slow
+def test_the_torque_with_a_hubbard_u_is_the_derivative_of_the_frozen_band_energy(monkeypatch):
+    """I112: the torque ``rotate_moments`` steps on, with a U, is ``-dF/dtheta`` at a frozen input.
+
+    The converged state along ``c`` is turned rigidly by ``theta`` about ``y``,
+    the density by ``rotate_texture`` and ``ns`` by ``rotate_ns``, and
+    diagonalised once at a tight threshold. The band free energy of that one
+    diagonalisation has the derivative ``sum f <dH/dtheta>``, which is minus
+    the recorded torque, the grid integral plus DFT+U's share; a central
+    difference at ``h = 0.5`` degree shares no machinery with the torque.
+    Measured on D22 (``notes/incompat/I112.md``): -1.5e-5 relative at 20 and
+    45 degrees (-2.4e-4 at ``h = 2``, the ``h^2`` of the stencil), and +0.52
+    with DFT+U's share left out.
+    """
+    import jax.numpy as jnp
+
+    import defuqumat.scf.driver as driver
+    from defuqumat.forces.torque import rotate_texture
+    from defuqumat.scf.orientation import rotate_ns, rotation_matrix
+
+    shares = []
+    original = driver._hubbard_torque
+
+    def logged(ns_out, v_ns):
+        value = original(ns_out, v_ns)
+        shares.append(np.asarray(value))
+        return value
+
+    monkeypatch.setattr(driver, "_hubbard_torque", logged)
+    calc = _cobalt_with_u(0.0)
+    reference = calc.get_scf(conv_thr=1.0e-12, max_iterations=150)
+    assert reference.converged
+    rho0, ns0 = np.asarray(reference.density), np.asarray(reference.ns)
+
+    def frozen(theta):
+        omega = np.array([0.0, np.radians(theta), 0.0])
+        shares.clear()
+        result = driver.run_scf(
+            calc.system, calc.pseudos,
+            starting_density=jnp.asarray(rotate_texture(rho0, rotation_matrix(omega))),
+            starting_ns=jnp.asarray(rotate_ns(ns0, omega)),
+            max_iterations=1, diago_thr_init=1.0e-12, conv_thr=1.0e-30)
+        free = float(np.sum(np.asarray(result.occupations) * np.asarray(result.eigenvalues))
+                     + result.energy_terms.get("smearing", 0.0))
+        return free, np.asarray(result.history[0]["orientation_torque"]), shares[0]
+
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")    # the one-iteration runs do not converge, by design
+        _, torque, hubbard = frozen(20.0)
+        h = 0.5
+        derivative = (frozen(20.0 + h)[0] - frozen(20.0 - h)[0]) / (2.0 * np.radians(h))
+    assert (derivative + torque[1]) / abs(torque[1]) == pytest.approx(0.0, abs=1.0e-4)
+    # Measured 0.5225 and 0.5227 at 20 degrees (h = 2, 0.5), 0.5248 and 0.5250 at 45.
+    without = (derivative + torque[1] - hubbard[1]) / abs(torque[1])
+    assert without == pytest.approx(0.5227, abs=0.01)
+
+
+@pytest.mark.slow
+def test_turning_the_moments_with_a_hubbard_u_stops_on_a_fixed_point_of_the_plain_loop():
+    """I112: ``rotate_moments`` with a U ends where a plain SCF from its state does not move.
+
+    From 45 degrees the run turns the density, the mixer history and ``ns``
+    together and stops at 38.557 degrees from ``c`` (``torque_conv_thr =
+    1e-9``). A plain SCF from its density and ``ns`` converges in about ten
+    iterations and moves the moment by 3e-5 degree and the energy by 1e-12
+    Ry. The end state is a branch of the occupation matrix that the atomic
+    start does not reach on the axes, which ``notes/incompat/I112.md`` records.
+    """
+    from defuqumat.scf.driver import run_scf
+
+    calc = _cobalt_with_u(45.0)
+    turned = calc.get_scf(rotate_moments=True, torque_conv_thr=1.0e-9, conv_thr=1.0e-12,
+                          max_iterations=300)
+    assert turned.converged
+    m = np.asarray(turned.magnetization_vector)
+    angle = np.degrees(np.arctan2(np.hypot(m[0], m[1]), m[2]))
+    assert angle == pytest.approx(38.557, abs=0.01)
+    stays = run_scf(calc.system, calc.pseudos, starting_density=turned.density,
+                    starting_ns=turned.ns, conv_thr=1.0e-12, max_iterations=100)
+    assert stays.converged
+    n = np.asarray(stays.magnetization_vector)
+    assert np.degrees(np.arctan2(np.hypot(n[0], n[1]), n[2])) == pytest.approx(angle, abs=1e-3)
+    assert stays.total_energy == pytest.approx(turned.total_energy, abs=1.0e-9)
 
 
 def test_turning_the_moments_without_the_coupling_is_refused():

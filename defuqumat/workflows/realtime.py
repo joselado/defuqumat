@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import warnings
 from dataclasses import dataclass, field
 
 import equinox as eqx
@@ -230,7 +231,7 @@ def _occupied_count(system, nelec: float) -> int:
 
 
 def _occupied_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
-                     calculation, becsum=(), field=None, field_scale=None):
+                     calculation, becsum=(), field=None, field_scale=None, ns=None, tau=None):
     """``(calculation, states, weights, v_scf, ddd_paw)`` with fixed occupations.
 
     ``states`` is ``(nchannel, nk, nb, ndim)`` and ``weights``
@@ -244,12 +245,12 @@ def _occupied_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     calc, states, weights, v_scf, _, _, ddd_paw = _solved_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
         calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, ns=ns, tau=tau)
     return calc, states, weights, v_scf, ddd_paw
 
 
 def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
-                   calculation, becsum=(), field=None, field_scale=None):
+                   calculation, becsum=(), field=None, field_scale=None, ns=None, tau=None):
     """:func:`_occupied_states` and every band the solve resolved, with their energies.
 
     Returns ``(calculation, states, weights, v_scf, bands, energies, ddd_paw)``:
@@ -282,8 +283,8 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     calc, _, eigenvalues, wavefunctions = fixed_density_states(
         moved, pseudos, density, kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
-    require_a_realtime_regime(calc)
+        field=field, field_scale=field_scale, ns=ns, tau=tau)
+    require_a_realtime_regime(calc, ns)
     eigenvalues = np.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
         eigenvalues = eigenvalues[None]
@@ -331,9 +332,11 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     # stationary at a zero field. The same pair went into the solve, so the
     # frozen potential and the states agree by construction. ``is None``, not
     # ``or``: a field ``reducebf`` took to zero has ``field_scale = 0.0``.
+    # ``tau``: a meta-GGA's ground-state kinetic energy density, the one the
+    # states were solved in (I99); ``None`` for every other functional.
     v_scf = calc.potential(jnp.asarray(density),
                            1.0 if field_scale is None else float(field_scale),
-                           field).v_scf
+                           field, tau=None if tau is None else jnp.asarray(tau)).v_scf
     _, ddd_paw = calc.onecenter(becsum)
     return calc, states, weights, v_scf, wavefunctions, eigenvalues, ddd_paw
 
@@ -346,7 +349,7 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
                  propagator: str = "taylor4", checkpoint=None,
                  potential: str = "frozen", corrector: int = 1,
                  calculation=None, becsum=(),
-                 field=None, field_scale=None) -> RealTimeResult:
+                 field=None, field_scale=None, ns=None, tau=None) -> RealTimeResult:
     """The current ``J(t)`` of a crystal driven by ``pulse``.
 
     Args:
@@ -380,17 +383,26 @@ def run_realtime(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
             :class:`~defuqumat.calculator.Calculator`. The same pair is
             frozen into the potential, so with no pulse the states are
             stationary; every entry point of this module takes it.
+        ns: the Hubbard occupation matrix of a DFT+U ground state
+            (``SCFResult.ns``, filled by the calculator), which the
+            fixed-density solve and the propagation freeze with the potential
+            (:mod:`defuqumat.realtime.hubbard`); a U at ``potential = 'frozen'``
+            only.
+        tau: the kinetic energy density of a meta-GGA ground state
+            (``SCFResult.tau``, filled by the calculator), which the
+            fixed-density solve and ``v_scf`` are built with; with ``'hxc'``
+            the propagation then updates it in time (I99, ``nspin = 1``).
     """
     kset, rotations, group = _kset(system, pulse, kpoints, grid, little_group)
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, ns=ns, tau=tau)
     return propagate(calc, states, weights, v_scf, pulse, dt=dt, duration=duration,
                      start=start, propagator=propagator, k_batch=k_batch,
                      block_steps=block_steps, checkpoint=checkpoint,
                      symmetrise=rotations, potential=potential, corrector=corrector,
-                     density_symmetry=group, ddd_paw=ddd_paw)
+                     density_symmetry=group, ddd_paw=ddd_paw, ns=ns)
 
 
 def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.0),
@@ -403,7 +415,7 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
                             block_steps: int = 1000, subtract_static: bool = False,
                             potential: str = "frozen", corrector: int = 1,
                             calculation=None, becsum=(),
-                            field=None, field_scale=None) -> KickResponse:
+                            field=None, field_scale=None, ns=None, tau=None) -> KickResponse:
     """``sigma(w + i eta)`` and ``eps`` from a kick, Elk's task 481.
 
     ``broadening`` and ``frequencies`` (or ``window`` and ``nw``) are in eV.
@@ -415,7 +427,7 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
     ``duration`` says otherwise, which leaves ``exp(-22)`` of the window
     uncovered. ``potential`` is :func:`run_realtime`'s: with ``'hartree'`` or
     ``'hxc'`` the result is ``eps_M`` with local fields, the applied field
-    being the whole macroscopic one.
+    being the whole macroscopic one. ``ns`` is :func:`run_realtime`'s.
     """
     eta = float(broadening) * EV_TO_HA
     if frequencies is None:
@@ -431,10 +443,13 @@ def run_realtime_dielectric(system, pseudos, density, *, direction=(1.0, 0.0, 0.
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, ns=ns, tau=tau)
     update = dict(potential=potential, corrector=corrector, symmetrise=rotations,
-                  density_symmetry=group)
-    if potential == "frozen":
+                  density_symmetry=group, ns=ns)
+    if potential == "frozen" or strength is not None:
+        # frozen, or the start of the one-centre D's update in time
+        # (``realtime.selfconsistent``); the orders with the potential updated
+        # take no PAW dataset
         update["ddd_paw"] = ddd_paw
     if strength is None:
         orders = propagate_orders(calc, states, weights, v_scf, kick, dt=dt, order=1,
@@ -456,7 +471,7 @@ def run_hhg(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
             nbnd: int | None = None, conv_thr: float = 1.0e-10, k_batch="default",
             block_steps: int = 400, checkpoint=None, potential: str = "frozen",
             corrector: int = 1, calculation=None, becsum=(),
-            field=None, field_scale=None) -> HarmonicSpectrum:
+            field=None, field_scale=None, tau=None) -> HarmonicSpectrum:
     """The high-harmonic spectrum ``|w J(w)|^2`` of a crystal driven by ``pulse``.
 
     The propagation of :func:`run_realtime`, then
@@ -476,11 +491,36 @@ def run_hhg(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
                           block_steps=block_steps, checkpoint=checkpoint,
                           potential=potential, corrector=corrector,
                           calculation=calculation, becsum=becsum,
-                          field=field, field_scale=field_scale)
+                          field=field, field_scale=field_scale, tau=tau)
     spectrum = harmonic_spectrum(result.times, result.current, float(omega),
                                  window=window, highest=highest, samples=samples)
     spectrum.realtime = result
     return spectrum
+
+
+def _warn_about_the_gauge_artefact(potential: str, order: int) -> bool:
+    """Warn that the orders above the first with the potential updated carry a mesh artefact.
+
+    I102: the velocity gauge's second-order density, ``sum_k w d^2
+    rho_k/dkappa^2``, is zero only in the converged k-sum, and with the
+    potential updated it is fed into the induced potential at ``2w`` and
+    ``0``. Both routes to the orders carry it, the frequency-domain hierarchy
+    (``run_nonlinear_spectrum``) and the real-time orders
+    (``run_harmonic_orders``), so both warn on the same condition (the user's
+    decision, 2026-10-20). Called from those two functions, so
+    ``stacklevel=3`` names their caller. Returns whether it warned.
+    """
+    if potential == "frozen" or int(order) < 2:
+        return False
+    warnings.warn(
+        "the second and third orders with the potential updated carry the velocity "
+        "gauge's second-order density artefact, sum_k w d^2 rho_k/dkappa^2, fed into the "
+        "induced potential at 2w and 0: 7 per cent of rho on a 2x2x2 mesh of silicon, "
+        "falling by about three a mesh step. The real-time route and the frequency-domain "
+        "hierarchy carry the same term; read chi^(2) and chi^(3) with local fields on a "
+        "mesh that converges it",
+        stacklevel=3)
+    return True
 
 
 def run_harmonic_orders(system, pseudos, density, *, frequency: float,
@@ -491,7 +531,7 @@ def run_harmonic_orders(system, pseudos, density, *, frequency: float,
                         conv_thr: float = 1.0e-10, k_batch="default",
                         block_steps: int = 400, potential: str = "frozen",
                         corrector: int = 1, calculation=None, becsum=(),
-                        field=None, field_scale=None) -> OrdersResult:
+                        field=None, field_scale=None, tau=None) -> OrdersResult:
     """``J^(n)(t)`` under the adiabatic field ``lam exp(eta t) cos(w t) e``, ``n <= order``.
 
     ``frequency`` and ``broadening`` in eV. The run starts ``eta_t/eta``
@@ -504,7 +544,10 @@ def run_harmonic_orders(system, pseudos, density, *, frequency: float,
     does not decay because the evolution is unitary: measured on zincblende
     AlAs against the dense hierarchy, 1.4e-5 to 3.0e-5 at ``eta_t = 20`` and
     400 steps a period, against 0.4 to 4.6 per cent at ``eta_t = 6``.
+    With the potential updated and ``order >= 2`` it warns about the velocity
+    gauge's mesh artefact, as :func:`run_nonlinear_spectrum` does (I102).
     """
+    _warn_about_the_gauge_artefact(potential, order)
     omega = float(frequency) * EV_TO_HA
     eta = float(broadening) * EV_TO_HA
     unit = np.asarray(direction, dtype=float)
@@ -517,7 +560,7 @@ def run_harmonic_orders(system, pseudos, density, *, frequency: float,
     calc, states, weights, v_scf, ddd_paw = _occupied_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr,
         k_batch=k_batch, calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, tau=tau)
     if steps_per_period is None:
         from defuqumat.realtime.propagate import largest_stable_step
 
@@ -615,7 +658,7 @@ def run_third_harmonic(system, pseudos, density, *, frequency: float,
                        k_batch="default", block_steps: int = 400,
                        potential: str = "frozen", corrector: int = 1,
                        calculation=None, becsum=(),
-                       field=None, field_scale=None) -> ThirdHarmonic:
+                       field=None, field_scale=None, tau=None) -> ThirdHarmonic:
     """``chi^(3)`` of a cubic crystal at ``frequency`` (eV) by the real-time route.
 
     A field along ``[100]`` gives ``chi_xxxx``; one along ``[110]`` gives
@@ -629,7 +672,7 @@ def run_third_harmonic(system, pseudos, density, *, frequency: float,
                    little_group=little_group, nbnd=nbnd, conv_thr=conv_thr,
                    k_batch=k_batch, block_steps=block_steps, potential=potential,
                    corrector=corrector, calculation=calculation, becsum=becsum,
-                   field=field, field_scale=field_scale)
+                   field=field, field_scale=field_scale, tau=tau)
     along = run_harmonic_orders(system, pseudos, density, direction=(1.0, 0.0, 0.0),
                                 **options)
     third, first = chi3_from_orders(along, axis=0)
@@ -679,8 +722,9 @@ class NonlinearSpectrum:
     computed_bands: int
     volume: float
     #: With the potential updated, the same run's currents at the ground
-    #: state's potential, ``{(1, 1): (nw, 3)}``; the shift between the two is
-    #: free of the frozen route's band-curvature term. ``None`` otherwise.
+    #: state's potential, ``{(n, m): (nw, 3)}``; at first order the shift
+    #: between the two is free of the frozen route's band-curvature term.
+    #: ``None`` otherwise.
     frozen_components: dict | None = None
     #: With the potential updated, the outer GMRES products of each frequency.
     outer: np.ndarray | None = None
@@ -737,7 +781,8 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
                            conv_thr: float = 1.0e-10, k_batch="default",
                            tolerance: float = 1.0e-10, max_iterations: int = 500,
                            potential: str = "frozen", calculation=None,
-                           becsum=(), field=None, field_scale=None) -> NonlinearSpectrum:
+                           becsum=(), field=None, field_scale=None,
+                           tau=None) -> NonlinearSpectrum:
     """The orders of the current, ``chi^(2)`` and ``chi^(3)`` over ``frequencies`` (eV).
 
     The frequency-domain hierarchy at the ground state's frozen potential, the
@@ -751,16 +796,20 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
     ground-state occupations, so there is no occupation response, as in the
     real-time route.
     """
-    from defuqumat.realtime.hierarchy import hierarchy_linear_self_consistent, hierarchy_orders
+    from defuqumat.realtime.hierarchy import hierarchy_orders, hierarchy_self_consistent
 
-    if potential != "frozen" and order != 1:
+    _warn_about_the_gauge_artefact(potential, order)
+    if getattr(system, "efield", None) is not None:
+        # The real-time route runs a saw-tooth ground state at a frozen
+        # potential (notes/incompat/I101.md); the frequency-domain hierarchy is
+        # a different solver, its projector on the computed bands and BiCGStab
+        # not measured on one, so it keeps the refusal I101 lifted from
+        # ``require_a_realtime_regime``.
         raise NotImplementedError(
-            "the frequency-domain hierarchy with the potential updated is implemented at "
-            "first order only: the second and third orders need the induced potentials at 2w "
-            "and 3w, each a fixed point at every frequency, and they would carry the velocity "
-            "gauge's second-order density artefact, 7 per cent of rho on a 2x2x2 mesh. The "
-            "real-time route has them at one frequency a run "
-            "(get_harmonic_orders(potential='hxc'))")
+            "the frequency-domain hierarchy with a saw-tooth electric field (tefield) is "
+            "not implemented: the real-time route runs it at a frozen potential "
+            "(get_realtime, get_harmonic_orders), the steady-state solve has not been "
+            "measured on one")
     frequencies = np.atleast_1d(np.asarray(frequencies, dtype=float))
     unit = np.asarray(direction, dtype=float)
     unit = unit / np.linalg.norm(unit)
@@ -772,7 +821,7 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
     calc, states, weights, v_scf, bands, energies, ddd_paw = _solved_states(
         system, pseudos, density, kset, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
         calculation=calculation, becsum=becsum,
-        field=field, field_scale=field_scale)
+        field=field, field_scale=field_scale, tau=tau)
     computed = bands.shape[-2] - 4
     if computed <= weights.shape[-1]:
         raise ValueError(
@@ -788,10 +837,9 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
                                  direction=unit, components=out["components"],
                                  iterations=out["iterations"], residual=out["residual"],
                                  computed_bands=computed, volume=out["volume"])
-    out = hierarchy_linear_self_consistent(calc, bands[:, :, :computed],
-                                           energies[:, :, :computed],
-                                           weights, v_scf, potential=potential,
-                                           density_symmetry=group, **common)
+    out = hierarchy_self_consistent(calc, bands[:, :, :computed], energies[:, :, :computed],
+                                    weights, v_scf, order=order, potential=potential,
+                                    density_symmetry=group, **common)
     return NonlinearSpectrum(frequencies=frequencies, broadening=float(broadening),
                              direction=unit, components=out["components"],
                              iterations=out["iterations"], residual=out["outer_residual"],

@@ -390,8 +390,10 @@ which we compute in the page about stress with `get_elastic_constants()`.
     phonons at $\Gamma$ work for `nspin = 2`. They give an error there only when
     the run walks the k-points in chunks. This is `memory_mode = 'memory'`,
     which is the default on a GPU, and a streamed store. On a CPU the default
-    `memory_mode = 'speed'` works. The phonons at $\Gamma$ of an ultrasoft
-    or PAW metal give an error.
+    `memory_mode = 'speed'` works. The phonons at $\Gamma$ of an ultrasoft or PAW metal
+    work with one spin channel and `nosym`, for the whole cell. They give an error with
+    symmetry, for `nspin = 2`, for a subset of the atoms (`atoms=`), and when the run
+    walks the k-points in chunks.
 
     The static $\chi^{(2)}$ and the electro-optic tensor from this response give
     an error, because the term $\langle u_i|r_k|u_j\rangle$, where the field
@@ -443,8 +445,8 @@ which we compute in the page about stress with `get_elastic_constants()`.
     $\alpha^2F(\omega)$, no $\lambda$ averaged over the zone and no $T_c$.
 
     The strain response is for an insulator with `nspin = 1`, and it is
-    clamped-ion. It works with norm-conserving, ultrasoft and PAW datasets, but
-    the elastic constants need a norm-conserving dataset and the whole k-mesh.
+    clamped-ion. It works with norm-conserving, ultrasoft and PAW datasets, and so do
+    the elastic constants, which also need the whole k-mesh.
 
 The notebooks for this page are
 [19, linear response](https://github.com/joselado/defuqumat/blob/master/notebooks/19_linear_response.ipynb),

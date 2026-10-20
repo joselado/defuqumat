@@ -287,9 +287,14 @@ every density, converged or not. A magnetic field in nature has no sources, and
 `nosource = .true.` in `&system` makes the exchange-correlation field obey that,
 as in Elk. We remove the longitudinal part of $\mathbf B_{xc}$, the part with a
 divergence, and the field is then no longer parallel to $\mathbf m$. We compute
-the torque with `calc.get_exchange_torque()`. Its `sites` hold one torque vector
-per atom, and its `parallel_fraction` is 1 without `nosource`, so that a zero
-torque can be told from a field that is parallel to the moment by construction.
+the torque with `calc.get_exchange_torque()`. Its `sites` hold one torque vector per
+atom. Its `parallel_fraction` is 1 when the field is parallel to the moment by
+construction. This is the case for a local functional, and for a gradient or meta-GGA
+functional with `noncollinear_gga = 'kubler'`. So a zero torque can be told from a field
+that cannot turn the moment. With `nosource`, or with `noncollinear_gga = 'grad_m'`, the
+field has a part across the moment and the torque can be nonzero. A meta-GGA such as
+TB09 needs the kinetic energy density of the states, and the torque takes it from the
+converged run.
 Without spin-orbit coupling the total torque of the cell is zero by symmetry, so
 what we read is the torque on each site.
 
@@ -321,11 +326,29 @@ what we read is the torque on each site.
     `'atomic texture'` did not converge at any `lambda` we tried, so for a texture
     you use `'atomic'` with the same card, scaled to the moment you expect.
 
-    The field schemes `'fsm'`, `'atomic fsm'` and `'atomic fsm direction'`
-    together with `lspinorb = .true.` give an error, because the search updates
-    each Cartesian component of the field from the same component of the moment,
-    and spin-orbit coupling couples the components. So there you use `'total'`
-    or `'atomic'`. These three schemes with `reducebf` below 1 also give an
+    The field scheme `'fsm'` also runs with `lspinorb = .true.`, with the
+    default update `fsm_update = 'elk'`. We checked it on bcc iron with a fully
+    relativistic pseudopotential and a 2x2x2 k-mesh, with the target 1 Bohr
+    magneton at 30 degrees from z. We took the final field and applied it as a
+    fixed `B_field`, starting from the final density. The first iteration was
+    then already self-consistent (`dr2` = 1e-10), and the total energy agreed to
+    2e-10 Ry. The final field is not parallel to the moment, because spin-orbit
+    coupling adds a transverse part, and without this part the check fails. On
+    this cell the transverse part is 1.5e-4 Ry. It depends on the k-mesh and the
+    target, and on the three cells we tried it was between 3.7e-7 and 1.55e-4 Ry.
+    The run took about 300 iterations with `mixing_mode = 'adaptive'` and
+    `mixing_beta = 0.05`. The gains `lambda` from 0.015 to 0.04 converged, and
+    0.01 did not. With the Anderson mixer (`mixing_beta = 0.3`) it did not
+    converge, with or without spin-orbit coupling. These gains and iteration
+    counts were measured on this one iron cell only. On a norm-conserving nickel
+    cell `'fsm'` did not converge, with or without spin-orbit coupling, so there
+    the problem is the field search itself and not the coupling.
+    `fsm_update = 'secant'` with `lspinorb = .true.` gives an error, because the
+    secant updates each Cartesian component of the field from the same
+    component of the moment, and spin-orbit coupling couples the components.
+    `'atomic fsm'` and `'atomic fsm direction'` with `lspinorb = .true.` give an
+    error, because we did not test them. There you use `'total'` or `'atomic'`.
+    The three field schemes with `reducebf` below 1 also give an
     error. The Newton solver (`scf_solver = 'newton-krylov'`) runs with these
     three schemes, with the limits listed on the ground-state page. On a canted
     pair it needs about 60 steps, so give it
@@ -391,14 +414,22 @@ what we read is the torque on each site.
     of a `nosource` run cannot be compared with that of a run without it. The
     magnons give an error, because their kernel $B_{xc}/m$ is a scalar only while
     $\mathbf B_{xc}$ is parallel to $\mathbf m$. `nosource` also gives an error
-    in a collinear run, with a PAW dataset, on a spin spiral, with a
-    potential-only meta-GGA, with `noncollinear_gga = 'grad_m'` asked for
-    explicitly and in the ultracell. If you do not give `noncollinear_gga`, a
-    `nosource` run uses `'kubler'`. Elk calls `nosource` an experimental feature,
+    in a collinear run, with a PAW dataset, on a spin spiral and in the
+    ultracell. It works with a potential-only meta-GGA and with
+    `noncollinear_gga = 'grad_m'`. If you do not give `noncollinear_gga`, a
+    `nosource` run uses `'kubler'`, so you have to ask for `'grad_m'`. We tried
+    a chain of four hydrogen atoms with PBE, with the starting moments turned.
+    `'grad_m'` took 62 iterations and ended with the moments up, up, down, down.
+    `'kubler'` took 371 iterations and ended almost nonmagnetic, with 0.015 to
+    0.033 per atom against 0.13 to 0.24. Elk calls `nosource` an experimental feature,
     and this holds here too. The scaling of the spin part of the field, the other option of Elk,
     is not implemented.
 
     The noncollinear linear response gives an error.
+
+    `get_exchange_torque()` under a meta-GGA uses the kinetic energy density of
+    the converged run. A call of the torque at another density must pass the
+    kinetic energy density that belongs to it.
 
 The notebooks for this page are
 [07, spin polarization](https://github.com/joselado/defuqumat/blob/master/notebooks/07_spin_polarization.ipynb),

@@ -51,7 +51,7 @@ from defuqumat.response.piezo import (
     piezoelectric_from_strain_response,
     piezoelectric_tensor,
     piezoelectric_zstar_eu_style,
-    require_a_nonpolar_crystal,
+    require_a_measured_polar_crystal,
     to_voigt,
 )
 from defuqumat.response.strain import strain_response
@@ -340,23 +340,66 @@ def test_the_driver_reports_the_dielectric_constant_it_already_solved():
     assert abs(np.trace(tensor.dielectric.epsilon) / 3 - 12.9674) < 1e-3
 
 
-def test_a_polar_crystal_is_refused_by_name():
-    """The improper-to-proper correction needs ``P``, and there is no ``P`` here.
+#: Berry-phase finite differences of the **proper** tensor on the polar cell
+#: below, in C/m^2 (``notes/incompat/I90.md``; D22, one run; where two central
+#: differences were taken, at +-0.005 and +-0.0025, their mean): one ground
+#: state per strain on a 6^3 mesh, three string sets of 11 points over 6x6
+#: each, phase differences contracted with the unstrained lattice.
+POLAR_FD_PROPER = {"e31": 0.061033, "e33": -0.280965, "e15": -0.111673,
+                   "e14": -0.699513}
+#: The same cell's spontaneous ``P_z``, relative to zincblende on one branch.
+POLAR_P_Z = -0.179617
 
-    Displacing one atom of AlAs along ``z`` leaves a point group with one
-    invariant direction, so the crystal may carry a spontaneous polarization
-    and ``e^proper - e^improper = delta_ki P_j - delta_ij P_k`` is not zero.
-    Nothing in the tensor's symmetry would say so, which is why the refusal is
-    by name.
+#: What the response route at 8^3 may sit from the proper finite difference.
+#: Measured, in the order e31, e33, e15, e14: 1.1e-2, 6.6e-2, 6.1e-2, 1.24e-1
+#: at 4^3; 3.5e-3, 1.1e-2, 1.2e-2, 3.0e-2 at 6^3; 2.8e-3, 5.4e-4, 1.6e-3,
+#: 1.17e-2 at 8^3. Below about 5e-3 the residuals are not resolved: a denser
+#: finite difference (8^3 SCF, 8x8 strings of 15) moves the reference by 1e-3
+#: to 3.4e-3, and e33 crosses it between 8^3 and 10^3. What is left of e14 is
+#: not one parameter's: 1.17e-2 at 8^3 and 10 Ry, 7.9e-3 at 10^3 and 10 Ry,
+#: 7.5e-3 at 8^3 against a finite difference both at 16 Ry
+#: (``notes/incompat/I90.md``, fix round).
+POLAR_TOLERANCE = 0.02
+
+
+@pytest.mark.slow
+def test_a_polar_crystal_reads_the_proper_tensor():
+    """The response route is the proper tensor, with no ``delta P`` to add.
+
+    AlAs with As moved to ``a(1/4, 1/4, 0.29)`` is ``mm2``, polar along ``z``,
+    with ``P_z = -0.180 C/m^2``. The components a ``delta P`` term reaches
+    tell the readings apart: the improper tensor is ``e31 - P_z`` = 0.241 and
+    ``e15 + P_z/2`` = -0.202, and the full mixed derivative at a fixed
+    Cartesian field is ``e33 + P_z`` = -0.461. The contraction lands on the
+    proper finite difference on all four components at 8^3, which is what
+    lifted the polar refusal on a norm-conserving dataset (I90). About two
+    minutes on one D22 core.
     """
-    _, _, calculation, _ = _converged("alas-raman")
-    positions = np.asarray(calculation.system.structure.positions)
-    displaced = calculation.at_positions(
-        jnp.asarray(positions + np.array([[0.0, 0.0, 0.1], [0.0, 0.0, 0.0]]))
-    )
-    require_a_nonpolar_crystal(calculation)
-    with pytest.raises(NotImplementedError, match="polar crystal"):
-        require_a_nonpolar_crystal(displaced)
+    from defuqumat.calculator import Calculator
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.kpoints import KPoints
+
+    text = (CASES / "alas-raman.in").read_text()
+    assert " As 0.25 0.25 0.25" in text
+    system = build_system(parse_pw_input(
+        text.replace(" As 0.25 0.25 0.25", " As 0.25 0.25 0.2900")))
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file)
+                    for s in system.structure.species)
+    calculator = Calculator(system, pseudos, announce=False).with_kpoints(
+        KPoints.automatic((8, 8, 8), (0, 0, 0), system.cell))
+    calculator.get_scf(conv_thr=1e-10)
+    tensor = calculator.get_piezoelectric_tensor(method="zstar_eu",
+                                                 kmesh_warning=False)
+    assert tensor.converged
+    e = np.asarray(tensor.e) * E_BOHR2_TO_C_M2
+    response = {"e31": e[2, 0, 0], "e33": e[2, 2, 2], "e15": e[0, 0, 2],
+                "e14": e[0, 1, 2]}
+    for name, value in response.items():
+        assert abs(value - POLAR_FD_PROPER[name]) < POLAR_TOLERANCE, name
+    # The two other readings, each at least three tolerances away.
+    assert abs(response["e31"] - (POLAR_FD_PROPER["e31"] - POLAR_P_Z)) > 0.06
+    assert abs(response["e15"] - (POLAR_FD_PROPER["e15"] + POLAR_P_Z / 2)) > 0.06
+    assert abs(response["e33"] - (POLAR_FD_PROPER["e33"] + POLAR_P_Z)) > 0.06
 
 
 @pytest.mark.unit
@@ -370,7 +413,7 @@ def test_the_ultrasoft_refusal_names_the_term_and_not_the_pseudopotentials(
     ``As.pbe-n-rrkjus_psl`` are committed and ``alas-magnetoelectric-nosoc.in``
     already builds zincblende from them -- ``ibrav = 2`` with the basis at
     ``(0,0,0)`` and ``(1/4,1/4,1/4)``, which is the non-polar,
-    non-centrosymmetric class ``require_a_nonpolar_crystal`` names as handled.
+    non-centrosymmetric class ``require_a_measured_polar_crystal`` names as handled.
     A reader who believed the sentence would have gone looking for a
     pseudopotential file. What actually blocks it is one term: ``Q_ij(r)`` is a
     function of the cell, so ``dbecsum`` gains a strain term of its own.
@@ -409,7 +452,7 @@ def test_the_ultrasoft_refusal_names_the_term_and_not_the_pseudopotentials(
     # The case exists, and it is the one the old text said did not.
     assert calculation.is_ultrasoft
     assert system.nspin == 1 and not system.noncolin
-    require_a_nonpolar_crystal(calculation)  # non-polar, and not centrosymmetric
+    require_a_measured_polar_crystal(calculation)  # non-polar, not centrosymmetric
     assert calculation.symmetries.nsym == 24  # Td, which has no inversion
     assert not any(
         np.allclose(np.asarray(r), -np.eye(3))

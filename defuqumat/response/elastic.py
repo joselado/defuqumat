@@ -40,6 +40,16 @@ a strained calculation gives a reference on the same footing. Measured that way,
 ``jvp`` and **209.38** from a five-point second difference of the energy, against
 a measured 166 -- and the cutoff dependence of the difference is flat, so the
 residual is the functional and the pseudopotential rather than the basis.
+
+**An ultrasoft or PAW dataset adds two components to the tangent** (I87), both
+zero when ``S`` is the identity: the occupied block of the first-order state,
+:attr:`~defuqumat.response.strain.StrainResponse.ort`, and the orthonormality
+multipliers' own tangent ``dLambda``
+(:func:`~defuqumat.response.strain.multiplier_response`), carried through the
+constraint written with the matrix ``Lambda_mn``. Against the same five-point
+difference, on two-atom ultrasoft and PAW silicon at ``ecutwfc = 12``, ``C_1111``
+is 22 per cent off with neither, 10 per cent with ``ort`` alone, and within
+1e-7 with both, where the norm-conserving control reads 1.1e-7.
 """
 
 from __future__ import annotations
@@ -185,7 +195,12 @@ def elastic_constants(
     # derivative. :meth:`defuqumat.calculator.Calculator.get_elastic_constants`
     # calls this function directly, so the check has to be here and not only in
     # :mod:`~defuqumat.response.electrostriction`.
-    require_a_measured_elastic_regime(calculation)
+    from defuqumat.response.efield import _streams
+
+    streamed = _streams(calculation, wavefunctions, False,
+                        what="the elastic constants")
+    require_a_measured_elastic_regime(calculation, streamed=streamed,
+                                      response=response)
     eigenvalues = jnp.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
         eigenvalues = eigenvalues[None]
@@ -197,10 +212,7 @@ def elastic_constants(
     # stress differentiated once more
     # (:func:`~defuqumat.forces.chunked.chunked_gradient_tangent`). The same
     # functional as the single pass below, the k axis off the tape.
-    from defuqumat.response.efield import _streams
-
-    if _streams(calculation, wavefunctions, False,
-                what="the elastic constants"):
+    if streamed:
         return _walked_elastic_constants(calculation, wavefunctions, eigenvalues,
                                          np.asarray(weights), response)
     psi = jnp.asarray(wavefunctions)
@@ -216,13 +228,25 @@ def elastic_constants(
     # on unchanged, it is a transfer and a retained copy.
     nocc = response.dpsi[0, 0].shape[2]
     zero = jnp.zeros((3, 3))
+    # **An ultrasoft or PAW dataset adds two tangents, and both are zero at
+    # ``S = 1``** (I87). The occupied block of the first-order state,
+    # ``response.ort``, which the constraint fixes and the Sternheimer solve
+    # does not produce; and the multipliers' own tangent ``dLambda``, which
+    # needs the constraint written with the matrix ``Lambda_mn`` rather than
+    # the frozen diagonal ``w_n eps_n`` -- the pair ``(dpsi + ort, dLambda)``
+    # transforms together under a rotation of the occupied manifold, so the
+    # gauge ``ort`` picks cancels between them. P39's dynamical matrix one
+    # coordinate over. A norm-conserving dataset keeps the two-argument form,
+    # bit for bit.
+    augmented = calculation.is_ultrasoft
 
-    def energy(strain, states):
+    def energy(strain, states, lambdas=None):
         return energy_at(
             calculation.at_strain(strain),
             FrozenState(
                 wavefunctions=states, weights=weights, eigenvalues=eigenvalues
             ),
+            multipliers=lambdas,
         )
 
     gradient = jax.grad(energy, argnums=0)
@@ -247,19 +271,38 @@ def elastic_constants(
         # equation solves for; the empty ones have zero weight in every term of
         # the functional, so padding with zeros is exact rather than an
         # approximation. P25's rule, verbatim.
-        return jnp.zeros_like(psi).at[:, :, :nocc].set(
-            jnp.asarray(response.dpsi[k, l])
-        )
+        block = jnp.asarray(response.dpsi[k, l])
+        if augmented:
+            block = block + jnp.asarray(response.ort[k, l])
+        return jnp.zeros_like(psi).at[:, :, :nocc].set(block)
+
+    if augmented:
+        from defuqumat.response.born import _ground_state_multipliers
+
+        ground = _ground_state_multipliers(weights, eigenvalues, psi.dtype)
+
+        def tangent_multipliers(k, l):
+            # The occupied block, padded to this call's ``nbnd`` as ``dpsi`` is.
+            return jnp.zeros(ground.shape, psi.dtype).at[
+                :, :, :nocc, :nocc].set(jnp.asarray(response.multipliers[k, l]))
+
+        def tangent_of(k, l):
+            return (strain_tangent(k, l), tangent_states(k, l),
+                    tangent_multipliers(k, l))
+
+        primals = (zero, psi, ground)
+    else:
+        def tangent_of(k, l):
+            return (strain_tangent(k, l), tangent_states(k, l))
+
+        primals = (zero, psi)
 
     columns = _shared_primal_columns(
-        gradient, zero, psi, tangent_states,
+        gradient, primals, tangent_of,
         SHARED_PRIMAL_BYTES if shared_primal_bytes is None else shared_primal_bytes)
     if columns is None:
-        first = VOIGT[0]
-        run = compiled_function(column_of, (zero, psi),
-                                (strain_tangent(*first), tangent_states(*first)))
-        columns = [run((zero, psi), (strain_tangent(k, l), tangent_states(k, l)))[1]
-                   for (k, l) in VOIGT]
+        run = compiled_function(column_of, primals, tangent_of(*VOIGT[0]))
+        columns = [run(primals, tangent_of(k, l))[1] for (k, l) in VOIGT]
     tensor = np.zeros((3, 3, 3, 3))
     for (k, l), column in zip(VOIGT, columns):
         column = np.asarray(column) / volume
@@ -271,7 +314,7 @@ def elastic_constants(
     return _from_tensor(tensor)
 
 
-def _shared_primal_columns(gradient, zero, psi, tangent_states, budget):
+def _shared_primal_columns(gradient, primals, tangent_of, budget):
     """The six columns from one ``vmap`` of the ``jvp``, or ``None`` above ``budget``.
 
     The program is compiled first with the six stacked first-order states as a
@@ -285,17 +328,23 @@ def _shared_primal_columns(gradient, zero, psi, tangent_states, budget):
     if budget <= 0:
         return None
     strains = jnp.stack([strain_tangent(k, l) for (k, l) in VOIGT])
-    stacked = jax.ShapeDtypeStruct((len(VOIGT),) + psi.shape, psi.dtype)
+    # The state tangent (and, for an augmented dataset, the multipliers') as a
+    # shape only, so a refusal builds nothing of their size.
+    stacked = tuple(jax.ShapeDtypeStruct((len(VOIGT),) + p.shape, p.dtype)
+                    for p in primals[1:])
 
-    def columns_of(primals, strains, states):
-        return jax.vmap(lambda s, d: jax.jvp(gradient, primals, (s, d))[1])(strains, states)
+    def columns_of(primals, strains, rest):
+        return jax.vmap(
+            lambda s, r: jax.jvp(gradient, primals, (s,) + tuple(r))[1]
+        )(strains, rest)
 
-    sized = sized_function(columns_of, (zero, psi), strains, stacked)
+    sized = sized_function(columns_of, primals, strains, stacked)
     if sized is None or sized[1] > budget:
         return None
     run, _ = sized
-    states = jnp.stack([tangent_states(k, l) for (k, l) in VOIGT])
-    return list(run((zero, psi), strains, states))
+    tangents = [tangent_of(k, l)[1:] for (k, l) in VOIGT]
+    rest = tuple(jnp.stack([t[i] for t in tangents]) for i in range(len(primals) - 1))
+    return list(run(primals, strains, rest))
 
 
 def _from_tensor(tensor) -> ElasticConstants:
@@ -332,77 +381,61 @@ def _walked_elastic_constants(calculation, wavefunctions, eigenvalues, weights,
     return _from_tensor(tensor)
 
 
-def require_a_measured_elastic_regime(calculation) -> None:
-    """Ultrasoft and PAW: ``C_ijkl`` is missing two terms and they are measured.
+def require_a_measured_elastic_regime(calculation, streamed: bool = False,
+                                      response=None) -> None:
+    """Ultrasoft and PAW: ``C_ijkl`` runs on the whole-k route, and is refused walked.
 
-    **This is not the refusal P44 left here and it is not for P44's reason**
-    (``PLAN.md`` P100). What it replaces is ``require_norm_conserving``, placed
-    on the strength of a measurement of the *third* derivative in the strain
-    coordinate -- and ``C_ijkl`` is a second derivative with the tangent
-    ``(strain, dpsi)`` and no electric-field solution anywhere in it, so the
-    ``b`` partial that residue was localised to cannot reach this function.
-    That third derivative runs on all three dataset kinds now; this one is
-    refused because measuring it says it is wrong, for two different terms.
+    ``PLAN.md`` P100 measured the elastic constants of an augmented dataset
+    22 per cent from a five-point second difference of the self-consistent
+    total energy on ``C_1111`` and 2.9 per cent on ``C_1212``, the same on
+    ultrasoft and PAW, beside a norm-conserving control of 6.2e-08, and named
+    two missing terms. Both are in now (I87): the occupied block of the
+    first-order state, :attr:`~defuqumat.response.strain.StrainResponse.ort`,
+    and the multipliers' own tangent,
+    :attr:`~defuqumat.response.strain.StrainResponse.multipliers`, carried
+    through the matrix constraint
+    (:func:`defuqumat.forces.energy._constraint_energy`). Both are identically
+    zero for a norm-conserving dataset: ``ort`` because ``S`` does not deform,
+    and ``dLambda`` because it multiplies ``<psi|dS/d(eps)|psi>``.
+    ``notes/incompat/I87.md`` has the numbers.
 
-    Against a five-point second difference of the self-consistent total energy
-    -- the reference ``tests/regression/test_electrostriction.py`` validates
-    the norm-conserving case against, 209.38 GPa against 209.38, and a
-    reference with no response machinery in it at all -- on ``si-us-nosym`` and
-    ``si-paw-nosym``:
-
-    ============  ==========  =======  ================
-    component      ultrasoft      PAW    norm-conserving
-    ============  ==========  =======  ================
-    ``C_1111``        22.1 %   22.2 %            6.2e-08
-    ``C_1212``         2.9 %    2.9 %            1.2e-09
-    ============  ==========  =======  ================
-
-    the *same* numbers on the two augmented datasets, which is what says they
-    are structural rather than a dataset's physics, and a control that is
-    exact, which is what says the instrument is not the problem. Both missing terms are written already, for the
-    *displacement* coordinate, where P39's dynamical matrix uses them:
-
-    * **the occupied block of the first-order state.** The tangent above is
-      ``response.dpsi`` alone, and with ``S`` moving the orthonormality
-      constraint fixes a piece of the first-order state that the Sternheimer
-      solve does not produce --
-      :attr:`~defuqumat.response.strain.StrainResponse.ort`, the same object the
-      third derivative beside it needs and does use.
-    * **the multipliers' own tangent.** The constraint is carried here with the
-      frozen diagonal ``w_n eps_n``, so ``dLambda`` is absent. A second
-      derivative in which the multipliers move needs the matrix form instead,
-      which is what :func:`defuqumat.forces.energy._constraint_energy` exists for
-      and what :func:`~defuqumat.response.phonon.multiplier_response` supplies in
-      the displacement coordinate. There is no strain-coordinate counterpart of
-      that function, and :mod:`defuqumat.response.strain`'s own
-      ``_require_one_spin_channel`` already records that this coordinate's
-      multiplier matrix has never been run.
-
-    Both are identically zero for a norm-conserving dataset: ``ort`` because
-    ``S`` does not deform, and ``dLambda`` because it multiplies
-    ``<psi|dS/d(eps)|psi>``.
-
-    **Size, as a hypothesis** -- and this file's history says to read it as
-    one: the first is wiring and the second is an object that does not exist,
-    and how the 22.2 % splits between them is not measured.
+    **What still refuses is the walked route**
+    (:func:`_walked_elastic_constants`, chosen by
+    :func:`~defuqumat.response.efield._streams`): its chunked tangent carries
+    the diagonal constraint and the state tangent ``dpsi`` alone, and the
+    walked strain response writes ``ort`` but not ``dLambda``. ``response``,
+    when handed in, must carry both, which a strain response from the whole-k
+    route does.
     """
-    if calculation.is_ultrasoft:
+    if not calculation.is_ultrasoft:
+        return
+    if streamed:
         raise NotImplementedError(
-            "the elastic constants are not implemented for an ultrasoft or "
-            "PAW dataset: C_ijkl comes out 22 per cent from a five-point "
-            "second difference of the total energy on C_1111 and 2.9 per cent "
-            "on C_1212, the same on both datasets, where the norm-conserving "
-            "control through the identical script is 6.2e-08 (PLAN.md P100). "
-            "Two terms "
-            "are missing and both exist for the displacement coordinate -- the "
-            "occupied block of the first-order state (StrainResponse.ort, "
-            "which the third derivative beside this one does use) and the "
-            "multipliers' own tangent, which needs the matrix constraint and a "
-            "strain-coordinate multiplier_response that is not written. The "
-            "strain response, the elasto-optic tensor and d(chi)/d(strain) run "
-            "on all three kinds; ask electrostriction() for elastic=False to "
-            "get those without this, at the cost of the M and Q families, "
-            "which need the compliance"
+            "the elastic constants of an ultrasoft or PAW dataset are not "
+            "implemented on the walked route (k chunks streamed through host "
+            "memory): its chunked tangent carries the diagonal orthonormality "
+            "constraint and dpsi alone, without the occupied block "
+            "(StrainResponse.ort) and the multipliers' own tangent "
+            "(StrainResponse.multipliers) that an augmented dataset needs. "
+            "Without them C_1111 is 22 per cent from a five-point second "
+            "difference of the energy (PLAN.md P100). Run with every k-point "
+            "in flight (k_batch=None, or memory_mode='speed'); the strain "
+            "response, the elasto-optic tensor and d(chi)/d(strain) run "
+            "walked, and electrostriction() takes elastic=False to get those"
+        )
+    if response is not None and (getattr(response, "ort", None) is None
+                                 or getattr(response, "multipliers", None) is None):
+        raise NotImplementedError(
+            "the elastic constants of an ultrasoft or PAW dataset need the "
+            "strain response's occupied block (StrainResponse.ort) and the "
+            "multipliers' own tangent (StrainResponse.multipliers), and this "
+            "response carries "
+            + ("neither" if getattr(response, "ort", None) is None
+               and getattr(response, "multipliers", None) is None else
+               "only one of them")
+            + ": without them C_1111 is 22 per cent from a five-point second "
+            "difference of the energy (PLAN.md P100). A strain response from "
+            "the whole-k route carries both"
         )
 
 

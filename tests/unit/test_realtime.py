@@ -322,23 +322,69 @@ def test_a_second_self_consistent_run_compiles_nothing(pseudo_dir):
     assert counts[1] == 0, counts
 
 
-def test_what_is_refused_is_refused_by_name(pseudo_dir):
-    """An ultrasoft dataset with the potential updated, and a wedge passed as the k-set.
+def _augmented(pseudo_dir, case, extra=""):
+    """``case`` at 8 Ry and a dual of 8, with ``extra`` added to ``&system``: a cheap augmented cell."""
+    import re
 
-    An ultrasoft dataset runs at a frozen potential (``PLAN.md`` P141); what is
-    refused is the update, whose density, ``D`` and one-centre terms move.
+    text = (CASES / f"{case}.in").read_text()
+    text = re.sub(r"ecutwfc\s*=\s*[0-9.dD+-]+", "ecutwfc = 8.0", text)
+    text = re.sub(r"ecutrho\s*=\s*[0-9.dD+-]+", "ecutrho = 64.0", text)
+    if extra:
+        text = re.sub(r"&system", "&system\n    " + extra, text, count=1)
+    path = Path("/tmp") / f"defuqumat-realtime-{case}-{abs(hash(extra)) % 1000}.in"
+    path.write_text(text)
+    system = build_system(read_pw_input(path))
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+    return Calculation(system, pseudos)
+
+
+def test_what_is_refused_is_refused_by_name(pseudo_dir):
+    """The updated potential on an augmented dataset, its siblings, and a wedge passed as the k-set.
+
+    An ultrasoft or PAW dataset runs at a frozen potential (``PLAN.md`` P141)
+    and, since ``notes/incompat/I98.md``, with the potential updated in the
+    propagation; refused are the orders and the frequency-domain hierarchy
+    with the update, spinors, ``nspin = 2``, ``'hartree'`` on PAW, and a kick
+    inside the run.
     """
     from defuqumat.realtime.propagate import require_a_realtime_regime
-    from defuqumat.realtime.selfconsistent import require_a_potential_mode
+    from defuqumat.realtime.selfconsistent import (
+        propagate_self_consistent, require_a_potential_mode)
     from defuqumat.workflows.realtime import _kset
     from defuqumat.realtime.pulse import Sin2
 
-    system = build_system(read_pw_input(CASES / "si2-us.in"))
-    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
-    ultrasoft = Calculation(system, pseudos)
+    ultrasoft = _augmented(pseudo_dir, "si-epsilon-us")
     require_a_realtime_regime(ultrasoft)
-    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
-        require_a_potential_mode(ultrasoft, "hxc", None, None)
+    for potential in ("hartree", "hxc"):
+        require_a_potential_mode(ultrasoft, potential, None, None)
+        for route in ("orders", "hierarchy"):
+            with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
+                require_a_potential_mode(ultrasoft, potential, None, None, route=route)
+    paw = _augmented(pseudo_dir, "si-epsilon-paw")
+    require_a_potential_mode(paw, "hxc", None, None)
+    with pytest.raises(NotImplementedError, match="'hartree' is not implemented for a PAW"):
+        require_a_potential_mode(paw, "hartree", None, None)
+    spinor = _augmented(pseudo_dir, "si-epsilon-us", "noncolin = .true.,")
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW dataset on spinors"):
+        require_a_potential_mode(spinor, "hxc", None, None)
+    collinear = _augmented(pseudo_dir, "si-epsilon-us",
+                           "nspin = 2, starting_magnetization(1) = 0.5, tot_magnetization = 0,")
+    with pytest.raises(NotImplementedError, match="PAW dataset at nspin = 2"):
+        require_a_potential_mode(collinear, "hxc", None, None)
+    # the two routes that still refuse, through their own entry points
+    from defuqumat.realtime.hierarchy import hierarchy_linear_self_consistent
+    from defuqumat.realtime.selfconsistent import propagate_orders_self_consistent
+
+    with pytest.raises(NotImplementedError, match="frequency-domain hierarchy"):
+        hierarchy_linear_self_consistent(ultrasoft, None, None, None, None, omegas=[0.1],
+                                         eta=0.01, direction=(1.0, 0.0, 0.0))
+    with pytest.raises(NotImplementedError, match="perturbative orders"):
+        propagate_orders_self_consistent(ultrasoft, None, None, None, Kick(1.0), dt=0.05)
+    # a kick past the start is refused before anything is built
+    late = Kick(strength=0.01, direction=(1.0, 0.0, 0.0), time=0.5)
+    with pytest.raises(NotImplementedError, match="kick inside the run"):
+        propagate_self_consistent(ultrasoft, None, None, None, late, dt=0.05, start=0.0,
+                                  duration=1.0)
     silicon = build_system(read_pw_input(CASES / "si2-symmetric.in"))
     pulse = Sin2.from_intensity(1e11, 1.55, 1)
     with pytest.raises(NotImplementedError, match="symmetry-reduced"):
@@ -430,6 +476,70 @@ def test_a_reduced_k_set_with_no_grid_is_refused_by_name():
     gridless = eqx.tree_at(lambda s: s.kpoints, silicon, wedge)
     with pytest.raises(NotImplementedError, match="carries no grid"):
         _kset(gridless, Kick(strength=1.0, direction=(1, 0, 0)), None, None, True)
+
+
+def test_a_meta_gga_is_updated_at_nspin_1_and_refused_elsewhere():
+    """I99: ``'hxc'`` under tb09 or bj06 runs with ``tau(t)`` for ``nspin = 1``.
+
+    What stays refused: the spinor's ``tau``, a 2x2 matrix in spin space,
+    ``nspin = 2``, which has no measured check, and the frequency-domain
+    hierarchy's meta-GGA kernel, which the guard used to shadow and which now
+    fires by itself.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.realtime.hierarchy import hierarchy_linear_self_consistent
+    from defuqumat.realtime.selfconsistent import require_a_potential_mode
+
+    def fake(noncolin, nspin_mag=1):
+        return SimpleNamespace(augmentation=None, magnetic_field=None, noncolin=noncolin,
+                               nspin_mag=nspin_mag, functional=SimpleNamespace(is_meta=True))
+
+    for potential in ("frozen", "hartree", "hxc"):
+        require_a_potential_mode(fake(False), potential, None, None)
+    for refused in (fake(True), fake(True, 4), fake(False, 2)):
+        require_a_potential_mode(refused, "hartree", None, None)
+        with pytest.raises(NotImplementedError, match="measured for nspin = 1 only"):
+            require_a_potential_mode(refused, "hxc", None, None)
+    # I98 x I99: PAW updates becsum(t) and a meta-GGA tau(t), but not both in
+    # one run (a plain ultrasoft dataset refuses a meta-GGA at the SCF)
+    paw = SimpleNamespace(**{**vars(fake(False)), "augmentation": object(),
+                             "is_paw": True, "nspin": 1})
+    require_a_potential_mode(paw, "frozen", None, None)
+    with pytest.raises(NotImplementedError,
+                       match="under a meta-GGA is not implemented for a PAW"):
+        require_a_potential_mode(paw, "hxc", None, None)
+    with pytest.raises(NotImplementedError, match="kernel of a meta-GGA"):
+        hierarchy_linear_self_consistent(fake(False), None, None, None, None,
+                                         omegas=[0.1], eta=0.01, direction=(1.0, 0.0, 0.0),
+                                         potential="hxc")
+
+
+def test_every_realtime_entry_point_takes_the_meta_gga_tau():
+    """I99 fix round: ``Calculator`` forwards ``SCFResult.tau`` only to a ``tau`` parameter.
+
+    ``_call_options`` fills ``tau`` when the workflow names it, and the
+    fixed-density solve refuses a meta-GGA without it, so an entry point that
+    lacks the parameter cannot be reached from the front door under tb09 or
+    bj06 at all (the verifier's refutation: every ``get_realtime`` route raised
+    from ``workflows/nscf.py``).
+    """
+    import inspect
+    from types import SimpleNamespace
+
+    from defuqumat.calculator import Calculator
+    from defuqumat.workflows import realtime as workflows
+
+    marker = object()
+    for name in ("run_realtime", "run_realtime_dielectric", "run_hhg",
+                 "run_harmonic_orders", "run_third_harmonic", "run_nonlinear_spectrum",
+                 "_occupied_states", "_solved_states"):
+        func = getattr(workflows, name)
+        assert "tau" in inspect.signature(func).parameters, name
+        if name.startswith("run_"):
+            fake = SimpleNamespace(_defaults_for=lambda f, o, exclude=frozenset(): {})
+            result = SimpleNamespace(tau=marker)
+            assert Calculator._call_options(fake, func, result, {})["tau"] is marker, name
 
 
 def test_what_the_updated_potential_refuses_is_refused_by_name(pseudo_dir):
@@ -611,6 +721,70 @@ def test_gamma_storage_is_refused_by_the_driver_and_taken_off_by_the_workflows()
                                       np.asarray(system.kpoints.weights))
         assert kset.spin_normalized == system.kpoints.spin_normalized
 
+
+
+def test_a_sawtooth_runs_frozen_and_its_siblings_are_refused():
+    """``tefield`` propagates at a frozen potential; updated, and ``lelfield``, are refused.
+
+    The saw-tooth is a static term of the ``v_scf`` the driver is handed, so
+    :func:`require_a_realtime_regime` lets it through (it refused it at
+    6c5b3a36, "a length gauge and a velocity gauge in one Hamiltonian"); the
+    stationarity and the polarizability on a saw-tooth ground state are
+    ``tests/regression/test_realtime_sawtooth.py`` (``notes/incompat/I101.md``),
+    and the frequency-domain hierarchy keeps the refusal (the next test).
+    The potential updated in time with a saw-tooth stays refused by
+    :func:`require_a_potential_mode`, and the Berry-phase field by the
+    realtime guard. Stubs are the whole input, as in the gamma test above.
+    """
+    import types
+
+    from defuqumat.realtime.propagate import require_a_realtime_regime
+    from defuqumat.realtime.selfconsistent import require_a_potential_mode
+    from defuqumat.scf.sawtooth import SawtoothField
+
+    saw = SawtoothField(eamp=jnp.asarray(0.01), edir=2, emaxpos=0.9, eopreg=0.2,
+                        dipfield=False)
+    plain = dict(gamma_only=False, spiral=None, is_hubbard=False, magnetic_field=None,
+                 augmentation=None)
+    sawtooth = types.SimpleNamespace(sawtooth=saw, berry_field=None, **plain)
+    require_a_realtime_regime(sawtooth)
+    require_a_potential_mode(sawtooth, "frozen", None, None)
+    for mode in ("hartree", "hxc"):
+        with pytest.raises(NotImplementedError, match="saw-tooth field \\(tefield\\)"):
+            require_a_potential_mode(sawtooth, mode, None, None)
+    with pytest.raises(NotImplementedError, match="lelfield"):
+        require_a_realtime_regime(types.SimpleNamespace(
+            sawtooth=None, berry_field=object(), **plain))
+    with pytest.raises(NotImplementedError, match="spin spiral"):
+        require_a_realtime_regime(types.SimpleNamespace(
+            sawtooth=saw, berry_field=None, **{**plain, "spiral": object()}))
+    with pytest.raises(NotImplementedError, match="DFT\\+U"):
+        require_a_realtime_regime(types.SimpleNamespace(
+            sawtooth=saw, berry_field=None, **{**plain, "is_hubbard": True}))
+
+
+def test_the_frequency_domain_hierarchy_keeps_the_sawtooth_refusal():
+    """``run_nonlinear_spectrum`` refuses ``tefield`` by name (``notes/incompat/I101.md``).
+
+    I101 lifted the saw-tooth from :func:`require_a_realtime_regime`, which the
+    hierarchy's state builder calls too; the steady-state solve was not
+    measured on a saw-tooth ground state, so its entry refuses it before any
+    state is built. A stub system is the whole input.
+    """
+    import types
+
+    from defuqumat.workflows.realtime import run_nonlinear_spectrum
+
+    system = types.SimpleNamespace(efield=(2, 0.01, 0.9, 0.2, False))
+    with pytest.raises(NotImplementedError, match="hierarchy with a saw-tooth"):
+        run_nonlinear_spectrum(system, {}, None, frequencies=[1.0])
+
+    from defuqumat.realtime.hierarchy import hierarchy_orders
+
+    calculation = types.SimpleNamespace(sawtooth=object())
+    with pytest.raises(NotImplementedError, match="hierarchy with a saw-tooth"):
+        hierarchy_orders(calculation, None, None, None, None, omegas=[1.0], eta=0.1,
+                         direction=(0.0, 0.0, 1.0))
 
 
 def test_a_kick_inside_the_run_is_crossed_at_its_grid_point(pseudo_dir):

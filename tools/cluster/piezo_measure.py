@@ -91,6 +91,16 @@ CASES = {
         "nppstr": 7,
         "transverse": (4, 4),
     },
+    # The PAW counterpart of ``us``: the same geometry and cutoffs with the
+    # ``kjpaw_psl.1.0.0`` datasets (``notes/incompat/I89.md``). The string
+    # mesh is the one the 2026-10-10 ultrasoft rows were taken at, so the two
+    # deficits are comparable.
+    "paw": {
+        "input": "tests/data/qe/alas-piezo-paw.in",
+        "what": "AlAs, PAW PBE (Al/As.pbe-n-kjpaw_psl.1.0.0), ecutwfc 25",
+        "nppstr": 15,
+        "transverse": (8, 8),
+    },
 }
 
 
@@ -381,7 +391,7 @@ def main() -> None:
     # The dataset refusal is the thing being measured; every other guard stays.
     # It is patched here rather than removed in the package, so that the
     # repository still refuses until there is a number to lift it with.
-    measured = arguments.case == "us"
+    measured = arguments.case in ("us", "paw")
     if measured:
         # ``*args, **kwargs``: the refusal grew a drift and a coarse-mesh
         # exemption on 2026-09-20, when its ultrasoft half was lifted above

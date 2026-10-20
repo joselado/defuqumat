@@ -532,8 +532,12 @@ period you compare the energies of several long cells, one run each.
     augmentation sphere of an ultrasoft or PAW atom gives an error, and so does
     `tot_magnetization`, whose two Fermi levels leave no single tip energy. The
     transmission needs a long cell that is one cell deep along the stacking axis,
-    with one k-point along it, and on an ultrasoft or PAW dataset its exit region
-    must be a plane, not the whole cell. A spectrum gives an error if you also
+    with one k-point along it. With an ultrasoft or PAW dataset the exit region
+    can also be the whole cell. Then the code includes the augmentation charge of
+    every copy of every atom. The result is the image to 1e-13 on the two-cell
+    silicon sheet. The overlap itself is exact to 1e-14 on two- and three-cell
+    ultracells. With spin-orbit coupling (`lspinorb`) this whole-cell exit region
+    gives an error, because it is not checked there. A spectrum gives an error if you also
     give `bias`, since the energy axis already holds it, and a constant-current
     spectrum is not computed. A `magnetic_field` does not give an error here,
     where a unit-cell image refuses it, because in the long cell the field is

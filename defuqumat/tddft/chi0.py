@@ -142,8 +142,22 @@ run's on the same cell; ``fields`` is ``nbnd npol`` boxes. Checked in
 ``tests/regression/test_spinor_chi0.py``: silicon as a spinor against the scalar
 run, and spin-orbit selenium against the spinor Sternheimer solve.
 
-Refused by name: finite ``q``, ultrasoft and PAW, metals, a spinor carrying a
-moment (``nspin_mag = 4``), a spin spiral, and a **reduced k-set** -- see
+**A smeared run carries its intraband term**, the ``q -> 0`` limit of the
+``i = j`` pairs that ``f_i - f_j`` removes: ``wp_ab^2/(omega + i eta)^2`` on
+the head and nothing on the wings or the body (:func:`_drude_block`). The
+pair list then runs over every band that is partly filled anywhere, ``(low,
+high)`` per channel (:func:`_band_windows`), so a metal has
+``low (nbnd - low) + (high - low)(2 nbnd - high - low - 1)/2`` pairs where
+the rectangle has ``nocc (nbnd - nocc)``, and the assembly grows with it.
+
+An **ultrasoft** pair density carries ``Q_ij(G)`` and its head the generalised
+velocity (:func:`require_a_sum_over_states_regime`, I94).
+
+Refused by name: finite ``q``, PAW, an ultrasoft run that is smeared,
+polarized or a spinor, tetrahedron occupations, a smeared run that is
+polarized, a spinor or on a reduced k-set (no number yet), a
+spinor carrying a moment (``nspin_mag = 4``), a spin spiral, a scissors shift
+on a smeared run, and a **reduced k-set** at ``nspin = 2`` -- see
 :func:`require_a_sum_over_states_regime`.
 """
 
@@ -158,12 +172,13 @@ from defuqumat.batching import (
     map_axis, map_windows, resolve_pair_batch, resolve_w_batch, sum_k,
 )
 from defuqumat.response.velocity import VelocityOperator
+from defuqumat.response.velocity import with_connections
 from defuqumat.scf.occupations import occupied_counts
 from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.response.walk import (
     chunk_size, padded, row_leaves, store_rows, walk, with_rows,
 )
-from defuqumat.scf.occupations import occupied_counts
+from defuqumat.tddft.spinchi0 import augmentation_factors, state_projections
 from defuqumat.system.kpoints import is_reduced
 from defuqumat.units import E2, FPI
 from defuqumat.system.wedge import wedge_group
@@ -292,6 +307,11 @@ class ChiZero(eqx.Module):
     nbnd: int = eqx.field(static=True)
     #: One occupied count per spin channel, ``(nocc,)`` at ``nspin = 1``.
     occupied: tuple = eqx.field(static=True, default=())
+    #: Whether the occupations were smeared, so that the matrix carries the
+    #: partly filled pairs and the intraband (Drude) head block, and has no
+    #: finite value at ``omega + i eta = 0``. For a smeared run
+    #: :attr:`occupied` is each channel's last band carrying weight, plus one.
+    smeared: bool = eqx.field(static=True, default=False)
 
     @property
     def nm(self) -> int:
@@ -333,11 +353,33 @@ def require_a_sum_over_states_regime(calculation) -> None:
         -1.20. And the residual is positive at every band count and does not
         tend to zero where the norm-conserving control does, so it is neither
         a truncation nor a missing normalisation. Only the *body* was corrected
-        there; the head still carries no ``-e_n dS/dk`` and no ``dpqq``.
-    metals
+        there; the head still carried no ``-e_n dS/dk`` and no ``dpqq``.
+
+        **The third term was the head, and an ultrasoft insulator is no
+        longer refused** (I94). With the body's ``Q_ij(G)`` from
+        ``augmentation_at_q`` (P94's route) and the head built from the
+        generalised velocity ``<n|dH_a - e_m dS_a|m> + (e_m - e_n) K^a_nm``
+        (P99, which also holds the augmentation dipole ``dpqq``), the same
+        cell at ``ecut_response = 8`` gives residuals of **-0.3369 and
+        -0.0522** at 30 and 60 bands, negative and falling by 6.5, against the
+        norm-conserving control's -0.2885 and -0.0601 on the same cell; the
+        plain head reproduces P94's +0.2498 and +0.5405. Still refused: PAW
+        (its one-centre Hartree and exchange-correlation terms are a
+        different term), and an ultrasoft run that is smeared, polarized or a
+        spinor, for want of a number.
+    tetrahedron occupations
         the ``f_i - f_j`` weight kills the ``i = j`` term, so the intraband
-        (Drude) response is missing entirely at ``q = 0``. Elk's ``tddftlr``
-        does not add it either.
+        (Drude) response has to be added by hand (Elk's ``tddftlr`` does not
+        add it at all), and its weight is a Fermi-surface delta function the
+        tetrahedron method does not supply. A **smeared** run, metal or gapped
+        cell, is not refused: its pair list runs over the partly filled
+        window (:func:`_band_windows`), its degenerate pairs and its ``i = j``
+        terms are the Drude head block :func:`_drude_block`, built from the
+        smearing's own delta, and its weights are the smeared ``wg``. Checked
+        in ``tests/regression/test_tddft_metal.py``: the Drude weight is the
+        optical conductivity's plasma frequency, the f-sum rule converges onto
+        the diamagnetic weight with the k-mesh on aluminium, and silicon
+        smeared falls onto its fixed-occupation spectrum as ``degauss`` falls.
     a spinor with a moment (``nspin_mag = 4``)
         the kernel acquires spin components (Elk's ``nscfxc``, and a separate
         routine ``tddftsplr.f90``): the charge couples to the magnetization
@@ -366,13 +408,23 @@ def require_a_sum_over_states_regime(calculation) -> None:
         :func:`~defuqumat.system.wedge.wedge_group`.
     """
     system = calculation.system
-    if calculation.is_ultrasoft or calculation.is_paw:
+    if calculation.is_paw:
         raise NotImplementedError(
-            "a sum-over-states chi_0 with an ultrasoft or PAW pseudopotential "
-            "is not implemented: <u_i|e^{-iG.r}|u_j> gains the augmentation "
-            "charge Q_ij(G) in every matrix element, and without it the matrix "
-            "is wrong by the whole augmentation and still looks like a "
-            "dielectric function. Use a norm-conserving dataset"
+            "a sum-over-states chi_0 with a PAW dataset is not implemented: "
+            "beside the augmentation charge Q_ij(G) of every matrix element, "
+            "which the ultrasoft branch carries, PAW's Hartree and "
+            "exchange-correlation energies have one-centre parts on the "
+            "spheres whose response the plane-wave matrix does not hold. Use a "
+            "norm-conserving or an ultrasoft dataset"
+        )
+    if calculation.is_ultrasoft and (system.noncolin or _is_smeared(system)
+                                     or int(system.nspin) != 1):
+        raise NotImplementedError(
+            "a sum-over-states chi_0 with an ultrasoft dataset is measured for "
+            "an unpolarized insulator only (silicon against the Sternheimer "
+            "solve): a spinor's augmentation pairs the projections of the two "
+            "components through qq_so, and a smeared or spin-polarized "
+            "ultrasoft run reaches the same matrix with no number behind it"
         )
     if calculation.spiral:
         # Checked before the spin regime, which a spiral also fails (it always
@@ -401,12 +453,34 @@ def require_a_sum_over_states_regime(calculation) -> None:
             "out of the screening is a silent approximation rather than a "
             "missing feature"
         )
-    if not _is_an_insulator(system):
+    if _is_smeared(system) and (system.noncolin or is_reduced(system.kpoints)):
         raise NotImplementedError(
-            "a sum-over-states chi_0 for a metal is not implemented: the "
-            "occupation difference f_i - f_j vanishes for i = j, so the "
-            "intraband (Drude) term is absent from this expression entirely "
-            "and the spectrum would be an interband one wearing a metal's name"
+            "a smeared chi_0 on a spinor or on a symmetry-reduced k-set is not "
+            "implemented: the pair window and the Drude block are written for "
+            "both, but the numbers behind the smeared path are for a scalar run "
+            "on the whole grid (aluminium and silicon), and these reach the "
+            "same matrix with none. Pass the whole unshifted grid with nosym, "
+            "or use fixed occupations"
+        )
+    if _is_smeared(system) and int(system.nspin) == 2:
+        raise NotImplementedError(
+            "a smeared chi_0 at nspin = 2 is not implemented: the pair window, "
+            "the Drude block and the per-channel Fermi level are written for "
+            "it, but the number behind the smeared path is unpolarized "
+            "(aluminium and silicon), and a polarized metal reaches the same "
+            "matrix with none. Use nspin = 1, or fixed occupations"
+        )
+    if not _is_an_insulator(system) and not _is_smeared(system):
+        # A smeared run carries its intraband term (:func:`_drude_block`); a
+        # tetrahedron run has no smeared delta to build it from.
+        raise NotImplementedError(
+            "a sum-over-states chi_0 with tetrahedron occupations is not "
+            "implemented: the occupation difference f_i - f_j vanishes for "
+            "i = j, so the intraband (Drude) term has to be added by hand, and "
+            "its weight is a Fermi-surface delta function that the tetrahedron "
+            "method does not supply (tetra.f90 integrates the step function "
+            "itself). Run with occupations = 'smearing', where the Drude term "
+            "is built from the smearing's own delta"
         )
     # A symmetry-reduced k-set is completed by the group it was cut with, both
     # G labels rotated at once (:func:`_completed`); a set that group does not
@@ -424,6 +498,19 @@ def require_a_sum_over_states_regime(calculation) -> None:
 def _is_an_insulator(system) -> bool:
     occupations = getattr(system, "occupations", "fixed")
     return str(occupations).lower() in ("fixed", "from_input")
+
+
+def _is_smeared(system) -> bool:
+    """Whether the occupations are a smooth function of energy, with a delta to match.
+
+    The same test :func:`~defuqumat.response.conductivity._fermi_surface_delta`
+    makes: a smearing with a positive ``degauss``. That is what makes a
+    degenerate pair's two orderings cancel onto the Drude form, and what
+    supplies the Drude term's delta function.
+    """
+    scheme = str(getattr(system, "occupations", "fixed")).lower()
+    degauss = float(getattr(system, "degauss", 0.0) or 0.0)
+    return "smearing" in scheme and degauss > 0.0
 
 
 def _kpoints_are_reduced(calculation) -> bool:
@@ -519,35 +606,67 @@ def independent_response(
         eigenvalues = eigenvalues[None]
 
     nbnd = int(eigenvalues.shape[-1])
-    counts = _occupied_bands(calculation, eigenvalues, nbnd)
-    sphere = response_sphere(calculation, ecut_response)
+    smeared = _is_smeared(calculation.system)
     precision = calculation.system.cell.precision
+    zomega = jnp.asarray(frequencies) + 1j * precision.as_real(broadening)
+    zomega = zomega.astype(precision.complex)
+    if smeared:
+        if scissor:
+            raise NotImplementedError(
+                "a scissors shift on a smeared chi_0 is not implemented: the "
+                "shift moves the empty states, and with fractional occupations "
+                "there is no empty set to move. Use occupations = 'fixed' for "
+                "a scissor-corrected spectrum"
+            )
+        if np.any(np.abs(np.asarray(zomega)) == 0.0):
+            raise ValueError(
+                "a smeared chi_0 carries the intraband (Drude) term "
+                "wp^2/(omega + i eta)^2, which is infinite at omega + i eta = "
+                "0: give every frequency a broadening"
+            )
+        windows = _band_windows(calculation, eigenvalues, nbnd)
+        counts = tuple(high for _, high in windows)
+    else:
+        counts = _occupied_bands(calculation, eigenvalues, nbnd)
+        windows = tuple((nocc, nocc) for nocc in counts)
+    sphere = response_sphere(calculation, ecut_response)
+    # An ultrasoft dataset's augmentation charge on the response sphere, at
+    # ``q = 0`` (the body's ``G != 0`` only); PAW is refused above.
+    augmented = getattr(calculation, "augmentation", None) is not None
+    factors = (augmentation_factors(calculation, np.zeros(3), sphere)
+               if augmented and sphere.nbody else None)
 
     # The scissors shift moves the empty states and nothing else. It is applied
     # here rather than by the caller so that the matrix elements below can be
     # renormalised consistently -- the two are one approximation, not two. Each
     # channel's empty states start at its own count.
     shifted = eigenvalues
-    for spin, nocc in enumerate(counts):
-        shifted = shifted.at[spin, :, nocc:].add(precision.as_real(scissor))
+    if not smeared:
+        for spin, nocc in enumerate(counts):
+            shifted = shifted.at[spin, :, nocc:].add(precision.as_real(scissor))
 
     # Built on the whole set for its refusals and for the point it
     # differentiates around; each chunk's operator is handed its rows of
     # ``kcart`` (:mod:`defuqumat.response.walk`).
     kcart = np.asarray(VelocityOperator(calculation, v_scf).kcart)
 
-    weights, _ = calculation.occupations(eigenvalues)
+    weights, levels = calculation.occupations(eigenvalues)
     # (nspin, nk, nbnd), summing to nelec over both channels: one electron a
     # band at nspin = 2, two at nspin = 1.
     weights = np.asarray(weights)
 
     # One pair list per channel, ``(i, j)`` with ``i`` occupied in *that*
     # channel. A channel with nothing occupied (a hydrogen atom's minority)
-    # has no pair and is skipped rather than given an empty static shape.
-    channels = [(spin,) + _pairs(nocc, nbnd)
-                for spin, nocc in enumerate(counts) if nocc > 0]
-    zomega = jnp.asarray(frequencies) + 1j * precision.as_real(broadening)
-    zomega = zomega.astype(precision.complex)
+    # has no pair and is skipped rather than given an empty static shape. A
+    # smeared channel's list runs over its partly filled window as well
+    # (:func:`_band_windows`), and its pairs closer than ``DEGENERACY_TOL``
+    # go to the Drude block instead of the interband sum (:func:`_drude_block`).
+    channels = [(spin,) + _pairs(low, high, nbnd)
+                for spin, (low, high) in enumerate(windows) if high > 0]
+    tol = _degeneracy_tol() if smeared else None
+    # ``w_k delta(E_F - e)`` per state, ``(nspin, nk, nbnd)`` in 1/Ry, the
+    # Drude term's weight; ``None`` for an insulator, which has none.
+    drude = _drude_weights(calculation, eigenvalues, levels) if smeared else None
 
     grid = calculation.basis.smooth.grid
     volume = calculation.system.cell.volume
@@ -565,15 +684,21 @@ def independent_response(
             block_bytes=2 * int(rows.size) * sphere.nm * itemsize)
 
         def one_k(arrays):
-            psi, fft_index, band_mask, eig, occupation, element = arrays
+            psi, fft_index, band_mask, eig, occupation, element, *rest = arrays
+            weight = rest.pop(0) if drude is not None else None
+            augmentation = (factors, rest.pop(0)) if factors is not None else None
             vectors, scalars = _pair_terms(
                 psi, fft_index, band_mask, eig, occupation, element,
                 rows, columns, sphere, grid, volume, zomega, scissor, precision,
-                pairs,
+                pairs, tol, augmentation,
             )
             # ``(nw, nm, nm)``: one matrix product per frequency, the pair
             # axis contracted away. This is the whole frequency cost.
-            return _assemble(scalars, vectors, chunk)
+            x = _assemble(scalars, vectors, chunk)
+            if weight is not None:
+                x = x.at[:, :3, :3].add(
+                    _drude_block(weight, eig, element, zomega, volume, tol))
+            return x
 
         return one_k
 
@@ -594,30 +719,83 @@ def independent_response(
         elements = velocity.matrix_elements(psi, sequential=True)  # (3, nspin, chunk, nb, nb)
         return jnp.moveaxis(elements, 0, 2)
 
-    def contract(elements, psi, fft_index, mask, energies, occupation):
+    # An ultrasoft dataset's head is the **generalised** velocity,
+    # ``<n|dH_a - e_m dS_a|m> + (e_m - e_n) K^a_nm`` (P99,
+    # :meth:`~defuqumat.response.velocity.VelocityOperator.
+    # generalised_matrix_elements`), whose ratio to ``e_n - e_m`` is the dipole
+    # of the true states ``T|psi>``, built in the conductivity's two stages.
+    # ``dpqq``, k-independent, is built here once.
+    dipole = None
+    if augmented:
+        from defuqumat.response.efield import _augmentation_dipole
+
+        dipole = _augmentation_dipole(calculation)
+
+    def velocity_on(rowset, kcart):
+        return VelocityOperator(with_rows(calculation, rowset), v_scf, kcart=kcart,
+                                dipole=dipole, local_terms=terms)
+
+    def tangents_of(rowset, psi, energies, kcart):
+        """``<n|dH_a - e_m dS_a|m>`` on one chunk, ``(3, nspin, chunk, nb, nb)``."""
+        return velocity_on(rowset, kcart).tangent_elements(psi, energies, sequential=True)
+
+    def connections_of(tangents, rowset, psi, kcart):
+        """The augmentation dipole's connection, and ``<beta|psi>`` per channel."""
+        connections = velocity_on(rowset, kcart).connections(psi, sequential=True)
+        chunk = with_rows(calculation, rowset)
+        projections = jnp.stack([state_projections(chunk, psi[spin])
+                                 for spin in range(psi.shape[0])])
+        return connections, projections
+
+    def contract(elements, *rest):
         """One chunk's share of ``(nw, nm, nm)``, both spin channels summed."""
+        projections = None
+        if augmented:
+            connections, projections = rest[0]
+            psi, fft_index, mask, energies, occupation, bare, *extra = rest[1:]
+            elements = jnp.moveaxis(
+                with_connections(elements, bare, connections), 0, 2)
+        else:
+            psi, fft_index, mask, energies, occupation, *extra = rest
         total = 0.0
         for spin, one_k in terms_by_spin:
+            more = tuple(x[spin] for x in extra)
+            if projections is not None and factors is not None:
+                more = more + (projections[spin],)
             total = total + sum_k(
                 one_k, (psi[spin], fft_index, mask, energies[spin],
-                        occupation[spin], elements[spin]), batch=batch)
+                        occupation[spin], elements[spin]) + more, batch=batch)
         return total
 
     shifted = np.asarray(shifted)
     fft_index = np.asarray(calculation.fft_index)
     mask = np.asarray(calculation.basis.planewaves.mask)
 
+    bare = np.asarray(eigenvalues)
+
     def arguments(chunk_rows, live):
         # The padded rows are a repeat of a real one and carry zero ``wg``,
-        # which every pair's weight ``(wg_i - wg_j)/Omega`` is linear in.
+        # which every pair's weight ``(wg_i - wg_j)/Omega`` is linear in, and
+        # zero Drude weight, which the Drude block is linear in.
         psi = store_rows(wavefunctions, chunk_rows)
-        return ((row_leaves(calculation, chunk_rows), psi,
-                 jnp.asarray(kcart[chunk_rows])),
-                (psi, jnp.asarray(fft_index[chunk_rows]), jnp.asarray(mask[chunk_rows]),
-                 jnp.asarray(shifted[:, chunk_rows]),
-                 jnp.asarray(padded(weights, chunk_rows, live, axis=1))))
+        rowset, kc = row_leaves(calculation, chunk_rows), jnp.asarray(kcart[chunk_rows])
+        last = (psi, jnp.asarray(fft_index[chunk_rows]), jnp.asarray(mask[chunk_rows]),
+                jnp.asarray(shifted[:, chunk_rows]),
+                jnp.asarray(padded(weights, chunk_rows, live, axis=1)))
+        if augmented:
+            # The *unshifted* eigenvalues for the generalised velocity's
+            # ``e_m dS``, the ones the eigenproblem was solved with.
+            last = last + (jnp.asarray(bare[:, chunk_rows]),)
+        if drude is not None:
+            last = last + (jnp.asarray(padded(drude, chunk_rows, live, axis=1)),)
+        if augmented:
+            energies = jnp.asarray(bare[:, chunk_rows])
+            return (rowset, psi, energies, kc), (rowset, psi, kc), last
+        return (rowset, psi, kc), last
 
-    x = walk(int(weights.shape[1]), batch, arguments, elements_of, contract)
+    stages = ((tangents_of, connections_of, contract) if augmented
+              else (elements_of, contract))
+    x = walk(int(weights.shape[1]), batch, arguments, *stages)
     x = _completed(x, sphere, wedge_group(calculation.system, quantity="chi_0"))
     return ChiZero(
         x=x,
@@ -627,6 +805,7 @@ def independent_response(
         nocc=max(counts),
         nbnd=nbnd,
         occupied=tuple(counts),
+        smeared=smeared,
     )
 
 
@@ -716,28 +895,48 @@ def _assemble(scalars, vectors, batch):
     return map_windows(one_frequency, scalars, batch=batch)
 
 
-def _pairs(nocc: int, nbnd: int):
-    """The ordered ``(i, j)`` pairs with ``i`` occupied and ``j`` empty.
+def _pairs(low: int, high: int, nbnd: int):
+    """The ordered ``(i, j)``, ``i < j``, whose occupations can differ.
+
+    ``i`` runs below ``high``, the first band that is empty everywhere, and
+    ``j`` from ``low``, the first band that is not full everywhere, so a pair
+    of two full bands or of two empty ones, whose weight ``f_i - f_j`` is zero,
+    is never listed. An insulator has ``low = high = nocc`` and this is the
+    valence-conduction rectangle, in the same order.
 
     Only that half is enumerated. The reversed pairs -- which
     ``genvchi0.f90``'s loop runs explicitly, and which are the antiresonant
     term -- come from reflecting these, in :func:`_pair_terms`, without a
     second transform.
     """
-    rows, columns = np.meshgrid(
-        np.arange(nocc), np.arange(nocc, nbnd), indexing="ij"
-    )
-    return rows.reshape(-1), columns.reshape(-1)
+    rows, columns = [], []
+    for i in range(high):
+        start = max(low, i + 1)
+        rows.extend([i] * (nbnd - start))
+        columns.extend(range(start, nbnd))
+    return np.asarray(rows, dtype=int), np.asarray(columns, dtype=int)
 
 
 def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
                 rows, columns, sphere, grid, volume, zomega, scissor,
-                precision, pair_batch=None):
+                precision, pair_batch=None, tol=None, augmentation=None):
     """One k-point's pair vectors ``r`` and their frequency weights.
 
     Returns ``(vectors, scalars)`` of shapes ``(2 npairs, nm)`` and
     ``(nw, 2 npairs)``: the resonant pairs followed by the antiresonant ones,
     which are the same states read the other way round.
+
+    ``tol`` is a smeared run's degeneracy tolerance: a pair closer than it
+    carries no weight here, because its two orderings together are the Drude
+    form and are counted in :func:`_drude_block`. ``None`` (an insulator)
+    masks nothing.
+
+    ``augmentation`` is an ultrasoft dataset's ``(factors, projections)``:
+    ``q_ij(G)`` on the response sphere, ``(nbody, nkb, nkb)``
+    (:func:`~defuqumat.tddft.spinchi0.augmentation_factors` at ``q = 0``), and
+    this k-point's ``<beta_i|psi_n>``, ``(nbnd, npol, nkb)``. The pair density
+    then gains ``sum_ij <psi_i|beta_a> q_ab(G) <beta_b|psi_j>``, the charge
+    that is not in ``|psi|^2``.
     """
     if sphere.nbody:
         # The states in real space, once, one field per spinor component:
@@ -764,7 +963,16 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
             # when the ground state carries no moment (``nspin_mag = 1``).
             i, j = index
             product = jnp.sum(jnp.conj(fields[i]) * fields[j], axis=0)
-            return r_to_g(product, sphere.fft_index) * sphere.sqrt_coulomb
+            density = r_to_g(product, sphere.fft_index)
+            if augmentation is not None:
+                # Contracted as ``spinchi0``'s matrix element and the Berry
+                # phase's augmented overlap are: the bra's projection
+                # conjugated, the ket's not, the block between them.
+                factors, projections = augmentation
+                density = density + jnp.einsum(
+                    "pa,gab,pb->g", jnp.conj(projections[i]),
+                    factors.astype(density.dtype), projections[j])
+            return density * sphere.sqrt_coulomb
 
         body = map_axis(one_pair, (jnp.asarray(rows), jnp.asarray(columns)),
                         batch=pair_batch)
@@ -781,6 +989,13 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
     # the Coulomb factor sqrt(8 pi / q^2) cancels the q the numerator is linear
     # in, which is what leaves a finite, direction-resolved 3x3 block.
     difference = eig[rows] - eig[columns]  # eps_i - eps_j, negative
+    if tol is not None:
+        # A smeared run's degenerate pairs, whose ``1/(eps_i - eps_j)`` is a
+        # 0/0 that the two orderings cancel analytically. They are moved to the
+        # Drude block whole, so here the division is made safe and the weight
+        # zeroed, ``jnp.where`` on both so that no tangent is ``0 * inf``.
+        finite = jnp.abs(difference) > tol
+        difference = jnp.where(finite, difference, 1.0)
     matrix = element[:, rows, columns]  # (3, npairs)
     if scissor:
         # ``getpmat.f90``: the eigenvalues have already moved, so the matrix
@@ -800,12 +1015,125 @@ def _pair_terms(psi, fft_index, band_mask, eig, occupation, element,
     )
 
     weight = (occupation[rows] - occupation[columns]) / volume
+    if tol is not None:
+        weight = jnp.where(finite, weight, 0.0)
     resonant = weight[None, :] / (difference[None, :] + zomega[:, None])
     antiresonant = -weight[None, :] / (-difference[None, :] + zomega[:, None])
     return (
         jnp.concatenate([vectors, reflected], axis=0),
         jnp.concatenate([resonant, antiresonant], axis=-1),
     )
+
+
+def _degeneracy_tol() -> float:
+    """Below this gap (Ry) a smeared pair is intraband: the conductivity's own.
+
+    :data:`~defuqumat.response.conductivity.DEGENERACY_TOL`, so that the two
+    modules partition the pairs the same way and the Drude weight of one is
+    the Drude weight of the other on the same states.
+    """
+    from defuqumat.response.conductivity import DEGENERACY_TOL
+
+    return float(DEGENERACY_TOL)
+
+
+def _drude_weights(calculation, eigenvalues, levels):
+    """``w_k delta(E_F - e_nk)`` per state, ``(nspin, nk, nbnd)`` in 1/Ry.
+
+    The smearing's own delta, ``w0gauss`` at the argument
+    :func:`~defuqumat.response.conductivity._fermi_surface_delta` documents,
+    which is minus the derivative of the occupations the SCF converged with.
+    One Fermi level, or one per channel when ``tot_magnetization`` fixes the
+    moment. ``w_k`` is the k-point weight with the spin degeneracy in it, the
+    one ``wg`` is a fraction of.
+    """
+    from defuqumat.response.conductivity import _fermi_surface_delta
+
+    energies = np.asarray(eigenvalues)
+    nspin = energies.shape[0]
+    if "fermi_energy_up" in levels:
+        fermi = (levels["fermi_energy_up"], levels["fermi_energy_down"])
+    else:
+        fermi = (levels["fermi_energy"],) * nspin
+    wk = np.asarray(calculation.system.kpoints.weights)
+    return np.stack([
+        wk[:, None] * _fermi_surface_delta(calculation, float(fermi[s]),
+                                           energies[s], enabled=True)
+        for s in range(nspin)
+    ])
+
+
+def _drude_block(weight, eig, element, zomega, volume, tol):
+    """One k-point's intraband head, ``(nw, 3, 3)``: ``wp_ab^2(k) / (omega + i eta)^2``.
+
+    **What ``f_i - f_j`` leaves out at ``q = 0``, as the limit of the same
+    expression.** The ``i = j`` pair at ``q -> 0`` has the pair density
+    ``<u_i,k|u_i,k+q> -> 1`` and the weight ``(f(e_k) - f(e_k+q)) / (e_k -
+    e_k+q + z)``, with ``e_k+q - e_k = q.v``; times ``v(q) = 8 pi/q^2`` and
+    expanded in ``q``, the first order is odd in ``v`` and cancels between
+    ``k`` and ``-k``, and the second is
+
+        X_ab^intra = (8 pi / Omega) sum_k w_k sum_n delta(E_F - e_n) v_a v_b / z^2,
+
+    which is ``wp_ab^2 / z^2`` with ``wp^2`` in Ry^2 (the free-electron gas
+    gives ``16 pi n``, ``hbar wp = sqrt(4 pi n)`` Hartree). Its wings are
+    first order in ``v`` and cancel the same way, since ``rho_ii(-G) =
+    conj(rho_ii(G))`` for any state, and its body vanishes as ``q``; so it is
+    the head alone. ``eps_M = 1 - X_head`` then carries ``-wp^2/(omega + i
+    eta)^2``, which is the Drude part of :class:`~defuqumat.response.
+    conductivity.OpticalConductivity`'s dielectric function at ``gamma =
+    eta``, with the same weight, to round-off and not only to order
+    ``eta/omega``: measured 1e-12 relative at ``eta/omega = 0.6``
+    (``notes/incompat/I96.md``).
+
+    **The multiplet block, not the diagonal** (rule D4): a pair degenerate
+    within ``tol``, the pairs :func:`_pair_terms` excluded, contributes its
+    two orderings' limit, ``-2 f' Re(v_a^ij v_b^ji) / z^2``, which is this
+    same expression with ``v_a^nn v_b^nn`` widened to ``sum_m v_a^nm
+    v_b^mn`` over the multiplet -- invariant under the rotation a degenerate
+    eigensolver is free in, and :func:`~defuqumat.response.conductivity.
+    _plasma_sum`'s partition exactly.
+    """
+    gap = eig[:, None] - eig[None, :]
+    multiplet = (jnp.abs(gap) <= tol).astype(weight.dtype)
+    block = jnp.real(jnp.einsum("n,nm,anm,bmn->ab", weight, multiplet,
+                                element, element))
+    return (E2 * FPI / volume) * block[None] / (zomega ** 2)[:, None, None]
+
+
+def _band_windows(calculation, eigenvalues, nbnd: int) -> tuple:
+    """Each channel's ``(low, high)``: the first band not full everywhere, the first empty everywhere.
+
+    A smeared run's version of :func:`_occupied_bands`. "Full" and "empty"
+    are within :data:`_OCCUPATION_TOLERANCE` of the fractional filling, which
+    is ``genvchi0.f90``'s own threshold for dropping a pair, so a pair of two
+    bands both outside the window is one that sum would drop. A gapped cell
+    under a small smearing has ``low = high = nocc`` and is the insulator's
+    list; a metal, or a gap the smearing's tail crosses, widens it.
+
+    **The window must close below ``nbnd``**: a band set whose top band still
+    carries weight has pairs above it that are missing, and nothing could say
+    how much they carry.
+    """
+    weights, _ = calculation.occupations(jnp.asarray(eigenvalues))
+    weights = np.asarray(weights)
+    wk = np.asarray(calculation.system.kpoints.weights)
+    filling = weights / np.where(wk > 0.0, wk, 1.0)[None, :, None]
+    windows = []
+    for spin in range(filling.shape[0]):
+        partial = np.abs(filling[spin] - 1.0).max(axis=0) > _OCCUPATION_TOLERANCE
+        carrying = np.abs(filling[spin]).max(axis=0) > _OCCUPATION_TOLERANCE
+        low = int(np.argmax(partial)) if partial.any() else nbnd
+        high = int(np.flatnonzero(carrying)[-1]) + 1 if carrying.any() else 0
+        if high >= nbnd:
+            raise ValueError(
+                f"a smeared chi_0 needs bands above every occupied one: band "
+                f"{nbnd - 1} of spin channel {spin} still carries filling "
+                f"{np.abs(filling[spin][:, -1]).max():.3e} at some k-point. "
+                "Run the fixed-density calculation with more bands (nbnd)"
+            )
+        windows.append((min(low, high), high))
+    return tuple(windows)
 
 
 def _occupied_bands(calculation, eigenvalues, nbnd: int) -> tuple:

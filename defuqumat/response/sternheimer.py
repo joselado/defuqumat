@@ -160,7 +160,7 @@ from defuqumat.scf.occupations import (_nint, cut_gaps, occupied_counts,
 from defuqumat.forces.energy import reject_potential_only
 from defuqumat.scf.potential import as_potential_components
 from defuqumat.scf.streaming import is_host_store
-from defuqumat.scf.sawtooth import refuse_sawtooth
+from defuqumat.scf.sawtooth import refuse_berry_field, refuse_sawtooth
 
 __all__ = [
     "Smearing",
@@ -1520,7 +1520,7 @@ _NO_METAL_YET = (
 def require_a_sternheimer_regime(
     calculation, metals: bool = False, spin_polarized: bool = False,
     gamma_ok: bool = False, metals_missing: str = _NO_METAL_BY_DEFINITION,
-    noncollinear: bool = False,
+    noncollinear: bool = False, sawtooth_ok: bool = False,
 ) -> None:
     """Refuse, by name, every regime whose response needs machinery not here.
 
@@ -1561,14 +1561,25 @@ def require_a_sternheimer_regime(
     :mod:`defuqumat.response.nonlinear` have never been run with a spin axis and
     are still refused here. The flag is deliberately opt-in for that reason,
     exactly as ``metals`` is.
+
+    ``sawtooth_ok = True`` says the caller has been measured under ``tefield``
+    (and ``dipfield``), and so lifts the saw-tooth half of the refusal and
+    keeps the Berry-phase half: only the dynamical matrix at ``Gamma`` passes
+    it, checked against a central difference of the forces under the field
+    (``notes/incompat/I104.md``), and it refuses the sub-regimes that were not
+    measured itself (``phonon._require_a_measured_sawtooth_regime``).
     """
-    refuse_sawtooth(
-        calculation, "a linear response",
-        "the response stack would differentiate the field's potential with "
-        "everything else (under dipfield the dipole's own term, and through "
-        "at_positions the ions' dipole), and none of it has been checked against "
-        "a reference or an identity",
-    )
+    if sawtooth_ok:
+        refuse_berry_field(calculation, "a linear response")
+    else:
+        refuse_sawtooth(
+            calculation, "a linear response",
+            "the response stack would differentiate the field's potential with "
+            "everything else (under dipfield the dipole's own term, and through "
+            "at_positions the ions' dipole), and it has been checked against a "
+            "finite difference of the forces only for the dynamical matrix at "
+            "Gamma (notes/incompat/I104.md)",
+        )
     if getattr(calculation, "gamma_only", False) and not gamma_ok:
         raise NotImplementedError(
             "this response quantity is not implemented for gamma-only "

@@ -489,14 +489,20 @@ class StreamedField:
         coordinate (:func:`~defuqumat.response.piezo.constraint_strain_term`).
 
         **A norm-conserving dataset takes the whole route's functional, not the
-        augmented one**: no multipliers' tangent, no constraint term and no
-        full-zone shift, exactly as :func:`~defuqumat.response.piezo.
-        clamped_ion_piezoelectric` skips them. With ``S = 1`` the first two are
-        contracted with a ``dS/d(eps)`` that is identically zero, and the shift
-        is linear in a per-k tangent there, so the rank-3 average completes it;
-        so the two functionals have the same column, and mirroring the whole
-        route is what makes the comparison against it an identity.
+        augmented one**: no multipliers' tangent, no constraint term and, on a
+        non-polar crystal, no full-zone shift, exactly as
+        :func:`~defuqumat.response.piezo.clamped_ion_piezoelectric` skips them.
+        With ``S = 1`` the first two are contracted with a ``dS/d(eps)`` that is
+        identically zero. The shift is not: a diagonal strain moves the density
+        as ``-delta_ab rho`` at frozen coefficients, and the wedge residue that
+        leaves lands on :func:`~defuqumat.response.piezo.polar_direction`, so
+        the rank-3 average removes it on a non-polar crystal and a **polar** one
+        keeps the shift (I90 fix round, the whole route's
+        ``_polar_norm_conserving``). Mirroring the whole route is what makes the
+        comparison against it an identity.
         """
+        from defuqumat.response.piezo import is_a_polar_crystal
+
         calculation = self.calculation
         solver = self.solver
         strain = jnp.zeros((3, 3))
@@ -559,7 +565,7 @@ class StreamedField:
         shifts, becsum_shifts, offsets = _full_zone_shifts(
             calculation, raw, tangents, density, becsum)
         raw_becsum, raw_smooth, becsum_offset, density_offset = offsets
-        if not augmented:
+        if not augmented and not is_a_polar_crystal(calculation):
             shifts = jnp.zeros_like(shifts)
             becsum_shifts = [jax.tree_util.tree_map(jnp.zeros_like, b)
                              for b in becsum_shifts]

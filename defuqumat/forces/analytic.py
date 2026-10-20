@@ -107,6 +107,16 @@ def analytic_forces(calculation, state):
             "autodiff method, which differentiates through the Hubbard "
             "projectors and gets the term for free"
         )
+    berry = getattr(calculation, "berry_field", None)
+    if berry is not None and berry.active and berry.augmented:
+        # I103: the field's force on an augmented dataset has an electronic
+        # half, the derivative of the string overlap's projections and
+        # structure phases, which the autodiff route carries and nothing here
+        # does.
+        raise NotImplementedError(
+            "the analytic force with lelfield on an ultrasoft or PAW dataset is not "
+            "implemented: forces_us_efield is not transcribed; method='autodiff' "
+            "carries it as the gradient of the string overlap")
     compiled, geometry = _compiled_terms(calculation)
     terms = compiled(state, hoisted(calculation), geometry)
     total = sum(terms.values())

@@ -496,9 +496,11 @@ stage 6): `D_ij` is the scalar integrals sandwiched between `fcoef`, with the di
 inside that transform. And the ultracell **transmission** was never a missing term at all
 (stage 7): its exit-plane Gram matrix is not built from the whole state, and the unit cell
 hands `calculation._overlap` to the *whole-cell* diagnostic alone, so the plane needed the
-same vacuum guard the image and the spectrum inherit rather than an overlap operator. What
-refuses now is `exit_region = "volume"` on an augmented dataset, which is the one Gram matrix
-that is `<psi|S|psi>`. The **double grid** was the wall such a dataset met first and is why
+same vacuum guard the image and the spectrum inherit rather than an overlap operator.
+`exit_region = "volume"` on an augmented dataset, the one Gram matrix that is
+`<psi|S|psi>`, refused until I115 (2026-10-20, `notes/incompat/I115.md`) wrote the
+ultracell's `S` over its atom copies: it now runs on US and PAW, spinless, `nspin = 2` and
+scalar-relativistic spinor, and only `lspinorb` with the whole-cell exit stays refused. The **double grid** was the wall such a dataset met first and is why
 every number here is at `ecutrho = 4 ecutwfc`; its lift was sized at three lines and cost
 none, the truncation those three lines would have applied being a no-op. What the lift
 brought with it instead is a *protocol*: at a dual the reference supercell picks its own FFT

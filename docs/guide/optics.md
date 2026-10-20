@@ -348,13 +348,34 @@ here.
     ```
 
 !!! note "Limits"
-    The absorption spectrum needs an insulator with fixed occupations. For a metal
-    the sum over pairs of bands has no intraband term, so the Drude part of the
-    response would be missing, and the code gives an error. A state where an empty
-    band carries occupation at some k-point also gives an error. Ultrasoft and PAW
-    datasets give an error, because every matrix element would need the
-    augmentation charge, and so do a noncollinear magnetization, a spin spiral
-    and a Hubbard $U$. A spinor run without a magnetization works, with or
+    The absorption spectrum works with fixed occupations and with smearing. With
+    smearing the sum runs over every band that is partly filled at some k-point,
+    and the code adds the intraband (Drude) term, $\omega_p^2/(\omega + i\eta)^2$
+    on the head. We checked this term against the plasma frequency of the optical
+    conductivity on aluminium, where the two agree to 4e-13. On silicon with a
+    Gaussian smearing the spectrum moves onto the one with fixed occupations as
+    `degauss` goes down: 0.84 at `degauss = 0.02`, 3e-2 at 0.01 and 2e-8 at 0.005.
+    On aluminium the f-sum rule of the spectrum, with the Drude term, goes to the
+    diamagnetic weight: 0.979 at 16 bands and 0.994 at 40 bands, with
+    `degauss = 0.2` on an 8x8x8 mesh. Without the Drude term it is 0.37. With
+    smearing the `bootstrap` kernels and `static_residual=True` give an error,
+    because the static dielectric constant of a metal is infinite. A scissors
+    shift with smearing and tetrahedron occupations also give an error. Smearing
+    with `nspin = 2`, with a spinor or on a symmetry-reduced k-set also gives an
+    error, because we have not checked these cases. Then you pass the whole
+    unshifted grid with `nosym`.
+
+    An ultrasoft dataset works for an insulator without spin. Then every matrix
+    element has the augmentation charge, and the optical matrix elements use the
+    velocity of the generalised eigenproblem. On silicon the static value in RPA
+    is 0.05 from the Sternheimer solve at 60 bands, out of 56.6, and the
+    difference goes down with `nbnd` as for a norm-conserving dataset. The `alda`
+    kernel, a scissors shift and a symmetry-reduced k-set also work with an
+    ultrasoft dataset, and we checked each of them. An ultrasoft dataset with
+    smearing, with `nspin = 2` or with a spinor gives an error, because we have
+    not checked these cases. PAW gives an error, because its one-centre terms are
+    not in the matrix. A noncollinear magnetization, a spin spiral and a Hubbard
+    $U$ also give an error. A spinor run without a magnetization works, with or
     without spin-orbit coupling. On selenium with spin-orbit coupling the static
     value is 0.27 per cent from the Sternheimer solve at 144 bands and
     `ecut_response = 12`. With `nspin = 2` the spectrum is the response of the
@@ -380,16 +401,30 @@ here.
     again on the whole sphere, and the spectrum agrees with an explicit $k = 0$
     to 1.4e-9.
 
-    The `alda` kernel gives an error with a gradient-corrected or meta-GGA
-    functional, because the ALDA kernel is local in the density and a GGA kernel
-    is not. The `lrc` kernel gives an error without `alpha`. If the bootstrap
+    With a gradient-corrected functional, such as PBE, the `alda` kernel is the
+    adiabatic kernel of that functional. It keeps the gradient terms. On our silicon
+    test its static limit agrees with the dielectric constant of the Sternheimer solve
+    to 2e-3, if `ecut_response` is 20 Ry. At 8 Ry the difference is 3e-2. The `alda`
+    kernel gives an error with a meta-GGA functional, because its potential depends on
+    the kinetic energy density of the states. It also gives an error with a GGA on a
+    noncollinear density. The `lrc` kernel gives an error without `alpha`. If the bootstrap
     kernel does not converge, the code gives an error and returns no spectrum,
     because a spectrum from a kernel still in motion belongs to no functional.
 
     The optical conductivity gives an error for a spin spiral, whose two spinor
-    components live on different spheres. Its Drude term gives an error with
-    tetrahedra, which have no smeared delta function at the Fermi level, so you
-    use smearing, or `intraband=False` to read the interband part alone.
+    components live on different spheres. With tetrahedra the Drude term uses
+    the tetrahedron weights at the Fermi level, so it needs no smearing width.
+    We tested it on aluminium, on meshes from 40x40x40 to 72x72x72. There
+    `tetrahedra_lin` gives a plasma frequency of 12.43 to 12.49 eV, changing with
+    the mesh. The smeared value, taken to zero width, is between 12.39 and 12.47
+    eV, so the two agree to about 0.03 to 0.05 eV. The three tetrahedron variants
+    come closer to each other as the mesh gets denser. The Bloechl variant,
+    `occupations = 'tetrahedra'`, converges the slowest. It is 0.03 eV below
+    `tetrahedra_lin` on 72x72x72, so we suggest `tetrahedra_lin` or
+    `tetrahedra_opt`. On the whole grid with `nosym`, the Bloechl variant also
+    gives a tensor that is not cubic on a cubic crystal. This comes from the way
+    it cuts the mesh into tetrahedra. The memory grows fast with the mesh. With
+    6 GB, `tetrahedra_opt` stopped at 64x64x64 and `tetrahedra_lin` at 80x80x80.
     Ultrasoft and PAW datasets work, and so does `nspin = 2`, where the
     conductivities of the two spin channels are added. `sigma.hall_conductivity`
     gives an error when your frequencies do not start at $\omega = 0$, since it

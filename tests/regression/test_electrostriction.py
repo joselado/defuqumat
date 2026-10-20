@@ -95,6 +95,12 @@ STRAIN_DENSITY_TOLERANCE = 5e-4
 #: the phase's own headline error in place.
 THIRD_DERIVATIVE_TOLERANCE = 5e-3
 ELASTIC_TOLERANCE = 5e-3
+#: I87, ultrasoft and PAW: measured **3.8e-8 and 8.9e-8** on ``C_1111``, 1.6e-8
+#: and 5.4e-8 on ``C_1212`` (the worst of three steps, 8e-3 to 2e-3), the
+#: norm-conserving control's own floor through the same script being 1.1e-7.
+#: Without ``dLambda`` the shear is 6.2e-3 off and without either term 2.9e-2,
+#: so a tolerance of 5e-3 would pass with ``ort`` alone; this one does not.
+AUGMENTED_ELASTIC_TOLERANCE = 1e-5
 
 
 #: What the identities in this file need: the convergence they were measured at
@@ -409,8 +415,14 @@ def test_the_third_derivative_matches_a_finite_difference(component):
 # -- the elastic constants ----------------------------------------------------
 
 
+@pytest.mark.parametrize("case, tolerance", [
+    ("si-electrostriction", ELASTIC_TOLERANCE),
+    ("si-us-nosym", AUGMENTED_ELASTIC_TOLERANCE),
+    ("si-paw-nosym", AUGMENTED_ELASTIC_TOLERANCE),
+])
 @pytest.mark.parametrize("component", [(0, 0), (0, 1)])
-def test_the_elastic_constants_match_a_second_difference_of_the_energy(component):
+def test_the_elastic_constants_match_a_second_difference_of_the_energy(
+        component, case, tolerance):
     """``C = (1/Omega) d^2E/dx^2`` against a five-point difference of the SCF energy.
 
     The energy is the reference with no convention in it at all -- no volume
@@ -424,14 +436,20 @@ def test_the_elastic_constants_match_a_second_difference_of_the_energy(component
     rather than the *stress*: the two differ by ``(dE/drho).(drho/dx)|_psi``,
     which is zero for a displacement and is not for a strain, because the density
     carries a ``1/Omega``. Written that way this returns 671 GPa.
+
+    **An ultrasoft or PAW dataset adds two tangents** (I87): the occupied block
+    of the first-order state and the multipliers' own tangent. With neither,
+    ``C_1111`` is 22.1 per cent off (22.2 PAW) and ``C_1212`` 2.9 per cent; with
+    ``ort`` alone 10.0 and 0.62 per cent; with both, 3.8e-8 and 1.6e-8
+    (ultrasoft), 8.9e-8 and 5.4e-8 (PAW), D22.
     """
     step = 4e-3
     a, b = component
     tangent = strain_tangent(a, b)
-    _, _, calculation, _, _, _ = _converged("si-electrostriction")
+    _, _, calculation, _, _, _ = _converged(case)
 
     energies = {
-        offset: _reconverged("si-electrostriction", offset * step * tangent)[1].total_energy
+        offset: _reconverged(case, offset * step * tangent)[1].total_energy
         for offset in (-2, -1, 0, 1, 2)
     }
     second = (
@@ -440,8 +458,8 @@ def test_the_elastic_constants_match_a_second_difference_of_the_energy(component
     ) / (12 * step**2)
     reference = second / calculation.system.cell.volume
 
-    ours = _electrostriction("si-electrostriction").elastic.tensor[a, b, a, b]
-    assert abs(ours - reference) / abs(reference) < ELASTIC_TOLERANCE
+    ours = _electrostriction(case).elastic.tensor[a, b, a, b]
+    assert abs(ours - reference) / abs(reference) < tolerance
 
 
 # -- the reporting boundary ---------------------------------------------------

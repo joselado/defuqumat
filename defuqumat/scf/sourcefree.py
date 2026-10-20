@@ -36,7 +36,10 @@ consequences rather than a fresh set: nothing is differentiated to get it, the
 total energy a run reports is not the value of anything the run minimised, and
 every consumer that differentiates the energy -- forces, stress, the whole
 response stack -- refuses by name. ``run_scf`` warns, exactly as it does for a
-potential-only meta-GGA.
+potential-only meta-GGA. The two stack: under ``tb09`` the meta potential is
+added to the field before the projection, so the projected field is the whole
+of it, and the run is a fixed point of a potential with two corrections and the
+value of nothing, which is what each of them already is alone.
 
 **The projection removes the longitudinal part rather than rebuilding the
 field.** Writing it as ``B - (the longitudinal part)`` and not as "transform to
@@ -158,7 +161,13 @@ def refuse_source_free(system, functional=None, pseudos=()) -> None:
             "for div B across both representations, with the multipoles of "
             "the sphere solution matched to the smooth one outside, which is "
             "the compensation-charge problem PAW's Hartree term already "
-            "solves for the density (defuqumat.paw.hartree). Elk gets it in one "
+            "solves for the density (defuqumat.paw.hartree). The step after it "
+            "exists: ddd_paw is a contraction of whatever one-centre potential "
+            "it is given (Tran-Blaha's goes through it), so what is missing is "
+            "the projection alone -- the divergence of the lm-expanded sphere "
+            "field, which couples l to l +- 1, its multipoles carried to the "
+            "grid as a compensation term, and the one Poisson solve over both "
+            "(notes/incompat/I107.md sizes it as part of a phase). Elk gets it in one "
             "line because its muffin tins and its interstitial *partition* "
             "space, where PAW's three terms overlap. Use a norm-conserving or "
             "ultrasoft dataset"
@@ -194,10 +203,14 @@ def refuse_source_free(system, functional=None, pseudos=()) -> None:
             "it, as for spin-orbit coupling. Run the commensurate supercell "
             "with noncolin = .true. instead"
         )
-    if functional is not None and getattr(functional, "is_meta", False):
-        raise NotImplementedError(
-            "a source-free exchange-correlation field with a potential-only "
-            "meta-GGA is not implemented: both are potentials with no energy "
-            "functional behind them and stacking two of them leaves nothing "
-            "that says what the run is a stationary point of"
-        )
+    # A potential-only meta-GGA (``tb09``, ``bj06``) is **not** refused, and
+    # used to be, on the argument that stacking two potentials with no energy
+    # functional behind them leaves nothing the run is a stationary point of.
+    # That holds of ``nosource`` alone already, which is allowed: the run is a
+    # fixed point of the potential map either way, and the consumers that need a
+    # stationary point (forces, stress, response) refuse each of the two by
+    # name; the torque does not need one and reads the run's own ``tau`` (I110). ``v_of_rho`` adds the meta potential to ``v_xc`` before the
+    # projection, so what is projected is the whole field (I109, measured in
+    # ``notes/incompat/I109.md``). ``functional`` stays in the signature for the
+    # callers that pass it.
+    del functional

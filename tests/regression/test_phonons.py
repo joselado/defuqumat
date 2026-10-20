@@ -607,29 +607,71 @@ def test_the_force_constants_of_a_moving_overlap_reproduce_a_finite_difference()
 # What is refused, and by name.
 # ---------------------------------------------------------------------------
 
-def test_an_ultrasoft_metal_is_refused(tmp_path):
-    """What is left of P25's norm-conserving restriction, and it is one
-    combination rather than one dataset.
+#: What the **vendored** ``ph.x`` prints for the ultrasoft and PAW twins of
+#: ``al2-metal.in`` (``reference.out.ph-al2-metal-us`` and ``-paw``, generated on
+#: D22 for ``notes/incompat/I86.md``): the three modes the doubling folds in.
+QE_AL2_AUGMENTED = {
+    "al2-metal-us": (154.716542, 154.724629, 344.657386),
+    "al2-metal-paw": (155.130455, 155.141002, 345.408541),
+}
 
-    ``_state_weights``' split between ``wg`` and ``wk`` was derived for a
-    response whose whole ``becsum`` dependence sits inside ``dpsi``. With ``S``
-    moving there are three further tangents -- the orthogonality block,
-    ``becsumort`` and ``dLambda`` -- and which weight each belongs with is a
-    question an insulator cannot answer, because there the two weights are
-    equal. Refused rather than guessed.
+
+@pytest.mark.parametrize("case", list(QE_AL2_AUGMENTED))
+def test_the_gamma_phonon_of_an_augmented_metal_matches_quantum_espresso(case):
+    """``notes/incompat/I86.md``: a metal with a moving overlap ``S``.
+
+    What a metal adds to the three tangents a moving ``S`` brings is one pair
+    weight, ``compute_weight``'s ``wgg`` (:func:`~defuqumat.response.phonon.
+    pair_weights`), on the occupied block and on the multipliers' tangent; the
+    occupied block is accumulated at ``wk``; and the assembly carries the bands
+    twice, so that the state tangent sees ``wk`` while the coordinate sees
+    ``wg``. Measured: **0.0136, 0.0055 and 0.0082** cm^-1 on the ultrasoft
+    cell and **0.0002, 0.0098 and 0.023** on the PAW one. ``ph.x`` splits the
+    folded pair by 0.008 and 0.011 and this side does not (0 and 0.0005), and a
+    finite difference of this code's forces over the whole ultrasoft matrix
+    sides with it: 154.729921 and 154.729924 at a step of 1e-2 bohr, 344.652333
+    on the top mode, against 154.730099 twice and 344.665540 here.
+    With the guard lifted and none of the above, the ultrasoft cell's acoustic
+    modes come out at 144 cm^-1 and its pair at 199.3 and 199.6. The tolerance
+    is the norm-conserving cell's, the same form-factor floor.
     """
-    text = (CASES / "si-epsilon-us.in").read_text().replace(
-        "    ecutwfc = 20.0", "    occupations = 'smearing'\n    degauss = 0.02\n"
-        "    ecutwfc = 20.0"
-    )
-    deck = tmp_path / "si-epsilon-us-metal.in"
-    deck.write_text(text)
-    system = build_system(read_pw_input(deck))
-    pseudos = tuple(read_upf(PSEUDO / sp.pseudo_file)
-                    for sp in system.structure.species)
-    with pytest.raises(NotImplementedError, match="metal"):
-        dynamical_matrix(Calculation(system, pseudos), None,
-                         jnp.zeros((1, 1, 1)), None)
+    _, _, phonons = _phonons(case)
+    assert phonons.converged
+    optical = np.sort(phonons.frequencies)[3:]
+    assert np.abs(optical - np.asarray(QE_AL2_AUGMENTED[case])).max() < (
+        AL2_OPTICAL_TOLERANCE)
+    assert np.abs(np.asarray(phonons.matrix).sum(axis=2)).max() < AL2_SUM_RULE
+
+
+def test_the_force_constants_of_an_ultrasoft_metal_reproduce_a_finite_difference():
+    """The check that is not an atom sum, on the ultrasoft metal.
+
+    A central difference of this code's own forces on atom 0 along ``x``.
+    Measured on D22 (``notes/incompat/I86.md``): **6.6e-6** at a step of 1e-2
+    bohr and **1.4e-5** at 5e-3, against force constants of 0.0567, where the
+    unweighted assembly was 3.25e-2 off (the PAW cell: 3.1e-6 and 1.5e-5). The difference does not fall with the
+    step, so what is left is the floor :data:`FD_TOLERANCE` names, not the
+    truncation.
+    """
+    system, pseudos, calculation = _build("al2-metal-us")
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-13,
+                     max_iterations=150)
+    phonons = dynamical_matrix(calculation, result.wavefunctions,
+                               result.eigenvalues, result.density, result.becsum)
+    positions = np.asarray(system.structure.positions)
+    step, forces = 5.0e-3, []
+    for sign in (+1, -1):
+        moved = positions.copy()
+        moved[0, 0] += sign * step
+        shifted = eqx.tree_at(lambda s: s.structure.positions, system,
+                              jnp.asarray(moved))
+        other = Calculation(shifted, pseudos)
+        state = run_scf(shifted, pseudos, calculation=other, conv_thr=1e-13,
+                        max_iterations=150)
+        forces.append(np.asarray(compute_forces(other, state).forces))
+    difference = -(forces[0] - forces[1]) / (2 * step)
+    column = np.asarray(phonons.matrix)[0, 0]
+    assert np.abs(column - difference).max() < FD_TOLERANCE
 
 
 def test_a_spin_polarized_calculation_is_refused_only_on_the_walked_route():
