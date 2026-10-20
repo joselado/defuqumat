@@ -208,6 +208,13 @@ I100, I102) were combined by hand in `realtime/propagate.py`, `realtime/hierarch
   density, is silent on an atomic start and is silent when `|M|` is unchanged, and `anisotropy.md`'s
   Limits says so; the README bullet does not describe the warning and is unchanged. Recorded in
   `I112.md`, "The user's amendment".
+- The fast gate after the I102 and I112 changes, at `937a1d5f` on D22 (worktree `/l/ladovj1/w-inc-t3g`,
+  four cores 0-3,12-15, `MemoryMax=16G`, `JAX_PLATFORMS=cpu`, log `review/incompat/t3g/gate.log`):
+  4127 passed, 71 skipped, 2 failed (the two `tests/unit/test_check_guide.py` failures, no `yaml`
+  on D22) in 1090 s, against 4123 passed and 71 skipped at `b8a980ca` (`t3f`); the four more are the
+  new parametrized I102 test. Slow files touched: none changes its expectation; the I112 call site is
+  reached by `tests/regression/test_anisotropy.py`'s two Hubbard tests, which start from a density
+  and assert nothing about the warning.
 
 ## D22 worktrees that can be removed (none removed)
 
