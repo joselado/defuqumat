@@ -1489,7 +1489,9 @@ def test_turning_the_moments_in_a_field_balances_the_anisotropy_against_the_zeem
     assert np.degrees(np.arcsin(np.sqrt(s2))) == pytest.approx(55.712, abs=0.01)
     slope = (k2 - k1) / (s2 - s1)        # 2 K2
     first = k1 - slope * s1              # K1
-    # 0.07 per cent measured; K3 is the next term and is not in the model.
+    # -0.074 per cent measured. Not K3: a three-field fit gives K3 = -1.35e-8 Ry
+    # and leaves the gap (verifier). Cause not identified; the candidate is the
+    # 0.076 per cent difference of |M| between the plain z and x runs.
     assert first + 0.5 * slope == pytest.approx(relaxed, rel=5.0e-3)
     # One field alone is off by 2 K2 (sin^2 - 1/2), which is what the
     # extrapolation removes.
