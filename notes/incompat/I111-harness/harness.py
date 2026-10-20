@@ -7,12 +7,15 @@ Usage: harness.py <case> <run> [<run> ...]
         'asym<NN>' -- as 'asym' with |target| = NN/10 mu_B (run 2: 'asym14')
         'k8m<NN>' -- as 'asym<NN>' on the shifted 2x2x2 mesh (8 k-points with
                   nosym), the first cell whose free SOC run converges (run 4)
+        'k27m<NN>' -- the same on the shifted 3x3x3 mesh (run 6)
   run:  'fsm' (elk rule, SOC), 'free' (no constraint, SOC),
         'pen<lambda>' (the 'total' penalty, SOC), 'fsm-tight' (FSM_TOLERANCE 1e-5),
         'bfield' (a fixed uniform field bx, by, bz, no constraint),
         'bfrom' (a fixed uniform field equal to the last fsm run's converged field),
         'bstart' (the same field, starting from the last fsm run's converged state:
                   the identity is that iteration 1 is already self-consistent),
+        'bstartpar' (as bstart with the field projected on the target direction,
+                  so the transverse part spin-orbit coupling needs is dropped),
         each optionally followed by ':key=value' modifiers:
         tau=<gain> (fsm), soc=<soc_scale>, beta=<mixing_beta>,
         mix=<mixing_mode> (run 3: adaptive), it=<max_iterations>,
@@ -95,14 +98,16 @@ CASES = {
 
 
 K8 = "K_POINTS automatic\n 2 2 2 1 1 1"
+K27 = "K_POINTS automatic\n 3 3 3 1 1 1"
 
 
 def case_of(name):
     if name in CASES:
         return CASES[name]
-    if name.startswith("k8m"):
-        magnitude = int(name[3:]) / 10.0
-        return dict(CASES["asym"], kpoints=K8,
+    if name.startswith(("k8m", "k27m")):
+        mesh, digits = name[1:].split("m")
+        magnitude = int(digits) / 10.0
+        return dict(CASES["asym"], kpoints=K8 if mesh == "8" else K27,
                     target=(magnitude * math.sin(math.radians(30.0)), 0.0,
                             magnitude * math.cos(math.radians(30.0))))
     magnitude = int(name[4:]) / 10.0
@@ -124,8 +129,11 @@ def text(case, run, bfield=None):
     c = case_of(case)
     head, opts = parse(run)
     lines = []
-    if head in ("bfield", "bfrom", "bstart"):
-        b = bfield if head in ("bfrom", "bstart") else (opts["bx"], opts["by"], opts["bz"])
+    if head in ("bfield", "bfrom", "bstart", "bstartpar"):
+        if head == "bstartpar":
+            u = np.asarray(c["target"]) / np.linalg.norm(c["target"])
+            bfield = (np.asarray(bfield) @ u) * u
+        b = bfield if head in ("bfrom", "bstart", "bstartpar") else (opts["bx"], opts["by"], opts["bz"])
         for i, v in enumerate(b, 1):
             lines.append(f"    b_field({i}) = {float(v):.15e}")
     if head.startswith("fsm"):
@@ -134,7 +142,7 @@ def text(case, run, bfield=None):
     elif head.startswith("pen"):
         lines.append("    constrained_magnetization = 'total'")
         lines.append(f"    lambda = {float(head[3:])}")
-    if head not in ("free", "bfield", "bfrom", "bstart"):
+    if head not in ("free", "bfield", "bfrom", "bstart", "bstartpar"):
         for i, v in enumerate(c["target"], 1):
             lines.append(f"    fixed_magnetization({i}) = {v:.12f}")
     return TEMPLATE.format(soc=opts["soc"], theta=c["theta"], beta=opts["beta"],
@@ -154,7 +162,7 @@ def main():
         system = build_system(parse_pw_input(text(case, run, last_fsm_field)))
         pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
         t0 = time.time()
-        seed = dict(starting_from=last_fsm_result) if head == "bstart" else {}
+        seed = dict(starting_from=last_fsm_result) if head.startswith("bstart") else {}
         result = run_scf(system, pseudos, conv_thr=opts["conv"], max_iterations=opts["it"],
                          mixing_beta=opts["beta"], mixing_mode=opts["mix"], **seed)
         m = np.asarray(result.magnetization_vector, dtype=float)
@@ -164,7 +172,7 @@ def main():
             b = np.asarray(result.magnetic_field.uniform, dtype=float)
             last_fsm_field = b.tolist()
             last_fsm_result = result
-        elif head in ("bfield", "bfrom", "bstart"):
+        elif head in ("bfield", "bfrom", "bstart", "bstartpar"):
             b = np.asarray(system.b_field, dtype=float)
         else:
             b = np.zeros(3)
