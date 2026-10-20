@@ -685,19 +685,19 @@ def _fsm_soc(lspinorb: str, extra: str = "") -> str:
     return text % lspinorb
 
 
-def test_the_fixed_spin_moment_field_runs_under_spin_orbit_coupling():
-    """Elk's rule assumes nothing about ``dm_a/dB_b``, so SOC is admitted (I111).
+def test_the_fixed_spin_moment_field_refuses_spin_orbit_coupling():
+    """Elk's fixed gain assumes nothing about ``dm_a/dB_b``, and is still refused.
 
-    ``B <- B - tau (m - m_fix)`` is a fixed gain: no susceptibility is measured
-    or inverted, and its fixed point is the field at which the self-consistent
-    moment is the target whatever the off-diagonal response is. Measured
-    against the ``'total'`` penalty on the same moment as its ``lambda`` grows
-    (``notes/incompat/I111.md``,
-    ``tests/regression/test_magnetic_constraints.py::test_fsm_under_spin_orbit_is_the_stiff_penalty_limit``).
+    The diagonal-secant argument does not apply to ``fsm_update = 'elk'``, so
+    the refusal is on a measurement instead (I111): on bcc Fe at one k-point
+    with a target off the axis it did not converge in 1500 iterations of Elk's
+    mixer or 400 of Anderson, and neither did the penalty it was to be checked
+    against. ``notes/incompat/I111.md`` has the numbers.
     """
-    system = _build(_fsm_soc(".true."))
-    assert system.lspinorb and system.fsm_update == "elk"
-    assert system.constrained_magnetization == "fsm"
+    system = _build(_fsm_soc(".false."))
+    assert system.fsm_update == "elk"
+    with pytest.raises(ValueError, match="measured not to converge"):
+        _build(_fsm_soc(".true."))
 
 
 def test_the_fixed_spin_moment_secant_refuses_spin_orbit_coupling():
@@ -754,7 +754,8 @@ def test_with_spin_cannot_switch_spin_orbit_on_under_a_refused_feedback_field():
     """The input reader's refusal, on the route that turns ``lspinorb`` on later.
 
     ``with_spin`` carries the constraint across, so without its own check a
-    secant run built without spin-orbit coupling could be given it here.
+    feedback run built without spin-orbit coupling could be given it here, and
+    before I111 it could: ``with_spin`` had no copy of the reader's refusal.
     """
     secant = _build(_fsm_soc(".false.", "\n    fsm_update = 'secant'\n"))
     with pytest.raises(ValueError, match="dm_a/dB_b is diagonal"):
@@ -763,7 +764,11 @@ def test_with_spin_cannot_switch_spin_orbit_on_under_a_refused_feedback_field():
     with pytest.raises(ValueError, match="per-atom feedback field has not been"):
         atomic.with_spin(4, lspinorb=True)
     elk = _build(_fsm_soc(".false."))
-    assert elk.with_spin(4, lspinorb=True).lspinorb
+    with pytest.raises(ValueError, match="measured not to converge"):
+        elk.with_spin(4, lspinorb=True)
+    # A system with no feedback field is unaffected by the check.
+    plain = _build(_REDUCEBF % "1.0").with_spin(4)
+    assert plain.with_spin(4, lspinorb=True).lspinorb
 
 
 _REDUCEBF = """

@@ -2645,7 +2645,7 @@ def _fsm_update(pwin) -> str:
 
 
 def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
-    """The feedback schemes under ``lspinorb`` that are still refused (I111).
+    """Every feedback scheme under ``lspinorb`` is refused, for two reasons (I111).
 
     Not QE's -- the feedback schemes are Elk's and QE has none -- and not a
     limit of the physics: a limit of two controllers and of what was measured.
@@ -2657,14 +2657,22 @@ def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
       lattice, so a push along x moves the moment along z as well. What is
       missing is a secant with the full 3x3 ``dm_a/dB_b``.
     * ``fsm_update = 'elk'`` (the default) is ``B <- B - tau (m - m_fix)``, a
-      fixed gain with no susceptibility measured or inverted, so it assumes
-      nothing about ``dm_a/dB_b`` and its fixed point is where the moment read
-      off a self-consistent density is the target. It is admitted for
-      ``'fsm'`` under ``lspinorb``, measured against the ``'total'`` penalty
-      on the same moment as ``lambda`` grows (``notes/incompat/I111.md``).
-      ``'atomic fsm'`` and ``'atomic fsm direction'`` run the same rule per
-      atom but were not measured under spin-orbit coupling, so they stay
-      refused until they are.
+      fixed gain with no susceptibility measured or inverted, so the diagonal
+      argument does not apply to it and its fixed point is the right field. It
+      stays refused because it was **measured not to converge** and nothing
+      else could be checked: bcc Fe, the fully-relativistic
+      ``Fe.rel-pbe-spn-rrkjus_psl.0.2.1``, one k-point, target 1.4 mu_B at 30
+      degrees from z (``notes/incompat/I111.md``). Anderson at beta 0.3 ran 400
+      iterations to ``dr2`` 9e-2 (gain 0.02) and 4e-2 (0.01), Elk's adaptive
+      mixer at 0.05 ran 1500 to 1.5e-5, with the moment at (0.718, 0.022,
+      1.164) against (0.700, 0, 1.212). The same run at ``soc_scale = 0`` did
+      not converge either (1.7e-3 after 1500), so the failure is the fixed-gain
+      field in a noncollinear cell rather than anything spin-orbit coupling adds
+      to it, and the ``'total'`` penalty it was to be checked against did not
+      reach ``conv_thr`` = 1e-10 at any ``lambda`` from 0.25 to 16 on this cell
+      either (best 3.1e-9).
+    * ``'atomic fsm'`` and ``'atomic fsm direction'`` run the same rules per
+      atom and were not measured under spin-orbit coupling at all.
     """
     from defuqumat.scf.fields import FEEDBACK, FEEDBACK_ATOMIC
 
@@ -2674,9 +2682,8 @@ def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
         raise ValueError(
             f"constrained_magnetization = {constraint!r} with lspinorb = .true. "
             "is refused: the per-atom feedback field has not been measured "
-            "under spin-orbit coupling. 'fsm' (the moment of the cell, with "
-            "fsm_update = 'elk') is, and so are the penalty schemes 'atomic' "
-            "and 'total'"
+            "under spin-orbit coupling. Use the penalty schemes 'atomic' or "
+            "'atomic direction'"
         )
     if fsm_update != "elk":
         raise ValueError(
@@ -2684,10 +2691,18 @@ def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
             f"{fsm_update!r} and lspinorb = .true. is refused: the secant "
             "updates each cartesian component of the field from its own "
             "component of the moment, which assumes dm_a/dB_b is diagonal, and "
-            "spin-orbit coupling is exactly what makes it not. Use "
-            "fsm_update = 'elk' (the default), whose fixed gain assumes "
-            "nothing about dm_a/dB_b, or a penalty scheme ('total')"
+            "spin-orbit coupling is exactly what makes it not. Use a penalty "
+            "scheme ('total') for a moment held under spin-orbit coupling"
         )
+    raise ValueError(
+        f"constrained_magnetization = {constraint!r} with lspinorb = .true. is "
+        "refused: Elk's fixed-gain update was measured not to converge under "
+        "spin-orbit coupling (bcc Fe, one k-point, a 1.4 mu_B target 30 degrees "
+        "from z: dr2 still 1.5e-5 after 1500 iterations of Elk's adaptive mixer "
+        "and 9e-2 after 400 of Anderson), and with no converged run there was "
+        "nothing to check its field against. Use the penalty scheme 'total' "
+        "for a moment held under spin-orbit coupling"
+    )
 
 
 def _atomic_b_field(pwin: PwInput, nat: int) -> tuple:
