@@ -4,7 +4,8 @@ In this page we compute what a scanning-tunnelling microscope sees. We start wit
 the image of a surface at one bias, then we compute the spectrum $\mathrm dI/\mathrm dV$
 at one place, and finally we follow the electron through a two-dimensional
 material into a substrate below it, first in real space and then in momentum
-space.
+space. At the end we put one impurity on the surface and compute the
+quasiparticle interference it creates.
 
 ## The STM image
 
@@ -446,6 +447,147 @@ broadening of 0.03 Ry.
     --8<-- "stm_momentum/plot.py"
     ```
 
+## Quasiparticle interference around one impurity
+
+We now put one impurity on the surface. It scatters the Bloch states, and the
+scattered waves interfere with the incoming ones, so the local density of states
+gets standing waves around the impurity. Their Fourier transform shows the
+scattering vectors $\mathbf q = \mathbf k - \mathbf k'$ that join two states at
+the same energy. This is quasiparticle interference (QPI), and it is how an STM
+measures the band structure of a surface. We follow the T-matrix method of the
+review by Rhodes, Kohsaka, Hanaguri, de Almeida Marques and Wahl,
+[arXiv:2607.22487](https://arxiv.org/abs/2607.22487).
+
+The impurity is a Gaussian $\phi$ of width $\sigma$ at $\mathbf r_{\rm imp}$, with
+the potential $V_{\rm imp} = V|\phi\rangle\langle\phi|$. Here $V$ is in Ry, and it is
+the energy shift of a state that lies inside $\phi$. For this potential the whole
+Dyson series sums to one number at each energy:
+
+$$
+T(\omega) = \frac{V}{1 - V g_0(\omega)},
+\qquad
+g_0(\omega) = \frac1N \sum_{n\mathbf k}
+  \frac{|\langle\psi_{n\mathbf k}|\phi\rangle|^2}{\omega - \varepsilon_{n\mathbf k} + i\eta},
+$$
+
+and the Green's function with the impurity is
+$G = G_0 + G_0\,T\,G_0$. The k-mesh of $N$ points is a supercell of $N$ surface
+cells with the impurity in one of them, and the map covers that whole supercell.
+So no matrix of the size of the supercell is ever inverted. The bands are
+sampled at the tip points of one cell, and the other cells follow from the Bloch
+theorem.
+
+There are two ways to read $G$ at the tip, and you choose them with `readers`.
+The first one, `"ldos"`, is the Tersoff-Hamann answer, the change of the local
+density of states at the tip,
+$\delta\rho(\mathbf r) = -\frac1\pi \mathrm{Im}\,[G_0(\mathbf r,\phi)\,T\,G_0(\phi,\mathbf r)]$.
+The second one, `"landauer"`, is the tunnelling transmission of the section on
+vertical transport. The electron enters at the tip point $\mathbf r$ and leaves
+through an exit plane below the material:
+
+$$
+T(\mathbf r) = \int_{\rm exit} |G(\mathbf r, \mathbf r')|^2\, d^2 r' .
+$$
+
+So each scattered wave is weighted by how well it tunnels from the tip to the
+exit plane, which is the matrix element of the STM, and not only by its weight at
+the tip. We compute both with `calc.get_qpi()`, here for the square sheet of
+hydrogen of the previous section, with the impurity on an atom and the energy at
+the Fermi level:
+
+```python
+sheet = Calculator.from_file("docs/figures/stm_qpi/h-sheet.in",
+                             pseudo_dir="tests/data/pseudo")
+fermi = sheet.get_scf().fermi_energy
+qpi = sheet.get_qpi(0.5, 0.7, impurity=0, sigma=1.0, energies=[fermi],
+                    readers=("ldos", "landauer"), exit_height=0.3,
+                    shape=(4, 4), broadening=0.03, grid=(32, 32, 1))
+print(f"T-matrix          {qpi.t_matrix[0, 0]:.4f} Ry")
+print(f"wraparound        {qpi.wraparound[0, 0]:.4f}")
+print(f"contour k-points  {qpi.contour_points[0, 0]:.0f}")
+```
+
+```
+T-matrix          0.0431-0.0994j Ry
+wraparound        0.0024
+contour k-points  316
+```
+
+The impurity is weak here, $|T| = 0.108$ Ry against $V = 0.5$ Ry, because only a
+small part of each state lies inside $\phi$. At the edge of the supercell of
+$32\times32$ cells, $|G_0(\mathbf r,\phi)|$ has fallen to 0.0024 of its peak, so
+the waves of the next impurity are not in the map, and the exit leg sees the
+Fermi surface on 316 k-points.
+
+The keywords of `get_qpi` are:
+
+- **`potential`**: $V$ in Ry. A negative value attracts the electrons.
+- **`height`**: the tip plane, a crystal coordinate along `axis`, in the vacuum.
+- **`impurity`**: an atom index, for an impurity on that atom, or a position in
+  crystal coordinates. If you do not give it, it is atom 0.
+- **`sigma`**: the width of the Gaussian in bohr. It is the size of the impurity,
+  and a small impurity scatters to large $q$.
+- **`energies`**: the energies $\omega$ in Ry. If you do not give them, it is the
+  Fermi level.
+- **`readers`**: `"ldos"`, `"landauer"` or both. For `"landauer"` you also give
+  **`exit_height`**, the exit plane on the other side of the slab.
+- **`shape`**: tip points per surface cell. The Fourier transform then shows
+  `shape` Brillouin zones along each direction.
+- **`broadening`**: $\eta$ in Ry. It must be larger than the level spacing of the
+  k-mesh on the constant-energy contour.
+- **`exchange`**: for an `nspin = 2` run, a magnetic impurity, with $V + J$ for
+  spin up and $V - J$ for spin down.
+- **`born`**: the first Born approximation, $T = V$.
+- **`bands`**: the band window the Green's function and the impurity live in.
+  If you do not give it, every computed band is used.
+- **`exit_method`**: the exit leg of `"landauer"`, `"spectral"` (on shell, the
+  default) or `"resolvent"`. Only the first one converges with the number of
+  bands, see the Limits note.
+- **`grid`**, **`nbnd`**: the full k-mesh and the number of bands of the band
+  calculation. The k-mesh is the supercell, so it decides the size of the map.
+
+`qpi.maps[reader]` is the change in real space, with the impurity cell in the
+middle, and `qpi.transforms[reader]` is its Fourier transform, with $q = 0$ in
+the middle. `qpi.qpi[reader]` is the modulus, and `qpi.backgrounds[reader]` is
+the clean surface in one cell. Two numbers tell you whether the k-mesh is enough.
+`qpi.wraparound` is how much of $|G_0(\mathbf r,\phi)|$ is left at the edge of the
+supercell, and if it is not small, the waves of the next impurity are in the map.
+`qpi.contour_points` is the number of k-points the exit leg of `"landauer"` sees
+on the constant-energy contour.
+
+![Graphene with one impurity on a carbon atom: the QPI pattern of the local density of states at the tip, and of the transmission from the tip to the exit plane.](img/stm_qpi.png#only-light)
+![Graphene with one impurity on a carbon atom: the QPI pattern of the local density of states at the tip, and of the transmission from the tip to the exit plane.](img/stm_qpi-dark.png#only-dark)
+
+We see the $2k_F$ contour in both maps, a rounded square at about
+0.9 bohr$^{-1}$ from $q = 0$, which joins opposite sides of the Fermi surface.
+Its copies, shifted by the reciprocal lattice vectors, cross it, because the tip
+sees the sheet at the atomic scale. The two readers have the same contour, so
+the scattering vectors come from the band structure. What changes is the weight
+along it. The compute script measures the strongest peak along the axes and
+along the diagonals:
+
+```
+ldos      axial / diagonal 2k_F peak 0.495
+landauer  axial / diagonal 2k_F peak 0.424
+```
+
+The axial peaks join the flat sides of the Fermi surface, near X. These states
+have the larger $|\mathbf k_\parallel|$, so they decay faster into the vacuum and
+tunnel less, as in the previous section. So with the matrix element of the STM the
+axial peaks are 14% weaker, relative to the diagonal ones, than the local density
+of states says. On a $40\times40$ mesh with $\eta = 0.025$ Ry the factor is 11%,
+so its size moves by a few per cent with the mesh and its sign does not.
+
+??? example "Code of this figure (docs/figures/stm_qpi/)"
+
+    ```python title="compute.py"
+    --8<-- "stm_qpi/compute.py"
+    ```
+
+    ```python title="plot.py"
+    --8<-- "stm_qpi/plot.py"
+    ```
+
 !!! note "Limits"
     The STM image of a spin spiral works for the charge, which is periodic in
     the cell. A spin-resolved image of a spiral gives an error, because the
@@ -524,7 +666,34 @@ broadening of 0.03 Ry.
     given by `height`. The weights have no absolute scale, so `run.shares()`
     gives shares of a total.
 
+    QPI needs three things at the same time, and they are one condition on the
+    k-mesh. The broadening $\eta$ must be much smaller than the distance in
+    energy to the edge of the band, or the constant-energy contour is a disk. The
+    supercell, $N a$, must be larger than about $2\pi v/\eta$, or the exit leg of
+    `"landauer"` sees the contour on a few k-points, and the map takes the shape
+    of the k-mesh. It must also be larger than about $9 v/\eta$, or the waves of
+    the next impurity are in the map. We measured the second one on graphene,
+    $18\times18$: the deviation from the threefold symmetry of $|\delta T(q)|$ was
+    0.35 at $\eta = 0.03$ Ry and 5e-3 at $\eta = 0.08$ Ry. Graphene at 1.1 eV
+    from the Dirac point with $\eta = 0.06$ Ry gives no QPI pattern at all,
+    because the contour is smeared out and 96% of $|\delta\rho|^2$ is within 4 bohr
+    of the impurity. `qpi.wraparound` and `qpi.contour_points` are the numbers to
+    check. The Green's function and the impurity live in the computed bands, as in
+    a Wannier model, so $T$ depends on `nbnd`. For graphene it moves from 1.90
+    to 1.70 Ry between 12 and 20 bands. For the hydrogen sheet the QPI pattern
+    changes by 1e-3 between 32 and 128 bands with the on-shell exit leg. With the
+    literal $1/(\omega - \varepsilon + i\eta)$ on the exit leg
+    (`exit_method="resolvent"`) it changes by 4e-2 between 32 and 64 bands and
+    does not converge, as in the vertical transport. A spinor run, a spin spiral and an
+    ultrasoft or PAW dataset give an error, the last one because the overlap
+    $\langle\psi|\phi\rangle$ uses the pseudo-wavefunction, which is not the true
+    one inside the augmentation sphere. A symmetry-reduced k-mesh and a k-mesh
+    with more than one point along the normal give an error, and `grid` builds
+    the full mesh. The impurity is one Gaussian, and a tip and an exit plane in
+    the vacuum are needed, as for the vertical transport.
+
 The notebooks for this page are
-[40, STM images](https://github.com/joselado/defuqumat/blob/master/notebooks/40_stm_images.ipynb)
+[40, STM images](https://github.com/joselado/defuqumat/blob/master/notebooks/40_stm_images.ipynb),
+[41, vertical transport](https://github.com/joselado/defuqumat/blob/master/notebooks/41_vertical_transport.ipynb)
 and
-[41, vertical transport](https://github.com/joselado/defuqumat/blob/master/notebooks/41_vertical_transport.ipynb).
+[55, quasiparticle interference](https://github.com/joselado/defuqumat/blob/master/notebooks/55_quasiparticle_interference.ipynb).

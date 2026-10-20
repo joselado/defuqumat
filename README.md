@@ -601,6 +601,14 @@ notebook [40](notebooks/40_stm_images.ipynb).
   $e^{-\sqrt{\kappa_0^2 + k_\parallel^2}\,z}$. So a pocket at the zone corner can
   hold most of the Fermi surface, and still carry little of the current.
   `calc.get_momentum_transport()`.
+- **Quasiparticle interference around one impurity**, by the T-matrix,
+  $T(\omega) = V/[1 - V g_0(\omega)]$ and $G = G_0 + G_0 T G_0$. The scattered
+  waves are read at the tip over the supercell of the k-mesh, and their Fourier
+  transform shows the scattering vectors between states at the same energy. Two
+  readers are given. One is the local density of states at the tip. The other is
+  the transmission from the tip to an exit plane, which weights each wave by the
+  tunnelling matrix element of the STM. `calc.get_qpi()`, notebook
+  [55](notebooks/55_quasiparticle_interference.ipynb).
 - **Fermi-surface nesting function**,
   $N(\mathbf q) = \sum_{\mathbf k}\delta(\epsilon_{\mathbf k} - E_F)\,\delta(\epsilon_{\mathbf k+\mathbf q} - E_F)$.
   It says how much of the Fermi surface falls on itself after a shift by
@@ -727,6 +735,7 @@ task of the other code that it refers to.
 | **Tunnelling spectra** $\mathrm{d}I/\mathrm{d}V$ | `calc.get_sts()` | | |
 | **Vertical tunnelling transport through a 2D material** | `calc.get_vertical_transport()` | (✓)¹⁶ | |
 | **Which k-points the tunnelling current comes from**¹⁷ | `calc.get_momentum_transport()` | | |
+| **Quasiparticle interference**, T-matrix of one impurity | `calc.get_qpi()` | | |
 | **Fermi-surface nesting function** | `calc.get_nesting()` | | ✓ |
 | **X-ray and magnetic structure factors** | `calc.get_structure_factors()` | | ✓ |
 | **Ultra long-range modulations**, the ultracell | `calc.get_ultracell(supercell)` | | ✓ |

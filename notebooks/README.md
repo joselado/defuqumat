@@ -73,6 +73,7 @@ instead, which means the physics is selected in the input file rather than at th
 | The cell's orbital magnetization | `get_orbital_magnetization()` | [39](39_orbital_magnetization.ipynb) |
 | A spin-polarized STM image, one atom's moment at a time | `get_stm(spin=...)` | [40](40_stm_images.ipynb) |
 | What gets *through* a 2D sheet rather than what its surface looks like | `get_vertical_transport()` | [41](41_vertical_transport.ipynb) |
+| The standing waves around one impurity, and how a tunnelling tip weights them (QPI) | `get_qpi()` | [55](55_quasiparticle_interference.ipynb) |
 | One run continued from another across a change of spin regime | `with_spin()` | [18](18_continuing_a_calculation.ipynb) |
 
 ### Response, vibrations and spectra
@@ -191,6 +192,7 @@ want a number.
 | [`51_nonlinear_spectra.ipynb`](51_nonlinear_spectra.ipynb) | The second harmonic of AlAs across the spectrum, with its two-photon and one-photon edges, from the steady state at every frequency, against the sum over states, which converges in the band count and still misses the curvature of the pseudopotential; and silicon's third harmonic, whose coarse-mesh numbers are the mesh's |
 | [`53_electric_field_molecule.ipynb`](53_electric_field_molecule.ipynb) | CO in a saw-tooth field with the dipole correction: the energy, the field energy and the force against `pw.x`, the dipole at five fields and the polarizability along the bond (13.5 bohr^3 in a 10 bohr box, against about 15.6 measured), and where the induced charge goes |
 | [`54_finite_electric_field.ipynb`](54_finite_electric_field.ipynb) | Si8 in a finite field by the Berry phase, switched on from the converged state without field: the energy, the electronic dipole and the force against `pw.x` 7.5, the dipole at five fields, `eps_inf` = 12.08 from the slope on a 3x3x7 string mesh against 11.7 measured, and the third-order response in the residual |
+| [`55_quasiparticle_interference.ipynb`](55_quasiparticle_interference.ipynb) | One impurity on a square hydrogen sheet by the T-matrix: the 2k_F contour of the Fermi surface in the Fourier transform of the tip image, read as the local density of states and as the transmission from the tip to an exit plane, which takes 14% off the axial peaks against the diagonal ones because the states near X decay faster into the vacuum |
 
 ## Conventions
 

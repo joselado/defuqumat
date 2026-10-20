@@ -11252,3 +11252,25 @@ per k. **Memory**: the operator holds `u` and `a`, two `(nk, nocc, npwx)` comple
 writes the duals to disk. The term is not chunked over k (the duals couple neighbours), which is why the
 streamed and pooled stores refuse it. Elk has no Berry-phase field (only `efieldc`, a clamped ramp), so
 there is no Elk pair.
+
+## Quasiparticle interference: the T-matrix against the dense supercell inverse (CPU, 2026-10-20)
+
+`get_qpi` (`PLAN.md` P157) has no reference code: neither `pw.x` nor Elk computes it. The pair is
+therefore against the route that shares no algebra with it, `stm.qpi.dense_reference`, which inverts
+the impurity Hamiltonian in the supercell's band basis and samples every tip point directly. One
+core of this workstation (`taskset -c 2`, `DEFUQUMAT_THREADS=1`, BLAS at one thread), the hydrogen
+sheet of `docs/figures/stm_qpi/h-sheet.in`, both readers, one energy, `shape = (4, 4)`, the second
+and third calls of three:
+
+| | 12x12 (1152 states, 2304 tip points) | 32x32 |
+|---|---|---|
+| `get_qpi`, whole call (band solve on the whole grid, sampling, assembly) | 1.83 s | 15.7 s |
+| of which the T-matrix assembly, per energy | 1.3 ms | 51 ms |
+| dense inverse, `dense_reference` | 21.1 s | not run |
+
+The assembly is the `(N, nk) x (nk, npoints)` phase product and three contractions over bands, so
+an energy axis costs almost nothing beside the band solve, which is the same kind of saving as the
+tunnelling spectrum. The dense route is `(nk nbnd)^3` and is a test. Peak working set beside the
+states: `nk nbnd npoints` complex for the tip amplitudes and `nk nbnd^2` for the exit Gram matrices.
+The guide figure ran on `D22-0161` on one core in 21 s.
+

@@ -204,6 +204,7 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
+- **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
   the `starting_ns` sentence, P150 the exact Jacobian of the SCF map, `jvp = 'sternheimer'`, which
@@ -26785,3 +26786,72 @@ way at master (its fake clock of 104 ticks replaces `time.time` for every caller
 was skipped by every earlier gate, whose worktrees did not link the QE tree. Slow files for the user:
 `tests/regression/test_electrostriction.py` (the metal's four cases, the insulator's five-point test,
 I87's ultrasoft and PAW test) and `tests/regression/test_elastic_one_trace.py`.
+
+### P157 -- Quasiparticle interference from the T-matrix of one impurity, read as the LDOS and as the Landauer transmission at the tip. ✅ DONE 2026-10-20 (fast checks only; `tests/regression/test_qpi.py` is slow and was not run, for the user)
+
+**What it is.** `get_qpi` (`stm/qpi.py`, `workflows/qpi.py`): Rhodes, Kohsaka, Hanaguri, de Almeida
+Marques and Wahl, arXiv:2607.22487, Sec. IV (Eqs. 17-24, 27-38) and V.3 (Eqs. 87-91). The scatterer is
+a separable projector `V |phi><phi|`, `phi` a normalised Gaussian of width `sigma` at `r_imp`, so
+`T(w) = V / (1 - V g0(w))` is one complex number per energy and spin channel; a delta is not offered,
+its `Re g0` is cutoff-dependent. The Green's function is that of the band window (`P G0 P`), which
+for an isolated set of bands is the review's Wannier continuum `G` exactly. The k-grid is the
+Born-von Karman supercell; `G0(R + u, phi) = (1/N) sum_k e^{ik.R} F_k(u)` with the bands sampled at
+the tip points of one cell. Two readers (the user's choice, 2026-10-20): `ldos`, Tersoff-Hamann
+`-Im[G0(r,phi) T G0(phi,r)]/pi`, and `landauer`, `int_exit |G(r,r')|^2` from the tip point to an
+exit plane, which is P66's quantity dressed by the impurity and is the STM matrix element the user
+asked for ("the matrix element between the stm site and the plane where the electron escapes, like
+in landauer didv ... not just plain product of ldos at the tip"). The impurity part factorises:
+`delta T = 2 Re[G0* H] + K |G0|^2`. Neither `pw.x` nor Elk has it (searched: no T-matrix, impurity
+Green's function, Friedel or KKR routine; both have only the Tersoff-Hamann image).
+
+**The numbers.**
+- T-matrix and Bloch factorisation against a dense inverse of the supercell Hamiltonian in the band
+  basis, sampled at every tip point directly (`dense_reference`), on random orthonormal bands in an
+  oblique cell, both readers, both exit legs, `V = 0.4` and `-2.5`: agreement to 1e-10 relative.
+- `landauer` against a real-space quadrature of `int_exit |G(r,r')|^2` over the supercell's exit
+  plane with no Gram matrix: 1e-9. This is the only check on the index order of `A S A^dagger`.
+- `<psi|phi>` against a real-space quadrature: 1e-8 (at +-4.8 sigma the box read 2.7e-6; every
+  other check takes `P` as given, so an error there would only rescale `V`).
+- Born limit: error/`V` falls tenfold from `V = 1e-2` to `1e-3`; at `V = 3` it is >0.1 of the map.
+- The clean `landauer` background is `run_vertical_transport`'s map to 1.3e-15 (hydrogen sheet,
+  6x6, `eta = 0.05`), and `V = 0` gives maps that are exactly zero.
+
+**The trap, which is P66's a second time.** With the literal resolvent on the exit leg the
+`landauer` reader does not converge with the window. Hydrogen sheet, 6x6, `eta = 0.05`, at `E_F`,
+`q != 0` transform against 128 bands: literal 0.22, 0.046, 0.075, 0.094 at 8, 16, 32, 64 bands;
+`ldos` 1.5e-2, 6.9e-3, 1.2e-3, 8.1e-4. `A_mk = psi+_mk(r)/D_mk` with `psi+` the Lippmann-Schwinger
+scattering state, so the exit leg takes P66's on-shell amplitude (`exit_method = 'spectral'`, the
+default) and the scattering state keeps the literal resolvent; then 1.2e-2, 5.4e-3, 9.0e-4,
+6.4e-4, and 32 against 64 bands is 3.5e-4 (literal: 3.8e-2). `T(E_F)` is stable to four digits
+over the same sweep on the sheet. On graphene `T` moves 1.90 to 1.70 Ry from 12 to 20 bands: the
+window is part of the model, as for a Wannier model.
+
+**The regime, which is the finding that nearly went into the record wrong.** QPI needs `eta` much
+smaller than the distance to the band edge, `N a >~ 2 pi v / eta` for the Gaussian exit leg to see
+the contour (`QPI.contour_points`), and `N a >~ 9 v / eta` for no wraparound (`QPI.wraparound`).
+Graphene, 18x18: C3 residue of `|delta T(q)|` 0.35 at `eta = 0.03`, 5.3e-3 at 0.08 (`ldos` 2e-4 to
+8e-4 at both). Graphene at `E_D + 0.08` Ry with `eta = 0.06`, 24x24: 96 per cent of `|delta rho|^2`
+lies within 4 bohr of the scatterer, so the transform is the core's envelope and its peaks sit at
+crystal (0.458, 0.458) and (0.5, 0.5), which is M mod G. A first reading called them intervalley
+scattering because the K points were set for a 120-degree reciprocal basis (`(b1 + 2 b2)/3`,
+1.375 bohr^-1) on a 60-degree one (K = `(b1 + b2)/3`, 0.900); the "intervalley suppression by the
+tunnelling weight" built on it is withdrawn. The figure and the notebook use the hydrogen sheet,
+32x32, `eta = 0.03`, wraparound 0.0024, 316 contour points.
+
+**The physics.** Hydrogen sheet at `E_F`, scatterer on the atom, `V = 0.5`, `sigma = 1`, tip and
+exit 3 bohr from the sheet: both readers show the `2k_F` contour at 0.89 to 0.94 bohr^-1. The axial
+to diagonal peak ratio is 0.495 (`ldos`) and 0.424 (`landauer`), the tunnelling weight taking
+0.856 off the axial peaks (states near X decay faster, as P66's momentum section measured); 40x40 at
+`eta = 0.025` gives 0.892. Aliasing of `shape = (4, 4)` against (8, 8) on the common q points:
+1.3e-2 (`ldos`), 1.7e-2 (`landauer`), and the ratios agree to three digits.
+
+**Cost** (`PERFORMANCE.md`, "Quasiparticle interference"): the T-matrix assembly is 1.3 ms per
+energy on 12x12 and 51 ms on 32x32 of a `get_qpi` call of 1.8 and 15.7 s, the rest the band solve
+and the sampling; the dense supercell inverse on 12x12 is 21.1 s.
+
+**Not here.** Spinors and spirals (a 2x2 `T` and a spin trace in the reader; refused), ultrasoft and
+PAW (`<psi|phi>` with the pseudo-wavefunction; refused), an impurity on atomic orbitals rather than a
+Gaussian, a Lorentzian on-shell exit leg (unmeasured), a smooth core mask before the transform
+(standard in experimental analysis; not added because the core-dominated case is the wrong regime,
+not a missing mask), a magnetic scatterer on a collinear run (`exchange`) is wired but has no
+check beyond the per-channel algebra. Slow file for the user: `tests/regression/test_qpi.py`.
