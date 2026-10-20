@@ -183,8 +183,9 @@ on the torque, in Ry per radian.
     run does not look for the lowest one. So the run stops at the easy
     orientation of the solution it starts on, and a different start can give a
     different solution with a lower energy. On tetragonal cobalt with $U = 1$ eV
-    we found six such states, spread over 1.6e-3 Ry, which is about fifty times
-    the anisotropy. So with a $U$ you should run from two or three starting
+    we found six states, spread over 1.6e-3 Ry, which is about fifty times the
+    anisotropy. Three of them converged, and three were still moving after 200
+    iterations. So with a $U$ you should run from two or three starting
     orientations and keep the lowest energy. At the end of the run the code
     compares $|M|$ with the start, and it warns when the change is larger than
     1e-3 Bohr magnetons, because then a different solution was likely reached.
