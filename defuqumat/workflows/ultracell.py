@@ -536,9 +536,10 @@ def _ultracell_overlap_operator(system, pseudos, states, exit_region: str):
     ``k0 + Q``, the envelope vectors are unitary, the ``(Q, p)`` reconstruction
     is right and the cross-``Q`` copy sum vanishes, and none of the four is
     assumed. Handing the assembly ``np.eye`` instead would have been the check
-    whose null cannot be told from a pass; the plain ``sum_G c* c`` is short by
-    the augmentation charge, 3 to 9 per cent where ``volume_overlap`` measured
-    it.
+    whose null cannot be told from a pass; the plain ``sum_G c* c`` differs
+    from the identity by the augmentation charge, with the dataset's sign: on
+    the silicon ultrasoft and PAW sheets its diagonal is *above* 1 by 0.28
+    (``notes/incompat/I115.md``), so the sign is not to be assumed.
 
     The projectors come from a :class:`~defuqumat.scf.driver.Calculation` on
     the folded k-set, rebuilt here because the result does not carry it, and
@@ -623,8 +624,9 @@ def _ultracell_geometry(states, apply_s=None) -> TransportGeometry:
     wants ``S``. For the **whole cell** on a norm-conserving dataset, because
     there ``S`` *is* the identity and ``sum_G c* c`` is orthonormality itself
     -- which is what makes that diagnostic a check rather than a tautology. For
-    the whole cell on an augmented one it would be short by the augmentation
-    charge, so ``apply_s`` is the ultracell's ``S``
+    the whole cell on an augmented one it would be off by the augmentation
+    charge (above 1 on the silicon datasets, the sign being the dataset's), so
+    ``apply_s`` is the ultracell's ``S``
     (:func:`_ultracell_overlap_operator`). The spectrum
     (:func:`run_ultracell_sts`) takes this bundle too and samples the state at a
     point, which is the first case again. The peak here is the stacked Miller

@@ -18673,8 +18673,8 @@ and asserts the Gram matrix's Hermiticity and positivity there. So the transmiss
 same position as the image and the spectrum, and what it needed was the guard they inherit,
 `_refuse_an_augmented_plane`, asked now of the exit plane as well as of the tip.
 
-**What refuses instead is `exit_region = "volume"`**, the Tersoff-Hamann diagnostic, and the
-reason it is a refusal rather than a two-line identity is worth keeping. `S` in an ultracell
+**What refused instead, until I115 (P156), was `exit_region = "volume"`**, the Tersoff-Hamann diagnostic, and the
+reason it was a refusal rather than a two-line identity is worth keeping. `S` in an ultracell
 state's *plane-wave* representation is a piece of work -- the state spans `N` unit-cell
 spheres with their own projectors. The answer, though, is known without it: the frozen basis
 is exactly `S`-orthonormal across `Q` (the stage 5 derivation above), so the whole-cell Gram
@@ -18683,6 +18683,14 @@ diagnostic agree without looking at the coefficients, where the norm-conserving 
 builds it from them and so checks the reconstruction on the way -- a check whose null result
 cannot be told from a pass. The plain `sum_G c* c` is the other option and is short by the
 augmentation charge, 3 to 9 per cent where `volume_overlap` measured it.
+
+**Superseded by I115 (2026-10-20, P156, `notes/incompat/I115.md`).** The operator was
+written, as `ultracell/augmentation.py:ultracell_overlap` with the `N` copies of every atom
+summed out, and the Gram matrix is built from the coefficients with it, so the objection
+above (an identity handed to the assembly) does not arise. Two readings in the paragraph
+above were wrong: the plain `sum_G c* c` is not short of the identity on the silicon sheets
+but above it, by 0.28 on the diagonal for both the ultrasoft and the PAW dataset; and the
+refusal is now `lspinorb` alone.
 
 **The cell for it is not bulk silicon, and that is the part to know before repeating this.**
 The PAW dataset's augmentation radius is **2.647 bohr** against a **5.889 bohr** interplanar
