@@ -72,7 +72,12 @@ def main():
                 "nat = 1, ntyp = 1,",
                 "nat = 1, ntyp = 1, noncolin = .true.,\n"
                 "    starting_magnetization(1) = 0.5, angle1(1) = 90.0,")
-        path = out / f"sheet-{dataset}.in"
+        elif MODE == "lsda":
+            text = text.replace(
+                "nat = 1, ntyp = 1,",
+                "nat = 1, ntyp = 1, nspin = 2,\n"
+                "    starting_magnetization(1) = 0.5,")
+        path =out / f"sheet-{dataset}.in"
         path.write_text(text)
         calculator = Calculator.from_file(path, pseudo_dir=PSEUDO)
         t = time.time()
