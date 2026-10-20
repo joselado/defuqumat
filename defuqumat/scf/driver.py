@@ -7442,6 +7442,45 @@ def _zeeman_torque(field, rho_out, cell, field_scale) -> np.ndarray:
     return np.asarray(exchange_torque(rho_out, v_field, cell).total)
 
 
+#: How far ``|M|`` may move between the start and the end of a
+#: ``rotate_moments`` run with a Hubbard U before the run warns (Bohr magnetons;
+#: I112). On tetragonal Co at ``U = 1`` eV the end state of a rotation read
+#: ``|M| = 1.7783`` against 1.7814 for plain runs from the atomic start, on a
+#: different solution of the occupation matrix (``notes/incompat/I112.md``).
+ROTATE_HUBBARD_MOMENT_TOL = 1.0e-3
+
+
+def _warn_if_the_hubbard_moment_moved(start: float | None, end: float | None,
+                                      reference: str) -> bool:
+    """Warn at the end of a ``rotate_moments`` run with a U whose ``|M|`` moved (I112).
+
+    The user's decision, taken by Fable while the user was away (2026-10-20):
+    the torque with a U is measured right, but the occupation matrix of a
+    DFT+U cell can have several self-consistent solutions, and the rotation
+    stops at the easy orientation of the one it lands on. A change of ``|M|``
+    by more than :data:`ROTATE_HUBBARD_MOMENT_TOL` is a cheap sign that the
+    solution changed on the way; an unchanged ``|M|`` proves nothing.
+    ``reference`` says what ``start`` is. Returns whether it warned.
+    """
+    if start is None or end is None:
+        return False
+    if abs(end - start) <= ROTATE_HUBBARD_MOMENT_TOL:
+        return False
+    warnings.warn(
+        f"rotate_moments with a Hubbard U: |M| = {end:.6f} mu_B at the end "
+        f"against {start:.6f} at the start ({reference}), a change of "
+        f"{abs(end - start):.2e} mu_B, more than the threshold of "
+        f"{ROTATE_HUBBARD_MOMENT_TOL:.0e} mu_B. A different solution of the "
+        f"occupation matrix was likely reached, and the run stops at the easy "
+        f"orientation of that solution, which need not be the lowest one. Run "
+        f"from two or three starting orientations and keep the lowest energy. "
+        f"An unchanged |M| is not evidence that the lowest solution was found",
+        RuntimeWarning,
+        stacklevel=3,
+    )
+    return True
+
+
 def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
     """What ``rotate_moments`` cannot turn, from the assembled calculation.
 
@@ -8522,6 +8561,14 @@ def run_scf(
         else jnp.asarray(starting_density)
     )
     _warn_if_the_seed_is_not_symmetric(calculation, rho, starting_density is None)
+    # I112: the |M| a rotation with a U is compared against at the end. A
+    # handed-in state (``starting_density``, ``starting_from``) is taken as it
+    # is; an atomic start's moment is a guess, so there the first iteration's
+    # output moment stands in (below, at the end of the run).
+    hubbard_start_moment = None
+    if rotate_moments and calculation.is_hubbard and starting_density is not None:
+        hubbard_start_moment = float(np.linalg.norm(np.asarray(
+            _noncollinear_magnetization(rho, calculation.system.cell.volume))[:3]))
     # ``becsum`` is mixed alongside the density, not derived from it. For an
     # ultrasoft run it could be recomputed from the wavefunctions at any point,
     # but for PAW the one-centre potential is built from it *before* the
@@ -10483,6 +10530,16 @@ def run_scf(
         warn_about_a_cut_shell(levels["cut_gap"], ethr,
                                occupied_counts(calculation), int(nbnd),
                                degeneracy_tol=degeneracy_tol)
+
+    if rotate_moments and calculation.is_hubbard and moment is not None:
+        reference = "the starting state handed in"
+        start_moment = hubbard_start_moment
+        if start_moment is None and history and history[0].get(
+                "magnetization_vector") is not None:
+            reference = "the first iteration's output"
+            start_moment = float(np.linalg.norm(history[0]["magnetization_vector"]))
+        _warn_if_the_hubbard_moment_moved(
+            start_moment, float(np.linalg.norm(moment)), reference)
 
     return SCFResult(
         converged=converged,

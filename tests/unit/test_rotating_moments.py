@@ -226,6 +226,38 @@ def test_the_sibling_refusals_of_rotate_moments_still_fire_on_the_turning_group(
         _refuse_rotating_moments(_stub(turning=True), _field_stub(), True)
 
 
+def test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves():
+    """I112, the user's decision (taken by Fable while the user was away).
+
+    The end-of-run check: ``|M|`` moved by more than 1e-3 mu_B warns that a
+    different occupation-matrix solution was likely reached, names the
+    threshold and asks for two or three starting orientations; within it,
+    nothing. The numbers are tetragonal Co at ``U = 1`` eV (1.7783 at the end
+    of the rotation, 1.7814 on the atomic starts, ``notes/incompat/I112.md``).
+    """
+    import inspect
+    import warnings
+
+    from defuqumat.scf import driver
+    from defuqumat.scf.driver import (ROTATE_HUBBARD_MOMENT_TOL,
+                                      _warn_if_the_hubbard_moment_moved)
+
+    assert ROTATE_HUBBARD_MOMENT_TOL == 1.0e-3
+    with pytest.warns(RuntimeWarning, match="different solution of the occupation matrix") as caught:
+        assert _warn_if_the_hubbard_moment_moved(1.781400, 1.778346, "the starting state handed in")
+    text = str(caught[0].message)
+    assert "1e-03" in text and "two or three starting orientations" in text
+    assert "An unchanged |M| is not evidence" in text
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert not _warn_if_the_hubbard_moment_moved(1.778346, 1.778346 + 9e-4, "x")
+        assert not _warn_if_the_hubbard_moment_moved(None, 1.778346, "x")
+    # The driver calls it at the end of a rotate_moments run with a U, and only there.
+    source = inspect.getsource(driver.run_scf)
+    assert "if rotate_moments and calculation.is_hubbard and moment is not None:" in source
+    assert "_warn_if_the_hubbard_moment_moved(" in source
+
+
 def test_the_orientation_free_group_keeps_identity_and_inversion_only():
     """``det(R) R = 1`` and no time reversal; translations are carried."""
     e = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
