@@ -2660,7 +2660,7 @@ def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
       (``notes/incompat/I111.md``): the same field held fixed, started from the
       converged state, is self-consistent at its first iteration (``dr2``
       1.1e-10), ends 2.2e-10 Ry from the fsm total and on the target to 2e-5
-      mu_B; ``B*`` carries a transverse part of 1.5e-4 Ry that is 1.6e-7 Ry at
+      mu_B; ``B*`` carries a transverse part of 1.5e-4 Ry that is 1.7e-7 Ry at
       ``soc_scale = 0``. It converged with ``mixing_mode = 'adaptive'``; with
       Anderson at ``mixing_beta = 0.3`` it did not, with or without the
       coupling, which ``run_scf`` reports as not converged.
@@ -2692,7 +2692,7 @@ def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
             "updates each cartesian component of the field from its own "
             "component of the moment, which assumes dm_a/dB_b is diagonal, and "
             "spin-orbit coupling is exactly what makes it not (on bcc Fe the "
-            "converged field has a transverse part of 1.5e-4 Ry that is 1.6e-7 "
+            "converged field has a transverse part of 1.5e-4 Ry that is 1.7e-7 "
             "Ry without the coupling). Use fsm_update = 'elk' (the default), "
             "whose fixed gain assumes nothing about dm_a/dB_b"
         )

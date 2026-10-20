@@ -437,7 +437,7 @@ def test_fsm_under_spin_orbit_is_a_fixed_field_fixed_point(pseudo_dir, soc, monk
     target. Measured on D22 (``notes/incompat/I111.md``, ``r5-fsm.log``): first
     ``dr2`` 1.07e-10, total 2.2e-10 Ry from the fsm run, moment 2e-5 off.
     ``soc = 0`` is the term switched off: ``B*`` then has no transverse part
-    (1.6e-7 Ry against 1.5e-4) and is 0.0119 Ry long against 0.0097. The
+    (1.7e-7 Ry against 1.5e-4) and is 0.0119 Ry long against 0.0097. The
     alternative, the field without its transverse part, is
     ``test_fsm_under_spin_orbit_needs_its_transverse_field``. About 90 s (soc 1)
     and 170 s (soc 0) on one D22 core.
