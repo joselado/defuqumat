@@ -496,3 +496,77 @@ next fix round; `w-inc-I99*`, `w-inc-t3-I99` and `w-inc-t3d` go once `incompat-t
 - I108 and I109 (landed): the default of `noncollinear_gga` under `nosource`, left at `'kubler'`. Options: keep `'kubler'`, which preserves every `nosource` GGA run made before I108; or switch to `'grad_m'`. The verifier's facts on the PBE h4 chain: `'kubler'` takes 371 steps to a nearly nonmagnetic state, `'grad_m'` 62 to up-up-down-down. For a meta-GGA there is no earlier run to preserve; BJ06 on the chains is 160 against 46 steps, on Ni TB09 22 each.
 - I99 (landed, below): a meta-GGA on PAW with the potential updated stays refused; lifting it needs PAW's one-centre kinetic energy densities of `becsum(t)` beside `tau(t)`, a new item.
 - I88: a third fix round (an occupation limit below 1e-6 or tied to `small = 1e-12`), or leave it refused.
+
+## Integration three (2026-10-20): I111 and the unit `rotate` (I113, I112 in part)
+
+On the session branch `t3-third` from `incompat-t3` at `9194e6b8`: `git merge --no-ff
+incompat/I111` (dcc7eef0), then `git merge --no-ff incompat/rotate` (5da11a35). Both clean; the
+two touch different files except `tests/unit/test_magnetic_fields.py`, which merged without a
+conflict. Both units were confirmed by their verifiers, with text corrections, applied at
+integration:
+
+- **I111** (`notes/incompat/I111.md`, "Integration"): the `soc_scale = 0` total is at the cap
+  (-253.6854500 Ry, converged -253.6854174); its held field runs away from the at-cap state; the
+  Limits gains and iteration counts are one Fe cell's (norm-conserving Ni `'fsm'` fails with or
+  without the coupling, the controller in a regime it already failed in); the transverse 1.5e-4 Ry
+  is one mesh and target, 3.7e-7 to 1.55e-4 Ry over three cells, also in the secant refusal message
+  and the docstring of `_refuse_feedback_spin_orbit`. The ledger entry's test name is now
+  `test_the_fixed_spin_moment_field_runs_under_spin_orbit_coupling`, given in its "Closed since" line.
+- **I113**: the -0.074 per cent residue is not `K3` (three-field fit `K3 = -1.35e-8` Ry, gap left),
+  cause not identified, candidate the 0.076 per cent `|M|` difference between the z and x runs; in
+  the record and the slow test's comment.
+- **I112**: six states spanning 1.58e-3 Ry, not five in 9e-4.
+
+**The decision on I112, taken by Fable while the user was away** (night log, 2026-10-20): keep the
+lift (option 2 of the three in `I112.md`); the Limits note says to run from two or three starting
+orientations and keep the lowest energy; and the code warns at the end of a `rotate_moments` run
+with a U when `|M|` differs from the start by more than 1e-3 mu_B, the threshold stated in the
+warning and in the guide, both saying an unchanged `|M|` is not evidence that the lowest solution
+was found. Reason: the torque is measured right; several `ns` solutions exist regardless of
+`rotate_moments`; a warning turns a silent wrong answer into a named one. Written as
+`scf/driver.py:_warn_if_the_hubbard_moment_moved` with `ROTATE_HUBBARD_MOMENT_TOL`, and the fast
+test `test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves`. The reference `|M|` is the
+state handed in, else the first iteration's output; whether it fires on the record's 45-degree run
+was not measured, and on an atomic start it can fire without a change of branch (`I112.md`).
+
+Guide: `magnetism.md` (I111) and `anisotropy.md` (I112 and I113) Limits notes; `tools/check_guide.py`
+passes. README: the bullet "Easy orientation of a magnetic texture" gained I112's three sentences; no
+table cell changed. Ledger: I111 and I113 to "Closed since", I112 partial in place. `PLAN.md` P156:
+the integration-three table; nothing in the outstanding index at the head of §3 names these pairs.
+
+**`OPEN.md` candidates, for the user** (not fixed, not entered):
+
+- `run_scf(starting_from=...)` from an **unconverged** source fails with an electron-count error
+  that reads like a pseudopotential mismatch ("pseudopotential differs"), not like the unconverged
+  source it is (I111 verifier).
+- The hand-over warning under `starting_from` says the source converged when it had not (I111
+  verifier).
+- The total energy printed at the first iteration of a run started from a converged state under a
+  fixed field is 7.7e-5 Ry off the converged value (-253.6828868 against -253.6828097), while the
+  second iteration is 2.2e-10 off (I111 record; only `dr2` and the moment of that iteration are
+  used there).
+
+**Slow files for the user** (none run):
+
+- `tests/regression/test_magnetic_constraints.py`: I111's three,
+  `test_fsm_under_spin_orbit_is_a_fixed_field_fixed_point[1.0]` and `[0.0]`, and
+  `test_fsm_under_spin_orbit_needs_its_transverse_field` (about 90, 170 and 90 s on one D22 core).
+- `tests/regression/test_anisotropy.py`: I113's
+  `test_turning_the_moments_in_a_field_balances_the_anisotropy_against_the_zeeman_term` (about 45 s),
+  I112's `test_the_torque_with_a_hubbard_u_is_the_derivative_of_the_frozen_band_energy` (about 30 s)
+  and `test_turning_the_moments_with_a_hubbard_u_stops_on_a_fixed_point_of_the_plain_loop` (about
+  70 s; it now also passes through the new warning), and the existing Route C test
+  `test_turning_the_moments_inside_the_scf_converges_on_the_easy_axis`.
+- `tests/regression/test_relaxed_anisotropy.py`, as the guard of the unchanged no-field, no-U path
+  through the changed torque code.
+
+**What the user decides, after integration three:**
+
+- I113: whether to admit a uniform field on the turning group `{E, I}` without `nosym` (kept
+  refused, the conservative choice).
+- I112: the decision above was Fable's; it stands until the user changes it.
+
+**D22 worktrees that can be removed after `incompat-t3` is merged** (none removed): `/l/ladovj1/w-inc-t3e`
+(this gate), `w-inc-I111*` and `w-inc-rotate*`.
+
+**Fast gate on D22**: see the next paragraph.
