@@ -9506,3 +9506,22 @@ and a larger `ecutrho` to see whether the 4.8e-4 moves.
 and the H2 fold either falling with the grid (a convergence) or located as a term. Until then the
 refusal message of the phonon at `q` and the guide say "use an LDA functional", not "a supercell at
 `Gamma`".
+
+# Part XXIX -- a fast test that no gate ran, 2026-10-20
+
+## 1. `test_max_seconds_stops_the_loop_and_leaves_a_checkpoint` fails at master, unseen because its file skips without the QE tree **[open 2026-10-20]**
+
+**What it affects.** One fast test, not the code: `tests/unit/test_scf_restart.py::test_max_seconds_stops_the_loop_and_leaves_a_checkpoint`
+fails with "generator raised StopIteration" at `pseudo/projectors.py:472`, at 6a46d974 and at f665698d alike
+(D22 `review/incompat/t3-I88/gate.log` and `restart-master.log`). The test's fake clock replaces `time.time` for
+every caller and holds 104 ticks, and the projector build that `run_scf` reaches while it constructs its
+`Calculation` uses them up before the SCF loop starts. Every earlier gate on D22 skipped the whole file, since
+its six tests read the QE tree by the relative path `quantum_espresso/...` and ignore `DEFUQUMAT_QE_ROOT`, so the
+gate's "2 failures at master" was 3 with the tree linked.
+
+**What to do.** Make the fake clock advance only inside the SCF loop (patch the clock the loop reads rather
+than `time.time`, or make the generator unbounded with a step that triggers `max_seconds` after a fixed number
+of SCF iterations), and make the file honour `DEFUQUMAT_QE_ROOT`, so D22's gate runs it without a symlink.
+
+**How to know it worked:** the test passes on D22 without the symlink and is not skipped, and it fails when
+`max_seconds` is ignored by the loop (the guard tested to fire).
