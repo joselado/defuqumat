@@ -1491,6 +1491,102 @@ def test_turning_the_moments_in_a_field_balances_the_anisotropy_against_the_zeem
     assert abs(k1 - relaxed) > 1.0e-2 * relaxed
 
 
+def _cobalt_with_u(angle: float):
+    """Tetragonal cobalt with the coupling and ``U(Co-3d) = 1`` eV, ortho-atomic, ``nosym``."""
+    text = (GENERATED / "co-tetragonal-relaxed-mae.in").read_text().replace(
+        "angle1(1) = 0.0, angle2(1) = 0.0,", f"angle1(1) = {angle}, angle2(1) = 0.0,")
+    assert f"angle1(1) = {angle}" in text
+    text = text + "HUBBARD {ortho-atomic}\nU Co-3d 1.0\n"
+    return Calculator.from_text(text, pseudo_dir=GENERATED.parent / "pseudo",
+                                announce=False)
+
+
+@pytest.mark.slow
+def test_the_torque_with_a_hubbard_u_is_the_derivative_of_the_frozen_band_energy(monkeypatch):
+    """I112: the torque ``rotate_moments`` steps on, with a U, is ``-dF/dtheta`` at a frozen input.
+
+    The converged state along ``c`` is turned rigidly by ``theta`` about ``y``,
+    the density by ``rotate_texture`` and ``ns`` by ``rotate_ns``, and
+    diagonalised once at a tight threshold. The band free energy of that one
+    diagonalisation has the derivative ``sum f <dH/dtheta>``, which is minus
+    the recorded torque, the grid integral plus DFT+U's share; a central
+    difference at ``h = 0.5`` degree shares no machinery with the torque.
+    Measured on D22 (``notes/incompat/I112.md``): -1.5e-5 relative at 20 and
+    45 degrees (-2.4e-4 at ``h = 2``, the ``h^2`` of the stencil), and +0.52
+    with DFT+U's share left out.
+    """
+    import jax.numpy as jnp
+
+    import defuqumat.scf.driver as driver
+    from defuqumat.forces.torque import rotate_texture
+    from defuqumat.scf.orientation import rotate_ns, rotation_matrix
+
+    shares = []
+    original = driver._hubbard_torque
+
+    def logged(ns_out, v_ns):
+        value = original(ns_out, v_ns)
+        shares.append(np.asarray(value))
+        return value
+
+    monkeypatch.setattr(driver, "_hubbard_torque", logged)
+    calc = _cobalt_with_u(0.0)
+    reference = calc.get_scf(conv_thr=1.0e-12, max_iterations=150)
+    assert reference.converged
+    rho0, ns0 = np.asarray(reference.density), np.asarray(reference.ns)
+
+    def frozen(theta):
+        omega = np.array([0.0, np.radians(theta), 0.0])
+        shares.clear()
+        result = driver.run_scf(
+            calc.system, calc.pseudos,
+            starting_density=jnp.asarray(rotate_texture(rho0, rotation_matrix(omega))),
+            starting_ns=jnp.asarray(rotate_ns(ns0, omega)),
+            max_iterations=1, diago_thr_init=1.0e-12, conv_thr=1.0e-30)
+        free = float(np.sum(np.asarray(result.occupations) * np.asarray(result.eigenvalues))
+                     + result.energy_terms.get("smearing", 0.0))
+        return free, np.asarray(result.history[0]["orientation_torque"]), shares[0]
+
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")    # the one-iteration runs do not converge, by design
+        _, torque, hubbard = frozen(20.0)
+        h = 0.5
+        derivative = (frozen(20.0 + h)[0] - frozen(20.0 - h)[0]) / (2.0 * np.radians(h))
+    assert (derivative + torque[1]) / abs(torque[1]) == pytest.approx(0.0, abs=1.0e-4)
+    # Measured 0.5225 and 0.5227 at 20 degrees (h = 2, 0.5), 0.5248 and 0.5250 at 45.
+    without = (derivative + torque[1] - hubbard[1]) / abs(torque[1])
+    assert without == pytest.approx(0.5227, abs=0.01)
+
+
+@pytest.mark.slow
+def test_turning_the_moments_with_a_hubbard_u_stops_on_a_fixed_point_of_the_plain_loop():
+    """I112: ``rotate_moments`` with a U ends where a plain SCF from its state does not move.
+
+    From 45 degrees the run turns the density, the mixer history and ``ns``
+    together and stops at 38.557 degrees from ``c`` (``torque_conv_thr =
+    1e-9``). A plain SCF from its density and ``ns`` converges in about ten
+    iterations and moves the moment by 3e-5 degree and the energy by 1e-12
+    Ry. The end state is a branch of the occupation matrix that the atomic
+    start does not reach on the axes, which ``notes/incompat/I112.md`` records.
+    """
+    from defuqumat.scf.driver import run_scf
+
+    calc = _cobalt_with_u(45.0)
+    turned = calc.get_scf(rotate_moments=True, torque_conv_thr=1.0e-9, conv_thr=1.0e-12,
+                          max_iterations=300)
+    assert turned.converged
+    m = np.asarray(turned.magnetization_vector)
+    angle = np.degrees(np.arctan2(np.hypot(m[0], m[1]), m[2]))
+    assert angle == pytest.approx(38.557, abs=0.01)
+    stays = run_scf(calc.system, calc.pseudos, starting_density=turned.density,
+                    starting_ns=turned.ns, conv_thr=1.0e-12, max_iterations=100)
+    assert stays.converged
+    n = np.asarray(stays.magnetization_vector)
+    assert np.degrees(np.arctan2(np.hypot(n[0], n[1]), n[2])) == pytest.approx(angle, abs=1e-3)
+    assert stays.total_energy == pytest.approx(turned.total_energy, abs=1.0e-9)
+
+
 def test_turning_the_moments_without_the_coupling_is_refused():
     """Without the coupling the orientation is not a coordinate, so no step is taken."""
     from defuqumat.scf.driver import run_scf
