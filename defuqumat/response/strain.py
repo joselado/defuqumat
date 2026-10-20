@@ -957,10 +957,11 @@ def _require_a_measured_metal_regime(calculation) -> None:
 #: response is refused. It is :data:`STRAIN_SMEARING_SMALL`, the value the
 #: projector's cutoff counts as zero, by measurement rather than by construction
 #: (``notes/incompat/I88.md``, third fix round, D22 ``review/incompat/I88/r3``).
-#: The systematic it guards against is the solve for a band that holds weight
-#: dividing by that band's gap to the first band *not* computed, which on a
-#: ``nosym`` grid can be 1e-8 Ry, so the error is that weight over that gap and
-#: does not fall monotonically with the top band's occupation: on the
+#: The systematic it guards against reads, on the curve, as the solve for a
+#: band that holds weight dividing by that band's gap to the first band *not*
+#: computed, which on a ``nosym`` grid can be 1e-8 Ry (a reading of the pair
+#: below, not a measured term), and it does not fall monotonically with the top
+#: band's occupation: on the
 #: Fermi-Dirac ``degauss = 0.05`` copy of ``al2-metal.in``, ``C_1111`` is off a
 #: five-point difference of ``F`` by -9.0e-4 at ``nbnd = 12`` (3.0e-8 in the top
 #: band) and -4.0e-4 at ``nbnd = 13`` (6.6e-10), flat in the step, while
@@ -976,7 +977,7 @@ def _require_a_measured_metal_regime(calculation) -> None:
 #: ``0.08`` with 1.9e-6, Gaussian and Methfessel-Paxton ``0.05`` with 1.1e-11 and
 #: 3.8e-11), because there the near-degenerate pairs above the cut sit where
 #: those tails hold nothing, which is a property of the cell and not of the
-#: smearing; one more band takes each below 2e-13. ``al2-metal.in`` (3.2e-14)
+#: smearing; at ``degauss = 0.1``, one more band takes each below 2e-13. ``al2-metal.in`` (3.2e-14)
 #: and ``al2-metal-mp.in`` (1.6e-17) pass.
 STRAIN_TOP_BAND_OCCUPATION = STRAIN_SMEARING_SMALL
 
@@ -988,8 +989,9 @@ def _require_an_empty_top_band(calculation, eigenvalues, fermi_energy) -> None:
     Sternheimer solve for a band that holds weight works in the complement of
     the computed ones, so it divides by the gap between that band and the
     first one not computed. Where the two are degenerate to 1e-8 Ry the
-    response is wrong by the band's weight over that gap, which a difference
-    of the free energy reads as a systematic flat in the step (-4.0e-4 on
+    response is then wrong by the band's weight over that gap, which is how
+    the measured curve reads (not a measured term), and a difference of the
+    free energy sees a systematic flat in the step (-4.0e-4 on
     ``C_1111`` with 6.6e-10 in the top band, see
     :data:`STRAIN_TOP_BAND_OCCUPATION`), and with 1.2e-2 in band 7
     (``al2-metal.in`` with Fermi-Dirac ``degauss = 0.05`` at ``nbnd = 7``) the
