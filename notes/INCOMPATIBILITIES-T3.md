@@ -697,7 +697,8 @@ leaves the metal's tensor unchanged.
 
 Guide: `stress.md` Limits (the elastic constants) gains the metal paragraph, with 1e-12, the
 Fermi-Dirac `nbnd = 17` cost and the Gaussian and Marzari-Vanderbilt window in one sentence;
-`phonons.md`'s strain-response sentence no longer says "for an insulator". README: no change (the
+`phonons.md`'s strain-response sentence no longer says "for an insulator"; `tools/check_guide.py`
+passes (run on the workstation, since D22's venv has no `yaml`). README: no change (the
 row "Elastic constants" has empty `QE` and `Elk` cells and the bullet says nothing about metals).
 Ledger: I88 to "Closed since". `PLAN.md` P156: the integration-five table.
 
@@ -722,7 +723,12 @@ fails the same way at master `6a46d974` (worktree `/l/ladovj1/w-inc-t3-I88-maste
 `restart-master.log`, 1 failed, 40 passed). Earlier gates never ran it, because `test_scf_restart.py`
 skips without `<worktree>/quantum_espresso/qe-7.5-ReleasePack/qe-7.5`, which this worktree links. The
 test replaces `driver.time.time`, which is the `time` module's own function, with an iterator of 104
-ticks, and the SCF's other callers of `time.time()` (the projector build among them) exhaust it.
+ticks, and the iterator runs out in the projector build while `run_scf` constructs its
+`Calculation`, before the loop starts. Against master's gate (`t3g`: 4127 passed, 71 skipped, 1844
+deselected), the skips are -6 from `test_scf_restart.py` and +2 from `test_config.py` (one CPU in a
+`slot.sh` slot, `DEFUQUMAT_THREADS` set; the `taskset` launch of earlier gates does not reach them),
+the deselected +4 are I88's slow metal cases, and the passes +10 are the five restart tests and I88's
+fast tests.
 The skips are the expected ones: `test_basis.py` and `test_geometry.py` (Wyckoff positions,
 `use_all_frac`, `force_symmorphic`, `one_atom_occupations`, QE's symmetry-reduced grids, the
 per-spin k lists), `test_input_sweep.py` (`eval_infix`), `test_config.py` (one CPU in the slot,

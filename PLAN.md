@@ -26781,7 +26781,7 @@ refusal message of `_require_an_empty_top_band` (the verifier's corrections). Fa
 `/l/ladovj1/review/incompat/t3-I88/gate.log`): 3 failed, 4137 passed, 67 skipped, 1848 deselected
 in 1081 s. The failures are the `yaml` pair and
 `test_scf_restart.py::test_max_seconds_stops_the_loop_and_leaves_a_checkpoint`, which fails the same
-way at master (its fake clock of 104 ticks replaces `time.time` for every caller and runs out) and
+way at master (its fake clock of 104 ticks replaces `time.time` for every caller and runs out in the projector build at `Calculation` construction) and
 was skipped by every earlier gate, whose worktrees did not link the QE tree. Slow files for the user:
 `tests/regression/test_electrostriction.py` (the metal's four cases, the insulator's five-point test,
 I87's ultrasoft and PAW test) and `tests/regression/test_elastic_one_trace.py`.
