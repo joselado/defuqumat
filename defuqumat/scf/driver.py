@@ -602,6 +602,28 @@ def _pack_ns(ns, dtype, real):
     return packed.ravel()
 
 
+def _turn_packed_ns(vector, offset, shape, dtype, omega):
+    """Turn the ``ns`` block of a packed mixer vector in its spin indices (I112).
+
+    The block starts at ``offset`` and is :func:`_pack_ns` of an ``ns`` of
+    ``shape`` and ``dtype``, as :func:`_mix` packs it after ``becsum``; it is
+    unpacked, turned by :func:`~defuqumat.scf.orientation.rotate_ns` and packed
+    back in place, and the rest of ``vector`` is left alone. Host-side, as the
+    history it acts on is.
+    """
+    from defuqumat.scf.orientation import rotate_ns
+
+    real = np.empty(0, dtype).real.dtype
+    vector = np.array(vector, copy=True)
+    size = _pack_ns(np.zeros(shape, dtype), dtype, real).size
+    packed = np.ascontiguousarray(vector[offset:offset + size], dtype=real)
+    if np.issubdtype(dtype, np.complexfloating):
+        packed = packed.view(dtype)
+    vector[offset:offset + size] = _pack_ns(
+        rotate_ns(packed.reshape(shape), omega), dtype, real)
+    return vector
+
+
 #: Put ``becsum`` back into the Anderson fit, which is what this code did before
 #: ``PLAN.md`` P107. Kept only so that the A/B behind that phase can be re-run;
 #: ``pw.x`` never fits on it. It acts only on the flat fit, which runs when
@@ -10188,7 +10210,7 @@ def run_scf(
                 # its spin indices as the states do (I112).
                 turns_ns = calculation.is_hubbard and ns_state is not None
                 if turns_ns:
-                    ns_dtype, ns_real = _ns_dtypes(ns_state)
+                    ns_dtype, _ = _ns_dtypes(ns_state)
                     turned_ns_shape = tuple(np.shape(ns_state))
 
                 def turn_packed(vector, turn=turn, shapes=history_shapes,
@@ -10204,15 +10226,8 @@ def run_scf(
                         vector[offset:offset + size] = block.ravel()
                         offset += size
                     if turns_ns:
-                        size = _pack_ns(np.zeros(turned_ns_shape, ns_dtype), ns_dtype,
-                                        ns_real).size
-                        packed = np.ascontiguousarray(
-                            vector[offset:offset + size], dtype=ns_real)
-                        if np.issubdtype(ns_dtype, np.complexfloating):
-                            packed = packed.view(ns_dtype)
-                        vector[offset:offset + size] = _pack_ns(
-                            rotate_ns(packed.reshape(turned_ns_shape), step),
-                            ns_dtype, ns_real)
+                        vector = _turn_packed_ns(vector, offset, turned_ns_shape,
+                                                 ns_dtype, step)
                     return vector
 
                 rho = rotate_texture(rho, turn)

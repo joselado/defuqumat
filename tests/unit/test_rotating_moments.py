@@ -357,6 +357,36 @@ def test_the_occupation_matrix_turns_with_the_states_as_conj_u_n_u_transpose():
         np.testing.assert_allclose(np.asarray(got), np.asarray(expected), atol=1e-12)
 
 
+def test_the_packed_mixer_vector_turns_its_ns_block_and_nothing_else():
+    """The ``ns`` block of a history vector, packed as ``_mix`` packs it, turns as ``rotate_ns``.
+
+    A density-like head, a ``becsum``-like block, then the complex ``ns`` viewed
+    as interleaved reals, then a ``tau``-like tail. Only the ``ns`` block moves,
+    and it unpacks to ``conj(U) N U^T`` exactly; the same call on a block one
+    entry off would not unpack to it, which is what an offset error would give.
+    """
+    from defuqumat.scf.driver import _ns_dtypes, _pack_ns, _turn_packed_ns
+    from defuqumat.scf.orientation import rotate_ns
+
+    rng = np.random.default_rng(11)
+    ns = rng.normal(size=(4, 1, 5, 5)) + 1j * rng.normal(size=(4, 1, 5, 5))
+    dtype, real = _ns_dtypes(ns)
+    head, becsum, tail = rng.normal(size=37), rng.normal(size=12), rng.normal(size=9)
+    vector = np.concatenate([head, becsum, _pack_ns(ns, dtype, real), tail])
+    omega = np.array([0.2, -0.4, 0.3])
+    offset = head.size + becsum.size
+    turned = _turn_packed_ns(vector, offset, ns.shape, dtype, omega)
+    size = 2 * ns.size
+    np.testing.assert_array_equal(turned[:offset], vector[:offset])
+    np.testing.assert_array_equal(turned[offset + size:], vector[offset + size:])
+    got = np.ascontiguousarray(turned[offset:offset + size]).view(dtype).reshape(ns.shape)
+    np.testing.assert_allclose(got, rotate_ns(ns, omega), rtol=0, atol=1e-14)
+    assert np.abs(got - ns).max() > 0.1
+    shifted = _turn_packed_ns(vector, offset + 1, ns.shape, dtype, omega)
+    wrong = np.ascontiguousarray(shifted[offset:offset + size]).view(dtype).reshape(ns.shape)
+    assert np.abs(wrong - rotate_ns(ns, omega)).max() > 0.1
+
+
 def test_the_hubbard_torque_is_the_derivative_of_the_pairing_under_the_exact_turn():
     """:func:`_hubbard_torque` against a central difference of ``Re sum(R(w) ns . v)``.
 
