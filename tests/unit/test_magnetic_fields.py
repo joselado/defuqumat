@@ -685,19 +685,19 @@ def _fsm_soc(lspinorb: str, extra: str = "") -> str:
     return text % lspinorb
 
 
-def test_the_fixed_spin_moment_field_refuses_spin_orbit_coupling():
-    """Elk's fixed gain assumes nothing about ``dm_a/dB_b``, and is still refused.
+def test_the_fixed_spin_moment_field_runs_under_spin_orbit_coupling():
+    """Elk's rule assumes nothing about ``dm_a/dB_b``, so SOC is admitted (I111).
 
-    The diagonal-secant argument does not apply to ``fsm_update = 'elk'``, so
-    the refusal is on a measurement instead (I111): on bcc Fe at one k-point
-    with a target off the axis it did not converge in 1500 iterations of Elk's
-    mixer or 400 of Anderson, and neither did the penalty it was to be checked
-    against. ``notes/incompat/I111.md`` has the numbers.
+    ``B <- B - tau (m - m_fix)`` is a fixed gain: no susceptibility is measured
+    or inverted, and its fixed point is the field at which the self-consistent
+    moment is the target whatever the off-diagonal response is. Measured by
+    holding the converged field fixed from the converged state, which is
+    self-consistent at its first iteration (``notes/incompat/I111.md``,
+    ``tests/regression/test_magnetic_constraints.py::test_fsm_under_spin_orbit_is_a_fixed_field_fixed_point``).
     """
-    system = _build(_fsm_soc(".false."))
-    assert system.fsm_update == "elk"
-    with pytest.raises(ValueError, match="measured not to converge"):
-        _build(_fsm_soc(".true."))
+    system = _build(_fsm_soc(".true."))
+    assert system.lspinorb and system.fsm_update == "elk"
+    assert system.constrained_magnetization == "fsm"
 
 
 def test_the_fixed_spin_moment_secant_refuses_spin_orbit_coupling():
@@ -764,8 +764,7 @@ def test_with_spin_cannot_switch_spin_orbit_on_under_a_refused_feedback_field():
     with pytest.raises(ValueError, match="per-atom feedback field has not been"):
         atomic.with_spin(4, lspinorb=True)
     elk = _build(_fsm_soc(".false."))
-    with pytest.raises(ValueError, match="measured not to converge"):
-        elk.with_spin(4, lspinorb=True)
+    assert elk.with_spin(4, lspinorb=True).lspinorb
     # A system with no feedback field is unaffected by the check.
     plain = _build(_REDUCEBF % "1.0").with_spin(4)
     assert plain.with_spin(4, lspinorb=True).lspinorb

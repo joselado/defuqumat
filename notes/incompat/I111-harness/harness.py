@@ -42,8 +42,10 @@ from defuqumat.scf.driver import run_scf
 import defuqumat.system.builder as builder
 from defuqumat.system.builder import build_system
 
-# Run 4 measures the regime the WIP guard refuses: 'fsm' with fsm_update =
-# 'elk' under lspinorb. The secant and the per-atom checks stay in force.
+# Runs 4 to 6 measured the regime the WIP guard refused: 'fsm' with
+# fsm_update = 'elk' under lspinorb. The guard now admits it, so this wrapper
+# is a no-op kept for reproducing those runs at b78a7359 to a9bc2e30. The
+# secant and the per-atom checks stay in force.
 _guard = builder._refuse_feedback_spin_orbit
 
 
