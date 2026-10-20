@@ -5,6 +5,7 @@ Usage (from a checkout root, under slot.sh):
   r3.py curve <smearing>:<degauss>:<nbnd> [...]   identity at h = 1e-3, 2e-3, 4e-3
   r3.py scan <smearing>:<degauss>:<nbnd>:<celldm>:<grid> [...]   SCF only, top-band occupation
   r3.py path <input> [...]                         top-band occupation of a committed cell
+  r3.py guardpath <input> [...]                    the same, then call strain_response
   r3.py guard <smearing>:<degauss>:<nbnd>          call strain_response, print refusal or not
 
 The cell is al2-metal.in (a = 7.50, 4x4x2, nosym) with the smearing line and
@@ -149,12 +150,24 @@ def identity(state, names=("00", "01", "rand")):
         say(f"  CURVE top {top:.3e} {name} analytic {an[name]:.6f}: " + "; ".join(row))
 
 
+def guard(state):
+    system, pseudos, calculation, result, eigenvalues, psi, _ = state
+    try:
+        strain_response(calculation, psi, eigenvalues, jnp.asarray(result.density),
+                        result.becsum, **IDENTITY)
+        say("  GUARD DID NOT FIRE")
+    except NotImplementedError as error:
+        say("  refused:", str(error)[:400])
+
+
 def main():
     mode, specs = sys.argv[1], sys.argv[2:]
     OUT.mkdir(parents=True, exist_ok=True)
     for spec in specs:
-        if mode == "path":
-            ground(Path(spec))
+        if mode in ("path", "guardpath"):
+            state = ground(Path(spec))
+            if mode == "guardpath":
+                guard(state)
         else:
             parts = spec.split(":")
             path = write_input(*parts) if mode == "scan" else write_input(*parts[:3])
@@ -162,13 +175,7 @@ def main():
             if mode == "curve":
                 identity(state)
             elif mode == "guard":
-                system, pseudos, calculation, result, eigenvalues, psi, _ = state
-                try:
-                    strain_response(calculation, psi, eigenvalues, jnp.asarray(result.density),
-                                    result.becsum, **IDENTITY)
-                    say("  GUARD DID NOT FIRE")
-                except NotImplementedError as error:
-                    say("  refused:", str(error)[:400])
+                guard(state)
         jax.clear_caches()
 
 
