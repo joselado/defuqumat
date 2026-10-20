@@ -7486,7 +7486,7 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
             "holds the orientation the step is moving, so the two fight; a "
             "penalty's fixed point is a stationary point of a different "
             "functional, and a fixed-spin-moment field is driven towards its "
-            "own target. An applied field without a constraint is turned with"
+            "own target. An applied field without a constraint is admitted under nosym"
         )
     if field is not None and float(field.reducebf) != 1.0:
         raise NotImplementedError(
