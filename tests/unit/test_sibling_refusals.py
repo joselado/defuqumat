@@ -674,26 +674,48 @@ def test_the_magnetoelectric_ground_states_take_the_inputs_mixing(monkeypatch):
 
 
 def test_the_strain_response_refuses_a_metal_with_a_full_top_band():
-    """``I88`` fix round: a metal whose highest band holds weight is refused.
+    """``I88`` third fix round: a metal whose highest band holds more than
+    ``STRAIN_TOP_BAND_OCCUPATION`` (1e-12) is refused, and one below it is not.
 
-    The guard reads the occupation of the highest computed band at the run's
-    own level; the measured case is Fermi-Dirac ``degauss = 0.05`` on
-    ``al2-metal.in`` at ``nbnd = 7`` (1.2e-2 in band 7), whose response did
-    not return. The same eigenvalues with the top band far above the level
-    pass, so the test also shows the guard is not always firing.
+    The limit was measured, not inherited: on the Fermi-Dirac copy of
+    ``al2-metal.in`` the elastic constants are 4.0e-4 off with 6.6e-10 in the
+    top band, so QE's 6.96e-5, the limit before this round, admitted a wrong
+    answer. The stub is a Gaussian metal at ``degauss = 0.02``; the top band
+    is put where its occupation is a factor of about 3 above the limit, then
+    about 3 below, and at 1e-6, which the old limit let through.
     """
     import numpy as np
 
-    from defuqumat.response.strain import _require_an_empty_top_band
+    from defuqumat.response.strain import (
+        STRAIN_SMEARING_SMALL,
+        STRAIN_TOP_BAND_OCCUPATION,
+        _require_an_empty_top_band,
+    )
+    from defuqumat.scf.occupations import smearing_order, wgauss
 
+    assert STRAIN_TOP_BAND_OCCUPATION == STRAIN_SMEARING_SMALL == 1e-12
     calculation = _metallic_calculation()
-    hot = np.array([[[0.1, 0.3, 0.5]]])
-    with pytest.raises(NotImplementedError) as raised:
-        _require_an_empty_top_band(calculation, hot, 0.5)
-    assert "Raise nbnd" in str(raised.value)
-    assert "band 3" in str(raised.value)
-    cold = np.array([[[0.1, 0.3, 1.5]]])
-    _require_an_empty_top_band(calculation, cold, 0.5)
+    degauss = float(calculation.system.degauss)
+    order = smearing_order(calculation.system.smearing)
+    level = 0.5
+
+    def top_band_at(x):
+        bands = np.array([[[0.1, 0.3, level + x * degauss]]])
+        held = abs(float(wgauss(-x, order)))
+        return bands, held
+
+    for x in (4.80, 3.36):
+        hot, held = top_band_at(x)
+        assert held > 2.0 * STRAIN_TOP_BAND_OCCUPATION
+        with pytest.raises(NotImplementedError) as raised:
+            _require_an_empty_top_band(calculation, hot, level)
+        assert "Raise nbnd" in str(raised.value)
+        assert "band 3" in str(raised.value)
+        assert "1e-12" in str(raised.value)
+    assert abs(float(wgauss(-3.36, order)) - 1e-6) < 2e-7
+    cold, held = top_band_at(5.10)
+    assert held < 0.5 * STRAIN_TOP_BAND_OCCUPATION
+    _require_an_empty_top_band(calculation, cold, level)
 
 
 def test_the_strain_route_cuts_the_smearing_tighter_than_the_phonon():

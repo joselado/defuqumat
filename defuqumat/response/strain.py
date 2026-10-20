@@ -114,7 +114,6 @@ from defuqumat.response.sternheimer import (
     pass_threshold,
     require_a_sternheimer_regime,
     smearing_of,
-    _SMALL,
 )
 from defuqumat.response.velocity import over_kpoints
 from defuqumat.scf.density import becsum as becsum_of
@@ -955,23 +954,57 @@ def _require_a_measured_metal_regime(calculation) -> None:
 
 
 #: The occupation of the highest computed band above which a metal's strain
-#: response is refused: QE's ``setup_nbnd_occ`` value, where ``ph.x`` prints
-#: "Possibly too few bands at point".
-_TOP_BAND_OCCUPATION = _SMALL
+#: response is refused. It is :data:`STRAIN_SMEARING_SMALL`, the value the
+#: projector's cutoff counts as zero, by measurement rather than by construction
+#: (``notes/incompat/I88.md``, third fix round, D22 ``review/incompat/I88/r3``).
+#: The systematic it guards against is the solve for a band that holds weight
+#: dividing by that band's gap to the first band *not* computed, which on a
+#: ``nosym`` grid can be 1e-8 Ry, so the error is that weight over that gap and
+#: does not fall monotonically with the top band's occupation: on the
+#: Fermi-Dirac ``degauss = 0.05`` copy of ``al2-metal.in``, ``C_1111`` is off a
+#: five-point difference of ``F`` by -9.0e-4 at ``nbnd = 12`` (3.0e-8 in the top
+#: band) and -4.0e-4 at ``nbnd = 13`` (6.6e-10), flat in the step, while
+#: ``nbnd = 14``, 15, 16 and 17 (2.1e-10, 8.1e-11, 1.7e-11, 3.6e-13) sit at the
+#: stencil's floor, within 6e-8. That the gap is what decides it is the reading
+#: of ``nbnd = 13`` against 14: a factor 3 apart in the top occupation and 1.4e4
+#: in the error, and only at 13 is the band above within 3.7e-8 Ry of the top
+#: one (at 14 it is 6.2e-3 Ry away). A guard cannot see the gap to a band it did not
+#: compute, so the limit is where the worst measured case, scaled linearly in the
+#: occupation, falls below 1e-6: 6.6e-10 x 1e-6 / 4.0e-4 = 1.6e-12, which is the
+#: cutoff's own 1e-12. It refuses cases measured right on that cell (Gaussian
+#: ``0.08`` at the default ``nbnd = 7`` with 3.4e-5 in band 7, Marzari-Vanderbilt
+#: ``0.08`` with 1.9e-6, Gaussian and Methfessel-Paxton ``0.05`` with 1.1e-11 and
+#: 3.8e-11), because there the near-degenerate pairs above the cut sit where
+#: those tails hold nothing, which is a property of the cell and not of the
+#: smearing; one more band takes each below 2e-13. ``al2-metal.in`` (3.2e-14)
+#: and ``al2-metal-mp.in`` (1.6e-17) pass.
+STRAIN_TOP_BAND_OCCUPATION = STRAIN_SMEARING_SMALL
 
 
 def _require_an_empty_top_band(calculation, eigenvalues, fermi_energy) -> None:
     """Refuse a metal whose highest computed band still holds weight.
 
     The ground state's free energy is the one of ``nbnd`` bands, while the
-    Sternheimer solve works in the whole complement of the projected ones, so
-    the two describe different systems by the weight left in the missing
-    bands. ``ph.x`` warns ("Possibly too few bands") and carries on; here the
-    case is refused because its one measurement did not return:
-    ``al2-metal.in`` with Fermi-Dirac ``degauss = 0.05`` and the default
-    ``nbnd = 7`` puts 1.2e-2 in band 7 and 1.05e-1 in band 6, and the strain
-    response had not finished after 31 minutes against 30 to 90 s on every
-    other cell (``notes/incompat/I88.md``, fix round).
+    Sternheimer solve for a band that holds weight works in the complement of
+    the computed ones, so it divides by the gap between that band and the
+    first one not computed. Where the two are degenerate to 1e-8 Ry the
+    response is wrong by the band's weight over that gap, which a difference
+    of the free energy reads as a systematic flat in the step (-4.0e-4 on
+    ``C_1111`` with 6.6e-10 in the top band, see
+    :data:`STRAIN_TOP_BAND_OCCUPATION`), and with 1.2e-2 in band 7
+    (``al2-metal.in`` with Fermi-Dirac ``degauss = 0.05`` at ``nbnd = 7``) the
+    response did not return in 31 minutes. The limit is
+    :data:`STRAIN_TOP_BAND_OCCUPATION`, 1e-12, on the occupation itself.
+
+    It is not ``ph.x``'s test. ``setup_nbnd_occ`` warns ("Possibly too few
+    bands at point") and carries on when the top band lies below ``e_F + xmax
+    degauss``, with ``xmax`` where the smearing's delta function falls to
+    6.96e-5 under the Gaussian's formula for every ``ngauss`` but
+    Fermi-Dirac's: 3.000 for Gaussian, Methfessel-Paxton and
+    Marzari-Vanderbilt alike, 9.572 for Fermi-Dirac. The occupation there is
+    1.1e-5, 9.3e-5, 5.1e-7 and 7.0e-5 respectively. This guard fires for a top
+    band within 4.97, 5.29, 4.47 and 27.63 ``degauss`` of the Fermi level,
+    beyond the warning for every smearing.
     """
     from defuqumat.scf.occupations import smearing_order, wgauss
 
@@ -981,15 +1014,18 @@ def _require_an_empty_top_band(calculation, eigenvalues, fermi_energy) -> None:
         (float(fermi_energy) - top) / float(system.degauss),
         smearing_order(system.smearing))))
     worst = float(np.max(occupation))
-    if worst > _TOP_BAND_OCCUPATION:
+    if worst > STRAIN_TOP_BAND_OCCUPATION:
         raise NotImplementedError(
             f"the strain response of a metal needs an empty highest band, and "
             f"band {np.asarray(eigenvalues).shape[-1]} holds an "
             f"occupation of {worst:.3e} at its fullest k-point (the limit is "
-            f"{_TOP_BAND_OCCUPATION:.2e}, where ph.x prints 'Possibly too few "
-            "bands'): the free energy is then that of too few bands while the "
-            "Sternheimer solve works in all of them. Measured on al2-metal.in "
-            "with fermi-dirac degauss=0.05 at nbnd=7 (1.2e-2 in band 7), the "
-            "response did not return in 31 minutes. Raise nbnd until the "
-            "highest band is empty"
+            f"{STRAIN_TOP_BAND_OCCUPATION:.0e}, the value the strain route's "
+            "projector cutoff counts as zero). The solve for a band that "
+            "holds weight divides by its gap to the first band not computed, "
+            "which can be 1e-8 Ry: on al2-metal.in with fermi-dirac "
+            "degauss=0.05, nbnd=13 (6.6e-10 in band 13) puts C_1111 4.0e-4 "
+            "off a difference of the free energy, and nbnd=7 (1.2e-2) did not "
+            "return in 31 minutes. ph.x only warns, and only for a top band "
+            "within 3.0 degauss of the Fermi level (9.57 for fermi-dirac). "
+            "Raise nbnd until the highest band is empty"
         )
