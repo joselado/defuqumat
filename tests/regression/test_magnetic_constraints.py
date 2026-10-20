@@ -437,7 +437,11 @@ def test_fsm_under_spin_orbit_is_a_fixed_field_fixed_point(pseudo_dir, soc, monk
     target. Measured on D22 (``notes/incompat/I111.md``, ``r5-fsm.log``): first
     ``dr2`` 1.07e-10, total 2.2e-10 Ry from the fsm run, moment 2e-5 off.
     ``soc = 0`` is the term switched off: ``B*`` then has no transverse part
-    (1.7e-7 Ry against 1.5e-4) and is 0.0119 Ry long against 0.0097. The
+    (1.7e-7 Ry against 1.5e-4 on this mesh and target; 3.7e-7 to 1.55e-4 over
+    the three cells of the record) and is 0.0119 Ry long against 0.0097. At
+    ``soc = 0`` the fsm run stops at the iteration cap (``dr2`` 1.28e-10, just
+    above ``conv_thr``), and its held field runs away from that state after the
+    first iteration, so only the first iteration is asserted there. The
     alternative, the field without its transverse part, is
     ``test_fsm_under_spin_orbit_needs_its_transverse_field``. About 90 s (soc 1)
     and 170 s (soc 0) on one D22 core.
@@ -475,7 +479,7 @@ def test_fsm_under_spin_orbit_needs_its_transverse_field(pseudo_dir, monkeypatch
     """The alternative to the identity above reads differently (I111).
 
     ``B*`` projected on the target direction, held fixed from the fsm state:
-    without the transverse 1.5e-4 Ry the first iteration is no longer
+    without the transverse 1.5e-4 Ry (this mesh and target) the first iteration is no longer
     self-consistent: ``dr2`` 5.8e-7 against 1.07e-10 with the whole field
     (``notes/incompat/I111.md``, ``r6-par.log``). Only the first iteration is
     asserted: left to run, this field and the whole one both lose the state to

@@ -2660,10 +2660,14 @@ def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
       (``notes/incompat/I111.md``): the same field held fixed, started from the
       converged state, is self-consistent at its first iteration (``dr2``
       1.1e-10), ends 2.2e-10 Ry from the fsm total and on the target to 2e-5
-      mu_B; ``B*`` carries a transverse part of 1.5e-4 Ry that is 1.7e-7 Ry at
-      ``soc_scale = 0``. It converged with ``mixing_mode = 'adaptive'``; with
-      Anderson at ``mixing_beta = 0.3`` it did not, with or without the
-      coupling, which ``run_scf`` reports as not converged.
+      mu_B; ``B*`` carries a transverse part of 1.5e-4 Ry on that mesh and
+      target, which is 1.7e-7 Ry at ``soc_scale = 0``. The transverse part
+      depends on the cell: 1.9e-5 Ry on the 3x3x3 mesh at 1.0 mu_B and 3.7e-7
+      Ry on 2x2x2 at 1.5 mu_B, so 3.7e-7 to 1.55e-4 Ry over the three cells
+      measured. It converged with ``mixing_mode = 'adaptive'`` (gains and
+      iteration counts measured on that one Fe cell); with Anderson at
+      ``mixing_beta = 0.3`` it did not, with or without the coupling, which
+      ``run_scf`` reports as not converged.
     * ``fsm_update = 'secant'`` measures ``chi = dm/dB`` component by component
       and inverts it the same way (``MagneticField._secant_step``, and the
       non-``'elk'`` branch of ``_atomic_step``), which models the
@@ -2692,8 +2696,10 @@ def _refuse_feedback_spin_orbit(constraint: str, fsm_update: str) -> None:
             "updates each cartesian component of the field from its own "
             "component of the moment, which assumes dm_a/dB_b is diagonal, and "
             "spin-orbit coupling is exactly what makes it not (on bcc Fe the "
-            "converged field has a transverse part of 1.5e-4 Ry that is 1.7e-7 "
-            "Ry without the coupling). Use fsm_update = 'elk' (the default), "
+            "converged field on a 2x2x2 mesh at a 1.0 mu_B target has a "
+            "transverse part of 1.5e-4 Ry that is 1.7e-7 Ry without the "
+            "coupling, and it ranged from 3.7e-7 to 1.55e-4 Ry over the three "
+            "cells measured). Use fsm_update = 'elk' (the default), "
             "whose fixed gain assumes nothing about dm_a/dB_b"
         )
 
