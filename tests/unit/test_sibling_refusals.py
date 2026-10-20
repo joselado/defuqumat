@@ -288,26 +288,105 @@ def _metallic_calculation():
     )
 
 
-def test_the_strain_response_refuses_a_metal_for_the_right_reason():
-    """Aluminium *has* elastic constants. A Born effective charge does not
-    exist for any metal, and the two refusals are not the same refusal.
+def test_the_strain_response_refuses_an_augmented_metal():
+    """A smeared norm-conserving metal runs (``notes/incompat/I88.md``); an
+    ultrasoft or PAW one stays refused, for the phonon's reason one coordinate
+    over, and the message must name that rather than the old missing shift."""
+    import types
 
-    Left to the shared default, asking for the elastic constants of a metal
-    came back with a message about ``epsilon_infinity`` and Born charges --
-    a true statement about a different quantity, with nothing in it to say that
-    what is actually missing is the Fermi-level shift the phonon branch already
-    carries.
-    """
     from defuqumat.response.strain import strain_response
 
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=True)
     with pytest.raises(NotImplementedError) as raised:
-        strain_response(_metallic_calculation(), None, [[0.0]], None)
+        strain_response(stub, None, [[0.0]], None)
     message = str(raised.value)
-    assert "Fermi-level shift" in message
-    assert "localdos" in message and "ef_shift" in message
-    # And it must not go on answering the question that was not asked.
+    assert "ultrasoft or PAW" in message and "metal" in message
     assert "epsilon_infinity" not in message
-    assert "Born effective charge" not in message
+
+
+def test_the_strain_response_refuses_a_metal_on_a_wedge():
+    """The shift is measured on a ``nosym`` cell only; a wedge metal is refused."""
+    import types
+
+    from defuqumat.response.strain import strain_response
+
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=False,
+                                 _symmetry_maps=object())
+    with pytest.raises(NotImplementedError) as raised:
+        strain_response(stub, None, [[0.0]], None)
+    assert "symmetry-reduced k-set" in str(raised.value)
+
+
+def test_the_strain_response_refuses_a_walked_metal(monkeypatch):
+    """The k-walked route has no Fermi-level shift, so a metal there is refused.
+
+    ``_streams`` is the function :func:`strain_response` asks; patching it is
+    seen only if the refusal below fires with its own message, which is what is
+    asserted, so a rename that stopped the call would fail this test.
+    """
+    import types
+
+    import defuqumat.response.efield as efield
+    from defuqumat.response.strain import strain_response
+
+    monkeypatch.setattr(efield, "_streams", lambda *args, **kwargs: True)
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=False)
+    with pytest.raises(NotImplementedError) as raised:
+        strain_response(stub, None, [[0.0]], None)
+    message = str(raised.value)
+    assert "walked a k-chunk" in message and "Fermi-level shift" in message
+
+
+def test_the_elastic_constants_refuse_a_walked_metal(monkeypatch):
+    """:meth:`Calculator.get_elastic_constants` reaches :func:`elastic_constants`
+    directly, so its own walked-metal refusal is tested apart from the strain
+    response's: ``chunked_gradient_tangent`` has no ``wg``/``wk`` split."""
+    import types
+
+    import defuqumat.response.efield as efield
+    from defuqumat.response.elastic import elastic_constants
+
+    monkeypatch.setattr(efield, "_streams", lambda *args, **kwargs: True)
+    stub = types.SimpleNamespace(
+        **vars(_metallic_calculation()), is_ultrasoft=False,
+        occupations=lambda eigenvalues: (eigenvalues, {}))
+    response = types.SimpleNamespace(converged=True, history=[])
+    with pytest.raises(NotImplementedError) as raised:
+        elastic_constants(stub, None, [[0.0]], None, response)
+    message = str(raised.value)
+    assert "metal walked a k-chunk" in message and "wg/wk split" in message
+
+
+def test_the_strain_response_admits_a_smeared_metal_past_its_guards():
+    """The shared guard no longer refuses a smearing metal for the strain.
+
+    The stub carries no states, so the call fails *after* every refusal; what
+    is asserted is that the failure is not a ``NotImplementedError``.
+    """
+    import types
+
+    from defuqumat.response.strain import strain_response
+
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=False)
+    with pytest.raises(Exception) as raised:
+        strain_response(stub, None, [[0.0]], None)
+    assert not isinstance(raised.value, NotImplementedError), str(raised.value)
+
+
+def test_the_strain_response_still_refuses_tetrahedra():
+    """Tetrahedra stay refused inside the shared guard (``dfpt_tetra_beta``)."""
+    import types
+
+    from defuqumat.response.strain import strain_response
+
+    system = build_system(parse_pw_input(
+        _SILICON.format(extra="occupations = 'tetrahedra_opt'")
+    ))
+    stub = types.SimpleNamespace(**vars(_metallic_calculation()), is_ultrasoft=False)
+    stub.system = system
+    with pytest.raises(NotImplementedError) as raised:
+        strain_response(stub, None, [[0.0]], None)
+    assert "dfpt_tetra_beta" in str(raised.value)
 
 
 def test_the_electric_field_still_refuses_a_metal_by_definition():
@@ -588,3 +667,67 @@ def test_the_magnetoelectric_ground_states_take_the_inputs_mixing(monkeypatch):
     except Stop:
         pass
     assert seen.get("mixing_beta") == 0.7
+
+
+def test_the_strain_response_refuses_a_metal_with_a_full_top_band():
+    """``I88`` third fix round: a metal whose highest band holds more than
+    ``STRAIN_TOP_BAND_OCCUPATION`` (1e-12) is refused, and one below it is not.
+
+    The limit was measured, not inherited: on the Fermi-Dirac copy of
+    ``al2-metal.in`` the elastic constants are 4.0e-4 off with 6.6e-10 in the
+    top band, so QE's 6.96e-5, the limit before this round, admitted a wrong
+    answer. The stub is a Gaussian metal at ``degauss = 0.02``; the top band
+    is put where its occupation is a factor of about 3 above the limit, then
+    about 3 below, and at 1e-6, which the old limit let through.
+    """
+    import numpy as np
+
+    from defuqumat.response.strain import (
+        STRAIN_SMEARING_SMALL,
+        STRAIN_TOP_BAND_OCCUPATION,
+        _require_an_empty_top_band,
+    )
+    from defuqumat.scf.occupations import smearing_order, wgauss
+
+    assert STRAIN_TOP_BAND_OCCUPATION == STRAIN_SMEARING_SMALL == 1e-12
+    calculation = _metallic_calculation()
+    degauss = float(calculation.system.degauss)
+    order = smearing_order(calculation.system.smearing)
+    level = 0.5
+
+    def top_band_at(x):
+        bands = np.array([[[0.1, 0.3, level + x * degauss]]])
+        held = abs(float(wgauss(-x, order)))
+        return bands, held
+
+    for x in (4.80, 3.36):
+        hot, held = top_band_at(x)
+        assert held > 2.0 * STRAIN_TOP_BAND_OCCUPATION
+        with pytest.raises(NotImplementedError) as raised:
+            _require_an_empty_top_band(calculation, hot, level)
+        assert "Raise nbnd" in str(raised.value)
+        assert "band 3" in str(raised.value)
+        assert "1e-12" in str(raised.value)
+    assert abs(float(wgauss(-3.36, order)) - 1e-6) < 2e-7
+    cold, held = top_band_at(5.10)
+    assert held < 0.5 * STRAIN_TOP_BAND_OCCUPATION
+    _require_an_empty_top_band(calculation, cold, level)
+
+
+def test_the_strain_route_cuts_the_smearing_tighter_than_the_phonon():
+    """The phonon keeps QE's cutoff (it is checked against ``ph.x``); the
+    strain response's projector runs to where the smearing is 1e-12, which is
+    what took a Methfessel-Paxton and a Gaussian metal from -4.6e-4 and
+    +8.7e-5 to the stencil's truncation (``notes/incompat/I88.md``)."""
+    import types
+
+    from defuqumat.response.sternheimer import _SMALL, smearing_of
+    from defuqumat.response.strain import STRAIN_SMEARING_SMALL
+
+    calculation = _metallic_calculation()
+    level = types.SimpleNamespace(fermi_energy=0.5)
+    phonon = smearing_of(calculation, level)
+    strain = smearing_of(calculation, level, small=STRAIN_SMEARING_SMALL)
+    assert phonon.small == _SMALL
+    assert strain.small == 1e-12
+    assert strain.cutoff > phonon.cutoff > 0.5

@@ -1,0 +1,28 @@
+! `al2-metal.in` with Methfessel-Paxton smearing at degauss=0.04, everything else unchanged.
+! A Gaussian-type tail that the Marzari-Vanderbilt smearing of al2-metal.in does not have:
+! at QE's projector cutoff (setup_nbnd_occ's small = 6.96e-5) the elastic constants of this
+! cell missed a five-point free-energy difference by -4.6e-4, flat in the step, and the strain
+! route's own cutoff (STRAIN_SMEARING_SMALL) is what fixed it (notes/incompat/I88.md).
+ &control
+    calculation='scf'
+ /
+ &system
+    ibrav=0, celldm(1)=7.50,
+    nat=2, ntyp=1,
+    ecutwfc=15.0, nosym=.true., noinv=.true.,
+    occupations='smearing', smearing='methfessel-paxton', degauss=0.04
+ /
+ &electrons
+    conv_thr = 1.0d-12
+ /
+CELL_PARAMETERS alat
+  -0.50  0.00  0.50
+   0.00  0.50  0.50
+  -1.00  1.00  0.00
+ATOMIC_SPECIES
+ Al  26.98 Al.pz-vbc.UPF
+ATOMIC_POSITIONS (alat)
+ Al  0.00  0.00  0.00
+ Al -0.50  0.50  0.00
+K_POINTS automatic
+ 4 4 2 0 0 0

@@ -166,13 +166,32 @@ cell against each other, and this internal relaxation lowers $C_{44}$.
     ultrasoft or PAW dataset they need every k-point in memory at once, so a run that
     streams the k-points in chunks gives an error. This happens in memory mode on a GPU,
     for any chunk, and on a CPU in `memory_mode='memory'` with a `k_batch` smaller than
-    the k-mesh. The elastic constants also need `nspin = 1`, an insulator and the full
-    k-mesh (`nosym`), so a spin-polarized, noncollinear or spin-orbit run,
-    a metal and a symmetry-reduced k-set each give an error. The full k-mesh
+    the k-mesh. The elastic constants also need `nspin = 1` and the full
+    k-mesh (`nosym`), so a spin-polarized, noncollinear or spin-orbit run
+    and a symmetry-reduced k-set each give an error. The full k-mesh
     must also be an unshifted Monkhorst-Pack grid. A shifted grid with `nosym`
     gives an error, because a shifted grid does not have the symmetry of the
     crystal. They are clamped-ion only. The page about piezoelectric and strain responses has the
     other strain responses, which also work for ultrasoft and PAW.
+
+    A metal works if it uses a smearing and a norm-conserving dataset.
+    Tetrahedra give an error, and so does an ultrasoft or PAW dataset for a
+    metal. A metal also needs every k-point in memory at once. On a CPU,
+    `memory_mode='memory'` with a `k_batch` smaller than the k-mesh gives an
+    error, and on a GPU only `memory_mode='speed'` works. The highest band must
+    be empty, so if it holds an occupation above 1e-12 at any k-point, the code
+    gives an error and you increase `nbnd`. Fermi-Dirac smearing has a long tail,
+    so it needs many more bands. On `al2-metal.in` with `degauss = 0.05` it needs
+    `nbnd = 17`, where the default is 7. With 17 bands the elastic constants of
+    this cell take about 70 s on one core, against 40 s with 10 bands. The other smearings need one band more than the
+    default, or none. This limit also gives an error for some cases that would be
+    right. There is one case it does not catch: a highest band between 4.97 and
+    5.20 times `degauss` above the Fermi level for Gaussian smearing, or between
+    4.47 and 5.20 for Marzari-Vanderbilt, passes the check, and if `nbnd` then
+    splits a degenerate pair of bands, the elastic constants are 2.7e-6 to 7.0e-6
+    off. On `al2-metal.in` the elastic constants agree with a five-point
+    difference of the free energy to 2e-7 with Marzari-Vanderbilt smearing, and to
+    about 1e-6 with Methfessel-Paxton, Gaussian or Fermi-Dirac smearing.
 
     A strain response that did not converge gives an error, because a diverged
     response gives an elastic tensor that is not even symmetric under

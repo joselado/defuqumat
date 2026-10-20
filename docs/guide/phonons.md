@@ -444,9 +444,11 @@ which we compute in the page about stress with `get_elastic_constants()`.
     that the phonons at $\mathbf q$ refuse. There is no Eliashberg function
     $\alpha^2F(\omega)$, no $\lambda$ averaged over the zone and no $T_c$.
 
-    The strain response is for an insulator with `nspin = 1`, and it is
-    clamped-ion. It works with norm-conserving, ultrasoft and PAW datasets, and so do
-    the elastic constants, which also need the whole k-mesh.
+    The strain response needs `nspin = 1`, and it is clamped-ion. It works with
+    norm-conserving, ultrasoft and PAW datasets, and so do the elastic constants,
+    which also need the whole k-mesh. For a metal with a smearing, both work with a
+    norm-conserving dataset only, and the highest band must be empty. The page
+    about stress has the details.
 
 The notebooks for this page are
 [19, linear response](https://github.com/joselado/defuqumat/blob/master/notebooks/19_linear_response.ipynb),

@@ -50,6 +50,14 @@ constraint written with the matrix ``Lambda_mn``. Against the same five-point
 difference, on two-atom ultrasoft and PAW silicon at ``ecutwfc = 12``, ``C_1111``
 is 22 per cent off with neither, 10 per cent with ``ort`` alone, and within
 1e-7 with both, where the norm-conserving control reads 1.1e-7.
+
+**A smeared metal** (``notes/incompat/I88.md``) differs from an insulator in
+one weight: its ``dpsi`` carries the occupation already, so the states' tangent
+is contracted at ``wk`` while the coordinate keeps ``wg``. The phonon splits its
+``jvp`` for this; here the functional builds its own density, so the split is
+written on the density matrix instead, as two copies of the band block
+(:func:`_split_weights`). Norm-conserving only, on the whole-k route, on a
+closed grid.
 """
 
 from __future__ import annotations
@@ -213,6 +221,13 @@ def elastic_constants(
     # (:func:`~defuqumat.forces.chunked.chunked_gradient_tangent`). The same
     # functional as the single pass below, the k axis off the tape.
     if streamed:
+        if calculation.system.occupations != "fixed":
+            raise NotImplementedError(
+                "the elastic constants of a metal walked a k-chunk at a time are "
+                "not implemented: the wg/wk split of the whole-k route (two "
+                "copies of the band block, notes/incompat/I88.md) is not in "
+                "forces/chunked.py's chunked_gradient_tangent. Run with "
+                "memory_mode='speed' or a k_batch that holds the whole mesh")
         return _walked_elastic_constants(calculation, wavefunctions, eigenvalues,
                                          np.asarray(weights), response)
     psi = jnp.asarray(wavefunctions)
@@ -239,6 +254,15 @@ def elastic_constants(
     # coordinate over. A norm-conserving dataset keeps the two-argument form,
     # bit for bit.
     augmented = calculation.is_ultrasoft
+    # **A smeared metal splits the band block** (I88, :func:`_split_weights`),
+    # so that the states' tangent is contracted at ``wk`` and the coordinate
+    # keeps ``wg``. The strain response refuses an augmented metal, so the
+    # two branches never meet.
+    metallic = calculation.system.occupations != "fixed"
+    tangent_block = None
+    if metallic:
+        psi, weights, eigenvalues, tangent_block = _split_weights(
+            calculation, psi, weights, eigenvalues)
 
     def energy(strain, states, lambdas=None):
         return energy_at(
@@ -274,6 +298,8 @@ def elastic_constants(
         block = jnp.asarray(response.dpsi[k, l])
         if augmented:
             block = block + jnp.asarray(response.ort[k, l])
+        if tangent_block is not None:
+            return tangent_block(block)
         return jnp.zeros_like(psi).at[:, :, :nocc].set(block)
 
     if augmented:
@@ -312,6 +338,54 @@ def elastic_constants(
         tensor[:, :, k, l] = tensor[:, :, l, k] = column
 
     return _from_tensor(tensor)
+
+
+def _split_weights(calculation, psi, weights, eigenvalues):
+    """The band block doubled, so that the states' tangent is taken at ``wk``.
+
+    **A metal's ``dpsi`` already carries its occupation** -- ``orthogonalize``'s
+    smearing branch scales the right-hand side by ``wg1 = f``, ``ef_shift_wfc``
+    adds the Fermi level's motion, and ``incdrhoscf`` accumulates the result
+    with ``wk`` -- so contracting it against a ``wg``-weighted functional counts
+    ``f`` twice. The phonon splits its ``jvp`` in two for this
+    (:func:`~defuqumat.response.phonon._state_weights`), which works there
+    because the density is an independent argument. Here it is not: the
+    functional builds its density from ``(strain, states)`` so that its
+    gradient is the stress, so a states-only ``jvp`` at ``wk`` would evaluate
+    the Hartree and exchange-correlation terms at a *primal* density built at
+    ``wk``, which is not the ground state's.
+
+    The functional is linear in the band projectors ``w_n |psi_n><psi_n|`` --
+    kinetic, nonlocal, the density and the diagonal constraint all are -- so the
+    split is written on the density matrix instead::
+
+        P(s) = sum_n (wg_n - wk_n) |psi_n><psi_n| + sum_n wk_n |s_n><s_n|
+
+    two copies of the band block, the first frozen at the ground state and the
+    second the variable. At ``s = psi`` this is the ground state's ``P`` at
+    every strain, so the strain gradient is the stress and the strain tangent
+    is the frozen second derivative at ``wg``; the tangent ``ds = dpsi`` gives
+    ``dP = sum wk (|dpsi><psi| + h.c.)``, de Gironcoli's density-matrix
+    response, which reaches the band energies, the density and the density's
+    own ``1/Omega`` together. For an insulator the first copy has weight zero
+    on every occupied band and the form reduces to the single block exactly.
+
+    Returns ``(psi2, weights2, eigenvalues2, tangent_block)``, with
+    ``tangent_block(dpsi)`` placing a first-order state in the second copy.
+    """
+    nbnd = psi.shape[2]
+    wk = jnp.broadcast_to(
+        jnp.asarray(calculation.system.kpoints.weights, dtype=weights.dtype)[None, :, None],
+        weights.shape)
+    doubled = jnp.concatenate([psi, psi], axis=2)
+    split = jnp.concatenate([weights - wk, wk], axis=2)
+    energies = jnp.concatenate([eigenvalues, eigenvalues], axis=2)
+
+    def tangent_block(dpsi):
+        dpsi = jnp.asarray(dpsi)
+        return jnp.zeros_like(doubled).at[:, :, nbnd:nbnd + dpsi.shape[2]].set(dpsi)
+
+    return doubled, split, energies, tangent_block
 
 
 def _shared_primal_columns(gradient, primals, tangent_of, budget):
