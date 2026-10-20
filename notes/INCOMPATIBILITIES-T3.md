@@ -601,9 +601,13 @@ cell, its own modulation and a magnetized `nspin = 2` case, with corrections app
   identity to 1.2e-14 with `S`, 0.27 off. The record's own `nspin = 2` rows converge unpolarized
   and check the indexing only.
 
-Stale text: `PLAN.md`'s ultracell section ("What refuses instead is `exit_region = "volume"`") and
+Stale text: the outstanding index at the head of `PLAN.md` §3 ("The ultracell beyond an LDA"
+named the whole-cell diagnostic as refused; it now says `lspinorb` only), `PLAN.md`'s ultracell section ("What refuses instead is `exit_region = "volume"`") and
 `notes/AUGMENTATION-NEXT.md` ("What refuses now is ...") now say it refused until I115, and the
-first gains a "Superseded by I115" paragraph. Guide: `ultracell.md` Limits, the `lspinorb` refusal
+first gains a "Superseded by I115" paragraph. The old "3 to 9 per cent where `volume_overlap`
+measured it" (US carbon 9, PAW silicon 3, unit cells) recorded a size and not a sign, so it is kept
+in the docstring beside the sheet's "above 1 by 0.28", and the sign is stated as the dataset's.
+The P156 header now names I115 at integration four. Guide: `ultracell.md` Limits, the `lspinorb` refusal
 kept; `tools/check_guide.py` passes. README: no change (the row "What a modulation looks like to a
 tip" says nothing about datasets or the exit region). Ledger: I115 to "Closed since". `PLAN.md`
 P156: the integration-four table.

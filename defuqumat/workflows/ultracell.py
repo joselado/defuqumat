@@ -539,7 +539,10 @@ def _ultracell_overlap_operator(system, pseudos, states, exit_region: str):
     whose null cannot be told from a pass; the plain ``sum_G c* c`` differs
     from the identity by the augmentation charge, with the dataset's sign: on
     the silicon ultrasoft and PAW sheets its diagonal is *above* 1 by 0.28
-    (``notes/incompat/I115.md``), so the sign is not to be assumed.
+    (``notes/incompat/I115.md``), so the sign is not to be assumed. The
+    earlier unit-cell reading of ``volume_overlap`` (9 per cent on an
+    ultrasoft carbon sheet, 3 per cent on PAW silicon) gave a size, not a
+    sign.
 
     The projectors come from a :class:`~defuqumat.scf.driver.Calculation` on
     the folded k-set, rebuilt here because the result does not carry it, and

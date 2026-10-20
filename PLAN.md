@@ -452,7 +452,9 @@ because that is what decides whether it is a session or a phase.
   having been one term -- the augmentation table displaced by `Q' - Q` -- rather than the
   two structural obstacles the refusal named, both of which were wrong. What is still refused
   there is a **double grid**, and -- for the transmission alone -- the whole-cell
-  Tersoff-Hamann diagnostic, which is the one Gram matrix that needs `S`.
+  Tersoff-Hamann diagnostic under `lspinorb` only (the diagnostic itself, the one Gram matrix
+  that needs `S`, was lifted for the spinless, `nspin = 2` and scalar-relativistic spinor
+  ultracell by P156, I115).
 - **Imaging a modulation** (P89, done; the conjugate is not) **and reading it over an energy
   axis** (P90, done). The STM image, the vertical
   tunnelling transmission and now the **tunnelling spectrum** of an ultracell are in, the
@@ -18688,9 +18690,11 @@ augmentation charge, 3 to 9 per cent where `volume_overlap` measured it.
 written, as `ultracell/augmentation.py:ultracell_overlap` with the `N` copies of every atom
 summed out, and the Gram matrix is built from the coefficients with it, so the objection
 above (an identity handed to the assembly) does not arise. Two readings in the paragraph
-above were wrong: the plain `sum_G c* c` is not short of the identity on the silicon sheets
-but above it, by 0.28 on the diagonal for both the ultrasoft and the PAW dataset; and the
-refusal is now `lspinorb` alone.
+above need correcting: "short by" was a sign nobody checked, and on the silicon sheets of
+I115 the plain `sum_G c* c` is *above* the identity, by 0.28 on the diagonal for both the
+ultrasoft and the PAW dataset (the 3 to 9 per cent is an earlier unit-cell size on other
+cells, its sign not recorded, so the sign is the dataset's to set); and the refusal is now
+`lspinorb` alone.
 
 **The cell for it is not bulk silicon, and that is the part to know before repeating this.**
 The PAW dataset's augmentation radius is **2.647 bohr** against a **5.889 bohr** interplanar
@@ -26649,7 +26653,7 @@ I82's two `OPEN.md` entries are written (Part XXVIII). I66 stays unmerged, await
 | I36 ultracell x feedback field | `'fsm'` (target 0.626 mu_B per cell) against the 2x1x1 supercell under the same scheme: field +1.32e-5, -9.4e-7, -4.6e-6 Ry and `E - B(M - Mt)` +3.6e-6, +1.1e-6, +6.0e-7 Ry per cell at nbnd 8, 16, 24; the frozen reference field misses the target by 3.8e-3 mu_B; faded `reducebf` reference (below 1.5e-4 Ry) misses the supercell moment by 3.0e-6 to 4.9e-6 mu_B, frozen 5.2e-5; verified twice | supercell under the same scheme | `incompat/I36-feedback` deadfc8 |
 | I73 Newton x feedback field | `|dm| (|B| + tau |dm|)` measure (the user's choice): raw total against the mixing loop at `conv_thr = 1e-11`, `fe-fsm.in` `'fsm'` 7.8e-13 Ry in 39 steps; canted iron pair `'atomic fsm'` 7.0e-13 in 63 of 80 steps, `'atomic fsm direction'` -1.01e-9, the reference's own arccos offset (energy at target 2.8e-14); 3 to 5 times the loop's time; field rows replaced by the identity: 45 to 102 loop iterations after the hand-over against 1; four unmeasured pairs and the noncollinear Hubbard residual refused by name; a non-converged hand-over warns; verified, then one fix round | mixing loop at its own fixed point (no `pw.x`: QE has no Elk fsm scheme) | `incompat/I73-feedback` 4450fe9 |
 
-### P156 -- Ten refusals lifted from tier T3 of `notes/INCOMPATIBILITIES.md`, integration one of I86 to I122. ✅ FAST GATE 2026-10-19 (slow tests not run), each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-t3` (`notes/INCOMPATIBILITIES-T3.md`), not merged into master. The workflow stopped early at a usage limit, so this covers what had finished: ten units landed, twelve recorded without merging, and I111 to I113 and I115 to I122 not started (I111, I113 and I112 in part landed at integration three, below).
+### P156 -- Ten refusals lifted from tier T3 of `notes/INCOMPATIBILITIES.md`, integration one of I86 to I122. ✅ FAST GATE 2026-10-19 (slow tests not run), each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-t3` (`notes/INCOMPATIBILITIES-T3.md`), not merged into master. The workflow stopped early at a usage limit, so this covers what had finished: ten units landed, twelve recorded without merging, and I111 to I113 and I115 to I122 not started (I111, I113 and I112 in part landed at integration three, and I115 at integration four, below).
 
 Each unit's record is `notes/incompat/<ID>.md`, with its run directories; the verifier's logs are in `/l/ladovj1/review/incompat/<ID>-ver*/`. The landed items, one sample each, deterministic:
 
