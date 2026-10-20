@@ -38,7 +38,7 @@ base branch there is `incompat-base3` = master 6c5b3a36 (the T2 merge, I1 to I85
    script; a jit closing over a big array folds it in as a constant. The fast gate at master reads two
    failures, both tests/unit/test_check_guide.py (no yaml in the D22 venv); any other failure is real.
 7. Do not delete anything on D22 that you did not create; do not touch other worktrees. Do not touch
-   the GPU (JAX_PLATFORMS=cpu is set by slot.sh). Nothing goes to Triton.
+   the GPU (JAX_PLATFORMS=cpu is set by slot.sh; a gate or any run launched outside slot.sh must export JAX_PLATFORMS=cpu itself, or the venv JAX takes the card: it did on 2026-10-20 02:27 to 03:33). Nothing goes to Triton.
 8. Anything learned about running on D22 that is not in docs/d22-notes.local.md goes in your final
    report under "d22 notes", so it can be appended (do not edit that file yourself).
 9. A unit that is a family (chi0, sourcefree, rotate, ultraseed) uses its family
