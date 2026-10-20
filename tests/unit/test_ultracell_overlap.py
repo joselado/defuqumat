@@ -116,3 +116,29 @@ def test_the_pad_is_zeroed():
         ultracell=ultracell, qq=qq, npol=1, padding=padding)).reshape(5, 2, 7)
     assert np.all(ours[:, :, -2:] == 0.0)
     assert np.all(ours[:, :, :-2] != 0.0)
+
+
+def test_the_volume_exit_refuses_spin_orbit_on_an_augmented_dataset():
+    """I115 kept by name: the spin-orbit blocks of ``S`` are not measured.
+
+    The guard sits before any projector is built, so stand-ins are enough;
+    the same call without ``lspinorb`` must get past it (and fail later, on
+    the missing states), which is what shows the guard is the one firing.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.workflows.ultracell import _ultracell_overlap_operator
+
+    pseudos = [SimpleNamespace(is_ultrasoft=True, is_paw=False)]
+    with pytest.raises(NotImplementedError, match="spin-orbit coupling"):
+        _ultracell_overlap_operator(SimpleNamespace(lspinorb=True), pseudos,
+                                    None, "volume")
+    with pytest.raises(AttributeError):
+        _ultracell_overlap_operator(SimpleNamespace(lspinorb=False), pseudos,
+                                    None, "volume")
+    assert _ultracell_overlap_operator(
+        SimpleNamespace(lspinorb=True), pseudos, None, "plane") is None
+    assert _ultracell_overlap_operator(
+        SimpleNamespace(lspinorb=True),
+        [SimpleNamespace(is_ultrasoft=False, is_paw=False)], None,
+        "volume") is None

@@ -552,6 +552,18 @@ def _ultracell_overlap_operator(system, pseudos, states, exit_region: str):
         return None
     if not any(p.is_ultrasoft or p.is_paw for p in pseudos):
         return None
+    if bool(getattr(system, "lspinorb", False)):
+        # The spin-orbit blocks of ``qq_so`` are off-diagonal in spin, and the
+        # spinor rows of notes/incompat/I115.md were measured on a
+        # scalar-relativistic dataset, where ``qq_so`` is spin-diagonal; the
+        # off-diagonal contraction is held only by the random-matrix unit test.
+        raise NotImplementedError(
+            "exit_region='volume' with spin-orbit coupling (lspinorb) on an "
+            "ultrasoft or PAW dataset is not measured: the whole-cell Gram "
+            "matrix <Psi|S|Psi> was checked against the image on a "
+            "scalar-relativistic dataset only, where the spin-orbit blocks "
+            "of S vanish. exit_region='plane' runs, because both planes are "
+            "in the vacuum where S is not needed")
 
     import equinox as eqx
 
