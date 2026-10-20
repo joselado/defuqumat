@@ -26738,7 +26738,10 @@ right, several `ns` solutions exist whether or not the moments turn, and a warni
 wrong answer into a named one. The reference `|M|` is the state handed in, or the first iteration's
 output on an atomic start; whether the warning fires on the record's 45-degree run was not measured
 (the harness logged only the end `|M|`), and on an atomic start the first-iteration `|M|` is not a
-converged reference, so the warning can fire without a change of branch.
+converged reference, so the warning can fire without a change of branch. **Amended by the user
+(2026-10-20)**: the warning fires only from a handed-in density (`starting_from` or
+`starting_density`); the first-iteration fallback is removed, so an atomic start does not warn
+(`notes/incompat/I112.md`, "The user's amendment").
 
 Code changed at integration beyond the merges: the secant refusal message and the docstring of
 `_refuse_feedback_spin_orbit` (the transverse field per cell), the comments of two slow tests, and

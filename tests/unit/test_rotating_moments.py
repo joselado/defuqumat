@@ -227,13 +227,15 @@ def test_the_sibling_refusals_of_rotate_moments_still_fire_on_the_turning_group(
 
 
 def test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves():
-    """I112, the user's decision (taken by Fable while the user was away).
+    """I112, Fable's decision as amended by the user (2026-10-20).
 
-    The end-of-run check: ``|M|`` moved by more than 1e-3 mu_B warns that a
-    different occupation-matrix solution was likely reached, names the
-    threshold and asks for two or three starting orientations; within it,
-    nothing. The numbers are tetragonal Co at ``U = 1`` eV (1.7783 at the end
-    of the rotation, 1.7814 on the atomic starts, ``notes/incompat/I112.md``).
+    The end-of-run check: from a handed-in density, ``|M|`` moved by more than
+    1e-3 mu_B warns that a different occupation-matrix solution was likely
+    reached, names the threshold and asks for two or three starting
+    orientations; within it, nothing. On an atomic start there is no
+    reference and no warning. The numbers are tetragonal Co at ``U = 1`` eV
+    (1.7783 at the end of the rotation, 1.7814 on the atomic starts,
+    ``notes/incompat/I112.md``).
     """
     import inspect
     import warnings
@@ -243,6 +245,7 @@ def test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves():
                                       _warn_if_the_hubbard_moment_moved)
 
     assert ROTATE_HUBBARD_MOMENT_TOL == 1.0e-3
+    # From a density: fires.
     with pytest.warns(RuntimeWarning, match="different solution of the occupation matrix") as caught:
         assert _warn_if_the_hubbard_moment_moved(1.781400, 1.778346, "the starting state handed in")
     text = str(caught[0].message)
@@ -250,12 +253,19 @@ def test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves():
     assert "An unchanged |M| is not evidence" in text
     with warnings.catch_warnings():
         warnings.simplefilter("error")
+        # |M| unchanged within the threshold: silent.
         assert not _warn_if_the_hubbard_moment_moved(1.778346, 1.778346 + 9e-4, "x")
+        # An atomic start has no reference moment: silent, however far |M| moved.
         assert not _warn_if_the_hubbard_moment_moved(None, 1.778346, "x")
-    # The driver calls it at the end of a rotate_moments run with a U, and only there.
+    # The driver takes a reference only from a handed-in density
+    # (``starting_from`` arrives as ``starting_density``), and has no fallback
+    # to the first iteration's output, which is what an atomic start would use.
     source = inspect.getsource(driver.run_scf)
+    assert ("if rotate_moments and calculation.is_hubbard and starting_density is not None:"
+            in source)
     assert "if rotate_moments and calculation.is_hubbard and moment is not None:" in source
     assert "_warn_if_the_hubbard_moment_moved(" in source
+    assert "the first iteration's output" not in source
 
 
 def test_the_orientation_free_group_keeps_identity_and_inversion_only():

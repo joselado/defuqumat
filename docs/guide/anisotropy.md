@@ -186,10 +186,13 @@ on the torque, in Ry per radian.
     we found six states, spread over 1.6e-3 Ry, which is about fifty times the
     anisotropy. Three of them converged, and three were still moving after 200
     iterations. So with a $U$ you should run from two or three starting
-    orientations and keep the lowest energy. At the end of the run the code
-    compares $|M|$ with the start, and it warns when the change is larger than
+    orientations and keep the lowest energy. When the run starts from a
+    density (`starting_from` or `starting_density`), the code compares $|M|$
+    at the end with $|M|$ at the start. It warns when the change is larger than
     1e-3 Bohr magnetons, because then a different solution was likely reached.
-    An unchanged $|M|$ does not show that the lowest solution was found. It
+    A run from the atomic start does not warn, because its starting $|M|$ is
+    only a guess. An unchanged $|M|$ does not show that the lowest solution
+    was found. It
     gives an error for a Hubbard $U$ on a PAW dataset and for a fixed tensor
     moment. A run
     with symmetry needs `calc.with_turning_moments()` first. This keeps only the

@@ -498,6 +498,31 @@ def run_hhg(system, pseudos, density, pulse: Pulse, *, dt: float = 0.1,
     return spectrum
 
 
+def _warn_about_the_gauge_artefact(potential: str, order: int) -> bool:
+    """Warn that the orders above the first with the potential updated carry a mesh artefact.
+
+    I102: the velocity gauge's second-order density, ``sum_k w d^2
+    rho_k/dkappa^2``, is zero only in the converged k-sum, and with the
+    potential updated it is fed into the induced potential at ``2w`` and
+    ``0``. Both routes to the orders carry it, the frequency-domain hierarchy
+    (``run_nonlinear_spectrum``) and the real-time orders
+    (``run_harmonic_orders``), so both warn on the same condition (the user's
+    decision, 2026-10-20). Called from those two functions, so
+    ``stacklevel=3`` names their caller. Returns whether it warned.
+    """
+    if potential == "frozen" or int(order) < 2:
+        return False
+    warnings.warn(
+        "the second and third orders with the potential updated carry the velocity "
+        "gauge's second-order density artefact, sum_k w d^2 rho_k/dkappa^2, fed into the "
+        "induced potential at 2w and 0: 7 per cent of rho on a 2x2x2 mesh of silicon, "
+        "falling by about three a mesh step. The real-time route and the frequency-domain "
+        "hierarchy carry the same term; read chi^(2) and chi^(3) with local fields on a "
+        "mesh that converges it",
+        stacklevel=3)
+    return True
+
+
 def run_harmonic_orders(system, pseudos, density, *, frequency: float,
                         broadening: float = 0.1, direction=(1.0, 0.0, 0.0),
                         order: int = 3, eta_t: float = 20.0,
@@ -519,7 +544,10 @@ def run_harmonic_orders(system, pseudos, density, *, frequency: float,
     does not decay because the evolution is unitary: measured on zincblende
     AlAs against the dense hierarchy, 1.4e-5 to 3.0e-5 at ``eta_t = 20`` and
     400 steps a period, against 0.4 to 4.6 per cent at ``eta_t = 6``.
+    With the potential updated and ``order >= 2`` it warns about the velocity
+    gauge's mesh artefact, as :func:`run_nonlinear_spectrum` does (I102).
     """
+    _warn_about_the_gauge_artefact(potential, order)
     omega = float(frequency) * EV_TO_HA
     eta = float(broadening) * EV_TO_HA
     unit = np.asarray(direction, dtype=float)
@@ -770,14 +798,7 @@ def run_nonlinear_spectrum(system, pseudos, density, *, frequencies, broadening:
     """
     from defuqumat.realtime.hierarchy import hierarchy_orders, hierarchy_self_consistent
 
-    if potential != "frozen" and order >= 2:
-        warnings.warn(
-            "the second and third orders with the potential updated carry the velocity "
-            "gauge's second-order density artefact, sum_k w d^2 rho_k/dkappa^2, fed into the "
-            "induced potential at 2w and 0: 7 per cent of rho on a 2x2x2 mesh of silicon, "
-            "falling by about three a mesh step. The real-time route carries the same term; "
-            "read chi^(2) and chi^(3) with local fields on a mesh that converges it",
-            stacklevel=2)
+    _warn_about_the_gauge_artefact(potential, order)
     if getattr(system, "efield", None) is not None:
         # The real-time route runs a saw-tooth ground state at a frozen
         # potential (notes/incompat/I101.md); the frequency-domain hierarchy is

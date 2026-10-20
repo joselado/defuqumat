@@ -575,7 +575,8 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     an error from the velocity gauge, because the second-order density does not sum to
     zero there (7 per cent of the density on a 2x2x2 mesh of silicon). The code gives a
     warning about this, and the real-time route has the same error, so read them on a
-    k-mesh that converges it. A
+    k-mesh that converges it. `get_harmonic_orders` gives the same warning with the
+    potential updated and an `order` of 2 or more. A
     norm-conserving run with `ecutrho` above `4 ecutwfc` works with the
     potential updated.
 

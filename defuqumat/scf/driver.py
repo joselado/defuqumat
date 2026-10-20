@@ -7461,6 +7461,12 @@ def _warn_if_the_hubbard_moment_moved(start: float | None, end: float | None,
     by more than :data:`ROTATE_HUBBARD_MOMENT_TOL` is a cheap sign that the
     solution changed on the way; an unchanged ``|M|`` proves nothing.
     ``reference`` says what ``start`` is. Returns whether it warned.
+
+    The user amended this on 2026-10-20: the check runs only when the run
+    starts from a density (``starting_from`` or ``starting_density``). On an
+    atomic start ``start`` is ``None`` and nothing is said, since the moment
+    of a superposition of atoms is a guess and its change carries no sign of
+    a change of solution.
     """
     if start is None or end is None:
         return False
@@ -8561,10 +8567,10 @@ def run_scf(
         else jnp.asarray(starting_density)
     )
     _warn_if_the_seed_is_not_symmetric(calculation, rho, starting_density is None)
-    # I112: the |M| a rotation with a U is compared against at the end. A
-    # handed-in state (``starting_density``, ``starting_from``) is taken as it
-    # is; an atomic start's moment is a guess, so there the first iteration's
-    # output moment stands in (below, at the end of the run).
+    # I112: the |M| a rotation with a U is compared against at the end. Only a
+    # handed-in state (``starting_density``, ``starting_from``) has one; an
+    # atomic start's moment is a guess, and there the run does not warn (the
+    # user's decision, 2026-10-20, amending Fable's).
     hubbard_start_moment = None
     if rotate_moments and calculation.is_hubbard and starting_density is not None:
         hubbard_start_moment = float(np.linalg.norm(np.asarray(
@@ -10532,14 +10538,9 @@ def run_scf(
                                degeneracy_tol=degeneracy_tol)
 
     if rotate_moments and calculation.is_hubbard and moment is not None:
-        reference = "the starting state handed in"
-        start_moment = hubbard_start_moment
-        if start_moment is None and history and history[0].get(
-                "magnetization_vector") is not None:
-            reference = "the first iteration's output"
-            start_moment = float(np.linalg.norm(history[0]["magnetization_vector"]))
         _warn_if_the_hubbard_moment_moved(
-            start_moment, float(np.linalg.norm(moment)), reference)
+            hubbard_start_moment, float(np.linalg.norm(moment)),
+            "the starting state handed in")
 
     return SCFResult(
         converged=converged,

@@ -186,15 +186,28 @@ I100, I102) were combined by hand in `realtime/propagate.py`, `realtime/hierarch
 - I91, ultrasoft and PAW shift current. The new augmentation term takes the complete-basis
   sum-rule miss from 5.29e-2 to a floor of 4.1e-3 that does not fall with the step, so a piece
   is still missing. Options: keep the refusal with the measured floor in its message (as now);
-  or lift it and document a 4.1e-3 relative error in the sum rule.
+  or lift it and document a 4.1e-3 relative error in the sum rule. **Decided by the user (2026-10-20): stays refused**,
+  recorded in `I91.md`; no code change.
 - I105, textured spinor dielectric tensor. Options: keep the refusal (as now); or lift it for
   epsilon with `born_charges=False`, accepting the unlocated -5e-4 offset (0.16 per cent of
-  eps - 1).
+  eps - 1). **Decided by the user (2026-10-20): stays refused**, recorded in `I105.md`; no code change.
 - I108 and I109, the default of `noncollinear_gga` under `nosource`: superseded by the entry in
   "What the user decides, after integration two" (the verifier found `'kubler'` converges at 371).
 - I102, `get_nonlinear_spectrum(order >= 2, potential != 'frozen')`. Options: keep its warning about
   the mesh artefact (as now); drop it, to match the real-time route; or add the same warning to
-  `get_harmonic_orders`.
+  `get_harmonic_orders`. **Decided by the user (2026-10-20): keep it, and add the same warning to
+  `get_harmonic_orders`** on the same condition (the potential updated, an order of 2 or more):
+  one helper, `workflows/realtime.py:_warn_about_the_gauge_artefact`, called by both routes, the
+  fast test `test_hierarchy_two_grids.py::test_the_gauge_artefact_warning_fires_on_both_routes`,
+  and one sentence in `nonlinear.md`'s Limits; recorded in `I102.md`.
+- I112, the `|M|` warning of a `rotate_moments` run with a U (Fable's decision, "Integration three"
+  below). **Amended by the user (2026-10-20): it fires only when the run starts from a density**
+  (`starting_from` or `starting_density`); on an atomic start there is no warning. The fallback to
+  the first iteration's output moment is removed from `scf/driver.py`, the fast test
+  `test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves` checks that it fires from a
+  density, is silent on an atomic start and is silent when `|M|` is unchanged, and `anisotropy.md`'s
+  Limits says so; the README bullet does not describe the warning and is unchanged. Recorded in
+  `I112.md`, "The user's amendment".
 
 ## D22 worktrees that can be removed (none removed)
 
@@ -493,9 +506,9 @@ next fix round; `w-inc-I99*`, `w-inc-t3-I99` and `w-inc-t3d` go once `incompat-t
 
 ### What the user decides, after integration two
 
-- I108 and I109 (landed): the default of `noncollinear_gga` under `nosource`, left at `'kubler'`. Options: keep `'kubler'`, which preserves every `nosource` GGA run made before I108; or switch to `'grad_m'`. The verifier's facts on the PBE h4 chain: `'kubler'` takes 371 steps to a nearly nonmagnetic state, `'grad_m'` 62 to up-up-down-down. For a meta-GGA there is no earlier run to preserve; BJ06 on the chains is 160 against 46 steps, on Ni TB09 22 each.
-- I99 (landed, below): a meta-GGA on PAW with the potential updated stays refused; lifting it needs PAW's one-centre kinetic energy densities of `becsum(t)` beside `tau(t)`, a new item.
-- I88: a third fix round (an occupation limit below 1e-6 or tied to `small = 1e-12`), or leave it refused.
+- I108 and I109 (landed): the default of `noncollinear_gga` under `nosource`, left at `'kubler'`. Options: keep `'kubler'`, which preserves every `nosource` GGA run made before I108; or switch to `'grad_m'`. The verifier's facts on the PBE h4 chain: `'kubler'` takes 371 steps to a nearly nonmagnetic state, `'grad_m'` 62 to up-up-down-down. For a meta-GGA there is no earlier run to preserve; BJ06 on the chains is 160 against 46 steps, on Ni TB09 22 each. **Decided by the user (2026-10-20): stays `'kubler'`**, recorded in `I108.md` and `I109.md`; no code change.
+- I99 (landed, below): a meta-GGA on PAW with the potential updated stays refused; lifting it needs PAW's one-centre kinetic energy densities of `becsum(t)` beside `tau(t)`, a new item. **Decided by the user (2026-10-20): real-time `'hxc'` with a meta-GGA on PAW stays refused**, recorded in `I99.md`.
+- I88: a third fix round (an occupation limit below 1e-6 or tied to `small = 1e-12`), or leave it refused. **Decided by the user (2026-10-20): a third fix round, done separately later**, recorded in `I88.md`; nothing changed on this branch.
 
 ## Integration three (2026-10-20): I111 and the unit `rotate` (I113, I112 in part)
 
@@ -528,6 +541,8 @@ was found. Reason: the torque is measured right; several `ns` solutions exist re
 test `test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves`. The reference `|M|` is the
 state handed in, else the first iteration's output; whether it fires on the record's 45-degree run
 was not measured, and on an atomic start it can fire without a change of branch (`I112.md`).
+Amended by the user on 2026-10-20 ("What the user decides"): no reference and no warning on an
+atomic start.
 
 Guide: `magnetism.md` (I111) and `anisotropy.md` (I112 and I113) Limits notes; `tools/check_guide.py`
 passes. README: the bullet "Easy orientation of a magnetic texture" gained I112's three sentences; no
