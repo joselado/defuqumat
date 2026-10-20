@@ -1443,6 +1443,31 @@ class Calculator:
                                  exclude=SCF_ONLY_OPTIONS)
         )
 
+    def get_qpi(self, potential, height, **options):
+        """Quasiparticle interference around one impurity, by the T-matrix.
+
+        A Gaussian scatterer of strength ``potential`` (Ry) at ``impurity`` (an
+        atom index or crystal coordinates) scatters the surface's Bloch states,
+        and the standing waves are read at a tip plane at ``height`` over the
+        whole supercell the k-grid defines, then Fourier transformed. The
+        ``readers`` are ``"ldos"`` (Tersoff-Hamann) and ``"landauer"``, the
+        tip-to-``exit_height`` transmission, which weights each scattered
+        state by the STM's own tunnelling matrix element.
+
+        The k-set must be the **whole** grid, which ``grid`` builds, with one
+        division along the normal; an ultrasoft or PAW dataset and a spinor run
+        are refused.
+        """
+        from defuqumat.workflows.qpi import run_qpi
+
+        result = self._ground_state("a QPI map")
+        options = {**options, "potential": potential, "height": height}
+        return run_qpi(
+            self.system, self.pseudos, result, calculation=self.calculation,
+            **self._call_options(run_qpi, result, options,
+                                 exclude=SCF_ONLY_OPTIONS)
+        )
+
     def get_vertical_transport(self, exit_height=None, height=None, **options):
         """Tunnelling *through* a two-dimensional material, tip to substrate.
 
