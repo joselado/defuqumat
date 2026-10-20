@@ -376,15 +376,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n; Elk y (LAPW).
 - Partial 2026-10-19 (P156), record in `notes/incompat/I107.md`: sized, nothing lifted (the one-centre divergence, its multipoles and one Poisson solve are missing); the guard and the argument confirmed by the verifier 2026-10-20 (`/l/ladovj1/review/incompat/sourcefree-ver2/`).
 
-### I111. Fixed-spin-moment feedback constraint x `lspinorb`
-
-- Axis: spinor.
-- Guard: `defuqumat/system/builder.py:build_system:1263` (`ValueError`).
-- Test: `tests/unit/test_magnetic_fields.py:693` `test_the_fixed_spin_moment_search_refuses_spin_orbit_coupling`.
-- Missing: a secant with a full 3x3 `dm_a/dB_b` (sweep-core).
-- Check: a penalty scheme on the same moment; T4 Elk `fsmtype` with spin-orbit (unread).
-- QE/Elk: QE n.
-
 ### I112. `rotate_moments` x DFT+U
 
 - Axis: DFT+U.
@@ -393,15 +384,7 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Missing: turning `ns`'s spin structure with the step (sweep-core).
 - Check: the minimum of the relaxed anisotropy, which accepts a U.
 - QE/Elk: QE n.
-
-### I113. `rotate_moments` x applied `B_field`
-
-- Axis: magnetic field.
-- Guard: `defuqumat/scf/driver.py:_refuse_rotating_moments:6951`.
-- Test: none.
-- Missing: the Zeeman torque in the step (for a penalty constraint the refusal is physical) (sweep-core).
-- Check: the relaxed anisotropy energy plus the Zeeman term, minimised by hand.
-- QE/Elk: QE n.
+- Partial 2026-10-20 (P156, integration three), merged, record in `notes/incompat/I112.md`: the lift is kept for a U on norm-conserving and ultrasoft datasets. The torque with a U against the finite-difference derivative of the frozen band free energy on tetragonal Co at `U = 1` eV, -1.50e-5 and -1.55e-5 relative at a 0.5 degree stencil, falling as h^2 (+0.52 with the Hubbard share left out, which carries 52 per cent of the torque); the end state is a fixed point of the plain loop and a minimum on its branch of `ns`. The entry's check, the minimum of the relaxed anisotropy, is not met: the cell has six self-consistent or descending states spanning 1.58e-3 Ry, so the run finds the easy orientation of the `ns` solution it lands on and not the lowest. The user's decision, taken by Fable while the user was away: keep the lift, warn at the end of a run when `|M|` moved by more than 1e-3 mu_B (`test_a_rotation_with_a_hubbard_u_warns_when_its_moment_moves`), and say in the guide to run from two or three orientations. PAW and a fixed tensor moment still refuse (`test_the_sibling_refusals_of_rotate_moments_still_fire_on_the_turning_group`).
 
 ### I114. `soc_scale` strictly between 0 and 1 x ultrasoft or PAW
 
@@ -792,6 +775,13 @@ Landed on 2026-10-20 in P156, integration two of tier T3 (branch `incompat-t3`),
 - I99, Real-time propagation with the potential updated (`hxc`) under a potential-only meta-GGA, `nspin = 1`: `tau(t)` rebuilt at `k + kappa(t) + G` beside `rho(t)`, against the dense self-consistent solve 3.76e-5 (Si2 tb09, 800 steps a period) and 1.52e-5 (AlAs), falling as dt^2; `tau` held at `tau0` 0.281 and 0.0217. Through `Calculator.get_realtime` the 8-operation wedge against the whole 4x4x4 mesh 1.10e-8, 9.78e-2 with `tau` not completed by the little group (verifier: AlAs 3.8e-9 against 3.4e-2). Landed after integration two, combined by hand with I98 (the propagated state is `(rho, becsum, tau)`), and reproduced on the combined head to every printed digit. `energy` is NaN; `nspin = 2`, spinors, PAW under `hxc` (a pair neither side covered) and the hierarchy's meta-GGA kernel refuse (`incompat/I99`).
 
 Partial in the same integration, merged for the part measured: I104 (the Gamma phonon under `tefield`, to about 2e-4 Ry/bohr^2) and I114 (`soc_scale` between 0 and 1 on ultrasoft), each marked in place above.
+
+Landed on 2026-10-20 in P156, integration three of tier T3 (branch `incompat-t3`), each with its record in `notes/incompat/<ID>.md` (the sections of I111 and I113 above were removed; integration three in `notes/INCOMPATIBILITIES-T3.md`):
+
+- I111, Fixed-spin-moment feedback field (`'fsm'`, `fsm_update = 'elk'`) under `lspinorb`: bcc Fe (ultrasoft fully relativistic, shifted 2x2x2), target 1.0 mu_B at 30 degrees; the converged field held fixed from the converged state is self-consistent at its first iteration (`dr2` 1.07e-10) and ends 2.2e-10 Ry from the fsm total; the field projected on the target, dropping its transverse 1.55e-4 Ry, starts at 5.8e-7. The transverse part is 1.55e-4 Ry on that mesh and target and 3.7e-7 to 1.55e-4 over the three cells; 1.7e-7 with the coupling off. The guard's old test is now `test_the_fixed_spin_moment_field_runs_under_spin_orbit_coupling` (`tests/unit/test_magnetic_fields.py`). The secant update and the per-atom schemes still refuse; the Newton solver refuses `'fsm'` in any noncollinear run (I73) (`incompat/I111`).
+- I113, `rotate_moments` under an applied `B_field` (`nosym`): tetragonal Co, the two-field fit of `K1 sin^2 + K2 sin^4 - B M sin(theta)` gives `K1 + K2 = 3.1032e-5` Ry against the relaxed `E(x) - E(z) = 3.1054e-5`, -0.074 per cent and flat in `torque_conv_thr`; the residue is not `K3` (a three-field fit gives -1.35e-8 Ry), cause open, candidate the 0.076 per cent `|M|` difference between the z and x runs. With the field's share left in the step the run stays on the easy axis. Constraints, `reducebf` and a field with symmetry still refuse (`incompat/rotate`).
+
+Partial in the same integration, merged: I112 (`rotate_moments` with a Hubbard U on norm-conserving and ultrasoft datasets, with the `|M|` warning), marked in place above.
 
 Earlier:
 

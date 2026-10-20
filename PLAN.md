@@ -26641,7 +26641,7 @@ I82's two `OPEN.md` entries are written (Part XXVIII). I66 stays unmerged, await
 | I36 ultracell x feedback field | `'fsm'` (target 0.626 mu_B per cell) against the 2x1x1 supercell under the same scheme: field +1.32e-5, -9.4e-7, -4.6e-6 Ry and `E - B(M - Mt)` +3.6e-6, +1.1e-6, +6.0e-7 Ry per cell at nbnd 8, 16, 24; the frozen reference field misses the target by 3.8e-3 mu_B; faded `reducebf` reference (below 1.5e-4 Ry) misses the supercell moment by 3.0e-6 to 4.9e-6 mu_B, frozen 5.2e-5; verified twice | supercell under the same scheme | `incompat/I36-feedback` deadfc8 |
 | I73 Newton x feedback field | `|dm| (|B| + tau |dm|)` measure (the user's choice): raw total against the mixing loop at `conv_thr = 1e-11`, `fe-fsm.in` `'fsm'` 7.8e-13 Ry in 39 steps; canted iron pair `'atomic fsm'` 7.0e-13 in 63 of 80 steps, `'atomic fsm direction'` -1.01e-9, the reference's own arccos offset (energy at target 2.8e-14); 3 to 5 times the loop's time; field rows replaced by the identity: 45 to 102 loop iterations after the hand-over against 1; four unmeasured pairs and the noncollinear Hubbard residual refused by name; a non-converged hand-over warns; verified, then one fix round | mixing loop at its own fixed point (no `pw.x`: QE has no Elk fsm scheme) | `incompat/I73-feedback` 4450fe9 |
 
-### P156 -- Ten refusals lifted from tier T3 of `notes/INCOMPATIBILITIES.md`, integration one of I86 to I122. ✅ FAST GATE 2026-10-19 (slow tests not run), each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-t3` (`notes/INCOMPATIBILITIES-T3.md`), not merged into master. The workflow stopped early at a usage limit, so this covers what had finished: ten units landed, twelve recorded without merging, and I111 to I113 and I115 to I122 not started.
+### P156 -- Ten refusals lifted from tier T3 of `notes/INCOMPATIBILITIES.md`, integration one of I86 to I122. ✅ FAST GATE 2026-10-19 (slow tests not run), each unit implemented and then verified adversarially in a separate session (revert, mutation, changed cell), every number on `D22-0161`; integrated on branch `incompat-t3` (`notes/INCOMPATIBILITIES-T3.md`), not merged into master. The workflow stopped early at a usage limit, so this covers what had finished: ten units landed, twelve recorded without merging, and I111 to I113 and I115 to I122 not started (I111, I113 and I112 in part landed at integration three, below).
 
 Each unit's record is `notes/incompat/<ID>.md`, with its run directories; the verifier's logs are in `/l/ladovj1/review/incompat/<ID>-ver*/`. The landed items, one sample each, deterministic:
 
@@ -26705,3 +26705,29 @@ Fast gate on D22 (worktree `/l/ladovj1/w-inc-t3b`, logs in `/l/ladovj1/review/in
 `25aadef9` 3 failed, the `yaml` pair and `test_spin_torque_meta.py::test_the_source_free_field_still_refuses_a_meta_gga`
 (I110's assertion of the refusal I109 lifts), so `incompat/sourcefree` was reverted; at `3d715272`
 2 failed (the `yaml` pair), 4096 passed, 71 skipped, 1831 deselected in 1039.59 s.
+
+**Integration three (2026-10-20).** I111 and the unit `rotate` (I113, and I112 in part), each
+implemented and then confirmed by a separate verifier with text corrections, merged with `--no-ff`
+on `incompat-t3` (session branch `t3-third`, `notes/INCOMPATIBILITIES-T3.md`). Both merges were
+clean. Landed:
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I111 fsm feedback field (`fsm_update = 'elk'`) x `lspinorb` | bcc Fe US-FR, shifted 2x2x2, 1.0 mu_B at 30 deg: the field held fixed from the converged state, first `dr2` 1.07e-10, total 2.2e-10 Ry from the fsm run; projected on the target (transverse 1.55e-4 Ry dropped) 5.8e-7; gains 0.015 to 0.04 agree to 1.2e-10 Ry; transverse 1.55e-4, 1.9e-5, 3.7e-7 Ry over three cells (1.7e-7 at `soc_scale = 0`, whose run stops at the cap at -253.6854500 Ry, converged -253.6854174 per the verifier); verifier's 1.2 mu_B 60-degree cell confirms, gain 0.025 | the fixed-field identity, no code shared with the controller | `incompat/I111` dcc7eef0 |
+| I113 `rotate_moments` x applied `B_field` (`nosym`) | tetragonal Co, two fields: 25.974 and 55.712 deg, `K1 + K2` 3.1032e-5 against relaxed 3.1054e-5 Ry, -0.074 per cent, flat over `torque_conv_thr` 1e-8 to 1e-10; not `K3` (three-field fit -1.35e-8 Ry), cause open, candidate the 0.076 per cent `|M|` difference z against x; field's share left in the step: 0.038 deg, unconverged; verifier's own field 2.2e-5 Ry gives 39.4557 against predicted 39.4595 deg | relaxed anisotropy plus Zeeman, minimised by hand | `incompat/rotate` 5da11a35 |
+| I112 (partial) `rotate_moments` x DFT+U (nc, US) | Co `U = 1` eV: torque against the frozen band free energy -1.50e-5, -1.55e-5 at h = 0.5 deg (h^2 from 2 deg), +0.52 with the Hubbard share off; end state a fixed point (3e-5 deg, 1.1e-12 Ry) and a minimum on its branch; six `ns` states spanning 1.58e-3 Ry, so the entry's check (the minimum of the relaxed anisotropy) is not met; verifier's frozen identity on five variants (NC Ni, atomic projectors, J) | frozen-input central difference | `incompat/rotate` 5da11a35 |
+
+**The decision on I112**, taken by Fable while the user was away (2026-10-20): keep the lift, say in
+the guide to run from two or three starting orientations and keep the lowest energy, and warn at the
+end of a `rotate_moments` run with a U when `|M|` moved by more than 1e-3 mu_B
+(`scf/driver.py:_warn_if_the_hubbard_moment_moved`, `ROTATE_HUBBARD_MOMENT_TOL`); both say an
+unchanged `|M|` is not evidence that the lowest solution was found. Reason: the torque is measured
+right, several `ns` solutions exist whether or not the moments turn, and a warning turns a silent
+wrong answer into a named one. The reference `|M|` is the state handed in, or the first iteration's
+output on an atomic start; whether the warning fires on the record's 45-degree run was not measured
+(the harness logged only the end `|M|`), and on an atomic start the first-iteration `|M|` is not a
+converged reference, so the warning can fire without a change of branch.
+
+Code changed at integration beyond the merges: the secant refusal message and the docstring of
+`_refuse_feedback_spin_orbit` (the transverse field per cell), the comments of two slow tests, and
+the I112 warning with its fast test. Fast gate: below, in `notes/INCOMPATIBILITIES-T3.md`.
