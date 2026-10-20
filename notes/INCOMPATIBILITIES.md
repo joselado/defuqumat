@@ -315,16 +315,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 
 ## T3: an approximate identity, or one that needs a convergence
 
-### I88. Elastic constants (strain response) x metal
-
-- Axis: occupations (metal).
-- Guard: `defuqumat/response/strain.py:289` via `sternheimer.py:require_a_sternheimer_regime:1668` (`_NO_METAL_YET`).
-- Test: `tests/unit/test_sibling_refusals.py:307` `test_the_strain_response_refuses_a_metal_for_the_right_reason`.
-- Missing: the Fermi-level shift and the `wg`/`2 wk` split carried onto the strain coordinate (GAPS §3).
-- Check: a central difference of the pw.x-validated metal stress over strained cells, and a five-point energy difference, on `tests/data/qe/al2-metal.in`.
-- QE/Elk: neither.
-- Refuted twice 2026-10-19 and 20 (P156), not merged, record in `notes/incompat/I88.md`: right on Marzari-Vanderbilt al2-metal (1.6e-7); the fix round tied the smearing cutoff to `small = 1e-12` (holds, h^4 on three cells), but the second verifier refuted the guard half: the top-band occupation guard at 6.96e-5 admits Fermi-Dirac ground states with 2e-5 (C_1111 6 to 7 per cent off) and 1.7e-6 (4e-6, flat) in the top band, and its "where ph.x warns" wording holds only for Fermi-Dirac. Needs an occupation limit below 1e-6 or tied to 1e-12 (`/l/ladovj1/review/incompat/I88/ver3/`).
-
 ### I91. Shift current x ultrasoft or PAW
 
 - Axis: dataset (US/PAW).
@@ -777,6 +767,10 @@ Partial in the same integration, merged: I112 (`rotate_moments` with a Hubbard U
 Landed on 2026-10-20 in P156, integration four of tier T3 (branch `incompat-t3`, the section of I115 above removed; integration four in `notes/INCOMPATIBILITIES-T3.md`):
 
 - I115, Ultracell transport, `exit_region = 'volume'` x ultrasoft or PAW: the ultracell's `S` summed over the `N` copies of every atom (`ultracell/augmentation.py:ultracell_overlap`). Si sheet `(2, 1, 1)`, US and PAW, spinless, `nspin = 2` and scalar-relativistic spinor: Gram `C^dagger S C` the identity to 3e-15 to 1e-13, the volume transmission the STM image to 3e-14 to 1.2e-13; with `S` off the Gram diagonal is above 1 by 0.28 and the image misses by 2.8e-2. On `(3, 1, 1)` the Gram identity holds to 1e-14 and the image only to 1.3e-8 to 1.6e-8, the same on norm-conserving, so not `S`'s. Verifier's magnetized `nspin = 2` (US `(3, 1, 1)`, `magnetic_field` `0.05 cos(2 pi x / 3)`, splitting 4.2e-2 Ry): Gram 1.2e-14, 0.27 with `S` off. `lspinorb` with the volume exit on an augmented dataset stays refused, unmeasured (`incompat/I115`).
+
+Landed on 2026-10-20 in P156, integration five of tier T3 (branch `t3-I88`, merge `19744ed6`, the section of I88 above removed; integration five in `notes/INCOMPATIBILITIES-T3.md`):
+
+- I88, Elastic constants (strain response) x metal: the phonon's `ef_shift` on the states' half of the strain density and `ef_shift_wfc` on `dpsi`, the `wg`/`wk` split written as two copies of the band block (`response/elastic.py:_split_weights`), the strain route's smearing cutoff at `STRAIN_SMEARING_SMALL = 1e-12`, and a highest band holding at most 1e-12 (`_require_an_empty_top_band`). Smeared norm-conserving metal on a closed `nosym` grid, whole-k route: `al2-metal.in` `C_1111` against a five-point difference of `F` 1.6e-7 (M-V), 1.3e-6 (M-P 0.04), 2.2e-7 (Gaussian 0.03), 3.6e-8 (F-D 0.05 at `nbnd = 17`), each falling as `h^4`; with QE's 6.96e-5 cutoff -4.6e-4 (M-P), flat in `h`. Window, documented by the user's decision: a Gaussian top band 4.97 to 5.20 `degauss` above the Fermi level, or a Marzari-Vanderbilt one 4.47 to 5.20, is admitted and reads 2.7e-6 to 7.0e-6 off where `nbnd` splits a degenerate pair (`degauss` 0.17 to 0.19). The limit also refuses Gaussian and M-P 0.05, Gaussian 0.08 and M-V 0.08 at `nbnd = 7`, measured right. Refused: ultrasoft and PAW metals, tetrahedra, a reduced k-set, the walked route (`incompat/I88`, three fix rounds, `notes/incompat/I88.md`).
 
 Earlier:
 

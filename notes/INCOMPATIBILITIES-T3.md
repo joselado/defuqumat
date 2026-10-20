@@ -91,7 +91,7 @@ and the gate; the real-time slow files above are what would test them further.
 |---|---|
 | I86 | landed: US/PAW al2 metal phonon against `ph.x` at most 0.0136 and 0.023 cm^-1 |
 | I87 | landed: US/PAW Si2 `C_ijkl` against a five-point energy difference at the 1e-7 floor (22.1 per cent with the terms off) |
-| I88 | refuted twice, not merged: the fix round's smearing cutoff (`small = 1e-12`) holds, but the top-band guard at 6.96e-5 admits Fermi-Dirac states with 2e-5 (C_1111 6 to 7 per cent off) and 1.7e-6 (4e-6) in the top band; needs a limit below 1e-6 or tied to 1e-12 (`I88/ver3/`) |
+| I88 | landed at integration five (`t3-I88`, merge `19744ed6`): smeared norm-conserving metal, `al2-metal.in` `C_1111` against a five-point difference of `F` 1.6e-7 (M-V), 1.3e-6 (M-P), 2.2e-7 (Gaussian), 3.6e-8 (F-D at `nbnd = 17`), top band at most 1e-12; a Gaussian or M-V top band 4.97 (4.47) to 5.20 `degauss` above `e_F` is admitted, 2.7e-6 to 7.0e-6 off where `nbnd` splits a degenerate pair (the user's decision: documented, nothing new refused) |
 | I89 | landed: PAW AlAs `e_14` onto `pw.x`'s Berry value, -0.001 per cent at the 12 mesh |
 | I90 | landed in integration two: polar norm-conserving AlAs, wedge against closed grid 1.1e-9 (1.1e-3 off), the verifier's 3m cell 4.2e-9 |
 | I91 | partial: US/PAW sum-rule floor 4.1e-3, flat in the step (5.29e-2 without the new term), refusal kept |
@@ -325,7 +325,7 @@ fast-forward of it (`git merge --ff-only <head>` inside `agent-a155b466dfdcaf047
 | I104 | 5f6b310b | merged (partial); `dynamical_matrix` keeps `sawtooth_ok=True` and `_require_a_measured_sawtooth_regime(calculation)` and takes `_require_a_measured_overlap_metal(calculation, atoms)` in place of `_require_a_moving_overlap_regime` (still used by `nonlinear.py`); the walked and streamed blocks auto-merged with both guards |
 | sourcefree (I107 to I109) | 22cb6267 | merged clean (record files from the branch; `22cb6267` descends from the verified `c5401217` and changes only records, a harness line and test comments and docstrings), then **reverted** after the first gate (below); the fix-round records of I108 and I109 kept; re-landed on `t3-sourcefree` (below) |
 | I114 | e80bc66f | merged clean (partial) |
-| I88 | 325df4ea | not merged (refuted twice) |
+| I88 | 325df4ea | not merged (refuted twice); landed after a third round at integration five, below |
 
 After the conflicted merges the touched fast files were run on this workstation (they need no
 SCF): `tests/unit/test_realtime.py` 15 passed, 11 deselected (after I101);
@@ -515,7 +515,7 @@ next fix round; `w-inc-I99*`, `w-inc-t3-I99` and `w-inc-t3d` go once `incompat-t
 
 - I108 and I109 (landed): the default of `noncollinear_gga` under `nosource`, left at `'kubler'`. Options: keep `'kubler'`, which preserves every `nosource` GGA run made before I108; or switch to `'grad_m'`. The verifier's facts on the PBE h4 chain: `'kubler'` takes 371 steps to a nearly nonmagnetic state, `'grad_m'` 62 to up-up-down-down. For a meta-GGA there is no earlier run to preserve; BJ06 on the chains is 160 against 46 steps, on Ni TB09 22 each. **Decided by the user (2026-10-20): stays `'kubler'`**, recorded in `I108.md` and `I109.md`; no code change.
 - I99 (landed, below): a meta-GGA on PAW with the potential updated stays refused; lifting it needs PAW's one-centre kinetic energy densities of `becsum(t)` beside `tau(t)`, a new item. **Decided by the user (2026-10-20): real-time `'hxc'` with a meta-GGA on PAW stays refused**, recorded in `I99.md`.
-- I88: a third fix round (an occupation limit below 1e-6 or tied to `small = 1e-12`), or leave it refused. **Decided by the user (2026-10-20): a third fix round, done separately later**, recorded in `I88.md`; nothing changed on this branch.
+- I88: a third fix round (an occupation limit below 1e-6 or tied to `small = 1e-12`), or leave it refused. **Decided by the user (2026-10-20): a third fix round, done separately later**, recorded in `I88.md`; nothing changed on this branch. The third round landed at integration five, below.
 
 ## Integration three (2026-10-20): I111 and the unit `rotate` (I113, I112 in part)
 
@@ -656,3 +656,78 @@ integration three are I115's `test_ultracell_overlap.py`. `nvidia-smi --query-co
 nothing on the card during and after the run. The commit after the gated one (`50033f44`) changed a
 docstring of `workflows/ultracell.py` (the 3 to 9 per cent kept as a size) and records only; the
 commit after that records this gate only.
+
+## Integration five (2026-10-20): I88
+
+On the session branch `t3-I88` from master at `6a46d974`: `git merge --no-ff I88-r3-ver` (tip
+6e505eee: `incompat/I88` at 325df4ea, the third fix round `incompat/I88-r3` at ac1da88f and the third
+verification), merge `19744ed6`. The branch is based on `6c5b3a36`, before I87, so three
+files conflicted:
+
+- `response/elastic.py`, five hunks against I87's augmented elastic constants, combined by hand:
+  both module-docstring paragraphs; the walked metal refusal inside master's `if streamed:`, after
+  `require_a_measured_elastic_regime(streamed=, response=)`; the metal's `_split_weights` after
+  `augmented` is read, with its `tangent_block` taking the `dpsi` (plus `ort`) block; I87's
+  `energy(strain, states, lambdas=None)` and `_shared_primal_columns(gradient, primals, tangent_of,
+  budget)`, with `_split_weights` placed before it. An augmented metal never reaches the split,
+  since the strain response refuses it first.
+- `response/strain.py`, one hunk: `ef_shift_wfc` on the last pass's states, then master's
+  five-value return with `onecentre`.
+- `notes/incompat/I88.md` (add/add): the branch's full history kept, master's "The user's decision
+  (2026-10-20)" placed between the second and the third fix rounds, and a new section "The user's
+  decisions on the third round (2026-10-20)" after the third verification; the title says done,
+  with the window stated.
+
+The third verifier's text corrections are applied: the comment on `STRAIN_TOP_BAND_OCCUPATION`
+says the limit is numerically the cutoff's 1e-12 but the cutoff applies it to the Gaussian delta
+function (5.20 `degauss`), not to the occupation, with the Gaussian 4.97 to 5.20 and
+Marzari-Vanderbilt 4.47 to 5.20 windows, and its "where those tails hold nothing" is qualified to
+`degauss = 0.05` to 0.08 (2.7e-6 to 7.0e-6 off at 0.17 to 0.19); the refusal message drops "the
+value the strain route's projector cutoff counts as zero"; the record's "the Gaussian and the cold
+smearings hold nothing there" carries the same qualifier. No test asserted the old message.
+
+**The combined metal path, measured** (D22, worktree `/l/ladovj1/w-inc-t3-I88` at `19744ed6`,
+harness `notes/incompat/I88-harness/r3.py curve`, `/l/ladovj1/review/incompat/t3-I88/metal.log`, one
+slot, 120 s): `al2-metal.in` (Marzari-Vanderbilt 0.05, `nbnd = 7`) reads `C_1111` 77.315370 and
+`C_1212` -221.673311 GPa, the fix round's numbers to every printed digit, -1.6e-7 and +1.5e-7 against
+the five-point difference at `h = 2e-3`, major-symmetry residue 2.4e-7 GPa; Fermi-Dirac 0.05 at
+`nbnd = 17` reads 114.486439, -4.923022 and 34.207428 (seed-11 random strain), identical to the third
+round's `curveD.log` at 325df4ea, residue 1.06e-8 GPa. So the merge with I87's matrix constraint
+leaves the metal's tensor unchanged.
+
+Guide: `stress.md` Limits (the elastic constants) gains the metal paragraph, with 1e-12, the
+Fermi-Dirac `nbnd = 17` cost and the Gaussian and Marzari-Vanderbilt window in one sentence;
+`phonons.md`'s strain-response sentence no longer says "for an insulator". README: no change (the
+row "Elastic constants" has empty `QE` and `Elk` cells and the bullet says nothing about metals).
+Ledger: I88 to "Closed since". `PLAN.md` P156: the integration-five table.
+
+**Slow files for the user** (none run):
+
+- `tests/regression/test_electrostriction.py`:
+  `test_the_elastic_constants_of_a_metal_match_a_second_difference_of_the_free_energy` (four cases:
+  `al2-metal` and `al2-metal-mp` at `(0,0)` and `(0,1)`), `test_the_elastic_constants_match_a_second_difference_of_the_energy`,
+  and I87's five-point test on ultrasoft and PAW in the same file, all through the combined
+  `elastic_constants`.
+- `tests/regression/test_elastic_one_trace.py`, through the same function.
+- `tests/regression/test_phonons.py` and the other metallic phonon files, as a check that the
+  default `Smearing.small` path (QE's 6.96e-5) is untouched.
+
+**Fast gate on D22** at `19744ed6` (worktree `/l/ladovj1/w-inc-t3-I88`, through `slot.sh`,
+`-m pytest -q -rs --tb=line -m 'not slow' tests`, `DEFUQUMAT_QE_ROOT` set,
+`/l/ladovj1/review/incompat/t3-I88/gate.log`): **3 failed, 4137 passed, 67 skipped, 1848
+deselected**, 1081 s. Two failures are the `yaml` pair of `test_check_guide.py`. The third,
+`tests/unit/test_scf_restart.py::test_max_seconds_stops_the_loop_and_leaves_a_checkpoint`
+("RuntimeError: generator raised StopIteration" in `pseudo/projectors.py:472`), is not I88's: it
+fails the same way at master `6a46d974` (worktree `/l/ladovj1/w-inc-t3-I88-master`,
+`restart-master.log`, 1 failed, 40 passed). Earlier gates never ran it, because `test_scf_restart.py`
+skips without `<worktree>/quantum_espresso/qe-7.5-ReleasePack/qe-7.5`, which this worktree links. The
+test replaces `driver.time.time`, which is the `time` module's own function, with an iterator of 104
+ticks, and the SCF's other callers of `time.time()` (the projector build among them) exhaust it.
+The skips are the expected ones: `test_basis.py` and `test_geometry.py` (Wyckoff positions,
+`use_all_frac`, `force_symmorphic`, `one_atom_occupations`, QE's symmetry-reduced grids, the
+per-spin k lists), `test_input_sweep.py` (`eval_infix`), `test_config.py` (one CPU in the slot,
+`DEFUQUMAT_THREADS` set) and `test_units.py` (`Modules/constants.f90` is not in the D22 QE tree).
+
+**D22 worktrees that can be removed after this lands** (none removed): `/l/ladovj1/w-inc-t3-I88`,
+`/l/ladovj1/w-inc-t3-I88-master`, and every `w-inc-I88*` (`-fix`, `-r3`, `-v2`, `-ver`, `-ver-rev`,
+`-ver2`, `-ver2-rev`, `-ver3`, `-ver4`).
