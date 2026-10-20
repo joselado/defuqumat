@@ -415,8 +415,8 @@ dataset under `'hxc'` is neither side's. A plain ultrasoft dataset refuses a met
 is refused by name in `require_a_potential_mode` (new, with an assertion in
 `test_a_meta_gga_is_updated_at_nspin_1_and_refused_elsewhere`). Nothing was lifted beyond the two sides.
 
-**Both sides hold, measured on D22**, CPU, one slot each, on the merge commit `6ac5dbb7` (later
-commits change a message and records), `/l/ladovj1/review/incompat/t3-I99/`:
+**Both sides hold, measured on D22**, CPU, one slot each, on the merge commit `6ac5dbb7` (`712c5629` after it changes the PAW guard's message and comment, its unit assertion and the guide, no computed path; later
+commits change records only), `/l/ladovj1/review/incompat/t3-I99/`:
 
 | check | record | combined head |
 |---|---|---|
