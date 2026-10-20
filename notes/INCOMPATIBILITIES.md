@@ -397,15 +397,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Note: Only in sweep-core.
 - Partial 2026-10-20 (P156, integration two), merged for ultrasoft, record in `notes/incompat/I114.md`: `soc_scale` strictly between 0 and 1 on an ultrasoft dataset; tetragonal Co, the Richardson slope 0.010121 against Hellmann-Feynman 0.010135 meV, the verifier's `s = 0.37` coefficient 0.45804 against the law's 0.4585 (0.154 against 0.0634 meV with the term off), MAE(1) 0.447302 against `pw.x` 0.4474, a Pt ultracell at 0.5 to 2.3e-12 Ry at `Q_d = 0`. Forces, stress, phonons and the dielectric response at an intermediate scale rest on the variational argument. Fully relativistic PAW stays refused (its small component is scaled as a strength, P117).
 
-### I115. Ultracell transport, `exit_region = 'volume'` x ultrasoft or PAW
-
-- Axis: dataset (US/PAW).
-- Guard: `defuqumat/workflows/ultracell.py:_refuse_an_augmented_volume_diagnostic:548`.
-- Test: `tests/regression/test_ultracell_augmented.py:1029` `test_the_augmented_exit_plane_transmission_is_the_unit_cell_s_tiled`.
-- Missing: `S` in an ultracell state's plane-wave representation across N unit-cell spheres (sweep-workflows).
-- Check: `exit_region = 'plane'` on the same dataset; the norm-conserving limit.
-- QE/Elk: QE n.
-
 ### I116. Ultracell `seed_from_field` x collinear reference
 
 - Axis: spin.
@@ -782,6 +773,10 @@ Landed on 2026-10-20 in P156, integration three of tier T3 (branch `incompat-t3`
 - I113, `rotate_moments` under an applied `B_field` (`nosym`): tetragonal Co, the two-field fit of `K1 sin^2 + K2 sin^4 - B M sin(theta)` gives `K1 + K2 = 3.1032e-5` Ry against the relaxed `E(x) - E(z) = 3.1054e-5`, -0.074 per cent and flat in `torque_conv_thr`; the residue is not `K3` (a three-field fit gives -1.35e-8 Ry), cause open, candidate the 0.076 per cent `|M|` difference between the z and x runs. With the field's share left in the step the run stays on the easy axis. Constraints, `reducebf` and a field with symmetry still refuse (`incompat/rotate`).
 
 Partial in the same integration, merged: I112 (`rotate_moments` with a Hubbard U on norm-conserving and ultrasoft datasets, with the `|M|` warning), marked in place above.
+
+Landed on 2026-10-20 in P156, integration four of tier T3 (branch `incompat-t3`, the section of I115 above removed; integration four in `notes/INCOMPATIBILITIES-T3.md`):
+
+- I115, Ultracell transport, `exit_region = 'volume'` x ultrasoft or PAW: the ultracell's `S` summed over the `N` copies of every atom (`ultracell/augmentation.py:ultracell_overlap`). Si sheet `(2, 1, 1)`, US and PAW, spinless, `nspin = 2` and scalar-relativistic spinor: Gram `C^dagger S C` the identity to 3e-15 to 1e-13, the volume transmission the STM image to 3e-14 to 1.2e-13; with `S` off the Gram diagonal is above 1 by 0.28 and the image misses by 2.8e-2. On `(3, 1, 1)` the Gram identity holds to 1e-14 and the image only to 1.3e-8 to 1.6e-8, the same on norm-conserving, so not `S`'s. Verifier's magnetized `nspin = 2` (US `(3, 1, 1)`, `magnetic_field` `0.05 cos(2 pi x / 3)`, splitting 4.2e-2 Ry): Gram 1.2e-14, 0.27 with `S` off. `lspinorb` with the volume exit on an augmented dataset stays refused, unmeasured (`incompat/I115`).
 
 Earlier:
 

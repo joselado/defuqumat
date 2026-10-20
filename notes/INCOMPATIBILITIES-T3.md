@@ -575,3 +575,48 @@ script, `DEFUQUMAT_QE_ROOT` set, `/l/ladovj1/review/incompat/t3e/gate.log`): **2
 pair of `test_check_guide.py`), 4115 passed, 71 skipped, 1842 deselected**, 1216 s; no merge
 reverted. `nvidia-smi --query-compute-apps` showed nothing on the card after launch. The commit after
 it records this gate only.
+
+## Integration four (2026-10-20): I115
+
+On the session branch `t3-fourth` from `incompat-t3` at `18685628`: `git merge --no-ff
+incompat/I115` (tip 2338c766). Clean; the unit touches `ultracell/augmentation.py`,
+`workflows/ultracell.py`, its record and harness, `tests/unit/test_ultracell_overlap.py` (new)
+and `tests/regression/test_ultracell_augmented.py`. The verifier confirmed it on its own `(3, 1, 1)`
+cell, its own modulation and a magnetized `nspin = 2` case, with corrections applied at integration:
+
+- **The image to 1e-13 holds on the two-cell `(2, 1, 1)` sheet only.** On `(3, 1, 1)` ultracells
+  the volume transmission is 1.3e-8 to 1.6e-8 from the image and norm-conserving reads the same, so
+  that floor is not `S`'s; the Gram identity is 1e-14 on both sizes. In `notes/incompat/I115.md`
+  ("Integration"), the ledger line, `PLAN.md` P156 and the guide's Limits note, which now says "the
+  result is the image to 1e-13 on the two-cell silicon sheet; the overlap itself is exact to 1e-14
+  on two- and three-cell ultracells" in short sentences.
+- **The S-off Gram diagonal is above 1 by 0.28, not short by it.** The harness prints
+  `|diag - 1|`, so the sign is the verifier's. Fixed in the record's "Read aloud" and in the two
+  docstrings of `workflows/ultracell.py` (`_ultracell_overlap_operator` and the transport bundle),
+  which now say the plain norm is off by the augmentation charge with the dataset's sign, above 1
+  on the silicon datasets. The comment at `workflows/ultracell.py:186` ("falls short by the
+  augmentation charge" inside a sphere, about the STM image) is a different statement and was left.
+- **The verifier's magnetized `nspin = 2` case**, added to the record: `magnetic_field`
+  `0.05 cos(2 pi x / 3)` on the ultrasoft `(3, 1, 1)` ultracell, spin splitting 4.2e-2 Ry, Gram
+  identity to 1.2e-14 with `S`, 0.27 off. The record's own `nspin = 2` rows converge unpolarized
+  and check the indexing only.
+
+Stale text: `PLAN.md`'s ultracell section ("What refuses instead is `exit_region = "volume"`") and
+`notes/AUGMENTATION-NEXT.md` ("What refuses now is ...") now say it refused until I115, and the
+first gains a "Superseded by I115" paragraph. Guide: `ultracell.md` Limits, the `lspinorb` refusal
+kept; `tools/check_guide.py` passes. README: no change (the row "What a modulation looks like to a
+tip" says nothing about datasets or the exit region). Ledger: I115 to "Closed since". `PLAN.md`
+P156: the integration-four table.
+
+**Slow files for the user** (none run):
+
+- `tests/regression/test_ultracell_augmented.py`: I115's
+  `test_the_augmented_whole_cell_transmission_is_the_image[ultrasoft]` and `[paw]`, and the
+  changed `test_the_augmented_exit_plane_transmission_is_the_unit_cell_s_tiled` (the old
+  whole-cell refusal assertion removed, the augmentation-sphere guard asserted with
+  `exit_region = 'volume'` too).
+- `tests/regression/test_ultracell_stm.py`, `test_ultracell_sts.py` and `test_transport.py`, as
+  guards of the norm-conserving and plane paths through the changed `workflows/ultracell.py`.
+
+**D22 worktrees that can be removed after `incompat-t3` is merged** (none removed): `/l/ladovj1/w-inc-t3f`
+(this gate) and `w-inc-I115*`.

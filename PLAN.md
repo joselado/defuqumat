@@ -26741,3 +26741,16 @@ Code changed at integration beyond the merges: the secant refusal message and th
 the I112 warning with its fast test. Fast gate on D22 at `8d3e27b9` (worktree `/l/ladovj1/w-inc-t3e`,
 CPU, `/l/ladovj1/review/incompat/t3e/gate.log`): 2 failed (the `yaml` pair), 4115 passed, 71
 skipped, 1842 deselected in 1216 s; no merge reverted.
+
+**Integration four (2026-10-20).** I115, implemented and then confirmed by a separate verifier
+with text corrections, merged with `--no-ff` on `incompat-t3` (session branch `t3-fourth`,
+`notes/INCOMPATIBILITIES-T3.md`). The merge was clean. Landed:
+
+| ID | number | check | branch |
+|---|---|---|---|
+| I115 ultracell transport, `exit_region = 'volume'` x US/PAW | Si sheet `(2, 1, 1)`, 12 bands, modulation `0.05 cos(2 pi x / 2)`; US and PAW, spinless, `nspin = 2`, scalar-relativistic spinor: Gram `C^dagger S C` identity to 3e-15 to 1e-13, volume transmission against the image 3e-14 to 1.2e-13 at `states_conv_thr` 1e-8 and 1e-11 (1e-10 spinor); `S` off: Gram diagonal above 1 by 0.28, image 2.8e-2. On `(3, 1, 1)` (verifier) the Gram identity holds to 1e-14 and the image to 1.3e-8 to 1.6e-8 only, the same on norm-conserving, so that floor is not `S`'s; verifier's magnetized `nspin = 2`, US `(3, 1, 1)` under `magnetic_field` `0.05 cos(2 pi x / 3)`, splitting 4.2e-2 Ry: Gram 1.2e-14, 0.27 with `S` off. `lspinorb` with the volume exit on US/PAW stays refused, unmeasured | the Gram identity and the Tersoff-Hamann image, neither uses `S` | `incompat/I115` 2338c766 |
+
+Code changed at integration beyond the merge: two docstrings of `workflows/ultracell.py` (the S-off
+Gram is off by the augmentation charge with the dataset's sign, above 1 on silicon, not short of
+it). Stale "volume refused" text in this plan's ultracell section and `notes/AUGMENTATION-NEXT.md`
+marked superseded.
