@@ -240,3 +240,29 @@ def test_an_unknown_reader_is_refused(case):
     with pytest.raises(ValueError, match="reader"):
         impurity_maps(states, 0.0, BROADENING, 1.0,
                       lattice_translations(DIVISIONS), readers=("didv",))
+
+
+def test_the_impurity_overlap_is_a_real_space_integral(case):
+    """``<psi|phi>`` by quadrature, which fixes the absolute scale of ``V``.
+
+    Every other check takes ``P_kn`` as given, so an error in it would only
+    rescale the strength and pass them all.
+    """
+    coefficients, miller, kcrystal, mask, *_ = case
+    sigma, ik = 0.5, 2
+    centre = CELL.to_cartesian(IMPURITY) if hasattr(CELL, "to_cartesian") \
+        else IMPURITY @ CELL.at
+    # +-7 sigma: the Gaussian's tail beyond it is below 1e-10; at +-4.8 sigma
+    # the same comparison read 2.7e-6, the box and not the overlap.
+    h = 0.1
+    axis = np.arange(-3.5, 3.5 + h / 2, h)
+    grid = np.stack(np.meshgrid(axis, axis, axis, indexing="ij"), -1).reshape(-1, 3)
+    points = (grid + centre) @ np.linalg.inv(CELL.at)
+    psi = sample_wavefunctions(coefficients[ik], miller[ik], kcrystal[ik], points,
+                               CELL.volume, mask=mask[ik])
+    phi = (np.pi * sigma ** 2) ** -0.75 * np.exp(-np.sum(grid ** 2, axis=1)
+                                                 / (2 * sigma ** 2))
+    want = np.conj(psi) @ phi * h ** 3
+    got = impurity_overlaps(coefficients[ik], miller[ik], kcrystal[ik], IMPURITY,
+                            CELL.bg, CELL.volume, sigma, mask=mask[ik])
+    assert np.abs(got - want).max() < 1e-8 * np.abs(want).max()

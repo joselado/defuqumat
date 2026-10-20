@@ -1,0 +1,23 @@
+! A square sheet of hydrogen atoms, 5 bohr apart, with 15 bohr between sheets, LDA.
+! nosym and one k-division along the normal, which the transport calculations need.
+! The input of the figure "stm_qpi" (a copy of the one of "stm_momentum").
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 6, celldm(1) = 5.0, celldm(3) = 3.0,
+    nat = 1, ntyp = 1,
+    ecutwfc = 15.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.05
+    nosym = .true.
+    nbnd = 8
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS (crystal)
+ H 0.0 0.0 0.5
+K_POINTS {automatic}
+ 4 4 1 0 0 0
