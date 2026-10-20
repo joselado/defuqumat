@@ -569,4 +569,9 @@ the integration-three table; nothing in the outstanding index at the head of §3
 **D22 worktrees that can be removed after `incompat-t3` is merged** (none removed): `/l/ladovj1/w-inc-t3e`
 (this gate), `w-inc-I111*` and `w-inc-rotate*`.
 
-**Fast gate on D22**: see the next paragraph.
+**Fast gate on D22** at `8d3e27b9` (worktree `/l/ladovj1/w-inc-t3e`, `tools/test-fast.sh -q -rs
+--tb=line` under `taskset -c 0-3,12-15` in a 16 GB scope, `JAX_PLATFORMS=cpu` exported in the launch
+script, `DEFUQUMAT_QE_ROOT` set, `/l/ladovj1/review/incompat/t3e/gate.log`): **2 failed (the `yaml`
+pair of `test_check_guide.py`), 4115 passed, 71 skipped, 1842 deselected**, 1216 s; no merge
+reverted. `nvidia-smi --query-compute-apps` showed nothing on the card after launch. The commit after
+it records this gate only.

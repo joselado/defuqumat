@@ -26730,4 +26730,6 @@ converged reference, so the warning can fire without a change of branch.
 
 Code changed at integration beyond the merges: the secant refusal message and the docstring of
 `_refuse_feedback_spin_orbit` (the transverse field per cell), the comments of two slow tests, and
-the I112 warning with its fast test. Fast gate: below, in `notes/INCOMPATIBILITIES-T3.md`.
+the I112 warning with its fast test. Fast gate on D22 at `8d3e27b9` (worktree `/l/ladovj1/w-inc-t3e`,
+CPU, `/l/ladovj1/review/incompat/t3e/gate.log`): 2 failed (the `yaml` pair), 4115 passed, 71
+skipped, 1842 deselected in 1216 s; no merge reverted.
