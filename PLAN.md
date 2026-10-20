@@ -26822,8 +26822,7 @@ Green's function, Friedel or KKR routine; both have only the Tersoff-Hamann imag
 `ldos` 1.5e-2, 6.9e-3, 1.2e-3, 8.1e-4. `A_mk = psi+_mk(r)/D_mk` with `psi+` the Lippmann-Schwinger
 scattering state, so the exit leg takes P66's on-shell amplitude (`exit_method = 'spectral'`, the
 default) and the scattering state keeps the literal resolvent; then 1.2e-2, 5.4e-3, 9.0e-4,
-6.4e-4, and 32 against 64 bands is 3.5e-4 (literal: 3.8e-2). `T(E_F)` is stable to four digits
-over the same sweep on the sheet. On graphene `T` moves 1.90 to 1.70 Ry from 12 to 20 bands: the
+6.4e-4, and 32 against 64 bands is 3.5e-4 (literal: 3.8e-2). `T(E_F)` reads 0.0402 - 0.1153i Ry at 8 bands and 0.0404 to 0.0405 - 0.1151i from 16 up. On graphene `T` moves 1.90 to 1.70 Ry from 12 to 20 bands: the
 window is part of the model, as for a Wannier model.
 
 **The regime, which is the finding that nearly went into the record wrong.** QPI needs `eta` much

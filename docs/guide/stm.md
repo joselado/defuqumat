@@ -555,8 +555,8 @@ supercell, and if it is not small, the waves of the next impurity are in the map
 `qpi.contour_points` is the number of k-points the exit leg of `"landauer"` sees
 on the constant-energy contour.
 
-![Graphene with one impurity on a carbon atom: the QPI pattern of the local density of states at the tip, and of the transmission from the tip to the exit plane.](img/stm_qpi.png#only-light)
-![Graphene with one impurity on a carbon atom: the QPI pattern of the local density of states at the tip, and of the transmission from the tip to the exit plane.](img/stm_qpi-dark.png#only-dark)
+![A square sheet of hydrogen with one impurity on an atom: the QPI pattern of the local density of states at the tip, and of the transmission from the tip to the exit plane.](img/stm_qpi.png#only-light)
+![A square sheet of hydrogen with one impurity on an atom: the QPI pattern of the local density of states at the tip, and of the transmission from the tip to the exit plane.](img/stm_qpi-dark.png#only-dark)
 
 We see the $2k_F$ contour in both maps, a rounded square at about
 0.9 bohr$^{-1}$ from $q = 0$, which joins opposite sides of the Fermi surface.
