@@ -1468,6 +1468,22 @@ class Calculator:
                                  exclude=SCF_ONLY_OPTIONS)
         )
 
+    def get_qpi_bands(self, **options):
+        """The whole-grid states for :meth:`get_qpi`, solved once.
+
+        Pass the result as ``states=`` to :meth:`get_qpi`, so that several
+        impurities, strengths or broadenings cost one band solve. ``grid``,
+        ``nbnd`` and ``conv_thr`` are the band solve's.
+        """
+        from defuqumat.workflows.qpi import qpi_bands
+
+        result = self._ground_state("the states of a QPI map")
+        return qpi_bands(
+            self.system, self.pseudos, result, calculation=self.calculation,
+            **self._call_options(qpi_bands, result, options,
+                                 exclude=SCF_ONLY_OPTIONS)
+        )
+
     def get_vertical_transport(self, exit_height=None, height=None, **options):
         """Tunnelling *through* a two-dimensional material, tip to substrate.
 

@@ -27,6 +27,8 @@ grid with 24 bands and 16x16 tip points, 57 MB, 53 MB and 2.4 MB.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from defuqumat.basis.sample import sample_wavefunctions
@@ -50,7 +52,7 @@ from defuqumat.workflows.stm import (
     refuse_an_ultracell_result,
 )
 
-__all__ = ["run_qpi"]
+__all__ = ["run_qpi", "qpi_bands", "QPIBands"]
 
 
 def run_qpi(
@@ -80,6 +82,7 @@ def run_qpi(
     conv_thr: float = 1.0e-8,
     k_batch="default",
     calculation=None,
+    states=None,
 ) -> QPI:
     """``delta rho(q, w)``: the QPI pattern of one impurity, by the T-matrix.
 
@@ -124,6 +127,10 @@ def run_qpi(
             fixed density on the whole grid, which a supercell of useful size
             always needs.
         calculation: the SCF's own :class:`~defuqumat.scf.driver.Calculation`.
+        states: a :class:`QPIBands` from :func:`qpi_bands`, the whole-grid
+            states solved once and reused, so that several impurities,
+            strengths or broadenings cost one band solve. ``grid`` and the
+            other band-solve arguments are then not read.
 
     Returns a :class:`~defuqumat.stm.qpi.QPI`.
     """
@@ -155,41 +162,16 @@ def run_qpi(
     if not broadening > 0.0:
         raise ValueError(f"broadening must be positive, got {broadening}")
 
-    from defuqumat.workflows.transport import (
-        _refuse_an_augmented_plane, whole_grid,
-    )
+    from defuqumat.workflows.transport import _refuse_an_augmented_plane
 
-    if kpoints is None and grid is not None:
-        kpoints = whole_grid(system, grid, shift)
-    resolve = kpoints is not None
-    calculation, system, kpoints, k_batch = threaded_calculation(
-        calculation, system, kpoints, k_batch)
-    if not resolve:
-        if calculation is None:
-            calculation = Calculation(system, pseudos, k_batch=k_batch)
-        eigenvalues = np.asarray(result.eigenvalues_by_spin)
-        wavefunctions = result.wavefunctions
-        levels = {"fermi_energy": result.fermi_energy}
-    else:
-        calculation, system, eigenvalues, wavefunctions = fixed_density_states(
-            system, pseudos, result.density, kpoints, nbnd, conv_thr, k_batch,
-            ns=getattr(result, "ns", None),
-            tau=getattr(result, "tau", None),
-            calculation=calculation,
-        )
-        eigenvalues = np.asarray(eigenvalues)
-        _, levels = calculation.occupations(eigenvalues)
-    if wavefunctions is None:
-        raise ValueError(
-            "QPI is built from the wavefunctions and this result carries none: "
-            "run the SCF without discarding them, or pass a grid")
-    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
+    if states is None:
+        states = qpi_bands(system, pseudos, result, grid=grid, shift=shift,
+                           kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr,
+                           k_batch=k_batch, calculation=calculation)
+    calculation, eigenvalues, wavefunctions = (
+        states.calculation, np.asarray(states.eigenvalues), states.wavefunctions)
+    levels = {"fermi_energy": states.fermi_energy}
     used = calculation.system
-    if is_reduced(used.kpoints):
-        raise NotImplementedError(
-            "a symmetry-reduced k-set is refused: the k-grid is the impurity's "
-            "supercell and every k-point of it is a state the impurity "
-            "scatters into. Pass grid= for the whole grid, or run with nosym")
 
     cell = used.cell
     inplane = tuple(i for i in range(3) if i != axis)
@@ -355,3 +337,68 @@ def _far_cells(translations, divisions):
     a = np.minimum(translations[:, 0], n1 - translations[:, 0])
     b = np.minimum(translations[:, 1], n2 - translations[:, 1])
     return (a == n1 // 2) | (b == n2 // 2)
+
+@dataclass(frozen=True)
+class QPIBands:
+    """The whole-grid states a QPI map is built from, solved once.
+
+    On a surface of useful size the band solve on the whole grid is nearly all
+    of the cost of :func:`run_qpi` (``PERFORMANCE.md``, "Quasiparticle
+    interference"), and it does not depend on the impurity, its strength, the
+    energies or the broadening, so it is a value of its own.
+    """
+
+    calculation: object
+    #: ``(nspin, nk, nbnd)`` in Ry.
+    eigenvalues: np.ndarray
+    #: indexable as ``[ispin, ik]``, on the whole sphere.
+    wavefunctions: object
+    fermi_energy: float | None
+
+
+def qpi_bands(system, pseudos, result, *, grid=None, shift=None, kpoints=None,
+              nbnd: int | None = None, conv_thr: float = 1.0e-8,
+              k_batch="default", calculation=None) -> QPIBands:
+    """The states :func:`run_qpi` needs: the run's own, or re-solved on ``grid``.
+
+    The k-set must be the whole grid (the impurity's supercell), so a ``grid``
+    is built whole by :func:`~defuqumat.workflows.transport.whole_grid`, and a
+    symmetry-reduced set is refused.
+    """
+    from defuqumat.workflows.transport import whole_grid
+
+    if kpoints is None and grid is not None:
+        kpoints = whole_grid(system, grid, shift)
+    resolve = kpoints is not None
+    calculation, system, kpoints, k_batch = threaded_calculation(
+        calculation, system, kpoints, k_batch)
+    if not resolve:
+        if calculation is None:
+            calculation = Calculation(system, pseudos, k_batch=k_batch)
+        eigenvalues = np.asarray(result.eigenvalues_by_spin)
+        wavefunctions = result.wavefunctions
+        levels = {"fermi_energy": result.fermi_energy}
+    else:
+        calculation, system, eigenvalues, wavefunctions = fixed_density_states(
+            system, pseudos, result.density, kpoints, nbnd, conv_thr, k_batch,
+            ns=getattr(result, "ns", None),
+            tau=getattr(result, "tau", None),
+            calculation=calculation,
+        )
+        eigenvalues = np.asarray(eigenvalues)
+        _, levels = calculation.occupations(eigenvalues)
+    if wavefunctions is None:
+        raise ValueError(
+            "QPI is built from the wavefunctions and this result carries none: "
+            "run the SCF without discarding them, or pass a grid")
+    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
+    used = calculation.system
+    if is_reduced(used.kpoints):
+        raise NotImplementedError(
+            "a symmetry-reduced k-set is refused: the k-grid is the impurity's "
+            "supercell and every k-point of it is a state the impurity "
+            "scatters into. Pass grid= for the whole grid, or run with nosym")
+
+    return QPIBands(calculation=calculation, eigenvalues=eigenvalues,
+                    wavefunctions=wavefunctions,
+                    fermi_energy=levels.get("fermi_energy"))
