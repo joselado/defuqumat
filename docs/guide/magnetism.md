@@ -326,11 +326,29 @@ what we read is the torque on each site.
     `'atomic texture'` did not converge at any `lambda` we tried, so for a texture
     you use `'atomic'` with the same card, scaled to the moment you expect.
 
-    The field schemes `'fsm'`, `'atomic fsm'` and `'atomic fsm direction'`
-    together with `lspinorb = .true.` give an error, because the search updates
-    each Cartesian component of the field from the same component of the moment,
-    and spin-orbit coupling couples the components. So there you use `'total'`
-    or `'atomic'`. These three schemes with `reducebf` below 1 also give an
+    The field scheme `'fsm'` also runs with `lspinorb = .true.`, with the
+    default update `fsm_update = 'elk'`. We checked it on bcc iron with a fully
+    relativistic pseudopotential and a 2x2x2 k-mesh, with the target 1 Bohr
+    magneton at 30 degrees from z. We took the final field and applied it as a
+    fixed `B_field`, starting from the final density. The first iteration was
+    then already self-consistent (`dr2` = 1e-10), and the total energy agreed to
+    2e-10 Ry. The final field is not parallel to the moment, because spin-orbit
+    coupling adds a transverse part, and without this part the check fails. On
+    this cell the transverse part is 1.5e-4 Ry. It depends on the k-mesh and the
+    target, and on the three cells we tried it was between 3.7e-7 and 1.55e-4 Ry.
+    The run took about 300 iterations with `mixing_mode = 'adaptive'` and
+    `mixing_beta = 0.05`. The gains `lambda` from 0.015 to 0.04 converged, and
+    0.01 did not. With the Anderson mixer (`mixing_beta = 0.3`) it did not
+    converge, with or without spin-orbit coupling. These gains and iteration
+    counts were measured on this one iron cell only. On a norm-conserving nickel
+    cell `'fsm'` did not converge, with or without spin-orbit coupling, so there
+    the problem is the field search itself and not the coupling.
+    `fsm_update = 'secant'` with `lspinorb = .true.` gives an error, because the
+    secant updates each Cartesian component of the field from the same
+    component of the moment, and spin-orbit coupling couples the components.
+    `'atomic fsm'` and `'atomic fsm direction'` with `lspinorb = .true.` give an
+    error, because we did not test them. There you use `'total'` or `'atomic'`.
+    The three field schemes with `reducebf` below 1 also give an
     error. The Newton solver (`scf_solver = 'newton-krylov'`) runs with these
     three schemes, with the limits listed on the ground-state page. On a canted
     pair it needs about 60 steps, so give it

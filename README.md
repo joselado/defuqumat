@@ -393,7 +393,10 @@ how well a Heisenberg model describes the energy surface.
   supercell. `calc.get_relaxed_orientation(spinor)`, notebook
   [47](notebooks/47_turning_a_magnet.ipynb). You can also do it inside a
   self-consistent run with `calc.get_scf(rotate_moments=True)`. Then the run
-  converges to the easy orientation and does not wander around it. On a cell
+  converges to the easy orientation and does not wander around it. This also
+  works with an applied field `B_field` and with a Hubbard $U$. With a $U$ the
+  run finds the easy orientation of the solution it starts on. This is not
+  always the lowest one. On a cell
   with inversion, `calc.with_turning_moments()` keeps that symmetry during the
   run.
 - **Source-free exchange-correlation field, and its torque**. The code removes
