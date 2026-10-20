@@ -32,9 +32,12 @@ SHAPE, KGRID = (2, 1, 1), (2, 4, 1)
 AMPLITUDE = 0.05
 #: ``noncolin`` as the first argument runs the spinor sheet (a magnetic one,
 #: so that the spinor ultracell is not refused as a closed Kramers set).
-SPINOR = bool(sys.argv[1:]) and sys.argv[1] == "noncolin"
+#: ``lsda`` runs the collinear magnetic sheet (``nspin = 2``, two blocks).
+MODE = sys.argv[1] if sys.argv[1:] and sys.argv[1] in ("noncolin", "lsda") \
+    else ""
+SPINOR = MODE == "noncolin"
 THRESHOLDS = tuple(float(x) for x in (
-    (sys.argv[2:] if SPINOR else sys.argv[1:]) or ["1e-8", "1e-11"]))
+    (sys.argv[2:] if MODE else sys.argv[1:]) or ["1e-8", "1e-11"]))
 
 
 def modulation(x):
@@ -114,7 +117,8 @@ def main():
             d_on = float(np.abs(np.asarray(ours.image) - image).max() / scale)
             d_off = float(np.abs(np.asarray(naive.image) - image).max() / scale)
             line = (
-                f"{dataset} states_conv_thr={states_thr:g}: ultracell "
+                f"{MODE or 'spinless'} {dataset} blocks "
+                f"{result.states.blocks} states_conv_thr={states_thr:g}: ultracell "
                 f"{t_u:.1f} s, volume transport {t_v:.1f} s | Gram with S: "
                 f"offdiag {on[0]:.3e} diag {on[1]:.3e} | Gram S off: offdiag "
                 f"{off[0]:.3e} diag {off[1]:.3e} | image rel diff with S "
