@@ -5,6 +5,7 @@ from the eigenvalues qpi.py stored on the whole N x N grid, tiled over the
 neighbouring zones. The QPI panels are |delta rho(q)| of one impurity site.
 
 Usage:  python3 fermi_qpi.py <input.in> <out.npz> <figure.png> [site] [eta] [offset index]
+                             [log | linear]
 """
 import sys
 import warnings
@@ -21,6 +22,7 @@ source, npz, figure = sys.argv[1:4]
 site = sys.argv[4] if len(sys.argv) > 4 else "Nb"
 eta = float(sys.argv[5]) if len(sys.argv) > 5 else 0.005
 which = int(sys.argv[6]) if len(sys.argv) > 6 else 1
+scale = sys.argv[7] if len(sys.argv) > 7 else "log"
 
 data = np.load(npz)
 bg = data["bg"]
@@ -63,9 +65,14 @@ for ax, reader, title in zip(axes[1:], ("ldos", "landauer"),
                              ("QPI, LDOS at the tip", "QPI, tip to exit plane")):
     image = np.abs(data[f"{site}_eta{eta:g}_{reader}_q"][which]).copy()
     image[size // 2, size // 2] = 0.0
-    ax.pcolormesh(q[..., 0], q[..., 1], np.log10(image / image.max() + 1e-6),
-                  shading="gouraud", cmap="magma", vmin=-3, vmax=0)
-    ax.set_title(f"{title}, log10 |delta rho(q)|")
+    if scale == "log":
+        ax.pcolormesh(q[..., 0], q[..., 1], np.log10(image / image.max() + 1e-6),
+                      shading="gouraud", cmap="magma", vmin=-3, vmax=0)
+        ax.set_title(f"{title}, log10 |delta rho(q)|")
+    else:
+        ax.pcolormesh(q[..., 0], q[..., 1], image / image.max(),
+                      shading="gouraud", cmap="magma", vmin=0, vmax=1)
+        ax.set_title(f"{title}, |delta rho(q)| / max")
 for ax in axes:
     ax.plot(hexagon[:, 0], hexagon[:, 1], "w-", lw=0.7)
     ax.set(xlim=(-reach, reach), ylim=(-reach, reach), aspect="equal",
