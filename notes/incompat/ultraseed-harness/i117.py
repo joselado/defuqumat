@@ -15,7 +15,7 @@ both boxes), which are sign-sensitive where the Fourier norm is not. The
 control is the same ultracell seeded with -s (the other sign convention of the
 Neel axis): same energy, site moments reversed.
 
-Usage: i117.py <out.json> [n] [nbnd list] [control: yes|no]
+Usage: i117.py <out.json> [n] [nbnd list] [control: yes|no] [supercell nbnd]
 """
 import json, sys, time, warnings
 from pathlib import Path
@@ -32,6 +32,7 @@ out = sys.argv[1]
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 3
 NBNDS = [int(v) for v in (sys.argv[3] if len(sys.argv) > 3 else "8,16").split(",")]
 CONTROL = (sys.argv[4] if len(sys.argv) > 4 else "yes") == "yes"
+SUPER_NBND = int(sys.argv[5]) if len(sys.argv) > 5 else 12
 A = 5.5
 R_SITE = 1.5
 KGRID = (1, 2, 2)
@@ -132,6 +133,10 @@ records["reference"] = dict(
     lambda_ratio=float(values[1] / values[2]), tol=SEED_COLLINEAR_TOL,
     axis=axis.tolist(), seconds=time.time() - t0)
 print(json.dumps(records["reference"]), flush=True)
+if records["reference"]["lambda_ratio"] > SEED_COLLINEAR_TOL or not scf.converged:
+    with open(out, "w") as handle:
+        json.dump(records, handle, indent=1)
+    sys.exit("the reference is not a converged collinear antiferromagnet")
 
 # The supercell: 2N atoms, A of cell c at x = c (unit-cell crystal), B at c + 1/2.
 angles = []
@@ -142,7 +147,7 @@ t1 = time.time()
 supercell = write(tmp, "afm_super", angles, KGRID)
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    exact = supercell.get_scf(conv_thr=1e-11, nbnd=8 * N, max_iterations=400)
+    exact = supercell.get_scf(conv_thr=1e-11, nbnd=SUPER_NBND, max_iterations=400)
 lengths = np.array([2 * A * N, A, A])
 sites = [np.array([A * j, 0.0, 0.0]) for j in range(2 * N)]
 theirs = site_moments(np.asarray(exact.density)[1:], lengths, sites)
