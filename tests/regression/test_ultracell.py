@@ -2044,8 +2044,8 @@ def test_what_seed_from_field_refuses_before_the_frozen_solve(
         options, error, message, tmp_path, pseudo_dir):
     """The refusals of ``seed_from_field=True`` that need no ground state.
 
-    Collinear since I116 lifted the ``nspin_mag = 2`` refusal, so that the two
-    that stay are shown to fire on the cell that no longer stops at the first.
+    Both are checked before the ``nspin_mag = 2`` refusal (I116), so they are
+    shown to fire on the collinear cell, where they come first.
     """
     calculator = _hydrogen(tmp_path, pseudo_dir, (2, 1, 1))
     kwargs = {"magnetic_field": _staggered(0.01)}
@@ -2065,22 +2065,19 @@ def test_the_field_seed_needs_a_magnetization_component(tmp_path, pseudo_dir):
                       magnetic_field=_staggered(0.01))
 
 
-def test_the_collinear_field_seed_is_refused_on_a_paramagnet(tmp_path, pseudo_dir):
-    """I116's skip, raised on request: an unmagnetized collinear reference.
+def test_the_collinear_field_seed_is_refused(tmp_path, pseudo_dir):
+    """I116, partial: ``seed_from_field=True`` on a collinear run is refused.
 
-    The silicon cell with ``nspin = 2`` converges to no moment, so the seed
-    ``sign(B) sign(M)`` has nothing to multiply and no sign to take, and
-    ``seed_from_field=True`` says so rather than running a no-op seed. The
-    default (``None``) starts tiled and is the spin density wave test above.
+    Its seed, ``sign(B) sign(M)`` (``seed.collinear_field_seed``), is written
+    and unit-tested and was not measured against the tiled start, so the
+    refusal stays and says what it would seed. Fired before the frozen solve,
+    so no ground state is needed.
     """
-    path = tmp_path / "si_mag.in"
-    path.write_text(MAGNETIC.replace("2 2 2 0 0 0", "2 1 1 0 0 0"))
-    calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir)
-    scf = calculator.get_scf(conv_thr=1e-9, nbnd=8)
-    assert abs(scf.magnetization) < 1e-5
-    with pytest.raises(ValueError, match="seed cannot be taken: the reference carries no moment"):
-        run_ultracell(calculator.system, calculator.pseudos, scf, (2, 1, 1),
-                      (1, 1, 1), nbnd=8, seed_from_field=True,
+    calculator = _hydrogen(tmp_path, pseudo_dir, (2, 1, 1))
+    assert calculator.system.nspin_mag == 2
+    with pytest.raises(NotImplementedError, match="domain state"):
+        run_ultracell(calculator.system, calculator.pseudos, None, (2, 1, 1),
+                      (1, 1, 1), nbnd=4, seed_from_field=True,
                       magnetic_field=_staggered(0.01))
 
 

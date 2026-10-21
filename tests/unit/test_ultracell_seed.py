@@ -26,6 +26,7 @@ from defuqumat.ultracell.seed import (
     FIELD_NODE_TOL,
     collinear_field_seed,
     field_seed_axis,
+    neel_axis,
     reference_axis,
     seed_from_the_field,
     refuse_an_unmagnetized_reference,
@@ -252,8 +253,23 @@ def _antiferromagnet(ultracell, rng, axis=AXIS):
     return density
 
 
+def test_a_compensated_reference_has_no_direction_to_turn_from(ultracell):
+    """The refusal that stays (I117 is partial): :func:`reference_axis`, which
+    the driver calls, refuses a compensated reference, whose net moment is a
+    residue of cancellation. :func:`neel_axis` would turn it about its Neel
+    axis and is not measured against a supercell, so it is not used.
+    """
+    density = _antiferromagnet(ultracell, np.random.default_rng(7))
+    assert np.abs(density[1:].reshape(3, -1).sum(axis=1)).max() == 0.0
+    with pytest.raises(NotImplementedError, match="residue of cancellation"):
+        reference_axis(density[1:], 1.0)
+    with pytest.raises(NotImplementedError, match="not yet measured"):
+        reference_axis(density[1:], 1.0, sites=[(0, 0, 0), (0, 1, 0)])
+
+
 def test_a_compensated_reference_is_turned_about_its_neel_axis(ultracell):
-    """I117: an antiferromagnet's axis is the principal one of ``int m m^T``.
+    """I117, written and not measured: an antiferromagnet's axis is the
+    principal one of ``int m m^T`` (:func:`neel_axis`, not called by the driver).
 
     Its net moment is exactly zero, so the net gives no direction, but every
     moment is along ``+-e`` and ``e`` is the axis a rigid rotation starts from.
@@ -267,15 +283,15 @@ def test_a_compensated_reference_is_turned_about_its_neel_axis(ultracell):
     net = np.abs(density[1:].reshape(3, -1).sum(axis=1)).max()
     assert net == 0.0
     first, second = (0, 0, 0), (0, 1, 0)
-    axis = reference_axis(density[1:], 1.0, sites=[first, second])
+    axis = neel_axis(density[1:], 1.0, sites=[first, second])
     assert np.abs(axis - AXIS).max() < 1.0e-12
-    flipped = reference_axis(density[1:], 1.0, sites=[second, first])
+    flipped = neel_axis(density[1:], 1.0, sites=[second, first])
     assert np.abs(flipped + AXIS).max() < 1.0e-12
 
     # A site at a node of the moment is passed over for the next one.
     zeroed = density.copy()
     zeroed[1:, 0, 0, 0] = 0.0
-    assert np.abs(reference_axis(zeroed[1:], 1.0, sites=[first, second])
+    assert np.abs(neel_axis(zeroed[1:], 1.0, sites=[first, second])
                   + AXIS).max() < 1.0e-12
 
     perpendicular = np.cross(AXIS, [0.0, 0.0, 1.0])
@@ -314,13 +330,15 @@ def test_a_compensated_reference_with_no_axis_is_still_refused(ultracell):
     density[1:] = np.stack([_tiled(ultracell, c) for c in pattern])
     assert np.abs(density[1:].reshape(3, -1).sum(axis=1)).max() == 0.0
     with pytest.raises(NotImplementedError, match="not collinear"):
-        reference_axis(density[1:], 1.0, sites=[(0, 0, 0)])
+        neel_axis(density[1:], 1.0, sites=[(0, 0, 0)])
 
     afm = _antiferromagnet(ultracell, rng)
     with pytest.raises(ValueError, match="sites="):
-        reference_axis(afm[1:], 1.0)
-    # The ferromagnet does not read the sites at all: its axis is its net.
+        neel_axis(afm[1:], 1.0)
+    # The ferromagnet does not read the sites at all: its axis is its net,
+    # the same as reference_axis gives.
     fm = _noncollinear(ultracell, rng)
+    assert np.abs(neel_axis(fm[1:], 1.0) - AXIS).max() < 1.0e-12
     assert np.abs(reference_axis(fm[1:], 1.0) - AXIS).max() < 1.0e-12
 
 
@@ -620,14 +638,6 @@ def test_the_field_seed_skips_a_reference_with_no_direction(ultracell):
           opted_out=False, skipped="the reference carries no moment"),
      ["not seeded from the field", "carries no moment"],
      ["seed_magnetization", "263"]),
-    # A compensated reference (I117): the field's seed is skipped, and a hand
-    # seed about the Neel axis is not refused, so it is named.
-    (dict(kramers_pairs=True, seed_origin=None, field_given=True,
-          opted_out=False,
-          skipped="the reference's net moment (0 mu_B against an absolute 1) "
-                  "is a residue of cancellation, so it has no direction"),
-     ["not seeded from the field", "Neel vector", "seed_magnetization="],
-     ["refused on such", "263"]),
     # The old basis keeps its own numbers, labelled, and names the default.
     (dict(kramers_pairs=False, seed_origin=None, field_given=True,
           opted_out=False, skipped=None),

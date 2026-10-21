@@ -7,6 +7,11 @@ per conv_thr: tiled (seed_from_field=False), the field's seed
 (seed_from_field=True, sign(B) sign(M)), and the wrong-sign domain start
 (seed_magnetization = -sign(B)), the control a sign error would be.
 
+The driver still refuses seed_from_field=True at nspin_mag = 2 (the item is
+partial), so the field's seed is handed over as seed_magnetization, evaluated by
+``seed.collinear_field_seed`` itself on the same box coordinates the field is,
+which is exactly what the lifted branch did (commit 8c7bf8e5).
+
 Usage: i116.py <out.json> [amplitudes, comma-separated] [conv_thrs] [nbnd]
 """
 import json, sys, time, warnings
@@ -18,6 +23,7 @@ import jax
 
 from tests.regression.test_ultracell import _hydrogen, _fourier
 from defuqumat.ultracell import run_ultracell
+from defuqumat.ultracell.seed import collinear_field_seed
 
 out = sys.argv[1]
 amplitudes = [float(a) for a in (sys.argv[2] if len(sys.argv) > 2 else "0.002,0.02").split(",")]
@@ -58,10 +64,17 @@ def summarise(result, tag, amplitude, thr):
 for amplitude in amplitudes:
     field = lambda x, a=amplitude: a * np.cos(np.pi * x[..., 0])
     anti = lambda x: -np.sign(np.cos(np.pi * x[..., 0]))
+    sign_m = float(np.sign(scf.magnetization))
+
+    def from_field(x, f=field):
+        b = f(x)
+        seed, reason = collinear_field_seed(b, np.full(b.shape, sign_m), 1.0)
+        assert reason is None, reason
+        return seed
     for thr in thresholds:
         densities = {}
         for tag, options in (("tiled", dict(seed_from_field=False)),
-                             ("field", dict(seed_from_field=True)),
+                             ("field", dict(seed_magnetization=from_field)),
                              ("anti", dict(seed_magnetization=anti))):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")

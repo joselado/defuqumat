@@ -15,6 +15,11 @@ both boxes), which are sign-sensitive where the Fourier norm is not. The
 control is the same ultracell seeded with -s (the other sign convention of the
 Neel axis): same energy, site moments reversed.
 
+The driver still calls ``seed.reference_axis``, which refuses a compensated
+reference (the item is partial), so this harness puts ``seed.neel_axis`` in its
+place, with the unit cell's atoms' grid points as the sites, which is what the
+lifted driver did (commit 8c7bf8e5).
+
 Usage: i117.py <out.json> [n] [nbnd list] [control: yes|no] [supercell nbnd]
 """
 import json, sys, time, warnings
@@ -26,7 +31,8 @@ import jax
 
 from defuqumat import Calculator
 from defuqumat.ultracell import run_ultracell
-from defuqumat.ultracell.seed import reference_axis, SEED_COLLINEAR_TOL
+import defuqumat.ultracell.driver as ultracell_driver
+from defuqumat.ultracell.seed import neel_axis as reference_axis, SEED_COLLINEAR_TOL
 
 out = sys.argv[1]
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 3
@@ -127,6 +133,8 @@ cell_grid = np.asarray(rho.shape[1:])
 sites_idx = (np.round(np.asarray(unit.system.structure.positions_crystal(unit.system.cell))
                       * cell_grid) % cell_grid).astype(int)
 axis = reference_axis(rho[1:], volume, sites=sites_idx)
+ultracell_driver.reference_axis = (
+    lambda m, v, sites=None: reference_axis(m, v, sites=sites_idx))
 records["reference"] = dict(
     converged=bool(scf.converged), iterations=int(scf.iterations),
     total_energy=float(scf.total_energy), net=float(net), absolute=float(absolute),
