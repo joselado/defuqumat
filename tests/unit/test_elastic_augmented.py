@@ -48,16 +48,20 @@ def test_the_walked_route_still_refuses_an_augmented_dataset(case):
         require_a_measured_elastic_regime(_calculation(case), streamed=True)
 
 
-def test_the_walked_refusal_fires_on_the_public_path():
-    """A host store is what makes :func:`elastic_constants` walk, and the
-    refusal has to come before anything reads it."""
-    from defuqumat.response.elastic import elastic_constants
+def test_a_host_store_takes_the_whole_k_route_with_a_warning():
+    """A host store is what makes :func:`elastic_constants` walk. An augmented
+    dataset's ``C_ijkl`` is not written on the walk, so the route is the
+    whole-k one, and the warning says the states go on the device whole."""
+    from defuqumat.response.efield import _streams
+    from defuqumat.response.elastic import _walk_lacks
 
     calculation = _calculation("si-us-nosym")
     nk = calculation.system.kpoints.nk
     store = np.zeros((1, nk, 4, 8), complex)
-    with pytest.raises(NotImplementedError, match="walked route"):
-        elastic_constants(calculation, store, np.zeros((1, nk, 4)), None, None)
+    assert _streams(calculation, store, False)
+    with pytest.warns(RuntimeWarning, match="multipliers"):
+        assert not _streams(calculation, store, False,
+                            whole_k=_walk_lacks(calculation))
 
 
 @pytest.mark.parametrize("missing", ["ort", "multipliers", "both"])

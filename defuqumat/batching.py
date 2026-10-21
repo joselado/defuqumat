@@ -452,12 +452,19 @@ def _platform_default() -> int | None:
 #: ``"default"`` below still means the platform's.
 #:
 #: On a CPU there is one memory, so streaming it to itself buys nothing and
-#: QE's loop is already both the lean and the fast end. The mode changes one
-#: thing there, the projector storage, and ``speed`` -- the CPU defaults every
-#: validated number on record was taken with -- is the CPU default.
+#: QE's loop is already both the lean and the fast end. The mode changes the
+#: projector storage there, and with it the routes that read it chunked (the
+#: force and stress contractions, the projections, a scanned augmentation
+#: table in a strained cell).
 #:
-#: **The accelerator default is** ``memory`` (2026-09-28, the user's decision),
-#: and ``speed`` on an accelerator is checked before it is used:
+#: **The default is** ``memory`` **on every platform**: on an accelerator since
+#: 2026-09-28 and on a CPU since 2026-10-21, both the user's decision. The CPU
+#: change came from the 60x60 T-matrix QPI grid of 2H-NbSe2, where the stored
+#: projectors, ``(nk, npwx, nkb)`` for all 3600 k-points, were 82 GB of a 118 GiB
+#: process, against 24 GB of wavefunctions. Every validated number on record
+#: before that date was taken in ``speed`` on a CPU, which stays one argument
+#: (``memory_mode="speed"``) or ``DEFUQUMAT_MEMORY_MODE=speed`` away.
+#: ``speed`` on an accelerator is checked before it is used:
 #: :func:`defuqumat.sizing.speed_mode_fits` estimates the peak, and a run that
 #: would not fit falls back to ``memory`` with a warning rather than dying in
 #: the eigensolver.
@@ -473,7 +480,7 @@ def _memory_mode_default() -> str:
             f"ignoring DEFUQUMAT_MEMORY_MODE={setting!r}: expected one of "
             f"{MEMORY_MODES}", RuntimeWarning, stacklevel=3,
         )
-    return "speed" if _backend() == "cpu" else "memory"
+    return "memory"
 
 
 def resolve_memory_mode(requested: str | None = "default") -> str:
@@ -1056,9 +1063,10 @@ def sum_bands(fn, xs, *, batch: int | None | str = "default"):
 #: this bounds what is *held*, so it sits underneath every stage rather than
 #: inside one. It costs ``nat npwx`` complex exponentials per use.
 #:
-#: The default is the memory mode's (:func:`memory_preset`): ``store`` on a CPU
-#: and in ``speed``, which is what every validated number on record was
-#: measured with, and ``rebuild`` in ``memory``, the accelerator default.
+#: The default is the memory mode's (:func:`memory_preset`): ``store`` in
+#: ``speed``, which is what every validated number on record before 2026-10-21
+#: was measured with on a CPU, and ``rebuild`` in ``memory``, the default on
+#: every platform since then.
 #: ``DEFUQUMAT_PROJECTORS`` overrides the mode and an explicit ``projectors=``
 #: argument overrides that -- the precedence the other dials have.
 PROJECTOR_STORES = ("store", "rebuild")

@@ -442,7 +442,7 @@ and not submitted. What it returned:
   cells are. **Both were implemented on 2026-09-16** (`fe2e04d`, `07a4332`:
   `_width_ladder` and `_band_ladder` in `solvers/davidson.py`), and the narrowing is
   taken exactly where `_every_k` is unbatched, that is for one k-point or
-  `k_batch = 1`, which is what memory mode, the accelerator default, uses. This
+  `k_batch = 1`, which is what memory mode, the default (on a card since 2026-09-28, on a CPU since 2026-10-21), uses. This
   paragraph and the log section it comes from were not updated when they landed, so
   the code, and not this text, is the record of what is open;
 * **the profile itself is the deliverable that outlives the numbers**: the CPU

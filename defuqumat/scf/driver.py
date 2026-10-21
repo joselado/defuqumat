@@ -4067,8 +4067,9 @@ class Calculation:
             # rebuilt a chunk at a time for every contraction and again in the
             # backward pass, which made BN's warm stress 6.2-7.3 s against 2.55
             # (``notes/GPU-MEMORY-NEXT.md`` item 15). That is the two modes' trade, so
-            # the mode decides; the CPU default is ``speed``, and every
-            # validated stress on record stays on the route it was taken with.
+            # the mode decides. Every validated stress on record before
+            # 2026-10-21, when memory mode became the CPU default, was taken
+            # stored, and ``memory_mode='speed'`` keeps that route.
             # A cell already on the tabulated route stays on it.
             strained.augmentation = build_augmentation(
                 self.pseudos, structure, cell, dense,

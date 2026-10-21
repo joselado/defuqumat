@@ -34,6 +34,7 @@ this is the shape rather than a choice: QE writes ``iter, dr2, ethr`` into
 the starting loop index under ``mixsave``.
 """
 
+import itertools
 import warnings
 from pathlib import Path
 
@@ -253,9 +254,13 @@ def test_max_seconds_stops_the_loop_and_leaves_a_checkpoint(qe_silicon, pseudo_d
     """
     import defuqumat.scf.driver as driver
 
-    # A fake clock rather than a real deadline, so the stop lands after exactly
-    # three iterations instead of after however long the machine took.
-    ticks = iter([0.0] + [1.0, 1.0, 1.0] + [99.0] * 100)
+    # A fake clock rather than a real deadline, five seconds a reading, so the
+    # 10 s deadline is past by the fourth iteration's check at the latest
+    # (each iteration reads it at least once) and the run, which converges in
+    # seven, is stopped. ``time.time`` is patched on the module, so every
+    # caller in the run draws from it; a fixed list of readings ran out once
+    # memory mode, the default since 2026-10-21, drew more of them.
+    ticks = itertools.count(0.0, 5.0)
     monkeypatch_time = lambda: next(ticks)
 
     with warnings.catch_warnings():

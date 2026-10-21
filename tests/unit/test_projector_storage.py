@@ -40,11 +40,16 @@ def _calculation(which):
 # the dial
 # --------------------------------------------------------------------------
 
-def test_the_default_is_what_every_validated_number_was_measured_with(monkeypatch):
-    # The CPU's default; a card's memory mode rebuilds (``resolve_projectors``).
+def test_the_default_is_the_memory_modes_on_a_cpu_too(monkeypatch):
+    # Memory mode rebuilds, and it is the CPU's default since 2026-10-21;
+    # speed mode, which every validated number before then was measured
+    # with, stores.
     on_a_cpu(monkeypatch)
+    monkeypatch.delenv("DEFUQUMAT_MEMORY_MODE", raising=False)
+    assert resolve_projectors() == "rebuild"
+    assert resolve_projectors("default") == "rebuild"
+    monkeypatch.setenv("DEFUQUMAT_MEMORY_MODE", "speed")
     assert resolve_projectors() == "store"
-    assert resolve_projectors("default") == "store"
     assert set(PROJECTOR_STORES) == {"store", "rebuild"}
 
 
@@ -61,9 +66,10 @@ def test_a_storage_that_is_not_one_is_refused():
 
 def test_an_unreadable_environment_variable_warns_and_falls_back(monkeypatch):
     on_a_cpu(monkeypatch)
+    monkeypatch.delenv("DEFUQUMAT_MEMORY_MODE", raising=False)
     monkeypatch.setenv("DEFUQUMAT_PROJECTORS", "rebiuld")
     with pytest.warns(RuntimeWarning, match="DEFUQUMAT_PROJECTORS"):
-        assert resolve_projectors() == "store"
+        assert resolve_projectors() == "rebuild"
 
 
 # --------------------------------------------------------------------------

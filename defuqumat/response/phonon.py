@@ -428,7 +428,13 @@ def dynamical_matrix(
             "translations, which are physical"
         )
 
+    lacks = _walk_lacks(calculation, chosen)
     walked = None if response is None else getattr(response, "walked", None)
+    if walked is not None and lacks is not None:
+        # A response solved a k-chunk at a time (the Raman tensors' walked
+        # displacement response) in a regime whose terms the walked assembly
+        # does not carry: solved again on the whole-k route, below.
+        response = walked = None
     if walked is not None:
         _require_a_measured_sawtooth_regime(calculation, route="walked")
         _require_one_spin_channel(calculation)
@@ -468,7 +474,7 @@ def dynamical_matrix(
     # with a traced k index.
     streamed = response is None and _streams(
         calculation, wavefunctions, keep_internals=False,
-        what="the dynamical matrix")
+        what="the dynamical matrix", whole_k=lacks)
     if streamed:
         _require_a_measured_sawtooth_regime(calculation, route="walked")
         _require_one_spin_channel(calculation)
@@ -2401,6 +2407,27 @@ def _require_a_measured_overlap_metal(calculation, atoms=None) -> None:
             "PAW pseudopotential is not implemented: the whole cell is measured "
             "against ph.x (notes/incompat/I86.md) and the subset is not"
         )
+
+
+def _walk_lacks(calculation, chosen) -> str | None:
+    """The term :mod:`~defuqumat.response.chunked_phonon` does not carry here, or ``None``.
+
+    Each regime below was measured on the whole-k route and has its own
+    refusal on the walked one (the ``_require_*`` guards); naming it lets
+    :func:`~defuqumat.response.efield._streams` take the whole-k route instead,
+    so memory mode runs whatever ``speed`` runs.
+    """
+    if getattr(calculation, "sawtooth", None) is not None:
+        return "the ions' response to the sawtooth field"
+    if calculation.nspin == 2:
+        return "the second spin channel"
+    if _overlap_metal(calculation):
+        return "the metal's pair weight in the orthogonality block"
+    if chosen is not None and calculation.use_symmetry:
+        return "the symmetrisation of a closed subset of the atoms"
+    # A spinor is refused on both routes (``_require_no_spinor``), so the
+    # walked route's own spinor refusal stays as it is.
+    return None
 
 
 def _require_no_walked_overlap_metal(calculation) -> None:

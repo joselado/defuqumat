@@ -52,10 +52,11 @@ K_POINTS (automatic)
 """
 
 
-def _converged(**options):
+def _converged(memory_mode="default", **options):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        calculator = Calculator.from_text(CELL, PSEUDO, announce=False)
+        calculator = Calculator.from_text(CELL, PSEUDO, announce=False,
+                                          memory_mode=memory_mode)
         return calculator, calculator.get_scf(**options)
 
 
@@ -84,8 +85,12 @@ def test_the_chunked_force_and_stress_are_the_single_pass():
 
 
 def test_a_streamed_state_takes_the_chunked_route_without_being_asked():
-    """The state is a host array; it is walked, not moved to the device whole."""
-    calculator, result = _converged(wfc_store="stream")
+    """The state is a host array; it is walked, not moved to the device whole.
+
+    In speed mode, so that the device copy takes the single pass and the two
+    routes are compared; memory mode walks both.
+    """
+    calculator, result = _converged(memory_mode="speed", wfc_store="stream")
     calculation = calculator.calculation
     streamed = state_from_result(result)
     assert isinstance(streamed.wavefunctions, np.ndarray)

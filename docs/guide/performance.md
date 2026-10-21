@@ -179,16 +179,22 @@ memory  k-points at once 1 of 28, bands at once 1, projectors rebuild, peak 4.8 
 all k-points at once: peak 18.4 MB
 ```
 
-On a CPU both modes solve one k-point and one band at a time, so the only
-difference is the projectors, which the `memory` mode builds again when it
-needs them instead of keeping them for all 28 k-points. This takes the peak
+On a CPU both modes solve one k-point and one band at a time, so in the SCF
+the only difference is the projectors, which the `memory` mode builds again
+when it needs them instead of keeping them for all 28 k-points. This takes the peak
 from 5.7 MB to 4.8 MB. If we instead solve all 28 k-points at once, the peak
 grows to 18.4 MB, roughly three times more, and this is the memory that grows
 with the k-mesh. For two atoms all of these numbers are small, and they
 become the question for a cell of tens of atoms on a dense mesh.
 
 The physics, and so the numbers, are the same in both modes up to round-off.
-On a CPU the default is `"speed"`, and on a GPU it is `"memory"`. You give
+The default is `"memory"`, on a CPU and on a GPU. On a dense k-mesh the
+stored projectors can be the largest array of a run: on a 60x60 mesh of
+bilayer NbSe2 they are 82 GB, against 24 GB of wavefunctions. In the `memory`
+mode the forces, the stress and the responses also go through the k-points in
+chunks. On eight silicon atoms with eight k-points this made the forces and
+the stress about 1.5 times slower on a CPU, so `"speed"` is the choice when
+the memory is not the question. You give
 `memory_mode` to the `Calculator`, or set `DEFUQUMAT_MEMORY_MODE` for the
 whole process, and a setting you give for `k_batch` or `band_batch` wins over
 the mode. The command `defuqumat size scf.in` prints the same estimate for an
@@ -266,9 +272,9 @@ checkpoint.
 ## GPUs
 
 The same script runs on a GPU without any change, once JAX is installed with
-GPU support. On a GPU the
-defaults change: `memory_mode` is `"memory"`, `k_batch` is `"fit"` and all
-bands of a k-point are computed at once. In the `memory` mode, the memory on
+GPU support. On a GPU two
+defaults change: `k_batch` is `"fit"` and all bands of a k-point are computed
+at once. `memory_mode` is `"memory"`, as on a CPU. In the `memory` mode, the memory on
 the card grows very little with the k-mesh, so a dense mesh fits on a small card.
 If you ask for `"speed"` and leave the other settings to it, the code first estimates the memory, and if the
 calculation would not fit on the card it uses `"memory"` instead and gives a

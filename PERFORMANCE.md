@@ -11274,3 +11274,32 @@ tunnelling spectrum. The dense route is `(nk nbnd)^3` and is a test. Peak workin
 states: `nk nbnd npoints` complex for the tip amplitudes and `nk nbnd^2` for the exit Gram matrices.
 The guide figure ran on `D22-0161` on one core in 21 s.
 
+
+## Memory mode as the CPU default: what it holds and what it costs (CPU, 2026-10-21)
+
+Memory mode became the default on a CPU on 2026-10-21 (the user's decision), after the 60x60
+whole-grid band solve of the QPI driver (`calculations/nbse2-qpi/qpi.py`) on Triton. On a CPU the
+mode changes the projector storage, and with it the force, stress and response routes walk the k
+axis a chunk at a time wherever `nk > 1` (`forces/chunked.py:walks_chunks`).
+
+**Memory, measured** (`sstat` MaxRSS, the band solve in progress, 3600 k-points, SG15 PBE at
+60 Ry): 1H-NbSe2 (`nkb = 54`, `npwx = 9804`, 16 bands) **50.6 GiB in `speed` against 31.3 GiB in
+`memory`**; the 2H bilayer (`nkb = 108`, `npwx` about 13 200, 32 bands) **118 GiB against 53 GiB**.
+The difference is `vkb`, `(nk, npwx, nkb)` complex, 30.5 GB and 82 GB by the shapes; what stays
+is the `ProjectorCore`'s `(nk, npwx, 36)`, 20 and 27 GB, and the wavefunctions. The SCF Fermi
+levels agree to the printed digit (-0.022525 and 0.160915 Ry).
+
+**Numbers and time, measured** on this workstation's performance cores (`taskset -c 0-3`,
+`OMP_NUM_THREADS=4`), eight-atom silicon with one atom displaced and a 2x2x2 mesh, fresh process
+per arm, medians of the second and third of three calls. **Two samples and a Zoom call on the
+same machine**, so the times are indicative only:
+
+| cell | energy | forces | stress | SCF s, speed / memory | forces s | stress s |
+|---|---|---|---|---|---|---|
+| NC (`si8-1k`) | identical | 3.3e-16 of 5.7e-2 | 1.7e-17 of 1.7e-4 | 1.42 / 1.43 | 0.13 / 0.25 | 0.41 / 0.56 |
+| US (`si8-us-1k`) | identical | 4.0e-16 of 5.5e-2 | 4.1e-17 of 7.7e-5 | 4.59 / 6.51 | 0.29 / 0.50 | 3.96 / 6.06 |
+| PAW (`si8-paw-1k`) | identical | 5.4e-16 of 5.5e-2 | 3.9e-17 of 7.7e-5 | 6.08 / 5.53 | 0.46 / 0.73 | 3.97 / 5.41 |
+
+The forces and the stress cost about 1.4x to 1.9x in memory mode, which is the walk plus the
+projectors formed per k-point; the SCF moved between 0.9x and 1.4x, within what two samples beside
+a video call can resolve. A clean pair on D22 is still to be taken.

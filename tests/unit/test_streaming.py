@@ -180,10 +180,11 @@ def test_the_presets(monkeypatch):
                                        "wfc_store": "stream"}
 
 
-def test_memory_is_the_default_on_a_card_and_speed_on_a_cpu(monkeypatch):
+def test_memory_is_the_default_on_every_platform(monkeypatch):
+    # On a card since 2026-09-28 and on a CPU since 2026-10-21.
     monkeypatch.delenv("DEFUQUMAT_MEMORY_MODE", raising=False)
     monkeypatch.setattr(batching, "_backend", lambda: "cpu")
-    assert resolve_memory_mode() == "speed"
+    assert resolve_memory_mode() == "memory"
     monkeypatch.setattr(batching, "_backend", lambda: "gpu")
     assert resolve_memory_mode() == "memory"
     monkeypatch.setenv("DEFUQUMAT_MEMORY_MODE", "speed")

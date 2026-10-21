@@ -346,8 +346,11 @@ The fast gate and a single named non-slow test stay as before.
   stays on device.
 - **How many k-points are in flight is `defuqumat/batching.py`'s dial, and its default
   follows `memory_mode`** — QE's loop, one k-point at a time as `c_bands.f90` and
-  `sum_band.f90` do it, on a CPU; in `'memory'` (the accelerator default since
-  2026-09-28, the user's decision) the largest chunk the card holds, `'fit'`, since
+  `sum_band.f90` do it, on a CPU; in `'memory'` (the default on an accelerator since
+  2026-09-28 and on a CPU since 2026-10-21, both the user's decisions; on a CPU it
+  rebuilds the projectors per k-point and walks the derivatives a k-chunk at a time,
+  and a regime the walk does not carry takes the whole-k route instead of refusing)
+  the largest chunk the card holds, `'fit'`, since
   2026-10-02, also the user's (184.8 against 31.4 ms an iteration on an H100's 27-point
   mesh); and the whole axis at once in `'speed'`. The band dial
   follows the platform — one band on a CPU, the whole block on an accelerator — in both

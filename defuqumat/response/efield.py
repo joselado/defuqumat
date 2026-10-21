@@ -541,7 +541,8 @@ def dielectric_tensor(
 
 
 def _streams(calculation, wavefunctions, keep_internals: bool,
-             what: str = "the dielectric response") -> bool:
+             what: str = "the dielectric response",
+             whole_k: str | None = None) -> bool:
     """Whether the field response walks the k axis a chunk at a time.
 
     :func:`~defuqumat.forces.chunked.walks_chunks`' rule -- a streamed store, or
@@ -566,6 +567,16 @@ def _streams(calculation, wavefunctions, keep_internals: bool,
     :func:`~defuqumat.response.phonon.dynamical_matrix` asks the same question
     (``what`` names it in the refusal), so the two responses agree about when
     to walk.
+
+    **``whole_k`` names a term the walked route does not carry** for the
+    caller's regime (a metal's pair weight, the second spin channel, the
+    multipliers' tangent of an augmented dataset), and then the answer is the
+    whole-k route wherever the rule would walk: the route those regimes were
+    measured on, holding every k-point's states at once. On a CPU that is
+    exactly what ``speed`` holds, so memory mode, the default since
+    2026-10-21, refuses nothing that ``speed`` runs; on a card, or from a
+    streamed store, the whole set goes on the device and a warning says so.
+    The caller puts a streamed store on the device itself (``jnp.asarray``).
     """
     from defuqumat.forces.chunked import walks_chunks
     from defuqumat.parallel import PoolStore
@@ -578,7 +589,7 @@ def _streams(calculation, wavefunctions, keep_internals: bool,
     if keep_internals or getattr(calculation, "_kcart", None) is not None:
         return False
     if walks_chunks(calculation, wavefunctions):
-        return True
+        return _unless_whole_k(calculation, wavefunctions, what, whole_k)
     # **And in memory mode on a card whatever the chunk**, the whole mesh in
     # one chunk included. ``k_batch = 'fit'`` sizes the chunk for the SCF, and
     # the whole-k route's working set is not the SCF's: on ultrasoft eight-atom
@@ -594,7 +605,29 @@ def _streams(calculation, wavefunctions, keep_internals: bool,
     # k-chunk at a time").
     from defuqumat.batching import _backend
 
-    return calculation.memory_mode == "memory" and _backend() != "cpu"
+    if calculation.memory_mode == "memory" and _backend() != "cpu":
+        return _unless_whole_k(calculation, wavefunctions, what, whole_k)
+    return False
+
+
+def _unless_whole_k(calculation, wavefunctions, what: str,
+                    whole_k: str | None) -> bool:
+    """``True`` (walk), or ``False`` when the walk lacks ``whole_k``'s term."""
+    if whole_k is None:
+        return True
+    from defuqumat.batching import _backend
+    from defuqumat.scf.streaming import is_host_store
+
+    if is_host_store(wavefunctions) or _backend() != "cpu":
+        import warnings
+
+        warnings.warn(
+            f"{what} takes the whole-k route, with every k-point's states on "
+            f"the device at once: the route that walks the k axis a chunk at "
+            f"a time does not carry {whole_k}",
+            RuntimeWarning, stacklevel=3,
+        )
+    return False
 
 
 class _WholeField:

@@ -25,7 +25,8 @@ None of these is incidental to the algorithm:
   k-point's whatever `nks` is, and the parallelism over k comes from MPI pools. Batching
   the whole k axis with `vmap` is this code's deliberate deviation — it is what a GPU wants
   — so it is a **dial** (`defuqumat/batching.py`), set by `memory_mode`: QE's end of it on a
-  CPU; in `'memory'`, the accelerator default, the largest k-chunk the card holds
+  CPU; in `'memory'`, the default on every platform (on a card since 2026-09-28, on a
+  CPU since 2026-10-21), the largest k-chunk the card holds
   (`k_batch = 'fit'`) and the wavefunction store streamed through the card from host RAM
   (`wfc_store = 'stream'`) **only when that chunk is smaller than the mesh**, since with
   every k-point in flight the stream saves nothing and cost 1.9x on an H100 (the user's

@@ -317,10 +317,10 @@ The two runs together took 123 s on one core.
     are complete, while $p_{44}$ misses the term from the internal displacement
     of the atoms. They work on norm-conserving, ultrasoft and PAW datasets, and so do
     the elastic constants. For an ultrasoft or PAW dataset the elastic constants need
-    every k-point in memory at once. If the k-points are streamed in chunks (memory mode
-    on a GPU, or `memory_mode='memory'` with a `k_batch` smaller than the k-mesh on a
-    CPU), you pass `elastic=False`, and then `M` and `Q` are `None`, because they need
-    the elastic compliance. The elastic
+    every k-point in memory at once, and the code holds them for this step. On a GPU,
+    or with a streamed wavefunction store, this puts all the wavefunctions on the card
+    and gives a warning. If they do not fit, you pass `elastic=False`, and then `M` and
+    `Q` are `None`, because they need the elastic compliance. The elastic
     constants also need the full k-mesh (`nosym`), so on a symmetry-reduced
     mesh you pass `elastic=False` as well. The elasto-optic tensor and the
     electrostriction tensors `m` and `q` work on the symmetry-reduced mesh,

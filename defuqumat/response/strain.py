@@ -262,6 +262,7 @@ def strain_response(
     mixing_mode: str = DEFAULT_RESPONSE_MIXING,
     verbose: bool = False,
     degeneracy_tol: float | None = None,
+    walk: bool | None = None,
 ) -> StrainResponse:
     """``solve_linter``'s loop for the six independent homogeneous strains.
 
@@ -287,6 +288,11 @@ def strain_response(
             the floor for states of unknown provenance;
             :meth:`~defuqumat.calculator.Calculator.get_strain_response` passes
             the eigensolver's promise on the SCF's own states.
+        walk: ``None`` decides the route by
+            :func:`~defuqumat.response.efield._streams`; ``False`` takes the
+            whole-k route, which the elastic constants of an ultrasoft or PAW
+            dataset need (their tangent reads ``ort`` and ``multipliers``, which
+            the walked route does not write); ``True`` walks.
     """
     eigenvalues = jnp.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
@@ -312,10 +318,17 @@ def strain_response(
     # the first-order states in host memory.
     from defuqumat.response.efield import _streams
 
-    streamed = _streams(calculation, wavefunctions, False,
-                        what="the strain response")
+    if walk is None:
+        lacks = ("the metal's Fermi-level shift (ef_shift, ef_shift_wfc)"
+                 if metallic else None)
+        streamed = _streams(calculation, wavefunctions, False,
+                            what="the strain response", whole_k=lacks)
+    else:
+        streamed = bool(walk)
     if metallic and streamed:
         raise NotImplementedError(_NO_WALKED_METAL)
+    if not streamed:
+        wavefunctions = jnp.asarray(wavefunctions)
     weights, levels = calculation.occupations(eigenvalues)
     weights = jnp.asarray(weights)
     if metallic:

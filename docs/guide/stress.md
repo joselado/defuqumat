@@ -163,10 +163,11 @@ cell against each other, and this internal relaxation lowers $C_{44}$.
 
 !!! note "Limits"
     The elastic constants work with norm-conserving, ultrasoft and PAW datasets. For an
-    ultrasoft or PAW dataset they need every k-point in memory at once, so a run that
-    streams the k-points in chunks gives an error. This happens in memory mode on a GPU,
-    for any chunk, and on a CPU in `memory_mode='memory'` with a `k_batch` smaller than
-    the k-mesh. The elastic constants also need `nspin = 1` and the full
+    ultrasoft or PAW dataset they need every k-point in memory at once. In
+    `memory_mode='memory'`, the default, the code then holds every k-point for this
+    step. On a CPU this costs what `memory_mode='speed'` costs. On a GPU, or with a
+    streamed wavefunction store, it puts all the wavefunctions on the card, and it
+    gives a warning. The elastic constants also need `nspin = 1` and the full
     k-mesh (`nosym`), so a spin-polarized, noncollinear or spin-orbit run
     and a symmetry-reduced k-set each give an error. The full k-mesh
     must also be an unshifted Monkhorst-Pack grid. A shifted grid with `nosym`
@@ -176,9 +177,8 @@ cell against each other, and this internal relaxation lowers $C_{44}$.
 
     A metal works if it uses a smearing and a norm-conserving dataset.
     Tetrahedra give an error, and so does an ultrasoft or PAW dataset for a
-    metal. A metal also needs every k-point in memory at once. On a CPU,
-    `memory_mode='memory'` with a `k_batch` smaller than the k-mesh gives an
-    error, and on a GPU only `memory_mode='speed'` works. The highest band must
+    metal. A metal also needs every k-point in memory at once, and the code
+    holds them in the same way. The highest band must
     be empty, so if it holds an occupation above 1e-12 at any k-point, the code
     gives an error and you increase `nbnd`. Fermi-Dirac smearing has a long tail,
     so it needs many more bands. On `al2-metal.in` with `degauss = 0.05` it needs

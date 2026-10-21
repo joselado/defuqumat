@@ -986,8 +986,15 @@ def electrostriction(
     # in host memory a chunk at a time (:mod:`defuqumat.response.chunked_third`).
     from defuqumat.response.efield import _streams
 
+    from defuqumat.response.elastic import _walk_lacks
+
+    # An augmented dataset's ``C_ijkl`` (``elastic=True``) and a metal's take
+    # the whole-k route, where they were measured, and so does everything
+    # this call builds beside them.
+    lacks = (_walk_lacks(calculation)
+             if elastic or calculation.system.occupations != "fixed" else None)
     walked = _streams(calculation, result.wavefunctions, False,
-                      what="the electrostriction")
+                      what="the electrostriction", whole_k=lacks)
     if elastic:
         # An augmented dataset's ``C_ijkl`` runs on the whole-k route only
         # (I87), and the refusal is checked **here** rather than where the
@@ -1025,10 +1032,16 @@ def electrostriction(
     # against the other and undoes it -- measured on the identity below,
     # 2.2e-3 against 3.4e-10.
 
+    from defuqumat.scf.streaming import is_host_store
+
+    if strain is not None and is_host_store(strain.dpsi[0, 0]) != bool(walked):
+        # A cached response from the other route (the walked one keeps
+        # ``dpsi`` in host memory): solved again on the route this call takes.
+        strain = None
     if strain is None:
         strain = strain_response(
             calculation, psi, eigenvalues, density, becsum, verbose=verbose,
-            **response_options,
+            walk=walked, **response_options,
         )
 
     if not allow_unconverged:

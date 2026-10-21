@@ -387,13 +387,17 @@ which we compute in the page about stress with `get_elastic_constants()`.
     and the electrostriction tensors give an error for a noncollinear or
     spin-orbit run. The Raman tensors, the strain response, the elastic constants
     and the electrostriction tensors also give an error for `nspin = 2`. The
-    phonons at $\Gamma$ work for `nspin = 2`. They give an error there only when
-    the run walks the k-points in chunks. This is `memory_mode = 'memory'`,
-    which is the default on a GPU, and a streamed store. On a CPU the default
-    `memory_mode = 'speed'` works. The phonons at $\Gamma$ of an ultrasoft or PAW metal
-    work with one spin channel and `nosym`, for the whole cell. They give an error with
-    symmetry, for `nspin = 2`, for a subset of the atoms (`atoms=`), and when the run
-    walks the k-points in chunks.
+    phonons at $\Gamma$ work for `nspin = 2`. The phonons at $\Gamma$ of an ultrasoft
+    or PAW metal work with one spin channel and `nosym`, for the whole cell. They give
+    an error with symmetry, for `nspin = 2` and for a subset of the atoms (`atoms=`).
+
+    In `memory_mode = 'memory'`, the default, the phonons walk the k-points in
+    chunks. A few cases were checked only with every k-point in memory at once:
+    `nspin = 2`, an ultrasoft or PAW metal, a subset of the atoms with symmetry,
+    a sawtooth field, and a metal at $\mathbf q = 0$ through `get_phonons_at_q()`.
+    For these the code holds every k-point for this step. On a CPU this costs what
+    `memory_mode = 'speed'` costs. On a GPU, or with a streamed wavefunction store,
+    it puts all the wavefunctions on the card, and it gives a warning.
 
     The static $\chi^{(2)}$ and the electro-optic tensor from this response give
     an error, because the term $\langle u_i|r_k|u_j\rangle$, where the field
@@ -414,14 +418,11 @@ which we compute in the page about stress with `get_elastic_constants()`.
     we checked on a magnetic hydrogen chain against the same chain doubled, at
     $\Gamma$. A spin-polarized metal gives an error, and so does `nspin = 2`
     together with a nonlinear core correction, because we have not checked the
-    two together. With `nspin = 2` they also give an error when the run walks the
-    k-points in chunks, as the phonons at $\Gamma$ do, and the electron-phonon
+    two together. The electron-phonon
     coupling works only for `nspin = 1`. For a metal they work at
     $\mathbf q = 0$, where the Fermi level moves and the code moves it as `ph.x`
     does. At a reciprocal lattice vector other than zero they give an error, and
-    you use $\mathbf q = 0$ instead. On the k-chunked route, which a GPU takes in
-    `memory_mode = 'memory'`, a metal at $\mathbf q = 0$ gives an error, and you
-    use `get_phonons()`. There is no interpolation
+    you use $\mathbf q = 0$ instead. There is no interpolation
     of the force constants, so a dispersion is one calculation per wavevector.
 
     With `nosym`, the dielectric constant, the Born charges, the phonons at
@@ -432,12 +433,8 @@ which we compute in the page about stress with `get_elastic_constants()`.
     With symmetry, the phonons of a part of the atoms (`atoms=`) need a set of
     atoms that the symmetry operations map onto itself. For another set you get
     an error, and it names the smallest such set that contains yours. With
-    `nosym` any set works. On a GPU in `memory_mode = 'memory'`, or with a
-    streamed wavefunction store, a part of the atoms with symmetry also gives an
-    error. Use `nosym` there, or a memory mode that holds the whole k-mesh. You
-    can also get the phonons of a part of the atoms from the response that the
-    Raman tensors keep (`keep_internals=True`). With `nosym` this works on the
-    k-chunked route too.
+    `nosym` any set works. You can also get the phonons of a part of the atoms
+    from the response that the Raman tensors keep (`keep_internals=True`).
 
     The electron-phonon coupling gives an error for an insulator, where there
     are no states at the Fermi level, at $\mathbf q = 0$, and for everything

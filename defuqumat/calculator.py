@@ -1267,10 +1267,11 @@ class Calculator:
 
     def get_elastic_constants(self, **options):
         """``C_ijkl``, the stress differentiated along the strain response."""
-        from defuqumat.response.elastic import elastic_constants
+        from defuqumat.response.elastic import elastic_constants, strain_route
 
         result = self._ground_state("the elastic constants")
-        response = self.get_strain_response()
+        response = self.get_strain_response(
+            **strain_route(self.calculation, result.wavefunctions))
         return elastic_constants(
             self.calculation, result.wavefunctions, result.eigenvalues,
             result.density, response,

@@ -206,7 +206,8 @@ def elastic_constants(
     from defuqumat.response.efield import _streams
 
     streamed = _streams(calculation, wavefunctions, False,
-                        what="the elastic constants")
+                        what="the elastic constants",
+                        whole_k=_walk_lacks(calculation))
     require_a_measured_elastic_regime(calculation, streamed=streamed,
                                       response=response)
     eigenvalues = jnp.asarray(eigenvalues)
@@ -453,6 +454,36 @@ def _walked_elastic_constants(calculation, wavefunctions, eigenvalues, weights,
         column = 0.5 * (column + column.T)
         tensor[:, :, k, l] = tensor[:, :, l, k] = column
     return _from_tensor(tensor)
+
+
+def _walk_lacks(calculation) -> str | None:
+    """The term the walked ``C_ijkl`` does not carry here, or ``None``.
+
+    Named to :func:`~defuqumat.response.efield._streams`, which then takes the
+    whole-k route, the one these regimes were measured on.
+    """
+    if calculation.is_ultrasoft:
+        return ("the occupied block and the multipliers' tangent of an "
+                "ultrasoft or PAW dataset (StrainResponse.ort, .multipliers)")
+    if calculation.system.occupations != "fixed":
+        return "the metal's two copies of the band block (wg/wk)"
+    return None
+
+
+def strain_route(calculation, wavefunctions) -> dict:
+    """The option :func:`~defuqumat.response.strain.strain_response` needs to feed ``C_ijkl``.
+
+    ``{"walk": False}`` where the elastic constants take the whole-k route but
+    the strain response alone would walk (an ultrasoft or PAW insulator: the
+    walked strain response writes ``ort`` and not ``multipliers``), and ``{}``
+    otherwise, so that the cached response of every other run is reused.
+    """
+    from defuqumat.response.efield import _streams
+
+    if (calculation.is_ultrasoft
+            and _streams(calculation, wavefunctions, False)):
+        return {"walk": False}
+    return {}
 
 
 def require_a_measured_elastic_regime(calculation, streamed: bool = False,

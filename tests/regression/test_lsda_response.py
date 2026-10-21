@@ -764,24 +764,29 @@ def test_a_potential_only_functional_is_refused_by_name():
         require_a_sternheimer_regime(calculation)
 
 
-def test_the_walked_dynamical_matrix_and_the_strain_response_still_refuse_nspin_two():
-    """The strain response refuses ``nspin = 2``; the dynamical matrix only on its walked route.
+def test_the_walked_dynamical_matrix_takes_the_whole_k_route_at_nspin_two():
+    """The strain response refuses ``nspin = 2``; the dynamical matrix takes the whole-k route.
 
     The whole-k dynamical matrix is measured against ``ph.x`` on triplet O2
     (:func:`test_the_lsda_dynamical_matrix_matches_ph_x`). The route that walks
     the k axis a chunk at a time (a streamed store, memory mode with a chunk
     smaller than the mesh, memory mode on a card) carries the same mask but
-    has not been run at ``nspin = 2``, so it is refused through the front door:
-    a ``(nspin, nk, nbnd, ndim)`` numpy array is a streamed store, which is
-    enough to take that route with no SCF at all.
+    has not been run at ``nspin = 2``. It used to be refused; since memory mode
+    became the CPU default (2026-10-21) the whole-k route is taken instead, with
+    a warning where that puts a streamed store on the device whole. A
+    ``(nspin, nk, nbnd, ndim)`` numpy array is a streamed store, which is
+    enough to ask the question with no SCF at all.
     """
-    from defuqumat.response.phonon import dynamical_matrix
+    from defuqumat.response.efield import _streams
+    from defuqumat.response.phonon import _walk_lacks
     from defuqumat.response.strain import _require_one_spin_channel as strain_guard
 
     calculation = _calculation("h-chain-afm")
     assert calculation.nspin == 2
-    with pytest.raises(NotImplementedError, match="walks the k axis"):
-        dynamical_matrix(calculation, np.zeros((2, 2, 12, 4)),
-                         jnp.zeros((2, 2, 12)), None)
+    store = np.zeros((2, 2, 12, 4))
+    assert _streams(calculation, store, False)
+    with pytest.warns(RuntimeWarning, match="second spin channel"):
+        assert not _streams(calculation, store, False,
+                            whole_k=_walk_lacks(calculation, None))
     with pytest.raises(NotImplementedError, match="assembly above it"):
         strain_guard(calculation)

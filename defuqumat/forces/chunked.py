@@ -79,8 +79,9 @@ def wants_chunks(calculation, state: FrozenState) -> bool:
     """Whether the force and stress should walk the k axis rather than tape it whole.
 
     Where the state lives in host memory (a streamed store), and in memory
-    mode wherever the chunk is smaller than the k-set. Speed mode, the CPU
-    default every validated number was taken in, keeps the single pass.
+    mode wherever the chunk is smaller than the k-set, except for a spin
+    spiral on the device. Speed mode, in which every validated number before
+    2026-10-21 was taken on a CPU, keeps the single pass.
     """
     return walks_chunks(calculation, state.wavefunctions)
 
@@ -115,6 +116,12 @@ def walks_chunks(calculation, wavefunctions) -> bool:
     if is_host_store(wavefunctions) or isinstance(wavefunctions, PoolStore):
         # A k-point pool's share is walked as the pool's own rows.
         return True
+    if getattr(calculation, "spiral", False):
+        # ``at_rows`` slices the per-k tables by state row, and a spiral's
+        # basis holds two rows per k-point (``basis_rows``), so the walk is
+        # not written for it; on the device the single pass holds what
+        # ``speed`` holds, and the forces were checked there (I20, I21).
+        return False
     batch = calculation.k_batch
     return (calculation.memory_mode == "memory" and batch is not None
             and batch < nk)

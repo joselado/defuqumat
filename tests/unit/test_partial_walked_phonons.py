@@ -126,22 +126,27 @@ def test_a_walked_response_still_refuses_a_symmetrised_subset():
                          response=_response(2, walked=_Walked(2)), atoms=(1,))
 
 
-def test_a_walked_response_refuses_a_closed_subset_with_symmetry():
-    """I51 lifts a closed subset with symmetry on the whole-k route only.
+@pytest.mark.parametrize("case, atoms", [("alas-raman-wedge", (0,)),
+                                         ("h-chain-afm", None)])
+def test_a_regime_the_walk_lacks_takes_the_whole_k_route(case, atoms):
+    """A closed subset with symmetry (I51) and ``nspin = 2`` were measured on
+    the whole-k route only. They used to be refused where the response walks;
+    since memory mode became the CPU default (2026-10-21) they take the whole-k
+    route instead, on a device store without a word, and a walked response
+    handed in is solved again there rather than assembled."""
+    from defuqumat.response.efield import _streams
+    from defuqumat.response.phonon import _walk_lacks
 
-    AlAs's ``atoms=(0,)`` is a union of orbits, so the orbit guard passes it,
-    and the walked route keeps the streamed route's refusal.
-    """
-    calculation = _calculation("alas-raman-wedge")
-    assert calculation.use_symmetry
-    with pytest.raises(NotImplementedError, match="whole-k route"):
-        dynamical_matrix(calculation, None, jnp.zeros((10, 4)), None,
-                         response=_response(2, walked=_Walked(2)), atoms=(0,))
-
-
-def test_a_walked_response_still_refuses_nspin_two():
-    calculation = _calculation("h-chain-afm")
-    assert calculation.nspin == 2
-    with pytest.raises(NotImplementedError, match="walks the k axis"):
-        dynamical_matrix(calculation, None, jnp.zeros((2, 2, 12)), None,
-                         response=_response(2, walked=_Walked(2)))
+    calculation = _calculation(case)
+    assert calculation.memory_mode == "memory"
+    assert calculation.system.kpoints.nk > 1
+    lacks = _walk_lacks(calculation, atoms)
+    assert lacks is not None
+    states = jnp.zeros((calculation.nspin, calculation.system.kpoints.nk, 2, 4))
+    assert _streams(calculation, states, False)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert not _streams(calculation, states, False, whole_k=lacks)
+    with pytest.warns(RuntimeWarning, match="whole-k route"):
+        assert not _streams(calculation, np.asarray(states), False,
+                            whole_k=lacks)

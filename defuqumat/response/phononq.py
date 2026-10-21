@@ -1907,18 +1907,26 @@ def dynamical_matrix_at_q(
     # k-chunk's (:mod:`defuqumat.response.chunked_phonon`).
     from defuqumat.response.efield import _streams
 
+    metal = calculation.system.occupations != "fixed"
+    if metal:
+        _require_a_metallic_q(cell, q_cart)
+    shift_fermi_level = metal and at_zone_centre(cell, q_cart)
+    # The two regimes the walked passes do not carry take the whole-k route
+    # instead (:func:`~defuqumat.response.efield._streams`), which is where
+    # they were measured.
+    lacks = ("the second spin channel" if calculation.system.nspin == 2 else
+             "the metal's Fermi-level shift at q = 0 (ldos, ef_shift_wfc)"
+             if shift_fermi_level else None)
     streamed = _streams(calculation, wavefunctions, keep_internals=False,
-                        what="the dynamical matrix at q")
+                        what="the dynamical matrix at q", whole_k=lacks)
+    if not streamed:
+        wavefunctions = jnp.asarray(wavefunctions)
     # The core correction's two fields per mode, ``None`` without one (I80),
     # in host memory beside the loop's own grids on the streamed route.
     core = core_displacements_at_q(calculation, density, q_cart, positions,
                                    host=streamed)
     dv_core = None if core is None else core[1]
     _require_one_channel_when_walked(calculation, streamed)
-    metal = calculation.system.occupations != "fixed"
-    if metal:
-        _require_a_metallic_q(cell, q_cart)
-    shift_fermi_level = metal and at_zone_centre(cell, q_cart)
     if shift_fermi_level and streamed:
         raise NotImplementedError(
             "a metal at q = 0 through the k-chunked route of the dynamical "
