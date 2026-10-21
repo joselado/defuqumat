@@ -519,6 +519,27 @@ $32\times32$ cells, $|G_0(\mathbf r,\phi)|$ has fallen to 0.0024 of its peak, so
 the waves of the next impurity are not in the map, and the exit leg sees the
 Fermi surface on 316 k-points.
 
+The band calculation on the full k-mesh is the expensive step, and the
+impurity, the energy and the broadening do not change it. So we compute it
+once with `calc.get_qpi_bands()` and give it to every map as `states`:
+
+```python
+states = sheet.get_qpi_bands(grid=(32, 32, 1))
+for eta in (0.03, 0.05):
+    qpi = sheet.get_qpi(0.5, 0.7, impurity=0, sigma=1.0, energies=[fermi],
+                        shape=(4, 4), broadening=eta, states=states)
+    print(f"eta = {eta}  T-matrix {qpi.t_matrix[0, 0]:.4f} Ry  "
+          f"wraparound {qpi.wraparound[0, 0]:.4f}")
+```
+
+```
+eta = 0.03  T-matrix 0.0431-0.0994j Ry  wraparound 0.0024
+eta = 0.05  T-matrix 0.0472-0.1145j Ry  wraparound 0.0007
+```
+
+At $\eta = 0.03$ Ry this is the T-matrix of the call above. A larger $\eta$
+makes $G_0$ decay faster, so the wraparound drops.
+
 The keywords of `get_qpi` are:
 
 - **`potential`**: $V$ in Ry. A negative value attracts the electrons.
@@ -545,6 +566,9 @@ The keywords of `get_qpi` are:
   bands, see the Limits note.
 - **`grid`**, **`nbnd`**: the full k-mesh and the number of bands of the band
   calculation. The k-mesh is the supercell, so it decides the size of the map.
+- **`states`**: the bands of the full k-mesh from `calc.get_qpi_bands(grid=...,
+  nbnd=...)`. The band calculation is the expensive step, and with `states` many
+  impurities, energies and broadenings use one band calculation.
 
 `qpi.maps[reader]` is the change in real space, with the impurity cell in the
 middle, and `qpi.transforms[reader]` is its Fourier transform, with $q = 0$ in

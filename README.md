@@ -735,7 +735,7 @@ task of the other code that it refers to.
 | **Tunnelling spectra** $\mathrm{d}I/\mathrm{d}V$ | `calc.get_sts()` | | |
 | **Vertical tunnelling transport through a 2D material** | `calc.get_vertical_transport()` | (✓)¹⁶ | |
 | **Which k-points the tunnelling current comes from**¹⁷ | `calc.get_momentum_transport()` | | |
-| **Quasiparticle interference**, T-matrix of one impurity | `calc.get_qpi()` | | |
+| **Quasiparticle interference**, T-matrix of one impurity | `calc.get_qpi()`, `calc.get_qpi_bands()` | | |
 | **Fermi-surface nesting function** | `calc.get_nesting()` | | ✓ |
 | **X-ray and magnetic structure factors** | `calc.get_structure_factors()` | | ✓ |
 | **Ultra long-range modulations**, the ultracell | `calc.get_ultracell(supercell)` | | ✓ |
