@@ -51,6 +51,14 @@ magnetization, exactly as ``starting_magnetization`` multiplies an *atom's*,
   the seed's, so a seed whose direction turns by ``2 pi / n`` from cell to cell
   is a helix of pitch ``n`` cells.
 
+**A compensated reference is turned about its Neel axis** (I117). An
+antiferromagnet has no net moment to read ``e_0`` off, but a collinear one has
+an axis, the principal eigenvector of ``int m m^T dr``, and ``R(e_0 -> s)``
+applied pointwise turns its two sublattices rigidly together; the sign of that
+axis is the moment of the first magnetic atom, so ``s`` names that atom's
+direction (:func:`reference_axis`). A canted or noncoplanar compensated cell
+has no single axis and is still refused.
+
 ``s = 1`` and ``s = e_0`` are the **identity**, to round-off in the collinear
 case (which goes through the charge-and-moment representation and back, one
 addition and one halving) and exactly in the noncollinear one (which is already
@@ -129,7 +137,9 @@ from defuqumat.scf.continuation import (
 __all__ = [
     "FIELD_NODE_TOL",
     "SEED_CONE_TOL",
+    "SEED_COLLINEAR_TOL",
     "SEED_NET_TOL",
+    "collinear_field_seed",
     "field_seed_axis",
     "refuse_an_unmagnetized_reference",
     "seed_from_the_field",
@@ -154,6 +164,16 @@ FIELD_NODE_TOL = 1.0e-6
 #: would rotate from noise. Only the noncollinear seed reads it -- a collinear
 #: one scales along ``z`` and needs no axis.
 SEED_NET_TOL = 1.0e-2
+
+#: How collinear a **compensated** reference must be for its axis to be one
+#: (I117): the second eigenvalue of ``M = int m m^T dr`` against the first. An
+#: antiferromagnet whose moments are all along ``+-e`` has ``M = c e e^T``, rank
+#: one, and its axis is ``e`` up to a sign however exactly the moments cancel;
+#: a canted or noncoplanar compensated texture (four sublattices along ``+-x``
+#: and ``+-y``, a 120 degree triangle) has two or three comparable eigenvalues
+#: and no single direction a rigid rotation could start from, so it stays
+#: refused.
+SEED_COLLINEAR_TOL = 1.0e-2
 
 #: How far a seed's directions may drift off a cone about ``e_0`` before the
 #: warning below fires, measured as the spread of ``|s-hat . e_0|`` over the box.
@@ -210,32 +230,81 @@ def refuse_an_unmagnetized_reference(magnetization, volume: float) -> float:
     return absolute
 
 
-def reference_axis(magnetization, volume: float) -> np.ndarray:
+def reference_axis(magnetization, volume: float, sites=None) -> np.ndarray:
     """The unit vector the reference's own magnetization points along.
 
     ``magnetization`` is ``(3, ...)`` on the box and ``volume`` the *unit
     cell's*, which only sets the scale the two integrals are compared at and
-    cancels in the ratio. Raises when the net is a residue of cancellation --
-    see :data:`SEED_NET_TOL`.
+    cancels in the ratio.
+
+    **A ferromagnet's axis is its net moment**, and that is unchanged. **A
+    compensated reference's axis is its Neel axis** (I117): where the net is a
+    residue of cancellation (see :data:`SEED_NET_TOL`) the direction is read off
+    the second-moment tensor ``M = int m m^T dr`` instead, whose principal
+    eigenvector is ``+-e`` for any texture with ``m(r) = +-|m(r)| e``. The
+    rotation :func:`_turned` applies is then ``R(e -> s)`` pointwise, which
+    takes the ``+e`` sublattice onto ``s`` and the ``-e`` one onto ``-s``: the
+    antiferromagnet turned rigidly, which is all a seed of a compensated cell
+    can mean.
+
+    **The sign of ``e`` is a convention, and it decides which sublattice ``s``
+    names**, since ``R(-e -> s) m = -R(e -> s) m`` on a collinear ``m``. It is
+    fixed here as the sign of ``m . e`` at the first atom of ``sites`` (integer
+    indices into the box, in the unit cell's atom order, at the atom's own grid
+    point, the same point :func:`seeded_becsum` reads the seed at) whose
+    ``|m . e|`` is at least :data:`SEED_NET_TOL` of the largest on the box, so
+    **the seed is the direction of the first magnetic atom's moment**. Without
+    ``sites`` a compensated reference is refused, since no other choice is
+    reproducible.
+
+    Raises, with the reason, for a compensated reference whose ``M`` is not
+    rank one to :data:`SEED_COLLINEAR_TOL` (a canted or noncoplanar
+    antiferromagnet, which a rotation from one axis cannot carry), and for one
+    whose atoms all sit at nodes of the moment.
     """
     m = np.asarray(magnetization, dtype=float)
     absolute = refuse_an_unmagnetized_reference(m, volume)
-    net = m.reshape(3, -1).sum(axis=1) * volume / m[0].size
+    flat = m.reshape(3, -1)
+    net = flat.sum(axis=1) * volume / m[0].size
     length = float(np.linalg.norm(net))
-    if length <= SEED_NET_TOL * absolute:
+    if length > SEED_NET_TOL * absolute:
+        return net / length
+    tensor = flat @ flat.T
+    values, vectors = np.linalg.eigh(tensor)
+    ratio = float(values[1] / values[2]) if values[2] > 0.0 else 1.0
+    if ratio > SEED_COLLINEAR_TOL:
         raise NotImplementedError(
             f"a noncollinear seed turns the unit cell's own magnetization "
-            f"rigidly, from the direction it points along onto the seed's, and "
-            f"this reference has no such direction: its net moment is "
-            f"{length:.3e} mu_B against an absolute magnetization of "
-            f"{absolute:.3e}, so the net is a residue of cancellation and its "
-            f"direction is round-off. A compensated unit cell -- an "
-            f"antiferromagnet, whose texture would have to be rotated "
-            f"sublattice by sublattice -- is not written: seed a modulation of "
-            f"a cell whose moments are parallel, or drive this one with "
+            f"rigidly, from the one axis it points along onto the seed's, and "
+            f"this reference has no such axis: its net moment is {length:.3e} "
+            f"mu_B against an absolute magnetization of {absolute:.3e}, so it "
+            f"is compensated, and its moments are not collinear either (the "
+            f"second moment int m m^T has a second eigenvalue {ratio:.3f} of "
+            f"the first, above {SEED_COLLINEAR_TOL:g}). A collinear "
+            f"antiferromagnet is seeded about its Neel axis; a canted or "
+            f"noncoplanar compensated cell would have to be turned sublattice "
+            f"by sublattice, which is not written. Drive it with "
             f"magnetic_field= instead, which needs no reference direction"
         )
-    return net / length
+    axis = vectors[:, 2]
+    if sites is None:
+        raise ValueError(
+            "a compensated reference is seeded about its Neel axis, and the "
+            "sign of that axis is fixed by the moment at the first magnetic "
+            "atom: pass sites=, the atoms' grid points on the box"
+        )
+    along = np.tensordot(axis, m, axes=(0, 0))
+    largest = float(np.abs(along).max())
+    for site in sites:
+        value = float(along[tuple(int(i) for i in site)])
+        if abs(value) >= SEED_NET_TOL * largest:
+            return axis if value > 0.0 else -axis
+    raise NotImplementedError(
+        f"this compensated reference has a Neel axis, {np.round(axis, 6)}, but "
+        f"no atom whose own grid point carries a moment along it above "
+        f"{SEED_NET_TOL:g} of the largest, so which sublattice the seed names "
+        f"cannot be decided"
+    )
 
 
 def field_seed_axis(magnetization, volume: float):
@@ -296,6 +365,64 @@ def seed_from_the_field(field, axis) -> np.ndarray:
     live = length > FIELD_NODE_TOL * largest
     safe = np.where(live, length, 1.0)
     return np.where(live[None], b / safe[None], np.broadcast_to(a, b.shape))
+
+
+def collinear_field_seed(field, magnetization, volume: float):
+    """The seed ``seed_from_field=True`` takes from a collinear field (I116).
+
+    ``field`` is the scalar ``B(r)`` on the box, ``(*box)``, and
+    ``magnetization`` the tiled reference's ``(3, *box)`` from
+    :func:`~defuqumat.scf.continuation.spin_components`, its collinear moment
+    on ``z``. Returns ``(seed, None)`` or ``(None, reason)``, as
+    :func:`field_seed_axis` does.
+
+    **A collinear field's direction is its sign**, so the seed is
+    ``sign(B) sign(M)``, ``M`` the reference's net moment: every cell's moment
+    is put along the field where it points, with its own profile and length,
+    which is the scalar form of :func:`seed_from_the_field`'s ``B / |B|``. The
+    factor ``sign(M)`` is the reference's own axis, ``+z`` or ``-z``, and it is
+    what makes the moment *follow* the field (``v_up -= B``,
+    ``add_bfield.f90:237-238``, so a positive ``B`` favours a positive ``m``)
+    on a reference that converged with its moment down; without it that
+    reference would be seeded against the field everywhere. At a node of the
+    field, ``|B|`` below :data:`FIELD_NODE_TOL` of its largest value, the seed
+    is ``1``, the identity, as in the vector form.
+
+    **What this seeds is a domain state**, the reference reversed wherever
+    ``B`` has the other sign, at full length whatever ``|B|`` is. On a cell
+    with one self-consistent state under the field the loop reaches it from
+    either start; on a cell with two (a ferromagnet whose antiferromagnet is
+    close by) it picks the one on the field's side, which a weak field's
+    tiled start need not reach. That is why the collinear default is still the
+    tiled start and this is taken only on request.
+
+    Skips, with the reason, a reference that carries no moment and a
+    compensated one, whose net sign is round-off (:data:`SEED_NET_TOL`).
+    """
+    b = np.asarray(field, dtype=np.float64)
+    m = np.asarray(magnetization, dtype=np.float64)
+    moment = m[2] if m.ndim == b.ndim + 1 else m
+    if moment.shape != b.shape:
+        raise ValueError(
+            f"a collinear field seed takes the field and the moment on one box; "
+            f"they are {b.shape} and {moment.shape}")
+    absolute = float(np.sum(np.abs(moment)) * volume / moment.size)
+    if absolute <= MAGNETIZATION_TOL:
+        return None, (
+            f"the reference carries no moment (absolute magnetization "
+            f"{absolute:.3e} mu_B), so there is nothing to put along the field"
+        )
+    net = float(np.sum(moment) * volume / moment.size)
+    if abs(net) <= SEED_NET_TOL * absolute:
+        return None, (
+            f"the reference's net moment ({net:.3e} mu_B against an absolute "
+            f"{absolute:.3e}) is a residue of cancellation, so it has no sign "
+            f"for the field to turn over"
+        )
+    size = np.abs(b)
+    largest = float(size.max()) if size.size else 0.0
+    live = size > FIELD_NODE_TOL * largest
+    return np.where(live, np.sign(b) * np.sign(net), 1.0), None
 
 
 def warn_if_the_seed_leaves_the_closed_sector(seed, axis: np.ndarray) -> float:

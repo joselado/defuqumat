@@ -2030,6 +2030,60 @@ def test_kramers_pairs_are_refused_on_a_collinear_cell(tmp_path, pseudo_dir):
                       (1, 1, 1), nbnd=4, kramers_pairs=True)
 
 
+def _staggered(amplitude):
+    """``B cos(pi x)``: one period over two cells, the field I116 is measured under."""
+    return lambda x: amplitude * np.cos(np.pi * x[..., 0])
+
+
+@pytest.mark.parametrize("options, error, message", [
+    ({"seed_magnetization": lambda x: np.ones(x.shape[:-1])}, ValueError,
+     "pass one of the two"),
+    ({"magnetic_field": None}, ValueError, "no field for the seed"),
+])
+def test_what_seed_from_field_refuses_before_the_frozen_solve(
+        options, error, message, tmp_path, pseudo_dir):
+    """The refusals of ``seed_from_field=True`` that need no ground state.
+
+    Collinear since I116 lifted the ``nspin_mag = 2`` refusal, so that the two
+    that stay are shown to fire on the cell that no longer stops at the first.
+    """
+    calculator = _hydrogen(tmp_path, pseudo_dir, (2, 1, 1))
+    kwargs = {"magnetic_field": _staggered(0.01)}
+    kwargs.update(options)
+    with pytest.raises(error, match=message):
+        run_ultracell(calculator.system, calculator.pseudos, None, (2, 1, 1),
+                      (1, 1, 1), nbnd=4, seed_from_field=True, **kwargs)
+
+
+def test_the_field_seed_needs_a_magnetization_component(tmp_path, pseudo_dir):
+    """``seed_from_field=True`` at ``nspin_mag = 1`` is refused before the solve."""
+    calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))
+    assert calculator.system.nspin_mag == 1
+    with pytest.raises(ValueError, match="nspin_mag = 1"):
+        run_ultracell(calculator.system, calculator.pseudos, None, (2, 1, 1),
+                      (1, 1, 1), nbnd=4, seed_from_field=True,
+                      magnetic_field=_staggered(0.01))
+
+
+def test_the_collinear_field_seed_is_refused_on_a_paramagnet(tmp_path, pseudo_dir):
+    """I116's skip, raised on request: an unmagnetized collinear reference.
+
+    The silicon cell with ``nspin = 2`` converges to no moment, so the seed
+    ``sign(B) sign(M)`` has nothing to multiply and no sign to take, and
+    ``seed_from_field=True`` says so rather than running a no-op seed. The
+    default (``None``) starts tiled and is the spin density wave test above.
+    """
+    path = tmp_path / "si_mag.in"
+    path.write_text(MAGNETIC.replace("2 2 2 0 0 0", "2 1 1 0 0 0"))
+    calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir)
+    scf = calculator.get_scf(conv_thr=1e-9, nbnd=8)
+    assert abs(scf.magnetization) < 1e-5
+    with pytest.raises(ValueError, match="seed cannot be taken: the reference carries no moment"):
+        run_ultracell(calculator.system, calculator.pseudos, scf, (2, 1, 1),
+                      (1, 1, 1), nbnd=8, seed_from_field=True,
+                      magnetic_field=_staggered(0.01))
+
+
 @pytest.mark.slow
 def test_kramers_pairs_keep_the_tiled_null(tmp_path, pseudo_dir):
     """The closed basis is expanded around the same state, so the null holds.
