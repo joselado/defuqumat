@@ -620,6 +620,14 @@ def test_the_field_seed_skips_a_reference_with_no_direction(ultracell):
           opted_out=False, skipped="the reference carries no moment"),
      ["not seeded from the field", "carries no moment"],
      ["seed_magnetization", "263"]),
+    # A compensated reference (I117): the field's seed is skipped, and a hand
+    # seed about the Neel axis is not refused, so it is named.
+    (dict(kramers_pairs=True, seed_origin=None, field_given=True,
+          opted_out=False,
+          skipped="the reference's net moment (0 mu_B against an absolute 1) "
+                  "is a residue of cancellation, so it has no direction"),
+     ["not seeded from the field", "Neel vector", "seed_magnetization="],
+     ["refused on such", "263"]),
     # The old basis keeps its own numbers, labelled, and names the default.
     (dict(kramers_pairs=False, seed_origin=None, field_given=True,
           opted_out=False, skipped=None),
