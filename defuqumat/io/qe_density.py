@@ -70,7 +70,9 @@ def read_rhog(path):
         import h5py
 
         with h5py.File(path, "r") as f:
-            gamma_only = str(f.attrs["gamma_only"]).strip().upper() in (".TRUE.", "T", "TRUE")
+            flag = f.attrs["gamma_only"]
+            flag = flag.decode() if isinstance(flag, bytes) else str(flag)
+            gamma_only = flag.strip().upper() in (".TRUE.", "T", "TRUE")
             nspin = int(f.attrs["nspin"])
             mill = f["MillerIndices"]
             b = np.array([mill.attrs[f"bg{i}"] for i in (1, 2, 3)], dtype=float)
@@ -92,7 +94,11 @@ def read_rhog(path):
 
 
 def _complex(array):
-    """An HDF5 dataset as complex: QE writes it as pairs of doubles."""
+    """An HDF5 dataset as complex: QE writes it as interleaved pairs of doubles.
+
+    ``qeh5_wplan_complex`` doubles the first dimension (``qeh5_module.f90:380``).
+    This branch has not been run against a ``pw.x`` built with HDF5.
+    """
     array = np.asarray(array)
     if np.iscomplexobj(array):
         return array.reshape(-1)

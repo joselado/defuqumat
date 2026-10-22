@@ -34,7 +34,8 @@ pw.x -in si.in > si.out
 
 `pw.x` converges in 8 iterations, at a total energy of -89.27293945 Ry, and leaves
 its state in the folder `out/pwscf.save`. The density is in `charge-density.dat`,
-or in `charge-density.hdf5` if `pw.x` was compiled with HDF5. Both work. The folder
+or in `charge-density.hdf5` if `pw.x` was compiled with HDF5. The code reads
+both, but we have only tested the first, because our `pw.x` has no HDF5. The folder
 `tests/data/qe/save/si-paw-444` of the repository is the one this run wrote, so you
 can try the next step without `pw.x`.
 
