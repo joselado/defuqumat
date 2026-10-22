@@ -171,6 +171,7 @@ from defuqumat.ultracell.states import (
 )
 from defuqumat.scf.continuation import spin_components
 from defuqumat.ultracell.seed import (
+    collinear_field_seed,
     field_seed_axis,
     reference_axis,
     seed_from_the_field,
@@ -1119,7 +1120,16 @@ def run_ultracell(
             is measured and an easy axis can hold the moment against a weak
             field, and ``True`` seeds it anyway. ``False`` asks for the tiled start, which is what a
             linear response about the reference's own state wants; ``True``
-            insists, and raises where the seed cannot be taken.
+            insists, and raises where the seed cannot be taken. **A collinear
+            run** (``nspin_mag = 2``) starts tiled by default too, and ``True``
+            seeds ``sign(B)`` times the sign of the reference's net moment
+            (:func:`~defuqumat.ultracell.seed.collinear_field_seed`, I116): a
+            domain state, the reference reversed where the field is negative.
+            On a cell with two self-consistent states under the field the two
+            starts end in different ones, so compare
+            ``total_energy + field_energy``: on two-cell hydrogen the seed
+            reaches the supercell's antiferromagnet and the tiled start the
+            ferromagnet, 3.8 mRy per cell above it at 0.002 Ry.
         keep_states: keep the frozen states and the envelope amplitudes on the
             result, as :class:`~defuqumat.ultracell.states.UltracellStates`. They
             are what an ultracell *wavefunction* is made of, so an STM image
@@ -1261,12 +1271,11 @@ def run_ultracell(
                 "seed_from_field=True with no magnetic_field: there is no field "
                 "for the seed to be taken from"
             )
-        if int(system.nspin_mag) != 4:
-            raise NotImplementedError(
+        if int(system.nspin_mag) not in (2, 4):
+            raise ValueError(
                 f"seed_from_field on a run with nspin_mag = {system.nspin_mag}: "
-                f"a collinear field's direction is its sign, and seeding a "
-                f"ferromagnet with it is an amplitude or staggered seed that "
-                f"has not been measured. Pass the texture as seed_magnetization"
+                f"there is no magnetization component for a field's seed to "
+                f"turn, and a field needs two spin channels to act on"
             )
     # **The frozen states are only a basis if they are eigenstates of a
     # converged density**, and nothing below this line would notice if they
@@ -1834,6 +1843,25 @@ def run_ultracell(
             )
         elif verbose:
             print(f"  not seeded from the field: {field_seed_skipped}")
+    elif (seed_field is None and magnetic_field is not None
+            and seed_from_field and nspin_mag == 2):
+        # **The collinear field's seed, on request only** (I116): its sign
+        # times the reference's, a domain state at full length. On two-cell
+        # hydrogen under B cos(pi x) it reaches the explicit supercell's
+        # lowest state, the antiferromagnet in phase with the field, where
+        # the tiled start stays on the ferromagnet 3.8 mRy per cell above it
+        # (notes/incompat/I116.md). The default stays the tiled start, the
+        # response about the reference's own state, which on a cell with two
+        # self-consistent states under the field is the other one
+        # (:func:`~defuqumat.ultracell.seed.collinear_field_seed`).
+        moment = spin_components(density, nspin_mag)[1]
+        collinear_seed, reason = collinear_field_seed(
+            magnetic_field, moment, float(cell.volume))
+        if reason is not None:
+            raise ValueError(
+                f"seed_from_field=True and the seed cannot be taken: {reason}")
+        seed_field = jnp.asarray(collinear_seed)
+        seed_origin = "magnetic_field"
     if seed_field is not None:
         _warn_if_a_constraint_fights_the_seed(system, seed_field, nspin_mag)
         moment = spin_components(density, nspin_mag)[1]
@@ -1842,7 +1870,14 @@ def run_ultracell(
             # ``angle1``/``angle2``: what the frozen states carry is the
             # direction the SCF *ended* at, and those two differ by whatever
             # the unit cell's own relaxation did.
-            seed_axis = reference_axis(moment, float(cell.volume))
+            # The atoms' own grid points on the box fix the sign of a
+            # compensated reference's Neel axis (I117), and are not read for
+            # a ferromagnet, whose axis is its net moment.
+            cell_grid = np.asarray(ultracell.cell_grid)
+            sites = (np.round(np.asarray(
+                system.structure.positions_crystal(cell)) * cell_grid)
+                % cell_grid).astype(np.int64)
+            seed_axis = reference_axis(moment, float(cell.volume), sites=sites)
         density = seeded_density(density, seed_field, nspin_mag,
                                  float(cell.volume), axis=seed_axis,
                                  closed=closed_basis)
@@ -2457,6 +2492,19 @@ def _noncollinear_advice(*, kramers_pairs: bool, seed_origin, field_given: bool,
             f"against a weak field, compare total_energy + field_energy "
             f"between the starts rather than taking the one that converges. "
             f"Otherwise raise {budget}."
+        )
+    if field_given and skipped and "residue of cancellation" in skipped:
+        # A compensated reference (I117): the field's seed is not taken, since
+        # turning the Neel vector onto the field is not what an antiferromagnet
+        # does under one, but a hand-written seed is not refused there.
+        return (
+            f" This run was not seeded from the field{strength} because "
+            f"{skipped}: the field's own seed would turn the Neel vector onto "
+            f"the field, which is not how an antiferromagnet answers one, so it "
+            f"is not taken. A texture of the Neel vector can be handed over as "
+            f"seed_magnetization=, turned about the Neel axis with s naming the "
+            f"first magnetic atom's direction; otherwise raise {budget} or the "
+            f"field's strength."
         )
     if field_given and skipped:
         return (

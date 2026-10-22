@@ -2018,6 +2018,129 @@ def test_a_seeded_helix_keeps_the_pitch_it_was_given(tmp_path, pseudo_dir):
     assert cones[-1] < 8.0, cones
 
 
+def _species_chain(tmp_path, pseudo_dir, tag, angles, kgrid) -> Calculator:
+    """Hydrogens 5.5 bohr apart along ``x``, one species each, one
+    ``(angle1, angle2)`` per atom, in a box ``nat`` lattice constants long."""
+    nat = len(angles)
+    names = [f"H{i + 1}" for i in range(nat)]
+    species = "\n".join(f" {name} 1.008 H.pz-vbc.UPF" for name in names)
+    atoms = "\n".join(" %s %.10f 0.0 0.0" % (names[i], i / nat)
+                      for i in range(nat))
+    magnetism = "\n".join(
+        f" starting_magnetization({i + 1})=0.8, angle1({i + 1})={a1:.8f}, "
+        f"angle2({i + 1})={a2:.8f}," for i, (a1, a2) in enumerate(angles))
+    rows = "\n".join(" %.10f %.10f %.10f" % tuple(v)
+                     for v in np.diag((nat, 1, 1)).astype(float))
+    path = tmp_path / f"{tag}.in"
+    path.write_text(HELIX.format(nat=nat, rows=rows, species=species,
+                                 atoms=atoms, magnetism=magnetism, k0=kgrid[0],
+                                 k1=kgrid[1], k2=kgrid[2]))
+    return Calculator.from_file(path, pseudo_dir=pseudo_dir)
+
+
+def _sphere_moments(magnetization, lengths, sites, radius=1.5):
+    """``(nsite, 3)``: the magnetization integrated over a sphere about each
+    site, the same function on any box, so two boxes compare site by site."""
+    m = np.asarray(magnetization)
+    grid = m.shape[1:]
+    axes = [np.arange(g) / g * L for g, L in zip(grid, lengths)]
+    r = np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1)
+    volume = np.prod(lengths) / np.prod(grid)
+    out = []
+    for site in sites:
+        d = r - np.asarray(site)
+        d -= np.round(d / lengths) * lengths
+        out.append(m[:, (d ** 2).sum(axis=-1) < radius ** 2].sum(axis=1) * volume)
+    return np.asarray(out)
+
+
+@pytest.mark.slow
+def test_a_neel_helix_on_an_antiferromagnet_is_the_supercell(tmp_path, pseudo_dir):
+    """I117: a noncollinear seed on a compensated reference, against the supercell.
+
+    The unit cell is two hydrogens with opposite moments, a collinear
+    antiferromagnet whose net is zero to 2e-6 of its absolute moment, so the
+    seed is turned from its **Neel axis**, the principal axis of ``int m m^T``
+    (``lambda_2 / lambda_1`` 5.6e-12 measured), with the sign of the first
+    atom's moment. Seeded with the Neel vector turning 120 degrees a cell over
+    three cells, it is compared with the explicit six-atom supercell seeded per
+    species with what ``R(+z -> s)`` does to the two sublattices, on the energy
+    and on the **site moments** (a 1.5 bohr sphere about each atom), which see
+    the sign of the texture where the Fourier norm the ferromagnetic helix tests
+    read does not. Measured on Triton (2026-10-22, job 21118738), Kramers-closed
+    default basis:
+
+    | ``nbnd`` | ``E`` above the supercell, Ry/cell | site error / largest site |
+    |---|---|---|
+    | 8 | 6.21e-6 | 3.53e-4 |
+    | 16 | 8.46e-7 | 4.58e-5 |
+
+    and the seed ``-s``, the other sign convention, gives the same energy to
+    1e-14 with every site reversed (3.53e-4 against the reversed supercell, 2.0
+    against the supercell itself), which is what makes the site check a check of
+    the axis's sign. Bounds are about twice the ``nbnd = 16`` numbers.
+    """
+    from defuqumat.ultracell.seed import SEED_COLLINEAR_TOL
+
+    n, kgrid, a = 3, (1, 2, 2), 5.5
+    shape = (n, 1, 1)
+    folded = tuple(p * q for p, q in zip(shape, kgrid))
+    unit = _species_chain(tmp_path, pseudo_dir, "afm_unit",
+                          [(0.0, 0.0), (180.0, 0.0)], folded)
+    scf = unit.get_scf(conv_thr=1e-11, nbnd=8, max_iterations=300)
+    assert scf.converged
+    m = np.asarray(scf.density)[1:].reshape(3, -1)
+    values = np.linalg.eigvalsh(m @ m.T)
+    assert values[1] / values[2] < 1e-6 * SEED_COLLINEAR_TOL
+    assert np.linalg.norm(m.sum(axis=1)) < 1e-4 * np.sqrt((m ** 2).sum(axis=0)).sum()
+
+    angles = []
+    for c in range(n):
+        angles.append((90.0, 360.0 * c / n))
+        angles.append((90.0, 360.0 * (c + 0.5) / n + 180.0))
+    supercell = _species_chain(tmp_path, pseudo_dir, "afm_super", angles, kgrid)
+    exact = supercell.get_scf(conv_thr=1e-11, nbnd=12, max_iterations=400)
+    assert exact.converged
+    lengths = np.array([2 * a * n, a, a])
+    sites = [np.array([a * j, 0.0, 0.0]) for j in range(2 * n)]
+    theirs = _sphere_moments(np.asarray(exact.density)[1:], lengths, sites)
+    scale = np.linalg.norm(theirs, axis=1).max()
+    exact_energy = float(exact.total_energy) / n
+    jax.clear_caches()
+
+    def run(nbnd, sign):
+        def helix(x):
+            phase = 2 * np.pi * x[..., 0] / n
+            return sign * np.stack([np.cos(phase), np.sin(phase),
+                                    np.zeros_like(phase)], axis=-1)
+
+        result = run_ultracell(
+            unit.system, unit.pseudos, scf, shape, kgrid, nbnd=nbnd,
+            seed_magnetization=helix, conv_thr=1e-10, states_conv_thr=1e-8,
+            mixing_beta=0.3, max_iterations=300)
+        assert result.converged
+        ours = _sphere_moments(np.asarray(result.magnetization), lengths, sites)
+        jax.clear_caches()
+        return float(result.total_energy), ours
+
+    above, errors = [], []
+    for nbnd in (8, 16):
+        energy, ours = run(nbnd, 1.0)
+        above.append(energy - exact_energy)
+        errors.append(float(np.abs(ours - theirs).max() / scale))
+        if nbnd == 8:
+            plus_energy = energy
+    assert all(e > 0.0 for e in above), above
+    assert above == sorted(above, reverse=True), above
+    assert errors == sorted(errors, reverse=True), errors
+    assert above[-1] < 2e-6 and errors[-1] < 1e-4, (above, errors)
+
+    energy, ours = run(8, -1.0)
+    assert energy == pytest.approx(plus_energy, abs=1e-9)
+    assert np.abs(ours + theirs).max() / scale < 1e-3
+    assert np.abs(ours - theirs).max() / scale > 1.9
+
+
 def test_kramers_pairs_are_refused_on_a_collinear_cell(tmp_path, pseudo_dir):
     """A collinear channel's partner is the other channel, which is already there.
 
@@ -2028,6 +2151,163 @@ def test_kramers_pairs_are_refused_on_a_collinear_cell(tmp_path, pseudo_dir):
     with pytest.raises(ValueError, match="kramers_pairs"):
         run_ultracell(calculator.system, calculator.pseudos, None, (2, 1, 1),
                       (1, 1, 1), nbnd=4, kramers_pairs=True)
+
+
+def _staggered(amplitude):
+    """``B cos(pi x)``: one period over two cells, the field I116 is measured under."""
+    return lambda x: amplitude * np.cos(np.pi * x[..., 0])
+
+
+@pytest.mark.parametrize("options, error, message", [
+    ({"seed_magnetization": lambda x: np.ones(x.shape[:-1])}, ValueError,
+     "pass one of the two"),
+    ({"magnetic_field": None}, ValueError, "no field for the seed"),
+])
+def test_what_seed_from_field_refuses_before_the_frozen_solve(
+        options, error, message, tmp_path, pseudo_dir):
+    """The refusals of ``seed_from_field=True`` that need no ground state.
+
+    Both are checked before the ``nspin_mag = 2`` refusal (I116), so they are
+    shown to fire on the collinear cell, where they come first.
+    """
+    calculator = _hydrogen(tmp_path, pseudo_dir, (2, 1, 1))
+    kwargs = {"magnetic_field": _staggered(0.01)}
+    kwargs.update(options)
+    with pytest.raises(error, match=message):
+        run_ultracell(calculator.system, calculator.pseudos, None, (2, 1, 1),
+                      (1, 1, 1), nbnd=4, seed_from_field=True, **kwargs)
+
+
+def test_the_field_seed_needs_a_magnetization_component(tmp_path, pseudo_dir):
+    """``seed_from_field=True`` at ``nspin_mag = 1`` is refused before the solve."""
+    calculator = _silicon(tmp_path, pseudo_dir, (2, 1, 1))
+    assert calculator.system.nspin_mag == 1
+    with pytest.raises(ValueError, match="nspin_mag = 1"):
+        run_ultracell(calculator.system, calculator.pseudos, None, (2, 1, 1),
+                      (1, 1, 1), nbnd=4, seed_from_field=True,
+                      magnetic_field=_staggered(0.01))
+
+
+@pytest.mark.slow
+def test_the_collinear_field_seed_is_refused_on_a_paramagnet(tmp_path, pseudo_dir):
+    """I116's skip, raised on request: an unmagnetized collinear reference.
+
+    The silicon cell with ``nspin = 2`` converges to no moment, so the seed
+    ``sign(B) sign(M)`` has nothing to multiply and no sign to take, and
+    ``seed_from_field=True`` says so rather than running a no-op seed.
+    """
+    path = tmp_path / "si_mag.in"
+    path.write_text(MAGNETIC.replace("2 2 2 0 0 0", "2 1 1 0 0 0"))
+    calculator = Calculator.from_file(path, pseudo_dir=pseudo_dir)
+    scf = calculator.get_scf(conv_thr=1e-9, nbnd=8)
+    assert abs(scf.magnetization) < 1e-5
+    with pytest.raises(ValueError,
+                       match="seed cannot be taken: the reference carries no moment"):
+        run_ultracell(calculator.system, calculator.pseudos, scf, (2, 1, 1),
+                      (1, 1, 1), nbnd=8, seed_from_field=True,
+                      magnetic_field=_staggered(0.01))
+
+
+def _field_on_the_supercell(monkeypatch, amplitude):
+    """A collinear ``B cos(pi x)`` on a two-cell supercell's own SCF.
+
+    ``run_scf`` has no spatially varying field, so the field rides on the local
+    potential: at ``nspin = 2`` the up channel gets ``-B`` and the down ``+B``,
+    ``add_bfield.f90:237-238``'s sign and the ultracell's. ``deband`` removes
+    ``v_scf`` only, so the reported total then holds ``-int B m``, which is the
+    quantity to set against the ultracell's ``total_energy + field_energy``.
+    """
+    import defuqumat.scf.driver as scf_driver
+
+    original = scf_driver.as_potential_components
+
+    def with_field(scalar, nspin):
+        base = original(scalar, nspin)
+        if nspin != 2 or jnp.ndim(scalar) != 3:
+            return base
+        nx = scalar.shape[0]
+        b = amplitude * np.cos(np.pi * 2.0 * np.arange(nx) / nx)
+        b = jnp.asarray(b[:, None, None] * np.ones(scalar.shape), dtype=base.dtype)
+        return base + jnp.stack([-b, b])
+
+    monkeypatch.setattr(scf_driver, "as_potential_components", with_field)
+
+
+@pytest.mark.slow
+def test_the_collinear_field_seed_reaches_the_supercells_lowest_state(
+        tmp_path, pseudo_dir, monkeypatch):
+    """I116: ``seed_from_field=True`` on a collinear ferromagnet, against the supercell.
+
+    Two-cell hydrogen under ``B cos(pi x)`` has two self-consistent states,
+    the field-polarized ferromagnet the tiled start stays on and the
+    antiferromagnet in phase with the field, and the explicit two-atom
+    supercell under the same field, started either way, has both. The field's
+    seed, ``sign(B) sign(M)``, the reference reversed at full length where
+    ``B < 0``, reaches the lower one, and its ``total_energy + field_energy``
+    falls onto the supercell's from above with ``nbnd``. Measured on Triton
+    (2026-10-22, job 21118949), Ry per cell, against the supercell started in
+    phase with the field:
+
+    | ``B``, Ry | ``nbnd = 16`` | 24 | 40 | tiled start above it |
+    |---|---|---|---|---|
+    | 0.002 | 1.54e-4 | 6.84e-5 | 2.33e-5 | 3.81e-3 |
+    | 0.02 | 1.66e-4 | 7.23e-5 | 2.48e-5 | 1.02e-2 |
+
+    and the tiled start is the supercell started ferromagnetic, to 4e-8 and
+    7e-7. So the converged state **does** depend on the start here, which is
+    the physics of two states and not an error: what the seed buys is the lower
+    one. The ``nbnd = 16`` rung of the zero-field ladder in
+    :func:`test_a_collinear_seed_reaches_the_state_the_tiled_loop_cannot` is
+    1.53e-4, the same truncation. Run at ``B = 0.002`` and ``nbnd`` 16 and 24.
+    """
+    shape, kgrid = (2, 1, 1), (2, 2, 2)
+    folded = tuple(n * m for n, m in zip(shape, kgrid))
+    calculator = _hydrogen(tmp_path, pseudo_dir, folded)
+    scf = calculator.get_scf(conv_thr=1e-12, nbnd=8)
+    assert scf.converged and scf.magnetization > 0.5
+    amplitude = 0.002
+
+    _field_on_the_supercell(monkeypatch, amplitude)
+    lowest = {}
+    # The first atom, at x = 0 where B > 0, starts up in both.
+    for tag, m2 in (("aligned", -0.8), ("ferro", 0.8)):
+        jax.clear_caches()
+        pair = _hydrogen_pair(tmp_path, pseudo_dir, kgrid, m2)
+        reference = pair.get_scf(conv_thr=1e-11, nbnd=16, max_iterations=300)
+        assert reference.converged
+        lowest[tag] = float(reference.total_energy) / 2.0
+    monkeypatch.undo()
+    jax.clear_caches()
+    # The supercell has two states, 3.8 mRy per cell apart, which is what makes
+    # the start matter.
+    assert lowest["ferro"] - lowest["aligned"] > 3e-3, lowest
+
+    field = _staggered(amplitude)
+    tiled = run_ultracell(calculator.system, calculator.pseudos, scf, shape,
+                          kgrid, nbnd=16, magnetic_field=field, conv_thr=1e-10,
+                          states_conv_thr=1e-9, seed_from_field=False)
+    assert tiled.converged and tiled.seed_origin is None
+    tiled_total = float(tiled.total_energy) + float(tiled.field_energy)
+    assert abs(tiled_total - lowest["ferro"]) < 1e-6, (tiled_total, lowest)
+    jax.clear_caches()
+
+    above = []
+    for nbnd in (16, 24):
+        result = run_ultracell(
+            calculator.system, calculator.pseudos, scf, shape, kgrid, nbnd=nbnd,
+            magnetic_field=field, conv_thr=1e-10, states_conv_thr=1e-9,
+            seed_from_field=True, max_iterations=200)
+        assert result.converged and result.seed_origin == "magnetic_field"
+        moments = np.asarray(result.cell_moments())
+        # The cells straddle the atoms, so the antiferromagnet's cell moments
+        # are small and opposite (0.074 against the atoms' 0.24 in a sphere).
+        assert moments[0] > 0.05 and moments[1] < -0.05, moments
+        above.append(float(result.total_energy) + float(result.field_energy)
+                     - lowest["aligned"])
+        jax.clear_caches()
+    assert all(a > 0.0 for a in above), above
+    assert above == sorted(above, reverse=True), above
+    assert above[-1] < 1.5e-4, above
 
 
 @pytest.mark.slow

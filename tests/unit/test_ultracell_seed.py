@@ -24,7 +24,9 @@ from defuqumat.ultracell.driver import (
 )
 from defuqumat.ultracell.seed import (
     FIELD_NODE_TOL,
+    collinear_field_seed,
     field_seed_axis,
+    neel_axis,
     reference_axis,
     seed_from_the_field,
     refuse_an_unmagnetized_reference,
@@ -237,28 +239,159 @@ def test_a_seed_over_one_is_refused(ultracell, nspin_mag):
         seeded_density(density, seed, nspin_mag, 1.0, axis=axis)
 
 
-def test_a_compensated_reference_has_no_direction_to_turn_from(ultracell):
-    """The refusal that says which cells this cannot seed, and why.
+def _antiferromagnet(ultracell, rng, axis=AXIS):
+    """``(4, *box)``, two sublattices with opposite moments along ``axis``.
 
-    A noncollinear seed turns the unit cell's magnetization *rigidly*, from the
-    one direction it points along. An antiferromagnetic unit cell has no such
-    direction -- its net moment is a residue of cancellation whose direction is
-    round-off -- and the texture would have to be turned sublattice by
-    sublattice, which is not written. The test feeds it a cell whose two halves
-    are opposite, which is what such a reference is.
+    The sign alternates along the second grid axis of the unit cell, and the
+    first site, grid point ``(0, 0, 0)``, is on the ``+axis`` sublattice. 0.25
+    so that the cancellation is exact in floating point.
     """
-    rng = np.random.default_rng(7)
-    density = _noncollinear(ultracell, rng)
-    # Two sublattices with opposite moments of the same size, which is what an
-    # antiferromagnetic unit cell is, and 0.25 so that the cancellation is
-    # exact in floating point rather than nearly exact.
+    density = _noncollinear(ultracell, rng, axis)
     sign = np.ones(tuple(ultracell.cell_grid))
     sign[:, 1::2] = -1.0
-    density[1:] = AXIS[:, None, None, None] * 0.25 * _tiled(ultracell, sign)
+    density[1:] = axis[:, None, None, None] * 0.25 * _tiled(ultracell, sign)
+    return density
+
+
+def test_the_driver_reads_the_neel_axis_through_reference_axis(ultracell):
+    """I117 lifted: :func:`reference_axis`, which ``run_ultracell`` calls, is
+    :func:`neel_axis`, so a compensated reference gets its Neel axis when the
+    sites are given and is refused, not given a sign by accident, without them.
+    """
+    density = _antiferromagnet(ultracell, np.random.default_rng(7))
+    assert np.abs(density[1:].reshape(3, -1).sum(axis=1)).max() == 0.0
+    axis = reference_axis(density[1:], 1.0, sites=[(0, 0, 0), (0, 1, 0)])
+    assert np.abs(axis - AXIS).max() < 1.0e-12
+    with pytest.raises(ValueError, match="sites="):
+        reference_axis(density[1:], 1.0)
+
+
+def test_a_compensated_reference_is_turned_about_its_neel_axis(ultracell):
+    """I117: an antiferromagnet's axis is the principal one of ``int m m^T``.
+
+    Its net moment is exactly zero, so the net gives no direction, but every
+    moment is along ``+-e`` and ``e`` is the axis a rigid rotation starts from.
+    **The sign is the first magnetic atom's**, which decides which sublattice
+    the seed names: the same density with the sites listed the other way round
+    gives ``-e``, and the seeded moments then come out reversed. A seed of
+    ``e_1``, perpendicular to the axis, must put the first site's sublattice
+    along ``+e_1`` and the other along ``-e_1`` at unchanged length.
+    """
+    density = _antiferromagnet(ultracell, np.random.default_rng(7))
     net = np.abs(density[1:].reshape(3, -1).sum(axis=1)).max()
     assert net == 0.0
-    with pytest.raises(NotImplementedError, match="residue of cancellation"):
-        reference_axis(density[1:], 1.0)
+    first, second = (0, 0, 0), (0, 1, 0)
+    axis = neel_axis(density[1:], 1.0, sites=[first, second])
+    assert np.abs(axis - AXIS).max() < 1.0e-12
+    flipped = neel_axis(density[1:], 1.0, sites=[second, first])
+    assert np.abs(flipped + AXIS).max() < 1.0e-12
+
+    # A site at a node of the moment is passed over for the next one.
+    zeroed = density.copy()
+    zeroed[1:, 0, 0, 0] = 0.0
+    assert np.abs(neel_axis(zeroed[1:], 1.0, sites=[first, second])
+                  + AXIS).max() < 1.0e-12
+
+    perpendicular = np.cross(AXIS, [0.0, 0.0, 1.0])
+    perpendicular /= np.linalg.norm(perpendicular)
+    seed = np.broadcast_to(perpendicular[:, None, None, None],
+                           (3,) + tuple(ultracell.grid))
+    got = np.asarray(seeded_density(density, seed, 4, 1.0, axis=axis,
+                                    closed=True))
+    sign = np.sign(np.tensordot(AXIS, density[1:], axes=(0, 0)))
+    expected = perpendicular[:, None, None, None] * 0.25 * sign
+    assert np.abs(got[1:] - expected).max() < 1.0e-15
+    assert np.abs(got[0] - density[0]).max() == 0.0
+    # The other sign convention reverses the whole seeded texture, which is
+    # what makes the convention a statement rather than a detail.
+    other = np.asarray(seeded_density(density, seed, 4, 1.0, axis=flipped,
+                                      closed=True))
+    assert np.abs(other[1:] + expected).max() < 1.0e-15
+
+
+def test_a_compensated_reference_with_no_axis_is_still_refused(ultracell):
+    """The refusal that stays: four sublattices along ``+-x`` and ``+-y``.
+
+    Compensated and rank two, so ``int m m^T`` has two equal eigenvalues and
+    no axis a rotation from one vector could start from. And the collinear
+    antiferromagnet without ``sites`` is refused rather than given a sign by
+    accident.
+    """
+    rng = np.random.default_rng(3)
+    density = _noncollinear(ultracell, rng)
+    cell = tuple(ultracell.cell_grid)
+    pattern = np.zeros((3,) + cell)
+    pattern[0, :, 0::2, 0::2] = 0.25
+    pattern[0, :, 1::2, 1::2] = -0.25
+    pattern[1, :, 0::2, 1::2] = 0.25
+    pattern[1, :, 1::2, 0::2] = -0.25
+    density[1:] = np.stack([_tiled(ultracell, c) for c in pattern])
+    assert np.abs(density[1:].reshape(3, -1).sum(axis=1)).max() == 0.0
+    with pytest.raises(NotImplementedError, match="not collinear"):
+        neel_axis(density[1:], 1.0, sites=[(0, 0, 0)])
+
+    afm = _antiferromagnet(ultracell, rng)
+    with pytest.raises(ValueError, match="sites="):
+        neel_axis(afm[1:], 1.0)
+    # The ferromagnet does not read the sites at all: its axis is its net,
+    # the same as reference_axis gives.
+    fm = _noncollinear(ultracell, rng)
+    assert np.abs(neel_axis(fm[1:], 1.0) - AXIS).max() < 1.0e-12
+    assert np.abs(reference_axis(fm[1:], 1.0) - AXIS).max() < 1.0e-12
+
+
+def test_the_collinear_field_seed_is_the_sign_of_the_field(ultracell):
+    """I116: ``sign(B) sign(M)``, and the identity at a node of the field.
+
+    ``cos(pi x)`` over the four cells is zero to round-off on the planes
+    ``x = 1/2, 3/2, ...``, which the three grid points a cell has do not hit,
+    so the node is put in by hand. On a reference whose moment points down
+    the seed is reversed, so that the moment follows the field
+    (``v_up -= B``) whichever way the reference converged.
+    """
+    rng = np.random.default_rng(5)
+    density = _collinear(ultracell, rng)
+    field = _on_the_box(ultracell, lambda x: 0.01 * np.cos(np.pi * x[..., 0]))
+    field[0] = 0.0
+    from defuqumat.scf.continuation import spin_components
+
+    moment = np.asarray(spin_components(density, 2)[1])
+    seed, reason = collinear_field_seed(field, moment, 1.0)
+    assert reason is None and seed.dtype == np.float64
+    live = np.abs(field) > FIELD_NODE_TOL * np.abs(field).max()
+    assert np.all(seed[~live] == 1.0) and (~live).any()
+    assert np.all(seed[live] == np.sign(field[live]))
+
+    got = np.asarray(seeded_density(density, seed, 2, 1.0))
+    m0 = density[0] - density[1]
+    m = got[0] - got[1]
+    assert np.abs(m - seed * m0).max() < 1.0e-15
+    assert np.abs((got[0] + got[1]) - (density[0] + density[1])).max() < 1.0e-15
+    # The moment is along the field wherever the field is not zero.
+    assert np.all(m[live] * field[live] > 0.0)
+
+    down = density[::-1].copy()
+    reversed_seed, _ = collinear_field_seed(
+        field, np.asarray(spin_components(down, 2)[1]), 1.0)
+    assert np.all(reversed_seed[live] == -np.sign(field[live]))
+    m_down = np.asarray(seeded_density(down, reversed_seed, 2, 1.0))
+    assert np.all((m_down[0] - m_down[1])[live] * field[live] > 0.0)
+
+
+def test_the_collinear_field_seed_skips_what_has_no_sign(ultracell):
+    """No moment, or a compensated one: the seed is skipped with a reason."""
+    rng = np.random.default_rng(9)
+    field = _on_the_box(ultracell, lambda x: 0.01 * np.cos(np.pi * x[..., 0]))
+    charge = _tiled(ultracell, 1.0 + 0.1 * rng.random(tuple(ultracell.cell_grid)))
+    zero = np.zeros_like(charge)
+    seed, reason = collinear_field_seed(field, np.stack([zero, zero, zero]), 1.0)
+    assert seed is None and "no moment" in reason
+    sign = np.ones(tuple(ultracell.cell_grid))
+    sign[:, 1::2] = -1.0
+    staggered = 0.25 * _tiled(ultracell, sign)
+    seed, reason = collinear_field_seed(
+        field, np.stack([zero, zero, staggered]), 1.0)
+    assert seed is None and "residue of cancellation" in reason
 
 
 def test_a_seed_that_leaves_the_closed_sector_says_so(ultracell):
@@ -503,6 +636,14 @@ def test_the_field_seed_skips_a_reference_with_no_direction(ultracell):
           opted_out=False, skipped="the reference carries no moment"),
      ["not seeded from the field", "carries no moment"],
      ["seed_magnetization", "263"]),
+    # A compensated reference (I117): the field's seed is skipped, and a hand
+    # seed about the Neel axis is not refused, so it is named.
+    (dict(kramers_pairs=True, seed_origin=None, field_given=True,
+          opted_out=False,
+          skipped="the reference's net moment (0 mu_B against an absolute 1) "
+                  "is a residue of cancellation, so it has no direction"),
+     ["not seeded from the field", "Neel vector", "seed_magnetization="],
+     ["refused on such", "263"]),
     # The old basis keeps its own numbers, labelled, and names the default.
     (dict(kramers_pairs=False, seed_origin=None, field_given=True,
           opted_out=False, skipped=None),
