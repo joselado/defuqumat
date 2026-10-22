@@ -756,3 +756,18 @@ both branches start at `8bfe5ce7` and touch disjoint sets of files (I118: `workf
 `workflows/ultracell.py` and the STM tests; I119: `forces/energy.py`, `forces/spiral.py`,
 `scf/continuation.py`, `scf/density.py`, `scf/driver.py`, `workflows/anisotropy.py`,
 `workflows/topology.py` and `tests/unit/test_band_precision.py`).
+
+**Guide and ledger** (`185510d0`). `docs/guide/stm.md`: the image's Limits note takes I118's
+paragraph in place of the field sentence, and the transport's note keeps the field refusal with
+the record's two sentences. `docs/guide/performance.md`: the `band_precision="single"` paragraph is
+I119's, with the TB09 sentence as decided (its total is not a physical quantity in any precision;
+5.5e-5 against 4.8e-5 Ry). One change from the record's text: the reason "because a gradient taken
+through single-precision bands carries its round-off as a plausible force" stays attached to the
+forces sentence, and the invariants, the Berry-phase polarization, the Kubo conductivities, the
+orbital magnetization, the anisotropy and the torque follow as their own sentence, since the
+gradient reason does not apply to an invariant. `python3 tools/check_guide.py` passes here (`yaml`
+is installed on this workstation). README: no cell, as both records say. `notes/INCOMPATIBILITIES.md`:
+I118 and I119 under "Closed since" (landed on 2026-10-22 in P158), and each section in place
+retitled to what still refuses, with a "Partial 2026-10-22 (P158)" line. `PLAN.md`: P158 after
+P157. The head of §3 ("What is outstanding") indexes missing terms, not phases, so P158 is not
+listed there.
