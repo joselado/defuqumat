@@ -1343,6 +1343,9 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         and occupations != "from_input"
         and _tot_magnetization(pwin) is None
         and not given_magnetization
+        # The STARTING_MOMENTS card seeds the collinear density too
+        # (``Calculation._per_atom_magnetization``), so it breaks the symmetry.
+        and not _starting_moments(pwin, structure.nat)
     ):
         raise ValueError(
             "nspin = 2 with no starting_magnetization: nothing in the SCF "
@@ -1350,7 +1353,7 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
             "identical and the run converges to the unpolarized solution and "
             "reports success. Set starting_magnetization for at least one "
             "species (an explicit 0.0 is accepted and means the unpolarized "
-            "solution was asked for), or constrain the magnetization with "
+            "solution was asked for), give a STARTING_MOMENTS card, or constrain the magnetization with "
             "tot_magnetization or constrained_magnetization. QE stops on the "
             "same input"
         )

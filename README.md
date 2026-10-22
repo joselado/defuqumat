@@ -3,7 +3,8 @@
 # defuqumat
 
 This is a plane-wave density-functional theory code in Python. You run it with a
-normal Quantum ESPRESSO `pw.x` input file. It computes the ground state, the band
+normal Quantum ESPRESSO `pw.x` input file, or with Python keywords in angstrom and
+eV. It computes the ground state, the band
 structure and the density of states. It also computes forces, stress and relaxed
 geometries, and the dielectric, vibrational and optical response. For magnetism,
 it goes from a collinear moment to a spin spiral and a magnon. Some quantities
@@ -65,6 +66,22 @@ for the cards `ATOMIC_SPECIES`, `ATOMIC_POSITIONS` and `K_POINTS`. Also
 your own crystal, you write an input file and put the UPF files in that folder.
 Notebook [25](notebooks/25_your_own_crystal.ipynb) shows this step by step,
 from the structure to the converged energy.
+
+You can also give the crystal without an input file. The lengths are in
+angstrom and the energies in eV:
+
+```python
+calc = Calculator.from_keywords(
+    lattice="fcc", a=5.40,
+    atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+    pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=163.3, kmesh=(4, 4, 4),
+)
+```
+
+The code writes these keywords as a `pw.x` input and reads it as a file, so the
+defaults and the errors are the same. The keywords are listed in
+[Your own crystal](https://joselado.github.io/defuqumat/own-crystal/).
 
 All other quantities are methods of the same object. Each method first runs the
 SCF, if there is no SCF result stored yet:

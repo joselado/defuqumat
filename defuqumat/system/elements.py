@@ -16,7 +16,7 @@ rule is that a trailing digit, ``-`` or ``_`` ends the symbol.
 
 from __future__ import annotations
 
-__all__ = ["ELEMENTS", "atomic_number"]
+__all__ = ["ELEMENTS", "ATOMIC_WEIGHTS", "atomic_number", "atomic_weight"]
 
 #: Element symbols in order of atomic number, ``ELEMENTS[Z - 1]``. The list is
 #: ``atomic_number.f90``'s, up to Z = 118.
@@ -41,6 +41,29 @@ ELEMENTS: tuple[str, ...] = (
 )
 
 _BY_SYMBOL = {symbol.lower(): z for z, symbol in enumerate(ELEMENTS, start=1)}
+
+
+#: Standard atomic weights in atomic mass units, ``ATOMIC_WEIGHTS[Z - 1]``,
+#: transcribed from ``Modules/atom_weight.f90``, which stops at Z = 109. Used
+#: where an input names an element without a mass
+#: (:mod:`defuqumat.io.keywords`), so that the mass is the one ``pw.x`` would
+#: take for the same element.
+ATOMIC_WEIGHTS: tuple[float, ...] = (
+    1.00794, 4.00260, 6.941, 9.01218, 10.811, 12.0107, 14.00674, 15.9994,
+    18.99840, 20.1797, 22.98977, 24.3050, 26.98154, 28.0855, 30.97376, 32.066,
+    35.4527, 39.948, 39.0983, 40.078, 44.95591, 47.867, 50.9415, 51.9961,
+    54.93805, 55.845, 58.93320, 58.6934, 63.546, 65.39, 69.723, 72.61,
+    74.92160, 78.96, 79.904, 83.80, 85.4678, 87.62, 88.90585, 91.224,
+    92.90638, 95.94, 98., 101.07, 102.90550, 106.42, 107.8682, 112.411,
+    114.818, 118.710, 121.760, 127.60, 126.90447, 131.29, 132.90545, 137.327,
+    138.9055, 140.116, 140.90765, 144.24, 145., 150.36, 151.964, 157.25,
+    158.92534, 162.50, 164.93032, 167.26, 168.93421, 173.04, 174.967, 178.49,
+    180.9479, 183.84, 186.207, 190.23, 192.217, 195.078, 196.96655, 200.59,
+    204.3833, 207.2, 208.98038, 209., 210., 222., 223., 226.,
+    227., 232.0381, 231.03588, 238.0289, 237., 244., 243., 247.,
+    247., 251., 252., 257., 258., 259., 262., 261.,
+    262., 266., 264., 277., 268.,
+)
 
 
 def element_symbol(label: str) -> str:
@@ -74,3 +97,18 @@ def atomic_number(label: str) -> int:
         raise ValueError(
             f"species label {label!r} does not name an element (read as {symbol!r})"
         ) from None
+
+
+def atomic_weight(label: str) -> float:
+    """The standard atomic weight, in amu, of the element a species label names.
+
+    ``atom_weight.f90``'s table, so ``Fe_up`` gets iron's 55.845. Raises for an
+    element past Z = 109, where that table stops.
+    """
+    z = atomic_number(label)
+    if z > len(ATOMIC_WEIGHTS):
+        raise ValueError(
+            f"no tabulated atomic weight for {element_symbol(label)} (Z = {z}); "
+            "give the mass explicitly"
+        )
+    return ATOMIC_WEIGHTS[z - 1]

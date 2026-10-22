@@ -39,6 +39,79 @@ The pseudopotentials are UPF files, and the code reads their names from the
 `pseudo_dir`, the code uses the `pseudo_dir` of the `&control` namelist, and
 then the folder of the input file.
 
+## Without an input file
+
+We can also give the crystal as keywords, with lengths in angstrom and energies
+in eV, which is how a structure is usually given in a paper or a database. This
+is the same diamond, with `Calculator.from_keywords`:
+
+```python
+from defuqumat import Calculator
+
+diamond = Calculator.from_keywords(
+    lattice="fcc", a=3.567,                       # angstrom
+    atoms=[("C", (0, 0, 0)), ("C", (0.25, 0.25, 0.25))],
+    pseudos={"C": "C.pz-rrkjus.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=476.0, ecutrho=3808.0,                   # eV
+    kmesh=(6, 6, 6), nbands=8,
+)
+print(diamond.get_scf().total_energy)   # in Ry
+```
+
+```
+-22.855579403081986
+```
+
+This is $2\times10^{-5}$ Ry away from the input file, because 3.567 Å and
+476 eV are the rounded values of 6.74 bohr and 35 Ry. With the exact values the
+two give the same energy to the last digit. The reason is that the code writes
+the keywords as a `pw.x` input and then reads it in the same way as a file. So
+the defaults and the errors are the same for both, and
+`defuqumat.io.keywords.pw_input_text(...)` gives you this input as text, for
+example to run the same crystal in `pw.x`.
+
+The keywords are the following.
+
+- **`lattice`**: `"sc"`, `"fcc"`, `"bcc"`, `"hexagonal"`, `"tetragonal"` or
+  `"orthorhombic"`, with the lengths `a`, `b` and `c` in angstrom. For any other
+  lattice you give the three lattice vectors in angstrom, as rows.
+- **`atoms`**: one `(species, (x, y, z))` per atom. The positions are in
+  crystal coordinates, or cartesian in angstrom with `coordinates="angstrom"`.
+- **`pseudos`**: the UPF file of each species. The mass is the standard atomic
+  weight of the element, unless you give `masses={"C": 12.011}`.
+- **`ecut`**, **`ecutrho`**: the two cutoffs in eV. If you do not give
+  `ecutrho`, it is four times `ecut`, as in `pw.x`.
+- **`kmesh`**, **`kshift`**: the Monkhorst-Pack mesh and its half-step shift,
+  or `kmesh="gamma"`.
+- **`smearing`**, **`smearing_type`**: the width in eV for a metal, and
+  `"gaussian"`, `"methfessel-paxton"`, `"marzari-vanderbilt"` (or `"cold"`) or
+  `"fermi-dirac"`.
+- **`spin`**: `"collinear"` or `"noncollinear"`. The starting moment of an atom
+  is a third entry in `atoms`, in Bohr magnetons, for example
+  `("Fe", (0, 0, 0), 2.5)`. It is a number for a collinear run and a cartesian
+  vector for a noncollinear one.
+- **`spin_orbit`**: `True` adds spin-orbit coupling, and needs fully
+  relativistic pseudopotentials.
+- **`nbands`**, **`functional`**: the number of bands and the functional, as
+  `nbnd` and `input_dft` of `pw.x`.
+- **`qe`**: any other variable of `pw.x`, with its own name and in its own
+  units, for example `qe={"electrons": {"conv_thr": 1e-10}}`. A variable that
+  a keyword already sets gives an error, so each value is given only once.
+
+Any other keyword is an option of the calculator, as in `Calculator.from_file`.
+With keywords a convergence test is a loop over a number:
+
+```python
+for ecut in (272, 408, 544, 680, 816):          # eV
+    calc = Calculator.from_keywords(
+        lattice="fcc", a=3.567,
+        atoms=[("C", (0, 0, 0)), ("C", (0.25, 0.25, 0.25))],
+        pseudos={"C": "C.pz-rrkjus.UPF"}, pseudo_dir="tests/data/pseudo",
+        ecut=ecut, ecutrho=8 * ecut, kmesh=(6, 6, 6), nbands=8,
+    )
+    print(ecut, calc.get_scf().total_energy)
+```
+
 ## Where to get a pseudopotential
 
 The repository has only the pseudopotentials that its tests need, in

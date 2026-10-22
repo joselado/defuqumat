@@ -661,6 +661,32 @@ class Calculator:
         return cls(build_system(pwin), pseudo_dir=pseudo_dir,
                    **{**electrons_defaults(pwin), **defaults})
 
+    @classmethod
+    def from_keywords(cls, pseudo_dir=".", **keywords) -> "Calculator":
+        """A crystal stated as keywords, in angstrom and eV, with no input file.
+
+        The keywords are :func:`defuqumat.io.keywords.pw_input_text`'s
+        (``lattice``, ``a``, ``atoms``, ``pseudos``, ``ecut``, ``kmesh``, ...),
+        which writes the ``pw.x`` input they describe; that text then goes
+        through :meth:`from_text`, so every default and every refusal is the
+        file route's. Any other keyword is a calculator option, exactly as in
+        :meth:`from_file`. ``pseudo_dir`` defaults to the working directory.
+
+        ::
+
+            calc = Calculator.from_keywords(
+                lattice="fcc", a=5.43,
+                atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+                pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+                ecut=163.3, kmesh=(4, 4, 4),
+            )
+        """
+        from defuqumat.io.keywords import KEYWORDS, pw_input_text
+
+        text = pw_input_text(**{k: v for k, v in keywords.items() if k in KEYWORDS})
+        options = {k: v for k, v in keywords.items() if k not in KEYWORDS}
+        return cls.from_text(text, pseudo_dir=pseudo_dir, **options)
+
     # ------------------------------------------------------------------
     # the fixed setup, built once and on demand
     # ------------------------------------------------------------------
