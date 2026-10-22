@@ -348,12 +348,24 @@ several cards are in
     and the torque do not follow the `memory_mode` of the `Calculator`. They take it
     from `DEFUQUMAT_MEMORY_MODE` and the platform.
 
-    `band_precision="single"` works only for the SCF of a collinear
-    norm-conserving calculation, with one or two spin channels. An ultrasoft
-    or PAW dataset, spinors, a spiral, DFT+U and a meta-GGA give an error.
-    The forces, the stress and every response give an error on a calculation
-    whose bands are in single precision, because a gradient taken through
-    single-precision bands carries its round-off as a plausible force. This
+    `band_precision="single"` works for the SCF. This includes ultrasoft and
+    PAW datasets, spinors, spin-orbit coupling and spin spirals. It also
+    includes DFT+U and a meta-GGA, but each one alone in a collinear
+    norm-conserving calculation. DFT+U or a meta-GGA together with ultrasoft,
+    PAW, spinors or a spiral gives an error. A constrained moment
+    (`constrained_magnetization`), an applied magnetic field and a Berry-phase
+    field (`lelfield`) also give an error. The total energy of TB09 is not a
+    physical quantity, in any precision. TB09 is used for its eigenvalues. In
+    single precision they are $5.5\times10^{-5}$ Ry from the converged double
+    ones, and a double run stopped at the same `conv_thr` is
+    $4.8\times10^{-5}$ Ry from them.
+    The forces, the stress, every response and the gradient in the spiral
+    wavevector give an error on a calculation whose bands are in single
+    precision, because a gradient taken through single-precision bands
+    carries its round-off as a plausible force. The topological invariants,
+    the Berry-phase polarization, the Kubo conductivities, the orbital
+    magnetization, the magnetic anisotropy and the torque also give an error
+    there. This
     also holds for a `Calculator` built with `"mixed"`, which keeps its
     single-precision setup. For these, you converge again in double
     precision, starting from the single-precision result with

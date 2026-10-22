@@ -618,9 +618,15 @@ so its size moves by a few per cent with the mesh and its sign does not.
     moment turns from cell to cell, and so does a denser `grid`. A run with a
     fixed total magnetization (`tot_magnetization`) gives an error, because it
     has one Fermi level per spin and a tip sees one energy. A run in an applied
-    magnetic field also gives an error, because the energy of the field is not
-    in the total, so its Fermi level is not the one of the run without the
-    field. A magnetic tip gives an error on a run with no magnetization, and a
+    magnetic field works. The image and the spectrum use the states and the
+    Fermi level of the run in the field, which is what a microscope sees in a
+    field. `image.field_scale` says that the run had a field. The field acts on
+    the spin only, so the image shows the Zeeman splitting and no orbital
+    effect of the field. A run with a constrained moment
+    (`constrained_magnetization`) still gives an error, because it has not been
+    checked. A spin spiral in a field also gives an error. The charge image of
+    a spiral works without a field, but with a field it has not been checked.
+    A magnetic tip gives an error on a run with no magnetization, and a
     tip direction across the axis of a collinear run also gives an error,
     because such a run has no transverse magnetization, which is not the same as
     a zero one.
@@ -673,8 +679,9 @@ so its size moves by a few per cent with the mesh and its sign does not.
     magnetic substrate gives an error on a run with no magnetization, and a
     direction across the axis of a collinear run gives an error for both. A spin
     spiral gives an error, because the spectrum samples each state on one
-    plane-wave list, and so do a fixed `tot_magnetization` and an applied field,
-    as for the image. A `bias` window whose energy step is larger than
+    plane-wave list, and so does a fixed `tot_magnetization`, as for the image.
+    An applied field also gives an error here. The image takes a field, but the
+    transmission in a field has not been checked. A `bias` window whose energy step is larger than
     `broadening` gives an error, since the current would be wrong by orders of
     magnitude, and the error says which `nenergies` is enough. If the atoms are
     not between the two planes, the code warns. The tip is an s-wave tip, the

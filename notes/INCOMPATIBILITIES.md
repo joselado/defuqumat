@@ -405,23 +405,25 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Check: the converged state against the explicit supercell.
 - QE/Elk: QE n.
 
-### I118. STM image, STS and tunnelling maps x applied magnetic field
+### I118. Vertical transport, momentum-resolved transport and QPI x applied magnetic field (the STM image and STS landed)
 
 - Axis: magnetic field.
-- Guard: `defuqumat/workflows/stm.py:_refuse_what_has_no_fermi_level:865`.
-- Test: `tests/unit/test_stm_machinery.py:408` `test_an_applied_field_is_refused`.
-- Missing: the tip energy: the field's energy is outside the reported total, so the Fermi level is not the field-free one (guard message).
-- Check: the weak-field image tends to the field-free one.
+- Guard: `defuqumat/workflows/stm.py:_refuse_what_has_no_fermi_level:866` (without `field_measured`); the spiral in a field at `:918`.
+- Test: `tests/unit/test_stm_machinery.py:470` `test_the_transport_and_the_qpi_still_refuse_a_field` (three cases); `:443` `test_a_spin_spiral_in_a_field_is_refused`; `:453` `test_a_constrained_moment_is_still_refused`.
+- Missing: nothing in the physics (the argument of the image holds unchanged); no number was taken. The transmission map on `h-sheet-field.in` reads a maximum of 1.7e-245 at the default 0.001 Ry broadening against a nearest state 0.0236 Ry from `E_F`, so a check needs a broadening or a mesh that puts states inside it.
+- Check: the weak-field limit and the field-dropped arm of the image, on a cell with states inside the broadening.
 - QE/Elk: QE n.
+- Partial 2026-10-22 (P158, integration six), record in `notes/incompat/I118.md`: the STM image and the tunnelling spectrum in a field landed (see "Closed since"). Still refused: `run_vertical_transport`, `run_momentum_transport` and `run_qpi` in a field, a constrained moment in every caller (`constrained_magnetization != 'none'`), and the STM image of a spin spiral in a field (non-monotonic in `B` on `h-chain-spiral.in`: 5.9e-2 at 0.005 Ry, 3.6e-2 at 0.01).
 
-### I119. Single-precision bands x ultrasoft or PAW, noncollinear, spiral, DFT+U, meta-GGA
+### I119. Single-precision bands x DFT+U or meta-GGA beside another regime, constrained moment, applied field, Berry-phase field (the single regimes landed)
 
 - Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:_require_band_precision_supported:3065` (one raise, five reasons).
-- Test: `tests/unit/test_band_precision.py:88` `test_what_it_has_not_been_checked_on_is_refused`.
-- Missing: a single-precision check per regime (docstring `:3030-3036`).
-- Check: the double-precision state, to `conv_thr_floor`.
+- Guard: `defuqumat/scf/driver.py:_require_band_precision_supported:3132`; the derivative side `forces/energy.py:reject_single_band_side:480`.
+- Test: `tests/unit/test_band_precision.py:155` `test_what_it_has_not_been_checked_on_is_refused` (DFT+U on a spinor); `:171` `test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta`; `:330` `test_a_constrained_spinor_is_refused_in_single_precision`.
+- Missing: a measured cell per pair, through the same harness (`notes/incompat/I119-harness/harness.py`).
+- Check: the double-precision state, to `conv_thr_floor`, and a double continuation from the single result.
 - QE/Elk: QE n.
+- Partial 2026-10-22 (P158, integration six), record in `notes/incompat/I119.md`: ultrasoft, PAW, spinor, spiral, DFT+U alone, TB09 alone, and spiral + US, spiral + PAW, SOC + US, the PAW spinor and the US spinor landed (see "Closed since"). Still refused: DFT+U or a meta-GGA beside another of these regimes, a constrained moment (measured wrong: single `dE` +1.19e-4 against +2.45e-5 Ry double at `'atomic'`), an applied field and a Berry-phase field; every derivative, invariant and the anisotropy and torque legs in single precision.
 
 ### I120. Sternheimer Jacobian (`jvp='sternheimer'`) x DFT+U, meta-GGA, magnetic noncollinear, streamed store
 
@@ -771,6 +773,11 @@ Landed on 2026-10-20 in P156, integration four of tier T3 (branch `incompat-t3`,
 Landed on 2026-10-20 in P156, integration five of tier T3 (branch `t3-I88`, merge `19744ed6`, the section of I88 above removed; integration five in `notes/INCOMPATIBILITIES-T3.md`):
 
 - I88, Elastic constants (strain response) x metal: the phonon's `ef_shift` on the states' half of the strain density and `ef_shift_wfc` on `dpsi`, the `wg`/`wk` split written as two copies of the band block (`response/elastic.py:_split_weights`), the strain route's smearing cutoff at `STRAIN_SMEARING_SMALL = 1e-12`, and a highest band holding at most 1e-12 (`_require_an_empty_top_band`). Smeared norm-conserving metal on a closed `nosym` grid, whole-k route: `al2-metal.in` `C_1111` against a five-point difference of `F` 1.6e-7 (M-V), 1.3e-6 (M-P 0.04), 2.2e-7 (Gaussian 0.03), 3.6e-8 (F-D 0.05 at `nbnd = 17`), each falling as `h^4`; with QE's 6.96e-5 cutoff -4.6e-4 (M-P), flat in `h`. Window, documented by the user's decision: a Gaussian top band 4.97 to 5.20 `degauss` above the Fermi level, or a Marzari-Vanderbilt one 4.47 to 5.20, is admitted and reads 2.7e-6 to 7.0e-6 off where `nbnd` splits a degenerate pair (`degauss` 0.17 to 0.19). The limit also refuses Gaussian and M-P 0.05, Gaussian 0.08 and M-V 0.08 at `nbnd = 7`, measured right. Refused: ultrasoft and PAW metals, tetrahedra, a reduced k-set, the walked route (`incompat/I88`, three fix rounds, `notes/incompat/I88.md`).
+
+Landed on 2026-10-22 in P158, integration six of tier T3 (branch `incompat-t3c`; the sections of I118 and I119 above now carry only what still refuses; integration six in `notes/INCOMPATIBILITIES-T3.md`):
+
+- I118, STM image and tunnelling spectrum (tip points or a plane, the map at every energy) x applied magnetic field, collinear and noncollinear, uniform `B_field` or on an atom: the refusal was a misreading, since the states, the eigenvalues and `fermi_energy` are those of the Hamiltonian with the field in it. `h-sheet-field.in` (paramagnetic, `m/B` = 7.91): the distance from the field-free image falls with exponents 1.994 (charge) and 1.023 (spin) at `B` = 5e-4 to 1e-3 Ry, the spectrum 1.996 and 1.008; the stored states against a re-solve under the field 8.98e-7 (charge) and 4.04e-6 (spin) at `B = 0.01`, against 7.07e-2 and 3.33e-1 with the field dropped; the tip at `E_F(0)` instead of `E_F(B)` 4.06e-2 off. Atom field: 3.84e-6 and 1.73e-5, against 3.38e-2 and 1.96e-1. The result carries `field_scale` (`incompat/I118`, verifier confirmed, one fix round).
+- I119, Single-precision bands x ultrasoft, PAW, spinor, spiral, DFT+U alone, TB09 alone, spiral + US, spiral + PAW, SOC + US, the PAW spinor and the US spinor: each lands on its double state at `conv_thr = 1e-7` with `|dE|` at most 1.2e-6 Ry (about 1e-7 of `|E|`; the PAW spinor -4.4e-6 on 40.3 Ry), and a double run continued from it reaches the double state to 3e-11 Ry or better in one to five iterations. Three fixes behind it: the noncollinear `H|psi>` casts, `HubbardTerm` on a band-precision `wfcU`, and `becsum` accumulated in the grid precision. TB09 is lifted on its eigenvalues, 5.5e-5 Ry against 4.8e-5 for a double run at the same `conv_thr`; its total is not a quantity in any precision (a reviewer's decision taken for the user). A single-precision source continues under `SINGLE_SOURCE_ELECTRON_TOL = 1e-4` (`incompat/I119`; the verifier refuted the first version, and the fix round `3003d06d` that addressed its five findings was not re-verified).
 
 Earlier:
 
