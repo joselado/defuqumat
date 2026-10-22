@@ -9509,7 +9509,7 @@ refusal message of the phonon at `q` and the guide say "use an LDA functional", 
 
 # Part XXIX -- a fast test that no gate ran, 2026-10-20
 
-## 1. `test_max_seconds_stops_the_loop_and_leaves_a_checkpoint` fails at master, unseen because its file skips without the QE tree **[open 2026-10-20]**
+## 1. `test_max_seconds_stops_the_loop_and_leaves_a_checkpoint` fails at master, unseen because its file skips without the QE tree **[closed 2026-10-22: the clock half by `4e6ca24a`, the path half by reading the tree through `qe_testsuite`]**
 
 **What it affects.** One fast test, not the code: `tests/unit/test_scf_restart.py::test_max_seconds_stops_the_loop_and_leaves_a_checkpoint`
 fails with "generator raised StopIteration" at `pseudo/projectors.py:472`, at 6a46d974 and at f665698d alike
@@ -9525,6 +9525,16 @@ of SCF iterations), and make the file honour `DEFUQUMAT_QE_ROOT`, so D22's gate 
 
 **How to know it worked:** the test passes on D22 without the symlink and is not skipped, and it fails when
 `max_seconds` is ignored by the loop (the guard tested to fire).
+
+**Closed 2026-10-22.** The clock half was already gone: `4e6ca24a` replaced the fixed list of
+readings with `itertools.count(0.0, 5.0)`, which does not run out, and this entry was not updated.
+The path half is this change: the file's `qe_silicon` fixture takes `conftest`'s `qe_testsuite`,
+so `DEFUQUMAT_QE_ROOT` reaches it. Measured on the workstation: the file's 41 fast tests pass from
+the repository root, and the six silicon ones also pass from `/tmp` with `DEFUQUMAT_QE_ROOT` set,
+where two other tests of the file still fail on `tests/data/qe/...` read relative to the working
+directory, which a gate run from the root does not see. With the deadline check of `run_scf`
+switched off (`late = False and ...`), `test_max_seconds_stops_the_loop_and_leaves_a_checkpoint`
+fails, so the guard fires. Not run on D22.
 
 # Part XXX -- the four-cell helix of the ultracell noncollinear seed on a compensated reference, 2026-10-22
 

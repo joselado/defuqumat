@@ -60,23 +60,21 @@ def _drop_compiled_code():
 
     jax.clear_caches()
 
-QE_SILICON = "quantum_espresso/qe-7.5-ReleasePack/qe-7.5/test-suite/pw_scf/scf.in"
-
 
 @pytest.fixture
-def qe_silicon():
-    """The canonical two-atom cell, or a skip where the vendored tree is not.
+def qe_silicon(qe_testsuite):
+    """The canonical two-atom cell, from ``conftest``'s ``qe_testsuite``.
 
     ``quantum_espresso/`` is gitignored -- 285 MB of reference does not belong
-    in history -- so a checkout that has not fetched it has no input here. Every
-    other file that reads the tree goes through ``conftest``'s ``qe_testsuite``
-    fixture and skips; this one named the path directly and raised
-    ``FileNotFoundError`` instead, which reads as eight broken tests rather than
-    as a missing download.
+    in history -- so a checkout that has not fetched it has no input here and
+    the fixture skips. It goes through ``qe_testsuite`` rather than naming the
+    vendored path, so ``DEFUQUMAT_QE_ROOT`` reaches it: with the relative path
+    this file used to read, D22's gate skipped all of it with a tree installed
+    elsewhere (``OPEN.md`` Part XXIX item 1).
     """
-    path = Path(QE_SILICON)
+    path = qe_testsuite / "pw_scf" / "scf.in"
     if not path.is_file():
-        pytest.skip(f"QE reference tree not present at {path}")
+        pytest.skip(f"QE reference input not present at {path}")
     return str(path)
 
 
