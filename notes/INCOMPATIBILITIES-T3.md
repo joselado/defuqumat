@@ -857,3 +857,12 @@ failures at master: `tests/unit/test_check_guide.py` passes here (`yaml` is inst
 `tests/unit/test_scf_restart.py`, run with `DEFUQUMAT_QE_ROOT` set, passes all 41 including
 `test_max_seconds_stops_the_loop_and_leaves_a_checkpoint` (`OPEN.md` Part XXIX), which failed on
 D22 at integration five; I did not look into why it passes here.
+
+## Integration seven (2026-10-22): I120 in part
+
+On `incompat-t3c` after integration six (`5792c4da`), the coordinator's instruction of 08:28.
+
+- I120 (Sternheimer Jacobian `jvp='sternheimer'` x meta-GGA, magnetic noncollinear, streamed
+  store; DFT+U stays refused), branch `incompat/I120` at `21bf382c`, verifier confirmed all three
+  lifts: to be merged, with the verifier's corrections applied to the record as text and its
+  harnesses and logs copied to `notes/incompat/I120-ver/`.
