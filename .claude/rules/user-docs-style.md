@@ -93,3 +93,21 @@ model is `documentation/guide/` of the pyqula repository (`bands-and-dos.md`,
   semicolons and no long colon chains, as before.
 - Everything under "What stays" above still holds: every formula, call, number, link and
   printed output is kept exactly.
+
+### Examples use the keyword input (the user's decision, 2026-10-22)
+
+The user's words: "from now on, any example will use this input type, and the docs will
+be adapted to it when we have time". So every **new** example (a snippet in the README or
+the guide, a notebook cell, a `compute.py` of a guide figure) builds its crystal with
+`Calculator.from_keywords`, in angstrom and eV, and not with a `pw.x` file.
+
+- **The existing examples are not rewritten now.** They move to keywords when the user
+  asks for that pass, or when a page is rewritten for another reason. Until then a page
+  may show both forms.
+- **Where the keywords cannot say it, the file stays.** The `qe` dictionary reaches only
+  the namelists, so a `HUBBARD` card, a k-path card or any other card that
+  `pw_input_text` does not write still needs an input file (`PLAN.md` P159, "What is
+  outstanding"). Such an example says in one sentence why it uses a file. The better fix
+  is a keyword for that card, so record the case in P159 rather than working around it.
+- **The `pw.x` file route stays documented**, in its own section of `own-crystal.md`,
+  because a reader with an existing QE input still needs it.

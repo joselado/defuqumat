@@ -131,6 +131,10 @@ in the same pass as its entry point. The binding rules (no state on `System`, th
 cache, `SHARED_OPTIONS` forwarded by name) are in `.claude/rules/calculator.md`, which loads
 when the calculator, a workflow or a response module is read.
 
+**Every new example builds its crystal with `Calculator.from_keywords`** (P159, angstrom and
+eV), not with a `pw.x` file (the user's decision, 2026-10-22); the old examples move when the
+user asks, and the rule with its exceptions is in `.claude/rules/user-docs-style.md`.
+
 ## What a finished phase leaves behind
 
 Five things, each checked rather than assumed, since each has gone stale silently at least
