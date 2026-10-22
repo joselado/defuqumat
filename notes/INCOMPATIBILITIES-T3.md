@@ -922,3 +922,9 @@ stopped the loop. Not run yet: the 108 files of chunks 8 to 11, among them
 `forces/energy.py` the I120 merge conflicted with), `tests/unit/test_stm_machinery.py`,
 `tests/regression/test_stm.py` and `tests/unit/test_residual_fields.py`. They are to be run after
 10:15 (list in this session's `scratchpad/g4/chunk.08` to `chunk.11`).
+
+## Integration eight (2026-10-22): I121
+
+- I121 (spiral `dE/dq` x tabulated cross augmentation), branch `incompat/I121` at `577a67ca`,
+  verifier confirmed: to be merged, with the verifier's numbers added to the record, its logs
+  copied to `notes/incompat/I121-ver/`, and the `at_spiral_q` comment corrected.
