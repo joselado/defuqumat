@@ -110,7 +110,7 @@ import numpy as np
 
 from defuqumat.basis.planewaves import PlaneWaveBasis
 from defuqumat.batching import k_chunks, resolve_k_batch
-from defuqumat.forces.energy import FrozenState, state_from_result
+from defuqumat.forces.energy import FrozenState, reject_single_band_side, state_from_result
 from defuqumat.pseudo.projectors import build_projector_core
 from defuqumat.scf.potential import total_charge
 from defuqumat.system.spiral import spiral_kcart
@@ -583,7 +583,11 @@ def _energy_and_gradient(calculation):
 
 
 def _require_a_differentiable_spiral(calculation) -> None:
-    """The three things that make ``dE/dq`` at frozen state not be the answer.
+    """The things that make ``dE/dq`` at frozen state not be the answer.
+
+    A band side in single precision is refused first
+    (:func:`~defuqumat.forces.energy.reject_single_band_side`), since this
+    gradient does not pass through the gate the other derivatives share.
 
     An ultrasoft or PAW dataset **was** the third and is no longer (P96): the
     displaced table is rebuilt with a traced ``q`` inside
@@ -596,6 +600,7 @@ def _require_a_differentiable_spiral(calculation) -> None:
             "dE/dq needs a spin spiral: set spiral_q, which is the coordinate "
             "being differentiated with respect to"
         )
+    reject_single_band_side(calculation)
     if calculation.magnetic_field is not None:
         raise NotImplementedError(
             "dE/dq with a magnetic field or a constrained moment is not "

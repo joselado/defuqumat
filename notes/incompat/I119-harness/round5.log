@@ -1,0 +1,10 @@
+spiral-us: double E = -31.4945646956 Ry, 10 it, converged=True, 26.6 s
+  continued in double to 1e-11: it=4 wfc=complex128 dE=+2.48e-12 deig=+4.86e-06 deig_occ=+2.44e-06 drho=+1.84e-05 dQ=-1.97e-15 dabsolute_magnetization=+2.46e-06 dmagnetization_vector=+8.12e-06 dbecsum=+6.04e-06  (7.0 s)
+  single conv_thr=1e-07 ethr_floor=1.2e-05 it=6 converged=True wfc=complex64 rho=float64 becsum=float32 dE=+9.83e-07 deig=+1.71e-04 deig_occ=+1.71e-04 drho=+1.15e-03 dQ=+1.35e-06 dabsolute_magnetization=+2.12e-04 dmagnetization_vector=+1.75e-04 dbecsum=+7.44e-04  (23.9 s)
+  continued in double to 1e-11: it=3 wfc=complex128 dE=+2.95e-12 deig=+2.08e-05 deig_occ=+1.49e-06 drho=+1.99e-05 dQ=+3.94e-15 dabsolute_magnetization=+2.64e-06 dmagnetization_vector=+1.27e-05 dbecsum=+4.38e-06  (6.6 s)
+  single conv_thr=1e-09 ethr_floor=1.2e-05 it=8 converged=True wfc=complex64 rho=float64 becsum=float32 dE=-2.85e-06 deig=+5.17e-05 deig_occ=+1.54e-05 drho=+9.01e-05 dQ=-1.74e-06 dabsolute_magnetization=+1.45e-05 dmagnetization_vector=+1.37e-05 dbecsum=+1.10e-04  (19.2 s)
+soc-us: double E = -25.5562679136 Ry, 9 it, converged=True, 23.2 s
+  continued in double to 1e-11: it=5 wfc=complex128 dE=-1.99e-13 deig=+1.90e-07 deig_occ=+1.90e-07 drho=+9.93e-07 dQ=-2.88e-15 dbecsum=+4.01e-06  (5.8 s)
+  single conv_thr=1e-07 ethr_floor=1.2e-05 it=6 converged=True wfc=complex64 rho=float64 becsum=float64,float64 dE=+1.14e-06 deig=+6.84e-06 deig_occ=+6.84e-06 drho=+1.04e-03 dQ=+1.12e-06 dbecsum=+1.53e-03  (18.4 s)
+  continued in double to 1e-11: it=2 wfc=complex128 dE=+7.82e-13 deig=+3.37e-07 deig_occ=+3.37e-07 drho=+3.37e-06 dQ=-1.44e-15 dbecsum=+2.77e-06  (3.6 s)
+  single conv_thr=1e-09 ethr_floor=1.2e-05 it=16 converged=True wfc=complex64 rho=float64 becsum=float64,float64 dE=-2.45e-07 deig=+8.80e-06 deig_occ=+8.80e-06 drho=+2.68e-05 dQ=+1.26e-06 dbecsum=+6.49e-05  (11.9 s)

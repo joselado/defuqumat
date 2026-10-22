@@ -1,0 +1,21 @@
+si: double E = -15.2544487130 Ry, 9 it, converged=True, 4.8 s
+  continued in double to 1e-11: it=4 wfc=complex128 dE=-8.88e-15 deig=+2.45e-09 deig_occ=+2.45e-09 drho=+4.30e-07 dQ=+4.60e-15  (0.5 s)
+  single conv_thr=1e-07 ethr_floor=5.7e-06 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.96e-07 deig=+3.26e-06 deig_occ=+3.26e-06 drho=+5.56e-04 dQ=-8.01e-07  (2.7 s)
+us: double E = -22.2129734275 Ry, 10 it, converged=True, 9.2 s
+  continued in double to 1e-11: it=4 wfc=complex128 dE=+1.10e-13 deig=+3.25e-08 deig_occ=+3.25e-08 drho=+4.13e-07 dQ=-1.10e-14 dbecsum=+1.15e-07  (2.8 s)
+  single conv_thr=1e-07 ethr_floor=9.5e-06 it=7 converged=True wfc=complex64 rho=float64 becsum=float64 dE=+1.42e-06 deig=+5.31e-05 deig_occ=+5.31e-05 drho=+3.36e-04 dQ=+2.02e-08 dbecsum=+2.94e-04  (7.9 s)
+paw: double E = -88.7341996804 Ry, 9 it, converged=True, 10.4 s
+  continued in double to 1e-11: it=4 wfc=complex128 dE=+3.41e-13 deig=+3.77e-07 deig_occ=+3.77e-07 drho=+1.93e-06 dQ=-7.36e-15 dbecsum=+3.88e-07  (2.8 s)
+  single conv_thr=1e-07 ethr_floor=9.5e-06 it=7 converged=True wfc=complex64 rho=float64 becsum=float64 dE=+1.28e-06 deig=+4.67e-05 deig_occ=+4.67e-05 drho=+5.29e-04 dQ=+3.91e-07 dbecsum=+2.87e-04  (7.9 s)
+noncolin: double E = -0.9460649519 Ry, 7 it, converged=True, 10.5 s
+  continued in double to 1e-11: it=1 wfc=complex128 dE=+1.68e-13 deig=+1.39e-04 deig_occ=+2.07e-06 drho=+2.94e-06 dQ=+1.92e-16 dabsolute_magnetization=+2.60e-14 dmagnetization_vector=+1.48e-06  (1.4 s)
+  single conv_thr=1e-07 ethr_floor=1.2e-05 it=5 converged=True wfc=complex64 rho=float64 becsum=- dE=-4.35e-07 deig=+1.68e-04 deig_occ=+2.06e-05 drho=+2.25e-05 dQ=+8.29e-07 dabsolute_magnetization=+8.27e-07 dmagnetization_vector=+1.50e-06  (6.7 s)
+spiral: double E = -0.9556767986 Ry, 9 it, converged=True, 9.9 s
+  continued in double to 1e-11: it=4 wfc=complex128 dE=+4.80e-12 deig=+4.41e-05 deig_occ=+3.34e-06 drho=+1.55e-05 dQ=+0.00e+00 dabsolute_magnetization=+1.11e-05 dmagnetization_vector=+1.05e-05  (2.2 s)
+  single conv_thr=1e-07 ethr_floor=1.2e-05 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=-8.78e-08 deig=+2.29e-04 deig_occ=+2.29e-04 drho=+7.68e-04 dQ=+8.15e-08 dabsolute_magnetization=+6.13e-04 dmagnetization_vector=+6.03e-04  (6.7 s)
+ldau: double E = -16.6977052051 Ry, 11 it, converged=True, 7.4 s
+  continued in double to 1e-11: it=4 wfc=complex128 dE=+7.53e-13 deig=+3.95e-07 deig_occ=+3.95e-07 drho=+4.47e-06 dQ=-1.24e-15 dns=+1.39e-07  (2.0 s)
+  single conv_thr=1e-07 ethr_floor=4.8e-06 it=5 converged=True wfc=complex64 rho=float64 becsum=- dE=-3.35e-07 deig=+9.38e-05 deig_occ=+9.38e-05 drho=+6.30e-04 dQ=+1.35e-06 dns=+7.12e-05  (4.7 s)
+meta: double E = -10.9737102314 Ry, 13 it, converged=True, 5.3 s
+  continued in double to 1e-11: it=4 wfc=complex128 dE=+4.21e-07 deig=+7.05e-08 deig_occ=+7.05e-08 drho=+2.30e-06 dQ=-9.20e-16 dtau=+1.57e-06  (0.6 s)
+  single conv_thr=1e-07 ethr_floor=5.7e-06 it=9 converged=True wfc=complex64 rho=float64 becsum=- dE=+3.29e-04 deig=+5.50e-05 deig_occ=+5.50e-05 drho=+1.19e-03 dQ=-1.42e-06 dtau=+9.54e-04  (3.2 s)

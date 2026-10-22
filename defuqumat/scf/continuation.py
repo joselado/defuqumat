@@ -130,6 +130,16 @@ TRANSVERSE_TOL = 1.0e-6
 #: different ``z_valence`` and therefore at least one whole electron.
 ELECTRON_TOL = 1.0e-6
 
+#: The same agreement for a source whose band side ran in single precision
+#: (``band_precision = 'single'``, read off its last history entry). Its
+#: density is summed from float32 states, and the count misses ``nelec`` by
+#: what that normalisation leaves: 8.3e-7 of one electron on the spinor H atom,
+#: 1.6e-6 of eight on DFT+U AlAs, 2.9e-6 of six on the PAW O chain (I119), so
+#: up to 5e-7 relative and close to :data:`ELECTRON_TOL`. 1e-4 relative is two
+#: hundred times that and still a hundredth of the electron a swapped
+#: ``z_valence`` moves on a cell of up to a hundred electrons.
+SINGLE_SOURCE_ELECTRON_TOL = 1.0e-4
+
 #: What ``magnetization=`` accepts.
 MAGNETIZATION_MODES = ("auto", "carry", "seed", "none")
 
@@ -689,8 +699,21 @@ def _check_grid(result, calculation) -> None:
     integral = float(jnp.sum(charge)) * float(
         calculation.system.cell.volume
     ) / charge.size
-    if abs(integral - calculation.nelec) > ELECTRON_TOL * max(
+    history = getattr(result, "history", None) or [{}]
+    single_source = history[-1].get("band_precision") == "single"
+    tolerance = SINGLE_SOURCE_ELECTRON_TOL if single_source else ELECTRON_TOL
+    if abs(integral - calculation.nelec) > tolerance * max(
             1.0, float(calculation.nelec)):
+        if single_source:
+            raise ValueError(
+                f"the source density integrates to {integral:.6f} electrons and "
+                f"this run wants {calculation.nelec}. The source ran its bands in "
+                "single precision, whose float32 normalisation leaves the count "
+                f"off by about 1e-6 of an electron, and this misses by more than "
+                f"{SINGLE_SOURCE_ELECTRON_TOL:.0e} relative, so the datasets differ: "
+                "one carries a different z_valence. Drop starting_from or use the "
+                "dataset the source ran with"
+            )
         raise ValueError(
             f"the source density integrates to {integral:.6f} electrons and "
             f"this run wants {calculation.nelec}. The cell and the grid match, "

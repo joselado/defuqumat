@@ -24,6 +24,15 @@ from defuqumat.system import build_system
 
 pytestmark = pytest.mark.unit
 
+
+@pytest.fixture(autouse=True)
+def _drop_compiled_code():
+    """Eight distinct cells run here; their compiled code is not kept between tests."""
+    yield
+    import jax
+
+    jax.clear_caches()
+
 BENCHMARKS = Path(__file__).resolve().parents[2] / "benchmarks"
 
 
@@ -83,17 +92,199 @@ def test_the_floors_follow_the_precision(silicon):
         run_scf(system, pseudos, calculation=single, conv_thr=1e-10)
 
 
-def test_what_it_has_not_been_checked_on_is_refused(pseudo_dir, silicon):
-    system, pseudos = _cell(pseudo_dir, "si2-us-1k.in")
-    with pytest.raises(NotImplementedError, match="collinear norm-conserving"):
+CASES = Path(__file__).resolve().parents[1] / "data" / "qe"
+
+#: The regimes I119 lifted, each as (input, edits) small enough to build here;
+#: the same cells the harness ``notes/incompat/I119-harness/harness.py`` measured.
+REGIMES = {
+    "ultrasoft": (BENCHMARKS / "si2-us-1k.in", ()),
+    "paw": (BENCHMARKS / "si2-paw-1k.in", ()),
+    "spinor": (CASES / "h-atom-noncolin.in", (("angle1(1) = 0.0", "angle1(1) = 60.0"),)),
+    "spiral": (CASES / "h-chain-spiral-elk.in", ()),
+    "dftu": (CASES / "alas-ldau.in", (("4 4 4 0 0 0", "2 2 2 0 0 0"),)),
+    "tb09": (BENCHMARKS / "si-1k.in", (("ecutwfc=12.0", "ecutwfc=12.0, input_dft='tb09'"),)),
+    "paw-spinor": (CASES / "o-chain-spiral-paw.in",
+                   (("spiral_q(1) = 0.0, spiral_q(2) = 0.0, spiral_q(3) = 0.25", ""),)),
+    "us-spinor": (CASES / "o-chain-spiral-us.in",
+                  (("spiral_q(1) = 0.0, spiral_q(2) = 0.0, spiral_q(3) = 0.25", ""),)),
+}
+
+
+def _edited(pseudo_dir, tmp_path, path, edits):
+    text = path.read_text()
+    for old, new in edits:
+        assert old in text
+        text = text.replace(old, new)
+    edited = tmp_path / path.name
+    edited.write_text(text)
+    system = build_system(read_pw_input(edited))
+    return system, tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+
+
+def _regime(pseudo_dir, tmp_path, name, cheap=False):
+    """The regime's cell; ``cheap`` lowers an augmented cell's cutoffs for a setup-only test."""
+    path, edits = REGIMES[name]
+    if cheap and name in ("ultrasoft", "paw"):
+        edits = edits + (("ecutwfc=20.0, ecutrho=160.0", "ecutwfc=12.0, ecutrho=96.0"),)
+    if cheap and name in ("paw-spinor", "us-spinor"):
+        edits = edits + (("ecutwfc = 25.0, ecutrho = 200.0", "ecutwfc = 15.0, ecutrho = 120.0"),)
+    return _edited(pseudo_dir, tmp_path, path, edits)
+
+
+@pytest.mark.parametrize("name", ["spinor", "spiral", "dftu"])
+def test_h_psi_stays_32_bit_for_a_spinor_a_spiral_and_dftu(pseudo_dir, tmp_path, name):
+    """The casts I119 added: without them ``H|psi>`` came back complex128.
+
+    The spinor's kinetic energy and potential and the Hubbard projectors were
+    left in the cell's precision, and the Davidson work array refused the
+    promoted product (``dynamic_update_slice`` of complex128 into complex64).
+    """
+    system, pseudos = _regime(pseudo_dir, tmp_path, name)
+    calculation = Calculation(system, pseudos, band_precision="single")
+    hubbard = None
+    if calculation.is_hubbard:
+        hubbard = calculation.hubbard_terms(calculation.starting_ns())[2]
+        assert calculation.band_wfcU().dtype == SINGLE.complex
+        assert calculation.wfcU.dtype == DOUBLE.complex  # ns is accumulated in double
+    hamiltonian = calculation.hamiltonian(
+        jnp.zeros((calculation.nspin_mag,) + calculation.basis.dense.grid), hubbard=hubbard)[0]
+    psi = jnp.ones((2, hamiltonian.ndim), SINGLE.complex)
+    assert hamiltonian.apply(psi, 0).dtype == SINGLE.complex
+
+
+def test_what_it_has_not_been_checked_on_is_refused(pseudo_dir, tmp_path):
+    """DFT+U on a spinor, through a real cell: DFT+U was measured only alone.
+
+    The rest of the combination rule (a meta-GGA beside an augmented dataset or
+    a spiral, DFT+U beside an augmented one) is
+    :func:`test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta`.
+    """
+    system, pseudos = _edited(pseudo_dir, tmp_path, CASES / "alas-ldau.in",
+                              (("4 4 4 0 0 0", "1 1 1 0 0 0"),
+                               ("noinv = .true.", "noinv = .true., noncolin = .true.")))
+    with pytest.raises(NotImplementedError, match="DFT\\+U .*not checked in single"):
         Calculation(system, pseudos, band_precision="single")
-    # and every derivative of the energy, through the one gate they share
+    # and the pair stays accepted in double
+    Calculation(system, pseudos)
+
+
+def test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta():
+    """The guard's combination rule, on the attributes it reads.
+
+    An augmented dataset under a spinor or a spiral was measured (spiral +
+    ultrasoft, spiral + PAW, spin-orbit + ultrasoft, ``notes/incompat/I119.md``)
+    with the guard patched out, so this pins the branch of the committed guard
+    that lets the pair through, without building a cell.
+    """
+    from types import SimpleNamespace
+
+    def stub(ultrasoft=False, noncolin=False, spiral=False, hubbard=None, meta=False,
+             constraint="none", field=None, berry=None):
+        return SimpleNamespace(
+            pseudos=(SimpleNamespace(is_ultrasoft=ultrasoft),), noncolin=noncolin,
+            spiral=spiral, hubbard=hubbard, magnetic_field=field, berry_field=berry,
+            functional=SimpleNamespace(is_meta=meta, name="tb09"), band_precision=SINGLE,
+            system=SimpleNamespace(ecutwfc=20.0, constrained_magnetization=constraint),
+            SINGLE_ETHR_FACTOR=Calculation.SINGLE_ETHR_FACTOR,
+            SINGLE_CONV_THR_FLOOR=Calculation.SINGLE_CONV_THR_FLOOR)
+
+    guard = Calculation._require_band_precision_supported
+    for accepted in (stub(ultrasoft=True, noncolin=True, spiral=True),
+                     stub(ultrasoft=True, noncolin=True), stub(hubbard=object()),
+                     stub(meta=True), stub(spiral=True, noncolin=True)):
+        guard(accepted)
+        assert accepted.conv_thr_floor == Calculation.SINGLE_CONV_THR_FLOOR
+    for refused in (stub(hubbard=object(), noncolin=True), stub(hubbard=object(), ultrasoft=True),
+                    stub(meta=True, spiral=True, noncolin=True), stub(meta=True, hubbard=object())):
+        with pytest.raises(NotImplementedError, match="not checked in single precision"):
+            guard(refused)
+    # a constraint or a field, by name, on any regime (the I119 review)
+    for refused, name in ((stub(noncolin=True, constraint="atomic"), "'atomic'"),
+                          (stub(noncolin=True, constraint="total"), "'total'"),
+                          (stub(field=object()), "magnetic field"),
+                          (stub(berry=object()), "Berry-phase")):
+        with pytest.raises(NotImplementedError, match=name):
+            guard(refused)
+
+
+# the two augmented spinors' datasets are the paw and ultrasoft cases' gates
+@pytest.mark.parametrize("name", sorted(set(REGIMES) - {"paw-spinor", "us-spinor"}))
+def test_every_derivative_is_still_refused_on_a_lifted_regime(pseudo_dir, tmp_path, name):
+    from defuqumat.forces.energy import reject_single_band_side
+
+    system, pseudos = _regime(pseudo_dir, tmp_path, name, cheap=True)
+    single = Calculation(system, pseudos, band_precision="single")
+    with pytest.raises(NotImplementedError, match="single precision"):
+        reject_single_band_side(single)
+    reject_single_band_side(Calculation(system, pseudos))
+
+
+def test_a_spiral_dE_dq_is_refused_on_a_single_band_side(pseudo_dir, tmp_path):
+    """``dE/dq`` differentiates its own frozen energy, outside the shared gate."""
+    from defuqumat.forces.spiral import _require_a_differentiable_spiral
+
+    system, pseudos = _regime(pseudo_dir, tmp_path, "spiral")
+    with pytest.raises(NotImplementedError, match="single precision"):
+        _require_a_differentiable_spiral(Calculation(system, pseudos, band_precision="single"))
+    _require_a_differentiable_spiral(Calculation(system, pseudos))
+
+
+def test_the_shared_gate_still_refuses_a_norm_conserving_single_band_side(silicon):
     from defuqumat.forces.energy import reject_potential_only
 
     system, pseudos = silicon
     with pytest.raises(NotImplementedError, match="single precision"):
         reject_potential_only(Calculation(system, pseudos, band_precision="single"))
     reject_potential_only(Calculation(system, pseudos))
+
+
+#: Per regime: the bounds on ``|E - E_double|`` and on the occupied
+#: eigenvalues at ``conv_thr = 1e-7`` (the floor), and on ``|E - E_double|``
+#: after the double continuation, each three times the value measured
+#: (``notes/incompat/I119.md``, the review's logs for the two spinors without a
+#: spiral); the continuation's bound is not taken below 1e-11, the round-off a
+#: 1e-11 ``conv_thr`` and a different set of cores leave. TB09's total is not
+#: the value of anything and moves at first order in the density, so its
+#: eigenvalues carry the check.
+FLOORS = {
+    "ultrasoft": (1.5e-6, 1.6e-4, 1e-11),
+    "paw": (3.1e-6, 1.4e-4, 1e-11),
+    "spinor": (1.3e-6, 6.2e-5, 1e-11),
+    "spiral": (2.6e-7, 6.9e-4, 1.5e-11),
+    "dftu": (1.0e-6, 2.8e-4, 1e-11),
+    "tb09": (1.0e-3, 1.65e-4, 1.3e-6),
+    "paw-spinor": (1.3e-5, 2.3e-4, 4.3e-11),
+    "us-spinor": (4.0e-6, 1.3e-4, 1e-11),
+}
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name", sorted(REGIMES))
+def test_each_lifted_regime_lands_near_double_and_a_double_run_finishes_it(
+        pseudo_dir, tmp_path, name):
+    """I119's check: the single state at the floor, and the double state from it.
+
+    The gap at ``conv_thr = 1e-7`` is the SCF's own error at that threshold
+    plus the precision's; a double run started from the single result reaches
+    the double state (to 3e-11 Ry on every regime but TB09, whose total moves
+    with the density at first order) in one to five iterations.
+    """
+    system, pseudos = _regime(pseudo_dir, tmp_path, name)
+    exact = run_scf(system, pseudos, conv_thr=1e-12, max_iterations=200)
+    single = run_scf(system, pseudos, conv_thr=1e-7, band_precision="single",
+                     max_iterations=200)
+    assert single.converged and single.wavefunctions.dtype == SINGLE.complex
+    assert single.density.dtype == DOUBLE.real
+    energy_bound, eigenvalue_bound, finished_bound = FLOORS[name]
+    assert abs(single.total_energy - exact.total_energy) < energy_bound
+    occupied = np.asarray(exact.occupations) > 1e-4 * np.asarray(exact.occupations).max()
+    gap = np.abs(np.asarray(single.eigenvalues) - np.asarray(exact.eigenvalues))[occupied]
+    assert gap.max() < eigenvalue_bound
+    finished = run_scf(system, pseudos, conv_thr=1e-11, starting_from=single,
+                       max_iterations=200)
+    assert finished.wavefunctions.dtype == DOUBLE.complex
+    assert len(finished.history) <= 15  # measured 1 to 5
+    assert abs(finished.total_energy - exact.total_energy) < finished_bound
 
 
 def test_mixed_switches_inside_the_run_and_converges_to_the_double_state(silicon):
@@ -115,3 +306,79 @@ def test_mixed_switches_inside_the_run_and_converges_to_the_double_state(silicon
     # a loose request still finishes in double rather than stopping in single
     loose = run_scf(system, pseudos, conv_thr=1e-5, band_precision="mixed")
     assert loose.history[-1]["band_precision"] == "double"
+
+
+def test_becsum_is_accumulated_in_the_grid_precision():
+    """float32 projections, float64 weights: ``becsum`` is summed in double.
+
+    Before I119 the product was taken in the projections' dtype, and a spiral
+    on an ultrasoft dataset carried a float32 ``becsum`` into the mixer.
+    """
+    from defuqumat.scf.density import becsum, spinor_becsum
+
+    rng = np.random.default_rng(0)
+    vkb = jnp.asarray(rng.normal(size=(1, 4, 3)) + 1j * rng.normal(size=(1, 4, 3)),
+                      SINGLE.complex)
+    channels = (jnp.asarray([[0, 1, 2]]),)
+    psi = jnp.asarray(rng.normal(size=(1, 1, 2, 4)), SINGLE.complex)
+    weights = jnp.asarray([[[2.0, 1.0]]], DOUBLE.real)
+    assert becsum(psi, vkb, weights, channels)[0].dtype == DOUBLE.real
+    spinor = jnp.asarray(rng.normal(size=(1, 2, 8)), SINGLE.complex)
+    assert spinor_becsum(spinor, vkb, weights[0], channels)[0].dtype == DOUBLE.complex
+
+
+def test_a_constrained_spinor_is_refused_in_single_precision(pseudo_dir, tmp_path):
+    """Through the real cell: 'atomic' at lambda = 0.5 landed 1.2e-4 Ry off (I119 review)."""
+    system, pseudos = _edited(pseudo_dir, tmp_path, CASES / "h-atom-noncolin.in", ((
+        "angle1(1) = 0.0",
+        "angle1(1) = 60.0, constrained_magnetization = 'atomic', lambda = 0.5"),))
+    with pytest.raises(NotImplementedError, match="constrained_magnetization = 'atomic'"):
+        Calculation(system, pseudos, band_precision="single")
+
+
+def _continuation_stub(miss, precision):
+    from types import SimpleNamespace
+
+    grid = (2, 2, 2)
+    calculation = SimpleNamespace(
+        basis=SimpleNamespace(dense=SimpleNamespace(grid=grid)), nelec=1.0,
+        system=SimpleNamespace(cell=SimpleNamespace(volume=8.0)))
+    density = jnp.full((1,) + grid, (1.0 + miss) / 8.0, DOUBLE.real)
+    result = SimpleNamespace(density=density, nspin_mag=1, system=None,
+                             history=[{"band_precision": precision}])
+    return result, calculation
+
+
+def test_a_single_precision_source_continues_past_its_float32_normalisation():
+    """The lifted spinor's source misses one electron by 8.3e-7, 83% of ELECTRON_TOL."""
+    from defuqumat.scf.continuation import _check_grid
+
+    _check_grid(*_continuation_stub(1.2e-6, "single"))
+    with pytest.raises(ValueError, match="z_valence"):
+        _check_grid(*_continuation_stub(1.2e-6, "double"))
+    with pytest.raises(ValueError, match="float32 normalisation"):
+        _check_grid(*_continuation_stub(1e-3, "single"))
+
+
+def test_states_at_fixed_density_are_refused_on_a_single_band_side(pseudo_dir, tmp_path):
+    """Invariants, polarization, Kubo and the orbital magnetization share DFTSource._base."""
+    from defuqumat.workflows.topology import DFTSource
+
+    system, pseudos = _regime(pseudo_dir, tmp_path, "spinor")
+    single = Calculation(system, pseudos, band_precision="single")
+    source = DFTSource(system, pseudos, jnp.zeros((single.nspin_mag,) + single.basis.dense.grid),
+                       nocc=1, calculation=single)
+    with pytest.raises(NotImplementedError, match="Chern or Z2"):
+        source._base()
+
+
+@pytest.mark.parametrize("workflow", ["run_force_theorem", "run_anisotropy", "run_torque",
+                                      "run_orientation_torque"])
+def test_the_anisotropy_legs_are_refused_on_a_single_band_side(silicon, monkeypatch, workflow):
+    """They build their own calculation, so DEFUQUMAT_BAND_PRECISION reached them."""
+    from defuqumat.workflows import anisotropy
+
+    system, pseudos = silicon
+    monkeypatch.setenv("DEFUQUMAT_BAND_PRECISION", "single")
+    with pytest.raises(NotImplementedError, match="force-theorem anisotropy or torque"):
+        getattr(anisotropy, workflow)(system, pseudos, None)
