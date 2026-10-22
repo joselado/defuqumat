@@ -798,7 +798,7 @@ listed there.
   (I119, eight cases, 15 to 90 s each, three SCFs a case).
 - Because I119's `becsum` promotion (`scf/density.py:_in_grid_precision`) sits on every augmented
   path, a no-op in double: any slow ultrasoft or PAW file is a check that it stays one, for example
-  `tests/regression/test_spiral_us.py` or the PAW SCF files, if the user wants that assurance.
+  `tests/regression/test_spin_spirals_augmented.py` or `tests/regression/test_paw_noncollinear.py`, if the user wants that assurance.
 
 ### Follow-ups of integration six
 
