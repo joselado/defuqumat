@@ -24,6 +24,15 @@ from defuqumat.system import build_system
 
 pytestmark = pytest.mark.unit
 
+
+@pytest.fixture(autouse=True)
+def _drop_compiled_code():
+    """Eight distinct cells run here; their compiled code is not kept between tests."""
+    yield
+    import jax
+
+    jax.clear_caches()
+
 BENCHMARKS = Path(__file__).resolve().parents[2] / "benchmarks"
 
 
@@ -108,8 +117,12 @@ def _edited(pseudo_dir, tmp_path, path, edits):
     return system, tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
 
 
-def _regime(pseudo_dir, tmp_path, name):
-    return _edited(pseudo_dir, tmp_path, *REGIMES[name])
+def _regime(pseudo_dir, tmp_path, name, cheap=False):
+    """The regime's cell; ``cheap`` lowers an augmented cell's cutoffs for a setup-only test."""
+    path, edits = REGIMES[name]
+    if cheap and name in ("ultrasoft", "paw"):
+        edits = edits + (("ecutwfc=20.0, ecutrho=160.0", "ecutwfc=12.0, ecutrho=96.0"),)
+    return _edited(pseudo_dir, tmp_path, path, edits)
 
 
 @pytest.mark.parametrize("name", ["spinor", "spiral", "dftu"])
@@ -134,23 +147,57 @@ def test_h_psi_stays_32_bit_for_a_spinor_a_spiral_and_dftu(pseudo_dir, tmp_path,
 
 
 def test_what_it_has_not_been_checked_on_is_refused(pseudo_dir, tmp_path):
-    """DFT+U or a meta-GGA beside another regime: each was measured only alone."""
-    system, pseudos = _edited(pseudo_dir, tmp_path, CASES / "bn-ldau-noncol.in", ())
+    """DFT+U on a spinor, through a real cell: DFT+U was measured only alone.
+
+    The rest of the combination rule (a meta-GGA beside an augmented dataset or
+    a spiral, DFT+U beside an augmented one) is
+    :func:`test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta`.
+    """
+    system, pseudos = _edited(pseudo_dir, tmp_path, CASES / "alas-ldau.in",
+                              (("4 4 4 0 0 0", "1 1 1 0 0 0"),
+                               ("noinv = .true.", "noinv = .true., noncolin = .true.")))
     with pytest.raises(NotImplementedError, match="DFT\\+U .*not checked in single"):
-        Calculation(system, pseudos, band_precision="single")
-    system, pseudos = _edited(pseudo_dir, tmp_path, BENCHMARKS / "si2-paw-1k.in",
-                              (("ecutrho=160.0", "ecutrho=160.0, input_dft='tb09'"),))
-    with pytest.raises(NotImplementedError, match="(?i)tb09.*ultrasoft or PAW.*not checked"):
         Calculation(system, pseudos, band_precision="single")
     # and the pair stays accepted in double
     Calculation(system, pseudos)
+
+
+def test_the_guard_admits_an_augmented_spinor_and_nothing_beside_dftu_or_meta():
+    """The guard's combination rule, on the attributes it reads.
+
+    An augmented dataset under a spinor or a spiral was measured (spiral +
+    ultrasoft, spiral + PAW, spin-orbit + ultrasoft, ``notes/incompat/I119.md``)
+    with the guard patched out, so this pins the branch of the committed guard
+    that lets the pair through, without building a cell.
+    """
+    from types import SimpleNamespace
+
+    def stub(ultrasoft=False, noncolin=False, spiral=False, hubbard=None, meta=False):
+        return SimpleNamespace(
+            pseudos=(SimpleNamespace(is_ultrasoft=ultrasoft),), noncolin=noncolin,
+            spiral=spiral, hubbard=hubbard,
+            functional=SimpleNamespace(is_meta=meta, name="tb09"), band_precision=SINGLE,
+            system=SimpleNamespace(ecutwfc=20.0),
+            SINGLE_ETHR_FACTOR=Calculation.SINGLE_ETHR_FACTOR,
+            SINGLE_CONV_THR_FLOOR=Calculation.SINGLE_CONV_THR_FLOOR)
+
+    guard = Calculation._require_band_precision_supported
+    for accepted in (stub(ultrasoft=True, noncolin=True, spiral=True),
+                     stub(ultrasoft=True, noncolin=True), stub(hubbard=object()),
+                     stub(meta=True), stub(spiral=True, noncolin=True)):
+        guard(accepted)
+        assert accepted.conv_thr_floor == Calculation.SINGLE_CONV_THR_FLOOR
+    for refused in (stub(hubbard=object(), noncolin=True), stub(hubbard=object(), ultrasoft=True),
+                    stub(meta=True, spiral=True, noncolin=True), stub(meta=True, hubbard=object())):
+        with pytest.raises(NotImplementedError, match="not checked in single precision"):
+            guard(refused)
 
 
 @pytest.mark.parametrize("name", sorted(REGIMES))
 def test_every_derivative_is_still_refused_on_a_lifted_regime(pseudo_dir, tmp_path, name):
     from defuqumat.forces.energy import reject_single_band_side
 
-    system, pseudos = _regime(pseudo_dir, tmp_path, name)
+    system, pseudos = _regime(pseudo_dir, tmp_path, name, cheap=True)
     single = Calculation(system, pseudos, band_precision="single")
     with pytest.raises(NotImplementedError, match="single precision"):
         reject_single_band_side(single)
