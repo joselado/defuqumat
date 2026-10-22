@@ -7,15 +7,17 @@ Neither side runs an SCF. On this commit the two SCF energies also agree to the
 last digit (-22.855601708797778 Ry, bit-identical); that run is not repeated here.
 """
 
+import inspect
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from defuqumat.io.keywords import pw_input_text
+from defuqumat import Calculator
+from defuqumat.io.keywords import KEYWORDS, pw_input_text
 from defuqumat.io.pwin import parse_pw_input, read_pw_input
 from defuqumat.system.builder import build_system
-from defuqumat.units import BOHR_TO_ANGSTROM, RY_TO_EV
+from defuqumat.units import ANGSTROM_TO_BOHR, BOHR_TO_ANGSTROM, RY_TO_EV
 
 pytestmark = pytest.mark.unit
 
@@ -70,7 +72,7 @@ def test_default_mass_is_the_standard_atomic_weight():
 def test_a_collinear_moment_alone_breaks_the_spin_symmetry():
     """The moments card seeds the density, so nspin = 2 needs nothing else."""
     text = pw_input_text(lattice="bcc", a=2.87, atoms=[("Fe", (0, 0, 0), 2.5)],
-                         pseudos={"Fe": "Fe.UPF"}, ecut=340.0, smearing=0.27,
+                         pseudos={"Fe": "Fe.UPF"}, ecut=340.0, kmesh=(2, 2, 2), smearing=0.27,
                          spin="collinear")
     assert "starting_magnetization" not in text
     build_system(parse_pw_input(text))
@@ -79,7 +81,7 @@ def test_a_collinear_moment_alone_breaks_the_spin_symmetry():
 def test_without_moment_or_magnetization_nspin2_still_refuses():
     with pytest.raises(ValueError, match="no starting_magnetization"):
         _system(lattice="bcc", a=2.87, atoms=[("Fe", (0, 0, 0))],
-                pseudos={"Fe": "Fe.UPF"}, ecut=340.0, smearing=0.27, spin="collinear")
+                pseudos={"Fe": "Fe.UPF"}, ecut=340.0, kmesh=(2, 2, 2), smearing=0.27, spin="collinear")
 
 
 @pytest.mark.parametrize("change, message", [
@@ -93,3 +95,39 @@ def test_without_moment_or_magnetization_nspin2_still_refuses():
 def test_refusals(change, message):
     with pytest.raises(ValueError, match=message):
         pw_input_text(**{**DIAMOND_KEYWORDS, **change})
+
+
+def test_keywords_set_is_the_signature():
+    """A name missing from KEYWORDS would be routed to Calculator and refused."""
+    assert KEYWORDS == set(inspect.signature(pw_input_text).parameters)
+
+
+def test_a_misspelt_keyword_names_both_sets():
+    with pytest.raises(TypeError, match="input keywords are"):
+        Calculator.from_keywords(**DIAMOND_KEYWORDS, kmsh=(2, 2, 2))
+
+
+def test_constructor_keywords_pass_through():
+    calc = Calculator.from_keywords(**DIAMOND_KEYWORDS, announce=False, conv_thr=1e-9,
+                                    pseudo_dir=ROOT / "tests" / "data" / "pseudo")
+    assert calc.announce is False and calc.defaults["conv_thr"] == 1e-9
+
+
+def test_kmesh_is_required():
+    keywords = {k: v for k, v in DIAMOND_KEYWORDS.items() if k != "kmesh"}
+    with pytest.raises(TypeError, match="kmesh"):
+        pw_input_text(**keywords)
+
+
+@pytest.mark.parametrize("lattice, lengths, rows", [
+    ("hexagonal", dict(a=2.46, c=6.7),
+     [[1, 0, 0], [-0.5, np.sqrt(3) / 2, 0], [0, 0, 6.7 / 2.46]]),
+    ("tetragonal", dict(a=3.0, c=5.0), [[1, 0, 0], [0, 1, 0], [0, 0, 5 / 3]]),
+    ("orthorhombic", dict(a=3.0, b=4.0, c=5.0), [[1, 0, 0], [0, 4 / 3, 0], [0, 0, 5 / 3]]),
+])
+def test_non_cubic_lattices(lattice, lengths, rows):
+    """The b and c of a named lattice reach the cell as b/a and c/a."""
+    system = _system(lattice=lattice, atoms=[("C", (0, 0, 0))], pseudos={"C": "C.UPF"},
+                     ecut=300.0, kmesh=(2, 2, 2), **lengths)
+    np.testing.assert_allclose(np.asarray(system.cell.at),
+                               np.array(rows) * lengths["a"] * ANGSTROM_TO_BOHR, atol=1e-12)

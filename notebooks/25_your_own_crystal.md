@@ -78,8 +78,10 @@ print(INPUT.read_text())
     !                     needs where a norm-conserving one takes four.
     !   nbnd = 8          four occupied bands and four empty ones, so that there is a
     !                     conduction band to measure the gap against.
-    !   6 6 6             the k-grid. Denser than an insulator strictly needs, and
-    !                     the notebook shows what happens at 2, 4 and 8.
+    !   6 6 6             the k-grid, and it is not converged either: the notebook
+    !                     sweeps 2, 4, 6 and 8 and finds this one 6e-4 Ry from the
+    !                     8x8x8 run, which is the same distance 40 Ry is from 50 and
+    !                     costs far more to close. The k-grid is where the cost is.
     !
     ! The pseudopotential is one of QE's own LDA ultrasoft carbon datasets. Where to
     ! get one for an element this repository does not ship is in the notebook.
@@ -105,6 +107,34 @@ print(INPUT.read_text())
     K_POINTS (automatic)
      6 6 6 0 0 0
     
+
+
+## The same crystal without a file
+
+We can also give the crystal as Python keywords. The lengths are in angstrom and the
+energies in eV, as in most papers and databases. Here we take the lattice constant and the
+cutoffs of the file above, converted exactly, so the two runs must give the same energy.
+
+
+```python
+from defuqumat.units import BOHR_TO_ANGSTROM
+
+same = Calculator.from_keywords(
+    lattice="fcc", a=6.74 * BOHR_TO_ANGSTROM,              # 3.5667 angstrom
+    atoms=[("C", (0, 0, 0)), ("C", (0.25, 0.25, 0.25))],
+    pseudos={"C": "C.pz-rrkjus.UPF"}, masses={"C": 12.011},
+    pseudo_dir=Path("../tests/data/pseudo"),
+    ecut=35 * RY_TO_EV, ecutrho=280 * RY_TO_EV,           # 476.2 and 3809.6 eV
+    kmesh=(6, 6, 6), nbands=8, qe={"electrons": {"conv_thr": 1e-8}},
+    announce=False,
+)
+energy = same.get_scf().total_energy
+print("keywords:  E = %.8f Ry" % energy)
+print("difference from the file: %.1e Ry" % (energy - diamond.scf_result.total_energy))
+```
+
+    keywords:  E = -22.85560171 Ry
+    difference from the file: 0.0e+00 Ry
 
 
 ## The two convergence tests nobody may skip
@@ -141,8 +171,8 @@ print("at its 6x6x6 grid:    %.1e Ry and %.4f eV from the 8x8x8 run"
       % (abs(grid[2, 0] - grid[-1, 0]), abs(grid[2, 1] - grid[-1, 1])))
 ```
 
-    at the file's 35 Ry:  7.7e-04 Ry and 0.0011 eV from the 50 Ry run
-    at its 6x6x6 grid:    6.1e-04 Ry and 0.0186 eV from the 8x8x8 run
+    at the file's 35 Ry:  7.7e-04 Ry and 0.0009 eV from the 50 Ry run
+    at its 6x6x6 grid:    6.1e-04 Ry and 0.0185 eV from the 8x8x8 run
 
 
 
@@ -173,7 +203,7 @@ fig.tight_layout()
 
 
     
-![png](25_your_own_crystal_files/25_your_own_crystal_6_0.png)
+![png](25_your_own_crystal_files/25_your_own_crystal_8_0.png)
     
 
 
@@ -231,13 +261,13 @@ print("direct gap at Gamma         %.4f eV   (measured 7.3)"
       % (levels[30, 4] - levels[30, 3]))
 ```
 
-    indirect gap off the path   4.1305 eV   (measured 5.47)
+    indirect gap off the path   4.1304 eV   (measured 5.47)
     direct gap at Gamma         5.5455 eV   (measured 7.3)
 
 
 
     
-![png](25_your_own_crystal_files/25_your_own_crystal_8_1.png)
+![png](25_your_own_crystal_files/25_your_own_crystal_10_1.png)
     
 
 

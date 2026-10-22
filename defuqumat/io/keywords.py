@@ -62,6 +62,9 @@ _SMEARING = {
     "marzari-vanderbilt": "marzari-vanderbilt",
     "cold": "marzari-vanderbilt",
     "fermi-dirac": "fermi-dirac",
+    "mp": "methfessel-paxton",
+    "mv": "marzari-vanderbilt",
+    "fd": "fermi-dirac",
 }
 
 #: Every keyword :func:`pw_input_text` takes. ``Calculator.from_keywords`` uses
@@ -79,13 +82,13 @@ def pw_input_text(
     atoms,
     pseudos: dict,
     ecut: float,
+    kmesh,
     a: float | None = None,
     b: float | None = None,
     c: float | None = None,
     coordinates: str = "crystal",
     masses: dict | None = None,
     ecutrho: float | None = None,
-    kmesh="gamma",
     kshift=(0, 0, 0),
     nbands: int | None = None,
     functional: str | None = None,
@@ -113,7 +116,9 @@ def pw_input_text(
             atomic weight of the element, ``pw.x``'s table.
         ecutrho: the density cutoff, in eV. Defaults to four times ``ecut``, as
             in ``pw.x``; an ultrasoft or PAW dataset wants eight to twelve.
-        kmesh: ``(n1, n2, n3)`` for a Monkhorst-Pack mesh, or ``'gamma'``.
+        kmesh: ``(n1, n2, n3)`` for a Monkhorst-Pack mesh, or ``'gamma'`` for
+            the single point, stored as a half sphere (P68). Required, as the
+            cutoff is: neither has a default that is right for a crystal.
         kshift: ``(0 or 1, ...)``, a half-step shift of the mesh along each axis.
         nbands: the number of bands. Defaults to ``pw.x``'s choice.
         functional: overrides the functional the pseudopotentials were made with
@@ -121,7 +126,8 @@ def pw_input_text(
         smearing: the smearing width, in eV, for a metal. ``None`` is an
             insulator with fixed occupations.
         smearing_type: ``'gaussian'``, ``'methfessel-paxton'``,
-            ``'marzari-vanderbilt'`` (or ``'cold'``) or ``'fermi-dirac'``.
+            ``'marzari-vanderbilt'`` (or ``'cold'``) or ``'fermi-dirac'``,
+            and ``pw.x``'s ``'mp'``, ``'mv'`` and ``'fd'``.
         spin: ``None``, ``'collinear'`` or ``'noncollinear'``.
         spin_orbit: include spin-orbit coupling; needs fully relativistic
             pseudopotentials, and implies ``spin='noncollinear'``.

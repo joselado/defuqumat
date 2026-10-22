@@ -683,8 +683,17 @@ class Calculator:
         """
         from defuqumat.io.keywords import KEYWORDS, pw_input_text
 
-        text = pw_input_text(**{k: v for k, v in keywords.items() if k in KEYWORDS})
         options = {k: v for k, v in keywords.items() if k not in KEYWORDS}
+        unknown = (set(options) - SHARED_OPTIONS - SETUP_ONLY_OPTIONS
+                   - {"announce", "basis"})
+        if unknown:
+            # Most often a misspelt input keyword, so name both sets.
+            raise TypeError(
+                f"unknown keyword(s) {sorted(unknown)}. The input keywords are "
+                f"{sorted(KEYWORDS)}, and the calculator options "
+                f"{sorted(SHARED_OPTIONS | SETUP_ONLY_OPTIONS)}"
+            )
+        text = pw_input_text(**{k: v for k, v in keywords.items() if k in KEYWORDS})
         return cls.from_text(text, pseudo_dir=pseudo_dir, **options)
 
     # ------------------------------------------------------------------

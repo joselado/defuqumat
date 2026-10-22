@@ -82,10 +82,12 @@ The keywords are the following.
 - **`ecut`**, **`ecutrho`**: the two cutoffs in eV. If you do not give
   `ecutrho`, it is four times `ecut`, as in `pw.x`.
 - **`kmesh`**, **`kshift`**: the Monkhorst-Pack mesh and its half-step shift,
-  or `kmesh="gamma"`.
+  or `kmesh="gamma"` for the single point. You always give `kmesh`, as you
+  always give `ecut`, because no default is right for every crystal.
 - **`smearing`**, **`smearing_type`**: the width in eV for a metal, and
   `"gaussian"`, `"methfessel-paxton"`, `"marzari-vanderbilt"` (or `"cold"`) or
-  `"fermi-dirac"`.
+  `"fermi-dirac"`. The short names of `pw.x`, `"mp"`, `"mv"` and `"fd"`,
+  also work.
 - **`spin`**: `"collinear"` or `"noncollinear"`. The starting moment of an atom
   is a third entry in `atoms`, in Bohr magnetons, for example
   `("Fe", (0, 0, 0), 2.5)`. It is a number for a collinear run and a cartesian
@@ -236,6 +238,13 @@ Before we trust the numbers of a new crystal, we check four things.
     default of `pw.x` gives no error, so an ordinary input never meets these.
     `calculation = 'md'` and `calculation = 'vc-md'` give an error, because we
     have no molecular dynamics.
+
+    With `Calculator.from_keywords`, a named lattice without its `b` or `c`
+    gives an error. So does a species without a pseudopotential, and an atom
+    with a moment but no `spin`. A variable in `qe` that a keyword already sets
+    also gives an error. A misspelt keyword gives an error that lists all the
+    keywords. The `qe` dictionary reaches only the namelists, so a `HUBBARD`
+    card or a k-path still needs an input file.
 
     The old DFT+U variables of `&system` give an error, as in `pw.x` 7.5. These
     are `lda_plus_u`, `lda_plus_u_kind`, `Hubbard_U`, `Hubbard_U_back`,
