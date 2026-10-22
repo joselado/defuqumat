@@ -1035,3 +1035,20 @@ spiral branch of `Calculation.__init__` changed.
 **Follow-ups.** The four-cell moment length (`OPEN.md` Part XXX); notebooks and timings for the three
 items; the user's question on whether a collinear run under a field should be seeded by default
 (kept as the tiled start).
+
+### The fast gate of integration nine
+
+Run at `d2bb1755` (13:16 to 13:34, the capped-chunk form of integrations six to eight: twelve
+chunks of files, `MemoryMax=6G`, watchdog 6G, `taskset -c 0-3`, `test_config.py` alone without
+`taskset`): **4201 passed, 70 skipped, 1 failed, 0 errors**, no chunk killed (chunks 4183 passed,
+`test_config.py` 18 passed). The one failure is
+`tests/unit/test_config.py::test_the_suite_widens_the_mask_that_the_package_narrows` ("the suite is
+running on 2 cores, not 8"), and it is **intermittent, not caused by any merge**: the same file, run
+alone and idle, fails in about 7 runs of 9 with 1 or 2 failures and passes in the others, and it
+fails the same way (1 failed in 7 of 8 runs) on an extraction of master `a4c12c31`'s `defuqumat/`
+and `tests/unit/test_config.py` into a scratch directory, where none of this integration exists.
+The same file passed 19 of 19 at 08:29 and at the start of the day. Cause not found (the test reads
+`os.sched_getaffinity(0)` of the pytest process, and something sometimes leaves that mask at 2 CPUs
+on this workstation today; the mask of the shell is 0-13). It should be looked at on its own; it is
+the same family as `OPEN.md` Part IV item 1 (the mask the package narrows). Every other test of the
+fast selection passes, among them the new unit tests of both branches.
