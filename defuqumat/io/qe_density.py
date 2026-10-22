@@ -40,6 +40,9 @@ cell, atomic positions, electron count, density cutoff or spin regime between
 the save directory and the calculation it is handed to: a density belongs to
 one G-sphere on one lattice.
 
+Measured on nine ``pw.x`` runs, NC, US and PAW, ``nspin = 1, 2, 4``, with and
+without spin-orbit coupling, in ``PLAN.md`` P160.
+
 Since both codes hold the same pseudo valence density, a seed from a run with
 the same input is a continuation rather than a guess: the first iteration's
 ``dr2`` reads at the level of the file's own ``conv_thr``.

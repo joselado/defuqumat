@@ -1,0 +1,22 @@
+&control
+  pseudo_dir = '../../../pseudo'
+  outdir = './out'
+/
+&system
+  ibrav = 2
+  A = 5.43
+  nat = 2
+  ntyp = 1
+  ecutwfc = 19.99163126355629
+  ecutrho = 160.00654875280162
+/
+&electrons
+  conv_thr = 1e-10
+/
+ATOMIC_SPECIES
+  Si  28.0855  Si.pz-n-kjpaw_psl.0.1.UPF
+ATOMIC_POSITIONS crystal
+  Si  0.0  0.0  0.0
+  Si  0.25  0.25  0.25
+K_POINTS automatic
+  4 4 4 0 0 0

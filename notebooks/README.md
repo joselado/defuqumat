@@ -35,6 +35,7 @@ instead, which means the physics is selected in the input file rather than at th
 | Eigenvalues on a denser grid at fixed density | `get_nscf()` | [06](06_density_of_states.ipynb) |
 | What a diffraction experiment measures: X-ray and magnetic structure factors | `get_structure_factors()` | [37](37_structure_factors.ipynb) |
 | A run started from an all-electron ground state, and how far a pseudopotential density is from one | `get_elk_seed()` | [42](42_all_electron_start.ipynb) |
+| A run continued from the converged density of Quantum ESPRESSO, in one SCF iteration | `get_qe_seed()` | [56](56_quantum_espresso_restart.ipynb) |
 | A density or potential modulated over many unit cells at once | `get_ultracell()` | [44](44_ultra_long_range.ipynb) |
 | A long-wavelength magnetic texture the calculation is *put into* rather than driven into: a staggered wave, a helix, and the energy that says it is the ground state | `get_ultracell(seed_magnetization=...)` | [46](46_a_spin_wave_that_stays.ipynb) |
 | What a tip sees above a modulation: an image of a spin density wave | `get_ultracell_stm()` | [45](45_imaging_a_modulation.ipynb) |
@@ -193,6 +194,7 @@ want a number.
 | [`53_electric_field_molecule.ipynb`](53_electric_field_molecule.ipynb) | CO in a saw-tooth field with the dipole correction: the energy, the field energy and the force against `pw.x`, the dipole at five fields and the polarizability along the bond (13.5 bohr^3 in a 10 bohr box, against about 15.6 measured), and where the induced charge goes |
 | [`54_finite_electric_field.ipynb`](54_finite_electric_field.ipynb) | Si8 in a finite field by the Berry phase, switched on from the converged state without field: the energy, the electronic dipole and the force against `pw.x` 7.5, the dipole at five fields, `eps_inf` = 12.08 from the slope on a 3x3x7 string mesh against 11.7 measured, and the third-order response in the residual |
 | [`55_quasiparticle_interference.ipynb`](55_quasiparticle_interference.ipynb) | One impurity on a square hydrogen sheet by the T-matrix: the 2k_F contour of the Fermi surface in the Fourier transform of the tip image, read as the local density of states and as the transmission from the tip to an exit plane, which takes 14% off the axial peaks against the diagonal ones because the states near X decay faster into the vacuum |
+| [`56_quantum_espresso_restart.ipynb`](56_quantum_espresso_restart.ipynb) | The converged density of `pw.x` for PAW silicon loaded from its save folder: the SCF stops after one iteration at the `pw.x` energy, against eight from atomic charges, and the bands come from the loaded state |
 
 ## Conventions
 
@@ -305,6 +307,10 @@ helix under both gradient corrections, the first taking 119 iterations.
 | `00` | 22 | `23` | 35 | `39` | 151 | `49` | 194 |
 | `07` | 22 | `32` | 84 | `41` | 110 | `51` | 290 |
 | `46` | 61 | `47` | 260 | `48` | 121 | `50` | 509 |
+
+`56` reads **15 s** on 2026-10-22, its first measurement, unpinned on the shared
+workstation with the compiled code already cached: the SCF from the `pw.x` density, the SCF
+from atomic charges and the bands.
 
 `54` reads **3 min 43 s** on 2026-10-13, its first measurement, on four performance cores of
 D22-0161 (`taskset -c 0-3`): the zero-field state and six runs with the field, Si8 at 63 k-points.

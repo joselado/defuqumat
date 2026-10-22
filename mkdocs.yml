@@ -86,5 +86,6 @@ nav:
   - Long-range modulations: ultracell.md
   - More:
       - Starting from an all-electron ground state: elk-seed.md
+      - Continuing a Quantum ESPRESSO ground state: qe-seed.md
       - Performance and many cores: performance.md
       - Accuracy: accuracy.md

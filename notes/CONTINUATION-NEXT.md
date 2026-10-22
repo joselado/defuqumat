@@ -99,6 +99,8 @@ converge cheaply and then refine: a density is a set of Fourier coefficients and
 between two grids is padding or truncating in `G` space, not interpolation in the numerical
 sense, so it is exact in one direction and a projection in the other.
 
+The same refusal now guards a `pw.x` density (`PLAN.md` P160, `io/qe_density.py`), so this item would also let a cheap `pw.x` run seed a refined one here.
+
 Not started, and it is a phase rather than an item: the wavefunctions cannot cross with the
 density, since a change of `ecutwfc` is a different plane-wave sphere, so what is carried is
 the charge and the run pays a fresh Rayleigh-Ritz. That is still most of the saving.

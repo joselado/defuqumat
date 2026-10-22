@@ -11,6 +11,7 @@ from defuqumat.io.elk import (
     read_elk_state,
 )
 from defuqumat.io.output import format_dos, write_dos, write_pdos
+from defuqumat.io.qe_density import QESave, read_qe_save
 from defuqumat.io.qeref import (
     ProjwfcReference,
     QEReference,
@@ -25,6 +26,7 @@ __all__ = [
     "ElkState",
     "ProjwfcReference",
     "QEReference",
+    "QESave",
     "comparison_table",
     "format_dos",
     "read_elk_geometry",
@@ -32,6 +34,7 @@ __all__ = [
     "read_pdos_file",
     "read_projwfc_output",
     "read_qe_output",
+    "read_qe_save",
     "write_dos",
     "write_pdos",
 ]

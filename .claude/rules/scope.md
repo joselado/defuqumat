@@ -235,6 +235,12 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   and a warning, since `STATE.OUT` holds no occupation matrix (P155, I70); a noncollinear
   state, a spiral, a fixed spin moment, a fixed tensor moment, a spin-polarized DFT+U state,
   an element with a **core** and a *fixed* Elk density are refused by name.
+- **Continuing a `pw.x` ground state** (P160, `io/qe_density.py`, `Calculator.get_qe_seed`):
+  the density of a `pw.x` save directory, and `paw.txt` for PAW, as `get_scf` keywords
+  with `diago_thr_init = 1e-5`. The file's `nspin = 2` density is `(n, m_z)` and is
+  split; `paw.txt` is `(up, down)`. A seed only, by the user's choice: no fixed-density
+  route, no wavefunctions. Refused: another cell, geometry, electron count, `ecutrho`
+  or spin regime, DFT+U, meta-GGA, noncollinear PAW.
 
 **One calculation on many cores** (P124, `defuqumat/parallel.py`): `DEFUQUMAT_POOLS` runs
 one calculation as that many processes by k-point, `pw.x -nk`, joined through

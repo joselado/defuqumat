@@ -11303,3 +11303,16 @@ same machine**, so the times are indicative only:
 The forces and the stress cost about 1.4x to 1.9x in memory mode, which is the walk plus the
 projectors formed per k-point; the SCF moved between 0.9x and 1.4x, within what two samples beside
 a video call can resolve. A clean pair on D22 is still to be taken.
+
+## Continuing a `pw.x` run from its save directory (CPU, 2026-10-22)
+
+Si2 PAW (`Si.pz-n-kjpaw_psl.0.1`), 20/160 Ry, 4x4x4 (`tests/data/qe/save/si-paw-444`), one core of this workstation (`taskset -c 0`, `OMP_NUM_THREADS=1`), median of 5 after a warm-up. Both codes do one SCF iteration from the converged density.
+
+| | time |
+|---|---|
+| defuqumat, reading the save directory (`get_qe_seed`) | 2.5 ms |
+| defuqumat, seeded `get_scf` (1 iteration) | 0.164 s |
+| `pw.x`, `startingpot = 'file'`: `potinit` + `electrons` | 0.10 + 0.06 = 0.16 s |
+| `pw.x`, the whole run including `init_run` (0.33 s) | 0.42 s wall |
+
+The same cost on both sides. Davidson step counts were not compared, so this is a pair of wall times and not a statement about the solver; `pw.x` prints 5.5 steps on average at `ethr = 1e-5`. The 0.33 s of `init_run` has no counterpart in the seeded figure, which excludes building the `Calculation`.
