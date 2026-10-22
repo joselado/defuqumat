@@ -911,3 +911,14 @@ admitted, it needs a relative threshold.
 **What the user decides, after integration seven.** Nothing new from I120: the vacuum question the
 record first put was settled by the reviewer's condition, which the verifier met. The questions of
 integration six stand.
+
+**The fast gate of integration seven, stopped at chunk 8 of 12.** At the code of `5a1cf7f2` (the
+I120 merge), the same chunked form as integration six, with `MemoryMax=6G` and the watchdog at 6G,
+`tests/unit/test_config.py` run alone without `taskset`: `test_config.py` 19 passed; chunks 0 to 7
+**2749 passed, 48 skipped, 0 failed, 0 errors**, 1314 deselected (08:29 to 09:01). The user asked at
+about 09:05 for no Python on this workstation until 10:15, so the coordinator killed chunk 8 and I
+stopped the loop. Not run yet: the 108 files of chunks 8 to 11, among them
+`tests/unit/test_mgga.py` (I120's cone fix), `tests/unit/test_band_precision.py` (I119, whose
+`forces/energy.py` the I120 merge conflicted with), `tests/unit/test_stm_machinery.py`,
+`tests/regression/test_stm.py` and `tests/unit/test_residual_fields.py`. They are to be run after
+10:15 (list in this session's `scratchpad/g4/chunk.08` to `chunk.11`).
