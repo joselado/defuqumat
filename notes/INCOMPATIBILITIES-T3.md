@@ -823,3 +823,22 @@ listed there.
   default 0.001 Ry); which cell, or keep them refused.
 - I118: a constrained moment in the STM image (the same argument holds, no number taken), and a
   spin spiral in a field (non-monotonic in `B`), lift or keep refused.
+
+### The fast gate of integration six
+
+**First attempt, stopped by me at 35 per cent** (06:08 to 06:21, at `89ba666e`, one process,
+`OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 taskset -c 0-3 tools/test-fast.sh`, `DEFUQUMAT_QE_ROOT`
+pointing at the main checkout's QE tree, watchdog `DEFUQUMAT_TEST_MEM_MAX=9G`): 1447 passed, 64
+skipped, 1 failed when stopped. The workstation was shared with three Blender renders of another
+session and a 9.5 GB browser process, swap was full, and `available` fell to 2.3 GB with the
+pytest process at 4.8 GB and climbing (the gate's peak is 5.5 to 9 GB), so I killed it before the
+kernel chose a victim. The one failure is the launch, not a merge:
+`tests/unit/test_config.py::test_the_suite_widens_the_mask_that_the_package_narrows` asserts that
+the suite runs on eight cores (`conftest.TEST_THREADS`), and `taskset -c 0-3` gives it four; the
+same test passes without `taskset` (0.9 s), and neither branch touches `config.py` or
+`tests/conftest.py`.
+
+**Second attempt**: the same selection (`-m "not slow"`, the same 333 files of `tests/unit` and
+`tests/regression`) in twelve chunks of files, one pytest process per chunk, each in a
+`systemd-run --scope` with `MemoryMax=4G`, under the same `taskset` and thread pins
+(`scratchpad/gate2.sh` of this session).
