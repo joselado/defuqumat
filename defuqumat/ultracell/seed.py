@@ -413,8 +413,14 @@ def collinear_field_seed(field, magnetization, volume: float):
     with one self-consistent state under the field the loop reaches it from
     either start; on a cell with two (a ferromagnet whose antiferromagnet is
     close by) it picks the one on the field's side, which a weak field's
-    tiled start need not reach. That is why the collinear default is still the
-    tiled start and this is taken only on request.
+    tiled start need not reach. **Measured** (2026-10-22, Triton job 21118949):
+    on two-cell hydrogen under ``B cos(pi x)`` the seed reaches the explicit
+    supercell's lowest state, the antiferromagnet in phase with the field,
+    1.54e-4, 6.84e-5 and 2.33e-5 Ry per cell above it at ``nbnd`` 16, 24 and
+    40 under 0.002 Ry, while the tiled start stays on the ferromagnet 3.81e-3
+    above it. That the tiled start is the response about the reference's own
+    state is why the collinear default is still the tiled start and this is
+    taken only on request.
 
     Skips, with the reason, a reference that carries no moment and a
     compensated one, whose net sign is round-off (:data:`SEED_NET_TOL`).

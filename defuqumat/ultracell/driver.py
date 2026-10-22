@@ -171,6 +171,7 @@ from defuqumat.ultracell.states import (
 )
 from defuqumat.scf.continuation import spin_components
 from defuqumat.ultracell.seed import (
+    collinear_field_seed,
     field_seed_axis,
     reference_axis,
     seed_from_the_field,
@@ -1120,10 +1121,15 @@ def run_ultracell(
             field, and ``True`` seeds it anyway. ``False`` asks for the tiled start, which is what a
             linear response about the reference's own state wants; ``True``
             insists, and raises where the seed cannot be taken. **A collinear
-            run** (``nspin_mag = 2``) starts tiled, and ``True`` is refused
-            there: its seed, ``sign(B)`` times the sign of the reference's net
-            moment (:func:`~defuqumat.ultracell.seed.collinear_field_seed`,
-            I116), is written and not measured.
+            run** (``nspin_mag = 2``) starts tiled by default too, and ``True``
+            seeds ``sign(B)`` times the sign of the reference's net moment
+            (:func:`~defuqumat.ultracell.seed.collinear_field_seed`, I116): a
+            domain state, the reference reversed where the field is negative.
+            On a cell with two self-consistent states under the field the two
+            starts end in different ones, so compare
+            ``total_energy + field_energy``: on two-cell hydrogen the seed
+            reaches the supercell's antiferromagnet and the tiled start the
+            ferromagnet, 3.8 mRy per cell above it at 0.002 Ry.
         keep_states: keep the frozen states and the envelope amplitudes on the
             result, as :class:`~defuqumat.ultracell.states.UltracellStates`. They
             are what an ultracell *wavefunction* is made of, so an STM image
@@ -1264,17 +1270,6 @@ def run_ultracell(
             raise ValueError(
                 "seed_from_field=True with no magnetic_field: there is no field "
                 "for the seed to be taken from"
-            )
-        if int(system.nspin_mag) == 2:
-            raise NotImplementedError(
-                "seed_from_field on a run with nspin_mag = 2: a collinear "
-                "field's direction is its sign, and seeding a ferromagnet with "
-                "it is a domain state, the reference reversed where B < 0. The "
-                "seed sign(B) sign(M) is written (seed.collinear_field_seed, "
-                "I116) but was not measured against the tiled start, which on "
-                "a cell with two self-consistent states under the field need "
-                "not reach the same one, so it is not taken. Pass the texture "
-                "as seed_magnetization"
             )
         if int(system.nspin_mag) not in (2, 4):
             raise ValueError(
@@ -1848,6 +1843,25 @@ def run_ultracell(
             )
         elif verbose:
             print(f"  not seeded from the field: {field_seed_skipped}")
+    elif (seed_field is None and magnetic_field is not None
+            and seed_from_field and nspin_mag == 2):
+        # **The collinear field's seed, on request only** (I116): its sign
+        # times the reference's, a domain state at full length. On two-cell
+        # hydrogen under B cos(pi x) it reaches the explicit supercell's
+        # lowest state, the antiferromagnet in phase with the field, where
+        # the tiled start stays on the ferromagnet 3.8 mRy per cell above it
+        # (notes/incompat/I116.md). The default stays the tiled start, the
+        # response about the reference's own state, which on a cell with two
+        # self-consistent states under the field is the other one
+        # (:func:`~defuqumat.ultracell.seed.collinear_field_seed`).
+        moment = spin_components(density, nspin_mag)[1]
+        collinear_seed, reason = collinear_field_seed(
+            magnetic_field, moment, float(cell.volume))
+        if reason is not None:
+            raise ValueError(
+                f"seed_from_field=True and the seed cannot be taken: {reason}")
+        seed_field = jnp.asarray(collinear_seed)
+        seed_origin = "magnetic_field"
     if seed_field is not None:
         _warn_if_a_constraint_fights_the_seed(system, seed_field, nspin_mag)
         moment = spin_components(density, nspin_mag)[1]
