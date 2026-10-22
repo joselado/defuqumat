@@ -229,6 +229,41 @@ def test_a_quarter_turn_is_the_ninety_degree_supercell(dataset, pseudo_dir):
     )
 
 
+#: The quarter turn against its supercell at ``ecutrho = 240``, where the
+#: spiral's laboratory sphere does not fit the resident (60, 60, 25) box and the
+#: box is widened to (60, 60, 27), a quarter of the supercell's own (60, 60, 108)
+#: (I122). Pending: set from the Triton measurement at conv_thr 1e-9 and 1e-11.
+WIDENED_QUARTER_TURN_RY = 1.0e-09
+
+
+@pytest.mark.slow
+def test_a_widened_box_keeps_the_quarter_turn_identity(pseudo_dir):
+    """``q = b3/4`` against its four-cell supercell on a box widened for the spiral (I122).
+
+    At 240 Ry the resident box along ``c`` is 25, exactly the resident span,
+    and the sphere ``|G - q| < G_rho`` spans 26; this used to be refused. On
+    the widened 27 the spiral and the supercell sample the same functional on
+    commensurate grids (27 x 4 = 108, the supercell's own), so the identity of
+    :func:`test_a_quarter_turn_is_the_ninety_degree_supercell` holds to the
+    SCF's convergence. ``notes/incompat/I122.md`` has the numbers.
+    """
+    def at_240(text):
+        widened = text.replace("ecutrho = 200.0", "ecutrho = 240.0")
+        assert widened != text
+        return widened
+
+    system, spiral = _run(at_240(_at_q("o-chain-spiral-us.in", 0.25)), pseudo_dir)
+    supercell_system, supercell = _run(
+        at_240((GENERATED / "o-chain-90deg-us.in").read_text()), pseudo_dir
+    )
+    assert spiral.converged and supercell.converged
+    assert spiral.density.shape[1:] == (60, 60, 27)
+    assert supercell.density.shape[1:] == (60, 60, 108)
+    assert _electronic(spiral) == pytest.approx(
+        _electronic(supercell) / 4.0, abs=WIDENED_QUARTER_TURN_RY
+    )
+
+
 @pytest.mark.parametrize("dataset", ["us", "paw"])
 def test_moving_the_atom_does_not_move_the_energy(dataset, pseudo_dir):
     """A one-atom cell is translation invariant, displaced table included.

@@ -59,7 +59,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from defuqumat.basis.builder import Basis, build_basis
+from defuqumat.basis.builder import Basis, build_basis, widen_for_displaced_sphere
 from defuqumat.config import band_precision_is_mixed, resolve_band_precision
 from defuqumat.basis.planewaves import build_plane_wave_basis
 from defuqumat.basis.interpolate import pair_to_dense, pair_to_smooth, to_dense, to_smooth
@@ -2629,6 +2629,16 @@ class Calculation:
                     "a spin spiral builds its own plane-wave basis on the "
                     "shifted k-points; pass basis = None"
                 )
+            # The transverse pair's laboratory sphere ``|G - q| < G_cut`` can
+            # span one Miller index more than the resident box holds (I122):
+            # where it is built (an augmented dataset or a separate smooth
+            # grid, as ``_spiral_gvectors`` asks), the boxes are widened along
+            # that axis before anything is sampled on them. A box that already
+            # holds it is left exactly as it was.
+            if self.basis.doublegrid or any(p.is_ultrasoft for p in self.pseudos):
+                self.basis = widen_for_displaced_sphere(
+                    system, self.basis, -self.spiral_qcart)
+                dense, smooth = self.basis.dense, self.basis.smooth
             self.basis = Basis(
                 dense=dense,
                 smooth=smooth,

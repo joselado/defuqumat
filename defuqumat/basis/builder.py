@@ -30,12 +30,12 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.basis.fftgrid import fft_grid_dimensions, gcut_from_ecut
-from defuqumat.basis.gvectors import GVectors, generate_gvectors
+from defuqumat.basis.gvectors import GVectors, box_holding_displaced, generate_gvectors
 from defuqumat.basis.planewaves import PlaneWaveBasis, build_plane_wave_basis
 from defuqumat.system.builder import System
 from defuqumat.system.symmetry import find_symmetries
 
-__all__ = ["Basis", "build_basis", "smooth_subset"]
+__all__ = ["Basis", "build_basis", "smooth_subset", "widen_for_displaced_sphere"]
 
 #: QE treats dual > 4 (within eps8) as needing a separate smooth grid.
 _DOUBLEGRID_THRESHOLD = 4.0 + 1.0e-8
@@ -64,7 +64,7 @@ class Basis(eqx.Module):
 
 
 def smooth_subset(
-    dense: GVectors, cell, ecut: float, fft_factors=(1, 1, 1)
+    dense: GVectors, cell, ecut: float, fft_factors=(1, 1, 1), grid=None
 ) -> GVectors:
     """The G-vectors of ``dense`` inside a smaller cutoff, on their own FFT box.
 
@@ -91,9 +91,10 @@ def smooth_subset(
         # rather than trusted.
         raise AssertionError("the dense G-vector list is not sorted by |G|^2")
 
-    grid = fft_grid_dimensions(
-        np.asarray(cell.at_alat), np.asarray(cell.bg_2pi_alat), gcut, fft_factors
-    )
+    if grid is None:
+        grid = fft_grid_dimensions(
+            np.asarray(cell.at_alat), np.asarray(cell.bg_2pi_alat), gcut, fft_factors
+        )
     return GVectors(
         miller=jnp.asarray(miller[:ngms], dtype=jnp.int32),
         grid=tuple(int(n) for n in grid),
@@ -127,10 +128,7 @@ def build_basis(system: System) -> Basis:
     # basis -- hence the symmetry search here. See ``Symmetries.fft_factors``.
     # With ``nosym`` there are no symmetry operations to be commensurate with:
     # QE sets ``nsym = 1`` and its ``fft_fact`` is then 1 along every axis.
-    factors = (
-        (1, 1, 1) if system.nosym
-        else find_symmetries(system.cell, system.structure).fft_factors()
-    )
+    factors = _fft_factors(system)
 
     dense = generate_gvectors(
         system.cell, system.ecutrho, fft_factors=factors
@@ -146,3 +144,57 @@ def build_basis(system: System) -> Basis:
         smooth, system.kpoints, system.cell, system.ecutwfc, gamma_only=gamma_only
     )
     return Basis(dense=dense, smooth=smooth, planewaves=planewaves)
+
+
+def _fft_factors(system: System) -> tuple[int, int, int]:
+    """The divisibility each FFT size takes from the crystal's fractional translations."""
+    return (
+        (1, 1, 1) if system.nosym
+        else find_symmetries(system.cell, system.structure).fft_factors()
+    )
+
+
+def widen_for_displaced_sphere(system: System, basis: Basis, shift) -> Basis:
+    """``basis`` with its boxes widened until each holds its displaced sphere (I122).
+
+    A spin spiral keeps its transverse pair on ``{G : |G + shift| <= G_cut}``
+    (:func:`~defuqumat.basis.gvectors.displaced_gvectors`, ``shift = -q``),
+    which has the resident sphere's diameter but can span one Miller index more
+    along an axis. When the resident box is exactly the resident span along that
+    axis -- an odd FFT size such as 25 or 45 that the rounding happened to land
+    on -- two members share a box index. The box is then taken one FFT size
+    larger along that axis (:func:`~defuqumat.basis.gvectors.box_holding_displaced`)
+    and the dense set, and the smooth one where it is a separate grid, are
+    rebuilt on it. The spheres themselves are unchanged, Miller index for
+    Miller index; only the real-space grid the fields are sampled on grows,
+    which moves the exchange-correlation energy by the grid's discretisation
+    and nothing else. Where both boxes already hold, ``basis`` is returned as
+    it is, so no run that did not fold changes.
+
+    The plane waves are not rebuilt here: the caller builds them on the
+    returned smooth set, as the spiral already does on its shifted k-points.
+    """
+    factors = _fft_factors(system)
+    dense_grid = box_holding_displaced(system.cell, basis.dense, shift, factors)
+    separate = basis.smooth is not basis.dense
+    smooth_grid = (
+        box_holding_displaced(system.cell, basis.smooth, shift, factors)
+        if separate else dense_grid
+    )
+    if dense_grid == basis.dense.grid and smooth_grid == basis.smooth.grid:
+        return basis
+    # A smooth box larger than the dense one along an axis would not be a box
+    # the dense set's coefficients can be moved into by truncation.
+    dense_grid = tuple(max(d, s) for d, s in zip(dense_grid, smooth_grid))
+    dense = generate_gvectors(system.cell, basis.dense.ecut, grid=dense_grid,
+                              fft_factors=factors)
+    if not np.array_equal(np.asarray(dense.miller), np.asarray(basis.dense.miller)):
+        raise AssertionError(
+            "widening the dense box changed its sphere; the widened set must be "
+            "the resident one on a larger grid"
+        )
+    smooth = (
+        smooth_subset(dense, system.cell, basis.smooth.ecut, factors, grid=smooth_grid)
+        if separate else dense
+    )
+    return Basis(dense=dense, smooth=smooth, planewaves=basis.planewaves)
