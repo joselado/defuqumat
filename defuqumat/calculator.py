@@ -86,7 +86,7 @@ from defuqumat.pseudo.upf import Pseudopotential, read_upf
 from defuqumat.scf.driver import (Calculation, SCF_CHECKPOINT, SCFResult,
                                 run_scf)
 from defuqumat.system.builder import System, build_system
-from defuqumat.system.kpoints import for_spin
+from defuqumat.system.kpoints import for_spin, labelled_path, resolve_kpoints
 
 __all__ = ["Calculator", "SHARED_OPTIONS", "SCF_ONLY_OPTIONS",
            "electrons_defaults"]
@@ -924,8 +924,20 @@ class Calculator:
     # band structure, densities of states
     # ------------------------------------------------------------------
 
+    def kpath(self, path: str, npoints: int = 100):
+        """A band path from point names, ``calc.kpath("L-G-X|U-K-G", 200)``.
+
+        :func:`~defuqumat.system.kpoints.labelled_path` on this crystal's cell.
+        A string given straight to :meth:`get_bands` is the same path at 100
+        points; this is the way to choose the density.
+        """
+        return labelled_path(path, self.system.cell, npoints=npoints)
+
     def get_bands(self, kpoints=None, **options):
         """Diagonalise on a k-path at the converged density.
+
+        ``kpoints`` is a :class:`~defuqumat.system.kpoints.KPoints` or a path
+        of point names, ``"L-G-X|U-K-G"`` (:meth:`kpath`).
 
         The Fermi level and the HOMO come from the cached ground state unless
         given, so the band plot has its zero without being told.
@@ -937,7 +949,8 @@ class Calculator:
         kw.setdefault("fermi_energy", result.fermi_energy)
         kw.setdefault("homo", result.homo)
         return run_bands(self.system, self.pseudos, result.density,
-                         kpoints=kpoints, calculation=self.calculation, **kw)
+                         kpoints=resolve_kpoints(kpoints, self.system.cell),
+                         calculation=self.calculation, **kw)
 
     def get_nscf(self, kpoints=None, **options):
         """Diagonalise on a k-grid at the converged density, and occupy it."""
@@ -945,7 +958,8 @@ class Calculator:
 
         result = self._ground_state("an NSCF run")
         return run_nscf(self.system, self.pseudos, result.density,
-                        kpoints=kpoints, calculation=self.calculation,
+                        kpoints=resolve_kpoints(kpoints, self.system.cell),
+                        calculation=self.calculation,
                         **self._call_options(run_nscf, result, options))
 
     def get_dos(self, grid=None, **options):
@@ -1105,7 +1119,8 @@ class Calculator:
 
         result = self._ground_state("the band velocities")
         return band_velocities(
-            self.calculation, result, kpoints=kpoints,
+            self.calculation, result,
+            kpoints=resolve_kpoints(kpoints, self.system.cell),
             **self._defaults_for(band_velocities, options,
                                  exclude=SCF_ONLY_OPTIONS),
         )
@@ -1852,7 +1867,8 @@ class Calculator:
 
         result = self._ground_state("the shift current")
         if kpoints is not None:
-            options = {**options, "kpoints": kpoints}
+            options = {**options,
+                       "kpoints": resolve_kpoints(kpoints, self.system.cell)}
         if nbnd is not None:
             options = {**options, "nbnd": nbnd}
         return run_shift_current(
@@ -1879,7 +1895,8 @@ class Calculator:
 
         result = self._ground_state("second-harmonic generation")
         if kpoints is not None:
-            options = {**options, "kpoints": kpoints}
+            options = {**options,
+                       "kpoints": resolve_kpoints(kpoints, self.system.cell)}
         if nbnd is not None:
             options = {**options, "nbnd": nbnd}
         return run_shg(

@@ -14,12 +14,12 @@ a file run therefore cannot differ in a default or in a refusal: there is one
 path after this module, not two. The text is also what :func:`pw_input_text`
 returns, which is how a keyword run is taken to ``pw.x`` for an A/B.
 
-Only what is typed for every crystal has a keyword of its own. Everything else
-reaches its namelist unchanged through ``qe={'system': {...}, ...}``, in
-``pw.x``'s own names and units (Ry, bohr), so no part of the code is out of
-reach of this form. A ``qe`` key that one of the keywords already sets is
-refused rather than resolved, since which of the two was meant is not
-recoverable.
+Every card the code reads has a keyword, and everything else reaches the input
+unchanged: a namelist variable through ``qe={'system': {...}, ...}`` and a card
+through ``cards={'NAME': ...}``, in ``pw.x``'s own names and units (Ry, bohr),
+so no input of the file route is out of reach of this form. A ``qe`` key or a
+card that one of the keywords already writes is refused rather than resolved,
+since which of the two was meant is not recoverable.
 
 The conversions are the ones in :mod:`defuqumat.units`. Lengths are not
 converted at all: they are written as ``pw.x``'s own ``A``, ``B``, ``C``,
@@ -72,8 +72,19 @@ _SMEARING = {
 KEYWORDS = frozenset({
     "lattice", "a", "b", "c", "atoms", "coordinates", "pseudos", "masses",
     "ecut", "ecutrho", "kmesh", "kshift", "nbands", "functional", "smearing",
-    "smearing_type", "spin", "spin_orbit", "qe",
+    "smearing_type", "spin", "spin_orbit", "fixed", "band_occupations",
+    "hubbard", "hubbard_projectors", "field", "fields", "tensor_moments",
+    "qe", "cards",
 })
+
+#: The cards the keywords write. ``cards=`` may not give one of them again.
+_KEYWORD_CARDS = {
+    "ATOMIC_SPECIES": "pseudos", "ATOMIC_POSITIONS": "atoms",
+    "CELL_PARAMETERS": "lattice", "K_POINTS": "kmesh",
+    "STARTING_MOMENTS": "atoms (a moment)", "OCCUPATIONS": "band_occupations",
+    "HUBBARD": "hubbard", "LOCAL_MAGNETIC_FIELDS": "fields",
+    "TENSOR_MOMENTS": "tensor_moments",
+}
 
 
 def pw_input_text(
@@ -96,7 +107,15 @@ def pw_input_text(
     smearing_type: str = "gaussian",
     spin: str | None = None,
     spin_orbit: bool = False,
+    fixed=None,
+    band_occupations=None,
+    hubbard: dict | None = None,
+    hubbard_projectors: str = "atomic",
+    field=None,
+    fields=None,
+    tensor_moments=None,
     qe: dict | None = None,
+    cards: dict | None = None,
 ) -> str:
     """The ``pw.x`` input that the keywords describe, as text.
 
@@ -116,9 +135,11 @@ def pw_input_text(
             atomic weight of the element, ``pw.x``'s table.
         ecutrho: the density cutoff, in eV. Defaults to four times ``ecut``, as
             in ``pw.x``; an ultrasoft or PAW dataset wants eight to twelve.
-        kmesh: ``(n1, n2, n3)`` for a Monkhorst-Pack mesh, or ``'gamma'`` for
-            the single point, stored as a half sphere (P68). Required, as the
-            cutoff is: neither has a default that is right for a crystal.
+        kmesh: ``(n1, n2, n3)`` for a Monkhorst-Pack mesh, ``'gamma'`` for
+            the single point, stored as a half sphere (P68), or an explicit list
+            ``[((k1, k2, k3), weight), ...]`` in crystal coordinates
+            (``K_POINTS crystal``). Required, as the cutoff is: neither has a
+            default that is right for a crystal.
         kshift: ``(0 or 1, ...)``, a half-step shift of the mesh along each axis.
         nbands: the number of bands. Defaults to ``pw.x``'s choice.
         functional: overrides the functional the pseudopotentials were made with
@@ -131,12 +152,33 @@ def pw_input_text(
         spin: ``None``, ``'collinear'`` or ``'noncollinear'``.
         spin_orbit: include spin-orbit coupling; needs fully relativistic
             pseudopotentials, and implies ``spin='noncollinear'``.
+        fixed: the coordinates a relaxation keeps fixed, by atom index from
+            0: ``[0, 2]`` fixes atoms 0 and 2 entirely, ``{1: 'z'}`` fixes the
+            z coordinate of atom 1 (``if_pos``).
+        band_occupations: fixed band occupations, one list per spin channel or
+            one list for ``nspin = 1`` (``occupations = 'from_input'`` and the
+            ``OCCUPATIONS`` card). Not with ``smearing``.
+        hubbard: DFT+U parameters in eV, ``{'U': {'Fe-3d': 4.3}, 'J0': {...}}``,
+            written to the ``HUBBARD`` card, which is in eV already.
+        hubbard_projectors: the card option, ``'atomic'`` (``pw.x``'s default),
+            ``'ortho-atomic'`` or ``'norm-atomic'``.
+        field: a uniform Zeeman field, cartesian, in eV (``B_field``, which
+            ``pw.x`` adds to the potential in Ry, with its sign).
+        fields: one Zeeman field per atom, cartesian, in eV
+            (``LOCAL_MAGNETIC_FIELDS``).
+        tensor_moments: fixed tensor moments of a Hubbard shell, Elk's
+            ``tm3fix``, ``[('Fe-3d', k, p, r, t, value), ...]``.
         qe: anything else, as ``pw.x`` namelist entries in ``pw.x``'s own units:
             ``{'electrons': {'conv_thr': 1e-10}, 'system': {'nosym': True}}``.
+            An indexed variable is its own key, ``{'system':
+            {'starting_magnetization(1)': 0.5}}``.
+        cards: any card the keywords do not write, verbatim, in ``pw.x``'s own
+            format and units: ``{'NAME': lines}`` or ``{'NAME': (option,
+            lines)}``, with ``lines`` a string or a list of strings.
     """
     namelists: dict[str, dict[str, Any]] = {"control": {}, "system": {}, "electrons": {}}
     system = namelists["system"]
-    cards: list[str] = []
+    extra_cards, cards = cards or {}, []
 
     # --- the lattice -------------------------------------------------------
     if isinstance(lattice, str):
@@ -191,6 +233,16 @@ def pw_input_text(
             species.append(label)
         rows.append(f"  {label}  " + "  ".join(_num(x) for x in position))
         moments.append(entry[2] if len(entry) == 3 else None)
+    if fixed is not None:
+        frozen = fixed if isinstance(fixed, dict) else {i: "xyz" for i in fixed}
+        for index, axes in frozen.items():
+            if not 0 <= int(index) < len(rows):
+                raise ValueError(f"fixed names atom {index}, but there are {len(rows)} (from 0)")
+            if not axes or set(axes) - set("xyz"):
+                raise ValueError(f"fixed[{index}] = {axes!r}: expected a subset of 'xyz'")
+        for i in range(len(rows)):
+            axes = str(frozen.get(i, ""))
+            rows[i] += "  " + " ".join("0" if a in axes else "1" for a in "xyz")
 
     missing = [s for s in species if s not in pseudos]
     if missing:
@@ -220,6 +272,18 @@ def pw_input_text(
         system["input_dft"] = str(functional)
 
     # --- occupations -------------------------------------------------------
+    if band_occupations is not None:
+        if smearing is not None:
+            raise ValueError("band_occupations fixes the occupations, so it takes no smearing")
+        table = np.atleast_2d(np.asarray(band_occupations, dtype=float))
+        system["occupations"] = "from_input"
+        system.setdefault("nbnd", table.shape[1])
+        if system["nbnd"] != table.shape[1]:
+            raise ValueError(
+                f"band_occupations lists {table.shape[1]} bands and nbands is {system['nbnd']}"
+            )
+        cards.append("OCCUPATIONS")
+        cards.extend("  " + "  ".join(_num(x) for x in row) for row in table)
     if smearing is not None:
         kind = _SMEARING.get(str(smearing_type).lower())
         if kind is None:
@@ -251,11 +315,49 @@ def pw_input_text(
         for moment in moments:
             cards.append("  " + "  ".join(_num(x) for x in _moment(moment, spin)))
 
+    # --- fields and DFT+U ---------------------------------------------------
+    if field is not None:
+        vector = np.asarray(field, dtype=float)
+        if vector.shape != (3,):
+            raise ValueError("field is one cartesian vector, in eV")
+        for i, value in enumerate(vector, start=1):
+            system[f"B_field({i})"] = float(value) / RY_TO_EV
+    if fields is not None:
+        rows_b = np.asarray(fields, dtype=float)
+        if rows_b.shape != (len(rows), 3):
+            raise ValueError(f"fields needs one cartesian vector per atom, {len(rows)} of them, in eV")
+        cards.append("LOCAL_MAGNETIC_FIELDS")
+        cards.extend("  " + "  ".join(_num(x / RY_TO_EV) for x in row) for row in rows_b)
+    if hubbard:
+        cards.append(f"HUBBARD {hubbard_projectors}")
+        for parameter, values in hubbard.items():
+            for manifold, value in values.items():
+                cards.append(f"  {parameter}  {manifold}  {_num(value)}")
+    if tensor_moments:
+        cards.append("TENSOR_MOMENTS")
+        for entry in tensor_moments:
+            if len(entry) != 6:
+                raise ValueError(
+                    f"tensor moment {entry!r}: expected (manifold, k, p, r, t, value)"
+                )
+            manifold, *indices, value = entry
+            cards.append(f"  {manifold}  " + " ".join(str(int(i)) for i in indices)
+                         + f"  {_num(value)}")
+
     # --- k-points ----------------------------------------------------------
     if isinstance(kmesh, str):
         if kmesh.lower() != "gamma":
             raise ValueError(f"kmesh = {kmesh!r}: expected (n1, n2, n3) or 'gamma'")
         cards.append("K_POINTS gamma")
+    elif len(kmesh) and isinstance(kmesh[0], (list, tuple)):
+        listed = [(np.asarray(k, dtype=float), float(w)) for k, w in kmesh]
+        if any(k.shape != (3,) for k, _ in listed):
+            raise ValueError("an explicit kmesh is [((k1, k2, k3), weight), ...] in crystal coordinates")
+        if any(kshift):
+            raise ValueError("kshift belongs to a Monkhorst-Pack mesh, not to an explicit list")
+        cards.append("K_POINTS crystal")
+        cards.append(f"  {len(listed)}")
+        cards.extend("  " + "  ".join(_num(x) for x in k) + f"  {_num(w)}" for k, w in listed)
     else:
         mesh = [int(n) for n in kmesh]
         shift = [int(s) for s in kshift]
@@ -274,6 +376,18 @@ def pw_input_text(
                     f"({target[_find(target, key)]!r}); give it in one place"
                 )
             target[key] = value
+
+    for name, body in extra_cards.items():
+        name = name.upper()
+        if name in _KEYWORD_CARDS:
+            raise ValueError(
+                f"cards['{name}']: this card is written by the keyword "
+                f"{_KEYWORD_CARDS[name]}; give it in one place"
+            )
+        option, body = body if isinstance(body, tuple) else (None, body)
+        text = body if isinstance(body, str) else "\n".join(body)
+        cards.append(name + (f" {option}" if option else ""))
+        cards.extend("  " + line.strip() for line in text.strip().splitlines())
 
     lines = []
     for namelist, entries in namelists.items():

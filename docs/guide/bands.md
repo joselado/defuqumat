@@ -67,6 +67,55 @@ If you need the eigenvalues and the occupations on a k-mesh, you can use
 `calc.get_nscf(kpoints=...)`, which also diagonalizes at a fixed density and in
 addition fills the states.
 
+## A path by the names of its points
+
+We can also give the path by the names of the high-symmetry points, as they are
+written on a band-structure plot. Here we take the same silicon, given with
+keywords as in [Your own crystal](own-crystal.md):
+
+```python
+from defuqumat import Calculator
+
+calc = Calculator.from_keywords(
+    lattice="fcc", a=5.40,
+    atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+    pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=217.7, kmesh=(6, 6, 6), kshift=(1, 1, 1),
+)
+bands = calc.get_bands(kpoints="L-G-X-U|K-G", nbnd=8)
+print(bands.eigenvalues_ev.shape)
+print(f"indirect gap {bands.gap(8):.3f} eV")
+
+dense = calc.get_bands(kpoints=calc.kpath("L-G-X-U|K-G", npoints=200), nbnd=8)
+print(dense.eigenvalues_ev.shape)
+```
+
+```
+(101, 8)
+indirect gap 0.506 eV
+(201, 8)
+```
+
+The gap is 0.506 eV and not 0.504 eV, because here $a$ = 5.40 Å and in the file
+above $a$ = 10.20 bohr = 5.3976 Å. A `-` joins two points and a `|` is a jump,
+so U|K is a new segment that starts at K. `G` and `Gamma` are both $\Gamma$. A
+string gives 100 points, shared between the segments by their length, and
+`calc.kpath(path, npoints=...)` sets another number. The same strings work in
+`calc.get_nscf`, `calc.get_band_velocities`, `calc.get_shift_current` and
+`calc.get_shg`.
+
+The names exist for the named lattices of `Calculator.from_keywords`:
+
+- **sc**: G, X, M, R.
+- **fcc**: G, X, L, W, K, U.
+- **bcc**: G, H, N, P.
+- **hexagonal**: G, M, K, A, L, H.
+- **tetragonal**: G, X, M, Z, R, A.
+- **orthorhombic**: G, X, Y, Z, S, U, T, R.
+
+A crystal given by its lattice vectors has no names, because its vectors can be
+any choice, and then you give the corners with `KPoints.band_path` as above.
+
 ![The band structure of silicon along L-Gamma-X-U|K-Gamma.](img/bands_silicon.png#only-light)
 ![The band structure of silicon along L-Gamma-X-U|K-Gamma.](img/bands_silicon-dark.png#only-dark)
 

@@ -29,7 +29,8 @@ _GRID_EPS = 1.0e-5
 
 __all__ = ["KPoints", "monkhorst_pack", "irreducible_wedge", "grid_equivalence",
            "grid_stabilizer",
-           "expand_to_subgroup", "expand_band_path", "for_spin", "is_reduced"]
+           "expand_to_subgroup", "expand_band_path", "for_spin", "is_reduced",
+           "HIGH_SYMMETRY_POINTS", "labelled_path", "resolve_kpoints"]
 
 #: Spin degeneracy factor applied to weights for an unpolarised calculation.
 DEGSPIN = 2.0
@@ -691,3 +692,100 @@ def _normalise(weights) -> np.ndarray:
     if total <= 0.0:
         raise ValueError("k-point weights must sum to a positive number")
     return weights / total * DEGSPIN
+
+
+#: Named high-symmetry points per ``ibrav``, with the frame they are given in.
+#:
+#: **The cubic three are cartesian, in 2 pi / a**, because the standard tables
+#: (Setyawan and Curtarolo, Comput. Mater. Sci. 49, 299 (2010)) give fcc and
+#: bcc points in the fractions of *their* primitive vectors, which are not
+#: ``latgen``'s: for ``ibrav = 2`` QE takes ``(-1,0,1)/2, (0,1,1)/2,
+#: (-1,1,0)/2`` and the table ``(0,1,1)/2, (1,0,1)/2, (1,1,0)/2``, so a
+#: tabulated fraction lands on another point here. In cartesian units the
+#: primitive vectors do not enter. The other three are fractions of the
+#: reciprocal vectors of ``latgen``'s own basis (``ibrav = 4`` with ``a2`` at
+#: 120 degrees), where ``c/a`` would otherwise have to enter a cartesian table.
+#: ``G`` is Gamma.
+HIGH_SYMMETRY_POINTS = {
+    1: ("cartesian", {"G": (0, 0, 0), "X": (0, 0.5, 0), "M": (0.5, 0.5, 0),
+                      "R": (0.5, 0.5, 0.5)}),
+    2: ("cartesian", {"G": (0, 0, 0), "X": (1, 0, 0), "L": (0.5, 0.5, 0.5),
+                      "W": (1, 0.5, 0), "K": (0.75, 0.75, 0), "U": (1, 0.25, 0.25)}),
+    3: ("cartesian", {"G": (0, 0, 0), "H": (0, 0, 1), "N": (0.5, 0.5, 0),
+                      "P": (0.5, 0.5, 0.5)}),
+    4: ("crystal", {"G": (0, 0, 0), "M": (0.5, 0, 0), "K": (1 / 3, 1 / 3, 0),
+                    "A": (0, 0, 0.5), "L": (0.5, 0, 0.5), "H": (1 / 3, 1 / 3, 0.5)}),
+    6: ("crystal", {"G": (0, 0, 0), "X": (0, 0.5, 0), "M": (0.5, 0.5, 0),
+                    "Z": (0, 0, 0.5), "R": (0, 0.5, 0.5), "A": (0.5, 0.5, 0.5)}),
+    8: ("crystal", {"G": (0, 0, 0), "X": (0.5, 0, 0), "Y": (0, 0.5, 0),
+                    "Z": (0, 0, 0.5), "S": (0.5, 0.5, 0), "U": (0.5, 0, 0.5),
+                    "T": (0, 0.5, 0.5), "R": (0.5, 0.5, 0.5)}),
+}
+
+
+def labelled_path(path: str, cell: Cell, npoints: int = 100,
+                  precision: Precision = DEFAULT_PRECISION) -> "KPoints":
+    """A band path from point names, ``"L-G-X|U-K-G"``.
+
+    ``-`` joins two corners and ``|`` jumps, as ``U|K`` on a band-structure
+    plot. ``Gamma`` and ``G`` are the same point. ``npoints`` is the total,
+    shared out by the cartesian length of each segment, with at least one point
+    per segment and the last corner included. The names are those of
+    :data:`HIGH_SYMMETRY_POINTS`, so the lattice has to be a named one; a cell
+    given by its vectors (``ibrav = 0``) has no table, and the path is then
+    built with :meth:`KPoints.band_path` from coordinates.
+    """
+    ibrav = int(cell.ibrav)
+    if ibrav not in HIGH_SYMMETRY_POINTS:
+        raise ValueError(
+            f"no named high-symmetry points for ibrav = {ibrav}: the lattice is "
+            "not one of the named ones (sc, fcc, bcc, hexagonal, tetragonal, "
+            "orthorhombic), so give the corners as coordinates with "
+            "KPoints.band_path"
+        )
+    frame, table = HIGH_SYMMETRY_POINTS[ibrav]
+    pieces = [[name.strip() for name in piece.split("-")] for piece in path.split("|")]
+    corners, jumps = [], []
+    for piece in pieces:
+        if not piece or any(not name for name in piece):
+            raise ValueError(f"malformed path {path!r}: expected e.g. 'L-G-X|U-K-G'")
+        for name in piece:
+            key = "G" if name.lower() in ("g", "gamma") else name
+            if key not in table:
+                raise ValueError(
+                    f"no point {name!r} for this lattice; the named ones are "
+                    f"{sorted(table)}"
+                )
+            corners.append(table[key])
+        jumps.append(len(corners) - 1)
+    vertices = np.asarray(corners, dtype=float)
+    if len(vertices) < 2:
+        raise ValueError(f"path {path!r} has a single corner")
+
+    cartesian = (vertices if frame == "cartesian"
+                 else np.asarray(cell.k_to_cartesian(vertices)))
+    lengths = np.linalg.norm(np.diff(cartesian, axis=0), axis=1)
+    joined = np.array([i not in jumps for i in range(len(vertices) - 1)])
+    total = lengths[joined].sum()
+    if total == 0.0:
+        raise ValueError(f"path {path!r} has no length")
+    counts = np.zeros(len(vertices), dtype=int)
+    budget = max(int(npoints) - 1, int(joined.sum()))
+    counts[:-1] = np.where(
+        joined, np.maximum(1, np.rint(lengths / total * budget)), 0
+    ).astype(int)
+    counts[-1] = 1
+    return KPoints.band_path(vertices, counts, cell,
+                             crystal=frame == "crystal", precision=precision)
+
+
+def resolve_kpoints(kpoints, cell: Cell, precision: Precision = DEFAULT_PRECISION):
+    """A caller's k-set: a :class:`KPoints` as it is, a path string as a path.
+
+    ``None`` and a ``KPoints`` pass through unchanged, so a method that takes a
+    hand-built set still sees exactly that set. A string is a named path,
+    :func:`labelled_path` at its default density.
+    """
+    if isinstance(kpoints, str):
+        return labelled_path(kpoints, cell, precision=precision)
+    return kpoints

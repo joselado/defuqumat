@@ -82,8 +82,11 @@ The keywords are the following.
 - **`ecut`**, **`ecutrho`**: the two cutoffs in eV. If you do not give
   `ecutrho`, it is four times `ecut`, as in `pw.x`.
 - **`kmesh`**, **`kshift`**: the Monkhorst-Pack mesh and its half-step shift,
-  or `kmesh="gamma"` for the single point. You always give `kmesh`, as you
-  always give `ecut`, because no default is right for every crystal.
+  or `kmesh="gamma"` for the single point. An explicit list of k-points is
+  `kmesh=[((k1, k2, k3), weight), ...]`, in crystal coordinates. You always
+  give `kmesh`, as you always give `ecut`, because no default is right for
+  every crystal. A band path is not given here but to `calc.get_bands`, by the
+  names of its points, as in [Band structure](bands.md).
 - **`smearing`**, **`smearing_type`**: the width in eV for a metal, and
   `"gaussian"`, `"methfessel-paxton"`, `"marzari-vanderbilt"` (or `"cold"`) or
   `"fermi-dirac"`. The short names of `pw.x`, `"mp"`, `"mv"` and `"fd"`,
@@ -96,9 +99,27 @@ The keywords are the following.
   relativistic pseudopotentials.
 - **`nbands`**, **`functional`**: the number of bands and the functional, as
   `nbnd` and `input_dft` of `pw.x`.
+- **`fixed`**: the coordinates that a relaxation keeps fixed. The atoms are
+  counted from 0. `fixed=[0, 2]` fixes atoms 0 and 2, and `fixed={1: "z"}`
+  fixes only the z coordinate of atom 1.
+- **`band_occupations`**: fixed occupations of the bands, one list for each
+  spin channel. This is `occupations = 'from_input'` of `pw.x`, and it does not
+  go with `smearing`.
+- **`hubbard`**, **`hubbard_projectors`**: the DFT+U parameters in eV, for
+  example `hubbard={"U": {"Fe-3d": 4.3}}`, and the projectors, `"atomic"` if
+  you do not give them, `"ortho-atomic"` or `"norm-atomic"`.
+- **`field`**, **`fields`**: a Zeeman field in eV, as a cartesian vector. It is
+  one field for the whole cell (`B_field` of `pw.x`), or one for each atom.
+- **`tensor_moments`**: fixed tensor moments of a Hubbard shell, as
+  `[("Fe-3d", k, p, r, t, value)]`, as `tm3fix` of Elk.
 - **`qe`**: any other variable of `pw.x`, with its own name and in its own
   units, for example `qe={"electrons": {"conv_thr": 1e-10}}`. A variable that
-  a keyword already sets gives an error, so each value is given only once.
+  a keyword already sets gives an error, so each value is given only once. An
+  indexed variable is one key, for example `"starting_magnetization(1)": 0.5`.
+- **`cards`**: any other card of `pw.x`, as its lines, in its own format and
+  units, for example `cards={"ATOMIC_FORCES": ["C 0 0 0", "C 0 0 0"]}`. A card
+  with an option is `{"NAME": (option, lines)}`. A card that a keyword already
+  writes gives an error.
 
 Any other keyword is an option of the calculator, as in `Calculator.from_file`.
 With keywords a convergence test is a loop over a number:
@@ -243,8 +264,10 @@ Before we trust the numbers of a new crystal, we check four things.
     gives an error. So does a species without a pseudopotential, and an atom
     with a moment but no `spin`. A variable in `qe` that a keyword already sets
     also gives an error. A misspelt keyword gives an error that lists all the
-    keywords. The `qe` dictionary reaches only the namelists, so a `HUBBARD`
-    card or a k-path still needs an input file.
+    keywords. Every input of a `pw.x` file can be given with keywords, through
+    `qe` and `cards` if it has no keyword of its own. Named k-points exist only
+    for the named lattices, and a crystal given by its lattice vectors gives
+    its path with `KPoints.band_path`.
 
     The old DFT+U variables of `&system` give an error, as in `pw.x` 7.5. These
     are `lda_plus_u`, `lda_plus_u_kind`, `Hubbard_U`, `Hubbard_U_back`,

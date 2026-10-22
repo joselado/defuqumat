@@ -17,7 +17,7 @@ number from a plane-wave code means anything, and only the first two are physics
 | diamond, LDA | here | measured |
 |---|---|---|
 | total energy | **-22.85560171 Ry** | |
-| indirect gap, off a band path | **4.1305 eV** | 5.47 eV |
+| indirect gap, off a band path | **4.1302 eV** | 5.47 eV |
 | direct gap at $\Gamma$ | **5.5455 eV** | 7.3 eV |
 
 Both gaps are the familiar semilocal underestimate, about 25% low, and notebook 24 is what
@@ -237,12 +237,8 @@ Everything the rest of this set computes, off the same object.
 
 
 ```python
-from defuqumat.system.kpoints import KPoints
-
-FCC = {"L": (.5, .5, .5), "G": (0., 0., 0.), "X": (0., 0., 1.), "K": (.75, .75, 0.)}
-PATH = ["L", "G", "X", "K", "G"]
-path = KPoints.band_path([FCC[p] for p in PATH], [30, 30, 30, 30, 1],
-                         diamond.system.cell, crystal=False)
+path = diamond.kpath("L-G-X-U|K-G", npoints=121)
+gamma = int(np.argmin(np.linalg.norm(np.asarray(path.coords), axis=1)))
 
 fig, (left, right) = plt.subplots(1, 2, figsize=(9.0, 3.6),
                                   gridspec_kw={"width_ratios": [2, 1]})
@@ -250,7 +246,7 @@ diamond.get_bands(kpoints=path).plot(ax=left)
 diamond.get_dos(grid=(12, 12, 12), degauss=0.02).plot(ax=right)
 left.set_ylim(-25, 20)
 right.set_xlim(-25, 20)
-fig.suptitle("Diamond: bands along L-$\Gamma$-X-K-$\Gamma$, and the density of states",
+fig.suptitle("Diamond: bands along L-$\Gamma$-X-U|K-$\Gamma$, and the density of states",
              fontsize=10)
 fig.tight_layout()
 
@@ -258,10 +254,10 @@ levels = np.asarray(diamond.get_bands(kpoints=path).eigenvalues) * RY_TO_EV
 print("indirect gap off the path   %.4f eV   (measured 5.47)"
       % (levels[:, 4].min() - levels[:, 3].max()))
 print("direct gap at Gamma         %.4f eV   (measured 7.3)"
-      % (levels[30, 4] - levels[30, 3]))
+      % (levels[gamma, 4] - levels[gamma, 3]))
 ```
 
-    indirect gap off the path   4.1304 eV   (measured 5.47)
+    indirect gap off the path   4.1302 eV   (measured 5.47)
     direct gap at Gamma         5.5455 eV   (measured 7.3)
 
 
