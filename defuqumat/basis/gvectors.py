@@ -351,8 +351,10 @@ def _require_the_box_holds(miller, grid, name, ecut, shift) -> None:
             "G-vectors would share a box index with another and the box would "
             "add them together. A spin spiral keeps its transverse pair on that "
             "displaced sphere, so its box has to be one FFT size larger along "
-            "that axis than the cutoff alone asks for, which is not "
-            "implemented; a slightly different ecutrho or ecutwfc, at which "
+            "that axis than the cutoff alone asks for. A Calculation built for "
+            "the spiral widens its box this way (I122); a box handed in as it "
+            "is, or a q changed on a frozen basis (at_spiral_q), is not "
+            "widened, and a slightly different ecutrho or ecutwfc, at which "
             "the box rounds up past the sphere, avoids it"
         )
 
