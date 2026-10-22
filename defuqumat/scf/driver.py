@@ -4798,8 +4798,11 @@ class Calculation:
                 # ``|q - q_0| < (cell_factor - 1) G_rho`` (one ``G_rho`` at the
                 # default 2), and past it the stencil returns NaN, never a
                 # clamp. The gradient differs from the stored route's by the
-                # four-point stencil's interpolation error, which falls as
-                # ``AUG_DQ^4`` (measured in ``notes/incompat/I121.md``).
+                # four-point stencil's interpolation error: the energy
+                # difference falls as ``AUG_DQ^4`` (7.8e-9, 6.3e-10, 4.0e-11,
+                # 1.3e-12 Ry at 0.04 to 0.005); the gradient difference
+                # reaches a floor near 1e-11 by ``AUG_DQ = 0.01`` (measured in
+                # ``notes/incompat/I121.md``).
                 tabulated = isinstance(self.cross_augmentation,
                                        TabulatedAugmentation)
                 extent = (float(np.linalg.norm(np.asarray(self.spiral_qcart,

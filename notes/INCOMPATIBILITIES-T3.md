@@ -928,3 +928,37 @@ stopped the loop. Not run yet: the 108 files of chunks 8 to 11, among them
 - I121 (spiral `dE/dq` x tabulated cross augmentation), branch `incompat/I121` at `577a67ca`,
   verifier confirmed: to be merged, with the verifier's numbers added to the record, its logs
   copied to `notes/incompat/I121-ver/`, and the `at_spiral_q` comment corrected.
+
+**Merge.** `git merge --no-ff incompat/I121` (tip `577a67ca` checked), merge `5439fae4`, no
+conflict (files: `pseudo/augmentation.py`, `scf/driver.py`, the spiral tests and the record).
+Done with git and the editor only: at about 09:05 the user asked for no Python on this
+workstation until 10:15.
+
+**At integration.** `scf/driver.py:at_spiral_q`, the comment now says the energy difference falls
+as `AUG_DQ^4` (7.8e-9, 6.3e-10, 4.0e-11, 1.3e-12 Ry at 0.04 to 0.005) and the gradient difference
+reaches a floor near 1e-11 by `AUG_DQ = 0.01` (comment only, no code). The verifier's numbers are
+added to `notes/incompat/I121.md` (the US chain at 0.005, the PAW chain, `k_batch = None`, the NaN
+past the table and the missing `isfinite` guard, `DEFUQUMAT_AUG_MAX_BYTES` changed mid-run), and
+its `*.log` and `*.py` are in `notes/incompat/I121-ver/` (32 KB). `docs/guide/spirals.md` Limits:
+the refusal sentence is replaced by the record's three sentences (radial table above
+`DEFUQUMAT_AUG_MAX_BYTES`, `dE/dq` works there, 4e-11 Ry per unit of `q`). `.claude/rules/scope.md`
+spirals bullet: the tabulated table dropped from the refusals, with one sentence saying it takes
+`dE/dq` since P158. README: no change (the record says the row carries no text on this).
+Ledger: I121 removed from T3 and listed under "Closed since". `PLAN.md` P158: an I121 row and an
+"Integration eight" paragraph. `tools/check_guide.py` is not run yet (Python is paused).
+
+**Outcome.** I121 landed: US chain 3.8e-11 Ry per unit of `q` at `AUG_DQ = 0.01` against the
+term's 1.78e-4; PAW chain 2.50e-11 at 0.01 against 1.560e-4.
+
+**Slow tests for the user** (none run):
+`tests/unit/test_spiral_tabulated_augmentation.py::test_the_tabulated_derivative_converges_to_the_stored_one`,
+`tests/regression/test_spiral_relaxation.py::test_a_tabulated_augmentation_table_gives_the_stored_gradient`,
+`tests/regression/test_spin_spirals.py::test_what_a_spiral_refuses`.
+
+**Follow-ups.** A PAW parametrization of the regression test (with an `abs` above the PAW central
+difference's 2e-9 round-off); an `isfinite` check before BFGS in a frozen-basis walk; no notebook
+or timing.
+
+**Checks still to run after 10:15** (the coordinator's instruction): the 108 files of the I120
+gate's chunks 8 to 11, and the fast files the I121 merge touches plus the spiral and augmentation
+unit files, capped, `-m 'not slow'`; and `tools/check_guide.py`.

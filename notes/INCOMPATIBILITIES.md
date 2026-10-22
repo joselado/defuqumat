@@ -435,15 +435,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n.
 - Partial 2026-10-22 (P158, integration seven), record in `notes/incompat/I120.md`, verifier's harnesses in `notes/incompat/I120-ver/`: a meta-GGA unpolarized on norm-conserving datasets, a magnetic noncollinear norm-conserving LDA run and a streamed store on a CPU landed (see "Closed since"). Still refused: DFT+U, a PAW meta-GGA, a meta-GGA at `nspin = 2` or 4, an ultrasoft, PAW or GGA magnetic spinor run, a streamed store on an accelerator.
 
-### I121. Spiral `dE/dq` x tabulated cross augmentation
-
-- Axis: execution mode.
-- Guard: `defuqumat/scf/driver.py:Calculation.at_spiral_q:4569`.
-- Test: `tests/regression/test_spiral_relaxation.py:733` `test_a_tabulated_augmentation_table_is_refused`; `tests/regression/test_spin_spirals.py:310` `test_what_a_spiral_refuses`.
-- Missing: the radial table's extent is set from `|q|` on the host; the exact path works, the table is the memory fallback (`DEFUQUMAT_AUG_MAX_BYTES`) (sweep-core).
-- Check: the untabulated path, up to the table's interpolation error; a finite difference in `q`.
-- QE/Elk: QE n.
-
 ### I122. Spin spiral x an FFT box that folds the displaced sphere
 
 - Axis: execution mode.
@@ -783,6 +774,10 @@ Landed on 2026-10-22 in P158, integration six of tier T3 (branch `incompat-t3c`,
 Landed on 2026-10-22 in P158, integration seven of tier T3 (branch `incompat-t3c`, merge `5a1cf7f2`; the section of I120 above now carries only what still refuses; integration seven in `notes/INCOMPATIBILITIES-T3.md`):
 
 - I120, Sternheimer Jacobian (`jvp='sternheimer'`) x meta-GGA (`tb09`, `bj06`; unpolarized, norm-conserving), magnetic noncollinear norm-conserving LDA (with or without `lspinorb`, bulk or vacuum), streamed store on a CPU: the action against the central difference of the cold `F`. TB09 on the symmetric direction 2.2e-3, 2.1e-5, 1.37e-6, 6.5e-6 at steps 3e-4 to 3e-7, Richardson 3.9e-7 (0.67 with `dtau` out of `dV`); the random direction does not converge (Richardson never below 8.6e-6, `F` erratic below 1e-5); bj06 5.5e-7. The `|grad rho|` cone of `tb09_coefficient` given a zero tangent at the apex (`CONE_SIGMA = 1e-20`; `c` identical). fcc H ferromagnet Richardson 1.2e-6 (0.94 with the magnetization zeroed), Ni with `lspinorb` 5.4e-7; the vacuum sheet's mismatch is the curvature of `F`, 1.4e-6 at fixed `zeta`, and Newton lands 2.2e-10 Ry from mixing (the reviewer's condition). Stream on a CPU: Richardson 3.8e-7, the device run's to seven digits (`incompat/I120`, verifier confirmed, its corrections applied at integration).
+
+Landed on 2026-10-22 in P158, integration eight of tier T3 (branch `incompat-t3c`, merge `5439fae4`; the section of I121 above removed; integration eight in `notes/INCOMPATIBILITIES-T3.md`):
+
+- I121, Spiral `dE/dq` x tabulated cross augmentation: a host-side `shift_extent` (`pseudo/augmentation.py`), `|spiral_qcart|` passed by `at_spiral_q`, so the radial table's knots are the untraced build's and a traced `q` runs. Ultrasoft oxygen chain: tabulated against stored 3.8e-11 Ry per unit of `q` at `AUG_DQ = 0.01` (1.503e-11 at 0.005, a floor near 1e-11; `k_batch = None` 3.771e-11) against 1.78e-4 that the term is worth; the energy difference falls as `AUG_DQ^4`, 7.8e-9 to 1.3e-12 Ry at 0.04 to 0.005. PAW chain: term 1.560e-4, tabulated against stored 5.72e-11, 2.50e-11, 1.05e-11 at 0.02 to 0.005, energy against the SCF 3.5e-10 to 8.0e-13 Ry. Past `(cell_factor - 1) G_rho` from `q0` the stencil reads NaN, not reachable from a relaxation, which rebuilds the basis (`incompat/I121`, verifier confirmed, its numbers added at integration, logs in `notes/incompat/I121-ver/`).
 
 Earlier:
 

@@ -51,9 +51,9 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   rather than differentiating at a frozen one. Refused for a spiral: spin-orbit coupling
   switched on, permanently, symmetry beside an augmented dataset, DFT+U, `lspinorb`, an
   explicit k-list, the site angular momenta, the symmetrised projections or a change of
-  `q` (the spin space group that keeps `q` and the moments is used otherwise, P155, I50),
-  and — for `dE/dq` alone — a *tabulated* augmentation table, which
-  reads `|q|` on the host and cannot take a tracer.
+  `q` (the spin space group that keeps `q` and the moments is used otherwise, P155, I50).
+  A *tabulated* augmentation table takes `dE/dq` since P158 (I121): its extent is read
+  on the host from the frozen wavevector, not from the traced `q`.
 - **Spin-orbit coupling on a spiral, to first order** (P123, `workflows/spiral_soc.py`).
   The spiral runs on a fully-relativistic dataset at `soc_scale = 0`, the one form of the
   pair the reader admits, and the operator is `dvan_so(1) - dvan_so(0)`. It is the *same*

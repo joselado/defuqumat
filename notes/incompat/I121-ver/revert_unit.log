@@ -1,0 +1,66 @@
+============================= test session starts ==============================
+platform linux -- Python 3.14.6, pytest-9.0.3, pluggy-1.6.0
+PySide6 6.11.0 -- Qt runtime 6.11.0 -- Qt compiled 6.11.0
+rootdir: /u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a8fd9739fb75eaffc
+configfile: pyproject.toml
+plugins: qt-4.5.0, jaxtyping-0.3.11, anyio-4.12.1
+collected 3 items / 1 deselected / 2 selected
+
+tests/unit/test_spiral_tabulated_augmentation.py FF                      [100%]
+
+=================================== FAILURES ===================================
+___________ test_a_traced_shift_without_its_extent_is_still_refused ____________
+
+calculation = <defuqumat.scf.driver.Calculation object at 0x73a98c2001a0>
+
+    def test_a_traced_shift_without_its_extent_is_still_refused(calculation):
+        """The host read is still there when nobody passes the extent: it must fail loudly."""
+        f = _scalar(calculation, 1, None)
+        with pytest.raises((jax.errors.ConcretizationTypeError,
+                            jax.errors.TracerArrayConversionError)):
+>           jax.grad(f)(jnp.asarray(Q0))
+
+tests/unit/test_spiral_tabulated_augmentation.py:121: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+q = GradTracer(primal=[ 0.11 -0.07  0.19], typeof(tangent)=f64[3])
+
+    def f(q):
+>       table = build_augmentation(calculation.pseudos, system.structure, system.cell,
+                                   dense, max_bytes=max_bytes, shift=-q,
+                                   shift_extent=extent)
+E       TypeError: build_augmentation() got an unexpected keyword argument 'shift_extent'
+E       --------------------
+E       For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
+
+tests/unit/test_spiral_tabulated_augmentation.py:71: TypeError
+__________ test_a_shift_past_the_table_reads_nan_rather_than_a_clamp ___________
+
+calculation = <defuqumat.scf.driver.Calculation object at 0x73a98c2001a0>
+
+    def test_a_shift_past_the_table_reads_nan_rather_than_a_clamp(calculation):
+        """The one regime the extent does not cover: a traced ``q`` far from ``q0``.
+    
+        The table reaches ``2 G_rho + |q0|`` (12.9 bohr^-1 here, ``G_rho = 6.32``);
+        a shift of 8 more along x puts ``|G - q|`` up to 14.3, past its end, and
+        the stencil must say so with NaN rather than return a clamped, plausible
+        number.
+        """
+        extent = float(np.linalg.norm(Q0))
+        f = _scalar(calculation, 1, extent)
+>       assert np.isfinite(float(f(jnp.asarray(Q0))))
+                                 ^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_spiral_tabulated_augmentation.py:134: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+q = Array([ 0.11, -0.07,  0.19], dtype=float64)
+
+    def f(q):
+>       table = build_augmentation(calculation.pseudos, system.structure, system.cell,
+                                   dense, max_bytes=max_bytes, shift=-q,
+                                   shift_extent=extent)
+E       TypeError: build_augmentation() got an unexpected keyword argument 'shift_extent'
+
+tests/unit/test_spiral_tabulated_augmentation.py:71: TypeError
+======================= 2 failed, 1 deselected in 26.29s =======================

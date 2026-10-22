@@ -222,10 +222,10 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
 
     $dE/d\mathbf q$, and with it the relaxation of $\mathbf q$ and the scan with
     `gradients=True`, gives an error under a magnetic field or a constrained
-    moment, because the energy of the field is not part of the total energy. It
-    also gives an error when the augmentation charge is kept as a radial table,
-    which happens on large cells above `DEFUQUMAT_AUG_MAX_BYTES`, so you raise
-    that limit or scan $E(\mathbf q)$ instead.
+    moment, because the energy of the field is not part of the total energy.
+    On large cells above `DEFUQUMAT_AUG_MAX_BYTES` the augmentation charge is
+    kept as a radial table. $dE/d\mathbf q$ works there too. It agrees with the
+    stored table to 4e-11 Ry per unit of $\mathbf q$.
 
     The first-order spin-orbit energy needs a norm-conserving fully relativistic
     dataset at `soc_scale = 0`. A scalar-relativistic dataset gives an error,

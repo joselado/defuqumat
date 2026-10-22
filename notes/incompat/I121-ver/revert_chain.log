@@ -1,0 +1,41 @@
+[o-chain-spiral-us] sum abs m_i / N: [3.12015665e-01 5.21103849e-02 1.51653245e-08]
+[o-chain-spiral-us] SCF 78s E=-31.494564695557
+E1022 08:55:33.872999 3348032 slow_operation_alarm.cc:73] Constant folding an instruction is taking > 1s:
+
+  %transpose.221 = f64[35815,8,8]{2,1,0} transpose(%constant.654), dimensions={2,0,1}, metadata={op_name="jit(<lambda>)/transpose(jvp(jit(_species_charge)))/jit(species_channels)" stack_frame_id=752}
+
+This isn't necessarily a bug; constant-folding is inherently a trade-off between compilation time and speed at runtime. XLA has some guards that attempt to keep constant folding from taking too long, but fundamentally you'll always be able to come up with an input program that takes a long time.
+
+If you'd like to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+E1022 08:55:33.936469 3345674 slow_operation_alarm.cc:140] The operation took 1.065890482s
+Constant folding an instruction is taking > 1s:
+
+  %transpose.221 = f64[35815,8,8]{2,1,0} transpose(%constant.654), dimensions={2,0,1}, metadata={op_name="jit(<lambda>)/transpose(jvp(jit(_species_charge)))/jit(species_channels)" stack_frame_id=752}
+
+This isn't necessarily a bug; constant-folding is inherently a trade-off between compilation time and speed at runtime. XLA has some guards that attempt to keep constant folding from taking too long, but fundamentally you'll always be able to come up with an input program that takes a long time.
+
+If you'd like to file a bug, run with envvar XLA_FLAGS=--xla_dump_to=/tmp/foo and attach the results.
+[o-chain-spiral-us] stored grad array([-1.04316926e-10, -7.34041243e-11,  3.10043422e-03])
+[o-chain-spiral-us] dQ/dq term off: grad array([-1.01739039e-10, -6.89452498e-11,  2.92235173e-03])  |off-stored|=1.781e-04
+Traceback (most recent call last):
+  File "/u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a8fd9739fb75eaffc/notes/incompat/I121-harness/harness.py", line 59, in <module>
+    g_tab = np.asarray(compute_spiral_gradient(tab, state, k_batch=KB).gradient)
+                       ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a8fd9739fb75eaffc/defuqumat/forces/spiral.py", line 538, in compute_spiral_gradient
+    energy, gradient = _split_energy_and_gradient(calculation, q, state, batch)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a8fd9739fb75eaffc/defuqumat/forces/spiral.py", line 488, in _split_energy_and_gradient
+    e_glob, (g_q, g_b) = cache["global"](q, whole, rho_smooth)
+                         ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "/u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a8fd9739fb75eaffc/defuqumat/forces/spiral.py", line 471, in <lambda>
+    lambda q, b, rho: q_global_energy(calculation, q, b, rho),
+                      ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a8fd9739fb75eaffc/defuqumat/forces/spiral.py", line 344, in q_global_energy
+    moved = calculation.at_spiral_q(q_crystal, rebuild_basis=False)
+  File "/u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a8fd9739fb75eaffc/defuqumat/scf/driver.py", line 4744, in at_spiral_q
+    raise NotImplementedError(
+    ...<6 lines>...
+    )
+NotImplementedError: dE/dq for a spiral whose augmentation charge is tabulated is not implemented: the radial table's extent is set from |q| on the host, which a traced q does not have. Raise DEFUQUMAT_AUG_MAX_BYTES so the table is stored rather than tabulated, or scan E(q) instead of following its gradient
+--------------------
+For simplicity, JAX has removed its internal frames from the traceback of the following exception. Set JAX_TRACEBACK_FILTERING=off to include these.
