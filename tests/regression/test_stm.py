@@ -454,9 +454,14 @@ def test_the_image_in_a_weak_field_tends_to_the_field_free_one(regime):
     """I118. The image and the spectrum of a paramagnet in a field ``B``.
 
     The charge channel is even in ``B`` and the spin channel odd, so their
-    distance from the field-free reading falls as ``B^2`` and as ``B``; a tip
-    at the wrong level or states without the field would show up as a term
-    linear in ``B`` in the charge. Measured (notes/incompat/I118.md), between
+    distance from the field-free reading falls as ``B^2`` and as ``B``. This
+    checks the weak-field limit and nothing about which states or which level
+    are used: a tip at ``E_F(0)`` or states without the field give the same
+    exponents (1.957 to 1.986 and 1.005 to 1.009; 1.994 to 2.000 and 1.006 to
+    1.014), so that is what :func:`test_the_states_in_a_field_are_the_run_s_own`
+    checks. The tolerance is for this unshifted 4x4x1 mesh: on a shifted one
+    (``4 4 1 1 1 0``) the spin exponent reads 0.658 at this pair and tends to 1
+    only as ``B`` falls (0.906 at 1.25e-4). Measured (notes/incompat/I118.md), between
     ``B = 5e-4`` and ``1e-3`` Ry, the exponents are 1.994 and 1.023 for the
     image and 1.996 and 1.008 for the spectrum, in both spin regimes; between
     ``1e-3`` and ``2e-3`` they are 1.976, 1.039, 1.985 and 1.008, so the
@@ -487,7 +492,9 @@ def test_the_states_in_a_field_are_the_run_s_own():
     in the charge and 4.0e-6 in the spin-up image at ``B = 0.01`` Ry, and the
     re-solve's Fermi level is the SCF's to 1.2e-9 Ry. The same re-solve with the
     field dropped from the Hamiltonian, at the same density, is off by 7.1e-2
-    and 3.3e-1, which is what the guard was afraid of and does not happen.
+    and 3.3e-1, and the field states read at the field-free Fermi level are
+    off by 4.06e-2 in the charge, which is the entry's own worry and does not
+    happen.
     """
     from types import SimpleNamespace
 
@@ -514,3 +521,8 @@ def test_the_states_in_a_field_are_the_run_s_own():
     dropped_spin = run_stm(off.system, off.pseudos, fieldless, spin="up",
                            **shared, **resolve)
     assert _relative(dropped_spin.values, stored_spin.values) > 0.1
+
+    # the entry's own worry: the field states read at the field-free level
+    level = float(_in_a_field("collinear", 0.0).get_scf().fermi_energy)
+    misplaced = calculator.get_stm(energy=level, **shared)
+    assert _relative(misplaced.values, stored.values) > 1e-2   # 4.06e-2

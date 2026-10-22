@@ -908,6 +908,19 @@ def _refuse_what_has_no_fermi_level(system, result, charge_image: bool = False,
     field = getattr(result, "magnetic_field", None)
     if field is None:
         return
+    if getattr(system, "spiral_q", None) is not None:
+        # The charge image of a spiral passes the spiral guard above, and a
+        # field passes below, but the pair was not measured: on
+        # h-chain-spiral.in the image moved 5.9e-2 from B = 0 at B = 0.005 Ry
+        # and 3.6e-2 at 0.01, with E_F +1.2e-3 then +1.2e-2 Ry, not monotonic
+        # (the SCF plausibly lands in different cone states).
+        raise NotImplementedError(
+            "an STM image of a spin spiral in an applied magnetic field is "
+            "refused: the charge image of a spiral and the image in a field "
+            "are each computed (notes/incompat/I118.md), but the pair has not "
+            "been measured, and its weak-field limit was not monotonic on the "
+            "spiral chain"
+        )
     constraint = getattr(field, "constraint", "none")
     if constraint not in (None, "none"):
         raise NotImplementedError(
