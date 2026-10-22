@@ -962,3 +962,16 @@ or timing.
 **Checks still to run after 10:15** (the coordinator's instruction): the 108 files of the I120
 gate's chunks 8 to 11, and the fast files the I121 merge touches plus the spiral and augmentation
 unit files, capped, `-m 'not slow'`; and `tools/check_guide.py`.
+
+### The fast gate of integrations seven and eight, completed after 10:15
+
+Run at 10:15 to 10:45 (chunks 8 to 11 and the I121 files at `ea0c16c7`, the merge of I121 with the
+`at_spiral_q` comment edit, a comment only; chunks 0 to 7 and `test_config.py` ran at `5a1cf7f2`,
+the I120 merge, before the pause): **chunks 8 to 11: 1422 passed, 22 skipped, 0 failed, 0
+errors**; the I121 files (the spiral and augmentation unit files and the two spiral regression
+files, 111 tests): **111 passed**; `tools/check_guide.py` passes. With the earlier part, **the
+whole fast selection reads 4190 passed, 70 skipped, 0 failed, 0 errors, and 1537 deselected in
+the chunks** (`test_config.py` 19 passed without `taskset`; chunks 0 to 7 2749 passed, 48
+skipped). No merge of integrations seven or eight caused a failure. The code of chunks 0 to 7
+predates the I121 merge, but the I121 merge touches only `pseudo/augmentation.py`, `scf/driver.py`
+and the spiral tests, whose files were rerun.
