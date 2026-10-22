@@ -205,6 +205,35 @@ def test_becke_roussel_x_derivative_matches_a_finite_difference(q):
     assert analytic == pytest.approx(numerical, rel=1.0e-6)
 
 
+def test_tb09_coefficient_has_a_finite_tangent_where_the_gradient_vanishes():
+    """``|grad rho|`` is a cone at ``grad rho = 0``, and a crystal's group puts
+    that zero on grid points (the atom sites of diamond silicon). At the apex a
+    central difference reads zero for the point's share, since ``|e dg|`` is
+    even in ``e``; the tangent must read the same, and not ``sqrt``'s infinite
+    slope times zero, which is ``NaN``. Measured on the converged ``si2-tb09``
+    state before the fix (I120): ``dc`` 0.0091 against the difference's 0.0035
+    along a direction off the crystal's symmetry, and 0.0035149 against
+    0.0035148 after it.
+    """
+    rng = np.random.default_rng(3)
+    rho = 0.05 + 0.01 * rng.random((4, 4, 4))
+    grad = rng.normal(size=(3, 4, 4, 4)) * 0.01
+    grad[:, 0, 0, 0] = 0.0
+    grad[:, 2, 2, 2] = 0.0
+    drho = rng.normal(size=rho.shape) * 0.01
+    dgrad = rng.normal(size=grad.shape) * 0.01
+    args = (jnp.asarray(rho), jnp.asarray(grad))
+    tangents = (jnp.asarray(drho), jnp.asarray(dgrad))
+    _, tangent = jax.jvp(tb09_coefficient, args, tangents)
+    assert np.isfinite(float(tangent))
+    for step in (1.0e-4, 1.0e-6):
+        difference = (
+            float(tb09_coefficient(args[0] + step * tangents[0], args[1] + step * tangents[1]))
+            - float(tb09_coefficient(args[0] - step * tangents[0], args[1] - step * tangents[1]))
+        ) / (2 * step)
+        assert float(tangent) == pytest.approx(difference, rel=1.0e-6)
+
+
 def test_tb09_coefficient_on_a_density_whose_average_is_known():
     """``c = alpha + beta sqrt(<|grad rho|/rho>)`` on ``rho = e^(-2z)``.
 

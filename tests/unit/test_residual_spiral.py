@@ -102,12 +102,17 @@ def test_a_spiral_under_a_meta_gga_is_refused():
 
 @pytest.mark.unit
 def test_the_sternheimer_jacobian_is_still_refused_on_a_spiral():
-    """``jvp='sternheimer'`` has no spiral response; it refuses before computing."""
+    """``jvp='sternheimer'`` has no spiral response; it refuses before computing.
+
+    The spiral's own refusal (``require_a_sternheimer_regime``) is what fires
+    since I120 lifted the magnetic-spinor refusal that used to come first, and
+    the match names it rather than any message with the word in it.
+    """
     system, pseudos = _system(SPIRAL.read_text())
     calculation = Calculation(system, pseudos)
     residual = make_residual(calculation, 6, 1e-10)
     x = residual.pack(calculation.starting_density(), calculation.starting_becsum())
-    with pytest.raises(NotImplementedError, match="sternheimer"):
+    with pytest.raises(NotImplementedError, match="Sternheimer response of a spin spiral"):
         residual.sternheimer_jacobian(x, None)
 
 

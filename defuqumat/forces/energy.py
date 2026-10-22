@@ -508,7 +508,7 @@ def reject_single_band_side(calculation, what: str | None = None) -> None:
             "differentiate that")
 
 
-def reject_potential_only(calculation) -> None:
+def reject_potential_only(calculation, potential_only_ok: bool = False) -> None:
     """A potential-only functional has no energy to differentiate.
 
     Refused rather than approximated, and it is not a missing term: with
@@ -534,6 +534,12 @@ def reject_potential_only(calculation) -> None:
     dispatching. That is why the call is in three places and not one.
     """
     reject_single_band_side(calculation)
+    if potential_only_ok:
+        # The caller differentiates a map that exists without an energy: the
+        # SCF iteration ``F``, whose Jacobian the implicit route of
+        # :class:`~defuqumat.scf.residual.SternheimerJacobian` is (I120). The
+        # band-precision half above still binds it.
+        return
     if getattr(calculation, "functional", None) is not None and calculation.functional.is_meta:
         raise NotImplementedError(
             f"the {calculation.functional.name} functional is a potential and "

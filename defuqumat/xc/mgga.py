@@ -324,6 +324,14 @@ def tb09_potential(rho, sigma, laplacian, tau, c, gamma=BR89_GAMMA):
     return jnp.where(active, E2 * v_hartree, 0.0)
 
 
+#: ``|grad rho|^2`` below which :func:`tb09_coefficient` treats a point as the
+#: apex of the cone ``|grad rho|``. Round-off on a symmetry-forced zero is
+#: about 1e-17 in ``|grad rho|`` on silicon, so 1e-24 in the square; 1e-20
+#: keeps a margin above that and drops ``|grad rho| < 1e-10``, a contribution
+#: to the cell average below any number the run reports.
+CONE_SIGMA = 1.0e-20
+
+
 def tb09_coefficient(rho, grad_rho, threshold=META_RHO_THRESHOLD):
     """``c = alpha + beta sqrt(<|grad rho| / rho>)``, the cell average.
 
@@ -353,7 +361,16 @@ def tb09_coefficient(rho, grad_rho, threshold=META_RHO_THRESHOLD):
     and the number would otherwise be meaningless.
     """
     rho = jnp.asarray(rho)
-    magnitude = jnp.sqrt(jnp.sum(jnp.asarray(grad_rho) ** 2, axis=0))
+    # ``|grad rho|`` is a cone at ``grad rho = 0``, and a crystal's group puts
+    # that zero on grid points (the atom sites of diamond silicon). The tangent
+    # there is taken as zero, which is what a central difference reads at the
+    # apex, through a two-sided ``where`` so ``sqrt``'s infinite slope is never
+    # evaluated (I120: with the raw ``sqrt`` a direction off the crystal's
+    # symmetry read ``dc`` 0.0091 against the difference's 0.0035, and ``dV``
+    # 8.3e-4 off).
+    sigma = jnp.sum(jnp.asarray(grad_rho) ** 2, axis=0)
+    finite = sigma > CONE_SIGMA
+    magnitude = jnp.where(finite, jnp.sqrt(jnp.where(finite, sigma, 1.0)), 0.0)
     active = rho > threshold
     ratio = jnp.where(active, magnitude / jnp.where(active, rho, 1.0), 0.0)
     count = jnp.maximum(jnp.sum(active), 1)

@@ -1103,14 +1103,257 @@ def test_the_sternheimer_jacobian_does_not_see_the_basis_of_a_degenerate_block()
 
 
 @pytest.mark.unit
-def test_the_sternheimer_jacobian_refuses_a_hubbard_u_and_a_meta_gga():
-    """The two parts of the state whose perturbation of ``H`` is not a local
-    potential are refused by name, before anything is computed."""
+def test_the_sternheimer_jacobian_refuses_a_hubbard_u():
+    """``ns`` is part of the state and its perturbation of ``H``
+    (``adddvhubscf.f90``, the ``dns`` response of I5) is not here, so a Hubbard
+    U is refused by name, before anything is computed."""
     from defuqumat.scf.residual import ScfResidual
 
     hubbard = ScfResidual(None, 4, 1e-10, ((1, 2, 2, 2),), 8, ns_shape=(1, 1, 5, 5))
     with pytest.raises(NotImplementedError, match="Hubbard U"):
         hubbard.sternheimer_jacobian(np.zeros(8), None)
-    meta = ScfResidual(None, 4, 1e-10, ((1, 2, 2, 2),), 8, tau_shape=(1, 2, 2, 2))
-    with pytest.raises(NotImplementedError, match="meta-GGA"):
-        meta.sternheimer_jacobian(np.zeros(8), None)
+
+
+SI_TB09 = CASES / "si2-tb09.in"
+
+
+@pytest.mark.unit
+def test_the_sternheimer_jacobian_takes_a_meta_gga():
+    """A potential-only meta-GGA passes the guard (I120): its ``dH`` from
+    ``dtau`` is a local potential, and the response stack's refusal of a
+    functional with no energy does not bind a Jacobian of the SCF map."""
+    _, _, _, residual = _setup(SI_TB09)
+    assert residual.tau_shape is not None
+    residual._refuse_sternheimer(None)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("regime", ["paw", "nspin2"])
+def test_the_sternheimer_jacobian_still_refuses_a_meta_gga_it_was_not_measured_on(regime):
+    """The sibling refusals of I120: a PAW meta-GGA (the solver builds its
+    one-centre coefficients without the Tran-Blaha ``c``) and a polarized one
+    (measured unpolarized only). The guard reads only the calculation's flags,
+    so a stand-in is enough to see it fire."""
+    from types import SimpleNamespace
+
+    from defuqumat.scf.residual import ScfResidual
+
+    calculation = SimpleNamespace(
+        paw=object() if regime == "paw" else None,
+        nspin=2 if regime == "nspin2" else 1, noncolin=False, nspin_mag=1,
+    )
+    meta = ScfResidual(calculation, 4, 1e-10, ((1, 2, 2, 2),), 16,
+                       tau_shape=(1, 2, 2, 2))
+    with pytest.raises(NotImplementedError, match="PAW" if regime == "paw" else "nspin = 2"):
+        meta._refuse_sternheimer(None)
+
+
+@pytest.mark.unit
+def test_the_sternheimer_jacobian_takes_a_streamed_store_on_a_cpu(monkeypatch):
+    """On a CPU the action uploads a host store whole, which is a copy in the one
+    memory there is, and reads the resident action bit for bit (I120); on an
+    accelerator the upload is what the stream exists to avoid, and it is
+    refused there."""
+    from defuqumat import batching
+
+    system, _, calculation, residual = _setup(SILICON)
+    nk = len(system.kpoints.weights)
+    store = np.zeros((1, nk, residual.nbnd, 8), dtype=complex)
+    if batching._backend() == "cpu":
+        residual._refuse_sternheimer(store)
+    monkeypatch.setattr(batching, "_backend", lambda: "gpu")
+    with pytest.raises(NotImplementedError, match="streamed store"):
+        residual._refuse_sternheimer(store)
+    residual._refuse_sternheimer(jnp.zeros(store.shape))
+
+
+#: I120's measurement: ``si2-tb09.in`` on the 2x2x2 shifted mesh at 15 Ry, the
+#: Sternheimer action against the cold central difference of ``F`` (four
+#: buffer bands, ``ethr = 1e-13``) along a direction with the crystal's
+#: symmetry: 3.7e-2, 2.3e-4, 2.4e-6 and 7.1e-6 of ``|dF v|`` at steps 1e-3 to
+#: 1e-6, the ``eps^2`` law down to the reference's round-off; without the
+#: ``tau`` block of ``dV`` it is 0.67 at every step.
+STERNHEIMER_META_BOUND = 5.0e-5
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_the_sternheimer_jacobian_under_a_meta_gga_is_the_derivative_of_f():
+    """``jvp = 'sternheimer'`` under Tran-Blaha: ``dV`` is one ``jvp`` of the
+    potential in ``(rho, tau)`` and ``tau``'s row is a second bilinear assembly.
+
+    The direction keeps the crystal's symmetry, field by field, which is the
+    subspace Newton-Krylov's Krylov vectors live in, since ``F``'s output is
+    symmetrised. The check that would read differently with the term absent:
+    the same action with the ``tau`` block of ``v`` kept out of ``dV`` is 0.67
+    off.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = SI_TB09.read_text()
+    assert "\n 6 6 6 0 0 0" in text and "ecutwfc=30.0" in text
+    text = text.replace("\n 6 6 6 0 0 0", "\n 2 2 2 1 1 1").replace(
+        "ecutwfc=30.0", "ecutwfc=15.0")
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(read_upf(Path(__file__).parents[1] / "data" / "pseudo" / s.pseudo_file)
+                    for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                     max_iterations=100)
+    assert result.converged
+    nbnd = int(np.asarray(result.eigenvalues_by_spin).shape[-1])
+    residual = make_residual(calculation, nbnd, float(result.ethr))
+    x = np.asarray(residual.pack(result.density, tuple(result.becsum or ()), None,
+                                 result.tau))
+    n_tau = int(np.prod(residual.tau_shape))
+    v = np.random.default_rng(7).normal(size=x.shape) * x
+    rho_v, becsum_v, _, tau_v = residual.unpack(v)
+    v = np.array(residual.flatten(calculation.symmetrize(rho_v), becsum_v, None,
+                                  calculation.symmetrize(tau_v)))
+    v /= np.linalg.norm(v)
+    size = max(1.0, float(np.linalg.norm(x)))
+
+    jacobian = residual.sternheimer_jacobian(x, result.wavefunctions)
+    jv = jacobian(v)
+    kept = v.copy()
+    kept[x.size - n_tau:] = 0.0
+    without_tau = jacobian(kept) - (v - kept)
+    exact = make_residual(calculation, nbnd + 4, 1e-13)
+    errors, off = [], []
+    for step in (1e-4, 1e-5, 1e-6):
+        reference = np.asarray(exact.jvp_finite_difference(x, v, None, epsilon=step * size))
+        scale = np.linalg.norm(reference + v)
+        errors.append(np.linalg.norm(jv - reference) / scale)
+        off.append(np.linalg.norm(without_tau - reference) / scale)
+    assert np.median(errors) < STERNHEIMER_META_BOUND
+    assert min(off) > 0.1
+
+
+H_FCC = CASES / "h-fcc-spiral-scan.in"
+
+
+def _h_fcc_ferro(extra: str = "", kmesh: str | None = None):
+    """``h-fcc-spiral-scan.in`` with the spiral switched off: a bulk
+    ferromagnet in the spinor formalism, ``nspin_mag = 4``, norm-conserving
+    LDA, a smeared metal with no vacuum (I120's cell), as ``(system, pseudos,
+    calculation)``. ``extra`` goes into ``&system``."""
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = H_FCC.read_text()
+    line = "    spiral_q(1) = 0.0, spiral_q(2) = 0.0, spiral_q(3) = 0.0\n"
+    assert line in text and "degauss = 0.01" in text
+    text = text.replace(line, extra + "\n").replace("degauss = 0.01", "degauss = 0.05")
+    if kmesh is not None:
+        assert "\n 4 4 4 0 0 0" in text
+        text = text.replace("\n 4 4 4 0 0 0", "\n " + kmesh)
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(read_upf(Path(__file__).parents[1] / "data" / "pseudo" / s.pseudo_file)
+                    for s in system.structure.species)
+    return system, pseudos, Calculation(system, pseudos)
+
+
+@pytest.mark.unit
+def test_the_sternheimer_jacobian_takes_a_magnetic_noncollinear_lda_run():
+    """The regime I120 measured passes the guard: norm-conserving LDA spinors
+    with a magnetization, ``nspin_mag = 4``."""
+    _, _, calculation = _h_fcc_ferro()
+    assert calculation.noncolin and calculation.nspin_mag == 4
+    make_residual(calculation, 8, 1e-10)._refuse_sternheimer(None)
+
+
+@pytest.mark.unit
+def test_the_sternheimer_jacobian_still_refuses_an_unmeasured_magnetic_spinor_run():
+    """The siblings: a gradient-corrected magnetic spinor run, and an augmented
+    one (``o-chain-90deg-us.in``), which the measured cell does not reach."""
+    from defuqumat.io.pwin import read_pw_input
+
+    _, _, gga = _h_fcc_ferro("    input_dft = 'pbe'")
+    assert gga.nspin_mag == 4
+    with pytest.raises(NotImplementedError, match="gradient-corrected"):
+        make_residual(gga, 8, 1e-10)._refuse_sternheimer(None)
+    system = build_system(read_pw_input(CASES / "o-chain-90deg-us.in"))
+    pseudos = tuple(read_upf(Path(__file__).parents[1] / "data" / "pseudo" / s.pseudo_file)
+                    for s in system.structure.species)
+    augmented = Calculation(system, pseudos)
+    assert augmented.nspin_mag == 4
+    with pytest.raises(NotImplementedError, match="ultrasoft or PAW"):
+        make_residual(augmented, 24, 1e-10)._refuse_sternheimer(None)
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+def test_the_sternheimer_jacobian_on_a_magnetic_spinor_run_is_the_derivative_of_f():
+    """The four-component action against a cold central difference of ``F``.
+
+    Measured (I120) on this cell at 2x2x2 shifted, eight k-points, a random
+    unit direction: 2.3e-4, 2.1e-5, 4.8e-6, 1.1e-5, 2.9e-5 of ``|dF v|`` at
+    steps 1e-2, 3e-3, 1e-3, 3e-4, 1e-4, the ``eps^2`` law on the left (a factor
+    11 for a step ratio 3.3) and the reference's round-off on the right. The
+    same action with the magnetization components of ``dV`` set to zero is
+    0.94 off at every step, so the check would read differently without them.
+    """
+    import jax.numpy as jnp
+
+    system, pseudos, calculation = _h_fcc_ferro(kmesh="2 2 2 1 1 1")
+    result = run_scf(system, pseudos, calculation=calculation, conv_thr=1e-12,
+                     max_iterations=200)
+    assert result.converged
+    nbnd = int(np.asarray(result.eigenvalues_by_spin).shape[-1])
+    residual = make_residual(calculation, nbnd, float(result.ethr))
+    x = np.asarray(residual.pack(result.density, tuple(result.becsum or ())))
+    v = np.random.default_rng(7).normal(size=x.shape)
+    v /= np.linalg.norm(v)
+    size = max(1.0, float(np.linalg.norm(x)))
+    jacobian = residual.sternheimer_jacobian(x, result.wavefunctions)
+    jv = jacobian(v)
+    full = jacobian._dv
+    jacobian._dv = lambda drho, dtau=None: (
+        jnp.asarray(full(drho, dtau)[0]).at[1:].set(0.0), None)
+    charge_only = jacobian(v)
+    exact = make_residual(calculation, nbnd + 4, 1e-13)
+    errors, off = [], []
+    for step in (3e-3, 1e-3, 3e-4):
+        reference = np.asarray(exact.jvp_finite_difference(x, v, None, epsilon=step * size))
+        scale = np.linalg.norm(reference + v)
+        errors.append(np.linalg.norm(jv - reference) / scale)
+        off.append(np.linalg.norm(charge_only - reference) / scale)
+    assert np.median(errors) < 5e-5
+    assert min(off) > 0.5
+
+
+#: ``(cell, conv_thr, |E_newton - E_mixing| bound in Ry)``. Measured (I120),
+#: Newton-Krylov with ``jvp='sternheimer'`` against the mixing loop: the
+#: ferromagnetic spinor cell 5.0e-11 at 1e-10; Tran-Blaha silicon 5.9e-6 at
+#: 1e-10 and 4.3e-7 at 1e-12. TB09's total is not variational, so it moves at
+#: first order in the density's error, which is roughly the square root of
+#: what ``conv_thr`` bounds: the gap falls 14x for a threshold 100x tighter,
+#: and Newton with the default finite-difference Jacobian is 2.3e-6 off the
+#: mixer at 1e-10 too, so the gap is the functional's and not the Jacobian's.
+NEWTON_STERNHEIMER_CASES = [("ferro", 1e-10, 1e-9), ("tb09", 1e-12, 2e-6)]
+
+
+@pytest.mark.regression
+@pytest.mark.slow
+@pytest.mark.parametrize("name, conv_thr, bound", NEWTON_STERNHEIMER_CASES)
+def test_newton_with_the_sternheimer_jacobian_lands_on_the_mixers_fixed_point(
+        name, conv_thr, bound):
+    """The lifted regimes of I120 through the solver, not only the action."""
+    from defuqumat.io.pwin import parse_pw_input
+
+    if name == "ferro":
+        system, pseudos, _ = _h_fcc_ferro(kmesh="2 2 2 1 1 1")
+    else:
+        text = SI_TB09.read_text().replace("\n 6 6 6 0 0 0", "\n 2 2 2 1 1 1").replace(
+            "ecutwfc=30.0", "ecutwfc=15.0")
+        system = build_system(parse_pw_input(text))
+        pseudos = tuple(read_upf(Path(__file__).parents[1] / "data" / "pseudo" / s.pseudo_file)
+                        for s in system.structure.species)
+    mixed = run_scf(system, pseudos, calculation=Calculation(system, pseudos),
+                    conv_thr=conv_thr, max_iterations=200)
+    newton = run_scf(
+        system, pseudos, calculation=Calculation(system, pseudos), conv_thr=conv_thr,
+        max_iterations=200, scf_solver="newton-krylov",
+        scf_solver_options={"jvp": "sternheimer", "forcing": 0.5, "warmup": 3},
+    )
+    assert mixed.converged and newton.converged and newton.solver.steps > 0
+    assert newton.total_energy == pytest.approx(mixed.total_energy, abs=bound)
