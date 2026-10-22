@@ -737,3 +737,15 @@ per-spin k lists), `test_input_sweep.py` (`eval_infix`), `test_config.py` (one C
 **D22 worktrees that can be removed after this lands** (none removed): `/l/ladovj1/w-inc-t3-I88`,
 `/l/ladovj1/w-inc-t3-I88-master`, and every `w-inc-I88*` (`-fix`, `-r3`, `-v2`, `-ver`, `-ver-rev`,
 `-ver2`, `-ver2-rev`, `-ver3`, `-ver4`).
+
+## Integration six (2026-10-22): I118, I119, and the unit `ultraseed` held
+
+On the session branch `incompat-t3c` from master at `8bfe5ce7`, integrated on this workstation
+while the user was asleep. One line per unit:
+
+- I118 (STM image and STS under an applied field), branch `incompat/I118` at `4dada2d1`, verified
+  and through one fix round: to be merged.
+- I119 (single-precision bands), branch `incompat/I119` at `3003d06d`, through one fix round that
+  was not re-verified: to be merged.
+- `ultraseed` (I116, I117), branch `incompat/ultraseed` at `8b531bf5`: its verifier is still
+  running, so it is not merged unless the coordinator says it was confirmed.
