@@ -23,11 +23,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from defuqumat.basis.fftgrid import fft_grid_dimensions, gcut_from_ecut
+from defuqumat.basis.fftgrid import fft_grid_dimensions, gcut_from_ecut, good_fft_order
 from defuqumat.system.cell import Cell
 
-__all__ = ["GVectors", "displaced_gvectors", "generate_gvectors", "modulus",
-           "refuse_gamma_storage"]
+__all__ = ["GVectors", "box_holding_displaced", "displaced_gvectors", "generate_gvectors",
+           "modulus", "refuse_gamma_storage"]
 
 
 class GVectors(eqx.Module):
@@ -247,22 +247,8 @@ def displaced_gvectors(
     span exceeding the box, the set is refused by name, for the dense box and
     for the smooth one.
     """
-    at_alat = np.asarray(cell.at_alat, dtype=float)
     bg = np.asarray(cell.bg_2pi_alat, dtype=float)
-    tpiba = 2.0 * np.pi / float(cell.alat)
-    offset = np.asarray(shift, dtype=float).reshape(3) / tpiba
-    gcut = gcut_from_ecut(dense.ecut, cell.alat)
-
-    # ``m_i = G . a_i`` in these units, so a shift moves each Miller index by at
-    # most ``|shift| |a_i|`` and the resident range widened by that holds it.
-    reach = np.ceil(np.linalg.norm(offset) * np.linalg.norm(at_alat, axis=1)).astype(int) + 1
-    ranges = [np.arange(-((n - 1) // 2) - r, (n - 1) // 2 + r + 1)
-              for n, r in zip(dense.grid, reach)]
-    i, j, k = np.meshgrid(*ranges, indexing="ij")
-    miller = np.stack([i.ravel(), j.ravel(), k.ravel()], axis=1)
-    g2 = np.sum((miller @ bg + offset) ** 2, axis=1)
-    inside = g2 <= gcut
-    miller, g2 = miller[inside], g2[inside]
+    miller, g2 = _displaced_members(cell, dense.ecut, dense.grid, shift)
     _require_the_box_holds(miller, dense.grid, "dense", dense.ecut, shift)
 
     order = np.lexsort((miller[:, 2], miller[:, 1], miller[:, 0], np.round(g2, 12)))
@@ -298,6 +284,57 @@ def displaced_gvectors(
     return displaced, GVectors(miller=jnp.asarray(miller[:ngms], dtype=jnp.int32),
                                grid=smooth.grid, ecut=smooth.ecut,
                                gamma_only=smooth.gamma_only)
+
+
+def _displaced_members(cell, ecut, grid, shift):
+    """``(miller, |G + shift|^2)`` of the sphere ``|G + shift|^2 <= ecut``, unsorted.
+
+    ``|G + shift|^2`` is in units of ``(2 pi / alat)^2``. The enumeration is the
+    resident range of ``grid`` widened by the most a shift can move a Miller
+    index, so it does not depend on whether ``grid`` holds the sphere.
+    """
+    at_alat = np.asarray(cell.at_alat, dtype=float)
+    bg = np.asarray(cell.bg_2pi_alat, dtype=float)
+    tpiba = 2.0 * np.pi / float(cell.alat)
+    offset = np.asarray(shift, dtype=float).reshape(3) / tpiba
+    gcut = gcut_from_ecut(ecut, cell.alat)
+
+    # ``m_i = G . a_i`` in these units, so a shift moves each Miller index by at
+    # most ``|shift| |a_i|`` and the resident range widened by that holds it.
+    reach = np.ceil(np.linalg.norm(offset) * np.linalg.norm(at_alat, axis=1)).astype(int) + 1
+    ranges = [np.arange(-((n - 1) // 2) - r, (n - 1) // 2 + r + 1)
+              for n, r in zip(grid, reach)]
+    i, j, k = np.meshgrid(*ranges, indexing="ij")
+    miller = np.stack([i.ravel(), j.ravel(), k.ravel()], axis=1)
+    g2 = np.sum((miller @ bg + offset) ** 2, axis=1)
+    inside = g2 <= gcut
+    return miller[inside], g2[inside]
+
+
+def box_holding_displaced(cell, gvectors: GVectors, shift,
+                          fft_factors=(1, 1, 1)) -> tuple[int, int, int]:
+    """The smallest FFT box, at least ``gvectors.grid``, that holds the displaced sphere.
+
+    ``gvectors.grid`` itself when no two members of ``{G : |G + shift| <=
+    G_cut}`` share a box index, which is every cell where the resident box
+    leaves a plane free. Otherwise each axis along which the sphere spans more
+    Miller indices than the box has points is taken to the next acceptable FFT
+    size at least that span (a multiple of its ``fft_factors`` entry, as
+    :func:`~defuqumat.basis.fftgrid.fft_grid_dimensions` takes it), which is one
+    FFT size larger than the cutoff alone asks for. A box at least the span
+    along every axis cannot fold two members together, so the result holds the
+    sphere by construction, and :func:`_require_the_box_holds` still checks it.
+    """
+    grid = tuple(int(n) for n in gvectors.grid)
+    miller, _ = _displaced_members(cell, gvectors.ecut, grid, shift)
+    index = np.asarray(_fft_index(jnp.asarray(miller, dtype=jnp.int32), grid))
+    if len(index) == len(np.unique(index)):
+        return grid
+    spans = [int(np.ptp(miller[:, axis])) + 1 for axis in range(3)]
+    return tuple(
+        good_fft_order(span, factor) if span > n else n
+        for n, span, factor in zip(grid, spans, fft_factors)
+    )
 
 
 def _require_the_box_holds(miller, grid, name, ecut, shift) -> None:

@@ -129,3 +129,87 @@ def test_g_space_mixing_on_a_magnetic_spiral_keeps_the_pair_on_its_own_sphere(
     layout = caught.value.args[0]
     assert layout.npair == layout.points and layout.npair_shell == 0
     assert layout.stored_shape == (4, layout.points)
+
+
+@lru_cache(maxsize=2)
+def _oxygen(ecutrho: float):
+    """The ultrasoft oxygen chain at ``q = b3/4``, its box and its displaced shift."""
+    text = (GENERATED / "o-chain-spiral-us.in").read_text().replace(
+        "ecutrho = 200.0", f"ecutrho = {ecutrho}")
+    system = build_system(parse_pw_input(text))
+    basis = build_basis(system)
+    q = np.asarray(spiral_cartesian(system.spiral_q, system.cell)) * float(system.cell.tpiba)
+    return system, basis, q
+
+
+def test_a_real_input_that_folds_is_given_a_wider_box():
+    """The oxygen chain at 240 Ry: the resident box folds, the widened one holds (I122).
+
+    ``ecutrho = 240`` puts ``c``'s resident box at 25 points, exactly the
+    resident span, and at ``q = b3/4`` the laboratory sphere spans 26, so the
+    guard fires on the resident box. The widened box is 27 along ``c`` and
+    untouched along ``a`` and ``b``, the dense sphere is the resident one Miller
+    index for Miller index, and the smooth box (18 along ``c``) already held
+    its sphere and is left as it was. 27 is a quarter of the four-cell
+    supercell's own box at this cutoff (108), which is what lets the slow
+    ``tests/regression/test_spin_spirals_augmented.py::test_a_widened_box_keeps_the_quarter_turn_identity``
+    hold the spiral to its supercell.
+    """
+    from defuqumat.basis.builder import widen_for_displaced_sphere
+
+    system, basis, q = _oxygen(240.0)
+    assert basis.dense.grid == (60, 60, 25) and basis.smooth.grid == (40, 40, 18)
+    with pytest.raises(NotImplementedError, match="share a box index"):
+        displaced_gvectors(system.cell, basis.dense, -q, smooth=basis.smooth)
+
+    widened = widen_for_displaced_sphere(system, basis, -q)
+    assert widened.dense.grid == (60, 60, 27)
+    assert widened.smooth.grid == basis.smooth.grid
+    assert np.array_equal(np.asarray(widened.smooth.miller), np.asarray(basis.smooth.miller))
+    assert np.array_equal(np.asarray(widened.dense.miller), np.asarray(basis.dense.miller))
+    dense, smooth = displaced_gvectors(system.cell, widened.dense, -q, smooth=widened.smooth)
+    assert len(np.unique(np.asarray(dense.fft_index))) == dense.ngm
+    assert len(np.unique(np.asarray(smooth.fft_index))) == smooth.ngm
+
+
+def test_a_box_that_already_holds_is_not_touched():
+    """At 200 Ry the box holds, and the widening hands back the very same basis.
+
+    So every spiral that ran before I122 runs on the box it had, which is what
+    keeps the 200 Ry supercell identities and the cobalt helix where they were.
+    """
+    from defuqumat.basis.builder import widen_for_displaced_sphere
+
+    system, basis, q = _oxygen(200.0)
+    assert widen_for_displaced_sphere(system, basis, -q) is basis
+
+
+@pytest.mark.slow
+def test_a_spiral_calculation_runs_on_the_widened_box(pseudo_dir):
+    """``Calculation`` widens the box before anything is sampled on it.
+
+    Stopped as the displaced spheres are built, so nothing is diagonalised:
+    the spiral's own sets are on (60, 60, 27) and the plane waves on the
+    unchanged smooth box.
+    """
+    import defuqumat.scf.driver as driver
+    from defuqumat.pseudo import read_upf
+
+    system, _, _ = _oxygen(240.0)
+    pseudos = tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+
+    class Reached(Exception):
+        pass
+
+    real = driver._spiral_gvectors
+
+    def probe(basis, cell, qcart, needed):
+        raise Reached(basis, real(basis, cell, qcart, needed))
+
+    import unittest.mock as mock
+    with mock.patch.object(driver, "_spiral_gvectors", probe):
+        with pytest.raises(Reached) as caught:
+            driver.Calculation(system, pseudos)
+    basis, (dense, smooth) = caught.value.args
+    assert basis.dense.grid == (60, 60, 27) and basis.smooth.grid == (40, 40, 18)
+    assert dense.grid == (60, 60, 27) and smooth.grid == (40, 40, 18)
