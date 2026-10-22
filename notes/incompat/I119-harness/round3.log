@@ -1,0 +1,35 @@
+si: double E = -15.2544487130 Ry, 9 it, converged=True, 5.3 s
+  single conv_thr=1e-07 ethr_floor=5.7e-06 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.96e-07 deig=+3.26e-06 deig_occ=+3.26e-06 drho=+5.56e-04 dQ=-8.01e-07  (2.7 s)
+  single conv_thr=1e-08 ethr_floor=5.7e-06 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.96e-07 deig=+3.26e-06 deig_occ=+3.26e-06 drho=+5.56e-04 dQ=-8.01e-07  (0.2 s)
+  single conv_thr=1e-09 ethr_floor=5.7e-06 it=8 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.52e-06 deig=+1.08e-05 deig_occ=+1.08e-05 drho=+1.49e-04 dQ=-4.08e-07  (0.3 s)
+  single conv_thr=1e-10 ethr_floor=5.7e-06 it=12 converged=True wfc=complex64 rho=float64 becsum=- dE=-4.34e-07 deig=+4.71e-07 deig_occ=+4.71e-07 drho=+2.78e-05 dQ=-2.72e-07  (0.4 s)
+us: double E = -22.2129734275 Ry, 10 it, converged=True, 10.5 s
+  single conv_thr=1e-07 ethr_floor=9.5e-06 it=7 converged=True wfc=complex64 rho=float64 becsum=float64 dE=+1.42e-06 deig=+5.31e-05 deig_occ=+5.31e-05 drho=+3.36e-04 dQ=+2.02e-08 dbecsum=+2.94e-04  (6.1 s)
+  single conv_thr=1e-08 ethr_floor=9.5e-06 it=9 converged=True wfc=complex64 rho=float64 becsum=float64 dE=-2.89e-07 deig=+1.54e-05 deig_occ=+1.54e-05 drho=+1.61e-04 dQ=-1.11e-06 dbecsum=+1.07e-04  (4.5 s)
+  single conv_thr=1e-09 ethr_floor=9.5e-06 it=10 converged=True wfc=complex64 rho=float64 becsum=float64 dE=+7.16e-07 deig=+1.20e-05 deig_occ=+1.20e-05 drho=+2.04e-04 dQ=-1.04e-08 dbecsum=+5.58e-05  (5.0 s)
+  single conv_thr=1e-10 ethr_floor=9.5e-06 it=13 converged=True wfc=complex64 rho=float64 becsum=float64 dE=-8.86e-07 deig=+2.69e-06 deig_occ=+2.69e-06 drho=+4.95e-05 dQ=-6.48e-07 dbecsum=+1.23e-05  (5.1 s)
+paw: double E = -88.7341996804 Ry, 9 it, converged=True, 15.5 s
+  single conv_thr=1e-07 ethr_floor=9.5e-06 it=7 converged=True wfc=complex64 rho=float64 becsum=float64 dE=+1.28e-06 deig=+4.67e-05 deig_occ=+4.67e-05 drho=+5.29e-04 dQ=+3.91e-07 dbecsum=+2.87e-04  (7.9 s)
+  single conv_thr=1e-08 ethr_floor=9.5e-06 it=10 converged=True wfc=complex64 rho=float64 becsum=float64 dE=-1.31e-07 deig=+2.38e-06 deig_occ=+2.38e-06 drho=+9.34e-05 dQ=-1.85e-06 dbecsum=+7.21e-05  (4.5 s)
+  single conv_thr=1e-09 ethr_floor=9.5e-06 it=10 converged=True wfc=complex64 rho=float64 becsum=float64 dE=-1.31e-07 deig=+2.38e-06 deig_occ=+2.38e-06 drho=+9.34e-05 dQ=-1.85e-06 dbecsum=+7.21e-05  (4.4 s)
+  single conv_thr=1e-10 ethr_floor=9.5e-06 it=13 converged=True wfc=complex64 rho=float64 becsum=float64 dE=-4.93e-07 deig=+3.58e-06 deig_occ=+3.58e-06 drho=+3.08e-05 dQ=+2.81e-07 dbecsum=+1.79e-05  (4.8 s)
+noncolin: double E = -0.9460649519 Ry, 7 it, converged=True, 15.3 s
+  single conv_thr=1e-07 ethr_floor=1.2e-05 it=5 converged=True wfc=complex64 rho=float64 becsum=- dE=-4.35e-07 deig=+1.68e-04 deig_occ=+2.06e-05 drho=+2.25e-05 dQ=+8.29e-07 dabsolute_magnetization=+8.27e-07 dmagnetization_vector=+1.50e-06  (7.6 s)
+  single conv_thr=1e-08 ethr_floor=1.2e-05 it=5 converged=True wfc=complex64 rho=float64 becsum=- dE=-4.35e-07 deig=+1.68e-04 deig_occ=+2.06e-05 drho=+2.25e-05 dQ=+8.29e-07 dabsolute_magnetization=+8.27e-07 dmagnetization_vector=+1.50e-06  (5.0 s)
+  single conv_thr=1e-09 ethr_floor=1.2e-05 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.25e-06 deig=+1.94e-04 deig_occ=+4.02e-06 drho=+5.66e-06 dQ=+1.55e-06 dabsolute_magnetization=+1.55e-06 dmagnetization_vector=+2.14e-06  (5.0 s)
+  single conv_thr=1e-10 ethr_floor=1.2e-05 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.25e-06 deig=+1.94e-04 deig_occ=+4.02e-06 drho=+5.66e-06 dQ=+1.55e-06 dabsolute_magnetization=+1.55e-06 dmagnetization_vector=+2.14e-06  (4.7 s)
+spiral: double E = -0.9556767986 Ry, 9 it, converged=True, 12.9 s
+  single conv_thr=1e-07 ethr_floor=1.2e-05 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=-8.78e-08 deig=+2.29e-04 deig_occ=+2.29e-04 drho=+7.68e-04 dQ=+8.15e-08 dabsolute_magnetization=+6.13e-04 dmagnetization_vector=+6.03e-04  (6.5 s)
+  single conv_thr=1e-08 ethr_floor=1.2e-05 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=-8.78e-08 deig=+2.29e-04 deig_occ=+2.29e-04 drho=+7.68e-04 dQ=+8.15e-08 dabsolute_magnetization=+6.13e-04 dmagnetization_vector=+6.03e-04  (3.5 s)
+  single conv_thr=1e-09 ethr_floor=1.2e-05 it=7 converged=True wfc=complex64 rho=float64 becsum=- dE=-6.53e-08 deig=+7.30e-05 deig_occ=+3.01e-05 drho=+1.50e-04 dQ=+2.35e-08 dabsolute_magnetization=+1.06e-04 dmagnetization_vector=+1.02e-04  (3.6 s)
+  single conv_thr=1e-10 ethr_floor=1.2e-05 it=8 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.49e-07 deig=+6.23e-05 deig_occ=+3.60e-05 drho=+1.53e-04 dQ=+1.24e-07 dabsolute_magnetization=+1.14e-04 dmagnetization_vector=+1.10e-04  (3.5 s)
+ldau: double E = -16.6977052051 Ry, 11 it, converged=True, 9.6 s
+  single conv_thr=1e-07 ethr_floor=4.8e-06 it=5 converged=True wfc=complex64 rho=float64 becsum=- dE=-3.35e-07 deig=+9.38e-05 deig_occ=+9.38e-05 drho=+6.30e-04 dQ=+1.35e-06 dns=+7.12e-05  (3.8 s)
+  single conv_thr=1e-08 ethr_floor=4.8e-06 it=7 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.06e-06 deig=+2.63e-05 deig_occ=+2.63e-05 drho=+2.17e-04 dQ=+1.64e-06 dns=+2.58e-05  (0.9 s)
+  single conv_thr=1e-09 ethr_floor=4.8e-06 it=10 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.01e-06 deig=+1.14e-05 deig_occ=+1.14e-05 drho=+3.97e-05 dQ=+1.42e-06 dns=+5.94e-06  (1.1 s)
+  single conv_thr=1e-10 ethr_floor=4.8e-06 it=17 converged=True wfc=complex64 rho=float64 becsum=- dE=-9.64e-07 deig=+9.58e-07 deig_occ=+9.58e-07 drho=+1.16e-05 dQ=+1.60e-06 dns=+1.82e-07  (1.6 s)
+meta: double E = -10.9737102314 Ry, 13 it, converged=True, 6.6 s
+  single conv_thr=1e-07 ethr_floor=5.7e-06 it=9 converged=True wfc=complex64 rho=float64 becsum=- dE=+3.29e-04 deig=+5.50e-05 deig_occ=+5.50e-05 drho=+1.19e-03 dQ=-1.42e-06 dtau=+9.54e-04  (3.1 s)
+  single conv_thr=1e-08 ethr_floor=5.7e-06 it=11 converged=True wfc=complex64 rho=float64 becsum=- dE=+1.13e-04 deig=+1.66e-05 deig_occ=+1.66e-05 drho=+3.88e-04 dQ=-4.06e-07 dtau=+3.06e-04  (0.6 s)
+  single conv_thr=1e-09 ethr_floor=5.7e-06 it=15 converged=True wfc=complex64 rho=float64 becsum=- dE=+2.04e-05 deig=+5.01e-06 deig_occ=+5.01e-06 drho=+7.31e-05 dQ=-6.87e-07 dtau=+5.42e-05  (0.8 s)
+  single conv_thr=1e-10 ethr_floor=5.7e-06 it=17 converged=True wfc=complex64 rho=float64 becsum=- dE=-1.20e-07 deig=+9.88e-07 deig_occ=+9.88e-07 drho=+5.03e-06 dQ=-1.30e-06 dtau=+8.78e-06  (0.8 s)

@@ -1,0 +1,5 @@
+spiral-paw: double E = -40.3048699862 Ry, 10 it, converged=True, 54.0 s
+  continued in double to 1e-11: it=4 wfc=complex128 dE=+2.78e-11 deig=+4.51e-06 deig_occ=+8.33e-07 drho=+3.51e-06 dQ=-1.97e-15 dabsolute_magnetization=+8.24e-07 dmagnetization_vector=+1.62e-06 dbecsum=+6.43e-07  (17.3 s)
+  single conv_thr=1e-07 ethr_floor=1.2e-05 it=7 converged=True wfc=complex64 rho=float64 becsum=float64 dE=-3.69e-07 deig=+4.66e-05 deig_occ=+4.66e-05 drho=+2.34e-04 dQ=+2.93e-06 dabsolute_magnetization=+1.39e-07 dmagnetization_vector=+9.41e-06 dbecsum=+2.46e-04  (51.7 s)
+  continued in double to 1e-11: it=4 wfc=complex128 dE=-2.71e-12 deig=+3.42e-06 deig_occ=+3.91e-07 drho=+5.75e-06 dQ=-1.97e-15 dabsolute_magnetization=+6.41e-07 dmagnetization_vector=+3.61e-06 dbecsum=+1.34e-06  (12.7 s)
+  single conv_thr=1e-09 ethr_floor=1.2e-05 it=8 converged=True wfc=complex64 rho=float64 becsum=float64 dE=-3.01e-06 deig=+2.71e-05 deig_occ=+2.71e-05 drho=+1.32e-04 dQ=-1.85e-06 dabsolute_magnetization=+6.21e-05 dmagnetization_vector=+5.91e-05 dbecsum=+5.58e-05  (31.7 s)

@@ -83,17 +83,141 @@ def test_the_floors_follow_the_precision(silicon):
         run_scf(system, pseudos, calculation=single, conv_thr=1e-10)
 
 
-def test_what_it_has_not_been_checked_on_is_refused(pseudo_dir, silicon):
-    system, pseudos = _cell(pseudo_dir, "si2-us-1k.in")
-    with pytest.raises(NotImplementedError, match="collinear norm-conserving"):
+CASES = Path(__file__).resolve().parents[1] / "data" / "qe"
+
+#: The regimes I119 lifted, each as (input, edits) small enough to build here;
+#: the same cells the harness ``notes/incompat/I119-harness/harness.py`` measured.
+REGIMES = {
+    "ultrasoft": (BENCHMARKS / "si2-us-1k.in", ()),
+    "paw": (BENCHMARKS / "si2-paw-1k.in", ()),
+    "spinor": (CASES / "h-atom-noncolin.in", (("angle1(1) = 0.0", "angle1(1) = 60.0"),)),
+    "spiral": (CASES / "h-chain-spiral-elk.in", ()),
+    "dftu": (CASES / "alas-ldau.in", (("4 4 4 0 0 0", "2 2 2 0 0 0"),)),
+    "tb09": (BENCHMARKS / "si-1k.in", (("ecutwfc=12.0", "ecutwfc=12.0, input_dft='tb09'"),)),
+}
+
+
+def _edited(pseudo_dir, tmp_path, path, edits):
+    text = path.read_text()
+    for old, new in edits:
+        assert old in text
+        text = text.replace(old, new)
+    edited = tmp_path / path.name
+    edited.write_text(text)
+    system = build_system(read_pw_input(edited))
+    return system, tuple(read_upf(pseudo_dir / s.pseudo_file) for s in system.structure.species)
+
+
+def _regime(pseudo_dir, tmp_path, name):
+    return _edited(pseudo_dir, tmp_path, *REGIMES[name])
+
+
+@pytest.mark.parametrize("name", ["spinor", "spiral", "dftu"])
+def test_h_psi_stays_32_bit_for_a_spinor_a_spiral_and_dftu(pseudo_dir, tmp_path, name):
+    """The casts I119 added: without them ``H|psi>`` came back complex128.
+
+    The spinor's kinetic energy and potential and the Hubbard projectors were
+    left in the cell's precision, and the Davidson work array refused the
+    promoted product (``dynamic_update_slice`` of complex128 into complex64).
+    """
+    system, pseudos = _regime(pseudo_dir, tmp_path, name)
+    calculation = Calculation(system, pseudos, band_precision="single")
+    hubbard = None
+    if calculation.is_hubbard:
+        hubbard = calculation.hubbard_terms(calculation.starting_ns())[2]
+        assert calculation.band_wfcU().dtype == SINGLE.complex
+        assert calculation.wfcU.dtype == DOUBLE.complex  # ns is accumulated in double
+    hamiltonian = calculation.hamiltonian(
+        jnp.zeros((calculation.nspin_mag,) + calculation.basis.dense.grid), hubbard=hubbard)[0]
+    psi = jnp.ones((2, hamiltonian.ndim), SINGLE.complex)
+    assert hamiltonian.apply(psi, 0).dtype == SINGLE.complex
+
+
+def test_what_it_has_not_been_checked_on_is_refused(pseudo_dir, tmp_path):
+    """DFT+U or a meta-GGA beside another regime: each was measured only alone."""
+    system, pseudos = _edited(pseudo_dir, tmp_path, CASES / "bn-ldau-noncol.in", ())
+    with pytest.raises(NotImplementedError, match="DFT\\+U .*not checked in single"):
         Calculation(system, pseudos, band_precision="single")
-    # and every derivative of the energy, through the one gate they share
+    system, pseudos = _edited(pseudo_dir, tmp_path, BENCHMARKS / "si2-paw-1k.in",
+                              (("ecutrho=160.0", "ecutrho=160.0, input_dft='tb09'"),))
+    with pytest.raises(NotImplementedError, match="(?i)tb09.*ultrasoft or PAW.*not checked"):
+        Calculation(system, pseudos, band_precision="single")
+    # and the pair stays accepted in double
+    Calculation(system, pseudos)
+
+
+@pytest.mark.parametrize("name", sorted(REGIMES))
+def test_every_derivative_is_still_refused_on_a_lifted_regime(pseudo_dir, tmp_path, name):
+    from defuqumat.forces.energy import reject_single_band_side
+
+    system, pseudos = _regime(pseudo_dir, tmp_path, name)
+    single = Calculation(system, pseudos, band_precision="single")
+    with pytest.raises(NotImplementedError, match="single precision"):
+        reject_single_band_side(single)
+    reject_single_band_side(Calculation(system, pseudos))
+
+
+def test_a_spiral_dE_dq_is_refused_on_a_single_band_side(pseudo_dir, tmp_path):
+    """``dE/dq`` differentiates its own frozen energy, outside the shared gate."""
+    from defuqumat.forces.spiral import _require_a_differentiable_spiral
+
+    system, pseudos = _regime(pseudo_dir, tmp_path, "spiral")
+    with pytest.raises(NotImplementedError, match="single precision"):
+        _require_a_differentiable_spiral(Calculation(system, pseudos, band_precision="single"))
+    _require_a_differentiable_spiral(Calculation(system, pseudos))
+
+
+def test_the_shared_gate_still_refuses_a_norm_conserving_single_band_side(silicon):
     from defuqumat.forces.energy import reject_potential_only
 
     system, pseudos = silicon
     with pytest.raises(NotImplementedError, match="single precision"):
         reject_potential_only(Calculation(system, pseudos, band_precision="single"))
     reject_potential_only(Calculation(system, pseudos))
+
+
+#: Per regime, at ``conv_thr = 1e-7`` (the floor): the bound on ``|E - E_double|``
+#: and on the occupied eigenvalues, each about three times the gap measured
+#: (``notes/incompat/I119.md``). TB09's total is not the value of anything and
+#: moves to first order in the density, so it is bounded loosely and its
+#: eigenvalues carry the check.
+FLOORS = {
+    "ultrasoft": (5e-6, 2e-4),
+    "paw": (5e-6, 2e-4),
+    "spinor": (5e-6, 1e-4),
+    "spiral": (5e-6, 1e-3),
+    "dftu": (5e-6, 3e-4),
+    "tb09": (1e-3, 2e-4),
+}
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name", sorted(REGIMES))
+def test_each_lifted_regime_lands_near_double_and_a_double_run_finishes_it(
+        pseudo_dir, tmp_path, name):
+    """I119's check: the single state at the floor, and the double state from it.
+
+    The gap at ``conv_thr = 1e-7`` is the SCF's own error at that threshold
+    plus the precision's; a double run started from the single result reaches
+    the double state (to 1e-11 Ry on every regime but TB09, whose total moves
+    with the density at first order) in one to four iterations.
+    """
+    system, pseudos = _regime(pseudo_dir, tmp_path, name)
+    exact = run_scf(system, pseudos, conv_thr=1e-12, max_iterations=200)
+    single = run_scf(system, pseudos, conv_thr=1e-7, band_precision="single",
+                     max_iterations=200)
+    assert single.converged and single.wavefunctions.dtype == SINGLE.complex
+    assert single.density.dtype == DOUBLE.real
+    energy_bound, eigenvalue_bound = FLOORS[name]
+    assert abs(single.total_energy - exact.total_energy) < energy_bound
+    occupied = np.asarray(exact.occupations) > 1e-4 * np.asarray(exact.occupations).max()
+    gap = np.abs(np.asarray(single.eigenvalues) - np.asarray(exact.eigenvalues))[occupied]
+    assert gap.max() < eigenvalue_bound
+    finished = run_scf(system, pseudos, conv_thr=1e-11, starting_from=single,
+                       max_iterations=200)
+    assert finished.wavefunctions.dtype == DOUBLE.complex
+    assert len(finished.history) <= 6
+    assert abs(finished.total_energy - exact.total_energy) < (1e-6 if name == "tb09" else 1e-10)
 
 
 def test_mixed_switches_inside_the_run_and_converges_to_the_double_state(silicon):
@@ -115,3 +239,22 @@ def test_mixed_switches_inside_the_run_and_converges_to_the_double_state(silicon
     # a loose request still finishes in double rather than stopping in single
     loose = run_scf(system, pseudos, conv_thr=1e-5, band_precision="mixed")
     assert loose.history[-1]["band_precision"] == "double"
+
+
+def test_becsum_is_accumulated_in_the_grid_precision():
+    """float32 projections, float64 weights: ``becsum`` is summed in double.
+
+    Before I119 the product was taken in the projections' dtype, and a spiral
+    on an ultrasoft dataset carried a float32 ``becsum`` into the mixer.
+    """
+    from defuqumat.scf.density import becsum, spinor_becsum
+
+    rng = np.random.default_rng(0)
+    vkb = jnp.asarray(rng.normal(size=(1, 4, 3)) + 1j * rng.normal(size=(1, 4, 3)),
+                      SINGLE.complex)
+    channels = (jnp.asarray([[0, 1, 2]]),)
+    psi = jnp.asarray(rng.normal(size=(1, 1, 2, 4)), SINGLE.complex)
+    weights = jnp.asarray([[[2.0, 1.0]]], DOUBLE.real)
+    assert becsum(psi, vkb, weights, channels)[0].dtype == DOUBLE.real
+    spinor = jnp.asarray(rng.normal(size=(1, 2, 8)), SINGLE.complex)
+    assert spinor_becsum(spinor, vkb, weights[0], channels)[0].dtype == DOUBLE.complex

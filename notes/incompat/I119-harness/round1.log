@@ -1,0 +1,20 @@
+us: double E = -22.2129734275 Ry, 10 it, converged=True, 38.6 s
+  single conv_thr=1e-05 ethr_floor=9.5e-06 it=5 converged=True dE=+8.85e-07 deig=+1.13e-04 drho=+6.74e-04  (35.0 s)
+  single conv_thr=1e-06 ethr_floor=9.5e-06 it=5 converged=True dE=+8.85e-07 deig=+1.13e-04 drho=+6.74e-04  (4.9 s)
+  single conv_thr=1e-07 ethr_floor=9.5e-06 it=7 converged=True dE=+1.42e-06 deig=+5.31e-05 drho=+3.36e-04  (7.3 s)
+paw: double E = -88.7341996804 Ry, 9 it, converged=True, 37.3 s
+  single conv_thr=1e-05 ethr_floor=9.5e-06 it=5 converged=True wfc=complex64 dE=+1.07e-06 deig=+6.11e-05 drho=+2.15e-03  (13.3 s)
+  single conv_thr=1e-06 ethr_floor=9.5e-06 it=5 converged=True wfc=complex64 dE=+1.07e-06 deig=+6.11e-05 drho=+2.15e-03  (8.5 s)
+  single conv_thr=1e-07 ethr_floor=9.5e-06 it=7 converged=True wfc=complex64 dE=+1.28e-06 deig=+4.67e-05 drho=+5.29e-04  (7.6 s)
+                                         (at, *zeros)), at)
+TypeError: lax.dynamic_update_slice requires arguments to have the same dtypes, got complex64, complex128.
+                                         (at, *zeros)), at)
+TypeError: lax.dynamic_update_slice requires arguments to have the same dtypes, got complex64, complex128.
+                                         (at, *zeros)), at)
+TypeError: lax.dynamic_update_slice requires arguments to have the same dtypes, got complex64, complex128.
+  exact = run_scf(system, pseudos, conv_thr=1e-12, max_iterations=200)
+meta: double E = -10.9737102314 Ry, 13 it, converged=True, 20.8 s
+  single = run_scf(system, pseudos, calculation=calc, conv_thr=thr, max_iterations=200)
+  single conv_thr=1e-05 ethr_floor=5.7e-06 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=+2.15e-03 deig=+6.64e-04 drho=+6.90e-03 dQ=+7.42e-08 dtau=+6.60e-03  (7.3 s)
+  single conv_thr=1e-06 ethr_floor=5.7e-06 it=6 converged=True wfc=complex64 rho=float64 becsum=- dE=+2.15e-03 deig=+6.64e-04 drho=+6.90e-03 dQ=+7.42e-08 dtau=+6.60e-03  (0.6 s)
+  single conv_thr=1e-07 ethr_floor=5.7e-06 it=9 converged=True wfc=complex64 rho=float64 becsum=- dE=+3.29e-04 deig=+5.50e-05 drho=+1.19e-03 dQ=-1.42e-06 dtau=+9.54e-04  (1.4 s)

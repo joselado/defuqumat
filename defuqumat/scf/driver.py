@@ -3133,12 +3133,26 @@ class Calculation:
         """What a band side in another precision than the grid's supports, and its floor.
 
         **Supported**: the SCF of a collinear norm-conserving calculation, one or
-        two spin channels. Refused by name, until each is checked: an ultrasoft
-        or PAW dataset (``becsum`` would be accumulated in the bands' precision
-        and the overlap's conditioning in single is untested), a spinor or a
-        spiral, DFT+U, a meta-GGA, and every derivative of the energy -- forces,
-        stress, the response stack -- which :func:`~defuqumat.forces.energy.
-        reject_potential_only` refuses for a single-precision band side, since a
+        two spin channels, and since I119 each of an ultrasoft or PAW dataset, a
+        spinor (``noncolin``), a spin spiral, DFT+U and a potential-only
+        meta-GGA on its own, and an augmented dataset under a spinor or a spiral.
+        Each was measured against its double state (``notes/incompat/I119.md``):
+        at ``conv_thr = 1e-7`` the total energy within 1.5e-6 Ry (TB09's, which
+        is not the value of anything, apart), a double run continued from it
+        reaching the double state, and the gap falling with ``conv_thr`` as the
+        SCF's own error does down to the precision's. Three things had to
+        change: ``H|psi>`` of a spinor and of DFT+U came back complex128, and
+        the Davidson work array refused it, until the spinor's kinetic energy
+        and potential and the Hubbard projectors (:meth:`band_wfcU`) were cast
+        to the bands' precision; and ``becsum`` was summed in the bands'
+        precision (a spiral on an ultrasoft dataset handed the mixer a float32
+        one) until the projections were promoted to the weights' precision
+        before the sums (:func:`~defuqumat.scf.density.becsum`). ``ns`` is
+        accumulated against the float64 ``wfcU``, so in double.
+        **Refused by name**: DFT+U or a meta-GGA together with another of these
+        regimes, not measured; and every derivative of the energy -- forces,
+        stress, the response stack, a spiral's ``dE/dq`` -- which
+        :func:`~defuqumat.forces.energy.reject_single_band_side` refuses, since a
         gradient taken through a float32 ``H|psi>`` carries its round-off as a
         plausible force.
 
@@ -3155,22 +3169,24 @@ class Calculation:
         here, for the process, which changes nothing for a float64 product.
         """
         system = self.system
-        refusals = []
+        regimes = []
         if any(getattr(p, "is_ultrasoft", False) for p in self.pseudos):
-            refusals.append("an ultrasoft or PAW dataset")
-        if self.noncolin:
-            refusals.append("a spinor (noncolin) calculation")
+            regimes.append("an ultrasoft or PAW dataset")
         if self.spiral:
-            refusals.append("a spin spiral")
+            regimes.append("a spin spiral")
+        elif self.noncolin:
+            regimes.append("a spinor (noncolin) calculation")
+        unmeasured = []
         if self.hubbard is not None:
-            refusals.append("DFT+U")
+            unmeasured.append("DFT+U")
         if self.functional.is_meta:
-            refusals.append(f"the meta-GGA {self.functional.name}")
-        if refusals:
+            unmeasured.append(f"the meta-GGA {self.functional.name}")
+        if unmeasured and len(regimes) + len(unmeasured) > 1:
             raise NotImplementedError(
-                f"band_precision = {self.band_precision.name!r} runs the SCF of a "
-                f"collinear norm-conserving calculation only; this one has "
-                f"{', '.join(refusals)}, which is not checked in single precision. "
+                f"band_precision = {self.band_precision.name!r} is checked on "
+                f"{' and '.join(unmeasured)} only on a collinear norm-conserving "
+                f"calculation; this one combines {', '.join(unmeasured + regimes)}, "
+                "which is not checked in single precision. "
                 "Run it with band_precision='double'"
             )
         self.ethr_floor = max(
@@ -3436,6 +3452,18 @@ class Calculation:
             ns = self.hubbard_symmetry.apply(ns)
         return ns
 
+    def band_wfcU(self) -> jnp.ndarray:
+        """The Hubbard projectors in the bands' precision, for ``V_U|psi>``.
+
+        ``wfcU`` is built and kept in the cell's precision, which is what the
+        occupation matrix is accumulated in (a float32 ``psi`` against a float64
+        ``wfcU`` promotes, so ``ns`` stays a grid-side quantity); the term the
+        Hamiltonian applies takes them cast, as ``vkb`` is, or a float32
+        ``H|psi>`` would come back complex128.
+        """
+        dtype = jnp.dtype(self.projector_core.complex_dtype or self.wfcU.dtype)
+        return self.wfcU if self.wfcU.dtype == dtype else self.wfcU.astype(dtype)
+
     def hubbard_terms(self, ns: jnp.ndarray) -> tuple:
         """``(eth, v_ns, one HubbardTerm per spin channel)`` for an occupation matrix.
 
@@ -3452,7 +3480,7 @@ class Calculation:
         # three different numbers).
         channels = 1 if self.noncolin else ns.shape[0]
         return energy, v_ns, tuple(
-            HubbardTerm(wfcU=self.wfcU, vns=blocks[spin]) for spin in range(channels)
+            HubbardTerm(wfcU=self.band_wfcU(), vns=blocks[spin]) for spin in range(channels)
         )
 
     def starting_ns(self) -> jnp.ndarray:
@@ -5931,12 +5959,13 @@ class Calculation:
             # the one its density came up on (:meth:`lift_density`).
             scalar = to_smooth(total[::3], self.basis.dense, self.basis.smooth)
             pair = pair_to_smooth(total[1:3], self.spiral_dense, self.spiral_smooth)
-            potentials = (jnp.stack([scalar[0], pair[0], pair[1], scalar[1]]),)
+            potentials = (jnp.stack([scalar[0], pair[0], pair[1], scalar[1]])
+                          .astype(self._band_real()),)
         elif self.noncolin:
             potential = jnp.stack([
                 to_smooth(component, self.basis.dense, self.basis.smooth)
                 for component in total
-            ])
+            ]).astype(self._band_real())
             potentials = (potential,)
         else:
             potentials = tuple(
@@ -5997,7 +6026,7 @@ class Calculation:
         over spinor projector columns rather than one operator per channel.
         """
         return SpinorHamiltonian(
-            kinetic=self.kinetic,
+            kinetic=self.kinetic.astype(self._band_real()),
             potential=terms.potentials[0],
             potential_wave=terms.waves[0],
             spiral=self.spiral,
@@ -9262,7 +9291,7 @@ def run_scf(
                 v_ns = v_ns_mixed
                 blocks = block_potential(v_ns, calculation._hubbard_blocks)
                 hubbard_terms = tuple(
-                    HubbardTerm(wfcU=calculation.wfcU, vns=blocks[spin])
+                    HubbardTerm(wfcU=calculation.band_wfcU(), vns=blocks[spin])
                     for spin in range(1 if calculation.noncolin else ns_state.shape[0]))
             # The energy-only acceptance needs the merit to be resolved: ``ethr``
             # a hundredth of the residual per electron, as fable's review set.

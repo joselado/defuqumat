@@ -455,10 +455,25 @@ def _becsum(psi, vkb, weights, species_channels, batch) -> tuple:
     )
 
 
+def _in_grid_precision(columns, weights):
+    """``columns`` promoted to the complex type of ``columns`` and ``weights`` together.
+
+    A no-op when the band side and the grid share a precision; with a float32
+    band side (``Calculation``'s ``band_precision``) and float64 weights it is
+    complex128, so the sums over bands and k-points are not taken in float32.
+    """
+    return columns.astype(jnp.result_type(columns.dtype, weights.dtype))
+
+
 @jax.jit
 def _becsum_species(projections, weights, channels):
-    """One species' ``becsum`` at one k-point, gathering its atoms' channels."""
-    columns = projections[:, channels]  # (nbnd, nat, nh)
+    """One species' ``becsum`` at one k-point, gathering its atoms' channels.
+
+    The projections come in the bands' precision and the product is taken in
+    the weights' (the grid's), so a single-precision band side accumulates
+    ``becsum`` in double as it does the density.
+    """
+    columns = _in_grid_precision(projections[:, channels], weights)  # (nbnd, nat, nh)
     return jnp.real(
         jnp.einsum("b,bai,baj->aij", weights.astype(columns.dtype),
                    columns.conj(), columns)
@@ -668,8 +683,11 @@ def _spinor_becsum(psi, vkb, weights, species_channels, batch, spiral) -> tuple:
 
 @jax.jit
 def _spinor_becsum_species(projections, weights, channels):
-    """One species' spinor ``becsum`` at one k-point, gathering its channels."""
-    columns = projections[:, :, channels]  # (nbnd, 2, nat, nh)
+    """One species' spinor ``becsum`` at one k-point, gathering its channels.
+
+    In the weights' precision, as :func:`_becsum_species`.
+    """
+    columns = _in_grid_precision(projections[:, :, channels], weights)  # (nbnd, 2, nat, nh)
     return jnp.einsum(
         "b,bani,bcnj->niajc",
         weights.astype(columns.dtype),
