@@ -749,3 +749,10 @@ while the user was asleep. One line per unit:
   was not re-verified: to be merged.
 - `ultraseed` (I116, I117), branch `incompat/ultraseed` at `8b531bf5`: its verifier is still
   running, so it is not merged unless the coordinator says it was confirmed.
+
+**Merges.** `git merge --no-ff incompat/I118` (tip `4dada2d1` checked), merge `052e5dfb`, then
+`git merge --no-ff incompat/I119` (tip `3003d06d` checked), merge `0554adbb`. Neither conflicted:
+both branches start at `8bfe5ce7` and touch disjoint sets of files (I118: `workflows/stm.py`,
+`workflows/ultracell.py` and the STM tests; I119: `forces/energy.py`, `forces/spiral.py`,
+`scf/continuation.py`, `scf/density.py`, `scf/driver.py`, `workflows/anisotropy.py`,
+`workflows/topology.py` and `tests/unit/test_band_precision.py`).
