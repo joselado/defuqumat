@@ -253,23 +253,21 @@ def _antiferromagnet(ultracell, rng, axis=AXIS):
     return density
 
 
-def test_a_compensated_reference_has_no_direction_to_turn_from(ultracell):
-    """The refusal that stays (I117 is partial): :func:`reference_axis`, which
-    the driver calls, refuses a compensated reference, whose net moment is a
-    residue of cancellation. :func:`neel_axis` would turn it about its Neel
-    axis and is not measured against a supercell, so it is not used.
+def test_the_driver_reads_the_neel_axis_through_reference_axis(ultracell):
+    """I117 lifted: :func:`reference_axis`, which ``run_ultracell`` calls, is
+    :func:`neel_axis`, so a compensated reference gets its Neel axis when the
+    sites are given and is refused, not given a sign by accident, without them.
     """
     density = _antiferromagnet(ultracell, np.random.default_rng(7))
     assert np.abs(density[1:].reshape(3, -1).sum(axis=1)).max() == 0.0
-    with pytest.raises(NotImplementedError, match="residue of cancellation"):
+    axis = reference_axis(density[1:], 1.0, sites=[(0, 0, 0), (0, 1, 0)])
+    assert np.abs(axis - AXIS).max() < 1.0e-12
+    with pytest.raises(ValueError, match="sites="):
         reference_axis(density[1:], 1.0)
-    with pytest.raises(NotImplementedError, match="not yet measured"):
-        reference_axis(density[1:], 1.0, sites=[(0, 0, 0), (0, 1, 0)])
 
 
 def test_a_compensated_reference_is_turned_about_its_neel_axis(ultracell):
-    """I117, written and not measured: an antiferromagnet's axis is the
-    principal one of ``int m m^T`` (:func:`neel_axis`, not called by the driver).
+    """I117: an antiferromagnet's axis is the principal one of ``int m m^T``.
 
     Its net moment is exactly zero, so the net gives no direction, but every
     moment is along ``+-e`` and ``e`` is the axis a rigid rotation starts from.
@@ -638,6 +636,14 @@ def test_the_field_seed_skips_a_reference_with_no_direction(ultracell):
           opted_out=False, skipped="the reference carries no moment"),
      ["not seeded from the field", "carries no moment"],
      ["seed_magnetization", "263"]),
+    # A compensated reference (I117): the field's seed is skipped, and a hand
+    # seed about the Neel axis is not refused, so it is named.
+    (dict(kramers_pairs=True, seed_origin=None, field_given=True,
+          opted_out=False,
+          skipped="the reference's net moment (0 mu_B against an absolute 1) "
+                  "is a residue of cancellation, so it has no direction"),
+     ["not seeded from the field", "Neel vector", "seed_magnetization="],
+     ["refused on such", "263"]),
     # The old basis keeps its own numbers, labelled, and names the default.
     (dict(kramers_pairs=False, seed_origin=None, field_given=True,
           opted_out=False, skipped=None),

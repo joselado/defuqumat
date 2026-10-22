@@ -51,14 +51,14 @@ magnetization, exactly as ``starting_magnetization`` multiplies an *atom's*,
   the seed's, so a seed whose direction turns by ``2 pi / n`` from cell to cell
   is a helix of pitch ``n`` cells.
 
-**A compensated reference could be turned about its Neel axis** (I117,
-:func:`neel_axis`, written and not measured, so the driver still refuses it). An
+**A compensated reference is turned about its Neel axis** (I117,
+:func:`neel_axis`). An
 antiferromagnet has no net moment to read ``e_0`` off, but a collinear one has
 an axis, the principal eigenvector of ``int m m^T dr``, and ``R(e_0 -> s)``
 applied pointwise turns its two sublattices rigidly together; the sign of that
 axis is the moment of the first magnetic atom, so ``s`` names that atom's
 direction. A canted or noncoplanar compensated cell has no single axis and is
-refused there too.
+still refused.
 
 ``s = 1`` and ``s = e_0`` are the **identity**, to round-off in the collinear
 case (which goes through the charge-and-moment representation and back, one
@@ -235,43 +235,23 @@ def refuse_an_unmagnetized_reference(magnetization, volume: float) -> float:
 def reference_axis(magnetization, volume: float, sites=None) -> np.ndarray:
     """The unit vector the reference's own magnetization points along.
 
-    ``magnetization`` is ``(3, ...)`` on the box and ``volume`` the *unit
-    cell's*, which only sets the scale the two integrals are compared at and
-    cancels in the ratio. Raises when the net is a residue of cancellation --
-    see :data:`SEED_NET_TOL` -- and :func:`neel_axis` is the written,
-    unmeasured answer to that (I117); ``sites`` is accepted for it and not
-    read here.
+    The net moment's direction for a ferromagnet and the Neel axis for a
+    collinear compensated reference (I117), which needs ``sites``; the whole
+    rule, the sign convention and what stays refused are :func:`neel_axis`'s.
     """
-    m = np.asarray(magnetization, dtype=float)
-    absolute = refuse_an_unmagnetized_reference(m, volume)
-    net = m.reshape(3, -1).sum(axis=1) * volume / m[0].size
-    length = float(np.linalg.norm(net))
-    if length <= SEED_NET_TOL * absolute:
-        raise NotImplementedError(
-            f"a noncollinear seed turns the unit cell's own magnetization "
-            f"rigidly, from the direction it points along onto the seed's, and "
-            f"this reference has no such direction: its net moment is "
-            f"{length:.3e} mu_B against an absolute magnetization of "
-            f"{absolute:.3e}, so the net is a residue of cancellation and its "
-            f"direction is round-off. A collinear antiferromagnet has a Neel "
-            f"axis to turn about instead (seed.neel_axis, I117), which is "
-            f"written but not yet measured against an explicit supercell, so "
-            f"it is not used. Seed a modulation of a cell whose moments are "
-            f"parallel, or drive this one with magnetic_field= instead, which "
-            f"needs no reference direction"
-        )
-    return net / length
+    return neel_axis(magnetization, volume, sites=sites)
 
 
 def neel_axis(magnetization, volume: float, sites=None) -> np.ndarray:
     """The axis a seed turns the reference from, a compensated one included (I117).
 
-    **Written and unit-tested, not measured, and not called by the driver.**
-    The check it needs, the seeded ultracell against the explicit supercell,
-    was not run (2026-10-22: the GPU workstation refused the login for the
-    whole session), so :func:`reference_axis` still refuses a compensated
-    reference and ``run_ultracell`` calls that. The harness is
-    ``notes/incompat/ultraseed-harness/i117.py``.
+    **Measured** (2026-10-22, Triton job 21118738, ``notes/incompat/I117.md``):
+    an antiferromagnetic two-hydrogen cell seeded with its Neel vector turning
+    120 degrees a cell over three cells is 6.2e-6 Ry per cell above the
+    explicit six-atom supercell at ``nbnd = 8`` and 8.5e-7 at 16, with the site
+    moments 3.5e-4 and 4.6e-5 of the largest away from the supercell's; the
+    seed ``-s`` gives the same energy and the reversed sites, which is the sign
+    convention below doing what it says.
 
     ``magnetization`` is ``(3, ...)`` on the box and ``volume`` the *unit
     cell's*, which only sets the scale the two integrals are compared at and

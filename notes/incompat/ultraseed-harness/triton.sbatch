@@ -3,6 +3,9 @@
 # Array task 0: the fast unit and regression files of the unit (-m 'not slow');
 # task 1: i116.py (two-cell hydrogen under B cos(pi x), three starts, two fields, two conv_thr);
 # task 2: i117.py (antiferromagnetic H2 ultracell (3,1,1) against the explicit supercell).
+# Round two (after job 21118738): task 1 is i116b.py (four ultracell starts and the
+# explicit two-atom supercell under the same field, three starts), task 2 is i117.py
+# on the driver that now calls neel_axis itself.
 #
 # Not submitted by any tool here (CLAUDE.local.md): by hand, after `sbatch --test-only`.
 #
@@ -35,7 +38,7 @@ cd "$REPO" || exit 1
 case "$SLURM_ARRAY_TASK_ID" in
   0) "$PY" -m pytest -q -rs --tb=short -m 'not slow' -p no:cacheprovider \
         tests/unit/test_ultracell_seed.py tests/regression/test_ultracell.py ;;
-  1) "$PY" -u "$H/i116.py" "$WORK/out/i116-${SLURM_ARRAY_JOB_ID}.json" 0.002,0.02 1e-8,1e-10 16 ;;
+  1) "$PY" -u "$H/i116b.py" "$WORK/out/i116b-${SLURM_ARRAY_JOB_ID}.json" 0.002,0.02 16,24,40 ;;
   2) "$PY" -u "$H/i117.py" "$WORK/out/i117-${SLURM_ARRAY_JOB_ID}.json" 3 8,16 yes ;;
 esac
 echo "exit $?"; date

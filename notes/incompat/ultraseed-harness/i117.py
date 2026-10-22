@@ -15,10 +15,8 @@ both boxes), which are sign-sensitive where the Fourier norm is not. The
 control is the same ultracell seeded with -s (the other sign convention of the
 Neel axis): same energy, site moments reversed.
 
-The driver still calls ``seed.reference_axis``, which refuses a compensated
-reference (the item is partial), so this harness puts ``seed.neel_axis`` in its
-place, with the unit cell's atoms' grid points as the sites, which is what the
-lifted driver did (commit 8c7bf8e5).
+Since the lift the driver calls ``seed.neel_axis`` itself; ``--patch`` puts it
+in by hand, as the first round (before the lift) did.
 
 Usage: i117.py <out.json> [n] [nbnd list] [control: yes|no] [supercell nbnd]
 """
@@ -133,8 +131,10 @@ cell_grid = np.asarray(rho.shape[1:])
 sites_idx = (np.round(np.asarray(unit.system.structure.positions_crystal(unit.system.cell))
                       * cell_grid) % cell_grid).astype(int)
 axis = reference_axis(rho[1:], volume, sites=sites_idx)
-ultracell_driver.reference_axis = (
-    lambda m, v, sites=None: reference_axis(m, v, sites=sites_idx))
+if "--patch" in sys.argv:
+    # The first round (job 21118738), before the driver called neel_axis.
+    ultracell_driver.reference_axis = (
+        lambda m, v, sites=None: reference_axis(m, v, sites=sites_idx))
 records["reference"] = dict(
     converged=bool(scf.converged), iterations=int(scf.iterations),
     total_energy=float(scf.total_energy), net=float(net), absolute=float(absolute),

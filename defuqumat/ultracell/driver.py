@@ -1856,7 +1856,14 @@ def run_ultracell(
             # ``angle1``/``angle2``: what the frozen states carry is the
             # direction the SCF *ended* at, and those two differ by whatever
             # the unit cell's own relaxation did.
-            seed_axis = reference_axis(moment, float(cell.volume))
+            # The atoms' own grid points on the box fix the sign of a
+            # compensated reference's Neel axis (I117), and are not read for
+            # a ferromagnet, whose axis is its net moment.
+            cell_grid = np.asarray(ultracell.cell_grid)
+            sites = (np.round(np.asarray(
+                system.structure.positions_crystal(cell)) * cell_grid)
+                % cell_grid).astype(np.int64)
+            seed_axis = reference_axis(moment, float(cell.volume), sites=sites)
         density = seeded_density(density, seed_field, nspin_mag,
                                  float(cell.volume), axis=seed_axis,
                                  closed=closed_basis)
@@ -2471,6 +2478,19 @@ def _noncollinear_advice(*, kramers_pairs: bool, seed_origin, field_given: bool,
             f"against a weak field, compare total_energy + field_energy "
             f"between the starts rather than taking the one that converges. "
             f"Otherwise raise {budget}."
+        )
+    if field_given and skipped and "residue of cancellation" in skipped:
+        # A compensated reference (I117): the field's seed is not taken, since
+        # turning the Neel vector onto the field is not what an antiferromagnet
+        # does under one, but a hand-written seed is not refused there.
+        return (
+            f" This run was not seeded from the field{strength} because "
+            f"{skipped}: the field's own seed would turn the Neel vector onto "
+            f"the field, which is not how an antiferromagnet answers one, so it "
+            f"is not taken. A texture of the Neel vector can be handed over as "
+            f"seed_magnetization=, turned about the Neel axis with s naming the "
+            f"first magnetic atom's direction; otherwise raise {budget} or the "
+            f"field's strength."
         )
     if field_given and skipped:
         return (
