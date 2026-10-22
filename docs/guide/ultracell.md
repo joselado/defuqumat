@@ -516,8 +516,22 @@ period you compare the energies of several long cells, one run each.
 
     A seed with $|s| > 1$ gives an error, because it asks for more magnetization
     than the cell has. A seed on a unit cell with no moment gives an error,
-    because there is nothing to scale, and so does a vector seed on an
-    antiferromagnetic unit cell, whose net moment has no direction. A
+    because there is nothing to scale. On an antiferromagnetic unit cell a
+    vector seed turns the whole cell about its Neel axis, and `s` gives the
+    direction of the first magnetic atom. If the moments of the cell are not
+    collinear, a vector seed gives an error, because there is no single axis to
+    turn about. In every case the moments of the long cell keep roughly the
+    length they have in the unit cell. On the H2 chain with a helix that turns
+    by 90 degrees per cell, over four cells, the moments on the atoms came out
+    3.8 per cent too long, while the energy agreed with the supercell to
+    $5\times10^{-7}$ Ry. So for a strong twist you compare the moments with the
+    explicit supercell and not only the energy. On a collinear cell,
+    `seed_from_field=True` starts the loop with the moment turned over where the
+    field is negative. On two-cell hydrogen this start ends in the
+    antiferromagnet, which is the lowest state of the supercell under the field.
+    The normal start stays in the ferromagnet, 3.8 mRy per cell higher. So if a
+    cell can have two solutions under the field, you compare
+    `total_energy + field_energy` between the two starts. A
     `magnetic_field` on a noncollinear cell with no magnetization gives an
     error, because the field has no magnetization to be added to. There, you
     give the unit cell a small `starting_magnetization`, and the run then

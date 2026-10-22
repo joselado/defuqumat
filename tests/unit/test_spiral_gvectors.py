@@ -83,8 +83,12 @@ def test_a_box_that_would_fold_two_members_together_is_refused():
     ``pw.x``'s FFT sizes leave room on every axis of every cell measured (the
     cobalt cell from 80 to 320 Ry at half a reciprocal vector along each axis,
     the oxygen chain at ``q3 = 1/4``, ``0.3`` and ``1/2``, silicon at ``0.3``
-    and ``1/2``), so no real input reaches the refusal and the box is narrowed
-    by hand: ``2 max|m_3|`` points along ``c`` for a sphere spanning
+    and ``1/2``), so no input of those reaches the refusal and the box is
+    narrowed by hand. One input does fold, the oxygen chain at ``ecutrho =
+    240`` (resident box 25 along ``c``), and ``Calculation`` widens that box at
+    construction (I122); the guard stays the refusal for a box handed in and
+    for a ``q`` changed on a frozen basis (``at_spiral_q``). Narrowed by hand
+    here: ``2 max|m_3|`` points along ``c`` for a sphere spanning
     ``2 max|m_3| + 1``. One plane wider, the same sphere is held.
     """
     system, basis, q = _cobalt(80.0)

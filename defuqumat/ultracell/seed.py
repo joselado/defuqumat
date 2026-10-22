@@ -277,6 +277,15 @@ def neel_axis(magnetization, volume: float, sites=None) -> np.ndarray:
     ``sites`` a compensated reference is refused, since no other choice is
     reproducible.
 
+    **The boundary at** :data:`SEED_NET_TOL` **is a convention, documented
+    rather than smoothed** (the verifier of I116 and I117 found it). A collinear
+    ferrimagnet whose net moment is just above ``SEED_NET_TOL`` of the absolute
+    one takes the first branch, the net direction, and one just below it takes
+    the second, the sign at the first atom. The two can name opposite
+    sublattices, so the seed's direction changes discontinuously across the
+    threshold. Both are the reference's own axis up to a sign, and the sign is
+    the one thing the convention fixes.
+
     Raises, with the reason, for a compensated reference whose ``M`` is not
     rank one to :data:`SEED_COLLINEAR_TOL` (a canted or noncoplanar
     antiferromagnet, which a rotation from one axis cannot carry), and for one

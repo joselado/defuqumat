@@ -196,9 +196,14 @@ It also depends on the gradient correction of the noncollinear GGA. The default,
     magnetization is mixed on the sphere displaced by $\mathbf q$, so nothing is
     cut. It gives the same result as `'r'`: on the ultrasoft oxygen chain at
     `conv_thr = 1e-13` the two energies differ by $1\times10^{-13}$ Ry.
-    A spiral whose FFT grid would put two plane waves of the displaced sphere on
-    one grid point gives an error, but the usual FFT sizes leave room, so in
-    practice this does not happen.
+    If the sphere of the spiral does not fit in the FFT box, the box is made one
+    size larger along that axis. The energy then changes a little, because the
+    grid is finer. On the ultrasoft oxygen chain at `ecutrho = 240`, `q` equal to
+    $\mathbf b_3/4$, the box becomes (60, 60, 27), and the energy agrees with the
+    four-cell supercell to $3\times10^{-10}$ Ry at `conv_thr = 1e-9` and to
+    $4\times10^{-13}$ Ry at `conv_thr = 1e-11`. A box that you give yourself, or a
+    $\mathbf q$ that you change on a frozen basis, still gives an error when the
+    sphere does not fit.
 
     The Newton solver, `scf_solver='newton-krylov'`, works on a spiral and finds
     the same state as mixing. It gives an error for a spiral with a Hubbard $U$,

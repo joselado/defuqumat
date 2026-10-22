@@ -975,3 +975,63 @@ the chunks** (`test_config.py` 19 passed without `taskset`; chunks 0 to 7 2749 p
 skipped). No merge of integrations seven or eight caused a failure. The code of chunks 0 to 7
 predates the I121 merge, but the I121 merge touches only `pseudo/augmentation.py`, `scf/driver.py`
 and the spiral tests, whose files were rerun.
+
+## Integration nine (2026-10-22): I116, I117 and I122
+
+On `incompat-t3d` from master `a4c12c31` (the head of `incompat-t3c`, fast-forwarded and pushed with
+the user's approval). `git merge --no-ff incompat/ultraseed` (tip `8b531bf5` checked), merge
+`aa92399f`; `git merge --no-ff incompat/I122` (tip `960e5fa9` checked), merge `93d66fa4`. Neither
+conflicted (ultraseed touches `ultracell/driver.py`, `ultracell/seed.py` and the ultracell tests; I122
+touches `basis/builder.py`, `basis/gvectors.py`, `scf/driver.py` and the spiral tests). The user
+decided everything below.
+
+- **I116 lifts.** The verifier refuted nothing, and its cut-off points ran as Triton job 21126793:
+  the field seed against the aligned supercell at `nbnd = 64` reads 5.59e-6 (`B = 0.002`) and 5.83e-6
+  (`B = 0.02`) Ry/cell, so the ladder 1.54e-4, 6.84e-5, 2.33e-5, 5.6e-6 is monotone, and repeats the
+  zero-field ladder to three digits; the supercell moves 1.8e-12 between `nbnd` 16 and 32; on
+  `kgrid (2, 3, 3)` 5.47e-4, 2.40e-4, 7.96e-5; the tiled start 3e-8 and 7e-7 above the ferro supercell.
+  The `SEED_NET_TOL` boundary (a collinear ferrimagnet with net over absolute just above 1e-2 takes the
+  net direction, just below the first atom's sign) is recorded as a convention in `I116.md` and in the
+  docstring of `seed.neel_axis`; no code changed. The default stays the tiled start.
+- **I117 lifts, with a recorded gap.** Three-cell helix at `nbnd` 12 and 24: 1.23e-6 and 3.70e-7 above
+  the supercell (ladder 6.2e-6, 1.23e-6, 8.5e-7, 3.7e-7), site errors 7.3e-5 and 2.4e-5; the
+  supercell converged in `nbnd`; the swapped atom order lands on the supercell with the axis
+  reversed. **The four-cell 90 degree helix**: energy 3.61e-6 and 4.74e-7 above the supercell, but the
+  site moments 3.8 per cent too long on every site (0.2502 against 0.2409, 0.1768 against 0.1703),
+  flat in `nbnd`. Recorded in `OPEN.md` Part XXX with the numbers and the harness, in `I117.md`, and
+  in the Limits note of `docs/guide/ultracell.md`.
+- **I122 lifts for the box widened at construction.** Job 21126794: 2.77e-10 Ry at `conv_thr = 1e-9` and
+  -3.7e-13 at 1e-11 against the four-cell supercell; the fast file passed on Triton.
+  `WIDENED_QUARTER_TURN_RY` is **1e-11**, not 1.1e-12 (three times the 1e-11 measurement): the slow test
+  runs at `conv_thr = 1e-11`, and the resident quarter turn read 3.5e-12 on D22, so a tighter bound
+  would test the machine; 1e-11 is 27 times the measurement and 160 times under the wrong sphere's
+  1.6e-9. The refusal stays for a box handed in and for a `q` changed on a frozen basis
+  (`at_spiral_q`); the docstring of `test_a_box_that_would_fold_two_members_together_is_refused` no
+  longer says no real input folds.
+
+**Evidence copied into the repository**: `notes/incompat/ultraseed-ver/` (the verifier's `v116.py`,
+`v117.py`, `ver.sbatch` and the six job outputs) and `notes/incompat/I122-harness/out/` (the three
+job outputs and two JSON files; `out/` is in `.gitignore`, so they were added with `git add -f`).
+
+**Guide and ledger.** `docs/guide/ultracell.md` Limits: the antiferromagnetic vector seed now turns
+about the Neel axis (`s` is the direction of the first magnetic atom), a non-collinear cell still gives
+an error, the moments keep roughly the reference's length (3.8 per cent too long on the 90 degree
+H2 helix while the energy agrees to 5e-7 Ry), and `seed_from_field=True` on a collinear cell with the
+two-solution advice. `docs/guide/spirals.md` Limits: the box-widening paragraph replaces the sentence
+about two plane waves on one grid point. README: no change, since no row carries text on a seed or a
+folded box. `notes/INCOMPATIBILITIES.md`: I116, I117 and I122 under "Closed since" and their sections
+removed. `PLAN.md`: P158 gets three rows and an "Integration nine" paragraph (kept in P158, one entry
+for the whole batch). `OPEN.md` Part XXX is new.
+
+**Slow tests for the user** (none run):
+`tests/regression/test_ultracell.py::test_the_collinear_field_seed_reaches_the_supercells_lowest_state`,
+`::test_the_collinear_field_seed_is_refused_on_a_paramagnet`,
+`::test_a_neel_helix_on_an_antiferromagnet_is_the_supercell`;
+`tests/regression/test_spin_spirals_augmented.py::test_a_widened_box_keeps_the_quarter_turn_identity`;
+`tests/unit/test_spiral_gvectors.py::test_a_spiral_calculation_runs_on_the_widened_box`; and the whole of
+`tests/regression/test_spin_spirals_augmented.py` and `tests/regression/test_spin_spirals.py`, since the
+spiral branch of `Calculation.__init__` changed.
+
+**Follow-ups.** The four-cell moment length (`OPEN.md` Part XXX); notebooks and timings for the three
+items; the user's question on whether a collinear run under a field should be seeded by default
+(kept as the tiled start).

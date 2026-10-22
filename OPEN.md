@@ -9525,3 +9525,43 @@ of SCF iterations), and make the file honour `DEFUQUMAT_QE_ROOT`, so D22's gate 
 
 **How to know it worked:** the test passes on D22 without the symlink and is not skipped, and it fails when
 `max_seconds` is ignored by the loop (the guard tested to fire).
+
+# Part XXX -- the four-cell helix of the ultracell noncollinear seed on a compensated reference, 2026-10-22
+
+## 1. The site moments of a 90 degree helix come out 3.8 per cent too long, flat in `nbnd` **[open 2026-10-22]**
+
+**What it affects.** `run_ultracell` seeded about a Neel axis (I117, `notes/incompat/I117.md`) on a
+compensated reference. On the H2 chain of the record (two hydrogens 5.5 bohr apart in an
+`(11, 5.5, 5.5)` bohr box, noncollinear, converged to the collinear antiferromagnet), with a helix
+that turns by 90 degrees per cell over four cells (`(4, 1, 1)`, eight atoms, `kgrid (1, 2, 2)`),
+Triton job 21126793 task 4 reads:
+
+| `nbnd` | energy above the supercell, Ry/cell | largest site error / largest site moment |
+|---|---|---|
+| 8 | 3.61e-6 | 0.0384 |
+| 16 | 4.74e-7 | 0.0386 |
+
+The energy converges like the three-cell helix (6.2e-6 and 8.46e-7 there, `nbnd` 8 and 16), but every
+site moment is too large: the ultracell reads 0.2502 where the supercell reads 0.2409 (the axis
+sites), and 0.1768 where it reads 0.1703 (the diagonal ones), the same 3.8 per cent on all eight
+sites, and it does not move with `nbnd`, so it is not the truncation. The three-cell helix has site
+errors of 7.3e-5 and 2.4e-5 (`nbnd` 12 and 24), so the gap appears with the twist.
+
+**Suspected cause, not shown.** The ultracell's basis is the reference's frozen collinear states,
+whose moment length is that of the collinear antiferromagnet, and a rigid rotation `R(e -> s)` keeps
+it. A 90 degree twist between neighbouring cells makes the exact moment shorter, and a basis that
+cannot shorten it by itself leaves the length at the reference's, an error that enters the energy
+only at second order (`delta m^2`, 1.4e-3 of `m^2` here against an energy gap of 5e-7 Ry). The user
+decided on 2026-10-22 that the lift stands with this gap recorded, and `docs/guide/ultracell.md`'s
+Limits note says that the moments keep roughly the length of the reference's.
+
+**What to do.** Read the supercell's moment length per site against the ultracell's for twists of 30,
+60, 90 and 120 degrees per cell (the three-cell helix is 120): if the error scales as the twist
+squared, the cause above is right, and the cure is to let the seed's amplitude relax (a basis that
+includes the reference's states rotated by the half-twist) or to refuse a twist above a measured
+angle. Costs a day of Triton CPU time. **How to know it worked:** the site error falls with `nbnd`
+on the four-cell helix, or the refusal fires with the measured angle in its message, and the energy
+agreement of 5e-7 Ry does not move.
+
+**Harness.** `notes/incompat/ultraseed-ver/v117.py` (`v117.py out.json 4 8,16 yes 16`), submitted
+by `notes/incompat/ultraseed-ver/ver.sbatch` task 4; the output is `21126793_4.out` beside it.

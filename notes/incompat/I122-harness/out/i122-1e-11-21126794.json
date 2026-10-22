@@ -1,0 +1,29 @@
+{
+ "conv_thr": 1e-11,
+ "ecutrho": 240.0,
+ "spiral": {
+  "grid": [
+   60,
+   60,
+   27
+  ],
+  "converged": true,
+  "iterations": 12,
+  "total": -31.494558851002182,
+  "electronic": -23.322349808808134,
+  "seconds": 8.210668087005615
+ },
+ "supercell": {
+  "grid": [
+   60,
+   60,
+   108
+  ],
+  "converged": true,
+  "iterations": 17,
+  "total": -125.97823540400735,
+  "electronic": -93.28939923523106,
+  "seconds": 28.328666925430298
+ },
+ "difference_ry": -3.694822225952521e-13
+}

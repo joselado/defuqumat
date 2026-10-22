@@ -1,0 +1,8 @@
+=== node ===
+csl30.int.triton.aalto.fi
+Thu Oct 22 11:07:06 EEST 2026
+02a734db624f18d28189b99c8d73c8a8e68e63b8
+{'conv_thr': 1e-09, 'ecutrho': 240.0, 'spiral': {'grid': [60, 60, 27], 'converged': True, 'iterations': 10, 'total': -31.494558850651938, 'electronic': -23.322349808457894, 'seconds': 20.50533366203308}}
+{'conv_thr': 1e-09, 'ecutrho': 240.0, 'spiral': {'grid': [60, 60, 27], 'converged': True, 'iterations': 10, 'total': -31.494558850651938, 'electronic': -23.322349808457894, 'seconds': 20.50533366203308}, 'supercell': {'grid': [60, 60, 108], 'converged': True, 'iterations': 14, 'total': -125.97823540371682, 'electronic': -93.28939923494053, 'seconds': 39.222960233688354}, 'difference_ry': 2.772395646388759e-10}
+exit 0
+Thu Oct 22 11:08:09 EEST 2026

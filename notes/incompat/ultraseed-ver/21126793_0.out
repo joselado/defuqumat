@@ -1,0 +1,21 @@
+csl18.int.triton.aalto.fi
+Thu Oct 22 11:05:05 EEST 2026
+37cff983a307f5db863c798f305c3e08c6c48e73
+{"kgrid": [2, 2, 2], "magnetization": 0.6234257003722404, "converged": true, "grid": [15, 15, 15]}
+{"tag": "aligned", "B": 0.002, "nbnd": 16, "converged": true, "minimised": -0.9368278750536042, "grid": [27, 15, 15]}
+{"tag": "aligned", "B": 0.002, "nbnd": 32, "converged": true, "minimised": -0.9368278750554354, "grid": [27, 15, 15]}
+{"tag": "ferro", "B": 0.002, "nbnd": 16, "converged": true, "minimised": -0.9330137646143606, "grid": [27, 15, 15]}
+{"tag": "ferro", "B": 0.002, "nbnd": 32, "converged": true, "minimised": -0.9330137646145594, "grid": [27, 15, 15]}
+{"tag": "tiled", "B": 0.002, "nbnd": 16, "converged": true, "iterations": 6, "seed_origin": null, "minimised": -0.9330137951265247, "above_aligned": 0.0038140799289106964, "above_ferro": -3.0511965287693954e-08, "box": [30, 15, 15]}
+{"tag": "field", "B": 0.002, "nbnd": 16, "converged": true, "iterations": 7, "seed_origin": "magnetic_field", "minimised": -0.9366736141030587, "above_aligned": 0.00015426095237669468, "above_ferro": -0.0036598494884992894, "box": [30, 15, 15]}
+{"tag": "field", "B": 0.002, "nbnd": 64, "converged": true, "iterations": 8, "seed_origin": "magnetic_field", "minimised": -0.9368222858039322, "above_aligned": 5.589251503179682e-06, "above_ferro": -0.0038085211893728044, "box": [30, 15, 15]}
+{"tag": "aligned", "B": 0.02, "nbnd": 16, "converged": true, "minimised": -0.9438090463689511, "grid": [27, 15, 15]}
+{"tag": "aligned", "B": 0.02, "nbnd": 32, "converged": true, "minimised": -0.9438090463686784, "grid": [27, 15, 15]}
+{"tag": "ferro", "B": 0.02, "nbnd": 16, "converged": true, "minimised": -0.9335966364931922, "grid": [27, 15, 15]}
+{"tag": "ferro", "B": 0.02, "nbnd": 32, "converged": true, "minimised": -0.9335966364932794, "grid": [27, 15, 15]}
+{"tag": "tiled", "B": 0.02, "nbnd": 16, "converged": true, "iterations": 7, "seed_origin": null, "minimised": -0.933595919341152, "above_aligned": 0.010213127027799085, "above_ferro": 7.17152127349685e-07, "box": [30, 15, 15]}
+{"tag": "field", "B": 0.02, "nbnd": 16, "converged": true, "iterations": 10, "seed_origin": "magnetic_field", "minimised": -0.9436434332806173, "above_aligned": 0.00016561308833384913, "above_ferro": -0.010046796787337886, "box": [30, 15, 15]}
+{"tag": "field", "B": 0.02, "nbnd": 64, "converged": true, "iterations": 11, "seed_origin": "magnetic_field", "minimised": -0.943803214009231, "above_aligned": 5.832359720181479e-06, "above_ferro": -0.010206577515951554, "box": [30, 15, 15]}
+# done 126.35816168785095
+exit 0
+Thu Oct 22 11:07:35 EEST 2026

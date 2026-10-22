@@ -232,8 +232,13 @@ def test_a_quarter_turn_is_the_ninety_degree_supercell(dataset, pseudo_dir):
 #: The quarter turn against its supercell at ``ecutrho = 240``, where the
 #: spiral's laboratory sphere does not fit the resident (60, 60, 25) box and the
 #: box is widened to (60, 60, 27), a quarter of the supercell's own (60, 60, 108)
-#: (I122). Pending: set from the Triton measurement at conv_thr 1e-9 and 1e-11.
-WIDENED_QUARTER_TURN_RY = 1.0e-09
+#: (I122). Measured on Triton (jobs 21126794, `batch-csl`, 2026-10-22):
+#: 2.77e-10 Ry at conv_thr 1e-9 and -3.7e-13 at 1e-11 (this test runs at 1e-11).
+#: Not three times the 1e-11 value (1.1e-12): the resident quarter turn read
+#: 3.5e-12 on D22, so a bound under that would be a test of the machine. 1e-11
+#: is 27 times the measurement and 160 times under the 1.6e-9 that the wrong
+#: (resident) sphere gives, so it still tests the sphere.
+WIDENED_QUARTER_TURN_RY = 1.0e-11
 
 
 @pytest.mark.slow

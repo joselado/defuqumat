@@ -387,24 +387,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Note: Only in sweep-core.
 - Partial 2026-10-20 (P156, integration two), merged for ultrasoft, record in `notes/incompat/I114.md`: `soc_scale` strictly between 0 and 1 on an ultrasoft dataset; tetragonal Co, the Richardson slope 0.010121 against Hellmann-Feynman 0.010135 meV, the verifier's `s = 0.37` coefficient 0.45804 against the law's 0.4585 (0.154 against 0.0634 meV with the term off), MAE(1) 0.447302 against `pw.x` 0.4474, a Pt ultracell at 0.5 to 2.3e-12 Ry at `Q_d = 0`. Forces, stress, phonons and the dielectric response at an intermediate scale rest on the variational argument. Fully relativistic PAW stays refused (its small component is scaled as a strength, P117).
 
-### I116. Ultracell `seed_from_field` x collinear reference
-
-- Axis: spin.
-- Guard: `defuqumat/ultracell/driver.py:run_ultracell:1161`.
-- Test: none.
-- Missing: an amplitude or staggered seed from a scalar field, not measured (guard message).
-- Check: the converged state does not depend on the seed.
-- QE/Elk: QE n.
-
-### I117. Ultracell noncollinear seed x compensated (antiferromagnetic) reference
-
-- Axis: spinor.
-- Guard: `defuqumat/ultracell/seed.py:reference_axis:226`.
-- Test: `tests/unit/test_ultracell_seed.py:260` `test_a_compensated_reference_has_no_direction_to_turn_from`.
-- Missing: a per-site or staggered reference axis; the net moment is round-off (guard message).
-- Check: the converged state against the explicit supercell.
-- QE/Elk: QE n.
-
 ### I118. Vertical transport, momentum-resolved transport and QPI x applied magnetic field (the STM image and STS landed)
 
 - Axis: magnetic field.
@@ -434,15 +416,6 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - Check: a central difference of the cold `F`, Richardson; Newton against the mixer.
 - QE/Elk: QE n.
 - Partial 2026-10-22 (P158, integration seven), record in `notes/incompat/I120.md`, verifier's harnesses in `notes/incompat/I120-ver/`: a meta-GGA unpolarized on norm-conserving datasets, a magnetic noncollinear norm-conserving LDA run and a streamed store on a CPU landed (see "Closed since"). Still refused: DFT+U, a PAW meta-GGA, a meta-GGA at `nspin = 2` or 4, an ultrasoft, PAW or GGA magnetic spinor run, a streamed store on an accelerator.
-
-### I122. Spin spiral x an FFT box that folds the displaced sphere
-
-- Axis: execution mode.
-- Guard: `defuqumat/basis/gvectors.py:_require_the_box_holds:309`.
-- Test: `tests/unit/test_spiral_gvectors.py:98` `test_a_box_that_would_fold_two_members_together_is_refused`.
-- Missing: a box one FFT size larger along the folded axis (sweep-core).
-- Check: a cutoff nudged so the box rounds up (the grid changes, so not exact).
-- QE/Elk: QE n.
 
 ## T4: needs a new `pw.x`, `ph.x` or Elk run
 
@@ -778,6 +751,12 @@ Landed on 2026-10-22 in P158, integration seven of tier T3 (branch `incompat-t3c
 Landed on 2026-10-22 in P158, integration eight of tier T3 (branch `incompat-t3c`, merge `5439fae4`; the section of I121 above removed; integration eight in `notes/INCOMPATIBILITIES-T3.md`):
 
 - I121, Spiral `dE/dq` x tabulated cross augmentation: a host-side `shift_extent` (`pseudo/augmentation.py`), `|spiral_qcart|` passed by `at_spiral_q`, so the radial table's knots are the untraced build's and a traced `q` runs. Ultrasoft oxygen chain: tabulated against stored 3.8e-11 Ry per unit of `q` at `AUG_DQ = 0.01` (1.503e-11 at 0.005, a floor near 1e-11; `k_batch = None` 3.771e-11) against 1.78e-4 that the term is worth; the energy difference falls as `AUG_DQ^4`, 7.8e-9 to 1.3e-12 Ry at 0.04 to 0.005. PAW chain: term 1.560e-4, tabulated against stored 5.72e-11, 2.50e-11, 1.05e-11 at 0.02 to 0.005, energy against the SCF 3.5e-10 to 8.0e-13 Ry. Past `(cell_factor - 1) G_rho` from `q0` the stencil reads NaN, not reachable from a relaxation, which rebuilds the basis (`incompat/I121`, verifier confirmed, its numbers added at integration, logs in `notes/incompat/I121-ver/`).
+
+Landed on 2026-10-22 in P158, integration nine of tier T3 (branch `incompat-t3d`, merges `aa92399f` and `93d66fa4`; the sections of I116, I117 and I122 above removed; integration nine in `notes/INCOMPATIBILITIES-T3.md`):
+
+- I116, Ultracell `seed_from_field` x collinear reference: the seed `sign(B) sign(M)` on a collinear run. On `HYDROGEN` `(2, 1, 1)` under `B cos(pi x)` the field seed reaches the explicit supercell's lowest state from above, 1.54e-4, 6.84e-5, 2.33e-5, 5.59e-6 Ry/cell at `nbnd` 16, 24, 40, 64 (`B = 0.002`; 5.83e-6 at 0.02), the supercell converged to 1.8e-12 in `nbnd`, `kgrid (2, 3, 3)` 5.47e-4, 2.40e-4, 7.96e-5; the tiled start lands on the ferro supercell (3e-8, 7e-7) 3.81 mRy per cell higher. The default stays the tiled start. The `SEED_NET_TOL` boundary is a documented convention (`incompat/I116`, verifier confirmed, Triton job 21126793).
+- I117, Ultracell noncollinear seed x collinear compensated reference: the seed turned about the Neel axis (`seed.neel_axis`, sign of the first magnetic atom). Two H atoms, `(3, 1, 1)` helix: 6.21e-6 and 8.46e-7 Ry/cell above the supercell at `nbnd` 8 and 16 (1.23e-6 and 3.70e-7 at 12 and 24), site errors 3.5e-4 and 4.6e-5, the swapped atom order the same; the `-s` control the same energy with site error 2.0. A canted or noncoplanar compensated reference still refuses, and so does the field's own seed on a compensated one. **A gap, `OPEN.md` Part XXX:** the four-cell 90 degree helix has the energy 3.61e-6 and 4.74e-7 above the supercell but the site moments 3.8 per cent too large, flat in `nbnd` (`incompat/I117`, the user decided the lift stands with the gap recorded).
+- I122, Spin spiral x an FFT box that folds the displaced sphere: `Calculation` widens the dense box at construction (`basis/builder.py:widen_for_displaced_sphere`), (60, 60, 25) to (60, 60, 27) for the ultrasoft oxygen chain at `ecutrho = 240`, `q = b3/4`. Against the four-cell supercell on (60, 60, 108): 2.77e-10 Ry at `conv_thr = 1e-9` and -3.7e-13 at 1e-11 (job 21126794). A box handed in and a `q` changed on a frozen basis (`at_spiral_q`) still refuse (`incompat/I122`).
 
 Earlier:
 
