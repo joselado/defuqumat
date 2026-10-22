@@ -1,0 +1,26 @@
+=== N=4 KGRID=1,2,2
+# unit site lengths [0.24314399598725894, 0.24302958509350997] folded (4, 2, 2)
+# grids ultra (108, 15, 15) super (120, 15, 15)
+# native-grid site error 3.8613e-02
+# done 16.902860403060913
+same-grid site error 2.010e-05 above 4.745e-07
+=== N=2 KGRID=6,2,2
+# unit site lengths [0.2429960573298662, 0.24288031320837153] folded (12, 2, 2)
+# grids ultra (54, 15, 15) super (60, 15, 15)
+# native-grid site error 3.8662e-02
+# done 33.80737328529358
+same-grid site error 7.707e-05 above 1.677e-06
+=== N=6 KGRID=2,2,2
+# unit site lengths [0.2429960573298662, 0.24288031320837153] folded (12, 2, 2)
+# grids ultra (162, 15, 15) super (180, 15, 15)
+# native-grid site error 3.8582e-02
+# done 55.40742516517639
+same-grid site error 8.653e-06 above 1.815e-07
+=== N=3 KGRID=1,2,2
+# unit site lengths [0.24113326817958392, 0.24102562437590197] folded (3, 2, 2)
+# grids ultra (81, 15, 15) super (81, 15, 15)
+# native-grid site error 4.5864e-05
+# done 15.230983257293701
+same-grid site error 4.586e-05 above 8.463e-07
+
+[exited with code 0]

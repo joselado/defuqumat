@@ -520,12 +520,13 @@ period you compare the energies of several long cells, one run each.
     vector seed turns the whole cell about its Neel axis, and `s` gives the
     direction of the first magnetic atom. If the moments of the cell are not
     collinear, a vector seed gives an error, because there is no single axis to
-    turn about. In every case the moments of the long cell keep roughly the
-    length they have in the unit cell. On the H2 chain with a helix that turns
-    by 90 degrees per cell, over four cells, the moments on the atoms came out
-    3.8 per cent too long, while the energy agreed with the supercell to
-    $5\times10^{-7}$ Ry. So for a strong twist you compare the moments with the
-    explicit supercell and not only the energy. On a collinear cell,
+    turn about. The length of the moments changes with the twist, and it
+    follows the explicit supercell. On the H2 chain, with helices that turn by
+    60, 90, 120 and 180 degrees per cell, the moments on the atoms agree with the
+    supercell to $8\times10^{-5}$ or better. To compare moments between the two
+    cells, put both on the same FFT grid first. The two cells can round to
+    different grids, and a small sphere then holds a different volume on each.
+    On a collinear cell,
     `seed_from_field=True` starts the loop with the moment turned over where the
     field is negative. On two-cell hydrogen this start ends in the
     antiferromagnet, which is the lowest state of the supercell under the field.

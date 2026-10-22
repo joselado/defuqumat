@@ -18,6 +18,14 @@ Neel axis): same energy, site moments reversed.
 Since the lift the driver calls ``seed.neel_axis`` itself; ``--patch`` puts it
 in by hand, as the first round (before the lift) did.
 
+The ultracell's magnetization is Fourier-resampled onto the supercell's FFT
+grid before the site spheres are integrated (2026-10-22). For an even number
+of cells the two boxes round to different grids (108 against 120 points along
+the chain at n = 4), a 1.5 bohr sphere holds 12.67 bohr^3 of voxels on one and
+13.97 on the other, and comparing the moments on their own grids read 3.86 per
+cent on every site; on one grid it reads 2.0e-5. ``KGRID=kx,ky,kz`` in the
+environment overrides the k-grid.
+
 Usage: i117.py <out.json> [n] [nbnd list] [control: yes|no] [supercell nbnd]
 """
 import json, sys, time, warnings
@@ -39,7 +47,8 @@ CONTROL = (sys.argv[4] if len(sys.argv) > 4 else "yes") == "yes"
 SUPER_NBND = int(sys.argv[5]) if len(sys.argv) > 5 else 12
 A = 5.5
 R_SITE = 1.5
-KGRID = (1, 2, 2)
+import os
+KGRID = tuple(int(v) for v in os.environ.get("KGRID", "1,2,2").split(","))
 PSEUDO = str(Path("tests/data/pseudo").resolve())
 
 TEMPLATE = """&control
@@ -144,6 +153,8 @@ records["reference"] = dict(
     lambda_ratio=float(values[1] / values[2]), tol=SEED_COLLINEAR_TOL,
     axis=axis.tolist(), seconds=time.time() - t0)
 print(json.dumps(records["reference"]), flush=True)
+_u = site_moments(rho[1:], np.array([2 * A, A, A]), [np.zeros(3), np.array([A, 0.0, 0.0])])
+print("# unit site lengths", np.linalg.norm(_u, axis=1).tolist(), "folded", folded, flush=True)
 if records["reference"]["lambda_ratio"] > SEED_COLLINEAR_TOL or not scf.converged:
     with open(out, "w") as handle:
         json.dump(records, handle, indent=1)
@@ -187,7 +198,23 @@ for nbnd, sign in arms:
             unit.system, unit.pseudos, scf, shape, KGRID, nbnd=nbnd,
             seed_magnetization=lambda x, s=sign: helix(x, s), conv_thr=1e-10,
             states_conv_thr=1e-8, mixing_beta=0.3, max_iterations=300)
-    ours = site_moments(np.asarray(result.magnetization), lengths, sites)
+    raw = np.asarray(result.magnetization)
+    target = np.asarray(exact.density).shape[1:]
+
+    def resample(field, shape):
+        """Fourier interpolation of a periodic band-limited field onto ``shape``."""
+        f = np.fft.fftshift(np.fft.fftn(field), axes=range(3))
+        out = np.zeros(shape, dtype=complex)
+        src = [slice(max(0, (n - m) // 2), max(0, (n - m) // 2) + min(n, m)) for n, m in zip(f.shape, shape)]
+        dst = [slice(max(0, (m - n) // 2), max(0, (m - n) // 2) + min(n, m)) for n, m in zip(f.shape, shape)]
+        out[tuple(dst)] = f[tuple(src)]
+        return np.fft.ifftn(np.fft.ifftshift(out), axes=range(3)).real * np.prod(shape) / np.prod(field.shape)
+
+    same = np.stack([resample(c, target) for c in raw])
+    print("# grids ultra", raw.shape[1:], "super", target, flush=True)
+    native = site_moments(raw, lengths, sites)
+    ours = site_moments(same, lengths, sites)
+    print("# native-grid site error %.4e" % (np.abs(native - theirs).max() / np.linalg.norm(theirs, axis=1).max()), flush=True)
     scale = np.linalg.norm(theirs, axis=1).max()
     rec = dict(nbnd=nbnd, sign=sign, converged=bool(result.converged),
                iterations=int(result.iterations), energy=float(result.total_energy),

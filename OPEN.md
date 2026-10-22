@@ -9538,7 +9538,7 @@ fails, so the guard fires. Not run on D22.
 
 # Part XXX -- the four-cell helix of the ultracell noncollinear seed on a compensated reference, 2026-10-22
 
-## 1. The site moments of a 90 degree helix come out 3.8 per cent too long, flat in `nbnd` **[open 2026-10-22]**
+## 1. The site moments of a 90 degree helix come out 3.8 per cent too long, flat in `nbnd` **[closed 2026-10-22, the same day: an artefact of the verifier, which integrated the two cells' moments on different FFT grids; nothing in the ultracell was wrong]**
 
 **What it affects.** `run_ultracell` seeded about a Neel axis (I117, `notes/incompat/I117.md`) on a
 compensated reference. On the H2 chain of the record (two hydrogens 5.5 bohr apart in an
@@ -9575,3 +9575,30 @@ agreement of 5e-7 Ry does not move.
 
 **Harness.** `notes/incompat/ultraseed-ver/v117.py` (`v117.py out.json 4 8,16 yes 16`), submitted
 by `notes/incompat/ultraseed-ver/ver.sbatch` task 4; the output is `21126793_4.out` beside it.
+
+**Closed 2026-10-22, and the suspected cause above is wrong.** The entry's own numbers ruled it out:
+the three-cell helix twists by 120 degrees per cell, more than the four-cell one, and agreed to
+7.3e-5. What separates the two cases is the parity of the number of cells. `fft_grid_dimensions`
+rounds each box to an allowed FFT size on its own, so the unit cell's 27 points along the chain
+become 81 for three cells on both sides, but 108 for the four-cell ultracell against 120 for the
+eight-atom supercell (54 against 60 at two cells, 162 against 180 at six). The verifier's 1.5 bohr
+sphere holds 12.67 bohr^3 of voxels on the supercell's grid and 13.97 on the ultracell's, and its
+`site_moments` integrated each cell's magnetization on its own grid. Resampling the ultracell's
+magnetization onto the supercell's grid by Fourier interpolation, which is exact for a field inside
+the density cutoff, measured on the workstation with the same input (`KGRID` matched to 12 points
+along the chain for the scan):
+
+| cells | twist per cell | grids, ultracell / supercell | site error, own grids | site error, one grid | energy above the supercell, Ry/cell |
+|---|---|---|---|---|---|
+| 2 | 180 | 54 / 60 | 3.87e-2 | 7.7e-5 | 1.68e-6 |
+| 3 | 120 | 81 / 81 | 4.59e-5 | 4.59e-5 | 8.46e-7 |
+| 4 | 90 | 108 / 120 | 3.86e-2 | 2.0e-5 | 4.74e-7 |
+| 6 | 60 | 162 / 180 | 3.86e-2 | 8.7e-6 | 1.82e-7 |
+
+(`nbnd = 16`; the four-cell row is the entry's own case at `KGRID = (1, 2, 2)` and reproduces its
+0.0386 and 4.74e-7 to the printed digits; the three-cell row is also at `(1, 2, 2)`.) Neither does
+the ultracell keep the reference's length: the collinear cell's site moment is 0.243 at 12 points,
+and the helices read 0.2608, 0.2555, 0.2410 and 0.2372 at 180, 120, 90 and 60 degrees, on both
+cells. The harness (`v117.py`, now resampling) and the four JSON files and log are in
+`notes/incompat/ultraseed-ver/samegrid/`; the guide's Limits sentence that the moments keep the
+reference's length is replaced by the comparison above.

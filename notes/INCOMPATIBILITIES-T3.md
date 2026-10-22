@@ -999,7 +999,9 @@ decided everything below.
   reversed. **The four-cell 90 degree helix**: energy 3.61e-6 and 4.74e-7 above the supercell, but the
   site moments 3.8 per cent too long on every site (0.2502 against 0.2409, 0.1768 against 0.1703),
   flat in `nbnd`. Recorded in `OPEN.md` Part XXX with the numbers and the harness, in `I117.md`, and
-  in the Limits note of `docs/guide/ultracell.md`.
+  in the Limits note of `docs/guide/ultracell.md`. **Corrected 2026-10-22:** the 3.8 per cent was the
+  verifier's, the two cells' moments integrated on FFT grids of 108 and 120 points; on one grid the
+  site error is 2.0e-5 (`OPEN.md` Part XXX, closed).
 - **I122 lifts for the box widened at construction.** Job 21126794: 2.77e-10 Ry at `conv_thr = 1e-9` and
   -3.7e-13 at 1e-11 against the four-cell supercell; the fast file passed on Triton.
   `WIDENED_QUARTER_TURN_RY` is **1e-11**, not 1.1e-12 (three times the 1e-11 measurement): the slow test
