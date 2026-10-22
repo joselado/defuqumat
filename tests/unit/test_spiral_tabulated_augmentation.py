@@ -106,8 +106,10 @@ def test_the_tabulated_derivative_converges_to_the_stored_one(calculation, monke
         tabulated = np.asarray(jax.grad(_scalar(calculation, 1, extent))(q))
         assert np.all(np.isfinite(tabulated))
         errors[dq] = float(np.abs(tabulated - stored).max())
+    # 0.04 -> 0.02 is in the stencil's regime (measured 21); 0.02 -> 0.01 is
+    # where the floor begins (measured 6.4), so only a fall of 2 is asked there.
     assert errors[0.02] < errors[0.04] / 8
-    assert errors[0.01] < errors[0.02] / 4
+    assert errors[0.01] < errors[0.02] / 2
     assert errors[0.01] < 1e-8 * scale
 
 
@@ -117,3 +119,17 @@ def test_a_traced_shift_without_its_extent_is_still_refused(calculation):
     with pytest.raises((jax.errors.ConcretizationTypeError,
                         jax.errors.TracerArrayConversionError)):
         jax.grad(f)(jnp.asarray(Q0))
+
+
+def test_a_shift_past_the_table_reads_nan_rather_than_a_clamp(calculation):
+    """The one regime the extent does not cover: a traced ``q`` far from ``q0``.
+
+    The table reaches ``2 G_rho + |q0|`` (12.9 bohr^-1 here, ``G_rho = 6.32``);
+    a shift of 8 more along x puts ``|G - q|`` up to 14.3, past its end, and
+    the stencil must say so with NaN rather than return a clamped, plausible
+    number.
+    """
+    extent = float(np.linalg.norm(Q0))
+    f = _scalar(calculation, 1, extent)
+    assert np.isfinite(float(f(jnp.asarray(Q0))))
+    assert not np.isfinite(float(f(jnp.asarray(Q0 + np.array([8.0, 0.0, 0.0])))))
