@@ -474,6 +474,26 @@ def _refuse_system(
         )
 
 
+
+def _refuse_single_band_side(system) -> None:
+    """The anisotropy and the torque are refused with a single-precision band side.
+
+    Each builds its own calculation in :func:`~defuqumat.workflows.nscf.
+    fixed_density_states`, whose band precision is the default one, so
+    ``DEFUQUMAT_BAND_PRECISION=single`` reached them. The answer is a band-energy
+    difference of 1e-5 Ry out of 1e2, or its derivative, where the float32
+    round-off is the same size; refused before anything is diagonalised (I119).
+    """
+    from defuqumat.config import resolve_band_precision
+
+    band = resolve_band_precision("default")
+    if band.real != system.cell.precision.real:
+        raise NotImplementedError(
+            f"a force-theorem anisotropy or torque is not computed with the band "
+            f"side in {band.name} precision (DEFUQUMAT_BAND_PRECISION): the mode "
+            "is checked for the SCF only, and the answer is a difference of band "
+            "energies its round-off reaches. Unset it or set it to 'double'")
+
 def run_force_theorem(
     system: System,
     pseudos: tuple[Pseudopotential, ...],
@@ -538,6 +558,7 @@ def run_force_theorem(
     only real bug (:func:`_with_quantization_axis`), so it is an option rather
     than something only a test can reach by calling internals.
     """
+    _refuse_single_band_side(system)
     return _force_theorem(
         system, pseudos, density, direction, nbnd, conv_thr, k_batch, ef_0,
         projected, require_spin_orbit, soc_scale, becsum,
@@ -747,6 +768,7 @@ def run_anisotropy(
     nothing else -- which is the whole reason the difference of two numbers of
     order 100 Ry can be trusted in its eighth decimal.
     """
+    _refuse_single_band_side(system)
     directions = _direction_set(system, directions)
 
     # One calculation for the whole scan: the first direction builds it and
@@ -1365,6 +1387,7 @@ def run_torque(
     :func:`run_force_theorem` takes it, and everything that function refuses is
     refused here for the same reasons.
     """
+    _refuse_single_band_side(system)
     from defuqumat.forces.torque import band_energy_at_angle, torque_at_angle
 
     if soc_scale is not None:
@@ -1609,6 +1632,7 @@ def run_orientation_torque(
     coefficients are rebuilt from the turned ``becsum`` inside the energy the
     torque is the gradient of, so their share of the torque is in it.
     """
+    _refuse_single_band_side(system)
     return _orientation_torque(
         system, pseudos, density, rotation, nbnd, conv_thr, k_batch, soc_scale,
         becsum,

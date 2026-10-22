@@ -477,17 +477,28 @@ def reject_spinor_spiral(calculation) -> None:
         )
 
 
-def reject_single_band_side(calculation) -> None:
-    """A derivative of the energy is refused on a band side in another precision.
+def reject_single_band_side(calculation, what: str | None = None) -> None:
+    """A derivative of the energy, or an invariant, refused on a band side in another precision.
 
     A gradient taken through a float32 ``H|psi>`` carries its round-off as a
     plausible force, stress, response or ``dE/dq``. Called by
     :func:`reject_potential_only`, the gate every consumer of :func:`energy_at`
     shares, and by the spiral's ``dE/dq`` (:mod:`defuqumat.forces.spiral`),
     which differentiates its own frozen energy and does not pass that gate.
+
+    ``what`` names a non-SCF consumer that is refused for the same reason --
+    the topological invariants, the orbital magnetization and the anisotropy
+    legs (I119), whose answer is a difference or a phase the float32 round-off
+    reaches -- and replaces the derivative wording in the message.
     """
     band = getattr(calculation, "band_precision", None)
     if band is not None and band.real != calculation.system.cell.precision.real:
+        if what is not None:
+            raise NotImplementedError(
+                f"{what} is not computed with the band side in {band.name} "
+                "precision (band_precision or DEFUQUMAT_BAND_PRECISION): the mode "
+                "is checked for the SCF only. Run it with band_precision='double', "
+                "starting from the single-precision state if there is one")
         raise NotImplementedError(
             f"the band side of this calculation runs in {band.name} precision, and "
             "a derivative of the energy taken through its H|psi> would carry that "

@@ -3137,10 +3137,14 @@ class Calculation:
         spinor (``noncolin``), a spin spiral, DFT+U and a potential-only
         meta-GGA on its own, and an augmented dataset under a spinor or a spiral.
         Each was measured against its double state (``notes/incompat/I119.md``):
-        at ``conv_thr = 1e-7`` the total energy within 1.5e-6 Ry (TB09's, which
-        is not the value of anything, apart), a double run continued from it
-        reaching the double state, and the gap falling with ``conv_thr`` as the
-        SCF's own error does down to the precision's. Three things had to
+        at ``conv_thr = 1e-7`` the total energy within about 1e-7 of ``|E|``
+        (a plateau of 1e-7 to 4.4e-6 Ry, the largest on the 40 Ry PAW O chain;
+        TB09's total, which is not the value of anything, apart), a double run
+        continued from it reaching the double state to 3e-11 Ry, and the gap
+        falling with ``conv_thr`` as the SCF's own error does down to the
+        precision's. A constrained moment, an applied field and a Berry-phase
+        field are refused by name: the constrained H atom landed 1.2e-4 Ry off
+        against 2.5e-5 for a double run at the same ``conv_thr``. Three things had to
         change: ``H|psi>`` of a spinor and of DFT+U came back complex128, and
         the Davidson work array refused it, until the spinor's kinetic energy
         and potential and the Hubbard projectors (:meth:`band_wfcU`) were cast
@@ -3154,7 +3158,11 @@ class Calculation:
         stress, the response stack, a spiral's ``dE/dq`` -- which
         :func:`~defuqumat.forces.energy.reject_single_band_side` refuses, since a
         gradient taken through a float32 ``H|psi>`` carries its round-off as a
-        plausible force.
+        plausible force; and, for the same reason, everything built from
+        fixed-density states (the invariants, the Berry-phase polarization, the
+        Kubo conductivities, the orbital magnetization, through
+        ``DFTSource._base``) and the anisotropy and torque legs, which build
+        their own calculation at the default band precision.
 
         **The floor.** Davidson stops on the change in each eigenvalue between
         two steps, and in single precision that change is resolved no finer than
@@ -3169,6 +3177,24 @@ class Calculation:
         here, for the process, which changes nothing for a float64 product.
         """
         system = self.system
+        fields = []
+        constraint = getattr(system, "constrained_magnetization", "none")
+        if constraint != "none":
+            fields.append(f"constrained_magnetization = {constraint!r}")
+        if getattr(self, "magnetic_field", None) is not None:
+            fields.append("an applied magnetic field")
+        if getattr(self, "berry_field", None) is not None:
+            fields.append("a Berry-phase electric field (lelfield)")
+        if fields:
+            # Measured on h-atom-noncolin.in at angle1 = 60 (the I119 review):
+            # 'atomic' at lambda = 0.5 lands 1.2e-4 Ry off against 2.5e-5 for a
+            # double run at the same conv_thr, 'total' 1.2e-5 against 1.2e-6.
+            raise NotImplementedError(
+                f"band_precision = {self.band_precision.name!r} is not checked "
+                f"with {', '.join(fields)}: a constraint or a field measured "
+                "an order of magnitude further from its double state than the "
+                "SCF's own error. Run it with band_precision='double'"
+            )
         regimes = []
         if any(getattr(p, "is_ultrasoft", False) for p in self.pseudos):
             regimes.append("an ultrasoft or PAW dataset")

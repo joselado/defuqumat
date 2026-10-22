@@ -199,6 +199,16 @@ class DFTSource:
                 self.calculation if self.calculation is not None
                 else Calculation(self.system, self.pseudos, k_batch=self.k_batch),
             )
+            from defuqumat.forces.energy import reject_single_band_side
+
+            # Every invariant, the Berry-phase polarization, the Kubo
+            # conductivities and the orbital magnetization come through here;
+            # each is a phase or a sum over a mesh that the mode is not
+            # checked for (I119).
+            reject_single_band_side(
+                self._calculation,
+                "a quantity built from fixed-density states (a Berry phase, a Chern "
+                "or Z2 invariant, a Kubo conductivity, an orbital magnetization)")
         return self._calculation
 
     @property
