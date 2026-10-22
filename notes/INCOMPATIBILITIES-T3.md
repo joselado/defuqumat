@@ -842,3 +842,18 @@ same test passes without `taskset` (0.9 s), and neither branch touches `config.p
 `tests/regression`) in twelve chunks of files, one pytest process per chunk, each in a
 `systemd-run --scope` with `MemoryMax=4G`, under the same `taskset` and thread pins
 (`scratchpad/gate2.sh` of this session).
+Result at `89ba666e` (the code is that of the merge `0554adbb`; every later commit touches only
+`notes/`, `docs/` and `PLAN.md`), 06:22 to 06:53: **4182 passed, 1 failed, 70 skipped, 1864
+deselected, and 46 errors that are all the RSS watchdog's at teardown.** Ten chunks ran whole; two
+(`chunk.01`, `chunk.03`) were killed by their 4G scope at about 80 per cent and were rerun one
+process per file (`MemoryMax=6G`, watchdog 5G, `taskset -c 4-7`, since the chunk loop held 0-3),
+every file passing or holding only slow tests. The 46 errors are "memory watchdog: ... reached
+2985M (and up) resident, over 85% of the 3500M cap": a test that passed in a process that had
+grown past the low watchdog I set for the chunks, which is XLA's executable cache of the chunk and
+not the test; no other error text appears in any log. The one failure is the launch:
+`tests/unit/test_config.py::test_the_suite_widens_the_mask_that_the_package_narrows` under
+`taskset -c 0-3`, as in the first attempt. So no merge caused a failure. Against the known
+failures at master: `tests/unit/test_check_guide.py` passes here (`yaml` is installed), and
+`tests/unit/test_scf_restart.py`, run with `DEFUQUMAT_QE_ROOT` set, passes all 41 including
+`test_max_seconds_stops_the_loop_and_leaves_a_checkpoint` (`OPEN.md` Part XXIX), which failed on
+D22 at integration five; I did not look into why it passes here.
