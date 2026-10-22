@@ -1,0 +1,8 @@
+local: constraint 'none', E_F -0.3974662468, m 0.06527
+local re-solve on: image charge 3.843e-06, spin 1.729e-05; tip energy - E_F +2.125e-07; field_scale 1.0
+local re-solve off: image charge 3.377e-02, spin 1.962e-01; tip energy - E_F -1.230e-03
+STS map B = 0.0: shape (5, 6, 6), field_scale None
+STS map B = 0.0005: shape (5, 6, 6), field_scale 1.0
+STS map B = 0.001: shape (5, 6, 6), field_scale 1.0
+STS map distances: 5e-4 4.9271e-04 / 1.9995e-02, 1e-3 1.9708e-03 / 4.0204e-02; exponents charge 2.000, spin 1.008
+through Calculator: re-solve on charge 8.977e-07, spin 4.043e-06; tip energy - E_F +1.246e-09; same SCF object after the calls: True

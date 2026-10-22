@@ -157,7 +157,8 @@ def run_stm(
     """
     refuse_an_ultracell_result(
         result, "an STM image", "defuqumat.workflows.ultracell.run_ultracell_stm")
-    _refuse_what_has_no_fermi_level(system, result, charge_image=spin is None)
+    _refuse_what_has_no_fermi_level(system, result, charge_image=spin is None,
+                                    field_measured=True)
     # Gamma-only storage needs nothing here. The image is the tunnelling
     # density built by the calculation's own density routine, which on a half
     # sphere is ``sum_band``'s ``g_to_r_gamma`` (the SCF's), and it is sampled
@@ -265,6 +266,7 @@ def run_stm(
     image.polarization = float(polarization)
     image.integral = integral
     image.grid = None if grid is None else tuple(int(n) for n in grid)
+    image.field_scale = _applied_field_scale(result)
     return image
 
 
@@ -337,7 +339,7 @@ def run_sts(
     refuse_an_ultracell_result(
         result, "a tunnelling spectrum",
         "defuqumat.workflows.ultracell.run_ultracell_sts")
-    _refuse_what_has_no_fermi_level(system, result)
+    _refuse_what_has_no_fermi_level(system, result, field_measured=True)
     _refuse_a_window_under_an_axis(bias, mode)
 
     from defuqumat.workflows.transport import (
@@ -401,11 +403,13 @@ def run_sts(
     if nop > 1:
         # The wedge's spectrum averaged over the tip's images: the whole zone's.
         channels = channels.reshape(channels.shape[:2] + (nop, -1)).mean(axis=2)
-    return _finish_spectrum(
+    spectrum = _finish_spectrum(
         channels, dos, axis_energies, points, geometry, spin, polarization,
         width=width, smearing=smearing, bias=bias, fermi=fermi,
         grid=grid, supercell=None,
     )
+    spectrum.field_scale = _applied_field_scale(result)
+    return spectrum
 
 
 def _finish_spectrum(channels, dos, energies, points, geometry, spin,
@@ -820,6 +824,15 @@ def _tip_energy(energy, levels, bias):
     return midgap
 
 
+def _applied_field_scale(result):
+    """``None`` for a run with no applied field, else the ``field_scale`` it
+    ended with, so that an image or a spectrum of a sample in a field says it
+    is one rather than being read as the field-free one."""
+    if getattr(result, "magnetic_field", None) is None:
+        return None
+    return float(getattr(result, "field_scale", 1.0))
+
+
 def _tip_width(width, system):
     if width is not None:
         if not width > 0.0:
@@ -850,7 +863,8 @@ def refuse_an_ultracell_result(result, quantity: str, instead: str):
     )
 
 
-def _refuse_what_has_no_fermi_level(system, result, charge_image: bool = False):
+def _refuse_what_has_no_fermi_level(system, result, charge_image: bool = False,
+                                    field_measured: bool = False):
     """The combinations whose energy selection is not one number.
 
     Every one of them is a statement about what "the states at the tip energy"
@@ -877,10 +891,38 @@ def _refuse_what_has_no_fermi_level(system, result, charge_image: bool = False):
             "two channels have their own Fermi levels and a tip sees one "
             "energy. Pass energy= only if the two levels are known to coincide"
         )
-    if getattr(result, "magnetic_field", None) is not None:
+    # An applied field (I118). The field's *energy* is outside the reported
+    # total, by QE's and Elk's convention, but nothing here reads the total:
+    # the eigenvalues, the wavefunctions and the Fermi level are those of the
+    # Hamiltonian with the field in it (``add_bfield`` sits inside
+    # ``v_of_rho``), and the occupations count the electrons on them, so the
+    # tip at that level sees the sample in the field -- which is what an STM in
+    # a field measures. The re-solve on a denser k-set takes the pair
+    # ``(magnetic_field, field_scale)`` the SCF ended with. Measured for the
+    # image and the spectrum (``field_measured``), on the collinear and the
+    # noncollinear hydrogen sheet under a uniform field (notes/incompat/I118.md):
+    # the stored-state image against the re-solve under the field, and the
+    # weak-field limit. Kept: a constrained moment (the same argument, its
+    # field a Lagrange multiplier, not measured), and the callers not measured
+    # -- the vertical and momentum transport and the QPI.
+    field = getattr(result, "magnetic_field", None)
+    if field is None:
+        return
+    constraint = getattr(field, "constraint", "none")
+    if constraint not in (None, "none"):
         raise NotImplementedError(
-            "an STM image of a run with an applied magnetic field is refused: "
-            "the field's energy is outside the reported total (PLAN.md P18), "
-            "so the Fermi level this would put the tip at is not the "
-            "field-free one the image would be read as"
+            "an STM image, a tunnelling spectrum or a tunnelling map of a run "
+            f"with a constrained moment (constrained_magnetization = "
+            f"'{constraint}') is refused: an applied field is taken by the "
+            "image and the spectrum (notes/incompat/I118.md), and the "
+            "constraining field enters the states the same way, but that "
+            "reading has not been measured"
+        )
+    if not field_measured:
+        raise NotImplementedError(
+            "this quantity of a run with an applied magnetic field is refused: "
+            "the STM image and the tunnelling spectrum take one (run_stm, "
+            "run_sts, notes/incompat/I118.md), with the states and the Fermi "
+            "level of the run in the field, but the same reading has not been "
+            "measured here"
         )
