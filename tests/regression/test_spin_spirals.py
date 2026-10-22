@@ -329,13 +329,11 @@ def test_what_a_spiral_refuses(pseudo_dir, qe_testsuite):
 
     **What this test asserted until P96 lifted it, and kept asserting for 42
     commits afterwards**, is that ``dE/dq`` on such a dataset raises
-    ``dQ_ij``. Both of those refusals are gone; the one that survives is
-    narrower and is the last line here: a *tabulated* table reads ``|q|`` on
-    the host to set its radial extent, which a tracer does not have, so the
-    tabulated route alone cannot be differentiated. That this went unseen is
-    the slow set not being a push gate -- the failure is an
-    ``AttributeError`` from ``state_from_result(None)``, since the refusal
-    that used to fire first no longer does.
+    ``dQ_ij``. That is gone, and so, since I121, is the narrower refusal that
+    survived it: a *tabulated* table read ``|q|`` on the host to set its
+    radial extent, which a tracer does not have. The extent is now taken from
+    the frozen wavevector, so the last lines here assert that the tabulated
+    route takes a traced ``q`` and returns a tabulated displaced table.
     """
     text = _spiral_input(0.25)
 
@@ -375,16 +373,23 @@ def test_what_a_spiral_refuses(pseudo_dir, qe_testsuite):
     moved = calculation.at_spiral_q((0.0, 0.0, 0.4), rebuild_basis=False)
     assert moved.cross_augmentation is not None
 
-    # The one thing left: a *tabulated* table sets its radial extent from
-    # ``|q|`` on the host, and a tracer has no such value, so that route alone
-    # cannot be differentiated. It is chosen by size, so the budget picks it.
+    # The tabulated route, chosen by size, so the budget picks it. It used to
+    # be refused here (its radial extent read ``|q|`` on the host); since I121
+    # the extent comes from the frozen wavevector and a traced ``q`` goes in.
     monkeypatch = pytest.MonkeyPatch()
     try:
         monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", "1")
         tabulated = Calculation(system, _pseudos(system, pseudo_dir))
         from defuqumat.pseudo.augmentation import TabulatedAugmentation
         assert isinstance(tabulated.cross_augmentation, TabulatedAugmentation)
-        with pytest.raises(NotImplementedError, match="tabulated"):
-            tabulated.at_spiral_q((0.0, 0.0, 0.4), rebuild_basis=False)
+        import jax
+        import jax.numpy as jnp
+        moved = jax.jit(lambda q: tabulated.at_spiral_q(
+            q, rebuild_basis=False).cross_augmentation.gcart)(
+            jnp.asarray([0.0, 0.0, 0.4]))
+        assert bool(jnp.all(jnp.isfinite(moved)))
+        assert isinstance(tabulated.at_spiral_q(
+            (0.0, 0.0, 0.4), rebuild_basis=False).cross_augmentation,
+            TabulatedAugmentation)
     finally:
         monkeypatch.undo()

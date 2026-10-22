@@ -55,6 +55,7 @@ from defuqumat.forces.energy import state_from_result
 from defuqumat.forces.spiral import compute_spiral_gradient, spiral_energy
 from defuqumat.io.pwin import parse_pw_input
 from defuqumat.pseudo import read_upf
+from defuqumat.pseudo.augmentation import TabulatedAugmentation
 from defuqumat.scf import run_scf
 from defuqumat.scf.driver import Calculation
 from defuqumat.system import build_system
@@ -709,29 +710,63 @@ def test_an_augmented_gradient_chunks_the_k_axis_exactly(dataset, pseudo_dir):
                                                          abs=1e-10)
 
 
-def test_a_tabulated_augmentation_table_is_refused(pseudo_dir, monkeypatch):
-    """The one thing ``dE/dq`` still refuses on an augmented dataset.
+def test_a_tabulated_augmentation_table_gives_the_stored_gradient(pseudo_dir, monkeypatch):
+    """``dE/dq`` through the tabulated table, which was refused until I121.
 
-    A cell whose stored ``Q_ij(G)`` is over ``DEFUQUMAT_AUG_MAX_BYTES`` keeps the
-    radial table instead and interpolates it, and that branch reads ``|q|`` on
-    the *host* to decide how far the table has to reach -- running past its end
-    is a NaN rather than a clamp. A tracer has no such value, so the branch
-    cannot take a traced ``q`` at all and says so by name.
+    A cell whose stored ``Q_ij(G)`` is over ``DEFUQUMAT_AUG_MAX_BYTES`` keeps
+    QE's radial table and interpolates it, and the table's extent is
+    ``cell_factor G_rho + |q|``. That ``|q|`` was read on the host, which a
+    traced ``q`` cannot give, so the route refused. It is now taken from the
+    wavevector the frozen sphere was built at (``Calculation.at_spiral_q``),
+    which makes the knots those of the untraced build. A traced ``q`` further
+    than ``(cell_factor - 1) G_rho`` from it would read past the table and
+    give NaN; a relaxation never gets there, since it takes the gradient on
+    the frozen basis and moves with a rebuilt one, so the frozen ``q``
+    follows the walk.
 
-    The guard is made to fire by setting the budget to one byte, which is this
-    repository's rule about testing that a guard fires rather than reading a
-    clean result as a pass. The state is the one the stored-table run converged
-    to: the refusal is raised while the functional is being traced, before any
-    of it is read.
+    **On the oxygen chain, not on ``AUGMENTED_SILICON``.** The silicon cell's
+    seeded moment converges away, so its transverse ``becsum`` is zero and
+    holding the displaced table at the frozen ``q`` moves its gradient by
+    4.4e-16: an agreement there would be read with the term missing. On the
+    chain the same switch moves ``dE/dq_z`` from 3.10043e-03 to 2.92235e-03,
+    by 1.78e-04, which is what this test would miss.
+
+    Measured (2026-10-22, one core, ``k_batch = 1``): tabulated against
+    stored, 1.0e-09, 1.0e-10 and 3.8e-11 at ``AUG_DQ = 0.04, 0.02, 0.01``;
+    the tabulated functional against the SCF total 4.0e-11 at 0.01; and its
+    gradient against a central difference of itself at ``h = 1e-5``,
+    3.4e-11. The tolerance, 5e-10, is thirteen times the converged
+    difference and 3.6e+05 times below the missing term.
     """
-    calculation, result = _converged_augmented("us", 0.3, pseudo_dir)
-    monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", "1")
-
-    text = AUGMENTED_SILICON.format(pseudo=AUGMENTED_DATASETS["us"], q3=0.3)
+    text = (GENERATED / "o-chain-spiral-us.in").read_text()
     system = build_system(parse_pw_input(text))
-    tabulated = Calculation(system, _pseudos(system, pseudo_dir))
-    with pytest.raises(NotImplementedError, match="tabulated"):
-        compute_spiral_gradient(tabulated, state_from_result(result), k_batch=None)
+    pseudos = _pseudos(system, pseudo_dir)
+    calculation = Calculation(system, pseudos)
+    result = run_scf(system, pseudos, calculation=calculation,
+                     conv_thr=1e-11, mixing_beta=0.3, max_iterations=200)
+    assert result.converged
+    state = state_from_result(result)
+    stored = compute_spiral_gradient(calculation, result, k_batch=1)
+    assert abs(stored.gradient[2]) > 1e-3  # a slope to compare
+
+    monkeypatch.setenv("DEFUQUMAT_AUG_MAX_BYTES", "1")
+    tabulated = Calculation(system, pseudos)
+    assert isinstance(tabulated.cross_augmentation, TabulatedAugmentation)
+    gradient = compute_spiral_gradient(tabulated, state, k_batch=1)
+    assert np.all(np.isfinite(gradient.gradient))
+    assert gradient.gradient == pytest.approx(stored.gradient, abs=5e-10)
+    assert gradient.total_energy == pytest.approx(result.total_energy, abs=5e-10)
+
+    delta = 1.0e-5
+    q = np.asarray(system.spiral_q, dtype=float)
+    plus, minus = q.copy(), q.copy()
+    plus[2] += delta
+    minus[2] -= delta
+    difference = (
+        float(spiral_energy(tabulated, jnp.asarray(plus), state))
+        - float(spiral_energy(tabulated, jnp.asarray(minus), state))
+    ) / (2.0 * delta)
+    assert difference == pytest.approx(gradient.gradient[2], abs=1e-9)
 
 
 @lru_cache(maxsize=2)

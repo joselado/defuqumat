@@ -4733,22 +4733,24 @@ class Calculation:
                 # ``Q_ij(G - q)``, its harmonics and phases are still
                 # ``ngm``-long on the tape. It is the cost ``dE/dq`` pays for an
                 # augmented dataset, measured in `PLAN.md` P96 before the chunking.
-                if isinstance(self.cross_augmentation, TabulatedAugmentation):
-                    # The tabulated branch reads ``|shift|`` on the host, to
-                    # extend its radial table by that much -- running past the
-                    # end of the table is a NaN rather than a clamp. A tracer
-                    # has no such value, so this branch cannot take a traced
-                    # ``q`` at all. It is reached only by a cell whose stored
-                    # ``Q_ij(G)`` is over ``AUG_MAX_BYTES``, and on such a cell
-                    # the gradient's tape carries the table twice over.
-                    raise NotImplementedError(
-                        "dE/dq for a spiral whose augmentation charge is "
-                        "tabulated is not implemented: the radial table's "
-                        "extent is set from |q| on the host, which a traced q "
-                        "does not have. Raise DEFUQUMAT_AUG_MAX_BYTES so the "
-                        "table is stored rather than tabulated, or scan E(q) "
-                        "instead of following its gradient"
-                    )
+                # **A tabulated table is sized on the host, from the frozen
+                # wavevector** (I121). Its radial knots reach ``cell_factor
+                # G_rho + |q|``, and a traced ``q`` has no ``|q|`` to read, so
+                # the extent is taken from ``spiral_qcart``, the wavevector this
+                # calculation's own table and laboratory sphere were built at:
+                # the knots are then the very ones the untraced build uses, and
+                # at ``q = q_0`` the traced table is that table. A ``q`` away from
+                # it reads ``|G - q| <= G_rho + |q - q_0|``, inside the table for
+                # ``|q - q_0| < (cell_factor - 1) G_rho`` (one ``G_rho`` at the
+                # default 2), and past it the stencil returns NaN, never a
+                # clamp. The gradient differs from the stored route's by the
+                # four-point stencil's interpolation error, which falls as
+                # ``AUG_DQ^4`` (measured in ``notes/incompat/I121.md``).
+                tabulated = isinstance(self.cross_augmentation,
+                                       TabulatedAugmentation)
+                extent = (float(np.linalg.norm(np.asarray(self.spiral_qcart,
+                                                          dtype=float)))
+                          if tabulated else None)
                 qcart = cell.k_to_cartesian(jnp.asarray(q_crystal)) * cell.tpiba
                 # **Stored in both modes, and that was measured**: the scanned
                 # route ``at_strain`` takes in memory mode made ``dE/dq``'s global
@@ -4763,7 +4765,7 @@ class Calculation:
                 # only the table's argument ``G - q`` is traced.
                 moved.cross_augmentation = build_augmentation(
                     self.pseudos, self.system.structure, cell, self.spiral_dense,
-                    shift=-qcart,
+                    shift=-qcart, shift_extent=extent,
                 )
             planewaves = self.basis.planewaves
             kcart = spiral_kcart(self.system.kpoints, q_crystal, cell)
