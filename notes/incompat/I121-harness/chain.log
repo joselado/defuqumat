@@ -1,0 +1,10 @@
+[o-chain-spiral-us] sum abs m_i / N: [3.12015665e-01 5.21103849e-02 1.51653245e-08]
+[o-chain-spiral-us] SCF 24s E=-31.494564695557
+[o-chain-spiral-us] stored grad array([-1.04316926e-10, -7.34041243e-11,  3.10043422e-03])
+[o-chain-spiral-us] dQ/dq term off: grad array([-1.01739039e-10, -6.89452498e-11,  2.92235173e-03])  |off-stored|=1.781e-04
+[o-chain-spiral-us] AUG_DQ=0.04: grad array([-1.04316906e-10, -7.34041279e-11,  3.10043525e-03])  |tab-stored|=1.029e-09  E_tab-E_scf=7.769e-09  fd_z-grad_z=5.738e-10
+[o-chain-spiral-us] AUG_DQ=0.02: grad array([-1.04316935e-10, -7.34041249e-11,  3.10043411e-03])  |tab-stored|=1.032e-10  E_tab-E_scf=6.282e-10  fd_z-grad_z=6.400e-10
+[o-chain-spiral-us] AUG_DQ=0.01: grad array([-1.04316939e-10, -7.34040839e-11,  3.10043425e-03])  |tab-stored|=3.771e-11  E_tab-E_scf=3.994e-11  fd_z-grad_z=-3.387e-11
+[o-chain-spiral-us] total 120s
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:03.53
+	Maximum resident set size (kbytes): 1822616

@@ -1053,7 +1053,7 @@ def _nl_of(pseudo: Pseudopotential, nl: int) -> int:
 
 def _build_tabulated_augmentation(
     pseudos, structure, cell, gvectors, ap, lmax, nl, nh_max, cell_factor,
-    shift=None, exact: bool = False,
+    shift=None, exact: bool = False, shift_extent: float | None = None,
 ):
     """:class:`TabulatedAugmentation` -- the branch for a cell too large to store.
 
@@ -1066,10 +1066,20 @@ def _build_tabulated_augmentation(
     asked for is ``max|G + b|``, which the triangle inequality bounds by
     ``max|G| + |b|`` and nothing smaller. Running past the end is a NaN rather
     than a clamp, so the margin is taken rather than hoped for.
+
+    ``shift_extent`` is that ``|b|`` given on the host, for a ``shift`` that
+    is traced and so has no value to read (``dE/dq`` on a spiral, I121). The
+    caller passes the modulus of the wavevector its frozen sphere was built
+    at, which makes the knots the very ones the untraced build at that
+    wavevector uses; a traced ``b`` that strays from it is still inside the
+    table while ``|b - b_0|`` is below ``(cell_factor - 1) G_rho``, and past
+    it the stencil reads NaN rather than a clamp.
     """
     volume = cell.volume
     qmax = float(np.sqrt(gvectors.ecut)) * cell_factor
-    if shift is not None:
+    if shift_extent is not None:
+        qmax += float(shift_extent)
+    elif shift is not None:
         qmax += float(np.linalg.norm(np.asarray(shift, dtype=float)))
     chunk = _aug_chunk(nh_max, gvectors.ngm)
     npad = -(-gvectors.ngm // chunk) * chunk
@@ -1187,6 +1197,7 @@ def build_augmentation(
     cell_factor: float = AUG_CELL_FACTOR,
     shift=None,
     scanned: bool = False,
+    shift_extent: float | None = None,
 ) -> AugmentationCharge | None:
     """Assemble ``Q_ij(G)`` for every ultrasoft species. ``None`` if there are none.
 
@@ -1220,6 +1231,10 @@ def build_augmentation(
     time, and never held whole. It is what a strain derivative wants -- the
     stored route puts the whole array and its assembly on the tape -- and
     what :meth:`~defuqumat.scf.driver.Calculation.at_strain` asks for.
+
+    ``shift_extent`` is ``|shift|`` as a host float, which the tabulated route
+    needs to size its radial table and cannot read off a traced ``shift``; the
+    stored and scanned routes ignore it.
     """
     if not is_augmented(pseudos, structure):
         return None
@@ -1266,7 +1281,7 @@ def build_augmentation(
     if stored_bytes > (_aug_max_bytes() if max_bytes is None else max_bytes):
         return _build_tabulated_augmentation(
             pseudos, structure, cell, gvectors, ap, lmax, nl, nh_max, cell_factor,
-            shift=shift,
+            shift=shift, shift_extent=shift_extent,
         )
     if scanned:
         return _build_tabulated_augmentation(

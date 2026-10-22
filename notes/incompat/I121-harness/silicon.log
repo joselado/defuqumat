@@ -1,0 +1,9 @@
+[us] SCF 41s E=-22.702815553738
+[us] stored grad array([ 0.14418181,  0.14418181, -0.43254544])
+[us] dQ/dq term off: grad array([ 0.14418181,  0.14418181, -0.43254544])  |off-stored|=4.441e-16
+[us] AUG_DQ=0.04: grad array([ 0.14418182,  0.14418182, -0.43254545])  |tab-stored|=1.563e-09  E_tab-E_scf=-8.356e-08  fd_z-grad_z=-7.256e-11
+[us] AUG_DQ=0.02: grad array([ 0.14418181,  0.14418181, -0.43254544])  |tab-stored|=8.304e-11  E_tab-E_scf=-4.323e-09  fd_z-grad_z=-1.310e-10
+[us] AUG_DQ=0.01: grad array([ 0.14418181,  0.14418181, -0.43254544])  |tab-stored|=7.374e-12  E_tab-E_scf=-3.982e-10  fd_z-grad_z=-2.067e-10
+[us] total 162s
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:47.87
+	Maximum resident set size (kbytes): 1453932
