@@ -866,3 +866,48 @@ On `incompat-t3c` after integration six (`5792c4da`), the coordinator's instruct
   store; DFT+U stays refused), branch `incompat/I120` at `21bf382c`, verifier confirmed all three
   lifts: to be merged, with the verifier's corrections applied to the record as text and its
   harnesses and logs copied to `notes/incompat/I120-ver/`.
+
+**Merge.** `git merge --no-ff incompat/I120` (tip `21bf382c` checked), merge `5a1cf7f2`. One
+conflict, in `defuqumat/forces/energy.py`, plain: I119 had split `reject_single_band_side` out of
+`reject_potential_only`, and I120 had added `potential_only_ok` to `reject_potential_only` beside
+the inline band-precision check. Kept both: `reject_potential_only(calculation,
+potential_only_ok=False)` calls `reject_single_band_side(calculation)` first, then returns early
+when the flag is set, so the Sternheimer Jacobian of a TB09 run is still refused in single
+precision.
+
+**Record and evidence.** The verifier's corrections are in `notes/incompat/I120.md` as text, in
+place where a sentence was wrong (the status line, the random TB09 row, "roughly the square
+root" dropped, the vacuum paragraph, the stream identity) and in full in a closing section "The
+verifier's corrections". Its `*.py` and `*.log` files are copied from the session scratchpad to
+`notes/incompat/I120-ver/` (88 KB, not its `rev/` copy of the package); the scripts take the
+worktree as their first argument and import `notes/incompat/I120-harness/`.
+
+**Guide and ledger.** `docs/guide/ground-state.md`, the Newton solver's Limits note: the record's
+text, wrapped. README: **no change**. The record asks for the notes cell of a Newton-Krylov row,
+and the feature table has no such row (the README's only mention of `newton-krylov` is the pools
+paragraph, which says nothing of `jvp`). `PLAN.md`: P150's refusal list now says what P158 lifted
+and what is still refused; P158 has an I120 row and an "Integration seven" paragraph.
+`notes/INCOMPATIBILITIES.md`: I120's lifted parts under "Closed since", and the section in place
+retitled to what still refuses, with current guard and test lines. `tools/check_guide.py` passes.
+
+**Outcome.** I120 partial, landed for a meta-GGA (`tb09`, `bj06`, unpolarized, norm-conserving),
+a magnetic noncollinear norm-conserving LDA run (with or without `lspinorb`, bulk or vacuum) and a
+streamed store on a CPU; numbers in the ledger and the record. Still refused: DFT+U (I5's
+`adddvhubscf`), a PAW meta-GGA, a meta-GGA at `nspin = 2` or 4, an ultrasoft, PAW or GGA magnetic
+spinor, the stream on an accelerator.
+
+**Slow tests for the user** (none run): in `tests/regression/test_scf_solvers.py`,
+`test_the_sternheimer_jacobian_under_a_meta_gga_is_the_derivative_of_f`,
+`test_the_sternheimer_jacobian_on_a_magnetic_spinor_run_is_the_derivative_of_f`,
+`test_newton_with_the_sternheimer_jacobian_lands_on_the_mixers_fixed_point` (both parameters),
+and the rest of the file's P150 Sternheimer tests; `tests/regression/test_mbj.py` and the other
+TB09 regression files, since the cone fix in `xc/mgga.py` moves the tangent of `c` (the primal
+only below `|grad rho| = 1e-10`).
+
+**Follow-ups.** No guide snippet, notebook or timing for I120 (the record's Limits note only).
+`CONE_SIGMA` is absolute and would not fire in float32; if single-precision derivatives are ever
+admitted, it needs a relative threshold.
+
+**What the user decides, after integration seven.** Nothing new from I120: the vacuum question the
+record first put was settled by the reviewer's condition, which the verifier met. The questions of
+integration six stand.

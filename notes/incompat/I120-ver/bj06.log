@@ -1,0 +1,10 @@
+host store: False <class 'jaxlib._jax.ArrayImpl'>
+converged True
+scf 8.8s nk=2 nbnd=10 size=16000 nspin_mag=1 tau=(1, 20, 20, 20)
+CG 18
+{"step": 0.0002, "err": 0.0008869861636842986}
+{"step": 0.0001, "err": 0.00021681852888797118}
+{"step": 5e-05, "err": 5.412950401444855e-05}
+{"richardson": [0.0002, 0.0001], "err": 6.973095538995966e-06, "D_a_vs_D_b": 0.0006704380124520567}
+{"richardson": [0.0001, 5e-05], "err": 5.468240409403971e-07, "D_a_vs_D_b": 0.00016270646071657083}
+done 21.251761436462402

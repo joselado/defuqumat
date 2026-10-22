@@ -1,0 +1,16 @@
+/u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a62e11d8436890cdf/defuqumat/xc/functional.py:984: UserWarning: input_dft asks for TB09 but the pseudopotentials were generated with PZ; running them together is inconsistent, as it is in QE
+  return resolve_functional(
+/u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a62e11d8436890cdf/notes/incompat/I120-harness/jvp.py:92: RuntimeWarning: TB09 is a potential and not the derivative of an energy: the total energy this run reports is the band term plus the electrostatics plus *correlation only*, and is not the value of any functional the SCF minimised. It is not comparable with a total energy from any other functional, and forces, stress and response are refused for it. The eigenvalues, the band gap and the density are what this functional is for
+  result = run_scf(system, pseudos, calculation=calculation, conv_thr=args.conv,
+scf done 5.4s nk=2 nbnd=10 size=16000 nspin_mag=1 tau=(1, 20, 20, 20)
+|r(x)|/|x| = 6.70e-08
+action 5.4s CG 19
+{"step": 0.001, "err": 0.03749096381665162, "err_off": 0.6815767030889064, "err_tau_rows": 0.03066012715887463} 2.0s
+{"step": 0.0003, "err": 0.0022200928012506152, "err_off": 0.6692972026526645, "err_tau_rows": 0.0018250290461546157} 0.6s
+{"step": 0.0001, "err": 0.00023361794279858896, "err_off": 0.6686273897815848, "err_tau_rows": 0.0001921595556549846} 0.6s
+{"step": 3e-05, "err": 2.0978374354791715e-05, "err_off": 0.6685558722521687, "err_tau_rows": 1.7327120993410358e-05} 0.5s
+{"step": 1e-05, "err": 2.390896885509098e-06, "err_off": 0.6685494470453652, "err_tau_rows": 1.9258209226643425e-06} 0.5s
+{"step": 3e-06, "err": 1.3677885745040241e-06, "err_off": 0.6685486157292613, "err_tau_rows": 1.8016144319346521e-06} 0.6s
+{"step": 1e-06, "err": 6.813051239667941e-06, "err_off": 0.6685499313893978, "err_tau_rows": 8.857721066083663e-06} 0.6s
+{"step": 3e-07, "err": 6.474572125143192e-06, "err_off": 0.6685505837563934, "err_tau_rows": 9.580990994340252e-06} 0.6s
+RESULT {"case": "si2-tb09", "kmesh": "2 2 2 1 1 1", "ecut": 15.0, "extra": null, "sub": null, "median_err": 1.3895712797229828e-05, "best_err": 1.3677885745040241e-06, "rows": [{"step": 0.001, "err": 0.03749096381665162, "err_off": 0.6815767030889064, "err_tau_rows": 0.03066012715887463}, {"step": 0.0003, "err": 0.0022200928012506152, "err_off": 0.6692972026526645, "err_tau_rows": 0.0018250290461546157}, {"step": 0.0001, "err": 0.00023361794279858896, "err_off": 0.6686273897815848, "err_tau_rows": 0.0001921595556549846}, {"step": 3e-05, "err": 2.0978374354791715e-05, "err_off": 0.6685558722521687, "err_tau_rows": 1.7327120993410358e-05}, {"step": 1e-05, "err": 2.390896885509098e-06, "err_off": 0.6685494470453652, "err_tau_rows": 1.9258209226643425e-06}, {"step": 3e-06, "err": 1.3677885745040241e-06, "err_off": 0.6685486157292613, "err_tau_rows": 1.8016144319346521e-06}, {"step": 1e-06, "err": 6.813051239667941e-06, "err_off": 0.6685499313893978, "err_tau_rows": 8.857721066083663e-06}, {"step": 3e-07, "err": 6.474572125143192e-06, "err_off": 0.6685505837563934, "err_tau_rows": 9.580990994340252e-06}], "cg": 19, "seconds": 17.462074279785156}

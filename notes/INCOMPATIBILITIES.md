@@ -425,14 +425,15 @@ Physics regimes first (an `nspin`, spinor, supercell or `nosym` identity), then 
 - QE/Elk: QE n.
 - Partial 2026-10-22 (P158, integration six), record in `notes/incompat/I119.md`: ultrasoft, PAW, spinor, spiral, DFT+U alone, TB09 alone, and spiral + US, spiral + PAW, SOC + US, the PAW spinor and the US spinor landed (see "Closed since"). Still refused: DFT+U or a meta-GGA beside another of these regimes, a constrained moment (measured wrong: single `dE` +1.19e-4 against +2.45e-5 Ry double at `'atomic'`), an applied field and a Berry-phase field; every derivative, invariant and the anisotropy and torque legs in single precision.
 
-### I120. Sternheimer Jacobian (`jvp='sternheimer'`) x DFT+U, meta-GGA, magnetic noncollinear, streamed store
+### I120. Sternheimer Jacobian (`jvp='sternheimer'`) x DFT+U, PAW or spin-polarized meta-GGA, augmented or GGA magnetic spinor, streamed store on an accelerator (the rest landed)
 
 - Axis: execution mode.
-- Guard: `defuqumat/scf/residual.py:ScfResidual._refuse_sternheimer:307`, :313, :319, :325.
-- Test: `tests/regression/test_scf_solvers.py:778` `test_the_sternheimer_jacobian_refuses_a_hubbard_u_and_a_meta_gga`; `tests/regression/test_scf_solvers.py:781` `test_the_sternheimer_jacobian_refuses_a_hubbard_u_and_a_meta_gga`.
-- Missing: `adddvhubscf` (shared with the DFT+U Gamma response); a kinetic-like `dH/dtau`; a measurement only for magnetic noncollinear; a derivative of `stream_densities` (sweep-core).
-- Check: a central difference of `F`, and `jvp='finite'`.
+- Guard: `defuqumat/scf/residual.py:ScfResidual._refuse_sternheimer:442`.
+- Test: `tests/regression/test_scf_solvers.py:1106` `test_the_sternheimer_jacobian_refuses_a_hubbard_u`; `:1132` `test_the_sternheimer_jacobian_still_refuses_a_meta_gga_it_was_not_measured_on` (`paw`, `nspin2`); `:1265` `test_the_sternheimer_jacobian_still_refuses_an_unmeasured_magnetic_spinor_run`.
+- Missing: `adddvhubscf` (shared with the DFT+U Gamma response, I5); for a PAW meta-GGA, `SternheimerSolver.__init__`'s one-centre `ddd_paw` built without the Tran-Blaha `c` (the tangent `paw_response(..., meta_c, dmeta_c)` is written, not reached); for the stream on an accelerator, a k-chunked solve and assembly (the derivative of `stream_densities`).
+- Check: a central difference of the cold `F`, Richardson; Newton against the mixer.
 - QE/Elk: QE n.
+- Partial 2026-10-22 (P158, integration seven), record in `notes/incompat/I120.md`, verifier's harnesses in `notes/incompat/I120-ver/`: a meta-GGA unpolarized on norm-conserving datasets, a magnetic noncollinear norm-conserving LDA run and a streamed store on a CPU landed (see "Closed since"). Still refused: DFT+U, a PAW meta-GGA, a meta-GGA at `nspin = 2` or 4, an ultrasoft, PAW or GGA magnetic spinor run, a streamed store on an accelerator.
 
 ### I121. Spiral `dE/dq` x tabulated cross augmentation
 
@@ -778,6 +779,10 @@ Landed on 2026-10-22 in P158, integration six of tier T3 (branch `incompat-t3c`,
 
 - I118, STM image and tunnelling spectrum (tip points or a plane, the map at every energy) x applied magnetic field, collinear and noncollinear, uniform `B_field` or on an atom: the refusal was a misreading, since the states, the eigenvalues and `fermi_energy` are those of the Hamiltonian with the field in it. `h-sheet-field.in` (paramagnetic, `m/B` = 7.91): the distance from the field-free image falls with exponents 1.994 (charge) and 1.023 (spin) at `B` = 5e-4 to 1e-3 Ry, the spectrum 1.996 and 1.008; the stored states against a re-solve under the field 8.98e-7 (charge) and 4.04e-6 (spin) at `B = 0.01`, against 7.07e-2 and 3.33e-1 with the field dropped; the tip at `E_F(0)` instead of `E_F(B)` 4.06e-2 off. Atom field: 3.84e-6 and 1.73e-5, against 3.38e-2 and 1.96e-1. The result carries `field_scale` (`incompat/I118`, verifier confirmed, one fix round).
 - I119, Single-precision bands x ultrasoft, PAW, spinor, spiral, DFT+U alone, TB09 alone, spiral + US, spiral + PAW, SOC + US, the PAW spinor and the US spinor: each lands on its double state at `conv_thr = 1e-7` with `|dE|` at most 1.2e-6 Ry (about 1e-7 of `|E|`; the PAW spinor -4.4e-6 on 40.3 Ry), and a double run continued from it reaches the double state to 3e-11 Ry or better in one to five iterations. Three fixes behind it: the noncollinear `H|psi>` casts, `HubbardTerm` on a band-precision `wfcU`, and `becsum` accumulated in the grid precision. TB09 is lifted on its eigenvalues, 5.5e-5 Ry against 4.8e-5 for a double run at the same `conv_thr`; its total is not a quantity in any precision (a reviewer's decision taken for the user). A single-precision source continues under `SINGLE_SOURCE_ELECTRON_TOL = 1e-4` (`incompat/I119`; the verifier refuted the first version, and the fix round `3003d06d` that addressed its five findings was not re-verified).
+
+Landed on 2026-10-22 in P158, integration seven of tier T3 (branch `incompat-t3c`, merge `5a1cf7f2`; the section of I120 above now carries only what still refuses; integration seven in `notes/INCOMPATIBILITIES-T3.md`):
+
+- I120, Sternheimer Jacobian (`jvp='sternheimer'`) x meta-GGA (`tb09`, `bj06`; unpolarized, norm-conserving), magnetic noncollinear norm-conserving LDA (with or without `lspinorb`, bulk or vacuum), streamed store on a CPU: the action against the central difference of the cold `F`. TB09 on the symmetric direction 2.2e-3, 2.1e-5, 1.37e-6, 6.5e-6 at steps 3e-4 to 3e-7, Richardson 3.9e-7 (0.67 with `dtau` out of `dV`); the random direction does not converge (Richardson never below 8.6e-6, `F` erratic below 1e-5); bj06 5.5e-7. The `|grad rho|` cone of `tb09_coefficient` given a zero tangent at the apex (`CONE_SIGMA = 1e-20`; `c` identical). fcc H ferromagnet Richardson 1.2e-6 (0.94 with the magnetization zeroed), Ni with `lspinorb` 5.4e-7; the vacuum sheet's mismatch is the curvature of `F`, 1.4e-6 at fixed `zeta`, and Newton lands 2.2e-10 Ry from mixing (the reviewer's condition). Stream on a CPU: Richardson 3.8e-7, the device run's to seven digits (`incompat/I120`, verifier confirmed, its corrections applied at integration).
 
 Earlier:
 

@@ -1,0 +1,31 @@
+................................s.s..................................... [ 41%]
+........................................................................ [ 83%]
+............................                                             [100%]
+=============================== warnings summary ===============================
+tests/unit/test_mgga.py::test_the_residual_routes_accuracy_carries_tau_too
+tests/regression/test_scf_solvers.py::test_the_sternheimer_jacobian_takes_a_meta_gga
+tests/unit/test_residual_spiral.py::test_a_spiral_under_a_meta_gga_is_refused
+tests/unit/test_spin_torque_meta.py::test_kubler_attaches_the_meta_field_to_m
+tests/unit/test_spin_torque_meta.py::test_grad_m_reads_tau_and_turns_the_moment
+tests/unit/test_rho_ddot_fit.py::test_the_assembled_metric_is_the_loops_accuracy[si2-tb09.in-tau]
+tests/unit/test_residual_fields.py::test_a_feedback_field_beside_an_unmeasured_term_is_refused[fsm-meta-gga-under the meta-GGA]
+  /u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a62e11d8436890cdf/defuqumat/xc/functional.py:984: UserWarning: input_dft asks for TB09 but the pseudopotentials were generated with PZ; running them together is inconsistent, as it is in QE
+    return resolve_functional(
+
+tests/regression/test_scf_solvers.py::test_the_sternheimer_jacobian_still_refuses_an_unmeasured_magnetic_spinor_run
+  /u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a62e11d8436890cdf/defuqumat/xc/functional.py:984: UserWarning: input_dft asks for PBE but the pseudopotentials were generated with PZ; running them together is inconsistent, as it is in QE
+    return resolve_functional(
+
+tests/unit/test_rho_ddot_fit.py::test_a_flat_checkpoint_resumed_with_the_metric_warns_that_its_history_goes
+  /u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a62e11d8436890cdf/tests/unit/test_rho_ddot_fit.py:231: RuntimeWarning: the SCF stopped without converging: 4 iterations reached accuracy = 2.624e-05 Ry against conv_thr = 1.000e-14. Every quantity on this result is computed from an unconverged density. Raise electron_maxstep, change the mixing (a smaller mixing_beta for a run that is oscillating; mixing_mode = 'adaptive' for one that is crawling, where mixing_beta means an increment and a smaller one is the wrong reflex), or start from a better density (run_scf(starting_from=...)); SCFResult.converged and .accuracy are what say which this is
+    driver.run_scf(calculator.system, calculator.pseudos, mixing_mode="plain",
+
+tests/unit/test_residual_fields.py::test_run_scf_warns_when_newton_hands_over_short_under_a_feedback_field
+  /u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a62e11d8436890cdf/tests/unit/test_residual_fields.py:502: RuntimeWarning: the SCF stopped without converging: 2 iterations reached accuracy = 4.805e-05 Ry against conv_thr = 1.000e-11. Every quantity on this result is computed from an unconverged density. Raise electron_maxstep, change the mixing (a smaller mixing_beta for a run that is oscillating; mixing_mode = 'adaptive' for one that is crawling, where mixing_beta means an increment and a smaller one is the wrong reflex), or start from a better density (run_scf(starting_from=...)); SCFResult.converged and .accuracy are what say which this is
+    result = run_scf(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/regression/test_scf_solvers.py:349: QE reference tree not present at /u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a62e11d8436890cdf/quantum_espresso/qe-7.5-ReleasePack/qe-7.5/test-suite. It is gitignored, so a fresh checkout has none; set DEFUQUMAT_QE_ROOT to a QE installation to run these against its test-suite instead
+SKIPPED [1] tests/regression/test_scf_solvers.py:372: QE reference tree not present at /u/40/ladovj1/data/Documents/programs/claude/defuqumat/.claude/worktrees/agent-a62e11d8436890cdf/quantum_espresso/qe-7.5-ReleasePack/qe-7.5/test-suite. It is gitignored, so a fresh checkout has none; set DEFUQUMAT_QE_ROOT to a QE installation to run these against its test-suite instead
+170 passed, 2 skipped, 50 deselected, 10 warnings in 759.22s (0:12:39)

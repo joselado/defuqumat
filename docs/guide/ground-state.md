@@ -278,11 +278,17 @@ ground state then give an error, because they need a converged density.
     from the converged states, so it is the derivative of a slightly different
     map, 5 to 40 per cent off the exact one, and Newton still converges with it.
     The `"sternheimer"` Jacobian does not depend on which states fill a
-    degenerate multiplet. `"jvp": "sternheimer"` gives an error with a Hubbard
-    $U$, a meta-GGA, a magnetic noncollinear run, `wfc_store='host'`, a fixed occupation
-    that cuts a degenerate multiplet, tetrahedra, `from_input` occupations,
-    `tot_magnetization` with a smearing, a spin spiral, a saw-tooth or
-    Berry-phase electric field, and a magnetic field or a constrained moment.
+    degenerate multiplet. `"jvp": "sternheimer"` works with a meta-GGA such as
+    `tb09` in an unpolarized run with norm-conserving pseudopotentials. It works
+    in a magnetic noncollinear run with norm-conserving pseudopotentials and the
+    LDA. It works with a streamed wavefunction store on a CPU. It gives an error
+    with a Hubbard $U$, a meta-GGA with PAW, a meta-GGA at `nspin = 2` or in a
+    noncollinear run, a magnetic noncollinear run with ultrasoft or PAW
+    pseudopotentials or with a GGA, a streamed store on a GPU, a fixed
+    occupation that cuts a degenerate multiplet, tetrahedra, `from_input`
+    occupations, `tot_magnetization` with a smearing, a spin spiral, a
+    saw-tooth or Berry-phase electric field, and a magnetic field or a
+    constrained moment.
 
     The Newton solver takes tetrahedra and `from_input` occupations with the
     default `"finite-difference"` Jacobian and with `"autodiff"`. On
