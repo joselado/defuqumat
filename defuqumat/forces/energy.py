@@ -477,7 +477,7 @@ def reject_spinor_spiral(calculation) -> None:
         )
 
 
-def reject_potential_only(calculation) -> None:
+def reject_potential_only(calculation, potential_only_ok: bool = False) -> None:
     """A potential-only functional has no energy to differentiate.
 
     Refused rather than approximated, and it is not a missing term: with
@@ -511,6 +511,12 @@ def reject_potential_only(calculation) -> None:
             "state in double -- run_scf(..., starting_from=result, "
             "band_precision='double') takes two or three iterations from it -- and "
             "differentiate that")
+    if potential_only_ok:
+        # The caller differentiates a map that exists without an energy: the
+        # SCF iteration ``F``, whose Jacobian the implicit route of
+        # :class:`~defuqumat.scf.residual.SternheimerJacobian` is (I120). The
+        # band-precision half above still binds it.
+        return
     if getattr(calculation, "functional", None) is not None and calculation.functional.is_meta:
         raise NotImplementedError(
             f"the {calculation.functional.name} functional is a potential and "

@@ -419,9 +419,10 @@ class ScfResidual:
         """
         calculation = self.calculation
         self._refuse_sternheimer(psi0)
-        rho, becsum_, _, _ = self.unpack(x)
-        potential = calculation.potential(rho)
-        _, ddd_paw = calculation.onecenter(becsum_)
+        rho, becsum_, _, tau = self.unpack(x)
+        potential = calculation.potential(rho, tau=tau)
+        _, ddd_paw = calculation.onecenter(
+            becsum_, None if tau is None else potential.meta_c)
         hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw)
         eigenvalues, psi = calculation.diagonalize(
             hamiltonians, self.nbnd, psi0, self.ethr
@@ -440,6 +441,7 @@ class ScfResidual:
 
     def _refuse_sternheimer(self, psi) -> None:
         """Every regime the implicit Jacobian does not carry, by name."""
+        from defuqumat import batching
         from defuqumat.response.sternheimer import require_a_sternheimer_regime
         from defuqumat.scf.streaming import is_host_store
 
@@ -451,30 +453,71 @@ class ScfResidual:
                 "local potential. Use jvp='finite-difference'"
             )
         if self.tau_shape is not None:
-            raise NotImplementedError(
-                "jvp='sternheimer' with a meta-GGA is not implemented: tau is part "
-                "of the state and dH from dtau is a kinetic-like operator, not a "
-                "local potential. Use jvp='finite-difference'"
-            )
+            # A potential-only meta-GGA has no ``dE/dtau`` acting on the states,
+            # so ``dH`` from ``dtau`` is a local potential, one ``jvp`` of
+            # ``potential`` in ``(rho, tau)``, and ``tau``'s row is a second
+            # bilinear assembly (I120, measured on ``si2-tb09.in`` against a
+            # cold central difference of ``F``). What stays refused is what that
+            # measurement did not reach.
+            if calculation.paw is not None:
+                raise NotImplementedError(
+                    "jvp='sternheimer' with a meta-GGA on a PAW dataset is not "
+                    "implemented: the spheres read the Tran-Blaha c the grid hands "
+                    "down, and the Sternheimer solver builds its one-centre "
+                    "coefficients without it. Use jvp='finite-difference'"
+                )
+            if calculation.nspin != 1:
+                raise NotImplementedError(
+                    f"jvp='sternheimer' with a meta-GGA at nspin = "
+                    f"{calculation.nspin} is not measured: the tau block of the "
+                    "action was checked against a central difference of F on an "
+                    "unpolarized cell only. Use jvp='finite-difference'"
+                )
         if calculation.noncolin and calculation.nspin_mag == 4:
+            # Measured (I120) on a norm-conserving LDA ferromagnet in the spinor
+            # formalism, a smeared metal with no vacuum: the four-component
+            # action against a cold central difference of F at 4.8e-6 of
+            # ``|dF v|``, 0.94 with the magnetization part of ``dV`` dropped.
+            # The rest of the regime was not reached by that cell. Nor was a
+            # cell with vacuum: on ``h-sheet-noncolin.in`` the reference itself
+            # moved from 0.39 to 0.037 of the action with the step, the
+            # signature of a kink in F along v rather than an error of the
+            # action, and it was not resolved further (notes/incompat/I120.md).
+            unmeasured = []
+            if calculation.is_ultrasoft:
+                unmeasured.append("an ultrasoft or PAW dataset")
+            if calculation.functional.is_gradient:
+                unmeasured.append(f"the gradient-corrected {calculation.functional.name}")
+            if unmeasured:
+                raise NotImplementedError(
+                    "jvp='sternheimer' on a magnetic noncollinear run is measured "
+                    "for a norm-conserving LDA cell only; this one has "
+                    f"{' and '.join(unmeasured)}, whose four-component response "
+                    "no cell checks against a central difference of F. Use "
+                    "jvp='finite-difference'"
+                )
+        if psi is not None and is_host_store(psi) and batching._backend() != "cpu":
+            # ``SternheimerJacobian`` uploads the states whole (``jnp.asarray``),
+            # so on a CPU, where host and device are one memory, a streamed
+            # store costs a copy and nothing else, and the action is the
+            # resident one (I120). On an accelerator the upload is the whole
+            # set on the card, which is what the stream exists to avoid.
             raise NotImplementedError(
-                "jvp='sternheimer' on a magnetic noncollinear run is not measured: "
-                "no cell checks its four-component response against a central "
-                "difference of F. Use jvp='finite-difference'"
-            )
-        if psi is not None and is_host_store(psi):
-            raise NotImplementedError(
-                "jvp='sternheimer' on a streamed store is not implemented: the "
-                "density of a host store is walked by stream_densities, which has "
-                "no derivative. Use jvp='finite-difference'"
+                "jvp='sternheimer' on a streamed store is not implemented on an "
+                "accelerator: the action holds the whole set's states, psi and "
+                "dpsi, on the device, which the stream exists to avoid, and no "
+                "k-chunked form of the solve and its assembly is written. Use "
+                "jvp='finite-difference', or wfc_store='device'"
             )
         # The solve and its assembly are this one's own, so the response
         # stack's per-quantity gates (spin, spinors, metals, half-sphere
         # storage) are lifted; what stays is every regime whose operator or
         # occupations are not here (fields, tetrahedra, two smeared levels).
+        # The SCF map exists without an energy, so a potential-only meta-GGA
+        # passes as well.
         require_a_sternheimer_regime(
             calculation, metals=True, spin_polarized=True, gamma_ok=True,
-            noncollinear=True,
+            noncollinear=True, potential_only_ok=True,
         )
 
 
@@ -687,6 +730,13 @@ class SternheimerJacobian:
     the occupied block for an insulator and ``wk`` for a metal, whose
     occupation is already inside ``dpsi``.
 
+    Under a potential-only meta-GGA (I120) ``tau`` is a block of ``x``: ``dV``
+    is the ``jvp`` of ``potential`` in ``(rho, tau)``, a local potential since
+    ``tb09`` and ``bj06`` put no ``dE/dtau`` on the states, and the output's
+    ``tau`` row is ``kinetic_energy_density`` differentiated along ``dpsi``
+    beside the density. Measured on ``si2-tb09.in`` to 2.4e-6 of ``|dF v|``,
+    0.67 with the ``tau`` block left out of ``dV``.
+
     **Two departures from the response stack's metal solver.** Its level shift
     and its projector mask run up to ``ef + xmax degauss``, and a band above
     that cutoff then loses the diagonal term ``-wk f'_i <i|dV|i>``, which the
@@ -712,14 +762,17 @@ class SternheimerJacobian:
         system = calculation.system
         self.residual = residual
         self.x = np.asarray(x)
-        rho, becsum_, _, _ = residual.unpack(x)
-        self.rho, self.becsum = rho, becsum_
+        rho, becsum_, _, tau = residual.unpack(x)
+        self.rho, self.becsum, self.tau = rho, becsum_, tau
         if built is None:
-            potential = calculation.potential(rho)
-            _, ddd_paw = calculation.onecenter(becsum_)
+            potential = calculation.potential(rho, tau=tau)
+            _, ddd_paw = calculation.onecenter(
+                becsum_, None if tau is None else potential.meta_c)
             hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw)
         else:
             potential, hamiltonians = built
+        #: The Tran-Blaha ``c`` the spheres read, ``None`` without a meta-GGA.
+        self.meta_c = None if tau is None else potential.meta_c
         eigenvalues = jnp.asarray(eigenvalues)
         psi = jnp.asarray(psi)
         if eigenvalues.ndim == 2:
@@ -760,21 +813,49 @@ class SternheimerJacobian:
         self.pad = pad + ((0, 0),)
         self.last_iterations = None
 
-    def _dv(self, drho):
+    def _dv(self, drho, dtau=None):
+        """``dV`` along ``(drho, dtau)``, and the tangent of the Tran-Blaha ``c``.
+
+        Under a potential-only meta-GGA ``v_scf`` is a local function of
+        ``(rho, tau)`` and nothing else, the functional having no ``dE/dtau``
+        to act on the states (``Calculation._require_meta_supported``), so the
+        ``tau`` block of the perturbation is a local potential like the
+        density's, and one ``jvp`` in both arguments is all of it (I120).
+        ``c`` is a cell average of the density and moves with it; the PAW
+        spheres read it, so its tangent is returned for :func:`paw_response`.
+        """
         calculation = self.residual.calculation
+        if self.tau is None:
+            dv = compiled(
+                lambda rho, t: jax.jvp(
+                    lambda q: calculation.potential(q).v_scf, (rho,), (t,))[1],
+                self.rho, drho,
+            )
+            return dv, None
+
+        def potential(q, t):
+            p = calculation.potential(q, tau=t)
+            return p.v_scf, jnp.asarray(p.meta_c)
+
         return compiled(
-            lambda rho, t: jax.jvp(
-                lambda q: calculation.potential(q).v_scf, (rho,), (t,))[1],
-            self.rho, drho,
+            lambda rho, tau, dr, dt: jax.jvp(potential, (rho, tau), (dr, dt))[1],
+            self.rho, self.tau, drho, dtau,
         )
 
     def _assembly(self, tangent):
         calculation = self.residual.calculation
         weights = self.weights
+        kinetic = self.tau is not None
 
         def assemble(states):
             becsum_ = calculation.becsum(states, weights)
-            return calculation.density(states, weights, becsum_), becsum_
+            rho = calculation.density(states, weights, becsum_)
+            if not kinetic:
+                return rho, becsum_
+            # ``F``'s own ``tau`` row, bilinear in the states like the density,
+            # so its tangent along ``dpsi`` at ``density_weights`` is the
+            # response of ``tau`` exactly as ``drho`` is the density's.
+            return rho, becsum_, calculation.kinetic_energy_density(states, weights)
 
         return compiled(
             lambda psi, t: jax.jvp(assemble, (psi,), (t,))[1],
@@ -791,9 +872,10 @@ class SternheimerJacobian:
         norm = float(np.linalg.norm(v))
         if norm == 0.0:
             return np.zeros_like(v)
-        drho_in, dbecsum_in, _, _ = residual.unpack(v / norm)
-        dv = self._dv(drho_in)
-        dddd_paw = paw_response(calculation, dbecsum_in, self.becsum)
+        drho_in, dbecsum_in, _, dtau_in = residual.unpack(v / norm)
+        dv, dmeta_c = self._dv(drho_in, dtau_in)
+        dddd_paw = paw_response(calculation, dbecsum_in, self.becsum,
+                                self.meta_c, dmeta_c)
         solution = solver.solve(solver.perturbation(dv, dddd_paw))
         self.last_iterations = solution.iterations
         dpsi = solution.dpsi
@@ -809,8 +891,9 @@ class SternheimerJacobian:
             delta_n = jnp.sum(calculation.charge_channel(drho_raw)) * element
             shift = jnp.where(jnp.abs(dos_ef) > 1.0e-18, -delta_n / dos_ef, 0.0)
             dpsi = solver.fermi_level_shift_states(dpsi, shift)
-        drho_out, dbecsum_out = self._assembly(jnp.pad(dpsi, self.pad))
-        tangent = residual.flatten(drho_out, dbecsum_out)
+        drho_out, dbecsum_out, *dtau_out = self._assembly(jnp.pad(dpsi, self.pad))
+        tangent = residual.flatten(drho_out, dbecsum_out, None,
+                                   dtau_out[0] if dtau_out else None)
         return np.asarray(norm * tangent) - v
 
 

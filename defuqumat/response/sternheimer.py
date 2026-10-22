@@ -1403,7 +1403,7 @@ def perturbed_coefficients(calculation, dv, v_scf, ddd_paw, dddd_paw):
     return int3
 
 
-def paw_response(calculation, dbecsum, becsum_):
+def paw_response(calculation, dbecsum, becsum_, meta_c=None, dmeta_c=None):
     """``PAW_dpotential``: the one-centre coefficients' response to ``dbecsum``.
 
     ``paw_onecenter.f90``. PAW's ``ddd_paw`` is a function of ``becsum`` and of
@@ -1413,11 +1413,22 @@ def paw_response(calculation, dbecsum, becsum_):
 
     ``None`` when no species is PAW, which is the norm-conserving and plain
     ultrasoft case both.
+
+    Under a potential-only meta-GGA the spheres also read the cell-averaged
+    Tran-Blaha ``c`` the grid hands down, which is a function of the density,
+    so a caller differentiating the SCF map passes ``meta_c`` and its tangent
+    ``dmeta_c`` and the one ``jvp`` runs in both arguments (I120).
     """
     if calculation.paw is None:
         return None
+    if meta_c is None:
+        _, ddd = jax.jvp(
+            lambda parts: calculation.onecenter(parts)[1], (becsum_,), (dbecsum,)
+        )
+        return ddd
     _, ddd = jax.jvp(
-        lambda parts: calculation.onecenter(parts)[1], (becsum_,), (dbecsum,)
+        lambda parts, c: calculation.onecenter(parts, c)[1],
+        (becsum_, jnp.asarray(meta_c)), (dbecsum, jnp.asarray(dmeta_c)),
     )
     return ddd
 
@@ -1511,6 +1522,7 @@ def require_a_sternheimer_regime(
     calculation, metals: bool = False, spin_polarized: bool = False,
     gamma_ok: bool = False, metals_missing: str = _NO_METAL_BY_DEFINITION,
     noncollinear: bool = False, sawtooth_ok: bool = False,
+    potential_only_ok: bool = False,
 ) -> None:
     """Refuse, by name, every regime whose response needs machinery not here.
 
@@ -1558,6 +1570,12 @@ def require_a_sternheimer_regime(
     it, checked against a central difference of the forces under the field
     (``notes/incompat/I104.md``), and it refuses the sub-regimes that were not
     measured itself (``phonon._require_a_measured_sawtooth_regime``).
+
+    ``potential_only_ok = True`` says the caller's quantity is not a second
+    derivative of an energy, so a potential-only meta-GGA (``tb09``, ``bj06``)
+    has it: only the Jacobian of the SCF map passes it
+    (:class:`~defuqumat.scf.residual.SternheimerJacobian`, I120), whose ``F``
+    is the iteration itself and needs no energy.
     """
     if sawtooth_ok:
         refuse_berry_field(calculation, "a linear response")
@@ -1590,7 +1608,7 @@ def require_a_sternheimer_regime(
             "the same physics on the whole sphere"
         )
     system = calculation.system
-    reject_potential_only(calculation)
+    reject_potential_only(calculation, potential_only_ok=potential_only_ok)
     if calculation.noncolin and not noncollinear:
         raise NotImplementedError(
             "this response quantity is not implemented for a noncollinear or "

@@ -165,9 +165,12 @@ def newton_krylov(
     action is the static response of the eigenpairs of ``H[x]``, one
     Sternheimer solve per matvec after one warm diagonalisation per outer
     iteration, and it does not depend on the basis the eigensolver returned
-    inside a degenerate block. Refused with a Hubbard U, a meta-GGA, a
-    magnetic noncollinear run, a streamed store and a fixed filling that cuts
-    a degenerate shell. **It also showed what the two other backends agree
+    inside a degenerate block. Refused with a Hubbard U, a PAW or
+    spin-polarized meta-GGA, an augmented or gradient-corrected magnetic
+    noncollinear run, a streamed store on an accelerator and a fixed filling
+    that cuts a degenerate shell (a norm-conserving ``tb09`` run, a
+    norm-conserving LDA magnetic spinor run and a streamed store on a CPU are
+    measured, ``notes/incompat/I120.md``). **It also showed what the two other backends agree
     on**: both differentiate the *warm-started* map, whose Davidson stops once
     the eigenvalues have settled, and that map's derivative is 5.3e-2 of
     ``|dF v|`` off the exact-eigenpair one on the generic silicon cell above
