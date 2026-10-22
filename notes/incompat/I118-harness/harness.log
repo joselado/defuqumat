@@ -1,0 +1,47 @@
+# regime collinear
+B = 0: E_F -0.3996046462, image max 9.089273e-03, field_scale None
+B = 0.0005: E_F - E_F(0) +1.215e-05; image charge 3.6932e-04, spin 2.0206e-02; spectrum charge 4.8797e-04, spin 1.6283e-02; field_scale 1.0
+   charge/B^2 1.4773e+03, spin/B 4.0411e+01
+B = 0.001: E_F - E_F(0) +4.907e-05; image charge 1.4707e-03, spin 4.1068e-02; spectrum charge 1.9470e-03, spin 3.2741e-02; field_scale 1.0
+   charge/B^2 1.4707e+03, spin/B 4.1068e+01
+B = 0.002: E_F - E_F(0) +1.956e-04; image charge 5.7837e-03, spin 8.4362e-02; spectrum charge 7.7055e-03, spin 6.5840e-02; field_scale 1.0
+   charge/B^2 1.4459e+03, spin/B 4.2181e+01
+B = 0.004: E_F - E_F(0) +7.618e-04; image charge 2.1674e-02, spin 1.7414e-01; spectrum charge 2.9594e-02, spin 1.3063e-01; field_scale 1.0
+   charge/B^2 1.3546e+03, spin/B 4.3534e+01
+B = 0.01: E_F - E_F(0) +4.103e-03; image charge 9.2212e-02, spin 4.1020e-01; spectrum charge 1.4860e-01, spin 2.8839e-01; field_scale 1.0
+   charge/B^2 9.2212e+02, spin/B 4.1020e+01
+exponents 0.0005->0.001: image charge 1.994, spin 1.023; spectrum charge 1.996, spin 1.008; E_F 2.014
+exponents 0.001->0.002: image charge 1.976, spin 1.039; spectrum charge 1.985, spin 1.008; E_F 1.995
+exponents 0.002->0.004: image charge 1.906, spin 1.046; spectrum charge 1.941, spin 0.988; E_F 1.962
+exponents 0.004->0.01: image charge 1.580, spin 0.935; spectrum charge 1.761, spin 0.864; E_F 1.838
+re-solve on: image charge 8.977e-07, spin 4.043e-06; tip energy - E_F +1.246e-09
+re-solve off: image charge 7.065e-02, spin 3.326e-01; tip energy - E_F -2.693e-03
+tip at E_F(0) instead: image charge 4.057e-02
+floor (conv_thr 1e-10 vs 1e-12 at B = 0.0): image charge 2.067e-06, spin 2.067e-06
+floor (conv_thr 1e-11 vs 1e-12 at B = 0.0): image charge 0.000e+00, spin 0.000e+00
+floor (conv_thr 1e-10 vs 1e-12 at B = 0.01): image charge 1.089e-05, spin 4.946e-05
+floor (conv_thr 1e-11 vs 1e-12 at B = 0.01): image charge 1.089e-05, spin 4.946e-05
+# wall 11.5 s
+# regime noncollinear
+B = 0: E_F -0.3996046740, image max 9.089273e-03, field_scale None
+B = 0.0005: E_F - E_F(0) +1.220e-05; image charge 3.6929e-04, spin 2.0205e-02; spectrum charge 4.8799e-04, spin 1.6282e-02; field_scale 1.0
+   charge/B^2 1.4772e+03, spin/B 4.0410e+01
+B = 0.001: E_F - E_F(0) +4.909e-05; image charge 1.4706e-03, spin 4.1068e-02; spectrum charge 1.9469e-03, spin 3.2741e-02; field_scale 1.0
+   charge/B^2 1.4706e+03, spin/B 4.1068e+01
+B = 0.002: E_F - E_F(0) +1.957e-04; image charge 5.7836e-03, spin 8.4362e-02; spectrum charge 7.7054e-03, spin 6.5838e-02; field_scale 1.0
+   charge/B^2 1.4459e+03, spin/B 4.2181e+01
+B = 0.004: E_F - E_F(0) +7.619e-04; image charge 2.1674e-02, spin 1.7414e-01; spectrum charge 2.9594e-02, spin 1.3063e-01; field_scale 1.0
+   charge/B^2 1.3546e+03, spin/B 4.3534e+01
+B = 0.01: E_F - E_F(0) +4.104e-03; image charge 9.2212e-02, spin 4.1020e-01; spectrum charge 1.4860e-01, spin 2.8839e-01; field_scale 1.0
+   charge/B^2 9.2212e+02, spin/B 4.1020e+01
+exponents 0.0005->0.001: image charge 1.994, spin 1.023; spectrum charge 1.996, spin 1.008; E_F 2.008
+exponents 0.001->0.002: image charge 1.976, spin 1.039; spectrum charge 1.985, spin 1.008; E_F 1.995
+exponents 0.002->0.004: image charge 1.906, spin 1.046; spectrum charge 1.941, spin 0.989; E_F 1.961
+exponents 0.004->0.01: image charge 1.580, spin 0.935; spectrum charge 1.761, spin 0.864; E_F 1.838
+re-solve on: image charge 7.963e-07, spin 3.649e-06; tip energy - E_F +2.316e-08
+tip at E_F(0) instead: image charge 4.057e-02
+floor (conv_thr 1e-10 vs 1e-12 at B = 0.0): image charge 3.149e-06, spin 3.149e-06
+floor (conv_thr 1e-11 vs 1e-12 at B = 0.0): image charge 0.000e+00, spin 0.000e+00
+floor (conv_thr 1e-10 vs 1e-12 at B = 0.01): image charge 1.086e-05, spin 4.959e-05
+floor (conv_thr 1e-11 vs 1e-12 at B = 0.01): image charge 1.086e-05, spin 4.959e-05
+# wall 20.1 s

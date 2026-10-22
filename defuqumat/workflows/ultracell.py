@@ -670,13 +670,12 @@ def _states_of(result, quantity: str):
 def _refuse_what_has_no_tip_energy(system, result):
     """The one combination whose energy selection is not a single number.
 
-    An applied ``magnetic_field`` is **not** refused here, where a unit-cell
-    image refuses it: there the field is something the ground state was
-    converged under and the reported total does not carry, so the Fermi level
-    is not the one the image would be read against; here the field is the
+    An applied ``magnetic_field`` is **not** refused here: the field is the
     modulation's own driver, the ultracell eigenvalues are the eigenvalues
-    under it, and the image is of that state -- which is the thing being asked
-    for rather than a confusion about it.
+    under it, and the image is of that state. The unit-cell image and spectrum
+    take a field for the same reason since I118 (``notes/incompat/I118.md``):
+    the reported total leaves the field's energy out, but the eigenvalues and
+    the Fermi level the tip is put at are those of the run in the field.
     """
     if np.ndim(result.fermi_energy) != 0:
         raise NotImplementedError(

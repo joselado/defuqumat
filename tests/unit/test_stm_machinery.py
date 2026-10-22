@@ -414,11 +414,79 @@ def test_two_fermi_levels_are_refused():
         _refuse_what_has_no_fermi_level(system, result)
 
 
-def test_an_applied_field_is_refused():
+def test_an_applied_field_passes_for_the_image_and_the_spectrum(monkeypatch):
+    """I118: ``run_stm`` and ``run_sts`` let a field result past the guard.
+
+    Behavioural: the entry points are called with a field result, and the
+    first thing after the guard is made to raise a sentinel, so reaching it
+    means the guard passed. The numbers are ``tests/regression/test_stm.py``'s.
+    """
+    from defuqumat.workflows import stm
+
+    class Passed(Exception):
+        pass
+
+    def reached(*args, **kwargs):
+        raise Passed
+
+    system = SimpleNamespace(spiral_q=None)
+    result = SimpleNamespace(ultracell=None, fermi_energy_up=None,
+                             magnetic_field=SimpleNamespace(constraint="none"))
+    monkeypatch.setattr(stm, "threaded_calculation", reached)
+    monkeypatch.setattr(stm, "_refuse_a_window_under_an_axis", reached)
+    for entry in (stm.run_stm, stm.run_sts):
+        with pytest.raises(Passed):
+            entry(system, None, result, height=0.7)
+    _refuse_what_has_no_fermi_level(system, result, field_measured=True)
+
+
+def test_a_spin_spiral_in_a_field_is_refused():
+    """Each passes alone; the pair was not measured (I118)."""
+    system = SimpleNamespace(spiral_q=(0.0, 0.0, 0.5))
+    result = SimpleNamespace(fermi_energy_up=None,
+                             magnetic_field=SimpleNamespace(constraint="none"))
+    with pytest.raises(NotImplementedError, match="spin spiral in an applied"):
+        _refuse_what_has_no_fermi_level(system, result, charge_image=True,
+                                        field_measured=True)
+
+
+def test_a_constrained_moment_is_still_refused():
+    """I118 measured a uniform applied field, not a penalty constraint."""
+    system = SimpleNamespace(spiral_q=None)
+    result = SimpleNamespace(fermi_energy_up=None,
+                             magnetic_field=SimpleNamespace(constraint="atomic"))
+    with pytest.raises(NotImplementedError, match="constrained moment"):
+        _refuse_what_has_no_fermi_level(system, result, field_measured=True)
+
+
+def test_an_applied_field_is_still_refused_where_it_was_not_measured():
     system = SimpleNamespace(spiral_q=None)
     result = SimpleNamespace(fermi_energy_up=None, magnetic_field=object())
     with pytest.raises(NotImplementedError, match="magnetic field"):
         _refuse_what_has_no_fermi_level(system, result)
+
+
+@pytest.mark.parametrize("entry", ["vertical", "momentum", "qpi"])
+def test_the_transport_and_the_qpi_still_refuse_a_field(entry):
+    """The sibling callers of the guard, not measured under a field (I118)."""
+    from defuqumat.workflows.qpi import run_qpi
+    from defuqumat.workflows.transport import (
+        run_momentum_transport, run_vertical_transport,
+    )
+
+    system = SimpleNamespace(spiral_q=None)
+    result = SimpleNamespace(ultracell=None, fermi_energy_up=None,
+                             magnetic_field=object())
+    call = {
+        "vertical": lambda: run_vertical_transport(
+            system, None, result, exit_height=0.2),
+        "momentum": lambda: run_momentum_transport(
+            system, None, result, exit_height=0.2, height=0.8),
+        "qpi": lambda: run_qpi(system, None, result, potential=0.1,
+                               height=0.8),
+    }[entry]
+    with pytest.raises(NotImplementedError, match="magnetic field"):
+        call()
 
 
 def test_the_calculator_reaches_it():

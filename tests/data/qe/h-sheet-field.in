@@ -1,0 +1,37 @@
+! h-sheet.in, collinear (nspin = 2), in a uniform Zeeman field along z,
+! B_field(3) = 0.01 Ry: the STM image and the tunnelling spectrum of a sample
+! in an applied field (notes/incompat/I118.md).
+!
+! The field enters the potential as -B on the up channel (E = -int B.m), and
+! the sheet is a paramagnetic metal at degauss = 0.05, so the moment is the
+! field's doing and vanishes with it. That is what makes the weak-field limit
+! a well-posed check: the charge image of a paramagnet is even in B and the
+! spin channels are odd in it.
+!
+! celldm(1) is 4.0 here, not h-sheet.in's 5.0. At 5.0 the sheet is close to a
+! Stoner instability, m/B = 17.5, 23 and 55 at B = 1e-4, 1e-3 and 1e-2 Ry, so
+! the weak-field limit is not analytic on any useful range; at 4.0 m/B is 7.91,
+! 7.91 and 8.10 at the same fields.
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 6, celldm(1) = 4.0, celldm(3) = 3.0,
+    nat = 1, ntyp = 1,
+    ecutwfc = 15.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.05
+    nosym = .true.
+    nbnd = 8
+    nspin = 2
+    starting_magnetization(1) = 0.0
+    B_field(3) = 0.01
+ /
+ &electrons
+    conv_thr = 1.0d-12
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS (crystal)
+ H 0.0 0.0 0.5
+K_POINTS {automatic}
+ 4 4 1 0 0 0

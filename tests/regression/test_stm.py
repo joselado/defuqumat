@@ -391,3 +391,138 @@ def test_the_tunnelling_density_decays_exponentially_into_the_vacuum():
     # momenta), so what is claimed is a straight log and not a single exponent.
     residual = logarithm - np.polyval(fit, z[band])
     assert 1.0 - residual.var() / logarithm.var() > 0.999   # measured 0.9992 over five orders of decay
+
+
+# --------------------------------------------------------------------------
+# a sample in an applied field (I118)
+# --------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=2)
+def _in_a_field(regime: str, b: float):
+    """``h-sheet-field.in`` under a uniform field ``b`` along z, in Ry.
+
+    A paramagnetic metal: the moment is the field's doing (0.0079 per 0.001 Ry
+    of field, linear to 2.5 per cent up to 0.01 Ry), so the field-free run is
+    the unpolarized one and the weak-field limit is analytic.
+    """
+    calculator = Calculator.from_file(CASES / "h-sheet-field.in",
+                                      pseudo_dir=PSEUDO)
+    system = calculator.system
+    if regime == "noncollinear":
+        system = system.with_spin(4)
+    # A calculator built from a System does not read the input's &electrons,
+    # so the input's conv_thr is given again, as the calculator's default so
+    # that the image and the spectrum find the same SCF in the cache: at the
+    # package default the stored states and a re-solve on the same k-set
+    # differ by 5.7e-3 at B = 0.01.
+    calculator = Calculator(system.with_b_field((0.0, 0.0, b)),
+                            calculator.pseudos, conv_thr=1e-12)
+    calculator.get_scf()
+    return calculator
+
+
+def _field_tip(regime):
+    return "up" if regime == "collinear" else (0.0, 0.0, 1.0)
+
+
+def _field_readings(calculator, regime, energies):
+    """The charge and the spin-up image, and the same pair of spectra at two
+    tip points. A run with no magnetization refuses a spin tip, and its spin
+    channel is half the charge exactly (``project_spin`` at ``m = 0``)."""
+    shared = dict(height=0.72, shape=(12, 12))
+    tip = np.array([[0.0, 0.0, 0.72], [0.5, 0.5, 0.72]])
+    charge = calculator.get_stm(**shared)
+    spectrum = calculator.get_sts(energies=energies, tip=tip)
+    try:
+        spin = calculator.get_stm(spin=_field_tip(regime), **shared).values
+        spin_spectrum = calculator.get_sts(
+            energies=energies, tip=tip, spin=_field_tip(regime)).values
+    except NotImplementedError:
+        spin = 0.5 * np.asarray(charge.values)
+        spin_spectrum = 0.5 * np.asarray(spectrum.values)
+    return charge, (np.asarray(charge.values), np.asarray(spin),
+                    np.asarray(spectrum.values), np.asarray(spin_spectrum))
+
+
+def _relative(a, b):
+    return float(np.max(np.abs(a - b)) / np.max(np.abs(b)))
+
+
+@pytest.mark.parametrize("regime", ["collinear", "noncollinear"])
+def test_the_image_in_a_weak_field_tends_to_the_field_free_one(regime):
+    """I118. The image and the spectrum of a paramagnet in a field ``B``.
+
+    The charge channel is even in ``B`` and the spin channel odd, so their
+    distance from the field-free reading falls as ``B^2`` and as ``B``. This
+    checks the weak-field limit and nothing about which states or which level
+    are used: a tip at ``E_F(0)`` or states without the field give the same
+    exponents (1.957 to 1.986 and 1.005 to 1.009; 1.994 to 2.000 and 1.006 to
+    1.014), so that is what :func:`test_the_states_in_a_field_are_the_run_s_own`
+    checks. The tolerance is for this unshifted 4x4x1 mesh: on a shifted one
+    (``4 4 1 1 1 0``) the spin exponent reads 0.658 at this pair and tends to 1
+    only as ``B`` falls (0.906 at 1.25e-4). Measured (notes/incompat/I118.md), between
+    ``B = 5e-4`` and ``1e-3`` Ry, the exponents are 1.994 and 1.023 for the
+    image and 1.996 and 1.008 for the spectrum, in both spin regimes; between
+    ``1e-3`` and ``2e-3`` they are 1.976, 1.039, 1.985 and 1.008, so the
+    deviation from 2 and 1 is the next order and shrinks with ``B``. The floor
+    (the image at ``conv_thr = 1e-10`` against ``1e-12``) is 2e-6 at ``B = 0``,
+    far under the smallest distance read, 3.7e-4.
+    """
+    ef0 = float(_in_a_field(regime, 0.0).get_scf().fermi_energy)
+    energies = ef0 + np.linspace(-0.1, 0.1, 9)
+    zero_image, zero = _field_readings(_in_a_field(regime, 0.0), regime, energies)
+    assert zero_image.field_scale is None
+
+    distances = []
+    for b in (5e-4, 1e-3):
+        image, readings = _field_readings(_in_a_field(regime, b), regime,
+                                          energies)
+        assert image.field_scale == 1.0
+        distances.append([_relative(r, r0) for r, r0 in zip(readings, zero)])
+    exponents = np.log2(np.array(distances[1]) / np.array(distances[0]))
+    np.testing.assert_allclose(exponents, [2.0, 1.0, 2.0, 1.0], atol=0.05)
+    assert distances[0][0] < 1e-3          # 3.7e-4: the image tends to B = 0
+
+
+def test_the_states_in_a_field_are_the_run_s_own():
+    """I118. The stored states' image against a re-solve on the same k-set.
+
+    With the field the SCF ended with, the two agree to the band solve: 9.0e-7
+    in the charge and 4.0e-6 in the spin-up image at ``B = 0.01`` Ry, and the
+    re-solve's Fermi level is the SCF's to 1.2e-9 Ry. The same re-solve with the
+    field dropped from the Hamiltonian, at the same density, is off by 7.1e-2
+    and 3.3e-1, and the field states read at the field-free Fermi level are
+    off by 4.06e-2 in the charge, which is the entry's own worry and does not
+    happen.
+    """
+    from types import SimpleNamespace
+
+    calculator = _in_a_field("collinear", 0.01)
+    scf = calculator.get_scf()
+    shared = dict(height=0.72, shape=(12, 12))
+    resolve = dict(grid=(4, 4, 1), conv_thr=1e-11)
+    stored = calculator.get_stm(**shared)
+    stored_spin = calculator.get_stm(spin="up", **shared)
+    again = calculator.get_stm(**shared, **resolve)
+    again_spin = calculator.get_stm(spin="up", **shared, **resolve)
+    assert _relative(again.values, stored.values) < 1e-5
+    assert _relative(again_spin.values, stored_spin.values) < 2e-5
+    assert abs(again.energy - scf.fermi_energy) < 1e-8
+
+    off = Calculator(calculator.system.with_b_field((0.0, 0.0, 0.0)),
+                     calculator.pseudos)
+    fieldless = SimpleNamespace(
+        density=scf.density, eigenvalues_by_spin=scf.eigenvalues_by_spin,
+        wavefunctions=scf.wavefunctions, fermi_energy=scf.fermi_energy,
+        homo=scf.homo, lumo=scf.lumo, magnetic_field=None, field_scale=1.0)
+    from defuqumat.workflows.stm import run_stm
+
+    dropped_spin = run_stm(off.system, off.pseudos, fieldless, spin="up",
+                           **shared, **resolve)
+    assert _relative(dropped_spin.values, stored_spin.values) > 0.1
+
+    # the entry's own worry: the field states read at the field-free level
+    level = float(_in_a_field("collinear", 0.0).get_scf().fermi_energy)
+    misplaced = calculator.get_stm(energy=level, **shared)
+    assert _relative(misplaced.values, stored.values) > 1e-2   # 4.06e-2
