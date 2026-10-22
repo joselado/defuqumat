@@ -771,3 +771,55 @@ I118 and I119 under "Closed since" (landed on 2026-10-22 in P158), and each sect
 retitled to what still refuses, with a "Partial 2026-10-22 (P158)" line. `PLAN.md`: P158 after
 P157. The head of §3 ("What is outstanding") indexes missing terms, not phases, so P158 is not
 listed there.
+
+### Outcome per ID, integration six
+
+- **I118, landed** (merge `052e5dfb`): the STM image and the tunnelling spectrum in an applied
+  field, collinear and spinor, uniform or on an atom. Weak-field exponents 1.994 (charge) and 1.023
+  (spin) for the image, 1.996 and 1.008 for the spectrum, at `B` = 5e-4 to 1e-3 Ry on
+  `h-sheet-field.in`; the stored states against a re-solve under the field 8.98e-7 and 4.04e-6,
+  against 7.07e-2 and 3.33e-1 with the field dropped; the tip at `E_F(0)` 4.06e-2 off. Verifier
+  confirmed. Still refused: transport and QPI in a field, a constrained moment, a spiral in a field.
+- **I119, landed** (merge `0554adbb`): single-precision bands on ultrasoft, PAW, spinor, spiral,
+  DFT+U alone, TB09 alone and the five measured pairs; `|dE|` at most 1.2e-6 Ry at `conv_thr = 1e-7`
+  (the PAW spinor -4.4e-6 on 40.3 Ry), a double continuation to 3e-11 Ry or better in one to five
+  iterations. **The fix round `3003d06d` was not re-verified.** Still refused: DFT+U or a meta-GGA
+  beside another regime, a constrained moment, a field, a Berry-phase field, every derivative and
+  invariant and the anisotropy and torque legs in single precision.
+- **I116, I117 (`ultraseed`), not merged**: no confirmation from the coordinator reached this
+  session.
+
+### Slow tests the merges of integration six touch, for the user (none run)
+
+- `tests/regression/test_stm.py::test_the_image_in_a_weak_field_tends_to_the_field_free_one`
+  (collinear and noncollinear) and `tests/regression/test_stm.py::test_the_states_in_a_field_are_the_run_s_own`
+  (I118; the record ran their bodies directly, 5.2, 7.2 and 2.6 s).
+- `tests/unit/test_band_precision.py::test_each_lifted_regime_lands_near_double_and_a_double_run_finishes_it`
+  (I119, eight cases, 15 to 90 s each, three SCFs a case).
+- Because I119's `becsum` promotion (`scf/density.py:_in_grid_precision`) sits on every augmented
+  path, a no-op in double: any slow ultrasoft or PAW file is a check that it stays one, for example
+  `tests/regression/test_spiral_us.py` or the PAW SCF files, if the user wants that assurance.
+
+### Follow-ups of integration six
+
+- Neither item has a guide section with an executed snippet, a notebook or a timing; only the
+  Limits notes are written. I118's natural home is the STM notebook (an image in a field, the
+  Zeeman-split spin image); I119's is a timing pair of single against double on an ultrasoft or
+  spinor cell in `PERFORMANCE.md`, since speed is the point of the mode.
+- I119's verifier harness and logs are in a session scratchpad (`v119/`), not in the repository,
+  so the evidence for its five findings is not durable; the record quotes the numbers.
+- I119's fix round wants a second verification (the guard's rule, the continuation tolerance
+  `SINGLE_SOURCE_ELECTRON_TOL = 1e-4`, the refusals of the invariants and the anisotropy legs).
+
+### What the user decides, after integration six
+
+- I119: measure and lift DFT+U or TB09 beside another regime, or a constrained moment or a field
+  (each a cell and the same harness), or keep them refused. The record's open question.
+- I119, TB09: **decided by a reviewer for the user**, to be confirmed: TB09 stays lifted on its
+  eigenvalues (5.5e-5 Ry against 4.8e-5 for double at the same `conv_thr`), and the guide says its
+  total is not a quantity in any precision.
+- I118: the vertical and momentum-resolved transport and the QPI in a field need a cell whose states
+  sit inside the broadening (the transmission map of `h-sheet-field.in` reads 1.7e-245 at the
+  default 0.001 Ry); which cell, or keep them refused.
+- I118: a constrained moment in the STM image (the same argument holds, no number taken), and a
+  spin spiral in a field (non-monotonic in `B`), lift or keep refused.
