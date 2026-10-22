@@ -903,6 +903,32 @@ class Calculator:
             self.calculation, renormalise=renormalise, report=report
         )
 
+    def get_qe_seed(self, directory) -> dict:
+        """A converged ``pw.x`` state on this run's grid, to continue here.
+
+        ``directory`` is the ``<outdir>/<prefix>.save`` directory of a ``pw.x``
+        SCF. The result is a dictionary of :meth:`get_scf` keywords:
+
+        .. code-block:: python
+
+            seed = calc.get_qe_seed("tmp/pwscf.save")
+            result = calc.get_scf(**seed)
+
+        It holds the density, the PAW ``becsum`` when the run is PAW, and
+        ``diago_thr_init = 1e-5``, which is what ``pw.x`` itself starts from a
+        density with. Both codes hold the same pseudo valence density, so for
+        the same input this is a continuation, not a guess: the SCF here
+        converges in one or two iterations to the ``pw.x`` energy.
+
+        Refused by name: a different cell, geometry, electron count,
+        ``ecutrho`` or spin regime, DFT+U (``occup.txt`` is not read),
+        meta-GGA (``ekin-density`` is not read) and noncollinear PAW.
+        See :mod:`defuqumat.io.qe_density`.
+        """
+        from defuqumat.io.qe_density import QESave
+
+        return QESave.read(directory).seed_for(self.calculation)
+
     def _ground_state(self, quantity: str) -> SCFResult:
         """The cached ground state, running one first if there is none."""
         if self._scf is None:

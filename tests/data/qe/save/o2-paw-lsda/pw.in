@@ -1,0 +1,28 @@
+ &control
+    calculation = 'scf'
+    pseudo_dir='../../../pseudo'
+    outdir='./out'
+    prefix = 'pwscf'
+ /
+ &system
+    ibrav = 1, celldm(1) = 7.0,
+    nat = 2, ntyp = 1,
+    nbnd = 9,
+    ecutwfc = 20.0, ecutrho = 80.0,
+    occupations = 'fixed',
+    nspin = 2,
+    tot_magnetization = 2,
+    starting_magnetization(1) = 0.5
+ /
+ &electrons
+    mixing_beta = 0.3
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ O  15.99994  O.pz-kjpaw.UPF
+ATOMIC_POSITIONS (bohr)
+ O 0.00 0.00 0.00
+ O 0.00 0.00 2.30
+K_POINTS tpiba
+ 1
+ 0.0 0.0 0.0 1.0
