@@ -1,5 +1,7 @@
 # speed/xxiii-6: OPEN.md Part XXIII item 6, the walked third derivative's loop order
 
+**Update 2026-10-23, Triton job 21167805: landed.** Byte-identical on PAW (`k_batch` 1, 3), Raman (1, 3), ultrasoft at 2, and 27 k-points at 3; 45.52 against 46.56 s warm at 27 k-points, medians of 5. `OPEN.md` Part XXIII item 6 has the numbers.
+
 Status: **partial, do not land yet.** The change is made and bit-identical on one ultrasoft cell
 at two chunk sizes; the second cell, the Raman path and the 27 k-point timing were launched on
 D22 and the machine went unreachable (ssh "Connection timed out", ping 100 per cent loss, also

@@ -1,6 +1,6 @@
 # Plan: the preconditioner's block-diagonal `D`, second attempt (OPEN.md Part III M5)
 
-2026-10-23: the contraction was coded on branch `speed/m5` (`0b027b8d`) and only the unit file was run, 5 passed; `bi10-soc` was not run because D22 was unreachable, so the gate of this plan is still open (record `notes/speed/m5.md`).
+2026-10-23: coded on branch `speed/m5` (`0b027b8d`) and measured on Triton (job 21167805): the gate fails, `bi10-soc` peaks at 3.55 GB against master's 2.81 in the same task, while totals, step arrays and the small cells' temporaries do not move. A null, not landed (`OPEN.md` M5).
 
 Written 2026-10-09 on branch `open-e`, for a fable review before any code. Nothing here is
 implemented.
