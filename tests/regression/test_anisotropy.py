@@ -284,7 +284,9 @@ def test_hexagonal_cobalt_keeps_both_basal_families():
     assert len(directions) == 5
 
     in_plane = [d for d in directions if abs(d[2]) < 1e-9]
-    families = {round(float(np.degrees(np.arctan2(d[1], d[0]))) % 60.0, 1)
+    # Round before the modulo: an angle a last bit under 240 degrees is 59.999...
+    # modulo 60, which rounds to 60.0 and not to the 0.0 of its family (Triton csl).
+    families = {abs(round(float(np.degrees(np.arctan2(d[1], d[0]))), 1) % 60.0)
                 for d in in_plane}
     assert len(in_plane) == 2
     assert families == {0.0, 30.0}, (
