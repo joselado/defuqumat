@@ -87,42 +87,66 @@ def walked_susceptibility_derivative(calculation, field, rho, kind, x, tangents,
     rho = jnp.asarray(rho)
     stored = field.commutators if field.commutators is not None else field.bare
     rowset0 = row_leaves(calculation, field.chunks[0][0])
-    columns = []
-    for dx, dpsi, ort, drho in tangents:
-        dx = jnp.asarray(dx)
-        drho = jnp.asarray(drho)
+    # **The chunk is the outer loop and the tangents the inner one**, as in
+    # ``chunked.py`` and ``chunked_strain.py``: a chunk's arguments, its upload
+    # and its stacked stores are built once per chunk per pass and handed to
+    # every tangent, where they used to be built once per tangent. Each
+    # tangent's sums still run over the chunks in the order of ``field.chunks``,
+    # so every column is bit-identical to the tangent-outer walk. The price is
+    # that the forward sums and the global step's ``(v, D)`` and their tangents
+    # of *every* tangent are held at once, ``ntangent`` times one tangent's.
+    ntangent = len(tangents)
+    dxs = [jnp.asarray(dx) for dx, _, _, _ in tangents]
+    drhos = [jnp.asarray(drho) for _, _, _, drho in tangents]
 
-        def tangent_rows(rows):
-            occupied = _rows_of(dpsi, rows)
-            block = (jnp.zeros_like(occupied) if ort is None
-                     else _rows_of(ort, rows))
-            return occupied, block
+    def tangent_rows(index, rows):
+        _, dpsi, ort, _ = tangents[index]
+        occupied = _rows_of(dpsi, rows)
+        block = (jnp.zeros_like(occupied) if ort is None
+                 else _rows_of(ort, rows))
+        return occupied, block
 
-        # 1. The forward walk.
-        sums = dsums = None
-        for rows, live in field.chunks:
-            arguments = field._arguments(rows, live)
+    # 1. The forward walk.
+    sums = [None] * ntangent
+    dsums = [None] * ntangent
+    for rows, live in field.chunks:
+        arguments = field._arguments(rows, live)
+        stacked = _stacked_rows(field.dpsi, rows)
+        for index in range(ntangent):
             value, tangent = passes["forward"](
-                *arguments, x, dx, *tangent_rows(rows),
-                _stacked_rows(field.dpsi, rows))
-            sums, dsums = _add(sums, value), _add(dsums, tangent)
-        # 2. The global step.
-        (globals_, dglobals) = passes["global"](
-            big, rowset0, x, dx, rho, drho, sums, dsums)
-        f_glob, v, ddd, volume = globals_
-        df_glob, dv, dddd, dvolume = dglobals
-        # 3. The chunk walk.
-        energy, denergy = np.asarray(f_glob), np.asarray(df_glob)
-        for rows, live in field.chunks:
-            arguments = field._arguments(rows, live)
+                *arguments, x, dxs[index], *tangent_rows(index, rows), stacked)
+            sums[index] = _add(sums[index], value)
+            dsums[index] = _add(dsums[index], tangent)
+    # 2. The global step.
+    globals_, dglobals = [], []
+    for index in range(ntangent):
+        values, tangents_ = passes["global"](
+            big, rowset0, x, dxs[index], rho, drhos[index], sums[index],
+            dsums[index])
+        globals_.append(values)
+        dglobals.append(tangents_)
+    del sums, dsums
+    energy = [np.asarray(g[0]) for g in globals_]
+    denergy = [np.asarray(g[0]) for g in dglobals]
+    # 3. The chunk walk.
+    for rows, live in field.chunks:
+        arguments = field._arguments(rows, live)
+        bare = _stacked_rows(field.bare, rows)
+        dpsi_rows = _stacked_rows(field.dpsi, rows)
+        stored_rows = _stacked_rows(stored, rows)
+        for index in range(ntangent):
+            _, v, ddd, _ = globals_[index]
+            _, dv, dddd, _ = dglobals[index]
             f_c, df_c = passes["chunk"](
-                *arguments, x, dx, *tangent_rows(rows),
-                _stacked_rows(field.bare, rows), _stacked_rows(field.dpsi, rows),
-                _stacked_rows(stored, rows), v, dv, ddd, dddd, field.dipole)
-            energy = energy + np.asarray(f_c)
-            denergy = denergy + np.asarray(df_c)
-        volume, dvolume = float(volume), float(dvolume)
-        column = -4.0 * FPI * (denergy / volume - energy * dvolume / volume**2)
+                *arguments, x, dxs[index], *tangent_rows(index, rows),
+                bare, dpsi_rows, stored_rows, v, dv, ddd, dddd, field.dipole)
+            energy[index] = energy[index] + np.asarray(f_c)
+            denergy[index] = denergy[index] + np.asarray(df_c)
+    columns = []
+    for index in range(ntangent):
+        volume, dvolume = float(globals_[index][3]), float(dglobals[index][3])
+        column = -4.0 * FPI * (denergy[index] / volume
+                               - energy[index] * dvolume / volume**2)
         columns.append(column)
         if verbose:
             print(f"  walked column: max = {np.abs(column).max():.6f}")
