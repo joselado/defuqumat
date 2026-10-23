@@ -1,5 +1,7 @@
 # Plan: the preconditioner's block-diagonal `D`, second attempt (OPEN.md Part III M5)
 
+2026-10-23: the contraction was coded on branch `speed/m5` (`0b027b8d`) and only the unit file was run, 5 passed; `bi10-soc` was not run because D22 was unreachable, so the gate of this plan is still open (record `notes/speed/m5.md`).
+
 Written 2026-10-09 on branch `open-e`, for a fable review before any code. Nothing here is
 implemented.
 
