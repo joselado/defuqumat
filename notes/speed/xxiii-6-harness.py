@@ -26,6 +26,7 @@ os.makedirs(outdir, exist_ok=True)
 from defuqumat import Calculator
 import defuqumat.response.chunked_third as ct
 from defuqumat.response.electrostriction import electrostriction
+from defuqumat.response.nonlinear import raman_tensors
 
 record = {}
 seen_passes = {}
@@ -80,9 +81,14 @@ rss0 = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 t0 = time.time()
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    res = electrostriction(calculation, hosted)
+    if os.environ.get("KIND") == "raman":
+        res = raman_tensors(calculation, hosted)
+        out = res.raman
+    else:
+        res = electrostriction(calculation, hosted, elastic=False)
+        out = res.depsilon_dstrain
 print(f"electrostriction first call {time.time() - t0:.1f} s, first walk {calls[0][2]:.1f} s", flush=True)
-np.save(f"{outdir}/depsilon.npy", np.asarray(res.depsilon_dstrain))
+np.save(f"{outdir}/depsilon.npy", np.asarray(out))
 args, kwargs = calls[0][0], calls[0][1]
 columns = original(*args, **kwargs)
 np.save(f"{outdir}/columns.npy", np.stack([np.asarray(c) for c in columns]))
