@@ -1,0 +1,80 @@
+[
+ {
+  "field": "density",
+  "tol": 0.01,
+  "Rs": [
+   7,
+   7,
+   7
+  ],
+  "maxrank": 56,
+  "train_params": 26244,
+  "pw": 21539,
+  "max_df_over_max_f": 0.8050187789966107
+ },
+ {
+  "field": "density",
+  "tol": 0.0001,
+  "Rs": [
+   7,
+   7,
+   7
+  ],
+  "maxrank": 144,
+  "train_params": 133900,
+  "pw": 40181,
+  "max_df_over_max_f": 0.8050187789966107
+ },
+ {
+  "field": "density",
+  "tol": 1e-06,
+  "Rs": [
+   7,
+   7,
+   7
+  ],
+  "maxrank": 223,
+  "train_params": 302008,
+  "pw": 45844,
+  "max_df_over_max_f": 0.8050187789966107
+ },
+ {
+  "field": "potential",
+  "tol": 0.01,
+  "Rs": [
+   7,
+   7,
+   7
+  ],
+  "maxrank": 8,
+  "train_params": 1036,
+  "pw": 16725,
+  "max_df_over_max_f": 1.0239271844561042
+ },
+ {
+  "field": "potential",
+  "tol": 0.0001,
+  "Rs": [
+   7,
+   7,
+   7
+  ],
+  "maxrank": 96,
+  "train_params": 66270,
+  "pw": 38745,
+  "max_df_over_max_f": 1.0239271844561042
+ },
+ {
+  "field": "potential",
+  "tol": 1e-06,
+  "Rs": [
+   7,
+   7,
+   7
+  ],
+  "maxrank": 247,
+  "train_params": 324982,
+  "pw": 47123,
+  "max_df_over_max_f": 1.0239271844561042
+ }
+]

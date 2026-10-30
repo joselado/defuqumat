@@ -8,15 +8,22 @@ is `qutecipy` (`~/Documents/programs/claude/qutecipy`, commit `3eecc32`, pure Nu
 `crossinterpolate2`). The scripts and the raw numbers are in
 `calculations/qtt-compression/`.
 
-The bottom line so far, on two small silicon cells. In real space every field has a
-train whose rank saturates as the grid is refined, the best bit ordering is grouped (all
-bits of x, then y, then z), and TCI learns that train with the error asked. But at
-matched accuracy the plane waves are 15 to 60 times smaller than the train, and the gap
-does not close from the 2-atom to the 8-atom cell, because the 8-atom cubic cell is four
-copies of the 2-atom fcc cell. In G space, a train of the coefficient box is exact but
-larger than the box itself at these sizes, and TCI fails there outright. Nothing here
-compresses better than the plane waves yet; the open question is a large cell that is
-not a repetition of a small one.
+The bottom line so far. In real space every field has a train whose rank saturates as
+the grid is refined, the best bit ordering is grouped (all bits of x, then y, then z), and
+TCI learns that train with the error asked. Whether the train beats the plane waves is
+decided mostly by one thing: whether the cell is a repetition of a smaller one. In bulk silicon
+(2, 8 and a perfect 64-atom cell) the plane waves are 8 to 80 times smaller at matched
+accuracy, because the sphere of a repeated cell is mostly zero and the plane waves pay
+only for the small cell. Breaking the repetition fills the sphere: one vacancy in 64
+atoms takes the matched count of the density from 1110 to 40282, and then the gap falls
+to 2 to 7 at a tolerance of 1e-4 (the vacancy, the displaced cell and the Al slab), and to
+about 1 at 1e-2, where the vacancy potential is the one field whose train is half the
+plane-wave count. Storing the perfect crystal as plane waves and the vacancy's change as a
+train gives the vacancy potential at 1e-2 in 1448 numbers, 12 times fewer than its plane
+waves. For the density that decomposition does not help, because the change a vacancy
+makes to it stays at about 2 per cent of the maximum out to the far side of a 64-atom
+cell. In G space a train counted in real numbers is no better than the real-space train
+for a real field, and TCI there still misses part of the sphere.
 
 ## How the fields are put on a quantics grid
 
@@ -189,8 +196,11 @@ complex numbers:
 | Si8 | density | 32768 | 1273 | 35, 8080 | 36, 8276 | 2.8e-2 |
 | Si8 | u_k band 1 | 4096 | 180 | 20, 1976 | 21, 2508 | 4.7e-3 |
 
-The G-space train is smaller than the real-space one (4506 complex against 15818 real
-for the Si2 density), but it is still 3.5 to 14 times the number of nonzero coefficients,
+The G-space train looks smaller than the real-space one (4506 against 15818 for the Si2
+density), but its 4506 parameters are complex numbers with no pairing between them, so
+in real numbers it is 9012, while a real field's coefficients satisfy c(-G) = c(G)* and
+`ngm` of them are `ngm` real numbers. For the states both sides are complex. Counted this
+way the train is still 7 to 14 times the number of nonzero coefficients,
 and for Si2 it has more entries than the 4096-entry box it represents. The repetition
 does cost less here: the Si8 density box is 8 times the Si2 one and its train only 1.8
 times larger, because the all-even or all-odd rule is a statement about the lowest bit of
@@ -205,35 +215,165 @@ not see what it missed. The TT-SVD trains, which see the whole box, show that th
 exists; what is missing is a way to find it from samples, perhaps a global pivot search
 or initial pivots spread over the sphere.
 
+## Larger cells, on Triton
+
+We will now see whether a cell that is not a repetition changes the picture. Four cells
+ran as one array on Triton (`qtt-cells.sbatch`, job 21308707, `batch-csl`, node `csl39`,
+8 cores each, 8 to 15 minutes and 1.9 to 2.5 GB each by `seff`), through `qtt_cell.py`,
+which does every measurement above in one run and allows a different number of bits per
+axis:
+
+- **Si64**: the 2x2x2 conventional cubic cell, a = 20.40 bohr, a power-of-two repetition of
+  Si8 along every axis. This is the control.
+- **Si63 vacancy**: the same cell with the atom at the origin removed, unrelaxed.
+- **Si64 displaced**: every atom moved by a Gaussian random vector, 0.05 A rms per
+  component (seed 0). The repetition is broken everywhere, weakly.
+- **Al slab**: `benchmarks/al-slab.in`, five layers and vacuum, 5.3 x 5.3 x 31 bohr.
+
+The Si cells are at `ecutwfc=12`, at Gamma, with a 0.1 eV Gaussian smearing (the vacancy
+puts states in the gap); their FFT grid is 45^3, `ngm` 47497 and `npw` 6031. The real-space
+grid is 2^8 per axis for Si (dR=2; dR=3 would be 2^27 points) and 2^7 x 2^7 x 2^10 for the
+slab. The raw files are `results/triton-21308707/`.
+
+At each tolerance: the matched plane-wave count, the best grouped real-space train (rank,
+parameters) and its ratio to the plane waves, the G-space train by TT-SVD with its field
+error bisected to the target, and its ratio **in real numbers** (twice its parameters for a
+real field, as explained in the G-space section), then real-space TCI (samples, measured
+maximum error) and the field error of G-space TCI started from the 32 largest
+coefficients:
+
+| cell | field | tol | matched plane waves | real-space train r, params | ratio | G-space train params | ratio (real numbers) | real-space TCI samples, error | G-space TCI error |
+|---|---|---|---|---|---|---|---|---|---|
+| Si64 | density | 1e-02 | 531 | 32, 8668 | 16.3 | 4942 | 18.6 | 26437, 3.6e-02 | 6.2e-02 |
+| Si64 | density | 1e-04 | 1110 | 60, 24890 | 22.4 | 9346 | 16.8 | 49348, 3.5e-04 | 3.5e-02 |
+| Si64 | potential | 1e-02 | 412 | 23, 4752 | 11.5 | 1804 | 8.8 | 9044, 1.9e-02 | 1.2e-02 |
+| Si64 | potential | 1e-04 | 4272 | 63, 34134 | 8.0 | 26892 | 12.6 | 69401, 3.9e-04 | 1.8e-03 |
+| Si64 | u_k band 1 | 1e-02 | 134 | 21, 4194 | 31.3 | 1556 | 11.6 | 13457, 2.0e-02 | 2.2e-01 |
+| Si64 | u_k band 1 | 1e-04 | 514 | 33, 10510 | 20.4 | 3476 | 6.8 | 42730, 4.9e-04 | 2.0e-01 |
+| Si64 | u_k band 128 (top) | 1e-02 | 120 | 22, 4482 | 37.4 | 1562 | 13.0 | 14168, 3.0e-02 | 1.4e-02 |
+| Si64 | u_k band 128 (top) | 1e-04 | 179 | 36, 14070 | 78.6 | 4268 | 23.8 | 47548, 4.8e-04 | 1.5e-04 |
+| Si63 vacancy | density | 1e-02 | 21955 | 47, 22042 | 1.0 | 22124 | 2.0 | 113320, 4.5e-02 | 5.7e-01 |
+| Si63 vacancy | density | 1e-04 | 40282 | 121, 127684 | 3.2 | 78438 | 3.9 | 477484, 3.1e-04 | 4.1e-02 |
+| Si63 vacancy | potential | 1e-02 | 17345 | 29, 7978 | 0.5 | 4224 | 0.5 | 15779, 3.8e-02 | 6.9e-01 |
+| Si63 vacancy | potential | 1e-04 | 38502 | 117, 124328 | 3.2 | 69522 | 3.6 | 359954, 5.5e-04 | 4.2e-03 |
+| Si63 vacancy | u_k band 1 | 1e-02 | 5634 | 31, 10476 | 1.9 | 9424 | 1.7 | 55613, 2.8e-02 | 3.7e-01 |
+| Si63 vacancy | u_k band 1 | 1e-04 | 6025 | 98, 73038 | 12.1 | 30018 | 5.0 | 238177, 3.3e-04 | 4.9e-03 |
+| Si63 vacancy | u_k band 125 (top) | 1e-02 | 4789 | 60, 30892 | 6.5 | 12360 | 2.6 | 101884, 3.4e-02 | 6.4e-02 |
+| Si63 vacancy | u_k band 125 (top) | 1e-04 | 5975 | 112, 88280 | 14.8 | 29072 | 4.9 | 232675, 2.4e-04 | 5.9e-16 |
+| Si64 displaced | density | 1e-02 | 12170 | 73, 45298 | 3.7 | 35944 | 5.9 | 177503, 3.5e-02 | 2.4e-01 |
+| Si64 displaced | density | 1e-04 | 37431 | 176, 225736 | 6.0 | 111816 | 6.0 | 778437, 3.3e-04 | 7.4e-03 |
+| Si64 displaced | potential | 1e-02 | 12699 | 63, 40158 | 3.2 | 21250 | 3.3 | 78802, 3.2e-02 | 1.1e-01 |
+| Si64 displaced | potential | 1e-04 | 36614 | 186, 244062 | 6.7 | 109112 | 6.0 | 601998, 4.6e-04 | 1.0e-03 |
+| Si64 displaced | u_k band 1 | 1e-02 | 4573 | 57, 30340 | 6.6 | 17838 | 3.9 | 128740, 4.3e-02 | 2.4e-01 |
+| Si64 displaced | u_k band 1 | 1e-04 | 6016 | 116, 90656 | 15.1 | 32094 | 5.3 | 247196, 2.5e-04 | 1.0e-15 |
+| Si64 displaced | u_k band 128 (top) | 1e-02 | 3156 | 58, 27222 | 8.6 | 11104 | 3.5 | 62932, 4.5e-02 | 4.4e-02 |
+| Si64 displaced | u_k band 128 (top) | 1e-04 | 5946 | 110, 85020 | 14.3 | 28226 | 4.7 | 271799, 2.8e-04 | 6.7e-16 |
+| Al slab | density | 1e-02 | 1931 | 14, 2432 | 1.3 | 1750 | 1.8 | 7977, 3.8e-02 | 1.2e-01 |
+| Al slab | density | 1e-04 | 3680 | 28, 7446 | 2.0 | 3768 | 2.0 | 20190, 2.7e-04 | 2.6e-03 |
+| Al slab | potential | 1e-02 | 2999 | 15, 2954 | 1.0 | 1754 | 1.2 | 9610, 3.6e-02 | 2.9e-01 |
+| Al slab | potential | 1e-04 | 4676 | 41, 12272 | 2.6 | 5538 | 2.4 | 24847, 3.0e-04 | 1.6e-03 |
+| Al slab | u_k band 1 | 1e-02 | 423 | 10, 1324 | 3.1 | 590 | 1.4 | 4356, 1.9e-02 | 4.2e-01 |
+| Al slab | u_k band 1 | 1e-04 | 594 | 15, 2966 | 5.0 | 1050 | 1.8 | 7649, 2.2e-04 | 2.2e-04 |
+| Al slab | u_k band 6 (top) | 1e-02 | 402 | 10, 1358 | 3.4 | 710 | 1.8 | 3764, 2.6e-02 | 9.1e-02 |
+| Al slab | u_k band 6 (top) | 1e-04 | 567 | 15, 2938 | 5.2 | 1050 | 1.9 | 6012, 1.2e-04 | 1.7e-15 |
+
+Five things to read in this table.
+
+The repetition is free for the train and free for the plane waves. Si64 has the same
+matched density count as Si2 and Si8 (1110 against 1061 and 1084), and its real-space
+train (24890) is close to that of Si8 (23226): the extra coarse bits cost almost nothing.
+So the perfect crystal gives the same gap as before, 8 to 80.
+
+Breaking the repetition fills the sphere, and the train grows less than the plane waves.
+The vacancy takes the matched density count from 1110 to 40282, a factor 36, and the
+train from 24890 to 127684, a factor 5. The gap at 1e-4 is then 3.2 for the vacancy, 6.0
+for the displaced cell and 2.0 for the slab. The displaced cell is the harder one for the
+train (density rank 176 against 121) while its matched count is about the same, meaning
+that a weak disorder everywhere costs the train more than one strong local defect.
+
+At 1e-2 the two are level, and the vacancy potential is a win. Its train has 7978 numbers
+in real space and 8448 in G space against 17345 plane waves. One caveat on the real-space
+number: its tolerance is in the Frobenius norm, and on Si2 that truncation gave a maximum
+error 1.0 to 2.2 times the tolerance, so the match is approximate; the G-space number is
+bisected on the maximum error of the field and has no such caveat. The vacancy density at
+1e-2 is level (22042 against 21955), and the slab density and potential are within 1.3.
+
+The states compress worse than the fields built from them. At 1e-4 a single u_k costs 5 to
+15 times its plane waves in real space and 2 to 5 in G space in the three cells that are
+not repetitions (20 to 80 and 7 to 24 in Si64), more than the fields built from them. A G-space train of a state is complex on both sides, so here G
+space does help, by a factor 2 to 3.
+
+TCI in real space works at this size and TCI in G space does not. Real-space TCI meets the
+tolerance within a factor 5 in every row, from 3764 to 778437 samples, which is 0.02 to 5
+per cent of the 2^24 grid and up to 9 times the 45^3 FFT box. Starting G-space TCI from
+the 32 largest coefficients helps sometimes (Si64 potential at 1e-2: 0.92 to 0.012) and
+not reliably: the vacancy density at 1e-4 still has a field error of 4e-2.
+
+## The change a vacancy makes
+
+The vacancy result suggests a decomposition: the perfect crystal as plane waves of the
+small cell (1110 coefficients for the density), plus the change rho_vac - rho_perfect as a
+train, if the change is local. Both 64-atom cells have the same G set, so the change is
+exact on the grid (`diff_field.py`). It is compressed to an error of tol times max
+rho_vac, the target the whole field had, at dR=1 (2^21 points):
+
+| field | tol | change as a train r, params | change in plane waves | whole field, train at dR=1 | whole field, plane waves |
+|---|---|---|---|---|---|
+| density | 1e-2 | 56, 26244 | 21539 | 47, 19336 | 21955 |
+| density | 1e-4 | 144, 133900 | 40181 | 119, 107100 | 40282 |
+| potential | 1e-2 | 8, 1036 | 16725 | 28, 6618 | 17345 |
+| potential | 1e-4 | 96, 66270 | 38745 | 114, 101906 | 38502 |
+
+So the change costs as much as the whole field, except for the potential at 1e-2, where it
+is a rank-8 train of 1036 numbers. There the decomposition works: the perfect crystal's
+potential at 1e-2 is 412 plane waves (the Si64 row above), so the vacancy potential is
+412 + 1036 = 1448 numbers, against 17345 plane waves and 6618 for a train of the whole
+field, a factor 12 below the plane waves. Note that the two parts each carry an error of
+1e-2 of their own maximum, so the total error is up to about 2e-2 of max |V|; this has not
+been measured on the sum. For the density the decomposition does not help at any tolerance
+measured. The reason for this is that the change is not local in
+this cell. Measured from the vacant site, max |drho| / max rho is 0.81 within 2 bohr and
+0.71 from 2 to 4 bohr, then falls to 2 to 4 per cent from 4 to 10 bohr, and stays at 1.5
+to 1.8 per cent out to the farthest point of the cell (14 to 18 bohr); the change
+integrates to -4.00 electrons, as it should. The potential is the field whose
+tail falls under 1e-2 here, and the density is not. In a 64-atom cell at Gamma, the vacancy
+disturbs the density of the whole cell at the per cent level, and a tolerance of 1e-2 or
+tighter has to resolve that everywhere. The decomposition needs a cell where this tail
+falls under the tolerance, which is a question about the screening and the k-point
+sampling, not about the train.
+
 ## What this does not yet say
 
-- The 8-atom cell is a repetition, so the cell-size trend is not measured yet. The
-  meaningful larger cell has something non-periodic in it: a vacancy, a slab with
-  vacuum, a moire.
+- The cells are unrelaxed and sampled at Gamma. A relaxed vacancy, a denser k-mesh and a
+  larger cell would change how far the change reaches, and that is what decides whether
+  the decomposition can work.
 - The tolerance is a relative maximum error on the field, not an energy. What 1e-4 on the
   density costs in the total energy (through the Hartree and exchange-correlation terms)
   has not been computed.
-- Both cells use `ecutwfc=12`, a low cutoff. A higher cutoff adds coefficients that are
-  small, which the matched count already discounts, so the plane-wave side should not
-  lose much from it; this has not been checked.
+- All cells use `ecutwfc=12`, a low cutoff. A higher cutoff adds coefficients that are
+  small, which the matched count already discounts; this has not been checked.
 - Only one k-point and one band at a time. The occupied manifold as one array-valued
-  train with shared pivots (`crossinterpolate2_array`) is the natural object for a
-  density built from states, and has not been tried.
-- Only single-bit orderings were searched, from two starts. The cell axes are the crystal
-  axes; for the fcc primitive cell they are not orthogonal.
+  train with shared pivots (`crossinterpolate2_array`) has not been tried.
+- Only single-bit orderings were searched, from two starts on Si2; on the larger cells
+  only the six grouped axis orders and interleaved were compared. The cell axes are the
+  crystal axes.
+- The real-space trains are truncated in the Frobenius norm and compared with plane waves
+  matched in the maximum norm, which is an approximate match (factor 1.0 to 2.2 on Si2).
 
 ## Next steps, roughly in order of what they decide
 
-- A 64-atom silicon cell with one vacancy (from `benchmarks/si64-1k.in`): the first
-  cell where the matched count grows with the cell, so the first real test of the trend.
-- `benchmarks/al-slab.in`: a slab with vacuum, where the density is exponentially small
-  over a large part of the cell, and where the relative tolerance has to be checked in
-  the vacuum separately.
-- TCI in G space with initial pivots spread over the sphere, or with the global pivot
-  finder, to see whether the trains TT-SVD finds can be learned from samples.
-- `benchmarks/si8-1k-ecut30.in`: the cutoff dependence at fixed cell.
+- A 216-atom cell (3x3x3) or 512-atom cell (4x4x4) with a vacancy, to see whether the tail
+  of the change falls under 1e-2 far from the defect, and whether the gap keeps closing
+  with the cell. The 4x4x4 cell is a power-of-two repetition of Si8, which keeps the
+  perfect reference cheap for the train.
+- The real-space trains truncated to a maximum error (bisection, as in G space), to remove
+  the norm caveat from the 1e-2 comparison.
+- The potential, which compresses best, at tolerances between 1e-2 and 1e-4, to find
+  where the crossover lies.
 - The Hartree energy of the compressed density against the exact one, to turn the
   tolerance into an energy error.
+- A G-space TCI that finds the whole sphere: the global pivot finder, or pivots from a
+  coarse plane-wave solution.
 - Array-valued TCI over the occupied bands at one k-point.
 
 ## How to rerun
@@ -255,6 +395,14 @@ python3 calculations/qtt-compression/matched_pw.py 7 out.json
 python3 calculations/qtt-compression/gspace.py out.json
 ```
 
-Each run does its own SCF (a few seconds for these cells), and every TCI call above takes
+The larger cells, from the repository root (`qtt_cell.py --help`; on Triton through
+`qtt-cells.sbatch`, whose header has the submit line):
+
+```bash
+python3 calculations/qtt-compression/qtt_cell.py si63-vac out/ --dR 1,2 --tci-dR 2
+python3 calculations/qtt-compression/diff_field.py out/ si63-vac si64 out/diff.json --dR 1
+```
+
+Each run of the older scripts does its own SCF (a few seconds for these cells), and every TCI call above takes
 under 15 seconds on four cores. `qtt_probe.py` alone runs the first comparison, all five
 fields with interleaved and fused orders at R=5 (`results/si_R45.json`).
