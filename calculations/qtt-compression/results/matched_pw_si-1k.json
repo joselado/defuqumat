@@ -1,0 +1,62 @@
+[
+ {
+  "input": "benchmarks/si-1k.in",
+  "field": "density",
+  "R": 7,
+  "tol": 0.01,
+  "n_full": 1459,
+  "n_matched": 458,
+  "tt_params": 3860,
+  "tt_svd_maxerr": 0.02218124782775981
+ },
+ {
+  "input": "benchmarks/si-1k.in",
+  "field": "density",
+  "R": 7,
+  "tol": 0.0001,
+  "n_full": 1459,
+  "n_matched": 1061,
+  "tt_params": 15818,
+  "tt_svd_maxerr": 0.00019810780602347812
+ },
+ {
+  "input": "benchmarks/si-1k.in",
+  "field": "density",
+  "R": 7,
+  "tol": 1e-06,
+  "n_full": 1459,
+  "n_matched": 1270,
+  "tt_params": 33184,
+  "tt_svd_maxerr": 1.0315604104301828e-06
+ },
+ {
+  "input": "benchmarks/si-1k.in",
+  "field": "u_k band1",
+  "R": 7,
+  "tol": 0.01,
+  "n_full": 180,
+  "n_matched": 146,
+  "tt_params": 2974,
+  "tt_svd_maxerr": 0.017020107510333813
+ },
+ {
+  "input": "benchmarks/si-1k.in",
+  "field": "u_k band1",
+  "R": 7,
+  "tol": 0.0001,
+  "n_full": 180,
+  "n_matched": 180,
+  "tt_params": 6200,
+  "tt_svd_maxerr": 0.0001322893270870742
+ },
+ {
+  "input": "benchmarks/si-1k.in",
+  "field": "u_k band1",
+  "R": 7,
+  "tol": 1e-06,
+  "n_full": 180,
+  "n_matched": 180,
+  "tt_params": 8656,
+  "tt_svd_maxerr": 8.703398100594063e-07
+ }
+]

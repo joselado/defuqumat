@@ -1,0 +1,718 @@
+[
+ {
+  "R": 4,
+  "field": "density",
+  "order": "interleaved xyz, coarse->fine",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   52,
+   32,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 9384
+ },
+ {
+  "R": 4,
+  "field": "density",
+  "order": "interleaved xyz, fine->coarse",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   52,
+   32,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 9384
+ },
+ {
+  "R": 4,
+  "field": "density",
+  "order": "grouped x|y|z, coarse->fine",
+  "ranks": [
+   2,
+   4,
+   8,
+   13,
+   25,
+   38,
+   25,
+   13,
+   8,
+   4,
+   2
+  ],
+  "params": 5684
+ },
+ {
+  "R": 4,
+  "field": "density",
+  "order": "grouped x|y|z, x fine->coarse",
+  "ranks": [
+   2,
+   4,
+   8,
+   13,
+   25,
+   38,
+   25,
+   13,
+   8,
+   4,
+   2
+  ],
+  "params": 5684
+ },
+ {
+  "R": 4,
+  "field": "density",
+  "order": "interleaved, z,y,x zig-zag",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   52,
+   32,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 9384
+ },
+ {
+  "R": 4,
+  "field": "density",
+  "order": "greedy",
+  "sites": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    3
+   ]
+  ],
+  "ranks": [
+   2,
+   4,
+   8,
+   13,
+   25,
+   38,
+   25,
+   13,
+   8,
+   4,
+   2
+  ],
+  "params": 5684
+ },
+ {
+  "R": 4,
+  "field": "u_k band1",
+  "order": "interleaved xyz, coarse->fine",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   50,
+   31,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 8996
+ },
+ {
+  "R": 4,
+  "field": "u_k band1",
+  "order": "interleaved xyz, fine->coarse",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   31,
+   50,
+   32,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 8996
+ },
+ {
+  "R": 4,
+  "field": "u_k band1",
+  "order": "grouped x|y|z, coarse->fine",
+  "ranks": [
+   2,
+   4,
+   7,
+   7,
+   14,
+   26,
+   14,
+   7,
+   7,
+   4,
+   2
+  ],
+  "params": 2196
+ },
+ {
+  "R": 4,
+  "field": "u_k band1",
+  "order": "grouped x|y|z, x fine->coarse",
+  "ranks": [
+   2,
+   4,
+   7,
+   7,
+   14,
+   26,
+   14,
+   7,
+   7,
+   4,
+   2
+  ],
+  "params": 2196
+ },
+ {
+  "R": 4,
+  "field": "u_k band1",
+  "order": "interleaved, z,y,x zig-zag",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   50,
+   31,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 8996
+ },
+ {
+  "R": 4,
+  "field": "u_k band1",
+  "order": "greedy",
+  "sites": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    2,
+    3
+   ]
+  ],
+  "ranks": [
+   2,
+   4,
+   7,
+   7,
+   14,
+   26,
+   14,
+   7,
+   7,
+   4,
+   2
+  ],
+  "params": 2196
+ },
+ {
+  "R": 5,
+  "field": "density",
+  "order": "interleaved xyz, coarse->fine",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   59,
+   79,
+   62,
+   43,
+   26,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 32998
+ },
+ {
+  "R": 5,
+  "field": "density",
+  "order": "interleaved xyz, fine->coarse",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   27,
+   43,
+   61,
+   78,
+   59,
+   32,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 32632
+ },
+ {
+  "R": 5,
+  "field": "density",
+  "order": "grouped x|y|z, coarse->fine",
+  "ranks": [
+   2,
+   4,
+   8,
+   13,
+   13,
+   25,
+   40,
+   41,
+   24,
+   13,
+   11,
+   7,
+   4,
+   2
+  ],
+  "params": 9668
+ },
+ {
+  "R": 5,
+  "field": "density",
+  "order": "grouped x|y|z, x fine->coarse",
+  "ranks": [
+   2,
+   4,
+   7,
+   11,
+   13,
+   25,
+   40,
+   41,
+   24,
+   13,
+   11,
+   7,
+   4,
+   2
+  ],
+  "params": 9554
+ },
+ {
+  "R": 5,
+  "field": "density",
+  "order": "interleaved, z,y,x zig-zag",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   59,
+   79,
+   62,
+   43,
+   26,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 32998
+ },
+ {
+  "R": 5,
+  "field": "density",
+  "order": "greedy",
+  "sites": [
+   [
+    0,
+    4
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    0
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    1,
+    4
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    2,
+    4
+   ]
+  ],
+  "ranks": [
+   2,
+   4,
+   7,
+   11,
+   13,
+   25,
+   40,
+   41,
+   24,
+   13,
+   11,
+   7,
+   4,
+   2
+  ],
+  "params": 9554
+ },
+ {
+  "R": 5,
+  "field": "u_k band1",
+  "order": "interleaved xyz, coarse->fine",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   59,
+   66,
+   51,
+   37,
+   24,
+   15,
+   8,
+   4,
+   2
+  ],
+  "params": 26254
+ },
+ {
+  "R": 5,
+  "field": "u_k band1",
+  "order": "interleaved xyz, fine->coarse",
+  "ranks": [
+   2,
+   4,
+   8,
+   15,
+   24,
+   37,
+   50,
+   65,
+   59,
+   32,
+   16,
+   8,
+   4,
+   2
+  ],
+  "params": 25830
+ },
+ {
+  "R": 5,
+  "field": "u_k band1",
+  "order": "grouped x|y|z, coarse->fine",
+  "ranks": [
+   2,
+   4,
+   7,
+   7,
+   7,
+   14,
+   28,
+   25,
+   14,
+   7,
+   7,
+   6,
+   4,
+   2
+  ],
+  "params": 3798
+ },
+ {
+  "R": 5,
+  "field": "u_k band1",
+  "order": "grouped x|y|z, x fine->coarse",
+  "ranks": [
+   2,
+   4,
+   6,
+   7,
+   7,
+   14,
+   28,
+   25,
+   14,
+   7,
+   7,
+   6,
+   4,
+   2
+  ],
+  "params": 3776
+ },
+ {
+  "R": 5,
+  "field": "u_k band1",
+  "order": "interleaved, z,y,x zig-zag",
+  "ranks": [
+   2,
+   4,
+   8,
+   16,
+   32,
+   59,
+   66,
+   51,
+   37,
+   24,
+   15,
+   8,
+   4,
+   2
+  ],
+  "params": 26254
+ },
+ {
+  "R": 5,
+  "field": "u_k band1",
+  "order": "greedy",
+  "sites": [
+   [
+    0,
+    0
+   ],
+   [
+    0,
+    1
+   ],
+   [
+    0,
+    2
+   ],
+   [
+    0,
+    3
+   ],
+   [
+    0,
+    4
+   ],
+   [
+    1,
+    0
+   ],
+   [
+    1,
+    1
+   ],
+   [
+    1,
+    2
+   ],
+   [
+    1,
+    3
+   ],
+   [
+    1,
+    4
+   ],
+   [
+    2,
+    0
+   ],
+   [
+    2,
+    1
+   ],
+   [
+    2,
+    2
+   ],
+   [
+    2,
+    3
+   ],
+   [
+    2,
+    4
+   ]
+  ],
+  "ranks": [
+   2,
+   4,
+   7,
+   7,
+   7,
+   14,
+   28,
+   25,
+   14,
+   7,
+   7,
+   6,
+   4,
+   2
+  ],
+  "params": 3798
+ }
+]

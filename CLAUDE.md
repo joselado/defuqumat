@@ -67,6 +67,7 @@ missing, are indexed at the head of `PLAN.md` §3.
 | what is left to do about GPU speed and the Davidson stall, sized, and the replay tools | `notes/GPU-SPEED-NEXT.md` |
 | which mixer a cell with vacuum wants, what the literature has, and what is left | `notes/VACUUM-MIXING-NEXT.md` |
 | real-time propagation, high harmonics and the third harmonic: the plan, and what is left of it (the frequency-domain hierarchy) | `notes/HARMONICS-NEXT.md` |
+| whether the density and the states compress as quantics tensor trains (qutecipy), measured, and what to try next | `notes/QTT-COMPRESSION.md` |
 | which QE or Elk routine each subsystem was ported from | `.claude/rules/reference-source-map.md` |
 | the full account of each recurring trap | `.claude/skills/trap-check/traps.md` |
 

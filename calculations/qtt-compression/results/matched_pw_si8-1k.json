@@ -1,0 +1,62 @@
+[
+ {
+  "input": "benchmarks/si8-1k.in",
+  "field": "density",
+  "R": 7,
+  "tol": 0.01,
+  "n_full": 6031,
+  "n_matched": 518,
+  "tt_params": 7666,
+  "tt_svd_maxerr": 0.016073566281332455
+ },
+ {
+  "input": "benchmarks/si8-1k.in",
+  "field": "density",
+  "R": 7,
+  "tol": 0.0001,
+  "n_full": 6031,
+  "n_matched": 1084,
+  "tt_params": 23226,
+  "tt_svd_maxerr": 0.00011989576616784251
+ },
+ {
+  "input": "benchmarks/si8-1k.in",
+  "field": "density",
+  "R": 7,
+  "tol": 1e-06,
+  "n_full": 6031,
+  "n_matched": 1271,
+  "tt_params": 43446,
+  "tt_svd_maxerr": 1.2047148964143132e-06
+ },
+ {
+  "input": "benchmarks/si8-1k.in",
+  "field": "u_k band1",
+  "R": 7,
+  "tol": 0.01,
+  "n_full": 738,
+  "n_matched": 145,
+  "tt_params": 4764,
+  "tt_svd_maxerr": 0.014973707814804473
+ },
+ {
+  "input": "benchmarks/si8-1k.in",
+  "field": "u_k band1",
+  "R": 7,
+  "tol": 0.0001,
+  "n_full": 738,
+  "n_matched": 179,
+  "tt_params": 10264,
+  "tt_svd_maxerr": 0.00010872838763532893
+ },
+ {
+  "input": "benchmarks/si8-1k.in",
+  "field": "u_k band1",
+  "R": 7,
+  "tol": 1e-06,
+  "n_full": 738,
+  "n_matched": 180,
+  "tt_params": 13240,
+  "tt_svd_maxerr": 7.605146294600418e-07
+ }
+]
