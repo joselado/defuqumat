@@ -19,8 +19,11 @@ atoms takes the matched count of the density from 1110 to 40282, and then the ga
 to 2 to 7 at a tolerance of 1e-4 (the vacancy, the displaced cell and the Al slab), and to
 about 1 at 1e-2, where the vacancy potential is the one field whose train is half the
 plane-wave count. Storing the perfect crystal as plane waves and the vacancy's change as a
-train gives the vacancy potential at 1e-2 in 1448 numbers, 12 times fewer than its plane
-waves. For the density that decomposition does not help, because the change a vacancy
+train gives the vacancy potential in 1448 numbers at a measured error of 1.4e-2, 11 times
+fewer than its plane waves at the same error. This win is only formal: the tolerances are
+relative to max |f|, max |V| is 14.2 Ry (the local pseudopotential at the cores), and an
+error of 1.4e-2 of it is 2.7 eV, far more than any SCF tolerates in the Kohn-Sham
+potential. For the density that decomposition does not help, because the change a vacancy
 makes to it stays at about 2 per cent of the maximum out to the far side of a 64-atom
 cell. In G space a train counted in real numbers is no better than the real-space train
 for a real field, and TCI there still misses part of the sphere.
@@ -74,6 +77,9 @@ units of 2pi/a. The state shown is band 1, as its cell-periodic part u_k(r); ban
 2-atom cell behaves the same (`results/orderings_R4-5-6-7_tol1e-04.json`). The potential
 is `SCFResult.potential`, the total local potential (local pseudopotential, Hartree and
 exchange-correlation); the nonlocal projectors are not in it.
+
+The larger cells (64 Si atoms, perfect, with a vacancy and displaced, and an Al slab) are
+described in the Triton section below.
 
 The 8-atom cell is the conventional cubic cell of the same crystal, so it is exactly four
 copies of the fcc cell. In reciprocal space this means that only the G vectors with h, k,
@@ -295,8 +301,13 @@ At 1e-2 the two are level, and the vacancy potential is a win. Its train has 797
 in real space and 8448 in G space against 17345 plane waves. One caveat on the real-space
 number: its tolerance is in the Frobenius norm, and on Si2 that truncation gave a maximum
 error 1.0 to 2.2 times the tolerance, so the match is approximate; the G-space number is
-bisected on the maximum error of the field and has no such caveat. The vacancy density at
+bisected on the maximum error of the field and has no such caveat. The same mismatch
+tilts every real-space against G-space comparison in this report in favour of real space,
+since the real-space trains may carry up to twice the error the G-space trains do. The vacancy density at
 1e-2 is level (22042 against 21955), and the slab density and potential are within 1.3.
+Note that 1e-2 of max |V| is 0.14 Ry (1.9 eV) in the Si cells, since max |V| is set by
+the cores, so the level at 1e-2 is a level at a tolerance no SCF would use (the units are
+spelled out in the vacancy section below).
 
 The states compress worse than the fields built from them. At 1e-4 a single u_k costs 5 to
 15 times its plane waves in real space and 2 to 5 in G space in the three cells that are
@@ -325,18 +336,28 @@ rho_vac, the target the whole field had, at dR=1 (2^21 points):
 | potential | 1e-4 | 96, 66270 | 38745 | 114, 101906 | 38502 |
 
 So the change costs as much as the whole field, except for the potential at 1e-2, where it
-is a rank-8 train of 1036 numbers. There the decomposition works: the perfect crystal's
-potential at 1e-2 is 412 plane waves (the Si64 row above), so the vacancy potential is
-412 + 1036 = 1448 numbers, against 17345 plane waves and 6618 for a train of the whole
-field, a factor 12 below the plane waves. Note that the two parts each carry an error of
-1e-2 of their own maximum, so the total error is up to about 2e-2 of max |V|; this has not
-been measured on the sum. For the density the decomposition does not help at any tolerance
-measured. The reason for this is that the change is not local in
+is a rank-8 train of 1036 numbers. There the decomposition works as a count: the perfect
+crystal's potential from its 412 largest plane waves (the Si64 row above) plus the rank-8
+train of the change gives the vacancy potential with a measured maximum error of 1.39e-2
+of max |V_vac|, and at that same error the vacancy potential needs 15763 plane waves, so
+1448 numbers against 15763, a factor 10.9. For the density the decomposition does not help
+at any tolerance measured.
+
+What the tolerance means in physical units decides whether this matters. max |V_vac| is
+14.23 Ry (the potential runs from -14.23 to +0.41 Ry, the deep part being the local
+pseudopotential at the cores), so 1e-2 of it is 0.14 Ry, 1.9 eV, and the measured error
+of the decomposition is 2.7 eV. max rho_vac is 0.089 e/bohr^3, so 1e-2 of it is 8.9e-4
+e/bohr^3. An error of electronvolts in the Kohn-Sham potential is far outside what an SCF
+step tolerates, so the factor 10.9 is a statement about the count, not a usable
+compression. A meaningful target for the potential is at most 1e-4 of max |V| (19 meV),
+where the change of the potential has to be resolved out to the far side of the cell. The reason for this is that the change is not local in
 this cell. Measured from the vacant site, max |drho| / max rho is 0.81 within 2 bohr and
 0.71 from 2 to 4 bohr, then falls to 2 to 4 per cent from 4 to 10 bohr, and stays at 1.5
 to 1.8 per cent out to the farthest point of the cell (14 to 18 bohr); the change
 integrates to -4.00 electrons, as it should. The potential is the field whose
-tail falls under 1e-2 here, and the density is not. In a 64-atom cell at Gamma, the vacancy
+tail falls under 1e-2 here, and the density is not: max |dV| / max |V| is 1.02 within 2
+bohr, 6.6e-2 from 2 to 4 bohr, 3.9e-3 from 4 to 6 bohr, and 1.5e-3 to 1.9e-3 from 6 bohr out
+to the far side, which is 0.02 to 0.03 Ry. In a 64-atom cell at Gamma, the vacancy
 disturbs the density of the whole cell at the per cent level, and a tolerance of 1e-2 or
 tighter has to resolve that everywhere. The decomposition needs a cell where this tail
 falls under the tolerance, which is a question about the screening and the k-point
@@ -347,9 +368,10 @@ sampling, not about the train.
 - The cells are unrelaxed and sampled at Gamma. A relaxed vacancy, a denser k-mesh and a
   larger cell would change how far the change reaches, and that is what decides whether
   the decomposition can work.
-- The tolerance is a relative maximum error on the field, not an energy. What 1e-4 on the
-  density costs in the total energy (through the Hartree and exchange-correlation terms)
-  has not been computed.
+- The tolerance is a maximum error relative to max |f|, not an energy, and max |V| is set
+  by the cores (14.2 Ry in the Si cells). An error relative to the interstitial, or the
+  error in the total energy through the Hartree and exchange-correlation terms, has not
+  been computed, and would be the fairer target.
 - All cells use `ecutwfc=12`, a low cutoff. A higher cutoff adds coefficients that are
   small, which the matched count already discounts; this has not been checked.
 - Only one k-point and one band at a time. The occupied manifold as one array-valued
