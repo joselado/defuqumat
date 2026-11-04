@@ -173,6 +173,18 @@ potential, measured from the centre of the cell and clamped at a distance
 `dmaxefc` from it. It is a linear ramp cut off in the vacuum, not the saw-tooth of
 `pw.x`, and Elk has no dipole correction. `PLAN.md` P144.
 
+**21. Quantum metric, QE blank.** Nothing in `PW/src`, `PP/src`, `PHonon`,
+`LR_Modules` or `Modules` computes the quantum metric or the localization tensor
+(searched for "quantum metric", "geometric tensor", "Fubini" and "qgt"). The
+nearest routine is `compute_density_k` in `PW/src/exx.f90`, which gives a
+log-form spread of one orbital pair for the SCDM localization
+(`loc_scdm_k.f90`), and that is not the second-moment tensor. The bundled
+`external/wannier90` computes the gauge-invariant spread $\Omega_I$ in
+`wann_omega` (`src/wannierise.F90`) and prints it as "Omega I" in the `.wout`,
+but Wannier90 is a separate code that QE reaches through `pw2wannier90.x`. Elk
+has none of the three, and gets $\Omega_I$ only through an installed Wannier90
+(`setupw90.f90`, `writew90.f90`).
+
 ## The convergence workflows, which have no row
 
 Six rows about getting a calculation to converge left the table when the README

@@ -751,6 +751,7 @@ task of the other code that it refers to.
 | **Real-time response to a laser pulse**: the current in time, the dielectric function from a kick, the high-harmonic spectrum | `calc.get_realtime(pulse)`, `calc.get_realtime_dielectric()`, `calc.get_hhg(pulse)` | | (✓)¹⁹ |
 | **Third-harmonic susceptibility** $\chi^{(3)}$, at one frequency or as a spectrum | `calc.get_third_harmonic(frequency)`, `calc.get_harmonic_orders(frequency)` | | |
 | **Berry curvature and Chern numbers** | `calc.get_chern()`, `calc.get_chern(spin=0)` at `nspin = 2` | | |
+| **Quantum metric** of the occupied bands, the localization tensor and the spread $\Omega_I$ | `calc.get_quantum_metric()` | ²¹ | |
 | **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
 | **Magnetoelectric tensor** | `calc.get_magnetoelectric_tensor()` | | ✓ |

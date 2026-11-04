@@ -1436,6 +1436,26 @@ class Calculator:
                                  exclude=SCF_ONLY_OPTIONS)
         )
 
+    def get_quantum_metric(self, **options):
+        """The quantum metric ``g_ab(k)`` and the localization tensor of an insulator.
+
+        The real part of the quantum geometric tensor of the occupied bands, in
+        bohr^2, on the k-set; its zone average per electron is
+        ``.localization_tensor``, Resta's ``<r_a r_b>_c``, and
+        ``.spread_invariant`` is Marzari and Vanderbilt's ``Omega_I``.
+        ``method="overlap"`` takes it from neighbour overlaps on a uniform
+        mesh, with no sum over empty states.
+        """
+        from defuqumat.workflows.geometry import run_quantum_metric
+
+        result = self._ground_state("the quantum metric")
+        return run_quantum_metric(
+            self.system, self.pseudos, result.density,
+            calculation=self.calculation,
+            **self._call_options(run_quantum_metric, result, options,
+                                 exclude=SCF_ONLY_OPTIONS)
+        )
+
     def get_structure_factors(self, hmax: float = 6.0, **options):
         """``F(H)``, the X-ray and magnetic structure factors of the density.
 

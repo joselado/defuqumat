@@ -102,6 +102,12 @@ def _shift_current(system, pseudos):
     run_shift_current(system, pseudos, None, nbnd=8)
 
 
+def _quantum_metric(system, pseudos):
+    from defuqumat.workflows.geometry import run_quantum_metric
+
+    run_quantum_metric(system, pseudos, None, nbnd=8)
+
+
 def _spin_susceptibility(system, pseudos):
     from defuqumat.workflows.magnons import run_spin_susceptibility
 
@@ -123,10 +129,11 @@ def _magnon_dispersion(system, pseudos):
         (_absorption, ""),
         (_shg, ""),
         (_shift_current, ""),
+        (_quantum_metric, ""),
         (_spin_susceptibility, _MAGNETIC),
         (_magnon_dispersion, _MAGNETIC),
     ],
-    ids=["conductivity", "absorption", "shg", "shift-current",
+    ids=["conductivity", "absorption", "shg", "shift-current", "quantum-metric",
          "spin-susceptibility", "magnon-dispersion"],
 )
 def test_the_refusals_read_the_calculation_the_run_diagonalises_in(
@@ -257,12 +264,13 @@ def _converged_stand_in():
         (lambda c: c.get_absorption(np.array([0.1])), ""),
         (lambda c: c.get_shg(nbnd=8), ""),
         (lambda c: c.get_shift_current(nbnd=8), ""),
+        (lambda c: c.get_quantum_metric(nbnd=8), ""),
         (lambda c: c.get_spin_susceptibility(np.zeros(3), np.array([0.01])),
          _MAGNETIC),
         (lambda c: c.get_magnon_dispersion(np.zeros((1, 3)), np.array([0.01])),
          _MAGNETIC),
     ],
-    ids=["conductivity", "absorption", "shg", "shift-current",
+    ids=["conductivity", "absorption", "shg", "shift-current", "quantum-metric",
          "spin-susceptibility", "magnon-dispersion"],
 )
 def test_the_calculator_hands_the_spectra_its_own_calculation(

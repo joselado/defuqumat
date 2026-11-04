@@ -26929,3 +26929,39 @@ The largest pointwise difference between the loaded density and defuqumat's own 
 **Refused by name** (`tests/unit/test_qe_density.py` fires the cell, `ecutrho` and spin-regime guards): another cell, another geometry or atom order, another electron count, another `ecutrho` (a different G-sphere, `notes/CONTINUATION-NEXT.md`), another `nspin_mag`, DFT+U (`occup.txt` not read; the `dftU` element sits under `<dft>`, `qes_read_dft`), meta-GGA (`ekin-density` not read), noncollinear PAW (spin-matrix `becsum` not mapped) and PAW without `paw.txt`. Not detected: a different pseudopotential with the same valence count, and a different `ecutwfc` at the same `ecutrho`.
 
 **What is outstanding.** `occup.txt` for DFT+U, `ekin-density` for meta-GGA, the noncollinear PAW `becsum`, and carrying a density across a change of `ecutrho`. The `.hdf5` form is read (interleaved pairs, `qeh5_module.f90:380`; a bytes `gamma_only` attribute decoded) but has never run, since this `pw.x` has no HDF5. The guide snippet was executed on this workstation, not on D22. No spin-orbit fixture is committed (the As and Ge save directories are 1 to 2 MB); the four-component layout is measured above and no committed test covers it.
+
+### P161 -- The quantum metric of the occupied manifold, the localization tensor and `Omega_I`, `Calculator.get_quantum_metric`. WIP 2026-11-04 (branch `quantum-metric`; guide section, notebook, `PERFORMANCE.md` still owed; slow file not run)
+
+`response/geometry.py` (`quantum_metric`, `QuantumMetric`), `workflows/geometry.py`
+(`run_quantum_metric`, `method="kubo"|"overlap"`). `g_ab(k) = Re sum_{n occ, m empty}
+v^a_nm v^b_mn / e_mn^2` with the conductivity's generalised velocity: the real part of the
+product the Kubo curvature takes the imaginary part of (fable, on a two-band model and a
+generalised one with moving `S`: 8.9e-15 and 5.8e-15; without the connection `K` the
+generalised model is off by 2.80 of 4.57). The walk glue is a copy of the conductivity's
+(fable's decision: four modules already carry one each; `sigma` untouched). Localization
+tensor `<r_a r_b>_c = (1/N_e) sum_k w_k sum g` (Sgiarovello, Peressi, Resta, cond-mat/0101440
+Eq. 17), `Omega_I = N_wann Tr`, `N_wann = N_e/2` at `nspin = 1` and `N_e` otherwise. The
+overlap route is `N - ||M(k, k+b)||^2` along the three mesh steps and three face diagonals
+(Marzari-Vanderbilt Eq. 34, Wannier90's `wann_omega`), occupied bands only.
+
+**Numbers** (this workstation, cores 0-3, scratchpad scripts `qm/point.py`, `regimes28.py`,
+`zone.py`, `swm.py`):
+
+- Generic k `(0.13, 0.21, 0.07)`, Kubo at 40 bands against the central-difference overlap
+  at `d = 2e-3` 1/bohr, one sphere: AlAs NC `g_xx` 15.4335 / 15.4575, `g_yz` -6.0983 /
+  -6.1006 (16 bands: 15.3305); si2-us 22.5406 / 22.5482; si2-paw 22.5503 / 22.5579. The
+  residual falls with the band count, so it is the truncation; the augmentation connection
+  is in.
+- Si 4x4x4 at 28 bands (56 spinor): wedge vs whole grid 2.4e-5, `nspin = 2` 1.2e-5, spinor
+  1.9e-5 on 3.955 bohr^2 with truncation 9e-5; at 16 bands 1.2e-4, 5.6e-5, 9.4e-5 against
+  3.3e-4. `Omega_I` doubles at `nspin = 2` and for the spinor (spin-orbitals), 2.0000000000010.
+- Zone integral, Si ecut 12, `Tr/3`: Kubo 2.681 (8^3), 2.593 (10), 2.566 (12), 2.554 (16);
+  overlap 2.237 (8), 2.344 (10), 2.407 (12), 2.447 (14), Richardson in `1/N^2` 2.550 (10,12)
+  and 2.558 (12,14). The two limits agree to about 0.3 per cent; SPR's range is 1 to 3 bohr^2.
+- SWM sum rule, Si 6x6x6, 30 bands: `V/(pi N_e) int Re sigma_xx/w dw` over the metric's
+  `<x^2>_c` (2.9432) is 1.0632 at `eta = 0.004` Ry and 1.0317 at 0.002, linear in `eta`,
+  1.0002 extrapolated. The constant is `hbar V / (pi e^2 N_e)`, not `2 pi`.
+- Refused and measured: aluminium (`al-conductivity.in`, 2x2x2) by the fillings guard.
+
+**Tests**: `tests/unit/test_quantum_metric.py` (5, fast, pass); `tests/regression/
+test_quantum_metric.py` (slow, written from the numbers above, **not run**, for the user).
