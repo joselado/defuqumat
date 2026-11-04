@@ -1,0 +1,227 @@
+# Wannier functions
+
+In this page we compute maximally localized Wannier functions. This is the work that
+`pw2wannier90.x` and `wannier90.x` do after a `pw.x` run, here in one call. We take a
+set of Bloch bands, rotate them at each k-point, and Fourier transform them to
+functions centred in the unit cell. The rotation is chosen so that the functions are
+as localized as possible. What we get is a tight-binding model of the bands: the
+centres and spreads of the functions, the hoppings $H_{mn}(\mathbf R)$, and the bands
+interpolated at any k-point.
+
+## What is minimised
+
+What does "maximally localized" mean? For $N$ functions $w_n$ the spread is the sum
+of their variances:
+
+$$
+\Omega = \sum_n \left[ \langle w_n | r^2 | w_n \rangle - |\langle w_n | \mathbf r | w_n \rangle|^2 \right]
+= \Omega_I + \Omega_D + \Omega_{OD} .
+$$
+
+The first part, $\Omega_I$, does not depend on the rotation. It depends only on the
+subspace of the bands, and it is the same invariant as the one we compute in
+[the quantum metric](topology.md#the-quantum-metric). The other two parts, the
+diagonal and the off-diagonal one, depend on the rotation, and the code minimises
+their sum (Marzari and Vanderbilt, PRB 56, 12847 (1997)). On a k-mesh everything is
+written with the overlaps between neighbouring k-points:
+
+$$
+M_{mn}(\mathbf k, \mathbf b) = \langle u_{m\mathbf k} | u_{n,\mathbf k+\mathbf b} \rangle ,
+$$
+
+and the starting rotation comes from the projections on trial orbitals $g_n$, such
+as an $sp^3$ hybrid on an atom:
+
+$$
+A_{mn}(\mathbf k) = \langle \psi_{m\mathbf k} | S | g_n \rangle .
+$$
+
+These are the `.mmn` and `.amn` files of `pw2wannier90.x`. When there are more bands
+than functions, the code first chooses the best subspace inside an energy window, the
+disentanglement of Souza, Marzari and Vanderbilt (PRB 65, 035109 (2001)). The bands
+inside the frozen window are kept exactly.
+
+## Diamond: four bond orbitals
+
+We start with the simplest case, the four valence bands of diamond. They are isolated
+from the conduction bands, so no window is needed. We put one $s$ orbital at the
+centre of each of the four bonds of an atom, which is the `example05` of Wannier90.
+The trial orbitals are written as in a `.win` file. We compute them with
+`calc.get_wannier()`:
+
+```python
+import numpy as np
+from defuqumat import Calculator
+
+diamond = Calculator.from_keywords(
+    lattice="fcc", a=3.228,
+    atoms=[("C", (-0.125, -0.125, -0.125)), ("C", (0.125, 0.125, 0.125))],
+    pseudos={"C": "C.pbe-hgh.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=340.1, kmesh=(4, 4, 4),
+)
+diamond.get_scf(conv_thr=1e-10)
+bonds = ["f=0,0,0:s", "f=0,0,0.5:s", "f=0,0.5,0:s", "f=0.5,0,0:s"]
+w = diamond.get_wannier(4, bonds, engine_options=dict(num_iter=100, conv_window=3))
+print(np.round(w.centres_angstrom, 4))
+print(np.round(w.spreads_angstrom2, 4))
+print({k: round(v, 5) for k, v in w.spread_terms_angstrom2().items()})
+```
+
+```
+[[-0.     0.     0.   ]
+ [-0.807  0.807 -0.   ]
+ [-0.     0.807  0.807]
+ [-0.807  0.     0.807]]
+[0.5873 0.5873 0.5873 0.5873]
+{'omega_i': 1.97388, 'omega_d': 0.0, 'omega_od': 0.37528, 'omega_total': 2.34917}
+```
+
+The four centres are the four bond centres, and the four spreads are equal, as the
+symmetry of the crystal says. $\Omega_D$ is zero because each centre sits on a point
+of high symmetry. The Wannier mesh is the k-mesh of the SCF here. You can choose
+another one with `divisions=(n1, n2, n3)`. The mesh must be uniform and centred at
+$\Gamma$, because the overlaps connect each k-point with its neighbours.
+
+The same cell through `pw.x`, `pw2wannier90.x` and `wannier90.x` gives
+$\Omega = 2.349146$ Å$^2$ when the cell is given as $a = 6.1$ bohr. The small
+difference to the 2.34917 above comes from the cell: 3.228 Å is $6 \times 10^{-6}$ Å
+away from 6.1 bohr. On the same cell the two pipelines agree to $2 \times 10^{-9}$
+Å$^2$ (see [How we checked it](#how-we-checked-it) below).
+
+## Silicon: sp3 orbitals from twelve bands
+
+We now take eight $sp^3$ hybrids in silicon, four on each atom. Eight functions
+describe the valence bands and the lowest four conduction bands. These bands are
+entangled with the bands above them, so we take twelve bands and an outer window up
+to 17 eV. The frozen window keeps every band below 6.4 eV, which is the valence band,
+exactly. Energies are in eV, on the scale of the eigenvalues:
+
+```python
+si = Calculator.from_keywords(
+    lattice="fcc", a=5.3976, atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+    pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=272.1, kmesh=(8, 8, 8),
+)
+si.get_scf(conv_thr=1e-10)
+w = si.get_wannier(8, ["Si:sp3"], num_bands=12, divisions=(4, 4, 4),
+                   dis_win=(None, 17.0), dis_froz=(None, 6.4),
+                   engine_options=dict(num_iter=200, conv_window=3))
+print(np.round(w.spreads_angstrom2, 4))
+print({k: round(v, 5) for k, v in w.spread_terms_angstrom2().items()})
+print(np.round(w.bands_ev([[0.5, 0.5, 0.5], [0.0, 0.0, 0.0]]), 3))   # L and Gamma
+```
+
+```
+[1.8177 1.8177 1.8177 1.8177 2.1956 2.1956 2.1956 2.1956]
+{'omega_i': 11.81348, 'omega_d': 0.13752, 'omega_od': 4.10218, 'omega_total': 16.05319}
+[[-3.422 -0.825  5.027  5.027  7.812  9.588  9.588 13.835]
+ [-5.816  6.247  6.247  6.247  8.814  8.814  8.814  9.722]]
+```
+
+The two atoms give two groups of spreads, 1.8177 and 2.1956 Å$^2$, although they are
+equivalent by symmetry. The reason is the trial orbitals. `Si:sp3` puts the lobes along
+$(1,1,1)$, $(1,-1,-1)$, $(-1,1,-1)$ and $(-1,-1,1)$ on both atoms. On the second atom
+these are the directions of its four bonds, but on the atom at the origin the bonds
+point the opposite way. So the two sets start from different orbitals and end in two
+different local minima of $\Omega$, and `wannier90.x` finds the same two. If we turn
+the axes of the second atom by 90 degrees about $z$, both atoms start in the same way:
+
+```python
+w = si.get_wannier(8, ["f=0,0,0:sp3", "f=0.25,0.25,0.25:sp3:z=0,0,1:x=0,1,0"],
+                   num_bands=12, divisions=(4, 4, 4),
+                   dis_win=(None, 17.0), dis_froz=(None, 6.4),
+                   engine_options=dict(num_iter=200, conv_window=3))
+print(np.round(w.spreads_angstrom2, 4))
+print({k: round(v, 5) for k, v in w.spread_terms_angstrom2().items()})
+```
+
+```
+[1.8046 1.8046 1.8046 1.8046 1.8046 1.8046 1.8046 1.8046]
+{'omega_i': 11.81348, 'omega_d': 0.10428, 'omega_od': 2.51871, 'omega_total': 14.43648}
+```
+
+Now the eight spreads are equal and $\Omega$ is lower by 1.6 Å$^2$. $\Omega_I$ does not
+change, because the subspace is the same. Each centre sits 0.80 Å from its atom, on the
+side away from its bonds. So the minimisation is local, and the trial orbitals decide
+which minimum we reach, in this code as in `wannier90.x`.
+
+The model is `w.hoppings`, the matrix $H_{mn}(\mathbf R)$ in Ry on the lattice
+vectors `w.rvectors`. `w.bands(k)` diagonalises
+
+$$
+H_{mn}(\mathbf k) = \sum_{\mathbf R} \frac{e^{i\mathbf k\cdot\mathbf R}}{N_{\mathbf R}} H_{mn}(\mathbf R)
+$$
+
+at any k-point. By default each pair $(m, n)$ is moved to its closest image in the
+supercell, which is the `use_ws_distance` of Wannier90 and its default.
+
+![Wannier-interpolated bands of silicon against the bands computed directly.](img/wannier_silicon.png#only-light)
+![Wannier-interpolated bands of silicon against the bands computed directly.](img/wannier_silicon-dark.png#only-dark)
+
+The figure shows the twelve bands computed directly (grey) and the eight interpolated
+bands from a 4x4x4 and a 6x6x6 Wannier mesh, along L-Γ-X-W-K-Γ. The horizontal line
+is the top of the frozen window. Below it the interpolation follows the valence bands,
+within 0.317 eV on 4x4x4 and 0.064 eV on 6x6x6. Above it the model gives
+four bands that follow the lowest conduction bands where they are not entangled with
+the others. The spread grows with the mesh, from 16.05 to 19.49 Å$^2$. This is
+because the finite-difference spread approaches its limit from below, as $\Omega_I$
+does in [the quantum metric](topology.md#the-quantum-metric).
+
+??? example "Code of this figure (docs/figures/wannier_silicon/)"
+
+    ```python
+    --8<-- "wannier_silicon/compute.py"
+    ```
+    ```python
+    --8<-- "wannier_silicon/plot.py"
+    ```
+
+## Running wannier90.x on our matrices
+
+The result keeps the matrices in the layout of Wannier90. `w.write_w90(prefix)` writes
+`prefix.mmn`, `.amn`, `.eig` and a `.win` with the cell, the mesh and the keywords you
+pass. So you can run `wannier90.x` itself, or its post-processing (`postw90.x`), on the
+states of this code:
+
+```python
+crystal = np.asarray(si.system.structure.positions_crystal(si.system.cell))
+w.write_w90("si", projections=["Si:sp3"],
+            atoms=list(zip(si.system.structure.symbols, crystal)),
+            extra=dict(dis_win_max=17.0, dis_froz_max=6.4, num_iter=200, conv_window=3))
+```
+
+## How we checked it
+
+We checked the two halves apart, against `pw2wannier90.x` and `wannier90.x` of QE 7.5
+and Wannier90 3.1.0, on the same inputs. The engine is the one of `wannier90.x`, a port
+of its Fortran. On the `.mmn`, `.amn` and `.eig` files of `pw2wannier90.x` it gives the
+spread of `wannier90.x` to $2 \times 10^{-8}$ Å$^2$ for diamond and $1.3 \times 10^{-7}$
+Å$^2$ for silicon with the windows. Then `wannier90.x` itself, run on our files, gives
+the spread it gives on the files of `pw2wannier90.x`:
+
+| cell | `wannier90.x` on `pw2wannier90.x` (Å$^2$) | `wannier90.x` on ours (Å$^2$) |
+|---|---|---|
+| diamond, 4 bands, ecut 40 Ry | 2.317428277 | 2.317428275 |
+| silicon, 12 to 8, norm-conserving | 16.053195110 | 16.053194713 |
+| silicon, 12 to 8, ultrasoft | 18.358070827 | 18.358070728 |
+| silicon, 12 to 8, PAW | 18.362772917 | 18.362772978 |
+
+The differences are those of two SCF runs, at most $4 \times 10^{-7}$ Å$^2$. The bands
+interpolated by this code from the matrices of `wannier90.x` agree with its
+`si_band.dat` to $9 \times 10^{-6}$ eV.
+
+!!! note "Limits"
+    - Spinor calculations (`noncolin`, spin-orbit coupling, a spin spiral) give an
+      error. The projections on spinor trial orbitals were not checked against
+      `pw2wannier90.x`.
+    - At `nspin = 2` one channel is computed at a time: pass `spin=0` or `spin=1`,
+      as the `spin_component` of `pw2wannier90.x`.
+    - Site symmetry (`site_symmetry`), selective localization from the input,
+      `auto_projections` (SCDM), random projections and `gamma_only` are not
+      implemented.
+    - `zona` is in 1/bohr, as `pw2wannier90.x` reads it. The user guide of Wannier90
+      writes it in 1/Å. The default, 1, is the same number in both codes.
+    - The Wannier functions themselves on a real-space grid (`wannier_plot`) and the
+      position matrix $\mathbf r_{mn}(\mathbf R)$ are not written.
+    - The minimisation runs in NumPy on the host. On silicon with twelve bands it
+      takes 2 s, about four times `wannier90.x`.
