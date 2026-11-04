@@ -11351,3 +11351,34 @@ the chunk's states, and the result adds an `(nspin, nk, 3, 3)` real map (5 kB at
 The peak is the fixed-density store, `nk x nbnd x npol npwx` complex, as for every sum over
 states here. The overlap route holds the occupied manifold on the whole mesh, `N^3 x nocc x
 npwx` complex, and one `(N^3, nocc, nocc)` overlap block per mesh direction.
+
+## Wannier functions against `pw.x` + `pw2wannier90.x` + `wannier90.x` (CPU, 2026-11-04)
+
+Silicon, `Si.pz-vbc` (norm-conserving) and the ultrasoft dataset of `tests/data/wannier/si-us`,
+the 4x4x4 Wannier mesh (64 k-points, no symmetry), 12 bands to 8 `sp3` with the outer window
+at 17 eV and the frozen window at 6.4 eV (6.6 eV ultrasoft), `num_iter = 200`. One core,
+`taskset -c 0`, `OMP_NUM_THREADS=1`, the second call (the first compiles). QE 7.5 on the same
+core and the same input, its times from each program's own clock.
+
+| case | defuqumat total | states | `M` | `A` | engine | QE total | `pw.x` nscf | `pw2wannier90.x` | `wannier90.x` |
+|---|---|---|---|---|---|---|---|---|---|
+| Si, NC | 12.5 s | 9.7 | 0.21 | 0.28 | 2.3 | 11.0 s | 6.2 | 4.35 | 0.47 |
+| Si, US | 24.3 s | 21.1 | 0.29 | 0.47 | about 2.3 | 16.9 s | 8.7 | 7.6 | 0.48 |
+
+`pw2wannier90.x`'s figure includes its own pseudopotential setup. The engine's 2.3 s is
+`dis_extract` 1.76 s and `wann_main` 0.48 s, about 4x the Fortran's 0.47 s: it is the
+wannierpy port in NumPy, run on the host and outside any `jit`. The overlaps and projections
+together are under 0.8 s against 4.35 and 7.6 s for `pw2wannier90.x`, because the overlaps are
+grouped by geometric `b` and one radial table is built over the distinct `|k+G|` of the whole
+mesh. Before those two changes, and before `ws_distance` was vectorised (16 s in a Python loop),
+the NC call took 32 s. What is left of the gap is the fixed-density solve, `states`: 9.7 against
+6.2 s for NC and 21.1 against 8.7 s for US. Davidson step counts were not compared, so the gap
+is not attributed between the solver and the Hamiltonian.
+
+**Peak working set.** `M` is `num_bands^2 x nntot x nk` complex, 0.6 MB here, and `A` is
+`num_bands x num_wann x nk`. Beyond the fixed-density store (`nk x nbnd x npol npwx` complex,
+with `vkb` kept for an augmented dataset), the one large array is the interpolation with
+`use_ws_distance`, whose shifts are `(nR, nw, nw, 8, 3)`. The interpolation walks the k-points
+one at a time, so it never builds `(nk, nR, nw, nw, 8)`, which would be about 6 GB at the sizes
+of the mesh test. The 8x8x8 mesh pair (two cells, 512 k-points each) peaked at 1.9 GB and took
+388 s.
