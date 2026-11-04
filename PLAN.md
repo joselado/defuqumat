@@ -27081,7 +27081,12 @@ L-G-X-W-K-G for the valence bands, "How we checked it", Limits); the README row 
 note 22 in `docs/reference-codes.md` (QE: `pw2wannier90.f90` and bundled `external/wannier90`;
 Elk: task 550 `writew90`, `wannier_setup` only, so `(✓)` in both columns); two rows on the
 Accuracy page; notebook 58 (99 s; along its path the valence error is 0.423 and 0.106 eV on
-4^3 and 6^3, and the largest hopping per shell 6.08, 1.57, 0.16, 0.20, 0.20 eV).
+4^3 and 6^3, and the largest hopping per shell 6.08, 1.57, 0.16, 0.20, 0.20 eV). The two pairs
+differ because the figure uses `Si:sp3` (the asymmetric minimum, 161 points) and the notebook
+the turned axes (the symmetric one, 14.4365 A^2, 121 points): **the lower-spread minimum
+interpolates the valence bands worse on this path**, 0.423 against 0.317 eV on 4^3 and 0.106
+against 0.064 eV on 6^3. The path sampling differs too, so the pair is two measurements, not a
+controlled comparison of the minima.
 
 **Traps met.** The example `.win` of the diamond test lists k with the first index fastest,
 `kmesh.pl` the last; the order test reads `si.win`. A fixed-occupation `nspin = 2` input needs

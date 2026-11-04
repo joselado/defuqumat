@@ -11357,7 +11357,8 @@ npwx` complex, and one `(N^3, nocc, nocc)` overlap block per mesh direction.
 Silicon, `Si.pz-vbc` (norm-conserving) and the ultrasoft dataset of `tests/data/wannier/si-us`,
 the 4x4x4 Wannier mesh (64 k-points, no symmetry), 12 bands to 8 `sp3` with the outer window
 at 17 eV and the frozen window at 6.4 eV (6.6 eV ultrasoft), `num_iter = 200`. One core,
-`taskset -c 0`, `OMP_NUM_THREADS=1`, the second call (the first compiles). QE 7.5 on the same
+`taskset -c 0`, `OMP_NUM_THREADS=1`, **one warm call each, not a median** (the second call;
+the first compiles). QE 7.5 on the same
 core and the same input, its times from each program's own clock.
 
 | case | defuqumat total | states | `M` | `A` | engine | QE total | `pw.x` nscf | `pw2wannier90.x` | `wannier90.x` |
