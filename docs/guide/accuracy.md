@@ -133,10 +133,15 @@ The last group is the post-processing:
 | Raman and infrared spectra, LO-TO splitting, against `dynmat.x` | every digit `dynmat.x` prints |
 | Berry-phase polarization, `lberry`, AlAs and SiC | string by string, every digit printed |
 | orbital magnetization, `lorbm`, an iodine atom | $-1.1744384$ against $-1.1744357$ |
+| Wannier spread, `pw2wannier90.x` and `wannier90.x`, diamond and silicon with 12 bands to 8, norm-conserving, ultrasoft and PAW | at most 4e-7 Å$^2$ on 2.3 to 18.4 Å$^2$ |
+| Wannier-interpolated bands, against `wannier90.x` on the same matrices | 9.2e-6 eV |
 
 The orbital magnetization differs by 2.7e-6, and this is the difference between
 two densities converged separately, since a change of `conv_thr` between 1e-6
-and 1e-12 moves our value by 2e-7 to 5e-6.
+and 1e-12 moves our value by 2e-7 to 5e-6. The Wannier spread is compared in the
+same way. We run `wannier90.x` on our overlaps and on those of `pw2wannier90.x`,
+and the two spreads differ by what two SCF runs differ by. The details are in
+[Wannier functions](wannier.md#how-we-checked-it).
 
 ## Against Elk
 
