@@ -27020,7 +27020,8 @@ bit-identical to the loop. `WannierFunctions.write_w90` writes `.win/.mmn/.amn/.
 
 **Licence.** Wannier90 states GPL without a version, so GPLv2 section 9 lets it be taken under
 any version, compatible with defuqumat's GPLv3+. wannierpy's own header says GPL-2.0-only; it
-is the user's code, and the copy here is under the project's licence by the user's request.
+is the user's code, so relicensing the copy under the project's GPLv3+ is the user's
+decision; it was flagged to them, not taken here.
 
 **A defect of the port, fixed here.** Wannier90's `conv_window = -1` default means no
 convergence test (every `num_iter` step runs); wannierpy had replaced it with 5, so a default run
