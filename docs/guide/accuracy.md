@@ -182,6 +182,9 @@ same number, or a finite difference of a quantity that is already checked:
 | Chern number | an integer on any k-mesh | exact |
 | $\mathbb Z_2$ invariant | Wannier-centre flow against the parity product | the same integer |
 | Berry curvature map | the plaquette flux of Fukui, Hatsugai and Suzuki, AlAs | 1.45e-4 per plaquette |
+| quantum metric at one k-point | overlaps of the occupied bands at $\mathbf k \pm \mathbf d/2$, no empty bands, AlAs and ultrasoft and PAW silicon | 0.16%, 0.04% and 0.04% |
+| localization tensor of silicon | the overlap route on meshes up to $16^3$, extrapolated | 0.2% |
+| localization tensor of silicon | $\int d\omega\,{\rm Re}\,\sigma(\omega)/\omega$ of the optical conductivity, extrapolated to zero broadening | 2e-4 |
 | velocity operator | finite difference of $H(\mathbf k)$ | 1.8e-9 |
 | spin spiral | a four-cell noncollinear supercell, norm-conserving | 3e-12 Ry |
 | spin spiral, ultrasoft and PAW | the same supercell, an oxygen chain | 3.5e-12 and 2.1e-11 Ry |

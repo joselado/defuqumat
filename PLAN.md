@@ -26930,7 +26930,7 @@ The largest pointwise difference between the loaded density and defuqumat's own 
 
 **What is outstanding.** `occup.txt` for DFT+U, `ekin-density` for meta-GGA, the noncollinear PAW `becsum`, and carrying a density across a change of `ecutrho`. The `.hdf5` form is read (interleaved pairs, `qeh5_module.f90:380`; a bytes `gamma_only` attribute decoded) but has never run, since this `pw.x` has no HDF5. The guide snippet was executed on this workstation, not on D22. No spin-orbit fixture is committed (the As and Ge save directories are 1 to 2 MB); the four-component layout is measured above and no committed test covers it.
 
-### P161 -- The quantum metric of the occupied manifold, the localization tensor and `Omega_I`, `Calculator.get_quantum_metric`. WIP 2026-11-04 (branch `quantum-metric`; guide section, notebook, `PERFORMANCE.md` still owed; slow file not run)
+### P161 -- The quantum metric of the occupied manifold, the localization tensor and `Omega_I`, `Calculator.get_quantum_metric`. ✅ DONE 2026-11-04 (fast checks only; `tests/regression/test_quantum_metric.py` is slow and was not run, for the user; branch `quantum-metric`, not merged)
 
 `response/geometry.py` (`quantum_metric`, `QuantumMetric`), `workflows/geometry.py`
 (`run_quantum_metric`, `method="kubo"|"overlap"`). `g_ab(k) = Re sum_{n occ, m empty}
@@ -26965,3 +26965,33 @@ overlap route is `N - ||M(k, k+b)||^2` along the three mesh steps and three face
 
 **Tests**: `tests/unit/test_quantum_metric.py` (5, fast, pass); `tests/regression/
 test_quantum_metric.py` (slow, written from the numbers above, **not run**, for the user).
+
+**Deliverables.** The guide section "The quantum metric" on `docs/guide/topology.md`, with
+two executed snippets (silicon at 12^3 and 30 bands: `<x^2>_c` 2.5829 bohr^2, `Omega_I` 8.680
+A^2, truncation 1.1e-4; the overlap route at 8, 12, 16: 2.2539, 2.4239, 2.4909, Richardson
+2.577, 0.2 per cent from the Kubo value), its Limits note, and the figure
+`docs/figures/topology_quantum_metric` (Tr g along L-G-X: peaks at Gamma of 217, 208 and 67
+bohr^2 for Si, AlAs and diamond; `<x^2>_c` on 12^3 2.583, 2.416 and 0.847 bohr^2); three rows
+on the Accuracy page; the README row (QE blank, note 21 in `docs/reference-codes.md`) and a
+catalogue bullet; notebook 57 (2 min 5 s; the SWM integral over the metric 1.0691 and 1.0346 at
+`eta` = 0.004 and 0.002 Ry on 6^3, 1.0001 extrapolated); `PERFORMANCE.md` "The quantum metric
+and the localization tensor" (absolute cost: 12.47 s at 30 bands on 72 k, of which the solve
+10.84; the overlap route 42.4 s at 12^3).
+
+**A trap met on the way.** On a mesh holding Gamma and X, every cut of silicon from 20 to 43
+bands is inside a degenerate multiplet at some k-point (largest cut gap over 12^3 2.7e-15 Ry),
+so the cut warning fires for every `nbnd` and cannot be cured by choosing one, contrary to
+what its last sentence says. What the rotation moves is the share of the top of the band set,
+which `.truncation` measures. The warning's measured-residue text says so for the metric; the
+shared template's closing advice is unchanged, since it belongs to the conductivity and the
+shift current too.
+
+**What is outstanding.** The band-resolved and non-Abelian metric of a degenerate group
+(Martins, Reis and Souza, arXiv:2506.23652, Eqs. 22-26), refused by omission (only the
+manifold total is returned). The Fermi-sea metric of a metal, weight `(f_n - f_m)/e_mn^2`,
+refused by name. A spin spiral, refused by name for the conductivity's reason. A Sternheimer
+route with no band truncation for the map (the overlap route is truncation-free but is a
+finite difference on a mesh). The comparison against Wannier90's printed `Omega I` was not
+run (no `wannier90.x` built here); the in-house overlap formula is the same expression on a
+different set of shells.
+

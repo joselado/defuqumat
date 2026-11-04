@@ -1,7 +1,8 @@
 # Topology
 
 In this page we compute the geometry of the occupied bands. We start with the
-Berry curvature, which is a field over the Brillouin zone, then we integrate it
+Berry curvature, which is a field over the Brillouin zone, and the quantum
+metric, which is its real partner. Then we integrate the curvature
 to the Chern number of a plane, and finally we compute the $\mathbb Z_2$
 invariant of an insulator with time-reversal symmetry, in two dimensions and in
 three.
@@ -128,6 +129,142 @@ all, which is a stronger statement than a zero integral.
 
     ```python title="plot.py"
     --8<-- "topology_berry_map/plot.py"
+    ```
+
+## The quantum metric
+
+Let us now ask how fast the occupied bands change as $\mathbf k$ moves, and not
+only how their phase winds. The answer is the quantum geometric tensor of the
+occupied bands:
+
+$$
+Q_{ab}(\mathbf k) = \sum_{n\,\rm occ}
+  \langle \partial_a u_{n\mathbf k}|\,(1 - P_{\mathbf k})\,|\partial_b u_{n\mathbf k}\rangle,
+\qquad
+P_{\mathbf k} = \sum_{n\,\rm occ} |u_{n\mathbf k}\rangle\langle u_{n\mathbf k}| .
+$$
+
+Its imaginary part is the Berry curvature of the previous section,
+$\Omega_{ab} = -2\,{\rm Im}\,Q_{ab}$, and its real part is the quantum metric
+$g_{ab} = {\rm Re}\,Q_{ab}$. The metric is the distance between the occupied
+bands at $\mathbf k$ and at $\mathbf k + d\mathbf k$, meaning that
+$ds^2 = g_{ab}\,dk_a\,dk_b$. Written with the empty bands it is the real part of
+the same sum as the Kubo curvature:
+
+$$
+g_{ab}(\mathbf k) = {\rm Re}\sum_{n\,\rm occ}\sum_{m\,\rm empty}
+  \frac{\langle\psi_n|\partial_{k_a}H|\psi_m\rangle\,
+        \langle\psi_m|\partial_{k_b}H|\psi_n\rangle}
+       {(\varepsilon_n-\varepsilon_m)^2} .
+$$
+
+The metric is not zero in silicon, because it does not need a broken
+symmetry. Its average over the zone, divided by the number of occupied bands,
+is the localization tensor of Resta and of Souza, Wilkens and Martin:
+
+$$
+\langle r_a r_b\rangle_c = \frac{1}{N_e}\sum_{\mathbf k} w_{\mathbf k}
+  \sum_{n,m} f_n (1 - f_m)\,
+  \frac{{\rm Re}\,\big(v^a_{nm} v^b_{mn}\big)}{(\varepsilon_m-\varepsilon_n)^2} .
+$$
+
+This is the spread of the position of an electron, in bohr$^2$. It is finite
+in an insulator and infinite in a metal, so it is the number that separates the
+two. It is also measured, because it is the inverse-frequency moment of the
+optical absorption,
+$\langle r_a r_b\rangle_c = \frac{\hbar V}{\pi e^2 N_e}\int_0^\infty
+\frac{d\omega}{\omega}\,{\rm Re}\,\sigma_{ab}(\omega)$. Its trace times the
+number of Wannier functions is $\Omega_I$, the part of the Marzari-Vanderbilt
+spread that no choice of Wannier functions can lower, and Wannier90 prints it
+as "Omega I". We compute it with `calc.get_quantum_metric()`:
+
+```python
+import numpy as np
+from defuqumat import Calculator
+
+si = Calculator.from_keywords(
+    lattice="fcc", a=5.43,
+    atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+    pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=163.3, kmesh=(12, 12, 12),
+)
+metric = si.get_quantum_metric(nbnd=30)
+print(np.round(metric.localization_tensor, 4))
+print(f"Omega_I      {metric.spread_invariant_angstrom2:.3f} A^2")
+print(f"truncation   {metric.truncation:.1e}")
+```
+
+```
+[[ 2.5829 -0.     -0.    ]
+ [-0.      2.5829 -0.    ]
+ [-0.     -0.      2.5829]]
+Omega_I      8.680 A^2
+truncation   1.1e-04
+```
+
+The tensor is diagonal with three equal elements, as the cubic symmetry
+requires, and $\langle x^2\rangle_c = 2.58$ bohr$^2$ means that an electron of
+silicon is spread over about 1.6 bohr along each axis. `metric.metric` is
+$g_{ab}(\mathbf k)$ at each k-point, `metric.localization_length` gives the
+square roots of the principal values, and `.truncation` says how much the
+tensor changes when the highest band is dropped from the sum. With 30 bands
+this is $10^{-4}$ of the tensor.
+
+The sum over k-points converges slowly, because the metric has a sharp peak at
+$\Gamma$. On silicon we get 2.681, 2.593, 2.566 and 2.554 bohr$^2$ on the meshes
+$8^3$, $10^3$, $12^3$ and $16^3$ (at $a = 5.40$ Å), so a $12^3$ mesh is within
+0.5% of the limit.
+
+There is a second route that needs no empty bands. The overlap between the
+occupied bands at two neighbouring k-points of a mesh is
+${\rm Tr}\,P_{\mathbf k}P_{\mathbf k+\mathbf b} = N - b_a b_b\, g_{ab} + \dots$,
+so the overlaps give the metric directly. This is the formula Wannier90 uses for
+$\Omega_I$. We ask for it with `method="overlap"`:
+
+```python
+for n in (8, 12, 16):
+    overlap = si.get_quantum_metric(method="overlap", divisions=(n, n, n))
+    print(n, f"{overlap.localization_tensor[0, 0]:.4f}")
+```
+
+```
+8 2.2539
+12 2.4239
+16 2.4909
+```
+
+This route converges from below, with an error that falls as $1/N^2$, and the
+sum over empty bands converges from above. Extrapolated in $1/N^2$, the meshes
+12 and 16 give 2.577 bohr$^2$, which is the 2.583 of the first route to 0.2%.
+The two routes share only the occupied bands, so this agreement checks the sum
+over empty bands and its truncation.
+
+We now look at where in the zone the metric is large. The figure shows the
+trace of $g_{ab}(\mathbf k)$ along L-$\Gamma$-X for diamond, silicon and AlAs,
+from `get_quantum_metric(kpoints=calc.kpath("L-G-X", 81), nbnd=30)`.
+
+![The trace of the quantum metric along L-Gamma-X for diamond, silicon and AlAs.](img/topology_quantum_metric.png#only-light)
+![The trace of the quantum metric along L-Gamma-X for diamond, silicon and AlAs.](img/topology_quantum_metric-dark.png#only-dark)
+
+All three curves have their maximum at $\Gamma$, where the direct gap is
+smallest: 217 bohr$^2$ for silicon (direct gap on the path 2.58 eV), 208 for
+AlAs (2.16 eV) and 67 for diamond (5.55 eV). Away from $\Gamma$ the metric is
+two to four times smaller. So most of the spread of the electrons comes from
+the states near the smallest direct gap, which is why the mesh has to resolve
+$\Gamma$ well. The localization tensors in the legend are on a $12^3$ mesh.
+Diamond, with the largest gap, has the most localized electrons, 0.85
+bohr$^2$. AlAs, with its ionic bond, is a little more localized than silicon,
+2.42 against 2.58 bohr$^2$, even though its direct gap on the path is smaller.
+So the gap gives the trend, and the bond gives the rest.
+
+??? example "Code of this figure (docs/figures/topology_quantum_metric/)"
+
+    ```python title="compute.py"
+    --8<-- "topology_quantum_metric/compute.py"
+    ```
+
+    ```python title="plot.py"
+    --8<-- "topology_quantum_metric/plot.py"
     ```
 
 ## The Chern number
@@ -379,5 +516,19 @@ $\nu_0$, which here is zero because the layers do not talk to each other.
     methods pass it for you. The Berry-phase polarization and the orbital
     magnetization still give an error with these functionals.
 
+    The quantum metric gives an error on a metal, because there the
+    localization tensor is infinite. The test is on the occupations, so an
+    insulator computed with a smearing works. It also gives an error for a
+    spin spiral. A wedge of a magnetic crystal gives an error, and then you
+    pass the whole grid as `kpoints`. If you do not give `nbnd`, the code takes
+    three times the number of occupied bands. On a mesh that contains $\Gamma$
+    and X the highest band kept is part of a degenerate set at some k-point for
+    every `nbnd`, and the code warns about it. The size of this effect is what
+    `.truncation` reports. At `nspin = 2` and for a spinor run, $\Omega_I$
+    counts spin-orbitals, so it is twice the value at `nspin = 1` while
+    `localization_tensor`, which is per electron, is the same.
+
 The notebook for this page is
-[10, the topological invariants](https://github.com/joselado/defuqumat/blob/master/notebooks/10_topological_invariants.ipynb).
+[10, the topological invariants](https://github.com/joselado/defuqumat/blob/master/notebooks/10_topological_invariants.ipynb),
+and the quantum metric has its own,
+[57, the quantum metric](https://github.com/joselado/defuqumat/blob/master/notebooks/57_quantum_metric.ipynb).

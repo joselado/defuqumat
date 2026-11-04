@@ -11316,3 +11316,38 @@ Si2 PAW (`Si.pz-n-kjpaw_psl.0.1`), 20/160 Ry, 4x4x4 (`tests/data/qe/save/si-paw-
 | `pw.x`, the whole run including `init_run` (0.33 s) | 0.42 s wall |
 
 The same cost on both sides. Davidson step counts were not compared, so this is a pair of wall times and not a statement about the solver; `pw.x` prints 5.5 steps on average at `ethr = 1e-5`. The 0.33 s of `init_run` has no counterpart in the seeded figure, which excludes building the `Calculation`.
+
+## The quantum metric and the localization tensor (CPU, 2026-11-04)
+
+**No reference to time against**: `pw.x` and Elk compute no quantum metric, and Wannier90's
+`Omega I` comes after a wannierisation, which is not the same work. So this is the absolute
+cost. Silicon (`Si.pz-vbc`, `ecutwfc` 12 Ry, `a = 5.43` A), the 12^3 wedge (72 k-points), this
+workstation, `taskset -c 0-3`, `OMP_NUM_THREADS=4`, load 1.8 to 2.0 from other users; each a
+**median of three warm calls** after one untimed call (`scratchpad qm/timing.py`):
+
+| call | median (s) | samples (s) |
+|---|---|---|
+| `get_quantum_metric(nbnd=20)` | 8.50 | 8.58, 8.50, 8.47 |
+| `get_quantum_metric(nbnd=30)` | 12.47 | 12.54, 12.47, 12.47 |
+| `get_quantum_metric(nbnd=40)` | 16.96 | 16.99, 16.96, 16.87 |
+| `get_optical_conductivity(nbnd=30, method="curvature")`, the same pairs | 12.49 | 12.49, 12.51, 12.46 |
+| `fixed_density_states(nbnd=31)` alone | 10.84 | 10.84, 10.81, 10.87 |
+| `get_quantum_metric(method="overlap", divisions=(8, 8, 8))`, 512 k | 12.76 | 12.88, 12.70, 12.76 |
+| `get_quantum_metric(method="overlap", divisions=(12, 12, 12))`, 1728 k | 42.44 | 42.44, 42.41, 42.67 |
+
+**Where the time goes.** At 30 bands the fixed-density solve with empty states is 10.84 of
+the 12.47 s, so the metric's own assembly (three `jvp` per k-point and the pair sum) is about
+1.6 s, 13 per cent, and the same as the conductivity's static route on the same pairs, which
+is the same work contracted with `Im` instead of `Re`. The call is linear in `nbnd` over 20 to
+40 (0.42 to 0.45 s per band), because the solve dominates; the pair sum is `O(nbnd^2)` per
+k-point and does not show at this size. The overlap route diagonalises only the occupied
+bands (`nocc + 1`), but on the whole mesh with no symmetry, so 12^3 is 1728 solves against
+72 and costs 3.4 times the Kubo route; its error is the finite difference's, `O(1/N^2)`, so it
+needs the denser mesh as well (2.424 bohr^2 at 12^3 against the Kubo 2.583, P161).
+
+**Peak working set**: the conductivity's static route. Per k-chunk the walk holds
+`(3, nspin, chunk, nbnd, nbnd)` complex matrix elements (43 kB per k-point at 30 bands) next to
+the chunk's states, and the result adds an `(nspin, nk, 3, 3)` real map (5 kB at 72 k-points).
+The peak is the fixed-density store, `nk x nbnd x npol npwx` complex, as for every sum over
+states here. The overlap route holds the occupied manifold on the whole mesh, `N^3 x nocc x
+npwx` complex, and one `(N^3, nocc, nocc)` overlap block per mesh direction.

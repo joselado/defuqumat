@@ -377,7 +377,14 @@ def quantum_metric(
     )
 
 
+#: On a mesh holding Gamma and X every cut of silicon from 20 to 43 bands falls
+#: inside a multiplet somewhere (the largest cut gap over 12^3 is 2.7e-15 Ry), so
+#: the warning cannot be avoided by choosing ``nbnd``. What the rotation can move
+#: is the share of the members kept at the top of the set, which is the scale
+#: :attr:`QuantumMetric.truncation` measures (1.1e-4 there).
 _CUT_RESIDUE_METRIC = (
-    "not measured for the metric; the optical conductivity's sum over the same "
-    "pairs moved by up to 5e-4 under a rotation inside the cut multiplet"
+    "for the metric the rotation moves only the share of the bands at the top of "
+    "the set, the scale QuantumMetric.truncation reports (1.1e-4 of the tensor on "
+    "silicon at 30 bands on a 12^3 mesh, where every cut from 20 to 43 bands is "
+    "inside a multiplet somewhere)"
 )

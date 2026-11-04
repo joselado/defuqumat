@@ -571,6 +571,16 @@ mesh only sets the resolution of the curvature map, and not the answer.
 `calc.get_chern()`, and `calc.get_berry_curvature()` for the map; notebook
 [10](notebooks/10_topological_invariants.ipynb).
 
+- **The quantum metric** $g_{ab}(\mathbf k)$. This is the real part of the
+  same quantum geometric tensor whose imaginary part is the Berry curvature.
+  Its zone average per electron is the localization tensor
+  $\langle r_a r_b\rangle_c$, the spread of an electron in an insulator, and it
+  is infinite in a metal. The optical absorption measures it, through
+  $\int d\omega\,{\rm Re}\,\sigma(\omega)/\omega$, and the code gives the same
+  number both ways. For silicon it is 2.58 bohr$^2$. `calc.get_quantum_metric()`,
+  with `method="overlap"` for a second route that needs no empty bands;
+  notebook [57](notebooks/57_quantum_metric.ipynb).
+
 - **$\mathbb Z_2$ invariants** in 2D and 3D. The code computes them in two
   independent ways, with the flow of the Wannier charge centres and with the
   Fu-Kane parities, and the two must agree. `calc.get_z2()` and

@@ -110,6 +110,7 @@ instead, which means the physics is selected in the input file rather than at th
 | To compute | Call | Notebook |
 |---|---|---|
 | A Berry curvature map | `get_berry_curvature()` | [10](10_topological_invariants.ipynb) |
+| How far an electron of an insulator is spread: the quantum metric and the localization tensor | `get_quantum_metric()` | [57](57_quantum_metric.ipynb) |
 | A Chern number | `get_chern()` | [10](10_topological_invariants.ipynb) |
 | A Z2 invariant | `get_z2()`, `get_z2_3d()` | [10](10_topological_invariants.ipynb) |
 
@@ -195,6 +196,7 @@ want a number.
 | [`54_finite_electric_field.ipynb`](54_finite_electric_field.ipynb) | Si8 in a finite field by the Berry phase, switched on from the converged state without field: the energy, the electronic dipole and the force against `pw.x` 7.5, the dipole at five fields, `eps_inf` = 12.08 from the slope on a 3x3x7 string mesh against 11.7 measured, and the third-order response in the residual |
 | [`55_quasiparticle_interference.ipynb`](55_quasiparticle_interference.ipynb) | One impurity on a square hydrogen sheet by the T-matrix: the 2k_F contour of the Fermi surface in the Fourier transform of the tip image, read as the local density of states and as the transmission from the tip to an exit plane, which takes 14% off the axial peaks against the diagonal ones because the states near X decay faster into the vacuum |
 | [`56_quantum_espresso_restart.ipynb`](56_quantum_espresso_restart.ipynb) | The converged density of `pw.x` for PAW silicon loaded from its save folder: the SCF stops after one iteration at the `pw.x` energy, against eight from atomic charges, and the bands come from the loaded state |
+| [`57_quantum_metric.ipynb`](57_quantum_metric.ipynb) | The localization tensor of silicon from the quantum metric, 2.58 bohr$^2$, the same number from the optical absorption to 1e-4, and diamond, silicon and AlAs against their gaps |
 
 ## Conventions
 
@@ -307,6 +309,11 @@ helix under both gradient corrections, the first taking 119 iterations.
 | `00` | 22 | `23` | 35 | `39` | 151 | `49` | 194 |
 | `07` | 22 | `32` | 84 | `41` | 110 | `51` | 290 |
 | `46` | 61 | `47` | 260 | `48` | 121 | `50` | 509 |
+
+`57` reads **2 min 5 s** on 2026-11-04, its first measurement, on CPUs 0-3 of this
+workstation (`taskset -c 0-3`) with the compiled code already cached: silicon at 12^3, the
+optical conductivity at 6^3 with 15000 frequencies for two broadenings, and diamond, silicon
+and AlAs at 12^3 with their bands.
 
 `56` reads **15 s** on 2026-10-22, its first measurement, unpinned on the shared
 workstation with the compiled code already cached: the SCF from the `pw.x` density, the SCF
