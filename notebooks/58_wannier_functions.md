@@ -114,7 +114,8 @@ plt.ylim(-7, 17); plt.ylabel('energy (eV)'); plt.xticks([])
 plt.title('grey: direct; dashed: Wannier 4x4x4; orange: Wannier 6x6x6')
 plt.show()
 for name, model in (('4x4x4', w), ('6x6x6', fine)):
-    print(name, 'valence bands within %.3f eV' % np.abs(model.bands_ev(crystal)[:, :4] - direct[:, :4]).max())
+    error = np.abs(model.bands_ev(crystal)[:, :4] - direct[:, :4]).max(axis=1)
+    print(name, 'valence bands within %.3f eV, at k =' % error.max(), np.round(crystal[error.argmax()], 3))
 ```
 
 
@@ -123,15 +124,16 @@ for name, model in (('4x4x4', w), ('6x6x6', fine)):
     
 
 
-    4x4x4 valence bands within 0.423 eV
+    4x4x4 valence bands within 0.423 eV, at k = [-0.154  0.154  0.   ]
 
 
-    6x6x6 valence bands within 0.106 eV
+    6x6x6 valence bands within 0.106 eV, at k = [-0.254  0.254  0.   ]
 
 
 Below the frozen window (dotted line) the interpolated bands follow the valence
-bands. On this path the largest error is 0.42 eV on the 4x4x4 mesh, near K, and 0.11
-eV on the 6x6x6 mesh. The error falls with the mesh because the functions from a
+bands. On this path the largest error is 0.42 eV on the 4x4x4 mesh and 0.11
+eV on the 6x6x6 mesh.
+Both are on the segment from K to $\Gamma$. The error falls with the mesh because the functions from a
 finer mesh are sampled on a larger supercell. Above the window the model gives four
 bands that follow the lowest conduction bands where these are not entangled with the
 bands above.
