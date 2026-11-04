@@ -1456,6 +1456,27 @@ class Calculator:
                                  exclude=SCF_ONLY_OPTIONS)
         )
 
+    def get_wannier(self, num_wann: int, projections, **options):
+        """Maximally localized Wannier functions, ``pw2wannier90.x`` and ``wannier90.x``.
+
+        ``projections`` are Wannier90 projection lines (``["Si:sp3"]``);
+        ``num_bands`` above ``num_wann`` disentangles, with the windows
+        ``dis_win`` and ``dis_froz`` in eV. The result carries the centres
+        and spreads, the hoppings ``H_mn(R)`` and the interpolated bands
+        (``.bands(kpoints)``), and writes the matrices for ``wannier90.x``
+        (``.write_w90(prefix)``).
+        """
+        from defuqumat.workflows.wannier import run_wannier
+
+        result = self._ground_state("Wannier functions")
+        return run_wannier(
+            self.system, self.pseudos, result.density,
+            num_wann=num_wann, projections=projections,
+            calculation=self.calculation,
+            **self._call_options(run_wannier, result, options,
+                                 exclude=SCF_ONLY_OPTIONS)
+        )
+
     def get_structure_factors(self, hmax: float = 6.0, **options):
         """``F(H)``, the X-ray and magnetic structure factors of the density.
 
