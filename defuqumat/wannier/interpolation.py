@@ -73,34 +73,38 @@ def ws_distance_shifts(irvec: np.ndarray, centres: np.ndarray, mp_grid,
     shifted = np.zeros((nr, nw, nw, 8, 3), dtype=np.int64)
     count = np.zeros((nr, nw, nw), dtype=np.int64)
     tol = _WS_DISTANCE_TOL
+    tcart = trans @ real_lattice                                  # (nT, 3)
+    pair = centres[None, :, :] - centres[:, None, :]              # (m, n): tau_n - tau_m
     for ir in range(nr):
-        rcart = irvec[ir] @ real_lattice
+        r_in = irvec[ir] @ real_lattice + pair                    # (nw, nw, 3)
+        # First sweep: the strict minimum, the Fortran's first in loop order
+        # (argmin returns the first of a tie; the untranslated point wins a tie
+        # with any translation, as the strict '<' does).
+        cand = r_in[:, :, None, :] + tcart[None, None]            # (nw, nw, nT, 3)
+        d2 = np.einsum("mnti,mnti->mnt", cand, cand)
+        first = np.argmin(d2, axis=2)
+        best2_t = np.take_along_axis(d2, first[..., None], axis=2)[..., 0]
+        here2 = np.einsum("mni,mni->mn", r_in, r_in)
+        moved = best2_t < here2
+        shift = np.where(moved[..., None], trans[first], 0)       # (nw, nw, 3)
+        best = r_in + shift @ real_lattice
+        best2 = np.einsum("mni,mni->mn", best, best)
+        # Second sweep around the minimum: every image as close, within tol.
+        cand = best[:, :, None, :] + tcart[None, None]
+        dist = np.sqrt(np.einsum("mnti,mnti->mnt", cand, cand))
+        tie = np.abs(dist - np.sqrt(best2)[..., None]) < tol
+        origin = best2 < tol ** 2
         for m in range(nw):
             for n in range(nw):
-                r_in = rcart + centres[n] - centres[m]
-                frac = r_in @ recip
-                # First sweep: the strict minimum, in the Fortran's order.
-                best = r_in.copy()
-                best2 = best @ best
-                shift = np.zeros(3, dtype=np.int64)
-                for t in trans:
-                    cand = (frac + t) @ real_lattice
-                    if cand @ cand < best2:
-                        best, best2, shift = cand, cand @ cand, t.copy()
-                if best2 < tol ** 2:
+                if origin[m, n]:
                     count[ir, m, n] = 1
-                    shifted[ir, m, n, 0] = irvec[ir] + shift
+                    shifted[ir, m, n, 0] = irvec[ir] + shift[m, n]
                     continue
-                frac = best @ recip
-                nd = 0
-                for t in trans:
-                    cand = (frac + t) @ real_lattice
-                    if abs(np.sqrt(cand @ cand) - np.sqrt(best2)) < tol:
-                        if nd == 8:
-                            raise ValueError("a Wigner-Seitz degeneracy larger than 8")
-                        shifted[ir, m, n, nd] = irvec[ir] + shift + t
-                        nd += 1
-                count[ir, m, n] = nd
+                hits = trans[tie[m, n]]
+                if len(hits) > 8:
+                    raise ValueError("a Wigner-Seitz degeneracy larger than 8")
+                count[ir, m, n] = len(hits)
+                shifted[ir, m, n, :len(hits)] = irvec[ir] + shift[m, n] + hits
     return shifted, count
 
 

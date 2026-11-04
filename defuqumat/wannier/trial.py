@@ -183,18 +183,21 @@ def radial_transform(q: np.ndarray, alpha: float, nodes: int, volume: float) -> 
 
 
 def guiding_functions(projections, kg: np.ndarray, at: np.ndarray, volume: float,
-                      valid: np.ndarray | None = None) -> np.ndarray:
+                      valid: np.ndarray | None = None, radial: dict | None = None) -> np.ndarray:
     """``(nproj, npw)``: the trial orbitals on the plane waves ``k + G``.
 
     ``kg`` is ``(npw, 3)``, ``k + G`` cartesian in 1/bohr; ``at`` the direct
     lattice vectors as rows, bohr; each projection carries Wannier90's
     ``site_frac``, ``l``, ``m`` (``mr``), ``z_axis``, ``x_axis``, ``radial``
-    and ``zona``. Padding entries (``valid`` false) are zeroed.
+    and ``zona``. Padding entries (``valid`` false) are zeroed. ``radial``, if
+    given, maps ``(zona, r)`` to the ``(4, npw)`` table of
+    :func:`radial_transform` at these ``|k + G|``, computed once for a whole
+    mesh by the caller.
     """
     kg = np.asarray(kg, dtype=float)
     q = np.linalg.norm(kg, axis=1)
     out = np.zeros((len(projections), len(kg)), dtype=complex)
-    radial_cache: dict = {}
+    radial_cache: dict = dict(radial or {})
     phase_l = (-1j) ** np.arange(_LMAX + 1)
     for n, p in enumerate(projections):
         key = (float(p.zona), int(p.radial))
