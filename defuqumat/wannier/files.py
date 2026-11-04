@@ -21,14 +21,23 @@ Arrays here are in Wannier90's memory layout, ``M[m, n, nn, k]`` and
 
 from __future__ import annotations
 
+import gzip
+
 import numpy as np
 
 __all__ = ["read_eig", "read_amn", "read_mmn", "write_eig", "write_amn", "write_mmn"]
 
 
+def _open(path):
+    """A text file, or its ``.gz``."""
+    path = str(path)
+    return gzip.open(path, "rt") if path.endswith(".gz") else open(path)
+
+
 def read_eig(path, num_bands: int, num_kpts: int) -> np.ndarray:
     """``(num_bands, num_kpts)`` eigenvalues, in the file's unit (eV)."""
-    data = np.loadtxt(path).reshape(-1, 3)
+    with _open(path) as f:
+        data = np.loadtxt(f).reshape(-1, 3)
     eig = np.zeros((num_bands, num_kpts))
     eig[data[:, 0].astype(int) - 1, data[:, 1].astype(int) - 1] = data[:, 2]
     return eig
@@ -36,7 +45,7 @@ def read_eig(path, num_bands: int, num_kpts: int) -> np.ndarray:
 
 def read_amn(path, num_bands: int, num_kpts: int, num_wann: int) -> np.ndarray:
     """``(num_bands, num_wann, num_kpts)`` projections."""
-    with open(path) as f:
+    with _open(path) as f:
         f.readline()
         header = tuple(int(x) for x in f.readline().split())
         data = np.loadtxt(f).reshape(-1, 5)
@@ -54,7 +63,7 @@ def read_mmn(path, num_bands: int, num_kpts: int, nnlist: np.ndarray,
     neighbour tables of :func:`~defuqumat.wannier.kmesh.kmesh_get` (1-indexed
     ``nnlist``, ``nncell`` shaped ``(3, num_kpts, nntot)``)."""
     nntot = nnlist.shape[1]
-    with open(path) as f:
+    with _open(path) as f:
         f.readline()
         header = tuple(int(x) for x in f.readline().split())
         if header != (num_bands, num_kpts, nntot):
