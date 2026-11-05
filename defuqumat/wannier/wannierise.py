@@ -19,8 +19,11 @@ docstring is warning a future reader about. Also ported: preconditioning
 ``ws_vectors.wigner_seitz_vectors``) and fixed (rather than line-searched)
 step length (``fixed_step``).
 
-Site symmetry (``lsitesymmetry``) is not carried; wannierpy's port of it
-is left behind and the whole Brillouin zone is always treated.
+Site symmetry (``lsitesymmetry``) enters only through the optional ``sym``
+argument of :func:`wann_main`, at Wannier90's three points: the gradient
+after ``wann_domega`` (``wannierise.F90:2196``), the search direction
+(``:446``) and the rotation before it is applied (``:1281``); the routines
+are in :mod:`defuqumat.wannier.sitesym`.
 """
 from __future__ import annotations
 
@@ -243,8 +246,13 @@ def _unitary_exp(cdq: np.ndarray) -> np.ndarray:
     return np.moveaxis(out, 0, -1)
 
 
-def _rotate_u_and_m(U: np.ndarray, M: np.ndarray, cdq: np.ndarray, nnlist: np.ndarray):
+def _rotate_u_and_m(U: np.ndarray, M: np.ndarray, cdq: np.ndarray, nnlist: np.ndarray, sym=None):
     expq = _unitary_exp(cdq)
+    # --- site symmetry (P164): wannierise.F90:1281, the rotation at g k from k
+    if sym is not None:
+        from defuqumat.wannier.sitesym import symmetrize_rotation
+        expq = symmetrize_rotation(expq, sym)
+    # --- end site symmetry
     num_kpts = U.shape[2]
     U_new = np.einsum("mik,ink->mnk", U, expq)
     M_new = np.empty_like(M)
@@ -290,7 +298,7 @@ def wann_main(
     selective_loc: bool = False, slwf_num: int | None = None, slwf_constrain: bool = False,
     lambda_loc: float = 0.0, ccentres_cart: np.ndarray | None = None, fixed_step: float | None = None,
     precond: bool = False, kpt_latt: np.ndarray | None = None, real_lattice: np.ndarray | None = None,
-    mp_grid: np.ndarray | None = None,
+    mp_grid: np.ndarray | None = None, sym=None,
 ):
     """``bka``/``neigh`` (from ``kmesh_get``) and ``proj_site_cart`` (the
     parsed projections' sites, converted to Cartesian) are only needed when
@@ -343,6 +351,9 @@ def wann_main(
             irguide = 1
 
         rave, cdodq = domega(csheet, sheet, M, bk, wb)
+        if sym is not None:  # site symmetry (P164): wannierise.F90:2196
+            from defuqumat.wannier.sitesym import symmetrize_gradient
+            cdodq = symmetrize_gradient(1, cdodq, sym)
 
         if precond:
             cdodq_precond = _precond_direction(cdodq, kpt_latt, irvec, ndegen, real_lattice,
@@ -381,18 +392,20 @@ def wann_main(
                 cdq = -cdq
                 doda0 = -doda0
 
+        if sym is not None:  # site symmetry (P164): wannierise.F90:446
+            cdq = symmetrize_gradient(2, cdq, sym)
         cdq_prev = cdq.copy()
 
         if fixed_step is not None:
             cdq_final = cdq * (fixed_step / (4.0 * wbtot))
-            U_new, M_new = _rotate_u_and_m(U, M, cdq_final, nnlist)
+            U_new, M_new = _rotate_u_and_m(U, M, cdq_final, nnlist, sym=sym)
             old_spread = spread
             spread = omega(csheet, sheet, M_new, bk, wb, om_i_cached)
             U, M = U_new, M_new
         else:
             U0, M0 = U, M
             cdq_trial = cdq * (trial_step / (4.0 * wbtot))
-            U_trial, M_trial = _rotate_u_and_m(U0, M0, cdq_trial, nnlist)
+            U_trial, M_trial = _rotate_u_and_m(U0, M0, cdq_trial, nnlist, sym=sym)
             trial_spread = omega(csheet, sheet, M_trial, bk, wb, om_i_cached)
 
             fac = trial_spread.om_tot - spread.om_tot
@@ -415,7 +428,7 @@ def wann_main(
 
             if lquad:
                 cdq_final = cdq * (alphamin / (4.0 * wbtot))
-                U_new, M_new = _rotate_u_and_m(U0, M0, cdq_final, nnlist)
+                U_new, M_new = _rotate_u_and_m(U0, M0, cdq_final, nnlist, sym=sym)
                 old_spread = spread
                 spread = omega(csheet, sheet, M_new, bk, wb, om_i_cached)
                 U, M = U_new, M_new

@@ -8,8 +8,9 @@ Mirrors the Fortran call graph in ``dis_main`` one-to-one:
 ``dis_windows`` -> ``dis_project`` -> (``dis_proj_froz`` if there are frozen
 states) -> ``internal_slim_m`` -> ``dis_extract``.
 
-Site symmetry (``lsitesymmetry``) is not carried: wannierpy's port of it
-is left behind, and the whole Brillouin zone is always treated.
+Site symmetry (``lsitesymmetry``) enters only through the optional ``sym``
+arguments of :func:`dis_main`, :func:`dis_extract` and :func:`internal_find_u`;
+the symmetric routines themselves are in :mod:`defuqumat.wannier.sitesym`.
 
 Not yet ported: the gamma-point variant (``dis_extract_gamma`` etc.),
 ``devel_flag`` escape hatches (``compspace``, energy-window "spheres").
@@ -230,10 +231,17 @@ def _womegai(u_matrix_opt: np.ndarray, M_slim: np.ndarray, windows: Windows, nnl
 
 def dis_extract(u_matrix_opt_init: np.ndarray, M_slim: np.ndarray, windows: Windows, nnlist: np.ndarray,
                  wb: np.ndarray, wbtot: float, num_wann: int, dis_num_iter: int, dis_mix_ratio: float,
-                 dis_conv_tol: float, dis_conv_window: int):
+                 dis_conv_tol: float, dis_conv_window: int, sym=None, lwindow=None):
     """The disentanglement iteration (SMV Eqs. 12-21): alternately
     diagonalize the Z-matrix to refine u_matrix_opt, and rebuild the
     Z-matrix from the refined subspace, mixing between iterations."""
+    # --- site symmetry (P164): the symmetric iteration, in sitesym.py
+    if sym is not None:
+        from defuqumat.wannier.sitesym import dis_extract_symmetric
+        return dis_extract_symmetric(u_matrix_opt_init, M_slim, windows, nnlist, wb, wbtot,
+                                     num_wann, dis_num_iter, dis_mix_ratio, dis_conv_tol,
+                                     dis_conv_window, sym, lwindow)
+    # --- end site symmetry
     num_bands, _, num_kpts = u_matrix_opt_init.shape
     u_matrix_opt = u_matrix_opt_init.copy()
 
@@ -316,7 +324,7 @@ def _rotate_m(u: np.ndarray, M: np.ndarray, windows: Windows, nnlist: np.ndarray
 
 
 def internal_find_u(u_matrix_opt: np.ndarray, A_matrix: np.ndarray, windows: Windows,
-                    num_wann: int) -> np.ndarray:
+                    num_wann: int, sym=None) -> np.ndarray:
     """Initial guess for the num_wann x num_wann rotation ``u_matrix``
     (SMV Sec. III.D, square case): Lowdin-orthogonalize the overlap between
     the optimal-subspace states and the (window-sliced) trial projections."""
@@ -329,18 +337,34 @@ def internal_find_u(u_matrix_opt: np.ndarray, A_matrix: np.ndarray, windows: Win
         caa = u_matrix_opt[:nd, :, k].conj().T @ A_matrix[n0:n0 + nd, :num_wann, k]
         Z, _, Vh = np.linalg.svd(caa, full_matrices=True)
         u_matrix[:, :, k] = Z @ Vh
+    # --- site symmetry (P164): disentangle.F90:484
+    if sym is not None:
+        from defuqumat.wannier.sitesym import symmetrize_u_matrix, wannier_gauge
+        u_matrix = symmetrize_u_matrix(u_matrix, wannier_gauge(sym))
+    # --- end site symmetry
     return u_matrix
 
 
 def dis_main(A_matrix: np.ndarray, M_matrix_orig: np.ndarray, eigval: np.ndarray, nnlist: np.ndarray,
              wb: np.ndarray, num_wann: int, dis_win_min: float, dis_win_max: float, frozen_states: bool,
              dis_froz_min: float, dis_froz_max: float, dis_num_iter: int, dis_mix_ratio: float,
-             dis_conv_tol: float, dis_conv_window: int):
+             dis_conv_tol: float, dis_conv_window: int, sym=None):
     """Full disentanglement pipeline, mirroring ``dis_main`` in
     disentangle.F90. Returns (u_matrix_opt, u_matrix, lwindow, M_matrix,
     converged) -- ``u_matrix``/``M_matrix`` are the initial-guess rotation
     and num_wann-gauge overlap matrices Wannierisation (phase 3) takes as
-    its starting point."""
+    its starting point.
+
+    ``sym`` (a :class:`~defuqumat.wannier.sitesym.SymmetryData` on the absolute
+    band index) imposes the site symmetry; it refuses frozen states, as
+    ``disentangle.F90:104`` does."""
+    # --- site symmetry (P164)
+    if sym is not None and frozen_states:
+        raise NotImplementedError(
+            "a frozen window in the symmetry-adapted mode is not implemented (Wannier90 "
+            "refuses it too: the frozen columns of U_opt are one-hot and the symmetrisation "
+            "mixes them with the free ones)")
+    # --- end site symmetry
     num_bands, num_kpts = eigval.shape
     wbtot = float(np.sum(wb))
 
@@ -355,18 +379,26 @@ def dis_main(A_matrix: np.ndarray, M_matrix_orig: np.ndarray, eigval: np.ndarray
     if windows.linner:
         u_matrix_opt = dis_proj_froz(u_matrix_opt, windows, num_wann)
     check_orthonormal(u_matrix_opt, windows, num_wann)
+    # --- site symmetry (P164): disentangle.F90:124-125
+    sym_win = None
+    if sym is not None:
+        from defuqumat.wannier.sitesym import slim_d_matrix_band, symmetrize_u_matrix
+        sym_win = slim_d_matrix_band(sym, lwindow)
+        u_matrix_opt = symmetrize_u_matrix(u_matrix_opt, sym_win, lwindow)
+    # --- end site symmetry
 
     M_slim = slim_m(M_matrix_orig, windows, nnlist)
 
     u_matrix_opt, converged = dis_extract(
         u_matrix_opt, M_slim, windows, nnlist, wb, wbtot, num_wann,
         dis_num_iter, dis_mix_ratio, dis_conv_tol, dis_conv_window,
+        sym=sym_win, lwindow=lwindow,
     )
 
     # Rotate M into the num_wann-dimensional gauge defined by the optimal subspace...
     M_wann_gauge = _rotate_m(u_matrix_opt, M_slim, windows, nnlist, num_wann, windowed=True)
     # ...then seed the initial num_wann x num_wann rotation and rotate M into it too.
-    u_matrix = internal_find_u(u_matrix_opt, A_matrix, windows, num_wann)
+    u_matrix = internal_find_u(u_matrix_opt, A_matrix, windows, num_wann, sym=sym)
     M_matrix = _rotate_m(u_matrix, M_wann_gauge, windows, nnlist, num_wann, windowed=False)
 
     for k in range(num_kpts):

@@ -592,6 +592,10 @@ mesh only sets the resolution of the curvature map, and not the answer.
   datasets. `calc.get_wannier(8, ["Si:sp3"], num_bands=12, ...)`, and
   `.write_w90()` to run `wannier90.x` on the same matrices; notebook
   [58](notebooks/58_wannier_functions.ipynb).
+  With `symmetry=True` the functions keep the symmetry of the crystal. This is the
+  `site_symmetry` of Wannier90. On silicon with the 48 operations of the diamond
+  group the spread is that of `pw2wannier90.x` and `wannier90.x` to
+  $3\times10^{-7}$ Å$^2$; notebook [59](notebooks/59_wannier_symmetry.ipynb).
 
 - **$\mathbb Z_2$ invariants** in 2D and 3D. The code computes them in two
   independent ways, with the flow of the Wannier charge centres and with the
@@ -775,6 +779,7 @@ task of the other code that it refers to.
 | **Berry curvature and Chern numbers** | `calc.get_chern()`, `calc.get_chern(spin=0)` at `nspin = 2` | | |
 | **Quantum metric** of the occupied bands, the localization tensor and the spread $\Omega_I$ | `calc.get_quantum_metric()` | ²¹ | |
 | **Maximally localized Wannier functions**, disentanglement and Wannier-interpolated bands | `calc.get_wannier(num_wann, projections)` | (✓)²² | (✓)²² |
+| **Wannier functions with the symmetry of the crystal**, the site symmetry of Wannier90 | `calc.get_wannier(..., symmetry=True)` | (✓)²³ | |
 | **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
 | **Magnetoelectric tensor** | `calc.get_magnetoelectric_tensor()` | | ✓ |

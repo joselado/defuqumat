@@ -190,6 +190,78 @@ w.write_w90("si", projections=["Si:sp3"],
             extra=dict(dis_win_max=17.0, dis_froz_max=6.4, num_iter=200, conv_window=3))
 ```
 
+## Wannier functions with the symmetry of the crystal
+
+We now ask the Wannier functions to keep the symmetry of the crystal. The
+minimisation is local, so a minimum can break the symmetry a little, and then the
+model breaks it too. With `symmetry=True` the code imposes, for every operation $g$
+of the space group of the run:
+
+$$
+U(g\mathbf k) = d(g, \mathbf k)\, U(\mathbf k)\, D(g, \mathbf k)^\dagger .
+$$
+
+Here $d$ is the matrix that takes the Bloch states at $\mathbf k$ into those at
+$g\mathbf k$, and $D$ takes the trial orbitals into each other. This is the
+`site_symmetry` of Wannier90 (Sakuma, PRB 87, 235109 (2013)), and the two matrices
+are the `.dmn` file that `pw2wannier90.x` writes with `write_dmn`. Only the
+irreducible k-points are free, and the rest of the mesh follows from them. A frozen
+window is not allowed in this mode, in Wannier90 as here, so we keep only the outer
+window:
+
+```python
+for symmetry in (False, True):
+    w = si.get_wannier(8, ["Si:sp3"], num_bands=12, divisions=(4, 4, 4),
+                       dis_win=(None, 17.0), symmetry=symmetry,
+                       engine_options=dict(num_iter=200, conv_window=3))
+    print(w.nsym, np.round(w.spreads_angstrom2, 4), round(w.spread_terms_angstrom2()["omega_total"], 5))
+```
+
+```
+1 [1.7158 1.7158 1.7158 1.7158 2.2261 2.2261 2.2261 2.2261] 15.76758
+48 [1.7243 1.7243 1.7243 1.7243 2.2191 2.2191 2.2191 2.2191] 15.77369
+```
+
+`w.nsym` is the number of operations imposed, 48 for the diamond group, and half of
+them carry a fractional translation. The total is lower than the 16.05 Å$^2$ of the
+section above only because the frozen window is gone. With symmetry $\Omega$ goes up
+by $6 \times 10^{-3}$ Å$^2$, which means that the free minimum was not exactly
+symmetric. The two groups of spreads stay, because `Si:sp3` itself is not
+symmetric: an operation that exchanges the two atoms turns a lobe along $(1,1,1)$
+into one along $(-1,-1,-1)$, which is not in the set of the other atom. With the
+turned axes of the section above the eight functions are equivalent, and we can
+check that the bands at a k-point and at its 48 images are the same:
+
+```python
+k = np.array([[0.1, 0.2, 0.3]])
+for symmetry in (False, True):
+    w = si.get_wannier(8, ["f=0,0,0:sp3", "f=0.25,0.25,0.25:sp3:z=0,0,1:x=0,1,0"],
+                       num_bands=12, divisions=(4, 4, 4), dis_win=(None, 17.0),
+                       symmetry=symmetry, engine_options=dict(num_iter=200, conv_window=3))
+    print(w.nsym, np.round(w.spreads_angstrom2, 4), round(w.spread_terms_angstrom2()["omega_total"], 5))
+    # the same k turned by every operation of the group: the bands should not change
+    group = si.system.symmetry_group(nosym=False)
+    images = np.array([k[0] @ np.asarray(r).T for r in group.rotations])  # crystal, rows
+    e = np.sort(w.bands_ev(np.vstack([k, images])), axis=1)
+    print(f"  max change of the bands over the {len(images)} images of k: {np.abs(e - e[0]).max():.1e} eV")
+```
+
+```
+1 [1.7234 1.7234 1.7234 1.7234 1.7234 1.7234 1.7234 1.7234] 13.78719
+  max change of the bands over the 48 images of k: 1.9e-08 eV
+48 [1.7234 1.7234 1.7234 1.7234 1.7234 1.7234 1.7234 1.7234] 13.78719
+  max change of the bands over the 48 images of k: 6.6e-13 eV
+```
+
+Here the free minimum is already symmetric to $2 \times 10^{-8}$ eV, and the
+constraint makes it exact. For `Si:sp3` the same test gives $3 \times 10^{-7}$ eV
+without symmetry and $5 \times 10^{-13}$ eV with it. With a `nosym` run the group is the identity
+alone, and `symmetry=True` then changes nothing. `w.write_w90(prefix)` also writes
+`prefix.dmn` and `site_symmetry = .true.`, so `wannier90.x` can run the same
+symmetric minimisation on our files. Notebook
+[59](https://github.com/joselado/defuqumat/blob/master/notebooks/59_wannier_symmetry.ipynb)
+shows the spreads of the four runs.
+
 ## How we checked it
 
 We checked the two halves apart, against `pw2wannier90.x` and `wannier90.x` of QE 7.5
@@ -210,15 +282,35 @@ The differences are those of two SCF runs, at most $4 \times 10^{-7}$ Å$^2$. Th
 interpolated by this code from the matrices of `wannier90.x` agree with its
 `si_band.dat` to $9 \times 10^{-6}$ eV.
 
+For `symmetry=True` we checked the same two halves. On the two site-symmetry
+examples of the Wannier90 test suite (GaAs, isolated, and H$_3$S, twenty bands to
+twelve) the engine gives the spreads of `wannier90.x` to every printed digit. On
+silicon our matrix $D$ is the one of `pw2wannier90.x` to $10^{-15}$, and the
+characters of $d$ agree to $3 \times 10^{-11}$. The whole chain of `pw.x`,
+`pw2wannier90.x` and `wannier90.x` with `site_symmetry` gives:
+
+| silicon, 12 to 8, outer window only | QE chain (Å$^2$) | this code (Å$^2$) |
+|---|---|---|
+| `Si:sp3` | 15.773697207 | 15.773696950 |
+| turned axes | 13.787202895 | 13.787202775 |
+
 !!! note "Limits"
     - Spinor calculations (`noncolin`, spin-orbit coupling, a spin spiral) give an
       error. The projections on spinor trial orbitals were not checked against
       `pw2wannier90.x`.
     - At `nspin = 2` one channel is computed at a time: pass `spin=0` or `spin=1`,
       as the `spin_component` of `pw2wannier90.x`.
-    - Site symmetry (`site_symmetry`), selective localization from the input,
-      `auto_projections` (SCDM), random projections and `gamma_only` are not
-      implemented.
+    - With `symmetry=True` a frozen window gives an error, as in Wannier90, and so do
+      `precond`, projections that are not a list of projection lines, and a
+      magnetic group with operations that need time reversal. A set of trial
+      orbitals that the group does not map onto itself gives an error by name. So
+      does a band set or an outer window that cuts a degenerate multiplet at some
+      k-point, because then no rotation satisfies the constraint.
+    - With `symmetry=True` time reversal is not imposed. On the GaAs example of
+      Wannier90 the imaginary part of $H_{mn}(\mathbf R)$ is $3 \times 10^{-10}$ eV
+      anyway.
+    - Selective localization from the input, `auto_projections` (SCDM), random
+      projections and `gamma_only` are not implemented.
     - `zona` is in 1/bohr, as `pw2wannier90.x` reads it. The user guide of Wannier90
       writes it in 1/Å. The default, 1, is the same number in both codes.
     - The Wannier functions themselves on a real-space grid (`wannier_plot`) and the

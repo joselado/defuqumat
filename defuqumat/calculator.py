@@ -1464,7 +1464,9 @@ class Calculator:
         ``dis_win`` and ``dis_froz`` in eV. The result carries the centres
         and spreads, the hoppings ``H_mn(R)`` and the interpolated bands
         (``.bands(kpoints)``), and writes the matrices for ``wannier90.x``
-        (``.write_w90(prefix)``).
+        (``.write_w90(prefix)``). ``symmetry=True`` imposes the space group of
+        the run (Wannier90's ``site_symmetry``), and ``.write_w90`` then also
+        writes the ``.dmn`` file.
         """
         from defuqumat.workflows.wannier import run_wannier
 

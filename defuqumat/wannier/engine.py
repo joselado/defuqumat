@@ -8,8 +8,9 @@ call graph is the Fortran one,
     kmesh_get -> dis_main (if num_bands > num_wann) or overlap_project -> wann_main
 
 and the routines it calls are the user's own NumPy port of Wannier90 3.1.0
-(the ``wannierpy`` project, ``wannier90/_engine/``), copied here and trimmed of
-site symmetry. That port was validated against ``wannier90.x`` on GaAs, diamond
+(the ``wannierpy`` project, ``wannier90/_engine/``), copied here. Site
+symmetry (``site_symmetry``, :mod:`defuqumat.wannier.sitesym`, P164) is the
+optional ``sym`` argument. That port was validated against ``wannier90.x`` on GaAs, diamond
 and silicon; the numbers for this copy are in ``PLAN.md``, P162.
 
 The engine is **unit-agnostic**: lengths are whatever the reciprocal lattice
@@ -85,7 +86,8 @@ class EngineResult:
 def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh: KmeshResult,
                num_wann: int, options: EngineOptions = EngineOptions(), *,
                kpt_frac: np.ndarray | None = None, real_lattice: np.ndarray | None = None,
-               mp_grid=None, site_cart: np.ndarray | None = None) -> EngineResult:
+               mp_grid=None, site_cart: np.ndarray | None = None,
+               sym=None) -> EngineResult:
     """Disentangle (when ``num_bands > num_wann``) and minimise the spread.
 
     ``mmn`` is ``(num_bands, num_bands, nntot, num_kpts)``, ``amn``
@@ -93,12 +95,24 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
     ``(num_bands, num_kpts)``, all in Wannier90's layout. ``site_cart``
     (``(num_wann, 3)``) is needed for ``guiding_centres``; ``kpt_frac``
     (``(3, num_kpts)``), ``real_lattice`` (rows) and ``mp_grid`` for
-    ``precond``.
+    ``precond``. ``sym`` (a :class:`~defuqumat.wannier.sitesym.SymmetryData`,
+    ``d_matrix_band`` on the absolute band index) is Wannier90's
+    ``site_symmetry = .true.``.
     """
     o = options
     num_bands, num_kpts = eigenvalues.shape
     disentangled = num_bands > num_wann
     dis_converged = True
+    if sym is not None and o.precond:
+        raise NotImplementedError("precond together with site symmetry was not validated")
+    if sym is not None and sym.d_matrix_band.shape[0] != num_bands:
+        raise ValueError(f"the band representation is for {sym.d_matrix_band.shape[0]} bands, "
+                         f"not num_bands = {num_bands}")
+    if sym is not None and not disentangled:
+        from defuqumat.wannier.sitesym import check_band_unitarity
+        for ir, ik in enumerate(sym.ir2ik):
+            check_band_unitarity(sym.d_matrix_band[:, :, :, ir], int(ik), "num_bands",
+                                  sym.refuse_cut)
     if disentangled:
         win_min = float(eigenvalues.min()) if o.dis_win_min is None else o.dis_win_min
         win_max = float(eigenvalues.max()) if o.dis_win_max is None else o.dis_win_max
@@ -107,12 +121,12 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
         u_opt, u, lwindow, m_wann, dis_converged = dis_main(
             amn, mmn, eigenvalues, kmesh.nnlist, kmesh.wb, num_wann,
             win_min, win_max, frozen, froz_min, 0.0 if o.dis_froz_max is None else o.dis_froz_max,
-            o.dis_num_iter, o.dis_mix_ratio, o.dis_conv_tol, o.dis_conv_window)
+            o.dis_num_iter, o.dis_mix_ratio, o.dis_conv_tol, o.dis_conv_window, sym=sym)
         if not dis_converged:
             warnings.warn(f"the disentanglement did not converge in dis_num_iter = {o.dis_num_iter} "
                           "steps", stacklevel=2)
     else:
-        u, m_wann = overlap_project(amn, mmn, kmesh.nnlist)
+        u, m_wann = overlap_project(amn, mmn, kmesh.nnlist, sym=sym)
         u_opt = np.tile(np.eye(num_wann, dtype=complex)[:, :, None], (1, 1, num_kpts))
         lwindow = np.ones((num_bands, num_kpts), dtype=bool)
 
@@ -127,7 +141,7 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
         num_no_guide_iter=o.num_no_guide_iter, num_guide_cycles=o.num_guide_cycles,
         fixed_step=o.fixed_step, precond=o.precond, kpt_latt=kpt_frac,
         real_lattice=None if real_lattice is None else np.asarray(real_lattice, dtype=float),
-        mp_grid=None if mp_grid is None else np.asarray(mp_grid, dtype=np.int64))
+        mp_grid=None if mp_grid is None else np.asarray(mp_grid, dtype=np.int64), sym=sym)
     if not converged:
         warnings.warn(f"the spread did not converge in num_iter = {o.num_iter} steps "
                       f"(conv_window = {o.conv_window})", stacklevel=2)
