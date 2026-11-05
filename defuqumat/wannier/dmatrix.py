@@ -173,11 +173,21 @@ def wannier_rotations(projections, operations: Operations, at: np.ndarray):
     ``(nw, 3)`` cartesian lattice vector ``g(tau_n) - tau_j`` of each column.
 
     Refuses a set the group does not map onto itself.
+
+    The fit of each column is over the functions on the image site **with the
+    same radial part** (``radial_key``, or ``(zona, r)`` for a hydrogenic one, the
+    key :func:`~defuqumat.wannier.trial.guiding_functions` uses): a rotation does
+    not change a radial part, and with two shells of one ``l`` on one atom
+    (a semicore ``3s`` beside the ``4s``) a fit over both would give each column
+    ``sum_j W_jn^2 = 2`` and refuse a set that is a representation (P164b).
+    ``compute_dmn`` fits over every function on the site and so refuses it.
     """
     from defuqumat.wannier.trial import angular_parts
 
     nw = len(projections)
     sites, of = _sites(projections)
+    keys = [getattr(p, "radial_key", None) or (float(p.zona), int(p.radial)) for p in projections]
+    same_radial = np.array([[a == b for b in keys] for a in keys])
     d, weights = _sphere_quadrature()
     frames = [(p.l, p.m, p.z_axis, p.x_axis) for p in projections]
     y0 = np.array([angular_parts(l, m, d, z, x).sum(axis=0) for (l, m, z, x) in frames])
@@ -194,7 +204,7 @@ def wannier_rotations(projections, operations: Operations, at: np.ndarray):
             for n in np.flatnonzero(of == i):
                 T[s, n] = T_site
         for n in range(nw):
-            rows = np.flatnonzero(of == image_site[of[n]])
+            rows = np.flatnonzero((of == image_site[of[n]]) & same_radial[n])
             W[s, rows, n] = (yr[rows] * weights) @ y0[n]
         for n in range(nw):
             err = abs(0.5 * (np.sum(W[s, :, n] ** 2) + np.sum(W[s, n, :] ** 2)) - 1.0)
@@ -202,16 +212,10 @@ def wannier_rotations(projections, operations: Operations, at: np.ndarray):
                 raise ValueError(
                     f"symmetry operation {s} does not transform trial orbital {n} "
                     f"({projections[n].l}, {projections[n].m}) into the orbitals on the image "
-                    f"site (error {err:.2e} > {WWS_TOLERANCE}): the projections are not a "
-                    "representation of the group, give whole shells or symmetric sets on "
-                    "every site of the orbit")
-        for n in range(nw):
-            for j in np.flatnonzero(np.abs(W[s, :, n]) > 1.0e-8):
-                a, b = projections[j], projections[n]
-                if (a.radial, a.zona) != (b.radial, b.zona):
-                    raise ValueError(
-                        f"symmetry operation {s} mixes trial orbitals {n} and {j}, whose "
-                        "radial parts differ (r= or zona=); the set is not a representation")
+                    f"site with the same radial part (error {err:.2e} > {WWS_TOLERANCE}): "
+                    "the projections are not a representation of the group, give whole "
+                    "shells or symmetric sets on every site of the orbit, with one r= and "
+                    "zona= for the functions a rotation mixes")
     return W, T
 
 
@@ -274,8 +278,13 @@ def _rotation_gather(states, ik: int, jk: int, R, t, g0):
     return gather, phase
 
 
-def band_representation(states, num_bands: int, operations: Operations, stars) -> np.ndarray:
-    """``d_matrix_band``, ``(num_bands, num_bands, nsym, nkptirr)``."""
+def band_representation(states, num_bands: int, operations: Operations, stars,
+                        bands=None) -> np.ndarray:
+    """``d_matrix_band``, ``(num_bands, num_bands, nsym, nkptirr)``.
+
+    ``bands`` are the solved bands it is taken on, ``arange(num_bands)`` if not
+    given; a semicore cut makes it ``arange(n_cut, n_cut + num_bands)``.
+    """
     from defuqumat.topology.states import (_augmentation_term, _cached_augmentation,
                                            _permute, _project)
 
@@ -288,32 +297,38 @@ def band_representation(states, num_bands: int, operations: Operations, stars) -
         if states.vkb is None:
             raise ValueError("ultrasoft or PAW states need their projectors for d_matrix_band")
         factors = _cached_augmentation(states._owner, np.zeros(3))
+    bands = np.arange(num_bands) if bands is None else np.asarray(bands, dtype=np.int64)
+    if len(bands) != num_bands:
+        raise ValueError(f"{len(bands)} bands given for num_bands = {num_bands}")
+    take = jnp.asarray(bands)
     out = np.zeros((num_bands, num_bands, operations.nsym, len(ir2ik)), dtype=complex)
     for ir, ik in enumerate(ir2ik):
-        source = states.coefficients[ik][:num_bands]
+        source = states.coefficients[ik][take]
         for s in range(operations.nsym):
             jk = int(kptsym[s, ir])
             gather, phase = _rotation_gather(states, ik, jk, operations.rotations[s],
                                              operations.translations[s], g0[s, ir])
             rotated = _permute(source, jnp.asarray(gather), jnp.asarray(phase.astype(dtype)), 1)
-            target = states.coefficients[jk][:num_bands]
+            target = states.coefficients[jk][take]
             d = jnp.einsum("mg,ng->mn", target.conj(), rotated)
             if factors is not None:
                 becp_rot = _project(rotated, states.vkb[jk], 1)
-                d = d + _augmentation_term(states.becp[jk][:num_bands], becp_rot, factors)
+                d = d + _augmentation_term(states.becp[jk][take], becp_rot, factors)
             out[:, :, s, ir] = np.asarray(d)
     return out
 
 
 def site_symmetry_data(states, projections, num_bands: int, operations: Operations,
-                       points: np.ndarray, symmetrize_eps: float = 1.0e-3) -> SymmetryData:
+                       points: np.ndarray, symmetrize_eps: float = 1.0e-3,
+                       bands=None) -> SymmetryData:
     """The :class:`~defuqumat.wannier.sitesym.SymmetryData` of a run, in the mesh
-    order of ``points``, ``d_matrix_band`` on the absolute band index."""
+    order of ``points``, ``d_matrix_band`` on the index of ``bands`` (the solved
+    bands the engine sees, ``arange(num_bands)`` if not given)."""
     at = np.asarray(states.at, dtype=float)
     bg = np.asarray(states.bg, dtype=float)
     stars = kpoint_stars(points, operations, at, bg)
     d_wann = wannier_representation(projections, operations, at, bg, points, stars)
-    d_band = band_representation(states, num_bands, operations, stars)
+    d_band = band_representation(states, num_bands, operations, stars, bands=bands)
     ik2ir, ir2ik, kptsym, _ = stars
     return SymmetryData(nsymmetry=operations.nsym, nkptirr=len(ir2ik), num_kpts=len(points),
                         ik2ir=ik2ir, ir2ik=ir2ik, kptsym=kptsym, d_matrix_wann=d_wann,
