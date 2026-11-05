@@ -1,0 +1,2 @@
+#SBATCH --signal=TERM@600
+srun python3 run.py            # every pool stops at the same iteration, checkpointed

@@ -21,6 +21,17 @@ whose projections onto spinor trial orbitals were not checked against
 ``pw2wannier90.x``; and ``gamma_only``. At ``nspin = 2`` one channel is
 wannierised at a time, ``spin = 0`` or ``1``, as ``pw2wannier90``'s
 ``spin_component``.
+
+**Symmetry** (``symmetry=True``, P164): the Wannier functions are made to
+transform under every operation of the run's space group exactly as the trial
+orbitals do (Sakuma, PRB 87, 235109 (2013); Wannier90's ``site_symmetry``),
+with ``D`` and ``d`` from :mod:`defuqumat.wannier.dmatrix` and the constraint
+imposed by :mod:`defuqumat.wannier.sitesym`. The group is the one the SCF used,
+``system.symmetry_group(nosym=system.nosym)``; with ``nosym`` it is the identity
+and the option changes nothing. Time reversal is not imposed. Refused with it:
+a frozen window (as in Wannier90), a magnetic group (an operation that needs
+time reversal, a collinear spin flip included), and projections given as a
+name rather than as lines.
 """
 
 from __future__ import annotations
@@ -85,7 +96,9 @@ class WannierFunctions:
     iterations: int
     spin: int | None = None
     #: Wannier90's layout, kept so that :meth:`write_w90` can hand them over:
-    #: ``M[m, n, nn, k]``, ``A[m, n, k]``, and the neighbour tables.
+    #: ``M[m, n, nn, k]``, ``A[m, n, k]``, and the neighbour tables; with
+    #: ``symmetry=True`` also the :class:`~defuqumat.wannier.sitesym.SymmetryData`
+    #: of the ``.dmn`` file.
     mmn: np.ndarray = field(default=None, repr=False)
     amn: np.ndarray = field(default=None, repr=False)
     nnlist: np.ndarray = field(default=None, repr=False)
@@ -111,6 +124,10 @@ class WannierFunctions:
     #: ``projections = "auto"``: the Wannier90 projection line of each function's
     #: angular part, for :meth:`write_w90`.
     projection_lines: tuple = field(default=(), repr=False)
+    #: ``symmetry=True``: the site-symmetry data imposed, for :meth:`write_w90`.
+    site_symmetry: object = field(default=None, repr=False)
+    #: The number of space-group operations imposed (1: none).
+    nsym: int = 1
 
     @property
     def omega_total(self) -> float:
@@ -146,7 +163,8 @@ class WannierFunctions:
     def write_w90(self, prefix, projections=(), atoms=(), extra: dict | None = None) -> None:
         """Write ``prefix.mmn``, ``.amn``, ``.eig`` and a ``.win`` for ``wannier90.x``.
 
-        The ``.win`` carries the cell in bohr to twelve digits, the mesh in the
+        With site symmetry also ``prefix.dmn`` and ``site_symmetry = .true.``
+        with its ``symmetrize_eps`` in the ``.win``. The ``.win`` carries the cell in bohr to twelve digits, the mesh in the
         order of :attr:`kpoints`, ``num_bands``, ``num_wann``, the
         ``projections`` lines and ``atoms`` (``(symbol, (f1, f2, f3))`` pairs),
         and ``extra`` keywords verbatim (the windows, ``num_iter``, ...).
@@ -157,6 +175,11 @@ class WannierFunctions:
         files.write_amn(f"{prefix}.amn", self.amn)
         files.write_eig(f"{prefix}.eig", self.eigenvalues.T * RY_TO_EV)
         lines = [f"num_bands = {self.num_bands}", f"num_wann = {self.num_wann}"]
+        sym = self.site_symmetry
+        if sym is not None:
+            files.write_dmn(f"{prefix}.dmn", sym.ik2ir, sym.ir2ik, sym.kptsym,
+                            sym.d_matrix_wann, sym.d_matrix_band)
+            lines += ["site_symmetry = .true.", f"symmetrize_eps = {sym.symmetrize_eps:.1e}"]
         lines += [f"{k} = {v}" for k, v in (extra or {}).items()]
         lines += ["begin unit_cell_cart", "bohr"]
         lines += [" ".join(f"{x:.12f}" for x in row) for row in self.lattice]
@@ -189,6 +212,8 @@ def run_wannier(
     semicore="auto",
     fermi_energy: float | None = None,
     use_ws_distance: bool = True,
+    symmetry: bool = False,
+    symmetrize_eps: float = 1.0e-8,
     engine_options: dict | None = None,
     becsum: tuple = (),
     ns=None,
@@ -235,6 +260,13 @@ def run_wannier(
             makes the run a metal for the edge; ``None`` for an insulator.
         use_ws_distance: Wannier90's ``use_ws_distance`` (its default) for the
             interpolation.
+        symmetry: impose the space group of the run on the Wannier functions
+            (Wannier90's ``site_symmetry``): ``U(gk) = d(g,k) U(k) D(g,k)^+``
+            for every operation the SCF used. Needs a band set and an outer
+            window that cut no degenerate multiplet, and no frozen window.
+        symmetrize_eps: Wannier90's ``symmetrize_eps``, the tolerance of the
+            little-group average at each irreducible k (its default is 1e-3;
+            1e-8 here, so that the symmetry holds to that order).
         engine_options: any other field of
             :class:`~defuqumat.wannier.engine.EngineOptions`, in Wannier90's
             units (``num_iter``, ``conv_tol`` in A^2, ``conv_window``,
@@ -264,6 +296,10 @@ def run_wannier(
         raise ValueError("at nspin = 2 the channel is wannierised alone: pass spin = 0 or 1")
     if system.nspin != 2 and spin is not None:
         raise ValueError("spin is only for nspin = 2")
+    if symmetry:
+        _refuse_for_symmetry(system, projections, dis_froz, engine_options)
+        if exclude_bands:
+            raise NotImplementedError("exclude_bands together with symmetry was not validated")
     if divisions is None:
         divisions = system.kpoints.grid
     if divisions is None:
@@ -326,6 +362,7 @@ def run_wannier(
 
     extra = {}
     outer = frozen = None
+    sym, nsym = None, 1
     if auto:
         tol_ev = resolve_degeneracy_tol(PAO_DEGENERACY_TOL, states.ethr) * RY_TO_EV
         energies_ev = all_energies[:, :nsolve] * RY_TO_EV
@@ -384,6 +421,14 @@ def run_wannier(
         else:
             mmn = overlap_matrices(states, kmesh, num_bands, k_batch=k_batch_m)
             amn = projection_matrices(states, trial, num_bands, volume)
+        if symmetry:
+            from defuqumat.wannier.dmatrix import operations_of, site_symmetry_data
+
+            operations = operations_of(system.cell, system.symmetry_group(nosym=system.nosym))
+            nsym = operations.nsym
+            if nsym > 1:  # the identity alone is a no-op, bit for bit (not routed through it)
+                sym = site_symmetry_data(states, trial, num_bands, operations, points,
+                                         symmetrize_eps=symmetrize_eps)
         del states
 
     window = dict(engine_options or {})
@@ -395,7 +440,8 @@ def run_wannier(
     site_cart = np.array([p.site_frac for p in trial]) @ at * BOHR_TO_ANGSTROM
     result = run_engine(mmn, amn, energies.T * RY_TO_EV, kmesh, num_wann, options,
                         kpt_frac=points.T, real_lattice=at * BOHR_TO_ANGSTROM,
-                        mp_grid=divisions, site_cart=site_cart, outer=outer, frozen=frozen)
+                        mp_grid=divisions, site_cart=site_cart, outer=outer, frozen=frozen,
+                        sym=sym)
 
     v = np.einsum("bwk,wnk->kbn", absolute_u_opt(result), result.u_matrix)  # (nk, nb, nw)
     irvec, ndegen, hr = wannier_hamiltonian(v, energies, points, divisions, at)
@@ -411,4 +457,26 @@ def run_wannier(
         lattice=at, disentangled=result.disentangled,
         converged=result.converged and result.dis_converged, iterations=result.iterations,
         spin=spin, mmn=mmn, amn=amn, nnlist=kmesh.nnlist, nncell=kmesh.nncell,
-        ws_shifts=shifts, excluded_bands=excluded, solved_bands=nsolve, **extra)
+        ws_shifts=shifts, excluded_bands=excluded, solved_bands=nsolve, site_symmetry=sym,
+        nsym=nsym, **extra)
+
+
+def _refuse_for_symmetry(system, projections, dis_froz, engine_options) -> None:
+    """What ``symmetry=True`` does not treat, refused before any state is solved."""
+    if isinstance(projections, str):
+        raise NotImplementedError(
+            f"projections = {projections!r} together with symmetry is not implemented: "
+            "the site symmetry needs trial orbitals that form a representation of the "
+            "group, given as projection lines")
+    if dis_froz is not None or (engine_options or {}).get("dis_froz_max") is not None:
+        raise NotImplementedError(
+            "a frozen window together with symmetry is not implemented (Wannier90 refuses "
+            "it too, disentangle.F90:104); give dis_win only")
+    if (engine_options or {}).get("precond"):
+        raise NotImplementedError("precond together with symmetry was not validated")
+    group = system.symmetry_group(nosym=system.nosym)
+    if group.magnetic:
+        raise NotImplementedError(
+            "symmetry with a magnetic group is not implemented: some operations of this "
+            "run are symmetries only with time reversal (a spin flip), which the unitary "
+            "site symmetry does not carry")

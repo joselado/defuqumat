@@ -112,6 +112,7 @@ instead, which means the physics is selected in the input file rather than at th
 | A Berry curvature map | `get_berry_curvature()` | [10](10_topological_invariants.ipynb) |
 | How far an electron of an insulator is spread: the quantum metric and the localization tensor | `get_quantum_metric()` | [57](57_quantum_metric.ipynb) |
 | The most localized orbitals of a set of bands, and a tight-binding model from them: Wannier functions | `get_wannier()` | [58](58_wannier_functions.ipynb) |
+| Wannier functions that keep the symmetry of the crystal | `get_wannier(..., symmetry=True)` | [59](59_wannier_symmetry.ipynb) |
 | A Chern number | `get_chern()` | [10](10_topological_invariants.ipynb) |
 | A Z2 invariant | `get_z2()`, `get_z2_3d()` | [10](10_topological_invariants.ipynb) |
 
@@ -199,6 +200,7 @@ want a number.
 | [`56_quantum_espresso_restart.ipynb`](56_quantum_espresso_restart.ipynb) | The converged density of `pw.x` for PAW silicon loaded from its save folder: the SCF stops after one iteration at the `pw.x` energy, against eight from atomic charges, and the bands come from the loaded state |
 | [`57_quantum_metric.ipynb`](57_quantum_metric.ipynb) | The localization tensor of silicon from the quantum metric, 2.58 bohr$^2$, the same number from the optical absorption to 1e-4, and diamond, silicon and AlAs against their gaps |
 | [`58_wannier_functions.ipynb`](58_wannier_functions.ipynb) | Eight $sp^3$ Wannier functions of silicon from twelve bands, spread 16.0532 Å$^2$ as `wannier90.x`, a lower and symmetric minimum at 14.4365 Å$^2$, the interpolated bands on 4x4x4 and 6x6x6 meshes, and the eight functions chosen without input from the projectability onto the atomic orbitals (15.84 Å$^2$) |
+| [`59_wannier_symmetry.ipynb`](59_wannier_symmetry.ipynb) | Wannier functions of silicon with the 48 operations of the diamond group imposed: the spreads with and without symmetry for two sets of trial orbitals, 15.7737 against the 15.7737 Å$^2$ of `wannier90.x` with `site_symmetry`, and the bands at the 48 images of a k-point equal to 5e-13 eV against 3e-7 eV without |
 
 ## Conventions
 
@@ -311,6 +313,11 @@ helix under both gradient corrections, the first taking 119 iterations.
 | `00` | 22 | `23` | 35 | `39` | 151 | `49` | 194 |
 | `07` | 22 | `32` | 84 | `41` | 110 | `51` | 290 |
 | `46` | 61 | `47` | 260 | `48` | 121 | `50` | 509 |
+
+`59` reads **34 s** on 2026-11-05, its first measurement, on one core of the GPU workstation
+D22 (an i5-12600K performance thread, `OMP_NUM_THREADS=1`, CPU only) with the compiled code
+already cached: one silicon SCF on 8^3 and four Wannier runs on 4^3, two of them with
+symmetry.
 
 `58` reads **99 s** on 2026-11-05, its first measurement, on CPUs 0-3 of this workstation
 (`taskset -c 0-3`, `OMP_NUM_THREADS=4`) with the compiled code already cached: one silicon

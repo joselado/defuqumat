@@ -203,6 +203,16 @@ projections on the orthonormal atomic orbitals (`atom_proj`, `atom_proj_ortho`,
 of the kept and left-out states by projectability (Qiao, Pizzi and Marzari) is done
 outside both, in the AiiDA workflows of the paper.
 
+**23. Wannier functions with the symmetry of the crystal, QE (✓), not Elk.** In QE,
+`compute_dmn` in `PP/src/pw2wannier90.f90` writes the `.dmn` file (`write_dmn`),
+the matrices $D$ of the trial orbitals and $d$ of the Bloch states for every
+operation and irreducible k-point. The constrained minimisation is Wannier90's
+`site_symmetry` (`external/wannier90/src/sitesym.F90`), so the tick is in brackets
+for the same reason as note 22. Elk's `writew90.f90` writes no `.dmn` file, and no
+Elk routine builds these matrices. The engine here is a port of Wannier90's
+`sitesym.F90` (through the user's `wannierpy`), and $D$, $d$ were transcribed from
+`compute_dmn`.
+
 ## The convergence workflows, which have no row
 
 Six rows about getting a calculation to converge left the table when the README

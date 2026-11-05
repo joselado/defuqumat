@@ -11406,3 +11406,35 @@ fixed-density solve of 64 k-points by 20 bands (16 used and 4 of buffer, where t
 nscf solves exactly 16), the PAO projections and the engine; it was not
 split here, and the P162 section above says the solve is most of it. The gap to the QE chain
 is 1.4x in total.
+
+## Symmetry-adapted Wannier functions against `pw.x` + `pw2wannier90.x` (`write_dmn`) + `wannier90.x` (`site_symmetry`) (CPU, D22, 2026-11-05)
+
+`tests/data/wannier/si/si.scf` (Si, `Si.pz-vbc`), the 4x4x4 Wannier mesh (64 k-points, 8
+irreducible under the 48 operations), 12 bands to 8 `Si:sp3`, outer window 17 eV and no frozen
+window (refused with symmetry), `num_iter = dis_num_iter = 200`, `conv_tol = dis_conv_tol =
+1e-10`. **Not the machine of the section above**: D22 (i5-12600K), one performance thread
+each, `OMP_NUM_THREADS=1`. defuqumat on CPU 4 through `slot.sh` (`JAX_PLATFORMS=cpu`), **median
+of 3 warm calls** after one warm-up, the SCF excluded; QE 7.5 on CPU 9 (`taskset -c 9`), **median
+of 3 runs** of the chain, wall time per program. `pw.x` nscf runs with symmetry on and the full
+4x4x4 list, as `compute_dmn` needs.
+
+| | total | states | `D`, `d` | engine | QE total | `pw.x` nscf | `wannier90.x -pp` | `pw2wannier90.x` | `wannier90.x` |
+|---|---|---|---|---|---|---|---|---|---|
+| `symmetry=True` | 8.73 s | 4.04 | 0.44 | 3.28 | 6.81 s | 3.32 | 0.05 | 2.77 | 0.68 |
+| `symmetry=False` | 5.50 s | 4.04 | | 0.65 | | | | | |
+
+The `states`, `D, d` and engine columns are the pieces timed apart in the same process (medians
+of 3); they leave about 1 s of the total for `M`, `A` and the interpolation. Symmetry costs
+3.2 s here, almost all of it in the engine: 3.28 against 0.65 s without, and 4.8x the 0.68 s of
+`wannier90.x` with `site_symmetry`. The symmetrised engine is the NumPy port of `sitesym.F90`,
+with a Python loop over operations and irreducible k-points in every symmetrisation of `U` and
+of the gradient, and the small generalized eigenproblems of `dis_extract_symmetric` solved one
+at a time (2x2 by LAPACK's own chain, transcribed). Building `D` and `d` costs 0.44 s, which is
+inside `pw2wannier90.x`'s 2.77 s. That figure is not split between `compute_dmn` and the
+overlaps here (no run without `write_dmn` was timed). D22 was shared with another session's
+jobs, whose load was not recorded; the three QE runs spread by 3 per cent.
+
+**Peak working set.** `d` is `num_bands^2 x nsym x nkptirr` complex, 0.9 MB here, and `D` is
+`num_wann^2 x nsym x nkptirr`. The band representation rotates one k-point's coefficients at a
+time (a gather over the Miller indices and a phase), so its extra memory is one k-point's
+`nbnd x npwx` block.
