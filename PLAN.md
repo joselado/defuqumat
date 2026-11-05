@@ -204,7 +204,8 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
-- **Wannier functions beyond P162 to P165**: spinor projections and spinor PDWF, `gamma_only`,
+- **Wannier functions beyond P162 to P166** (site symmetry is the default since P166, with a
+  named fallback): spinor projections and spinor PDWF, `gamma_only`,
   SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the
   pseudopotential file, `wannier_plot` and `r_mn(R)`, and a differentiable engine (it is NumPy on
   the host). Beyond P164's site symmetry (a frozen set and `projections="auto"` with it are
@@ -27656,3 +27657,105 @@ regression; Cu or another `d` metal (no dataset with `PP_PSWFC` in `tests/data/p
 exercised). `write_w90` on an SCDM result writes an empty `begin projections` block:
 `wannier90.x` 3.1 accepts it, with or without `auto_projections` (Al, `Omega`
 7.095952557 both ways, `wauto/d/emptyblock.sh`).
+
+### P166 -- symmetry by default in get_wannier. ✅ DONE 2026-11-05 (the four Wannier fast files on D22 CPU and GPU, `test_notebook_conventions.py` and `test_facade_documentation.py` on CPU; the gate `tools/test-fast.sh` was not run; the slow file changed, `tests/regression/test_wannier.py`, and the slow file that exercises every path now raising `SiteSymmetryError`, `tests/regression/test_wannier_sitesym.py` (unchanged), were not run, for the user; branch `wannier-symdefault` from b351f38e, not merged, not pushed)
+
+**The decision** (the user's, 2026-11-05): `run_wannier`/`Calculator.get_wannier` take
+`symmetry=None` by default, meaning "impose the space group of the run when the input allows
+it; otherwise run free and warn, naming why", chosen over a plain `True` so that no call that
+works today breaks. `symmetry=True` is P164/P164b's behaviour exactly (every refusal by name),
+`symmetry=False` never builds the group. `projections="auto"` stays the default.
+
+**How the fallback is decided.** Two stages, and one exception type.
+
+- *Before the solve* (`_symmetry_obstacle`, P165's order: SCDM, then `_input_obstacle` = a
+  string projection other than `"auto"`, `precond`, a magnetic group, then `exclude_bands` by
+  hand). With `True` it raises `NotImplementedError` where it did before; with `None` the
+  warning is emitted only after every argument check, just before the solve, so an invalid
+  call (`"auto"` with `exclude_bands`, bad SCDM parameters) errs without a stray warning.
+  Spinors and `gamma_only` are refused at the top of `run_wannier` regardless of `symmetry`, so
+  `band_representation`'s spinor refusal is unreachable from the default and is not a
+  fallback.
+- *After the solve*: `SiteSymmetryError(ValueError)` (new, `wannier/sitesym.py`) is raised at
+  exactly the refusals that belong to the symmetric route: `dmatrix.py` (the `wws` fit, "not a
+  representation"; a centre off a whole orbit; a mesh or a plane-wave sphere the group does not
+  map onto itself), `sitesym.py` (`check_band_unitarity` with `refuse=True`, the window star
+  assertion of `slim_d_matrix_band`, `check_frozen_star`, both rank refusals of
+  `frozen_blocks`, and `symmetrize_ukirr` not converging), `pao._select_symmetric` (its three
+  refusals). `run_wannier` catches that type only, at three places: around `_symmetry_data`,
+  around the symmetric selection of `"auto"`, and around `run_engine`; each redoes the rest
+  from the matrices in hand (`mmn`, `amn`, the energies, the averaged projectability), the
+  automatic set through `pao.select_states(..., sym=None)`. Being a `ValueError` subclass,
+  every `pytest.raises(ValueError, ...)` of P164/P164b still holds. Internal assertions
+  ("group has no identity", "a rotated plane wave is not on the reciprocal lattice", "the
+  frozen column basis is not square", "a k-point is in no star") stay plain `ValueError`: they
+  are defects, not inputs.
+- **`symmetrize_ukirr` was found by the probe, not by the brief**: `Si:p` (6 functions, 8
+  bands, frozen to -4 eV, i.e. the Gamma1 band alone at Gamma) raised a plain `ValueError`
+  "symmetrize_ukirr: not converged (diff = 44.9)" under `symmetry=True`, so under the default
+  it would have broken a call that runs free. It is now a `SiteSymmetryError` and a fast case.
+- `WannierFunctions.symmetry_fallback` (new): the reason, `None` when imposed, for an
+  identity-only group (`nosym`, silent: nothing to impose) and for `symmetry=False`. On a
+  fallback `site_symmetry` is `None` and `nsym` 1, so `write_w90` writes no `.dmn`.
+
+**Which cases fall back, measured** on the 2x2x2 Si cell of `test_wannier_sitesym.py` (probe
+`/l/ladovj1/review/wauto/e/probe.py`, `probe.log`; each `None` result `np.array_equal` to the
+`symmetry=False` one in `u_matrix`): `Si:pz` alone (D matrix, 0.3 s), s on the atoms and on the
+8b sites with the valence frozen ("the bands left free ... rank 1 of 3"), `Si:sp3` with 12
+bands and no window ("the outer window (12 bands there) cuts a degenerate multiplet", the
+triplet at 14.485 eV), `Si:p` with the Gamma1 band frozen (`symmetrize_ukirr`). Imposed:
+`Si:sp3` with the 17 eV window, the four bond orbitals. Cr US auto on 4^3 at the default edge
+(the guide's cell): falls back with "the frozen states at k-point 2 carry an irrep the trial
+orbitals do not ... rank 8 of 9", `nsym` 1, the printed numbers of the guide unchanged.
+
+**What moved.** Only where the free minimum is not symmetric:
+
+| case | before (free) | default now | |
+|---|---|---|---|
+| guide/P162 `Si:sp3`, ecut 20, 12 to 8, outer 17, frozen 6.4, 4^3, `Omega` | 16.05319 | 16.06269 | spreads 1.8177/2.1956 -> 1.8057/2.2099 A^2; bands at L and Gamma equal to 3 decimals |
+| the guide figure, the same at 4^3 / 6^3 | 16.05 / 19.49; valence within 0.317 / 0.064 eV | 16.0626 / 19.4934; 0.296 / 0.061 eV | `docs/figures/wannier_silicon` recomputed on D22 (45 s) |
+| turned set, frozen | 14.43648 | 14.43648 | |
+| Si auto (ecut 12, 4^3) | 15.78017 | 15.78017 | every printed digit equal |
+| diamond, four bond s | 2.34917 | 2.34917 | one printed `-0.` became `0.` |
+| SCDM (both), Cr auto | | unchanged | fallback, with a warning |
+
+**Tests.** Taken against `wannier90.x` or `pw2wannier90.x` without site symmetry, so they pass
+`symmetry=False` now (no tolerance moved): the diamond pipeline (`test_wannier.py`), P163's
+automatic fixture (`test_wannier_auto.py`; the projectability and the free selection), every
+SCDM run and the SCDM refusal lambda (`test_wannier_scdm.py`), and `tests/regression/test_wannier.py`
+(16.053195110, slow, not run). `tests/regression/test_wannier_sitesym.py` passes `symmetry`
+explicitly and is unchanged. The diamond interpolation test and the `nosym` test run the
+default (the latter now also asserts `symmetry_fallback is None`). New in
+`test_wannier_sitesym.py`: five fallback cases (one per mechanism: input `precond`, D matrix
+`Si:pz`, engine cut multiplet, the free-band rank, `symmetrize_ukirr`), each asserting the
+warning names the reason, `symmetry_fallback`, `nsym` 1, the free result bit for bit
+(`u_matrix`, `hoppings`, `spreads`, `centres`) and that `symmetry=True` still raises the same
+reason; the default equal to `symmetry=True` bit for bit on silicon for `"auto"` and for
+`Si:sp3` with the frozen window (`nsym` 48, `site_symmetry` set, no warning); a non-boolean
+`symmetry` refused, and `symmetry=0` read as `False` (it tested truthiness before P166; `bool(symmetry)` after the membership check). The frozen-irrep rank refusal ("carry an irrep the trial orbitals do not")
+is not a fast case: its only known trigger is Cr US on 4^3 (the guide snippet, 17 s), and the
+free-band rank is the same mechanism one block further. **Counts**: the four Wannier files 58
+passed on D22 CPU (74 s, one core) and 58 passed on the RTX A2000 (`[CudaDevice(id=0)]`, 95 s; both rerun after the `bool(symmetry)` fix);
+with `test_notebook_conventions.py` and `test_facade_documentation.py` 521 passed on CPU (74 s).
+
+**Cost** (`PERFORMANCE.md`, end of "A frozen set under site symmetry"): the guide's `Si:sp3`
+case 6.61 s by default against 5.32 s free, 1.24x, medians of 3 alternated; the solve is most
+of the call. The symmetric engine alone stays 2x to 4x the free one (P164, P164b).
+
+**Deliverables.** Guide `docs/guide/wannier.md`: every snippet re-executed on D22 (`snippets.py`,
+`snippets.log` in `/l/ladovj1/review/wauto/e/`), the changed outputs pasted (diamond row,
+`Si:sp3` spreads and terms, Cr's new `print(w.nsym)` -> 1), the figure recomputed and its
+numbers in the text, a paragraph on `None`/`True`/`False` and the fallbacks with the cost in the
+symmetry section, sentences in the diamond, `Si:sp3`, auto, Cr and SCDM sections, the eta table
+marked as taken with `symmetry=False` (the auto rows at 4^3 and Si 6^3 checked equal in P164b,
+the `Si:sp3` rows and the 8^3 rows not rerun), "How we checked it" says its reference rows are
+free on both sides, the Limits rewritten. Notebook 58: the hybrids and SCDM pass
+`symmetry=False` (its headline is the `wannier90.x` comparison, 16.0532), the automatic cell
+runs the default; outputs unchanged, 60 s. Notebook 59: prose only (all its runs pass
+`symmetry` explicitly), outputs unchanged, 75 s. README bullet and row, the
+`get_wannier` docstring, the module docstring of `workflows/wannier.py`. The figure's
+`data.npz` records D22's detached commit 32d97a76 with this working tree rsync'd over it.
+
+**What is outstanding.** A fast trigger for the frozen-irrep rank refusal; the slow files for
+the user; SCDM with symmetry, time reversal, spinors and magnetic groups as before (SCDM and a
+magnetic group now give the fallback warning by default; spinors are still refused first).

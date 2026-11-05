@@ -112,7 +112,7 @@ instead, which means the physics is selected in the input file rather than at th
 | A Berry curvature map | `get_berry_curvature()` | [10](10_topological_invariants.ipynb) |
 | How far an electron of an insulator is spread: the quantum metric and the localization tensor | `get_quantum_metric()` | [57](57_quantum_metric.ipynb) |
 | The most localized orbitals of a set of bands, and a tight-binding model from them: Wannier functions | `get_wannier()` | [58](58_wannier_functions.ipynb) |
-| Wannier functions that keep the symmetry of the crystal, also with a frozen window and the automatic orbitals | `get_wannier(..., symmetry=True)` | [59](59_wannier_symmetry.ipynb) |
+| Wannier functions that keep the symmetry of the crystal, also with a frozen window and the automatic orbitals | `get_wannier()` (the default; `symmetry=False` turns it off) | [59](59_wannier_symmetry.ipynb) |
 | A Chern number | `get_chern()` | [10](10_topological_invariants.ipynb) |
 | A Z2 invariant | `get_z2()`, `get_z2_3d()` | [10](10_topological_invariants.ipynb) |
 

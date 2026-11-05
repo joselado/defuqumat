@@ -187,7 +187,7 @@ def test_the_pipeline_is_pw2wannier90_and_wannier90(diamond):
     """Our states, matrices and engine against ``pw.x``, ``pw2wannier90.x`` and
     ``wannier90.x``: two SCFs, so a tolerance of 1e-6 A^2 (measured 2e-9 on the
     ecut-40 cell, and 4e-7 on disentangled silicon)."""
-    w = diamond.get_wannier(4, DIAMOND_PROJECTIONS, divisions=(4, 4, 4),
+    w = diamond.get_wannier(4, DIAMOND_PROJECTIONS, divisions=(4, 4, 4), symmetry=False,
                             engine_options=dict(num_iter=100, conv_window=3))
     terms = w.spread_terms_angstrom2()
     assert abs(terms["omega_total"] - DIAMOND_W90["omega_total"]) < 1.0e-6

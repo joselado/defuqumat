@@ -59,6 +59,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from defuqumat.wannier.sitesym import SiteSymmetryError
+
 __all__ = [
     "PAOProjection",
     "pao_projections",
@@ -384,7 +386,7 @@ def _select_symmetric(energies, p, *, num_wann, proj_min, proj_max, froz_max, to
             froz = pbar >= proj_max or (froz_max is not None and ebar <= froz_max)
             if cut_at_top:
                 if froz:
-                    raise ValueError(
+                    raise SiteSymmetryError(
                         f"a frozen multiplet is cut by the top of the {nb} bands at k-point "
                         f"{_name(k, kpoints)}; raise num_bands")
                 continue
@@ -395,12 +397,12 @@ def _select_symmetric(energies, p, *, num_wann, proj_min, proj_max, froz_max, to
                 outer[block, k] = True
         nfroz = int(frozen[:, k].sum())
         if nfroz > num_wann:
-            raise ValueError(
+            raise SiteSymmetryError(
                 f"{nfroz} states are frozen at k-point {_name(k, kpoints)}, more than "
                 f"num_wann = {num_wann}; lower froz_above_edge or raise proj_max")
         nout = int(outer[:, k].sum())
         if nout < num_wann:
-            raise ValueError(
+            raise SiteSymmetryError(
                 f"only {nout} states are kept at k-point {_name(k, kpoints)}, fewer than "
                 f"num_wann = {num_wann}; lower proj_min or raise num_bands")
         for s in range(sym.nsymmetry):

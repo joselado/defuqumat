@@ -10,7 +10,9 @@ $\Omega = \sum_n \left[\langle r^2\rangle_n - \langle \mathbf r\rangle_n^2\right
 
 Here we compute eight $sp^3$ functions of silicon from its twelve lowest bands. The
 spread is $\Omega = 16.0532$ Å$^2$, the value of `pw2wannier90.x` and `wannier90.x` on
-the same input to $4\times10^{-7}$ Å$^2$. Then we use the functions as a
+the same input to $4\times10^{-7}$ Å$^2$. For this comparison the hybrids are computed
+without the symmetry of the crystal (`symmetry=False`), as `wannier90.x` does by
+default. Notebook 59 shows what the symmetry changes. Then we use the functions as a
 tight-binding model and interpolate the bands. At the end the code chooses the
 orbitals itself, first from the atomic orbitals in the pseudopotential file and then
 from the density matrix.
@@ -26,7 +28,7 @@ si = Calculator.from_keywords(
     ecut=272.1, kmesh=(8, 8, 8))
 si.get_scf(conv_thr=1e-10)
 windows = dict(num_bands=12, divisions=(4, 4, 4), dis_win=(None, 17.0), dis_froz=(None, 6.4),
-               engine_options=dict(num_iter=200, conv_window=3))
+               symmetry=False, engine_options=dict(num_iter=200, conv_window=3))
 w = si.get_wannier(8, ['Si:sp3'], **windows)
 print(np.round(w.spreads_angstrom2, 4))
 print({k: round(v, 4) for k, v in w.spread_terms_angstrom2().items()})
@@ -160,7 +162,8 @@ the state is made of these orbitals only, and $p = 0$ means it has nothing of th
 state with $p \geq 0.95$ is kept exactly, a state with $p < 0.01$ is left out, and the
 others go into the disentanglement. Every state up to 2 eV above the conduction band
 minimum is also kept exactly. This is the method of Qiao, Pizzi and Marzari
-(arXiv:2303.07877). We only call `get_wannier()` without orbitals:
+(arXiv:2303.07877). We only call `get_wannier()` without orbitals. By default this
+also imposes the symmetry of the crystal:
 
 
 ```python
@@ -200,12 +203,13 @@ the weight is $f(\varepsilon) = \tfrac12 \mathrm{erfc}[(\varepsilon - \mu)/\sigm
 code chooses $\mu$ and $\sigma$ as Vitale and coworkers do. It fits the same erfc to the
 projectability $p$ against the energy, and then takes $\mu = \mu_\mathrm{fit} - 3
 \sigma_\mathrm{fit}$ and $\sigma = \sigma_\mathrm{fit}$. Then the spread is minimised as
-before, with no disentanglement step:
+before, with no disentanglement step. The points do not follow the symmetry of the
+crystal, so we run it with `symmetry=False`:
 
 
 
 ```python
-scdm = si.get_wannier(projections='scdm', divisions=(4, 4, 4),
+scdm = si.get_wannier(projections='scdm', divisions=(4, 4, 4), symmetry=False,
                       engine_options=dict(num_iter=3000, conv_window=3))
 s = scdm.scdm
 print('erfc fit of p: mu_fit = %.2f eV, sigma_fit = %.2f eV, so mu = %.2f eV' % (s.mu_fit, s.sigma_fit, s.mu))

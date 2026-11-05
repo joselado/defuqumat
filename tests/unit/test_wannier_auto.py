@@ -232,7 +232,9 @@ def silicon():
 
     calc = Calculator.from_file(DATA / "si-pdwf" / "scf.in", pseudo_dir=PSEUDO)
     calc.get_scf()
-    w = calc.get_wannier(divisions=(4, 4, 4), engine_options=dict(num_iter=100, conv_window=3))
+    # P163's free selection, as pw2wannier90.x and wannier90.x have it (no site symmetry).
+    w = calc.get_wannier(divisions=(4, 4, 4), symmetry=False,
+                         engine_options=dict(num_iter=100, conv_window=3))
     return calc, w
 
 

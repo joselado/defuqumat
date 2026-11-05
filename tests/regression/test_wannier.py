@@ -45,7 +45,7 @@ def _wannier(name, frozen, divisions=(4, 4, 4)):
     calc = Calculator.from_file(DATA / name / "si.scf", pseudo_dir=PSEUDO)
     calc.get_scf()
     w = calc.get_wannier(8, ["Si:sp3"], num_bands=12, divisions=divisions,
-                         dis_win=(None, 17.0), dis_froz=(None, frozen),
+                         dis_win=(None, 17.0), dis_froz=(None, frozen), symmetry=False,
                          engine_options=dict(num_iter=200, conv_window=3, dis_num_iter=200))
     return calc, w
 

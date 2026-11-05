@@ -602,12 +602,14 @@ mesh only sets the resolution of the curvature map, and not the answer.
   $\mu$ and $\sigma$ (Vitale and coworkers). With the same $\mu$ and $\sigma$ the
   spread is that of `pw2wannier90.x` and `wannier90.x` to $5\times10^{-7}$ Å$^2$
   on silicon; notebook [58](notebooks/58_wannier_functions.ipynb).
-  With `symmetry=True` the functions keep the symmetry of the crystal. This is the
+  By default the functions keep the symmetry of the crystal. This is the
   `site_symmetry` of Wannier90. On silicon with the 48 operations of the diamond
   group the spread is that of `pw2wannier90.x` and `wannier90.x` to
   $3\times10^{-7}$ Å$^2$. The symmetry also works with a frozen window and with
-  the automatic set, `calc.get_wannier(symmetry=True)`. Wannier90 does not allow
-  these two. The frozen states then stay exact to $10^{-12}$ and the symmetry
+  the automatic set. Wannier90 does not allow these two. When the symmetry cannot
+  be kept (SCDM, or frozen states the trial orbitals cannot keep with it), the code
+  runs without it and gives a warning with the reason. `symmetry=True` makes this
+  an error, and `symmetry=False` turns the symmetry off. The frozen states then stay exact to $10^{-12}$ and the symmetry
   holds too; notebook [59](notebooks/59_wannier_symmetry.ipynb).
 
 - **$\mathbb Z_2$ invariants** in 2D and 3D. The code computes them in two
@@ -792,7 +794,7 @@ task of the other code that it refers to.
 | **Berry curvature and Chern numbers** | `calc.get_chern()`, `calc.get_chern(spin=0)` at `nspin = 2` | | |
 | **Quantum metric** of the occupied bands, the localization tensor and the spread $\Omega_I$ | `calc.get_quantum_metric()` | ²¹ | |
 | **Maximally localized Wannier functions**, disentanglement and Wannier-interpolated bands | `calc.get_wannier(num_wann, projections)`, `calc.get_wannier()` for the automatic set, `calc.get_wannier(projections="scdm")` | (✓)²² | (✓)²² |
-| **Wannier functions with the symmetry of the crystal**, the site symmetry of Wannier90, also with a frozen window and the automatic set | `calc.get_wannier(..., symmetry=True)`, `calc.get_wannier(symmetry=True)` | (✓)²³ | |
+| **Wannier functions with the symmetry of the crystal**, the site symmetry of Wannier90, also with a frozen window and the automatic set, by default wherever the input allows it | `calc.get_wannier(...)`, `symmetry=True` to require it, `symmetry=False` to turn it off | (✓)²³ | |
 | **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
 | **Magnetoelectric tensor** | `calc.get_magnetoelectric_tensor()` | | ✓ |

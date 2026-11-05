@@ -54,7 +54,7 @@ from dataclasses import dataclass
 import jax.numpy as jnp
 import numpy as np
 
-from defuqumat.wannier.sitesym import SymmetryData
+from defuqumat.wannier.sitesym import SiteSymmetryError, SymmetryData
 
 __all__ = ["Operations", "operations_of", "kpoint_stars", "wannier_representation",
            "band_representation", "site_symmetry_data"]
@@ -100,7 +100,7 @@ def _find(frac, points, what):
     d -= np.rint(d)
     hit = np.flatnonzero(np.abs(d).max(axis=1) < 1.0e-6)
     if len(hit) != 1:
-        raise ValueError(f"{what} is not a point of the mesh: the mesh is not invariant "
+        raise SiteSymmetryError(f"{what} is not a point of the mesh: the mesh is not invariant "
                          "under the group of the run")
     return int(hit[0])
 
@@ -121,7 +121,7 @@ def kpoint_stars(points: np.ndarray, operations: Operations, at: np.ndarray, bg:
         for ik in range(nk):
             iks2k[ik, s] = _find(images[ik], points, f"R k for k = {points[ik]}")
         if len(set(iks2k[:, s])) != nk:
-            raise ValueError("an operation of the group does not permute the mesh")
+            raise SiteSymmetryError("an operation of the group does not permute the mesh")
     ik2ir = -np.ones(nk, dtype=np.int64)
     ir2ik = []
     for ik in range(nk):
@@ -209,7 +209,7 @@ def wannier_rotations(projections, operations: Operations, at: np.ndarray):
         for n in range(nw):
             err = abs(0.5 * (np.sum(W[s, :, n] ** 2) + np.sum(W[s, n, :] ** 2)) - 1.0)
             if err > WWS_TOLERANCE:
-                raise ValueError(
+                raise SiteSymmetryError(
                     f"symmetry operation {s} does not transform trial orbital {n} "
                     f"({projections[n].l}, {projections[n].m}) into the orbitals on the image "
                     f"site with the same radial part (error {err:.2e} > {WWS_TOLERANCE}): "
@@ -224,7 +224,7 @@ def _find_site(image, sites, s, site):
     d -= np.rint(d)
     hit = np.flatnonzero(np.abs(d).max(axis=1) < 1.0e-5)
     if len(hit) != 1:
-        raise ValueError(f"symmetry operation {s} maps the projection centre {site} onto "
+        raise SiteSymmetryError(f"symmetry operation {s} maps the projection centre {site} onto "
                          f"{image}, which is not a centre of the set: the projections must "
                          "cover whole orbits of the group")
     return int(hit[0])
@@ -268,7 +268,7 @@ def _rotation_gather(states, ik: int, jk: int, R, t, g0):
     nvalid_i = int(np.asarray(states.valid[ik]).sum())
     if not np.all(found[valid_t]) or int(valid_t.sum()) != nvalid_i \
             or len(set(gather[valid_t].tolist())) != nvalid_i:
-        raise ValueError(
+        raise SiteSymmetryError(
             "the rotation of the plane-wave sphere is not a bijection between k and g k "
             f"({int((~found[valid_t]).sum())} of {int(valid_t.sum())} plane waves have no "
             "partner): a plane wave sits on the cutoff edge at round-off, move ecutwfc "

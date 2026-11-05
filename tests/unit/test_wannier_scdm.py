@@ -83,7 +83,7 @@ def test_the_refusals_fire_before_any_state():
 
     calc = Calculator.from_text(_text(), pseudo_dir=PSEUDO)
     run = lambda **kw: run_wannier(calc.system, calc.pseudos, None,  # noqa: E731
-                                   projections="scdm", **kw)
+                                   projections="scdm", **{"symmetry": False, **kw})
     with pytest.raises(NotImplementedError, match="'scdm' together with symmetry"):
         run(symmetry=True)
     with pytest.raises(ValueError, match="scdm_sigma = 0.0 must be positive"):
@@ -98,7 +98,7 @@ def test_the_refusals_fire_before_any_state():
         run(num_wann=4, scdm_entanglement="isolated", scdm_mu=5.0, scdm_sigma=1.0)
     gamma = Calculator.from_text(_text("K_POINTS gamma"), pseudo_dir=PSEUDO)
     with pytest.raises(NotImplementedError, match="K_POINTS gamma"):
-        run_wannier(gamma.system, gamma.pseudos, None, projections="scdm")
+        run_wannier(gamma.system, gamma.pseudos, None, projections="scdm", symmetry=False)
 
 
 @pytest.fixture(scope="module")
@@ -118,7 +118,7 @@ def test_isolated_silicon_is_the_qe_chain(silicon):
     ``pw2wannier90.x`` (in another order, a tie), and its spread to 1e-6 A^2
     (measured 3.7e-7, two SCFs and Wannier90's bohr)."""
     w = silicon.get_wannier(4, "scdm", scdm_entanglement="isolated", divisions=(4, 4, 4),
-                            engine_options=ENGINE)
+                            symmetry=False, engine_options=ENGINE)
     assert w.num_bands == 4 and w.scdm.grid == (16, 16, 16)
     assert abs(w.spread_terms_angstrom2()["omega_total"] - QE["si-iso"]) < 1e-6
     assert np.max(np.abs(w.spreads_angstrom2 - 1.59640941)) < 1e-6
@@ -132,7 +132,8 @@ def test_the_automatic_parameters_and_the_entangled_spread(silicon):
     """Vitale's protocol on 16 bands: the fit, ``mu = mu_fit - 3 sigma_fit``,
     eight functions, and the spread of the QE chain run with these ``mu`` and
     ``sigma`` (measured 5.1e-7 apart, with different tied points)."""
-    w = silicon.get_wannier(projections="scdm", divisions=(4, 4, 4), engine_options=ENGINE)
+    w = silicon.get_wannier(projections="scdm", divisions=(4, 4, 4), symmetry=False,
+                            engine_options=ENGINE)
     s = w.scdm
     assert w.num_wann == 8 and w.num_bands == 16 and s.entanglement == "erfc"
     assert abs(s.mu_fit - 13.224590) < 1e-4 and abs(s.sigma_fit - 6.509102) < 1e-4
@@ -148,6 +149,6 @@ def test_isolated_diamond_is_the_qe_chain():
     calc = Calculator.from_file(DATA / "diamond" / "diamond.scf", pseudo_dir=PSEUDO)
     calc.get_scf()
     w = calc.get_wannier(4, "scdm", scdm_entanglement="isolated", divisions=(4, 4, 4),
-                         engine_options=ENGINE)
+                         symmetry=False, engine_options=ENGINE)
     assert abs(w.spread_terms_angstrom2()["omega_total"] - QE["diamond-iso"]) < 1e-6
     assert np.max(np.abs(w.bands(w.kpoints) - w.eigenvalues)) < 1e-10
