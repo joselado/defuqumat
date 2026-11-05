@@ -709,7 +709,7 @@ def _fold_free(z: np.ndarray, windows, blocks: list[FrozenBlock], sym: SymmetryD
 
 def dis_extract_symmetric_frozen(u_matrix_opt_init, M_slim, windows, nnlist, wb, wbtot,
                                  num_wann, dis_num_iter, dis_mix_ratio, dis_conv_tol,
-                                 dis_conv_window, sym, lwindow, blocks):
+                                 dis_conv_window, sym, lwindow, blocks, trace=None):
     """The symmetric iteration with frozen states (P164b).
 
     At each representative the free block ``U_free`` of ``U V`` is extracted by
@@ -722,7 +722,8 @@ def dis_extract_symmetric_frozen(u_matrix_opt_init, M_slim, windows, nnlist, wb,
     :func:`dis_extract_symmetric`: ``womegai1 = (1/N) sum_ir [n_star (num_wann wbtot
     - r_F(k)) - tr lambda]``, ``r_F`` the frozen rows' overlap with the current
     neighbours. There is no Fortran counterpart for this route; the estimate was
-    checked against the exact ``_womegai`` on the H3S fixture (``PLAN.md`` P164b).
+    checked against the exact ``_womegai`` on the H3S fixture (``PLAN.md`` P164b);
+    ``trace``, a list, receives ``(womegai1, womegai)`` at every step for that.
     """
     from defuqumat.wannier.disentangle import _womegai, _zmatrix
 
@@ -777,6 +778,8 @@ def dis_extract_symmetric_frozen(u_matrix_opt_init, M_slim, windows, nnlist, wb,
         u = symmetrize_u_matrix(u, sym, lwindow)
         womegai = _womegai(u, M_slim, windows, nnlist, wb, wbtot, num_wann)
         delta = womegai1 / womegai - 1.0
+        if trace is not None:
+            trace.append((womegai1, womegai))
         z_out = _fold_free(zstack(u), windows, blocks, sym)
         history.append(delta)
         if len(history) > dis_conv_window:
