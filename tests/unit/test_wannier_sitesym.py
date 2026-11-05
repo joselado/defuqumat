@@ -104,13 +104,167 @@ def test_the_engine_is_wannier90s_on_h3s_disentangled():
     assert abs(free.terms.om_tot - 6.234424363) < 1e-8
 
 
-def test_a_frozen_window_with_site_symmetry_is_refused():
+def _frozen_checks(u_opt, windows, sym, lwindow):
+    """max_k |(1 - U U^+) E_F| and max |P(gk) - d P(k) d^+| over the stars."""
+    from defuqumat.wannier.sitesym import slim_d_matrix_band
+
+    defect = 0.0
+    P = []
+    for k in range(u_opt.shape[2]):
+        nd, nf = windows.ndimwin[k], windows.ndimfroz[k]
+        U = u_opt[:nd, :, k]
+        e = np.zeros((nd, nf))
+        e[windows.indxfroz[:nf, k], np.arange(nf)] = 1.0
+        if nf:
+            defect = max(defect, float(np.abs(e - U @ (U.conj().T @ e)).max()))
+        P.append(U @ U.conj().T)
+    sw = slim_d_matrix_band(sym, lwindow)
+    cov = 0.0
+    for ir in range(sw.nkptirr):
+        ik = sw.ir2ik[ir]
+        nd = windows.ndimwin[ik]
+        for s in range(sw.nsymmetry):
+            d = sw.d_matrix_band[:nd, :nd, s, ir]
+            cov = max(cov, float(np.abs(P[sw.kptsym[s, ir]] - d @ P[ik] @ d.conj().T).max()))
+    return defect, cov
+
+
+def test_a_frozen_window_with_site_symmetry_keeps_both():
+    """H3S, outer window to 65 eV (95 cuts a multiplet at Gamma), frozen to 20 eV:
+    the block form (P164b) keeps the frozen states exact (measured 1.2e-11) and
+    ``P(gk) = d P(k) d^+`` (1.5e-11), and lands on ``Omega_I`` 3.6431179138 A^2,
+    the same as the plain frozen route here, whose minimum is symmetric. The
+    energy windows and the same sets given as masks give the same subspace."""
+    from defuqumat.wannier import disentangle as dis
+
     _, _, kmesh, mmn, amn, eig, dmn = _fixture("h3s-sitesym", "H3S", 20, 12)
     sym = from_dmn(dmn, 12, symmetrize_eps=1e-8)
-    with pytest.raises(NotImplementedError, match="frozen window"):
-        run_engine(mmn, amn, eig, kmesh, 12,
-                   EngineOptions(dis_win_max=95, dis_froz_max=20.0, dis_num_iter=2, num_iter=2),
-                   sym=sym)
+    windows = dis.dis_windows(eig, 12, -100.0, 65.0, True, -100.0, 20.0)
+    assert windows.linner and windows.ndimfroz.min() == 5
+    by_mask = dis.windows_from_masks(eig, 12, (eig >= -100.0) & (eig <= 65.0), eig <= 20.0)
+    wbtot = float(np.sum(kmesh.wb))
+    omega = []
+    for win in (None, by_mask):
+        u_opt, _, lwindow, _, converged = dis.dis_main(
+            amn, mmn, eig, kmesh.nnlist, kmesh.wb, 12, -100.0, 65.0, True, -100.0, 20.0,
+            400, 0.5, 1e-10, 3, windows=win, sym=sym)
+        assert converged
+        defect, cov = _frozen_checks(u_opt, windows, sym, lwindow)
+        assert defect < 1e-10 and cov < 1e-9
+        omega.append(dis._womegai(u_opt, dis.slim_m(mmn, windows, kmesh.nnlist), windows,
+                                  kmesh.nnlist, kmesh.wb, wbtot, 12))
+    assert abs(omega[0] - 3.6431179138) < 1e-8
+    assert abs(omega[1] - omega[0]) < 1e-10
+
+
+def _toy(d_band, d_wann, frozen_rows):
+    """A one-point SymmetryData and its windows: ``d_band`` (nb, nb, nsym),
+    ``d_wann`` (nw, nw, nsym), every operation in the little group, the frozen
+    bands given by index."""
+    from defuqumat.wannier.disentangle import windows_from_masks
+    from defuqumat.wannier.sitesym import SymmetryData
+
+    nb, nw, nsym = d_band.shape[0], d_wann.shape[0], d_band.shape[2]
+    eig = np.arange(nb, dtype=float)[:, None]
+    frozen = np.zeros((nb, 1), dtype=bool)
+    frozen[frozen_rows, 0] = True
+    windows = windows_from_masks(eig, nw, np.ones((nb, 1), dtype=bool), frozen)
+    sym = SymmetryData(nsymmetry=nsym, nkptirr=1, num_kpts=1, ik2ir=np.zeros(1, dtype=np.int64),
+                       ir2ik=np.array([0]), kptsym=np.zeros((nsym, 1), dtype=np.int64),
+                       d_matrix_wann=d_wann[:, :, :, None].astype(complex),
+                       d_matrix_band=d_band[:, :, :, None].astype(complex))
+    return sym, windows
+
+
+def test_a_frozen_irrep_the_trial_orbitals_lack_is_refused():
+    """A mirror (two operations): the frozen band is odd and both trial orbitals
+    are even, so no U keeps it frozen and symmetric; in the second case a trial
+    orbital is odd and the free bands are all even. Both guards are the rank of
+    a generic intertwiner (Schur's lemma)."""
+    from defuqumat.wannier.sitesym import frozen_blocks, intertwiner_rank
+
+    A = np.ones((3, 2, 1))
+    d_band = np.stack([np.eye(3), np.diag([-1.0, 1.0, 1.0])], axis=-1)
+    even = np.stack([np.eye(2), np.eye(2)], axis=-1)
+    sym, windows = _toy(d_band, even, [0])
+    with pytest.raises(ValueError, match="carry an irrep the trial orbitals do not"):
+        frozen_blocks(sym, windows, A, 2)
+    sym, windows = _toy(d_band, even, [1])          # the even band 1 frozen: allowed
+    assert frozen_blocks(sym, windows, A, 2)[0].nfroz == 1
+    sym, windows = _toy(np.stack([np.eye(3), np.eye(3)], axis=-1),
+                        np.stack([np.eye(2), np.diag([1.0, -1.0])], axis=-1), [0])
+    with pytest.raises(ValueError, match="bands left free"):
+        frozen_blocks(sym, windows, A, 2)
+    odd = np.array([1.0, -1.0]).reshape(1, 1, 2)
+    rng = np.random.default_rng(0)
+    assert intertwiner_rank(odd, np.ones((1, 1, 2)), rng, [0, 1])[0] == 0
+    assert intertwiner_rank(odd, odd, rng, [0, 1])[0] == 1
+
+
+def test_a_frozen_set_that_differs_across_a_star_is_refused():
+    """Two k-points of one star (an operation sends 0 to 1): band 0 frozen at
+    one and not at the other, which an edge at round-off from a band gives."""
+    from defuqumat.wannier.disentangle import windows_from_masks
+    from defuqumat.wannier.sitesym import SymmetryData, check_frozen_star
+
+    nb, nw = 3, 2
+    eig = np.tile(np.arange(nb, dtype=float)[:, None], (1, 2))
+    frozen = np.zeros((nb, 2), dtype=bool)
+    frozen[0, 0] = True
+    windows = windows_from_masks(eig, nw, np.ones((nb, 2), dtype=bool), frozen)
+    d = np.stack([np.eye(nb), np.eye(nb)], axis=-1)[:, :, :, None].astype(complex)
+    D = np.stack([np.eye(nw), np.eye(nw)], axis=-1)[:, :, :, None].astype(complex)
+    sym = SymmetryData(nsymmetry=2, nkptirr=1, num_kpts=2, ik2ir=np.zeros(2, dtype=np.int64),
+                       ir2ik=np.array([0]), kptsym=np.array([[0], [1]]), d_matrix_wann=D,
+                       d_matrix_band=d)
+    with pytest.raises(ValueError, match="frozen set holds different bands at k and g k"):
+        check_frozen_star(windows, sym)
+
+
+def test_the_automatic_selection_with_symmetry_is_the_same_on_a_star():
+    """``select_states`` with ``sym`` decides at the representative and copies:
+    a band 1e-12 below the frozen edge at k and 1e-12 above it at g k is frozen
+    at both (the plain selection splits the star), and a pair the little group
+    mixes is one block although it is 1e-3 apart in energy."""
+    from defuqumat.wannier.pao import select_states
+    from defuqumat.wannier.sitesym import SymmetryData
+
+    edge = 1.0
+    energies = np.array([[0.0, edge - 1e-12, 2.0, 2.001, 3.0, 4.0],
+                         [0.0, edge + 1e-12, 2.0, 2.001, 3.0, 4.0]])
+    p = np.array([[0.99, 0.5, 0.97, 0.90, 0.5, 0.5]] * 2)
+    kw = dict(num_wann=4, proj_min=0.01, proj_max=0.95, froz_max=edge, tol=1e-6)
+    _, plain = select_states(energies, p, **kw)
+    assert plain[1, 0] and not plain[1, 1] and plain[2, 0] and not plain[3, 0]
+    swap = np.eye(6)
+    swap[2:4, 2:4] = [[0.0, 1.0], [1.0, 0.0]]
+    # identity and the swap keep k = 0; the third operation sends it to k = 1
+    d = np.stack([np.eye(6), swap, np.eye(6)], axis=-1)[:, :, :, None].astype(complex)
+    D = np.stack([np.eye(4)] * 3, axis=-1)[:, :, :, None].astype(complex)
+    sym = SymmetryData(nsymmetry=3, nkptirr=1, num_kpts=2, ik2ir=np.zeros(2, dtype=np.int64),
+                       ir2ik=np.array([0]), kptsym=np.array([[0], [0], [1]]), d_matrix_wann=D,
+                       d_matrix_band=d)
+    outer, frozen = select_states(energies, p, sym=sym, **kw)
+    assert np.array_equal(frozen[:, 0], frozen[:, 1]) and frozen[1].all()
+    # 2 and 3 are one block for d: mean p 0.935 < 0.95, so neither is frozen
+    assert not frozen[2].any() and not frozen[3].any() and outer[2].all() and outer[3].all()
+
+
+def test_two_shells_of_one_l_on_one_atom_are_a_representation():
+    """The fit of D is blocked by radial part: a 3S beside a 4S on one atom each
+    map onto themselves (a fit over both gave sum_j W_jn^2 = 2, refused)."""
+    from defuqumat.wannier.dmatrix import Operations, wannier_rotations
+    from defuqumat.wannier.pao import PAOProjection
+
+    site = np.zeros(3)
+    shells = [PAOProjection(0, 0, 0, "3S", 3, 0, 1, site), PAOProjection(0, 0, 1, "4S", 4, 0, 1, site)]
+    shells += [PAOProjection(0, 0, 2, "3P", 3, 1, m, site) for m in (1, 2, 3)]
+    c3 = np.array([[0.0, 0, 1], [1, 0, 0], [0, 1, 0]])
+    ops = Operations(rotations=np.stack([np.eye(3), c3]), translations=np.zeros((2, 3)))
+    W, _ = wannier_rotations(shells, ops, np.eye(3))
+    assert np.allclose(W[0], np.eye(5), atol=1e-10)
+    assert np.allclose(W[1][:2, :2], np.eye(2), atol=1e-10)
+    assert np.allclose(np.abs(W[1][2:, 2:]).sum(axis=0), 1.0, atol=1e-10)
 
 
 def test_the_dmn_file_round_trips(tmp_path):
@@ -259,16 +413,15 @@ def test_what_the_site_symmetry_does_not_treat_is_refused():
     from defuqumat.workflows.wannier import _refuse_for_symmetry, run_wannier
 
     calc = Calculator.from_text(_si_text(""), pseudo_dir=PSEUDO)
-    with pytest.raises(NotImplementedError, match="frozen window"):
-        run_wannier(calc.system, calc.pseudos, None, num_wann=8, num_bands=12,
-                    projections=["Si:sp3"], symmetry=True, dis_froz=(None, 6.0))
-    with pytest.raises(NotImplementedError, match="frozen window"):
-        run_wannier(calc.system, calc.pseudos, None, num_wann=8, num_bands=12,
-                    projections=["Si:sp3"], symmetry=True,
-                    engine_options=dict(dis_froz_max=6.0))
     with pytest.raises(NotImplementedError, match="projection lines"):
-        run_wannier(calc.system, calc.pseudos, None, num_wann=8, projections="auto",
+        run_wannier(calc.system, calc.pseudos, None, num_wann=8, projections="bonds",
                     symmetry=True)
+    with pytest.raises(ValueError, match="engine_options would not be read"):
+        run_wannier(calc.system, calc.pseudos, None, symmetry=True,
+                    engine_options=dict(dis_froz_max=6.0))
+    with pytest.raises(NotImplementedError, match="exclude_bands"):
+        run_wannier(calc.system, calc.pseudos, None, num_wann=8, num_bands=12,
+                    projections=["Si:sp3"], symmetry=True, exclude_bands=[1])
     with pytest.raises(NotImplementedError, match="precond"):
         run_wannier(calc.system, calc.pseudos, None, num_wann=8, projections=["Si:sp3"],
                     symmetry=True, engine_options=dict(precond=True))
@@ -282,3 +435,66 @@ def test_what_the_site_symmetry_does_not_treat_is_refused():
     fake = SimpleNamespace(nosym=False, symmetry_group=lambda nosym: group)
     with pytest.raises(NotImplementedError, match="magnetic group"):
         _refuse_for_symmetry(fake, ["Si:sp3"], None, None)
+
+
+@pytest.fixture(scope="module")
+def silicon():
+    from defuqumat import Calculator
+
+    calc = Calculator.from_text(_si_text(""), pseudo_dir=PSEUDO)
+    calc.get_scf()
+    return calc
+
+
+def _star_consistent(mask, sym):
+    return all(np.array_equal(mask[:, sym.kptsym[s, ir]], mask[:, sym.ir2ik[ir]])
+               for ir in range(sym.nkptirr) for s in range(sym.nsymmetry))
+
+
+def _window_u(w, windows):
+    nk = len(w.kpoints)
+    lwindow = np.zeros((w.num_bands, nk), dtype=bool)
+    u_opt = np.zeros((w.num_bands, w.num_wann, nk), dtype=complex)
+    for k in range(nk):
+        rows = windows.indxwin[:windows.ndimwin[k], k]
+        lwindow[rows, k] = True
+        u_opt[:len(rows), :, k] = w.u_matrix[k][rows]
+    return u_opt, lwindow
+
+
+def test_automatic_projections_with_symmetry_on_silicon(silicon):
+    """``projections="auto"`` with ``symmetry=True`` (P164b): the selection is the
+    same at every point of a star, the frozen states are exact, ``P`` is
+    covariant and the constraint holds on ``A``."""
+    from defuqumat.units import RY_TO_EV
+    from defuqumat.wannier import disentangle as dis
+
+    w = silicon.get_wannier(divisions=(2, 2, 2), symmetry=True,
+                            engine_options=dict(num_iter=50, conv_window=3))
+    sym = w.site_symmetry
+    assert w.nsym == 48 and sym.d_matrix_band.shape[0] == w.num_bands
+    assert _star_consistent(w.outer.T, sym) and _star_consistent(w.frozen.T, sym)
+    assert w.frozen.sum() > 0
+    assert _identity_error(w.amn, sym) < 1e-8
+    windows = dis.windows_from_masks(w.eigenvalues.T * RY_TO_EV, w.num_wann, w.outer.T,
+                                     w.frozen.T)
+    u_opt, lwindow = _window_u(w, windows)
+    defect, cov = _frozen_checks(u_opt, windows, sym, lwindow)
+    assert defect < 1e-9 and cov < 1e-8
+
+
+def test_a_frozen_energy_window_with_symmetry_on_silicon(silicon):
+    """``Si:sp3`` from 12 bands, outer to 17 eV, frozen to 6.4 eV, with symmetry:
+    the frozen valence states are in the subspace exactly and ``P`` is covariant."""
+    from defuqumat.units import RY_TO_EV
+    from defuqumat.wannier import disentangle as dis
+
+    w = silicon.get_wannier(8, ["Si:sp3"], num_bands=12, divisions=(2, 2, 2), symmetry=True,
+                            dis_win=(None, 17.0), dis_froz=(None, 6.4),
+                            engine_options=dict(num_iter=50, conv_window=3))
+    e = w.eigenvalues.T * RY_TO_EV
+    windows = dis.dis_windows(e, 8, float(e.min()), 17.0, True, float(e.min()), 6.4)
+    assert windows.ndimfroz.min() >= 1
+    u_opt, lwindow = _window_u(w, windows)
+    defect, cov = _frozen_checks(u_opt, windows, w.site_symmetry, lwindow)
+    assert defect < 1e-9 and cov < 1e-8
