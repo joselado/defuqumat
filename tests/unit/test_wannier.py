@@ -90,6 +90,40 @@ def test_the_engine_on_pw2wannier90s_matrices_is_wannier90s_disentangled():
     assert np.allclose(np.sort(r.spreads), [1.8177444] * 4 + [2.1955544] * 4, atol=2e-5)
 
 
+#: ``wannier90.x`` on the same files with ``dis_win_min = -3.0``, which cuts band 1
+#: out of the window at 55 of the 64 k-points (1000 steps of each loop, tolerances 1e-10).
+SI_W90_WINDOW_ABOVE_BAND_0 = {"omega_i": 16.880918658, "omega_total": 26.699161989}
+
+
+def test_a_window_above_the_lowest_band_is_wannier90s():
+    """The outer window need not start at band 0.
+
+    ``internal_find_u`` took ``A`` by window-relative rows while ``A`` is absolute,
+    and the workflow paired window-relative rows of ``u_matrix_opt`` with absolute
+    eigenvalues. Measured before the fix: 26.513964 against 26.699162 A^2, and an
+    interpolated band at -5.816 eV at Gamma, below the window. After the fix the
+    frozen eigenvalues at each mesh point are reproduced by ``V^H E V``.
+    """
+    from defuqumat.wannier.engine import absolute_u_opt
+
+    options = EngineOptions(dis_win_min=-3.0, dis_win_max=17.0, dis_froz_max=6.4,
+                            dis_num_iter=1000, dis_conv_tol=1e-10, num_iter=1000,
+                            conv_tol=1e-10, conv_window=3)
+    r = _engine_on_reference(DATA / "si", "si", 12, 8, options, suffix=".gz")
+    assert np.any(r.lwindow[0]) and not np.all(r.lwindow[0])  # the case is the one claimed
+    assert abs(r.terms.om_i - SI_W90_WINDOW_ABOVE_BAND_0["omega_i"]) < 1.0e-6
+    assert abs(r.terms.om_tot - SI_W90_WINDOW_ABOVE_BAND_0["omega_total"]) < 1.0e-6
+
+    eig = files.read_eig(DATA / "si" / "si.eig", 12, 64)
+    v = np.einsum("bwk,wnk->kbn", absolute_u_opt(r), r.u_matrix)
+    for k in range(64):
+        hk = v[k].conj().T @ np.diag(eig[:, k]) @ v[k]
+        bands = np.linalg.eigvalsh(hk)
+        assert bands.min() >= -3.0 - 1e-9
+        frozen = eig[(eig[:, k] >= -3.0) & (eig[:, k] <= 6.4), k]
+        assert np.min(np.abs(bands[:, None] - frozen[None, :]), axis=0).max() < 1e-8
+
+
 def test_the_conv_window_default_runs_every_step():
     """Wannier90's ``conv_window = -1`` takes all ``num_iter`` steps (wannierpy
     replaced it by 5)."""

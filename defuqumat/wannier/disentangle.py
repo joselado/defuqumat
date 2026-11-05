@@ -323,8 +323,10 @@ def internal_find_u(u_matrix_opt: np.ndarray, A_matrix: np.ndarray, windows: Win
     num_kpts = u_matrix_opt.shape[2]
     u_matrix = np.zeros((num_wann, num_wann, num_kpts), dtype=complex)
     for k in range(num_kpts):
-        nd = windows.ndimwin[k]
-        caa = u_matrix_opt[:nd, :, k].conj().T @ A_matrix[:nd, :num_wann, k]
+        # ``u_matrix_opt`` rows are window-relative and ``A_matrix`` rows absolute;
+        # the Fortran slims ``a_matrix`` in place first (disentangle.F90:1023-1026).
+        n0, nd = windows.nfirstwin[k], windows.ndimwin[k]
+        caa = u_matrix_opt[:nd, :, k].conj().T @ A_matrix[n0:n0 + nd, :num_wann, k]
         Z, _, Vh = np.linalg.svd(caa, full_matrices=True)
         u_matrix[:, :, k] = Z @ Vh
     return u_matrix

@@ -193,7 +193,7 @@ def run_wannier(
             rebuilt from the density.
         conv_thr: the fixed-density solve's threshold.
     """
-    from defuqumat.wannier.engine import EngineOptions, kmesh_get, run_engine
+    from defuqumat.wannier.engine import EngineOptions, absolute_u_opt, kmesh_get, run_engine
     from defuqumat.wannier.interpolation import wannier_hamiltonian, ws_distance_shifts
     from defuqumat.wannier.matrices import overlap_matrices, projection_matrices
     from defuqumat.wannier.projections import apply_projection_selection, parse_projections
@@ -253,7 +253,7 @@ def run_wannier(
                         kpt_frac=points.T, real_lattice=at * BOHR_TO_ANGSTROM,
                         mp_grid=divisions, site_cart=site_cart)
 
-    v = np.einsum("bwk,wnk->kbn", result.u_matrix_opt, result.u_matrix)  # (nk, nb, nw)
+    v = np.einsum("bwk,wnk->kbn", absolute_u_opt(result), result.u_matrix)  # (nk, nb, nw)
     irvec, ndegen, hr = wannier_hamiltonian(v, energies, points, divisions, at)
     a2 = BOHR_TO_ANGSTROM ** 2
     centres = result.centres / BOHR_TO_ANGSTROM

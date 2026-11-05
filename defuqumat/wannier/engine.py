@@ -70,7 +70,8 @@ class EngineOptions:
 @dataclass(frozen=True)
 class EngineResult:
     u_matrix: np.ndarray        # (num_wann, num_wann, num_kpts)
-    u_matrix_opt: np.ndarray    # (num_bands, num_wann, num_kpts), zero outside the window
+    u_matrix_opt: np.ndarray    # (num_bands, num_wann, num_kpts), window-relative rows as
+                                # Wannier90's: row j is the j-th band inside the window
     lwindow: np.ndarray         # (num_bands, num_kpts) bool
     centres: np.ndarray         # (num_wann, 3), cartesian
     spreads: np.ndarray         # (num_wann,)
@@ -134,3 +135,18 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
                         centres=np.asarray(centres).T, spreads=np.asarray(spreads), terms=terms,
                         iterations=int(iterations), disentangled=disentangled,
                         dis_converged=bool(dis_converged), converged=bool(converged))
+
+
+def absolute_u_opt(result: EngineResult) -> np.ndarray:
+    """``u_matrix_opt`` with its rows put back on the absolute band index.
+
+    ``EngineResult.u_matrix_opt`` keeps Wannier90's window-relative rows; a
+    consumer pairing a row with a band's eigenvalue or state needs the band it
+    belongs to, which ``lwindow`` gives (``hamiltonian.F90``'s gather).
+    """
+    num_bands, num_wann, num_kpts = result.u_matrix_opt.shape
+    out = np.zeros_like(result.u_matrix_opt)
+    for k in range(num_kpts):
+        rows = np.nonzero(result.lwindow[:, k])[0]
+        out[rows, :, k] = result.u_matrix_opt[:len(rows), :, k]
+    return out
