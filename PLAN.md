@@ -206,9 +206,10 @@ because that is what decides whether it is a session or a phase.
 - **Wyckoff input** (P6, the one part of that phase not done).
 - **Wannier functions beyond P162 to P164**: spinor projections and spinor PDWF, `gamma_only`,
   SCDM, random projections, PAOs beyond the pseudopotential file, `wannier_plot` and `r_mn(R)`,
-  and a differentiable engine (it is NumPy on the host). Beyond P164's site symmetry: a frozen
-  window with symmetry (so `projections="auto"` with symmetry), time reversal, spinors and
-  magnetic groups, and the symmetrised engine's 4.8x against `wannier90.x`.
+  and a differentiable engine (it is NumPy on the host). Beyond P164's site symmetry (a frozen
+  set and `projections="auto"` with it are P164b): time reversal, spinors and magnetic groups,
+  manual `exclude_bands`, the symmetrised engine's 4.8x against `wannier90.x`, and a frozen set
+  whose irreps the trial orbitals lack (Cr auto at the default edge), refused rather than met.
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
@@ -27235,7 +27236,7 @@ multiplet was cut, so the outer set was not all bands; 14 bands is a clean cut. 
 D4 diagonal; it now holds the block average the selection uses (fast tests 27 passed after it,
 notebook 58 outputs unchanged, 54 s).
 
-**What is outstanding.** Spinor PDWF; site symmetry (P164, below; not yet with the automatic set, which freezes states); PAOs beyond the
+**What is outstanding.** Spinor PDWF; site symmetry (P164, below; with the automatic set since P164b); PAOs beyond the
 pseudopotential file (no higher-`l` or polarisation orbitals can be added); `gamma_only`; a slow
 regression; a `d` metal such as Cu in `tests/data/pseudo/` for the main test of the paper.
 
@@ -27360,9 +27361,9 @@ in `docs/reference-codes.md`: `compute_dmn` and the bundled `sitesym.F90`; Elk n
 D22 core, warm cache; one figure, the spreads of the four runs; `Si:sp3` bands over the images
 3.3e-7 free against 5.2e-13 eV); `PERFORMANCE.md`.
 
-**What is outstanding.** A frozen window with symmetry (Wannier90 refuses it too,
+**What is outstanding.** ~~A frozen window with symmetry~~ (P164b, below; Wannier90 refuses it,
 `disentangle.F90:104`). Time reversal as a constraint. Spinors and magnetic groups (`t_rev`, a
-spin rotation in `D`). `auto` and SCDM projections with symmetry. `precond` with symmetry (not
+spin rotation in `D`). ~~`auto`~~ (P164b) and SCDM projections with symmetry. `precond` with symmetry (not
 validated). The symmetrised engine is 4.8x `wannier90.x`, a Python loop over operations and
 irreducible k in every symmetrisation. `compute_dmn`'s share of `pw2wannier90.x`'s 2.77 s was
 not split out. PAW `d` not probed on its own.

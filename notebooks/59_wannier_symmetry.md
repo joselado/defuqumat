@@ -40,8 +40,7 @@ si.get_scf(conv_thr=1e-10)
 
 
 We take twelve bands to eight functions, with an outer window up to 17 eV, as in
-notebook 58. There is no frozen window here. The symmetric mode does not allow one,
-in this code as in Wannier90. We compare two sets of trial orbitals. `Si:sp3` puts
+notebook 58. There is no frozen window here. We add one further below. We compare two sets of trial orbitals. `Si:sp3` puts
 the same four lobes on both atoms. The second set turns the axes of the second atom,
 so both atoms start alike. We run each set with and without `symmetry=True`:
 
@@ -114,6 +113,76 @@ from the same rotations.
 
 The figure shows the eight spreads of each run:
 
+Now we add a frozen window. The states below 6.4 eV, the valence bands, then stay in
+the subspace exactly. Can they stay exact and keep the symmetry at the same time?
+Wannier90 does not allow this. Here the code first finds the combinations of trial
+orbitals that transform as the frozen states, and keeps them fixed. Only the rest of
+the subspace is optimised under the symmetry. If the frozen states at some k-point
+have a symmetry that no combination of trial orbitals has, the code gives an error.
+
+
+```python
+frozen = dict(windows, dis_froz=(None, 6.4))
+for name, projections in sets.items():
+    for symmetry in (False, True):
+        w = si.get_wannier(8, projections, symmetry=symmetry, **frozen)
+        terms = w.spread_terms_angstrom2()
+        print(f'{name:7s} symmetry={symmetry!s:5s}  Omega = {terms["omega_total"]:.5f} A^2  '
+              f'Omega_I = {terms["omega_i"]:.6f} A^2')
+```
+
+    Si:sp3  symmetry=False  Omega = 16.05319 A^2  Omega_I = 11.813484 A^2
+
+
+    Si:sp3  symmetry=True   Omega = 16.06269 A^2  Omega_I = 11.813484 A^2
+
+
+    turned  symmetry=False  Omega = 14.43648 A^2  Omega_I = 11.813484 A^2
+
+
+    turned  symmetry=True   Omega = 14.43648 A^2  Omega_I = 11.813484 A^2
+
+
+With the frozen window $\Omega_I$ is the same with and without symmetry, for both
+sets. So the best subspace is symmetric here, and the frozen states do not stop the
+constraint from reaching it. `Si:sp3` again goes up a little with symmetry, from
+16.05319 to 16.06269 Å$^2$, for the reason above. The turned set gives 14.43648 Å$^2$
+both ways, so that minimum was already symmetric.
+
+Can the code also choose the trial orbitals and keep the symmetry? The automatic set
+of notebook 58 takes the atomic orbitals of the pseudopotential file, and it keeps a
+state exactly when it has a large weight on them. With symmetry these choices are made
+at one k-point of each star and copied to the other points, so the choice itself has
+the symmetry. We run it with and without `symmetry=True`:
+
+
+```python
+for symmetry in (False, True):
+    w = si.get_wannier(divisions=(4, 4, 4), symmetry=symmetry,
+                       engine_options=dict(num_iter=200, conv_window=3))
+    e = np.sort(w.bands_ev(images), axis=1)
+    print(f'auto    symmetry={symmetry!s:5s}  {w.frozen.sum(axis=1).min()} to '
+          f'{w.frozen.sum(axis=1).max()} frozen states  '
+          f'Omega = {w.spread_terms_angstrom2()["omega_total"]:.5f} A^2  '
+          f'max change over the images: {np.abs(e - e[0]).max():.1e} eV')
+```
+
+    auto    symmetry=False  4 to 8 frozen states  Omega = 15.83993 A^2  max change over the images: 1.2e-09 eV
+
+
+    auto    symmetry=True   4 to 8 frozen states  Omega = 15.83993 A^2  max change over the images: 2.0e-10 eV
+
+
+For silicon the automatic minimum is already symmetric. The spread is the same, and
+the bands at the 48 images agree to $10^{-9}$ eV in both runs, which is the accuracy of
+the eigenvalues we start from. With symmetry the result is symmetric by construction,
+also when the free minimum is not. We measured one such case apart, bcc chromium on a
+4x4x4 mesh with the states frozen by their weight alone (`froz_above_edge=None`). There
+the free subspace breaks the symmetry, with $\Omega_I$ = 4.30 Å$^2$, and the symmetric
+one has 4.43 Å$^2$. With the default frozen window, up to 2 eV above the Fermi level,
+the code gives an error for chromium. At one k-point the frozen states then have a
+symmetry that no combination of the $s$, $p$ and $d$ orbitals of the file has.
+
 
 ```python
 import matplotlib.pyplot as plt
@@ -132,7 +201,7 @@ fig.tight_layout()
 
 
     
-![png](59_wannier_symmetry_files/59_wannier_symmetry_7_0.png)
+![png](59_wannier_symmetry_files/59_wannier_symmetry_12_0.png)
     
 
 

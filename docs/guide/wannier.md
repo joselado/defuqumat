@@ -323,11 +323,17 @@ Here $d$ is the matrix that takes the Bloch states at $\mathbf k$ into those at
 $g\mathbf k$, and $D$ takes the trial orbitals into each other. This is the
 `site_symmetry` of Wannier90 (Sakuma, PRB 87, 235109 (2013)), and the two matrices
 are the `.dmn` file that `pw2wannier90.x` writes with `write_dmn`. Only the
-irreducible k-points are free, and the rest of the mesh follows from them. A frozen
-window is not allowed in this mode, in Wannier90 as here, so we keep only the outer
-window:
+irreducible k-points are free, and the rest of the mesh follows from them. We take
+again the silicon cell of the section on $sp^3$ orbitals, and first we keep only the
+outer window:
 
 ```python
+si = Calculator.from_keywords(
+    lattice="fcc", a=5.3976, atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+    pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=272.1, kmesh=(8, 8, 8),
+)
+si.get_scf(conv_thr=1e-10)
 for symmetry in (False, True):
     w = si.get_wannier(8, ["Si:sp3"], num_bands=12, divisions=(4, 4, 4),
                        dis_win=(None, 17.0), symmetry=symmetry,
@@ -376,9 +382,77 @@ constraint makes it exact. For `Si:sp3` the same test gives $3 \times 10^{-7}$ e
 without symmetry and $5 \times 10^{-13}$ eV with it. With a `nosym` run the group is the identity
 alone, and `symmetry=True` then changes nothing. `w.write_w90(prefix)` also writes
 `prefix.dmn` and `site_symmetry = .true.`, so `wannier90.x` can run the same
-symmetric minimisation on our files. Notebook
+symmetric minimisation on our files.
+
+Can we keep a frozen window too? Wannier90 does not allow it with symmetry. It keeps
+each frozen state as a fixed column of the rotation $U$, and the symmetry mixes these
+columns with the others. Here the code first finds, at each irreducible k-point, the
+combinations of trial orbitals that transform as the frozen states. These combinations
+are kept on the frozen states, and only the rest of the subspace is optimised, under
+the symmetry that is left. So the frozen states stay in the subspace exactly, and the
+symmetry holds too. This works only if every irreducible representation of the frozen
+states at $\mathbf k$ is also among the trial orbitals, at least as many times. If it
+is not, the code gives an error that names the k-point. With the frozen window of the
+section on $sp^3$ orbitals:
+
+```python
+turned = ["f=0,0,0:sp3", "f=0.25,0.25,0.25:sp3:z=0,0,1:x=0,1,0"]
+for projections in (["Si:sp3"], turned):
+    for symmetry in (False, True):
+        w = si.get_wannier(8, projections, num_bands=12, divisions=(4, 4, 4),
+                           dis_win=(None, 17.0), dis_froz=(None, 6.4), symmetry=symmetry,
+                           engine_options=dict(num_iter=200, conv_window=3))
+        terms = w.spread_terms_angstrom2()
+        print(w.nsym, round(terms["omega_i"], 5), round(terms["omega_total"], 5))
+```
+
+```
+1 11.81348 16.05319
+48 11.81348 16.06269
+1 11.81348 14.43648
+48 11.81348 14.43648
+```
+
+The first column is the number of operations imposed, then $\Omega_I$ and $\Omega$
+in Å$^2$. $\Omega_I$ is the same in the four runs, so the best subspace with the
+valence bands frozen is symmetric here. `Si:sp3` goes up by $10^{-2}$ Å$^2$ with
+symmetry, for the same reason as above. The turned set gives 14.43648 Å$^2$ both ways,
+the number of the section on $sp^3$ orbitals, so that minimum was already symmetric.
+
+The automatic orbitals of the section "Without choosing the orbitals" freeze states
+too, so they now work with symmetry as well. The states kept exactly and the states
+left out are then chosen at one k-point of each star and copied to the other points,
+so the choice itself has the symmetry of the crystal. A multiplet is never split, also
+when the symmetry joins two bands that are not degenerate to the tolerance. We compute
+it with `si.get_wannier(symmetry=True)`:
+
+```python
+for symmetry in (False, True):
+    w = si.get_wannier(divisions=(4, 4, 4), symmetry=symmetry,
+                       engine_options=dict(num_iter=200, conv_window=3))
+    e = np.sort(w.bands_ev(np.vstack([k, images])), axis=1)
+    print(w.nsym, w.frozen.sum(axis=1).min(), w.frozen.sum(axis=1).max(),
+          round(w.spread_terms_angstrom2()["omega_total"], 5), f"{np.abs(e - e[0]).max():.1e}")
+```
+
+```
+1 4 8 15.83993 1.2e-09
+48 4 8 15.83993 2.0e-10
+```
+
+The columns are the operations, the smallest and largest number of frozen states at a
+k-point, $\Omega$ in Å$^2$, and the change of the bands over the 48 images of
+$\mathbf k$ in eV. For silicon the automatic minimum is already symmetric, so the two
+runs give the same spread, and the bands agree to $10^{-9}$ eV in both. That is the
+accuracy of the eigenvalues we start from. Where the free minimum is not symmetric
+the constraint changes the result. For bcc chromium on a 4x4x4 mesh with
+`froz_above_edge=None` the free subspace has $\Omega_I = 4.30$ Å$^2$ and breaks the
+symmetry, and the symmetric one has 4.43 Å$^2$.
+
+Notebook
 [59](https://github.com/joselado/defuqumat/blob/master/notebooks/59_wannier_symmetry.ipynb)
-shows the spreads of the four runs.
+shows the spreads of the four runs without a frozen window, and then the frozen window
+and the automatic orbitals with symmetry.
 
 ## How we checked it
 
@@ -434,6 +508,32 @@ characters of $d$ agree to $3 \times 10^{-11}$. The whole chain of `pw.x`,
 | `Si:sp3` | 15.773697207 | 15.773696950 |
 | turned axes | 13.787202895 | 13.787202775 |
 
+A frozen window with symmetry is not in Wannier90, so for it we checked three
+identities that do not use the symmetric code. First, the frozen states must be in the
+subspace at every k-point, also at the points that are filled from the star. Second,
+the projector on the subspace must obey $P(g\mathbf k) = d\, P(\mathbf k)\, d^\dagger$.
+Third, the result must be a stationary point of the normal disentanglement without
+symmetry. This holds because $\Omega_I$ itself has the symmetry of the crystal, so a
+stationary point among the symmetric subspaces is one among all subspaces. We test it
+with the residual $|(1-P) Z P|$ of the free problem and with one free step from the
+symmetric result. On the H$_3$S example of Wannier90, with the outer window to 65 eV
+and the frozen window to 20 eV:
+
+| check | value |
+|---|---|
+| frozen states, $\max_{\mathbf k} \lvert (1 - U U^\dagger) E_F \rvert$ | $1.2 \times 10^{-11}$ |
+| $\lvert P(g\mathbf k) - d P(\mathbf k) d^\dagger \rvert$ | $1.5 \times 10^{-11}$ |
+| residual $\lvert (1-P) Z P \rvert$ | $2.5 \times 10^{-6}$ |
+| change of $\Omega_I$ in one free step | $-4 \times 10^{-11}$ Å$^2$ |
+| $\Omega_I$, symmetric and free | 3.6431179138 and 3.6431179138 Å$^2$ |
+
+The residual is small but not zero because the loop stops at $10^{-10}$ in
+$\Omega_I$, which is quadratic in the error of the subspace. The wrong way to do it,
+the free result symmetrised afterwards, loses the frozen states (0.38) and gives
+$\Omega_I = 4.66$ Å$^2$, so these checks do see the difference. On silicon the frozen
+states stay exact to $3 \times 10^{-13}$ with the frozen window and with the automatic set,
+on 4x4x4 and 6x6x6 meshes.
+
 !!! note "Limits"
     - Spinor calculations (`noncolin`, spin-orbit coupling, a spin spiral) give an
       error. The projections on spinor trial orbitals were not checked against
@@ -456,18 +556,24 @@ characters of $d$ agree to $3 \times 10^{-11}$. The whole chain of `pw.x`,
       `wannier90.x` cannot redo an automatic run from the `.win` file, which has only
       energy windows. It can redo it when the sets are energy windows, for example
       with `proj_max=2.0, proj_min=0.0`.
-    - With `symmetry=True` a frozen window gives an error, as in Wannier90, and so do
-      `precond`, projections that are not a list of projection lines, and a
-      magnetic group with operations that need time reversal. A set of trial
-      orbitals that the group does not map onto itself gives an error by name. So
-      does a band set or an outer window that cuts a degenerate multiplet at some
-      k-point, because then no rotation satisfies the constraint.
+    - With `symmetry=True`, `precond` gives an error, and so do projections given
+      as a name other than `"auto"`, `exclude_bands` given by hand, and a magnetic
+      group with operations that need time reversal. A set of trial orbitals that
+      the group does not map onto itself gives an error by name. So does a band
+      set, an outer window or a frozen window that cuts a degenerate multiplet at
+      some k-point, because then no rotation satisfies the constraint.
+    - With `symmetry=True` and frozen states, the frozen states at each k-point
+      must have only irreducible representations that the trial orbitals also
+      have, at least as many times. Otherwise there is no symmetric rotation that
+      keeps them, and the code gives an error. For bcc chromium with the automatic
+      orbitals this happens with the default frozen window, 2 eV above the Fermi
+      level. With `froz_above_edge=None` it runs.
+    - A frozen window together with symmetry is not in Wannier90, so this part has
+      no reference code. We checked it on identities instead (see "How we checked
+      it").
     - With `symmetry=True` time reversal is not imposed. On the GaAs example of
       Wannier90 the imaginary part of $H_{mn}(\mathbf R)$ is $3 \times 10^{-10}$ eV
       anyway.
-    - `symmetry=True` cannot be combined with `projections="auto"` yet, because
-      the automatic set freezes states and a frozen window gives an error with
-      symmetry.
     - `zona` is in 1/bohr, as `pw2wannier90.x` reads it. The user guide of Wannier90
       writes it in 1/Å. The default, 1, is the same number in both codes.
     - The Wannier functions themselves on a real-space grid (`wannier_plot`) and the

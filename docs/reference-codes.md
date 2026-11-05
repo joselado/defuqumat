@@ -211,7 +211,12 @@ operation and irreducible k-point. The constrained minimisation is Wannier90's
 for the same reason as note 22. Elk's `writew90.f90` writes no `.dmn` file, and no
 Elk routine builds these matrices. The engine here is a port of Wannier90's
 `sitesym.F90` (through the user's `wannierpy`), and $D$, $d$ were transcribed from
-`compute_dmn`.
+`compute_dmn`. A frozen window with symmetry is not in Wannier90 3.1
+(`disentangle.F90` stops with "in symmetry-adapted mode, frozen window not
+implemented yet"), so that part, and with it the automatic set with
+symmetry, has no counterpart in either code. We checked it against identities
+instead: the frozen states stay in the subspace, the subspace is covariant, and
+it is a stationary point of the free functional.
 
 ## The convergence workflows, which have no row
 
