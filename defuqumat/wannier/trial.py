@@ -192,7 +192,8 @@ def guiding_functions(projections, kg: np.ndarray, at: np.ndarray, volume: float
     and ``zona``. Padding entries (``valid`` false) are zeroed. ``radial``, if
     given, maps ``(zona, r)`` to the ``(4, npw)`` table of
     :func:`radial_transform` at these ``|k + G|``, computed once for a whole
-    mesh by the caller.
+    mesh by the caller. A projection with a ``radial_key`` attribute (a
+    pseudo-atomic orbital) must find its table there.
     """
     kg = np.asarray(kg, dtype=float)
     q = np.linalg.norm(kg, axis=1)
@@ -200,8 +201,12 @@ def guiding_functions(projections, kg: np.ndarray, at: np.ndarray, volume: float
     radial_cache: dict = dict(radial or {})
     phase_l = (-1j) ** np.arange(_LMAX + 1)
     for n, p in enumerate(projections):
-        key = (float(p.zona), int(p.radial))
+        # A pseudo-atomic orbital carries its own key (``("pao", species, orbital)``)
+        # and its table comes from the caller; a hydrogenic one is built here.
+        key = getattr(p, "radial_key", None) or (float(p.zona), int(p.radial))
         if key not in radial_cache:
+            if getattr(p, "radial_key", None) is not None:
+                raise KeyError(f"no radial table was given for {key}")
             radial_cache[key] = radial_transform(q, key[0], key[1], volume)
         parts = angular_parts(p.l, p.m, kg, p.z_axis, p.x_axis)
         g = np.einsum("l,ln,ln->n", phase_l, parts, radial_cache[key])
