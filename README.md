@@ -596,7 +596,12 @@ mesh only sets the resolution of the curvature map, and not the answer.
   orbitals describe it well, leaves it out when they do not describe it, and
   cuts deep semicore shells (the projectability disentanglement of Qiao, Pizzi
   and Marzari). The projectabilities are those of `pw2wannier90.x` to
-  about $10^{-6}$; notebook [58](notebooks/58_wannier_functions.ipynb).
+  about $10^{-6}$. With `projections="scdm"` the trial functions are the
+  selected columns of the density matrix at $\Gamma$ (Damle, Lin and Ying), the
+  `scdm_proj` of `pw2wannier90.x`. The code fits the projectability to choose
+  $\mu$ and $\sigma$ (Vitale and coworkers). With the same $\mu$ and $\sigma$ the
+  spread is that of `pw2wannier90.x` and `wannier90.x` to $5\times10^{-7}$ Å$^2$
+  on silicon; notebook [58](notebooks/58_wannier_functions.ipynb).
   With `symmetry=True` the functions keep the symmetry of the crystal. This is the
   `site_symmetry` of Wannier90. On silicon with the 48 operations of the diamond
   group the spread is that of `pw2wannier90.x` and `wannier90.x` to
@@ -786,7 +791,7 @@ task of the other code that it refers to.
 | **Third-harmonic susceptibility** $\chi^{(3)}$, at one frequency or as a spectrum | `calc.get_third_harmonic(frequency)`, `calc.get_harmonic_orders(frequency)` | | |
 | **Berry curvature and Chern numbers** | `calc.get_chern()`, `calc.get_chern(spin=0)` at `nspin = 2` | | |
 | **Quantum metric** of the occupied bands, the localization tensor and the spread $\Omega_I$ | `calc.get_quantum_metric()` | ²¹ | |
-| **Maximally localized Wannier functions**, disentanglement and Wannier-interpolated bands | `calc.get_wannier(num_wann, projections)`, `calc.get_wannier()` for the automatic set | (✓)²² | (✓)²² |
+| **Maximally localized Wannier functions**, disentanglement and Wannier-interpolated bands | `calc.get_wannier(num_wann, projections)`, `calc.get_wannier()` for the automatic set, `calc.get_wannier(projections="scdm")` | (✓)²² | (✓)²² |
 | **Wannier functions with the symmetry of the crystal**, the site symmetry of Wannier90, also with a frozen window and the automatic set | `calc.get_wannier(..., symmetry=True)`, `calc.get_wannier(symmetry=True)` | (✓)²³ | |
 | **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |

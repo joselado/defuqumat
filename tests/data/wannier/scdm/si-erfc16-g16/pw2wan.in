@@ -1,0 +1,12 @@
+&inputpp
+ outdir='./'
+ prefix='w'
+ seedname='w'
+ write_mmn=.true.
+ write_amn=.true.
+ write_unk=.false.
+ scdm_proj=.true.
+ scdm_entanglement='erfc'
+ scdm_mu=-6.302716706994456
+ scdm_sigma=6.509102310175368
+/
