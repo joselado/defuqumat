@@ -27386,7 +27386,9 @@ decoded `i = p % n1`, `j = (p / n1) % n2`, `k = p / (n1 n2)`, `r - ANINT(r)` wit
 half-away-from-zero (numpy's `rint` rounds half to even, which moves a pivot at 0.5 to the
 other cell). At each k, `A = U V^H` of the SVD of `nowfc^H`, `nowfc_jm = f(e_mk)
 psi_mk(r_j) / ||c_mk||`, `psi_mk(r) = sum_G c(G) e^{2 pi i (G + k).r}` as a slow transform at
-the pivots, one `map_k` contraction on the device in the dtype of the states. US/PAW: the bare
+the pivots, one `map_k` contraction on the device in the dtype of the states (at the default
+`k_batch` one `vmap`, so `nk x npwx x num_wann` phases and a gathered copy of the kept
+bands are live together). US/PAW: the bare
 pseudo-wavefunction, no `S`, as QE (Vitale's supplement says the same). Memory: `X` is
 `num_bands x nr1 nr2 nr3` complex on the host, QE's `psi_gamma` (Si 16 bands on 16^3: 1 MB; 300
 bands on 100^3: 4.8 GB).
@@ -27499,4 +27501,8 @@ excludes isolated semicore manifolds; P163's `semicore_cut` is not called here, 
 `exclude_bands` keyword is the manual route); a deterministic tie-break (for example the
 lexicographically first point among columns equal to 1e-8), which would make the model unique
 but not equal to QE's; the flat-valley disagreement of the two engines on our Si points; a slow
-regression; Cu or another `d` metal (no dataset with `PP_PSWFC` in `tests/data/pseudo`).
+regression; Cu or another `d` metal (no dataset with `PP_PSWFC` in `tests/data/pseudo`);
+`nspin = 2` with SCDM (it runs on the channel's states through the same path, never
+exercised). `write_w90` on an SCDM result writes an empty `begin projections` block:
+`wannier90.x` 3.1 accepts it, with or without `auto_projections` (Al, `Omega`
+7.095952557 both ways, `wauto/d/emptyblock.sh`).

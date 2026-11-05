@@ -54,7 +54,10 @@ process.
 **Memory.** ``X`` is ``num_bands x nr1 nr2 nr3`` complex on the host, QE's
 ``psi_gamma``, plus the factor LAPACK builds in place of it: for silicon at
 ``ecutwfc = 12`` (``16^3``, 16 bands) 1 MB; for a 64-atom cell with 300 bands on
-``100^3`` 4.8 GB. The per-k part holds ``npwx x num_wann`` phases at a time.
+``100^3`` 4.8 GB. The per-k part gathers the kept bands of the whole state set
+(``nk x num_bands x npwx``, a copy) and, at the default ``k_batch = None`` (one
+``vmap``), holds ``nk x npwx x num_wann`` phases at once; a chunked ``k_batch`` holds
+one chunk of them.
 """
 
 from __future__ import annotations

@@ -11465,4 +11465,7 @@ the NumPy engine, not split here. 1.3x the QE chain in total.
 
 **Peak working set.** The Gamma matrix `X` is `num_bands x nr1 nr2 nr3` complex on the host (1 MB
 here; 4.8 GB for 300 bands on 100^3), the same as QE's `psi_gamma`, plus the factor `geqp3`
-builds in a copy of it. The per-k part holds `npwx x num_wann` phases per k-point of a chunk.
+builds in a copy of it. The per-k part gathers the kept bands of the whole state set
+(`nk x num_bands x npwx`, a copy) and, at the default `k_batch` (one `vmap` over the mesh),
+holds `nk x npwx x num_wann` phases at once, about 1.6 MB here (npwx about 190); a chunked `k_batch` holds one
+chunk of them.
