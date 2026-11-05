@@ -392,7 +392,7 @@ SI_BONDS = ["f=0.125,0.125,0.125:s", "f=-0.375,0.125,0.125:s", "f=0.125,-0.375,0
 
 def test_with_nosym_the_option_is_a_no_op_bit_for_bit():
     """The group of a ``nosym`` run is the identity alone, and ``symmetry=True``
-    then changes nothing at all."""
+    then changes nothing at all; the default (``a``) says nothing about it."""
     from defuqumat import Calculator
 
     calc = Calculator.from_text(_si_text(", nosym=.true."), pseudo_dir=PSEUDO)
@@ -401,6 +401,7 @@ def test_with_nosym_the_option_is_a_no_op_bit_for_bit():
     b = calc.get_wannier(4, SI_BONDS, divisions=(2, 2, 2), symmetry=True,
                          engine_options=dict(num_iter=20))
     assert (b.nsym, b.site_symmetry) == (1, None)
+    assert (a.nsym, a.site_symmetry, a.symmetry_fallback) == (1, None, None)
     assert np.array_equal(a.spreads, b.spreads)
     assert np.array_equal(a.hoppings, b.hoppings)
     assert np.array_equal(a.u_matrix, b.u_matrix)
@@ -508,3 +509,86 @@ def test_a_frozen_energy_window_with_symmetry_on_silicon(silicon):
     u_opt, lwindow = _window_u(w, windows)
     defect, cov = _frozen_checks(u_opt, windows, w.site_symmetry, lwindow)
     assert defect < 1e-9 and cov < 1e-8
+
+
+# --- symmetry=None, the default (P166) -----------------------------------------------------
+
+#: What the default cannot impose, one entry per mechanism, on the 2x2x2 cell: the
+#: input (decided before any state is solved), the D matrices (pz alone is not a
+#: representation), the engine (twelve bands cut the triplet at 14.485 eV at Gamma),
+#: and the rank refusals of a frozen set (s orbitals on the atoms and on the empty
+#: tetrahedral sites carry no triplet at Gamma, so the free bands lack an irrep the
+#: trial orbitals need; p orbitals with the Gamma1 band frozen, which
+#: symmetrize_ukirr cannot match). Each is the exception symmetry=True raises.
+_SITES_S = ["Si:s", "f=0.5,0.5,0.5:s", "f=0.75,0.75,0.75:s"]
+FALLBACKS = {
+    "input, precond": (dict(num_wann=8, projections=["Si:sp3"],
+                            engine_options=dict(precond=True, num_iter=20)),
+                       NotImplementedError, "precond together with symmetry"),
+    "D matrix, pz alone": (dict(num_wann=2, projections=["Si:pz"],
+                                engine_options=dict(num_iter=20)),
+                           "SiteSymmetryError", "not a representation of the group"),
+    "engine, a cut multiplet": (dict(num_wann=8, projections=["Si:sp3"], num_bands=12,
+                                     engine_options=dict(num_iter=20)),
+                                "SiteSymmetryError", "cuts a degenerate multiplet"),
+    "rank, the free bands": (dict(num_wann=4, projections=_SITES_S, num_bands=8,
+                                  dis_froz=(None, 6.4), engine_options=dict(num_iter=20)),
+                             "SiteSymmetryError", "do not carry the irreps"),
+    "rank, symmetrize_ukirr": (dict(num_wann=6, projections=["Si:p"], num_bands=8,
+                                    dis_froz=(None, -4.0), engine_options=dict(num_iter=20)),
+                               "SiteSymmetryError", "symmetrize_ukirr: not converged"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FALLBACKS))
+def test_the_default_falls_back_to_the_free_run_and_says_why(silicon, case):
+    """``symmetry=None`` warns with the refusal's own message and returns the free
+    result bit for bit; ``symmetry=True`` still raises it."""
+    import re
+
+    from defuqumat.wannier.sitesym import SiteSymmetryError
+
+    options, error, reason = FALLBACKS[case]
+    error = SiteSymmetryError if error == "SiteSymmetryError" else error
+    free = silicon.get_wannier(divisions=(2, 2, 2), symmetry=False, **options)
+    with pytest.warns(UserWarning, match="without the site symmetry of the crystal") as caught:
+        default = silicon.get_wannier(divisions=(2, 2, 2), **options)
+    assert any(re.search(reason, str(c.message)) for c in caught)
+    assert re.search(reason, default.symmetry_fallback)
+    assert free.symmetry_fallback is None
+    assert (default.nsym, default.site_symmetry) == (1, None)
+    for name in ("u_matrix", "hoppings", "spreads", "centres"):
+        assert np.array_equal(getattr(default, name), getattr(free, name)), name
+    with pytest.raises(error, match=reason):
+        silicon.get_wannier(divisions=(2, 2, 2), symmetry=True, **options)
+
+
+@pytest.mark.parametrize("projections", ["auto", "Si:sp3"])
+def test_the_default_on_silicon_is_symmetry_true(silicon, projections):
+    """Where the input allows it the default imposes the group, with no warning
+    about it: the result is the one of ``symmetry=True`` bit for bit."""
+    import warnings
+
+    if projections == "auto":
+        options = dict(projections="auto")
+    else:
+        options = dict(num_wann=8, projections=[projections], num_bands=12,
+                       dis_win=(None, 17.0), dis_froz=(None, 6.4))
+    options.update(divisions=(2, 2, 2), engine_options=dict(num_iter=50, conv_window=3))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        default = silicon.get_wannier(**options)
+    assert not [c for c in caught if "site symmetry" in str(c.message)]
+    explicit = silicon.get_wannier(symmetry=True, **options)
+    assert (default.nsym, default.symmetry_fallback) == (48, None)
+    assert default.site_symmetry is not None
+    for name in ("u_matrix", "hoppings", "spreads"):
+        assert np.array_equal(getattr(default, name), getattr(explicit, name)), name
+    if projections == "auto":
+        assert np.array_equal(default.frozen, explicit.frozen)
+        assert np.array_equal(default.outer, explicit.outer)
+
+
+def test_a_symmetry_that_is_not_a_switch_is_refused(silicon):
+    with pytest.raises(ValueError, match="symmetry must be None, True or False"):
+        silicon.get_wannier(divisions=(2, 2, 2), symmetry="yes")

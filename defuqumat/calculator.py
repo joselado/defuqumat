@@ -1471,9 +1471,11 @@ class Calculator:
         when they are not given. The result carries the centres and spreads, the hoppings
         ``H_mn(R)`` and the interpolated bands (``.bands(kpoints)``), and
         writes the matrices for ``wannier90.x`` (``.write_w90(prefix)``).
-        ``symmetry=True`` imposes the space group of the run (Wannier90's
-        ``site_symmetry``), and ``.write_w90`` then also writes the ``.dmn``
-        file.
+        The space group of the run is imposed (Wannier90's ``site_symmetry``)
+        whenever the input allows it, and ``.write_w90`` then also writes the
+        ``.dmn`` file: ``symmetry=None``, the default, otherwise runs without it
+        and warns with the reason (``.symmetry_fallback``), ``symmetry=True``
+        gives that reason as an error, and ``symmetry=False`` turns it off.
         """
         from defuqumat.workflows.wannier import run_wannier
 

@@ -4,7 +4,10 @@ Do the Wannier functions of a crystal have its symmetry? Not always. The spread
 $\Omega$ is minimised one step at a time, and the minimum it reaches depends on the
 start. A minimum can break the symmetry a little, and then the tight-binding model
 from it breaks it too. Here we impose the symmetry from the start, as the
-`site_symmetry` of Wannier90 does (Sakuma, PRB 87, 235109 (2013)).
+`site_symmetry` of Wannier90 does (Sakuma, PRB 87, 235109 (2013)). This is the default
+of `get_wannier()`, and `symmetry=False` turns it off. When the symmetry cannot be
+kept, the default runs without it and gives a warning, and `symmetry=True` gives an
+error instead.
 
 The constraint is on the rotation $U(\mathbf k)$ of the Bloch states. For every
 operation $g$ of the space group:
@@ -42,7 +45,8 @@ si.get_scf(conv_thr=1e-10)
 We take twelve bands to eight functions, with an outer window up to 17 eV, as in
 notebook 58. There is no frozen window here. We add one further below. We compare two sets of trial orbitals. `Si:sp3` puts
 the same four lobes on both atoms. The second set turns the axes of the second atom,
-so both atoms start alike. We run each set with and without `symmetry=True`:
+so both atoms start alike. We run each set with `symmetry=False` and with
+`symmetry=True`:
 
 
 ```python
@@ -118,7 +122,8 @@ the subspace exactly. Can they stay exact and keep the symmetry at the same time
 Wannier90 does not allow this. Here the code first finds the combinations of trial
 orbitals that transform as the frozen states, and keeps them fixed. Only the rest of
 the subspace is optimised under the symmetry. If the frozen states at some k-point
-have a symmetry that no combination of trial orbitals has, the code gives an error.
+have a symmetry that no combination of trial orbitals has, `symmetry=True` gives an
+error, and the default runs without the symmetry and says why.
 
 
 ```python
@@ -153,7 +158,7 @@ Can the code also choose the trial orbitals and keep the symmetry? The automatic
 of notebook 58 takes the atomic orbitals of the pseudopotential file, and it keeps a
 state exactly when it has a large weight on them. With symmetry these choices are made
 at one k-point of each star and copied to the other points, so the choice itself has
-the symmetry. We run it with and without `symmetry=True`:
+the symmetry. We run it with `symmetry=False` and with `symmetry=True`:
 
 
 ```python
@@ -180,8 +185,9 @@ also when the free minimum is not. We measured one such case apart, bcc chromium
 4x4x4 mesh with the states frozen by their weight alone (`froz_above_edge=None`). There
 the free subspace breaks the symmetry, with $\Omega_I$ = 4.30 Å$^2$, and the symmetric
 one has 4.43 Å$^2$. With the default frozen window, up to 2 eV above the Fermi level,
-the code gives an error for chromium. At one k-point the frozen states then have a
-symmetry that no combination of the $s$, $p$ and $d$ orbitals of the file has.
+`symmetry=True` gives an error for chromium, and the default runs without the
+symmetry, with a warning. At one k-point the frozen states then have a symmetry that
+no combination of the $s$, $p$ and $d$ orbitals of the file has.
 
 
 ```python

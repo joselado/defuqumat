@@ -70,7 +70,7 @@ print({k: round(v, 5) for k, v in w.spread_terms_angstrom2().items()})
 ```
 [[-0.     0.     0.   ]
  [-0.807  0.807 -0.   ]
- [-0.     0.807  0.807]
+ [ 0.     0.807  0.807]
  [-0.807  0.     0.807]]
 [0.5873 0.5873 0.5873 0.5873]
 {'omega_i': 1.97388, 'omega_d': 0.0, 'omega_od': 0.37528, 'omega_total': 2.34917}
@@ -78,7 +78,10 @@ print({k: round(v, 5) for k, v in w.spread_terms_angstrom2().items()})
 
 The four centres are the four bond centres, and the four spreads are equal, as the
 symmetry of the crystal says. $\Omega_D$ is zero because each centre sits on a point
-of high symmetry. The Wannier mesh is the k-mesh of the SCF here. You can choose
+of high symmetry. By default the code also imposes the space group of the crystal on
+the functions, so here `w.nsym` is 48. The section
+[Wannier functions with the symmetry of the crystal](#wannier-functions-with-the-symmetry-of-the-crystal)
+says what this changes, and when the code runs without it. The Wannier mesh is the k-mesh of the SCF here. You can choose
 another one with `divisions=(n1, n2, n3)`. The mesh must be uniform and centred at
 $\Gamma$, because the overlaps connect each k-point with its neighbours.
 
@@ -112,19 +115,23 @@ print(np.round(w.bands_ev([[0.5, 0.5, 0.5], [0.0, 0.0, 0.0]]), 3))   # L and Gam
 ```
 
 ```
-[1.8177 1.8177 1.8177 1.8177 2.1956 2.1956 2.1956 2.1956]
-{'omega_i': 11.81348, 'omega_d': 0.13752, 'omega_od': 4.10218, 'omega_total': 16.05319}
+[1.8057 1.8057 1.8057 1.8057 2.2099 2.2099 2.2099 2.2099]
+{'omega_i': 11.81348, 'omega_d': 0.1378, 'omega_od': 4.1114, 'omega_total': 16.06269}
 [[-3.422 -0.825  5.027  5.027  7.812  9.588  9.588 13.835]
  [-5.816  6.247  6.247  6.247  8.814  8.814  8.814  9.722]]
 ```
 
-The two atoms give two groups of spreads, 1.8177 and 2.1956 Å$^2$, although they are
+The two atoms give two groups of spreads, 1.8057 and 2.2099 Å$^2$, although they are
 equivalent by symmetry. The reason is the trial orbitals. `Si:sp3` puts the lobes along
 $(1,1,1)$, $(1,-1,-1)$, $(-1,1,-1)$ and $(-1,-1,1)$ on both atoms. On the second atom
 these are the directions of its four bonds, but on the atom at the origin the bonds
-point the opposite way. So the two sets start from different orbitals and end in two
-different local minima of $\Omega$, and `wannier90.x` finds the same two. If we turn
-the axes of the second atom by 90 degrees about $z$, both atoms start in the same way:
+point the opposite way. So the two sets start from different orbitals, and even the
+symmetry of the crystal does not make them equal. With `symmetry=False` the
+minimisation is free, and it gives the two groups 1.8177 and 2.1956 Å$^2$ and
+$\Omega = 16.05319$ Å$^2$. This is the result of `wannier90.x` without `site_symmetry`
+(see [How we checked it](#how-we-checked-it)). The free minimum is lower by
+$10^{-2}$ Å$^2$ because it breaks the symmetry a little. If we turn the axes of the
+second atom by 90 degrees about $z$, both atoms start in the same way:
 
 ```python
 w = si.get_wannier(8, ["f=0,0,0:sp3", "f=0.25,0.25,0.25:sp3:z=0,0,1:x=0,1,0"],
@@ -161,9 +168,9 @@ supercell, which is the `use_ws_distance` of Wannier90 and its default.
 The figure shows the twelve bands computed directly (grey) and the eight interpolated
 bands from a 4x4x4 and a 6x6x6 Wannier mesh, along L-Γ-X-W-K-Γ. The horizontal line
 is the top of the frozen window. Below it the interpolation follows the valence bands,
-within 0.317 eV on 4x4x4 and 0.064 eV on 6x6x6. Above it the model gives
+within 0.296 eV on 4x4x4 and 0.061 eV on 6x6x6. Above it the model gives
 four bands that follow the lowest conduction bands where they are not entangled with
-the others. The spread grows with the mesh, from 16.05 to 19.49 Å$^2$. This is
+the others. The spread grows with the mesh, from 16.06 to 19.49 Å$^2$. This is
 because the finite-difference spread approaches its limit from below, as $\Omega_I$
 does in [the quantum metric](topology.md#the-quantum-metric).
 
@@ -234,7 +241,9 @@ atomic orbitals: one $s$ and three equal $p$ on each atom. `w.projectability`, `
 and `w.frozen` are arrays of shape `(nk, num_bands)`, so you can see which state went
 where. The projectability is averaged over each degenerate multiplet, so the states of one
 multiplet always go to the same set. You can change the thresholds with `proj_min` and `proj_max`, the energy part
-with `froz_above_edge` (in eV, `None` to switch it off), and `num_bands`.
+with `froz_above_edge` (in eV, `None` to switch it off), and `num_bands`. Here too the
+symmetry of the crystal is imposed, so the states kept exactly and the states left out
+are the same at all the k-points of a star.
 
 A semicore shell is a shell with a partner of the same $l$ and a higher principal number
 in the same file, for example $3s$ beside $4s$. Its bands are deep and flat, so they are
@@ -253,12 +262,14 @@ w = cr.get_wannier(divisions=(4, 4, 4), engine_options=dict(num_iter=200, conv_w
 print(w.num_wann, w.num_bands, w.excluded_bands, w.semicore)
 print(w.projection_labels)
 print(round(w.edge * RY_TO_EV, 4), w.frozen.sum(axis=1).min(), w.frozen.sum(axis=1).max())
+print(w.nsym)
 ```
 
 ```
 9 19 (1,) cut (gap 28.32)
 ('Cr1 4S:s', 'Cr1 3P:pz', 'Cr1 3P:px', 'Cr1 3P:py', 'Cr1 3D:dz2', 'Cr1 3D:dxz', 'Cr1 3D:dyz', 'Cr1 3D:dx2-y2', 'Cr1 3D:dxy')
 18.8628 8 9
+1
 ```
 
 The $3s$ band lies 28.32 eV below the next band, so it is left out. This is the
@@ -267,6 +278,14 @@ $4p$ partner in this file, so it stays. The edge is now the Fermi level. With
 `semicore=False` the code keeps every shell. With `semicore=True` it cuts the semicore
 shells even when their bands touch the valence bands. For given projections,
 `exclude_bands` is a keyword of its own, with the 1-based band numbers of Wannier90.
+
+For chromium the code also gives a warning and runs without the symmetry, so `w.nsym`
+is 1. The warning starts with "the frozen states at k-point 2 carry an irrep the trial
+orbitals do not". The nine frozen states there have an irreducible representation more
+often than the $4s$, $3p$ and $3d$ orbitals have it, so no symmetric rotation keeps
+them all. `w.symmetry_fallback` keeps this reason. With `froz_above_edge=None` the
+symmetry is imposed (see
+[the section on symmetry](#wannier-functions-with-the-symmetry-of-the-crystal)).
 
 How good is the model? We use the band distance of Qiao and coworkers. It is the root
 mean square difference between the interpolated and the direct bands on 50 random
@@ -287,7 +306,9 @@ silicon (the cell above) and aluminium ($s$ and $p$, four functions), in meV:
 | Al, automatic | 8x8x8 | 46.6 | 75.4 | 9.326 |
 
 The density is the one of the 4x4x4 SCF in every row, and only the Wannier mesh
-changes. For the occupied bands ($\eta_0$) the automatic set and the hand-made hybrids
+changes. The table was taken without symmetry (`symmetry=False`). For the automatic
+set of Si and Al on 4x4x4, and of Si on 6x6x6, the symmetric runs give the same
+$\Omega$ to $10^{-6}$ Å$^2$ and the same $\eta_2$. For the occupied bands ($\eta_0$) the automatic set and the hand-made hybrids
 are close, and the automatic set needs no input. Up to 2 eV above the gap ($\eta_2$)
 the hybrids do better here. Qiao and coworkers find that the lowest conduction band of
 silicon near X has a $d$ component, which the $s$ and $p$ orbitals of this file cannot
@@ -358,7 +379,9 @@ The projectability of silicon falls slowly with the energy, so the fit gives a w
 $\sigma$ of 6.5 eV and $\mu = -6.3$ eV, below the bottom of the valence band. The first
 four points are the four bond centres of the atom at the origin, in crystal
 coordinates on the 16x16x16 grid. `w.scdm.points` holds the points and
-`w.projectability` the $p$ of the fit. The spread, 20.007 Å$^2$, is larger than the
+`w.projectability` the $p$ of the fit. SCDM runs without the symmetry of the crystal,
+because the selected points do not transform with the group. With the default the
+code says so in a warning, and with `symmetry=False` it runs without the warning. The spread, 20.007 Å$^2$, is larger than the
 15.78 Å$^2$ of the automatic set above. For the four valence bands alone the weight is
 $f = 1$, and the functions are the four bond orbitals:
 
@@ -414,10 +437,10 @@ w.write_w90("si", projections=["Si:sp3"],
 
 ## Wannier functions with the symmetry of the crystal
 
-We now ask the Wannier functions to keep the symmetry of the crystal. The
-minimisation is local, so a minimum can break the symmetry a little, and then the
-model breaks it too. With `symmetry=True` the code imposes, for every operation $g$
-of the space group of the run:
+We now look at the symmetry of the Wannier functions. The minimisation is local, so
+a minimum can break the symmetry of the crystal a little, and then the model breaks it
+too. So by default the code imposes, for every operation $g$ of the space group of
+the run:
 
 $$
 U(g\mathbf k) = d(g, \mathbf k)\, U(\mathbf k)\, D(g, \mathbf k)^\dagger .
@@ -427,9 +450,24 @@ Here $d$ is the matrix that takes the Bloch states at $\mathbf k$ into those at
 $g\mathbf k$, and $D$ takes the trial orbitals into each other. This is the
 `site_symmetry` of Wannier90 (Sakuma, PRB 87, 235109 (2013)), and the two matrices
 are the `.dmn` file that `pw2wannier90.x` writes with `write_dmn`. Only the
-irreducible k-points are free, and the rest of the mesh follows from them. We take
-again the silicon cell of the section on $sp^3$ orbitals, and first we keep only the
-outer window:
+irreducible k-points are free, and the rest of the mesh follows from them.
+
+The keyword is `symmetry`. If you do not give it (`symmetry=None`), the code imposes
+the symmetry when it can. When it cannot, it runs without the symmetry and gives a
+warning with the reason, which `w.symmetry_fallback` also keeps. This happens for SCDM,
+for `precond`, for `exclude_bands` given by hand, for a magnetic group, for trial
+orbitals that the group does not map onto themselves, for a band set or a window that
+cuts a degenerate multiplet, and for frozen states that the trial orbitals cannot keep
+together with the symmetry. In the last three cases the code finds the reason only after
+it has computed the states, so it reuses them for the run without symmetry. With
+`symmetry=True` each of these cases gives an error instead, and `symmetry=False` turns
+the symmetry off. A `nosym` run has only the identity, so there is nothing to impose
+and no warning. The symmetry costs time. On the silicon case of the section on $sp^3$
+orbitals one call takes 6.6 s with it and 5.3 s with `symmetry=False`, on one core.
+Most of the call is the computation of the states, which is the same in both.
+
+We take again the silicon cell of the section on $sp^3$ orbitals, and first we keep
+only the outer window. Here we pass `symmetry` explicitly, to see both runs:
 
 ```python
 si = Calculator.from_keywords(
@@ -451,7 +489,7 @@ for symmetry in (False, True):
 ```
 
 `w.nsym` is the number of operations imposed, 48 for the diamond group, and half of
-them carry a fractional translation. The total is lower than the 16.05 Å$^2$ of the
+them carry a fractional translation. The total is lower than the 16.06 Å$^2$ of the
 section above only because the frozen window is gone. With symmetry $\Omega$ goes up
 by $6 \times 10^{-3}$ Å$^2$, which means that the free minimum was not exactly
 symmetric. The two groups of spreads stay, because `Si:sp3` itself is not
@@ -484,7 +522,7 @@ for symmetry in (False, True):
 Here the free minimum is already symmetric to $2 \times 10^{-8}$ eV, and the
 constraint makes it exact. For `Si:sp3` the same test gives $3 \times 10^{-7}$ eV
 without symmetry and $5 \times 10^{-13}$ eV with it. With a `nosym` run the group is the identity
-alone, and `symmetry=True` then changes nothing. `w.write_w90(prefix)` also writes
+alone, and the symmetry then changes nothing. `w.write_w90(prefix)` also writes
 `prefix.dmn` and `site_symmetry = .true.`, so `wannier90.x` can run the same
 symmetric minimisation on our files.
 
@@ -527,8 +565,8 @@ The automatic orbitals of the section "Without choosing the orbitals" freeze sta
 too, so they now work with symmetry as well. The states kept exactly and the states
 left out are then chosen at one k-point of each star and copied to the other points,
 so the choice itself has the symmetry of the crystal. A multiplet is never split, also
-when the symmetry joins two bands that are not degenerate to the tolerance. We compute
-it with `si.get_wannier(symmetry=True)`:
+when the symmetry joins two bands that are not degenerate to the tolerance. This is what
+`si.get_wannier()` does by default, and here we compare it with `symmetry=False`:
 
 ```python
 for symmetry in (False, True):
@@ -551,7 +589,9 @@ runs give the same spread, and the bands agree to $10^{-9}$ eV in both. That is 
 accuracy of the eigenvalues we start from. Where the free minimum is not symmetric
 the constraint changes the result. For bcc chromium on a 4x4x4 mesh with
 `froz_above_edge=None` the free subspace has $\Omega_I = 4.30$ Å$^2$ and breaks the
-symmetry, and the symmetric one has 4.43 Å$^2$.
+symmetry, and the symmetric one has 4.43 Å$^2$. With the default frozen window the
+symmetry cannot be kept for chromium, and the code runs without it (see the section
+"Without choosing the orbitals").
 
 Notebook
 [59](https://github.com/joselado/defuqumat/blob/master/notebooks/59_wannier_symmetry.ipynb)
@@ -565,7 +605,8 @@ and Wannier90 3.1.0, on the same inputs. The engine is the one of `wannier90.x`,
 of its Fortran. On the `.mmn`, `.amn` and `.eig` files of `pw2wannier90.x` it gives the
 spread of `wannier90.x` to $2 \times 10^{-8}$ Å$^2$ for diamond and $1.3 \times 10^{-7}$
 Å$^2$ for silicon with the windows. Then `wannier90.x` itself, run on our files, gives
-the spread it gives on the files of `pw2wannier90.x`:
+the spread it gives on the files of `pw2wannier90.x`. These runs are without
+symmetry on both sides (`symmetry=False` here, no `site_symmetry` there):
 
 | cell | `wannier90.x` on `pw2wannier90.x` (Å$^2$) | `wannier90.x` on ours (Å$^2$) |
 |---|---|---|
@@ -683,26 +724,32 @@ SCDM model is fixed only up to this choice of tied points.
       `wannier90.x` cannot redo an automatic run from the `.win` file, which has only
       energy windows. It can redo it when the sets are energy windows, for example
       with `proj_max=2.0, proj_min=0.0`.
-    - With `symmetry=True`, `precond` gives an error, and so do projections given
-      as a name other than `"auto"`, `exclude_bands` given by hand, and a magnetic
-      group with operations that need time reversal. A set of trial orbitals that
-      the group does not map onto itself gives an error by name. So does a band
-      set, an outer window or a frozen window that cuts a degenerate multiplet at
-      some k-point, because then no rotation satisfies the constraint.
-    - With `symmetry=True` and frozen states, the frozen states at each k-point
-      must have only irreducible representations that the trial orbitals also
-      have, at least as many times. Otherwise there is no symmetric rotation that
-      keeps them, and the code gives an error. For bcc chromium with the automatic
-      orbitals this happens with the default frozen window, 2 eV above the Fermi
-      level. With `froz_above_edge=None` it runs.
+    - The symmetry is not imposed with `precond`, with projections given as a
+      name other than `"auto"` (so not with SCDM), with `exclude_bands` given by
+      hand, or with a magnetic group whose operations need time reversal. It is not
+      imposed either for a set of trial orbitals that the group does not map onto
+      itself, or for a band set, an outer window or a frozen window that cuts a
+      degenerate multiplet at some k-point, because then no rotation satisfies the
+      constraint. In all these cases the default runs without the symmetry and
+      gives a warning with the reason, and `symmetry=True` gives an error.
+    - With frozen states, the frozen states at each k-point must have only
+      irreducible representations that the trial orbitals also have, at least as
+      many times. Otherwise there is no symmetric rotation that keeps them, and the
+      default runs without the symmetry, with a warning. For bcc chromium with the
+      automatic orbitals this happens with the default frozen window, 2 eV above the
+      Fermi level. With `froz_above_edge=None` the symmetry is imposed.
+    - The symmetric minimisation takes about 2 to 4 times as long as the free one,
+      because it is a loop in Python over the operations and the irreducible
+      k-points.
     - A frozen window together with symmetry is not in Wannier90, so this part has
       no reference code. We checked it on identities instead (see "How we checked
       it").
-    - With `symmetry=True` time reversal is not imposed. On the GaAs example of
+    - With the symmetry time reversal is not imposed. On the GaAs example of
       Wannier90 the imaginary part of $H_{mn}(\mathbf R)$ is $3 \times 10^{-10}$ eV
       anyway.
-    - `projections="scdm"` gives an error with `symmetry=True`. The points the
-      factorisation selects do not transform with the group. A tie between
+    - `projections="scdm"` runs without the symmetry, and gives an error with
+      `symmetry=True`. The points the factorisation selects do not transform with
+      the group. A tie between
       equivalent points is broken by rounding, so another library or another input
       can pick other points with the same spread and different interpolated bands.
     - With SCDM, `scdm_sigma` must be positive, `scdm_mu` and `scdm_sigma` come

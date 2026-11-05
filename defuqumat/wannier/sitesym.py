@@ -51,11 +51,27 @@ import warnings
 
 import numpy as np
 
-__all__ = ["SymmetryData", "from_dmn", "slim_d_matrix_band", "symmetrize_u_matrix",
+__all__ = ["SiteSymmetryError", "SymmetryData", "from_dmn", "slim_d_matrix_band", "symmetrize_u_matrix",
            "symmetrize_gradient", "symmetrize_rotation", "symmetrize_zmatrix",
            "dis_extract_symmetry", "dis_extract_symmetric", "wannier_gauge",
            "FrozenBlock", "check_frozen_star", "frozen_blocks", "frozen_start",
            "intertwiner_rank"]
+
+
+class SiteSymmetryError(ValueError):
+    """A refusal that belongs to the site-symmetry mode alone, not to the run.
+
+    Raised where the constraint ``U(gk) = d U(k) D^+`` cannot hold for this
+    input but the free minimisation can still run: trial orbitals that are not a
+    representation of the group (:mod:`defuqumat.wannier.dmatrix`), a mesh or a
+    plane-wave sphere the group does not map onto itself, a band set or a window
+    that cuts a degenerate multiplet or differs between ``k`` and ``g k``, the
+    two rank refusals of a frozen set, and ``symmetrize_ukirr`` not converging
+    (the trial orbitals lack an irrep of the bands at ``k``: ``Si:p`` with the
+    lowest band frozen at Gamma, P166). ``run_wannier(symmetry=None)`` catches
+    exactly this type and redoes the run without symmetry from the matrices it
+    has; ``symmetry=True`` lets it through. A subclass of ``ValueError``, so a
+    caller that caught the old type still does."""
 
 
 @dataclass
@@ -108,7 +124,7 @@ def slim_d_matrix_band(sym: SymmetryData, lwindow: np.ndarray) -> SymmetryData:
         nindx = np.nonzero(lwindow[:, ik])[0]
         for isym in range(sym.nsymmetry):
             if not np.array_equal(lwindow[:, sym.kptsym[isym, ir]], lwindow[:, ik]):
-                raise ValueError(
+                raise SiteSymmetryError(
                     "the outer window holds different bands at k and g k for a star of the "
                     f"mesh (irreducible point {ir}, operation {isym}): a window edge sits on "
                     "a band, which the site-symmetry mode cannot treat; move dis_win (with "
@@ -141,7 +157,7 @@ def check_band_unitarity(d: np.ndarray, ik: int, what: str, refuse: bool = True)
                 f"(|d^+ d - 1| = {err:.2e}): {what} ({n} bands there) cuts a degenerate "
                 "multiplet; move the window edge (or num_bands) into a gap at every k")
             if refuse:
-                raise ValueError(message)
+                raise SiteSymmetryError(message)
             warnings.warn(message, stacklevel=3)
             return err
     return worst
@@ -181,7 +197,7 @@ def symmetrize_ukirr(ir: int, umat: np.ndarray, sym: SymmetryData, n: int,
         if diff < sym.symmetrize_eps:
             break
         if iteration == niter - 1:
-            raise ValueError(
+            raise SiteSymmetryError(
                 f"symmetrize_ukirr: not converged (diff = {diff}, symmetrize_eps = "
                 f"{sym.symmetrize_eps}): either the tolerance is too small or the trial "
                 "orbitals do not carry the representation the bands carry at this k")
@@ -546,7 +562,7 @@ def check_frozen_star(windows, sym: SymmetryData) -> None:
         for s in range(sym.nsymmetry):
             jk = sym.kptsym[s, ir]
             if not np.array_equal(windows.lfrozen[:windows.ndimwin[jk], jk], froz):
-                raise ValueError(
+                raise SiteSymmetryError(
                     "the frozen set holds different bands at k and g k for a star of the mesh "
                     f"(irreducible point {ir}, operation {s}): a frozen edge sits on a band; "
                     "move dis_froz (with projections='auto' the frozen set is chosen star by "
@@ -581,7 +597,7 @@ def frozen_blocks(sym: SymmetryData, windows, A_matrix: np.ndarray, num_wann: in
         D = sym.d_matrix_wann[:, :, :, ir]
         rank, rel = intertwiner_rank(d_F, D, rng, little_group)
         if rank < nf:
-            raise ValueError(
+            raise SiteSymmetryError(
                 f"the frozen states at k-point {ik} carry an irrep the trial orbitals do not "
                 f"(or more often than the trial orbitals do): a generic intertwiner has rank "
                 f"{rank} of {nf} (smallest relative singular value {rel:.1e}), so no U keeps "
@@ -615,7 +631,7 @@ def frozen_blocks(sym: SymmetryData, windows, A_matrix: np.ndarray, num_wann: in
             d_free[:, :, s] = sym.d_matrix_band[np.ix_(target, free)][:, :, s, ir]
         rank2, rel2 = intertwiner_rank(d_free, D_free, rng, little_group)
         if rank2 < nfree:
-            raise ValueError(
+            raise SiteSymmetryError(
                 f"the bands left free at k-point {ik} do not carry the irreps the trial orbitals "
                 f"need beside the frozen ones (rank {rank2} of {nfree}, smallest relative "
                 f"singular value {rel2:.1e}): raise the outer window or num_bands, or change "

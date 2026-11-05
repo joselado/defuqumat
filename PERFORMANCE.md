@@ -11466,6 +11466,18 @@ one-point `SymmetryData` per representative, whose `d_free` is `ndk^2 x nsym` an
 `(num_wann - nfroz)^2 x nsym`: at most `nkptirr x num_bands^2 x nsym` complex in all, the size
 of `d` itself (0.9 MB on `si.scf`, 3 MB on Si 6^3 auto), not `nkptirr` copies of it.
 
+**The default since P166 (`symmetry=None`), on the guide's case** (Si, ecut 20 Ry, SCF 8^3,
+`Si:sp3` 12 to 8 on 4^3, outer 17 eV, frozen 6.4 eV, `num_iter = 200`): `get_wannier` 6.61 s
+by default (48 operations imposed, 25 steps, `Omega` 16.062686 A^2) against 5.32 s with
+`symmetry=False` (26 steps, 16.053189), medians of 3 warm calls after one warm-up of each,
+alternated, D22 CPU 8 through `slot.sh` (`/l/ladovj1/review/wauto/e/timing.py`, `timing.log`;
+the three samples of each arm within 0.5 per cent). So the default costs 1.24x the free call
+here, 1.29 s; the fixed-density solve, the same in both arms (the same states, so the same
+Davidson work), is most of the call. D22 also ran another session's fast gate at the time.
+A fallback of the default costs what was done before the refusal: nothing before the solve,
+`D` and `d` after it (0.44 s on `si.scf`), and the symmetric engine up to the refusal when
+the engine refuses.
+
 ## SCDM projections, `projections="scdm"`, against `pw.x` + `pw2wannier90.x` (`scdm_proj`) + `wannier90.x` (CPU, D22, 2026-11-05)
 
 Silicon, `Si.pz-vbc`, ecut 12 Ry, SCF on 4x4x4 (P163's `wauto/a/qe/si/scf.in`), the Wannier mesh
