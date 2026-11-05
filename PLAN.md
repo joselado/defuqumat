@@ -27106,7 +27106,7 @@ a Wannier quantity is not available.
 
 ### P163 -- (branch `wannier-pdwf`, a sibling session; its section is written there)
 
-### P164 -- Symmetry-adapted Wannier functions (Wannier90's `site_symmetry`), `get_wannier(..., symmetry=True)`. ✅ DONE 2026-11-05 (fast checks only, CPU and GPU on D22; `tests/regression/test_wannier_sitesym.py` is slow and was not run, for the user; branch `wannier-sym` from 907f87fc, not merged, not pushed)
+### P164 -- Symmetry-adapted Wannier functions (Wannier90's `site_symmetry`), `get_wannier(..., symmetry=True)`. ✅ DONE 2026-11-05 (three fast files on D22, CPU and GPU: `test_wannier_sitesym.py`, `test_wannier.py`, `test_notebook_conventions.py`; the gate `tools/test-fast.sh` was not run; `tests/regression/test_wannier_sitesym.py` is slow and was not run, for the user; branch `wannier-sym` from 907f87fc, not merged, not pushed)
 
 Sakuma, PRB 87, 235109 (arXiv:1306.0032). For every operation `g` of the run's `Symmetries`
 (`operations_of`, identity first), `U(gk) = d(g,k) U(k) D(g,k)^+`, only the irreducible
@@ -27144,7 +27144,8 @@ triplet at Gamma while the 17 eV window does not), **a `.dmn` read from a file o
 Gamma (`|d^+ d - 1|` 0.97) and `wannier90.x` runs on regardless; the fixture's number is
 reproduced through it. The window must hold the same bands at `k` and `gk` (asserted).
 
-**Numbers** (D22; scripts in the session scratchpad `p164/`, runs in `/l/ladovj1/review/wauto/b/`):
+**Numbers** (D22; the scripts and their logs are in `/l/ladovj1/review/wauto/b/`: `compare_si.py`,
+`probe_physics.py`, `probe_tr.py`, `timing.py`, `qe_si.sh`, `diag_d_us.py`, `doc_snippet.py`):
 
 - Fixtures (Wannier90 3.1 test suite, `wannier90.x` rerun on D22 equal to the benchmarks).
   **The labels**: `example21_As_sp` is GaAs, isolated, 10.136492662 A^2; `disentanglement_sawfs`
