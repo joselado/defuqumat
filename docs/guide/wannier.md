@@ -176,6 +176,123 @@ does in [the quantum metric](topology.md#the-quantum-metric).
     --8<-- "wannier_silicon/plot.py"
     ```
 
+## Without choosing the orbitals
+
+So far we wrote the trial orbitals by hand. Can the code choose them? Every
+pseudopotential file carries the orbitals of the free atom, in its `PP_PSWFC` block.
+We now use these orbitals $g_n$ on every atom as the trial orbitals, and we sort the
+Bloch states by how much of them these orbitals describe. This is the
+projectability:
+
+$$
+p_{m\mathbf k} = \sum_n |\langle \tilde g_n | S | \psi_{m\mathbf k}\rangle|^2 ,
+\qquad \tilde g = g\, O^{-1/2}, \quad O_{nn'} = \langle g_n | S | g_{n'} \rangle ,
+$$
+
+meaning that the orbitals are first made orthonormal (Löwdin) and then $p$ is the
+weight of the state on them, between 0 and 1. A state with $p \geq 0.95$ is kept
+exactly, a state with $p < 0.01$ is left out, and the states in between go into the
+disentanglement. Every state up to 2 eV above an edge is also kept exactly. The edge
+is the Fermi level of a metal and the conduction band minimum of an insulator. This is
+the projectability disentanglement of Qiao, Pizzi and Marzari (arXiv:2303.07877), with
+their recommended energy part. The decisions are taken on the mean of $p$ over each
+degenerate multiplet, so a multiplet is kept, left out or disentangled as a whole.
+
+We compute it with `calc.get_wannier()` and no orbitals. Here we take silicon on a
+4x4x4 mesh:
+
+```python
+from defuqumat.units import RY_TO_EV
+
+si = Calculator.from_keywords(
+    lattice="fcc", a=5.3976, atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+    pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=163.27, kmesh=(4, 4, 4),
+)
+si.get_scf(conv_thr=1e-10)
+w = si.get_wannier(engine_options=dict(num_iter=200, conv_window=3))
+print(w.num_wann, w.num_bands, w.projection_labels[:4])
+print(round(w.edge * RY_TO_EV, 4))
+print(w.frozen.sum(axis=1).min(), w.frozen.sum(axis=1).max(), (~w.outer).sum())
+print(np.round(w.spreads_angstrom2, 4))
+print({k: round(v, 5) for k, v in w.spread_terms_angstrom2().items()})
+```
+
+```
+8 16 ('Si1 3S:s', 'Si1 3P:pz', 'Si1 3P:px', 'Si1 3P:py')
+6.9653
+4 8 110
+[1.5016 2.1295 2.1295 2.1295 1.5016 2.1295 2.1295 2.1295]
+{'omega_i': 10.05687, 'omega_d': 0.07511, 'omega_od': 5.64819, 'omega_total': 15.78017}
+```
+
+The file gives $3s$ and $3p$ on each atom, so there are eight functions. If you do not
+give `num_bands`, the code solves twice as many bands as orbitals, here 16. The edge is
+the conduction band minimum, 6.965 eV. Between 4 and 8 states are kept exactly at each
+k-point, and 110 states of the 1024 are left out. The functions keep the shape of the
+atomic orbitals: one $s$ and three equal $p$ on each atom. `w.projectability`, `w.outer`
+and `w.frozen` are arrays of shape `(nk, num_bands)`, so you can see which state went
+where. You can change the thresholds with `proj_min` and `proj_max`, the energy part
+with `froz_above_edge` (in eV, `None` to switch it off), and `num_bands`.
+
+A semicore shell is a shell with a partner of the same $l$ and a higher principal number
+in the same file, for example $3s$ beside $4s$. Its bands are deep and flat, so they are
+left out if they lie below the valence bands with a gap. Here is chromium, a metal,
+with the $3s$, $4s$, $3p$ and $3d$ orbitals of its file:
+
+```python
+cr = Calculator.from_keywords(
+    lattice="bcc", a=2.8787, atoms=[("Cr", (0, 0, 0))],
+    pseudos={"Cr": "Cr.pbe-spn-rrkjus_psl.1.0.0.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=476.2, ecutrho=3809.6, kmesh=(6, 6, 6),
+    smearing=0.272, smearing_type="marzari-vanderbilt",
+)
+cr.get_scf(conv_thr=1e-10)
+w = cr.get_wannier(divisions=(4, 4, 4), engine_options=dict(num_iter=200, conv_window=3))
+print(w.num_wann, w.num_bands, w.excluded_bands, w.semicore)
+print(w.projection_labels)
+print(round(w.edge * RY_TO_EV, 4), w.frozen.sum(axis=1).min(), w.frozen.sum(axis=1).max())
+```
+
+```
+9 19 (1,) cut (gap 28.32)
+('Cr1 4S:s', 'Cr1 3P:pz', 'Cr1 3P:px', 'Cr1 3P:py', 'Cr1 3D:dz2', 'Cr1 3D:dxz', 'Cr1 3D:dyz', 'Cr1 3D:dx2-y2', 'Cr1 3D:dxy')
+18.8628 8 9
+```
+
+The $3s$ band lies 28.32 eV below the next band, so it is left out. This is the
+`exclude_bands = 1` of Wannier90, and `w.excluded_bands` keeps it. The $3p$ shell has no
+$4p$ partner in this file, so it stays. The edge is now the Fermi level. With
+`semicore=False` the code keeps every shell. With `semicore=True` it cuts the semicore
+shells even when their bands touch the valence bands. For given projections,
+`exclude_bands` is a keyword of its own, with the 1-based band numbers of Wannier90.
+
+How good is the model? We use the band distance of Qiao and coworkers. It is the root
+mean square difference between the interpolated and the direct bands on 50 random
+k-points, weighted by a Fermi function at $E_F + 2$ eV with a width of 0.1 eV, called
+$\eta_2$. For an insulator we put $E_F$ at the top of the valence band. Here is
+silicon (the cell above) and aluminium ($s$ and $p$, four functions), in meV:
+
+| case | mesh | $\eta_0$ | $\eta_2$ | $\Omega$ (Å$^2$) |
+|---|---|---|---|---|
+| Si, automatic | 4x4x4 | 94.5 | 111.7 | 15.780 |
+| Si, automatic | 6x6x6 | 17.5 | 50.4 | 17.187 |
+| Si, automatic | 8x8x8 | 8.8 | 17.5 | 18.759 |
+| Si, `Si:sp3`, 12 bands, frozen to the same edge | 4x4x4 | 74.2 | 97.5 | 18.095 |
+| Si, `Si:sp3`, 12 bands, frozen to the same edge | 6x6x6 | 20.3 | 30.3 | 21.999 |
+| Si, `Si:sp3`, 12 bands, frozen to the same edge | 8x8x8 | 7.7 | 10.4 | 23.400 |
+| Al, automatic | 4x4x4 | 419.2 | 463.1 | 7.209 |
+| Al, automatic | 6x6x6 | 132.3 | 149.8 | 8.823 |
+| Al, automatic | 8x8x8 | 46.6 | 75.4 | 9.326 |
+
+The density is the one of the 4x4x4 SCF in every row, and only the Wannier mesh
+changes. For the occupied bands ($\eta_0$) the automatic set and the hand-made hybrids
+are close, and the automatic set needs no input. Up to 2 eV above the gap ($\eta_2$)
+the hybrids do better here. Qiao and coworkers find that the lowest conduction band of
+silicon near X has a $d$ component, which the $s$ and $p$ orbitals of this file cannot
+describe. The error of aluminium falls fast with the mesh, from 463 meV on 4x4x4 to
+75 meV on 8x8x8.
+
 ## Running wannier90.x on our matrices
 
 The result keeps the matrices in the layout of Wannier90. `w.write_w90(prefix)` writes
@@ -210,6 +327,28 @@ The differences are those of two SCF runs, at most $4 \times 10^{-7}$ Å$^2$. Th
 interpolated by this code from the matrices of `wannier90.x` agree with its
 `si_band.dat` to $9 \times 10^{-6}$ eV.
 
+For `projections="auto"` the reference is `pw2wannier90.x` with `atom_proj = .true.`
+and `atom_proj_ortho = .true.`, which writes the projections on the orthonormal atomic
+orbitals. That code writes the orbitals with the spherical harmonics of QE and these
+use the ones of Wannier90, so we compare $p_{m\mathbf k}$, averaged over each
+degenerate multiplet, which does not depend on that choice. On the 4x4x4 mesh:
+
+| cell | bands | largest difference of $p$ | mean difference |
+|---|---|---|---|
+| Si, norm-conserving | 16 | $1.1 \times 10^{-6}$ | $1.7 \times 10^{-7}$ |
+| Si, ultrasoft | 16 | $7.2 \times 10^{-8}$ | $1.0 \times 10^{-8}$ |
+| Al, norm-conserving | 8 | $1.5 \times 10^{-7}$ | $2.4 \times 10^{-8}$ |
+| Cr, ultrasoft, $3s$ excluded | 19 | $1.4 \times 10^{-7}$ | $1.0 \times 10^{-8}$ |
+
+For chromium `pw2wannier90.x` ran with `exclude_bands = 1` and `atom_proj_exclude(1) =
+1`, the same cut as ours. When the kept and left-out states are energy windows, we can
+also give our files to `wannier90.x` with the same windows. On silicon with 14 bands it
+gives $\Omega = 16.253091461$ Å$^2$ against our 16.253091603 Å$^2$ (ultrasoft:
+16.380204649 against 16.380204793). The difference is the same, $1.4 \times 10^{-7}$
+Å$^2$, at every convergence threshold. It is the conversion from bohr to Å: with the
+older value of the Bohr radius, 0.52917720859 Å instead of 0.529177210903 Å, our
+spread is that of `wannier90.x` to $10^{-9}$ Å$^2$.
+
 !!! note "Limits"
     - Spinor calculations (`noncolin`, spin-orbit coupling, a spin spiral) give an
       error. The projections on spinor trial orbitals were not checked against
@@ -217,8 +356,22 @@ interpolated by this code from the matrices of `wannier90.x` agree with its
     - At `nspin = 2` one channel is computed at a time: pass `spin=0` or `spin=1`,
       as the `spin_component` of `pw2wannier90.x`.
     - Site symmetry (`site_symmetry`), selective localization from the input,
-      `auto_projections` (SCDM), random projections and `gamma_only` are not
-      implemented.
+      SCDM (`scdm_proj`), random projections and `K_POINTS gamma` are not
+      implemented. A `K_POINTS gamma` run gives an error.
+    - `projections="auto"` needs the `PP_PSWFC` orbitals on every species. A file
+      without them, such as the SG15 ones, gives an error. It cannot be combined with
+      `dis_win`, `dis_froz` or `exclude_bands`, and `num_wann` must be the number of
+      orbitals that are kept.
+    - The automatic set uses only the orbitals of the file. If a band needs an orbital
+      the file does not have (the $d$ component near X in silicon), its error stays
+      large. Orbitals of higher $l$ cannot be added yet.
+    - A semicore shell is found from the labels of the orbitals (`3S` beside `4S`).
+      It is cut only if its bands are the lowest ones at every k-point, with most of
+      their weight on it. Otherwise it is kept, with a warning.
+    - The states kept exactly and the states left out are chosen for each k-point. So
+      `wannier90.x` cannot redo an automatic run from the `.win` file, which has only
+      energy windows. It can redo it when the sets are energy windows, for example
+      with `proj_max=2.0, proj_min=0.0`.
     - `zona` is in 1/bohr, as `pw2wannier90.x` reads it. The user guide of Wannier90
       writes it in 1/Å. The default, 1, is the same number in both codes.
     - The Wannier functions themselves on a real-space grid (`wannier_plot`) and the

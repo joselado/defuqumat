@@ -1,0 +1,16 @@
+ &control
+  calculation='scf', prefix='w', pseudo_dir='../../pseudo/', outdir='./'
+ /
+ &system
+  ibrav=2, celldm(1)=10.2, nat=2, ntyp=1, ecutwfc=12.0
+ /
+ &electrons
+  conv_thr=1.0d-12
+ /
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-vbc.UPF
+ATOMIC_POSITIONS {crystal}
+Si 0.0000000000 0.0000000000 0.0000000000
+Si 0.2500000000 0.2500000000 0.2500000000
+K_POINTS {automatic}
+ 4 4 4 0 0 0

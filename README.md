@@ -590,8 +590,13 @@ mesh only sets the resolution of the curvature map, and not the answer.
   k-point. On silicon with twelve bands and eight $sp^3$ orbitals the spread is
   that of `wannier90.x` to $4\times10^{-7}$ Å$^2$, also with ultrasoft and PAW
   datasets. `calc.get_wannier(8, ["Si:sp3"], num_bands=12, ...)`, and
-  `.write_w90()` to run `wannier90.x` on the same matrices; notebook
-  [58](notebooks/58_wannier_functions.ipynb).
+  `.write_w90()` to run `wannier90.x` on the same matrices. Without trial
+  orbitals, `calc.get_wannier()` takes the atomic orbitals of the
+  pseudopotential files on every atom. It keeps a state exactly when these
+  orbitals describe it well, leaves it out when they do not describe it, and
+  cuts deep semicore shells (the projectability disentanglement of Qiao, Pizzi
+  and Marzari). The projectabilities are those of `pw2wannier90.x` to
+  $10^{-6}$; notebook [58](notebooks/58_wannier_functions.ipynb).
 
 - **$\mathbb Z_2$ invariants** in 2D and 3D. The code computes them in two
   independent ways, with the flow of the Wannier charge centres and with the
@@ -774,7 +779,7 @@ task of the other code that it refers to.
 | **Third-harmonic susceptibility** $\chi^{(3)}$, at one frequency or as a spectrum | `calc.get_third_harmonic(frequency)`, `calc.get_harmonic_orders(frequency)` | | |
 | **Berry curvature and Chern numbers** | `calc.get_chern()`, `calc.get_chern(spin=0)` at `nspin = 2` | | |
 | **Quantum metric** of the occupied bands, the localization tensor and the spread $\Omega_I$ | `calc.get_quantum_metric()` | ²¹ | |
-| **Maximally localized Wannier functions**, disentanglement and Wannier-interpolated bands | `calc.get_wannier(num_wann, projections)` | (✓)²² | (✓)²² |
+| **Maximally localized Wannier functions**, disentanglement and Wannier-interpolated bands | `calc.get_wannier(num_wann, projections)`, `calc.get_wannier()` for the automatic set | (✓)²² | (✓)²² |
 | **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
 | **Magnetoelectric tensor** | `calc.get_magnetoelectric_tensor()` | | ✓ |
