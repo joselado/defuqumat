@@ -27227,7 +27227,9 @@ the turned hybrids).
 **Traps met.** A multiplet cut by the top of the solve looks like a state with a small `p` and
 would be frozen or dropped alone (now dropped as a whole, refused if frozen). The `n` of
 `PP_CHI` is not the principal quantum number. V3 at 16 bands first failed because the top
-multiplet was cut, so the outer set was not all bands; 14 bands is a clean cut.
+multiplet was cut, so the outer set was not all bands; 14 bands is a clean cut. The trap check found `WannierFunctions.projectability` stored per band, a
+D4 diagonal; it now holds the block average the selection uses (fast tests 27 passed after it,
+notebook 58 outputs unchanged, 54 s).
 
 **What is outstanding.** Spinor PDWF; site symmetry (P164, branch `wannier-sym`); PAOs beyond the
 pseudopotential file (no higher-`l` or polarisation orbitals can be added); `gamma_only`; a slow
