@@ -135,6 +135,8 @@ The last group is the post-processing:
 | orbital magnetization, `lorbm`, an iodine atom | $-1.1744384$ against $-1.1744357$ |
 | Wannier spread, `pw2wannier90.x` and `wannier90.x`, diamond and silicon with 12 bands to 8, norm-conserving, ultrasoft and PAW | at most 4e-7 Å$^2$ on 2.3 to 18.4 Å$^2$ |
 | Wannier-interpolated bands, against `wannier90.x` on the same matrices | 9.2e-6 eV |
+| projectability on the atomic orbitals, against `pw2wannier90.x` with `atom_proj`, Si (norm-conserving and ultrasoft), Al and Cr | at most 1.1e-6 |
+| Wannier spread with any outer and frozen set, against `wannier90.x` with the same windows on our matrices | 1.4e-7 Å$^2$, which is the different bohr constant of `wannier90.x` |
 
 The orbital magnetization differs by 2.7e-6, and this is the difference between
 two densities converged separately, since a change of `conv_thr` between 1e-6

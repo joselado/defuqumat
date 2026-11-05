@@ -596,7 +596,7 @@ mesh only sets the resolution of the curvature map, and not the answer.
   orbitals describe it well, leaves it out when they do not describe it, and
   cuts deep semicore shells (the projectability disentanglement of Qiao, Pizzi
   and Marzari). The projectabilities are those of `pw2wannier90.x` to
-  $10^{-6}$; notebook [58](notebooks/58_wannier_functions.ipynb).
+  about $10^{-6}$; notebook [58](notebooks/58_wannier_functions.ipynb).
 
 - **$\mathbb Z_2$ invariants** in 2D and 3D. The code computes them in two
   independent ways, with the flow of the Wannier charge centres and with the

@@ -11402,6 +11402,7 @@ call (`scratchpad/wauto/timing.py`, log `/l/ladovj1/review/wauto/a/timing-si.log
 selection, so the QE side runs the energy-window disentanglement on the same orthonormal
 atomic projections (`dis_froz_max` at our edge + 2 eV, no state dropped). It ends at `Omega`
 11.687 A^2 after 90 steps, where ours ends at 15.780 A^2 after 17. Our Wannier step is the
-fixed-density solve of 64 k-points by 16 bands, the PAO projections and the engine; it was not
+fixed-density solve of 64 k-points by 20 bands (16 used and 4 of buffer, where the `pw.x`
+nscf solves exactly 16), the PAO projections and the engine; it was not
 split here, and the P162 section above says the solve is most of it. The gap to the QE chain
 is 1.4x in total.

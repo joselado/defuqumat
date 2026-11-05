@@ -27149,7 +27149,9 @@ cut is not clean, and the auto mode warns and keeps them when they overlap the v
 the lowest bands. The cut is one band count for the whole mesh.
 
 **Bands.** `num_wann` defaults to the number of kept PAOs, and a different value is refused. The
-solve takes `2 N_PAO` bands unless `num_bands` is given (my choice: the top band then has a
+Wannier step uses `2 N_PAO` bands unless `num_bands` is given (the fixed-density solve runs 4
+more, `_source(..., nsolve, nsolve + 4)` as in P162, and the first of them is the band above
+used by the top-cut test) (my choice: the top band then has a
 small `p`, at most 0.116 for Si and 0.09 to 0.26 for Al), and the result records it
 (`solved_bands`). `exclude_bands` is new for the manual path (solve more, gather the kept
 bands); auto refuses it together with `dis_win`/`dis_froz`, because the masks are its own. New
