@@ -185,6 +185,19 @@ but Wannier90 is a separate code that QE reaches through `pw2wannier90.x`. Elk
 has none of the three, and gets $\Omega_I$ only through an installed Wannier90
 (`setupw90.f90`, `writew90.f90`).
 
+**22. Maximally localized Wannier functions, QE (✓) and Elk (✓).** Both codes
+have the interface and neither minimises the spread itself. In QE,
+`PP/src/pw2wannier90.f90` computes $M_{mn}(\mathbf k,\mathbf b)$, $A_{mn}(\mathbf k)$
+and the eigenvalues, and the minimisation is Wannier90, shipped in
+`external/wannier90` and called either as `wannier90.x` or, with `__WANLIB`, as
+the library inside `pw2wannier90.x` (its `wannier_run` call). Elk's task 550
+(`writew90.f90`) writes the `.win`, `.eig`, `.amn`, `.mmn` and `.spn` files and
+calls only `wannier_setup`; no Elk routine calls `wannier_run`. The other files
+in `PP/src` named `wannier_*.f90` and `poormanwannier.f90` build a Hamiltonian on
+projected orbitals and do not minimise a spread. The engine here is a port of
+Wannier90 3.1.0 (the user's `wannierpy`), and `pw2wannier90.f90` is what the
+overlaps and the trial orbitals were transcribed from.
+
 ## The convergence workflows, which have no row
 
 Six rows about getting a calculation to converge left the table when the README

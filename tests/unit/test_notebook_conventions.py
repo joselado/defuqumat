@@ -35,6 +35,7 @@ NOTEBOOKS = Path(__file__).resolve().parents[2] / "notebooks"
 #: the same commit that rewrites it; never remove one to make a test pass.
 REWRITTEN = {
     "57_quantum_metric",
+    "58_wannier_functions",
     "56_quantum_espresso_restart",
     "55_quasiparticle_interference",
     "54_finite_electric_field",

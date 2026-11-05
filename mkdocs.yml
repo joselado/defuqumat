@@ -80,6 +80,7 @@ nav:
       - Nonlinear optics: nonlinear.md
       - Strain and polarization couplings: piezo.md
   - Topology: topology.md
+  - Wannier functions: wannier.md
   - Microscopy and scattering:
       - STM images and tunnelling: stm.md
       - Diffraction and nesting: scattering.md

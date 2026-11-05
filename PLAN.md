@@ -204,6 +204,8 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
+- **Wannier functions beyond P162**: spinor projections, site symmetry, `gamma_only`, SCDM, random
+  projections, `wannier_plot` and `r_mn(R)`, and a differentiable engine (it is NumPy on the host).
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
@@ -26995,3 +26997,107 @@ finite difference on a mesh). The comparison against Wannier90's printed `Omega 
 run (no `wannier90.x` built here); the in-house overlap formula is the same expression on a
 different set of shells.
 
+
+### P162 -- Wannier functions: `pw2wannier90.x` and `wannier90.x` in one call, `Calculator.get_wannier`. ✅ DONE 2026-11-05 (fast checks only; `tests/regression/test_wannier.py` is slow and was not run, for the user; branch `wannier`, not merged, not pushed)
+
+`defuqumat/wannier/` and `workflows/wannier.py` (`run_wannier`, `WannierFunctions`). Two halves,
+as in QE. **The matrices** (`wannier/matrices.py`, `trial.py`): `M_mn(k,b) = <u_mk|u_n,k+b>` is
+`PlaneWaveStates.overlaps` on the neighbour table, grouped by geometric `b` (rounded to 1e-8),
+so the Miller alignment across the wrap and the ultrasoft/PAW `q_ij(b)` are the Berry phases'
+and the metric's; `A_mn(k) = <psi_mk|S|g_n>` with `g` transcribed from `pw2wannier90.f90`
+`generate_guiding_functions`/`radialpart`/`ylm_wannier`/`set_u_matrix` (log mesh xmin -6, dx
+0.025, rmax 10, QE's `simpson`, `4 pi / sqrt(Omega)`, `(-i)^l e^{-i(k+G).tau}`), `S g` with `vkb`
+and `q_ij` at `q = 0` as `compute_amn`'s `s_psi`. One radial table over the distinct `|k+G|` of
+the whole mesh (rounded 1e-12). **The engine** (`kmesh.py`, `overlap.py`, `disentangle.py`,
+`wannierise.py`, `projections.py`, `ws_vectors.py`) is the user's wannierpy port of Wannier90
+3.1 (`../wannierpy/wannierpy/wannier90/_engine/`), copied with site symmetry removed, run in
+Wannier90's units (A, eV; fable's decision) and converted back to bohr and Ry on the result.
+Interpolation (`interpolation.py`): `H(R) = (1/N_k) sum_k e^{-ik.R} V^H diag(e) V`, `V = U_opt U`,
+on the Wigner-Seitz vectors with their degeneracies, and `use_ws_distance` (default on, as
+Wannier90's) by `ws_translate_dist`'s minimal images, vectorised over the translations and
+bit-identical to the loop. `WannierFunctions.write_w90` writes `.win/.mmn/.amn/.eig` for
+`wannier90.x`, the cell in bohr to 12 digits.
+
+**Licence.** Wannier90 states GPL without a version, so GPLv2 section 9 lets it be taken under
+any version, compatible with defuqumat's GPLv3+. wannierpy's own header says GPL-2.0-only; it
+is the user's code, so relicensing the copy under the project's GPLv3+ is the user's
+decision; it was flagged to them, not taken here.
+
+**A defect of the port, fixed here.** Wannier90's `conv_window = -1` default means no
+convergence test (every `num_iter` step runs); wannierpy had replaced it with 5, so a default run
+stopped early. `wann_main` now tests only when `conv_window > 1`
+(`test_conv_window_default_runs_every_step`, 7 iterations of 7).
+
+**Numbers** (this workstation; scratchpad scripts under `wannier/`):
+
+- V2, the engine on `pw2wannier90.x`'s own files against `wannier90.x` on them: Si (12 to 8,
+  4^3) `Omega` 16.053195244 against 16.053195110, `Omega_I` 11.813496446 against .347;
+  diamond (4 to 4, 4^3) to 1e-9. Fast tests at 1e-7 (diamond) and 5e-7 with per-function
+  spreads (Si, gzipped files).
+- V1, the matrices against `pw2wannier90.x`'s, invariants only (a phase per band is free):
+  diamond (ecut 40, 8^3 SCF) `A^H M A` 3.3e-8 (max 2.54), `A^H A` 2.0e-8, eigenvalues 1.9e-8 eV;
+  Si eigenvalues 7e-7 eV. The singular values of `M` differ by up to 0.45 on Si (0.59 US), most
+  likely band 12 cutting a degenerate multiplet at some k (the 12x12 block is then basis
+  dependent); **not quantified** by the cut gap, and the 2x2 below shows it does not reach the
+  spread.
+- The 2x2, every engine on every set of matrices, `Omega_total` in A^2 (exact bohr cell in the
+  `.win`):
+
+  | case | w90 on ref | w90 on ours | our engine on ours | our engine on ref |
+  |---|---|---|---|---|
+  | diamond | 2.317428277 | 2.317428275 | 2.317428294 | 2.317428295 |
+  | Si NC | 16.053195110 | 16.053194713 | 16.053194839 | 16.053195236 |
+  | Si US | 18.358070827 | 18.358070728 | 18.358070873 | 18.358070972 |
+  | Si PAW | 18.362772917 | 18.362772978 (`write_w90`) | 18.362773138 (`get_wannier`) | |
+
+  The front door on Si gives 16.053194854. The frozen window is 6.4 eV for NC and 6.6 eV for US
+  and PAW, whose VBM is at 6.404 and 6.405 eV (at 6.4 the frozen set changes between codes).
+- Interpolated bands with `use_ws_distance` against `wannier90.x`'s `si_band.dat`: 9.2e-6 eV.
+  Without `ws_distance` the interpolation is exact on the mesh (fast test).
+- V4, interpolation error at 20 random k (seed 0) against the direct bands, eV:
+
+  | case | 4^3 ws | 4^3 no-ws | 6^3 ws | 6^3 no-ws | 8^3 ws |
+  |---|---|---|---|---|---|
+  | diamond | 0.344 | 0.357 | 0.097 | 0.081 | 0.060 |
+  | Si (valence) | 0.267 | 0.220 | 0.049 | 0.116 | 0.020 |
+
+  The spread grows with the mesh, Si 16.05, 19.49, 22.17 and diamond 2.317, 2.583, 2.693 A^2 on
+  4, 6, 8 cubed, as it should: a coarse mesh cannot see the tails.
+- The two minima: `Si:sp3` points the lobes along the bonds of the atom at `(1/4,1/4,1/4)` and
+  away from those of the atom at the origin, so the local minimisation lands in an asymmetric
+  minimum (spreads 1.8177 x4 and 2.1955 x4, 16.0532 A^2, which is `wannier90.x`'s too). With
+  `f=0.25,0.25,0.25:sp3:z=0,0,1:x=0,1,0` both start alike: 1.8046 x8, 14.4365 A^2, same
+  `Omega_I`, centres 0.798 A from their atom.
+- Timing (`PERFORMANCE.md`, "Wannier functions against ..."): NC 12.5 s against QE's 11.0 s
+  (nscf 6.2, `pw2wannier90.x` 4.35, `wannier90.x` 0.47), US 24.3 against 16.9 s; the engine 2.3 s
+  is about 4x the Fortran, and the fixed-density solve is the rest of the gap.
+
+**Tests**: `tests/unit/test_wannier.py` (12, fast, pass in 15 s); `tests/regression/
+test_wannier.py` (5, slow, written from the numbers above, **not run**, for the user).
+
+**Deliverables.** `docs/guide/wannier.md` (diamond and silicon snippets executed, the two minima,
+the figure `docs/figures/wannier_silicon`: 4^3 within 0.317 eV and 6^3 within 0.064 eV along
+L-G-X-W-K-G for the valence bands, "How we checked it", Limits); the README row and bullet,
+note 22 in `docs/reference-codes.md` (QE: `pw2wannier90.f90` and bundled `external/wannier90`;
+Elk: task 550 `writew90`, `wannier_setup` only, so `(✓)` in both columns); two rows on the
+Accuracy page; notebook 58 (99 s; along its path the valence error is 0.423 and 0.106 eV on
+4^3 and 6^3, and the largest hopping per shell 6.08, 1.57, 0.16, 0.20, 0.20 eV). The two pairs
+differ because the figure uses `Si:sp3` (the asymmetric minimum, 161 points) and the notebook
+the turned axes (the symmetric one, 14.4365 A^2, 121 points): **the lower-spread minimum
+interpolates the valence bands worse on this path**, 0.423 against 0.317 eV on 4^3 and 0.106
+against 0.064 eV on 6^3. The path sampling differs too, so the pair is two measurements, not a
+controlled comparison of the minima.
+
+**Traps met.** The example `.win` of the diamond test lists k with the first index fastest,
+`kmesh.pl` the last; the order test reads `si.win`. A fixed-occupation `nspin = 2` input needs
+`tot_magnetization`. A rotated-axes claim was first written with `z=0,0,-1:x=-1,0,0`, which maps
+the tetrahedron onto itself and changes nothing; measured before keeping. The first
+`ws_distance` interpolation built `(nk, nR, nw, nw, 8)`, about 6 GB at the mesh test; it now
+loops over k.
+
+**What is outstanding.** Spinor projections (code written for `z` only, refused at the
+workflow: not checked against `pw2wannier90.x`'s `spin_z_pos` and `fac(ipol)` forms); site
+symmetry (`sitesym`, removed from the port); `gamma_only`; SCDM (`auto_projections`); random
+projections and selective localization; `wannier_plot` and `r_mn(R)`; the band-12 cut gap of V1
+(above). Differentiability is not attempted: the engine is NumPy on the host, so a derivative of
+a Wannier quantity is not available.
