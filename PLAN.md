@@ -27658,7 +27658,7 @@ exercised). `write_w90` on an SCDM result writes an empty `begin projections` bl
 `wannier90.x` 3.1 accepts it, with or without `auto_projections` (Al, `Omega`
 7.095952557 both ways, `wauto/d/emptyblock.sh`).
 
-### P166 -- symmetry by default in get_wannier. ✅ DONE 2026-11-05 (the four Wannier fast files on D22 CPU and GPU, `test_notebook_conventions.py` and `test_facade_documentation.py` on CPU; the gate `tools/test-fast.sh` was not run; the two slow files touched, `tests/regression/test_wannier.py` and `tests/regression/test_wannier_sitesym.py`, were not run, for the user; branch `wannier-symdefault` from b351f38e, not merged, not pushed)
+### P166 -- symmetry by default in get_wannier. ✅ DONE 2026-11-05 (the four Wannier fast files on D22 CPU and GPU, `test_notebook_conventions.py` and `test_facade_documentation.py` on CPU; the gate `tools/test-fast.sh` was not run; the slow file changed, `tests/regression/test_wannier.py`, and the slow file that exercises every path now raising `SiteSymmetryError`, `tests/regression/test_wannier_sitesym.py` (unchanged), were not run, for the user; branch `wannier-symdefault` from b351f38e, not merged, not pushed)
 
 **The decision** (the user's, 2026-11-05): `run_wannier`/`Calculator.get_wannier` take
 `symmetry=None` by default, meaning "impose the space group of the run when the input allows
@@ -27732,10 +27732,10 @@ warning names the reason, `symmetry_fallback`, `nsym` 1, the free result bit for
 (`u_matrix`, `hoppings`, `spreads`, `centres`) and that `symmetry=True` still raises the same
 reason; the default equal to `symmetry=True` bit for bit on silicon for `"auto"` and for
 `Si:sp3` with the frozen window (`nsym` 48, `site_symmetry` set, no warning); a non-boolean
-`symmetry` refused. The frozen-irrep rank refusal ("carry an irrep the trial orbitals do not")
+`symmetry` refused, and `symmetry=0` read as `False` (it tested truthiness before P166; `bool(symmetry)` after the membership check). The frozen-irrep rank refusal ("carry an irrep the trial orbitals do not")
 is not a fast case: its only known trigger is Cr US on 4^3 (the guide snippet, 17 s), and the
 free-band rank is the same mechanism one block further. **Counts**: the four Wannier files 58
-passed on D22 CPU (74 s, one core) and 58 passed on the RTX A2000 (`[CudaDevice(id=0)]`, 100 s);
+passed on D22 CPU (74 s, one core) and 58 passed on the RTX A2000 (`[CudaDevice(id=0)]`, 95 s; both rerun after the `bool(symmetry)` fix);
 with `test_notebook_conventions.py` and `test_facade_documentation.py` 521 passed on CPU (74 s).
 
 **Cost** (`PERFORMANCE.md`, end of "A frozen set under site symmetry"): the guide's `Si:sp3`

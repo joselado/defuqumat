@@ -355,6 +355,8 @@ def run_wannier(
     scdm = isinstance(projections, str) and projections == "scdm"
     if symmetry not in (None, True, False):
         raise ValueError(f"symmetry must be None, True or False, not {symmetry!r}")
+    if symmetry is not None:
+        symmetry = bool(symmetry)  # 0, 1 and numpy's booleans pass the test above
     obstacle = None
     if symmetry is not False:
         obstacle = _symmetry_obstacle(system, projections, scdm, exclude_bands, engine_options)

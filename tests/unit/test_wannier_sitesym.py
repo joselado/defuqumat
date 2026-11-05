@@ -592,3 +592,9 @@ def test_the_default_on_silicon_is_symmetry_true(silicon, projections):
 def test_a_symmetry_that_is_not_a_switch_is_refused(silicon):
     with pytest.raises(ValueError, match="symmetry must be None, True or False"):
         silicon.get_wannier(divisions=(2, 2, 2), symmetry="yes")
+    # 0 is False, as it was before the default changed (it tested truthiness)
+    options = dict(num_wann=4, projections=SI_BONDS, divisions=(2, 2, 2),
+                   engine_options=dict(num_iter=20))
+    zero = silicon.get_wannier(symmetry=0, **options)
+    assert zero.nsym == 1
+    assert np.array_equal(zero.u_matrix, silicon.get_wannier(symmetry=False, **options).u_matrix)

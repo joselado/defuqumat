@@ -281,9 +281,9 @@ shells even when their bands touch the valence bands. For given projections,
 
 For chromium the code also gives a warning and runs without the symmetry, so `w.nsym`
 is 1. The warning starts with "the frozen states at k-point 2 carry an irrep the trial
-orbitals do not". The nine frozen states there have an irreducible representation more
-often than the $4s$, $3p$ and $3d$ orbitals have it, so no symmetric rotation keeps
-them all. `w.symmetry_fallback` keeps this reason. With `froz_above_edge=None` the
+orbitals do not". The nine frozen states there carry an irreducible representation
+that the $4s$, $3p$ and $3d$ orbitals do not have, or have fewer times. So no
+symmetric rotation keeps them all. We did not identify which one it is. `w.symmetry_fallback` keeps this reason. With `froz_above_edge=None` the
 symmetry is imposed (see
 [the section on symmetry](#wannier-functions-with-the-symmetry-of-the-crystal)).
 
