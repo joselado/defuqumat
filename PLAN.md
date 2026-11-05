@@ -206,9 +206,10 @@ because that is what decides whether it is a session or a phase.
 - **Wyckoff input** (P6, the one part of that phase not done).
 - **Wannier functions beyond P162 to P164**: spinor projections and spinor PDWF, `gamma_only`,
   SCDM, random projections, PAOs beyond the pseudopotential file, `wannier_plot` and `r_mn(R)`,
-  and a differentiable engine (it is NumPy on the host). Beyond P164's site symmetry: a frozen
-  window with symmetry (so `projections="auto"` with symmetry), time reversal, spinors and
-  magnetic groups, and the symmetrised engine's 4.8x against `wannier90.x`.
+  and a differentiable engine (it is NumPy on the host). Beyond P164's site symmetry (a frozen
+  set and `projections="auto"` with it are P164b): time reversal, spinors and magnetic groups,
+  manual `exclude_bands`, the symmetrised engine's 4.8x against `wannier90.x`, and a frozen set
+  whose irreps the trial orbitals lack (Cr auto at the default edge), refused rather than met.
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
@@ -27235,7 +27236,7 @@ multiplet was cut, so the outer set was not all bands; 14 bands is a clean cut. 
 D4 diagonal; it now holds the block average the selection uses (fast tests 27 passed after it,
 notebook 58 outputs unchanged, 54 s).
 
-**What is outstanding.** Spinor PDWF; site symmetry (P164, below; not yet with the automatic set, which freezes states); PAOs beyond the
+**What is outstanding.** Spinor PDWF; site symmetry (P164, below; with the automatic set since P164b); PAOs beyond the
 pseudopotential file (no higher-`l` or polarisation orbitals can be added); `gamma_only`; a slow
 regression; a `d` metal such as Cu in `tests/data/pseudo/` for the main test of the paper.
 
@@ -27360,9 +27361,157 @@ in `docs/reference-codes.md`: `compute_dmn` and the bundled `sitesym.F90`; Elk n
 D22 core, warm cache; one figure, the spreads of the four runs; `Si:sp3` bands over the images
 3.3e-7 free against 5.2e-13 eV); `PERFORMANCE.md`.
 
-**What is outstanding.** A frozen window with symmetry (Wannier90 refuses it too,
+**What is outstanding.** ~~A frozen window with symmetry~~ (P164b, below; Wannier90 refuses it,
 `disentangle.F90:104`). Time reversal as a constraint. Spinors and magnetic groups (`t_rev`, a
-spin rotation in `D`). `auto` and SCDM projections with symmetry. `precond` with symmetry (not
+spin rotation in `D`). ~~`auto`~~ (P164b) and SCDM projections with symmetry. `precond` with symmetry (not
 validated). The symmetrised engine is 4.8x `wannier90.x`, a Python loop over operations and
 irreducible k in every symmetrisation. `compute_dmn`'s share of `pw2wannier90.x`'s 2.77 s was
 not split out. PAW `d` not probed on its own.
+
+### P164b -- A frozen set under site symmetry, so `get_wannier(symmetry=True)` with `dis_froz` and with `projections="auto"`. ✅ DONE 2026-11-05 (three Wannier fast files on D22, CPU and GPU, plus `test_notebook_conventions.py` and `test_facade_documentation.py`; the gate `tools/test-fast.sh` was not run; `tests/regression/test_wannier_sitesym.py` (slow) was not run and is unchanged, for the user; branch `wannier-symfroz` from 07c1f4e7, not merged, not pushed)
+
+Wannier90 3.1 refuses a frozen window in site-symmetry mode (`disentangle.F90:104`): its frozen
+columns of `u_matrix_opt` are one-hot and `symmetrize_u_matrix` mixes them with the free ones.
+The design is the read-only review of 07c1f4e7 (`scratchpad/REVIEW-P164b-frozen-sitesym.md`,
+prototypes `p164b/proto2.py`, `ranktest.py`, `q346.py`), followed as written.
+
+**The block form** (`wannier/sitesym.py`, `FrozenBlock`, `frozen_blocks`, `frozen_start`,
+`dis_extract_symmetric_frozen`; `disentangle.dis_main` routes to it when `sym` and
+`windows.linner`). At each representative a unitary `V(k) = [V_F | V_free]` on the trial-orbital
+index makes `V^+ D(g,k) V = diag(d_F, D_free)` over the little group, `d_F` the band
+representation on the frozen rows. `V_F = polar(avg_g D(g) Y d_F(g)^+)` with `Y = A^+ E_F` (the
+projection of the frozen states, already an intertwiner when `A` is covariant), a random `Y`
+only when the average has relative `smin <= 1e-3` (every case here took the projections). In
+`U V = [E_F | U_free]` the frozen columns stay one-hot exactly; only `U_free` is extracted, by
+the existing `dis_extract_symmetry` under a one-point `SymmetryData` (`nkptirr = 1`,
+`d_free[s] = d_win[ix_(free rows at gk, free rows at k)]`, `D_free`), so the memory is one `d`,
+not `nkptirr` copies of it. `U = [E_F | U_free] V^+` is copied to the star with `(d, D)`. The
+free `Z` is `_zmatrix` folded with `d_free` as `symmetrize_zmatrix` folds with `d`. The start
+is `polar(Q A V_free)` plus `symmetrize_ukirr` on the free block, not `dis_proj_froz` (whose
+top eigenvectors of `Q P_s Q` need not carry the irreps of `D`). The convergence estimate is
+`dis_extract`'s with the star weights of P164 (`womegai1 = (1/N) sum_ir [n_star (num_wann wbtot
+- r_F) - tr lambda]`); there is no Fortran for it, so it was checked against the exact
+`_womegai` at every step on H3S (`trace=` hook): `womegai1/womegai - 1` is 1.6e-2, 9.7e-3,
+1.6e-3 at steps 1, 2, 5 and -2.4e-11 at the last, below 1e-10 from step 38 of 40, the exact
+`Omega_I` going from 3.6509031676 to 3.6431179138.
+
+**The refusals** (Schur, no character table): a generic intertwiner `avg_g left(g)^+ X right(g)`
+has rank `sum_i dim_i min(m_L, m_R)` (`intertwiner_rank`, relative `smin > 1e-6`). Rank `< nf`
+between `d_F` and `D`: "the frozen states at k-point N carry an irrep the trial orbitals do
+not". Rank `< num_wann - nf` between `d_free` and `D_free`: "the bands left free ... do not carry
+the irreps the trial orbitals need". `check_frozen_star` refuses a frozen set that differs
+between `k` and `gk` and checks `|d_FF^+ d_FF - 1|` (refused for our states, warned for a
+`.dmn`). Both rank guards fire in fast tests on a constructed mirror (an odd frozen band against
+even orbitals; an odd orbital against all-even free bands), and the star guard on two points.
+
+**The automatic selection with symmetry** (`pao.select_states(..., sym=)`, `_select_symmetric`,
+`symmetry_blocks`). Decided at `ir2ik` only; a block is the union of the energy runs at `tol`
+and the bands the little group mixes (`|d_mn| > 1e-6`); frozen, kept or dropped whole on its
+mean `p` and mean energy; a block with the top band and the band above within `tol`, or one `d`
+maps partly outside the `nb` bands (`min_s sum_m |d_mn|^2 < 1 - 1e-4`), is dropped (refused if it
+would be frozen); then copied to every `kptsym` by band index. So `slim_d_matrix_band`'s star
+assertion holds by construction. The stored `projectability` stays the energy-block average
+(P163's), which differs from the decision quantity only where `d` joins two non-degenerate
+bands. The `sym` build moved before the selection, and `del states` after it.
+
+**Fixes the review listed.** `wannier_rotations` fits each column over the image site's
+functions with the same `radial_key` (or `(zona, r)`), so a 3S beside a 4S is a representation
+(it read `sum_j W^2 = 2` and was refused); the separate radial-mixing check is gone, since a
+rotation that would mix two radial parts now leaves `W` short and fails `err > 1e-3`.
+`band_representation(..., bands=)` and `site_symmetry_data(..., bands=)` take the semicore
+cut's band indices instead of `[:num_bands]` (exercised by the Cr runs, 3s cut). `engine_options`
+windows with `"auto"` are refused (they were ignored). The two star messages name the auto
+case. `_refuse_for_symmetry` lifts the frozen and `"auto"` clauses and refuses any other string
+(so SCDM stays refused, for P165). Manual `exclude_bands` with symmetry stays refused.
+
+**Numbers.** D22, CPU, one core a job, `/l/ladovj1/review/wauto/c/` (`probe_h3s.py` with
+`checks.py` -> `h3s.log`; `study_sym.py` -> `study/*.log`; `doc_snippet2.py`; `timing_b.py`).
+"Defect" is `max_k |(1-UU^+)E_F|`, "eig" the distance of each frozen eigenvalue to the spectrum
+of `U^+ e U` (eV), `cov = max |P(gk) - d P(k) d^+|`, the residual `|(1-P_f) Z_f P_f|` in the
+one-hot gauge, and "step" one plain frozen `dis_extract` step from the symmetric result.
+
+- H3S fixture (20 bands, 12 functions, 2x2x2, 48 operations), outer <= 65 eV, frozen <= 20 eV
+  (5 or 6 frozen): 40 steps, `Omega_I` 3.6431179138 (the prototype's), defect 1.2e-11, eig
+  1.4e-10, cov 1.5e-11, residual 2.5e-6 (the subspace is the top eigenvectors of its own `Z`),
+  step `dOmega_I` -4.0e-11 moving the subspace 3.0e-6. The plain frozen route from
+  `dis_proj_froz`: 3.6431179138, cov 2.0e-8 (the free minimum is symmetric here). Masks and
+  energy windows give the same `Omega_I` through `run_engine` (difference 0). **The wrong
+  alternative**, the plain result symmetrised afterwards: defect 0.376, `Omega_I` 4.6621. Frozen
+  at 10, 15, 25 eV: 55, 50, 48 steps, `Omega_I` 3.5394512612, 3.5795504301, 3.7995582078, defect
+  1.2e-11 each, residual 8.3e-6, 7.7e-6, 1.9e-6. **The cut multiplet** (outer 95 eV, `|d^+d - 1|`
+  0.97 at Gamma, warned): 400 steps unconverged, residual 0.18, step moves the subspace 0.19,
+  cov 1.1e-5, so the checks see a non-unitary `d`. After `wann_main` (400 steps) the symmetric
+  `Omega` is 6.785 against 4.843 free, same `Omega_I`: the spread minimum is not symmetric.
+- Si `si.scf` (ecut 20), 12 to 8, outer 17, frozen 6.4, 4^3, A^2, free / symmetric:
+  `Si:sp3` 16.05319485 / 16.06269191 (`Omega_I` 11.81349625 both); **turned set 14.43648789 /
+  14.43648708, so P162's 14.4365 is reproduced with symmetry** (that minimum is symmetric).
+  Symmetric: defect 6.2e-14 and 6.6e-14, cov 1.9e-13 and 9.7e-14, residual 1.4e-6 and 1.8e-6,
+  step `dOmega_I` -5e-13 and -7e-13. Per operation (P164's set), with / without: `Si:sp3`
+  `H(gR)` 1.5e-13 / 1.4e-1 eV, bands at `gk` 8.4e-9 / 2.1e-6 eV, centres 4.0e-11 A on the 24
+  signed-permutation operations; turned `H(gR)` 1.6e-13 / 6.4e-8, bands 9.8e-13 / 5.8e-8,
+  centres 5.7e-11 on 48. `eta_2` (50 random k) `Si:sp3` 94.20 free, 91.93 symmetric meV. The
+  guide's keyword cell (ecut 20, SCF 8^3) gives the same five-digit spreads.
+- Si auto (P163's cell, ecut 12), 16 to 8, 4 to 8 frozen: 4^3 `Omega` 15.78017813 free,
+  15.78017751 symmetric, `Omega_I` 10.05687939 both, `eta_0`/`eta_2` 94.53/111.75 meV both
+  (P163's row exactly); 6^3 17.18712477 / 17.18712448, `eta_2` 50.40 meV both (P163's). Defect
+  2.0e-13 (4^3) and 3.1e-13 (6^3), cov 3.0e-10 and 3.6e-10, residual 1.4e-6 and 1.5e-6, step
+  -5e-13 and -1e-13; `H(gR)` 2.8e-11 and 1.6e-11 eV with symmetry against 3.6e-9 and 3.8e-10
+  free; centres 1.2e-11 and 6e-12 A on all 48 operations. **On silicon the automatic minimum is
+  symmetric already**, so symmetry changes no measured number beyond round-off; the evidence
+  that the option acts is the per-operation rows and Cr below. Wrong alternative on 6^3: defect
+  0.946, `Omega_I` 16.80 against 11.30.
+- Al auto (4 functions, 8 bands, 1 to 4 frozen), 4^3: 7.20863942 / 7.20863902, `Omega_I`
+  4.32129012 both, `eta_2` 463.07 meV both; defect 1.5e-13, cov 1.8e-13, residual 8.8e-7;
+  `H(gR)` 4.8e-11 / 5.1e-9 eV. Not refused.
+- Cr US auto (3s cut, 9 functions, 19 bands), 4^3: **refused at the default edge**
+  (`froz_above_edge = 2`): at k-point 2 nine states, as many as the functions, are frozen and
+  the intertwiner has rank 8 of 9 (`smin` 1e-16), so they carry an irrep the 4s, 3p, 3d set does
+  not hold that often. Which irrep was not identified. With `froz_above_edge=None`: runs,
+  `Omega_I` 4.4327 symmetric against 4.3024 free (the free subspace breaks the symmetry, cov
+  0.92), residual 7.5e-6 but **not** the top eigenvectors of its `Z`: one plain step moves the
+  subspace by 1.0 and lowers `Omega_I` by 0.027, so the symmetric stationary point is a saddle of
+  the free functional, which symmetric criticality allows. `H(gR)` 1.4e-11 eV, bands at `gk`
+  2.7e-11, centres 8e-12 A on the 16 signed-permutation operations. With `froz_above_edge=0`:
+  runs, `Omega_I` 4.6114 against 4.3853 free, but the centres miss by 0.18 A and the
+  WS-interpolated bands at `gk` by 0.12 eV although `H(gR)` holds to 1.4e-11: one function has a
+  spread of 5.13 A^2 on 4^3, and its centre (`Im ln M`) is not covariant there; not investigated
+  further.
+- Fast tests (`test_wannier_sitesym.py` 15, `test_wannier.py`, `test_wannier_auto.py`): **42
+  passed** CPU (79 s, one core), **42 passed** RTX A2000 (`[CudaDevice(id=0)]`, 86 s);
+  `test_notebook_conventions.py` with `test_facade_documentation.py` 463 passed.
+- Timing (`PERFORMANCE.md`, "A frozen set under site symmetry"): no QE counterpart; engine
+  symmetric with frozen 1.58 s against 0.78 free and 3.23 for P164's outer-only symmetric route
+  (turned set); auto 3.25 against 1.35 s. `get_wannier` 6.96 / 5.55 s and 6.19 / 3.79 s.
+
+**Tests** (`tests/unit/test_wannier_sitesym.py`, fast). The frozen refusal test became
+`test_a_frozen_window_with_site_symmetry_keeps_both` (H3S by energy windows and by masks,
+3.6431179138, defect < 1e-10, cov < 1e-9); new: the two rank refusals on a constructed mirror,
+the star-consistency refusal, the symmetric selection on a star (a band 1e-12 either side of the
+edge frozen at both points where the plain selection splits it; a `d`-mixed pair decided as one
+block), two s shells on one site under C3, and on Si 2x2x2 auto+symmetry (masks star-consistent,
+`A` covariant on the outer set, frozen exact, cov) and `Si:sp3` with `dis_froz`. The refusal
+test drops the frozen and auto clauses and gains a name string, `engine_options` windows with
+auto, and `exclude_bands`. The `A` identity on all 16 auto bands read 0.066: the 16th band at
+Gamma cuts the 30.5 eV multiplet, which the selection drops; the test checks the outer set.
+
+**Deliverables.** Guide (`docs/guide/wannier.md`): the cell of the symmetry section is now
+defined in its first snippet (it had reused the ecut 12 cell of the auto section in the text
+while its printed numbers were the ecut 20 cell's), two new executed snippets (frozen window,
+auto; `doc_snippet2.log`), a paragraph and a table of the identities in "How we checked it", the
+Limits rewritten. README row and bullet; note 23 in `docs/reference-codes.md` (no counterpart in
+either code for this part). Notebook 59 extended (75 s on D22 CPU 3), `notebooks/README.md`.
+`PERFORMANCE.md`.
+
+**Traps met.** The H3S fixture's `A` is not covariant (P164), so `V_F` from `A^+ E_F` needs the
+little-group average. A test on all bands reads the cut top multiplet as a broken identity.
+`wann_main(num_iter=0)` raises `UnboundLocalError` (pre-existing, `wannierise.py:457`; the probe
+uses 1). The trap check on the diff (host NumPy only, `np.diag(lam)` only through its trace, the
+`d_free` index order re-derived from `d_mn = <psi_m,gk|g psi_nk>` and confirmed by cov 1.5e-11)
+found nothing.
+
+**What is outstanding.** A frozen set whose irreps the trial orbitals lack is refused, not met
+(Cr at the default edge; the natural answers are to unfreeze the offending block or to add
+orbitals, neither done, and the selection does not lower the edge by itself). Manual
+`exclude_bands` with symmetry. The covariance of a delocalised function's centre (Cr,
+`froz_above_edge=0`). Time reversal, spinors, magnetic groups, SCDM with symmetry (P165 keeps it
+refused). The slow regression file has no frozen case.

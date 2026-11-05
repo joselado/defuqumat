@@ -265,11 +265,18 @@ def _womegai(u_matrix_opt: np.ndarray, M_slim: np.ndarray, windows: Windows, nnl
 
 def dis_extract(u_matrix_opt_init: np.ndarray, M_slim: np.ndarray, windows: Windows, nnlist: np.ndarray,
                  wb: np.ndarray, wbtot: float, num_wann: int, dis_num_iter: int, dis_mix_ratio: float,
-                 dis_conv_tol: float, dis_conv_window: int, sym=None, lwindow=None):
+                 dis_conv_tol: float, dis_conv_window: int, sym=None, lwindow=None,
+                 frozen_blocks=None):
     """The disentanglement iteration (SMV Eqs. 12-21): alternately
     diagonalize the Z-matrix to refine u_matrix_opt, and rebuild the
     Z-matrix from the refined subspace, mixing between iterations."""
-    # --- site symmetry (P164): the symmetric iteration, in sitesym.py
+    # --- site symmetry (P164, P164b with frozen states): the symmetric iteration, in sitesym.py
+    if sym is not None and frozen_blocks is not None:
+        from defuqumat.wannier.sitesym import dis_extract_symmetric_frozen
+        return dis_extract_symmetric_frozen(u_matrix_opt_init, M_slim, windows, nnlist, wb,
+                                            wbtot, num_wann, dis_num_iter, dis_mix_ratio,
+                                            dis_conv_tol, dis_conv_window, sym, lwindow,
+                                            frozen_blocks)
     if sym is not None:
         from defuqumat.wannier.sitesym import dis_extract_symmetric
         return dis_extract_symmetric(u_matrix_opt_init, M_slim, windows, nnlist, wb, wbtot,
@@ -395,44 +402,47 @@ def dis_main(A_matrix: np.ndarray, M_matrix_orig: np.ndarray, eigval: np.ndarray
     band, and the window energies are not read.
 
     ``sym`` (a :class:`~defuqumat.wannier.sitesym.SymmetryData` on the absolute
-    band index) imposes the site symmetry; it refuses frozen states, as
-    ``disentangle.F90:104`` does."""
+    band index) imposes the site symmetry. With frozen states (which
+    ``disentangle.F90:104`` refuses) the start and the iteration are the block
+    form of :mod:`~defuqumat.wannier.sitesym` (P164b) in place of
+    ``dis_proj_froz``: the frozen set must be the same at every point of a
+    star and close its multiplets, and its irreps must be among the trial
+    orbitals', or it is refused by name."""
     num_bands, num_kpts = eigval.shape
     wbtot = float(np.sum(wb))
 
     if windows is None:
         windows = dis_windows(eigval, num_wann, dis_win_min, dis_win_max, frozen_states,
                               dis_froz_min, dis_froz_max)
-    # --- site symmetry (P164)
-    if sym is not None and (frozen_states or windows.linner):
-        raise NotImplementedError(
-            "a frozen window in the symmetry-adapted mode is not implemented (Wannier90 "
-            "refuses it too: the frozen columns of U_opt are one-hot and the symmetrisation "
-            "mixes them with the free ones)")
-    # --- end site symmetry
-
     lwindow = np.zeros((num_bands, num_kpts), dtype=bool)
     for k in range(num_kpts):
         lwindow[windows.indxwin[:windows.ndimwin[k], k], k] = True
 
     u_matrix_opt = dis_project(A_matrix, windows, num_wann)
-    if windows.linner:
+    blocks = None
+    if windows.linner and sym is None:
         u_matrix_opt = dis_proj_froz(u_matrix_opt, windows, num_wann)
-    check_orthonormal(u_matrix_opt, windows, num_wann)
-    # --- site symmetry (P164): disentangle.F90:124-125
+    # --- site symmetry (P164): disentangle.F90:124-125; P164b: the frozen block form
     sym_win = None
     if sym is not None:
-        from defuqumat.wannier.sitesym import slim_d_matrix_band, symmetrize_u_matrix
-        sym_win = slim_d_matrix_band(sym, lwindow)
-        u_matrix_opt = symmetrize_u_matrix(u_matrix_opt, sym_win, lwindow)
+        from defuqumat.wannier import sitesym
+        sym_win = sitesym.slim_d_matrix_band(sym, lwindow)
+        if windows.linner:
+            sitesym.check_frozen_star(windows, sym_win)
+            blocks = sitesym.frozen_blocks(sym_win, windows, A_matrix, num_wann)
+            u_matrix_opt = sitesym.frozen_start(A_matrix, windows, blocks, sym_win, lwindow,
+                                                num_wann)
+        else:
+            u_matrix_opt = sitesym.symmetrize_u_matrix(u_matrix_opt, sym_win, lwindow)
     # --- end site symmetry
+    check_orthonormal(u_matrix_opt, windows, num_wann)
 
     M_slim = slim_m(M_matrix_orig, windows, nnlist)
 
     u_matrix_opt, converged = dis_extract(
         u_matrix_opt, M_slim, windows, nnlist, wb, wbtot, num_wann,
         dis_num_iter, dis_mix_ratio, dis_conv_tol, dis_conv_window,
-        sym=sym_win, lwindow=lwindow,
+        sym=sym_win, lwindow=lwindow, frozen_blocks=blocks,
     )
 
     # Rotate M into the num_wann-dimensional gauge defined by the optimal subspace...

@@ -69,6 +69,7 @@ __all__ = [
     "degenerate_blocks",
     "block_average",
     "select_states",
+    "symmetry_blocks",
     "semicore_cut",
 ]
 
@@ -262,7 +263,7 @@ def block_average(values: np.ndarray, energies: np.ndarray, tol: float) -> np.nd
 
 def select_states(energies: np.ndarray, p: np.ndarray, *, num_wann: int, proj_min: float,
                   proj_max: float, froz_max: float | None, tol: float,
-                  energy_above: np.ndarray | None = None, kpoints=None):
+                  energy_above: np.ndarray | None = None, kpoints=None, sym=None):
     """The outer and frozen sets, ``(nb, nk)`` bool each, in Wannier90's layout.
 
     ``energies`` and ``p`` are ``(nk, nb)``; ``froz_max`` freezes every
@@ -271,7 +272,15 @@ def select_states(energies: np.ndarray, p: np.ndarray, *, num_wann: int, proj_mi
     the top of the set is seen and dropped whole. Decisions are on the
     block average of ``p`` over each multiplet. A frozen count above
     ``num_wann`` at some k is refused, naming the k.
+
+    With ``sym`` (a :class:`~defuqumat.wannier.sitesym.SymmetryData` on these
+    ``nb`` bands) the sets are the same at every point of a star by
+    construction (:func:`_select_symmetric`).
     """
+    if sym is not None:
+        return _select_symmetric(energies, p, num_wann=num_wann, proj_min=proj_min,
+                                 proj_max=proj_max, froz_max=froz_max, tol=tol,
+                                 energy_above=energy_above, kpoints=kpoints, sym=sym)
     nk, nb = energies.shape
     outer = np.zeros((nb, nk), dtype=bool)
     frozen = np.zeros((nb, nk), dtype=bool)
@@ -305,6 +314,99 @@ def select_states(energies: np.ndarray, p: np.ndarray, *, num_wann: int, proj_mi
             raise ValueError(
                 f"only {nout} states are kept at k-point {_name(k, kpoints)}, fewer than "
                 f"num_wann = {num_wann}; lower proj_min or raise num_bands")
+    return outer, frozen
+
+
+#: ``|d_mn|`` above this inside the little group puts bands ``m`` and ``n`` in one block.
+MIXING_TOLERANCE = 1.0e-6
+
+
+def symmetry_blocks(energies_k: np.ndarray, d: np.ndarray, little_group, tol: float):
+    """The blocks of one k-point, lists of band indices: the bands the little group
+    mixes (``|d_mn(g)| > MIXING_TOLERANCE``, the irreps), joined with the runs closer
+    than ``tol`` in energy (rule D4: two irreps accidentally degenerate are not
+    mixed by ``d``, but the eigensolver may mix them). ``d`` is ``(nb, nb, nsym)``."""
+    nb = len(energies_k)
+    parent = list(range(nb))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def join(i, j):
+        a, b = root(i), root(j)
+        if a != b:
+            parent[max(a, b)] = min(a, b)
+
+    for a, b in degenerate_blocks(energies_k, tol):
+        for i in range(a + 1, b):
+            join(a, i)
+    mixing = np.zeros((nb, nb), dtype=bool)
+    for s in little_group:
+        mixing |= np.abs(d[:, :, s]) > MIXING_TOLERANCE
+    for i, j in zip(*np.nonzero(mixing)):
+        join(int(i), int(j))
+    groups = {}
+    for i in range(nb):
+        groups.setdefault(root(i), []).append(i)
+    return [np.array(g) for g in sorted(groups.values(), key=lambda g: g[0])]
+
+
+def _select_symmetric(energies, p, *, num_wann, proj_min, proj_max, froz_max, tol,
+                      energy_above, kpoints, sym):
+    """:func:`select_states` decided at the representatives of the stars only.
+
+    The blocks are :func:`symmetry_blocks`; a block is frozen, kept or dropped
+    whole on its mean ``p`` and mean energy, a block with the top band and the
+    band above within ``tol``, or one that ``d`` maps partly outside the ``nb``
+    bands (``sum_m |d_mn|^2 < 1``), is cut by the top and dropped (refused if it
+    would be frozen), and the decision is copied to every point of the star
+    by band index: the bands at ``g k`` are those at ``k``, in the same order of
+    energy, so a block of whole multiplets at ``k`` is one at ``g k``.
+    """
+    nk, nb = energies.shape
+    outer = np.zeros((nb, nk), dtype=bool)
+    frozen = np.zeros((nb, nk), dtype=bool)
+    for ir in range(sym.nkptirr):
+        k = int(sym.ir2ik[ir])
+        e = energies[k]
+        little_group = np.nonzero(sym.kptsym[:, ir] == k)[0]
+        d = sym.d_matrix_band[:, :, :, ir]
+        for block in symmetry_blocks(e, d, little_group, tol):
+            pbar = float(p[k, block].mean())
+            ebar = float(e[block].mean())
+            weight = min(float(np.sum(np.abs(d[:, block, s]) ** 2, axis=0).min())
+                         for s in little_group)
+            cut_at_top = ((nb - 1 in block and energy_above is not None
+                           and energy_above[k] - e[nb - 1] <= tol) or weight < 1.0 - 1.0e-4)
+            froz = pbar >= proj_max or (froz_max is not None and ebar <= froz_max)
+            if cut_at_top:
+                if froz:
+                    raise ValueError(
+                        f"a frozen multiplet is cut by the top of the {nb} bands at k-point "
+                        f"{_name(k, kpoints)}; raise num_bands")
+                continue
+            if froz:
+                frozen[block, k] = True
+                outer[block, k] = True
+            elif pbar >= proj_min:
+                outer[block, k] = True
+        nfroz = int(frozen[:, k].sum())
+        if nfroz > num_wann:
+            raise ValueError(
+                f"{nfroz} states are frozen at k-point {_name(k, kpoints)}, more than "
+                f"num_wann = {num_wann}; lower froz_above_edge or raise proj_max")
+        nout = int(outer[:, k].sum())
+        if nout < num_wann:
+            raise ValueError(
+                f"only {nout} states are kept at k-point {_name(k, kpoints)}, fewer than "
+                f"num_wann = {num_wann}; lower proj_min or raise num_bands")
+        for s in range(sym.nsymmetry):
+            jk = int(sym.kptsym[s, ir])
+            outer[:, jk] = outer[:, k]
+            frozen[:, jk] = frozen[:, k]
     return outer, frozen
 
 

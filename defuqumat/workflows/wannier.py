@@ -28,10 +28,13 @@ orbitals do (Sakuma, PRB 87, 235109 (2013); Wannier90's ``site_symmetry``),
 with ``D`` and ``d`` from :mod:`defuqumat.wannier.dmatrix` and the constraint
 imposed by :mod:`defuqumat.wannier.sitesym`. The group is the one the SCF used,
 ``system.symmetry_group(nosym=system.nosym)``; with ``nosym`` it is the identity
-and the option changes nothing. Time reversal is not imposed. Refused with it:
-a frozen window (as in Wannier90), a magnetic group (an operation that needs
-time reversal, a collinear spin flip included), and projections given as a
-name rather than as lines.
+and the option changes nothing. Time reversal is not imposed. A frozen set is
+carried (P164b, which Wannier90 refuses): an energy window ``dis_froz``, or the
+frozen states of ``projections="auto"``, whose selection is then made at one
+point of each star and copied to the rest. Refused with it: a magnetic group
+(an operation that needs time reversal, a collinear spin flip included),
+projections given as a name other than ``"auto"``, a frozen set that carries an
+irrep the trial orbitals do not, and ``exclude_bands`` given by hand.
 """
 
 from __future__ import annotations
@@ -262,8 +265,9 @@ def run_wannier(
             interpolation.
         symmetry: impose the space group of the run on the Wannier functions
             (Wannier90's ``site_symmetry``): ``U(gk) = d(g,k) U(k) D(g,k)^+``
-            for every operation the SCF used. Needs a band set and an outer
-            window that cut no degenerate multiplet, and no frozen window.
+            for every operation the SCF used. Needs a band set, an outer
+            window and a frozen window that cut no degenerate multiplet; with
+            ``"auto"`` the selection keeps whole multiplets and whole stars.
         symmetrize_eps: Wannier90's ``symmetrize_eps``, the tolerance of the
             little-group average at each irreducible k (its default is 1e-3;
             1e-8 here, so that the symmetry holds to that order).
@@ -315,6 +319,10 @@ def run_wannier(
     if auto and exclude_bands is not None:
         raise ValueError("projections='auto' sets exclude_bands by the semicore cut; "
                          "give the projections to exclude bands by hand")
+    if auto and any(k in (engine_options or {}) for k in
+                    ("dis_win_min", "dis_win_max", "dis_froz_min", "dis_froz_max")):
+        raise ValueError("projections='auto' chooses the outer and frozen sets itself; "
+                         "the windows in engine_options would not be read")
 
     points = uniform_mesh(divisions)
     at = np.asarray(system.cell.at, dtype=float)
@@ -368,7 +376,6 @@ def run_wannier(
         energies_ev = all_energies[:, :nsolve] * RY_TO_EV
         amn_raw, overlap = paomod.pao_matrices(states, paos, pseudos, nsolve, volume)
         mmn_all = overlap_matrices(states, kmesh, nsolve, k_batch=k_batch_m)
-        del states
         ortho_all, _ = paomod.orthonormal_projections(amn_raw, overlap)
         n_cut, semicore_note = paomod.semicore_cut(energies_ev, ortho_all, candidates, tol_ev,
                                                    mode=semicore)
@@ -402,12 +409,16 @@ def run_wannier(
         averaged = paomod.block_average(projectability, energies * RY_TO_EV, tol_ev)
         top = n_cut + num_bands
         above = all_energies[:, top] * RY_TO_EV if top < all_energies.shape[1] else None
+        trial = [paos[i] for i in keep_orbitals]
+        if symmetry:  # P164b: the representations first, so the selection keeps the stars
+            sym, nsym = _symmetry_data(system, states, trial, num_bands, points,
+                                       symmetrize_eps, bands=bands)
+        del states
         outer, frozen = paomod.select_states(
             energies * RY_TO_EV, averaged, num_wann=num_wann, proj_min=proj_min,
             proj_max=proj_max, froz_max=froz_max, tol=tol_ev, energy_above=above,
-            kpoints=points)
+            kpoints=points, sym=sym)
         mmn = mmn_all[np.ix_(bands, bands)]
-        trial = [paos[i] for i in keep_orbitals]
         labels = tuple(f"{symbols[p.atom]}{p.atom + 1} {p.name}" for p in trial)
         extra = dict(projectability=averaged, outer=outer.T.copy(), frozen=frozen.T.copy(),
                      edge=edge, projection_labels=labels, semicore=semicore_note,
@@ -422,13 +433,8 @@ def run_wannier(
             mmn = overlap_matrices(states, kmesh, num_bands, k_batch=k_batch_m)
             amn = projection_matrices(states, trial, num_bands, volume)
         if symmetry:
-            from defuqumat.wannier.dmatrix import operations_of, site_symmetry_data
-
-            operations = operations_of(system.cell, system.symmetry_group(nosym=system.nosym))
-            nsym = operations.nsym
-            if nsym > 1:  # the identity alone is a no-op, bit for bit (not routed through it)
-                sym = site_symmetry_data(states, trial, num_bands, operations, points,
-                                         symmetrize_eps=symmetrize_eps)
+            sym, nsym = _symmetry_data(system, states, trial, num_bands, points,
+                                       symmetrize_eps)
         del states
 
     window = dict(engine_options or {})
@@ -461,17 +467,27 @@ def run_wannier(
         nsym=nsym, **extra)
 
 
+def _symmetry_data(system, states, trial, num_bands, points, symmetrize_eps, bands=None):
+    """``(sym, nsym)`` of the run's group; ``sym`` is ``None`` for the identity alone,
+    which is then a no-op bit for bit (not routed through the symmetric engine)."""
+    from defuqumat.wannier.dmatrix import operations_of, site_symmetry_data
+
+    operations = operations_of(system.cell, system.symmetry_group(nosym=system.nosym))
+    if operations.nsym == 1:
+        return None, 1
+    return site_symmetry_data(states, trial, num_bands, operations, points,
+                              symmetrize_eps=symmetrize_eps, bands=bands), operations.nsym
+
+
 def _refuse_for_symmetry(system, projections, dis_froz, engine_options) -> None:
-    """What ``symmetry=True`` does not treat, refused before any state is solved."""
-    if isinstance(projections, str):
+    """What ``symmetry=True`` does not treat, refused before any state is solved.
+
+    ``dis_froz`` is accepted since P164b; the argument stays for the callers."""
+    if isinstance(projections, str) and projections != "auto":
         raise NotImplementedError(
             f"projections = {projections!r} together with symmetry is not implemented: "
             "the site symmetry needs trial orbitals that form a representation of the "
-            "group, given as projection lines")
-    if dis_froz is not None or (engine_options or {}).get("dis_froz_max") is not None:
-        raise NotImplementedError(
-            "a frozen window together with symmetry is not implemented (Wannier90 refuses "
-            "it too, disentangle.F90:104); give dis_win only")
+            "group, given as projection lines or as 'auto'")
     if (engine_options or {}).get("precond"):
         raise NotImplementedError("precond together with symmetry was not validated")
     group = system.symmetry_group(nosym=system.nosym)

@@ -11438,3 +11438,30 @@ jobs, whose load was not recorded; the three QE runs spread by 3 per cent.
 `num_wann^2 x nsym x nkptirr`. The band representation rotates one k-point's coefficients at a
 time (a gather over the Miller indices and a phase), so its extra memory is one k-point's
 `nbnd x npwx` block.
+
+## A frozen set under site symmetry (P164b), against our own free and symmetric routes (CPU, D22, 2026-11-05)
+
+**There is no QE or Wannier90 counterpart**: `wannier90.x` 3.1 stops on a frozen window in
+site-symmetry mode (`disentangle.F90:104`), so the pair is our own routes on the same input.
+D22 (i5-12600K), one performance thread through `slot.sh` (CPU 4, `JAX_PLATFORMS=cpu`,
+`OMP_NUM_THREADS=1`), **median of 3 warm calls** after one warm-up, the SCF excluded
+(`/l/ladovj1/review/wauto/c/timing_b.py`, log `timing.log`; the three samples of every row agree
+to 2 per cent). `num_iter = dis_num_iter = 200`, `conv_tol = dis_conv_tol = 1e-10`. D22 also ran
+another session's jobs (P165), load not recorded.
+
+| case | `get_wannier` free | `get_wannier` symmetric | engine free | engine symmetric |
+|---|---|---|---|---|
+| `si.scf`, turned set, 12 to 8, outer 17 eV, frozen 6.4 eV | 5.55 s | 6.96 s | 0.78 | 1.58 |
+| the same, outer window only (P164's route) | 5.38 s | 8.54 s | 0.56 | 3.23 |
+| Si (ecut 12), `projections="auto"`, 16 to 8, 4^3 | 3.79 s | 6.19 s | 1.35 | 3.25 |
+
+The frozen block form is **cheaper** than P164's symmetric route without a frozen window (1.58
+against 3.23 s in the engine): only the `num_wann - nfroz` free columns go through the 2x2
+steps and the little-group averages, and on silicon 4 to 8 of the 8 are frozen. Against the free
+engine it is 2.0x (turned, frozen) and 2.4x (auto); the rest of the symmetric `get_wannier`
+over the free one is `D` and `d` (0.44 s in P164) and the symmetrised `wann_main`.
+
+**Peak working set.** Beside P164's `d` and `D`, one `(num_wann, num_wann)` basis `V` and a
+one-point `SymmetryData` per representative, whose `d_free` is `ndk^2 x nsym` and `D_free`
+`(num_wann - nfroz)^2 x nsym`: at most `nkptirr x num_bands^2 x nsym` complex in all, the size
+of `d` itself (0.9 MB on `si.scf`, 3 MB on Si 6^3 auto), not `nkptirr` copies of it.
