@@ -196,7 +196,32 @@ calls only `wannier_setup`; no Elk routine calls `wannier_run`. The other files
 in `PP/src` named `wannier_*.f90` and `poormanwannier.f90` build a Hamiltonian on
 projected orbitals and do not minimise a spread. The engine here is a port of
 Wannier90 3.1.0 (the user's `wannierpy`), and `pw2wannier90.f90` is what the
-overlaps and the trial orbitals were transcribed from.
+overlaps and the trial orbitals were transcribed from. The automatic set
+(`projections="auto"`) is in neither code as one call. `pw2wannier90.f90` writes the
+projections on the orthonormal atomic orbitals (`atom_proj`, `atom_proj_ortho`,
+`atom_proj_exclude`), and Wannier90 3.1.0 has no projectability window, so the choice
+of the kept and left-out states by projectability (Qiao, Pizzi and Marzari) is done
+outside both, in the AiiDA workflows of the paper. The SCDM projections
+(`projections="scdm"`) are `compute_amn_with_scdm` in `pw2wannier90.f90`
+(`scdm_proj`, `scdm_entanglement`, `scdm_mu`, `scdm_sigma`), and this code transcribes
+that routine. The choice of `scdm_mu` and `scdm_sigma` from an erfc fit of the
+projectability (Vitale and coworkers) is in neither code: it is done in the AiiDA
+workflows of that paper. Elk has no SCDM (no `ZGEQP3` call in its source).
+
+**23. Wannier functions with the symmetry of the crystal, QE (✓), not Elk.** In QE,
+`compute_dmn` in `PP/src/pw2wannier90.f90` writes the `.dmn` file (`write_dmn`),
+the matrices $D$ of the trial orbitals and $d$ of the Bloch states for every
+operation and irreducible k-point. The constrained minimisation is Wannier90's
+`site_symmetry` (`external/wannier90/src/sitesym.F90`), so the tick is in brackets
+for the same reason as note 22. Elk's `writew90.f90` writes no `.dmn` file, and no
+Elk routine builds these matrices. The engine here is a port of Wannier90's
+`sitesym.F90` (through the user's `wannierpy`), and $D$, $d$ were transcribed from
+`compute_dmn`. A frozen window with symmetry is not in Wannier90 3.1
+(`disentangle.F90` stops with "in symmetry-adapted mode, frozen window not
+implemented yet"), so that part, and with it the automatic set with
+symmetry, has no counterpart in either code. We checked it against identities
+instead: the frozen states stay in the subspace, the subspace is covariant, and
+it is a stationary point of the free functional.
 
 ## The convergence workflows, which have no row
 

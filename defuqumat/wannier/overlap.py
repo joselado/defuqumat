@@ -17,7 +17,7 @@ import numpy as np
 EPS5 = 1.0e-5
 
 
-def overlap_project(A_matrix: np.ndarray, M_matrix: np.ndarray, nnlist: np.ndarray):
+def overlap_project(A_matrix: np.ndarray, M_matrix: np.ndarray, nnlist: np.ndarray, sym=None):
     """
     Parameters
     ----------
@@ -27,6 +27,8 @@ def overlap_project(A_matrix: np.ndarray, M_matrix: np.ndarray, nnlist: np.ndarr
         Overlap matrices ``M_mn(k, b)``.
     nnlist : (num_kpts, nntot) int, 1-indexed
         k-point neighbour table (as returned by ``kmesh_get``).
+    sym : :class:`~defuqumat.wannier.sitesym.SymmetryData`, optional
+        Imposes the site symmetry on the starting ``U``.
 
     Returns
     -------
@@ -45,6 +47,14 @@ def overlap_project(A_matrix: np.ndarray, M_matrix: np.ndarray, nnlist: np.ndarr
     unitarity = np.einsum("mik,mjk->ijk", U_matrix.conj(), U_matrix)
     if not np.allclose(unitarity, np.eye(num_wann)[:, :, None], atol=EPS5):
         raise ValueError("overlap_project: initial U_matrix is not unitary")
+    # --- site symmetry (P164): overlap.F90:712
+    if sym is not None:
+        # U maps bands onto functions here, so the band side is d_matrix_band
+        # (wannierpy's port used D on both sides, which is only right after a
+        # disentanglement: measured 156.27 against 10.14 A^2 on GaAs).
+        from defuqumat.wannier.sitesym import symmetrize_u_matrix
+        U_matrix = symmetrize_u_matrix(U_matrix, sym)
+    # --- end site symmetry
 
     nntot = M_matrix.shape[2]
     M_rotated = np.empty_like(M_matrix)

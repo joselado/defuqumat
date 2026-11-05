@@ -11383,3 +11383,116 @@ with `vkb` kept for an augmented dataset), the one large array is the interpolat
 one at a time, so it never builds `(nk, nR, nw, nw, 8)`, which would be about 6 GB at the sizes
 of the mesh test. The 8x8x8 mesh pair (two cells, 512 k-points each) peaked at 1.9 GB and took
 388 s.
+
+## Wannier functions without trial orbitals, `projections="auto"` (CPU, D22-0161, 2026-11-05)
+
+Silicon, `Si.pz-vbc`, ecut 12 Ry, SCF on 4x4x4, the Wannier mesh 4x4x4 (64 k-points, no
+symmetry), 16 bands to the 8 pseudo-atomic orbitals, `num_iter = 200`, `conv_window = 3`.
+**D22-0161, one core** (`slot.sh`, `taskset -c 4`, one thread for XLA, MKL and OpenMP), the
+QE programs inheriting the same affinity. Two Blender renders ran on other cores of the
+machine at the time (load about 3). Median of 3 after one warm-up call, wall clock around each
+call (`scratchpad/wauto/timing.py`, log `/l/ladovj1/review/wauto/a/timing-si.log`).
+
+| | SCF | Wannier step | total |
+|---|---|---|---|
+| defuqumat, `get_scf()` then `get_wannier()` | 0.14 s | 4.05 s | 4.19 s |
+| `pw.x` scf; nscf + `wannier90.x -pp` + `pw2wannier90.x` (`atom_proj`) + `wannier90.x` | 0.51 s | 1.46 + 0.04 + 0.20 + 0.68 s | 2.90 s |
+
+**This is a pipeline pair, not the same work.** `wannier90.x` 3.1 has no projectability
+selection, so the QE side runs the energy-window disentanglement on the same orthonormal
+atomic projections (`dis_froz_max` at our edge + 2 eV, no state dropped). It ends at `Omega`
+11.687 A^2 after 90 steps, where ours ends at 15.780 A^2 after 17. Our Wannier step is the
+fixed-density solve of 64 k-points by 20 bands (16 used and 4 of buffer, where the `pw.x`
+nscf solves exactly 16), the PAO projections and the engine; it was not
+split here, and the P162 section above says the solve is most of it. The gap to the QE chain
+is 1.4x in total.
+
+## Symmetry-adapted Wannier functions against `pw.x` + `pw2wannier90.x` (`write_dmn`) + `wannier90.x` (`site_symmetry`) (CPU, D22, 2026-11-05)
+
+`tests/data/wannier/si/si.scf` (Si, `Si.pz-vbc`), the 4x4x4 Wannier mesh (64 k-points, 8
+irreducible under the 48 operations), 12 bands to 8 `Si:sp3`, outer window 17 eV and no frozen
+window (refused with symmetry), `num_iter = dis_num_iter = 200`, `conv_tol = dis_conv_tol =
+1e-10`. **Not the machine of the section above**: D22 (i5-12600K), one performance thread
+each, `OMP_NUM_THREADS=1`. defuqumat on CPU 4 through `slot.sh` (`JAX_PLATFORMS=cpu`), **median
+of 3 warm calls** after one warm-up, the SCF excluded; QE 7.5 on CPU 9 (`taskset -c 9`), **median
+of 3 runs** of the chain, wall time per program. `pw.x` nscf runs with symmetry on and the full
+4x4x4 list, as `compute_dmn` needs.
+
+| | total | states | `D`, `d` | engine | QE total | `pw.x` nscf | `wannier90.x -pp` | `pw2wannier90.x` | `wannier90.x` |
+|---|---|---|---|---|---|---|---|---|---|
+| `symmetry=True` | 8.73 s | 4.04 | 0.44 | 3.28 | 6.81 s | 3.32 | 0.05 | 2.77 | 0.68 |
+| `symmetry=False` | 5.50 s | 4.04 | | 0.65 | | | | | |
+
+The `states`, `D, d` and engine columns are the pieces timed apart in the same process (medians
+of 3); they leave about 1 s of the total for `M`, `A` and the interpolation. Symmetry costs
+3.2 s here, almost all of it in the engine: 3.28 against 0.65 s without, and 4.8x the 0.68 s of
+`wannier90.x` with `site_symmetry`. The symmetrised engine is the NumPy port of `sitesym.F90`,
+with a Python loop over operations and irreducible k-points in every symmetrisation of `U` and
+of the gradient, and the small generalized eigenproblems of `dis_extract_symmetric` solved one
+at a time (2x2 by LAPACK's own chain, transcribed). Building `D` and `d` costs 0.44 s, which is
+inside `pw2wannier90.x`'s 2.77 s. That figure is not split between `compute_dmn` and the
+overlaps here (no run without `write_dmn` was timed). D22 was shared with another session's
+jobs, whose load was not recorded; the three QE runs spread by 3 per cent.
+
+**Peak working set.** `d` is `num_bands^2 x nsym x nkptirr` complex, 0.9 MB here, and `D` is
+`num_wann^2 x nsym x nkptirr`. The band representation rotates one k-point's coefficients at a
+time (a gather over the Miller indices and a phase), so its extra memory is one k-point's
+`nbnd x npwx` block.
+
+## A frozen set under site symmetry (P164b), against our own free and symmetric routes (CPU, D22, 2026-11-05)
+
+**There is no QE or Wannier90 counterpart**: `wannier90.x` 3.1 stops on a frozen window in
+site-symmetry mode (`disentangle.F90:104`), so the pair is our own routes on the same input.
+D22 (i5-12600K), one performance thread through `slot.sh` (CPU 4, `JAX_PLATFORMS=cpu`,
+`OMP_NUM_THREADS=1`), **median of 3 warm calls** after one warm-up, the SCF excluded
+(`/l/ladovj1/review/wauto/c/timing_b.py`, log `timing.log`; the three samples of every row agree
+to 2 per cent). `num_iter = dis_num_iter = 200`, `conv_tol = dis_conv_tol = 1e-10`. D22 also ran
+another session's jobs (P165), load not recorded.
+
+| case | `get_wannier` free | `get_wannier` symmetric | engine free | engine symmetric |
+|---|---|---|---|---|
+| `si.scf`, turned set, 12 to 8, outer 17 eV, frozen 6.4 eV | 5.55 s | 6.96 s | 0.78 | 1.58 |
+| the same, outer window only (P164's route) | 5.38 s | 8.54 s | 0.56 | 3.23 |
+| Si (ecut 12), `projections="auto"`, 16 to 8, 4^3 | 3.79 s | 6.19 s | 1.35 | 3.25 |
+
+The frozen block form is **cheaper** than P164's symmetric route without a frozen window (1.58
+against 3.23 s in the engine): only the `num_wann - nfroz` free columns go through the 2x2
+steps and the little-group averages, and on silicon 4 to 8 of the 8 are frozen. Against the free
+engine it is 2.0x (turned, frozen) and 2.4x (auto); the rest of the symmetric `get_wannier`
+over the free one is `D` and `d` (0.44 s in P164) and the symmetrised `wann_main`.
+
+**Peak working set.** Beside P164's `d` and `D`, one `(num_wann, num_wann)` basis `V` and a
+one-point `SymmetryData` per representative, whose `d_free` is `ndk^2 x nsym` and `D_free`
+`(num_wann - nfroz)^2 x nsym`: at most `nkptirr x num_bands^2 x nsym` complex in all, the size
+of `d` itself (0.9 MB on `si.scf`, 3 MB on Si 6^3 auto), not `nkptirr` copies of it.
+
+## SCDM projections, `projections="scdm"`, against `pw.x` + `pw2wannier90.x` (`scdm_proj`) + `wannier90.x` (CPU, D22, 2026-11-05)
+
+Silicon, `Si.pz-vbc`, ecut 12 Ry, SCF on 4x4x4 (P163's `wauto/a/qe/si/scf.in`), the Wannier mesh
+4x4x4 (64 k-points, no symmetry), 16 bands to 8, erfc with the automatic `mu = -6.3027`,
+`sigma = 6.5091` eV (QE given the same two numbers), `dis_num_iter = 0`, `num_iter = 3000`,
+`conv_window = 3`, `conv_tol = 1e-10` on both sides; the `pw.x` nscf on our 16^3 grid
+(`nr1 = nr2 = nr3 = 16`). **D22, one core** (`slot.sh`, CPU 6, one thread for XLA, MKL and
+OpenMP), the QE programs inheriting the same affinity, **median of 5** after one warm-up call
+(`/l/ladovj1/review/wauto/d/timing_scdm.py`, log `timing2.log` beside it). Load about 2.5
+from other sessions at the time; no test ran beside it (an earlier median of 3 beside the fast
+files gave 4.53 against 3.18 s).
+
+| | SCF | Wannier step | total |
+|---|---|---|---|
+| defuqumat, `get_scf()` then `get_wannier(projections="scdm")` | 0.13 s | 4.33 s | 4.46 s |
+| `pw.x` scf; nscf + `wannier90.x -pp` + `pw2wannier90.x` (`scdm_proj`) + `wannier90.x` | 0.52 s | 1.63 + 0.05 + 0.22 + 0.98 s | 3.41 s |
+
+Both minimisations end at `Omega` 20.00742 A^2 after 265 steps (ours 20.007425199, theirs
+20.007424685, with different tied points). **The SCDM part itself is not where the time is**:
+inside our Wannier step the QR with pivoting takes 5 ms (QE's `scdm_QRCP` clock: 10 ms), the
+`A` matrices at the 8 points on 64 k-points 15 ms, and the PAO projectabilities for the fit
+85 ms. The rest is P163's: the fixed-density solve of 64 k-points by 20 bands, the overlaps and
+the NumPy engine, not split here. 1.3x the QE chain in total.
+
+**Peak working set.** The Gamma matrix `X` is `num_bands x nr1 nr2 nr3` complex on the host (1 MB
+here; 4.8 GB for 300 bands on 100^3), the same as QE's `psi_gamma`, plus the factor `geqp3`
+builds in a copy of it. The per-k part gathers the kept bands of the whole state set
+(`nk x num_bands x npwx`, a copy) and, at the default `k_batch` (one `vmap` over the mesh),
+holds `nk x npwx x num_wann` phases at once, about 1.6 MB here (npwx about 190); a chunked `k_batch` holds one
+chunk of them.

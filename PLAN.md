@@ -204,8 +204,13 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
-- **Wannier functions beyond P162**: spinor projections, site symmetry, `gamma_only`, SCDM, random
-  projections, `wannier_plot` and `r_mn(R)`, and a differentiable engine (it is NumPy on the host).
+- **Wannier functions beyond P162 to P165**: spinor projections and spinor PDWF, `gamma_only`,
+  SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the
+  pseudopotential file, `wannier_plot` and `r_mn(R)`, and a differentiable engine (it is NumPy on
+  the host). Beyond P164's site symmetry (a frozen set and `projections="auto"` with it are
+  P164b): time reversal, spinors and magnetic groups, manual `exclude_bands`, the symmetrised
+  engine's 4.8x against `wannier90.x`, and a frozen set whose irreps the trial orbitals lack (Cr
+  auto at the default edge), refused rather than met.
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
@@ -27101,3 +27106,553 @@ symmetry (`sitesym`, removed from the port); `gamma_only`; SCDM (`auto_projectio
 projections and selective localization; `wannier_plot` and `r_mn(R)`; the band-12 cut gap of V1
 (above). Differentiability is not attempted: the engine is NumPy on the host, so a derivative of
 a Wannier quantity is not available.
+
+### P163 -- Wannier functions without trial orbitals: `projections="auto"`, projectability disentanglement on the pseudo-atomic orbitals. ✅ DONE 2026-11-05 (fast checks only; no slow test written; branch `wannier-pdwf`, not merged, not pushed)
+
+`Calculator.get_wannier()` with no arguments is now the PDWF of Qiao, Pizzi and Marzari
+(arXiv:2303.07877). `defuqumat/wannier/pao.py` is new; `disentangle.py`, `engine.py`,
+`matrices.py`, `trial.py`, `interpolation.py`, `workflows/wannier.py` and `calculator.py` are
+changed. The manual path (`num_wann`, `projections=[...]`, windows) is P162's and is kept.
+
+**Masks in the engine.** P162's engine took the outer and frozen sets as contiguous energy
+windows, in five places (`dis_windows`, `dis_project`, `slim_m`, `internal_find_u`, `lwindow`).
+`Windows` now carries `indxwin`, the absolute band of each window row, ascending, and every
+gather goes through it (`M[rows[:, None], cols[None, :], nn, k]`). `windows_from_masks(eigval,
+num_wann, outer, frozen)` builds a `Windows` from `(nb, nk)` boolean masks and refuses a frozen
+state outside the outer set, `ndimwin < num_wann` and `ndimfroz > num_wann`, naming the k.
+`dis_windows` builds its two masks from the energies and calls the same constructor.
+`dis_main(..., *, windows=None)` keeps its signature. A/B against 907f87fc on the energy-window
+path: `repr` of `om_tot`, `om_i` and the spread sums bit-identical for diamond and for Si at two
+window settings (D22 `ab-old.txt`, `ab-new.txt`).
+
+**Guiding functions and projectability.** The PAOs are the `PP_PSWFC` of every species, on every
+atom, with `trial.py`'s real harmonics, its `(-i)^l` and its `mr` order, and the radial part from
+`atomic_form_factors` (the table of the projected DOS). `A = <psi|S|g>`, `O = <g|S|g>`, `S` with
+`vkb` and `q_ij` at `q = 0`. The engine gets `A O^{-1/2}`, which is `pw2wannier90.x`'s
+`atom_proj_ortho`, and `p_mk = diag(A O^{-1} A^H)`. A linearly dependent set (an eigenvalue of
+`O` below 1e-10) is refused. QE builds `O^{-1/2}` transposed; for a Hermitian `O` this is the
+complex conjugate, and the measured `p` shows no difference.
+
+**Selection** (`select_states`): a state is frozen if `p >= proj_max` (0.95) or `E <= edge +
+froz_above_edge` (2 eV), dropped if `p < proj_min` (0.01), and otherwise goes to the
+disentanglement. Both tests act on the D4 block average of `p` over each degenerate multiplet,
+with `tol = resolve_degeneracy_tol(1e-6 Ry, states.ethr)` (`PAO_DEGENERACY_TOL`), so a multiplet
+is never split between the sets. A multiplet cut by the top of the solve is dropped, and refused
+if it would be frozen ("raise num_bands"). More than `num_wann` frozen states, or fewer than
+`num_wann` kept, is refused with the k index and its crystal coordinates. **The edge** is
+`result.fermi_energy` for a metal and the CBM, `min_k e[nocc]`, for an insulator; the
+`Calculator` passes the channel's Fermi level when `spin` is given.
+
+**Semicore.** The UPF `n` attribute of `PP_CHI` is a counter in several datasets, so the shell is
+read from the digit of the label (`3S`). A candidate is an orbital with a same-`l` partner of
+higher `n` (Cr US: the `3S` next to `4S`; Si: none). It is cut only if its projections are the
+lowest bands at every k and sit below the rest with a gap: Cr 3s, gap 28.32 eV, "cut". The Cr 3p
+of this dataset has no `4P` partner, so it is not a candidate and stays in; that is a property of
+the dataset, not a choice. `semicore=False` keeps the candidates, `semicore=True` refuses when the
+cut is not clean, and the auto mode warns and keeps them when they overlap the valence or are not
+the lowest bands. The cut is one band count for the whole mesh.
+
+**Bands.** `num_wann` defaults to the number of kept PAOs, and a different value is refused. The
+Wannier step uses `2 N_PAO` bands unless `num_bands` is given (the fixed-density solve runs 4
+more, `_source(..., nsolve, nsolve + 4)` as in P162, and the first of them is the band above
+used by the top-cut test) (my choice: the top band then has a
+small `p`, at most 0.116 for Si and 0.09 to 0.26 for Al), and the result records it
+(`solved_bands`). `exclude_bands` is new for the manual path (solve more, gather the kept
+bands); auto refuses it together with `dis_win`/`dis_froz`, because the masks are its own. New
+fields on `WannierFunctions`: `excluded_bands`, `solved_bands`, `projectability`, `outer`,
+`frozen` (all `(nk, nb)`), `edge` (Ry), `projection_labels`, `semicore`, `projection_lines` (for
+`write_w90`).
+
+**Refused.** Spinors (`noncolin`, SOC): the PAO set and the spinor `atom_proj` of
+`pw2wannier90.x` are not checked against each other. `K_POINTS gamma`, now explicitly, in both
+modes (P162 only said it). A species without `PP_PSWFC` (sg15). Auto together with windows or
+`exclude_bands`, and a `num_wann` other than the kept count.
+
+**Numbers** (D22-0161, CPU, one core a job, `/l/ladovj1/review/wauto/a/`; 4x4x4 nscf, `nosym`,
+the SCF density on 4x4x4).
+
+- V1, `p` against `pw2wannier90.x` (`atom_proj = .true.`, `atom_proj_ortho`, read from its
+  `.amn` as `sum_n |A|^2`), block-averaged, max (mean): Si NC 16 bands 1.06e-6 (1.7e-7), with the
+  eigenvalues 1.8e-5 eV apart and the singular values of `A` 3.1e-7; Si US 7.2e-8 (1.0e-8); Al NC
+  8 bands 1.5e-7 (2.4e-8); Cr US 19 bands with `atom_proj_exclude = 1` 1.4e-7 (1.0e-8). Fast
+  test on the committed Si data (`tests/data/wannier/si-pdwf/`) at 3e-6.
+- V3, the energy-only masks (`proj_min = 0`, `proj_max = 2`) against `wannier90.x` with the same
+  windows on our `write_w90` files, Si 14 bands (16 cuts a multiplet at the top): `Omega`
+  16.2530916034 against 16.253091461, so 1.42e-7 A^2; at `conv_tol = 1e-13` and 3000 steps
+  still 1.417e-7, `Omega_I` 8.96e-8. US 16.380204793 against 16.380204649. **The difference is
+  the bohr constant**: `wannier90.x` 3.1 uses CODATA 2006, 0.52917720859 A, and we use
+  0.529177210903 A; rescaling by the ratio squared leaves 3e-10 (NC) and 4e-10 (US). The default
+  masks of the auto mode are not expressible as windows (on Si 110 states dropped and one frozen
+  above the edge), so V3 checks the engine with masks, not the selection.
+- The band distance `eta_nu` (`interpolation.band_distance`, Vitale et al.: `f~ = sqrt(f_DFT
+  f_W)`, Fermi-Dirac at `E_F + nu`, `sigma = 0.1` eV, `E_F` the VBM for an insulator), 50 random
+  k, seed 0, in meV:
+
+  | case | mesh | eta_0 | eta_2 | Omega (A^2) |
+  |---|---|---|---|---|
+  | Si auto (8 s and p) | 4^3 | 94.5 | 111.7 | 15.780 |
+  | Si auto | 6^3 | 17.5 | 50.4 | 17.187 |
+  | Si auto | 8^3 | 8.8 | 17.5 | 18.759 |
+  | Si:sp3, 12 bands, frozen to CBM + 2 | 4^3 | 74.2 | 97.5 | 18.095 |
+  | Si:sp3 | 6^3 | 20.3 | 30.3 | 21.999 |
+  | Si:sp3 | 8^3 | 7.7 | 10.4 | 23.400 |
+  | Si, energy test only | 4^3 | 95.2 | 112.9 | |
+  | Si, projectability test only | 4^3 | 27.4 | 89.9 | 13.571 |
+  | Al auto (4 s and p) | 4^3 | 419.2 | 463.1 | 7.209 |
+  | Al auto | 6^3 | 132.3 | 149.8 | |
+  | Al auto | 8^3 | 46.6 | 75.4 | |
+  | Al auto, 12 bands | 4^3 | | 510.7 | |
+  | Cr US auto, 3s cut | 4^3 | 218.0 | 201.4 | 6.7213 |
+
+  On silicon the auto set is 1.1x to 1.7x a good hand choice in `eta_2`. On Al the energy-only
+  selection gives the same numbers as the combined one. Cr did not converge in 400 steps, so its
+  row is a point on the way, not a converged spread.
+- Fast tests: `test_wannier_auto.py` (15) and `test_wannier.py` (12), 27 passed, CPU 66 s, GPU
+  (RTX A2000) 89 s.
+- Timing (`PERFORMANCE.md`, "Wannier functions without trial orbitals"), D22-0161, one core,
+  median of 3: `get_scf` + `get_wannier()` 0.14 + 4.05 s against `pw.x` scf + nscf +
+  `pw2wannier90.x` (`atom_proj`) + `wannier90.x` 2.90 s. Not the same work: `wannier90.x` runs
+  energy windows only (90 steps to 11.687 A^2, ours 17 steps to 15.780 A^2).
+
+**Tests.** `tests/unit/test_wannier_auto.py`, 15 fast tests: the masks against the windows
+(exact), a hole in the outer set, a hole that moves with k, the frozen-outside refusal; the
+selection (a dropped state, the D4 doublet at 0.945, the energy edge, the six-frozen refusal, the
+top-cut multiplet, the block average); the semicore candidates and the outcomes of the cut; the
+sg15, window, `exclude_bands` and gamma refusals; and a module fixture on the committed Si data,
+`p` against `p_atom_proj.dat` and the masks reducing to the windows. **No slow test was
+written**: the V1 cases for US, Al and Cr and the eta table need `pw.x` outputs that are not
+committed. A slow regression on Al and Cr is the natural next one.
+
+**Deliverables.** The guide section "Without choosing the orbitals" in `docs/guide/wannier.md`
+(Si and Cr snippets executed on D22, the eta table, Limits) and a paragraph with a table in "How
+we checked it"; the README row and bullet; note 22 in `docs/reference-codes.md` (neither QE nor
+Wannier90 3.1 has the selection, so the ticks stay `(✓)`); notebook 58 extended (63 s on D22: 8
+functions from 16 bands, the valence bands along the path within 0.359 eV against 0.423 eV for
+the turned hybrids).
+
+**Traps met.** A multiplet cut by the top of the solve looks like a state with a small `p` and
+would be frozen or dropped alone (now dropped as a whole, refused if frozen). The `n` of
+`PP_CHI` is not the principal quantum number. V3 at 16 bands first failed because the top
+multiplet was cut, so the outer set was not all bands; 14 bands is a clean cut. The trap check found `WannierFunctions.projectability` stored per band, a
+D4 diagonal; it now holds the block average the selection uses (fast tests 27 passed after it,
+notebook 58 outputs unchanged, 54 s).
+
+**What is outstanding.** Spinor PDWF; site symmetry (P164, below; with the automatic set since P164b); PAOs beyond the
+pseudopotential file (no higher-`l` or polarisation orbitals can be added); `gamma_only`; a slow
+regression; a `d` metal such as Cu in `tests/data/pseudo/` for the main test of the paper.
+
+### P164 -- Symmetry-adapted Wannier functions (Wannier90's `site_symmetry`), `get_wannier(..., symmetry=True)`. ✅ DONE 2026-11-05 (three fast files on D22, CPU and GPU: `test_wannier_sitesym.py`, `test_wannier.py`, `test_notebook_conventions.py`; the gate `tools/test-fast.sh` was not run; `tests/regression/test_wannier_sitesym.py` is slow and was not run, for the user; branch `wannier-sym` from 907f87fc, not merged, not pushed)
+
+Sakuma, PRB 87, 235109 (arXiv:1306.0032). For every operation `g` of the run's `Symmetries`
+(`operations_of`, identity first), `U(gk) = d(g,k) U(k) D(g,k)^+`, only the irreducible
+k-points free. Convention: `g: r -> R r + t`, `R` the cartesian rotation, `t` in bohr,
+`(g f)(r) = f(g^-1 r)`, `R k = k' + G0` with `k'` on the mesh. Three pieces:
+
+- **The engine** (`wannier/sitesym.py`, new): wannierpy's `sitesym` re-ported, with hooks in
+  `disentangle.py`, `wannierise.py`, `overlap.py`, `engine.py` marked `# --- site symmetry
+  (P164)`, each a no-op at `sym=None`. Three defects of wannierpy fixed against `wannier90.x`:
+  (1) `overlap_project` symmetrised with `D` on both sides; it must be `d` on the left (GaAs gave
+  156.27 against 10.14 A^2); (2) `womegai1` in `dis_extract_symmetric` was not the Fortran's
+  `star_size num_wann wbtot - sum(lambda)`; (3) the 2x2 generalized eigenvectors took numpy's
+  phase (H3S 2.1e-7 A^2 off). LAPACK's `zhpgvx` chain is transcribed (`zpptrf`, `zhpgst`, the
+  `zhptrd` reflector, `dlaev2`, ascending sort, `ztpsv`), and H3S then matches to ten digits. A
+  random 2x2 phase moves `Omega_I` by about 1e-6, so this is not round-off.
+- **`D`** (`wannier/dmatrix.py:wannier_rotations`, `wannier_representation`): the `wws` fit of
+  `compute_dmn` (`pw2wannier90.f90:2351-2410`) on a Gauss-Legendre 12 x 24 sphere,
+  `D[j,n] = W_jn e^{-i (Rk).T_n} e^{-i t.G0}`, `T_n = R tau_n + t - tau_j`. `err > 1e-3` is
+  `compute_dmn`'s own test and is the refusal ("not a representation"); a centre off a whole
+  orbit is refused ("whole orbits"), and so are mixed functions with different radial parts.
+- **`d`** (`band_representation`): `d_mn = <psi_m,k'|S|g psi_nk>`, the plane wave `k+G` going to
+  `R(k+G) = k'+G'` by a Miller gather with an asserted bijection of the two spheres, phase
+  `e^{-i(k'+G').t} e^{-i t.G0}`; US/PAW as `compute_dmn`, `calbec` of the rotated coefficients
+  plus `q_ij(0)`. The common factor `e^{-i t.G0}` is in both `D` and `d`, as `compute_dmn`'s
+  `phs`. The `.dmn` stores `CONJG` of both (`files.read_dmn`, `write_dmn`). One k-point's
+  coefficients are rotated at a time.
+
+**Decisions (mine, small).** The keyword is `symmetry=True` (default False). `symmetrize_eps`
+defaults to 1e-8 (Wannier90: 1e-3) so that the little-group average holds to that order.
+`nsym == 1` (a `nosym` run) bypasses everything, `sym = None`, bit for bit (fast test). A band
+set or window cutting a degenerate multiplet makes `d` non-unitary: **our own states refuse**
+(`|d^+ d - 1| > 1e-4`, checked on the window slice, since band 12 of `si.scf` cuts the 17.485 eV
+triplet at Gamma while the 17 eV window does not), **a `.dmn` read from a file only warns**
+(`SymmetryData.refuse_cut = False` in `from_dmn`), because the H3S fixture's 20 bands cut one at
+Gamma (`|d^+ d - 1|` 0.97) and `wannier90.x` runs on regardless; the fixture's number is
+reproduced through it. The window must hold the same bands at `k` and `gk` (asserted).
+
+**Numbers** (D22; the scripts and their logs are in `/l/ladovj1/review/wauto/b/`: `compare_si.py`,
+`probe_physics.py`, `probe_tr.py`, `timing.py`, `qe_si.sh`, `diag_d_us.py`, `doc_snippet.py`):
+
+- Fixtures (Wannier90 3.1 test suite, `wannier90.x` rerun on D22 equal to the benchmarks).
+  **The labels**: `example21_As_sp` is GaAs, isolated, 10.136492662 A^2; `disentanglement_sawfs`
+  is H3S, 6.301957309 (the task brief had the two swapped). Our engine: GaAs 10.136492662,
+  `Omega_I` 6.506264726, spreads to 2e-8; H3S 6.3019573087 against 6.3019573087 (step 1 also
+  equal, 6.3771027986); H3S free 6.234424363, `wannier90.x`'s. Tests use Wannier90's bohr
+  0.52917720859: with ours every spread moves by 2 x 4.4e-9 relative, 8.8e-8 A^2 on GaAs.
+- `A(gk) = d A(k) D^+`: GaAs fixture 4.2e-8; our states on diamond (48 ops, 24 with `t`)
+  5.8e-10, Si 8 lowest bands 2.9e-9. `d` unitary to 1.4e-14 on Si NC and 1.3e-14 on Si US
+  (`tests/data/wannier/si-us`, 4 and 8 bands; without the `q_ij` term it could not be, since US
+  states are `S`-orthonormal). PAW `d` was not probed apart (same code path as US).
+- Against `pw2wannier90.x` on `si.scf` (48 ops, 24 with `t`, 8 irreducible k, `Si:sp3` and the
+  turned set): stars (`ik2ir`, `ir2ik`, `kptsym`) identical; `max|D - D_pw2wan|` 8.0e-16 and
+  1.4e-15; characters of `d` over closed multiplets in the little group (690 block-operation
+  pairs) 3.0e-11, block Frobenius norms over every operation 8.9e-11. A character outside the
+  little group is gauge-dependent and was first compared by mistake (3.65).
+- The QE chain on `si.scf`, 12 to 8, outer window 17 eV, no frozen window, A^2:
+
+  | set | QE chain | `wannier90.x` on ours | our engine on `pw2wannier90.x`'s | ours |
+  |---|---|---|---|---|
+  | `Si:sp3` | 15.773697207 | 15.773696809 | 15.773697209 | 15.773696950 |
+  | turned | 13.787202895 | 13.787202654 | 13.787202896 | 13.787202775 |
+  | diamond (4 bond s) | | 2.349146389 | | 2.349146410 |
+
+  `Omega_I` 11.642688389 (QE) against 11.642688274 (ours). Engine on the same files: 2e-9. The
+  pipeline gap, 2.6e-7 and 1.2e-7, is two SCFs and Wannier90's bohr.
+- **The 14.4365 target substituted.** P162's 14.4365 A^2 was taken with a frozen window, which
+  this mode refuses. Without it, on `si.scf`: `Si:sp3` free 15.767584177 (1.715778 x4, 2.226118
+  x4), symmetric 15.773696950 (1.724342 x4, 2.219082 x4); turned free 13.787202292, symmetric
+  13.787202775 (1.72340 x8 both). Lower than 14.4365 because the valence bands are no longer
+  pinned. `Si:sp3` with symmetry is the new number, 6.1e-3 A^2 above the free minimum.
+- Per operation (`probe_physics.py`), max over all 48 and over the 4^3 box of `R`, with / without:
+
+  | | centres (A) | `H(gR)` (eV) | bands at 12 random `k` and `gk` (eV) |
+  |---|---|---|---|
+  | diamond | 4.9e-11 / 6.6e-11 | 2.3e-10 / 9.5e-11 | 1.3e-9 / 1.3e-10 |
+  | Si turned | 5.6e-11 / 9.3e-11 | 1.4e-13 / 5.3e-8 | 8.8e-13 / 4.7e-8 |
+  | Si `Si:sp3` | not applicable (0.78) | 1.4e-13 / 2.4e-2 | 7.5e-9 / 1.2e-6 |
+
+  `H(gR)` is `H_mn(R) = sum_ji W_jm W_in H_ji(gR + T_n - T_m)` on the periodic 4^3 box (exact on
+  the mesh, independent of the Wigner-Seitz cut). **Which checks discriminate**: diamond lands on
+  the symmetric minimum without help, so its rows show nothing either way (with symmetry it sits
+  at the floor of its states, the `A` identity 5.8e-10). The evidence that the option acts is
+  `Si:sp3`, 2.4e-2 against 1.4e-13 eV, and the turned set, 5.3e-8 against 1.4e-13. **The centre
+  criterion applies only where `W[s]` is a signed permutation**: 48 of 48 operations on the
+  turned set, 24 of 48 on `Si:sp3`, where the 24 atom-swapping operations take a (1,1,1) lobe to
+  (-1,-1,-1), which is not in the other atom's set, so `W` mixes the hybrids and a single
+  function's centre is not covariant (0.78 A). The two spread groups of `Si:sp3` are the same
+  fact, and `wannier90.x` gives them too.
+- **Time reversal is not imposed** (as in Wannier90). On the GaAs fixture with our engine:
+  `max|Im H(R)|` (4^3 box) 3.7e-9 eV free, 3.4e-10 with symmetry; `max_k |H^W(-k) - H^W(k)^*|`
+  3.2e-8 and 4.8e-9 eV, against `max|H(R)|` 4.2 eV. **Substituted** for the brief's
+  `|U(-k) - U(k)^*|` up to a phase: `U` carries a free phase per band at each k, and `H^W(k)` is
+  the gauge-free form of the same statement (real Wannier functions iff `H^W(-k) = H^W(k)^*`).
+  Si (notebook 59, keyword cell, WS hoppings): `max|Im H(R)|` 2.5e-7 eV `Si:sp3` free, 7.4e-9
+  with symmetry.
+- Timing (`PERFORMANCE.md`, "Symmetry-adapted Wannier functions"): 8.73 s against the QE chain's
+  6.81 s, medians of 3 on one D22 core each; the engine 3.28 s against 0.65 s free and 0.68 s for
+  `wannier90.x`.
+
+**Tests.** `tests/unit/test_wannier_sitesym.py` (9, fast): the two fixtures against
+`wannier90.x` (1e-8), the frozen refusal, the `.dmn` round trip, `D` and the stars equal to the
+GaAs file on `GaAs.sym`'s operations, the non-representation refusals, diamond on our states (`A`
+identity < 1e-8, spread, `.dmn` written), `nosym` bit for bit, and the refusals (frozen by both
+routes, a string projection, `precond`, spinors, and the magnetic guard on a stand-in system,
+since a group with `t_rev` arises only with spinors, which are refused first). With
+`tests/unit/test_wannier.py` (the hooks at `sym=None`): **22 passed** on D22 CPU (28 s, one
+core) and **22 passed** on the RTX A2000 (`[CudaDevice(id=0)]`, 48 s);
+`test_notebook_conventions.py` 457 passed. `tests/regression/test_wannier_sitesym.py` (3, slow,
+**not run**): the QE-chain numbers above at 1e-6, eight equal spreads, `H(gR)` < 1e-10 with
+symmetry and > 1e-3 without, bands over the images < 1e-7 with and > 1e-7 without.
+
+**Deliverables.** `docs/guide/wannier.md`, "Wannier functions with the symmetry of the crystal"
+(the keyword cell of the page, executed on D22: `Si:sp3` 15.76758 free and 15.77369 symmetric;
+turned 13.78719 both, the 48 images of `k = (0.1, 0.2, 0.3)` 1.9e-8 and 6.6e-13 eV), a paragraph
+and a table in "How we checked it", the Limits note rewritten; the README row (QE `(✓)`, note 23
+in `docs/reference-codes.md`: `compute_dmn` and the bundled `sitesym.F90`; Elk none,
+`writew90.f90` writes no `.dmn`) and a sentence in the Wannier bullet; notebook 59 (34 s on one
+D22 core, warm cache; one figure, the spreads of the four runs; `Si:sp3` bands over the images
+3.3e-7 free against 5.2e-13 eV); `PERFORMANCE.md`.
+
+**What is outstanding.** ~~A frozen window with symmetry~~ (P164b, below; Wannier90 refuses it,
+`disentangle.F90:104`). Time reversal as a constraint. Spinors and magnetic groups (`t_rev`, a
+spin rotation in `D`). ~~`auto`~~ (P164b) and SCDM projections with symmetry. `precond` with symmetry (not
+validated). The symmetrised engine is 4.8x `wannier90.x`, a Python loop over operations and
+irreducible k in every symmetrisation. `compute_dmn`'s share of `pw2wannier90.x`'s 2.77 s was
+not split out. PAW `d` not probed on its own.
+
+### P164b -- A frozen set under site symmetry, so `get_wannier(symmetry=True)` with `dis_froz` and with `projections="auto"`. ✅ DONE 2026-11-05 (three Wannier fast files on D22, CPU and GPU, plus `test_notebook_conventions.py` and `test_facade_documentation.py`; the gate `tools/test-fast.sh` was not run; `tests/regression/test_wannier_sitesym.py` (slow) was not run and is unchanged, for the user; branch `wannier-symfroz` from 07c1f4e7, not merged, not pushed)
+
+Wannier90 3.1 refuses a frozen window in site-symmetry mode (`disentangle.F90:104`): its frozen
+columns of `u_matrix_opt` are one-hot and `symmetrize_u_matrix` mixes them with the free ones.
+The design is the read-only review of 07c1f4e7 (`scratchpad/REVIEW-P164b-frozen-sitesym.md`,
+prototypes `p164b/proto2.py`, `ranktest.py`, `q346.py`), followed as written.
+
+**The block form** (`wannier/sitesym.py`, `FrozenBlock`, `frozen_blocks`, `frozen_start`,
+`dis_extract_symmetric_frozen`; `disentangle.dis_main` routes to it when `sym` and
+`windows.linner`). At each representative a unitary `V(k) = [V_F | V_free]` on the trial-orbital
+index makes `V^+ D(g,k) V = diag(d_F, D_free)` over the little group, `d_F` the band
+representation on the frozen rows. `V_F = polar(avg_g D(g) Y d_F(g)^+)` with `Y = A^+ E_F` (the
+projection of the frozen states, already an intertwiner when `A` is covariant), a random `Y`
+only when the average has relative `smin <= 1e-3` (every case here took the projections). In
+`U V = [E_F | U_free]` the frozen columns stay one-hot exactly; only `U_free` is extracted, by
+the existing `dis_extract_symmetry` under a one-point `SymmetryData` (`nkptirr = 1`,
+`d_free[s] = d_win[ix_(free rows at gk, free rows at k)]`, `D_free`), so the memory is one `d`,
+not `nkptirr` copies of it. `U = [E_F | U_free] V^+` is copied to the star with `(d, D)`. The
+free `Z` is `_zmatrix` folded with `d_free` as `symmetrize_zmatrix` folds with `d`. The start
+is `polar(Q A V_free)` plus `symmetrize_ukirr` on the free block, not `dis_proj_froz` (whose
+top eigenvectors of `Q P_s Q` need not carry the irreps of `D`). The convergence estimate is
+`dis_extract`'s with the star weights of P164 (`womegai1 = (1/N) sum_ir [n_star (num_wann wbtot
+- r_F) - tr lambda]`); there is no Fortran for it, so it was checked against the exact
+`_womegai` at every step on H3S (`trace=` hook): `womegai1/womegai - 1` is 1.6e-2, 9.7e-3,
+1.6e-3 at steps 1, 2, 5 and -2.4e-11 at the last, below 1e-10 from step 38 of 40, the exact
+`Omega_I` going from 3.6509031676 to 3.6431179138.
+
+**The refusals** (Schur, no character table): a generic intertwiner `avg_g left(g)^+ X right(g)`
+has rank `sum_i dim_i min(m_L, m_R)` (`intertwiner_rank`, relative `smin > 1e-6`). Rank `< nf`
+between `d_F` and `D`: "the frozen states at k-point N carry an irrep the trial orbitals do
+not". Rank `< num_wann - nf` between `d_free` and `D_free`: "the bands left free ... do not carry
+the irreps the trial orbitals need". `check_frozen_star` refuses a frozen set that differs
+between `k` and `gk` and checks `|d_FF^+ d_FF - 1|` (refused for our states, warned for a
+`.dmn`). Both rank guards fire in fast tests on a constructed mirror (an odd frozen band against
+even orbitals; an odd orbital against all-even free bands), and the star guard on two points.
+
+**The automatic selection with symmetry** (`pao.select_states(..., sym=)`, `_select_symmetric`,
+`symmetry_blocks`). Decided at `ir2ik` only; a block is the union of the energy runs at `tol`
+and the bands the little group mixes (`|d_mn| > 1e-6`); frozen, kept or dropped whole on its
+mean `p` and mean energy; a block with the top band and the band above within `tol`, or one `d`
+maps partly outside the `nb` bands (`min_s sum_m |d_mn|^2 < 1 - 1e-4`), is dropped (refused if it
+would be frozen); then copied to every `kptsym` by band index. So `slim_d_matrix_band`'s star
+assertion holds by construction. The stored `projectability` stays the energy-block average
+(P163's), which differs from the decision quantity only where `d` joins two non-degenerate
+bands. The `sym` build moved before the selection, and `del states` after it.
+
+**Fixes the review listed.** `wannier_rotations` fits each column over the image site's
+functions with the same `radial_key` (or `(zona, r)`), so a 3S beside a 4S is a representation
+(it read `sum_j W^2 = 2` and was refused); the separate radial-mixing check is gone, since a
+rotation that would mix two radial parts now leaves `W` short and fails `err > 1e-3`.
+`band_representation(..., bands=)` and `site_symmetry_data(..., bands=)` take the semicore
+cut's band indices instead of `[:num_bands]` (exercised by the Cr runs, 3s cut). `engine_options`
+windows with `"auto"` are refused (they were ignored). The two star messages name the auto
+case. `_refuse_for_symmetry` lifts the frozen and `"auto"` clauses and refuses any other string
+(so SCDM stays refused, for P165). Manual `exclude_bands` with symmetry stays refused.
+
+**Numbers.** D22, CPU, one core a job, `/l/ladovj1/review/wauto/c/` (`probe_h3s.py` with
+`checks.py` -> `h3s.log`; `study_sym.py` -> `study/*.log`; `doc_snippet2.py`; `timing_b.py`).
+"Defect" is `max_k |(1-UU^+)E_F|`, "eig" the distance of each frozen eigenvalue to the spectrum
+of `U^+ e U` (eV), `cov = max |P(gk) - d P(k) d^+|`, the residual `|(1-P_f) Z_f P_f|` in the
+one-hot gauge, and "step" one plain frozen `dis_extract` step from the symmetric result.
+
+- H3S fixture (20 bands, 12 functions, 2x2x2, 48 operations), outer <= 65 eV, frozen <= 20 eV
+  (5 or 6 frozen): 40 steps, `Omega_I` 3.6431179138 (the prototype's), defect 1.2e-11, eig
+  1.4e-10, cov 1.5e-11, residual 2.5e-6 (the subspace is the top eigenvectors of its own `Z`),
+  step `dOmega_I` -4.0e-11 moving the subspace 3.0e-6. The plain frozen route from
+  `dis_proj_froz`: 3.6431179138, cov 2.0e-8 (the free minimum is symmetric here). Masks and
+  energy windows give the same `Omega_I` through `run_engine` (difference 0). **The wrong
+  alternative**, the plain result symmetrised afterwards: defect 0.376, `Omega_I` 4.6621. Frozen
+  at 10, 15, 25 eV: 55, 50, 48 steps, `Omega_I` 3.5394512612, 3.5795504301, 3.7995582078, defect
+  1.2e-11 each, residual 8.3e-6, 7.7e-6, 1.9e-6. **The cut multiplet** (outer 95 eV, `|d^+d - 1|`
+  0.97 at Gamma, warned): 400 steps unconverged, residual 0.18, step moves the subspace 0.19,
+  cov 1.1e-5, so the checks see a non-unitary `d`. After `wann_main` (400 steps) the symmetric
+  `Omega` is 6.785 against 4.843 free, same `Omega_I`: the spread minimum is not symmetric.
+- Si `si.scf` (ecut 20), 12 to 8, outer 17, frozen 6.4, 4^3, A^2, free / symmetric:
+  `Si:sp3` 16.05319485 / 16.06269191 (`Omega_I` 11.81349625 both); **turned set 14.43648789 /
+  14.43648708, so P162's 14.4365 is reproduced with symmetry** (that minimum is symmetric).
+  Symmetric: defect 6.2e-14 and 6.6e-14, cov 1.9e-13 and 9.7e-14, residual 1.4e-6 and 1.8e-6,
+  step `dOmega_I` -5e-13 and -7e-13. Per operation (P164's set), with / without: `Si:sp3`
+  `H(gR)` 1.5e-13 / 1.4e-1 eV, bands at `gk` 8.4e-9 / 2.1e-6 eV, centres 4.0e-11 A on the 24
+  signed-permutation operations; turned `H(gR)` 1.6e-13 / 6.4e-8, bands 9.8e-13 / 5.8e-8,
+  centres 5.7e-11 on 48. `eta_2` (50 random k) `Si:sp3` 94.20 free, 91.93 symmetric meV. The
+  guide's keyword cell (ecut 20, SCF 8^3) gives the same five-digit spreads.
+- Si auto (P163's cell, ecut 12), 16 to 8, 4 to 8 frozen: 4^3 `Omega` 15.78017813 free,
+  15.78017751 symmetric, `Omega_I` 10.05687939 both, `eta_0`/`eta_2` 94.53/111.75 meV both
+  (P163's row exactly); 6^3 17.18712477 / 17.18712448, `eta_2` 50.40 meV both (P163's). Defect
+  2.0e-13 (4^3) and 3.1e-13 (6^3), cov 3.0e-10 and 3.6e-10, residual 1.4e-6 and 1.5e-6, step
+  -5e-13 and -1e-13; `H(gR)` 2.8e-11 and 1.6e-11 eV with symmetry against 3.6e-9 and 3.8e-10
+  free; centres 1.2e-11 and 6e-12 A on all 48 operations. **On silicon the automatic minimum is
+  symmetric already**, so symmetry changes no measured number beyond round-off; the evidence
+  that the option acts is the per-operation rows and Cr below. Wrong alternative on 6^3: defect
+  0.946, `Omega_I` 16.80 against 11.30.
+- Al auto (4 functions, 8 bands, 1 to 4 frozen), 4^3: 7.20863942 / 7.20863902, `Omega_I`
+  4.32129012 both, `eta_2` 463.07 meV both; defect 1.5e-13, cov 1.8e-13, residual 8.8e-7;
+  `H(gR)` 4.8e-11 / 5.1e-9 eV. Not refused.
+- Cr US auto (3s cut, 9 functions, 19 bands), 4^3: **refused at the default edge**
+  (`froz_above_edge = 2`): at k-point 2 nine states, as many as the functions, are frozen and
+  the intertwiner has rank 8 of 9 (`smin` 1e-16), so they carry an irrep the 4s, 3p, 3d set does
+  not hold that often. Which irrep was not identified. With `froz_above_edge=None`: runs,
+  `Omega_I` 4.4327 symmetric against 4.3024 free (the free subspace breaks the symmetry, cov
+  0.92), residual 7.5e-6 but **not** the top eigenvectors of its `Z`: one plain step moves the
+  subspace by 1.0 and lowers `Omega_I` by 0.027, so the symmetric stationary point is a saddle of
+  the free functional, which symmetric criticality allows. `H(gR)` 1.4e-11 eV, bands at `gk`
+  2.7e-11, centres 8e-12 A on the 16 signed-permutation operations. With `froz_above_edge=0`:
+  runs, `Omega_I` 4.6114 against 4.3853 free, but the centres miss by 0.18 A and the
+  WS-interpolated bands at `gk` by 0.12 eV although `H(gR)` holds to 1.4e-11: one function has a
+  spread of 5.13 A^2 on 4^3, and its centre (`Im ln M`) is not covariant there; not investigated
+  further.
+- Fast tests (`test_wannier_sitesym.py` 15, `test_wannier.py`, `test_wannier_auto.py`): **42
+  passed** CPU (79 s, one core), **42 passed** RTX A2000 (`[CudaDevice(id=0)]`, 86 s);
+  `test_notebook_conventions.py` with `test_facade_documentation.py` 463 passed.
+- Timing (`PERFORMANCE.md`, "A frozen set under site symmetry"): no QE counterpart; engine
+  symmetric with frozen 1.58 s against 0.78 free and 3.23 for P164's outer-only symmetric route
+  (turned set); auto 3.25 against 1.35 s. `get_wannier` 6.96 / 5.55 s and 6.19 / 3.79 s.
+
+**Tests** (`tests/unit/test_wannier_sitesym.py`, fast). The frozen refusal test became
+`test_a_frozen_window_with_site_symmetry_keeps_both` (H3S by energy windows and by masks,
+3.6431179138, defect < 1e-10, cov < 1e-9); new: the two rank refusals on a constructed mirror,
+the star-consistency refusal, the symmetric selection on a star (a band 1e-12 either side of the
+edge frozen at both points where the plain selection splits it; a `d`-mixed pair decided as one
+block), two s shells on one site under C3, and on Si 2x2x2 auto+symmetry (masks star-consistent,
+`A` covariant on the outer set, frozen exact, cov) and `Si:sp3` with `dis_froz`. The refusal
+test drops the frozen and auto clauses and gains a name string, `engine_options` windows with
+auto, and `exclude_bands`. The `A` identity on all 16 auto bands read 0.066: the 16th band at
+Gamma cuts the 30.5 eV multiplet, which the selection drops; the test checks the outer set.
+
+**Deliverables.** Guide (`docs/guide/wannier.md`): the cell of the symmetry section is now
+defined in its first snippet (it had reused the ecut 12 cell of the auto section in the text
+while its printed numbers were the ecut 20 cell's), two new executed snippets (frozen window,
+auto; `doc_snippet2.log`), a paragraph and a table of the identities in "How we checked it", the
+Limits rewritten. README row and bullet; note 23 in `docs/reference-codes.md` (no counterpart in
+either code for this part). Notebook 59 extended (75 s on D22 CPU 3), `notebooks/README.md`.
+`PERFORMANCE.md`.
+
+**Traps met.** The H3S fixture's `A` is not covariant (P164), so `V_F` from `A^+ E_F` needs the
+little-group average. A test on all bands reads the cut top multiplet as a broken identity.
+`wann_main(num_iter=0)` raises `UnboundLocalError` (pre-existing, `wannierise.py:457`; the probe
+uses 1). The trap check on the diff (host NumPy only, `np.diag(lam)` only through its trace, the
+`d_free` index order re-derived from `d_mn = <psi_m,gk|g psi_nk>` and confirmed by cov 1.5e-11)
+found nothing.
+
+**What is outstanding.** A frozen set whose irreps the trial orbitals lack is refused, not met
+(Cr at the default edge; the natural answers are to unfreeze the offending block or to add
+orbitals, neither done, and the selection does not lower the edge by itself). Manual
+`exclude_bands` with symmetry. The covariance of a delocalised function's centre (Cr,
+`froz_above_edge=0`). Time reversal, spinors, magnetic groups, SCDM with symmetry (P165 keeps it
+refused). The slow regression file has no frozen case.
+
+### P165 -- SCDM projections, `get_wannier(projections="scdm")`, with Vitale's automatic `mu` and `sigma`. ✅ DONE 2026-11-05 (fast checks only, D22 CPU and GPU; no slow test written; branch `wannier-scdm` from 07c1f4e7, not merged, not pushed)
+
+Damle, Lin and Ying, arXiv:1408.4926 (isolated); Damle and Lin, arXiv:1703.06958 (the weight
+`f(e)`); transcribed from `pw2wannier90.f90:compute_amn_with_scdm` (5279-5800) and its input
+checks (705-880). The automatic parameters are Vitale et al., arXiv:1909.00433, Eqs. 16, 22, 23.
+New module `defuqumat/wannier/scdm.py`; a `projections == "scdm"` branch in
+`workflows/wannier.py` (new keywords `scdm_entanglement = "erfc"`, `scdm_mu`, `scdm_sigma`, a
+`WannierFunctions.scdm` field holding `SCDMChoice`); one line in `wannier/engine.py`
+(`dis_num_iter = 0` counts as converged, so it does not warn). `pao.py` is called, not changed.
+
+**What it does.** At Gamma (found as QE does, `|k| < 1e-8`, refused if absent) the kept bands
+go to the FFT grid of the wavefunctions (`basis.smooth`, `g_to_r`), `X_nr = f(e_n)
+conj(psi_n(r)) / ||psi_n||_grid`, flattened in QE's order (first index fastest: our boxes are
+C-ordered, and the column order is what a tie is broken by). `scipy.linalg.qr(X, mode="r",
+pivoting=True)` (LAPACK `geqp3`, host; QE calls `ZGEQP3` on one process) gives the pivots,
+decoded `i = p % n1`, `j = (p / n1) % n2`, `k = p / (n1 n2)`, `r - ANINT(r)` with Fortran's
+half-away-from-zero (numpy's `rint` rounds half to even, which moves a pivot at 0.5 to the
+other cell). At each k, `A = U V^H` of the SVD of `nowfc^H`, `nowfc_jm = f(e_mk)
+psi_mk(r_j) / ||c_mk||`, `psi_mk(r) = sum_G c(G) e^{2 pi i (G + k).r}` as a slow transform at
+the pivots, one `map_k` contraction on the device in the dtype of the states (at the default
+`k_batch` one `vmap`, so `nk x npwx x num_wann` phases and a gathered copy of the kept
+bands are live together). US/PAW: the bare
+pseudo-wavefunction, no `S`, as QE (Vitale's supplement says the same). Memory: `X` is
+`num_bands x nr1 nr2 nr3` complex on the host, QE's `psi_gamma` (Si 16 bands on 16^3: 1 MB; 300
+bands on 100^3: 4.8 GB).
+
+**The automatic parameters.** `p_mk` from P163's `pao_matrices`/`orthonormal_projections` over
+every PAO, block-averaged (D4) on the kept bands, is fitted with `0.5 erfc((e - mu)/sigma)`
+by `curve_fit` over every solved band at every k (start: the energy where the sorted `p` first
+drops below 1/2, sigma 1 eV); `mu = mu_fit - 3 sigma_fit`, `sigma = sigma_fit`, `num_wann =
+N_PAO`, `num_bands = 2 N_PAO` (P163's choice; the paper does not state its band count).
+Refused: no point below 1/2 (no edge), a failed fit, `sigma_fit <= 0`. Measured, 4x4x4:
+**Si** 16 bands `mu_fit = 13.2246`, `sigma_fit = 6.5091`, so `mu = -6.3027` eV (12 bands:
+13.0987, 5.8945, -4.5847); **Al** 8 bands 17.7685, 8.2146, -6.8753. Four starts from (5, 1)
+to (20, 5) eV land on the same minimum to 1e-4 (residual 23.371 Si, 21.503 Al): the fit is
+wide because the conduction `p` falls slowly, and `mu` lands below the bottom of the valence
+band. The smallest singular value of `nowfc` relative to its largest is 1.8e-6 (Si) and
+2.3e-6 (Al): the weights make the matrix nearly rank one at Gamma beyond the first column
+(Al `|R_jj|` 4.9e-3, then 5.9e-8). A warning fires below 1e-8.
+
+**Which windows, and why.** Default (no `dis_win`, no `dis_froz`): `dis_num_iter = 0`, the
+subspace is the Loewdin projection of the SCDM `A` over all `num_bands`, then MLWF. This is
+Vitale's SCDM+MLWF ("we focus exclusively on ... mu and sigma, without considering any
+additional SMV disentanglement"). Measured reason, `eta_2` on Si 4^3: SCDM 154.6 meV; the same
+A with SMV over all bands and no frozen window (400 steps) 971.9 meV, because the SMV subspace
+then leaves the valence bands (Al 4^3: 377.8 against 1175.3). With windows given, the SMV runs
+as P162 (frozen to edge + 2 eV: Si 128.2, Al 413.6 meV).
+
+**Validation against the QE chain** (D22, `/l/ladovj1/review/wauto/d/`; `qe_scdm.py` runs
+`wannier90.x -pp`, `pw2wannier90.x scdm_proj`, `wannier90.x` with `dis_num_iter = 0`,
+`num_iter = 3000`, `conv_window = 3`, `conv_tol = 1e-10`, on P163's nscf states copied from
+`wauto/a/qe/`; `cmp_scdm.py` ours with the same `mu`, `sigma`, our files through `wannier90.x`,
+bands on L-G-X against `w_band.dat`; `ties.py`).
+**The grid trap**: QE's `nosym` nscf has no fractional translations, so it drops the factor 4
+of `fft_factors` and runs Si on 15^3 where our SCF (and so our states) is on 16^3. The selected
+points then differ by construction (QE 0.1333 = 2/15) and the spread moves (Si isolated QE
+6.385633805 on 15^3, 6.385637632 on 16^3). The comparison reruns the nscf with
+`nr1 = nr2 = nr3 = 16` (cases `-g16`). Al is 15^3 in both.
+
+| case, 4x4x4 | QE chain | ours | `wannier90.x` on ours | points |
+|---|---|---|---|---|
+| diamond, 4 isolated (16^3) | 2.349146274 | 2.349146410 | 2.349146389 | differ, `|R_jj|` equal to 7.5e-10 |
+| Si, 4 isolated (16^3) | 6.385637632 | 6.385638001 | 6.385637946 | same set, order of a tie swapped |
+| Si, 16 to 8, erfc | 20.007424685 | 20.007425199 | 20.007425024 | first 4 same, last 4 images, `|R_jj|` 1.8e-10 |
+| Si, 12 to 8, erfc | 20.037985411 | 20.037994814 | 20.037994640 | first 4 same, `|R_jj|` 7.8e-10 |
+| Al, 8 to 4, erfc (15^3) | 7.095953075 | 7.095953145 | 7.095953083 | differ, `|R_jj|` 7.4e-10 |
+
+`|R_jj|` is the diagonal of the QR of our `X` taken at QE's points in QE's order against ours:
+equal to 1e-9 relative, so the two selections are the same greedy choice and the difference
+is a tie broken by rounding (our states are symmetric to the eigensolver's 1e-9). The spreads
+agree to 1.4e-7 (diamond, the bohr floor of P163) to 5e-7, except Si 12 bands, 9.4e-6 apart
+with different tied points. **The tie is visible in the bands**: on L-G-X ours against the
+QE chain 2.1e-5 (diamond), 9.7e-6 eV (Si isolated), but 0.112 eV (Si 16), 0.213 eV (Si 12),
+0.324 eV (Al). **With QE's points fed in** (`--qe-points`, the column selection replaced) the
+bands agree to 1.2e-5 eV (Si 16) and 2.3e-5 eV (Al), the spreads to 5e-7 and 4.6e-7 A^2: so
+the whole difference is which tied point was chosen, and the SCDM model is defined only up to
+that choice. `wannier90.x` on our files against our engine, same files: 2e-5 eV in the bands
+for diamond, Si isolated and Al; 4.2e-3 eV (Si 16) and 6.6e-2 eV (Si 12) with our points,
+1.1e-5 with QE's, the same `Omega` to 2e-7: our points land in a region where the two engines
+end at different points of a flat valley of the spread. Not chased further.
+The guide's keyword cell (`a = 5.3976` A, the same cell to the last digits of `alat`) picks
+yet another order of the tied points with the same `Omega` (20.00742).
+
+**`eta_2` against P163's PDWF** (`study_scdm.py`, P163's 50 random k, seed 0, the SCF density on
+4^3, `num_iter = 400`; PDWF rerun with the same script, equal to P163's table), meV:
+
+| case | mesh | PDWF | SCDM | SCDM + SMV, no frozen | SCDM + SMV, frozen to edge + 2 eV |
+|---|---|---|---|---|---|
+| Si 16 to 8 | 4^3 | 111.75 | 154.59 | 971.87 | 128.21 |
+| Si 16 to 8 | 6^3 | 50.40 | 48.83 (not converged, 400 steps, `Omega` 28.16) | 751.06 | 54.12 |
+| Al 8 to 4 | 4^3 | 463.07 | 377.75 | 1175.30 | 413.63 |
+| Al 8 to 4 | 6^3 | 149.79 | 176.63 | 938.88 | 168.24 |
+
+`eta_0`: Si 94.5/147.1 (4^3), 17.5/39.0 (6^3); Al 419.2/371.7, 132.3/152.9 (PDWF/SCDM). On
+these meshes SCDM is 0.8x to 1.4x PDWF in `eta_2`; Qiao et al.'s 4.2 against 11.2 meV is a
+mean over 200 materials on dense meshes, which this table does not test.
+
+**Tests.** `tests/unit/test_wannier_scdm.py`, 8 fast: the weights; the fit recovering its
+parameters; the no-edge refusal; `ANINT`; the refusals before any state (symmetry, `scdm_sigma
+= 0` and `-1`, an unknown `scdm_entanglement`, `scdm_mu` alone, `isolated` with `mu`, `K_POINTS
+gamma`); Si isolated against the QE chain (1e-6, and the same four points mod lattice vectors);
+the automatic fit and the erfc spread (2e-6); diamond isolated (1e-6, exact on the mesh). The
+references are `tests/data/wannier/scdm/` (inputs, `pw2wan.out` with the pivots, `.wout`).
+D22 CPU (slot.sh, one core): the four Wannier files (`test_wannier_scdm.py`, `test_wannier.py`,
+`test_wannier_auto.py`, `test_wannier_sitesym.py`) **44 passed, 59 s**; RTX A2000
+(`[CudaDevice(id=0)]`, cores 0-1): **44 passed, 67 s** (after the trap check's one change,
+`|c|^2` as `real(conj(c) c)`; 61 and 78 s before it). `test_notebook_conventions.py` with
+`test_facade_documentation.py`: 463 passed. `tools/check_guide.py` and `mkdocs build` were not
+run (no `yaml` in the D22 venv, and no checks on the workstation by the brief). The gate
+`tools/test-fast.sh` was not run.
+
+**Refused**, by name: `symmetry=True` (before `_refuse_for_symmetry`: the pivots do not
+transform with the group), spinors, `K_POINTS gamma` (P162's refusal fires first; QE refuses
+too), a non-positive `scdm_sigma`, an unknown entanglement, `mu` without `sigma`, `isolated`
+with `mu`, `isolated` without `num_wann` on a metal, `num_bands < num_wann`, and the fit
+failures above. The automatic parameters need `PP_PSWFC` (P163's refusal).
+
+**Timing** (`PERFORMANCE.md`, "SCDM projections"): 0.13 + 4.33 s against 3.41 s for the QE
+chain, the QRCP 5 ms (QE's `scdm_QRCP` 10 ms) and `A` 15 ms.
+
+**Deliverables.** `docs/guide/wannier.md`, "Selected columns of the density matrix" (keyword
+cell executed on D22, the `eta_2` table, a paragraph and table in "How we checked it", Limits);
+README row (entry `projections="scdm"`, ticks unchanged, QE `(✓)²²`) and bullet; note 22 in
+`docs/reference-codes.md` (`compute_amn_with_scdm` in QE; the fit in neither; Elk has no
+`ZGEQP3`); notebook 58 extended (57 s on one D22 core: Si 20 Ry, `mu_fit = 13.04`, `sigma_fit =
+6.60`, `mu = -6.75` eV, `Omega` 21.079 against PDWF 15.840 A^2, valence bands on the path within
+0.435 against 0.359 eV).
+
+**What is outstanding.** SCDM with symmetry (the selected points would have to be symmetrised
+into orbits); spinor SCDM (QE has it: `piv_spin`); a semicore cut before the fit (Vitale
+excludes isolated semicore manifolds; P163's `semicore_cut` is not called here, and the
+`exclude_bands` keyword is the manual route); a deterministic tie-break (for example the
+lexicographically first point among columns equal to 1e-8), which would make the model unique
+but not equal to QE's; the flat-valley disagreement of the two engines on our Si points; a slow
+regression; Cu or another `d` metal (no dataset with `PP_PSWFC` in `tests/data/pseudo`);
+`nspin = 2` with SCDM (it runs on the channel's states through the same path, never
+exercised). `write_w90` on an SCDM result writes an empty `begin projections` block:
+`wannier90.x` 3.1 accepts it, with or without `auto_projections` (Al, `Omega`
+7.095952557 both ways, `wauto/d/emptyblock.sh`).

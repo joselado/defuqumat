@@ -32,7 +32,7 @@ import numpy as np
 
 from defuqumat.wannier.ws_vectors import wigner_seitz_vectors
 
-__all__ = ["wannier_hamiltonian", "ws_distance_shifts", "interpolate"]
+__all__ = ["wannier_hamiltonian", "ws_distance_shifts", "interpolate", "band_distance"]
 
 _WS_DISTANCE_TOL = 1.0e-5
 _WS_SEARCH = (2, 2, 2)
@@ -124,3 +124,28 @@ def interpolate(kpt_frac: np.ndarray, irvec, ndegen, hr, shifted=None, count=Non
                        for k in kpt_frac])
     hk = 0.5 * (hk + np.conj(np.swapaxes(hk, 1, 2)))
     return np.linalg.eigh(hk)
+
+
+def band_distance(direct: np.ndarray, interpolated: np.ndarray, fermi: float, nu: float = 2.0,
+                  sigma: float = 0.1) -> tuple[float, float]:
+    """``(eta_nu, eta_nu^max)``: the band distance of Vitale et al. and Qiao et al.
+
+    ``direct`` and ``interpolated`` are ``(nk, nb)`` on the same k-points, band
+    ``n`` against band ``n``, in eV like ``fermi``, ``nu`` and ``sigma``
+    (arXiv:1909.00433, Eq. 4; arXiv:2303.07877, Eq. 7):
+
+        eta = sqrt( sum f~ (e_DFT - e_W)^2 / sum f~ ),  f~ = sqrt(f_DFT f_W),
+
+    ``f`` the Fermi-Dirac function at ``fermi + nu`` with width ``sigma``, and
+    ``eta^max = max f~ |e_DFT - e_W|``.
+    """
+    def fd(e):
+        return 0.5 * (1.0 - np.tanh(0.5 * (e - fermi - nu) / sigma))
+
+    nb = min(direct.shape[1], interpolated.shape[1])
+    d = np.asarray(direct, dtype=float)[:, :nb]
+    w = np.asarray(interpolated, dtype=float)[:, :nb]
+    weight = np.sqrt(fd(d) * fd(w))
+    diff = d - w
+    return (float(np.sqrt(np.sum(weight * diff ** 2) / np.sum(weight))),
+            float(np.max(weight * np.abs(diff))))

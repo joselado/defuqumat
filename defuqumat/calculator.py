@@ -1456,19 +1456,36 @@ class Calculator:
                                  exclude=SCF_ONLY_OPTIONS)
         )
 
-    def get_wannier(self, num_wann: int, projections, **options):
+    def get_wannier(self, num_wann: int | None = None, projections="auto", **options):
         """Maximally localized Wannier functions, ``pw2wannier90.x`` and ``wannier90.x``.
 
         ``projections`` are Wannier90 projection lines (``["Si:sp3"]``);
         ``num_bands`` above ``num_wann`` disentangles, with the windows
-        ``dis_win`` and ``dis_froz`` in eV. The result carries the centres
-        and spreads, the hoppings ``H_mn(R)`` and the interpolated bands
-        (``.bands(kpoints)``), and writes the matrices for ``wannier90.x``
-        (``.write_w90(prefix)``).
+        ``dis_win`` and ``dis_froz`` in eV. ``projections="auto"`` (the
+        default) takes the pseudo-atomic orbitals of every atom instead and
+        chooses the frozen and the dropped states by their projectability onto
+        them (Qiao, Pizzi and Marzari's PDWF), with ``num_wann`` the number of
+        orbitals. ``projections="scdm"`` takes the selected columns of the
+        density matrix at Gamma (``pw2wannier90``'s ``scdm_proj``), with
+        ``scdm_mu`` and ``scdm_sigma`` from the erfc fit of the projectability
+        when they are not given. The result carries the centres and spreads, the hoppings
+        ``H_mn(R)`` and the interpolated bands (``.bands(kpoints)``), and
+        writes the matrices for ``wannier90.x`` (``.write_w90(prefix)``).
+        ``symmetry=True`` imposes the space group of the run (Wannier90's
+        ``site_symmetry``), and ``.write_w90`` then also writes the ``.dmn``
+        file.
         """
         from defuqumat.workflows.wannier import run_wannier
 
         result = self._ground_state("Wannier functions")
+        if isinstance(projections, str) and "fermi_energy" not in options:
+            # The edge of the energy-frozen part: the Fermi level of a smeared
+            # run (the channel's own under a fixed moment), none for an insulator.
+            spin = options.get("spin")
+            level = result.fermi_energy
+            if level is None and spin is not None:
+                level = (result.fermi_energy_up, result.fermi_energy_down)[int(spin)]
+            options = dict(options, fermi_energy=level)
         return run_wannier(
             self.system, self.pseudos, result.density,
             num_wann=num_wann, projections=projections,

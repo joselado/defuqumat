@@ -15,3 +15,12 @@ decimals moves the spread by 1e-6 A^2. `pseudo_dir` is `../../pseudo/`, so
 - `si-us/`, `si-paw/`: the ultrasoft and PAW `psl` 0.1 datasets, ecutwfc 30,
   ecutrho 240, frozen window below 6.6 eV (the top of the valence band is
   6.404 and 6.405 eV there). Inputs and `.wout` only.
+- `scdm/`: `pw2wannier90.x` with `scdm_proj = .true.`, then `wannier90.x` with
+  `dis_num_iter = 0`, `num_iter = 3000`, `conv_window = 3`, `conv_tol = 1e-10`, on the
+  4x4x4 mesh. `diamond-iso` is the `diamond/` cell, four isolated bands. `si-iso-g16`
+  (four valence bands, `exclude_bands = 5-16`) and `si-erfc16-g16` (16 bands to 8, erfc,
+  `scdm_mu = -6.302716706994456`, `scdm_sigma = 6.509102310175368`) are the `si-pdwf/`
+  cell with the nscf on a 16x16x16 grid (`nr1 = nr2 = nr3 = 16`), the grid of our SCF.
+  The `nosym` nscf alone would use 15x15x15. Each holds `pw2wan.in`, `w.win`, the `.wout`
+  (gzipped for the long one) and `pw2wan.out`, which prints the selected points. The
+  `pseudo_dir` in the nscf inputs is the absolute path of the D22 run.

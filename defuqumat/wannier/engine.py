@@ -8,8 +8,9 @@ call graph is the Fortran one,
     kmesh_get -> dis_main (if num_bands > num_wann) or overlap_project -> wann_main
 
 and the routines it calls are the user's own NumPy port of Wannier90 3.1.0
-(the ``wannierpy`` project, ``wannier90/_engine/``), copied here and trimmed of
-site symmetry. That port was validated against ``wannier90.x`` on GaAs, diamond
+(the ``wannierpy`` project, ``wannier90/_engine/``), copied here. Site
+symmetry (``site_symmetry``, :mod:`defuqumat.wannier.sitesym`, P164) is the
+optional ``sym`` argument. That port was validated against ``wannier90.x`` on GaAs, diamond
 and silicon; the numbers for this copy are in ``PLAN.md``, P162.
 
 The engine is **unit-agnostic**: lengths are whatever the reciprocal lattice
@@ -31,7 +32,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from defuqumat.wannier.disentangle import dis_main
+from defuqumat.wannier.disentangle import dis_main, windows_from_masks
 from defuqumat.wannier.kmesh import KmeshResult, kmesh_get
 from defuqumat.wannier.overlap import overlap_project
 from defuqumat.wannier.wannierise import SpreadTerms, wann_main
@@ -70,7 +71,8 @@ class EngineOptions:
 @dataclass(frozen=True)
 class EngineResult:
     u_matrix: np.ndarray        # (num_wann, num_wann, num_kpts)
-    u_matrix_opt: np.ndarray    # (num_bands, num_wann, num_kpts), zero outside the window
+    u_matrix_opt: np.ndarray    # (num_bands, num_wann, num_kpts), window-relative rows as
+                                # Wannier90's: row j is the j-th band inside the window
     lwindow: np.ndarray         # (num_bands, num_kpts) bool
     centres: np.ndarray         # (num_wann, 3), cartesian
     spreads: np.ndarray         # (num_wann,)
@@ -84,7 +86,9 @@ class EngineResult:
 def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh: KmeshResult,
                num_wann: int, options: EngineOptions = EngineOptions(), *,
                kpt_frac: np.ndarray | None = None, real_lattice: np.ndarray | None = None,
-               mp_grid=None, site_cart: np.ndarray | None = None) -> EngineResult:
+               mp_grid=None, site_cart: np.ndarray | None = None,
+               outer: np.ndarray | None = None, frozen: np.ndarray | None = None,
+               sym=None) -> EngineResult:
     """Disentangle (when ``num_bands > num_wann``) and minimise the spread.
 
     ``mmn`` is ``(num_bands, num_bands, nntot, num_kpts)``, ``amn``
@@ -93,25 +97,49 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
     (``(num_wann, 3)``) is needed for ``guiding_centres``; ``kpt_frac``
     (``(3, num_kpts)``), ``real_lattice`` (rows) and ``mp_grid`` for
     ``precond``.
+
+    ``outer`` and ``frozen``, ``(num_bands, num_kpts)`` bool, give the outer and
+    the frozen set band by band in place of the energy windows (projectability
+    disentanglement); the window fields of ``options`` are then not read.
+
+    ``sym`` (a :class:`~defuqumat.wannier.sitesym.SymmetryData`,
+    ``d_matrix_band`` on the absolute band index) is Wannier90's
+    ``site_symmetry = .true.``.
     """
     o = options
+    if (outer is None) != (frozen is None):
+        raise ValueError("outer and frozen are given together or not at all")
     num_bands, num_kpts = eigenvalues.shape
     disentangled = num_bands > num_wann
     dis_converged = True
+    if sym is not None and o.precond:
+        raise NotImplementedError("precond together with site symmetry was not validated")
+    if sym is not None and sym.d_matrix_band.shape[0] != num_bands:
+        raise ValueError(f"the band representation is for {sym.d_matrix_band.shape[0]} bands, "
+                         f"not num_bands = {num_bands}")
+    if sym is not None and not disentangled:
+        from defuqumat.wannier.sitesym import check_band_unitarity
+        for ir, ik in enumerate(sym.ir2ik):
+            check_band_unitarity(sym.d_matrix_band[:, :, :, ir], int(ik), "num_bands",
+                                  sym.refuse_cut)
     if disentangled:
         win_min = float(eigenvalues.min()) if o.dis_win_min is None else o.dis_win_min
         win_max = float(eigenvalues.max()) if o.dis_win_max is None else o.dis_win_max
-        frozen = o.dis_froz_max is not None
         froz_min = win_min if o.dis_froz_min is None else o.dis_froz_min
+        windows = None if outer is None else windows_from_masks(eigenvalues, num_wann, outer, frozen)
         u_opt, u, lwindow, m_wann, dis_converged = dis_main(
             amn, mmn, eigenvalues, kmesh.nnlist, kmesh.wb, num_wann,
-            win_min, win_max, frozen, froz_min, 0.0 if o.dis_froz_max is None else o.dis_froz_max,
-            o.dis_num_iter, o.dis_mix_ratio, o.dis_conv_tol, o.dis_conv_window)
+            win_min, win_max, o.dis_froz_max is not None, froz_min,
+            0.0 if o.dis_froz_max is None else o.dis_froz_max,
+            o.dis_num_iter, o.dis_mix_ratio, o.dis_conv_tol, o.dis_conv_window, windows=windows, sym=sym)
+        dis_converged = dis_converged or o.dis_num_iter == 0  # no iteration asked: nothing to converge
         if not dis_converged:
             warnings.warn(f"the disentanglement did not converge in dis_num_iter = {o.dis_num_iter} "
                           "steps", stacklevel=2)
     else:
-        u, m_wann = overlap_project(amn, mmn, kmesh.nnlist)
+        if outer is not None and not np.all(outer):
+            raise ValueError("an outer set smaller than num_bands needs num_bands > num_wann")
+        u, m_wann = overlap_project(amn, mmn, kmesh.nnlist, sym=sym)
         u_opt = np.tile(np.eye(num_wann, dtype=complex)[:, :, None], (1, 1, num_kpts))
         lwindow = np.ones((num_bands, num_kpts), dtype=bool)
 
@@ -126,7 +154,7 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
         num_no_guide_iter=o.num_no_guide_iter, num_guide_cycles=o.num_guide_cycles,
         fixed_step=o.fixed_step, precond=o.precond, kpt_latt=kpt_frac,
         real_lattice=None if real_lattice is None else np.asarray(real_lattice, dtype=float),
-        mp_grid=None if mp_grid is None else np.asarray(mp_grid, dtype=np.int64))
+        mp_grid=None if mp_grid is None else np.asarray(mp_grid, dtype=np.int64), sym=sym)
     if not converged:
         warnings.warn(f"the spread did not converge in num_iter = {o.num_iter} steps "
                       f"(conv_window = {o.conv_window})", stacklevel=2)
@@ -134,3 +162,18 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
                         centres=np.asarray(centres).T, spreads=np.asarray(spreads), terms=terms,
                         iterations=int(iterations), disentangled=disentangled,
                         dis_converged=bool(dis_converged), converged=bool(converged))
+
+
+def absolute_u_opt(result: EngineResult) -> np.ndarray:
+    """``u_matrix_opt`` with its rows put back on the absolute band index.
+
+    ``EngineResult.u_matrix_opt`` keeps Wannier90's window-relative rows; a
+    consumer pairing a row with a band's eigenvalue or state needs the band it
+    belongs to, which ``lwindow`` gives (``hamiltonian.F90``'s gather).
+    """
+    num_bands, num_wann, num_kpts = result.u_matrix_opt.shape
+    out = np.zeros_like(result.u_matrix_opt)
+    for k in range(num_kpts):
+        rows = np.nonzero(result.lwindow[:, k])[0]
+        out[rows, :, k] = result.u_matrix_opt[:len(rows), :, k]
+    return out
