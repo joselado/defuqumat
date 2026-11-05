@@ -232,7 +232,8 @@ the conduction band minimum, 6.965 eV. Between 4 and 8 states are kept exactly a
 k-point, and 110 states of the 1024 are left out. The functions keep the shape of the
 atomic orbitals: one $s$ and three equal $p$ on each atom. `w.projectability`, `w.outer`
 and `w.frozen` are arrays of shape `(nk, num_bands)`, so you can see which state went
-where. You can change the thresholds with `proj_min` and `proj_max`, the energy part
+where. The projectability is averaged over each degenerate multiplet, so the states of one
+multiplet always go to the same set. You can change the thresholds with `proj_min` and `proj_max`, the energy part
 with `froz_above_edge` (in eV, `None` to switch it off), and `num_bands`.
 
 A semicore shell is a shell with a partner of the same $l$ and a higher principal number

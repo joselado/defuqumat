@@ -11383,3 +11383,25 @@ with `vkb` kept for an augmented dataset), the one large array is the interpolat
 one at a time, so it never builds `(nk, nR, nw, nw, 8)`, which would be about 6 GB at the sizes
 of the mesh test. The 8x8x8 mesh pair (two cells, 512 k-points each) peaked at 1.9 GB and took
 388 s.
+
+## Wannier functions without trial orbitals, `projections="auto"` (CPU, D22-0161, 2026-11-05)
+
+Silicon, `Si.pz-vbc`, ecut 12 Ry, SCF on 4x4x4, the Wannier mesh 4x4x4 (64 k-points, no
+symmetry), 16 bands to the 8 pseudo-atomic orbitals, `num_iter = 200`, `conv_window = 3`.
+**D22-0161, one core** (`slot.sh`, `taskset -c 4`, one thread for XLA, MKL and OpenMP), the
+QE programs inheriting the same affinity. Two Blender renders ran on other cores of the
+machine at the time (load about 3). Median of 3 after one warm-up call, wall clock around each
+call (`scratchpad/wauto/timing.py`, log `/l/ladovj1/review/wauto/a/timing-si.log`).
+
+| | SCF | Wannier step | total |
+|---|---|---|---|
+| defuqumat, `get_scf()` then `get_wannier()` | 0.14 s | 4.05 s | 4.19 s |
+| `pw.x` scf; nscf + `wannier90.x -pp` + `pw2wannier90.x` (`atom_proj`) + `wannier90.x` | 0.51 s | 1.46 + 0.04 + 0.20 + 0.68 s | 2.90 s |
+
+**This is a pipeline pair, not the same work.** `wannier90.x` 3.1 has no projectability
+selection, so the QE side runs the energy-window disentanglement on the same orthonormal
+atomic projections (`dis_froz_max` at our edge + 2 eV, no state dropped). It ends at `Omega`
+11.687 A^2 after 90 steps, where ours ends at 15.780 A^2 after 17. Our Wannier step is the
+fixed-density solve of 64 k-points by 16 bands, the PAO projections and the engine; it was not
+split here, and the P162 section above says the solve is most of it. The gap to the QE chain
+is 1.4x in total.

@@ -96,7 +96,9 @@ class WannierFunctions:
     #: How many bands the fixed-density solve kept (``num_bands`` plus the excluded).
     solved_bands: int | None = None
     #: ``projections = "auto"`` only. ``(nk, num_bands)``: the projectability
-    #: ``p_mk`` onto the orthonormalised pseudo-atomic orbitals, and the outer and
+    #: ``p_mk`` onto the orthonormalised pseudo-atomic orbitals, averaged over each
+    #: degenerate multiplet (rule D4: the per-band value is not invariant under
+    #: the eigensolver's rotation inside a multiplet), and the outer and
     #: frozen sets the disentanglement used; ``edge`` the Fermi level of a metal or
     #: the conduction band minimum of an insulator, Ry; ``projection_labels`` one
     #: name per function, ``"Si1 3S:s"``; ``semicore`` what the semicore test found.
@@ -370,7 +372,7 @@ def run_wannier(
         mmn = mmn_all[np.ix_(bands, bands)]
         trial = [paos[i] for i in keep_orbitals]
         labels = tuple(f"{symbols[p.atom]}{p.atom + 1} {p.name}" for p in trial)
-        extra = dict(projectability=projectability, outer=outer.T.copy(), frozen=frozen.T.copy(),
+        extra = dict(projectability=averaged, outer=outer.T.copy(), frozen=frozen.T.copy(),
                      edge=edge, projection_labels=labels, semicore=semicore_note,
                      projection_lines=tuple(p.w90_line() for p in trial))
     else:
