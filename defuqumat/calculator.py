@@ -1465,7 +1465,10 @@ class Calculator:
         default) takes the pseudo-atomic orbitals of every atom instead and
         chooses the frozen and the dropped states by their projectability onto
         them (Qiao, Pizzi and Marzari's PDWF), with ``num_wann`` the number of
-        orbitals. The result carries the centres and spreads, the hoppings
+        orbitals. ``projections="scdm"`` takes the selected columns of the
+        density matrix at Gamma (``pw2wannier90``'s ``scdm_proj``), with
+        ``scdm_mu`` and ``scdm_sigma`` from the erfc fit of the projectability
+        when they are not given. The result carries the centres and spreads, the hoppings
         ``H_mn(R)`` and the interpolated bands (``.bands(kpoints)``), and
         writes the matrices for ``wannier90.x`` (``.write_w90(prefix)``).
         ``symmetry=True`` imposes the space group of the run (Wannier90's

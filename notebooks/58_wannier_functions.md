@@ -12,7 +12,8 @@ Here we compute eight $sp^3$ functions of silicon from its twelve lowest bands. 
 spread is $\Omega = 16.0532$ Å$^2$, the value of `pw2wannier90.x` and `wannier90.x` on
 the same input to $4\times10^{-7}$ Å$^2$. Then we use the functions as a
 tight-binding model and interpolate the bands. At the end the code chooses the
-orbitals itself, from the atomic orbitals in the pseudopotential file.
+orbitals itself, first from the atomic orbitals in the pseudopotential file and then
+from the density matrix.
 
 
 ```python
@@ -188,6 +189,57 @@ out. The spread, 15.84 Å$^2$, lies between those of the two hybrid sets above, 
 and 14.44 Å$^2$. Along the path the valence bands are within 0.36 eV, against 0.42 eV
 for the turned hybrids on the same 4x4x4 mesh.
 
+
+There is a second way to choose the trial functions without writing them. It uses the
+density matrix $P(\mathbf r, \mathbf r') = \sum_n f(\varepsilon_n) \psi_n(\mathbf r)
+\psi_n^*(\mathbf r')$ at $\Gamma$. Each column of $P$, a fixed $\mathbf r'$, is a
+function localized near $\mathbf r'$. A QR factorisation with column pivoting picks the
+eight columns that are the most independent. These are the selected columns of the
+density matrix (SCDM) of Damle, Lin and Ying. For bands that are entangled with others,
+the weight is $f(\varepsilon) = \tfrac12 \mathrm{erfc}[(\varepsilon - \mu)/\sigma]$. The
+code chooses $\mu$ and $\sigma$ as Vitale and coworkers do. It fits the same erfc to the
+projectability $p$ against the energy, and then takes $\mu = \mu_\mathrm{fit} - 3
+\sigma_\mathrm{fit}$ and $\sigma = \sigma_\mathrm{fit}$. Then the spread is minimised as
+before, with no disentanglement step:
+
+
+
+```python
+scdm = si.get_wannier(projections='scdm', divisions=(4, 4, 4),
+                      engine_options=dict(num_iter=3000, conv_window=3))
+s = scdm.scdm
+print('erfc fit of p: mu_fit = %.2f eV, sigma_fit = %.2f eV, so mu = %.2f eV' % (s.mu_fit, s.sigma_fit, s.mu))
+print('points chosen at Gamma (crystal coordinates):')
+print(np.round(s.points, 4))
+for name, model in (('projectability', auto), ('SCDM', scdm)):
+    error = np.abs(model.bands_ev(crystal)[:, :4] - direct[:, :4]).max(axis=1)
+    print(f'{name:15s} Omega = {model.spread_terms_angstrom2()["omega_total"]:7.3f} A^2, '
+          f'valence bands within {error.max():.3f} eV')
+
+```
+
+    erfc fit of p: mu_fit = 13.04 eV, sigma_fit = 6.60 eV, so mu = -6.75 eV
+    points chosen at Gamma (crystal coordinates):
+    [[ 0.0833 -0.25    0.0833]
+     [ 0.0833  0.125   0.0833]
+     [ 0.1667  0.1667 -0.4583]
+     [-0.4583  0.1667  0.125 ]
+     [ 0.2917  0.      0.3333]
+     [ 0.      0.3333  0.3333]
+     [-0.125  -0.0417  0.25  ]
+     [-0.0833  0.     -0.125 ]]
+    projectability  Omega =  15.840 A^2, valence bands within 0.359 eV
+    SCDM            Omega =  21.079 A^2, valence bands within 0.435 eV
+
+
+The fit gives a wide $\sigma$ of 6.6 eV, because the projectability of silicon falls
+slowly with the energy. So $\mu = -6.75$ eV lies below the valence band, and the
+conduction states get a small weight. The eight points are not the bond centres here.
+The spread, 21.08 Å$^2$, is larger than the 15.84 Å$^2$ of the projectability method,
+and the valence bands are within 0.44 eV against 0.36 eV. Neither method needs any
+input. Qiao and coworkers find the same order on 200 materials with denser meshes: a
+mean band error of 4.2 meV for the projectability method and 11.2 meV for SCDM.
+
 | silicon, 12 bands to 8 $sp^3$ | $\Omega$ (Å$^2$), this code | $\Omega$ (Å$^2$), `wannier90.x` |
 |---|---|---|
 | norm-conserving | 16.053195 | 16.053195 |
@@ -197,6 +249,7 @@ for the turned hybrids on the same 4x4x4 mesh.
 The `wannier90.x` column is `pw.x`, `pw2wannier90.x` and `wannier90.x` on the same
 input, with the default `Si:sp3` orbitals. The projectabilities of the automatic set
 are those of `pw2wannier90.x` with `atom_proj = .true.` to $10^{-6}$. The checks are in
-`tests/unit/test_wannier.py`, `tests/unit/test_wannier_auto.py` and
+`tests/unit/test_wannier.py`, `tests/unit/test_wannier_auto.py`,
+`tests/unit/test_wannier_scdm.py` and
 `tests/regression/test_wannier.py`. The user guide has the theory on its page
 "Wannier functions".

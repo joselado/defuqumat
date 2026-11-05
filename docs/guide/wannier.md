@@ -294,6 +294,110 @@ silicon near X has a $d$ component, which the $s$ and $p$ orbitals of this file 
 describe. The error of aluminium falls fast with the mesh, from 463 meV on 4x4x4 to
 75 meV on 8x8x8.
 
+## Selected columns of the density matrix
+
+There is a second way to get trial functions without writing them. We start from the
+density matrix at $\Gamma$, $P(\mathbf r, \mathbf r') = \sum_n f(\varepsilon_n)\,
+\psi_n(\mathbf r)\, \psi_n^*(\mathbf r')$. Each column of $P$, the function of
+$\mathbf r$ at a fixed $\mathbf r'$, is localized near $\mathbf r'$ when the bands are
+isolated. A QR factorisation with column pivoting picks the `num_wann` grid points
+$\mathbf r_j$ whose columns are the most independent. At every k-point the projections
+are then the values of the Bloch states at these points:
+
+$$
+A_{mn}(\mathbf k) = f(\varepsilon_{m\mathbf k})\, \psi^*_{m\mathbf k}(\mathbf r_n) ,
+$$
+
+meaning that no orbital has to be guessed, only the points. These are the selected
+columns of the density matrix (SCDM) of Damle, Lin and Ying (arXiv:1408.4926 and
+arXiv:1703.06958), and the code does it as `pw2wannier90.x` does with `scdm_proj`.
+The factorisation runs on the FFT grid of the wavefunctions. For isolated bands
+$f = 1$ (`scdm_entanglement="isolated"`). For entangled bands
+$f(\varepsilon) = \tfrac12 \mathrm{erfc}[(\varepsilon - \mu)/\sigma]$ (`"erfc"`, the
+default) or a Gaussian (`"gaussian"`), with `scdm_mu` and `scdm_sigma` in eV.
+
+If you do not give $\mu$ and $\sigma$, the code chooses them as Vitale and coworkers
+do (arXiv:1909.00433). It fits the same erfc to the projectability $p_{m\mathbf k}$ of
+the section above against the band energy, and takes
+
+$$
+\mu = \mu_\mathrm{fit} - 3\sigma_\mathrm{fit}, \qquad \sigma = \sigma_\mathrm{fit},
+$$
+
+with `num_wann` the number of pseudo-atomic orbitals. The factor 3 gives a weight of
+about $10^{-5}$ to a state with half of its weight outside the orbitals, so such a
+state is almost, but not fully, ignored. After this the spread is minimised with no
+disentanglement step, so the subspace is the one of the SCDM projections. This is the
+SCDM+MLWF protocol of that paper. We compute it on the silicon cell above with
+`calc.get_wannier(projections="scdm")`:
+
+```python
+w = si.get_wannier(projections="scdm", engine_options=dict(num_iter=3000, conv_window=3))
+s = w.scdm
+print(w.num_wann, w.num_bands, s.entanglement, s.grid)
+print(round(s.mu_fit, 3), round(s.sigma_fit, 3), round(s.mu, 3), round(s.sigma, 3))
+print(np.round(s.points, 4))
+print({k: round(v, 5) for k, v in w.spread_terms_angstrom2().items()})
+```
+
+```
+8 16 erfc (16, 16, 16)
+13.225 6.509 -6.303 6.509
+[[ 0.125   0.125   0.125 ]
+ [-0.375   0.125   0.125 ]
+ [ 0.125  -0.375   0.125 ]
+ [ 0.125   0.125  -0.375 ]
+ [ 0.25   -0.125  -0.0625]
+ [-0.0625 -0.125  -0.0625]
+ [-0.0625 -0.125   0.25  ]
+ [-0.0625  0.25   -0.0625]]
+{'omega_i': 13.12154, 'omega_d': 0.35289, 'omega_od': 6.53299, 'omega_total': 20.00742}
+```
+
+The projectability of silicon falls slowly with the energy, so the fit gives a wide
+$\sigma$ of 6.5 eV and $\mu = -6.3$ eV, below the bottom of the valence band. The first
+four points are the four bond centres of the atom at the origin, in crystal
+coordinates on the 16x16x16 grid. `w.scdm.points` holds the points and
+`w.projectability` the $p$ of the fit. The spread, 20.007 Å$^2$, is larger than the
+15.78 Å$^2$ of the automatic set above. For the four valence bands alone the weight is
+$f = 1$, and the functions are the four bond orbitals:
+
+```python
+v = si.get_wannier(4, "scdm", scdm_entanglement="isolated",
+                   engine_options=dict(num_iter=3000, conv_window=3))
+print(np.round(v.spreads_angstrom2, 4), round(v.spread_terms_angstrom2()["omega_total"], 5))
+print(np.round(v.centres_angstrom, 4))
+```
+
+```
+[1.5964 1.5964 1.5964 1.5964] 6.38563
+[[-0.6747 -0.6747 -0.6747]
+ [-0.6747  0.6747  0.6747]
+ [ 0.6747 -0.6747  0.6747]
+ [ 0.6747  0.6747 -0.6747]]
+```
+
+The centres are 1.169 Å from the atom at the origin, at the middle of the bonds. If
+you give `dis_win` or `dis_froz`, the disentanglement runs in these windows as for
+given projections, starting from the SCDM subspace. We do not do it by default. With an
+outer window and no frozen window it moves the subspace away from the valence bands:
+on silicon 4x4x4 $\eta_2$ goes from 155 to 972 meV.
+
+How do the two automatic methods compare? Here is $\eta_2$, the band distance of the
+section above, with the same 50 random k-points and the SCF density on 4x4x4, in meV:
+
+| case | mesh | projectability | SCDM | SCDM, frozen to the edge + 2 eV |
+|---|---|---|---|---|
+| Si, 16 bands to 8 | 4x4x4 | 111.7 | 154.6 | 128.2 |
+| Si, 16 bands to 8 | 6x6x6 | 50.4 | 48.8 | 54.1 |
+| Al, 8 bands to 4 | 4x4x4 | 463.1 | 377.8 | 413.6 |
+| Al, 8 bands to 4 | 6x6x6 | 149.8 | 176.6 | 168.2 |
+
+On these small meshes the two methods are close, and neither one wins everywhere. Qiao
+and coworkers compare them on 200 materials with denser meshes and find a mean $\eta_2$
+of 4.2 meV for the projectability method against 11.2 meV for SCDM. The SCDM run of
+silicon on 6x6x6 stops after 400 steps without converging.
+
 ## Running wannier90.x on our matrices
 
 The result keeps the matrices in the layout of Wannier90. `w.write_w90(prefix)` writes
@@ -434,14 +538,37 @@ characters of $d$ agree to $3 \times 10^{-11}$. The whole chain of `pw.x`,
 | `Si:sp3` | 15.773697207 | 15.773696950 |
 | turned axes | 13.787202895 | 13.787202775 |
 
+For `projections="scdm"` the reference is `pw2wannier90.x` with `scdm_proj = .true.`
+and the same $\mu$ and $\sigma$, then `wannier90.x` with `dis_num_iter = 0` and the
+same convergence settings. For silicon we ran the `pw.x` nscf on the 16x16x16 grid of
+our SCF (`nr1 = nr2 = nr3 = 16`). Without this the `nosym` nscf of `pw.x` uses a
+15x15x15 grid, and the points move. On the 4x4x4 mesh:
+
+| case | QE chain (Å$^2$) | this code (Å$^2$) | `wannier90.x` on ours (Å$^2$) | same points |
+|---|---|---|---|---|
+| diamond, 4 bands, isolated | 2.349146274 | 2.349146410 | 2.349146389 | no |
+| Si, 4 bands, isolated | 6.385637632 | 6.385638001 | 6.385637946 | yes |
+| Si, 16 bands to 8, erfc | 20.007424685 | 20.007425199 | 20.007425024 | 4 of 8 |
+| Si, 12 bands to 8, erfc | 20.037985411 | 20.037994814 | 20.037994640 | 4 of 8 |
+| Al, 8 bands to 4, erfc | 7.095953075 | 7.095953145 | 7.095953083 | no |
+
+Where the points differ, they are equivalent by symmetry. The columns at these points
+give the same pivots $|R_{jj}|$ of the factorisation to $10^{-9}$, so the two LAPACK
+libraries break a tie in a different way. The spread does not see this, but the
+interpolated bands do: along L-$\Gamma$-X they differ from those of the QE chain by up
+to 0.11 eV (Si, 16 bands) and 0.32 eV (Al). With the points of `pw2wannier90.x` given
+to our code the bands agree to $2 \times 10^{-5}$ eV and the spread to
+$5 \times 10^{-7}$ Å$^2$. So the
+SCDM model is fixed only up to this choice of tied points.
+
 !!! note "Limits"
     - Spinor calculations (`noncolin`, spin-orbit coupling, a spin spiral) give an
       error. The projections on spinor trial orbitals were not checked against
       `pw2wannier90.x`.
     - At `nspin = 2` one channel is computed at a time: pass `spin=0` or `spin=1`,
       as the `spin_component` of `pw2wannier90.x`.
-    - Selective localization from the input, SCDM (`scdm_proj`), random projections
-      and `K_POINTS gamma` are not implemented. A `K_POINTS gamma` run gives an error.
+    - Selective localization from the input, random projections and `K_POINTS gamma`
+      are not implemented. A `K_POINTS gamma` run gives an error, also with SCDM.
     - `projections="auto"` needs the `PP_PSWFC` orbitals on every species. A file
       without them, such as the SG15 ones, gives an error. It cannot be combined with
       `dis_win`, `dis_froz` or `exclude_bands`, and `num_wann` must be the number of
@@ -465,6 +592,16 @@ characters of $d$ agree to $3 \times 10^{-11}$. The whole chain of `pw.x`,
     - With `symmetry=True` time reversal is not imposed. On the GaAs example of
       Wannier90 the imaginary part of $H_{mn}(\mathbf R)$ is $3 \times 10^{-10}$ eV
       anyway.
+    - `projections="scdm"` gives an error with `symmetry=True`. The points the
+      factorisation selects do not transform with the group. A tie between
+      equivalent points is broken by rounding, so another library or another input
+      can pick other points with the same spread and different interpolated bands.
+    - With SCDM, `scdm_sigma` must be positive, `scdm_mu` and `scdm_sigma` come
+      together, `"isolated"` takes neither, and `num_wann` must be given for an
+      isolated metal. The automatic $\mu$ and $\sigma$ need the `PP_PSWFC` orbitals,
+      and the fit gives an error if $p$ never drops below 1/2 in the solved bands.
+    - SCDM uses the pseudo-wavefunctions on the grid, without the augmentation of an
+      ultrasoft or PAW dataset, as `pw2wannier90.x` does. Spinors give an error.
     - `symmetry=True` cannot be combined with `projections="auto"` yet, because
       the automatic set freezes states and a frozen window gives an error with
       symmetry.

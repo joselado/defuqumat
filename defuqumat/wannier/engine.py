@@ -132,6 +132,7 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
             win_min, win_max, o.dis_froz_max is not None, froz_min,
             0.0 if o.dis_froz_max is None else o.dis_froz_max,
             o.dis_num_iter, o.dis_mix_ratio, o.dis_conv_tol, o.dis_conv_window, windows=windows, sym=sym)
+        dis_converged = dis_converged or o.dis_num_iter == 0  # no iteration asked: nothing to converge
         if not dis_converged:
             warnings.warn(f"the disentanglement did not converge in dis_num_iter = {o.dis_num_iter} "
                           "steps", stacklevel=2)

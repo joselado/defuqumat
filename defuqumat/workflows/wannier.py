@@ -22,6 +22,11 @@ whose projections onto spinor trial orbitals were not checked against
 wannierised at a time, ``spin = 0`` or ``1``, as ``pw2wannier90``'s
 ``spin_component``.
 
+**SCDM** (``projections="scdm"``, P165): the trial functions are the columns of
+the (weighted) density matrix that a QR factorisation with pivoting selects at
+Gamma, ``pw2wannier90``'s ``scdm_proj`` (:mod:`defuqumat.wannier.scdm`), with
+``mu`` and ``sigma`` from the projectability when they are not given.
+
 **Symmetry** (``symmetry=True``, P164): the Wannier functions are made to
 transform under every operation of the run's space group exactly as the trial
 orbitals do (Sakuma, PRB 87, 235109 (2013); Wannier90's ``site_symmetry``),
@@ -128,6 +133,10 @@ class WannierFunctions:
     site_symmetry: object = field(default=None, repr=False)
     #: The number of space-group operations imposed (1: none).
     nsym: int = 1
+    #: ``projections = "scdm"``: the :class:`~defuqumat.wannier.scdm.SCDMChoice`,
+    #: the weights ``mu`` and ``sigma`` used (eV), the fit they came from and the
+    #: grid points the column selection picked.
+    scdm: object = field(default=None, repr=False)
 
     @property
     def omega_total(self) -> float:
@@ -210,6 +219,9 @@ def run_wannier(
     proj_max: float = 0.95,
     froz_above_edge: float | None = 2.0,
     semicore="auto",
+    scdm_entanglement: str = "erfc",
+    scdm_mu: float | None = None,
+    scdm_sigma: float | None = None,
     fermi_energy: float | None = None,
     use_ws_distance: bool = True,
     symmetry: bool = False,
@@ -231,7 +243,9 @@ def run_wannier(
             it is the number of pseudo-atomic orbitals left after the semicore
             cut, and another value is refused.
         projections: ``"auto"`` (projectability disentanglement on the
-            pseudo-atomic orbitals, :mod:`defuqumat.wannier.pao`), or Wannier90
+            pseudo-atomic orbitals, :mod:`defuqumat.wannier.pao`), ``"scdm"``
+            (the selected columns of the density matrix,
+            :mod:`defuqumat.wannier.scdm`; not with ``symmetry``), or Wannier90
             projection lines, as a list of strings (``"Si:sp3"``,
             ``"f=0,0,0.5:s"``, ``"C:l=1,mr=1:z=0,0,1"``); the first
             ``num_wann`` orbitals they define are the trial orbitals.
@@ -256,6 +270,19 @@ def run_wannier(
         semicore: ``"auto"`` cuts the semicore shells whose bands lie below the
             valence with a gap, ``True`` cuts them whenever their bands can be
             named, ``False`` keeps them.
+        scdm_entanglement, scdm_mu, scdm_sigma: ``projections="scdm"``
+            (:mod:`defuqumat.wannier.scdm`): ``pw2wannier90``'s keywords, the
+            weight ``f(e)`` of the column selection, ``"isolated"`` (1),
+            ``"erfc"`` or ``"gaussian"``, with ``mu`` and ``sigma`` in eV. With
+            neither given (``erfc`` or ``gaussian``), they come from the erfc
+            fit of the projectability onto the pseudo-atomic orbitals, ``mu =
+            mu_fit - 3 sigma_fit``, ``sigma = sigma_fit`` (Vitale et al.), and
+            ``num_wann`` defaults to the number of orbitals; ``"isolated"``
+            defaults ``num_wann`` to the occupied bands of an insulator. Without
+            ``dis_win`` and ``dis_froz`` the subspace is the Loewdin projection
+            of the SCDM ``A`` (``dis_num_iter = 0``, Vitale's SCDM+MLWF); with
+            either, the disentanglement runs in those windows as for given
+            projections.
         fermi_energy: the Fermi level in Ry of a smeared ground state, which
             makes the run a metal for the edge; ``None`` for an insulator.
         use_ws_distance: Wannier90's ``use_ws_distance`` (its default) for the
@@ -296,6 +323,12 @@ def run_wannier(
         raise ValueError("at nspin = 2 the channel is wannierised alone: pass spin = 0 or 1")
     if system.nspin != 2 and spin is not None:
         raise ValueError("spin is only for nspin = 2")
+    scdm = isinstance(projections, str) and projections == "scdm"
+    if scdm and symmetry:
+        raise NotImplementedError(
+            "projections = 'scdm' together with symmetry is not implemented: the columns "
+            "the QR factorisation selects at Gamma do not transform with the group, so "
+            "the trial functions are not a representation of it")
     if symmetry:
         _refuse_for_symmetry(system, projections, dis_froz, engine_options)
         if exclude_bands:
@@ -305,10 +338,10 @@ def run_wannier(
     if divisions is None:
         raise ValueError("Wannier functions need a uniform mesh: pass divisions=(n1, n2, n3)")
     divisions = tuple(int(n) for n in divisions)
-    auto = isinstance(projections, str)
+    auto = isinstance(projections, str) and not scdm
     if auto and projections != "auto":
-        raise ValueError(f"projections must be 'auto' or a list of Wannier90 lines, not "
-                         f"{projections!r}")
+        raise ValueError(f"projections must be 'auto', 'scdm' or a list of Wannier90 lines, "
+                         f"not {projections!r}")
     if auto and (dis_win is not None or dis_froz is not None):
         raise ValueError("projections='auto' chooses the outer and frozen sets itself; "
                          "dis_win and dis_froz are for given projections")
@@ -333,6 +366,33 @@ def run_wannier(
         nsolve = (2 * n_full if num_bands is None
                   else int(num_bands) + (len(candidates) if semicore is not False else 0))
         excluded = ()
+    elif scdm:
+        from defuqumat.wannier import pao as paomod
+        from defuqumat.wannier import scdm as scdmmod
+
+        scdmmod.check_parameters(scdm_entanglement, scdm_mu, scdm_sigma)
+        isolated = scdm_entanglement == "isolated"
+        need_pao = not isolated and (scdm_mu is None or num_wann is None)
+        paos = paomod.pao_projections(pseudos, system.structure, crystal) if need_pao else None
+        if num_wann is None:
+            if isolated:
+                if fermi_energy is not None:
+                    raise ValueError("scdm_entanglement = 'isolated' needs num_wann for a metal: "
+                                     "it has no occupied band count")
+                num_wann = _occupied_bands(system, pseudos, density, spin)
+            else:
+                num_wann = len(paos)
+        num_wann = int(num_wann)
+        if num_bands is None:
+            num_bands = num_wann if isolated else 2 * (len(paos) if need_pao else num_wann)
+        num_bands = int(num_bands)
+        if num_bands < num_wann:
+            raise ValueError(f"num_bands = {num_bands} is fewer than num_wann = {num_wann}")
+        excluded = tuple(sorted({int(b) for b in (exclude_bands or ())}))
+        nsolve = num_bands + len(excluded)
+        if excluded and (excluded[0] < 1 or excluded[-1] > nsolve):
+            raise ValueError(f"exclude_bands must lie in 1..{nsolve} (num_bands plus the "
+                             "excluded ones)")
     else:
         if num_wann is None:
             raise ValueError("num_wann is needed with given projections")
@@ -412,6 +472,35 @@ def run_wannier(
         extra = dict(projectability=averaged, outer=outer.T.copy(), frozen=frozen.T.copy(),
                      edge=edge, projection_labels=labels, semicore=semicore_note,
                      projection_lines=tuple(p.w90_line() for p in trial))
+    elif scdm:
+        keep = np.array([b for b in range(nsolve) if b + 1 not in set(excluded)])
+        energies = all_energies[:, keep]
+        energies_ev = energies * RY_TO_EV
+        if excluded:
+            mmn = overlap_matrices(states, kmesh, nsolve, k_batch=k_batch_m)[np.ix_(keep, keep)]
+        else:
+            mmn = overlap_matrices(states, kmesh, num_bands, k_batch=k_batch_m)
+        mu, sigma, mu_fit, sigma_fit = scdm_mu, scdm_sigma, None, None
+        if need_pao:
+            tol_ev = resolve_degeneracy_tol(PAO_DEGENERACY_TOL, states.ethr) * RY_TO_EV
+            amn_raw, overlap = paomod.pao_matrices(states, paos, pseudos, nsolve, volume)
+            _, p_all = paomod.orthonormal_projections(amn_raw, overlap)
+            extra["projectability"] = paomod.block_average(p_all[:, keep], energies_ev, tol_ev)
+            if mu is None:
+                mu_fit, sigma_fit = scdmmod.fit_erfc(energies_ev, extra["projectability"])
+                mu, sigma = mu_fit - scdmmod.KAPPA * sigma_fit, sigma_fit
+        amn, choice = scdmmod.scdm_projections(
+            states, keep, energies_ev, num_wann, entanglement=scdm_entanglement, mu=mu,
+            sigma=sigma, k_batch=k_batch_m, mu_fit=mu_fit, sigma_fit=sigma_fit)
+        del states
+        if choice.singular_min < 1.0e-8:
+            import warnings
+            warnings.warn(f"the SCDM projections are nearly rank deficient at some k-point "
+                          f"(smallest singular value {choice.singular_min:.2e} of the largest); "
+                          "mu is too low for num_wann", stacklevel=2)
+        trial = [_Site(p) for p in choice.points]
+        extra.update(scdm=choice, projection_labels=tuple(
+            "SCDM r=(" + ", ".join(f"{x:.4f}" for x in p) + ")" for p in choice.points))
     else:
         keep = np.array([b for b in range(nsolve) if b + 1 not in set(excluded)])
         energies = all_energies[:, keep]
@@ -436,6 +525,10 @@ def run_wannier(
         window["dis_win_min"], window["dis_win_max"] = dis_win
     if dis_froz is not None:
         window["dis_froz_min"], window["dis_froz_max"] = dis_froz
+    if scdm and dis_win is None and dis_froz is None:
+        # Vitale et al.: SCDM in place of the SMV disentanglement, the subspace
+        # the Loewdin projection of A (no window, no iteration), then the spread.
+        window.setdefault("dis_num_iter", 0)
     options = EngineOptions(**window)
     site_cart = np.array([p.site_frac for p in trial]) @ at * BOHR_TO_ANGSTROM
     result = run_engine(mmn, amn, energies.T * RY_TO_EV, kmesh, num_wann, options,
@@ -459,6 +552,13 @@ def run_wannier(
         spin=spin, mmn=mmn, amn=amn, nnlist=kmesh.nnlist, nncell=kmesh.nncell,
         ws_shifts=shifts, excluded_bands=excluded, solved_bands=nsolve, site_symmetry=sym,
         nsym=nsym, **extra)
+
+
+@dataclass(frozen=True)
+class _Site:
+    """A selected grid point, as the site of a function (``guiding_centres``)."""
+
+    site_frac: np.ndarray
 
 
 def _refuse_for_symmetry(system, projections, dis_froz, engine_options) -> None:

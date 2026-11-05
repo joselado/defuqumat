@@ -11438,3 +11438,31 @@ jobs, whose load was not recorded; the three QE runs spread by 3 per cent.
 `num_wann^2 x nsym x nkptirr`. The band representation rotates one k-point's coefficients at a
 time (a gather over the Miller indices and a phase), so its extra memory is one k-point's
 `nbnd x npwx` block.
+
+## SCDM projections, `projections="scdm"`, against `pw.x` + `pw2wannier90.x` (`scdm_proj`) + `wannier90.x` (CPU, D22, 2026-11-05)
+
+Silicon, `Si.pz-vbc`, ecut 12 Ry, SCF on 4x4x4 (P163's `wauto/a/qe/si/scf.in`), the Wannier mesh
+4x4x4 (64 k-points, no symmetry), 16 bands to 8, erfc with the automatic `mu = -6.3027`,
+`sigma = 6.5091` eV (QE given the same two numbers), `dis_num_iter = 0`, `num_iter = 3000`,
+`conv_window = 3`, `conv_tol = 1e-10` on both sides; the `pw.x` nscf on our 16^3 grid
+(`nr1 = nr2 = nr3 = 16`). **D22, one core** (`slot.sh`, CPU 6, one thread for XLA, MKL and
+OpenMP), the QE programs inheriting the same affinity, **median of 5** after one warm-up call
+(`/l/ladovj1/review/wauto/d/timing_scdm.py`, log `timing2.log` beside it). Load about 2.5
+from other sessions at the time; no test ran beside it (an earlier median of 3 beside the fast
+files gave 4.53 against 3.18 s).
+
+| | SCF | Wannier step | total |
+|---|---|---|---|
+| defuqumat, `get_scf()` then `get_wannier(projections="scdm")` | 0.13 s | 4.33 s | 4.46 s |
+| `pw.x` scf; nscf + `wannier90.x -pp` + `pw2wannier90.x` (`scdm_proj`) + `wannier90.x` | 0.52 s | 1.63 + 0.05 + 0.22 + 0.98 s | 3.41 s |
+
+Both minimisations end at `Omega` 20.00742 A^2 after 265 steps (ours 20.007425199, theirs
+20.007424685, with different tied points). **The SCDM part itself is not where the time is**:
+inside our Wannier step the QR with pivoting takes 5 ms (QE's `scdm_QRCP` clock: 10 ms), the
+`A` matrices at the 8 points on 64 k-points 15 ms, and the PAO projectabilities for the fit
+85 ms. The rest is P163's: the fixed-density solve of 64 k-points by 20 bands, the overlaps and
+the NumPy engine, not split here. 1.3x the QE chain in total.
+
+**Peak working set.** The Gamma matrix `X` is `num_bands x nr1 nr2 nr3` complex on the host (1 MB
+here; 4.8 GB for 300 bands on 100^3), the same as QE's `psi_gamma`, plus the factor `geqp3`
+builds in a copy of it. The per-k part holds `npwx x num_wann` phases per k-point of a chunk.

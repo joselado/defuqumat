@@ -204,8 +204,8 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
-- **Wannier functions beyond P162 to P164**: spinor projections and spinor PDWF, `gamma_only`,
-  SCDM, random projections, PAOs beyond the pseudopotential file, `wannier_plot` and `r_mn(R)`,
+- **Wannier functions beyond P162 to P165**: spinor projections and spinor PDWF, `gamma_only`,
+  SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the pseudopotential file, `wannier_plot` and `r_mn(R)`,
   and a differentiable engine (it is NumPy on the host). Beyond P164's site symmetry: a frozen
   window with symmetry (so `projections="auto"` with symmetry), time reversal, spinors and
   magnetic groups, and the symmetrised engine's 4.8x against `wannier90.x`.
@@ -27366,3 +27366,137 @@ spin rotation in `D`). `auto` and SCDM projections with symmetry. `precond` with
 validated). The symmetrised engine is 4.8x `wannier90.x`, a Python loop over operations and
 irreducible k in every symmetrisation. `compute_dmn`'s share of `pw2wannier90.x`'s 2.77 s was
 not split out. PAW `d` not probed on its own.
+
+### P165 -- SCDM projections, `get_wannier(projections="scdm")`, with Vitale's automatic `mu` and `sigma`. ✅ DONE 2026-11-05 (fast checks only, D22 CPU and GPU; no slow test written; branch `wannier-scdm` from 07c1f4e7, not merged, not pushed)
+
+Damle, Lin and Ying, arXiv:1408.4926 (isolated); Damle and Lin, arXiv:1703.06958 (the weight
+`f(e)`); transcribed from `pw2wannier90.f90:compute_amn_with_scdm` (5279-5800) and its input
+checks (705-880). The automatic parameters are Vitale et al., arXiv:1909.00433, Eqs. 16, 22, 23.
+New module `defuqumat/wannier/scdm.py`; a `projections == "scdm"` branch in
+`workflows/wannier.py` (new keywords `scdm_entanglement = "erfc"`, `scdm_mu`, `scdm_sigma`, a
+`WannierFunctions.scdm` field holding `SCDMChoice`); one line in `wannier/engine.py`
+(`dis_num_iter = 0` counts as converged, so it does not warn). `pao.py` is called, not changed.
+
+**What it does.** At Gamma (found as QE does, `|k| < 1e-8`, refused if absent) the kept bands
+go to the FFT grid of the wavefunctions (`basis.smooth`, `g_to_r`), `X_nr = f(e_n)
+conj(psi_n(r)) / ||psi_n||_grid`, flattened in QE's order (first index fastest: our boxes are
+C-ordered, and the column order is what a tie is broken by). `scipy.linalg.qr(X, mode="r",
+pivoting=True)` (LAPACK `geqp3`, host; QE calls `ZGEQP3` on one process) gives the pivots,
+decoded `i = p % n1`, `j = (p / n1) % n2`, `k = p / (n1 n2)`, `r - ANINT(r)` with Fortran's
+half-away-from-zero (numpy's `rint` rounds half to even, which moves a pivot at 0.5 to the
+other cell). At each k, `A = U V^H` of the SVD of `nowfc^H`, `nowfc_jm = f(e_mk)
+psi_mk(r_j) / ||c_mk||`, `psi_mk(r) = sum_G c(G) e^{2 pi i (G + k).r}` as a slow transform at
+the pivots, one `map_k` contraction on the device in the dtype of the states. US/PAW: the bare
+pseudo-wavefunction, no `S`, as QE (Vitale's supplement says the same). Memory: `X` is
+`num_bands x nr1 nr2 nr3` complex on the host, QE's `psi_gamma` (Si 16 bands on 16^3: 1 MB; 300
+bands on 100^3: 4.8 GB).
+
+**The automatic parameters.** `p_mk` from P163's `pao_matrices`/`orthonormal_projections` over
+every PAO, block-averaged (D4) on the kept bands, is fitted with `0.5 erfc((e - mu)/sigma)`
+by `curve_fit` over every solved band at every k (start: the energy where the sorted `p` first
+drops below 1/2, sigma 1 eV); `mu = mu_fit - 3 sigma_fit`, `sigma = sigma_fit`, `num_wann =
+N_PAO`, `num_bands = 2 N_PAO` (P163's choice; the paper does not state its band count).
+Refused: no point below 1/2 (no edge), a failed fit, `sigma_fit <= 0`. Measured, 4x4x4:
+**Si** 16 bands `mu_fit = 13.2246`, `sigma_fit = 6.5091`, so `mu = -6.3027` eV (12 bands:
+13.0987, 5.8945, -4.5847); **Al** 8 bands 17.7685, 8.2146, -6.8753. Four starts from (5, 1)
+to (20, 5) eV land on the same minimum to 1e-4 (residual 23.371 Si, 21.503 Al): the fit is
+wide because the conduction `p` falls slowly, and `mu` lands below the bottom of the valence
+band. The smallest singular value of `nowfc` relative to its largest is 1.8e-6 (Si) and
+2.3e-6 (Al): the weights make the matrix nearly rank one at Gamma beyond the first column
+(Al `|R_jj|` 4.9e-3, then 5.9e-8). A warning fires below 1e-8.
+
+**Which windows, and why.** Default (no `dis_win`, no `dis_froz`): `dis_num_iter = 0`, the
+subspace is the Loewdin projection of the SCDM `A` over all `num_bands`, then MLWF. This is
+Vitale's SCDM+MLWF ("we focus exclusively on ... mu and sigma, without considering any
+additional SMV disentanglement"). Measured reason, `eta_2` on Si 4^3: SCDM 154.6 meV; the same
+A with SMV over all bands and no frozen window (400 steps) 971.9 meV, because the SMV subspace
+then leaves the valence bands (Al 4^3: 377.8 against 1175.3). With windows given, the SMV runs
+as P162 (frozen to edge + 2 eV: Si 128.2, Al 413.6 meV).
+
+**Validation against the QE chain** (D22, `/l/ladovj1/review/wauto/d/`; `qe_scdm.py` runs
+`wannier90.x -pp`, `pw2wannier90.x scdm_proj`, `wannier90.x` with `dis_num_iter = 0`,
+`num_iter = 3000`, `conv_window = 3`, `conv_tol = 1e-10`, on P163's nscf states copied from
+`wauto/a/qe/`; `cmp_scdm.py` ours with the same `mu`, `sigma`, our files through `wannier90.x`,
+bands on L-G-X against `w_band.dat`; `ties.py`).
+**The grid trap**: QE's `nosym` nscf has no fractional translations, so it drops the factor 4
+of `fft_factors` and runs Si on 15^3 where our SCF (and so our states) is on 16^3. The selected
+points then differ by construction (QE 0.1333 = 2/15) and the spread moves (Si isolated QE
+6.385633805 on 15^3, 6.385637632 on 16^3). The comparison reruns the nscf with
+`nr1 = nr2 = nr3 = 16` (cases `-g16`). Al is 15^3 in both.
+
+| case, 4x4x4 | QE chain | ours | `wannier90.x` on ours | points |
+|---|---|---|---|---|
+| diamond, 4 isolated (16^3) | 2.349146274 | 2.349146410 | 2.349146389 | differ, `|R_jj|` equal to 7.5e-10 |
+| Si, 4 isolated (16^3) | 6.385637632 | 6.385638001 | 6.385637946 | same set, order of a tie swapped |
+| Si, 16 to 8, erfc | 20.007424685 | 20.007425199 | 20.007425024 | first 4 same, last 4 images, `|R_jj|` 1.8e-10 |
+| Si, 12 to 8, erfc | 20.037985411 | 20.037994814 | 20.037994640 | first 4 same, `|R_jj|` 7.8e-10 |
+| Al, 8 to 4, erfc (15^3) | 7.095953075 | 7.095953145 | 7.095953083 | differ, `|R_jj|` 7.4e-10 |
+
+`|R_jj|` is the diagonal of the QR of our `X` taken at QE's points in QE's order against ours:
+equal to 1e-9 relative, so the two selections are the same greedy choice and the difference
+is a tie broken by rounding (our states are symmetric to the eigensolver's 1e-9). The spreads
+agree to 1.4e-7 (diamond, the bohr floor of P163) to 5e-7, except Si 12 bands, 9.4e-6 apart
+with different tied points. **The tie is visible in the bands**: on L-G-X ours against the
+QE chain 2.1e-5 (diamond), 9.7e-6 eV (Si isolated), but 0.112 eV (Si 16), 0.213 eV (Si 12),
+0.324 eV (Al). **With QE's points fed in** (`--qe-points`, the column selection replaced) the
+bands agree to 1.2e-5 eV (Si 16) and 2.3e-5 eV (Al), the spreads to 5e-7 and 4.6e-7 A^2: so
+the whole difference is which tied point was chosen, and the SCDM model is defined only up to
+that choice. `wannier90.x` on our files against our engine, same files: 2e-5 eV in the bands
+for diamond, Si isolated and Al; 4.2e-3 eV (Si 16) and 6.6e-2 eV (Si 12) with our points,
+1.1e-5 with QE's, the same `Omega` to 2e-7: our points land in a region where the two engines
+end at different points of a flat valley of the spread. Not chased further.
+The guide's keyword cell (`a = 5.3976` A, the same cell to the last digits of `alat`) picks
+yet another order of the tied points with the same `Omega` (20.00742).
+
+**`eta_2` against P163's PDWF** (`study_scdm.py`, P163's 50 random k, seed 0, the SCF density on
+4^3, `num_iter = 400`; PDWF rerun with the same script, equal to P163's table), meV:
+
+| case | mesh | PDWF | SCDM | SCDM + SMV, no frozen | SCDM + SMV, frozen to edge + 2 eV |
+|---|---|---|---|---|---|
+| Si 16 to 8 | 4^3 | 111.75 | 154.59 | 971.87 | 128.21 |
+| Si 16 to 8 | 6^3 | 50.40 | 48.83 (not converged, 400 steps, `Omega` 28.16) | 751.06 | 54.12 |
+| Al 8 to 4 | 4^3 | 463.07 | 377.75 | 1175.30 | 413.63 |
+| Al 8 to 4 | 6^3 | 149.79 | 176.63 | 938.88 | 168.24 |
+
+`eta_0`: Si 94.5/147.1 (4^3), 17.5/39.0 (6^3); Al 419.2/371.7, 132.3/152.9 (PDWF/SCDM). On
+these meshes SCDM is 0.8x to 1.4x PDWF in `eta_2`; Qiao et al.'s 4.2 against 11.2 meV is a
+mean over 200 materials on dense meshes, which this table does not test.
+
+**Tests.** `tests/unit/test_wannier_scdm.py`, 8 fast: the weights; the fit recovering its
+parameters; the no-edge refusal; `ANINT`; the refusals before any state (symmetry, `scdm_sigma
+= 0` and `-1`, an unknown `scdm_entanglement`, `scdm_mu` alone, `isolated` with `mu`, `K_POINTS
+gamma`); Si isolated against the QE chain (1e-6, and the same four points mod lattice vectors);
+the automatic fit and the erfc spread (2e-6); diamond isolated (1e-6, exact on the mesh). The
+references are `tests/data/wannier/scdm/` (inputs, `pw2wan.out` with the pivots, `.wout`).
+D22 CPU (slot.sh, one core): the four Wannier files (`test_wannier_scdm.py`, `test_wannier.py`,
+`test_wannier_auto.py`, `test_wannier_sitesym.py`) **44 passed, 59 s**; RTX A2000
+(`[CudaDevice(id=0)]`, cores 0-1): **44 passed, 67 s** (after the trap check's one change,
+`|c|^2` as `real(conj(c) c)`; 61 and 78 s before it). `test_notebook_conventions.py` with
+`test_facade_documentation.py`: 463 passed. `tools/check_guide.py` and `mkdocs build` were not
+run (no `yaml` in the D22 venv, and no checks on the workstation by the brief). The gate
+`tools/test-fast.sh` was not run.
+
+**Refused**, by name: `symmetry=True` (before `_refuse_for_symmetry`: the pivots do not
+transform with the group), spinors, `K_POINTS gamma` (P162's refusal fires first; QE refuses
+too), a non-positive `scdm_sigma`, an unknown entanglement, `mu` without `sigma`, `isolated`
+with `mu`, `isolated` without `num_wann` on a metal, `num_bands < num_wann`, and the fit
+failures above. The automatic parameters need `PP_PSWFC` (P163's refusal).
+
+**Timing** (`PERFORMANCE.md`, "SCDM projections"): 0.13 + 4.33 s against 3.41 s for the QE
+chain, the QRCP 5 ms (QE's `scdm_QRCP` 10 ms) and `A` 15 ms.
+
+**Deliverables.** `docs/guide/wannier.md`, "Selected columns of the density matrix" (keyword
+cell executed on D22, the `eta_2` table, a paragraph and table in "How we checked it", Limits);
+README row (entry `projections="scdm"`, ticks unchanged, QE `(✓)²²`) and bullet; note 22 in
+`docs/reference-codes.md` (`compute_amn_with_scdm` in QE; the fit in neither; Elk has no
+`ZGEQP3`); notebook 58 extended (57 s on one D22 core: Si 20 Ry, `mu_fit = 13.04`, `sigma_fit =
+6.60`, `mu = -6.75` eV, `Omega` 21.079 against PDWF 15.840 A^2, valence bands on the path within
+0.435 against 0.359 eV).
+
+**What is outstanding.** SCDM with symmetry (the selected points would have to be symmetrised
+into orbits); spinor SCDM (QE has it: `piv_spin`); a semicore cut before the fit (Vitale
+excludes isolated semicore manifolds; P163's `semicore_cut` is not called here, and the
+`exclude_bands` keyword is the manual route); a deterministic tie-break (for example the
+lexicographically first point among columns equal to 1e-8), which would make the model unique
+but not equal to QE's; the flat-valley disagreement of the two engines on our Si points; a slow
+regression; Cu or another `d` metal (no dataset with `PP_PSWFC` in `tests/data/pseudo`).

@@ -201,7 +201,12 @@ overlaps and the trial orbitals were transcribed from. The automatic set
 projections on the orthonormal atomic orbitals (`atom_proj`, `atom_proj_ortho`,
 `atom_proj_exclude`), and Wannier90 3.1.0 has no projectability window, so the choice
 of the kept and left-out states by projectability (Qiao, Pizzi and Marzari) is done
-outside both, in the AiiDA workflows of the paper.
+outside both, in the AiiDA workflows of the paper. The SCDM projections
+(`projections="scdm"`) are `compute_amn_with_scdm` in `pw2wannier90.f90`
+(`scdm_proj`, `scdm_entanglement`, `scdm_mu`, `scdm_sigma`), and this code transcribes
+that routine. The choice of `scdm_mu` and `scdm_sigma` from an erfc fit of the
+projectability (Vitale and coworkers) is in neither code: it is done in the AiiDA
+workflows of that paper. Elk has no SCDM (no `ZGEQP3` call in its source).
 
 **23. Wannier functions with the symmetry of the crystal, QE (✓), not Elk.** In QE,
 `compute_dmn` in `PP/src/pw2wannier90.f90` writes the `.dmn` file (`write_dmn`),
