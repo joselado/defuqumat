@@ -37,19 +37,19 @@ class Windows:
     indxnfroz: np.ndarray  # (num_bands, num_kpts) int, window-relative, first ndimwin(k)-ndimfroz(k) valid
     eigval_opt: np.ndarray  # (num_bands, num_kpts), slimmed to window (rows >= ndimwin are 0)
     linner: bool
+    #: (num_bands, num_kpts) int: the absolute band of each window row, ascending, the
+    #: first ndimwin(k) valid. The energy window makes it ``nfirstwin + arange``; a
+    #: window given as a mask (projectability disentanglement) makes it any ascending
+    #: subset, so every gather from absolute to window-relative rows goes through it.
+    indxwin: np.ndarray | None = None
 
 
 def dis_windows(eigval: np.ndarray, num_wann: int, dis_win_min: float, dis_win_max: float,
                  frozen_states: bool, dis_froz_min: float, dis_froz_max: float) -> Windows:
+    """The outer and inner energy windows as masks, then :func:`windows_from_masks`."""
     num_bands, num_kpts = eigval.shape
-    ndimwin = np.empty(num_kpts, dtype=np.int64)
-    nfirstwin = np.empty(num_kpts, dtype=np.int64)
-    ndimfroz = np.zeros(num_kpts, dtype=np.int64)
-    lfrozen = np.zeros((num_bands, num_kpts), dtype=bool)
-    indxfroz = np.zeros((num_bands, num_kpts), dtype=np.int64)
-    indxnfroz = np.zeros((num_bands, num_kpts), dtype=np.int64)
-    eigval_opt = np.zeros((num_bands, num_kpts))
-
+    outer = np.zeros((num_bands, num_kpts), dtype=bool)
+    frozen = np.zeros((num_bands, num_kpts), dtype=bool)
     for k in range(num_kpts):
         e = eigval[:, k]
         if e[0] > dis_win_max or e[-1] < dis_win_min:
@@ -57,35 +57,69 @@ def dis_windows(eigval: np.ndarray, num_wann: int, dis_win_min: float, dis_win_m
         in_win = (e >= dis_win_min) & (e <= dis_win_max)
         imin = int(np.argmax(in_win))  # first True (assumes ascending eigenvalues, matches Fortran)
         imax = int(np.nonzero(e <= dis_win_max)[0][-1])
-        ndimwin[k] = imax - imin + 1
-        nfirstwin[k] = imin
-        if ndimwin[k] < num_wann:
+        outer[imin:imax + 1, k] = True
+        if imax - imin + 1 < num_wann:
             raise ValueError(f"dis_windows: energy window has fewer states than num_wann at k-point {k}")
 
-        kifroz_min, kifroz_max = 0, -1  # 1-indexed within-window, as in Fortran; 0 means "not found yet"
         if frozen_states:
+            first = None
             for i in range(imin, imax + 1):
                 if e[i] < dis_froz_min or e[i] > dis_froz_max:
-                    if kifroz_min != 0:
+                    if first is not None:
                         break  # frozen states are contiguous in energy (ascending eigenvalues)
                     continue
-                if kifroz_min == 0:
-                    kifroz_min = kifroz_max = i - imin + 1
-                else:
-                    kifroz_max += 1
-        nfroz = kifroz_max - kifroz_min + 1
-        ndimfroz[k] = nfroz
-        if nfroz > num_wann:
+                if first is None:
+                    first = i
+                frozen[i, k] = True
+        if np.count_nonzero(frozen[:, k]) > num_wann:
             raise ValueError(f"dis_windows: more frozen states than num_wann at k-point {k}")
-        if nfroz > 0:
-            indxfroz[:nfroz, k] = np.arange(kifroz_min, kifroz_max + 1) - 1  # 0-indexed, window-relative
-            lfrozen[indxfroz[:nfroz, k], k] = True
-        indxnfroz[:ndimwin[k] - nfroz, k] = np.nonzero(~lfrozen[:ndimwin[k], k])[0]
+    return windows_from_masks(eigval, num_wann, outer, frozen)
 
-        eigval_opt[:ndimwin[k], k] = e[imin:imax + 1]
 
+def windows_from_masks(eigval: np.ndarray, num_wann: int, outer: np.ndarray,
+                       frozen: np.ndarray) -> Windows:
+    """:class:`Windows` from an outer set and a frozen set given band by band.
+
+    ``outer`` and ``frozen`` are ``(num_bands, num_kpts)`` bool on the absolute band
+    index; the frozen set must lie inside the outer one. Neither has to be a band
+    range: a state dropped for its projectability leaves a hole in the outer set,
+    and a state frozen for it can sit above an unfrozen one. The window rows are
+    the outer bands in ascending order, which is the order ``lwindow`` gives back.
+    """
+    num_bands, num_kpts = eigval.shape
+    outer = np.asarray(outer, dtype=bool)
+    frozen = np.asarray(frozen, dtype=bool)
+    if outer.shape != (num_bands, num_kpts) or frozen.shape != (num_bands, num_kpts):
+        raise ValueError("the outer and frozen masks must be (num_bands, num_kpts)")
+    if np.any(frozen & ~outer):
+        k = int(np.nonzero(np.any(frozen & ~outer, axis=0))[0][0])
+        raise ValueError(f"a frozen state is outside the outer set at k-point {k}")
+    ndimwin = np.count_nonzero(outer, axis=0).astype(np.int64)
+    ndimfroz = np.count_nonzero(frozen, axis=0).astype(np.int64)
+    nfirstwin = np.zeros(num_kpts, dtype=np.int64)
+    indxwin = np.zeros((num_bands, num_kpts), dtype=np.int64)
+    lfrozen = np.zeros((num_bands, num_kpts), dtype=bool)
+    indxfroz = np.zeros((num_bands, num_kpts), dtype=np.int64)
+    indxnfroz = np.zeros((num_bands, num_kpts), dtype=np.int64)
+    eigval_opt = np.zeros((num_bands, num_kpts))
+    for k in range(num_kpts):
+        rows = np.nonzero(outer[:, k])[0]
+        nd = len(rows)
+        if nd < num_wann:
+            raise ValueError(f"the outer set has {nd} states, fewer than num_wann = {num_wann}, "
+                             f"at k-point {k}")
+        if ndimfroz[k] > num_wann:
+            raise ValueError(f"{ndimfroz[k]} frozen states, more than num_wann = {num_wann}, "
+                             f"at k-point {k}")
+        nfirstwin[k] = rows[0]
+        indxwin[:nd, k] = rows
+        lfrozen[:nd, k] = frozen[rows, k]
+        nfroz = int(ndimfroz[k])
+        indxfroz[:nfroz, k] = np.nonzero(lfrozen[:nd, k])[0]
+        indxnfroz[:nd - nfroz, k] = np.nonzero(~lfrozen[:nd, k])[0]
+        eigval_opt[:nd, k] = eigval[rows, k]
     return Windows(ndimwin, nfirstwin, ndimfroz, lfrozen, indxfroz, indxnfroz, eigval_opt,
-                    linner=bool(np.any(ndimfroz > 0)))
+                   linner=bool(np.any(ndimfroz > 0)), indxwin=indxwin)
 
 
 def dis_project(A_matrix: np.ndarray, windows: Windows, num_wann: int) -> np.ndarray:
@@ -95,8 +129,8 @@ def dis_project(A_matrix: np.ndarray, windows: Windows, num_wann: int) -> np.nda
     num_bands, num_kpts = A_matrix.shape[0], A_matrix.shape[2]
     u_matrix_opt = np.zeros((num_bands, num_wann, num_kpts), dtype=complex)
     for k in range(num_kpts):
-        n0, nd = windows.nfirstwin[k], windows.ndimwin[k]
-        A_win = A_matrix[n0:n0 + nd, :num_wann, k]
+        nd = windows.ndimwin[k]
+        A_win = A_matrix[windows.indxwin[:nd, k], :num_wann, k]
         Z, _, Vh = np.linalg.svd(A_win, full_matrices=True)  # Z: (nd, nd), Vh: (num_wann, num_wann)
         u_matrix_opt[:nd, :, k] = Z[:, :num_wann] @ Vh
 
@@ -183,11 +217,11 @@ def slim_m(M_matrix_orig: np.ndarray, windows: Windows, nnlist: np.ndarray) -> n
     num_bands, _, nntot, num_kpts = M_matrix_orig.shape
     out = np.zeros_like(M_matrix_orig)
     for k in range(num_kpts):
-        n0, nd = windows.nfirstwin[k], windows.ndimwin[k]
+        rows = windows.indxwin[:windows.ndimwin[k], k]
         for nn in range(nntot):
             k2 = int(nnlist[k, nn]) - 1
-            n0_2, nd_2 = windows.nfirstwin[k2], windows.ndimwin[k2]
-            out[:nd, :nd_2, nn, k] = M_matrix_orig[n0:n0 + nd, n0_2:n0_2 + nd_2, nn, k]
+            cols = windows.indxwin[:windows.ndimwin[k2], k2]
+            out[:len(rows), :len(cols), nn, k] = M_matrix_orig[rows[:, None], cols[None, :], nn, k]
     return out
 
 
@@ -325,8 +359,8 @@ def internal_find_u(u_matrix_opt: np.ndarray, A_matrix: np.ndarray, windows: Win
     for k in range(num_kpts):
         # ``u_matrix_opt`` rows are window-relative and ``A_matrix`` rows absolute;
         # the Fortran slims ``a_matrix`` in place first (disentangle.F90:1023-1026).
-        n0, nd = windows.nfirstwin[k], windows.ndimwin[k]
-        caa = u_matrix_opt[:nd, :, k].conj().T @ A_matrix[n0:n0 + nd, :num_wann, k]
+        nd = windows.ndimwin[k]
+        caa = u_matrix_opt[:nd, :, k].conj().T @ A_matrix[windows.indxwin[:nd, k], :num_wann, k]
         Z, _, Vh = np.linalg.svd(caa, full_matrices=True)
         u_matrix[:, :, k] = Z @ Vh
     return u_matrix
@@ -335,21 +369,26 @@ def internal_find_u(u_matrix_opt: np.ndarray, A_matrix: np.ndarray, windows: Win
 def dis_main(A_matrix: np.ndarray, M_matrix_orig: np.ndarray, eigval: np.ndarray, nnlist: np.ndarray,
              wb: np.ndarray, num_wann: int, dis_win_min: float, dis_win_max: float, frozen_states: bool,
              dis_froz_min: float, dis_froz_max: float, dis_num_iter: int, dis_mix_ratio: float,
-             dis_conv_tol: float, dis_conv_window: int):
+             dis_conv_tol: float, dis_conv_window: int, *, windows: Windows | None = None):
     """Full disentanglement pipeline, mirroring ``dis_main`` in
     disentangle.F90. Returns (u_matrix_opt, u_matrix, lwindow, M_matrix,
     converged) -- ``u_matrix``/``M_matrix`` are the initial-guess rotation
     and num_wann-gauge overlap matrices Wannierisation (phase 3) takes as
-    its starting point."""
+    its starting point.
+
+    ``windows``, when given (:func:`windows_from_masks`), replaces the energy
+    windows: the outer and frozen sets are then whatever the caller chose band by
+    band, and the window energies are not read."""
     num_bands, num_kpts = eigval.shape
     wbtot = float(np.sum(wb))
 
-    windows = dis_windows(eigval, num_wann, dis_win_min, dis_win_max, frozen_states, dis_froz_min, dis_froz_max)
+    if windows is None:
+        windows = dis_windows(eigval, num_wann, dis_win_min, dis_win_max, frozen_states,
+                              dis_froz_min, dis_froz_max)
 
     lwindow = np.zeros((num_bands, num_kpts), dtype=bool)
     for k in range(num_kpts):
-        n0, nd = windows.nfirstwin[k], windows.ndimwin[k]
-        lwindow[n0:n0 + nd, k] = True
+        lwindow[windows.indxwin[:windows.ndimwin[k], k], k] = True
 
     u_matrix_opt = dis_project(A_matrix, windows, num_wann)
     if windows.linner:

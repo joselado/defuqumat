@@ -196,7 +196,12 @@ calls only `wannier_setup`; no Elk routine calls `wannier_run`. The other files
 in `PP/src` named `wannier_*.f90` and `poormanwannier.f90` build a Hamiltonian on
 projected orbitals and do not minimise a spread. The engine here is a port of
 Wannier90 3.1.0 (the user's `wannierpy`), and `pw2wannier90.f90` is what the
-overlaps and the trial orbitals were transcribed from.
+overlaps and the trial orbitals were transcribed from. The automatic set
+(`projections="auto"`) is in neither code as one call. `pw2wannier90.f90` writes the
+projections on the orthonormal atomic orbitals (`atom_proj`, `atom_proj_ortho`,
+`atom_proj_exclude`), and Wannier90 3.1.0 has no projectability window, so the choice
+of the kept and left-out states by projectability (Qiao, Pizzi and Marzari) is done
+outside both, in the AiiDA workflows of the paper.
 
 ## The convergence workflows, which have no row
 

@@ -34,6 +34,11 @@ from defuqumat.units import BOHR_TO_ANGSTROM, RY_TO_EV
 
 __all__ = ["run_wannier", "WannierFunctions", "uniform_mesh"]
 
+#: The gap below which two bands are one multiplet for the projectability
+#: decisions, Ry, before :func:`~defuqumat.solvers.davidson.resolve_degeneracy_tol`
+#: raises it to what the solve promises.
+PAO_DEGENERACY_TOL = 1.0e-6
+
 
 def uniform_mesh(divisions) -> np.ndarray:
     """The Gamma-centred mesh in crystal coordinates, the last index fastest
@@ -86,6 +91,26 @@ class WannierFunctions:
     nnlist: np.ndarray = field(default=None, repr=False)
     nncell: np.ndarray = field(default=None, repr=False)
     ws_shifts: tuple | None = field(default=None, repr=False)
+    #: ``exclude_bands`` in force, Wannier90's 1-based indices of the solved bands.
+    excluded_bands: tuple = ()
+    #: How many bands the fixed-density solve kept (``num_bands`` plus the excluded).
+    solved_bands: int | None = None
+    #: ``projections = "auto"`` only. ``(nk, num_bands)``: the projectability
+    #: ``p_mk`` onto the orthonormalised pseudo-atomic orbitals, averaged over each
+    #: degenerate multiplet (rule D4: the per-band value is not invariant under
+    #: the eigensolver's rotation inside a multiplet), and the outer and
+    #: frozen sets the disentanglement used; ``edge`` the Fermi level of a metal or
+    #: the conduction band minimum of an insulator, Ry; ``projection_labels`` one
+    #: name per function, ``"Si1 3S:s"``; ``semicore`` what the semicore test found.
+    projectability: np.ndarray | None = field(default=None, repr=False)
+    outer: np.ndarray | None = field(default=None, repr=False)
+    frozen: np.ndarray | None = field(default=None, repr=False)
+    edge: float | None = None
+    projection_labels: tuple = ()
+    semicore: str | None = None
+    #: ``projections = "auto"``: the Wannier90 projection line of each function's
+    #: angular part, for :meth:`write_w90`.
+    projection_lines: tuple = field(default=(), repr=False)
 
     @property
     def omega_total(self) -> float:
@@ -150,13 +175,19 @@ def run_wannier(
     pseudos,
     density,
     *,
-    num_wann: int,
-    projections,
+    num_wann: int | None = None,
+    projections="auto",
     divisions=None,
     num_bands: int | None = None,
     spin: int | None = None,
     dis_win=None,
     dis_froz=None,
+    exclude_bands=None,
+    proj_min: float = 0.01,
+    proj_max: float = 0.95,
+    froz_above_edge: float | None = 2.0,
+    semicore="auto",
+    fermi_energy: float | None = None,
     use_ws_distance: bool = True,
     engine_options: dict | None = None,
     becsum: tuple = (),
@@ -171,18 +202,37 @@ def run_wannier(
     """Maximally localized Wannier functions of ``num_bands`` bands.
 
     Args:
-        num_wann: the number of Wannier functions.
-        projections: Wannier90 projection lines, as a list of strings
-            (``"Si:sp3"``, ``"f=0,0,0.5:s"``, ``"C:l=1,mr=1:z=0,0,1"``); the
-            first ``num_wann`` orbitals they define are the trial orbitals.
+        num_wann: the number of Wannier functions. With ``projections="auto"``
+            it is the number of pseudo-atomic orbitals left after the semicore
+            cut, and another value is refused.
+        projections: ``"auto"`` (projectability disentanglement on the
+            pseudo-atomic orbitals, :mod:`defuqumat.wannier.pao`), or Wannier90
+            projection lines, as a list of strings (``"Si:sp3"``,
+            ``"f=0,0,0.5:s"``, ``"C:l=1,mr=1:z=0,0,1"``); the first
+            ``num_wann`` orbitals they define are the trial orbitals.
         divisions: the uniform Gamma-centred mesh ``(n1, n2, n3)``; defaults to
             the grid the k-points came from.
-        num_bands: the lowest bands taken in; defaults to ``num_wann``, which
-            needs no disentanglement.
+        num_bands: the bands taken in after ``exclude_bands``, Wannier90's
+            meaning; defaults to ``num_wann`` for given projections (no
+            disentanglement) and, for ``"auto"``, to twice the number of
+            pseudo-atomic orbitals less the cut semicore bands.
         spin: at ``nspin = 2``, the channel, 0 or 1.
         dis_win, dis_froz: ``(min, max)`` of the outer and the frozen window in
             eV, either end ``None`` for open; Wannier90's ``dis_win_min/max``
-            and ``dis_froz_min/max``.
+            and ``dis_froz_min/max``. Not with ``"auto"``.
+        exclude_bands: Wannier90's ``exclude_bands``, 1-based indices of the
+            solved bands left out of everything. With ``"auto"`` it is set by
+            the semicore cut and cannot be given.
+        proj_min, proj_max: ``"auto"``: a multiplet whose mean projectability
+            is below ``proj_min`` is dropped, at or above ``proj_max`` frozen.
+        froz_above_edge: ``"auto"``: every multiplet up to this many eV above
+            the edge (``fermi_energy`` for a metal, the conduction band minimum
+            of an insulator) is frozen too; ``None`` for projectability alone.
+        semicore: ``"auto"`` cuts the semicore shells whose bands lie below the
+            valence with a gap, ``True`` cuts them whenever their bands can be
+            named, ``False`` keeps them.
+        fermi_energy: the Fermi level in Ry of a smeared ground state, which
+            makes the run a metal for the edge; ``None`` for an insulator.
         use_ws_distance: Wannier90's ``use_ws_distance`` (its default) for the
             interpolation.
         engine_options: any other field of
@@ -193,17 +243,23 @@ def run_wannier(
             rebuilt from the density.
         conv_thr: the fixed-density solve's threshold.
     """
+    from defuqumat.solvers.davidson import resolve_degeneracy_tol
     from defuqumat.wannier.engine import EngineOptions, absolute_u_opt, kmesh_get, run_engine
     from defuqumat.wannier.interpolation import wannier_hamiltonian, ws_distance_shifts
     from defuqumat.wannier.matrices import overlap_matrices, projection_matrices
     from defuqumat.wannier.projections import apply_projection_selection, parse_projections
-    from defuqumat.workflows.topology import _source
+    from defuqumat.workflows.topology import _occupied_bands, _source
 
     if getattr(system, "spiral", False) or system.npol == 2:
         raise NotImplementedError(
             "Wannier functions of a spinor calculation are not implemented: the "
             "projections onto spinor trial orbitals were not checked against "
             "pw2wannier90.x")
+    if getattr(system.kpoints, "gamma_only", False):
+        raise NotImplementedError(
+            "Wannier functions of a K_POINTS gamma run are not implemented: the "
+            "engine's gamma-point branch (dis_extract_gamma, overlap_project_gamma) "
+            "is not ported; run with a k-point grid")
     if system.nspin == 2 and spin not in (0, 1):
         raise ValueError("at nspin = 2 the channel is wannierised alone: pass spin = 0 or 1")
     if system.nspin != 2 and spin is not None:
@@ -213,9 +269,16 @@ def run_wannier(
     if divisions is None:
         raise ValueError("Wannier functions need a uniform mesh: pass divisions=(n1, n2, n3)")
     divisions = tuple(int(n) for n in divisions)
-    num_bands = int(num_wann if num_bands is None else num_bands)
-    if num_bands < num_wann:
-        raise ValueError(f"num_bands = {num_bands} is fewer than num_wann = {num_wann}")
+    auto = isinstance(projections, str)
+    if auto and projections != "auto":
+        raise ValueError(f"projections must be 'auto' or a list of Wannier90 lines, not "
+                         f"{projections!r}")
+    if auto and (dis_win is not None or dis_froz is not None):
+        raise ValueError("projections='auto' chooses the outer and frozen sets itself; "
+                         "dis_win and dis_froz are for given projections")
+    if auto and exclude_bands is not None:
+        raise ValueError("projections='auto' sets exclude_bands by the semicore cut; "
+                         "give the projections to exclude bands by hand")
 
     points = uniform_mesh(divisions)
     at = np.asarray(system.cell.at, dtype=float)
@@ -223,24 +286,105 @@ def run_wannier(
     volume = float(system.cell.volume)
     crystal = np.asarray(system.structure.positions_crystal(system.cell), dtype=float)
     symbols = list(system.structure.symbols)
-    parsed = parse_projections(list(projections), symbols, crystal.T, bg)
-    trial = apply_projection_selection(parsed, num_wann, None)
+
+    if auto:
+        from defuqumat.wannier import pao as paomod
+
+        paos = paomod.pao_projections(pseudos, system.structure, crystal)
+        candidates = [i for i, p in enumerate(paos)
+                      if p.orbital in paomod.semicore_candidates(pseudos[p.species])]
+        n_full = len(paos)
+        nsolve = (2 * n_full if num_bands is None
+                  else int(num_bands) + (len(candidates) if semicore is not False else 0))
+        excluded = ()
+    else:
+        if num_wann is None:
+            raise ValueError("num_wann is needed with given projections")
+        parsed = parse_projections(list(projections), symbols, crystal.T, bg)
+        trial = apply_projection_selection(parsed, num_wann, None)
+        num_bands = int(num_wann if num_bands is None else num_bands)
+        if num_bands < num_wann:
+            raise ValueError(f"num_bands = {num_bands} is fewer than num_wann = {num_wann}")
+        excluded = tuple(sorted({int(b) for b in (exclude_bands or ())}))
+        nsolve = num_bands + len(excluded)
+        if excluded and (excluded[0] < 1 or excluded[-1] > nsolve):
+            raise ValueError(f"exclude_bands must lie in 1..{nsolve} (num_bands plus the "
+                             "excluded ones)")
 
     # The engine's reciprocal lattice in 1/A: its tolerances are Wannier90's.
     kmesh = kmesh_get(points.T, bg / BOHR_TO_ANGSTROM)
 
-    source = _source(system, pseudos, density, num_bands, num_bands + 4, conv_thr, k_batch,
+    source = _source(system, pseudos, density, nsolve, nsolve + 4, conv_thr, k_batch,
                      becsum=becsum, ns=ns, field=field, field_scale=field_scale,
                      calculation=calculation, spin=spin, tau=tau)
     # The gap test guards a topological invariant; a disentangled set is
     # entangled with the bands above it by construction.
     source = dataclasses.replace(source, gap_tol=0.0)
     states = source.states(points, keep_projectors=True)
-    energies = np.asarray(states.energies, dtype=float)[:, :num_bands]  # (nk, nb) Ry
+    all_energies = np.asarray(states.energies, dtype=float)  # (nk, nsolve + 4) Ry
+    k_batch_m = None if k_batch == "default" else k_batch
 
-    mmn = overlap_matrices(states, kmesh, num_bands, k_batch=None if k_batch == "default" else k_batch)
-    amn = projection_matrices(states, trial, num_bands, volume)
-    del states
+    extra = {}
+    outer = frozen = None
+    if auto:
+        tol_ev = resolve_degeneracy_tol(PAO_DEGENERACY_TOL, states.ethr) * RY_TO_EV
+        energies_ev = all_energies[:, :nsolve] * RY_TO_EV
+        amn_raw, overlap = paomod.pao_matrices(states, paos, pseudos, nsolve, volume)
+        mmn_all = overlap_matrices(states, kmesh, nsolve, k_batch=k_batch_m)
+        del states
+        ortho_all, _ = paomod.orthonormal_projections(amn_raw, overlap)
+        n_cut, semicore_note = paomod.semicore_cut(energies_ev, ortho_all, candidates, tol_ev,
+                                                   mode=semicore)
+        cut = set(candidates) if n_cut else set()
+        keep_orbitals = [i for i in range(n_full) if i not in cut]
+        n_kept = len(keep_orbitals)
+        if num_wann is None:
+            num_wann = n_kept
+        elif int(num_wann) != n_kept:
+            raise ValueError(f"projections='auto' makes {n_kept} functions, one per "
+                             f"pseudo-atomic orbital kept; num_wann = {num_wann} was asked")
+        num_wann = int(num_wann)
+        num_bands = (nsolve - n_cut) if num_bands is None else int(num_bands)
+        if n_cut + num_bands > nsolve:
+            raise ValueError(f"num_bands = {num_bands} with {n_cut} excluded needs more than "
+                             f"the {nsolve} bands solved")
+        bands = np.arange(n_cut, n_cut + num_bands)
+        excluded = tuple(range(1, n_cut + 1))
+        amn_ortho, p_all = paomod.orthonormal_projections(amn_raw, overlap, keep_orbitals)
+        amn = amn_ortho[bands]
+        projectability = p_all[:, bands]
+        energies = all_energies[:, bands]
+        if fermi_energy is not None:
+            edge = float(fermi_energy)
+        else:
+            nocc = _occupied_bands(system, pseudos, density, spin)
+            if nocc >= all_energies.shape[1]:
+                raise ValueError("the conduction band minimum needs more bands than were solved")
+            edge = float(all_energies[:, nocc].min())
+        froz_max = None if froz_above_edge is None else edge * RY_TO_EV + float(froz_above_edge)
+        averaged = paomod.block_average(projectability, energies * RY_TO_EV, tol_ev)
+        top = n_cut + num_bands
+        above = all_energies[:, top] * RY_TO_EV if top < all_energies.shape[1] else None
+        outer, frozen = paomod.select_states(
+            energies * RY_TO_EV, averaged, num_wann=num_wann, proj_min=proj_min,
+            proj_max=proj_max, froz_max=froz_max, tol=tol_ev, energy_above=above,
+            kpoints=points)
+        mmn = mmn_all[np.ix_(bands, bands)]
+        trial = [paos[i] for i in keep_orbitals]
+        labels = tuple(f"{symbols[p.atom]}{p.atom + 1} {p.name}" for p in trial)
+        extra = dict(projectability=averaged, outer=outer.T.copy(), frozen=frozen.T.copy(),
+                     edge=edge, projection_labels=labels, semicore=semicore_note,
+                     projection_lines=tuple(p.w90_line() for p in trial))
+    else:
+        keep = np.array([b for b in range(nsolve) if b + 1 not in set(excluded)])
+        energies = all_energies[:, keep]
+        if excluded:
+            mmn = overlap_matrices(states, kmesh, nsolve, k_batch=k_batch_m)[np.ix_(keep, keep)]
+            amn = projection_matrices(states, trial, nsolve, volume)[keep]
+        else:
+            mmn = overlap_matrices(states, kmesh, num_bands, k_batch=k_batch_m)
+            amn = projection_matrices(states, trial, num_bands, volume)
+        del states
 
     window = dict(engine_options or {})
     if dis_win is not None:
@@ -251,7 +395,7 @@ def run_wannier(
     site_cart = np.array([p.site_frac for p in trial]) @ at * BOHR_TO_ANGSTROM
     result = run_engine(mmn, amn, energies.T * RY_TO_EV, kmesh, num_wann, options,
                         kpt_frac=points.T, real_lattice=at * BOHR_TO_ANGSTROM,
-                        mp_grid=divisions, site_cart=site_cart)
+                        mp_grid=divisions, site_cart=site_cart, outer=outer, frozen=frozen)
 
     v = np.einsum("bwk,wnk->kbn", absolute_u_opt(result), result.u_matrix)  # (nk, nb, nw)
     irvec, ndegen, hr = wannier_hamiltonian(v, energies, points, divisions, at)
@@ -267,4 +411,4 @@ def run_wannier(
         lattice=at, disentangled=result.disentangled,
         converged=result.converged and result.dis_converged, iterations=result.iterations,
         spin=spin, mmn=mmn, amn=amn, nnlist=kmesh.nnlist, nncell=kmesh.nncell,
-        ws_shifts=shifts)
+        ws_shifts=shifts, excluded_bands=excluded, solved_bands=nsolve, **extra)

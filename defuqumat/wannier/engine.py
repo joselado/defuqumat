@@ -31,7 +31,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from defuqumat.wannier.disentangle import dis_main
+from defuqumat.wannier.disentangle import dis_main, windows_from_masks
 from defuqumat.wannier.kmesh import KmeshResult, kmesh_get
 from defuqumat.wannier.overlap import overlap_project
 from defuqumat.wannier.wannierise import SpreadTerms, wann_main
@@ -85,7 +85,8 @@ class EngineResult:
 def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh: KmeshResult,
                num_wann: int, options: EngineOptions = EngineOptions(), *,
                kpt_frac: np.ndarray | None = None, real_lattice: np.ndarray | None = None,
-               mp_grid=None, site_cart: np.ndarray | None = None) -> EngineResult:
+               mp_grid=None, site_cart: np.ndarray | None = None,
+               outer: np.ndarray | None = None, frozen: np.ndarray | None = None) -> EngineResult:
     """Disentangle (when ``num_bands > num_wann``) and minimise the spread.
 
     ``mmn`` is ``(num_bands, num_bands, nntot, num_kpts)``, ``amn``
@@ -94,24 +95,33 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
     (``(num_wann, 3)``) is needed for ``guiding_centres``; ``kpt_frac``
     (``(3, num_kpts)``), ``real_lattice`` (rows) and ``mp_grid`` for
     ``precond``.
+
+    ``outer`` and ``frozen``, ``(num_bands, num_kpts)`` bool, give the outer and
+    the frozen set band by band in place of the energy windows (projectability
+    disentanglement); the window fields of ``options`` are then not read.
     """
     o = options
+    if (outer is None) != (frozen is None):
+        raise ValueError("outer and frozen are given together or not at all")
     num_bands, num_kpts = eigenvalues.shape
     disentangled = num_bands > num_wann
     dis_converged = True
     if disentangled:
         win_min = float(eigenvalues.min()) if o.dis_win_min is None else o.dis_win_min
         win_max = float(eigenvalues.max()) if o.dis_win_max is None else o.dis_win_max
-        frozen = o.dis_froz_max is not None
         froz_min = win_min if o.dis_froz_min is None else o.dis_froz_min
+        windows = None if outer is None else windows_from_masks(eigenvalues, num_wann, outer, frozen)
         u_opt, u, lwindow, m_wann, dis_converged = dis_main(
             amn, mmn, eigenvalues, kmesh.nnlist, kmesh.wb, num_wann,
-            win_min, win_max, frozen, froz_min, 0.0 if o.dis_froz_max is None else o.dis_froz_max,
-            o.dis_num_iter, o.dis_mix_ratio, o.dis_conv_tol, o.dis_conv_window)
+            win_min, win_max, o.dis_froz_max is not None, froz_min,
+            0.0 if o.dis_froz_max is None else o.dis_froz_max,
+            o.dis_num_iter, o.dis_mix_ratio, o.dis_conv_tol, o.dis_conv_window, windows=windows)
         if not dis_converged:
             warnings.warn(f"the disentanglement did not converge in dis_num_iter = {o.dis_num_iter} "
                           "steps", stacklevel=2)
     else:
+        if outer is not None and not np.all(outer):
+            raise ValueError("an outer set smaller than num_bands needs num_bands > num_wann")
         u, m_wann = overlap_project(amn, mmn, kmesh.nnlist)
         u_opt = np.tile(np.eye(num_wann, dtype=complex)[:, :, None], (1, 1, num_kpts))
         lwindow = np.ones((num_bands, num_kpts), dtype=bool)

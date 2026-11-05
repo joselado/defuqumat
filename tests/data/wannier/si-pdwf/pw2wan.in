@@ -1,0 +1,10 @@
+&inputpp
+ outdir='./'
+ prefix='w'
+ seedname='w'
+ write_mmn=.true.
+ write_amn=.true.
+ write_unk=.false.
+ atom_proj=.true.
+ atom_proj_ortho=.true.
+/

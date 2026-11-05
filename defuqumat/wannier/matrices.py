@@ -32,7 +32,7 @@ import numpy as np
 from defuqumat.topology.states import _augmentation_term, _cached_augmentation, _project
 from defuqumat.wannier.trial import guiding_functions, radial_transform
 
-__all__ = ["overlap_matrices", "projection_matrices"]
+__all__ = ["overlap_matrices", "projection_matrices", "guiding_on_mesh"]
 
 
 def overlap_matrices(states, kmesh, num_bands: int, k_batch=None) -> np.ndarray:
@@ -54,6 +54,44 @@ def overlap_matrices(states, kmesh, num_bands: int, k_batch=None) -> np.ndarray:
     return mmn
 
 
+def guiding_on_mesh(states, projections, volume: float, extra_tables=None):
+    """``(k, g)`` for every k-point: the guiding functions on its plane waves.
+
+    ``g`` is ``(nproj, npol * npwx)`` as :func:`projection_matrices` contracts
+    it. The radial transforms depend on ``|k + G|`` alone, which repeats across
+    the mesh: one table over the distinct values (rounded to 1e-12 1/bohr) for
+    the whole mesh, rather than one per k-point. ``extra_tables(q)`` returns
+    the tables of any projection whose ``radial_key`` is not a hydrogenic
+    ``(zona, r)`` pair (the pseudo-atomic orbitals of
+    :mod:`defuqumat.wannier.pao`), on the same distinct ``q``.
+    """
+    npol = states.npol
+    npwx = states.npwx
+    nk = states.nk
+    kgs = [states.kcart[k] + states.miller[k] @ states.bg for k in range(nk)]
+    q_all = np.concatenate([np.linalg.norm(kg, axis=1) for kg in kgs])
+    q_unique, inverse = np.unique(np.round(q_all, 12), return_inverse=True)
+    keys = {(float(p.zona), int(p.radial)) for p in projections
+            if getattr(p, "radial_key", None) is None}
+    tables = {key: radial_transform(q_unique, key[0], key[1], volume) for key in keys}
+    if extra_tables is not None:
+        tables.update(extra_tables(q_unique))
+    offsets = np.cumsum([0] + [len(kg) for kg in kgs])
+    for k in range(nk):
+        kg = kgs[k]
+        index = inverse[offsets[k]:offsets[k + 1]]
+        radial = {key: table[:, index] for key, table in tables.items()}
+        g = guiding_functions(projections, kg, states.at, volume, valid=states.valid[k],
+                              radial=radial)
+        if npol == 2:
+            full = np.zeros((len(projections), 2 * npwx), dtype=complex)
+            for n, p in enumerate(projections):
+                component = 0 if p.spin == 1 else 1
+                full[n, component * npwx:(component + 1) * npwx] = g[n]
+            g = full
+        yield k, g
+
+
 def projection_matrices(states, projections, num_bands: int, volume: float) -> np.ndarray:
     """``(num_bands, nproj, nk)``: ``<psi_mk|S|g_n>``.
 
@@ -61,7 +99,6 @@ def projection_matrices(states, projections, num_bands: int, volume: float) -> n
     ``becp``, i.e. on an ultrasoft or PAW dataset.
     """
     npol = states.npol
-    npwx = states.npwx
     nk = states.nk
     for p in projections:
         if npol == 1 and p.spin is not None:
@@ -79,27 +116,7 @@ def projection_matrices(states, projections, num_bands: int, volume: float) -> n
             raise ValueError("ultrasoft or PAW states need their projectors for S|g>")
         factors = _cached_augmentation(states._owner, np.zeros(3))
     amn = np.zeros((num_bands, len(projections), nk), dtype=complex)
-    # The radial transforms depend on |k + G| alone, which repeats across the
-    # mesh: one table over the distinct values (rounded to 1e-12 1/bohr) for
-    # the whole mesh, rather than one per k-point.
-    kgs = [states.kcart[k] + states.miller[k] @ states.bg for k in range(nk)]
-    q_all = np.concatenate([np.linalg.norm(kg, axis=1) for kg in kgs])
-    q_unique, inverse = np.unique(np.round(q_all, 12), return_inverse=True)
-    keys = {(float(p.zona), int(p.radial)) for p in projections}
-    tables = {key: radial_transform(q_unique, key[0], key[1], volume) for key in keys}
-    offsets = np.cumsum([0] + [len(kg) for kg in kgs])
-    for k in range(nk):
-        kg = kgs[k]
-        index = inverse[offsets[k]:offsets[k + 1]]
-        radial = {key: table[:, index] for key, table in tables.items()}
-        g = guiding_functions(projections, kg, states.at, volume, valid=states.valid[k],
-                              radial=radial)
-        if npol == 2:
-            full = np.zeros((len(projections), 2 * npwx), dtype=complex)
-            for n, p in enumerate(projections):
-                component = 0 if p.spin == 1 else 1
-                full[n, component * npwx:(component + 1) * npwx] = g[n]
-            g = full
+    for k, g in guiding_on_mesh(states, projections, volume):
         psi = np.asarray(states.coefficients[k])[:num_bands]
         a = psi.conj() @ g.T
         if factors is not None:
