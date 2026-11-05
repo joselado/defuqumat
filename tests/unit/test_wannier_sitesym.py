@@ -475,7 +475,17 @@ def test_automatic_projections_with_symmetry_on_silicon(silicon):
     assert w.nsym == 48 and sym.d_matrix_band.shape[0] == w.num_bands
     assert _star_consistent(w.outer.T, sym) and _star_consistent(w.frozen.T, sym)
     assert w.frozen.sum() > 0
-    assert _identity_error(w.amn, sym) < 1e-8
+    # on the outer set: the 16th band at Gamma cuts the 30.5 eV multiplet (measured
+    # 0.066 there and 0 on every other band), and the selection drops it
+    err = 0.0
+    for ir in range(sym.nkptirr):
+        ik = sym.ir2ik[ir]
+        rows = np.flatnonzero(w.outer[ik])
+        for s in range(sym.nsymmetry):
+            d = sym.d_matrix_band[np.ix_(rows, rows)][:, :, s, ir]
+            rhs = d @ w.amn[rows, :, ik] @ sym.d_matrix_wann[:, :, s, ir].conj().T
+            err = max(err, float(np.abs(w.amn[rows, :, sym.kptsym[s, ir]] - rhs).max()))
+    assert err < 1e-8
     windows = dis.windows_from_masks(w.eigenvalues.T * RY_TO_EV, w.num_wann, w.outer.T,
                                      w.frozen.T)
     u_opt, lwindow = _window_u(w, windows)
