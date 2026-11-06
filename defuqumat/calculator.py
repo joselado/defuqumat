@@ -1003,6 +1003,23 @@ class Calculator:
         self.dos_states = states
         return dos
 
+    def get_kpm_dos(self, **options):
+        """The density of states by the kernel polynomial method, with no bands computed.
+
+        Chebyshev moments of ``H(k)`` from a few random vectors per k-point,
+        so the cost does not depend on how many bands the window holds.
+        Returns the :class:`~defuqumat.kpm.dos.KPMDensityOfStates`, which keeps
+        the moments, so another broadening or kernel is ``.reconstructed()``.
+        """
+        from defuqumat.kpm.dos import run_kpm_dos
+
+        result = self._ground_state("a KPM density of states")
+        options.setdefault("fermi_energy", result.fermi_energy)
+        return run_kpm_dos(self.system, self.pseudos, result.density,
+                           calculation=self.calculation,
+                           **self._call_options(run_kpm_dos, result, options,
+                                                exclude=SCF_ONLY_OPTIONS))
+
     def get_pdos(self, grid=None, **options):
         """The projected density of states, with Löwdin charges and spilling.
 
