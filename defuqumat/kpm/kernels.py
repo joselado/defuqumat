@@ -12,7 +12,9 @@ so a broadening asked for in Ry becomes a number of moments.
   towards the edges of the spectrum, which in plane waves is where the bands
   are, so the conversion is taken at a reference energy.
 * ``lorentz``: ``g_n = sinh(lambda (1 - n/N)) / sinh(lambda)``, whose peak is a
-  Lorentzian of half width ``lambda / N`` in ``x`` (same reference, eq. 79), the
+  Lorentzian of half width ``lambda / N`` in ``theta = arccos x`` to leading order
+  (same reference, eq. 79), which is ``1.19 lambda sqrt(1 - x^2) / N`` in ``x``
+  (:data:`LORENTZ_HWHM`), the
   kernel a Green's function wants. ``lambda = 3`` is pyqula's default.
 * ``fejer``: ``g_n = 1 - n/N``, the plain Cesaro mean. It carries no simple
   width, so it needs ``n_moments`` stated.
@@ -79,12 +81,25 @@ def _lorentz(n_moments: int) -> np.ndarray:
     return np.sinh(LORENTZ_LAMBDA * (1.0 - n / n_moments)) / math.sinh(LORENTZ_LAMBDA)
 
 
+#: Half width at half maximum of the Lorentz kernel's peak, in units of
+#: ``lambda sqrt(1 - x^2) / N``: the root of ``F(t) = F(0) / 2`` with
+#: ``F(t) = int_0^1 sinh(lambda (1 - u)) cos(lambda u t) du`` at ``lambda = 3``,
+#: the continuum form of ``sum_n g_n cos(n theta)``. The kernel is a Lorentzian
+#: of width ``lambda / N`` in ``theta`` only to leading order; the second
+#: exponential of the sinh widens it by 19 per cent, and ``dx = sin(theta)
+#: dtheta`` narrows it towards the edges. Until P169 this was ``lambda / N``
+#: flat, 37 per cent too wide at ``x = -0.85`` (measured).
+LORENTZ_HWHM = 1.1919166
+
+
 def _lorentz_width(n_moments, x):
-    return np.full(np.shape(x), LORENTZ_LAMBDA / n_moments)
+    x = np.asarray(x)
+    return LORENTZ_HWHM * (LORENTZ_LAMBDA / n_moments) * np.sqrt(np.maximum(1.0 - x**2, 0.0))
 
 
 def _lorentz_moments(width: float, x: float) -> int:
-    return int(math.ceil(LORENTZ_LAMBDA / width))
+    return int(math.ceil(LORENTZ_HWHM * LORENTZ_LAMBDA * math.sqrt(max(1.0 - x * x, 0.0))
+                         / width))
 
 
 def _fejer(n_moments: int) -> np.ndarray:

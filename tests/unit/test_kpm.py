@@ -235,11 +235,12 @@ def test_two_spin_channels_add_up_to_the_unpolarized_trace():
 
 
 @pytest.mark.parametrize("x0", [0.0, -0.85])
-def test_the_jackson_width_is_the_width_of_the_peak(x0):
+@pytest.mark.parametrize("kernel", ["jackson", "lorentz"])
+def test_the_kernel_width_is_the_width_of_the_peak(x0, kernel):
     """The half width ``width_at`` reports against the peak the series of one level gives."""
     from defuqumat.kpm.kernels import get_kernel as kernel_named
 
-    jackson = kernel_named("jackson")
+    jackson = kernel_named(kernel)
     n_moments = 800
     moments = np.cos(np.arange(n_moments) * np.arccos(x0))
     x = np.linspace(x0 - 0.05, x0 + 0.05, 20001)

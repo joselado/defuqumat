@@ -42,17 +42,31 @@ numbers, and the three are held at once.
 ``ndir`` left families, the right family and its image under one velocity; the
 random vectors are taken one at a time by a ``lax.scan``. The moments are summed
 over k inside the walk, so the result is ``ndir^2 N^2`` complex numbers however
-many k-points there are. At ``N = 1000`` and ``ndim = 3000`` that is 80 MB per
-k-point in flight with three directions, and 144 MB of moments.
+many k-points there are. At ``N = 1000`` and ``ndim = 3000`` in double
+precision that is 240 MB per k-point in flight with three directions (and a
+transient copy of one family when it is assembled), and 144 MB of moments.
 
 **The broadening of a transition is that of two deltas.** With the Lorentz
-kernel each delta is a Lorentzian of half width ``lambda half / N``, and the
-two convolve to a Lorentzian of twice that, ``eta = 2 lambda half / N``, which
-is the ``broadening`` of the band sum
-:func:`~defuqumat.response.conductivity.optical_conductivity` it is compared
-against. The Jackson kernel gives a Gaussian per delta, and the two give a
-Gaussian whose width is ``sqrt(2)`` times one; that is what
-:attr:`KPMConductivity.transition_broadening` reports.
+kernel each delta is close to a Lorentzian of half width
+``1.19 lambda half sqrt(1 - x^2) / N`` (:data:`~defuqumat.kpm.kernels.LORENTZ_HWHM`),
+and two Lorentzians convolve to one of the summed widths. The Jackson kernel
+gives a Gaussian per delta, and two give a Gaussian ``sqrt(2)`` times as wide.
+:attr:`KPMConductivity.transition_broadening` is that, at the Fermi level.
+
+**It is not the band sum at that broadening, and the difference is physics.**
+The Kubo-Greenwood integral occupies by energy, ``f(E) - f(E + w)``, after the
+deltas are broadened, while the band sum
+:func:`~defuqumat.response.conductivity.optical_conductivity` occupies by band
+and then broadens the transition. So the tails of a broadened state that cross
+the Fermi level are cut here and kept there, and the factor is ``1/w`` here and
+``1/e_mn`` there. The two agree as the broadening goes to zero (``PLAN.md``
+P169 measures by how much at finite broadening); what is checked to round-off
+is the pair sum over the eigenpairs in this form.
+
+**The memory statement assumes stored projectors.** On a calculation that
+rebuilds its projectors per k-point (the lazy set of ``memory`` mode), the
+primal of the moving parts is taken from ``at_kcart``, which stores them, so the
+velocity holds one ``nk npwx nkb`` table besides its tangents.
 """
 
 from __future__ import annotations
@@ -87,13 +101,16 @@ def _inexact(tree):
 
 
 def velocity_tangents(calculation, hamiltonians, directions, ns=None) -> tuple:
-    """For each direction, the tangent of the moving parts of each channel's ``H(k)``.
+    """``(moving, tangents)``: the moving parts of each channel's ``H(k)`` and their tangents.
 
-    ``directions`` is a sequence of cartesian 3-vectors (1/bohr). The result is
-    a tuple over directions of tuples over channels of the inexact leaves of
-    ``(kinetic, projectors, hubbard)``'s tangent, which :func:`apply_velocity`
-    takes. ``ns`` is the converged Hubbard occupation matrix, whose orbitals
-    move with ``k`` like the projectors do.
+    ``directions`` is a sequence of cartesian 3-vectors (1/bohr). ``moving`` is a
+    tuple over channels of ``(kinetic, projectors, hubbard)`` as
+    :meth:`~defuqumat.scf.driver.Calculation.at_kcart` builds them, with the
+    projector table stored even when the calculation keeps a lazy set (whose
+    pytree a tangent of the stored one does not fit); ``tangents`` is a tuple
+    over directions of tuples over channels of the inexact leaves of their
+    tangent. Both go to :func:`apply_velocity`. ``ns`` is the converged Hubbard
+    occupation matrix, whose orbitals move with ``k`` like the projectors do.
     """
     if any(getattr(h, "berry", None) is not None for h in hamiltonians):
         raise NotImplementedError(
@@ -113,34 +130,37 @@ def velocity_tangents(calculation, hamiltonians, directions, ns=None) -> tuple:
     real = hamiltonians[0].kinetic.dtype
     ns = None if ns is None else jnp.asarray(ns)
 
-    def moving(kc):
+    def parts(kc):
         moved = calculation.at_kcart(kc)
         hubbard = None if ns is None else moved.hubbard_terms(ns)[2]
-        out = []
-        for channel in range(len(hamiltonians)):
-            hub = None if hubbard is None else hubbard[channel]
-            out.append(_inexact((moved.kinetic.astype(real), moved.projectors, hub))[0])
-        return tuple(out)
+        return tuple((moved.kinetic.astype(real), moved.projectors,
+                      None if hubbard is None else hubbard[channel])
+                     for channel in range(len(hamiltonians)))
+
+    moving = parts(kcart)
+
+    def inexact_parts(kc):
+        return tuple(_inexact(m)[0] for m in parts(kc))
 
     tangents = []
     for direction in directions:
         step = jnp.broadcast_to(jnp.asarray(direction, dtype=kcart.dtype), kcart.shape)
-        _, tangent = jax.jvp(moving, (kcart,), (step,))
+        _, tangent = jax.jvp(inexact_parts, (kcart,), (step,))
         tangents.append(tangent)
-    return tuple(tangents)
+    return moving, tuple(tangents)
 
 
-def apply_velocity(hamiltonian, tangent, psi, ik):
+def apply_velocity(hamiltonian, moving, tangent, psi, ik):
     """``v psi = dH/dk psi`` at k-point ``ik``, for ``psi`` of shape ``(..., ndim)``.
 
-    The ``jvp`` of ``H psi`` in the moving parts alone (:func:`_moving`), with
-    ``tangent`` one channel's entry of :func:`velocity_tangents`.
+    The ``jvp`` of ``H psi`` in the moving parts alone, with ``moving`` and
+    ``tangent`` one channel's entries of :func:`velocity_tangents`.
     """
-    primal, static = _inexact(_moving(hamiltonian))
+    primal, static = _inexact(moving)
     psi = jnp.where(live_mask(hamiltonian)[ik], psi, 0.0)
 
-    def applied(parts):
-        kinetic, projectors, hubbard = eqx.combine(parts, static)
+    def applied(leaves):
+        kinetic, projectors, hubbard = eqx.combine(leaves, static)
         moved = eqx.tree_at(lambda h: (h.kinetic, h.projectors), hamiltonian,
                             (kinetic, projectors))
         if hubbard is not None:
@@ -166,12 +186,13 @@ def _family(apply, start, n_moments: int):
 
 
 @functools.partial(jax.jit, static_argnames=("n_moments", "n_random", "kind", "k_batch"))
-def conductivity_moments(hamiltonian, tangents, centre, half, key, weights,
+def conductivity_moments(hamiltonian, moving, tangents, centre, half, key, weights,
                          n_moments: int, n_random: int, kind: str = "stochastic",
                          k_batch=None):
     """The k-weighted two-index moments of one channel, and their guard.
 
-    Returns ``(mu, norms, dos)``: ``mu`` is ``(ndir, ndir, N, N)`` complex,
+    ``moving`` and ``tangents`` are this channel's entries of
+    :func:`velocity_tangents`. Returns ``(mu, norms, dos)``: ``mu`` is ``(ndir, ndir, N, N)`` complex,
     ``sum_k weights_k Tr[v_a T_n(H') v_b T_m(H')]`` estimated by the start
     vectors; ``norms`` is ``(N,)``, ``sum_k weights_k sum_r <T_n r|T_n r>``
     over ``sum_k weights_k sum_r <r|r>``, which a spectrum inside the interval
@@ -198,7 +219,7 @@ def conductivity_moments(hamiltonian, tangents, centre, half, key, weights,
             return jnp.where(live, out, 0.0)
 
         def velocity(a, v):
-            return apply_velocity(hamiltonian, tangents[a], v, ik)
+            return apply_velocity(hamiltonian, moving, tangents[a], v, ik)
 
         if kind == "stochastic":
             starts = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
@@ -307,6 +328,53 @@ def kubo_greenwood(moments, factors, centre: float, half: float, volume: float,
     return jnp.concatenate([dc[None], sigma], axis=0)
 
 
+def channel_levels(fermi_energy, nspin: int) -> np.ndarray:
+    """``(nspin,)``: one Fermi level per channel from a number or a pair."""
+    levels = np.asarray(fermi_energy, dtype=float).reshape(-1)
+    if levels.size not in (1, nspin):
+        raise ValueError(f"fermi_energy must be one level or one per spin channel ({nspin}), "
+                         f"got {levels.size}")
+    return np.broadcast_to(levels, (nspin,)).copy()
+
+
+def channel_sum(moments, factors, centre, half, volume, levels, temperature, emin, delta_e,
+                n_frequencies):
+    """:func:`kubo_greenwood` of ``(nspin, ...)`` moments, each channel at its own level."""
+    if np.all(levels == levels[0]):
+        return np.asarray(kubo_greenwood(np.asarray(moments).sum(axis=0), factors, centre, half,
+                                         volume, float(levels[0]), temperature, emin, delta_e,
+                                         n_frequencies))
+    return sum(np.asarray(kubo_greenwood(np.asarray(m), factors, centre, half, volume,
+                                         float(level), temperature, emin, delta_e,
+                                         n_frequencies))
+               for m, level in zip(moments, levels))
+
+
+def level_from_count(dos_moments, factors, centre: float, half: float, nelec: float,
+                     emin: float, emax: float, delta_e: float, tolerance: float = 0.01) -> float:
+    """The middle of the energies where the count is within ``tolerance nelec`` of ``nelec``.
+
+    For a metal that range is narrow and its middle is the Fermi level; for an
+    insulator it is the gap, as the kernel broadens its edges, and its middle
+    is mid-gap, which is where a step occupation of broadened bands belongs.
+    """
+    from defuqumat.kpm.profile import chebyshev_profile
+
+    energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)
+    _, count = chebyshev_profile(np.asarray(dos_moments), factors, centre, half, energies)
+    count = np.asarray(count).reshape(-1, energies.size).sum(axis=0)
+    near = np.abs(count - nelec) <= tolerance * nelec
+    if not near.any():
+        crossing = int(np.argmin(np.abs(count - nelec)))
+        return float(energies[crossing])
+    # the run of grid points around the first crossing
+    first = int(np.argmax(near))
+    last = first
+    while last + 1 < near.size and near[last + 1]:
+        last += 1
+    return float(0.5 * (energies[first] + energies[last]))
+
+
 # -- the result and the entry point -------------------------------------------
 
 @dataclass(frozen=True)
@@ -331,8 +399,9 @@ class KPMConductivity:
         broadening: half width at half maximum of one delta at the Fermi level, Ry.
         transition_broadening: of a transition, two deltas convolved: ``2``
             times the above for the Lorentz kernel, ``sqrt(2)`` times for a
-            Gaussian (Jackson).
-        fermi_energy, temperature: of the occupations, Ry.
+            Gaussian (Jackson), at the Fermi level.
+        fermi_energy, temperature: of the occupations, Ry; a pair, one per
+            channel, for a run with a constrained moment.
         volume: bohr^3.
         trace, n_random, seed: how the trace was taken.
     """
@@ -348,7 +417,7 @@ class KPMConductivity:
     n_moments: int
     broadening: float
     transition_broadening: float
-    fermi_energy: float
+    fermi_energy: float | tuple
     temperature: float
     volume: float
     delta_e: float
@@ -386,13 +455,13 @@ class KPMConductivity:
         kernel = self.kernel if kernel is None else kernel
         n = self.n_moments if n_moments is None else int(n_moments)
         factors = get_kernel(kernel).factors(n)
-        fermi = self.fermi_energy if fermi_energy is None else float(fermi_energy)
+        moments = np.asarray(self.moments)[..., :n, :n]
+        levels = channel_levels(self.fermi_energy if fermi_energy is None else fermi_energy,
+                                moments.shape[0])
         temp = self.temperature if temperature is None else float(temperature)
         nw = len(self.frequencies) if n_frequencies is None else int(n_frequencies)
-        moments = np.asarray(self.moments)[..., :n, :n].sum(axis=0)
-        return np.asarray(kubo_greenwood(moments, factors, self.centre, self.half_width,
-                                         self.volume, fermi, temp, self.emin, self.delta_e,
-                                         nw))
+        return channel_sum(moments, factors, self.centre, self.half_width, self.volume, levels,
+                           temp, self.emin, self.delta_e, nw)
 
 
 def _directions(directions):
@@ -412,7 +481,7 @@ def _directions(directions):
     return np.stack(out)
 
 
-def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float,
+def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None = None,
                          directions=("x", "y", "z"), window: float = 1.5,
                          broadening: float = 0.02, n_moments: int | None = None,
                          kernel: str = "jackson", trace: str = "stochastic",
@@ -426,8 +495,12 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float,
     Args:
         system, pseudos, density: the converged run.
         fermi_energy: Ry, where the occupation steps (smeared by
-            ``temperature``). For an insulator, put it in the gap: a level at
-            the top of the valence band cuts the broadened top states in half.
+            ``temperature``). If not given, the middle of the energies where
+            the count of the same start vectors is within one per cent of the
+            electron count (:func:`level_from_count`): the Fermi level of a
+            metal, mid-gap for an insulator. A level at the top of the valence
+            band would cut the broadened top states in half. A pair, one level
+            per spin channel, for a run with a constrained moment.
         directions: the cartesian axes of the tensor, names or 3-vectors; each
             costs one more recursion and multiplies the Gram product.
         window: the largest photon energy, Ry.
@@ -435,9 +508,8 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float,
             Ry; it sets the number of moments. A transition is broader
             (:attr:`KPMConductivity.transition_broadening`).
         n_moments: overrides ``broadening``.
-        kernel: ``"jackson"`` (default) or ``"lorentz"``, whose transitions
-            are Lorentzians of half width ``2 lambda half / N``, the form of the
-            band sum.
+        kernel: ``"jackson"`` (default, Gaussian deltas) or ``"lorentz"``
+            (close to Lorentzian ones, the line shape of the band sum).
         trace: ``"stochastic"`` or ``"exact"`` (one recursion per plane wave,
             for small cells).
         n_random, seed: the random vectors per k-point.
@@ -449,16 +521,15 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float,
         calculation: the SCF's own.
     """
     from defuqumat.kpm.bounds import EDGE_MARGIN, LANCZOS_STEPS
-    from defuqumat.kpm.dos import interval_and_moments, kpm_setup
+    from defuqumat.kpm.bounds import spectral_interval
+    from defuqumat.kpm.dos import kpm_setup
+    from defuqumat.kpm.kernels import moment_count
     from defuqumat.kpm.guard import SpectralIntervalError
     from defuqumat.kpm.traces import whole_grid_calculation
     from defuqumat.workflows.nscf import threaded_calculation
 
     if trace not in ("stochastic", "exact"):
         raise ValueError(f"trace must be 'stochastic' or 'exact', got {trace!r}")
-    if fermi_energy is None:
-        raise ValueError("the KPM conductivity needs fermi_energy (Ry); for an insulator "
-                         "a level inside the gap")
     vectors = _directions(directions)
     calculation, system, _, k_batch = threaded_calculation(calculation, system, None, k_batch)
     if calculation is None:
@@ -472,20 +543,35 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float,
         becsum=becsum, field=field, field_scale=field_scale)
     if getattr(calculation, "gamma_only", False):
         raise NotImplementedError("the KPM conductivity does not run on gamma_only storage")
-    (centre, half, emin, _, _, n_moments, width) = interval_and_moments(
-        hamiltonians, batch, seed, LANCZOS_STEPS if lanczos_steps is None else lanczos_steps,
-        EDGE_MARGIN if edge_margin is None else edge_margin, None, fermi_energy + window,
-        fermi_energy, fermi_energy, broadening, n_moments, kernel)
+    centre, half, bottom = spectral_interval(
+        hamiltonians, seed=seed, steps=LANCZOS_STEPS if lanczos_steps is None else lanczos_steps,
+        margin=EDGE_MARGIN if edge_margin is None else edge_margin, k_batch=batch)
+    emin = bottom - 10.0 * broadening
+    # the broadening holds at the Fermi level, or at the middle of the occupied
+    # window before the level is known
+    if fermi_energy is None and calculation.two_fermi_energies:
+        raise ValueError(
+            "a run with a constrained moment has one Fermi level per spin channel: pass "
+            "fermi_energy as the pair (scf_result.fermi_energy)")
+    reference = (float(np.mean(fermi_energy)) if fermi_energy is not None
+                 else 0.5 * (bottom + centre))
+    chosen = get_kernel(kernel)
+    x_reference = (reference - centre) / half
+    if n_moments is None:
+        n_moments = moment_count(chosen, broadening, half, x_reference)
+    width = (float(half * chosen.width_at(n_moments, x_reference))
+             if chosen.width_at is not None else math.nan)
     if delta_e is None:
         delta_e = width / 5.0 if math.isfinite(width) else 0.002
-    tangents = velocity_tangents(calculation, hamiltonians, vectors, ns=ns)
+    moving, tangents = velocity_tangents(calculation, hamiltonians, vectors, ns=ns)
     weights = jnp.asarray(calculation.system.kpoints.weights)
     key = jax.random.PRNGKey(seed)
     moments, dos = [], []
     for channel, hamiltonian in enumerate(hamiltonians):
         tangent = tuple(t[channel] for t in tangents)
         mu, norms, trace_moments = conductivity_moments(
-            hamiltonian, tangent, centre, half, jax.random.fold_in(key, channel), weights,
+            hamiltonian, moving[channel], tangent, centre, half,
+            jax.random.fold_in(key, channel), weights,
             n_moments, n_random, kind=trace, k_batch=batch)
         norms = np.asarray(norms)
         if not np.all(norms <= 1.0 + 1e-6):
@@ -496,17 +582,23 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float,
         moments.append(np.asarray(mu))
         dos.append(np.asarray(trace_moments))
     moments = np.stack(moments)
-    factors = get_kernel(kernel).factors(n_moments)
+    factors = chosen.factors(n_moments)
+    if fermi_energy is None:
+        fermi_energy = level_from_count(np.stack(dos), factors, centre, half,
+                                        float(calculation.nelec), emin, centre + half,
+                                        delta_e)
+    levels = channel_levels(fermi_energy, len(hamiltonians))
     n_frequencies = int(round(window / delta_e)) + 1
-    sigma = np.asarray(kubo_greenwood(moments.sum(axis=0), factors, centre, half,
-                                      float(calculation.system.cell.volume), fermi_energy,
-                                      temperature, emin, delta_e, n_frequencies))
+    sigma = channel_sum(moments, factors, centre, half, float(calculation.system.cell.volume),
+                        levels, temperature, emin, delta_e, n_frequencies)
     factor = 2.0 if kernel.lower() == "lorentz" else math.sqrt(2.0)
     return KPMConductivity(
         frequencies=delta_e * np.arange(n_frequencies), sigma=sigma, directions=vectors,
         moments=moments, dos_moments=np.stack(dos), centre=centre, half_width=half,
         kernel=kernel, n_moments=n_moments, broadening=width,
-        transition_broadening=factor * width, fermi_energy=float(fermi_energy),
+        transition_broadening=factor * width,
+        fermi_energy=float(levels[0]) if levels.size == 1 or np.all(levels == levels[0])
+        else tuple(float(level) for level in levels),
         temperature=float(temperature), volume=float(calculation.system.cell.volume),
         delta_e=float(delta_e), emin=float(emin), trace=trace,
         n_random=n_random if trace == "stochastic" else 0, seed=seed)
