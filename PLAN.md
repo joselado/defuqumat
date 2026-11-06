@@ -28080,6 +28080,17 @@ much noisier than the DOS**: a 5 per cent spectrum on si64 needs of the order of
 the band route, so at 64 atoms the bands win. The card: si64 5.84 s at R = 1 and 22.6 s at R = 4, warm;
 `sigma` equal to the CPU's to 3.1e-11.
 
+**The two-index control variate** (`control_variate=True`, `variate_block`): with the Ritz pairs
+`(theta_j, y_j)` of P170's filtered orbitals (cut at `E_F + max(1, window + 0.4)` Ry), the model sample
+`n_live <r|P v_a P T_n(H_P) P v_b P T_m(H_P) P|r>` is subtracted and its exact mean
+`sum_lp V^a_pl T_n(theta_l) V^b_lp T_m(theta_p)` added, per k-point, unbiased for any span (tested:
+the mean of 8 seeds within its standard error of the exact trace). The gain is modest: Si2 2x2x2 at
+R = 2, 0.064 to 0.038 of the peak; si16 0.376 to 0.282 (R = 1) and 0.326 to 0.251 (R = 4); si64 0.277 to
+0.156 and 0.185 to 0.108, for about 15 per cent more time per vector. The DOS's variate gained 50 to
+100x because the valence band lies inside the span; a transition's conduction leg, up to 0.5 Ry above
+the gap here, does so only in part (four orbitals per Si atom hold as many conduction as valence
+states, and the window needs more), so the noise of pairs with one leg outside remains.
+
 **Refused**: ultrasoft and PAW, `gamma_only`, the spiral (as P167); DFT+U (the Hubbard orbitals'
 tangent is built but nothing has compared it with the band sum's); `lelfield`'s `H_E`. Not in: the
 reactive part (a Kramers-Kronig of this, or a Green's-function kernel, the Kubo-Bastin form of
@@ -28087,6 +28098,5 @@ reactive part (a Kramers-Kronig of this, or a Green's-function kernel, the Kubo-
 conductivity), the plan's blocking over `n` (the families are held whole, `(ndir + 2) N ndim` per
 k-point in flight), and an error bar (the samples are summed in the scan).
 
-**What is outstanding.** The noise: the control variate of P170 carried to the two-index trace
-(Ritz pairs of the filtered orbitals, `P v P` and `T_n(theta)` in that space, whose trace is known);
-the Kubo-Bastin `sigma_xy` checked against the anomalous Hall conductivity of iron; DFT+U.
+**What is outstanding.** The noise beyond the variate's 1.3 to 1.75x; the Kubo-Bastin `sigma_xy`
+checked against the anomalous Hall conductivity of iron; DFT+U.

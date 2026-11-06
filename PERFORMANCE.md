@@ -11579,10 +11579,18 @@ seeds. The reference codes have no counterpart: neither QE nor Elk computes a co
 Chebyshev moments, and the band sum is this code's own `run_conductivity`. Load average 8 to 12 from
 other users.
 
-| cell | NSCF (bands) + band sum | KPM R = 1 | KPM R = 4 |
-|---|---|---|---|
-| si16 | 5.67 s (79) + 0.48 s | 7.91 s, 0.376 | 28.7 s, 0.326 |
-| si64 | 84.8 s (279) + 1.82 s | 30.7 s, 0.277 | 125 s, 0.185 |
+| cell | NSCF (bands) + band sum | plain R = 1 | plain R = 4 | variate R = 1 | variate R = 4 |
+|---|---|---|---|---|---|
+| si16 | 2.14 s (79) + 0.11 s | 2.98 s, 0.376 | 10.1 s, 0.326 | 3.44 s, 0.282 | 10.7 s, 0.251 |
+| si64 | 82.0 s (279) + 1.75 s | 30.7 s, 0.277 | 125 s, 0.185 | 27.4 s, 0.156 | 94.3 s, 0.108 |
+
+The si16 row was taken at a load average of about 5 (the first plain si16 run, at 8 to 12, read
+7.91 s and 28.7 s for the same errors, and 5.67 s for the NSCF); si64's plain row is from the heavier
+load, its variate row from the lighter, so the si64 times compare only roughly. The control variate
+(`control_variate=True`, the Ritz pairs of the filtered atomic orbitals, P169) costs about 15 per cent
+more per vector on si16 and lowers the error by 1.3x on si16 and 1.75x on si64, about three times fewer
+vectors for the same error on si64; much less than the 50 to 100x of the DOS, because each transition
+has a conduction leg the orbitals' span holds only in part.
 
 The plain stochastic two-index trace is noisy: on one k-point of si64 a 5 per cent error needs of the
 order of 30 random vectors, about 900 s, ten times the band route. The cost is linear in `R`, about

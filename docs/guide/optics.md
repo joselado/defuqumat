@@ -412,6 +412,9 @@ The keywords of `get_kpm_conductivity` are:
 - **`kernel`**: `"jackson"`, the default, gives Gaussian transitions. `"lorentz"` gives
   Lorentzian ones, the shape of the band sum.
 - **`n_random`, `seed`**: the random vectors per k-point.
+- **`control_variate=True`**: the code also uses the atomic orbitals, filtered to low
+  energy, as for the density of states. It removes the noise of the transitions between
+  states that these orbitals describe, and the result stays unbiased.
 - **`trace="exact"`**: one expansion per plane wave instead of random vectors, for small
   cells.
 - **`window`, `delta_e`**: the largest photon energy and the step, in Ry.
@@ -440,9 +443,12 @@ over every eigenstate of the Hamiltonian, the KPM result is the same to round-of
 
 How many random vectors do you need? More than for the density of states. On a silicon
 supercell of 64 atoms with one k-point, one random vector gives an error of 28 per cent
-over the spectrum, and 4 give 19 per cent. Then one vector takes 31 s, and the bands and
-the band sum take 87 s. So on this cell the bands are faster for an accurate spectrum,
-and the method pays for larger supercells. Notebook
+over the spectrum, and 4 give 19 per cent. With `control_variate=True` the errors are 16
+and 11 per cent. Here the gain is much smaller than for the density of states, because
+each transition goes to an empty state, and the atomic orbitals describe only part of the
+empty states. One vector takes about 30 s, and the bands and the band sum take 84 s. So on
+this cell the bands are faster for an accurate spectrum, and the method pays for larger
+supercells. Notebook
 [62](https://github.com/joselado/defuqumat/blob/master/notebooks/62_kpm_optical_conductivity.ipynb)
 computes the absorption of a silicon supercell with a vacancy.
 
