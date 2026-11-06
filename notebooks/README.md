@@ -33,6 +33,7 @@ instead, which means the physics is selected in the input file rather than at th
 | Density of states | `get_dos()` | [06](06_density_of_states.ipynb) |
 | Which atom and which orbital a band belongs to | `get_pdos()` | [16](16_projected_density_of_states.ipynb) |
 | Density of states with no band computed, for large cells and for the whole basis | `get_kpm_dos()` | [60](60_kpm_density_of_states.ipynb) |
+| The band structure of a supercell with a defect, unfolded to the primitive cell | `get_kpm_unfolded()` | [61](61_kpm_unfolding.ipynb) |
 | Eigenvalues on a denser grid at fixed density | `get_nscf()` | [06](06_density_of_states.ipynb) |
 | What a diffraction experiment measures: X-ray and magnetic structure factors | `get_structure_factors()` | [37](37_structure_factors.ipynb) |
 | A run started from an all-electron ground state, and how far a pseudopotential density is from one | `get_elk_seed()` | [42](42_all_electron_start.ipynb) |
@@ -203,6 +204,7 @@ want a number.
 | [`58_wannier_functions.ipynb`](58_wannier_functions.ipynb) | Eight $sp^3$ Wannier functions of silicon from twelve bands, spread 16.0532 Å$^2$ as `wannier90.x`, a lower and symmetric minimum at 14.4365 Å$^2$, the interpolated bands on 4x4x4 and 6x6x6 meshes, and the eight functions chosen without input from the projectability onto the atomic orbitals (15.84 Å$^2$) |
 | [`59_wannier_symmetry.ipynb`](59_wannier_symmetry.ipynb) | Wannier functions of silicon with the 48 operations of the diamond group imposed: the spreads with and without symmetry for two sets of trial orbitals, 15.7737 against the 15.7737 Å$^2$ of `wannier90.x` with `site_symmetry`, and the bands at the 48 images of a k-point equal to 5e-13 eV against 3e-7 eV without; then a frozen window to 6.4 eV and the automatic orbitals with symmetry, where $\Omega_I$ is unchanged and the turned set gives 14.43648 Å$^2$ both ways |
 | [`60_kpm_density_of_states.ipynb`](60_kpm_density_of_states.ipynb) | The density of states of silicon by the kernel polynomial method, with no band computed: 8.23 $\pm$ 0.25 states below the gap, the DOS against the one from 12 bands within its noise, and the DOS of the whole basis following free electrons up to the cutoff |
+| [`61_kpm_unfolding.ipynb`](61_kpm_unfolding.ipynb) | The spectral function of a perfect Si8 supercell and of one with a vacancy, unfolded to the fcc path L-G-X by the kernel polynomial method with no supercell band: the perfect cell gives back the bands of the two-atom cell with a weight of 4.000, 3.995 and 4.006 below the Fermi level, and the vacancy moves weight into flat localized states (1.79 at Gamma) |
 
 ## Conventions
 

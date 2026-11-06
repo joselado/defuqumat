@@ -16,7 +16,7 @@ def draw():
         ax.set_ylim(-13.0, 5.0)
         ax.set_xticks([0, 20, x[-1]], ["L", r"$\Gamma$", "X"])
         ax.set_title(title)
-    axes[0].set_ylabel(r"$E - E_F$ (eV)")
+    axes[0].set_ylabel(r"$E - E_{\rm VBM}$ of the two-atom cell (eV)")
     return fig
 
 

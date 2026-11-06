@@ -204,10 +204,9 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
-- **The kernel polynomial method beyond P167** (`plans/kpm.md`): the deterministic traces of P168
-  (PDOS on Lowdin orbitals, LDOS at a point and the STM map, supercell unfolding, the spin-resolved
-  trace, the Fermi level from the count) and the two-index Kubo-Greenwood conductivity of P169;
-  ultrasoft and PAW (`S^-1 H` with moments in the S-form), `gamma_only` and the spiral, refused by name.
+- **The kernel polynomial method beyond P167 and P168** (`plans/kpm.md`): the stochastic STM map at
+  fixed energies, and the two-index Kubo-Greenwood conductivity of P169; ultrasoft and PAW (`S^-1 H`
+  with moments in the S-form), `gamma_only` and the spiral, refused by name.
 - **Wannier functions beyond P162 to P166** (site symmetry is the default since P166, with a
   named fallback): spinor projections and spinor PDWF, `gamma_only`,
   SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the
@@ -27864,3 +27863,52 @@ Fermi level from the count; the two-index Kubo-Greenwood conductivity. Ultrasoft
 name. A tighter top edge (the 2% margin costs 2% of N on each side) and a timing against Davidson
 on a quiet machine are open; the DOS is differentiable through the moments but no derivative is
 claimed or tested.
+
+### P168 -- KPM traces with chosen start vectors: the projected and local DOS, unfolding, the spin-resolved trace and the Fermi level. ✅ DONE 2026-11-06 (`tests/unit/test_kpm_traces.py`, eight fast tests, with `test_kpm.py` 20 in all, on D22 CPU (51 s) and on the RTX A2000 (147 s); the gate `tools/test-fast.sh` was not run after P167's; no slow file; branch `kpm`, not merged, not pushed)
+
+**What is in.** `defuqumat/kpm/traces.py`: `run_kpm_pdos` (start vectors the Loewdin orbitals of
+`projwfc`, from `projwfc.projections.atomic_orbitals`, the orbital build of `atomic_projections`
+extracted unchanged), `run_kpm_ldos` (start vectors `exp(-i (k+G) . r0) / sqrt(Omega)` at points in
+crystal coordinates, the Miller index of each plane wave from its `fft_index` centred in
+`(-n/2, n/2]`; a spinor gets an up and a down vector per point, summed), `run_kpm_unfolded` (the
+supercell Hamiltonian at each primitive `k_p` itself, the trace over the plane waves whose
+supercell Miller indices `m` have `M^-1 m` integer, `A_super = M A_prim`, exact or with random
+phases on that subset). A per-orbital or per-point trace is not invariant under the group, so on a
+reduced k-set both run on the whole Monkhorst-Pack grid of the run (`whole_grid_calculation`); a
+reduced set without its grid is refused. `moments.cross_recursion` and `spin_moments`:
+`<sigma_i r|T_n(H')|r>` with no doubling, on the same random vectors as the plain trace, as
+`run_kpm_dos(spin_resolved=True)` and `KPMDensityOfStates.spin_dos`. `KPMDensityOfStates.fermi_level`
+bisects the count. `kpm_setup` and `interval_and_moments` are `run_kpm_dos`'s setup, shared.
+`Calculator.get_kpm_pdos`, `get_kpm_ldos(points)`, `get_kpm_unfolded(primitive_lattice, kpoints)`.
+
+**The numbers** (silicon at 12 Ry on 2x2x2 unless said; `review/kpm/p168_numbers.py`,
+`numbers.log`, `unfold_debug.log`, `p168_probe.log` on D22):
+
+| check | result |
+|---|---|
+| PDOS moments against `sum_n |<phi_a|psi_n>|^2 T_n(e_n')` over every eigenvector of the dense `matrix(ik)`, the 8 k of the whole grid, 40 moments | 2.0e-14 |
+| charge of each orbital below the gap against the Loewdin charges of `atomic_projections` on the SCF states | s 1.007958 (0.005 Ry), 1.007629 (0.0025) against 1.007586; p 0.984950 against 0.984951 at both |
+| the same at `conv_thr` 1e-13 | s +3.69e-4 and +4.04e-5: the difference is the kernel's tail across the 0.033 Ry gap of this mesh (the lowest conduction band has s weight), not the SCF |
+| `int^gap LDOS(r0)` against the SCF density at three grid points (atom, bond centre, `(1/2, 0, 0)`) | relative 3.4e-4, -1.6e-4, 1.6e-4 at 0.005 Ry; 2.9e-5, -1.5e-5, 1.6e-5 at 0.0025 |
+| unfolding, cubic Si8 at fcc X and (0.1, 0.2, 0.3): subset size against the Si2 sphere at the same k and cutoff | 190 and 186, equal |
+| the same: dense supercell matrix between the subset and the rest | below 1e-8 (test) |
+| the same: unfolded exact moments against the eigenvalues of the dense block | 7.4e-13 and 1.1e-12 of `mu_0` = 190, 186 |
+| spin trace under a uniform `b sigma_i`, `b = 0.5` Ry, against half the scalar exact traces at `c -+ b`, R = 64 | within 0.2 of the signal on each axis (noise about 0.11 of it), the other two components likewise; a sign error would read 2 and a wrong axis 1 |
+| Fermi level of fcc Al (4x4x4 shifted, 0.5 eV Gaussian) from the KPM count, R = 32, against the SCF's | within `3 count_error / D(E_F) + 0.01` Ry (test) |
+
+The guide's snippet (4x4x4, 0.005 Ry): first atom s 1.1001, p 2.8672 electrons; density 0.08891
+electrons/bohr^3 at the bond centre. **Unfolding a vacancy** (notebook 61 and the guide figure, Si8
+cubic and Si7, 2x2x2, 0.1 eV smearing, 40 k on L-G-X, R = 8 on the subset, 1156 to 1172 moments,
+43 s a cell): the exact weight below `E_F` at L, Gamma, X is 4.000, 3.995, 4.006 for the perfect
+cell (4 occupied bands per spin; the 0.005 is the tail across the gap) and 3.250, 1.786, 3.747 with
+the vacancy. The stochastic trace's integrated weight has a spread of about `2/sqrt(R)` (0.7 at
+R = 8), so the weights are read from an exact trace at the three points only. Two cells have no
+common zero of energy, so each is aligned at the bottom of its valence band at Gamma.
+
+**On the card**: the 20 KPM tests pass on the RTX A2000 (`review/kpm/gpu2.sh`, `gpu/gpu2.log`).
+
+**What is outstanding.** The stochastic STM map at fixed energies (random vectors on the real-space
+grid, one field per energy), for maps of many points; a timing of the PDOS against `pw.x` +
+`projwfc.x`; the unfolding of a spinor (the subset is built, not tested) and of `nspin = 2` (per
+channel, not tested); ultrasoft and PAW, `gamma_only` and the spiral, refused as in P167. P169 (the
+conductivity) is unstarted.

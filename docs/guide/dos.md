@@ -299,6 +299,110 @@ the cell.
     --8<-- "dos_kpm/plot.py"
     ```
 
+## Projected, local and unfolded density of states by KPM
+
+We now keep the same expansion, but we choose the start vectors instead of taking
+random ones. Then the trace has no statistical error, and only the broadening
+remains. Three choices answer three physical questions.
+
+**The projected DOS.** With an atomic orbital $|\phi_a\rangle$ as the start vector,
+
+$$
+D_a(E) = \sum_{\mathbf k} w_{\mathbf k}\,\langle\phi_a|\,\delta(E - H_{\mathbf k})\,|\phi_a\rangle
+= \sum_{n\mathbf k} w_{\mathbf k}\,|\langle\phi_a|\psi_{n\mathbf k}\rangle|^2\,\delta(E - \varepsilon_{n\mathbf k}),
+$$
+
+which is the projected DOS of `get_pdos`, with the same Löwdin orbitals. Here it
+has every state of the basis in it, the empty ones up to the cutoff too, and no
+band is computed. One orbital is not invariant under the symmetry of the crystal,
+so the code runs this on the whole k-mesh and not on the irreducible wedge.
+
+**The local DOS.** With the plane-wave form of $\delta(\mathbf r - \mathbf r_0)$ as
+the start vector, the trace is
+$\sum_{n\mathbf k} w_{\mathbf k}\,|\psi_{n\mathbf k}(\mathbf r_0)|^2\,\delta(E - \varepsilon_{n\mathbf k})$,
+the local DOS at $\mathbf r_0$. This is what STM measures at a tip position. Its
+integral up to the Fermi level is the charge density at $\mathbf r_0$.
+
+```python
+from defuqumat import Calculator
+
+calc = Calculator.from_keywords(
+    lattice="fcc", a=5.398, atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+    pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=163.3, kmesh=(4, 4, 4))
+gap = calc.get_scf().homo + 0.02
+pdos = calc.get_kpm_pdos(broadening=0.005)
+charges = pdos.charges_at(gap)[0]
+print(f"first atom: s {charges[0]:.4f}, p {charges[1:4].sum():.4f} electrons")
+ldos = calc.get_kpm_ldos([(0.125, 0.125, 0.125)], broadening=0.005)
+print(f"density at the bond centre: {ldos.density_at(gap)[0, 0]:.5f} electrons/bohr^3")
+```
+
+```
+first atom: s 1.1001, p 2.8672 electrons
+density at the bond centre: 0.08891 electrons/bohr^3
+```
+
+`pdos.charges_at(E)` gives the charge of each orbital below $E$, which at the
+Fermi level is its Löwdin charge, and `pdos.select(atom=..., l=...)` sums the
+channels as in `get_pdos`. `ldos.density_at(E)` gives the charge density below
+$E$ at each point. The points are in crystal coordinates. We compared both with
+the bands on a $2\times2\times2$ mesh, where the gap is only 0.033 Ry. At a
+broadening of 0.005 Ry the charges agree with the Löwdin charges of `get_pdos`, and
+the density with the SCF density, within $4\times10^{-4}$. The difference is the tail
+of the Jackson peak across the gap, and at 0.0025 Ry it falls to $4\times10^{-5}$.
+
+**The unfolded spectral function.** In a supercell, the plane waves
+$|\mathbf k + \mathbf G_p\rangle$, with $\mathbf G_p$ a reciprocal vector of the
+primitive cell, carry the crystal momentum $\mathbf k$ of the primitive cell. The
+trace over them,
+
+$$
+A(\mathbf k, E) = \sum_{\mathbf G_p}\langle\mathbf k + \mathbf G_p|\,\delta(E - H_{\mathbf k})\,|\mathbf k + \mathbf G_p\rangle,
+$$
+
+is the spectral function of the supercell unfolded to the primitive cell, which
+is what ARPES measures on a crystal with defects. We compute it with
+`calc.get_kpm_unfolded(primitive_lattice, kpoints)`, where `primitive_lattice` is
+the $3\times3$ matrix of primitive lattice vectors in bohr (rows) and `kpoints` are
+in crystal coordinates of the primitive cell. `trace="exact"` takes every such
+plane wave as a start vector, and `trace="stochastic"` takes `n_random` random
+vectors on them, which is cheaper for a long path.
+
+![The spectral function of a perfect Si8 cell and of one with a vacancy, unfolded to the fcc path.](img/dos_kpm_unfold.png#only-light)
+![The spectral function of a perfect Si8 cell and of one with a vacancy, unfolded to the fcc path.](img/dos_kpm_unfold-dark.png#only-dark)
+
+On the left is a perfect cubic cell of 8 silicon atoms, unfolded along L-Γ-X of
+the fcc cell with 8 random vectors, and the dashed lines are the bands of the
+two-atom cell. The weight sits on them, because in a perfect crystal these plane
+waves do not mix with the others. Below the Fermi level it integrates to 4.000,
+3.995 and 4.006 at L, Γ and X (exact trace), the four valence bands per spin. On
+the right one atom is removed. The lowest band survives, the upper valence bands
+lose much of their weight (the integral at Γ falls to 1.79), and flat features
+appear near $-2$ and $+1$ eV, which are the localized states of the vacancy. Two
+different cells have no common zero of energy, so each panel is shifted to put
+the bottom of its valence band at Γ on the dashed line, by $-0.86$ eV for the
+vacancy.
+
+**The spin-resolved DOS and the Fermi level.** For a noncollinear run,
+`get_kpm_dos(spin_resolved=True)` also gives
+$\sum_{\mathbf k} w_{\mathbf k}\,{\rm Tr}[\sigma_i\,\delta(E - H_{\mathbf k})]$ as
+`kpm.spin_dos`, the DOS of the spin along x, y and z, from the same random vectors.
+This is what spin-polarized STM and spin-resolved photoemission measure.
+`kpm.fermi_level()` gives the energy where the count reaches the number of
+electrons, with no band, so it is the Fermi level of a cell too large to
+diagonalize.
+
+??? example "Code of this figure (docs/figures/dos_kpm_unfold/)"
+
+    ```python title="compute.py"
+    --8<-- "dos_kpm_unfold/compute.py"
+    ```
+
+    ```python title="plot.py"
+    --8<-- "dos_kpm_unfold/plot.py"
+    ```
+
 !!! note "Limits"
     The projected density of states works with `K_POINTS gamma`. It agrees with
     an explicit $k = 0$ to 4e-12.
@@ -328,10 +432,16 @@ the cell.
     error for `K_POINTS gamma` (the half sphere of plane waves) and for a spin
     spiral. A wedge of k-points is fine, because the DOS is a scalar trace. If the
     interval does not hold the whole spectrum, a moment grows above one and the
-    code gives an error that says so, instead of a wrong DOS.
+    code gives an error that says so, instead of a wrong DOS. The same holds for
+    the projected, local and unfolded DOS by KPM. The local DOS is the smooth
+    pseudo-wavefunction at the point, with no augmentation, which is exact for a
+    norm-conserving pseudopotential outside the core radius. The unfolding needs
+    the cell to be an integer supercell of the primitive lattice you give, and it
+    gives an error otherwise. `spin_resolved=True` needs a noncollinear run.
 
 The notebooks for this page are
 [06, the density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/06_density_of_states.ipynb),
-[16, the projected density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/16_projected_density_of_states.ipynb)
+[16, the projected density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/16_projected_density_of_states.ipynb),
+[60, the density of states without bands](https://github.com/joselado/defuqumat/blob/master/notebooks/60_kpm_density_of_states.ipynb)
 and
-[60, the density of states without bands](https://github.com/joselado/defuqumat/blob/master/notebooks/60_kpm_density_of_states.ipynb).
+[61, unfolding a supercell with a vacancy](https://github.com/joselado/defuqumat/blob/master/notebooks/61_kpm_unfolding.ipynb).
