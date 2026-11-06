@@ -267,3 +267,136 @@ def run_kpm_ldos(system, pseudos, density, points, *,
                        points=points, moments=moments, centre=centre, half_width=half,
                        kernel=kernel, n_moments=n_moments, broadening=broadening,
                        nspin=nspin, fermi_energy=fermi_energy)
+
+
+@dataclass(frozen=True)
+class KPMUnfoldedSpectrum:
+    """``A(k_p, E)``: the spectral function of a supercell unfolded to primitive k-points.
+
+    ``spectral`` is ``(nk, nE)``, or ``(2, nk, nE)`` for ``nspin = 2``, in states
+    per Ry per spin channel at each primitive ``k_p`` (crystal coordinates of the
+    primitive reciprocal lattice, ``kpoints``). In a crystal with the primitive
+    period it is ``sum_n delta(E - e_n(k_p))`` broadened by the kernel; a defect
+    or disorder broadens and shifts its weight. ``moments`` is ``(nspin, nk, N)``
+    (the mean over the samples for a stochastic trace).
+    """
+
+    energies: np.ndarray
+    spectral: np.ndarray
+    kpoints: np.ndarray
+    moments: np.ndarray
+    centre: float
+    half_width: float
+    kernel: str
+    n_moments: int
+    broadening: float
+    nspin: int
+    trace: str
+    subset_size: np.ndarray
+    fermi_energy: float | None = None
+
+
+def supercell_matrix(supercell_at, primitive_at) -> np.ndarray:
+    """The integer ``M`` with ``A_super = M A_prim`` (rows are lattice vectors), or an error."""
+    m = np.asarray(supercell_at, dtype=float) @ np.linalg.inv(np.asarray(primitive_at, dtype=float))
+    rounded = np.rint(m)
+    if np.max(np.abs(m - rounded)) > 1e-6:
+        raise ValueError(
+            "the cell is not a supercell of the primitive lattice given: A_super A_prim^-1 = "
+            f"{np.round(m, 6).tolist()} is not an integer matrix")
+    return rounded.astype(int)
+
+
+def primitive_subset(hamiltonian, matrix) -> np.ndarray:
+    """``(nk, ndim)``: which plane waves of each k's sphere are ``k_p + G_p``, ``G_p`` primitive.
+
+    A supercell reciprocal vector with Miller indices ``m`` is a primitive one
+    when ``M^-1 m`` is integer, since ``b_super_j . a_prim_i = 2 pi (M^-1)_ij``.
+    The test is on Miller indices, never on cartesian lengths.
+    """
+    n1, n2, n3 = hamiltonian.grid
+    index = np.asarray(hamiltonian.fft_index)
+    a, b, c = index // (n2 * n3), (index // n3) % n2, index % n3
+    miller = np.stack([np.where(a > n1 // 2, a - n1, a), np.where(b > n2 // 2, b - n2, b),
+                       np.where(c > n3 // 2, c - n3, c)], axis=-1)
+    prim = miller @ np.linalg.inv(matrix).T
+    subset = np.all(np.abs(prim - np.rint(prim)) < 1e-8, axis=-1) & np.asarray(hamiltonian.mask)
+    if hasattr(hamiltonian, "_as_state"):
+        subset = np.concatenate([subset, subset], axis=-1)
+    return subset
+
+
+def run_kpm_unfolded(system, pseudos, density, primitive_lattice, kpoints, *,
+                     trace: str = "exact", n_random: int = 8, seed: int = 0,
+                     broadening: float = DEFAULT_BROADENING, n_moments: int | None = None,
+                     kernel: str = "jackson", emin=None, emax=None,
+                     delta_e: float = DEFAULT_DELTA_E, reference_energy=None,
+                     lanczos_steps: int = LANCZOS_STEPS, edge_margin: float = EDGE_MARGIN,
+                     fermi_energy=None, k_batch="default", ns=None, tau=None, becsum=(),
+                     field=None, field_scale=None, calculation=None) -> KPMUnfoldedSpectrum:
+    """The supercell's spectral function unfolded to primitive ``kpoints``, with no bands.
+
+    ``primitive_lattice`` is ``(3, 3)``, the primitive lattice vectors as rows in
+    bohr; the run's cell must be an integer supercell of it. ``kpoints`` is
+    ``(nk, 3)`` in crystal coordinates of the primitive reciprocal lattice. The
+    supercell Hamiltonian is taken at each ``k_p`` itself, and the trace runs over
+    its plane waves ``k_p + G_p`` (``trace = "exact"``, one recursion each) or over
+    random phases on them (``"stochastic"``, ``n_random`` vectors).
+    """
+    from defuqumat.system.kpoints import KPoints, for_spin
+    from defuqumat.workflows.nscf import threaded_calculation
+
+    if trace not in ("exact", "stochastic"):
+        raise ValueError(f"trace must be 'exact' or 'stochastic', got {trace!r}")
+    calculation, system, _, k_batch = threaded_calculation(calculation, system, None, k_batch)
+    if calculation is None:
+        from defuqumat.scf.driver import Calculation
+
+        calculation = Calculation(system, pseudos, k_batch=k_batch)
+    cell = calculation.system.cell
+    matrix = supercell_matrix(np.asarray(cell.at), primitive_lattice)
+    kpoints = np.atleast_2d(np.asarray(kpoints, dtype=float))
+    primitive_bg = 2.0 * math.pi * np.linalg.inv(np.asarray(primitive_lattice, dtype=float)).T
+    kcart = kpoints @ primitive_bg  # 1/bohr
+    path = KPoints.from_cartesian(kcart / float(cell.tpiba), np.ones(len(kpoints)))
+    calculation = calculation.at_kpoints(for_spin(path, calculation.system.nspin))
+    state = dict(ns=ns, tau=tau, becsum=becsum, field=field, field_scale=field_scale)
+    calculation, hamiltonians, batch = kpm_setup(system, pseudos, density, k_batch=k_batch,
+                                                 calculation=calculation, **state)
+    centre, half, emin, emax, reference_energy, n_moments, broadening = interval_and_moments(
+        hamiltonians, batch, seed, lanczos_steps, edge_margin, emin, emax, reference_energy,
+        fermi_energy, broadening, n_moments, kernel)
+    subset = primitive_subset(hamiltonians[0], matrix)  # (nk, ndim)
+    counts = subset.sum(axis=-1)
+    nk, ndim = subset.shape
+    if trace == "exact":
+        width = int(counts.max())
+        starts = np.zeros((nk, width, ndim))
+        for ik in range(nk):
+            columns = np.flatnonzero(subset[ik])
+            starts[ik, np.arange(columns.size), columns] = 1.0
+        scale = np.ones(nk)
+    else:
+        rng = np.random.default_rng(seed)
+        angle = 2.0 * math.pi * rng.random((nk, n_random, ndim))
+        starts = np.where(subset[:, None, :], np.exp(1j * angle), 0.0) / np.sqrt(
+            counts)[:, None, None]
+        scale = counts / n_random
+    starts = jnp.asarray(starts, dtype=hamiltonians[0].dtype)
+    key = jax.random.PRNGKey(0)
+    moments = []
+    for hamiltonian in hamiltonians:
+        raw = np.asarray(chebyshev_moments(hamiltonian, centre, half, key, n_moments // 2 - 1,
+                                           starts.shape[1], kind="given", k_batch=batch,
+                                           given=starts))
+        check_moments(raw, centre, half)
+        moments.append(raw.sum(axis=1) * scale[:, None])
+    moments = np.stack(moments)  # (nspin, nk, N)
+    energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)
+    spectral, _ = _evaluate(moments, kernel, n_moments, centre, half, energies)
+    nspin = len(hamiltonians) if len(hamiltonians) == 2 else 1
+    return KPMUnfoldedSpectrum(
+        energies=energies, spectral=spectral if nspin == 2 else spectral[0], kpoints=kpoints,
+        moments=moments, centre=centre, half_width=half, kernel=kernel, n_moments=n_moments,
+        broadening=broadening, nspin=nspin, trace=trace, subset_size=counts,
+        fermi_energy=fermi_energy)

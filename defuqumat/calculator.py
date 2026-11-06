@@ -1055,6 +1055,23 @@ class Calculator:
                             **self._call_options(run_kpm_ldos, result, options,
                                                  exclude=SCF_ONLY_OPTIONS))
 
+    def get_kpm_unfolded(self, primitive_lattice, kpoints, **options):
+        """The spectral function of this supercell unfolded to primitive ``kpoints``, by KPM.
+
+        ``primitive_lattice`` is ``(3, 3)``, rows in bohr; ``kpoints`` is in crystal
+        coordinates of the primitive reciprocal lattice. No supercell band is
+        computed. Returns the :class:`~defuqumat.kpm.traces.KPMUnfoldedSpectrum`.
+        """
+        from defuqumat.kpm.traces import run_kpm_unfolded
+
+        result = self._ground_state("a KPM unfolded spectral function")
+        options.setdefault("fermi_energy", result.fermi_energy
+                           if result.fermi_energy is not None else result.homo)
+        return run_kpm_unfolded(self.system, self.pseudos, result.density, primitive_lattice,
+                                kpoints, calculation=self.calculation,
+                                **self._call_options(run_kpm_unfolded, result, options,
+                                                     exclude=SCF_ONLY_OPTIONS))
+
     def get_pdos(self, grid=None, **options):
         """The projected density of states, with Löwdin charges and spilling.
 
