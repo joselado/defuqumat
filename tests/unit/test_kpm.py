@@ -136,10 +136,10 @@ def test_the_occupied_dos_is_the_scf_bands_through_the_same_kernel():
 
 def test_the_gap_holds_the_electrons():
     """The integrated DOS in silicon's gap is the electron count, eight, within its noise."""
-    calc, result, _ = _silicon()
+    calc, _, hamiltonians = _silicon()
     dos = calc.get_kpm_dos(broadening=0.02, n_random=16)
-    eigenvalues = np.asarray(result.eigenvalues)
-    gap_centre = 0.5 * (eigenvalues[:, 3].max() + eigenvalues[:, 4].min())
+    spectra = _dense_spectrum(hamiltonians[0])
+    gap_centre = 0.5 * (max(s[3] for s in spectra) + min(s[4] for s in spectra))
     assert abs(dos.count_at(gap_centre) - 8.0) < 0.1
 
 
