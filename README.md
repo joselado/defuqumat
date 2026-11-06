@@ -195,6 +195,12 @@ from the tetrahedron method, as the `occupations` variable says.
   split it by spin channel, and in a spin-orbit run by $j$ and $m_j$. The Löwdin
   charges come with it. `calc.get_pdos()`, notebook
   [16](notebooks/16_projected_density_of_states.ipynb).
+- **Density of states by the kernel polynomial method (KPM)**. This is the same
+  $g(E)$, with no band computed. The code expands $\delta(E - H)$ in Chebyshev
+  polynomials of $H$ and takes the trace with a few random vectors. So the cost does
+  not depend on the number of bands, and the result covers the whole basis up to the
+  cutoff. It is cheaper than the bands for large cells. `calc.get_kpm_dos()`,
+  notebook [60](notebooks/60_kpm_density_of_states.ipynb).
 - **Band velocities**, $\mathbf v_{n\mathbf k} = \partial\epsilon_{n\mathbf k}/\partial\mathbf k$.
   They give the group velocity and the Drude weight.
   `calc.get_band_velocities()`, notebook [19](notebooks/19_linear_response.ipynb).
@@ -737,6 +743,7 @@ task of the other code that it refers to.
 | **Band structure** | `calc.get_bands()` | ✓ | ✓ |
 | **Density of states** | `calc.get_dos()` | ✓ | ✓ |
 | **Projected density of states**, by atom, $l$, $m$ and $j$ | `calc.get_pdos()` | ✓ | (✓)¹ |
+| **Density of states without bands**, by the kernel polynomial method | `calc.get_kpm_dos()` | | |
 | **Band velocities** | `calc.get_band_velocities()` | (✓)² | |
 | **Effective mass tensor** | `calc.get_effective_mass(kpoint)` | | ✓ |
 | **Starting from an all-electron ground state**³ | `calc.get_elk_seed(directory)` | | |

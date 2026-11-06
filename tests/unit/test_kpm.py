@@ -24,7 +24,8 @@ from defuqumat.kpm.moments import live_mask
 from defuqumat.kpm.profile import chebyshev_profile
 from defuqumat.workflows.nscf import fixed_density_hamiltonians
 
-PSEUDO = "tests/data/pseudo"
+pytestmark = pytest.mark.unit
+
 SILICON = dict(
     lattice="fcc", a=5.398, pseudos={"Si": "Si.pz-vbc.UPF"},
     atoms=[("Si", (0.0, 0.0, 0.0)), ("Si", (0.25, 0.25, 0.25))],

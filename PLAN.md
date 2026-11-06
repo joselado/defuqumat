@@ -204,6 +204,10 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
+- **The kernel polynomial method beyond P167** (`plans/kpm.md`): the deterministic traces of P168
+  (PDOS on Lowdin orbitals, LDOS at a point and the STM map, supercell unfolding, the spin-resolved
+  trace, the Fermi level from the count) and the two-index Kubo-Greenwood conductivity of P169;
+  ultrasoft and PAW (`S^-1 H` with moments in the S-form), `gamma_only` and the spiral, refused by name.
 - **Wannier functions beyond P162 to P166** (site symmetry is the default since P166, with a
   named fallback): spinor projections and spinor PDWF, `gamma_only`,
   SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the
@@ -27759,3 +27763,93 @@ runs the default; outputs unchanged, 60 s. Notebook 59: prose only (all its runs
 **What is outstanding.** A fast trigger for the frozen-irrep rank refusal; the slow files for
 the user; SCDM with symmetry, time reversal, spinors and magnetic groups as before (SCDM and a
 magnetic group now give the fallback warning by default; spinors are still refused first).
+
+### P167 -- The kernel polynomial method: the engine and the density of states, `get_kpm_dos`. ✅ DONE 2026-11-06 (`tests/unit/test_kpm.py`, nine fast tests, on D22 CPU; the gate `tools/test-fast.sh` was not run; no slow file written or touched; branch `kpm` from 6f60f418, not merged, not pushed)
+
+**The plan** is `plans/kpm.md` (P167 to P169), reviewed by a fable subagent before any code;
+the review moved the bounds from Weyl to Lanczos, sliced the dense check to the live sphere,
+replaced the `mu_0` sum rule (which cannot fail) by `mu_1` from the diagonal, and put the
+Jackson width's `sqrt(1 - x^2)` into the moment count. The inspiration is pyqula's `kpmtk/`.
+Neither QE 7.5 nor Elk has any KPM or moment DOS (the `reference-source` agent: a stated
+negative for both; the hits were thermostats, Wannier random projections and loop indices).
+
+**What is in.** `defuqumat/kpm/`: `moments.py` (the three-term recursion on a block of start
+vectors at one k, `lax.scan` over `n`, `map_k` over k, the doubling trick
+`mu_2n = 2<a_n|a_n> - mu_0`, `mu_2n+1 = 2<a_n+1|a_n> - mu_1`, so `N` moments cost `N/2`
+applications; random phases on the live sphere, the exact trace over every unit vector, or a
+given block), `bounds.py` (40 Lanczos steps per k from one random vector, edges widened by
+`max(2% of the width, the Ritz residual beta_m |s_m|)`), `kernels.py` (Jackson, Lorentz,
+Fejer behind a registry; the Jackson HWHM `sqrt(2 ln 2) (pi/N) sqrt(1 - x^2 + x^2/N)` in `x`),
+`profile.py` (direct `cos(n theta)` evaluation and the closed-form integral, in `jnp`),
+`guard.py` (`|mu_n| <= mu_0 (1 + tol)` or `SpectralIntervalError`), `dos.py`
+(`run_kpm_dos`, `KPMDensityOfStates` keeping the per-sample k-weighted moments, so
+`reconstructed()` changes kernel or cuts moments with no recursion; `count_at`,
+`count_error_at`, `broadening_at`). `workflows/nscf.fixed_density_hamiltonians` is the
+step of `fixed_density_states` before the diagonalisation, extracted unchanged, so the KPM
+builds exactly the operator an NSCF solves, with the same refusals (PAW without `becsum`, U
+without `ns`, meta without `tau`, a field). `Calculator.get_kpm_dos` passes `fermi_energy`,
+or `homo` for an insulator (fixed occupations leave `fermi_energy` `None`; found by the
+notebook's first run).
+
+**The numbers** (silicon, `Si.pz-vbc`, 12 Ry, 2x2x2, three k-points of 169, 180 and 190 plane
+waves; `review/kpm/probe.log` on D22):
+
+| check | result |
+|---|---|
+| exact trace (every plane wave) against `sum_i T_n(e_i')` of the dense `matrix(ik)` on the live block, 40 moments | 9.4e-13 against `mu_0` = 364.75 |
+| `mu_1` of the exact trace against `Tr H'` from `diagonal(ik)` | to 1e-9 relative (test) |
+| lowest Lanczos Ritz value against the dense minimum | -0.403197 both; interval [-0.6375, 11.5455] holds [-0.403197, 11.312372] |
+| rms error of `mu_1..39`, seeded, R = 4, 16, 64, 256 | 4.75, 2.62, 0.833, 0.467 (4 to 64: 5.7x where `sqrt(16)` = 4) |
+| states below the gap, broadening 0.02 Ry, R = 4, 16, 64 | 7.877, 8.436, 8.044; at R = 64 the test reads it against `count_error_at` |
+| guard at 0.9 of the half width | `SpectralIntervalError` (test) |
+| spinor exact moments (`noncolin`, no SOC, no moment) against the scalar ones | equal (test, 1e-8 of `mu_0`) |
+| a second `kpm_moments` on another potential, centre and seed | compiles nothing (test) |
+| US silicon | refused by name (test) |
+
+The guide's cell (6x6x6 shifted, 16 Ry, R = 16, 1610 moments) gives 7.89 +- 0.15 states below
+the gap, and the notebook's (4x4x4, 12 Ry, 1212 moments) 8.232 +- 0.252.
+
+**The comparison with the bands at scale, and the timing.** `review/kpm/timing2.py` on D22, one
+core each through `slot.sh`, warm calls (each timed on its second call), broadening 0.01 Ry
+(HWHM at the middle of the window, `x` about -0.89), one k-point. The error is the rms of the
+KPM DOS minus the NSCF eigenvalues put through the same Jackson kernel in `x`, over the valence
+window, over the mean DOS there: a real error, not the spread over R. D22's load average was 13
+to 14 from other users during these runs.
+
+| cell (atoms, bands to E_VBM + 0.2 Ry) | Davidson NSCF + DOS | KPM R = 1 | R = 2 | R = 4 | R = 8 | R = 16 |
+|---|---|---|---|---|---|---|
+| si16 (16, 54) | 8.05 s | 0.43 s, 0.763 | 0.71 s, 0.555 | 1.27 s, 0.539 | 2.44 s, 0.196 | 5.15 s, 0.076 |
+| si64 (64, 165) | 63.8 s | 4.38 s, 0.371 | 6.35 s, 0.271 | 9.29 s, 0.163 | 14.6 s, 0.103 | 25.4 s, 0.090 |
+| si128 (128, 321) | 275 s | 12.9 s, 0.274 | 30.8 s, 0.228 | 33.9 s, 0.152 | 43.6 s, 0.081 | 62.6 s, 0.055 |
+
+Each KPM entry is the warm time and the relative rms error. N = 1048 (si16) and 1066 (si64,
+si128), on [-0.60, 11.92] and [-0.62, 11.92] Ry. The SCFs (not timed against anything) took 4.0,
+33.5 and 171 s. si128's R = 1 and R = 2 times (12.9, 30.8 s) are not proportional; the load on D22
+moved during the run, and the R = 4 to 16 times are the ones to read.
+
+At R = 8 the error is 0.196 on si16 and 0.103 on si64, a ratio of 1.9 where `sqrt(4)` = 2: the
+R for a fixed relative error falls as `1/nat`, the plan's scaling. The reported standard error is
+calibrated where R is not tiny: the median of `|KPM - bands| / dos_error` over the window is
+0.62 to 0.69 on si64 at R = 8 and 16 (0.67 for a Gaussian); at R = 1 the error is not defined
+and at R = 2 it is two samples, and both read as nonsense (`max z` 1e3 and above). The Davidson
+side moves with the band count and with the load: si64 at 159 bands took 31.9 s
+(`timing.py`, 16:48) and at 165 bands 63.8 s (`timing2.py`, 16:52); si16 at 48 bands 1.72 s and
+at 54 bands 8.05 s, the second with a Cholesky fallback of the subspace overlap (the warning of
+`scf/driver.py:6680`). So the crossover at about 10 per cent error is between si16 (bands
+faster: R of about 30 would be needed there, about 10 s against 1.7 to 8 s) and si64 (KPM 2.2
+to 4.4x faster at R = 8), roughly 30 atoms at 12 Ry, and si128 is 6.3x at R = 8 (0.081) and
+4.4x at R = 16 (0.055); it moves to smaller cells
+as the cutoff falls (fewer moments) and as more empty bands are wanted.
+
+**Memory.** One k-point in flight holds three `(R, ndim)` blocks (`ndim = npwx`, `2 npwx` for a
+spinor) and the scan's carry, plus the `(nk, R, N)` real moments; the exact trace holds
+`(ndim, ndim)` per k in flight and is for small cells. si64 at R = 16 and N = 1066 is about 3
+MB of vectors and 140 kB of moments.
+
+**What is outstanding.** P168 and P169 of `plans/kpm.md`: the deterministic traces (PDOS on
+Lowdin orbitals, LDOS at a point and the STM map, unfolding), the spin-resolved trace and the
+Fermi level from the count; the two-index Kubo-Greenwood conductivity. Ultrasoft and PAW
+(`S^-1 H` in the S-form, `_Chunk.inverse_overlap`), `gamma_only` and the spiral are refused by
+name. A tighter top edge (the 2% margin costs 2% of N on each side) and a timing against Davidson
+on a quiet machine are open; the DOS is differentiable through the moments but no derivative is
+claimed or tested.

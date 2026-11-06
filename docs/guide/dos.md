@@ -2,7 +2,8 @@
 
 In this page we compute the density of states, the number of states per unit
 energy, and then its projection on the atomic orbitals, which tells us which atom
-and which orbital each state comes from.
+and which orbital each state comes from. At the end we compute the density of
+states with no band at all, by the kernel polynomial method.
 
 ## The density of states
 
@@ -181,6 +182,123 @@ valence charge here.
     --8<-- "dos_pdos/plot.py"
     ```
 
+## The density of states without bands
+
+So far the DOS came from the bands, so we needed every band in the energy window.
+The cost of the bands grows with the square of their number, and in a large cell
+there are many of them. We now compute the same DOS with no band at all, by the
+kernel polynomial method (KPM). The DOS is a trace,
+$D(E) = \sum_{\mathbf k} w_{\mathbf k}\,{\rm Tr}\,\delta(E - H_{\mathbf k})$,
+taken in the plane-wave basis. We rescale the Hamiltonian to $H' = (H - c)/s$, so
+that its whole spectrum is inside $[-1, 1]$, and we expand the delta function in
+the Chebyshev polynomials $T_n$:
+
+$$
+D(E) = \frac{1}{\pi s\sqrt{1-x^2}}\Big[g_0\mu_0 + 2\sum_{n\ge1} g_n\,\mu_n\,T_n(x)\Big],
+\qquad \mu_n = \sum_{\mathbf k} w_{\mathbf k}\,{\rm Tr}\,T_n(H'_{\mathbf k}),
+$$
+
+with $x = (E - c)/s$. The polynomials obey $T_{n+1}(H') = 2H'T_n(H') - T_{n-1}(H')$,
+so each moment $\mu_n$ costs one application of $H$ to a vector, and nothing is
+diagonalized. We take the trace as an average over a few random vectors, so the
+DOS has a statistical error, which falls as one over the square root of their
+number. The factors $g_n$ are the Jackson kernel, which turns the cut series of a
+delta function into a positive peak, close to a Gaussian. Its width is the
+broadening, and it sets how many moments we need.
+
+We compute it with `calc.get_kpm_dos()`:
+
+```python
+from defuqumat import Calculator
+
+calc = Calculator.from_keywords(
+    lattice="fcc", a=5.398, atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+    pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=217.7, kmesh=(6, 6, 6), kshift=(1, 1, 1))
+top = calc.get_scf().homo
+kpm = calc.get_kpm_dos(broadening=0.01, n_random=16)
+
+print(f"{kpm.n_moments} moments on [{kpm.centre - kpm.half_width:.2f}, "
+      f"{kpm.centre + kpm.half_width:.2f}] Ry")
+print(f"{kpm.count_at(top + 0.02):.2f} +- {kpm.count_error_at(top + 0.02):.2f} "
+      "states below the gap")
+```
+
+```
+1610 moments on [-0.74, 16.10] Ry
+7.89 +- 0.15 states below the gap
+```
+
+The count is 8, the four valence bands with their spin, within its error. With
+an `ecut` of 16 Ry the interval reaches 16 Ry, so we need 1610 moments for a
+broadening of 0.01 Ry. The
+keywords of `get_kpm_dos` are:
+
+- **`broadening`**: the half width at half maximum of the peak, in Ry, at
+  `reference_energy`. It sets the number of moments. The Jackson peak narrows
+  towards the edges of the spectrum, and `kpm.broadening_at(E)` gives it at any
+  energy.
+- **`n_moments`**: the number of moments, if you want to give it instead of
+  `broadening`.
+- **`n_random`**: the number of random vectors per k-point. The error falls as
+  one over its square root.
+- **`seed`**: the seed of the random vectors, kept on the result.
+- **`kernel`**: `"jackson"` (the default), `"lorentz"`, which gives a Lorentzian
+  peak, or `"fejer"`.
+- **`trace`**: `"stochastic"`, or `"exact"`, which uses every plane wave as a
+  start vector. The exact trace has no error, and it is for small cells.
+- **`emin`, `emax`, `delta_e`**: the energy window and its step, in Ry. If you do
+  not give them, the window goes from below the lowest band to 1 Ry above the
+  Fermi level (the top of the valence band for an insulator).
+
+`kpm.dos` is in states per Ry per cell and `kpm.dos_error` is its standard error.
+`kpm.count_at(E)` and `kpm.count_error_at(E)` give $N(E)$ and its error. The moments
+stay on the result, so `kpm.reconstructed(n_moments=..., kernel=...)` gives the DOS
+at a coarser broadening, or with another kernel, with no new calculation.
+
+![The KPM density of states of silicon, near the gap and over the whole basis.](img/dos_kpm.png#only-light)
+![The KPM density of states of silicon, near the gap and over the whole basis.](img/dos_kpm-dark.png#only-dark)
+
+On the left we see silicon on a $4\times4\times4$ mesh with a broadening of
+0.01 Ry, and the DOS of 12 bands with a Gaussian of the same half width
+(dashed). The two agree within the shaded band of two standard errors. On the
+right we use the same moments over the whole interval, cut to 200 moments. This
+is the DOS of every state of the basis, and a band calculation would need about
+180 bands per k-point to draw it. Far above the gap the states are almost free
+electrons, so the DOS follows $\Omega\sqrt{E - V_0}/(2\pi^2)$ (dashed, in Ry units
+with the spin), with $V_0$ the average potential. It stops at $V_0$ plus the
+cutoff, because the basis has no plane wave above it.
+
+When does it pay? In a plane-wave basis the top of the spectrum is set by the
+cutoff, so the interval is wide, and a broadening of 0.01 Ry needs about a
+thousand moments. For a small cell the bands are cheaper. The cost of KPM does not
+depend on the number of bands, and the number of random vectors for a given error
+falls as one over the number of atoms, so KPM wins for large cells. We measured
+silicon with one k-point, at a broadening of 0.01 Ry and a cutoff of 12 Ry, on one
+core:
+
+| cell | bands up to 0.2 Ry above the gap | from the bands | KPM, 8 random vectors | error of the KPM DOS |
+|---|---|---|---|---|
+| 16 atoms | 54 | 1.7 to 8.1 s | 2.4 s | 20% |
+| 64 atoms | 165 | 32 to 64 s | 14.6 s | 10% |
+| 128 atoms | 321 | 275 s | 43.6 s | 8% |
+
+The time of the bands moves with the number of empty bands and with the load of the
+machine, so we give the range we measured. The error is the rms difference from the
+DOS of the bands, over the valence band, relative to the mean DOS. With 16 atoms the
+bands are faster, with 64 and more atoms the KPM is faster, and the gain grows with
+the cell.
+
+??? example "Code of this figure (docs/figures/dos_kpm/)"
+
+    ```python title="compute.py"
+    --8<-- "dos_kpm/compute.py"
+    ```
+
+    ```python title="plot.py"
+    --8<-- "dos_kpm/plot.py"
+    ```
+
 !!! note "Limits"
     The projected density of states works with `K_POINTS gamma`. It agrees with
     an explicit $k = 0$ to 4e-12.
@@ -204,7 +322,16 @@ valence charge here.
     labelled as up and down. So you run it with `lspinorb = .true.`, which is what a
     fully relativistic dataset is for.
 
+    The KPM density of states needs norm-conserving pseudopotentials. With an
+    ultrasoft or PAW dataset the states solve $H\psi = \varepsilon S\psi$, so the
+    polynomial must be in $S^{-1}H$, and the code gives an error. It also gives an
+    error for `K_POINTS gamma` (the half sphere of plane waves) and for a spin
+    spiral. A wedge of k-points is fine, because the DOS is a scalar trace. If the
+    interval does not hold the whole spectrum, a moment grows above one and the
+    code gives an error that says so, instead of a wrong DOS.
+
 The notebooks for this page are
-[06, the density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/06_density_of_states.ipynb)
+[06, the density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/06_density_of_states.ipynb),
+[16, the projected density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/16_projected_density_of_states.ipynb)
 and
-[16, the projected density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/16_projected_density_of_states.ipynb).
+[60, the density of states without bands](https://github.com/joselado/defuqumat/blob/master/notebooks/60_kpm_density_of_states.ipynb).
