@@ -11539,3 +11539,11 @@ timing on a quiet machine, with medians, is open.
 plus `(nk, R, N)` real moments: si128 (npwx about 11800) at R = 16 is 9 MB of vectors and
 140 kB of moments, against the `(nbnd, npwx)` states and the Davidson subspace of the NSCF
 (321 x 11800 complex, 61 MB, times the subspace multiple).
+
+**Correction (2026-11-06).** The KPM errors above are single draws at seed 0. Over 8 seeds R = 8 gives
+0.289 on si16; the analytic per-vector sigma (0.760, 0.398, 0.281 on si16, si64, si128) puts R for 10
+per cent at 58, 16 and 8, so KPM at 10 per cent costs 15.5, 16.6 and 37 s. Davidson NSCF + DOS
+measured again at load 9 to 12: 1.57 s (si16, 50 bands, no fallback), 84.8 s (si64), 375 s (si128)
+(`/l/ladovj1/review/kpm/subspace/`, PLAN.md P168, "The user's low-energy subspace"). The control
+variate of that study (F8-filtered atomic orbitals) reaches 1.8e-3 to 5.2e-3 at R = 1 for 2.4 to 7x
+less wall time than Davidson.

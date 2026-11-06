@@ -126,8 +126,9 @@ for n in (kpm.n_moments, 400, 100):
 For this two-atom cell the bands are cheaper. The KPM cost does not depend on the
 number of bands, so the method wins for large cells. We measured it on silicon
 supercells with one k-point, at a broadening of 0.01 Ry, on one core. With 128
-atoms the KPM DOS takes 44 s with eight random vectors, and its error is 8% of the
-DOS. The same DOS from 321 bands takes 275 s. With 16 atoms the bands are faster.
+atoms the KPM DOS takes 44 s with eight random vectors, and its error is about 10% of
+the DOS. The same DOS from 321 bands takes 275 to 375 s. With 16 atoms the bands are
+faster.
 The KPM also gives the empty states up to the cutoff at no extra cost.
 
 The checks of these numbers are in `tests/unit/test_kpm.py`: the moments of the

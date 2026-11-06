@@ -277,17 +277,18 @@ falls as one over the number of atoms, so KPM wins for large cells. We measured
 silicon with one k-point, at a broadening of 0.01 Ry and a cutoff of 12 Ry, on one
 core:
 
-| cell | bands up to 0.2 Ry above the gap | from the bands | KPM, 8 random vectors | error of the KPM DOS |
-|---|---|---|---|---|
-| 16 atoms | 54 | 1.7 to 8.1 s | 2.4 s | 20% |
-| 64 atoms | 165 | 32 to 64 s | 14.6 s | 10% |
-| 128 atoms | 321 | 275 s | 43.6 s | 8% |
+| cell | from the bands | KPM, 8 random vectors | error with 8 vectors | vectors for a 10% error | KPM at a 10% error |
+|---|---|---|---|---|---|
+| 16 atoms | 1.6 to 8.1 s | 2.4 s | 27% | 58 | 15.5 s |
+| 64 atoms | 32 to 85 s | 14.6 s | 14% | 16 | 16.6 s |
+| 128 atoms | 275 to 375 s | 43.6 s | 10% | 8 | 37 to 44 s |
 
 The time of the bands moves with the number of empty bands and with the load of the
 machine, so we give the range we measured. The error is the rms difference from the
-DOS of the bands, over the valence band, relative to the mean DOS. With 16 atoms the
-bands are faster, with 64 and more atoms the KPM is faster, and the gain grows with
-the cell.
+DOS of the bands, over the valence band, relative to the mean DOS, averaged over
+eight seeds of the random vectors. It falls as one over the square root of the
+number of atoms, so a bigger cell needs fewer vectors. With 16 atoms the bands are
+faster, with 64 and more atoms the KPM is faster, and the gain grows with the cell.
 
 ??? example "Code of this figure (docs/figures/dos_kpm/)"
 

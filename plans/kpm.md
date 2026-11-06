@@ -220,3 +220,12 @@ follow-up checked against the existing anomalous Hall conductivity of iron.
   guide page with its Limits note, a notebook, and the timing in `PERFORMANCE.md`.
 - Every calculation runs on D22 through `review/guide/slot.sh`, on its CPU slots, with the
   code moved by a git bundle of branch `kpm`.
+
+## Added after P168 (2026-11-06): the control variate, measured
+
+The user's low-energy subspace (atomic orbitals and their leak into the interstitial) was measured by
+a subagent on D22; the numbers are in `PLAN.md` at the end of P168. The form worth implementing is a
+control variate in moment space built on the Ritz pairs of the atomic orbitals after a Chebyshev
+low-pass of degree 8: unbiased, 50 to 100x more accurate than plain random vectors at equal cost at
+R = 1, and it keeps the result object as it is. It is the candidate next to P169. Chebyshev-filtered
+subspace iteration as an NSCF solver is a separate item for the solvers.

@@ -27851,6 +27851,17 @@ differ by 4e-10), not the recursion. The first si64 call on the card spent 3 min
 fusion (`input_reduce_fusion.1`, a slow-compile alarm); the card is a float32 part (float64 at
 1/70), so these times are claims about this card, not about an A100.
 
+**Correction (2026-11-06, the subspace study below).** The errors in the table above are single draws
+at seed 0. Over 8 seeds `get_kpm_dos` gives 0.289 at R = 8 and 0.186 at R = 16 on si16
+(`review/kpm/subspace/plaincheck-si16.log`), and the per-vector sigma from the analytic variance
+(checked against sampled recursions on si16 and si64) is 0.760, 0.398, 0.281 on si16, si64, si128,
+falling as `1/sqrt(nat)` and reproducing the 8-seed numbers to 7 per cent. So 10 per cent on the
+valence window needs R = 58, 16 and 8, not about 30, 8 and 6, and the R = 8 errors are 0.27, 0.14,
+0.10. Davidson NSCF + DOS, warm, at load 9 to 12: 1.57 s on si16 (50 bands, no Cholesky fallback),
+84.8 s on si64, 375 s on si128. The crossover statement stands with these numbers: at 10 per cent
+si16 is 15.5 s against 1.6 to 8 s (bands win), si64 16.6 s against 32 to 85 s, si128 37 to 44 s
+against 275 to 375 s.
+
 **Memory.** One k-point in flight holds three `(R, ndim)` blocks (`ndim = npwx`, `2 npwx` for a
 spinor) and the scan's carry, plus the `(nk, R, N)` real moments; the exact trace holds
 `(ndim, ndim)` per k in flight and is for small cells. si64 at R = 16 and N = 1066 is about 3
@@ -27912,3 +27923,37 @@ grid, one field per energy), for maps of many points; a timing of the PDOS again
 `projwfc.x`; the unfolding of a spinor (the subset is built, not tested) and of `nspin = 2` (per
 channel, not tested); ultrasoft and PAW, `gamma_only` and the spiral, refused as in P167. P169 (the
 conductivity) is unstarted.
+
+
+**The user's low-energy subspace for the DOS trace, measured (2026-11-06, a subagent on D22,
+`/l/ladovj1/review/kpm/subspace/`: `subspace.py`, `subspace_v2.py`, `plaincheck.py`, the logs and
+`sub-si16-1k-full.json`, `sub-si64-1k-light.json`, `sub-si128-1k-analytic.json`).** The idea: near
+`E_F` the states live in the atomic orbitals plus their leak into the interstitial, so take
+`S = span{phi, H phi, ...}` instead of random vectors. Measured on si16, si64, si128 at one k-point
+(1/4, 1/4, 1/4), 0.01 Ry; si64's K1, K2, P1 and all of si128's subspaces from the analytic variance
+only.
+
+- The subspace alone, `Tr[P delta]`, is biased low (the trace misses what leaks out of `S`): rms
+  bias 0.012 to 0.019 for `phi` alone (K0), 3e-3 with `H phi` (K1), 1e-3 with `H^2 phi`, three times
+  larger near the gap than at the band bottom; 0.26 in the conduction window for K0.
+- The split estimator `Tr[P delta P] + Tr[Q delta Q]`, the second with `Q r`, is unbiased
+  (`E[n_live (Qr)^dagger A (Qr)] = Tr[QAQ]`) and cuts the per-vector sigma from 0.398 to 0.004 on
+  si64 with K0, but its deterministic part costs `natw` recursions of `N/2` steps, which grows with
+  the cell: 37.7k applications (20 s) on si16, 141k (311 s) on si64, slower than Davidson on both.
+- Plain `H phi` spends its rank on high kinetic energy: K2 at rank `3 natw` spills 4.6e-4 of the
+  occupied states, where a Chebyshev low-pass of degree 4 on `phi` (F4, rank `natw`) spills 2.2e-4
+  and degree 8 (F8) 1.6e-5, with Ritz eigenvalues good to 1.2e-5 Ry.
+- **The form that works is a control variate in moment space**: for each random sample subtract
+  `n_live sum_j |<y_j|r>|^2 T_n(theta_j)` and add `sum_j T_n(theta_j)`, with `(theta_j, y_j)` the
+  Ritz pairs of the F8-filtered orbitals. Unbiased, and `samples`, `dos_error`, `reconstructed()`
+  keep working. At R = 1 it is 50 to 100x more accurate than plain at the same applications
+  (`9 natw + N/2`): 5.2e-3, 2.6e-3, 1.8e-3 on si16, si64, si128; at R = 8 1.7e-3, 1.1e-3, 7.6e-4. In
+  wall time at R = 1, 2.4x, 7x and 4.4x faster than Davidson. It covers the valence band and about
+  `natw - n_occ` conduction states (F8's Ritz-alone error is 1.7e-2 in the conduction window). The
+  Ritz step is a dense SVD and eigensolve, `O(n r^2)`, 0.06, 1.5 and 16 s on the three cells: it is
+  Davidson's scaling, so it pays at a target near 1 per cent; at 10 per cent plain wins from si128
+  on (4.3k against 5.1k applications). Conditioning: no singular value below 1e-6 of the largest;
+  `check_moments` passed on every block; recursion and analytic trace agree to 5.6e-6.
+- Outside the brief: one F16 pass and a Rayleigh-Ritz gave the occupied eigenvalues of si128 to
+  3.9e-6 Ry in 132 s against Davidson's 375 s, which is Chebyshev-filtered subspace iteration and
+  deserves its own test as an NSCF solver (`notes/DAVIDSON-LITERATURE.md`).
