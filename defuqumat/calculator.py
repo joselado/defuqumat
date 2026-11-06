@@ -1014,7 +1014,9 @@ class Calculator:
         from defuqumat.kpm.dos import run_kpm_dos
 
         result = self._ground_state("a KPM density of states")
-        options.setdefault("fermi_energy", result.fermi_energy)
+        # an insulator with fixed occupations has no Fermi level, only its top band
+        options.setdefault("fermi_energy", result.fermi_energy
+                           if result.fermi_energy is not None else result.homo)
         return run_kpm_dos(self.system, self.pseudos, result.density,
                            calculation=self.calculation,
                            **self._call_options(run_kpm_dos, result, options,

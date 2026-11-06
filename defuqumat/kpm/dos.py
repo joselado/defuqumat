@@ -266,7 +266,9 @@ def run_kpm_dos(
             middle of the window.
         lanczos_steps, edge_margin: how the interval is estimated
             (:func:`~defuqumat.kpm.bounds.spectral_interval`).
-        fermi_energy: recorded on the result and used for the default window.
+        fermi_energy: recorded on the result and used for the default window;
+            the highest occupied level for an insulator, as
+            :meth:`~defuqumat.calculator.Calculator.get_kpm_dos` passes it.
         ns, tau, becsum, field, field_scale: the rest of the converged state,
             as for :func:`~defuqumat.workflows.nscf.run_nscf`.
         calculation: the SCF's own, moved to ``kpoints`` if given.
