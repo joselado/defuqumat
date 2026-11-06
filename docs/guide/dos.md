@@ -316,7 +316,7 @@ random vector:
 The times of the 128-atom cell were taken while the machine was heavily loaded, so
 they are a range. The error is the same rms difference from the bands as above,
 averaged over four seeds. With one random vector the code cannot estimate its own
-error, so `dos_error` is zero there; ask for at least two vectors to get the error
+error, so `dos_error` is zero there. Ask for at least two vectors to get the error
 bar.
 
 So one random vector with the atomic orbitals is about 60 to 100 times more accurate
