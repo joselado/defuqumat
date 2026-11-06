@@ -102,6 +102,14 @@ class KPMDensityOfStates:
                              self.half_width, np.array([energy]))
         return float(np.sum(count))
 
+    def count_error_at(self, energy: float) -> float:
+        """The standard error of :meth:`count_at` over the random vectors (0 if exact)."""
+        if self.trace != "stochastic" or self.samples.shape[1] < 2:
+            return 0.0
+        _, each = _evaluate(self.samples.sum(axis=0), self.kernel, self.n_moments,
+                            self.centre, self.half_width, np.array([energy]))
+        return float(each[:, 0].std(ddof=1) / math.sqrt(self.samples.shape[1]))
+
     def reconstructed(self, energies=None, kernel: str | None = None,
                       n_moments: int | None = None) -> "KPMDensityOfStates":
         """The same moments through another kernel, or cut to fewer of them.
