@@ -27843,6 +27843,15 @@ to 4.4x faster at R = 8), roughly 30 atoms at 12 Ry, and si128 is 6.3x at R = 8 
 4.4x at R = 16 (0.055); it moves to smaller cells
 as the cutoff falls (fewer moments) and as more empty bands are wanted.
 
+**On the card** (D22's RTX A2000, at 3c54509b, `review/kpm/gpu/gpu.sh`, `gpu.log`): the twelve tests
+pass in 128 s. With the same seed the random vectors are the same on both platforms
+(`jax.random` is the threefry generator on both), so the moments compare directly: si16 0.65 s on
+the card against 2.56 s on one CPU core (3.9x), moments equal to 7.9e-12 of `mu_0`; si64 3.33 s
+against 16.2 s (4.9x), equal to 7.6e-9. The si64 difference follows the two SCFs (the interval edges
+differ by 4e-10), not the recursion. The first si64 call on the card spent 3 min compiling one XLA
+fusion (`input_reduce_fusion.1`, a slow-compile alarm); the card is a float32 part (float64 at
+1/70), so these times are claims about this card, not about an A100.
+
 **Memory.** One k-point in flight holds three `(R, ndim)` blocks (`ndim = npwx`, `2 npwx` for a
 spinor) and the scan's carry, plus the `(nk, R, N)` real moments; the exact trace holds
 `(ndim, ndim)` per k in flight and is for small cells. si64 at R = 16 and N = 1066 is about 3
