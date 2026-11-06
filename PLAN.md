@@ -27957,3 +27957,55 @@ only.
 - Outside the brief: one F16 pass and a Rayleigh-Ritz gave the occupied eigenvalues of si128 to
   3.9e-6 Ry in 132 s against Davidson's 375 s, which is Chebyshev-filtered subspace iteration and
   deserves its own test as an NSCF solver (`notes/DAVIDSON-LITERATURE.md`).
+
+### P170 -- A control variate for the stochastic KPM trace, from low-pass-filtered atomic orbitals, `get_kpm_dos(control_variate=True)`. ✅ DONE 2026-11-06 (`tests/unit/test_kpm_control.py`, three fast tests, on D22 CPU and on the RTX A2000 with the other 20 KPM tests, 23 in 113 s; the gate was not run; no slow file; branch `kpm-cv` from 5477e582)
+
+**The idea is the user's** (2026-11-06): near `E_F` the states live in the atomic orbitals and their
+leak into the interstitial, so use them instead of plain random vectors. The subagent's study (end of
+P168) showed that the form that works is a control variate on the Ritz pairs of the orbitals after a
+Chebyshev low-pass, and the user chose it ("the one you referred as the form that works").
+
+**What is in.** `defuqumat/kpm/control.py`: `ritz_pairs` (the orbitals through
+`T_m((H - c_f)/e_f)` on `[E_cut, E_top]`, `m = 8`, `E_cut = E_F + 1` Ry, by the three-term recursion;
+an SVD for an orthonormal basis, every direction kept, since any orthonormal set leaves the variate
+unbiased; Rayleigh-Ritz), `sample_overlaps` (`|<y_j|r_s>|^2` for the random vectors
+`chebyshev_moments` draws, regenerated from the same key folded with `ik`), and
+`control_corrections`: each sample's moments get `sum_j T_n(theta_j') - n_live sum_j |<y_j|r>|^2
+T_n(theta_j')`, whose expectation is zero. The samples, `dos_error` and `reconstructed()` are
+unchanged in form. Per k and per channel, so no whole grid is needed. Refused with
+`trace="exact"`; `spin_dos` keeps the plain trace.
+
+**The numbers.** Tests on Si2 12 Ry 2x2x2 at 0.02 Ry, against the dense spectrum through the same
+kernel: at R = 4 the valence-band error falls more than five-fold (test bound) and the median of
+`|KPM - exact| / dos_error` is between 0.1 and 2; over 16 seeds at R = 2 the mean equals the exact DOS
+within 4.5 standard errors of the mean at every energy. Notebook 60 (4x4x4, 16 vectors): mean reported
+error over the valence band 0.0865 states/eV plain, 0.0004 with the variate.
+
+Timing (`review/kpm/timing3.py`, `cv2-*.log`, `cv-*.json`, D22, one core each through `slot.sh`, warm,
+medians of 4 seeds; error = rms over `E < E_VBM + 0.05` Ry of the KPM DOS minus the NSCF
+eigenvalues through the same kernel on the run's own interval, over the mean DOS, mean of 4 seeds;
+broadening 0.01 Ry, one k-point; load average 8 to 14 from other users throughout):
+
+| cell (bands) | Davidson NSCF + DOS | plain R = 1 | plain R = 4 | plain R = 8 | variate R = 1 | variate R = 4 | variate R = 8 |
+|---|---|---|---|---|---|---|---|
+| si16 (53) | 3.89 s | 0.35 s, 0.618 | 1.19 s, 0.403 | 2.49 s, 0.262 | 0.69 s, 0.0036 | 1.67 s, 0.0013 | 2.80 s, 0.0018 |
+| si64 (171) | 82.9 s | 5.36 s, 0.364 | 8.85 s, 0.177 | 14.0 s, 0.132 | 10.5 s, 0.0023 | 16.8 s, 0.0010 | 22.0 s, 0.0008 |
+| si128 (321) | 1449 s | 89.9 s, 0.258 | 94.7 s, 0.133 | | 123 s, 0.0020 | 114 s, 0.0008 | |
+
+si128 ran at the heaviest load of the evening: its Davidson took 1449 s where the same call took 275 to
+375 s earlier, and plain R = 1 took 89.9 s against 12.9 s earlier, so its times are a ratio at best.
+The errors do not depend on the load. At equal wall time the variate at R = 1 is 60 to 110 times more
+accurate than plain R = 8 on si16 and si64.
+
+On the card (RTX A2000, si64, `gpu/gpu4.log`): plain R = 8 2.45 s warm (reported error 0.105), the
+variate R = 1 2.07 s, R = 4 3.02 s (reported error 0.0008); the first calls 9.6 to 12.9 s compile.
+At R = 1 `dos_error` is zero, since one sample has no spread; the error bar needs R >= 2.
+
+**What is not understood.** On si16 the variate's error stops falling at about 1.5e-3 from R = 2 on
+(0.0019, 0.0013, 0.0018 at R = 2, 4, 8), where si64 keeps falling to 8e-4. The reference intervals
+are not the cause (the numbers are the same to four digits with each run's own interval). Not
+investigated further.
+
+**What is outstanding.** The variate on the PDOS's noise is moot (that trace is exact), but the
+stochastic unfolding and the spin-resolved trace could take it; a cheaper Ritz step (it is
+`O(npw natw^2)`, Davidson's scaling); ultrasoft and PAW as before.

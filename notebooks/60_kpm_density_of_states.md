@@ -121,7 +121,37 @@ for n in (kpm.n_moments, 400, 100):
       100 moments: broadening 1.668 eV, peak 1.55 states/eV
 
 
+## Less noise from the atomic orbitals
+
+Near the Fermi level the states live mostly on the atomic orbitals, plus the part
+that leaks into the space between the atoms. We can use this to remove most of the
+noise. We filter the atomic orbitals with a Chebyshev polynomial of $H$ that keeps
+only their low-energy part, and we solve $H$ in that small space. This gives
+approximate eigenstates $|y_j\rangle$ with energies $\theta_j$. For each random vector
+we then subtract what these states predict, and we add back its exact average,
+
+$$\mu_n \to \mu_n - n\sum_j |\langle y_j|r\rangle|^2\, T_n(\theta_j) + \sum_j T_n(\theta_j),$$
+
+with $n$ the number of plane waves. The average of the subtracted term is exactly
+the term we add back, so the DOS stays unbiased. Only the noise changes, and it falls
+where the $|y_j\rangle$ are close to eigenstates, so in the valence band.
+
+
+```python
+varied = si.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6, control_variate=True)
+valence = kpm.energies < scf.homo
+for name, d in (('random vectors', kpm), ('with the atomic orbitals', varied)):
+    print(f'{name:25s} mean error in the valence band {np.mean(d.dos_error[valence]) / ev:.4f} states/eV')
+```
+
+    random vectors            mean error in the valence band 0.0865 states/eV
+    with the atomic orbitals  mean error in the valence band 0.0004 states/eV
+
+
 ## When to use it
+
+With the atomic orbitals the error of the valence band falls by about 200 times,
+for the same 16 random vectors. So one random vector is often enough.
 
 For this two-atom cell the bands are cheaper. The KPM cost does not depend on the
 number of bands, so the method wins for large cells. We measured it on silicon

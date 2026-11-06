@@ -199,8 +199,11 @@ from the tetrahedron method, as the `occupations` variable says.
   $g(E)$, with no band computed. The code expands $\delta(E - H)$ in Chebyshev
   polynomials of $H$ and takes the trace with a few random vectors. So the cost does
   not depend on the number of bands, and the result covers the whole basis up to the
-  cutoff. It is cheaper than the bands for large cells. `calc.get_kpm_dos()`,
-  notebook [60](notebooks/60_kpm_density_of_states.ipynb).
+  cutoff. It is cheaper than the bands for large cells. With
+  `control_variate=True` the code also uses the atomic orbitals, filtered to low
+  energy, to remove most of the noise of the random vectors in the valence band, and
+  the DOS stays unbiased. `calc.get_kpm_dos()`, notebook
+  [60](notebooks/60_kpm_density_of_states.ipynb).
 - **Projected, local and unfolded density of states by KPM**. The same expansion with
   chosen start vectors instead of random ones, so there is no statistical error. The
   atomic orbitals give the projected DOS, with the empty states up to the cutoff. A
