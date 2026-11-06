@@ -27804,7 +27804,9 @@ waves; `review/kpm/probe.log` on D22):
 | guard at 0.9 of the half width | `SpectralIntervalError` (test) |
 | spinor exact moments (`noncolin`, no SOC, no moment) against the scalar ones | equal (test, 1e-8 of `mu_0`) |
 | a second `kpm_moments` on another potential, centre and seed | compiles nothing (test) |
-| US silicon | refused by name (test) |
+| US silicon (`Si.pz-n-rrkjus_psl.0.1`, 2x2x2) | refused by name (test). Measured, `review/kpm/us_probe.py`: the exact moments of `H` alone count 10.190 states below the generalised gap (8 for `H x = e S x`), and `H`'s bottom is -0.3763 Ry against the generalised -0.4165; the guard does not fire (`H` alone is a valid Hermitian operator), so without the refusal the answer would be silently wrong |
+| `nspin = 2`, `tot_magnetization = 0` | the two channels' exact moments equal, and their sum the scalar run's, to 1e-7 of `mu_0`; `dos` is `(2, nE)` (test) |
+| the Jackson HWHM `width_at(N, x)` against the half width read off the series of one level, N = 800 | within 2 per cent at `x` = 0 and -0.85 (test) |
 
 The guide's cell (6x6x6 shifted, 16 Ry, R = 16, 1610 moments) gives 7.89 +- 0.15 states below
 the gap, and the notebook's (4x4x4, 12 Ry, 1212 moments) 8.232 +- 0.252.

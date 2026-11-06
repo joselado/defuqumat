@@ -204,3 +204,47 @@ def test_ultrasoft_is_refused_by_name():
     calc.get_scf()
     with pytest.raises(NotImplementedError, match="S\\^-1 H"):
         calc.get_kpm_dos(n_moments=20, n_random=1)
+
+
+def test_two_spin_channels_add_up_to_the_unpolarized_trace():
+    """``nspin = 2`` with no moment: the channels agree, and their sum is the scalar run's trace.
+
+    Each channel carries weights summing to 1 where the scalar run's sum to 2, so the
+    exact moments of the two channels add up to the scalar ones, to the converged
+    residual of the magnetization.
+    """
+    from pathlib import Path
+
+    calc, _, hamiltonians = _silicon()
+    pseudo = Path(__file__).parents[1] / "data" / "pseudo"
+    polarized = Calculator.from_keywords(
+        pseudo_dir=pseudo, announce=False, conv_thr=1e-10,
+        **{**SILICON, "qe": {"system": {"nspin": 2, "tot_magnetization": 0}}})
+    result = polarized.get_scf()
+    channels = fixed_density_hamiltonians(polarized.calculation, result.density)
+    assert len(channels) == 2
+    centre, half, _ = spectral_interval(hamiltonians)
+    scalar = kpm_moments(hamiltonians, np.asarray(calc.calculation.system.kpoints.weights),
+                         centre, half, 20, trace="exact")[0, 0]
+    both = kpm_moments(channels, np.asarray(polarized.calculation.system.kpoints.weights),
+                       centre, half, 20, trace="exact")[:, 0]
+    np.testing.assert_allclose(both[0], both[1], rtol=0, atol=1e-7 * both[0, 0])
+    np.testing.assert_allclose(both.sum(axis=0), scalar, rtol=0, atol=1e-7 * scalar[0])
+    dos = polarized.get_kpm_dos(n_moments=40, n_random=2)
+    assert dos.dos.shape == (2, dos.energies.size) and dos.nspin == 2
+
+
+@pytest.mark.parametrize("x0", [0.0, -0.85])
+def test_the_jackson_width_is_the_width_of_the_peak(x0):
+    """The half width ``width_at`` reports against the peak the series of one level gives."""
+    from defuqumat.kpm.kernels import get_kernel as kernel_named
+
+    jackson = kernel_named("jackson")
+    n_moments = 800
+    moments = np.cos(np.arange(n_moments) * np.arccos(x0))
+    x = np.linspace(x0 - 0.05, x0 + 0.05, 20001)
+    peak, _ = chebyshev_profile(moments, jackson.factors(n_moments), 0.0, 1.0, x)
+    peak = np.asarray(peak)
+    above = x[peak >= 0.5 * peak.max()]
+    measured = 0.5 * (above[-1] - above[0])
+    assert abs(measured / float(jackson.width_at(n_moments, x0)) - 1.0) < 0.02
