@@ -11565,3 +11565,33 @@ On the RTX A2000, si64: plain R = 8 2.45 s, the variate R = 1 2.07 s and R = 4 3
 cost of the variate is `9 natw` applications and an `O(npw natw^2)` SVD and Rayleigh-Ritz per k-point
 and channel; memory, the `(natw, ndim)` block and two partners for one k-point, beside the orbitals of
 every k-point.
+
+## The KPM optical conductivity (P169) against Davidson NSCF + the band sum (CPU and RTX A2000, D22, 2026-11-07)
+
+Silicon supercells at 12 Ry, one k-point, the full 3x3 tensor, Jackson kernel at a delta half width of
+0.02 Ry (N = 654 and 660), window 0.5 Ry, the Fermi level mid-gap; one core each through `slot.sh`, warm
+calls, medians of 3 seeds (`/l/ladovj1/review/kpm/sig/tsig.py`, `tsig-*.log`, `tsig-*.json`). The band
+route is `fixed_density_states` at `conv_thr = 1e-8` with `nbnd` the KPM count up to `E_VBM + 0.65` Ry
+plus 8, and then `optical_conductivity` (the same 3x3 tensor). The error is the rms over
+`0.1 < w < 0.5` Ry of the KPM `sigma_xx` minus the pair sum over those NSCF states through the same
+kernel and the same energy integral (so it is the statistical error alone), over the mean, mean of 3
+seeds. The reference codes have no counterpart: neither QE nor Elk computes a conductivity by
+Chebyshev moments, and the band sum is this code's own `run_conductivity`. Load average 8 to 12 from
+other users.
+
+| cell | NSCF (bands) + band sum | KPM R = 1 | KPM R = 4 |
+|---|---|---|---|
+| si16 | 5.67 s (79) + 0.48 s | 7.91 s, 0.376 | 28.7 s, 0.326 |
+| si64 | 84.8 s (279) + 1.82 s | 30.7 s, 0.277 | 125 s, 0.185 |
+
+The plain stochastic two-index trace is noisy: on one k-point of si64 a 5 per cent error needs of the
+order of 30 random vectors, about 900 s, ten times the band route. The cost is linear in `R`, about
+31 s a vector on si64: `(1 + ndir) N` applications of `H`, `ndir N` of the velocity and
+`ndir^2 N^2 npw` for the Gram products. With one direction it is about a third. On the RTX A2000
+(`gpu.log`, `taskset -c 0-1`): si16 1.29 s at R = 1 and 3.70 s at R = 4, si64 5.84 s and 22.6 s, warm;
+two CPU cores take 2.83 s and 9.99 s on si16. The card's `sigma` equals the CPU's to 3.1e-11 of its
+maximum (moments 4.7e-12).
+
+Memory per k-point in flight, `(ndir + 2) N ndim` complex numbers (240 MB at N = 1000, ndim = 3000,
+three directions), the moments `ndir^2 N^2` per channel summed over k, and the velocity's tangents,
+`ndir` projector tables (one more on a lazy set, whose primal is stored for the derivative).

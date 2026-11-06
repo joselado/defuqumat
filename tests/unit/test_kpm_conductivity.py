@@ -43,12 +43,15 @@ AXES = np.eye(3)
 
 
 @functools.lru_cache(maxsize=2)
-def _silicon():
+def _silicon(noncolin: bool = False):
     from pathlib import Path
 
     pseudo = Path(__file__).parents[1] / "data" / "pseudo"
+    keywords = dict(SILICON)
+    if noncolin:
+        keywords["qe"] = {"system": {"noncolin": True}}
     calc = Calculator.from_keywords(pseudo_dir=pseudo, announce=False, conv_thr=1e-10,
-                                    **SILICON)
+                                    **keywords)
     result = calc.get_scf()
     hamiltonians = fixed_density_hamiltonians(calc.calculation, result.density)
     return calc, result, hamiltonians
@@ -169,6 +172,56 @@ def test_the_conductivity_is_the_dense_kubo_greenwood_sum():
     assert np.abs(kpm.sigma[1:, 0, 0].imag).max() < 1e-10 * np.abs(reference).max()
 
 
+def test_the_off_diagonal_part_has_the_band_sums_order():
+    """``kubo_greenwood`` on the moments of random Hermitian matrices, against ``<o|v_x|c><c|v_y|o>``.
+
+    The order of ``a`` and ``b`` changes only the antisymmetric imaginary part,
+    which a crystal must make finite for a check to see it. On Si2 with one atom
+    moved it was at most 3e-6 of the diagonal at every point of a 3x3x3 grid
+    (2e-17 at the time-reversal invariant points of 2x2x2), so the order is
+    checked here on random matrices, where it is of the size of the rest; that the
+    code's moments are ``Tr[v_a T_n v_b T_m]`` is
+    :func:`test_the_exact_moments_are_the_dense_trace`.
+    """
+    from defuqumat.kpm.conductivity import kubo_greenwood
+
+    rng = np.random.default_rng(3)
+    size, n_moments, delta_e, nw = 24, 30, 0.02, 40
+
+    def hermitian():
+        m = rng.normal(size=(size, size)) + 1j * rng.normal(size=(size, size))
+        return 0.5 * (m + m.conj().T)
+
+    values = np.sort(rng.uniform(-0.9, 0.9, size))
+    v = np.stack([hermitian(), hermitian()])  # in the eigenbasis, <i|v_a|j>
+    centre, half, level, volume = 0.0, 1.0, 0.05, 100.0
+    n = np.arange(n_moments)
+    cheb = np.cos(n[:, None] * np.arccos(values)[None, :])  # (N, i)
+    # Tr[v_a T_n v_b T_m] = sum_ij v_a[i, j] T_n(e_j) v_b[j, i] T_m(e_i)
+    mu = np.einsum("aij,nj,bji,mi->abnm", v, cheb, v, cheb)
+    factors = get_kernel("jackson").factors(n_moments)
+    emin = -1.0 + 1e-3
+    got = np.asarray(kubo_greenwood(mu, factors, centre, half, volume, level, 0.0, emin,
+                                    delta_e, nw))[1:]
+    coefficients = factors * np.where(n > 0, 2.0, 1.0)
+    energies = emin + delta_e * np.arange(int((level - emin) / delta_e) + nw + 2)
+    grid = np.cos(n[:, None] * np.arccos(energies)[None, :]) / (np.pi * np.sqrt(1 - energies**2))
+    delta = (coefficients[:, None] * cheb).T @ grid  # (i, E)
+    # the band sum's order: z_ab = <i|v_a|j><j|v_b|i> with i at E (occupied), j at E + w
+    pairs = np.einsum("aij,bji->abij", v, v)
+    gamma = np.einsum("iE,abij,jF->abEF", delta, pairs, delta, optimize=True)
+    occupation = (energies < level).astype(float)
+    reference = np.zeros((nw - 1, 2, 2), dtype=complex)
+    for j in range(1, nw):
+        rows = np.arange(len(energies) - j)
+        reference[j - 1] = np.einsum("i,abi->ab", occupation[rows] - occupation[rows + j],
+                                     gamma[:, :, rows, rows + j])
+    reference *= np.pi / volume * delta_e / (delta_e * np.arange(1, nw))[:, None, None]
+    scale = np.abs(reference[:, 0, 0]).max()
+    assert np.abs(reference[:, 0, 1].imag).max() > 0.1 * scale
+    np.testing.assert_allclose(got, reference, rtol=0, atol=1e-10 * scale)
+
+
 def test_the_dense_elements_are_the_band_sums():
     """The pair sum of the dense elements in the band sum's own form is ``run_conductivity``'s ``sigma``."""
     from defuqumat.kpm.traces import whole_grid_calculation
@@ -215,6 +268,22 @@ def test_a_second_call_compiles_nothing():
     assert conductivity_moments._cache_size() == before
 
 
+def test_a_spinor_gives_the_scalar_moments():
+    """Silicon as a spinor with no magnetization: each state twice, the weights halved, the same trace."""
+    moments = []
+    for noncolin in (False, True):
+        calc, _, hamiltonians = _silicon(noncolin)
+        centre, half, _ = (spectral_interval(_silicon(False)[2]) if noncolin
+                           else spectral_interval(hamiltonians))
+        moving, tangents = velocity_tangents(calc.calculation, hamiltonians, AXES[:2])
+        weights = jnp.asarray(calc.calculation.system.kpoints.weights)
+        moments.append(np.asarray(conductivity_moments(
+            hamiltonians[0], moving[0], tuple(t[0] for t in tangents), centre, half,
+            jax.random.PRNGKey(0), weights, 10, 1, kind="exact")[0]))
+    scale = np.abs(moments[0]).max()
+    np.testing.assert_allclose(moments[1], moments[0], rtol=0, atol=1e-7 * scale)
+
+
 def test_the_guard_sees_a_spectrum_outside_the_interval():
     """With half the interval, the Chebyshev vectors grow, and the norms the guard reads say so."""
     calc, _, hamiltonians = _silicon()
@@ -228,6 +297,20 @@ def test_the_guard_sees_a_spectrum_outside_the_interval():
                                               jax.random.PRNGKey(0), weights, 16, 2)[1])
     assert inside.max() <= 1.0 + 1e-9
     assert outside.max() > 10.0
+
+
+def test_the_default_level_of_an_insulator_is_in_its_gap():
+    """With no level given, the count and the DOS of two random vectors put it between the dense edges."""
+    from defuqumat.kpm.traces import whole_grid_calculation
+
+    calc, result, _ = _silicon()
+    sigma = run_kpm_conductivity(calc.system, calc.pseudos, result.density,
+                                 calculation=calc.calculation, directions=("x",),
+                                 broadening=0.02, n_random=2, window=0.1)
+    values, _ = _dense_states(whole_grid_calculation(calc.calculation), result.density)
+    homo = max(e[3] for e in values)
+    lumo = min(e[4] for e in values)
+    assert homo < sigma.fermi_energy < lumo, (homo, sigma.fermi_energy, lumo)
 
 
 def test_the_stochastic_trace_is_unbiased():
@@ -264,3 +347,29 @@ def test_an_ultrasoft_dataset_is_refused():
     with pytest.raises(NotImplementedError, match="S\\^-1 H"):
         run_kpm_conductivity(calc.system, calc.pseudos, density, fermi_energy=0.5,
                              calculation=calc.calculation, n_moments=8)
+
+
+def test_the_control_variate_is_unbiased_and_quieter():
+    """Eight seeds at R = 2 with and without the variate, against the exact trace's ``sigma_xx``.
+
+    The variate's mean equals the exact spectrum within its standard error, and its
+    error over the spectrum is smaller than the plain trace's (the factor is
+    in ``PLAN.md`` P169).
+    """
+    calc, result, _ = _silicon()
+    options = dict(calculation=calc.calculation, directions=("x",), n_moments=64,
+                   window=0.6, delta_e=0.01, fermi_energy=result.homo + 0.02)
+    exact = run_kpm_conductivity(calc.system, calc.pseudos, result.density, trace="exact",
+                                 **options).sigma[1:, 0, 0].real
+    runs = {cv: np.stack([run_kpm_conductivity(calc.system, calc.pseudos, result.density,
+                                               n_random=2, seed=seed, control_variate=cv,
+                                               **options).sigma[1:, 0, 0].real
+                          for seed in range(8)])
+            for cv in (False, True)}
+    errors = {cv: np.sqrt(np.mean((s - exact) ** 2, axis=1)).mean() / np.abs(exact).max()
+              for cv, s in runs.items()}
+    mean = runs[True].mean(axis=0)
+    standard = runs[True].std(axis=0, ddof=1) / np.sqrt(8)
+    deviation = np.abs(mean - exact) / np.maximum(standard, 1e-12 * np.abs(exact).max())
+    assert np.median(deviation) < 2.0, np.median(deviation)
+    assert errors[True] < 0.5 * errors[False], errors

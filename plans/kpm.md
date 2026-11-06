@@ -229,3 +229,16 @@ control variate in moment space built on the Ritz pairs of the atomic orbitals a
 low-pass of degree 8: unbiased, 50 to 100x more accurate than plain random vectors at equal cost at
 R = 1, and it keeps the result object as it is. It is the candidate next to P169. Chebyshev-filtered
 subspace iteration as an NSCF solver is a separate item for the solvers.
+
+## Added after P169 (2026-11-07): what the conductivity found
+
+P169 is in (`PLAN.md` P169). Three things differ from the plan above. The comparison with the band sum
+is not an identity at finite broadening: the energy integral cuts the tails of broadened states at
+the level, so the check to round-off is the pair sum over the eigenpairs in the same form, and the band
+sum is approached as the broadening goes to zero (0.78 and 0.86 of its weight at transition widths of
+0.08 and 0.04 Ry). The Lorentz kernel's width is `1.19 lambda sqrt(1 - x^2) / N`, not `lambda / N`
+(P167's kernel table, fixed). And the plain two-index trace is noisy: on one k-point of si64 one vector
+gives 28 per cent, so the bands win at 64 atoms. The next step is the control variate of P170 in the
+two-index form: with the Ritz pairs `(theta_j, y_j)` of the filtered orbitals, the sample
+`n_live <r|P v_b P T_n(H_P) P v_a P T_m(H_P) P|r>` costs `O(N natw^2 + N^2 natw)` per vector and has the
+known mean `sum_jl (v_b)_jl T_n(theta_l) (v_a)_lj T_m(theta_j)`.

@@ -212,6 +212,14 @@ from the tetrahedron method, as the `occupations` variable says.
   a defect. `calc.get_kpm_pdos()`, `calc.get_kpm_ldos(points)`,
   `calc.get_kpm_unfolded(primitive_lattice, kpoints)`, notebook
   [61](notebooks/61_kpm_unfolding.ipynb).
+- **Optical conductivity by KPM**. This is the Kubo-Greenwood formula,
+  $\mathrm{Re}\,\sigma_{ab}(\omega) \propto \frac{1}{\omega}\int dE\,[f(E) - f(E+\omega)]\,
+  \mathrm{Tr}[v_b\,\delta(E-H)\,v_a\,\delta(E+\omega-H)]$, with no band computed. The
+  code expands both delta functions in Chebyshev polynomials of $H$, and the velocity
+  $v_a = \partial H/\partial k_a$ includes the nonlocal part of the pseudopotential.
+  It is meant for large supercells, for example a defect or disorder, where the sum over
+  bands needs many empty bands. `calc.get_kpm_conductivity()`, notebook
+  [62](notebooks/62_kpm_optical_conductivity.ipynb).
 - **Band velocities**, $\mathbf v_{n\mathbf k} = \partial\epsilon_{n\mathbf k}/\partial\mathbf k$.
   They give the group velocity and the Drude weight.
   `calc.get_band_velocities()`, notebook [19](notebooks/19_linear_response.ipynb).
@@ -755,6 +763,7 @@ task of the other code that it refers to.
 | **Density of states** | `calc.get_dos()` | ✓ | ✓ |
 | **Projected density of states**, by atom, $l$, $m$ and $j$ | `calc.get_pdos()` | ✓ | (✓)¹ |
 | **Density of states without bands**, by the kernel polynomial method: total, spin-resolved, projected, local and unfolded to a primitive cell | `calc.get_kpm_dos()`, `calc.get_kpm_pdos()`, `calc.get_kpm_ldos()`, `calc.get_kpm_unfolded()` | | |
+| **Optical conductivity without bands**, Kubo-Greenwood by the kernel polynomial method | `calc.get_kpm_conductivity()` | | |
 | **Band velocities** | `calc.get_band_velocities()` | (✓)² | |
 | **Effective mass tensor** | `calc.get_effective_mass(kpoint)` | | ✓ |
 | **Starting from an all-electron ground state**³ | `calc.get_elk_seed(directory)` | | |

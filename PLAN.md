@@ -204,9 +204,10 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
-- **The kernel polynomial method beyond P167 and P168** (`plans/kpm.md`): the stochastic STM map at
-  fixed energies, and the two-index Kubo-Greenwood conductivity of P169; ultrasoft and PAW (`S^-1 H`
-  with moments in the S-form), `gamma_only` and the spiral, refused by name.
+- **The kernel polynomial method beyond P167 to P170** (`plans/kpm.md`): the stochastic STM map at
+  fixed energies; the noise of P169's two-index conductivity (a control variate as P170's), its
+  reactive part and the Kubo-Bastin `sigma_xy`, and DFT+U there; ultrasoft and PAW (`S^-1 H` with
+  moments in the S-form), `gamma_only` and the spiral, refused by name.
 - **Wannier functions beyond P162 to P166** (site symmetry is the default since P166, with a
   named fallback): spinor projections and spinor PDWF, `gamma_only`,
   SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the
@@ -28009,3 +28010,83 @@ investigated further.
 **What is outstanding.** The variate on the PDOS's noise is moot (that trace is exact), but the
 stochastic unfolding and the spin-resolved trace could take it; a cheaper Ritz step (it is
 `O(npw natw^2)`, Davidson's scaling); ultrasoft and PAW as before.
+
+### P169 -- The optical conductivity by a two-index Chebyshev expansion, `get_kpm_conductivity`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, ten fast tests, with the other 23 KPM tests on D22 CPU and the first six on the RTX A2000; the gate was not run; no slow file; branch `kpm-sigma` from b611deab, not merged, not pushed)
+
+**What is in.** `defuqumat/kpm/conductivity.py`. The absorptive Kubo-Greenwood tensor
+`sigma'_ab(w) = (pi / (Omega w)) sum_k w_k int dE [f(E) - f(E + w)] Tr[v_b delta(E - H) v_a delta(E + w - H)]`
+from the two-index moments `mu^ab_nm = Tr[v_a T_n(H') v_b T_m(H')] = <T_n v_a r|v_b T_m r>`: per random
+vector (or unit vector, `trace="exact"`) one recursion from `r` and one from `v_a r` per direction, the
+velocity applied to the first family, and the Gram products, summed over k inside `sum_k` and over the
+vectors inside a `lax.scan`, so the result is `ndir^2 N^2` whatever `nk` and `R` are. **The velocity**
+is the `jvp` of `H psi` in the parts of `H(k)` that carry `k` (`kinetic`, `projectors`, `hubbard`),
+with their tangents built once by one `jvp` of `Calculation.at_kcart` per direction
+(`velocity_tangents`, `apply_velocity`); the local potential is not an argument, so its FFTs have a
+zero tangent and the primal is dead code. **The primal must come from `at_kcart` too**: on a CPU in
+`memory` mode the Hamiltonian's projector set is lazy (`stored = None`, rebuilt from `core`) while
+`at_kcart`'s is stored, and a stored tangent does not fit a lazy primal's pytree (the first run failed
+on exactly that). The guard is the norm of `T_n r`, which a spectrum outside the interval makes grow
+(tested: 10x at half the interval). The assembly (`kubo_greenwood`) is `A^T mu A` on a uniform grid
+whose step is the frequency step, `w = 0` the DC limit; `level_from_count` gives a level from the
+count and DOS of the same vectors; one level per channel under a constrained moment. A reduced k-set
+is replaced by its whole grid (`whole_grid_calculation`): a tensor is not completed by the wedge's
+weights.
+
+**The order of `a` and `b` is the band sum's, and silicon cannot show it.** The trace gives
+`<c|v_a|o><o|v_b|c>`, the conjugate of `optical_conductivity`'s `z_ab = <o|v_a|c><c|v_b|o>`, so the
+first version's `sigma'_ab` was the band sum's `sigma'_ba`: the diagonal right and the absorptive Hall
+part of the wrong sign. Found by reading, while writing the Limits note. A crystal check needs a finite
+antisymmetric imaginary part at one k-point, and none was found: on Si2 with one atom moved to
+(0.283, 0.241, 0.207), `Im sigma'_xy` was 2e-17 of the diagonal at the time-reversal invariant points
+of 2x2x2 and at most 3e-6 at every point of 3x3x3 (not understood: a one-k Berry curvature of that
+size was expected). So the order is tested on the moments of random Hermitian matrices through
+`kubo_greenwood`, against the pair sum in the band sum's order, where the imaginary part is of the size
+of the rest; with the old order that test fails.
+
+**The numbers.** Si2 at 12 Ry, 2x2x2:
+- The exact two-index moments against the dense route (every eigenpair of `Hamiltonian.matrix` and
+  `VelocityOperator.matrix_elements` of those eigenvectors, a separate `jvp` of the whole `H(k)`),
+  all nine components, to 1e-9 of their largest.
+- `sigma'_xx` from the moments against the pair sum over every eigenpair with the same kernel deltas
+  and the same energy integral, written out in the test, to 1e-8; and those dense elements in the band
+  sum's own form against `run_conductivity` at `nbnd = 80`, to 2e-4.
+- The spinor run of the same silicon against the scalar one, the same moments to 1e-7.
+- Over 16 seeds at R = 2 the mean of the stochastic moments equals the exact ones within 5 standard
+  errors (median 2); a second call on another potential compiles nothing; the default level of the
+  insulator lies between the dense band edges; ultrasoft refused.
+
+**KPM is not the band sum at finite broadening, and the difference is physics.** The energy integral
+occupies broadened states by energy, so the part of a broadened state across the level is cut, and the
+weight is `1/w` where the band sum has `1/e_mn`. Exact trace, Lorentz kernel, against
+`run_conductivity` at the transition width (`probe_sigma.py`, `q-*.log`):
+
+| delta HWHM | transition | N | peak, KPM / band sum | weight over 0.1 to 0.8 Ry, KPM / band sum | max diff in 0.12 to 0.40 Ry |
+|---|---|---|---|---|---|
+| 0.04 Ry | 0.080 Ry | 318 | 0.515 / 0.601 | 0.78 | 0.16 of the peak |
+| 0.02 Ry | 0.040 Ry | 636 | 0.793 / 0.841 | 0.86 | 0.20 of the peak |
+
+On Si8 at 2x2x2 with smearing (notebook 62) the Lorentz-kernel peak is 0.408 against 0.408 for the
+band sum at 56 bands. **The Lorentz kernel's width was wrong** (P167's `kernels.py`, found by the fable
+review of this phase): its peak's half width is `1.19 lambda sqrt(1 - x^2) / N` in `x`
+(`LORENTZ_HWHM = 1.1919166`, the continuum root, measured 1.1915 at N = 400), not `lambda / N` flat,
+37 per cent too wide at `x = -0.85`. Fixed, with the width test now parametrized over both kernels;
+the default kernel (Jackson) was right to 0.8 per cent.
+
+**Cost and noise** (`PERFORMANCE.md`, P169): one k-point, the 3x3 tensor, Jackson at 0.02 Ry; error the
+rms over 0.1 to 0.5 Ry against the pair sum of the NSCF states through the same kernel:
+si16 R = 1 7.91 s and 0.376, R = 4 28.7 s and 0.326 (NSCF 5.67 s + band sum 0.48 s); si64 R = 1 30.7 s
+and 0.277, R = 4 125 s and 0.185 (NSCF 84.8 s, 279 bands, + 1.82 s). **The plain two-index trace is
+much noisier than the DOS**: a 5 per cent spectrum on si64 needs of the order of 30 vectors, ten times
+the band route, so at 64 atoms the bands win. The card: si64 5.84 s at R = 1 and 22.6 s at R = 4, warm;
+`sigma` equal to the CPU's to 3.1e-11.
+
+**Refused**: ultrasoft and PAW, `gamma_only`, the spiral (as P167); DFT+U (the Hubbard orbitals'
+tangent is built but nothing has compared it with the band sum's); `lelfield`'s `H_E`. Not in: the
+reactive part (a Kramers-Kronig of this, or a Green's-function kernel, the Kubo-Bastin form of
+`plans/kpm.md`), a separate Drude term (the `w = 0` entry is the broadened Kubo-Greenwood DC
+conductivity), the plan's blocking over `n` (the families are held whole, `(ndir + 2) N ndim` per
+k-point in flight), and an error bar (the samples are summed in the scan).
+
+**What is outstanding.** The noise: the control variate of P170 carried to the two-index trace
+(Ritz pairs of the filtered orbitals, `P v P` and `T_n(theta)` in that space, whose trace is known);
+the Kubo-Bastin `sigma_xy` checked against the anomalous Hall conductivity of iron; DFT+U.

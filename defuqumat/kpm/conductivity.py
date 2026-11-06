@@ -3,10 +3,16 @@
 The Kubo-Greenwood formula for the absorptive part of the conductivity,
 
     sigma'_ab(w) = (pi / (Omega w)) sum_k w_k int dE [f(E) - f(E + w)]
-                   Tr[v_a delta(E - H) v_b delta(E + w - H)],
+                   Tr[v_b delta(E - H) v_a delta(E + w - H)],
 
 has no band index in it: the transition from ``E`` to ``E + w`` is weighted by
-the velocity matrix elements between whatever states sit there. Expanding both
+the velocity matrix elements between whatever states sit there. **The order of
+``a`` and ``b`` is the band sum's**: the trace is ``sum <c|v_b|o><o|v_a|c>`` over
+occupied ``o`` at ``E`` and empty ``c`` at ``E + w``, which is ``z_ab = <o|v_a|c>
+<c|v_b|o>`` of :mod:`defuqumat.response.conductivity`, so the Hermitian tensor
+here is the absorptive part of that one and an absorptive Hall part has its
+sign. With ``a`` and ``b`` the other way round the diagonal is the same and the
+antisymmetric part changes sign. Expanding both
 deltas in Chebyshev polynomials of ``H' = (H - centre) / half``,
 
     delta(E - H) = sum_n g_n (2 - delta_n0) T_n(x) T_n(H') / (pi half sqrt(1 - x^2)),
@@ -116,11 +122,13 @@ def velocity_tangents(calculation, hamiltonians, directions, ns=None) -> tuple:
         raise NotImplementedError(
             "the KPM conductivity does not carry lelfield's H_E term: it couples "
             "neighbouring k-points and has no velocity at one k")
-    if calculation.is_hubbard and ns is None:
-        raise ValueError(
-            "the KPM conductivity with a Hubbard U needs the converged occupation "
-            "matrix: pass ns = scf_result.ns. The Hubbard orbitals live at k+G and "
-            "carry a velocity of their own")
+    if calculation.is_hubbard:
+        # The tangent of the Hubbard orbitals is built (``hubbard_terms`` at the
+        # moved k), but no test has compared it with the band sum's.
+        raise NotImplementedError(
+            "the KPM conductivity with a Hubbard U is not checked: the Hubbard orbitals "
+            "live at k+G and carry a velocity of their own, and nothing has compared "
+            "that term with get_optical_conductivity's. Use get_optical_conductivity")
     # the k the arrays are at, as the velocity operator reads it (a strained
     # calculation keeps its own)
     kcart = getattr(calculation, "_kcart", None)
@@ -256,6 +264,78 @@ def conductivity_moments(hamiltonian, moving, tangents, centre, half, key, weigh
     return mu, norms / norm0, dos
 
 
+# -- the control variate -------------------------------------------------------
+
+@functools.partial(jax.jit, static_argnames=("n_moments", "n_random"))
+def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre, half,
+                  n_moments: int, n_random: int):
+    """``(ndir, ndir, N, N)``: the control variate's correction to one k-point's moments.
+
+    With the Ritz pairs ``(theta_j, y_j)`` of :func:`~defuqumat.kpm.control.ritz_pairs`,
+    ``P = sum_j |y_j><y_j|`` and ``V^a_jl = <y_j|v_a|y_l>``, the model sample of a
+    random vector ``r`` is ``n_live <r|P v_a P T_n(H_P) P v_b P T_m(H_P) P|r>``,
+    ``n_live sum_jlp conj(c_j) V^a_jl T_n(theta_l) V^b_lp T_m(theta_p) c_p`` with
+    ``c = <y|r>``, and its expectation is ``sum_lp V^a_pl T_n(theta_l) V^b_lp
+    T_m(theta_p)`` exactly, since ``E[n_live c_p conj(c_j)] = delta_jp`` for
+    orthonormal ``y`` on the live sphere. The correction is the expectation minus
+    the mean of the model samples over the same random vectors
+    :func:`conductivity_moments` draws at ``ik``, so it is unbiased whatever the
+    pairs are, and it removes the noise of the transitions inside ``P``. Not
+    weighted by ``w_k``.
+    """
+    live = live_mask(hamiltonian)[ik]
+    dtype = hamiltonian.dtype
+    ndir = len(tangents)
+    vectors = jnp.where(live, vectors, 0.0)
+    elements = [jnp.conj(vectors) @ apply_velocity(hamiltonian, moving, tangents[a],
+                                                    vectors, ik).T for a in range(ndir)]
+    x = jnp.clip((theta - centre) / half, -1.0, 1.0)
+    n = jnp.arange(n_moments, dtype=x.dtype)
+    cheb = jnp.cos(n[:, None] * jnp.arccos(x)[None, :]).astype(dtype)  # (N, M)
+    starts = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
+    c = jnp.conj(vectors) @ starts.T  # (M, R): <y_j|r>
+    count = jnp.sum(live).astype(x.dtype)
+    rows = []
+    for a in range(ndir):
+        row = []
+        for b in range(ndir):
+            exact = cheb @ (elements[a].T * elements[b]) @ cheb.T
+            left = cheb[:, :, None] * (elements[a].T @ jnp.conj(c))[None]  # (N, M, R)
+            right = jnp.einsum("mp,pr,lp->mlr", cheb, c, elements[b])
+            model = count * jnp.einsum("nlr,mlr->nm", left, right) / n_random
+            row.append(exact - model)
+        rows.append(jnp.stack(row))
+    return jnp.stack(rows)
+
+
+def variate_corrections(calculation, hamiltonians, moving, tangents, weights, centre, half,
+                        n_moments, n_random, seed, cut, degree):
+    """``(nspin, ndir, ndir, N, N)``: the k-weighted corrections of every channel."""
+    from defuqumat.kpm.control import ritz_pairs
+    from defuqumat.projwfc.projections import atomic_orbitals
+
+    orbitals = jnp.swapaxes(atomic_orbitals(calculation), 1, 2)  # (nk, natw, ndim)
+    top = centre + half
+    cut_centre, cut_half = 0.5 * (top + cut), 0.5 * (top - cut)
+    key = jax.random.PRNGKey(seed)
+    weights = np.asarray(weights)
+    out = []
+    for channel, hamiltonian in enumerate(hamiltonians):
+        tangent = tuple(t[channel] for t in tangents)
+        channel_key = jax.random.fold_in(key, channel)
+        total = 0.0
+        for ik in range(orbitals.shape[0]):
+            if weights[ik] == 0.0:
+                continue
+            theta, vectors = ritz_pairs(hamiltonian, ik, orbitals[ik], cut_centre, cut_half,
+                                        degree)
+            total = total + weights[ik] * np.asarray(variate_block(
+                hamiltonian, moving[channel], tangent, ik, channel_key, theta, vectors,
+                centre, half, n_moments, n_random))
+        out.append(total)
+    return np.stack(out)
+
+
 # -- from the moments to a spectrum -------------------------------------------
 
 def delta_table(factors, centre: float, half: float, energies):
@@ -292,7 +372,9 @@ def kubo_greenwood(moments, factors, centre: float, half: float, volume: float,
 
     The energy grid is uniform from ``emin`` in steps of ``delta_e``, so
     ``E_i + w_j`` is on it. ``Gamma_ab(E, E') = Tr[v_a delta(E - H) v_b
-    delta(E' - H)]`` is ``A^T mu A`` with ``A`` the :func:`delta_table`; the
+    delta(E' - H)]`` is ``A^T mu A`` with ``A`` the :func:`delta_table`, and
+    ``sigma'_ab`` is built from ``Gamma_ba`` (the band sum's order, see the module
+    docstring); the
     ``w = 0`` entry is the limit ``(pi / Omega) int dE (-f'(E)) Gamma(E, E)``,
     the Kubo-Greenwood DC conductivity, which is zero for an insulator. In
     Hartree atomic units when the energies are in Ry and the velocity in
@@ -309,13 +391,13 @@ def kubo_greenwood(moments, factors, centre: float, half: float, volume: float,
     shifts = jnp.arange(1, n_frequencies)
     columns = rows[:, None] + shifts[None, :]  # (nlow, nw - 1): E_i + w_j
     weight = occupation[rows][:, None] - occupation[columns]
-    sigma = delta_e * jnp.einsum("ij,abij->jab", weight, gamma[:, :, rows[:, None], columns])
+    sigma = delta_e * jnp.einsum("ij,abij->jba", weight, gamma[:, :, rows[:, None], columns])
     w = delta_e * np.arange(1, n_frequencies)
     sigma = math.pi / volume * sigma / jnp.asarray(w)[:, None, None]
     # w -> 0: [f(E) - f(E + w)] / w -> -f'(E)
     if temperature > 0.0:
         slope = occupation * (1.0 - occupation) / temperature
-        dc = delta_e * jnp.einsum("i,abi->ab", slope[:n_low],
+        dc = delta_e * jnp.einsum("i,abi->ba", slope[:n_low],
                                   gamma[:, :, rows, rows])
     else:
         x = (fermi_energy - centre) / half
@@ -323,7 +405,7 @@ def kubo_greenwood(moments, factors, centre: float, half: float, volume: float,
             dc = jnp.zeros(gamma.shape[:2], gamma.dtype)
         else:
             at_level = delta_table(factors, centre, half, jnp.asarray([fermi_energy]))[:, 0]
-            dc = jnp.einsum("n,abnm,m->ab", at_level, jnp.asarray(moments), at_level)
+            dc = jnp.einsum("n,abnm,m->ba", at_level, jnp.asarray(moments), at_level)
     dc = math.pi / volume * dc
     return jnp.concatenate([dc[None], sigma], axis=0)
 
@@ -351,28 +433,37 @@ def channel_sum(moments, factors, centre, half, volume, levels, temperature, emi
 
 
 def level_from_count(dos_moments, factors, centre: float, half: float, nelec: float,
-                     emin: float, emax: float, delta_e: float, tolerance: float = 0.01) -> float:
-    """The middle of the energies where the count is within ``tolerance nelec`` of ``nelec``.
+                     emin: float, emax: float, delta_e: float, tolerance: float = 0.5) -> float:
+    """A Fermi level from the trace moments of the same start vectors.
 
-    For a metal that range is narrow and its middle is the Fermi level; for an
-    insulator it is the gap, as the kernel broadens its edges, and its middle
-    is mid-gap, which is where a step occupation of broadened bands belongs.
+    The stretch of energies around the crossing where the count is within
+    ``max(tolerance, nelec / 100)`` electrons of ``nelec`` is a gap for an
+    insulator and a narrow window for a metal; the level is the middle of the
+    part of it where the DOS is within a tenth of its range of its minimum. A
+    stochastic count carries the noise of every band below it as an offset, so
+    a tight window on the count alone misses the gap (measured: 0.430 Ry, below
+    a valence-band top at 0.452, with a one per cent window on Si2 4x4x4 at
+    R = 4); the DOS minimum does not move with that offset.
     """
     from defuqumat.kpm.profile import chebyshev_profile
 
     energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)
-    _, count = chebyshev_profile(np.asarray(dos_moments), factors, centre, half, energies)
+    dos, count = chebyshev_profile(np.asarray(dos_moments), factors, centre, half, energies)
+    dos = np.asarray(dos).reshape(-1, energies.size).sum(axis=0)
     count = np.asarray(count).reshape(-1, energies.size).sum(axis=0)
-    near = np.abs(count - nelec) <= tolerance * nelec
-    if not near.any():
-        crossing = int(np.argmin(np.abs(count - nelec)))
+    near = np.abs(count - nelec) <= max(tolerance, 0.01 * nelec)
+    crossing = int(np.argmin(np.abs(count - nelec)))
+    if not near[crossing]:
         return float(energies[crossing])
-    # the run of grid points around the first crossing
-    first = int(np.argmax(near))
-    last = first
+    first = last = crossing
+    while first > 0 and near[first - 1]:
+        first -= 1
     while last + 1 < near.size and near[last + 1]:
         last += 1
-    return float(0.5 * (energies[first] + energies[last]))
+    window = dos[first:last + 1]
+    low = window <= window.min() + 0.1 * (window.max() - window.min())
+    picked = energies[first:last + 1][low]
+    return float(0.5 * (picked[0] + picked[-1]))
 
 
 # -- the result and the entry point -------------------------------------------
@@ -386,8 +477,10 @@ class KPMConductivity:
         sigma: ``(nw, ndir, ndir)`` complex, Hartree atomic units: the
             absorptive (Hermitian) part of ``sigma_ab(w)``. Its diagonal is
             ``Re sigma_aa``; the antisymmetric imaginary part of an off-diagonal
-            entry is the absorptive Hall part. Entry ``0`` is the DC
-            conductivity ``(pi / Omega) int dE (-f'(E)) Tr[v_a delta v_b delta]``.
+            entry is the absorptive Hall part, with the sign of
+            :func:`~defuqumat.response.conductivity.optical_conductivity`'s.
+            Entry ``0`` is the DC conductivity
+            ``(pi / Omega) int dE (-f'(E)) Tr[v_b delta v_a delta]``.
         directions: the cartesian unit vectors of the rows, ``(ndir, 3)``.
         moments: ``(nspin, ndir, ndir, N, N)`` complex, summed over k with the
             k weights, so another kernel, Fermi level or temperature is
@@ -448,6 +541,19 @@ class KPMConductivity:
         out[0] = np.nan
         return out
 
+    def broadening_for(self, kernel: str) -> float:
+        """The half width of a transition (Ry) with ``kernel`` at this ``N``, at the Fermi level.
+
+        What :meth:`reconstructed` with that kernel gives, so a band sum can be
+        handed the same width.
+        """
+        chosen = get_kernel(kernel)
+        if chosen.width_at is None:
+            return math.nan
+        x = (float(np.mean(self.fermi_energy)) - self.centre) / self.half_width
+        one = float(self.half_width * chosen.width_at(self.n_moments, x))
+        return (2.0 if chosen.name == "lorentz" else math.sqrt(2.0)) * one
+
     def reconstructed(self, *, kernel: str | None = None, n_moments: int | None = None,
                       fermi_energy: float | None = None, temperature: float | None = None,
                       n_frequencies: int | None = None) -> np.ndarray:
@@ -486,7 +592,9 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
                          broadening: float = 0.02, n_moments: int | None = None,
                          kernel: str = "jackson", trace: str = "stochastic",
                          n_random: int = 4, seed: int = 0, temperature: float = 0.0,
-                         delta_e: float | None = None, lanczos_steps: int | None = None,
+                         delta_e: float | None = None, control_variate: bool = False,
+                         filter_degree: int | None = None, filter_cut: float | None = None,
+                         lanczos_steps: int | None = None,
                          edge_margin: float | None = None, k_batch="default", ns=None,
                          tau=None, becsum: tuple = (), field=None, field_scale=None,
                          calculation=None) -> KPMConductivity:
@@ -495,10 +603,9 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
     Args:
         system, pseudos, density: the converged run.
         fermi_energy: Ry, where the occupation steps (smeared by
-            ``temperature``). If not given, the middle of the energies where
-            the count of the same start vectors is within one per cent of the
-            electron count (:func:`level_from_count`): the Fermi level of a
-            metal, mid-gap for an insulator. A level at the top of the valence
+            ``temperature``). If not given, it is read off the count and the
+            DOS of the same start vectors (:func:`level_from_count`): the Fermi
+            level of a metal, inside the gap of an insulator. A level at the top of the valence
             band would cut the broadened top states in half. A pair, one level
             per spin channel, for a run with a constrained moment.
         directions: the cartesian axes of the tensor, names or 3-vectors; each
@@ -516,6 +623,12 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         temperature: of the Fermi function, Ry; zero is a step.
         delta_e: the energy and frequency step, Ry; a fifth of the broadening
             if not given.
+        control_variate: subtract from each random sample the same trace in the
+            span of the low-pass-filtered atomic orbitals and add back its exact
+            value (:func:`variate_block`): unbiased, with the noise of the
+            transitions inside that span removed. Stochastic trace only.
+        filter_degree, filter_cut: the low-pass filter, degree 8 and a cut at
+            ``E_F + max(1, window + 0.4)`` Ry when not given.
         lanczos_steps, edge_margin: the interval (:func:`~defuqumat.kpm.bounds.spectral_interval`).
         ns, tau, becsum, field, field_scale: the rest of the converged state.
         calculation: the SCF's own.
@@ -588,6 +701,18 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
                                         float(calculation.nelec), emin, centre + half,
                                         delta_e)
     levels = channel_levels(fermi_energy, len(hamiltonians))
+    if control_variate:
+        from defuqumat.kpm.control import FILTER_DEGREE
+
+        if trace != "stochastic":
+            raise ValueError("control_variate reduces the noise of random vectors; the exact "
+                             "trace has none")
+        cut = float(levels.max()) + (max(1.0, window + 0.4) if filter_cut is None
+                                     else float(filter_cut))
+        moments = moments + variate_corrections(
+            calculation, hamiltonians, moving, tangents, np.asarray(weights), centre, half,
+            n_moments, n_random, seed, cut,
+            FILTER_DEGREE if filter_degree is None else int(filter_degree))
     n_frequencies = int(round(window / delta_e)) + 1
     sigma = channel_sum(moments, factors, centre, half, float(calculation.system.cell.volume),
                         levels, temperature, emin, delta_e, n_frequencies)
