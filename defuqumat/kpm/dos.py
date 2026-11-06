@@ -82,6 +82,9 @@ class KPMDensityOfStates:
     nspin: int
     nelec: float
     fermi_energy: float | None = None
+    #: ``(3, nE)``: ``sum_k w_k Tr[sigma_i delta(E - H_k)]`` for a spinor, the
+    #: spin density of states along x, y and z (``spin_resolved=True``), else ``None``.
+    spin_dos: np.ndarray | None = None
 
     @property
     def moments(self) -> np.ndarray:
@@ -101,6 +104,26 @@ class KPMDensityOfStates:
         _, count = _evaluate(self.moments, self.kernel, self.n_moments, self.centre,
                              self.half_width, np.array([energy]))
         return float(np.sum(count))
+
+    def fermi_level(self, nelec: float | None = None, tol: float = 1e-8) -> float:
+        """The energy where :meth:`count_at` reaches ``nelec`` (the run's own by default), by bisection.
+
+        No band is used, so this is the Fermi level of a cell too large to
+        diagonalise; in a gap any energy with the right count is a solution and
+        the bisection returns one of them. Its error follows from
+        :meth:`count_error_at` divided by the DOS there.
+        """
+        target = self.nelec if nelec is None else float(nelec)
+        low, high = self.centre - self.half_width, self.centre + self.half_width
+        if not self.count_at(low) <= target <= self.count_at(high):
+            raise ValueError(f"{target} states are outside the interval's count")
+        while high - low > tol:
+            middle = 0.5 * (low + high)
+            if self.count_at(middle) < target:
+                low = middle
+            else:
+                high = middle
+        return 0.5 * (low + high)
 
     def count_error_at(self, energy: float) -> float:
         """The standard error of :meth:`count_at` over the random vectors (0 if exact)."""
@@ -238,6 +261,7 @@ def run_kpm_dos(
     lanczos_steps: int = LANCZOS_STEPS,
     edge_margin: float = EDGE_MARGIN,
     fermi_energy: float | None = None,
+    spin_resolved: bool = False,
     k_batch="default",
     ns=None,
     tau=None,
@@ -266,6 +290,8 @@ def run_kpm_dos(
             middle of the window.
         lanczos_steps, edge_margin: how the interval is estimated
             (:func:`~defuqumat.kpm.bounds.spectral_interval`).
+        spin_resolved: for a spinor, also ``Tr[sigma_i delta(E - H)]`` on the
+            same random vectors, as ``spin_dos``; refused for another regime.
         fermi_energy: recorded on the result and used for the default window;
             the highest occupied level for an insulator, as
             :meth:`~defuqumat.calculator.Calculator.get_kpm_dos` passes it.
@@ -273,6 +299,39 @@ def run_kpm_dos(
             as for :func:`~defuqumat.workflows.nscf.run_nscf`.
         calculation: the SCF's own, moved to ``kpoints`` if given.
     """
+    setup = kpm_setup(system, pseudos, density, kpoints=kpoints, k_batch=k_batch, ns=ns,
+                      tau=tau, becsum=becsum, field=field, field_scale=field_scale,
+                      calculation=calculation)
+    calculation, hamiltonians, batch = setup
+    (centre, half, emin, emax, reference_energy, n_moments,
+     broadening) = interval_and_moments(hamiltonians, batch, seed, lanczos_steps, edge_margin,
+                                        emin, emax, reference_energy, fermi_energy,
+                                        broadening, n_moments, kernel)
+
+    weights = np.asarray(calculation.system.kpoints.weights)
+    samples = kpm_moments(hamiltonians, weights, centre, half, n_moments,
+                          n_random=n_random, seed=seed, trace=trace, k_batch=batch)
+    energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)
+    dos, integrated, error = _assemble(samples, kernel, n_moments, centre, half,
+                                       energies, trace)
+    spin = None
+    if spin_resolved:
+        spin = spin_resolved_dos(hamiltonians, weights, centre, half, n_moments, n_random,
+                                 seed, kernel, energies, batch)
+    return KPMDensityOfStates(
+        energies=energies, dos=dos, integrated=integrated, dos_error=error, spin_dos=spin,
+        samples=samples, centre=centre, half_width=half, kernel=kernel,
+        n_moments=n_moments, broadening=broadening,
+        reference_energy=float(reference_energy), trace=trace,
+        n_random=n_random if trace == "stochastic" else 0, seed=seed,
+        nspin=len(hamiltonians) if len(hamiltonians) == 2 else 1,
+        nelec=float(calculation.nelec), fermi_energy=fermi_energy,
+    )
+
+
+def kpm_setup(system, pseudos, density, *, kpoints=None, k_batch="default", ns=None, tau=None,
+              becsum=(), field=None, field_scale=None, calculation=None):
+    """``(calculation, hamiltonians, k_batch)`` at a fixed density, the KPM regimes checked."""
     import equinox as eqx
 
     from defuqumat.batching import resolve_k_batch
@@ -290,12 +349,16 @@ def run_kpm_dos(
         calculation, density, ns=ns, tau=tau, becsum=becsum, field=field,
         field_scale=field_scale)
     require_a_kpm_regime(calculation, hamiltonians)
-    batch = resolve_k_batch(calculation.k_batch)
+    return calculation, hamiltonians, resolve_k_batch(calculation.k_batch)
 
+
+def interval_and_moments(hamiltonians, batch, seed, lanczos_steps, edge_margin, emin, emax,
+                         reference_energy, fermi_energy, broadening, n_moments, kernel):
+    """The interval, the energy window and the moment count, from what the caller gave."""
     centre, half, bottom = spectral_interval(hamiltonians, seed=seed, steps=lanczos_steps,
                                              margin=edge_margin, k_batch=batch)
     if emin is None or emax is None:
-        low, high = default_window(bottom, fermi_energy, broadening, delta_e)
+        low, high = default_window(bottom, fermi_energy, broadening, None)
         emin = low if emin is None else emin
         emax = high if emax is None else emax
     if reference_energy is None:
@@ -308,19 +371,22 @@ def run_kpm_dos(
         broadening = float(half * chosen.width_at(n_moments, x_reference))
     else:
         broadening = math.nan
+    return centre, half, emin, emax, float(reference_energy), n_moments, broadening
 
-    weights = np.asarray(calculation.system.kpoints.weights)
-    samples = kpm_moments(hamiltonians, weights, centre, half, n_moments,
-                          n_random=n_random, seed=seed, trace=trace, k_batch=batch)
-    energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)
-    dos, integrated, error = _assemble(samples, kernel, n_moments, centre, half,
-                                       energies, trace)
-    return KPMDensityOfStates(
-        energies=energies, dos=dos, integrated=integrated, dos_error=error,
-        samples=samples, centre=centre, half_width=half, kernel=kernel,
-        n_moments=n_moments, broadening=broadening,
-        reference_energy=float(reference_energy), trace=trace,
-        n_random=n_random if trace == "stochastic" else 0, seed=seed,
-        nspin=len(hamiltonians) if len(hamiltonians) == 2 else 1,
-        nelec=float(calculation.nelec), fermi_energy=fermi_energy,
-    )
+
+def spin_resolved_dos(hamiltonians, weights, centre, half, n_moments, n_random, seed, kernel,
+                      energies, batch):
+    """``(3, nE)``: the spin density of states of a spinor, ``sum_k w_k Tr[sigma_i delta(E - H)]``."""
+    from defuqumat.kpm.moments import spin_moments
+
+    if len(hamiltonians) != 1 or not hasattr(hamiltonians[0], "_as_state"):
+        raise ValueError("spin_resolved needs a spinor (noncollinear) run; a collinear "
+                         "run's spin channels are already the two rows of dos")
+    hamiltonian = hamiltonians[0]
+    key = jax.random.fold_in(jax.random.PRNGKey(seed), 0)
+    raw = np.asarray(spin_moments(hamiltonian, centre, half, key, n_moments, n_random,
+                                  k_batch=batch))  # (nk, 3, R, N)
+    live = np.asarray(jnp.sum(live_mask(hamiltonian), axis=-1), dtype=float)
+    moments = np.einsum("k,kirn->in", np.asarray(weights) * live, raw) / n_random
+    dos, _ = _evaluate(moments, kernel, n_moments, centre, half, energies)
+    return dos

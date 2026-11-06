@@ -121,9 +121,69 @@ def chebyshev_moments(hamiltonian, centre, half, key, n_steps: int, n_random: in
             start = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
         elif kind == "exact":
             start = unit_vectors(live, dtype)
+        else:
+            start = jnp.where(live, start.astype(dtype), 0.0)
         return recursion(apply, start, n_steps)
 
     indices = jnp.arange(mask.shape[0])
     if kind == "given":
         return map_k(one_k, (indices, given), batch=k_batch)
     return map_k(lambda ik: one_k((ik, None)), indices, batch=k_batch)
+
+
+def cross_recursion(apply, start, bra, n_moments: int):
+    """``(R, n_moments)``: ``<bra|T_n(H')|start>``, one application per moment.
+
+    The operator-weighted moments of pyqula's ``kpm_moments_A_batch``: with
+    ``bra = A start`` for a Hermitian ``A`` they are ``<start|A T_n(H')|start>``,
+    whose stochastic average is ``Tr[A T_n(H')]``. No doubling, since the bra
+    is not a Chebyshev vector. Complex in general, so both parts are kept.
+    """
+    def braket(v):
+        return jnp.sum(jnp.conj(bra) * v, axis=-1)
+
+    first = apply(start)
+
+    def step(carry, _):
+        previous, current = carry
+        following = 2.0 * apply(current) - previous
+        return (current, following), braket(following)
+
+    _, rest = lax.scan(step, (start, first), None, length=n_moments - 2)
+    return jnp.concatenate([braket(start)[None], braket(first)[None], rest], axis=0).T
+
+
+def pauli(states, axis: int):
+    """``sigma_axis`` on spinors ``(..., 2 npwx)`` stored up block then down block."""
+    half = states.shape[-1] // 2
+    up, down = states[..., :half], states[..., half:]
+    if axis == 0:
+        return jnp.concatenate([down, up], axis=-1)
+    if axis == 1:
+        i = lax.complex(jnp.zeros((), jnp.real(up).dtype), jnp.ones((), jnp.real(up).dtype))
+        return jnp.concatenate([-i * down, i * up], axis=-1)
+    return jnp.concatenate([up, -down], axis=-1)
+
+
+@functools.partial(jax.jit, static_argnames=("n_moments", "n_random", "k_batch"))
+def spin_moments(hamiltonian, centre, half, key, n_moments: int, n_random: int, k_batch=None):
+    """``(nk, 3, R, n_moments)`` real: ``<sigma_i r|T_n(H')|r>`` for a spinor.
+
+    The random vectors are :func:`chebyshev_moments`' own for the same key, so
+    the spin-resolved and the plain trace share their noise.
+    """
+    mask = live_mask(hamiltonian)
+    dtype = hamiltonian.dtype
+
+    def one_k(ik):
+        live = mask[ik]
+
+        def apply(v):
+            out = (hamiltonian.apply(v, ik) - centre * v) / half
+            return jnp.where(live, out, 0.0)
+
+        start = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
+        return jnp.stack([jnp.real(cross_recursion(apply, start, pauli(start, axis), n_moments))
+                          for axis in range(3)])
+
+    return map_k(one_k, jnp.arange(mask.shape[0]), batch=k_batch)

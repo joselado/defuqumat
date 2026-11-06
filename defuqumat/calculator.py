@@ -1022,6 +1022,39 @@ class Calculator:
                            **self._call_options(run_kpm_dos, result, options,
                                                 exclude=SCF_ONLY_OPTIONS))
 
+    def get_kpm_pdos(self, **options):
+        """The projected density of states by the kernel polynomial method.
+
+        One Chebyshev recursion per atomic orbital, no bands and no random
+        vectors, with the empty states up to the cutoff included. Returns the
+        :class:`~defuqumat.kpm.traces.KPMProjectedDOS`.
+        """
+        from defuqumat.kpm.traces import run_kpm_pdos
+
+        result = self._ground_state("a KPM projected density of states")
+        options.setdefault("fermi_energy", result.fermi_energy
+                           if result.fermi_energy is not None else result.homo)
+        return run_kpm_pdos(self.system, self.pseudos, result.density,
+                            calculation=self.calculation,
+                            **self._call_options(run_kpm_pdos, result, options,
+                                                 exclude=SCF_ONLY_OPTIONS))
+
+    def get_kpm_ldos(self, points, **options):
+        """The local density of states at ``points`` (crystal coordinates) by the kernel polynomial method.
+
+        One Chebyshev recursion per point. Returns the
+        :class:`~defuqumat.kpm.traces.KPMLocalDOS`.
+        """
+        from defuqumat.kpm.traces import run_kpm_ldos
+
+        result = self._ground_state("a KPM local density of states")
+        options.setdefault("fermi_energy", result.fermi_energy
+                           if result.fermi_energy is not None else result.homo)
+        return run_kpm_ldos(self.system, self.pseudos, result.density, points,
+                            calculation=self.calculation,
+                            **self._call_options(run_kpm_ldos, result, options,
+                                                 exclude=SCF_ONLY_OPTIONS))
+
     def get_pdos(self, grid=None, **options):
         """The projected density of states, with Löwdin charges and spilling.
 
