@@ -1003,6 +1003,75 @@ class Calculator:
         self.dos_states = states
         return dos
 
+    def get_kpm_dos(self, **options):
+        """The density of states by the kernel polynomial method, with no bands computed.
+
+        Chebyshev moments of ``H(k)`` from a few random vectors per k-point,
+        so the cost does not depend on how many bands the window holds.
+        Returns the :class:`~defuqumat.kpm.dos.KPMDensityOfStates`, which keeps
+        the moments, so another broadening or kernel is ``.reconstructed()``.
+        """
+        from defuqumat.kpm.dos import run_kpm_dos
+
+        result = self._ground_state("a KPM density of states")
+        # an insulator with fixed occupations has no Fermi level, only its top band
+        options.setdefault("fermi_energy", result.fermi_energy
+                           if result.fermi_energy is not None else result.homo)
+        return run_kpm_dos(self.system, self.pseudos, result.density,
+                           calculation=self.calculation,
+                           **self._call_options(run_kpm_dos, result, options,
+                                                exclude=SCF_ONLY_OPTIONS))
+
+    def get_kpm_pdos(self, **options):
+        """The projected density of states by the kernel polynomial method.
+
+        One Chebyshev recursion per atomic orbital, no bands and no random
+        vectors, with the empty states up to the cutoff included. Returns the
+        :class:`~defuqumat.kpm.traces.KPMProjectedDOS`.
+        """
+        from defuqumat.kpm.traces import run_kpm_pdos
+
+        result = self._ground_state("a KPM projected density of states")
+        options.setdefault("fermi_energy", result.fermi_energy
+                           if result.fermi_energy is not None else result.homo)
+        return run_kpm_pdos(self.system, self.pseudos, result.density,
+                            calculation=self.calculation,
+                            **self._call_options(run_kpm_pdos, result, options,
+                                                 exclude=SCF_ONLY_OPTIONS))
+
+    def get_kpm_ldos(self, points, **options):
+        """The local density of states at ``points`` (crystal coordinates) by the kernel polynomial method.
+
+        One Chebyshev recursion per point. Returns the
+        :class:`~defuqumat.kpm.traces.KPMLocalDOS`.
+        """
+        from defuqumat.kpm.traces import run_kpm_ldos
+
+        result = self._ground_state("a KPM local density of states")
+        options.setdefault("fermi_energy", result.fermi_energy
+                           if result.fermi_energy is not None else result.homo)
+        return run_kpm_ldos(self.system, self.pseudos, result.density, points,
+                            calculation=self.calculation,
+                            **self._call_options(run_kpm_ldos, result, options,
+                                                 exclude=SCF_ONLY_OPTIONS))
+
+    def get_kpm_unfolded(self, primitive_lattice, kpoints, **options):
+        """The spectral function of this supercell unfolded to primitive ``kpoints``, by KPM.
+
+        ``primitive_lattice`` is ``(3, 3)``, rows in bohr; ``kpoints`` is in crystal
+        coordinates of the primitive reciprocal lattice. No supercell band is
+        computed. Returns the :class:`~defuqumat.kpm.traces.KPMUnfoldedSpectrum`.
+        """
+        from defuqumat.kpm.traces import run_kpm_unfolded
+
+        result = self._ground_state("a KPM unfolded spectral function")
+        options.setdefault("fermi_energy", result.fermi_energy
+                           if result.fermi_energy is not None else result.homo)
+        return run_kpm_unfolded(self.system, self.pseudos, result.density, primitive_lattice,
+                                kpoints, calculation=self.calculation,
+                                **self._call_options(run_kpm_unfolded, result, options,
+                                                     exclude=SCF_ONLY_OPTIONS))
+
     def get_pdos(self, grid=None, **options):
         """The projected density of states, with Löwdin charges and spilling.
 

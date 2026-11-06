@@ -11508,3 +11508,42 @@ builds in a copy of it. The per-k part gathers the kept bands of the whole state
 (`nk x num_bands x npwx`, a copy) and, at the default `k_batch` (one `vmap` over the mesh),
 holds `nk x npwx x num_wann` phases at once, about 1.6 MB here (npwx about 190); a chunked `k_batch` holds one
 chunk of them.
+
+## The density of states by the kernel polynomial method against Davidson NSCF + DOS (CPU, D22, 2026-11-06)
+
+There is no KPM in `pw.x` or Elk, so the pair is this code's own two routes to the same DOS:
+`get_kpm_dos(broadening=0.01, n_random=R)` against `get_dos(nbnd=...)` (a fixed-density Davidson
+solve plus a Gaussian DOS), with `nbnd` the states below `E_VBM + 0.2` Ry plus 12. Silicon
+supercells of `benchmarks/` at 12 Ry, one k-point. **D22, one core each** (`slot.sh`, one thread
+for XLA, MKL and OpenMP), warm calls (each timed on its second call), three cells at once on
+three slots, load average 13 to 14 from other users (`/l/ladovj1/review/kpm/timing2.py`,
+`tim2-*.log`, `timing2-*.json`, at commit a4a70f0b plus the `homo` fallback). The error is the
+rms of the KPM DOS against the NSCF eigenvalues put through the same Jackson kernel, over the
+valence window, relative to the mean DOS there.
+
+| cell | Davidson NSCF + DOS | KPM R = 4 | KPM R = 8 | KPM R = 16 |
+|---|---|---|---|---|
+| si16, 54 bands, N = 1048 | 8.05 s (1.72 s at 48 bands, an earlier run) | 1.27 s, 0.539 | 2.44 s, 0.196 | 5.15 s, 0.076 |
+| si64, 165 bands, N = 1066 | 63.8 s (31.9 s at 159 bands, an earlier run) | 9.29 s, 0.163 | 14.6 s, 0.103 | 25.4 s, 0.090 |
+| si128, 321 bands, N = 1066 | 275 s | 33.9 s, 0.152 | 43.6 s, 0.081 | 62.6 s, 0.055 |
+
+The KPM cost is `R N / 2` applications of `H` per k-point, independent of the band count; at a
+fixed relative error R falls as `1/nat` (0.196, 0.103, 0.081 at R = 8). So the crossover at
+about 10 per cent is between si16 and si64, and si128 is 6.3x at R = 8. **The Davidson times are
+not stable**: 1.72 against 8.05 s on si16 (48 against 54 bands, the second with the Cholesky
+fallback of `scf/driver.py:6680`) and 31.9 against 63.8 s on si64 (159 against 165 bands, under
+different load); the KPM times at R = 8 repeated to 3 per cent on si64 (14.21 and 14.64 s). A
+timing on a quiet machine, with medians, is open.
+
+**Peak working set.** Three `(R, npwx)` complex blocks per k-point in flight and the scan carry,
+plus `(nk, R, N)` real moments: si128 (npwx about 11800) at R = 16 is 9 MB of vectors and
+140 kB of moments, against the `(nbnd, npwx)` states and the Davidson subspace of the NSCF
+(321 x 11800 complex, 61 MB, times the subspace multiple).
+
+**Correction (2026-11-06).** The KPM errors above are single draws at seed 0. Over 8 seeds R = 8 gives
+0.289 on si16; the analytic per-vector sigma (0.760, 0.398, 0.281 on si16, si64, si128) puts R for 10
+per cent at 58, 16 and 8, so KPM at 10 per cent costs 15.5, 16.6 and 37 s. Davidson NSCF + DOS
+measured again at load 9 to 12: 1.57 s (si16, 50 bands, no fallback), 84.8 s (si64), 375 s (si128)
+(`/l/ladovj1/review/kpm/subspace/`, PLAN.md P168, "The user's low-energy subspace"). The control
+variate of that study (F8-filtered atomic orbitals) reaches 1.8e-3 to 5.2e-3 at R = 1 for 2.4 to 7x
+less wall time than Davidson.

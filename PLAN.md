@@ -204,6 +204,9 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
+- **The kernel polynomial method beyond P167 and P168** (`plans/kpm.md`): the stochastic STM map at
+  fixed energies, and the two-index Kubo-Greenwood conductivity of P169; ultrasoft and PAW (`S^-1 H`
+  with moments in the S-form), `gamma_only` and the spiral, refused by name.
 - **Wannier functions beyond P162 to P166** (site symmetry is the default since P166, with a
   named fallback): spinor projections and spinor PDWF, `gamma_only`,
   SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the
@@ -27759,3 +27762,198 @@ runs the default; outputs unchanged, 60 s. Notebook 59: prose only (all its runs
 **What is outstanding.** A fast trigger for the frozen-irrep rank refusal; the slow files for
 the user; SCDM with symmetry, time reversal, spinors and magnetic groups as before (SCDM and a
 magnetic group now give the fallback warning by default; spinors are still refused first).
+
+### P167 -- The kernel polynomial method: the engine and the density of states, `get_kpm_dos`. ✅ DONE 2026-11-06 (`tests/unit/test_kpm.py`, twelve fast tests, on D22 CPU; the gate `tools/test-fast.sh` was not run; no slow file written or touched; branch `kpm` from 6f60f418, not merged, not pushed)
+
+**The plan** is `plans/kpm.md` (P167 to P169), reviewed by a fable subagent before any code;
+the review moved the bounds from Weyl to Lanczos, sliced the dense check to the live sphere,
+replaced the `mu_0` sum rule (which cannot fail) by `mu_1` from the diagonal, and put the
+Jackson width's `sqrt(1 - x^2)` into the moment count. The inspiration is pyqula's `kpmtk/`.
+Neither QE 7.5 nor Elk has any KPM or moment DOS (the `reference-source` agent: a stated
+negative for both; the hits were thermostats, Wannier random projections and loop indices).
+
+**What is in.** `defuqumat/kpm/`: `moments.py` (the three-term recursion on a block of start
+vectors at one k, `lax.scan` over `n`, `map_k` over k, the doubling trick
+`mu_2n = 2<a_n|a_n> - mu_0`, `mu_2n+1 = 2<a_n+1|a_n> - mu_1`, so `N` moments cost `N/2`
+applications; random phases on the live sphere, the exact trace over every unit vector, or a
+given block), `bounds.py` (40 Lanczos steps per k from one random vector, edges widened by
+`max(2% of the width, the Ritz residual beta_m |s_m|)`), `kernels.py` (Jackson, Lorentz,
+Fejer behind a registry; the Jackson HWHM `sqrt(2 ln 2) (pi/N) sqrt(1 - x^2 + x^2/N)` in `x`),
+`profile.py` (direct `cos(n theta)` evaluation and the closed-form integral, in `jnp`),
+`guard.py` (`|mu_n| <= mu_0 (1 + tol)` or `SpectralIntervalError`), `dos.py`
+(`run_kpm_dos`, `KPMDensityOfStates` keeping the per-sample k-weighted moments, so
+`reconstructed()` changes kernel or cuts moments with no recursion; `count_at`,
+`count_error_at`, `broadening_at`). `workflows/nscf.fixed_density_hamiltonians` is the
+step of `fixed_density_states` before the diagonalisation, extracted unchanged, so the KPM
+builds exactly the operator an NSCF solves, with the same refusals (PAW without `becsum`, U
+without `ns`, meta without `tau`, a field). `Calculator.get_kpm_dos` passes `fermi_energy`,
+or `homo` for an insulator (fixed occupations leave `fermi_energy` `None`; found by the
+notebook's first run).
+
+**The numbers** (silicon, `Si.pz-vbc`, 12 Ry, 2x2x2, three k-points of 169, 180 and 190 plane
+waves; `review/kpm/probe.log` on D22):
+
+| check | result |
+|---|---|
+| exact trace (every plane wave) against `sum_i T_n(e_i')` of the dense `matrix(ik)` on the live block, 40 moments | 9.4e-13 against `mu_0` = 364.75 |
+| `mu_1` of the exact trace against `Tr H'` from `diagonal(ik)` | to 1e-9 relative (test) |
+| lowest Lanczos Ritz value against the dense minimum | -0.403197 both; interval [-0.6375, 11.5455] holds [-0.403197, 11.312372] |
+| rms error of `mu_1..39`, seeded, R = 4, 16, 64, 256 | 4.75, 2.62, 0.833, 0.467 (4 to 64: 5.7x where `sqrt(16)` = 4) |
+| states below the gap, broadening 0.02 Ry, R = 4, 16, 64 | 7.877, 8.436, 8.044; at R = 64 the test reads it against `count_error_at` |
+| guard at 0.9 of the half width | `SpectralIntervalError` (test) |
+| spinor exact moments (`noncolin`, no SOC, no moment) against the scalar ones | equal (test, 1e-8 of `mu_0`) |
+| a second `kpm_moments` on another potential, centre and seed | compiles nothing (test) |
+| US silicon (`Si.pz-n-rrkjus_psl.0.1`, 2x2x2) | refused by name (test). Measured, `review/kpm/us_probe.py`: the exact moments of `H` alone count 10.190 states below the generalised gap (8 for `H x = e S x`), and `H`'s bottom is -0.3763 Ry against the generalised -0.4165; the guard does not fire (`H` alone is a valid Hermitian operator), so without the refusal the answer would be silently wrong |
+| `nspin = 2`, `tot_magnetization = 0` | the two channels' exact moments equal, and their sum the scalar run's, to 1e-7 of `mu_0`; `dos` is `(2, nE)` (test) |
+| the Jackson HWHM `width_at(N, x)` against the half width read off the series of one level, N = 800 | within 2 per cent at `x` = 0 and -0.85 (test) |
+
+The guide's cell (6x6x6 shifted, 16 Ry, R = 16, 1610 moments) gives 7.89 +- 0.15 states below
+the gap, and the notebook's (4x4x4, 12 Ry, 1212 moments) 8.232 +- 0.252.
+
+**The comparison with the bands at scale, and the timing.** `review/kpm/timing2.py` on D22, one
+core each through `slot.sh`, warm calls (each timed on its second call), broadening 0.01 Ry
+(HWHM at the middle of the window, `x` about -0.89), one k-point. The error is the rms of the
+KPM DOS minus the NSCF eigenvalues put through the same Jackson kernel in `x`, over the valence
+window, over the mean DOS there: a real error, not the spread over R. D22's load average was 13
+to 14 from other users during these runs.
+
+| cell (atoms, bands to E_VBM + 0.2 Ry) | Davidson NSCF + DOS | KPM R = 1 | R = 2 | R = 4 | R = 8 | R = 16 |
+|---|---|---|---|---|---|---|
+| si16 (16, 54) | 8.05 s | 0.43 s, 0.763 | 0.71 s, 0.555 | 1.27 s, 0.539 | 2.44 s, 0.196 | 5.15 s, 0.076 |
+| si64 (64, 165) | 63.8 s | 4.38 s, 0.371 | 6.35 s, 0.271 | 9.29 s, 0.163 | 14.6 s, 0.103 | 25.4 s, 0.090 |
+| si128 (128, 321) | 275 s | 12.9 s, 0.274 | 30.8 s, 0.228 | 33.9 s, 0.152 | 43.6 s, 0.081 | 62.6 s, 0.055 |
+
+Each KPM entry is the warm time and the relative rms error. N = 1048 (si16) and 1066 (si64,
+si128), on [-0.60, 11.92] and [-0.62, 11.92] Ry. The SCFs (not timed against anything) took 4.0,
+33.5 and 171 s. si128's R = 1 and R = 2 times (12.9, 30.8 s) are not proportional; the load on D22
+moved during the run, and the R = 4 to 16 times are the ones to read.
+
+At R = 8 the error is 0.196 on si16 and 0.103 on si64, a ratio of 1.9 where `sqrt(4)` = 2: the
+R for a fixed relative error falls as `1/nat`, the plan's scaling. The reported standard error is
+calibrated where R is not tiny: the median of `|KPM - bands| / dos_error` over the window is
+0.62 to 0.69 on si64 at R = 8 and 16 (0.67 for a Gaussian); at R = 1 the error is not defined
+and at R = 2 it is two samples, and both read as nonsense (`max z` 1e3 and above). The Davidson
+side moves with the band count and with the load: si64 at 159 bands took 31.9 s
+(`timing.py`, 16:48) and at 165 bands 63.8 s (`timing2.py`, 16:52); si16 at 48 bands 1.72 s and
+at 54 bands 8.05 s, the second with a Cholesky fallback of the subspace overlap (the warning of
+`scf/driver.py:6680`). So the crossover at about 10 per cent error is between si16 (bands
+faster: R of about 30 would be needed there, about 10 s against 1.7 to 8 s) and si64 (KPM 2.2
+to 4.4x faster at R = 8), roughly 30 atoms at 12 Ry, and si128 is 6.3x at R = 8 (0.081) and
+4.4x at R = 16 (0.055); it moves to smaller cells
+as the cutoff falls (fewer moments) and as more empty bands are wanted.
+
+**On the card** (D22's RTX A2000, at 3c54509b, `review/kpm/gpu/gpu.sh`, `gpu.log`): the twelve tests
+pass in 128 s. With the same seed the random vectors are the same on both platforms
+(`jax.random` is the threefry generator on both), so the moments compare directly: si16 0.65 s on
+the card against 2.56 s on one CPU core (3.9x), moments equal to 7.9e-12 of `mu_0`; si64 3.33 s
+against 16.2 s (4.9x), equal to 7.6e-9. The si64 difference follows the two SCFs (the interval edges
+differ by 4e-10), not the recursion. The first si64 call on the card spent 3 min compiling one XLA
+fusion (`input_reduce_fusion.1`, a slow-compile alarm); the card is a float32 part (float64 at
+1/70), so these times are claims about this card, not about an A100.
+
+**Correction (2026-11-06, the subspace study below).** The errors in the table above are single draws
+at seed 0. Over 8 seeds `get_kpm_dos` gives 0.289 at R = 8 and 0.186 at R = 16 on si16
+(`review/kpm/subspace/plaincheck-si16.log`), and the per-vector sigma from the analytic variance
+(checked against sampled recursions on si16 and si64) is 0.760, 0.398, 0.281 on si16, si64, si128,
+falling as `1/sqrt(nat)` and reproducing the 8-seed numbers to 7 per cent. So 10 per cent on the
+valence window needs R = 58, 16 and 8, not about 30, 8 and 6, and the R = 8 errors are 0.27, 0.14,
+0.10. Davidson NSCF + DOS, warm, at load 9 to 12: 1.57 s on si16 (50 bands, no Cholesky fallback),
+84.8 s on si64, 375 s on si128. The crossover statement stands with these numbers: at 10 per cent
+si16 is 15.5 s against 1.6 to 8 s (bands win), si64 16.6 s against 32 to 85 s, si128 37 to 44 s
+against 275 to 375 s.
+
+**Memory.** One k-point in flight holds three `(R, ndim)` blocks (`ndim = npwx`, `2 npwx` for a
+spinor) and the scan's carry, plus the `(nk, R, N)` real moments; the exact trace holds
+`(ndim, ndim)` per k in flight and is for small cells. si64 at R = 16 and N = 1066 is about 3
+MB of vectors and 140 kB of moments.
+
+**What is outstanding.** P168 and P169 of `plans/kpm.md`: the deterministic traces (PDOS on
+Lowdin orbitals, LDOS at a point and the STM map, unfolding), the spin-resolved trace and the
+Fermi level from the count; the two-index Kubo-Greenwood conductivity. Ultrasoft and PAW
+(`S^-1 H` in the S-form, `_Chunk.inverse_overlap`), `gamma_only` and the spiral are refused by
+name. A tighter top edge (the 2% margin costs 2% of N on each side) and a timing against Davidson
+on a quiet machine are open; the DOS is differentiable through the moments but no derivative is
+claimed or tested.
+
+### P168 -- KPM traces with chosen start vectors: the projected and local DOS, unfolding, the spin-resolved trace and the Fermi level. ✅ DONE 2026-11-06 (`tests/unit/test_kpm_traces.py`, eight fast tests, with `test_kpm.py` 20 in all, on D22 CPU (51 s) and on the RTX A2000 (147 s); the gate `tools/test-fast.sh` was not run after P167's; no slow file; branch `kpm`, not merged, not pushed)
+
+**What is in.** `defuqumat/kpm/traces.py`: `run_kpm_pdos` (start vectors the Loewdin orbitals of
+`projwfc`, from `projwfc.projections.atomic_orbitals`, the orbital build of `atomic_projections`
+extracted unchanged), `run_kpm_ldos` (start vectors `exp(-i (k+G) . r0) / sqrt(Omega)` at points in
+crystal coordinates, the Miller index of each plane wave from its `fft_index` centred in
+`(-n/2, n/2]`; a spinor gets an up and a down vector per point, summed), `run_kpm_unfolded` (the
+supercell Hamiltonian at each primitive `k_p` itself, the trace over the plane waves whose
+supercell Miller indices `m` have `M^-1 m` integer, `A_super = M A_prim`, exact or with random
+phases on that subset). A per-orbital or per-point trace is not invariant under the group, so on a
+reduced k-set both run on the whole Monkhorst-Pack grid of the run (`whole_grid_calculation`); a
+reduced set without its grid is refused. `moments.cross_recursion` and `spin_moments`:
+`<sigma_i r|T_n(H')|r>` with no doubling, on the same random vectors as the plain trace, as
+`run_kpm_dos(spin_resolved=True)` and `KPMDensityOfStates.spin_dos`. `KPMDensityOfStates.fermi_level`
+bisects the count. `kpm_setup` and `interval_and_moments` are `run_kpm_dos`'s setup, shared.
+`Calculator.get_kpm_pdos`, `get_kpm_ldos(points)`, `get_kpm_unfolded(primitive_lattice, kpoints)`.
+
+**The numbers** (silicon at 12 Ry on 2x2x2 unless said; `review/kpm/p168_numbers.py`,
+`numbers.log`, `unfold_debug.log`, `p168_probe.log` on D22):
+
+| check | result |
+|---|---|
+| PDOS moments against `sum_n |<phi_a|psi_n>|^2 T_n(e_n')` over every eigenvector of the dense `matrix(ik)`, the 8 k of the whole grid, 40 moments | 2.0e-14 |
+| charge of each orbital below the gap against the Loewdin charges of `atomic_projections` on the SCF states | s 1.007958 (0.005 Ry), 1.007629 (0.0025) against 1.007586; p 0.984950 against 0.984951 at both |
+| the same at `conv_thr` 1e-13 | s +3.69e-4 and +4.04e-5: the difference is the kernel's tail across the 0.033 Ry gap of this mesh (the lowest conduction band has s weight), not the SCF |
+| `int^gap LDOS(r0)` against the SCF density at three grid points (atom, bond centre, `(1/2, 0, 0)`) | relative 3.4e-4, -1.6e-4, 1.6e-4 at 0.005 Ry; 2.9e-5, -1.5e-5, 1.6e-5 at 0.0025 |
+| unfolding, cubic Si8 at fcc X and (0.1, 0.2, 0.3): subset size against the Si2 sphere at the same k and cutoff | 190 and 186, equal |
+| the same: dense supercell matrix between the subset and the rest | below 1e-8 (test) |
+| the same: unfolded exact moments against the eigenvalues of the dense block | 7.4e-13 and 1.1e-12 of `mu_0` = 190, 186 |
+| spin trace under a uniform `b sigma_i`, `b = 0.5` Ry, against half the scalar exact traces at `c -+ b`, R = 64 | within 0.2 of the signal on each axis (noise about 0.11 of it), the other two components likewise; a sign error would read 2 and a wrong axis 1 |
+| Fermi level of fcc Al (4x4x4 shifted, 0.5 eV Gaussian) from the KPM count, R = 32, against the SCF's | within `3 count_error / D(E_F) + 0.01` Ry (test) |
+
+The guide's snippet (4x4x4, 0.005 Ry): first atom s 1.1001, p 2.8672 electrons; density 0.08891
+electrons/bohr^3 at the bond centre. **Unfolding a vacancy** (notebook 61 and the guide figure, Si8
+cubic and Si7, 2x2x2, 0.1 eV smearing, 40 k on L-G-X, R = 8 on the subset, 1156 to 1172 moments,
+43 s a cell): the exact weight below `E_F` at L, Gamma, X is 4.000, 3.995, 4.006 for the perfect
+cell (4 occupied bands per spin; the 0.005 is the tail across the gap) and 3.250, 1.786, 3.747 with
+the vacancy. The stochastic trace's integrated weight has a spread of about `2/sqrt(R)` (0.7 at
+R = 8), so the weights are read from an exact trace at the three points only. Two cells have no
+common zero of energy, so each is aligned at the bottom of its valence band at Gamma.
+
+**On the card**: the 20 KPM tests pass on the RTX A2000 (`review/kpm/gpu2.sh`, `gpu/gpu2.log`).
+
+**What is outstanding.** The stochastic STM map at fixed energies (random vectors on the real-space
+grid, one field per energy), for maps of many points; a timing of the PDOS against `pw.x` +
+`projwfc.x`; the unfolding of a spinor (the subset is built, not tested) and of `nspin = 2` (per
+channel, not tested); ultrasoft and PAW, `gamma_only` and the spiral, refused as in P167. P169 (the
+conductivity) is unstarted.
+
+
+**The user's low-energy subspace for the DOS trace, measured (2026-11-06, a subagent on D22,
+`/l/ladovj1/review/kpm/subspace/`: `subspace.py`, `subspace_v2.py`, `plaincheck.py`, the logs and
+`sub-si16-1k-full.json`, `sub-si64-1k-light.json`, `sub-si128-1k-analytic.json`).** The idea: near
+`E_F` the states live in the atomic orbitals plus their leak into the interstitial, so take
+`S = span{phi, H phi, ...}` instead of random vectors. Measured on si16, si64, si128 at one k-point
+(1/4, 1/4, 1/4), 0.01 Ry; si64's K1, K2, P1 and all of si128's subspaces from the analytic variance
+only.
+
+- The subspace alone, `Tr[P delta]`, is biased low (the trace misses what leaks out of `S`): rms
+  bias 0.012 to 0.019 for `phi` alone (K0), 3e-3 with `H phi` (K1), 1e-3 with `H^2 phi`, three times
+  larger near the gap than at the band bottom; 0.26 in the conduction window for K0.
+- The split estimator `Tr[P delta P] + Tr[Q delta Q]`, the second with `Q r`, is unbiased
+  (`E[n_live (Qr)^dagger A (Qr)] = Tr[QAQ]`) and cuts the per-vector sigma from 0.398 to 0.004 on
+  si64 with K0, but its deterministic part costs `natw` recursions of `N/2` steps, which grows with
+  the cell: 37.7k applications (20 s) on si16, 141k (311 s) on si64, slower than Davidson on both.
+- Plain `H phi` spends its rank on high kinetic energy: K2 at rank `3 natw` spills 4.6e-4 of the
+  occupied states, where a Chebyshev low-pass of degree 4 on `phi` (F4, rank `natw`) spills 2.2e-4
+  and degree 8 (F8) 1.6e-5, with Ritz eigenvalues good to 1.2e-5 Ry.
+- **The form that works is a control variate in moment space**: for each random sample subtract
+  `n_live sum_j |<y_j|r>|^2 T_n(theta_j)` and add `sum_j T_n(theta_j)`, with `(theta_j, y_j)` the
+  Ritz pairs of the F8-filtered orbitals. Unbiased, and `samples`, `dos_error`, `reconstructed()`
+  keep working. At R = 1 it is 50 to 100x more accurate than plain at the same applications
+  (`9 natw + N/2`): 5.2e-3, 2.6e-3, 1.8e-3 on si16, si64, si128; at R = 8 1.7e-3, 1.1e-3, 7.6e-4. In
+  wall time at R = 1, 2.4x, 7x and 4.4x faster than Davidson. It covers the valence band and about
+  `natw - n_occ` conduction states (F8's Ritz-alone error is 1.7e-2 in the conduction window). The
+  Ritz step is a dense SVD and eigensolve, `O(n r^2)`, 0.06, 1.5 and 16 s on the three cells: it is
+  Davidson's scaling, so it pays at a target near 1 per cent; at 10 per cent plain wins from si128
+  on (4.3k against 5.1k applications). Conditioning: no singular value below 1e-6 of the largest;
+  `check_moments` passed on every block; recursion and analytic trace agree to 5.6e-6.
+- Outside the brief: one F16 pass and a Rayleigh-Ritz gave the occupied eigenvalues of si128 to
+  3.9e-6 Ry in 132 s against Davidson's 375 s, which is Chebyshev-filtered subspace iteration and
+  deserves its own test as an NSCF solver (`notes/DAVIDSON-LITERATURE.md`).

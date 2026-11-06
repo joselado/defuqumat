@@ -232,6 +232,87 @@ def fixed_density_states(
     # calculation handed back, so the consumer of the states runs at it too.
     calculation = calculation.for_bands(nbnd)
 
+    hamiltonians = fixed_density_hamiltonians(
+        calculation, density, ns=ns, tau=tau, becsum=becsum, field=field,
+        field_scale=field_scale)
+
+    # There is no SCF here to tighten the threshold over, so ``setup.f90`` picks
+    # one up front from the accuracy of the density the bands are computed in.
+    ethr = fixed_density_ethr(conv_thr, calculation.nelec)
+    # **A caller that wants only the energies, where the store streams, never
+    # stacks the states** (``notes/GPU-MEMORY-NEXT.md`` item 1): each chunk's solve is
+    # discarded as it returns, which is ``c_bands_nscf``, so the device peak
+    # stops following the length of the path or the mesh. ``wfc_store`` is
+    # resolved through the calculation's memory mode, as the SCF resolves it;
+    # on a CPU that is ``device`` and nothing here changes.
+    #
+    # **A caller that keeps the states gets them in host memory** on the same
+    # route: each chunk's states go into a numpy store as its solve returns, the
+    # store a streamed SCF keeps, and the consumers walk it a chunk at a time
+    # (``Calculation.density``, the projections) rather than stacking it.
+    pools = current_pools()
+    if (pools.size > 1 and not keep_states and kcart is None
+            and calculation.system.kpoints.nk >= pools.size):
+        # **k-point pools, ``c_bands_nscf`` under ``-nk``**: each pool solves its
+        # own rows of the whole set (the layout ``run_scf`` uses, longest
+        # first) and the eigenvalues are gathered, so every pool returns the
+        # whole set and occupies it alike. Nothing is reduced: a fixed-density
+        # solve is independent per k-point, and each row is addressed by its
+        # global index on the whole set's tables, so the starting vectors, the
+        # sphere and the Davidson cap are the one-pool run's. What is not split
+        # -- a caller keeping the states, ``kcart`` (the effective mass's frozen
+        # basis), a set with fewer k-points than pools -- is solved whole by
+        # every pool: the same answer at the one-pool cost, never one pool's
+        # share read as the whole.
+        from defuqumat.scf.driver import _k_costs
+        from defuqumat.scf.streaming import stream_eigenvalues
+
+        nk = calculation.system.kpoints.nk
+        layout = pools.layout(nk, costs=_k_costs(calculation))
+        local, steps, notcnv = stream_eigenvalues(
+            calculation, hamiltonians, nbnd, ethr, rows=layout[pools.rank])
+        # gloo makes its context at the first collective, and a pool that
+        # arrives late makes it fail (``Pools.barrier``).
+        pools.barrier("fixed_density_states")
+        eigenvalues, steps, notcnv = pools.gather_k(
+            (local, steps, notcnv), nk, axis=1, layout=layout)
+        _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd)
+        return calculation, system, np.asarray(eigenvalues), None
+    if resolve_wfc_store(wfc_store, calculation.memory_mode) == "stream":
+        from defuqumat.scf.streaming import stream_eigenvalues, stream_states
+
+        if keep_states:
+            eigenvalues, wavefunctions, steps, notcnv = stream_states(
+                calculation, hamiltonians, nbnd, ethr)
+        else:
+            eigenvalues, steps, notcnv = stream_eigenvalues(
+                calculation, hamiltonians, nbnd, ethr)
+            wavefunctions = None
+    else:
+        eigenvalues, wavefunctions, steps, notcnv = calculation.diagonalize(
+            hamiltonians, nbnd, None, ethr, return_steps=True)
+    _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd)
+    return calculation, system, np.asarray(eigenvalues), wavefunctions
+
+
+#: When the signed projection of a gradient-corrected noncollinear run is a jump
+#: rather than a node: a moment larger than ``SIGN_CUT_MOMENT`` of the density's
+#: largest, pointing within ``SIGN_CUT_ANGLE`` (as ``|m . ux| / |m|``) of
+#: perpendicular to the fixed axis.
+SIGN_CUT_MOMENT, SIGN_CUT_ANGLE = 0.1, 0.1
+
+
+def fixed_density_hamiltonians(calculation, density, *, ns=None, tau=None,
+                               becsum: tuple = (), field=None,
+                               field_scale: float | None = None) -> tuple:
+    """The Kohn-Sham Hamiltonians of ``calculation`` at a fixed ``density``.
+
+    One per spin channel, as :meth:`~defuqumat.scf.driver.Calculation.hamiltonian`
+    returns them. This is the step of :func:`fixed_density_states` before the
+    diagonalisation, with its refusals, kept as a function of its own so that a
+    consumer which never diagonalises (the kernel polynomial method,
+    :mod:`defuqumat.kpm`) builds exactly the operator an NSCF solves.
+    """
     if calculation.is_paw and not becsum:
         # A PAW Hamiltonian's nonlocal coefficients are D^(0) + int V Q + ddd_paw,
         # and only the first two can be rebuilt from the density: ddd_paw comes
@@ -298,71 +379,7 @@ def fixed_density_states(
         if becsum else (None, None)
     )
     hamiltonians = calculation.hamiltonian(potential.v_scf, ddd_paw, hubbard_terms)
-
-    # There is no SCF here to tighten the threshold over, so ``setup.f90`` picks
-    # one up front from the accuracy of the density the bands are computed in.
-    ethr = fixed_density_ethr(conv_thr, calculation.nelec)
-    # **A caller that wants only the energies, where the store streams, never
-    # stacks the states** (``notes/GPU-MEMORY-NEXT.md`` item 1): each chunk's solve is
-    # discarded as it returns, which is ``c_bands_nscf``, so the device peak
-    # stops following the length of the path or the mesh. ``wfc_store`` is
-    # resolved through the calculation's memory mode, as the SCF resolves it;
-    # on a CPU that is ``device`` and nothing here changes.
-    #
-    # **A caller that keeps the states gets them in host memory** on the same
-    # route: each chunk's states go into a numpy store as its solve returns, the
-    # store a streamed SCF keeps, and the consumers walk it a chunk at a time
-    # (``Calculation.density``, the projections) rather than stacking it.
-    pools = current_pools()
-    if (pools.size > 1 and not keep_states and kcart is None
-            and calculation.system.kpoints.nk >= pools.size):
-        # **k-point pools, ``c_bands_nscf`` under ``-nk``**: each pool solves its
-        # own rows of the whole set (the layout ``run_scf`` uses, longest
-        # first) and the eigenvalues are gathered, so every pool returns the
-        # whole set and occupies it alike. Nothing is reduced: a fixed-density
-        # solve is independent per k-point, and each row is addressed by its
-        # global index on the whole set's tables, so the starting vectors, the
-        # sphere and the Davidson cap are the one-pool run's. What is not split
-        # -- a caller keeping the states, ``kcart`` (the effective mass's frozen
-        # basis), a set with fewer k-points than pools -- is solved whole by
-        # every pool: the same answer at the one-pool cost, never one pool's
-        # share read as the whole.
-        from defuqumat.scf.driver import _k_costs
-        from defuqumat.scf.streaming import stream_eigenvalues
-
-        nk = calculation.system.kpoints.nk
-        layout = pools.layout(nk, costs=_k_costs(calculation))
-        local, steps, notcnv = stream_eigenvalues(
-            calculation, hamiltonians, nbnd, ethr, rows=layout[pools.rank])
-        # gloo makes its context at the first collective, and a pool that
-        # arrives late makes it fail (``Pools.barrier``).
-        pools.barrier("fixed_density_states")
-        eigenvalues, steps, notcnv = pools.gather_k(
-            (local, steps, notcnv), nk, axis=1, layout=layout)
-        _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd)
-        return calculation, system, np.asarray(eigenvalues), None
-    if resolve_wfc_store(wfc_store, calculation.memory_mode) == "stream":
-        from defuqumat.scf.streaming import stream_eigenvalues, stream_states
-
-        if keep_states:
-            eigenvalues, wavefunctions, steps, notcnv = stream_states(
-                calculation, hamiltonians, nbnd, ethr)
-        else:
-            eigenvalues, steps, notcnv = stream_eigenvalues(
-                calculation, hamiltonians, nbnd, ethr)
-            wavefunctions = None
-    else:
-        eigenvalues, wavefunctions, steps, notcnv = calculation.diagonalize(
-            hamiltonians, nbnd, None, ethr, return_steps=True)
-    _say_what_did_not_converge(steps, notcnv, ethr, conv_thr, nbnd)
-    return calculation, system, np.asarray(eigenvalues), wavefunctions
-
-
-#: When the signed projection of a gradient-corrected noncollinear run is a jump
-#: rather than a node: a moment larger than ``SIGN_CUT_MOMENT`` of the density's
-#: largest, pointing within ``SIGN_CUT_ANGLE`` (as ``|m . ux| / |m|``) of
-#: perpendicular to the fixed axis.
-SIGN_CUT_MOMENT, SIGN_CUT_ANGLE = 0.1, 0.1
+    return hamiltonians
 
 
 def _warn_if_the_sign_axis_cuts_the_texture(calculation, density) -> None:

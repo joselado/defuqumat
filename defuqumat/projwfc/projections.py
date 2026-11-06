@@ -335,6 +335,44 @@ def _spin_orbit_symmetry(channels, cell, symmetries, rotations, mapping, spins,
     )
 
 
+def atomic_orbitals(calc, kind: str = "ortho-atomic") -> jnp.ndarray:
+    """``(nk, npol npwx, natomwfc)``: the atomic orbitals of ``calc`` at its k-points.
+
+    Orthonormalised as ``kind`` says (``"ortho-atomic"`` is Loewdin's), with the
+    overlap ``S`` of the run. What :func:`atomic_projections` projects on, kept
+    as a function so that a consumer which wants the orbitals themselves (the
+    kernel polynomial PDOS, :mod:`defuqumat.kpm.traces`) uses the same ones.
+    """
+    system = calc.system
+    noncolin = bool(system.noncolin)
+    lspinorb = bool(getattr(system, "lspinorb", False))
+    return build_atomic_projectors(
+        calc.pseudos,
+        system.structure,
+        system.cell,
+        calc.basis.smooth,
+        calc.basis.planewaves,
+        calc.basis_kpoints,
+        # ``s_psi`` written against the projectors alone, exactly as the
+        # Hubbard projectors reach it -- there is no Hamiltonian in a
+        # projection. The spinor branch is a **different operator** and not
+        # the same one on a longer vector: ``_spinor_overlap`` carries
+        # ``qq_so``, whose off-diagonal spin blocks are exactly what tells
+        # the two ``j`` channels apart, so contracting each component
+        # against the scalar ``qq`` would give the j-averaged overlap.
+        # ``Calculation._build_hubbard_projectors`` picks between them the
+        # same way, on ``self.noncolin``.
+        calc._spinor_overlap if noncolin else calc._overlap,
+        kind=kind,
+        noncolin=noncolin,
+        # ``atomic_wfc_nc_proj``'s ``starting_spin_angle = .TRUE.``: the
+        # projection is onto the spin-angle functions themselves, where the
+        # SCF and DFT+U start from the j-averaged up/down set. Without
+        # spin-orbit coupling the two coincide -- there is no j to average.
+        spinor_basis="jmj" if lspinorb else "updown",
+    )  # (nk, npol npwx, natomwfc)
+
+
 def atomic_projections(
     calculation,
     wavefunctions: jnp.ndarray,
@@ -417,31 +455,7 @@ def atomic_projections(
         )
 
     def build(calc):
-        return build_atomic_projectors(
-            calc.pseudos,
-            system.structure,
-            system.cell,
-            calc.basis.smooth,
-            calc.basis.planewaves,
-            calc.basis_kpoints,
-            # ``s_psi`` written against the projectors alone, exactly as the
-            # Hubbard projectors reach it -- there is no Hamiltonian in a
-            # projection. The spinor branch is a **different operator** and not
-            # the same one on a longer vector: ``_spinor_overlap`` carries
-            # ``qq_so``, whose off-diagonal spin blocks are exactly what tells
-            # the two ``j`` channels apart, so contracting each component
-            # against the scalar ``qq`` would give the j-averaged overlap.
-            # ``Calculation._build_hubbard_projectors`` picks between them the
-            # same way, on ``self.noncolin``.
-            calc._spinor_overlap if noncolin else calc._overlap,
-            kind=kind,
-            noncolin=noncolin,
-            # ``atomic_wfc_nc_proj``'s ``starting_spin_angle = .TRUE.``: the
-            # projection is onto the spin-angle functions themselves, where the
-            # SCF and DFT+U start from the j-averaged up/down set. Without
-            # spin-orbit coupling the two coincide -- there is no j to average.
-            spinor_basis="jmj" if lspinorb else "updown",
-        )  # (nk, npol npwx, natomwfc)
+        return atomic_orbitals(calc, kind)
 
     symmetry = (
         build_projection_symmetry(
