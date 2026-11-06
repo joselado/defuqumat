@@ -1,0 +1,512 @@
+"""The optical conductivity by a two-index Chebyshev expansion, with no bands computed.
+
+The Kubo-Greenwood formula for the absorptive part of the conductivity,
+
+    sigma'_ab(w) = (pi / (Omega w)) sum_k w_k int dE [f(E) - f(E + w)]
+                   Tr[v_a delta(E - H) v_b delta(E + w - H)],
+
+has no band index in it: the transition from ``E`` to ``E + w`` is weighted by
+the velocity matrix elements between whatever states sit there. Expanding both
+deltas in Chebyshev polynomials of ``H' = (H - centre) / half``,
+
+    delta(E - H) = sum_n g_n (2 - delta_n0) T_n(x) T_n(H') / (pi half sqrt(1 - x^2)),
+
+turns the trace into the two-index moments
+
+    mu^ab_nm = Tr[v_a T_n(H') v_b T_m(H')] = <T_n(H') v_a r | v_b T_m(H') r>,
+
+averaged over random vectors ``r`` (or summed over the unit vectors of the
+basis for the exact trace). For one ``r`` they are the matrix of inner products
+between two families of vectors: the Chebyshev vectors started from ``v_a r``,
+one recursion per direction, and the velocity applied to the Chebyshev vectors
+of ``r`` itself. The cost per random vector and k-point is
+``(1 + ndir) N`` applications of ``H``, ``ndir N`` of the velocity and a Gram
+product of ``ndir^2 N^2 ndim`` flops, not ``N^2`` applications. Weisse et al.,
+Rev. Mod. Phys. 78, 275 (2006), arXiv:cond-mat/0504627, section IV.A, is the
+method; pyqula's ``kpmtk/kpm2d.py`` is where the two-index form was taken from.
+
+**The velocity is the derivative of the Hamiltonian, not ``p``.** ``v_a = dH/dk_a``
+at a frozen sphere, which carries ``[r, V_NL]`` and the Hubbard term, as in
+:mod:`defuqumat.response.velocity`. Only three parts of ``H(k)`` move with ``k``:
+``|k+G|^2``, the projectors and the Hubbard orbitals. Their tangents along each
+direction are built once on the host by one ``jvp`` of
+:meth:`~defuqumat.scf.driver.Calculation.at_kcart`
+(:func:`velocity_tangents`), and inside the recursion ``v_a psi`` is the ``jvp``
+of ``H psi`` in those parts alone (:func:`apply_velocity`). The local potential
+is not an argument of that ``jvp``, so its FFTs have a zero tangent and the
+primal ``H psi`` the ``jvp`` also returns is never used, which XLA removes. One
+direction's tangent is one more projector table, ``nk npwx nkb`` complex
+numbers, and the three are held at once.
+
+**Memory.** Per k-point in flight, ``(ndir + 2) N ndim`` complex numbers: the
+``ndir`` left families, the right family and its image under one velocity; the
+random vectors are taken one at a time by a ``lax.scan``. The moments are summed
+over k inside the walk, so the result is ``ndir^2 N^2`` complex numbers however
+many k-points there are. At ``N = 1000`` and ``ndim = 3000`` that is 80 MB per
+k-point in flight with three directions, and 144 MB of moments.
+
+**The broadening of a transition is that of two deltas.** With the Lorentz
+kernel each delta is a Lorentzian of half width ``lambda half / N``, and the
+two convolve to a Lorentzian of twice that, ``eta = 2 lambda half / N``, which
+is the ``broadening`` of the band sum
+:func:`~defuqumat.response.conductivity.optical_conductivity` it is compared
+against. The Jackson kernel gives a Gaussian per delta, and the two give a
+Gaussian whose width is ``sqrt(2)`` times one; that is what
+:attr:`KPMConductivity.transition_broadening` reports.
+"""
+
+from __future__ import annotations
+
+import functools
+import math
+from dataclasses import dataclass
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import numpy as np
+from jax import lax
+
+from defuqumat.batching import sum_k
+from defuqumat.kpm.kernels import get_kernel
+from defuqumat.kpm.moments import live_mask, random_phases, unit_vectors
+
+#: Cartesian axes by name.
+AXES = {"x": 0, "y": 1, "z": 2}
+
+
+# -- the velocity --------------------------------------------------------------
+
+def _moving(hamiltonian):
+    """The parts of ``H(k)`` that carry ``k``: ``(kinetic, projectors, hubbard)``."""
+    return hamiltonian.kinetic, hamiltonian.projectors, hamiltonian.hubbard
+
+
+def _inexact(tree):
+    return eqx.partition(tree, eqx.is_inexact_array)
+
+
+def velocity_tangents(calculation, hamiltonians, directions, ns=None) -> tuple:
+    """For each direction, the tangent of the moving parts of each channel's ``H(k)``.
+
+    ``directions`` is a sequence of cartesian 3-vectors (1/bohr). The result is
+    a tuple over directions of tuples over channels of the inexact leaves of
+    ``(kinetic, projectors, hubbard)``'s tangent, which :func:`apply_velocity`
+    takes. ``ns`` is the converged Hubbard occupation matrix, whose orbitals
+    move with ``k`` like the projectors do.
+    """
+    if any(getattr(h, "berry", None) is not None for h in hamiltonians):
+        raise NotImplementedError(
+            "the KPM conductivity does not carry lelfield's H_E term: it couples "
+            "neighbouring k-points and has no velocity at one k")
+    if calculation.is_hubbard and ns is None:
+        raise ValueError(
+            "the KPM conductivity with a Hubbard U needs the converged occupation "
+            "matrix: pass ns = scf_result.ns. The Hubbard orbitals live at k+G and "
+            "carry a velocity of their own")
+    # the k the arrays are at, as the velocity operator reads it (a strained
+    # calculation keeps its own)
+    kcart = getattr(calculation, "_kcart", None)
+    if kcart is None:
+        kcart = calculation.system.kpoints.cartesian(calculation.system.cell)
+    kcart = jnp.asarray(kcart)
+    real = hamiltonians[0].kinetic.dtype
+    ns = None if ns is None else jnp.asarray(ns)
+
+    def moving(kc):
+        moved = calculation.at_kcart(kc)
+        hubbard = None if ns is None else moved.hubbard_terms(ns)[2]
+        out = []
+        for channel in range(len(hamiltonians)):
+            hub = None if hubbard is None else hubbard[channel]
+            out.append(_inexact((moved.kinetic.astype(real), moved.projectors, hub))[0])
+        return tuple(out)
+
+    tangents = []
+    for direction in directions:
+        step = jnp.broadcast_to(jnp.asarray(direction, dtype=kcart.dtype), kcart.shape)
+        _, tangent = jax.jvp(moving, (kcart,), (step,))
+        tangents.append(tangent)
+    return tuple(tangents)
+
+
+def apply_velocity(hamiltonian, tangent, psi, ik):
+    """``v psi = dH/dk psi`` at k-point ``ik``, for ``psi`` of shape ``(..., ndim)``.
+
+    The ``jvp`` of ``H psi`` in the moving parts alone (:func:`_moving`), with
+    ``tangent`` one channel's entry of :func:`velocity_tangents`.
+    """
+    primal, static = _inexact(_moving(hamiltonian))
+    psi = jnp.where(live_mask(hamiltonian)[ik], psi, 0.0)
+
+    def applied(parts):
+        kinetic, projectors, hubbard = eqx.combine(parts, static)
+        moved = eqx.tree_at(lambda h: (h.kinetic, h.projectors), hamiltonian,
+                            (kinetic, projectors))
+        if hubbard is not None:
+            moved = eqx.tree_at(lambda h: h.hubbard, moved, hubbard)
+        return moved.apply(psi, ik)
+
+    return jax.jvp(applied, (primal,), (tangent,))[1]
+
+
+# -- the moments ---------------------------------------------------------------
+
+def _family(apply, start, n_moments: int):
+    """``(N, ...)``: the Chebyshev vectors ``T_n(H') start`` for ``n < N``."""
+    first = apply(start)
+
+    def step(carry, _):
+        previous, current = carry
+        following = 2.0 * apply(current) - previous
+        return (current, following), following
+
+    _, rest = lax.scan(step, (start, first), None, length=n_moments - 2)
+    return jnp.concatenate([start[None], first[None], rest], axis=0)
+
+
+@functools.partial(jax.jit, static_argnames=("n_moments", "n_random", "kind", "k_batch"))
+def conductivity_moments(hamiltonian, tangents, centre, half, key, weights,
+                         n_moments: int, n_random: int, kind: str = "stochastic",
+                         k_batch=None):
+    """The k-weighted two-index moments of one channel, and their guard.
+
+    Returns ``(mu, norms, dos)``: ``mu`` is ``(ndir, ndir, N, N)`` complex,
+    ``sum_k weights_k Tr[v_a T_n(H') v_b T_m(H')]`` estimated by the start
+    vectors; ``norms`` is ``(N,)``, ``sum_k weights_k sum_r <T_n r|T_n r>``
+    over ``sum_k weights_k sum_r <r|r>``, which a spectrum inside the interval
+    keeps at or below one; ``dos`` is ``(N,)``, the trace moments
+    ``sum_k weights_k Tr T_n(H')`` of the same start vectors.
+
+    ``kind`` is ``"stochastic"`` (``n_random`` random phases per k-point,
+    each sample scaled by the number of live components so that it estimates
+    the trace) or ``"exact"`` (every unit vector of the live sphere). A
+    module-level ``jit`` closing over nothing, so a second call on another
+    potential compiles nothing; the key is folded with the k index.
+    """
+    mask = live_mask(hamiltonian)
+    dtype = hamiltonian.dtype
+    ndir = len(tangents)
+
+    def one_k(args):
+        ik, weight = args
+        live = mask[ik]
+        count = jnp.sum(live).astype(weight.dtype)
+
+        def apply(v):
+            out = (hamiltonian.apply(v, ik) - centre * v) / half
+            return jnp.where(live, out, 0.0)
+
+        def velocity(a, v):
+            return apply_velocity(hamiltonian, tangents[a], v, ik)
+
+        if kind == "stochastic":
+            starts = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
+            scale = weight * count
+        else:
+            starts = unit_vectors(live, dtype)
+            scale = weight
+
+        def one_vector(carry, r):
+            mu, norms, dos = carry
+            right = _family(apply, r, n_moments)  # (N, ndim): T_m r
+            lefts = [_family(apply, velocity(a, r), n_moments) for a in range(ndir)]
+            rows = []
+            for b in range(ndir):
+                image = velocity(b, right)  # v_b T_m r
+                rows.append(jnp.stack([jnp.conj(left) @ image.T for left in lefts]))
+            block = jnp.stack(rows, axis=1)  # (a, b, n, m)
+            norms = norms + jnp.real(jnp.sum(jnp.conj(right) * right, axis=-1))
+            dos = dos + jnp.real(right @ jnp.conj(r))
+            return (mu + block, norms, dos), None
+
+        real = jnp.zeros((), dtype).real.dtype
+        zero = (jnp.zeros((ndir, ndir, n_moments, n_moments), dtype),
+                jnp.zeros((n_moments,), real), jnp.zeros((n_moments,), real))
+        (mu, norms, dos), _ = lax.scan(one_vector, zero, starts)
+        if kind == "stochastic":
+            mu, norms, dos = mu / n_random, norms / n_random, dos / n_random
+        norm0 = jnp.real(jnp.sum(jnp.conj(starts) * starts)) / (
+            n_random if kind == "stochastic" else 1)
+        return scale * mu, weight * norms, scale * dos, weight * norm0
+
+    indices = jnp.arange(mask.shape[0])
+    mu, norms, dos, norm0 = sum_k(one_k, (indices, weights), batch=k_batch)
+    return mu, norms / norm0, dos
+
+
+# -- from the moments to a spectrum -------------------------------------------
+
+def delta_table(factors, centre: float, half: float, energies):
+    """``(N, nE)``: ``g_n (2 - delta_n0) T_n(x) / (pi half sqrt(1 - x^2))`` on ``energies``.
+
+    Contracted with the moments of an operator ``A`` over ``n`` it gives
+    ``Tr[A delta(E - H)]`` per Ry, and zero outside the interval.
+    """
+    factors = jnp.asarray(factors)
+    x = (jnp.asarray(energies) - centre) / half
+    inside = jnp.abs(x) < 1.0
+    xc = jnp.where(inside, x, 0.0)
+    theta = jnp.arccos(xc)
+    n = jnp.arange(factors.shape[0], dtype=theta.dtype)
+    weights = jnp.where(n > 0, 2.0, 1.0) * factors
+    table = weights[:, None] * jnp.cos(n[:, None] * theta[None, :])
+    table = table / (math.pi * half * jnp.sqrt(1.0 - xc**2))[None, :]
+    return jnp.where(inside[None, :], table, 0.0)
+
+
+def fermi_function(energies, fermi_energy: float, temperature: float):
+    """Occupation at ``energies``: a step (one half at the level) at zero temperature."""
+    energies = jnp.asarray(energies)
+    if temperature <= 0.0:
+        return jnp.where(energies < fermi_energy, 1.0,
+                         jnp.where(energies > fermi_energy, 0.0, 0.5))
+    return 0.5 * (1.0 - jnp.tanh(0.5 * (energies - fermi_energy) / temperature))
+
+
+def kubo_greenwood(moments, factors, centre: float, half: float, volume: float,
+                   fermi_energy: float, temperature: float, emin: float, delta_e: float,
+                   n_frequencies: int):
+    """``(nw, ndir, ndir)`` complex: ``sigma'_ab(w_j)`` at ``w_j = j delta_e``.
+
+    The energy grid is uniform from ``emin`` in steps of ``delta_e``, so
+    ``E_i + w_j`` is on it. ``Gamma_ab(E, E') = Tr[v_a delta(E - H) v_b
+    delta(E' - H)]`` is ``A^T mu A`` with ``A`` the :func:`delta_table`; the
+    ``w = 0`` entry is the limit ``(pi / Omega) int dE (-f'(E)) Gamma(E, E)``,
+    the Kubo-Greenwood DC conductivity, which is zero for an insulator. In
+    Hartree atomic units when the energies are in Ry and the velocity in
+    Ry bohr, the same homogeneity as the band sum
+    (:mod:`defuqumat.response.conductivity`).
+    """
+    top = fermi_energy + 12.0 * max(temperature, 0.0)
+    n_low = int(math.floor((top - emin) / delta_e)) + 2
+    energies = emin + delta_e * jnp.arange(n_low + n_frequencies)
+    table = delta_table(factors, centre, half, energies)
+    gamma = jnp.einsum("ni,abnm,mj->abij", table[:, :n_low], jnp.asarray(moments), table)
+    occupation = fermi_function(energies, fermi_energy, temperature)
+    rows = jnp.arange(n_low)
+    shifts = jnp.arange(1, n_frequencies)
+    columns = rows[:, None] + shifts[None, :]  # (nlow, nw - 1): E_i + w_j
+    weight = occupation[rows][:, None] - occupation[columns]
+    sigma = delta_e * jnp.einsum("ij,abij->jab", weight, gamma[:, :, rows[:, None], columns])
+    w = delta_e * np.arange(1, n_frequencies)
+    sigma = math.pi / volume * sigma / jnp.asarray(w)[:, None, None]
+    # w -> 0: [f(E) - f(E + w)] / w -> -f'(E)
+    if temperature > 0.0:
+        slope = occupation * (1.0 - occupation) / temperature
+        dc = delta_e * jnp.einsum("i,abi->ab", slope[:n_low],
+                                  gamma[:, :, rows, rows])
+    else:
+        x = (fermi_energy - centre) / half
+        if abs(x) >= 1.0:
+            dc = jnp.zeros(gamma.shape[:2], gamma.dtype)
+        else:
+            at_level = delta_table(factors, centre, half, jnp.asarray([fermi_energy]))[:, 0]
+            dc = jnp.einsum("n,abnm,m->ab", at_level, jnp.asarray(moments), at_level)
+    dc = math.pi / volume * dc
+    return jnp.concatenate([dc[None], sigma], axis=0)
+
+
+# -- the result and the entry point -------------------------------------------
+
+@dataclass(frozen=True)
+class KPMConductivity:
+    """The absorptive optical conductivity by the kernel polynomial method.
+
+    Attributes:
+        frequencies: ``(nw,)`` photon energies in Ry, ``j delta_e`` from zero.
+        sigma: ``(nw, ndir, ndir)`` complex, Hartree atomic units: the
+            absorptive (Hermitian) part of ``sigma_ab(w)``. Its diagonal is
+            ``Re sigma_aa``; the antisymmetric imaginary part of an off-diagonal
+            entry is the absorptive Hall part. Entry ``0`` is the DC
+            conductivity ``(pi / Omega) int dE (-f'(E)) Tr[v_a delta v_b delta]``.
+        directions: the cartesian unit vectors of the rows, ``(ndir, 3)``.
+        moments: ``(nspin, ndir, ndir, N, N)`` complex, summed over k with the
+            k weights, so another kernel, Fermi level or temperature is
+            :meth:`reconstructed` with no recursion.
+        dos_moments: ``(nspin, N)``, ``sum_k w_k Tr T_n(H')`` from the same start
+            vectors.
+        centre, half_width: the interval, Ry.
+        kernel, n_moments: the kernel and the moment count.
+        broadening: half width at half maximum of one delta at the Fermi level, Ry.
+        transition_broadening: of a transition, two deltas convolved: ``2``
+            times the above for the Lorentz kernel, ``sqrt(2)`` times for a
+            Gaussian (Jackson).
+        fermi_energy, temperature: of the occupations, Ry.
+        volume: bohr^3.
+        trace, n_random, seed: how the trace was taken.
+    """
+
+    frequencies: np.ndarray
+    sigma: np.ndarray
+    directions: np.ndarray
+    moments: np.ndarray
+    dos_moments: np.ndarray
+    centre: float
+    half_width: float
+    kernel: str
+    n_moments: int
+    broadening: float
+    transition_broadening: float
+    fermi_energy: float
+    temperature: float
+    volume: float
+    delta_e: float
+    emin: float
+    trace: str
+    n_random: int
+    seed: int
+
+    @property
+    def frequencies_ev(self) -> np.ndarray:
+        from defuqumat.units import RY_TO_EV
+
+        return np.asarray(self.frequencies) * RY_TO_EV
+
+    @property
+    def sigma_s_per_cm(self) -> np.ndarray:
+        """``sigma`` in S/cm."""
+        from defuqumat.units import AU_TO_S_PER_CM
+
+        return np.asarray(self.sigma) * AU_TO_S_PER_CM
+
+    @property
+    def epsilon_imaginary(self) -> np.ndarray:
+        """``Im eps_ab(w) = 4 pi sigma'_ab / w`` (Hartree units), ``nan`` at ``w = 0``."""
+        w = 0.5 * np.asarray(self.frequencies)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out = 4.0 * math.pi * np.asarray(self.sigma) / w[:, None, None]
+        out[0] = np.nan
+        return out
+
+    def reconstructed(self, *, kernel: str | None = None, n_moments: int | None = None,
+                      fermi_energy: float | None = None, temperature: float | None = None,
+                      n_frequencies: int | None = None) -> np.ndarray:
+        """``sigma`` again from the stored moments, with another kernel, ``N``, level or temperature."""
+        kernel = self.kernel if kernel is None else kernel
+        n = self.n_moments if n_moments is None else int(n_moments)
+        factors = get_kernel(kernel).factors(n)
+        fermi = self.fermi_energy if fermi_energy is None else float(fermi_energy)
+        temp = self.temperature if temperature is None else float(temperature)
+        nw = len(self.frequencies) if n_frequencies is None else int(n_frequencies)
+        moments = np.asarray(self.moments)[..., :n, :n].sum(axis=0)
+        return np.asarray(kubo_greenwood(moments, factors, self.centre, self.half_width,
+                                         self.volume, fermi, temp, self.emin, self.delta_e,
+                                         nw))
+
+
+def _directions(directions):
+    out = []
+    for d in directions:
+        if isinstance(d, str):
+            if d not in AXES:
+                raise ValueError(f"a direction is 'x', 'y', 'z' or a 3-vector, not {d!r}")
+            vector = np.zeros(3)
+            vector[AXES[d]] = 1.0
+        else:
+            vector = np.asarray(d, dtype=float)
+            if vector.shape != (3,) or not np.linalg.norm(vector) > 0:
+                raise ValueError(f"a direction must be a non-zero 3-vector, got {d!r}")
+            vector = vector / np.linalg.norm(vector)
+        out.append(vector)
+    return np.stack(out)
+
+
+def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float,
+                         directions=("x", "y", "z"), window: float = 1.5,
+                         broadening: float = 0.02, n_moments: int | None = None,
+                         kernel: str = "jackson", trace: str = "stochastic",
+                         n_random: int = 4, seed: int = 0, temperature: float = 0.0,
+                         delta_e: float | None = None, lanczos_steps: int | None = None,
+                         edge_margin: float | None = None, k_batch="default", ns=None,
+                         tau=None, becsum: tuple = (), field=None, field_scale=None,
+                         calculation=None) -> KPMConductivity:
+    """``sigma'_ab(w)`` of a converged density by two-index Chebyshev moments.
+
+    Args:
+        system, pseudos, density: the converged run.
+        fermi_energy: Ry, where the occupation steps (smeared by
+            ``temperature``). For an insulator, put it in the gap: a level at
+            the top of the valence band cuts the broadened top states in half.
+        directions: the cartesian axes of the tensor, names or 3-vectors; each
+            costs one more recursion and multiplies the Gram product.
+        window: the largest photon energy, Ry.
+        broadening: half width at half maximum of one delta at the Fermi level,
+            Ry; it sets the number of moments. A transition is broader
+            (:attr:`KPMConductivity.transition_broadening`).
+        n_moments: overrides ``broadening``.
+        kernel: ``"jackson"`` (default) or ``"lorentz"``, whose transitions
+            are Lorentzians of half width ``2 lambda half / N``, the form of the
+            band sum.
+        trace: ``"stochastic"`` or ``"exact"`` (one recursion per plane wave,
+            for small cells).
+        n_random, seed: the random vectors per k-point.
+        temperature: of the Fermi function, Ry; zero is a step.
+        delta_e: the energy and frequency step, Ry; a fifth of the broadening
+            if not given.
+        lanczos_steps, edge_margin: the interval (:func:`~defuqumat.kpm.bounds.spectral_interval`).
+        ns, tau, becsum, field, field_scale: the rest of the converged state.
+        calculation: the SCF's own.
+    """
+    from defuqumat.kpm.bounds import EDGE_MARGIN, LANCZOS_STEPS
+    from defuqumat.kpm.dos import interval_and_moments, kpm_setup
+    from defuqumat.kpm.guard import SpectralIntervalError
+    from defuqumat.kpm.traces import whole_grid_calculation
+    from defuqumat.workflows.nscf import threaded_calculation
+
+    if trace not in ("stochastic", "exact"):
+        raise ValueError(f"trace must be 'stochastic' or 'exact', got {trace!r}")
+    if fermi_energy is None:
+        raise ValueError("the KPM conductivity needs fermi_energy (Ry); for an insulator "
+                         "a level inside the gap")
+    vectors = _directions(directions)
+    calculation, system, _, k_batch = threaded_calculation(calculation, system, None, k_batch)
+    if calculation is None:
+        from defuqumat.scf.driver import Calculation
+
+        calculation = Calculation(system, pseudos, k_batch=k_batch)
+    # a velocity tensor on a wedge is not completed by its weights alone
+    calculation = whole_grid_calculation(calculation)
+    calculation, hamiltonians, batch = kpm_setup(
+        system, pseudos, density, k_batch=k_batch, calculation=calculation, ns=ns, tau=tau,
+        becsum=becsum, field=field, field_scale=field_scale)
+    if getattr(calculation, "gamma_only", False):
+        raise NotImplementedError("the KPM conductivity does not run on gamma_only storage")
+    (centre, half, emin, _, _, n_moments, width) = interval_and_moments(
+        hamiltonians, batch, seed, LANCZOS_STEPS if lanczos_steps is None else lanczos_steps,
+        EDGE_MARGIN if edge_margin is None else edge_margin, None, fermi_energy + window,
+        fermi_energy, fermi_energy, broadening, n_moments, kernel)
+    if delta_e is None:
+        delta_e = width / 5.0 if math.isfinite(width) else 0.002
+    tangents = velocity_tangents(calculation, hamiltonians, vectors, ns=ns)
+    weights = jnp.asarray(calculation.system.kpoints.weights)
+    key = jax.random.PRNGKey(seed)
+    moments, dos = [], []
+    for channel, hamiltonian in enumerate(hamiltonians):
+        tangent = tuple(t[channel] for t in tangents)
+        mu, norms, trace_moments = conductivity_moments(
+            hamiltonian, tangent, centre, half, jax.random.fold_in(key, channel), weights,
+            n_moments, n_random, kind=trace, k_batch=batch)
+        norms = np.asarray(norms)
+        if not np.all(norms <= 1.0 + 1e-6):
+            raise SpectralIntervalError(
+                f"the Chebyshev vectors grew (largest norm^2 {norms.max():.3g} of 1): the "
+                f"spectrum leaves the interval [{centre - half:.4f}, {centre + half:.4f}] "
+                "Ry. Pass a larger edge_margin")
+        moments.append(np.asarray(mu))
+        dos.append(np.asarray(trace_moments))
+    moments = np.stack(moments)
+    factors = get_kernel(kernel).factors(n_moments)
+    n_frequencies = int(round(window / delta_e)) + 1
+    sigma = np.asarray(kubo_greenwood(moments.sum(axis=0), factors, centre, half,
+                                      float(calculation.system.cell.volume), fermi_energy,
+                                      temperature, emin, delta_e, n_frequencies))
+    factor = 2.0 if kernel.lower() == "lorentz" else math.sqrt(2.0)
+    return KPMConductivity(
+        frequencies=delta_e * np.arange(n_frequencies), sigma=sigma, directions=vectors,
+        moments=moments, dos_moments=np.stack(dos), centre=centre, half_width=half,
+        kernel=kernel, n_moments=n_moments, broadening=width,
+        transition_broadening=factor * width, fermi_energy=float(fermi_energy),
+        temperature=float(temperature), volume=float(calculation.system.cell.volume),
+        delta_e=float(delta_e), emin=float(emin), trace=trace,
+        n_random=n_random if trace == "stochastic" else 0, seed=seed)
