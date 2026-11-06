@@ -27764,7 +27764,7 @@ runs the default; outputs unchanged, 60 s. Notebook 59: prose only (all its runs
 the user; SCDM with symmetry, time reversal, spinors and magnetic groups as before (SCDM and a
 magnetic group now give the fallback warning by default; spinors are still refused first).
 
-### P167 -- The kernel polynomial method: the engine and the density of states, `get_kpm_dos`. ✅ DONE 2026-11-06 (`tests/unit/test_kpm.py`, nine fast tests, on D22 CPU; the gate `tools/test-fast.sh` was not run; no slow file written or touched; branch `kpm` from 6f60f418, not merged, not pushed)
+### P167 -- The kernel polynomial method: the engine and the density of states, `get_kpm_dos`. ✅ DONE 2026-11-06 (`tests/unit/test_kpm.py`, twelve fast tests, on D22 CPU; the gate `tools/test-fast.sh` was not run; no slow file written or touched; branch `kpm` from 6f60f418, not merged, not pushed)
 
 **The plan** is `plans/kpm.md` (P167 to P169), reviewed by a fable subagent before any code;
 the review moved the bounds from Weyl to Lanczos, sliced the dense check to the live sphere,
