@@ -290,6 +290,41 @@ eight seeds of the random vectors. It falls as one over the square root of the
 number of atoms, so a bigger cell needs fewer vectors. With 16 atoms the bands are
 faster, with 64 and more atoms the KPM is faster, and the gain grows with the cell.
 
+**Less noise from the atomic orbitals.** Near the Fermi level the states live
+mostly on the atomic orbitals and on the part of them that leaks between the atoms.
+With `control_variate=True`, the code filters the atomic orbitals with a Chebyshev
+polynomial of $H$ that keeps their part below $E_F + 1$ Ry (`filter_cut`, of degree
+`filter_degree = 8`), and solves $H$ in that small space. This gives approximate
+eigenstates $|y_j\rangle$ with energies $\theta_j$. For each random vector it
+subtracts what these states predict, and adds back its exact average:
+
+$$
+\mu_n \;\to\; \mu_n - N_{\rm pw}\sum_j |\langle y_j|r\rangle|^2\,T_n(\theta_j') + \sum_j T_n(\theta_j').
+$$
+
+The average of the subtracted term is exactly the term added back, so the DOS stays
+unbiased. The noise falls where the $|y_j\rangle$ are close to eigenstates, which is
+the valence band and the lowest conduction states. On the same cells, with one
+random vector:
+
+| cell | from the bands | KPM, 8 random vectors | KPM with the orbitals, 1 random vector |
+|---|---|---|---|
+| 16 atoms | 1.6 to 3.9 s | 2.5 s, error 26% | 0.7 s, error 0.4% |
+| 64 atoms | 32 to 85 s | 14 s, error 13% | 10.5 s, error 0.2% |
+| 128 atoms | 275 to 1449 s | 44 to 95 s, error about 10% | 123 s, error 0.2% |
+
+The times of the 128-atom cell were taken while the machine was heavily loaded, so
+they are a range. The error is the same rms difference from the bands as above,
+averaged over four seeds. With one random vector the code cannot estimate its own
+error, so `dos_error` is zero there. Ask for at least two vectors to get the error
+bar.
+
+So one random vector with the atomic orbitals is about 60 to 100 times more accurate
+than eight without them, at about the same cost, and faster than the bands already at
+16 atoms. The extra cost is nine applications of $H$ per atomic orbital and a small dense
+diagonalization in their space, which grows like the bands do, so the gain is
+largest when you want an error of about one per cent.
+
 ??? example "Code of this figure (docs/figures/dos_kpm/)"
 
     ```python title="compute.py"
@@ -439,6 +474,9 @@ diagonalize.
     norm-conserving pseudopotential outside the core radius. The unfolding needs
     the cell to be an integer supercell of the primitive lattice you give, and it
     gives an error otherwise. `spin_resolved=True` needs a noncollinear run.
+    `control_variate=True` needs random vectors (it gives an error with
+    `trace="exact"`), and it needs atomic orbitals in the pseudopotential files.
+    It does not change `spin_dos`, which keeps the noise of the plain trace.
 
 The notebooks for this page are
 [06, the density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/06_density_of_states.ipynb),

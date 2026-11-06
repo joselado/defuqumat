@@ -11547,3 +11547,21 @@ measured again at load 9 to 12: 1.57 s (si16, 50 bands, no fallback), 84.8 s (si
 (`/l/ladovj1/review/kpm/subspace/`, PLAN.md P168, "The user's low-energy subspace"). The control
 variate of that study (F8-filtered atomic orbitals) reaches 1.8e-3 to 5.2e-3 at R = 1 for 2.4 to 7x
 less wall time than Davidson.
+
+## The KPM control variate (P170) against plain KPM and Davidson NSCF + DOS (CPU and RTX A2000, D22, 2026-11-06)
+
+Silicon supercells at 12 Ry, one k-point, broadening 0.01 Ry, one core each through `slot.sh`, warm
+calls, medians of 4 seeds, errors the mean over 4 seeds of the rms over the valence window against the
+NSCF eigenvalues through the same kernel (`/l/ladovj1/review/kpm/timing3.py`, `cv2-*.log`). Load average
+8 to 14 from other users; si128's times in particular are a ratio at best.
+
+| cell | Davidson NSCF + DOS | plain R = 8 | variate R = 1 | variate R = 4 |
+|---|---|---|---|---|
+| si16 | 3.89 s (53 bands) | 2.49 s, 0.262 | 0.69 s, 0.0036 | 1.67 s, 0.0013 |
+| si64 | 82.9 s (171 bands) | 14.0 s, 0.132 | 10.5 s, 0.0023 | 16.8 s, 0.0010 |
+| si128 | 1449 s (321 bands, loaded) | (plain R = 4: 94.7 s, 0.133) | 123 s, 0.0020 | 114 s, 0.0008 |
+
+On the RTX A2000, si64: plain R = 8 2.45 s, the variate R = 1 2.07 s and R = 4 3.02 s, warm. The extra
+cost of the variate is `9 natw` applications and an `O(npw natw^2)` SVD and Rayleigh-Ritz per k-point
+and channel; memory, the `(natw, ndim)` block and two partners for one k-point, beside the orbitals of
+every k-point.

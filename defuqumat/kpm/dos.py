@@ -37,6 +37,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.kpm.bounds import EDGE_MARGIN, LANCZOS_STEPS, spectral_interval
+from defuqumat.kpm.control import FILTER_CUT, FILTER_DEGREE
 from defuqumat.kpm.guard import check_moments
 from defuqumat.kpm.kernels import get_kernel, moment_count
 from defuqumat.kpm.moments import chebyshev_moments, live_mask
@@ -262,6 +263,9 @@ def run_kpm_dos(
     edge_margin: float = EDGE_MARGIN,
     fermi_energy: float | None = None,
     spin_resolved: bool = False,
+    control_variate: bool = False,
+    filter_degree: int | None = None,
+    filter_cut: float | None = None,
     k_batch="default",
     ns=None,
     tau=None,
@@ -290,6 +294,14 @@ def run_kpm_dos(
             middle of the window.
         lanczos_steps, edge_margin: how the interval is estimated
             (:func:`~defuqumat.kpm.bounds.spectral_interval`).
+        control_variate: subtract from each random sample its projection on
+            Ritz pairs of the low-pass-filtered atomic orbitals and add back
+            its mean (:mod:`defuqumat.kpm.control`): unbiased, with much less
+            noise in the valence band, for ``(filter_degree + 1) natw``
+            applications of ``H`` and a dense ``natw`` Rayleigh-Ritz per k-point.
+        filter_degree, filter_cut: the low-pass filter, degree 8 and a cut at
+            ``fermi_energy + 1`` Ry (the top of the window without a Fermi level)
+            when not given.
         spin_resolved: for a spinor, also ``Tr[sigma_i delta(E - H)]`` on the
             same random vectors, as ``spin_dos``; refused for another regime.
         fermi_energy: recorded on the result and used for the default window;
@@ -311,6 +323,12 @@ def run_kpm_dos(
     weights = np.asarray(calculation.system.kpoints.weights)
     samples = kpm_moments(hamiltonians, weights, centre, half, n_moments,
                           n_random=n_random, seed=seed, trace=trace, k_batch=batch)
+    if control_variate:
+        samples = samples + variate_corrections(
+            calculation, hamiltonians, weights, centre, half, n_moments, n_random, seed,
+            trace, (fermi_energy if fermi_energy is not None else emax)
+            + (FILTER_CUT if filter_cut is None else filter_cut),
+            FILTER_DEGREE if filter_degree is None else filter_degree)
     energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)
     dos, integrated, error = _assemble(samples, kernel, n_moments, centre, half,
                                        energies, trace)
@@ -390,3 +408,20 @@ def spin_resolved_dos(hamiltonians, weights, centre, half, n_moments, n_random, 
     moments = np.einsum("k,kirn->in", np.asarray(weights) * live, raw) / n_random
     dos, _ = _evaluate(moments, kernel, n_moments, centre, half, energies)
     return dos
+
+
+def variate_corrections(calculation, hamiltonians, weights, centre, half, n_moments, n_random,
+                        seed, trace, cut, degree):
+    """``(nspin, R, N)``: the control variate's correction of every random sample."""
+    from defuqumat.kpm.control import control_corrections
+    from defuqumat.projwfc.projections import atomic_orbitals
+
+    if trace != "stochastic":
+        raise ValueError("control_variate reduces the noise of random vectors; the exact "
+                         "trace has none")
+    orbitals = jnp.swapaxes(atomic_orbitals(calculation), 1, 2)  # (nk, natw, ndim)
+    key = jax.random.PRNGKey(seed)
+    return np.stack([
+        control_corrections(hamiltonian, orbitals, jax.random.fold_in(key, channel), centre,
+                            half, n_moments, n_random, weights, cut, degree)[0]
+        for channel, hamiltonian in enumerate(hamiltonians)])
