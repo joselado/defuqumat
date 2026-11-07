@@ -11602,7 +11602,9 @@ per cent in 47 s, about half the band route. The cost is linear in `R`, about
 `ndir^2 N^2 npw` for the Gram products. With one direction it is about a third. On the RTX A2000
 (`gpu.log`, `taskset -c 0-1`): si16 1.29 s at R = 1 and 3.70 s at R = 4, si64 5.84 s and 22.6 s, warm;
 two CPU cores take 2.83 s and 9.99 s on si16. The card's `sigma` equals the CPU's to 3.1e-11 of its
-maximum (moments 4.7e-12).
+maximum (moments 4.7e-12). With the variate (the default since P169, degree 16) the card takes 8.41 s at
+R = 1 and 25.2 s at R = 4 on si64, warm (`gpu-sigma-cv.log`), and the peak of `sigma_xx` is 0.666 and
+0.668, where the plain runs had read 0.593 and 0.611.
 
 Memory per k-point in flight, `(ndir + 2) N ndim` complex numbers (240 MB at N = 1000, ndim = 3000,
 three directions), the moments `ndir^2 N^2` per channel summed over k, and the velocity's tangents,
