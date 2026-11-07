@@ -428,8 +428,8 @@ representatives `kappa2 in {0, 1/(2q)}`:
 | 6 | 55296 | 24 | 1.8e-12 Ry | 91 to 148 | 0.438 GB | 1.78 GB | 2227 s | 92.8 s |
 
 All within the design's 1e-9 Ry. Against step 1's local-only runs at the same sizes (60 to 107 steps,
-4.6 to 89 s a k-point) the nonlocal term costs 1.0 to 1.4 times the time a k-point; the step counts
-rose by 10 to 40 per cent (the preconditioner does not see the nonlocal diagonal). These ran as big
+4.6 to 89 s a k-point) the nonlocal term costs 1.0 to 1.3 times the time a k-point (1.04, 1.01, 1.13, 1.31, 1.04 at `q = 1, 2, 3, 4, 6`); the step counts
+rose by 7 to 40 per cent (the preconditioner does not see the nonlocal diagonal). These ran as big
 jobs (four cores) at a load of 8 to 16, so a time is a range; `q = 5` (`M/sets-q5.log`) waited 12
 minutes for the lock.
 
