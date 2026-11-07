@@ -69,14 +69,20 @@ def resolve_variate(control_variate, trace: str, calculation) -> bool:
     off with a warning when no pseudopotential carries atomic orbitals
     (``PP_CHI``), since the plain trace is the same unbiased estimate with more
     noise. ``True`` keeps its errors in both cases, so a request is not dropped
-    silently.
+    silently: without orbitals it raises here, and with ``trace="exact"`` it is
+    returned as asked and the caller raises, naming its own trace.
     """
+    # imported here, so that a test can replace it on its module
+    from defuqumat.projwfc.projections import calculation_channels
+
     if control_variate != "auto":
+        if control_variate and trace == "stochastic" and not calculation_channels(calculation):
+            raise ValueError(
+                "control_variate=True needs atomic orbitals (PP_CHI) in at least one "
+                "pseudopotential and none carries them; use \"auto\" or False")
         return bool(control_variate)
     if trace != "stochastic":
         return False
-    from defuqumat.projwfc.projections import calculation_channels
-
     if not calculation_channels(calculation):
         warnings.warn(
             "control_variate='auto': no pseudopotential carries atomic orbitals (PP_CHI), "
