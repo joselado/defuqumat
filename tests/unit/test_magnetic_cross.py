@@ -37,7 +37,8 @@ def _copies(eigenvalues, kpoints, q, members=(0, 1)):
 
 
 def _route_p_files():
-    files = sorted(DATA.glob("route-p-q*.npz"))
+    # the closed (2, 2q) meshes; route-p-q*-reps.npz hold the four representatives only
+    files = sorted(p for p in DATA.glob("route-p-q*.npz") if not p.name.endswith("-reps.npz"))
     if not files:
         pytest.skip("the route P level sets are not in plans/orbital-field")
     return files

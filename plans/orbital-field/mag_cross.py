@@ -63,6 +63,8 @@ def pooled(levels, lo, hi):
 def exact():
     worst = 0.0
     for path in sorted(DATA.glob("route-p-q*.npz")):
+        if path.name.endswith("-reps.npz"):
+            continue                                    # the four representatives only, no mesh
         z = np.load(path)
         q = int(z["flux"][1])
         e, kp = z["eigenvalues"], z["kpoints"]
@@ -224,8 +226,13 @@ def analyse():
     from defuqumat.magnetic.peierls import bonds_from_wannier
     from defuqumat.units import tesla_from_flux
 
-    floors = {k: (np.load(OUT / f"floor-{k}.npz") if (OUT / f"floor-{k}.npz").exists() else None)
-              for k in ("local", "full")}
+    def floor_file(kind):
+        for path in (OUT / f"floor-{kind}.npz", DATA / f"cross-floor-{kind}.npz"):
+            if path.exists():
+                return np.load(path)
+        return None
+
+    floors = {k: floor_file(k) for k in ("local", "full")}
     kappa_rep = None
     saved = {}
 
