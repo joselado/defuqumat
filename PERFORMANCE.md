@@ -11561,6 +11561,11 @@ NSCF eigenvalues through the same kernel (`/l/ladovj1/review/kpm/timing3.py`, `c
 | si64 | 82.9 s (171 bands) | 14.0 s, 0.132 | 10.5 s, 0.0023 | 16.8 s, 0.0010 |
 | si128 | 1449 s (321 bands, loaded) | (plain R = 4: 94.7 s, 0.133) | 123 s, 0.0020 | 114 s, 0.0008 |
 
+**The table is at filter degree 8; the default is 16 since P169** (`dosdeg.py`, 2026-11-07, 4 seeds,
+R = 1, load about 6): si16 0.45 s and 0.0039 at degree 8, 0.59 s and 0.0003 at 16; si64 12.8 s and
+0.0025, 11.1 s and 0.0003; from the gap to `E_VBM + 0.5` Ry the error falls from 0.148 to 0.016 (si16)
+and from 0.133 to 0.050 (si64).
+
 On the RTX A2000, si64: plain R = 8 2.45 s, the variate R = 1 2.07 s and R = 4 3.02 s, warm. The extra
 cost of the variate is `9 natw` applications and an `O(npw natw^2)` SVD and Rayleigh-Ritz per k-point
 and channel; memory, the `(natw, ndim)` block and two partners for one k-point, beside the orbitals of
