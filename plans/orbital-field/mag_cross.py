@@ -10,6 +10,9 @@ Run from the worktree root on D22 (every subcommand imports defuqumat or reads i
                                           Dirac energies at K; writes floor-<kind>.npz
     python mag_cross.py analyse           items 1, 3 and 4 from the npz files and the Peierls
                                           model; reads floor-*.npz when present
+    python mag_cross.py reps q            route P's full H at 1/q on the four representatives only
+                                          (q = 8, 10, beyond the committed meshes); route-p-q<q>-reps.npz
+    python mag_cross.py diag              route P's zero pair against Peierls and route U, a kappa scan
 
 Everything compared is a sorted level set pooled over the four magnetic representatives
 kappa1 in {0, 1/2}, kappa2 in {0, 1/(2q)} (route P's full mesh is q copies of it, which
@@ -30,6 +33,17 @@ DATA = Path("plans/orbital-field")
 SCF = str(DATA / "graphene-scf.npz")
 OUT = Path(os.environ.get("MAG_OUT", "/l/ladovj1/review/mag/cross"))
 QS = (1, 2, 3, 4, 6)
+FLOOR_QS = (1, 2, 3, 4, 6, 8, 10)
+FULL_QS = (2, 3, 4, 6, 8, 10)
+
+
+def route_p_full(q):
+    """Route P's full-H set at 1/q: the committed (2, 2q) mesh, or the four representatives of
+    ``representatives_run`` (plans/orbital-field/ first, then $MAG_OUT); None when neither exists."""
+    for path in (DATA / f"route-p-q{q}-full.npz", DATA / f"route-p-q{q}-reps.npz", OUT / f"route-p-q{q}-reps.npz"):
+        if path.exists():
+            return np.load(path)
+    return None
 RY_EV = 13.605693122990
 TRAPZ = getattr(np, "trapezoid", None) or np.trapz
 
@@ -70,7 +84,7 @@ def exact():
 def chemical_points():
     """The chemical k ((kappa1 + j)/q, kappa2) of every representative of every q, and K."""
     pts = set()
-    for q in QS:
+    for q in FLOOR_QS:
         for i in range(2 * q):
             for j in (0, 1):
                 pts.add((round(i / (2 * q), 12), round(j / (2 * q), 12)))
@@ -292,8 +306,11 @@ def analyse():
             return None, ca, cb
         return np.sort(np.concatenate(a_rows)) - np.sort(np.concatenate(b_rows)), ca, cb
 
-    for q in (2, 3, 4, 6):
-        P = np.load(DATA / f"route-p-q{q}-full.npz")
+    for q in FULL_QS:
+        P = route_p_full(q)
+        if P is None:
+            print(f"q {q}: no route P set, skipped")
+            continue
         rep = reps(P["kpoints"], q)
         kap = P["kpoints"][rep][:, :2]
         field = tesla_from_flux(1, q, area)
@@ -418,6 +435,28 @@ def analyse():
     print(f"saved {OUT / 'cross.npz'}")
 
 
+def representatives_run(q):
+    """Route P's full H at 1/q on the four representatives only (q copies give the closed (2, 2q) mesh)."""
+    import resource
+
+    from defuqumat.workflows.magnetic_bands import run_magnetic_bands
+
+    calc = graphene()
+    kpts = [[0.0, 0.0, 0.0], [0.5, 0.0, 0.0], [0.0, 1 / (2 * q), 0.0], [0.5, 1 / (2 * q), 0.0]]
+    t0 = time.perf_counter()
+    b = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(1, q), kpoints=kpts, nbnd=4 * q + 8,
+                           local_only=False)
+    wall = time.perf_counter() - t0
+    print(f"q {q}: {b.field_tesla:.1f} T, ndim {b.ndim}, nbnd {4 * q + 8}, steps {b.steps.tolist()}, unsettled "
+          f"{b.unsettled.tolist()}, solver {sorted(set(b.solver))}, memory estimate {b.memory_estimate / 1e9:.3f} GB, "
+          f"{wall:.0f} s, peak RSS {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6:.2f} GB", flush=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    np.savez(OUT / f"route-p-q{q}-reps.npz", eigenvalues=b.eigenvalues, kpoints=b.kpoints, steps=b.steps,
+             flux=np.array([1, q]), box=np.array(b.box), field_tesla=b.field_tesla, wall_s=wall,
+             description="route P full H (GIPAW projectors), graphene 50 Ry, the four representatives only; Ry")
+    print(f"saved {OUT / f'route-p-q{q}-reps.npz'}")
+
+
 def diag():
     """Is route P's zero pair against Peierls a labelling offset? Route U beside both, and a kappa scan."""
     from defuqumat.magnetic.landau import dirac_point
@@ -476,6 +515,8 @@ if __name__ == "__main__":
         analyse()
     elif cmd == "diag":
         diag()
+    elif cmd == "reps":
+        representatives_run(int(sys.argv[2]))
     else:
         raise SystemExit(__doc__)
     print(f"wall {time.perf_counter() - t0:.1f} s")
