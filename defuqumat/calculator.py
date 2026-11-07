@@ -1083,8 +1083,17 @@ class Calculator:
         from defuqumat.kpm.conductivity import run_kpm_conductivity
 
         result = self._ground_state("a KPM optical conductivity")
-        # an insulator has no Fermi level; the count of the same vectors puts it mid-gap
-        options.setdefault("fermi_energy", result.fermi_energy)
+        # The SCF's level, a pair under a constrained moment; with fixed
+        # occupations N is set at the HOMO and the level put mid-gap by the entry
+        # point (a constrained fixed run is left to its error)
+        if self.calculation.two_fermi_energies:
+            if result.fermi_energy is not None:
+                options.setdefault("fermi_energy",
+                                   (result.fermi_energy_up, result.fermi_energy_down))
+        elif result.fermi_energy is not None:
+            options.setdefault("fermi_energy", result.fermi_energy)
+        else:
+            options.setdefault("reference_energy", result.homo)
         return run_kpm_conductivity(self.system, self.pseudos, result.density,
                                     calculation=self.calculation,
                                     **self._call_options(run_kpm_conductivity, result,

@@ -314,13 +314,14 @@ def test_the_guard_sees_a_spectrum_outside_the_interval():
 
 
 def test_the_default_level_of_an_insulator_is_in_its_gap():
-    """With no level given, the count and the DOS of two random vectors put it between the dense edges."""
+    """With no level given, the Ritz values of the variate put it between the dense edges."""
     from defuqumat.kpm.traces import whole_grid_calculation
 
     calc, result, _ = _silicon()
     sigma = run_kpm_conductivity(calc.system, calc.pseudos, result.density,
                                  calculation=calc.calculation, directions=("x",),
-                                 broadening=0.02, n_random=2, window=0.1)
+                                 broadening=0.02, n_random=2, window=0.1,
+                                 reference_energy=result.homo)
     values, _ = _dense_states(whole_grid_calculation(calc.calculation), result.density)
     homo = max(e[3] for e in values)
     lumo = min(e[4] for e in values)
@@ -389,3 +390,199 @@ def test_the_control_variate_is_unbiased_and_quieter():
     deviation = np.abs(mean - exact) / np.maximum(standard, 1e-12 * np.abs(exact).max())
     assert np.median(deviation) < 2.0, np.median(deviation)
     assert errors[True] < 0.15 * errors[False], errors
+
+
+# -- the level, the reference energy and the width (P172) ---------------------
+
+ALUMINIUM = dict(
+    lattice="fcc", a=4.05, atoms=[("Al", (0.0, 0.0, 0.0))], pseudos={"Al": "Al.pz-vbc.UPF"},
+    ecut=204.1, kmesh=(2, 2, 2), smearing=0.27, smearing_type="methfessel-paxton",
+)
+QUICK = dict(n_moments=8, n_random=1, directions=("x",), window=0.1)
+
+
+@functools.lru_cache(maxsize=2)
+def _aluminium(moment: float | None = None):
+    from pathlib import Path
+
+    keywords = dict(ALUMINIUM)
+    if moment is not None:
+        keywords.update(atoms=[("Al", (0.0, 0.0, 0.0), moment)], spin="collinear",
+                        qe={"system": {"tot_magnetization": moment}})
+    calc = Calculator.from_keywords(pseudo_dir=Path(__file__).parents[1] / "data" / "pseudo",
+                                    announce=False, conv_thr=1e-10, **keywords)
+    return calc, calc.get_scf()
+
+
+def test_a_constrained_moment_takes_the_pair_of_levels():
+    """Al under ``tot_magnetization = 0.5``: the Calculator passes both channel levels, and one number raises.
+
+    The Calculator used to pass ``SCFResult.fermi_energy``, which is only the mean of
+    the two, and nothing caught it: ``sigma_xx(0)`` 0.2526 against 2.988 with the pair
+    on the 4x4x4 mesh (``PLAN.md`` P172).
+    """
+    calc, scf = _aluminium(0.5)
+    assert calc.calculation.two_fermi_energies
+    pair = (scf.fermi_energy_up, scf.fermi_energy_down)
+    assert abs(pair[0] - pair[1]) > 1e-3
+    sigma = calc.get_kpm_conductivity(**QUICK)
+    assert sigma.fermi_energy == pytest.approx(pair, abs=1e-12)
+    with pytest.raises(ValueError, match="one level per spin channel"):
+        run_kpm_conductivity(calc.system, calc.pseudos, scf.density,
+                             calculation=calc.calculation, fermi_energy=scf.fermi_energy,
+                             **QUICK)
+
+
+def test_a_metal_takes_the_level_of_its_scf():
+    """Al: the Calculator passes the SCF's level, and a direct call with none raises.
+
+    The count of the random vectors put Al 4x4x4 at 0.57935 Ry against its SCF's
+    0.51805, and ``sigma_xx(0)`` at 0.0073 against 10.85 from the same moments.
+    The Ritz values of a metal show no gap, so a reference energy alone raises too.
+    """
+    calc, scf = _aluminium()
+    assert calc.get_kpm_conductivity(**QUICK).fermi_energy == pytest.approx(
+        scf.fermi_energy, abs=1e-12)
+    for extra in ({}, {"reference_energy": scf.fermi_energy}):
+        with pytest.raises(ValueError, match="fermi_energy"):
+            run_kpm_conductivity(calc.system, calc.pseudos, scf.density,
+                                 calculation=calc.calculation, **QUICK, **extra)
+
+
+def test_the_moments_are_counted_at_the_top_of_the_valence_band():
+    """Si2 with fixed occupations through the Calculator: ``N`` at the HOMO, and the width reported is the one used.
+
+    ``N`` was chosen at the middle of the occupied window, ``(bottom + centre) / 2``,
+    which gave 990 moments where the HOMO needs 652, and the width reported at that
+    energy disagreed with ``broadening_for`` at the level by 1.5x.
+    """
+    from defuqumat.kpm.kernels import moment_count
+
+    calc, result, _ = _silicon()
+    sigma = calc.get_kpm_conductivity(broadening=0.02, n_random=1, window=0.1,
+                                      directions=("x",))
+    expected = moment_count(get_kernel("jackson"), 0.02, sigma.half_width,
+                            (result.homo - sigma.centre) / sigma.half_width)
+    assert abs(sigma.n_moments - expected) <= 2, (sigma.n_moments, expected)
+    target = sigma.broadening_for("jackson")
+    assert abs(sigma.transition_broadening - target) < 1e-3 * target, (
+        sigma.transition_broadening, target)
+    assert sigma.fermi_energy > result.homo
+
+
+def _dense_values(calculation, density):
+    """``[channel][k]``: every eigenvalue of the dense ``H(k)`` of each channel."""
+    out = []
+    for hamiltonian in fixed_density_hamiltonians(calculation, density):
+        mask = np.asarray(live_mask(hamiltonian))
+        out.append([np.linalg.eigvalsh(np.asarray(hamiltonian.matrix(ik))[np.ix_(live, live)])
+                    for ik, live in enumerate(mask)])
+    return out
+
+
+def test_the_ritz_level_of_two_channels_is_in_the_gap():
+    """Si2 at ``nspin = 2`` with one shared level: both channels' Ritz values in one ladder, mid-gap.
+
+    A fixed-occupation run at ``nspin = 2`` needs ``tot_magnetization``, which makes
+    it a constrained moment, so the shared level is reached by a direct call with a
+    reference energy on a smeared run.
+    """
+    from pathlib import Path
+
+    from defuqumat.kpm.traces import whole_grid_calculation
+
+    keywords = {**SILICON, "atoms": [("Si", (0.0, 0.0, 0.0), 0.1),
+                                     ("Si", (0.25, 0.25, 0.25), 0.1)],
+                "spin": "collinear", "smearing": 0.01}
+    calc = Calculator.from_keywords(pseudo_dir=Path(__file__).parents[1] / "data" / "pseudo",
+                                    announce=False, conv_thr=1e-10, **keywords)
+    scf = calc.get_scf()
+    assert not calc.calculation.two_fermi_energies
+    sigma = run_kpm_conductivity(calc.system, calc.pseudos, scf.density,
+                                 calculation=calc.calculation, directions=("x",),
+                                 broadening=0.02, n_random=2, window=0.1,
+                                 reference_energy=scf.fermi_energy)
+    channels = _dense_values(whole_grid_calculation(calc.calculation), scf.density)
+    ladders = [np.sort(np.concatenate([up, down])) for up, down in zip(*channels)]
+    homo = max(v[7] for v in ladders)
+    lumo = min(v[8] for v in ladders)
+    assert homo < sigma.fermi_energy < lumo, (homo, sigma.fermi_energy, lumo)
+
+
+def test_a_hubbard_u_is_refused_before_the_level_is_asked_for():
+    """DFT+U: the velocity of the Hubbard orbitals is not checked, so the run refuses, level or none."""
+    from pathlib import Path
+
+    calc = Calculator.from_keywords(pseudo_dir=Path(__file__).parents[1] / "data" / "pseudo",
+                                    announce=False, hubbard={"U": {"Si-3p": 1.0}},
+                                    **{**SILICON, "kmesh": (1, 1, 1)})
+    scf = calc.get_scf()
+    with pytest.raises(NotImplementedError, match="Hubbard U"):
+        calc.get_kpm_conductivity(**QUICK)
+    with pytest.raises(NotImplementedError, match="Hubbard U"):
+        run_kpm_conductivity(calc.system, calc.pseudos, scf.density, ns=scf.ns,
+                             calculation=calc.calculation, **QUICK)
+
+
+@pytest.mark.parametrize("temperature", [0.0, 0.004])
+def test_the_dc_entry_and_a_temperature_are_the_dense_pair_sum(temperature):
+    """``sigma[0]`` and ``T > 0`` against the pair sum over every eigenpair, with a level in the valence band.
+
+    The level 0.03 Ry below the top of the valence band makes the DC entry finite.
+    At ``T = 0`` it is ``(pi / Omega) sum_k w_k sum_ij |v_ij|^2 D(E_F; e_i) D(E_F; e_j)``;
+    at ``T > 0`` the energy integral of ``-f'(E) Gamma(E, E)``, with the Fermi
+    function written here as ``1 / (1 + exp((E - mu) / T))``. The occupied rows
+    end ``12 T`` above the level, as in the result.
+    """
+    from defuqumat.kpm.traces import whole_grid_calculation
+
+    calc, result, _ = _silicon()
+    level = result.homo - 0.03
+    n_moments, delta_e, window = 48, 0.01, 0.4
+    kpm = run_kpm_conductivity(calc.system, calc.pseudos, result.density,
+                               calculation=calc.calculation, fermi_energy=level,
+                               directions=("x",), kernel="jackson", trace="exact",
+                               n_moments=n_moments, window=window, delta_e=delta_e,
+                               temperature=temperature)
+    calculation = whole_grid_calculation(calc.calculation)
+    values, elements = _dense_states(calculation, result.density)
+    weights = np.asarray(calculation.system.kpoints.weights)
+    volume = float(calculation.system.cell.volume)
+    coefficients = get_kernel("jackson").factors(n_moments) * np.where(
+        np.arange(n_moments) > 0, 2.0, 1.0)
+    nw = len(kpm.frequencies)
+    n_low = int(np.floor((level + 12.0 * temperature - kpm.emin) / delta_e)) + 2
+    energies = kpm.emin + delta_e * np.arange(n_low + nw)
+    if temperature > 0.0:
+        with np.errstate(over="ignore"):
+            occupation = 1.0 / (1.0 + np.exp((energies - level) / temperature))
+    else:
+        occupation = np.where(energies < level, 1.0, 0.0)
+    n = np.arange(n_moments)
+
+    def deltas(e, at):
+        x, xe = (at - kpm.centre) / kpm.half_width, (e - kpm.centre) / kpm.half_width
+        grid = np.cos(n[:, None] * np.arccos(x)[None, :])
+        own = np.cos(n[:, None] * np.arccos(xe)[None, :])
+        return (coefficients[:, None] * own).T @ grid / (
+            np.pi * kpm.half_width * np.sqrt(1.0 - x**2))  # (i, E)
+
+    rows = np.arange(n_low)
+    reference = np.zeros(nw)
+    for ik, e in enumerate(values):
+        v2 = np.abs(elements[0, ik, :len(e), :len(e)]) ** 2
+        delta = deltas(e, energies)
+        gamma = delta.T @ v2 @ delta  # (E, E')
+        if temperature > 0.0:
+            slope = occupation * (1.0 - occupation) / temperature
+            reference[0] += weights[ik] * delta_e * np.sum(slope[rows] * gamma[rows, rows])
+        else:
+            at = deltas(e, np.asarray([level]))[:, 0]
+            reference[0] += weights[ik] * at @ v2 @ at
+        for j in range(1, nw):
+            reference[j] += weights[ik] * np.sum(
+                (occupation[rows] - occupation[rows + j]) * gamma[rows, rows + j]) / j
+    reference *= np.pi / volume
+    got = kpm.sigma[:, 0, 0].real
+    assert reference[0] > 0.05 * np.abs(reference).max(), reference[0]
+    np.testing.assert_allclose(got, reference, rtol=0, atol=1e-8 * np.abs(reference).max())

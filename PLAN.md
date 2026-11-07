@@ -28139,6 +28139,10 @@ k-point in flight), and an error bar (the samples are summed in the scan).
 `f(H) r` on top of it (the fable model gave a further 1.7x once the variate works); the Kubo-Bastin
 `sigma_xy` checked against the anomalous Hall conductivity of iron; DFT+U.
 
+**Addendum (P172).** The level, the reference energy of `N` and the reported width are now one
+decision taken before the recursion; `level_from_count` is gone, and an insulator's level is the Ritz
+mid-gap or an error. The Si2 and guide numbers above that read the old width are superseded there.
+
 ### P171 -- The KPM density of states and projected DOS of ultrasoft and PAW runs, on `S^(-1/2) H S^(-1/2)`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_augmented.py`, eleven fast tests, with the other KPM files on D22 CPU and on the RTX A2000 at 252853cc; the fast gate as in P169; no slow file; branch `kpm-sigma`)
 
 **What is in.** `defuqumat/kpm/overlap.py`: `SymmetrizedHamiltonian`, the operator
@@ -28228,6 +28232,103 @@ in 438 s (`cpu5.log`); the five KPM files on the RTX A2000 under the lock, 57 pa
 (`gpu.log`); the fast gate in one slot, 3820 passed, 85 skipped, the two known `yaml` failures of
 `test_check_guide.py`, 2168 s at a load of 10 to 11 (`gate.log`). No slow file was run or touched.
 
+### P172 -- The KPM conductivity's Fermi level, reference energy and width, decided before the recursion. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, now 18 fast tests, with the other four KPM files (14, 8, 6, 11) and `test_calculator.py` with `test_facade_documentation.py` (57) on D22 CPU at 090a89f0, all passed; the five KPM files on the RTX A2000 at 3af43817, 57 passed in 352 s (`gpu.log`, whose header names 090a89f0, the commit checked out when it queued for the lock: `defuqumat/` and `tests/` are the same at both); the fast gate in one slot at 3af43817, 3820 passed, 85 skipped, only the two known `yaml` failures of `test_check_guide.py`, 1988 s (`gate.log`); the commits after 3af43817 change `PLAN.md` and `docs/guide/optics.md` only; logs in `/l/ladovj1/review/kpm/wf/impl1/`; no slow file; branch `kpm-wf-1-kpm-sigma-level` from 92302fc3, not merged, not pushed)
+
+**The defect.** P169 chose `N`, the reported width and `delta_e` from a reference energy taken before
+the recursion, and that reference was `(bottom + centre) / 2` whenever `fermi_energy` was `None`; the
+level itself was found after the recursion by `level_from_count`, from the count and DOS of the same
+random vectors. Three wrong numbers came from that one order. Every `Calculator` run on a
+fixed-occupation insulator, the guide's example included, counted the moments at the middle of the
+occupied window, where the deltas are wider than at the gap, so `N` was 1.5x too large and
+`broadening` and `transition_broadening` disagreed with `broadening_for` on the same object. A metal
+called directly with no level got the count's level, which is not the SCF's. And under a constrained
+moment the `Calculator` passed `SCFResult.fermi_energy`, which is only the mean of the two channel
+levels, as one scalar, and the guard (which caught only `None`) let it through.
+
+**The fix** (`kpm/conductivity.py`, `calculator.py`). The level, or the energy it will be found near,
+is fixed before the recursion. `run_kpm_conductivity` gains `reference_energy` (where `broadening`
+holds and the filter cut is measured from when no level is given, the name `run_kpm_dos` uses; ignored
+when `fermi_energy` is given, whose mean is then the reference). After `kpm_setup`, the `gamma_only`
+refusal and the velocity refusals (`require_a_velocity`, Hubbard and `lelfield`, now before the level
+is asked for), in order: a scalar under `two_fermi_energies` raises; `None` under `two_fermi_energies`
+raises; `None` with no `reference_energy` raises, naming what to pass; `None` with the variate off
+raises (the count put Si2's level in the valence band for 6 of 12 seeds at R = 2); otherwise the level
+is the Ritz mid-gap (`ritz_gap_level`), and no gap there raises ("a metal needs the Fermi level of its
+SCF"). `level_from_count` is deleted; `dos_moments` stays on the result. `ritz_gap_level` now takes an
+unconstrained `nspin = 2`: per k-point the two channels' sorted Ritz values are one ladder of singly
+occupied states, `homo_k = ladder[nelec - 1]`, `lumo_k = ladder[nelec]` (the list is channel-major,
+zero-weight k-points skipped, so the halves pair by k). The width is then `half width_at(N, x_level)`
+at the mean of the final levels with the `N` used, `delta_e = width / 5` only after that, and
+`transition_broadening` is `broadening_for(kernel)` by construction. The `Calculator`: under
+`two_fermi_energies` with a smeared SCF it passes `(fermi_energy_up, fermi_energy_down)`; otherwise
+`fermi_energy` when the SCF has one; for fixed occupations `reference_energy = homo`. A constrained
+moment with fixed occupations is left to the entry point's error: its `fermi_energy_up`/`down` are
+the channel HOMOs, where the step would cut the top states in half.
+
+**The numbers** (`/l/ladovj1/review/kpm/wf/impl1/probe.py`, `probe-before.log` at 42f4c76a in
+`w-kpm-review`, `probe-after.log` at 2ae9e5c0, one D22 slot each; the conductivity code of 42f4c76a is
+92302fc3's):
+
+| quantity | before | after |
+|---|---|---|
+| Si2 12 Ry 2x2x2, `Calculator`, `broadening = 0.02`, R = 1: `N` | 990 | 654 (`moment_count` at the HOMO 0.484376 Ry: 654) |
+| same: `broadening` / `transition_broadening` / `broadening_for('jackson')`, Ry | 0.019962 / 0.028230 / 0.018757 (ratio 1.505) | 0.020087 / 0.028407 / 0.028407 (ratio 1.000000) |
+| same: level, Ry | 0.501055 (Ritz mid-gap) | 0.501054 (Ritz mid-gap) |
+| Al 15 Ry 2x2x2, MP 0.27 eV, direct call with no level | returned -0.44816 Ry (SCF level 0.401081), `sigma(0)` 0.0955 | `ValueError` naming `fermi_energy` |
+| Al as above, `nspin = 2`, `tot_magnetization = 0.5`, `Calculator` level | 0.400652 (the mean) | (0.426955, 0.374350), the SCF's pair |
+| same, a scalar passed directly | accepted | `ValueError` ("one level per spin channel") |
+
+At `n_moments = 8` the Al `sigma(0)` with the mean and with the pair differ only by 8e-5 relative
+(7.437223e-02 against 7.437841e-02), the deltas being wider than the channel splitting; the 0.2526
+against 2.988 of the review was the 4x4x4 mesh at the default broadening, not rerun here. The guide's
+silicon (4x4x4, `n_random = 4`, `window = 0.6`, `guide.py`, `guide-before.log` and `guide-after.log`
+in the same directory, both first calls in one slot at a load of about 10): 1012 moments, peak 45002
+S/cm at 3.70 eV, transition width 0.385 eV reported where `broadening_for` gave 0.253 eV
+(0.018592 Ry), 52.1 s; after, 660 moments, peak 32417 S/cm at 3.73 eV, 0.388 eV reported and given
+by `broadening_for`, 45.9 s (first calls, compilation included). **The peak dropped by 28 per cent because the deltas at the gap are now
+the 0.02 Ry asked for**: before, `N` counted at the middle of the valence band made them 0.0131 Ry at
+the level. The review's "within 2 of 652" was at the Ritz level; `N` is chosen at the HOMO, 654.
+The timings of P169 and P170 in `PERFORMANCE.md` stand: `tsig.py` passes `fermi_energy` (the dense
+mid-gap) explicitly, so their `N` was chosen at the level.
+
+**Tests**, each new one run at 42f4c76a from a copy outside the repository (`before/`, the old
+package confirmed by the path in its warnings), `cond-before3.log`: five failed there (two
+`TypeError` on `reference_energy`, the mean 0.40065 where the pair was asserted, `N` 990 against 654,
+and the metal's direct call with no level returning) and pass here, 18 of 18 (`cpu-kpm_conductivity.log`).
+`test_a_constrained_moment_takes_the_pair_of_levels` (Al, the pair through the `Calculator`, a
+scalar raises), `test_a_metal_takes_the_level_of_its_scf` (Al, the SCF level, and no level or a
+`reference_energy` alone raises), `test_the_moments_are_counted_at_the_top_of_the_valence_band`
+(Si2, `N` within 2 of `moment_count` at the HOMO and the width identity to 1e-3, equal to six decimals in the probe),
+`test_the_ritz_level_of_two_channels_is_in_the_gap` (Si2 `nspin = 2` with a 0.01 eV smearing, called
+directly with `reference_energy = scf.fermi_energy`, the level between the dense edges of the merged
+ladder of both channels; through the `Calculator` a fixed `nspin = 2` run needs `tot_magnetization`,
+which makes it a constrained moment, so the shared Ritz level is reachable only directly; measured
+in `probe2.log`: the magnetization collapses to 2e-15, the level is 0.501055 Ry for seeds 0, 1 and 2,
+against the dense merged edges 0.484375 and 0.517733, mid-gap 0.501054, so the `refuse_if` of the
+item does not apply), and the
+existing `test_the_default_level_of_an_insulator_is_in_its_gap`, which now passes `reference_energy`.
+Two coverage tests that pass at both commits: `test_a_hubbard_u_is_refused_before_the_level_is_asked_for`
+and `test_the_dc_entry_and_a_temperature_are_the_dense_pair_sum` (`sigma[0]` and the whole spectrum at
+`T = 0` and `T = 0.004` Ry against the pair sum over every eigenpair, to 1e-8 of the peak, with the
+level 0.03 Ry inside the valence band so the DC entry is finite).
+
+**The docs.** `docs/guide/optics.md`: the snippet's printed lines from the rerun, the paragraph on the
+level (a metal takes the SCF's, a constrained moment the pair, an insulator the Ritz mid-gap, a direct
+call needs `fermi_energy` or `reference_energy`, no orbitals means give the level), a
+`reference_energy` bullet, and the Limits note. Notebook 62 is not re-executed: its cells use
+`smearing = 0.1`, so the `Calculator` passes the SCF level as before, `N` and the width are at that
+level as before, and it prints neither.
+
+**From the final review (fable).** Of the five tests that fail at 42f4c76a, three show defects (the mean
+where the pair is asserted, N 990 against 654, a metal's direct call not raising) and two fail on the new
+`reference_energy` keyword. The second case of `test_a_metal_takes_the_level_of_its_scf` raises because Al's
+filling is 3/2 of a band, not through the no-gap branch of the Ritz values; that branch, `lelfield` and
+`gamma_only` are the refusals no test fires. The guide's 50 s is a first call at a load of 10, said so there.
+
+**What is outstanding.** A constrained moment with fixed occupations has no default level: a
+per-channel Ritz mid-gap with `(nelup, neldw)` would give one. The `lelfield` and `gamma_only`
+refusals of the conductivity are still not fired by a test.
+
 ### P174 -- `S^(-1/2) H S^(-1/2)` folded into four projector products, one `U` for both spin channels. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_overlap.py`, six fast tests, new; with the five KPM files, 56 tests, on D22 CPU at 6c0c2fa8 (299 s, `t2.log`) and on the RTX A2000 at 0fb2734c (279 s, `g-tests.log`), the new file alone on the CPU at 0fb2734c (`t3.log`); the fast gate in one slot at 3a638c40, 3819 passed and the two known `yaml` failures of `test_check_guide.py`, 1530 s (`review/kpm/wf/impl3/gate.log`), the commits after it changing `PLAN.md` and `PERFORMANCE.md` only; no slow file; branch `kpm-wf-3-kpm-overlap-fold` from 92302fc3, not merged, not pushed)
 
 **What is in.** `defuqumat/kpm/overlap.py`. With `H = A + B D B^dagger` (`A = K + V_loc`, `D` the
@@ -28286,3 +28387,10 @@ stored `U` once per channel). Stated in the module docstring, selectable by `fol
 the setup's `A U`, `nkb` FFT pairs per channel and k-point, is the cost left at R = 1; DFT+U,
 `lelfield` and `gamma_only` take the unfolded form; the spinor, the LDOS, the unfolding and the
 conductivity on an augmented dataset are still refused, as in P171.
+
+**Notes from the final review (fable, 2026-11-07).** `fold` is not a keyword of `run_kpm_dos` or
+`run_kpm_pdos` (`dos.py` calls `symmetrized(hamiltonians, k_batch=batch)`), so the unfolded form is reachable
+only through `symmetrized(fold=False)` or the module global `FOLD_DEFAULT`; threading a keyword is the first
+outstanding line. The stored table is 46 MiB per channel on si64 and scales as `npwx nkb`; si128 is not
+measured. The setup's `_local(u.T, ik)` transforms the `nkb` columns through `map_bands`, which on a card is
+the whole block, so `nkb` real-space boxes are in flight during the setup; that peak is not measured.

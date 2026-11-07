@@ -107,6 +107,21 @@ def _inexact(tree):
     return eqx.partition(tree, eqx.is_inexact_array)
 
 
+def require_a_velocity(calculation, hamiltonians) -> None:
+    """Refuse the regimes whose velocity the recursion does not carry."""
+    if any(getattr(h, "berry", None) is not None for h in hamiltonians):
+        raise NotImplementedError(
+            "the KPM conductivity does not carry lelfield's H_E term: it couples "
+            "neighbouring k-points and has no velocity at one k")
+    if calculation.is_hubbard:
+        # The tangent of the Hubbard orbitals is built (``hubbard_terms`` at the
+        # moved k), but no test has compared it with the band sum's.
+        raise NotImplementedError(
+            "the KPM conductivity with a Hubbard U is not checked: the Hubbard orbitals "
+            "live at k+G and carry a velocity of their own, and nothing has compared "
+            "that term with get_optical_conductivity's. Use get_optical_conductivity")
+
+
 def velocity_tangents(calculation, hamiltonians, directions, ns=None) -> tuple:
     """``(moving, tangents)``: the moving parts of each channel's ``H(k)`` and their tangents.
 
@@ -119,17 +134,7 @@ def velocity_tangents(calculation, hamiltonians, directions, ns=None) -> tuple:
     tangent. Both go to :func:`apply_velocity`. ``ns`` is the converged Hubbard
     occupation matrix, whose orbitals move with ``k`` like the projectors do.
     """
-    if any(getattr(h, "berry", None) is not None for h in hamiltonians):
-        raise NotImplementedError(
-            "the KPM conductivity does not carry lelfield's H_E term: it couples "
-            "neighbouring k-points and has no velocity at one k")
-    if calculation.is_hubbard:
-        # The tangent of the Hubbard orbitals is built (``hubbard_terms`` at the
-        # moved k), but no test has compared it with the band sum's.
-        raise NotImplementedError(
-            "the KPM conductivity with a Hubbard U is not checked: the Hubbard orbitals "
-            "live at k+G and carry a velocity of their own, and nothing has compared "
-            "that term with get_optical_conductivity's. Use get_optical_conductivity")
+    require_a_velocity(calculation, hamiltonians)
     # the k the arrays are at, as the velocity operator reads it (a strained
     # calculation keeps its own)
     kcart = getattr(calculation, "_kcart", None)
@@ -280,8 +285,8 @@ def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre
     """``((ndir, ndir, N, N), (N,))``: the control variate's corrections at one k-point.
 
     The first is the two-index moments'; the second is P170's correction of the
-    trace moments ``<r|T_n r>`` of the same random vectors, which the default
-    level (:func:`level_from_count`) reads.
+    trace moments ``<r|T_n r>`` of the same random vectors, kept on the result
+    as :attr:`KPMConductivity.dos_moments`.
 
     With the Ritz pairs ``(theta_j, y_j)`` of :func:`~defuqumat.kpm.control.ritz_pairs`,
     ``P = sum_j |y_j><y_j|`` and ``V^a_jl = <y_j|v_a|y_l>``, the model sample of a
@@ -475,57 +480,36 @@ def ritz_gap_level(ritz, nelec: float, nspin: int, noncolin: bool):
     The Ritz values of the filtered orbitals are the band energies to about 1e-6 Ry
     in the valence band and 1e-4 Ry just above it (filter degree 16), so when the
     band holding the last electron stays below the next one at every k-point the
-    gap is read off them. ``None`` for two channels, an odd filling, too few
-    pairs, or no gap: then the count decides (:func:`level_from_count`).
+    gap is read off them. ``ritz`` is :func:`variate_corrections`' list, channel
+    first and then k-point. At ``nspin = 2`` with one level for both channels the
+    two channels' values at each k-point are one ladder of singly occupied states;
+    a constrained moment, with a level per channel, does not come here. ``None``
+    for an odd filling, too few pairs, or no gap.
     """
-    if nspin != 1:
+    if not ritz or nspin not in (1, 2):
         return None
-    per_state = 1.0 if noncolin else 2.0
+    if nspin == 1:
+        per_state = 1.0 if noncolin else 2.0
+        ladders = [np.sort(np.asarray(v, dtype=float)) for v in ritz]
+    else:
+        if len(ritz) % 2:
+            return None
+        nk = len(ritz) // 2
+        per_state = 1.0
+        ladders = [np.sort(np.concatenate([np.asarray(ritz[ik], dtype=float),
+                                           np.asarray(ritz[nk + ik], dtype=float)]))
+                   for ik in range(nk)]
     occupied = nelec / per_state
     if abs(occupied - round(occupied)) > 1e-8:
         return None
     occupied = int(round(occupied))
-    if not ritz or any(len(v) <= occupied for v in ritz):
+    if occupied < 1 or any(len(v) <= occupied for v in ladders):
         return None
-    homo = max(float(v[occupied - 1]) for v in ritz)
-    lumo = min(float(v[occupied]) for v in ritz)
+    homo = max(float(v[occupied - 1]) for v in ladders)
+    lumo = min(float(v[occupied]) for v in ladders)
     if lumo <= homo:
         return None
     return 0.5 * (homo + lumo)
-
-
-def level_from_count(dos_moments, factors, centre: float, half: float, nelec: float,
-                     emin: float, emax: float, delta_e: float, tolerance: float = 0.5) -> float:
-    """A Fermi level from the trace moments of the same start vectors.
-
-    The stretch of energies around the crossing where the count is within
-    ``max(tolerance, nelec / 100)`` electrons of ``nelec`` is a gap for an
-    insulator and a narrow window for a metal; the level is the middle of the
-    part of it where the DOS is within a tenth of its range of its minimum. A
-    stochastic count carries the noise of every band below it as an offset, so
-    a tight window on the count alone misses the gap (measured: 0.430 Ry, below
-    a valence-band top at 0.452, with a one per cent window on Si2 4x4x4 at
-    R = 4); the DOS minimum does not move with that offset.
-    """
-    from defuqumat.kpm.profile import chebyshev_profile
-
-    energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)
-    dos, count = chebyshev_profile(np.asarray(dos_moments), factors, centre, half, energies)
-    dos = np.asarray(dos).reshape(-1, energies.size).sum(axis=0)
-    count = np.asarray(count).reshape(-1, energies.size).sum(axis=0)
-    near = np.abs(count - nelec) <= max(tolerance, 0.01 * nelec)
-    crossing = int(np.argmin(np.abs(count - nelec)))
-    if not near[crossing]:
-        return float(energies[crossing])
-    first = last = crossing
-    while first > 0 and near[first - 1]:
-        first -= 1
-    while last + 1 < near.size and near[last + 1]:
-        last += 1
-    window = dos[first:last + 1]
-    low = window <= window.min() + 0.1 * (window.max() - window.min())
-    picked = energies[first:last + 1][low]
-    return float(0.5 * (picked[0] + picked[-1]))
 
 
 # -- the result and the entry point -------------------------------------------
@@ -551,10 +535,14 @@ class KPMConductivity:
             vectors, with P170's correction when the variate is on.
         centre, half_width: the interval, Ry.
         kernel, n_moments: the kernel and the moment count.
-        broadening: half width at half maximum of one delta at the Fermi level, Ry.
+        broadening: half width at half maximum of one delta at the Fermi level
+            (the mean of a pair), Ry, with the ``N`` the run used; it is the
+            ``broadening`` asked for where that level is the reference energy
+            ``N`` was chosen at.
         transition_broadening: of a transition, two deltas convolved: ``2``
             times the above for the Lorentz kernel, ``sqrt(2)`` times for a
-            Gaussian (Jackson), at the Fermi level.
+            Gaussian (Jackson), at the Fermi level, so it is
+            :meth:`broadening_for` of the run's kernel.
         fermi_energy, temperature: of the occupations, Ry; a pair, one per
             channel, for a run with a constrained moment.
         volume: bohr^3.
@@ -659,24 +647,36 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
                          lanczos_steps: int | None = None,
                          edge_margin: float | None = None, k_batch="default", ns=None,
                          tau=None, becsum: tuple = (), field=None, field_scale=None,
-                         calculation=None) -> KPMConductivity:
+                         calculation=None,
+                         reference_energy: float | None = None) -> KPMConductivity:
     """``sigma'_ab(w)`` of a converged density by two-index Chebyshev moments.
 
     Args:
         system, pseudos, density: the converged run.
         fermi_energy: Ry, where the occupation steps (smeared by
-            ``temperature``). If not given: mid-gap from the variate's Ritz
-            values when they show a gap (:func:`ritz_gap_level`), else read off
-            the count and the DOS of the same start vectors
-            (:func:`level_from_count`). A level at the top of the valence
-            band would cut the broadened top states in half. A pair, one level
-            per spin channel, for a run with a constrained moment.
+            ``temperature``): the SCF's level for a metal, any energy in the
+            gap for an insulator. A pair, one level per spin channel, for a
+            run with a constrained moment, where a single number raises. If
+            not given, ``reference_energy`` must be, and the level is put
+            mid-gap from the variate's Ritz values (:func:`ritz_gap_level`);
+            that raises with the variate off or with no gap in the Ritz
+            values, since the count of a few random vectors does not place a
+            level. A level at the top of the valence band would cut the
+            broadened top states in half.
+        reference_energy: Ry, where ``broadening`` holds and where the filter
+            cut is measured from when ``fermi_energy`` is not given, as for
+            :func:`~defuqumat.kpm.dos.run_kpm_dos`; an energy near the gap,
+            such as the highest occupied level, which
+            :meth:`~defuqumat.calculator.Calculator.get_kpm_conductivity`
+            passes for fixed occupations. Ignored when ``fermi_energy`` is
+            given, whose mean is then the reference.
         directions: the cartesian axes of the tensor, names or 3-vectors; each
             costs one more recursion and multiplies the Gram product.
         window: the largest photon energy, Ry.
-        broadening: half width at half maximum of one delta at the Fermi level,
-            Ry; it sets the number of moments. A transition is broader
-            (:attr:`KPMConductivity.transition_broadening`).
+        broadening: half width at half maximum of one delta at the reference
+            energy, Ry; it sets the number of moments, and the result reports
+            the width at the level it found with that number. A transition is
+            broader (:attr:`KPMConductivity.transition_broadening`).
         n_moments: overrides ``broadening``.
         kernel: ``"jackson"`` (default, Gaussian deltas) or ``"lorentz"``
             (close to Lorentzian ones, the line shape of the band sum).
@@ -685,7 +685,7 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         n_random, seed: the random vectors per k-point.
         temperature: of the Fermi function, Ry; zero is a step.
         delta_e: the energy and frequency step, Ry; a fifth of the broadening
-            if not given.
+            at the Fermi level if not given.
         control_variate: subtract from each random sample the same trace in the
             span of the low-pass-filtered atomic orbitals and add back its exact
             value (:func:`variate_block`): unbiased, with the noise of the
@@ -695,7 +695,8 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
             the exact trace.
         filter_degree, filter_cut: the low-pass filter, degree 16
             (:data:`FILTER_DEGREE_SIGMA`) and a cut at ``E_F + max(1, window + 0.4)``
-            Ry when not given.
+            Ry when not given (the higher level of a pair, or
+            ``reference_energy`` when no level is given).
         lanczos_steps, edge_margin: the interval (:func:`~defuqumat.kpm.bounds.spectral_interval`).
         ns, tau, becsum, field, field_scale: the rest of the converged state.
         calculation: the SCF's own.
@@ -723,26 +724,54 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         becsum=becsum, field=field, field_scale=field_scale)
     if getattr(calculation, "gamma_only", False):
         raise NotImplementedError("the KPM conductivity does not run on gamma_only storage")
+    require_a_velocity(calculation, hamiltonians)
+    from defuqumat.kpm.control import resolve_variate
+
+    # The level, or the energy it will be found near, is decided before the
+    # recursion: N is chosen there and the filter cut is measured from it. A
+    # level read off the count of the random vectors afterwards is what this
+    # replaces (PLAN.md P172): it put Al 0.06 Ry above its SCF level and an
+    # insulator without the variate inside its valence band for half the seeds.
+    nspin = len(hamiltonians)
+    use_variate = resolve_variate(control_variate, trace, calculation)
+    if use_variate and trace != "stochastic":
+        raise ValueError("control_variate reduces the noise of random vectors; the exact "
+                         "trace has none")
+    if fermi_energy is not None:
+        if calculation.two_fermi_energies and np.size(fermi_energy) != 2:
+            raise ValueError(
+                "a run with a constrained moment has one level per spin channel, pass the pair "
+                "(scf_result.fermi_energy_up, scf_result.fermi_energy_down)")
+        channel_levels(fermi_energy, nspin)
+        reference = float(np.mean(fermi_energy))
+    elif calculation.two_fermi_energies:
+        raise ValueError(
+            "a run with a constrained moment has one Fermi level per spin channel: pass "
+            "fermi_energy as the pair (scf_result.fermi_energy_up, scf_result.fermi_energy_down) "
+            "for a smeared run, or one energy in the gap of each channel for fixed occupations")
+    elif reference_energy is None:
+        raise ValueError(
+            "the conductivity needs its Fermi level before the recursion: pass fermi_energy "
+            "(scf_result.fermi_energy for a smeared run, (homo + lumo) / 2 or any energy in "
+            "the gap for an insulator), or reference_energy (an energy near the top of the "
+            "valence band, such as scf_result.homo) to have the level put mid-gap from the "
+            "Ritz values of the atomic orbitals")
+    elif not use_variate:
+        raise ValueError(
+            "the exact trace has no Ritz values to put the level in the gap: pass fermi_energy"
+            if trace == "exact" else
+            "with no control variate the count of random vectors puts the level inside the "
+            "valence band for about half the seeds (measured on Si2: 6 of 12 seeds at R = 2); "
+            "pass fermi_energy")
+    else:
+        reference = float(reference_energy)
     centre, half, bottom = spectral_interval(
         hamiltonians, seed=seed, steps=LANCZOS_STEPS if lanczos_steps is None else lanczos_steps,
         margin=EDGE_MARGIN if edge_margin is None else edge_margin, k_batch=batch)
     emin = bottom - 10.0 * broadening
-    # the broadening holds at the Fermi level, or at the middle of the occupied
-    # window before the level is known
-    if fermi_energy is None and calculation.two_fermi_energies:
-        raise ValueError(
-            "a run with a constrained moment has one Fermi level per spin channel: pass "
-            "fermi_energy as the pair (scf_result.fermi_energy)")
-    reference = (float(np.mean(fermi_energy)) if fermi_energy is not None
-                 else 0.5 * (bottom + centre))
     chosen = get_kernel(kernel)
-    x_reference = (reference - centre) / half
     if n_moments is None:
-        n_moments = moment_count(chosen, broadening, half, x_reference)
-    width = (float(half * chosen.width_at(n_moments, x_reference))
-             if chosen.width_at is not None else math.nan)
-    if delta_e is None:
-        delta_e = width / 5.0 if math.isfinite(width) else 0.002
+        n_moments = moment_count(chosen, broadening, half, (reference - centre) / half)
     moving, tangents = velocity_tangents(calculation, hamiltonians, vectors, ns=ns)
     weights = jnp.asarray(calculation.system.kpoints.weights)
     key = jax.random.PRNGKey(seed)
@@ -764,41 +793,35 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
     moments = np.stack(moments)
     factors = chosen.factors(n_moments)
     dos = np.stack(dos)
-    nelec = float(calculation.nelec)
-    given = fermi_energy
-    if fermi_energy is None:
-        fermi_energy = level_from_count(dos, factors, centre, half, nelec, emin, centre + half,
-                                        delta_e)
-    levels = channel_levels(fermi_energy, len(hamiltonians))
-    from defuqumat.kpm.control import resolve_variate
-
-    if resolve_variate(control_variate, trace, calculation):
-        if trace != "stochastic":
-            raise ValueError("control_variate reduces the noise of random vectors; the exact "
-                             "trace has none")
-        # the cut is a Rydberg or more above the level, so the plain count's level
-        # is good enough for it
-        cut = float(levels.max()) + (max(1.0, window + 0.4) if filter_cut is None
-                                     else float(filter_cut))
+    if use_variate:
+        base = (float(np.max(fermi_energy)) if fermi_energy is not None else reference)
+        cut = base + (max(1.0, window + 0.4) if filter_cut is None else float(filter_cut))
         corrections, dos_corrections, ritz = variate_corrections(
             calculation, hamiltonians, moving, tangents, np.asarray(weights), centre, half,
             n_moments, n_random, seed, cut,
             FILTER_DEGREE_SIGMA if filter_degree is None else int(filter_degree))
         moments = moments + corrections
         dos = dos + dos_corrections
-        if given is None:
-            # mid-gap from the Ritz values when they show a gap; the count's DOS
-            # minimum put the guide's insulator (Si2 4x4x4, a gap of about twice the
-            # broadening) 0.003 Ry below its VBM, with or without the variate
-            level = ritz_gap_level(ritz, nelec, len(hamiltonians), calculation.noncolin)
-            if level is None:
-                level = level_from_count(dos, factors, centre, half, nelec, emin,
-                                         centre + half, delta_e)
-            levels = channel_levels(level, len(hamiltonians))
+    if fermi_energy is None:
+        # mid-gap from the Ritz values, deterministic and 1e-4 Ry accurate at the gap
+        fermi_energy = ritz_gap_level(ritz, float(calculation.nelec), nspin,
+                                      calculation.noncolin)
+        if fermi_energy is None:
+            raise ValueError(
+                "the Ritz values show no gap (or the filling is not a whole number of "
+                "bands): a metal needs the Fermi level of its SCF, pass fermi_energy")
+    levels = channel_levels(fermi_energy, nspin)
+    # the width is reported at the level the occupations step at, with the N used,
+    # which is what broadening_for gives on the result
+    x_level = (float(np.mean(levels)) - centre) / half
+    width = (float(half * chosen.width_at(n_moments, x_level))
+             if chosen.width_at is not None else math.nan)
+    if delta_e is None:
+        delta_e = width / 5.0 if math.isfinite(width) else 0.002
     n_frequencies = int(round(window / delta_e)) + 1
     sigma = channel_sum(moments, factors, centre, half, float(calculation.system.cell.volume),
                         levels, temperature, emin, delta_e, n_frequencies)
-    factor = 2.0 if kernel.lower() == "lorentz" else math.sqrt(2.0)
+    factor = 2.0 if chosen.name == "lorentz" else math.sqrt(2.0)
     return KPMConductivity(
         frequencies=delta_e * np.arange(n_frequencies), sigma=sigma, directions=vectors,
         moments=moments, dos_moments=dos, centre=centre, half_width=half,
