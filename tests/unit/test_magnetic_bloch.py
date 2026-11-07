@@ -133,7 +133,7 @@ def test_the_free_landau_ladder_from_the_dense_matrix(graphene, p, q):
         # a 4 x 4 x 8 box has about two points per magnetic length: its error is a
         # discretisation, measured on D22 (plans/orbital-field/route-p.md), not round-off
         assert np.max(np.abs(values - reference)) < 2e-5 * reference[0] / 0.168
-        # p states per level, split by the coarse box (1.4e-5 Ry at p/q = 2/3, fixed window)
+        # p states per level, split by the coarse box (1.4e-5 Ry at p/q = 2/3 measured at the fixed window; under 1e-4 of the level asserted)
         assert np.max(np.abs(values.reshape(-1, p) - values.reshape(-1, p)[:, :1])) < 1e-4 * reference[0]
 
 
