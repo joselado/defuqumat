@@ -414,11 +414,13 @@ The keywords of `get_kpm_conductivity` are:
 - **`kernel`**: `"jackson"`, the default, gives Gaussian transitions. `"lorentz"` gives
   Lorentzian ones, the shape of the band sum.
 - **`n_random`, `seed`**: the random vectors per k-point.
-- **`control_variate=True`**: the code also uses the atomic orbitals, filtered to low
+- **`control_variate`**: the code also uses the atomic orbitals, filtered to low
   energy, as for the density of states. It removes the noise of the transitions between
-  states that these orbitals describe, and the result stays unbiased. We recommend it,
-  since it lowers the error about twenty times for less than twice the cost.
-  `filter_degree` (16 if you do not give it) sets how sharp the filter is.
+  states that these orbitals describe, and the result stays unbiased. It lowers the
+  error about twenty times for less than twice the cost, so it is on by default
+  (`"auto"`) whenever the pseudopotential files carry atomic orbitals and the trace is
+  random. `False` switches it off. `filter_degree` (16 if you do not give it) sets how
+  sharp the filter is.
 - **`trace="exact"`**: one expansion per plane wave instead of random vectors, for small
   cells.
 - **`window`, `delta_e`**: the largest photon energy and the step, in Ry.
@@ -445,15 +447,15 @@ and 0.86 at 0.04 Ry, and the peaks are 0.515 against 0.601 and 0.793 against 0.8
 are the same quantity as the broadening goes to zero. With the same energy integral done
 over every eigenstate of the Hamiltonian, the KPM result is the same to round-off.
 
-How many random vectors do you need? Without help, many more than for the density of
-states. On a silicon supercell of 64 atoms with one k-point, one random vector gives an
-error of 28 per cent over the spectrum, and 4 give 19 per cent. With
-`control_variate=True` one random vector gives 1.1 per cent in 47 s, while the bands and
-the band sum take 86 s. The atomic orbitals, filtered to low energy, describe the
-occupied states and the empty states of the window well, so the transitions between them
-are computed in that small space, and the random vector only has to carry the rest. On a
-cell of 16 atoms the error falls from 38 per cent to 1.2 per cent, but there the bands
-take only 2 s. Notebook
+How many random vectors do you need? Without the atomic orbitals
+(`control_variate=False`), many more than for the density of states. On a silicon
+supercell of 64 atoms with one k-point, one random vector then gives an error of 28 per
+cent over the spectrum, and 4 give 19 per cent. With the atomic orbitals, the default,
+one random vector gives 1.1 per cent in 47 s, while the bands and the band sum take 86 s.
+The atomic orbitals, filtered to low energy, describe the occupied states and the empty
+states of the window well, so the transitions between them are computed in that small
+space, and the random vector only has to carry the rest. On a cell of 16 atoms the error
+falls from 38 per cent to 1.2 per cent, but there the bands take only 2 s. Notebook
 [62](https://github.com/joselado/defuqumat/blob/master/notebooks/62_kpm_optical_conductivity.ipynb)
 computes the absorption of a silicon supercell with a vacancy.
 
