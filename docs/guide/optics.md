@@ -384,25 +384,31 @@ print(f"width of a transition {sigma.transition_broadening * 13.6057:.3f} eV")
 ```
 
 ```
-1012 moments, Fermi level 0.4760 Ry
-peak of Re sigma_xx at 3.70 eV: 45002 S/cm
-width of a transition 0.385 eV
+660 moments, Fermi level 0.4760 Ry
+peak of Re sigma_xx at 3.73 eV: 32417 S/cm
+width of a transition 0.388 eV
 ```
 
-The peak is at 3.70 eV. The measured peak of silicon is at 4.2 eV with about
+The peak is at 3.73 eV. The measured peak of silicon is at 4.2 eV with about
 $2.9\times10^4$ S/cm, and the local density approximation puts it too low in energy. A
-$4\times4\times4$ mesh is also coarse for a spectrum. Each delta function has a half width
-of 0.02 Ry, and a transition is two of them, so its width is $\sqrt2$ times larger, 0.385
-eV. The run takes 89 s on one core, with the atomic orbitals removing most of
-the noise of the 4 random vectors (`control_variate`, below).
+$4\times4\times4$ mesh is also coarse for a spectrum. The code chooses the number of
+moments so that each delta function has a half width of 0.02 Ry at the top of the valence
+band. A transition is two delta functions, so its width is $\sqrt2$ times larger. The run
+reports this width at the Fermi level, 0.388 eV, which is also what
+`sigma.broadening_for("jackson")` gives. The conductivity takes about 50 s on one core, and
+the atomic orbitals remove most of the noise of the 4 random vectors (`control_variate`,
+below).
 
-The Fermi level is 0.4760 Ry, in the middle of the gap: the top of the valence band is
-0.4515 Ry. If you do not give `fermi_energy` for an insulator, the code takes the middle of
-the gap from the approximate eigenstates of the atomic orbitals (see `control_variate`
-below), which are the band energies to about 1e-4 Ry near the gap. Without them it takes
-the minimum of the broadened density of states from the same random vectors, which leans
-towards the valence band when the gap is close to the broadening. For a metal the code
-takes the Fermi level of the SCF.
+The Fermi level is 0.4760 Ry, in the middle of the gap. The top of the valence band is
+0.4515 Ry. For a metal, `get_kpm_conductivity` takes the Fermi level of the SCF, and with
+a constrained moment it takes one level per spin channel. An insulator with fixed
+occupations has no Fermi level in the SCF. Then the code counts the moments at the top
+of the valence band, and it puts the level in the middle of the gap from the approximate
+eigenstates of the atomic orbitals (see `control_variate` below). These are the band
+energies to about 1e-4 Ry near the gap. If you call `run_kpm_conductivity` directly, you
+give `fermi_energy`, or `reference_energy` for an insulator. Without the atomic orbitals
+the code cannot find the gap, so you give `fermi_energy`, and the code gives an error if
+you do not.
 
 The keywords of `get_kpm_conductivity` are:
 
@@ -426,6 +432,9 @@ The keywords of `get_kpm_conductivity` are:
 - **`window`, `delta_e`**: the largest photon energy and the step, in Ry.
 - **`fermi_energy`, `temperature`**: the occupation, a step at zero temperature. With a
   constrained moment you give one level per spin channel.
+- **`reference_energy`**: the energy where `broadening` holds when you do not give
+  `fermi_energy`, for an insulator. `get_kpm_conductivity` passes the top of the valence
+  band.
 
 `sigma.sigma` is the absorptive part of the tensor, with the shape (frequency, direction,
 direction), in atomic units, and `sigma.sigma_s_per_cm` the same in S/cm. Its diagonal is
@@ -569,8 +578,11 @@ computes the absorption of a silicon supercell with a vacancy.
     electric field also give an error. The Hubbard term has a velocity of its own,
     which we have not checked. A symmetry-reduced k-set is replaced by its whole
     grid, since a tensor is not completed by the weights of the wedge, so the cost
-    is that of the whole grid. With a constrained moment you give one Fermi level per
-    spin channel. The result is the absorptive part only, the real part of the
+    is that of the whole grid. With a constrained moment and smearing the code takes
+    one Fermi level per spin channel from the SCF. With a constrained moment and fixed
+    occupations you give one level in the gap of each channel. Without atomic orbitals
+    in the pseudopotential files, or with `trace="exact"`, the code cannot find the
+    middle of the gap, so for an insulator you give `fermi_energy`. The result is the absorptive part only, the real part of the
     diagonal and the antisymmetric imaginary part of the off-diagonal entries,
     without the reactive part and without a separate Drude term. For a metal its
     value at zero frequency is the DC conductivity with the broadening of the
