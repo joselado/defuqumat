@@ -75,6 +75,7 @@ instead, which means the physics is selected in the input file rather than at th
 | Which way a spiral turns, and which plane it turns in: its Dzyaloshinskii-Moriya energy, spin-orbit coupling to first order on the spiral in its own cell | `get_spiral_spin_orbit_energy()` | [48](48_spiral_chirality.ipynb) |
 | Site-resolved `<L>`, `<S>` and `<J>` | `get_angular_momenta()` | [29](29_effective_mass_and_angular_momenta.ipynb) |
 | The cell's orbital magnetization | `get_orbital_magnetization()` | [39](39_orbital_magnetization.ipynb) |
+| Landau levels in a uniform magnetic field: graphene at 10 T against the Dirac formula, and the exact plane-wave route at very high field | `get_landau_levels()`, `get_magnetic_bands()` | [63](63_landau_levels.ipynb) |
 | A spin-polarized STM image, one atom's moment at a time | `get_stm(spin=...)` | [40](40_stm_images.ipynb) |
 | What gets *through* a 2D sheet rather than what its surface looks like | `get_vertical_transport()` | [41](41_vertical_transport.ipynb) |
 | The standing waves around one impurity, and how a tunnelling tip weights them (QPI) | `get_qpi()` | [55](55_quasiparticle_interference.ipynb) |

@@ -25,7 +25,7 @@ print(f"zero level {row['zero_level_ev'] * 1e6:.1f} ueV, {row['zero_multiplicity
 print(f"Hermiticity {ll.hermiticity.max():.1e} Ry, plaquette {ll.plaquette}")
 
 # --- a ribbon of 330 cells at the same field, the orbit placed at its middle
-k2 = ll.dirac["K"][1] + 165 / ll.flux[1]
+k2 = ll.dirac["K"][1] - 165 / ll.flux[1]
 ribbon = graphene.get_landau_levels(B=10.0, wannier=pz, nlevels=20, geometry="ribbon", width=330,
                                     kappa=((0.0, k2),))
 print(f"ribbon of {ribbon.dim // 2} cells at kappa2 = {k2:.5f}: levels (meV from E_D)",

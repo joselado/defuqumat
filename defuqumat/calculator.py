@@ -1607,7 +1607,7 @@ class Calculator:
         at the velocity read from the zero-field bands. A set with no ``edge``
         (explicit projections) is centred from the ground state's Fermi level.
         On a ribbon, ``kappa2`` places the orbit: its centre is about
-        ``q (kappa2 - K2)`` cells from the first one, so a ribbon narrower
+        ``q (K2 - kappa2)`` cells from the first one, so a ribbon narrower
         than ``q`` cells holds bulk levels only for ``kappa2`` near the
         valley's ``K2``.
 

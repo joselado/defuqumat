@@ -36,9 +36,9 @@ w = SimpleNamespace(centres=z["centres"], rvectors=z["rvectors"], degeneracy=z["
                     edge=float(z["fermi_energy"]), bands=bands)
 point = dirac_point(w.lattice, bands, w.edge)
 e_d = point["E_D"]
-# On the ribbon kappa2 sets the orbit's centre, about q (kappa2 - K2) cells from the first
+# On the ribbon kappa2 sets the orbit's centre, about q (K2 - kappa2) cells from the first
 # cell, so a ribbon of 165 cells (much narrower than q = 7900) holds the bulk levels only for
-# kappa2 near K2 + 82/7900; the torus is flat in kappa. Both valleys' K2 are tried.
+# kappa2 near K2 - 82/7900 (measured: K2 + 82/7900 holds no level near +-96 meV); both valleys are tried.
 k2 = float(point["K"][1])
 cases = [("torus", None, 0.23)] + [("ribbon", 165, (kk + s * 82.5 / 7900) % 1.0)
                                    for kk in (k2, 1.0 - k2) for s in (1, -1)]
