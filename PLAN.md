@@ -27980,7 +27980,8 @@ unchanged in form. Per k and per channel, so no whole grid is needed. Refused wi
 kernel: at R = 4 the valence-band error falls more than five-fold (test bound) and the median of
 `|KPM - exact| / dos_error` is between 0.1 and 2; over 16 seeds at R = 2 the mean equals the exact DOS
 within 4.5 standard errors of the mean at every energy. Notebook 60 (4x4x4, 16 vectors): mean reported
-error over the valence band 0.0865 states/eV plain, 0.0004 with the variate.
+error over the valence band 0.0865 states/eV plain, 0.0004 with the variate (3.3e-5 at filter degree 16,
+re-executed 2026-11-07).
 
 Timing (`review/kpm/timing3.py`, `cv2-*.log`, `cv-*.json`, D22, one core each through `slot.sh`, warm,
 medians of 4 seeds; error = rms over `E < E_VBM + 0.05` Ry of the KPM DOS minus the NSCF

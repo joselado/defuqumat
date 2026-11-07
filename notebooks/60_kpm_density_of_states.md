@@ -116,8 +116,6 @@ for n in (kpm.n_moments, 400, 100):
 
      1212 moments: broadening 0.136 eV, peak 4.74 states/eV
       400 moments: broadening 0.413 eV, peak 2.48 states/eV
-
-
       100 moments: broadening 1.668 eV, peak 1.55 states/eV
 
 
@@ -141,16 +139,16 @@ where the $|y_j\rangle$ are close to eigenstates, so in the valence band.
 varied = si.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6, control_variate=True)
 valence = kpm.energies < scf.homo
 for name, d in (('random vectors', kpm), ('with the atomic orbitals', varied)):
-    print(f'{name:25s} mean error in the valence band {np.mean(d.dos_error[valence]) / ev:.4f} states/eV')
+    print(f'{name:25s} mean error in the valence band {np.mean(d.dos_error[valence]) / ev:.1e} states/eV')
 ```
 
-    random vectors            mean error in the valence band 0.0865 states/eV
-    with the atomic orbitals  mean error in the valence band 0.0004 states/eV
+    random vectors            mean error in the valence band 8.6e-02 states/eV
+    with the atomic orbitals  mean error in the valence band 3.3e-05 states/eV
 
 
 ## When to use it
 
-With the atomic orbitals the error of the valence band falls by about 200 times,
+With the atomic orbitals the error of the valence band falls by about 2600 times,
 for the same 16 random vectors. So one random vector is often enough.
 
 For this two-atom cell the bands are cheaper. The KPM cost does not depend on the
