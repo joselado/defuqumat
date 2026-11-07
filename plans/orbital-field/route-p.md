@@ -34,8 +34,9 @@ can see the number the change rests on.
   `chern` as `(first, last, C, max plaquette flux)` per isolated group of levels, `sorted_levels`,
   timings). One k-point at a time through `davidson_eigensolver_all(..., indices=[ik])`, one
   executable for every k.
-- `tests/unit/test_magnetic_bloch.py`: 17 tests, 17 passed in 13.3 s, the slowest 2.6 s
-  (`L/t4.log`, `--durations=6`; 23.4 s cold in `L/t3.log`).
+- `tests/unit/test_magnetic_bloch.py`: 17 tests. At the final code, with the foundation's two
+  files of the same package beside it: 37 passed in 38.6 s, the slowest test 4.0 s
+  (`L/t5.log`, `--durations=6`); the file alone 17 passed in 13.3 s (`L/t4.log`).
 - `tests/regression/test_magnetic_bloch_slow.py` (slow, not run here): item 1 at `q = 10` and
   `2/11`, items 4 and 5 at `q = 3`.
 - Probes: `plans/orbital-field/mag_route_p.py` (`landau`, `herm`, `sphere`, `strong`, `local`),
@@ -134,9 +135,12 @@ the representatives `kappa2 in {0, 1/(2q)}`:
 | 1 | 9216 | 4 | 0.0 | 80 to 90 | 0.027 GB | 1.04 GB | 13 s |
 | 2 | 18432 | 8 | 6.2e-12 Ry | 134 to 187 | 0.070 GB | 1.11 GB | 85 s |
 | 3 | 27648 | 12 | 1.0e-12 Ry | 120 to 145 | 0.128 GB | 1.19 GB | 206 s |
-| 4 | 36864 | 16 | Q4 | Q4S | Q4M | Q4R | Q4T |
+| 4 | 36864 | 16 | 8.1e-10 Ry | 85 to 148 | 0.201 GB | 1.28 GB | 495 s |
 | 6 | 55296 | 24 | Q6 | Q6S | Q6M | Q6R | Q6T |
 
+At `q = 4` the 8.1e-10 Ry sits in the topmost band of the block (band 23) at `kappa1 = 0`, the
+slowest band to settle; every other band agrees within 3.4e-12 Ry, so it is the eigenvalue test
+on the last band of the block, not the symmetry (the load average was 7 to 10 during that run).
 With the filtered local term (`L/local-q{1,2,3,4}.log`, the `-filtered` npz files): 0.0, 9.7e-12,
 8.7e-12, 6.9e-11 Ry, solves of 9, 47, 147 and 279 s. The two-grid term costs 1.40 times the
 filtered one at `q = 3` (206 s against 147 s, with 120 to 145 steps against 125 to 157).
@@ -170,6 +174,12 @@ as an option and its number beside it.
   condition ("the box-against-sphere difference is measured at a = 0 rather than assumed").
 - `p = 2, q = 10` is not a reduced flux and `MagneticCell.build` refuses it, as in the
   foundation; two states per level was checked at `2/5` and `2/11` instead (below).
+- **Four buffer bands** above `nbnd`, at QE's empty-band threshold 1e-5 Ry, are solved and
+  dropped. Without them the top band of the block is the solve's straggler: the `q = 6` run of
+  item 5 was refused after 200 steps with 1 of 32 bands unsettled at k-point 0
+  (`L/local-tg-q6.log`), and at `q = 4` the top band read 8.1e-10 Ry off its translate where the
+  others read 3.4e-12 (`L/local-tg-q4.log`). Item 5's table is the run with the buffer
+  (`L/f/`, `L/local-f-q*.log`); items 1 to 4 were measured before it, without it.
 - A `residual_threshold` on the states for item 4, since the eigenvalue test does not converge
   them (6.1e-8 against 7.4e-12, above).
 - The conventions' traced `scale` is not used: the field enters through the integer `p` of the
@@ -177,7 +187,14 @@ as an option and its number beside it.
 
 ## Two states per level
 
-P2TEXT
+`2/10` is refused by the conventions (not reduced). At `2/5` (ndim 46080, `L/landau-5-2c.log`,
+without the buffer bands) the solve was refused by the design's budget: 1 of 12 bands unsettled
+at k-point 1 after 200 steps. At `2/11` (14347.7 T, ndim 101376) with 400 steps allowed
+(`L/landau-11-2c-400.log`, without the buffer): every level within **1.7e-11 Ry** of the free
+formula, flat within 1.3e-11 Ry over the 4 x 4 mesh, **two states per level** (the members of the
+lowest four levels equal within 1e-13 Ry, of the 4-fold `n = 1, m = +-1` level within 1.3e-11),
+265 to 361 steps per k, 1041 s. So `p = 2` holds the exact degeneracy and is the slower solve: the
+degenerate pairs take about twice the steps of `p = 1`, past the design's 200.
 
 ## Refusals, each tested to fire (unit tests)
 
