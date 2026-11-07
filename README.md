@@ -202,7 +202,8 @@ from the tetrahedron method, as the `occupations` variable says.
   cutoff. It is cheaper than the bands for large cells. With
   `control_variate=True` the code also uses the atomic orbitals, filtered to low
   energy, to remove most of the noise of the random vectors in the valence band, and
-  the DOS stays unbiased. It works with norm-conserving, ultrasoft and PAW datasets.
+  the DOS stays unbiased. This is the default when the pseudopotential files carry
+  atomic orbitals. It works with norm-conserving, ultrasoft and PAW datasets.
   For the last two the code expands $S^{-1/2} H S^{-1/2}$, which has the eigenvalues of
   $H\psi = \epsilon S\psi$. `calc.get_kpm_dos()`, notebook
   [60](notebooks/60_kpm_density_of_states.ipynb).
@@ -220,9 +221,9 @@ from the tetrahedron method, as the `occupations` variable says.
   code expands both delta functions in Chebyshev polynomials of $H$, and the velocity
   $v_a = \partial H/\partial k_a$ includes the nonlocal part of the pseudopotential.
   It is meant for large supercells, for example a defect or disorder, where the sum over
-  bands needs many empty bands. With `control_variate=True` the atomic orbitals remove most
-  of the noise of the random vectors, and on 64 silicon atoms one vector gives the spectrum
-  to about one per cent in half the time of the bands. `calc.get_kpm_conductivity()`, notebook
+  bands needs many empty bands. By default the atomic orbitals remove most of the noise of
+  the random vectors, and on 64 silicon atoms one vector gives the spectrum to about one per
+  cent in half the time of the bands. `calc.get_kpm_conductivity()`, notebook
   [62](notebooks/62_kpm_optical_conductivity.ipynb).
 - **Band velocities**, $\mathbf v_{n\mathbf k} = \partial\epsilon_{n\mathbf k}/\partial\mathbf k$.
   They give the group velocity and the Drude weight.
