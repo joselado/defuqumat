@@ -202,8 +202,10 @@ def test_ultrasoft_is_refused_by_name():
                 "kmesh": (1, 1, 1), "ecutrho": 4 * 163.3}
     calc = Calculator.from_keywords(pseudo_dir=pseudo, announce=False, **keywords)
     calc.get_scf()
+    # the total DOS runs on S^(-1/2) H S^(-1/2) since P171 (test_kpm_augmented.py); a
+    # trace with chosen start vectors does not
     with pytest.raises(NotImplementedError, match="S\\^-1 H"):
-        calc.get_kpm_dos(n_moments=20, n_random=1)
+        calc.get_kpm_ldos([(0.1, 0.1, 0.1)], n_moments=20)
 
 
 def test_two_spin_channels_add_up_to_the_unpolarized_trace():

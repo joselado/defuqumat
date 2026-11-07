@@ -242,3 +242,36 @@ gives 28 per cent, so the bands win at 64 atoms. The next step is the control va
 two-index form: with the Ritz pairs `(theta_j, y_j)` of the filtered orbitals, the sample
 `n_live <r|P v_b P T_n(H_P) P v_a P T_m(H_P) P|r>` costs `O(N natw^2 + N^2 natw)` per vector and has the
 known mean `sum_jl (v_b)_jl T_n(theta_l) (v_a)_lj T_m(theta_j)`.
+
+## P171 (planned 2026-11-07): the KPM density of states for ultrasoft and PAW
+
+**The idea.** The states solve `H x = e S x` with `S = 1 + B Q B^dagger` at each k-point, `B` the
+`(npw, nkb)` projector table and `Q` the `qq` matrix. Then `S^(-1/2)` is the identity plus a term in
+the span of `B`:
+
+    S^(-1/2) = 1 + B X B^dagger,   G = B^dagger B = V L V^dagger,   G^(1/2) = V L^(1/2) V^dagger,
+    X = G^(-1/2) [(1 + G^(1/2) Q G^(1/2))^(-1/2) - 1] G^(-1/2),
+
+since on the span of `B`, `S` acts as `1 + G^(1/2) Q G^(1/2)` in the orthonormal basis
+`B G^(-1/2)`. The symmetrised operator `H^ = S^(-1/2) H S^(-1/2)` is Hermitian in the plain inner
+product and similar to `S^-1 H`, so it has the generalised eigenvalues as its spectrum, and every
+piece of P167 runs on it unchanged: the doubling trick, the Lanczos interval, the guard `|mu_n| <= mu_0`,
+the random-phase trace `Tr T_n(H^')` and the control variate of P170 (unbiased for any block). It is a
+wrapper `SymmetrizedHamiltonian` whose `apply` is `S^(-1/2) H S^(-1/2)`, with `X` per k-point built
+once (`O(npw nkb^2 + nkb^3)` per k-point, memory `nk nkb^2`), two more products with `B` per
+application, about the cost of the nonlocal term.
+
+**Where it stops.** The total DOS, its exact trace, the count and the Fermi level, the spin channels of
+`nspin = 2`, and the control variate. PAW is the same with `ddd_paw` from `becsum` in `H`. Refused still:
+a spinor with an augmented dataset (`qq_so` couples the spin blocks; the formula holds with a spinor
+`B` and `Q`, but nothing checks it), the PDOS (it needs `S^(1/2) phi`, a later step), the LDOS (the
+augmentation charge at the point), the unfolding (the plane-wave subset is not a projector in the S
+metric) and the conductivity (`dH/dk - e dS/dk`). `G` can be near-singular when two projectors of one
+atom are nearly parallel; the eigenvalues of `G` below `1e-10` of its largest are dropped, which is
+exact for `S^(-1/2)` on the span that remains.
+
+**How it is checked.** On Si2 with `Si.pz-n-rrkjus_psl.0.1.UPF` (12 Ry, `ecutrho` 4x, 2x2x2): the
+identity `S^(-1/2) S^(-1/2) S v = v` on random vectors with the dense `overlap_matrix`; the exact trace
+against `scipy.linalg.eigh(H, S)` of the dense matrices to round-off; the count across the gap equal
+to 8; the stochastic DOS against the SCF's Davidson eigenvalues. PAW the same on a PAW silicon
+dataset from `tests/data/pseudo` with `becsum`. The refusals of the other traces are tested to fire.

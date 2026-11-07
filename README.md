@@ -202,7 +202,9 @@ from the tetrahedron method, as the `occupations` variable says.
   cutoff. It is cheaper than the bands for large cells. With
   `control_variate=True` the code also uses the atomic orbitals, filtered to low
   energy, to remove most of the noise of the random vectors in the valence band, and
-  the DOS stays unbiased. `calc.get_kpm_dos()`, notebook
+  the DOS stays unbiased. It works with norm-conserving, ultrasoft and PAW datasets.
+  For the last two the code expands $S^{-1/2} H S^{-1/2}$, which has the eigenvalues of
+  $H\psi = \epsilon S\psi$. `calc.get_kpm_dos()`, notebook
   [60](notebooks/60_kpm_density_of_states.ipynb).
 - **Projected, local and unfolded density of states by KPM**. The same expansion with
   chosen start vectors instead of random ones, so there is no statistical error. The

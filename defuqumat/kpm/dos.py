@@ -22,9 +22,10 @@ in real numbers; the ``"exact"`` trace holds ``(ndim, ndim)`` per k-point in fli
 and is for small cells.
 
 Regimes: norm-conserving, ``nspin = 1`` and ``2`` (one Hamiltonian per channel),
-and the spinor (``npol = 2``). Refused by name: ultrasoft and PAW (the polynomial
-must be in ``S^-1 H``), the half-sphere ``gamma_only`` storage, and a spin
-spiral.
+and the spinor (``npol = 2``); ultrasoft and PAW at ``nspin = 1`` and ``2``
+through ``S^(-1/2) H S^(-1/2)`` (:mod:`defuqumat.kpm.overlap`, P171). Refused by
+name: a spinor with an augmented dataset, the half-sphere ``gamma_only``
+storage, and a spin spiral.
 """
 
 from __future__ import annotations
@@ -215,10 +216,13 @@ def require_a_kpm_regime(calculation, hamiltonians) -> None:
     """Refuse what the moments of ``H`` alone do not describe."""
     if any(h.has_overlap for h in hamiltonians):
         raise NotImplementedError(
-            "the KPM density of states is implemented for norm-conserving "
-            "pseudopotentials only: with an ultrasoft or PAW dataset the states "
-            "solve H x = e S x, so the polynomial must be in S^-1 H with moments in "
-            "the S inner product, and the moments of H alone give another spectrum"
+            "this KPM trace is implemented for norm-conserving pseudopotentials "
+            "only: with an ultrasoft or PAW dataset the states solve H x = e S x, so "
+            "the polynomial must be in S^-1 H, and the moments of H alone give another "
+            "spectrum. The total density of states (get_kpm_dos) runs on "
+            "S^(-1/2) H S^(-1/2); the projected and local DOS, the unfolding and the "
+            "conductivity need the S metric in their start vectors or their operator, "
+            "which is not implemented"
         )
     if any(getattr(h, "gamma_only", False) for h in hamiltonians):
         raise NotImplementedError(
@@ -313,7 +317,7 @@ def run_kpm_dos(
     """
     setup = kpm_setup(system, pseudos, density, kpoints=kpoints, k_batch=k_batch, ns=ns,
                       tau=tau, becsum=becsum, field=field, field_scale=field_scale,
-                      calculation=calculation)
+                      calculation=calculation, symmetrize=True)
     calculation, hamiltonians, batch = setup
     (centre, half, emin, emax, reference_energy, n_moments,
      broadening) = interval_and_moments(hamiltonians, batch, seed, lanczos_steps, edge_margin,
@@ -348,8 +352,13 @@ def run_kpm_dos(
 
 
 def kpm_setup(system, pseudos, density, *, kpoints=None, k_batch="default", ns=None, tau=None,
-              becsum=(), field=None, field_scale=None, calculation=None):
-    """``(calculation, hamiltonians, k_batch)`` at a fixed density, the KPM regimes checked."""
+              becsum=(), field=None, field_scale=None, calculation=None, symmetrize=False):
+    """``(calculation, hamiltonians, k_batch)`` at a fixed density, the KPM regimes checked.
+
+    ``symmetrize`` replaces an augmented Hamiltonian by ``S^(-1/2) H S^(-1/2)``
+    (:mod:`defuqumat.kpm.overlap`), which a trace of the spectrum alone can use;
+    without it an ultrasoft or PAW dataset is refused.
+    """
     import equinox as eqx
 
     from defuqumat.batching import resolve_k_batch
@@ -366,8 +375,15 @@ def kpm_setup(system, pseudos, density, *, kpoints=None, k_batch="default", ns=N
     hamiltonians = fixed_density_hamiltonians(
         calculation, density, ns=ns, tau=tau, becsum=becsum, field=field,
         field_scale=field_scale)
+    batch = resolve_k_batch(calculation.k_batch)
+    if symmetrize and any(h.has_overlap for h in hamiltonians):
+        from defuqumat.kpm.overlap import symmetrized
+
+        if getattr(calculation, "gamma_only", False) or calculation.spiral:
+            require_a_kpm_regime(calculation, hamiltonians)
+        hamiltonians = symmetrized(hamiltonians, k_batch=batch)
     require_a_kpm_regime(calculation, hamiltonians)
-    return calculation, hamiltonians, resolve_k_batch(calculation.k_batch)
+    return calculation, hamiltonians, batch
 
 
 def interval_and_moments(hamiltonians, batch, seed, lanczos_steps, edge_margin, emin, emax,

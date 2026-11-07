@@ -148,7 +148,7 @@ def _given_moments(hamiltonians, starts, centre, half, n_moments, weights, batch
 
 def _common(system, pseudos, density, broadening, n_moments, kernel, emin, emax, delta_e,
             reference_energy, lanczos_steps, edge_margin, fermi_energy, k_batch, state,
-            calculation, whole_grid):
+            calculation, whole_grid, symmetrize=False):
     from defuqumat.workflows.nscf import threaded_calculation
 
     if n_moments is not None and n_moments % 2:
@@ -162,7 +162,8 @@ def _common(system, pseudos, density, broadening, n_moments, kernel, emin, emax,
     if whole_grid:
         calculation = whole_grid_calculation(calculation)
     calculation, hamiltonians, batch = kpm_setup(
-        system, pseudos, density, k_batch=k_batch, calculation=calculation, **state)
+        system, pseudos, density, k_batch=k_batch, calculation=calculation,
+        symmetrize=symmetrize, **state)
     interval = interval_and_moments(hamiltonians, batch, 0, lanczos_steps, edge_margin, emin,
                                     emax, reference_energy, fermi_energy, broadening,
                                     n_moments, kernel)
@@ -188,12 +189,16 @@ def run_kpm_pdos(system, pseudos, density, *, projectors: str = "ortho-atomic",
     calculation, hamiltonians, batch, interval = _common(
         system, pseudos, density, broadening, n_moments, kernel, emin, emax, delta_e,
         reference_energy, lanczos_steps, edge_margin, fermi_energy, k_batch, state,
-        calculation, whole_grid=True)
+        calculation, whole_grid=True, symmetrize=True)
     centre, half, emin, emax, reference_energy, n_moments, broadening = interval
     channels = calculation_channels(calculation)
     if not channels:
         raise ValueError("none of the pseudopotentials carries an atomic orbital to project on")
     orbitals = jnp.swapaxes(atomic_orbitals(calculation, projectors), 1, 2)  # (nk, r, ndim)
+    # an augmented run's projection <phi|S|x> is <S^(1/2) phi|x^> on S^(-1/2) H S^(-1/2)
+    from defuqumat.kpm.overlap import raised_vectors
+
+    orbitals = raised_vectors(hamiltonians[0], orbitals, k_batch=batch)
     weights = np.asarray(calculation.system.kpoints.weights)
     moments = _given_moments(hamiltonians, orbitals, centre, half, n_moments, weights, batch)
     energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)

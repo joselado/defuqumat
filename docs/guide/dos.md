@@ -462,11 +462,14 @@ diagonalize.
     labelled as up and down. So you run it with `lspinorb = .true.`, which is what a
     fully relativistic dataset is for.
 
-    The KPM density of states needs norm-conserving pseudopotentials. With an
-    ultrasoft or PAW dataset the states solve $H\psi = \varepsilon S\psi$, so the
-    polynomial must be in $S^{-1}H$, and the code gives an error. It also gives an
-    error for `K_POINTS gamma` (the half sphere of plane waves) and for a spin
-    spiral. A wedge of k-points is fine, because the DOS is a scalar trace. If the
+    The total KPM density of states works with ultrasoft and PAW datasets, for
+    `nspin = 1` and `2`, through $S^{-1/2} H S^{-1/2}$. With a spinor they give an
+    error, because the overlap couples the two spin components and we have not
+    checked that case. The projected and local DOS, the unfolding and the
+    conductivity by KPM need norm-conserving pseudopotentials, because their start
+    vectors or their operator need the overlap $S$, and the code gives an error. The
+    KPM traces also give an error for `K_POINTS gamma` (the half sphere of plane
+    waves) and for a spin spiral. A wedge of k-points is fine, because the DOS is a scalar trace. If the
     interval does not hold the whole spectrum, a moment grows above one and the
     code gives an error that says so, instead of a wrong DOS. The same holds for
     the projected, local and unfolded DOS by KPM. The local DOS is the smooth
