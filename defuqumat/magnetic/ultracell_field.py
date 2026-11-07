@@ -441,7 +441,10 @@ def _ket_block(u_bra, h_bra, p_bra, ket_values, ket_index, shift, window, g_b2, 
         h = (h_bra.conj() @ u.T + u_bra.conj() @ field.T + p_bra.conj() @ (c1 * x * u).T) / npts
     else:
         field = c1 * 2.0 * x * up + (c1 * c1 * b22) * (x * x) * u
-        h = (h_bra.conj() @ u.T + u_bra.conj() @ field.T) / npts - 1j * c1 * b12 * overlap
+        # -i div a, built without a complex literal so that the policy's dtype holds
+        div_a = c1 * b12
+        h = ((h_bra.conj() @ u.T + u_bra.conj() @ field.T) / npts
+             - jax.lax.complex(jnp.zeros_like(div_a), div_a).astype(overlap.dtype) * overlap)
     if nl_mode != "none":
         h = h + nonlocal_block(u_bra, u, *nl, kref, mode=nl_mode)
     r = None

@@ -18,6 +18,7 @@ What is checked, on boxes of at most 256 points so every test is seconds:
 import math
 from types import SimpleNamespace
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -37,6 +38,13 @@ from defuqumat.pseudo.upf import read_upf
 from defuqumat.workflows.magnetic_bands import run_magnetic_bands
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _clear():
+    # the file compiles programs for six or more box shapes; drop them after each test
+    yield
+    jax.clear_caches()
 
 SMALL = (4, 4, 8)
 SCF = "plans/orbital-field/graphene-scf.npz"
@@ -245,7 +253,9 @@ def test_the_lowest_landau_level_carries_one_chern_number(landau_runs):
     groups = landau_runs["two-gauge"].chern
     first, last, chern, max_flux = groups[0]
     assert (first, last) == (0, 0)
-    assert abs(abs(chern) - 1.0) < 1e-9
+    # the sign is pinned: +1 at p = +1 with the repository's FHS orientation, so a flipped
+    # field or a flipped orientation fails here (the magnitude alone would pass for -1)
+    assert abs(chern - 1.0) < 1e-9
     assert max_flux < math.pi / 2
 
 

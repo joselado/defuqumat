@@ -1592,6 +1592,100 @@ class Calculator:
                                  exclude=SCF_ONLY_OPTIONS)
         )
 
+    def get_landau_levels(self, B=None, flux=None, route="peierls", wannier=None,
+                          geometry="torus", width=None, nlevels=40, kappa=((0.0, 0.0),),
+                          dirac=True, zeeman=False, nbnd=None, N1=10, **options):
+        """Landau levels in a uniform orbital magnetic field along ``a3``.
+
+        ``route="peierls"`` (the default) puts the field on the Wannier
+        hoppings by Peierls substitution (:func:`~defuqumat.workflows.landau.
+        run_landau_levels`), on a magnetic torus or a ``ribbon``: ``B`` in tesla
+        is rounded to the nearest flux ``p/q`` per cell, or ``flux = (p, q)`` is
+        given, and the flux and the field used are on the result. ``wannier``
+        is a :meth:`get_wannier` result; without one, ``get_wannier(**options)``
+        is run first. ``dirac=True`` compares the ladder with the Dirac formula
+        at the velocity read from the zero-field bands.
+
+        ``route="ultracell"`` is the magnetic ultracell of Wang and Vafek
+        (:func:`~defuqumat.workflows.landau_ultracell.run_magnetic_ultracell`),
+        at ``flux`` only, ``q <= 100`` and a given ``nbnd``. Its default
+        refuses: the hybrid basis of an entangled band set is not localized
+        and the assembled matrix is not Hermitian to 1e-8, which it says.
+
+        Refused by name: ``zeeman=True``, spinors, ``nspin = 2``, ultrasoft
+        and PAW, DFT+U, spirals, meta-GGA and gamma-only storage.
+        """
+        from defuqumat.magnetic.conventions import refuse_regime
+
+        refuse_regime(self.system, self.pseudos, "Landau levels")
+        if route == "ultracell":
+            from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+            if B is not None or flux is None or nbnd is None or int(flux[1]) > 100:
+                raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd")
+            return run_magnetic_ultracell(
+                self.system, self.pseudos, self._ground_state("Landau levels"),
+                flux=flux, nbnd=nbnd, N1=N1, local_only=False, **options)
+        if route != "peierls":
+            raise ValueError(f"route is 'peierls' or 'ultracell', not {route!r}")
+        from defuqumat.workflows.landau import run_landau_levels
+
+        wannier = self.get_wannier(**options) if wannier is None else wannier
+        return run_landau_levels(wannier, B=B, flux=flux, geometry=geometry, width=width,
+                                 nlevels=nlevels, kappa=kappa, dirac=dirac, zeeman=zeeman)
+
+    def get_magnetic_bands(self, flux=(1, 1), kmesh=(2, 2), nbnd=None, scf=False,
+                           chern=False, local_only=False, conv_thr=1e-8, **options):
+        """Magnetic Bloch bands of the crystal at a flux ``p/q`` per cell, on plane waves.
+
+        The exact route of Lu et al. (PRL 135, 196401 (2025)): the magnetic
+        cell of ``q`` chemical cells along ``a1``, the field along ``a3``, the
+        full Hamiltonian with GIPAW-dressed projectors
+        (:func:`~defuqumat.workflows.magnetic_bands.run_magnetic_bands`) on
+        the zero-field potential. ``kmesh`` is the mesh of the magnetic zone,
+        ``nbnd`` the magnetic bands (required), ``chern=True`` gives the Chern
+        number of each isolated group. ``scf=True`` runs the self-consistent
+        field in the field instead (:func:`~defuqumat.magnetic.fold.
+        run_magnetic_scf`, ``N2`` a multiple of ``q``), from the zero-field
+        density. The memory of one k-point is estimated before the run, and
+        the run is refused above the limit.
+        """
+        from defuqumat.magnetic.fold import run_magnetic_scf
+        from defuqumat.workflows.magnetic_bands import run_magnetic_bands
+
+        if nbnd is None:
+            raise ValueError("get_magnetic_bands needs nbnd, the bands of the magnetic cell: "
+                             "q times the occupied bands of the chemical cell, and a few more")
+        state = None if options.get("free") else self._ground_state("magnetic Bloch bands")
+        if scf:
+            return run_magnetic_scf(self.system, self.pseudos, state, flux=flux, kmesh=kmesh,
+                                    nbnd=nbnd, conv_thr=conv_thr, calculation=self.calculation,
+                                    **options)
+        return run_magnetic_bands(self.system, self.pseudos, state, flux=flux, kmesh=kmesh,
+                                  nbnd=nbnd, chern=chern, local_only=local_only, **options)
+
+    def get_magnetizability(self, kmesh=(2, 6, 6), nbnd=None, conv_thr=1e-8, **options):
+        """The orbital magnetizability of an insulator, by finite differences in the field.
+
+        Lu et al.'s route: three self-consistent runs at ``-1``, ``0`` and
+        ``+1`` flux quantum per cell on the same magnetic box, and ``chi =
+        -(E+ - 2 E0 + E-)/dB^2`` (:func:`~defuqumat.magnetic.fold.
+        run_magnetizability`). Returns the
+        :class:`~defuqumat.magnetic.fold.Magnetizability`: ``chi_per_unit`` in
+        1e-6 cm^3/mol per ``atoms_per_unit`` atoms (two by default),
+        ``chi_per_atom``, the three energies and ``asymmetry = E(+) - E(-)``.
+        The cell is the supercell the field is applied to, so the field step
+        is one flux quantum through it.
+        """
+        from defuqumat.magnetic.fold import run_magnetizability
+
+        if nbnd is None:
+            raise ValueError("get_magnetizability needs nbnd, the bands of the cell (an insulator)")
+        return run_magnetizability(self.system, self.pseudos,
+                                   self._ground_state("a magnetizability"), kmesh=kmesh,
+                                   nbnd=nbnd, conv_thr=conv_thr, calculation=self.calculation,
+                                   **options)
+
     def get_structure_factors(self, hmax: float = 6.0, **options):
         """``F(H)``, the X-ray and magnetic structure factors of the density.
 

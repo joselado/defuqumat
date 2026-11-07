@@ -266,6 +266,36 @@ def test_the_field_kernels_give_the_landau_ladder_on_an_analytic_state(form):
             assert abs(np.asarray(h)[0, 1]) < 1e-12 * abs(np.asarray(h)[0, 0])
 
 
+@pytest.mark.parametrize("symmetric", [False, True])
+def test_the_field_block_keeps_a_single_precision_dtype(symmetric):
+    """The block kernel takes its complex dtype from its inputs: complex64 in, complex64 out.
+
+    The ``-i div a`` term of the ``ket`` form was written with a complex literal, which
+    CLAUDE.md forbids in a kernel (the dtype comes from the policy); it is now built with
+    ``lax.complex`` on the traced ``c1``. Both forms are checked, on random inputs.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.magnetic.ultracell_field import _ket_block
+
+    grid, nbnd = (4, 2, 2), 2
+    npts = int(np.prod(grid))
+    rng = np.random.default_rng(3)
+
+    def c64(*shape):
+        return jnp.asarray(rng.normal(size=shape) + 1j * rng.normal(size=shape), dtype=jnp.complex64)
+
+    def f32(*shape):
+        return jnp.asarray(rng.normal(size=shape), dtype=jnp.float32)
+
+    u_bra, h_bra, p_bra, values = c64(nbnd, npts), c64(nbnd, npts), c64(nbnd, npts), c64(nbnd, npts)
+    h, s, _ = _ket_block(u_bra, h_bra, p_bra, values, jnp.arange(npts), jnp.asarray(1),
+                         f32(grid[0]), f32(npts), f32(grid[0]), jnp.asarray(0.1, jnp.float32),
+                         jnp.asarray(0.3, jnp.float32), np.float32(-0.2), np.float32(0.7),
+                         grid=grid, windowed=False, symmetric=symmetric)
+    assert h.dtype == jnp.complex64 and s.dtype == jnp.complex64
+
+
 # --- step 2: the GIPAW-dressed nonlocal term --------------------------------------------
 
 @pytest.mark.parametrize("h0", ["eigen", "box"])
