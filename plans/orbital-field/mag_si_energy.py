@@ -38,7 +38,7 @@ KLIST = """K_POINTS
 
 CASES = {
     "kpoints": dict(extra="", kpoints=KLIST),
-    "gamma": dict(extra="", kpoints="K_POINTS gamma"),
+    "gamma": dict(extra=",\n    nosym=.true.", kpoints="K_POINTS gamma"),
     "noncolin": dict(extra=",\n    noncolin=.true.", kpoints=KLIST),
 }
 
