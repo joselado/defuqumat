@@ -33,7 +33,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.magnetic.conventions import refuse_regime
-from defuqumat.magnetic.hybrid import free_electron, hybrid_set, local_only, transport_gauge
+from defuqumat.magnetic.hybrid import free_electron, hybrid_set, transport_gauge
+from defuqumat.magnetic.hybrid import local_only as _local_only
 from defuqumat.magnetic.ultracell_field import MagneticUltracell, assemble, hermiticity, solve
 from defuqumat.scf.driver import Calculation
 from defuqumat.system.kpoints import KPoints, for_spin as kpoints_for_spin
@@ -172,7 +173,7 @@ def run_magnetic_ultracell(
         density = jnp.full((1,) + tuple(calculation.basis.dense.grid), nelec / float(cell.volume),
                            dtype=cell.precision.real)
     hamiltonians = fixed_density_hamiltonians(calculation, density)
-    hamiltonians = tuple(free_electron(h) if free else local_only(h) for h in hamiltonians)
+    hamiltonians = tuple(free_electron(h) if free else _local_only(h) for h in hamiltonians)
     ethr = fixed_density_ethr(conv_thr, calculation.nelec)
     eigenvalues, wavefunctions, steps, notcnv = calculation.diagonalize(
         hamiltonians, int(nbnd), None, ethr, return_steps=True)
