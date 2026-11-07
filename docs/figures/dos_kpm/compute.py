@@ -9,7 +9,8 @@ silicon = Calculator.from_keywords(
     pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir=PSEUDO, ecut=163.3, kmesh=(4, 4, 4),
     announce=False)
 scf = silicon.get_scf()
-kpm = silicon.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6)
+kpm = silicon.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6,
+                          control_variate=False)
 
 # the same window from 12 bands, with a Gaussian of the same half width
 bands = silicon.get_dos(nbnd=12, scheme="gaussian", degauss=kpm.broadening / np.sqrt(np.log(2)),

@@ -40,6 +40,7 @@ estimated exactly, as in Meyer, Musco, Musco and Woodruff, arXiv:2010.09649).
 from __future__ import annotations
 
 import functools
+import warnings
 
 import jax
 import jax.numpy as jnp
@@ -52,6 +53,32 @@ from defuqumat.kpm.moments import live_mask, random_phases
 FILTER_DEGREE = 8
 #: The filter damps everything above ``E_F + FILTER_CUT`` (Ry).
 FILTER_CUT = 1.0
+
+
+def resolve_variate(control_variate, trace: str, calculation) -> bool:
+    """Whether to use the variate: ``"auto"`` is on for random vectors when the datasets carry orbitals.
+
+    ``"auto"`` (the default since 2026-11-07, a fable decision on the numbers of
+    P169 and P170: the plain conductivity at one vector is 28 to 38 per cent off,
+    the variate about one) is off for ``trace="exact"``, which has no noise, and
+    off with a warning when no pseudopotential carries atomic orbitals
+    (``PP_CHI``), since the plain trace is the same unbiased estimate with more
+    noise. ``True`` keeps its errors in both cases, so a request is not dropped
+    silently.
+    """
+    if control_variate != "auto":
+        return bool(control_variate)
+    if trace != "stochastic":
+        return False
+    from defuqumat.projwfc.projections import calculation_channels
+
+    if not calculation_channels(calculation):
+        warnings.warn(
+            "control_variate='auto': no pseudopotential carries atomic orbitals (PP_CHI), "
+            "so the random trace runs without the control variate and keeps its full noise",
+            RuntimeWarning, stacklevel=3)
+        return False
+    return True
 
 
 @functools.partial(jax.jit, static_argnames=("degree",))

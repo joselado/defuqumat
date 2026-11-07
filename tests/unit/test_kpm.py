@@ -119,7 +119,8 @@ def test_the_guard_fires_on_a_short_interval():
 def test_the_occupied_dos_is_the_scf_bands_through_the_same_kernel():
     """Below the top of the computed bands, the KPM DOS is Davidson's eigenvalues smoothed alike."""
     calc, result, _ = _silicon()
-    dos = calc.get_kpm_dos(broadening=0.02, n_random=16, emin=-0.5, emax=0.3)
+    dos = calc.get_kpm_dos(broadening=0.02, n_random=16, emin=-0.5, emax=0.3,
+                           control_variate=False)
     weights = np.asarray(calc.calculation.system.kpoints.weights)
     x = (np.asarray(result.eigenvalues) - dos.centre) / dos.half_width
     n = np.arange(dos.n_moments)
@@ -143,7 +144,7 @@ def test_the_gap_holds_the_electrons():
     own standard error, and that error must itself be small at R = 64.
     """
     calc, _, hamiltonians = _silicon()
-    dos = calc.get_kpm_dos(broadening=0.02, n_random=64)
+    dos = calc.get_kpm_dos(broadening=0.02, n_random=64, control_variate=False)
     spectra = _dense_spectrum(hamiltonians[0])
     gap_centre = 0.5 * (max(s[3] for s in spectra) + min(s[4] for s in spectra))
     error = dos.count_error_at(gap_centre)
@@ -232,7 +233,7 @@ def test_two_spin_channels_add_up_to_the_unpolarized_trace():
                        centre, half, 20, trace="exact")[:, 0]
     np.testing.assert_allclose(both[0], both[1], rtol=0, atol=1e-7 * both[0, 0])
     np.testing.assert_allclose(both.sum(axis=0), scalar, rtol=0, atol=1e-7 * scalar[0])
-    dos = polarized.get_kpm_dos(n_moments=40, n_random=2)
+    dos = polarized.get_kpm_dos(n_moments=40, n_random=2, control_variate=False)
     assert dos.dos.shape == (2, dos.energies.size) and dos.nspin == 2
 
 

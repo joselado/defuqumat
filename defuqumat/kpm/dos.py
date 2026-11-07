@@ -267,7 +267,7 @@ def run_kpm_dos(
     edge_margin: float = EDGE_MARGIN,
     fermi_energy: float | None = None,
     spin_resolved: bool = False,
-    control_variate: bool = False,
+    control_variate: bool | str = "auto",
     filter_degree: int | None = None,
     filter_cut: float | None = None,
     k_batch="default",
@@ -303,6 +303,8 @@ def run_kpm_dos(
             its mean (:mod:`defuqumat.kpm.control`): unbiased, with much less
             noise in the valence band, for ``(filter_degree + 1) natw``
             applications of ``H`` and a dense ``natw`` Rayleigh-Ritz per k-point.
+            ``"auto"`` (default) uses it for random vectors when the datasets
+            carry orbitals (:func:`~defuqumat.kpm.control.resolve_variate`).
         filter_degree, filter_cut: the low-pass filter, degree 8 and a cut at
             ``fermi_energy + 1`` Ry (the top of the window without a Fermi level)
             when not given.
@@ -327,6 +329,9 @@ def run_kpm_dos(
     weights = np.asarray(calculation.system.kpoints.weights)
     samples = kpm_moments(hamiltonians, weights, centre, half, n_moments,
                           n_random=n_random, seed=seed, trace=trace, k_batch=batch)
+    from defuqumat.kpm.control import resolve_variate
+
+    control_variate = resolve_variate(control_variate, trace, calculation)
     if control_variate:
         samples = samples + variate_corrections(
             calculation, hamiltonians, weights, centre, half, n_moments, n_random, seed,

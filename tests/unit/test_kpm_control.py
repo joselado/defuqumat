@@ -38,7 +38,8 @@ def _valence(calc, result, dos):
 def test_the_variate_cuts_the_noise_in_the_valence_band():
     """At R = 4, the valence-band error falls at least five-fold, and the reported error stays honest."""
     calc, result, hamiltonians = _silicon()
-    plain = calc.get_kpm_dos(broadening=BROADENING, n_random=4, seed=1)
+    plain = calc.get_kpm_dos(broadening=BROADENING, n_random=4, seed=1,
+                           control_variate=False)
     varied = calc.get_kpm_dos(broadening=BROADENING, n_random=4, seed=1, control_variate=True)
     reference = _reference(calc, hamiltonians, plain)
     window = _valence(calc, result, plain)
@@ -54,7 +55,8 @@ def test_the_variate_is_unbiased():
     runs = np.stack([calc.get_kpm_dos(broadening=BROADENING, n_random=2, seed=s,
                                       control_variate=True).dos for s in range(16)])
     reference = _reference(calc, hamiltonians,
-                           calc.get_kpm_dos(broadening=BROADENING, n_random=2, seed=0))
+                           calc.get_kpm_dos(broadening=BROADENING, n_random=2, seed=0,
+                                             control_variate=False))
     mean, spread = runs.mean(axis=0), runs.std(axis=0, ddof=1) / np.sqrt(len(runs))
     window = spread > 1e-6 * reference.max()
     assert np.max(np.abs(mean - reference)[window] / spread[window]) < 4.5
@@ -64,3 +66,50 @@ def test_the_exact_trace_refuses_the_variate():
     calc, _, _ = _silicon()
     with pytest.raises(ValueError, match="exact"):
         calc.get_kpm_dos(n_moments=20, trace="exact", control_variate=True)
+
+
+def test_auto_takes_the_variate_only_where_it_applies(monkeypatch):
+    """``"auto"``: on for random vectors with orbitals, off for the exact trace, off with a warning without orbitals."""
+    import defuqumat.projwfc.projections as projections
+    from defuqumat.kpm.control import resolve_variate
+
+    calc, _, _ = _silicon()
+    assert resolve_variate("auto", "stochastic", calc.calculation) is True
+    assert resolve_variate("auto", "exact", calc.calculation) is False
+    assert resolve_variate(False, "stochastic", calc.calculation) is False
+    assert resolve_variate(True, "exact", calc.calculation) is True  # and the run raises
+    monkeypatch.setattr(projections, "calculation_channels", lambda calculation: ())
+    with pytest.warns(RuntimeWarning, match="PP_CHI"):
+        assert resolve_variate("auto", "stochastic", calc.calculation) is False
+
+
+@pytest.mark.parametrize("regime", ["spinor", "two channels"])
+def test_the_variate_is_unbiased_in_the_other_spin_regimes(regime):
+    """The mean of 12 seeds' moments with the variate equals the exact trace's, for a spinor and for ``nspin = 2``.
+
+    These are the regimes ``"auto"`` turns the variate on in without P170 having
+    looked: the orbitals are spinors in one, and each channel draws its own key in
+    the other.
+    """
+    from pathlib import Path
+
+    from defuqumat import Calculator
+    from tests.unit.test_kpm import SILICON
+
+    if regime == "spinor":
+        calc = _silicon(True)[0]
+    else:
+        pseudo = Path(__file__).parents[1] / "data" / "pseudo"
+        calc = Calculator.from_keywords(
+            pseudo_dir=pseudo, announce=False, conv_thr=1e-10,
+            **{**SILICON, "qe": {"system": {"nspin": 2, "tot_magnetization": 0}}})
+        calc.get_scf()
+    options = dict(n_moments=24, emin=-0.5, emax=1.0)
+    exact = calc.get_kpm_dos(trace="exact", **options).samples[:, 0]  # (nspin, N)
+    runs = np.stack([calc.get_kpm_dos(n_random=2, seed=s, control_variate=True,
+                                      **options).samples.mean(axis=1) for s in range(12)])
+    mean = runs.mean(axis=0)
+    spread = runs.std(axis=0, ddof=1) / np.sqrt(len(runs))
+    window = spread > 1e-9 * np.abs(exact).max()
+    assert window.any()
+    assert np.max(np.abs(mean - exact)[window] / spread[window]) < 4.5

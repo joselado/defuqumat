@@ -36,7 +36,10 @@ of the pseudopotential. We expand each $\delta(E - H)$ in Chebyshev polynomials 
 so the trace becomes a matrix of moments
 $\mu_{nm} = \mathrm{Tr}[v_b T_n(H) v_a T_m(H)]$. We estimate this trace with 4
 random vectors per k-point, for the three directions, and we average
-$\sigma_{xx}$, $\sigma_{yy}$ and $\sigma_{zz}$. The default kernel gives each
+$\sigma_{xx}$, $\sigma_{yy}$ and $\sigma_{zz}$. The code also uses the atomic
+orbitals, filtered to low energy: the transitions between the states they describe
+are computed in that small space, and the random vectors carry only the rest, so
+most of the noise is gone. The default kernel gives each
 transition a Gaussian shape. The moments are kept, so the same result with the
 Lorentz kernel, whose transitions are Lorentzians as in the sum over bands, costs
 nothing more.
@@ -83,11 +86,12 @@ plt.tight_layout()
 
 On the left, the dashed line is the sum over pairs of bands for the perfect cell,
 and the blue line is the KPM result for the same cell with Lorentzian
-transitions. They agree on the main peak. Below the absorption edge the band sum is
-a little higher. This is the Lorentzian tail of each transition, which KPM partly
-cuts: it occupies the states by energy after they are broadened, so the part of a
-broadened state that lies across the Fermi level is not counted. The two are the
-same quantity as the broadening goes to zero.
+transitions. They have the same shape, and the KPM peak is about 6 per cent higher.
+Below the absorption edge the band sum is higher. Both differences come from the
+broadening, not from the noise: KPM occupies the states by energy after they are
+broadened, so the part of a broadened state that lies across the Fermi level is not
+counted, and it weights a transition by $1/\omega$ where the band sum uses the gap of
+the pair. The two are the same quantity as the broadening goes to zero.
 
 On the right, with Gaussian transitions and so short tails, the absorption of the
 perfect cell starts near 2 eV. With the vacancy it starts near 1 eV. These are
@@ -104,17 +108,16 @@ for name, s in spectra.items():
 print(f'perfect Si8 peak with the Lorentz kernel {average(lorentz).max():.3f}, sum over bands {average(band.sigma).max():.3f}')
 ```
 
-    perfect Si8          peak 0.589 at 3.59 eV,  weight from 0.5 to 1.8 eV 0.0015
-    Si8 with a vacancy   peak 0.449 at 3.75 eV,  weight from 0.5 to 1.8 eV 0.0312
-    perfect Si8 peak with the Lorentz kernel 0.408, sum over bands 0.408
+    perfect Si8          peak 0.629 at 3.59 eV,  weight from 0.5 to 1.8 eV 0.0017
+    Si8 with a vacancy   peak 0.403 at 3.80 eV,  weight from 0.5 to 1.8 eV 0.0369
+    perfect Si8 peak with the Lorentz kernel 0.433, sum over bands 0.408
 
 
 Between 0.5 and 1.8 eV the vacancy gives about twenty times the weight of the
-perfect cell, and the peak moves up by about 0.15 eV and drops by a quarter. With
-Lorentzian transitions, the peak of KPM and the peak of the sum over bands are the
-same to three digits. Note that 8 k-points of a cell of 8 sites are
-few, so the peaks are not converged. Also 4 random vectors leave some noise in each
-curve.
+perfect cell, and the peak moves up by about 0.2 eV and drops by a third. These
+numbers do not depend on the random vectors: with other seeds, or with 16 vectors
+instead of 4, the peaks change by less than 0.1 per cent. Note that 8 k-points of a cell of 8 sites are
+few, so the peaks are not converged.
 
 For this small cell the bands are cheap, and the sum over bands is faster. The
 method is for large supercells of a dilute defect or of disorder, where the sum over

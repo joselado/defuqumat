@@ -28065,8 +28065,10 @@ weight is `1/w` where the band sum has `1/e_mn`. Exact trace, Lorentz kernel, ag
 | 0.04 Ry | 0.080 Ry | 318 | 0.515 / 0.601 | 0.78 | 0.16 of the peak |
 | 0.02 Ry | 0.040 Ry | 636 | 0.793 / 0.841 | 0.86 | 0.20 of the peak |
 
-On Si8 at 2x2x2 with smearing (notebook 62) the Lorentz-kernel peak is 0.408 against 0.408 for the
-band sum at 56 bands. **The Lorentz kernel's width was wrong** (P167's `kernels.py`, found by the fable
+On Si8 at 2x2x2 with smearing (notebook 62) the Lorentz-kernel peak with the variate is 0.433, the
+same to 0.1 per cent for two seeds at R = 4 and at R = 16 (`si8c-*.log`), against 0.408 for the band sum
+at 56 bands: the 6 per cent is the occupation by energy, not noise. A plain run at R = 4 had read
+0.408, a coincidence: the plain peaks moved by 7 to 10 per cent between runs. **The Lorentz kernel's width was wrong** (P167's `kernels.py`, found by the fable
 review of this phase): its peak's half width is `1.19 lambda sqrt(1 - x^2) / N` in `x`
 (`LORENTZ_HWHM = 1.1919166`, the continuum root, measured 1.1915 at N = 400), not `lambda / N` flat,
 37 per cent too wide at `x = -0.85`. Fixed, with the width test now parametrized over both kernels;

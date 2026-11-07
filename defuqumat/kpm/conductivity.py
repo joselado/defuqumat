@@ -611,7 +611,7 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
                          broadening: float = 0.02, n_moments: int | None = None,
                          kernel: str = "jackson", trace: str = "stochastic",
                          n_random: int = 4, seed: int = 0, temperature: float = 0.0,
-                         delta_e: float | None = None, control_variate: bool = False,
+                         delta_e: float | None = None, control_variate: bool | str = "auto",
                          filter_degree: int | None = None, filter_cut: float | None = None,
                          lanczos_steps: int | None = None,
                          edge_margin: float | None = None, k_batch="default", ns=None,
@@ -645,7 +645,10 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         control_variate: subtract from each random sample the same trace in the
             span of the low-pass-filtered atomic orbitals and add back its exact
             value (:func:`variate_block`): unbiased, with the noise of the
-            transitions inside that span removed. Stochastic trace only.
+            transitions inside that span removed. ``"auto"`` (default) uses it for
+            random vectors when the datasets carry orbitals
+            (:func:`~defuqumat.kpm.control.resolve_variate`); ``True`` raises with
+            the exact trace.
         filter_degree, filter_cut: the low-pass filter, degree 16
             (:data:`FILTER_DEGREE_SIGMA`) and a cut at ``E_F + max(1, window + 0.4)``
             Ry when not given.
@@ -721,7 +724,9 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
                                         float(calculation.nelec), emin, centre + half,
                                         delta_e)
     levels = channel_levels(fermi_energy, len(hamiltonians))
-    if control_variate:
+    from defuqumat.kpm.control import resolve_variate
+
+    if resolve_variate(control_variate, trace, calculation):
         if trace != "stochastic":
             raise ValueError("control_variate reduces the noise of random vectors; the exact "
                              "trace has none")

@@ -216,7 +216,7 @@ calc = Calculator.from_keywords(
     pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
     ecut=217.7, kmesh=(6, 6, 6), kshift=(1, 1, 1))
 top = calc.get_scf().homo
-kpm = calc.get_kpm_dos(broadening=0.01, n_random=16)
+kpm = calc.get_kpm_dos(broadening=0.01, n_random=16, control_variate=False)
 
 print(f"{kpm.n_moments} moments on [{kpm.centre - kpm.half_width:.2f}, "
       f"{kpm.centre + kpm.half_width:.2f}] Ry")
@@ -229,7 +229,9 @@ print(f"{kpm.count_at(top + 0.02):.2f} +- {kpm.count_error_at(top + 0.02):.2f} "
 7.89 +- 0.15 states below the gap
 ```
 
-The count is 8, the four valence bands with their spin, within its error. With
+Here we switch off `control_variate`, which is on by default and which we see below,
+to show the plain random trace. The count is 8, the four valence bands with their
+spin, within its error. With
 an `ecut` of 16 Ry the interval reaches 16 Ry, so we need 1610 moments for a
 broadening of 0.01 Ry. The
 keywords of `get_kpm_dos` are:
@@ -292,7 +294,8 @@ faster, with 64 and more atoms the KPM is faster, and the gain grows with the ce
 
 **Less noise from the atomic orbitals.** Near the Fermi level the states live
 mostly on the atomic orbitals and on the part of them that leaks between the atoms.
-With `control_variate=True`, the code filters the atomic orbitals with a Chebyshev
+With `control_variate=True`, the default when the pseudopotential files carry atomic
+orbitals and the trace is random, the code filters the atomic orbitals with a Chebyshev
 polynomial of $H$ that keeps their part below $E_F + 1$ Ry (`filter_cut`, of degree
 `filter_degree = 8`), and solves $H$ in that small space. This gives approximate
 eigenstates $|y_j\rangle$ with energies $\theta_j$. For each random vector it
@@ -495,7 +498,9 @@ diagonalize.
     gives an error otherwise. `spin_resolved=True` needs a noncollinear run.
     `control_variate=True` needs random vectors (it gives an error with
     `trace="exact"`), and it needs atomic orbitals in the pseudopotential files.
-    It does not change `spin_dos`, which keeps the noise of the plain trace.
+    The default, `control_variate="auto"`, uses it only then, and without atomic
+    orbitals it warns and uses the plain trace. It does not change `spin_dos`,
+    which keeps the noise of the plain trace.
 
 The notebooks for this page are
 [06, the density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/06_density_of_states.ipynb),

@@ -24,7 +24,7 @@ si = Calculator.from_keywords(
     pseudos={'Si': 'Si.pz-vbc.UPF'}, pseudo_dir='../tests/data/pseudo',
     ecut=163.3, kmesh=(4, 4, 4))
 scf = si.get_scf()
-kpm = si.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6)
+kpm = si.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6, control_variate=False)
 print(f'{kpm.n_moments} moments, interval {kpm.centre - kpm.half_width:.2f} to {kpm.centre + kpm.half_width:.2f} Ry')
 ```
 
