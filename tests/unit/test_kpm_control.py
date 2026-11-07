@@ -64,16 +64,25 @@ def test_the_variate_cuts_the_noise_in_the_valence_band():
 
 
 def test_the_variate_is_unbiased():
-    """Over 16 seeds the mean DOS equals the exact one within four standard errors of the mean."""
+    """Over 16 seeds the mean error against the exact DOS is zero within 4.5 standard errors.
+
+    **Each run against its own reference.** The seed also starts the Lanczos run
+    of the interval, so the half width, and with it the kernel's width, differs
+    from run to run (8e-4 Ry here); at filter degree 16 the variate is precise
+    enough (1e-4 at the band bottom) that one reference for all runs read as a
+    bias of 6e-4, at 5.9 standard errors, which a run's own reference removes
+    (2.7 at 48 seeds).
+    """
     calc, result, hamiltonians = _silicon()
-    runs = np.stack([calc.get_kpm_dos(broadening=BROADENING, n_random=2, seed=s,
-                                      control_variate=True).dos for s in range(16)])
-    reference = _reference(calc, hamiltonians,
-                           calc.get_kpm_dos(broadening=BROADENING, n_random=2, seed=0,
-                                             control_variate=False))
-    mean, spread = runs.mean(axis=0), runs.std(axis=0, ddof=1) / np.sqrt(len(runs))
-    window = spread > 1e-6 * reference.max()
-    assert np.max(np.abs(mean - reference)[window] / spread[window]) < 4.5
+    errors = []
+    for seed in range(16):
+        dos = calc.get_kpm_dos(broadening=BROADENING, n_random=2, seed=seed,
+                               control_variate=True)
+        errors.append(dos.dos - _reference(calc, hamiltonians, dos))
+    errors = np.stack(errors)
+    mean, spread = errors.mean(axis=0), errors.std(axis=0, ddof=1) / np.sqrt(len(errors))
+    window = spread > 1e-9
+    assert np.max(np.abs(mean)[window] / spread[window]) < 4.5
 
 
 def test_the_exact_trace_refuses_the_variate():
