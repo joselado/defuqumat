@@ -374,20 +374,20 @@ def test_the_full_operator_is_hermitian_and_covariant_and_the_bare_one_is_not(gr
 
 
 def test_the_field_along_minus_a3_is_the_time_reversed_operator(graphene, potential):
-    # H(-B, -k) = conj H(B, k) holds on the grid when no row's window centre is ambiguous: an
-    # odd box, and no centre -(p xi1 + kappa2) (coarse xi1 rows), p xi2 - kappa1 (coarse and
-    # fine xi2 rows) within the tie offset of a half-integer. At (0.37, 0.29) and (0.31, 0.23)
-    # a coarse row sits 0.01 from one, its -B window is shifted by one frequency, and the
-    # matrices differ by 0.16 and 0.09 of their largest entry (plans/orbital-field/route-p.md).
+    # H(-B, -k) = conj H(B, k) holds on the grid only where every row's frequency window is
+    # mirror-symmetric: an odd magnetic box (q n1, n2, n3 all odd; an even axis has its
+    # half-open Nyquist slot) and no window centre -(p xi1 + kappa2), p xi2 - kappa1 within
+    # the tie offset of a half-integer. On the 10 x 5 x 9 box of q = 2 the matrices differ by
+    # 0.09 of their largest entry at this kappa and on 4 x 4 x 8 by 0.34 (M/tr2.log); here q = 1.
     kappa = (1.0 / 48.0, 0.25, 0.0)
-    plus = _full(graphene, potential, 1, 2, [kappa])
-    minus = _full(graphene, potential, -1, 2, [[-x for x in kappa]])
+    plus = _full(graphene, potential, 1, 1, [kappa])
+    minus = _full(graphene, potential, -1, 1, [[-x for x in kappa]])
     hp, hm = dense_matrix(plus, 0, chunk=32), dense_matrix(minus, 0, chunk=32)
     assert np.max(np.abs(hp - hm.conj())) < 1e-12 * np.max(np.abs(hp))
     a, b = np.linalg.eigvalsh(hp), np.linalg.eigvalsh(hm)
     assert np.max(np.abs(a - b)) < 1e-10 * np.max(np.abs(a))
     # while the opposite field at the same k is another operator
-    (c,) = _spectra(_full(graphene, potential, -1, 2, [kappa]))
+    (c,) = _spectra(_full(graphene, potential, -1, 1, [kappa]))
     assert np.max(np.abs(a - c)) > 1e-6
     cell = blochgrid.magnetic_cell(graphene.system.cell, -1, 2)
     assert float(cell.scale) == -1.0 and float(cell.b_ph) < 0
