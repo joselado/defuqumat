@@ -98,9 +98,9 @@ E_F + 2 eV" counts every band below `E_F + 2` eV, as Vitale's `eta_2` does, and 
 
 | set | log | `eta_2` (band n against n) | max over bands below E_F + 2 eV | max within E_F +- 2 eV |
 |---|---|---|---|---|
-| `auto`, 8 functions, 100 steps (unconverged) | `L/graphene2.log` | 75.6 meV | 284 meV | (not printed) |
+| `auto`, 8 functions, 100 steps (unconverged) | `L/graphene.log`, `L/graphene2.log` | 75.6 meV | 284 meV | (not printed) |
 | `auto`, 8 functions, 1000 steps (converged) | `L/graphene-auto1000.log` | 116.8 meV | 800 meV | 3.86 meV |
-| `C:pz`, 8 bands, frozen below E_F + 2 | `L/graphene.log` of the first attempt | refused: more frozen states than `num_wann` | | |
+| `C:pz`, 8 bands, frozen below E_F + 2 | `L/graphene2.log` | refused: more frozen states than `num_wann` | | |
 | `C:pz`, 8 bands, frozen E_F +- 2 | `L/graphene-pz.log` | | 82 meV | 82 meV |
 | `C:pz`, 16 bands, frozen E_F +- 2, 100 steps | `L/graphene-pz16.log` | | 622 meV | 22.3 meV |
 | `C:pz`, 16 bands, frozen E_F +- 3, 1000 steps | `L/graphene-pz16b.log` | | 500 meV | 11.4 meV (within +- 3) |
@@ -223,7 +223,22 @@ option, as rule 9 asks.
   decision that the criterion is the window about `E_F`.
 - Grid projectors with the GIPAW phase (if-time a), and its silicon acceptance.
 - A traced build of the `PeierlsOperator` blocks, for `d/dB` through the operator.
-- `Calculator.get_landau_levels` (the Record stage).
+- `Calculator.get_landau_levels` (the Record stage). **It must call
+  `conventions.refuse_regime(system, pseudos, "Landau levels")`**: `run_landau_levels` sees only
+  the Wannier set, which carries `spin` (refused by `bonds_from_wannier`) but neither the system
+  nor the datasets, so ultrasoft, PAW, DFT+U, meta-GGA and gamma-only storage are not refused
+  inside the workflow. A spinor set never reaches it: `run_wannier` refuses `npol = 2` and a
+  spiral by name (`workflows/wannier.py:341`).
+- For `docs/d22-notes.local.md` (the Record stage; this step does not edit `docs/`): D22 has no
+  QE source tree, so `test_qeref.py::test_scf_silicon`, one test of `test_operator.py` and one
+  of `test_units.py` skip there; `scf.in`, its committed benchmark and `constants.f90` copied to
+  `/l/ladovj1/review/mag/foundation/qe-ref/` with `DEFUQUMAT_QE_ROOT` pointed there make them run
+  (9 passed, `L/t-qe.log`). `L/big-auto.sh` is the runner under `big.lock` for the 63200-row
+  solve (45 s, under 14 GB). Two slot jobs that write the same `npz` path at once race; the shared
+  `graphene-scf.npz` was checked afterwards (8.000 electrons, the same total energy).
+- D22 worktrees: `/l/ladovj1/w-mag-foundation` (detached at d79308f8; the later commits add only
+  files under `plans/`) and `/l/ladovj1/w-mag-foundation-base` (58536447, the pre-hook baseline of
+  item 7, removable).
 
 ## Slow files a reader may want to run (not run here)
 
