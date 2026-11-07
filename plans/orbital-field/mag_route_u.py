@@ -38,7 +38,7 @@ ap.add_argument("--conv", type=float, default=1e-10)
 ap.add_argument("--scf", default="plans/orbital-field/graphene-scf.npz")
 ap.add_argument("--out", default=None)
 ap.add_argument("--window", default=None)
-ap.add_argument("--N1list", default=None)
+ap.add_argument("--scale", type=float, default=1.0)
 args = ap.parse_args()
 
 calc = Calculator.from_keywords(
@@ -63,7 +63,7 @@ for nbnd in [int(x) for x in args.nbnd.split(",")]:
     t0 = time.perf_counter()
     r = run_magnetic_ultracell(calc.system, calc.pseudos, scf, flux=(args.p, args.q), nbnd=nbnd,
                                N1=args.N1, kmesh=kmesh, local_only=True, free=free, w=args.w,
-                               h0=args.h0, conv_thr=args.conv, strict=False,
+                               h0=args.h0, conv_thr=args.conv, strict=False, scale=args.scale,
                                window=None if args.window is None else
                                tuple(float(x) for x in args.window.split(",")))
     wall = time.perf_counter() - t0

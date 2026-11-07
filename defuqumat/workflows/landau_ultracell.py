@@ -132,6 +132,7 @@ def run_magnetic_ultracell(
     conv_thr: float = 1.0e-10,
     k_batch="default",
     window=None,
+    scale=1.0,
     strict: bool = True,
     keep_blocks: bool = False,
 ) -> MagneticUltracellResult:
@@ -160,6 +161,9 @@ def run_magnetic_ultracell(
         window: ``(inner, outer)`` in cells, the smooth window every basis function is
             multiplied by (:func:`~defuqumat.magnetic.ultracell_field.smooth_window`);
             needs ``h0 = "box"`` and fixes ``w``. ``None``: the bare hybrid states.
+        scale: a factor on the vector potential in the Hamiltonian only (traced, for
+            ``d/dB`` at fixed ``p/q``); the basis keeps the momentum shifts of ``p/q``, so
+            ``scale = -1`` is the field reversed against its basis, a control.
         strict: refuse (raise) when the assembled ``H`` is not Hermitian to 1e-8, and on
             the free problem when ``S`` drops a direction; ``False`` records and goes on.
     """
@@ -226,7 +230,7 @@ def run_magnetic_ultracell(
     potential = np.asarray(hamiltonians[0].potential) if h0 == "box" else None
     ultra = MagneticUltracell.build(cell, (p, q), hybrids, kappas, hamiltonians[0].grid,
                                     nbnd=int(nbnd), n1=N1, potential=potential, h0=h0,
-                                    window=window, w=w)
+                                    window=window, w=w, scale=scale)
     t0 = time.perf_counter()
     w_measured, weights, widths = ultra.spread(spread_tol)
     timings["spread_s"] = time.perf_counter() - t0
