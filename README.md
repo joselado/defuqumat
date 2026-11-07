@@ -464,6 +464,20 @@ how well a Heisenberg model describes the energy surface.
   zero is the error bar of the calculation.
   `calc.get_magnon_dispersion(qpoints, frequencies)`, notebook
   [38](notebooks/38_magnons.ipynb).
+- **Landau levels in a uniform orbital magnetic field**. A field along $\mathbf a_3$
+  quantizes the orbits of the electrons. At a flux $p/q$ per cell the crystal has a
+  magnetic cell of $q$ cells, and one flux quantum through the graphene cell is
+  78912 T. At laboratory fields the code puts the field on the hoppings of the
+  Wannier functions (Peierls substitution). For graphene at 10 T the first level is
+  within 0.2 per cent of the Dirac formula, and the two zero modes sit at $E_D$.
+  `calc.get_landau_levels(B=10.0)`, notebook
+  [63](notebooks/63_landau_levels.ipynb). At very high fields the code solves the
+  plane-wave problem in the magnetic cell itself, with the projectors dressed by the
+  field, as Lu et al. do (PRL 135, 196401 (2025)). This gives the Hofstadter bands,
+  the Chern number of each Landau band, and the orbital magnetizability of an
+  insulator by finite differences in the field: $-11.40\times10^{-6}$ cm³/mol per C₂
+  for diamond, against Lu's $-11.16$. `calc.get_magnetic_bands(flux=(p, q))` and
+  `calc.get_magnetizability()`.
 
 You give a magnetic texture one atom at a time, with `calc.with_moments()` or
 with the `STARTING_MOMENTS` card. You need this for a helix, a cycloid or a Néel
@@ -810,6 +824,7 @@ task of the other code that it refers to.
 | **Easy orientation of a magnetic texture**, relaxed | `calc.get_relaxed_orientation(spinor)`, `calc.get_orientation_torque(spinor)` | (✓)⁸ | (✓)⁷ |
 | **Source-free exchange-correlation field**, and its torque | `calc.get_exchange_torque()` | | ✓ |
 | **Magnons** and the transverse spin susceptibility | `calc.get_magnon_dispersion(qpoints, frequencies)`, `calc.get_spin_susceptibility(q, frequencies)` | (✓)⁹ | ✓ |
+| **Landau levels and Hofstadter bands in a uniform orbital magnetic field**, the magnetic Chern numbers and the orbital magnetizability | `calc.get_landau_levels(B)`, `calc.get_magnetic_bands(flux=(p, q))`, `calc.get_magnetizability()` | | |
 | **Dielectric constant** and **Born effective charges** | `calc.get_dielectric_tensor()`, `calc.get_born_charges()` | ✓ | ✓ |
 | **Phonons at $\Gamma$** | `calc.get_phonons()` | ✓ | ✓ |
 | **Phonons at $\mathbf q \neq 0$** | `calc.get_phonons_at_q(q)` | ✓ | ✓ |

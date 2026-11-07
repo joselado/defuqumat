@@ -636,6 +636,7 @@ def davidson_eigensolver(
     kinetic = hamiltonian.state_kinetic[ik]
     diagonal = hamiltonian.diagonal(ik)
     s_diagonal = hamiltonian.overlap_diagonal(ik)
+    precondition = getattr(hamiltonian, "precondition", None)
     dtype = hamiltonian.dtype
 
     start = starting_vectors(psi0, nbnd, ndim, kinetic, mask, dtype)
@@ -842,7 +843,16 @@ def davidson_eigensolver(
         else:
             sevc = evc
         residual = hevc - energies[:, None].astype(dtype) * sevc
-        correction = _precondition(residual, diagonal, s_diagonal, energies)
+        # The operator's own preconditioner when it has one (a state that is not a
+        # G-sphere vector, the magnetic Bloch grid of the orbital-field route, needs
+        # its own); ``Hamiltonian`` and ``SpinorHamiltonian`` hand back exactly the
+        # call below, with the diagonals hoisted above (``twice``'d under
+        # half-sphere storage), so their programs are unchanged.
+        if precondition is None:
+            correction = _precondition(residual, diagonal, s_diagonal, energies)
+        else:
+            correction = precondition(residual, energies, ik, diagonal=diagonal,
+                                      overlap_diagonal=s_diagonal)
         correction = jnp.where(mask, correction, 0.0)
         if gamma_only:
             # ``regterg.f90:375`` and ``:360-361``: ``Im psi(1) = 0`` -- the

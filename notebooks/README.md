@@ -75,6 +75,7 @@ instead, which means the physics is selected in the input file rather than at th
 | Which way a spiral turns, and which plane it turns in: its Dzyaloshinskii-Moriya energy, spin-orbit coupling to first order on the spiral in its own cell | `get_spiral_spin_orbit_energy()` | [48](48_spiral_chirality.ipynb) |
 | Site-resolved `<L>`, `<S>` and `<J>` | `get_angular_momenta()` | [29](29_effective_mass_and_angular_momenta.ipynb) |
 | The cell's orbital magnetization | `get_orbital_magnetization()` | [39](39_orbital_magnetization.ipynb) |
+| Landau levels in a uniform magnetic field: graphene at 10 T against the Dirac formula, and the exact plane-wave route at very high field | `get_landau_levels()`, `get_magnetic_bands()` | [63](63_landau_levels.ipynb) |
 | A spin-polarized STM image, one atom's moment at a time | `get_stm(spin=...)` | [40](40_stm_images.ipynb) |
 | What gets *through* a 2D sheet rather than what its surface looks like | `get_vertical_transport()` | [41](41_vertical_transport.ipynb) |
 | The standing waves around one impurity, and how a tunnelling tip weights them (QPI) | `get_qpi()` | [55](55_quasiparticle_interference.ipynb) |
@@ -319,6 +320,12 @@ helix under both gradient corrections, the first taking 119 iterations.
 | `00` | 22 | `23` | 35 | `39` | 151 | `49` | 194 |
 | `07` | 22 | `32` | 84 | `41` | 110 | `51` | 290 |
 | `46` | 61 | `47` | 260 | `48` | 121 | `50` | 509 |
+
+`63` reads **124 s** on 2026-11-07, its first measurement, on one core of D22 (slot CPU 6,
+`OMP_NUM_THREADS=1`, CPU only, load about 6 to 12 from other jobs, the compiled code partly
+cached): the graphene SCF on 12x12, the two-function `p_z` Wannier set (16 bands, 1000
+iterations), the Landau levels at 10 T on 15782 rows, and the free Landau problem on the
+plane-wave magnetic cell at 1/10 (ndim 92160, one k-point).
 
 `59` reads **34 s** on 2026-11-05, its first measurement, on one core of the GPU workstation
 D22 (an i5-12600K performance thread, `OMP_NUM_THREADS=1`, CPU only) with the compiled code

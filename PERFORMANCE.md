@@ -11662,3 +11662,70 @@ complex, 46.3 MiB, the same size as `U`, and `nk nkb^2` for `F`; at `nspin = 2` 
 share `U` and `M^(-1/2) - 1` (they were two equal copies before), so the total is
 `(1 + nspin) nk npwx nkb` against `nspin nk npwx nkb` before. `symmetrized(..., fold=False)` gives the
 unfolded form and its one table.
+
+## A uniform orbital magnetic field: Peierls, the plane-wave magnetic Bloch route, the ultracell (CPU, D22, 2026-11-07)
+
+**No reference binary computes the field itself.** `pw.x` and Elk have no uniform orbital field
+(`PLAN.md` P175: the greps of `PW/src` and of Elk's `src` return nothing that puts `B` on the
+orbital motion), and pyqula, the plan's reference for the Peierls ribbon, is not installed on D22.
+So each route is timed against what is nearest to it: route P against `pw.x` on the same supercell
+at zero field (the cost of the field), the Peierls torus against the ribbon of the same code at the
+same `B` (the cost of the geometry), and the KPM DOS on the Peierls apply against the shift-invert of
+the same matrix. One core of D22 each (an i5-12600K thread), the load average beside each pair; logs
+in `/l/ladovj1/review/mag/record/` (`R/`) and `/l/ladovj1/review/mag/{foundation,u2,p2}/`.
+
+**(1) Route P's SCF at `p/q = 1/6` on graphene against `pw.x` at zero field on the 6x1x1 supercell.**
+The same cell (12 atoms, `C.pbe-hgh`, 50 Ry, mv 0.01 Ry, `c = 15` A), the same 2 x 12 x 1 mesh of the
+magnetic zone, `conv_thr = 1e-8`. Route P (`R/time-routep.log`, slot 0, CPU 4, load 3.6 at the start
+and 12 to 13 for most of it): the second call in one process, so no compilation, **524.7 s**, 7
+iterations from the converged zero-field density (the first call 564.5 s; the Davidson step counts of
+the two calls are equal, `[108, 90, 83, 104]` in the first iteration and 1 to 34 after). It solves the
+4 representatives, not the 24 points (the fold); ndim 55296, 32 + 4 bands, peak RSS 1.93 GB. 360 s of
+the 525 is the first iteration, whose Davidson starts from random blocks (83 to 108 steps per
+representative); the other six take 9 to 82 s. `pw.x` 7.5 serial (`R/pwx.log`, slot 1, CPU 6, load 6
+to 13, from atomic densities and its default start): **82.9 s** with its symmetry (11
+k-points, 10 iterations, -135.98890381 Ry, which is -22.6648173 Ry per two-atom cell against our
+sphere SCF's -22.6648208) and **167.5 s** with `nosym` and `noinv` (24 k-points, 10 iterations), the
+like-for-like count of solves since the field leaves no point group. So the field costs **3.1 times the
+nosym zero-field run** (6.3 times the symmetric one), at 6 times fewer k-points solved and on a box
+that holds 2.9 times the sphere's plane waves; per solve and iteration route P is 18.7 s against
+`pw.x`'s 0.70 s. The two runs do not start from the same place (a converged density against an
+atomic one), so this is the cost of a field run as it is used, not an iteration-for-iteration pair. At
+`q = 10` the same SCF took 1631 s (first call, 1027 s of it the first iteration, peak 2.87 GB,
+`P2/fold10.log`).
+
+**(2) The Peierls torus at 10 T against the ribbon, same code, same `B`** (the 8-function Wannier set,
+hopping cutoff 1e-6 Ry, 10294 bonds per cell, flux 1/7900, 9.989 T, 30 levels nearest `E_D` by
+shift-invert). The torus, dimension 63200 (`R/peierls-time.log`, big job on CPU 0 alone, load 1.5 to
+3.6): first call 44.27 s, **second 40.41 s** (matrix build 23.35 s, shift-invert 16.73 s), peak RSS 8.79
+GB. The ribbon of 165 cells (`5 l_B`), dimension 1320 (`R/ribbon-time.log`, slot 1, CPU 6, load about
+12): **3.56 to 4.83 s** over eight calls at four `kappa2`, most of it the shift-invert (3.05 to 4.10 s).
+So the ribbon is about 10 times cheaper at 48 times fewer rows, and **it is not the same answer at
+5 `l_B`**: at its middle `n = +-1` reads +99.9 / -100.06 meV against the torus's +96.08 / -96.36, and the
+zero pair splits to about +-9 meV. At 10 `l_B` (330 cells, the facade's default width) the `p_z` set's
+ribbon gives `n = +-1, +-2` equal to the torus to 0.01 meV (`R/snippets2.log`). Graphene at 10 T on the
+`p_z` set through the facade, dimension 15782: notebook 63 executes in 124 s in all (SCF, Wannier,
+levels, the free problem).
+
+**(3) Route U at `q = 100`: not run.** The route is refused at its Hermiticity guard (`PLAN.md` P176),
+and the pair would take about 30 minutes and 6 GB under `big.lock`. What is measured (u2, cold
+processes, so compilation included; load 8 to 14) is linear in `q` at fixed nbnd 8: the NSCF of the
+zero-field k-points 68.1 / 150.1 / 285.0 s (200 / 500 / 1000 k-points), the block build 126.1 / 300.3 /
+619.9 s, the dense solve 0.04 / 0.33 / 2.76 s, peak RSS 2.6 / 3.2 / 4.2 GB at `q = 10 / 25 / 50`
+(`U2/q10-full.log`, `q25-full.log`, `q50-full.log`). The NSCF is a third of the time and the block
+build two thirds; the solve does not count until the dimension is in the thousands.
+
+**(4) The KPM DOS on the Peierls apply against the shift-invert** (the NN model, `q = 7900`, dimension
+15800, `foundation/kpm.log`, slot 1, CPU 6, a probe, first call): 1286 moments (20 meV), 100 random-phase
+vectors, **52.3 s**, against **2.69 s** for the 50 shift-invert levels of the window, relative L2
+difference 4.8 per cent (the stochastic trace's noise). At this size the shift-invert wins by 19 times;
+the KPM's cost does not grow with the number of levels in the window, so it pays only where the window
+holds thousands of levels. Not exposed as a `get_*`.
+
+**Memory.** Route P: `estimate_bytes(q, nbnd + 4, david, grid, kept, fine_grid)` is the Davidson
+blocks of one k-point at `ndim = 9216 q` (graphene, 50 Ry) and the two-grid buffers, checked before
+the run; the peak RSS is 1.0 to 1.2 GB above it (the process and its compiled programs): `q = 6` 0.565
+GB estimated and 2.19 GB peak for the SCF, `q = 10` 1.34 and 2.87, `q = 20` estimated 4.68 GB, `q = 30`
+10.0 GB. The k loop is QE's, one k-point at a time (`indices=[ik]`), not `map_k`, chosen for memory.
+The Peierls torus: the CSR matrix and its LU, 8.8 GB at dimension 63200 with 10294 bonds per cell, so a
+big job; the `p_z` set at 15782 fits a slot.

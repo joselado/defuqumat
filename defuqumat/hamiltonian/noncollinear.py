@@ -488,6 +488,20 @@ class SpinorHamiltonian(eqx.Module):
             [jnp.where(self.mask[row], b, 0.0) for row, b in zip(rows, blocks)]
         )
 
+    def precondition(self, residual, energies, ik: int, diagonal=None, overlap_diagonal=None):
+        """``g_psi.f90`` on a spinor ``residual``, the hook the Davidson solver calls.
+
+        The same rule as :meth:`~defuqumat.hamiltonian.operator.Hamiltonian.precondition`
+        on the ``(2 npwx,)`` diagonals; the solver passes the ones it hoisted.
+        """
+        from defuqumat.solvers.davidson import _precondition
+
+        if diagonal is None:
+            diagonal = self.diagonal(ik)
+        if overlap_diagonal is None:
+            overlap_diagonal = self.overlap_diagonal(ik)
+        return _precondition(residual, diagonal, overlap_diagonal, energies)
+
     def overlap_diagonal(self, ik: int) -> jnp.ndarray:
         """``<k+G a|S|k+G a>``, ``s_diag`` in ``usnldiag_nc``."""
         if not self.has_overlap:

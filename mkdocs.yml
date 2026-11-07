@@ -72,6 +72,7 @@ nav:
       - Magnetic anisotropy: anisotropy.md
       - Spin spirals: spirals.md
       - Magnons: magnons.md
+      - Landau levels in a magnetic field: magnetic-field.md
       - DFT+U: dft-plus-u.md
   - Response and spectra:
       - Dielectric constant, Born charges and phonons: phonons.md
