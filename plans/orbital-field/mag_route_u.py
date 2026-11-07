@@ -74,7 +74,7 @@ for nbnd in [int(x) for x in args.nbnd.split(",")]:
     print("timings:", json.dumps({k: round(v, 2) for k, v in r.timings.items()}), "davidson:", r.davidson)
     print("rank", r.rank.tolist(), "of", args.q * nbnd, " d_min", np.array2string(r.d_min, precision=3),
           " d_all", np.array2string(r.d_all, precision=3))
-    print("hermiticity", np.array2string(r.hermiticity, precision=3))
+    print("hermiticity", " ".join(f"{x:.3e}" for x in r.hermiticity))
     print("centres (cells) min/max", float(r.centres.min()), float(r.centres.max()))
     nl = min(args.nlev, r.levels.shape[1])
     for ik, kap in enumerate(r.kappa):
