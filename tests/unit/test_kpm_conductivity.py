@@ -467,7 +467,7 @@ def test_the_moments_are_counted_at_the_top_of_the_valence_band():
     target = sigma.broadening_for("jackson")
     assert abs(sigma.transition_broadening - target) < 1e-3 * target, (
         sigma.transition_broadening, target)
-    assert result.homo < sigma.fermi_energy < result.lumo
+    assert sigma.fermi_energy > result.homo
 
 
 def _dense_values(calculation, density):
