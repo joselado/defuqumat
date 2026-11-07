@@ -87,7 +87,7 @@ At zero field the same box and the kinetic rule settle local-only graphene in 22
 `p/q = 1/1` in 164 (two-gauge 93, `L/pre-g1-d4.log`; both at the fixed window and the filtered
 local term). So it is the field, not the box, that slows the solve.
 
-**2. Hermiticity and the dense check** (`L/herm2.log`, final code). Random `v`, `w`, `kappa =
+**2. Hermiticity and the dense check** (`L/herm2.log`, 5f414272, the final operator). Random `v`, `w`, `kappa =
 (0.37, 0.29)` (both wraps active): `|<v|Hw> - <Hv|w>|` relative to `|<v|Hw>|` is **5.0e-15**
 (two-grid) and 9.2e-15 (filtered) at `q = 10` on the full box (ndim 92160), 6.0e-16 at `q = 2` on
 4 x 4 x 8 per cell; relative to `|v||Hw|` 1.3e-17 and 2.8e-17. The operator built by application
@@ -99,7 +99,8 @@ the dense potential: within 1e-12 of the largest entry (unit test). The three mo
 analytic derivatives of a smooth function obeying the twist, `p = 1, 2`: within 1e-10 (unit test).
 
 **3. a = 0, q = 1, graphene local-only, the lowest 8 levels at k = 0, box against the sphere
-Davidson of the same Hamiltonian with `D_ij` zeroed** (`L/sphere-50-tg.log`, `L/sphere-70-tg.log`,
+Davidson of the same Hamiltonian with `D_ij` zeroed**, the two-grid rows at 5f414272, the filtered
+ones at bb2182c9 (`L/sphere-50-tg.log`, `L/sphere-70-tg.log`,
 `L/sphere-50.log`, `L/sphere-70.log`). The expected `< 5e-3` Ry was **not reached** by either form
 of the local term; the difference falls with the cutoff, as the design asks:
 
@@ -123,7 +124,8 @@ parallelepiped in crystal coordinates with an asymmetric Nyquist slot, so it bre
 group at its corner plane waves; that is a limit of the route, under "What is left".
 
 **4. The strong translational symmetry**, graphene local-only, `p/q = 1/3`, kmesh (2, 6), `nbnd =
-20`, final operator, `residual_threshold = 1e-9` (`L/strong-tg.log`): spectra at `kappa2` and
+20`, the final operator (5f414272: two-grid, centred; before the buffer bands, which change the
+solver and not the operator), `residual_threshold = 1e-9` (`L/strong-tg.log`): spectra at `kappa2` and
 `kappa2 - 1/3` equal within **5.1e-12 Ry** over the mesh; the density of the 12 occupied bands
 (a fixed `mu = -0.487` Ry in the gap of at least 0.083 Ry, weights by an erfc of width 0.01 Ry so
 that no multiplet is cut) folded onto the chemical cell, spread over the three copies **4.0e-12**
@@ -135,27 +137,39 @@ the spectra at the two kappa differ by **6.5e-3 Ry** and the density spread is 2
 alternative reads differently, so the centred window is what makes the theorem exact on the grid.
 
 **5. Graphene local-only at `q = 1, 2, 3, 4, 6`**, kmesh (2, 2q), `nbnd = 4q + 8`, final operator
-(`L/local-tg-q{1,2,3,4,6}.log`): the sorted set over the full mesh against `q` copies of the set at
-the representatives `kappa2 in {0, 1/(2q)}`:
+with the four buffer bands (`L/local-f-q{1,2,3,4,6}.log`, npz in `L/f/`, copied to
+`plans/orbital-field/`): the sorted set over the full mesh against `q` copies of the set at the
+representatives `kappa2 in {0, 1/(2q)}`, all within the design's 1e-9 Ry:
 
 | q | ndim | nk | full mesh against q copies | Davidson steps per k | memory estimate | peak RSS | solve |
 |---|---|---|---|---|---|---|---|
-| 1 | 9216 | 4 | 0.0 | 80 to 90 | 0.027 GB | 1.04 GB | 13 s |
-| 2 | 18432 | 8 | 6.2e-12 Ry | 134 to 187 | 0.070 GB | 1.11 GB | 85 s |
-| 3 | 27648 | 12 | 1.0e-12 Ry | 120 to 145 | 0.128 GB | 1.19 GB | 206 s |
-| 4 | 36864 | 16 | 8.1e-10 Ry | 85 to 148 | 0.201 GB | 1.28 GB | 495 s |
-| 6 | 55296 | 24 | Q6 | Q6S | Q6M | Q6R | Q6T |
+| 1 | 9216 | 4 | 0.0 | 60 to 69 | 0.035 GB | 1.05 GB | 18 s |
+| 2 | 18432 | 8 | 9.0e-13 Ry | 64 to 70 | 0.085 GB | 1.13 GB | 81 s |
+| 3 | 27648 | 12 | 6.7e-13 Ry | 69 to 81 | 0.150 GB | 1.25 GB | 227 s |
+| 4 | 36864 | 16 | 1.1e-12 Ry | 55 to 64 | 0.231 GB | 1.35 GB | 455 s |
+| 6 | 55296 | 24 | 3.5e-12 Ry | 72 to 107 | 0.438 GB | 1.63 GB | 2149 s (89 s a k-point) |
 
-At `q = 4` the 8.1e-10 Ry sits in the topmost band of the block (band 23) at `kappa1 = 0`, the
-slowest band to settle; every other band agrees within 3.4e-12 Ry, so it is the eigenvalue test
-on the last band of the block, not the symmetry (the load average was 7 to 10 during that run).
+Before the buffer bands (`L/local-tg-q{1,2,3,4}.log`) the same runs read 0.0, 6.2e-12, 1.0e-12 and
+**8.1e-10** Ry with 80 to 187 steps, and `q = 6` was refused (1 of 32 bands unsettled after 200
+steps at k-point 0, `L/local-tg-q6.log`); the 8.1e-10 sat in the topmost band of the block (band
+23) at `kappa1 = 0` while every other band agreed within 3.4e-12. The buffer takes that band off
+the returned set and halves the steps. The level sets of `q = 1` and `q = 4` are the same to the
+printed digits with and without it. Load average 7 to 14 from other users during the `q = 4` and
+`q = 6` runs.
 With the filtered local term (`L/local-q{1,2,3,4}.log`, the `-filtered` npz files): 0.0, 9.7e-12,
 8.7e-12, 6.9e-11 Ry, solves of 9, 47, 147 and 279 s. The two-grid term costs 1.40 times the
-filtered one at `q = 3` (206 s against 147 s, with 120 to 145 steps against 125 to 157).
+filtered one at `q = 3` without the buffer (206 s against 147 s, with 120 to 145 steps against
+125 to 157).
 
-**6. q = 10, 20, 30**: not run. The q = 6 run is the largest that fitted this step's time. The
-measured per-k time above grows faster than `q` because the step count does (about 90 at `q =
-1`, 150 to 200 at `q >= 2`); what it would cost at `q = 30` is not measured here.
+The estimate counts Davidson's blocks at `nbnd + 4` bands, six box buffers and three dense-grid
+buffers per band in flight (the two-grid term: `3 q 24 x 24 x 128 x 16` B, 21 MB at `q = 6`,
+106 MB at `q = 30`, small beside the blocks); the peak RSS is 1.0 to 1.2 GB above it at every `q`,
+which is the process and its compiled programs, not the solve.
+
+**6. q = 10, 20, 30**: not run. The `q = 6` run (36 minutes on one core at a load of 9 to 14) is
+the largest that fitted this step's time; the time per k-point at `q = 1, 2, 3, 4, 6` is 4.6, 10,
+19, 28 and 89 s, and what it is at `q = 30` is not measured here. The free problem at `q = 10` is
+the largest box solved (ndim 92160, 39 s a k-point, item 1).
 
 ## Decisions taken here, and why
 
