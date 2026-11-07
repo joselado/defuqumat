@@ -28005,7 +28005,12 @@ At R = 1 `dos_error` is zero, since one sample has no spread; the error bar need
 **What is not understood.** On si16 the variate's error stops falling at about 1.5e-3 from R = 2 on
 (0.0019, 0.0013, 0.0018 at R = 2, 4, 8), where si64 keeps falling to 8e-4. The reference intervals
 are not the cause (the numbers are the same to four digits with each run's own interval). Not
-investigated further.
+investigated further. **Explained on 2026-11-07 (P169)**: the floor is the filter degree. At degree 8
+the valence Ritz values are off by up to 7e-5 Ry and the conduction ones by 0.0035 Ry (median, si16,
+`ritzq.py`); at 16 by 2e-6 and 1e-4. With degree 16, now the default (`FILTER_DEGREE`), the valence
+error at R = 1 is 0.0003 on si16 and on si64 (0.0039 and 0.0025 at degree 8), and from the gap to
+`E_VBM + 0.5` Ry 0.016 and 0.050 (0.148 and 0.133), at 0.59 s and 11.1 s against 0.45 s and 12.8 s
+(`dosdeg.py`, `dosdeg-*.log`, 4 seeds). The table above is at degree 8.
 
 **What is outstanding.** The variate on the PDOS's noise is moot (that trace is exact), but the
 stochastic unfolding and the spin-resolved trace could take it; a cheaper Ritz step (it is

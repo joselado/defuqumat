@@ -297,7 +297,7 @@ mostly on the atomic orbitals and on the part of them that leaks between the ato
 With `control_variate=True`, the default when the pseudopotential files carry atomic
 orbitals and the trace is random, the code filters the atomic orbitals with a Chebyshev
 polynomial of $H$ that keeps their part below $E_F + 1$ Ry (`filter_cut`, of degree
-`filter_degree = 8`), and solves $H$ in that small space. This gives approximate
+`filter_degree = 16`), and solves $H$ in that small space. This gives approximate
 eigenstates $|y_j\rangle$ with energies $\theta_j$. For each random vector it
 subtracts what these states predict, and adds back its exact average:
 
@@ -316,15 +316,19 @@ random vector:
 | 64 atoms | 32 to 85 s | 14 s, error 13% | 10.5 s, error 0.2% |
 | 128 atoms | 275 to 1449 s | 44 to 95 s, error about 10% | 123 s, error 0.2% |
 
-The times of the 128-atom cell were taken while the machine was heavily loaded, so
-they are a range. The error is the same rms difference from the bands as above,
-averaged over four seeds. With one random vector the code cannot estimate its own
+These numbers were taken with a filter of degree 8. The default is now 16, which
+gives better approximate eigenstates: with one random vector the error in the valence
+band falls to 0.03% on 16 and on 64 atoms, and from the gap to 0.5 Ry above the
+valence band it falls from 15% to 1.6% on 16 atoms and from 13% to 5% on 64 atoms, at
+about the same time. The times of the 128-atom cell were taken while the machine was
+heavily loaded, so they are a range. The error is the same rms difference from the
+bands as above, averaged over four seeds. With one random vector the code cannot estimate its own
 error, so `dos_error` is zero there. Ask for at least two vectors to get the error
 bar.
 
 So one random vector with the atomic orbitals is about 60 to 100 times more accurate
 than eight without them, at about the same cost, and faster than the bands already at
-16 atoms. The extra cost is nine applications of $H$ per atomic orbital and a small dense
+16 atoms. The extra cost is seventeen applications of $H$ per atomic orbital and a small dense
 diagonalization in their space, which grows like the bands do, so the gain is
 largest when you want an error of about one per cent.
 

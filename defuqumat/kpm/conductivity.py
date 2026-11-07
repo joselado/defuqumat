@@ -88,6 +88,7 @@ import numpy as np
 from jax import lax
 
 from defuqumat.batching import sum_k
+from defuqumat.kpm.control import FILTER_DEGREE
 from defuqumat.kpm.kernels import get_kernel
 from defuqumat.kpm.moments import live_mask, random_phases, unit_vectors
 
@@ -266,12 +267,12 @@ def conductivity_moments(hamiltonian, moving, tangents, centre, half, key, weigh
 
 # -- the control variate -------------------------------------------------------
 
-#: Degree of the low-pass filter for the conductivity's variate. Twice the DOS's
-#: (:data:`~defuqumat.kpm.control.FILTER_DEGREE`): the conduction states of the
+#: Degree of the low-pass filter for the conductivity's variate: the DOS's, 16
+#: (:data:`~defuqumat.kpm.control.FILTER_DEGREE`). The conduction states of the
 #: window need Ritz values well inside a delta width, which degree 8 misses by
-#: 0.0035 Ry (median) on si16 and degree 16 meets to 1e-4; the error of
-#: ``sigma_xx`` falls from 0.037 to 0.012 at R = 1 for 1.6 times the time.
-FILTER_DEGREE_SIGMA = 16
+#: 0.0035 Ry (median) on si16; the error of ``sigma_xx`` falls from 0.037 to 0.012
+#: at R = 1 for 1.6 times the time.
+FILTER_DEGREE_SIGMA = FILTER_DEGREE
 
 @functools.partial(jax.jit, static_argnames=("n_moments", "n_random"))
 def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre, half,

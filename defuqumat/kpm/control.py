@@ -49,8 +49,13 @@ from jax import lax
 
 from defuqumat.kpm.moments import live_mask, random_phases
 
-#: Degree of the Chebyshev low-pass filter.
-FILTER_DEGREE = 8
+#: Degree of the Chebyshev low-pass filter. 16 since 2026-11-07 (P169): at 8 the
+#: Ritz values above the gap were off by 0.0035 Ry (median, si16) and the valence
+#: by 7e-5, which set the floor P170 had recorded as not understood; at 16, 1e-4
+#: and 2e-6. Measured at R = 1, error of the DOS in the valence window 0.0039 ->
+#: 0.0003 (si16) and 0.0025 -> 0.0003 (si64), from the gap to E_VBM + 0.5 Ry
+#: 0.148 -> 0.016 and 0.133 -> 0.050, at 1.3x and 0.9x the time.
+FILTER_DEGREE = 16
 #: The filter damps everything above ``E_F + FILTER_CUT`` (Ry).
 FILTER_CUT = 1.0
 

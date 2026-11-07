@@ -305,7 +305,7 @@ def run_kpm_dos(
             applications of ``H`` and a dense ``natw`` Rayleigh-Ritz per k-point.
             ``"auto"`` (default) uses it for random vectors when the datasets
             carry orbitals (:func:`~defuqumat.kpm.control.resolve_variate`).
-        filter_degree, filter_cut: the low-pass filter, degree 8 and a cut at
+        filter_degree, filter_cut: the low-pass filter, degree 16 and a cut at
             ``fermi_energy + 1`` Ry (the top of the window without a Fermi level)
             when not given.
         spin_resolved: for a spinor, also ``Tr[sigma_i delta(E - H)]`` on the
