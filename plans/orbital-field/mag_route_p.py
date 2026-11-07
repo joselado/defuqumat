@@ -2,7 +2,7 @@
 
     python mag_route_p.py landau p q n1 n2 nbnd [two-gauge|kinetic|identity] [chern|keep]   item 1
     python mag_route_p.py herm                                               item 2
-    python mag_route_p.py sphere ecut_ry nbnd                                item 3
+    python mag_route_p.py sphere ecut_ry nbnd [n1,n2,n3]                     item 3
     python mag_route_p.py strong [centred|fixed] [ecut_ry] [residual]         item 4
     python mag_route_p.py local q [outdir]                                   items 5 and 6
 
@@ -100,7 +100,7 @@ def herm():
                       f"max|R - R^H|/max|R| = {np.abs(r - r.conj().T).max() / np.abs(r).max():.3e}")
 
 
-def sphere(ecut, nbnd):
+def sphere(ecut, nbnd, box=None):
     from defuqumat.system.kpoints import KPoints
 
     calc = graphene(ecut_ry=ecut, kmesh=(1, 1, 1))
@@ -112,7 +112,9 @@ def sphere(ecut, nbnd):
     es, st, un = sphere_local_levels(calculation, pot, nbnd)
     ts = time.perf_counter() - t0
     t0 = time.perf_counter()
-    bands = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(0, 1), kpoints=[[0, 0, 0]], nbnd=nbnd)
+    grid = None if box is None else tuple(int(x) for x in box.split(","))
+    bands = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(0, 1), kpoints=[[0, 0, 0]], nbnd=nbnd,
+                               grid=grid)
     tb = time.perf_counter() - t0
     eb = bands.eigenvalues[0]
     print(f"ecut {ecut} Ry: sphere npwx {calculation.basis.planewaves.npwx} dense grid "
@@ -199,7 +201,7 @@ if __name__ == "__main__":
     elif what == "herm":
         herm()
     elif what == "sphere":
-        sphere(float(a[0]), int(a[1]))
+        sphere(float(a[0]), int(a[1]), a[2] if len(a) > 2 else None)
     elif what == "strong":
         strong(a[0] if a else "centred", float(a[1]) if len(a) > 1 else 50.0,
                float(a[2]) if len(a) > 2 else None)
