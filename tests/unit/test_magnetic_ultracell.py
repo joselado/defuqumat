@@ -288,9 +288,28 @@ def test_zero_flux_with_the_nonlocal_term_gives_back_the_full_bands(h0):
                 for ik, (_, k2) in enumerate(r.kappa))
     print(f"\nh0 {h0}: levels - eigenvalues {worst:.3e} Ry, grid - vkb block "
           f"{r.nonlocal_error:.3e} Ry, radius {r.projector_radius}, dropped {r.projector_dropped}")
-    assert r.nonlocal_error < 1e-6
-    assert worst < (1e-10 if h0 == "eigen" else 1e-6)
+    # measured on D22 (review/mag/u2/t-unit1.log): 6.1e-6 Ry block, 1.5e-5 Ry box levels,
+    # 2.7e-15 Ry eigen levels; the block error is the projector cut at 1e-6 of beta's peak
+    assert r.nonlocal_error < 1e-5
+    assert worst < (1e-10 if h0 == "eigen" else 3e-5)
     assert np.all(r.hermiticity < 1e-12)
+
+
+def test_the_grid_projection_error_is_the_cut_of_the_projector():
+    """The same zero-flux box run with the projector kept to 1e-12 of its peak (2.1 bohr
+    against 1.6): the error of the grid projection falls, so what the default leaves is the
+    cut (an amplitude error of the square root of the dropped norm), not a normalisation."""
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    runs = [run_magnetic_ultracell(calc.system, calc.pseudos, _uniform_density(calc),
+                                   flux=(0, 1), nbnd=4, N1=3, w=1, kmesh=(1, 1), h0="box",
+                                   local_only=False, projector_cut=cut)
+            for cut in (1e-6, 1e-12)]
+    print(f"\ncut 1e-6: {runs[0].nonlocal_error:.3e} Ry at {runs[0].projector_radius}; cut 1e-12: "
+          f"{runs[1].nonlocal_error:.3e} Ry at {runs[1].projector_radius}")
+    assert runs[1].projector_radius[0] > runs[0].projector_radius[0]
+    assert runs[1].nonlocal_error < runs[0].nonlocal_error / 3
 
 
 def test_the_grid_projectors_with_p_channels_match_vkb():
@@ -409,4 +428,5 @@ def test_the_sublattice_masks_partition_the_box():
     masks = sublattice_masks(calc.system.cell, calc.system.structure, box, [[0], [1]])
     assert masks.shape == (2, 36 * 12 * 24)
     assert np.allclose(masks.sum(axis=0), 1.0)
-    assert abs(masks[0].mean() - 0.5) < 0.05
+    # inversion about the bond centre maps this grid onto itself and A onto B
+    assert abs(masks[0].mean() - 0.5) < 1e-12

@@ -23,7 +23,7 @@ from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--basis", default="full")
-ap.add_argument("--nonlocal", default="gipaw")
+ap.add_argument("--nonlocal", dest="nonlocal_term", default="gipaw")
 ap.add_argument("--p", type=int, default=1)
 ap.add_argument("--q", type=int, default=10)
 ap.add_argument("--nbnd", default="8")
@@ -49,13 +49,13 @@ kmesh = tuple(int(x) for x in args.kmesh.split(","))
 np.set_printoptions(linewidth=160)
 out = {}
 previous = None
-print(f"E_F {ef!r} Ry; basis {args.basis}, nonlocal {args.nonlocal}, h0 {args.h0}, "
+print(f"E_F {ef!r} Ry; basis {args.basis}, nonlocal {args.nonlocal_term}, h0 {args.h0}, "
       f"flux {args.p}/{args.q}, N1 {args.N1}, kmesh {kmesh}", flush=True)
 for nbnd in [int(x) for x in args.nbnd.split(",")]:
     t0 = time.perf_counter()
     r = run_magnetic_ultracell(calc.system, calc.pseudos, args.scf, flux=(args.p, args.q),
                                nbnd=nbnd, N1=args.N1, kmesh=kmesh, local_only=args.basis == "local",
-                               nonlocal_term=args.nonlocal, w=args.w, h0=args.h0,
+                               nonlocal_term=args.nonlocal_term, w=args.w, h0=args.h0,
                                conv_thr=args.conv, strict=False, scale=args.scale,
                                sublattices=[[0], [1]])
     wall = time.perf_counter() - t0
@@ -100,5 +100,5 @@ for nbnd in [int(x) for x in args.nbnd.split(",")]:
     out["kappa"] = r.kappa
 if args.out:
     np.savez(args.out, flux=np.array([args.p, args.q]), N1=args.N1, h0=args.h0, basis=args.basis,
-             nonlocal_term=args.nonlocal, fermi_energy=ef, **out)
+             nonlocal_term=args.nonlocal_term, fermi_energy=ef, **out)
     print("saved", args.out)

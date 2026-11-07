@@ -140,7 +140,8 @@ def solve_vectors(h, s, drop: float = 1.0e-8):
 
 
 def sublattice_masks(cell, structure, ultracell, groups) -> np.ndarray:
-    """``(len(groups), npts)`` masks on the box: one where the nearest atom is in the group.
+    """``(len(groups), npts)`` masks on the box: one where the nearest atom is in the group
+    (a point equidistant from atoms of several groups is shared equally).
 
     ``groups`` lists atom indices of the chemical cell (graphene: ``[[0], [1]]``, A and
     B); the nearest atom is by the minimum-image distance over the chemical lattice, so the
@@ -154,8 +155,10 @@ def sublattice_masks(cell, structure, ultracell, groups) -> np.ndarray:
     r = (idx / np.asarray(grid, float)) @ at
     pos = np.asarray(structure.positions, dtype=float)
     dist = np.stack([np.linalg.norm(minimum_image(r - p, at), axis=-1) for p in pos], -1)
-    nearest = np.argmin(dist, axis=-1)
-    masks = np.stack([np.isin(nearest, g).astype(float).reshape(grid) for g in groups])
+    # a point equidistant from several atoms is shared equally among them
+    tied = dist <= dist.min(axis=-1, keepdims=True) + 1e-9
+    share = tied / tied.sum(axis=-1, keepdims=True)
+    masks = np.stack([share[:, list(g)].sum(axis=-1).reshape(grid) for g in groups])
     return np.asarray(ultracell.tile(masks)).reshape(len(groups), -1)
 
 
