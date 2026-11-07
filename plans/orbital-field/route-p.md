@@ -322,8 +322,8 @@ two-grid local term are exact Galerkin matrix elements, so the box operator's Ra
 the sphere eigenvalue is the grid projectors' error alone, 5.1e-7 Ry at most over the eight levels,
 and `becp` against `vkb`'s is 1.1e-7 absolute, 4.2e-7 of the largest projection (0.253). So the projector normalisation and the
 `(-i)^l` phase are right, and the 2e-2 is step 1's box-against-sphere basis difference with the
-nonlocal term in (step 1 local-only: 0.141 Ry on the deep pair at 50 Ry; the nonlocal s term pushes
-the deep states out of the region where the sphere is least converged). The Gamma doublet is split
+nonlocal term in (step 1 local-only: 0.141 Ry on the deep pair at 50 Ry; why the nonlocal term
+shrinks it twelvefold was not measured). The Gamma doublet is split
 on the box by 2.1e-3 Ry at 50 Ry and 1.2e-4 at 70 Ry, the broken hexagonal group of step 1.
 
 The projector part on silicon (`M/si.log`; QE's `pw_scf/scf.in` cell, Si.pz-vbc, 12 Ry, our
