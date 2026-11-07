@@ -28222,3 +28222,8 @@ it is 8.5956 and 8.5959. The module docstring of `kpm/dos.py` said the DOS integ
 average (ultrasoft Si2, R = 4, seed 0, N = 40: `mu_0` per sample 365.32, 365.30, 365.26, 365.96
 against 364.75). `kpm/traces.py`'s docstring now gives the augmented PDOS as
 `sum_n |<phi|S|x_n>|^2 T_n` on `S^(1/2) phi` start vectors.
+
+At 630a609f on D22: the five KPM files and `test_notebook_conventions.py` in one CPU slot, 538 passed
+in 438 s (`cpu5.log`); the five KPM files on the RTX A2000 under the lock, 57 passed in 313 s
+(`gpu.log`); the fast gate in one slot, 3820 passed, 85 skipped, the two known `yaml` failures of
+`test_check_guide.py`, 2168 s at a load of 10 to 11 (`gate.log`). No slow file was run or touched.
