@@ -28241,10 +28241,12 @@ S/cm at 3.70 eV, transition width 0.385 eV reported where `broadening_for` gave 
 (0.018592 Ry), 52.1 s; after, 660 moments, peak 32417 S/cm at 3.73 eV, 0.388 eV reported and given
 by `broadening_for`, 45.9 s. **The peak dropped by 28 per cent because the deltas at the gap are now
 the 0.02 Ry asked for**: before, `N` counted at the middle of the valence band made them 0.0131 Ry at
-the level. The planner's "within 2 of 652" was at the Ritz level; `N` is chosen at the HOMO, 654.
+the level. The review's "within 2 of 652" was at the Ritz level; `N` is chosen at the HOMO, 654.
 
 **Tests**, each new one run at 42f4c76a from a copy outside the repository (`before/`, the old
-package confirmed by the path in its warnings), `cond-before2.log`: five failed there and pass here.
+package confirmed by the path in its warnings), `cond-before3.log`: five failed there (two
+`TypeError` on `reference_energy`, the mean 0.40065 where the pair was asserted, `N` 990 against 654,
+and the metal's direct call with no level returning) and pass here, 18 of 18 (`cpu-kpm_conductivity.log`).
 `test_a_constrained_moment_takes_the_pair_of_levels` (Al, the pair through the `Calculator`, a
 scalar raises), `test_a_metal_takes_the_level_of_its_scf` (Al, the SCF level, and no level or a
 `reference_energy` alone raises), `test_the_moments_are_counted_at_the_top_of_the_valence_band`
