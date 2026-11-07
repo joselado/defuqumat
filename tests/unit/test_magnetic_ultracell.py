@@ -181,17 +181,19 @@ def test_the_bare_hybrid_basis_of_the_free_problem_is_refused_by_the_hermiticity
 
 
 def test_the_window_makes_the_free_problem_hermitian_and_variational():
-    """The same free problem with a smooth window (2.0, 2.5) cells on N1 = 10: H is
-    Hermitian to the grid's aliasing and every level lies above (2n + 1) B_ph."""
+    """The same free problem with a smooth window (2.0, 2.5) cells on N1 = 10 and the
+    symmetric a.p + p.a: H is Hermitian to round-off and every level lies above the exact
+    (2n + 1) B_ph + (2 pi m/c)^2 (Rayleigh-Ritz of the box operator)."""
     from defuqumat.magnetic.conventions import MagneticCell
     from defuqumat.magnetic.landau import free_landau_levels
     from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
 
     calc = _small_graphene()
     r = run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), nbnd=2, N1=10,
-                               kmesh=(1, 1), free=True, h0="box", window=(2.0, 2.5))
+                               kmesh=(1, 1), free=True, h0="box", window=(2.0, 2.5),
+                               form="symmetric")
     assert r.w == 4
-    assert np.all(r.hermiticity < 1e-8)
+    assert np.all(r.hermiticity < 1e-12)
     levels, mult, _ = free_landau_levels(MagneticCell.build(calc.system.cell, 1, 2), 6, g3max=2)
     ref = np.repeat(levels, mult)
     n = min(len(ref), r.levels.shape[1])

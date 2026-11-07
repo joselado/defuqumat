@@ -122,11 +122,12 @@ class MagneticUltracell(eqx.Module):
     grid: tuple = eqx.field(static=True)
     ultracell: Ultracell = eqx.field(static=True)
     h0: str = eqx.field(static=True, default="eigen")
+    form: str = eqx.field(static=True, default="ket")
 
     @classmethod
     def build(cls, cell, flux, hybrids, kappas, cell_grid, *, nbnd: int, n1: int,
               w: int | None = None, potential=None, h0: str = "eigen", scale=1.0,
-              window=None):
+              window=None, form: str = "ket"):
         """From the chemical :class:`Cell`, ``flux = (p, q)`` and the hybrid sets.
 
         ``w = None`` sets it later from the measured spread (:meth:`with_width`).
@@ -138,6 +139,8 @@ class MagneticUltracell(eqx.Module):
         reaches the bra's support from the other side of the box).
         """
         p, q = int(flux[0]), int(flux[1])
+        if form not in ("ket", "symmetric"):
+            raise ValueError(f"form must be 'ket' or 'symmetric', got {form!r}")
         if h0 not in ("eigen", "box"):
             raise ValueError(f"h0 must be 'eigen' or 'box', got {h0!r}")
         if window is not None:
@@ -179,7 +182,7 @@ class MagneticUltracell(eqx.Module):
                    b12=float(b[0] @ b[1]), b22=float(b[1] @ b[1]), p=p, q=q, n1=int(n1),
                    nbnd=int(nbnd), w=-1 if w is None else int(w),
                    kappas=tuple(float(k) for k in kappas), grid=tuple(grid),
-                   ultracell=ultracell, h0=h0)
+                   ultracell=ultracell, h0=h0, form=form)
 
     # --- the field strength ------------------------------------------------------
     @property
@@ -251,7 +254,7 @@ class MagneticUltracell(eqx.Module):
             m_x, f_x = (X * p) % q, (X * p) // q
             bra = hybrids[m_x]
             kref = jnp.asarray(self.kappas[k] + m_x / q, self.g_b2.dtype)
-            u_bra, h_bra = _bra_side(bra.values, bra.h0_values, self.bra_index(bra), window,
+            u_bra, h_bra, p_bra = _bra_side(bra.values, bra.h0_values, self.bra_index(bra), window,
                                      self.gg, self.g_b2, potential, kref, self.b22,
                                      grid=self.grid, box_h0=self.h0 == "box", windowed=windowed)
             rows_b, rows_s, out_b, out_s = [], [], [], []
@@ -259,10 +262,10 @@ class MagneticUltracell(eqx.Module):
                 s_k = (X + delta) * p
                 m_k, f_k = s_k % q, s_k // q
                 ket = hybrids[m_k]
-                h, o = _ket_block(u_bra, h_bra, ket.values, ket_index(m_k, f_x - f_k),
+                h, o = _ket_block(u_bra, h_bra, p_bra, ket.values, ket_index(m_k, f_x - f_k),
                                   jnp.asarray(delta * per_cell), window, self.g_b2, self.xi,
                                   kref, c1, self.b12, self.b22, grid=self.grid,
-                                  windowed=windowed)
+                                  windowed=windowed, symmetric=self.form == "symmetric")
                 if delta in deltas:
                     rows_b.append(h)
                     rows_s.append(o)
@@ -323,7 +326,7 @@ def _bra_fields(values, index, grid):
 @partial(jax.jit, static_argnames=("grid", "box_h0", "windowed"))
 def _bra_side(values, h0_values, index, window, gg, g_b2, potential, kref, b22, *, grid,
               box_h0, windowed):
-    """``(u, h)``: the bra in real space and ``H_0`` applied to it, ``(nbnd, npts)`` each.
+    """``(u, h, pu)``: the bra in real space, ``H_0`` on it and ``b2 . p`` on it, ``(nbnd, npts)``.
 
     ``box_h0``: ``h = T u + V u`` on the box (``|K + G|^2`` in reciprocal space, ``V`` the
     tiled zero-field potential); otherwise ``h`` is the eigenvalue-weighted scatter. The
@@ -341,17 +344,22 @@ def _bra_side(values, h0_values, index, window, gg, g_b2, potential, kref, b22, 
         h = _to_real(coeffs * kinetic[None]).reshape(nbnd, -1) + potential[None, :] * u.reshape(nbnd, -1)
     else:
         h = _to_real(_scatter_box(h0_values, index, grid)).reshape(nbnd, -1)
-    return u.reshape(nbnd, -1), h
+    momentum = (g_b2 + TPI * kref * b22).reshape(grid)
+    pu = _to_real(coeffs * momentum[None]).reshape(nbnd, -1)
+    return u.reshape(nbnd, -1), h, pu
 
 
-@partial(jax.jit, static_argnames=("grid", "windowed"))
-def _ket_block(u_bra, h_bra, ket_values, ket_index, shift, window, g_b2, xi, kref, c1, b12,
-               b22, *, grid, windowed):
+@partial(jax.jit, static_argnames=("grid", "windowed", "symmetric"))
+def _ket_block(u_bra, h_bra, p_bra, ket_values, ket_index, shift, window, g_b2, xi, kref, c1,
+               b12, b22, *, grid, windowed, symmetric):
     """``(<bra| H T(Delta) |ket>, <bra| T(Delta) |ket>)`` for one block, ``(nbnd, nbnd)`` each.
 
     The ket is scattered with its Miller shift ``D`` already in ``ket_index``, windowed
     about cell 0 when asked, and then rolled by ``shift = Delta n1`` grid points along the
-    first axis (``T(Delta a1)``, no phase since ``b2 . a1 = 0``).
+    first axis (``T(Delta a1)``, no phase since ``b2 . a1 = 0``). ``symmetric``: ``a.p``
+    on the ket and ``p.a`` as ``(p bra) . a ket``, exactly Hermitian on the grid; otherwise
+    the design's ``2 a.p - i div a`` with ``p`` on the ket, Hermitian up to the grid's
+    aliasing of the product ``xi1 u``.
     """
     nbnd = ket_values.shape[0]
     npts = grid[0] * grid[1] * grid[2]
@@ -366,8 +374,12 @@ def _ket_block(u_bra, h_bra, ket_values, ket_index, shift, window, g_b2, xi, kre
     up = v + (TPI * kref * b22) * u                                       # b2 . (K + G) u
     x = jnp.repeat(xi, grid[1] * grid[2])                                # xi1 at every box point
     overlap = (u_bra.conj() @ u.T) / npts
-    field = c1 * 2.0 * x * up + (c1 * c1 * b22) * (x * x) * u
-    h = (h_bra.conj() @ u.T + u_bra.conj() @ field.T) / npts - 1j * c1 * b12 * overlap
+    if symmetric:
+        field = c1 * x * up + (c1 * c1 * b22) * (x * x) * u
+        h = (h_bra.conj() @ u.T + u_bra.conj() @ field.T + p_bra.conj() @ (c1 * x * u).T) / npts
+    else:
+        field = c1 * 2.0 * x * up + (c1 * c1 * b22) * (x * x) * u
+        h = (h_bra.conj() @ u.T + u_bra.conj() @ field.T) / npts - 1j * c1 * b12 * overlap
     return h, overlap
 
 

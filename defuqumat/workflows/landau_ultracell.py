@@ -85,6 +85,7 @@ class MagneticUltracellResult:
     davidson: dict
     timings: dict
     window: tuple | None = None
+    form: str = "ket"
     blocks: tuple | None = field(default=None, repr=False)
 
 
@@ -132,6 +133,7 @@ def run_magnetic_ultracell(
     conv_thr: float = 1.0e-10,
     k_batch="default",
     window=None,
+    form: str = "ket",
     scale=1.0,
     strict: bool = True,
     keep_blocks: bool = False,
@@ -161,6 +163,9 @@ def run_magnetic_ultracell(
         window: ``(inner, outer)`` in cells, the smooth window every basis function is
             multiplied by (:func:`~defuqumat.magnetic.ultracell_field.smooth_window`);
             needs ``h0 = "box"`` and fixes ``w``. ``None``: the bare hybrid states.
+        form: ``"ket"`` (the design's ``2 a.p - i div a`` with ``p`` on the ket) or
+            ``"symmetric"`` (``a.p + p.a`` with ``p`` on the ket and on the bra, exactly
+            Hermitian on the grid); the same operator in the continuum.
         scale: a factor on the vector potential in the Hamiltonian only (traced, for
             ``d/dB`` at fixed ``p/q``); the basis keeps the momentum shifts of ``p/q``, so
             ``scale = -1`` is the field reversed against its basis, a control.
@@ -230,7 +235,7 @@ def run_magnetic_ultracell(
     potential = np.asarray(hamiltonians[0].potential) if h0 == "box" else None
     ultra = MagneticUltracell.build(cell, (p, q), hybrids, kappas, hamiltonians[0].grid,
                                     nbnd=int(nbnd), n1=N1, potential=potential, h0=h0,
-                                    window=window, w=w, scale=scale)
+                                    window=window, w=w, scale=scale, form=form)
     t0 = time.perf_counter()
     w_measured, weights, widths = ultra.spread(spread_tol)
     timings["spread_s"] = time.perf_counter() - t0
@@ -294,5 +299,5 @@ def run_magnetic_ultracell(
         outside_by_width=outside_by_width, dropped=dropped, n1=N1, nbnd=int(nbnd), h0=h0,
         centres=np.array(centres), singular=float(singular),
         eigenvalues=eigenvalues.reshape(n2m, q, N1, int(nbnd)), davidson=davidson,
-        timings=timings, window=None if window is None else tuple(float(x) for x in window),
+        timings=timings, form=form, window=None if window is None else tuple(float(x) for x in window),
         blocks=tuple(kept) if keep_blocks else None)
