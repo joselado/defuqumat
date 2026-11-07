@@ -69,7 +69,7 @@ record = {"mode": mode, "q": q, "B": out.field_tesla, "dim": out.dim, "nbonds": 
           "energies_ev": e["energies_ev"], "ratios": e["ratios"], "fit_electron": e.get("fit_electron"),
           "fit_hole": e.get("fit_hole"), "zero_multiplicity": e["zero_multiplicity"],
           "zero_level_ev": e["zero_level_ev"], "zero_site_traces": e["zero_site_traces"],
-          "sites": out.sites.tolist(), "multiplicities": e["multiplicities"],
+          "sites": out.sites.tolist(), "multiplicities": e["multiplicities"], "splittings_ev": e["splittings_ev"],
           "hermiticity_ry": out.hermiticity.tolist(), "hermiticity_rel": out.relative.tolist(),
           "plaquette": None if out.plaquette is None else [out.plaquette.real, out.plaquette.imag],
           "timings": out.timings, "wall_s": wall}

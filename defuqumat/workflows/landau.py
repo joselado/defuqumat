@@ -222,19 +222,36 @@ def run_landau_levels(
         timings=timings, vectors=tuple(vecs) if vectors else None, dirac=result_dirac)
 
 
+#: Levels closer than this fraction of the Dirac ``E_1`` are one Landau level of the
+#: comparison. The spacing at ``|n| = 10`` is ``0.155 E_1``; a Wannier set that breaks
+#: a symmetry splits the two valleys of a level by 1e-3 ``E_1`` (the 8-function graphene
+#: set at 10 T, 165 ueV at ``n = 1``), which the fine clustering keeps apart.
+LANDAU_GROUPING = 0.02
+
+
 def _dirac_comparison(levels, weights, clusters, point, field_tesla, p, tol):
-    """Index the clusters about ``E_D`` as ``n`` and compare with the Dirac ladder."""
+    """Index the Landau levels about ``E_D`` as ``n`` and compare with the Dirac ladder.
+
+    The levels are grouped into Landau levels at :data:`LANDAU_GROUPING` of ``E_1``,
+    not at the degeneracy tolerance, so that a valley splitting is reported
+    (``splittings_ev``) rather than counted as another ``n``. Each level's energy is the
+    group's mean, and the site traces of the zero level are the traces over its group.
+    """
     E_D, v_F = point["E_D"], point["v_F"]
     ladder = dirac_levels(field_tesla, v_F, 10)                       # eV, n = -10..10
     out = {"E_D": E_D, "v_F": v_F, "v_F_hole": point["v_F_hole"], "K": point["K"].tolist(),
            "E1_dirac_ev": float(ladder[11]), "per_k": []}
-    for ik, cl in enumerate(clusters):
-        lev = np.array([c[0] for c in cl])
-        mult = np.array([c[1] for c in cl])
+    group_tol = LANDAU_GROUPING * float(ladder[11]) / RY_TO_EV
+    for ik in range(levels.shape[0]):
+        lev, mult = cluster_levels(levels[ik], group_tol)
+        order = np.sort(levels[ik])
         zero = int(np.argmin(np.abs(lev - E_D)))
-        ratios, energies = {}, {}
+        ratios, energies, splittings = {}, {}, {}
         for idx in range(len(lev)):
             n = idx - zero
+            start = int(np.sum(mult[:idx]))
+            members = order[start:start + mult[idx]]
+            splittings[n] = float((members[-1] - members[0]) * RY_TO_EV)
             if n == 0 or abs(n) > 10:
                 continue
             e_n = (lev[idx] - E_D) * RY_TO_EV
@@ -244,7 +261,9 @@ def _dirac_comparison(levels, weights, clusters, point, field_tesla, p, tol):
         zero_weights = weights[ik, start:start + mult[zero]].sum(axis=0)
         entry = {"zero_level_ev": float((lev[zero] - E_D) * RY_TO_EV), "zero_multiplicity": int(mult[zero]),
                  "zero_site_traces": zero_weights.tolist(), "ratios": ratios, "energies_ev": energies,
-                 "multiplicities": {int(i - zero): int(m) for i, m in enumerate(mult)}}
+                 "multiplicities": {int(i - zero): int(m) for i, m in enumerate(mult)},
+                 "splittings_ev": splittings,
+                 "fine_clusters": len(clusters[ik])}
         for side, sign in (("electron", 1), ("hole", -1)):
             ns = [n for n in range(1, 11) if sign * n in ratios]
             if len(ns) >= 2:
