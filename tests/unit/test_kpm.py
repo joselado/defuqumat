@@ -26,6 +26,20 @@ from defuqumat.workflows.nscf import fixed_density_hamiltonians
 
 pytestmark = pytest.mark.unit
 
+
+@pytest.fixture(autouse=True)
+def _drop_compiled_code():
+    """Free the compiled programs after each test (``.claude/rules/memory-design.md``).
+
+    The KPM files compile a recursion per cell and per moment count, and in the
+    one-process fast gate they sat in memory beside the files that follow; the
+    gate was killed at its 6 GB cap two files later (2026-11-07).
+    """
+    yield
+    import jax
+
+    jax.clear_caches()
+
 SILICON = dict(
     lattice="fcc", a=5.398, pseudos={"Si": "Si.pz-vbc.UPF"},
     atoms=[("Si", (0.0, 0.0, 0.0)), ("Si", (0.25, 0.25, 0.25))],
@@ -119,7 +133,8 @@ def test_the_guard_fires_on_a_short_interval():
 def test_the_occupied_dos_is_the_scf_bands_through_the_same_kernel():
     """Below the top of the computed bands, the KPM DOS is Davidson's eigenvalues smoothed alike."""
     calc, result, _ = _silicon()
-    dos = calc.get_kpm_dos(broadening=0.02, n_random=16, emin=-0.5, emax=0.3)
+    dos = calc.get_kpm_dos(broadening=0.02, n_random=16, emin=-0.5, emax=0.3,
+                           control_variate=False)
     weights = np.asarray(calc.calculation.system.kpoints.weights)
     x = (np.asarray(result.eigenvalues) - dos.centre) / dos.half_width
     n = np.arange(dos.n_moments)
@@ -143,7 +158,7 @@ def test_the_gap_holds_the_electrons():
     own standard error, and that error must itself be small at R = 64.
     """
     calc, _, hamiltonians = _silicon()
-    dos = calc.get_kpm_dos(broadening=0.02, n_random=64)
+    dos = calc.get_kpm_dos(broadening=0.02, n_random=64, control_variate=False)
     spectra = _dense_spectrum(hamiltonians[0])
     gap_centre = 0.5 * (max(s[3] for s in spectra) + min(s[4] for s in spectra))
     error = dos.count_error_at(gap_centre)
@@ -202,8 +217,10 @@ def test_ultrasoft_is_refused_by_name():
                 "kmesh": (1, 1, 1), "ecutrho": 4 * 163.3}
     calc = Calculator.from_keywords(pseudo_dir=pseudo, announce=False, **keywords)
     calc.get_scf()
+    # the total DOS runs on S^(-1/2) H S^(-1/2) since P171 (test_kpm_augmented.py); a
+    # trace with chosen start vectors does not
     with pytest.raises(NotImplementedError, match="S\\^-1 H"):
-        calc.get_kpm_dos(n_moments=20, n_random=1)
+        calc.get_kpm_ldos([(0.1, 0.1, 0.1)], n_moments=20)
 
 
 def test_two_spin_channels_add_up_to_the_unpolarized_trace():
@@ -230,16 +247,17 @@ def test_two_spin_channels_add_up_to_the_unpolarized_trace():
                        centre, half, 20, trace="exact")[:, 0]
     np.testing.assert_allclose(both[0], both[1], rtol=0, atol=1e-7 * both[0, 0])
     np.testing.assert_allclose(both.sum(axis=0), scalar, rtol=0, atol=1e-7 * scalar[0])
-    dos = polarized.get_kpm_dos(n_moments=40, n_random=2)
+    dos = polarized.get_kpm_dos(n_moments=40, n_random=2, control_variate=False)
     assert dos.dos.shape == (2, dos.energies.size) and dos.nspin == 2
 
 
 @pytest.mark.parametrize("x0", [0.0, -0.85])
-def test_the_jackson_width_is_the_width_of_the_peak(x0):
+@pytest.mark.parametrize("kernel", ["jackson", "lorentz"])
+def test_the_kernel_width_is_the_width_of_the_peak(x0, kernel):
     """The half width ``width_at`` reports against the peak the series of one level gives."""
     from defuqumat.kpm.kernels import get_kernel as kernel_named
 
-    jackson = kernel_named("jackson")
+    jackson = kernel_named(kernel)
     n_moments = 800
     moments = np.cos(np.arange(n_moments) * np.arccos(x0))
     x = np.linspace(x0 - 0.05, x0 + 0.05, 20001)

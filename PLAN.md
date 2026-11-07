@@ -204,9 +204,10 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
-- **The kernel polynomial method beyond P167 and P168** (`plans/kpm.md`): the stochastic STM map at
-  fixed energies, and the two-index Kubo-Greenwood conductivity of P169; ultrasoft and PAW (`S^-1 H`
-  with moments in the S-form), `gamma_only` and the spiral, refused by name.
+- **The kernel polynomial method beyond P167 to P171** (`plans/kpm.md`): the stochastic STM map at
+  fixed energies; the conductivity's reactive part, the Kubo-Bastin `sigma_xy` and DFT+U there;
+  ultrasoft and PAW for the LDOS, the unfolding and the conductivity (P171 gives the DOS and PDOS on
+  `S^(-1/2) H S^(-1/2)`), the augmented spinor, `gamma_only` and the spiral, refused by name.
 - **Wannier functions beyond P162 to P166** (site symmetry is the default since P166, with a
   named fallback): spinor projections and spinor PDWF, `gamma_only`,
   SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the
@@ -27979,7 +27980,8 @@ unchanged in form. Per k and per channel, so no whole grid is needed. Refused wi
 kernel: at R = 4 the valence-band error falls more than five-fold (test bound) and the median of
 `|KPM - exact| / dos_error` is between 0.1 and 2; over 16 seeds at R = 2 the mean equals the exact DOS
 within 4.5 standard errors of the mean at every energy. Notebook 60 (4x4x4, 16 vectors): mean reported
-error over the valence band 0.0865 states/eV plain, 0.0004 with the variate.
+error over the valence band 0.0865 states/eV plain, 0.0004 with the variate (3.3e-5 at filter degree 16,
+re-executed 2026-11-07).
 
 Timing (`review/kpm/timing3.py`, `cv2-*.log`, `cv-*.json`, D22, one core each through `slot.sh`, warm,
 medians of 4 seeds; error = rms over `E < E_VBM + 0.05` Ry of the KPM DOS minus the NSCF
@@ -28004,8 +28006,397 @@ At R = 1 `dos_error` is zero, since one sample has no spread; the error bar need
 **What is not understood.** On si16 the variate's error stops falling at about 1.5e-3 from R = 2 on
 (0.0019, 0.0013, 0.0018 at R = 2, 4, 8), where si64 keeps falling to 8e-4. The reference intervals
 are not the cause (the numbers are the same to four digits with each run's own interval). Not
-investigated further.
+investigated further. **Explained on 2026-11-07 (P169)**: the floor is the filter degree. At degree 8
+the valence Ritz values are off by up to 7e-5 Ry and the conduction ones by 0.0035 Ry (median, si16,
+`ritzq.py`); at 16 by 2e-6 and 1e-4. With degree 16, now the default (`FILTER_DEGREE`), the valence
+error at R = 1 is 0.0003 on si16 and on si64 (0.0039 and 0.0025 at degree 8), and from the gap to
+`E_VBM + 0.5` Ry 0.016 and 0.050 (0.148 and 0.133), at 0.59 s and 11.1 s against 0.45 s and 12.8 s
+(`dosdeg.py`, `dosdeg-*.log`, 4 seeds). The table above is at degree 8.
+
+**Defaults since 2026-11-07 (P169):** `control_variate="auto"` (on for random vectors when the datasets
+carry `PP_CHI`, off for the exact trace, off with a warning otherwise; a fable decision) and filter
+degree 16. The unbiasedness test now compares each run with the reference on its own interval: the seed
+also starts the interval's Lanczos run, and at degree 16 one shared reference read as a bias of 6e-4
+(5.9 standard errors, steady over 96 seeds) that was the spread of the half widths (8e-4 Ry). A first
+diagnosis (Ritz directions on the padding) was wrong; its change did nothing and was taken out
+(252853cc). Tested unbiased also for a spinor and for `nspin = 2` (`test_kpm_control.py`).
 
 **What is outstanding.** The variate on the PDOS's noise is moot (that trace is exact), but the
 stochastic unfolding and the spin-resolved trace could take it; a cheaper Ritz step (it is
 `O(npw natw^2)`, Davidson's scaling); ultrasoft and PAW as before.
+
+### P169 -- The optical conductivity by a two-index Chebyshev expansion, `get_kpm_conductivity`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, eleven fast tests; all 50 KPM tests on D22 CPU and on the RTX A2000 at 252853cc and the conductivity file again at d92534e8; the fast gate in one slot at 936eff44, 3812 passed, the two known `yaml` failures and P170's unbiasedness test, fixed in 8b54292b, and again at d503a729, 3813 passed with only the two `yaml` failures, 2003 s; no slow file; branch `kpm-sigma` from b611deab, not merged, not pushed)
+
+**What is in.** `defuqumat/kpm/conductivity.py`. The absorptive Kubo-Greenwood tensor
+`sigma'_ab(w) = (pi / (Omega w)) sum_k w_k int dE [f(E) - f(E + w)] Tr[v_b delta(E - H) v_a delta(E + w - H)]`
+from the two-index moments `mu^ab_nm = Tr[v_a T_n(H') v_b T_m(H')] = <T_n v_a r|v_b T_m r>`: per random
+vector (or unit vector, `trace="exact"`) one recursion from `r` and one from `v_a r` per direction, the
+velocity applied to the first family, and the Gram products, summed over k inside `sum_k` and over the
+vectors inside a `lax.scan`, so the result is `ndir^2 N^2` whatever `nk` and `R` are. **The velocity**
+is the `jvp` of `H psi` in the parts of `H(k)` that carry `k` (`kinetic`, `projectors`, `hubbard`),
+with their tangents built once by one `jvp` of `Calculation.at_kcart` per direction
+(`velocity_tangents`, `apply_velocity`); the local potential is not an argument, so its FFTs have a
+zero tangent and the primal is dead code. **The primal must come from `at_kcart` too**: on a CPU in
+`memory` mode the Hamiltonian's projector set is lazy (`stored = None`, rebuilt from `core`) while
+`at_kcart`'s is stored, and a stored tangent does not fit a lazy primal's pytree (the first run failed
+on exactly that). The guard is the norm of `T_n r`, which a spectrum outside the interval makes grow
+(tested: 10x at half the interval). The assembly (`kubo_greenwood`) is `A^T mu A` on a uniform grid
+whose step is the frequency step, `w = 0` the DC limit; `level_from_count` gives a level from the
+count and DOS of the same vectors; one level per channel under a constrained moment. A reduced k-set
+is replaced by its whole grid (`whole_grid_calculation`): a tensor is not completed by the wedge's
+weights.
+
+**The order of `a` and `b` is the band sum's, and silicon cannot show it.** The trace gives
+`<c|v_a|o><o|v_b|c>`, the conjugate of `optical_conductivity`'s `z_ab = <o|v_a|c><c|v_b|o>`, so the
+first version's `sigma'_ab` was the band sum's `sigma'_ba`: the diagonal right and the absorptive Hall
+part of the wrong sign. Found by reading, while writing the Limits note. A crystal check needs a finite
+antisymmetric imaginary part at one k-point, and none was found: on Si2 with one atom moved to
+(0.283, 0.241, 0.207), `Im sigma'_xy` was 2e-17 of the diagonal at the time-reversal invariant points
+of 2x2x2 and at most 3e-6 at every point of 3x3x3 (not understood: a one-k Berry curvature of that
+size was expected). So the order is tested on the moments of random Hermitian matrices through
+`kubo_greenwood`, against the pair sum in the band sum's order, where the imaginary part is of the size
+of the rest; with the old order that test fails.
+
+**The numbers.** Si2 at 12 Ry, 2x2x2:
+- The exact two-index moments against the dense route (every eigenpair of `Hamiltonian.matrix` and
+  `VelocityOperator.matrix_elements` of those eigenvectors, a separate `jvp` of the whole `H(k)`),
+  all nine components, to 1e-9 of their largest.
+- `sigma'_xx` from the moments against the pair sum over every eigenpair with the same kernel deltas
+  and the same energy integral, written out in the test, to 1e-8; and those dense elements in the band
+  sum's own form against `run_conductivity` at `nbnd = 80`, to 2e-4.
+- The spinor run of the same silicon against the scalar one, the same moments to 1e-7.
+- Over 16 seeds at R = 2 the mean of the stochastic moments equals the exact ones within 5 standard
+  errors (median 2); a second call on another potential compiles nothing; the default level of the
+  insulator lies between the dense band edges; ultrasoft refused.
+
+**KPM is not the band sum at finite broadening, and the difference is physics.** The energy integral
+occupies broadened states by energy, so the part of a broadened state across the level is cut, and the
+weight is `1/w` where the band sum has `1/e_mn`. Exact trace, Lorentz kernel, against
+`run_conductivity` at the transition width (`probe_sigma.py`, `q-*.log`):
+
+| delta HWHM | transition | N | peak, KPM / band sum | weight over 0.1 to 0.8 Ry, KPM / band sum | max diff in 0.12 to 0.40 Ry |
+|---|---|---|---|---|---|
+| 0.04 Ry | 0.080 Ry | 318 | 0.515 / 0.601 | 0.78 | 0.16 of the peak |
+| 0.02 Ry | 0.040 Ry | 636 | 0.793 / 0.841 | 0.86 | 0.20 of the peak |
+
+On Si8 at 2x2x2 with smearing (notebook 62) the Lorentz-kernel peak with the variate is 0.433, the
+same to 0.1 per cent for two seeds at R = 4 and at R = 16 (`si8c-*.log`), against 0.408 for the band sum
+at 56 bands. **The 6 per cent is the line shape of the Lorentz kernel, not the occupation**: at half
+the broadening (0.01 Ry, N = 1330, `si8broad.py`) the peak ratio is 1.085 where it was 1.063, while
+the weight between 1.5 and 6 eV goes from 0.983 to 0.990 of the band sum's; the kernel's peak is close
+to a Lorentzian but narrower at the top. (The notebook first said the difference was the occupation
+by energy; the advisor asked for the number, and the number said otherwise.) A plain run at R = 4 had
+read 0.408, a coincidence: the plain peaks moved by 7 to 10 per cent between runs. **The Lorentz kernel's width was wrong** (P167's `kernels.py`, found by the fable
+review of this phase): its peak's half width is `1.19 lambda sqrt(1 - x^2) / N` in `x`
+(`LORENTZ_HWHM = 1.1919166`, the continuum root, measured 1.1915 at N = 400), not `lambda / N` flat,
+37 per cent too wide at `x = -0.85`. Fixed, with the width test now parametrized over both kernels;
+the default kernel (Jackson) was right to 0.8 per cent.
+
+**Cost and noise** (`PERFORMANCE.md`, P169): one k-point, the 3x3 tensor, Jackson at 0.02 Ry; error the
+rms over 0.1 to 0.5 Ry against the pair sum of the NSCF states through the same kernel:
+si16 R = 1 7.91 s and 0.376, R = 4 28.7 s and 0.326 (NSCF 5.67 s + band sum 0.48 s, at a load of 8 to
+12); si64 R = 1 30.7 s and 0.277, R = 4 125 s and 0.185 (NSCF 84.8 s, 279 bands, + 1.82 s). **The plain
+two-index trace is much noisier than the DOS**: a 5 per cent spectrum on si64 needs of the order of 30
+vectors, ten times the band route; the control variate below changes that. The card: si64 5.84 s at R = 1 and 22.6 s at R = 4, warm;
+`sigma` equal to the CPU's to 3.1e-11.
+
+**The two-index control variate** (`control_variate=True`, `variate_block`): with the Ritz pairs
+`(theta_j, y_j)` of P170's filtered orbitals (degree 16 by default, `FILTER_DEGREE_SIGMA`; cut at
+`E_F + max(1, window + 0.4)` Ry), the model sample `n_live <r|v_a P T_n(H_P) P v_b P T_m(H_P) P|r>` is
+subtracted and its exact mean `sum_jl V^a_lj T_n(theta_j) V^b_jl T_m(theta_l)` added, per k-point,
+unbiased for any span (tested: the mean of 8 seeds within its standard error of the exact trace).
+**The left leg must be `<r|v_a|y_j>`, from `v_a r` itself.** The first form, `<r|P v_a P ...|r>`, gained
+only 1.3x on si16 and 1.75x on si64, and on si16 it stayed at 0.25 to 0.27 at filter degrees 8, 16 and
+24 while the window's Ritz values went from 0.0035 Ry (median) to 1e-8 Ry off the NSCF eigenvalues and
+the span held the 32 window states to 0.983 at the least (`ritzq.py`). A fable subagent's model put the
+limit on the Ritz accuracy; the measurement put it on the projection: the true sample is
+`sum <r|v_a|o><o|v_b|c><c|r>`, and `P v_a` drops the part of `r` outside the span that `v_a` carries onto
+the valence states. With `v_a r` the model equals the true sample when the span holds the window, at
+one more velocity application per vector. Measured (`tsig.py ... cv <degree>`, `deg2-*.log`, 4 seeds,
+error as in P169's table):
+
+| cell | plain R = 1 | variate, degree 8, R = 1 | R = 4 | variate, degree 16, R = 1 | R = 4 | band route |
+|---|---|---|---|---|---|---|
+| Si2 2x2x2 (test, R = 2, 8 seeds) | 0.064 | | | 0.0047 | | |
+| si16 | 2.98 s, 0.376 | 3.48 s, 0.037 | 10.7 s, 0.018 | 5.58 s, 0.012 | 17.3 s, 0.005 | 2.25 s |
+| si64 | 30.7 s, 0.277 | 31.4 s, 0.023 | | 46.6 s, 0.011 | | 86 s |
+| si128 | | | | 187 s, 0.0075 | | 1021 s |
+
+So on si64 the conductivity at one per cent costs about half the band route, where the plain trace
+needed of the order of 900 s for five per cent. On si128 (548 bands, N = 660, `tcv-si128.log`) the variate at R = 1 takes 187 s against the band route's 1004 s NSCF plus 17 s band sum, 5.5 times faster, at 0.75 per cent (4 seeds: 0.0094, 0.0050, 0.0077, 0.0078). **The noise of a single run is heavy-tailed**: on si16
+one seed at R = 1, 4, 16, 64 gave 0.337, 0.557, 0.143, 0.067 (`rprobe-*.log`, the reference at 79 and at
+200 bands identical), so an error from 3 or 4 seeds is uncertain by tens of per cent; the fall with
+`R` is there, and the earlier reading of a floor at 0.25 was the projected left leg plus that spread.
+
+**Refused**: ultrasoft and PAW, `gamma_only`, the spiral (as P167); DFT+U (the Hubbard orbitals'
+tangent is built but nothing has compared it with the band sum's); `lelfield`'s `H_E`. Not in: the
+reactive part (a Kramers-Kronig of this, or a Green's-function kernel, the Kubo-Bastin form of
+`plans/kpm.md`), a separate Drude term (the `w = 0` entry is the broadened Kubo-Greenwood DC
+conductivity), the plan's blocking over `n` (the families are held whole, `(ndir + 2) N ndim` per
+k-point in flight), and an error bar (the samples are summed in the scan).
+
+**What is outstanding.** The variate at R = 4 on si64 and si128; the occupied projection
+`f(H) r` on top of it (the fable model gave a further 1.7x once the variate works); the Kubo-Bastin
+`sigma_xy` checked against the anomalous Hall conductivity of iron; DFT+U.
+
+**Addendum (P172).** The level, the reference energy of `N` and the reported width are now one
+decision taken before the recursion; `level_from_count` is gone, and an insulator's level is the Ritz
+mid-gap or an error. The Si2 and guide numbers above that read the old width are superseded there.
+
+### P171 -- The KPM density of states and projected DOS of ultrasoft and PAW runs, on `S^(-1/2) H S^(-1/2)`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_augmented.py`, eleven fast tests, with the other KPM files on D22 CPU and on the RTX A2000 at 252853cc; the fast gate as in P169; no slow file; branch `kpm-sigma`)
+
+**What is in.** `defuqumat/kpm/overlap.py`: `SymmetrizedHamiltonian`, the operator
+`H^ = S^(-1/2) H S^(-1/2)`, Hermitian in the plain inner product and similar to `S^-1 H`, so every piece
+of P167 and P170 runs on it unchanged (doubling, Lanczos interval, guard, random trace, control
+variate). `S^p = 1 + U (M^p - 1) U^dagger` from a thin QR `B = U R` of each k-point's projector table and
+`M = 1 + R Q R^dagger` (`overlap_power`, `overlap_powers`); `U` and `M^(-1/2) - 1` are stored for every
+k-point, one projector table's worth. `kpm_setup(symmetrize=True)` wraps an augmented Hamiltonian;
+`run_kpm_dos` and `run_kpm_pdos` ask for it, and the PDOS's start vectors are `S^(1/2) phi`
+(`raised_vectors`), since `<phi|S|x> = <S^(1/2) phi|S^(1/2) x>`. PAW takes `ddd_paw` from `becsum`
+through the Hamiltonian as it is (`Calculation.coefficients`); `S` is spin independent.
+
+**The plan was reviewed by a fable subagent before code, and two of its statements were wrong.** The
+plan's form through `G = B^dagger B`, `X = G^(-1/2) [(1 + G^(1/2) Q G^(1/2))^(-1/2) - 1] G^(-1/2)` with
+the small eigenvalues of `G` dropped, is not exact: its error is `sqrt(l_min / l_max) |Q|`, 5e-8 on a
+random table with two columns 1e-7 apart (cond(G) 6e14), where the QR form holds to 1e-11 (the test
+`test_the_half_inverse_holds_with_nearly_parallel_projectors`, which the G form fails). And the cost is
+about three times the nonlocal term, not once: two products with `U` each way beside `H`'s own.
+
+**The numbers.** Si2 at 12 Ry, `ecutrho` 4x, 2x2x2, `Si.pz-n-rrkjus_psl.0.1.UPF` and
+`Si.pz-n-kjpaw_psl.0.1.UPF` (with `becsum`): `S^(-1/2) S^(-1/2) S v = v` with the dense `overlap_matrix`
+on complex random vectors at every k-point, to 1e-10; the exact trace against `sum_i T_n(e_i')` of
+`scipy.linalg.eigh(H, S)` of the dense matrices, to 1e-9 of `mu_0`, both datasets, and the same through
+`get_kpm_dos`; the count mid-gap between the dense edges at N = 1200, 8 within 0.05; the PDOS moments
+against `sum_n |<phi|S|x_n>|^2 T_n(e_n')` from the dense eigenvectors, to 1e-9; the LDOS and the
+conductivity still refused.
+
+**Timing** (`tpaw.py`, `tpaw.log`, D22, one core, si64 with `Si.pz-n-kjpaw_psl.0.1.UPF` at 12/96 Ry, one
+k-point, broadening 0.01 Ry, N = 1078, 4 seeds; error as in P170's table): Davidson NSCF + DOS 70.7 s
+(171 bands); plain R = 1 22.8 s and 0.375, R = 4 52.1 s and 0.181; with the variate R = 1 47.5 s and
+0.0025, R = 4 71.9 s and 0.0011. A vector costs about 10 s against 1.2 s for the norm-conserving si64:
+PAW silicon has 8 projector channels an atom (512 here) and the nonlocal products dominate an
+application, which `S^(-1/2)` on both sides triples.
+
+**Refused, still**: a spinor with an augmented dataset (`qq_so` couples the spin blocks; nothing
+checked); the LDOS (the augmentation charge at the point), the unfolding (the plane-wave subset is not a
+projector in the S metric) and the conductivity (`dH/dk - e dS/dk`), through `kpm_setup` without
+`symmetrize`. Notebook 60 has a cell on PAW silicon at 4x4x4 (20/80 Ry): 7.999 +- 0.001 states below
+the gap with the variate on by default; the notebook runs in 55 s.
+
+**What is outstanding.** The spinor; the three traces above. (Folding `S^(-1/2)` into the nonlocal
+term, listed here first, is done in P174.)
+
+**Addendum 2026-11-07, the refusals and the variate's guard** (workflow implementer 2, branch
+`kpm-wf-2-kpm-refusals-and-variate-guard` from 92302fc3; logs `/l/ladovj1/review/kpm/wf/impl2/` on D22).
+A review found two refusals that gave the wrong reason and one request dropped silently; all three are
+fixed, each with a test that fails on the code of 42f4c76a (`before.log`: these three failed, 21 passed)
+and passes after (`after.log`: 24 passed in 199 s).
+
+- *An augmented spin spiral got the overlap message*, which says the DOS runs on `S^(-1/2) H S^(-1/2)`,
+  the call just made. `require_a_kpm_regime` now tests the spiral first, then `gamma_only`, then the
+  overlap. Test `test_a_spin_spiral_is_refused_as_a_spiral` (Si2, `noncolin`, `angle1 = 90`,
+  `spiral_q = (0, 0, 0.25)`, `nosym`, at the starting density, no SCF, both datasets).
+- *Every augmented LDOS, unfolding or conductivity refusal said the projected DOS "is not
+  implemented"*, while `run_kpm_pdos` runs there to 8e-15. The message keeps `S^-1 H` and now says the
+  total and projected DOS (`get_kpm_dos`, `get_kpm_pdos`) run on `S^(-1/2) H S^(-1/2)` and the local DOS,
+  the unfolding and the conductivity do not. The test asserts `"projected and local" not in` the
+  message rather than `"projected"`, since the message names the projected DOS as one that runs.
+- *`control_variate=True` with no `PP_CHI` ran the plain trace with no warning.* `resolve_variate` raises
+  `ValueError` for it, and `run_kpm_dos` resolves the variate before the moments, so the error costs
+  no recursion (the test replaces `kpm_moments` by a function that fails). `True` with
+  `trace="exact"` is still returned for the caller to refuse by trace. `get_kpm_conductivity` calls the
+  same function and needed no change.
+
+Tests of the regimes P171 claimed without one (D22 CPU, `nums-aug.log`, `nums-key.log`):
+`nspin = 2` ultrasoft at `tot_magnetization = 2`, the exact moments of each channel against
+`eigh(H_s, S)` to 3.3e-15 and 3.4e-15 of `mu_0` (bound 1e-9), the channels 5.7e-2 of `mu_0` apart;
+the variate on the wrapped operator, ultrasoft `nspin = 1`, 8 seeds at R = 4, N = 40, one interval,
+`mu_0` 364.850 +- 0.273 against 364.750 and the largest of 40 moments at 1.99 standard errors
+(bound 4.5); `overlap_powers` at `k_batch=1` against `None`, `U` and `M^(-1/2) - 1` equal to 0.0
+(bound 1e-12); and the per-channel key of the variate, `nspin = 2` norm-conserving Si2 with no moment,
+4 seeds at R = 4, broadening 0.02 Ry, the rms error of each channel's DOS in the valence window against
+the exact trace at the same seed 8.6e-6 and 6.4e-6 of the peak (bound 1e-3). With the correction of both
+channels drawn on channel 0's key, channel 0 stays at 8.6e-6 and channel 1 goes to 6.1e-2, and the test
+fails, where P170's unbiasedness test passes the same defect (an uncorrelated correction is unbiased).
+
+The mid-gap count of `test_get_kpm_dos_takes_the_generalised_spectrum` at N = 1200 reads 8.0437
+(ultrasoft) and 8.0442 (PAW), 87 and 88 per cent of the old 0.05; the tolerance is 0.1 now. At N = 40
+it is 8.5956 and 8.5959. The module docstring of `kpm/dos.py` said the DOS integrates to
+`sum_k w_k npw_k`; that is exact per sample for the plain trace only, and with the variate on
+average (ultrasoft Si2, R = 4, seed 0, N = 40: `mu_0` per sample 365.32, 365.30, 365.26, 365.96
+against 364.75). `kpm/traces.py`'s docstring now gives the augmented PDOS as
+`sum_n |<phi|S|x_n>|^2 T_n` on `S^(1/2) phi` start vectors.
+
+At 630a609f on D22: the five KPM files and `test_notebook_conventions.py` in one CPU slot, 538 passed
+in 438 s (`cpu5.log`); the five KPM files on the RTX A2000 under the lock, 57 passed in 313 s
+(`gpu.log`); the fast gate in one slot, 3820 passed, 85 skipped, the two known `yaml` failures of
+`test_check_guide.py`, 2168 s at a load of 10 to 11 (`gate.log`). No slow file was run or touched.
+
+### P172 -- The KPM conductivity's Fermi level, reference energy and width, decided before the recursion. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, now 18 fast tests, with the other four KPM files (14, 8, 6, 11) and `test_calculator.py` with `test_facade_documentation.py` (57) on D22 CPU at 090a89f0, all passed; the five KPM files on the RTX A2000 at 3af43817, 57 passed in 352 s (`gpu.log`, whose header names 090a89f0, the commit checked out when it queued for the lock: `defuqumat/` and `tests/` are the same at both); the fast gate in one slot at 3af43817, 3820 passed, 85 skipped, only the two known `yaml` failures of `test_check_guide.py`, 1988 s (`gate.log`); the commits after 3af43817 change `PLAN.md` and `docs/guide/optics.md` only; logs in `/l/ladovj1/review/kpm/wf/impl1/`; no slow file; branch `kpm-wf-1-kpm-sigma-level` from 92302fc3, not merged, not pushed)
+
+**The defect.** P169 chose `N`, the reported width and `delta_e` from a reference energy taken before
+the recursion, and that reference was `(bottom + centre) / 2` whenever `fermi_energy` was `None`; the
+level itself was found after the recursion by `level_from_count`, from the count and DOS of the same
+random vectors. Three wrong numbers came from that one order. Every `Calculator` run on a
+fixed-occupation insulator, the guide's example included, counted the moments at the middle of the
+occupied window, where the deltas are wider than at the gap, so `N` was 1.5x too large and
+`broadening` and `transition_broadening` disagreed with `broadening_for` on the same object. A metal
+called directly with no level got the count's level, which is not the SCF's. And under a constrained
+moment the `Calculator` passed `SCFResult.fermi_energy`, which is only the mean of the two channel
+levels, as one scalar, and the guard (which caught only `None`) let it through.
+
+**The fix** (`kpm/conductivity.py`, `calculator.py`). The level, or the energy it will be found near,
+is fixed before the recursion. `run_kpm_conductivity` gains `reference_energy` (where `broadening`
+holds and the filter cut is measured from when no level is given, the name `run_kpm_dos` uses; ignored
+when `fermi_energy` is given, whose mean is then the reference). After `kpm_setup`, the `gamma_only`
+refusal and the velocity refusals (`require_a_velocity`, Hubbard and `lelfield`, now before the level
+is asked for), in order: a scalar under `two_fermi_energies` raises; `None` under `two_fermi_energies`
+raises; `None` with no `reference_energy` raises, naming what to pass; `None` with the variate off
+raises (the count put Si2's level in the valence band for 6 of 12 seeds at R = 2); otherwise the level
+is the Ritz mid-gap (`ritz_gap_level`), and no gap there raises ("a metal needs the Fermi level of its
+SCF"). `level_from_count` is deleted; `dos_moments` stays on the result. `ritz_gap_level` now takes an
+unconstrained `nspin = 2`: per k-point the two channels' sorted Ritz values are one ladder of singly
+occupied states, `homo_k = ladder[nelec - 1]`, `lumo_k = ladder[nelec]` (the list is channel-major,
+zero-weight k-points skipped, so the halves pair by k). The width is then `half width_at(N, x_level)`
+at the mean of the final levels with the `N` used, `delta_e = width / 5` only after that, and
+`transition_broadening` is `broadening_for(kernel)` by construction. The `Calculator`: under
+`two_fermi_energies` with a smeared SCF it passes `(fermi_energy_up, fermi_energy_down)`; otherwise
+`fermi_energy` when the SCF has one; for fixed occupations `reference_energy = homo`. A constrained
+moment with fixed occupations is left to the entry point's error: its `fermi_energy_up`/`down` are
+the channel HOMOs, where the step would cut the top states in half.
+
+**The numbers** (`/l/ladovj1/review/kpm/wf/impl1/probe.py`, `probe-before.log` at 42f4c76a in
+`w-kpm-review`, `probe-after.log` at 2ae9e5c0, one D22 slot each; the conductivity code of 42f4c76a is
+92302fc3's):
+
+| quantity | before | after |
+|---|---|---|
+| Si2 12 Ry 2x2x2, `Calculator`, `broadening = 0.02`, R = 1: `N` | 990 | 654 (`moment_count` at the HOMO 0.484376 Ry: 654) |
+| same: `broadening` / `transition_broadening` / `broadening_for('jackson')`, Ry | 0.019962 / 0.028230 / 0.018757 (ratio 1.505) | 0.020087 / 0.028407 / 0.028407 (ratio 1.000000) |
+| same: level, Ry | 0.501055 (Ritz mid-gap) | 0.501054 (Ritz mid-gap) |
+| Al 15 Ry 2x2x2, MP 0.27 eV, direct call with no level | returned -0.44816 Ry (SCF level 0.401081), `sigma(0)` 0.0955 | `ValueError` naming `fermi_energy` |
+| Al as above, `nspin = 2`, `tot_magnetization = 0.5`, `Calculator` level | 0.400652 (the mean) | (0.426955, 0.374350), the SCF's pair |
+| same, a scalar passed directly | accepted | `ValueError` ("one level per spin channel") |
+
+At `n_moments = 8` the Al `sigma(0)` with the mean and with the pair differ only by 8e-5 relative
+(7.437223e-02 against 7.437841e-02), the deltas being wider than the channel splitting; the 0.2526
+against 2.988 of the review was the 4x4x4 mesh at the default broadening, not rerun here. The guide's
+silicon (4x4x4, `n_random = 4`, `window = 0.6`, `guide.py`, `guide-before.log` and `guide-after.log`
+in the same directory, both first calls in one slot at a load of about 10): 1012 moments, peak 45002
+S/cm at 3.70 eV, transition width 0.385 eV reported where `broadening_for` gave 0.253 eV
+(0.018592 Ry), 52.1 s; after, 660 moments, peak 32417 S/cm at 3.73 eV, 0.388 eV reported and given
+by `broadening_for`, 45.9 s (first calls, compilation included). **The peak dropped by 28 per cent because the deltas at the gap are now
+the 0.02 Ry asked for**: before, `N` counted at the middle of the valence band made them 0.0131 Ry at
+the level. The review's "within 2 of 652" was at the Ritz level; `N` is chosen at the HOMO, 654.
+The timings of P169 and P170 in `PERFORMANCE.md` stand: `tsig.py` passes `fermi_energy` (the dense
+mid-gap) explicitly, so their `N` was chosen at the level.
+
+**Tests**, each new one run at 42f4c76a from a copy outside the repository (`before/`, the old
+package confirmed by the path in its warnings), `cond-before3.log`: five failed there (two
+`TypeError` on `reference_energy`, the mean 0.40065 where the pair was asserted, `N` 990 against 654,
+and the metal's direct call with no level returning) and pass here, 18 of 18 (`cpu-kpm_conductivity.log`).
+`test_a_constrained_moment_takes_the_pair_of_levels` (Al, the pair through the `Calculator`, a
+scalar raises), `test_a_metal_takes_the_level_of_its_scf` (Al, the SCF level, and no level or a
+`reference_energy` alone raises), `test_the_moments_are_counted_at_the_top_of_the_valence_band`
+(Si2, `N` within 2 of `moment_count` at the HOMO and the width identity to 1e-3, equal to six decimals in the probe),
+`test_the_ritz_level_of_two_channels_is_in_the_gap` (Si2 `nspin = 2` with a 0.01 eV smearing, called
+directly with `reference_energy = scf.fermi_energy`, the level between the dense edges of the merged
+ladder of both channels; through the `Calculator` a fixed `nspin = 2` run needs `tot_magnetization`,
+which makes it a constrained moment, so the shared Ritz level is reachable only directly; measured
+in `probe2.log`: the magnetization collapses to 2e-15, the level is 0.501055 Ry for seeds 0, 1 and 2,
+against the dense merged edges 0.484375 and 0.517733, mid-gap 0.501054, so the `refuse_if` of the
+item does not apply), and the
+existing `test_the_default_level_of_an_insulator_is_in_its_gap`, which now passes `reference_energy`.
+Two coverage tests that pass at both commits: `test_a_hubbard_u_is_refused_before_the_level_is_asked_for`
+and `test_the_dc_entry_and_a_temperature_are_the_dense_pair_sum` (`sigma[0]` and the whole spectrum at
+`T = 0` and `T = 0.004` Ry against the pair sum over every eigenpair, to 1e-8 of the peak, with the
+level 0.03 Ry inside the valence band so the DC entry is finite).
+
+**The docs.** `docs/guide/optics.md`: the snippet's printed lines from the rerun, the paragraph on the
+level (a metal takes the SCF's, a constrained moment the pair, an insulator the Ritz mid-gap, a direct
+call needs `fermi_energy` or `reference_energy`, no orbitals means give the level), a
+`reference_energy` bullet, and the Limits note. Notebook 62 is not re-executed: its cells use
+`smearing = 0.1`, so the `Calculator` passes the SCF level as before, `N` and the width are at that
+level as before, and it prints neither.
+
+**From the final review (fable).** Of the five tests that fail at 42f4c76a, three show defects (the mean
+where the pair is asserted, N 990 against 654, a metal's direct call not raising) and two fail on the new
+`reference_energy` keyword. The second case of `test_a_metal_takes_the_level_of_its_scf` raises because Al's
+filling is 3/2 of a band, not through the no-gap branch of the Ritz values; that branch, `lelfield` and
+`gamma_only` are the refusals no test fires. The guide's 50 s is a first call at a load of 10, said so there.
+
+**What is outstanding.** A constrained moment with fixed occupations has no default level: a
+per-channel Ritz mid-gap with `(nelup, neldw)` would give one. The `lelfield` and `gamma_only`
+refusals of the conductivity are still not fired by a test.
+
+### P174 -- `S^(-1/2) H S^(-1/2)` folded into four projector products, one `U` for both spin channels. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_overlap.py`, six fast tests, new; with the five KPM files, 56 tests, on D22 CPU at 6c0c2fa8 (299 s, `t2.log`) and on the RTX A2000 at 0fb2734c (279 s, `g-tests.log`), the new file alone on the CPU at 0fb2734c (`t3.log`); the fast gate in one slot at 3a638c40, 3819 passed and the two known `yaml` failures of `test_check_guide.py`, 1530 s (`review/kpm/wf/impl3/gate.log`), the commits after it changing `PLAN.md` and `PERFORMANCE.md` only; no slow file; branch `kpm-wf-3-kpm-overlap-fold` from 92302fc3, not merged, not pushed)
+
+**What is in.** `defuqumat/kpm/overlap.py`. With `H = A + B D B^dagger` (`A = K + V_loc`, `D` the
+channel's `deeq`), `B = U R`, `M = 1 + R Q R^dagger` and `W = M^(-1/2) - 1`, `S^(-1/2) U = U M^(-1/2)`
+gives exactly
+
+    H^ psi = A psi + (A U)(W c) + U [F c + W a],   c = U^dagger psi,  a = (A U)^dagger psi,
+    F = M^(-1/2) R D R^dagger M^(-1/2) + W G W,   G = U^dagger A U,
+
+four `npwx x nkb` products and one FFT pair per vector, against six products, one FFT pair and `H`'s
+own projector table for the form of P171. `SymmetrizedHamiltonian` gains `table = A U` and
+`folded = F` per channel (`None` for the unfolded form, kept as `apply_unfolded`); `G` is not a field
+of its own, it enters `F` only. Both are built per k-point in
+a module-level jit (`_fold`) through `map_k`, with `A U = kinetic[:, None] U + _local(U^T)^T` masked.
+The fold is built only when the Hamiltonian has no Hubbard and no `lelfield` term and stores the whole
+sphere; otherwise, and with `symmetrized(..., fold=False)`, the unfolded form is used.
+`FOLD_DEFAULT = True` is what `fold=None` reads. `symmetrized` takes the QR once (`_overlap_setup`,
+`(U, R, M^(-1/2) - 1)`) and shares `U` and `M^(-1/2) - 1` across channels holding the same
+`projectors` and `mask` objects (the two of an `nspin = 2` run, since `S` does not depend on spin),
+where it stored two equal copies before. `raised_vectors` takes `M^(1/2) - 1 = (1 + W)^-1 - 1` from the
+wrapped operator's own `shifted` and `U`, through `map_k` in a module-level jit (`_raised`), where it
+took a second QR over the whole grid, held a second `U` and walked k with a bare `jax.vmap` outside
+any jit. Signatures of `symmetrized` (one keyword more) and `raised_vectors` are unchanged.
+
+**The numbers.** Si2 at 12 Ry, `ecutrho` 4x, 2x2x2, the two datasets of P171: the folded apply against
+the unfolded one on 4 complex random vectors at every k-point, to 1e-12 of `max |H^ psi|` (asserted),
+both datasets; at `nspin = 2` (ultrasoft, `tot_magnetization = 2`, 0.2 eV smearing)
+`wrapped[0].basis is wrapped[1].basis`, the two `folded` differing by more than 1e-4 and each channel's
+fold equal to its unfolded apply to 1e-12; `raised_vectors` against `overlap_powers(h, 0.5)` and
+`apply_power` to 1e-12 of the largest; a second setup on a shifted potential compiles none of
+`_overlap_setup`, `_fold`, `_raised`, and the first compiles all three (so a silent logger fails). At
+42f4c76a (`w-kpm-review`, the test file run from `review/kpm/wf/impl3/base/`, `tbase2.log`) four of
+the six fail: the two fold tests (`is_folded` does not exist), the compile test (none of the three
+kernels exists) and the identity (two arrays); the two `raised_vectors` tests pass there, as they must,
+since the reuse is a refactor of the same numbers. `test_kpm_augmented.py` passes unchanged, so the
+`eigh(H, S)` identities at 1e-9 of `mu_0` hold through the folded apply. On si64 PAW one application
+folded and unfolded differ by 7.5e-16 of the largest on the CPU and 9.6e-16 on the card, and the
+moments of a whole `get_kpm_dos` call by 1.69e-14 (CPU) and 2.20e-14 (card); the unfolded arm equals
+92302fc3's moments bit for bit on both.
+
+**Timing** (PERFORMANCE.md, P171 section, "The fold"; `review/kpm/wf/impl3/tfold.py`, `tim-*.log`,
+`g-*.log`). si64 PAW, N = 1078, plain R = 1, warm median of 3, one core: folded against unfolded in one
+process -19.9, -25.7 and -42.3 per cent in three pairs, folded against 92302fc3 -31.7, -40.5 and -38.8
+per cent (28.92 / 27.77 / 25.12 s to 19.75 / 16.52 / 15.37 s). The load average was 9.8 to 14.2
+through all three, never below 8, which is why there are three. On the RTX A2000 3.30 s (base) and
+3.33 s (unfolded) to 2.46 s, -26 per cent. The setup of the fold, 512 FFT pairs for `A U` and the
+`npwx nkb^2` product for `G`, takes a call's setup from about 1 s to about 2 to 3 s on the CPU, 12 to
+19 per cent of a folded call at R = 1.
+
+**Memory.** One more `(nk, npwx, nkb)` complex table per channel, `A U`: 46.3 MiB on si64 PAW at one
+k-point (`(1, 5930, 512)`; the item had estimated 15 MB), and `nk nkb^2` for
+`F`. With `U` shared the total is `(1 + nspin) nk npwx nkb` against `nspin nk npwx nkb` before (P171
+stored `U` once per channel). Stated in the module docstring, selectable by `fold=False`.
+
+**What is outstanding.** The fold is not timed at R > 1 or with the control variate (not measured);
+the setup's `A U`, `nkb` FFT pairs per channel and k-point, is the cost left at R = 1; DFT+U,
+`lelfield` and `gamma_only` take the unfolded form; the spinor, the LDOS, the unfolding and the
+conductivity on an augmented dataset are still refused, as in P171.
+
+**Merged into `kpm-sigma` (2026-11-07, 43280365)** with P172 and the P171 addendum, which share no code file
+with it. On the merged tip, on D22 (`/l/ladovj1/review/kpm/merged/`): the five KPM files and
+`test_kpm_overlap.py`, 70 passed on one CPU slot in 328 s and 70 on the RTX A2000 in 288 s; the fast gate in
+one slot, 3833 passed (3813 at d503a729 plus 7, 7 and 6 new tests), 85 skipped, only the two known `yaml`
+failures, 1606 s; `tools/check_guide.py` passes. No slow file.
+
+**Notes from the final review (fable, 2026-11-07).** `fold` is not a keyword of `run_kpm_dos` or
+`run_kpm_pdos` (`dos.py` calls `symmetrized(hamiltonians, k_batch=batch)`), so the unfolded form is reachable
+only through `symmetrized(fold=False)` or the module global `FOLD_DEFAULT`; threading a keyword is the first
+outstanding line. The stored table is 46 MiB per channel on si64 and scales as `npwx nkb`; si128 is not
+measured. The setup's `_local(u.T, ik)` transforms the `nkb` columns through `map_bands`, which on a card is
+the whole block, so `nkb` real-space boxes are in flight during the setup; that peak is not measured.

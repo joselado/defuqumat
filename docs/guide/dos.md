@@ -216,7 +216,7 @@ calc = Calculator.from_keywords(
     pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
     ecut=217.7, kmesh=(6, 6, 6), kshift=(1, 1, 1))
 top = calc.get_scf().homo
-kpm = calc.get_kpm_dos(broadening=0.01, n_random=16)
+kpm = calc.get_kpm_dos(broadening=0.01, n_random=16, control_variate=False)
 
 print(f"{kpm.n_moments} moments on [{kpm.centre - kpm.half_width:.2f}, "
       f"{kpm.centre + kpm.half_width:.2f}] Ry")
@@ -229,7 +229,9 @@ print(f"{kpm.count_at(top + 0.02):.2f} +- {kpm.count_error_at(top + 0.02):.2f} "
 7.89 +- 0.15 states below the gap
 ```
 
-The count is 8, the four valence bands with their spin, within its error. With
+Here we switch off `control_variate`, which is on by default and which we see below,
+to show the plain random trace. The count is 8, the four valence bands with their
+spin, within its error. With
 an `ecut` of 16 Ry the interval reaches 16 Ry, so we need 1610 moments for a
 broadening of 0.01 Ry. The
 keywords of `get_kpm_dos` are:
@@ -292,9 +294,10 @@ faster, with 64 and more atoms the KPM is faster, and the gain grows with the ce
 
 **Less noise from the atomic orbitals.** Near the Fermi level the states live
 mostly on the atomic orbitals and on the part of them that leaks between the atoms.
-With `control_variate=True`, the code filters the atomic orbitals with a Chebyshev
+With `control_variate=True`, the default when the pseudopotential files carry atomic
+orbitals and the trace is random, the code filters the atomic orbitals with a Chebyshev
 polynomial of $H$ that keeps their part below $E_F + 1$ Ry (`filter_cut`, of degree
-`filter_degree = 8`), and solves $H$ in that small space. This gives approximate
+`filter_degree = 16`), and solves $H$ in that small space. This gives approximate
 eigenstates $|y_j\rangle$ with energies $\theta_j$. For each random vector it
 subtracts what these states predict, and adds back its exact average:
 
@@ -313,17 +316,35 @@ random vector:
 | 64 atoms | 32 to 85 s | 14 s, error 13% | 10.5 s, error 0.2% |
 | 128 atoms | 275 to 1449 s | 44 to 95 s, error about 10% | 123 s, error 0.2% |
 
-The times of the 128-atom cell were taken while the machine was heavily loaded, so
-they are a range. The error is the same rms difference from the bands as above,
-averaged over four seeds. With one random vector the code cannot estimate its own
+These numbers were taken with a filter of degree 8. The default is now 16, which
+gives better approximate eigenstates: with one random vector the error in the valence
+band falls to 0.03% on 16 and on 64 atoms, and from the gap to 0.5 Ry above the
+valence band it falls from 15% to 1.6% on 16 atoms and from 13% to 5% on 64 atoms, at
+about the same time. The times of the 128-atom cell were taken while the machine was
+heavily loaded, so they are a range. The error is the same rms difference from the
+bands as above, averaged over four seeds. With one random vector the code cannot estimate its own
 error, so `dos_error` is zero there. Ask for at least two vectors to get the error
 bar.
 
 So one random vector with the atomic orbitals is about 60 to 100 times more accurate
 than eight without them, at about the same cost, and faster than the bands already at
-16 atoms. The extra cost is nine applications of $H$ per atomic orbital and a small dense
+16 atoms. The extra cost is seventeen applications of $H$ per atomic orbital and a small dense
 diagonalization in their space, which grows like the bands do, so the gain is
 largest when you want an error of about one per cent.
+
+What changes with an ultrasoft or PAW dataset? Then the states solve
+$H\psi = \varepsilon S\psi$, with the overlap $S = 1 + \sum |\beta_i\rangle q_{ij}\langle\beta_j|$,
+so the Chebyshev expansion of $H$ alone would give another spectrum. The code expands
+$S^{-1/2} H S^{-1/2}$ instead, which has exactly the eigenvalues $\varepsilon$, and
+everything above works the same way, the atomic orbitals included. The overlap differs from
+the identity only in the space of the projectors, so $S^{-1/2}$ is the identity plus a small
+matrix in that space, built once per k-point. You call `calc.get_kpm_dos()` as before. On
+the 64-atom cell with a PAW dataset, the bands and the DOS take 71 s, and KPM with the
+orbitals and one random vector takes 48 s with an error of 0.25 per cent. Each application
+of the Hamiltonian costs more than with a norm-conserving dataset, because $S^{-1/2}$ is
+applied on both sides and PAW has many projectors. `calc.get_kpm_pdos()` works too, with
+the orbitals multiplied by $S^{1/2}$, so its projections are the ones of `projwfc.x`,
+$\langle\phi|S|\psi\rangle$.
 
 ??? example "Code of this figure (docs/figures/dos_kpm/)"
 
@@ -462,11 +483,16 @@ diagonalize.
     labelled as up and down. So you run it with `lspinorb = .true.`, which is what a
     fully relativistic dataset is for.
 
-    The KPM density of states needs norm-conserving pseudopotentials. With an
-    ultrasoft or PAW dataset the states solve $H\psi = \varepsilon S\psi$, so the
-    polynomial must be in $S^{-1}H$, and the code gives an error. It also gives an
-    error for `K_POINTS gamma` (the half sphere of plane waves) and for a spin
-    spiral. A wedge of k-points is fine, because the DOS is a scalar trace. If the
+    The total and the projected KPM density of states work with ultrasoft and PAW
+    datasets, for `nspin = 1` and `2`, through $S^{-1/2} H S^{-1/2}$. We checked their
+    moments against the dense generalized eigenproblem of silicon with both kinds of
+    dataset, to 1e-9. With a spinor they give an error, because the overlap couples the
+    two spin components and we have not checked that case. The local DOS, the
+    unfolding and the conductivity by KPM need norm-conserving pseudopotentials,
+    because their start vectors or their operator need the overlap $S$ in another way,
+    and the code gives an error. The
+    KPM traces also give an error for `K_POINTS gamma` (the half sphere of plane
+    waves) and for a spin spiral. A wedge of k-points is fine, because the DOS is a scalar trace. If the
     interval does not hold the whole spectrum, a moment grows above one and the
     code gives an error that says so, instead of a wrong DOS. The same holds for
     the projected, local and unfolded DOS by KPM. The local DOS is the smooth
@@ -476,7 +502,10 @@ diagonalize.
     gives an error otherwise. `spin_resolved=True` needs a noncollinear run.
     `control_variate=True` needs random vectors (it gives an error with
     `trace="exact"`), and it needs atomic orbitals in the pseudopotential files.
-    It does not change `spin_dos`, which keeps the noise of the plain trace.
+    If no file has them (no `PP_CHI`), `control_variate=True` gives an error.
+    The default, `control_variate="auto"`, uses it only then, and without atomic
+    orbitals it warns and uses the plain trace. It does not change `spin_dos`,
+    which keeps the noise of the plain trace.
 
 The notebooks for this page are
 [06, the density of states](https://github.com/joselado/defuqumat/blob/master/notebooks/06_density_of_states.ipynb),

@@ -40,6 +40,7 @@ estimated exactly, as in Meyer, Musco, Musco and Woodruff, arXiv:2010.09649).
 from __future__ import annotations
 
 import functools
+import warnings
 
 import jax
 import jax.numpy as jnp
@@ -48,10 +49,47 @@ from jax import lax
 
 from defuqumat.kpm.moments import live_mask, random_phases
 
-#: Degree of the Chebyshev low-pass filter.
-FILTER_DEGREE = 8
+#: Degree of the Chebyshev low-pass filter. 16 since 2026-11-07 (P169): at 8 the
+#: Ritz values above the gap were off by 0.0035 Ry (median, si16) and the valence
+#: by 7e-5, which set the floor P170 had recorded as not understood; at 16, 1e-4
+#: and 2e-6. Measured at R = 1, error of the DOS in the valence window 0.0039 ->
+#: 0.0003 (si16) and 0.0025 -> 0.0003 (si64), from the gap to E_VBM + 0.5 Ry
+#: 0.148 -> 0.016 and 0.133 -> 0.050, at 1.3x and 0.9x the time.
+FILTER_DEGREE = 16
 #: The filter damps everything above ``E_F + FILTER_CUT`` (Ry).
 FILTER_CUT = 1.0
+
+
+def resolve_variate(control_variate, trace: str, calculation) -> bool:
+    """Whether to use the variate: ``"auto"`` is on for random vectors when the datasets carry orbitals.
+
+    ``"auto"`` (the default since 2026-11-07, a fable decision on the numbers of
+    P169 and P170: the plain conductivity at one vector is 28 to 38 per cent off,
+    the variate about one) is off for ``trace="exact"``, which has no noise, and
+    off with a warning when no pseudopotential carries atomic orbitals
+    (``PP_CHI``), since the plain trace is the same unbiased estimate with more
+    noise. ``True`` keeps its errors in both cases, so a request is not dropped
+    silently: without orbitals it raises here, and with ``trace="exact"`` it is
+    returned as asked and the caller raises, naming its own trace.
+    """
+    # imported here, so that a test can replace it on its module
+    from defuqumat.projwfc.projections import calculation_channels
+
+    if control_variate != "auto":
+        if control_variate and trace == "stochastic" and not calculation_channels(calculation):
+            raise ValueError(
+                "control_variate=True needs atomic orbitals (PP_CHI) in at least one "
+                "pseudopotential and none carries them; use \"auto\" or False")
+        return bool(control_variate)
+    if trace != "stochastic":
+        return False
+    if not calculation_channels(calculation):
+        warnings.warn(
+            "control_variate='auto': no pseudopotential carries atomic orbitals (PP_CHI), "
+            "so the random trace runs without the control variate and keeps its full noise",
+            RuntimeWarning, stacklevel=3)
+        return False
+    return True
 
 
 @functools.partial(jax.jit, static_argnames=("degree",))

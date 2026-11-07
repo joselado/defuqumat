@@ -24,6 +24,20 @@ from tests.unit.test_kpm import SILICON, _dense_spectrum, _silicon
 
 pytestmark = pytest.mark.unit
 
+
+@pytest.fixture(autouse=True)
+def _drop_compiled_code():
+    """Free the compiled programs after each test (``.claude/rules/memory-design.md``).
+
+    The KPM files compile a recursion per cell and per moment count, and in the
+    one-process fast gate they sat in memory beside the files that follow; the
+    gate was killed at its 6 GB cap two files later (2026-11-07).
+    """
+    yield
+    import jax
+
+    jax.clear_caches()
+
 PSEUDO = Path(__file__).parents[1] / "data" / "pseudo"
 
 
@@ -152,7 +166,7 @@ def test_the_fermi_level_of_a_metal_from_the_count():
         pseudo_dir=PSEUDO, ecut=204.1, kmesh=(4, 4, 4), kshift=(1, 1, 1),
         smearing=0.5, announce=False, conv_thr=1e-10)
     scf = calc.get_scf()
-    dos = calc.get_kpm_dos(broadening=0.01, n_random=32)
+    dos = calc.get_kpm_dos(broadening=0.01, n_random=32, control_variate=False)
     level = dos.fermi_level()
     noise = dos.count_error_at(level) / max(float(np.interp(level, dos.energies, dos.dos)), 1e-3)
     assert abs(level - scf.fermi_energy) < 3.0 * noise + 0.01, (level, scf.fermi_energy, noise)

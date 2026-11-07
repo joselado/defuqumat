@@ -24,7 +24,7 @@ si = Calculator.from_keywords(
     pseudos={'Si': 'Si.pz-vbc.UPF'}, pseudo_dir='../tests/data/pseudo',
     ecut=163.3, kmesh=(4, 4, 4))
 scf = si.get_scf()
-kpm = si.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6)
+kpm = si.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6, control_variate=False)
 print(f'{kpm.n_moments} moments, interval {kpm.centre - kpm.half_width:.2f} to {kpm.centre + kpm.half_width:.2f} Ry')
 ```
 
@@ -116,8 +116,6 @@ for n in (kpm.n_moments, 400, 100):
 
      1212 moments: broadening 0.136 eV, peak 4.74 states/eV
       400 moments: broadening 0.413 eV, peak 2.48 states/eV
-
-
       100 moments: broadening 1.668 eV, peak 1.55 states/eV
 
 
@@ -141,16 +139,42 @@ where the $|y_j\rangle$ are close to eigenstates, so in the valence band.
 varied = si.get_kpm_dos(broadening=0.01, n_random=16, emax=scf.homo + 0.6, control_variate=True)
 valence = kpm.energies < scf.homo
 for name, d in (('random vectors', kpm), ('with the atomic orbitals', varied)):
-    print(f'{name:25s} mean error in the valence band {np.mean(d.dos_error[valence]) / ev:.4f} states/eV')
+    print(f'{name:25s} mean error in the valence band {np.mean(d.dos_error[valence]) / ev:.1e} states/eV')
 ```
 
-    random vectors            mean error in the valence band 0.0865 states/eV
-    with the atomic orbitals  mean error in the valence band 0.0004 states/eV
+    random vectors            mean error in the valence band 8.6e-02 states/eV
+    with the atomic orbitals  mean error in the valence band 3.3e-05 states/eV
 
+
+## With a PAW dataset
+
+With an ultrasoft or PAW dataset the states solve $H\psi = \varepsilon S\psi$, where the
+overlap $S$ differs from one near the atoms. The Chebyshev expansion of $H$ alone would
+then give another spectrum. Instead, the code expands $S^{-1/2} H S^{-1/2}$, which has
+exactly the eigenvalues $\varepsilon$. We count the states below the gap of the same
+silicon with a PAW dataset.
+
+
+```python
+paw = Calculator.from_keywords(
+    lattice='fcc', a=5.43, atoms=[('Si', (0, 0, 0)), ('Si', (0.25, 0.25, 0.25))],
+    pseudos={'Si': 'Si.pz-n-kjpaw_psl.0.1.UPF'}, pseudo_dir='../tests/data/pseudo',
+    ecut=272.1, ecutrho=4 * 272.1, kmesh=(4, 4, 4))
+top = paw.get_scf().homo
+d = paw.get_kpm_dos(broadening=0.01, n_random=4)
+print(f'PAW: {d.count_at(top + 0.02):.3f} +- {d.count_error_at(top + 0.02):.3f} states below the gap')
+```
+
+    PAW: 7.999 +- 0.001 states below the gap
+
+
+The count is 8 within its error of 0.001, the four valence bands with their spin. The
+error is much smaller than the 0.25 above, because here `get_kpm_dos` uses the atomic
+orbitals by default, as in the previous section.
 
 ## When to use it
 
-With the atomic orbitals the error of the valence band falls by about 200 times,
+With the atomic orbitals the error of the valence band falls by about 2600 times,
 for the same 16 random vectors. So one random vector is often enough.
 
 For this two-atom cell the bands are cheaper. The KPM cost does not depend on the

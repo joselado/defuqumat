@@ -5,7 +5,8 @@ spectrum of an insulator from time-dependent density-functional theory (TDDFT),
 where an exchange-correlation kernel decides how the excited electron and the hole
 it leaves behind interact. Then we compute the whole optical conductivity tensor of
 a magnetic metal, and from its off-diagonal part the Kerr rotation of the light it
-reflects.
+reflects. At the end we compute the optical conductivity with no band at all, for large
+supercells.
 
 ## The absorption spectrum
 
@@ -347,6 +348,126 @@ here.
     --8<-- "optics_kerr/plot.py"
     ```
 
+## The optical conductivity without bands
+
+We now compute the same absorptive conductivity with no band at all. This is useful for
+a large supercell, for example a defect or a disordered crystal, where the sum over
+pairs of bands needs hundreds or thousands of empty bands. The Kubo-Greenwood formula
+does not need a band index:
+
+$$\mathrm{Re}\,\sigma_{ab}(\omega) = \frac{\pi}{\Omega\,\omega} \sum_{\mathbf k} w_{\mathbf k}
+\int dE\, [f(E) - f(E + \omega)]\,
+\mathrm{Tr}\left[v_b\, \delta(E - H)\, v_a\, \delta(E + \omega - H)\right],$$
+
+meaning that an occupied state at $E$ goes to an empty state at $E + \omega$, with the
+weight of the velocity matrix element between them. The velocity
+$v_a = \partial H/\partial k_a$ includes the nonlocal part of the pseudopotential, as in
+the band sum. We expand each $\delta(E - H)$ in Chebyshev polynomials of $H$, as for the
+density of states in [the density of states without bands](dos.md#the-density-of-states-without-bands),
+so the trace becomes a matrix of moments $\mathrm{Tr}[v_b T_n(H)\, v_a T_m(H)]$. We take this
+trace with a few random vectors at each k-point. We compute it with
+`calc.get_kpm_conductivity()`:
+
+```python
+si = Calculator.from_keywords(lattice="fcc", a=5.43, ecut=163.3, kmesh=(4, 4, 4),
+                              atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+                              pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo")
+sigma = si.get_kpm_conductivity(broadening=0.02, n_random=4, window=0.6,
+                                directions=("x",))
+
+ev = sigma.frequencies_ev
+i = np.argmax(sigma.sigma[:, 0, 0].real)
+print(f"{sigma.n_moments} moments, Fermi level {sigma.fermi_energy:.4f} Ry")
+print(f"peak of Re sigma_xx at {ev[i]:.2f} eV: "
+      f"{sigma.sigma_s_per_cm[i, 0, 0].real:.0f} S/cm")
+print(f"width of a transition {sigma.transition_broadening * 13.6057:.3f} eV")
+```
+
+```
+660 moments, Fermi level 0.4760 Ry
+peak of Re sigma_xx at 3.73 eV: 32417 S/cm
+width of a transition 0.388 eV
+```
+
+The peak is at 3.73 eV. The measured peak of silicon is at 4.2 eV with about
+$2.9\times10^4$ S/cm, and the local density approximation puts it too low in energy. A
+$4\times4\times4$ mesh is also coarse for a spectrum. The code chooses the number of
+moments so that each delta function has a half width of 0.02 Ry at the top of the valence
+band. A transition is two delta functions, so its width is $\sqrt2$ times larger. The run
+reports this width at the Fermi level, 0.388 eV, which is also what
+`sigma.broadening_for("jackson")` gives. On one core of a busy machine the run took about 50 s,
+including the compilation. The atomic orbitals remove most of the noise of the 4
+random vectors (`control_variate`, below).
+
+The Fermi level is 0.4760 Ry, in the middle of the gap. The top of the valence band is
+0.4515 Ry. For a metal, `get_kpm_conductivity` takes the Fermi level of the SCF, and with
+a constrained moment it takes one level per spin channel. An insulator with fixed
+occupations has no Fermi level in the SCF. Then the code counts the moments at the top
+of the valence band, and it puts the level in the middle of the gap from the approximate
+eigenstates of the atomic orbitals (see `control_variate` below). These are the band
+energies to about 1e-4 Ry near the gap. If you call `run_kpm_conductivity` directly, you
+give `fermi_energy`, or `reference_energy` for an insulator. Without the atomic orbitals
+the code cannot find the gap, so you give `fermi_energy`, and the code gives an error if
+you do not.
+
+The keywords of `get_kpm_conductivity` are:
+
+- **`directions`**: the axes of the tensor, `"x"`, `"y"`, `"z"` or 3-vectors. Each one
+  costs one more expansion, and the cost of the products grows as the square of their
+  number. The default is all three.
+- **`broadening`**: the half width in Ry of one delta function at the Fermi level. It
+  sets the number of moments.
+- **`kernel`**: `"jackson"`, the default, gives Gaussian transitions. `"lorentz"` gives
+  Lorentzian ones, the shape of the band sum.
+- **`n_random`, `seed`**: the random vectors per k-point.
+- **`control_variate`**: the code also uses the atomic orbitals, filtered to low
+  energy, as for the density of states. It removes the noise of the transitions between
+  states that these orbitals describe, and the result stays unbiased. It lowers the
+  error about twenty times for less than twice the cost, so it is on by default
+  (`"auto"`) whenever the pseudopotential files carry atomic orbitals and the trace is
+  random. `False` switches it off. `filter_degree` (16 if you do not give it) sets how
+  sharp the filter is.
+- **`trace="exact"`**: one expansion per plane wave instead of random vectors, for small
+  cells.
+- **`window`, `delta_e`**: the largest photon energy and the step, in Ry.
+- **`fermi_energy`, `temperature`**: the occupation, a step at zero temperature. With a
+  constrained moment you give one level per spin channel.
+- **`reference_energy`**: the energy where `broadening` holds when you do not give
+  `fermi_energy`, for an insulator. `get_kpm_conductivity` passes the top of the valence
+  band.
+
+`sigma.sigma` is the absorptive part of the tensor, with the shape (frequency, direction,
+direction), in atomic units, and `sigma.sigma_s_per_cm` the same in S/cm. Its diagonal is
+$\mathrm{Re}\,\sigma_{aa}$. The first frequency is zero, and there it is the DC
+conductivity of the Kubo-Greenwood formula, which is zero for an insulator.
+`sigma.epsilon_imaginary` is $\mathrm{Im}\,\epsilon_{ab} = 4\pi\sigma_{ab}/\omega$. The
+moments are kept, so `sigma.reconstructed(kernel=..., fermi_energy=..., temperature=...)`
+gives the spectrum again with another kernel or occupation and no new expansion, and
+`sigma.broadening_for(kernel)` gives the width of a transition with that kernel.
+
+Is this the band sum of the previous section? Not exactly, and the difference is in the
+broadening. The band sum occupies the states by band and then broadens each
+transition. The Kubo-Greenwood integral broadens the states first and then occupies them
+by energy, so the part of a broadened state across the Fermi level is not counted. So the
+long Lorentzian tails of the band sum below the absorption edge are not there. With the
+exact trace and the Lorentz kernel on silicon at $2\times2\times2$, the KPM spectrum has
+0.78 of the weight of the band sum between 0.1 and 0.8 Ry at a transition width of 0.08 Ry,
+and 0.86 at 0.04 Ry, and the peaks are 0.515 against 0.601 and 0.793 against 0.841. Both
+are the same quantity as the broadening goes to zero. With the same energy integral done
+over every eigenstate of the Hamiltonian, the KPM result is the same to round-off.
+
+How many random vectors do you need? Without the atomic orbitals
+(`control_variate=False`), many more than for the density of states. On a silicon
+supercell of 64 atoms with one k-point, one random vector then gives an error of 28 per
+cent over the spectrum, and 4 give 19 per cent. With the atomic orbitals, the default,
+one random vector gives 1.1 per cent in 47 s, while the bands and the band sum take 86 s.
+The atomic orbitals, filtered to low energy, describe the occupied states and the empty
+states of the window well, so the transitions between them are computed in that small
+space, and the random vector only has to carry the rest. On a cell of 16 atoms the error
+falls from 38 per cent to 1.2 per cent, but there the bands take only 2 s. Notebook
+[62](https://github.com/joselado/defuqumat/blob/master/notebooks/62_kpm_optical_conductivity.ipynb)
+computes the absorption of a silicon supercell with a vacancy.
+
 !!! note "Limits"
     The absorption spectrum works with fixed occupations and with smearing. With
     smearing the sum runs over every band that is partly filled at some k-point,
@@ -448,7 +569,27 @@ here.
     `get_vertical_transport`, `get_ultracell`, `get_ultracell_transport` and
     `get_scf`.
 
+    The optical conductivity without bands, `get_kpm_conductivity`, works for a
+    norm-conserving dataset, with or without spin, and for a spinor. We checked a
+    spinor run of silicon against the run without spin, which give the same moments
+    to 1e-7. An ultrasoft or PAW dataset gives an error, because then the states
+    solve $H\psi = \epsilon S\psi$ and the moments of $H$ alone give another
+    spectrum. `K_POINTS gamma`, a spin spiral, a Hubbard $U$ and the Berry-phase
+    electric field also give an error. The Hubbard term has a velocity of its own,
+    which we have not checked. A symmetry-reduced k-set is replaced by its whole
+    grid, since a tensor is not completed by the weights of the wedge, so the cost
+    is that of the whole grid. With a constrained moment and smearing the code takes
+    one Fermi level per spin channel from the SCF. With a constrained moment and fixed
+    occupations you give one level in the gap of each channel. Without atomic orbitals
+    in the pseudopotential files, or with `trace="exact"`, the code cannot find the
+    middle of the gap, so for an insulator you give `fermi_energy`. The result is the absorptive part only, the real part of the
+    diagonal and the antisymmetric imaginary part of the off-diagonal entries,
+    without the reactive part and without a separate Drude term. For a metal its
+    value at zero frequency is the DC conductivity with the broadening of the
+    kernel.
+
 The notebooks for this page are
-[27, excitons and TDDFT](https://github.com/joselado/defuqumat/blob/master/notebooks/27_excitons_and_tddft.ipynb)
+[27, excitons and TDDFT](https://github.com/joselado/defuqumat/blob/master/notebooks/27_excitons_and_tddft.ipynb),
+[30, magneto-optics](https://github.com/joselado/defuqumat/blob/master/notebooks/30_magneto_optics.ipynb),
 and
-[30, magneto-optics](https://github.com/joselado/defuqumat/blob/master/notebooks/30_magneto_optics.ipynb).
+[62, the absorption of a defect with no bands](https://github.com/joselado/defuqumat/blob/master/notebooks/62_kpm_optical_conductivity.ipynb).

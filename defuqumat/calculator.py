@@ -1072,6 +1072,33 @@ class Calculator:
                                 **self._call_options(run_kpm_unfolded, result, options,
                                                      exclude=SCF_ONLY_OPTIONS))
 
+    def get_kpm_conductivity(self, **options):
+        """The absorptive optical conductivity by the kernel polynomial method.
+
+        Kubo-Greenwood from two-index Chebyshev moments of ``H(k)`` and the
+        velocity ``dH/dk``, with no bands computed. Returns the
+        :class:`~defuqumat.kpm.conductivity.KPMConductivity`, in Hartree atomic
+        units, which keeps the moments.
+        """
+        from defuqumat.kpm.conductivity import run_kpm_conductivity
+
+        result = self._ground_state("a KPM optical conductivity")
+        # The SCF's level, a pair under a constrained moment; with fixed
+        # occupations N is set at the HOMO and the level put mid-gap by the entry
+        # point (a constrained fixed run is left to its error)
+        if self.calculation.two_fermi_energies:
+            if result.fermi_energy is not None:
+                options.setdefault("fermi_energy",
+                                   (result.fermi_energy_up, result.fermi_energy_down))
+        elif result.fermi_energy is not None:
+            options.setdefault("fermi_energy", result.fermi_energy)
+        else:
+            options.setdefault("reference_energy", result.homo)
+        return run_kpm_conductivity(self.system, self.pseudos, result.density,
+                                    calculation=self.calculation,
+                                    **self._call_options(run_kpm_conductivity, result,
+                                                         options, exclude=SCF_ONLY_OPTIONS))
+
     def get_pdos(self, grid=None, **options):
         """The projected density of states, with Löwdin charges and spilling.
 

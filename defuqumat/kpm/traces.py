@@ -8,7 +8,11 @@ statistical error; what remains is the kernel's broadening.
   ``projwfc``, Loewdin-orthonormalised (:func:`~defuqumat.projwfc.projections.atomic_orbitals`),
   so ``<phi_a|delta(E - H)|phi_a> = sum_n |<phi_a|psi_n>|^2 delta(E - e_n)`` is
   exactly what ``run_pdos`` integrates, with every state of the basis in it, the
-  empty ones up to the cutoff included. A single orbital's trace is not
+  empty ones up to the cutoff included. On an ultrasoft or PAW run the states
+  solve ``H x = e S x`` and the trace is ``sum_n |<phi_a|S|x_n>|^2 T_n(e_n')``: it
+  runs on ``S^(-1/2) H S^(-1/2)`` with ``S^(1/2) phi_a`` as start vectors
+  (:func:`~defuqumat.kpm.overlap.raised_vectors`), since
+  ``<phi|S|x> = <S^(1/2) phi|S^(1/2) x>``. A single orbital's trace is not
   invariant under the point group (the orbitals of a shell rotate into each
   other, and atoms into their images), so on a symmetry-reduced wedge the trace
   runs on the whole Monkhorst-Pack grid of the run instead.
@@ -16,7 +20,8 @@ statistical error; what remains is the kernel's broadening.
   waves, ``<k+G|r0> = exp(-i (k+G) . r0) / sqrt(Omega)``, so
   ``<r0|delta(E - H)|r0> = sum_n |psi_n(r0)|^2 delta(E - e_n)``. Its norm is
   ``npw_k / Omega``, not one. This is the pseudo-LDOS, the smooth part, with no
-  augmentation (norm-conserving only, as everything here). Integrated to the
+  augmentation (norm-conserving only: an ultrasoft or PAW dataset is refused,
+  since the augmentation charge at the point is not in it). Integrated to the
   Fermi level it is the density at ``r0``, which is the check. A point does not
   self-average, so it is exact here rather than stochastic.
 
@@ -148,7 +153,7 @@ def _given_moments(hamiltonians, starts, centre, half, n_moments, weights, batch
 
 def _common(system, pseudos, density, broadening, n_moments, kernel, emin, emax, delta_e,
             reference_energy, lanczos_steps, edge_margin, fermi_energy, k_batch, state,
-            calculation, whole_grid):
+            calculation, whole_grid, symmetrize=False):
     from defuqumat.workflows.nscf import threaded_calculation
 
     if n_moments is not None and n_moments % 2:
@@ -162,7 +167,8 @@ def _common(system, pseudos, density, broadening, n_moments, kernel, emin, emax,
     if whole_grid:
         calculation = whole_grid_calculation(calculation)
     calculation, hamiltonians, batch = kpm_setup(
-        system, pseudos, density, k_batch=k_batch, calculation=calculation, **state)
+        system, pseudos, density, k_batch=k_batch, calculation=calculation,
+        symmetrize=symmetrize, **state)
     interval = interval_and_moments(hamiltonians, batch, 0, lanczos_steps, edge_margin, emin,
                                     emax, reference_energy, fermi_energy, broadening,
                                     n_moments, kernel)
@@ -188,12 +194,16 @@ def run_kpm_pdos(system, pseudos, density, *, projectors: str = "ortho-atomic",
     calculation, hamiltonians, batch, interval = _common(
         system, pseudos, density, broadening, n_moments, kernel, emin, emax, delta_e,
         reference_energy, lanczos_steps, edge_margin, fermi_energy, k_batch, state,
-        calculation, whole_grid=True)
+        calculation, whole_grid=True, symmetrize=True)
     centre, half, emin, emax, reference_energy, n_moments, broadening = interval
     channels = calculation_channels(calculation)
     if not channels:
         raise ValueError("none of the pseudopotentials carries an atomic orbital to project on")
     orbitals = jnp.swapaxes(atomic_orbitals(calculation, projectors), 1, 2)  # (nk, r, ndim)
+    # an augmented run's projection <phi|S|x> is <S^(1/2) phi|x^> on S^(-1/2) H S^(-1/2)
+    from defuqumat.kpm.overlap import raised_vectors
+
+    orbitals = raised_vectors(hamiltonians[0], orbitals, k_batch=batch)
     weights = np.asarray(calculation.system.kpoints.weights)
     moments = _given_moments(hamiltonians, orbitals, centre, half, n_moments, weights, batch)
     energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)

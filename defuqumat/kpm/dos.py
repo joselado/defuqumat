@@ -7,7 +7,13 @@ moments ``Tr T_n(H')``, and those come from a recursion on a few random vectors
 (:mod:`defuqumat.kpm.moments`), so nothing is diagonalised and the cost does not
 depend on how many bands the energy window holds. The spectrum is the whole
 basis, so the DOS integrates to ``sum_k w_k npw_k`` over the interval, and to the
-number of electrons at the Fermi level.
+number of electrons at the Fermi level. That holds exactly, sample by sample, for
+the exact trace and for the plain random trace, whose ``mu_0`` is ``n_live`` for
+every random-phase vector; with the control variate it holds on average only,
+since each sample's ``mu_0`` gains ``sum_k w_k (natw - n_live sum_j |<y_j|r>|^2)``
+from its ``natw`` Ritz vectors (ultrasoft Si2 at 12 Ry on 2x2x2, R = 4, seed 0,
+N = 40: 365.32, 365.30, 365.26 and 365.96 against 364.75, which the plain trace
+gives for each of the four).
 
 What the moments cost is set by the basis and not by the physics: the interval
 reaches up to roughly ``ecutwfc``, so the number of moments for a broadening
@@ -22,9 +28,10 @@ in real numbers; the ``"exact"`` trace holds ``(ndim, ndim)`` per k-point in fli
 and is for small cells.
 
 Regimes: norm-conserving, ``nspin = 1`` and ``2`` (one Hamiltonian per channel),
-and the spinor (``npol = 2``). Refused by name: ultrasoft and PAW (the polynomial
-must be in ``S^-1 H``), the half-sphere ``gamma_only`` storage, and a spin
-spiral.
+and the spinor (``npol = 2``); ultrasoft and PAW at ``nspin = 1`` and ``2``
+through ``S^(-1/2) H S^(-1/2)`` (:mod:`defuqumat.kpm.overlap`, P171). Refused by
+name: a spinor with an augmented dataset, the half-sphere ``gamma_only``
+storage, and a spin spiral.
 """
 
 from __future__ import annotations
@@ -212,13 +219,16 @@ def kpm_moments(hamiltonians, weights, centre: float, half: float, n_moments: in
 
 
 def require_a_kpm_regime(calculation, hamiltonians) -> None:
-    """Refuse what the moments of ``H`` alone do not describe."""
-    if any(h.has_overlap for h in hamiltonians):
+    """Refuse what the moments of ``H`` alone do not describe.
+
+    The regimes are tested in the order a caller can act on: a spin spiral and
+    the half sphere are refused whatever the dataset, so an augmented spiral is
+    told about the spiral, not about the overlap the DOS already folds in.
+    """
+    if calculation.spiral:
         raise NotImplementedError(
-            "the KPM density of states is implemented for norm-conserving "
-            "pseudopotentials only: with an ultrasoft or PAW dataset the states "
-            "solve H x = e S x, so the polynomial must be in S^-1 H with moments in "
-            "the S inner product, and the moments of H alone give another spectrum"
+            "the KPM density of states does not run on a spin spiral, whose two "
+            "spinor components live on different spheres"
         )
     if any(getattr(h, "gamma_only", False) for h in hamiltonians):
         raise NotImplementedError(
@@ -226,10 +236,15 @@ def require_a_kpm_regime(calculation, hamiltonians) -> None:
             "sphere's inner product is 2 Re - (G = 0), so a random vector on it is "
             "not a random vector of the basis. Use K_POINTS automatic 1 1 1 0 0 0"
         )
-    if calculation.spiral:
+    if any(h.has_overlap for h in hamiltonians):
         raise NotImplementedError(
-            "the KPM density of states does not run on a spin spiral, whose two "
-            "spinor components live on different spheres"
+            "this KPM trace is implemented for norm-conserving pseudopotentials "
+            "only: with an ultrasoft or PAW dataset the states solve H x = e S x, so "
+            "the polynomial must be in S^-1 H, and the moments of H alone give another "
+            "spectrum. The total and projected density of states (get_kpm_dos, "
+            "get_kpm_pdos) run on S^(-1/2) H S^(-1/2); the local DOS, the unfolding "
+            "and the conductivity need the S metric in their start vectors or their "
+            "operator, which is not implemented"
         )
 
 
@@ -263,7 +278,7 @@ def run_kpm_dos(
     edge_margin: float = EDGE_MARGIN,
     fermi_energy: float | None = None,
     spin_resolved: bool = False,
-    control_variate: bool = False,
+    control_variate: bool | str = "auto",
     filter_degree: int | None = None,
     filter_cut: float | None = None,
     k_batch="default",
@@ -299,7 +314,9 @@ def run_kpm_dos(
             its mean (:mod:`defuqumat.kpm.control`): unbiased, with much less
             noise in the valence band, for ``(filter_degree + 1) natw``
             applications of ``H`` and a dense ``natw`` Rayleigh-Ritz per k-point.
-        filter_degree, filter_cut: the low-pass filter, degree 8 and a cut at
+            ``"auto"`` (default) uses it for random vectors when the datasets
+            carry orbitals (:func:`~defuqumat.kpm.control.resolve_variate`).
+        filter_degree, filter_cut: the low-pass filter, degree 16 and a cut at
             ``fermi_energy + 1`` Ry (the top of the window without a Fermi level)
             when not given.
         spin_resolved: for a spinor, also ``Tr[sigma_i delta(E - H)]`` on the
@@ -313,13 +330,17 @@ def run_kpm_dos(
     """
     setup = kpm_setup(system, pseudos, density, kpoints=kpoints, k_batch=k_batch, ns=ns,
                       tau=tau, becsum=becsum, field=field, field_scale=field_scale,
-                      calculation=calculation)
+                      calculation=calculation, symmetrize=True)
     calculation, hamiltonians, batch = setup
     (centre, half, emin, emax, reference_energy, n_moments,
      broadening) = interval_and_moments(hamiltonians, batch, seed, lanczos_steps, edge_margin,
                                         emin, emax, reference_energy, fermi_energy,
                                         broadening, n_moments, kernel)
 
+    from defuqumat.kpm.control import resolve_variate
+
+    # before the moments, so that a refused variate costs no recursion
+    control_variate = resolve_variate(control_variate, trace, calculation)
     weights = np.asarray(calculation.system.kpoints.weights)
     samples = kpm_moments(hamiltonians, weights, centre, half, n_moments,
                           n_random=n_random, seed=seed, trace=trace, k_batch=batch)
@@ -348,8 +369,13 @@ def run_kpm_dos(
 
 
 def kpm_setup(system, pseudos, density, *, kpoints=None, k_batch="default", ns=None, tau=None,
-              becsum=(), field=None, field_scale=None, calculation=None):
-    """``(calculation, hamiltonians, k_batch)`` at a fixed density, the KPM regimes checked."""
+              becsum=(), field=None, field_scale=None, calculation=None, symmetrize=False):
+    """``(calculation, hamiltonians, k_batch)`` at a fixed density, the KPM regimes checked.
+
+    ``symmetrize`` replaces an augmented Hamiltonian by ``S^(-1/2) H S^(-1/2)``
+    (:mod:`defuqumat.kpm.overlap`), which a trace of the spectrum alone can use;
+    without it an ultrasoft or PAW dataset is refused.
+    """
     import equinox as eqx
 
     from defuqumat.batching import resolve_k_batch
@@ -366,8 +392,15 @@ def kpm_setup(system, pseudos, density, *, kpoints=None, k_batch="default", ns=N
     hamiltonians = fixed_density_hamiltonians(
         calculation, density, ns=ns, tau=tau, becsum=becsum, field=field,
         field_scale=field_scale)
+    batch = resolve_k_batch(calculation.k_batch)
+    if symmetrize and any(h.has_overlap for h in hamiltonians):
+        from defuqumat.kpm.overlap import symmetrized
+
+        if getattr(calculation, "gamma_only", False) or calculation.spiral:
+            require_a_kpm_regime(calculation, hamiltonians)
+        hamiltonians = symmetrized(hamiltonians, k_batch=batch)
     require_a_kpm_regime(calculation, hamiltonians)
-    return calculation, hamiltonians, resolve_k_batch(calculation.k_batch)
+    return calculation, hamiltonians, batch
 
 
 def interval_and_moments(hamiltonians, batch, seed, lanczos_steps, edge_margin, emin, emax,

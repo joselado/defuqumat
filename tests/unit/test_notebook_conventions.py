@@ -34,6 +34,7 @@ NOTEBOOKS = Path(__file__).resolve().parents[2] / "notebooks"
 #: Held to the whole skeleton. **This set only grows.** Add a notebook here in
 #: the same commit that rewrites it; never remove one to make a test pass.
 REWRITTEN = {
+    "62_kpm_optical_conductivity",
     "61_kpm_unfolding",
     "60_kpm_density_of_states",
     "57_quantum_metric",
