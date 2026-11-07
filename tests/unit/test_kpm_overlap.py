@@ -4,7 +4,7 @@ The folded apply (four projector products) is checked against the unfolded one
 (``S^(-1/2)`` on each side of ``Hamiltonian.apply``), which shares none of the
 fold's small matrices; the independent check of both against ``eigh(H, S)`` is
 ``test_kpm_augmented.py``. Si2 at 12 Ry, ``ecutrho`` four times that, on a 2x2x2
-mesh, and the same cell at ``nspin = 2`` with ``tot_magnetization = 2``.
+mesh, and the same cell at ``nspin = 2`` with ``tot_magnetization = 2`` (0.2 eV smearing).
 """
 
 from __future__ import annotations
@@ -39,7 +39,9 @@ def _silicon(kind: str, magnetized: bool = False):
     from pathlib import Path
 
     pseudo = Path(__file__).parents[1] / "data" / "pseudo"
-    extra = {"qe": {"system": {"nspin": 2, "tot_magnetization": 2}}} if magnetized else {}
+    # a smearing, so that the moment of 2 does not cut the valence-band multiplet
+    extra = (dict(smearing=0.2, qe={"system": {"nspin": 2, "tot_magnetization": 2}})
+             if magnetized else {})
     calc = Calculator.from_keywords(
         pseudo_dir=pseudo, announce=False, conv_thr=1e-10, lattice="fcc", a=5.398,
         pseudos={"Si": DATASETS[kind]},
