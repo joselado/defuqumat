@@ -28193,7 +28193,8 @@ gives exactly
 
 four `npwx x nkb` products and one FFT pair per vector, against six products, one FFT pair and `H`'s
 own projector table for the form of P171. `SymmetrizedHamiltonian` gains `table = A U` and
-`folded = F` per channel (`None` for the unfolded form, kept as `apply_unfolded`), built per k-point in
+`folded = F` per channel (`None` for the unfolded form, kept as `apply_unfolded`); `G` is not a field
+of its own, it enters `F` only. Both are built per k-point in
 a module-level jit (`_fold`) through `map_k`, with `A U = kinetic[:, None] U + _local(U^T)^T` masked.
 The fold is built only when the Hamiltonian has no Hubbard and no `lelfield` term and stores the whole
 sphere; otherwise, and with `symmetrized(..., fold=False)`, the unfolded form is used.
@@ -28231,7 +28232,7 @@ through all three, never below 8, which is why there are three. On the RTX A2000
 19 per cent of a folded call at R = 1.
 
 **Memory.** One more `(nk, npwx, nkb)` complex table per channel, `A U`: 46.3 MiB on si64 PAW at one
-k-point (`(1, 5930, 512)`; the plan's estimate of 15 MB was for a smaller `npwx`), and `nk nkb^2` for
+k-point (`(1, 5930, 512)`; the item had estimated 15 MB), and `nk nkb^2` for
 `F`. With `U` shared the total is `(1 + nspin) nk npwx nkb` against `nspin nk npwx nkb` before (P171
 stored `U` once per channel). Stated in the module docstring, selectable by `fold=False`.
 

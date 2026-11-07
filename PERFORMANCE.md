@@ -11636,11 +11636,13 @@ same call as the table above (si64 PAW, one k-point, broadening 0.01 Ry, N = 107
 warm median of 3 after one discarded call, one core through `slot.sh`; `review/kpm/wf/impl3/tfold.py`,
 logs `tim-base<n>.log` (the code of 92302fc3, worktree `w-kpm-review` at 42f4c76a) and `tim-new<n>.log`
 (this commit, `FOLD_DEFAULT` set before each arm in one process). The load average was 9.8 to 14.2 from
-other users through all of it, never below 8, so the pair was taken three times:
+other users through all of it, never below 8, so the pair was taken three times (the slot CPUs are
+SMT pairs, 4/5, 6/7, 8/9, 10/11, so pair 1's two arms ran on two different cores; pairs 2 and 3 ran on
+one thread, CPU 6):
 
 | pair | CPU | base 92302fc3 | unfolded | folded | folded against unfolded | folded against base |
 |---|---|---|---|---|---|---|
-| 1 | 5 (base), 6 | 28.92 s (load 12.7 to 13.5) | 24.65 s (12.1 to 12.9) | 19.75 s (12.8 to 13.5) | -19.9 % | -31.7 % |
+| 1 | 5 (base, the SMT sibling of slot CPU 4), 6 | 28.92 s (load 12.7 to 13.5) | 24.65 s (12.1 to 12.9) | 19.75 s (12.8 to 13.5) | -19.9 % | -31.7 % |
 | 2 | 6 | 27.77 s (13.3 to 13.9) | 22.24 s (9.9 to 10.4) | 16.52 s (10.1 to 11.4) | -25.7 % | -40.5 % |
 | 3 | 6 | 25.12 s (11.0 to 11.9) | 26.64 s (13.1 to 14.2) | 15.37 s (10.3 to 11.7) | -42.3 % | -38.8 % |
 
