@@ -540,6 +540,22 @@ class Hamiltonian(eqx.Module):
         result = psi + jnp.einsum("gk,...k->...g", vkb, becp @ qq.T)
         return jnp.where(self.mask[ik], result, 0.0)
 
+    def precondition(self, residual, energies, ik: int, diagonal=None, overlap_diagonal=None):
+        """``g_psi.f90`` on ``residual``: the Davidson preconditioner of this operator.
+
+        The solver calls this hook rather than the rule itself, so that an operator whose
+        states are not G-sphere vectors can bring its own (the magnetic Bloch grid of the
+        orbital-field route). The diagonals are the solver's, already hoisted out of its
+        loop and doubled under half-sphere storage; ``None`` computes them here.
+        """
+        from defuqumat.solvers.davidson import _precondition
+
+        if diagonal is None:
+            diagonal = self.diagonal(ik)
+        if overlap_diagonal is None:
+            overlap_diagonal = self.overlap_diagonal(ik)
+        return _precondition(residual, diagonal, overlap_diagonal, energies)
+
     def overlap_diagonal(self, ik: int) -> jnp.ndarray:
         """``<k+G|S|k+G>``, the preconditioner's ``s_diag`` (``usnldiag``)."""
         if not self.has_overlap:

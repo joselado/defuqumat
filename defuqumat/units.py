@@ -90,3 +90,46 @@ E_BOHR2_TO_C_M2 = ELECTRON_SI / BOHR_RADIUS_SI**2
 #: anomalous Hall conductivity is tabulated in.
 AU_CONDUCTIVITY_SI = ELECTRON_SI**2 / (H_PLANCK_SI / TPI) / BOHR_RADIUS_SI
 AU_TO_S_PER_CM = AU_CONDUCTIVITY_SI / 100.0
+
+# --- a uniform orbital magnetic field: the flux per cell ----------------------
+#: The flux quantum h/e in Wb (T m^2), the flux through a cell that winds the
+#: phase of an electron by 2 pi. Inside the code a field is only ever the flux
+#: number ``n_phi = p/q`` per chemical cell (:mod:`defuqumat.magnetic.conventions`);
+#: tesla appears here and nowhere else.
+FLUX_QUANTUM_SI = H_PLANCK_SI / ELECTRON_SI
+
+
+def flux_per_cell(B_tesla: float, area_bohr2: float) -> float:
+    """The flux number ``n_phi = B area / (h/e)`` through a cell of area ``area_bohr2``."""
+    return float(B_tesla) * float(area_bohr2) * BOHR_RADIUS_SI ** 2 / FLUX_QUANTUM_SI
+
+
+def tesla_from_flux(p: int, q: int, area_bohr2: float) -> float:
+    """The field in tesla at flux ``p/q`` per cell of area ``area_bohr2``."""
+    return (p / q) * FLUX_QUANTUM_SI / (float(area_bohr2) * BOHR_RADIUS_SI ** 2)
+
+
+def rational_flux(B_tesla: float, area_bohr2: float, qmax: int = 20000) -> tuple[int, int, float]:
+    """``(p, q, B_used)``: the rational flux per cell closest to ``B_tesla``.
+
+    The default branch is ``p = 1``, ``q = round(Phi0 / (B area))``, taken when that
+    ``q`` is at most ``qmax``; otherwise (a field so strong that ``q`` would be below
+    one, or ``qmax`` too small) the coprime ``p/q`` with ``q <= qmax`` nearest to
+    ``n_phi`` (the smallest such ``q`` on a tie). ``B_used`` is the field actually
+    taken, in tesla, which the caller reports beside the one asked for.
+    """
+    from fractions import Fraction
+
+    if not B_tesla > 0.0:
+        raise ValueError(f"the field must be positive, got {B_tesla} T (reverse a3 for -B)")
+    n_phi = flux_per_cell(B_tesla, area_bohr2)
+    q = round(1.0 / n_phi) if n_phi > 0 else 0
+    if 1 <= q <= qmax:
+        p = 1
+    else:
+        best = Fraction(n_phi).limit_denominator(int(qmax))
+        p, q = best.numerator, best.denominator
+        if p == 0:
+            raise ValueError(f"{B_tesla} T is below the smallest flux 1/{qmax} per cell "
+                             f"({tesla_from_flux(1, qmax, area_bohr2):.4g} T); raise qmax")
+    return int(p), int(q), tesla_from_flux(p, q, area_bohr2)
