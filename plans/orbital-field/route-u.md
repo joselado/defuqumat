@@ -21,3 +21,27 @@ entangled band set is not localized.
 
 The level sets `route-u-q{1,2,3,4,6}-local.npz` are measurements of this refused construction,
 not converged upper bounds.
+
+# Route U step 2: the acceptance table
+
+The full record, with the reasons and the decisions, is `plans/orbital-field/u2.md`. Logs are
+on D22 in `/l/ladovj1/review/mag/u2/`. Status: **refused at item 2** for step 1's reason (the
+hybrid basis of an entangled band set is not localized); the nonlocal term itself checks out.
+
+| item | measured | design | log |
+|---|---|---|---|
+| 1. zero flux, full H, levels against eps(k) | 1.8e-15 Ry | 1e-9 Ry | `zero-full.log` |
+| 1b. grid V_NL^0 against vkb, graphene / silicon (s, p) | 4.4e-6 / 4.3e-6 Ry | (projector check) | `zero-full.log`, `t-unit2.log` |
+| 1c. dressed term and T(a1) on the grid; bare; flipped sign | 6e-17; 7.3e-2; 0.100 relative | (commutation) | `t-unit2.log` |
+| 1d. Hermiticity of the localized composite, none / V_NL^B / V_NL^0 | 1.7e-6 / 1.5e-6 / 3.2e-4 | (operator check) | `iso-{none,gipaw,bare}.log` |
+| 2. Hermiticity, full H, q = 10 / 50, nbnd 8 | 2.1e-2 to 2.3e-2 / 1.2e-2 to 1.3e-2 | < 1e-10 (refuse 1e-8) | `q10-full.log`, `q50-full.log` |
+| 2. the same, bare control, q = 10 | 2.1e-2 to 3.0e-2 | | `q10-bare.log` |
+| 3. 2q levels about E_D, nbnd 16 -> 32, q = 2, 3, 4, 6 | not monotone, rises 2.6e-2 to 4.3e-2 Ry | monotone | `cross-q*.log` |
+| 3. q = 25, nbnd 8 -> 16 | rise 8.1e-3, fall 1.3e-2 Ry | monotone | `q25-full.log` |
+| 3. zero-mode pair, tr (w_A, w_B), q = 50 | (1.001, 0.999) | (report) | `q50-full.log` |
+| 4. max abs(U - P)/E_1 at n = +-1, nbnd 8, q = 10 / 25 / 50 | 0.41 / 0.17 / 0.09 (nbnd 16 at q = 25: 0.05) | falls with q | `peierls.log` |
+| 5. crosscheck sets q = 2, 3, 4, 6, nbnd 8, 16, 32 | saved, `route-u-q{2,3,4,6}-full.npz` | saved | `cross-q*.log` |
+| 6. cost q = 50, nbnd 8, one core | NSCF 285 s, blocks 620 s, solve 2.8 s, 4.2 GB | (record, at q = 100) | `q50-full.log` |
+
+The level sets `route-u-q{2,3,4,6}-full.npz` are measurements of this refused construction,
+not converged upper bounds. `q = 100` was not run (estimated 30 min and 6 GB, `u2.md`).
