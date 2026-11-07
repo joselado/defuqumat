@@ -132,7 +132,8 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
                        memory_limit: float | None = None, keep_states: bool = False,
                        field_axis: int = 2, chern_gap: float = 1e-6,
                        band_batch="default", unconverged: str = "fallback",
-                       window: str = "centred") -> MagneticBands:
+                       window: str = "centred",
+                       residual_threshold: float | None = None) -> MagneticBands:
     """The ``nbnd`` lowest levels of ``pi^2 + V_loc`` at flux ``p/q`` on a ``kmesh`` of the magnetic zone.
 
     Args:
@@ -157,6 +158,9 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
             makes the magnetic translation and the period in ``kappa`` exact on the grid) or
             ``'fixed'`` (Lu's FFT as written); :func:`~defuqumat.magnetic.blochgrid.
             momentum_multipliers`.
+        residual_threshold: a bound on each state's residual norm on top of ``ethr`` (the
+            eigenvalue test alone leaves the states converged to about ``sqrt(ethr)``, which
+            is what a density read from them carries).
         unconverged: ``'fallback'`` (a dense solve for ``ndim <= 20000``, a refusal above) or
             ``'keep'`` (the Davidson values as they stand, with ``unsettled`` saying so: for
             measuring a preconditioner, never for a result).
@@ -220,7 +224,8 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
         start = start_block(hamiltonian, ik, nbnd)
         values, vectors, step, left = davidson_eigensolver_all(
             hamiltonian, nbnd, psi0=start[None], ethr=ethr, david=david,
-            max_iterations=max_iterations, indices=np.array([ik]), return_steps=True)
+            max_iterations=max_iterations, indices=np.array([ik]), return_steps=True,
+            residual_threshold=residual_threshold)
         steps[ik], unsettled[ik] = int(step[0]), int(left[0])
         if unsettled[ik] == 0 or unconverged == "keep":
             eigenvalues[ik] = np.asarray(values[0])

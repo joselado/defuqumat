@@ -3,7 +3,7 @@
     python mag_route_p.py landau p q n1 n2 nbnd [two-gauge|kinetic|identity] [chern|keep]   item 1
     python mag_route_p.py herm                                               item 2
     python mag_route_p.py sphere ecut_ry nbnd                                item 3
-    python mag_route_p.py strong [centred|fixed] [ecut_ry]                    item 4
+    python mag_route_p.py strong [centred|fixed] [ecut_ry] [residual]         item 4
     python mag_route_p.py local q [outdir]                                   items 5 and 6
 
 Every number printed is in Ry unless said otherwise.
@@ -123,13 +123,14 @@ def sphere(ecut, nbnd):
     print(f"box - sphere per level: {np.round(d, 10).tolist()}; max |diff| {np.abs(d).max():.3e} Ry")
 
 
-def strong(window="centred", ecut=50.0):
+def strong(window="centred", ecut=50.0, residual=None):
     calc = graphene(ecut_ry=ecut)
     q = 3
     t0 = time.perf_counter()
     bands = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(1, q), kmesh=(2, 6), nbnd=4 * q + 8,
-                               keep_states=True, window=window)
-    print(f"window {window} ecut {ecut} box {bands.box}")
+                               keep_states=True, window=window, residual_threshold=residual,
+                               max_iterations=400)
+    print(f"window {window} ecut {ecut} box {bands.box} residual_threshold {residual}")
     print(f"solve {time.perf_counter() - t0:.1f} s steps {bands.steps.tolist()}")
     e = bands.eigenvalues.reshape(2, 6, -1)
     worst = 0.0
@@ -200,7 +201,8 @@ if __name__ == "__main__":
     elif what == "sphere":
         sphere(float(a[0]), int(a[1]))
     elif what == "strong":
-        strong(*(a[:1]), *([float(a[1])] if len(a) > 1 else []))
+        strong(a[0] if a else "centred", float(a[1]) if len(a) > 1 else 50.0,
+               float(a[2]) if len(a) > 2 else None)
     elif what == "local":
         local(int(a[0]), *a[1:])
     else:
