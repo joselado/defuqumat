@@ -44,7 +44,10 @@ from the sphere's: the preconditioner hook :meth:`~MagneticGridHamiltonian.preco
 that ignores the twist, the review's item 4) and the start block :func:`start_block`
 (random plane-wave coefficients on ``|k + G|^2 <= ecutwfc`` damped by ``1/(1 + |k + G|^2)``
 and transformed to the grid; the solver's own start damps pointwise and is wrong on a grid
-state). ``preconditioner = 'identity'`` is the comparison the hook is measured against.
+state). The default ``'two-gauge'`` averages that rule over the ``u`` and the ``h``
+representation, because no single gauge makes a state periodic along both in-plane axes;
+``'kinetic'`` is the single-gauge rule and ``'identity'`` the comparison the hook is measured
+against.
 
 Memory per k-point in flight (:func:`estimate_bytes`): ``(2.18 nvecx + 4.2 nbnd) ndim``
 complex numbers (Davidson's ``psi``, ``hpsi``, the subspace, the blocks), six box-sized FFT
@@ -74,9 +77,10 @@ from defuqumat.magnetic.conventions import MagneticCell
 from defuqumat.units import TPI
 
 __all__ = [
-    "MEMORY_LIMIT", "DENSE_LIMIT", "KRows", "MagneticGridHamiltonian", "wavefunction_box",
-    "filter_to_box", "tile_potential", "estimate_bytes", "refuse_memory", "landau_problem",
-    "start_block", "dense_matrix", "reference_matrix", "grid_positions", "chemical_copies", "sphere_local_levels",
+    "MEMORY_LIMIT", "DENSE_LIMIT", "PRECONDITIONERS", "KRows", "MagneticGridHamiltonian",
+    "wavefunction_box", "filter_to_box", "tile_potential", "estimate_bytes", "refuse_memory",
+    "landau_problem", "start_block", "dense_matrix", "reference_matrix", "grid_positions",
+    "chemical_copies", "sphere_local_levels", "magnetic_cell",
 ]
 
 #: The largest estimated working set a solve is started with, bytes: D22's 31 GB less
@@ -85,6 +89,9 @@ MEMORY_LIMIT = 26.0e9
 
 #: The largest ``ndim`` the dense fallback diagonalises (the design's refuse_if).
 DENSE_LIMIT = 20000
+
+#: The preconditioners of :meth:`MagneticGridHamiltonian.precondition`.
+PRECONDITIONERS = ("two-gauge", "kinetic", "identity")
 
 
 def wavefunction_box(cell, ecutwfc: float) -> tuple[int, int, int]:
@@ -178,8 +185,8 @@ class MagneticGridHamiltonian(eqx.Module):
     Fields: ``potential_box`` ``(q n1, n2, n3)`` real (Ry), ``kpoints`` ``(nk, 3)`` crystal
     coordinates of the magnetic cell's reciprocal basis, ``metric`` ``(3, 3)`` ``g^{ab} =
     b_a^m . b_b^m`` (1/bohr^2); static ``p``, ``q``, ``grid`` (the chemical wavefunction box),
-    ``ecutwfc`` (Ry, for the start block), ``preconditioner`` (``'kinetic'`` or
-    ``'identity'``), ``band_batch`` (:func:`~defuqumat.batching.map_bands`) and ``precision``
+    ``ecutwfc`` (Ry, for the start block), ``preconditioner`` (``'two-gauge'``,
+    ``'kinetic'`` or ``'identity'``), ``band_batch`` (:func:`~defuqumat.batching.map_bands`) and ``precision``
     (the band side's dtypes). ``p = 0`` is the zero-field operator on the same box.
     """
 
@@ -190,14 +197,14 @@ class MagneticGridHamiltonian(eqx.Module):
     q: int = eqx.field(static=True)
     grid: tuple = eqx.field(static=True)
     ecutwfc: float = eqx.field(static=True)
-    preconditioner: str = eqx.field(static=True, default="kinetic")
+    preconditioner: str = eqx.field(static=True, default="two-gauge")
     band_batch: object = eqx.field(static=True, default="default")
     precision: Precision = eqx.field(static=True, default=DEFAULT_PRECISION)
 
     # --- construction ----------------------------------------------------------
     @classmethod
     def build(cls, cell, p: int, q: int, ecutwfc: float, kpoints, potential=None, *,
-              grid=None, preconditioner: str = "kinetic", band_batch="default",
+              grid=None, preconditioner: str = "two-gauge", band_batch="default",
               precision: Precision | None = None) -> "MagneticGridHamiltonian":
         """From the chemical :class:`~defuqumat.system.cell.Cell`, the flux and the dense potential.
 
@@ -205,8 +212,8 @@ class MagneticGridHamiltonian(eqx.Module):
         ``None`` for the free problem; ``kpoints`` ``(nk, 2 or 3)`` magnetic crystal
         coordinates.
         """
-        if preconditioner not in ("kinetic", "identity"):
-            raise ValueError(f"preconditioner {preconditioner!r}: 'kinetic' or 'identity'")
+        if preconditioner not in PRECONDITIONERS:
+            raise ValueError(f"preconditioner {preconditioner!r}: one of {PRECONDITIONERS}")
         mcell = magnetic_cell(cell, p, q)
         precision = cell.precision if precision is None else precision
         grid = wavefunction_box(cell, ecutwfc) if grid is None else tuple(int(n) for n in grid)
@@ -322,9 +329,17 @@ class MagneticGridHamiltonian(eqx.Module):
     def precondition(self, residual, energies, ik, diagonal=None, overlap_diagonal=None):
         """``g_psi.f90`` on the box's plane waves, the twist ignored (the review's item 4).
 
-        The residual's periodic 3D transform is divided by QE's ``(1 + x + sqrt(1 + (x - 1)^2))
-        / 2``, ``x = |k + G|^2 + <V> - e``, and transformed back. ``'identity'`` returns the
-        residual, the comparison the hook is measured against.
+        ``'kinetic'`` (the design's form): the residual's periodic 3D transform is divided by
+        QE's ``(1 + x + sqrt(1 + (x - 1)^2)) / 2``, ``x = |k + G|^2 + <V> - e``, and
+        transformed back. ``'two-gauge'`` (the default): the mean of that and the same rule
+        applied to ``exp(i 2 pi p xi1 xi2) r`` (the ``h`` of Lu eq. 5) and turned back. The
+        twisted bundle has no gauge in which a state is periodic along both ``xi1`` and
+        ``xi2`` (its Chern number is ``p``), so a periodic transform of ``u`` sees a jump at
+        ``xi1 = 0`` and one of ``h`` a jump at ``xi2 = 0``; the mean puts half the weight on
+        each. Measured in ``plans/orbital-field/route-p.md``: on the free problem at ``q =
+        10`` and ``david = 4`` the single gauge leaves 5 of 12 bands unsettled after 200 steps
+        and the mean settles in 160. ``'identity'`` returns the residual, the comparison the
+        hook is measured against.
         """
         if self.preconditioner == "identity":
             return residual
@@ -333,8 +348,23 @@ class MagneticGridHamiltonian(eqx.Module):
         r = residual.reshape((-1,) + self.box)
         x = diagonal.reshape(self.box)[None] - energies.reshape(-1, 1, 1, 1)
         denominator = 0.5 * (1.0 + x + jnp.sqrt(1.0 + (x - 1.0) ** 2))
-        out = jnp.fft.ifftn(jnp.fft.fftn(r, axes=(1, 2, 3)) / denominator, axes=(1, 2, 3))
+
+        def g_psi(field):
+            return jnp.fft.ifftn(jnp.fft.fftn(field, axes=(1, 2, 3)) / denominator, axes=(1, 2, 3))
+
+        out = g_psi(r)
+        if self.preconditioner == "two-gauge" and self.p != 0:
+            phase = self._gauge_phase()
+            out = 0.5 * (out + jnp.conj(phase) * g_psi(phase * r))
         return out.reshape(residual.shape).astype(residual.dtype)
+
+    def _gauge_phase(self):
+        """``exp(i 2 pi p xi1 xi2)`` on the box, ``(1, N1, N2, 1)``: ``u -> h`` of Lu eq. 5."""
+        real = self.precision.real
+        n1, n2, _ = self.box
+        xi1 = jnp.arange(n1, dtype=real) / n1
+        xi2 = jnp.arange(n2, dtype=real) / n2
+        return self._phase(TPI * float(self.p) * xi1[:, None] * xi2[None, :])[None, :, :, None]
 
     # --- the kinetic term -------------------------------------------------------
     def _phase(self, theta):
@@ -350,7 +380,7 @@ class MagneticGridHamiltonian(eqx.Module):
         f = TPI * jnp.asarray(_frequencies(self.box[axis]), dtype=real)
         p = float(self.p)
         if axis == 0:
-            phase = self._phase(TPI * p * xi1[:, None] * xi2[None, :])[None, :, :, None]
+            phase = self._gauge_phase()
             h = phase * u
             dh = jnp.fft.ifft(f[None, :, None, None] * jnp.fft.fft(h, axis=1), axis=1)
             return jnp.conj(phase) * dh + (-TPI * p * xi2[None, None, :, None] + k[0]) * u
@@ -388,7 +418,7 @@ def magnetic_cell(cell, p: int, q: int) -> MagneticCell:
 
 
 def landau_problem(cell, p: int, q: int, grid, kpoints, *, ecutwfc: float = 50.0,
-                   preconditioner: str = "kinetic", precision=None) -> MagneticGridHamiltonian:
+                   preconditioner: str = "two-gauge", precision=None) -> MagneticGridHamiltonian:
     """``pi^2`` alone on the magnetic box (all potentials off): the free Landau problem."""
     return MagneticGridHamiltonian.build(cell, p, q, ecutwfc, kpoints, None, grid=grid,
                                          preconditioner=preconditioner, precision=precision)

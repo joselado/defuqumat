@@ -126,11 +126,11 @@ def _chern_numbers(states, kmesh, box, groups) -> tuple:
 
 def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), nbnd: int,
                        local_only: bool = True, free: bool = False, chern: bool = False,
-                       david: int = 2, ethr: float = 1e-12, max_iterations: int = 200,
-                       preconditioner: str = "kinetic", kpoints=None, grid=None,
+                       david: int = 4, ethr: float = 1e-12, max_iterations: int = 200,
+                       preconditioner: str = "two-gauge", kpoints=None, grid=None,
                        memory_limit: float | None = None, keep_states: bool = False,
                        field_axis: int = 2, chern_gap: float = 1e-6,
-                       band_batch="default") -> MagneticBands:
+                       band_batch="default", unconverged: str = "fallback") -> MagneticBands:
     """The ``nbnd`` lowest levels of ``pi^2 + V_loc`` at flux ``p/q`` on a ``kmesh`` of the magnetic zone.
 
     Args:
@@ -145,10 +145,15 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
         free: the Landau problem, all potentials off.
         chern: the Chern number of each isolated group of levels (``chern_gap`` Ry).
         david: Davidson's subspace multiple; ``ethr``, ``max_iterations`` its threshold and
-            budget; ``preconditioner`` ``'kinetic'`` (the hook) or ``'identity'``.
+            budget (``david = 4``, QE's default: at 2 the free problem at ``q = 10`` leaves 8 of 12
+            bands unsettled after 200 steps); ``preconditioner`` ``'two-gauge'`` (the hook's
+            default), ``'kinetic'`` (the single-gauge rule) or ``'identity'``.
         grid: the chemical wavefunction box (default :func:`wavefunction_box` at ``ecutwfc``).
         memory_limit: bytes (default :data:`~defuqumat.magnetic.blochgrid.MEMORY_LIMIT`).
         keep_states: return the states ``(nk, nbnd, ndim)``.
+        unconverged: ``'fallback'`` (a dense solve for ``ndim <= 20000``, a refusal above) or
+            ``'keep'`` (the Davidson values as they stand, with ``unsettled`` saying so: for
+            measuring a preconditioner, never for a result).
     """
     import jax.numpy as jnp
 
@@ -161,6 +166,8 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
             "on the magnetic box (Lu eq. 6), which is step 2 and not implemented; the bare "
             "nonlocal term breaks the magnetic translations and is not a substitute. Pass "
             "local_only=True for pi^2 + V_loc")
+    if unconverged not in ("fallback", "keep"):
+        raise ValueError(f"unconverged {unconverged!r}: 'fallback' or 'keep'")
     if field_axis != 2:
         raise NotImplementedError(
             f"a field along a{field_axis + 1}: the Landau gauge of the conventions puts B along "
@@ -209,9 +216,9 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
             hamiltonian, nbnd, psi0=start[None], ethr=ethr, david=david,
             max_iterations=max_iterations, indices=np.array([ik]), return_steps=True)
         steps[ik], unsettled[ik] = int(step[0]), int(left[0])
-        if unsettled[ik] == 0:
+        if unsettled[ik] == 0 or unconverged == "keep":
             eigenvalues[ik] = np.asarray(values[0])
-            solver.append("davidson")
+            solver.append("davidson" if unsettled[ik] == 0 else "davidson-unsettled")
             if states is not None:
                 states[ik] = np.asarray(vectors[0])
         elif ndim <= DENSE_LIMIT:

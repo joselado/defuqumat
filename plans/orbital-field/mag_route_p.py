@@ -1,6 +1,6 @@
 """Route P (step 1) acceptance probes, one item per call. Run from the worktree root on D22.
 
-    python mag_route_p.py landau p q n1 n2 nbnd [kinetic|identity] [chern]   item 1
+    python mag_route_p.py landau p q n1 n2 nbnd [two-gauge|kinetic|identity] [chern|keep]   item 1
     python mag_route_p.py herm                                               item 2
     python mag_route_p.py sphere ecut_ry nbnd                                item 3
     python mag_route_p.py strong                                             item 4
@@ -42,12 +42,12 @@ def peak_gb():
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6
 
 
-def landau(p, q, n1, n2, nbnd, precond="kinetic", chern=False):
+def landau(p, q, n1, n2, nbnd, precond="two-gauge", chern=False, unconverged="fallback"):
     calc = graphene()
     system = calc.system
     t0 = time.perf_counter()
     bands = run_magnetic_bands(system, calc.pseudos, None, flux=(p, q), kmesh=(n1, n2), nbnd=nbnd,
-                               free=True, chern=chern, preconditioner=precond)
+                               free=True, chern=chern, preconditioner=precond, unconverged=unconverged)
     wall = time.perf_counter() - t0
     mcell = MagneticCell.build(system.cell, p, q)
     levels, mult, labels = free_landau_levels(mcell, nmax=12, g3max=3)
@@ -192,7 +192,8 @@ if __name__ == "__main__":
     a = sys.argv[2:]
     if what == "landau":
         landau(int(a[0]), int(a[1]), int(a[2]), int(a[3]), int(a[4]),
-               a[5] if len(a) > 5 else "kinetic", len(a) > 6 and a[6] == "chern")
+               a[5] if len(a) > 5 else "two-gauge", len(a) > 6 and a[6] == "chern",
+               "keep" if len(a) > 6 and a[6] == "keep" else "fallback")
     elif what == "herm":
         herm()
     elif what == "sphere":
