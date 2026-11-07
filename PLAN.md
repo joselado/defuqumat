@@ -216,6 +216,15 @@ because that is what decides whether it is a session or a phase.
   P164b): time reversal, spinors and magnetic groups, manual `exclude_bands`, the symmetrised
   engine's 4.8x against `wannier90.x`, and a frozen set whose irreps the trial orbitals lack (Cr
   auto at the default edge), refused rather than met.
+- **A uniform orbital magnetic field beyond P175 to P177** (`notes/ORBITAL-FIELD-NEXT.md`): the
+  magnetic ultracell's basis (P176 is refused at its Hermiticity guard: a smooth band subspace
+  along `k1` is the missing piece, after the windowed free-problem experiment), and with it the
+  10 T interpolation and `q = 100`; the attribution of route P's 0.2 eV against Peierls at 7900 to
+  13000 T (the `p_z` set at 70 Ry, then a set with the mirror-odd vacuum states); the intra-cell
+  term at laboratory fields (unmeasurable at `q <= 10` by construction); diamond's `E(+) - E(-)` at
+  `conv_thr = 1e-10` and on an odd box; the orbital magnetization identity on a Chern insulator;
+  the Zeeman term, forces and stress, the current-density functional, a field off `a3`, spinors,
+  `nspin = 2`, ultrasoft and PAW, all refused by name.
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
@@ -28400,3 +28409,1980 @@ only through `symmetrized(fold=False)` or the module global `FOLD_DEFAULT`; thre
 outstanding line. The stored table is 46 MiB per channel on si64 and scales as `npwx nkb`; si128 is not
 measured. The setup's `_local(u.T, ik)` transforms the `nkb` columns through `map_bands`, which on a card is
 the whole block, so `nkb` real-space boxes are in flight during the setup; that peak is not measured.
+
+### P175 -- A uniform orbital magnetic field, the foundation: the conventions, Peierls substitution on Wannier hoppings, `Calculator.get_landau_levels`. ✅ DONE 2026-11-07 (`tests/unit/test_magnetic_conventions.py` (12), `test_magnetic_peierls.py` (8) and the facade's `test_magnetic_facade.py` (5, new at the Record stage), with the other three magnetic files and `test_calculator.py`, on D22 CPU; the fast gate in one slot at the branch tip (P177's line); no slow file of its own, the hook's four slow files listed under "Slow files"; branch `mag-foundation` ef527648 (from 7d4851af), reviewed KEEP with no fix, then `mag-record`; not merged, not pushed)
+
+The plan is `notes/ORBITAL-FIELD-NEXT.md`, whose section 12 (the fable review of 2026-11-07) wins over
+its sections 1 to 11; the workflow's design and the review's probe scripts are in
+`plans/orbital-field-review/`. The papers are Lu et al., PRL 135, 196401 (2025), arXiv:2505.06585
+(the plane-wave magnetic Bloch route, P177), Wang et al., arXiv:2609.01053 (gauge-including
+Gaussians, the Bloch-sum factor), and Wang and Vafek, PRB 108, 245109 (2023), arXiv:2303.16347 (the
+magnetic ultracell, P176). Neither QE nor Elk has a uniform orbital field: `grep -il
+'landau\|peierls\|gipaw'` over QE 7.5's `PW/src/*.f90` returns nothing (the one hit in the tree is
+`Modules/read_pseudo.f90` broadcasting the GIPAW fields of a UPF file; the GIPAW code is a separate
+package, not vendored), and over Elk's `src/*.f90` nothing; Elk's `afieldc` is a constant vector
+potential, which is a shift of `k` and carries no field, and `bfieldc` couples to the spin only.
+
+What this phase is: one gauge, one sign and one k label for every route (`magnetic/conventions.py`),
+the tesla conversion at the edge (`units.py`), the Peierls model on P162's Wannier hoppings on a
+magnetic torus or a ribbon (`magnetic/peierls.py`, `workflows/landau.py`), the Davidson
+`precondition` hook route P needs, and at the Record stage the facade. The full record of the step,
+`plans/orbital-field/foundation.md`, follows as it stands; its logs are on D22 in
+`/l/ladovj1/review/mag/foundation/`, written `L/<log>`.
+
+**The review (2026-11-07 evening, verdict KEEP).** Every number checked against its log; the
+conventions checked by hand (the Bloch-sum factor on the column, the GIPAW phase whose gradient is
+`a_Lan - a_sym`, the ribbon's missing factor on `a2` wraps since `a(a2) = 0`); the hook
+bit-identical on three silicon paths and live. Three things were handed to the Record stage and are
+done below: the facade's `refuse_regime`, the operator blocks built on the host (so `d/dB` does not
+pass through the `PeierlsOperator`, only through the traced `scale` of the conventions), and the
+units test's 78912 T and 10877 T as the arithmetic at the stated `a`.
+
+#### The orbital-field foundation: what was built and what it measured
+
+Branch `mag-foundation`, from 7d4851af. Every number below was measured on D22
+(`ladovj1@D22-0161`), in the worktree `/l/ladovj1/w-mag-foundation`, through
+`/l/ladovj1/review/guide/slot.sh` (one core, 6 GB) unless the line says otherwise. Logs are
+in `/l/ladovj1/review/mag/foundation/`, written below as `L/<log>`. The load average was 7 to 15
+from other users during the runs, so the times are a range, not a pair.
+
+##### What is here
+
+- `defuqumat/magnetic/conventions.py`: `MagneticCell` (frozen `equinox.Module`: the chemical
+  `Cell`, a traced `scale` on `a`, static `p`, `q`, `axis = 0`), with `b_chem`,
+  `magnetic_lattice`, `magnetic_reciprocal`, `area`, `flux`, `b_ph`, `field_tesla`, `a(r)`,
+  `kvector`, `peierls_phase`, `bloch_sum_phase`, `gipaw_phase`, `translation_phase`; and
+  `minimum_image`, `signed_area`, `refuse_regime` (spinor, `nspin = 2`, spiral, DFT+U,
+  gamma-only, ultrasoft, PAW, meta-GGA, each by name).
+- `defuqumat/units.py`: `FLUX_QUANTUM_SI`, `flux_per_cell`, `tesla_from_flux`,
+  `rational_flux` (returns `(p, q, B_used)`, so the field taken is always at hand).
+- `defuqumat/magnetic/peierls.py`: `Bonds` (`from_blocks`, `zero_field`), `bonds_from_wannier`
+  (each Wigner-Seitz image its own bond at `1/(ndegen count)`), `honeycomb_nn_bonds` (the
+  review's model), `PeierlsTorus` (`matrix(kappa)` as CSR, `operator(kappa)` as a banded
+  `PeierlsOperator` applied by `jnp.roll`, `ribbon(width)` from the same bonds),
+  `levels_near`, `cluster_levels`, `block_weight`, `hermiticity`, `hermiticity_guard`,
+  `plaquette_check`.
+- `defuqumat/magnetic/landau.py`: `free_landau_levels`, `dirac_levels`, `dirac_point`,
+  `dirac_velocity_from_bands`, `landau_degeneracy`, `linear_deviation`.
+- `defuqumat/magnetic/gipaw.py`: the GIPAW phase and its factor on minimum-image
+  displacements. The grid projectors (if-time item a) are not here.
+- `defuqumat/workflows/landau.py`: `run_landau_levels` and `LandauLevels`.
+- The precondition hook: `Hamiltonian.precondition` and `SpinorHamiltonian.precondition`
+  (`g_psi` on the diagonals, which the solver passes in), and `davidson_eigensolver` calls
+  `hamiltonian.precondition` when the operator has one and `_precondition` otherwise.
+- `plans/orbital-field/graphene-scf.npz`: the shared zero-field state (density and potential
+  `(1, 24, 24, 128)`, `fermi_energy = -0.11872348716859683` Ry, eigenvalues on the 19
+  irreducible k, total energy `-22.664820820312105` Ry, lattice in bohr). It is the SCF of the
+  design's keywords at the default `conv_thr = 1e-6` Ry (4 iterations, `L/graphene2.log`);
+  the routes compare operators on this one potential, so its own convergence does not enter a
+  crosscheck. Its integrated density is 8.000 electrons.
+- `plans/orbital-field/graphene-wannier-auto.npz` and `graphene-wannier-pz.npz`: the two
+  Wannier sets of item 6 (all arrays the Peierls model needs), for the crosscheck.
+- `plans/orbital-field/nn-butterfly.png`: the Hofstadter butterfly of the nearest-neighbour
+  model, `q <= 50`, all coprime `p`, 6 x 6 magnetic mesh, for the guide.
+- Probes: `mag_graphene_scf.py`, `mag_si_energy.py`, `mag_nn.py`, `mag_wannier_landau.py`,
+  `mag_kpm.py`, `mag_zero_modes.py`, all in `plans/orbital-field/`.
+- Tests: `tests/unit/test_magnetic_conventions.py` (12 tests), `tests/unit/test_magnetic_peierls.py`
+  (8 tests); 20 passed in 14.9 s at d79308f8 (`L/t-all2.log`).
+
+##### The acceptance numbers
+
+**1. Hermiticity, flatness, plaquette** (`L/nn-1245.log`, NN model, `q = 400`, `p = 1`).
+`max |H - H^dagger|` = 3.8e-15, 3.8e-15, 5.2e-15, 5.1e-15 eV at kappa (0,0), (0.37,0),
+(0,0.29), (0.21,0.63). With the Bloch-sum factor dropped: 4.68 eV at (0.37, 0.29), and the guard
+raised. Spread of the 22 levels nearest zero over the four kappa: 4.6e-15 eV. Hexagon
+plaquette, counterclockwise: `|product - exp(-i 2 pi/400)|` = 0.0 (exact to the last bit); a
+flipped sign raised. Accepted.
+
+**2. Degeneracy** (`L/nn-1245.log`). `p = 2, q = 400` is not a reduced flux and
+`MagneticCell.build` refuses it (the conventions ask for coprime `p, q`), so the check ran at
+`2/401` and `2/399`: zero level 4-fold and the next five positive levels 4-fold at all four
+kappa; at `3/400`, 6-fold. That is `2 p` (two valleys times `p`). Accepted.
+
+**3. Dirac at 10, 20, 40 T** (`L/nn-3c.log`, the final code; the same numbers in `L/nn-3b.log`).
+`E_1` = 0.100201 eV at `q = 7900` (9.989 T) against Dirac 0.100212 eV with `v_F` = 8.739e5 m/s
+read from the zero-field bands. Fit `E_n/E_n^Dirac = 1 - c n`, `n = 1..10`, intercept fixed at one:
+`c` = 1.146e-4 (10 T), 2.297e-4 (20 T), 4.605e-4 (40 T), against the review's 1.1e-4, 2.3e-4,
+4.6e-4; electron and hole sides equal to 1e-15 (the model is chiral). Two zero modes per kappa,
+`tr P_A` over the pair = 1.0000000000000 at all three fields. Shift-invert time at dim 15800:
+1.40 s (1.54 to 1.60 s in the earlier runs), matrix build 0.43 to 0.50 s. Accepted.
+
+**The trap this item found.** In the first run (`L/nn-3.log`) the trace over the zero-mode pair
+read 1.0129, 1.0889 and 0.6455 at 10, 20 and 40 T, where it is one. `L/zero.log` shows why:
+ARPACK's shift-invert returned the two exactly degenerate zero modes with `|V^+ V - 1|` from 0.12
+to 0.79 at residuals of 1e-16 Ry, whatever the shift (1e-7, 1e-4, 3e-3 Ry). The vectors are
+eigenvectors, but not an orthonormal basis of the pair, so a projector built from them is wrong.
+`levels_near` now does a Rayleigh-Ritz step on the returned block (orthonormalised by its singular
+vectors, a rank check that raises), and the unit test runs that path at `q = 1975`.
+
+**4. Ribbon against torus** (`L/nn-1245.log`, `q = 400`, a 400-cell ribbon, kappa2 = 0.29).
+The first twelve positive torus levels (six Landau levels, two valleys) against the nearest ribbon
+level whose vector has under 1e-6 of its weight on the outer 20 cells at each end (189 such
+levels): largest difference 1.8e-15 eV. Accepted.
+
+**5. Hofstadter identities** (`L/nn-5.log`). `E -> -E`: 5.4e-14 eV at every kappa, `q <= 50`,
+774 fluxes. `p/q -> (q - p)/q`: **not an identity at one kappa**, 1.40 eV apart at every mesh of
+one point; over the magnetic mesh N x N, `q <= 12`: 0.63 eV (N = 2), 0.78 eV (N = 3), 1.5e-14 eV
+(N = 6 and 12); at `q <= 50` over 6 x 6, 6.7e-14 eV. The reason: `(q - p)/q` is `-p/q` plus one
+flux quantum per hexagon, and the gauge transformation that removes that quantum is not periodic
+over the magnetic cell (on the honeycomb graph it carries a `pi n1 n2` term), so composed with
+time reversal it moves kappa; the two spectra are equal as sets over a mesh closed under that
+map, which a 6 x 6 mesh is and a 2 x 2 one is not. The design's "at four kappa" is replaced by
+the 6 x 6 mesh, in the probe and in the unit test. Figure `plans/orbital-field/nn-butterfly.png`
+(101 s for the whole sweep). Accepted with that change.
+
+**6. P162's set on the shared graphene state: refused on the 10 meV criterion.** No fable
+subagent could be launched from this step (the Agent tool is not available to it), so the
+conservative reading was taken and is recorded here: the criterion "band distance < 10 meV within
+E_F + 2 eV" counts every band below `E_F + 2` eV, as Vitale's `eta_2` does, and no set reached it.
+
+| set | log | `eta_2` (band n against n) | max over bands below E_F + 2 eV | max within E_F +- 2 eV |
+|---|---|---|---|---|
+| `auto`, 8 functions, 100 steps (unconverged) | `L/graphene.log`, `L/graphene2.log` | 75.6 meV | 284 meV | (not printed) |
+| `auto`, 8 functions, 1000 steps (converged) | `L/graphene-auto1000.log` | 116.8 meV | 800 meV | 3.86 meV |
+| `C:pz`, 8 bands, frozen below E_F + 2 | `L/graphene2.log` | refused: more frozen states than `num_wann` | | |
+| `C:pz`, 8 bands, frozen E_F +- 2 | `L/graphene-pz.log` | | 82 meV | 82 meV |
+| `C:pz`, 16 bands, frozen E_F +- 2, 100 steps | `L/graphene-pz16.log` | | 622 meV | 22.3 meV |
+| `C:pz`, 16 bands, frozen E_F +- 3, 1000 steps | `L/graphene-pz16b.log` | | 500 meV | 11.4 meV (within +- 3) |
+| `C:pz`, 10 bands, frozen E_F +- 3, 1000 steps | `L/graphene-pz10b.log` | | 5713 meV | 4226 meV |
+
+All comparisons are on a 6 x 6 mesh shifted by (1/24, 1/24) off the 12 x 12 Wannier mesh (on the
+mesh itself the frozen states are exact by construction, 0.000 meV, which was checked too). Each
+Wannier band is compared with the nearest DFT band at the same k, since the `p_z` bands are not
+the lowest two. What fails is far from the Dirac point: the deep sigma bands of the 8-function set
+(its `px`, `py` functions spread 3.8 to 10.4 A^2, and the site symmetry fell back: "the bands left
+free at k-point 5 do not carry the irreps the trial orbitals need beside the frozen ones, rank 3
+of 4") and the bottom of the pi band near Gamma for the `p_z` sets (with eight bands the outer
+window stops below pi* at Gamma, which gave rank 1 of 2 and centres 0.3 to 0.7 bohr off the
+plane; sixteen bands fixed the centres and the spreads, 0.95 A^2). Near `E_F` the 8-function set is
+within 3.9 meV. **The Wannier problem is handed to the record**: what is needed is a set whose
+deep bands are also within 10 meV, or a decision that the criterion is the window `E_F +- 2` eV,
+which the 8-function set passes.
+
+The Landau run on both sets was made anyway, to exercise the workflow at the real size, and is
+recorded as a measurement, **not as an acceptance** (`L/wl-auto.log`, `L/wl-pz16b.log`; the big
+job ran under `big.lock`, `MemoryMax=14G`, cores 0 to 3, `L/big-auto.sh`):
+
+- 8-function set (converged), `q = 7900`, dim 63200: hopping cutoff 1e-6 Ry (10294 bonds per
+  cell of 10306; zero-field band error 2.1e-5 eV within `E_F +- 2`); `E_D - E_F` = -11.8 meV,
+  `v_F` = 8.397e5 m/s (holes 8.398e5); `E_1/E_1^Dirac` = 0.99865 (`E_1 - E_D` = 96.16 meV against
+  96.29), `E_-1` 1.00069; fit `c` = 6.6e-4 electrons, -1.5e-4 holes (`E_n/E_n^Dirac` for `|n| <= 10`
+  in the log: 0.9939 to 0.9986 above, 1.0007 to 1.0011 below); two zero modes with `tr P_A` =
+  0.999993 over the pair; **valley splitting** 6 ueV at `n = -1` growing to 1.2 meV at `n = 10`
+  (this set breaks the symmetry that makes the valleys degenerate); Hermiticity 5.6e-16 Ry,
+  7.0e-16 relative; the plaquette of one cell (one function, hops along a1 and a2) is
+  `exp(-i 2 pi/7900)` within the guard's 1e-10;
+  build 20.4 s, shift-invert 22.0 s, 45 s in all.
+- `p_z` set (16 bands), dim 15800: 722 bonds per cell, no cutoff needed; `v_F` = 8.421e5 m/s;
+  `E_1/E_1^Dirac` = 0.99860, `E_-1` 1.00136; the electron-hole asymmetry grows to 0.9931 and
+  1.0021 at `|n| = 10`; zero level at -67 ueV from `E_D`, two modes, `tr P_A` = 1.0000000;
+  valleys degenerate to 6e-13 eV; Hermiticity 1.1e-15 relative; 5.0 s in all.
+- The first version of the workflow grouped levels at the 1e-7 Ry degeneracy tolerance, which
+  counted each split valley of the 8-function set as its own `n` (ratios 0.71 at every even `n`,
+  `L/wl-auto-ungrouped.log`). The Dirac comparison now groups at 2 per cent of `E_1` and reports
+  the splitting per level.
+
+**7. The precondition hook.** The silicon probe `mag_si_energy.py` (QE's `pw_scf/scf.in` at
+`conv_thr = 1e-10`, on the k-point path, at `K_POINTS gamma` with `nosym` on the half-sphere
+branch, and with `noncolin` on the spinor operator) before the hook (worktree
+`/l/ladovj1/w-mag-foundation-base` at 58536447) and after it (b3ff5f3b):
+
+| run | slot line | k-points | gamma | noncolin |
+|---|---|---|---|---|
+| before, `L/si-base.log` | `# slot 1 cpu 6` | -15.794495570882638 | -14.518759817907355 | -15.794495570882642 |
+| after, `L/si-after-b.log` | `# slot 1 cpu 6` | -15.794495570882638 | -14.518759817907355 | -15.794495570882642 |
+| after, `L/si-after-a.log` | `# slot 0 cpu 4` | -15.794495570882638 | -14.518759817907355 | -15.794495570882642 |
+| before, `L/si-before.log` (gamma without `nosym`) | `# slot 0 cpu 4` | -15.794495570882638 | (full sphere) | -15.794495570882642 |
+
+The SHA-256 of the eigenvalue arrays is the same before and after on all three paths
+(17462b9d099bdf53, b68b3cd37c1d5e79, 4aafb202279f27cf). Bit-identical. The unit test
+`test_the_precondition_hook_is_the_old_rule_and_is_live` checks that the hook fires: an identity
+preconditioner changes the step count and not the eigenvalues, and the explicit default gives
+the same eigenvalues bit for bit.
+
+Test files of the touched modules (`L/t-all.log`, at b3ff5f3b): `test_magnetic_conventions.py`,
+`test_magnetic_peierls.py`, `test_davidson_collapse_projection.py`, `test_davidson_one_executable.py`,
+`test_davidson_single_calbec.py`, `test_davidson_zero_root.py`, `test_gamma_davidson_real.py`,
+`test_operator.py`, `test_units.py`, `test_hamiltonian_static_npw.py` and
+`test_qeref.py::test_scf_silicon`: 50 passed, 3 skipped in 27.2 s. The three skips need QE's
+source tree, which D22 does not have; with `scf.in`, its committed benchmark and `constants.f90`
+copied to `L/qe-ref/` and `DEFUQUMAT_QE_ROOT` pointed there, `test_qeref.py::test_scf_silicon`,
+`test_operator.py` and `test_units.py` gave 9 passed in 3.8 s (`L/t-qe.log`). The new files at the
+tip d79308f8: 20 passed (`L/t-all2.log`).
+
+**8. Units.** In `test_magnetic_conventions.py`: `FLUX_QUANTUM_SI` = 4.135667696e-15 Wb to 1e-8;
+one flux quantum through the graphene cell (a = 2.46 A) is **78912 T**, and through the 3 x 1 x 1
+conventional diamond cell (a = 3.56 A) **10877 T**, both computed from `a` and the SI constants
+and asserted to 1 T. The design's 78926 T and 10883 T are 1.8e-4 and 5e-4 above them (a rounded
+area, the review's 18.73 bohr^2 for 18.7154); the conservative choice was to test the arithmetic
+at the stated `a`, keep Lu's 10870.4 T as a check at 0.2 per cent (it passes at 0.07), and record
+it here. 10 T is `p/q = 1/7891` and `q = 7900` is 9.989 T (the design's 9.991 T used the rounded
+area).
+
+##### The if-time items
+
+- (a) Grid projectors with the GIPAW phase: **not delivered**. `gipaw.py` holds the phase only;
+  each route's step 2 writes its own `_grid_projectors` as the design allows.
+- (b) KPM on the Peierls operator (`L/kpm.log`): NN model, `q = 7900`, dim 15800, kappa (0.11,
+  0.23), Jackson kernel with 1286 moments (sigma 20 meV at the centre), 100 random-phase vectors:
+  the DOS within `E_D +- 0.3` eV against the 50 shift-invert levels broadened by the same 20 meV
+  Gaussian, relative L2 difference 4.8 per cent, which is the stochastic trace's noise at 100
+  vectors on two-state levels. 52 s for the moments against 2.7 s for the shift-invert.
+  `PeierlsOperator.apply` agrees with the CSR matrix to 1e-12 (unit test, torus and ribbon).
+
+##### Decisions taken here, and why
+
+No fable subagent could be started from this step, so every open choice took the conservative
+option, as rule 9 asks.
+
+- `rational_flux` returns `(p, q, B_used)` rather than `(p, q)`, so that the field actually taken
+  travels with the flux.
+- `p = 2, q = 400` replaced by `2/401`, `2/399` (and `3/400`): the conventions require a reduced
+  flux, and `build` refuses `2/400` by name.
+- The Hofstadter `(q - p)/q` identity is checked over a 6 x 6 mesh, measured as the smallest of
+  1, 2, 3, 6 that closes.
+- Item 6 is refused on the strict reading of the band criterion; its Landau numbers are kept as
+  measurements.
+- The units check values are the arithmetic at the stated lattice constants.
+- `levels_near` does a Rayleigh-Ritz step on ARPACK's block (the zero-mode trap above).
+- The Dirac comparison groups levels into Landau levels at 2 per cent of `E_1`.
+- The Hermiticity guard compares against the largest hopping as well as the largest matrix entry:
+  a small torus at a zone-boundary kappa had every entry cancel to 8e-16 eV and the guard raised
+  on its own round-off (`L/nn-1245.log`, first item-5 attempt).
+- The hook passes the solver's hoisted diagonals to `precondition` (doubled under half-sphere
+  storage), so `g_psi` sees the same numbers in the same order and nothing is recomputed per step;
+  an operator without the method takes the old call through `getattr`.
+- The host phase path of `PeierlsTorus` is NumPy in complex128 (the reference path); the
+  `PeierlsOperator` blocks take the policy's complex dtype. The blocks are built on the host, so
+  a derivative in `B` through the operator is not there yet: the traced `scale` reaches every
+  phase of `conventions.py` (tested with `jax.grad`), not the banded operator.
+
+##### What is left
+
+- The Wannier set of item 6: a set within 10 meV on every band below `E_F + 2` eV, or the
+  decision that the criterion is the window about `E_F`.
+- Grid projectors with the GIPAW phase (if-time a), and its silicon acceptance.
+- A traced build of the `PeierlsOperator` blocks, for `d/dB` through the operator.
+- `Calculator.get_landau_levels` (the Record stage). **It must call
+  `conventions.refuse_regime(system, pseudos, "Landau levels")`**: `run_landau_levels` sees only
+  the Wannier set, which carries `spin` (refused by `bonds_from_wannier`) but neither the system
+  nor the datasets, so ultrasoft, PAW, DFT+U, meta-GGA and gamma-only storage are not refused
+  inside the workflow. A spinor set never reaches it: `run_wannier` refuses `npol = 2` and a
+  spiral by name (`workflows/wannier.py:341`).
+- For `docs/d22-notes.local.md` (the Record stage; this step does not edit `docs/`): D22 has no
+  QE source tree, so `test_qeref.py::test_scf_silicon`, one test of `test_operator.py` and one
+  of `test_units.py` skip there; `scf.in`, its committed benchmark and `constants.f90` copied to
+  `/l/ladovj1/review/mag/foundation/qe-ref/` with `DEFUQUMAT_QE_ROOT` pointed there make them run
+  (9 passed, `L/t-qe.log`). `L/big-auto.sh` is the runner under `big.lock` for the 63200-row
+  solve (45 s, under 14 GB). Two slot jobs that write the same `npz` path at once race; the shared
+  `graphene-scf.npz` was checked afterwards (8.000 electrons, the same total energy).
+- D22 worktrees: `/l/ladovj1/w-mag-foundation` (detached at d79308f8; the later commits add only
+  files under `plans/`) and `/l/ladovj1/w-mag-foundation-base` (58536447, the pre-hook baseline of
+  item 7, removable).
+
+##### Slow files a reader may want to run (not run here)
+
+No new slow test was added. The hook changes the call in the Davidson solver for every
+operator, bit-identical on the three silicon paths above; the slow files that exercise the same
+solver on other regimes are `tests/regression/test_davidson_zero_root.py`,
+`tests/regression/test_gamma_only.py`, `tests/regression/test_spinorbit.py` and
+`tests/regression/test_noncollinear_magnetism.py`.
+
+
+#### The Record stage (2026-11-07): the facade and what its first runs found
+
+All on D22 in the worktree `/l/ladovj1/w-mag-record` (branch `mag-record`), logs in
+`/l/ladovj1/review/mag/record/`, written `R/<log>`.
+
+- **`Calculator.get_landau_levels(B=None, flux=None, route="peierls", wannier=None, geometry="torus",
+  width=None, nlevels=40, kappa=((0, 0),), dirac=True, zeeman=False, nbnd=None, N1=10, **options)`**:
+  `conventions.refuse_regime(system, pseudos, "Landau levels")` first (the workflow sees only the
+  Wannier set), then `run_landau_levels` on `wannier`, or on `get_wannier(**options)` when none is
+  given; `route="ultracell"` delegates to P176 and needs `flux`, `q <= 100` and `nbnd`; `zeeman=True`
+  is refused by the workflow by name. Body 20 lines, the delegation test's budget.
+- **The first facade run found a defect.** `get_wannier` with explicit projections (`["C:pz"]`)
+  leaves `WannierFunctions.edge` at `None`, and `run_landau_levels` did `float(wannier.edge)` for the
+  start of the Dirac search: `TypeError: float() argument must be a string or a real number, not
+  'NoneType'` (`R/fig-graphene.log`, first run; the notebook's first run the same). The foundation's
+  probes never met it because they built the set as a `SimpleNamespace` with `edge` set.
+  `run_landau_levels` now takes `fermi_energy` (the start of the search and the window centre when
+  `energy` is not given and the set has no edge) and refuses by name without one; the facade passes
+  the ground state's Fermi level only when the set has no edge. Tested
+  (`test_a_set_with_no_edge_is_centred_from_the_fermi_level`: the refusal fires, and the levels with
+  `fermi_energy` equal the levels with `edge`).
+- **Graphene at 10 T through the facade** (`R/snippets.log`, slot 1, CPU 6, the guide's snippet;
+  `R/fig-graphene.log` and the notebook give the same digits): `B = 10.0` rounds to `p/q = 1/7891`,
+  `B = 10.000` T, dimension 15782 (the `p_z` set: 16 bands, frozen `E_F +- 3` eV, 1000 iterations,
+  `symmetry=False`); `v_F` = 8.4207e5 m/s, `E_1^Dirac` = 96.62 meV; `E_n - E_D` and the ratio to
+  Dirac: `n = 1` 96.48 meV (0.99860), 2 (0.99776), 3 (0.99705), 10 303.43 meV (0.99314), `-1`
+  -96.75 meV (1.00136), `-2` (1.00168), `-3` (1.00186), `-10` -306.18 meV (1.00213); the zero level
+  -66.7 ueV from `E_D`, two states, site traces (1.0, 1.0); Hermiticity 3.9e-16 Ry; the plaquette
+  `0.999999683 - 7.962e-4 i`, which is `exp(-i 2 pi/7891)`. Against the foundation's `q = 7900`
+  (9.989 T) on the same set: 0.99860 and 1.00136 both times, the ratio being independent of `B` to
+  that digit. Notebook 63 executed in **124 s** (`R/nb.log`, slot 1, CPU 6).
+- **The orbit centre on a ribbon is `q (K2 - kappa2)` cells from the first cell**, measured
+  (`R/ribbon-time.log`): on the 165-cell ribbon of the 8-function set at 1/7900, `kappa2 = K2 -
+  82.5/q` (0.32289) and its partner valley (0.65622) hold `n = +-1` at +99.9 / -100.06 meV and
+  +99.54 / -99.97 meV, `K2 + 82.5/q` holds nothing within 220 meV of `E_D` in one valley and the
+  wrong ladder in the other, and the timing probe's first run at `kappa2 = 0.23` held no level within
+  1 eV of `E_D` (`R/peierls-time.log`; its orbit centre is 1800 cells outside the ribbon). The
+  facade docstring and the guide state the rule with the sign measured; the first draft had it
+  reversed.
+- **The 165-cell ribbon of the plan's section 12 item 7 (`5 l_B`) is not the torus to a meV.** At
+  its middle `n = +-1` is +99.9 / -100.06 meV against the torus's +96.08 / -96.36 (3.6 meV off), and
+  the zero pair is split to -9.65 / +7.91 meV against -0.08 / -0.02: the walls at `2.5 l_B` move the
+  levels. The foundation's item 4 (ribbon of `q` cells against the torus, 1.8e-15 eV) took only the
+  levels with under 1e-6 of their weight on the outer 20 cells. A ribbon for a number wants about
+  10 `l_B` (330 cells at 10 T), which is the facade's default width.
+
+### P176 -- The magnetic ultracell of Wang and Vafek: built, measured, and refused on its basis. 📋 OPEN, a measured negative result with its guards (`tests/unit/test_magnetic_ultracell.py`, 23 tests (21 of the route and two at the Record stage), on D22 CPU with the other magnetic files; the fast gate in one slot at the branch tip (P177's line); `tests/regression/test_magnetic_ultracell_slow.py` (8 tests, they assert the refusals) is slow and was not run, for the user; branches `mag-u1` a2336f0c and `mag-u2` 7ead1841, reviewed KEEP AFTER TWO NAMED FIXES as a measured refusal, the fixes made on `mag-record`; not merged, not pushed)
+
+What is merged is a measured negative result with its guards. **The default path of
+`run_magnetic_ultracell` (`strict=True`) raises on every acceptance case that was run**, at the
+Hermiticity guard (the assembled `H` is Hermitian only to 1.2e-2 to 3.0e-2 of its largest element,
+against 1e-8), so no level set of this route is a result. What is kept beside the guards are the
+basis-independent pieces, which a disentangled basis will reuse unchanged: the transport gauge (with
+its sign corrected against the design, which left a `2 phi` jump), the field kernels (exact on the
+analytic Landau state to 2e-15), the GIPAW grid projectors (`vkb` to 4.4e-6 Ry on graphene and
+4.3e-6 Ry on silicon with `s` and `p`) and their commutation with the magnetic translation (6e-17,
+against 7.3e-2 bare and 0.100 with the dressing's sign flipped, both controls firing). The nine level
+sets `plans/orbital-field/route-u-q*-{local,full}.npz` stay labelled unconverged; the crosscheck reads
+them for its item 1 and its route U table only. `Calculator.get_landau_levels(route="ultracell")`
+reaches it, takes `flux` only with `q <= 100` and a given `nbnd`, and so raises today.
+
+**Why it is refused, and that the refusal is real (the review).** The construction checks out
+against Wang and Vafek: `T(a1)` lowers `kappa` by `p/q`, the block reduction needs `a(a1).a1 = 0`,
+which holds, the Miller shift is the relabelling by hand, and the field term `2 a.p - i div a + a^2`
+with `div a = c1 (b1.b2)` is the operator. The basis-independent checks are exact: zero flux to
+5.3e-15 Ry (local) and 1.8e-15 Ry (full H). The free Landau problem at `q = 10` misses `(2n+1) B_ph`
+by 1.2e-2 to 0.14 Ry, `H` is Hermitian only to 5.7e-2, nbnd 2 to 4 rises by 2.5e-2 Ry, `N1 = 8`
+against 12 differs by 2.3e-2 Ry; with the full H at `q = 10` the residual is 2.1e-2 and the bare
+control reads the same 2.1e-2 to 3.0e-2, so the nonlocal term is not the cause. The cause is u1's:
+the lowest `nbnd` bands of a plane-wave crystal (and of free electrons) along a `k1` line are
+entangled at every `nbnd`, so the hybrid Wannier states have sinc tails (outside weight 0.30, 0.11,
+0.06, 0.03 at `w = 1 .. 4`, the `1/(pi^2 w)` of a sinc) and reach the sawtooth jump of `a(r)`; the
+matrix elements are then not exact and the levels neither variational nor nested in `nbnd`. Wang and
+Vafek's construction presumes an isolated or disentangled composite; the design's premise
+"Rayleigh-Ritz converging in `nbnd`" fails as built, not through a wrong matrix element. The decision
+handed on is a smooth band subspace along `k1` (SMV disentanglement with a frozen window about `E_F`,
+or projection on atom-centred trial orbitals with a Loewdin step per `k`), and since such bases are
+not nested in `nbnd`, the convergence knob becomes the window.
+
+**Fix 1 of the review (made).** `_ket_block` of `magnetic/ultracell_field.py` built `-i div a` as `-
+1j * c1 * b12 * overlap`, a complex literal in a jitted kernel, which `CLAUDE.md` forbids. It is now
+`jax.lax.complex(jnp.zeros_like(c1 * b12), c1 * b12).astype(overlap.dtype) * overlap`. What the old
+line did (`R/dtype.log`, `review/mag/record/mag_dtype.py`): with `b12` a Python float, as the kernel is
+called (`b12` is a static field passed positionally), the old line kept a complex64 block complex64;
+with `b12` a float64 array it promoted the block to complex128. The new line gives complex64 in both.
+So the fix is the convention, and the promotion the review named happens only for a strongly typed
+`b12`. The new fast test `test_the_field_block_keeps_a_single_precision_dtype` (both forms, complex64
+in, complex64 out) guards the dtype from now on; as the kernel is called it would also have passed on
+the old line, which is said here so that its pass is not read as the evidence. The analytic-state test
+still reads 1e-12 (`R/t1.log`: the whole file passed, with the five other magnetic files and
+`test_calculator.py`, one failure in the new facade file fixed since).
+
+**Fix 2 of the review (made):** the two sentences above, in `u2.md` and `route-u.md` as well.
+
+**First follow-up, not a blocker (the review):** there are two classes named `GridProjectors`
+(`magnetic/ultracell_nonlocal.py` on the wavefunction box with `real_spherical_harmonics`, and
+`magnetic/blochgrid.py` on the potential's grid with `real_solid_harmonics`), both with a "fold back
+into `magnetic/gipaw.py`" note and both validated against `vkb` on silicon. The fold is the first thing
+to do once a route needs them again.
+
+**The cheaper experiment before any disentanglement (the review, not run here).** The windowed basis
+with `h0="box"`, `form="symmetric"` is an exact Rayleigh-Ritz basis (Hermitian to 1e-9, every level
+above the exact one, u1's `freew1.log`), so its error must fall with the window. u1 measured only
+window (2.0, 2.5) at `N1 = 10` (0.04 to 0.11 Ry at `q = 10`, where `l_B` is 1.2 cells). Run the free
+problem at window (4.0, 5.0) with `N1 = 20` and (6.0, 7.5) with `N1 = 28`, nbnd 4 and 8: if the `(n, m
+= 0)` errors fall below 1e-3 Ry the route has a convergent form already and the disentanglement is an
+efficiency, not a necessity.
+
+**Timing (the design's pair 3, route U at `q = 100`: not run).** The NSCF of its zero-field k-points
+against the block build and the dense solve at `q = 100` needs about 30 minutes and 6 GB under
+`big.lock`, for a construction the guard refuses; the conservative choice was not to run it (no fable
+subagent could be started from this stage) and to record u2's cold-process numbers, which include
+compilation and are linear in `q` at fixed nbnd: NSCF 68.1 / 150.1 / 285.0 s, blocks 126.1 / 300.3 /
+619.9 s, dense solve 0.04 / 0.33 / 2.76 s at `q = 10 / 25 / 50`, nbnd 8 (`U2/q10-full.log`,
+`q25-full.log`, `q50-full.log`); `PERFORMANCE.md` has them.
+
+The records of the two steps follow as they stand: `u1.md` (logs `/l/ladovj1/review/mag/u1/`),
+`u2.md` (logs `/l/ladovj1/review/mag/u2/`), and the acceptance tables of both, `route-u.md`.
+
+#### Route U step 1, the magnetic ultracell: what was built, what it measured, and why it is refused
+
+Implementer u1, branch `mag-u1`, from ef527648 (the foundation's tip). Every number below
+was measured on D22 in the worktree `/l/ladovj1/w-mag-u1`, one core through
+`/l/ladovj1/review/guide/slot.sh` (6 GB) unless the line says otherwise. Logs are in
+`/l/ladovj1/review/mag/u1/`, written `L/<log>`. The load average was 3 to 6 during the runs.
+No fable subagent could be started from this step (the Agent tool is not available to it), so
+every open choice took the conservative option, and each is listed under "Decisions".
+
+##### The outcome in one paragraph
+
+The code of the design is in place and its machinery is exact where it can be checked: at zero
+flux the magnetic ultracell gives back the zero-field bands to 5e-15 Ry, and the field kernels
+on an analytic Landau state give `B_ph` and `3 B_ph` to 2e-15 relative (the reversed field reads
+0.667 off). **The acceptance is
+refused on the design's own refuse_if lines.** The free Landau problem at `q = 10` misses
+`(2n+1) B_ph` by 1e-2 to 1e-1 Ry, does not fall monotonically with `nbnd`, and its `H` is not
+Hermitian (5.7e-2 relative); graphene local-only at `q = 6`, `nbnd = 8` moves by 2.3e-2 Ry
+between `N1 = 8` and `N1 = 12`. The cause is the basis rather than a matrix element: the
+lowest `nbnd` zero-field bands along a `k1` line are entangled (they cross the band above the
+cut), so their hybrid Wannier states have the `1/x` tails of a sinc, and the design's
+criterion (weight outside `|xi1| <= w` below 1e-8) is never met. The measured outside weight
+of the free states, 0.27, 0.11, 0.06, 0.03 at `w = 1 .. 4`, is the `1/(pi^2 w)` of a sinc. A
+smooth window on the basis and the exactly Hermitian `a.p + p.a` were tried as remedies; they
+make `H` Hermitian and the levels variational, and the levels are still 0.03 to 0.07 Ry off.
+What would fix it is a smooth band subspace (a 1D disentanglement), which is a design decision
+and is handed on below.
+
+##### What is here
+
+- `defuqumat/magnetic/hybrid.py`: `local_only(h)` (`D_ij = 0` through `eqx.tree_at`),
+  `free_electron(h)` (also `V_loc = 0`, both grid layouts), `transport_gauge(links)` (parallel
+  transport on the closed `k1` loop, the Wilson loop by complex Schur, centres and the smallest
+  link singular value), `HybridSet` / `hybrid_set` (the box coefficients of `h_{n,0}` and of
+  `H_0 h_{n,0}`), `outside_weight`, `half_width`.
+- `defuqumat/magnetic/ultracell_field.py`: `MagneticUltracell` (frozen `eqx.Module`: the
+  `MagneticCell`, the hybrid sets per magnetic `kappa` and reduced point, the box geometry,
+  static `p, q, N1, nbnd, w, h0, form`), `.spread()`, `.blocks(k) -> (B, S, B_out, S_out)`
+  `(q, 2w+1, nbnd, nbnd)`, `assemble(kappa1, B, S, w, q)` (any `q`, `q <= 2w` included),
+  `solve(h, s, drop)` (canonical orthogonalisation, rank, smallest kept and smallest overall
+  eigenvalue of `S`), `hermiticity`, `hermiticity_guard` (raises above 1e-8),
+  `smooth_window`. Module-level `jit` kernels `_bra_side`, `_ket_block` (one compile per
+  shape; the 60 to 100 block calls of a run compile once).
+- `defuqumat/workflows/landau_ultracell.py`: `run_magnetic_ultracell(system, pseudos, scf, *,
+  flux, nbnd, N1=10, kmesh=(2,2), local_only=True, free=False, nlevels, w, h0="eigen",
+  form="ket", window=None, scale=1.0, strict=True, ...) -> MagneticUltracellResult` (levels per
+  magnetic k, rank, `d_min`, `d_all`, Hermiticity, `w` used and measured, the outside weights,
+  centres, smallest link singular value, the zero-field eigenvalues, Davidson counts, timings).
+  The zero-field states come from `fixed_density_hamiltonians` and `Calculation.diagonalize` on
+  a `KPoints.from_crystal` list `(i/N1, kappa + m/q, 0)`; the transport links from
+  `PlaneWaveStates.overlaps` (which walks the pairs through `map_k`).
+- `plans/orbital-field/mag_route_u.py` (the probe), `mag_route_u_compare.py` (level sets of two
+  logs), `route-u-q{1,2,3,4,6}-local.npz` (acceptance 4's level sets, nbnd 8, 16, 32;
+  **unconverged, see below**), `route-u.md` (the acceptance table with log paths).
+- Tests: `tests/unit/test_magnetic_ultracell.py`, 14 tests; with the foundation's two magnetic
+  test files beside it (`test_magnetic_conventions.py`, `test_magnetic_peierls.py`), 34 passed
+  in 22.2 s at a86275cf, whose code and tests are the tip's (`L/t-unit4.log`, slot 2, cpu 8).
+  The slow file collects its 3 tests (`L/collect-slow.log`). The slow file
+  `tests/regression/test_magnetic_ultracell_slow.py` (3 tests, 40 s to 4 min each) is listed,
+  not run.
+
+##### The conventions as implemented, and the one detail that was corrected
+
+The gauge, the sign, `T(R)`, the k labels and the Miller relabelling are those of the
+conventions, imported from `magnetic/conventions.py` and never redefined. The block of cell
+`X` lives at the bra's reduced wavevector `K_X = 2 pi (kappa + m_X/q) b2`; the ket
+`T(Delta a1) h_{n',0}(kappa_X + Delta p/q)` is the reduced state of `s' = (X + Delta) p` with
+its Miller `G2` raised by `D = floor(X p/q) - floor(s'/q)` (the relabelling and the plane-wave
+factor together), rolled by `Delta` cells. At `p = 1` `D` is nonzero on the wrap blocks; at
+`p = 3, q = 10` inside the cell range too.
+
+**The sign of the spread-out Wilson phase is the opposite of the design's.** Parallel transport
+returns the frame as `psi'_N = psi_0 Lambda^dagger`, so a periodic gauge needs
+`exp(+i phi_n i/N1)` and the centre is `-phi_n/2pi`. The unit test
+`test_the_transport_gauge_finds_the_centres_and_is_periodic` builds point orbitals at known
+centres (0.1, -0.3, 0.45 cells) with a random unitary mixing per k: the gauge finds them to
+1e-12 and every link, the closing one included, is `diag(e^{i phi/N1})` to 1e-12;
+`test_the_other_sign_of_the_phase_is_not_periodic` shows the design's sign leaves a jump of
+`2 phi` on the closing link. The branch is `(-pi, pi]`, so the centres sit within half a cell
+of the origin (measured: -0.5 to 0.5 on every run).
+
+##### The acceptance numbers
+
+**0. Zero flux** (not a design item; the check that the box, the scatter, the rolls and the
+Bloch sum are exact). `p = 0, q = 1`, graphene local-only, `nbnd = 4`, `N1 = 5`, `w = 2` (every
+`Delta` of the box once): levels against the zero-field eigenvalues at `kappa1 = 0`: 1.8e-15
+and 5.3e-15 Ry; Hermiticity 1.4e-15, 1.0e-15 (`L/zero1.log`, 10 s). The unit test does the same
+on a small cell in both `h0` modes to 1e-10.
+
+**0b. The operator on an analytic Landau state** (`mag_route_u_landau_check.py`; the check
+that the basis-limited runs below cannot give). The hexagonal `a` has a part along `b1`,
+`c1 (b1 . b2) x b1hat` with `x = b1hat . r`, the gradient of `f = c1 (b1 . b2) x^2/2`; the rest
+is `B_ph x yhat`. So `exp(-i f) exp(-B_ph x^2/2)` is the lowest Landau state at zero momentum
+along `a2` and `x` times it the next one. Fed directly to `_bra_side` / `_ket_block` (`h0 =
+"box"`, no window, `Delta = 0`), on the graphene cell, `q = 10`, 48 grid points per cell along
+`a1`:
+
+| N1 | form | `E0/B_ph - 1` | `E1/(3 B_ph) - 1` | `abs(H01)/abs(H00)` | Hermiticity | log |
+|---|---|---|---|---|---|---|
+| 14 | ket | -1.5e-11 | +9.8e-9 | 7.1e-10 | 3.3e-10 | `L/landau-check.log` |
+| 14 | symmetric | -1.5e-11 | +9.8e-9 | 7.0e-10 | 2.9e-16 | `L/landau-check.log` |
+| 18 | ket | 0.0 | +2.0e-15 | 1.0e-15 | 2.4e-16 | `L/landau-check-n18.log` |
+| 18 | symmetric | +4.4e-16 | +2.4e-15 | 2.6e-15 | 2.6e-16 | `L/landau-check-n18.log` |
+| 18 | either, field reversed | +0.667 | +0.667 | | | `L/landau-check-n18.log` |
+
+At `N1 = 14` the residuals are the Gaussian's weight at the jump of the sawtooth (8.9e-11); at
+`N1 = 18` (7e-18) they are round-off. So `c1`, `b2 . (K + G)`, the `-i div a` term, the `a^2`
+term and the box kinetic energy are right on a non-orthogonal cell, and the reversed field is
+not mistaken for the right one. The unit test
+`test_the_field_kernels_give_the_landau_ladder_on_an_analytic_state` asserts this at 1e-12 in
+both forms. What it does not check is the part of the chain this state does not use: the
+Miller shift `D` and the roll by `Delta` (the zero-flux check covers the roll; `D` is exercised
+only inside the refused runs).
+
+**1. Free Landau problem, q = 10, p = 1** (`B_ph` = 0.0335723 Ry, 7891.2 T at the stated
+`a`), `N1 = 10`, kmesh (2, 2): **refused.**
+
+| nbnd | log | outside weight at w = 1 .. 4 | Hermiticity | rank | error of (n, m=0), n = 0, 1, 2, worst k (Ry) | largest rise from the previous nbnd |
+|---|---|---|---|---|---|---|
+| 2 | `L/free1.log` | 0.303, 0.106, 0.063, 0.030 | 5.7e-2 | 20 of 20 | 0.121, 0.126, 0.143 | |
+| 4 | `L/free1.log` | 0.270, 0.114, 0.060, 0.028 | 6.3e-2 | 40 of 40 | 0.037, 0.072, 0.079 | +2.5e-2 |
+| 2, N1 = 20 | `L/free-n20.log` | 0.217 .. 0.007 (w = 1 .. 9) | 7.0e-2 | 20 of 20 | 0.076, 0.118, 0.147 | |
+| 2, field reversed (`scale = -1`) | `L/free-flip.log` | as nbnd 2 | 0.398 | 20 of 20 | -0.076 (below the exact level) | |
+| 2, p = 3 | `L/free-p3.log` | as p = 1 | 6.5e-2 to 0.114 | 20 of 20 | 0.118 to 0.180 | |
+| 4, p = 3 | `L/free-p3.log` | | 5.9e-2 to 7.5e-2 | 40 of 40 | 0.145 to 0.179 | +3.5e-2 |
+
+Every level sits above `(2n+1) B_ph + (2 pi m/c)^2` (smallest difference +1.2e-2 Ry at p = 1,
++0.118 at p = 3), so the non-variational refusal line does not fire; the monotone line and the
+1e-8 line do. `S` keeps every direction (smallest relative eigenvalue 0.028 to 0.088), so the
+rank line does not fire. The `p` states per level cannot be counted at this error. The
+reversed field is the control the guard needs: it reads a Hermiticity residual seven times
+larger and levels below the exact ones, so the matched sign of the basis and the operator is
+what the code has, and the residual of the matched case is the truncation, not a sign. A
+larger box makes it worse (N1 = 20), as sinc tails predict.
+
+**2. Hermiticity.** Free (above): 4.4e-2 to 7.0e-2. Graphene local-only, `nbnd = 8`, `N1 = 10`:
+6.6e-3 (q = 6, `L/cost-q6.log`), 4.0e-3 (q = 10, `L/cost-q10.log`). **Refused** (design 1e-10,
+refusal at 1e-8). Decomposed on the one isolated composite there is, graphene local-only
+`nbnd = 2` (two deep bands near -6.8 Ry, 6 Ry below band 3), `q = 10`:
+
+| h0 | N1 | log | Hermiticity | outside weight at w = 1, last w |
+|---|---|---|---|---|
+| eigen (design) | 10 | `L/iso-n10.log` | 2.0e-4 | 1.35e-4, 1.06e-5 (w = 4) |
+| box | 8 | `L/isobox-n8.log` | 2.5e-6 | 1.32e-4, 1.69e-5 (w = 3) |
+| box | 12 | `L/isobox-n12.log` | 1.7e-6 | 1.35e-4, 7.2e-6 (w = 5) |
+
+So on localized states the design's `H_0`-through-eigenvalues costs 2e-4 by itself: it is
+`P H_0 P` with `P` the bra's sphere, and a ket at `Delta != 0` sits `Delta p/q` of `b2` off that
+sphere, so the two triangles of `H` are different truncations. The box `H_0` removes it; what
+is left (1e-6) is the ket-form field term on tails of 1e-5. Even these deep states have tails
+1e-4 at one cell, decaying like a power: the plane-wave sphere of each `k` is a step function
+of `k`. The `form = "symmetric"` option is exactly Hermitian on the grid for any `xi1` (unit
+test, < 1e-12), but that makes the residual a non-diagnostic, not the levels right.
+
+**3. N1 convergence**, graphene local-only, `q = 6`, `nbnd = 8`: the lowest 24 levels at
+`N1 = 8` (`L/acc3-n8.log`) and `N1 = 12` (`L/acc3-n12.log`) differ by **2.28e-2 Ry**
+(`L/cmp-acc3.log`), against 1e-5 and the refusal at 1e-3. **Refused.** The spread found: no
+`w` below `N1/2` holds the weight to 1e-8; the outside weights are 0.217, 0.100, 0.046 at
+`w = 1 .. 3` (N1 = 8) and 0.231, 0.111, 0.068, 0.043, 0.021 at `w = 1 .. 5` (N1 = 12); the
+smallest link singular value 6.7e-8 and 4.5e-8 (the band set changes member between
+neighbouring `k1`). On the isolated composite (`nbnd = 2`, q = 10) the same comparison is
+4.1e-4 Ry with the eigen `H_0` and 5.3e-4 with the box one (`L/cmp-iso-eigen.log`,
+`L/cmp-iso.log`).
+
+**4. nbnd convergence**, graphene local-only, `N1 = 10`, kmesh (2, 2), nbnd 8, 16, 32, one big
+job under `big.lock`, cores 0 to 3, 14 GB (`L/big-acc4.sh`, `L/big-acc4.log`, per q
+`L/acc4-q<q>.log`): **not monotone at any q.**
+
+| q | lowest 4q | rise 8 -> 16 (Ry) | rise 16 -> 32 (Ry) | max abs change 16 -> 32 (Ry) | Hermiticity at nbnd 32 |
+|---|---|---|---|---|---|
+| 1 | 4 | 0.109 | 0.214 | 0.214 | 1.3e-2 to 2.7e-2 |
+| 2 | 8 | 0.086 | 0.078 | 0.078 | 8.7e-3 to 1.6e-2 |
+| 3 | 12 | 0.101 | 0.059 | 0.079 | 6.5e-3 to 9.2e-3 |
+| 4 | 16 | 0.144 | 0.180 | 0.180 | 6.6e-3 to 1.0e-2 |
+| 6 | 24 | 0.055 | 0.020 | 0.032 | 4.3e-3 to 5.2e-3 |
+
+(From the saved level sets by `mag_route_u_nbnd.py`, `L/acc4-4q.log`; a rise is positive where
+the level went up when the basis grew, which a variational sequence never does.) The level sets
+at kappa1 in {0, 1/2}, kappa2 in
+{0, 1/(2q)} are in `plans/orbital-field/route-u-q{1,2,3,4,6}-local.npz` (`levels_nbnd<n>`,
+`rank_`, `dmin_`, `herm_`, `w_`, `outside_`, `timings_`, `kappa`) for the crosscheck, **as
+measurements of a refused construction**: they are not converged and not upper bounds of the
+exact problem, so the crosscheck's "route U above route P" cannot be read from them.
+
+A second reason for the non-monotone sequence, besides the truncation: the span of the basis
+`{T(X a1) h_{n,0}(kappa + X p/q)}` depends on the gauge of each `k1` loop, not only on the band
+set, so the nbnd = 16 basis does not contain the nbnd = 8 one, and a Rayleigh-Ritz sequence is
+monotone only for nested bases. Even with exact matrix elements the design's sequence is not
+guaranteed to fall.
+
+**5. Harper.** No Harper reference was invented (design item 5).
+
+**6. Cost** (one core, cold process, so each time includes the compilation of its kernels):
+
+| q | nbnd | NSCF k-points | NSCF (s) | blocks (s) | log |
+|---|---|---|---|---|---|
+| 6 | 8 | 120 | 28.3 | 54.8 | `L/cost-q6.log` (slot 1, cpu 6) |
+| 10 | 8 | 200 | 37.8 | 91.4 | `L/cost-q10.log` (slot 3, cpu 10) |
+| 6 | 32 | 120 | 74.0 | 154.2 | `L/acc4-q6.log` (cores 0 to 3, threaded) |
+
+The dense solve is under 0.1 s at every size here. The block build is `q (2w + 1)` calls of
+`_ket_block`, each four FFTs of `nbnd` box functions (`N1 x 24 x 24 x 128` points) and three
+`nbnd^2 npts` contractions; its peak is about `6 nbnd npts` complex words, 2.3 GB at
+`nbnd = 32`, `N1 = 10`, which is why nbnd 32 ran under the big-job cap.
+
+##### The two options that were tried as remedies (opt-in, measured, not adopted)
+
+- `window = (inner, outer)` with `h0 = "box"`: every basis function times a C-infinity window
+  about its own cell, so the blocks beyond `2 outer` are exactly zero and no bra reaches the
+  jump of the sawtooth. Free problem, `(2.0, 2.5)`, N1 = 10 (`L/freew1.log`): Hermiticity
+  1.4e-9 to 4.7e-10 with the ket form; levels above the exact ones; errors of (n, m=0), n = 0
+  .. 2, worst k: 0.099 to 0.111 (nbnd 2), 0.043 to 0.066 (4), 0.059 to 0.074 (8), 0.048 to
+  0.074 (16); not monotone (rises 2.5e-2, 3.1e-2, 3.4e-2). Graphene local-only (`L/isow1.log`):
+  Hermiticity 3.6e-13 at nbnd 2, 1e-10 at 4 and 8, not monotone (+5.2e-2 from 2 to 4). The
+  window cuts the sinc tails, and with them what the basis needed.
+- `form = "symmetric"`: `<bra| a.p |ket> + <p bra| a |ket>`, the same operator, exactly
+  Hermitian on the grid (unit test on the windowed free cell, < 1e-12).
+
+##### Decisions taken here, and why (all conservative: no fable could be started)
+
+- The Wilson phase is spread with `exp(+i phi_n i/N1)` and the branch is `(-pi, pi]`, against
+  the design's `exp(-i ...)` and `[0, 2pi)`: derived above and checked by two unit tests. A
+  detail of the design, not one of the binding conventions.
+- The design's operator stays the default (`h0 = "eigen"`, `form = "ket"`, no window); the
+  three alternatives are options, measured, and not adopted, since adopting any of them is a
+  design change.
+- The refuse_if lines are taken as written: the free problem (not monotone, off by more than
+  1e-8, Hermiticity above 1e-8) and the N1 comparison (2.3e-2 > 1e-3) stop the step. The nbnd
+  sweep of item 4 was still run and saved, because the crosscheck stage reads those files; they
+  are labelled unconverged here and in `route-u.md`.
+- `strict = True` by default: `run_magnetic_ultracell` raises when the assembled `H` is not
+  Hermitian to 1e-8, and on the free problem when `S` drops a direction (naming the `(cell,
+  band)` pairs of the null vector). Probes pass `strict = False` to measure.
+- `w` is capped at `(N1 - 2)//2` when no width holds the weight to 1e-8, and the run records
+  `w_measured = None` with the outside weights by width. The first dropped block `B(w + 1)` is
+  not measured at `N1 = 2w + 2`: its ket would cross half the box (recorded as `nan`).
+- `p = 0, q = 1` is accepted as zero flux (`MagneticCell` refuses `p = 0`, so the ultracell
+  carries `magnetic = None` there); it is the exactness check of item 0.
+- The nonlocal term is refused by name (`local_only = False` raises), as are the regimes of the
+  conventions through `refuse_regime` (unit test with an ultrasoft dataset).
+
+##### What is left, and what the next decision needs
+
+- **A smooth band subspace for the hybrid states**, which is the decision this step hands on.
+  The candidates, sized by what was measured here: (a) projection on trial functions with a
+  Loewdin step per `k` (1D Wannier projection; for the free problem Hermite-Gaussians in
+  `xi1` times plane waves in `xi2, xi3`, for graphene atom-centred orbitals), localized to the
+  weight the trials have on the bands above the cut; (b) a Souza-Marzari-Vanderbilt
+  disentanglement along `k1` inside an outer window; (c) choosing `nbnd` per `kappa'` at a gap,
+  which exists for graphene local-only at `nbnd = 2` and nowhere else measured. Any of them also
+  needs a nested sequence in its own knob for the variational test to mean anything.
+- With a smooth subspace, the design's `H_0` through eigenvalues still costs 2e-4 in
+  Hermiticity on localized states (item 2); `h0 = "box"` is the measured alternative.
+- Step 2 (the GIPAW-dressed nonlocal term) was not started: it rests on step 1's basis.
+- For the Record stage, D22: nothing new about the machine. One trap of my own: `slot.sh` with a
+  relative log path writes the "waiting" line where it was started and the rest into the
+  worktree (it `cd`s first), so the log looks like a job that never got a slot; give the log
+  as an absolute path.
+- D22 worktree `/l/ladovj1/w-mag-u1` (detached at the tip), logs in `/l/ladovj1/review/mag/u1/`.
+
+##### Slow files to run (listed, not run)
+
+- `tests/regression/test_magnetic_ultracell_slow.py` (new): the refusal at `q = 10` by the
+  Hermiticity guard, the windowed free problem at `q = 10` (Hermitian and variational), and the
+  N1 non-convergence at `q = 6`, each at the acceptance size.
+
+
+#### Route U step 2, the GIPAW-dressed nonlocal term: what was built, what it measured, and why it is refused
+
+Implementer u2, branch `mag-u2`, from a2336f0c (the tip of step 1, `u1.md`). Every number
+below was measured on D22 in the worktree `/l/ladovj1/w-mag-u2`, one core through
+`/l/ladovj1/review/guide/slot.sh` (6 GB cap). Logs are in `/l/ladovj1/review/mag/u2/`,
+written `L/<log>` below; the `# slot N cpu M` line of each log says where it ran. The load
+average was 8 to 14 during the runs, so the times are a range. No fable subagent could be
+started from this step (no Agent tool), so every open choice took the conservative option,
+and each is listed under "Decisions".
+
+##### The outcome in one paragraph
+
+The nonlocal machinery is right where it can be checked independently of the basis. At zero
+flux the full Hamiltonian gives back the zero-field bands to 1.8e-15 Ry (acceptance 1); the
+grid projectors reproduce the plane-wave `vkb` blocks to 4.4e-6 Ry on graphene and 4.3e-6 Ry
+on silicon with `s` and `p` channels; the dressed term commutes with the magnetic translation
+on the grid to 6e-17 relative, where the bare term misses by 7e-2 and the sign-flipped dressing
+by 0.10; and on the one localized basis there is (u1's isolated deep composite), adding the
+dressed term leaves the Hermiticity floor where it was (1.5e-6 against 1.7e-6) while the bare
+term raises it 200 times (3.2e-4). **Acceptance 2 is refused**, as the advisor and step 1
+predicted: the full Hamiltonian at `q = 10` reads 2.1e-2 to 2.3e-2 and at `q = 50` 1.2e-2 to
+1.3e-2, and the bare control at `q = 10` reads the same 2.1e-2 to 3.0e-2. So the residual is the
+basis of step 1 (the hybrid states of an entangled band set are not localized), not the
+nonlocal term. Following the refusal line I stopped there. I still saved the crosscheck sets
+(acceptance 5) and ran `q = 25` and the Peierls comparison at `q = 10, 25, 50` as labelled
+measurements of the refused construction; `q = 100` was not run.
+
+**What is merged is a measured negative result with its guards** (the review, 2026-11-07). The
+default path of `run_magnetic_ultracell` (`strict=True`) raises on every acceptance case that was
+run, at the Hermiticity guard, so no level set of this route is a result. What is kept beside the
+guards are the basis-independent pieces, which a disentangled basis will reuse unchanged: the
+transport gauge, the field kernels, the GIPAW grid projectors and their commutation test. The
+level sets `route-u-q*-{local,full}.npz` (nine files, small) stay labelled unconverged; the
+crosscheck reads them for its item 1 and its route U table only.
+
+##### What is here
+
+- `defuqumat/magnetic/ultracell_nonlocal.py` (new): `GridProjectors` (frozen `eqx.Module`:
+  flat box indices, projector values times `sqrt(Omega_box)/npts`, `b2 . d`, the GIPAW phase,
+  `D` per atom, the atom positions in the sawtooth frame, the cut radius and dropped norm per
+  species), `grid_projectors(cell, structure, pseudos, coefficients, atom_of_channel,
+  cell_grid, n1, magnetic, cut=1e-6)` (host setup, with the `# fold back into
+  magnetic/gipaw.py` note), `projections` (bare and dressed `<p|psi>` of box functions),
+  `nonlocal_block(..., mode)` with `mode` one of `difference` (`V_NL^B - V_NL^0`), `gipaw`
+  (`V_NL^B`), `bare` (`V_NL^0`). The docstring states `H = H_0 + Delta H + (V_NL^B - V_NL^0)`.
+- `defuqumat/magnetic/ultracell_field.py`: `MagneticUltracell.build(..., projectors,
+  nonlocal_mode, regions)`; the nonlocal block is added inside the one jitted `_ket_block` on
+  the rolled ket (the atoms stay in the bra's frame); `blocks(k, with_regions=True)` also
+  returns the blocks of real-space region masks, assembled like `S`.
+- `defuqumat/workflows/landau_ultracell.py`: `run_magnetic_ultracell(..., local_only=False,
+  nonlocal_term="gipaw"|"bare"|"none", projector_cut, sublattices)`. `local_only=False` is no
+  longer refused: it takes the unmodified `fixed_density_hamiltonians` states. The result
+  carries `nonlocal_term`, `nonlocal_mode`, `nonlocal_error` (the grid `V_NL^0` block at cell 0
+  against the same block from `vkb` through the transport gauge, Ry), `projector_radius`,
+  `projector_dropped`, `region_weights` `(nk, nlevels, ngroups)`. New helpers
+  `solve_vectors`, `sublattice_masks` (points equidistant from both atoms are shared).
+- Probes in `plans/orbital-field/`: `mag_route_u2.py` (the runs), `mag_route_u2_nbnd.py`
+  (acceptance 3 from saved sets, NumPy only), `mag_route_u_vs_peierls.py` (acceptance 4).
+- `plans/orbital-field/route-u-q{2,3,4,6}-full.npz`: acceptance 5, keys `levels_nbnd<n>`,
+  `rank_`, `dmin_`, `herm_`, `w_`, `outside_`, `timings_`, `regions_`, `nonlocal_error_`,
+  `eigenvalues_` for `n = 8, 16, 32`, plus `kappa`, `flux`, `fermi_energy`.
+- Tests: `tests/unit/test_magnetic_ultracell.py` now 21 tests (8 new, one rewritten), see
+  "Tests". `tests/regression/test_magnetic_ultracell_slow.py` has 5 new slow cases (listed,
+  not run).
+
+##### The acceptance numbers
+
+**1. Zero flux, full Hamiltonian** (`L/zero-full.log`, slot 3, cpu 10). Graphene, `p = 0`,
+`nbnd = 4` and 8, `N1 = 5`, `w = 2`, kmesh (1, 2), `h0 = eigen`, mode `difference`: levels
+against the zero-field eigenvalues 4.4e-16 and 1.3e-15 Ry (nbnd 4), 1.8e-15 and 8.9e-16 Ry
+(nbnd 8), against the design's 1e-9. Hermiticity 7.6e-16 to 2.0e-15. **Accepted.** This check
+cannot see the projectors (at `p = 0` the phase is zero and `V_NL^B - V_NL^0` is zero
+bit for bit), so three more checks were made:
+
+- The projector check in the same run: 4.4e-6 Ry (nbnd 4), 3.5e-6 Ry (nbnd 8). With `h0 = box`
+  (`T + V_loc` on the box plus the grid `V_NL^0`, nothing from the eigenvalues), the levels
+  against the eigenvalues are 6.8e-6 and 6.0e-6 Ry (`L/zero-box.log`), the same size. Cut
+  radius 1.58 bohr at 1e-6 of the peak, dropped norm 5.8e-12.
+- The cut is what is left. On the small unit-test cell the block error is 5.7e-6 Ry at the
+  default cut (1.58 bohr) and 8.8e-7 Ry at 1e-12 (2.24 bohr) (`L/t-unit2.log`): the amplitude
+  error is the square root of the dropped norm, 2.4e-6, as expected.
+- Silicon with `Si.pz-vbc.UPF` (an `s` and a `p` projector, 12 Ry), the real harmonics and
+  their ordering: block 4.3e-6 Ry, box levels 7.1e-6 Ry (`L/t-unit2.log`). A wrong `lm` order
+  or a stray `(-i)^l` would be of order 0.1 Ry here. Graphene's HGH dataset has one `s` channel,
+  so this is the only place the `l > 0` channels are exercised.
+
+**The operator check on a localized basis** (not a design item; it tests the GIPAW term where
+the basis does not hide it). u1's isolated deep composite: local-only zero-field states,
+`nbnd = 2`, `q = 10`, `N1 = 12`, kmesh (2, 2), `h0 = box`, the same basis in all three runs:
+
+| term added on the box | Hermiticity per magnetic k | log |
+|---|---|---|
+| none (u1's 1.7e-6) | 1.73e-6, 1.63e-6, 1.16e-6, 1.23e-6 | `L/iso-none.log` |
+| dressed `V_NL^B` | 1.55e-6, 1.46e-6, 1.05e-6, 1.10e-6 | `L/iso-gipaw.log` |
+| bare `V_NL^0` | 3.20e-4, 3.20e-4, 3.20e-4, 3.20e-4 | `L/iso-bare.log` |
+
+The dressed term commutes with `T(R)`, so the block reduction `<chi_X|H|chi_X'> = <h|H
+T(Delta)|h'>` holds and nothing is added to the floor (the relative residual even falls, since
+`max |H|` grows). The bare term does not commute, and the reduction then gives a different
+matrix in each triangle. The unit test does the same on the grid with model functions: dressed
+6.0e-17 relative, bare 7.3e-2, sign of the dressing flipped 0.100.
+
+**2. Hermiticity, full Hamiltonian: refused** (design 1e-10, refusal at 1e-8).
+
+| q | nbnd | term | Hermiticity per magnetic k | log |
+|---|---|---|---|---|
+| 10 | 8 | GIPAW (`difference`) | 2.12e-2, 2.12e-2, 2.29e-2, 2.29e-2 | `L/q10-full.log` (slot 2, cpu 8) |
+| 10 | 8 | bare, left in the eigenvalues (the control) | 2.11e-2, 2.11e-2, 2.96e-2, 2.96e-2 | `L/q10-bare.log` (slot 1, cpu 6) |
+| 50 | 8 | GIPAW | 1.17e-2, 1.17e-2, 1.27e-2, 1.27e-2 | `L/q50-full.log` (slot 1, cpu 6) |
+| 25 | 8, 16 | GIPAW | 1.4e-2 to 1.7e-2; 8.1e-3 to 9.7e-3 | `L/q25-full.log` |
+
+Step 1 measured 4.0e-3 at `q = 10` on the local-only basis (`review/mag/u1/cost-q10.log`); the
+full basis is worse (the lowest 8 bands of the full Hamiltonian are as entangled, and the
+measured outside weight at `w = 4` is 3.8e-2), and the dressed and bare runs agree to the
+first digit. The refusal is step 1's, for step 1's reason. Rank is full everywhere (`d_min`
+0.025 to 0.09), the measured half width is `None` (capped at `w = 4`), and the smallest link
+singular value is 9.5e-9 to 1.8e-7 (the band set changes member between neighbouring `k1`).
+
+**3. nbnd convergence: not monotone.** From the saved sets, the `2q` levels about `E_D` taken as
+the indices `3q .. 5q - 1` from the bottom (graphene has `4q` levels below `E_D`), per magnetic k
+(`mag_route_u2_nbnd.py`, run here on the copied npz; it imports NumPy only):
+
+| q | nbnd 8 -> 16: max rise, largest fall (Ry) | 16 -> 32: max rise, largest fall (Ry) | max abs change 16 -> 32 (Ry) | log |
+|---|---|---|---|---|
+| 2 | +5.7e-2, -0.435 | +4.3e-2, -8.7e-2 | 8.7e-2 | `L/cross-q2.log` |
+| 3 | +3.0e-2, -0.152 | +2.7e-2, -2.4e-2 | 2.7e-2 | `L/cross-q3.log` |
+| 4 | +4.6e-3, -0.110 | +2.6e-2, -1.6e-2 | 2.6e-2 | `L/cross-q4.log` |
+| 6 | +2.6e-2, -6.7e-2 | +3.6e-2, -2.4e-2 | 3.6e-2 | `L/cross-q6.log` |
+| 25 | +8.1e-3, -1.3e-2 | not run | | `L/q25-full.log` |
+
+The design asked for `q = 25` and 50 at nbnd 8, 16, 32; after the refusal I ran `q = 25` at 8
+and 16 only and `q = 50` at 8 only. Rank: `q nbnd` at every run; `d_min` 0.036 to 0.27. As
+u1 noted, the basis at a larger nbnd does not contain the smaller one (the transport gauge of
+each `k1` loop changes with the band set), so a monotone fall is not guaranteed even with exact
+matrix elements.
+
+**The sublattice character of the zero modes** (the two levels nearest `E_F`, the weight of
+`|psi|^2` on the box points nearer A and nearer B, trace over the pair, no tolerance): `q = 10`
+(1.031 to 1.036, 0.964 to 0.969); `q = 25`, nbnd 8 (1.003 to 1.005, 0.995 to 0.997), nbnd 16
+(1.0003 to 1.0009, 0.9991 to 0.9997); `q = 50` (1.0008 to 1.0012, 0.9988 to 0.9992). The Dirac
+picture is one zero mode per valley, one on A and one on B, so a trace of 1 on each.
+
+**4. Against Peierls on the Wannier set** (`L/peierls.log`, slot 0, cpu 4). Both saved sets
+(`auto`, 8 functions, and `pz`) at the same `p/q` and the same four magnetic k; `E_D` and `v_F`
+from their zero-field bands (`E_D = -0.1195875` Ry, 11.8 meV below `E_F`). Per k the two levels
+nearest `E_D` are the zero pair, the next two above `n = +1`, the two below `n = -1`; pooled over
+the mesh and sorted. `E_1` is the Peierls `<n = +1> - E_D`.
+
+| q | B (T) | Peierls E_1 (eV), auto / pz | Dirac E_1 at the Wannier v_F (eV) | route U nbnd | max abs(U - P)/E_1, auto / pz |
+|---|---|---|---|---|---|
+| 10 | 7891 | 2.107 / 2.106 | 2.706 | 8 | 0.414 / 0.415 |
+| 25 | 3157 | 1.467 / 1.468 | 1.712 | 8 | 0.167 / 0.168 |
+| 25 | 3157 | | | 16 | 0.053 / 0.052 |
+| 50 | 1578 | 1.124 / 1.124 | 1.210 | 8 | 0.090 / 0.090 |
+| 100 | 789 | not run | | | |
+
+At nbnd 8 the difference falls with `q`, roughly as `1/q` (0.41, 0.17, 0.09), and nbnd 16
+takes `q = 25` from 0.17 to 0.05. The levels themselves (eV from `E_D`, `auto` set): at `q = 50`
+Peierls `n = +1` 1.1226 to 1.1246 and `n = -1` -1.1959 to -1.1939, route U 1.1896 to 1.2260 and
+-1.1841 to -1.1623; the route-U zero pair sits 48 to 67 meV below `E_D`, Peierls 15 to 17 meV.
+Route U is close to electron-hole symmetric where Peierls on this set is not. **These numbers
+are measurements of a construction the Hermiticity guard refuses**, so the fall with `q` cannot
+be read as the intra-cell term (`mu_B B` is 91 meV at 1578 T, 8 per cent of `E_1`): the matrix
+the levels come from is non-Hermitian at 1.2e-2 of its largest element.
+
+**5. The crosscheck sets: saved**, `plans/orbital-field/route-u-q{2,3,4,6}-full.npz`, at
+kappa1 in {0, 1/2}, kappa2 in {0, 1/(2q)}, nbnd 8, 16, 32, full Hamiltonian with the GIPAW term
+(`L/cross-q{2,3,4,6}.log`, slot 2, cpu 8). The same label as u1's: they are not converged and
+not upper bounds of the exact problem (Hermiticity 1.5e-2 to 9.7e-2), so "route U above route P"
+cannot be read from them.
+
+**6. Cost** (one core, cold process, so each time includes compilation; load 8 to 14):
+
+| q | nbnd | NSCF k-points | NSCF (s) | blocks (s) | dense solve (s) | peak RSS (MB) | log |
+|---|---|---|---|---|---|---|---|
+| 10 | 8 | 200 | 68.1 | 126.1 | 0.04 | 2616 | `L/q10-full.log` |
+| 25 | 8 | 500 | 150.1 | 300.3 | 0.33 | 3189 | `L/q25-full.log` |
+| 25 | 16 | 500 | 219.8 | 636.9 | 2.37 | (same process) | `L/q25-full.log` |
+| 50 | 8 | 1000 | 285.0 | 619.9 | 2.76 | 4170 | `L/q50-full.log` |
+| 2, 3, 4 | 32 | 40 to 80 | | | | 5792, 5923, 6099 | `L/cross-q{2,3,4}.log` |
+
+The nonlocal term adds little: the grid projectors take 0.4 to 0.7 s to build and the projector
+check 1 s; the bare control at `q = 10` (no nonlocal block) took 157 s of blocks against 126 s
+with it, which is the load, not the term. Every time is linear in `q` at fixed nbnd. **`q = 100`
+was not run** (the refusal line had fired). From the `q = 50` run it would take about 570 s of
+NSCF (2000 k-points), 1240 s of blocks, 20 s of dense solve at dimension 800, and a peak near 6
+GB at nbnd 8 (2.6, 3.2, 4.2 GB at `q = 10, 25, 50`), so it needs the big-job pattern under
+`big.lock`, 14 GB. nbnd 32 already sits at the 6 GB cap at `q = 4` (6099 MB); `q = 6` at nbnd 32
+survived the slot too.
+
+##### Tests
+
+- `tests/unit/test_magnetic_ultracell.py` (21 tests) with the foundation's
+  `test_magnetic_conventions.py` (12) and `test_magnetic_peierls.py` (8) beside it, at 5c901cc3
+  (the final code and tests): **41 passed in 35.4 s** (`L/t-final.log`, slot 0, cpu 4; the one
+  warning is the foundation's TB09 refusal test). The file alone at 9534a349: 21 passed in
+  39.1 s (`L/t-unit2.log`, slot 2, cpu 8).
+- New fast tests: zero flux with the nonlocal term, both `h0` (levels 2.7e-15 and 1.5e-5 Ry,
+  block 6.1e-6 Ry on the small cell); the cut test (5.7e-6 against 8.8e-7 Ry); silicon with
+  `p` channels (4.3e-6 Ry); the commutation with `T(a1)` and its two controls that fire (bare
+  7.3e-2, flipped sign 0.100); the box atoms in the sawtooth frame; the sublattice masks
+  (exactly half each); the refusals (free problem with a nonlocal term, a full basis with no
+  term).
+- Slow, listed, **not run** (`tests/regression/test_magnetic_ultracell_slow.py`, new cases):
+  `test_zero_flux_with_the_full_hamiltonian_gives_back_the_bands` (about 35 s),
+  `test_the_dressed_term_keeps_the_hermiticity_floor_of_a_localized_basis[none|gipaw|bare]`
+  (about 60 s each), `test_the_full_hamiltonian_at_q10_is_refused_by_the_hermiticity_guard`
+  (about 2 min). The file collects its 8 tests, 3 of step 1 and 5 of step 2
+  (`L/collect-slow.log`).
+
+##### Decisions taken here, and why (all conservative: no fable could be started)
+
+- **The refusal line was followed.** Hermiticity at `q = 10` (2.1e-2) is above 1e-8, so the
+  acceptance stops there. I still ran item 5 (the crosscheck stage reads those files, u1's
+  precedent), `q = 50` at nbnd 8 (the design names `q = 10 and 50` for item 2), and `q = 25` at
+  nbnd 8 and 16 with the Peierls comparison, each labelled as a measurement of the refused
+  construction. `q = 100` (item 4's last point, item 6) and nbnd 32 at `q = 25, 50` were not
+  run; their cost is estimated above. The "if time" items (a) interpolation along kappa2, (b) the
+  banded apply under KPM, (c) a Chebyshev-filtered solve were not started: each rests on a basis
+  whose levels can be trusted.
+- **The design's cut of the projector at 1e-6 of its peak** is kept as the default
+  (`projector_cut`). It leaves 4e-6 to 7e-6 Ry in the grid `V_NL^0`; in the `difference` mode the
+  error cancels to first order between the dressed and bare terms built on the same points, and
+  1e-12 brings it to 9e-7 Ry at twice the points if a later step needs it.
+- **`d` is the displacement from the image of the atom the point belongs to**, not the minimum
+  image over the box. Graphene's projector radius at `kkbeta` (2.42 bohr) exceeds half of `a2`
+  (2.32 bohr), and with a cut that keeps it a box point belongs to two images along `a2`, each
+  with its own `d` and its own Bloch factor `e^{iK.d}`; a minimum image would give the far image
+  the wrong phase. At the default cut (1.58 bohr) no point belongs to two images, so this case
+  was **not** exercised by any run here; the 1e-12 cut of the unit test (2.24 bohr) is still
+  below half of the small cell's `a2` too. This refines the convention's wording ("d the minimum image on a periodic
+  box"), which is right whenever the sphere fits in half the box; the code of the conventions is
+  untouched.
+- **Each atom's `xi1` is folded to the same sawtooth `(-N1/2, N1/2]` the field term uses**, so
+  `a(tau)` in the dressing is the vector potential `Delta H` sees at the atom (the atom of cell
+  `N1/2` with `x1 > 0` goes to `-N1/2 + x1`). The jump is where every basis function is assumed
+  negligible, as in step 1.
+- **Two consistent forms of the term, and a control**: `difference` on a full basis with the
+  eigenvalue `H_0` (the design), `gipaw` on the box or a local-only basis (nothing nonlocal in
+  `H_0`), and `bare` (the undressed term, on the box, or left inside the eigenvalues). A full
+  basis with no term at all is refused by name, since it would carry `V_NL^0` in the eigenvalues
+  without saying so.
+- **`E_D` for acceptance 4 is the Wannier set's** (`dirac_point` on the zero-field interpolated
+  bands, as the conventions say for a Wannier set), used for both routes; the sublattice traces
+  use the two levels nearest the SCF's `E_F`, 11.8 meV above it (both are reported as such).
+
+##### What is left, and what it needs
+
+- The decision u1 handed on is still the one that blocks route U: a smooth band subspace for the
+  hybrid states (projection on trial orbitals with a Loewdin step per k, or a 1D
+  disentanglement along `k1`), with a knob that gives nested bases. The nonlocal term of this
+  step needs no change for it: it acts on any box functions, and its checks (zero flux, the
+  projector check, the commutation, the floor of a localized basis) carry over.
+- `q = 100` at nbnd 8 (about 30 min and 6 GB, big-job pattern) for items 4 and 6, and nbnd 32 at
+  `q = 25, 50` (above the 6 GB slot), once the basis is localized.
+- The interpolation along kappa2 to 10 T (`q = 7900`), the banded `apply` for the KPM, and the
+  filtered solve: not started.
+- The grid projectors live in this route's module; `magnetic/gipaw.py` should take them when
+  route P needs the same thing (the `# fold back` note is in the code).
+
+##### For the D22 notes (the Record stage writes them; I did not edit `docs/`)
+
+- A run of the magnetic ultracell at nbnd 32 on graphene peaks at 5.8 to 6.1 GB RSS (`q = 2` to
+  4, `N1 = 10`), right at `slot.sh`'s 6 GB cap; it survived, but anything larger belongs under
+  `big.lock`. The probe saves its npz only at the end, so a kill at the last nbnd loses the
+  whole file.
+- Worktree `/l/ladovj1/w-mag-u2` (detached at the branch tip), logs in `/l/ladovj1/review/mag/u2/`,
+  bundle `/l/ladovj1/bundles/mag-u2.bundle`. Removable once the branch is merged.
+
+
+#### Route U step 1: the acceptance table
+
+The full record, with the reasons and the decisions, is `plans/orbital-field/u1.md`. Logs are
+on D22 in `/l/ladovj1/review/mag/u1/`. Status: **refused**: the bare hybrid basis of an
+entangled band set is not localized.
+
+| item | measured | design | log |
+|---|---|---|---|
+| 0. zero flux, levels against eps(k) | 5.3e-15 Ry | (exactness check) | `zero1.log` |
+| 0b. field kernels on the analytic Landau state, E0/B_ph - 1, E1/3B_ph - 1 (N1 = 18) | 4e-16, 2e-15; reversed field +0.667 | (operator check) | `landau-check-n18.log` |
+| 1. free q = 10, p = 1, (n, m=0) error, n <= 2, nbnd 2 / 4 | up to 0.143 / 0.079 Ry | 1e-8 Ry | `free1.log` |
+| 1. free, monotone in nbnd | rise +2.5e-2 Ry (2 -> 4) | no rise > 1e-10 | `free1.log` |
+| 1. free, p = 3 | errors 0.118 to 0.180 Ry | 3 states per level | `free-p3.log` |
+| 1. free, rank | q nbnd at every nbnd | q nbnd | `free1.log` |
+| 2. Hermiticity, free / graphene | 5.7e-2 / 6.6e-3 (q = 6) | < 1e-10 | `free1.log`, `cost-q6.log` |
+| 2. Hermiticity, isolated composite (nbnd 2), eigen / box H0 | 2.0e-4 / 1.7e-6 | | `iso-n10.log`, `isobox-n12.log` |
+| 3. N1 = 8 against 12, q = 6, nbnd 8, lowest 24 | 2.28e-2 Ry | 1e-5 (refuse 1e-3) | `cmp-acc3.log` |
+| 3. spread: weight outside w = 1 .. 5 (N1 = 12) | 0.231, 0.111, 0.068, 0.043, 0.021 | < 1e-8 | `acc3-n12.log` |
+| 4. nbnd 8, 16, 32 at q = 1, 2, 3, 4, 6, lowest 4q | not monotone, rises 0.02 to 0.21 Ry | monotone | `acc4-4q.log` |
+| 6. cost q = 6 / q = 10, nbnd 8, one core | NSCF 28.3 / 37.8 s, blocks 54.8 / 91.4 s | (record) | `cost-q6.log`, `cost-q10.log` |
+
+The level sets `route-u-q{1,2,3,4,6}-local.npz` are measurements of this refused construction,
+not converged upper bounds.
+
+#### Route U step 2: the acceptance table
+
+The full record, with the reasons and the decisions, is `plans/orbital-field/u2.md`. Logs are
+on D22 in `/l/ladovj1/review/mag/u2/`. Status: **refused at item 2** for step 1's reason (the
+hybrid basis of an entangled band set is not localized); the nonlocal term itself checks out.
+
+| item | measured | design | log |
+|---|---|---|---|
+| 1. zero flux, full H, levels against eps(k) | 1.8e-15 Ry | 1e-9 Ry | `zero-full.log` |
+| 1b. grid V_NL^0 against vkb, graphene / silicon (s, p) | 4.4e-6 / 4.3e-6 Ry | (projector check) | `zero-full.log`, `t-unit2.log` |
+| 1c. dressed term and T(a1) on the grid; bare; flipped sign | 6e-17; 7.3e-2; 0.100 relative | (commutation) | `t-unit2.log` |
+| 1d. Hermiticity of the localized composite, none / V_NL^B / V_NL^0 | 1.7e-6 / 1.5e-6 / 3.2e-4 | (operator check) | `iso-{none,gipaw,bare}.log` |
+| 2. Hermiticity, full H, q = 10 / 50, nbnd 8 | 2.1e-2 to 2.3e-2 / 1.2e-2 to 1.3e-2 | < 1e-10 (refuse 1e-8) | `q10-full.log`, `q50-full.log` |
+| 2. the same, bare control, q = 10 | 2.1e-2 to 3.0e-2 | | `q10-bare.log` |
+| 3. 2q levels about E_D, nbnd 16 -> 32, q = 2, 3, 4, 6 | not monotone, rises 2.6e-2 to 4.3e-2 Ry | monotone | `cross-q*.log` |
+| 3. q = 25, nbnd 8 -> 16 | rise 8.1e-3, fall 1.3e-2 Ry | monotone | `q25-full.log` |
+| 3. zero-mode pair, tr (w_A, w_B), q = 50 | (1.001, 0.999) | (report) | `q50-full.log` |
+| 4. max abs(U - P)/E_1 at n = +-1, nbnd 8, q = 10 / 25 / 50 | 0.41 / 0.17 / 0.09 (nbnd 16 at q = 25: 0.05) | falls with q | `peierls.log` |
+| 5. crosscheck sets q = 2, 3, 4, 6, nbnd 8, 16, 32 | saved, `route-u-q{2,3,4,6}-full.npz` | saved | `cross-q*.log` |
+| 6. cost q = 50, nbnd 8, one core | NSCF 285 s, blocks 620 s, solve 2.8 s, 4.2 GB | (record, at q = 100) | `q50-full.log` |
+
+The level sets `route-u-q{2,3,4,6}-full.npz` are measurements of this refused construction,
+not converged upper bounds. `q = 100` was not run (estimated 30 min and 6 GB, `u2.md`).
+
+**What is merged is a measured negative result with its guards.** The default path of
+`run_magnetic_ultracell` (`strict=True`) raises on every acceptance case that was run, so what
+route U delivers is the refusal, plus the basis-independent pieces (the transport gauge, the
+field kernels, the GIPAW grid projectors and their commutation test) that a disentangled basis
+will reuse unchanged. The nine level sets `route-u-q*-{local,full}.npz` stay labelled
+unconverged; the crosscheck reads them for its item 1 and its route U table only.
+
+### P177 -- The plane-wave magnetic Bloch route of Lu et al.: the magnetic box, the GIPAW-dressed projectors, the SCF by the fold, the magnetizability, and the crosscheck of the three routes; `Calculator.get_magnetic_bands`, `get_magnetizability`. ✅ DONE 2026-11-07, with the named gaps below (`tests/unit/test_magnetic_bloch.py` (27), `test_magnetic_cross.py` (3), `test_magnetic_facade.py`, with the foundation's two files, on D22 CPU (`R/t1.log`, `R/t3.log`); the fast gate in one slot at @GATE_COMMIT@ (`R/gate.log`): @GATE_LINE@; `tests/regression/test_magnetic_bloch_slow.py` is slow and was not run, for the user (its fold test now split, and the check half is still above `slot.sh`'s 10-minute timeout); branches `mag-p1` 84253a62, `mag-p2` 1572b852, `mag-cross` 00ab8475, reviewed KEEP AFTER ONE NAMED FIX (p2) and KEEP (cross), the fixes and the record corrections made on `mag-record`; not merged, not pushed)
+
+The route of Lu et al. (PRL 135, 196401 (2025), arXiv:2505.06585): the wavefunction of the magnetic
+cell on a real-space box, the magnetic boundary condition `u(xi1 + 1) = exp(-i 2 pi p xi2) u`, the
+mechanical momenta as row-by-row Fourier multipliers, the local term on the potential's dense grid
+(two-grid), the projectors dressed by the GIPAW phase on that grid, the SCF solved at the `N2/q`
+representatives and folded onto the chemical cell, and the magnetizability from three SCFs. It is the
+exact reference at high field, and what the other two routes were measured against.
+
+**The review (2026-11-07 evening).** Lu's construction checked line by line (the boundary condition,
+`h = exp(i 2 pi p xi1 xi2) u` periodic in `xi1`, `pi_1` and `A_2`, the metric `g^{ab} = b_a^m .
+b_b^m` for Rydberg units); the centred frequency window is a legitimate choice of aliases per row,
+keeps each `pi_a` Hermitian, and is what makes the `T(a1)` covariance and the period in `kappa` exact
+on the grid; the two-grid local term is the plane-wave Galerkin matrix at zero field; the grid
+projectors carry the GIPAW phase and the magnetic Bloch factor `exp(-i a(P).r_in)` on every image;
+the fold's orbit argument is right; the density, the charge, `p < 0` and time reversal on an odd box,
+and QE's energy per chemical cell all check. Three design lines were left, and they are named as what
+they are:
+
+- **(a) Step 1's solver and window were replaced, and measured; this was a design change, not a
+  conservative choice.** The design's rule was "Davidson not converged in 200 steps with either
+  preconditioner: dense fallback below ndim 20000, stop above", and ndim at `q = 10` is 92160. p1
+  changed the preconditioner (two-gauge), `david` (4), the window (centred), the local term
+  (two-grid) and added four buffer bands. What makes it acceptable by number: the Kronecker match
+  (3.7e-16) does not depend on the solver, the exact ladder (2.9e-12) and the fold (1.35e-12) would
+  read differently with a wrong operator, and the design's forms are kept as options with their
+  numbers beside them (kinetic at `david = 2`: 12 of 12 unsettled; fixed window: 6.5e-3 Ry; filtered:
+  0.27 Ry over-binding at `a = 0`).
+- **(b) Step 2's item 1 (1.997e-2 against a refuse line of 2e-2) is the wrong instrument.** The line
+  was written for the projector normalisation and the `(-i)^l` phase, and the projector part alone is
+  5.1e-7 Ry. The 2e-2 is the box-against-sphere basis difference (the box holds about 2.9 times the
+  sphere's plane waves and is below it at every level, 2.0e-2 at 50 Ry, 7.2e-3 at 70 Ry). The line did
+  not measure what it was written for.
+- **(c) Step 2's item 4, `E(+) - E(-) < 1e-7` Ry at `conv_thr = 1e-8`, is the recurring trap "a test
+  asserting a tolerance its own `conv_thr` does not deliver".** The difference fell from 1.45e-6
+  (iteration 6) to 1.63e-7 (iteration 7), so the number is the SCF floor; the rerun at 1e-10 on the
+  same box is the follow-up, not a defect of the operator.
+
+**The fix of the review (made), and what it read.** `test_the_lowest_landau_level_carries_one_chern_number`
+asserted `abs(abs(chern) - 1) < 1e-9`, which passes for `C = -1`; it now asserts `abs(chern - 1) <
+1e-9`, pinning the sign to the +1 the record reports at `p = +1`. On its own box (4 x 4 x 8 per cell,
+flux 1/2, kmesh (3, 3)) it reads **+1** (`R/t1.log`, passed): the FHS orientation of the repository
+gives +1 there too, so nothing about the small box had to be recorded. The file also gained the
+`jax.clear_caches()` autouse fixture, since it compiles programs for at least six box shapes; the
+gate survived the 6 GB slot without it (the review's gate), so this is the memory rule, not a gate
+blocker.
+
+The records follow as they stand: `route-p.md` (step 1, logs `/l/ladovj1/review/mag/p1/` as `L/`; step
+2, logs `/l/ladovj1/review/mag/p2/` as `M/`), then the crosscheck `cross.md` (logs
+`/l/ladovj1/review/mag/cross/` as `C/`). The record corrections the review asked for are in them.
+
+#### Route P, step 1: `pi^2 + V_loc` on the magnetic box, what was built and what it measured
+
+Branch `mag-p1`, from the foundation's tip ef527648. Every number below was measured on D22
+(`ladovj1@D22-0161`) in the worktree `/l/ladovj1/w-mag-p1`, through
+`/l/ladovj1/review/guide/slot.sh` (one core, 6 GB), and the logs are in
+`/l/ladovj1/review/mag/p1/`, written `L/<log>`. Each log starts with its `# slot N cpu M`
+line; the load average was 2 to 5 during the runs, and the route U implementer ran beside them
+under `big.lock`, so a time here is a range of about 20 per cent, not a pair.
+
+The paper is Lu et al., PRL 135, 196401 (2025), arXiv:2505.06585; the design is section 3 of
+`DESIGN.md`, step 1 only. Three things in the operator differ from the design as written. Each
+was measured against the design's form, and the design's form stays as an option, so a reader
+can see the number the change rests on.
+
+##### What is here
+
+- `defuqumat/magnetic/blochgrid.py`: `MagneticGridHamiltonian` (frozen `equinox.Module`:
+  `potential_box`, `potential_fine`, `kpoints`, `metric`; static `p`, `q`, `grid`, `ecutwfc`,
+  `local`, `preconditioner`, `window`, `band_batch`, `precision`) with the duck-typed members
+  Davidson reads (`nk`, `npwx = ndim`, `npol = 1`, `space`, `dtype`, `gamma_only = False`,
+  `has_overlap = False`, `kinetic`, `state_kinetic`, `state_mask`, `diagonal`,
+  `overlap_diagonal`, `apply`, `apply_projected`, `s_projections`, `s_correction`, and the hook
+  `precondition`); `momentum_multipliers` (the three `pi_a` as row-by-row Fourier multipliers),
+  `local_term` (the two forms of `V u`), `wavefunction_box`, `filter_to_box`, `tile_potential`,
+  `start_block`, `estimate_bytes`, `refuse_memory`, `landau_problem`, `dense_matrix`,
+  `reference_matrix` (the same operator from explicit Kronecker products, for the dense check),
+  `grid_positions`, `chemical_copies`, `sphere_local_levels` (the a = 0 reference: the sphere
+  Davidson with `D_ij` zeroed), `magnetic_cell` (the conventions' cell, `p = 0` for zero
+  field). `kinetic`, `state_kinetic` and `state_mask` are `KRows`, rows computed for the `ik`
+  asked, so nothing of size `nk ndim` lives on the operator.
+- `defuqumat/workflows/magnetic_bands.py`: `run_magnetic_bands(system, pseudos, scf, *, flux,
+  kmesh, nbnd, local_only=True, free=False, chern=False, david=4, ...)` and `MagneticBands`
+  (eigenvalues `(nk, nbnd)` Ry, kpoints, `steps`, `unsettled`, `solver` per k, `memory_estimate`,
+  `chern` as `(first, last, C, max plaquette flux)` per isolated group of levels, `sorted_levels`,
+  timings). One k-point at a time through `davidson_eigensolver_all(..., indices=[ik])`, one
+  executable for every k.
+- `tests/unit/test_magnetic_bloch.py`: 17 tests. At the final code, with the foundation's two
+  files of the same package beside it: 37 passed in 38.6 s, the slowest test 4.0 s
+  (`L/t5.log`, `--durations=6`); the file alone 17 passed in 13.3 s (`L/t4.log`).
+- `tests/regression/test_magnetic_bloch_slow.py` (slow, not run here): item 1 at `q = 10` and
+  `2/11`, items 4 and 5 at `q = 3`.
+- Probes: `plans/orbital-field/mag_route_p.py` (`landau`, `herm`, `sphere`, `strong`, `local`),
+  `plans/orbital-field/mag_route_p_precondition.py` (the preconditioner variants).
+- `plans/orbital-field/route-p-q{1,2,3,4,6}-local.npz`: the level sets of item 5 with the default
+  operator (two-grid local term, centred window); `route-p-q{1,2,3,4}-local-filtered.npz` the same
+  with the design's filtered local term, for the record.
+
+##### The acceptance numbers
+
+**1. The Landau problem**, graphene geometry (`a = 2.46` A, `c = 15` A, box 12 x 12 x 64 per
+cell), `p/q = 1/10` (7891.2 T), kmesh (4, 4), `nbnd = 12`, all potentials off, at the final code
+(`L/landau-10-1-final.log`, d8e9fcad and later: centred window, two-gauge preconditioner, four
+buffer bands): `B_ph = 0.03357231492638168` Ry; every level against `(2n+1) B_ph + (2 pi m/c)^2`
+within **2.9e-12 Ry**, flat over the 16 magnetic k within **2.7e-12 Ry**, one state per level per
+k per `G3` branch (the `m = +-1` pairs degenerate to 1e-13). FHS Chern numbers of each isolated
+group: **1** for each of the three lowest `m = 0` levels (bands 0, 3, 6, `C = 1.0` to the printed
+twelve digits), 2 for each `m = +-1` pair, the largest plaquette flux 0.39 (pi/8 for the 16
+plaquettes of the 4 x 4 mesh) for a single level. The sign is +1 with the repository's FHS
+convention and no sign was adjusted. Davidson, `david = 4`, `ethr = 1e-12`: **119 to 154 steps**
+per k; 630 s for the 16 k-points; memory estimate 0.597 GB, peak RSS 1.72 GB (the 16 x 12 states
+kept for the Chern number are 0.28 GB of it). The same run before the buffer bands
+(`L/landau-10-1c.log`) gave 6.7e-12, 5.8e-12, the same Chern numbers and 146 to 179 steps, and
+at the fixed window (`L/landau-10-1b.log`, commit 247038aa) 5.1e-12, 4.0e-12, 146 to 169 steps.
+
+The preconditioner, one k-point, the same problem, 200 steps allowed (`L/landau-10-1-identity.log`,
+`L/landau-10-1-kinetic.log`, and the variant probe `L/pre-10-d2.log`, `L/pre-10-d4.log`,
+`L/pre-10-d.log`, `L/pre-10-e10.log`, `L/pre-10-e10-d2.log`, `L/dbg2.log`):
+
+| preconditioner | `david` | `ethr` | steps | bands unsettled | worst level error |
+|---|---|---|---|---|---|
+| identity | 4 | 1e-12 | 200 | 12 of 12 | 0.196 Ry |
+| kinetic (the design's: `g_psi` on the periodic FFT of `u`) | 2 | 1e-12 | 200 | 12 of 12 | |
+| kinetic | 4 | 1e-12 | 200 | 9 of 12 at kappa 0, 5 at (0.13, 0.27) | 1.1e-3 Ry |
+| kinetic | 4 | 1e-10 | 200 | 2 of 12 | |
+| `h` gauge only | 4 | 1e-12 | 200 | 12 of 12 | |
+| two-gauge (the mean of the two) | 2 | 1e-12 | 200 | 12 of 12 | |
+| **two-gauge** | **4** | 1e-12 | **160** | 0 | 1e-13 (first six levels) |
+| two-gauge with the plane waves' own diagonal `<m|pi^2|m>` | 4 | 1e-12 | 150 | 0 | |
+
+The rows from the variant probe are at `kappa = (0.13, 0.27)`, the identity and kinetic rows of the
+workflow at `kappa = 0`; all of them ran before the centred window and the buffer bands existed
+(commits 66ae6545 to 56a6cdff), which the free problem barely feels (the two full item-1 runs
+above without the buffer, fixed and centred, took 146 to 169 and 146 to 179 steps).
+
+At zero field the same box and the kinetic rule settle local-only graphene in 22 steps
+(`L/pre-g1-p0.log`; identity 200 steps, 10 unsettled), and the same local-only graphene at
+`p/q = 1/1` in 164 (two-gauge 93, `L/pre-g1-d4.log`; both at the fixed window and the filtered
+local term). So it is the field, not the box, that slows the solve.
+
+**2. Hermiticity and the dense check** (`L/herm2.log`, 5f414272, the final operator). Random `v`, `w`, `kappa =
+(0.37, 0.29)` (both wraps active): `|<v|Hw> - <Hv|w>|` relative to `|<v|Hw>|` is **5.0e-15**
+(two-grid) and 9.2e-15 (filtered) at `q = 10` on the full box (ndim 92160), 6.0e-16 at `q = 2` on
+4 x 4 x 8 per cell; relative to `|v||Hw|` 1.3e-17 and 2.8e-17. The operator built by application
+on unit vectors against the independent Kronecker-product matrix (`reference_matrix`, `q = 2`,
+4 x 4 x 8, graphene potential, filtered local term): **3.3e-16 and 3.7e-16** of the largest entry
+at the two kappa, `|H x - R x| / |R x|` 3.6e-16 and 3.9e-16, the reference Hermitian to 2.5e-16.
+The two-grid local term at zero field against the plane-wave Galerkin matrix `V(m' - m)` read off
+the dense potential: within 1e-12 of the largest entry (unit test). The three momenta against the
+analytic derivatives of a smooth function obeying the twist, `p = 1, 2`: within 1e-10 (unit test).
+
+**3. a = 0, q = 1, graphene local-only, the lowest 8 levels at k = 0, box against the sphere
+Davidson of the same Hamiltonian with `D_ij` zeroed**, the two-grid rows at 5f414272, the filtered
+ones at bb2182c9 (`L/sphere-50-tg.log`, `L/sphere-70-tg.log`,
+`L/sphere-50.log`, `L/sphere-70.log`). The expected `< 5e-3` Ry was **not reached** by either form
+of the local term; the difference falls with the cutoff, as the design asks:
+
+| ecut | box per cell | local term | box - sphere, deep pair | box - sphere, the next six | max |
+|---|---|---|---|---|---|
+| 50 Ry | 12 x 12 x 64 | filtered (the design's) | -0.269, -0.262 | +0.0035 to -0.060 | 0.269 Ry |
+| 70 Ry | 15 x 15 x 75 | filtered | -0.067, -0.076 | +0.0015 to -0.016 | 0.076 Ry |
+| 50 Ry | 12 x 12 x 64 | **two-grid** | -0.141, -0.123 | -0.0007 to -0.029 | 0.141 Ry |
+| 70 Ry | 15 x 15 x 75 | **two-grid** | -0.035, -0.041 | -0.0002 to -0.0078 | 0.041 Ry |
+
+What the numbers say. The two-grid box is below the sphere at every level and both cutoffs, which
+is what a larger basis with exact matrix elements gives: the box holds about 2.9 times the sphere's
+plane waves, and local-only HGH carbon is not converged at 50 Ry in the sphere either (its deep
+level moves from -6.820 to -6.951 Ry between 50 and 70 Ry, and the 50 Ry two-grid box, -6.961, is
+already below the 70 Ry sphere). The gap is then the sphere's own incompleteness on a hard local
+potential, not an error of the box. The filtered form over-binds through aliasing (its box is 0.27
+Ry below the sphere where the two-grid one is 0.14), which is why it is not the default. The Gamma
+doublet the sphere holds to 1e-10 Ry at 50 Ry (-0.3446922105) and 1.4e-9 at 70 is split on the box: by **2.1e-3 Ry**
+(two-grid) and 4.9e-4 Ry (filtered) at 50 Ry, 1.2e-4 Ry (two-grid) at 70 Ry. The box is a
+parallelepiped in crystal coordinates with an asymmetric Nyquist slot, so it breaks the hexagonal
+group at its corner plane waves; that is a limit of the route, under "What is left".
+
+**4. The strong translational symmetry**, graphene local-only, `p/q = 1/3`, kmesh (2, 6), `nbnd =
+20`, the final operator (5f414272: two-grid, centred; before the buffer bands, which change the
+solver and not the operator), `residual_threshold = 1e-9` (`L/strong-tg.log`): spectra at `kappa2` and
+`kappa2 - 1/3` equal within **5.1e-12 Ry** over the mesh; the density of the 12 occupied bands
+(a fixed `mu = -0.487` Ry in the gap of at least 0.083 Ry, weights by an erfc of width 0.01 Ry so
+that no multiplet is cut) folded onto the chemical cell, spread over the three copies **4.0e-12**
+relative; the same at the two representatives alone (an open mesh) **1.6e-2**. 469 s.
+Without the residual bound the eigenvalue test alone leaves the states converged to about
+`sqrt(ethr)`: 6.1e-8 for the density spread (`L/strong-c.log`, filtered local term), 7.4e-12 with
+the bound (`L/strong-c-r.log`). With the fixed window (Lu's FFT as written, `L/strong-tg-fixed.log`)
+the spectra at the two kappa differ by **6.5e-3 Ry** and the density spread is 2.5e-3: the
+alternative reads differently, so the centred window is what makes the theorem exact on the grid.
+
+**5. Graphene local-only at `q = 1, 2, 3, 4, 6`**, kmesh (2, 2q), `nbnd = 4q + 8`, final operator
+with the four buffer bands (`L/local-f-q{1,2,3,4,6}.log`, npz in `L/f/`, copied to
+`plans/orbital-field/`): the sorted set over the full mesh against `q` copies of the set at the
+representatives `kappa2 in {0, 1/(2q)}`, all within the design's 1e-9 Ry:
+
+| q | ndim | nk | full mesh against q copies | Davidson steps per k | memory estimate | peak RSS | solve |
+|---|---|---|---|---|---|---|---|
+| 1 | 9216 | 4 | 0.0 | 60 to 69 | 0.035 GB | 1.05 GB | 18 s |
+| 2 | 18432 | 8 | 9.0e-13 Ry | 64 to 70 | 0.085 GB | 1.13 GB | 81 s |
+| 3 | 27648 | 12 | 6.7e-13 Ry | 69 to 81 | 0.150 GB | 1.25 GB | 227 s |
+| 4 | 36864 | 16 | 1.1e-12 Ry | 55 to 64 | 0.231 GB | 1.35 GB | 455 s |
+| 6 | 55296 | 24 | 3.5e-12 Ry | 72 to 107 | 0.438 GB | 1.63 GB | 2149 s (89 s a k-point) |
+
+Before the buffer bands (`L/local-tg-q{1,2,3,4}.log`) the same runs read 0.0, 6.2e-12, 1.0e-12 and
+**8.1e-10** Ry with 80 to 187 steps, and `q = 6` was refused (1 of 32 bands unsettled after 200
+steps at k-point 0, `L/local-tg-q6.log`); the 8.1e-10 sat in the topmost band of the block (band
+23) at `kappa1 = 0` while every other band agreed within 3.4e-12. The buffer takes that band off
+the returned set and halves the steps. The level sets of `q = 1` and `q = 4` are the same to the
+printed digits with and without it. Load average 7 to 14 from other users during the `q = 4` and
+`q = 6` runs.
+With the filtered local term (`L/local-q{1,2,3,4}.log`, the `-filtered` npz files): 0.0, 9.7e-12,
+8.7e-12, 6.9e-11 Ry, solves of 9, 47, 147 and 279 s. The two-grid term costs 1.40 times the
+filtered one at `q = 3` without the buffer (206 s against 147 s, with 120 to 145 steps against
+125 to 157).
+
+The estimate counts Davidson's blocks at `nbnd + 4` bands, six box buffers and three dense-grid
+buffers per band in flight (the two-grid term: `3 q 24 x 24 x 128 x 16` B, 21 MB at `q = 6`,
+106 MB at `q = 30`, small beside the blocks); the peak RSS is 1.0 to 1.2 GB above it at every `q`,
+which is the process and its compiled programs, not the solve.
+
+**6. q = 10, 20, 30**: not run. The `q = 6` run (36 minutes on one core at a load of 9 to 14) is
+the largest that fitted this step's time; the time per k-point at `q = 1, 2, 3, 4, 6` is 4.6, 10,
+19, 28 and 89 s, and what it is at `q = 30` is not measured here. The free problem at `q = 10` is
+the largest box solved (ndim 92160, 39 s a k-point, item 1).
+
+##### Decisions taken here, and why
+
+No fable subagent could be started from this step (the Agent tool is not available to it), so each
+choice is the conservative one that meets the design's own acceptance, with the design's form kept
+as an option and its number beside it. The first one is not a conservative choice but a design
+change (the review, 2026-11-07): the design's stop line was "Davidson not converged in 200 steps
+with either preconditioner: dense fallback below ndim 20000, stop above", and ndim at `q = 10` is
+92160. The design's solver and window were replaced, and measured: the Kronecker match (3.7e-16)
+does not depend on the solver, and the exact ladder (2.9e-12) and the fold (1.35e-12) would read
+differently with a wrong operator.
+
+- **The preconditioner is `two-gauge` and `david = 4`.** The design's rule (`kinetic`) at the
+  design's `david = 2` left 12 of 12 bands unsettled after 200 steps on the free problem at `q =
+  10`, which is the design's refuse_if; at `david = 4` 9 of 12. The reason is topological: the
+  twisted bundle has Chern number `p`, so no gauge makes a state periodic along both `xi1` and
+  `xi2`, and a periodic transform of `u` sees a jump at `xi1 = 0`, one of `h` a jump at `xi2 = 0`.
+  The mean of the rule in the two gauges settles in 160 steps (`david = 4`, the QE default). The
+  plane waves' own diagonal (`<m|pi^2|m>`, with the sawtooth's mean and mean square) took 150 and
+  was not adopted, being a second change for 6 per cent.
+- **The frequency window of each row is centred on zero mechanical momentum** (`window =
+  'centred'`). With Lu's FFT as written the grid operator is neither covariant under `T(a1)` nor
+  periodic in kappa (a twisted row multiplies `u` by `exp(i 2 pi p xi2)`, which moves its
+  frequencies past the box's Nyquist frequency): 7.5 Ry apart at the top of a 4 x 4 x 4 box (the
+  first unit-test run), 6.5e-3 Ry for item 4 at the full box. Centred, both hold to round-off on
+  the coarse box (unit test) and item 4 reads 5.1e-12.
+- **The local term is `two-grid`** (QE's `vloc_psi` order on the potential's own dense grid), not
+  the design's filtered potential on the box, for the aliasing of item 3. It is the design's own
+  condition ("the box-against-sphere difference is measured at a = 0 rather than assumed").
+- `p = 2, q = 10` is not a reduced flux and `MagneticCell.build` refuses it, as in the
+  foundation; two states per level was checked at `2/5` and `2/11` instead (below).
+- **Four buffer bands** above `nbnd`, at QE's empty-band threshold 1e-5 Ry, are solved and
+  dropped. Without them the top band of the block is the solve's straggler: the `q = 6` run of
+  item 5 was refused after 200 steps with 1 of 32 bands unsettled at k-point 0
+  (`L/local-tg-q6.log`), and at `q = 4` the top band read 8.1e-10 Ry off its translate where the
+  others read 3.4e-12 (`L/local-tg-q4.log`). Item 5's table is the run with the buffer
+  (`L/f/`, `L/local-f-q*.log`); items 1 to 4 were measured before it, without it.
+- A `residual_threshold` on the states for item 4, since the eigenvalue test does not converge
+  them (6.1e-8 against 7.4e-12, above).
+- The conventions' traced `scale` is not used: the field enters through the integer `p` of the
+  twist, so `B` is quantised by the box; `kappa` is traced.
+
+##### Two states per level
+
+`2/10` is refused by the conventions (not reduced). At `2/5` (ndim 46080, `L/landau-5-2c.log`,
+without the buffer bands) the solve was refused by the design's budget: 1 of 12 bands unsettled
+at k-point 1 after 200 steps. At `2/11` (14347.7 T, ndim 101376) with 400 steps allowed
+(`L/landau-11-2c-400.log`, without the buffer): every level within **1.7e-11 Ry** of the free
+formula, flat within 1.3e-11 Ry over the 4 x 4 mesh, **two states per level** (the members of the
+lowest four levels equal within 1e-13 Ry, of the 4-fold `n = 1, m = +-1` level within 1.3e-11),
+265 to 361 steps per k, 1041 s. With the four buffer bands (the final code) `2/5` settles within the
+design's budget (`L/landau-5-2-buffer.log`, ndim 46080, 31564.9 T): **101 to 118 steps** per k, every
+level within **3.2e-12 Ry**, flat within 2.0e-12 Ry, two states per level (the lowest pair equal to
+1e-12), 242 s for the 16 k. So `p = 2` holds the exact degeneracy, and what slowed it was the block's
+top band, which the buffer takes off the returned set. `2/11` was not rerun with the buffer.
+
+##### Refusals, each tested to fire (unit tests)
+
+`local_only=False` (the GIPAW-dressed nonlocal term is step 2), a field not along `a3`, a memory
+estimate above the limit (by number, in GB), a flux that is not reduced, a Chern number on a k-list
+that is not the closed plane mesh, a spinor (`npol = 2`) and an ultrasoft dataset through
+`refuse_regime` (which also names `nspin = 2`, PAW, a spiral, DFT+U, meta-GGA, gamma-only storage),
+`p = 0` with `q != 1`. An unconverged Davidson solve falls back to the dense matrix (tested at
+`max_iterations = 1`) and is refused by name above `ndim = 20000` (tested by lowering the limit);
+`unconverged = 'keep'` keeps the Davidson values for measuring a preconditioner and marks them.
+
+##### What is left
+
+- The nonlocal term with the GIPAW-dressed projectors (step 2), the fold and the SCF.
+- The broken hexagonal group of the box (the 2.1e-3 Ry Gamma split at 50 Ry): an odd box removes
+  the Nyquist asymmetry; a spherical mask at zero field would remove the corners, and with the
+  field it needs a definition in the mixed representation, which the review dropped.
+- A better preconditioner for `q >= 10`: the free Landau operator in the representation where
+  `pi_2` is diagonal (the `xi1` segments chained by the twist into one line, a 1D oscillator) has
+  an exact dense inverse of size `q n1 n2` per k, at a cost of `(q n1 n2)^2 n3` per band; not built.
+- Item 6 (q = 10, 20, 30), and the memory of the two-grid buffers measured rather than estimated.
+- The crosscheck stage reads `route-p-q*-local.npz` (two-grid, centred); route U's step 1 builds
+  its operator on the sphere, so the comparison of item 1 of the crosscheck carries item 3's
+  box-against-sphere difference (0.14 Ry on the deep pair at 50 Ry) and should be read with it.
+
+##### For `docs/d22-notes.local.md` (the Record stage)
+
+- Several slot jobs in sequence are a shell script of `slot.sh` calls started with `nohup bash
+  script.sh > out 2>&1 < /dev/null & disown`; the scripts of this step are
+  `review/mag/p1/chain_{a,b,c,d,e}.sh`. Killing the script (by its PID from `ps`) stops the chain
+  after the running job.
+- `slot.sh` passes the caller's environment to the job (`MAG_MAXIT=400 bash slot.sh ...` reached
+  the probe).
+- The worktree `/l/ladovj1/w-mag-p1` is removable once `mag-p1` is merged.
+
+##### Slow files (listed, not run)
+
+`tests/regression/test_magnetic_bloch_slow.py`: the free Landau problem at `1/10` with the Chern
+numbers (about 10 minutes) and at `2/11`, items 4 and 5 at `q = 3` (about 4 minutes).
+
+#### Route P, step 2: the GIPAW-dressed nonlocal term, the SCF by the fold, the magnetizability
+
+Branch `mag-p2`, from step 1's tip 84253a62. Every number below was measured on D22 in the
+worktree `/l/ladovj1/w-mag-p2`; the logs are in `/l/ladovj1/review/mag/p2/`, written `M/<log>`.
+A log starting with `# slot N cpu M` ran in `slot.sh` (one core, 6 GB); one starting with `# big
+job on cpus 0-3` ran under `big.lock` (four cores, 14 GB, `M/big.sh`). The load average was 4 to
+16 from other users, so a time here is a range, not a pair. The paper is Lu et al., PRL 135,
+196401 (2025), arXiv:2505.06585 (eq. 6 for the dressed projectors, eq. 7 and Table 2 for the
+magnetizability, Fig. 3 for the band shift, the Chern numbers of graphene at `n_Phi = 1`).
+
+##### What is here (step 2)
+
+- `defuqumat/magnetic/blochgrid.py`: `GridProjectors` (frozen `equinox.Module`: sphere indices
+  `(natom, npts)` into the flat magnetic fine grid, the actual displacements `(natom, npts, 3)`,
+  the k-independent bra values `(natom, nproj, npts)`, `D` per atom, the magnetic reciprocal
+  vectors; `bra(kappa)`, `project`, `apply`) and `grid_projectors` (host NumPy, `# fold back into
+  magnetic/gipaw.py`); `MagneticGridHamiltonian` gains `projectors`, `interpolate` and `restrict`
+  (the two halves of the two-grid local term, now shared with the nonlocal term and the density),
+  `grid_ratio`, `with_potential` (a new SCF potential without a recompile); `magnetic_cell` takes
+  `p < 0`; `sphere_levels` (the sphere Davidson of the full H, with its states) and
+  `sphere_state_on_box`.
+- `defuqumat/magnetic/fold.py`: `representatives`, `fold_to_chemical`, `band_density` (module
+  `jit`), `magnetic_occupations`, `run_magnetic_scf` and `MagneticSCF`, `fold_check`,
+  `molar_magnetizability`, `run_magnetizability` and `Magnetizability`.
+- `defuqumat/workflows/magnetic_bands.py`: `local_only=False` is the full Hamiltonian;
+  `magnetic_mesh` for a 2D or 3D closed mesh.
+- `tests/unit/test_magnetic_bloch.py`: 7 new tests and 2 more refusals in `test_the_refusals` (below); `tests/regression/test_magnetic_bloch_slow.py`:
+  3 new slow tests (listed, not run).
+- Probe `plans/orbital-field/mag_route_p2.py` (`item1`, `si`, `chern`, `shift`, `sets`, `fold`,
+  `diamond0`, `diamond`, `chi`); `plans/orbital-field/route-p-q{1,...,6}-full.npz`, the level sets
+  of item 6.
+
+How the nonlocal term is put on the box. Each projector is a real-space function, `beta_lm(d) =
+(r beta_l)(|d|)/|d| Y_lm(d)` with the same real harmonics as `vkb`, times the GIPAW phase `exp(i
+phi(d))`, `phi = -a(tau).d - a(d).d/2`, on the points of the **potential's (dense) grid** within its
+radius of every atom of the magnetic cell, each image enumerated with its own `d` and the magnetic
+Bloch factor `exp(-i a(P).r)` of the lattice vector `P` that brings it into the cell. It rides on
+step 1's two-grid interpolation `x = I u`: `y = V x + c W^dagger D W x`, then `I^dagger y`, so the
+whole operator is one Galerkin matrix and stays Hermitian, and the quadrature of `beta x` is the
+dense grid's, exact up to the projector's tail beyond twice that grid's Nyquist frequency. The radius
+is where `|r beta|` falls below 1e-6 of its maximum (1.726 bohr for C HGH, 2997 points per atom at
+50 Ry; 4.100 bohr for Si vbc, 4417 points), and the dropped norm is 3e-14 and 2e-14 of `int (r
+beta)^2`. The scatter is `.at[].add` (the CPU; `segment_sum` on a card is not built).
+
+##### The acceptance numbers (step 2)
+
+**1. a = 0, q = 1 graphene full H, k = 0, the lowest 8 levels, box against the sphere Davidson of
+the same Hamiltonian** (`M/item1-50.log`, `M/item1-70.log`; the shared potential).
+
+| ecut | box - sphere, deep pair | the Gamma doublet | the next four | max | projector part alone |
+|---|---|---|---|---|---|
+| 50 Ry | -1.13e-2, -7.41e-3 | -2.00e-2, -1.78e-2 | -1.8e-4 to -8.4e-4 | **2.00e-2 Ry** | 5.1e-7 Ry |
+| 70 Ry | -2.90e-3, -2.34e-3 | -7.20e-3, -7.08e-3 | -4.5e-5 to -2.6e-4 | **7.2e-3 Ry** | 5.3e-7 Ry |
+
+The expected `< 5e-3` Ry is **not reached** at 50 Ry. The design's refuse line of 2e-2 was written
+for the projector normalisation and the `(-i)^l` phase, and the 2.00e-2 does not measure those: it
+is the box-against-sphere basis difference, and the projector part alone is 5.1e-7 Ry (below). So
+the line did not measure what it was written for (the review, 2026-11-07). What the numbers say: the box is below the sphere at every level, and the difference falls by
+2.8 from 50 to 70 Ry, as a larger basis does; the projector part alone is 5e-7 Ry. The projector
+part is measured on the sphere's own eigenstates put on the box: there the kinetic term and the
+two-grid local term are exact Galerkin matrix elements, so the box operator's Rayleigh quotient minus
+the sphere eigenvalue is the grid projectors' error alone, 5.1e-7 Ry at most over the eight levels,
+and `becp` against `vkb`'s is 1.1e-7 absolute, 4.2e-7 of the largest projection (0.253). So the projector normalisation and the
+`(-i)^l` phase are right, and the 2e-2 is step 1's box-against-sphere basis difference with the
+nonlocal term in (step 1 local-only: 0.141 Ry on the deep pair at 50 Ry; why the nonlocal term
+shrinks it twelvefold was not measured). The Gamma doublet is split
+on the box by 2.1e-3 Ry at 50 Ry and 1.2e-4 at 70 Ry, the broken hexagonal group of step 1.
+
+The projector part on silicon (`M/si.log`; QE's `pw_scf/scf.in` cell, Si.pz-vbc, 12 Ry, our
+own SCF at `conv_thr = 1e-10`, the four lowest bands at `k = (0,0,0)`, `(1/4,1/4,1/4)`, `(1/2,0,1/4)`
+crystal): `<psi|V_NL|psi>` from the grid projectors against `vkb` within **6.6e-6 Ry**, `becp` within
+2.7e-6 absolute, 6.4e-6 of the largest projection (0.42) (s and p projectors, so the `(-i)^l` of `vkb` is exercised). The foundation
+had no grid projectors, so this is the design's silicon number, measured here. Its 16^3 dense grid is
+coarser for these projectors than graphene's, and that is the larger error.
+
+**2. Chern numbers of graphene at `n_Phi = 1`** (`M/chern12.log`; `p/q = 1/1`, 78912 T, kmesh (12,
+12), nbnd 8, the shared potential, 368 s): FHS on each band and group,
+
+| bands | C | largest plaquette flux |
+|---|---|---|
+| 0 | **+1** | 0.061 |
+| 1 | **0** | 0.511 |
+| 2 | -3 | 1.091 |
+| 3 | +6 | 1.329 |
+| 2 and 3 | **+3** | 1.338 |
+| 0 to 3 | +4 | 1.320 |
+
+Lu's pattern (1, 0, and 3 for the third and fourth together) holds as exact integers on our 12 x 12
+mesh, without forcing. Bands 2 and 3 do not touch on this mesh (smallest gap 2.8e-2 Ry), so each has
+its own number, -3 and +6; Lu give only the pair. On a 24 x 24 mesh (`M/chern24.log`, big job, 1287
+s, 52 to 101 Davidson steps) every number is the same, **+1, 0, -3, +6, and +3 for the pair**, with
+the largest plaquette flux halved (0.016, 0.235, 0.582, 0.880, 0.882), so the integers are converged
+in the mesh; the smallest gap between bands 2 and 3 over the finer mesh is 7.6e-3 Ry, so they stay
+apart and the split -3/+6 is a statement about this density and cutoff, where Lu's 40 x 40 at 30 Ha
+on their own SCF density report the pair. The sign convention is the repository's FHS one, as in
+step 1.
+
+**3. The fold** (`M/fold3b.log`; graphene `p/q = 1/3`, kmesh (2, 6), nbnd 20, the 4 representatives
+`kappa2 in {0, 1/6}`, from the shared zero-field density): the SCF converges to `conv_thr = 1e-8` Ry in
+**9 iterations** (dr2 2.2e-3, 6.0e-4, 2.1e-5, 1.8e-5, 5.0e-7, 4.6e-7, 9.8e-8, 1.0e-8, 5.1e-9), 121 s,
+memory estimate 0.193 GB, peak RSS 1.27 GB. At the potential of its last diagonalisation, the folded
+density of the 4 representatives against that of all 12 points of the closed mesh, each solved
+explicitly to `ethr = 1e-12` with a residual bound of 1e-9 on the returned bands: max relative
+difference **1.35e-12**; the sorted levels, three copies of the representatives' against the full
+mesh's, 3.7e-13 Ry (710 s). The density change from the zero-field one (Lu Fig. 3c: small): max
+`|drho|` 3.3e-2 e/bohr^3 against a maximum density of 0.333, `int |drho|` 0.147 electron of 8.000.
+The total energy per chemical cell is -22.7079645172 Ry (the zero-field sphere SCF: -22.6648208203;
+the difference is the box's larger basis and the field together, not separated here).
+The first attempt (`M/fold3.log`) converged the same SCF and then refused in the check: the residual
+bound was applied to the buffer bands too, and one of 24 stayed unsettled after 400 steps; the bound
+is now on the returned bands only.
+
+**4. Diamond, Lu's cell** (3x1x1 conventional, `a = 3.56` A, 24 atoms, C.pbe-hgh, 60 Ry, kmesh
+(2, 6, 6), box **50 x 18 x 18** (ndim 16200; the design's 54 x 18 x 18 was a guess, this is
+`wavefunction_box` at 60 Ry), nbnd 52 with 48 occupied (fixed occupations, the gap checked), memory
+estimate **1.24 GB**, `conv_thr = 1e-8` Ry; the start is the zero-field sphere SCF, `M/diamond0.log`,
+-272.4330337195 Ry in 8 iterations, 74 s). One flux quantum through the 3x1x1 cell is **10877.4 T**
+(Lu 10870.4 T at their rounded `a`).
+
+| run | log | iterations | dr2 | E (Ry, the 24-atom cell) | time | peak RSS |
+|---|---|---|---|---|---|---|
+| `p = 0` | `M/diamond-p0.log` (big job) | 4 | 9.3e-9 | -273.105259083159 | 947 s | 3.60 GB |
+| `p = +1` | `M/diamond-p1.log` (slot) | 7 | 3.1e-9 | -273.043606009502 | 3417 s | 3.52 GB |
+| `p = -1` | `M/diamond-m1.log` (slot) | 7 | 3.3e-9 | -273.043606172621 | 3599 s | 3.66 GB |
+
+`E(+dB) - E(-dB)` = **1.63e-7 Ry** (`M/chi.log`): the design's 1e-7 is **not reached**; the refuse
+line of 1e-6 (a sign error) is not crossed. A sign error would make the two fields different
+operators at first order in `B`, against `E(+) - E(0) = 6.17e-2` Ry here. Two smaller sources remain.
+`H(-B, -k) = conj H(B, k)` holds on the grid only where every row's frequency window is
+mirror-symmetric, which needs an odd magnetic box and no window centre at a tie (measured on
+small boxes, `M/tr2.log`, and in the unit test: exact to 1e-12 on 5 x 5 x 9 at `q = 1`; 0.09 of the
+largest entry on 10 x 5 x 9 at `q = 2`, whose `xi1` axis is even, and 0.34 on 4 x 4 x 8 at `q = 2`). Diamond's
+box is 50 x 18 x 18, even on every axis, so each row's half-open Nyquist slot breaks time reversal
+by the states' weight there. But the target of 1e-7 is not a statement these SCFs can check at
+`conv_thr = 1e-8`: the printed energy moved by **7.7e-6 Ry** (`p = +1`, -273.0436137143 to
+-273.0436060095) and **9.0e-6 Ry** (`p = -1`, -273.0436151689 to -273.0436061726) between their last
+two iterations (dr2 1.2e-8 to 3.1e-9 and 3.3e-9; the energy of a non-final iteration takes its
+Hartree and exchange-correlation terms at the input density, so this is a resolution, not an error
+bar). So the SCF floor alone can account for 1.6e-7, and the even-box Nyquist slot is the grid-side
+candidate. The experiment that separates them is both fields at `conv_thr = 1e-10` on the same box,
+and only then the odd 75 x 25 x 25 box (three times the size); neither was run. The review
+(2026-11-07) names the design's `< 1e-7` at `conv_thr = 1e-8` as the recurring trap "a test
+asserting a tolerance its own `conv_thr` does not deliver": the difference fell from 1.45e-6 at
+iteration 6 to 1.63e-7 at iteration 7, so the number is the SCF floor, and the 1e-10 rerun is the
+follow-up, not a defect of the operator.
+
+`chi = -(E+ - 2 E0 + E-)/dB^2` (`M/chi.log`): **-11.40 x 1e-6 cm^3/mol per C2** (the 24-atom cell
+is 12 primitive cells), **-5.70 per C atom**. Lu's `chi_val` (LDA, their dataset unnamed) is -11.16 in
+their Table S3 and -11.2 in Table 2: the difference is **0.24**, inside the design's 0.6 (5 per cent)
+for the functional, PBE here. `E(+) - E(0)` = 6.1653e-2 Ry, so the asymmetry above is 2.6e-6 of the
+second difference. The `p = 0` energy is the box's own, 0.67 Ry below the sphere SCF of the same cell
+(the box's larger basis); it cancels in the second difference since the three runs share the box. The
+three SCFs took 4, 7 and 7 iterations from the zero-field density, the first iteration (random start
+blocks, 25 to 60 Davidson steps per k) 680 s on four cores, later ones 67 to 250 s.
+
+**5. The band shift** (`M/shift.log`; graphene at `n_Phi = 1`, 78912 T, kmesh (6, 6), nbnd 12,
+non-SCF on the shared potential, the atoms moved by `a1/2` through `Calculator.with_positions`, to
+crystal (0.5, 0, 0) and (0.833333, 0.666667, 0), and the potential rolled by half the dense grid
+along `a1`, which is the shared density translated with them): `eps(k)` at the same named `k` differ
+by up to **0.291 Ry**; the sorted level set over the mesh agrees to **9.7e-13 Ry** and the band
+energy (mv smearing 0.01 Ry, 8 electrons) to **2.0e-14 Ry**. The same run at `p = -1` gives the
+time-reversal partner: the sorted set at `+B` against `-B` within 6.3e-11 Ry and the band energy
+within 1.6e-13 Ry (on the grid time reversal holds only up to the rows whose window centre is a tie,
+below). 98 to 105 s a run.
+
+**6. Graphene full H at `p/q = 1/q`, `q = 1, ..., 6`**, kmesh (2, 2q), nbnd `4q + 8`, the shared
+potential (`M/sets-q{1,...,6}.log`, big jobs; npz in `M/sets/`, copied to
+`plans/orbital-field/route-p-q{q}-full.npz`): the full mesh against `q` copies of the
+representatives `kappa2 in {0, 1/(2q)}`:
+
+| q | ndim | nk | full mesh against q copies | Davidson steps | memory estimate | peak RSS | solve | per k |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 9216 | 4 | 0.0 | 69 to 74 | 0.035 GB | 1.01 GB | 19 s | 4.8 s |
+| 2 | 18432 | 8 | 8.4e-13 Ry | 79 to 100 | 0.085 GB | 1.10 GB | 81 s | 10.1 s |
+| 3 | 27648 | 12 | 1.0e-12 Ry | 92 to 119 | 0.150 GB | 1.23 GB | 257 s | 21.4 s |
+| 4 | 36864 | 16 | 2.9e-12 Ry | 90 to 119 | 0.231 GB | 1.42 GB | 586 s | 36.6 s |
+| 5 | 46080 | 20 | 1.4e-12 Ry | 94 to 114 | 0.327 GB | 1.55 GB | 1042 s | 52.1 s |
+| 6 | 55296 | 24 | 1.8e-12 Ry | 91 to 148 | 0.438 GB | 1.78 GB | 2227 s | 92.8 s |
+
+All within the design's 1e-9 Ry. Against step 1's local-only runs at the same sizes (60 to 107 steps,
+4.6 to 89 s a k-point) the nonlocal term costs 1.0 to 1.3 times the time a k-point (1.04, 1.01, 1.13, 1.31, 1.04 at `q = 1, 2, 3, 4, 6`); the step counts
+rose by 7 to 40 per cent (the preconditioner does not see the nonlocal diagonal). These ran as big
+jobs (four cores) at a load of 8 to 16, so a time is a range; `q = 5` (`M/sets-q5.log`) waited 12
+minutes for the lock.
+
+The SCF at `q = 6` by the fold (`M/fold6.log`, slot 0, CPU 4; graphene `p/q = 1/6`, 13152 T, kmesh
+(2, 12), the 4 representatives, nbnd 32, ndim 55296, from the shared zero-field density): converged to
+`conv_thr = 1e-8` Ry in **7 iterations** (dr2 8.8e-4, 1.2e-4, 1.1e-4, 8.3e-7, 1.5e-6, 4.2e-7, 1.9e-9),
+**644 s** (448 s of it the first iteration from random start blocks, 83 to 108 Davidson steps; later
+iterations 9 to 87 s), memory estimate 0.565 GB, **peak RSS 2.19 GB**. E = -22.7426968657 Ry per
+chemical cell (at `1/3`: -22.7079645172). The density change from the zero-field one: max `|drho|`
+3.1e-2 e/bohr^3 (the maximum density is 0.333), `int |drho|` 0.119 electron of 8.000.
+
+##### Decisions taken here (step 2), and why
+
+No fable subagent could be started from this step (the Agent tool is not available to it), so each
+open choice is the conservative one, recorded with the number it rests on.
+
+- **The projectors live on the potential's grid, through the two-grid interpolation, not on the
+  wavefunction box.** At 50 Ry the box spacing is 0.39 bohr and the HGH carbon `s` projector has a
+  width of about 0.3 bohr, so a quadrature on the box would alias at the per-cent level; on the dense
+  grid the projector part is 5e-7 Ry (item 1). It costs one sphere gather and scatter beside an
+  interpolation the local term already does.
+- **The density is `|u|^2` on the dense grid from the same interpolation** (QE's `sum_band` order),
+  not the design's `|u|^2` on the box Fourier-padded: the product of two box-limited functions is not
+  box-limited, and squaring on the box aliases it. The probe measures the padded form against the one
+  used on the same states (`padded` in `mag_route_p2.py`, printed in `M/fold6.log`): on the converged `1/6` states the two differ by up to **2.7e-2 e/bohr^3**
+  (8 per cent of the largest density), which as a residual is dr2 = **5.4e-5 Ry**, 5000 times
+  `conv_thr`, with the same 8.000000 electrons. So the padded form would converge to another density.
+- **The field along `-a3` is the conventions' cell at `|p|` with its traced `scale` at -1**
+  (`magnetic_cell`), since `MagneticCell.build` refuses `p < 1` and `conventions.py` is the
+  foundation's file. Every phase of the conventions changes sign with it, and the box operator's twist
+  is the integer `p < 0`. Tested: the spectrum at `(-1, -kappa)` equals the one at `(+1, kappa)` to
+  1e-10 relative (a k with no ambiguous window centre), and differs at `(-1, kappa)`.
+- **Occupations**: smearing by the system's own `degauss` and kind, refused when the top band holds
+  more than 1e-8 of a state; fixed only across a gap, checked over the whole mesh (diamond's).
+  Tetrahedra refused by name.
+- **The energy** is QE's sum per chemical cell with `eband` over `q`, `deband` paired as the
+  zero-field loop pairs it (output density, input potential), the Hartree and exchange-correlation
+  energies at the output density on convergence, the smearing term over `q`, Ewald unchanged.
+- **The SCF's Davidson threshold** starts at 1e-8 (the start is a converged zero-field density) and
+  follows `next_ethr` from the second iteration; a solve that does not settle in 200 steps is refused,
+  not used (none did).
+- **Time reversal on the grid is exact only on an all-odd magnetic box with no tie row**, and it is
+  not changed. An even axis has a half-open window (the Nyquist slot belongs to one side), and the
+  centred window rounds its centre with a small offset (`_TIE_OFFSET`, step 1), so a row whose centre
+  is within the offset of a half-integer gets a window shifted by one frequency under `B -> -B, k ->
+  -k`. Both are what keep the magnetic translation and the period in `kappa` exact, which the fold
+  rests on, where no rule can keep all three at an exact tie. Measured: `H(-B,-k)` against `conj
+  H(B,k)` exact to 1e-12 on an odd 5 x 5 x 9 box at a tie-free `kappa` (unit test), 0.09 of the
+  largest entry on 10 x 5 x 9 and 0.34 on 4 x 4 x 8 (`M/tr2.log`; the first two forms of the unit test,
+  at `q = 2`, failed for this reason, `M/t1.log`, `M/t2.log`); on the converged graphene box at `n_Phi =
+  1` the sorted 6 x 6 set at `+B` and `-B` agree to 6.3e-11 Ry (item 5); on diamond it is inside the
+  1.6e-7 Ry of `E(+) - E(-)` (item 4).
+
+##### Refusals (step 2), each tested to fire
+
+Ultrasoft and PAW in `grid_projectors` (by name, with `C.pz-rrkjus.UPF`), on top of
+`refuse_regime` (spinors, `nspin = 2`, spirals, DFT+U, meta-GGA, gamma-only storage); the nonlocal
+term without a potential or with the filtered local term; `run_magnetic_scf` without a starting
+density; a mesh whose `N2` is not a multiple of `q`; fixed occupations across crossing levels;
+occupations other than smearing and fixed (tetrahedra by name); a band set whose top band holds charge
+("raise nbnd"); a Davidson solve unsettled after its budget with the nonlocal term in. The guards
+that are checks rather than refusals also fire in a test: the projectors without the GIPAW phase
+break the magnetic translation (spectra at `kappa2` and `kappa2 - p/q` 1e-6 or more apart), a bra at
+the wrong k is far from `vkb`, and the nonlocal term moves the local-only spectrum by more than 1e-2 Ry.
+
+##### Unit tests (step 2)
+
+`tests/unit/test_magnetic_bloch.py` (seven new, and the ultrasoft and no-density refusals added to `test_the_refusals`): the grid projectors against `vkb` on silicon (s and
+p, random states); Hermiticity, the magnetic translation with and without the GIPAW phase; time
+reversal at `p = -1`; the rigid shift of the crystal at `n_Phi = 1` on a 2 x 2 mesh (eps(k) moves,
+the set does not, kappa2 -> kappa2 - 1/2 pairs them); the fold's weights, the fold and the charge
+of `band_density`; the occupations and the molar conversion; item 1 at 50 Ry (projector part under
+2e-6 Ry, the box below the sphere and within 2.5e-2). With the foundation's two files of the package:
+44 passed in 54.1 s, the slowest test 9.2 s (`M/t3.log`, at 960dbe3f; the later commits change
+only comments, docstrings and files under `plans/`).
+
+##### What is left (step 2)
+
+- Item 4's `E(+) - E(-) < 1e-7` Ry: measured 1.6e-7, below the SCF's own resolution at `conv_thr =
+  1e-8`; both fields at 1e-10 on the same box, then an odd box, would say which part is the grid.
+- `run_magnetizability` has not run end to end: the three diamond SCFs ran as separate probe
+  processes (`diamond 0|1|-1`) and `chi` came from their energies through `molar_magnetizability`
+  (`chi`). Its pieces are exercised (and the conversion is unit-tested), the wrapper is not.
+- Item 1's `< 5e-3` Ry at 50 Ry: the box-against-sphere basis difference, not the projectors; it is
+  2e-2 at 50 Ry and 7.2e-3 at 70 Ry, and closing it is the box's corners and Nyquist slot (step 1's
+  "What is left").
+- The orbital magnetization identity of section 12 item 6 on a Chern insulator cell: left to a
+  later phase, as the design says.
+- `q = 10` graphene SCF with the fold is measured (`M/fold10.log`, slot 1, CPU 6: 7891 T, kmesh
+  (2, 20), 4 representatives, nbnd 48, ndim 92160): converged in **6 iterations** (dr2 8.3e-4 to
+  2.6e-9), **1631 s** (1027 s the first iteration, 74 to 85 Davidson steps), memory estimate 1.34 GB,
+  **peak RSS 2.87 GB**; E = -22.7542103850 Ry per chemical cell; the padded density 2.7e-2 e/bohr^3
+  off again (dr2 5.4e-5 Ry). `q = 20`: started at 17:00:59 as a big job (`M/fold20.log`, nbnd 88, ndim
+  184320, `estimate_bytes` 4.68 GB of which the kept start blocks are 1.09 GB) and stopped by PID
+  after 809 s, inside its first iteration (`# exit 143`), so as not to hold the machine-wide
+  `big.lock` for the hours it needed; its RSS was 6.0 GB at 13 minutes. The first iterations at `q = 6` and `q = 10` took 112 and 257 s a
+  representative. `q = 30` not run: its estimate is 10.0 GB (nbnd 128, ndim 276480, kept blocks
+  2.3 GB), inside the 14 GB big-job cap.
+- `segment_sum` for the projector scatter on a card; the projectors' memory is small
+  (`natom nproj npts` complex, 12 x 1 x 2997 at `q = 6`, 0.6 MB) and is not in `estimate_bytes`.
+- The preconditioner does not include the nonlocal term's diagonal; the Davidson steps with it in
+  are in the tables (91 to 148 at `q = 6` with the buffer bands, against 72 to 107 local-only).
+
+##### Slow files (step 2, listed, not run)
+
+`tests/regression/test_magnetic_bloch_slow.py`: `test_the_chern_numbers_at_one_flux_quantum`
+(about 6 minutes), `test_the_band_shift_of_a_rigid_translation` (about 5 minutes),
+`test_the_fold_at_one_third` (about 14 minutes, beyond `slot.sh`'s 10-minute per-test timeout).
+
+
+#### The crosscheck of route P, route U and Peierls on one graphene state
+
+Branch `mag-cross`: route U step 2 (`mag-u2`, 7ead1841) with route P step 2 (`mag-p2`, 1572b852)
+merged in, and the probe `plans/orbital-field/mag_cross.py` on top. Every number below was computed
+on D22 in the worktree `/l/ladovj1/w-mag-cross`, through `slot.sh` (one core, 6 GB). The logs are in
+`/l/ladovj1/review/mag/cross/`, written `C/<log>` below. Logs of the route steps are written `U1/`,
+`U2/`, `P1/`, `P2/` for `/l/ladovj1/review/mag/{u1,u2,p1,p2}/`. The load average was 4.5 to 8.
+
+Everything compared is a sorted level set pooled over the four magnetic representatives
+`kappa1 in {0, 1/2}`, `kappa2 in {0, 1/(2q)}`, a DOS, or an energy. It is never `eps(k)` at a named
+`k`. The one exception is the local-only against full check on route P, which compares two operators
+on the same grid at the same `k`, not two routes. All three routes read the same zero-field
+potential, `plans/orbital-field/graphene-scf.npz`.
+
+##### What was run here
+
+- `C/exact.log`: route P's full mesh against `q` copies of its representatives, from every committed
+  `route-p-q*.npz`.
+- `C/floor-full.log`, `C/floor-local.log` (and `C/floor-full-q6.log`, the first run on fewer points):
+  route P's box at zero field (`p = 0`, `q = 1`) and the sphere Davidson of the same Hamiltonian, on
+  the 108 chemical `k` that fold onto the representatives of `q = 1, 2, 3, 4, 6, 8, 10`, and the three
+  zone corners. The box took 133 s for 111 k, the sphere 49 s. Saved as
+  `plans/orbital-field/cross-floor-{full,local}.npz`.
+- `C/reps-q8.log`, `C/reps-q10.log`: route P full H at `1/8` (9864 T) and `1/10` (7891 T) on the four
+  representatives only, nbnd `4q + 8`. 822 s and 1234 s, 95 to 102 Davidson steps at `q = 8`, peak
+  RSS 2.04 GB at `q = 8`. Saved as `plans/orbital-field/route-p-q{8,10}-reps.npz`. These go beyond the
+  design, which stopped the comparison at `q = 6`; the reason is under "Decisions".
+- `C/reps-q6-70.log`, `C/reps-q10-70.log`, `C/floor-full-70.log`, `C/cutoff.log`: the same at 70 Ry
+  for `q = 6, 10` and the zero-field floor (`MAG_ECUT=70`), saved as
+  `plans/orbital-field/route-p-q{6,10}-reps-70.npz` and `cross-floor-full-70.npz`.
+- `C/landau-10-3.log`: route P's free Landau problem at `3/10`, kmesh (2, 2), with 600 Davidson steps
+  allowed. The first try at 200 steps was refused by the solver, 13 of 16 bands unsettled
+  (`C/landau-10-3-200.log`).
+- `C/analyse5.log`: items 1, 3 and 4 and the checks below, about 2 s. `C/diag.log`: the zero pair of
+  route P against Peierls and route U, with a scan of `kappa` offsets.
+- `C/t-unit.log`: `tests/unit/test_magnetic_cross.py`, 3 passed in 0.95 s.
+
+##### Route P alone: the full mesh is `q` copies of the representatives
+
+All 16 committed sets, local, filtered and full, `q = 1` to `6`: the worst is **6.9e-11 Ry**
+(`route-p-q4-local-filtered.npz`), and every two-grid set is within 3.5e-12 Ry (`C/exact.log`). The
+design asks 1e-9. The same theorem holds for the Peierls model on the `p_z` set at `q = 6` to round-off,
+and an open set of representatives (`kappa2 in {0, 2/(2q)}`) misses by more than 1e-4 Ry, which is the
+guard firing (unit test).
+
+##### Item 1: local-only operator, route U against route P
+
+Route U is the sphere-based ultracell, route P the box. The lowest `4q` levels per k, pooled over the
+four representatives and sorted (`16q` levels), `U - P` in Ry (`C/analyse5.log`):
+
+| q | nbnd 8: min / max | nbnd 16: min / max | nbnd 32: min / max | levels with U < P - 1e-8 |
+|---|---|---|---|---|
+| 1 | 0.147 / 0.422 | 0.137 / 0.437 | 0.137 / 0.389 | 0 of 16 |
+| 2 | 0.063 / 0.231 | 0.083 / 0.233 | 0.086 / 0.217 | 0 of 32 |
+| 3 | 0.042 / 0.181 | 0.065 / 0.245 | 0.059 / 0.193 | 0 of 48 |
+| 4 | 0.032 / 0.159 | 0.059 / 0.283 | 0.060 / 0.429 | 0 of 64 |
+| 6 | 0.022 / 0.141 | 0.028 / 0.170 | 0.035 / 0.148 | 0 of 96 |
+
+Route U is above route P at every level, at every `q` and every nbnd. So the variational order holds,
+and no level flags a defect in either route. The gap does **not** shrink with nbnd: from 8 to 32 the
+smallest gap grows at every `q` but the first. The expected `< 5 mRy` at nbnd 32 is not reached; the
+smallest gap at nbnd 32 is 35 mRy (`q = 6`) and the largest 0.43 Ry (`q = 4`).
+
+Part of the gap is the basis, and it does not depend on the field. At zero field route U is the sphere
+(u2 acceptance 1, 1.8e-15 Ry) and route P is the box, and the box is below the sphere at every one of
+the 51 k of `q <= 6` and all 10 bands, by 1.5e-4 to 0.141 Ry for the local-only operator
+(`C/floor-local.log`; the deep two bands 0.118 to 0.141 Ry, the others below 0.035 Ry). For the full H
+it is below at all 111 k, by 1.5e-4 to 2.4e-2 Ry (`C/floor-full.log`). Folded onto the same representatives,
+this zero-field floor runs from 7.3e-3 to 0.14 Ry. What is left above it, `(U - P) - floor`, is
+2.8e-3 to 0.062 Ry at `q = 6`, nbnd 32, and up to 0.37 Ry at `q = 1`. This part is route U's own
+truncation error, and it does not fall with nbnd either. Route U's matrix at these runs is Hermitian
+only to 5e-3 to 3e-2 (relative, from its npz), against 5e-15 for route P's operator, which matches an
+independent Kronecker-product matrix to 3.7e-16 (route-p.md, item 2). So the defect is route U's basis,
+which is what u1 and u2 found: the hybrid states of an entangled band set are not localized.
+
+##### Item 2: the free Landau problem
+
+`(2n+1) B_ph + (2 pi m/c)^2`, graphene geometry, all potentials off. `B_ph` is 0.0335723 Ry at
+`p/q = 1/10` (7891.2 T); the design's 0.03355 is the rounded cell area.
+
+| route | p/q | B (T) | kmesh | nbnd | max error against the formula | flat over k | states per level | log |
+|---|---|---|---|---|---|---|---|---|
+| P | 1/10 | 7891.2 | 4 x 4 | 12 | 2.9e-12 Ry | 2.7e-12 Ry | 1 | `P1/landau-10-1-final.log` |
+| P | 2/5 | 31564.9 | 4 x 4 | 12 | 3.2e-12 Ry | 2.0e-12 Ry | 2 | `P1/landau-5-2-buffer.log` |
+| P | 2/11 | 14347.7 | 4 x 4 | 12 | 1.7e-11 Ry | 1.3e-11 Ry | 2 | `P1/landau-11-2c-400.log` |
+| P | 3/10 | 23673.7 | 2 x 2 | 12 | **9.8e-12 Ry** | 5.3e-12 Ry | 3 | `C/landau-10-3.log` (new, 310 to 391 steps) |
+| U | 1/10 | 7891.2 | 2 x 2 | nbnd 2 | 1.2e-2 to 0.57 Ry over 20 levels; n = 0 0.012 to 0.121 | 0.11 Ry | (not resolved) | `U1/free1.log` |
+| U | 1/10 | 7891.2 | 2 x 2 | nbnd 4 | n = 0 0.030 to 0.037, n = 1 0.061 to 0.072, n = 2 0.059 to 0.079 Ry | 0.18 Ry | | `U1/free1.log` |
+| U | 3/10 | 23673.7 | 2 x 2 | nbnd 2 / 4 | 0.118 to 0.414 / 0.120 to 0.244 Ry | 0.11 / 0.031 Ry | | `U1/free-p3.log` |
+
+`p = 2, q = 10` is not a reduced flux and `MagneticCell.build` refuses it, so route P ran `2/5` and
+`2/11` instead, and route U ran nothing at `p = 2`. Route P meets the design's 1e-8 Ry at every flux,
+now including `3/10`; route U misses it by 1e-2 to 1e-1 Ry at every flux it ran (u1's refusal).
+
+##### Item 3: full Hamiltonian, route P against Peierls
+
+**The comparison by index of the design does not compare the same states, so it was replaced by
+energy windows.** Route P's box holds every state of the slab. At zero field, measured on the box at
+`Gamma` (`C/dbg.log`), the nearly-free vacuum states start 3.2 eV above `E_D` and the top of the sigma
+bands is 3.1 eV below it, and neither Wannier set holds them. So the levels `3q .. 5q - 1` of route P
+are not the levels `0 .. 2q - 1` of the `p_z` set (at `q = 2`, by index, the difference is 2.1 eV
+already at zero field). What is compared instead: the **zero pair**, the two levels at the gap per k
+(index `4q - 1, 4q` for route P and the 8-function set, `q - 1, q` for `p_z`), and every level within
+1 eV or 2.5 eV of each route's own `E_D`, compared only when the count per k agrees. Each set is taken
+about its own `E_D`: route P's on its box at `K` (-0.130751159 Ry), Peierls' from its interpolated bands
+(-0.119587541 Ry, which is the sphere's `E_D` to 1e-14). The box `E_D` is 11.16 mRy (152 meV) below the
+sphere's. `E_1` is the Dirac formula at the field, with `v_F = 8.42e5` m/s of the `p_z` set.
+
+The zero pair, `p_z` set (`C/analyse5.log`; the 8-function set gives maxima within 15 per cent of these at
+`q = 2, 3` and within 2 per cent from `q = 4` on):
+
+| q | B (T) | E_1 Dirac (eV) | max abs(P - W) (meV) | mean P - W (meV) | max / E_1 | the same at B = 0, max / mean (meV) |
+|---|---|---|---|---|---|---|
+| 2 | 39456 | 6.069 | 474 | +44 | 0.078 | 2102 / -195 |
+| 3 | 26304 | 4.955 | 294 | -123 | 0.059 | 1746 / -37 |
+| 4 | 19728 | 4.291 | 291 | -187 | 0.068 | 64 / +4 |
+| 6 | 13152 | 3.504 | 270 | -222 | 0.077 | 17 / +9 |
+| 8 | 9864 | 3.034 | 240 | -218 | 0.079 | 17 / +13 |
+| 10 | 7891 | 2.714 | 214 | -204 | 0.079 | 17 / +14 |
+
+The B = 0 column is the same statistic on the chemical k that fold onto the representatives (box at
+`p = 0` against the interpolated Wannier bands). At `q = 2, 3` the folded points lie far from `K`, so the
+two levels at the gap of the folded zero-field set lie far from `E_D` too, in the range where the box
+holds the sigma top (3.1 eV down) and the vacuum states (3.2 eV up), which the `p_z` set does not hold
+and the 8-function set holds only in part (its sigma bands are 0.8 eV off, foundation item 6): the
+2102 and 1746 meV compare different states and are not a disagreement. From `q = 4` on it is 17 to 64 meV, so
+the zero-field bases agree near `E_D` and the difference in the table is the field's. On the folded k
+the `p_z` set is within 11.4 meV of the sphere for every level within 2.5 eV of `E_D`, and the
+8-function set within 1.8 meV. Both sets were refused under the strict 10 meV criterion over every
+band below `E_F + 2` eV (foundation item 6), so it is this closeness inside `E_D +- 2.5` eV on the
+folded k that makes item 3 valid near `E_D`.
+
+**What the numbers say.** The difference is not linear in B, and it does not fall towards 10 T. From
+`q = 6` to `q = 10` route P's zero pair sits a nearly rigid 0.20 to 0.22 eV below Peierls', while the
+pair itself narrows from 1.05 to 0.34 eV (at the three representatives where it is split, P
+(-0.894, +0.159) against W (-0.704, +0.429) eV at `q = 6`, and P (-0.475, -0.140) against W
+(-0.279, +0.074) eV at `q = 10`; the P pair is 5 to 7 per cent narrower). So `max/E_1` stays at 0.08
+while B falls by 1.7. The fit `s = a + c B` of the maximum over `q = 2 .. 10` has residuals of 53 meV
+on values of 214 to 474 meV, and `s/E_1` is no more linear in B (residual 1.25e-2) than in `sqrt(B)`
+(1.18e-2). The design's extrapolation to 10 T, taken anyway, reads 7.3e-2 meV for the slope times
+10 T, 7.5e-4 of `E_1(10 T) = 96.6` meV (`p_z`, the maximum), or 8.4e-4 from the mean; these are
+numbers from a fit that does not describe its own points, and three decades away from them, so they are
+**not** a measurement of the intra-cell term and are not compared with the 0.6 per cent of section 12.
+The expected linear regime is at fields where `l_B` is much longer than the cell, and `q <= 10` is
+not there: at `q = 10` the magnetic length is 2.9 A, about two bond lengths. The design's "expected
+linear in B" was untestable at any `q <= 10` by construction: the intra-cell expansion parameter is
+`(spread/l_B)^2`, about 1.5e-4 at 10 T (`l_B` = 81 A) and about 0.1 at `q = 10` (`l_B` = 2.9 A). So
+the slope is not something a larger `q` in this range would have reached; it needs `q` in the
+thousands, where route P does not fit.
+
+Window comparisons. Within 1 eV of `E_D` the zero pair is the only content from `q = 6` on; at
+`q = 2, 3, 4` the counts agree and give the same maxima as the zero pair. Within 2.5 eV the counts agree
+only at `q = 3, 4, 10`: at `q = 10`, 21 levels, max 214 meV, mean -1 meV; at `q = 2, 6, 8` Peierls
+puts one level per k more or fewer in the window than route P, and those are not compared.
+
+**Is the 0.2 eV route P's defect or Peierls' error?** Four checks, none of which settles it alone:
+
+- Not a labelling offset. A scan of 11 x 11 offsets of the Peierls `kappa` finds its best match at
+  zero offset for `q = 3, 4, 6`, at 270 meV for `q = 6` (`C/diag.log`). Over a dense 10 x 120 magnetic
+  mesh at `q = 6` the Peierls pair has a mean of -141 meV about `E_D`, against -364 meV for route P's
+  four representatives.
+- Not the nonlocal term. C.pbe-hgh carries one s projector, which is even under the mirror `z -> -z`,
+  and the pi states are odd. Each full-H level within 1 eV of `E_D` is within **3.0e-7 to 9.4e-7 Ry**
+  of a local-only level at the same k at `q = 2, 3` (`C/analyse5.log`; at `q = 4, 6` the local-only
+  set of `4q + 8` levels stops below `E_D`, since the local-only operator has two more bands per cell
+  below the pi pair). At zero field, at `K`, the two differ by 6.2e-7 Ry on the box and agree to the ten
+  printed digits on the sphere.
+- Not a uniform offset of route P. For a local potential no level of `(p + A)^2 + V` lies below the
+  zero-field ground state (the diamagnetic inequality). Route P's local-only lowest level is above the
+  zero-field box minimum by +460, +218, +186, +144, +97 meV at `q = 1, 2, 3, 4, 6`. With the full H the
+  lowest level rises by +1576, +1070, +806, +540 meV at `q = 2, 3, 4, 6`, against `(m/m*) B_ph` =
+  1618, 1078, 809, 539 meV for the box's own deep-band mass at `Gamma` (`m/m* = 0.708`). A rigid
+  0.2 eV offset of route P's spectrum would show here as a 40 per cent miss at `q = 6`; it is 0.1 per
+  cent.
+- Route U is no help: its zero pair at `q = 6`, nbnd 32, is 0.39 eV above route P's and 0.17 eV above
+  Peierls' on average, and it is not converged in nbnd (`C/diag.log`).
+
+- **Not the box's cutoff.** Route P again at 70 Ry (box 15 x 15 x 75 per cell), on the four
+  representatives at `q = 6` and `q = 10`, each about its own 70 Ry box `E_D` (`C/reps-q6-70.log`,
+  `C/reps-q10-70.log`, `C/floor-full-70.log`, `C/cutoff.log`). The zero pair moves by **4.7 meV**
+  (mean +2.3) at `q = 6` and **3.1 meV** (mean +1.9) at `q = 10`, so P - W is -219.9 and -202.1 meV on
+  average at 70 Ry against -222.1 and -204.0 at 50 Ry. In the same step the box `E_D` itself moves by
+  -3.86 mRy (-52 meV) and the sphere's by -11.48 mRy (-156 meV), and box against sphere at zero field
+  falls from 2.4e-2 to 7.2e-3 Ry over the 111 k. So the box's basis error is cancelled by the
+  referencing to well below the 0.2 eV, and a grid effect of route P that scales with the cutoff is
+  excluded. The runs took 718 s (`q = 6`, peak 2.13 GB) and 1918 s (`q = 10`, ndim 168750, peak 3.62 GB).
+
+**The reading, with these checks in.** Route P passes every independent test it was given (free Landau
+problem to 1e-11, deep-band Landau shift to 0.1 per cent, diamond magnetizability within 2 per cent of
+Lu, cutoff stability to 5 meV). The facts are these: route P's zero pair sits 0.20 to 0.22 eV below
+Peierls' from `q = 6` to 10 (P - W mean -222, -218, -204 meV), the ratio to `E_1` is 0.077 to 0.079,
+constant to 2 per cent while B falls by 1.67, so the difference scales as `sqrt(B)` and not as B, and
+the five alternatives above are excluded. The attribution stays open: the data here do not say that
+the 0.2 eV is Peierls' error (the review, 2026-11-07, which struck an earlier "most likely Peierls'
+error" from this paragraph). Over `q = 6, 8, 10` the maximum is 0.0771, 0.0789, 0.0790 of `E_1`: the difference scales as `E_1`,
+that is as `sqrt(B)`, and not as `B`. A term linear in `B` would make this ratio fall by `sqrt(1.67)`
+= 1.29 from `q = 6` to `q = 10`; it rises by 2 per cent. Three points over a factor 1.67 in field do not
+say what happens three decades lower, so the design's 0.6 per cent at 10 T is neither confirmed nor
+refuted here; what is measured is that at 7900 to 13000 T Peierls on either Wannier set misplaces the
+zero Landau band by 0.08 `E_1`.
+
+What is still open is the mechanism. The mirror `z -> -z` survives the field, so the pi states can
+only mix with mirror-odd states, and the only ones nearby are the odd vacuum states 3 to 4 eV up,
+which neither Wannier set holds. Adding the sigma functions does not move the difference (the
+8-function set gives the same 0.2 eV), as the mirror requires. A Wannier set with the odd vacuum states
+in it is the test; it was not built.
+
+Route P against route U at nbnd 32 (route U above route P everywhere, `C/analyse5.log`), `U - P` in Ry:
+
+| q | lowest 4q: min / max | 2q about E_D (index 3q .. 5q - 1): min / max | route U Hermiticity |
+|---|---|---|---|
+| 2 | 0.068 / 0.201 | 0.067 / 0.159 | 3.1e-2 |
+| 3 | 0.038 / 0.123 | 0.045 / 0.100 | 3.7e-2 |
+| 4 | 0.029 / 0.090 | 0.036 / 0.083 | 3.2e-2 |
+| 6 | 0.023 / 0.052 | 0.029 / 0.064 | 1.9e-2 |
+
+No level of route U is below route P's at any nbnd (0 of `16q`). The zero-field floor of the full H is
+smaller than the local-only one, 7.3e-3 to 2.0e-2 Ry, so route U's own error is 1.1e-2 to 0.19 Ry
+above it. Both index windows are fair here, since both routes hold every state.
+
+##### Item 4: the DOS at `q = 6`
+
+Gaussian of 20 meV, each set about its own `E_D`, the four representatives (route P's full mesh is six
+copies of them), states per eV per magnetic k (`C/analyse5.log`).
+
+| window | Wannier set | states per k, P / W | relative L2, abs(D_P - D_W) / abs(D_P) |
+|---|---|---|---|
+| E_D +- 1 eV | p_z | 2.00 / 2.00 | 1.445 |
+| E_D +- 1 eV | 8 functions | 2.00 / 2.00 | 1.448 |
+| E_D +- 2.5 eV | p_z | 2.00 / 2.75 | 1.593 |
+| E_D +- 2.5 eV | 8 functions | 2.00 / 2.75 | 1.595 |
+
+Within 1 eV both DOS hold the zero pair only, the n = 0 Landau band (`E_1` is 3.5 eV here). Their
+peaks are 0.2 to 0.27 eV apart, ten broadenings, so they do not overlap and the L2 difference is the
+`sqrt(2)` of two disjoint sets of peaks: the DOS says the same as item 3 and no more. Within 2.5 eV
+Peierls also puts the next level at +2.43 eV at three of the four representatives, which route P does
+not. The KPM DOS of the Peierls operator was not used (dimension 12, the level histogram is exact).
+
+##### Item 5: reported from the route records, not recomputed
+
+- Diamond, Lu's 3x1x1 conventional cell, 60 Ry, kmesh (2, 6, 6), 10877.4 T: `chi = -11.40e-6`
+  cm^3/mol per C2 (-5.70 per C), against Lu's -11.16 (LDA): 0.24 apart, 2 per cent.
+  `E(+) - E(-) = 1.63e-7` Ry, above the design's 1e-7 and below the 1e-6 refuse line
+  (`P2/chi.log`, `P2/diamond-p0.log`, `P2/diamond-p1.log`, `P2/diamond-m1.log`).
+- The band shift, graphene at `n_Phi = 1`, kmesh (6, 6): `eps(k)` at the same named k moves by up to
+  0.291 Ry, the sorted level set by 9.7e-13 Ry and the band energy by 2.0e-14 Ry (`P2/shift.log`).
+
+##### Decisions taken here, and why
+
+No subagent could be started from this step (the Agent tool is not available to it), so each open
+choice is the conservative one, recorded with the number it rests on.
+
+- **Route P's `E_D` is taken on its own box at `K`**, not the sphere's, so that each set of levels is
+  measured from a point of its own basis. The two differ by 152 meV; with the sphere's the P - W
+  difference of item 3 would be 152 meV larger.
+- **Item 3 compares in energy windows, not by index**, for the reason above: by index the windows hold
+  different states (2.1 eV apart at zero field at `q = 2`).
+- **A zero-field floor was computed** (box and sphere at `p = 0`, 3 minutes), because without it the
+  variational gap of item 1 and the P - W difference of item 3 mix the box's basis with the field.
+- **`q = 8` and `q = 10` were added** to item 3 (4 representatives each, 14 and 21 minutes in a slot),
+  because at `q <= 6` the difference rose and fell without a trend; two smaller fields were the
+  cheapest way to see whether it falls with B. It does not, from `q = 6` to `q = 10`.
+- **Route P was run again at 70 Ry at `q = 6, 10`** (12 and 32 minutes), because the zero pair's
+  offset from Peierls stepped from +9 meV at zero field to -204 meV at the smallest field, and only a
+  cutoff test tells a grid effect of the box from Peierls' error. It moved by 3 to 5 meV.
+- **The free problem at `3/10` was run on route P** (6 minutes), to put the two routes side by side
+  at the flux route U ran.
+- The fits of item 3 are printed but not used as a measurement, since they do not describe their own
+  points.
+
+##### Tests
+
+- `tests/unit/test_magnetic_cross.py` (new, 3 tests, 0.95 s in total on D22, `C/t-unit.log`): route P's
+  full meshes are `q` copies of the representatives to 1e-9 in every committed set; an open set of
+  representatives fails by more than 1e-4; the Peierls model on the `p_z` set is Hermitian at `q = 6`
+  and obeys the same theorem. It reads the committed npz files and builds a 12-row Peierls matrix.
+- No slow test was added. The comparison itself is 2 s on committed files. The two runs that compute
+  (`floor`, 3 minutes, and `reps q`, 14 to 21 minutes) are probe subcommands and not tests.
+- Slow files that the merged branches touch, for the user to run (not run here):
+  `tests/regression/test_magnetic_bloch_slow.py`, `tests/regression/test_magnetic_ultracell_slow.py`.
+
+##### What is left
+
+- The mechanism of the 0.2 eV of item 3: a Wannier set with the mirror-odd vacuum states, Peierls'
+  only allowed partners. The box's cutoff is excluded (5 meV between 50 and 70 Ry). Until that set is
+  built, the size of the intra-cell term of graphene at laboratory fields is not measured; what is
+  measured is that Peierls and route P differ by 0.08 `E_1` at 7900 to 13000 T, a ratio constant to
+  2 per cent over that range.
+- The linear regime of section 12 item 2 needs `q` of 30 and more on route P (estimated 10 GB at
+  `q = 30` for the SCF in p2; non-self-consistent at four representatives, less).
+- Item 1's 5 mRy and the nbnd convergence: blocked on route U's basis (the smooth band subspace of u2's
+  "What is left"), not on anything here.
+- The DOS at `q = 6` by KPM on the route P operator was not built; the level histogram is exact here.
+
+##### For `docs/d22-notes.local.md` (the Record stage)
+
+- Route P's free problem at `3/10` (three states per level) needs about 400 Davidson steps per k; at
+  the default 200 it is refused with "Davidson left 13 of 16 bands unsettled at k-point 0 after 200
+  steps", which reads like a broken preconditioner. `MAG_MAXIT=600` on the slot.sh line is enough
+  (310 to 391 steps, 347 s for 4 k).
+- Route P full H on four representatives: `q = 8` 822 s, peak 2.04 GB; `q = 10` 1234 s, peak 2.19 GB;
+  at 70 Ry `q = 6` 718 s, 2.13 GB and `q = 10` 1918 s, 3.62 GB; all in one slot.
+- `slot.sh` passes `MAG_ECUT=70` from the launch line, also inside a chain script of slot.sh calls.
+- The worktree `/l/ladovj1/w-mag-cross` is removable once `mag-cross` is merged.
+
+
+#### The Record stage (2026-11-07): the facade, the magnetizability end to end, the timing
+
+All on D22 in `/l/ladovj1/w-mag-record`, logs in `/l/ladovj1/review/mag/record/` as `R/`.
+
+- **`Calculator.get_magnetic_bands(flux=(1, 1), kmesh=(2, 2), nbnd=None, scf=False, chern=False,
+  local_only=False, conv_thr=1e-8, **options)`** delegates to `run_magnetic_bands` on the ground
+  state's potential (none for `free=True`, so the free problem runs no SCF, tested), or to
+  `run_magnetic_scf` with `scf=True` and the calculator's `Calculation`. `nbnd` is required: the
+  conservative choice (no fable subagent could be started) was a refusal that says what to pass rather
+  than a default band count computed in the facade. The facade's free problem at 1/10 on the full box,
+  `kmesh = (1, 1)`, `nbnd = 6` (`R/snippets.log`): `B = 7891.2` T, `B_ph` = 0.03357231 Ry, ndim 92160,
+  levels over `B_ph` 1, 2.46351843, 2.46351843, 3, 4.46351843, 4.46351843, which is `(2n+1) +
+  (2 pi m/c)^2/B_ph` to the eight printed digits.
+- **`Calculator.get_magnetizability(kmesh=(2, 6, 6), nbnd=None, conv_thr=1e-8, **options)`** returns
+  the `Magnetizability` object, not the float of the design: a float cannot carry the per-atom value,
+  the three energies and the asymmetry beside it (conservative choice, recorded). **It ran end to end
+  once** (`R/chi-facade.log`, big job, CPUs 0-3, `plans/orbital-field/mag_chi_facade.py`): @CHI_LINE@
+- **Timing pair (1)** is in `PERFORMANCE.md`: route P's SCF at 1/6 on graphene, second call in one
+  process, against `pw.x` on the 6x1x1 supercell at zero field.
+- **The slow fold test is split** (`tests/regression/test_magnetic_bloch_slow.py`): the SCF at 1/3
+  (121 s) is a module fixture with its own convergence test, and the check against the closed mesh is
+  its own test. The check alone took 710 s (`M/fold3b.log`), still above the 10-minute per-test timeout
+  of `slot.sh`, so the file runs under `tools/run_regression.sh`, not in a slot.
+- The unit tests still read `plans/orbital-field/graphene-scf.npz` (1.2 MB) from `plans/`; moving it to
+  `tests/data/` is left (the review: "may want to").
+
+#### What is outstanding (P175 to P177)
+
+- **Route U's basis** (P176): a smooth band subspace along `k1` (SMV disentanglement with a frozen
+  window, or trial orbitals with a Loewdin step per `k`), with the window as the convergence knob; the
+  windowed free-problem experiment above first; then the 10 T interpolation along `kappa2` of the plan
+  (`q = 7900`), `q = 100` at nbnd 8 under `big.lock`, the banded apply under KPM. The two
+  `GridProjectors` folded into `magnetic/gipaw.py`.
+- **The 0.2 eV of the crosscheck** (route P's zero pair 0.20 to 0.22 eV below Peierls at 7900 to
+  13000 T, 0.08 `E_1`, constant to 2 per cent while `B` falls by 1.67, so scaling as `sqrt(B)`; five
+  alternatives excluded; the attribution open). Two experiments: (1) the `p_z` set rebuilt at 70 Ry on
+  the same cell (the sphere's `E_D` at `K` moved by 156 meV from 50 to 70 Ry where the box's moved by 52
+  meV, so the 50 Ry bands the Wannier sets are built on are not converged in absolute energy, and
+  whether their shape near `E_D`, `v_F` and `t'`, is converged is not measured), about 10 minutes in a
+  slot, then the `q = 6` and `q = 10` zero-pair comparison against the committed
+  `route-p-q{6,10}-reps-70.npz`: if P - W moves by much more than the 5 meV the box moved, part of the
+  0.2 eV is the sphere's cutoff; (2) a Wannier set with the mirror-odd vacuum states, Peierls' only
+  allowed partners.
+- **The intra-cell term of Peierls at laboratory fields is not measured**, and the design's "expected
+  linear in B" was untestable at any `q <= 10` by construction: the expansion parameter
+  `(spread/l_B)^2` is about 1.5e-4 at 10 T and about 0.1 at `q = 10`. Its slope needs route P at `q`
+  in the thousands, or route U converged.
+- **Item 4 of P177 step 2**: both diamond fields at `conv_thr = 1e-10` on the same box, then the odd 75
+  x 25 x 25 box, to separate the SCF floor (1.6e-7 Ry) from the even box's Nyquist slot.
+- The broken hexagonal group of the box (the `Gamma` doublet split by 2.1e-3 Ry at 50 Ry): an odd box,
+  a spherical mask at zero field. A preconditioner for `q >= 10` (the free Landau operator in the `pi_2`
+  representation), and the nonlocal diagonal in it. `segment_sum` for the projector scatter on a card.
+  `q = 20` and 30 graphene SCFs (estimates 4.68 and 10.0 GB).
+- The KPM DOS on the Peierls apply as a `get_*` (measured as a probe: 52 s against 2.7 s for the
+  shift-invert at `q = 7900`, relative L2 4.8 per cent at 100 vectors); a traced build of the
+  `PeierlsOperator` blocks, for `d/dB` through the operator.
+- The orbital magnetization identity on a Chern-insulator cell (section 12 item 6), the Zeeman term,
+  forces and stress in the field, enlarging `a2`, the current-density functional, Onsager-Roth at 10 T,
+  a field not along `a3`, spinors, `nspin = 2`, ultrasoft and PAW (all refused by name today).
+- The foundation's Wannier criterion (item 6): a set within 10 meV on every band below `E_F + 2` eV, or
+  the decision that the criterion is the window about `E_F`.
+
+#### Slow files (P175 to P177), listed for the user and not run
+
+- `tests/regression/test_magnetic_bloch_slow.py` (route P; the fold check half about 12 minutes, run it
+  under `tools/run_regression.sh`).
+- `tests/regression/test_magnetic_ultracell_slow.py` (route U; 8 tests that assert the refusals, 40 s to
+  2 min each).
+- For the Davidson `precondition` hook of P175: `tests/regression/test_davidson_zero_root.py`,
+  `test_gamma_only.py`, `test_spinorbit.py`, `test_noncollinear_magnetism.py`.
