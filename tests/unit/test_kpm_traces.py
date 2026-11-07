@@ -24,6 +24,20 @@ from tests.unit.test_kpm import SILICON, _dense_spectrum, _silicon
 
 pytestmark = pytest.mark.unit
 
+
+@pytest.fixture(autouse=True)
+def _drop_compiled_code():
+    """Free the compiled programs after each test (``.claude/rules/memory-design.md``).
+
+    The KPM files compile a recursion per cell and per moment count, and in the
+    one-process fast gate they sat in memory beside the files that follow; the
+    gate was killed at its 6 GB cap two files later (2026-11-07).
+    """
+    yield
+    import jax
+
+    jax.clear_caches()
+
 PSEUDO = Path(__file__).parents[1] / "data" / "pseudo"
 
 
