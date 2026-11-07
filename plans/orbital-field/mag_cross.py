@@ -418,6 +418,53 @@ def analyse():
     print(f"saved {OUT / 'cross.npz'}")
 
 
+def diag():
+    """Is route P's zero pair against Peierls a labelling offset? Route U beside both, and a kappa scan."""
+    from defuqumat.magnetic.landau import dirac_point
+    from defuqumat.magnetic.peierls import bonds_from_wannier
+
+    f = np.load(OUT / "floor-full.npz")
+    ef = float(f["fermi_energy"])
+    w = wannier("pz")
+    bonds = bonds_from_wannier(w)
+    pt = dirac_point(w.lattice, w.bands, w.edge)
+    ik = [i for i, kp in enumerate(f["kpoints"]) if np.allclose(kp[:2], pt["K"][:2])][0]
+    ed_box, ed_sph = dirac_pair(f["box"][ik], ef)[0], dirac_pair(f["sphere"][ik], ef)[0]
+    for q in (2, 3, 4, 6):
+        P = np.load(DATA / f"route-p-q{q}-full.npz")
+        U = np.load(DATA / f"route-u-q{q}-full.npz")
+        rep = reps(P["kpoints"], q)
+        kap = P["kpoints"][rep][:, :2]
+        pz = np.sort((np.sort(P["eigenvalues"][rep], axis=1)[:, 4 * q - 1:4 * q + 1] - ed_box).ravel())
+        lev, _ = peierls_levels(w, bonds, q, kap)
+        wz = np.sort((lev[:, q - 1:q + 1] - pt["E_D"]).ravel())
+        print(f"q {q}: zero pair (eV), P about the box E_D {np.array2string(pz * RY_EV, precision=4)}; "
+              f"W about its E_D {np.array2string(wz * RY_EV, precision=4)}", flush=True)
+        for nb in (8, 16, 32):
+            uz = np.sort((np.sort(U[f"levels_nbnd{nb}"], axis=1)[:, 4 * q - 1:4 * q + 1] - ed_sph).ravel())
+            print(f"      U nbnd {nb:2d} about the sphere E_D {np.array2string(uz * RY_EV, precision=4)}; "
+                  f"mean U - P {np.mean(uz - pz) * RY_EV * 1e3:+.1f} meV, mean U - W {np.mean(uz - wz) * RY_EV * 1e3:+.1f} meV",
+                  flush=True)
+        # every kappa offset of the four representatives: does a shifted Peierls set match route P?
+        best = (np.inf, None)
+        for d1 in np.linspace(0.0, 0.5, 11):
+            for d2 in np.linspace(0.0, 1.0 / (2 * q), 11):
+                lv, _ = peierls_levels(w, bonds, q, kap + np.array([d1, d2]))
+                ws = np.sort((lv[:, q - 1:q + 1] - pt["E_D"]).ravel())
+                m = float(np.max(np.abs(pz - ws)))
+                if m < best[0]:
+                    best = (m, (d1, d2), float(np.mean(pz - ws)))
+        print(f"      kappa scan of Peierls (11 x 11 offsets): smallest max |P - W| {best[0] * RY_EV * 1e3:.1f} meV at "
+              f"offset {np.round(best[1], 4).tolist()}, mean there {best[2] * RY_EV * 1e3:+.1f} meV", flush=True)
+        dense = np.array([(i / 10, j / (20 * q)) for i in range(10) for j in range(20 * q)])
+        lv, _ = peierls_levels(w, bonds, q, dense)
+        lo, hi = lv[:, q - 1] - pt["E_D"], lv[:, q] - pt["E_D"]
+        print(f"      Peierls zero pair over a 10 x {20 * q} magnetic mesh: lower member {lo.min() * RY_EV:+.4f} to "
+              f"{lo.max() * RY_EV:+.4f} eV, upper {hi.min() * RY_EV:+.4f} to {hi.max() * RY_EV:+.4f} eV, mean of the "
+              f"pair {0.5 * np.mean(lo + hi) * RY_EV * 1e3:+.1f} meV; route P's 4-point mean {np.mean(pz) * RY_EV * 1e3:+.1f} meV, "
+              f"Peierls' 4-point mean {np.mean(wz) * RY_EV * 1e3:+.1f} meV", flush=True)
+
+
 if __name__ == "__main__":
     t0 = time.perf_counter()
     cmd = sys.argv[1]
@@ -427,6 +474,8 @@ if __name__ == "__main__":
         floor(sys.argv[2])
     elif cmd == "analyse":
         analyse()
+    elif cmd == "diag":
+        diag()
     else:
         raise SystemExit(__doc__)
     print(f"wall {time.perf_counter() - t0:.1f} s")
