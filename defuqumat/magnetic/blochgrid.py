@@ -27,14 +27,22 @@ inverse FFT, and the pointwise terms. ``pi_1`` is Lu eq. 5: ``h = exp(i 2 pi p x
 is periodic along ``xi1``, so ``-i d/dxi1 h`` is taken by FFT along ``xi1``, and ``pi_1 u =
 exp(-i 2 pi p xi1 xi2) (-i d h/dxi1) + (-2 pi p xi2 + k_1) u``; the ``-2 pi p xi2`` is the
 chain rule through ``h``, not an ``A_1``. Each ``pi_a`` is Hermitian on the grid (a unitary
-conjugation of a real Fourier multiplier, plus a real diagonal), so ``T`` is.
+conjugation of a real Fourier multiplier, plus a real diagonal), so ``T`` is. Each row's
+frequencies are taken in a window centred on zero mechanical momentum
+(:func:`momentum_multipliers`), which makes the grid operator exactly covariant under the
+magnetic translation ``T(a1)`` and exactly periodic in ``kappa``; Lu's FFT as written
+(``window = 'fixed'``) is neither, by the states' weight at the box's Nyquist frequency.
 
-The local potential. ``SCFResult.potential[0]`` on the dense grid of the chemical cell,
-Fourier-filtered to the box's frequencies ``|m_i| <= n_i/2`` (:func:`filter_to_box`, the two
-Nyquist halves folded onto the box's Nyquist slot, which keeps it real) and tiled ``q`` times
-along ``xi1`` (P88's tile; exact since ``V`` is chemical-periodic). The bare nonlocal term is
-**not** here: it does not commute with the magnetic translations, and the GIPAW-dressed one
-is step 2 of the route.
+The local potential. ``SCFResult.potential[0]`` on the dense grid of the chemical cell, tiled
+``q`` times along ``xi1`` (P88's tile; exact since ``V`` is chemical-periodic). By default
+(``local = 'two-grid'``) ``V u`` is formed in QE's ``vloc_psi`` order: ``u`` interpolated onto
+the dense grid one axis at a time in the gauge where it is periodic, multiplied, restricted
+back (:meth:`MagneticGridHamiltonian.local_term`). The design's first form, ``V`` filtered to
+the box's frequencies ``|m_i| <= n_i/2`` (:func:`filter_to_box`) and multiplied on the box
+(``local = 'filtered'``), aliases the products, and at zero field puts the deep states of
+local-only graphene 0.27 Ry below the sphere's at 50 Ry. The bare nonlocal term is **not**
+here: it does not commute with the magnetic translations, and the GIPAW-dressed one is step 2
+of the route.
 
 The solver. :class:`MagneticGridHamiltonian` carries the duck-typed members
 :func:`~defuqumat.solvers.davidson.davidson_eigensolver` reads, so the solve is
@@ -51,14 +59,17 @@ against.
 
 Memory per k-point in flight (:func:`estimate_bytes`): ``(2.18 nvecx + 4.2 nbnd) ndim``
 complex numbers (Davidson's ``psi``, ``hpsi``, the subspace, the blocks), six box-sized FFT
-buffers per band in flight, and the states kept for a Chern number. Nothing of size ``nk
+buffers and three of the dense grid per band in flight, and the states kept for a Chern
+number. Nothing of size ``nk
 ndim`` is stored on the operator: ``kinetic``, ``state_kinetic`` and ``state_mask`` are rows
 computed for the k-point asked (:class:`KRows`).
 
 Refused (by the workflow, :func:`~defuqumat.workflows.magnetic_bands.run_magnetic_bands`):
-the regimes of :func:`~defuqumat.magnetic.conventions.refuse_regime`; a traced ``scale``
-other than one (the field is quantised by the twist, so ``d/dB`` at a fixed box is not a
-derivative of anything physical here); a memory estimate above :data:`MEMORY_LIMIT`.
+the regimes of :func:`~defuqumat.magnetic.conventions.refuse_regime`; a memory estimate
+above :data:`MEMORY_LIMIT`. The conventions' traced ``scale`` is not used here: the field
+enters through the integer ``p`` of the twist, so ``B`` is quantised by the box and a ``d/dB``
+at fixed ``p/q`` is not a derivative of this operator (Lu's magnetizability is a finite
+difference over fluxes for the same reason). ``kappa`` is traced, so ``d/dk`` is available.
 """
 
 from __future__ import annotations
