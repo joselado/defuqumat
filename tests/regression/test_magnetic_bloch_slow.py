@@ -46,7 +46,8 @@ def scf_path():
 def test_the_free_landau_problem_at_q10(graphene, p, q):
     # 2/10 is not a reduced flux (the conventions refuse it), so two states per level is 2/11
     system = graphene.system
-    # at p = 2 the degenerate pairs take 265 to 361 Davidson steps (plans/orbital-field/route-p.md)
+    # 2/11 took 265 to 361 Davidson steps without the buffer bands (2/5 with them: 101 to 118);
+    # 2/11 with the buffer was not measured, so the pairs keep the larger budget here
     bands = run_magnetic_bands(system, graphene.pseudos, None, flux=(p, q), kmesh=(4, 4),
                                nbnd=12, free=True, chern=(p == 1),
                                max_iterations=200 if p == 1 else 400)

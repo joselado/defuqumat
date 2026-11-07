@@ -193,8 +193,11 @@ at k-point 1 after 200 steps. At `2/11` (14347.7 T, ndim 101376) with 400 steps 
 (`L/landau-11-2c-400.log`, without the buffer): every level within **1.7e-11 Ry** of the free
 formula, flat within 1.3e-11 Ry over the 4 x 4 mesh, **two states per level** (the members of the
 lowest four levels equal within 1e-13 Ry, of the 4-fold `n = 1, m = +-1` level within 1.3e-11),
-265 to 361 steps per k, 1041 s. So `p = 2` holds the exact degeneracy and is the slower solve: the
-degenerate pairs take about twice the steps of `p = 1`, past the design's 200.
+265 to 361 steps per k, 1041 s. With the four buffer bands (the final code) `2/5` settles within the
+design's budget (`L/landau-5-2-buffer.log`, ndim 46080, 31564.9 T): **101 to 118 steps** per k, every
+level within **3.2e-12 Ry**, flat within 2.0e-12 Ry, two states per level (the lowest pair equal to
+1e-12), 242 s for the 16 k. So `p = 2` holds the exact degeneracy, and what slowed it was the block's
+top band, which the buffer takes off the returned set. `2/11` was not rerun with the buffer.
 
 ## Refusals, each tested to fire (unit tests)
 
