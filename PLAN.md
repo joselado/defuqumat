@@ -28181,3 +28181,49 @@ the gap with the variate on by default; the notebook runs in 55 s.
 
 **What is outstanding.** The spinor; the three traces above; folding `S^(-1/2)` into the nonlocal
 term to cut the per-application cost.
+
+**Addendum 2026-11-07, the refusals and the variate's guard** (workflow implementer 2, branch
+`kpm-wf-2-kpm-refusals-and-variate-guard` from 92302fc3; logs `/l/ladovj1/review/kpm/wf/impl2/` on D22).
+A review found two refusals that gave the wrong reason and one request dropped silently; all three are
+fixed, each with a test that fails on the code of 42f4c76a (`before.log`: these three failed, 21 passed)
+and passes after (`after.log`: 24 passed in 199 s).
+
+- *An augmented spin spiral got the overlap message*, which says the DOS runs on `S^(-1/2) H S^(-1/2)`,
+  the call just made. `require_a_kpm_regime` now tests the spiral first, then `gamma_only`, then the
+  overlap. Test `test_a_spin_spiral_is_refused_as_a_spiral` (Si2, `noncolin`, `angle1 = 90`,
+  `spiral_q = (0, 0, 0.25)`, `nosym`, at the starting density, no SCF, both datasets).
+- *Every augmented LDOS, unfolding or conductivity refusal said the projected DOS "is not
+  implemented"*, while `run_kpm_pdos` runs there to 8e-15. The message keeps `S^-1 H` and now says the
+  total and projected DOS (`get_kpm_dos`, `get_kpm_pdos`) run on `S^(-1/2) H S^(-1/2)` and the local DOS,
+  the unfolding and the conductivity do not. The test asserts `"projected and local" not in` the
+  message rather than `"projected"`, since the message names the projected DOS as one that runs.
+- *`control_variate=True` with no `PP_CHI` ran the plain trace with no warning.* `resolve_variate` raises
+  `ValueError` for it, and `run_kpm_dos` resolves the variate before the moments, so the error costs
+  no recursion (the test replaces `kpm_moments` by a function that fails). `True` with
+  `trace="exact"` is still returned for the caller to refuse by trace. `get_kpm_conductivity` calls the
+  same function and needed no change.
+
+Tests of the regimes P171 claimed without one (D22 CPU, `nums-aug.log`, `nums-key.log`):
+`nspin = 2` ultrasoft at `tot_magnetization = 2`, the exact moments of each channel against
+`eigh(H_s, S)` to 3.3e-15 and 3.4e-15 of `mu_0` (bound 1e-9), the channels 5.7e-2 of `mu_0` apart;
+the variate on the wrapped operator, ultrasoft `nspin = 1`, 8 seeds at R = 4, N = 40, one interval,
+`mu_0` 364.850 +- 0.273 against 364.750 and the largest of 40 moments at 1.99 standard errors
+(bound 4.5); `overlap_powers` at `k_batch=1` against `None`, `U` and `M^(-1/2) - 1` equal to 0.0
+(bound 1e-12); and the per-channel key of the variate, `nspin = 2` norm-conserving Si2 with no moment,
+4 seeds at R = 4, broadening 0.02 Ry, the rms error of each channel's DOS in the valence window against
+the exact trace at the same seed 8.6e-6 and 6.4e-6 of the peak (bound 1e-3). With the correction of both
+channels drawn on channel 0's key, channel 0 stays at 8.6e-6 and channel 1 goes to 6.1e-2, and the test
+fails, where P170's unbiasedness test passes the same defect (an uncorrelated correction is unbiased).
+
+The mid-gap count of `test_get_kpm_dos_takes_the_generalised_spectrum` at N = 1200 reads 8.0437
+(ultrasoft) and 8.0442 (PAW), 87 and 88 per cent of the old 0.05; the tolerance is 0.1 now. At N = 40
+it is 8.5956 and 8.5959. The module docstring of `kpm/dos.py` said the DOS integrates to
+`sum_k w_k npw_k`; that is exact per sample for the plain trace only, and with the variate on
+average (ultrasoft Si2, R = 4, seed 0, N = 40: `mu_0` per sample 365.32, 365.30, 365.26, 365.96
+against 364.75). `kpm/traces.py`'s docstring now gives the augmented PDOS as
+`sum_n |<phi|S|x_n>|^2 T_n` on `S^(1/2) phi` start vectors.
+
+At 630a609f on D22: the five KPM files and `test_notebook_conventions.py` in one CPU slot, 538 passed
+in 438 s (`cpu5.log`); the five KPM files on the RTX A2000 under the lock, 57 passed in 313 s
+(`gpu.log`); the fast gate in one slot, 3820 passed, 85 skipped, the two known `yaml` failures of
+`test_check_guide.py`, 2168 s at a load of 10 to 11 (`gate.log`). No slow file was run or touched.

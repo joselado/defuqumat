@@ -502,6 +502,7 @@ diagonalize.
     gives an error otherwise. `spin_resolved=True` needs a noncollinear run.
     `control_variate=True` needs random vectors (it gives an error with
     `trace="exact"`), and it needs atomic orbitals in the pseudopotential files.
+    If no file has them (no `PP_CHI`), `control_variate=True` gives an error.
     The default, `control_variate="auto"`, uses it only then, and without atomic
     orbitals it warns and uses the plain trace. It does not change `spin_dos`,
     which keeps the noise of the plain trace.

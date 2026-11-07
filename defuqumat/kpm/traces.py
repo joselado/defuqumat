@@ -8,7 +8,11 @@ statistical error; what remains is the kernel's broadening.
   ``projwfc``, Loewdin-orthonormalised (:func:`~defuqumat.projwfc.projections.atomic_orbitals`),
   so ``<phi_a|delta(E - H)|phi_a> = sum_n |<phi_a|psi_n>|^2 delta(E - e_n)`` is
   exactly what ``run_pdos`` integrates, with every state of the basis in it, the
-  empty ones up to the cutoff included. A single orbital's trace is not
+  empty ones up to the cutoff included. On an ultrasoft or PAW run the states
+  solve ``H x = e S x`` and the trace is ``sum_n |<phi_a|S|x_n>|^2 T_n(e_n')``: it
+  runs on ``S^(-1/2) H S^(-1/2)`` with ``S^(1/2) phi_a`` as start vectors
+  (:func:`~defuqumat.kpm.overlap.raised_vectors`), since
+  ``<phi|S|x> = <S^(1/2) phi|S^(1/2) x>``. A single orbital's trace is not
   invariant under the point group (the orbitals of a shell rotate into each
   other, and atoms into their images), so on a symmetry-reduced wedge the trace
   runs on the whole Monkhorst-Pack grid of the run instead.
@@ -16,7 +20,8 @@ statistical error; what remains is the kernel's broadening.
   waves, ``<k+G|r0> = exp(-i (k+G) . r0) / sqrt(Omega)``, so
   ``<r0|delta(E - H)|r0> = sum_n |psi_n(r0)|^2 delta(E - e_n)``. Its norm is
   ``npw_k / Omega``, not one. This is the pseudo-LDOS, the smooth part, with no
-  augmentation (norm-conserving only, as everything here). Integrated to the
+  augmentation (norm-conserving only: an ultrasoft or PAW dataset is refused,
+  since the augmentation charge at the point is not in it). Integrated to the
   Fermi level it is the density at ``r0``, which is the check. A point does not
   self-average, so it is exact here rather than stochastic.
 
