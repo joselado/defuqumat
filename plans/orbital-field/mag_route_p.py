@@ -46,8 +46,13 @@ def landau(p, q, n1, n2, nbnd, precond="two-gauge", chern=False, unconverged="fa
     calc = graphene()
     system = calc.system
     t0 = time.perf_counter()
+    import os
+
+    maxit = int(os.environ.get("MAG_MAXIT", "200"))
+    print(f"max_iterations {maxit}")
     bands = run_magnetic_bands(system, calc.pseudos, None, flux=(p, q), kmesh=(n1, n2), nbnd=nbnd,
-                               free=True, chern=chern, preconditioner=precond, unconverged=unconverged)
+                               free=True, chern=chern, preconditioner=precond, unconverged=unconverged,
+                               max_iterations=maxit)
     wall = time.perf_counter() - t0
     mcell = MagneticCell.build(system.cell, p, q)
     levels, mult, labels = free_landau_levels(mcell, nmax=12, g3max=3)
