@@ -155,6 +155,19 @@ def folded(floor_npz, which, q, lo, hi):
     return np.sort(np.concatenate(rows))
 
 
+def folded_rows(floor_npz, which, q):
+    """Per magnetic representative, every zero-field level of the chemical points folded onto it."""
+    pts = floor_npz["kpoints"][:, :2]
+    lev = np.asarray(floor_npz[which])
+    key = {(round(a, 9), round(b, 9)): i for i, (a, b) in enumerate(pts)}
+    rows = []
+    for kap1 in (0.0, 0.5):
+        for kap2 in (0.0, 1 / (2 * q)):
+            idx = [key[(round(((kap1 + j) / q) % 1.0, 9), round(kap2, 9))] for j in range(q)]
+            rows.append(np.sort(lev[idx].ravel()))
+    return rows
+
+
 # ----------------------------------------------------------------------------- Peierls
 
 def wannier(mode):
@@ -257,17 +270,28 @@ def analyse():
                    "sphere": floors["full"]["sphere"], "wan": np.asarray(w.bands(floors["full"]["kpoints"]))}
             for mode, w in sets.items()}
     for mode in sets:
-        kp = zero[mode]["kpoints"]
-        sph = zero[mode]["sphere"]
-        wan = zero[mode]["wan"]
-        near = [np.min(np.abs(sph[i][:, None] - wan[i][None, :]), axis=0) for i in range(len(kp))]
-        within = np.concatenate([n[np.abs(wan[i] - point[mode]["E_D"]) < 2.0 / RY_EV] for i, n in enumerate(near)])
-        print(f"Wannier {mode} interpolation against the sphere on the {len(kp)} folded k: nearest-band "
-              f"|W - sphere| within E_D +- 2 eV max {within.max() * RY_EV * 1e3:.2f} meV")
-    print("\n== item 3: full H, route P against Peierls; the 2q levels about E_D per k (route P and the auto "
-          "set 3q..5q-1, the pz set all 2q), each referred to its own E_D, pooled and sorted; N levels on "
-          "each side of the gap at E_D per k")
+        kp, sph, wan = zero[mode]["kpoints"], zero[mode]["sphere"], zero[mode]["wan"]
+        for half in (1.0, 2.5):
+            near = np.concatenate([np.min(np.abs(sph[i][:, None] - wan[i][None, :]), axis=0)
+                                   [np.abs(wan[i] - point[mode]["E_D"]) < half / RY_EV] for i in range(len(kp))])
+            print(f"Wannier {mode} interpolation against the sphere on the {len(kp)} folded k, the {near.size} "
+                  f"levels within E_D +- {half} eV: nearest-band |W - sphere| max {near.max() * RY_EV * 1e3:.3f} meV")
+    print("\n== item 3: full H, route P against Peierls, each set of levels about its own E_D (route P's on its "
+          "box), pooled over the 4 representatives and sorted. 'zero pair' = the two levels at the gap per k "
+          "(index 4q-1, 4q for P and the auto set, q-1, q for pz); 'within H eV' = every level with "
+          "|E - E_D| < H, compared only when the count per k agrees. (P - W)_0 is the same statistic at B = 0 "
+          "on the chemical k that fold onto the representatives (box at p = 0, interpolated Wannier bands).")
     rows = []
+
+    def windowed(rows_, ed, half):
+        return [np.sort(r[np.abs(r - ed) < half / RY_EV]) - ed for r in rows_]
+
+    def against(a_rows, b_rows):
+        ca, cb = [len(r) for r in a_rows], [len(r) for r in b_rows]
+        if ca != cb:
+            return None, ca, cb
+        return np.sort(np.concatenate(a_rows)) - np.sort(np.concatenate(b_rows)), ca, cb
+
     for q in (2, 3, 4, 6):
         P = np.load(DATA / f"route-p-q{q}-full.npz")
         rep = reps(P["kpoints"], q)
@@ -275,60 +299,74 @@ def analyse():
         field = tesla_from_flux(1, q, area)
         e1 = float(dirac_levels(field, vf, 1)[2]) / RY_EV
         pe = np.sort(P["eigenvalues"][rep], axis=1)
+        p0 = folded_rows(zero["pz"], "box", q)
         for mode, w in sets.items():
+            ed_w = point[mode]["E_D"]
             lev, herm = peierls_levels(w, bonds[mode], q, kap)
-            off = 3 * q if w.nw == 8 else 0
-            gap_w, gap_p = off + q, 4 * q
-            e1_w = float(np.mean(lev[:, gap_w + 1]) - point[mode]["E_D"])  # first level above the zero pair
-            for N in sorted({1, 2, q}):
-                if N > q:
+            w0 = folded_rows(zero[mode], "wan", q)
+            gap_w = (3 * q if w.nw == 8 else 0) + q
+            gap_p = 4 * q
+            cases = [("zero pair", [r[gap_p - 1:gap_p + 1] - ed_box for r in pe],
+                      [r[gap_w - 1:gap_w + 1] - ed_w for r in lev],
+                      [np.sort(r)[gap_p - 1:gap_p + 1] - ed_box for r in p0],
+                      [np.sort(r)[gap_w - 1:gap_w + 1] - ed_w for r in w0])]
+            for half in (1.0, 2.5):
+                cases.append((f"within {half} eV", windowed(pe, ed_box, half), windowed(lev, ed_w, half),
+                              windowed(p0, ed_box, half), windowed(w0, ed_w, half)))
+            for name, pr, wr, pr0, wr0 in cases:
+                d, cp, cw = against(pr, wr)
+                d0, cp0, cw0 = against(pr0, wr0)
+                if d is None:
+                    print(f"q {q} ({field:.0f} T) {mode:4s} {name:15s}: counts per k differ, P {cp} W {cw}; "
+                          f"not compared", flush=True)
                     continue
-                pw = np.sort((lev[:, gap_w - N:gap_w + N] - point[mode]["E_D"]).ravel())
-                pp = np.sort((pe[:, gap_p - N:gap_p + N] - ed_box).ravel())
-                d = pp - pw
-                d0 = ((folded(zero[mode], "box", q, gap_p - N, gap_p + N) - ed_box)
-                      - (folded(zero[mode], "wan", q, gap_w - N, gap_w + N) - point[mode]["E_D"]))
-                ex = d - d0
-                raw = np.sort((pe[:, gap_p - N:gap_p + N]).ravel()) - np.sort((lev[:, gap_w - N:gap_w + N]).ravel())
-                rows.append((q, field, mode, N, np.max(np.abs(d)), np.mean(d), e1, e1_w, np.max(np.abs(raw)),
-                             np.max(np.abs(ex)), np.mean(ex), np.max(np.abs(d0))))
-                print(f"q {q} ({field:.0f} T) {mode:4s} N {N}: max |P - W| {np.max(np.abs(d)) * RY_EV * 1e3:8.2f} meV, "
-                      f"mean P - W {np.mean(d) * RY_EV * 1e3:+8.2f} meV, max/E_1 {np.max(np.abs(d)) / e1:.4f} "
-                      f"(E_1 Dirac {e1 * RY_EV:.3f} eV, Peierls first level above the zero pair "
-                      f"{e1_w * RY_EV:.3f} eV); without the E_D referencing max |P - W| "
-                      f"{np.max(np.abs(raw)) * RY_EV * 1e3:.2f} meV; the same statistic at B = 0 on the folded k "
-                      f"max {np.max(np.abs(d0)) * RY_EV * 1e3:.2f} meV mean {np.mean(d0) * RY_EV * 1e3:+.2f} meV; "
-                      f"(P - W) - (P - W)_0 max {np.max(np.abs(ex)) * RY_EV * 1e3:.2f} meV mean "
-                      f"{np.mean(ex) * RY_EV * 1e3:+.2f} meV; Peierls Hermiticity {herm:.1e}; "
-                      f"P levels {np.array2string(pp * RY_EV, precision=3, max_line_width=400)} eV; "
-                      f"W {np.array2string(pw * RY_EV, precision=3, max_line_width=400)} eV", flush=True)
-                saved[f"item3_q{q}_{mode}_N{N}"] = d
-    print("\nfits over q = 2, 3, 4, 6 (B in tesla), s = a + c B and s = c' B, extrapolated to 10 T, and s/E_1 "
-          "against B and against sqrt(B):")
+                line = (f"q {q} ({field:.0f} T) {mode:4s} {name:15s}: {d.size} levels, max |P - W| "
+                        f"{np.max(np.abs(d)) * RY_EV * 1e3:8.2f} meV, mean P - W {np.mean(d) * RY_EV * 1e3:+8.2f} meV, "
+                        f"max/E_1 {np.max(np.abs(d)) / e1:.4f} (E_1 Dirac {e1 * RY_EV:.3f} eV)")
+                ex = None
+                if d0 is not None and d0.size == d.size:
+                    ex = d - d0
+                    line += (f"; at B = 0 max {np.max(np.abs(d0)) * RY_EV * 1e3:.2f} meV mean "
+                             f"{np.mean(d0) * RY_EV * 1e3:+.2f} meV; (P - W) - (P - W)_0 max "
+                             f"{np.max(np.abs(ex)) * RY_EV * 1e3:.2f} meV mean {np.mean(ex) * RY_EV * 1e3:+.2f} meV")
+                else:
+                    line += f"; at B = 0 the counts differ (P {cp0}, W {cw0}) or the size does"
+                print(line + f"; Peierls Hermiticity {herm:.1e}", flush=True)
+                print(f"      P {np.array2string(np.sort(np.concatenate(pr)) * RY_EV, precision=4, max_line_width=1000)} eV",
+                      flush=True)
+                print(f"      W {np.array2string(np.sort(np.concatenate(wr)) * RY_EV, precision=4, max_line_width=1000)} eV",
+                      flush=True)
+                rows.append((q, field, mode, name, np.max(np.abs(d)), np.mean(d), e1,
+                             np.nan if ex is None else np.max(np.abs(ex)), np.nan if ex is None else np.mean(ex)))
+                saved[f"item3_q{q}_{mode}_{name.replace(' ', '_')}"] = d
+    print("\nfits over the q present (B in tesla): s = a + c B and s = c' B, the slope extrapolated to 10 T "
+          "against E_1(10 T), and s/E_1 against B and against sqrt(B):")
     e1_10 = float(dirac_levels(10.0, vf, 1)[2])                         # eV
     for mode in ("auto", "pz"):
-        for N in (1, 2):
-            for stat, col in (("max |P - W|", 4), ("mean P - W", 5), ("max |(P - W) - (P - W)_0|", 9),
-                              ("mean (P - W) - (P - W)_0", 10)):
-                sel = [r for r in rows if r[2] == mode and r[3] == N]
+        for name in ("zero pair", "within 1.0 eV", "within 2.5 eV"):
+            for stat, col in (("max |P - W|", 4), ("mean P - W", 5), ("max |(P - W) - (P - W)_0|", 7),
+                              ("mean (P - W) - (P - W)_0", 8)):
+                sel = [r for r in rows if r[2] == mode and r[3] == name and np.isfinite(r[col])]
                 if len(sel) < 3:
+                    print(f"{mode:4s} {name} {stat}: {len(sel)} points, no fit")
                     continue
                 B = np.array([r[1] for r in sel])
-                s = np.array([r[col] for r in sel]) * RY_EV            # eV
-                ratio = s / (np.array([r[6] for r in sel]) * RY_EV)
-                c1, a1 = np.polyfit(B, s, 1)
-                c0 = float(B @ s / (B @ B))
-                res1 = np.max(np.abs(a1 + c1 * B - s))
-                res0 = np.max(np.abs(c0 * B - s))
+                sv = np.array([r[col] for r in sel]) * RY_EV            # eV
+                ratio = sv / (np.array([r[6] for r in sel]) * RY_EV)
+                c1, a1 = np.polyfit(B, sv, 1)
+                c0 = float(B @ sv / (B @ B))
+                res1 = np.max(np.abs(a1 + c1 * B - sv))
+                res0 = np.max(np.abs(c0 * B - sv))
                 rb = np.polyfit(B, ratio, 1)
                 rs = np.polyfit(np.sqrt(B), ratio, 1)
-                print(f"{mode:4s} N {N} {stat}: s = {a1 * 1e3:+.3f} meV + {c1 * 1e6:+.4f} ueV/T B (max residual "
+                print(f"{mode:4s} {name} {stat}: s = {a1 * 1e3:+.3f} meV + {c1 * 1e6:+.4f} ueV/T B (max residual "
                       f"{res1 * 1e3:.3f} meV); through 0: {c0 * 1e6:+.4f} ueV/T (residual {res0 * 1e3:.3f} meV); "
-                      f"at 10 T the slope gives {c1 * 10 * 1e3:+.4f} meV = {c1 * 10 / e1_10:+.2e} of E_1(10 T) "
-                      f"= {e1_10 * 1e3:.2f} meV, through 0 {c0 * 10 / e1_10:+.2e}; s/E_1 vs B residual "
-                      f"{np.max(np.abs(np.polyval(rb, B) - ratio)):.2e}, vs sqrt(B) residual "
-                      f"{np.max(np.abs(np.polyval(rs, np.sqrt(B)) - ratio)):.2e}; s/E_1 = "
-                      f"{np.array2string(ratio, precision=4)} at B = {np.array2string(B, precision=0)}", flush=True)
+                      f"10 T times the slope {c1 * 10 * 1e3:+.5f} meV = {c1 * 10 / e1_10:+.2e} of E_1(10 T) "
+                      f"= {e1_10 * 1e3:.2f} meV, through 0 {c0 * 10 / e1_10:+.2e}; s/E_1 linear in B residual "
+                      f"{np.max(np.abs(np.polyval(rb, B) - ratio)):.2e}, in sqrt(B) "
+                      f"{np.max(np.abs(np.polyval(rs, np.sqrt(B)) - ratio)):.2e}; "
+                      f"s (meV) {np.array2string(sv * 1e3, precision=2)}, s/E_1 {np.array2string(ratio, precision=4)} "
+                      f"at B {np.array2string(B, precision=0)}", flush=True)
 
     print("\n== item 3b: full H, route U (nbnd 32) minus route P, pooled over the 4 representatives and sorted")
     for q in (2, 3, 4, 6):
@@ -357,7 +395,7 @@ def analyse():
     kap = P["kpoints"][rep][:, :2]
     pe = P["eigenvalues"][rep] - ed_box
     sigma = 0.020 / RY_EV
-    for half in (1.0, 3.0):
+    for half in (1.0, 2.5):
         grid = np.linspace(-half, half, int(2000 * half) + 1) / RY_EV
         if np.min(pe[:, -1]) < grid[-1] + 5 * sigma:
             print(f"window +-{half} eV: route P's top band reaches into it; skipped")
