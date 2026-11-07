@@ -28179,8 +28179,8 @@ projector in the S metric) and the conductivity (`dH/dk - e dS/dk`), through `kp
 `symmetrize`. Notebook 60 has a cell on PAW silicon at 4x4x4 (20/80 Ry): 7.999 +- 0.001 states below
 the gap with the variate on by default; the notebook runs in 55 s.
 
-**What is outstanding.** The spinor; the three traces above; folding `S^(-1/2)` into the nonlocal
-term to cut the per-application cost.
+**What is outstanding.** The spinor; the three traces above. (Folding `S^(-1/2)` into the nonlocal
+term, listed here first, is done in P174.)
 
 **Addendum 2026-11-07, the refusals and the variate's guard** (workflow implementer 2, branch
 `kpm-wf-2-kpm-refusals-and-variate-guard` from 92302fc3; logs `/l/ladovj1/review/kpm/wf/impl2/` on D22).
@@ -28227,3 +28227,62 @@ At 630a609f on D22: the five KPM files and `test_notebook_conventions.py` in one
 in 438 s (`cpu5.log`); the five KPM files on the RTX A2000 under the lock, 57 passed in 313 s
 (`gpu.log`); the fast gate in one slot, 3820 passed, 85 skipped, the two known `yaml` failures of
 `test_check_guide.py`, 2168 s at a load of 10 to 11 (`gate.log`). No slow file was run or touched.
+
+### P174 -- `S^(-1/2) H S^(-1/2)` folded into four projector products, one `U` for both spin channels. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_overlap.py`, six fast tests, new; with the five KPM files, 56 tests, on D22 CPU at 6c0c2fa8 (299 s, `t2.log`) and on the RTX A2000 at 0fb2734c (279 s, `g-tests.log`), the new file alone on the CPU at 0fb2734c (`t3.log`); the fast gate in one slot at 3a638c40, 3819 passed and the two known `yaml` failures of `test_check_guide.py`, 1530 s (`review/kpm/wf/impl3/gate.log`), the commits after it changing `PLAN.md` and `PERFORMANCE.md` only; no slow file; branch `kpm-wf-3-kpm-overlap-fold` from 92302fc3, not merged, not pushed)
+
+**What is in.** `defuqumat/kpm/overlap.py`. With `H = A + B D B^dagger` (`A = K + V_loc`, `D` the
+channel's `deeq`), `B = U R`, `M = 1 + R Q R^dagger` and `W = M^(-1/2) - 1`, `S^(-1/2) U = U M^(-1/2)`
+gives exactly
+
+    H^ psi = A psi + (A U)(W c) + U [F c + W a],   c = U^dagger psi,  a = (A U)^dagger psi,
+    F = M^(-1/2) R D R^dagger M^(-1/2) + W G W,   G = U^dagger A U,
+
+four `npwx x nkb` products and one FFT pair per vector, against six products, one FFT pair and `H`'s
+own projector table for the form of P171. `SymmetrizedHamiltonian` gains `table = A U` and
+`folded = F` per channel (`None` for the unfolded form, kept as `apply_unfolded`); `G` is not a field
+of its own, it enters `F` only. Both are built per k-point in
+a module-level jit (`_fold`) through `map_k`, with `A U = kinetic[:, None] U + _local(U^T)^T` masked.
+The fold is built only when the Hamiltonian has no Hubbard and no `lelfield` term and stores the whole
+sphere; otherwise, and with `symmetrized(..., fold=False)`, the unfolded form is used.
+`FOLD_DEFAULT = True` is what `fold=None` reads. `symmetrized` takes the QR once (`_overlap_setup`,
+`(U, R, M^(-1/2) - 1)`) and shares `U` and `M^(-1/2) - 1` across channels holding the same
+`projectors` and `mask` objects (the two of an `nspin = 2` run, since `S` does not depend on spin),
+where it stored two equal copies before. `raised_vectors` takes `M^(1/2) - 1 = (1 + W)^-1 - 1` from the
+wrapped operator's own `shifted` and `U`, through `map_k` in a module-level jit (`_raised`), where it
+took a second QR over the whole grid, held a second `U` and walked k with a bare `jax.vmap` outside
+any jit. Signatures of `symmetrized` (one keyword more) and `raised_vectors` are unchanged.
+
+**The numbers.** Si2 at 12 Ry, `ecutrho` 4x, 2x2x2, the two datasets of P171: the folded apply against
+the unfolded one on 4 complex random vectors at every k-point, to 1e-12 of `max |H^ psi|` (asserted),
+both datasets; at `nspin = 2` (ultrasoft, `tot_magnetization = 2`, 0.2 eV smearing)
+`wrapped[0].basis is wrapped[1].basis`, the two `folded` differing by more than 1e-4 and each channel's
+fold equal to its unfolded apply to 1e-12; `raised_vectors` against `overlap_powers(h, 0.5)` and
+`apply_power` to 1e-12 of the largest; a second setup on a shifted potential compiles none of
+`_overlap_setup`, `_fold`, `_raised`, and the first compiles all three (so a silent logger fails). At
+42f4c76a (`w-kpm-review`, the test file run from `review/kpm/wf/impl3/base/`, `tbase2.log`) four of
+the six fail: the two fold tests (`is_folded` does not exist), the compile test (none of the three
+kernels exists) and the identity (two arrays); the two `raised_vectors` tests pass there, as they must,
+since the reuse is a refactor of the same numbers. `test_kpm_augmented.py` passes unchanged, so the
+`eigh(H, S)` identities at 1e-9 of `mu_0` hold through the folded apply. On si64 PAW one application
+folded and unfolded differ by 7.5e-16 of the largest on the CPU and 9.6e-16 on the card, and the
+moments of a whole `get_kpm_dos` call by 1.69e-14 (CPU) and 2.20e-14 (card); the unfolded arm equals
+92302fc3's moments bit for bit on both.
+
+**Timing** (PERFORMANCE.md, P171 section, "The fold"; `review/kpm/wf/impl3/tfold.py`, `tim-*.log`,
+`g-*.log`). si64 PAW, N = 1078, plain R = 1, warm median of 3, one core: folded against unfolded in one
+process -19.9, -25.7 and -42.3 per cent in three pairs, folded against 92302fc3 -31.7, -40.5 and -38.8
+per cent (28.92 / 27.77 / 25.12 s to 19.75 / 16.52 / 15.37 s). The load average was 9.8 to 14.2
+through all three, never below 8, which is why there are three. On the RTX A2000 3.30 s (base) and
+3.33 s (unfolded) to 2.46 s, -26 per cent. The setup of the fold, 512 FFT pairs for `A U` and the
+`npwx nkb^2` product for `G`, takes a call's setup from about 1 s to about 2 to 3 s on the CPU, 12 to
+19 per cent of a folded call at R = 1.
+
+**Memory.** One more `(nk, npwx, nkb)` complex table per channel, `A U`: 46.3 MiB on si64 PAW at one
+k-point (`(1, 5930, 512)`; the item had estimated 15 MB), and `nk nkb^2` for
+`F`. With `U` shared the total is `(1 + nspin) nk npwx nkb` against `nspin nk npwx nkb` before (P171
+stored `U` once per channel). Stated in the module docstring, selectable by `fold=False`.
+
+**What is outstanding.** The fold is not timed at R > 1 or with the control variate (not measured);
+the setup's `A U`, `nkb` FFT pairs per channel and k-point, is the cost left at R = 1; DFT+U,
+`lelfield` and `gamma_only` take the unfolded form; the spinor, the LDOS, the unfolding and the
+conductivity on an augmented dataset are still refused, as in P171.

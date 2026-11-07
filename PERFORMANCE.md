@@ -11567,7 +11567,7 @@ R = 1, load about 6): si16 0.45 s and 0.0039 at degree 8, 0.59 s and 0.0003 at 1
 and from 0.133 to 0.050 (si64).
 
 On the RTX A2000, si64: plain R = 8 2.45 s, the variate R = 1 2.07 s and R = 4 3.02 s, warm. The extra
-cost of the variate is `9 natw` applications and an `O(npw natw^2)` SVD and Rayleigh-Ritz per k-point
+cost of the variate is `(m + 1) natw` applications (17 at the default filter degree `m = 16`, 9 at the degree 8 of the table) and an `O(npw natw^2)` SVD and Rayleigh-Ritz per k-point
 and channel; memory, the `(natw, ndim)` block and two partners for one k-point, beside the orbitals of
 every k-point.
 
@@ -11628,3 +11628,37 @@ A vector costs about 10 s here against 1.2 s on the norm-conserving si64: 512 pr
 nonlocal work, which dominates an application at this size. Memory beyond P167: `U`, `nk npwx nkb`
 complex numbers (a stored projector table even when the calculation keeps a lazy one), and
 `nk nkb^2` for `M^(-1/2) - 1`.
+
+**The fold (P174), 2026-11-07.** `S^(-1/2) H S^(-1/2) psi = A psi + (A U)(W c) + U [F c + W a]`
+(`kpm/overlap.py`) is four `npwx x nkb` products and one FFT pair per vector, where the form above is
+six products, one FFT pair and, on this lazy set, the projector table of `H`'s own nonlocal term. The
+same call as the table above (si64 PAW, one k-point, broadening 0.01 Ry, N = 1078, plain R = 1, seed 0),
+warm median of 3 after one discarded call, one core through `slot.sh`; `review/kpm/wf/impl3/tfold.py`,
+logs `tim-base<n>.log` (the code of 92302fc3, worktree `w-kpm-review` at 42f4c76a) and `tim-new<n>.log`
+(this commit, `FOLD_DEFAULT` set before each arm in one process). The load average was 9.8 to 14.2 from
+other users through all of it, never below 8, so the pair was taken three times (the slot CPUs are
+SMT pairs, 4/5, 6/7, 8/9, 10/11, so pair 1's two arms ran on two different cores; pairs 2 and 3 ran on
+one thread, CPU 6):
+
+| pair | CPU | base 92302fc3 | unfolded | folded | folded against unfolded | folded against base |
+|---|---|---|---|---|---|---|
+| 1 | 5 (base, the SMT sibling of slot CPU 4), 6 | 28.92 s (load 12.7 to 13.5) | 24.65 s (12.1 to 12.9) | 19.75 s (12.8 to 13.5) | -19.9 % | -31.7 % |
+| 2 | 6 | 27.77 s (13.3 to 13.9) | 22.24 s (9.9 to 10.4) | 16.52 s (10.1 to 11.4) | -25.7 % | -40.5 % |
+| 3 | 6 | 25.12 s (11.0 to 11.9) | 26.64 s (13.1 to 14.2) | 15.37 s (10.3 to 11.7) | -42.3 % | -38.8 % |
+
+On the RTX A2000 (`gpu.sh` under the lock, half the card, `taskset -c 0-1`, `g-base.log`,
+`g-new.log`, load 10 to 12): base 3.30 s, unfolded 3.33 s, folded 2.46 s, -26 per cent. The moments:
+unfolded equal to base bit for bit on the CPU and on the card, folded against unfolded 1.69e-14 of
+the largest on the CPU and 2.20e-14 on the card. The setup of one call grows from 0.90 to 1.21 s to
+1.95 to 2.86 s on the CPU (0.29 to 0.51 s on the card): `A U` is 512 FFT pairs and `U^dagger A U` an
+`npwx nkb^2` product, so at `R = 1` the setup is 12 to 19 per cent of the folded call. One application
+jitted alone, outside the recursion, reads 25.7 to 29.2 ms folded against 115 to 157 ms unfolded on the
+CPU (3.92 against 6.59 ms on the card). That ratio is not the recursion's: the projectors of this run
+are lazy (`is_lazy` is `True`), and the unfolded call of 22 to 27 s for about 540 applications is under
+50 ms a step, so most of what the alone-call pays is not paid at every step of the scan.
+
+Memory of the fold: one more `(nk, npwx, nkb)` table per channel, `A U`, here `(1, 5930, 512)`
+complex, 46.3 MiB, the same size as `U`, and `nk nkb^2` for `F`; at `nspin = 2` the two channels
+share `U` and `M^(-1/2) - 1` (they were two equal copies before), so the total is
+`(1 + nspin) nk npwx nkb` against `nspin nk npwx nkb` before. `symmetrized(..., fold=False)` gives the
+unfolded form and its one table.
