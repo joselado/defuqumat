@@ -1,4 +1,4 @@
-"""Route P step 1 at the acceptance sizes (slow; not a push gate).
+"""Route P, steps 1 and 2, at the acceptance sizes (slow; not a push gate).
 
 The numbers of ``plans/orbital-field/route-p.md`` as tests, on the graphene cell of the shared
 zero-field state (a = 2.46 A, c = 15 A, 50 Ry, box 12 x 12 x 64 per cell):
@@ -9,7 +9,12 @@ zero-field state (a = 2.46 A, c = 15 A, 50 Ry, box 12 x 12 x 64 per cell):
 - p = 2, q = 11: two states per level (2/10 is not a reduced flux);
 - the strong translational symmetry at p/q = 1/3, kmesh (2, 6): spectra at kappa2 and kappa2 -
   1/3 equal to 1e-10 Ry (about 2.5 minutes);
-- the full mesh against q copies of the representatives at q = 3, kmesh (2, 6), to 1e-9 Ry.
+- the full mesh against q copies of the representatives at q = 3, kmesh (2, 6), to 1e-9 Ry;
+- step 2, the full Hamiltonian with the GIPAW-dressed projectors: the Chern numbers at
+  n_Phi = 1 on a 12 x 12 mesh (1, 0, and 3 for the third and fourth together, Lu; about 6
+  minutes), the band shift of a rigid translation by a1/2 (the sorted set over 6 x 6 to
+  1e-8 Ry, about 5 minutes), the SCF by the fold at 1/3 against the closed mesh (about 14
+  minutes).
 """
 
 import numpy as np
@@ -79,3 +84,56 @@ def test_the_strong_translational_symmetry_at_one_third(graphene, scf_path):
     full = np.sort(bands.eigenvalues.reshape(-1))
     representatives = np.sort(np.repeat(e[:, :2, :].reshape(-1), q))
     assert np.max(np.abs(full - representatives)) < 1e-9
+
+
+def _graphene_smeared():
+    return Calculator.from_keywords(
+        lattice="hexagonal", a=2.46, c=15.0,
+        atoms=[("C", (0, 0, 0)), ("C", (1 / 3, 2 / 3, 0))],
+        pseudos={"C": "C.pbe-hgh.UPF"}, pseudo_dir="tests/data/pseudo",
+        ecut=50 * RY_TO_EV, kmesh=(12, 12, 1), smearing=0.01 * RY_TO_EV, smearing_type="mv")
+
+
+def test_the_chern_numbers_at_one_flux_quantum(graphene, scf_path):
+    # measured on D22 (route-p.md, item 2): C = 1, 0, -3, +6 for bands 0 to 3, the pair 3
+    from defuqumat.workflows.magnetic_bands import _chern_numbers
+
+    bands = run_magnetic_bands(graphene.system, graphene.pseudos, scf_path, flux=(1, 1),
+                               kmesh=(12, 12), nbnd=8, local_only=False, keep_states=True)
+    out = {(a, b): c for a, b, c, _ in _chern_numbers(bands.states, (12, 12), bands.box,
+                                                       [(0, 0), (1, 1), (2, 3)])}
+    assert abs(out[(0, 0)] - 1.0) < 1e-9
+    assert abs(out[(1, 1)]) < 1e-9
+    assert abs(out[(2, 3)] - 3.0) < 1e-9
+
+
+def test_the_band_shift_of_a_rigid_translation(scf_path):
+    from defuqumat.magnetic.fold import magnetic_occupations
+    from defuqumat.workflows.magnetic_bands import local_potential_of
+
+    calc = _graphene_smeared()
+    a1 = np.asarray(calc.system.cell.at)[0]
+    moved = calc.with_positions(np.asarray(calc.system.structure.positions) + 0.5 * a1)
+    potential = local_potential_of(scf_path)
+    rolled = np.roll(potential, potential.shape[0] // 2, axis=0)
+    runs = []
+    for c, v in ((calc, potential), (moved, rolled)):
+        b = run_magnetic_bands(c.system, c.pseudos, {"potential": v[None]}, flux=(1, 1),
+                               kmesh=(6, 6), nbnd=12, local_only=False)
+        wg, _, _ = magnetic_occupations(b.eigenvalues, np.full(36, 2.0 / 36), 8.0, calc.system)
+        runs.append((b, float(np.sum(wg * b.eigenvalues))))
+    (b0, e0), (b1, e1) = runs
+    assert np.max(np.abs(b0.eigenvalues - b1.eigenvalues)) > 0.1
+    assert np.max(np.abs(b0.sorted_levels - b1.sorted_levels)) < 1e-8
+    assert abs(e0 - e1) < 1e-8
+
+
+def test_the_fold_at_one_third(scf_path):
+    from defuqumat.magnetic.fold import fold_check, run_magnetic_scf
+
+    calc = _graphene_smeared()
+    result = run_magnetic_scf(calc.system, calc.pseudos, scf_path, flux=(1, 3), kmesh=(2, 6),
+                              nbnd=20, conv_thr=1e-8, verbose=False)
+    assert result.converged and result.iterations <= 12
+    density, levels, _ = fold_check(result, calc.system, calc.pseudos)
+    assert density < 1e-10 and levels < 1e-9

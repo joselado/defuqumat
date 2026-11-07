@@ -218,7 +218,7 @@ def fold(q, m=2, conv_thr=1e-8, check=True):
         rho0 = np.asarray(data["density"])
     t0 = time.perf_counter()
     r = run_magnetic_scf(calc.system, calc.pseudos, SCF, flux=(1, q), kmesh=(2, q * m), nbnd=nbnd,
-                         conv_thr=conv_thr)
+                         conv_thr=conv_thr, keep_states=True)
     wall = time.perf_counter() - t0
     volume = float(calc.system.cell.volume)
     drho = r.density - rho0
@@ -233,10 +233,40 @@ def fold(q, m=2, conv_thr=1e-8, check=True):
     np.savez(Path(OUT) / f"scf-{q}.npz", density=r.density, potential=r.potential,
              eigenvalues=r.eigenvalues, kpoints=r.kpoints, total_energy=r.total_energy,
              history=np.array(json.dumps(r.history)))
+    padded(r, calc)
     if check:
         density, levels, t = fold_check(r, calc.system, calc.pseudos)
         print(f"fold check: folded density of the representatives against the whole closed mesh, "
               f"max relative difference {density:.3e}; sorted levels (q copies) {levels:.3e} Ry; {t:.0f} s")
+
+
+def padded(r, calc):
+    """The design's first density (|u|^2 on the box, folded, Fourier-padded) against the one used.
+
+    The same states and occupations; the one used squares the state on the potential's grid.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.magnetic.blochgrid import filter_to_box
+    from defuqumat.magnetic.fold import fold_to_chemical
+    from defuqumat.scf.potential import scf_accuracy
+
+    h = r.hamiltonian
+    q = r.flux[1]
+    volume_mag = float(calc.system.cell.volume) * q
+    rho_box = np.zeros(h.box)
+    for ik in range(len(r.kpoints)):
+        u = r.states[ik].reshape((-1,) + h.box)
+        rho_box += np.einsum("n,nijk->ijk", r.occupations[ik], np.abs(u) ** 2)
+    rho_box /= volume_mag / h.ndim
+    folded = np.asarray(fold_to_chemical(rho_box, q))
+    dense = r.density.shape[1:]
+    padded_rho = np.asarray(filter_to_box(jnp.asarray(folded), dense))[None]
+    diff = padded_rho - r.density
+    accuracy = float(scf_accuracy(jnp.asarray(diff), calc.calculation.basis.dense, calc.system.cell))
+    print(f"the box-squared, Fourier-padded density against the dense-grid one: max |difference| "
+          f"{np.max(np.abs(diff)):.3e} e/bohr^3 (max rho {np.max(r.density):.3e}), as dr2 {accuracy:.3e} Ry, "
+          f"charge {np.sum(padded_rho) * float(calc.system.cell.volume) / diff[0].size:.8f}")
 
 
 def diamond_calc(ecut_ry=60.0, kmesh=(2, 6, 6)):

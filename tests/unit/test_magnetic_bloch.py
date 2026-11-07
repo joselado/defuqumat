@@ -450,3 +450,27 @@ def test_the_occupations_and_the_molar_magnetizability():
     chi, b = -11.16e-6, 10877.0
     de = -0.5 * chi * (b * 1e4) ** 2 / AVOGADRO / RY_ERG * 12
     assert abs(molar_magnetizability(de, 0.0, de, b, units=12) - chi * 1e6) < 1e-9
+
+
+def test_item1_the_full_operator_at_zero_field_against_the_sphere(graphene, potential):
+    # a = 0, q = 1, k = 0 on the shared potential, 50 Ry. On the sphere's own states the box
+    # operator's Rayleigh quotients differ from the sphere eigenvalues by the grid projectors'
+    # error alone (the kinetic and the two-grid local term are exact there): 5.1e-7 Ry on D22.
+    # The box's own levels are lower, by its larger basis: 2.0e-2 Ry at most at 50 Ry and
+    # 7.2e-3 at 70 Ry (plans/orbital-field/route-p.md, item 1).
+    from defuqumat.magnetic.blochgrid import sphere_levels, sphere_state_on_box
+
+    calculation = graphene.calculation
+    es, vs, _, unsettled = sphere_levels(calculation, potential, 8)
+    assert int(unsettled[0]) == 0
+    h = MagneticGridHamiltonian.build(graphene.system.cell, 0, 1, 50.0, [[0.0, 0.0, 0.0]],
+                                      potential, structure=graphene.system.structure,
+                                      pseudos=graphene.pseudos)
+    u = sphere_state_on_box(calculation, vs[0], 0, h.box)
+    hu = np.asarray(h.apply(jnp.asarray(u), 0))
+    rayleigh = np.real(np.einsum("bi,bi->b", u.conj(), hu))
+    assert np.max(np.abs(rayleigh - es[0])) < 2e-6
+    bands = run_magnetic_bands(graphene.system, graphene.pseudos, {"potential": potential[None]},
+                               flux=(0, 1), kpoints=[[0, 0, 0]], nbnd=8, local_only=False)
+    difference = bands.eigenvalues[0] - es[0]
+    assert np.all(difference < 1e-8) and np.max(np.abs(difference)) < 2.5e-2
