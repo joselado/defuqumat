@@ -13,11 +13,12 @@ polynomial grows as ``cosh(m acosh |x|)`` outside ``[-1, 1]``), orthonormalise
 ``Y`` and solve ``H`` in that subspace (Rayleigh-Ritz), giving pairs
 ``(theta_j, y_j)``. The estimator of each random sample is then
 
-    n_live <r|T_n|r> - n_live sum_j |<y_j|r>|^2 T_n(theta_j') + sum_j T_n(theta_j'),
+    n_live <r|T_n|r> - n_live sum_j |<y_j|r>|^2 T_n(theta_j') + sum_j <y_j|y_j> T_n(theta_j'),
 
-which has the same expectation, since ``E[n_live |<y|r>|^2] = <y|y> = 1`` for a
-normalised ``y`` on the live sphere: it is unbiased **whatever** the quality of
-the Ritz pairs. Its variance is that of ``<r|T_n(H) - sum_j T_n(theta_j)|y_j><y_j|
+which has the same expectation, since ``E[n_live |<y|r>|^2] = <y|y>`` on the live
+sphere for any ``y``: it is unbiased **whatever** the quality of the Ritz pairs,
+and whether they are normalised or not (``<y|y>`` is one for all but the
+directions a rank-deficient filtered block leaves undetermined). Its variance is that of ``<r|T_n(H) - sum_j T_n(theta_j)|y_j><y_j|
 |r>``, which is small wherever the pairs are close to eigenpairs, so in the
 valence band and a few conduction states. This is the form a subagent measured
 on D22 (``PLAN.md``, end of P168): with ``m = 8`` and ``E_cut = E_F + 1`` Ry, 50 to
@@ -111,9 +112,13 @@ def ritz_pairs(hamiltonian, ik, block, cut_centre, cut_half, degree: int):
         return current, 2.0 * shifted(current) - previous
 
     _, filtered = lax.fori_loop(1, degree, step, (first, second))
-    # orthonormalise the rows: filtered^T = U s V^dagger, keep U
+    # orthonormalise the rows: filtered^T = U s V^dagger, keep U. At a high degree
+    # the filtered block is numerically rank deficient, and the SVD completes U
+    # with arbitrary orthonormal directions that may reach the padding; they are
+    # masked back onto the live sphere, so a row may have a norm below one there,
+    # which the variate's mean accounts for (control_corrections).
     u, _, _ = jnp.linalg.svd(filtered.T, full_matrices=False)
-    basis = u.T  # (r, ndim), orthonormal rows
+    basis = jnp.where(live, u.T, 0.0)  # (r, ndim)
     projected = jnp.conj(basis) @ apply(basis).T  # <u_i|H|u_j>
     projected = 0.5 * (projected + jnp.conj(projected.T))
     theta, z = jnp.linalg.eigh(projected)
@@ -148,6 +153,11 @@ def control_corrections(hamiltonian, orbitals, key, centre, half, n_moments, n_r
         x = np.clip((np.asarray(theta) - centre) / half, -1.0, 1.0)
         chebyshev = np.cos(n[None, :] * np.arccos(x)[:, None])  # (r, N)
         n_live = float(mask[ik].sum())
-        total += weights[ik] * (chebyshev.sum(axis=0)[None, :] - n_live * overlaps @ chebyshev)
+        # E[n_live |<y|r>|^2] = <y|y> on the live sphere, for any y: the mean term
+        # weights each pair by its norm there, which is one for an orthonormal y and
+        # less for a direction the SVD completed onto the padding (degree 16: a bias
+        # of 6e-4 against a spread of 1e-4 without this, on the card)
+        norms = np.sum(np.abs(np.asarray(vectors)) ** 2 * mask[ik][None, :], axis=1)
+        total += weights[ik] * ((norms @ chebyshev)[None, :] - n_live * overlaps @ chebyshev)
         values.append(np.asarray(theta))
     return total, np.stack(values)
