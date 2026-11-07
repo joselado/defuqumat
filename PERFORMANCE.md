@@ -11588,9 +11588,10 @@ other users.
 |---|---|---|---|---|---|---|
 | si16 | 2.14 s (79) + 0.11 s | 2.98 s, 0.376 | 10.1 s, 0.326 | 5.58 s, 0.012 | 17.3 s, 0.005 | 3.48 s, 0.037 |
 | si64 | 84.6 s (279) + 1.75 s | 30.7 s, 0.277 | 125 s, 0.185 | 46.6 s, 0.011 | | 31.4 s, 0.023 |
+| si128 | 1004 s (548) + 17.0 s | | | 187 s, 0.0075 | | |
 
 The si16 row was taken at a load average of about 5 (the first plain si16 run, at 8 to 12, read 7.91 s
-and 28.7 s for the same errors, and 5.67 s for the NSCF); si64's plain row is from the heavier load.
+and 28.7 s for the same errors, and 5.67 s for the NSCF); si64's plain row is from the heavier load. si128 (`tcv-si128.log`, N = 660, 4 seeds of the variate only, at a load of 8 to 12) is 5.5 times faster with the variate than the band route, 187 s against 1021 s, at 0.75 per cent.
 The variate (`control_variate=True`, filter degree in brackets, 16 the default) takes the left leg of
 its model sample from `v_a r`; the first form, with `P v_a P r`, gained only 1.3x and 1.75x (P169). The
 errors are means of 4 seeds of a heavy-tailed distribution, uncertain by tens of per cent.

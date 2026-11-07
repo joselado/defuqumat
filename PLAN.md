@@ -28120,9 +28120,10 @@ error as in P169's table):
 | Si2 2x2x2 (test, R = 2, 8 seeds) | 0.064 | | | 0.0047 | | |
 | si16 | 2.98 s, 0.376 | 3.48 s, 0.037 | 10.7 s, 0.018 | 5.58 s, 0.012 | 17.3 s, 0.005 | 2.25 s |
 | si64 | 30.7 s, 0.277 | 31.4 s, 0.023 | | 46.6 s, 0.011 | | 86 s |
+| si128 | | | | 187 s, 0.0075 | | 1021 s |
 
 So on si64 the conductivity at one per cent costs about half the band route, where the plain trace
-needed of the order of 900 s for five per cent. **The noise of a single run is heavy-tailed**: on si16
+needed of the order of 900 s for five per cent. On si128 (548 bands, N = 660, `tcv-si128.log`) the variate at R = 1 takes 187 s against the band route's 1004 s NSCF plus 17 s band sum, 5.5 times faster, at 0.75 per cent (4 seeds: 0.0094, 0.0050, 0.0077, 0.0078). **The noise of a single run is heavy-tailed**: on si16
 one seed at R = 1, 4, 16, 64 gave 0.337, 0.557, 0.143, 0.067 (`rprobe-*.log`, the reference at 79 and at
 200 bands identical), so an error from 3 or 4 seeds is uncertain by tens of per cent; the fall with
 `R` is there, and the earlier reading of a floor at 0.25 was the projected left leg plus that spread.
@@ -28134,7 +28135,7 @@ reactive part (a Kramers-Kronig of this, or a Green's-function kernel, the Kubo-
 conductivity), the plan's blocking over `n` (the families are held whole, `(ndir + 2) N ndim` per
 k-point in flight), and an error bar (the samples are summed in the scan).
 
-**What is outstanding.** The variate at R = 4 on si64 and on larger cells; the occupied projection
+**What is outstanding.** The variate at R = 4 on si64 and si128; the occupied projection
 `f(H) r` on top of it (the fable model gave a further 1.7x once the variate works); the Kubo-Bastin
 `sigma_xy` checked against the anomalous Hall conductivity of iron; DFT+U.
 
