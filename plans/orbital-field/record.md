@@ -85,7 +85,7 @@ set with no edge, the regime refusals, the route P delegation with no SCF for th
 - **Tests**: the six magnetic files and `test_calculator.py`, 123 passed and the one facade test since
   fixed (`R/t1.log`, 81.5 s); the facade, notebook conventions, facade documentation, ultracell and
   bloch files, **546 passed** in 54.6 s (`R/t3.log`); `mkdocs build --strict` and
-  `tools/check_guide.py` pass here. **The fast gate** in one slot: @GATE_LINE@
+  `tools/check_guide.py` pass here. **The fast gate** in one slot at 11bd76e5 (`R/gate.log`): `-m 'not slow'`, **3915 passed**, 85 skipped, 1731 deselected, and the two known failures of `tests/unit/test_check_guide.py` (D22's venv has no `yaml`), 1713.65 s (`# exit 1 after 1722 s`, slot 0, CPU 4, started 20:14:57, load 6 to 12); the review's gate at 00ab8475 read 3901 passed and the same two failures; the commits after 11bd76e5 change only `PLAN.md`, `PERFORMANCE.md`, `plans/`, `docs/guide/` and `notebooks/README.md`
 
 ## Decisions (all conservative, no fable could be started)
 

@@ -58,7 +58,7 @@ nearest flux $p/q$. The flux and the field that were used are on the result.
   $q$ of a few hundred. Today it gives an error. Its basis, the hybrid Wannier states of
   the lowest bands, is not localized when the bands are entangled, and then the
   matrix is not Hermitian. We measured $2\times10^{-2}$ of its largest element at
-  $q = 10$, where it must be $10^{-8}$. `calc.get_landau_levels(route="ultracell")`.
+  $q = 10$, where the code asks for less than $10^{-8}$. `calc.get_landau_levels(route="ultracell")`.
 
 ## Graphene at 10 T against the Dirac formula
 
