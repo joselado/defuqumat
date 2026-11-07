@@ -116,7 +116,7 @@ LOCAL_TERMS = ("two-grid", "filtered")
 _TIE_OFFSET = 1.0 / (20.0 * np.pi)
 
 
-def momentum_multipliers(box, p: int, kappa, window: str = "centred", real=np.float64):
+def momentum_multipliers(box, p: int, kappa, window: str = "centred", real=None):
     """``(M1, M2, M3)``: ``pi_a`` as a Fourier multiplier along its axis, row by row.
 
     For the FFT index ``f`` along an axis of ``N`` points any integer ``m = f mod N`` is the
@@ -136,6 +136,7 @@ def momentum_multipliers(box, p: int, kappa, window: str = "centred", real=np.fl
     frequency (measured in ``plans/orbital-field/route-p.md``).
     """
     n1, n2, n3 = (int(n) for n in box)
+    real = DEFAULT_PRECISION.real if real is None else real
     kappa = jnp.asarray(kappa, dtype=real)
     xi1 = jnp.arange(n1, dtype=real) / n1
     xi2 = jnp.arange(n2, dtype=real) / n2
