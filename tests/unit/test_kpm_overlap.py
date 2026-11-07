@@ -9,6 +9,7 @@ mesh, and the same cell at ``nspin = 2`` with ``tot_magnetization = 2`` (0.2 eV 
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import logging
 
@@ -24,6 +25,7 @@ from defuqumat.workflows.nscf import fixed_density_hamiltonians
 
 pytestmark = pytest.mark.unit
 
+SETUP_KERNELS = ("_overlap_setup", "_fold", "_raised")
 DATASETS = {"ultrasoft": "Si.pz-n-rrkjus_psl.0.1.UPF", "paw": "Si.pz-n-kjpaw_psl.0.1.UPF"}
 
 
@@ -94,16 +96,9 @@ def test_raised_vectors_reuse_the_stored_factor(kind):
                                    atol=1e-12 * np.abs(reference).max())
 
 
-def test_a_second_setup_compiles_nothing():
-    """The QR, the fold and the raise are module-level jits: a new potential reuses them."""
-    import equinox as eqx
-
-    _, _, hamiltonians = _silicon("paw")
-    mask = np.asarray(hamiltonians[0].mask)
-    vectors = jnp.stack([_random_block(mask[ik], 3, ik) for ik in range(mask.shape[0])])
-    raised_vectors(symmetrized(hamiltonians)[0], vectors)
-    shifted = tuple(eqx.tree_at(lambda h: h.potential, h, h.potential + 0.01)
-                    for h in hamiltonians)
+@contextlib.contextmanager
+def _setup_compiles():
+    """The compilations of the three setup kernels inside the block, read off the ``jax`` logger."""
     compiled = []
     handler = logging.Handler()
     handler.emit = lambda record: compiled.append(record.getMessage())
@@ -112,15 +107,35 @@ def test_a_second_setup_compiles_nothing():
     previous = logger.level
     logger.setLevel(logging.DEBUG)
     jax.config.update("jax_log_compiles", True)
+    names = []
     try:
-        raised_vectors(symmetrized(shifted)[0], vectors + 1.0)
+        yield names
     finally:
         jax.config.update("jax_log_compiles", False)
         logger.removeHandler(handler)
         logger.setLevel(previous)
-    assert not [m for m in compiled
-                if any(name in m for name in ("_overlap_setup", "_fold", "_raised"))
-                and ("Compiling" in m or "Finished XLA compilation" in m)], compiled
+        names.extend(name for m in compiled for name in SETUP_KERNELS
+                     if name in m and ("Compiling" in m or "Finished XLA compilation" in m))
+
+
+def test_a_second_setup_compiles_nothing():
+    """The QR, the fold and the raise are module-level jits: a new potential reuses them.
+
+    The first call is counted too, so that a logger that saw nothing cannot pass.
+    """
+    import equinox as eqx
+
+    _, _, hamiltonians = _silicon("paw")
+    mask = np.asarray(hamiltonians[0].mask)
+    vectors = jnp.stack([_random_block(mask[ik], 3, ik) for ik in range(mask.shape[0])])
+    with _setup_compiles() as first:
+        raised_vectors(symmetrized(hamiltonians)[0], vectors)
+    assert set(first) == set(SETUP_KERNELS), first
+    shifted = tuple(eqx.tree_at(lambda h: h.potential, h, h.potential + 0.01)
+                    for h in hamiltonians)
+    with _setup_compiles() as second:
+        raised_vectors(symmetrized(shifted)[0], vectors + 1.0)
+    assert not second, second
 
 
 def test_the_two_spin_channels_share_one_overlap_factor():
