@@ -73,7 +73,7 @@ set with no edge, the regime refusals, the route P delegation with no SCF for th
 - Notebook 63 executed in **124 s** (`R/nb.log`, slot 1, CPU 6), exported (`R/nb-md.log`).
 - The figures: `landau_graphene` (`R/fig-graphene.log`, 95 s), `landau_butterfly`
   (`R/fig-butterfly.log`, 64 s), drawn locally from the committed `data.npz`.
-- **The magnetizability end to end** (`R/chi-facade.log`): @CHI_LINE@
+- **The magnetizability end to end** (`R/chi-facade.log`): the zero-field sphere SCF 74 s, then the three SCFs in one call, 4, 7 and 7 iterations; energies of the 24-atom cell `E(0)` = -273.10525908315896, `E(+)` = -273.0436060095016, `E(-)` = -273.0436061726208 Ry, the same as the three separate probe runs of item 4 (`P2/diamond-p0.log`, `diamond-p1.log`, `diamond-m1.log`) to every printed digit; `E(+) - E(-)` = 1.631e-07 Ry; **chi = -11.401 x 1e-6 cm^3/mol per C2, -5.700 per C atom** (Lu, LDA: -11.16); 5711 s in all, peak RSS 4.93 GB, the lock taken at 19:56:28 at a load of 3.6, which rose to 12 to 13 during the run. The worktree was at ac9eae0c when it started and was moved forward three times while it ran; the files changed after ac9eae0c (`workflows/landau.py`, `get_landau_levels` in `calculator.py`, tests, docs, probes) are not on the magnetizability path, and `calculator.py` was imported before the first move, so the run is the final code for that path.
 - Timings (all in `PERFORMANCE.md`): route P at 1/6, second call **524.7 s** (first 564.5 s, Davidson
   steps equal), 7 iterations, peak 1.93 GB (`R/time-routep.log`, slot 0, CPU 4, load 3.6 rising to 12
   to 13); `pw.x` on the 6x1x1 supercell at zero field **82.9 s** with symmetry (11 k), **167.5 s**

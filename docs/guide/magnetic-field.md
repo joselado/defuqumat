@@ -274,14 +274,15 @@ print(f"chi = {chi.chi_per_unit:.3f} x 1e-6 cm^3/mol per C2, {chi.chi_per_atom:.
 ```
 
 ```
-SNIPPET_CHI
+E(+) - E(-) = 1.631e-07 Ry
+chi = -11.401 x 1e-6 cm^3/mol per C2, -5.700 per C atom
 ```
 
 Lu et al. give $-11.16\times10^{-6}$ cm³/mol per C₂ with the LDA, and we use PBE, so
 the two agree to about 2 per cent. The asymmetry $E(+) - E(-)$ must be zero by time
 reversal. At `conv_thr = 1e-8` it is at the level the SCF resolves the energy, about
-$10^{-7}$ Ry, against $E(+) - E(0) = 6.2\times10^{-2}$ Ry. The three runs take about an
-hour on four cores. Note that Lu et al. find that the value depends on the supercell
+$10^{-7}$ Ry, against $E(+) - E(0) = 6.2\times10^{-2}$ Ry. The three runs took 95
+minutes on four cores. Note that Lu et al. find that the value depends on the supercell
 ($-10.96$ for the $4\times1\times1$ cell), because $\Delta B$ is one flux quantum
 through it.
 

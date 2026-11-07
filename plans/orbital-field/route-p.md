@@ -527,7 +527,7 @@ only comments, docstrings and files under `plans/`).
 
 - Item 4's `E(+) - E(-) < 1e-7` Ry: measured 1.6e-7, below the SCF's own resolution at `conv_thr =
   1e-8`; both fields at 1e-10 on the same box, then an odd box, would say which part is the grid.
-- `run_magnetizability` has not run end to end: the three diamond SCFs ran as separate probe
+- ~~`run_magnetizability` has not run end to end~~ (closed at the Record stage: `get_magnetizability` ran it once, the three energies equal to every printed digit, `/l/ladovj1/review/mag/record/chi-facade.log`): the three diamond SCFs ran as separate probe
   processes (`diamond 0|1|-1`) and `chi` came from their energies through `molar_magnetizability`
   (`chi`). Its pieces are exercised (and the conversion is unit-tested), the wrapper is not.
 - Item 1's `< 5e-3` Ry at 50 Ry: the box-against-sphere basis difference, not the projectors; it is

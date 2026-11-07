@@ -29980,7 +29980,7 @@ only comments, docstrings and files under `plans/`).
 
 - Item 4's `E(+) - E(-) < 1e-7` Ry: measured 1.6e-7, below the SCF's own resolution at `conv_thr =
   1e-8`; both fields at 1e-10 on the same box, then an odd box, would say which part is the grid.
-- `run_magnetizability` has not run end to end: the three diamond SCFs ran as separate probe
+- ~~`run_magnetizability` has not run end to end~~ (closed at the Record stage: `get_magnetizability` ran it once, the three energies equal to every printed digit, `/l/ladovj1/review/mag/record/chi-facade.log`): the three diamond SCFs ran as separate probe
   processes (`diamond 0|1|-1`) and `chi` came from their energies through `molar_magnetizability`
   (`chi`). Its pieces are exercised (and the conversion is unit-tested), the wrapper is not.
 - Item 1's `< 5e-3` Ry at 50 Ry: the box-against-sphere basis difference, not the projectors; it is
@@ -30332,7 +30332,7 @@ All on D22 in `/l/ladovj1/w-mag-record`, logs in `/l/ladovj1/review/mag/record/`
 - **`Calculator.get_magnetizability(kmesh=(2, 6, 6), nbnd=None, conv_thr=1e-8, **options)`** returns
   the `Magnetizability` object, not the float of the design: a float cannot carry the per-atom value,
   the three energies and the asymmetry beside it (conservative choice, recorded). **It ran end to end
-  once** (`R/chi-facade.log`, big job, CPUs 0-3, `plans/orbital-field/mag_chi_facade.py`): @CHI_LINE@
+  once** (`R/chi-facade.log`, big job, CPUs 0-3, `plans/orbital-field/mag_chi_facade.py`): the zero-field sphere SCF 74 s, then the three SCFs in one call, 4, 7 and 7 iterations; energies of the 24-atom cell `E(0)` = -273.10525908315896, `E(+)` = -273.0436060095016, `E(-)` = -273.0436061726208 Ry, the same as the three separate probe runs of item 4 (`P2/diamond-p0.log`, `diamond-p1.log`, `diamond-m1.log`) to every printed digit; `E(+) - E(-)` = 1.631e-07 Ry; **chi = -11.401 x 1e-6 cm^3/mol per C2, -5.700 per C atom** (Lu, LDA: -11.16); 5711 s in all, peak RSS 4.93 GB, the lock taken at 19:56:28 at a load of 3.6, which rose to 12 to 13 during the run. The worktree was at ac9eae0c when it started and was moved forward three times while it ran; the files changed after ac9eae0c (`workflows/landau.py`, `get_landau_levels` in `calculator.py`, tests, docs, probes) are not on the magnetizability path, and `calculator.py` was imported before the first move, so the run is the final code for that path.
 - **Timing pair (1)** is in `PERFORMANCE.md`: route P's SCF at 1/6 on graphene, second call in one
   process, against `pw.x` on the 6x1x1 supercell at zero field.
 - **The slow fold test is split** (`tests/regression/test_magnetic_bloch_slow.py`): the SCF at 1/3
