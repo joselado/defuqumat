@@ -1604,7 +1604,12 @@ class Calculator:
         given, and the flux and the field used are on the result. ``wannier``
         is a :meth:`get_wannier` result; without one, ``get_wannier(**options)``
         is run first. ``dirac=True`` compares the ladder with the Dirac formula
-        at the velocity read from the zero-field bands.
+        at the velocity read from the zero-field bands. A set with no ``edge``
+        (explicit projections) is centred from the ground state's Fermi level.
+        On a ribbon, ``kappa2`` places the orbit: its centre is about
+        ``q (kappa2 - K2)`` cells from the first one, so a ribbon narrower
+        than ``q`` cells holds bulk levels only for ``kappa2`` near the
+        valley's ``K2``.
 
         ``route="ultracell"`` is the magnetic ultracell of Wang and Vafek
         (:func:`~defuqumat.workflows.landau_ultracell.run_magnetic_ultracell`),
@@ -1620,7 +1625,6 @@ class Calculator:
         refuse_regime(self.system, self.pseudos, "Landau levels")
         if route == "ultracell":
             from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
-
             if B is not None or flux is None or nbnd is None or int(flux[1]) > 100:
                 raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd")
             return run_magnetic_ultracell(
@@ -1631,8 +1635,11 @@ class Calculator:
         from defuqumat.workflows.landau import run_landau_levels
 
         wannier = self.get_wannier(**options) if wannier is None else wannier
+        level = (None if getattr(wannier, "edge", None) is not None
+                 else self._ground_state("Landau levels").fermi_energy)
         return run_landau_levels(wannier, B=B, flux=flux, geometry=geometry, width=width,
-                                 nlevels=nlevels, kappa=kappa, dirac=dirac, zeeman=zeeman)
+                                 nlevels=nlevels, kappa=kappa, dirac=dirac, zeeman=zeeman,
+                                 fermi_energy=level)
 
     def get_magnetic_bands(self, flux=(1, 1), kmesh=(2, 2), nbnd=None, scf=False,
                            chern=False, local_only=False, conv_thr=1e-8, **options):

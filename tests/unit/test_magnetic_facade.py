@@ -74,6 +74,20 @@ def test_get_landau_levels_is_the_peierls_workflow(pz_set):
     assert in_tesla.flux == (1, 39) and abs(in_tesla.field_tesla * 39 - 78912.0) < 1.0
 
 
+def test_a_set_with_no_edge_is_centred_from_the_fermi_level(pz_set):
+    """``get_wannier`` with explicit projections leaves ``edge`` at ``None``.
+
+    The first facade run on such a set stopped in ``float(None)``; the workflow now takes
+    ``fermi_energy`` for the start of the Dirac search, and refuses by name without one.
+    """
+    no_edge = SimpleNamespace(**{**vars(pz_set), "edge": None})
+    options = dict(flux=(1, 40), kappa=((0.11, 0.23),), nlevels=8, dirac=True)
+    with pytest.raises(ValueError, match="no edge"):
+        run_landau_levels(no_edge, **options)
+    given = run_landau_levels(no_edge, fermi_energy=pz_set.edge, **options)
+    assert np.array_equal(given.levels, run_landau_levels(pz_set, **options).levels)
+
+
 def test_get_landau_levels_refuses_the_regime_of_the_calculator(pz_set):
     magnetic = _graphene(spin="collinear", smearing=0.1,
                          atoms=[("C", (0, 0, 0), 0.5), ("C", (1 / 3, 2 / 3, 0), 0.5)])

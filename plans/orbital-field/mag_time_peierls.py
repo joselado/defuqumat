@@ -5,7 +5,7 @@ cutoff 1e-6 Ry (foundation item 6), flux 1/7900 (9.989 T): the torus of 7900 cel
 63200) and the ribbon of 165 cells (dim 1320, five magnetic lengths), 30 levels nearest E_D
 by shift-invert, each geometry run twice and the second call reported (the first is
 reported too: there is no compilation on this path, so the two should agree).
-Usage: python mag_time_peierls.py [dir with the npz]
+Usage: python mag_time_peierls.py [dir with the npz] [torus,ribbon]
 """
 import resource
 import sys
@@ -34,15 +34,25 @@ def bands(kappa):
 w = SimpleNamespace(centres=z["centres"], rvectors=z["rvectors"], degeneracy=z["degeneracy"],
                     hoppings=z["hoppings"], lattice=z["lattice"], ws_shifts=ws, spin=None,
                     edge=float(z["fermi_energy"]), bands=bands)
-e_d = dirac_point(w.lattice, bands, w.edge)["E_D"]
-for geometry, width in (("torus", None), ("ribbon", 165)):
+point = dirac_point(w.lattice, bands, w.edge)
+e_d = point["E_D"]
+# On the ribbon kappa2 sets the orbit's centre, about q (kappa2 - K2) cells from the first
+# cell, so a ribbon of 165 cells (much narrower than q = 7900) holds the bulk levels only for
+# kappa2 near K2 + 82/7900; the torus is flat in kappa. Both valleys' K2 are tried.
+k2 = float(point["K"][1])
+cases = [("torus", None, 0.23)] + [("ribbon", 165, (kk + s * 82.5 / 7900) % 1.0)
+                                   for kk in (k2, 1.0 - k2) for s in (1, -1)]
+geometries = sys.argv[2].split(",") if len(sys.argv) > 2 else ("torus", "ribbon")
+for geometry, width, kappa2 in cases:
+    if geometry not in geometries:
+        continue
     for call in ("first", "second"):
         t0 = time.perf_counter()
         r = run_landau_levels(w, flux=(1, 7900), geometry=geometry, width=width, nlevels=30,
-                              energy=e_d, cutoff=1e-6, kappa=((0.11, 0.23),))
+                              energy=e_d, cutoff=1e-6, kappa=((0.11, kappa2),))
         wall = time.perf_counter() - t0
         lev = np.sort(r.levels[0] - e_d) * RY_TO_EV * 1e3
-        print(f"[{geometry} {call}] dim {r.dim}, {r.nbonds} bonds per cell, B {r.field_tesla:.3f} T, "
+        print(f"[{geometry} kappa2 {kappa2:.5f} {call}] dim {r.dim}, {r.nbonds} bonds per cell, B {r.field_tesla:.3f} T, "
               f"wall {wall:.2f} s (bonds {r.timings['bonds_s']:.2f}, build {r.timings['build_s']:.2f}, "
               f"solve {r.timings['solve_s']:.2f}), peak RSS "
               f"{resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6:.2f} GB; levels (meV from "

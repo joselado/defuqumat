@@ -120,6 +120,7 @@ def run_landau_levels(
     degeneracy_tol: float = 1.0e-7,
     vectors: bool = False,
     bonds=None,
+    fermi_energy: float | None = None,
 ) -> LandauLevels:
     """The ``nlevels`` levels nearest ``energy`` of ``wannier`` at flux ``p/q`` (or ``B`` tesla).
 
@@ -142,6 +143,10 @@ def run_landau_levels(
         bonds: a :class:`~defuqumat.magnetic.peierls.Bonds` to use instead of
             ``wannier``'s (a model; ``wannier`` then only supplies ``bands`` and ``edge``,
             and may be ``None`` when ``dirac`` is off and ``energy`` given).
+        fermi_energy: Ry, where the Dirac search starts and the window is centred when
+            ``energy`` is not given and the set has no ``edge`` (a set built from explicit
+            projections carries none); ``Calculator.get_landau_levels`` passes the ground
+            state's.
     """
     if zeeman:
         raise NotImplementedError("the Zeeman term is not implemented with the orbital field: "
@@ -170,11 +175,16 @@ def run_landau_levels(
         torus = torus.ribbon(width)
     timings["bonds_s"] = time.perf_counter() - t0
 
+    edge = None if wannier is None else getattr(wannier, "edge", None)
+    start = energy if energy is not None else (edge if edge is not None else fermi_energy)
+    if start is None:
+        raise ValueError("no energy to centre the levels on: the Wannier set has no edge, so "
+                         "pass energy or fermi_energy (Ry)")
     point = None
     if dirac:
-        point = dirac_point(lattice, wannier.bands, float(wannier.edge if energy is None else energy))
+        point = dirac_point(lattice, wannier.bands, float(start))
     if energy is None:
-        energy = point["E_D"] if point is not None else float(wannier.edge)
+        energy = point["E_D"] if point is not None else float(start)
     sites, site_of = wannier_sites(bonds.centres, lattice)
     masks = np.stack([np.repeat((site_of == s)[None, :], torus.ncell, 0).ravel()
                       for s in range(len(sites))], axis=-1)
