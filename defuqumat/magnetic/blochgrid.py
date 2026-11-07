@@ -48,8 +48,8 @@ Mauri, PRB 63, 245101 (2001)) and lives in real space on the potential's grid, a
 points per atom of the magnetic cell (:class:`GridProjectors`). It rides on the two-grid
 interpolation: ``x = I u``, ``y = V x + c W^dagger D W x``, ``I^dagger y``, so the whole
 operator is one Galerkin matrix and stays Hermitian. Against ``vkb`` at zero field the
-projections agree to 1.1e-7 (graphene, HGH) and 2.7e-6 (silicon, ``vbc`` s and p) of their
-size (``plans/orbital-field/route-p.md``). Norm-conserving only; ultrasoft and PAW are refused
+projections agree to 1.1e-7 absolute, 4.2e-7 of the largest (graphene, HGH), and 2.7e-6
+absolute, 6.4e-6 of the largest (silicon, ``vbc`` s and p) (``plans/orbital-field/route-p.md``). Norm-conserving only; ultrasoft and PAW are refused
 by name.
 
 ``p < 0`` is the field along ``-a3`` (:func:`magnetic_cell`), which the magnetizability's

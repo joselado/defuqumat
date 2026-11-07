@@ -319,7 +319,8 @@ def silicon():
 
 def test_the_grid_projectors_are_vkb_on_silicon(silicon):
     # s and p projectors: the (-i)^l of vkb has to come out of the real-space form. Measured
-    # on D22 on the four lowest eigenstates: becp within 2.7e-6 of vkb's, <V_NL> within 6.6e-6 Ry.
+    # on D22 on the four lowest eigenstates: becp within 2.7e-6 of vkb's (6.4e-6 of the largest), <V_NL>
+    # within 6.6e-6 Ry.
     from defuqumat.magnetic.blochgrid import sphere_state_on_box
     from defuqumat.system.kpoints import KPoints
 

@@ -320,7 +320,7 @@ The expected `< 5e-3` Ry is **not reached** at 50 Ry, and 2.00e-2 sits just unde
 part is measured on the sphere's own eigenstates put on the box: there the kinetic term and the
 two-grid local term are exact Galerkin matrix elements, so the box operator's Rayleigh quotient minus
 the sphere eigenvalue is the grid projectors' error alone, 5.1e-7 Ry at most over the eight levels,
-and `becp` against `vkb`'s is 1.1e-7 of its size 0.25. So the projector normalisation and the
+and `becp` against `vkb`'s is 1.1e-7 absolute, 4.2e-7 of the largest projection (0.253). So the projector normalisation and the
 `(-i)^l` phase are right, and the 2e-2 is step 1's box-against-sphere basis difference with the
 nonlocal term in (step 1 local-only: 0.141 Ry on the deep pair at 50 Ry; the nonlocal s term pushes
 the deep states out of the region where the sphere is least converged). The Gamma doublet is split
@@ -329,7 +329,7 @@ on the box by 2.1e-3 Ry at 50 Ry and 1.2e-4 at 70 Ry, the broken hexagonal group
 The projector part on silicon (`M/si.log`; QE's `pw_scf/scf.in` cell, Si.pz-vbc, 12 Ry, our
 own SCF at `conv_thr = 1e-10`, the four lowest bands at `k = (0,0,0)`, `(1/4,1/4,1/4)`, `(1/2,0,1/4)`
 crystal): `<psi|V_NL|psi>` from the grid projectors against `vkb` within **6.6e-6 Ry**, `becp` within
-2.7e-6 of its size 0.42 (s and p projectors, so the `(-i)^l` of `vkb` is exercised). The foundation
+2.7e-6 absolute, 6.4e-6 of the largest projection (0.42) (s and p projectors, so the `(-i)^l` of `vkb` is exercised). The foundation
 had no grid projectors, so this is the design's silicon number, measured here. Its 16^3 dense grid is
 coarser for these projectors than graphene's, and that is the larger error.
 
@@ -385,14 +385,20 @@ estimate **1.24 GB**, `conv_thr = 1e-8` Ry; the start is the zero-field sphere S
 
 `E(+dB) - E(-dB)` = **1.63e-7 Ry** (`M/chi.log`): the design's 1e-7 is **not reached**; the refuse
 line of 1e-6 (a sign error) is not crossed. A sign error would make the two fields different
-operators at first order in `B`, against `E(+) - E(0) = 6.17e-2` Ry here; what is left is the grid.
+operators at first order in `B`, against `E(+) - E(0) = 6.17e-2` Ry here. Two smaller sources remain.
 `H(-B, -k) = conj H(B, k)` holds on the grid only where every row's frequency window is
 mirror-symmetric, which needs an odd magnetic box and no window centre at a tie (measured on
 small boxes, `M/tr2.log`, and in the unit test: exact to 1e-12 on 5 x 5 x 9 at `q = 1`; 0.09 of the
 largest entry on 10 x 5 x 9 at `q = 2`, whose `xi1` axis is even, and 0.34 on 4 x 4 x 8 at `q = 2`). Diamond's
 box is 50 x 18 x 18, even on every axis, so each row's half-open Nyquist slot breaks time reversal
-by the states' weight there; the two SCFs stopped at dr2 3.1e-9 and 3.3e-9 as well. Which of the two
-makes the 1.6e-7 is not separated here (an odd box, 75 x 25 x 25, at three times the size, would).
+by the states' weight there. But the target of 1e-7 is not a statement these SCFs can check at
+`conv_thr = 1e-8`: the printed energy moved by **7.7e-6 Ry** (`p = +1`, -273.0436137143 to
+-273.0436060095) and **9.0e-6 Ry** (`p = -1`, -273.0436151689 to -273.0436061726) between their last
+two iterations (dr2 1.2e-8 to 3.1e-9 and 3.3e-9; the energy of a non-final iteration takes its
+Hartree and exchange-correlation terms at the input density, so this is a resolution, not an error
+bar). So the SCF floor alone can account for 1.6e-7, and the even-box Nyquist slot is the grid-side
+candidate. The experiment that separates them is both fields at `conv_thr = 1e-10` on the same box,
+and only then the odd 75 x 25 x 25 box (three times the size); neither was run.
 
 `chi = -(E+ - 2 E0 + E-)/dB^2` (`M/chi.log`): **-11.40 x 1e-6 cm^3/mol per C2** (the 24-atom cell
 is 12 primitive cells), **-5.70 per C atom**. Lu's `chi_val` (LDA, their dataset unnamed) is -11.16 in
@@ -503,10 +509,16 @@ reversal at `p = -1`; the rigid shift of the crystal at `n_Phi = 1` on a 2 x 2 m
 the set does not, kappa2 -> kappa2 - 1/2 pairs them); the fold's weights, the fold and the charge
 of `band_density`; the occupations and the molar conversion; item 1 at 50 Ry (projector part under
 2e-6 Ry, the box below the sphere and within 2.5e-2). With the foundation's two files of the package:
-44 passed in 54.1 s, the slowest test 9.2 s (`M/t3.log`, at 960dbe3f).
+44 passed in 54.1 s, the slowest test 9.2 s (`M/t3.log`, at 960dbe3f; the later commits change
+only comments, docstrings and files under `plans/`).
 
 ## What is left (step 2)
 
+- Item 4's `E(+) - E(-) < 1e-7` Ry: measured 1.6e-7, below the SCF's own resolution at `conv_thr =
+  1e-8`; both fields at 1e-10 on the same box, then an odd box, would say which part is the grid.
+- `run_magnetizability` has not run end to end: the three diamond SCFs ran as separate probe
+  processes (`diamond 0|1|-1`) and `chi` came from their energies through `molar_magnetizability`
+  (`chi`). Its pieces are exercised (and the conversion is unit-tested), the wrapper is not.
 - Item 1's `< 5e-3` Ry at 50 Ry: the box-against-sphere basis difference, not the projectors; it is
   2e-2 at 50 Ry and 7.2e-3 at 70 Ry, and closing it is the box's corners and Nyquist slot (step 1's
   "What is left").
@@ -516,7 +528,11 @@ of `band_density`; the occupations and the molar conversion; item 1 at 50 Ry (pr
   (2, 20), 4 representatives, nbnd 48, ndim 92160): converged in **6 iterations** (dr2 8.3e-4 to
   2.6e-9), **1631 s** (1027 s the first iteration, 74 to 85 Davidson steps), memory estimate 1.34 GB,
   **peak RSS 2.87 GB**; E = -22.7542103850 Ry per chemical cell; the padded density 2.7e-2 e/bohr^3
-  off again (dr2 5.4e-5 Ry). `q = 20`: FOLD20. `q = 30` not run (estimate below).
+  off again (dr2 5.4e-5 Ry). `q = 20`: started at 17:00:59 as a big job (`M/fold20.log`, nbnd 88, ndim
+  184320, `estimate_bytes` 4.68 GB of which the kept start blocks are 1.09 GB), not finished when
+  this record was written; the first iterations at `q = 6` and `q = 10` took 112 and 257 s a
+  representative. `q = 30` not run: its estimate is 10.0 GB (nbnd 128, ndim 276480, kept blocks
+  2.3 GB), inside the 14 GB big-job cap.
 - `segment_sum` for the projector scatter on a card; the projectors' memory is small
   (`natom nproj npts` complex, 12 x 1 x 2997 at `q = 6`, 0.6 MB) and is not in `estimate_bytes`.
 - The preconditioner does not include the nonlocal term's diagonal; the Davidson steps with it in
