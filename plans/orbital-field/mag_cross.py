@@ -405,20 +405,35 @@ def analyse():
 
     # ---- the pi states see no nonlocal term: C.pbe-hgh carries one s projector, even under the
     # mirror z -> -z, and the pi states are odd, so route P local-only and full must agree on them
-    print("\n== route P local-only against full on the levels within 1 and 2.5 eV of the box E_D (mirror-odd pi "
-          "states; the s projector cannot reach them)")
+    # The local-only operator has two more bands per cell below the pi pair (index 6q-1, 6q at the gap),
+    # so its 4q + 8 levels hold the zero pair only for q <= 3; each full level within 1 eV of E_D is
+    # matched to the nearest local level at the same k of the same mesh (one grid, two operators).
+    print("\n== route P local-only against full on the levels within 1 eV of the box E_D (mirror-odd pi "
+          "states; the s projector cannot reach them): nearest local level at the same k")
     for q in QS:
         L = np.load(DATA / f"route-p-q{q}-local.npz")
         F = np.load(DATA / f"route-p-q{q}-full.npz")
-        for half in (1.0, 2.5):
-            lw = [np.sort(r[np.abs(r - ed_box) < half / RY_EV]) for r in L["eigenvalues"]]
-            fw = [np.sort(r[np.abs(r - ed_box) < half / RY_EV]) for r in F["eigenvalues"]]
-            if [len(r) for r in lw] != [len(r) for r in fw]:
-                print(f"q {q} within {half} eV: counts differ, local {[len(r) for r in lw]}, full {[len(r) for r in fw]}")
-                continue
-            d = np.concatenate(fw) - np.concatenate(lw)
-            print(f"q {q} within {half} eV: {d.size} levels over the {len(lw)} k of the mesh, max |full - local| "
-                  f"{np.max(np.abs(d)) if d.size else 0.0:.3e} Ry", flush=True)
+        near = []
+        for lr, fr in zip(L["eigenvalues"], F["eigenvalues"]):
+            for e in fr[np.abs(fr - ed_box) < 1.0 / RY_EV]:
+                near.append(np.min(np.abs(lr - e)))
+        near = np.array(near)
+        print(f"q {q}: {near.size} full levels within 1 eV, nearest local level max {near.max() if near.size else 0:.3e} Ry, "
+              f"min {near.min() if near.size else 0:.3e} Ry; local's top computed level minus E_D "
+              f"{(np.min(L['eigenvalues'][:, -1]) - ed_box) * RY_EV:+.3f} eV", flush=True)
+
+    # The diamagnetic inequality: for a local scalar potential the ground state of (p + A)^2 + V is
+    # never below that of p^2 + V (Simon), so route P local-only cannot put a level below the
+    # zero-field minimum of the same box; a uniform spurious downward shift would show here.
+    fl_loc, fl_full = floors["local"], floors["full"]
+    print("\n== the diamagnetic inequality, lowest level of route P against the zero-field minimum of the same box")
+    for q in QS:
+        L = np.load(DATA / f"route-p-q{q}-local.npz")
+        F = np.load(DATA / f"route-p-q{q}-full.npz")
+        e0l, e0f = float(np.min(fl_loc["box"][:, 0])), float(np.min(fl_full["box"][:, 0]))
+        print(f"q {q}: local-only lowest {np.min(L['eigenvalues']):.6f} Ry, zero-field box minimum {e0l:.6f} Ry, "
+              f"difference {(np.min(L['eigenvalues']) - e0l) * RY_EV * 1e3:+.2f} meV (B_ph {0.0335723149 * 10 / q * RY_EV * 1e3:.0f} meV); "
+              f"full lowest minus its zero-field minimum {(np.min(F['eigenvalues']) - e0f) * RY_EV * 1e3:+.2f} meV", flush=True)
 
     # ---- item 4: DOS at q = 6
     print("\n== item 4: DOS at q = 6, Gaussian 20 meV, each about its own E_D, 4 representatives (route P's full "
