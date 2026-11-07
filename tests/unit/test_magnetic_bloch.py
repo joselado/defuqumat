@@ -32,6 +32,8 @@ from defuqumat.magnetic.conventions import MagneticCell
 from defuqumat.magnetic.landau import free_landau_levels
 from defuqumat.units import RY_TO_EV, TPI
 from defuqumat.workflows import magnetic_bands
+from defuqumat.magnetic.fold import run_magnetic_scf
+from defuqumat.pseudo.upf import read_upf
 from defuqumat.workflows.magnetic_bands import run_magnetic_bands
 
 pytestmark = pytest.mark.unit
@@ -262,7 +264,7 @@ def test_an_unconverged_solve_falls_back_to_dense_and_is_refused_above_the_limit
 def test_the_refusals(graphene):
     system, pseudos = graphene.system, graphene.pseudos
     common = dict(flux=(1, 2), kmesh=(1, 1), nbnd=2, free=True, grid=SMALL)
-    with pytest.raises(NotImplementedError, match="GIPAW"):
+    with pytest.raises(ValueError, match="GIPAW"):
         run_magnetic_bands(system, pseudos, None, local_only=False, **common)
     with pytest.raises(NotImplementedError, match="along a3"):
         run_magnetic_bands(system, pseudos, None, field_axis=0, **common)
@@ -283,3 +285,163 @@ def test_the_refusals(graphene):
         run_magnetic_bands(system, (soft,), None, **common)
     with pytest.raises(ValueError, match="zero field"):
         blochgrid.magnetic_cell(system.cell, 0, 2)
+    ultrasoft = read_upf("tests/data/pseudo/C.pz-rrkjus.UPF")
+    with pytest.raises(NotImplementedError, match="norm-conserving only"):
+        blochgrid.grid_projectors(blochgrid.magnetic_cell(system.cell, 1, 1), system.structure,
+                                  (ultrasoft,), (24, 24, 128), 1000)
+    with pytest.raises(ValueError, match="starts from a density"):
+        run_magnetic_scf(system, pseudos, None, flux=(1, 1), kmesh=(1, 1), nbnd=4)
+
+
+# --- step 2: the GIPAW-dressed nonlocal term, the fold, the energy ------------------------
+
+ODD = (5, 5, 9)
+
+
+def _spectra(h, chunk=32):
+    return [np.linalg.eigvalsh(dense_matrix(h, ik, chunk=chunk)) for ik in range(h.nk)]
+
+
+def _full(graphene, potential, p, q, kpoints, grid=ODD, **options):
+    return MagneticGridHamiltonian.build(graphene.system.cell, p, q, 50.0, kpoints, potential,
+                                         grid=grid, structure=graphene.system.structure,
+                                         pseudos=graphene.pseudos, **options)
+
+
+@pytest.fixture(scope="module")
+def silicon():
+    return Calculator.from_keywords(
+        lattice="fcc", a=10.2 * 0.529177210903,
+        atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+        pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+        ecut=12 * RY_TO_EV, kmesh=(1, 1, 1))
+
+
+def test_the_grid_projectors_are_vkb_on_silicon(silicon):
+    # s and p projectors: the (-i)^l of vkb has to come out of the real-space form. Measured
+    # on D22 on the four lowest eigenstates: becp within 2.7e-6 of vkb's, <V_NL> within 6.6e-6 Ry.
+    from defuqumat.magnetic.blochgrid import sphere_state_on_box
+    from defuqumat.system.kpoints import KPoints
+
+    cell = silicon.system.cell
+    kcrys = np.array([0.5, 0.0, 0.25])
+    sub = silicon.with_kpoints(KPoints.from_crystal(kcrys[None], np.ones(1), cell))
+    calculation = sub.calculation
+    vltot = np.asarray(calculation.vltot)
+    h = MagneticGridHamiltonian.build(cell, 0, 1, sub.system.ecutwfc, [kcrys], vltot,
+                                      structure=sub.system.structure, pseudos=sub.pseudos)
+    planewaves = calculation.basis.planewaves
+    miller = np.asarray(calculation.basis.smooth.miller)[np.asarray(planewaves.indices[0])]
+    g2 = np.sum((miller + kcrys) ** 2, axis=1)
+    mask = np.asarray(planewaves.mask[0], float)
+    rng = np.random.default_rng(11)
+    c = (rng.normal(size=(3, mask.size)) + 1j * rng.normal(size=(3, mask.size))) * mask / (1.0 + g2)
+    c /= np.linalg.norm(c, axis=1, keepdims=True)
+    u = sphere_state_on_box(calculation, c, 0, h.box)
+    vkb = np.asarray(calculation.projectors.project(jnp.asarray(c), 0))
+    tau = np.asarray(sub.system.structure.positions)
+    k = TPI * kcrys @ np.asarray(jnp.linalg.inv(cell.at).T)
+
+    def grid_becp(kappa):
+        x = h.interpolate(jnp.asarray(u).reshape((-1,) + h.box), jnp.asarray(kappa))
+        b = np.asarray(h.projectors.project(x.reshape(x.shape[0], -1), jnp.asarray(kappa)))
+        return (b * np.exp(1j * (tau @ k))[None, :, None]).reshape(len(c), -1)
+
+    scale = np.max(np.abs(vkb))
+    assert h.projectors.nproj == 4 and h.projectors.dropped < 1e-10
+    assert np.max(np.abs(grid_becp(kcrys) - vkb)) < 1e-4 * scale
+    # the comparison can fail: the bra at another k is far off
+    assert np.max(np.abs(grid_becp(kcrys + np.array([0.1, 0.0, 0.0])) - vkb)) > 1e-2 * scale
+
+
+def test_the_full_operator_is_hermitian_and_covariant_and_the_bare_one_is_not(graphene, potential):
+    p, q, kappa2 = 1, 2, 0.21
+    points = [[0.13, kappa2, 0.0], [0.13, (kappa2 - p / q) % 1.0, 0.0]]
+    h = _full(graphene, potential, p, q, points)
+    rng = np.random.default_rng(3)
+    v = rng.normal(size=(2, h.ndim)) + 1j * rng.normal(size=(2, h.ndim))
+    hv = np.asarray(h.apply(jnp.asarray(v), 0))
+    lhs, rhs = np.vdot(v[0], hv[1]), np.vdot(hv[0], v[1])
+    assert abs(lhs - rhs) / (np.linalg.norm(v[0]) * np.linalg.norm(hv[1])) < 1e-12
+    a, b = _spectra(h)
+    assert np.max(np.abs(a - b)) < 1e-10 * np.max(np.abs(a))
+    # the projectors without the GIPAW phase break the magnetic translation (the guard fires)
+    bare_a, bare_b = _spectra(_full(graphene, potential, p, q, points, dressed=False))
+    assert np.max(np.abs(bare_a - bare_b)) > 1e-6
+    # and the nonlocal term is there: it moves the spectrum of the local-only operator
+    local = MagneticGridHamiltonian.build(graphene.system.cell, p, q, 50.0, points, potential, grid=ODD)
+    assert np.max(np.abs(_spectra(local)[0] - a)) > 1e-2
+
+
+def test_the_field_along_minus_a3_is_the_time_reversed_operator(graphene, potential):
+    plus = _full(graphene, potential, 1, 2, [[0.37, 0.29, 0.0]])
+    minus = _full(graphene, potential, -1, 2, [[-0.37, -0.29, 0.0]])
+    (a,), (b,) = _spectra(plus), _spectra(minus)
+    assert np.max(np.abs(a - b)) < 1e-10 * np.max(np.abs(a))
+    # while the opposite field at the same k is another operator
+    (c,) = _spectra(_full(graphene, potential, -1, 2, [[0.37, 0.29, 0.0]]))
+    assert np.max(np.abs(a - c)) > 1e-6
+    cell = blochgrid.magnetic_cell(graphene.system.cell, -1, 2)
+    assert float(cell.scale) == -1.0 and float(cell.b_ph) < 0
+
+
+def test_a_rigid_shift_of_the_crystal_moves_the_levels_and_keeps_their_set(graphene, potential):
+    # Lu's magnetic band shift (Fig. 3e,f): at n_Phi = 1 moving every atom by a1/2 moves k by
+    # half of b2, so eps(k) changes and the set over a mesh closed under that shift does not
+    import equinox as eqx
+
+    structure = graphene.system.structure
+    a1 = np.asarray(graphene.system.cell.at)[0]
+    moved = eqx.tree_at(lambda s: s.positions, structure, structure.positions + 0.5 * jnp.asarray(a1))
+    rolled = np.roll(potential, potential.shape[0] // 2, axis=0)
+    mesh = [[i / 2, j / 2, 0.0] for i in range(2) for j in range(2)]
+    cell = graphene.system.cell
+    h0 = MagneticGridHamiltonian.build(cell, 1, 1, 50.0, mesh, potential, grid=(4, 5, 9),
+                                       structure=structure, pseudos=graphene.pseudos)
+    h1 = MagneticGridHamiltonian.build(cell, 1, 1, 50.0, mesh, rolled, grid=(4, 5, 9),
+                                       structure=moved, pseudos=graphene.pseudos)
+    s0, s1 = _spectra(h0), _spectra(h1)
+    assert max(np.max(np.abs(x - y)) for x, y in zip(s0, s1)) > 1e-3
+    assert np.max(np.abs(np.sort(np.concatenate(s0)) - np.sort(np.concatenate(s1)))) < 1e-10
+    # kappa2 -> kappa2 - 1/2 pairs them point by point
+    assert np.max(np.abs(s0[0] - s1[1])) < 1e-10 * np.max(np.abs(s0[0]))
+
+
+def test_the_fold_and_the_density_of_a_state(graphene, potential):
+    from defuqumat.magnetic.fold import band_density, fold_to_chemical, representatives
+
+    kpts, weights = representatives((2, 6), 3)
+    assert kpts.shape == (4, 3) and abs(weights.sum() - 2.0) < 1e-15
+    assert np.allclose(sorted(set(kpts[:, 1])), [0.0, 1 / 6])
+    with pytest.raises(ValueError, match="multiple of q"):
+        representatives((2, 5), 3)
+    blocks = np.arange(12).reshape(6, 2, 1).astype(float)
+    assert np.allclose(np.asarray(fold_to_chemical(blocks, 3)), blocks.reshape(3, 2, 2, 1).mean(0))
+    h = _full(graphene, potential, 1, 2, [[0.37, 0.29, 0.0]])
+    rng = np.random.default_rng(9)
+    v = rng.normal(size=(3, h.ndim)) + 1j * rng.normal(size=(3, h.ndim))
+    v /= np.linalg.norm(v, axis=1, keepdims=True)
+    rho = band_density(h, jnp.asarray(v), jnp.asarray([2.0, 1.0, 0.5]), 0)
+    volume = float(graphene.system.cell.volume) * 2
+    assert abs(float(jnp.sum(rho)) * volume / rho.size - 3.5) < 1e-12
+
+
+def test_the_occupations_and_the_molar_magnetizability():
+    from defuqumat.magnetic.fold import AVOGADRO, RY_ERG, magnetic_occupations, molar_magnetizability
+
+    fixed = SimpleNamespace(occupations="fixed")
+    e = np.array([[0.0, 1.0, 2.0], [0.1, 1.1, 2.1]])
+    w = np.array([1.0, 1.0])
+    wg, ef, ts = magnetic_occupations(e, w, 4.0, fixed)
+    assert np.allclose(wg, [[1, 1, 0], [1, 1, 0]]) and 1.1 < ef < 2.0 and ts == 0.0
+    with pytest.raises(ValueError, match="crossing"):
+        magnetic_occupations(np.array([[0.0, 1.0, 2.0], [0.1, 2.5, 3.0]]), w, 4.0, fixed)
+    smeared = SimpleNamespace(occupations="smearing", degauss=0.01, smearing="mv")
+    with pytest.raises(ValueError, match="raise nbnd"):
+        magnetic_occupations(e, w, 5.9, smeared)
+    with pytest.raises(NotImplementedError, match="tetrahedra"):
+        magnetic_occupations(e, w, 4.0, SimpleNamespace(occupations="tetrahedra"))
+    # E = E0 - chi B^2 / 2 per formula unit gives chi back
+    chi, b = -11.16e-6, 10877.0
+    de = -0.5 * chi * (b * 1e4) ** 2 / AVOGADRO / RY_ERG * 12
+    assert abs(molar_magnetizability(de, 0.0, de, b, units=12) - chi * 1e6) < 1e-9

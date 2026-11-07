@@ -1,8 +1,8 @@
-"""The plane-wave magnetic Bloch route: ``pi^2 + V_loc`` on the magnetic cell's FFT box.
+"""The plane-wave magnetic Bloch route: ``pi^2 + V_loc + V_NL`` on the magnetic cell's FFT box.
 
 Lu, Chen, Wang, Dai, Fang, Gong, Wu and Xiang, *General first-principles approach to
 crystals in finite magnetic fields*, PRL 135, 196401 (2025), arXiv:2505.06585 (route P of
-``notes/ORBITAL-FIELD-NEXT.md``; the design's section 3, step 1). Cai and Galli, PRL 92,
+``notes/ORBITAL-FIELD-NEXT.md``; the design's section 3, steps 1 and 2). Cai and Galli, PRL 92,
 186402 (2004), is the forerunner without nonlocal pseudopotentials. The conventions are
 :mod:`defuqumat.magnetic.conventions` and nothing here redefines them.
 
@@ -40,9 +40,20 @@ the dense grid one axis at a time in the gauge where it is periodic, multiplied,
 back (:meth:`MagneticGridHamiltonian.local_term`). The design's first form, ``V`` filtered to
 the box's frequencies ``|m_i| <= n_i/2`` (:func:`filter_to_box`) and multiplied on the box
 (``local = 'filtered'``), aliases the products, and at zero field puts the deep states of
-local-only graphene 0.27 Ry below the sphere's at 50 Ry. The bare nonlocal term is **not**
-here: it does not commute with the magnetic translations, and the GIPAW-dressed one is step 2
-of the route.
+local-only graphene 0.27 Ry below the sphere's at 50 Ry.
+
+The nonlocal term (step 2, Lu eq. 6). The bare one does not commute with the magnetic
+translations; each projector is dressed by the GIPAW phase of the conventions (Pickard and
+Mauri, PRB 63, 245101 (2001)) and lives in real space on the potential's grid, as a sphere of
+points per atom of the magnetic cell (:class:`GridProjectors`). It rides on the two-grid
+interpolation: ``x = I u``, ``y = V x + c W^dagger D W x``, ``I^dagger y``, so the whole
+operator is one Galerkin matrix and stays Hermitian. Against ``vkb`` at zero field the
+projections agree to 1.1e-7 (graphene, HGH) and 2.7e-6 (silicon, ``vbc`` s and p) of their
+size (``plans/orbital-field/route-p.md``). Norm-conserving only; ultrasoft and PAW are refused
+by name.
+
+``p < 0`` is the field along ``-a3`` (:func:`magnetic_cell`), which the magnetizability's
+``E(-dB)`` needs.
 
 The solver. :class:`MagneticGridHamiltonian` carries the duck-typed members
 :func:`~defuqumat.solvers.davidson.davidson_eigensolver` reads, so the solve is
