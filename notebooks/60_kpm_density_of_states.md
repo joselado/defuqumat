@@ -146,6 +146,32 @@ for name, d in (('random vectors', kpm), ('with the atomic orbitals', varied)):
     with the atomic orbitals  mean error in the valence band 3.3e-05 states/eV
 
 
+## With a PAW dataset
+
+With an ultrasoft or PAW dataset the states solve $H\psi = \varepsilon S\psi$, where the
+overlap $S$ differs from one near the atoms. The Chebyshev expansion of $H$ alone would
+then give another spectrum. Instead, the code expands $S^{-1/2} H S^{-1/2}$, which has
+exactly the eigenvalues $\varepsilon$. We count the states below the gap of the same
+silicon with a PAW dataset.
+
+
+```python
+paw = Calculator.from_keywords(
+    lattice='fcc', a=5.43, atoms=[('Si', (0, 0, 0)), ('Si', (0.25, 0.25, 0.25))],
+    pseudos={'Si': 'Si.pz-n-kjpaw_psl.0.1.UPF'}, pseudo_dir='../tests/data/pseudo',
+    ecut=272.1, ecutrho=4 * 272.1, kmesh=(4, 4, 4))
+top = paw.get_scf().homo
+d = paw.get_kpm_dos(broadening=0.01, n_random=4)
+print(f'PAW: {d.count_at(top + 0.02):.3f} +- {d.count_error_at(top + 0.02):.3f} states below the gap')
+```
+
+    PAW: 7.999 +- 0.001 states below the gap
+
+
+The count is 8 within its error of 0.001, the four valence bands with their spin. The
+error is much smaller than the 0.25 above, because here `get_kpm_dos` uses the atomic
+orbitals by default, as in the previous section.
+
 ## When to use it
 
 With the atomic orbitals the error of the valence band falls by about 2600 times,

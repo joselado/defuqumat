@@ -384,8 +384,8 @@ print(f"width of a transition {sigma.transition_broadening * 13.6057:.3f} eV")
 ```
 
 ```
-1012 moments, Fermi level 0.4484 Ry
-peak of Re sigma_xx at 3.70 eV: 44944 S/cm
+1012 moments, Fermi level 0.4760 Ry
+peak of Re sigma_xx at 3.70 eV: 45002 S/cm
 width of a transition 0.385 eV
 ```
 
@@ -393,15 +393,16 @@ The peak is at 3.70 eV. The measured peak of silicon is at 4.2 eV with about
 $2.9\times10^4$ S/cm, and the local density approximation puts it too low in energy. A
 $4\times4\times4$ mesh is also coarse for a spectrum. Each delta function has a half width
 of 0.02 Ry, and a transition is two of them, so its width is $\sqrt2$ times larger, 0.385
-eV. The run takes 92 s on one core, with the atomic orbitals removing most of
+eV. The run takes 89 s on one core, with the atomic orbitals removing most of
 the noise of the 4 random vectors (`control_variate`, below).
 
-The Fermi level is 0.4484 Ry, and the top of the valence band is 0.4515 Ry. If you do not
-give `fermi_energy` for an insulator, the code takes the minimum of the broadened density
-of states between the bands, from the same random vectors. Here the gap of the local
-density approximation, about 0.04 Ry, is only twice the broadening, so this minimum is at
-the edge of the valence band. For an insulator with a gap of the size of the broadening,
-you give the level yourself. For a metal the code takes the Fermi level of the SCF.
+The Fermi level is 0.4760 Ry, in the middle of the gap: the top of the valence band is
+0.4515 Ry. If you do not give `fermi_energy` for an insulator, the code takes the middle of
+the gap from the approximate eigenstates of the atomic orbitals (see `control_variate`
+below), which are the band energies to about 1e-4 Ry near the gap. Without them it takes
+the minimum of the broadened density of states from the same random vectors, which leans
+towards the valence band when the gap is close to the broadening. For a metal the code
+takes the Fermi level of the SCF.
 
 The keywords of `get_kpm_conductivity` are:
 

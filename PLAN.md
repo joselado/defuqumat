@@ -28025,7 +28025,7 @@ diagnosis (Ritz directions on the padding) was wrong; its change did nothing and
 stochastic unfolding and the spin-resolved trace could take it; a cheaper Ritz step (it is
 `O(npw natw^2)`, Davidson's scaling); ultrasoft and PAW as before.
 
-### P169 -- The optical conductivity by a two-index Chebyshev expansion, `get_kpm_conductivity`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, ten fast tests, with the other 23 KPM tests on D22 CPU and the first six on the RTX A2000; the gate was not run; no slow file; branch `kpm-sigma` from b611deab, not merged, not pushed)
+### P169 -- The optical conductivity by a two-index Chebyshev expansion, `get_kpm_conductivity`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, eleven fast tests; all 50 KPM tests on D22 CPU and on the RTX A2000 at 252853cc and the conductivity file again at d92534e8; the fast gate in one slot at 936eff44, 3812 passed, the two known `yaml` failures and P170's unbiasedness test, fixed in 8b54292b; no slow file; branch `kpm-sigma` from b611deab, not merged, not pushed)
 
 **What is in.** `defuqumat/kpm/conductivity.py`. The absorptive Kubo-Greenwood tensor
 `sigma'_ab(w) = (pi / (Omega w)) sum_k w_k int dE [f(E) - f(E + w)] Tr[v_b delta(E - H) v_a delta(E + w - H)]`
@@ -28081,8 +28081,12 @@ weight is `1/w` where the band sum has `1/e_mn`. Exact trace, Lorentz kernel, ag
 
 On Si8 at 2x2x2 with smearing (notebook 62) the Lorentz-kernel peak with the variate is 0.433, the
 same to 0.1 per cent for two seeds at R = 4 and at R = 16 (`si8c-*.log`), against 0.408 for the band sum
-at 56 bands: the 6 per cent is the occupation by energy, not noise. A plain run at R = 4 had read
-0.408, a coincidence: the plain peaks moved by 7 to 10 per cent between runs. **The Lorentz kernel's width was wrong** (P167's `kernels.py`, found by the fable
+at 56 bands. **The 6 per cent is the line shape of the Lorentz kernel, not the occupation**: at half
+the broadening (0.01 Ry, N = 1330, `si8broad.py`) the peak ratio is 1.085 where it was 1.063, while
+the weight between 1.5 and 6 eV goes from 0.983 to 0.990 of the band sum's; the kernel's peak is close
+to a Lorentzian but narrower at the top. (The notebook first said the difference was the occupation
+by energy; the advisor asked for the number, and the number said otherwise.) A plain run at R = 4 had
+read 0.408, a coincidence: the plain peaks moved by 7 to 10 per cent between runs. **The Lorentz kernel's width was wrong** (P167's `kernels.py`, found by the fable
 review of this phase): its peak's half width is `1.19 lambda sqrt(1 - x^2) / N` in `x`
 (`LORENTZ_HWHM = 1.1919166`, the continuum root, measured 1.1915 at N = 400), not `lambda / N` flat,
 37 per cent too wide at `x = -0.85`. Fixed, with the width test now parametrized over both kernels;
@@ -28134,7 +28138,7 @@ k-point in flight), and an error bar (the samples are summed in the scan).
 `f(H) r` on top of it (the fable model gave a further 1.7x once the variate works); the Kubo-Bastin
 `sigma_xy` checked against the anomalous Hall conductivity of iron; DFT+U.
 
-### P171 -- The KPM density of states and projected DOS of ultrasoft and PAW runs, on `S^(-1/2) H S^(-1/2)`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_augmented.py`, eleven fast tests, with the other KPM files on D22 CPU, 33 in 149 s, and the first version on the RTX A2000; the gate was not run; no slow file; branch `kpm-sigma`)
+### P171 -- The KPM density of states and projected DOS of ultrasoft and PAW runs, on `S^(-1/2) H S^(-1/2)`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_augmented.py`, eleven fast tests, with the other KPM files on D22 CPU and on the RTX A2000 at 252853cc; the fast gate as in P169; no slow file; branch `kpm-sigma`)
 
 **What is in.** `defuqumat/kpm/overlap.py`: `SymmetrizedHamiltonian`, the operator
 `H^ = S^(-1/2) H S^(-1/2)`, Hermitian in the plain inner product and similar to `S^-1 H`, so every piece
@@ -28171,7 +28175,8 @@ application, which `S^(-1/2)` on both sides triples.
 **Refused, still**: a spinor with an augmented dataset (`qq_so` couples the spin blocks; nothing
 checked); the LDOS (the augmentation charge at the point), the unfolding (the plane-wave subset is not a
 projector in the S metric) and the conductivity (`dH/dk - e dS/dk`), through `kpm_setup` without
-`symmetrize`. No notebook: the physics is that of notebook 60, in another regime.
+`symmetrize`. Notebook 60 has a cell on PAW silicon at 4x4x4 (20/80 Ry): 7.999 +- 0.001 states below
+the gap with the variate on by default; the notebook runs in 55 s.
 
 **What is outstanding.** The spinor; the three traces above; folding `S^(-1/2)` into the nonlocal
 term to cut the per-application cost.

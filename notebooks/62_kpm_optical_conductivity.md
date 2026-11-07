@@ -86,12 +86,13 @@ plt.tight_layout()
 
 On the left, the dashed line is the sum over pairs of bands for the perfect cell,
 and the blue line is the KPM result for the same cell with Lorentzian
-transitions. They have the same shape, and the KPM peak is about 6 per cent higher.
-Below the absorption edge the band sum is higher. Both differences come from the
-broadening, not from the noise: KPM occupies the states by energy after they are
-broadened, so the part of a broadened state that lies across the Fermi level is not
-counted, and it weights a transition by $1/\omega$ where the band sum uses the gap of
-the pair. The two are the same quantity as the broadening goes to zero.
+transitions. They have the same weight: between 1.5 and 6 eV the KPM curve holds 98
+per cent of the weight of the band sum, and 99 per cent at half the broadening. The
+KPM peak is about 6 per cent higher. This is the line shape and not the noise: the
+Lorentz kernel gives a peak close to a Lorentzian but a little narrower at the top,
+and at half the broadening the difference stays at 8 per cent. Below the absorption
+edge the band sum is higher, because KPM occupies the states by energy after they are
+broadened, so the part of a broadened state across the Fermi level is not counted.
 
 On the right, with Gaussian transitions and so short tails, the absorption of the
 perfect cell starts near 2 eV. With the vacancy it starts near 1 eV. These are
