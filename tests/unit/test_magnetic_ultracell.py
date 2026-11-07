@@ -119,3 +119,98 @@ def test_the_rank_is_recorded_when_a_direction_is_dropped():
     h = np.diag([1.0, 2.0])
     eps, rank, d_min, d_all = solve(h, s, drop=1e-8)
     assert rank == 1 and d_all < 1e-8 and d_min == pytest.approx(1.0)
+
+
+# --- the workflow on a small graphene cell ---------------------------------------------
+
+def _small_graphene():
+    from defuqumat import Calculator
+    from defuqumat.units import RY_TO_EV
+
+    return Calculator.from_keywords(
+        lattice="hexagonal", a=2.46, c=5.0,
+        atoms=[("C", (0, 0, 0)), ("C", (1 / 3, 2 / 3, 0))],
+        pseudos={"C": "C.pbe-hgh.UPF"}, pseudo_dir="tests/data/pseudo",
+        ecut=20 * RY_TO_EV, kmesh=(4, 4, 1), smearing=0.01 * RY_TO_EV, smearing_type="mv")
+
+
+def _uniform_density(calc):
+    from defuqumat.scf.driver import Calculation
+
+    calculation = Calculation(calc.system, calc.pseudos)
+    grid = calculation.basis.dense.grid
+    return {"density": np.full((1,) + tuple(grid), float(calculation.nelec)
+                               / float(calc.system.cell.volume))}
+
+
+@pytest.mark.parametrize("h0", ["eigen", "box"])
+def test_zero_flux_gives_back_the_zero_field_bands(h0):
+    """p = 0: the hybrid states, the box, the rolls and the Bloch sum return eps(k) exactly.
+
+    With an odd N1 and w = (N1 - 1)/2 every Delta of the box is counted once, and the
+    magnetic kappa1 = 0 is the mesh point i = 0, so the levels are the zero-field ones.
+    """
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, _uniform_density(calc), flux=(0, 1),
+                               nbnd=4, N1=5, w=2, kmesh=(1, 2), h0=h0)
+    for ik, (kappa1, kappa2) in enumerate(r.kappa):
+        jk = int(round(kappa2 * 2))
+        assert np.max(np.abs(r.levels[ik, :4] - r.eigenvalues[jk, 0, 0])) < 1e-10
+    assert np.all(r.hermiticity < 1e-12)
+    assert np.all(r.rank == 4)
+
+
+def test_the_bare_hybrid_basis_of_the_free_problem_is_refused_by_the_hermiticity_guard():
+    """Free electrons, q = 2: the lowest bands are entangled, the hybrid states have sinc
+    tails, and the assembled H is not Hermitian; strict mode raises, and the reversed field
+    reads a larger residual, so the guard is not reading round-off."""
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    with pytest.raises(ValueError, match="not Hermitian"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), nbnd=2, N1=6,
+                               kmesh=(1, 1), free=True)
+    same = run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), nbnd=2, N1=6,
+                                  kmesh=(1, 1), free=True, strict=False)
+    reversed_ = run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), nbnd=2,
+                                       N1=6, kmesh=(1, 1), free=True, strict=False, scale=-1.0)
+    assert np.all(same.hermiticity > 1e-8)
+    assert np.all(reversed_.hermiticity > 2.0 * same.hermiticity)
+
+
+def test_the_window_makes_the_free_problem_hermitian_and_variational():
+    """The same free problem with a smooth window (2.0, 2.5) cells on N1 = 10: H is
+    Hermitian to the grid's aliasing and every level lies above (2n + 1) B_ph."""
+    from defuqumat.magnetic.conventions import MagneticCell
+    from defuqumat.magnetic.landau import free_landau_levels
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), nbnd=2, N1=10,
+                               kmesh=(1, 1), free=True, h0="box", window=(2.0, 2.5))
+    assert r.w == 4
+    assert np.all(r.hermiticity < 1e-8)
+    levels, mult, _ = free_landau_levels(MagneticCell.build(calc.system.cell, 1, 2), 6, g3max=2)
+    ref = np.repeat(levels, mult)
+    n = min(len(ref), r.levels.shape[1])
+    assert np.min(r.levels[:, :n] - ref[None, :n]) > -1e-8
+
+
+def test_the_nonlocal_term_and_the_regimes_are_refused_by_name():
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    with pytest.raises(NotImplementedError, match="nonlocal term"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), nbnd=2,
+                               local_only=False)
+
+    class Ultrasoft:
+        is_paw = False
+        is_ultrasoft = True
+        element = "C"
+        functional = calc.pseudos[0].functional
+
+    with pytest.raises(NotImplementedError, match="ultrasoft dataset C"):
+        run_magnetic_ultracell(calc.system, (Ultrasoft(),), None, flux=(1, 2), nbnd=2, free=True)
