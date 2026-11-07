@@ -29,6 +29,9 @@ from defuqumat.wannier.interpolation import band_distance
 out = Path(sys.argv[1] if len(sys.argv) > 1 else "plans/orbital-field")
 mode = sys.argv[2] if len(sys.argv) > 2 else "auto"
 window = float(sys.argv[3]) if len(sys.argv) > 3 else 2.0   # the p_z set's frozen window, E_F +- window eV
+pz_bands = int(sys.argv[4]) if len(sys.argv) > 4 else 8      # the p_z set's num_bands
+num_iter = int(sys.argv[5]) if len(sys.argv) > 5 else None   # the engine's num_iter (its default if None)
+engine = None if num_iter is None else {"num_iter": num_iter}
 out.mkdir(parents=True, exist_ok=True)
 
 calc = Calculator.from_keywords(
@@ -67,10 +70,10 @@ timings = {"scf_s": t_scf}
 for mode in modes:
     t0 = time.perf_counter()
     if mode == "auto":
-        w = calc.get_wannier(num_wann=8, projections="auto", divisions=(12, 12, 1))
+        w = calc.get_wannier(num_wann=8, projections="auto", divisions=(12, 12, 1), engine_options=engine)
     else:
-        w = calc.get_wannier(num_wann=2, projections=["C:pz"], num_bands=8, divisions=(12, 12, 1),
-                             dis_froz=(ef_ev - window, ef_ev + window))
+        w = calc.get_wannier(num_wann=2, projections=["C:pz"], num_bands=pz_bands, divisions=(12, 12, 1),
+                             dis_froz=(ef_ev - window, ef_ev + window), engine_options=engine)
     t_w = time.perf_counter() - t0
     timings[f"wannier_{mode}_s"] = t_w
     print(f"wannier[{mode}]: num_wann {w.num_wann} num_bands {w.num_bands} converged {w.converged} "
@@ -80,7 +83,9 @@ for mode in modes:
     print("centres (bohr):", np.round(w.centres, 5).tolist())
     print("spreads (A^2):", np.round(w.spreads_angstrom2, 5).tolist())
     shifted, count = (None, None) if w.ws_shifts is None else w.ws_shifts
-    np.savez(out / f"graphene-wannier-{mode}.npz",
+    tag = mode if (mode == "auto" or pz_bands == 8) else f"{mode}{pz_bands}"
+    tag = tag if num_iter is None else f"{tag}-it{num_iter}"
+    np.savez(out / f"graphene-wannier-{tag}.npz",
              num_wann=w.num_wann, num_bands=w.num_bands, centres=w.centres, spreads=w.spreads,
              rvectors=w.rvectors, degeneracy=w.degeneracy, hoppings=w.hoppings, lattice=w.lattice,
              ws_shifted=shifted if shifted is not None else np.zeros(0),
