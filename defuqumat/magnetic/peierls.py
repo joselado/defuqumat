@@ -323,7 +323,7 @@ class PeierlsTorus:
                           shape=(self.dim, self.dim))
         h.sum_duplicates()
         if check:
-            hermiticity_guard(h, tol)
+            hermiticity_guard(h, tol, scale=float(np.max(np.abs(self.bonds.values), initial=0.0)))
         return h
 
     def operator(self, kappa=(0.0, 0.0), dtype=None) -> PeierlsOperator:
@@ -352,10 +352,15 @@ def hermiticity(h) -> float:
     return float(np.max(np.abs(h - h.conj().T)))
 
 
-def hermiticity_guard(h, tol: float = 1e-8) -> float:
-    """Raise when ``max |H - H^dagger| > tol max |H|``; return the measured residual."""
+def hermiticity_guard(h, tol: float = 1e-8, scale: float = 0.0) -> float:
+    """Raise when ``max |H - H^dagger| > tol max(max |H|, scale)``; return the residual.
+
+    ``scale`` is the largest hopping, so that a matrix whose entries cancel to round-off
+    (a small torus at a zone-boundary ``k``) is not judged against its own zero.
+    """
     residual = hermiticity(h)
-    scale = float(np.max(np.abs(h.data))) if sp.issparse(h) else float(np.max(np.abs(h)))
+    biggest = float(np.max(np.abs(h.data), initial=0.0)) if sp.issparse(h) else float(np.max(np.abs(h)))
+    scale = max(biggest, scale)
     if residual > tol * max(scale, 1e-300):
         raise ValueError(
             f"the Peierls Hamiltonian is not Hermitian: max |H - H^dagger| = "
