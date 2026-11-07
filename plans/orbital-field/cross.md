@@ -25,6 +25,9 @@ potential, `plans/orbital-field/graphene-scf.npz`.
   representatives only, nbnd `4q + 8`. 822 s and 1234 s, 95 to 102 Davidson steps at `q = 8`, peak
   RSS 2.04 GB at `q = 8`. Saved as `plans/orbital-field/route-p-q{8,10}-reps.npz`. These go beyond the
   design, which stopped the comparison at `q = 6`; the reason is under "Decisions".
+- `C/reps-q6-70.log`, `C/reps-q10-70.log`, `C/floor-full-70.log`, `C/cutoff.log`: the same at 70 Ry
+  for `q = 6, 10` and the zero-field floor (`MAG_ECUT=70`), saved as
+  `plans/orbital-field/route-p-q{6,10}-reps-70.npz` and `cross-floor-full-70.npz`.
 - `C/landau-10-3.log`: route P's free Landau problem at `3/10`, kmesh (2, 2), with 600 Davidson steps
   allowed. The first try at 200 steps was refused by the solver, 13 of 16 bands unsettled
   (`C/landau-10-3-200.log`).
@@ -116,8 +119,11 @@ The zero pair, `p_z` set (`C/analyse5.log`; the 8-function set gives maxima with
 | 10 | 7891 | 2.714 | 214 | -204 | 0.079 | 17 / +14 |
 
 The B = 0 column is the same statistic on the chemical k that fold onto the representatives (box at
-`p = 0` against the interpolated Wannier bands). At `q = 2, 3` the two levels at the gap of the folded
-zero-field set are far from `E_D` and the column says nothing; from `q = 4` on it is 17 to 64 meV, so
+`p = 0` against the interpolated Wannier bands). At `q = 2, 3` the folded points lie far from `K`, so the
+two levels at the gap of the folded zero-field set lie far from `E_D` too, in the range where the box
+holds the sigma top (3.1 eV down) and the vacuum states (3.2 eV up), which the `p_z` set does not hold
+and the 8-function set holds only in part (its sigma bands are 0.8 eV off, foundation item 6): the
+2102 and 1746 meV compare different states and are not a disagreement. From `q = 4` on it is 17 to 64 meV, so
 the zero-field bases agree near `E_D` and the difference in the table is the field's. On the folded k
 the `p_z` set is within 11.4 meV of the sphere for every level within 2.5 eV of `E_D`, and the
 8-function set within 1.8 meV.
@@ -163,11 +169,31 @@ puts one level per k more or fewer in the window than route P, and those are not
 - Route U is no help: its zero pair at `q = 6`, nbnd 32, is 0.39 eV above route P's and 0.17 eV above
   Peierls' on average, and it is not converged in nbnd (`C/diag.log`).
 
-What would separate the two: route P at `q = 6` and `q = 10` at 70 Ry, where the box's own error at `K`
-falls (item 1 of p2: 2.0e-2 Ry at 50 Ry, 7.2e-3 at 70 Ry at `Gamma`), and a Wannier set with the
-mirror-odd states above the pi bands in it (the odd vacuum states 3 to 4 eV up), which are the only
-partners the field can mix into the pi states. Adding the sigma functions does not move it (the
-8-function set gives the same 0.2 eV), as the mirror forbids. Neither was run.
+- **Not the box's cutoff.** Route P again at 70 Ry (box 15 x 15 x 75 per cell), on the four
+  representatives at `q = 6` and `q = 10`, each about its own 70 Ry box `E_D` (`C/reps-q6-70.log`,
+  `C/reps-q10-70.log`, `C/floor-full-70.log`, `C/cutoff.log`). The zero pair moves by **4.7 meV**
+  (mean +2.3) at `q = 6` and **3.1 meV** (mean +1.9) at `q = 10`, so P - W is -219.9 and -202.1 meV on
+  average at 70 Ry against -222.1 and -204.0 at 50 Ry. In the same step the box `E_D` itself moves by
+  -3.86 mRy (-52 meV) and the sphere's by -11.48 mRy (-156 meV), and box against sphere at zero field
+  falls from 2.4e-2 to 7.2e-3 Ry over the 111 k. So the box's basis error is cancelled by the
+  referencing to well below the 0.2 eV, and a grid effect of route P that scales with the cutoff is
+  excluded. The runs took 718 s (`q = 6`, peak 2.13 GB) and 1918 s (`q = 10`, ndim 168750, peak 3.62 GB).
+
+**The reading, with these checks in.** Route P passes every independent test it was given (free Landau
+problem to 1e-11, deep-band Landau shift to 0.1 per cent, diamond magnetizability within 2 per cent of
+Lu, cutoff stability to 5 meV), so the 0.2 eV is most likely Peierls' error at these fields, not route
+P's. Over `q = 6, 8, 10` the maximum is 0.0771, 0.0789, 0.0790 of `E_1`: the difference scales as `E_1`,
+that is as `sqrt(B)`, and not as `B`. A term linear in `B` would make this ratio fall by `sqrt(1.67)`
+= 1.29 from `q = 6` to `q = 10`; it rises by 2 per cent. Three points over a factor 1.67 in field do not
+say what happens three decades lower, so the design's 0.6 per cent at 10 T is neither confirmed nor
+refuted here; what is measured is that at 7900 to 13000 T Peierls on either Wannier set misplaces the
+zero Landau band by 0.08 `E_1`.
+
+What is still open is the mechanism. The mirror `z -> -z` survives the field, so the pi states can
+only mix with mirror-odd states, and the only ones nearby are the odd vacuum states 3 to 4 eV up,
+which neither Wannier set holds. Adding the sigma functions does not move the difference (the
+8-function set gives the same 0.2 eV), as the mirror requires. A Wannier set with the odd vacuum states
+in it is the test; it was not built.
 
 Route P against route U at nbnd 32 (route U above route P everywhere, `C/analyse5.log`), `U - P` in Ry:
 
@@ -224,6 +250,9 @@ choice is the conservative one, recorded with the number it rests on.
 - **`q = 8` and `q = 10` were added** to item 3 (4 representatives each, 14 and 21 minutes in a slot),
   because at `q <= 6` the difference rose and fell without a trend; two smaller fields were the
   cheapest way to see whether it falls with B. It does not, from `q = 6` to `q = 10`.
+- **Route P was run again at 70 Ry at `q = 6, 10`** (12 and 32 minutes), because the zero pair's
+  offset from Peierls stepped from +9 meV at zero field to -204 meV at the smallest field, and only a
+  cutoff test tells a grid effect of the box from Peierls' error. It moved by 3 to 5 meV.
 - **The free problem at `3/10` was run on route P** (6 minutes), to put the two routes side by side
   at the flux route U ran.
 - The fits of item 3 are printed but not used as a measurement, since they do not describe their own
@@ -242,10 +271,11 @@ choice is the conservative one, recorded with the number it rests on.
 
 ## What is left
 
-- The 0.2 eV of item 3: route P at 70 Ry at `q = 6` and `q = 10` (box error), and a Wannier set with
-  the mirror-odd vacuum states (Peierls' missing partners). Until one of them is run, the size of the
-  intra-cell term of graphene is not measured; what is measured is that Peierls and route P differ by
-  0.08 `E_1` at 7900 to 13000 T, nearly independent of the field over that range.
+- The mechanism of the 0.2 eV of item 3: a Wannier set with the mirror-odd vacuum states, Peierls'
+  only allowed partners. The box's cutoff is excluded (5 meV between 50 and 70 Ry). Until that set is
+  built, the size of the intra-cell term of graphene at laboratory fields is not measured; what is
+  measured is that Peierls and route P differ by 0.08 `E_1` at 7900 to 13000 T, a ratio constant to
+  2 per cent over that range.
 - The linear regime of section 12 item 2 needs `q` of 30 and more on route P (estimated 10 GB at
   `q = 30` for the SCF in p2; non-self-consistent at four representatives, less).
 - Item 1's 5 mRy and the nbnd convergence: blocked on route U's basis (the smooth band subspace of u2's
@@ -258,5 +288,7 @@ choice is the conservative one, recorded with the number it rests on.
   the default 200 it is refused with "Davidson left 13 of 16 bands unsettled at k-point 0 after 200
   steps", which reads like a broken preconditioner. `MAG_MAXIT=600` on the slot.sh line is enough
   (310 to 391 steps, 347 s for 4 k).
-- Route P full H on four representatives: `q = 8` 822 s, peak 2.04 GB; `q = 10` 1234 s, in one slot.
+- Route P full H on four representatives: `q = 8` 822 s, peak 2.04 GB; `q = 10` 1234 s, peak 2.19 GB;
+  at 70 Ry `q = 6` 718 s, 2.13 GB and `q = 10` 1918 s, 3.62 GB; all in one slot.
+- `slot.sh` passes `MAG_ECUT=70` from the launch line, also inside a chain script of slot.sh calls.
 - The worktree `/l/ladovj1/w-mag-cross` is removable once `mag-cross` is merged.

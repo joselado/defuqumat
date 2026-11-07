@@ -69,7 +69,7 @@ def pooled(levels, lo, hi):
 def exact():
     worst = 0.0
     for path in sorted(DATA.glob("route-p-q*.npz")):
-        if path.name.endswith("-reps.npz"):
+        if "-reps" in path.name:
             continue                                    # the four representatives only, no mesh
         z = np.load(path)
         q = int(z["flux"][1])
