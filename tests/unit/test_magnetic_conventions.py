@@ -150,10 +150,16 @@ def test_build_refuses_a_flux_that_is_not_reduced():
 
 
 def test_free_landau_spacing_on_the_graphene_cell():
-    """q = 10: B_ph = 2 pi / (10 x 18.73 bohr^2) = 0.03355 Ry, the G3 = 1 branch at +0.049 Ry."""
+    """q = 10: B_ph = 2 pi / (10 x 18.7154 bohr^2) = 0.033573 Ry, the G3 = 1 branch at +0.049 Ry.
+
+    The design's 18.73 bohr^2 and 0.03355 Ry are the same numbers rounded (5.2409 A^2
+    at a = 2.46 A is 18.7154 bohr^2)."""
     cell = MagneticCell.build(HEX, 1, 10)
-    assert float(cell.area) == pytest.approx(18.73, abs=0.01)
-    assert float(cell.b_ph) == pytest.approx(0.03355, abs=2e-5)
+    area = A_GRAPHENE ** 2 * np.sqrt(3) / 2 * ANGSTROM_TO_BOHR ** 2
+    assert float(cell.area) == pytest.approx(area, rel=1e-13)
+    assert float(cell.area) == pytest.approx(18.73, abs=0.02)
+    assert float(cell.b_ph) == pytest.approx(TPI / (10 * area), rel=1e-13)
+    assert float(cell.b_ph) == pytest.approx(0.03355, abs=5e-5)
     levels, mult, labels = free_landau_levels(cell, nmax=3, g3max=1)
     assert levels[0] == pytest.approx(float(cell.b_ph), rel=1e-14)
     assert tuple(labels[0]) == (0, 0)
