@@ -2,7 +2,7 @@
 
     python mag_route_p.py landau p q n1 n2 nbnd [two-gauge|kinetic|identity] [chern|keep]   item 1
     python mag_route_p.py herm                                               item 2
-    python mag_route_p.py sphere ecut_ry nbnd [n1,n2,n3]                     item 3
+    python mag_route_p.py sphere ecut_ry nbnd [n1,n2,n3|-] [two-grid|filtered]   item 3
     python mag_route_p.py strong [centred|fixed] [ecut_ry] [residual]         item 4
     python mag_route_p.py local q [outdir]                                   items 5 and 6
 
@@ -73,34 +73,37 @@ def landau(p, q, n1, n2, nbnd, precond="two-gauge", chern=False, unconverged="fa
 
 
 def herm():
+    import jax.numpy as jnp
+
     calc = graphene()
     cell = calc.system.cell
     pot = local_potential_of(SCF)
     rng = np.random.default_rng(7)
-    for q, grid in ((10, None), (2, (4, 4, 8))):
-        h = MagneticGridHamiltonian.build(cell, 1, q, 50.0, [[0.37, 0.29, 0.0], [0.0, 0.0, 0.0]], pot,
-                                          grid=grid)
-        n = h.ndim
-        v = rng.normal(size=(2, n)) + 1j * rng.normal(size=(2, n))
-        import jax.numpy as jnp
-        hv = np.asarray(h.apply(jnp.asarray(v), 0))
-        a = np.vdot(v[0], hv[1])
-        b = np.vdot(hv[0], v[1])
-        scale = np.linalg.norm(v[0]) * np.linalg.norm(hv[1])
-        print(f"q = {q} box {h.box} ndim {n}: |<v|Hw> - <Hv|w>| = {abs(a - b):.3e}, relative {abs(a - b) / scale:.3e}")
-        if n <= 1024:
-            for ik in (0, 1):
-                m = dense_matrix(h, ik)
-                r = reference_matrix(h, ik)
-                x = rng.normal(size=n) + 1j * rng.normal(size=n)
-                applied = np.asarray(h.apply(jnp.asarray(x[None]), ik))[0]
-                print(f"  ik {ik}: max|apply-built - Kronecker reference| / max|ref| = "
-                      f"{np.abs(m - r).max() / np.abs(r).max():.3e}; |H x - R x|/|R x| = "
-                      f"{np.linalg.norm(applied - r @ x) / np.linalg.norm(r @ x):.3e}; "
-                      f"max|R - R^H|/max|R| = {np.abs(r - r.conj().T).max() / np.abs(r).max():.3e}")
+    for local_term in ("two-grid", "filtered"):
+        for q, grid in ((10, None), (2, (4, 4, 8))):
+            h = MagneticGridHamiltonian.build(cell, 1, q, 50.0, [[0.37, 0.29, 0.0], [0.0, 0.0, 0.0]], pot,
+                                              grid=grid, local=local_term)
+            n = h.ndim
+            v = rng.normal(size=(2, n)) + 1j * rng.normal(size=(2, n))
+            hv = np.asarray(h.apply(jnp.asarray(v), 0))
+            a = np.vdot(v[0], hv[1])
+            b = np.vdot(hv[0], v[1])
+            scale = np.linalg.norm(v[0]) * np.linalg.norm(hv[1])
+            print(f"[{local_term}] q = {q} box {h.box} ndim {n}: |<v|Hw> - <Hv|w>| = {abs(a - b):.3e}, "
+                  f"relative to |v||Hw| {abs(a - b) / scale:.3e}, to |<v|Hw>| {abs(a - b) / abs(a):.3e}")
+            if n <= 1024 and local_term == "filtered":
+                for ik in (0, 1):
+                    m = dense_matrix(h, ik)
+                    r = reference_matrix(h, ik)
+                    x = rng.normal(size=n) + 1j * rng.normal(size=n)
+                    applied = np.asarray(h.apply(jnp.asarray(x[None]), ik))[0]
+                    print(f"  ik {ik}: max|apply-built - Kronecker reference| / max|ref| = "
+                          f"{np.abs(m - r).max() / np.abs(r).max():.3e}; |H x - R x|/|R x| = "
+                          f"{np.linalg.norm(applied - r @ x) / np.linalg.norm(r @ x):.3e}; "
+                          f"max|R - R^H|/max|R| = {np.abs(r - r.conj().T).max() / np.abs(r).max():.3e}")
 
 
-def sphere(ecut, nbnd, box=None):
+def sphere(ecut, nbnd, box=None, local="two-grid"):
     from defuqumat.system.kpoints import KPoints
 
     calc = graphene(ecut_ry=ecut, kmesh=(1, 1, 1))
@@ -114,7 +117,8 @@ def sphere(ecut, nbnd, box=None):
     t0 = time.perf_counter()
     grid = None if box is None else tuple(int(x) for x in box.split(","))
     bands = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(0, 1), kpoints=[[0, 0, 0]], nbnd=nbnd,
-                               grid=grid)
+                               grid=grid, local=local)
+    print(f"local term {local}")
     tb = time.perf_counter() - t0
     eb = bands.eigenvalues[0]
     print(f"ecut {ecut} Ry: sphere npwx {calculation.basis.planewaves.npwx} dense grid "
@@ -125,13 +129,13 @@ def sphere(ecut, nbnd, box=None):
     print(f"box - sphere per level: {np.round(d, 10).tolist()}; max |diff| {np.abs(d).max():.3e} Ry")
 
 
-def strong(window="centred", ecut=50.0, residual=None):
+def strong(window="centred", ecut=50.0, residual=None, local_term="two-grid"):
     calc = graphene(ecut_ry=ecut)
     q = 3
     t0 = time.perf_counter()
     bands = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(1, q), kmesh=(2, 6), nbnd=4 * q + 8,
                                keep_states=True, window=window, residual_threshold=residual,
-                               max_iterations=400)
+                               max_iterations=400, local=local_term)
     print(f"window {window} ecut {ecut} box {bands.box} residual_threshold {residual}")
     print(f"solve {time.perf_counter() - t0:.1f} s steps {bands.steps.tolist()}")
     e = bands.eigenvalues.reshape(2, 6, -1)
@@ -163,11 +167,13 @@ def strong(window="centred", ecut=50.0, residual=None):
     print(f"same at the representatives alone (an open mesh): {np.abs(c2 - c2.mean(0)[None]).max() / np.abs(c2.mean(0)).max():.3e}")
 
 
-def local(q, outdir="plans/orbital-field"):
+def local(q, outdir="plans/orbital-field", local_term="two-grid"):
     calc = graphene()
     nbnd = 4 * q + 8
     t0 = time.perf_counter()
-    bands = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(1, q), kmesh=(2, 2 * q), nbnd=nbnd)
+    bands = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(1, q), kmesh=(2, 2 * q), nbnd=nbnd,
+                               local=local_term)
+    print(f"local term {local_term}")
     wall = time.perf_counter() - t0
     e = bands.eigenvalues.reshape(2, 2 * q, nbnd)
     rep = e[:, :2, :].reshape(-1)
@@ -181,11 +187,13 @@ def local(q, outdir="plans/orbital-field"):
     print(f"memory estimate {bands.memory_estimate / 1e9:.3f} GB, peak RSS {peak_gb():.3f} GB, wall {wall:.1f} s, "
           f"build {bands.timings['build_s']:.2f} s, solve {bands.timings['solve_s']:.1f} s, "
           f"first k {bands.timings['per_k_s'][0]:.1f} s, later k mean {np.mean(bands.timings['per_k_s'][1:]):.1f} s")
-    out = Path(outdir) / f"route-p-q{q}-local.npz"
+    out = Path(outdir) / (f"route-p-q{q}-local.npz" if local_term == "two-grid"
+                          else f"route-p-q{q}-local-{local_term}.npz")
     np.savez(out, sorted_levels=full, eigenvalues=bands.eigenvalues, kpoints=bands.kpoints,
              flux=np.array(bands.flux), box=np.array(bands.box), grid=np.array(bands.grid),
              representatives_sorted=np.sort(rep), steps=bands.steps,
              memory_estimate=np.int64(bands.memory_estimate), wall_s=np.float64(wall),
+             local=np.array(local_term), window=np.array(bands.window),
              description=np.array("route P step 1: pi^2 + V_loc of graphene-scf.npz, flux 1/q per "
                                   "chemical cell, magnetic mesh (2, 2q) kappa = (i/2, j/(2q)), Ry"))
     print(f"saved {out}")
@@ -201,10 +209,11 @@ if __name__ == "__main__":
     elif what == "herm":
         herm()
     elif what == "sphere":
-        sphere(float(a[0]), int(a[1]), a[2] if len(a) > 2 else None)
+        sphere(float(a[0]), int(a[1]), (a[2] if len(a) > 2 and a[2] != "-" else None),
+               a[3] if len(a) > 3 else "two-grid")
     elif what == "strong":
         strong(a[0] if a else "centred", float(a[1]) if len(a) > 1 else 50.0,
-               float(a[2]) if len(a) > 2 else None)
+               float(a[2]) if len(a) > 2 and a[2] != "-" else None, a[3] if len(a) > 3 else "two-grid")
     elif what == "local":
         local(int(a[0]), *a[1:])
     else:

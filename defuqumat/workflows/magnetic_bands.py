@@ -71,6 +71,7 @@ class MagneticBands:
     preconditioner: str
     memory_estimate: int
     window: str
+    local: str
     timings: dict
     chern: tuple | None = None
     states: np.ndarray | None = field(default=None, repr=False)
@@ -132,7 +133,7 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
                        memory_limit: float | None = None, keep_states: bool = False,
                        field_axis: int = 2, chern_gap: float = 1e-6,
                        band_batch="default", unconverged: str = "fallback",
-                       window: str = "centred",
+                       window: str = "centred", local: str = "two-grid",
                        residual_threshold: float | None = None) -> MagneticBands:
     """The ``nbnd`` lowest levels of ``pi^2 + V_loc`` at flux ``p/q`` on a ``kmesh`` of the magnetic zone.
 
@@ -158,6 +159,9 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
             makes the magnetic translation and the period in ``kappa`` exact on the grid) or
             ``'fixed'`` (Lu's FFT as written); :func:`~defuqumat.magnetic.blochgrid.
             momentum_multipliers`.
+        local: ``'two-grid'`` (``V u`` on the potential's dense grid, QE's order) or
+            ``'filtered'`` (``V`` filtered to the box); :meth:`~defuqumat.magnetic.blochgrid.
+            MagneticGridHamiltonian.local_term`.
         residual_threshold: a bound on each state's residual norm on top of ``ethr`` (the
             eigenvalue test alone leaves the states converged to about ``sqrt(ethr)``, which
             is what a density read from them carries).
@@ -201,15 +205,17 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
     nk = len(kpts)
     ndim = q * int(np.prod(grid))
     kept = nk * nbnd if (chern or keep_states) else 0
-    estimate = estimate_bytes(q, nbnd, david, grid=grid, kept=kept)
-    refuse_memory(estimate, memory_limit, f"route P at p/q = {p}/{q}, nbnd {nbnd}, ndim {ndim}")
     potential = None if free else local_potential_of(scf)
+    fine = None if (potential is None or local != "two-grid") else potential.shape
+    estimate = estimate_bytes(q, nbnd, david, grid=grid, kept=kept, fine_grid=fine)
+    refuse_memory(estimate, memory_limit, f"route P at p/q = {p}/{q}, nbnd {nbnd}, ndim {ndim}")
 
     timings = {}
     t0 = time.perf_counter()
     hamiltonian = MagneticGridHamiltonian.build(cell, p, q, system.ecutwfc, kpts, potential,
                                                 grid=grid, preconditioner=preconditioner,
-                                                window=window, band_batch=band_batch)
+                                                window=window, local=local,
+                                                band_batch=band_batch)
     timings["build_s"] = time.perf_counter() - t0
 
     eigenvalues = np.zeros((nk, nbnd))
@@ -260,5 +266,5 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
         flux=(p, q), field_tesla=field_tesla, b_ph=float(mcell.b_ph), grid=tuple(grid),
         box=hamiltonian.box, ndim=ndim, kpoints=np.asarray(kpts), eigenvalues=eigenvalues,
         steps=steps, unsettled=unsettled, solver=tuple(solver), preconditioner=preconditioner,
-        memory_estimate=estimate, window=window, timings=timings, chern=groups_chern,
+        memory_estimate=estimate, window=window, local=local, timings=timings, chern=groups_chern,
         states=states if keep_states else None)

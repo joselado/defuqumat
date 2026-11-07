@@ -81,6 +81,7 @@ __all__ = [
     "wavefunction_box", "filter_to_box", "tile_potential", "estimate_bytes", "refuse_memory",
     "landau_problem", "start_block", "dense_matrix", "reference_matrix", "grid_positions",
     "chemical_copies", "sphere_local_levels", "magnetic_cell", "momentum_multipliers", "WINDOWS",
+    "LOCAL_TERMS",
 ]
 
 #: The largest estimated working set a solve is started with, bytes: D22's 31 GB less
@@ -95,6 +96,9 @@ PRECONDITIONERS = ("two-gauge", "kinetic", "identity")
 
 #: The frequency windows of :func:`momentum_multipliers`.
 WINDOWS = ("centred", "fixed")
+
+#: The forms of the local term, :meth:`MagneticGridHamiltonian.local_term`.
+LOCAL_TERMS = ("two-grid", "filtered")
 
 #: An irrational offset of the window centre, so that no grid row sits on a rounding tie
 #: and a row and its magnetic translate round the same way.
@@ -244,10 +248,12 @@ class MagneticGridHamiltonian(eqx.Module):
     potential_box: jnp.ndarray
     kpoints: jnp.ndarray
     metric: jnp.ndarray
-    p: int = eqx.field(static=True)
-    q: int = eqx.field(static=True)
-    grid: tuple = eqx.field(static=True)
-    ecutwfc: float = eqx.field(static=True)
+    potential_fine: jnp.ndarray | None = None
+    p: int = eqx.field(static=True, default=1)
+    q: int = eqx.field(static=True, default=1)
+    grid: tuple = eqx.field(static=True, default=(1, 1, 1))
+    ecutwfc: float = eqx.field(static=True, default=0.0)
+    local: str = eqx.field(static=True, default="two-grid")
     preconditioner: str = eqx.field(static=True, default="two-gauge")
     window: str = eqx.field(static=True, default="centred")
     band_batch: object = eqx.field(static=True, default="default")
@@ -257,14 +263,18 @@ class MagneticGridHamiltonian(eqx.Module):
     @classmethod
     def build(cls, cell, p: int, q: int, ecutwfc: float, kpoints, potential=None, *,
               grid=None, preconditioner: str = "two-gauge", window: str = "centred",
-              band_batch="default",
+              local: str = "two-grid", band_batch="default",
               precision: Precision | None = None) -> "MagneticGridHamiltonian":
         """From the chemical :class:`~defuqumat.system.cell.Cell`, the flux and the dense potential.
 
-        ``potential`` is the chemical cell's total local potential on any grid (Ry), or
-        ``None`` for the free problem; ``kpoints`` ``(nk, 2 or 3)`` magnetic crystal
-        coordinates.
+        ``potential`` is the chemical cell's total local potential on its dense grid (Ry),
+        or ``None`` for the free problem; ``kpoints`` ``(nk, 2 or 3)`` magnetic crystal
+        coordinates. ``local`` is ``'two-grid'`` (the default: ``V u`` on the potential's own
+        grid tiled ``q`` times, QE's ``vloc_psi`` order, :meth:`local_term`) or ``'filtered'``
+        (the design's first form: ``V`` Fourier-filtered to the box and multiplied there).
         """
+        if local not in LOCAL_TERMS:
+            raise ValueError(f"local {local!r}: one of {LOCAL_TERMS}")
         if preconditioner not in PRECONDITIONERS:
             raise ValueError(f"preconditioner {preconditioner!r}: one of {PRECONDITIONERS}")
         if window not in WINDOWS:
@@ -274,10 +284,18 @@ class MagneticGridHamiltonian(eqx.Module):
         grid = wavefunction_box(cell, ecutwfc) if grid is None else tuple(int(n) for n in grid)
         box = (int(q) * grid[0], grid[1], grid[2])
         real = cell.precision.real
+        potential_fine = None
         if potential is None:
             potential_box = jnp.zeros(box, dtype=real)
         else:
-            potential_box = tile_potential(filter_to_box(jnp.asarray(potential, dtype=real), grid), q)
+            potential = jnp.asarray(potential, dtype=real)
+            potential_box = tile_potential(filter_to_box(potential, grid), q)
+            if local == "two-grid":
+                if any(nf < nb for nf, nb in zip(potential.shape, grid)):
+                    raise ValueError(
+                        f"the two-grid local term needs the potential's grid {potential.shape} "
+                        f"at least the wavefunction box {grid} along every axis")
+                potential_fine = tile_potential(potential, q).astype(precision.real)
         kpoints = np.asarray(kpoints, dtype=float)
         if kpoints.ndim == 1:
             kpoints = kpoints[None, :]
@@ -286,6 +304,7 @@ class MagneticGridHamiltonian(eqx.Module):
         reciprocal = mcell.magnetic_reciprocal
         metric = reciprocal @ reciprocal.T
         return cls(potential_box=potential_box.astype(precision.real),
+                   potential_fine=potential_fine, local=local,
                    kpoints=jnp.asarray(kpoints, dtype=precision.real),
                    metric=jnp.asarray(metric, dtype=precision.real), p=int(p), q=int(q),
                    grid=grid, ecutwfc=float(ecutwfc), preconditioner=preconditioner,
@@ -377,7 +396,7 @@ class MagneticGridHamiltonian(eqx.Module):
 
         def block(states):
             u = states.reshape((-1,) + self.box)
-            out = self._kinetic(u, kappa) + self.potential_box * u
+            out = self._kinetic(u, kappa) + self.local_term(u, kappa)
             return out.reshape(states.shape)
 
         return map_bands(block, psi.astype(self.dtype), batch=self.band_batch)
@@ -421,6 +440,73 @@ class MagneticGridHamiltonian(eqx.Module):
         xi1 = jnp.arange(n1, dtype=real) / n1
         xi2 = jnp.arange(n2, dtype=real) / n2
         return self._phase(TPI * float(self.p) * xi1[:, None] * xi2[None, :])[None, :, :, None]
+
+    # --- the local term ---------------------------------------------------------
+    def local_term(self, u, kappa) -> jnp.ndarray:
+        """``V u`` for ``u`` ``(b, N1, N2, N3)``.
+
+        ``'filtered'``: the product on the box with ``V`` filtered to it. ``'two-grid'``: QE's
+        order (``vloc_psi``): ``u`` is Fourier-interpolated onto the potential's grid, one axis
+        at a time in the representation where it is periodic (``xi3`` and ``xi2`` on ``u``,
+        each ``xi2`` row in its centred window; then ``xi1`` on ``h = exp(i 2 pi p xi1 xi2)
+        u`` at every fine ``xi2`` row), multiplied by ``V`` there, and restricted back by the
+        adjoint steps. It is ``I^dagger V I`` up to the grids' ratio, so Hermitian, the
+        identity for a constant ``V``, and exact for the products a band-limited ``V`` makes
+        with a band-limited state (the box's products alias on the box itself).
+        """
+        if self.potential_fine is None:
+            return self.potential_box * u
+        return self._two_grid(u, kappa)
+
+    def _two_grid(self, u, kappa):
+        real = self.precision.real
+        n1, n2, n3 = self.box
+        f1, f2, f3 = self.potential_fine.shape
+        p = float(self.p)
+        kappa = jnp.asarray(kappa, dtype=real)
+
+        def window(n, centre):
+            if self.window == "fixed":
+                centre = jnp.zeros_like(centre)
+            else:
+                centre = jnp.floor(centre + 0.5 + _TIE_OFFSET)
+            f = jnp.arange(n, dtype=real)
+            return centre + jnp.mod(f - centre + n // 2, n) - n // 2
+
+        # the fine-grid index each coarse frequency lands on, per axis and row
+        i3 = jnp.mod(window(n3, -kappa[2]), f3).astype(jnp.int32)
+        xi1c = jnp.arange(n1, dtype=real) / n1
+        rows2 = jax.vmap(lambda c: window(n2, c))(-(p * xi1c) - kappa[1])      # (n1, n2)
+        i2 = jnp.mod(rows2, f2).astype(jnp.int32)
+        xi2f = jnp.arange(f2, dtype=real) / f2
+        rows1 = jax.vmap(lambda c: window(n1, c), out_axes=1)(p * xi2f - kappa[0])  # (n1, f2)
+        i1 = jnp.mod(rows1, f1).astype(jnp.int32)
+        r1 = jnp.arange(n1)[:, None]
+        c2 = jnp.arange(f2)[None, :]
+        coarse_phase = self._phase(TPI * p * xi1c[:, None] * xi2f[None, :])[None, :, :, None]
+        xi1f = jnp.arange(f1, dtype=real) / f1
+        fine_phase = self._phase(TPI * p * xi1f[:, None] * xi2f[None, :])[None, :, :, None]
+        b = u.shape[0]
+        dtype = self.dtype
+
+        x = jnp.fft.fft(u, axis=3)
+        x = jnp.zeros((b, n1, n2, f3), dtype).at[..., i3].set(x)
+        x = jnp.fft.ifft(x, axis=3)
+        x = jnp.fft.fft(x, axis=2)
+        x = jnp.zeros((b, n1, f2, f3), dtype).at[:, r1, i2, :].set(x)
+        x = jnp.fft.ifft(x, axis=2)
+        x = jnp.fft.fft(coarse_phase * x, axis=1)
+        x = jnp.zeros((b, f1, f2, f3), dtype).at[:, i1, c2, :].set(x)
+        x = jnp.conj(fine_phase) * jnp.fft.ifft(x, axis=1)
+
+        y = self.potential_fine[None] * x
+
+        y = jnp.fft.fft(fine_phase * y, axis=1)[:, i1, c2, :]
+        y = jnp.conj(coarse_phase) * jnp.fft.ifft(y, axis=1)
+        y = jnp.fft.fft(y, axis=2)[:, r1, i2, :]
+        y = jnp.fft.ifft(y, axis=2)
+        y = jnp.fft.fft(y, axis=3)[..., i3]
+        return jnp.fft.ifft(y, axis=3)
 
     # --- the kinetic term -------------------------------------------------------
     def _phase(self, theta):
@@ -486,17 +572,22 @@ def landau_problem(cell, p: int, q: int, grid, kpoints, *, ecutwfc: float = 50.0
 
 
 def estimate_bytes(q: int, nbnd: int, david: int = 2, *, grid=(12, 12, 64),
-                   band_batch: int = 1, kept: int = 0, itemsize: int = 16) -> int:
+                   band_batch: int = 1, kept: int = 0, fine_grid=None,
+                   itemsize: int = 16) -> int:
     """The working set of one k-point's solve, bytes: the design's sizing.
 
     ``(2.18 nvecx + 4.2 nbnd) ndim`` complex numbers for Davidson (``nvecx = david nbnd``),
-    six box-sized FFT buffers per band in flight, and ``kept`` stored states (``nk`` times
-    the bands a Chern number needs) of ``ndim`` each.
+    six box-sized FFT buffers per band in flight, three of the potential's grid per band in
+    flight for the two-grid local term (``fine_grid``, the chemical cell's dense grid), and
+    ``kept`` stored states (``nk`` times the bands a Chern number needs) of ``ndim`` each.
     """
     ndim = int(q) * int(np.prod(grid))
     nvecx = int(david) * int(nbnd)
     davidson = (2.18 * nvecx + 4.2 * int(nbnd)) * ndim * itemsize
-    fft = 6 * ndim * itemsize * max(1, int(band_batch))
+    batch = max(1, int(band_batch))
+    fft = 6 * ndim * itemsize * batch
+    if fine_grid is not None:
+        fft += 3 * int(q) * int(np.prod(fine_grid)) * itemsize * batch
     return int(davidson + fft + int(kept) * ndim * itemsize)
 
 

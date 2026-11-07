@@ -110,7 +110,7 @@ def test_each_momentum_against_the_analytic_derivative_of_a_twisted_function(gra
 @pytest.mark.parametrize("kappa", [(0.0, 0.0, 0.0), (0.37, 0.29, 0.0)])
 def test_apply_is_the_kronecker_reference_and_hermitian(graphene, potential, kappa):
     h = MagneticGridHamiltonian.build(graphene.system.cell, 1, 2, 50.0, [kappa], potential,
-                                      grid=SMALL)
+                                      grid=SMALL, local="filtered")
     built = dense_matrix(h, 0)
     reference = reference_matrix(h, 0)
     assert np.max(np.abs(built - reference)) / np.max(np.abs(reference)) < 1e-13
@@ -143,9 +143,9 @@ def test_the_magnetic_translation_moves_kappa2_by_p_over_q_exactly(graphene, pot
     shifted = (kappa2 - p / q) % 1.0
     points = [[0.13, kappa2, 0.0], [0.13, shifted, 0.0], [0.13 + 1.0, kappa2 - 1.0, 0.0]]
 
-    def spectra(window, kpoints=points):
+    def spectra(window, kpoints=points, local="filtered"):
         h = MagneticGridHamiltonian.build(graphene.system.cell, p, q, 50.0, kpoints, potential,
-                                          grid=(4, 4, 4), window=window)
+                                          grid=(4, 4, 4), window=window, local=local)
         return [np.linalg.eigvalsh(dense_matrix(h, ik)) for ik in range(len(kpoints))]
 
     a, b, c = spectra("centred")
@@ -155,9 +155,44 @@ def test_the_magnetic_translation_moves_kappa2_by_p_over_q_exactly(graphene, pot
     # a shift that is not a magnetic translation does move the spectrum
     (other,) = spectra("centred", [[0.13, (kappa2 - 0.5 / q) % 1.0, 0.0]])
     assert np.max(np.abs(a - other)) > 1e-4
+    # the two-grid local term keeps both
+    ga, gb, gc = spectra("centred", local="two-grid")
+    assert np.max(np.abs(ga - gb)) < 1e-10 * np.max(np.abs(ga))
+    assert np.max(np.abs(ga - gc)) < 1e-10 * np.max(np.abs(ga))
     # the fixed window (Lu's FFT as written) breaks both on this coarse box
     fa, fb, fc = spectra("fixed")
     assert np.max(np.abs(fa - fb)) > 1e-3 and np.max(np.abs(fa - fc)) > 1e-3
+
+
+def test_the_two_grid_local_term_is_the_plane_wave_galerkin_matrix_at_zero_field(graphene, potential):
+    # p = 0: the box is a plane-wave basis, and V u on the dense grid restricted back is
+    # <m'|V|m> = V(m' - m) exactly, the coefficient of the dense potential
+    h = MagneticGridHamiltonian.build(graphene.system.cell, 0, 1, 50.0, [[0.0, 0.0, 0.0]], potential,
+                                      grid=SMALL, local="two-grid")
+    n = h.ndim
+    basis = np.fft.ifftn(np.eye(n).reshape((n,) + h.box), axes=(1, 2, 3)).reshape(n, n) * np.sqrt(n)
+    applied = np.asarray(h.local_term(jnp.asarray(basis.reshape((n,) + h.box)), jnp.zeros(3))).reshape(n, n)
+    matrix = basis.conj() @ applied.T                                   # [m', m]
+    coefficients = np.fft.fftn(potential) / potential.size
+    m = np.stack(np.meshgrid(*[np.rint(np.fft.fftfreq(k, 1.0 / k)).astype(int) for k in h.box],
+                             indexing="ij"), axis=-1).reshape(-1, 3)
+    d = m[:, None, :] - m[None, :, :]
+    expected = coefficients[d[..., 0] % potential.shape[0], d[..., 1] % potential.shape[1],
+                            d[..., 2] % potential.shape[2]]
+    assert np.max(np.abs(matrix - expected)) < 1e-12 * np.max(np.abs(expected))
+
+
+def test_the_two_grid_local_term_is_hermitian_and_one_for_a_constant(graphene, potential):
+    h = MagneticGridHamiltonian.build(graphene.system.cell, 2, 3, 50.0, [[0.37, 0.29, 0.0]], potential,
+                                      grid=(4, 4, 4), local="two-grid")
+    built = dense_matrix(h, 0)
+    assert np.max(np.abs(built - built.conj().T)) / np.max(np.abs(built)) < 1e-13
+    flat = MagneticGridHamiltonian.build(graphene.system.cell, 2, 3, 50.0, [[0.37, 0.29, 0.0]],
+                                         np.full(potential.shape, -0.7), grid=(4, 4, 4))
+    rng = np.random.default_rng(5)
+    u = rng.normal(size=(1,) + flat.box) + 1j * rng.normal(size=(1,) + flat.box)
+    out = np.asarray(flat.local_term(jnp.asarray(u), flat.kpoints[0]))
+    assert np.max(np.abs(out + 0.7 * u)) < 1e-12
 
 
 def test_the_filter_keeps_the_potential_real_and_its_mean(potential):
