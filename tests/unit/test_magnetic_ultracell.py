@@ -216,3 +216,48 @@ def test_the_nonlocal_term_and_the_regimes_are_refused_by_name():
 
     with pytest.raises(NotImplementedError, match="ultrasoft dataset C"):
         run_magnetic_ultracell(calc.system, (Ultrasoft(),), None, flux=(1, 2), nbnd=2, free=True)
+
+
+@pytest.mark.parametrize("form", ["ket", "symmetric"])
+def test_the_field_kernels_give_the_landau_ladder_on_an_analytic_state(form):
+    """The block kernels on exp(-i f) exp(-B x^2/2) and x times it, x = b1hat . r, f the gauge
+    of the part of a along b1: E = B_ph and 3 B_ph to round-off; the reversed field does not.
+    The operator check that the basis-limited runs cannot give (plans/orbital-field/
+    mag_route_u_landau_check.py, review/mag/u1/landau-check-n18.log)."""
+    import jax.numpy as jnp
+
+    from defuqumat.magnetic.ultracell_field import MagneticUltracell, _bra_side, _ket_block
+    from defuqumat.system.cell import Cell
+    from defuqumat.units import BOHR_RADIUS_SI
+
+    a = 2.46e-10 / BOHR_RADIUS_SI
+    lattice = np.array([[a, 0, 0], [-a / 2, a * np.sqrt(3) / 2, 0], [0, 0, 15e-10 / BOHR_RADIUS_SI]])
+    cell = Cell.from_vectors(lattice)
+    q, n1, grid1 = 10, 18, (48, 4, 4)
+    for scale, expect in ((1.0, (1.0, 3.0)), (-1.0, None)):
+        ultra = MagneticUltracell.build(cell, (1, q), [[]], [0.0], grid1, nbnd=1, n1=n1, w=0,
+                                        potential=np.zeros(grid1), h0="box", scale=scale)
+        b = np.linalg.inv(lattice).T
+        b_ph = 2 * np.pi / q / float(ultra.magnetic.area)
+        xi = np.asarray(ultra.xi)
+        x = xi / np.linalg.norm(b[0])
+        g0 = np.exp(-1j * (2 * np.pi / q) * (b[0] @ b[1]) * x ** 2 / 2) * np.exp(-b_ph * x ** 2 / 2)
+        grid = ultra.grid
+        u = np.broadcast_to(np.stack([g0, x * g0])[:, :, None, None], (2,) + grid).astype(complex)
+        npts = int(np.prod(grid))
+        values = jnp.asarray(np.fft.fftn(u, axes=(1, 2, 3)).reshape(2, npts) / npts)
+        index = jnp.arange(npts)
+        window = jnp.ones_like(ultra.xi)
+        zero = jnp.asarray(0.0)
+        u_bra, h_bra, p_bra = _bra_side(values, values, index, window, ultra.gg, ultra.g_b2,
+                                        ultra.potential, zero, ultra.b22, grid=grid,
+                                        box_h0=True, windowed=False)
+        h, s = _ket_block(u_bra, h_bra, p_bra, values, index, jnp.asarray(0), window,
+                          ultra.g_b2, ultra.xi, zero, ultra.c1, ultra.b12, ultra.b22,
+                          grid=grid, windowed=False, symmetric=form == "symmetric")
+        e = np.real(np.diag(np.asarray(h)) / np.diag(np.asarray(s))) / b_ph
+        if expect is None:
+            assert np.all(np.abs(e - (1.0, 3.0)) > 0.5)
+        else:
+            assert np.allclose(e, expect, rtol=0, atol=1e-12)
+            assert abs(np.asarray(h)[0, 1]) < 1e-12 * abs(np.asarray(h)[0, 0])
