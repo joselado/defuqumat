@@ -37,6 +37,8 @@ ap.add_argument("--ecut", type=float, default=50.0)
 ap.add_argument("--conv", type=float, default=1e-10)
 ap.add_argument("--scf", default="plans/orbital-field/graphene-scf.npz")
 ap.add_argument("--out", default=None)
+ap.add_argument("--window", default=None)
+ap.add_argument("--N1list", default=None)
 args = ap.parse_args()
 
 calc = Calculator.from_keywords(
@@ -61,9 +63,11 @@ for nbnd in [int(x) for x in args.nbnd.split(",")]:
     t0 = time.perf_counter()
     r = run_magnetic_ultracell(calc.system, calc.pseudos, scf, flux=(args.p, args.q), nbnd=nbnd,
                                N1=args.N1, kmesh=kmesh, local_only=True, free=free, w=args.w,
-                               h0=args.h0, conv_thr=args.conv)
+                               h0=args.h0, conv_thr=args.conv, strict=False,
+                               window=None if args.window is None else
+                               tuple(float(x) for x in args.window.split(",")))
     wall = time.perf_counter() - t0
-    print(f"\n== nbnd {nbnd} flux {r.flux} N1 {r.n1} h0 {r.h0}: w {r.w} measured {r.w_measured} "
+    print(f"\n== nbnd {nbnd} flux {r.flux} N1 {r.n1} h0 {r.h0} window {r.window}: w {r.w} measured {r.w_measured} "
           f"outside(w) {r.outside:.3e} dropped |B(w+1)|/|B(0)| {r.dropped:.3e} singular {r.singular:.3e} "
           f"wall {wall:.1f} s", flush=True)
     print("outside weight by width:", np.array2string(r.outside_by_width, precision=3))

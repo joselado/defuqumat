@@ -100,7 +100,8 @@ class MagneticUltracell(eqx.Module):
     check that the machinery returns the zero-field bands). ``hybrids[k][m]`` is the
     :class:`HybridSet` of the ``k``-th magnetic ``kappa`` at the reduced ``kappa + m/q``.
     ``w`` is the half width of the band in ``Delta``; ``potential`` the tiled zero-field
-    local potential on the box (``h0 = "box"`` only).
+    local potential on the box (``h0 = "box"`` only); ``window`` ``(n1_box,)`` the window
+    along ``xi1`` every basis function is multiplied by (``None``: the bare hybrid states).
     """
 
     magnetic: MagneticCell | None
@@ -109,6 +110,7 @@ class MagneticUltracell(eqx.Module):
     gg: jnp.ndarray            # (npts,) |G_J|^2
     xi: jnp.ndarray            # (n1_box,) sawtooth xi1 in cells
     potential: jnp.ndarray | None
+    window: jnp.ndarray | None
     b12: float = eqx.field(static=True)
     b22: float = eqx.field(static=True)
     p: int = eqx.field(static=True)
@@ -123,16 +125,31 @@ class MagneticUltracell(eqx.Module):
 
     @classmethod
     def build(cls, cell, flux, hybrids, kappas, cell_grid, *, nbnd: int, n1: int,
-              w: int | None = None, potential=None, h0: str = "eigen", scale=1.0):
+              w: int | None = None, potential=None, h0: str = "eigen", scale=1.0,
+              window=None):
         """From the chemical :class:`Cell`, ``flux = (p, q)`` and the hybrid sets.
 
         ``w = None`` sets it later from the measured spread (:meth:`with_width`).
         ``potential`` is the zero-field local potential on ``cell_grid`` (needed for
-        ``h0 = "box"``).
+        ``h0 = "box"``). ``window = (inner, outer)`` in cells multiplies every basis
+        function by :func:`smooth_window` about its own cell; it needs ``h0 = "box"``
+        (a windowed state is no combination of eigenstates), sets ``w = ceil(2 outer) - 1``
+        (the blocks beyond are exactly zero) and needs ``N1 >= w + 2 outer`` (no ket
+        reaches the bra's support from the other side of the box).
         """
         p, q = int(flux[0]), int(flux[1])
         if h0 not in ("eigen", "box"):
             raise ValueError(f"h0 must be 'eigen' or 'box', got {h0!r}")
+        if window is not None:
+            inner, outer = float(window[0]), float(window[1])
+            if h0 != "box":
+                raise ValueError("a windowed basis needs h0 = 'box': the windowed states are "
+                                 "not combinations of zero-field eigenstates")
+            w_window = int(np.ceil(2.0 * outer)) - 1
+            if n1 < w_window + 2.0 * outer:
+                raise ValueError(f"the window ({inner}, {outer}) needs N1 >= "
+                                 f"{w_window + 2.0 * outer:g} cells, got N1 = {n1}")
+            w = w_window if w is None else int(w)
         if p == 0:
             if q != 1:
                 raise ValueError("zero flux is p/q = 0/1")
@@ -148,6 +165,8 @@ class MagneticUltracell(eqx.Module):
         real = cell.precision.real
         xi = np.arange(grid[0]) / cell_grid[0]
         xi = np.where(xi > n1 / 2.0, xi - n1, xi)
+        box_window = None if window is None else jnp.asarray(
+            smooth_window(xi, inner, outer), dtype=real)
         box_potential = None
         if h0 == "box":
             if potential is None:
@@ -156,7 +175,7 @@ class MagneticUltracell(eqx.Module):
         return cls(magnetic=magnetic, hybrids=tuple(tuple(h) for h in hybrids),
                    g_b2=jnp.asarray((gvec @ b[1]).reshape(-1), dtype=real),
                    gg=jnp.asarray(np.sum(gvec ** 2, axis=-1).reshape(-1), dtype=real),
-                   xi=jnp.asarray(xi, dtype=real), potential=box_potential,
+                   xi=jnp.asarray(xi, dtype=real), potential=box_potential, window=box_window,
                    b12=float(b[0] @ b[1]), b22=float(b[1] @ b[1]), p=p, q=q, n1=int(n1),
                    nbnd=int(nbnd), w=-1 if w is None else int(w),
                    kappas=tuple(float(k) for k in kappas), grid=tuple(grid),
@@ -203,7 +222,8 @@ class MagneticUltracell(eqx.Module):
 
         ``B, S`` ``(q, 2w+1, nbnd, nbnd)`` for ``Delta = -w .. w``; ``B_out, S_out``
         ``(q, extra, nbnd, nbnd)`` at ``Delta = w + 1 .. w + extra``, the first blocks the
-        truncation drops (measured only while the ket stays inside half the box).
+        truncation drops (measured only while the ket stays inside half the box), or
+        ``None``.
         """
         if self.w < 0:
             raise ValueError("the half width is not set: call with_width(w) first")
@@ -222,26 +242,27 @@ class MagneticUltracell(eqx.Module):
         deltas = list(range(-self.w, self.w + 1))
         tail = [d for d in range(self.w + 1, self.w + 1 + extra) if d < n1 / 2.0]
         c1 = self.c1
+        windowed = self.window is not None
+        window = self.window if windowed else jnp.ones_like(self.xi)
         potential = self.potential if self.h0 == "box" else jnp.zeros((), self.g_b2.dtype)
+        per_cell = self.grid[0] // n1
         B, S, B_out, S_out = [], [], [], []
         for X in range(q):
             m_x, f_x = (X * p) % q, (X * p) // q
             bra = hybrids[m_x]
-            bra_index = self.bra_index(bra)
-            u_bra, _ = _bra_fields(bra.values, bra_index, self.grid)
-            kref = self.kappas[k] + m_x / q
+            kref = jnp.asarray(self.kappas[k] + m_x / q, self.g_b2.dtype)
+            u_bra, h_bra = _bra_side(bra.values, bra.h0_values, self.bra_index(bra), window,
+                                     self.gg, self.g_b2, potential, kref, self.b22,
+                                     grid=self.grid, box_h0=self.h0 == "box", windowed=windowed)
             rows_b, rows_s, out_b, out_s = [], [], [], []
             for delta in deltas + tail:
-                s = (X + delta) * p
-                m_k, f_k = s % q, s // q
+                s_k = (X + delta) * p
+                m_k, f_k = s_k % q, s_k // q
                 ket = hybrids[m_k]
-                phase = jnp.asarray(np.exp(-2j * np.pi * ket.qindex * delta / n1),
-                                    dtype=ket.values.dtype)
-                h, o = _ket_block(u_bra, bra.values, bra.h0_values, bra_index,
-                                  ket.values * phase[None, :], ket_index(m_k, f_x - f_k),
-                                  self.g_b2, self.gg, self.xi, potential,
-                                  jnp.asarray(kref, self.g_b2.dtype), c1, self.b12, self.b22,
-                                  grid=self.grid, box_h0=self.h0 == "box")
+                h, o = _ket_block(u_bra, h_bra, ket.values, ket_index(m_k, f_x - f_k),
+                                  jnp.asarray(delta * per_cell), window, self.g_b2, self.xi,
+                                  kref, c1, self.b12, self.b22, grid=self.grid,
+                                  windowed=windowed)
                 if delta in deltas:
                     rows_b.append(h)
                     rows_s.append(o)
@@ -259,42 +280,95 @@ class MagneticUltracell(eqx.Module):
         return B, S, None, None
 
 
+def smooth_window(xi, inner: float, outer: float) -> np.ndarray:
+    """A C-infinity window along ``xi1``: one for ``|xi| <= inner``, zero for ``|xi| >= outer``.
+
+    ``g = f(1 - t) / (f(1 - t) + f(t))``, ``f(t) = exp(-1/t)`` (zero for ``t <= 0``), ``t =
+    (|xi| - inner) / (outer - inner)``.
+    """
+    if not 0.0 <= inner < outer:
+        raise ValueError(f"the window needs 0 <= inner < outer, got {inner}, {outer}")
+    t = np.clip((np.abs(np.asarray(xi, dtype=float)) - inner) / (outer - inner), 0.0, 1.0)
+
+    def f(x):
+        return np.where(x > 0.0, np.exp(-1.0 / np.where(x > 0.0, x, 1.0)), 0.0)
+
+    return f(1.0 - t) / (f(1.0 - t) + f(t))
+
+
+def _scatter_box(values, index, grid):
+    npts = grid[0] * grid[1] * grid[2]
+    coeffs = jnp.zeros((values.shape[0], npts), values.dtype).at[:, index].add(values)
+    return coeffs.reshape((values.shape[0],) + grid)
+
+
+def _to_real(coeffs):
+    npts = coeffs.shape[1] * coeffs.shape[2] * coeffs.shape[3]
+    return jnp.fft.ifftn(coeffs, axes=(1, 2, 3)) * npts
+
+
+def _to_coefficients(u):
+    npts = u.shape[1] * u.shape[2] * u.shape[3]
+    return jnp.fft.fftn(u, axes=(1, 2, 3)) / npts
+
+
 @partial(jax.jit, static_argnames=("grid",))
 def _bra_fields(values, index, grid):
     """The bra's real-space periodic parts ``u = npts ifftn(F)`` and its profile along ``xi1``."""
-    npts = grid[0] * grid[1] * grid[2]
-    coeffs = jnp.zeros((values.shape[0], npts), values.dtype).at[:, index].add(values)
-    u = jnp.fft.ifftn(coeffs.reshape((values.shape[0],) + grid), axes=(1, 2, 3)) * npts
+    u = _to_real(_scatter_box(values, index, grid))
     profile = jnp.sum(jnp.abs(u) ** 2, axis=(2, 3))
-    return u.reshape(values.shape[0], npts), profile
+    return u.reshape(values.shape[0], -1), profile
 
 
-@partial(jax.jit, static_argnames=("grid", "box_h0"))
-def _ket_block(u_bra, bra_values, bra_h0, bra_index, ket_values, ket_index, g_b2, gg, xi,
-               potential, kref, c1, b12, b22, *, grid, box_h0):
-    """``(<bra| H T(Delta) |ket>, <bra| T(Delta) |ket>)`` for one block, ``(nbnd, nbnd)`` each."""
+@partial(jax.jit, static_argnames=("grid", "box_h0", "windowed"))
+def _bra_side(values, h0_values, index, window, gg, g_b2, potential, kref, b22, *, grid,
+              box_h0, windowed):
+    """``(u, h)``: the bra in real space and ``H_0`` applied to it, ``(nbnd, npts)`` each.
+
+    ``box_h0``: ``h = T u + V u`` on the box (``|K + G|^2`` in reciprocal space, ``V`` the
+    tiled zero-field potential); otherwise ``h`` is the eigenvalue-weighted scatter. The
+    window (``windowed``) multiplies the bra along ``xi1`` before either.
+    """
+    nbnd = values.shape[0]
+    coeffs = _scatter_box(values, index, grid)
+    u = _to_real(coeffs)
+    if windowed:
+        u = u * window[None, :, None, None]
+        coeffs = _to_coefficients(u)
+    if box_h0:
+        kb = TPI * kref
+        kinetic = (gg + 2.0 * kb * g_b2 + kb * kb * b22).reshape(grid)
+        h = _to_real(coeffs * kinetic[None]).reshape(nbnd, -1) + potential[None, :] * u.reshape(nbnd, -1)
+    else:
+        h = _to_real(_scatter_box(h0_values, index, grid)).reshape(nbnd, -1)
+    return u.reshape(nbnd, -1), h
+
+
+@partial(jax.jit, static_argnames=("grid", "windowed"))
+def _ket_block(u_bra, h_bra, ket_values, ket_index, shift, window, g_b2, xi, kref, c1, b12,
+               b22, *, grid, windowed):
+    """``(<bra| H T(Delta) |ket>, <bra| T(Delta) |ket>)`` for one block, ``(nbnd, nbnd)`` each.
+
+    The ket is scattered with its Miller shift ``D`` already in ``ket_index``, windowed
+    about cell 0 when asked, and then rolled by ``shift = Delta n1`` grid points along the
+    first axis (``T(Delta a1)``, no phase since ``b2 . a1 = 0``).
+    """
     nbnd = ket_values.shape[0]
     npts = grid[0] * grid[1] * grid[2]
-    coeffs = jnp.zeros((nbnd, npts), ket_values.dtype).at[:, ket_index].add(ket_values)
-    on_bra = coeffs[:, bra_index]                                    # (nbnd, Pbra)
-    overlap = bra_values.conj() @ on_bra.T
-    kb = TPI * kref                                                  # K = kb b2
-    if box_h0:
-        kinetic = gg + 2.0 * kb * g_b2 + kb * kb * b22               # |K + G|^2
-        h0 = (bra_values.conj() * kinetic[bra_index]) @ on_bra.T
-    else:
-        h0 = bra_h0.conj() @ on_bra.T
-    shape = (nbnd,) + grid
-    u = (jnp.fft.ifftn(coeffs.reshape(shape), axes=(1, 2, 3)) * npts).reshape(nbnd, npts)
-    momentum = (g_b2 + kb * b22).astype(coeffs.real.dtype)          # b2 . (K + G)
-    up = (jnp.fft.ifftn((coeffs * momentum).reshape(shape), axes=(1, 2, 3)) * npts)
-    up = up.reshape(nbnd, npts)
-    x = jnp.repeat(xi, grid[1] * grid[2])                            # xi1 at every box point
+    coeffs = _scatter_box(ket_values, ket_index, grid)
+    u = _to_real(coeffs)
+    if windowed:
+        u = u * window[None, :, None, None]
+        coeffs = _to_coefficients(u)
+    v = _to_real(coeffs * g_b2.reshape(grid)[None])                     # (b2 . G) u
+    u = jnp.roll(u, shift, axis=1).reshape(nbnd, npts)
+    v = jnp.roll(v, shift, axis=1).reshape(nbnd, npts)
+    up = v + (TPI * kref * b22) * u                                       # b2 . (K + G) u
+    x = jnp.repeat(xi, grid[1] * grid[2])                                # xi1 at every box point
+    overlap = (u_bra.conj() @ u.T) / npts
     field = c1 * 2.0 * x * up + (c1 * c1 * b22) * (x * x) * u
-    h_field = (u_bra.conj() @ field.T) / npts - 1j * c1 * b12 * overlap
-    if box_h0:
-        h0 = h0 + (u_bra.conj() @ (potential * u).T) / npts
-    return h0 + h_field, overlap
+    h = (h_bra.conj() @ u.T + u_bra.conj() @ field.T) / npts - 1j * c1 * b12 * overlap
+    return h, overlap
 
 
 def assemble(kappa1: float, B, S, w: int, q: int):

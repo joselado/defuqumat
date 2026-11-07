@@ -35,7 +35,9 @@ import numpy as np
 from defuqumat.magnetic.conventions import refuse_regime
 from defuqumat.magnetic.hybrid import free_electron, hybrid_set, transport_gauge
 from defuqumat.magnetic.hybrid import local_only as _local_only
-from defuqumat.magnetic.ultracell_field import MagneticUltracell, assemble, hermiticity, solve
+from defuqumat.magnetic.ultracell_field import (
+    MagneticUltracell, assemble, hermiticity, hermiticity_guard, solve,
+)
 from defuqumat.scf.driver import Calculation
 from defuqumat.system.kpoints import KPoints, for_spin as kpoints_for_spin
 from defuqumat.topology.states import build_plane_wave_states
@@ -82,6 +84,7 @@ class MagneticUltracellResult:
     eigenvalues: np.ndarray
     davidson: dict
     timings: dict
+    window: tuple | None = None
     blocks: tuple | None = field(default=None, repr=False)
 
 
@@ -89,6 +92,14 @@ def ultracell_kpoints(q: int, n1: int, kappas) -> np.ndarray:
     """``(len(kappas) q N1, 3)`` chemical crystal k: ``(i/N1, kappa + m/q, 0)``, ``i`` fastest."""
     return np.array([[i / n1, kappa + m / q, 0.0]
                      for kappa in kappas for m in range(q) for i in range(n1)])
+
+
+def null_vector_cells(s, nbnd: int, top: int = 4):
+    """The ``(j, n)`` pairs carrying most of the weight of the smallest eigenvector of ``S``."""
+    d, u = np.linalg.eigh(0.5 * (s + s.conj().T))
+    weight = np.abs(u[:, 0]) ** 2
+    order = np.argsort(-weight)[:top]
+    return [(int(i // nbnd), int(i % nbnd), round(float(weight[i]), 4)) for i in order]
 
 
 def _density_of(scf):
@@ -120,6 +131,8 @@ def run_magnetic_ultracell(
     drop: float = 1.0e-8,
     conv_thr: float = 1.0e-10,
     k_batch="default",
+    window=None,
+    strict: bool = True,
     keep_blocks: bool = False,
 ) -> MagneticUltracellResult:
     """The levels of ``system`` at flux ``p/q`` per chemical cell on the magnetic ultracell.
@@ -144,6 +157,11 @@ def run_magnetic_ultracell(
         drop: the relative eigenvalue of ``S`` below which a direction is dropped.
         conv_thr: sets the Davidson threshold as an NSCF does
             (:func:`~defuqumat.workflows.nscf.fixed_density_ethr`).
+        window: ``(inner, outer)`` in cells, the smooth window every basis function is
+            multiplied by (:func:`~defuqumat.magnetic.ultracell_field.smooth_window`);
+            needs ``h0 = "box"`` and fixes ``w``. ``None``: the bare hybrid states.
+        strict: refuse (raise) when the assembled ``H`` is not Hermitian to 1e-8, and on
+            the free problem when ``S`` drops a direction; ``False`` records and goes on.
     """
     refuse_regime(system, pseudos, "the magnetic ultracell")
     if not local_only and not free:
@@ -207,12 +225,15 @@ def run_magnetic_ultracell(
 
     potential = np.asarray(hamiltonians[0].potential) if h0 == "box" else None
     ultra = MagneticUltracell.build(cell, (p, q), hybrids, kappas, hamiltonians[0].grid,
-                                    nbnd=int(nbnd), n1=N1, potential=potential, h0=h0)
+                                    nbnd=int(nbnd), n1=N1, potential=potential, h0=h0,
+                                    window=window, w=w)
     t0 = time.perf_counter()
     w_measured, weights, widths = ultra.spread(spread_tol)
     timings["spread_s"] = time.perf_counter() - t0
     cap = (N1 - 2) // 2 if wmax is None else int(wmax)
-    if w is None:
+    if window is not None:
+        w = ultra.w
+    elif w is None:
         w = cap if w_measured is None else min(w_measured, cap)
     w = int(w)
     outside_by_width = np.max(weights.reshape(-1, len(widths)), axis=0)
@@ -240,7 +261,15 @@ def run_magnetic_ultracell(
             kappa1 = i1 / n1m
             h, s = assemble(kappa1, B, S, w, q)
             herm.append(hermiticity(h))
+            if strict:
+                hermiticity_guard(h)
             eps, rank, d_min, d_all = solve(h, s, drop)
+            if strict and free and rank < s.shape[0]:
+                raise ValueError(
+                    f"S of the free problem drops {s.shape[0] - rank} of {s.shape[0]} "
+                    f"directions at magnetic k ({kappa1}, {kappas[jk]}) (smallest eigenvalue "
+                    f"{d_all:.3e} of the largest): a construction error; the null vector "
+                    f"lives on (cell j, band n) = {null_vector_cells(s, int(nbnd))}")
             levels.append(eps if nlevels is None else eps[:nlevels])
             ranks.append(rank)
             dmins.append(d_min)
@@ -261,4 +290,5 @@ def run_magnetic_ultracell(
         outside_by_width=outside_by_width, dropped=dropped, n1=N1, nbnd=int(nbnd), h0=h0,
         centres=np.array(centres), singular=float(singular),
         eigenvalues=eigenvalues.reshape(n2m, q, N1, int(nbnd)), davidson=davidson,
-        timings=timings, blocks=tuple(kept) if keep_blocks else None)
+        timings=timings, window=None if window is None else tuple(float(x) for x in window),
+        blocks=tuple(kept) if keep_blocks else None)
