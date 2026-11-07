@@ -217,6 +217,11 @@ def _solve(hamiltonian, ik, nbnd, nsolve, start, thresholds, david, max_davidson
            residual_threshold):
     from defuqumat.solvers.davidson import davidson_eigensolver_all
 
+    if residual_threshold is not None:
+        # on the returned bands only: the buffer is converged loosely by design, and a
+        # residual bound on it left one band of 24 unsettled after 400 steps at 1/3
+        residual_threshold = jnp.asarray(np.concatenate(
+            [np.full(nbnd, float(residual_threshold)), np.full(nsolve - nbnd, 1e30)]))
     values, vectors, step, left = davidson_eigensolver_all(
         hamiltonian, nsolve, psi0=start[None], ethr=thresholds, david=david,
         max_iterations=max_davidson, indices=np.array([ik]), return_steps=True,
