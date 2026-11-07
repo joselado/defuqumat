@@ -28025,7 +28025,7 @@ diagnosis (Ritz directions on the padding) was wrong; its change did nothing and
 stochastic unfolding and the spin-resolved trace could take it; a cheaper Ritz step (it is
 `O(npw natw^2)`, Davidson's scaling); ultrasoft and PAW as before.
 
-### P169 -- The optical conductivity by a two-index Chebyshev expansion, `get_kpm_conductivity`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, eleven fast tests; all 50 KPM tests on D22 CPU and on the RTX A2000 at 252853cc and the conductivity file again at d92534e8; the fast gate in one slot at 936eff44, 3812 passed, the two known `yaml` failures and P170's unbiasedness test, fixed in 8b54292b; no slow file; branch `kpm-sigma` from b611deab, not merged, not pushed)
+### P169 -- The optical conductivity by a two-index Chebyshev expansion, `get_kpm_conductivity`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, eleven fast tests; all 50 KPM tests on D22 CPU and on the RTX A2000 at 252853cc and the conductivity file again at d92534e8; the fast gate in one slot at 936eff44, 3812 passed, the two known `yaml` failures and P170's unbiasedness test, fixed in 8b54292b, and again at d503a729, 3813 passed with only the two `yaml` failures, 2003 s; no slow file; branch `kpm-sigma` from b611deab, not merged, not pushed)
 
 **What is in.** `defuqumat/kpm/conductivity.py`. The absorptive Kubo-Greenwood tensor
 `sigma'_ab(w) = (pi / (Omega w)) sum_k w_k int dE [f(E) - f(E + w)] Tr[v_b delta(E - H) v_a delta(E + w - H)]`
