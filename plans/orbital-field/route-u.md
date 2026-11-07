@@ -7,6 +7,7 @@ entangled band set is not localized.
 | item | measured | design | log |
 |---|---|---|---|
 | 0. zero flux, levels against eps(k) | 5.3e-15 Ry | (exactness check) | `zero1.log` |
+| 0b. field kernels on the analytic Landau state, E0/B_ph - 1, E1/3B_ph - 1 (N1 = 18) | 4e-16, 2e-15; reversed field +0.667 | (operator check) | `landau-check-n18.log` |
 | 1. free q = 10, p = 1, (n, m=0) error, n <= 2, nbnd 2 / 4 | up to 0.143 / 0.079 Ry | 1e-8 Ry | `free1.log` |
 | 1. free, monotone in nbnd | rise +2.5e-2 Ry (2 -> 4) | no rise > 1e-10 | `free1.log` |
 | 1. free, p = 3 | errors 0.118 to 0.180 Ry | 3 states per level | `free-p3.log` |
