@@ -131,7 +131,178 @@ def si():
     print(f"silicon: worst |<psi|V_NL|psi>_grid - vkb| or Rayleigh difference over 4 bands, 3 k: {worst:.3e} Ry")
 
 
+def chern(n, nbnd=8):
+    from defuqumat.workflows.magnetic_bands import _chern_numbers, level_groups, run_magnetic_bands
+
+    calc = graphene(kmesh=(1, 1, 1))
+    t0 = time.perf_counter()
+    bands = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(1, 1), kmesh=(n, n), nbnd=nbnd,
+                               local_only=False, keep_states=True)
+    print(f"n_Phi = 1, kmesh ({n},{n}): {bands.field_tesla:.1f} T, ndim {bands.ndim}, steps "
+          f"{bands.steps.min()} to {bands.steps.max()}, solver {set(bands.solver)}, "
+          f"{time.perf_counter() - t0:.1f} s", flush=True)
+    e = bands.eigenvalues
+    gaps = np.min(e[:, 1:] - e[:, :-1], axis=0)
+    print("smallest gap above each band over the mesh (Ry):", " ".join(f"{g:.3e}" for g in gaps))
+    print("band minima/maxima (Ry):", " ".join(f"[{e[:, i].min():.5f},{e[:, i].max():.5f}]" for i in range(nbnd)))
+    groups = [(0, 0), (1, 1), (2, 2), (3, 3), (2, 3), (0, 3)] + level_groups(e, 1e-6)
+    for first, last, c, flux in _chern_numbers(bands.states, (n, n), bands.box, groups):
+        print(f"  bands {first} to {last}: C = {c:+.10f}, largest plaquette flux {flux:.3f}")
+    np.savez(Path(OUT) / f"chern-{n}.npz", eigenvalues=e, kpoints=bands.kpoints)
+
+
+def shift(n, nbnd=12):
+    from defuqumat.magnetic.fold import magnetic_occupations
+    from defuqumat.workflows.magnetic_bands import local_potential_of, run_magnetic_bands
+
+    calc = graphene(kmesh=(1, 1, 1))
+    a1 = np.asarray(calc.system.cell.at)[0]
+    pos = np.asarray(calc.system.structure.positions)
+    moved = calc.with_positions(pos + 0.5 * a1)
+    frac = np.asarray(moved.system.structure.positions) @ np.linalg.inv(np.asarray(moved.system.cell.at))
+    print(f"moved atoms, crystal: {np.round(frac, 6).tolist()}")
+    pot = local_potential_of(SCF)
+    rolled = np.roll(pot, pot.shape[0] // 2, axis=0)
+    runs = {}
+    for label, c, v, p in (("original", calc, pot, 1), ("moved", moved, rolled, 1),
+                           ("original, -B", calc, pot, -1)):
+        t0 = time.perf_counter()
+        b = run_magnetic_bands(c.system, c.pseudos, {"potential": v[None]}, flux=(p, 1),
+                               kmesh=(n, n), nbnd=nbnd, local_only=False)
+        wg, ef, ts = magnetic_occupations(b.eigenvalues, np.full(len(b.kpoints), 2.0 / len(b.kpoints)),
+                                          8.0, calc.system)
+        eband = float(np.sum(wg * b.eigenvalues))
+        runs[label] = (b, eband, ts)
+        print(f"[{label}] p = {p}: steps {b.steps.min()} to {b.steps.max()}, eband {eband:.12f} Ry, "
+              f"-TS {ts:.3e}, ef {ef:.6f}, {time.perf_counter() - t0:.1f} s", flush=True)
+    b0, e0, _ = runs["original"]
+    b1, e1, _ = runs["moved"]
+    b2, e2, _ = runs["original, -B"]
+    print(f"eps(k) at the same named k, original against moved: max |difference| "
+          f"{np.max(np.abs(b0.eigenvalues - b1.eigenvalues)):.4e} Ry")
+    print(f"sorted level set over the ({n},{n}) mesh, original against moved: "
+          f"{np.max(np.abs(b0.sorted_levels - b1.sorted_levels)):.3e} Ry; band energy {abs(e0 - e1):.3e} Ry")
+    print(f"time reversal on the grid: sorted set at +B against -B {np.max(np.abs(b0.sorted_levels - b2.sorted_levels)):.3e} Ry; "
+          f"band energy {abs(e0 - e2):.3e} Ry")
+
+
+def sets(q, outdir="plans/orbital-field"):
+    from defuqumat.workflows.magnetic_bands import run_magnetic_bands
+
+    calc = graphene(kmesh=(1, 1, 1))
+    nbnd = 4 * q + 8
+    t0 = time.perf_counter()
+    b = run_magnetic_bands(calc.system, calc.pseudos, SCF, flux=(1, q), kmesh=(2, 2 * q), nbnd=nbnd,
+                           local_only=False)
+    wall = time.perf_counter() - t0
+    rep = np.isin(np.round(b.kpoints[:, 1] * 2 * q).astype(int), [0, 1])
+    copies = np.sort(np.tile(b.eigenvalues[rep].reshape(-1), q))
+    print(f"q = {q}: ndim {b.ndim}, nk {len(b.kpoints)}, nbnd {nbnd}, steps {b.steps.min()} to "
+          f"{b.steps.max()}, memory estimate {b.memory_estimate / 1e9:.3f} GB, solve {b.timings['solve_s']:.0f} s, "
+          f"{np.mean(b.timings['per_k_s']):.1f} s a k-point, peak RSS {peak_gb():.2f} GB")
+    print(f"q = {q}: full mesh against q copies of the representatives: "
+          f"{np.max(np.abs(b.sorted_levels - copies)):.3e} Ry")
+    np.savez(Path(outdir) / f"route-p-q{q}-full.npz", eigenvalues=b.eigenvalues, kpoints=b.kpoints,
+             sorted_levels=b.sorted_levels, steps=b.steps, flux=np.array(b.flux), box=np.array(b.box),
+             field_tesla=b.field_tesla, wall_s=wall,
+             description=np.array("route P full H (GIPAW projectors), graphene 50 Ry, two-grid, "
+                                  "centred window, shared zero-field potential; Ry"))
+
+
+def fold(q, m=2, conv_thr=1e-8, check=True):
+    from defuqumat.magnetic.fold import fold_check, run_magnetic_scf
+
+    calc = graphene()
+    nbnd = 4 * q + 8
+    with np.load(SCF) as data:
+        rho0 = np.asarray(data["density"])
+    t0 = time.perf_counter()
+    r = run_magnetic_scf(calc.system, calc.pseudos, SCF, flux=(1, q), kmesh=(2, q * m), nbnd=nbnd,
+                         conv_thr=conv_thr)
+    wall = time.perf_counter() - t0
+    volume = float(calc.system.cell.volume)
+    drho = r.density - rho0
+    print(f"SCF 1/{q}, kmesh (2,{q * m}), {len(r.kpoints)} representatives: converged {r.converged} in "
+          f"{r.iterations} iterations, dr2 {r.accuracy:.2e}, E {r.total_energy:.10f} Ry per chemical cell "
+          f"(zero-field sphere SCF -22.664820820312105), {wall:.0f} s, memory estimate "
+          f"{r.memory_estimate / 1e9:.3f} GB, peak RSS {peak_gb():.2f} GB", flush=True)
+    print(f"terms: {json.dumps(r.energy_terms)}")
+    print(f"density change from the zero-field one: max |drho| {np.max(np.abs(drho)):.3e} e/bohr^3 "
+          f"(max rho {np.max(rho0):.3e}), int |drho| {np.sum(np.abs(drho)) * volume / drho[0].size:.4e} e "
+          f"of {np.sum(rho0) * volume / rho0[0].size:.6f}")
+    np.savez(Path(OUT) / f"scf-{q}.npz", density=r.density, potential=r.potential,
+             eigenvalues=r.eigenvalues, kpoints=r.kpoints, total_energy=r.total_energy,
+             history=np.array(json.dumps(r.history)))
+    if check:
+        density, levels, t = fold_check(r, calc.system, calc.pseudos)
+        print(f"fold check: folded density of the representatives against the whole closed mesh, "
+              f"max relative difference {density:.3e}; sorted levels (q copies) {levels:.3e} Ry; {t:.0f} s")
+
+
+def diamond_calc(ecut_ry=60.0, kmesh=(2, 6, 6)):
+    a = 3.56
+    base = [(0, 0, 0), (0, .5, .5), (.5, 0, .5), (.5, .5, 0)]
+    sites = [(x, y, z) for x, y, z in base] + [(x + .25, y + .25, z + .25) for x, y, z in base]
+    atoms = [("C", ((x + j) / 3.0, y, z)) for j in range(3) for x, y, z in sites]
+    return Calculator.from_keywords(
+        lattice=[[3 * a, 0, 0], [0, a, 0], [0, 0, a]], atoms=atoms,
+        pseudos={"C": "C.pbe-hgh.UPF"}, pseudo_dir="tests/data/pseudo",
+        ecut=ecut_ry * RY_TO_EV, kmesh=kmesh)
+
+
+def diamond0(ecut=60.0, kmesh=(2, 6, 6)):
+    calc = diamond_calc(ecut, kmesh)
+    t0 = time.perf_counter()
+    scf = calc.get_scf(conv_thr=1e-11)
+    print(f"diamond 3x1x1 zero-field sphere SCF: {scf.total_energy:.10f} Ry, {scf.iterations} iterations, "
+          f"grid {np.asarray(scf.density).shape}, {time.perf_counter() - t0:.0f} s", flush=True)
+    np.savez(Path(OUT) / f"diamond-scf-{int(ecut)}.npz", density=np.asarray(scf.density),
+             potential=np.asarray(scf.potential), total_energy=scf.total_energy)
+
+
+def diamond(p, ecut=60.0, kmesh=(2, 6, 6), nbnd=52):
+    from defuqumat.magnetic.blochgrid import estimate_bytes, wavefunction_box
+    from defuqumat.magnetic.fold import run_magnetic_scf
+
+    calc = diamond_calc(ecut, kmesh)
+    grid = wavefunction_box(calc.system.cell, calc.system.ecutwfc)
+    nk = int(np.prod(kmesh))
+    est = estimate_bytes(1, nbnd + 4, 4, grid=grid, kept=nk * (nbnd + 4), fine_grid=(36, 36, 100))
+    print(f"diamond 3x1x1 at {ecut} Ry: box {grid}, ndim {int(np.prod(grid))}, {nk} k, nbnd {nbnd}: "
+          f"memory estimate {est / 1e9:.2f} GB", flush=True)
+    t0 = time.perf_counter()
+    r = run_magnetic_scf(calc.system, calc.pseudos, Path(OUT) / f"diamond-scf-{int(ecut)}.npz",
+                         flux=(p, 1), kmesh=kmesh, nbnd=nbnd, conv_thr=1e-8, calculation=calc.calculation)
+    print(f"diamond p = {p}: {r.field_tesla:.1f} T, converged {r.converged} in {r.iterations} iterations, "
+          f"dr2 {r.accuracy:.2e}, E {r.total_energy:.12f} Ry, {time.perf_counter() - t0:.0f} s, "
+          f"peak RSS {peak_gb():.2f} GB")
+    print(f"terms: {json.dumps(r.energy_terms)}")
+    np.savez(Path(OUT) / f"diamond-{int(ecut)}-p{p}.npz", total_energy=r.total_energy,
+             field_tesla=r.field_tesla, eigenvalues=r.eigenvalues, kpoints=r.kpoints,
+             converged=r.converged, history=np.array(json.dumps(r.history)), natoms=24)
+
+
+def chi(ecut=60.0):
+    from defuqumat.magnetic.fold import molar_magnetizability
+
+    e = {}
+    for p in (0, 1, -1):
+        with np.load(Path(OUT) / f"diamond-{int(ecut)}-p{p}.npz") as d:
+            e[p] = float(d["total_energy"])
+            if p == 1:
+                b = float(d["field_tesla"])
+    print(f"E(0) {e[0]:.12f}  E(+) {e[1]:.12f}  E(-) {e[-1]:.12f} Ry; E(+) - E(-) {e[1] - e[-1]:.3e} Ry; "
+          f"E(+) - E(0) {e[1] - e[0]:.6e} Ry; dB {b:.2f} T")
+    print(f"chi per C2 (12 primitive cells): {molar_magnetizability(e[1], e[0], e[-1], b, 12):.4f} "
+          f"1e-6 cm^3/mol (Lu -11.16, LDA); per C atom {molar_magnetizability(e[1], e[0], e[-1], b, 24):.4f}")
+
+
+OUT = "."
+
 if __name__ == "__main__":
+    import os
+
+    OUT = os.environ.get("MAG_OUT", ".")
     what = sys.argv[1]
     args = sys.argv[2:]
     t0 = time.perf_counter()
@@ -139,6 +310,21 @@ if __name__ == "__main__":
         item1(float(args[0]) if args else 50.0, int(args[1]) if len(args) > 1 else 8)
     elif what == "si":
         si()
+    elif what == "chern":
+        chern(int(args[0]) if args else 12)
+    elif what == "shift":
+        shift(int(args[0]) if args else 6)
+    elif what == "sets":
+        sets(int(args[0]), *(args[1:2]))
+    elif what == "fold":
+        fold(int(args[0]), int(args[1]) if len(args) > 1 else 2,
+             float(args[2]) if len(args) > 2 else 1e-8, check=(len(args) <= 3 or args[3] != "nocheck"))
+    elif what == "diamond0":
+        diamond0(float(args[0]) if args else 60.0)
+    elif what == "diamond":
+        diamond(int(args[0]), float(args[1]) if len(args) > 1 else 60.0)
+    elif what == "chi":
+        chi(float(args[0]) if args else 60.0)
     else:
         raise SystemExit(f"unknown item {what}")
     print(f"# wall {time.perf_counter() - t0:.1f} s, peak RSS {peak_gb():.2f} GB")

@@ -374,12 +374,17 @@ def test_the_full_operator_is_hermitian_and_covariant_and_the_bare_one_is_not(gr
 
 
 def test_the_field_along_minus_a3_is_the_time_reversed_operator(graphene, potential):
-    plus = _full(graphene, potential, 1, 2, [[0.37, 0.29, 0.0]])
-    minus = _full(graphene, potential, -1, 2, [[-0.37, -0.29, 0.0]])
+    # Time reversal is exact on the grid when no row's window centre is ambiguous: an odd
+    # box, and no centre within the tie offset of a half-integer (at (0.37, 0.29) the row
+    # xi1 = 1/5 sits 0.01 from one and the -B operator's window there is shifted by one
+    # frequency, which read 0.9 Ry apart at the top of this coarse box, measured on D22).
+    kappa = (0.31, 0.23, 0.0)
+    plus = _full(graphene, potential, 1, 2, [kappa])
+    minus = _full(graphene, potential, -1, 2, [[-x for x in kappa]])
     (a,), (b,) = _spectra(plus), _spectra(minus)
     assert np.max(np.abs(a - b)) < 1e-10 * np.max(np.abs(a))
     # while the opposite field at the same k is another operator
-    (c,) = _spectra(_full(graphene, potential, -1, 2, [[0.37, 0.29, 0.0]]))
+    (c,) = _spectra(_full(graphene, potential, -1, 2, [kappa]))
     assert np.max(np.abs(a - c)) > 1e-6
     cell = blochgrid.magnetic_cell(graphene.system.cell, -1, 2)
     assert float(cell.scale) == -1.0 and float(cell.b_ph) < 0
