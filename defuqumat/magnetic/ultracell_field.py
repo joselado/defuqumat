@@ -77,6 +77,7 @@ on graphene's 24 x 24 x 128 grid. The states are ``N1 q nk nbnd npwx``.
 
 from __future__ import annotations
 
+import dataclasses
 from functools import partial
 
 import equinox as eqx
@@ -89,7 +90,7 @@ from defuqumat.magnetic.hybrid import HybridSet, half_width, outside_weight
 from defuqumat.units import TPI
 from defuqumat.ultracell.grid import Ultracell
 
-__all__ = ["MagneticUltracell", "assemble", "solve", "hermiticity"]
+__all__ = ["MagneticUltracell", "assemble", "solve", "hermiticity", "hermiticity_guard"]
 
 
 class MagneticUltracell(eqx.Module):
@@ -170,7 +171,7 @@ class MagneticUltracell(eqx.Module):
         return TPI * self.magnetic.flux * self.magnetic.scale
 
     def with_width(self, w: int) -> "MagneticUltracell":
-        return eqx.tree_at(lambda m: m.w, self, int(w))
+        return dataclasses.replace(self, w=int(w))
 
     # --- the bra side and the spread ---------------------------------------------
     def bra_index(self, hybrid: HybridSet) -> jnp.ndarray:
@@ -322,6 +323,18 @@ def hermiticity(h) -> float:
     """``max |H - H^dagger| / max |H|``."""
     h = np.asarray(h)
     return float(np.max(np.abs(h - h.conj().T)) / max(np.max(np.abs(h)), 1e-300))
+
+
+def hermiticity_guard(h, tol: float = 1.0e-8) -> float:
+    """:func:`hermiticity`, raising when it is above ``tol`` (the route's refusal at 1e-8)."""
+    value = hermiticity(h)
+    if value > tol:
+        raise ValueError(f"the assembled H is not Hermitian: max |H - H^dagger| / max |H| = "
+                         f"{value:.3e} > {tol:.1e}; the 2 a.p - i div a form is Hermitian only "
+                         "where the hybrid states are negligible at the jump of the sawtooth, so "
+                         "the states are not localized on this box (raise N1) or a matrix element "
+                         "is wrong")
+    return value
 
 
 def solve(h, s, drop: float = 1.0e-8):
