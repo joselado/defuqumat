@@ -114,8 +114,16 @@ def _dense(torus, kappa):
 
 
 def test_hofstadter_identities():
-    """E -> -E at every k (sublattice symmetry) and p/q against (q - p)/q over the 2 x 2 mesh."""
-    mesh = [(0.0, 0.0), (0.5, 0.0), (0.0, 0.5), (0.5, 0.5)]
+    """E -> -E at every k (sublattice symmetry) and p/q against (q - p)/q over a 6 x 6 mesh.
+
+    ``(q - p)/q`` is ``-p/q`` up to one flux quantum per hexagon, a gauge transformation
+    that is not periodic over the magnetic cell, composed with time reversal: it maps
+    ``kappa`` to another point, so the two spectra agree as sets over a mesh closed under
+    that map, not at one ``kappa``. Measured (``plans/orbital-field/foundation.md``): 1.4 eV
+    apart at one ``kappa``, 0.63 and 0.78 eV over the 2 x 2 and 3 x 3 meshes, 1.5e-14 eV
+    over 6 x 6 and 12 x 12.
+    """
+    mesh = [(i / 6, j / 6) for i in range(6) for j in range(6)]
     for q in (5, 7, 12):
         for p in range(1, q):
             if math.gcd(p, q) != 1:

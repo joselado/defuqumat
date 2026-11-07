@@ -31,7 +31,7 @@ mode = sys.argv[2] if len(sys.argv) > 2 else "auto"
 window = float(sys.argv[3]) if len(sys.argv) > 3 else 2.0   # the p_z set's frozen window, E_F +- window eV
 pz_bands = int(sys.argv[4]) if len(sys.argv) > 4 else 8      # the p_z set's num_bands
 num_iter = int(sys.argv[5]) if len(sys.argv) > 5 else None   # the engine's num_iter (its default if None)
-engine = None if num_iter is None else {"num_iter": num_iter}
+engine = None if num_iter is None else {"num_iter": num_iter, "dis_num_iter": num_iter}
 out.mkdir(parents=True, exist_ok=True)
 
 calc = Calculator.from_keywords(
