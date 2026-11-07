@@ -347,9 +347,13 @@ coarser for these projectors than graphene's, and that is the larger error.
 
 Lu's pattern (1, 0, and 3 for the third and fourth together) holds as exact integers on our 12 x 12
 mesh, without forcing. Bands 2 and 3 do not touch on this mesh (smallest gap 2.8e-2 Ry), so each has
-its own number, -3 and +6; Lu give only the pair. The largest plaquette flux of bands 2 and 3 is
-1.3, below pi but not small, so the split of the pair is the number to check on a finer mesh
-(24 x 24, `M/chern24.log`, below). The sign convention is the repository's FHS one, as in step 1.
+its own number, -3 and +6; Lu give only the pair. On a 24 x 24 mesh (`M/chern24.log`, big job, 1287
+s, 52 to 101 Davidson steps) every number is the same, **+1, 0, -3, +6, and +3 for the pair**, with
+the largest plaquette flux halved (0.016, 0.235, 0.582, 0.880, 0.882), so the integers are converged
+in the mesh; the smallest gap between bands 2 and 3 over the finer mesh is 7.6e-3 Ry, so they stay
+apart and the split -3/+6 is a statement about this density and cutoff, where Lu's 40 x 40 at 30 Ha
+on their own SCF density report the pair. The sign convention is the repository's FHS one, as in
+step 1.
 
 **3. The fold** (`M/fold3b.log`; graphene `p/q = 1/3`, kmesh (2, 6), nbnd 20, the 4 representatives
 `kappa2 in {0, 1/6}`, from the shared zero-field density): the SCF converges to `conv_thr = 1e-8` Ry in
@@ -416,9 +420,26 @@ representatives `kappa2 in {0, 1/(2q)}`:
 
 | q | ndim | nk | full mesh against q copies | Davidson steps | memory estimate | peak RSS | solve | per k |
 |---|---|---|---|---|---|---|---|---|
-SETS_TABLE
+| 1 | 9216 | 4 | 0.0 | 69 to 74 | 0.035 GB | 1.01 GB | 19 s | 4.8 s |
+| 2 | 18432 | 8 | 8.4e-13 Ry | 79 to 100 | 0.085 GB | 1.10 GB | 81 s | 10.1 s |
+| 3 | 27648 | 12 | 1.0e-12 Ry | 92 to 119 | 0.150 GB | 1.23 GB | 257 s | 21.4 s |
+| 4 | 36864 | 16 | 2.9e-12 Ry | 90 to 119 | 0.231 GB | 1.42 GB | 586 s | 36.6 s |
+| 5 | 46080 | 20 | 1.4e-12 Ry | 94 to 114 | 0.327 GB | 1.55 GB | 1042 s | 52.1 s |
+| 6 | 55296 | 24 | 1.8e-12 Ry | 91 to 148 | 0.438 GB | 1.78 GB | 2227 s | 92.8 s |
 
-The SCF at `q = 6` by the fold (`M/fold6.log`, slot): SCF6
+All within the design's 1e-9 Ry. Against step 1's local-only runs at the same sizes (60 to 107 steps,
+4.6 to 89 s a k-point) the nonlocal term costs 1.0 to 1.4 times the time a k-point; the step counts
+rose by 10 to 40 per cent (the preconditioner does not see the nonlocal diagonal). These ran as big
+jobs (four cores) at a load of 8 to 16, so a time is a range; `q = 5` (`M/sets-q5.log`) waited 12
+minutes for the lock.
+
+The SCF at `q = 6` by the fold (`M/fold6.log`, slot 0, CPU 4; graphene `p/q = 1/6`, 13152 T, kmesh
+(2, 12), the 4 representatives, nbnd 32, ndim 55296, from the shared zero-field density): converged to
+`conv_thr = 1e-8` Ry in **7 iterations** (dr2 8.8e-4, 1.2e-4, 1.1e-4, 8.3e-7, 1.5e-6, 4.2e-7, 1.9e-9),
+**644 s** (448 s of it the first iteration from random start blocks, 83 to 108 Davidson steps; later
+iterations 9 to 87 s), memory estimate 0.565 GB, **peak RSS 2.19 GB**. E = -22.7426968657 Ry per
+chemical cell (at `1/3`: -22.7079645172). The density change from the zero-field one: max `|drho|`
+3.1e-2 e/bohr^3 (the maximum density is 0.333), `int |drho|` 0.119 electron of 8.000.
 
 ## Decisions taken here (step 2), and why
 
@@ -433,7 +454,9 @@ open choice is the conservative one, recorded with the number it rests on.
 - **The density is `|u|^2` on the dense grid from the same interpolation** (QE's `sum_band` order),
   not the design's `|u|^2` on the box Fourier-padded: the product of two box-limited functions is not
   box-limited, and squaring on the box aliases it. The probe measures the padded form against the one
-  used on the same states (`padded` in `mag_route_p2.py`, printed in `M/fold6.log`): PADDED.
+  used on the same states (`padded` in `mag_route_p2.py`, printed in `M/fold6.log`): on the converged `1/6` states the two differ by up to **2.7e-2 e/bohr^3**
+  (8 per cent of the largest density), which as a residual is dr2 = **5.4e-5 Ry**, 5000 times
+  `conv_thr`, with the same 8.000000 electrons. So the padded form would converge to another density.
 - **The field along `-a3` is the conventions' cell at `|p|` with its traced `scale` at -1**
   (`magnetic_cell`), since `MagneticCell.build` refuses `p < 1` and `conventions.py` is the
   foundation's file. Every phase of the conventions changes sign with it, and the box operator's twist
@@ -489,7 +512,11 @@ of `band_density`; the occupations and the molar conversion; item 1 at 50 Ry (pr
   "What is left").
 - The orbital magnetization identity of section 12 item 6 on a Chern insulator cell: left to a
   later phase, as the design says.
-- `q = 10, 20, 30` graphene SCF with the fold: QBIG
+- `q = 10` graphene SCF with the fold is measured (`M/fold10.log`, slot 1, CPU 6: 7891 T, kmesh
+  (2, 20), 4 representatives, nbnd 48, ndim 92160): converged in **6 iterations** (dr2 8.3e-4 to
+  2.6e-9), **1631 s** (1027 s the first iteration, 74 to 85 Davidson steps), memory estimate 1.34 GB,
+  **peak RSS 2.87 GB**; E = -22.7542103850 Ry per chemical cell; the padded density 2.7e-2 e/bohr^3
+  off again (dr2 5.4e-5 Ry). `q = 20`: FOLD20. `q = 30` not run (estimate below).
 - `segment_sum` for the projector scatter on a card; the projectors' memory is small
   (`natom nproj npts` complex, 12 x 1 x 2997 at `q = 6`, 0.6 MB) and is not in `estimate_bytes`.
 - The preconditioner does not include the nonlocal term's diagonal; the Davidson steps with it in
