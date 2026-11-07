@@ -321,6 +321,12 @@ helix under both gradient corrections, the first taking 119 iterations.
 | `07` | 22 | `32` | 84 | `41` | 110 | `51` | 290 |
 | `46` | 61 | `47` | 260 | `48` | 121 | `50` | 509 |
 
+`63` reads **124 s** on 2026-11-07, its first measurement, on one core of D22 (slot CPU 6,
+`OMP_NUM_THREADS=1`, CPU only, load about 6 to 12 from other jobs, the compiled code partly
+cached): the graphene SCF on 12x12, the two-function `p_z` Wannier set (16 bands, 1000
+iterations), the Landau levels at 10 T on 15782 rows, and the free Landau problem on the
+plane-wave magnetic cell at 1/10 (ndim 92160, one k-point).
+
 `59` reads **34 s** on 2026-11-05, its first measurement, on one core of the GPU workstation
 D22 (an i5-12600K performance thread, `OMP_NUM_THREADS=1`, CPU only) with the compiled code
 already cached: one silicon SCF on 8^3 and four Wannier runs on 4^3, two of them with

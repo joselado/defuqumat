@@ -158,9 +158,9 @@ ribbon of 330 cells at kappa2 = 0.31242: levels (meV from E_D) [-1.3687e+02 -9.6
 ```
 
 The levels $n = \pm1$ and $\pm2$ are those of the torus to the printed digits, with 660
-rows instead of 15782, and one state sits at $E_D$. The level at $-8$ meV is not in the
-torus spectrum: a ribbon has edges, and states the torus does not have. The ribbon must
-be wide enough. With 165 cells, five magnetic lengths, the walls are 2.5 $\ell_B$ from
+rows instead of 15782, and one state sits at $E_D$. The torus has no level at $-8$ meV.
+We did not check which state this is, the second zero mode moved by the walls or a
+state at an edge. The ribbon must be wide enough. With 165 cells, five magnetic lengths, the walls are 2.5 $\ell_B$ from
 the orbit, and the level $n = 1$ moves up by 4 meV (measured with the 8-function Wannier set).
 
 ## The Hofstadter butterfly
@@ -314,8 +314,9 @@ measure the error of Peierls at laboratory fields.
       $q \le 100$, and needs `nbnd`.
     - The plane-wave route grows with $q$. The memory of one k-point is estimated
       before the run, and a run above the limit gives an error. Measured on one core
-      for graphene at 50 Ry: the SCF at $q = 6$ in 644 s and 2.2 GB, at $q = 10$ in
-      1631 s and 2.9 GB. At $q = 30$ the estimate is 10 GB.
+      for graphene at 50 Ry: the SCF at $q = 6$ in 525 to 644 s and 1.9 to 2.2 GB (two
+      runs at different loads), at $q = 10$ in 1631 s and 2.9 GB. At $q = 30$
+      the estimate is 10 GB.
     - The plane-wave box is a parallelepiped with its own Nyquist frequency, so it is
       a slightly larger basis than the sphere of the same cutoff, and it splits the
       $\Gamma$ doublet of graphene by $2\times10^{-3}$ Ry at 50 Ry. Compare energies on

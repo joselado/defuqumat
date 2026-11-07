@@ -28735,7 +28735,7 @@ All on D22 in the worktree `/l/ladovj1/w-mag-record` (branch `mag-record`), logs
   levels with under 1e-6 of their weight on the outer 20 cells. A ribbon for a number wants about
   10 `l_B` (330 cells at 10 T), which is the facade's default width.
 
-### P176 -- The magnetic ultracell of Wang and Vafek: built, measured, and refused on its basis. 📋 OPEN, a measured negative result with its guards (`tests/unit/test_magnetic_ultracell.py`, 23 tests (21 of the route and two at the Record stage), on D22 CPU with the other magnetic files; the fast gate in one slot at the branch tip (P177's line); `tests/regression/test_magnetic_ultracell_slow.py` (8 tests, they assert the refusals) is slow and was not run, for the user; branches `mag-u1` a2336f0c and `mag-u2` 7ead1841, reviewed KEEP AFTER TWO NAMED FIXES as a measured refusal, the fixes made on `mag-record`; not merged, not pushed)
+### P176 -- The magnetic ultracell of Wang and Vafek: built, measured, and refused on its basis. 📋 OPEN, a measured negative result with its guards (`tests/unit/test_magnetic_ultracell.py`, 23 tests (`R/collect.log`; the dtype test, two parameters, added at the Record stage), on D22 CPU with the other magnetic files; the fast gate in one slot at the branch tip (P177's line); `tests/regression/test_magnetic_ultracell_slow.py` (8 tests, collected, they assert the refusals) is slow and was not run, for the user; branches `mag-u1` a2336f0c and `mag-u2` 7ead1841, reviewed KEEP AFTER TWO NAMED FIXES as a measured refusal, the fixes made on `mag-record`; not merged, not pushed)
 
 What is merged is a measured negative result with its guards. **The default path of
 `run_magnetic_ultracell` (`strict=True`) raises on every acceptance case that was run**, at the
@@ -29400,7 +29400,7 @@ field kernels, the GIPAW grid projectors and their commutation test) that a dise
 will reuse unchanged. The nine level sets `route-u-q*-{local,full}.npz` stay labelled
 unconverged; the crosscheck reads them for its item 1 and its route U table only.
 
-### P177 -- The plane-wave magnetic Bloch route of Lu et al.: the magnetic box, the GIPAW-dressed projectors, the SCF by the fold, the magnetizability, and the crosscheck of the three routes; `Calculator.get_magnetic_bands`, `get_magnetizability`. ✅ DONE 2026-11-07, with the named gaps below (`tests/unit/test_magnetic_bloch.py` (27), `test_magnetic_cross.py` (3), `test_magnetic_facade.py`, with the foundation's two files, on D22 CPU (`R/t1.log`, `R/t3.log`); the fast gate in one slot at @GATE_COMMIT@ (`R/gate.log`): @GATE_LINE@; `tests/regression/test_magnetic_bloch_slow.py` is slow and was not run, for the user (its fold test now split, and the check half is still above `slot.sh`'s 10-minute timeout); branches `mag-p1` 84253a62, `mag-p2` 1572b852, `mag-cross` 00ab8475, reviewed KEEP AFTER ONE NAMED FIX (p2) and KEEP (cross), the fixes and the record corrections made on `mag-record`; not merged, not pushed)
+### P177 -- The plane-wave magnetic Bloch route of Lu et al.: the magnetic box, the GIPAW-dressed projectors, the SCF by the fold, the magnetizability, and the crosscheck of the three routes; `Calculator.get_magnetic_bands`, `get_magnetizability`. ✅ DONE 2026-11-07, with the named gaps below (`tests/unit/test_magnetic_bloch.py` (24), `test_magnetic_cross.py` (3), `test_magnetic_facade.py` (4), counts from `R/collect.log`, with the foundation's two files, on D22 CPU (`R/t1.log`, `R/t3.log`); the fast gate in one slot at @GATE_COMMIT@ (`R/gate.log`): @GATE_LINE@; `tests/regression/test_magnetic_bloch_slow.py` is slow and was not run, for the user (its fold test now split, and the check half is still above `slot.sh`'s 10-minute timeout); branches `mag-p1` 84253a62, `mag-p2` 1572b852, `mag-cross` 00ab8475, reviewed KEEP AFTER ONE NAMED FIX (p2) and KEEP (cross), the fixes and the record corrections made on `mag-record`; not merged, not pushed)
 
 The route of Lu et al. (PRL 135, 196401 (2025), arXiv:2505.06585): the wavefunction of the magnetic
 cell on a real-space box, the magnetic boundary condition `u(xi1 + 1) = exp(-i 2 pi p xi2) u`, the
@@ -30377,6 +30377,9 @@ All on D22 in `/l/ladovj1/w-mag-record`, logs in `/l/ladovj1/review/mag/record/`
   a field not along `a3`, spinors, `nspin = 2`, ultrasoft and PAW (all refused by name today).
 - The foundation's Wannier criterion (item 6): a set within 10 meV on every band below `E_F + 2` eV, or
   the decision that the criterion is the window about `E_F`.
+- `HAS_A_FACADE_METHOD` in `tests/unit/test_notebook_conventions.py` does not name the three new pairs
+  (`run_landau_levels`, `run_magnetic_bands`, `run_magnetizability`); not added, so that no test
+  file changed after the gate.
 
 #### Slow files (P175 to P177), listed for the user and not run
 

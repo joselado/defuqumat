@@ -104,7 +104,9 @@ set with no edge, the regime refusals, the route P delegation with no SCF for th
 
 ## What is left
 
-`PLAN.md` P177, "What is outstanding (P175 to P177)", is the list. The slow files, listed and not run:
+`PLAN.md` P177, "What is outstanding (P175 to P177)", is the list. One small item of this stage: `HAS_A_FACADE_METHOD`
+in `tests/unit/test_notebook_conventions.py` does not name the three new pairs; not added, so that no test
+file changed after the gate. The slow files, listed and not run:
 `tests/regression/test_magnetic_bloch_slow.py`, `tests/regression/test_magnetic_ultracell_slow.py`,
 and for the hook `tests/regression/test_davidson_zero_root.py`, `test_gamma_only.py`,
 `test_spinorbit.py`, `test_noncollinear_magnetism.py`.
