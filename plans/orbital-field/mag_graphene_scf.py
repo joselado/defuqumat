@@ -12,7 +12,7 @@ the first argument (default plans/orbital-field):
 and prints the band distance of the interpolated bands against direct DFT bands on two
 6x6 meshes: on the 12x12 Wannier mesh (exact by construction, a sanity check) and shifted
 off it by (1/24, 1/24) (the real test), within E_F + 2 eV. Usage:
-    python mag_graphene_scf.py [outdir] [auto|pz|both]
+    python mag_graphene_scf.py [outdir] [auto|pz|both] [window_ev]
 """
 import json
 import sys
@@ -28,6 +28,7 @@ from defuqumat.wannier.interpolation import band_distance
 
 out = Path(sys.argv[1] if len(sys.argv) > 1 else "plans/orbital-field")
 mode = sys.argv[2] if len(sys.argv) > 2 else "auto"
+window = float(sys.argv[3]) if len(sys.argv) > 3 else 2.0   # the p_z set's frozen window, E_F +- window eV
 out.mkdir(parents=True, exist_ok=True)
 
 calc = Calculator.from_keywords(
@@ -69,7 +70,7 @@ for mode in modes:
         w = calc.get_wannier(num_wann=8, projections="auto", divisions=(12, 12, 1))
     else:
         w = calc.get_wannier(num_wann=2, projections=["C:pz"], num_bands=8, divisions=(12, 12, 1),
-                             dis_froz=(None, ef_ev + 2.0))
+                             dis_froz=(ef_ev - window, ef_ev + window))
     t_w = time.perf_counter() - t0
     timings[f"wannier_{mode}_s"] = t_w
     print(f"wannier[{mode}]: num_wann {w.num_wann} num_bands {w.num_bands} converged {w.converged} "
@@ -96,7 +97,9 @@ for mode in modes:
         within = interp <= ef_ev + 2.0
         worst = np.max(near[within])
         per_band = [float(np.max(near[:, i][within[:, i]], initial=0.0)) * 1e3 for i in range(w.num_wann)]
-        msg = f"band distance [{mode} {label}]: max over k of |e_W - nearest e_DFT| below E_F+2 {worst * 1e3:.3f} meV"
+        frozen = np.abs(interp - ef_ev) <= window
+        msg = (f"band distance [{mode} {label}]: max over k of |e_W - nearest e_DFT| below E_F+2 "
+               f"{worst * 1e3:.3f} meV, within E_F +- {window} {np.max(near[frozen]) * 1e3:.3f} meV")
         if mode == "auto":
             eta, eta_max = band_distance(direct[:, :w.num_wann], interp, ef_ev, nu=2.0, sigma=0.1)
             msg += f"; band n against n eta_2 {eta * 1e3:.3f} meV eta_2^max {eta_max * 1e3:.3f} meV"
