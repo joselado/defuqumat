@@ -107,6 +107,21 @@ def _inexact(tree):
     return eqx.partition(tree, eqx.is_inexact_array)
 
 
+def require_a_velocity(calculation, hamiltonians) -> None:
+    """Refuse the regimes whose velocity the recursion does not carry."""
+    if any(getattr(h, "berry", None) is not None for h in hamiltonians):
+        raise NotImplementedError(
+            "the KPM conductivity does not carry lelfield's H_E term: it couples "
+            "neighbouring k-points and has no velocity at one k")
+    if calculation.is_hubbard:
+        # The tangent of the Hubbard orbitals is built (``hubbard_terms`` at the
+        # moved k), but no test has compared it with the band sum's.
+        raise NotImplementedError(
+            "the KPM conductivity with a Hubbard U is not checked: the Hubbard orbitals "
+            "live at k+G and carry a velocity of their own, and nothing has compared "
+            "that term with get_optical_conductivity's. Use get_optical_conductivity")
+
+
 def velocity_tangents(calculation, hamiltonians, directions, ns=None) -> tuple:
     """``(moving, tangents)``: the moving parts of each channel's ``H(k)`` and their tangents.
 
@@ -119,17 +134,7 @@ def velocity_tangents(calculation, hamiltonians, directions, ns=None) -> tuple:
     tangent. Both go to :func:`apply_velocity`. ``ns`` is the converged Hubbard
     occupation matrix, whose orbitals move with ``k`` like the projectors do.
     """
-    if any(getattr(h, "berry", None) is not None for h in hamiltonians):
-        raise NotImplementedError(
-            "the KPM conductivity does not carry lelfield's H_E term: it couples "
-            "neighbouring k-points and has no velocity at one k")
-    if calculation.is_hubbard:
-        # The tangent of the Hubbard orbitals is built (``hubbard_terms`` at the
-        # moved k), but no test has compared it with the band sum's.
-        raise NotImplementedError(
-            "the KPM conductivity with a Hubbard U is not checked: the Hubbard orbitals "
-            "live at k+G and carry a velocity of their own, and nothing has compared "
-            "that term with get_optical_conductivity's. Use get_optical_conductivity")
+    require_a_velocity(calculation, hamiltonians)
     # the k the arrays are at, as the velocity operator reads it (a strained
     # calculation keeps its own)
     kcart = getattr(calculation, "_kcart", None)
@@ -719,6 +724,7 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         becsum=becsum, field=field, field_scale=field_scale)
     if getattr(calculation, "gamma_only", False):
         raise NotImplementedError("the KPM conductivity does not run on gamma_only storage")
+    require_a_velocity(calculation, hamiltonians)
     from defuqumat.kpm.control import resolve_variate
 
     # The level, or the energy it will be found near, is decided before the
