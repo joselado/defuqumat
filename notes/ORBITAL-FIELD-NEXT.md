@@ -413,3 +413,33 @@ The scripts are in `plans/orbital-field-review/` (`peierls_torus.py`, `variants.
     route, checked against route P at 1300 to 2600 T and by Onsager-Roth at 10 T; route P is
     built for that comparison, Hofstadter and the gapped `d` case, with the preconditioner hook
     of item 4 and the fold of item 8.
+
+## 13. The basis of the magnetic ultracell (fable, 2026-11-07, after P176's refusal). This section wins over 11 and 12 on route U.
+
+The full decision, with every table and the probes, is `plans/orbital-field/route-u-basis/decision.md`;
+the D22 logs are under `/l/ladovj1/review/mag/fable-basis/`.
+
+- **The basis.** The hybrid state of trial $j$ is the projected trial itself,
+  $h_j = \sum_m |\psi_m\rangle\langle\psi_m|g_j\rangle$ over the lowest $N$ bands at each k, periodized over
+  $N_1$ cells, with no Loewdin step and no transport gauge. The overlap $S$ carries the non-orthogonality.
+  Adding a trial adds one function, so the spans are nested in $J$ and the levels fall monotonically.
+  SMV disentanglement is refused because its subspace nests in nothing; cutting at a gap exists on one case.
+- **Why the old basis cannot work.** $\langle x^2\rangle$ of a single sinc diverges, so the Landau-gauge
+  matrix elements of hybrid states of an entangled set do not exist. The windowed free-problem experiment
+  reads 0.007 to 0.065 Ry off: the window cures the sawtooth, not the span.
+- **Measured with the projected basis** (free problem at 1/10, c = 5 A, $N = 64$, a Hermite-Gaussian trial
+  of $\sigma = 0.5$ cells): the $n = 0$ error is $3.2\times10^{-2}$, $4.4\times10^{-3}$, $1.8\times10^{-7}\,B$
+  at $J = 1, 2, 3$, every level above exact, Hermiticity $3\times10^{-12}$ or better. The reversed field fires
+  (Hermiticity 0.6).
+- **The guard.** The projectability $1 - \sum_m |\langle\psi_m|g_j\rangle|^2/|g_j|^2$ at every k: $10^{-6}$
+  passes, $2.7\times10^{-3}$ gives Hermiticity $2.5\times10^{-4}$, 0.12 ruins the spectrum. Refuse below
+  $1 - 10^{-4}$.
+- **Acceptance.** Graphene against route P at q = 6 and 10, trials from the HGH dataset's PP_CHI, nested
+  $J$ = 2 (p_z), 8, 18, $N = 32$: Hermiticity below $10^{-10}$, U above P at every level, the gap after the
+  zero-field span error is subtracted falling with $J$ and below 5 mRy at $J = 18$.
+- **Why continue.** At $q \le 10$ route P is exact and route U is not cheaper. Route U is the only route for
+  $60 < q < 8000$ with the intra-cell terms Peierls drops, and those are the likely source of the 0.2 eV
+  between route P and Peierls. The projected blocks are smooth in $\kappa'$, so they can be interpolated
+  to any q, 7900 included; its identity test is at q = 50.
+- **Size.** About 230 lines in `hybrid.py` and `landau_ultracell.py` plus four fast tests, one to two days.
+  The interpolation and the q = 50 identity are a second step of the same size.

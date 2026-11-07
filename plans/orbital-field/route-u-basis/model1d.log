@@ -1,0 +1,54 @@
+B 0.7256, l_B 1.174 cells; errors (E - (2n+1)B)/B, negative = below exact
+--- exact line: the span alone
+sinc N=1                                   err(n=0..3)/B +4.01e-02 +4.82e-02 +6.43e-02 +1.12e-01  d_min 5.5e-01 herm 2.5e-16
+sinc N=2                                   err(n=0..3)/B +4.01e-02 +4.81e-02 +6.18e-02 +1.10e-01  d_min 2.2e-01 herm 2.7e-16
+sinc N=4                                   err(n=0..3)/B +4.00e-02 +4.81e-02 +6.18e-02 +1.10e-01  d_min 2.1e-01 herm 4.3e-16
+wsinc N=2 window (2.0, 2.5)                err(n=0..3)/B +4.95e-02 +7.69e-02 +6.94e-02 +8.38e-02  d_min 1.2e-02 herm 5.0e-16
+wsinc N=4 window (2.0, 2.5)                err(n=0..3)/B +2.47e-02 +2.06e-02 +1.55e-02 +4.27e-02  d_min 1.0e-02 herm 1.5e-15
+wsinc N=2 window (4.0, 5.0)                err(n=0..3)/B +1.54e-02 +1.01e-02 +1.07e-02 +3.10e-02  d_min 5.1e-02 herm 2.8e-16
+wsinc N=4 window (4.0, 5.0)                err(n=0..3)/B +1.72e-04 +4.17e-04 +1.33e-04 +2.14e-02  d_min 4.4e-02 herm 4.3e-16
+wsinc N=2 window (6.0, 7.5)                err(n=0..3)/B +4.44e-03 +2.80e-03 +2.56e-03 +2.33e-02  d_min 1.1e-01 herm 2.2e-16
+wsinc N=4 window (6.0, 7.5)                err(n=0..3)/B +2.54e-05 +3.28e-04 +3.96e-05 +2.13e-02  d_min 9.8e-02 herm 2.3e-16
+gauss s=0.35 N=4 J=1                       err(n=0..3)/B +1.05e+00 +1.44e+00 +1.81e+00 +2.13e+00  d_min 5.9e-01 herm 3.6e-16
+gauss s=0.35 N=4 J=2                       err(n=0..3)/B +6.92e-01 +4.78e-01 +3.89e-01 +3.30e-01  d_min 1.1e-01 herm 3.9e-16
+gauss s=0.35 N=4 J=3                       err(n=0..3)/B +6.85e-05 +2.86e-04 +7.78e-04 +1.95e-03  d_min 2.2e-03 herm 2.7e-15
+gauss s=0.35 N=4 J=4                       err(n=0..3)/B +1.73e-07 +5.20e-10 +9.31e-08 +8.64e-10  d_min 1.1e-06 herm 1.1e-12
+gauss s=0.35 N=8 J=1                       err(n=0..3)/B +1.05e+00 +1.44e+00 +1.81e+00 +2.13e+00  d_min 5.9e-01 herm 2.2e-16
+gauss s=0.35 N=8 J=2                       err(n=0..3)/B +6.92e-01 +4.78e-01 +3.89e-01 +3.30e-01  d_min 1.1e-01 herm 1.7e-16
+gauss s=0.35 N=8 J=3                       err(n=0..3)/B +7.18e-05 +2.87e-04 +7.80e-04 +1.95e-03  d_min 2.2e-03 herm 2.1e-15
+gauss s=0.35 N=8 J=4                       err(n=0..3)/B +8.63e-06 +3.13e-06 +3.22e-06 +2.29e-06  d_min 3.1e-06 herm 8.1e-13
+gauss s=0.5 N=4 J=1                        err(n=0..3)/B +2.21e-02 +7.48e-02 +1.73e-01 +3.36e-01  d_min 1.7e-01 herm 3.3e-16
+gauss s=0.5 N=4 J=2                        err(n=0..3)/B +3.23e-03 +1.20e-03 +1.20e-03 +8.67e-04  d_min 1.8e-03 herm 2.3e-15
+gauss s=0.5 N=4 J=3                        err(n=0..3)/B +2.11e-11 +3.34e-10 +1.59e-09 +1.35e-08  d_min 3.2e-08 herm 3.2e-11
+gauss s=0.5 N=4 J=4                        err(n=0..3)/B +1.11e-10 +5.19e-10 +2.02e-09 +1.24e-09  d_min 7.3e-15 herm 7.8e-09
+gauss s=0.5 N=8 J=1                        err(n=0..3)/B +2.21e-02 +7.48e-02 +1.73e-01 +3.36e-01  d_min 1.7e-01 herm 3.5e-16
+gauss s=0.5 N=8 J=2                        err(n=0..3)/B +3.23e-03 +1.20e-03 +1.20e-03 +8.67e-04  d_min 1.8e-03 herm 1.7e-15
+gauss s=0.5 N=8 J=3                        err(n=0..3)/B +2.12e-11 +3.34e-10 +1.60e-09 +1.35e-08  d_min 3.2e-08 herm 2.3e-11
+gauss s=0.5 N=8 J=4                        err(n=0..3)/B +1.11e-10 +5.19e-10 +2.02e-09 +1.24e-09  d_min 1.2e-14 herm 2.0e-08
+--- box rule: the code's matrix elements (periodized, sawtooth, |Delta|<=N1//2-1)
+sinc N=2 box N1=10                         err(n=0..3)/B -1.92e-01 +9.05e-02 -6.30e-01 +4.10e-02  d_min 2.0e-01 herm 2.0e-01
+sinc N=4 box N1=10                         err(n=0..3)/B -2.35e-01 +8.78e-02 -6.45e-01 +3.61e-02  d_min 1.2e-01 herm 1.0e-01
+sinc N=2 box N1=20                         err(n=0..3)/B -1.44e-01 -1.70e-01 -2.13e-01 -2.41e-01  d_min 2.5e-01 herm 1.9e-01
+sinc N=4 box N1=20                         err(n=0..3)/B -1.49e-01 -1.70e-01 -2.16e-01 -2.42e-01  d_min 2.4e-01 herm 8.0e-02
+wsinc N=2 window (2.0, 2.5) box N1=10      err(n=0..3)/B +4.95e-02 +7.69e-02 +6.94e-02 +8.38e-02  d_min 1.2e-02 herm 3.4e-16
+wsinc N=4 window (2.0, 2.5) box N1=10      err(n=0..3)/B +2.47e-02 +2.06e-02 +1.55e-02 +4.27e-02  d_min 1.0e-02 herm 5.9e-16
+wsinc N=2 window (4.0, 5.0) box N1=20      err(n=0..3)/B +1.54e-02 +1.01e-02 +1.07e-02 +3.10e-02  d_min 5.1e-02 herm 2.5e-16
+wsinc N=4 window (4.0, 5.0) box N1=20      err(n=0..3)/B +1.72e-04 +4.17e-04 +1.33e-04 +2.14e-02  d_min 4.4e-02 herm 2.4e-16
+wsinc N=2 window (6.0, 7.5) box N1=28      err(n=0..3)/B +4.44e-03 +2.80e-03 +2.56e-03 +2.33e-02  d_min 1.1e-01 herm 3.2e-16
+wsinc N=4 window (6.0, 7.5) box N1=28      err(n=0..3)/B +2.53e-05 +3.27e-04 +3.99e-05 +2.13e-02  d_min 9.8e-02 herm 4.1e-16
+gauss s=0.5 N=4 J=1 box N1=10              err(n=0..3)/B +2.21e-02 +7.48e-02 +1.73e-01 +3.36e-01  d_min 1.7e-01 herm 2.5e-11
+gauss s=0.5 N=4 J=2 box N1=10              err(n=0..3)/B +3.23e-03 +1.20e-03 +1.20e-03 +8.67e-04  d_min 1.8e-03 herm 4.4e-08
+gauss s=0.5 N=4 J=3 box N1=10              err(n=0..3)/B +1.94e-10 -1.61e-09 +9.32e-09 +3.44e-09  d_min 3.3e-08 herm 5.6e-04
+gauss s=0.5 N=4 J=4 box N1=10              err(n=0..3)/B -1.07e+02 -1.05e+02 -1.03e+02 -7.65e+01  d_min -4.9e-09 herm 4.2e-02
+gauss s=0.5 N=8 J=1 box N1=10              err(n=0..3)/B +2.21e-02 +7.48e-02 +1.73e-01 +3.36e-01  d_min 1.7e-01 herm 1.4e-15
+gauss s=0.5 N=8 J=2 box N1=10              err(n=0..3)/B +3.23e-03 +1.20e-03 +1.20e-03 +8.67e-04  d_min 1.8e-03 herm 2.0e-12
+gauss s=0.5 N=8 J=3 box N1=10              err(n=0..3)/B +1.97e-10 -1.61e-09 +9.24e-09 +3.64e-09  d_min 3.3e-08 herm 2.7e-07
+gauss s=0.5 N=8 J=4 box N1=10              err(n=0..3)/B -1.10e+02 -1.08e+02 -1.06e+02 -7.92e+01  d_min -4.9e-09 herm 1.1e-05
+gauss s=0.5 N=4 J=1 box N1=20              err(n=0..3)/B +2.21e-02 +7.48e-02 +1.73e-01 +3.36e-01  d_min 1.7e-01 herm 1.7e-11
+gauss s=0.5 N=4 J=2 box N1=20              err(n=0..3)/B +3.23e-03 +1.20e-03 +1.20e-03 +8.67e-04  d_min 1.8e-03 herm 3.3e-08
+gauss s=0.5 N=4 J=3 box N1=20              err(n=0..3)/B +2.11e-11 +3.34e-10 +1.60e-09 +1.35e-08  d_min 3.2e-08 herm 3.3e-04
+gauss s=0.5 N=4 J=4 box N1=20              err(n=0..3)/B +9.19e-11 +5.00e-10 -4.78e-11 -1.26e-10  d_min 5.6e-15 herm 1.9e-01
+gauss s=0.5 N=8 J=1 box N1=20              err(n=0..3)/B +2.21e-02 +7.48e-02 +1.73e-01 +3.36e-01  d_min 1.7e-01 herm 3.8e-16
+gauss s=0.5 N=8 J=2 box N1=20              err(n=0..3)/B +3.23e-03 +1.20e-03 +1.20e-03 +8.67e-04  d_min 1.8e-03 herm 2.3e-15
+gauss s=0.5 N=8 J=3 box N1=20              err(n=0..3)/B +2.12e-11 +3.34e-10 +1.59e-09 +1.35e-08  d_min 3.2e-08 herm 5.0e-11
+gauss s=0.5 N=8 J=4 box N1=20              err(n=0..3)/B +1.11e-10 +5.19e-10 +2.02e-09 +1.24e-09  d_min 1.2e-14 herm 2.6e-08
