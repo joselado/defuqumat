@@ -403,6 +403,23 @@ def analyse():
                 print(line + f"; route U Hermiticity max {np.max(U[f'herm_nbnd{nb}']):.2e}", flush=True)
                 saved[f"item3b_q{q}_nbnd{nb}_{lo}_{hi}"] = d
 
+    # ---- the pi states see no nonlocal term: C.pbe-hgh carries one s projector, even under the
+    # mirror z -> -z, and the pi states are odd, so route P local-only and full must agree on them
+    print("\n== route P local-only against full on the levels within 1 and 2.5 eV of the box E_D (mirror-odd pi "
+          "states; the s projector cannot reach them)")
+    for q in QS:
+        L = np.load(DATA / f"route-p-q{q}-local.npz")
+        F = np.load(DATA / f"route-p-q{q}-full.npz")
+        for half in (1.0, 2.5):
+            lw = [np.sort(r[np.abs(r - ed_box) < half / RY_EV]) for r in L["eigenvalues"]]
+            fw = [np.sort(r[np.abs(r - ed_box) < half / RY_EV]) for r in F["eigenvalues"]]
+            if [len(r) for r in lw] != [len(r) for r in fw]:
+                print(f"q {q} within {half} eV: counts differ, local {[len(r) for r in lw]}, full {[len(r) for r in fw]}")
+                continue
+            d = np.concatenate(fw) - np.concatenate(lw)
+            print(f"q {q} within {half} eV: {d.size} levels over the {len(lw)} k of the mesh, max |full - local| "
+                  f"{np.max(np.abs(d)) if d.size else 0.0:.3e} Ry", flush=True)
+
     # ---- item 4: DOS at q = 6
     print("\n== item 4: DOS at q = 6, Gaussian 20 meV, each about its own E_D, 4 representatives (route P's full "
           "mesh is 6 copies), states per eV per magnetic k")
