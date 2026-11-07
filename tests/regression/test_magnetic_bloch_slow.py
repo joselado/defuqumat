@@ -6,7 +6,7 @@ zero-field state (a = 2.46 A, c = 15 A, 50 Ry, box 12 x 12 x 64 per cell):
 - the free Landau problem at q = 10: (2n + 1) B_ph + (2 pi m/c)^2 to 1e-8 Ry, flat over a 4 x 4
   magnetic mesh to 1e-10 Ry, Chern number 1 for each of the three lowest m = 0 levels
   (about 8 minutes on one D22 core);
-- p = 2, q = 10: two states per level;
+- p = 2, q = 11: two states per level (2/10 is not a reduced flux);
 - the strong translational symmetry at p/q = 1/3, kmesh (2, 6): spectra at kappa2 and kappa2 -
   1/3 equal to 1e-10 Ry (about 2.5 minutes);
 - the full mesh against q copies of the representatives at q = 3, kmesh (2, 6), to 1e-9 Ry.
@@ -42,15 +42,16 @@ def scf_path():
     return Path(__file__).resolve().parents[2] / SCF
 
 
-@pytest.mark.parametrize("p", [1, 2])
-def test_the_free_landau_problem_at_q10(graphene, p):
+@pytest.mark.parametrize("p,q", [(1, 10), (2, 11)])
+def test_the_free_landau_problem_at_q10(graphene, p, q):
+    # 2/10 is not a reduced flux (the conventions refuse it), so two states per level is 2/11
     system = graphene.system
-    bands = run_magnetic_bands(system, graphene.pseudos, None, flux=(p, 10), kmesh=(4, 4),
+    bands = run_magnetic_bands(system, graphene.pseudos, None, flux=(p, q), kmesh=(4, 4),
                                nbnd=12, free=True, chern=(p == 1))
-    levels, _, labels = free_landau_levels(MagneticCell.build(system.cell, p, 10), nmax=12,
+    levels, _, labels = free_landau_levels(MagneticCell.build(system.cell, p, q), nmax=12,
                                            g3max=3)
     reference = np.repeat(levels, p)[:12]
-    assert abs(bands.b_ph - 0.03357231492638168 * p) < 1e-12
+    assert abs(bands.b_ph - 0.03357231492638168 * p * 10 / q) < 1e-12
     assert np.max(np.abs(bands.eigenvalues - reference[None])) < 1e-8
     assert np.max(bands.eigenvalues.max(0) - bands.eigenvalues.min(0)) < 1e-10
     assert set(bands.solver) == {"davidson"}
