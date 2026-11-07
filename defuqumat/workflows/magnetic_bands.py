@@ -1,8 +1,9 @@
-"""Magnetic Bloch bands of a crystal at flux ``p/q`` per cell: route P, step 1 (local potential only).
+"""Magnetic Bloch bands of a crystal at flux ``p/q`` per cell: route P.
 
 The entry point of :mod:`defuqumat.magnetic.blochgrid`, the plane-wave magnetic Bloch route
-of Lu et al., PRL 135, 196401 (2025), arXiv:2505.06585: the levels of ``pi^2 + V_loc`` on the
-magnetic cell ``q a1 x a2 x a3`` at each magnetic ``k`` of a closed ``(n1, n2)`` mesh, by
+of Lu et al., PRL 135, 196401 (2025), arXiv:2505.06585: the levels of ``pi^2 + V_loc`` (step 1,
+``local_only=True``) or ``pi^2 + V_loc + V_NL`` with the GIPAW-dressed projectors (step 2, Lu
+eq. 6, :class:`~defuqumat.magnetic.blochgrid.GridProjectors`) on the magnetic cell ``q a1 x a2 x a3`` at each magnetic ``k`` of a closed ``(n1, n2)`` mesh, by
 :func:`~defuqumat.solvers.davidson.davidson_eigensolver_all` with the operator's own
 preconditioner, one k-point at a time (QE's ``c_bands`` loop; the working set of one solve is
 sized and refused by number before anything runs), and with ``chern=True`` the Chern number
@@ -22,7 +23,7 @@ spectrum is periodic in ``kappa2`` with period ``1/q``. Never compare ``eps(k)``
 
 Refused by name: the regimes of :func:`~defuqumat.magnetic.conventions.refuse_regime`
 (spinors, ``nspin = 2``, ultrasoft, PAW, spirals, DFT+U, meta-GGA, gamma-only storage); the
-nonlocal term (``local_only=False``, the GIPAW-dressed projectors of step 2); a field not
+nonlocal term without a potential or with the filtered local term; a field not
 along ``a3``; a memory estimate above the limit; a Chern number on a mesh other than the
 closed plane mesh. A Davidson solve that has not converged after ``max_iterations`` falls back
 to a dense diagonalisation for ``ndim <= 20000`` and raises above.
@@ -42,7 +43,8 @@ from defuqumat.magnetic.blochgrid import (
 from defuqumat.magnetic.conventions import refuse_regime
 from defuqumat.units import tesla_from_flux
 
-__all__ = ["MagneticBands", "run_magnetic_bands", "level_groups", "local_potential_of"]
+__all__ = ["MagneticBands", "run_magnetic_bands", "level_groups", "local_potential_of",
+           "magnetic_mesh"]
 
 
 @dataclass(frozen=True)
@@ -91,6 +93,19 @@ def local_potential_of(scf) -> np.ndarray:
     if hasattr(scf, "potential"):
         return np.asarray(scf.potential)[0]
     return np.asarray(scf["potential"])[0]
+
+
+def magnetic_mesh(kmesh) -> np.ndarray:
+    """``(nk, 3)`` the closed mesh ``kappa = (i/n1, j/n2[, l/n3])``, the last index fastest.
+
+    For ``(n1, n2)`` it is :func:`~defuqumat.topology.mesh.plane_mesh`'s order (``kappa3 = 0``),
+    which the Chern number reads.
+    """
+    kmesh = tuple(int(n) for n in kmesh)
+    if len(kmesh) == 2:
+        kmesh = kmesh + (1,)
+    axes = [np.arange(n) / n for n in kmesh]
+    return np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
 
 
 def level_groups(eigenvalues, gap: float = 1e-6) -> list[tuple[int, int]]:
@@ -145,9 +160,10 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
         scf: the zero-field ground state (``SCFResult``, npz path or mapping with
             ``potential``); ignored with ``free=True``.
         flux: ``(p, q)`` flux quanta per chemical cell, coprime; ``(0, 1)`` is zero field.
-        kmesh: ``(n1, n2)``, the closed plane mesh ``kappa = (i/n1, j/n2, 0)`` in the order of
+        kmesh: ``(n1, n2)`` or ``(n1, n2, n3)`` (:func:`magnetic_mesh`), the closed plane mesh ``kappa = (i/n1, j/n2, 0)`` in the order of
             :func:`~defuqumat.topology.mesh.plane_mesh`; ``kpoints`` overrides it.
-        local_only: must be ``True`` (the nonlocal term is step 2, refused).
+        local_only: ``True`` for ``pi^2 + V_loc`` (step 1), ``False`` for the full
+            Hamiltonian with the GIPAW-dressed nonlocal term (step 2, two-grid only).
         free: the Landau problem, all potentials off.
         chern: the Chern number of each isolated group of levels (``chern_gap`` Ry).
         david: Davidson's subspace multiple; ``ethr``, ``max_iterations`` its threshold and
@@ -180,12 +196,10 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
     from defuqumat.solvers.davidson import davidson_eigensolver_all
 
     refuse_regime(system, pseudos, "Magnetic Bloch bands (route P)")
-    if not local_only:
-        raise NotImplementedError(
-            "route P with the nonlocal pseudopotential needs the GIPAW-dressed projectors "
-            "on the magnetic box (Lu eq. 6), which is step 2 and not implemented; the bare "
-            "nonlocal term breaks the magnetic translations and is not a substitute. Pass "
-            "local_only=True for pi^2 + V_loc")
+    if not local_only and (free or local != "two-grid"):
+        raise ValueError(
+            "the GIPAW-dressed nonlocal term lives on the potential's grid: it needs a "
+            "potential (free=False) and local='two-grid'")
     if unconverged not in ("fallback", "keep"):
         raise ValueError(f"unconverged {unconverged!r}: 'fallback' or 'keep'")
     if field_axis != 2:
@@ -199,9 +213,9 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
     mcell = magnetic_cell(cell, p, q)
     grid = wavefunction_box(cell, system.ecutwfc) if grid is None else tuple(grid)
     if kpoints is None:
-        from defuqumat.topology.mesh import plane_mesh
-
-        kpts = plane_mesh(tuple(kmesh), axis=2).flat()
+        if chern and len(kmesh) != 2:
+            raise ValueError("a Chern number needs the closed plane mesh: kmesh = (n1, n2)")
+        kpts = magnetic_mesh(kmesh)
     else:
         if chern:
             raise ValueError("a Chern number needs the closed plane mesh: pass kmesh, not kpoints")
@@ -224,7 +238,9 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
     hamiltonian = MagneticGridHamiltonian.build(cell, p, q, system.ecutwfc, kpts, potential,
                                                 grid=grid, preconditioner=preconditioner,
                                                 window=window, local=local,
-                                                band_batch=band_batch)
+                                                band_batch=band_batch,
+                                                structure=None if local_only else system.structure,
+                                                pseudos=None if local_only else pseudos)
     timings["build_s"] = time.perf_counter() - t0
 
     eigenvalues = np.zeros((nk, nbnd))

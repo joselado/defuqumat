@@ -92,7 +92,8 @@ __all__ = [
     "wavefunction_box", "filter_to_box", "tile_potential", "estimate_bytes", "refuse_memory",
     "landau_problem", "start_block", "dense_matrix", "reference_matrix", "grid_positions",
     "chemical_copies", "sphere_local_levels", "magnetic_cell", "momentum_multipliers", "WINDOWS",
-    "LOCAL_TERMS",
+    "LOCAL_TERMS", "GridProjectors", "grid_projectors", "PROJECTOR_THRESHOLD", "sphere_levels",
+    "sphere_state_on_box",
 ]
 
 #: The largest estimated working set a solve is started with, bytes: D22's 31 GB less
@@ -107,6 +108,10 @@ PRECONDITIONERS = ("two-gauge", "kinetic", "identity")
 
 #: The frequency windows of :func:`momentum_multipliers`.
 WINDOWS = ("centred", "fixed")
+
+#: A projector's sphere ends where ``|r beta(r)|`` has fallen below this fraction of its
+#: largest value beyond (the design's cut; the dropped norm is in :attr:`GridProjectors.dropped`).
+PROJECTOR_THRESHOLD = 1e-6
 
 #: The forms of the local term, :meth:`MagneticGridHamiltonian.local_term`.
 LOCAL_TERMS = ("two-grid", "filtered")
@@ -261,6 +266,7 @@ class MagneticGridHamiltonian(eqx.Module):
     kpoints: jnp.ndarray
     metric: jnp.ndarray
     potential_fine: jnp.ndarray | None = None
+    projectors: "GridProjectors | None" = None
     p: int = eqx.field(static=True, default=1)
     q: int = eqx.field(static=True, default=1)
     grid: tuple = eqx.field(static=True, default=(1, 1, 1))
@@ -276,7 +282,9 @@ class MagneticGridHamiltonian(eqx.Module):
     def build(cls, cell, p: int, q: int, ecutwfc: float, kpoints, potential=None, *,
               grid=None, preconditioner: str = "two-gauge", window: str = "centred",
               local: str = "two-grid", band_batch="default",
-              precision: Precision | None = None) -> "MagneticGridHamiltonian":
+              precision: Precision | None = None, structure=None, pseudos=None,
+              projector_threshold: float = PROJECTOR_THRESHOLD,
+              dressed: bool = True) -> "MagneticGridHamiltonian":
         """From the chemical :class:`~defuqumat.system.cell.Cell`, the flux and the dense potential.
 
         ``potential`` is the chemical cell's total local potential on its dense grid (Ry),
@@ -284,6 +292,8 @@ class MagneticGridHamiltonian(eqx.Module):
         coordinates. ``local`` is ``'two-grid'`` (the default: ``V u`` on the potential's own
         grid tiled ``q`` times, QE's ``vloc_psi`` order, :meth:`local_term`) or ``'filtered'``
         (the design's first form: ``V`` Fourier-filtered to the box and multiplied there).
+        ``structure`` and ``pseudos`` (norm-conserving) put the GIPAW-dressed nonlocal term
+        in (:func:`grid_projectors`), on the potential's grid, which needs ``'two-grid'``.
         """
         if local not in LOCAL_TERMS:
             raise ValueError(f"local {local!r}: one of {LOCAL_TERMS}")
@@ -315,8 +325,17 @@ class MagneticGridHamiltonian(eqx.Module):
             kpoints = np.concatenate([kpoints, np.zeros((len(kpoints), 1))], axis=-1)
         reciprocal = mcell.magnetic_reciprocal
         metric = reciprocal @ reciprocal.T
+        projectors = None
+        if pseudos is not None:
+            if potential_fine is None:
+                raise ValueError("the nonlocal term lives on the potential's grid: it needs a "
+                                 "potential and local='two-grid'")
+            projectors = grid_projectors(mcell, structure, pseudos, potential_fine.shape,
+                                         int(q) * int(np.prod(grid)),
+                                         threshold=projector_threshold, dressed=dressed,
+                                         precision=precision)
         return cls(potential_box=potential_box.astype(precision.real),
-                   potential_fine=potential_fine, local=local,
+                   potential_fine=potential_fine, local=local, projectors=projectors,
                    kpoints=jnp.asarray(kpoints, dtype=precision.real),
                    metric=jnp.asarray(metric, dtype=precision.real), p=int(p), q=int(q),
                    grid=grid, ecutwfc=float(ecutwfc), preconditioner=preconditioner,
@@ -475,6 +494,15 @@ class MagneticGridHamiltonian(eqx.Module):
         return self._two_grid(u, kappa)
 
     def _two_grid(self, u, kappa):
+        x = self.interpolate(u, kappa)
+        y = self.potential_fine[None] * x
+        if self.projectors is not None:
+            b = x.shape[0]
+            y = y + self.projectors.apply(x.reshape(b, -1), kappa).reshape(x.shape)
+        return self.restrict(y, kappa)
+
+    def _fine_maps(self, kappa):
+        """The index maps and gauge phases of the coarse-to-fine interpolation at ``kappa``."""
         real = self.precision.real
         n1, n2, n3 = self.box
         f1, f2, f3 = self.potential_fine.shape
@@ -502,9 +530,22 @@ class MagneticGridHamiltonian(eqx.Module):
         coarse_phase = self._phase(TPI * p * xi1c[:, None] * xi2f[None, :])[None, :, :, None]
         xi1f = jnp.arange(f1, dtype=real) / f1
         fine_phase = self._phase(TPI * p * xi1f[:, None] * xi2f[None, :])[None, :, :, None]
+        return i1, i2, i3, r1, c2, coarse_phase, fine_phase
+
+    def interpolate(self, u, kappa) -> jnp.ndarray:
+        """``u`` ``(b, N1, N2, N3)`` on the box -> ``x`` ``(b, F1, F2, F3)`` on the potential's grid.
+
+        One axis at a time in the gauge where ``u`` is periodic (``xi3``, ``xi2`` on ``u``,
+        ``xi1`` on ``h``), zero-padded in each row's centred window. ``x`` is ``c u(r_l)``
+        with ``c = N_box / N_fine`` the ratio of the two grids' sizes and ``u(r)`` the
+        band-limited twisted function the box vector stands for; :meth:`restrict` is its
+        adjoint, so ``restrict(V interpolate(u))`` is the Galerkin matrix of ``V``.
+        """
+        i1, i2, i3, r1, c2, coarse_phase, fine_phase = self._fine_maps(kappa)
+        n1, n2, n3 = self.box
+        f1, f2, f3 = self.potential_fine.shape
         b = u.shape[0]
         dtype = self.dtype
-
         x = jnp.fft.fft(u, axis=3)
         x = jnp.zeros((b, n1, n2, f3), dtype).at[..., i3].set(x)
         x = jnp.fft.ifft(x, axis=3)
@@ -513,16 +554,38 @@ class MagneticGridHamiltonian(eqx.Module):
         x = jnp.fft.ifft(x, axis=2)
         x = jnp.fft.fft(coarse_phase * x, axis=1)
         x = jnp.zeros((b, f1, f2, f3), dtype).at[:, i1, c2, :].set(x)
-        x = jnp.conj(fine_phase) * jnp.fft.ifft(x, axis=1)
+        return jnp.conj(fine_phase) * jnp.fft.ifft(x, axis=1)
 
-        y = self.potential_fine[None] * x
-
+    def restrict(self, y, kappa) -> jnp.ndarray:
+        """The adjoint of :meth:`interpolate`: ``(b, F1, F2, F3)`` -> ``(b, N1, N2, N3)``."""
+        i1, i2, i3, r1, c2, coarse_phase, fine_phase = self._fine_maps(kappa)
         y = jnp.fft.fft(fine_phase * y, axis=1)[:, i1, c2, :]
         y = jnp.conj(coarse_phase) * jnp.fft.ifft(y, axis=1)
         y = jnp.fft.fft(y, axis=2)[:, r1, i2, :]
         y = jnp.fft.ifft(y, axis=2)
         y = jnp.fft.fft(y, axis=3)[..., i3]
         return jnp.fft.ifft(y, axis=3)
+
+    @property
+    def grid_ratio(self) -> float:
+        """``c = N_box / N_fine``: :meth:`interpolate` returns ``c u(r_l)``."""
+        return float(self.ndim) / float(np.prod(self.potential_fine.shape))
+
+    def with_potential(self, potential) -> "MagneticGridHamiltonian":
+        """The same operator with the chemical cell's total local potential replaced (same grid).
+
+        What an SCF iteration changes: ``potential`` ``(f1, F2, F3)`` on the chemical cell's
+        dense grid, tiled ``q`` times; the box copy (the preconditioner's mean) is filtered.
+        No shape changes, so nothing compiled is invalidated.
+        """
+        real = self.precision.real
+        potential = jnp.asarray(potential, dtype=real)
+        box = tile_potential(filter_to_box(potential, self.grid), self.q).astype(real)
+        fine = tile_potential(potential, self.q).astype(real)
+        if self.potential_fine is None or fine.shape != self.potential_fine.shape:
+            raise ValueError(f"the potential's grid {potential.shape} is not this operator's "
+                             f"{None if self.potential_fine is None else self.potential_fine.shape}")
+        return eqx.tree_at(lambda h: (h.potential_box, h.potential_fine), self, (box, fine))
 
     # --- the kinetic term -------------------------------------------------------
     def _phase(self, theta):
@@ -577,7 +640,208 @@ def magnetic_cell(cell, p: int, q: int) -> MagneticCell:
         if int(q) != 1:
             raise ValueError(f"zero field is p = 0 with q = 1, not q = {q}")
         return MagneticCell(cell=cell, scale=cell.precision.as_real(1.0), p=0, q=1)
+    if int(p) < 0:
+        # The field along -a3: the conventions' cell at |p| with its traced scale at -1, so
+        # a(r) is the conventions' at -|p|/q and the operator's twist is the integer p < 0.
+        built = MagneticCell.build(cell, -int(p), int(q))
+        return MagneticCell(cell=built.cell, scale=cell.precision.as_real(-1.0), p=built.p,
+                            q=built.q, axis=built.axis)
     return MagneticCell.build(cell, int(p), int(q))
+
+
+class GridProjectors(eqx.Module):
+    """The GIPAW-dressed nonlocal projectors of the magnetic cell on the potential's grid.
+
+    ``# fold back into magnetic/gipaw.py`` (the design's note: the foundation did not deliver
+    the grid projectors, so route P builds its own here).
+
+    For atom ``a`` at ``tau`` and each point of its sphere, ``index`` ``(natom, npts)`` is the
+    flat index of the in-cell grid point ``r_l`` and ``displacement`` ``(natom, npts, 3)`` the
+    actual ``d = r_l + P_l - tau`` (bohr), ``P_l`` the magnetic lattice vector that brings the
+    sphere point back into the cell. Every image is enumerated, so a sphere wider than the
+    cell is the sum over images that the plane-wave ``vkb`` is. ``values`` ``(natom, nproj,
+    npts)`` is the k-independent half of the bra,
+
+        sqrt(dV_box) beta_lm(d) exp(-i phi(d)) exp(-i a(P_l) . r_l),
+
+    with ``beta_lm(d) = (r beta_l)(|d|)/|d| Y_lm(d)`` (``PP_BETA`` times
+    :func:`~defuqumat.pseudo.harmonics.real_solid_harmonics`, the same ``Y_lm`` as ``vkb``, so
+    the ``(-i)^l`` of ``vkb`` comes out of the plane-wave expansion rather than being put in),
+    ``phi = -a(tau) . d - a(d) . d / 2`` the GIPAW phase of the conventions (Pickard and Mauri,
+    PRB 63, 245101 (2001); Lu et al. eq. 6), and the last factor the magnetic Bloch condition
+    ``u(r + P) = exp(-i a(P) . r) u(r)``. At ``kappa`` the bra is ``W = values exp(i k . d)``
+    (the constant ``exp(i k . tau)`` is dropped: it cancels in ``|p><p|``), ``becp = W x`` on
+    the interpolated state ``x`` of :meth:`MagneticGridHamiltonian.interpolate`, and the term
+    added on the fine grid before the restriction is ``c W^dagger D becp``, ``c`` the grids'
+    size ratio, which makes ``<u|V_NL|u> = becp^dagger D becp`` exactly. The quadrature is the
+    fine grid's: the product ``beta x`` is resolved there up to the projector's own tail
+    beyond twice the grid's Nyquist frequency.
+
+    ``dij`` ``(natom, nproj, nproj)`` Ry, zero-padded where a species has fewer channels;
+    ``reciprocal`` the magnetic cell's scaled reciprocal vectors (rows); ``ratio`` ``c``;
+    ``dropped`` the largest fraction of ``int (r beta)^2 dr`` beyond a sphere's radius.
+    """
+
+    index: jnp.ndarray
+    displacement: jnp.ndarray
+    values: jnp.ndarray
+    dij: jnp.ndarray
+    reciprocal: jnp.ndarray
+    ratio: float = eqx.field(static=True, default=1.0)
+    dropped: float = eqx.field(static=True, default=0.0)
+    radius: tuple = eqx.field(static=True, default=())
+
+    @property
+    def natom(self) -> int:
+        return int(self.index.shape[0])
+
+    @property
+    def nproj(self) -> int:
+        return int(self.values.shape[1])
+
+    def bra(self, kappa) -> jnp.ndarray:
+        """``W`` ``(natom, nproj, npts)`` at magnetic crystal ``kappa``."""
+        real = self.displacement.dtype
+        k = TPI * jnp.asarray(kappa, dtype=real) @ self.reciprocal
+        theta = jnp.einsum("apc,c->ap", self.displacement, k)
+        phase = jax.lax.complex(jnp.cos(theta), jnp.sin(theta)).astype(self.values.dtype)
+        return self.values * phase[:, None, :]
+
+    def project(self, x, kappa) -> jnp.ndarray:
+        """``becp`` ``(b, natom, nproj)`` of fine-grid states ``x`` ``(b, Nfine)``."""
+        return jnp.einsum("anp,bap->ban", self.bra(kappa), x[:, self.index])
+
+    def apply(self, x, kappa) -> jnp.ndarray:
+        """``c W^dagger D W x`` on the fine grid, ``(b, Nfine)``.
+
+        The scatter is ``.at[].add`` (the CPU form; on a card ``jax.ops.segment_sum`` is the
+        one to use, not built here).
+        """
+        w = self.bra(kappa)
+        becp = jnp.einsum("anp,bap->ban", w, x[:, self.index])
+        dbecp = jnp.einsum("aij,baj->bai", self.dij.astype(w.dtype), becp)
+        values = self.ratio * jnp.einsum("anp,ban->bap", jnp.conj(w), dbecp)
+        return jnp.zeros_like(x).at[:, self.index].add(values)
+
+
+def _radial_tables(pseudo, threshold: float):
+    """Per projector ``(l, spline of (r beta)/r^(l+1), radius)``, and the dropped norm fraction.
+
+    The radius is the last mesh point where ``|r beta|`` is above ``threshold`` of its
+    maximum, within the dataset's ``kkbeta`` (QE's cut, beyond which the tabulated projector
+    is zero and which the plane-wave form factors also integrate to).
+    """
+    from scipy.interpolate import CubicSpline
+
+    r = np.asarray(pseudo.r, dtype=float)
+    out, dropped = [], 0.0
+    for projector in pseudo.projectors:
+        cut = int(projector.cutoff_index) if projector.cutoff_index else len(r)
+        cut = min(cut, int(pseudo.kkbeta))
+        rb = np.asarray(projector.beta, dtype=float)[:cut]
+        rr = r[:cut]
+        big = np.flatnonzero(np.abs(rb) >= threshold * np.max(np.abs(rb)))
+        last = min(cut, (int(big[-1]) + 2) if big.size else cut)
+        weights = np.gradient(rr)
+        total = np.sum(rb ** 2 * weights)
+        dropped = max(dropped, float(np.sum(rb[last:] ** 2 * weights[last:]) / total))
+        l = int(projector.l)
+        keep = rr[:last] > 0
+        spline = CubicSpline(rr[:last][keep], rb[:last][keep] / rr[:last][keep] ** (l + 1))
+        out.append((l, spline, float(rr[last - 1])))
+    return out, dropped
+
+
+def grid_projectors(mcell: MagneticCell, structure, pseudos, fine_shape, box_ndim: int, *,
+                    threshold: float = PROJECTOR_THRESHOLD, dressed: bool = True,
+                    precision: Precision | None = None) -> GridProjectors:
+    """:class:`GridProjectors` for the ``q natoms`` atoms of the magnetic cell (host NumPy).
+
+    ``structure`` the chemical cell's :class:`~defuqumat.system.structure.Structure`
+    (cartesian bohr); ``pseudos`` its datasets, norm-conserving (an ultrasoft or PAW one is
+    refused by name: its augmentation charge and overlap are not on the box); ``fine_shape``
+    the magnetic fine grid ``(q f1, F2, F3)``; ``box_ndim`` the box size, for ``dV_box``.
+    Atom ``j natoms + a`` of the magnetic cell is chemical atom ``a`` moved by ``j a1``.
+    ``dressed=False`` drops the GIPAW phase (the bare projectors, which do not commute with
+    the magnetic translations): only for the test that the covariance check can fail.
+    """
+    from defuqumat.pseudo.harmonics import real_solid_harmonics
+    from defuqumat.pseudo.projectors import _expand_dij, projector_channels
+
+    precision = mcell.cell.precision if precision is None else precision
+    for pseudo in pseudos:
+        if pseudo.is_paw or pseudo.is_ultrasoft:
+            raise NotImplementedError(
+                f"route P's nonlocal term is norm-conserving only: the dataset "
+                f"{pseudo.element.strip()} is {'PAW' if pseudo.is_paw else 'ultrasoft'}, whose "
+                "augmentation charge and overlap S are not on the magnetic box")
+    lattice = np.asarray(mcell.magnetic_lattice, dtype=float)
+    reciprocal = np.asarray(mcell.magnetic_reciprocal, dtype=float)
+    a1 = np.asarray(mcell.lattice, dtype=float)[0]
+    shape = np.asarray([int(n) for n in fine_shape])
+    volume = abs(float(np.linalg.det(lattice)))
+    sqrt_dv = np.sqrt(volume / float(box_ndim))
+    tables, dropped, radii = {}, 0.0, []
+    for t, pseudo in enumerate(pseudos):
+        tables[t], fraction = _radial_tables(pseudo, threshold)
+        dropped = max(dropped, fraction)
+    channels = {t: projector_channels(p) for t, p in enumerate(pseudos)}
+    nproj = max(len(c) for c in channels.values()) if channels else 0
+    lmax = max((p.lmax for p in pseudos), default=0)
+    positions = np.asarray(structure.positions, dtype=float)
+    atoms = [(positions[a] + j * a1, structure.types[a])
+             for j in range(mcell.q) for a in range(len(structure.types))]
+    rows = []
+    for tau, t in atoms:
+        radius = max((rc for _, _, rc in tables[t]), default=0.0)
+        radii.append(radius)
+        frac = reciprocal @ tau
+        width = radius * np.linalg.norm(reciprocal, axis=1)
+        lo = np.floor((frac - width) * shape).astype(int) - 1
+        hi = np.ceil((frac + width) * shape).astype(int) + 1
+        axes = [np.arange(l0, h0 + 1) for l0, h0 in zip(lo, hi)]
+        ints = np.stack([g.reshape(-1) for g in np.meshgrid(*axes, indexing="ij")], axis=-1)
+        r = (ints / shape) @ lattice
+        d = r - tau
+        inside = np.sum(d * d, axis=-1) <= radius ** 2
+        ints, d, r = ints[inside], d[inside], r[inside]
+        wraps = np.floor_divide(ints, shape)
+        flat = np.ravel_multi_index(tuple((ints - wraps * shape).T), tuple(shape))
+        big_p = wraps @ lattice
+        r_in = r - big_p
+        solid = np.asarray(real_solid_harmonics(jnp.asarray(d), lmax))
+        dist = np.sqrt(np.sum(d * d, axis=-1))
+        beta = np.zeros((nproj, len(flat)))
+        for i, (nb, _, lm) in enumerate(channels[t]):
+            _, spline, rc = tables[t][nb]
+            beta[i] = np.where(dist <= rc, spline(np.minimum(dist, rc)), 0.0) * solid[:, lm]
+        phi = (np.asarray(mcell.gipaw_phase(jnp.asarray(d), jnp.asarray(tau))) if dressed
+               else np.zeros(len(flat)))
+        bloch = np.asarray(jnp.sum(mcell.a(jnp.asarray(big_p)) * jnp.asarray(r_in), axis=-1))
+        theta = -(phi + bloch)
+        phase = np.asarray(jax.lax.complex(jnp.asarray(np.cos(theta), dtype=precision.real),
+                                           jnp.asarray(np.sin(theta), dtype=precision.real)))
+        values = sqrt_dv * beta * phase[None, :]
+        dij = np.zeros((nproj, nproj))
+        block = _expand_dij(pseudos[t], channels[t])
+        dij[: block.shape[0], : block.shape[1]] = block
+        rows.append((flat, d, values, dij))
+    npts = max(len(f) for f, _, _, _ in rows)
+    natom = len(rows)
+    index = np.zeros((natom, npts), dtype=np.int32)
+    disp = np.zeros((natom, npts, 3))
+    vals = np.zeros((natom, nproj, npts), dtype=precision.complex)
+    dijs = np.zeros((natom, nproj, nproj))
+    for a, (flat, d, values, dij) in enumerate(rows):
+        n = len(flat)
+        index[a, :n], disp[a, :n], vals[a, :, :n], dijs[a] = flat, d, values, dij
+    return GridProjectors(
+        index=jnp.asarray(index), displacement=jnp.asarray(disp, dtype=precision.real),
+        values=jnp.asarray(vals, dtype=precision.complex),
+        dij=jnp.asarray(dijs, dtype=precision.real),
+        reciprocal=jnp.asarray(reciprocal, dtype=precision.real),
+        ratio=float(box_ndim) / float(np.prod(shape)), dropped=float(dropped),
+        radius=tuple(radii))
 
 
 def landau_problem(cell, p: int, q: int, grid, kpoints, *, ecutwfc: float = 50.0,
@@ -701,6 +965,20 @@ def sphere_local_levels(calculation, potential, nbnd: int, *, ethr: float = 1e-1
     that grid is larger), then on the smooth one, and ``D_ij`` is replaced by zeros. Returns
     ``(eigenvalues (nk, nbnd), steps (nk,), unsettled (nk,))``.
     """
+    values, _, steps, unsettled = sphere_levels(calculation, potential, nbnd, local_only=True,
+                                                ethr=ethr, david=david,
+                                                max_iterations=max_iterations)
+    return values, steps, unsettled
+
+
+def sphere_levels(calculation, potential, nbnd: int, *, local_only: bool = False,
+                  ethr: float = 1e-12, david: int = 4, max_iterations: int = 200):
+    """The ``a = 0`` reference on the sphere: ``-nabla^2 + V`` with or without ``V_NL``.
+
+    As :func:`sphere_local_levels`, with the dataset's own ``D_ij`` (``vkb``, the plane-wave
+    nonlocal term) unless ``local_only``. Returns ``(eigenvalues (nk, nbnd), vectors (nk,
+    nbnd, npwx), steps (nk,), unsettled (nk,))``.
+    """
     from defuqumat.basis.interpolate import to_smooth
     from defuqumat.scf.driver import LocalTerms
     from defuqumat.solvers.davidson import davidson_eigensolver_all
@@ -711,10 +989,29 @@ def sphere_local_levels(calculation, potential, nbnd: int, *, ethr: float = 1e-1
                       tuple(dense.grid))
     v = to_smooth(v, dense, smooth).astype(calculation._band_real())
     dij = calculation.projectors.dij
-    terms = LocalTerms(potentials=(v,), waves=(jnp.moveaxis(v, -1, -3),),
-                       deeq=jnp.zeros((1,) + tuple(dij.shape), dtype=dij.dtype))
+    deeq = jnp.zeros((1,) + tuple(dij.shape), dtype=dij.dtype) if local_only else dij[None]
+    terms = LocalTerms(potentials=(v,), waves=(jnp.moveaxis(v, -1, -3),), deeq=deeq)
     hamiltonian = calculation.hamiltonian_from(terms)[0]
-    values, _, steps, unsettled = davidson_eigensolver_all(
+    values, vectors, steps, unsettled = davidson_eigensolver_all(
         hamiltonian, nbnd, ethr=ethr, david=david, max_iterations=max_iterations,
         return_steps=True)
-    return np.asarray(values), np.asarray(steps), np.asarray(unsettled)
+    return np.asarray(values), np.asarray(vectors), np.asarray(steps), np.asarray(unsettled)
+
+
+def sphere_state_on_box(calculation, vectors, ik: int, box) -> np.ndarray:
+    """Sphere coefficients ``(nbnd, npwx)`` at k-point ``ik`` as box vectors ``(nbnd, ndim)``.
+
+    ``u_j = sum_G c_G exp(i G . r_j) / sqrt(N_box)``: the same function on the box, so
+    ``sum_j |u_j|^2 = sum_G |c_G|^2``. The box must hold the sphere (it does at ``q = 1``:
+    the wavefunction box is built to); padded plane waves are masked out.
+    """
+    planewaves = calculation.basis.planewaves
+    miller = np.asarray(calculation.basis.smooth.miller)[np.asarray(planewaves.indices[ik])]
+    mask = np.asarray(planewaves.mask[ik])
+    box = tuple(int(n) for n in box)
+    coefficients = np.zeros((vectors.shape[0],) + box, dtype=np.asarray(vectors).dtype)
+    slots = tuple(np.mod(miller[mask], box).T)
+    for n in range(vectors.shape[0]):
+        coefficients[n][slots] = np.asarray(vectors)[n][mask]
+    grid = np.fft.ifftn(coefficients, axes=(1, 2, 3)) * np.sqrt(float(np.prod(box)))
+    return grid.reshape(vectors.shape[0], -1)
