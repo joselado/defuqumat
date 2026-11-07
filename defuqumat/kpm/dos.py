@@ -11,8 +11,9 @@ number of electrons at the Fermi level. That holds exactly, sample by sample, fo
 the exact trace and for the plain random trace, whose ``mu_0`` is ``n_live`` for
 every random-phase vector; with the control variate it holds on average only,
 since each sample's ``mu_0`` gains ``sum_k w_k (natw - n_live sum_j |<y_j|r>|^2)``
-from its ``natw`` Ritz vectors (Si2 at 12 Ry on 2x2x2, four samples: 365.43,
-365.42, 365.09 and 365.92 against 364.75).
+from its ``natw`` Ritz vectors (ultrasoft Si2 at 12 Ry on 2x2x2, R = 4, seed 0,
+N = 40: 365.32, 365.30, 365.26 and 365.96 against 364.75, which the plain trace
+gives for each of the four).
 
 What the moments cost is set by the basis and not by the physics: the interval
 reaches up to roughly ``ecutwfc``, so the number of moments for a broadening

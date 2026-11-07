@@ -146,9 +146,10 @@ def test_get_kpm_dos_takes_the_generalised_spectrum(kind):
 
     The count is read mid-gap between the dense edges, at a moment count whose
     kernel tail across the gap is below the tolerance: the exact trace at N = 1200
-    reads 8.0437 for the ultrasoft dataset (D22, 2026-11-07), so the tolerance is
-    0.1, where 0.05 left the reading at 87 per cent of it. At N = 40 the same
-    count is 8.596, the Jackson tail of the conduction band across the gap.
+    reads 8.0437 for the ultrasoft dataset and 8.0442 for PAW (D22, 2026-11-07), so
+    the tolerance is 0.1, where 0.05 left the reading at 87 and 88 per cent of it.
+    At N = 40 the same count is 8.596, the Jackson tail of the conduction band
+    across the gap.
     """
     calc, _, hamiltonians = _silicon(kind)
     dos = calc.get_kpm_dos(n_moments=40, trace="exact")
