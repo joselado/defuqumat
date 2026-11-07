@@ -325,6 +325,20 @@ than eight without them, at about the same cost, and faster than the bands alrea
 diagonalization in their space, which grows like the bands do, so the gain is
 largest when you want an error of about one per cent.
 
+What changes with an ultrasoft or PAW dataset? Then the states solve
+$H\psi = \varepsilon S\psi$, with the overlap $S = 1 + \sum |\beta_i\rangle q_{ij}\langle\beta_j|$,
+so the Chebyshev expansion of $H$ alone would give another spectrum. The code expands
+$S^{-1/2} H S^{-1/2}$ instead, which has exactly the eigenvalues $\varepsilon$, and
+everything above works the same way, the atomic orbitals included. The overlap differs from
+the identity only in the space of the projectors, so $S^{-1/2}$ is the identity plus a small
+matrix in that space, built once per k-point. You call `calc.get_kpm_dos()` as before. On
+the 64-atom cell with a PAW dataset, the bands and the DOS take 71 s, and KPM with the
+orbitals and one random vector takes 48 s with an error of 0.25 per cent. Each application
+of the Hamiltonian costs more than with a norm-conserving dataset, because $S^{-1/2}$ is
+applied on both sides and PAW has many projectors. `calc.get_kpm_pdos()` works too, with
+the orbitals multiplied by $S^{1/2}$, so its projections are the ones of `projwfc.x`,
+$\langle\phi|S|\psi\rangle$.
+
 ??? example "Code of this figure (docs/figures/dos_kpm/)"
 
     ```python title="compute.py"
@@ -462,12 +476,14 @@ diagonalize.
     labelled as up and down. So you run it with `lspinorb = .true.`, which is what a
     fully relativistic dataset is for.
 
-    The total KPM density of states works with ultrasoft and PAW datasets, for
-    `nspin = 1` and `2`, through $S^{-1/2} H S^{-1/2}$. With a spinor they give an
-    error, because the overlap couples the two spin components and we have not
-    checked that case. The projected and local DOS, the unfolding and the
-    conductivity by KPM need norm-conserving pseudopotentials, because their start
-    vectors or their operator need the overlap $S$, and the code gives an error. The
+    The total and the projected KPM density of states work with ultrasoft and PAW
+    datasets, for `nspin = 1` and `2`, through $S^{-1/2} H S^{-1/2}$. We checked their
+    moments against the dense generalized eigenproblem of silicon with both kinds of
+    dataset, to 1e-9. With a spinor they give an error, because the overlap couples the
+    two spin components and we have not checked that case. The local DOS, the
+    unfolding and the conductivity by KPM need norm-conserving pseudopotentials,
+    because their start vectors or their operator need the overlap $S$ in another way,
+    and the code gives an error. The
     KPM traces also give an error for `K_POINTS gamma` (the half sphere of plane
     waves) and for a spin spiral. A wedge of k-points is fine, because the DOS is a scalar trace. If the
     interval does not hold the whole spectrum, a moment grows above one and the

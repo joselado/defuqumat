@@ -204,10 +204,10 @@ new phase is started. Each entry names the missing term rather than the missing 
 because that is what decides whether it is a session or a phase.
 
 - **Wyckoff input** (P6, the one part of that phase not done).
-- **The kernel polynomial method beyond P167 to P170** (`plans/kpm.md`): the stochastic STM map at
-  fixed energies; the noise of P169's two-index conductivity (a control variate as P170's), its
-  reactive part and the Kubo-Bastin `sigma_xy`, and DFT+U there; ultrasoft and PAW (`S^-1 H` with
-  moments in the S-form), `gamma_only` and the spiral, refused by name.
+- **The kernel polynomial method beyond P167 to P171** (`plans/kpm.md`): the stochastic STM map at
+  fixed energies; the conductivity's reactive part, the Kubo-Bastin `sigma_xy` and DFT+U there;
+  ultrasoft and PAW for the LDOS, the unfolding and the conductivity (P171 gives the DOS and PDOS on
+  `S^(-1/2) H S^(-1/2)`), the augmented spinor, `gamma_only` and the spiral, refused by name.
 - **Wannier functions beyond P162 to P166** (site symmetry is the default since P166, with a
   named fallback): spinor projections and spinor PDWF, `gamma_only`,
   SCDM with symmetry or spinors, SCDM's semicore cut, random projections, PAOs beyond the
@@ -28074,22 +28074,38 @@ the default kernel (Jackson) was right to 0.8 per cent.
 
 **Cost and noise** (`PERFORMANCE.md`, P169): one k-point, the 3x3 tensor, Jackson at 0.02 Ry; error the
 rms over 0.1 to 0.5 Ry against the pair sum of the NSCF states through the same kernel:
-si16 R = 1 7.91 s and 0.376, R = 4 28.7 s and 0.326 (NSCF 5.67 s + band sum 0.48 s); si64 R = 1 30.7 s
-and 0.277, R = 4 125 s and 0.185 (NSCF 84.8 s, 279 bands, + 1.82 s). **The plain two-index trace is
-much noisier than the DOS**: a 5 per cent spectrum on si64 needs of the order of 30 vectors, ten times
-the band route, so at 64 atoms the bands win. The card: si64 5.84 s at R = 1 and 22.6 s at R = 4, warm;
+si16 R = 1 7.91 s and 0.376, R = 4 28.7 s and 0.326 (NSCF 5.67 s + band sum 0.48 s, at a load of 8 to
+12); si64 R = 1 30.7 s and 0.277, R = 4 125 s and 0.185 (NSCF 84.8 s, 279 bands, + 1.82 s). **The plain
+two-index trace is much noisier than the DOS**: a 5 per cent spectrum on si64 needs of the order of 30
+vectors, ten times the band route; the control variate below changes that. The card: si64 5.84 s at R = 1 and 22.6 s at R = 4, warm;
 `sigma` equal to the CPU's to 3.1e-11.
 
 **The two-index control variate** (`control_variate=True`, `variate_block`): with the Ritz pairs
-`(theta_j, y_j)` of P170's filtered orbitals (cut at `E_F + max(1, window + 0.4)` Ry), the model sample
-`n_live <r|P v_a P T_n(H_P) P v_b P T_m(H_P) P|r>` is subtracted and its exact mean
-`sum_lp V^a_pl T_n(theta_l) V^b_lp T_m(theta_p)` added, per k-point, unbiased for any span (tested:
-the mean of 8 seeds within its standard error of the exact trace). The gain is modest: Si2 2x2x2 at
-R = 2, 0.064 to 0.038 of the peak; si16 0.376 to 0.282 (R = 1) and 0.326 to 0.251 (R = 4); si64 0.277 to
-0.156 and 0.185 to 0.108, for about 15 per cent more time per vector. The DOS's variate gained 50 to
-100x because the valence band lies inside the span; a transition's conduction leg, up to 0.5 Ry above
-the gap here, does so only in part (four orbitals per Si atom hold as many conduction as valence
-states, and the window needs more), so the noise of pairs with one leg outside remains.
+`(theta_j, y_j)` of P170's filtered orbitals (degree 16 by default, `FILTER_DEGREE_SIGMA`; cut at
+`E_F + max(1, window + 0.4)` Ry), the model sample `n_live <r|v_a P T_n(H_P) P v_b P T_m(H_P) P|r>` is
+subtracted and its exact mean `sum_jl V^a_lj T_n(theta_j) V^b_jl T_m(theta_l)` added, per k-point,
+unbiased for any span (tested: the mean of 8 seeds within its standard error of the exact trace).
+**The left leg must be `<r|v_a|y_j>`, from `v_a r` itself.** The first form, `<r|P v_a P ...|r>`, gained
+only 1.3x on si16 and 1.75x on si64, and on si16 it stayed at 0.25 to 0.27 at filter degrees 8, 16 and
+24 while the window's Ritz values went from 0.0035 Ry (median) to 1e-8 Ry off the NSCF eigenvalues and
+the span held the 32 window states to 0.983 at the least (`ritzq.py`). A fable subagent's model put the
+limit on the Ritz accuracy; the measurement put it on the projection: the true sample is
+`sum <r|v_a|o><o|v_b|c><c|r>`, and `P v_a` drops the part of `r` outside the span that `v_a` carries onto
+the valence states. With `v_a r` the model equals the true sample when the span holds the window, at
+one more velocity application per vector. Measured (`tsig.py ... cv <degree>`, `deg2-*.log`, 4 seeds,
+error as in P169's table):
+
+| cell | plain R = 1 | variate, degree 8, R = 1 | R = 4 | variate, degree 16, R = 1 | R = 4 | band route |
+|---|---|---|---|---|---|---|
+| Si2 2x2x2 (test, R = 2, 8 seeds) | 0.064 | | | 0.0047 | | |
+| si16 | 2.98 s, 0.376 | 3.48 s, 0.037 | 10.7 s, 0.018 | 5.58 s, 0.012 | 17.3 s, 0.005 | 2.25 s |
+| si64 | 30.7 s, 0.277 | 31.4 s, 0.023 | | 46.6 s, 0.011 | | 86 s |
+
+So on si64 the conductivity at one per cent costs about half the band route, where the plain trace
+needed of the order of 900 s for five per cent. **The noise of a single run is heavy-tailed**: on si16
+one seed at R = 1, 4, 16, 64 gave 0.337, 0.557, 0.143, 0.067 (`rprobe-*.log`, the reference at 79 and at
+200 bands identical), so an error from 3 or 4 seeds is uncertain by tens of per cent; the fall with
+`R` is there, and the earlier reading of a floor at 0.25 was the projected left leg plus that spread.
 
 **Refused**: ultrasoft and PAW, `gamma_only`, the spiral (as P167); DFT+U (the Hubbard orbitals'
 tangent is built but nothing has compared it with the band sum's); `lelfield`'s `H_E`. Not in: the
@@ -28098,5 +28114,48 @@ reactive part (a Kramers-Kronig of this, or a Green's-function kernel, the Kubo-
 conductivity), the plan's blocking over `n` (the families are held whole, `(ndir + 2) N ndim` per
 k-point in flight), and an error bar (the samples are summed in the scan).
 
-**What is outstanding.** The noise beyond the variate's 1.3 to 1.75x; the Kubo-Bastin `sigma_xy`
-checked against the anomalous Hall conductivity of iron; DFT+U.
+**What is outstanding.** The variate at R = 4 on si64 and on larger cells; the occupied projection
+`f(H) r` on top of it (the fable model gave a further 1.7x once the variate works); the Kubo-Bastin
+`sigma_xy` checked against the anomalous Hall conductivity of iron; DFT+U.
+
+### P171 -- The KPM density of states and projected DOS of ultrasoft and PAW runs, on `S^(-1/2) H S^(-1/2)`. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_augmented.py`, eleven fast tests, with the other KPM files on D22 CPU, 33 in 149 s, and the first version on the RTX A2000; the gate was not run; no slow file; branch `kpm-sigma`)
+
+**What is in.** `defuqumat/kpm/overlap.py`: `SymmetrizedHamiltonian`, the operator
+`H^ = S^(-1/2) H S^(-1/2)`, Hermitian in the plain inner product and similar to `S^-1 H`, so every piece
+of P167 and P170 runs on it unchanged (doubling, Lanczos interval, guard, random trace, control
+variate). `S^p = 1 + U (M^p - 1) U^dagger` from a thin QR `B = U R` of each k-point's projector table and
+`M = 1 + R Q R^dagger` (`overlap_power`, `overlap_powers`); `U` and `M^(-1/2) - 1` are stored for every
+k-point, one projector table's worth. `kpm_setup(symmetrize=True)` wraps an augmented Hamiltonian;
+`run_kpm_dos` and `run_kpm_pdos` ask for it, and the PDOS's start vectors are `S^(1/2) phi`
+(`raised_vectors`), since `<phi|S|x> = <S^(1/2) phi|S^(1/2) x>`. PAW takes `ddd_paw` from `becsum`
+through the Hamiltonian as it is (`Calculation.coefficients`); `S` is spin independent.
+
+**The plan was reviewed by a fable subagent before code, and two of its statements were wrong.** The
+plan's form through `G = B^dagger B`, `X = G^(-1/2) [(1 + G^(1/2) Q G^(1/2))^(-1/2) - 1] G^(-1/2)` with
+the small eigenvalues of `G` dropped, is not exact: its error is `sqrt(l_min / l_max) |Q|`, 5e-8 on a
+random table with two columns 1e-7 apart (cond(G) 6e14), where the QR form holds to 1e-11 (the test
+`test_the_half_inverse_holds_with_nearly_parallel_projectors`, which the G form fails). And the cost is
+about three times the nonlocal term, not once: two products with `U` each way beside `H`'s own.
+
+**The numbers.** Si2 at 12 Ry, `ecutrho` 4x, 2x2x2, `Si.pz-n-rrkjus_psl.0.1.UPF` and
+`Si.pz-n-kjpaw_psl.0.1.UPF` (with `becsum`): `S^(-1/2) S^(-1/2) S v = v` with the dense `overlap_matrix`
+on complex random vectors at every k-point, to 1e-10; the exact trace against `sum_i T_n(e_i')` of
+`scipy.linalg.eigh(H, S)` of the dense matrices, to 1e-9 of `mu_0`, both datasets, and the same through
+`get_kpm_dos`; the count mid-gap between the dense edges at N = 1200, 8 within 0.05; the PDOS moments
+against `sum_n |<phi|S|x_n>|^2 T_n(e_n')` from the dense eigenvectors, to 1e-9; the LDOS and the
+conductivity still refused.
+
+**Timing** (`tpaw.py`, `tpaw.log`, D22, one core, si64 with `Si.pz-n-kjpaw_psl.0.1.UPF` at 12/96 Ry, one
+k-point, broadening 0.01 Ry, N = 1078, 4 seeds; error as in P170's table): Davidson NSCF + DOS 70.7 s
+(171 bands); plain R = 1 22.8 s and 0.375, R = 4 52.1 s and 0.181; with the variate R = 1 47.5 s and
+0.0025, R = 4 71.9 s and 0.0011. A vector costs about 10 s against 1.2 s for the norm-conserving si64:
+PAW silicon has 8 projector channels an atom (512 here) and the nonlocal products dominate an
+application, which `S^(-1/2)` on both sides triples.
+
+**Refused, still**: a spinor with an augmented dataset (`qq_so` couples the spin blocks; nothing
+checked); the LDOS (the augmentation charge at the point), the unfolding (the plane-wave subset is not a
+projector in the S metric) and the conductivity (`dH/dk - e dS/dk`), through `kpm_setup` without
+`symmetrize`. No notebook: the physics is that of notebook 60, in another regime.
+
+**What is outstanding.** The spinor; the three traces above; folding `S^(-1/2)` into the nonlocal
+term to cut the per-application cost.

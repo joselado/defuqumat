@@ -11579,21 +11579,20 @@ seeds. The reference codes have no counterpart: neither QE nor Elk computes a co
 Chebyshev moments, and the band sum is this code's own `run_conductivity`. Load average 8 to 12 from
 other users.
 
-| cell | NSCF (bands) + band sum | plain R = 1 | plain R = 4 | variate R = 1 | variate R = 4 |
-|---|---|---|---|---|---|
-| si16 | 2.14 s (79) + 0.11 s | 2.98 s, 0.376 | 10.1 s, 0.326 | 3.44 s, 0.282 | 10.7 s, 0.251 |
-| si64 | 82.0 s (279) + 1.75 s | 30.7 s, 0.277 | 125 s, 0.185 | 27.4 s, 0.156 | 94.3 s, 0.108 |
+| cell | NSCF (bands) + band sum | plain R = 1 | plain R = 4 | variate (16) R = 1 | variate (16) R = 4 | variate (8) R = 1 |
+|---|---|---|---|---|---|---|
+| si16 | 2.14 s (79) + 0.11 s | 2.98 s, 0.376 | 10.1 s, 0.326 | 5.58 s, 0.012 | 17.3 s, 0.005 | 3.48 s, 0.037 |
+| si64 | 84.6 s (279) + 1.75 s | 30.7 s, 0.277 | 125 s, 0.185 | 46.6 s, 0.011 | | 31.4 s, 0.023 |
 
-The si16 row was taken at a load average of about 5 (the first plain si16 run, at 8 to 12, read
-7.91 s and 28.7 s for the same errors, and 5.67 s for the NSCF); si64's plain row is from the heavier
-load, its variate row from the lighter, so the si64 times compare only roughly. The control variate
-(`control_variate=True`, the Ritz pairs of the filtered atomic orbitals, P169) costs about 15 per cent
-more per vector on si16 and lowers the error by 1.3x on si16 and 1.75x on si64, about three times fewer
-vectors for the same error on si64; much less than the 50 to 100x of the DOS, because each transition
-has a conduction leg the orbitals' span holds only in part.
+The si16 row was taken at a load average of about 5 (the first plain si16 run, at 8 to 12, read 7.91 s
+and 28.7 s for the same errors, and 5.67 s for the NSCF); si64's plain row is from the heavier load.
+The variate (`control_variate=True`, filter degree in brackets, 16 the default) takes the left leg of
+its model sample from `v_a r`; the first form, with `P v_a P r`, gained only 1.3x and 1.75x (P169). The
+errors are means of 4 seeds of a heavy-tailed distribution, uncertain by tens of per cent.
 
 The plain stochastic two-index trace is noisy: on one k-point of si64 a 5 per cent error needs of the
-order of 30 random vectors, about 900 s, ten times the band route. The cost is linear in `R`, about
+order of 30 random vectors, about 900 s, ten times the band route. With the variate one vector gives 1.1
+per cent in 47 s, about half the band route. The cost is linear in `R`, about
 31 s a vector on si64: `(1 + ndir) N` applications of `H`, `ndir N` of the velocity and
 `ndir^2 N^2 npw` for the Gram products. With one direction it is about a third. On the RTX A2000
 (`gpu.log`, `taskset -c 0-1`): si16 1.29 s at R = 1 and 3.70 s at R = 4, si64 5.84 s and 22.6 s, warm;
@@ -11603,3 +11602,21 @@ maximum (moments 4.7e-12).
 Memory per k-point in flight, `(ndir + 2) N ndim` complex numbers (240 MB at N = 1000, ndim = 3000,
 three directions), the moments `ndir^2 N^2` per channel summed over k, and the velocity's tangents,
 `ndir` projector tables (one more on a lazy set, whose primal is stored for the derivative).
+
+## The KPM density of states of a PAW run (P171) against Davidson NSCF + DOS (CPU, D22, 2026-11-07)
+
+si64 with `Si.pz-n-kjpaw_psl.0.1.UPF` at `ecutwfc = 12`, `ecutrho = 96` Ry (the file is
+`review/kpm/sig/si64-paw-1k.in`, si64-1k.in with the dataset swapped), one k-point, broadening 0.01 Ry,
+N = 1078, one core through `slot.sh`, warm, medians of 4 seeds; the error is P170's (rms over the
+valence window against the NSCF eigenvalues through the same kernel, mean of 4 seeds); load about 6.
+QE has no KPM; Davidson is this code's own `get_dos`.
+
+| Davidson NSCF + DOS | plain R = 1 | plain R = 4 | variate R = 1 | variate R = 4 |
+|---|---|---|---|---|
+| 70.7 s (171 bands) | 22.8 s, 0.375 | 52.1 s, 0.181 | 47.5 s, 0.0025 | 71.9 s, 0.0011 |
+
+A vector costs about 10 s here against 1.2 s on the norm-conserving si64: 512 projector channels, and
+`S^(-1/2)` on both sides of `H` (two products with the stored QR factor `U` each way) triples the
+nonlocal work, which dominates an application at this size. Memory beyond P167: `U`, `nk npwx nkb`
+complex numbers (a stored projector table even when the calculation keeps a lazy one), and
+`nk nkb^2` for `M^(-1/2) - 1`.

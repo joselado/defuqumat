@@ -275,3 +275,8 @@ identity `S^(-1/2) S^(-1/2) S v = v` on random vectors with the dense `overlap_m
 against `scipy.linalg.eigh(H, S)` of the dense matrices to round-off; the count across the gap equal
 to 8; the stochastic DOS against the SCF's Davidson eigenvalues. PAW the same on a PAW silicon
 dataset from `tests/data/pseudo` with `becsum`. The refusals of the other traces are tested to fire.
+
+**Done 2026-11-07 (`PLAN.md` P171)**, with the review's two corrections: the thin-QR form
+`S^p = 1 + U (M^p - 1) U^dagger` in place of the `G^(-1/2)` form (which loses `cond(G)` and whose cut is
+not exact), and the per-application cost at three times the nonlocal term. The PDOS came in the same pass
+with `S^(1/2) phi` as start vectors.
