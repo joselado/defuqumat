@@ -277,7 +277,11 @@ FILTER_DEGREE_SIGMA = FILTER_DEGREE
 @functools.partial(jax.jit, static_argnames=("n_moments", "n_random"))
 def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre, half,
                   n_moments: int, n_random: int):
-    """``(ndir, ndir, N, N)``: the control variate's correction to one k-point's moments.
+    """``((ndir, ndir, N, N), (N,))``: the control variate's corrections at one k-point.
+
+    The first is the two-index moments'; the second is P170's correction of the
+    trace moments ``<r|T_n r>`` of the same random vectors, which the default
+    level (:func:`level_from_count`) reads.
 
     With the Ritz pairs ``(theta_j, y_j)`` of :func:`~defuqumat.kpm.control.ritz_pairs`,
     ``P = sum_j |y_j><y_j|`` and ``V^a_jl = <y_j|v_a|y_l>``, the model sample of a
@@ -325,12 +329,20 @@ def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre
             model = count * jnp.einsum("nlr,mlr->nm", left, right) / n_random
             row.append(exact - model)
         rows.append(jnp.stack(row))
-    return jnp.stack(rows)
+    # P170's variate of the trace moments <r|T_n r> of the same vectors, for the level
+    norms = jnp.sum(jnp.abs(vectors) ** 2, axis=1).astype(cheb.dtype)
+    weight = jnp.mean(jnp.abs(c) ** 2, axis=1).astype(cheb.dtype)  # (M,)
+    trace = jnp.real(cheb @ norms - count * (cheb @ weight))
+    return jnp.stack(rows), trace
 
 
 def variate_corrections(calculation, hamiltonians, moving, tangents, weights, centre, half,
                         n_moments, n_random, seed, cut, degree):
-    """``(nspin, ndir, ndir, N, N)``: the k-weighted corrections of every channel."""
+    """``((nspin, ndir, ndir, N, N), (nspin, N))``: the k-weighted corrections of every channel.
+
+    The second is the correction of the trace moments, scaled as
+    :func:`conductivity_moments` scales them (``w_k n_live``).
+    """
     from defuqumat.kpm.control import ritz_pairs
     from defuqumat.projwfc.projections import atomic_orbitals
 
@@ -339,21 +351,24 @@ def variate_corrections(calculation, hamiltonians, moving, tangents, weights, ce
     cut_centre, cut_half = 0.5 * (top + cut), 0.5 * (top - cut)
     key = jax.random.PRNGKey(seed)
     weights = np.asarray(weights)
-    out = []
+    out, traces = [], []
     for channel, hamiltonian in enumerate(hamiltonians):
         tangent = tuple(t[channel] for t in tangents)
         channel_key = jax.random.fold_in(key, channel)
-        total = 0.0
+        total, trace = 0.0, 0.0
         for ik in range(orbitals.shape[0]):
             if weights[ik] == 0.0:
                 continue
             theta, vectors = ritz_pairs(hamiltonian, ik, orbitals[ik], cut_centre, cut_half,
                                         degree)
-            total = total + weights[ik] * np.asarray(variate_block(
+            block, moments = variate_block(
                 hamiltonian, moving[channel], tangent, ik, channel_key, theta, vectors,
-                centre, half, n_moments, n_random))
+                centre, half, n_moments, n_random)
+            total = total + weights[ik] * np.asarray(block)
+            trace = trace + weights[ik] * np.asarray(moments)
         out.append(total)
-    return np.stack(out)
+        traces.append(trace)
+    return np.stack(out), np.stack(traces)
 
 
 # -- from the moments to a spectrum -------------------------------------------
@@ -506,7 +521,7 @@ class KPMConductivity:
             k weights, so another kernel, Fermi level or temperature is
             :meth:`reconstructed` with no recursion.
         dos_moments: ``(nspin, N)``, ``sum_k w_k Tr T_n(H')`` from the same start
-            vectors.
+            vectors, with P170's correction when the variate is on.
         centre, half_width: the interval, Ry.
         kernel, n_moments: the kernel and the moment count.
         broadening: half width at half maximum of one delta at the Fermi level, Ry.
@@ -720,9 +735,11 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         dos.append(np.asarray(trace_moments))
     moments = np.stack(moments)
     factors = chosen.factors(n_moments)
+    dos = np.stack(dos)
+    nelec = float(calculation.nelec)
+    given = fermi_energy
     if fermi_energy is None:
-        fermi_energy = level_from_count(np.stack(dos), factors, centre, half,
-                                        float(calculation.nelec), emin, centre + half,
+        fermi_energy = level_from_count(dos, factors, centre, half, nelec, emin, centre + half,
                                         delta_e)
     levels = channel_levels(fermi_energy, len(hamiltonians))
     from defuqumat.kpm.control import resolve_variate
@@ -731,19 +748,29 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         if trace != "stochastic":
             raise ValueError("control_variate reduces the noise of random vectors; the exact "
                              "trace has none")
+        # the cut is a Rydberg or more above the level, so the plain count's level
+        # is good enough for it
         cut = float(levels.max()) + (max(1.0, window + 0.4) if filter_cut is None
                                      else float(filter_cut))
-        moments = moments + variate_corrections(
+        corrections, dos_corrections = variate_corrections(
             calculation, hamiltonians, moving, tangents, np.asarray(weights), centre, half,
             n_moments, n_random, seed, cut,
             FILTER_DEGREE_SIGMA if filter_degree is None else int(filter_degree))
+        moments = moments + corrections
+        dos = dos + dos_corrections
+        if given is None:
+            # the level from the corrected count and DOS: the plain one put an
+            # insulator's level 0.003 Ry below its VBM (Si2 4x4x4, the guide's run)
+            levels = channel_levels(level_from_count(dos, factors, centre, half, nelec, emin,
+                                                     centre + half, delta_e),
+                                    len(hamiltonians))
     n_frequencies = int(round(window / delta_e)) + 1
     sigma = channel_sum(moments, factors, centre, half, float(calculation.system.cell.volume),
                         levels, temperature, emin, delta_e, n_frequencies)
     factor = 2.0 if kernel.lower() == "lorentz" else math.sqrt(2.0)
     return KPMConductivity(
         frequencies=delta_e * np.arange(n_frequencies), sigma=sigma, directions=vectors,
-        moments=moments, dos_moments=np.stack(dos), centre=centre, half_width=half,
+        moments=moments, dos_moments=dos, centre=centre, half_width=half,
         kernel=kernel, n_moments=n_moments, broadening=width,
         transition_broadening=factor * width,
         fermi_energy=float(levels[0]) if levels.size == 1 or np.all(levels == levels[0])
