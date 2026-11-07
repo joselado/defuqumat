@@ -28182,7 +28182,7 @@ the gap with the variate on by default; the notebook runs in 55 s.
 **What is outstanding.** The spinor; the three traces above; folding `S^(-1/2)` into the nonlocal
 term to cut the per-application cost.
 
-### P174 -- `S^(-1/2) H S^(-1/2)` folded into four projector products, one `U` for both spin channels. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_overlap.py`, six fast tests, new; with the five KPM files, 56 tests, on D22 CPU and on the RTX A2000; the fast gate GATE_PLACEHOLDER; no slow file; branch `kpm-wf-3-kpm-overlap-fold` from 92302fc3, not merged, not pushed)
+### P174 -- `S^(-1/2) H S^(-1/2)` folded into four projector products, one `U` for both spin channels. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_overlap.py`, six fast tests, new; with the five KPM files, 56 tests, on D22 CPU at 6c0c2fa8 (299 s, `t2.log`) and on the RTX A2000 at 0fb2734c (279 s, `g-tests.log`), the new file alone on the CPU at 0fb2734c (`t3.log`); the fast gate in one slot at 3a638c40, 3819 passed and the two known `yaml` failures of `test_check_guide.py`, 1530 s (`review/kpm/wf/impl3/gate.log`), the commits after it changing `PLAN.md` and `PERFORMANCE.md` only; no slow file; branch `kpm-wf-3-kpm-overlap-fold` from 92302fc3, not merged, not pushed)
 
 **What is in.** `defuqumat/kpm/overlap.py`. With `H = A + B D B^dagger` (`A = K + V_loc`, `D` the
 channel's `deeq`), `B = U R`, `M = 1 + R Q R^dagger` and `W = M^(-1/2) - 1`, `S^(-1/2) U = U M^(-1/2)`
