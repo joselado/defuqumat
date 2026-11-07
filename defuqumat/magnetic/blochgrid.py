@@ -373,7 +373,11 @@ class MagneticGridHamiltonian(eqx.Module):
         return KRows(lambda ik: jnp.ones((self.ndim,), dtype=bool), self.nk, self.ndim, bool)
 
     def kinetic_row(self, ik) -> jnp.ndarray:
-        """``(ndim,)`` ``(2 pi)^2 (kappa + m)^T g (kappa + m)`` for the box frequencies ``m``."""
+        """``(ndim,)`` ``(2 pi)^2 (kappa + m)^T g (kappa + m)`` for the box frequencies ``m``.
+
+        ``m`` is the plain FFT order (the fixed window) and ``A`` is left out: this feeds only
+        the preconditioner and the start block, both approximations, never the operator.
+        """
         real = self.precision.real
         kappa = self.kpoints[ik]
         q = [TPI * (jnp.asarray(_frequencies(n), dtype=real) + kappa[a])
