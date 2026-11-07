@@ -1,4 +1,4 @@
-"""Landau levels of a plane-wave crystal by the magnetic ultracell (route U, step 1).
+"""Landau levels of a plane-wave crystal by the magnetic ultracell (route U, steps 1 and 2).
 
 The entry point of :mod:`defuqumat.magnetic.ultracell_field`: a converged zero-field state
 (an ``SCFResult``, or anything with its ``density``), a flux ``p/q`` per chemical cell, a
@@ -9,17 +9,32 @@ arXiv:2303.16347. The conventions are :mod:`defuqumat.magnetic.conventions` (Lu 
 
 **What is solved.** Step 1 is local only: the zero-field states are eigenstates of ``T +
 V_loc`` on the frozen potential of the state given (``local_only=True``), or of ``T`` alone
-(``free=True``, the free Landau problem). The bare nonlocal term does not commute with the
-magnetic translations, so it is refused here rather than dropped silently:
-``local_only=False`` raises until the GIPAW-dressed term of step 2 exists.
+(``free=True``, the free Landau problem). Step 2 (``local_only=False``) takes the states of
+the full zero-field Hamiltonian, unmodified, and adds the GIPAW-dressed nonlocal term of
+:mod:`defuqumat.magnetic.ultracell_nonlocal`: with ``h0 = "eigen"``
+
+    H = H_0 + Delta H + (V_NL^B - V_NL^0),
+
+``V_NL^0`` being inside the eigenvalues and subtracted on the grid points it is dressed on.
+``nonlocal_term`` chooses the term: ``"gipaw"`` (the default of step 2), ``"bare"`` (the
+undressed term carried as if it commuted with ``T(R)``, a control) or ``"none"`` (step 1's
+default). On a local-only basis ``"gipaw"`` and ``"bare"`` add the whole term.
 
 **The k-points.** For each magnetic ``kappa2 = j/(n2 q)`` (``kmesh = (n1, n2)``, the
 magnetic ``kappa1 = i/n1``), one NSCF at the ``N1 q`` chemical points ``(i/N1, kappa2 +
 m/q, 0)``, all in ``[0, 1)``. The cost is ``N1 q n2`` zero-field k-points.
 
 **Refused, by name** (:func:`~defuqumat.magnetic.conventions.refuse_regime`): spinors,
-``nspin = 2``, ultrasoft and PAW datasets, spirals, DFT+U, meta-GGA, gamma-only storage,
-and the nonlocal term (``local_only=False``). The field is along ``a3`` by the gauge.
+``nspin = 2``, ultrasoft and PAW datasets, spirals, DFT+U, meta-GGA, gamma-only storage;
+a full zero-field basis with no nonlocal term, and a nonlocal term on the free problem. The
+field is along ``a3`` by the gauge.
+
+**The projector check.** Whenever the grid projectors are built, the run reports
+``nonlocal_error``: the largest difference, in Ry, between ``<h_{n,0}|V_NL^0|h_{n',0}>`` on
+the box grid and the same block from the plane-wave projectors (``vkb``) through the
+transport gauge, at cell 0 and every magnetic ``kappa2``. At zero flux this is the only
+check that sees the normalisation and the ``e^{iK.r}`` of the projection, since there
+``V_NL^B - V_NL^0`` vanishes whatever both are.
 """
 
 from __future__ import annotations
@@ -36,8 +51,9 @@ from defuqumat.magnetic.conventions import refuse_regime
 from defuqumat.magnetic.hybrid import free_electron, hybrid_set, transport_gauge
 from defuqumat.magnetic.hybrid import local_only as _local_only
 from defuqumat.magnetic.ultracell_field import (
-    MagneticUltracell, assemble, hermiticity, hermiticity_guard, solve,
+    MagneticUltracell, _bra_fields, assemble, hermiticity, hermiticity_guard, solve,
 )
+from defuqumat.magnetic.ultracell_nonlocal import grid_projectors, nonlocal_block
 from defuqumat.scf.driver import Calculation
 from defuqumat.system.kpoints import KPoints, for_spin as kpoints_for_spin
 from defuqumat.topology.states import build_plane_wave_states
@@ -87,6 +103,12 @@ class MagneticUltracellResult:
     window: tuple | None = None
     form: str = "ket"
     blocks: tuple | None = field(default=None, repr=False)
+    nonlocal_term: str = "none"
+    nonlocal_mode: str = "none"
+    nonlocal_error: float | None = None
+    projector_radius: tuple | None = None
+    projector_dropped: tuple | None = None
+    region_weights: np.ndarray | None = None
 
 
 def ultracell_kpoints(q: int, n1: int, kappas) -> np.ndarray:
@@ -101,6 +123,85 @@ def null_vector_cells(s, nbnd: int, top: int = 4):
     weight = np.abs(u[:, 0]) ** 2
     order = np.argsort(-weight)[:top]
     return [(int(i // nbnd), int(i % nbnd), round(float(weight[i]), 4)) for i in order]
+
+
+def solve_vectors(h, s, drop: float = 1.0e-8):
+    """``(eps, c)``: :func:`~defuqumat.magnetic.ultracell_field.solve` with its vectors.
+
+    ``c`` ``(dim, rank)`` in the original basis, ``S``-orthonormal (``c^dagger S c = 1``).
+    """
+    h = 0.5 * (np.asarray(h) + np.asarray(h).conj().T)
+    s = 0.5 * (np.asarray(s) + np.asarray(s).conj().T)
+    d, u = np.linalg.eigh(s)
+    keep = d > drop * d.max()
+    x = u[:, keep] / np.sqrt(d[keep])[None, :]
+    eps, y = np.linalg.eigh(x.conj().T @ h @ x)
+    return eps, x @ y
+
+
+def sublattice_masks(cell, structure, ultracell, groups) -> np.ndarray:
+    """``(len(groups), npts)`` masks on the box: one where the nearest atom is in the group.
+
+    ``groups`` lists atom indices of the chemical cell (graphene: ``[[0], [1]]``, A and
+    B); the nearest atom is by the minimum-image distance over the chemical lattice, so the
+    masks are periodic over the chemical cell and tile the box.
+    """
+    from defuqumat.magnetic.conventions import minimum_image
+
+    at = np.asarray(cell.at, dtype=float)
+    grid = ultracell.cell_grid
+    idx = np.stack(np.meshgrid(*[np.arange(n) for n in grid], indexing="ij"), -1).reshape(-1, 3)
+    r = (idx / np.asarray(grid, float)) @ at
+    pos = np.asarray(structure.positions, dtype=float)
+    dist = np.stack([np.linalg.norm(minimum_image(r - p, at), axis=-1) for p in pos], -1)
+    nearest = np.argmin(dist, axis=-1)
+    masks = np.stack([np.isin(nearest, g).astype(float).reshape(grid) for g in groups])
+    return np.asarray(ultracell.tile(masks)).reshape(len(groups), -1)
+
+
+def _resolve_nonlocal(local_only: bool, free: bool, h0: str, nonlocal_term):
+    """``(term, mode)``: the nonlocal term asked for and the one the blocks add."""
+    if nonlocal_term is None:
+        nonlocal_term = "gipaw" if not (local_only or free) else "none"
+    if nonlocal_term not in ("none", "gipaw", "bare"):
+        raise ValueError(f"nonlocal_term must be 'none', 'gipaw' or 'bare', got {nonlocal_term!r}")
+    if free and nonlocal_term != "none":
+        raise ValueError("the free Landau problem has no nonlocal term")
+    full = not (local_only or free)
+    if full and nonlocal_term == "none":
+        raise ValueError("a full zero-field basis carries V_NL^0 in its eigenvalues: say what the "
+                         "field does with it, nonlocal_term = 'gipaw' (dressed) or 'bare' "
+                         "(the control)")
+    if nonlocal_term == "none":
+        return nonlocal_term, "none"
+    if h0 == "eigen" and full:
+        return nonlocal_term, "difference" if nonlocal_term == "gipaw" else "none"
+    return nonlocal_term, nonlocal_term
+
+
+def _nonlocal_check(ultra, projectors, hamiltonian, dij, wavefunctions, gauges, kappas, q, n1):
+    """Largest ``|<h|V_NL^0|h'>_grid - <h|V_NL^0|h'>_vkb|`` (Ry) at cell 0, every kappa2.
+
+    ``dij`` ``(nkb, nkb)`` the coefficients the grid projectors carry; the plane-wave side
+    uses ``hamiltonian.projectors`` (``vkb``) with the same ``dij``.
+    """
+    gp = projectors
+    worst = 0.0
+    dij = np.asarray(dij)
+    for jk, kappa in enumerate(kappas):
+        hybrid = ultra.hybrids[jk][0]
+        u, _ = _bra_fields(hybrid.values, ultra.bra_index(hybrid), ultra.grid)
+        grid_v = np.asarray(nonlocal_block(u, u, gp.index, gp.beta, gp.d_b2, gp.phase, gp.dij,
+                                           jnp.asarray(kappa, ultra.g_b2.dtype), mode="bare"))
+        rotation = gauges[jk].rotation
+        exact = 0.0
+        for i in range(n1):
+            ik = (jk * q) * n1 + i
+            bec = np.asarray(hamiltonian.projectors.project(wavefunctions[ik], ik))   # (nbnd, nkb)
+            v = bec.conj() @ dij @ bec.T
+            exact = exact + rotation[i].conj().T @ v @ rotation[i] / n1
+        worst = max(worst, float(np.max(np.abs(grid_v - exact))))
+    return worst
 
 
 def _density_of(scf):
@@ -137,6 +238,9 @@ def run_magnetic_ultracell(
     scale=1.0,
     strict: bool = True,
     keep_blocks: bool = False,
+    nonlocal_term: str | None = None,
+    projector_cut: float = 1.0e-6,
+    sublattices=None,
 ) -> MagneticUltracellResult:
     """The levels of ``system`` at flux ``p/q`` per chemical cell on the magnetic ultracell.
 
@@ -149,7 +253,15 @@ def run_magnetic_ultracell(
         nbnd: zero-field bands per k-point, the basis has ``q nbnd`` per magnetic ``k``.
         N1: k-points along ``kappa1`` of the hybrid states (the box is ``N1`` cells).
         kmesh: the magnetic mesh ``(n1, n2)``: ``kappa1 = i/n1``, ``kappa2 = j/(n2 q)``.
-        local_only, free: step 1's two operators (see the module docstring).
+        local_only, free: the zero-field basis: ``T + V_loc`` (step 1, ``local_only``),
+            ``T`` (``free``), or the full Hamiltonian (``local_only=False``, step 2).
+        nonlocal_term: ``"gipaw"``, ``"bare"`` or ``"none"`` (module docstring); ``None``
+            is ``"gipaw"`` on a full basis and ``"none"`` otherwise.
+        projector_cut: the grid projector is cut where ``|beta|`` falls below this
+            fraction of its largest value (the dropped norm is reported).
+        sublattices: atom groups of the chemical cell (``[[0], [1]]`` for graphene's A
+            and B): the weight of every level on the box region nearest each group is
+            returned as ``region_weights`` ``(nk, nlevels, ngroups)``.
         nlevels: levels kept per ``k`` (all ``rank`` when ``None``).
         w: the half width of the band in ``Delta``; measured when ``None``: the smallest
             width with every hybrid weight outside it below ``spread_tol``, capped at
@@ -173,11 +285,7 @@ def run_magnetic_ultracell(
             the free problem when ``S`` drops a direction; ``False`` records and goes on.
     """
     refuse_regime(system, pseudos, "the magnetic ultracell")
-    if not local_only and not free:
-        raise NotImplementedError(
-            "the magnetic ultracell carries the local potential only (step 1): the bare "
-            "nonlocal term does not commute with the magnetic translations T(R), and the "
-            "GIPAW-dressed term (step 2) is not implemented; pass local_only=True")
+    nonlocal_term, nonlocal_mode = _resolve_nonlocal(local_only, free, h0, nonlocal_term)
     p, q = int(flux[0]), int(flux[1])
     n1m, n2m = int(kmesh[0]), int(kmesh[1])
     kappas = [j / (n2m * q) for j in range(n2m)]
@@ -200,7 +308,11 @@ def run_magnetic_ultracell(
         density = jnp.full((1,) + tuple(calculation.basis.dense.grid), nelec / float(cell.volume),
                            dtype=cell.precision.real)
     hamiltonians = fixed_density_hamiltonians(calculation, density)
-    hamiltonians = tuple(free_electron(h) if free else _local_only(h) for h in hamiltonians)
+    full_hamiltonian = hamiltonians[0]
+    if free:
+        hamiltonians = tuple(free_electron(h) for h in hamiltonians)
+    elif local_only:
+        hamiltonians = tuple(_local_only(h) for h in hamiltonians)
     ethr = fixed_density_ethr(conv_thr, calculation.nelec)
     eigenvalues, wavefunctions, steps, notcnv = calculation.diagonalize(
         hamiltonians, int(nbnd), None, ethr, return_steps=True)
@@ -219,11 +331,13 @@ def run_magnetic_ultracell(
             pairs += [(base + i, base + i + 1, None) for i in range(N1 - 1)]
             pairs.append((base + N1 - 1, base, (1, 0, 0)))
     links = np.asarray(states.overlaps(pairs)).reshape(n2m, q, N1, int(nbnd), int(nbnd))
-    hybrids, centres, singular = [], [], 1.0
+    hybrids, centres, singular, first_gauges = [], [], 1.0, []
     for jk in range(n2m):
         row = []
         for m in range(q):
             gauge = transport_gauge(links[jk, m])
+            if m == 0:
+                first_gauges.append(gauge)
             sl = slice((jk * q + m) * N1, (jk * q + m + 1) * N1)
             row.append(hybrid_set(wavefunctions[0][sl], eigenvalues[sl], states.miller[sl],
                                   states.valid[sl], gauge, kappas[jk] + m / q))
@@ -233,9 +347,35 @@ def run_magnetic_ultracell(
     timings["gauge_s"] = time.perf_counter() - t0
 
     potential = np.asarray(hamiltonians[0].potential) if h0 == "box" else None
+    projectors = None
+    nonlocal_error = None
+    if nonlocal_term != "none":
+        from defuqumat.magnetic.conventions import MagneticCell
+
+        t0 = time.perf_counter()
+        magnetic = None if p == 0 else MagneticCell.build(cell, p, q, scale=scale)
+        # the coefficients of the full zero-field operator (a local-only basis zeroed them)
+        dij = np.asarray(full_hamiltonian.coefficients)
+        projectors = grid_projectors(cell, calculation.system.structure, calculation.pseudos, dij,
+                                     full_hamiltonian.projectors.atom_of_channel,
+                                     hamiltonians[0].grid, N1, magnetic, cut=projector_cut)
+        timings["projectors_s"] = time.perf_counter() - t0
+    regions = None
+    if sublattices is not None:
+        from defuqumat.ultracell.grid import Ultracell
+
+        box = Ultracell.build((N1, 1, 1), hamiltonians[0].grid, cell.precision)
+        regions = sublattice_masks(cell, calculation.system.structure, box, sublattices)
     ultra = MagneticUltracell.build(cell, (p, q), hybrids, kappas, hamiltonians[0].grid,
                                     nbnd=int(nbnd), n1=N1, potential=potential, h0=h0,
-                                    window=window, w=w, scale=scale, form=form)
+                                    window=window, w=w, scale=scale, form=form,
+                                    projectors=projectors, nonlocal_mode=nonlocal_mode,
+                                    regions=regions)
+    if projectors is not None:
+        t0 = time.perf_counter()
+        nonlocal_error = _nonlocal_check(ultra, projectors, full_hamiltonian, dij, wavefunctions[0],
+                                         first_gauges, kappas, q, N1)
+        timings["nonlocal_check_s"] = time.perf_counter() - t0
     t0 = time.perf_counter()
     w_measured, weights, widths = ultra.spread(spread_tol)
     timings["spread_s"] = time.perf_counter() - t0
@@ -250,13 +390,13 @@ def run_magnetic_ultracell(
     ultra = ultra.with_width(w)
 
     # --- the blocks, the assembly and the solve per magnetic k ---------------------------
-    levels, ranks, dmins, dalls, herm, kap = [], [], [], [], [], []
+    levels, ranks, dmins, dalls, herm, kap, weights_r = [], [], [], [], [], [], []
     t_blocks, t_solve, dropped, kept = 0.0, 0.0, 0.0, []
     for jk in range(n2m):
         t0 = time.perf_counter()
-        B, S, B_out, _ = ultra.blocks(jk)
-        B = np.asarray(B)
-        S = np.asarray(S)
+        out = ultra.blocks(jk, with_regions=regions is not None)
+        B, S, B_out = np.asarray(out[0]), np.asarray(out[1]), out[2]
+        R = np.asarray(out[4]) if regions is not None else None
         t_blocks += time.perf_counter() - t0
         if keep_blocks:
             kept.append((B, S))
@@ -273,6 +413,12 @@ def run_magnetic_ultracell(
             if strict:
                 hermiticity_guard(h)
             eps, rank, d_min, d_all = solve(h, s, drop)
+            if R is not None:
+                _, vec = solve_vectors(h, s, drop)
+                rw = np.stack([np.real(np.einsum("in,ij,jn->n", vec.conj(),
+                                                 assemble(kappa1, R[:, :, ir], S, w, q)[0], vec))
+                               for ir in range(R.shape[2])], -1)
+                weights_r.append(rw if nlevels is None else rw[:nlevels])
             if strict and free and rank < s.shape[0]:
                 raise ValueError(
                     f"S of the free problem drops {s.shape[0] - rank} of {s.shape[0]} "
@@ -300,4 +446,8 @@ def run_magnetic_ultracell(
         centres=np.array(centres), singular=float(singular),
         eigenvalues=eigenvalues.reshape(n2m, q, N1, int(nbnd)), davidson=davidson,
         timings=timings, form=form, window=None if window is None else tuple(float(x) for x in window),
-        blocks=tuple(kept) if keep_blocks else None)
+        blocks=tuple(kept) if keep_blocks else None,
+        nonlocal_term=nonlocal_term, nonlocal_mode=nonlocal_mode, nonlocal_error=nonlocal_error,
+        projector_radius=None if projectors is None else projectors.radius,
+        projector_dropped=None if projectors is None else projectors.dropped,
+        region_weights=None if not weights_r else np.stack([x[:nmin] for x in weights_r]))

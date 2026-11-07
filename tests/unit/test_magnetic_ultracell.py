@@ -204,9 +204,12 @@ def test_the_nonlocal_term_and_the_regimes_are_refused_by_name():
     from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
 
     calc = _small_graphene()
-    with pytest.raises(NotImplementedError, match="nonlocal term"):
+    with pytest.raises(ValueError, match="free Landau problem has no nonlocal term"):
         run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), nbnd=2,
-                               local_only=False)
+                               free=True, nonlocal_term="gipaw")
+    with pytest.raises(ValueError, match="carries V_NL\\^0 in its eigenvalues"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, _uniform_density(calc), flux=(1, 2),
+                               nbnd=2, local_only=False, nonlocal_term="none")
 
     class Ultrasoft:
         is_paw = False
@@ -252,7 +255,7 @@ def test_the_field_kernels_give_the_landau_ladder_on_an_analytic_state(form):
         u_bra, h_bra, p_bra = _bra_side(values, values, index, window, ultra.gg, ultra.g_b2,
                                         ultra.potential, zero, ultra.b22, grid=grid,
                                         box_h0=True, windowed=False)
-        h, s = _ket_block(u_bra, h_bra, p_bra, values, index, jnp.asarray(0), window,
+        h, s, _ = _ket_block(u_bra, h_bra, p_bra, values, index, jnp.asarray(0), window,
                           ultra.g_b2, ultra.xi, zero, ultra.c1, ultra.b12, ultra.b22,
                           grid=grid, windowed=False, symmetric=form == "symmetric")
         e = np.real(np.diag(np.asarray(h)) / np.diag(np.asarray(s))) / b_ph
@@ -261,3 +264,149 @@ def test_the_field_kernels_give_the_landau_ladder_on_an_analytic_state(form):
         else:
             assert np.allclose(e, expect, rtol=0, atol=1e-12)
             assert abs(np.asarray(h)[0, 1]) < 1e-12 * abs(np.asarray(h)[0, 0])
+
+
+# --- step 2: the GIPAW-dressed nonlocal term --------------------------------------------
+
+@pytest.mark.parametrize("h0", ["eigen", "box"])
+def test_zero_flux_with_the_nonlocal_term_gives_back_the_full_bands(h0):
+    """p = 0, the full zero-field Hamiltonian (acceptance 1 of step 2 on a small cell).
+
+    ``eigen``: H = H_0 + (V_NL^B - V_NL^0) with a zero phase, so the levels are the
+    eigenvalues to round-off whatever the grid projectors are. ``box``: T + V_loc on the box
+    plus V_NL^0 from the grid projectors, so the levels are the eigenvalues only if the
+    grid projectors are the plane-wave ones (the normalisation, the e^{iK.r}, D); the
+    projector check ``nonlocal_error`` says the same block by block.
+    """
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, _uniform_density(calc), flux=(0, 1),
+                               nbnd=4, N1=5, w=2, kmesh=(1, 2), h0=h0, local_only=False)
+    assert r.nonlocal_mode == ("difference" if h0 == "eigen" else "gipaw")
+    worst = max(np.max(np.abs(r.levels[ik, :4] - r.eigenvalues[int(round(k2 * 2)), 0, 0]))
+                for ik, (_, k2) in enumerate(r.kappa))
+    print(f"\nh0 {h0}: levels - eigenvalues {worst:.3e} Ry, grid - vkb block "
+          f"{r.nonlocal_error:.3e} Ry, radius {r.projector_radius}, dropped {r.projector_dropped}")
+    assert r.nonlocal_error < 1e-6
+    assert worst < (1e-10 if h0 == "eigen" else 1e-6)
+    assert np.all(r.hermiticity < 1e-12)
+
+
+def test_the_grid_projectors_with_p_channels_match_vkb():
+    """Silicon, Si.pz-vbc (an s and a p projector), 12 Ry, zero flux: the box projection of
+    every hybrid block against the plane-wave projectors. This is where the real harmonics,
+    their ordering and two channels per atom are exercised; carbon's HGH dataset has one s."""
+    from defuqumat import Calculator
+    from defuqumat.units import RY_TO_EV
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = Calculator.from_keywords(
+        lattice="fcc", a=5.43, atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+        pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo", ecut=12 * RY_TO_EV,
+        kmesh=(2, 2, 2))
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, _uniform_density(calc), flux=(0, 1),
+                               nbnd=4, N1=3, w=1, kmesh=(1, 1), h0="box", local_only=False)
+    worst = float(np.max(np.abs(r.levels[0, :4] - r.eigenvalues[0, 0, 0])))
+    print(f"\nsilicon: grid - vkb block {r.nonlocal_error:.3e} Ry, box levels - eigenvalues "
+          f"{worst:.3e} Ry")
+    assert r.nonlocal_error < 1e-3
+    assert worst < 1e-3
+
+
+def _toy_projectors(n1, p, q, cell_grid=(12, 12, 24)):
+    """The grid projectors of the small graphene cell on an ``n1`` box at flux p/q."""
+    from defuqumat.magnetic.conventions import MagneticCell
+    from defuqumat.magnetic.ultracell_nonlocal import grid_projectors
+    from defuqumat.pseudo.projectors import projector_channels
+
+    calc = _small_graphene()
+    structure = calc.system.structure
+    blocks, atom_of = [], []
+    for a, t in enumerate(structure.types):
+        pseudo = calc.pseudos[t]
+        for nb, _, _ in projector_channels(pseudo):
+            blocks.append(float(pseudo.dij[nb, nb]))
+            atom_of.append(a)
+    magnetic = MagneticCell.build(calc.system.cell, p, q)
+    gp = grid_projectors(calc.system.cell, structure, calc.pseudos, np.diag(blocks), atom_of,
+                         cell_grid, n1, magnetic)
+    return calc, magnetic, gp
+
+
+def test_the_dressed_nonlocal_term_commutes_with_the_magnetic_translation():
+    """<T f| V_NL^B |T g> = <f| V_NL^B |g> for T = T(a1), on the grid, to round-off.
+
+    T(a1) e^{iK.r} u = e^{i(K - c1 b2).r} u(r - a1): the box function rolled by one cell at
+    kappa - p/q. f and g are localized at the box centre (nothing reaches the sawtooth's
+    jump). The bare V_NL^0 does not commute, and neither does the dressing with its sign
+    flipped: the two controls that make the pass mean something.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.magnetic.ultracell_nonlocal import projections
+
+    n1, p, q, cell_grid = 8, 1, 3, (12, 12, 24)
+    calc, magnetic, gp = _toy_projectors(n1, p, q, cell_grid)
+    grid = (n1 * cell_grid[0],) + cell_grid[1:]
+    xi = np.arange(grid[0]) / cell_grid[0]
+    xi = np.where(xi > n1 / 2, xi - n1, xi)
+    rng = np.random.default_rng(1)
+    y = np.arange(grid[1]) / grid[1]
+    z = np.arange(grid[2]) / grid[2]
+    funcs = []
+    for s in range(2):
+        along = np.exp(-(xi - 0.3 * s) ** 2 / (2 * 0.4 ** 2))
+        c = rng.normal(size=4) + 1j * rng.normal(size=4)
+        side = (c[0] + c[1] * np.exp(2j * np.pi * y))[:, None] * \
+            (c[2] + c[3] * np.cos(2 * np.pi * z))[None, :]
+        funcs.append((along[:, None, None] * side[None]).reshape(-1))
+    u = jnp.asarray(np.stack(funcs))
+    u_t = jnp.asarray(np.roll(np.stack(funcs).reshape((2,) + grid), cell_grid[0], axis=1)
+                      .reshape(2, -1))
+    kappa = 0.21
+
+    def matrix(gp_, uu, kref, dressed=True):
+        bare, dress = projections(uu, gp_.index, gp_.beta, gp_.d_b2, gp_.phase, kref)
+        pr = dress if dressed else bare
+        return np.asarray(jnp.einsum("ban,anm,cam->bc", pr.conj(), gp_.dij, pr))
+
+    m = matrix(gp, u, kappa)
+    m_t = matrix(gp, u_t, kappa - p / q)
+    scale = np.max(np.abs(m))
+    print(f"\ndressed: |M_T - M| / |M| = {np.max(np.abs(m_t - m)) / scale:.3e}")
+    assert scale > 1e-3
+    assert np.max(np.abs(m_t - m)) < 1e-12 * scale
+    bare = np.max(np.abs(matrix(gp, u_t, kappa - p / q, False) - matrix(gp, u, kappa, False)))
+    flipped = gp.with_phase(-gp.phase)
+    wrong = np.max(np.abs(matrix(flipped, u_t, kappa - p / q) - matrix(flipped, u, kappa)))
+    print(f"bare {bare / scale:.3e}, flipped sign {wrong / scale:.3e}")
+    assert bare > 1e-2 * scale
+    assert wrong > 1e-2 * scale
+
+
+def test_the_grid_projectors_are_the_atoms_of_the_box_in_the_sawtooth_frame():
+    """N1 x nat atoms, each once, with xi1 in (-N1/2, N1/2], the same sphere per species."""
+    n1 = 6
+    calc, magnetic, gp = _toy_projectors(n1, 1, 4)
+    at = np.asarray(calc.system.cell.at)
+    xi = gp.tau @ np.linalg.inv(at)[:, 0]
+    assert gp.index.shape[0] == 2 * n1
+    assert np.all(xi > -n1 / 2 - 1e-12) and np.all(xi <= n1 / 2 + 1e-12)
+    assert len(np.unique(np.round(xi, 9))) == 2 * n1
+    count = np.sum(np.asarray(gp.beta)[:, 0] != 0, axis=1)
+    assert len(set(count.tolist())) <= 2 and gp.radius[0] > 1.0
+    assert gp.dropped[0] < 1e-9
+    assert np.max(np.abs(np.asarray(gp.phase))) > 0.1
+
+
+def test_the_sublattice_masks_partition_the_box():
+    from defuqumat.ultracell.grid import Ultracell
+    from defuqumat.workflows.landau_ultracell import sublattice_masks
+
+    calc = _small_graphene()
+    box = Ultracell.build((3, 1, 1), (12, 12, 24), calc.system.cell.precision)
+    masks = sublattice_masks(calc.system.cell, calc.system.structure, box, [[0], [1]])
+    assert masks.shape == (2, 36 * 12 * 24)
+    assert np.allclose(masks.sum(axis=0), 1.0)
+    assert abs(masks[0].mean() - 0.5) < 0.05

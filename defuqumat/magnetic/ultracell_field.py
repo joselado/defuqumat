@@ -76,6 +76,24 @@ needs ``h0 = "box"``. Neither makes the free Landau problem converge on an entan
 set: the bare states fail by their sinc tails, the windowed ones by what the window cuts
 away (0.03 to 0.07 Ry at ``q = 10``, ``nbnd = 2 .. 16``).
 
+**The nonlocal term (step 2).** ``T(X a1)`` commutes with the nonlocal term only once every
+projector carries the GIPAW phase, :mod:`defuqumat.magnetic.ultracell_nonlocal`. With the
+zero-field states of the full Hamiltonian and ``h0 = "eigen"`` the operator is
+
+    H = H_0 + Delta H + (V_NL^B - V_NL^0),
+
+``H_0 = T + V_loc + V_NL^0`` through the eigenvalues (so ``V_NL^0`` is inside them and is
+subtracted on the same grid points it is dressed on), ``Delta H`` the kinetic field term
+above and ``V_NL^B`` the dressed term; ``nonlocal_mode`` is ``"difference"`` then. With
+``h0 = "box"``, or a local-only basis, the term added is ``V_NL^B`` itself (``"gipaw"``),
+and ``"bare"`` adds the undressed ``V_NL^0`` instead, the control that treats it as if it
+commuted with ``T(R)``. The term is evaluated on the rolled ket in the bra's frame: the atoms
+of the box stay where they are, at ``xi1`` in the sawtooth ``(-N1/2, N1/2]``.
+
+**Regions.** ``regions`` ``(nreg, npts)`` real masks on the box (periodic over the chemical
+cell, so they commute with ``T(R)`` as ``S`` does) give blocks ``<bra| M_r T(Delta) |ket>``
+assembled like ``S``: the weight of an eigenvector on region ``r`` is ``c^dagger M_r c``.
+
 **Solve.** ``H c = eps S c`` per magnetic ``k`` by canonical orthogonalisation: ``S = U D
 U^dagger``, the columns with ``d < drop max d`` dropped, the rank and the smallest kept
 ``d`` recorded; ``H`` is taken as its Hermitian part and the residual reported.
@@ -97,6 +115,7 @@ import numpy as np
 
 from defuqumat.magnetic.conventions import MagneticCell
 from defuqumat.magnetic.hybrid import HybridSet, half_width, outside_weight
+from defuqumat.magnetic.ultracell_nonlocal import GridProjectors, nonlocal_block
 from defuqumat.units import TPI
 from defuqumat.ultracell.grid import Ultracell
 
@@ -121,6 +140,8 @@ class MagneticUltracell(eqx.Module):
     xi: jnp.ndarray            # (n1_box,) sawtooth xi1 in cells
     potential: jnp.ndarray | None
     window: jnp.ndarray | None
+    projectors: GridProjectors | None
+    regions: jnp.ndarray | None
     b12: float = eqx.field(static=True)
     b22: float = eqx.field(static=True)
     p: int = eqx.field(static=True)
@@ -133,11 +154,13 @@ class MagneticUltracell(eqx.Module):
     ultracell: Ultracell = eqx.field(static=True)
     h0: str = eqx.field(static=True, default="eigen")
     form: str = eqx.field(static=True, default="ket")
+    nonlocal_mode: str = eqx.field(static=True, default="none")
 
     @classmethod
     def build(cls, cell, flux, hybrids, kappas, cell_grid, *, nbnd: int, n1: int,
               w: int | None = None, potential=None, h0: str = "eigen", scale=1.0,
-              window=None, form: str = "ket"):
+              window=None, form: str = "ket", projectors: GridProjectors | None = None,
+              nonlocal_mode: str = "none", regions=None):
         """From the chemical :class:`Cell`, ``flux = (p, q)`` and the hybrid sets.
 
         ``w = None`` sets it later from the measured spread (:meth:`with_width`).
@@ -146,8 +169,19 @@ class MagneticUltracell(eqx.Module):
         function by :func:`smooth_window` about its own cell; it needs ``h0 = "box"``
         (a windowed state is no combination of eigenstates), sets ``w = ceil(2 outer) - 1``
         (the blocks beyond are exactly zero) and needs ``N1 >= w + 2 outer`` (no ket
-        reaches the bra's support from the other side of the box).
+        reaches the bra's support from the other side of the box). ``projectors`` (the
+        box's :class:`~defuqumat.magnetic.ultracell_nonlocal.GridProjectors`) and
+        ``nonlocal_mode`` (``"none"``, ``"difference"``, ``"gipaw"``, ``"bare"``) are the
+        nonlocal term of the module docstring; ``regions`` ``(nreg, npts)`` box masks.
         """
+        if nonlocal_mode not in ("none", "difference", "gipaw", "bare"):
+            raise ValueError(f"nonlocal_mode must be none, difference, gipaw or bare, got "
+                             f"{nonlocal_mode!r}")
+        if nonlocal_mode != "none" and projectors is None:
+            raise ValueError(f"nonlocal_mode {nonlocal_mode!r} needs the grid projectors")
+        if nonlocal_mode == "difference" and h0 != "eigen":
+            raise ValueError("V_NL^B - V_NL^0 is the term of h0 = 'eigen' on a full zero-field "
+                             "basis; on the box (h0 = 'box') the term is V_NL^B ('gipaw')")
         p, q = int(flux[0]), int(flux[1])
         if form not in ("ket", "symmetric"):
             raise ValueError(f"form must be 'ket' or 'symmetric', got {form!r}")
@@ -189,6 +223,9 @@ class MagneticUltracell(eqx.Module):
                    g_b2=jnp.asarray((gvec @ b[1]).reshape(-1), dtype=real),
                    gg=jnp.asarray(np.sum(gvec ** 2, axis=-1).reshape(-1), dtype=real),
                    xi=jnp.asarray(xi, dtype=real), potential=box_potential, window=box_window,
+                   projectors=projectors if nonlocal_mode != "none" else None,
+                   regions=None if regions is None else jnp.asarray(regions, dtype=real),
+                   nonlocal_mode=nonlocal_mode,
                    b12=float(b[0] @ b[1]), b22=float(b[1] @ b[1]), p=p, q=q, n1=int(n1),
                    nbnd=int(nbnd), w=-1 if w is None else int(w),
                    kappas=tuple(float(k) for k in kappas), grid=tuple(grid),
@@ -230,14 +267,17 @@ class MagneticUltracell(eqx.Module):
         return half_width(weights.reshape(-1, len(widths)), widths, tol), weights, widths
 
     # --- the blocks -------------------------------------------------------------
-    def blocks(self, k: int, extra: int = 1):
+    def blocks(self, k: int, extra: int = 1, with_regions: bool = False):
         """``(B, S, B_out, S_out)`` at the ``k``-th magnetic ``kappa``.
 
         ``B, S`` ``(q, 2w+1, nbnd, nbnd)`` for ``Delta = -w .. w``; ``B_out, S_out``
         ``(q, extra, nbnd, nbnd)`` at ``Delta = w + 1 .. w + extra``, the first blocks the
         truncation drops (measured only while the ket stays inside half the box), or
-        ``None``.
+        ``None``. ``with_regions`` appends ``R`` ``(q, 2w+1, nreg, nbnd, nbnd)``, the
+        blocks of the region masks.
         """
+        if with_regions and self.regions is None:
+            raise ValueError("no region masks were given to build()")
         if self.w < 0:
             raise ValueError("the half width is not set: call with_width(w) first")
         q, p, n1 = self.q, self.p, self.n1
@@ -259,7 +299,10 @@ class MagneticUltracell(eqx.Module):
         window = self.window if windowed else jnp.ones_like(self.xi)
         potential = self.potential if self.h0 == "box" else jnp.zeros((), self.g_b2.dtype)
         per_cell = self.grid[0] // n1
-        B, S, B_out, S_out = [], [], [], []
+        gp = self.projectors
+        nl = None if gp is None else (gp.index, gp.beta, gp.d_b2, gp.phase, gp.dij)
+        regions = self.regions if with_regions else None
+        B, S, B_out, S_out, R = [], [], [], [], []
         for X in range(q):
             m_x, f_x = (X * p) % q, (X * p) // q
             bra = hybrids[m_x]
@@ -267,30 +310,34 @@ class MagneticUltracell(eqx.Module):
             u_bra, h_bra, p_bra = _bra_side(bra.values, bra.h0_values, self.bra_index(bra), window,
                                      self.gg, self.g_b2, potential, kref, self.b22,
                                      grid=self.grid, box_h0=self.h0 == "box", windowed=windowed)
-            rows_b, rows_s, out_b, out_s = [], [], [], []
+            rows_b, rows_s, out_b, out_s, rows_r = [], [], [], [], []
             for delta in deltas + tail:
                 s_k = (X + delta) * p
                 m_k, f_k = s_k % q, s_k // q
                 ket = hybrids[m_k]
-                h, o = _ket_block(u_bra, h_bra, p_bra, ket.values, ket_index(m_k, f_x - f_k),
-                                  jnp.asarray(delta * per_cell), window, self.g_b2, self.xi,
-                                  kref, c1, self.b12, self.b22, grid=self.grid,
-                                  windowed=windowed, symmetric=self.form == "symmetric")
+                h, o, r = _ket_block(u_bra, h_bra, p_bra, ket.values, ket_index(m_k, f_x - f_k),
+                                     jnp.asarray(delta * per_cell), window, self.g_b2, self.xi,
+                                     kref, c1, self.b12, self.b22, nl, regions, grid=self.grid,
+                                     windowed=windowed, symmetric=self.form == "symmetric",
+                                     nl_mode=self.nonlocal_mode, with_regions=with_regions)
                 if delta in deltas:
                     rows_b.append(h)
                     rows_s.append(o)
+                    if with_regions:
+                        rows_r.append(r)
                 else:
                     out_b.append(h)
                     out_s.append(o)
             B.append(jnp.stack(rows_b))
             S.append(jnp.stack(rows_s))
+            if with_regions:
+                R.append(jnp.stack(rows_r))
             if out_b:
                 B_out.append(jnp.stack(out_b))
                 S_out.append(jnp.stack(out_s))
         B, S = jnp.stack(B), jnp.stack(S)
-        if B_out:
-            return B, S, jnp.stack(B_out), jnp.stack(S_out)
-        return B, S, None, None
+        out = (B, S) + ((jnp.stack(B_out), jnp.stack(S_out)) if B_out else (None, None))
+        return out + (jnp.stack(R),) if with_regions else out
 
 
 def smooth_window(xi, inner: float, outer: float) -> np.ndarray:
@@ -359,10 +406,15 @@ def _bra_side(values, h0_values, index, window, gg, g_b2, potential, kref, b22, 
     return u.reshape(nbnd, -1), h, pu
 
 
-@partial(jax.jit, static_argnames=("grid", "windowed", "symmetric"))
+@partial(jax.jit, static_argnames=("grid", "windowed", "symmetric", "nl_mode", "with_regions"))
 def _ket_block(u_bra, h_bra, p_bra, ket_values, ket_index, shift, window, g_b2, xi, kref, c1,
-               b12, b22, *, grid, windowed, symmetric):
-    """``(<bra| H T(Delta) |ket>, <bra| T(Delta) |ket>)`` for one block, ``(nbnd, nbnd)`` each.
+               b12, b22, nl=None, regions=None, *, grid, windowed, symmetric,
+               nl_mode="none", with_regions=False):
+    """``(<bra| H T(Delta) |ket>, <bra| T(Delta) |ket>, R)`` for one block, ``(nbnd, nbnd)``.
+
+    ``nl`` the grid projectors' arrays ``(index, beta, d_b2, phase, dij)`` and ``nl_mode``
+    the nonlocal term added (:func:`~defuqumat.magnetic.ultracell_nonlocal.nonlocal_block`);
+    ``R`` ``(nreg, nbnd, nbnd)`` the region blocks when ``with_regions``, else ``None``.
 
     The ket is scattered with its Miller shift ``D`` already in ``ket_index``, windowed
     about cell 0 when asked, and then rolled by ``shift = Delta n1`` grid points along the
@@ -390,7 +442,12 @@ def _ket_block(u_bra, h_bra, p_bra, ket_values, ket_index, shift, window, g_b2, 
     else:
         field = c1 * 2.0 * x * up + (c1 * c1 * b22) * (x * x) * u
         h = (h_bra.conj() @ u.T + u_bra.conj() @ field.T) / npts - 1j * c1 * b12 * overlap
-    return h, overlap
+    if nl_mode != "none":
+        h = h + nonlocal_block(u_bra, u, *nl, kref, mode=nl_mode)
+    r = None
+    if with_regions:
+        r = jnp.einsum("rp,bp,cp->rbc", regions.astype(u.real.dtype), u_bra.conj(), u) / npts
+    return h, overlap, r
 
 
 def assemble(kappa1: float, B, S, w: int, q: int):

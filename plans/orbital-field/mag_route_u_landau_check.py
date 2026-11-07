@@ -49,7 +49,7 @@ for scale in (1.0, -1.0):
                                     ultra.potential, kref, ultra.b22, grid=grid, box_h0=True,
                                     windowed=False)
     for form in ("ket", "symmetric"):
-        h, s = _ket_block(u_bra, h_bra, p_bra, values, index, jnp.asarray(0), window, ultra.g_b2,
+        h, s, _ = _ket_block(u_bra, h_bra, p_bra, values, index, jnp.asarray(0), window, ultra.g_b2,
                           ultra.xi, kref, ultra.c1, ultra.b12, ultra.b22, grid=grid,
                           windowed=False, symmetric=form == "symmetric")
         h, s = np.asarray(h), np.asarray(s)
