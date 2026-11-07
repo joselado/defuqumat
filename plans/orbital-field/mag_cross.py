@@ -427,13 +427,27 @@ def analyse():
     # zero-field minimum of the same box; a uniform spurious downward shift would show here.
     fl_loc, fl_full = floors["local"], floors["full"]
     print("\n== the diamagnetic inequality, lowest level of route P against the zero-field minimum of the same box")
+    # the deep s band's mass at Gamma on the box, from Gamma and (0, 1/12): its lowest Landau level
+    # sits at E_0 + (m/m*) B_ph, which is the shift a uniform offset of route P would spoil
+    lat = np.asarray(np.load(SCF)["lattice"])
+    bvec = 2 * np.pi * np.linalg.inv(lat).T
+    dk2 = float(np.sum((bvec[1] / 12) ** 2))
+    kp_f = fl_full["kpoints"][:, :2]
+    i_g = int(np.argmin(np.sum(kp_f ** 2, axis=1)))
+    i_1 = int(np.argmin(np.sum((kp_f - np.array([0.0, 1 / 12])) ** 2, axis=1)))
+    ratio_full = float((fl_full["box"][i_1, 0] - fl_full["box"][i_g, 0]) / dk2)
+    ratio_loc = float((fl_loc["box"][i_1, 0] - fl_loc["box"][i_g, 0]) / dk2)
+    print(f"deep band at Gamma on the box: m/m* = {ratio_full:.4f} (full), {ratio_loc:.4f} (local-only), from "
+          f"Gamma and (0, 1/12)")
     for q in QS:
         L = np.load(DATA / f"route-p-q{q}-local.npz")
         F = np.load(DATA / f"route-p-q{q}-full.npz")
         e0l, e0f = float(np.min(fl_loc["box"][:, 0])), float(np.min(fl_full["box"][:, 0]))
         print(f"q {q}: local-only lowest {np.min(L['eigenvalues']):.6f} Ry, zero-field box minimum {e0l:.6f} Ry, "
               f"difference {(np.min(L['eigenvalues']) - e0l) * RY_EV * 1e3:+.2f} meV (B_ph {0.0335723149 * 10 / q * RY_EV * 1e3:.0f} meV); "
-              f"full lowest minus its zero-field minimum {(np.min(F['eigenvalues']) - e0f) * RY_EV * 1e3:+.2f} meV", flush=True)
+              f"full lowest minus its zero-field minimum {(np.min(F['eigenvalues']) - e0f) * RY_EV * 1e3:+.2f} meV "
+              f"against (m/m*) B_ph = {ratio_full * 0.0335723149 * 10 / q * RY_EV * 1e3:.2f} meV (local-only "
+              f"{ratio_loc * 0.0335723149 * 10 / q * RY_EV * 1e3:.2f} meV)", flush=True)
 
     # ---- item 4: DOS at q = 6
     print("\n== item 4: DOS at q = 6, Gaussian 20 meV, each about its own E_D, 4 representatives (route P's full "
