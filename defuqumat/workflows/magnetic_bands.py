@@ -70,6 +70,7 @@ class MagneticBands:
     solver: tuple
     preconditioner: str
     memory_estimate: int
+    window: str
     timings: dict
     chern: tuple | None = None
     states: np.ndarray | None = field(default=None, repr=False)
@@ -130,7 +131,8 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
                        preconditioner: str = "two-gauge", kpoints=None, grid=None,
                        memory_limit: float | None = None, keep_states: bool = False,
                        field_axis: int = 2, chern_gap: float = 1e-6,
-                       band_batch="default", unconverged: str = "fallback") -> MagneticBands:
+                       band_batch="default", unconverged: str = "fallback",
+                       window: str = "centred") -> MagneticBands:
     """The ``nbnd`` lowest levels of ``pi^2 + V_loc`` at flux ``p/q`` on a ``kmesh`` of the magnetic zone.
 
     Args:
@@ -151,6 +153,10 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
         grid: the chemical wavefunction box (default :func:`wavefunction_box` at ``ecutwfc``).
         memory_limit: bytes (default :data:`~defuqumat.magnetic.blochgrid.MEMORY_LIMIT`).
         keep_states: return the states ``(nk, nbnd, ndim)``.
+        window: ``'centred'`` (each row's frequency window on zero mechanical momentum, which
+            makes the magnetic translation and the period in ``kappa`` exact on the grid) or
+            ``'fixed'`` (Lu's FFT as written); :func:`~defuqumat.magnetic.blochgrid.
+            momentum_multipliers`.
         unconverged: ``'fallback'`` (a dense solve for ``ndim <= 20000``, a refusal above) or
             ``'keep'`` (the Davidson values as they stand, with ``unsettled`` saying so: for
             measuring a preconditioner, never for a result).
@@ -199,7 +205,7 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
     t0 = time.perf_counter()
     hamiltonian = MagneticGridHamiltonian.build(cell, p, q, system.ecutwfc, kpts, potential,
                                                 grid=grid, preconditioner=preconditioner,
-                                                band_batch=band_batch)
+                                                window=window, band_batch=band_batch)
     timings["build_s"] = time.perf_counter() - t0
 
     eigenvalues = np.zeros((nk, nbnd))
@@ -249,5 +255,5 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
         flux=(p, q), field_tesla=field_tesla, b_ph=float(mcell.b_ph), grid=tuple(grid),
         box=hamiltonian.box, ndim=ndim, kpoints=np.asarray(kpts), eigenvalues=eigenvalues,
         steps=steps, unsettled=unsettled, solver=tuple(solver), preconditioner=preconditioner,
-        memory_estimate=estimate, timings=timings, chern=groups_chern,
+        memory_estimate=estimate, window=window, timings=timings, chern=groups_chern,
         states=states if keep_states else None)

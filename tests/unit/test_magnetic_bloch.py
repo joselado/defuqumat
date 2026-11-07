@@ -133,25 +133,31 @@ def test_the_free_landau_ladder_from_the_dense_matrix(graphene, p, q):
         # a 4 x 4 x 8 box has about two points per magnetic length: its error is a
         # discretisation, measured on D22 (plans/orbital-field/route-p.md), not round-off
         assert np.max(np.abs(values - reference)) < 2e-5 * reference[0] / 0.168
-        # p states per level: the members of a level agree to round-off
-        assert np.max(np.abs(values.reshape(-1, p) - values.reshape(-1, p)[:, :1])) < 1e-10
+        # p states per level, split by the coarse box (1.4e-5 Ry at p/q = 2/3, fixed window)
+        assert np.max(np.abs(values.reshape(-1, p) - values.reshape(-1, p)[:, :1])) < 1e-4 * reference[0]
 
 
 @pytest.mark.parametrize("p,q", [(1, 3), (2, 3)])
 def test_the_magnetic_translation_moves_kappa2_by_p_over_q_exactly(graphene, potential, p, q):
     kappa2 = 0.21
     shifted = (kappa2 - p / q) % 1.0
-    h = MagneticGridHamiltonian.build(graphene.system.cell, p, q, 50.0,
-                                      [[0.13, kappa2, 0.0], [0.13, shifted, 0.0]], potential,
-                                      grid=(4, 4, 4))
-    a = np.linalg.eigvalsh(dense_matrix(h, 0))
-    b = np.linalg.eigvalsh(dense_matrix(h, 1))
-    assert np.max(np.abs(a - b)) < 1e-10
-    # and a shift that is not a magnetic translation does move the spectrum
-    other = MagneticGridHamiltonian.build(graphene.system.cell, p, q, 50.0,
-                                          [[0.13, (kappa2 - 0.5 / q) % 1.0, 0.0]], potential,
-                                          grid=(4, 4, 4))
-    assert np.max(np.abs(a - np.linalg.eigvalsh(dense_matrix(other, 0)))) > 1e-4
+    points = [[0.13, kappa2, 0.0], [0.13, shifted, 0.0], [0.13 + 1.0, kappa2 - 1.0, 0.0]]
+
+    def spectra(window, kpoints=points):
+        h = MagneticGridHamiltonian.build(graphene.system.cell, p, q, 50.0, kpoints, potential,
+                                          grid=(4, 4, 4), window=window)
+        return [np.linalg.eigvalsh(dense_matrix(h, ik)) for ik in range(len(kpoints))]
+
+    a, b, c = spectra("centred")
+    assert np.max(np.abs(a - b)) < 1e-10 * np.max(np.abs(a))
+    # and the period of the zone: kappa and kappa + (1, -1, 0) are one point
+    assert np.max(np.abs(a - c)) < 1e-10 * np.max(np.abs(a))
+    # a shift that is not a magnetic translation does move the spectrum
+    (other,) = spectra("centred", [[0.13, (kappa2 - 0.5 / q) % 1.0, 0.0]])
+    assert np.max(np.abs(a - other)) > 1e-4
+    # the fixed window (Lu's FFT as written) breaks both on this coarse box
+    fa, fb, fc = spectra("fixed")
+    assert np.max(np.abs(fa - fb)) > 1e-3 and np.max(np.abs(fa - fc)) > 1e-3
 
 
 def test_the_filter_keeps_the_potential_real_and_its_mean(potential):

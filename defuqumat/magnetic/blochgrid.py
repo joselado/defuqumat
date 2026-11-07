@@ -80,7 +80,7 @@ __all__ = [
     "MEMORY_LIMIT", "DENSE_LIMIT", "PRECONDITIONERS", "KRows", "MagneticGridHamiltonian",
     "wavefunction_box", "filter_to_box", "tile_potential", "estimate_bytes", "refuse_memory",
     "landau_problem", "start_block", "dense_matrix", "reference_matrix", "grid_positions",
-    "chemical_copies", "sphere_local_levels", "magnetic_cell",
+    "chemical_copies", "sphere_local_levels", "magnetic_cell", "momentum_multipliers", "WINDOWS",
 ]
 
 #: The largest estimated working set a solve is started with, bytes: D22's 31 GB less
@@ -92,6 +92,57 @@ DENSE_LIMIT = 20000
 
 #: The preconditioners of :meth:`MagneticGridHamiltonian.precondition`.
 PRECONDITIONERS = ("two-gauge", "kinetic", "identity")
+
+#: The frequency windows of :func:`momentum_multipliers`.
+WINDOWS = ("centred", "fixed")
+
+#: An irrational offset of the window centre, so that no grid row sits on a rounding tie
+#: and a row and its magnetic translate round the same way.
+_TIE_OFFSET = 1.0 / (20.0 * np.pi)
+
+
+def momentum_multipliers(box, p: int, kappa, window: str = "centred", real=np.float64):
+    """``(M1, M2, M3)``: ``pi_a`` as a Fourier multiplier along its axis, row by row.
+
+    For the FFT index ``f`` along an axis of ``N`` points any integer ``m = f mod N`` is the
+    same grid function, and the choice of ``m`` is the frequency window. ``pi_2`` on ``u``
+    is ``2 pi (m2 + kappa2 + p xi1)`` along ``xi2`` at each row ``xi1``, ``pi_1`` on ``h`` is
+    ``2 pi (m1 + kappa1 - p xi2)`` along ``xi1`` at each row ``xi2``, ``pi_3`` is ``2 pi (m3 +
+    kappa3)``. ``'fixed'`` takes ``m`` in ``[-N/2, N/2)`` everywhere (Lu's FFT as written,
+    with ``A_2`` and ``-2 pi p xi2`` added pointwise). ``'centred'`` (the default) centres
+    each row's window on zero mechanical momentum, ``m in c + [-N/2, N/2)`` with ``c`` the
+    nearest integer to ``-(kappa2 + p xi1)`` (and to ``p xi2 - kappa1``, ``-kappa3``). The
+    two differ only in which aliases the products take near the box's Nyquist frequency,
+    and agree wherever the states are resolved; what the centred window buys is that the
+    grid operator is exactly covariant under the magnetic translation ``T(a1)`` (a row
+    and its translate get the same window, the twisted rows one shifted by ``p``, which is
+    the twist) and exactly periodic in ``kappa`` (``u_{k+b} = exp(-i b.r) u_k`` on the grid),
+    where the fixed window breaks both at the level of the states' weight at the Nyquist
+    frequency (measured in ``plans/orbital-field/route-p.md``).
+    """
+    n1, n2, n3 = (int(n) for n in box)
+    kappa = jnp.asarray(kappa, dtype=real)
+    xi1 = jnp.arange(n1, dtype=real) / n1
+    xi2 = jnp.arange(n2, dtype=real) / n2
+    p = float(p)
+
+    def assign(n, centre):
+        f = jnp.arange(n, dtype=real)
+        if window == "fixed":
+            centre = jnp.zeros_like(centre)
+        else:
+            centre = jnp.floor(centre + 0.5 + _TIE_OFFSET)
+        return centre + jnp.mod(f - centre + n // 2, n) - n // 2
+
+    # pi_1 on h: the axis is xi1, one window per row xi2 -> (N1, N2) indexed [f1, j2]
+    m1 = jax.vmap(lambda c: assign(n1, c), out_axes=1)(p * xi2 - kappa[0])
+    mult1 = TPI * (m1 + kappa[0] - p * xi2[None, :])
+    # pi_2 on u: the axis is xi2, one window per row xi1 -> (N1, N2) indexed [j1, f2]
+    m2 = jax.vmap(lambda c: assign(n2, c), out_axes=0)(-(p * xi1) - kappa[1])
+    mult2 = TPI * (m2 + kappa[1] + p * xi1[:, None])
+    m3 = assign(n3, -kappa[2])
+    mult3 = TPI * (m3 + kappa[2])
+    return mult1, mult2, mult3
 
 
 def wavefunction_box(cell, ecutwfc: float) -> tuple[int, int, int]:
@@ -198,13 +249,15 @@ class MagneticGridHamiltonian(eqx.Module):
     grid: tuple = eqx.field(static=True)
     ecutwfc: float = eqx.field(static=True)
     preconditioner: str = eqx.field(static=True, default="two-gauge")
+    window: str = eqx.field(static=True, default="centred")
     band_batch: object = eqx.field(static=True, default="default")
     precision: Precision = eqx.field(static=True, default=DEFAULT_PRECISION)
 
     # --- construction ----------------------------------------------------------
     @classmethod
     def build(cls, cell, p: int, q: int, ecutwfc: float, kpoints, potential=None, *,
-              grid=None, preconditioner: str = "two-gauge", band_batch="default",
+              grid=None, preconditioner: str = "two-gauge", window: str = "centred",
+              band_batch="default",
               precision: Precision | None = None) -> "MagneticGridHamiltonian":
         """From the chemical :class:`~defuqumat.system.cell.Cell`, the flux and the dense potential.
 
@@ -214,6 +267,8 @@ class MagneticGridHamiltonian(eqx.Module):
         """
         if preconditioner not in PRECONDITIONERS:
             raise ValueError(f"preconditioner {preconditioner!r}: one of {PRECONDITIONERS}")
+        if window not in WINDOWS:
+            raise ValueError(f"window {window!r}: one of {WINDOWS}")
         mcell = magnetic_cell(cell, p, q)
         precision = cell.precision if precision is None else precision
         grid = wavefunction_box(cell, ecutwfc) if grid is None else tuple(int(n) for n in grid)
@@ -234,6 +289,7 @@ class MagneticGridHamiltonian(eqx.Module):
                    kpoints=jnp.asarray(kpoints, dtype=precision.real),
                    metric=jnp.asarray(metric, dtype=precision.real), p=int(p), q=int(q),
                    grid=grid, ecutwfc=float(ecutwfc), preconditioner=preconditioner,
+                   window=window,
                    band_batch=band_batch, precision=precision)
 
     # --- the protocol Davidson reads -------------------------------------------
@@ -317,11 +373,11 @@ class MagneticGridHamiltonian(eqx.Module):
 
     def apply(self, psi, ik) -> jnp.ndarray:
         """``(pi^2 + V) psi`` for ``psi`` ``(..., ndim)``, a band block at a time."""
-        k = TPI * self.kpoints[ik]
+        kappa = self.kpoints[ik]
 
         def block(states):
             u = states.reshape((-1,) + self.box)
-            out = self._kinetic(u, k) + self.potential_box * u
+            out = self._kinetic(u, kappa) + self.potential_box * u
             return out.reshape(states.shape)
 
         return map_bands(block, psi.astype(self.dtype), batch=self.band_batch)
@@ -371,32 +427,37 @@ class MagneticGridHamiltonian(eqx.Module):
         """``exp(i theta)`` in the band precision, without a complex literal."""
         return jax.lax.complex(jnp.cos(theta), jnp.sin(theta)).astype(self.dtype)
 
-    def momentum(self, u, k, axis: int) -> jnp.ndarray:
-        """``pi_a u`` along ``axis`` (0, 1, 2) for ``u`` ``(b, N1, N2, N3)``, ``k`` cartesian components ``k_a`` (``2 pi kappa``)."""
-        real = self.precision.real
-        n1, n2, n3 = self.box
-        xi1 = jnp.arange(n1, dtype=real) / n1
-        xi2 = jnp.arange(n2, dtype=real) / n2
-        f = TPI * jnp.asarray(_frequencies(self.box[axis]), dtype=real)
-        p = float(self.p)
+    def multipliers(self, kappa):
+        """The three mechanical-momentum multipliers ``(M1 (N1, N2), M2 (N1, N2), M3 (N3,))``.
+
+        :func:`momentum_multipliers` at this operator's box, flux and window.
+        """
+        return momentum_multipliers(self.box, self.p, kappa, self.window, self.precision.real)
+
+    def momentum(self, u, kappa, axis: int, multipliers=None) -> jnp.ndarray:
+        """``pi_a u`` along ``axis`` (0, 1, 2) for ``u`` ``(b, N1, N2, N3)`` at magnetic crystal ``kappa``.
+
+        ``pi_2`` and ``pi_3`` are Fourier multipliers on ``u`` along their axis, ``pi_1`` one on
+        ``h = exp(i 2 pi p xi1 xi2) u`` along ``xi1`` (Lu eq. 5); the multipliers are
+        :func:`momentum_multipliers`, so ``A_2`` and ``-2 pi p xi2`` are inside them.
+        """
+        m1, m2, m3 = self.multipliers(kappa) if multipliers is None else multipliers
         if axis == 0:
             phase = self._gauge_phase()
-            h = phase * u
-            dh = jnp.fft.ifft(f[None, :, None, None] * jnp.fft.fft(h, axis=1), axis=1)
-            return jnp.conj(phase) * dh + (-TPI * p * xi2[None, None, :, None] + k[0]) * u
+            dh = jnp.fft.ifft(m1[None, :, :, None] * jnp.fft.fft(phase * u, axis=1), axis=1)
+            return jnp.conj(phase) * dh
         if axis == 1:
-            du = jnp.fft.ifft(f[None, None, :, None] * jnp.fft.fft(u, axis=2), axis=2)
-            return du + (TPI * p * xi1[None, :, None, None] + k[1]) * u
-        du = jnp.fft.ifft(f[None, None, None, :] * jnp.fft.fft(u, axis=3), axis=3)
-        return du + k[2] * u
+            return jnp.fft.ifft(m2[None, :, :, None] * jnp.fft.fft(u, axis=2), axis=2)
+        return jnp.fft.ifft(m3[None, None, None, :] * jnp.fft.fft(u, axis=3), axis=3)
 
-    def _kinetic(self, u, k):
+    def _kinetic(self, u, kappa):
         """``sum_ab g^{ab} pi_a pi_b u``: three ``pi_b``, the metric, three ``pi_a``."""
-        w = [self.momentum(u, k, b) for b in range(3)]
+        multipliers = self.multipliers(kappa)
+        w = [self.momentum(u, kappa, b, multipliers) for b in range(3)]
         total = None
         for a in range(3):
             v = sum(self.metric[a, b] * w[b] for b in range(3))
-            term = self.momentum(v, k, a)
+            term = self.momentum(v, kappa, a, multipliers)
             total = term if total is None else total + term
         return total
 
@@ -491,30 +552,33 @@ def dense_matrix(hamiltonian: MagneticGridHamiltonian, ik: int, chunk: int = 256
 def reference_matrix(hamiltonian: MagneticGridHamiltonian, ik: int) -> np.ndarray:
     """``(ndim, ndim)`` the same operator from explicit matrices, host NumPy, for a small box.
 
-    Each ``pi_a`` is written as a Kronecker product of the one-axis derivative matrix
-    ``F^-1 diag(2 pi j) F`` with identities, plus its diagonal, ``pi_1`` conjugated by
-    ``diag(exp(i 2 pi p xi1 xi2))``; ``T = sum_ab g^{ab} pi_a pi_b``, ``H = T + diag(V)``. It
-    shares the formulas of :meth:`MagneticGridHamiltonian.apply` and none of its code path
-    (no FFT, no band batching), which is what the dense check compares.
+    Each ``pi_a`` is assembled row by row from the one-axis matrices ``F^-1 diag(M) F`` of
+    :func:`momentum_multipliers`, placed by Kronecker products with the row projectors and
+    identities, ``pi_1`` conjugated by ``diag(exp(i 2 pi p xi1 xi2))``; ``T = sum_ab g^{ab}
+    pi_a pi_b``, ``H = T + diag(V)``. It shares the multipliers with
+    :meth:`MagneticGridHamiltonian.apply` and none of its code path (no FFT of a state, no
+    band batching), which is what the dense check compares.
     """
-    box = hamiltonian.box
-    p = hamiltonian.p
-    kappa = np.asarray(hamiltonian.kpoints[ik], dtype=float)
-    k = TPI * kappa
+    n1, n2, n3 = box = hamiltonian.box
+    m1, m2, m3 = (np.asarray(m, dtype=float) for m in hamiltonian.multipliers(hamiltonian.kpoints[ik]))
     g = np.asarray(hamiltonian.metric, dtype=float)
     xi = grid_positions(box)
 
-    def derivative(n):
+    def one_axis(n, multiplier):
         f = np.fft.fft(np.eye(n), axis=0)
-        return np.linalg.solve(f, np.diag(TPI * _frequencies(n)) @ f)
+        return np.linalg.solve(f, np.diag(multiplier) @ f)
 
-    eye = [np.eye(n) for n in box]
-    d = [derivative(n) for n in box]
-    pi3 = np.kron(eye[0], np.kron(eye[1], d[2])) + k[2] * np.eye(xi.shape[0])
-    pi2 = np.kron(eye[0], np.kron(d[1], eye[2])) + np.diag(TPI * p * xi[:, 0] + k[1])
-    phase = np.exp(1j * TPI * p * xi[:, 0] * xi[:, 1])
-    pi1 = (np.conj(phase)[:, None] * np.kron(d[0], np.kron(eye[1], eye[2])) * phase[None, :]
-           + np.diag(-TPI * p * xi[:, 1] + k[0]))
+    def row(n, j):
+        e = np.zeros((n, n))
+        e[j, j] = 1.0
+        return e
+
+    eye1, eye2, eye3 = np.eye(n1), np.eye(n2), np.eye(n3)
+    pi3 = np.kron(eye1, np.kron(eye2, one_axis(n3, m3)))
+    pi2 = sum(np.kron(row(n1, j), np.kron(one_axis(n2, m2[j]), eye3)) for j in range(n1))
+    phase = np.exp(1j * TPI * hamiltonian.p * xi[:, 0] * xi[:, 1])
+    inner = sum(np.kron(one_axis(n1, m1[:, j]), np.kron(row(n2, j), eye3)) for j in range(n2))
+    pi1 = np.conj(phase)[:, None] * inner * phase[None, :]
     pi = [pi1, pi2, pi3]
     kinetic = sum(g[a, b] * pi[a] @ pi[b] for a in range(3) for b in range(3))
     return kinetic + np.diag(np.asarray(hamiltonian.potential_box, dtype=float).reshape(-1))
