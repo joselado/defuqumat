@@ -66,6 +66,16 @@ not zero on a hexagonal cell. ``H_0`` is taken in one of two ways (``h0``):
 Inner products are box sums, ``<f|g> = (1/npts) sum_r conj(u_f) u_g`` with ``u = npts
 ifftn(F)`` and ``F`` the coefficients on orthonormal box plane waves.
 
+**Two options the design does not have, both opt-in and both measured** (``u1.md``).
+``form = "symmetric"`` writes ``a.p + p.a`` as ``<bra| a.p |ket> + <p bra| a |ket>``, which
+is exactly Hermitian on the grid for any real ``xi1``; the design's ``2 a.p - i div a`` is
+Hermitian only up to the aliasing of ``xi1 u`` (4.6e-8 on a small free cell). ``window =
+(inner, outer)`` multiplies every basis function by a smooth window about its own cell, so
+the blocks beyond ``2 outer`` are exactly zero and the sawtooth never reaches a bra; it
+needs ``h0 = "box"``. Neither makes the free Landau problem converge on an entangled band
+set: the bare states fail by their sinc tails, the windowed ones by what the window cuts
+away (0.03 to 0.07 Ry at ``q = 10``, ``nbnd = 2 .. 16``).
+
 **Solve.** ``H c = eps S c`` per magnetic ``k`` by canonical orthogonalisation: ``S = U D
 U^dagger``, the columns with ``d < drop max d`` dropped, the rank and the smallest kept
 ``d`` recorded; ``H`` is taken as its Hermitian part and the residual reported.

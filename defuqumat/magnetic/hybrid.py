@@ -22,9 +22,9 @@ Z^dagger`` (complex Schur form, exact for a unitary matrix); and the gauge
 the frame back as ``psi'_N = psi_0 Lambda^dagger``, so ``psi~_N = psi~_0`` needs ``f_N =
 diag(e^{+i phi})``. With that sign every consecutive overlap, the closing one included, has
 the diagonal phase ``phi_n / N1`` and the centre along ``a1`` is ``-phi_n / 2 pi`` cells
-(the Berry phase of the loop is ``-phi``); with the other sign the closing overlap carries
-``e^{-2 i phi (N1-1)/N1}`` and the function is not localized
-(``test_the_transport_gauge_is_periodic``). The branch ``(-pi, pi]`` rather than ``[0, 2 pi)``
+(the Berry phase of the loop is ``-phi``); with the other sign the closing overlap differs
+from the others by ``e^{2 i phi}``, a jump that delocalizes the function
+(``test_the_other_sign_of_the_phase_is_not_periodic``). The branch ``(-pi, pi]`` rather than ``[0, 2 pi)``
 puts every centre within half a cell of the origin, which keeps the half width ``w`` of the
 band in ``Delta`` smallest; it relabels ``X`` and changes nothing else.
 
@@ -46,6 +46,13 @@ lowest ``nbnd`` bands along a ``k1`` line form a smooth subspace only when a gap
 band ``nbnd`` from band ``nbnd + 1`` on the whole line. Where they cross, the subspace jumps
 and the hybrid states have power-law tails; :func:`outside_weight` is the number that says
 so, and the half width of :mod:`~defuqumat.magnetic.ultracell_field` is read from it.
+Measured on D22 (``plans/orbital-field/u1.md``): free electrons on the graphene cell at
+``q = 10``, ``nbnd = 2``, ``N1 = 10``, the weight outside ``|xi1| > w`` is 0.27, 0.11, 0.06,
+0.03 at ``w = 1 .. 4``, the ``1/(pi^2 w)`` of a sinc (the lowest band switches plane wave at
+``k1 = 1/2``), and graphene local-only at ``nbnd = 8`` is the same (0.02 at ``w = 5``,
+``N1 = 12``). An isolated composite (graphene local-only, ``nbnd = 2``, a 6 Ry gap) reads
+1.4e-4 at ``w = 1`` and 7e-6 at ``w = 5``, a slower tail than its gap implies: the plane-wave
+sphere of each ``k`` is a step function of ``k``.
 """
 
 from __future__ import annotations
