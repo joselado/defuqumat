@@ -286,7 +286,7 @@ magnetizability, Fig. 3 for the band shift, the Chern numbers of graphene at `n_
   `molar_magnetizability`, `run_magnetizability` and `Magnetizability`.
 - `defuqumat/workflows/magnetic_bands.py`: `local_only=False` is the full Hamiltonian;
   `magnetic_mesh` for a 2D or 3D closed mesh.
-- `tests/unit/test_magnetic_bloch.py`: 8 new tests (below); `tests/regression/test_magnetic_bloch_slow.py`:
+- `tests/unit/test_magnetic_bloch.py`: 7 new tests and 2 more refusals in `test_the_refusals` (below); `tests/regression/test_magnetic_bloch_slow.py`:
   3 new slow tests (listed, not run).
 - Probe `plans/orbital-field/mag_route_p2.py` (`item1`, `si`, `chern`, `shift`, `sets`, `fold`,
   `diamond0`, `diamond`, `chi`); `plans/orbital-field/route-p-q{1,...,6}-full.npz`, the level sets
@@ -377,15 +377,27 @@ estimate **1.24 GB**, `conv_thr = 1e-8` Ry; the start is the zero-field sphere S
 |---|---|---|---|---|---|---|
 | `p = 0` | `M/diamond-p0.log` (big job) | 4 | 9.3e-9 | -273.105259083159 | 947 s | 3.60 GB |
 | `p = +1` | `M/diamond-p1.log` (slot) | 7 | 3.1e-9 | -273.043606009502 | 3417 s | 3.52 GB |
-| `p = -1` | `M/diamond-m1.log` (slot) | MINUS_ITER | MINUS_DR2 | MINUS_E | MINUS_T | MINUS_RSS |
+| `p = -1` | `M/diamond-m1.log` (slot) | 7 | 3.3e-9 | -273.043606172621 | 3599 s | 3.66 GB |
 
-`E(+dB) - E(-dB)` = **ASYM Ry** (time reversal; the design asks 1e-7, refuse above 1e-6). `chi =
--(E+ - 2 E0 + E-)/dB^2`: **CHI_C2** x 1e-6 cm^3/mol per C2 (the 24-atom cell is 12 primitive cells),
-**CHI_C** per C atom; Lu's `chi_val` (LDA) is -11.16 in their Table S3 (-11.2 in Table 2), so the
-difference is DCHI, within the design's 0.6 for the functional (PBE here, LDA there; HGH here,
-their dataset unnamed). `E(+) - E(0)` = 6.1653e-2 Ry. The p = 0 energy is the box's own, 0.67 Ry
-below the sphere SCF of the same cell, which is the box's larger basis; it cancels in the second
-difference since the three runs share the box.
+`E(+dB) - E(-dB)` = **1.63e-7 Ry** (`M/chi.log`): the design's 1e-7 is **not reached**; the refuse
+line of 1e-6 (a sign error) is not crossed. A sign error would make the two fields different
+operators at first order in `B`, against `E(+) - E(0) = 6.17e-2` Ry here; what is left is the grid.
+`H(-B, -k) = conj H(B, k)` holds on the grid only where every row's frequency window is
+mirror-symmetric, which needs an odd magnetic box and no window centre at a tie (measured on
+small boxes, `M/tr2.log`, and in the unit test: exact to 1e-12 on 5 x 5 x 9 at `q = 1`; 0.09 of the
+largest entry on 10 x 5 x 9 at `q = 2`, whose `xi1` axis is even, and 0.34 on 4 x 4 x 8 at `q = 2`). Diamond's
+box is 50 x 18 x 18, even on every axis, so each row's half-open Nyquist slot breaks time reversal
+by the states' weight there; the two SCFs stopped at dr2 3.1e-9 and 3.3e-9 as well. Which of the two
+makes the 1.6e-7 is not separated here (an odd box, 75 x 25 x 25, at three times the size, would).
+
+`chi = -(E+ - 2 E0 + E-)/dB^2` (`M/chi.log`): **-11.40 x 1e-6 cm^3/mol per C2** (the 24-atom cell
+is 12 primitive cells), **-5.70 per C atom**. Lu's `chi_val` (LDA, their dataset unnamed) is -11.16 in
+their Table S3 and -11.2 in Table 2: the difference is **0.24**, inside the design's 0.6 (5 per cent)
+for the functional, PBE here. `E(+) - E(0)` = 6.1653e-2 Ry, so the asymmetry above is 2.6e-6 of the
+second difference. The `p = 0` energy is the box's own, 0.67 Ry below the sphere SCF of the same cell
+(the box's larger basis); it cancels in the second difference since the three runs share the box. The
+three SCFs took 4, 7 and 7 iterations from the zero-field density, the first iteration (random start
+blocks, 25 to 60 Davidson steps per k) 680 s on four cores, later ones 67 to 250 s.
 
 **5. The band shift** (`M/shift.log`; graphene at `n_Phi = 1`, 78912 T, kmesh (6, 6), nbnd 12,
 non-SCF on the shared potential, the atoms moved by `a1/2` through `Calculator.with_positions`, to
@@ -436,13 +448,17 @@ open choice is the conservative one, recorded with the number it rests on.
 - **The SCF's Davidson threshold** starts at 1e-8 (the start is a converged zero-field density) and
   follows `next_ethr` from the second iteration; a solve that does not settle in 200 steps is refused,
   not used (none did).
-- **Time reversal on the grid is exact only where no row's window centre is ambiguous.** The centred
-  window rounds `-(p xi1 + kappa2)` with a small offset (`_TIE_OFFSET`, step 1); a row whose centre is
-  within that offset of a half-integer gets, under `B -> -B, k -> -k`, a window shifted by one
-  frequency. On the 5 x 5 x 9 test box at kappa (0.37, 0.29) one row sits 0.01 from a tie and the top
-  levels read 0.9 Ry apart (`M/t1.log`, the failing first form of the test); on the converged graphene
-  box at `n_Phi = 1` the effect on the sorted 6 x 6 set is 6.3e-11 Ry (item 5), and on diamond it is
-  inside `E(+) - E(-)` above. Not changed: the offset is what keeps the magnetic translation exact.
+- **Time reversal on the grid is exact only on an all-odd magnetic box with no tie row**, and it is
+  not changed. An even axis has a half-open window (the Nyquist slot belongs to one side), and the
+  centred window rounds its centre with a small offset (`_TIE_OFFSET`, step 1), so a row whose centre
+  is within the offset of a half-integer gets a window shifted by one frequency under `B -> -B, k ->
+  -k`. Both are what keep the magnetic translation and the period in `kappa` exact, which the fold
+  rests on, where no rule can keep all three at an exact tie. Measured: `H(-B,-k)` against `conj
+  H(B,k)` exact to 1e-12 on an odd 5 x 5 x 9 box at a tie-free `kappa` (unit test), 0.09 of the
+  largest entry on 10 x 5 x 9 and 0.34 on 4 x 4 x 8 (`M/tr2.log`; the first two forms of the unit test,
+  at `q = 2`, failed for this reason, `M/t1.log`, `M/t2.log`); on the converged graphene box at `n_Phi =
+  1` the sorted 6 x 6 set at `+B` and `-B` agree to 6.3e-11 Ry (item 5); on diamond it is inside the
+  1.6e-7 Ry of `E(+) - E(-)` (item 4).
 
 ## Refusals (step 2), each tested to fire
 
@@ -458,13 +474,13 @@ the wrong k is far from `vkb`, and the nonlocal term moves the local-only spectr
 
 ## Unit tests (step 2)
 
-`tests/unit/test_magnetic_bloch.py` (eight new): the grid projectors against `vkb` on silicon (s and
+`tests/unit/test_magnetic_bloch.py` (seven new, and the ultrasoft and no-density refusals added to `test_the_refusals`): the grid projectors against `vkb` on silicon (s and
 p, random states); Hermiticity, the magnetic translation with and without the GIPAW phase; time
 reversal at `p = -1`; the rigid shift of the crystal at `n_Phi = 1` on a 2 x 2 mesh (eps(k) moves,
 the set does not, kappa2 -> kappa2 - 1/2 pairs them); the fold's weights, the fold and the charge
 of `band_density`; the occupations and the molar conversion; item 1 at 50 Ry (projector part under
 2e-6 Ry, the box below the sphere and within 2.5e-2). With the foundation's two files of the package:
-TESTS (`M/t2.log`).
+44 passed in 54.1 s, the slowest test 9.2 s (`M/t3.log`, at 960dbe3f).
 
 ## What is left (step 2)
 
