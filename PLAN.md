@@ -28186,7 +28186,7 @@ the gap with the variate on by default; the notebook runs in 55 s.
 **What is outstanding.** The spinor; the three traces above; folding `S^(-1/2)` into the nonlocal
 term to cut the per-application cost.
 
-### P172 -- The KPM conductivity's Fermi level, reference energy and width, decided before the recursion. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, now 18 fast tests, with the other four KPM files, `test_calculator.py` and `test_facade_documentation.py` on D22 CPU, the five KPM files on the RTX A2000; the fast gate in one slot at the final commit; no slow file; branch `kpm-wf-1-kpm-sigma-level` from 92302fc3, not merged, not pushed)
+### P172 -- The KPM conductivity's Fermi level, reference energy and width, decided before the recursion. ✅ DONE 2026-11-07 (`tests/unit/test_kpm_conductivity.py`, now 18 fast tests, with the other four KPM files (14, 8, 6, 11) and `test_calculator.py` with `test_facade_documentation.py` (57) on D22 CPU at 090a89f0, all passed; the five KPM files on the RTX A2000 at 3af43817, 57 passed in 352 s (`gpu.log`, whose header names 090a89f0, the commit checked out when it queued for the lock: `defuqumat/` and `tests/` are the same at both); the fast gate in one slot at 3af43817, 3820 passed, 85 skipped, only the two known `yaml` failures of `test_check_guide.py`, 1988 s (`gate.log`); the commits after 3af43817 change `PLAN.md` and `docs/guide/optics.md` only; logs in `/l/ladovj1/review/kpm/wf/impl1/`; no slow file; branch `kpm-wf-1-kpm-sigma-level` from 92302fc3, not merged, not pushed)
 
 **The defect.** P169 chose `N`, the reported width and `delta_e` from a reference energy taken before
 the recursion, and that reference was `(bottom + centre) / 2` whenever `fermi_energy` was `None`; the
