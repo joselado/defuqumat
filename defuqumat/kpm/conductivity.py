@@ -266,6 +266,13 @@ def conductivity_moments(hamiltonian, moving, tangents, centre, half, key, weigh
 
 # -- the control variate -------------------------------------------------------
 
+#: Degree of the low-pass filter for the conductivity's variate. Twice the DOS's
+#: (:data:`~defuqumat.kpm.control.FILTER_DEGREE`): the conduction states of the
+#: window need Ritz values well inside a delta width, which degree 8 misses by
+#: 0.0035 Ry (median) on si16 and degree 16 meets to 1e-4; the error of
+#: ``sigma_xx`` falls from 0.037 to 0.012 at R = 1 for 1.6 times the time.
+FILTER_DEGREE_SIGMA = 16
+
 @functools.partial(jax.jit, static_argnames=("n_moments", "n_random"))
 def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre, half,
                   n_moments: int, n_random: int):
@@ -273,15 +280,24 @@ def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre
 
     With the Ritz pairs ``(theta_j, y_j)`` of :func:`~defuqumat.kpm.control.ritz_pairs`,
     ``P = sum_j |y_j><y_j|`` and ``V^a_jl = <y_j|v_a|y_l>``, the model sample of a
-    random vector ``r`` is ``n_live <r|P v_a P T_n(H_P) P v_b P T_m(H_P) P|r>``,
-    ``n_live sum_jlp conj(c_j) V^a_jl T_n(theta_l) V^b_lp T_m(theta_p) c_p`` with
-    ``c = <y|r>``, and its expectation is ``sum_lp V^a_pl T_n(theta_l) V^b_lp
-    T_m(theta_p)`` exactly, since ``E[n_live c_p conj(c_j)] = delta_jp`` for
-    orthonormal ``y`` on the live sphere. The correction is the expectation minus
+    random vector ``r`` is ``n_live <r|v_a P T_n(H_P) P v_b P T_m(H_P) P|r>``,
+    ``n_live sum_jl <r|v_a|y_j> T_n(theta_j) V^b_jl T_m(theta_l) c_l`` with
+    ``c = <y|r>``, and its expectation is ``sum_jl V^a_lj T_n(theta_j) V^b_jl
+    T_m(theta_l)`` exactly, since ``E[n_live <r|A|y_j> <y_l|r>] = <y_l|A|y_j>`` for
+    random phases on the live sphere. The correction is the expectation minus
     the mean of the model samples over the same random vectors
     :func:`conductivity_moments` draws at ``ik``, so it is unbiased whatever the
-    pairs are, and it removes the noise of the transitions inside ``P``. Not
-    weighted by ``w_k``.
+    pairs are. Not weighted by ``w_k``.
+
+    **The left leg is ``<r|v_a|y_j>``, not ``<r|P v_a|y_j>``.** The true sample is
+    ``sum <r|v_a|o><o|v_b|c><c|r>`` over the states at ``E`` and ``E + w``; when
+    ``P`` holds them all, the model with ``v_a r`` itself equals it and the
+    difference has no noise left, while the model with ``P v_a P`` misses the
+    part of ``r`` outside ``P`` that ``v_a`` carries onto the valence states, and
+    that part is most of the noise: on si16 that form gained 1.3x at every filter
+    degree, with the window's Ritz values exact to 1e-8 Ry at degree 24
+    (``PLAN.md`` P169). It costs one velocity application per vector and
+    direction.
     """
     live = live_mask(hamiltonian)[ik]
     dtype = hamiltonian.dtype
@@ -294,13 +310,16 @@ def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre
     cheb = jnp.cos(n[:, None] * jnp.arccos(x)[None, :]).astype(dtype)  # (N, M)
     starts = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
     c = jnp.conj(vectors) @ starts.T  # (M, R): <y_j|r>
+    # <r|v_a|y_j> = conj(<y_j|v_a r>), with v_a r itself rather than P v_a P r
+    legs = [jnp.conj(jnp.conj(vectors) @ apply_velocity(hamiltonian, moving, tangents[a],
+                                                        starts, ik).T) for a in range(ndir)]
     count = jnp.sum(live).astype(x.dtype)
     rows = []
     for a in range(ndir):
         row = []
         for b in range(ndir):
             exact = cheb @ (elements[a].T * elements[b]) @ cheb.T
-            left = cheb[:, :, None] * (elements[a].T @ jnp.conj(c))[None]  # (N, M, R)
+            left = cheb[:, :, None] * legs[a][None]  # (N, M, R): T_n(theta_j) <r|v_a|y_j>
             right = jnp.einsum("mp,pr,lp->mlr", cheb, c, elements[b])
             model = count * jnp.einsum("nlr,mlr->nm", left, right) / n_random
             row.append(exact - model)
@@ -627,8 +646,9 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
             span of the low-pass-filtered atomic orbitals and add back its exact
             value (:func:`variate_block`): unbiased, with the noise of the
             transitions inside that span removed. Stochastic trace only.
-        filter_degree, filter_cut: the low-pass filter, degree 8 and a cut at
-            ``E_F + max(1, window + 0.4)`` Ry when not given.
+        filter_degree, filter_cut: the low-pass filter, degree 16
+            (:data:`FILTER_DEGREE_SIGMA`) and a cut at ``E_F + max(1, window + 0.4)``
+            Ry when not given.
         lanczos_steps, edge_margin: the interval (:func:`~defuqumat.kpm.bounds.spectral_interval`).
         ns, tau, becsum, field, field_scale: the rest of the converged state.
         calculation: the SCF's own.
@@ -702,8 +722,6 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
                                         delta_e)
     levels = channel_levels(fermi_energy, len(hamiltonians))
     if control_variate:
-        from defuqumat.kpm.control import FILTER_DEGREE
-
         if trace != "stochastic":
             raise ValueError("control_variate reduces the noise of random vectors; the exact "
                              "trace has none")
@@ -712,7 +730,7 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         moments = moments + variate_corrections(
             calculation, hamiltonians, moving, tangents, np.asarray(weights), centre, half,
             n_moments, n_random, seed, cut,
-            FILTER_DEGREE if filter_degree is None else int(filter_degree))
+            FILTER_DEGREE_SIGMA if filter_degree is None else int(filter_degree))
     n_frequencies = int(round(window / delta_e)) + 1
     sigma = channel_sum(moments, factors, centre, half, float(calculation.system.cell.volume),
                         levels, temperature, emin, delta_e, n_frequencies)
