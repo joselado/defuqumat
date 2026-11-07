@@ -395,9 +395,9 @@ $4\times4\times4$ mesh is also coarse for a spectrum. The code chooses the numbe
 moments so that each delta function has a half width of 0.02 Ry at the top of the valence
 band. A transition is two delta functions, so its width is $\sqrt2$ times larger. The run
 reports this width at the Fermi level, 0.388 eV, which is also what
-`sigma.broadening_for("jackson")` gives. The conductivity takes about 50 s on one core, and
-the atomic orbitals remove most of the noise of the 4 random vectors (`control_variate`,
-below).
+`sigma.broadening_for("jackson")` gives. The conductivity takes about 50 s on one core,
+including the compilation, and the atomic orbitals remove most of the noise of the 4
+random vectors (`control_variate`, below).
 
 The Fermi level is 0.4760 Ry, in the middle of the gap. The top of the valence band is
 0.4515 Ry. For a metal, `get_kpm_conductivity` takes the Fermi level of the SCF, and with

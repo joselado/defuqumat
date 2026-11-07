@@ -28239,9 +28239,11 @@ silicon (4x4x4, `n_random = 4`, `window = 0.6`, `guide.py`, `guide-before.log` a
 in the same directory, both first calls in one slot at a load of about 10): 1012 moments, peak 45002
 S/cm at 3.70 eV, transition width 0.385 eV reported where `broadening_for` gave 0.253 eV
 (0.018592 Ry), 52.1 s; after, 660 moments, peak 32417 S/cm at 3.73 eV, 0.388 eV reported and given
-by `broadening_for`, 45.9 s. **The peak dropped by 28 per cent because the deltas at the gap are now
+by `broadening_for`, 45.9 s (first calls, compilation included). **The peak dropped by 28 per cent because the deltas at the gap are now
 the 0.02 Ry asked for**: before, `N` counted at the middle of the valence band made them 0.0131 Ry at
 the level. The review's "within 2 of 652" was at the Ritz level; `N` is chosen at the HOMO, 654.
+The timings of P169 and P170 in `PERFORMANCE.md` stand: `tsig.py` passes `fermi_energy` (the dense
+mid-gap) explicitly, so their `N` was chosen at the level.
 
 **Tests**, each new one run at 42f4c76a from a copy outside the repository (`before/`, the old
 package confirmed by the path in its warnings), `cond-before3.log`: five failed there (two
@@ -28250,11 +28252,14 @@ and the metal's direct call with no level returning) and pass here, 18 of 18 (`c
 `test_a_constrained_moment_takes_the_pair_of_levels` (Al, the pair through the `Calculator`, a
 scalar raises), `test_a_metal_takes_the_level_of_its_scf` (Al, the SCF level, and no level or a
 `reference_energy` alone raises), `test_the_moments_are_counted_at_the_top_of_the_valence_band`
-(Si2, `N` within 2 of `moment_count` at the HOMO and the width identity to 1e-3, measured to 1e-6),
+(Si2, `N` within 2 of `moment_count` at the HOMO and the width identity to 1e-3, equal to six decimals in the probe),
 `test_the_ritz_level_of_two_channels_is_in_the_gap` (Si2 `nspin = 2` with a 0.01 eV smearing, called
 directly with `reference_energy = scf.fermi_energy`, the level between the dense edges of the merged
 ladder of both channels; through the `Calculator` a fixed `nspin = 2` run needs `tot_magnetization`,
-which makes it a constrained moment, so the shared Ritz level is reachable only directly), and the
+which makes it a constrained moment, so the shared Ritz level is reachable only directly; measured
+in `probe2.log`: the magnetization collapses to 2e-15, the level is 0.501055 Ry for seeds 0, 1 and 2,
+against the dense merged edges 0.484375 and 0.517733, mid-gap 0.501054, so the `refuse_if` of the
+item does not apply), and the
 existing `test_the_default_level_of_an_insulator_is_in_its_gap`, which now passes `reference_energy`.
 Two coverage tests that pass at both commits: `test_a_hubbard_u_is_refused_before_the_level_is_asked_for`
 and `test_the_dc_entry_and_a_temperature_are_the_dense_pair_sum` (`sigma[0]` and the whole spectrum at
