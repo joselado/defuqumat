@@ -13,6 +13,8 @@ Run from the worktree root on D22 (every subcommand imports defuqumat or reads i
     python mag_cross.py reps q            route P's full H at 1/q on the four representatives only
                                           (q = 8, 10, beyond the committed meshes); route-p-q<q>-reps.npz
     python mag_cross.py diag              route P's zero pair against Peierls and route U, a kappa scan
+    MAG_ECUT=70 python mag_cross.py floor full | reps q   the same at another cutoff, files tagged -70
+    python mag_cross.py cutoff 70         route P's zero pair at 50 and 70 Ry against Peierls
 
 Everything compared is a sorted level set pooled over the four magnetic representatives
 kappa1 in {0, 1/2}, kappa2 in {0, 1/(2q)} (route P's full mesh is q copies of it, which
@@ -45,6 +47,10 @@ def route_p_full(q):
             return np.load(path)
     return None
 RY_EV = 13.605693122990
+# the cutoff of the box (Ry); 50 is the design's and every committed set's. Another value tags the
+# files written by floor and reps, so the 50 Ry ones are never overwritten.
+ECUT = float(os.environ.get("MAG_ECUT", "50"))
+TAG = "" if ECUT == 50.0 else f"-{ECUT:g}"
 TRAPZ = getattr(np, "trapezoid", None) or np.trapz
 
 
@@ -102,7 +108,7 @@ def graphene():
     return Calculator.from_keywords(
         lattice="hexagonal", a=2.46, c=15.0, atoms=[("C", (0, 0, 0)), ("C", (1 / 3, 2 / 3, 0))],
         pseudos={"C": "C.pbe-hgh.UPF"}, pseudo_dir="tests/data/pseudo",
-        ecut=50.0 * RY_TO_EV, kmesh=(1, 1, 1), smearing=0.01 * RY_TO_EV, smearing_type="mv")
+        ecut=ECUT * RY_TO_EV, kmesh=(1, 1, 1), smearing=0.01 * RY_TO_EV, smearing_type="mv")
 
 
 def dirac_pair(levels, ef):
@@ -148,9 +154,9 @@ def floor(kind, nbnd=10):
         print(f"[{kind}] corner {pts[ik, :2].round(6).tolist()}: box pair {ib},{ib + 1} mean {mb:.10f} split "
               f"{sb:.3e}; sphere pair {is_},{is_ + 1} mean {ms:.10f} split {ss:.3e}; box - sphere {mb - ms:+.3e} Ry")
     OUT.mkdir(parents=True, exist_ok=True)
-    np.savez(OUT / f"floor-{kind}.npz", kpoints=pts, box=eb, sphere=es, fermi_energy=ef,
+    np.savez(OUT / f"floor-{kind}{TAG}.npz", kpoints=pts, box=eb, sphere=es, fermi_energy=ef,
              box_steps=box.steps, time_box=t_box, time_sphere=t_sph)
-    print(f"[{kind}] saved {OUT / f'floor-{kind}.npz'}; peak RSS "
+    print(f"[{kind}] ecut {ECUT} Ry, saved {OUT / f'floor-{kind}{TAG}.npz'}; peak RSS "
           f"{resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6:.2f} GB")
 
 
@@ -504,10 +510,53 @@ def representatives_run(q):
           f"{b.unsettled.tolist()}, solver {sorted(set(b.solver))}, memory estimate {b.memory_estimate / 1e9:.3f} GB, "
           f"{wall:.0f} s, peak RSS {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6:.2f} GB", flush=True)
     OUT.mkdir(parents=True, exist_ok=True)
-    np.savez(OUT / f"route-p-q{q}-reps.npz", eigenvalues=b.eigenvalues, kpoints=b.kpoints, steps=b.steps,
+    np.savez(OUT / f"route-p-q{q}-reps{TAG}.npz", ecut=ECUT, eigenvalues=b.eigenvalues, kpoints=b.kpoints, steps=b.steps,
              flux=np.array([1, q]), box=np.array(b.box), field_tesla=b.field_tesla, wall_s=wall,
              description="route P full H (GIPAW projectors), graphene 50 Ry, the four representatives only; Ry")
-    print(f"saved {OUT / f'route-p-q{q}-reps.npz'}")
+    print(f"ecut {ECUT} Ry, saved {OUT / f'route-p-q{q}-reps{TAG}.npz'}")
+
+
+def cutoff(other):
+    """Route P's zero pair against Peierls at 50 Ry and at ``other`` Ry, each about its own box E_D.
+
+    A field-induced grid effect of the box moves with the cutoff; the Peierls error does not.
+    """
+    from defuqumat.magnetic.landau import dirac_point
+    from defuqumat.magnetic.peierls import bonds_from_wannier
+
+    w = wannier("pz")
+    bonds = bonds_from_wannier(w)
+    pt = dirac_point(w.lattice, w.bands, w.edge)
+    tag = f"-{float(other):g}"
+    for label, fname in (("50 Ry", "floor-full.npz"), (f"{other} Ry", f"floor-full{tag}.npz")):
+        f = np.load(OUT / fname)
+        ik = [i for i, kp in enumerate(f["kpoints"]) if np.allclose(kp[:2], pt["K"][:2])][0]
+        print(f"{label}: box E_D at K {dirac_pair(f['box'][ik], float(f['fermi_energy']))[0]:.10f} Ry, sphere "
+              f"{dirac_pair(f['sphere'][ik], float(f['fermi_energy']))[0]:.10f} Ry")
+    for q in (6, 10):
+        rows = {}
+        for label, fl, rp in (("50 Ry", "floor-full.npz", route_p_full(q)),
+                              (f"{other} Ry", f"floor-full{tag}.npz",
+                               np.load(OUT / f"route-p-q{q}-reps{tag}.npz") if (OUT / f"route-p-q{q}-reps{tag}.npz").exists() else None)):
+            if rp is None:
+                print(f"q {q} {label}: no route P set")
+                continue
+            f = np.load(OUT / fl)
+            ik = [i for i, kp in enumerate(f["kpoints"]) if np.allclose(kp[:2], pt["K"][:2])][0]
+            ed = dirac_pair(f["box"][ik], float(f["fermi_energy"]))[0]
+            rep = reps(rp["kpoints"], q)
+            kap = rp["kpoints"][rep][:, :2]
+            pz = np.sort((np.sort(rp["eigenvalues"][rep], axis=1)[:, 4 * q - 1:4 * q + 1] - ed).ravel())
+            lev, _ = peierls_levels(w, bonds, q, kap)
+            wz = np.sort((lev[:, q - 1:q + 1] - pt["E_D"]).ravel())
+            rows[label] = pz
+            print(f"q {q} {label}: zero pair about the box E_D {np.array2string(pz * RY_EV, precision=4)} eV; Peierls "
+                  f"{np.array2string(wz * RY_EV, precision=4)} eV; max |P - W| {np.max(np.abs(pz - wz)) * RY_EV * 1e3:.1f} "
+                  f"meV, mean P - W {np.mean(pz - wz) * RY_EV * 1e3:+.1f} meV", flush=True)
+        if len(rows) == 2:
+            a, b = rows.values()
+            print(f"q {q}: route P's zero pair, {other} Ry minus 50 Ry: max {np.max(np.abs(b - a)) * RY_EV * 1e3:.1f} meV, "
+                  f"mean {np.mean(b - a) * RY_EV * 1e3:+.1f} meV", flush=True)
 
 
 def diag():
@@ -568,6 +617,8 @@ if __name__ == "__main__":
         analyse()
     elif cmd == "diag":
         diag()
+    elif cmd == "cutoff":
+        cutoff(sys.argv[2])
     elif cmd == "reps":
         representatives_run(int(sys.argv[2]))
     else:
