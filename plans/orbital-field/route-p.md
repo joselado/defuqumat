@@ -74,6 +74,11 @@ The preconditioner, one k-point, the same problem, 200 steps allowed (`L/landau-
 | **two-gauge** | **4** | 1e-12 | **160** | 0 | 1e-13 (first six levels) |
 | two-gauge with the plane waves' own diagonal `<m|pi^2|m>` | 4 | 1e-12 | 150 | 0 | |
 
+The rows from the variant probe are at `kappa = (0.13, 0.27)`, the identity and kinetic rows of the
+workflow at `kappa = 0`; all of them ran before the centred window and the buffer bands existed
+(commits 66ae6545 to 56a6cdff), which the free problem barely feels (the two full item-1 runs
+above, fixed and centred, took 146 to 169 and 146 to 179 steps).
+
 At zero field the same box and the kinetic rule settle local-only graphene in 22 steps
 (`L/pre-g1-p0.log`; identity 200 steps, 10 unsettled), and the same local-only graphene at
 `p/q = 1/1` in 164 (two-gauge 93, `L/pre-g1-d4.log`; both at the fixed window and the filtered
