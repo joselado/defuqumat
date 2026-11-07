@@ -99,7 +99,18 @@ print(f"Hermiticity {ll.hermiticity.max():.1e} Ry, plaquette {ll.plaquette}")
 ```
 
 ```
-SNIPPET_GRAPHENE
+flux (1, 7891), B = 10.000 T, dimension 15782
+v_F = 8.4207e+05 m/s, E_1 Dirac = 96.62 meV
+n =   1: E_n - E_D =    96.48 meV, ratio 0.99860
+n =   2: E_n - E_D =   136.33 meV, ratio 0.99776
+n =   3: E_n - E_D =   166.85 meV, ratio 0.99705
+n =  10: E_n - E_D =   303.43 meV, ratio 0.99314
+n =  -1: E_n - E_D =   -96.75 meV, ratio 1.00136
+n =  -2: E_n - E_D =  -136.87 meV, ratio 1.00168
+n =  -3: E_n - E_D =  -167.66 meV, ratio 1.00186
+n = -10: E_n - E_D =  -306.18 meV, ratio 1.00213
+zero level -66.7 ueV, 2 states, site traces [1. 1.]
+Hermiticity 3.9e-16 Ry, plaquette (0.999999682995351-0.0007962469450318828j)
 ```
 
 The first level is within 0.15 per cent of the Dirac formula. The ratio moves away
@@ -143,11 +154,14 @@ print(f"ribbon of {ribbon.dim // 2} cells at kappa2 = {k2:.5f}: levels (meV from
 ```
 
 ```
-SNIPPET_RIBBON
+ribbon of 330 cells at kappa2 = 0.31242: levels (meV from E_D) [-1.3687e+02 -9.6750e+01 -7.9600e+00 -7.0000e-02  9.6480e+01  1.3633e+02]
 ```
 
-The ribbon gives the same levels as the torus with 660 rows instead of 15782. It also
-has edge states, which the torus does not have.
+The levels $n = \pm1$ and $\pm2$ are those of the torus to the printed digits, with 660
+rows instead of 15782, and one state sits at $E_D$. The level at $-8$ meV is not in the
+torus spectrum: a ribbon has edges, and states the torus does not have. The ribbon must
+be wide enough. With 165 cells, five magnetic lengths, the walls are 2.5 $\ell_B$ from
+the orbit, and the level $n = 1$ moves up by 4 meV (measured with the 8-function Wannier set).
 
 ## The Hofstadter butterfly
 
@@ -191,7 +205,8 @@ print("levels / B_ph:", np.round(free.eigenvalues[0] / free.b_ph, 8))
 ```
 
 ```
-SNIPPET_FREE
+B = 7891.2 T, B_ph = 0.03357231 Ry, ndim 92160
+levels / B_ph: [1.         2.46351843 2.46351843 3.         4.46351843 4.46351843]
 ```
 
 The levels are 1, 3 for $m = 0$, and $1 + (2\pi/c)^2/B_{ph}$ twice for $m = \pm1$, to the
