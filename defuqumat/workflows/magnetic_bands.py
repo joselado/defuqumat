@@ -75,6 +75,7 @@ class MagneticBands:
     timings: dict
     chern: tuple | None = None
     states: np.ndarray | None = field(default=None, repr=False)
+    buffer: int = 0
 
     @property
     def sorted_levels(self) -> np.ndarray:
@@ -134,7 +135,8 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
                        field_axis: int = 2, chern_gap: float = 1e-6,
                        band_batch="default", unconverged: str = "fallback",
                        window: str = "centred", local: str = "two-grid",
-                       residual_threshold: float | None = None) -> MagneticBands:
+                       residual_threshold: float | None = None, buffer: int = 4,
+                       buffer_ethr: float = 1e-5) -> MagneticBands:
     """The ``nbnd`` lowest levels of ``pi^2 + V_loc`` at flux ``p/q`` on a ``kmesh`` of the magnetic zone.
 
     Args:
@@ -162,6 +164,10 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
         local: ``'two-grid'`` (``V u`` on the potential's dense grid, QE's order) or
             ``'filtered'`` (``V`` filtered to the box); :meth:`~defuqumat.magnetic.blochgrid.
             MagneticGridHamiltonian.local_term`.
+        buffer: bands solved above the ``nbnd`` returned, at the loose ``buffer_ethr`` (QE's
+            ``empty_ethr`` role), so the top returned band is not the block's straggler: at
+            ``q = 6`` without it one band of 32 was still unsettled after 200 steps, and at
+            ``q = 4`` the top band read 8.1e-10 Ry off its translate where the others read 3e-12.
         residual_threshold: a bound on each state's residual norm on top of ``ethr`` (the
             eigenvalue test alone leaves the states converged to about ``sqrt(ethr)``, which
             is what a density read from them carries).
@@ -204,10 +210,13 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
             kpts = np.concatenate([kpts, np.zeros((len(kpts), 1))], axis=-1)
     nk = len(kpts)
     ndim = q * int(np.prod(grid))
+    if buffer < 0:
+        raise ValueError(f"buffer {buffer}: a number of bands, at least zero")
+    nsolve = nbnd + int(buffer)
     kept = nk * nbnd if (chern or keep_states) else 0
     potential = None if free else local_potential_of(scf)
     fine = None if (potential is None or local != "two-grid") else potential.shape
-    estimate = estimate_bytes(q, nbnd, david, grid=grid, kept=kept, fine_grid=fine)
+    estimate = estimate_bytes(q, nsolve, david, grid=grid, kept=kept, fine_grid=fine)
     refuse_memory(estimate, memory_limit, f"route P at p/q = {p}/{q}, nbnd {nbnd}, ndim {ndim}")
 
     timings = {}
@@ -223,21 +232,23 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
     unsettled = np.zeros(nk, dtype=int)
     solver = []
     states = np.zeros((nk, nbnd, ndim), dtype=hamiltonian.dtype) if kept else None
+    thresholds = np.concatenate([np.full(nbnd, float(ethr)),
+                                 np.full(int(buffer), max(float(ethr), float(buffer_ethr)))])
     t0 = time.perf_counter()
     per_k = []
     for ik in range(nk):
         t1 = time.perf_counter()
-        start = start_block(hamiltonian, ik, nbnd)
+        start = start_block(hamiltonian, ik, nsolve)
         values, vectors, step, left = davidson_eigensolver_all(
-            hamiltonian, nbnd, psi0=start[None], ethr=ethr, david=david,
+            hamiltonian, nsolve, psi0=start[None], ethr=thresholds, david=david,
             max_iterations=max_iterations, indices=np.array([ik]), return_steps=True,
             residual_threshold=residual_threshold)
         steps[ik], unsettled[ik] = int(step[0]), int(left[0])
         if unsettled[ik] == 0 or unconverged == "keep":
-            eigenvalues[ik] = np.asarray(values[0])
+            eigenvalues[ik] = np.asarray(values[0])[:nbnd]
             solver.append("davidson" if unsettled[ik] == 0 else "davidson-unsettled")
             if states is not None:
-                states[ik] = np.asarray(vectors[0])
+                states[ik] = np.asarray(vectors[0])[:nbnd]
         elif ndim <= DENSE_LIMIT:
             matrix = dense_matrix(hamiltonian, ik)
             w, v = np.linalg.eigh(0.5 * (matrix + matrix.conj().T))
@@ -247,7 +258,7 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
                 states[ik] = v[:, :nbnd].T
         else:
             raise RuntimeError(
-                f"Davidson left {unsettled[ik]} of {nbnd} bands unsettled at k-point {ik} after "
+                f"Davidson left {unsettled[ik]} of {nsolve} bands unsettled at k-point {ik} after "
                 f"{steps[ik]} steps (preconditioner {preconditioner!r}), and ndim = {ndim} is "
                 f"above the dense fallback's {DENSE_LIMIT}: refused rather than returned")
         per_k.append(time.perf_counter() - t1)
@@ -267,4 +278,4 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
         box=hamiltonian.box, ndim=ndim, kpoints=np.asarray(kpts), eigenvalues=eigenvalues,
         steps=steps, unsettled=unsettled, solver=tuple(solver), preconditioner=preconditioner,
         memory_estimate=estimate, window=window, local=local, timings=timings, chern=groups_chern,
-        states=states if keep_states else None)
+        states=states if keep_states else None, buffer=int(buffer))
