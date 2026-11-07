@@ -387,6 +387,19 @@ def levels_near(h, energy: float, n: int, *, vectors: bool = True, offset: float
         shift = energy + (1e-7 if offset is None else offset)
         k = min(dim - 2, n + 4)
         w, v = spla.eigsh(sp.csc_matrix(h), k=k, sigma=shift, which="LM")
+        # **ARPACK's vectors are not orthonormal inside an exactly degenerate cluster**:
+        # graphene's two zero modes came back with |V^+ V - 1| up to 0.79 at residuals of
+        # 1e-16 Ry, and tr P_A over the pair read 0.65 to 1.31 instead of 1
+        # (plans/orbital-field/foundation.md). A Rayleigh-Ritz step on the returned block,
+        # orthonormalised by its singular vectors, makes the block's projector exact.
+        u, s, _ = np.linalg.svd(v, full_matrices=False)
+        rank = int(np.sum(s > 1e-8 * s[0]))
+        if rank < v.shape[1]:
+            raise ValueError(f"the shift-invert solve returned a rank-{rank} block of {v.shape[1]} "
+                             "vectors; ask for more levels or move the shift")
+        hs = u.conj().T @ (h @ u)
+        w, c = np.linalg.eigh(0.5 * (hs + hs.conj().T))
+        v = u @ c
     sel = np.argsort(np.abs(w - energy), kind="stable")[:n]
     sel = sel[np.argsort(w[sel], kind="stable")]
     return (w[sel], v[:, sel]) if vectors else w[sel]

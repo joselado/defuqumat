@@ -197,5 +197,14 @@ def test_workflow_dirac_comparison_and_zero_modes():
     assert entry["ratios"][-1] == pytest.approx(1.0, abs=1e-2)
     assert dirac_levels(out.field_tesla, d["v_F"], 1)[2] == pytest.approx(d["E1_dirac_ev"])
     assert out.relative[0] < 1e-13
+    # the shift-invert path (dim 3950): ARPACK's zero-mode pair is not orthonormal by itself
+    # (tr P_A read 0.65 there before the Rayleigh-Ritz step of levels_near)
+    big = run_landau_levels(_model(), bonds=BONDS, flux=(1, 1975), kappa=((0.11, 0.23),),
+                            nlevels=24, dirac=True)
+    entry = big.dirac["per_k"][0]
+    assert big.dim > 1600
+    assert entry["zero_multiplicity"] == 2
+    assert entry["zero_site_traces"][0] == pytest.approx(1.0, abs=1e-6)
+    assert entry["ratios"][1] == pytest.approx(1.0 - 4.6e-4, abs=1e-4)
     with pytest.raises(NotImplementedError, match="Zeeman"):
         run_landau_levels(_model(), bonds=BONDS, flux=(1, 400), zeeman=True)
