@@ -529,8 +529,9 @@ only comments, docstrings and files under `plans/`).
   2.6e-9), **1631 s** (1027 s the first iteration, 74 to 85 Davidson steps), memory estimate 1.34 GB,
   **peak RSS 2.87 GB**; E = -22.7542103850 Ry per chemical cell; the padded density 2.7e-2 e/bohr^3
   off again (dr2 5.4e-5 Ry). `q = 20`: started at 17:00:59 as a big job (`M/fold20.log`, nbnd 88, ndim
-  184320, `estimate_bytes` 4.68 GB of which the kept start blocks are 1.09 GB), not finished when
-  this record was written; the first iterations at `q = 6` and `q = 10` took 112 and 257 s a
+  184320, `estimate_bytes` 4.68 GB of which the kept start blocks are 1.09 GB) and stopped by PID
+  after 809 s, inside its first iteration (`# exit 143`), so as not to hold the machine-wide
+  `big.lock` for the hours it needed; its RSS was 6.0 GB at 13 minutes. The first iterations at `q = 6` and `q = 10` took 112 and 257 s a
   representative. `q = 30` not run: its estimate is 10.0 GB (nbnd 128, ndim 276480, kept blocks
   2.3 GB), inside the 14 GB big-job cap.
 - `segment_sum` for the projector scatter on a card; the projectors' memory is small
