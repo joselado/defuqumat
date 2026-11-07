@@ -68,6 +68,7 @@ missing, are indexed at the head of `PLAN.md` §3.
 | which mixer a cell with vacuum wants, what the literature has, and what is left | `notes/VACUUM-MIXING-NEXT.md` |
 | real-time propagation, high harmonics and the third harmonic: the plan, and what is left of it (the frequency-domain hierarchy) | `notes/HARMONICS-NEXT.md` |
 | whether the density and the states compress as quantics tensor trains (qutecipy), measured, and what to try next | `notes/QTT-COMPRESSION.md` |
+| how a crystal is computed in a uniform orbital magnetic field (Landau levels, Hofstadter bands, the magnetizability), which of the three routes to use (Peierls on Wannier hoppings, plane waves in the magnetic cell, the refused magnetic ultracell), and what each refuses | `PLAN.md` P175 to P177, `docs/guide/magnetic-field.md`, `notes/ORBITAL-FIELD-NEXT.md` |
 | which QE or Elk routine each subsystem was ported from | `.claude/rules/reference-source-map.md` |
 | the full account of each recurring trap | `.claude/skills/trap-check/traps.md` |
 
