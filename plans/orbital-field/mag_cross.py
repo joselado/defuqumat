@@ -150,7 +150,7 @@ def folded(floor_npz, which, q, lo, hi):
             union = np.sort(lev[idx].ravel())
             guard = min(guard, float(np.min(lev[idx][:, -1])))
             rows.append(union[lo:hi])
-            if union[hi - 1] >= guard:
+            if hi < len(union) and union[hi - 1] >= guard:
                 raise ValueError(f"q {q}: the folded window reaches the top computed band")
     return np.sort(np.concatenate(rows))
 
@@ -251,6 +251,19 @@ def analyse():
     if ed_box is None:
         raise SystemExit("run 'floor full' first: route P's E_D is taken on its own box")
     vf = point["pz"]["v_F"]
+    # the zero-field reference of the same statistic: route P's box at p = 0 and each Wannier set's
+    # interpolated bands on the chemical k that fold onto the representatives, each about its E_D
+    zero = {mode: {"kpoints": floors["full"]["kpoints"], "box": floors["full"]["box"],
+                   "sphere": floors["full"]["sphere"], "wan": np.asarray(w.bands(floors["full"]["kpoints"]))}
+            for mode, w in sets.items()}
+    for mode in sets:
+        kp = zero[mode]["kpoints"]
+        sph = zero[mode]["sphere"]
+        wan = zero[mode]["wan"]
+        near = [np.min(np.abs(sph[i][:, None] - wan[i][None, :]), axis=0) for i in range(len(kp))]
+        within = np.concatenate([n[np.abs(wan[i] - point[mode]["E_D"]) < 2.0 / RY_EV] for i, n in enumerate(near)])
+        print(f"Wannier {mode} interpolation against the sphere on the {len(kp)} folded k: nearest-band "
+              f"|W - sphere| within E_D +- 2 eV max {within.max() * RY_EV * 1e3:.2f} meV")
     print("\n== item 3: full H, route P against Peierls; the 2q levels about E_D per k (route P and the auto "
           "set 3q..5q-1, the pz set all 2q), each referred to its own E_D, pooled and sorted; N levels on "
           "each side of the gap at E_D per k")
@@ -273,13 +286,20 @@ def analyse():
                 pw = np.sort((lev[:, gap_w - N:gap_w + N] - point[mode]["E_D"]).ravel())
                 pp = np.sort((pe[:, gap_p - N:gap_p + N] - ed_box).ravel())
                 d = pp - pw
+                d0 = ((folded(zero[mode], "box", q, gap_p - N, gap_p + N) - ed_box)
+                      - (folded(zero[mode], "wan", q, gap_w - N, gap_w + N) - point[mode]["E_D"]))
+                ex = d - d0
                 raw = np.sort((pe[:, gap_p - N:gap_p + N]).ravel()) - np.sort((lev[:, gap_w - N:gap_w + N]).ravel())
-                rows.append((q, field, mode, N, np.max(np.abs(d)), np.mean(d), e1, e1_w, np.max(np.abs(raw))))
+                rows.append((q, field, mode, N, np.max(np.abs(d)), np.mean(d), e1, e1_w, np.max(np.abs(raw)),
+                             np.max(np.abs(ex)), np.mean(ex), np.max(np.abs(d0))))
                 print(f"q {q} ({field:.0f} T) {mode:4s} N {N}: max |P - W| {np.max(np.abs(d)) * RY_EV * 1e3:8.2f} meV, "
                       f"mean P - W {np.mean(d) * RY_EV * 1e3:+8.2f} meV, max/E_1 {np.max(np.abs(d)) / e1:.4f} "
                       f"(E_1 Dirac {e1 * RY_EV:.3f} eV, Peierls first level above the zero pair "
                       f"{e1_w * RY_EV:.3f} eV); without the E_D referencing max |P - W| "
-                      f"{np.max(np.abs(raw)) * RY_EV * 1e3:.2f} meV; Peierls Hermiticity {herm:.1e}; "
+                      f"{np.max(np.abs(raw)) * RY_EV * 1e3:.2f} meV; the same statistic at B = 0 on the folded k "
+                      f"max {np.max(np.abs(d0)) * RY_EV * 1e3:.2f} meV mean {np.mean(d0) * RY_EV * 1e3:+.2f} meV; "
+                      f"(P - W) - (P - W)_0 max {np.max(np.abs(ex)) * RY_EV * 1e3:.2f} meV mean "
+                      f"{np.mean(ex) * RY_EV * 1e3:+.2f} meV; Peierls Hermiticity {herm:.1e}; "
                       f"P levels {np.array2string(pp * RY_EV, precision=3, max_line_width=400)} eV; "
                       f"W {np.array2string(pw * RY_EV, precision=3, max_line_width=400)} eV", flush=True)
                 saved[f"item3_q{q}_{mode}_N{N}"] = d
@@ -288,7 +308,8 @@ def analyse():
     e1_10 = float(dirac_levels(10.0, vf, 1)[2])                         # eV
     for mode in ("auto", "pz"):
         for N in (1, 2):
-            for stat, col in (("max |P - W|", 4), ("mean P - W", 5)):
+            for stat, col in (("max |P - W|", 4), ("mean P - W", 5), ("max |(P - W) - (P - W)_0|", 9),
+                              ("mean (P - W) - (P - W)_0", 10)):
                 sel = [r for r in rows if r[2] == mode and r[3] == N]
                 if len(sel) < 3:
                     continue
