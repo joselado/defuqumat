@@ -338,10 +338,11 @@ def variate_block(hamiltonian, moving, tangents, ik, key, theta, vectors, centre
 
 def variate_corrections(calculation, hamiltonians, moving, tangents, weights, centre, half,
                         n_moments, n_random, seed, cut, degree):
-    """``((nspin, ndir, ndir, N, N), (nspin, N))``: the k-weighted corrections of every channel.
+    """``((nspin, ndir, ndir, N, N), (nspin, N), ritz)``: the k-weighted corrections of every channel.
 
     The second is the correction of the trace moments, scaled as
-    :func:`conductivity_moments` scales them (``w_k n_live``).
+    :func:`conductivity_moments` scales them (``w_k n_live``); ``ritz`` is the
+    sorted Ritz values of every k-point and channel, for :func:`ritz_gap_level`.
     """
     from defuqumat.kpm.control import ritz_pairs
     from defuqumat.projwfc.projections import atomic_orbitals
@@ -351,7 +352,7 @@ def variate_corrections(calculation, hamiltonians, moving, tangents, weights, ce
     cut_centre, cut_half = 0.5 * (top + cut), 0.5 * (top - cut)
     key = jax.random.PRNGKey(seed)
     weights = np.asarray(weights)
-    out, traces = [], []
+    out, traces, values = [], [], []
     for channel, hamiltonian in enumerate(hamiltonians):
         tangent = tuple(t[channel] for t in tangents)
         channel_key = jax.random.fold_in(key, channel)
@@ -361,6 +362,7 @@ def variate_corrections(calculation, hamiltonians, moving, tangents, weights, ce
                 continue
             theta, vectors = ritz_pairs(hamiltonian, ik, orbitals[ik], cut_centre, cut_half,
                                         degree)
+            values.append(np.sort(np.asarray(theta)))
             block, moments = variate_block(
                 hamiltonian, moving[channel], tangent, ik, channel_key, theta, vectors,
                 centre, half, n_moments, n_random)
@@ -368,7 +370,7 @@ def variate_corrections(calculation, hamiltonians, moving, tangents, weights, ce
             trace = trace + weights[ik] * np.asarray(moments)
         out.append(total)
         traces.append(trace)
-    return np.stack(out), np.stack(traces)
+    return np.stack(out), np.stack(traces), values
 
 
 # -- from the moments to a spectrum -------------------------------------------
@@ -465,6 +467,31 @@ def channel_sum(moments, factors, centre, half, volume, levels, temperature, emi
                                          float(level), temperature, emin, delta_e,
                                          n_frequencies))
                for m, level in zip(moments, levels))
+
+
+def ritz_gap_level(ritz, nelec: float, nspin: int, noncolin: bool):
+    """Mid-gap between the highest occupied and the lowest empty Ritz value, or ``None``.
+
+    The Ritz values of the filtered orbitals are the band energies to about 1e-6 Ry
+    in the valence band and 1e-4 Ry just above it (filter degree 16), so when the
+    band holding the last electron stays below the next one at every k-point the
+    gap is read off them. ``None`` for two channels, an odd filling, too few
+    pairs, or no gap: then the count decides (:func:`level_from_count`).
+    """
+    if nspin != 1:
+        return None
+    per_state = 1.0 if noncolin else 2.0
+    occupied = nelec / per_state
+    if abs(occupied - round(occupied)) > 1e-8:
+        return None
+    occupied = int(round(occupied))
+    if not ritz or any(len(v) <= occupied for v in ritz):
+        return None
+    homo = max(float(v[occupied - 1]) for v in ritz)
+    lumo = min(float(v[occupied]) for v in ritz)
+    if lumo <= homo:
+        return None
+    return 0.5 * (homo + lumo)
 
 
 def level_from_count(dos_moments, factors, centre: float, half: float, nelec: float,
@@ -638,9 +665,10 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
     Args:
         system, pseudos, density: the converged run.
         fermi_energy: Ry, where the occupation steps (smeared by
-            ``temperature``). If not given, it is read off the count and the
-            DOS of the same start vectors (:func:`level_from_count`): the Fermi
-            level of a metal, inside the gap of an insulator. A level at the top of the valence
+            ``temperature``). If not given: mid-gap from the variate's Ritz
+            values when they show a gap (:func:`ritz_gap_level`), else read off
+            the count and the DOS of the same start vectors
+            (:func:`level_from_count`). A level at the top of the valence
             band would cut the broadened top states in half. A pair, one level
             per spin channel, for a run with a constrained moment.
         directions: the cartesian axes of the tensor, names or 3-vectors; each
@@ -752,18 +780,21 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         # is good enough for it
         cut = float(levels.max()) + (max(1.0, window + 0.4) if filter_cut is None
                                      else float(filter_cut))
-        corrections, dos_corrections = variate_corrections(
+        corrections, dos_corrections, ritz = variate_corrections(
             calculation, hamiltonians, moving, tangents, np.asarray(weights), centre, half,
             n_moments, n_random, seed, cut,
             FILTER_DEGREE_SIGMA if filter_degree is None else int(filter_degree))
         moments = moments + corrections
         dos = dos + dos_corrections
         if given is None:
-            # the level from the corrected count and DOS: the plain one put an
-            # insulator's level 0.003 Ry below its VBM (Si2 4x4x4, the guide's run)
-            levels = channel_levels(level_from_count(dos, factors, centre, half, nelec, emin,
-                                                     centre + half, delta_e),
-                                    len(hamiltonians))
+            # mid-gap from the Ritz values when they show a gap; the count's DOS
+            # minimum put the guide's insulator (Si2 4x4x4, a gap of about twice the
+            # broadening) 0.003 Ry below its VBM, with or without the variate
+            level = ritz_gap_level(ritz, nelec, len(hamiltonians), calculation.noncolin)
+            if level is None:
+                level = level_from_count(dos, factors, centre, half, nelec, emin,
+                                         centre + half, delta_e)
+            levels = channel_levels(level, len(hamiltonians))
     n_frequencies = int(round(window / delta_e)) + 1
     sigma = channel_sum(moments, factors, centre, half, float(calculation.system.cell.volume),
                         levels, temperature, emin, delta_e, n_frequencies)
