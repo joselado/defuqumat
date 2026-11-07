@@ -28013,6 +28013,14 @@ error at R = 1 is 0.0003 on si16 and on si64 (0.0039 and 0.0025 at degree 8), an
 `E_VBM + 0.5` Ry 0.016 and 0.050 (0.148 and 0.133), at 0.59 s and 11.1 s against 0.45 s and 12.8 s
 (`dosdeg.py`, `dosdeg-*.log`, 4 seeds). The table above is at degree 8.
 
+**Defaults since 2026-11-07 (P169):** `control_variate="auto"` (on for random vectors when the datasets
+carry `PP_CHI`, off for the exact trace, off with a warning otherwise; a fable decision) and filter
+degree 16. The unbiasedness test now compares each run with the reference on its own interval: the seed
+also starts the interval's Lanczos run, and at degree 16 one shared reference read as a bias of 6e-4
+(5.9 standard errors, steady over 96 seeds) that was the spread of the half widths (8e-4 Ry). A first
+diagnosis (Ritz directions on the padding) was wrong; its change did nothing and was taken out
+(252853cc). Tested unbiased also for a spinor and for `nspin = 2` (`test_kpm_control.py`).
+
 **What is outstanding.** The variate on the PDOS's noise is moot (that trace is exact), but the
 stochastic unfolding and the spin-resolved trace could take it; a cheaper Ritz step (it is
 `O(npw natw^2)`, Davidson's scaling); ultrasoft and PAW as before.
