@@ -259,3 +259,228 @@ that is not the closed plane mesh, a spinor (`npol = 2`) and an ultrasoft datase
 
 `tests/regression/test_magnetic_bloch_slow.py`: the free Landau problem at `1/10` with the Chern
 numbers (about 10 minutes) and at `2/11`, items 4 and 5 at `q = 3` (about 4 minutes).
+
+# Route P, step 2: the GIPAW-dressed nonlocal term, the SCF by the fold, the magnetizability
+
+Branch `mag-p2`, from step 1's tip 84253a62. Every number below was measured on D22 in the
+worktree `/l/ladovj1/w-mag-p2`; the logs are in `/l/ladovj1/review/mag/p2/`, written `M/<log>`.
+A log starting with `# slot N cpu M` ran in `slot.sh` (one core, 6 GB); one starting with `# big
+job on cpus 0-3` ran under `big.lock` (four cores, 14 GB, `M/big.sh`). The load average was 4 to
+16 from other users, so a time here is a range, not a pair. The paper is Lu et al., PRL 135,
+196401 (2025), arXiv:2505.06585 (eq. 6 for the dressed projectors, eq. 7 and Table 2 for the
+magnetizability, Fig. 3 for the band shift, the Chern numbers of graphene at `n_Phi = 1`).
+
+## What is here (step 2)
+
+- `defuqumat/magnetic/blochgrid.py`: `GridProjectors` (frozen `equinox.Module`: sphere indices
+  `(natom, npts)` into the flat magnetic fine grid, the actual displacements `(natom, npts, 3)`,
+  the k-independent bra values `(natom, nproj, npts)`, `D` per atom, the magnetic reciprocal
+  vectors; `bra(kappa)`, `project`, `apply`) and `grid_projectors` (host NumPy, `# fold back into
+  magnetic/gipaw.py`); `MagneticGridHamiltonian` gains `projectors`, `interpolate` and `restrict`
+  (the two halves of the two-grid local term, now shared with the nonlocal term and the density),
+  `grid_ratio`, `with_potential` (a new SCF potential without a recompile); `magnetic_cell` takes
+  `p < 0`; `sphere_levels` (the sphere Davidson of the full H, with its states) and
+  `sphere_state_on_box`.
+- `defuqumat/magnetic/fold.py`: `representatives`, `fold_to_chemical`, `band_density` (module
+  `jit`), `magnetic_occupations`, `run_magnetic_scf` and `MagneticSCF`, `fold_check`,
+  `molar_magnetizability`, `run_magnetizability` and `Magnetizability`.
+- `defuqumat/workflows/magnetic_bands.py`: `local_only=False` is the full Hamiltonian;
+  `magnetic_mesh` for a 2D or 3D closed mesh.
+- `tests/unit/test_magnetic_bloch.py`: 8 new tests (below); `tests/regression/test_magnetic_bloch_slow.py`:
+  3 new slow tests (listed, not run).
+- Probe `plans/orbital-field/mag_route_p2.py` (`item1`, `si`, `chern`, `shift`, `sets`, `fold`,
+  `diamond0`, `diamond`, `chi`); `plans/orbital-field/route-p-q{1,...,6}-full.npz`, the level sets
+  of item 6.
+
+How the nonlocal term is put on the box. Each projector is a real-space function, `beta_lm(d) =
+(r beta_l)(|d|)/|d| Y_lm(d)` with the same real harmonics as `vkb`, times the GIPAW phase `exp(i
+phi(d))`, `phi = -a(tau).d - a(d).d/2`, on the points of the **potential's (dense) grid** within its
+radius of every atom of the magnetic cell, each image enumerated with its own `d` and the magnetic
+Bloch factor `exp(-i a(P).r)` of the lattice vector `P` that brings it into the cell. It rides on
+step 1's two-grid interpolation `x = I u`: `y = V x + c W^dagger D W x`, then `I^dagger y`, so the
+whole operator is one Galerkin matrix and stays Hermitian, and the quadrature of `beta x` is the
+dense grid's, exact up to the projector's tail beyond twice that grid's Nyquist frequency. The radius
+is where `|r beta|` falls below 1e-6 of its maximum (1.726 bohr for C HGH, 2997 points per atom at
+50 Ry; 4.100 bohr for Si vbc, 4417 points), and the dropped norm is 3e-14 and 2e-14 of `int (r
+beta)^2`. The scatter is `.at[].add` (the CPU; `segment_sum` on a card is not built).
+
+## The acceptance numbers (step 2)
+
+**1. a = 0, q = 1 graphene full H, k = 0, the lowest 8 levels, box against the sphere Davidson of
+the same Hamiltonian** (`M/item1-50.log`, `M/item1-70.log`; the shared potential).
+
+| ecut | box - sphere, deep pair | the Gamma doublet | the next four | max | projector part alone |
+|---|---|---|---|---|---|
+| 50 Ry | -1.13e-2, -7.41e-3 | -2.00e-2, -1.78e-2 | -1.8e-4 to -8.4e-4 | **2.00e-2 Ry** | 5.1e-7 Ry |
+| 70 Ry | -2.90e-3, -2.34e-3 | -7.20e-3, -7.08e-3 | -4.5e-5 to -2.6e-4 | **7.2e-3 Ry** | 5.3e-7 Ry |
+
+The expected `< 5e-3` Ry is **not reached** at 50 Ry, and 2.00e-2 sits just under the refuse line of
+2e-2. What the numbers say: the box is below the sphere at every level, and the difference falls by
+2.8 from 50 to 70 Ry, as a larger basis does; the projector part alone is 5e-7 Ry. The projector
+part is measured on the sphere's own eigenstates put on the box: there the kinetic term and the
+two-grid local term are exact Galerkin matrix elements, so the box operator's Rayleigh quotient minus
+the sphere eigenvalue is the grid projectors' error alone, 5.1e-7 Ry at most over the eight levels,
+and `becp` against `vkb`'s is 1.1e-7 of its size 0.25. So the projector normalisation and the
+`(-i)^l` phase are right, and the 2e-2 is step 1's box-against-sphere basis difference with the
+nonlocal term in (step 1 local-only: 0.141 Ry on the deep pair at 50 Ry; the nonlocal s term pushes
+the deep states out of the region where the sphere is least converged). The Gamma doublet is split
+on the box by 2.1e-3 Ry at 50 Ry and 1.2e-4 at 70 Ry, the broken hexagonal group of step 1.
+
+The projector part on silicon (`M/si.log`; QE's `pw_scf/scf.in` cell, Si.pz-vbc, 12 Ry, our
+own SCF at `conv_thr = 1e-10`, the four lowest bands at `k = (0,0,0)`, `(1/4,1/4,1/4)`, `(1/2,0,1/4)`
+crystal): `<psi|V_NL|psi>` from the grid projectors against `vkb` within **6.6e-6 Ry**, `becp` within
+2.7e-6 of its size 0.42 (s and p projectors, so the `(-i)^l` of `vkb` is exercised). The foundation
+had no grid projectors, so this is the design's silicon number, measured here. Its 16^3 dense grid is
+coarser for these projectors than graphene's, and that is the larger error.
+
+**2. Chern numbers of graphene at `n_Phi = 1`** (`M/chern12.log`; `p/q = 1/1`, 78912 T, kmesh (12,
+12), nbnd 8, the shared potential, 368 s): FHS on each band and group,
+
+| bands | C | largest plaquette flux |
+|---|---|---|
+| 0 | **+1** | 0.061 |
+| 1 | **0** | 0.511 |
+| 2 | -3 | 1.091 |
+| 3 | +6 | 1.329 |
+| 2 and 3 | **+3** | 1.338 |
+| 0 to 3 | +4 | 1.320 |
+
+Lu's pattern (1, 0, and 3 for the third and fourth together) holds as exact integers on our 12 x 12
+mesh, without forcing. Bands 2 and 3 do not touch on this mesh (smallest gap 2.8e-2 Ry), so each has
+its own number, -3 and +6; Lu give only the pair. The largest plaquette flux of bands 2 and 3 is
+1.3, below pi but not small, so the split of the pair is the number to check on a finer mesh
+(24 x 24, `M/chern24.log`, below). The sign convention is the repository's FHS one, as in step 1.
+
+**3. The fold** (`M/fold3b.log`; graphene `p/q = 1/3`, kmesh (2, 6), nbnd 20, the 4 representatives
+`kappa2 in {0, 1/6}`, from the shared zero-field density): the SCF converges to `conv_thr = 1e-8` Ry in
+**9 iterations** (dr2 2.2e-3, 6.0e-4, 2.1e-5, 1.8e-5, 5.0e-7, 4.6e-7, 9.8e-8, 1.0e-8, 5.1e-9), 121 s,
+memory estimate 0.193 GB, peak RSS 1.27 GB. At the potential of its last diagonalisation, the folded
+density of the 4 representatives against that of all 12 points of the closed mesh, each solved
+explicitly to `ethr = 1e-12` with a residual bound of 1e-9 on the returned bands: max relative
+difference **1.35e-12**; the sorted levels, three copies of the representatives' against the full
+mesh's, 3.7e-13 Ry (710 s). The density change from the zero-field one (Lu Fig. 3c: small): max
+`|drho|` 3.3e-2 e/bohr^3 against a maximum density of 0.333, `int |drho|` 0.147 electron of 8.000.
+The total energy per chemical cell is -22.7079645172 Ry (the zero-field sphere SCF: -22.6648208203;
+the difference is the box's larger basis and the field together, not separated here).
+The first attempt (`M/fold3.log`) converged the same SCF and then refused in the check: the residual
+bound was applied to the buffer bands too, and one of 24 stayed unsettled after 400 steps; the bound
+is now on the returned bands only.
+
+**4. Diamond, Lu's cell** (3x1x1 conventional, `a = 3.56` A, 24 atoms, C.pbe-hgh, 60 Ry, kmesh
+(2, 6, 6), box **50 x 18 x 18** (ndim 16200; the design's 54 x 18 x 18 was a guess, this is
+`wavefunction_box` at 60 Ry), nbnd 52 with 48 occupied (fixed occupations, the gap checked), memory
+estimate **1.24 GB**, `conv_thr = 1e-8` Ry; the start is the zero-field sphere SCF, `M/diamond0.log`,
+-272.4330337195 Ry in 8 iterations, 74 s). One flux quantum through the 3x1x1 cell is **10877.4 T**
+(Lu 10870.4 T at their rounded `a`).
+
+| run | log | iterations | dr2 | E (Ry, the 24-atom cell) | time | peak RSS |
+|---|---|---|---|---|---|---|
+| `p = 0` | `M/diamond-p0.log` (big job) | 4 | 9.3e-9 | -273.105259083159 | 947 s | 3.60 GB |
+| `p = +1` | `M/diamond-p1.log` (slot) | 7 | 3.1e-9 | -273.043606009502 | 3417 s | 3.52 GB |
+| `p = -1` | `M/diamond-m1.log` (slot) | MINUS_ITER | MINUS_DR2 | MINUS_E | MINUS_T | MINUS_RSS |
+
+`E(+dB) - E(-dB)` = **ASYM Ry** (time reversal; the design asks 1e-7, refuse above 1e-6). `chi =
+-(E+ - 2 E0 + E-)/dB^2`: **CHI_C2** x 1e-6 cm^3/mol per C2 (the 24-atom cell is 12 primitive cells),
+**CHI_C** per C atom; Lu's `chi_val` (LDA) is -11.16 in their Table S3 (-11.2 in Table 2), so the
+difference is DCHI, within the design's 0.6 for the functional (PBE here, LDA there; HGH here,
+their dataset unnamed). `E(+) - E(0)` = 6.1653e-2 Ry. The p = 0 energy is the box's own, 0.67 Ry
+below the sphere SCF of the same cell, which is the box's larger basis; it cancels in the second
+difference since the three runs share the box.
+
+**5. The band shift** (`M/shift.log`; graphene at `n_Phi = 1`, 78912 T, kmesh (6, 6), nbnd 12,
+non-SCF on the shared potential, the atoms moved by `a1/2` through `Calculator.with_positions`, to
+crystal (0.5, 0, 0) and (0.833333, 0.666667, 0), and the potential rolled by half the dense grid
+along `a1`, which is the shared density translated with them): `eps(k)` at the same named `k` differ
+by up to **0.291 Ry**; the sorted level set over the mesh agrees to **9.7e-13 Ry** and the band
+energy (mv smearing 0.01 Ry, 8 electrons) to **2.0e-14 Ry**. The same run at `p = -1` gives the
+time-reversal partner: the sorted set at `+B` against `-B` within 6.3e-11 Ry and the band energy
+within 1.6e-13 Ry (on the grid time reversal holds only up to the rows whose window centre is a tie,
+below). 98 to 105 s a run.
+
+**6. Graphene full H at `p/q = 1/q`, `q = 1, ..., 6`**, kmesh (2, 2q), nbnd `4q + 8`, the shared
+potential (`M/sets-q{1,...,6}.log`, big jobs; npz in `M/sets/`, copied to
+`plans/orbital-field/route-p-q{q}-full.npz`): the full mesh against `q` copies of the
+representatives `kappa2 in {0, 1/(2q)}`:
+
+| q | ndim | nk | full mesh against q copies | Davidson steps | memory estimate | peak RSS | solve | per k |
+|---|---|---|---|---|---|---|---|---|
+SETS_TABLE
+
+The SCF at `q = 6` by the fold (`M/fold6.log`, slot): SCF6
+
+## Decisions taken here (step 2), and why
+
+No fable subagent could be started from this step (the Agent tool is not available to it), so each
+open choice is the conservative one, recorded with the number it rests on.
+
+- **The projectors live on the potential's grid, through the two-grid interpolation, not on the
+  wavefunction box.** At 50 Ry the box spacing is 0.39 bohr and the HGH carbon `s` projector has a
+  width of about 0.3 bohr, so a quadrature on the box would alias at the per-cent level; on the dense
+  grid the projector part is 5e-7 Ry (item 1). It costs one sphere gather and scatter beside an
+  interpolation the local term already does.
+- **The density is `|u|^2` on the dense grid from the same interpolation** (QE's `sum_band` order),
+  not the design's `|u|^2` on the box Fourier-padded: the product of two box-limited functions is not
+  box-limited, and squaring on the box aliases it. The probe measures the padded form against the one
+  used on the same states (`padded` in `mag_route_p2.py`, printed in `M/fold6.log`): PADDED.
+- **The field along `-a3` is the conventions' cell at `|p|` with its traced `scale` at -1**
+  (`magnetic_cell`), since `MagneticCell.build` refuses `p < 1` and `conventions.py` is the
+  foundation's file. Every phase of the conventions changes sign with it, and the box operator's twist
+  is the integer `p < 0`. Tested: the spectrum at `(-1, -kappa)` equals the one at `(+1, kappa)` to
+  1e-10 relative (a k with no ambiguous window centre), and differs at `(-1, kappa)`.
+- **Occupations**: smearing by the system's own `degauss` and kind, refused when the top band holds
+  more than 1e-8 of a state; fixed only across a gap, checked over the whole mesh (diamond's).
+  Tetrahedra refused by name.
+- **The energy** is QE's sum per chemical cell with `eband` over `q`, `deband` paired as the
+  zero-field loop pairs it (output density, input potential), the Hartree and exchange-correlation
+  energies at the output density on convergence, the smearing term over `q`, Ewald unchanged.
+- **The SCF's Davidson threshold** starts at 1e-8 (the start is a converged zero-field density) and
+  follows `next_ethr` from the second iteration; a solve that does not settle in 200 steps is refused,
+  not used (none did).
+- **Time reversal on the grid is exact only where no row's window centre is ambiguous.** The centred
+  window rounds `-(p xi1 + kappa2)` with a small offset (`_TIE_OFFSET`, step 1); a row whose centre is
+  within that offset of a half-integer gets, under `B -> -B, k -> -k`, a window shifted by one
+  frequency. On the 5 x 5 x 9 test box at kappa (0.37, 0.29) one row sits 0.01 from a tie and the top
+  levels read 0.9 Ry apart (`M/t1.log`, the failing first form of the test); on the converged graphene
+  box at `n_Phi = 1` the effect on the sorted 6 x 6 set is 6.3e-11 Ry (item 5), and on diamond it is
+  inside `E(+) - E(-)` above. Not changed: the offset is what keeps the magnetic translation exact.
+
+## Refusals (step 2), each tested to fire
+
+Ultrasoft and PAW in `grid_projectors` (by name, with `C.pz-rrkjus.UPF`), on top of
+`refuse_regime` (spinors, `nspin = 2`, spirals, DFT+U, meta-GGA, gamma-only storage); the nonlocal
+term without a potential or with the filtered local term; `run_magnetic_scf` without a starting
+density; a mesh whose `N2` is not a multiple of `q`; fixed occupations across crossing levels;
+occupations other than smearing and fixed (tetrahedra by name); a band set whose top band holds charge
+("raise nbnd"); a Davidson solve unsettled after its budget with the nonlocal term in. The guards
+that are checks rather than refusals also fire in a test: the projectors without the GIPAW phase
+break the magnetic translation (spectra at `kappa2` and `kappa2 - p/q` 1e-6 or more apart), a bra at
+the wrong k is far from `vkb`, and the nonlocal term moves the local-only spectrum by more than 1e-2 Ry.
+
+## Unit tests (step 2)
+
+`tests/unit/test_magnetic_bloch.py` (eight new): the grid projectors against `vkb` on silicon (s and
+p, random states); Hermiticity, the magnetic translation with and without the GIPAW phase; time
+reversal at `p = -1`; the rigid shift of the crystal at `n_Phi = 1` on a 2 x 2 mesh (eps(k) moves,
+the set does not, kappa2 -> kappa2 - 1/2 pairs them); the fold's weights, the fold and the charge
+of `band_density`; the occupations and the molar conversion; item 1 at 50 Ry (projector part under
+2e-6 Ry, the box below the sphere and within 2.5e-2). With the foundation's two files of the package:
+TESTS (`M/t2.log`).
+
+## What is left (step 2)
+
+- Item 1's `< 5e-3` Ry at 50 Ry: the box-against-sphere basis difference, not the projectors; it is
+  2e-2 at 50 Ry and 7.2e-3 at 70 Ry, and closing it is the box's corners and Nyquist slot (step 1's
+  "What is left").
+- The orbital magnetization identity of section 12 item 6 on a Chern insulator cell: left to a
+  later phase, as the design says.
+- `q = 10, 20, 30` graphene SCF with the fold: QBIG
+- `segment_sum` for the projector scatter on a card; the projectors' memory is small
+  (`natom nproj npts` complex, 12 x 1 x 2997 at `q = 6`, 0.6 MB) and is not in `estimate_bytes`.
+- The preconditioner does not include the nonlocal term's diagonal; the Davidson steps with it in
+  are in the tables (91 to 148 at `q = 6` with the buffer bands, against 72 to 107 local-only).
+
+## Slow files (step 2, listed, not run)
+
+`tests/regression/test_magnetic_bloch_slow.py`: `test_the_chern_numbers_at_one_flux_quantum`
+(about 6 minutes), `test_the_band_shift_of_a_rigid_translation` (about 5 minutes),
+`test_the_fold_at_one_third` (about 14 minutes, beyond `slot.sh`'s 10-minute per-test timeout).

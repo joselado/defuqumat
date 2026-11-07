@@ -374,14 +374,17 @@ def test_the_full_operator_is_hermitian_and_covariant_and_the_bare_one_is_not(gr
 
 
 def test_the_field_along_minus_a3_is_the_time_reversed_operator(graphene, potential):
-    # Time reversal is exact on the grid when no row's window centre is ambiguous: an odd
-    # box, and no centre within the tie offset of a half-integer (at (0.37, 0.29) the row
-    # xi1 = 1/5 sits 0.01 from one and the -B operator's window there is shifted by one
-    # frequency, which read 0.9 Ry apart at the top of this coarse box, measured on D22).
-    kappa = (0.31, 0.23, 0.0)
+    # H(-B, -k) = conj H(B, k) holds on the grid when no row's window centre is ambiguous: an
+    # odd box, and no centre -(p xi1 + kappa2) (coarse xi1 rows), p xi2 - kappa1 (coarse and
+    # fine xi2 rows) within the tie offset of a half-integer. At (0.37, 0.29) and (0.31, 0.23)
+    # a coarse row sits 0.01 from one, its -B window is shifted by one frequency, and the
+    # matrices differ by 0.16 and 0.09 of their largest entry (plans/orbital-field/route-p.md).
+    kappa = (1.0 / 48.0, 0.25, 0.0)
     plus = _full(graphene, potential, 1, 2, [kappa])
     minus = _full(graphene, potential, -1, 2, [[-x for x in kappa]])
-    (a,), (b,) = _spectra(plus), _spectra(minus)
+    hp, hm = dense_matrix(plus, 0, chunk=32), dense_matrix(minus, 0, chunk=32)
+    assert np.max(np.abs(hp - hm.conj())) < 1e-12 * np.max(np.abs(hp))
+    a, b = np.linalg.eigvalsh(hp), np.linalg.eigvalsh(hm)
     assert np.max(np.abs(a - b)) < 1e-10 * np.max(np.abs(a))
     # while the opposite field at the same k is another operator
     (c,) = _spectra(_full(graphene, potential, -1, 2, [kappa]))
