@@ -48,16 +48,19 @@ can see the number the change rests on.
 ## The acceptance numbers
 
 **1. The Landau problem**, graphene geometry (`a = 2.46` A, `c = 15` A, box 12 x 12 x 64 per
-cell), `p/q = 1/10` (7891.2 T), kmesh (4, 4), `nbnd = 12`, all potentials off, at the final
-operator (`L/landau-10-1c.log`): `B_ph = 0.03357231492638168` Ry; every level against `(2n+1)
-B_ph + (2 pi m/c)^2` within **6.7e-12 Ry**, flat over the 16 magnetic k within **5.8e-12 Ry**,
-one state per level per k per `G3` branch (the `m = +-1` pairs degenerate to 1e-13). FHS Chern
-numbers of each isolated group: **1** for each of the three lowest `m = 0` levels (bands 0, 3, 6,
-`C = 1.000000000000`), 2 for each `m = +-1` pair, the largest plaquette flux 0.39 (pi/8, the
-16 plaquettes of the 4 x 4 mesh) for a single level. The sign is +1 with the repository's FHS
-convention and no sign was adjusted. Davidson, two-gauge preconditioner, `david = 4`, `ethr =
-1e-12`: **146 to 179 steps** per k; 561 s for the 16 k-points. The run at the fixed window
-(`L/landau-10-1b.log`, commit 247038aa) gave 5.1e-12, 4.0e-12 and the same Chern numbers.
+cell), `p/q = 1/10` (7891.2 T), kmesh (4, 4), `nbnd = 12`, all potentials off, at the final code
+(`L/landau-10-1-final.log`, d8e9fcad and later: centred window, two-gauge preconditioner, four
+buffer bands): `B_ph = 0.03357231492638168` Ry; every level against `(2n+1) B_ph + (2 pi m/c)^2`
+within **2.9e-12 Ry**, flat over the 16 magnetic k within **2.7e-12 Ry**, one state per level per
+k per `G3` branch (the `m = +-1` pairs degenerate to 1e-13). FHS Chern numbers of each isolated
+group: **1** for each of the three lowest `m = 0` levels (bands 0, 3, 6, `C = 1.0` to the printed
+twelve digits), 2 for each `m = +-1` pair, the largest plaquette flux 0.39 (pi/8 for the 16
+plaquettes of the 4 x 4 mesh) for a single level. The sign is +1 with the repository's FHS
+convention and no sign was adjusted. Davidson, `david = 4`, `ethr = 1e-12`: **119 to 154 steps**
+per k; 630 s for the 16 k-points; memory estimate 0.597 GB, peak RSS 1.72 GB (the 16 x 12 states
+kept for the Chern number are 0.28 GB of it). The same run before the buffer bands
+(`L/landau-10-1c.log`) gave 6.7e-12, 5.8e-12, the same Chern numbers and 146 to 179 steps, and
+at the fixed window (`L/landau-10-1b.log`, commit 247038aa) 5.1e-12, 4.0e-12, 146 to 169 steps.
 
 The preconditioner, one k-point, the same problem, 200 steps allowed (`L/landau-10-1-identity.log`,
 `L/landau-10-1-kinetic.log`, and the variant probe `L/pre-10-d2.log`, `L/pre-10-d4.log`,
@@ -77,7 +80,7 @@ The preconditioner, one k-point, the same problem, 200 steps allowed (`L/landau-
 The rows from the variant probe are at `kappa = (0.13, 0.27)`, the identity and kinetic rows of the
 workflow at `kappa = 0`; all of them ran before the centred window and the buffer bands existed
 (commits 66ae6545 to 56a6cdff), which the free problem barely feels (the two full item-1 runs
-above, fixed and centred, took 146 to 169 and 146 to 179 steps).
+above without the buffer, fixed and centred, took 146 to 169 and 146 to 179 steps).
 
 At zero field the same box and the kinetic rule settle local-only graphene in 22 steps
 (`L/pre-g1-p0.log`; identity 200 steps, 10 unsettled), and the same local-only graphene at
