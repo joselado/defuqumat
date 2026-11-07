@@ -76,3 +76,46 @@ def test_graphene_local_only_is_not_converged_in_n1_on_bare_hybrid_states():
     diff = np.max(np.abs(runs[0].levels[:, :24] - runs[1].levels[:, :24]))
     assert diff > 1e-3
     assert all(r.w_measured is None for r in runs)
+
+
+# --- step 2: the GIPAW-dressed nonlocal term (plans/orbital-field/u2.md) ----------------
+
+SCF = "plans/orbital-field/graphene-scf.npz"
+
+
+def test_zero_flux_with_the_full_hamiltonian_gives_back_the_bands():
+    """Acceptance 1: p = 0 on the full basis, h0 = eigen: 1.8e-15 Ry against the zero-field
+    eigenvalues (review/mag/u2/zero-full.log); the grid projection against vkb 4.4e-6 Ry."""
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _graphene()
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, SCF, flux=(0, 1), nbnd=4, N1=5, w=2,
+                               kmesh=(1, 2), local_only=False)
+    for ik, (_, k2) in enumerate(r.kappa):
+        assert np.max(np.abs(r.levels[ik, :4] - r.eigenvalues[int(round(k2 * 2)), 0, 0])) < 1e-9
+    assert r.nonlocal_error < 1e-5
+
+
+@pytest.mark.parametrize("term, bound", [("none", (1e-6, 3e-6)), ("gipaw", (1e-6, 3e-6)),
+                                         ("bare", (1e-4, 1.0))])
+def test_the_dressed_term_keeps_the_hermiticity_floor_of_a_localized_basis(term, bound):
+    """The isolated deep composite of the local-only basis (nbnd = 2), q = 10, N1 = 12,
+    h0 = box: 1.7e-6 with no nonlocal term, 1.5e-6 with V_NL^B, 3.2e-4 with the bare V_NL^0
+    (review/mag/u2/iso-{none,gipaw,bare}.log)."""
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _graphene()
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, SCF, flux=(1, 10), nbnd=2, N1=12,
+                               kmesh=(2, 2), h0="box", nonlocal_term=term, strict=False)
+    assert bound[0] < np.max(r.hermiticity) < bound[1]
+
+
+def test_the_full_hamiltonian_at_q10_is_refused_by_the_hermiticity_guard():
+    """Acceptance 2: 2.1e-2 to 2.3e-2 (review/mag/u2/q10-full.log), the same as the bare
+    control (2.1e-2 to 3.0e-2, q10-bare.log): the basis, not the nonlocal term."""
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _graphene()
+    with pytest.raises(ValueError, match="not Hermitian"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, SCF, flux=(1, 10), nbnd=8, N1=10,
+                               kmesh=(1, 1), local_only=False)
