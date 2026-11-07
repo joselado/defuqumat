@@ -28388,6 +28388,12 @@ the setup's `A U`, `nkb` FFT pairs per channel and k-point, is the cost left at 
 `lelfield` and `gamma_only` take the unfolded form; the spinor, the LDOS, the unfolding and the
 conductivity on an augmented dataset are still refused, as in P171.
 
+**Merged into `kpm-sigma` (2026-11-07, 43280365)** with P172 and the P171 addendum, which share no code file
+with it. On the merged tip, on D22 (`/l/ladovj1/review/kpm/merged/`): the five KPM files and
+`test_kpm_overlap.py`, 70 passed on one CPU slot in 328 s and 70 on the RTX A2000 in 288 s; the fast gate in
+one slot, 3833 passed (3813 at d503a729 plus 7, 7 and 6 new tests), 85 skipped, only the two known `yaml`
+failures, 1606 s; `tools/check_guide.py` passes. No slow file.
+
 **Notes from the final review (fable, 2026-11-07).** `fold` is not a keyword of `run_kpm_dos` or
 `run_kpm_pdos` (`dos.py` calls `symmetrized(hamiltonians, k_batch=batch)`), so the unfolded form is reachable
 only through `symmetrized(fold=False)` or the module global `FOLD_DEFAULT`; threading a keyword is the first
