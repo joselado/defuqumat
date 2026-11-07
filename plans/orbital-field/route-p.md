@@ -175,7 +175,12 @@ the largest box solved (ndim 92160, 39 s a k-point, item 1).
 
 No fable subagent could be started from this step (the Agent tool is not available to it), so each
 choice is the conservative one that meets the design's own acceptance, with the design's form kept
-as an option and its number beside it.
+as an option and its number beside it. The first one is not a conservative choice but a design
+change (the review, 2026-11-07): the design's stop line was "Davidson not converged in 200 steps
+with either preconditioner: dense fallback below ndim 20000, stop above", and ndim at `q = 10` is
+92160. The design's solver and window were replaced, and measured: the Kronecker match (3.7e-16)
+does not depend on the solver, and the exact ladder (2.9e-12) and the fold (1.35e-12) would read
+differently with a wrong operator.
 
 - **The preconditioner is `two-gauge` and `david = 4`.** The design's rule (`kinetic`) at the
   design's `david = 2` left 12 of 12 bands unsettled after 200 steps on the free problem at `q =
@@ -314,8 +319,10 @@ the same Hamiltonian** (`M/item1-50.log`, `M/item1-70.log`; the shared potential
 | 50 Ry | -1.13e-2, -7.41e-3 | -2.00e-2, -1.78e-2 | -1.8e-4 to -8.4e-4 | **2.00e-2 Ry** | 5.1e-7 Ry |
 | 70 Ry | -2.90e-3, -2.34e-3 | -7.20e-3, -7.08e-3 | -4.5e-5 to -2.6e-4 | **7.2e-3 Ry** | 5.3e-7 Ry |
 
-The expected `< 5e-3` Ry is **not reached** at 50 Ry, and 2.00e-2 sits just under the refuse line of
-2e-2. What the numbers say: the box is below the sphere at every level, and the difference falls by
+The expected `< 5e-3` Ry is **not reached** at 50 Ry. The design's refuse line of 2e-2 was written
+for the projector normalisation and the `(-i)^l` phase, and the 2.00e-2 does not measure those: it
+is the box-against-sphere basis difference, and the projector part alone is 5.1e-7 Ry (below). So
+the line did not measure what it was written for (the review, 2026-11-07). What the numbers say: the box is below the sphere at every level, and the difference falls by
 2.8 from 50 to 70 Ry, as a larger basis does; the projector part alone is 5e-7 Ry. The projector
 part is measured on the sphere's own eigenstates put on the box: there the kinetic term and the
 two-grid local term are exact Galerkin matrix elements, so the box operator's Rayleigh quotient minus
@@ -398,7 +405,11 @@ two iterations (dr2 1.2e-8 to 3.1e-9 and 3.3e-9; the energy of a non-final itera
 Hartree and exchange-correlation terms at the input density, so this is a resolution, not an error
 bar). So the SCF floor alone can account for 1.6e-7, and the even-box Nyquist slot is the grid-side
 candidate. The experiment that separates them is both fields at `conv_thr = 1e-10` on the same box,
-and only then the odd 75 x 25 x 25 box (three times the size); neither was run.
+and only then the odd 75 x 25 x 25 box (three times the size); neither was run. The review
+(2026-11-07) names the design's `< 1e-7` at `conv_thr = 1e-8` as the recurring trap "a test
+asserting a tolerance its own `conv_thr` does not deliver": the difference fell from 1.45e-6 at
+iteration 6 to 1.63e-7 at iteration 7, so the number is the SCF floor, and the 1e-10 rerun is the
+follow-up, not a defect of the operator.
 
 `chi = -(E+ - 2 E0 + E-)/dB^2` (`M/chi.log`): **-11.40 x 1e-6 cm^3/mol per C2** (the 24-atom cell
 is 12 primitive cells), **-5.70 per C atom**. Lu's `chi_val` (LDA, their dataset unnamed) is -11.16 in

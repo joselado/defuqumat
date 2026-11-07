@@ -126,7 +126,9 @@ and the 8-function set holds only in part (its sigma bands are 0.8 eV off, found
 2102 and 1746 meV compare different states and are not a disagreement. From `q = 4` on it is 17 to 64 meV, so
 the zero-field bases agree near `E_D` and the difference in the table is the field's. On the folded k
 the `p_z` set is within 11.4 meV of the sphere for every level within 2.5 eV of `E_D`, and the
-8-function set within 1.8 meV.
+8-function set within 1.8 meV. Both sets were refused under the strict 10 meV criterion over every
+band below `E_F + 2` eV (foundation item 6), so it is this closeness inside `E_D +- 2.5` eV on the
+folded k that makes item 3 valid near `E_D`.
 
 **What the numbers say.** The difference is not linear in B, and it does not fall towards 10 T. From
 `q = 6` to `q = 10` route P's zero pair sits a nearly rigid 0.20 to 0.22 eV below Peierls', while the
@@ -140,7 +142,11 @@ on values of 214 to 474 meV, and `s/E_1` is no more linear in B (residual 1.25e-
 numbers from a fit that does not describe its own points, and three decades away from them, so they are
 **not** a measurement of the intra-cell term and are not compared with the 0.6 per cent of section 12.
 The expected linear regime is at fields where `l_B` is much longer than the cell, and `q <= 10` is
-not there: at `q = 10` the magnetic length is 2.9 A, about two bond lengths.
+not there: at `q = 10` the magnetic length is 2.9 A, about two bond lengths. The design's "expected
+linear in B" was untestable at any `q <= 10` by construction: the intra-cell expansion parameter is
+`(spread/l_B)^2`, about 1.5e-4 at 10 T (`l_B` = 81 A) and about 0.1 at `q = 10` (`l_B` = 2.9 A). So
+the slope is not something a larger `q` in this range would have reached; it needs `q` in the
+thousands, where route P does not fit.
 
 Window comparisons. Within 1 eV of `E_D` the zero pair is the only content from `q = 6` on; at
 `q = 2, 3, 4` the counts agree and give the same maxima as the zero pair. Within 2.5 eV the counts agree
@@ -181,8 +187,12 @@ puts one level per k more or fewer in the window than route P, and those are not
 
 **The reading, with these checks in.** Route P passes every independent test it was given (free Landau
 problem to 1e-11, deep-band Landau shift to 0.1 per cent, diamond magnetizability within 2 per cent of
-Lu, cutoff stability to 5 meV), so the 0.2 eV is most likely Peierls' error at these fields, not route
-P's. Over `q = 6, 8, 10` the maximum is 0.0771, 0.0789, 0.0790 of `E_1`: the difference scales as `E_1`,
+Lu, cutoff stability to 5 meV). The facts are these: route P's zero pair sits 0.20 to 0.22 eV below
+Peierls' from `q = 6` to 10 (P - W mean -222, -218, -204 meV), the ratio to `E_1` is 0.077 to 0.079,
+constant to 2 per cent while B falls by 1.67, so the difference scales as `sqrt(B)` and not as B, and
+the five alternatives above are excluded. The attribution stays open: the data here do not say that
+the 0.2 eV is Peierls' error (the review, 2026-11-07, which struck an earlier "most likely Peierls'
+error" from this paragraph). Over `q = 6, 8, 10` the maximum is 0.0771, 0.0789, 0.0790 of `E_1`: the difference scales as `E_1`,
 that is as `sqrt(B)`, and not as `B`. A term linear in `B` would make this ratio fall by `sqrt(1.67)`
 = 1.29 from `q = 6` to `q = 10`; it rises by 2 per cent. Three points over a factor 1.67 in field do not
 say what happens three decades lower, so the design's 0.6 per cent at 10 T is neither confirmed nor

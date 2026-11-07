@@ -45,3 +45,10 @@ hybrid basis of an entangled band set is not localized); the nonlocal term itsel
 
 The level sets `route-u-q{2,3,4,6}-full.npz` are measurements of this refused construction,
 not converged upper bounds. `q = 100` was not run (estimated 30 min and 6 GB, `u2.md`).
+
+**What is merged is a measured negative result with its guards.** The default path of
+`run_magnetic_ultracell` (`strict=True`) raises on every acceptance case that was run, so what
+route U delivers is the refusal, plus the basis-independent pieces (the transport gauge, the
+field kernels, the GIPAW grid projectors and their commutation test) that a disentangled basis
+will reuse unchanged. The nine level sets `route-u-q*-{local,full}.npz` stay labelled
+unconverged; the crosscheck reads them for its item 1 and its route U table only.

@@ -128,12 +128,31 @@ def test_the_band_shift_of_a_rigid_translation(scf_path):
     assert abs(e0 - e1) < 1e-8
 
 
-def test_the_fold_at_one_third(scf_path):
-    from defuqumat.magnetic.fold import fold_check, run_magnetic_scf
+@pytest.fixture(scope="module")
+def fold_one_third(scf_path):
+    """The SCF by the fold at 1/3 (121 s on one D22 core), shared by the two tests below.
+
+    Split from the check so that a failure says which half failed. The check alone took
+    710 s (``review/mag/p2/fold3b.log``), which is still above the 10-minute per-test
+    timeout of the D22 slot runner (``slot.sh``): run this file under
+    ``tools/run_regression.sh``, not in a slot.
+    """
+    from defuqumat.magnetic.fold import run_magnetic_scf
 
     calc = _graphene_smeared()
     result = run_magnetic_scf(calc.system, calc.pseudos, scf_path, flux=(1, 3), kmesh=(2, 6),
                               nbnd=20, conv_thr=1e-8, verbose=False)
+    return calc, result
+
+
+def test_the_fold_at_one_third_converges(fold_one_third):
+    _, result = fold_one_third
     assert result.converged and result.iterations <= 12
+
+
+def test_the_fold_at_one_third_is_the_closed_mesh(fold_one_third):
+    from defuqumat.magnetic.fold import fold_check
+
+    calc, result = fold_one_third
     density, levels, _ = fold_check(result, calc.system, calc.pseudos)
     assert density < 1e-10 and levels < 1e-9
