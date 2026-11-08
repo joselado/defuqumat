@@ -33,6 +33,10 @@ OUT = Path(os.environ.get("MAG_OUT", "/l/ladovj1/review/mag/u3"))
 RY_EV = 13.605693122990
 ED_BOX = -0.130751159          # route P's E_D on its own box at K (cross.md, item 3)
 JS = (2, 8, 18)
+# the band window; 32 is the design's, another value (MAG_N=48) tags the files, as a reported
+# number and not a nested knob (fable's decision, "if 5 mRy is not met at J 18")
+NBANDS = int(os.environ.get("MAG_N", "32"))
+NTAG = "" if NBANDS == 32 else f"-N{NBANDS}"
 
 
 def graphene():
@@ -73,7 +77,7 @@ def run(kind, q, op, zona):
         flux, kmesh, kappa2 = (1, q), (2, 2), None
     t0 = time.perf_counter()
     r = run_magnetic_ultracell(calc.system, calc.pseudos, str(DATA / "graphene-scf.npz"), flux=flux,
-                               N=32, trials=trials, kmesh=kmesh, kappa2=kappa2,
+                               N=NBANDS, trials=trials, kmesh=kmesh, kappa2=kappa2,
                                local_only=(op == "local"), keep_blocks=True, strict=False,
                                projectability_tol=None)
     wall = time.perf_counter() - t0
@@ -110,7 +114,7 @@ def run(kind, q, op, zona):
         saved[f"rank_J{J}"] = np.array(rank)
         saved[f"dmin_J{J}"] = np.array(dmin)
         saved[f"lost_J{J}"] = lost
-    path = OUT / f"u3-{kind}-q{q}-{op}-z{zona:g}.npz"
+    path = OUT / f"u3-{kind}-q{q}-{op}-z{zona:g}{NTAG}.npz"
     np.savez(path, **saved)
     print(f"saved {path}", flush=True)
 
@@ -127,7 +131,8 @@ def analyse(zona):
     for op, pfile in (("full", None), ("local", None)):
         floor = np.load(DATA / f"cross-floor-{op}.npz")
         for q in ((6, 10) if op == "full" else (6,)):
-            fz, ff = OUT / f"u3-zero-q{q}-{op}-z{zona:g}.npz", OUT / f"u3-field-q{q}-{op}-z{zona:g}.npz"
+            fz = OUT / f"u3-zero-q{q}-{op}-z{zona:g}{NTAG}.npz"
+            ff = OUT / f"u3-field-q{q}-{op}-z{zona:g}{NTAG}.npz"
             if not (fz.exists() and ff.exists()):
                 print(f"{op} q {q}: missing {fz.name} or {ff.name}")
                 continue
@@ -136,7 +141,7 @@ def analyse(zona):
                                 f"route-p-q{q}-reps.npz" if op == "full" else f"route-p-q{q}-local.npz"))
             pk = np.asarray(P["kpoints"])
             zk = np.array([[k1, k2] for k2 in Z["kappa2"] for k1 in Z["kappa1"]])
-            print(f"\n== {op} H, q {q}: route P {P['eigenvalues'].shape[1]} levels per k; E_D (box) {ED_BOX} Ry; "
+            print(f"\n== {op} H, q {q}, N {NBANDS}: route P {P['eigenvalues'].shape[1]} levels per k; E_D (box) {ED_BOX} Ry; "
                   f"U field wall {float(F['wall_s']):.0f} s, U zero wall {float(Z['wall_s']):.0f} s")
             for J in JS:
                 zl = Z[f"levels_J{J}"].reshape(-1, J)                    # q = 1: J levels per chemical k
