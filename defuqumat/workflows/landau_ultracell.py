@@ -400,6 +400,12 @@ def run_magnetic_ultracell(
         window = (3.0, 4.0) if projected else None
     # fable (2026-11-08): N1 follows the window, whose bound is ceil(2 outer) - 1 + 2 outer
     N1 = (16 if window is not None else 10) if N1 is None else int(N1)
+    if window is not None:
+        # MagneticUltracell.build's own bound, checked here so that it fires before the NSCF
+        bound = int(np.ceil(2.0 * float(window[1]))) - 1 + 2.0 * float(window[1])
+        if N1 < bound:
+            raise ValueError(f"the window ({float(window[0])}, {float(window[1])}) needs N1 >= "
+                             f"{bound:g} cells, got N1 = {N1}")
     nonlocal_term, nonlocal_mode = _resolve_nonlocal(local_only, free, h0, nonlocal_term)
     p, q = int(flux[0]), int(flux[1])
     n1m, n2m = int(kmesh[0]), int(kmesh[1])

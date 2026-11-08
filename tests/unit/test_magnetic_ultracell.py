@@ -578,18 +578,19 @@ def test_the_reversed_field_fires_the_hermiticity_guard_on_the_projected_basis()
 
 @pytest.mark.parametrize("h0", ["eigen", "box"])
 def test_zero_flux_with_J_equal_to_N_gives_back_the_bands(h0):
-    """p = 0, local only, the 8 pseudo-atomic orbitals of the HGH dataset at N = 8: the projected
-    trials span the 8 bands at every k, so the levels are the bands to round-off (no window, odd
-    N1, every Delta of the box). The p_z pair alone (J = 2 < N) lies above the bands."""
+    """p = 0, local only, the 8 pseudo-atomic orbitals of the HGH dataset at N = 8 on the line
+    kappa2 = 1/2, where their projections span the 8 bands at every k: the levels are the bands to
+    round-off (no window, odd N1, every Delta of the box). At kappa2 = 0 they do not: at Gamma one
+    of the 8 bands is orthogonal to every s and p orbital (d_all 1e-16, rank 7, review/mag/u3/zj.log),
+    which is the span, not the plumbing. The p_z pair alone (J = 2 < N) lies above the bands."""
     from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
 
     calc = _small_graphene()
     density = _uniform_density(calc)
-    kw = dict(flux=(0, 1), N=8, N1=5, w=2, kmesh=(1, 2), h0=h0, window=None,
+    kw = dict(flux=(0, 1), N=8, N1=5, w=2, kmesh=(1, 1), kappa2=[0.5], h0=h0, window=None,
               projectability_tol=None)
     r = run_magnetic_ultracell(calc.system, calc.pseudos, density, trials="pao", **kw)
-    worst = max(np.max(np.abs(r.levels[ik, :8] - r.eigenvalues[int(round(k2 * 2)), 0, 0]))
-                for ik, (_, k2) in enumerate(r.kappa))
+    worst = float(np.max(np.abs(r.levels[0, :8] - r.eigenvalues[0, 0, 0])))
     print(f"\nh0 {h0}: J = N = 8, levels - bands {worst:.2e} Ry, rank {r.rank}, d_min "
           f"{r.d_min.min():.2e}, 1 - p {r.projectability_deficit:.2e}")
     assert r.nbnd == 8 and np.all(r.rank == 8)
@@ -598,9 +599,7 @@ def test_zero_flux_with_J_equal_to_N_gives_back_the_bands(h0):
         calc.pseudos, calc.system.structure,
         np.asarray(calc.system.structure.positions_crystal(calc.system.cell))) if (t.l, t.m) == (1, 1)]
     r2 = run_magnetic_ultracell(calc.system, calc.pseudos, density, trials=pz, **kw)
-    for ik, (_, k2) in enumerate(r2.kappa):
-        bands = r2.eigenvalues[int(round(k2 * 2)), 0, 0]
-        assert np.all(r2.levels[ik, :2] >= bands[:2] - 1e-10)
+    assert np.all(r2.levels[0, :2] >= r2.eigenvalues[0, 0, 0, :2] - 1e-10)
 
 
 def test_the_projected_run_refuses_its_wrong_knobs():
