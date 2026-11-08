@@ -32,6 +32,7 @@ DATA = Path("plans/orbital-field")
 OUT = Path(os.environ.get("MAG_OUT", "/l/ladovj1/review/mag/u3"))
 RY_EV = 13.605693122990
 ED_BOX = -0.130751159          # route P's E_D on its own box at K (cross.md, item 3)
+ED_SPHERE = -0.119587541       # the sphere's E_D at K (cross.md, item 3)
 JS = (2, 8, 18)
 # the band window; 32 is the design's, another value (MAG_N=48) tags the files, as a reported
 # number and not a nested knob (fable's decision, "if 5 mRy is not met at J 18")
@@ -159,6 +160,11 @@ def analyse(zona):
                             zp_p, zp_u = 4 * q - 1, (q - 1 if J == 2 else 4 * q - 1)
                             idx = np.where(np.abs(Pk - ED_BOX) < 2.5 / RY_EV)[0]
                             counts.append((int(np.sum(np.abs(U - ED_BOX) < 2.5 / RY_EV)), len(idx)))
+                            inside = U[np.abs(U - ED_BOX) < 2.5 / RY_EV]
+                            print(f"   J {J:2d} rep ({k1:.2f}, {k2:.4f}): U levels below E_D {int(np.sum(U < ED_BOX))} "
+                                  f"(zero pair expects {zp_u + 1}), P {int(np.sum(Pk < ED_BOX))} (expects {zp_p + 1}); "
+                                  f"U in the window {np.array2string((inside - ED_BOX) * RY_EV, precision=3)} eV, P "
+                                  f"{np.array2string((Pk[idx] - ED_BOX) * RY_EV, precision=3)} eV", flush=True)
                         else:
                             if J == 2:
                                 break
@@ -191,6 +197,28 @@ def analyse(zona):
                       + (f"; window counts (U, P) per rep {counts}" if counts else ""), flush=True)
                 print(f"      U - E_D (eV) {np.array2string((v['U'] - ED_BOX) * RY_EV, precision=4, max_line_width=400)}")
                 print(f"      P - E_D (eV) {np.array2string((v['P'] - ED_BOX) * RY_EV, precision=4, max_line_width=400)}")
+                # the zero-field span error as cross.md measured the Wannier sets: every U0 level within
+                # E_D +- 2.5 eV (the sphere's E_D) at each folded chemical k, against the nearest sphere band
+                fkey = {(round(x, 9), round(y, 9)): i for i, (x, y) in enumerate(floor["kpoints"][:, :2])}
+                near = []
+                for row, (x, y) in zip(zl, zk):
+                    sph = floor["sphere"][fkey[(round(x % 1.0, 9), round(y, 9))]]
+                    for level in row[np.abs(row - ED_SPHERE) < 2.5 / RY_EV]:
+                        near.append(np.min(np.abs(sph - level)))
+                near = np.array(near)
+                if near.size:
+                    print(f"      zero field, U0 within E_D +- 2.5 eV on the {len(zk)} folded k: {near.size} levels, "
+                          f"nearest sphere band max {near.max() * RY_EV * 1e3:.2f} meV, mean "
+                          f"{near.mean() * RY_EV * 1e3:.2f} meV", flush=True)
+            if op == "full":
+                # mirror z -> -z: s, px, py are even, p_z and the pi levels odd, so the odd levels of J = 8
+                # are those of J = 2 (the same numbers check the slicing of the J = 18 blocks)
+                worst = 0.0
+                for a in range(len(F["kappa2"])):
+                    for b in range(len(F["kappa1"])):
+                        u8 = np.sort(F["levels_J8"][a, b])
+                        worst = max(worst, max(float(np.min(np.abs(u8 - x))) for x in F["levels_J2"][a, b]))
+                print(f"   mirror: every J = 2 level is a J = 8 level to {worst:.2e} Ry", flush=True)
 
 
 if __name__ == "__main__":
