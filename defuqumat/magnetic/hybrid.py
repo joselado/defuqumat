@@ -53,6 +53,35 @@ Measured on D22 (``plans/orbital-field/u1.md``): free electrons on the graphene 
 ``N1 = 12``). An isolated composite (graphene local-only, ``nbnd = 2``, a 6 Ry gap) reads
 1.4e-4 at ``w = 1`` and 7e-6 at ``w = 5``, a slower tail than its gap implies: the plane-wave
 sphere of each ``k`` is a step function of ``k``.
+
+**The projected trial basis (route U step 3, P176; fable's decision,
+``plans/orbital-field/route-u-basis/decision.md``).** The transport gauge above refuses on every
+plane-wave crystal, because the lowest ``nbnd`` bands are entangled and a hybrid state of an
+entangled set is a sinc along ``xi1``, whose ``<x^2>`` diverges: its Landau-gauge matrix elements
+do not exist. :func:`projected_hybrid` replaces the gauge. The hybrid state of trial ``j`` is the
+trial projected on the lowest ``N`` bands at each ``k`` of the loop,
+
+    psi~_{j,i} = sum_{m < N} psi_{m,i} A_{mj}(k_i),   A_{mj} = <psi_{m,i}|g_j(k_i)>,
+
+with no Loewdin step and no transport gauge, so :func:`hybrid_set` takes the rotation ``A``
+``(N1, N, J)`` unchanged and the overlap ``S`` of the ultracell carries the non-orthogonality
+(the canonical orthogonalisation of ``solve`` handles it). ``g_j(k)`` is the Bloch sum of a
+localized function, a function of ``k + G`` alone, so ``h_{j,0}`` is localized at cell 0 and
+periodic in ``kappa'``, which the Miller relabelling of the reduced states needs. Adding a trial
+adds one function and changes none of the others, so the spans are nested in ``J`` and the
+levels of a Rayleigh-Ritz evaluation fall monotonically with ``J``. ``N`` is not a knob: it is
+fixed by the **projectability** ``p_j(k) = sum_{m<N} |A_{mj}|^2 / |g_j|^2`` (Qiao, Pizzi and
+Marzari, arXiv:2303.07877), one for a trial inside the ``N``-band space. Measured by the probe
+on the free problem at 1/10 (c = 5 A): ``1 - p`` of 1e-6 passes, 2.7e-3 reads Hermiticity
+2.5e-4, and 0.12 ruins the spectrum, so the workflow refuses ``1 - p > 1e-4``.
+
+The trials are atom-centred (:func:`atomic_trials`, the hydrogenic and pseudo-atomic functions
+of :mod:`defuqumat.wannier.trial` and :mod:`defuqumat.wannier.pao` as they are) or, for the
+free problem, :class:`StripeTrials`: a Hermite-Gaussian along ``xi1`` on the stripe of the
+lowest free band, ``G2 = -round(kappa')``, ``G3 = 0`` (:func:`stripe_trials`). The stripe must
+be periodic in ``kappa'``: a ``G2 = 0`` stripe at every reduced point cuts the chain of
+Gaussians at the magnetic cell's boundary and reads levels 0.3 to 1.2 ``B_ph`` off
+(``fable-basis/blocks-s05.log``).
 """
 
 from __future__ import annotations
@@ -65,7 +94,8 @@ import numpy as np
 import scipy.linalg
 
 __all__ = ["local_only", "free_electron", "TransportGauge", "transport_gauge",
-           "HybridSet", "hybrid_set", "outside_weight", "half_width"]
+           "HybridSet", "hybrid_set", "outside_weight", "half_width",
+           "ProjectedGauge", "projected_hybrid", "StripeTrials", "stripe_trials", "atomic_trials"]
 
 
 # --- the zero-field operator of step 1 --------------------------------------------------
@@ -203,3 +233,132 @@ def half_width(weights: np.ndarray, widths, tol: float = 1.0e-8):
         if value < tol:
             return int(w)
     return None
+
+
+# --- the projected trial basis (step 3) ------------------------------------------------
+
+@dataclasses.dataclass(frozen=True)
+class ProjectedGauge:
+    """The projected trials of one closed ``k1`` loop, host NumPy, for :func:`hybrid_set`.
+
+    ``rotation`` ``(N1, N, J)``: ``A_{mj}(k_i) = <psi_{m,i}|g_j(k_i)>``, so ``psi~_{.,i} =
+    psi_{.,i}[:N] @ rotation[i]`` is the projection of each trial; ``projectability`` ``(N1, J)``
+    ``sum_m |A_{mj}|^2 / |g_j|^2``, at most one; ``centres`` zeros (the trials sit at cell 0 by
+    construction); ``singular`` the smallest singular value over the loop of ``A`` with its
+    columns scaled by ``1/|g_j|``, which falls where two projected trials become dependent.
+    """
+
+    rotation: np.ndarray
+    projectability: np.ndarray
+    centres: np.ndarray
+    singular: float
+
+
+def projected_hybrid(coefficients, trials, N: int) -> ProjectedGauge:
+    """The :class:`ProjectedGauge` of one loop: ``A = <psi|g>`` over the lowest ``N`` bands.
+
+    ``coefficients`` ``(N1, nbnd, npwx)`` with ``nbnd >= N``, ``trials`` ``(N1, J, npwx)``, both on
+    the same sphere of each ``k_i`` (zero on padding). No Loewdin step and no transport gauge:
+    the overlap of the ultracell carries the non-orthogonality.
+    """
+    psi = np.asarray(coefficients)
+    g = np.asarray(trials)
+    N = int(N)
+    if psi.shape[1] < N:
+        raise ValueError(f"the loop holds {psi.shape[1]} bands, fewer than the window N = {N}")
+    if g.shape[0] != psi.shape[0] or g.shape[2] != psi.shape[2]:
+        raise ValueError(f"trials {g.shape} do not match the states {psi.shape} (N1, ., npwx)")
+    rotation = np.einsum("img,ijg->imj", psi[:, :N].conj(), g)
+    norm = np.sum(np.abs(g) ** 2, axis=2)                                 # (N1, J)
+    if np.any(norm <= 0.0):
+        i, j = np.argwhere(norm <= 0.0)[0]
+        raise ValueError(f"trial {j} has no weight on the sphere of k-point {i} of the loop")
+    projectability = np.sum(np.abs(rotation) ** 2, axis=1) / norm
+    scaled = rotation / np.sqrt(norm)[:, None, :]
+    smallest = min(float(np.linalg.svd(a, compute_uv=False).min()) for a in scaled)
+    return ProjectedGauge(rotation=rotation, projectability=projectability,
+                          centres=np.zeros(g.shape[1]), singular=smallest)
+
+
+@dataclasses.dataclass(frozen=True)
+class StripeTrials:
+    """The free problem's trials: ``J`` Hermite-Gaussians along ``xi1`` on the lowest stripe.
+
+    ``g_j = H_j(xi1/sigma) exp(-xi1^2 / 2 sigma^2)``, ``xi1 = b1 . r`` in cells, ``sigma`` in
+    cells, times the plane wave of the lowest free band along ``b2`` (``G2 = -round(kappa')``,
+    ``G3 = 0``). ``chirp`` dresses the Gaussian (``J = 1`` only) with the phase ``exp(-i f
+    xi1^2)`` of the analytic Landau state on a cell with ``b1 . b2 != 0`` (u1's item 0b), ``f``
+    given by the workflow from the flux p/q (never from ``scale``): with ``sigma = l_B |b1|`` the exact ``n = 0`` state is
+    then in the span, the plumbing line of the gate.
+    """
+
+    J: int
+    sigma: float = 0.5
+    chirp: bool = False
+
+    def __post_init__(self):
+        if int(self.J) < 1:
+            raise ValueError(f"a stripe trial set needs J >= 1, got {self.J}")
+        if not self.sigma > 0.0:
+            raise ValueError(f"the stripe trial's sigma must be positive, got {self.sigma}")
+        if self.chirp and int(self.J) != 1:
+            raise ValueError("the chirped stripe is the analytic n = 0 state, J = 1 only")
+
+    @property
+    def names(self) -> tuple:
+        tag = ", chirped" if self.chirp else ""
+        return tuple(f"stripe H{j} sigma {self.sigma:g}{tag}" for j in range(int(self.J)))
+
+
+def stripe_trials(spec: StripeTrials, kpoints, miller, valid, chirp_coefficient: float = 0.0):
+    """``(nk, J, npwx)``: :class:`StripeTrials` on the sphere of every k-point.
+
+    ``kpoints`` ``(nk, 3)`` crystal, ``miller`` ``(nk, npwx, 3)``, ``valid`` ``(nk, npwx)``.
+    The momentum along ``xi1`` is ``kap = 2 pi (k1 + G1)`` in 1/cells, so the trial is a function
+    of ``k + G`` alone; the stripe keeps ``G2 = -floor(k2 + 1/2)`` (the plane wave whose
+    ``k2 + G2`` lies in ``[-1/2, 1/2)``) and ``G3 = 0``. ``chirp_coefficient`` is ``f`` of the
+    class docstring, per cell squared.
+    """
+    from numpy.polynomial.hermite import hermval
+
+    kpoints = np.asarray(kpoints, dtype=float)
+    miller = np.asarray(miller)
+    valid = np.asarray(valid, dtype=bool)
+    J, sigma = int(spec.J), float(spec.sigma)
+    out = np.zeros((len(kpoints), J, miller.shape[1]), dtype=complex)
+    for k, kpt in enumerate(kpoints):
+        kap = 2.0 * np.pi * (kpt[0] + miller[k, :, 0])
+        g2 = -int(np.floor(kpt[1] + 0.5))
+        stripe = valid[k] & (miller[k, :, 1] == g2) & (miller[k, :, 2] == 0)
+        for j in range(J):
+            if spec.chirp:
+                # exp(-a xi^2), a = 1/(2 sigma^2) + i f: the Gaussian times exp(-i f xi^2)
+                a = 1.0 / (2.0 * sigma ** 2) + 1j * float(chirp_coefficient)
+                g = np.exp(-kap ** 2 / (4.0 * a))
+            else:
+                c = np.zeros(j + 1)
+                c[j] = 1.0
+                g = (-1j) ** j * hermval(sigma * kap, c) * np.exp(-0.5 * sigma ** 2 * kap ** 2)
+            out[k, j] = np.where(stripe, g, 0.0)
+    return out
+
+
+def atomic_trials(states, projections, pseudos, volume: float):
+    """``(nk, J, npwx)``: atom-centred trials on the sphere of every k-point of ``states``.
+
+    ``projections`` are Wannier90 projections (:func:`~defuqumat.wannier.projections.parse_projections`)
+    or pseudo-atomic orbitals (:func:`~defuqumat.wannier.pao.pao_projections`), in any mix,
+    evaluated by :func:`~defuqumat.wannier.matrices.guiding_on_mesh` exactly as the Wannier
+    engine evaluates them. Norm-conserving and collinear only (the ultracell refuses the rest).
+    """
+    from defuqumat.wannier.matrices import guiding_on_mesh
+    from defuqumat.wannier.pao import pao_radial_tables
+
+    if states.npol != 1:
+        raise NotImplementedError("projected trials for spinor states")
+    species = {p.species for p in projections if getattr(p, "radial_key", None) is not None}
+    extra = pao_radial_tables(pseudos, species, volume) if species else None
+    out = np.zeros((states.nk, len(projections), states.npwx), dtype=complex)
+    for k, g in guiding_on_mesh(states, projections, volume, extra_tables=extra):
+        out[k] = g
+    return out

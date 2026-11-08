@@ -29,6 +29,28 @@ m/q, 0)``, all in ``[0, 1)``. The cost is ``N1 q n2`` zero-field k-points.
 a full zero-field basis with no nonlocal term, and a nonlocal term on the free problem. The
 field is along ``a3`` by the gauge.
 
+**The projected trial basis (step 3).** ``trials=`` replaces the transport gauge, which
+refuses on every case it was run on (P176), by :func:`~defuqumat.magnetic.hybrid.projected_hybrid`:
+the basis function of trial ``j`` is the trial projected on the lowest ``N`` zero-field bands
+at every k of the loop, so the basis has ``J = len(trials)`` functions per cell and the result's
+``nbnd`` is ``J``, while ``N`` (the band window, solved by the NSCF) is fixed by the
+projectability and is not a convergence knob. ``trials`` is a
+:class:`~defuqumat.magnetic.hybrid.StripeTrials` (the free problem), ``"pao"`` (every
+pseudo-atomic orbital of the datasets' ``PP_PSWFC``), or a list of Wannier90 projection lines
+and :class:`~defuqumat.wannier.pao.PAOProjection` objects in any mix; the spans are nested in
+the order given. A run refuses when a trial's projectability falls below ``1 -
+projectability_tol`` at any k (default 1e-4; fable's probe reads Hermiticity 2.5e-4 at 2.7e-3).
+Its defaults are fable's: ``window = (3, 4)``, ``h0 = "box"``, ``form = "symmetric"``,
+``N1 = 16`` (with any window), so the matrix is an exact Rayleigh-Ritz problem of the box operator and every level
+is an upper bound that falls monotonically with ``J``. On a projected basis a direction of ``S``
+dropped by ``drop`` is the conditioning of non-orthogonal trials, recorded in ``rank``, not a
+construction error, so the free problem's rank refusal applies to the hybrid basis only.
+
+**The zero-flux check, restated.** At ``p = 0`` the levels are the zero-field bands only inside
+the span: with ``J = N`` trials whose projections are independent at every k (and no window,
+odd ``N1``, ``w = (N1 - 1)/2``, ``kappa1`` on the ``N1`` mesh) they are the ``N`` bands to
+round-off; with ``J < N`` they lie above the bands, by what the span of the trials misses.
+
 **The projector check.** Whenever the grid projectors are built, the run reports
 ``nonlocal_error``: the largest difference, in Ry, between ``<h_{n,0}|V_NL^0|h_{n',0}>`` on
 the box grid and the same block from the plane-wave projectors (``vkb``) through the
@@ -48,7 +70,10 @@ import jax.numpy as jnp
 import numpy as np
 
 from defuqumat.magnetic.conventions import refuse_regime
-from defuqumat.magnetic.hybrid import free_electron, hybrid_set, transport_gauge
+from defuqumat.magnetic.hybrid import (
+    StripeTrials, atomic_trials, free_electron, hybrid_set, projected_hybrid, stripe_trials,
+    transport_gauge,
+)
 from defuqumat.magnetic.hybrid import local_only as _local_only
 from defuqumat.magnetic.ultracell_field import (
     MagneticUltracell, _bra_fields, assemble, hermiticity, hermiticity_guard, solve,
@@ -76,6 +101,11 @@ class MagneticUltracellResult:
     ``centres`` ``(nkappa, q, nbnd)`` hybrid centres in cells; ``singular`` the smallest
     singular value of any transport link; ``eigenvalues`` ``(nkappa, q, N1, nbnd)`` the
     zero-field ones; ``timings`` in seconds.
+
+    On a projected basis (``trials=``): ``nbnd`` is ``J``, the functions per cell; ``N`` the band
+    window and ``eigenvalues`` ``(nkappa, q, N1, N)``; ``trials`` the trials' names;
+    ``projectability`` ``(nkappa, q, N1, J)`` and ``projectability_deficit`` its largest ``1 -
+    p``; ``singular`` the smallest singular value of the normalized projections ``A``.
     """
 
     flux: tuple
@@ -109,6 +139,10 @@ class MagneticUltracellResult:
     projector_radius: tuple | None = None
     projector_dropped: tuple | None = None
     region_weights: np.ndarray | None = None
+    N: int | None = None
+    trials: tuple | None = None
+    projectability: np.ndarray | None = None
+    projectability_deficit: float | None = None
 
 
 def ultracell_kpoints(q: int, n1: int, kappas) -> np.ndarray:
@@ -217,14 +251,50 @@ def _density_of(scf):
     return jnp.asarray(scf["density"])
 
 
+def _resolve_trials(trials, system, pseudos):
+    """``trials=`` as a :class:`StripeTrials` or a list of atom-centred projections."""
+    if isinstance(trials, StripeTrials):
+        return trials
+    from defuqumat.wannier.pao import pao_projections
+    from defuqumat.wannier.projections import parse_projections
+
+    crystal = np.asarray(system.structure.positions_crystal(system.cell), dtype=float)
+    if isinstance(trials, str):
+        if trials != "pao":
+            raise ValueError(f"trials must be 'pao', a StripeTrials or a list of projections, "
+                             f"got {trials!r}")
+        return pao_projections(pseudos, system.structure, crystal)
+    out = []
+    bg = np.asarray(system.cell.bg, dtype=float)
+    symbols = list(system.structure.symbols)
+    for t in trials:
+        if isinstance(t, str):
+            out.extend(parse_projections([t], symbols, crystal.T, bg))
+        elif all(hasattr(t, a) for a in ("l", "m", "site_frac")):
+            out.append(t)
+        else:
+            raise ValueError(f"a trial must be a Wannier90 projection line or a projection with l, m "
+                             f"and site_frac, got {t!r}")
+    if not out:
+        raise ValueError("trials= is empty")
+    return out
+
+
+def _trial_names(trials):
+    if isinstance(trials, StripeTrials):
+        return trials.names
+    return tuple(getattr(t, "name", None) or f"site {np.round(np.asarray(t.site_frac), 4).tolist()} "
+                 f"l={t.l} mr={t.m}" for t in trials)
+
+
 def run_magnetic_ultracell(
     system,
     pseudos,
     scf,
     *,
     flux=(1, 1),
-    nbnd: int,
-    N1: int = 10,
+    nbnd: int | None = None,
+    N1: int | None = None,
     kmesh=(2, 2),
     local_only: bool = True,
     free: bool = False,
@@ -232,18 +302,22 @@ def run_magnetic_ultracell(
     w: int | None = None,
     spread_tol: float = 1.0e-8,
     wmax: int | None = None,
-    h0: str = "eigen",
+    h0: str | None = None,
     drop: float = 1.0e-8,
     conv_thr: float = 1.0e-10,
     k_batch="default",
-    window=None,
-    form: str = "ket",
+    window="default",
+    form: str | None = None,
     scale=1.0,
     strict: bool = True,
     keep_blocks: bool = False,
     nonlocal_term: str | None = None,
     projector_cut: float = 1.0e-6,
     sublattices=None,
+    trials=None,
+    N: int | None = None,
+    projectability_tol: float | None = 1.0e-4,
+    kappa2=None,
 ) -> MagneticUltracellResult:
     """The levels of ``system`` at flux ``p/q`` per chemical cell on the magnetic ultracell.
 
@@ -253,7 +327,8 @@ def run_magnetic_ultracell(
             ``SCFResult``, a mapping or an ``npz`` path with ``density``); ``None`` only
             with ``free=True``.
         flux: ``(p, q)``, coprime, or ``(0, 1)`` for zero field.
-        nbnd: zero-field bands per k-point, the basis has ``q nbnd`` per magnetic ``k``.
+        nbnd: zero-field bands per k-point, the basis has ``q nbnd`` per magnetic ``k`` (the
+            hybrid basis; a projected run has ``q J``).
         N1: k-points along ``kappa1`` of the hybrid states (the box is ``N1`` cells).
         kmesh: the magnetic mesh ``(n1, n2)``: ``kappa1 = i/n1``, ``kappa2 = j/(n2 q)``.
         local_only, free: the zero-field basis: ``T + V_loc`` (step 1, ``local_only``),
@@ -285,14 +360,57 @@ def run_magnetic_ultracell(
             ``d/dB`` at fixed ``p/q``); the basis keeps the momentum shifts of ``p/q``, so
             ``scale = -1`` is the field reversed against its basis, a control.
         strict: refuse (raise) when the assembled ``H`` is not Hermitian to 1e-8, and on
-            the free problem when ``S`` drops a direction; ``False`` records and goes on.
+            the free problem's hybrid basis when ``S`` drops a direction; ``False`` records
+            and goes on.
+        trials: the projected trial basis (module docstring): a
+            :class:`~defuqumat.magnetic.hybrid.StripeTrials`, ``"pao"``, or a list of Wannier90
+            projection lines and projection objects. ``None``: the hybrid Wannier basis of
+            the transport gauge (refused in practice, P176).
+        N: the band window of a projected run, the zero-field bands solved and projected on;
+            needed with ``trials`` and refused without it (``nbnd`` is then ``J``).
+        projectability_tol: a projected run refuses when ``1 - p`` of any trial at any k
+            exceeds it; ``None`` records the projectability and goes on.
+        kappa2: explicit magnetic ``kappa2`` values in ``[0, 1/q)``, in place of the
+            ``kmesh[1]`` values ``j/(n2 q)`` (``kmesh[0]`` still sets ``kappa1``).
+
+    Defaults that depend on the basis: ``N1`` 16 with a window, 10 without; ``h0`` ``"eigen"``
+    or ``"box"``; ``form`` ``"ket"`` or ``"symmetric"``; ``window`` ``None`` or ``(3, 4)``.
     """
     refuse_regime(system, pseudos, "the magnetic ultracell")
+    projected = trials is not None
+    if projected:
+        if N is None:
+            raise ValueError("a projected run (trials=) needs N, the zero-field bands the trials "
+                             "are projected on")
+        if nbnd is not None:
+            raise ValueError("a projected run has J = len(trials) functions per cell; nbnd is not "
+                             "one of its knobs, N (the band window) is")
+        nsolve = int(N)
+    else:
+        if N is not None:
+            raise ValueError("N is the band window of a projected run; give trials= with it")
+        if nbnd is None:
+            raise ValueError("the hybrid basis needs nbnd, the zero-field bands per k-point")
+        nsolve = int(nbnd)
+    h0 = ("box" if projected else "eigen") if h0 is None else h0
+    form = ("symmetric" if projected else "ket") if form is None else form
+    if isinstance(window, str):
+        if window != "default":
+            raise ValueError(f"window must be (inner, outer), None or 'default', got {window!r}")
+        window = (3.0, 4.0) if projected else None
+    # fable (2026-11-08): N1 follows the window, whose bound is ceil(2 outer) - 1 + 2 outer
+    N1 = (16 if window is not None else 10) if N1 is None else int(N1)
     nonlocal_term, nonlocal_mode = _resolve_nonlocal(local_only, free, h0, nonlocal_term)
     p, q = int(flux[0]), int(flux[1])
     n1m, n2m = int(kmesh[0]), int(kmesh[1])
-    kappas = [j / (n2m * q) for j in range(n2m)]
-    N1 = int(N1)
+    if kappa2 is None:
+        kappas = [j / (n2m * q) for j in range(n2m)]
+    else:
+        kappas = [float(k) for k in kappa2]
+        if not kappas or any(not 0.0 <= k < 1.0 / q for k in kappas):
+            raise ValueError(f"kappa2 must be magnetic values in [0, 1/q) = [0, {1.0 / q:g}), got "
+                             f"{kappa2!r}")
+        n2m = len(kappas)
     timings = {}
 
     # --- the zero-field states at the N1 q points of each magnetic kappa2 -----------------
@@ -302,7 +420,7 @@ def run_magnetic_ultracell(
     system_k = eqx.tree_at(lambda s: s.kpoints, system, kpoints_for_spin(kpoints, system.nspin))
     t0 = time.perf_counter()
     calculation = Calculation(system_k, pseudos, k_batch=k_batch)
-    calculation = calculation.for_bands(int(nbnd))
+    calculation = calculation.for_bands(nsolve)
     density = _density_of(scf)
     if density is None:
         if not free:
@@ -318,7 +436,7 @@ def run_magnetic_ultracell(
         hamiltonians = tuple(_local_only(h) for h in hamiltonians)
     ethr = fixed_density_ethr(conv_thr, calculation.nelec)
     eigenvalues, wavefunctions, steps, notcnv = calculation.diagonalize(
-        hamiltonians, int(nbnd), None, ethr, return_steps=True)
+        hamiltonians, nsolve, None, ethr, return_steps=True)
     eigenvalues = np.asarray(eigenvalues[0])
     jax.block_until_ready(wavefunctions)
     timings["nscf_s"] = time.perf_counter() - t0
@@ -327,26 +445,56 @@ def run_magnetic_ultracell(
     # --- the parallel-transport gauge and the hybrid sets ---------------------------------
     t0 = time.perf_counter()
     states = build_plane_wave_states(calculation, wavefunctions[0])
-    pairs = []
-    for jk in range(n2m):
-        for m in range(q):
-            base = (jk * q + m) * N1
-            pairs += [(base + i, base + i + 1, None) for i in range(N1 - 1)]
-            pairs.append((base + N1 - 1, base, (1, 0, 0)))
-    links = np.asarray(states.overlaps(pairs)).reshape(n2m, q, N1, int(nbnd), int(nbnd))
-    hybrids, centres, singular, first_gauges = [], [], 1.0, []
+    if projected:
+        trials = _resolve_trials(trials, calculation.system, pseudos)
+        if isinstance(trials, StripeTrials):
+            # f of StripeTrials, the chirp of the analytic Landau state at this field (u1 0b)
+            b = np.linalg.inv(np.asarray(cell.at, dtype=float)).T
+            # of p/q only, never of scale: the basis is fixed by the flux (fable, 2026-11-08)
+            chirp = 0.0 if p == 0 else (np.pi * p / q) * float(b[0] @ b[1]) / float(b[0] @ b[0])
+            trial_values = stripe_trials(trials, points, states.miller, states.valid, chirp)
+        else:
+            trial_values = atomic_trials(states, trials, pseudos, float(cell.volume))
+        nbnd = trial_values.shape[1]
+    else:
+        pairs = []
+        for jk in range(n2m):
+            for m in range(q):
+                base = (jk * q + m) * N1
+                pairs += [(base + i, base + i + 1, None) for i in range(N1 - 1)]
+                pairs.append((base + N1 - 1, base, (1, 0, 0)))
+        links = np.asarray(states.overlaps(pairs)).reshape(n2m, q, N1, nsolve, nsolve)
+    nbnd = int(nbnd)
+    hybrids, centres, singular, first_gauges, projectability = [], [], 1.0, [], []
     for jk in range(n2m):
         row = []
         for m in range(q):
-            gauge = transport_gauge(links[jk, m])
+            sl = slice((jk * q + m) * N1, (jk * q + m + 1) * N1)
+            if projected:
+                gauge = projected_hybrid(wavefunctions[0][sl], trial_values[sl], nsolve)
+                projectability.append(gauge.projectability)
+            else:
+                gauge = transport_gauge(links[jk, m])
             if m == 0:
                 first_gauges.append(gauge)
-            sl = slice((jk * q + m) * N1, (jk * q + m + 1) * N1)
             row.append(hybrid_set(wavefunctions[0][sl], eigenvalues[sl], states.miller[sl],
                                   states.valid[sl], gauge, kappas[jk] + m / q))
             singular = min(singular, gauge.singular)
         hybrids.append(row)
         centres.append([h.centres for h in row])
+    deficit = None
+    if projected:
+        projectability = np.stack(projectability).reshape(n2m, q, N1, nbnd)
+        lost = 1.0 - projectability
+        deficit = float(lost.max())
+        if projectability_tol is not None and deficit > float(projectability_tol):
+            jk, m, i, j = np.unravel_index(int(np.argmax(lost)), lost.shape)
+            raise ValueError(
+                f"trial {j} ({_trial_names(trials)[j]}) is not inside the {nsolve}-band window: "
+                f"1 - projectability = {deficit:.3e} > {float(projectability_tol):.1e} at the "
+                f"chemical k {np.round(points[(jk * q + m) * N1 + i], 6).tolist()}; its projection "
+                "carries a jump in k and delocalizes the basis. Raise N, or choose trials that "
+                "the lowest N bands hold (projectability_tol=None records and goes on)")
     timings["gauge_s"] = time.perf_counter() - t0
 
     potential = np.asarray(hamiltonians[0].potential) if h0 == "box" else None
@@ -422,7 +570,7 @@ def run_magnetic_ultracell(
                                                  assemble(kappa1, R[:, :, ir], S, w, q)[0], vec))
                                for ir in range(R.shape[2])], -1)
                 weights_r.append(rw if nlevels is None else rw[:nlevels])
-            if strict and free and rank < s.shape[0]:
+            if strict and free and not projected and rank < s.shape[0]:
                 raise ValueError(
                     f"S of the free problem drops {s.shape[0] - rank} of {s.shape[0]} "
                     f"directions at magnetic k ({kappa1}, {kappas[jk]}) (smallest eigenvalue "
@@ -447,10 +595,12 @@ def run_magnetic_ultracell(
         hermiticity=np.array(herm), w=w, w_measured=w_measured, outside=outside,
         outside_by_width=outside_by_width, dropped=dropped, n1=N1, nbnd=int(nbnd), h0=h0,
         centres=np.array(centres), singular=float(singular),
-        eigenvalues=eigenvalues.reshape(n2m, q, N1, int(nbnd)), davidson=davidson,
+        eigenvalues=eigenvalues.reshape(n2m, q, N1, nsolve), davidson=davidson,
         timings=timings, form=form, window=None if window is None else tuple(float(x) for x in window),
         blocks=tuple(kept) if keep_blocks else None,
         nonlocal_term=nonlocal_term, nonlocal_mode=nonlocal_mode, nonlocal_error=nonlocal_error,
         projector_radius=None if projectors is None else projectors.radius,
         projector_dropped=None if projectors is None else projectors.dropped,
-        region_weights=None if not weights_r else np.stack([x[:nmin] for x in weights_r]))
+        region_weights=None if not weights_r else np.stack([x[:nmin] for x in weights_r]),
+        N=nsolve if projected else None, trials=_trial_names(trials) if projected else None,
+        projectability=projectability if projected else None, projectability_deficit=deficit)

@@ -7,6 +7,8 @@ refusals. The acceptance numbers on the graphene cell are probes
 (``plans/orbital-field/mag_route_u.py``) and ``tests/regression/test_magnetic_ultracell_slow.py``.
 """
 
+import functools
+
 import jax
 import numpy as np
 import pytest
@@ -460,3 +462,160 @@ def test_the_sublattice_masks_partition_the_box():
     assert np.allclose(masks.sum(axis=0), 1.0)
     # inversion about the bond centre maps this grid onto itself and A onto B
     assert abs(masks[0].mean() - 0.5) < 1e-12
+
+
+# --- step 3: the projected trial basis --------------------------------------------------
+
+def test_projected_hybrid_is_the_overlap_and_its_projectability():
+    """A = <psi|g> over the lowest N bands; p = 1 for a trial inside the window, the weight
+    left inside for one that is not; and the bands above N do not enter."""
+    from defuqumat.magnetic.hybrid import projected_hybrid
+
+    rng = np.random.default_rng(5)
+    n1, nbnd, npw = 3, 5, 12
+    psi = np.stack([np.linalg.qr(rng.normal(size=(npw, nbnd)) + 1j * rng.normal(size=(npw, nbnd)))[0].T
+                    for _ in range(n1)])                                   # orthonormal rows
+    inside = np.einsum("km,kmg->kg", rng.normal(size=(n1, 3)), psi[:, :3])
+    half = psi[:, 0] + psi[:, 4]                                            # half of it above N
+    trials = np.stack([inside, half], axis=1)
+    gauge = projected_hybrid(psi, trials, 3)
+    assert gauge.rotation.shape == (n1, 3, 2)
+    assert np.allclose(gauge.rotation, np.einsum("kmg,kjg->kmj", psi[:, :3].conj(), trials))
+    assert np.allclose(gauge.projectability[:, 0], 1.0, atol=1e-14)
+    assert np.allclose(gauge.projectability[:, 1], 0.5, atol=1e-14)
+    assert np.all(gauge.centres == 0.0) and 0.0 < gauge.singular <= 1.0 + 1e-14
+    with pytest.raises(ValueError, match="fewer than the window"):
+        projected_hybrid(psi, trials, 6)
+
+
+def test_the_stripe_trial_is_periodic_in_kappa():
+    """g at (k1, k2 + 1) on the sphere relabelled by G2 -> G2 - 1 is g at (k1, k2): the trial is a
+    function of k + G alone, which the reuse of the reduced states needs. The G2 = 0 stripe of
+    the probe's first try is not."""
+    from defuqumat.magnetic.hybrid import StripeTrials, stripe_trials
+
+    g1, g2 = np.meshgrid(np.arange(-3, 4), np.arange(-2, 3), indexing="ij")
+    miller = np.stack([g1.ravel(), g2.ravel(), np.zeros(g1.size, int)], -1)
+    valid = np.ones(len(miller), bool)
+    spec = StripeTrials(J=3, sigma=0.5)
+    for k2 in (0.2, 0.75):
+        a = stripe_trials(spec, [[0.3, k2, 0.0]], miller[None], valid[None])[0]
+        b = stripe_trials(spec, [[0.3, k2 + 1.0, 0.0]], (miller - [0, 1, 0])[None], valid[None])[0]
+        assert np.allclose(a, b, atol=0.0) and np.max(np.abs(a)) > 0.1
+        assert np.count_nonzero(np.abs(a[0]) > 0) == 7                     # one stripe, 7 G1
+    flat = np.where(miller[:, 1] == 0, 1.0, 0.0)
+    a = stripe_trials(spec, [[0.3, 0.75, 0.0]], miller[None], valid[None])[0, 0]
+    assert np.all(np.abs(a[flat > 0]) == 0.0)                              # k2 0.75 keeps G2 = -1
+    with pytest.raises(ValueError, match="J = 1 only"):
+        StripeTrials(J=2, chirp=True)
+
+
+@functools.lru_cache(maxsize=2)
+def _free_projected(J, scale=1.0, N=48, strict=True):
+    from defuqumat.magnetic.hybrid import StripeTrials
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    return run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), free=True,
+                                  trials=StripeTrials(J=J, sigma=0.5), N=N, kmesh=(1, 1),
+                                  scale=scale, strict=strict)
+
+
+def test_the_projected_levels_fall_monotonically_in_J_and_stay_above_the_ladder():
+    """Free electrons at 1/2, the stripe Hermite-Gaussians, J = 1 then 2 at N = 48: nested spans,
+    so every level at J = 2 is at or below the same level at J = 1, every level is above the
+    exact (2n + 1) B_ph + (2 pi m/c)^2 (the window, the box and the symmetric form make it an
+    exact Rayleigh-Ritz problem), and H is Hermitian to round-off."""
+    from defuqumat.magnetic.conventions import MagneticCell
+    from defuqumat.magnetic.landau import free_landau_levels
+
+    r1, r2 = _free_projected(1), _free_projected(2)
+    assert (r1.nbnd, r2.nbnd, r1.N, r1.n1, r1.window, r1.h0, r1.form) == \
+        (1, 2, 48, 16, (3.0, 4.0), "box", "symmetric")
+    assert r1.eigenvalues.shape[-1] == 48 and r2.projectability.shape[-1] == 2
+    print(f"\nJ 1: 1 - p {r1.projectability_deficit:.2e}, herm {r1.hermiticity.max():.1e}, "
+          f"levels/B {r1.levels[0, :4] / r1.b_ph}; J 2: 1 - p {r2.projectability_deficit:.2e}, "
+          f"herm {r2.hermiticity.max():.1e}, levels/B {r2.levels[0, :4] / r2.b_ph}")
+    assert np.all(r1.hermiticity < 1e-10) and np.all(r2.hermiticity < 1e-10)
+    n = r1.levels.shape[1]
+    assert np.all(r2.levels[:, :n] <= r1.levels + 1e-10)
+    assert np.any(r2.levels[:, 0] < r1.levels[:, 0] - 1e-6)                # J = 2 does improve
+    levels, mult, _ = free_landau_levels(MagneticCell.build(_small_graphene().system.cell, 1, 2), 6,
+                                         g3max=2)
+    ref = np.repeat(levels, mult)
+    for r in (r1, r2):
+        m = min(len(ref), r.levels.shape[1])
+        assert np.min(r.levels[:, :m] - ref[None, :m]) > -1e-8
+
+
+def test_the_projectability_guard_fires_on_a_trial_outside_the_window():
+    """N = 4 free bands do not hold a sigma = 0.5 cell Gaussian: refused by name, and the same
+    run with the guard off records the deficit it refused on."""
+    from defuqumat.magnetic.hybrid import StripeTrials
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    kw = dict(flux=(1, 2), free=True, trials=StripeTrials(J=1), N=4, kmesh=(1, 1))
+    with pytest.raises(ValueError, match="not inside the 4-band window"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, None, **kw)
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, None, projectability_tol=None,
+                               strict=False, **kw)
+    assert r.projectability_deficit > 1e-2
+    assert _free_projected(1).projectability_deficit < 1e-4
+
+
+def test_the_reversed_field_fires_the_hermiticity_guard_on_the_projected_basis():
+    """scale = -1 puts the field against the momentum shifts the basis was built with: the
+    strict run raises, and the recorded residual is orders above the forward run's."""
+    with pytest.raises(ValueError, match="not Hermitian"):
+        _free_projected(1, scale=-1.0)
+    flipped = _free_projected(1, scale=-1.0, strict=False)
+    print(f"\nreversed field: herm {flipped.hermiticity.max():.2e}, forward "
+          f"{_free_projected(1).hermiticity.max():.2e}")
+    assert np.all(flipped.hermiticity > 1e-3)
+    assert np.all(_free_projected(1).hermiticity < 1e-10)
+
+
+@pytest.mark.parametrize("h0", ["eigen", "box"])
+def test_zero_flux_with_J_equal_to_N_gives_back_the_bands(h0):
+    """p = 0, local only, the 8 pseudo-atomic orbitals of the HGH dataset at N = 8: the projected
+    trials span the 8 bands at every k, so the levels are the bands to round-off (no window, odd
+    N1, every Delta of the box). The p_z pair alone (J = 2 < N) lies above the bands."""
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    density = _uniform_density(calc)
+    kw = dict(flux=(0, 1), N=8, N1=5, w=2, kmesh=(1, 2), h0=h0, window=None,
+              projectability_tol=None)
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, density, trials="pao", **kw)
+    worst = max(np.max(np.abs(r.levels[ik, :8] - r.eigenvalues[int(round(k2 * 2)), 0, 0]))
+                for ik, (_, k2) in enumerate(r.kappa))
+    print(f"\nh0 {h0}: J = N = 8, levels - bands {worst:.2e} Ry, rank {r.rank}, d_min "
+          f"{r.d_min.min():.2e}, 1 - p {r.projectability_deficit:.2e}")
+    assert r.nbnd == 8 and np.all(r.rank == 8)
+    assert worst < 1e-10
+    pz = [t for t in __import__("defuqumat.wannier.pao", fromlist=["pao_projections"]).pao_projections(
+        calc.pseudos, calc.system.structure,
+        np.asarray(calc.system.structure.positions_crystal(calc.system.cell))) if (t.l, t.m) == (1, 1)]
+    r2 = run_magnetic_ultracell(calc.system, calc.pseudos, density, trials=pz, **kw)
+    for ik, (_, k2) in enumerate(r2.kappa):
+        bands = r2.eigenvalues[int(round(k2 * 2)), 0, 0]
+        assert np.all(r2.levels[ik, :2] >= bands[:2] - 1e-10)
+
+
+def test_the_projected_run_refuses_its_wrong_knobs():
+    from defuqumat.magnetic.hybrid import StripeTrials
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = _small_graphene()
+    with pytest.raises(ValueError, match="needs N"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), free=True,
+                               trials=StripeTrials(J=1))
+    with pytest.raises(ValueError, match="nbnd is not"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), free=True,
+                               trials=StripeTrials(J=1), N=8, nbnd=8)
+    with pytest.raises(ValueError, match="give trials= with it"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), free=True, N=8)
+    with pytest.raises(ValueError, match="needs N1 >= 15"):
+        run_magnetic_ultracell(calc.system, calc.pseudos, None, flux=(1, 2), free=True,
+                               trials=StripeTrials(J=1), N=8, N1=10)
