@@ -10,6 +10,8 @@ window (3, 4), N1 16, h0 box, form symmetric, the shared zero-field potential gr
                                                               the representatives of 1/q
     python mag_route_u3_graphene.py field <q> full|local [Z]  flux 1/q, the four representatives
     python mag_route_u3_graphene.py analyse [Z]               the comparison, from the npz files
+    python mag_route_u3_graphene.py span full|local [Z]       p = 0 on the N1 mesh against the bands
+                                                              (MAG_WINDOW=none MAG_N1=15: no window)
 
 Output and input directory $MAG_OUT (default /l/ladovj1/review/mag/u3). Energies in Ry unless said.
 The comparison is fable's (2026-11-08, Q4 and Q5 of the step's decisions): per representative,
@@ -38,6 +40,14 @@ JS = (2, 8, 18)
 # number and not a nested knob (fable's decision, "if 5 mRy is not met at J 18")
 NBANDS = int(os.environ.get("MAG_N", "32"))
 NTAG = "" if NBANDS == 32 else f"-N{NBANDS}"
+# the window and N1, a diagnostic of the span error (MAG_WINDOW=none MAG_N1=15: the bare projected
+# trials, odd N1 and every Delta of the box, so at p = 0 on the N1 mesh the levels are the
+# Rayleigh-Ritz values of the projected trials at that k alone)
+_WIN = os.environ.get("MAG_WINDOW", "3,4")
+WINDOW = None if _WIN == "none" else tuple(float(x) for x in _WIN.split(","))
+N1 = int(os.environ.get("MAG_N1", "16"))
+if (WINDOW, N1) != ((3.0, 4.0), 16):
+    NTAG += f"-w{_WIN.replace(',', '_')}-n{N1}"
 
 
 def graphene():
@@ -78,7 +88,8 @@ def run(kind, q, op, zona):
         flux, kmesh, kappa2 = (1, q), (2, 2), None
     t0 = time.perf_counter()
     r = run_magnetic_ultracell(calc.system, calc.pseudos, str(DATA / "graphene-scf.npz"), flux=flux,
-                               N=NBANDS, trials=trials, kmesh=kmesh, kappa2=kappa2,
+                               N=NBANDS, trials=trials, kmesh=kmesh, kappa2=kappa2, window=WINDOW,
+                               N1=N1, w=None if WINDOW is not None else (N1 - 1) // 2,
                                local_only=(op == "local"), keep_blocks=True, strict=False,
                                projectability_tol=None)
     wall = time.perf_counter() - t0
@@ -118,6 +129,39 @@ def run(kind, q, op, zona):
     path = OUT / f"u3-{kind}-q{q}-{op}-z{zona:g}{NTAG}.npz"
     np.savez(path, **saved)
     print(f"saved {path}", flush=True)
+
+
+def span(op, zona):
+    """p = 0 on the N1 mesh itself (kappa1 = i/N1, kappa2 in {0, 1/12}): every level of J = 2, 8, 18
+    against the zero-field bands of the same NSCF at the same k, so the span error is read with no
+    folding and no floor file. With MAG_WINDOW=none and an odd MAG_N1 it is the Rayleigh-Ritz value
+    of the projected trials at that k alone; with the window, what the window cuts as well."""
+    from defuqumat.magnetic.ultracell_field import assemble, solve
+    from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+
+    calc = graphene()
+    trials = nested_trials(calc, zona)
+    r = run_magnetic_ultracell(calc.system, calc.pseudos, str(DATA / "graphene-scf.npz"), flux=(0, 1),
+                               N=NBANDS, trials=trials, kmesh=(N1, 1), kappa2=[0.0, 1.0 / 12],
+                               window=WINDOW, N1=N1, w=None if WINDOW is not None else (N1 - 1) // 2,
+                               local_only=(op == "local"), keep_blocks=True, strict=False,
+                               projectability_tol=None)
+    print(f"== span {op} zona {zona}: window {r.window}, N1 {r.n1}, w {r.w}, N {r.N}", flush=True)
+    for J in JS:
+        worst_low, worst_near, above = 0.0, 0.0, True
+        for jk in range(2):
+            B, S = (np.asarray(x)[..., :J, :J] for x in r.blocks[jk])
+            for i in range(N1):
+                eps, _, _, _ = solve(*assemble(i / N1, B, S, r.w, 1), 1e-8)
+                bands = r.eigenvalues[jk, 0, i]
+                n = min(len(eps), 4)
+                worst_low = max(worst_low, float(np.max(np.abs(eps[:n] - bands[:n]))) if J >= 8 else 0.0)
+                above &= bool(np.all(eps - bands[:len(eps)] > -1e-9))
+                for level in eps[np.abs(eps - ED_SPHERE) < 2.5 / RY_EV]:
+                    worst_near = max(worst_near, float(np.min(np.abs(bands - level))))
+        print(f"J {J:2d}: levels within E_D +- 2.5 eV, nearest band max {worst_near * RY_EV * 1e3:.2f} meV; "
+              + (f"lowest 4 against the lowest 4 bands max {worst_low * RY_EV * 1e3:.2f} meV; " if J >= 8 else "")
+              + f"every level above its band: {above}", flush=True)
 
 
 def folded_union(levels_by_k, kpoints, kappa1, kappa2, q):
@@ -225,6 +269,8 @@ if __name__ == "__main__":
     cmd = sys.argv[1]
     if cmd in ("zero", "field"):
         run(cmd, int(sys.argv[2]), sys.argv[3], float(sys.argv[4]) if len(sys.argv) > 4 else 2.0)
+    elif cmd == "span":
+        span(sys.argv[2], float(sys.argv[3]) if len(sys.argv) > 3 else 2.0)
     elif cmd == "analyse":
         analyse(float(sys.argv[2]) if len(sys.argv) > 2 else 2.0)
     else:
