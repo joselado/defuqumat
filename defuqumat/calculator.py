@@ -1594,7 +1594,7 @@ class Calculator:
 
     def get_landau_levels(self, B=None, flux=None, route="peierls", wannier=None,
                           geometry="torus", width=None, nlevels=40, kappa=((0.0, 0.0),),
-                          dirac=True, zeeman=False, nbnd=None, N1=10, **options):
+                          dirac=True, zeeman=False, nbnd=None, N1=None, **options):
         """Landau levels in a uniform orbital magnetic field along ``a3``.
 
         ``route="peierls"`` (the default) puts the field on the Wannier
@@ -1616,6 +1616,8 @@ class Calculator:
         at ``flux`` only, ``q <= 100`` and a given ``nbnd``. Its default
         refuses: the hybrid basis of an entangled band set is not localized
         and the assembled matrix is not Hermitian to 1e-8, which it says.
+        With ``trials=`` and ``N=`` in place of ``nbnd`` it runs on the
+        projected trial basis (P176, step 3), forwarded by name.
 
         Refused by name: ``zeeman=True``, spinors, ``nspin = 2``, ultrasoft
         and PAW, DFT+U, spirals, meta-GGA and gamma-only storage.
@@ -1625,11 +1627,14 @@ class Calculator:
         refuse_regime(self.system, self.pseudos, "Landau levels")
         if route == "ultracell":
             from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
-            if B is not None or flux is None or nbnd is None or int(flux[1]) > 100:
-                raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd")
+            trials, N = options.pop("trials", None), options.pop("N", None)
+            if B is not None or flux is None or int(flux[1]) > 100 or \
+                    (nbnd is None and (trials is None or N is None)):
+                raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd, "
+                                 "or trials= with N=")
             return run_magnetic_ultracell(
                 self.system, self.pseudos, self._ground_state("Landau levels"),
-                flux=flux, nbnd=nbnd, N1=N1, local_only=False, **options)
+                flux=flux, nbnd=nbnd, N1=N1, local_only=False, trials=trials, N=N, **options)
         if route != "peierls":
             raise ValueError(f"route is 'peierls' or 'ultracell', not {route!r}")
         from defuqumat.workflows.landau import run_landau_levels
