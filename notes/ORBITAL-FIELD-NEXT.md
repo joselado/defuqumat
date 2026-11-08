@@ -443,3 +443,10 @@ the D22 logs are under `/l/ladovj1/review/mag/fable-basis/`.
   to any q, 7900 included; its identity test is at q = 50.
 - **Size.** About 230 lines in `hybrid.py` and `landau_ultracell.py` plus four fast tests, one to two days.
   The interpolation and the q = 50 identity are a second step of the same size.
+- **Measured (step 3, `plans/orbital-field/u3.md`, 2026-11-08).** Built as above. The gate reads fable's
+  numbers through the workflow ($3.24\times10^{-2}$, $4.35\times10^{-3}$, $1.8\times10^{-7}\,B$). Graphene at
+  c = 15 A is refused: no atomic trial is inside any solvable window ($1 - p$ of $p_z$ is $4.1\times10^{-3}$ at
+  $N = 32$ and $6.1\times10^{-4}$ at $N = 96$, the vacuum ladder again), and with the guard off the line reads
+  36.5, 36.5, 14.3 mRy at $J$ = 2, 8, 18, worse at $N = 48$. A projected atomic orbital keeps its weight on
+  every band of the window, so its span is 0.2 to 0.7 eV off near $E_D$ at zero field, where the Wannier
+  $p_z$ set is within 11 meV. Trials close to the bands (the Wannier sets themselves) are the next try.

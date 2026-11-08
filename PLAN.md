@@ -217,8 +217,9 @@ because that is what decides whether it is a session or a phase.
   engine's 4.8x against `wannier90.x`, and a frozen set whose irreps the trial orbitals lack (Cr
   auto at the default edge), refused rather than met.
 - **A uniform orbital magnetic field beyond P175 to P177** (`notes/ORBITAL-FIELD-NEXT.md`): the
-  magnetic ultracell's basis (P176 is refused at its Hermiticity guard: a smooth band subspace
-  along `k1` is the missing piece, after the windowed free-problem experiment), and with it the
+  magnetic ultracell's basis (P176's projected trials pass the free problem and are refused on
+  graphene at c = 15 A, at the projectability guard and at 14.3 mRy; trials close to the bands are
+  the missing piece), and with it the
   10 T interpolation and `q = 100`; the attribution of route P's 0.2 eV against Peierls at 7900 to
   13000 T (the `p_z` set at 70 Ry, then a set with the mirror-odd vacuum states); the intra-cell
   term at laboratory fields (unmeasurable at `q <= 10` by construction); diamond's `E(+) - E(-)` at
@@ -28735,7 +28736,7 @@ All on D22 in the worktree `/l/ladovj1/w-mag-record` (branch `mag-record`), logs
   levels with under 1e-6 of their weight on the outer 20 cells. A ribbon for a number wants about
   10 `l_B` (330 cells at 10 T), which is the facade's default width.
 
-### P176 -- The magnetic ultracell of Wang and Vafek: built, measured, and refused on its basis. 📋 OPEN, a measured negative result with its guards (`tests/unit/test_magnetic_ultracell.py`, 23 tests (`R/collect.log`; the dtype test, two parameters, added at the Record stage), on D22 CPU with the other magnetic files; the fast gate in one slot at 11bd76e5 (P177's line); `tests/regression/test_magnetic_ultracell_slow.py` (8 tests, collected, they assert the refusals) is slow and was not run, for the user; branches `mag-u1` a2336f0c and `mag-u2` 7ead1841, reviewed KEEP AFTER TWO NAMED FIXES as a measured refusal, the fixes made on `mag-record`; not merged, not pushed)
+### P176 -- The magnetic ultracell of Wang and Vafek: built, measured, refused on its hybrid basis, and rebuilt on projected trials (step 3), which pass the free problem's gate and miss graphene's acceptance. 📋 OPEN, a measured negative result with its guards (step 3: branch `mag-u3`, `plans/orbital-field/u3.md`, 31 tests in `tests/unit/test_magnetic_ultracell.py` on D22, `review/mag/u3/`; not merged, not pushed; `tests/unit/test_magnetic_ultracell.py`, 23 tests (`R/collect.log`; the dtype test, two parameters, added at the Record stage), on D22 CPU with the other magnetic files; the fast gate in one slot at 11bd76e5 (P177's line); `tests/regression/test_magnetic_ultracell_slow.py` (8 tests, collected, they assert the refusals) is slow and was not run, for the user; branches `mag-u1` a2336f0c and `mag-u2` 7ead1841, reviewed KEEP AFTER TWO NAMED FIXES as a measured refusal, the fixes made on `mag-record`; not merged, not pushed)
 
 What is merged is a measured negative result with its guards. **The default path of
 `run_magnetic_ultracell` (`strict=True`) raises on every acceptance case that was run**, at the
@@ -28804,6 +28805,58 @@ subagent could be started from this stage) and to record u2's cold-process numbe
 compilation and are linear in `q` at fixed nbnd: NSCF 68.1 / 150.1 / 285.0 s, blocks 126.1 / 300.3 /
 619.9 s, dense solve 0.04 / 0.33 / 2.76 s at `q = 10 / 25 / 50`, nbnd 8 (`U2/q10-full.log`,
 `q25-full.log`, `q50-full.log`); `PERFORMANCE.md` has them.
+
+#### Route U step 3, the projected trial basis (u3, 2026-11-08): the gate passes, graphene is refused
+
+Fable's decision after the refusal above (`notes/ORBITAL-FIELD-NEXT.md` section 13,
+`plans/orbital-field/route-u-basis/decision.md`), built on branch `mag-u3` from 034bb6f5; the record
+is `plans/orbital-field/u3.md`, the logs `/l/ladovj1/review/mag/u3/` (`L/`). The hybrid state of trial
+`j` is the trial projected on the lowest `N` bands at each k of the loop, `A_{mj} = <psi_m|g_j>`, with
+no Loewdin step and no transport gauge (`magnetic/hybrid.py:projected_hybrid`), so `S` carries the
+non-orthogonality, the spans are nested in `J` and, with window + box + symmetric, every level is an
+upper bound. `run_magnetic_ultracell(trials=, N=)`: `N` the band window, the result's `nbnd` is `J`;
+the projectability guard refuses `1 - p > 1e-4` (`projectability_tol`); the defaults of a projected
+run are window (3, 4), `h0 = "box"`, `form = "symmetric"`, and `N1 = 16` whenever a window is in
+force; `kappa2=` takes explicit magnetic values; the facade forwards `trials` and `N`.
+
+**The gate, the free Landau problem at 1/10 through the workflow** (c = 5 A, `N = 64`, kmesh (2, 2),
+`L/gate-*.log`): the `n = 0` error is **3.24e-2, 4.35e-3, 1.8e-7 `B_ph`** at J = 1, 2, 3 (sigma 0.5,
+window (3, 4), N1 16), falling at every k and every `n < 6`; every level above the exact ladder (by
+1.1e-3, 5.1e-5, 5.7e-10 Ry at the least); Hermiticity 3.2e-14, 5.1e-13, 3.0e-12; `1 - p` 4.2e-10,
+3.8e-9 and **5.1e-8** (J = 3 misses the decision's letter of 1e-8; its Hermiticity says the miss costs
+nothing); the chirped `l_B` Gaussian at window (5, 6), N1 24 reads **1.7e-7 `B_ph`** at `kappa2 = 0`;
+the reversed field reads Hermiticity **0.59 to 0.63** (chirped) and 0.23 to 0.25 (sigma 0.5). Every
+digit is fable's probe's.
+
+**Graphene against route P is refused** (c = 15 A, `N = 32`, window (3, 4), N1 16, full H with the
+GIPAW term, the `PP_CHI` orbitals nested J = 2 (`p_z`), 8 (+ 2s, 2px, 2py), 18 (+ hydrogenic d at
+zona 2)). **First at the guard:** `1 - p` of `p_z` is 4.1e-3 at `N = 32` and 6.1e-4 at `N = 96`, the
+2s and in-plane 2p 1.9e-2 to 4.0e-3, the d 0.2 to 0.98 at zona 0.5 to 3 (`L/project.log`): the
+vacuum's `(2 pi m/c)^2` ladder takes the `G3` content of any orbital localized in z into high bands,
+which the gate's stripe (no `G3` content, 4e-10) never meets; zona 3 is more compact and worse.
+**Then at the levels**, run with the guard off: at `q = 6` route U is above route P at every compared
+level (8 per J within `E_D +- 2.5` eV, pooled over the four representatives), `U - P` 21 to 26 mRy at
+J = 2 and 8 and 14 to 16 mRy at J = 18, and `(U - U0) - (P - B0)` (the decision's line with the box
+floor `S0 - B0`, 9 to 11 mRy, taken out as well) reaches **36.5, 36.5, 14.3 mRy** against 5 mRy
+(@Q10PLAN@). J = 8 equals J = 2 to 2.4e-15 Ry near `E_D` because the even trials cannot move an odd
+(mirror) level. `N = 48` makes it worse (38.2 and 16.6 mRy), since `P_N g` keeps more of the trial's
+high-energy weight as `N` grows. The zero-field span error near `E_D` is the cause: the `p_z` set's
+levels within `E_D +- 2.5` eV are up to 612 meV from the sphere band with no window (`L/span-bare.log`)
+and 669 meV with it, the 18-function set 238 and 257 meV, where the Wannier `p_z` set is within 11.4
+meV; a projected trial is not a Wannier function, since nothing takes out its weight on the other
+bands. Hermiticity is 9.8e-11 to 2.9e-10 (the decision asked 1e-10; strict mode refuses at 1e-8 only).
+The local-only line at `q = 6` reads `U >= P` at all 96 of the lowest 4q and 0.016 to 4.46 Ry,
+dominated by route P's collapsed deep pair 92 eV below `E_D`, which a 2s trial does not hold.
+The field runs peak at 6.4 to 6.7 GB, above `slot.sh`'s cap (`big.lock`, 14 GB): 566 s at `N = 32`,
+704 s at `N = 48`.
+
+**What it leaves.** The projected basis is a correct and exactly variational construction where the
+trial is close to the state (the free problem, where the stripe is nearly the `n = 0` Landau state),
+and a poor one for atomic orbitals on a slab with vacuum. The two ways forward are the trial set
+(orbitals disentangled first, e.g. the Wannier `p_z` set's own functions as trials, which are within
+11 meV of the bands) and the cell (c = 5 A, against a route P set at c = 5 A, which does not exist).
+Neither is run; both are listed under "What is outstanding". The `kappa'` interpolation to 10 T waits
+on one of them.
 
 The records of the two steps follow as they stand: `u1.md` (logs `/l/ladovj1/review/mag/u1/`),
 `u2.md` (logs `/l/ladovj1/review/mag/u2/`), and the acceptance tables of both, `route-u.md`.
@@ -30344,11 +30397,13 @@ All on D22 in `/l/ladovj1/w-mag-record`, logs in `/l/ladovj1/review/mag/record/`
 
 #### What is outstanding (P175 to P177)
 
-- **Route U's basis** (P176): a smooth band subspace along `k1` (SMV disentanglement with a frozen
-  window, or trial orbitals with a Loewdin step per `k`), with the window as the convergence knob; the
-  windowed free-problem experiment above first; then the 10 T interpolation along `kappa2` of the plan
-  (`q = 7900`), `q = 100` at nbnd 8 under `big.lock`, the banded apply under KPM. The two
-  `GridProjectors` folded into `magnetic/gipaw.py`.
+- **Route U's basis** (P176): the projected trial basis of step 3 is built and passes the free
+  problem's gate (`u3.md`), and on graphene at c = 15 A it is refused at its projectability guard
+  (`p_z` 4.1e-3 at `N = 32`, 6.1e-4 at `N = 96`) and at 14.3 mRy at J = 18 against 5 mRy. Next, one of:
+  trials that are already close to the bands (the Wannier `p_z` and 8-function sets' own functions as
+  `trials=`, 11.4 and 1.8 meV from the sphere), or the c = 5 A cell with a route P set built for it.
+  Then the `kappa'` interpolation to 10 T and the identity at `q = 50` (decision.md), `q = 100` under
+  `big.lock`, the banded apply under KPM. The two `GridProjectors` folded into `magnetic/gipaw.py`.
 - **The 0.2 eV of the crosscheck** (route P's zero pair 0.20 to 0.22 eV below Peierls at 7900 to
   13000 T, 0.08 `E_1`, constant to 2 per cent while `B` falls by 1.67, so scaling as `sqrt(B)`; five
   alternatives excluded; the attribution open). Two experiments: (1) the `p_z` set rebuilt at 70 Ry on
