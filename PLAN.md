@@ -28838,7 +28838,7 @@ which the gate's stripe (no `G3` content, 4e-10) never meets; zona 3 is more com
 level (8 per J within `E_D +- 2.5` eV, pooled over the four representatives), `U - P` 21 to 26 mRy at
 J = 2 and 8 and 14 to 16 mRy at J = 18, and `(U - U0) - (P - B0)` (the decision's line with the box
 floor `S0 - B0`, 9 to 11 mRy, taken out as well) reaches **36.5, 36.5, 14.3 mRy** against 5 mRy
-(@Q10PLAN@). J = 8 equals J = 2 to 2.4e-15 Ry near `E_D` because the even trials cannot move an odd
+(at `q = 10`, where the window also holds `n = +-1`, the index matching of the zero-field line picks different states for J = 2 and 8, so the clean number there is `U - P`: 12 to 44 mRy at J = 2 and 8, 11 to 22 mRy at J = 18). J = 8 equals J = 2 to 2.4e-15 Ry near `E_D` because the even trials cannot move an odd
 (mirror) level. `N = 48` makes it worse (38.2 and 16.6 mRy), since `P_N g` keeps more of the trial's
 high-energy weight as `N` grows. The zero-field span error near `E_D` is the cause: the `p_z` set's
 levels within `E_D +- 2.5` eV are up to 612 meV from the sphere band with no window (`L/span-bare.log`)
