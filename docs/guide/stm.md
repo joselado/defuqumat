@@ -481,7 +481,7 @@ transmission falls by a factor of ten over 0.10 of the cell height, as a tunnell
 current does. The same `states` work for `get_sts`, `get_momentum_transport` and
 `get_qpi`. They give the same numbers as a call with its own `grid`: on the
 $4\times4\times1$ grid of this sheet we found the three tunnelling results equal
-bit for bit, and each call with `states` took at most 0.1 s against 1.0 to 1.4 s.
+bit for bit, and each call with `states` took at most 0.1 s against 0.9 to 1.0 s.
 `grid`, `shift`, `kpoints`, `nbnd` and `conv_thr` go to `get_tunnelling_states`.
 With `states`, a `grid`, `shift` or `kpoints` in the same call gives an error,
 because it would name a k-set the states were not computed on. `get_stm` does not

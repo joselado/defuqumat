@@ -42,7 +42,7 @@ from defuqumat.stm.qpi import (
 from defuqumat.system.kpoints import is_reduced
 from defuqumat.transport.green import amplitude_weights
 from defuqumat.transport.substrate import exit_overlap
-from defuqumat.workflows.transport import WholeGridStates, whole_grid_states
+from defuqumat.workflows.transport import WholeGridStates, states_or_solve, whole_grid_states
 from defuqumat.workflows.stm import (
     _refuse_what_has_no_fermi_level,
     refuse_an_ultracell_result,
@@ -180,6 +180,10 @@ def run_qpi(
         states = qpi_bands(system, pseudos, result, grid=grid, shift=shift,
                            kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr,
                            k_batch=k_batch, calculation=calculation)
+    else:
+        # the door the tunnelling routes share: a k-set beside the states is refused
+        states = states_or_solve(states, system, pseudos, result, grid=grid, shift=shift,
+                                 kpoints=kpoints)
     # a WholeGridStates from get_tunnelling_states carries no QPI refusal
     _refuse_a_reduced_set(states.calculation)
     calculation, eigenvalues, wavefunctions = (

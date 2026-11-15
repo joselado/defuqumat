@@ -30480,7 +30480,7 @@ All on D22 in `/l/ladovj1/w-mag-record`, logs in `/l/ladovj1/review/mag/record/`
 - For the Davidson `precondition` hook of P175: `tests/regression/test_davidson_zero_root.py`,
   `test_gamma_only.py`, `test_spinorbit.py`, `test_noncollinear_magnetism.py`.
 
-### P178 -- The reading audit of 2026-11-15, fixed on the branch `audit-fixes`. ✅ DONE 2026-11-15 (40 commits from `735ea0b2` to the record commit, branch `audit-fixes` from `b5b88c5c`; each fix with a fast test that fails on the old code where one could be written, run on this workstation under a cgroup cap; the fast gate at `84168bd6` in a worktree, and at the branch head, see the gate line below; the slow files the changes reach were not run, for the user, listed below; not merged, not pushed)
+### P178 -- The reading audit of 2026-11-15, fixed on the branch `audit-fixes`. ✅ DONE 2026-11-15 (the commits from `735ea0b2` to the head of branch `audit-fixes`, from `b5b88c5c`; each fix with a fast test that fails on the old code where one could be written, run on this workstation under a cgroup cap; the fast gate at `84168bd6` in a worktree, and at the branch head, see the gate line below; the slow files the changes reach were not run, for the user, listed below; not merged, not pushed)
 
 A read-only audit (30 Opus finders, each followed by a Fable skeptic, nothing executed) left 97
 findings in `notes/AUDIT-2026-11-15.md`, ranked at its end ("What to address, in order", 34
@@ -30523,7 +30523,9 @@ the field response). The KPM conductivity's k-chunk is capped by its own `N^2` m
 The Wannier neighbour search keeps only the translations that reach a shell: 251 -> 11 s on a
 12x12x12 mesh, the arrays bit for bit. The tunnelling routes and QPI share one whole-grid band
 solve (`WholeGridStates`, `Calculator.get_tunnelling_states`): on the hydrogen sheet at 4x4x1 each
-map is bit for bit the same and a call with `states=` takes at most 0.1 s against 1.0 to 1.4 s.
+map is bit for bit the same and a call with `states=` takes at most 0.1 s against 0.9 to 1.0 s, idle;
+the `grid=` results of the three routes and QPI are equal bit for bit at `f0d70b09` and after, on
+the same cores, which is the check that the refactor moved no number.
 On a card, `at_kpoints` sizes a whole-axis k-chunk again for a longer k-set (tested on a
 stand-in card only). The Hubbard occupation matrix is built before the store is parked, and
 the meta-GGA tau residual is read in the batched host read.
@@ -30553,6 +30555,12 @@ P (the odd 2-3-5 sizes are far apart). `calculator` N2 no longer reproduces afte
 `with_spin` fix. **Unmeasured:** the size of the old Drude error with two Fermi levels, of the
 old electrostriction error, of the torque residue on a 3x3x3 wedge, and of the QPI field fix.
 
+**Added after a review of the session (the same day).** Two findings the fix log had dropped:
+route P's dense fallback is refused by number where it is reached (six `(ndim, ndim)` complex128
+copies, 33 GB at `ndim = 18432`), and the polar piezoelectric guard names PAW. The checkpoint the
+SCF loop writes itself (`_InProgressState`) now carries `band_precision` too. `run_qpi` refuses a
+k-set beside `states`. **Left as a deliverable:** no notebook calls `get_tunnelling_states`.
+
 **Tests that cannot run in the gate.** The cheapest live test of the route P SCF is 8.9 s and of
 the plane-wave quantum metric 6.5 s and 8.5 s, above the gate's five seconds, so both are slow:
 the gate still runs neither assembly. The metric tests and the shared-states equality test were
@@ -30561,7 +30569,9 @@ written from probes with the same calls and were not run as tests.
 **The fast gate.** At `84168bd6`, the first sixteen fix commits, in a worktree under a 14G
 cgroup cap with the watchdog at 12G: **3980 passed**, 83 skipped, 1732 deselected, no failure,
 4732.70 s, beside the other work of the session (so not a timing), peak 6090 MB in
-`test_real_augmentation.py`. At the branch head: see the line after this entry.
+`test_real_augmentation.py`. That run was in a worktree, where the gitignored `quantum_espresso/`
+is absent, so the tests that need it skipped there; the gate at the head is run in the main
+checkout, and its line follows.
 
 **Slow files the changes reach, not run, for the user:** `tests/regression/test_phonons_at_q.py`,
 `test_phonons_at_q_nlcc.py`, `test_electron_phonon.py`, `test_streamed_phonons.py`,

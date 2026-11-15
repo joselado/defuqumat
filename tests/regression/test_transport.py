@@ -835,7 +835,7 @@ def test_one_band_solve_serves_the_three_tunnelling_routes():
     does not depend on the tip, the planes or the energies. On the hydrogen
     sheet at 4x4x1 a probe with the same calls (2026-11-15) read the vertical
     map, the momentum weights and the spectrum equal bit for bit, the reuse in
-    0.0 to 0.1 s against 1.0 to 1.4 s for a route's own solve. Written from that
+    0.0 to 0.1 s against 0.9 to 1.0 s for a route's own solve, on an idle machine. Written from that
     probe; slow because it needs an SCF and four solves.
     """
     calculator = _converged("h-sheet")

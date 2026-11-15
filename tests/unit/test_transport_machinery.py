@@ -1413,5 +1413,6 @@ def test_the_shared_states_are_taken_as_given_and_refuse_a_k_set_beside_them():
     with pytest.raises(TypeError, match="WholeGridStates"):
         states_or_solve(object(), None, None, None)
     assert qpi.QPIBands is WholeGridStates
+    assert "states_or_solve(" in inspect.getsource(qpi.run_qpi)
     for entry in (transport.run_vertical_transport, transport.run_momentum_transport):
         assert "states" in inspect.signature(entry).parameters
