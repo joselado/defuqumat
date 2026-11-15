@@ -1799,27 +1799,35 @@ def default_nbnd(
     comment -- "bands are NOT twofold degenerate" -- and the doubling is not
     optional even when spin-orbit coupling leaves them degenerate anyway.
 
-    With two channels the count is ``MAX(nelec/degspin, nelup, neldw)`` and
-    ``degspin`` is 1, so what decides it is the *fuller* channel: eight
-    electrons split 5/3 need five bands, not four. Getting this wrong is
+    The count is ``MAX(NINT(nelec/degspin), NINT(nelup), NINT(neldw))`` with
+    ``degspin = 2`` in every regime (a ``PARAMETER`` in ``constants.f90``), so
+    with two channels what decides it is the *fuller* one: eight electrons
+    split 5/3 need five bands, not four. Without a constraint ``nelup`` is
+    ``INT(nelec + 1)/2``, which is what gives an odd count its extra band. Getting this wrong is
     immediately visible -- QE prints "number of Kohn-Sham states" -- but only if
     it is looked at, and a run with too few bands converges to a wrong energy
     rather than failing.
     """
-    occupied = int(round(nelec / 2.0))
-    if nelup is not None:
-        occupied = max(occupied, int(round(nelup)), int(round(neldw)))
-    degeneracy = 2 if noncolin else 1
-    if occupations == "fixed":
-        return degeneracy * max(occupied, 1)
-    if nelup is not None:
-        return max(
-            int(round(1.2 * nelec / 2.0)),
-            int(round(1.2 * nelup)),
-            int(round(1.2 * neldw)),
-            occupied + 4,
-        )
-    return degeneracy * max(int(round(1.2 * nelec / 2.0)), occupied + 4)
+    # Line for line ``setup.f90:367-390``. Two things the earlier form had
+    # wrong (audit 2026-11-15, ``driver-a`` F1 and N1): Python's ``round`` is
+    # half to even where ``NINT`` rounds half away from zero, and
+    # ``set_nelup_neldw`` runs in **every** regime, its unconstrained split
+    # ``nelup = INT(nelec + 1)/2`` repairing the half at an odd count, so
+    # ``nelec = 9`` gave a spinor 16 bands where ``pw.x`` takes 18 and a fixed
+    # spinor filling of 5, 9 or 13 electrons one band short of its electrons.
+    from defuqumat.scf.occupations import _nint
+
+    if nelup is None:
+        if abs(nelec - round(nelec)) < 1.0e-8:
+            nelup = float(int(nelec + 1) // 2)
+            neldw = nelec - nelup
+        else:
+            nelup = neldw = 0.5 * nelec
+    nbnd = max(_nint(nelec / 2.0), _nint(nelup), _nint(neldw), 1)
+    if occupations != "fixed":
+        nbnd = max(_nint(1.2 * nelec / 2.0), _nint(1.2 * nelup), _nint(1.2 * neldw),
+                   nbnd + 4)
+    return 2 * nbnd if noncolin else nbnd
 
 
 def warn_about_a_cut_shell(cut_gap, ethr, counts, nbnd: int,

@@ -6893,7 +6893,10 @@ every digit. The knob is live and not a null: the same ladder at 1e-4 moves the 
 **The `nbnd` half is the one with the number.** `nbnd` is a property of the system whose
 bands are being counted, and the force theorem's two legs are two different systems: the
 same cobalt atom takes `default_nbnd = 9` collinear and **16** as a spinor, because a
-spinor band holds one electron where a collinear one holds two. A `nbnd` given to the
+spinor band holds one electron where a collinear one holds two. (The 16 was this code's and
+not `pw.x`'s, which takes 18: `default_nbnd` rounded half to even and skipped
+`set_nelup_neldw` outside `nspin = 2`. Since the audit of 2026-11-15, `driver-a` F1, it takes
+18 too.) A `nbnd` given to the
 scalar-relativistic calculator was forwarded into the noncollinear leg, where
 `nscf.py:177`'s `nbnd or system.nbnd or default_nbnd(...)` lets it win over the spinor
 input's own. Nine spinor bands for nine electrons is a filled-band insulator rather than a
