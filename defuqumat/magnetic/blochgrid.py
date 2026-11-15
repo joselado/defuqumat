@@ -114,6 +114,18 @@ MEMORY_LIMIT = 26.0e9
 #: The largest ``ndim`` the dense fallback diagonalises (the design's refuse_if).
 DENSE_LIMIT = 20000
 
+
+def dense_fallback_bytes(ndim: int) -> int:
+    """The peak of the dense fallback, bytes: six ``(ndim, ndim)`` complex128 copies.
+
+    The column blocks of :func:`dense_matrix` and their concatenation, the
+    symmetrised ``0.5 (M + M^H)`` with its temporaries, and ``eigh``'s copy,
+    eigenvectors and workspace, counted from the code (audit 2026-11-15,
+    ``magnetic`` F1; not measured). At ``ndim = 18432`` it is 33 GB, above
+    :data:`MEMORY_LIMIT`, which the estimate made before the run never saw.
+    """
+    return 6 * 16 * int(ndim) ** 2
+
 #: The preconditioners of :meth:`MagneticGridHamiltonian.precondition`.
 PRECONDITIONERS = ("two-gauge", "kinetic", "identity")
 

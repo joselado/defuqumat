@@ -6935,8 +6935,11 @@ class _InProgressState:
                  accuracy, ethr, total_energy, energy_terms, system, field_scale,
                  fermi_energy=None, magnetization=None,
                  absolute_magnetization=None, magnetization_vector=None,
-                 meta_c=None, magnetic_field=None):
+                 meta_c=None, magnetic_field=None, band_precision=None):
         self.density = density
+        # the precision the bands are in at this iteration, so a resume from this
+        # checkpoint keeps the continuation's count tolerance (audit ``scf-small`` F2)
+        self.band_precision = band_precision
         self.wavefunctions = wavefunctions
         self.eigenvalues = eigenvalues
         self.occupations = occupations
@@ -10523,6 +10526,7 @@ def run_scf(
                     ethr=float(ethr),
                     total_energy=float(total), energy_terms=dict(terms),
                     system=calculation.system, field_scale=float(field_scale),
+                    band_precision=calculation.band_precision.name,
                     magnetic_field=field,
                     magnetization=None if magnetization is None else magnetization[0],
                     absolute_magnetization=(
@@ -10558,6 +10562,7 @@ def run_scf(
                 accuracy=float(accuracy), ethr=float(ethr),
                 total_energy=float(total), energy_terms=dict(terms),
                 system=calculation.system, field_scale=float(field_scale),
+                band_precision=calculation.band_precision.name,
                 magnetic_field=field,
                 magnetization=None if magnetization is None else magnetization[0],
                 absolute_magnetization=(

@@ -427,7 +427,9 @@ def require_a_measured_polar_crystal(calculation) -> None:
     carry ``S``, whose ``vkb`` is ``beta(|k+G|)`` and deforms with the cell, so
     the frozen phases move under a strain, and that term has been measured
     only on zincblende ``e_14``, where every polar component is zero by
-    symmetry. PAW is refused earlier, by :func:`require_a_measured_dataset`.
+    symmetry. A polar PAW crystal is refused here too: ``is_ultrasoft`` is true for
+    any augmented dataset, and :func:`require_a_measured_dataset` refuses nothing since
+    I89 lifted its PAW half (audit 2026-11-15, ``strain`` F2).
     """
     if not calculation.is_ultrasoft:
         return
@@ -435,7 +437,7 @@ def require_a_measured_polar_crystal(calculation) -> None:
         projector = polar_direction(calculation)
         directions = np.linalg.matrix_rank(projector, tol=1.0e-6)
         raise NotImplementedError(
-            "the piezoelectric tensor of a polar crystal with an ultrasoft "
+            "the piezoelectric tensor of a polar crystal with an ultrasoft or PAW "
             "dataset is not implemented: this crystal's point group leaves "
             f"{directions} direction(s) invariant, and on a polar crystal the "
             "components that pair two equal Cartesian labels (e_31, e_33, e_15) "

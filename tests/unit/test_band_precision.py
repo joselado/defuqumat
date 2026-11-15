@@ -423,3 +423,13 @@ def test_a_single_source_keeps_its_count_tolerance_through_a_checkpoint(silicon,
     _check_grid(off, calculation)
     with pytest.raises(ValueError, match="pseudopotential"):
         _check_grid(dataclasses.replace(off, band_precision="double"), calculation)
+    # and the checkpoint the loop writes on its own, which is not an SCFResult: an
+    # interrupted single-precision run, read back from its directory
+    from defuqumat.scf.driver import SCF_CHECKPOINT
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        run_scf(system, pseudos, conv_thr=1e-7, band_precision="single", max_iterations=2,
+                checkpoint_dir=tmp_path / "run")
+    written = load_state(tmp_path / "run" / SCF_CHECKPOINT, system=system)
+    assert written.band_precision == "single"

@@ -269,6 +269,15 @@ def test_an_unconverged_solve_falls_back_to_dense_and_is_refused_above_the_limit
     monkeypatch.setattr(magnetic_bands, "DENSE_LIMIT", 100)
     with pytest.raises(RuntimeError, match="unsettled"):
         run_magnetic_bands(system, pseudos, None, **args)
+    # and by number, where the fallback is reached: a limit above the Davidson estimate
+    # and below the six dense copies (audit 2026-11-15, ``magnetic`` F1)
+    monkeypatch.setattr(magnetic_bands, "DENSE_LIMIT", 20000)
+    ndim = 2 * int(np.prod(SMALL))
+    estimate = blochgrid.estimate_bytes(2, 3 + 4, 2, grid=SMALL)
+    need = blochgrid.dense_fallback_bytes(ndim)
+    assert estimate < need
+    with pytest.raises(MemoryError, match="dense fallback"):
+        run_magnetic_bands(system, pseudos, None, memory_limit=0.5 * (estimate + need), **args)
 
 
 def test_the_refusals(graphene):
