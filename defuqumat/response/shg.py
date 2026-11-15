@@ -628,6 +628,12 @@ def second_harmonic(
     # device array, and cross to the device a k-chunk at a time below.
     if eigenvalues.ndim == 2:
         eigenvalues, wavefunctions = eigenvalues[None], wavefunctions[None]
+    # The shift current's refusal, which SHG never called: a fixed nspin = 2
+    # filling that stops inside a shell makes every f_n - f_m the eigensolver's
+    # choice (audit 2026-11-15, ``optics`` F2).
+    from defuqumat.response.photocurrent import _require_a_gap_at_the_filling
+
+    _require_a_gap_at_the_filling(calculation, eigenvalues, "the second-harmonic tensor")
     # A collinear spin-polarized run is two band structures, one per channel,
     # whose susceptibilities add: the channel axis is kept below, each
     # channel's velocity elements are built with its own Hamiltonian

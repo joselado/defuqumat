@@ -402,3 +402,18 @@ def test_a_filling_at_a_gap_is_not_refused():
     eigenvalues = _two_channels(0.02)
     eigenvalues[:, 0] = eigenvalues[:, 1]
     _require_a_gap_at_the_filling(_Magnet(), eigenvalues)
+
+
+def test_shg_refuses_a_filling_that_cuts_a_shell(monkeypatch):
+    """SHG never called the shift current's check, and returned a gauge-dependent tensor (audit ``optics`` F2).
+
+    The regime checks before it need a real calculation, so they are stood in
+    for; the call must stop at the filling, before any state is read.
+    """
+    import defuqumat.response.shg as shg
+
+    monkeypatch.setattr(shg, "require_an_shg_regime", lambda calculation: None)
+    monkeypatch.setattr(shg, "wedge", lambda calculation, quantity: None)
+    monkeypatch.setattr(shg, "_warn_about_the_grid", lambda *a, **k: None)
+    with pytest.raises(NotImplementedError, match="second-harmonic tensor of a filling"):
+        shg.second_harmonic(_Magnet(), None, _two_channels(0.0), None)
