@@ -9558,6 +9558,17 @@ def run_scf(
                 mixer.precondition.update_ldos(
                     ldos if ldos_weights is not None
                     else jnp.zeros(int(np.prod(calculation.basis.dense.grid))))
+            # The Hubbard occupation matrix reads the store too, so it is built
+            # here, before the park, and not after it: with wfc_store='host'
+            # the read below took the parked store back to the card, inside
+            # the window the park exists to free (audit 2026-11-15,
+            # ``opt-jit-host`` N1). The tau residual is dispatched here as well,
+            # so the batched read below takes it (``opt-jit-host`` F1).
+            measured_ns = (calculation.occupation_matrix(wavefunctions, wg)
+                           if calculation.is_hubbard and not streaming else None)
+            tau_residual = (_tau_accuracy(tau_out - tau_state, calculation.basis.dense,
+                                          calculation.system.cell)
+                            if tau_state is not None else None)
             # **The last read of the store in this iteration**, so back to the
             # buffer it goes. Everything between here and the fetch above --
             # the energy terms, ``v_of_rho`` on the dense grid, the mixer's
@@ -9641,10 +9652,11 @@ def run_scf(
             # is what the total reports unless the run converges, and the
             # converged branch reads its rebuilt ones again.
             (steps, unsettled, accuracy_terms, iteration_terms,
-             (ehart, etxc, epaw_value, paw_deband)) = jax.device_get((
+             (ehart, etxc, epaw_value, paw_deband), tau_residual) = jax.device_get((
                  steps, unsettled, accuracy_terms, iteration_terms,
                  (potential.ehart, potential.etxc,
                   epaw if calculation.is_paw else None, paw_deband),
+                 tau_residual,
              ))
             accuracy, charge_accuracy, magnetic_accuracy = (
                 float(term) for term in accuracy_terms
@@ -9710,8 +9722,7 @@ def run_scf(
                     becsum_state, becsum_out,
                 )
             if calculation.is_hubbard:
-                ns_out = (streamed_ns if streaming
-                          else calculation.occupation_matrix(wavefunctions, wg))
+                ns_out = streamed_ns if streaming else measured_ns
                 if iteration == 1 and starting_density is None and starting_ns is None:
                     # ``IF (first .AND. starting_pot == 'atomic') CALL ns_adj()``:
                     # skipped when the caller supplied ``starting_ns`` as well:
@@ -9743,9 +9754,7 @@ def run_scf(
                 # (charge and magnetization fused, then ``ns``, then ``tau``),
                 # so the loop and ``accuracy_of`` compose the same floats in the
                 # same order and agree to the last bit.
-                tau_accuracy_term = float(_tau_accuracy(
-                    tau_out - tau_state, calculation.basis.dense,
-                    calculation.system.cell))
+                tau_accuracy_term = float(tau_residual)
                 accuracy += tau_accuracy_term
             else:
                 tau_accuracy_term = 0.0
