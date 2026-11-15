@@ -357,6 +357,7 @@ def run_momentum_transport(
     k_batch: int | None | str = "default",
     report=None,
     calculation=None,
+    degeneracy_tol: float | None = None,
 ) -> MomentumTransport:
     """``W(k; E)``: which k-points the tunnelling current comes out of.
 
@@ -406,6 +407,10 @@ def run_momentum_transport(
             used on its own k-set or moved to ``kpoints`` with ``at_kpoints``
             rather than a second one built beside it
             (:func:`~defuqumat.workflows.nscf.threaded_calculation`).
+        degeneracy_tol: the gap below which two levels are one block for the
+            incoherent column, ``None`` resolving to the solver's promise on
+            the states used, as for :func:`run_vertical_transport` (``PLAN.md``
+            P149).
         report: a ``callable(str)`` -- ``print``, or a logger -- told what this
             is about to do and what it has finished. ``None`` is silent, which
             is what every test wants and is therefore the default.
@@ -530,7 +535,8 @@ def run_momentum_transport(
         exit_axis=exit_axis, energies=grid_energies,
         broadening=float(broadening), spin=spin,
         polarization=float(polarization), method=method, smearing=smearing,
-        say=say,
+        say=say, degeneracy_tol=_resolved_degeneracy_tol(
+            degeneracy_tol, resolve, result, conv_thr, calculation),
     )
 
     if bias is not None:
@@ -806,14 +812,19 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
                             amplitudes, overlaps, weight_of_k, weights,
                             tip_projector, coherent=True)
                         if incoherent:
+                            # the resolved tolerance, as the window and the
+                            # top-multiplet mask take it (audit 2026-11-15,
+                            # ``transport-stm`` F1): at the 1e-6 default the
+                            # rotation split a pair the mask kept whole
                             total_incoherent[ie, here] += scale * spin_transmission(
                                 amplitudes, overlaps, weight_of_k, weights,
                                 tip_projector, coherent=False,
-                                eigenvalues=in_window)
+                                eigenvalues=in_window, tol=degeneracy_tol)
                             top_band[ie, here] += scale * spin_transmission(
                                 amplitudes, overlaps, weight_of_k,
                                 weights * cut, tip_projector,
-                                coherent=False, eigenvalues=in_window)
+                                coherent=False, eigenvalues=in_window,
+                                tol=degeneracy_tol)
                         continue
                     for component in range(npol):
                         total[ie, here] += scale * transmission(
@@ -822,11 +833,12 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
                         if incoherent:
                             total_incoherent[ie, here] += scale * transmission(
                                 amplitudes[component], overlaps, weight_of_k,
-                                weights, coherent=False, eigenvalues=in_window)
+                                weights, coherent=False, eigenvalues=in_window,
+                                tol=degeneracy_tol)
                             top_band[ie, here] += scale * transmission(
                                 amplitudes[component], overlaps, weight_of_k,
                                 weights * cut, coherent=False,
-                                eigenvalues=in_window)
+                                eigenvalues=in_window, tol=degeneracy_tol)
                 del amplitudes
 
     if not np.any(total > 0.0) and open_path == 0.0:
@@ -1052,7 +1064,8 @@ def _diagnose(overlap, bands, hermiticity, least, channels, offdiagonal,
 
 def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
                        exit_height, heights, exit_axis, energies, broadening,
-                       spin, polarization, method, smearing, say=None):
+                       spin, polarization, method, smearing, say=None,
+                       degeneracy_tol=None):
     """A Gram matrix per plane per k-point, then one trace. No real-space sampling.
 
     The whole cost of :func:`_assemble` is the ``(npol, nk, nbnd, npoints)``
@@ -1116,9 +1129,12 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
                 weights = amplitude_weights(
                     eigenvalues[ispin], float(energy), broadening, method,
                     smearing)
+                # the incoherent column decides a block by this tolerance
+                # (audit 2026-11-15, ``transport-stm`` F2)
                 here = momentum_weights(exit_gram, tip_gram, kweights,
                                         np.real(weights),
-                                        eigenvalues=eigenvalues[ispin])
+                                        eigenvalues=eigenvalues[ispin],
+                                        tol=degeneracy_tol)
                 for name, column in here.items():
                     columns[name][ih, ie] += scale * column
 

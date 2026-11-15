@@ -237,7 +237,7 @@ def test_the_species_of_a_mixed_cell_are_summed_together():
 
 
 def test_a_collinear_becsum_still_reports_its_magnetic_half():
-    """``nspin = 2`` has channel 1 as the magnetization, not three of them."""
+    """``nspin = 2`` is ``(up, down)``, so the moment is the difference of the two channels."""
     before = np.zeros((2, 1, 2))
     after = before.copy()
     after[1] = 1.0
@@ -268,3 +268,22 @@ def test_a_species_with_no_augmentation_is_skipped_rather_than_converted():
     # And a tuple that is *all* holes is the norm-conserving case reached the
     # long way round, which must still report nothing rather than zero.
     assert becsum_residual((None,), (None,)) == (0.0, 0.0)
+
+
+def test_a_collinear_split_tells_charge_from_moment():
+    """An equal change in both channels is charge, an opposite one is moment (audit ``mixing`` F1, F2).
+
+    The loop's two-channel density is ``(up, down)``; read as ``(charge,
+    moment)`` the two changes gave the same pair of numbers.
+    """
+    rho_in = np.stack([np.full(GRID, 0.6), np.full(GRID, 0.4)])
+    charge = residual_bins(rho_in, rho_in + 0.01, CELL)
+    assert charge["charge"] > 0.0 and charge["longitudinal"] == 0.0
+    moment = residual_bins(rho_in, rho_in + np.array([0.01, -0.01])[:, None, None, None], CELL)
+    assert moment["charge"] == 0.0 and moment["longitudinal"] > 0.0
+
+    before = np.zeros((2, 1, 2))
+    _, magnetic = becsum_residual((before,), (before + 1.0,))
+    assert magnetic == 0.0
+    _, magnetic = becsum_residual((before,), (before + np.array([1.0, -1.0])[:, None, None],))
+    assert magnetic == pytest.approx(np.sqrt(8))

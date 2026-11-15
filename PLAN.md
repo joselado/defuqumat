@@ -26074,8 +26074,9 @@ convenience, and the Kubo site resolves against the states' own field. One `dege
 `run_conductivity`; `run_berry_curvature`, which forwarded it through `**kwargs` the facade drops;
 `run_shift_current` and `run_shg`, with `cut_tol` beside them for the cut's warning, which read the
 raw constant; `run_vertical_transport`; `run_ultracell_transport`; `run_ultracell`), not in
-`_TOLERANCE_OPTIONS` (a larger value is the safe one). `run_momentum_transport` decides no block and
-does not take it. The nine sites, re-read:
+`_TOLERANCE_OPTIONS` (a larger value is the safe one). `run_momentum_transport` was said here to decide
+no block; its incoherent column does (`momentum_weights`' `channel_basis`), and it took the 1e-6
+constant until the audit of 2026-11-15 (`transport-stm` F2), which gave it `degeneracy_tol`. The nine sites, re-read:
 
 | site | the rule | what changed at the defaults |
 |---|---|---|

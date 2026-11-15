@@ -161,3 +161,24 @@ def test_a_numeric_tolerance_cannot_break_the_plaquette_berry_route():
         assert any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters), name
     source = inspect.getsource(topology.run_berry_curvature)
     assert 'method == "kubo"' in source
+
+
+def test_the_transport_assemblies_forward_the_resolved_tolerance():
+    """The incoherent sums and the momentum column take ``degeneracy_tol``, not the 1e-6 default (audit ``transport-stm`` F1, F2, N1).
+
+    The test above checks ``multiplets`` at the resolved value; it passed
+    whether or not the assemblies handed that value to ``channel_basis``,
+    and four of them did not.
+    """
+    import inspect
+
+    from defuqumat.workflows import transport
+
+    body = inspect.getsource(transport._assemble)
+    pieces = body.split("coherent=False")[1:]
+    assert len(pieces) == 4
+    for piece in pieces:
+        # the rest of that call, up to its closing parenthesis
+        assert "tol=degeneracy_tol" in piece[:piece.index(")")]
+    assert "tol=degeneracy_tol" in inspect.getsource(transport._assemble_momentum)
+    assert "degeneracy_tol" in inspect.signature(transport.run_momentum_transport).parameters
