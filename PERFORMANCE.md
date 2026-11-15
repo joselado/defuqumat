@@ -11384,6 +11384,16 @@ one at a time, so it never builds `(nk, nR, nw, nw, 8)`, which would be about 6 
 of the mesh test. The 8x8x8 mesh pair (two cells, 512 k-points each) peaked at 1.9 GB and took
 388 s.
 
+**The neighbour search, `kmesh_get`, was quadratic in the mesh** (audit 2026-11-15, `wannier`
+F3). Each k-point and shell built the distance of every k-point under all 1331 supercell
+translations. Now only the translations that can reach the shell are kept: since `|T|` must be
+at most the shell radius plus twice the largest `|k|`, and the list is sorted by `|T|`, this is a
+prefix, and the order of `nnlist` does not change. On fcc silicon's mesh, 4 cores of this
+workstation, one call each, beside a test run (so an order, not a timing): 0.45 -> 0.05 s at
+4x4x4, 24.4 -> 1.05 s at 8x8x8, 251 -> 11.0 s at 12x12x12, with `nnlist`, `nncell`, `bk`, `wb`
+and `neigh` equal bit for bit. It is still `nk^2` times the prefix length, where Wannier90's
+early exit is about `nk` times a few tens.
+
 ## Wannier functions without trial orbitals, `projections="auto"` (CPU, D22-0161, 2026-11-05)
 
 Silicon, `Si.pz-vbc`, ecut 12 Ry, SCF on 4x4x4, the Wannier mesh 4x4x4 (64 k-points, no

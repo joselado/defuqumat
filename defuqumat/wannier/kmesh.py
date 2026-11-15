@@ -256,10 +256,20 @@ def kmesh_get(
         for _ in range(multi[shell]):
             wb[nnx] = bweight[s]
             nnx += 1
+    # A match at k needs |T + k' - k| <= hi, so |T| <= hi + |k'| + |k|. The
+    # translations are sorted by |T|, so the ones within reach are a prefix,
+    # and the (translation, k-point) order of the matches is unchanged. The
+    # whole 1331-row table at every k made this nk^2 x 1331 work: on an fcc
+    # 12x12x12 mesh 251 s before the cut and 11 s after, 24 s and 1.0 s on
+    # 8x8x8, with the same arrays bit for bit (audit 2026-11-15, ``wannier`` F3).
+    hi = max(dnn[s] for s in chosen_shells) * (1.0 + kmesh_tol)
+    reach = hi + 2.0 * float(np.max(np.linalg.norm(kpt_cart, axis=1))) + EPS6
+    ncut = int(np.searchsorted(np.linalg.norm(trans_cart, axis=1), reach, side="right"))
+    vkpp_near = vkpp_all[:ncut]
     for nkp in range(num_kpts):
         nnx = 0
         for s, shell in enumerate(chosen_shells):
-            matches = _shell_bvectors(vkpp_all, kpt_cart, nkp, dnn[shell], multi[shell], kmesh_tol)
+            matches = _shell_bvectors(vkpp_near, kpt_cart, nkp, dnn[shell], multi[shell], kmesh_tol)
             for t, k2 in matches:
                 nnlist[nkp, nnx] = k2 + 1
                 nncell[:, nkp, nnx] = lmn_sorted[t]
