@@ -2514,6 +2514,9 @@ class Calculation:
         # What was asked for, before resolution: :meth:`for_bands` re-resolves
         # the same requests at another band count.
         self._dial_requests = (memory_mode, k_batch, projectors, band_batch)
+        # ... and the k-set they were resolved on, which :meth:`at_kpoints`
+        # compares a new list with (audit 2026-11-15, ``opt-memory`` N1).
+        self._dial_nk = int(system.kpoints.nk)
         #: Carry the ``l = 1`` tangent of ``<k+G|beta>`` at ``k + G = 0``.
         #:
         #: The default is the derivative the operator actually has. ``False``
@@ -4272,6 +4275,24 @@ class Calculation:
         # k-points do not.
         moved.__dict__.pop("_kcart", None)
         moved.system = system
+        # The dials were sized for the k-set they were resolved on. A whole-axis
+        # chunk (``k_batch = None``), chosen on a card because the SCF's wedge
+        # fitted, would otherwise follow the calculation to a whole grid up to 48
+        # times larger in one ``vmap``; ``for_bands`` re-sizes only for more bands,
+        # and the KPM routes never call it (audit 2026-11-15, ``opt-memory`` N1,
+        # fable's decision). A stated ``None`` re-resolves to ``None``. The blocks
+        # of a longer list (``widths``) are left: they share one shape, and a
+        # per-block answer read off the card would compile again.
+        from defuqumat import batching
+
+        if (widths is None and self.k_batch is None and batching._backend() != "cpu"
+                and getattr(self, "_dial_requests", None) is not None
+                and int(kpoints.nk) > getattr(self, "_dial_nk", int(kpoints.nk))):
+            nbnd = getattr(self, "_dial_nbnd", None) or self.band_count()
+            dials = self._redialled(system, nbnd, f"a solve on {int(kpoints.nk)} k-points")
+            moved.memory_mode, moved.k_batch, moved.band_batch = dials
+            moved.projector_storage = resolve_projectors(self._dial_requests[2], dials[0])
+            moved._dial_nk = int(kpoints.nk)
         # The list everything with a ``k`` index is built on. Without a spiral it
         # *is* the system's, and it has to move with it: leaving it stale gives
         # the pseudo-atomic orbitals the old k-points, which is a merely worse
@@ -4303,7 +4324,7 @@ class Calculation:
         # of a new structure factor over a cached core.
         moved.projector_core = _projector_core(
             self.pseudos, system.structure, cell, smooth, planewaves, kpoints,
-            self.origin_tangent, chunked=self.memory_mode == "memory",
+            self.origin_tangent, chunked=moved.memory_mode == "memory",
         )
         # The storage dial follows the calculation across a new k-set; it used
         # to be dropped here, so every band path and every derived mesh stored
@@ -4311,7 +4332,7 @@ class Calculation:
         moved.projector_rows = None
         moved.projectors = moved.projector_core.at_positions(
             system.structure.positions, qq=self.projectors.qq,
-            lazy=self.projector_storage == "rebuild",
+            lazy=moved.projector_storage == "rebuild",
         )
         # ``wfcU`` carries a k index, so a new k-list needs new projectors --
         # QE rebuilds them in ``orthoUwfc`` at the start of every run for the
@@ -4449,23 +4470,8 @@ class Calculation:
 
         if batching._backend() == "cpu" or nbnd <= self.band_count():
             return self
-        requests = getattr(self, "_dial_requests", None)
-        if requests is None:
-            return self
-        memory_mode, k_batch, projectors, band_batch = requests
-        mode = self.memory_mode
-        if mode == "speed":
-            mode = _resolve_memory_mode_for(
-                memory_mode, self.system, self.pseudos, k_batch, projectors,
-                self.david, purpose=f"a solve at {nbnd} bands", nbnd=int(nbnd))
-        bands = resolve_band_batch_for(band_batch, mode, self.system,
-                                       self.pseudos, k_batch, projectors,
-                                       self.david, nbnd=int(nbnd))
-        dials = (mode,
-                 resolve_k_batch_for(k_batch, mode, self.system, self.pseudos,
-                                     projectors, self.david, bands, nbnd=int(nbnd)),
-                 bands)
-        if dials == (self.memory_mode, self.k_batch, self.band_batch):
+        dials = self._redialled(self.system, nbnd, f"a solve at {nbnd} bands")
+        if dials is None or dials == (self.memory_mode, self.k_batch, self.band_batch):
             return self
         moved = copy.copy(self)
         # A compiled function closes over the chunking it was built with.
@@ -4473,7 +4479,35 @@ class Calculation:
                      "_energy_gradient", "_chunked_gradient"):
             moved.__dict__.pop(name, None)
         moved.memory_mode, moved.k_batch, moved.band_batch = dials
+        # the band count the dials are now sized for, which ``at_kpoints`` keeps
+        moved._dial_nbnd = int(nbnd)
         return moved
+
+    def _redialled(self, system, nbnd, purpose):
+        """``(memory_mode, k_batch, band_batch)`` resolved again for ``system`` at ``nbnd``.
+
+        From the requests the constructor kept, so a dial the caller stated
+        comes back as stated and only a dial chosen by ``memory_mode`` moves.
+        ``system`` carries the k-set the dials are sized for: :meth:`for_bands`
+        passes its own, :meth:`at_kpoints` the new one. Speed mode falls back to
+        memory mode, with ``purpose`` in its warning, when the solve would not
+        fit. ``None`` for a calculation built without the requests.
+        """
+        requests = getattr(self, "_dial_requests", None)
+        if requests is None:
+            return None
+        memory_mode, k_batch, projectors, band_batch = requests
+        mode = self.memory_mode
+        if mode == "speed":
+            mode = _resolve_memory_mode_for(
+                memory_mode, system, self.pseudos, k_batch, projectors,
+                self.david, purpose=purpose, nbnd=int(nbnd))
+        bands = resolve_band_batch_for(band_batch, mode, system, self.pseudos, k_batch,
+                                       projectors, self.david, nbnd=int(nbnd))
+        return (mode,
+                resolve_k_batch_for(k_batch, mode, system, self.pseudos, projectors,
+                                    self.david, bands, nbnd=int(nbnd)),
+                bands)
 
     def at_band_precision(self, precision) -> "Calculation":
         """The same calculation with its band side in ``precision``, nothing else rebuilt.

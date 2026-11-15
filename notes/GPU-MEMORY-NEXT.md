@@ -357,6 +357,15 @@ below:
   lsda.in` in a 2122 MB pool, 84 bands: batch 8 -> 1, peak 1456.1 -> 1371.5 MB, band
   energies to 6e-14 Ry; at 168 bands nothing fits and the run now says so before starting.
   `test_band_budget.py`.
+* **... and for the SCF's k-set** (2026-11-15, audit `opt-memory` N1, fable's decision): a
+  `k_batch = None` chosen on a card because the SCF's wedge fitted followed the calculation
+  through `at_kpoints` to a whole grid up to 48 times larger, and the KPM routes never call
+  `for_bands`. `at_kpoints` now re-resolves the dials through `Calculation._redialled`, the
+  helper `for_bands` uses, when the new list is longer than the one they were resolved on
+  (`_dial_nk`), the dial is the whole axis, and the list is not a block of a longer one
+  (`widths`). A stated `None` stays `None`; nothing changes on a CPU. Tested on a stand-in
+  card only (`test_band_budget.py`); not run on D22. Left: `whole_sphere.py:63` and
+  `velocity.py:143` double `npwx` at the same `nk`, which this check does not see.
 * **`jax.device_put`, not `jnp.asarray`, for a large host array** (2026-09-29): on the card
   `jnp.asarray` of a host array peaks at twice its size on the device, `device_put` at
   once. The assembled projector core and the projections' chunks now cross with
