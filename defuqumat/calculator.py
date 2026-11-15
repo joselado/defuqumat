@@ -532,6 +532,11 @@ class Calculator:
         self._ultracell_options: dict | None = None
         self._strain_response = None
         self._strain_response_options = None
+        #: The field response, one slot keyed by its options as the strain's:
+        #: ``get_born_charges`` after ``get_dielectric_tensor`` solved the
+        #: three field perturbations again (audit 2026-11-15, ``opt-repeat`` F1).
+        self._dielectric = None
+        self._dielectric_options: dict | None = None
         #: A converged state from another calculator, handed to the first SCF
         #: as ``starting_from``. Not a cache -- a starting point (P23).
         self._seed = None
@@ -748,6 +753,7 @@ class Calculator:
             self.defaults.update(changed)
             self._calculation = None
             self._strain_response = self._strain_response_options = None
+            self._dielectric = self._dielectric_options = None
 
     # ------------------------------------------------------------------
     # the ground state, and the cache in front of it
@@ -840,6 +846,7 @@ class Calculator:
         # Before the call rather than after it -- see the docstring. An SCF
         # makes every response built on the previous one stale in any case.
         self._scf = self._strain_response = self._strain_response_options = None
+        self._dielectric = self._dielectric_options = None
         self._ultracell = self._ultracell_options = None
         self._scf = run_scf(self.system, self.pseudos,
                             calculation=self.calculation, **self._seeded(merged))
@@ -1288,12 +1295,22 @@ class Calculator:
         from defuqumat.response.efield import dielectric_tensor
 
         result = self._ground_state("the dielectric tensor")
-        return dielectric_tensor(
+        merged = self._defaults_for(dielectric_tensor, options, exclude=SCF_ONLY_OPTIONS)
+        # the callee's own default, written out so that get_born_charges'
+        # explicit born_charges=True keys the same slot
+        merged.setdefault("born_charges", True)
+        keep = not merged.get("keep_internals", False)
+        if keep and self._dielectric is not None and _same_options(
+                merged, self._dielectric_options):
+            return self._dielectric
+        self._dielectric = self._dielectric_options = None
+        tensor = dielectric_tensor(
             self.calculation, result.wavefunctions, result.eigenvalues,
-            result.density, result.becsum,
-            **self._defaults_for(dielectric_tensor, options,
-                                 exclude=SCF_ONLY_OPTIONS),
+            result.density, result.becsum, **merged,
         )
+        if keep:
+            self._dielectric, self._dielectric_options = tensor, merged
+        return tensor
 
     def get_born_charges(self, **options):
         """The Born effective charges ``Z* = dF/dE``, as a ``(nat, 3, 3)``.
