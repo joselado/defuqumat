@@ -254,8 +254,9 @@ def test_a_k_set_that_is_already_the_wedge_is_accepted():
 def test_the_consumers_master_lifted_refuse_a_symmetrised_spiral():
     """What the merge with I1 to I48 made reachable, and the wedge was not written for.
 
-    Site angular momenta and the atomic projections of a norm-conserving spiral
-    run since I1 to I48, written against a ``nosym`` spiral on the whole grid;
+    Site angular momenta of a norm-conserving spiral run since I1 to I48,
+    written against a ``nosym`` spiral on the whole grid (the atomic
+    projections do not, at any symmetry: audit 2026-11-15);
     their wedge completion turns the site spin and the spinor column with the
     spatial rotation, which an operation of the spin space group does not. A
     ``System`` built with ``lspinorb`` without the reader is refused in the
@@ -268,8 +269,14 @@ def test_the_consumers_master_lifted_refuse_a_symmetrised_spiral():
     assert calculation.use_symmetry and calculation.symmetries.nsym > 1
     with pytest.raises(NotImplementedError, match="angular momenta of a spin spiral need nosym"):
         angular_momenta(calculation, None)
-    with pytest.raises(NotImplementedError, match="symmetrised projection of a spin spiral"):
+    with pytest.raises(NotImplementedError, match="atomic projections of a spin spiral"):
         atomic_projections(calculation, None)
+    # and under nosym, where the orbitals have 2 nk rows against nk rows of
+    # states (audit 2026-11-15, ``hubbard-projwfc`` F2)
+    _, whole = _calculation(_nosym(ZIGZAG))
+    assert not whole.use_symmetry
+    with pytest.raises(NotImplementedError, match="atomic projections of a spin spiral"):
+        atomic_projections(whole, None)
 
     # P123's NiI chain, read with nosym (the reader refuses it otherwise) and
     # the switch turned off afterwards: its one mirror fixes q along the chain.

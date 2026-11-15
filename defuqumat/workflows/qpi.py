@@ -161,6 +161,22 @@ def run_qpi(
             "scatterer on an atom is inside one")
     if not broadening > 0.0:
         raise ValueError(f"broadening must be positive, got {broadening}")
+    # The checks that need no states, before the band solve that is nearly all
+    # of the cost (audit 2026-11-15, ``transport-stm`` F4).
+    if not sigma > 0.0:
+        raise ValueError(f"sigma must be positive, got {sigma}")
+    if getattr(system, "nspin", 1) == 1 and exchange != 0.0:
+        raise ValueError("a magnetic scatterer (exchange) needs an nspin = 2 run")
+    if isinstance(impurity, (int, np.integer)):
+        count = len(system.structure.types)
+        if not 0 <= int(impurity) < count:
+            raise ValueError(f"impurity={impurity} names no atom: the cell has {count} "
+                             f"(indices 0 to {count - 1})")
+    if energies is None and getattr(result, "fermi_energy", 0.0) is None and states is None:
+        # occupations = 'fixed' has no Fermi level, and the axis became [nan],
+        # every map NaN with no error (audit 2026-11-15, ``transport-stm`` F3)
+        raise ValueError("this run has no Fermi level (occupations = 'fixed'): pass "
+                         "energies= in Ry, where there are states to scatter")
 
     from defuqumat.workflows.transport import _refuse_an_augmented_plane
 
@@ -203,6 +219,9 @@ def run_qpi(
     nspin, nk, nall = eigenvalues.shape
     window = np.arange(nall)[bands] if bands is not None else np.arange(nall)
 
+    if energies is None and levels["fermi_energy"] is None:
+        raise ValueError("these states have no Fermi level (occupations = 'fixed'): "
+                         "pass energies= in Ry, where there are states to scatter")
     energies_axis = np.atleast_1d(
         np.asarray(levels["fermi_energy"] if energies is None else energies,
                    dtype=float))

@@ -1357,3 +1357,28 @@ def test_a_closed_channel_sets_no_scale_for_the_window(monkeypatch):
     assert np.abs(every[0]["coherent"]).max() > 0.0
     _agree(windowed, every)
     assert windowed[1]["notes"]["window"][0] < every[1]["notes"]["window"][0]
+
+
+@pytest.mark.parametrize("options, message", [
+    (dict(exchange=0.02), "exchange"),
+    (dict(sigma=0.0), "sigma must be positive"),
+    (dict(impurity=99), "names no atom"),
+    (dict(), "no Fermi level"),
+])
+def test_qpi_refuses_at_the_door(options, message):
+    """Before the band solve: three typos and a run with no Fermi level (audit ``transport-stm`` F3, F4).
+
+    The three checks came after the whole-grid solve, and ``occupations =
+    'fixed'`` gave an energy axis of NaN and NaN maps with no error. A stand-in
+    for the system and the result, since nothing past the door is reached.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.workflows.qpi import run_qpi
+
+    system = SimpleNamespace(nspin=1, noncolin=False, spiral=False,
+                             structure=SimpleNamespace(types=(0, 0)))
+    pseudos = (SimpleNamespace(augmentation=None, paw=None),)
+    result = SimpleNamespace(fermi_energy=None)
+    with pytest.raises(ValueError, match=message):
+        run_qpi(system, pseudos, result, potential=0.05, height=0.7, **options)
