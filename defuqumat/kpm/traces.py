@@ -358,6 +358,8 @@ def run_kpm_unfolded(system, pseudos, density, primitive_lattice, kpoints, *,
 
     if trace not in ("exact", "stochastic"):
         raise ValueError(f"trace must be 'exact' or 'stochastic', got {trace!r}")
+    if n_moments is not None and n_moments % 2:
+        raise ValueError(f"n_moments must be even, got {n_moments}")
     calculation, system, _, k_batch = threaded_calculation(calculation, system, None, k_batch)
     if calculation is None:
         from defuqumat.scf.driver import Calculation
@@ -380,24 +382,28 @@ def run_kpm_unfolded(system, pseudos, density, primitive_lattice, kpoints, *,
     counts = subset.sum(axis=-1)
     nk, ndim = subset.shape
     if trace == "exact":
+        # the indices of the unit vectors, built into vectors a k-chunk at a
+        # time inside the recursion: the whole (nk, width, ndim) block was the
+        # largest array of the route (audit 2026-11-15, ``kpm`` N2)
         width = int(counts.max())
-        starts = np.zeros((nk, width, ndim))
+        starts = np.full((nk, width), -1, dtype=np.int32)
         for ik in range(nk):
             columns = np.flatnonzero(subset[ik])
-            starts[ik, np.arange(columns.size), columns] = 1.0
+            starts[ik, :columns.size] = columns
+        starts, kind = jnp.asarray(starts), "columns"
         scale = np.ones(nk)
     else:
         rng = np.random.default_rng(seed)
         angle = 2.0 * math.pi * rng.random((nk, n_random, ndim))
         starts = np.where(subset[:, None, :], np.exp(1j * angle), 0.0) / np.sqrt(
             counts)[:, None, None]
+        starts, kind = jnp.asarray(starts, dtype=hamiltonians[0].dtype), "given"
         scale = counts / n_random
-    starts = jnp.asarray(starts, dtype=hamiltonians[0].dtype)
     key = jax.random.PRNGKey(0)
     moments = []
     for hamiltonian in hamiltonians:
         raw = np.asarray(chebyshev_moments(hamiltonian, centre, half, key, n_moments // 2 - 1,
-                                           starts.shape[1], kind="given", k_batch=batch,
+                                           starts.shape[1], kind=kind, k_batch=batch,
                                            given=starts))
         check_moments(raw, centre, half)
         moments.append(raw.sum(axis=1) * scale[:, None])

@@ -93,6 +93,9 @@ class KPMDensityOfStates:
     #: ``(3, nE)``: ``sum_k w_k Tr[sigma_i delta(E - H_k)]`` for a spinor, the
     #: spin density of states along x, y and z (``spin_resolved=True``), else ``None``.
     spin_dos: np.ndarray | None = None
+    #: ``(3, N)``: the weighted spin moments ``spin_dos`` is built from, kept so
+    #: that :meth:`reconstructed` rebuilds it with the scalar DOS; else ``None``.
+    spin_moments: np.ndarray | None = None
 
     @property
     def moments(self) -> np.ndarray:
@@ -160,9 +163,13 @@ class KPMDensityOfStates:
         width = get_kernel(kernel).width_at
         x = (self.reference_energy - self.centre) / self.half_width
         broadening = (float(self.half_width * width(n_moments, x)) if width else math.nan)
+        spin = self.spin_dos
+        if self.spin_moments is not None:
+            spin, _ = _evaluate(self.spin_moments, kernel, n_moments, self.centre,
+                                self.half_width, energies)
         return replace(self, energies=energies, dos=dos, integrated=integrated,
                        dos_error=error, kernel=kernel, n_moments=n_moments,
-                       broadening=broadening)
+                       broadening=broadening, spin_dos=spin)
 
 
 def _evaluate(moments, kernel, n_moments, centre, half, energies):
@@ -295,6 +302,9 @@ def run_kpm_dos(
         system, pseudos, density: the converged run (``SCFResult.density``).
         kpoints: the k-set of the trace, if not the run's own. The DOS is a
             scalar trace, so a symmetry-reduced set with its weights completes it.
+            The spin DOS is not: ``Tr[sigma_i delta(E - H_k)]`` is an axial vector
+            at each k, so ``spin_resolved=True`` moves a reduced set to its whole
+            grid, for the scalar DOS as well, since both share the random vectors.
         broadening: the kernel's half width at half maximum, Ry, at
             ``reference_energy``; it sets the number of moments.
         n_moments: the number of moments, overriding ``broadening``; even.
@@ -328,6 +338,9 @@ def run_kpm_dos(
             as for :func:`~defuqumat.workflows.nscf.run_nscf`.
         calculation: the SCF's own, moved to ``kpoints`` if given.
     """
+    if spin_resolved:
+        calculation, system, kpoints, k_batch = _on_the_whole_grid(
+            system, pseudos, kpoints, k_batch, calculation)
     setup = kpm_setup(system, pseudos, density, kpoints=kpoints, k_batch=k_batch, ns=ns,
                       tau=tau, becsum=becsum, field=field, field_scale=field_scale,
                       calculation=calculation, symmetrize=True)
@@ -353,12 +366,14 @@ def run_kpm_dos(
     energies = np.arange(emin, emax + 0.5 * delta_e, delta_e)
     dos, integrated, error = _assemble(samples, kernel, n_moments, centre, half,
                                        energies, trace)
-    spin = None
+    spin = spin_weighted = None
     if spin_resolved:
-        spin = spin_resolved_dos(hamiltonians, weights, centre, half, n_moments, n_random,
-                                 seed, kernel, energies, batch)
+        spin, spin_weighted = spin_resolved_dos(hamiltonians, weights, centre, half,
+                                                n_moments, n_random, seed, kernel,
+                                                energies, batch, trace=trace)
     return KPMDensityOfStates(
         energies=energies, dos=dos, integrated=integrated, dos_error=error, spin_dos=spin,
+        spin_moments=spin_weighted,
         samples=samples, centre=centre, half_width=half, kernel=kernel,
         n_moments=n_moments, broadening=broadening,
         reference_energy=float(reference_energy), trace=trace,
@@ -426,8 +441,14 @@ def interval_and_moments(hamiltonians, batch, seed, lanczos_steps, edge_margin, 
 
 
 def spin_resolved_dos(hamiltonians, weights, centre, half, n_moments, n_random, seed, kernel,
-                      energies, batch):
-    """``(3, nE)``: the spin density of states of a spinor, ``sum_k w_k Tr[sigma_i delta(E - H)]``."""
+                      energies, batch, trace="stochastic"):
+    """``((3, nE), (3, N))``: the spin DOS of a spinor, ``sum_k w_k Tr[sigma_i delta(E - H)]``, and its moments.
+
+    ``weights`` must be those of a whole grid (:func:`_on_the_whole_grid`):
+    the trace at each k is an axial vector, which a wedge's weights do not
+    complete. ``trace = "exact"`` runs one recursion per plane wave, as the
+    scalar trace does.
+    """
     from defuqumat.kpm.moments import spin_moments
 
     if len(hamiltonians) != 1 or not hasattr(hamiltonians[0], "_as_state"):
@@ -436,11 +457,40 @@ def spin_resolved_dos(hamiltonians, weights, centre, half, n_moments, n_random, 
     hamiltonian = hamiltonians[0]
     key = jax.random.fold_in(jax.random.PRNGKey(seed), 0)
     raw = np.asarray(spin_moments(hamiltonian, centre, half, key, n_moments, n_random,
-                                  k_batch=batch))  # (nk, 3, R, N)
-    live = np.asarray(jnp.sum(live_mask(hamiltonian), axis=-1), dtype=float)
-    moments = np.einsum("k,kirn->in", np.asarray(weights) * live, raw) / n_random
+                                  k_batch=batch, kind=trace))  # (nk, 3, R, N)
+    if trace == "exact":
+        moments = np.einsum("k,kirn->in", np.asarray(weights), raw)
+    else:
+        live = np.asarray(jnp.sum(live_mask(hamiltonian), axis=-1), dtype=float)
+        moments = np.einsum("k,kirn->in", np.asarray(weights) * live, raw) / n_random
     dos, _ = _evaluate(moments, kernel, n_moments, centre, half, energies)
-    return dos
+    return dos, moments
+
+
+def _on_the_whole_grid(system, pseudos, kpoints, k_batch, calculation):
+    """``(calculation, system, None, k_batch)`` on the whole grid of a reduced k-set.
+
+    ``Tr[sigma_i delta(E - H_k)]`` turns with the group as an axial vector and is
+    odd under time reversal, so the weights of a wedge sum it to a number the
+    zone sum is not (a nonmagnetic spinor without inversion gets a spin DOS
+    where time reversal forces zero). The PDOS, the LDOS and the conductivity
+    move a wedge the same way (:func:`~defuqumat.kpm.traces.whole_grid_calculation`).
+    """
+    import equinox as eqx
+
+    from defuqumat.kpm.traces import whole_grid_calculation
+    from defuqumat.scf.driver import Calculation
+    from defuqumat.system.kpoints import for_spin
+    from defuqumat.workflows.nscf import threaded_calculation
+
+    calculation, system, kpoints, k_batch = threaded_calculation(
+        calculation, system, kpoints, k_batch)
+    if calculation is None:
+        if kpoints is not None:
+            system = eqx.tree_at(lambda s: s.kpoints, system, for_spin(kpoints, system.nspin))
+        calculation = Calculation(system, pseudos, k_batch=k_batch)
+    calculation = whole_grid_calculation(calculation)
+    return calculation, calculation.system, None, calculation.k_batch
 
 
 def variate_corrections(calculation, hamiltonians, weights, centre, half, n_moments, n_random,

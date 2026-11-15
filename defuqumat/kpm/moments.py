@@ -23,6 +23,9 @@ Three kinds of start vector:
   is the trace itself. ``ndim`` recursions, for tests on small cells.
 * ``"given"``: a block the caller built (atomic orbitals, a point), for the
   deterministic traces of a later phase.
+* ``"columns"``: the unit vectors of the given components, ``(nk, R)`` integer
+  indices with ``-1`` for an unused row, built inside the k loop so that only
+  the k-points in flight hold their ``(R, ndim)`` block.
 
 Ported from pyqula, ``kpmtk/kpmnumba.py`` (``kpm_moments_v``) and
 ``kpmtk/kpmjax.py``; the recursion is Weisse et al., Rev. Mod. Phys. 78, 275
@@ -102,7 +105,8 @@ def chebyshev_moments(hamiltonian, centre, half, key, n_steps: int, n_random: in
     A module-level ``jit`` that takes the Hamiltonian, the bounds and the key as
     arguments and closes over none of them, so a second call on another
     potential compiles nothing. ``given`` is ``(nk, R, ndim)`` for
-    ``kind = "given"`` and ignored otherwise; the stochastic key is folded with
+    ``kind = "given"``, ``(nk, R)`` component indices for ``kind = "columns"``,
+    and ignored otherwise; the stochastic key is folded with
     the k index, so the start vectors do not depend on how the k axis is
     chunked.
     """
@@ -121,12 +125,15 @@ def chebyshev_moments(hamiltonian, centre, half, key, n_steps: int, n_random: in
             start = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
         elif kind == "exact":
             start = unit_vectors(live, dtype)
+        elif kind == "columns":
+            hit = start[:, None] == jnp.arange(live.shape[-1])[None, :]
+            start = jnp.where(hit & live[None, :], jnp.ones((), dtype), jnp.zeros((), dtype))
         else:
             start = jnp.where(live, start.astype(dtype), 0.0)
         return recursion(apply, start, n_steps)
 
     indices = jnp.arange(mask.shape[0])
-    if kind == "given":
+    if kind in ("given", "columns"):
         return map_k(one_k, (indices, given), batch=k_batch)
     return map_k(lambda ik: one_k((ik, None)), indices, batch=k_batch)
 
@@ -138,6 +145,8 @@ def cross_recursion(apply, start, bra, n_moments: int):
     ``bra = A start`` for a Hermitian ``A`` they are ``<start|A T_n(H')|start>``,
     whose stochastic average is ``Tr[A T_n(H')]``. No doubling, since the bra
     is not a Chebyshev vector. Complex in general, so both parts are kept.
+    ``bra`` may carry leading operator axes, ``(..., R, ndim)``, and then every
+    operator is read off the same recursion, ``(..., R, n_moments)``.
     """
     def braket(v):
         return jnp.sum(jnp.conj(bra) * v, axis=-1)
@@ -150,7 +159,9 @@ def cross_recursion(apply, start, bra, n_moments: int):
         return (current, following), braket(following)
 
     _, rest = lax.scan(step, (start, first), None, length=n_moments - 2)
-    return jnp.concatenate([braket(start)[None], braket(first)[None], rest], axis=0).T
+    # moments last; a stacked bra ``(A, R, ndim)`` gives ``(A, R, n_moments)``
+    return jnp.moveaxis(
+        jnp.concatenate([braket(start)[None], braket(first)[None], rest], axis=0), 0, -1)
 
 
 def pauli(states, axis: int):
@@ -165,13 +176,19 @@ def pauli(states, axis: int):
     return jnp.concatenate([up, -down], axis=-1)
 
 
-@functools.partial(jax.jit, static_argnames=("n_moments", "n_random", "k_batch"))
-def spin_moments(hamiltonian, centre, half, key, n_moments: int, n_random: int, k_batch=None):
+@functools.partial(jax.jit, static_argnames=("n_moments", "n_random", "k_batch", "kind"))
+def spin_moments(hamiltonian, centre, half, key, n_moments: int, n_random: int, k_batch=None,
+                 kind: str = "stochastic"):
     """``(nk, 3, R, n_moments)`` real: ``<sigma_i r|T_n(H')|r>`` for a spinor.
 
     The random vectors are :func:`chebyshev_moments`' own for the same key, so
-    the spin-resolved and the plain trace share their noise.
+    the spin-resolved and the plain trace share their noise. The three bras
+    ``sigma_i r`` are fixed, so one recursion serves all three components.
+    ``kind = "exact"`` starts from every unit vector of the live sphere
+    (``R = ndim``), and the sum over ``R`` is then the trace itself.
     """
+    if kind not in ("stochastic", "exact"):
+        raise ValueError(f"kind must be 'stochastic' or 'exact', got {kind!r}")
     mask = live_mask(hamiltonian)
     dtype = hamiltonian.dtype
 
@@ -182,8 +199,11 @@ def spin_moments(hamiltonian, centre, half, key, n_moments: int, n_random: int, 
             out = (hamiltonian.apply(v, ik) - centre * v) / half
             return jnp.where(live, out, 0.0)
 
-        start = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
-        return jnp.stack([jnp.real(cross_recursion(apply, start, pauli(start, axis), n_moments))
-                          for axis in range(3)])
+        if kind == "exact":
+            start = unit_vectors(live, dtype)
+        else:
+            start = random_phases(jax.random.fold_in(key, ik), live, n_random, dtype)
+        bras = jnp.stack([pauli(start, axis) for axis in range(3)])
+        return jnp.real(cross_recursion(apply, start, bras, n_moments))
 
     return map_k(one_k, jnp.arange(mask.shape[0]), batch=k_batch)
