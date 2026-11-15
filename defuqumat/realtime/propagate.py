@@ -80,7 +80,7 @@ from defuqumat.batching import k_chunks, map_k
 from defuqumat.eager import compiled_function
 from defuqumat.hamiltonian.noncollinear import SpinorHamiltonian
 from defuqumat.realtime.propagators import get_propagator
-from defuqumat.realtime.pulse import Kick, Sum, _unit
+from defuqumat.realtime.pulse import Kick, Sum, _unit, switch_slack
 from defuqumat.realtime.radial import radial_table
 from defuqumat.units import AU_SEC
 
@@ -1196,14 +1196,15 @@ def kick_jumps(calculation, pulse, times):
     dt = float(times[1] - times[0]) if nsteps else 1.0
     for kick in _kicks(pulse):
         time = float(kick.time)
-        if time <= float(times[0]) + 1e-12:
+        slack = float(switch_slack(time))
+        if time <= float(times[0]) + slack:
             continue
-        # the comparison Kick.kappa_at makes
-        on = np.flatnonzero(times >= time - 1.0e-14)
+        # the comparison Kick.kappa_at makes, with its slack
+        on = np.flatnonzero(times >= time - slack)
         if len(on) == 0:
             continue
         n = int(on[0])
-        if abs(float(times[n]) - time) > 1e-9 * dt + 1e-12:
+        if abs(float(times[n]) - time) > slack:
             raise NotImplementedError(
                 f"a kick at t = {time} between two points of the time grid "
                 f"(t = {times[n - 1]} and {times[n]}) is not implemented for an "

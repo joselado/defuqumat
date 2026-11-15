@@ -857,3 +857,35 @@ def test_a_truncated_checkpoint_starts_the_run_over(tmp_path):
     broken.write_bytes(b"PK\x03\x04 not a whole archive")
     with pytest.warns(RuntimeWarning, match="cannot be read"):
         assert read_checkpoint(broken) is None
+
+
+def test_a_kick_on_the_grid_switches_on_at_its_own_point_at_late_times():
+    """One slack for the switch, the on-grid test and the window (audit 2026-11-15, ``realtime`` F2).
+
+    ``dt = 0.3`` puts ``times[431]`` at 129.29999999999998, one ulp below 129.3.
+    The absolute 1e-14 of the switch is less than an ulp there, so the kick came
+    on at 432, and an augmented run refused the kick as between two grid points.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.realtime.propagate import kick_jumps
+    from defuqumat.realtime.pulse import Kick
+    from defuqumat.realtime.spectra import conductivity_from_kick
+
+    times = 0.3 * np.arange(500)
+    assert times[431] < 129.3
+    kick = Kick(strength=1e-3, time=129.3)
+    kappa = kick.kappa(times)
+    assert kappa[431, 0] == 1e-3 and kappa[430, 0] == 0.0
+    jumped = kick_jumps(SimpleNamespace(augmentation=object()), kick, times)
+    assert jumped is not None
+    jumps, at = jumped
+    assert np.flatnonzero(at).tolist() == [430]
+    assert jumps[430, 0] == 1e-3
+    # the window starts on the same sample: a current that is 1 from 431 on
+    # and 0 before gives the transform of a step that starts at t = 0
+    current = np.where(np.arange(500)[:, None] >= 431, 1.0, 0.0) * np.array([1.0, 0, 0])
+    inside = conductivity_from_kick(times, current, 1.0, (1, 0, 0), [0.0], 0.1, kick_time=129.3)
+    shifted = conductivity_from_kick(times[:69], np.ones((69, 3)) * [1, 0, 0], 1.0, (1, 0, 0),
+                                     [0.0], 0.1)
+    assert np.allclose(inside.sigma, shifted.sigma, rtol=1e-12)

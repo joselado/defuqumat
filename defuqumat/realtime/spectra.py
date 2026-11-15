@@ -41,6 +41,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from defuqumat.realtime.pulse import switch_slack
 from defuqumat.units import HARTREE_TO_EV
 
 __all__ = ["conductivity_from_kick", "KickResponse", "harmonic_spectrum",
@@ -104,7 +105,8 @@ def conductivity_from_kick(times, current, strength: float, direction, frequenci
     """
     times = np.asarray(times, dtype=float)
     current = np.asarray(current)
-    after = times >= kick_time - 1e-12
+    # the slack Kick.kappa_at switches on with, so J(0+) is the first kicked sample
+    after = times >= kick_time - float(switch_slack(kick_time))
     t = times[after] - kick_time
     j = current[after]
     if subtract_static:
