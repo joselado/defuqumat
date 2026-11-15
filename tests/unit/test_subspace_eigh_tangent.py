@@ -129,3 +129,21 @@ def test_a_pair_split_by_round_off_no_longer_amplifies():
     _, dv_reg = jax.jvp(lambda a: _eigh_regularised(a, eta)[1], (x,), (dx,))
     assert np.max(np.abs(np.asarray(dv_plain))) > 1e9
     assert np.max(np.abs(np.asarray(dv_reg))) < 1.0 / eta
+
+
+def test_a_row_with_every_band_occupied_keeps_the_floor():
+    """The tangent width of a per-band row is floored as the scalar's is (audit ``hamiltonian`` F1).
+
+    A row with no empty band, or ``diago_full_acc``, holds the bare ``ethr``. Its
+    largest entry is then 1e-13 at QE's floor, and the width came out 1e-13
+    instead of the 1e-5 unit, which put the kernel bound at 5e12.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.solvers.davidson import EMPTY_ETHR_FLOOR, tangent_width
+
+    assert float(tangent_width(1e-13)) == EMPTY_ETHR_FLOOR
+    assert float(tangent_width(jnp.full(4, 1e-13))) == EMPTY_ETHR_FLOOR
+    assert float(tangent_width(jnp.full(4, 1e-3))) == 1e-3
+    assert float(tangent_width(jnp.array([1e-13, 1e-13, 1e-5]))) == EMPTY_ETHR_FLOOR
+    assert float(tangent_width(1e-3)) == pytest.approx(5e-3)

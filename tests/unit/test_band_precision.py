@@ -382,3 +382,54 @@ def test_the_anisotropy_legs_are_refused_on_a_single_band_side(silicon, monkeypa
     monkeypatch.setenv("DEFUQUMAT_BAND_PRECISION", "single")
     with pytest.raises(NotImplementedError, match="force-theorem anisotropy or torque"):
         getattr(anisotropy, workflow)(system, pseudos, None)
+
+
+def test_a_spiral_scan_point_stays_in_single_precision(pseudo_dir, tmp_path):
+    """``at_spiral_q`` rebuilt its projector core in double and kept the single labels (audit ``driver-b`` F1).
+
+    Every point of a single-precision spiral scan then ran double arrays under
+    the single floors. Setup only: the moved core's dtype is the band side's.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.scf.driver import Calculation
+
+    system, pseudos = _regime(pseudo_dir, tmp_path, "spiral")
+    base = Calculation(system, pseudos, band_precision="single")
+    assert base.projector_core.complex_dtype == jnp.complex64
+    moved = base.at_spiral_q(np.asarray(system.spiral_q) * 0.9)
+    assert moved.projector_core.complex_dtype == jnp.complex64
+
+
+def test_a_single_source_keeps_its_count_tolerance_through_a_checkpoint(silicon, tmp_path):
+    """The precision rides on the result, so a reloaded source keeps 1e-4 (audit ``scf-small`` F2).
+
+    It was read off ``history``, which a checkpoint drops, so a single-precision
+    source read back from a file was held to the double tolerance of 1e-6 and a
+    miss in between was blamed on a different ``z_valence``.
+    """
+    import dataclasses
+
+    from defuqumat.scf.checkpoint import load_state, save_state
+    from defuqumat.scf.continuation import _check_grid
+
+    system, pseudos = silicon
+    single = run_scf(system, pseudos, conv_thr=1e-7, band_precision="single")
+    assert single.band_precision == "single"
+    back = load_state(save_state(single, tmp_path / "state.npz"), system=system)
+    assert back.band_precision == "single" and not back.history
+    calculation = Calculation(system, pseudos)
+    off = dataclasses.replace(back, density=np.asarray(back.density) * (1.0 + 5e-6))
+    _check_grid(off, calculation)
+    with pytest.raises(ValueError, match="pseudopotential"):
+        _check_grid(dataclasses.replace(off, band_precision="double"), calculation)
+    # and the checkpoint the loop writes on its own, which is not an SCFResult: an
+    # interrupted single-precision run, read back from its directory
+    from defuqumat.scf.driver import SCF_CHECKPOINT
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        run_scf(system, pseudos, conv_thr=1e-7, band_precision="single", max_iterations=2,
+                checkpoint_dir=tmp_path / "run")
+    written = load_state(tmp_path / "run" / SCF_CHECKPOINT, system=system)
+    assert written.band_precision == "single"

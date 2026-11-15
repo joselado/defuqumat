@@ -58,6 +58,9 @@ def run_shift_current(
     k_batch="default",
     calculation=None,
     ns=None,
+    tau=None,
+    field=None,
+    field_scale=None,
 ) -> ShiftCurrent:
     """``sigma^abc(0; w, -w)`` in A/V^2 for a converged run.
 
@@ -71,6 +74,12 @@ def run_shift_current(
         calculation: the SCF's own, used on its own k-set or moved to
             ``kpoints`` rather than a second one built beside it
             (:func:`~defuqumat.workflows.nscf.threaded_calculation`).
+        tau, field, field_scale: the rest of the converged state
+            (``SCFResult.tau``, ``.magnetic_field``, ``.field_scale``), as for
+            :func:`~defuqumat.workflows.conductivity.run_conductivity`: a
+            potential-only meta-GGA and a ground state under a field cannot be
+            rebuilt without them, and the fixed-density solve asks for them by
+            these names (audit 2026-11-15, ``optics`` N1).
         ns: the converged Hubbard occupation matrix of a DFT+U run
             (``SCFResult.ns``; :class:`~defuqumat.calculator.Calculator`
             passes it). The fixed-density run needs it for ``H`` and the
@@ -123,6 +132,7 @@ def run_shift_current(
     calculation, system, eigenvalues, wavefunctions = fixed_density_states(
         system, pseudos, density, nbnd=nbnd + 1,
         conv_thr=conv_thr, k_batch=k_batch, ns=ns, calculation=calculation,
+        tau=tau, field=field, field_scale=field_scale,
     )
     # The solve re-checks the dials at its own band count (``Calculation.
     # for_bands``); what follows runs at whatever it resolved to.
@@ -136,7 +146,11 @@ def run_shift_current(
     # host memory or a device array: the assembly walks the k axis and takes
     # one chunk's rows to the device at a time (``OPEN.md`` Part XXIII item 24).
     wavefunctions = wavefunctions[..., :nbnd, :]
-    potential = calculation.potential(jnp.asarray(density))
+    # the same field, scale and tau as the band solve, or the potential the
+    # velocity is built on is another one (``workflows/conductivity.py``)
+    potential = calculation.potential(
+        jnp.asarray(density), 1.0 if field_scale is None else float(field_scale), field,
+        tau=tau)
 
     # ``None`` resolves to the broadening, Elk's rule, or to the solver's own
     # promise on these states where that is looser (``PLAN.md`` P149); the

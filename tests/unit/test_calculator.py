@@ -975,3 +975,48 @@ def test_the_adopted_namelist_reaches_the_scf_inside_a_relaxation(pseudo_dir):
     calc = Calculator.from_text(text, pseudo_dir, announce=False)
     relax = calc.get_relax(nstep=1)
     assert relax.steps[0].scf_iterations == 1
+
+
+def test_with_spin_rescales_the_calculators_own_band_count(pseudo_dir):
+    """A spinor band holds one electron, so ``nbnd`` given to the calculator doubles into nspin = 4 (audit ``calculator`` F1).
+
+    The calculator's ``nbnd`` wins over ``system.nbnd`` at every entry point,
+    and it was carried unchanged, so the spinor run had half the bands.
+    """
+    collinear = Calculator.from_text(SILICON, pseudo_dir, announce=False, nbnd=8)
+    spinor = collinear.with_spin(4)
+    assert spinor.system.nspin == 4
+    assert spinor.defaults["nbnd"] == 16
+    assert spinor.with_spin(1).defaults["nbnd"] == 8
+    assert collinear.with_spin(4, nbnd=20).defaults["nbnd"] == 20
+    assert collinear.defaults["nbnd"] == 8
+
+
+def test_the_born_charges_reuse_the_dielectric_solve(pseudo_dir, monkeypatch):
+    """One field solve for epsilon and Z*, as PLAN.md P-record said and the code did not (audit ``opt-repeat`` F1).
+
+    The solve is stood in for and counted; the ground state is a stand-in too,
+    so nothing runs. Other options, and ``keep_internals``, solve again.
+    """
+    from types import SimpleNamespace
+
+    import defuqumat.response.efield as efield
+
+    calls = []
+
+    def stand_in(calculation, wavefunctions, eigenvalues, density, becsum, **options):
+        calls.append(dict(options))
+        return SimpleNamespace(born_charges=np.zeros((2, 3, 3)), options=options)
+
+    monkeypatch.setattr(efield, "dielectric_tensor", stand_in)
+    calc = Calculator.from_text(SILICON, pseudo_dir, announce=False)
+    ground = SimpleNamespace(wavefunctions=None, eigenvalues=None, density=None, becsum=())
+    monkeypatch.setattr(calc, "_ground_state", lambda what: ground)
+    first = calc.get_dielectric_tensor()
+    calc.get_born_charges()
+    assert len(calls) == 1 and calc.get_dielectric_tensor() is first
+    calc.get_dielectric_tensor(tr2=1e-12)
+    assert len(calls) == 2
+    calc.get_dielectric_tensor(keep_internals=True)
+    calc.get_dielectric_tensor(keep_internals=True)
+    assert len(calls) == 4

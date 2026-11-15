@@ -56,6 +56,13 @@ def dis_windows(eigval: np.ndarray, num_wann: int, dis_win_min: float, dis_win_m
         if e[0] > dis_win_max or e[-1] < dis_win_min:
             raise ValueError(f"dis_windows: outer energy window contains no eigenvalues at k-point {k}")
         in_win = (e >= dis_win_min) & (e <= dis_win_max)
+        if not in_win.any():
+            # the window falls in a gap here: argmax would give band 0 and the
+            # outer set would be the bands below dis_win_min (audit 2026-11-15,
+            # ``wannier`` F2); Wannier90 itself would take every band
+            raise ValueError(
+                f"dis_windows: the outer energy window [{dis_win_min}, {dis_win_max}] eV "
+                f"holds no eigenvalue at k-point {k}, where it falls in a gap; widen it")
         imin = int(np.argmax(in_win))  # first True (assumes ascending eigenvalues, matches Fortran)
         imax = int(np.nonzero(e <= dis_win_max)[0][-1])
         outer[imin:imax + 1, k] = True

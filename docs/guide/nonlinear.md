@@ -491,7 +491,11 @@ needs a whole run, so the dense mesh is a job for `get_nonlinear_spectrum`, and
     or PAW dataset, and for a noncollinear DFT+U run, because we have not checked the
     Hubbard velocity there. It works for a spinor run, for a collinear
     spin-polarized run (`nspin = 2`), where the two channels add, and for
-    ultrasoft and PAW datasets. The static $\chi^{(2)}$ and the electro-optic
+    ultrasoft and PAW datasets. As for the shift current, with `nspin = 2` it
+    gives an error when `tot_magnetization` makes a channel stop inside a
+    degenerate level. Both work on a ground state with a potential-only
+    meta-GGA (`tb09`) or with a magnetic field, because the converged `tau` and
+    field reach them. The static $\chi^{(2)}$ and the electro-optic
     tensor of the [Raman page](raman.md) still give an error, because that route
     needs a term which this sum over states does not use.
 

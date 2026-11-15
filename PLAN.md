@@ -223,7 +223,8 @@ because that is what decides whether it is a session or a phase.
   10 T interpolation and `q = 100`; the attribution of route P's 0.2 eV against Peierls at 7900 to
   13000 T (the `p_z` set at 70 Ry, then a set with the mirror-odd vacuum states); the intra-cell
   term at laboratory fields (unmeasurable at `q <= 10` by construction); diamond's `E(+) - E(-)` at
-  `conv_thr = 1e-10` and on an odd box; the orbital magnetization identity on a Chern insulator;
+  `conv_thr = 1e-10` and on an odd box (on two-atom silicon an even box gives 2.1e-5 Ry and an odd one
+  1.6e-12, P177, P178; diamond itself not rerun); the orbital magnetization identity on a Chern insulator;
   the Zeeman term, forces and stress, the current-density functional, a field off `a3`, spinors,
   `nspin = 2`, ultrasoft and PAW, all refused by name.
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
@@ -6893,7 +6894,10 @@ every digit. The knob is live and not a null: the same ladder at 1e-4 moves the 
 **The `nbnd` half is the one with the number.** `nbnd` is a property of the system whose
 bands are being counted, and the force theorem's two legs are two different systems: the
 same cobalt atom takes `default_nbnd = 9` collinear and **16** as a spinor, because a
-spinor band holds one electron where a collinear one holds two. A `nbnd` given to the
+spinor band holds one electron where a collinear one holds two. (The 16 was this code's and
+not `pw.x`'s, which takes 18: `default_nbnd` rounded half to even and skipped
+`set_nelup_neldw` outside `nspin = 2`. Since the audit of 2026-11-15, `driver-a` F1, it takes
+18 too.) A `nbnd` given to the
 scalar-relativistic calculator was forwarded into the noncollinear leg, where
 `nscf.py:177`'s `nbnd or system.nbnd or default_nbnd(...)` lets it win over the spinor
 input's own. Nine spinor bands for nine electrons is a filled-band insulator rather than a
@@ -12406,11 +12410,21 @@ of five.
 **`lambda_max(X_0(omega) F) = 1` is where the magnon is**, and finding it that way rather
 than as a maximum of `-Im chi_00/pi` is both cheaper and more honest. Below the Stoner
 onset `X_0` is Hermitian at `eta = 0` and `lambda_max` rises monotonically, so the crossing
-is a one-dimensional root on a handful of frequencies: no broadening enters it, the
+is a one-dimensional root on a handful of frequencies: the
 frequency grid does not have to resolve a Lorentzian whose width is a numerical choice, and
 it reports **"below zero"** where the state is unstable instead of returning the grid's own
 edge as a magnon energy. Inside the continuum the mode is Landau-damped, there is no root,
 and `SpinSusceptibility.method` says the fallback to a spectral peak happened.
+
+*Corrected 2026-11-15 (audit `magnetism-response` F2).* This section said no broadening
+enters the root. It does: the samples are the user's frequencies, which carry `i eta`, so
+the crossing is a root of the real part of `lambda_max(X_0(omega + i eta) F)` and moves at
+second order in `eta`. Measured on `h-fcc-magnon-field.in` at `q = 0`, 40 frequencies from
+0.001 to 0.04 Ry, Larmor point 0.02 Ry: 0.018375, 0.018247, 0.018215, 0.018207 Ry at
+`eta` = 4e-3, 2e-3, 1e-3, 5e-4, which is `0.018204 + 10.7 eta^2`. At the default 2e-3 the
+shift is 4.3e-5 Ry, against the 1.8e-3 by which the Goldstone truncation (`lambda` = 1.0184
+at the Larmor point) puts the crossing below `2B`. The shift grows toward the Stoner onset.
+The docstrings now say this; the code is unchanged.
 
 This matters practically as well: the `chi_0` einsum is `nw npairs nm^2`, so a hundred
 frequencies at nickel's `nm = 561` is twenty minutes a wavevector where eight is ninety
@@ -25920,6 +25934,13 @@ the four properties (primal unchanged; eigenvalue tangent unchanged and the eige
 `3 eta^2` at a gap of 1; finite at an exact degeneracy with the block projector's tangent equal to a
 central difference to 1e-6 while JAX's rule is `inf` or above 1e9 there; a pair split by 1e-13 bounded by
 `1/eta`). The Newton default was and stays `jvp = 'finite-difference'`.
+*Corrected 2026-11-15 (audit `hamiltonian` F1).* The per-band vector's largest entry is the
+empty-band unit only when the row has an empty band. A row with every band occupied, or
+`diago_full_acc`, holds the bare `ethr`, so `eta` fell to 1e-13 and the bound to 5e12. No
+differentiated consumer passes a vector (the Newton residual and every response pass a scalar),
+so no derivative was wrong. `solvers/davidson.py:tangent_width` now floors the vector at
+`EMPTY_ETHR_FLOOR` too, with a unit test in `test_subspace_eigh_tangent.py`; the primal is
+unchanged, since `eta` enters only the `custom_jvp`.
 
 **Item 6, measured after the change** (`us_becsum.py` on the P148 worktree, the same cells; the "other
 arm" column is the before-arm run read back from its saved density and eigenvalues):
@@ -26074,8 +26095,9 @@ convenience, and the Kubo site resolves against the states' own field. One `dege
 `run_conductivity`; `run_berry_curvature`, which forwarded it through `**kwargs` the facade drops;
 `run_shift_current` and `run_shg`, with `cut_tol` beside them for the cut's warning, which read the
 raw constant; `run_vertical_transport`; `run_ultracell_transport`; `run_ultracell`), not in
-`_TOLERANCE_OPTIONS` (a larger value is the safe one). `run_momentum_transport` decides no block and
-does not take it. The nine sites, re-read:
+`_TOLERANCE_OPTIONS` (a larger value is the safe one). `run_momentum_transport` was said here to decide
+no block; its incoherent column does (`momentum_weights`' `channel_basis`), and it took the 1e-6
+constant until the audit of 2026-11-15 (`transport-stm` F2), which gave it `degeneracy_tol`. The nine sites, re-read:
 
 | site | the rule | what changed at the defaults |
 |---|---|---|
@@ -29453,7 +29475,7 @@ field kernels, the GIPAW grid projectors and their commutation test) that a dise
 will reuse unchanged. The nine level sets `route-u-q*-{local,full}.npz` stay labelled
 unconverged; the crosscheck reads them for its item 1 and its route U table only.
 
-### P177 -- The plane-wave magnetic Bloch route of Lu et al.: the magnetic box, the GIPAW-dressed projectors, the SCF by the fold, the magnetizability, and the crosscheck of the three routes; `Calculator.get_magnetic_bands`, `get_magnetizability`. ✅ DONE 2026-11-07, with the named gaps below (`tests/unit/test_magnetic_bloch.py` (24), `test_magnetic_cross.py` (3), `test_magnetic_facade.py` (4), counts from `R/collect.log`, with the foundation's two files, on D22 CPU (`R/t1.log`, `R/t3.log`); the fast gate in one slot at 11bd76e5 (`R/gate.log`; b26795bc on master, the same code: the merge rewrote only the butterfly figure's data, from 29 MB to 1.3 MB): `-m 'not slow'`, **3915 passed**, 85 skipped, 1731 deselected, and the two known failures of `tests/unit/test_check_guide.py` (D22's venv has no `yaml`), 1713.65 s (`# exit 1 after 1722 s`, slot 0, CPU 4, started 20:14:57, load 6 to 12); the review's gate at 00ab8475 read 3901 passed and the same two failures; the commits after 11bd76e5 change only `PLAN.md`, `PERFORMANCE.md`, `plans/`, `docs/guide/` and `notebooks/README.md`; `tests/regression/test_magnetic_bloch_slow.py` is slow and was not run, for the user (its fold test now split, and the check half is still above `slot.sh`'s 10-minute timeout); branches `mag-p1` 84253a62, `mag-p2` 1572b852, `mag-cross` 00ab8475, reviewed KEEP AFTER ONE NAMED FIX (p2) and KEEP (cross), the fixes and the record corrections made on `mag-record`; not merged, not pushed)
+### P177 -- The plane-wave magnetic Bloch route of Lu et al.: the magnetic box, the GIPAW-dressed projectors, the SCF by the fold, the magnetizability, and the crosscheck of the three routes; `Calculator.get_magnetic_bands`, `get_magnetizability`. ✅ DONE 2026-11-07, with the named gaps below (`tests/unit/test_magnetic_bloch.py` (24), `test_magnetic_cross.py` (3, of which two check the committed level sets and run no defuqumat code, audit 2026-11-15), `test_magnetic_facade.py` (4), counts from `R/collect.log`, with the foundation's two files, on D22 CPU (`R/t1.log`, `R/t3.log`); the fast gate in one slot at 11bd76e5 (`R/gate.log`; b26795bc on master, the same code: the merge rewrote only the butterfly figure's data, from 29 MB to 1.3 MB): `-m 'not slow'`, **3915 passed**, 85 skipped, 1731 deselected, and the two known failures of `tests/unit/test_check_guide.py` (D22's venv has no `yaml`), 1713.65 s (`# exit 1 after 1722 s`, slot 0, CPU 4, started 20:14:57, load 6 to 12); the review's gate at 00ab8475 read 3901 passed and the same two failures; the commits after 11bd76e5 change only `PLAN.md`, `PERFORMANCE.md`, `plans/`, `docs/guide/` and `notebooks/README.md`; `tests/regression/test_magnetic_bloch_slow.py` is slow and was not run, for the user (its fold test now split, and the check half is still above `slot.sh`'s 10-minute timeout); branches `mag-p1` 84253a62, `mag-p2` 1572b852, `mag-cross` 00ab8475, reviewed KEEP AFTER ONE NAMED FIX (p2) and KEEP (cross), the fixes and the record corrections made on `mag-record`; not merged, not pushed)
 
 The route of Lu et al. (PRL 135, 196401 (2025), arXiv:2505.06585): the wavefunction of the magnetic
 cell on a real-space box, the magnetic boundary condition `u(xi1 + 1) = exp(-i 2 pi p xi2) u`, the
@@ -29916,6 +29938,19 @@ and only then the odd 75 x 25 x 25 box (three times the size); neither was run. 
 asserting a tolerance its own `conv_thr` does not deliver": the difference fell from 1.45e-6 at
 iteration 6 to 1.63e-7 at iteration 7, so the number is the SCF floor, and the 1e-10 rerun is the
 follow-up, not a defect of the operator.
+
+*The experiment, run on silicon (2026-11-15, audit `tests` hole on P177).* Si.pz-vbc, the
+two-atom fcc cell, `q = 1`, flux +1 and -1, one k-point and 2x2x2, both at `conv_thr = 1e-10`,
+on this workstation's cores 0 to 3: at 12 Ry the default box is 8 x 8 x 8, and `E(+) - E(-)`
+reads +2.07e-5 Ry on one k-point and -2.11e-5 on 2x2x2; on 10 x 10 x 10 it is 6.11e-6, and on
+the odd 9 x 9 x 9 box **1.56e-12**. At 8 Ry from a uniform density the odd box gives -1.3e-11.
+So at `conv_thr = 1e-10` the asymmetry of an even box is not the SCF floor, it is the Nyquist
+slot, and an odd box makes time reversal exact. Relative to the second difference it is 2e-5
+here (0.6 Ry per flux quantum) and 2.6e-6 on diamond, so `chi` does not move at the printed
+digits. The default box is not changed: the odd 2-3-5 sizes are far apart (diamond's 50 x 18 x 18
+would become 75 x 25 x 25). A slow test holds the odd-box identity and the energy
+(`tests/unit/test_magnetic_bloch.py::test_the_fold_scf_keeps_time_reversal_on_an_odd_box`,
+8.9 s, run once before it was marked slow).
 
 `chi = -(E+ - 2 E0 + E-)/dB^2` (`M/chi.log`): **-11.40 x 1e-6 cm^3/mol per C2** (the 24-atom cell
 is 12 primitive cells), **-5.70 per C atom**. Lu's `chi_val` (LDA, their dataset unnamed) is -11.16 in
@@ -30444,3 +30479,117 @@ All on D22 in `/l/ladovj1/w-mag-record`, logs in `/l/ladovj1/review/mag/record/`
   2 min each).
 - For the Davidson `precondition` hook of P175: `tests/regression/test_davidson_zero_root.py`,
   `test_gamma_only.py`, `test_spinorbit.py`, `test_noncollinear_magnetism.py`.
+
+### P178 -- The reading audit of 2026-11-15, fixed on the branch `audit-fixes`. ✅ DONE 2026-11-15 (the commits from `735ea0b2` to the head of branch `audit-fixes`, from `b5b88c5c`; each fix with a fast test that fails on the old code where one could be written, run on this workstation under a cgroup cap; the fast gate at `84168bd6` in a worktree, and at the branch head, see the gate line below; the slow files the changes reach were not run, for the user, listed below; not merged, not pushed)
+
+A read-only audit (30 Opus finders, each followed by a Fable skeptic, nothing executed) left 97
+findings in `notes/AUDIT-2026-11-15.md`, ranked at its end ("What to address, in order", 34
+items and 19 unranked). The user said "fix all", one item at a time on this workstation. **The
+per-item record, with every number, is the last section of that note** ("What was fixed on the
+branch `audit-fixes`"); this entry says what kind of defects they were and the numbers that
+moved.
+
+**Silent wrong numbers, measured before and after.** The KPM spin DOS on a symmetry-reduced
+k-set read 2.3 states/Ry against a DOS peak of 19.9 on zincblende Se2, where it must be zero;
+after the fix it is below 1e-8 of the DOS. The tetrahedron fraction on a nearly flat band
+(corners 0 to 3e-5 Ry) read 2.7e-5 where the closed form is 4.5e-3; it now matches to 1e-9 down
+to spans of 1e-7 Ry. `fft_factors` on hcp written to six decimals read `(1000000, 1000000, 2)`
+and reads `(1, 1, 2)`. `default_nbnd` is `setup.f90`'s rule line for line: a smeared spinor with
+nine electrons gets 18 bands (it got 16), and a fixed spinor with 5, 9 or 13 electrons gets 6, 10
+and 14 (it raised at the first filling). The PDOS tetrahedra fold their corners with the group
+the k-set was built with. The phonon at `q != 0` refuses any reduced k-set, which catches a P1
+crystal on its time-reversal wedge (14 of 27 points on 3x3x3), and refuses D2 there, whose
+`d2ionq_disp` is the missing term. The smeared Sternheimer rows past the cutoff are not solved,
+as `cgsolve_all` does not: on `al2-metal.in` at Gamma the optical modes are unchanged to the
+printed digit and the acoustic ones move by about 1e-4 cm^-1. The PAW orbital norm is taken
+over `kkbeta`, as `upf_check_atwfc_norm` does: on `Si.pbe-n-kjpaw_psl.0.1.UPF` it read 0.9999954
+in QE's metric. A kick at `t >= 128` a.u. switched on one step late (`dt = 0.3`, a kick at 129.3,
+`times[431]` one ulp below it). Wannier90's window checks, the two Fermi levels in the Drude term,
+the electrostriction strain response on its own states, `with_spin` rescaling a calculator-level
+`nbnd`, and a collinear residual split read as charge and moment are the rest of this group.
+
+**Crashes and refusals.** The pooled Newton-Krylov warm-up runs the pooled step again, and
+`band_precision='mixed'` and the LDOS warm-up are refused under pools. A left-handed cell is
+refused for an orbital field; vc-relax checks only the group it uses; `grad_m` has no 0/0 at a
+negative charge; a namelist value list is refused (none of the 791 committed and test-suite
+inputs trips it); the real-time checkpoint is written atomically under the name `np.savez`
+uses. Refusals made at the door, before the band solve or the SCF they would otherwise follow:
+QPI's input checks, the orbital-field facades' options, SHG's degenerate filling, the smeared
+orbital magnetization, a spiral projection at any symmetry, the torque on a reduced k-set at any
+orientation, and the regime of `get_magnetic_bands` and `get_magnetizability`.
+
+**Cost.** `get_born_charges` after `get_dielectric_tensor` is a cache hit (a one-slot cache on
+the field response). The KPM conductivity's k-chunk is capped by its own `N^2` moment blocks.
+The Wannier neighbour search keeps only the translations that reach a shell: 251 -> 11 s on a
+12x12x12 mesh, the arrays bit for bit. The tunnelling routes and QPI share one whole-grid band
+solve (`WholeGridStates`, `Calculator.get_tunnelling_states`): on the hydrogen sheet at 4x4x1 each
+map is bit for bit the same and a call with `states=` takes at most 0.1 s against 0.9 to 1.0 s, idle;
+the `grid=` results of the three routes and QPI are equal bit for bit at `f0d70b09` and after, on
+the same cores, which is the check that the refactor moved no number.
+On a card, `at_kpoints` sizes a whole-axis k-chunk again for a longer k-set (tested on a
+stand-in card only). The Hubbard occupation matrix is built before the store is parked, and
+the meta-GGA tau residual is read in the batched host read.
+
+**Fable's decisions (2026-11-15).** The -1 flux run of the magnetizability stays the default;
+it sees only a defect that breaks `H(-A) = H(A)^*`, and the condition for flipping it is in
+`notes/ORBITAL-FIELD-NEXT.md` §14. The KPM conductivity's whole-grid velocity tables are
+measured and recorded, not chunked: 96 MiB a table and an 846 MiB peak step on si16 at 4x4x4
+(`PERFORMANCE.md`; the host-loop design is `notes/GPU-MEMORY-NEXT.md` item 7). The re-sizing of
+the k-chunk goes in `at_kpoints` itself, through the helper `for_bands` uses. One states type
+for the four tunnelling consumers, which records its own threshold.
+
+**Found while fixing.** P177's open experiment, run on two-atom silicon at `conv_thr = 1e-10`:
+route P's `E(+) - E(-)` is 2.1e-5 Ry on the default even 8 x 8 x 8 box, 6.1e-6 on 10 x 10 x 10
+and 1.6e-12 on the odd 9 x 9 x 9 box, so the asymmetry of an even box is its Nyquist slot, not
+the SCF floor (P177 has the numbers). The magnon crossing is read at `omega + i eta` and moves as
+`0.018204 + 10.7 eta^2` Ry on the field-gapped hydrogen cell at `q = 0`, 4.3e-5 Ry at the
+default; the docstrings and P63 said no broadening enters it. The Davidson subspace tangent of a
+per-band row with no empty band was regularised at the bare `ethr` (1e-13) instead of the 1e-5
+unit; no differentiated caller passes such a row.
+
+**Not fixed, by decision or because the term is missing.** `d2ionq_disp` (D2 at `q != 0`);
+orientation-free orbital-field conventions for a left-handed cell; snapping the stored 1e-6
+translation residues to zero; the chunked KPM velocity; route P's per-k host reads (one k-point
+in flight is its sized design, and no timing on a card asks for more); the default box of route
+P (the odd 2-3-5 sizes are far apart). `calculator` N2 no longer reproduces after the
+`with_spin` fix. **Unmeasured:** the size of the old Drude error with two Fermi levels, of the
+old electrostriction error, of the torque residue on a 3x3x3 wedge, and of the QPI field fix.
+
+**Added after a review of the session (the same day).** Two findings the fix log had dropped:
+route P's dense fallback is refused by number where it is reached (six `(ndim, ndim)` complex128
+copies, 33 GB at `ndim = 18432`), and the polar piezoelectric guard names PAW. The checkpoint the
+SCF loop writes itself (`_InProgressState`) now carries `band_precision` too. `run_qpi` refuses a
+k-set beside `states`. **Left as a deliverable:** no notebook calls `get_tunnelling_states`.
+
+**Tests that cannot run in the gate.** The cheapest live test of the route P SCF is 8.9 s and of
+the plane-wave quantum metric 6.5 s and 8.5 s, above the gate's five seconds, so both are slow:
+the gate still runs neither assembly. The metric tests and the shared-states equality test were
+written from probes with the same calls and were not run as tests.
+
+**The fast gate.** At `84168bd6`, the first sixteen fix commits, in a worktree under a 14G
+cgroup cap with the watchdog at 12G: **3980 passed**, 83 skipped, 1732 deselected, no failure,
+4732.70 s, beside the other work of the session (so not a timing), peak 6090 MB in
+`test_real_augmentation.py`. That run was in a worktree, where the gitignored `quantum_espresso/`
+is absent, so the tests that need it skipped there. At the head, `fd426859`, the gate ran on
+Triton (job 21592545, `batch-csl`, one node of 8 CPUs, the group's QE 7.5 tree as
+`DEFUQUMAT_QE_ROOT`, the kernel cache off): **4583 passed**, 65 skipped, 1908 deselected,
+5 failed, 4643.52 s, peak 5.13 GB by `seff`. The five failures are the Triton venv and not the
+code: the three `test_memory_watchdog.py` tests need `psutil`, and the two `test_check_guide.py`
+tests need `yaml` (`ModuleNotFoundError: No module named 'yaml'` in `tools/check_guide.py:40`),
+neither of which the venv has; no other test failed. `test_result_plots.py` is left out by the
+job script, because the venv has no `matplotlib`. Those three files ran on this workstation at
+`81115b7d` (the head plus records only), under a 5G cap: 61 passed, the guide check included, so
+every test of the gate has a pass at the head. The count is larger than at `84168bd6` for two
+reasons that were not separated: the QE tree was present, and tests such as
+`tests/regression/test_geometry.py`'s `_cases()` glob its test-suite at collection, and the
+branch gained tests in the commits between the two runs.
+
+**Slow files the changes reach, not run, for the user:** `tests/regression/test_phonons_at_q.py`,
+`test_phonons_at_q_nlcc.py`, `test_electron_phonon.py`, `test_streamed_phonons.py`,
+`test_tetrahedra.py`, `test_pdos.py`, `test_spinor_pdos.py` (slow part), `test_anisotropy.py`,
+`test_orientation_paw.py`, `test_orientation_torque_cost.py`, `test_realtime.py`,
+`test_realtime_regimes.py`, `test_realtime_augmented_update.py`, `test_electrostriction.py`,
+`test_transport.py` (with the new shared-states test), `test_stm.py`, `test_qpi.py`,
+`test_magnetic_bloch_slow.py`, `test_magnons.py` and `test_magnon_regimes.py` (docs only),
+`tests/unit/test_parallel.py::test_newton_krylov_under_pools_reproduces_one_pool`, and the
+new slow tests in `tests/unit/test_magnetic_bloch.py` and `tests/unit/test_quantum_metric.py`.

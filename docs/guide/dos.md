@@ -492,7 +492,7 @@ diagonalize.
     because their start vectors or their operator need the overlap $S$ in another way,
     and the code gives an error. The
     KPM traces also give an error for `K_POINTS gamma` (the half sphere of plane
-    waves) and for a spin spiral. A wedge of k-points is fine, because the DOS is a scalar trace. If the
+    waves) and for a spin spiral. A wedge of k-points is fine, because the DOS is a scalar trace. The spin DOS is not a scalar: it turns with the crystal as an axial vector. So `spin_resolved=True` runs on the whole grid of k-points, and it costs more on a cell with symmetry. If the
     interval does not hold the whole spectrum, a moment grows above one and the
     code gives an error that says so, instead of a wrong DOS. The same holds for
     the projected, local and unfolded DOS by KPM. The local DOS is the smooth

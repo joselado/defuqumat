@@ -21,7 +21,8 @@ from defuqumat.response.phononq import require_a_two_sphere_regime
 
 def _calculation(**changes):
     """A stand-in carrying exactly the flags the guard reads, every one off."""
-    system = dict(nspin=1, noncolin=False, spiral_q=None, occupations="fixed")
+    system = dict(nspin=1, noncolin=False, spiral_q=None, occupations="fixed",
+                  kpoints=SimpleNamespace(reduced=False, weights=np.full(8, 0.25)))
     flags = dict(is_ultrasoft=False, rho_core_g=None, use_symmetry=False,
                  functional=SimpleNamespace(is_meta=False, is_gradient=False),
                  source_free=False,
@@ -33,6 +34,13 @@ def _calculation(**changes):
 
 def test_the_stand_in_passes():
     require_a_two_sphere_regime(_calculation(), None)
+
+
+def test_a_reduced_k_set_is_refused_without_use_symmetry():
+    """The k-set's own flag, not ``use_symmetry``, decides (audit 2026-11-15, ``phonon`` F1)."""
+    wedge = SimpleNamespace(reduced=True, weights=np.full(4, 0.5))
+    with pytest.raises(NotImplementedError, match="needs the whole k-grid"):
+        require_a_two_sphere_regime(_calculation(kpoints=wedge), None)
 
 
 def test_a_collinear_spin_polarized_insulator_passes():

@@ -570,8 +570,16 @@ def compute_pdos(
 # --------------------------------------------------------------------------
 
 
-def _projection_tetrahedra(scheme: str, kpoints: KPoints, symmetries, cell):
+def _projection_tetrahedra(scheme: str, kpoints: KPoints, symmetries, cell,
+                           grid_symmetry=None):
     """The tetrahedra a *projected* density of states integrates over.
+
+    ``grid_symmetry`` is the run's :meth:`~defuqumat.system.builder.System.
+    grid_symmetry` triple, the group the k-set was reduced with, read exactly as
+    :func:`~defuqumat.scf.tetrahedra.tetrahedra_for` reads it. Folding the corners
+    with ``symmetries`` and time reversal on, as this did, sends them to the wrong
+    representatives under ``nosym``, under ``noinv`` and for a magnetic spinor
+    (audit 2026-11-15, ``hubbard-projwfc`` F1).
 
     ``do_projwfc`` promotes ``tetra_type = 0`` to 1 before it builds anything --
     it runs the **linear** method for a PDOS whatever the SCF occupied its bands
@@ -589,12 +597,20 @@ def _projection_tetrahedra(scheme: str, kpoints: KPoints, symmetries, cell):
         )
     kind = tetrahedron_kind(scheme)
     kind = "linear" if kind == "bloechl" else kind
+    if grid_symmetry is None:
+        rotations, time_reversal, t_rev = symmetries.rotation_array(), True, None
+    else:
+        rotations, time_reversal, t_rev = grid_symmetry
+        if rotations is None:
+            rotations, time_reversal, t_rev = np.eye(3, dtype=int)[None], False, None
     return build_tetrahedra(
         kind,
         kpoints.grid,
         kpoints.shift or (0, 0, 0),
-        symmetries.rotation_array(),
+        rotations,
         np.asarray(cell.bg_2pi_alat),
+        time_reversal=time_reversal,
+        t_rev=t_rev,
         precision=kpoints.precision,
     )
 
@@ -638,7 +654,8 @@ def project_states(
     tetrahedra = None
     if is_tetrahedron_scheme(scheme):
         tetrahedra = _projection_tetrahedra(
-            scheme, system.kpoints, calculation.symmetries, system.cell
+            scheme, system.kpoints, calculation.symmetries, system.cell,
+            system.grid_symmetry(),
         )
         degauss = 0.0
 

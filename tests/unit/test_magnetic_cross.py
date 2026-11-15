@@ -44,6 +44,9 @@ def _route_p_files():
     return files
 
 
+# A data check: it reads the committed level sets and calls nothing under defuqumat/, so it
+# fails only if the files are recommitted. The live form of the theorem is
+# test_magnetic_bloch.py (audit 2026-11-15, the crosscheck count of P177).
 def test_route_p_full_mesh_is_q_copies_of_the_representatives():
     for path in _route_p_files():
         z = np.load(path)
@@ -53,6 +56,7 @@ def test_route_p_full_mesh_is_q_copies_of_the_representatives():
         assert d < 1e-9, (path.name, d)
 
 
+# A data check as well: the comparison above, on the committed file, with the wrong members.
 def test_an_open_set_of_representatives_is_refused_by_the_comparison():
     z = np.load(DATA / "route-p-q3-full.npz") if (DATA / "route-p-q3-full.npz").exists() else None
     if z is None:

@@ -586,3 +586,13 @@ def test_the_dc_entry_and_a_temperature_are_the_dense_pair_sum(temperature):
     got = kpm.sigma[:, 0, 0].real
     assert reference[0] > 0.05 * np.abs(reference).max(), reference[0]
     np.testing.assert_allclose(got, reference, rtol=0, atol=1e-8 * np.abs(reference).max())
+
+
+def test_the_moment_chunk_is_capped_by_its_n_squared_blocks():
+    """The SCF's dial has no N^2 term; the moments' chunk is capped by its own blocks (audit ``opt-memory`` F1)."""
+    from defuqumat.kpm.conductivity import MOMENT_BUDGET, moment_chunk
+
+    block = 3 * 9 * 636 * 636 * 16
+    assert moment_chunk(None, 512, 3, 636, 16) == MOMENT_BUDGET // block
+    assert moment_chunk(1, 512, 3, 636, 16) == 1
+    assert moment_chunk(None, 8, 3, 40, 16) is None  # small blocks: the whole axis stays

@@ -826,3 +826,31 @@ def test_a_magnetic_plane_tip_is_refused_rather_than_approximated():
             calculator.system, calculator.pseudos, calculator.get_scf(),
             exit_height=0.15, height=0.85, broadening=0.05,
             tip_spin=(1.0, 0.0, 0.0))
+
+
+def test_one_band_solve_serves_the_three_tunnelling_routes():
+    """``get_tunnelling_states`` then ``states=`` gives each route's own numbers (audit item 31).
+
+    The band solve on the whole grid is nearly all of the cost of a map, and it
+    does not depend on the tip, the planes or the energies. On the hydrogen
+    sheet at 4x4x1 a probe with the same calls (2026-11-15) read the vertical
+    map, the momentum weights and the spectrum equal bit for bit, the reuse in
+    0.0 to 0.1 s against 0.9 to 1.0 s for a route's own solve, on an idle machine. Written from that
+    probe; slow because it needs an SCF and four solves.
+    """
+    calculator = _converged("h-sheet")
+    states = calculator.get_tunnelling_states(grid=(4, 4, 1), nbnd=8)
+    assert states.resolved and states.grid == (4, 4, 1)
+    pairs = (
+        (calculator.get_vertical_transport, dict(SHEET, shape=(6, 6)), "values"),
+        (calculator.get_momentum_transport, dict(SHEET), "weight"),
+        (calculator.get_sts, dict(height=0.85, shape=(4, 4),
+                                  energies=np.linspace(-0.2, 0.2, 5)), "values"),
+    )
+    for call, options, field in pairs:
+        solved = call(grid=(4, 4, 1), nbnd=8, **options)
+        reused = call(states=states, **options)
+        assert np.array_equal(np.asarray(getattr(solved, field)),
+                              np.asarray(getattr(reused, field)))
+    with pytest.raises(ValueError, match="already solved on their own k-set"):
+        calculator.get_vertical_transport(states=states, grid=(4, 4, 1), **SHEET)

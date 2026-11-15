@@ -242,3 +242,42 @@ def test_speed_mode_falls_back_for_a_solve_that_would_not_fit(pseudo_dir, monkey
     # A chunk the caller chose is not overridden.
     chosen = Calculation(system, pseudos, memory_mode="speed", k_batch=4)
     assert chosen.for_bands(60).k_batch == 4
+
+
+def test_a_whole_axis_dial_is_sized_again_on_a_larger_k_set(pseudo_dir, monkeypatch):
+    """``k_batch = None`` fitted the SCF's k-set; a whole grid many times larger is re-sized.
+
+    ``at_kpoints`` copied the dials, so a whole-axis chunk chosen on a card because
+    the wedge fitted followed the calculation to the whole grid in one ``vmap``
+    (audit 2026-11-15, ``opt-memory`` N1). The stand-in card holds every k-point
+    of the SCF's set and four of anything larger.
+    """
+    from defuqumat import sizing
+    from defuqumat.workflows.transport import whole_grid
+
+    calculator = _calculator(pseudo_dir)
+    system, pseudos = calculator.system, calculator.pseudos
+    small = int(system.kpoints.nk)
+
+    def chooser(system, pseudos, nbnd=None, **kwargs):
+        whole = int(system.kpoints.nk) <= small
+        return sizing.KBatchChoice(k_batch=None if whole else 4, fits=True, estimate=1,
+                                   available=10)
+
+    _a_card_where_more_than(10**6, monkeypatch)
+    monkeypatch.setattr("defuqumat.sizing.choose_k_batch", chooser)
+    calculation = Calculation(system, pseudos, memory_mode="memory")
+    assert calculation.k_batch is None
+    grid = whole_grid(system, (4, 4, 4))
+    assert int(grid.nk) > small
+    moved = calculation.at_kpoints(grid)
+    assert moved.k_batch == 4 and moved.memory_mode == "memory"
+    # the same set again, or a smaller one, keeps the dial
+    assert calculation.at_kpoints(system.kpoints).k_batch is None
+    # a stated whole axis stays the whole axis
+    stated = Calculation(system, pseudos, memory_mode="memory", k_batch=None)
+    assert stated.at_kpoints(grid).k_batch is None
+    # and on a CPU nothing is re-sized
+    monkeypatch.setattr(batching, "_backend", lambda: "cpu")
+    cpu = Calculation(system, pseudos, memory_mode="memory", k_batch=None)
+    assert cpu.at_kpoints(grid).k_batch is None

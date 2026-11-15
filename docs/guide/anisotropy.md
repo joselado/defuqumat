@@ -141,10 +141,15 @@ on the torque, in Ry per radian.
     error for a converged magnetic field or constrained moment, because the
     energy of the field is not in the reported total, and for a spin spiral. A spiral
     has its own first-order term, on the page about spin spirals. The first run
-    must be spin-polarized, and the second needs `noncolin` and `lspinorb`. A
-    direction other than the one in the input needs `nosym`, because the
-    magnetic symmetry, and with it the k-point set, depends on where the moment
-    points. For `get_anisotropy`, a first run whose magnetization is genuinely
+    must be spin-polarized, and the second needs `noncolin` and `lspinorb`.
+    `get_anisotropy` runs without `nosym`: each direction is solved on the wedge
+    of its own magnetic group. The projected decomposition off the input's axis
+    still needs `nosym`. The torques (`get_torque`, `get_orientation_torque`,
+    `get_relaxed_orientation`) need `nosym` at every orientation, the input's
+    own included, because a torque is a derivative of a sum over k in the
+    direction of the moment, and a wedge of the magnetic group does not keep it.
+    A run from `with_turning_moments()` also works, because its wedge has only
+    the identity and the inversion. For `get_anisotropy`, a first run whose magnetization is genuinely
     noncollinear gives an error, because the moment is laid along one axis.
 
     A PAW dataset needs the one-file route, meaning the same fully relativistic

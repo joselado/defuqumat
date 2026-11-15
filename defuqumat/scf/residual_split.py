@@ -77,7 +77,9 @@ def residual_bins(rho_in, rho_out, cell, becsum_in=None, becsum_out=None) -> dic
 
     Args:
         rho_in: ``(nspin_mag, n1, n2, n3)`` the density the iteration started
-            from, which is what the magnetization direction is taken from.
+            from, which is what the magnetization direction is taken from. At
+            ``nspin = 2`` it is the loop's ``(up, down)``, rotated here into
+            ``(charge, moment)``; at four components it is ``(n, m)`` already.
         rho_out: the same shape, the density it produced.
         cell: for the quadrature weight.
         becsum_in, becsum_out: the augmentation occupations, if the run has
@@ -98,6 +100,11 @@ def residual_bins(rho_in, rho_out, cell, becsum_in=None, becsum_out=None) -> dic
     residual = rho_out - rho_in
     weight = cell.volume / rho_in[0].size
 
+    if rho_in.shape[0] == 2:
+        # (up, down) -> (charge, moment): the bins read the first as the
+        # charge and the second as the moment, and an equal change in both
+        # channels used to read as a moment change (audit 2026-11-15, ``mixing`` F1)
+        residual = jnp.stack([residual[0] + residual[1], residual[0] - residual[1]])
     bins = {"charge": _norm(residual[0], weight)}
     if rho_in.shape[0] < 4:
         # A collinear run has no direction to project on: the whole magnetic
@@ -190,8 +197,9 @@ def becsum_residual(becsum_in, becsum_out) -> tuple:
     **Two numbers rather than one**, because on a magnet the moment lives in the
     d-shell occupations: the total, and the part carried by the magnetization
     channels alone, which is the one that can move while the charge sits still.
-    Channel 0 is the charge and is the piece ``addusdens`` already routed onto
-    the grid.
+    At four components channel 0 is the charge and is the piece ``addusdens``
+    already routed onto the grid. At ``nspin = 2`` the channels are ``(up,
+    down)``, so the moment is their difference (audit 2026-11-15, ``mixing`` F2).
 
     The norm is a plain Euclidean one over the occupations, whose units are
     electrons rather than the density's, so **it is comparable with itself across
@@ -216,7 +224,9 @@ def becsum_residual(becsum_in, becsum_out) -> tuple:
             continue
         difference = after - before
         total += float(jnp.sum(difference**2))
-        if before.shape[0] >= 2:
+        if before.shape[0] == 2:
+            magnetic += float(jnp.sum((difference[0] - difference[1]) ** 2))
+        elif before.shape[0] > 2:
             magnetic += float(jnp.sum(difference[1:] ** 2))
     return float(np.sqrt(total)), float(np.sqrt(magnetic))
 

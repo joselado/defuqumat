@@ -311,7 +311,7 @@ def read_upf(path: str | Path) -> Pseudopotential:
     orbitals = _read_orbitals(root)
     projectors, orbitals = _read_spin_orbit(root, path, header, projectors, orbitals)
     paw = _read_paw(root, len(projectors))
-    orbitals = _renormalize_orbitals(orbitals, projectors, augmentation, rab)
+    orbitals = _renormalize_orbitals(orbitals, projectors, augmentation, rab, paw=paw)
 
     rho_atom = _optional_numbers(root, "PP_RHOATOM")
     rho_core = _optional_numbers(root, "PP_NLCC")
@@ -341,7 +341,7 @@ def read_upf(path: str | Path) -> Pseudopotential:
     )
 
 
-def _renormalize_orbitals(orbitals, projectors, augmentation, rab):
+def _renormalize_orbitals(orbitals, projectors, augmentation, rab, paw=None):
     """``upf_check_atwfc_norm``: rescale the atomic orbitals to unit norm.
 
     ``Modules/read_pseudo.f90`` calls this on every file as it is read, so
@@ -382,6 +382,17 @@ def _renormalize_orbitals(orbitals, projectors, augmentation, rab):
         return orbitals
     weights = np.asarray(simpson_weights(rab))
     qqq = None if augmentation is None else np.asarray(augmentation.q)
+    # <beta_i|chi> over the dataset-wide kkbeta, as ``upf_check_atwfc_norm``
+    # takes it (``simpson(kkbeta, ...)``) and as ``projector_form_factors``
+    # does: for PAW kkbeta is widened to the augmentation sphere, and beta is
+    # not zero between a projector's own cutoff and it (about 4e-5 of
+    # <beta|chi> on Si.pbe-n-kjpaw_psl.0.1; audit 2026-11-15, ``pseudo-paw`` F1).
+    # Simpson's weights are built on the truncated mesh, as QE's call is.
+    kkbeta = max((p.cutoff_index for p in projectors), default=len(rab))
+    if paw is not None:
+        kkbeta = max(kkbeta, paw.cutoff_index)
+    kkbeta = min(kkbeta, len(rab))
+    beta_weights = np.asarray(simpson_weights(np.asarray(rab)[:kkbeta]))
 
     renormalized = []
     for orbital in orbitals:
@@ -405,10 +416,8 @@ def _renormalize_orbitals(orbitals, projectors, augmentation, rab):
                     and abs(projector.j - orbital.j) >= _EPS6
                 ):
                     continue
-                cut = projector.cutoff_index
-                overlaps[i] = float(
-                    np.sum(projector.beta[:cut] * chi[:cut] * weights[:cut])
-                )
+                overlaps[i] = float(np.sum(
+                    np.asarray(projector.beta)[:kkbeta] * chi[:kkbeta] * beta_weights))
             norm += float(overlaps @ qqq @ overlaps)
         norm = np.sqrt(norm)
         if abs(norm - 1.0) > _EPS6:

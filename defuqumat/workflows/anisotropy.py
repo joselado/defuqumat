@@ -1097,6 +1097,37 @@ def _turned_on_its_own_wedge(system: System, direction) -> System:
     return turned
 
 
+def _require_a_whole_grid_for_a_torque(system: System, what: str) -> None:
+    """A torque differentiates a wedge sum in the direction; refuse a reduced k-set.
+
+    ``_require_nosym_to_turn`` fired only when the texture turned, so a torque
+    at the system's own orientation (the default rotation, ``angle = 0``) was
+    taken on the wedge of the moment's magnetic group, where ``dH/dtheta`` is an
+    axial vector the group does not leave alone and the wedge sum keeps a
+    residue the whole grid does not have (audit 2026-11-15,
+    ``magnetism-response`` F1). The group of ``with_turning_moments``, the
+    identity and the inversion without time reversal, passes: inversion leaves
+    an axial vector alone.
+    """
+    from defuqumat.system.kpoints import is_reduced
+
+    if not is_reduced(system.kpoints):
+        return
+    rotations, time_reversal, t_rev = system.grid_symmetry()
+    if rotations is not None and not time_reversal and not np.any(
+            np.asarray(t_rev if t_rev is not None else 0)):
+        identity = np.eye(3, dtype=int)
+        if all(np.array_equal(m, identity) or np.array_equal(m, -identity)
+               for m in np.asarray(rotations, dtype=int)):
+            return
+    raise ValueError(
+        f"{what} differentiates a sum over k in the direction of the moment, and "
+        "this k-set is the wedge of the moment's magnetic group, which does not "
+        "leave dH/dtheta alone, so it needs nosym = .true. (the whole grid), or a "
+        "run from Calculator.with_turning_moments(), whose identity-and-inversion "
+        "wedge is complete for an axial vector")
+
+
 def _require_nosym_to_turn(system: System, own) -> None:
     """The refusal :func:`_with_quantization_axis` explains, in one place."""
     if not system.nosym:
@@ -1409,6 +1440,7 @@ def run_torque(
     # ``run_force_theorem`` -- and here it is also what makes the derivative
     # clean, since a *static* axis is a constant the gradient passes through.
     system = _with_quantization_axis(system, tuple(direction))
+    _require_a_whole_grid_for_a_torque(system, "a magnetic torque")
     rotated = nc_magnetization_from_lsda(density, tuple(direction))
     calculation, system, eigenvalues, wavefunctions = fixed_density_states(
         system, pseudos, rotated, nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch,
@@ -1668,6 +1700,7 @@ def _orientation_torque(system, pseudos, density, rotation, nbnd, conv_thr,
         for values in becsum
     )
     turned = _with_rotation(system, rotation)
+    _require_a_whole_grid_for_a_torque(turned, "an orientation torque")
     calculation, turned, eigenvalues, wavefunctions = fixed_density_states(
         turned, pseudos, rotate_texture(texture, rotation), nbnd=nbnd,
         conv_thr=conv_thr, k_batch=k_batch,

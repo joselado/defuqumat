@@ -126,6 +126,9 @@ _SCALARS = (
     "magnetization_vector", "field_energy", "constraint_energy", "field_scale",
     "efield_energy", "efield_dipole", "berry_dipoles",
     "nspin_mag", "meta_c",
+    # The precision the bands ended in: a continuation's electron-count
+    # tolerance is looser for a single-precision source (audit ``scf-small`` F2).
+    "band_precision",
 )
 
 #: Handled specially: a tuple of arrays, one per ultrasoft/PAW species.

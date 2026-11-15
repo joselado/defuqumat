@@ -220,3 +220,22 @@ def test_the_atomic_unit_of_chi2_is_what_its_derivation_says():
     epsilon0 = 8.8541878128e-12
     expected = (e**3 / hartree**2) / epsilon0 * 1.0e12
     assert abs(expected - CHI2_AU_TO_PM_PER_V) < 1.0e-3
+
+
+def test_the_shg_and_shift_current_workflows_take_the_converged_state():
+    """``tau``, ``field`` and ``field_scale`` reach both workflows (audit ``optics`` N1).
+
+    The facade forwards a state argument only when the callee names it, and
+    neither did, so a TB09 or a field ground state was refused with a message
+    telling the user to pass arguments neither accepted.
+    """
+    import inspect
+
+    from defuqumat.workflows.photocurrent import run_shift_current
+    from defuqumat.workflows.shg import run_shg
+
+    for workflow in (run_shg, run_shift_current):
+        names = inspect.signature(workflow).parameters
+        assert {"tau", "field", "field_scale"} <= set(names), workflow.__name__
+        body = inspect.getsource(workflow)
+        assert "tau=tau" in body and "field=field" in body, workflow.__name__

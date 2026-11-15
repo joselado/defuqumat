@@ -1799,27 +1799,35 @@ def default_nbnd(
     comment -- "bands are NOT twofold degenerate" -- and the doubling is not
     optional even when spin-orbit coupling leaves them degenerate anyway.
 
-    With two channels the count is ``MAX(nelec/degspin, nelup, neldw)`` and
-    ``degspin`` is 1, so what decides it is the *fuller* channel: eight
-    electrons split 5/3 need five bands, not four. Getting this wrong is
+    The count is ``MAX(NINT(nelec/degspin), NINT(nelup), NINT(neldw))`` with
+    ``degspin = 2`` in every regime (a ``PARAMETER`` in ``constants.f90``), so
+    with two channels what decides it is the *fuller* one: eight electrons
+    split 5/3 need five bands, not four. Without a constraint ``nelup`` is
+    ``INT(nelec + 1)/2``, which is what gives an odd count its extra band. Getting this wrong is
     immediately visible -- QE prints "number of Kohn-Sham states" -- but only if
     it is looked at, and a run with too few bands converges to a wrong energy
     rather than failing.
     """
-    occupied = int(round(nelec / 2.0))
-    if nelup is not None:
-        occupied = max(occupied, int(round(nelup)), int(round(neldw)))
-    degeneracy = 2 if noncolin else 1
-    if occupations == "fixed":
-        return degeneracy * max(occupied, 1)
-    if nelup is not None:
-        return max(
-            int(round(1.2 * nelec / 2.0)),
-            int(round(1.2 * nelup)),
-            int(round(1.2 * neldw)),
-            occupied + 4,
-        )
-    return degeneracy * max(int(round(1.2 * nelec / 2.0)), occupied + 4)
+    # Line for line ``setup.f90:367-390``. Two things the earlier form had
+    # wrong (audit 2026-11-15, ``driver-a`` F1 and N1): Python's ``round`` is
+    # half to even where ``NINT`` rounds half away from zero, and
+    # ``set_nelup_neldw`` runs in **every** regime, its unconstrained split
+    # ``nelup = INT(nelec + 1)/2`` repairing the half at an odd count, so
+    # ``nelec = 9`` gave a spinor 16 bands where ``pw.x`` takes 18 and a fixed
+    # spinor filling of 5, 9 or 13 electrons one band short of its electrons.
+    from defuqumat.scf.occupations import _nint
+
+    if nelup is None:
+        if abs(nelec - round(nelec)) < 1.0e-8:
+            nelup = float(int(nelec + 1) // 2)
+            neldw = nelec - nelup
+        else:
+            nelup = neldw = 0.5 * nelec
+    nbnd = max(_nint(nelec / 2.0), _nint(nelup), _nint(neldw), 1)
+    if occupations != "fixed":
+        nbnd = max(_nint(1.2 * nelec / 2.0), _nint(1.2 * nelup), _nint(1.2 * neldw),
+                   nbnd + 4)
+    return 2 * nbnd if noncolin else nbnd
 
 
 def warn_about_a_cut_shell(cut_gap, ethr, counts, nbnd: int,
@@ -2092,6 +2100,13 @@ class SCFResult:
     #: :attr:`iterations`: both count diagonalisations.
     solver: object | None = None
     history: list = field(default_factory=list)
+    #: The precision the band side ended in (``'single'`` or ``'double'``;
+    #: ``'mixed'`` has switched to double by the end). A continuation reads it
+    #: to choose its electron-count tolerance, so it is state and a checkpoint
+    #: carries it; it used to be read off ``history``, which a checkpoint drops,
+    #: so a reloaded single-precision source was held to the double tolerance
+    #: (audit 2026-11-15, ``scf-small`` F2). ``None`` on a result from before.
+    band_precision: str | None = None
 
     def require_converged(self, quantity: str) -> "SCFResult":
         """Raise unless this ground state converged; return it if it did.
@@ -2499,6 +2514,9 @@ class Calculation:
         # What was asked for, before resolution: :meth:`for_bands` re-resolves
         # the same requests at another band count.
         self._dial_requests = (memory_mode, k_batch, projectors, band_batch)
+        # ... and the k-set they were resolved on, which :meth:`at_kpoints`
+        # compares a new list with (audit 2026-11-15, ``opt-memory`` N1).
+        self._dial_nk = int(system.kpoints.nk)
         #: Carry the ``l = 1`` tangent of ``<k+G|beta>`` at ``k + G = 0``.
         #:
         #: The default is the derivative the operator actually has. ``False``
@@ -2696,9 +2714,12 @@ class Calculation:
         # its real counterpart. The core's own arrays stay in the cell's
         # precision, because the structure-factor phase ``(k+G).tau`` reaches
         # about 100 rad and in single precision would be wrong in its fifth
-        # digit. A mover that rebuilds the core (``at_positions``,
-        # ``at_kpoints``) rebuilds it in the cell's precision, so a moved
-        # calculation is consistently double rather than half single.
+        # digit. What each mover does with it (audit 2026-11-15, ``driver-b``
+        # N1): ``at_positions`` keeps this core, so it stays in the band
+        # precision; ``at_strain`` and ``at_spiral_q`` rebuild it and cast it
+        # back to the band precision; ``at_kpoints``, a band path or a denser
+        # mesh, rebuilds it in the cell's precision, so a moved k-set runs in
+        # double.
         if self.band_precision.complex != self.projector_core.complex_dtype:
             self.projector_core = dataclasses.replace(
                 self.projector_core, complex_dtype=self.band_precision.complex)
@@ -4254,6 +4275,24 @@ class Calculation:
         # k-points do not.
         moved.__dict__.pop("_kcart", None)
         moved.system = system
+        # The dials were sized for the k-set they were resolved on. A whole-axis
+        # chunk (``k_batch = None``), chosen on a card because the SCF's wedge
+        # fitted, would otherwise follow the calculation to a whole grid up to 48
+        # times larger in one ``vmap``; ``for_bands`` re-sizes only for more bands,
+        # and the KPM routes never call it (audit 2026-11-15, ``opt-memory`` N1,
+        # fable's decision). A stated ``None`` re-resolves to ``None``. The blocks
+        # of a longer list (``widths``) are left: they share one shape, and a
+        # per-block answer read off the card would compile again.
+        from defuqumat import batching
+
+        if (widths is None and self.k_batch is None and batching._backend() != "cpu"
+                and getattr(self, "_dial_requests", None) is not None
+                and int(kpoints.nk) > getattr(self, "_dial_nk", int(kpoints.nk))):
+            nbnd = getattr(self, "_dial_nbnd", None) or self.band_count()
+            dials = self._redialled(system, nbnd, f"a solve on {int(kpoints.nk)} k-points")
+            moved.memory_mode, moved.k_batch, moved.band_batch = dials
+            moved.projector_storage = resolve_projectors(self._dial_requests[2], dials[0])
+            moved._dial_nk = int(kpoints.nk)
         # The list everything with a ``k`` index is built on. Without a spiral it
         # *is* the system's, and it has to move with it: leaving it stale gives
         # the pseudo-atomic orbitals the old k-points, which is a merely worse
@@ -4285,7 +4324,7 @@ class Calculation:
         # of a new structure factor over a cached core.
         moved.projector_core = _projector_core(
             self.pseudos, system.structure, cell, smooth, planewaves, kpoints,
-            self.origin_tangent, chunked=self.memory_mode == "memory",
+            self.origin_tangent, chunked=moved.memory_mode == "memory",
         )
         # The storage dial follows the calculation across a new k-set; it used
         # to be dropped here, so every band path and every derived mesh stored
@@ -4293,7 +4332,7 @@ class Calculation:
         moved.projector_rows = None
         moved.projectors = moved.projector_core.at_positions(
             system.structure.positions, qq=self.projectors.qq,
-            lazy=self.projector_storage == "rebuild",
+            lazy=moved.projector_storage == "rebuild",
         )
         # ``wfcU`` carries a k index, so a new k-list needs new projectors --
         # QE rebuilds them in ``orthoUwfc`` at the start of every run for the
@@ -4431,23 +4470,8 @@ class Calculation:
 
         if batching._backend() == "cpu" or nbnd <= self.band_count():
             return self
-        requests = getattr(self, "_dial_requests", None)
-        if requests is None:
-            return self
-        memory_mode, k_batch, projectors, band_batch = requests
-        mode = self.memory_mode
-        if mode == "speed":
-            mode = _resolve_memory_mode_for(
-                memory_mode, self.system, self.pseudos, k_batch, projectors,
-                self.david, purpose=f"a solve at {nbnd} bands", nbnd=int(nbnd))
-        bands = resolve_band_batch_for(band_batch, mode, self.system,
-                                       self.pseudos, k_batch, projectors,
-                                       self.david, nbnd=int(nbnd))
-        dials = (mode,
-                 resolve_k_batch_for(k_batch, mode, self.system, self.pseudos,
-                                     projectors, self.david, bands, nbnd=int(nbnd)),
-                 bands)
-        if dials == (self.memory_mode, self.k_batch, self.band_batch):
+        dials = self._redialled(self.system, nbnd, f"a solve at {nbnd} bands")
+        if dials is None or dials == (self.memory_mode, self.k_batch, self.band_batch):
             return self
         moved = copy.copy(self)
         # A compiled function closes over the chunking it was built with.
@@ -4455,7 +4479,35 @@ class Calculation:
                      "_energy_gradient", "_chunked_gradient"):
             moved.__dict__.pop(name, None)
         moved.memory_mode, moved.k_batch, moved.band_batch = dials
+        # the band count the dials are now sized for, which ``at_kpoints`` keeps
+        moved._dial_nbnd = int(nbnd)
         return moved
+
+    def _redialled(self, system, nbnd, purpose):
+        """``(memory_mode, k_batch, band_batch)`` resolved again for ``system`` at ``nbnd``.
+
+        From the requests the constructor kept, so a dial the caller stated
+        comes back as stated and only a dial chosen by ``memory_mode`` moves.
+        ``system`` carries the k-set the dials are sized for: :meth:`for_bands`
+        passes its own, :meth:`at_kpoints` the new one. Speed mode falls back to
+        memory mode, with ``purpose`` in its warning, when the solve would not
+        fit. ``None`` for a calculation built without the requests.
+        """
+        requests = getattr(self, "_dial_requests", None)
+        if requests is None:
+            return None
+        memory_mode, k_batch, projectors, band_batch = requests
+        mode = self.memory_mode
+        if mode == "speed":
+            mode = _resolve_memory_mode_for(
+                memory_mode, system, self.pseudos, k_batch, projectors,
+                self.david, purpose=purpose, nbnd=int(nbnd))
+        bands = resolve_band_batch_for(band_batch, mode, system, self.pseudos, k_batch,
+                                       projectors, self.david, nbnd=int(nbnd))
+        return (mode,
+                resolve_k_batch_for(k_batch, mode, system, self.pseudos, projectors,
+                                    self.david, bands, nbnd=int(nbnd)),
+                bands)
 
     def at_band_precision(self, precision) -> "Calculation":
         """The same calculation with its band side in ``precision``, nothing else rebuilt.
@@ -4894,6 +4946,13 @@ class Calculation:
             moved.basis_kpoints, self.origin_tangent,
             chunked=self.memory_mode == "memory",
         )
+        # A spiral scan stays in the band precision it was asked for, as
+        # ``at_strain`` keeps it: rebuilt in double, every scan point paid
+        # double time and memory under the single-precision floors and label
+        # it carried (audit 2026-11-15, ``driver-b`` F1).
+        if self.band_precision.complex != moved.projector_core.complex_dtype:
+            moved.projector_core = dataclasses.replace(
+                moved.projector_core, complex_dtype=self.band_precision.complex)
         # Kept across a new wavevector: every step of ``run_spiral_scan`` and
         # ``relax_spiral_q`` comes through here, and dropping the dial made each
         # one store the whole-k ``vkb(k +- q/2)`` in ``memory`` mode.
@@ -6876,8 +6935,11 @@ class _InProgressState:
                  accuracy, ethr, total_energy, energy_terms, system, field_scale,
                  fermi_energy=None, magnetization=None,
                  absolute_magnetization=None, magnetization_vector=None,
-                 meta_c=None, magnetic_field=None):
+                 meta_c=None, magnetic_field=None, band_precision=None):
         self.density = density
+        # the precision the bands are in at this iteration, so a resume from this
+        # checkpoint keeps the continuation's count tolerance (audit ``scf-small`` F2)
+        self.band_precision = band_precision
         self.wavefunctions = wavefunctions
         self.eigenvalues = eigenvalues
         self.occupations = occupations
@@ -7262,7 +7324,15 @@ def _solve_residual_body(
                        if (RHO_DDOT_FIT if fit_in_rho_ddot is None else fit_in_rho_ddot)
                        and isinstance(warm_mixer, AndersonMixer) else None)
         for _ in range(warmup):
-            fx, wavefunctions, eigenvalues = residual.step_states(x0, wavefunctions)
+            if warm_ldos:
+                fx, wavefunctions, eigenvalues = residual.step_states(x0, wavefunctions)
+            else:
+                # ``step``, which under pools is the pooled collective and
+                # returns its token; ``step_states`` has no pooled form, so rank
+                # 0 ran the whole set alone and handed the solver an array
+                # (audit 2026-11-15, ``driver-c`` F2). Serially the two are the
+                # same pass, ``step`` dropping the eigenvalues.
+                fx, wavefunctions = residual.step(x0, wavefunctions)
             if warm_ldos:
                 # One more density pass a warm-up step, with ``w_k delta(e_F -
                 # e_nk)`` in place of the occupations (``ldos_weights``); zero,
@@ -7830,7 +7900,8 @@ def _k_costs(calculation) -> np.ndarray:
 
 
 def _refuse_under_pools(pools, calculation, *, checkpointing,
-                        residual_solver, rotate_moments, field) -> None:
+                        residual_solver, rotate_moments, field, warmup=0,
+                        warmup_mixing="kerker") -> None:
     """Refuse by name what the k-point pools do not cover yet.
 
     Each of these reads or writes the whole set's wavefunctions, or takes a
@@ -7873,6 +7944,22 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
         refused.append(f"a residual scf_solver with jvp={residual_solver!r} (it "
                        "differentiates the whole set; jvp='finite-difference', "
                        "the default, runs under pools)")
+    # Two that crashed rather than refused (audit 2026-11-15, ``driver-c`` F1
+    # and F2), refused by name until each is made pool-aware and measured at two
+    # pools. The switch to double casts the store with ``jnp.asarray``, and a
+    # pool's store is a ``PoolStore`` whose ``__array__`` raises; the
+    # Newton-Krylov warm-up calls ``step_states``, which ``PooledScfResidual``
+    # does not override, so rank 0 ran the whole set alone and then handed the
+    # solver an array where the pooled protocol expects a token. The warm-up
+    # now takes ``step``, the pooled collective, except under an LDOS mixer,
+    # which needs the states and eigenvalues of the whole set.
+    if getattr(calculation, "switch_precision", None) is not None:
+        refused.append("band_precision='mixed' (the switch to double does not "
+                       "cast a pool's store; 'single' and 'double' run)")
+    if (residual_solver not in (None, False) and int(warmup or 0) > 0
+            and str(warmup_mixing).lower() in LDOS_DEPENDENT):
+        refused.append(f"a Newton-Krylov warm-up with warmup_mixing={warmup_mixing!r} "
+                       "(its LDOS pass reads the whole set; 'kerker' and 'anderson' run)")
     # ``rotate_moments`` is not refused: the torque is rank 0's before the
     # stepper sees it, and the states it turns and the sums it rebuilds from
     # them are each pool's rows, reduced.
@@ -9048,6 +9135,8 @@ def run_scf(
                 dict(scf_solver_options or {}).get("jvp", "finite-difference")
                 if get_scf_solver(scf_solver) is not None else None),
             rotate_moments=rotate_moments, field=field,
+            warmup=dict(scf_solver_options or {}).get("warmup", 0),
+            warmup_mixing=dict(scf_solver_options or {}).get("warmup_mixing", "kerker"),
         )
         # A pool keeps its own rows in host memory and walks them: the
         # streamed passes are the ones that take ``rows``.
@@ -9513,6 +9602,17 @@ def run_scf(
                 mixer.precondition.update_ldos(
                     ldos if ldos_weights is not None
                     else jnp.zeros(int(np.prod(calculation.basis.dense.grid))))
+            # The Hubbard occupation matrix reads the store too, so it is built
+            # here, before the park, and not after it: with wfc_store='host'
+            # the read below took the parked store back to the card, inside
+            # the window the park exists to free (audit 2026-11-15,
+            # ``opt-jit-host`` N1). The tau residual is dispatched here as well,
+            # so the batched read below takes it (``opt-jit-host`` F1).
+            measured_ns = (calculation.occupation_matrix(wavefunctions, wg)
+                           if calculation.is_hubbard and not streaming else None)
+            tau_residual = (_tau_accuracy(tau_out - tau_state, calculation.basis.dense,
+                                          calculation.system.cell)
+                            if tau_state is not None else None)
             # **The last read of the store in this iteration**, so back to the
             # buffer it goes. Everything between here and the fetch above --
             # the energy terms, ``v_of_rho`` on the dense grid, the mixer's
@@ -9596,10 +9696,11 @@ def run_scf(
             # is what the total reports unless the run converges, and the
             # converged branch reads its rebuilt ones again.
             (steps, unsettled, accuracy_terms, iteration_terms,
-             (ehart, etxc, epaw_value, paw_deband)) = jax.device_get((
+             (ehart, etxc, epaw_value, paw_deband), tau_residual) = jax.device_get((
                  steps, unsettled, accuracy_terms, iteration_terms,
                  (potential.ehart, potential.etxc,
                   epaw if calculation.is_paw else None, paw_deband),
+                 tau_residual,
              ))
             accuracy, charge_accuracy, magnetic_accuracy = (
                 float(term) for term in accuracy_terms
@@ -9665,8 +9766,7 @@ def run_scf(
                     becsum_state, becsum_out,
                 )
             if calculation.is_hubbard:
-                ns_out = (streamed_ns if streaming
-                          else calculation.occupation_matrix(wavefunctions, wg))
+                ns_out = streamed_ns if streaming else measured_ns
                 if iteration == 1 and starting_density is None and starting_ns is None:
                     # ``IF (first .AND. starting_pot == 'atomic') CALL ns_adj()``:
                     # skipped when the caller supplied ``starting_ns`` as well:
@@ -9698,9 +9798,7 @@ def run_scf(
                 # (charge and magnetization fused, then ``ns``, then ``tau``),
                 # so the loop and ``accuracy_of`` compose the same floats in the
                 # same order and agree to the last bit.
-                tau_accuracy_term = float(_tau_accuracy(
-                    tau_out - tau_state, calculation.basis.dense,
-                    calculation.system.cell))
+                tau_accuracy_term = float(tau_residual)
                 accuracy += tau_accuracy_term
             else:
                 tau_accuracy_term = 0.0
@@ -10428,6 +10526,7 @@ def run_scf(
                     ethr=float(ethr),
                     total_energy=float(total), energy_terms=dict(terms),
                     system=calculation.system, field_scale=float(field_scale),
+                    band_precision=calculation.band_precision.name,
                     magnetic_field=field,
                     magnetization=None if magnetization is None else magnetization[0],
                     absolute_magnetization=(
@@ -10463,6 +10562,7 @@ def run_scf(
                 accuracy=float(accuracy), ethr=float(ethr),
                 total_energy=float(total), energy_terms=dict(terms),
                 system=calculation.system, field_scale=float(field_scale),
+                band_precision=calculation.band_precision.name,
                 magnetic_field=field,
                 magnetization=None if magnetization is None else magnetization[0],
                 absolute_magnetization=(
@@ -10615,6 +10715,7 @@ def run_scf(
 
     return SCFResult(
         converged=converged,
+        band_precision=calculation.band_precision.name,
         # Absolute across a resume, which is what the next one re-enters with.
         iterations=completed,
         ethr=float(ethr),

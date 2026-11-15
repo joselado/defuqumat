@@ -286,6 +286,18 @@ minutes on four cores. Note that Lu et al. find that the value depends on the su
 ($-10.96$ for the $4\times1\times1$ cell), because $\Delta B$ is one flux quantum
 through it.
 
+The run at $-1$ is a control, because time reversal fixes $E(-) = E(+)$ for every
+case this route accepts. It shows a defect that breaks this symmetry, for example a
+wrong sign of the field in one of the two runs. It does not show a defect that is the
+same at $+1$ and $-1$, for example a wrong factor in the flux. The asymmetry is also
+not exactly zero when the box has an even number of points along an axis. On two-atom
+silicon at 12 Ry and `conv_thr = 1e-10` we measured $2.1\times10^{-5}$ Ry on the
+default $8\times8\times8$ box and $1.6\times10^{-12}$ Ry on a $9\times9\times9$ box.
+In both cases it is far below the second difference. If you trust it, `time_reversal_check=False` skips that run,
+which saves about 40 per cent of the time, and then `chi.asymmetry` is `None`. If one of
+the field runs does not converge, `get_magnetizability` gives an error, because the total
+energy of an unconverged run is not variational.
+
 ## How the routes compare
 
 At 7900 to 13000 T we compared the plane-wave route with Peierls on the Wannier models,
@@ -300,8 +312,14 @@ measure the error of Peierls at laboratory fields.
 !!! note "Limits"
     - The field is along $\mathbf a_3$ only. Put the direction you want along the third
       lattice vector.
-    - The Zeeman term is not in: `zeeman=True` gives an error. Each level holds one
-      electron per spin.
+    - The Zeeman term is not in: `zeeman=True` gives an error, on every route. Each
+      level holds one electron per spin.
+    - An option of one route given to the other gives an error, for example
+      `geometry` on the ultracell route or `nbnd` on the Peierls route. With `wannier=`
+      given, an option that `run_landau_levels` does not take gives an error too.
+    - A left-handed cell, with $(\mathbf a_1 \times \mathbf a_2) \cdot \mathbf a_3 < 0$,
+      gives an error. The field is along $\mathbf a_1 \times \mathbf a_2$, so you write
+      the cell right-handed, for example with $\mathbf a_1$ and $\mathbf a_2$ swapped.
     - A spinor run (spin-orbit coupling, noncollinear magnetism), `nspin = 2`,
       ultrasoft and PAW datasets, DFT+U, a spin spiral, a meta-GGA and `K_POINTS gamma`
       give an error, in all three routes.
@@ -312,7 +330,7 @@ measure the error of Peierls at laboratory fields.
       is not measured at laboratory fields (see "How the routes compare").
     - The magnetic ultracell (`route="ultracell"`) gives an error on every case we ran,
       because its basis is not localized for entangled bands. It takes only `flux`,
-      $q \le 100$, and needs `nbnd`.
+      $q \le 100$, and needs `nbnd`, or `trials=` and `N=` for the projected basis.
     - The plane-wave route grows with $q$. The memory of one k-point is estimated
       before the run, and a run above the limit gives an error. Measured on one core
       for graphene at 50 Ry: the SCF at $q = 6$ in 525 to 644 s and 1.9 to 2.2 GB (two

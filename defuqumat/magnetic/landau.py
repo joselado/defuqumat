@@ -99,7 +99,8 @@ def dirac_point(lattice, bands, energy: float, *, delta: float = 1.0e-3,
     pairs = [(i, abs(eK[i + 1] - eK[i])) for i in range(len(eK) - 1)
              if abs(eK[i + 1] - eK[i]) < degenerate]
     if not pairs:
-        raise ValueError("no degenerate pair at K: not a Dirac cone at the zone corner")
+        raise ValueError("no degenerate pair at K: not a Dirac cone at the zone corner; "
+                         "pass dirac=False for a crystal without one")
     i = min(pairs, key=lambda x: abs(0.5 * (eK[x[0]] + eK[x[0] + 1]) - energy))[0]
     E_D = 0.5 * (eK[i] + eK[i + 1])
     slope_up = 0.5 * ((e[1, i + 1] - E_D) + (e[2, i + 1] - E_D)) / step    # Ry bohr

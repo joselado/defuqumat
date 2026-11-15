@@ -532,6 +532,11 @@ class Calculator:
         self._ultracell_options: dict | None = None
         self._strain_response = None
         self._strain_response_options = None
+        #: The field response, one slot keyed by its options as the strain's:
+        #: ``get_born_charges`` after ``get_dielectric_tensor`` solved the
+        #: three field perturbations again (audit 2026-11-15, ``opt-repeat`` F1).
+        self._dielectric = None
+        self._dielectric_options: dict | None = None
         #: A converged state from another calculator, handed to the first SCF
         #: as ``starting_from``. Not a cache -- a starting point (P23).
         self._seed = None
@@ -592,7 +597,10 @@ class Calculator:
         # **same function** ``Calculation.__init__`` uses -- which in memory
         # mode on a card chooses it from the card -- so the report and the run
         # cannot disagree about the largest per-k-point line in the table.
-        if options.get("band_batch") is None:
+        # "not given", not "given as None": None is a real value of both
+        # dials, the whole axis and every band at once (audit 2026-11-15,
+        # ``calculator`` F2)
+        if "band_batch" not in options:
             options["band_batch"] = resolve_band_batch_for(
                 self.defaults.get("band_batch", "default"), mode, self.system,
                 self.pseudos, self.defaults.get("k_batch", "default"),
@@ -601,7 +609,7 @@ class Calculator:
             )
         options.setdefault("projectors", resolve_projectors(
             self.defaults.get("projectors", "default"), mode))
-        if options.get("k_batch") is None:
+        if "k_batch" not in options:
             # ``'fit'`` included: the same resolver the run uses, at the band
             # batch just resolved, so the report sizes the chunk it will take.
             options["k_batch"] = resolve_k_batch_for(
@@ -748,6 +756,7 @@ class Calculator:
             self.defaults.update(changed)
             self._calculation = None
             self._strain_response = self._strain_response_options = None
+            self._dielectric = self._dielectric_options = None
 
     # ------------------------------------------------------------------
     # the ground state, and the cache in front of it
@@ -826,26 +835,35 @@ class Calculator:
         # it from ``defaults``. It belongs out rather than back in: it says
         # which ``Calculation`` exists, not which run was made over it, and
         # :meth:`_adopt` below already drops the cache when one changes.
+        # A setup-only option is adopted on a hit too: the ground state does not
+        # depend on it, so the SCF stays, but the calculation the responses are
+        # built on does. It was dropped there, and origin_tangent=False after a
+        # plain get_scf() left every response on the old convention (audit
+        # 2026-11-15, ``calculator`` F4). On a miss, ``diagonalization`` and
+        # ``k_batch`` are adopted as well: they are what a ``Calculation`` is
+        # built with, and ``run_scf`` ignores them when handed one, so passing
+        # them per call would otherwise be a silent no-op that still counted as
+        # a cache miss. The states are dropped before the call rather than after
+        # it -- see the docstring -- and the key is the options without the seed
+        # (``_seeded``).
         merged = {name: value for name, value in
                   {**self._defaults_for(run_scf), **options}.items()
                   if name not in SETUP_ONLY_OPTIONS}
+        self._adopt({name: options[name] for name in SETUP_ONLY_OPTIONS if name in options})
         if self._scf is not None and _same_options(merged, self._scf_options):
             return self._scf
-        # ``diagonalization`` and ``k_batch`` are *not* arguments of the SCF:
-        # they are what a ``Calculation`` is built with, and ``run_scf``
-        # documents that it ignores them when handed one. Passing them per call
-        # would otherwise be a silent no-op that still counted as a cache miss
-        # -- the same run, again, under a different name. They rebuild it.
         self._adopt(options)
-        # Before the call rather than after it -- see the docstring. An SCF
-        # makes every response built on the previous one stale in any case.
-        self._scf = self._strain_response = self._strain_response_options = None
-        self._ultracell = self._ultracell_options = None
+        self._drop_states()
         self._scf = run_scf(self.system, self.pseudos,
                             calculation=self.calculation, **self._seeded(merged))
-        # The key is the options, without the seed -- see ``_seeded``.
         self._scf_options = merged
         return self._scf
+
+    def _drop_states(self) -> None:
+        """Empty the SCF slot and every response slot built on it."""
+        self._scf = self._strain_response = self._strain_response_options = None
+        self._dielectric = self._dielectric_options = None
+        self._ultracell = self._ultracell_options = None
 
     def _seeded(self, merged: dict) -> dict:
         """``merged`` with the inherited seed in it, unless a checkpoint wins.
@@ -1288,12 +1306,22 @@ class Calculator:
         from defuqumat.response.efield import dielectric_tensor
 
         result = self._ground_state("the dielectric tensor")
-        return dielectric_tensor(
+        merged = self._defaults_for(dielectric_tensor, options, exclude=SCF_ONLY_OPTIONS)
+        # the callee's own default, written out so that get_born_charges'
+        # explicit born_charges=True keys the same slot
+        merged.setdefault("born_charges", True)
+        keep = not merged.get("keep_internals", False)
+        if keep and self._dielectric is not None and _same_options(
+                merged, self._dielectric_options):
+            return self._dielectric
+        self._dielectric = self._dielectric_options = None
+        tensor = dielectric_tensor(
             self.calculation, result.wavefunctions, result.eigenvalues,
-            result.density, result.becsum,
-            **self._defaults_for(dielectric_tensor, options,
-                                 exclude=SCF_ONLY_OPTIONS),
+            result.density, result.becsum, **merged,
         )
+        if keep:
+            self._dielectric, self._dielectric_options = tensor, merged
+        return tensor
 
     def get_born_charges(self, **options):
         """The Born effective charges ``Z* = dF/dE``, as a ``(nat, 3, 3)``.
@@ -1490,11 +1518,19 @@ class Calculator:
         )
 
     def get_electrostriction(self, **options):
-        """``d(chi)/d(strain)`` and the four electrostriction tensors."""
+        """``d(chi)/d(strain)`` and the four electrostriction tensors.
+
+        The strain response cached by :meth:`get_strain_response` is **not**
+        handed on: it is solved on the SCF states, and ``electrostriction``
+        takes its primal states from a refinement of them, so the pair would
+        belong to two different bases, which inside a degenerate occupied
+        multiplet is an arbitrary rotation (audit 2026-11-15, ``strain`` F1).
+        It solves its own on the refined states, one strain response more.
+        A ``strain=`` the caller passes is still used as given.
+        """
         from defuqumat.response.electrostriction import electrostriction
 
         result = self._ground_state("the electrostriction tensors")
-        options.setdefault("strain", self._strain_response)
         return electrostriction(
             self.calculation, result,
             **self._defaults_for(electrostriction, options,
@@ -1593,8 +1629,8 @@ class Calculator:
         )
 
     def get_landau_levels(self, B=None, flux=None, route="peierls", wannier=None,
-                          geometry="torus", width=None, nlevels=40, kappa=((0.0, 0.0),),
-                          dirac=True, zeeman=False, nbnd=None, N1=None, **options):
+                          geometry="torus", width=None, nlevels=None, kappa=((0.0, 0.0),),
+                          dirac=None, zeeman=False, nbnd=None, N1=None, **options):
         """Landau levels in a uniform orbital magnetic field along ``a3``.
 
         ``route="peierls"`` (the default) puts the field on the Wannier
@@ -1619,32 +1655,25 @@ class Calculator:
         With ``trials=`` and ``N=`` (forwarded by name) in place of ``nbnd`` it
         runs on the projected trial basis (P176, step 3).
 
-        Refused by name: ``zeeman=True``, spinors, ``nspin = 2``, ultrasoft
-        and PAW, DFT+U, spirals, meta-GGA and gamma-only storage.
+        ``nlevels`` is 40 on the Peierls route and the ultracell's own default
+        there, and ``dirac`` is ``True`` on the Peierls route when not given.
+        ``energy``, ``qmax``, ``cutoff``, ``degeneracy_tol``, ``vectors`` and
+        ``bonds`` reach :func:`~defuqumat.workflows.landau.run_landau_levels`
+        by name; any other option goes to :meth:`get_wannier`, and with
+        ``wannier=`` given it is refused, since nothing would read it.
+
+        Refused by name: ``zeeman=True`` on both routes, spinors, ``nspin = 2``,
+        ultrasoft and PAW, DFT+U, spirals, meta-GGA and gamma-only storage, and
+        each route's options given to the other.
         """
         from defuqumat.magnetic.conventions import refuse_regime
 
         refuse_regime(self.system, self.pseudos, "Landau levels")
-        if route == "ultracell":
-            from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
-            if B is not None or not flux or flux[1] > 100 or nbnd is None and "N" not in options:
-                raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd, or N")
-            return run_magnetic_ultracell(
-                self.system, self.pseudos, self._ground_state("Landau levels"),
-                flux=flux, nbnd=nbnd, N1=N1, local_only=False, **options)
-        if route != "peierls":
-            raise ValueError(f"route is 'peierls' or 'ultracell', not {route!r}")
-        from defuqumat.workflows.landau import run_landau_levels
-
-        wannier = self.get_wannier(**options) if wannier is None else wannier
-        level = (None if getattr(wannier, "edge", None) is not None
-                 else self._ground_state("Landau levels").fermi_energy)
-        return run_landau_levels(wannier, B=B, flux=flux, geometry=geometry, width=width,
-                                 nlevels=nlevels, kappa=kappa, dirac=dirac, zeeman=zeeman,
-                                 fermi_energy=level)
+        return _landau_levels(self, B, flux, route, wannier, geometry, width, nlevels,
+                              kappa, dirac, zeeman, nbnd, N1, options)
 
     def get_magnetic_bands(self, flux=(1, 1), kmesh=(2, 2), nbnd=None, scf=False,
-                           chern=False, local_only=False, conv_thr=1e-8, **options):
+                           chern=False, local_only=False, conv_thr=None, **options):
         """Magnetic Bloch bands of the crystal at a flux ``p/q`` per cell, on plane waves.
 
         The exact route of Lu et al. (PRL 135, 196401 (2025)): the magnetic
@@ -1657,19 +1686,20 @@ class Calculator:
         field in the field instead (:func:`~defuqumat.magnetic.fold.
         run_magnetic_scf`, ``N2`` a multiple of ``q``), from the zero-field
         density. The memory of one k-point is estimated before the run, and
-        the run is refused above the limit.
+        the run is refused above the limit. ``conv_thr`` (1e-8 if not given)
+        is the SCF's and is refused without ``scf=True``, where the band
+        solve's threshold is ``ethr``; ``chern`` and ``local_only`` are the
+        band route's and are refused with ``scf=True``.
         """
         from defuqumat.magnetic.fold import run_magnetic_scf
         from defuqumat.workflows.magnetic_bands import run_magnetic_bands
 
-        if nbnd is None:
-            raise ValueError("get_magnetic_bands needs nbnd, the bands of the magnetic cell: "
-                             "q times the occupied bands of the chemical cell, and a few more")
+        _magnetic_bands_door(self, nbnd, scf, chern, local_only, conv_thr)
         state = None if options.get("free") else self._ground_state("magnetic Bloch bands")
         if scf:
             return run_magnetic_scf(self.system, self.pseudos, state, flux=flux, kmesh=kmesh,
-                                    nbnd=nbnd, conv_thr=conv_thr, calculation=self.calculation,
-                                    **options)
+                                    nbnd=nbnd, conv_thr=1e-8 if conv_thr is None else conv_thr,
+                                    calculation=self.calculation, **options)
         return run_magnetic_bands(self.system, self.pseudos, state, flux=flux, kmesh=kmesh,
                                   nbnd=nbnd, chern=chern, local_only=local_only, **options)
 
@@ -1684,12 +1714,17 @@ class Calculator:
         1e-6 cm^3/mol per ``atoms_per_unit`` atoms (two by default),
         ``chi_per_atom``, the three energies and ``asymmetry = E(+) - E(-)``.
         The cell is the supercell the field is applied to, so the field step
-        is one flux quantum through it.
+        is one flux quantum through it. The asymmetry sees a defect that breaks
+        ``H(-A) = H(A)^*`` and not one even in the flux; on a box even along an
+        axis it is not zero either (P177).
         """
+        from defuqumat.magnetic.conventions import refuse_regime
         from defuqumat.magnetic.fold import run_magnetizability
 
         if nbnd is None:
             raise ValueError("get_magnetizability needs nbnd, the bands of the cell (an insulator)")
+        # before the zero-field SCF, which a refused regime would pay for (audit docs-holes F3)
+        refuse_regime(self.system, self.pseudos, "The magnetizability")
         return run_magnetizability(self.system, self.pseudos,
                                    self._ground_state("a magnetizability"), kmesh=kmesh,
                                    nbnd=nbnd, conv_thr=conv_thr, calculation=self.calculation,
@@ -1817,6 +1852,29 @@ class Calculator:
         return qpi_bands(
             self.system, self.pseudos, result, calculation=self.calculation,
             **self._call_options(qpi_bands, result, options,
+                                 exclude=SCF_ONLY_OPTIONS)
+        )
+
+    def get_tunnelling_states(self, **options):
+        """The whole-grid states of the tunnelling routes and of QPI, solved once.
+
+        Pass the result as ``states=`` to :meth:`get_sts`,
+        :meth:`get_vertical_transport`, :meth:`get_momentum_transport` or
+        :meth:`get_qpi`, so that a scan of tips, heights, exit planes, energy
+        windows or impurities costs one band solve. ``grid``, ``shift``,
+        ``kpoints``, ``nbnd`` and ``conv_thr`` are the band solve's, forwarded as
+        the routes forward them; without a k-set these are the run's own states,
+        and the states record the threshold they were solved to. Not kept on the
+        calculator, since they are ``(nk, nbnd, npwx)`` on the whole grid.
+        :meth:`get_stm` does not take them: its k-set is the wedge of the denser
+        grid. For QPI alone, :meth:`get_qpi_bands` solves to QPI's 1e-8.
+        """
+        from defuqumat.workflows.transport import whole_grid_states
+
+        result = self._ground_state("the states of a tunnelling map")
+        return whole_grid_states(
+            self.system, self.pseudos, result, calculation=self.calculation,
+            **self._call_options(whole_grid_states, result, options,
                                  exclude=SCF_ONLY_OPTIONS)
         )
 
@@ -2766,7 +2824,20 @@ class Calculator:
         ``nspin = 2`` under ``occupations = 'fixed'``.
         """
         system = self.system.with_spin(nspin, **options)
-        return self._derived(system, seed=True, magnetization=magnetization)
+        defaults = None
+        if self.defaults.get("nbnd") is not None and options.get("nbnd") is not None:
+            defaults = {**self.defaults, "nbnd": int(options["nbnd"])}
+        elif self.defaults.get("nbnd") is not None:
+            # The calculator's own nbnd wins over ``system.nbnd`` at every entry
+            # point, so it has to be rescaled as ``System.with_spin`` rescales the
+            # system's: a spinor band holds one electron, a collinear band two.
+            # Carried unchanged it gave the spinor run half the bands it needs,
+            # silently for a metal (audit 2026-11-15, ``calculator`` F1).
+            factor = (2 if system.nspin == 4 else 1) / (2 if self.system.nspin == 4 else 1)
+            defaults = {**self.defaults,
+                        "nbnd": int(round(self.defaults["nbnd"] * factor))}
+        return self._derived(system, seed=True, magnetization=magnetization,
+                             defaults=defaults)
 
     def with_moments(self, per_atom, magnetization="seed") -> "Calculator":
         """A calculator with a different moment on each atom, warm-started.
@@ -2814,15 +2885,18 @@ class Calculator:
         return self._derived(self.system.with_turning_moments(turning), seed=True)
 
     def _derived(self, system: System, *, seed: bool = False, scf=None,
-                 magnetization: str = "auto", basis=None) -> "Calculator":
+                 magnetization: str = "auto", basis=None,
+                 defaults: dict | None = None) -> "Calculator":
         """A calculator on ``system``, sharing this one's pseudos and options.
 
         ``basis`` freezes the plane-wave setup at the parent's rather than
         letting the child enumerate its own. Only :meth:`with_positions` passes
-        it, and :meth:`_frozen_basis` is where the reason is.
+        it, and :meth:`_frozen_basis` is where the reason is. ``defaults``
+        replaces this calculator's options, which only :meth:`with_spin` does,
+        to rescale ``nbnd``.
         """
         derived = Calculator(system, self.pseudos, announce=self.announce,
-                             basis=basis, **self.defaults)
+                             basis=basis, **(self.defaults if defaults is None else defaults))
         if scf is not None:
             derived._scf = scf
             # **Deliberately no options**, so that any explicit ``get_scf``
@@ -3104,3 +3178,74 @@ for _name, _method in list(vars(Calculator).items()):
     if _name.startswith("get_") and inspect.isfunction(_method) and _name not in POOL_AWARE:
         setattr(Calculator, _name, _refused_under_pools(_name, _method))
 del _name, _method
+
+
+def _magnetic_bands_door(calc, nbnd, scf, chern, local_only, conv_thr):
+    """The checks of :meth:`Calculator.get_magnetic_bands` that need no ground state.
+
+    Made before the zero-field SCF, so a refused regime does not pay for one
+    (audit 2026-11-15, ``docs-holes`` F3); the workflows keep their own check.
+    Each branch used to drop the other's options without a word (``magnetic`` N1).
+    """
+    from defuqumat.magnetic.conventions import refuse_regime
+
+    if nbnd is None:
+        raise ValueError("get_magnetic_bands needs nbnd, the bands of the magnetic cell: "
+                         "q times the occupied bands of the chemical cell, and a few more")
+    if scf and (chern or local_only):
+        raise TypeError("chern and local_only are the band route's (scf=False); the "
+                        "self-consistent route computes neither")
+    if not scf and conv_thr is not None:
+        raise TypeError("conv_thr is the self-consistent route's (scf=True); the band "
+                        "solve's threshold is ethr")
+    refuse_regime(calc.system, calc.pseudos,
+                  "The route P SCF" if scf else "Magnetic Bloch bands (route P)")
+
+
+def _landau_levels(calc, B, flux, route, wannier, geometry, width, nlevels, kappa, dirac,
+                   zeeman, nbnd, N1, options):
+    """:meth:`Calculator.get_landau_levels` after its regime check: the route, and the
+    options each route reads, refused on the other (audit 2026-11-15, ``magnetic`` F2,
+    F3). Routing only; the physics is the two workflows'."""
+    # Before the route: the ultracell branch dropped it, and the levels came
+    # back with no Zeeman term and no word (audit 2026-11-15, ``magnetic`` F2).
+    if zeeman:
+        raise NotImplementedError("the Zeeman term is not implemented with the orbital field: "
+                                  "zeeman=True is refused (levels hold one electron per spin)")
+    if route == "ultracell":
+        from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+        if B is not None or not flux or flux[1] > 100 or nbnd is None and "N" not in options:
+            raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd, or N")
+        peierls_only = [name for name, value, default in (
+            ("geometry", geometry, "torus"), ("width", width, None),
+            ("kappa", kappa, ((0.0, 0.0),)), ("dirac", dirac, None),
+            ("wannier", wannier, None)) if value != default]
+        if peierls_only:
+            raise TypeError(f"route='ultracell' does not read {', '.join(peierls_only)}: "
+                            "those are the Peierls route's")
+        return run_magnetic_ultracell(
+            calc.system, calc.pseudos, calc._ground_state("Landau levels"),
+            flux=flux, nbnd=nbnd, N1=N1, local_only=False, nlevels=nlevels, **options)
+    if route != "peierls":
+        raise ValueError(f"route is 'peierls' or 'ultracell', not {route!r}")
+    from defuqumat.workflows.landau import run_landau_levels
+
+    if nbnd is not None or N1 is not None:
+        raise TypeError("nbnd and N1 are the ultracell route's; the Peierls route "
+                        "takes its band set from the Wannier functions")
+    # run_landau_levels's own options, by name, which were never forwarded
+    # (audit 2026-11-15, ``magnetic`` F3)
+    landau = {name: options.pop(name) for name in
+              ("energy", "qmax", "cutoff", "degeneracy_tol", "vectors", "bonds")
+              if name in options}
+    if wannier is None:
+        wannier = calc.get_wannier(**options)
+    elif options:
+        raise TypeError(f"get_landau_levels does not read {sorted(options)} with wannier= "
+                        "given: they would go to get_wannier, which is not run")
+    level = (None if getattr(wannier, "edge", None) is not None
+             else calc._ground_state("Landau levels").fermi_energy)
+    return run_landau_levels(wannier, B=B, flux=flux, geometry=geometry, width=width,
+                             nlevels=40 if nlevels is None else nlevels, kappa=kappa,
+                             dirac=True if dirac is None else dirac, zeeman=zeeman,
+                             fermi_energy=level, **landau)

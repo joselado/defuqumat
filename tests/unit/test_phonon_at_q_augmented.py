@@ -147,3 +147,52 @@ def test_the_refusal_names_what_the_route_lacks(pseudo_dir, dataset):
     missing = [part for part in _NEW_MESSAGE_PARTS if part not in message]
     assert not missing, missing
     assert "four absent terms rather than the one" not in message
+
+
+_P1_CELL = """
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 2, celldm(1) = 10.2, nat = 3, ntyp = 1, ecutwfc = 8.0
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Si 28.0 Si.pz-vbc.UPF
+ATOMIC_POSITIONS crystal
+ Si 0.00 0.00 0.00
+ Si 0.21 0.27 0.33
+ Si 0.60 0.15 0.40
+K_POINTS automatic
+ 3 3 3 0 0 0
+"""
+
+
+def test_a_p1_crystal_on_its_time_reversal_wedge_is_refused_at_q(pseudo_dir):
+    """A group of the identity alone still halves the grid by time reversal (audit ``phonon`` F1).
+
+    ``use_symmetry`` is False there, which is the only thing the guard read, so
+    the phonon at ``q`` ran on half the zone at weight two, where the partner
+    ``-k`` of a kept ``k`` carries ``conj(drho_{-q})`` and not ``drho_q``.
+    """
+    from defuqumat.response.phononq import require_a_two_sphere_regime
+    from defuqumat.system.kpoints import is_reduced
+
+    system = build_system(parse_pw_input(_P1_CELL))
+    calculation = Calculation(system, (read_upf(pseudo_dir / "Si.pz-vbc.UPF"),))
+    assert not calculation.use_symmetry
+    assert is_reduced(system.kpoints)
+    with pytest.raises(NotImplementedError, match="needs the whole k-grid"):
+        require_a_two_sphere_regime(calculation, np.array([0.5, 0.0, 0.0]))
+
+
+def test_a_dispersion_correction_is_refused_at_q(pseudo_dir):
+    """Grimme-D2 at ``q != 0``: the frozen Hessian holds its pair sum at ``q = 0`` (audit ``phonon`` F2)."""
+    from defuqumat.response.phononq import require_a_two_sphere_regime
+
+    calculation = _calculation(pseudo_dir, "Si.pz-vbc.UPF", ecutrho=48.0,
+                               extra="vdw_corr = 'grimme-d2'")
+    assert calculation.dispersion_sum is not None
+    with pytest.raises(NotImplementedError, match="dispersion correction"):
+        require_a_two_sphere_regime(calculation, np.array([0.5, 0.0, 0.0]))

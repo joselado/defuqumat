@@ -122,7 +122,7 @@ def test_a_polar_ultrasoft_crystal_is_still_refused(no_calculation):
     system, pseudos = _input("alas-piezo", (" As 0.25 0.25 0.25",
                                             " As 0.25 0.25 0.29"))
     with pytest.raises(NotImplementedError,
-                       match="polar crystal with an ultrasoft dataset"):
+                       match="polar crystal with an ultrasoft or PAW dataset"):
         require_a_piezoelectric_tensor(system, pseudos=pseudos)
 
 

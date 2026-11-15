@@ -131,7 +131,7 @@ TRANSVERSE_TOL = 1.0e-6
 ELECTRON_TOL = 1.0e-6
 
 #: The same agreement for a source whose band side ran in single precision
-#: (``band_precision = 'single'``, read off its last history entry). Its
+#: (``band_precision = 'single'``, read off the result, which a checkpoint carries). Its
 #: density is summed from float32 states, and the count misses ``nelec`` by
 #: what that normalisation leaves: 8.3e-7 of one electron on the spinor H atom,
 #: 1.6e-6 of eight on DFT+U AlAs, 2.9e-6 of six on the PAW O chain (I119), so
@@ -699,8 +699,11 @@ def _check_grid(result, calculation) -> None:
     integral = float(jnp.sum(charge)) * float(
         calculation.system.cell.volume
     ) / charge.size
+    # On the result since 2026-11-15, so it survives a checkpoint; the last
+    # history entry is the fallback for a result built before.
     history = getattr(result, "history", None) or [{}]
-    single_source = history[-1].get("band_precision") == "single"
+    precision = getattr(result, "band_precision", None) or history[-1].get("band_precision")
+    single_source = precision == "single"
     tolerance = SINGLE_SOURCE_ELECTRON_TOL if single_source else ELECTRON_TOL
     if abs(integral - calculation.nelec) > tolerance * max(
             1.0, float(calculation.nelec)):

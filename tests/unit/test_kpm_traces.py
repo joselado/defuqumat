@@ -159,6 +159,74 @@ def test_the_spin_trace_under_a_uniform_field(axis):
         assert np.sqrt(np.mean(measured[other] ** 2)) < 0.2 * scale
 
 
+@functools.lru_cache(maxsize=1)
+def _zincblende_selenium():
+    """A nonmagnetic spinor with spin-orbit coupling and no inversion, on a shifted mesh.
+
+    Two Se atoms on the zincblende sites (Td), fully relativistic, at 5 Ry,
+    since the zero the tests read is one of symmetry and holds at any cutoff.
+    The shifted 2x2x2 mesh has no time-reversal-invariant point, where Kramers
+    pairs would make the spin trace vanish at each k on their own.
+    """
+    calc = Calculator.from_keywords(
+        lattice="fcc", a=5.6, atoms=[("Se", (0.0, 0.0, 0.0)), ("Se", (0.25, 0.25, 0.25))],
+        pseudos={"Se": "Se.rel-pbe-nc-sg15.UPF"}, pseudo_dir=PSEUDO, ecut=68.0,
+        kmesh=(2, 2, 2), kshift=(1, 1, 1), spin_orbit=True, smearing=0.5,
+        announce=False, conv_thr=1e-6)
+    calc.get_scf()
+    return calc
+
+
+@pytest.mark.slow
+def test_the_spin_dos_of_a_spinor_without_inversion_is_zero():
+    """Time reversal makes ``sum_k Tr[sigma_i delta(E - H_k)]`` zero; the wedge's weights do not.
+
+    ``Tr[sigma_i T_n(H_k)]`` is odd under time reversal and turns as an axial
+    vector, so the zone sum vanishes for a nonmagnetic crystal, while the
+    weighted sum over the wedge is the trace of one representative per star
+    and does not (audit 2026-11-15, ``kpm`` F1). The exact trace makes the zero
+    a round-off zero, and the scale it is read against is the scalar DOS.
+    Before the fix the spin DOS read 2.3 states/Ry against a DOS peak of 19.9.
+    Slow: 25 s, most of it the spin-orbit SCF.
+    """
+    calc = _zincblende_selenium()
+    assert calc.calculation.system.kpoints.reduced
+    dos = calc.get_kpm_dos(n_moments=20, trace="exact", spin_resolved=True,
+                           control_variate=False)
+    assert dos.n_random == 0
+    assert np.max(np.abs(dos.spin_dos)) < 1e-8 * np.max(np.abs(dos.dos))
+    # the moments themselves, which the kernel only damps
+    assert np.max(np.abs(dos.spin_moments)) < 1e-8 * np.max(np.abs(dos.moments))
+
+
+def test_the_reconstructed_spin_dos_follows_the_new_moments():
+    """``reconstructed`` rebuilds ``spin_dos`` on the new grid and moment count (``kpm`` F2).
+
+    Host-side only: a result built by hand from known moments, so no recursion runs.
+    """
+    from defuqumat.kpm.dos import KPMDensityOfStates, _evaluate
+
+    rng = np.random.default_rng(0)
+    n = 40
+    decay = np.exp(-0.1 * np.arange(n))
+    samples = (rng.normal(size=(1, 3, n)) * decay)
+    samples[..., 0] = 1.0
+    spin = rng.normal(size=(3, n)) * decay
+    energies = np.linspace(-0.8, 0.8, 161)
+    dos, _ = _evaluate(samples.mean(axis=1), "jackson", n, 0.0, 1.0, energies)
+    full, _ = _evaluate(spin, "jackson", n, 0.0, 1.0, energies)
+    result = KPMDensityOfStates(
+        energies=energies, dos=dos[0], integrated=dos[0], dos_error=0 * dos[0],
+        samples=samples, centre=0.0, half_width=1.0, kernel="jackson", n_moments=n,
+        broadening=0.0, reference_energy=0.0, trace="stochastic", n_random=3, seed=0,
+        nspin=1, nelec=2.0, spin_dos=full, spin_moments=spin)
+    coarse = result.reconstructed(energies=energies[::3], n_moments=20)
+    expected, _ = _evaluate(spin, "jackson", 20, 0.0, 1.0, energies[::3])
+    assert coarse.spin_dos.shape == (3, energies[::3].size)
+    np.testing.assert_allclose(coarse.spin_dos, expected, rtol=0, atol=1e-12)
+    assert not np.allclose(coarse.spin_dos, full[:, ::3], atol=1e-3)
+
+
 def test_the_fermi_level_of_a_metal_from_the_count():
     """Aluminium: the level where the KPM count reaches three electrons is the SCF's, within the noise."""
     calc = Calculator.from_keywords(
@@ -222,3 +290,11 @@ def test_unfolding_a_pristine_supercell_is_the_primitive_block():
         x = (values - spectrum.centre) / spectrum.half_width
         exact[ik] = np.cos(np.arange(40)[:, None] * np.arccos(x)[None, :]).sum(axis=1)
     np.testing.assert_allclose(spectrum.moments[0], exact, rtol=0, atol=1e-9 * float(exact[:, 0].max()))
+
+
+def test_an_odd_moment_count_is_refused_before_the_unfolding():
+    """The doubling gives an even count only; an odd one was a shape error deep inside (``kpm`` F4)."""
+    from defuqumat.kpm.traces import run_kpm_unfolded
+
+    with pytest.raises(ValueError, match="n_moments must be even"):
+        run_kpm_unfolded(None, None, None, np.eye(3), np.zeros((1, 3)), n_moments=41)

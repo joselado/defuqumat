@@ -841,7 +841,8 @@ def _require_a_checked_hubbard_velocity(calculation) -> None:
         )
 
 
-def _require_a_gap_at_the_filling(calculation, eigenvalues) -> None:
+def _require_a_gap_at_the_filling(calculation, eigenvalues,
+                                  quantity: str = "the shift current") -> None:
     """Refuse fixed occupations whose boundary lands inside a degenerate multiplet.
 
     Reachable once the channels are summed: a collinear ``nspin = 2`` run with
@@ -871,7 +872,7 @@ def _require_a_gap_at_the_filling(calculation, eigenvalues) -> None:
     for spin, (count, gap) in enumerate(zip(counts, gaps)):
         if float(gap) < EMPTY_ETHR_FLOOR:
             raise NotImplementedError(
-                f"the shift current of a filling that cuts a degenerate multiplet "
+                f"{quantity} of a filling that cuts a degenerate multiplet "
                 f"is not defined: spin channel {spin} occupies {count} bands and "
                 f"the gap to the first empty one is {float(gap):.2e} Ry at some "
                 "k-point, so which member of the shell is occupied is the "

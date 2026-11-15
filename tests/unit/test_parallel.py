@@ -127,6 +127,18 @@ def test_refusals_name_what_pools_do_not_cover():
                                                  occupations="fixed"), spiral=False)
     with pytest.raises(NotImplementedError, match="2 pools for 1 k-points"):
         _refuse_under_pools(pools, few, **quiet)
+    # Two pairs that crashed instead (audit 2026-11-15, ``driver-c`` F1, F2).
+    mixed = SimpleNamespace(**vars(calculation), switch_precision=object())
+    with pytest.raises(NotImplementedError, match="band_precision='mixed'"):
+        _refuse_under_pools(pools, mixed, **quiet)
+    with pytest.raises(NotImplementedError, match="Newton-Krylov warm-up"):
+        _refuse_under_pools(pools, calculation,
+                            **{**quiet, "residual_solver": "finite-difference"}, warmup=6,
+                            warmup_mixing="ldos")
+    # the kerker warm-up takes the pooled step and runs; plain mixing has none
+    _refuse_under_pools(pools, calculation,
+                        **{**quiet, "residual_solver": "finite-difference"}, warmup=6)
+    _refuse_under_pools(pools, calculation, **quiet, warmup=6)
 
 
 @pytest.mark.parametrize("scheme", ["tetrahedra", "tetrahedra_opt", "from_input"])

@@ -79,8 +79,22 @@ class MagneticCell(eqx.Module):
             cell = Cell.from_vectors(np.asarray(cell, dtype=float))
         p, q = int(p), int(q)
         if q < 1 or p < 1:
+            # Reversing a3 does not reverse the field: b1 and b2 of inv(at).T are
+            # unchanged, so a(r) is the same, and the reversed cell is the
+            # left-handed one refused below (audit 2026-11-15, ``magnetic`` N2).
             raise ValueError(f"the flux p/q needs positive p and q, got {p}/{q} "
-                             "(a field along -a3 is the cell with a3 reversed)")
+                             "(the field is along a1 x a2; the opposite field is p < 0 "
+                             "on route P, magnetic.blochgrid.magnetic_cell)")
+        if float(np.linalg.det(np.asarray(cell.at, dtype=float))) < 0.0:
+            # curl a = 2 pi n_phi b1 x b2 = 2 pi n_phi a3 / det(at) with the signed
+            # determinant, so on a left-handed cell the field is along -a3 while
+            # signed_area takes the orientation of a3, and the plaquette check
+            # raised after every solve, blaming the Peierls sign (``magnetic`` F5).
+            raise ValueError(
+                "a left-handed cell ((a1 x a2) . a3 < 0) is refused for an orbital field: "
+                "the field is along a1 x a2, which is -a3 there, and the conventions take "
+                "the orientation from a3. Write the cell right-handed, for example with "
+                "a1 and a2 swapped")
         if math.gcd(p, q) != 1:
             raise ValueError(f"p/q = {p}/{q} is not reduced; take {p // math.gcd(p, q)}/"
                              f"{q // math.gcd(p, q)}")

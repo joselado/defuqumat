@@ -447,6 +447,46 @@ broadening of 0.03 Ry.
     --8<-- "stm_momentum/plot.py"
     ```
 
+## One band calculation for several maps
+
+A map on a dense k-grid spends almost all of its time in the band calculation on
+the full grid. The tip, the two planes, the energies and the broadening do not
+change these bands. So we compute them once with `calc.get_tunnelling_states()`
+and give them to each call as `states`. Here we scan the tip height of the
+vertical transmission on the square hydrogen sheet:
+
+```python
+from defuqumat import Calculator
+
+sheet = Calculator.from_keywords(
+    lattice="tetragonal", a=2.6459, c=7.9377, atoms=[("H", (0, 0, 0.5))],
+    pseudos={"H": "H.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=204.0, smearing=0.68, kmesh=(4, 4, 1), nbands=8, qe={"system": {"nosym": True}})
+sheet.get_scf()
+states = sheet.get_tunnelling_states(grid=(8, 8, 1))
+for height in (0.80, 0.85, 0.90):
+    image = sheet.get_vertical_transport(exit_height=0.15, height=height, shape=(6, 6),
+                                         broadening=0.05, states=states)
+    print(f"height {height:.2f}  largest T {image.values.max():.3e}")
+```
+
+```
+height 0.80  largest T 2.679e-07
+height 0.85  largest T 6.560e-08
+height 0.90  largest T 2.647e-08
+```
+
+The three maps use one band calculation on the $8\times8\times1$ grid. The
+transmission falls by a factor of ten over 0.10 of the cell height, as a tunnelling
+current does. The same `states` work for `get_sts`, `get_momentum_transport` and
+`get_qpi`. They give the same numbers as a call with its own `grid`: on the
+$4\times4\times1$ grid of this sheet we found the three tunnelling results equal
+bit for bit, and each call with `states` took at most 0.1 s against 0.9 to 1.0 s.
+`grid`, `shift`, `kpoints`, `nbnd` and `conv_thr` go to `get_tunnelling_states`.
+With `states`, a `grid`, `shift` or `kpoints` in the same call gives an error,
+because it would name a k-set the states were not computed on. `get_stm` does not
+take `states`, because its k-set is the reduced wedge of the denser grid.
+
 ## Quasiparticle interference around one impurity
 
 We now put one impurity on the surface. It scatters the Bloch states, and the

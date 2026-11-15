@@ -37,7 +37,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from defuqumat.magnetic.blochgrid import (
-    DENSE_LIMIT, MagneticGridHamiltonian, dense_matrix, estimate_bytes, grid_positions,
+    DENSE_LIMIT, MEMORY_LIMIT, MagneticGridHamiltonian, dense_fallback_bytes, dense_matrix,
+    estimate_bytes, grid_positions,
     magnetic_cell, refuse_memory, start_block, wavefunction_box,
 )
 from defuqumat.magnetic.conventions import refuse_regime
@@ -266,6 +267,17 @@ def run_magnetic_bands(system, pseudos, scf=None, *, flux=(1, 1), kmesh=(2, 2), 
             if states is not None:
                 states[ik] = np.asarray(vectors[0])[:nbnd]
         elif ndim <= DENSE_LIMIT:
+            # Refused by number where it is reached, not before the run: a solve
+            # whose Davidson settles never builds it (audit 2026-11-15, ``magnetic`` F1).
+            need = dense_fallback_bytes(ndim)
+            limit = MEMORY_LIMIT if memory_limit is None else float(memory_limit)
+            if need > limit:
+                raise MemoryError(
+                    f"Davidson left {unsettled[ik]} of {nsolve} bands unsettled at k-point "
+                    f"{ik} after {steps[ik]} steps, and the dense fallback at ndim = {ndim} "
+                    f"needs an estimated {need / 1e9:.2f} GB, above the limit of "
+                    f"{limit / 1e9:.2f} GB: raise max_iterations, try another "
+                    "preconditioner, pass unconverged='keep', or raise memory_limit")
             matrix = dense_matrix(hamiltonian, ik)
             w, v = np.linalg.eigh(0.5 * (matrix + matrix.conj().T))
             eigenvalues[ik] = w[:nbnd]

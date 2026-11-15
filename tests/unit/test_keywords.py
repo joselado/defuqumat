@@ -299,3 +299,18 @@ def test_a_jump_adds_no_length_and_a_bad_name_is_refused():
                       pseudos={"C": "C.UPF"}, ecut=300.0, kmesh=(2, 2, 2)).cell
     with pytest.raises(ValueError, match="ibrav = 0"):
         labelled_path("G-X", vectors)
+
+
+@pytest.mark.parametrize("spin, moment", [("collinear", 2.0), ("noncollinear", (0.0, 0.0, 2.0))])
+def test_an_atom_without_a_moment_starts_at_zero(spin, moment):
+    """NiO written the natural way: the oxygen has no third entry (audit ``xc-io`` F2).
+
+    It raised a bare ``TypeError`` (collinear) or blamed the vector shape of
+    ``None`` (noncollinear).
+    """
+    text = pw_input_text(lattice="fcc", a=4.17, ecut=300.0, kmesh=(2, 2, 2),
+                         atoms=[("Ni", (0, 0, 0), moment), ("O", (0.5, 0.5, 0.5))],
+                         pseudos={"Ni": "Ni.pbe-nc-sg15.UPF", "O": "O.pbe-hgh.UPF"},
+                         spin=spin, smearing=0.1)
+    card = text.split("STARTING_MOMENTS")[1].strip().splitlines()[:2]
+    assert [float(x) for x in card[1].split()] == [0.0, 0.0, 0.0]

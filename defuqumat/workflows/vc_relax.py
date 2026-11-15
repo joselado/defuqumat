@@ -468,14 +468,26 @@ def _advance(
 
 
 def _check_geometry(system: System, previous) -> None:
-    """``checkallsym``, in both halves -- the structure and the lattice."""
+    """``checkallsym``, in both halves -- the structure and the lattice.
+
+    Only for the group the run uses. ``previous.symmetries`` is the detected
+    group whatever ``nosym`` says, and under ``nosym`` the stress and the
+    forces are not symmetrised, so a step may leave it -- by construction for
+    ``cell_dofree = 'z'`` on a cubic cell. ``pw.x`` has ``nsym = 1`` there and
+    runs on, and ``run_relax`` already skips its check (audit 2026-11-15,
+    ``forces`` F2).
+    """
+    if not getattr(previous, "use_symmetry", True):
+        return
     if not check_lattice_symmetry(system.cell, previous.symmetries):
         raise RuntimeError(
             "the cell step broke a symmetry the run was set up with: the "
             "deformed lattice no longer admits every rotation of the group the "
             "FFT grid and the k-point set were chosen for. A stress "
             "symmetrised over that group cannot do this in exact arithmetic, "
-            "so this is a bug or a cell whose symmetry was mis-detected"
+            "so this is a bug or a cell whose symmetry was mis-detected. A "
+            "cell_dofree that strains one axis breaks the group by design: "
+            "run it with nosym = .true., as pw.x needs too"
         )
     if not check_symmetry(system.cell, system.structure, previous.symmetries):
         raise RuntimeError(

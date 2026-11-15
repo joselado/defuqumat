@@ -133,6 +133,18 @@ def run_orbital_magnetization(
             "dual in the S metric -- terms no norm-conserving case can check"
         )
 
+    # A metal is refused by name (P64), and the direct gap per mesh point the
+    # source checks does not see one: a smeared spinor magnet crosses at
+    # isolated points, and the gap at generic mesh points stays above
+    # gap_tol, so the lowest nelec bands came back as if they were the
+    # occupied manifold (audit 2026-11-15, ``topology`` F1).
+    occupations = str(getattr(system, "occupations", "fixed")).lower()
+    if occupations not in ("fixed", "from_input"):
+        raise NotImplementedError(
+            "an orbital magnetization of a metal is not implemented: with "
+            f"occupations = {occupations!r} the occupied manifold is not the "
+            "lowest nelec bands, and the -2 mu term is not quantized. Run an "
+            "insulator with occupations = 'fixed'")
     source = _source(system, pseudos, density, nocc, nbnd, conv_thr, k_batch,
                      becsum=becsum, ns=ns, field=field, field_scale=field_scale,
                      calculation=calculation)

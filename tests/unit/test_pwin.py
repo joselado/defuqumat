@@ -376,3 +376,22 @@ def test_an_alat_card_still_takes_its_lattice_parameter_from_celldm():
     )
     system = build_system(parse_pw_input(text))
     assert float(system.cell.volume) == pytest.approx(10.2 ** 3)
+
+
+def test_a_comma_value_list_is_refused_rather_than_cut():
+    """``starting_magnetization = 0.5, -0.5`` kept the first value only, with no word (audit ``xc-io`` F3)."""
+    from defuqumat.io.pwin import parse_pw_input
+
+    text = """&control
+/
+&system
+  ibrav = 1, celldm(1) = 10.0, nat = 2, ntyp = 2, ecutwfc = 20.0, nspin = 2,
+  starting_magnetization = 0.5, -0.5
+/
+&electrons
+/
+"""
+    with pytest.raises(ValueError, match="not read as an assignment"):
+        parse_pw_input(text)
+    parse_pw_input(text.replace("starting_magnetization = 0.5, -0.5",
+                                "starting_magnetization(1) = 0.5, starting_magnetization(2) = -0.5"))

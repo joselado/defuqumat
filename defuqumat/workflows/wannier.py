@@ -280,8 +280,9 @@ def run_wannier(
             pseudo-atomic orbitals less the cut semicore bands.
         spin: at ``nspin = 2``, the channel, 0 or 1.
         dis_win, dis_froz: ``(min, max)`` of the outer and the frozen window in
-            eV, either end ``None`` for open; Wannier90's ``dis_win_min/max``
-            and ``dis_froz_min/max``. Not with ``"auto"``.
+            eV; Wannier90's ``dis_win_min/max`` and ``dis_froz_min/max``. Either
+            end of ``dis_win`` may be ``None`` for open, and only the lower end
+            of ``dis_froz``, as in Wannier90. Not with ``"auto"``.
         exclude_bands: Wannier90's ``exclude_bands``, 1-based indices of the
             solved bands left out of everything. With ``"auto"`` it is set by
             the semicore cut and cannot be given.
@@ -381,6 +382,20 @@ def run_wannier(
                     ("dis_win_min", "dis_win_max", "dis_froz_min", "dis_froz_max")):
         raise ValueError("projections='auto' chooses the outer and frozen sets itself; "
                          "the windows in engine_options would not be read")
+    if not auto:
+        # before the band solve, which is the expensive part
+        from types import SimpleNamespace
+
+        from defuqumat.wannier.engine import _check_windows
+
+        given = dict(engine_options or {})
+        win = (None, None) if dis_win is None else tuple(dis_win)
+        froz = (None, None) if dis_froz is None else tuple(dis_froz)
+        _check_windows(SimpleNamespace(
+            dis_win_min=given.get("dis_win_min", win[0]),
+            dis_win_max=given.get("dis_win_max", win[1]),
+            dis_froz_min=given.get("dis_froz_min", froz[0]),
+            dis_froz_max=given.get("dis_froz_max", froz[1])))
 
     points = uniform_mesh(divisions)
     at = np.asarray(system.cell.at, dtype=float)

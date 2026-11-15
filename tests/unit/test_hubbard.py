@@ -437,6 +437,8 @@ def test_atomic_orbitals_are_renormalised(pseudo_dir):
 
     pseudo = read_upf(pseudo_dir / "Ni.pz-nd-rrkjus.UPF")
     weights = np.asarray(simpson_weights(pseudo.rab))
+    kkbeta = pseudo.kkbeta
+    wide = np.asarray(simpson_weights(np.asarray(pseudo.rab)[:kkbeta]))
     q = np.asarray(pseudo.augmentation.q)
     for orbital in pseudo.orbitals:
         chi = np.asarray(orbital.chi)
@@ -445,8 +447,8 @@ def test_atomic_orbitals_are_renormalised(pseudo_dir):
         for i, projector in enumerate(pseudo.projectors):
             if projector.l != orbital.l:
                 continue
-            cut = projector.cutoff_index
-            overlaps[i] = float(np.sum(projector.beta[:cut] * chi[:cut] * weights[:cut]))
+            beta = np.asarray(projector.beta)
+            overlaps[i] = float(np.sum(beta[:kkbeta] * chi[:kkbeta] * wide))
         norm += float(overlaps @ q @ overlaps)
         assert norm == pytest.approx(1.0, abs=1e-6)
 
@@ -526,3 +528,39 @@ def test_spin_averaged_ns_is_the_identity_without_spin(feo):
     _, _, feo = feo
     ns = initial_ns(feo, 1, [0.0, 0.0])
     assert np.allclose(np.asarray(spin_averaged_ns(ns)), np.asarray(ns))
+
+
+def test_a_paw_orbital_is_normalised_over_kkbeta(pseudo_dir):
+    """``<beta|chi>`` over the dataset-wide ``kkbeta``, as ``upf_check_atwfc_norm`` takes it (audit ``pseudo-paw`` F1, N1).
+
+    The test above repeats the code's own range on a file whose projector is
+    zero past its cutoff, so it could not see the range. On this PAW file
+    ``kkbeta`` is widened to the augmentation sphere and beta is not zero in
+    between: the per-projector range gives a different overlap, and the
+    renormalised orbital has unit norm in the metric of the wide range.
+    """
+    from defuqumat.pseudo.radial import simpson_weights
+
+    pseudo = read_upf(pseudo_dir / "Si.pbe-n-kjpaw_psl.0.1.UPF")
+    kkbeta = pseudo.kkbeta
+    assert kkbeta > max(p.cutoff_index for p in pseudo.projectors)
+    full = np.asarray(simpson_weights(pseudo.rab))
+    wide = np.asarray(simpson_weights(np.asarray(pseudo.rab)[:kkbeta]))
+    q = np.asarray(pseudo.augmentation.q)
+    moved = 0.0
+    for orbital in pseudo.orbitals:
+        if orbital.occupation < 0.0:
+            continue
+        chi = np.asarray(orbital.chi)
+        overlaps = np.zeros(len(pseudo.projectors))
+        for i, projector in enumerate(pseudo.projectors):
+            if projector.l != orbital.l:
+                continue
+            beta = np.asarray(projector.beta)
+            overlaps[i] = float(np.sum(beta[:kkbeta] * chi[:kkbeta] * wide))
+            cut = projector.cutoff_index
+            narrow = float(np.sum(beta[:cut] * chi[:cut] * full[:cut]))
+            moved = max(moved, abs(overlaps[i] - narrow))
+        norm = float(np.sum(chi * chi * full)) + float(overlaps @ q @ overlaps)
+        assert norm == pytest.approx(1.0, abs=1e-6)
+    assert moved > 1e-6, "the file must have a tail between the two cutoffs, or this is a null"

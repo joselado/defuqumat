@@ -372,9 +372,10 @@ class SternheimerSolver:
         # ``nbnd_eff = nbnd``) and the occupation rides inside ``dpsi`` as a
         # weight rather than deciding which bands exist. QE truncates the *solve*
         # at ``setup_nbnd_occ``'s ``nbnd_occ``; here the block stays whole and
-        # the bands past that point are multiplied by an occupation of zero,
-        # which is the same answer at a static shape (rule R2) and costs the
-        # empty bands' share of the CG.
+        # the right-hand side of a band past that point is zeroed in
+        # :meth:`project`, so its row exits the CG at the first test, which is
+        # the same answer at a static shape (rule R2). Their occupation is small
+        # there and not zero, so it is the mask that makes this so.
         self.smearing = smearing
         # **The occupied-band count is one number per spin channel**, because a
         # magnetic insulator's channels are filled to different depths. QE never
@@ -592,7 +593,13 @@ class SternheimerSolver:
                 jnp.conj(occupied[:, :1]) * rhs[:, :1].T,
             )
             rhs, overlaps = self._smeared_projection(rhs, overlaps, ik, spin)
-            return -(rhs - jnp.einsum("mn,mg->ng", overlaps, s_occupied))
+            # The rows past the cutoff are not solved, as ``cgsolve_all`` and
+            # ``incdrhoscf`` run only to ``nbnd_occ``: their occupation at the
+            # cutoff is erfc(3)/2 = 1.1e-5 and not zero, and the level shift
+            # does not make their operator positive definite (audit 2026-11-15,
+            # ``sternheimer`` F1). The two-sphere solver masks them the same way.
+            keep = self.projector_mask[spin][ik][:, None]
+            return jnp.where(keep, -(rhs - jnp.einsum("mn,mg->ng", overlaps, s_occupied)), 0.0)
         # The sharp branch, and the mask is the identity except in the deficient
         # channel of a magnetic insulator. It does two different jobs there, and
         # only the first is about conditioning:

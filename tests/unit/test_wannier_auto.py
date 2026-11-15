@@ -286,3 +286,25 @@ def test_the_automatic_masks_reduce_to_the_energy_windows(silicon):
     masks = run_engine(w.mmn, w.amn, e, kmesh, 8, EngineOptions(num_iter=50, conv_window=3),
                        outer=np.ones_like(e, dtype=bool), frozen=e <= froz)
     assert masks.terms.om_tot == windows.terms.om_tot
+
+
+def test_the_windows_are_checked_as_wannier90_checks_them():
+    """An open-topped or swapped frozen window, a swapped outer one (audit ``wannier`` F1, N1).
+
+    Each one froze nothing, or froze the wrong set, and the run went on.
+    """
+    kmesh, mmn, amn, eig = _si_reference()
+    for options, message in [(dict(dis_froz_min=5.0), "no upper end"),
+                             (dict(dis_froz_min=6.4, dis_froz_max=-10.0), "swapped"),
+                             (dict(dis_win_min=17.0, dis_win_max=-3.0), "swapped")]:
+        with pytest.raises(ValueError, match=message):
+            run_engine(mmn, amn, eig, kmesh, 8, EngineOptions(**options, **OPTIONS))
+
+
+def test_an_outer_window_in_a_gap_is_refused():
+    """In a gap at one k the outer set used to be every band below the window (audit ``wannier`` F2)."""
+    from defuqumat.wannier.disentangle import dis_windows
+
+    eigval = np.array([[0.0, 1.0, 2.0, 5.0, 6.0], [0.0, 1.0, 3.5, 5.0, 6.0]]).T
+    with pytest.raises(ValueError, match="holds no eigenvalue at k-point 0"):
+        dis_windows(eigval, 2, 3.0, 4.0, False, 0.0, 0.0)

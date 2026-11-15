@@ -55,7 +55,9 @@ def _size(path: str, pseudo_dir, k_batch, david) -> int:
         if david is not None:
             options["davidson_basis"] = david
         if k_batch is not None:
-            options["k_batch"] = k_batch
+            # 'all' is the whole axis, which estimate reads as k_batch=None
+            options["k_batch"] = (None if str(k_batch).lower() in ("all", "0")
+                                  else int(k_batch))
         estimate = calculator.estimate(**options)
     print(estimate.report())
     return 0
@@ -348,8 +350,9 @@ def main(argv: list[str] | None = None) -> int:
     size.add_argument("path", help="path to a pw.x input file")
     size.add_argument("--pseudo-dir", default=None,
                       help="where the UPF files are (default: the input's directory)")
-    size.add_argument("--k-batch", type=int, default=None,
-                      help="k-points in flight in the eigensolver (default: all)")
+    size.add_argument("--k-batch", default=None,
+                      help="k-points in flight in the eigensolver, or 'all' (default: "
+                           "the calculator's own dial, from its memory mode)")
     size.add_argument("--david", type=int, default=None,
                       help="Davidson subspace multiple nvecx/nbnd, overriding "
                            "the input's diago_david_ndim (4 here; pw.x's default is 2)")

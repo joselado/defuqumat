@@ -1111,10 +1111,11 @@ def test_the_bias_axis_is_checked_before_the_fixed_density_solve():
     from defuqumat.workflows import transport, ultracell
 
     # Each entry point against the first thing it does that costs anything: the
-    # fixed-density solve where there is one, and the tip sampling where there
-    # is not -- ``run_ultracell_transport`` takes its states already solved.
-    entries = [(transport.run_vertical_transport, "fixed_density_states("),
-               (transport.run_momentum_transport, "fixed_density_states("),
+    # fixed-density solve where there is one (``states_or_solve`` since the
+    # states became a value of their own), and the tip sampling where there is
+    # not -- ``run_ultracell_transport`` takes its states already solved.
+    entries = [(transport.run_vertical_transport, "states_or_solve("),
+               (transport.run_momentum_transport, "states_or_solve("),
                (ultracell.run_ultracell_transport, "_tip_points(")]
     for entry, expensive in entries:
         body = inspect.getsource(entry)
@@ -1357,3 +1358,61 @@ def test_a_closed_channel_sets_no_scale_for_the_window(monkeypatch):
     assert np.abs(every[0]["coherent"]).max() > 0.0
     _agree(windowed, every)
     assert windowed[1]["notes"]["window"][0] < every[1]["notes"]["window"][0]
+
+
+@pytest.mark.parametrize("options, message", [
+    (dict(exchange=0.02), "exchange"),
+    (dict(sigma=0.0), "sigma must be positive"),
+    (dict(impurity=99), "names no atom"),
+    (dict(), "no Fermi level"),
+])
+def test_qpi_refuses_at_the_door(options, message):
+    """Before the band solve: three typos and a run with no Fermi level (audit ``transport-stm`` F3, F4).
+
+    The three checks came after the whole-grid solve, and ``occupations =
+    'fixed'`` gave an energy axis of NaN and NaN maps with no error. A stand-in
+    for the system and the result, since nothing past the door is reached.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.workflows.qpi import run_qpi
+
+    system = SimpleNamespace(nspin=1, noncolin=False, spiral=False,
+                             structure=SimpleNamespace(types=(0, 0)))
+    pseudos = (SimpleNamespace(augmentation=None, paw=None),)
+    result = SimpleNamespace(fermi_energy=None)
+    with pytest.raises(ValueError, match=message):
+        run_qpi(system, pseudos, result, potential=0.05, height=0.7, **options)
+
+
+def test_the_shared_states_are_taken_as_given_and_refuse_a_k_set_beside_them():
+    """``states=`` on the tunnelling routes and QPI (audit 2026-11-15, item 31).
+
+    One band solve for a scan: the routes take a ``WholeGridStates`` as given, and
+    a ``grid``, ``shift`` or ``kpoints`` beside it is refused, since it would say
+    a k-set the states were not solved on. The equality of the maps with and
+    without it is ``tests/regression/test_transport.py``'s (slow).
+    """
+    import inspect
+
+    from defuqumat.workflows import qpi, transport
+    from defuqumat.workflows.transport import WholeGridStates, states_or_solve
+
+    states = WholeGridStates(calculation=None, eigenvalues=np.zeros((1, 2, 3)),
+                             wavefunctions=None, fermi_energy=0.1, homo=None, lumo=None,
+                             conv_thr=1e-6, ethr=1e-8, grid=(4, 4, 1))
+    assert states_or_solve(states, None, None, None) is states
+    assert states.resolved and states.levels == {"fermi_energy": 0.1, "homo": None,
+                                                 "lumo": None}
+    own = WholeGridStates(calculation=None, eigenvalues=None, wavefunctions=None,
+                          fermi_energy=None, ethr=1e-9)
+    assert not own.resolved
+    for beside in (dict(grid=(4, 4, 1)), dict(shift=(1, 1, 0)), dict(kpoints=object())):
+        with pytest.raises(ValueError, match="already solved on their own k-set"):
+            states_or_solve(states, None, None, None, **beside)
+    with pytest.raises(TypeError, match="WholeGridStates"):
+        states_or_solve(object(), None, None, None)
+    assert qpi.QPIBands is WholeGridStates
+    assert "states_or_solve(" in inspect.getsource(qpi.run_qpi)
+    for entry in (transport.run_vertical_transport, transport.run_momentum_transport):
+        assert "states" in inspect.signature(entry).parameters

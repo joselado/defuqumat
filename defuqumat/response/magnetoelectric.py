@@ -220,6 +220,12 @@ def magnetoelectric_tensor(
             lattice = phases[sign][3]
 
         step = np.asarray(phases[+1.0][0]) - np.asarray(phases[-1.0][0])
+        # Each end is folded onto [-q/2, q/2), so a phase pinned at q/2 by
+        # symmetry puts the two ends on opposite edges and the raw step at
+        # nearly a quantum for every delta; the step is defined modulo the
+        # quantum, and the guard reads the reduced one (audit 2026-11-15,
+        # ``topology`` F3)
+        step = step - quantum * np.rint(step / quantum)
         largest_step = max(largest_step, float(np.max(np.abs(step)) / quantum))
         phase_derivative[:, axis] = step / delta
 

@@ -116,3 +116,55 @@ def test_get_magnetic_bands_is_the_route_p_workflow():
         calc.get_magnetic_bands(flux=(1, 2))
     with pytest.raises(ValueError, match="nbnd"):
         calc.get_magnetizability()
+
+
+def test_each_route_refuses_the_options_it_does_not_read(pz_set):
+    """A named facade option one branch dropped is now refused there (audit ``magnetic`` F2, F3, N1).
+
+    ``zeeman=True`` on the ultracell route came back with no Zeeman term; with
+    ``wannier=`` given every extra keyword was dropped, ``qmax`` and ``energy``
+    among them; ``get_magnetic_bands`` dropped ``chern`` under ``scf=True`` and
+    ``conv_thr`` without it. Each refusal comes before any SCF.
+    """
+    calc = _graphene()
+    with pytest.raises(NotImplementedError, match="Zeeman"):
+        calc.get_landau_levels(route="ultracell", flux=(1, 10), nbnd=8, zeeman=True)
+    with pytest.raises(TypeError, match="geometry"):
+        calc.get_landau_levels(route="ultracell", flux=(1, 10), nbnd=8, geometry="ribbon")
+    with pytest.raises(TypeError, match="nbnd and N1"):
+        calc.get_landau_levels(wannier=pz_set, flux=(1, 40), nbnd=8)
+    with pytest.raises(TypeError, match="qmaxx"):
+        calc.get_landau_levels(wannier=pz_set, B=10.0, qmaxx=500)
+    with pytest.raises(TypeError, match="chern and local_only"):
+        calc.get_magnetic_bands(flux=(1, 2), nbnd=4, scf=True, chern=True)
+    with pytest.raises(TypeError, match="conv_thr"):
+        calc.get_magnetic_bands(flux=(1, 2), nbnd=4, conv_thr=1e-10)
+
+
+def test_the_peierls_options_reach_the_workflow(pz_set):
+    """``qmax`` given to the facade is the one ``run_landau_levels`` rounds ``B`` with (``magnetic`` F3)."""
+    calc = _graphene()
+    facade = calc.get_landau_levels(wannier=pz_set, B=2000.0, nlevels=4, dirac=False, qmax=50)
+    direct = run_landau_levels(pz_set, B=2000.0, nlevels=4, qmax=50)
+    assert facade.flux == direct.flux and facade.flux[1] <= 50
+
+
+def test_the_band_and_magnetizability_routes_refuse_before_the_scf(monkeypatch):
+    """The regime is refused before the zero-field SCF (audit 2026-11-15, ``docs-holes`` F3).
+
+    ``get_landau_levels`` checked first; the other two ran the SCF and then let the
+    workflow refuse. The ground state is replaced by a guard, so a call that reaches it
+    fails with the guard's message instead of the regime's.
+    """
+    magnetic = _graphene(spin="collinear", smearing=0.1,
+                         atoms=[("C", (0, 0, 0), 0.5), ("C", (1 / 3, 2 / 3, 0), 0.5)])
+
+    def no_scf(*_args, **_kwargs):
+        raise AssertionError("the zero-field SCF ran before the regime was checked")
+
+    monkeypatch.setattr(magnetic, "_ground_state", no_scf)
+    for scf in (False, True):
+        with pytest.raises(NotImplementedError, match="nspin = 2"):
+            magnetic.get_magnetic_bands(flux=(1, 2), nbnd=8, scf=scf)
+    with pytest.raises(NotImplementedError, match="nspin = 2"):
+        magnetic.get_magnetizability(nbnd=8)

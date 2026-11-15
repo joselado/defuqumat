@@ -262,3 +262,28 @@ def test_nosym_does_not_check_a_group_it_never_applies(pseudo_dir):
     assert not (moved.use_symmetry and not check_symmetry(
         moved.system.cell, moved.system.structure, moved.symmetries
     ))
+
+
+def test_vc_relax_does_not_check_a_group_it_never_applies(pseudo_dir):
+    """The vc-relax twin: under ``nosym`` a step that leaves the detected group runs on (audit ``forces`` F2).
+
+    ``_check_geometry`` checked ``previous.symmetries``, the group detected
+    whatever ``nosym`` says, so a strained axis or a displaced atom stopped a
+    valid ``nosym`` vc-relax with a message blaming a bug. With symmetry on the
+    same step is still refused.
+    """
+    import jax.numpy as jnp
+    import numpy as np
+
+    from defuqumat.workflows.vc_relax import _check_geometry
+
+    for extra, refused in ((", nosym = .true.", False), ("", True)):
+        built, moved = _displaced(pseudo_dir, extra)
+        strained = np.asarray(moved.system.cell.at).copy()
+        strained[2] *= 1.03
+        stretched = moved.at_cell(jnp.asarray(strained)).system
+        if refused:
+            with pytest.raises(RuntimeError, match="broke a symmetry"):
+                _check_geometry(stretched, built)
+        else:
+            _check_geometry(stretched, built)

@@ -92,7 +92,8 @@ class SpinSusceptibility(eqx.Module):
     #: grid does not contain the pole.
     magnon: float | None = eqx.field(static=True, default=None)
     #: How the magnon energy was found: ``"crossing"`` (the root of
-    #: ``lambda_max(omega) = 1``, which is exact and needs no broadening) or
+    #: ``lambda_max(omega) = 1``, read at ``omega + i eta``, so it moves at
+    #: second order in the broadening, see :func:`_locate`) or
     #: ``"peak"`` (the maximum of the spectral function, which is what is left
     #: once the mode is inside the Stoner continuum and Landau-damped).
     method: str = eqx.field(static=True, default="crossing")
@@ -278,7 +279,10 @@ def run_spin_susceptibility(
             empty states -- the minority ones are where the majority electrons
             go.
         broadening: ``eta``, Ry. It sets the width of the spectral function's
-            peak and nothing else; the pole is found without it.
+            peak, and every frequency but the static ones is read at
+            ``omega + i eta``, the crossing included. The crossing moves at
+            second order in ``eta``: on ``h-fcc-magnon-field.in`` at ``q = 0`` it
+            is ``0.018204 + 10.7 eta^2`` Ry, so 4.3e-5 Ry at the default.
         ecut_response: the cutoff (Ry) of the G-set the response is a matrix
             over -- Elk's ``gmaxrf``. **On a transition metal this, and not the
             band count, is what the Goldstone residual measures**: ``B_xc`` of
@@ -451,11 +455,22 @@ def _locate(frequencies, x0, kernel, head, enhancement, points):
 
     **The pole is a root of ``lambda_max(omega) = 1``, not a maximum of the
     spectral function**, and finding it that way is both cheaper and more
-    honest. Below the Stoner onset ``X_0`` is Hermitian and ``lambda_max`` is
-    real and rises monotonically with ``omega``, so the crossing is a
-    one-dimensional root on a handful of frequencies -- no broadening enters
-    it, and it says "below zero" where the state is unstable instead of
-    reporting the grid's own edge as a magnon.
+    honest. Below the Stoner onset ``X_0`` is Hermitian at ``eta = 0`` and
+    ``lambda_max`` is real and rises monotonically with ``omega``, so the
+    crossing is a one-dimensional root on a handful of frequencies, linearly
+    interpolated between the samples, and it says "below zero" where the state
+    is unstable instead of reporting the grid's own edge as a magnon.
+
+    **The samples are the user's frequencies, so they carry ``i eta``**: the
+    eigenvalues are those of ``X_0(omega + i eta) F``, which is not Hermitian,
+    and the real part of ``lambda_max`` moves at second order in ``eta``. On
+    ``h-fcc-magnon-field.in`` at ``q = 0`` (Larmor point 0.02 Ry, 40
+    frequencies from 0.001 to 0.04) the crossing reads 0.018375, 0.018247,
+    0.018215 and 0.018207 Ry at ``eta`` = 4e-3, 2e-3, 1e-3 and 5e-4, which is
+    ``0.018204 + 10.7 eta^2`` to the printed digit (audit 2026-11-15,
+    ``magnetism-response`` F2). The shift grows toward the Stoner onset, where
+    the curvature of ``lambda(omega)`` is largest. At the default it is 2 per
+    cent of the 1.8e-3 that the Goldstone truncation costs on the same cell.
 
     Inside the continuum the mode is Landau-damped: ``lambda_max`` picks up an
     imaginary part, there is no root, and what is left is a broadened peak.

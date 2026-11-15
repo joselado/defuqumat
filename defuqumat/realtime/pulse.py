@@ -75,6 +75,23 @@ def _unit(vector) -> np.ndarray:
     return vector / norm
 
 
+def switch_slack(time):
+    """How far below ``time`` a grid point may sit and still count as the kick's.
+
+    One slack for every reader of a kick's switch: :meth:`Kick.kappa_at`, the
+    on-grid test of an augmented run (:func:`~defuqumat.realtime.propagate.
+    kick_jumps`) and the window of :func:`~defuqumat.realtime.spectra.
+    conductivity_from_kick`. It is relative, because ``start + n dt`` lands a
+    few ulps off a decimal kick time, and at ``t >= 128`` an ulp is 2.8e-14, so
+    the absolute 1e-14 it replaces was no slack at all there: ``dt = 0.3`` puts
+    ``times[431]`` at 129.29999999999998, a kick at 129.3 switched on one step
+    late, and an ultrasoft run refused it as off the grid (audit 2026-11-15,
+    ``realtime`` F2). 1e-12 of the time is thousands of ulps and far below any
+    half step.
+    """
+    return 1.0e-12 * jnp.maximum(1.0, jnp.abs(time))
+
+
 class Pulse:
     """A field, as ``kappa(t)`` in 1/bohr on Hartree atomic units of time.
 
@@ -128,7 +145,7 @@ class Kick(Pulse):
     time: float = 0.0
 
     def kappa_at(self, t):
-        on = jnp.where(t >= self.time - 1.0e-14, 1.0, 0.0)
+        on = jnp.where(t >= self.time - switch_slack(self.time), 1.0, 0.0)
         return on * self.strength * jnp.asarray(_unit(self.direction))
 
 

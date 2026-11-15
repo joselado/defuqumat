@@ -432,19 +432,23 @@ def atomic_projections(
             "the whole k-grid, which is the same physics, or pass "
             "symmetrize=False"
         )
-    if calculation.spiral and symmetrize and calculation.use_symmetry and (
-        calculation.symmetries is not None and calculation.symmetries.nsym > 1
-    ):
-        # ``build_projection_symmetry`` turns a spinor column with the SU(2)
-        # image of the spatial rotation, and an operation of a spiral's spin
-        # space group (:mod:`defuqumat.system.spiral`) carries no such turn:
-        # it carries ``Rot_z(q . f)`` about the spiral axis. Not written.
+    if calculation.spiral:
+        # Refused whatever ``symmetrize`` says. The orbitals are built on
+        # ``basis_kpoints``, which for a spiral is the doubled list (k + q/2,
+        # then k - q/2), so they have 2 nk rows against nk rows of states, and
+        # each spinor component would have to be projected on the orbitals of
+        # its own sphere, as ``angular_momentum.py`` splices them. The earlier
+        # refusal fired only with symmetry on and sent the user to nosym,
+        # which is the input that reached the mismatch (audit 2026-11-15,
+        # ``hubbard-projwfc`` F2). The symmetrised form is a second missing
+        # piece: the group average turns a spinor with the spatial rotation,
+        # where a spin-space operation turns it about the spiral axis by q . f.
         raise NotImplementedError(
-            "a symmetrised projection of a spin spiral is not implemented: the "
-            "group average turns each spinor with the spatial rotation, where "
-            "an operation of the spin space group turns it about the spiral "
-            "axis by q . f. Run with nosym = .true. and the whole k-grid, or "
-            "pass symmetrize=False"
+            "the atomic projections of a spin spiral are not implemented: the "
+            "two spinor components live on the spheres of k + q/2 and k - q/2, "
+            "and the projection on the orbitals of each sphere is not written. "
+            "The site moments of a spiral are get_angular_momenta under nosym; "
+            "a PDOS needs the commensurate supercell"
         )
     channels = calculation_channels(calculation)
     if not channels:
