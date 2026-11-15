@@ -824,3 +824,36 @@ def test_a_kick_inside_the_run_is_crossed_at_its_grid_point(pseudo_dir):
     with pytest.raises(NotImplementedError, match="between two points of the time grid"):
         kick_jumps(ultrasoft, Sin2.from_intensity(1e11, 1.55, 1) + Kick(0.01, time=1.01),
                    times)
+
+
+def test_the_checkpoint_name_is_the_one_np_savez_writes(tmp_path):
+    """The resume looks for the file ``np.savez`` wrote (audit ``realtime`` F1).
+
+    ``np.savez`` appends ``.npz``; the resume looked for the name as given, so a
+    collinear ``nspin = 2`` run (``<name>.channel0``) and a name without the
+    suffix never resumed.
+    """
+    from defuqumat.realtime.propagate import checkpoint_path, read_checkpoint, write_checkpoint
+
+    assert checkpoint_path(tmp_path / "rt.npz") == tmp_path / "rt.npz"
+    assert checkpoint_path(tmp_path / "rt") == tmp_path / "rt.npz"
+    assert checkpoint_path(tmp_path / "rt.npz", 1, 2) == tmp_path / "rt.channel1.npz"
+    for name, channel, count in (("rt", 0, 1), ("rt.npz", 1, 2)):
+        path = checkpoint_path(tmp_path / name, channel, count)
+        write_checkpoint(path, signature=np.asarray("s"), done=3)
+        assert int(read_checkpoint(path)["done"]) == 3
+    assert not list(tmp_path.glob("*.partial.npz"))
+
+
+def test_a_truncated_checkpoint_starts_the_run_over(tmp_path):
+    """A kill inside the write left a file the resume could not open (audit ``realtime`` N1).
+
+    The write is now to a temporary name and a rename; a file that is broken
+    anyway is read as no file, with a warning.
+    """
+    from defuqumat.realtime.propagate import read_checkpoint
+
+    broken = tmp_path / "rt.npz"
+    broken.write_bytes(b"PK\x03\x04 not a whole archive")
+    with pytest.warns(RuntimeWarning, match="cannot be read"):
+        assert read_checkpoint(broken) is None

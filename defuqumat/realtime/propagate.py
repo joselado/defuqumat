@@ -1394,9 +1394,7 @@ def propagate(calculation, states, weights, v_scf, pulse, *, dt: float,
     pairs = channel_arrays(calculation, states, weights)
     results = []
     for channel, (own, carried) in enumerate(pairs):
-        path = checkpoint
-        if checkpoint is not None and len(pairs) > 1:
-            path = Path(f"{checkpoint}.channel{channel}")
+        path = None if checkpoint is None else checkpoint_path(checkpoint, channel, len(pairs))
         results.append(_propagate_channel(
             calculation, own, carried, v_scf, pulse, dt=dt, duration=duration,
             start=start, propagator=propagator, k_batch=k_batch,
@@ -1452,8 +1450,8 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
         np.asarray(times), np.asarray(kappa_t), np.asarray(kappa_mid), propagator,
         block_steps, np.concatenate([rows for rows, _ in chunks]), centre,
         states, weights, kcart, channel, None if ns is None else np.asarray(ns))
-    if checkpoint is not None and Path(checkpoint).exists():
-        saved = np.load(checkpoint)
+    saved = None if checkpoint is None else read_checkpoint(checkpoint)
+    if saved is not None:
         if str(saved["signature"]) == signature:
             current, energy = saved["current"], saved["energy"]
             norm_drift, excited, done = (float(saved["norm_drift"]),
@@ -1512,8 +1510,9 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
         kept = np.sum(np.abs(overlap) ** 2, axis=1)  # (nk, nbnd)
         excited += float(np.sum(np.asarray(w) * (1.0 - kept)))
         if checkpoint is not None:
-            np.savez(checkpoint, signature=np.asarray(signature), current=current,
-                     energy=energy, norm_drift=norm_drift, excited=excited, done=index + 1)
+            write_checkpoint(checkpoint, signature=np.asarray(signature), current=current,
+                             energy=energy, norm_drift=norm_drift, excited=excited,
+                             done=index + 1)
 
     # Ry bohr of band-energy slope to the current density in Hartree units: the
     # velocity is dH_Ha/dk, half the Rydberg one, and the charge is -1.
@@ -1531,3 +1530,51 @@ def _propagate_channel(calculation, states, weights, v_scf, pulse, *, dt, durati
         step_radius=dt_ry * _reach(lower, upper, centre),
         symmetry_operations=1 if symmetrise is None else len(symmetrise),
     )
+
+
+def checkpoint_path(checkpoint, channel: int = 0, nchannels: int = 1) -> Path:
+    """The file a channel's chunks are kept in, ending in ``.npz`` as ``np.savez`` writes it.
+
+    ``np.savez`` appends ``.npz`` to a name without it, and the resume looked
+    for the name as given, so a collinear ``nspin = 2`` run (``<name>.channel0``)
+    and any name without the suffix never resumed and left an orphan behind
+    (audit 2026-11-15, ``realtime`` F1).
+    """
+    base = str(checkpoint)
+    if base.endswith(".npz"):
+        base = base[:-4]
+    if nchannels > 1:
+        base = f"{base}.channel{channel}"
+    return Path(base + ".npz")
+
+
+def write_checkpoint(path, **arrays) -> None:
+    """``np.savez`` to a temporary name, then a rename, so a kill mid-write keeps the last file.
+
+    Written in place, a run killed by its time limit inside the write left a
+    truncated archive the resume could not open (audit 2026-11-15, ``realtime`` N1).
+    """
+    import os
+
+    path = checkpoint_path(path)
+    partial = path.with_name(path.name[:-4] + ".partial.npz")
+    np.savez(partial, **arrays)
+    os.replace(partial, path)
+
+
+def read_checkpoint(path):
+    """The saved arrays, or ``None`` when there is no file or it cannot be read."""
+    import warnings
+    import zipfile
+
+    path = checkpoint_path(path)
+    if not path.exists():
+        return None
+    try:
+        saved = np.load(path)
+        saved["signature"]  # noqa: B018 -- the read that fails on a truncated file
+        return saved
+    except (OSError, ValueError, KeyError, EOFError, zipfile.BadZipFile) as error:
+        warnings.warn(f"the real-time checkpoint {path} cannot be read ({error}); "
+                      "the run starts over", RuntimeWarning, stacklevel=3)
+        return None
