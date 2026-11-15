@@ -1490,11 +1490,19 @@ class Calculator:
         )
 
     def get_electrostriction(self, **options):
-        """``d(chi)/d(strain)`` and the four electrostriction tensors."""
+        """``d(chi)/d(strain)`` and the four electrostriction tensors.
+
+        The strain response cached by :meth:`get_strain_response` is **not**
+        handed on: it is solved on the SCF states, and ``electrostriction``
+        takes its primal states from a refinement of them, so the pair would
+        belong to two different bases, which inside a degenerate occupied
+        multiplet is an arbitrary rotation (audit 2026-11-15, ``strain`` F1).
+        It solves its own on the refined states, one strain response more.
+        A ``strain=`` the caller passes is still used as given.
+        """
         from defuqumat.response.electrostriction import electrostriction
 
         result = self._ground_state("the electrostriction tensors")
-        options.setdefault("strain", self._strain_response)
         return electrostriction(
             self.calculation, result,
             **self._defaults_for(electrostriction, options,

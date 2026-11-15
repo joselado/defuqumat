@@ -460,3 +460,16 @@ def test_an_explicit_k_list_follows_a_deformed_cell():
 
     assert after_crystal == pytest.approx(before_crystal, abs=1e-12)
     assert np.max(np.abs(after_cartesian - before_cartesian)) > 1.0e-3
+
+
+def test_electrostriction_does_not_take_the_strain_response_of_the_scf_states():
+    """The cached response is on the SCF states and electrostriction's primal on refined ones (audit ``strain`` F1).
+
+    Handing the slot over paired a tangent and a primal from two bases, an
+    arbitrary rotation inside a degenerate occupied multiplet, and ignored the
+    options the slot was filled with (``opt-repeat`` N1).
+    """
+    from defuqumat.calculator import Calculator
+
+    body = inspect.getsource(Calculator.get_electrostriction)
+    assert "self._strain_response" not in body
