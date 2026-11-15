@@ -579,7 +579,8 @@ The keywords are:
 - **`match_height`**: the plane from which each state is continued into the
   vacuum, between the material and the tip. We explain it below.
 - **`tip_kappa`**: $\kappa$ in 1/bohr, if you want to give it. If you do not give
-  it, the code takes it from the plateau of the potential in the vacuum.
+  it, the code takes it from the plateau of the potential in the vacuum. If you
+  give it, `match_height` continues the states through a flat vacuum.
 - **`tip_frame`**: the axes of a tilted tip, as three rows $x$, $y$, $z$.
 - **`tip_channels`**: also return the map of each channel, in `flow.tip_channels`.
 
@@ -589,8 +590,8 @@ a `pxy` tip weights a state by $|\mathbf k_\parallel + \mathbf G_\parallel|^2/\k
 so it does not see the states at $\Gamma$. On the square hydrogen sheet, with the
 tip plane 3 bohr above it, the part of the zone near X has 28.6% of the Fermi
 surface, and it carries 22.2% of the current with an s tip, 24.1% with $p_z$ and
-28.4% with `pxy`. With the states continued from 2 bohr the three are 22.3%, 24.2%
-and 28.6%.
+28.4% with `pxy`. With the states continued from 2 bohr the three are 22.0%, 24.4%
+and 28.3%.
 
 **Why the states are continued into the vacuum.** A derivative makes the tail of a
 plane-wave state less accurate. The basis cannot represent the decay of a state
@@ -913,8 +914,10 @@ so its size moves by a few per cent with the mesh and its sign does not.
     bohr. With `match_height` the states are continued from a plane through the
     planar average of the potential. Then the error is the lateral change of the
     potential between that plane and the tip, which the average leaves out. On
-    graphene it is 2 to 7% in a lateral ratio 0.5 to 1 bohr above the plane. With
-    `tip_kappa` and no vacuum plateau the continuation takes the vacuum as flat.
+    graphene it is 2 to 7% in a lateral ratio 0.5 to 1 bohr above the plane. If
+    you give `tip_kappa`, the continuation takes the vacuum as flat, also on a
+    cell with a vacuum plateau, and on graphene this makes the s map 0.78 of the
+    raw map 1 bohr above the plane.
     A complex channel such as `{"px": 1, "py": 1j}`
     gives an error on a symmetry-reduced k-mesh, because the completion drops
     the operations with time reversal, which would turn it into its conjugate.

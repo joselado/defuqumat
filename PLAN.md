@@ -30652,7 +30652,9 @@ psi`, and a pure l = 2 operator. `kappa(E)^2 = V_vac - E` from the plateau of th
 - **V8 failed its bound and is recorded as failed**: the decay of the Gamma state of the hydrogen sheet
   fitted over 2 to 4 bohr is 0.682/bohr, against 0.773 from the plateau, a ratio of 0.88 against the
   10 per cent set before the run. The fit runs where the potential is 0.10 to 0.32 Ry below the
-  plateau, so it measures a smaller local decay; the plateau is what the continuation needs.
+  plateau, so it measures a smaller local decay. This is the same effect that made the flat
+  continuation overdamp the tail (below), and the WKB form takes it into account; the plateau stays
+  the `kappa` of Chen's operators, which act at the tip.
 - **V9, the wedge**: graphene's 7-point wedge against the 36-point grid, **3.0e-9 to 7.3e-9** of the
   peak for `px`, `s + 0.7 px`, `s - 0.5 pz`, `pxy`, `dz2`, `dxy + 0.4 s` and `py + 0.5 dxz` (3.3e-9 for
   the s tip). With the rotation transposed (`g` for `g^-1`) it reads **0.30** for `s + 0.7 px` and
@@ -30682,7 +30684,11 @@ map at 3.5 and 4 bohr, where the raw map still decays correctly (the s map is go
 form kept is WKB through the planar average**: `exp(-int_0^d kappa_nG(t) dt)` with `kappa_nG(t)^2 =
 Vbar(t) - e_n + |k + G_par|^2`, `Vbar` the planar average of `SCFResult.potential` from the plane to the
 tip (`continued_components`, trapezoid on steps of at most 0.05 bohr), which reads **1.010 and 0.984**
-of raw at the same heights. The flat form stays where there is no plateau and `tip_kappa` is given.
+of raw at the same heights. **The flat form is what a given `tip_kappa` selects, also on a cell
+with a plateau** (`_tip_assembly` attaches the profile only when `kappa_source` is `"plateau"`; the
+slow test takes its flat arm that way): each component then decays at the plateau, or at `E +
+kappa^2` in a field, and `notes["continuation"]` reads `"flat, at the given kappa"` in both cases,
+which is right only for the second.
 What the average leaves out is the lateral change of the potential above the plane: the s map's bond
 over atom at 3.5 bohr is 0.815 continued against 0.873 raw, 2 per cent apart at 4 bohr, so a lateral
 ratio 0.5 to 1 bohr above the plane is off by 2 to 7 per cent. Far from the plane the profile is flat
@@ -30732,8 +30738,9 @@ an `s - pz` tip read 1e-16 of an atom there, while their lateral gradient is not
 reads 1.57, 1.81 and 2.00 times an atom at 2.4, 4 and 5 bohr (raw), 1.952 at 4 bohr continued from 3
 bohr (the guide); the `pxy` map correlates with the s map at -0.81 at 4 bohr, the pz map at +0.98. On
 the hydrogen sheet the zone near X holds 28.6 per cent of the Fermi surface and carries 22.2, 24.1 and
-28.4 per cent of the current for an s, a pz and a `pxy` tip on the raw tail 3 bohr above it, and 22.3,
-24.2 and 28.6 with the states continued from 2 bohr: a p tip undoes most of the `k_par` suppression.
+28.4 per cent of the current for an s, a pz and a `pxy` tip on the raw tail 3 bohr above it, and 22.0,
+24.4 and 28.3 with the states continued from 2 bohr through the planar average (22.3, 24.2, 28.6 with
+the flat form): a p tip undoes most of the `k_par` suppression.
 
 **Refused by name**: a complex channel on a symmetry-reduced k-set (the completion drops the
 time-reversed operations, and `T_-k(C) = T_k(C^*)` to 5e-14 while `T_-k(C)` differs from `T_k(C)` by
@@ -30752,7 +30759,8 @@ continuation of the exit plane, which also sits in the vacuum; a tip orbital in 
 QPI `landauer` reader, the STM image (the `exit_region = "volume"` limit gives it) and the ultracell
 transport; the lateral change of the potential above the matching plane, which the planar average leaves out
 (a continuation through the whole potential, a three-dimensional vacuum solve); an automatic
-`match_height`; and the default, which stays the raw tail with the diagnostics
+`match_height`; the WKB form with a given `tip_kappa` on a cell with a plateau, and the
+`notes["continuation"]` string there; and the default, which stays the raw tail with the diagnostics
 in `notes["tip"]`, an open choice for the user.
 
 **Slow files for the user** (not run here): `tests/regression/test_tip_orbitals_slow.py` (new),
