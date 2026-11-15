@@ -286,6 +286,12 @@ minutes on four cores. Note that Lu et al. find that the value depends on the su
 ($-10.96$ for the $4\times1\times1$ cell), because $\Delta B$ is one flux quantum
 through it.
 
+The run at $-1$ is a control, because time reversal fixes $E(-) = E(+)$ for every
+case this route accepts. If you trust it, `time_reversal_check=False` skips that run,
+which saves about 40 per cent of the time, and then `chi.asymmetry` is `None`. If one of
+the field runs does not converge, `get_magnetizability` gives an error, because the total
+energy of an unconverged run is not variational.
+
 ## How the routes compare
 
 At 7900 to 13000 T we compared the plane-wave route with Peierls on the Wannier models,

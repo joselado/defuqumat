@@ -49,6 +49,7 @@ holds charge; a memory estimate above the limit; a Davidson solve that does not 
 from __future__ import annotations
 
 import time
+import warnings
 from dataclasses import dataclass, field
 
 import jax
@@ -350,6 +351,14 @@ def run_magnetic_scf(system, pseudos, scf0=None, *, flux=(1, 1), kmesh=(2, 2), n
         ethr = next_ethr(ethr, accuracy, float(calculation.nelec), iteration + 1)
         final_potential = potential_in
     timings["scf_s"] = time.perf_counter() - t_loop
+    if not converged:
+        # the total is then not variational: Hartree and xc at the mixed input
+        # density, the band energy from the output states
+        warnings.warn(
+            f"the route P SCF at flux {p}/{q} did not converge in {len(records)} "
+            f"iterations (dr2 {accuracy:.3e} against conv_thr {conv_thr:.1e}); its "
+            "total_energy is not the energy of a self-consistent state",
+            RuntimeWarning, stacklevel=2)
     field_tesla = 0.0 if p == 0 else float(tesla_from_flux(abs(p), q, float(mcell.area))) * np.sign(p)
     return MagneticSCF(
         flux=(p, q), field_tesla=field_tesla, kmesh=tuple(kmesh), kpoints=kpts, weights=weights,
@@ -438,27 +447,45 @@ class Magnetizability:
     chi_per_unit: float
     chi_per_atom: float
     units: float
-    asymmetry: float
+    asymmetry: float | None
     results: dict = field(repr=False, default_factory=dict)
 
 
 def run_magnetizability(system, pseudos, scf0, *, kmesh, nbnd: int, conv_thr: float = 1e-8,
-                        atoms_per_unit: int = 2, **options) -> Magnetizability:
+                        atoms_per_unit: int = 2, time_reversal_check: bool = True,
+                        **options) -> Magnetizability:
     """``chi`` from the route P energies at ``-1``, ``0`` and ``+1`` flux quantum per cell (``q = 1``).
 
     All three on the same magnetic box. ``atoms_per_unit`` sets the formula unit the molar
     value is per (two for diamond's primitive cell, Lu's "per C2"); the per-atom value is
-    beside it. ``asymmetry`` is ``E(+) - E(-)``, zero by time reversal.
+    beside it. ``asymmetry`` is ``E(+) - E(-)``, zero by time reversal, which is the
+    control: a gauge or sign defect shows there. ``time_reversal_check=False`` skips the
+    ``-1`` run, takes ``E(-) = E(+)``, which time reversal makes exact in every regime the
+    route admits, and leaves ``asymmetry`` at ``None``; it saves about 40 per cent of the
+    call (7 of 18 SCF iterations on the diamond of ``PLAN.md`` P177). Every energy used
+    must come from a converged SCF, or the call raises: an unconverged total is not
+    variational, and the second difference divides its error by ``dB^2``.
     """
+    fluxes = (0, 1, -1) if time_reversal_check else (0, 1)
     results = {p: run_magnetic_scf(system, pseudos, scf0, flux=(p, 1), kmesh=kmesh, nbnd=nbnd,
-                                   conv_thr=conv_thr, **options) for p in (0, 1, -1)}
+                                   conv_thr=conv_thr, **options) for p in fluxes}
+    unconverged = [p for p, r in results.items() if not r.converged]
+    if unconverged:
+        raise RuntimeError(
+            f"the route P SCF did not converge at flux {unconverged} (flux quanta per "
+            "cell), so its total energy is not variational and chi, a second difference "
+            "divided by dB^2, is not defined from it; raise max_iterations or lower "
+            "mixing_beta")
     mcell = magnetic_cell(system.cell, 1, 1)
     b = float(tesla_from_flux(1, 1, float(mcell.area)))
     energies = {p: float(r.total_energy) for p, r in results.items()}
+    asymmetry = energies[1] - energies[-1] if time_reversal_check else None
+    if not time_reversal_check:
+        energies[-1] = energies[1]
     natoms = len(system.structure.types)
     units = natoms / float(atoms_per_unit)
     chi_unit = molar_magnetizability(energies[1], energies[0], energies[-1], b, units)
     chi_atom = molar_magnetizability(energies[1], energies[0], energies[-1], b, natoms)
     return Magnetizability(field_tesla=b, energies=energies, chi_per_unit=chi_unit,
                            chi_per_atom=chi_atom, units=units,
-                           asymmetry=energies[1] - energies[-1], results=results)
+                           asymmetry=asymmetry, results=results)

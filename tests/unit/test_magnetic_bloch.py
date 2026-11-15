@@ -488,3 +488,45 @@ def test_item1_the_full_operator_at_zero_field_against_the_sphere(graphene, pote
                                flux=(0, 1), kpoints=[[0, 0, 0]], nbnd=8, local_only=False)
     difference = bands.eigenvalues[0] - es[0]
     assert np.all(difference < 1e-8) and np.max(np.abs(difference)) < 2.5e-2
+
+
+def test_the_magnetizability_refuses_an_unconverged_field_scf(monkeypatch):
+    """An SCF stopped at its budget has a non-variational total; chi divides its error by dB^2 (audit ``magnetic`` F4)."""
+    from types import SimpleNamespace
+
+    import defuqumat.magnetic.fold as fold
+
+    calls = []
+
+    def stand_in(system, pseudos, scf0, *, flux, **options):
+        calls.append(flux[0])
+        return SimpleNamespace(total_energy=-1.0 + 0.01 * flux[0] ** 2,
+                               converged=flux[0] != 1)
+
+    monkeypatch.setattr(fold, "run_magnetic_scf", stand_in)
+    with pytest.raises(RuntimeError, match=r"did not converge at flux \[1\]"):
+        fold.run_magnetizability(None, None, None, kmesh=(1, 1, 1), nbnd=4)
+
+
+def test_the_time_reversal_control_can_be_skipped(monkeypatch):
+    """``time_reversal_check=False`` runs ``0`` and ``+1`` only and takes ``E(-) = E(+)`` (audit ``opt-repeat`` F3)."""
+    from types import SimpleNamespace
+
+    import defuqumat.magnetic.fold as fold
+
+    calls = []
+
+    def stand_in(system, pseudos, scf0, *, flux, **options):
+        calls.append(flux[0])
+        return SimpleNamespace(total_energy=-1.0 + 0.01 * flux[0] ** 2, converged=True)
+
+    monkeypatch.setattr(fold, "run_magnetic_scf", stand_in)
+    monkeypatch.setattr(fold, "magnetic_cell", lambda cell, p, q: SimpleNamespace(area=10.0))
+    system = SimpleNamespace(cell=None, structure=SimpleNamespace(types=(0, 0)))
+    both = fold.run_magnetizability(system, None, None, kmesh=(1, 1, 1), nbnd=4)
+    assert calls == [0, 1, -1] and both.asymmetry == 0.0
+    calls.clear()
+    one = fold.run_magnetizability(system, None, None, kmesh=(1, 1, 1), nbnd=4,
+                                   time_reversal_check=False)
+    assert calls == [0, 1] and one.asymmetry is None
+    assert one.chi_per_unit == both.chi_per_unit
