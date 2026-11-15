@@ -30761,8 +30761,9 @@ QPI `landauer` reader, the STM image (the `exit_region = "volume"` limit gives i
 transport; the lateral change of the potential above the matching plane, which the planar average leaves out
 (a continuation through the whole potential, a three-dimensional vacuum solve); an automatic
 `match_height`; the WKB form with a given `tip_kappa` on a cell with a plateau, and the
-`notes["continuation"]` string there; and the default, which stays the raw tail with the diagnostics
-in `notes["tip"]`, an open choice for the user.
+`notes["continuation"]` string there. **The default stays the raw tail** for a p or d tip without
+`match_height`, with the diagnostics in `notes["tip"]`: the user's decision of 2026-11-15, chosen
+over an error for such a tip and over a continuation from a plane the code would choose itself.
 
 **Slow files for the user** (not run here): `tests/regression/test_tip_orbitals_slow.py` (new),
 `tests/regression/test_transport.py`, `test_qpi.py`, `test_ultracell_stm.py`, `test_ultracell_sts.py`,
