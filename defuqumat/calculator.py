@@ -597,7 +597,10 @@ class Calculator:
         # **same function** ``Calculation.__init__`` uses -- which in memory
         # mode on a card chooses it from the card -- so the report and the run
         # cannot disagree about the largest per-k-point line in the table.
-        if options.get("band_batch") is None:
+        # "not given", not "given as None": None is a real value of both
+        # dials, the whole axis and every band at once (audit 2026-11-15,
+        # ``calculator`` F2)
+        if "band_batch" not in options:
             options["band_batch"] = resolve_band_batch_for(
                 self.defaults.get("band_batch", "default"), mode, self.system,
                 self.pseudos, self.defaults.get("k_batch", "default"),
@@ -606,7 +609,7 @@ class Calculator:
             )
         options.setdefault("projectors", resolve_projectors(
             self.defaults.get("projectors", "default"), mode))
-        if options.get("k_batch") is None:
+        if "k_batch" not in options:
             # ``'fit'`` included: the same resolver the run uses, at the band
             # batch just resolved, so the report sizes the chunk it will take.
             options["k_batch"] = resolve_k_batch_for(
@@ -832,27 +835,35 @@ class Calculator:
         # it from ``defaults``. It belongs out rather than back in: it says
         # which ``Calculation`` exists, not which run was made over it, and
         # :meth:`_adopt` below already drops the cache when one changes.
+        # A setup-only option is adopted on a hit too: the ground state does not
+        # depend on it, so the SCF stays, but the calculation the responses are
+        # built on does. It was dropped there, and origin_tangent=False after a
+        # plain get_scf() left every response on the old convention (audit
+        # 2026-11-15, ``calculator`` F4). On a miss, ``diagonalization`` and
+        # ``k_batch`` are adopted as well: they are what a ``Calculation`` is
+        # built with, and ``run_scf`` ignores them when handed one, so passing
+        # them per call would otherwise be a silent no-op that still counted as
+        # a cache miss. The states are dropped before the call rather than after
+        # it -- see the docstring -- and the key is the options without the seed
+        # (``_seeded``).
         merged = {name: value for name, value in
                   {**self._defaults_for(run_scf), **options}.items()
                   if name not in SETUP_ONLY_OPTIONS}
+        self._adopt({name: options[name] for name in SETUP_ONLY_OPTIONS if name in options})
         if self._scf is not None and _same_options(merged, self._scf_options):
             return self._scf
-        # ``diagonalization`` and ``k_batch`` are *not* arguments of the SCF:
-        # they are what a ``Calculation`` is built with, and ``run_scf``
-        # documents that it ignores them when handed one. Passing them per call
-        # would otherwise be a silent no-op that still counted as a cache miss
-        # -- the same run, again, under a different name. They rebuild it.
         self._adopt(options)
-        # Before the call rather than after it -- see the docstring. An SCF
-        # makes every response built on the previous one stale in any case.
+        self._drop_states()
+        self._scf = run_scf(self.system, self.pseudos,
+                            calculation=self.calculation, **self._seeded(merged))
+        self._scf_options = merged
+        return self._scf
+
+    def _drop_states(self) -> None:
+        """Empty the SCF slot and every response slot built on it."""
         self._scf = self._strain_response = self._strain_response_options = None
         self._dielectric = self._dielectric_options = None
         self._ultracell = self._ultracell_options = None
-        self._scf = run_scf(self.system, self.pseudos,
-                            calculation=self.calculation, **self._seeded(merged))
-        # The key is the options, without the seed -- see ``_seeded``.
-        self._scf_options = merged
-        return self._scf
 
     def _seeded(self, merged: dict) -> dict:
         """``merged`` with the inherited seed in it, unless a checkpoint wins.
@@ -1658,48 +1669,8 @@ class Calculator:
         from defuqumat.magnetic.conventions import refuse_regime
 
         refuse_regime(self.system, self.pseudos, "Landau levels")
-        # Before the route: the ultracell branch dropped it, and the levels came
-        # back with no Zeeman term and no word (audit 2026-11-15, ``magnetic`` F2).
-        if zeeman:
-            raise NotImplementedError("the Zeeman term is not implemented with the orbital field: "
-                                      "zeeman=True is refused (levels hold one electron per spin)")
-        if route == "ultracell":
-            from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
-            if B is not None or not flux or flux[1] > 100 or nbnd is None and "N" not in options:
-                raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd, or N")
-            peierls_only = [name for name, value, default in (
-                ("geometry", geometry, "torus"), ("width", width, None),
-                ("kappa", kappa, ((0.0, 0.0),)), ("dirac", dirac, None),
-                ("wannier", wannier, None)) if value != default]
-            if peierls_only:
-                raise TypeError(f"route='ultracell' does not read {', '.join(peierls_only)}: "
-                                "those are the Peierls route's")
-            return run_magnetic_ultracell(
-                self.system, self.pseudos, self._ground_state("Landau levels"),
-                flux=flux, nbnd=nbnd, N1=N1, local_only=False, nlevels=nlevels, **options)
-        if route != "peierls":
-            raise ValueError(f"route is 'peierls' or 'ultracell', not {route!r}")
-        from defuqumat.workflows.landau import run_landau_levels
-
-        if nbnd is not None or N1 is not None:
-            raise TypeError("nbnd and N1 are the ultracell route's; the Peierls route "
-                            "takes its band set from the Wannier functions")
-        # run_landau_levels's own options, by name, which were never forwarded
-        # (audit 2026-11-15, ``magnetic`` F3)
-        landau = {name: options.pop(name) for name in
-                  ("energy", "qmax", "cutoff", "degeneracy_tol", "vectors", "bonds")
-                  if name in options}
-        if wannier is None:
-            wannier = self.get_wannier(**options)
-        elif options:
-            raise TypeError(f"get_landau_levels does not read {sorted(options)} with wannier= "
-                            "given: they would go to get_wannier, which is not run")
-        level = (None if getattr(wannier, "edge", None) is not None
-                 else self._ground_state("Landau levels").fermi_energy)
-        return run_landau_levels(wannier, B=B, flux=flux, geometry=geometry, width=width,
-                                 nlevels=40 if nlevels is None else nlevels, kappa=kappa,
-                                 dirac=True if dirac is None else dirac, zeeman=zeeman,
-                                 fermi_energy=level, **landau)
+        return _landau_levels(self, B, flux, route, wannier, geometry, width, nlevels,
+                              kappa, dirac, zeeman, nbnd, N1, options)
 
     def get_magnetic_bands(self, flux=(1, 1), kmesh=(2, 2), nbnd=None, scf=False,
                            chern=False, local_only=False, conv_thr=None, **options):
@@ -1726,8 +1697,7 @@ class Calculator:
         if nbnd is None:
             raise ValueError("get_magnetic_bands needs nbnd, the bands of the magnetic cell: "
                              "q times the occupied bands of the chemical cell, and a few more")
-        # Each branch dropped the other's named options without a word (audit
-        # 2026-11-15, ``magnetic`` N1).
+        # each branch dropped the other's options (audit 2026-11-15, ``magnetic`` N1)
         if scf and (chern or local_only):
             raise TypeError("chern and local_only are the band route's (scf=False); the "
                             "self-consistent route computes neither")
@@ -3189,3 +3159,52 @@ for _name, _method in list(vars(Calculator).items()):
     if _name.startswith("get_") and inspect.isfunction(_method) and _name not in POOL_AWARE:
         setattr(Calculator, _name, _refused_under_pools(_name, _method))
 del _name, _method
+
+
+def _landau_levels(calc, B, flux, route, wannier, geometry, width, nlevels, kappa, dirac,
+                   zeeman, nbnd, N1, options):
+    """:meth:`Calculator.get_landau_levels` after its regime check: the route, and the
+    options each route reads, refused on the other (audit 2026-11-15, ``magnetic`` F2,
+    F3). Routing only; the physics is the two workflows'."""
+    # Before the route: the ultracell branch dropped it, and the levels came
+    # back with no Zeeman term and no word (audit 2026-11-15, ``magnetic`` F2).
+    if zeeman:
+        raise NotImplementedError("the Zeeman term is not implemented with the orbital field: "
+                                  "zeeman=True is refused (levels hold one electron per spin)")
+    if route == "ultracell":
+        from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
+        if B is not None or not flux or flux[1] > 100 or nbnd is None and "N" not in options:
+            raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd, or N")
+        peierls_only = [name for name, value, default in (
+            ("geometry", geometry, "torus"), ("width", width, None),
+            ("kappa", kappa, ((0.0, 0.0),)), ("dirac", dirac, None),
+            ("wannier", wannier, None)) if value != default]
+        if peierls_only:
+            raise TypeError(f"route='ultracell' does not read {', '.join(peierls_only)}: "
+                            "those are the Peierls route's")
+        return run_magnetic_ultracell(
+            calc.system, calc.pseudos, calc._ground_state("Landau levels"),
+            flux=flux, nbnd=nbnd, N1=N1, local_only=False, nlevels=nlevels, **options)
+    if route != "peierls":
+        raise ValueError(f"route is 'peierls' or 'ultracell', not {route!r}")
+    from defuqumat.workflows.landau import run_landau_levels
+
+    if nbnd is not None or N1 is not None:
+        raise TypeError("nbnd and N1 are the ultracell route's; the Peierls route "
+                        "takes its band set from the Wannier functions")
+    # run_landau_levels's own options, by name, which were never forwarded
+    # (audit 2026-11-15, ``magnetic`` F3)
+    landau = {name: options.pop(name) for name in
+              ("energy", "qmax", "cutoff", "degeneracy_tol", "vectors", "bonds")
+              if name in options}
+    if wannier is None:
+        wannier = calc.get_wannier(**options)
+    elif options:
+        raise TypeError(f"get_landau_levels does not read {sorted(options)} with wannier= "
+                        "given: they would go to get_wannier, which is not run")
+    level = (None if getattr(wannier, "edge", None) is not None
+             else calc._ground_state("Landau levels").fermi_energy)
+    return run_landau_levels(wannier, B=B, flux=flux, geometry=geometry, width=width,
+                             nlevels=40 if nlevels is None else nlevels, kappa=kappa,
+                             dirac=True if dirac is None else dirac, zeeman=zeeman,
+                             fermi_energy=level, **landau)

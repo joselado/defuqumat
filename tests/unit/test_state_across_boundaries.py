@@ -152,7 +152,7 @@ def test_for_spin_puts_the_degeneracy_back_on_a_demotion():
     # the one ``with_spin`` returns rather than rebuilds, so it is where the
     # missing inverse showed: promoted and demoted again, the weights have to
     # come back to where they started.
-    text = _SILICON.replace("K_POINTS automatic\n 2 2 2 0 0 0", "K_POINTS gamma")
+    text = _SILICON.replace("K_POINTS automatic\n 2 2 2 0 0 0", "K_POINTS gamma").format(extra="")
     gamma = build_system(parse_pw_input(text))
     promoted = gamma.with_spin(2, starting_magnetization=[0.3],
                                 tot_magnetization=0)
@@ -444,7 +444,7 @@ def test_an_explicit_k_list_follows_a_deformed_cell():
         "K_POINTS automatic\n 2 2 2 0 0 0",
         "K_POINTS crystal\n 3\n 0.00 0.00 0.00 1.0\n"
         " 0.25 0.25 0.25 1.0\n 0.50 0.25 0.00 2.0",
-    )
+    ).format(extra="")
     system = build_system(parse_pw_input(text))
     before_crystal = np.asarray(system.kpoints.crystal(system.cell))
     before_cartesian = np.asarray(system.kpoints.coords)

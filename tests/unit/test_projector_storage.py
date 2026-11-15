@@ -520,3 +520,44 @@ def test_becsum_rebuilds_a_lazy_set_per_k(path, monkeypatch):
     for a, b in zip(got, expected):
         if b is not None:
             np.testing.assert_allclose(np.asarray(a), np.asarray(b), atol=1e-13)
+
+
+def test_a_setup_option_on_a_cache_hit_is_adopted():
+    """``get_scf(origin_tangent=False)`` after a plain ``get_scf()`` keeps the SCF and takes the option (audit ``calculator`` F4).
+
+    The option was dropped on a hit, so every response afterwards ran on the
+    convention the caller asked to leave. The ground state does not depend on
+    it, so the cache stays and only the calculation is rebuilt.
+    """
+    import defuqumat.calculator as facade
+
+    calls = {"n": 0}
+    real = facade.run_scf
+
+    def counting(*args, **kwargs):
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        calculator = Calculator.from_file(
+            CELL, pseudo_dir="tests/data/pseudo", announce=False)
+        facade.run_scf = counting
+        try:
+            calculator.get_scf(max_iterations=1)
+            assert calculator.calculation.origin_tangent
+            calculator.get_scf(max_iterations=1, origin_tangent=False)
+        finally:
+            facade.run_scf = real
+    assert calls["n"] == 1
+    assert calculator.defaults["origin_tangent"] is False
+    assert not calculator.calculation.origin_tangent
+    # and an explicit None is the whole axis for the estimate, not "not given"
+    # (``calculator`` F2), on a cell with more than one k-point
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        silicon = Calculator.from_file("tests/data/qe/si-epsilon.in",
+                                       pseudo_dir="tests/data/pseudo", announce=False)
+    whole = silicon.estimate(k_batch=None)
+    assert whole.nk > 1 and whole.k_batch in (None, whole.nk)
+    assert silicon.estimate().k_batch == 1  # this CPU's dial
