@@ -546,6 +546,12 @@ def test_the_projected_levels_fall_monotonically_in_J_and_stay_above_the_ladder(
     for r in (r1, r2):
         m = min(len(ref), r.levels.shape[1])
         assert np.min(r.levels[:, :m] - ref[None, :m]) > -1e-8
+    # And from above, on the n = 0 level, which is the one this basis converges: it
+    # reads 0.130 and 0.058 B_ph above the ladder at J = 1 and 2 (2026-11-15). A
+    # positive term added to the projected H keeps every assertion above, so this is
+    # the one that can see it (audit 2026-11-15, ``tests`` hole on P176 step 3).
+    errors = [float((r.levels[0, 0] - ref[0]) / r.b_ph) for r in (r1, r2)]
+    assert errors[0] < 0.2 and errors[1] < 0.09, errors
 
 
 def test_the_projectability_guard_fires_on_a_trial_outside_the_window():

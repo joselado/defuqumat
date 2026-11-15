@@ -530,3 +530,33 @@ def test_the_time_reversal_control_can_be_skipped(monkeypatch):
                                    time_reversal_check=False)
     assert calls == [0, 1] and one.asymmetry is None
     assert one.chi_per_unit == both.chi_per_unit
+
+
+# 8.9 s on this workstation (2026-11-15), above the gate's five seconds for an identity
+@pytest.mark.slow
+def test_the_fold_scf_keeps_time_reversal_on_an_odd_box():
+    """The route P SCF itself, at +1 and -1 flux quantum per cell (audit 2026-11-15, P177 hole).
+
+    No fast test ran the loop (diagonalise, fold, mix, energy). ``H(-B, -k) = conj H(B, k)``
+    holds on the grid when every row's frequency window is mirror-symmetric, which needs an
+    odd box (P177). Silicon at 8 Ry, one k-point, from a uniform density, on the odd 9 x 9 x 9
+    box: E(+) - E(-) = -1.3e-11 Ry (2026-11-15). On the default even 8 x 8 x 8 box at 12 Ry it
+    is 2.1e-5, and 6.1e-6 on 10 x 10 x 10, with both runs at conv_thr = 1e-10: the Nyquist
+    slot of an even box, not the SCF floor. A sign or gauge defect is first order in B,
+    about 0.6 Ry here. The energy is pinned as well, so a change in the loop shows.
+    """
+    calc = Calculator.from_keywords(
+        lattice="fcc", a=10.2 * 0.529177210903,
+        atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+        pseudos={"Si": "Si.pz-vbc.UPF"}, pseudo_dir="tests/data/pseudo",
+        ecut=8 * RY_TO_EV, kmesh=(1, 1, 1), qe={"system": {"nosym": True, "noinv": True}})
+    grid = tuple(calc.calculation.basis.dense.grid)
+    start = {"density": np.full((1,) + grid, calc.calculation.nelec / float(calc.system.cell.volume))}
+    energies = {}
+    for p in (1, -1):
+        r = run_magnetic_scf(calc.system, calc.pseudos, start, flux=(p, 1), kmesh=(1, 1, 1),
+                             nbnd=6, conv_thr=1e-9, verbose=False, grid=(9, 9, 9))
+        assert r.converged and r.iterations <= 15
+        energies[p] = r.total_energy
+    assert abs(energies[1] - energies[-1]) < 1e-9
+    assert energies[1] == pytest.approx(-15.1857113446, abs=1e-8)

@@ -139,3 +139,50 @@ def test_the_spread_counts_spatial_functions_at_nspin_1_and_spin_orbitals_otherw
                            nelec=8.0, nwann=4.0)
     assert result.spread_invariant == pytest.approx(24.0)
     assert np.allclose(result.localization_length, np.sqrt([1.0, 2.0, 3.0]))
+
+
+def _silicon_metric(pseudo, ecut, kmesh, **system):
+    from defuqumat import Calculator
+    from defuqumat.units import RY_TO_EV
+
+    calc = Calculator.from_keywords(
+        lattice="fcc", a=10.2 * 0.529177210903,
+        atoms=[("Si", (0, 0, 0)), ("Si", (0.25, 0.25, 0.25))],
+        pseudos={"Si": pseudo}, pseudo_dir="tests/data/pseudo", ecut=ecut * RY_TO_EV,
+        kmesh=kmesh, qe={"system": {"nosym": True, "noinv": True, **system}})
+    calc.get_scf(conv_thr=1e-10)
+    return calc.get_quantum_metric(nbnd=8)
+
+
+def _check_metric(metric, trace):
+    """Symmetric, positive, and isotropic as a cubic crystal on a cubic mesh must be.
+
+    The run uses no symmetry (``nosym``, ``noinv``), so the isotropy of the
+    localization tensor is not something the code imposed. The trace is pinned
+    (2026-11-15), so a change in the assembly, the fillings or the connection shows.
+    """
+    g = np.asarray(metric.metric)
+    assert np.abs(g - np.swapaxes(g, 1, 2)).max() < 1e-12
+    assert np.linalg.eigvalsh(0.5 * (g + np.swapaxes(g, 1, 2))).min() > 0.0
+    tensor = np.asarray(metric.localization_tensor)
+    mean = np.trace(tensor) / 3.0
+    assert np.abs(tensor - mean * np.eye(3)).max() < 1e-6 * mean
+    assert np.trace(tensor) == pytest.approx(trace, abs=1e-5)
+
+
+# The audit of 2026-11-15 (``tests`` hole on P161) found no test of the plane-wave
+# assembly in the gate. These are the cheapest: 6.5 s and 8.5 s on this workstation
+# with a warm kernel cache, above the gate's five seconds for a check that is not a
+# number against a reference code, so they are slow. Written from a probe with the
+# same calls and parameters (2026-11-15); the tests themselves were not run.
+@pytest.mark.slow
+def test_the_plane_wave_metric_of_silicon_is_isotropic():
+    """Norm-conserving silicon, 12 Ry, the whole 2x2x2 grid: tensor isotropic to 1.6e-8."""
+    _check_metric(_silicon_metric("Si.pz-vbc.UPF", 12.0, (2, 2, 2)), 25.827379755580736)
+
+
+@pytest.mark.slow
+def test_the_ultrasoft_metric_runs_its_connection_stage():
+    """Ultrasoft silicon at Gamma, 20/160 Ry: the augmented stage list, with the connection."""
+    _check_metric(_silicon_metric("Si.pz-n-rrkjus_psl.0.1.UPF", 20.0, (1, 1, 1), ecutrho=160.0),
+                  75.65657570777523)

@@ -29474,7 +29474,7 @@ field kernels, the GIPAW grid projectors and their commutation test) that a dise
 will reuse unchanged. The nine level sets `route-u-q*-{local,full}.npz` stay labelled
 unconverged; the crosscheck reads them for its item 1 and its route U table only.
 
-### P177 -- The plane-wave magnetic Bloch route of Lu et al.: the magnetic box, the GIPAW-dressed projectors, the SCF by the fold, the magnetizability, and the crosscheck of the three routes; `Calculator.get_magnetic_bands`, `get_magnetizability`. ✅ DONE 2026-11-07, with the named gaps below (`tests/unit/test_magnetic_bloch.py` (24), `test_magnetic_cross.py` (3), `test_magnetic_facade.py` (4), counts from `R/collect.log`, with the foundation's two files, on D22 CPU (`R/t1.log`, `R/t3.log`); the fast gate in one slot at 11bd76e5 (`R/gate.log`; b26795bc on master, the same code: the merge rewrote only the butterfly figure's data, from 29 MB to 1.3 MB): `-m 'not slow'`, **3915 passed**, 85 skipped, 1731 deselected, and the two known failures of `tests/unit/test_check_guide.py` (D22's venv has no `yaml`), 1713.65 s (`# exit 1 after 1722 s`, slot 0, CPU 4, started 20:14:57, load 6 to 12); the review's gate at 00ab8475 read 3901 passed and the same two failures; the commits after 11bd76e5 change only `PLAN.md`, `PERFORMANCE.md`, `plans/`, `docs/guide/` and `notebooks/README.md`; `tests/regression/test_magnetic_bloch_slow.py` is slow and was not run, for the user (its fold test now split, and the check half is still above `slot.sh`'s 10-minute timeout); branches `mag-p1` 84253a62, `mag-p2` 1572b852, `mag-cross` 00ab8475, reviewed KEEP AFTER ONE NAMED FIX (p2) and KEEP (cross), the fixes and the record corrections made on `mag-record`; not merged, not pushed)
+### P177 -- The plane-wave magnetic Bloch route of Lu et al.: the magnetic box, the GIPAW-dressed projectors, the SCF by the fold, the magnetizability, and the crosscheck of the three routes; `Calculator.get_magnetic_bands`, `get_magnetizability`. ✅ DONE 2026-11-07, with the named gaps below (`tests/unit/test_magnetic_bloch.py` (24), `test_magnetic_cross.py` (3, of which two check the committed level sets and run no defuqumat code, audit 2026-11-15), `test_magnetic_facade.py` (4), counts from `R/collect.log`, with the foundation's two files, on D22 CPU (`R/t1.log`, `R/t3.log`); the fast gate in one slot at 11bd76e5 (`R/gate.log`; b26795bc on master, the same code: the merge rewrote only the butterfly figure's data, from 29 MB to 1.3 MB): `-m 'not slow'`, **3915 passed**, 85 skipped, 1731 deselected, and the two known failures of `tests/unit/test_check_guide.py` (D22's venv has no `yaml`), 1713.65 s (`# exit 1 after 1722 s`, slot 0, CPU 4, started 20:14:57, load 6 to 12); the review's gate at 00ab8475 read 3901 passed and the same two failures; the commits after 11bd76e5 change only `PLAN.md`, `PERFORMANCE.md`, `plans/`, `docs/guide/` and `notebooks/README.md`; `tests/regression/test_magnetic_bloch_slow.py` is slow and was not run, for the user (its fold test now split, and the check half is still above `slot.sh`'s 10-minute timeout); branches `mag-p1` 84253a62, `mag-p2` 1572b852, `mag-cross` 00ab8475, reviewed KEEP AFTER ONE NAMED FIX (p2) and KEEP (cross), the fixes and the record corrections made on `mag-record`; not merged, not pushed)
 
 The route of Lu et al. (PRL 135, 196401 (2025), arXiv:2505.06585): the wavefunction of the magnetic
 cell on a real-space box, the magnetic boundary condition `u(xi1 + 1) = exp(-i 2 pi p xi2) u`, the
@@ -29937,6 +29937,19 @@ and only then the odd 75 x 25 x 25 box (three times the size); neither was run. 
 asserting a tolerance its own `conv_thr` does not deliver": the difference fell from 1.45e-6 at
 iteration 6 to 1.63e-7 at iteration 7, so the number is the SCF floor, and the 1e-10 rerun is the
 follow-up, not a defect of the operator.
+
+*The experiment, run on silicon (2026-11-15, audit `tests` hole on P177).* Si.pz-vbc, the
+two-atom fcc cell, `q = 1`, flux +1 and -1, one k-point and 2x2x2, both at `conv_thr = 1e-10`,
+on this workstation's cores 0 to 3: at 12 Ry the default box is 8 x 8 x 8, and `E(+) - E(-)`
+reads +2.07e-5 Ry on one k-point and -2.11e-5 on 2x2x2; on 10 x 10 x 10 it is 6.11e-6, and on
+the odd 9 x 9 x 9 box **1.56e-12**. At 8 Ry from a uniform density the odd box gives -1.3e-11.
+So at `conv_thr = 1e-10` the asymmetry of an even box is not the SCF floor, it is the Nyquist
+slot, and an odd box makes time reversal exact. Relative to the second difference it is 2e-5
+here (0.6 Ry per flux quantum) and 2.6e-6 on diamond, so `chi` does not move at the printed
+digits. The default box is not changed: the odd 2-3-5 sizes are far apart (diamond's 50 x 18 x 18
+would become 75 x 25 x 25). A slow test holds the odd-box identity and the energy
+(`tests/unit/test_magnetic_bloch.py::test_the_fold_scf_keeps_time_reversal_on_an_odd_box`,
+8.9 s, run once before it was marked slow).
 
 `chi = -(E+ - 2 E0 + E-)/dB^2` (`M/chi.log`): **-11.40 x 1e-6 cm^3/mol per C2** (the 24-atom cell
 is 12 primitive cells), **-5.70 per C atom**. Lu's `chi_val` (LDA, their dataset unnamed) is -11.16 in
