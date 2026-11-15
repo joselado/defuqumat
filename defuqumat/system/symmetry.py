@@ -129,7 +129,12 @@ class Symmetries(eqx.Module):
 
     @property
     def symmorphic(self) -> bool:
-        return bool(np.allclose(self.translation_array(), 0.0, atol=_TOLERANCE))
+        # folded into [0, 1), so a residue below zero is stored near one; the
+        # zero test is the search's own, QE's eps2 (``fft_factors``)
+        ft = np.asarray(self.translation_array(), dtype=float)
+        if ft.size == 0:
+            return True
+        return bool(np.all(np.minimum(np.abs(ft), np.abs(1.0 - ft)) < _POSITION_TOLERANCE))
 
     def fft_factors(self) -> tuple[int, int, int]:
         """The FFT dimensions must be a multiple of these (``symm_base.f90``).
@@ -151,12 +156,18 @@ class Symmetries(eqx.Module):
                 # ft is stored folded into [0, 1); a translation of 3/4 is the
                 # same grid constraint as one of 1/4.
                 value = min(abs(value), abs(1.0 - value))
-                if value <= _TOLERANCE:
+                # Zero at the tolerance the search accepted it as zero with,
+                # QE's eps2 = 1e-5 (``symm_base.f90:580-586``). At 1e-6 a
+                # residue of -1e-6, which six-decimal thirds leave and which is
+                # stored as 0.999999, read as 1/1000000 and asked for a million
+                # FFT points (audit 2026-11-15, ``system`` F1).
+                if value < _POSITION_TOLERANCE:
                     continue
                 n = int(round(1.0 / value))
                 # QE only accepts translations that are a simple fraction; a
-                # rotation needing anything else is discarded before this point.
-                if n and abs(1.0 / value - n) < 1.0e-4:
+                # rotation needing anything else is discarded before this point,
+                # and the fractions a crystal allows are these four.
+                if n in _CRYSTALLOGRAPHIC_DENOMINATORS and abs(1.0 / value - n) < 1.0e-4:
                     factors[axis] = _lcm(factors[axis], n)
         return tuple(factors)
 

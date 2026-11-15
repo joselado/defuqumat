@@ -314,3 +314,40 @@ def test_a_tolerance_is_part_of_the_key(monkeypatch):
     assert find_symmetries(cell, hcp).nsym < 24
     monkeypatch.undo()
     assert find_symmetries(cell, hcp).nsym == 24
+
+
+_HCP_2C = """
+&control
+  calculation = 'scf'
+/
+&system
+  ibrav = 4, celldm(1) = 4.74, celldm(3) = 1.62, nat = 2, ntyp = 1, ecutwfc = 12.0
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Si 28.0 Si.pz-vbc.UPF
+ATOMIC_POSITIONS crystal
+ Si 0.333333 0.666667 0.25
+ Si 0.666667 0.333333 0.75
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+
+
+def test_six_decimal_thirds_ask_for_no_extra_fft_factor():
+    """hcp in the 2c setting, written to six decimals (audit 2026-11-15, ``system`` F1).
+
+    The search accepts a residue of 1e-6 as zero at 1e-5 and stores -1e-6 as
+    0.999999; ``fft_factors`` tested zero at 1e-6, read it as 1/1000000 and
+    asked for a million points on both hexagonal axes. The only fraction this
+    setting has is the screw's 1/2 along c.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
+
+    system = build_system(parse_pw_input(_HCP_2C))
+    group = system.symmetry_group()
+    assert group.nsym == 24
+    assert tuple(group.fft_factors()) == (1, 1, 2)
+    assert not group.symmorphic
