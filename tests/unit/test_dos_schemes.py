@@ -264,3 +264,36 @@ def test_the_tetrahedra_corners_land_in_the_k_set_the_run_built(
         f"the corners span {int(corners.max()) + 1} points and the run has {nk}")
     assert set(np.unique(corners)) == set(range(nk)), (
         "every k-point the run diagonalised has to be a corner of something")
+
+
+@pytest.mark.parametrize(("case", "extra"), [
+    ("al-tetrahedra", "    nosym = .true.,"),
+    ("alas-piezo", "    noinv = .true.,"),
+])
+def test_the_projected_dos_folds_its_tetrahedra_with_the_runs_group(case, extra):
+    """The PDOS tetrahedra index the same k-set the run built (audit 2026-11-15, ``hubbard-projwfc`` F1).
+
+    The test above pinned ``tetrahedra_for``; the PDOS built its own tetrahedra
+    beside it from the crystal's group with time reversal on, the shape that
+    test was written against. They now agree corner for corner with the DOS's.
+    """
+    from pathlib import Path
+
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.scf.tetrahedra import tetrahedra_for
+    from defuqumat.system.builder import build_system
+    from defuqumat.workflows.pdos import _projection_tetrahedra
+
+    path = Path(__file__).resolve().parents[1] / "data" / "qe" / f"{case}.in"
+    system = build_system(parse_pw_input(
+        path.read_text().replace("&system", f"&system\n{extra}")))
+    crystal = system.symmetry_group()
+    dos = tetrahedra_for("tetrahedra_lin", system.kpoints,
+                         system.symmetry_group(nosym=system.nosym), system.cell,
+                         system.grid_symmetry())
+    pdos = _projection_tetrahedra("tetrahedra", system.kpoints, crystal, system.cell,
+                                  system.grid_symmetry())
+    np.testing.assert_array_equal(np.asarray(pdos.corners), np.asarray(dos.corners))
+    stale = _projection_tetrahedra("tetrahedra", system.kpoints, crystal, system.cell)
+    assert not np.array_equal(np.asarray(stale.corners), np.asarray(dos.corners)), (
+        "the old call must differ on this cell, or the test is a null")
