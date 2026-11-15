@@ -620,8 +620,11 @@ out is the lateral change of the potential, and it shows close to the plane: at
 3.5 bohr the ratio of a bond to an atom in the s map is 0.815 continued against
 0.873 raw. At 4 bohr the difference is 2%. `flow.notes["tip"]` says how far
 Chen's condition is from holding, as a fraction of $\kappa^2$:
-`vacuum_condition` for the potential and `basis_residue` for the basis. With
-`match_height` both are measured at the plane. Here the plane at 3 bohr gives 1.20
+`vacuum_condition` for the potential and `basis_residue` for the basis, and
+`helmholtz_residue` is the two together. With `match_height` they are measured
+at the plane. `tail_noise` gives, for each orbital, the error that the
+convergence threshold of the states puts on its amplitude at the tip, because the
+derivative makes the error of the large plane waves larger. Here the plane at 3 bohr gives 1.20
 and 0.82, so the potential is still far from flat there. The `pxy` contrast and
 $p_z/s$ at 4 bohr move by 0.7% if the plane is at 2.5 bohr instead.
 
@@ -904,14 +907,15 @@ so its size moves by a few per cent with the mesh and its sign does not.
 
     A tip orbital uses the derivative rule of Chen, which is exact only where the
     potential is flat, and `flow.notes["tip"]` says how far that is from true.
-    Without `match_height` the derivative is taken on the raw plane-wave tail,
-    and far from the material that tail has an error the derivative makes
-    larger: on graphene at 40 Ry the map of a $p_z$ tip is wrong above about 4
+    Without `match_height` the derivative is taken on the raw plane-wave tail.
+    Far from the material that tail has an error, and the derivative makes it
+    larger. On graphene at 40 Ry the map of a $p_z$ tip is wrong above about 4
     bohr. With `match_height` the states are continued from a plane through the
-    planar average of the potential, and the error is then the lateral change of
-    the potential between that plane and the tip, which the average leaves out:
-    on graphene 2 to 7% in a lateral ratio 0.5 to 1 bohr above the plane. With
-    `tip_kappa` and no vacuum plateau the continuation takes the vacuum as flat. A complex channel such as `{"px": 1, "py": 1j}`
+    planar average of the potential. Then the error is the lateral change of the
+    potential between that plane and the tip, which the average leaves out. On
+    graphene it is 2 to 7% in a lateral ratio 0.5 to 1 bohr above the plane. With
+    `tip_kappa` and no vacuum plateau the continuation takes the vacuum as flat.
+    A complex channel such as `{"px": 1, "py": 1j}`
     gives an error on a symmetry-reduced k-mesh, because the completion drops
     the operations with time reversal, which would turn it into its conjugate.
     Real channels work there and are turned with each operation. `match_height`

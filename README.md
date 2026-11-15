@@ -708,7 +708,7 @@ notebook [40](notebooks/40_stm_images.ipynb).
   $\hat D_{p_x} = \kappa^{-1}\partial_x$ and so on. A CO tip is the pair $p_x$,
   $p_y$, and on graphene it makes the center of each hexagon 1.95 times brighter
   than an atom, where an s tip sees it dark. The states can be continued into the
-  vacuum from a plane, so that the derivative is exact far from the material.
+  vacuum from a plane, so that the derivative stays accurate far from the material.
   `calc.get_vertical_transport(tip_orbital=...)`, notebook
   [41](notebooks/41_vertical_transport.ipynb).
 - **Which k-points the tunnelling current comes from**. This is the same
