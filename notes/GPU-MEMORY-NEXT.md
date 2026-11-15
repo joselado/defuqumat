@@ -774,6 +774,19 @@ on every perturbation of every iteration and never read. On Si8 at 216 k that is
 8x the core the dial keeps. Move it inside the guard; then pass `Projectors` and use
 `at_k(ik)` in `becsum_of`, `_raw_becsum`, `mixed_becsum` and the velocity operator.
 
+**The KPM conductivity is a second whole-k `at_kcart` under a `jvp`** (audit 2026-11-15,
+`opt-memory` F2, fable's decision to record it and not chunk it yet). `kpm/conductivity.py:
+velocity_tangents` builds the moving parts on the whole grid that `whole_grid_calculation`
+expands to, and keeps `ndir + 1` stored tables (stored even on a lazy set): 96 MiB each on si16
+at 4x4x4, a 846 MiB peak step across the call (`PERFORMANCE.md`, "The KPM optical
+conductivity"). These tables are outside the estimate `choose_k_batch` fits. The change is not
+inside the `sum_k` walk, because `conductivity_moments` is a module-level `jit` that closes over
+nothing and `Calculation` is a host object: it is a host loop over k-chunks, `at_rows`, then
+`velocity_tangents` and `conductivity_moments` per chunk, with the random key folded with the
+global k index, the raw norm sums divided after the loop, a padded last chunk, and
+`variate_corrections` on the same per-chunk tangents. That is the mechanism this item plans
+for the response velocity, and it should be built once for both.
+
 ### 8. A streamed resume still lands the source set on the device once -- priority 2, small
 
 **Done 2026-09-28** (220.8 -> 71.1 MB on the resume measured). `mmap_mode` was not needed:

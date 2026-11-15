@@ -11621,6 +11621,19 @@ Memory per k-point in flight, `(ndir + 2) N ndim` complex numbers (240 MB at N =
 three directions), the moments `ndir^2 N^2` per channel summed over k, and the velocity's tangents,
 `ndir` projector tables (one more on a lazy set, whose primal is stored for the derivative).
 
+**The velocity tables are on the whole grid, not per k-point** (audit 2026-11-15, `opt-memory` F2;
+fable decided to record it and not chunk it yet). `velocity_tangents` builds `at_kcart` on every
+k-point of the whole grid at once, so the `ndir + 1` tables are each `nk_whole npwx nkb` complex
+numbers, while the recursion is per k-point. Measured on si16 at 12 Ry on the whole 4x4x4 grid
+(64 k-points, `npwx` 1524, `nkb` 64, `projectors='rebuild'`, `k_batch` 1), four cores of this
+workstation, one call: the stored table is 96.0 MiB and the three tangents 288.1 MiB, the
+resident set grows by 512 MiB across the call and peaks 846 MiB above its start (each `jvp`
+builds the primal again), in 11.0 s. The recursion of one k-point at the same size is about
+76 MB. So the tables are the peak when `nk_whole nkb` is larger than the moment count `N`, and
+they are outside what `choose_k_batch` fits, which sizes the `'rebuild'` core. The chunked form
+is a host loop over k-chunks (`at_rows`, then `velocity_tangents` and `conductivity_moments` per
+chunk) and is `notes/GPU-MEMORY-NEXT.md` item 7.
+
 ## The KPM density of states of a PAW run (P171) against Davidson NSCF + DOS (CPU, D22, 2026-11-07)
 
 si64 with `Si.pz-n-kjpaw_psl.0.1.UPF` at `ecutwfc = 12`, `ecutrho = 96` Ry (the file is
