@@ -682,3 +682,115 @@ def test_a_matching_plane_outside_the_gap_is_refused():
     # the s tip takes the orbital path once it is continued
     tip, _ = _tip_assembly("s", plain, *args, match_height=0.6)
     assert tip is not None and tip.orbital.is_point
+
+
+# --------------------------------------------------------------------------
+# the presets
+# --------------------------------------------------------------------------
+
+
+def _square_well_orbital(l, kappa, radius, tmp_path):
+    """A bound state of a spherical well at ``-kappa^2``, as a UPF file tabulates it.
+
+    Inside ``j_l(k r)``, outside ``A k_l(kappa r)``, matched in value and slope,
+    so the tail amplitude ``A`` is known exactly. Written as a minimal UPF with
+    ``pseudo_energy``, so :func:`bardeen_weight` reads it the way it reads a
+    real dataset.
+    """
+    from scipy.optimize import brentq
+    from scipy.special import spherical_jn, spherical_kn
+
+    def mismatch(k):
+        inside = k * spherical_jn(l, k * radius, True) / spherical_jn(l, k * radius)
+        outside = (kappa * spherical_kn(l, kappa * radius, True)
+                   / spherical_kn(l, kappa * radius))
+        return inside - outside
+
+    grid = np.linspace(0.3, 3.0 + 2.0 * l, 4000) / radius
+    values = [mismatch(k) for k in grid]
+    k = next(brentq(mismatch, grid[i], grid[i + 1]) for i in range(len(grid) - 1)
+             if np.sign(values[i]) != np.sign(values[i + 1])
+             and abs(values[i]) < 50 and abs(values[i + 1]) < 50)
+    r = np.exp(np.linspace(np.log(1e-5), np.log(60.0), 6000))
+    scale = spherical_jn(l, k * radius) / spherical_kn(l, kappa * radius)
+    radial = np.where(r < radius, spherical_jn(l, k * r),
+                      scale * spherical_kn(l, kappa * r))
+    chi = r * radial
+    norm = np.sqrt(np.sum(0.5 * (chi[1:] ** 2 + chi[:-1] ** 2) * np.diff(r)))
+    chi, tail = chi / norm, scale / norm
+    label = "1S" if l == 0 else "2P"
+    path = tmp_path / f"well-{l}.UPF"
+    numbers = lambda a: " ".join(f"{x:.16e}" for x in a)
+    path.write_text(
+        '<UPF version="2.0.1">\n<PP_HEADER element="X" pseudo_type="NC" '
+        'number_of_wfc="1" number_of_proj="0" mesh_size="%d" z_valence="1.0" '
+        'l_max="0" core_correction="F" is_ultrasoft="F" is_paw="F" '
+        'functional="LDA" relativistic="scalar"/>\n'
+        '<PP_MESH><PP_R>%s</PP_R><PP_RAB>%s</PP_RAB></PP_MESH>\n'
+        '<PP_LOCAL>%s</PP_LOCAL>\n<PP_NONLOCAL></PP_NONLOCAL>\n'
+        '<PP_PSWFC><PP_CHI.1 label="%s" l="%d" occupation="1.0" '
+        'pseudo_energy="%.16e">%s</PP_CHI.1></PP_PSWFC>\n'
+        '<PP_RHOATOM>%s</PP_RHOATOM>\n</UPF>\n'
+        % (r.size, numbers(r), numbers(r * np.gradient(np.log(r))), numbers(0 * r),
+           label, l, -kappa**2, numbers(chi), numbers(chi**2)))
+    return path, label, tail
+
+
+def test_the_bardeen_weight_is_the_tail_with_one_constant_for_every_l(tmp_path):
+    """``K_l = (pi / 2 kappa) A_l`` for both ``l``, ``A_l`` the exact tail.
+
+    The constant is the addition theorem's, and what matters is that it does
+    not depend on ``l``: a weight computed numerically from a tabulated orbital
+    (a second derivative on a log mesh, as for a UPF file) then gives the right
+    s against p weight. A well of radius 2.5 bohr binding its state at the
+    tunnelling energy, so its tail is exactly ``k_l(kappa r)``.
+    """
+    from defuqumat.transport.tip_presets import bardeen_weight
+
+    kappa = 0.6
+    ratios = []
+    for l in (0, 1):
+        path, label, tail = _square_well_orbital(l, kappa, 2.5, tmp_path)
+        weight = bardeen_weight(path, label, kappa, cutoff=20.0)
+        ratios.append(abs(weight) * 2.0 * kappa / np.pi / abs(tail))
+    # the same constant for both l, which is what a relative weight needs:
+    # 1.006983 and 1.006990 measured; the 0.7 per cent from the exact tail is
+    # the well's kink under a numerical second derivative, and it falls
+    # linearly with the mesh (0.19 per cent at four times the points)
+    assert ratios[0] == pytest.approx(ratios[1], rel=1e-4)
+    assert ratios[0] == pytest.approx(1.0, rel=1e-2)
+
+
+def test_the_angular_norms_turn_a_normalised_orbital_into_chens_weight():
+    """``(N_b / N_s)^2 int P_b^2 dOmega = 4 pi`` for every orbital of Table I."""
+    from defuqumat.transport.tip_presets import ANGULAR_NORM
+
+    theta = np.linspace(0.0, np.pi, 400)
+    phi = np.linspace(0.0, 2.0 * np.pi, 800, endpoint=False)
+    t, p = np.meshgrid(theta, phi, indexing="ij")
+    n = np.stack([np.sin(t) * np.cos(p), np.sin(t) * np.sin(p), np.cos(t)], -1)
+    area = np.sin(t) * (theta[1] - theta[0]) * (phi[1] - phi[0])
+    for name, ratio in ANGULAR_NORM.items():
+        polynomial = np.real(multiplier(name, -1.0j * n))
+        if ORBITALS[name] == 2:
+            polynomial = -np.real(multiplier(name, n))
+        norm = np.sum(polynomial**2 * area) * ratio**2
+        assert norm == pytest.approx(4 * np.pi, rel=2e-3), name
+
+
+def test_the_presets_are_single_families_with_the_weight_of_their_orbital():
+    from defuqumat.transport.tip_presets import PRESETS, bardeen_weight, preset, PSEUDO_DIR
+
+    assert set(PRESETS) >= {"CO", "W", "Pb"}
+    co = TipOrbital.resolve("CO")
+    assert co.names == ("py", "px") and len(co.channels) == 2
+    weights = co.coefficients([0.57], co.basis())
+    expected = np.sqrt(3.0) * abs(bardeen_weight(PSEUDO_DIR / "O.pbe-n-rrkjus_psl.1.0.0.UPF",
+                                                 "2P", 0.57)) / 0.57
+    assert np.abs(weights[0]).max() == pytest.approx(expected, rel=1e-12)
+    assert preset("Pb").names == ("py", "pz", "px")
+    assert preset("W").names == ("dz2",)
+    # converged in the radial cutoff
+    o2p = [bardeen_weight(PSEUDO_DIR / "O.pbe-n-rrkjus_psl.1.0.0.UPF", "2P", 0.57, c)
+           for c in (12.0, 16.0)]
+    assert o2p[0] == pytest.approx(o2p[1], rel=5e-3)
