@@ -227,6 +227,11 @@ because that is what decides whether it is a session or a phase.
   1.6e-12, P177, P178; diamond itself not rerun); the orbital magnetization identity on a Chern insulator;
   the Zeeman term, forces and stress, the current-density functional, a field off `a3`, spinors,
   `nspin = 2`, ultrasoft and PAW, all refused by name.
+- **Tip orbitals beyond P179**: the mixed presets (W with s and dz2, CO with its sigma part) from the
+  apex PDOS of a tip model, the orbital matrix of a computed tip and Bardeen with an explicit tip,
+  spinor tip channels, complex channels and `match_height` on a reduced k-set, the continuation of
+  the exit plane, a tip orbital in the STS spectrum, QPI, the STM image and the ultracell transport,
+  an automatic `match_height`, and the default (raw tail or continued), the user's choice.
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
 - **Degenerate multiplets, beyond the filling cut** (P147 did the filling cut, P148 the ultrasoft
   `becsum` and the subspace `eigh` tangent, P149 the one tolerance rule, the electron-phonon cap and
@@ -30593,3 +30598,150 @@ branch gained tests in the commits between the two runs.
 `test_magnetic_bloch_slow.py`, `test_magnons.py` and `test_magnon_regimes.py` (docs only),
 `tests/unit/test_parallel.py::test_newton_krylov_under_pools_reproduces_one_pool`, and the
 new slow tests in `tests/unit/test_magnetic_bloch.py` and `tests/unit/test_quantum_metric.py`.
+
+### P179 -- The orbital of the tip in the vertical transport: Chen's derivative rule as Landauer channels, the states continued into the vacuum, and preset tips. ✅ DONE 2026-11-15 (branch `tip-orbitals` from `0bcee8b8`; `tests/unit/test_tip_orbitals.py`, 25 fast tests, run on this workstation under a 5 GB cap with the other transport, STM, QPI, degeneracy, facade, calculator, guide and notebook fast files, 709 passed and 3 deselected at the branch head; `tests/regression/test_tip_orbitals_slow.py`, 16 slow tests, collected and not run, each the probe of this record with its numbers in its docstring; the fast gate not run here, by the user's rule of 2026-11-15 that a full suite goes to Triton; not merged, not pushed)
+
+The user asked (2026-11-15) for the non-local Landauer map of P66 to take a tip orbital (s, pz,
+px/py) instead of a point, with an orbital size as an input and preset values for typical tips. The
+plan, its fable review and the review's scripts are `plans/tip-orbitals.md` and
+`plans/tip-orbitals-review/`; the user decided that `"pxy"` is two incoherent channels and that the
+size enters as "weights + UPF presets" (no free size parameter). `defuqumat/transport/tip.py`,
+`defuqumat/transport/tip_presets.py`, the tip path of `workflows/transport.py:_assemble` and of
+`_assemble_momentum`, `tip_orbital`, `tip_kappa`, `tip_frame`, `tip_channels` and `match_height` on
+`run_vertical_transport` and `run_momentum_transport` (the facade forwards them by name), the guide
+section "The orbital of the tip" in `docs/guide/stm.md` with its figure `docs/figures/stm_tip/`, and a
+section of notebook 41. Neither `pw.x` nor Elk has a tip orbital or a continuation into the vacuum
+(`PP/src/stm.f90:188-213` is Tersoff-Hamann, Elk's task 162 is `wfplot` at `efermi`, and QE's
+`stm_wfc_matching` was removed in 4.2, `Doc/release-notes:1646`; the `reference-source` agent).
+
+**The point tip of P66 is the s tip exactly**, and the generalisation is Chen's (PRB 42, 8841
+(1990)) with the operators of Mandi and Palotas (PRB 91, 165406 (2015), Table I): `M_n ~ sum_b C_b^*
+D_b psi_n(r0)`. In the Landauer form a tip is `Gamma_t = sum_c |chi_c><chi_c|`, incoherent channels,
+each a coherent combination of orbitals, each the existing Gram form with `a -> sum_b C_cb^* D_b a`, so
+the map stays non-negative channel by channel (the probe-particle model of Krejci et al., PRB 95,
+045407 (2017), treats every tip orbital as its own channel). In plane waves `D_b` is diagonal in G,
+`d/dx_a -> i (k+G)_a` in the tip frame, so the basis amplitudes are sampled once per k-point and
+combined per channel, per energy (the `kappa(E)^-l`) and, on a wedge, per tip point. `dz2` is taken as
+`(3 d_z^2 - nabla^2)/kappa^2`, equal to Table I's `3 d_z^2/kappa^2 - 1` where `nabla^2 psi = kappa^2
+psi`, and a pure l = 2 operator. `kappa(E)^2 = V_vac - E` from the plateau of the planar average of
+`SCFResult.potential` (spin-averaged at `nspin = 2`, where it is `(up, down)`), or `tip_kappa`.
+
+**The numbers.**
+
+- **V1, the s tip is the old map**: the `F = 1` path against the old branch to 1e-13 (fast); the map
+  of `h-sheet.in` (peak 1.25e-4) and of the spinor `h-sheet-noncolin.in` with a magnetic tip (peak
+  3.8e-7, at the lowest band, where E_F gives 3.6e-16 and no test) **bit-identical** to `0bcee8b8` on
+  the same cores (`taskset -c 0-3`, a worktree of the old commit).
+- **V2, the multiplier is the derivative**: against a central difference at `h = 1e-3` bohr,
+  0.9e-6 to 1.2e-6 with slope 2.00 in `h` (the review), on a hexagonal and a sheared cell, through the
+  folded and the unfolded sampler (fast, `rtol` 2e-5 for p and 2e-4 for d).
+- **V3, the plane integral of the map is the momentum sum**: synthetic, 1e-11 (fast); on the real code
+  paths, `h-sheet.in` with a 16 x 16 map, **0.0** for a raw pz tip and **6e-16 to 1.1e-15** for the
+  continued s, pz, `s - pz` and `pxy` tips.
+- **V4, the three p channels in the volume limit are `kappa^-2` times the kinetic energy density** of
+  `band_kinetic_density` with the delta weights, to 1e-11 (fast).
+- **V5, the frame turns with the states**: `T_px[F](R r) = T_px[F R](r)` on C3-symmetric states, and
+  `pxy` keeps the lattice symmetry, to 1e-11 (fast).
+- **V6, the sign**: `T(s - pz)/T(s + pz) >= 30.3` at every pixel of the hydrogen sheet 3 bohr above
+  it, and the same with the tip below (`side = -1`); so `s - pz` points its lobe at the sample.
+- **V7, the conjugate**: on the Dirac pair of a model honeycomb at K with the tip on an atom, the
+  chiral tip whose angular momentum matches the winding of `psi` around the site (measured on a circle
+  of 0.2 bohr, no derivative) couples and its conjugate gives 1e-20 of it, invariant under a rotation
+  inside the pair (fast). At the hollow both windings are present and both chiral tips couple equally,
+  which is why the test is on an atom (the review).
+- **V8 failed its bound and is recorded as failed**: the decay of the Gamma state of the hydrogen sheet
+  fitted over 2 to 4 bohr is 0.682/bohr, against 0.773 from the plateau, a ratio of 0.88 against the
+  10 per cent set before the run. The fit runs where the potential is 0.10 to 0.32 Ry below the
+  plateau, so it measures a smaller local decay; the plateau is what the continuation needs.
+- **V9, the wedge**: graphene's 7-point wedge against the 36-point grid, **3.0e-9 to 7.3e-9** of the
+  peak for `px`, `s + 0.7 px`, `s - 0.5 pz`, `pxy`, `dz2`, `dxy + 0.4 s` and `py + 0.5 dxz` (3.3e-9 for
+  the s tip). With the rotation transposed (`g` for `g^-1`) it reads **0.30** for `s + 0.7 px` and
+  **0.095** for `dxy + 0.4 s`, so the test can fail; `s - 0.5 pz` does not move, the mirror being its
+  own transpose.
+- **The weight of an orbital**: on a spherical well whose tail is known exactly, `K_l / A_l` is
+  1.006983 and 1.006990 of `pi / (2 kappa)` for l = 0 and 1 (fast): one constant for every l, and the
+  0.7 per cent from 1 is the well's kink under a numerical second derivative, 0.19 per cent at four
+  times the points.
+- **Timing** (`PERFORMANCE.md`, the last section): the assembly of the s map is 0.19 s on graphene at
+  one core, and a tip orbital costs 1.09x (pz, dz2) to 1.26x (pxy continued) of it, against a band
+  solve of 29.3 s.
+
+**The finding: a derivative of the plane-wave tail meets the floor of the basis in the vacuum.** On
+graphene at 40 Ry the ratio `pz/s` over an atom should fall to `1 + |K|^2/kappa^2 = 3.92`, the Dirac
+states being the only ones left, and the raw tail reads 4.58, 5.42, 7.47, 12.8, 14.1 and 49.8 at 3, 4,
+5, 6, 7 and 8 bohr; at 60 Ry 2.83, 4.58, 5.92, 1.00, 0.012, 4.78. The `pxy` ratio hollow/atom holds
+between 3 and 6 bohr (1.80 to 2.04 at both cutoffs) and breaks above (5513 at 8 bohr). The s map decays
+correctly to 5 bohr; it is the derivative, which multiplies the ringing of the truncated basis by
+`G_z`, that fails first. **`match_height` continues every state from a matching plane**: the window is
+folded onto the plane, each in-plane component goes up as `exp(-kappa_nG d)` with `kappa_nG^2 = V_vac -
+e_n + |k + G_par|^2` and the state's own eigenvalue, and the orbitals act through the complex
+wavevector `q_par + i kappa_nG n`, so `-Q.Q = kappa_n^2` and the continued state obeys the vacuum
+equation exactly. Then `pz/s` falls smoothly to 3.9226 (40 Ry) and 3.7874 (60 Ry), each the analytic
+value with its run's `kappa`; `dz2/s` to 116.0 and 107.4, `(3 kappa_K^2/kappa^2 - 1)^2`; the `pxy`
+ratio to 2.0000 at both cutoffs and both matching planes, and at 4 bohr it is **1.9485 at 40 and at 60
+Ry**, where the raw tail gave 1.808 and 1.926. Moving the plane from 3 to 2.5 bohr moves that ratio by
+0.6 per cent. The tip points are sampled at their feet on the plane, along the normal, which differs
+from the same in-plane crystal coordinates when `a3` is tilted. The momentum route continues only the
+bands below the vacuum level, and refuses when one above it carries weight above `_WINDOW_TOL`.
+
+**The residue is two numbers.** `helmholtz_residue`, `|nabla^2 psi - kappa^2 psi|/|kappa^2 psi|` over
+the states at the tip, is split into `vacuum_condition`, `|V(r) - V_vac| psi` against `kappa^2 psi`
+(the potential, from its Fourier series at the points), and `basis_residue`, `|nabla^2 psi - (V - e_n)
+psi|` against the same (the vacuum Kohn-Sham equation, which a truncated basis does not satisfy
+pointwise; a second derivative, so the bound for a d tip and pessimistic for a p one). With a
+continuation both are taken at the matching plane. On graphene the plane at 3 bohr reads 1.20 and 0.82;
+on the hydrogen sheet at 15 Ry the raw residue is 1.12 at 3 bohr and 3.4 at 5. The diagnostics at the
+feet were first folded at the tip's height and so changed with it; fixed before the record.
+
+**Chen's weights are those of unnormalised angular functions.** `(1/kappa^l) D_b k_0(kappa |r - r0|) =
+k_l(kappa rho) P_b(n)` with `P_b` the plain polynomials (checked by finite differences for every
+orbital), whose norms on the sphere are `4 pi`, `4 pi/3`, `4 pi/15` (dxy, dyz, dxz), `16 pi/15`
+(dx2-y2), `16 pi/5` (dz2). So the rotation of a d channel keeps `D^T W D = W` and is not unitary, equal
+weights on the five d orbitals are not a round tip, and a normalised orbital enters with `N_b/N_s`
+(`sqrt(3)`, `sqrt(15)`, `sqrt(15)/2`, `sqrt(5)/2`). The rotation is fitted on whole shells rather than
+read from Table II.
+
+**The size of an orbital sets its weight and not its map.** In the flat vacuum the projection of a
+state on `Y_b` over a sphere is `a_b i_l(kappa rho)` with `a_b ~ D_b psi(r0)` (the mean-value property),
+so a tip orbital of any size couples as `K_b D_b psi(r0)`. A Gaussian s of width 0.5, 1 and 2 bohr
+sampled through its Fourier transform gives the point map times `exp(kappa^2 w^2/2)` to 0.9925, 0.889
+and 0.19 at 3 bohr (the review): the weight fails before the shape, once the orbital reaches the sheet.
+Bardeen's weight is `K_l = int i_l(kappa r)(e - T_l) R r^2 dr` on the pseudo-orbital with the
+`pseudo_energy` of the UPF file; the overlap `int R i_l r^2 dr` is `K_l/(kappa_atom^2 - kappa^2)` in the
+limit and has the pole (`kappa_scan.py`), and a Slater function has no defined `U_t R`. O 2p reads
+1.3075, 1.3072, 1.3040 at radial cutoffs of 8, 12, 16 bohr. The presets are single families with that
+weight: `CO` the O 2p pair px, py, `W` 5d dz2, `Pb` the 6p shell, `Pt` and `Cu` the s orbital; `from_upf`
+builds a mixed tip from shares. `W.pbe-spn-rrkjus_psl.1.0.0.UPF`, `Pb.pbe-dn-rrkjus_psl.1.0.0.UPF` and
+`Cu.pbe-dn-rrkjus_psl.1.0.0.UPF` are added to `tests/data/pseudo`.
+
+**The physics**: at `E_F` the Dirac states of graphene are zero at the hollow by C3, so an s, a pz and
+an `s - pz` tip read 1e-16 of an atom there, while their lateral gradient is not zero and a `pxy` tip
+reads 1.57, 1.81 and 2.00 times an atom at 2.4, 4 and 5 bohr (raw), 1.948 at 4 bohr continued from 3
+bohr (the guide); the `pxy` map correlates with the s map at -0.81 at 4 bohr, the pz map at +0.98. On
+the hydrogen sheet the zone near X holds 28.6 per cent of the Fermi surface and carries 22.2, 24.1 and
+28.4 per cent of the current for an s, a pz and a `pxy` tip: a p tip undoes most of the
+`k_par` suppression.
+
+**Refused by name**: a complex channel on a symmetry-reduced k-set (the completion drops the
+time-reversed operations, and `T_-k(C) = T_k(C^*)` to 5e-14 while `T_-k(C)` differs from `T_k(C)` by
+0.22 for `px + i py`); `match_height` on a reduced k-set; a tip orbital on a spin spiral; tip points on
+both sides of the material; no plateau (`tefield`, `lelfield`) without `tip_kappa`; a matching plane
+not between the material and the tip; a state above the vacuum level inside the energy window of a
+continuation. `_warn_if_the_slab_is_not_between` now accepts a tip below the material, which it warned
+about before.
+
+**What is outstanding**: the mixed presets (W with s and dz2, CO with its sigma part), which need the
+share of each orbital at `E_F` on the apex from a PDOS of a tip model, a Triton calculation not started;
+the full orbital matrix of the apex from a computed tip (Abilio and Palotas, PRB 111, 245425 (2025)),
+and Bardeen with an explicit tip on a separation plane; spinor tip channels (a Pb apex whose p1/2 and
+p3/2 carry different weights per state); complex channels and `match_height` on a reduced k-set; the
+continuation of the exit plane, which also sits in the vacuum; a tip orbital in the STS spectrum, the
+QPI `landauer` reader, the STM image (the `exit_region = "volume"` limit gives it) and the ultracell
+transport; an automatic `match_height`; and the default, which stays the raw tail with the diagnostics
+in `notes["tip"]`, an open choice for the user.
+
+**Slow files for the user** (not run here): `tests/regression/test_tip_orbitals_slow.py` (new),
+`tests/regression/test_transport.py`, `test_qpi.py`, `test_ultracell_stm.py`, `test_ultracell_sts.py`,
+`test_ultracell_augmented.py`, `test_gamma_consumers.py`, and the slow tests of
+`tests/unit/test_calculator.py`: the assembly's loop was restructured and `exit_overlap` split, with the
+s path bit-identical by V1.
