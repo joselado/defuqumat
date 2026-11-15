@@ -702,6 +702,15 @@ notebook [40](notebooks/40_stm_images.ipynb).
   magnetic, and then the map is a tunnelling magnetoresistance image.
   `calc.get_vertical_transport()`, notebook
   [41](notebooks/41_vertical_transport.ipynb).
+- **The orbital of the tip**. The tip can be an s, p or d orbital of its apex atom,
+  or several of them, by the derivative rule of Chen:
+  $M \propto \sum_b C_b^{*} \hat D_b \psi(\mathbf r_0)$, with
+  $\hat D_{p_x} = \kappa^{-1}\partial_x$ and so on. A CO tip is the pair $p_x$,
+  $p_y$, and on graphene it makes the center of each hexagon 1.95 times brighter
+  than an atom, where an s tip sees it dark. The states can be continued into the
+  vacuum from a plane, so that the derivative stays accurate far from the material.
+  `calc.get_vertical_transport(tip_orbital=...)`, notebook
+  [41](notebooks/41_vertical_transport.ipynb).
 - **Which k-points the tunnelling current comes from**. This is the same
   junction with a flat tip, so the map becomes one weight per $\mathbf k$. A
   state at large $\lvert\mathbf k_\parallel\rvert$ decays as
@@ -848,6 +857,7 @@ task of the other code that it refers to.
 | **Scanning-tunnelling microscopy images** | `calc.get_stm()` | (✓)¹⁵ | (✓)¹⁵ |
 | **Tunnelling spectra** $\mathrm{d}I/\mathrm{d}V$ | `calc.get_sts()`, with `calc.get_tunnelling_states()` for one band calculation shared by several maps | | |
 | **Vertical tunnelling transport through a 2D material** | `calc.get_vertical_transport()` | (✓)¹⁶ | |
+| **Tip orbitals** (s, p, d, CO and W tips) in the tunnelling map, and the states continued into the vacuum | `calc.get_vertical_transport(tip_orbital=..., match_height=...)` | | |
 | **Which k-points the tunnelling current comes from**¹⁷ | `calc.get_momentum_transport()` | | |
 | **Quasiparticle interference**, T-matrix of one impurity | `calc.get_qpi()`, `calc.get_qpi_bands()` | | |
 | **Fermi-surface nesting function** | `calc.get_nesting()` | | ✓ |

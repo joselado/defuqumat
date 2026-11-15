@@ -1900,6 +1900,13 @@ class Calculator:
         ``tip_spin`` / ``tip_polarization``. Given both, the map depends on the
         angle between the two moments, which is a tunnelling-magnetoresistance
         image.
+
+        **The tip can be an orbital** (``PLAN.md`` P179): ``tip_orbital`` takes
+        ``"pz"``, ``"pxy"`` (px and py as two incoherent channels, a CO tip), a d
+        orbital, a dict of Chen's weights for one coherent tip state, a list of
+        channels, or a preset (``"CO"``, ``"W"``, ``"Pb"``); ``match_height``
+        continues the states into the vacuum from a plane, which a derivative of
+        the plane-wave tail needs far from the material.
         """
         from defuqumat.workflows.transport import run_vertical_transport
 

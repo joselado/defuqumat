@@ -65,10 +65,26 @@ from defuqumat.transport.momentum import MomentumTransport, momentum_weights
 from defuqumat.transport.substrate import (
     exit_overlap,
     fold_onto_plane,
+    folded_gram,
     plane_groups,
     spin_projector,
     surface_area,
     volume_overlap,
+)
+from defuqumat.transport.tip import (
+    LAPLACIAN,
+    continued_components,
+    TipAssembly,
+    TipOrbital,
+    decay_constants_at,
+    multiplier,
+    potential_at,
+    rotation_representation,
+    scalar_potential,
+    tip_frame,
+    tip_side,
+    tip_vectors,
+    vacuum_level,
 )
 from defuqumat.system.kpoints import KPoints, is_reduced
 from defuqumat.system.kpoints import for_spin as kpoints_for_spin
@@ -109,6 +125,11 @@ def run_vertical_transport(
     polarization: float = 1.0,
     tip_spin=None,
     tip_polarization: float = 1.0,
+    tip_orbital=None,
+    tip_kappa=None,
+    tip_frame=None,
+    tip_channels: bool = False,
+    match_height: float | None = None,
     incoherent: bool = True,
     exit_region: str = "plane",
     grid: tuple[int, int, int] | None = None,
@@ -173,6 +194,44 @@ def run_vertical_transport(
         tip_polarization: the tip's spin polarization, in ``[-1, 1]``. ``0`` is
             a nonmagnetic tip and gives exactly **half** the unpolarized map,
             which is :func:`defuqumat.stm.image.project_spin`'s convention.
+        tip_orbital: the orbital of the tip apex (``PLAN.md`` P179, Chen's
+            derivative rule as Landauer channels, :mod:`defuqumat.transport.tip`).
+            ``None`` or ``"s"`` is the point tip, which is exactly the s tip;
+            ``"pz"``, ``"px"``, ``"py"`` and the d orbitals ``"dxy"``,
+            ``"dyz"``, ``"dz2"``, ``"dxz"``, ``"dx2-y2"`` are one orbital;
+            ``"pxy"`` is two incoherent channels, px and py (a CO-like tip), and
+            ``"p"`` the three; a dict such as ``{"s": 1, "pz": -1}`` is one
+            coherent tip state with Chen's weights ``C_b``; a list of these is
+            several incoherent channels; and the name of a preset of
+            :mod:`defuqumat.transport.tip_presets`. The tip's z points from the
+            material to the tip, so ``{"s": 1, "pz": -1}`` has its lobe at the
+            sample.
+        tip_kappa: the vacuum decay constant of Chen's rule, in 1/bohr, a number
+            or one per energy. If you do not give it, it is ``sqrt(V_vac - E)``
+            with ``V_vac`` the plateau of the planar average of the local
+            potential in the vacuum. Required when there is no plateau (a
+            saw-tooth or Berry-phase field).
+        tip_frame: ``(3, 3)``, the rows the tip's x, y, z in cartesian
+            components: a tilted tip. By default z is the normal of the exit
+            plane towards the tip and x the first in-plane lattice vector.
+        tip_channels: also return the map of each tip channel on its own
+            (:attr:`~defuqumat.transport.green.VerticalTransport.tip_channels`).
+        match_height: continue every state into the vacuum from this plane (a
+            crystal coordinate along ``exit_axis``, between the material and the
+            tip) instead of reading its plane-wave tail at the tip: each
+            in-plane component then decays as ``exp(-int_0^d kappa_nG(t) dt)``
+            with ``kappa_nG(t)^2 = Vbar(t) - e_n + |k + G_par|^2``, ``Vbar`` the
+            planar average of ``SCFResult.potential`` between the plane and the
+            tip (the vacuum level alone when ``tip_kappa`` is given), and Chen's
+            operators act on it analytically. The lateral change of the
+            potential above the plane is left out, 2 to 7 per cent in a lateral
+            ratio on graphene 0.5 to 1 bohr above it. The plane-wave tail has a floor in the
+            vacuum, and a derivative amplifies it: on graphene at 40 and 60 Ry
+            the pz/s ratio over an atom stops following the decay above about 4
+            bohr (``PLAN.md`` P179). The plane should be close enough for the
+            basis to represent the state there and far enough for the
+            potential to be nearly flat; ``notes["tip"]`` gives both conditions
+            at the plane. It applies to the s tip too.
         incoherent: also build the map with every band tunnelling
             independently, so that the interference can be read off.
         exit_region: ``"plane"``, or ``"volume"`` for the diagnostic in which
@@ -246,6 +305,10 @@ def run_vertical_transport(
 
     grid_energies = _energies(energies, levels, bias, nenergies,
                               float(broadening))
+    tip, tip_notes = _tip_assembly(
+        tip_orbital, used, result, exit_axis, float(exit_height), points,
+        grid_energies, tip_kappa, tip_frame, states, bool(tip_channels),
+        wedge=group is not None, match_height=match_height)
 
     # The store is handed over as it is -- a device array or a host one -- and
     # read one k-point at a time; converting it here would copy every k-point
@@ -258,6 +321,7 @@ def run_vertical_transport(
         tip_spin=tip_spin, tip_polarization=float(tip_polarization),
         incoherent=bool(incoherent), exit_region=exit_region,
         method=method, smearing=smearing, degeneracy_tol=degeneracy_tol,
+        tip=tip,
     )
     if group is None:
         values, extras = _assemble(
@@ -277,10 +341,18 @@ def run_vertical_transport(
     coherent = values["coherent"].reshape((-1,) + shaped)
     incoherent_map = (None if "incoherent" not in values
                       else values["incoherent"].reshape((-1,) + shaped))
+    channel_maps = (None if "channels" not in values else
+                    values["channels"].reshape(
+                        values["channels"].shape[:2] + shaped))
     if coherent.shape[0] == 1:
         coherent = coherent[0]
         if incoherent_map is not None:
             incoherent_map = incoherent_map[0]
+        if channel_maps is not None:
+            channel_maps = channel_maps[0]
+    notes = extras["notes"]
+    if tip is not None:
+        notes = {**notes, "tip": {**tip_notes, **notes.get("tip", {})}}
 
     return VerticalTransport(
         values=coherent,
@@ -299,8 +371,177 @@ def run_vertical_transport(
         grid=None if grid is None else tuple(int(n) for n in grid),
         least_eigenvalue=extras["least_eigenvalue"],
         offdiagonal_weight=extras["offdiagonal_weight"],
-        notes=extras["notes"],
+        notes=notes,
+        tip_orbital=("s" if tip is None else tip.orbital.describe()),
+        tip_channels=channel_maps,
     )
+
+
+def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
+                  energies, tip_kappa, frame, states, channel_maps, *,
+                  wedge=False, match_height=None):
+    """``(TipAssembly or None, notes)``: the tip orbital, ready to assemble.
+
+    ``None`` for the point tip, which then takes P66's branch unchanged. The
+    refusals are the plan's (``plans/tip-orbitals.md`` section 9): a spin
+    spiral, whose two spinor components live at ``k +- q/2`` and would need a
+    factor each; a complex channel on a symmetry-reduced k-set, since the
+    completion drops the time-reversed operations that would carry it to its
+    conjugate (``T_-k(C) = T_k(C^*)``); and no plateau to take ``kappa`` from.
+    """
+    orbital = TipOrbital.resolve(spec)
+    if orbital.is_point and match_height is None:
+        return None, {}
+    if match_height is not None and wedge:
+        raise NotImplementedError(
+            "match_height on a symmetry-reduced k-set is not implemented: the "
+            "matching plane and the direction of the continuation would have to "
+            "go through every operation's image geometry with the tip. Run the "
+            "whole grid (grid=, or nosym = .true.)")
+    if getattr(system, "spiral", False):
+        raise NotImplementedError(
+            "a tip orbital on a spin spiral is not implemented: the two spinor "
+            "components live at k + q/2 and k - q/2, so Chen's derivative would "
+            "need its own k + G on each. Use the s tip")
+    if wedge and not orbital.is_real:
+        raise NotImplementedError(
+            "a complex tip channel on a symmetry-reduced k-set is not "
+            "implemented: completing the wedge drops the time-reversed "
+            "operations, which carry the map at -k to the map with the "
+            "conjugate weights, so px + i py would be summed as if it were its "
+            "own time reverse. Run the whole grid (grid=, or nosym = .true.)")
+
+    side = tip_side(system, exit_axis, exit_height, points)
+    axes = tip_frame(system.cell, exit_axis, side, frame)
+    energies = np.atleast_1d(np.asarray(energies, dtype=float))
+    notes = {"orbital": orbital.label, "channels": orbital.describe(),
+             "side": int(side), "frame": axes.tolist()}
+    if tip_kappa is not None:
+        kappa = np.broadcast_to(np.asarray(tip_kappa, dtype=float),
+                                energies.shape).copy()
+        if np.any(kappa <= 0.0):
+            raise ValueError(f"tip_kappa must be positive, got {tip_kappa!r}")
+        notes["kappa_source"] = "given"
+    else:
+        if (getattr(system, "efield", None) is not None
+                or getattr(system, "berry_field", None) is not None):
+            raise NotImplementedError(
+                "this run has an electric field, so the vacuum has no single "
+                "level to take Chen's decay constant from: pass tip_kappa= (in "
+                "1/bohr)")
+        level = vacuum_level(system, result.potential, exit_axis)
+        kappa = decay_constants_at(level["plateau"], energies)
+        heights = np.unique(np.round(np.atleast_2d(points)[:, exit_axis], 12))
+        offsets = [potential_at(level["profile"], h) - level["plateau"]
+                   for h in heights]
+        notes.update({
+            "kappa_source": "plateau",
+            "vacuum_level": level["plateau"],
+            "plateau_spread": level["spread"],
+            "vacuum_gap_bohr": level["gap_bohr"],
+            # the planar average at the tip against the plateau: large means
+            # the tip is not yet in the flat vacuum
+            "tip_potential_offset": float(max(offsets, key=abs)),
+        })
+    notes["kappa"] = [float(k) for k in kappa]
+    basis = orbital.basis()
+    potential, plateau = None, None
+    if result is not None and getattr(result, "potential", None) is not None:
+        scalar = scalar_potential(system, result.potential)
+        potential = np.fft.fftn(scalar) / scalar.size
+        plateau = notes.get("vacuum_level")
+        if plateau is None and not (getattr(system, "efield", None) is not None
+                                    or getattr(system, "berry_field", None) is not None):
+            plateau = vacuum_level(system, result.potential, exit_axis)["plateau"]
+    match = None
+    if match_height is not None:
+        match = _matching_plane(system, exit_axis, exit_height, points,
+                                float(match_height), side, plateau, energies,
+                                kappa)
+        # the planar average the WKB continuation decays through; without a
+        # plateau (tip_kappa in a field) the vacuum is taken as flat
+        if notes.get("kappa_source") == "plateau":
+            match["profile"] = vacuum_level(system, result.potential,
+                                            exit_axis)["profile"]
+            notes["continuation"] = "wkb through the planar average"
+        else:
+            notes["continuation"] = "flat, at the given kappa"
+        notes.update({"match_height": float(match_height),
+                      "match_distance_bohr": match["distances"]})
+    return TipAssembly(
+        orbital=orbital, basis=basis,
+        coefficients=orbital.coefficients(kappa, basis),
+        frame=axes, kappa=kappa,
+        ethr=None if states is None else getattr(states, "ethr", None),
+        channel_maps=channel_maps, potential=potential, plateau=plateau,
+        match=match,
+    ), notes
+
+
+def _matching_plane(system, exit_axis, exit_height, points, height, side,
+                    plateau, energies, kappa):
+    """The matching plane of a vacuum continuation, checked.
+
+    It has to lie between the material and every tip point, on the tip side:
+    going from the exit plane towards the tip, the atoms come first, then the
+    matching plane, then the tip. The plateau the continuation decays against is
+    the vacuum level, or, when ``tip_kappa`` was given instead,
+    ``E + kappa(E)^2`` at the first energy, which is the same statement.
+    """
+    positions = np.asarray(system.structure.positions_crystal(system.cell))
+    along = lambda x: np.mod(side * (np.asarray(x, dtype=float)
+                                     - float(exit_height)), 1.0)
+    atoms = along(positions[:, exit_axis])
+    plane = float(along(height))
+    tips = along(np.atleast_2d(points)[:, exit_axis])
+    if not (atoms.max() < plane and np.all(plane < tips)):
+        raise ValueError(
+            f"match_height = {height:g} must lie between the material and the "
+            "tip: going from the exit plane towards the tip, the atoms first, "
+            "then the matching plane, then every tip point")
+    bg = np.asarray(system.cell.bg, dtype=float)
+    normal = float(side) * bg[exit_axis] / np.linalg.norm(bg[exit_axis])
+    spacing = float(system.cell.volume) / surface_area(system.cell, exit_axis)
+    if plateau is None:
+        plateau = float(np.atleast_1d(energies)[0] + np.atleast_1d(kappa)[0] ** 2)
+    distances = sorted({round(float(np.mod(side * (p - height), 1.0) * spacing), 8)
+                        for p in np.atleast_2d(points)[:, exit_axis]})
+    return {"height": height, "axis": int(exit_axis), "normal": normal,
+            "side": int(side), "spacing": spacing, "plateau": float(plateau),
+            "distances": distances}
+
+
+def _turned_tips(tip, rotations, cell, npts):
+    """The tip carried by each operation completing a wedge, per image point.
+
+    An operation takes the tip to ``r M + t`` (crystal rows); the orbital goes
+    with it, which in the tip frame is the rotation ``F Q^T F^T`` with ``Q =
+    A^-1 M A`` the same operation on cartesian rows. Its channels' coefficients
+    turn by :func:`~defuqumat.transport.tip.rotation_representation` on whole
+    shells. Returns ``None`` when the tip is the same in every image (``s``,
+    ``pz``, the incoherent ``pxy``): ``sum_c c c^dagger`` is then invariant and
+    nothing has to be sampled per point.
+    """
+    basis = tip.orbital.basis(full_shells=True)
+    base = tip.orbital.coefficients(tip.kappa, basis)       # (nE, nc, nb)
+    at = np.asarray(cell.at, dtype=float)
+    frame = np.asarray(tip.frame, dtype=float)
+    density = np.einsum("eca,ecb->eab", base, base.conj())
+    turned, same = [], True
+    for operation in np.asarray(rotations, dtype=float):
+        cartesian = np.linalg.inv(at) @ operation @ at
+        rotation = frame @ cartesian.T @ frame.T
+        representation = rotation_representation(basis, rotation)
+        image = np.einsum("ab,ecb->eca", representation, base)
+        turned.append(image)
+        moved = np.einsum("eca,ecb->eab", image, image.conj())
+        same = same and np.allclose(moved, density, rtol=1e-10,
+                                    atol=1e-12 * max(1.0, np.abs(density).max()))
+    if same:
+        return None
+    per_point = np.concatenate(
+        [np.repeat(image[:, None], npts, axis=1) for image in turned], axis=1)
+    return tip.with_coefficients(per_point, basis)
 
 
 def run_momentum_transport(
@@ -319,6 +560,10 @@ def run_momentum_transport(
     smearing: str = "gaussian",
     spin=None,
     polarization: float = 1.0,
+    tip_orbital=None,
+    tip_kappa=None,
+    tip_frame=None,
+    match_height: float | None = None,
     grid: tuple[int, int, int] | None = None,
     shift: tuple[int, int, int] | None = None,
     kpoints=None,
@@ -367,6 +612,16 @@ def run_momentum_transport(
             spinor components through its own 2x2 projector, which the trace
             over a plane does not collapse the same way, so it is left to the
             map rather than approximated.
+        tip_orbital, tip_kappa, tip_frame: the orbital of the tip, as in
+            :func:`run_vertical_transport` (``PLAN.md`` P179). A plane tip has
+            no position, so only its orientation enters: the tip plane's Gram
+            matrix is built from the coefficients multiplied by Chen's ``D_b``,
+            one per incoherent channel, and the columns are summed over the
+            channels. A ``px, py`` tip weights each state by ``|k+G|_par^2 /
+            kappa^2``, so it does not see ``k_par = 0``.
+        match_height: the vacuum continuation of :func:`run_vertical_transport`:
+            the tip plane's Gram matrix from the states continued from this
+            plane.
         grid, shift, kpoints, nbnd, conv_thr: re-solve at fixed density on a
             denser k-set. This is the convergence parameter of the whole
             quantity -- ``W(k)`` *is* a function of k, so the grid is its
@@ -449,6 +704,12 @@ def run_momentum_transport(
     grid_energies = _energies(energies, levels, bias, nenergies,
                               float(broadening))
     wavefunctions = np.asarray(wavefunctions)
+    probe = np.zeros((sweep.size, 3))
+    probe[:, exit_axis] = sweep
+    tip, tip_notes = _tip_assembly(
+        tip_orbital, used, result, exit_axis, float(exit_height), probe,
+        grid_energies, tip_kappa, tip_frame, states, False,
+        match_height=match_height)
 
     columns, extras = _assemble_momentum(
         calculation, wavefunctions, eigenvalues,
@@ -457,7 +718,10 @@ def run_momentum_transport(
         broadening=float(broadening), spin=spin,
         polarization=float(polarization), method=method, smearing=smearing,
         say=say, degeneracy_tol=_resolved_degeneracy_tol(degeneracy_tol, states),
+        tip=tip,
     )
+    if tip is not None:
+        extras["notes"] = {**extras["notes"], "tip": tip_notes}
 
     if bias is not None:
         # The finite-bias current: the conductance integrated over the window.
@@ -489,6 +753,7 @@ def run_momentum_transport(
         least_eigenvalue=extras["least_eigenvalue"],
         hermiticity=extras["hermiticity"],
         notes=extras["notes"],
+        tip_orbital=("s" if tip is None else tip.orbital.describe()),
     )
 
 
@@ -702,7 +967,8 @@ def _geometry(calculation) -> TransportGeometry:
 def _assemble(geometry, wavefunctions, eigenvalues, points, *,
               exit_height, exit_axis, energies, broadening, spin,
               polarization, tip_spin, tip_polarization, incoherent,
-              exit_region, method, smearing, degeneracy_tol=DEGENERACY_TOL):
+              exit_region, method, smearing, degeneracy_tol=DEGENERACY_TOL,
+              tip=None):
     """Sample the tip, build every ``S_k``, contract. One channel at a time.
 
     **A spinor's two components are two amplitude vectors, not one**, and what
@@ -749,6 +1015,17 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
     (:func:`~defuqumat.transport.substrate.fold_onto_plane`): every pixel shares
     one crystal coordinate along an axis, so the sum over that Miller index is
     done once per band rather than once per pixel.
+
+    **A tip orbital** (``tip``, a :class:`~defuqumat.transport.tip.TipAssembly`,
+    ``PLAN.md`` P179) multiplies the window by Chen's ``D_b`` per plane wave
+    **before** the fold, since ``(k+G)_z`` depends on the folded index, and
+    samples one amplitude per orbital of the basis. Each channel is then a
+    combination of those amplitudes, with its own coefficients per energy (the
+    ``kappa(E)^-l``) and, on a wedge, per tip point, and goes through the same
+    contraction as the point tip; the channels add. ``tip=None`` takes the old
+    branch, unchanged. The diagnostics of the derivative rule (the Helmholtz
+    residue and the tail noise) are taken on at most
+    ``tip.diagnostic_points`` tip points.
     """
     miller = np.asarray(geometry.miller)
     mask = np.asarray(geometry.mask)
@@ -777,6 +1054,18 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
     total_incoherent = np.zeros_like(total) if incoherent else None
     top_band = np.zeros_like(total) if incoherent else None
     least, offdiagonal, hermiticity, channels = np.inf, [], 0.0, []
+    if tip is not None:
+        channel_totals = (np.zeros((energies.shape[0], tip.nchannels, npts))
+                          if tip.channel_maps else None)
+        diagnostic = np.unique(np.linspace(
+            0, npts - 1, min(npts, int(tip.diagnostic_points))).astype(int))
+        residue = np.zeros((4, energies.shape[0]))
+        noise = np.zeros((2, len(tip.basis)))
+        potential_there = None
+        if diagnostic.size:
+            potential_there = tip.potential_at(
+                points[diagnostic] if tip.match is None
+                else _feet(tip.match, points[diagnostic], geometry.cell)[0])
 
     # Every per-state factor at once, ``(nspin, nE, nk, nbnd)``: it is small,
     # and the window is decided from all of it.
@@ -833,62 +1122,177 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
             # pixels are sampled.
             window = block.reshape((nbnd, npol * npwx))[rows]
             del block
-            sphere = _tip_sphere(window, miller[ik], mask[ik], kcrystal[ik],
-                                 npol, flat, points, exit_axis, groups)
             overlaps = overlap[np.ix_(rows, rows)][None]
             weight_of_k = kweights[ik:ik + 1]
             windowed = state_weights[ispin][:, ik, rows]
             in_window = bands[rows][None]
             cut = top_multiplet[ik, rows][None]
 
-            pixels = max(1, int(_AMPLITUDE_BLOCK // (npol * rows.size)))
-            for start in range(0, npts, pixels):
-                here = slice(start, min(start + pixels, npts))
-                coefficients, sphere_miller, sphere_k, sphere_mask = sphere
-                sampled = sample_wavefunctions(
-                    coefficients, sphere_miller, sphere_k, points[here],
-                    volume, mask=sphere_mask,
-                )
-                # ``(npol, 1, n_window, pixels)``: the spinor component leads,
-                # then the one k-point, which is the layout the contractions
-                # take.
-                amplitudes = np.moveaxis(sampled, 1, 0)[:, None]
-                del sampled
-                for ie in range(energies.shape[0]):
-                    weights = windowed[ie][None]
-                    if tip_projector is not None:
-                        total[ie, here] += scale * spin_transmission(
+            def accumulate(amplitudes, ie, here):
+                """Add one block of tip amplitudes at one energy to the maps.
+
+                ``amplitudes`` is ``(npol, 1, n_window, pixels)``. Returns the
+                coherent part that was added, for the per-channel maps.
+                """
+                weights = windowed[ie][None]
+                if tip_projector is not None:
+                    piece = scale * spin_transmission(
+                        amplitudes, overlaps, weight_of_k, weights,
+                        tip_projector, coherent=True)
+                    total[ie, here] += piece
+                    if incoherent:
+                        # the resolved tolerance, as the window and the
+                        # top-multiplet mask take it (audit 2026-11-15,
+                        # ``transport-stm`` F1): at the 1e-6 default the
+                        # rotation split a pair the mask kept whole
+                        total_incoherent[ie, here] += scale * spin_transmission(
                             amplitudes, overlaps, weight_of_k, weights,
-                            tip_projector, coherent=True)
-                        if incoherent:
-                            # the resolved tolerance, as the window and the
-                            # top-multiplet mask take it (audit 2026-11-15,
-                            # ``transport-stm`` F1): at the 1e-6 default the
-                            # rotation split a pair the mask kept whole
-                            total_incoherent[ie, here] += scale * spin_transmission(
-                                amplitudes, overlaps, weight_of_k, weights,
-                                tip_projector, coherent=False,
-                                eigenvalues=in_window, tol=degeneracy_tol)
-                            top_band[ie, here] += scale * spin_transmission(
-                                amplitudes, overlaps, weight_of_k,
-                                weights * cut, tip_projector,
-                                coherent=False, eigenvalues=in_window,
-                                tol=degeneracy_tol)
-                        continue
-                    for component in range(npol):
-                        total[ie, here] += scale * transmission(
+                            tip_projector, coherent=False,
+                            eigenvalues=in_window, tol=degeneracy_tol)
+                        top_band[ie, here] += scale * spin_transmission(
+                            amplitudes, overlaps, weight_of_k,
+                            weights * cut, tip_projector,
+                            coherent=False, eigenvalues=in_window,
+                            tol=degeneracy_tol)
+                    return piece
+                added = 0.0
+                for component in range(npol):
+                    piece = scale * transmission(
+                        amplitudes[component], overlaps, weight_of_k,
+                        weights, coherent=True)
+                    total[ie, here] += piece
+                    added = added + piece
+                    if incoherent:
+                        total_incoherent[ie, here] += scale * transmission(
                             amplitudes[component], overlaps, weight_of_k,
-                            weights, coherent=True)
-                        if incoherent:
-                            total_incoherent[ie, here] += scale * transmission(
-                                amplitudes[component], overlaps, weight_of_k,
-                                weights, coherent=False, eigenvalues=in_window,
-                                tol=degeneracy_tol)
-                            top_band[ie, here] += scale * transmission(
-                                amplitudes[component], overlaps, weight_of_k,
-                                weights * cut, coherent=False,
-                                eigenvalues=in_window, tol=degeneracy_tol)
-                del amplitudes
+                            weights, coherent=False, eigenvalues=in_window,
+                            tol=degeneracy_tol)
+                        top_band[ie, here] += scale * transmission(
+                            amplitudes[component], overlaps, weight_of_k,
+                            weights * cut, coherent=False,
+                            eigenvalues=in_window, tol=degeneracy_tol)
+                return added
+
+            if tip is None:
+                sphere = _tip_sphere(window, miller[ik], mask[ik], kcrystal[ik],
+                                     npol, flat, points, exit_axis, groups)
+                pixels = max(1, int(_AMPLITUDE_BLOCK // (npol * rows.size)))
+                for start in range(0, npts, pixels):
+                    here = slice(start, min(start + pixels, npts))
+                    coefficients, sphere_miller, sphere_k, sphere_mask = sphere
+                    sampled = sample_wavefunctions(
+                        coefficients, sphere_miller, sphere_k, points[here],
+                        volume, mask=sphere_mask,
+                    )
+                    # ``(npol, 1, n_window, pixels)``: the spinor component
+                    # leads, then the one k-point, which is the layout the
+                    # contractions take.
+                    amplitudes = np.moveaxis(sampled, 1, 0)[:, None]
+                    del sampled
+                    for ie in range(energies.shape[0]):
+                        accumulate(amplitudes, ie, here)
+                    del amplitudes
+                continue
+
+            # A tip orbital: Chen's D_b on the window, one sphere per orbital,
+            # or the window continued into the vacuum from a matching plane and
+            # the orbitals taken on the continued state (``match_height``).
+            vectors = tip_vectors(miller[ik], kcrystal[ik], geometry.cell,
+                                  tip.frame)
+            live = np.asarray(mask[ik], dtype=bool)
+            shaped = window.reshape((rows.size, npol, npwx))
+
+            def multiplied_sphere(factor):
+                return _tip_sphere(
+                    (shaped * factor[None, None, :]).reshape(window.shape),
+                    miller[ik], mask[ik], kcrystal[ik], npol, flat, points,
+                    exit_axis, groups)
+
+            factors = [multiplier(name, vectors) for name in tip.basis]
+            if tip.match is None:
+                point_groups = [(np.arange(npts), points,
+                                 [multiplied_sphere(f) for f in factors])]
+                diagnostic_at = points[diagnostic]
+            else:
+                point_groups = _continued_groups(
+                    tip, window, npol, miller[ik], mask[ik], kcrystal[ik],
+                    bands[rows], points, geometry.cell,
+                    groups if tip.match["axis"] == exit_axis else None)
+                diagnostic_at = _feet(tip.match, points[diagnostic],
+                                      geometry.cell)[0]
+            for index, where, spheres in point_groups:
+                pixels = max(1, int(_AMPLITUDE_BLOCK
+                                    // (npol * rows.size * (len(spheres) + 1))))
+                for start in range(0, index.size, pixels):
+                    here = index[start:start + pixels]
+                    # ``(n_basis, npol, n_window, pixels)``
+                    sampled = np.stack([
+                        _sample_sphere(sphere, where[start:start + pixels], volume)
+                        for sphere in spheres])
+                    for ie in range(energies.shape[0]):
+                        weights_e = tip.coefficients[ie]
+                        for ic in range(tip.nchannels):
+                            if tip.per_point:
+                                combined = np.einsum("pb,bsnp->snp",
+                                                     weights_e[here, ic], sampled)
+                            else:
+                                combined = np.einsum("b,bsnp->snp",
+                                                     weights_e[ic], sampled)
+                            piece = accumulate(combined[:, None], ie, here)
+                            if channel_totals is not None:
+                                channel_totals[ie, ic, here] += piece
+                    del sampled
+
+            # How well the derivative rule holds here, on a few tip points: the
+            # Helmholtz residue of the states themselves, and the noise a white
+            # error of norm^2 ``ethr`` in the coefficients would put on each
+            # orbital's amplitude against the amplitude itself.
+            if diagnostic.size:
+                # The raw states where the diagnostics are taken: at the tip
+                # points, or at their feet on the matching plane, folded there
+                # and not at the tip's height.
+                at = diagnostic_at
+                at_flat = _flat_axis(at, miller[ik])
+
+                def raw_sphere(factor=None):
+                    block_ = (window if factor is None else
+                              (shaped * factor[None, None, :]).reshape(window.shape))
+                    return _tip_sphere(block_, miller[ik], mask[ik], kcrystal[ik],
+                                       npol, at_flat, at, exit_axis, groups)
+
+                plain = _sample_sphere(raw_sphere(), at, volume)
+                curved = _sample_sphere(
+                    raw_sphere(multiplier(LAPLACIAN, vectors)), at, volume)
+                squares = np.real(windowed) ** 2            # (nE, n_window)
+                for ie in range(energies.shape[0]):
+                    k2 = float(tip.kappa[ie]) ** 2
+                    off = np.sum(np.abs(curved - k2 * plain) ** 2, axis=(0, 2))
+                    on = np.sum(np.abs(k2 * plain) ** 2, axis=(0, 2))
+                    weight = scale * kweights[ik]
+                    residue[0, ie] += weight * float(squares[ie] @ off)
+                    residue[1, ie] += weight * float(squares[ie] @ on)
+                    if potential_there is not None and tip.plateau is not None:
+                        # the two halves of the residue: the potential at the
+                        # tip against the plateau, and what the basis cannot
+                        # represent of the Kohn-Sham equation in the vacuum,
+                        # where the nonlocal projectors are zero
+                        height = potential_there[None, None, :] - float(tip.plateau)
+                        vacuum = np.sum(np.abs(height * plain) ** 2, axis=(0, 2))
+                        level = (potential_there[None, None, :]
+                                 - bands[rows][None, :, None])
+                        basis_error = np.sum(np.abs(curved - level * plain) ** 2,
+                                             axis=(0, 2))
+                        residue[2, ie] += weight * float(squares[ie] @ vacuum)
+                        residue[3, ie] += weight * float(squares[ie] @ basis_error)
+                if tip.ethr is not None:
+                    npw_here = max(int(live.sum()), 1)
+                    for ib, factor in enumerate(factors):
+                        amplitude = _sample_sphere(raw_sphere(factor), at, volume)
+                        signal = np.sum(np.abs(amplitude) ** 2, axis=(0, 2))
+                        white = (float(tip.ethr) * float(np.sum(np.abs(factor[live]) ** 2))
+                                 / (npw_here * volume) * diagnostic.size)
+                        noise[0, ib] += scale * kweights[ik] * float(squares[0] @ signal)
+                        noise[1, ib] += scale * kweights[ik] * float(squares[0].sum()) * white
 
     if not np.any(total > 0.0) and open_path == 0.0:
         # Two spin filters in series with nothing in common pass nothing, and
@@ -926,6 +1330,8 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
     values = {"coherent": total}
     if incoherent:
         values["incoherent"] = total_incoherent
+    if tip is not None and channel_totals is not None:
+        values["channels"] = channel_totals
     notes = {
         "exit_region": exit_region,
         "npol": npol,
@@ -944,6 +1350,39 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
         "window": (int(sum(kept.size for row in windows for kept in row)),
                    int(nspin * nk * nbnd)),
     }
+    if tip is not None:
+        notes["tip"] = {
+            # |nabla^2 psi - kappa^2 psi| / |kappa^2 psi| over the states at the
+            # tip, weighted as the map weights them: how far the derivative
+            # rule's condition is from holding. It also measures the cutoff in
+            # the vacuum tail, not only the potential (plans/tip-orbitals.md,
+            # section 5).
+            "helmholtz_residue": [
+                float(np.sqrt(num / den)) if den > 0.0 else float("nan")
+                for num, den in zip(residue[0], residue[1])],
+            # its first half, |V(r) - V_vac| psi against kappa^2 psi: whether
+            # the tip is in the flat vacuum, which is the condition of Chen's
+            # rule itself, and what moving the tip out improves
+            "vacuum_condition": [
+                float(np.sqrt(num / den)) if den > 0.0 else float("nan")
+                for num, den in zip(residue[2], residue[1])],
+            # its second half, |nabla^2 psi - (V - e) psi| against kappa^2 psi:
+            # the Kohn-Sham equation in the vacuum, which a truncated basis
+            # does not satisfy pointwise; what raising ecutwfc improves, and
+            # what grows as the tail decays. It is a second derivative, so it
+            # is the bound for a d orbital and pessimistic for a p one
+            "basis_residue": [
+                float(np.sqrt(num / den)) if den > 0.0 else float("nan")
+                for num, den in zip(residue[3], residue[1])],
+            # per orbital, the noise a white error of norm^2 ``ethr`` in every
+            # state's coefficients would put on its amplitude at the tip,
+            # against the amplitude: the derivative amplifies the large-G tail
+            "tail_noise": (None if tip.ethr is None else {
+                name: (float(np.sqrt(noise[1, ib] / noise[0, ib]))
+                       if noise[0, ib] > 0.0 else float("nan"))
+                for ib, name in enumerate(tip.basis)}),
+            "diagnostic_points": int(diagnostic.size),
+        }
     extras = {
         "least_eigenvalue": float(least),
         "offdiagonal_weight": float(np.mean(offdiagonal)) if offdiagonal else 0.0,
@@ -1071,6 +1510,64 @@ def _tip_sphere(window, miller, mask, kcrystal, npol, flat, points, exit_axis,
     return folded, inplane, lateral, None
 
 
+def _sample_sphere(sphere, points, volume):
+    """``(npol, n_window, npoints)``: one :func:`_tip_sphere` at some points."""
+    coefficients, sphere_miller, sphere_k, sphere_mask = sphere
+    sampled = sample_wavefunctions(coefficients, sphere_miller, sphere_k,
+                                   points, volume, mask=sphere_mask)
+    return np.moveaxis(sampled, 1, 0)
+
+
+def _feet(match, points, cell):
+    """``(feet, distances)``: each tip point's foot on the matching plane.
+
+    The foot is the point of the matching plane straight below the tip along
+    the normal -- not at the same in-plane crystal coordinates, which differ
+    from it when ``a3`` is tilted -- and the distance is in bohr, positive on
+    the tip side.
+    """
+    points = np.atleast_2d(np.asarray(points, dtype=float))
+    axis, side = int(match["axis"]), int(match["side"])
+    distance = np.mod(side * (points[:, axis] - float(match["height"])), 1.0) \
+        * float(match["spacing"])
+    shift = np.outer(distance, np.asarray(match["normal"], dtype=float)) \
+        @ np.linalg.inv(np.asarray(cell.at, dtype=float))
+    return points - shift, distance
+
+
+def _continued_groups(tip, window, npol, miller, mask, kcrystal, energies,
+                      points, cell, groups):
+    """``[(indices, feet, spheres)]``: one group per tip height, continued.
+
+    The window is folded onto the matching plane once, then each in-plane
+    component is carried up by ``exp(-int_0^d kappa_nG(t) dt)`` with its own
+    state's decay through the planar average of the potential
+    (:func:`~defuqumat.transport.tip.continued_components`; the flat vacuum
+    when the match carries no profile), and each orbital is the multiplier
+    evaluated at the complex ``Q``. The spheres are
+    sampled at the feet of the tip points, in the matching plane's in-plane
+    basis, exactly as a folded flat plane is.
+    """
+    match = tip.match
+    axis = int(match["axis"])
+    folded, inplane = fold_onto_plane(
+        window, miller, float(match["height"]), axis, npol=npol, mask=mask,
+        k_along=float(kcrystal[axis]), groups=groups)
+    lateral = np.array(kcrystal, dtype=float)
+    lateral[axis] = 0.0
+    feet, distance = _feet(match, points, cell)
+    out = []
+    for value in np.unique(np.round(distance, 10)):
+        index = np.flatnonzero(np.round(distance, 10) == value)
+        wavevectors, decay = continued_components(
+            inplane, lateral, cell, match, energies, float(value))
+        in_frame = wavevectors @ np.asarray(tip.frame, dtype=float).T
+        spheres = [((folded * (decay * multiplier(name, in_frame))[:, None, :]),
+                    inplane, lateral, None) for name in tip.basis]
+        out.append((index, feet[index], spheres))
+    return out
+
+
 def _diagnose(overlap, bands, hermiticity, least, channels, offdiagonal,
               tol=DEGENERACY_TOL):
     """What one ``S_k`` says about the substrate, on every band.
@@ -1114,7 +1611,7 @@ def _diagnose(overlap, bands, hermiticity, least, channels, offdiagonal,
 def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
                        exit_height, heights, exit_axis, energies, broadening,
                        spin, polarization, method, smearing, say=None,
-                       degeneracy_tol=None):
+                       degeneracy_tol=None, tip=None):
     """A Gram matrix per plane per k-point, then one trace. No real-space sampling.
 
     The whole cost of :func:`_assemble` is the ``(npol, nk, nbnd, npoints)``
@@ -1159,16 +1656,85 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
             )
         return out
 
+    kcrystal = np.asarray(used.kpoints.crystal(used.cell))
+    plane_scale = surface_area(used.cell, exit_axis) / float(used.cell.volume)
+
+    def tip_grams_at(block_of, plane_height):
+        """``(nE, n_channels, nk, nbnd, nbnd)``: the tip plane's Gram matrix
+        of each channel, from the coefficients multiplied by ``D_b`` (P179)."""
+        ne, nc = tip.coefficients.shape[0], tip.nchannels
+        out = np.empty((ne, nc, nk, nbnd, nbnd), dtype=complex)
+        for ik in range(nk):
+            block = np.asarray(block_of(ik)).reshape((nbnd, npol, -1))
+            if tip.match is not None:
+                # continued from the matching plane to this one (P179)
+                match = tip.match
+                base, inplane = fold_onto_plane(
+                    block.reshape((nbnd, -1)), miller[ik], float(match["height"]),
+                    exit_axis, npol=npol, mask=mask[ik])
+                lateral = np.array(kcrystal[ik], dtype=float)
+                lateral[exit_axis] = 0.0
+                # Only the bands below the vacuum level decay into it; the rest
+                # are rows that the on-shell weights zero, which is checked.
+                below = eigenvalues_of_k[ik] < float(match["plateau"])
+                if not np.all(below) and (np.max(weight_reach[ik][~below])
+                                          > _WINDOW_TOL * np.max(weight_reach)):
+                    raise ValueError(
+                        "a band above the vacuum level carries weight at a "
+                        "requested energy, so it would have to be continued from "
+                        "the matching plane and it does not decay; narrow the "
+                        "energies or drop match_height")
+                distance = float(np.mod(match["side"] * (plane_height
+                                                         - match["height"]), 1.0)
+                                 * match["spacing"])
+                wavevectors, decay = continued_components(
+                    inplane, lateral, used.cell, match,
+                    np.where(below, eigenvalues_of_k[ik],
+                             float(match["plateau"]) - 1.0), distance)
+                in_frame = wavevectors @ np.asarray(tip.frame).T
+                decay = decay * below[:, None]
+                folded = np.stack([
+                    base * (decay * multiplier(name, in_frame))[:, None, :]
+                    for name in tip.basis])
+            else:
+                vectors = tip_vectors(miller[ik], kcrystal[ik], used.cell,
+                                      tip.frame)
+                folded = np.stack([
+                    fold_onto_plane(
+                        (block * multiplier(name, vectors)[None, None, :]).reshape(
+                            (nbnd, -1)),
+                        miller[ik], plane_height, exit_axis, npol=npol,
+                        mask=mask[ik])[0]
+                    for name in tip.basis])            # (nb, nbnd, npol, ng)
+            for ie in range(ne):
+                for ic in range(nc):
+                    combined = np.einsum("b,bnsg->nsg", tip.coefficients[ie, ic],
+                                         folded)
+                    out[ie, ic, ik] = folded_gram(combined, plane_scale,
+                                                  npol=npol, projector=projector)
+        return out
+
     for ispin in range(nspin):
         scale = 1.0 if channel_scale is None else channel_scale[ispin]
         block_of = lambda ik, s=ispin: np.asarray(wavefunctions[s, ik])
+        eigenvalues_of_k = np.asarray(eigenvalues[ispin])
+        # how far each band's on-shell weight reaches, over every energy: what
+        # says a band above the vacuum level may be left out of a continuation
+        weight_reach = np.max(np.abs(np.stack([
+            amplitude_weights(eigenvalues_of_k, float(energy), broadening,
+                              method, smearing) for energy in energies])), axis=0)
         exit_gram = gram_at(block_of, exit_height)
         for ih, plane_height in enumerate(heights):
             if say is not None:
                 say(f"  tip plane {ih + 1} of {len(heights)} "
                     f"at crystal height {float(plane_height):.4f}")
-            tip_gram = gram_at(block_of, float(plane_height))
-            for gram in (exit_gram, tip_gram):
+            if tip is None:
+                tip_gram = gram_at(block_of, float(plane_height))
+                checked = (exit_gram, tip_gram)
+            else:
+                tip_grams = tip_grams_at(block_of, float(plane_height))
+                checked = (exit_gram, *tip_grams.reshape((-1,) + exit_gram.shape))
+            for gram in checked:
                 hermiticity = max(hermiticity, float(
                     np.abs(gram - np.conj(np.swapaxes(gram, 1, 2))).max()))
                 hermitian = 0.5 * (gram + np.conj(np.swapaxes(gram, 1, 2)))
@@ -1178,6 +1744,18 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
                 weights = amplitude_weights(
                     eigenvalues[ispin], float(energy), broadening, method,
                     smearing)
+                if tip is not None:
+                    # One trace per incoherent channel; ``bare`` does not see
+                    # the tip and is taken once.
+                    for ic in range(tip.nchannels):
+                        here = momentum_weights(exit_gram, tip_grams[ie, ic],
+                                                kweights, np.real(weights),
+                                                eigenvalues=eigenvalues[ispin],
+                                                tol=degeneracy_tol)
+                        for name, column in here.items():
+                            if name != "bare" or ic == 0:
+                                columns[name][ih, ie] += scale * column
+                    continue
                 # the incoherent column decides a block by this tolerance
                 # (audit 2026-11-15, ``transport-stm`` F2)
                 here = momentum_weights(exit_gram, tip_gram, kweights,
@@ -1527,12 +2105,22 @@ def _completed_on_a_wedge(group, geometry, wavefunctions, eigenvalues, points,
                                "the exit plane's image")
     points = np.atleast_2d(np.asarray(points, dtype=float))
     total, extras = None, None
+    tip = options.get("tip")
     for height in np.unique(heights):
         chosen = np.flatnonzero(heights == height)
         images = (np.einsum("pi,sij->spj", points, rotations[chosen])
                   + shifts[chosen][:, None, :]).reshape(-1, 3)
+        here = options
+        if tip is not None:
+            # The orbital goes with the tip: a p lobe is a polar vector and the
+            # mirror through the slab flips pz (P179). ``None`` is a tip every
+            # operation leaves as it is.
+            turned = _turned_tips(tip, rotations[chosen], geometry.cell,
+                                  points.shape[0])
+            if turned is not None:
+                here = {**options, "tip": turned}
         values, found = _assemble(geometry, wavefunctions, eigenvalues, images,
-                                  exit_height=float(height), **options)
+                                  exit_height=float(height), **here)
         summed = {key: np.asarray(array).reshape(
                       array.shape[:-1] + (len(chosen), points.shape[0])).sum(axis=-2)
                   for key, array in values.items()}
@@ -1626,10 +2214,15 @@ def _warn_if_the_slab_is_not_between(system, exit_axis, exit_height, points, axi
     if tip.size != 1:
         return
     # Fold the slab into the window that starts at the exit plane: the material
-    # lies between the two planes exactly when every atom is below the tip.
-    folded = np.mod(slab - float(exit_height), 1.0)
-    edge = np.mod(float(tip[0]) - float(exit_height), 1.0)
-    if edge <= 0.0 or folded.max() >= edge or folded.min() <= 0.0:
+    # lies between the two planes exactly when every atom is below the tip --
+    # or, for a tip below the material and the exit plane above it, every atom
+    # is above the tip going the other way (P179's mirrored geometry).
+    def between(sign):
+        folded = np.mod(sign * (slab - float(exit_height)), 1.0)
+        edge = np.mod(sign * (float(tip[0]) - float(exit_height)), 1.0)
+        return edge > 0.0 and folded.max() < edge and folded.min() > 0.0
+
+    if not (between(1.0) or between(-1.0)):
         warnings.warn(
             f"the atoms do not lie between the exit plane ({exit_height:g}) "
             f"and the tip ({tip[0]:g}) along axis {exit_axis}: the electron "

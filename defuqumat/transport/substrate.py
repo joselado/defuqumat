@@ -199,8 +199,18 @@ def exit_overlap(coefficients, miller, height: float, axis: int, cell,
     # every band at this k-point and cancels in ``b* b``, so it is left out.
     b, _ = fold_onto_plane(coefficients, miller, height, axis, npol=npol,
                            mask=mask, groups=groups)
+    return folded_gram(b, surface_area(cell, axis) / float(cell.volume),
+                       npol=npol, projector=projector)
 
-    scale = surface_area(cell, axis) / float(cell.volume)
+
+def folded_gram(b, scale: float, npol: int = 1, projector=None) -> np.ndarray:
+    """The plane integral of two folded band sets, :func:`exit_overlap`'s last step.
+
+    ``b`` is ``(nbnd, npol, ngroups)`` from :func:`fold_onto_plane` and ``scale``
+    is ``A / Omega``. Split out so that a tip orbital (``PLAN.md`` P179), whose
+    coefficients are multiplied by ``D_b`` before they are folded, takes the same
+    integral and the same spin acceptance.
+    """
     if npol == 1:
         return scale * (b[:, 0].conj() @ b[:, 0].T)
     if projector is None:

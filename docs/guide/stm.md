@@ -4,7 +4,8 @@ In this page we compute what a scanning-tunnelling microscope sees. We start wit
 the image of a surface at one bias, then we compute the spectrum $\mathrm dI/\mathrm dV$
 at one place, and finally we follow the electron through a two-dimensional
 material into a substrate below it, first in real space and then in momentum
-space. At the end we put one impurity on the surface and compute the
+space. Then we give the tip an orbital, an s, a p or a d orbital of its apex
+atom. At the end we put one impurity on the surface and compute the
 quasiparticle interference it creates.
 
 ## The STM image
@@ -487,6 +488,182 @@ With `states`, a `grid`, `shift` or `kpoints` in the same call gives an error,
 because it would name a k-set the states were not computed on. `get_stm` does not
 take `states`, because its k-set is the reduced wedge of the denser grid.
 
+## The orbital of the tip
+
+So far the electron enters the material from a point. This is the tip of Tersoff
+and Hamann, an s orbital, and it is exact for an s tip and not an approximation
+to it. A real tip ends on an atom, and the states of that atom at the Fermi level
+can be p or d. A tungsten tip has a $d_{z^2}$ orbital, and a tip with a CO
+molecule at its end has the $p_x$ and $p_y$ orbitals of the oxygen. What does the
+microscope see then?
+
+The answer is the derivative rule of Chen. A tip state that is an orbital $b$ of
+the apex at $\mathbf r_0$ couples to a state of the sample through a derivative of
+that state at $\mathbf r_0$:
+
+$$
+M_n \propto \sum_b C_b^{*}\, \hat D_b\, \psi_n(\mathbf r_0), \qquad
+\hat D_s = 1, \quad \hat D_{p_x} = \frac{1}{\kappa}\frac{\partial}{\partial x}, \quad
+\hat D_{d_{z^2}} = \frac{1}{\kappa^2}\left(3\frac{\partial^2}{\partial z^2} - \nabla^2\right),
+$$
+
+and so on for the other orbitals, with $\kappa^2 = V_{\rm vac} - E$ the decay of the
+vacuum at the energy of the tip. The weights $C_b$ say how much of each orbital is
+in the tip state. In the transport map each tip state is one channel, so a tip is
+a list of channels. The orbitals of one channel add as amplitudes, so they can
+interfere. Two channels add as currents, which is what the two degenerate
+$\pi$ states of a CO tip do. In plane waves the derivative is just
+$i(\mathbf k + \mathbf G)$, so a channel is one more factor on the coefficients, and
+the map stays a sum of Gram forms, so it is never negative.
+
+We give the tip with `tip_orbital`, here for graphene above an atom and above the
+center of a hexagon, the hollow:
+
+```python
+import numpy as np
+from defuqumat import Calculator
+from defuqumat.units import BOHR_TO_ANGSTROM, RY_TO_EV
+
+graphene = Calculator.from_keywords(
+    lattice="hexagonal", a=4.6511 * BOHR_TO_ANGSTROM, c=20.0 * BOHR_TO_ANGSTROM,
+    atoms=[("C", (0, 0, 0.5)), ("C", (1 / 3, 2 / 3, 0.5))],
+    pseudos={"C": "C.pbe-hgh.UPF"}, pseudo_dir="tests/data/pseudo",
+    ecut=40 * RY_TO_EV, kmesh=(12, 12, 1), smearing=0.02 * RY_TO_EV, nbands=12,
+    qe={"electrons": {"conv_thr": 1e-10, "mixing_beta": 0.5}})
+graphene.get_scf()
+states = graphene.get_tunnelling_states(grid=(6, 6, 1), nbnd=20, conv_thr=1e-10)
+z = 0.5 + 4.0 / 20.0                          # the tip 4 bohr above the sheet
+sites = [[0, 0, z], [2 / 3, 1 / 3, z]]         # above an atom and above the hollow
+for tip in ("s", "pz", "pxy", {"s": 1, "pz": -1}, "CO"):
+    flow = graphene.get_vertical_transport(exit_height=0.38, tip=sites, broadening=0.02,
+                                           states=states, tip_orbital=tip,
+                                           match_height=0.5 + 3.0 / 20.0)
+    atom, hollow = flow.values
+    print(f"{str(tip):18s} atom {atom:.3e}   hollow / atom {hollow / atom:.3e}")
+notes = flow.notes["tip"]
+print(f"kappa {notes['kappa'][0]:.4f} 1/bohr, at the matching plane: vacuum condition "
+      f"{notes['vacuum_condition'][0]:.2f}, basis residue {notes['basis_residue'][0]:.2f}")
+```
+
+```
+s                  atom 8.081e-05   hollow / atom 8.917e-17
+pz                 atom 2.759e-04   hollow / atom 6.875e-17
+pxy                atom 1.082e-04   hollow / atom 1.952e+00
+{'s': 1, 'pz': -1} atom 6.554e-04   hollow / atom 7.401e-17
+CO                 atom 4.501e-04   hollow / atom 1.952e+00
+kappa 0.5269 1/bohr, at the matching plane: vacuum condition 1.20, basis residue 0.82
+```
+
+For an s and a $p_z$ tip the hollow is dark, with $10^{-16}$ of the current above
+an atom. At the Fermi level only the Dirac states at K carry the current, and
+the threefold symmetry of K makes them zero at the hollow, and so is their
+derivative along $z$. Their derivative along the plane is not zero there, so the
+`pxy` tip sees the hollow 1.95 times brighter than an atom. So the contrast is
+inverted between a metal tip and a CO tip. The hybrid `{"s": 1, "pz": -1}` gives 8
+times the current of the s tip,
+because its lobe points at the sample and the two orbitals add in phase. The
+direction $z$ of the tip always points from the material to the tip, so $s - p_z$
+is the lobe pointing down. The preset `"CO"` is the same pair, with the weight of
+the real 2p orbital of oxygen.
+
+The keywords are:
+
+- **`tip_orbital`**: `"s"` (the point tip, the default), `"pz"`, `"px"`, `"py"`, the
+  d orbitals `"dxy"`, `"dyz"`, `"dz2"`, `"dxz"`, `"dx2-y2"`, and `"pxy"`, which is the
+  two channels $p_x$ and $p_y$, as a CO tip has them. A dict such as
+  `{"s": 1, "pz": -1}` is one channel with the weights $C_b$, which may be complex.
+  A list such as `[{"s": 1, "pz": -1}, "px", "py"]` is several channels. The
+  presets `"CO"`, `"W"`, `"Pb"`, `"Pt"` and `"Cu"` are the orbital family that
+  carries the current at the Fermi level for each apex, with the weight of the
+  real orbital of that atom.
+- **`match_height`**: the plane from which each state is continued into the
+  vacuum, between the material and the tip. We explain it below.
+- **`tip_kappa`**: $\kappa$ in 1/bohr, if you want to give it. If you do not give
+  it, the code takes it from the plateau of the potential in the vacuum. If you
+  give it, `match_height` continues the states through a flat vacuum.
+- **`tip_frame`**: the axes of a tilted tip, as three rows $x$, $y$, $z$.
+- **`tip_channels`**: also return the map of each channel, in `flow.tip_channels`.
+
+`get_momentum_transport` takes the same `tip_orbital`, `match_height`, `tip_kappa`
+and `tip_frame`. Then the tip plane weights each state by its orbital. For example
+a `pxy` tip weights a state by $|\mathbf k_\parallel + \mathbf G_\parallel|^2/\kappa^2$,
+so it does not see the states at $\Gamma$. On the square hydrogen sheet, with the
+tip plane 3 bohr above it, the part of the zone near X has 28.6% of the Fermi
+surface, and it carries 22.2% of the current with an s tip, 24.1% with $p_z$ and
+28.4% with `pxy`. With the states continued from 2 bohr the three are 22.0%, 24.4%
+and 28.3%.
+
+**Why the states are continued into the vacuum.** A derivative makes the tail of a
+plane-wave state less accurate. The basis cannot represent the decay of a state
+in the vacuum to any precision, and far from the material a small error of the
+basis stays while the true state decays, and the derivative makes this error
+larger. On graphene at 40 Ry the ratio $p_z/s$ above an atom should go to
+$1 + |K|^2/\kappa^2 = 3.92$ as the tip moves away, because then only the states at
+K are left. With the raw tail it reads 5.4 at 4 bohr and 49.8 at 8 bohr. With
+`match_height` the code takes each state on a plane close to the material, where
+the basis is accurate, and continues each in-plane component
+$\mathbf G_\parallel$ of it with its own decay
+$\exp(-\int_0^d \kappa_{n\mathbf G}(t)\,dt)$, with
+$\kappa_{n\mathbf G}(t)^2 = \bar V(t) - \varepsilon_n + |\mathbf k_\parallel + \mathbf G_\parallel|^2$
+and $\bar V(t)$ the planar average of the potential between the plane and the tip.
+Then the derivatives are analytic. The ratio $p_z/s$ goes to 3.92 smoothly, and the
+contrast of the figure below does not depend on the cutoff: at 4 bohr, the hollow
+over the atom of the `pxy` map is 1.9520 at 40 Ry and 1.9521 at 60 Ry, where the raw
+tail gives 1.81 and 1.93. It also works for the s tip, and then the map can be
+computed far from the material.
+
+Why the planar average, and not just the vacuum level? Close to the material the
+potential is still below the vacuum level, so a state decays more slowly there.
+With the vacuum level alone, the s map above an atom, continued from 3 bohr, is
+0.885 and 0.778 of the raw plane-wave map at 3.5 and 4 bohr, where the raw map is
+still good. With the planar average it is 1.010 and 0.984. What the average leaves
+out is the lateral change of the potential, and it shows close to the plane: at
+3.5 bohr the ratio of a bond to an atom in the s map is 0.815 continued against
+0.873 raw. At 4 bohr the difference is 2%. `flow.notes["tip"]` says how far
+Chen's condition is from holding, as a fraction of $\kappa^2$:
+`vacuum_condition` for the potential and `basis_residue` for the basis, and
+`helmholtz_residue` is the two together. With `match_height` they are measured
+at the plane. `tail_noise` gives, for each orbital, the error that the
+convergence threshold of the states puts on its amplitude at the tip, because the
+derivative makes the error of the large plane waves larger. Here the plane at 3 bohr gives 1.20
+and 0.82, so the potential is still far from flat there. The `pxy` contrast and
+$p_z/s$ at 4 bohr move by 0.7% if the plane is at 2.5 bohr instead.
+
+![Graphene seen by an s tip and by a pxy tip, and the contrast of the hollow against the height of the tip.](img/stm_tip.png#only-light)
+![Graphene seen by an s tip and by a pxy tip, and the contrast of the hollow against the height of the tip.](img/stm_tip-dark.png#only-dark)
+
+The figure shows the two maps 4 bohr above graphene, each divided by its
+maximum. The circles are the atoms and the cross is a hollow. With the s tip the
+hollows are the darkest points, and with the `pxy` tip they are the brightest. On
+the right we follow the ratio of the hollow to the atom against the height. With
+the continuation it goes from 1.91 at 3.5 bohr to 2.0000 at 10 bohr. With the raw
+tail of the plane waves it moves around 1.8 and 2.0 up to 6 bohr, and above that it
+has no meaning (5513 at 8 bohr).
+
+**What the size of the orbital does.** For an orbital that stays in the flat
+vacuum, the size does not change the map of that orbital. The vacuum equation
+makes the average of a state over a sphere equal to its value at the center times
+a constant, and the same holds for the derivatives. So the size only sets the
+weight of each orbital. It matters when orbitals of different $l$ are mixed. The
+presets take this weight from the real orbital of the apex atom, in the
+pseudopotential file, as Bardeen's matrix element
+$K_l = \int i_l(\kappa r)\,(\varepsilon - T_l) R(r)\, r^2 dr$. Each preset is one
+family of orbitals, so its size only sets the scale. For a mixed tip, for example
+tungsten with its s and $d_{z^2}$ orbitals, you need the share of each orbital at
+the Fermi level of the apex, which comes from a calculation of the tip. Then
+`defuqumat.transport.tip_presets.from_upf(path, {"s": ("6S", 0.2), "dz2": ("5D", 0.8)})`
+builds the tip, where the numbers here are only an example of the form.
+
+??? example "Code of this figure (docs/figures/stm_tip/)"
+
+    ```python title="compute.py"
+    --8<-- "stm_tip/compute.py"
+    ```
+
+    ```python title="plot.py"
+    --8<-- "stm_tip/plot.py"
+    ```
+
 ## Quasiparticle interference around one impurity
 
 We now put one impurity on the surface. It scatters the Bloch states, and the
@@ -724,9 +901,41 @@ so its size moves by a few per cent with the mesh and its sign does not.
     transmission in a field has not been checked. A `bias` window whose energy step is larger than
     `broadening` gives an error, since the current would be wrong by orders of
     magnitude, and the error says which `nenergies` is enough. If the atoms are
-    not between the two planes, the code warns. The tip is an s-wave tip, the
-    substrate is infinite and flat, and the map has no absolute scale, because
-    the couplings of the tip and of the substrate are unknown constants.
+    not between the two planes, the code warns. The tip is an s-wave tip unless
+    you give `tip_orbital`, the substrate is infinite and flat, and the map has
+    no absolute scale, because the couplings of the tip and of the substrate are
+    unknown constants.
+
+    A tip orbital uses the derivative rule of Chen, which is exact only where the
+    potential is flat, and `flow.notes["tip"]` says how far that is from true.
+    Without `match_height` the derivative is taken on the raw plane-wave tail.
+    Far from the material that tail has an error, and the derivative makes it
+    larger. On graphene at 40 Ry the map of a $p_z$ tip is wrong above about 4
+    bohr. With `match_height` the states are continued from a plane through the
+    planar average of the potential. Then the error is the lateral change of the
+    potential between that plane and the tip, which the average leaves out. On
+    graphene it is 2 to 7% in a lateral ratio 0.5 to 1 bohr above the plane. If
+    you give `tip_kappa`, the continuation takes the vacuum as flat, also on a
+    cell with a vacuum plateau, and on graphene this makes the s map 0.78 of the
+    raw map 1 bohr above the plane.
+    A complex channel such as `{"px": 1, "py": 1j}`
+    gives an error on a symmetry-reduced k-mesh, because the completion drops
+    the operations with time reversal, which would turn it into its conjugate.
+    Real channels work there and are turned with each operation. `match_height`
+    gives an error on a symmetry-reduced k-mesh, and you pass `grid`. A tip
+    orbital gives an error on a spin spiral, and when the tip points are on both
+    sides of the material, because then the direction of $z$ is not defined. A
+    run with an electric field (`tefield` or `lelfield`) has no single vacuum
+    level, so there you give `tip_kappa`. The preset `"Pb"` is the three p
+    orbitals with one weight, which is a Pb apex whose $p_{1/2}$ and $p_{3/2}$
+    states carry the same weight per state. With different weights the tip
+    states of a Pb apex are not one orbital times one spin, and the code has no
+    such tip. The weights are those
+    of Chen's table, which are not normalized in the same way for the five d
+    orbitals, so equal weights on the five are not a round tip, while on the
+    three p orbitals they are. The STS spectrum, the QPI map, the STM image and
+    the ultracell transport keep the s tip. The STM image of a tip orbital is the
+    map with `exit_region="volume"`.
 
     The momentum-resolved transport gives the same errors as the vertical
     transport for the k-mesh, the two planes and the substrate, and the code warns if both planes are on the same side of the

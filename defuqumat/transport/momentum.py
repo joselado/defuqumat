@@ -253,6 +253,10 @@ class MomentumTransport:
     least_eigenvalue: float = 0.0
     hermiticity: float = 0.0
     notes: dict = field(default_factory=dict)
+    #: The tip orbital of the plane tip (``PLAN.md`` P179), ``"s"`` or its
+    #: channels. ``bare`` does not depend on it; the other columns are summed
+    #: over its incoherent channels.
+    tip_orbital: object = "s"
 
     def column(self, name: str = "weight", index: int = 0) -> np.ndarray:
         """``(nk,)`` of one column -- what to plot.

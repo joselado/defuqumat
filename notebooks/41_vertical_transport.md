@@ -238,6 +238,30 @@ fig.tight_layout()
     
 
 
+## The orbital of the tip
+
+So far the electron enters from a point, which is an s orbital at the end of the tip. A real tip ends on an atom, and the state of that atom can be a p or a d orbital. Then the tip couples to a derivative of each state at its apex, which is the derivative rule of Chen: a pz tip sees `d psi / dz`, and a CO tip, whose oxygen has its px and py states at the Fermi level, sees `d psi / dx` and `d psi / dy` as two independent channels.
+
+Graphene shows why this matters. At the Fermi level only the Dirac states at K carry the current, and their threefold symmetry makes them zero at the center of each hexagon. Their slope along the sheet is not zero there. So an s tip sees a dark hollow, and a CO tip sees a bright one. `match_height` continues each state into the vacuum from a plane 3 bohr above the sheet, through the average potential, so that the derivative stays accurate far from it.
+
+
+```python
+z = 0.5 + 4.0 / 20.0                    # the tip 4 bohr above the sheet
+for tip in ('s', 'pxy'):
+    t = graphene.get_vertical_transport(exit_height=0.38, tip=[[0, 0, z], [2/3, 1/3, z]],
+            broadening=0.02, grid=(6, 6, 1), nbnd=20, tip_orbital=tip, match_height=0.65)
+    atom, hollow = t.values
+    print(f'{tip:3s} tip: the hollow is {hollow / atom:.3f} of an atom')
+```
+
+    s   tip: the hollow is 0.000 of an atom
+
+
+    pxy tip: the hollow is 1.952 of an atom
+
+
+The contrast is inverted: the hollow is zero for the s tip and about twice an atom for the CO-like tip. `tip_orbital` also takes `'pz'`, the d orbitals, a dict of weights for one hybrid state such as `{'s': 1, 'pz': -1}`, whose lobe points at the sample, and the presets `'CO'`, `'W'` and `'Pb'`.
+
 ## Reading the map
 
 `flow.image` is proportional to a conductance, not equal to one: how strongly the
@@ -256,6 +280,7 @@ spin points along its own moment, and either may be used without the other.
 
 ---
 
-The checks behind this notebook are in `tests/regression/test_transport.py` and
-`tests/unit/test_transport_machinery.py`.
+The checks behind this notebook are in `tests/regression/test_transport.py`,
+`tests/unit/test_transport_machinery.py`, `tests/unit/test_tip_orbitals.py` and
+`tests/regression/test_tip_orbitals_slow.py`.
 

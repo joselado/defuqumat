@@ -187,7 +187,7 @@ want a number.
 | [`38_magnons.ipynb`](38_magnons.ipynb) | Spin waves: the collective mode below the Stoner continuum, the Goldstone theorem as an error bar, and a magnon going soft |
 | [`39_orbital_magnetization.ipynb`](39_orbital_magnetization.ipynb) | The circulating half of a magnet's moment: an iodine atom's Hund's-rule orbital moment, and the part of it no projection onto atomic orbitals can see |
 | [`40_stm_images.ipynb`](40_stm_images.ipynb) | What a scanning-tunnelling microscope sees: half of graphite's surface atoms missing, a contrast that inverts with the bias, and a magnetic tip reading four moments one at a time |
-| [`41_vertical_transport.ipynb`](41_vertical_transport.ipynb) | Tunnelling *through* a two-dimensional material into the substrate beneath it: graphene, where the current map is the microscope's picture, and a bilayer, where the two layers' paths interfere and it is not |
+| [`41_vertical_transport.ipynb`](41_vertical_transport.ipynb) | Tunnelling *through* a two-dimensional material into the substrate beneath it: graphene, where the current map is the microscope's picture, and a bilayer, where the two layers' paths interfere and it is not; and a tip with a p orbital, which makes the hollow of graphene bright |
 | [`42_all_electron_start.ipynb`](42_all_electron_start.ipynb) | A converged all-electron density brought here and used to start a run: where a pseudopotential density is allowed to differ from the real one, and where it is not |
 | [`43_magnetic_textures.ipynb`](43_magnetic_textures.ipynb) | A moment per atom rather than a moment per crystal: a 90 degree helix that survives self consistency, the symmetry a texture leaves behind, the two numbers it takes to say it is still there, and the same four sites landing on two magnetic states 11 mRy apart depending on what their moments started as |
 | [`44_ultra_long_range.ipynb`](44_ultra_long_range.ipynb) | A potential that varies over eight unit cells of silicon, and the electrons screening it: the long cell solved in the ordinary cell's own states, computed once. What the modulation costs in energy, which is what says whether a modulation is the ground state at all. Then the two kinds of spin wave it carries, one modulating a moment's length and one its direction, and whether the screening cares that a pseudopotential smooths away the charge close to the nucleus |
@@ -318,8 +318,14 @@ helix under both gradient corrections, the first taking 119 iterations.
 | `42` | 13 | `31` | 34 | `13` | 131 | `35` | 276 |
 | `16` | 18 | `40` | 34 | `30` | 232 | `20` | 282 |
 | `00` | 22 | `23` | 35 | `39` | 151 | `49` | 194 |
-| `07` | 22 | `32` | 84 | `41` | 110 | `51` | 290 |
+| `07` | 22 | `32` | 84 | `41` | 231 | `51` | 290 |
 | `46` | 61 | `47` | 260 | `48` | 121 | `50` | 509 |
+
+`41` reads **231 s** on 2026-11-15 on this workstation, with four threads on CPUs 0-3 and no
+compiled-code cache, after the section on the orbital of the tip was added (two more band
+solves on the whole 6x6x1 grid); it read 110 s on one core before. The same day, after the states
+are continued through the average potential, `tools/export_notebooks.sh` ran it in 203 s, with no
+pinning and the compiled-code cache on.
 
 `63` reads **124 s** on 2026-11-07, its first measurement, on one core of D22 (slot CPU 6,
 `OMP_NUM_THREADS=1`, CPU only, load about 6 to 12 from other jobs, the compiled code partly
