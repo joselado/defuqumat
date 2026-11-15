@@ -328,8 +328,8 @@ def tetrahedra_for(occupations, kpoints, symmetries, cell,
 # --------------------------------------------------------------------------
 
 
-def _positive(x):
-    """``x``, floored away from zero *before* anything divides by it.
+def _on(live, x):
+    """A branch's denominator: ``x`` where the branch is selected, ``1`` elsewhere.
 
     Corner energies are degenerate all the time -- at a high-symmetry point, in
     a flat band, whenever two grid points are related by a symmetry that the
@@ -339,11 +339,19 @@ def _positive(x):
     is empty exactly when ``e_i == e_j``). Here every branch is evaluated and
     then selected, so the *dead* branches divide by zero; the forward value
     survives the ``where`` but ``grad`` does not -- ``where`` hands the dead
-    branch a zero cotangent and ``0 * inf`` is NaN. Clamping the denominator
-    before the division, rather than masking the quotient afterwards, is the
-    fix, and it is exact because the clamp never fires on a live branch.
+    branch a zero cotangent and ``0 * inf`` is NaN.
+
+    This used to floor the denominator at 1e-12 instead, and a floor on a
+    *product* of corner differences is not exact: three
+    differences of 1e-5 Ry multiply to 1e-15, below any floor that keeps
+    ``grad`` finite, while the branch is live (audit 2026-11-15, ``scf-small``
+    F1: the fraction read 7.3e-4 where it is 0.1215). On the selected branch
+    every factor is strictly positive, since the branch ``e_i <= E < e_j`` is
+    empty when ``e_i == e_j``, so the true product is used there; a dead branch
+    divides by one, which keeps its value and its tangent finite under the
+    ``where`` that discards them, in any precision.
     """
-    return jnp.where(x > _DEGENERATE, x, _DEGENERATE)
+    return jnp.where(live, x, jnp.ones_like(x))
 
 
 def _occupied_fraction(e: jnp.ndarray, energy) -> jnp.ndarray:
@@ -367,18 +375,21 @@ def _occupied_fraction(e: jnp.ndarray, energy) -> jnp.ndarray:
     below4 = e4 - energy
     above1 = energy - e1
     above2 = energy - e2
+    live1 = (energy >= e1) & (energy < e2)
+    live2 = (energy >= e2) & (energy < e3)
+    live3 = (energy >= e3) & (energy < e4)
 
     # e1 <= E < e2
-    first = above1**3 / _positive((e2 - e1) * (e3 - e1) * (e4 - e1))
+    first = above1**3 / _on(live1, (e2 - e1) * (e3 - e1) * (e4 - e1))
     # e2 <= E < e3
     second = (
         (e2 - e1) ** 2
         + 3.0 * (e2 - e1) * above2
         + 3.0 * above2**2
-        - (e3 - e1 + e4 - e2) / _positive((e3 - e2) * (e4 - e2)) * above2**3
-    ) / _positive((e3 - e1) * (e4 - e1))
+        - (e3 - e1 + e4 - e2) / _on(live2, (e3 - e2) * (e4 - e2)) * above2**3
+    ) / _on(live2, (e3 - e1) * (e4 - e1))
     # e3 <= E < e4
-    third = 1.0 - below4**3 / _positive((e4 - e1) * (e4 - e2) * (e4 - e3))
+    third = 1.0 - below4**3 / _on(live3, (e4 - e1) * (e4 - e2) * (e4 - e3))
 
     fraction = jnp.where(energy < e2, first, jnp.where(energy < e3, second, third))
     fraction = jnp.where(energy < e1, jnp.zeros_like(fraction), fraction)
@@ -523,13 +534,16 @@ def _bloechl_weights(e: jnp.ndarray, ef) -> jnp.ndarray:
     correction = jnp.stack([total - 4.0 * e[..., i] for i in range(4)], axis=-1) / 40.0
 
     full = jnp.broadcast_to(jnp.asarray(0.25, e.dtype), e.shape)
+    live1 = (ef >= e1) & (ef < e2)
+    live2 = (ef >= e2) & (ef < e3)
+    live3 = (ef >= e3) & (ef < e4)
 
     # e3 <= ef < e4
-    d4 = _positive((e4 - e1) * (e4 - e2) * (e4 - e3))
+    d4 = _on(live3, (e4 - e1) * (e4 - e2) * (e4 - e3))
     c4 = 0.25 * (e4 - ef) ** 3 / d4
     dos_third = 3.0 * (e4 - ef) ** 2 / d4
     inv = jnp.stack(
-        [1.0 / _positive(e4 - e1), 1.0 / _positive(e4 - e2), 1.0 / _positive(e4 - e3)],
+        [1.0 / _on(live3, e4 - e1), 1.0 / _on(live3, e4 - e2), 1.0 / _on(live3, e4 - e3)],
         axis=-1,
     )
     third = jnp.stack(
@@ -543,40 +557,40 @@ def _bloechl_weights(e: jnp.ndarray, ef) -> jnp.ndarray:
     ) + dos_third[..., None] * correction
 
     # e2 <= ef < e3
-    c1 = 0.25 * (ef - e1) ** 2 / _positive((e4 - e1) * (e3 - e1))
-    c2 = 0.25 * (ef - e1) * (ef - e2) * (e3 - ef) / _positive(
+    c1 = 0.25 * (ef - e1) ** 2 / _on(live2, (e4 - e1) * (e3 - e1))
+    c2 = 0.25 * (ef - e1) * (ef - e2) * (e3 - ef) / _on(live2, 
         (e4 - e1) * (e3 - e2) * (e3 - e1)
     )
-    c3 = 0.25 * (ef - e2) ** 2 * (e4 - ef) / _positive((e4 - e2) * (e3 - e2) * (e4 - e1))
+    c3 = 0.25 * (ef - e2) ** 2 * (e4 - ef) / _on(live2, (e4 - e2) * (e3 - e2) * (e4 - e1))
     dos_second = (
         3.0 * (e2 - e1)
         + 6.0 * (ef - e2)
-        - 3.0 * (e3 - e1 + e4 - e2) * (ef - e2) ** 2 / _positive((e3 - e2) * (e4 - e2))
-    ) / _positive((e3 - e1) * (e4 - e1))
+        - 3.0 * (e3 - e1 + e4 - e2) * (ef - e2) ** 2 / _on(live2, (e3 - e2) * (e4 - e2))
+    ) / _on(live2, (e3 - e1) * (e4 - e1))
     second = jnp.stack(
         [
             c1
-            + (c1 + c2) * (e3 - ef) / _positive(e3 - e1)
-            + (c1 + c2 + c3) * (e4 - ef) / _positive(e4 - e1),
+            + (c1 + c2) * (e3 - ef) / _on(live2, e3 - e1)
+            + (c1 + c2 + c3) * (e4 - ef) / _on(live2, e4 - e1),
             c1
             + c2
             + c3
-            + (c2 + c3) * (e3 - ef) / _positive(e3 - e2)
-            + c3 * (e4 - ef) / _positive(e4 - e2),
-            (c1 + c2) * (ef - e1) / _positive(e3 - e1)
-            + (c2 + c3) * (ef - e2) / _positive(e3 - e2),
-            (c1 + c2 + c3) * (ef - e1) / _positive(e4 - e1)
-            + c3 * (ef - e2) / _positive(e4 - e2),
+            + (c2 + c3) * (e3 - ef) / _on(live2, e3 - e2)
+            + c3 * (e4 - ef) / _on(live2, e4 - e2),
+            (c1 + c2) * (ef - e1) / _on(live2, e3 - e1)
+            + (c2 + c3) * (ef - e2) / _on(live2, e3 - e2),
+            (c1 + c2 + c3) * (ef - e1) / _on(live2, e4 - e1)
+            + c3 * (ef - e2) / _on(live2, e4 - e2),
         ],
         axis=-1,
     ) + dos_second[..., None] * correction
 
     # e1 <= ef < e2
-    d1 = _positive((e2 - e1) * (e3 - e1) * (e4 - e1))
+    d1 = _on(live1, (e2 - e1) * (e3 - e1) * (e4 - e1))
     c4first = 0.25 * (ef - e1) ** 3 / d1
     dos_first = 3.0 * (ef - e1) ** 2 / d1
     inv1 = jnp.stack(
-        [1.0 / _positive(e2 - e1), 1.0 / _positive(e3 - e1), 1.0 / _positive(e4 - e1)],
+        [1.0 / _on(live1, e2 - e1), 1.0 / _on(live1, e3 - e1), 1.0 / _on(live1, e4 - e1)],
         axis=-1,
     )
     first = jnp.stack(
