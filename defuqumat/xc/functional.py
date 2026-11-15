@@ -860,7 +860,12 @@ class Functional(eqx.Module):
             ratio = (gx(r, S + 2.0 * A) - gx(r, S - 2.0 * A)) / (4.0 * safe_a)
             return jnp.where(step_a, ratio, dgx_dsigma(r, S))
 
-        step_s = s > _NONCOLLINEAR_RELATIVE_STEP * n
+        # ``s > 0`` and ``|n|``: at n < 0 and s = 0, the plain ``s > 1e-4 n`` was
+        # True and the step divided 0 by 0, a NaN in the energy and through
+        # value_and_grad in the whole potential (audit 2026-11-15, ``xc-io``
+        # F1). Those points take the slope, which the n > SMALL_SPIN_GGA gate
+        # makes zero there.
+        step_s = (s > 0.0) & (s > _NONCOLLINEAR_RELATIVE_STEP * jnp.abs(n))
         safe_s = jnp.where(step_s, s, 1.0)
         slope = 2.0 * jax.grad(lambda r: jnp.sum(q(r)))(n)
         h = jnp.where(step_s, (q(n + s) - q(n - s)) / safe_s, slope)

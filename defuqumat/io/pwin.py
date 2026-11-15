@@ -276,7 +276,14 @@ def _card_option(header: str, name: str) -> str | None:
 
 def _parse_namelist_body(body: str) -> dict[str, Any]:
     entries: dict[str, Any] = {}
+    end = 0
     for match in _ENTRY.finditer(body):
+        # Text between two assignments is blanks and separating commas, or a
+        # value the bare token stopped short of: Fortran's list-directed
+        # ``starting_magnetization = 0.5, -0.5`` lost its second value here
+        # without a word (audit 2026-11-15, ``xc-io`` F3).
+        _refuse_leftover(body[end:match.start()])
+        end = match.end()
         key = match.group("key").lower()
         value = _convert(match.group("value").strip())
         if match.group("index") is None:
@@ -284,7 +291,19 @@ def _parse_namelist_body(body: str) -> dict[str, Any]:
         else:
             index = tuple(int(part) for part in match.group("index").replace(" ", "").split(","))
             entries.setdefault(key, {})[index] = value
+    _refuse_leftover(body[end:])
     return entries
+
+
+def _refuse_leftover(text: str) -> None:
+    """Raise on anything in a namelist body that is not part of an assignment."""
+    left = text.replace(",", " ").strip()
+    if left:
+        raise ValueError(
+            f"namelist text not read as an assignment: {left!r}. A value list "
+            "such as 'starting_magnetization = 0.5, -0.5' is not read here; "
+            "write one assignment per index, starting_magnetization(1) = 0.5, "
+            "starting_magnetization(2) = -0.5")
 
 
 #: Fortran's list-directed logical input is more permissive than ``.true.``:

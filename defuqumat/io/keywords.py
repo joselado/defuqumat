@@ -313,7 +313,10 @@ def pw_input_text(
     if given:
         cards.append("STARTING_MOMENTS")
         for moment in moments:
-            cards.append("  " + "  ".join(_num(x) for x in _moment(moment, spin)))
+            # an atom written without a moment in a magnetic crystal, the
+            # oxygen of NiO, starts at zero (audit 2026-11-15, ``xc-io`` F2)
+            row = (0.0, 0.0, 0.0) if moment is None else _moment(moment, spin)
+            cards.append("  " + "  ".join(_num(x) for x in row))
 
     # --- fields and DFT+U ---------------------------------------------------
     if field is not None:

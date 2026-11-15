@@ -339,3 +339,21 @@ def test_the_one_centre_meta_gga_is_the_collinear_one_for_a_collinear_moment(oxy
     scale = np.max(np.abs(v2))
     assert np.max(np.abs(v4[0] - 0.5 * (v2[0] + v2[1]))) < 1e-11 * scale
     assert np.max(np.abs(v4[1:] - np.multiply.outer(e, 0.5 * (v2[0] - v2[1])))) < 1e-11 * scale
+
+
+def test_a_negative_charge_with_no_magnetization_is_finite():
+    """n < 0 and m = 0 exactly: the relative-step guard divided 0 by 0 (audit ``xc-io`` F1).
+
+    ``s > 1e-4 n`` is True at n < 0 and s = 0, so the step was taken with a
+    zero width. A start from a field alone has m = 0 bit for bit everywhere,
+    and a superposition of atoms rings negative in the vacuum.
+    """
+    n = jnp.array([0.3, 1.0e-3, -1.0e-6, -2.0e-3])
+    m = jnp.zeros((3, 4))
+    grad_n = jnp.array([[0.1, 1e-3, 1e-4, 1e-3], [0.0] * 4, [0.0] * 4])
+    grad_m = jnp.zeros((3, 3, 4))
+    energy = PBE.noncollinear_gradient_energy(n, m, grad_n, grad_m)
+    assert np.all(np.isfinite(np.asarray(energy)))
+    gradient = jax.grad(lambda c: jnp.sum(PBE.noncollinear_gradient_energy(
+        c, m, grad_n, grad_m)))(n)
+    assert np.all(np.isfinite(np.asarray(gradient)))
