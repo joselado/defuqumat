@@ -76,7 +76,7 @@ import numpy as np
 
 __all__ = ["ORBITALS", "TipOrbital", "TipAssembly", "multiplier", "tip_frame",
            "tip_side", "tip_vectors", "rotation_representation", "vacuum_level",
-           "decay_constants_at", "continued_wavevectors"]
+           "decay_constants_at", "continued_wavevectors", "continued_components"]
 
 #: The orbitals of Chen's table and their angular momentum, in the order the
 #: real spherical harmonics are listed there.
@@ -105,7 +105,7 @@ def multiplier(name: str, q) -> np.ndarray:
     ``q`` is ``(..., 3)``, the components of ``k + G`` in 1/bohr along the tip
     frame's x, y and z (:func:`tip_vectors`). ``d/dx_a`` is ``i q_a``, so the p
     multipliers are imaginary and the d ones real. ``q`` may be complex: a state
-    continued into the vacuum (:func:`continued_wavevectors`) carries
+    continued into the vacuum (:func:`continued_components`) carries
     ``q_par + i kappa_G n``, so that ``d/dn`` is ``-kappa_G``.
     """
     q = np.asarray(q)
@@ -455,6 +455,62 @@ def continued_wavevectors(inplane, lateral_k, cell, normal, plateau, energies):
     kappa = np.sqrt(barrier[:, None] + np.sum(q_par * q_par, axis=1)[None, :])
     wavevectors = q_par[None, :, :] + 1.0j * kappa[:, :, None] * normal[None, None, :]
     return wavevectors, kappa
+
+
+def continued_components(inplane, lateral_k, cell, match, energies, distance):
+    """``(Q, decay)`` of the folded components ``distance`` bohr above the plane.
+
+    The WKB form of :func:`continued_wavevectors`: each in-plane component
+    decays as ``exp(-int_0^d kappa_nG(t) dt)`` with ``kappa_nG(t)^2 = V(t) -
+    e_n + |q_par|^2`` and ``V(t)`` the planar average of the local potential
+    between the matching plane and the tip (``match["profile"]``), and its
+    derivatives are taken with the local ``kappa_nG(d)``. In a flat vacuum it
+    is :func:`continued_wavevectors` exactly. It exists because the potential
+    above a matching plane close to the material is still below the plateau:
+    on graphene, continued from 3 bohr with the plateau's decay, the s map
+    over an atom is 0.885 and 0.778 of the raw plane-wave tail at 3.5 and 4
+    bohr, where that tail is still good (``PLAN.md`` P179). A component whose
+    ``kappa^2`` is negative somewhere on the path (a classically allowed
+    stretch) does not decay there; the lateral corrugation of the potential is
+    not in a planar average.
+
+    Returns ``Q`` ``(nbnd, ng, 3)`` complex, cartesian, ``q_par + i kappa_nG(d)
+    n``, and ``decay`` ``(nbnd, ng)``.
+    """
+    normal = np.asarray(match["normal"], dtype=float)
+    q = (np.asarray(inplane, dtype=float) + np.asarray(lateral_k, dtype=float)) \
+        @ np.asarray(cell.bg, dtype=float)
+    q_par = q - np.outer(q @ normal, normal)
+    q2 = np.sum(q_par * q_par, axis=1)[None, :]
+    energies = np.asarray(energies, dtype=float).reshape(-1)
+    plateau = float(match["plateau"])
+    if np.any(plateau - energies <= 0.0):
+        raise ValueError(
+            f"a state at {float(energies[np.argmax(energies)]):.6f} Ry is at or "
+            f"above the vacuum level {plateau:.6f} Ry, so it does not decay into "
+            "the vacuum and cannot be continued from a matching plane; narrow the "
+            "energy window or drop match_height")
+    profile = match.get("profile")
+    distance = float(distance)
+
+    def kappa_at(t):
+        if profile is None:
+            level = plateau
+        else:
+            level = potential_at(profile, float(match["height"])
+                                 + int(match["side"]) * t / float(match["spacing"]))
+        return np.sqrt(np.maximum(level - energies[:, None] + q2, 0.0))
+
+    steps = max(8, int(np.ceil(distance / 0.05)))
+    t = np.linspace(0.0, distance, steps + 1)
+    integral = np.zeros((energies.size, q2.shape[1]))
+    previous = kappa_at(0.0)
+    for left, right in zip(t[:-1], t[1:]):
+        current = kappa_at(right)
+        integral += 0.5 * (previous + current) * (right - left)
+        previous = current
+    wavevectors = q_par[None, :, :] + 1.0j * previous[:, :, None] * normal[None, None, :]
+    return wavevectors, np.exp(-integral)
 
 
 def tip_vectors(miller, kcrystal, cell, frame) -> np.ndarray:

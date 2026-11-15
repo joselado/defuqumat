@@ -169,6 +169,10 @@ def _radial_factor(path, upf_label):
 def _single_family(dataset: str, upf_label: str, names: tuple, label: str):
     def build():
         path = PSEUDO_DIR / dataset
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"the preset tip {label.split(':')[0]!r} needs {dataset} in "
+                f"{PSEUDO_DIR}; build the tip with from_upf on another file")
         return from_upf(path, {name: (upf_label, 1.0) for name in names},
                         label=label)
     return build

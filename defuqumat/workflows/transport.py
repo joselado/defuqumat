@@ -73,7 +73,7 @@ from defuqumat.transport.substrate import (
 )
 from defuqumat.transport.tip import (
     LAPLACIAN,
-    continued_wavevectors,
+    continued_components,
     TipAssembly,
     TipOrbital,
     decay_constants_at,
@@ -219,9 +219,13 @@ def run_vertical_transport(
         match_height: continue every state into the vacuum from this plane (a
             crystal coordinate along ``exit_axis``, between the material and the
             tip) instead of reading its plane-wave tail at the tip: each
-            in-plane component then decays as ``exp(-kappa_nG d)`` with
-            ``kappa_nG^2 = V_vac - e_n + |k + G_par|^2``, and Chen's operators
-            act on it analytically. The plane-wave tail has a floor in the
+            in-plane component then decays as ``exp(-int_0^d kappa_nG(t) dt)``
+            with ``kappa_nG(t)^2 = Vbar(t) - e_n + |k + G_par|^2``, ``Vbar`` the
+            planar average of ``SCFResult.potential`` between the plane and the
+            tip (the vacuum level alone when ``tip_kappa`` is given), and Chen's
+            operators act on it analytically. The lateral change of the
+            potential above the plane is left out, 2 to 7 per cent in a lateral
+            ratio on graphene 0.5 to 1 bohr above it. The plane-wave tail has a floor in the
             vacuum, and a derivative amplifies it: on graphene at 40 and 60 Ry
             the pz/s ratio over an atom stops following the decay above about 4
             bohr (``PLAN.md`` P179). The plane should be close enough for the
@@ -454,6 +458,14 @@ def _tip_assembly(spec, system, result, exit_axis, exit_height, points,
         match = _matching_plane(system, exit_axis, exit_height, points,
                                 float(match_height), side, plateau, energies,
                                 kappa)
+        # the planar average the WKB continuation decays through; without a
+        # plateau (tip_kappa in a field) the vacuum is taken as flat
+        if notes.get("kappa_source") == "plateau":
+            match["profile"] = vacuum_level(system, result.potential,
+                                            exit_axis)["profile"]
+            notes["continuation"] = "wkb through the planar average"
+        else:
+            notes["continuation"] = "flat, at the given kappa"
         notes.update({"match_height": float(match_height),
                       "match_distance_bohr": match["distances"]})
     return TipAssembly(
@@ -1528,9 +1540,11 @@ def _continued_groups(tip, window, npol, miller, mask, kcrystal, energies,
     """``[(indices, feet, spheres)]``: one group per tip height, continued.
 
     The window is folded onto the matching plane once, then each in-plane
-    component is carried up by ``exp(-kappa_nG d)`` with its own state's
-    ``kappa`` (:func:`~defuqumat.transport.tip.continued_wavevectors`), and each
-    orbital is the multiplier evaluated at the complex ``Q``. The spheres are
+    component is carried up by ``exp(-int_0^d kappa_nG(t) dt)`` with its own
+    state's decay through the planar average of the potential
+    (:func:`~defuqumat.transport.tip.continued_components`; the flat vacuum
+    when the match carries no profile), and each orbital is the multiplier
+    evaluated at the complex ``Q``. The spheres are
     sampled at the feet of the tip points, in the matching plane's in-plane
     basis, exactly as a folded flat plane is.
     """
@@ -1541,17 +1555,15 @@ def _continued_groups(tip, window, npol, miller, mask, kcrystal, energies,
         k_along=float(kcrystal[axis]), groups=groups)
     lateral = np.array(kcrystal, dtype=float)
     lateral[axis] = 0.0
-    wavevectors, kappa = continued_wavevectors(
-        inplane, lateral, cell, match["normal"], match["plateau"], energies)
-    in_frame = wavevectors @ np.asarray(tip.frame, dtype=float).T
-    factors = [multiplier(name, in_frame) for name in tip.basis]   # (nbnd, ng)
     feet, distance = _feet(match, points, cell)
     out = []
     for value in np.unique(np.round(distance, 10)):
         index = np.flatnonzero(np.round(distance, 10) == value)
-        decay = np.exp(-kappa * float(value))
-        spheres = [((folded * (decay * f)[:, None, :]), inplane, lateral, None)
-                   for f in factors]
+        wavevectors, decay = continued_components(
+            inplane, lateral, cell, match, energies, float(value))
+        in_frame = wavevectors @ np.asarray(tip.frame, dtype=float).T
+        spheres = [((folded * (decay * multiplier(name, in_frame))[:, None, :]),
+                    inplane, lateral, None) for name in tip.basis]
         out.append((index, feet[index], spheres))
     return out
 
@@ -1672,16 +1684,15 @@ def _assemble_momentum(calculation, wavefunctions, eigenvalues, *,
                         "requested energy, so it would have to be continued from "
                         "the matching plane and it does not decay; narrow the "
                         "energies or drop match_height")
-                wavevectors, decay_rates = continued_wavevectors(
-                    inplane, lateral, used.cell, match["normal"],
-                    match["plateau"],
-                    np.where(below, eigenvalues_of_k[ik],
-                             float(match["plateau"]) - 1.0))
                 distance = float(np.mod(match["side"] * (plane_height
                                                          - match["height"]), 1.0)
                                  * match["spacing"])
+                wavevectors, decay = continued_components(
+                    inplane, lateral, used.cell, match,
+                    np.where(below, eigenvalues_of_k[ik],
+                             float(match["plateau"]) - 1.0), distance)
                 in_frame = wavevectors @ np.asarray(tip.frame).T
-                decay = np.exp(-decay_rates * distance) * below[:, None]
+                decay = decay * below[:, None]
                 folded = np.stack([
                     base * (decay * multiplier(name, in_frame))[:, None, :]
                     for name in tip.basis])

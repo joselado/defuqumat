@@ -11763,22 +11763,24 @@ against the orbital tips on the same states. One core (`taskset -c 2`, `OMP_NUM_
 `MKL_NUM_THREADS=1`), `DEFUQUMAT_CACHE_DIR=off`, the band solve shared through `states=` and not timed
 in the rows, every call warmed once and then the **median of three**. Monolayer graphene
 (`tests/data/qe/graphene-monolayer.in`), the whole 6x6x1 grid, 20 bands, a 40x40 tip plane at 2.4 bohr,
-one energy, `incoherent=False`; the band solve itself is **29.3 s**.
+one energy, `incoherent=False`; the band solve itself is **29.5 s**. Taken after the continuation
+follows the planar average of the potential (the WKB form of P179); the flat form before it read the
+same to 0.03x.
 
 | tip | match_height | median (s) | against the s map |
 |---|---|---|---|
 | `s` (P66's branch) | none | 0.19 | 1.00x |
 | `s` (the orbital path, continued) | 0.6 | 0.21 | 1.11x |
-| `pz` | none | 0.21 | 1.09x |
-| `dz2` | none | 0.21 | 1.09x |
-| `pxy` (two channels) | none | 0.23 | 1.24x |
-| `{"s": 1, "pz": -1}` (one channel, two orbitals) | none | 0.23 | 1.23x |
-| `pxy` | 0.6 | 0.24 | 1.26x |
+| `pz` | none | 0.21 | 1.07x |
+| `dz2` | none | 0.21 | 1.08x |
+| `pxy` (two channels) | none | 0.24 | 1.23x |
+| `{"s": 1, "pz": -1}` (one channel, two orbitals) | none | 0.24 | 1.23x |
+| `pxy` | 0.6 | 0.24 | 1.27x |
 
 The cost model is the plan's (`plans/tip-orbitals.md` section 10): one sampled amplitude per orbital of
 the basis, so `pxy` and the hybrid sample two and the rest one, plus the diagnostics on at most 64 tip
 points (the s and Laplacian amplitudes there, and one more per orbital for the tail noise). The
-contraction runs once per channel. **The band solve is about 120 times the most expensive assembly** (29.3 against 0.24 s), so a
+contraction runs once per channel. **The band solve is about 120 times the most expensive assembly** (29.5 against 0.24 s), so a
 tip orbital does not change what a map costs. **Memory**: the sampled block
 `(n_basis, npol, n_window, pixels)` is bounded by `_AMPLITUDE_BLOCK` as before, which takes fewer
 pixels per block; beside it there is one multiplied window `(n_window, npol npwx)` at a time, and the

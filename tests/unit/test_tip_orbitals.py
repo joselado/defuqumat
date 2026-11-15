@@ -48,7 +48,7 @@ from defuqumat.transport.tip import (
     tip_vectors,
     vacuum_level,
 )
-from defuqumat.transport.tip import LAPLACIAN, continued_wavevectors
+from defuqumat.transport.tip import LAPLACIAN, continued_components, continued_wavevectors
 from defuqumat.workflows.transport import (
     _assemble,
     _continued_groups,
@@ -794,3 +794,40 @@ def test_the_presets_are_single_families_with_the_weight_of_their_orbital():
     o2p = [bardeen_weight(PSEUDO_DIR / "O.pbe-n-rrkjus_psl.1.0.0.UPF", "2P", 0.57, c)
            for c in (12.0, 16.0)]
     assert o2p[0] == pytest.approx(o2p[1], rel=5e-3)
+
+
+def test_the_wkb_continuation_is_the_flat_one_in_a_flat_vacuum_and_integrates_a_slope():
+    """``exp(-int kappa dt)`` with ``kappa(t)^2 = V(t) - e + |q|^2``.
+
+    A flat profile gives :func:`continued_wavevectors` to round-off; a profile
+    linear in the height gives the closed form
+    ``(2 / 3b) [(a + b d)^(3/2) - a^(3/2)]`` of the integral, to the 0.05 bohr
+    steps' trapezoid error, and the derivative at the tip takes the local
+    ``kappa``.
+    """
+    cell = HEXAGONAL
+    inplane = np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [-1, 2, 0]])
+    lateral = np.array([0.1, 0.2, 0.0])
+    energies = np.array([-0.4, -0.3])
+    match = _match(cell, 0.6, 0.05)
+    n_points = 120
+    flat = dict(match, profile=np.full(n_points, 0.05))
+    distance = 3.7
+    q_flat, decay_flat = continued_components(inplane, lateral, cell, flat, energies, distance)
+    q_old, kappa = continued_wavevectors(inplane, lateral, cell, match["normal"], 0.05, energies)
+    assert np.allclose(decay_flat, np.exp(-kappa * distance), rtol=1e-12)
+    assert np.allclose(q_flat, q_old, rtol=1e-12)
+    # a potential rising linearly from the plane, V = V0 + slope t
+    v0, slope = -0.1, 0.03
+    heights = np.arange(n_points) / n_points
+    above = np.mod(heights - 0.6, 1.0) * match["spacing"]
+    profile = np.where(above < 6.0, v0 + slope * above, v0 + slope * 6.0)
+    sloped = dict(match, profile=profile)
+    q_sloped, decay = continued_components(inplane, lateral, cell, sloped, energies, distance)
+    q = (inplane + lateral) @ cell.bg
+    q_par2 = np.sum((q - np.outer(q @ match["normal"], match["normal"])) ** 2, axis=1)
+    a = v0 - energies[:, None] + q_par2[None, :]
+    exact = 2.0 / (3.0 * slope) * ((a + slope * distance) ** 1.5 - a ** 1.5)
+    assert np.allclose(-np.log(decay), exact, rtol=2e-3)
+    local = np.sqrt(a + slope * distance)
+    assert np.allclose(np.imag(q_sloped @ match["normal"]), local, rtol=5e-3)

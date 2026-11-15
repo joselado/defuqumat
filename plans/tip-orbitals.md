@@ -1,6 +1,6 @@
 # The orbital of the tip in the Landauer transport map (plan, 2026-11-15)
 
-Status: plan only, no code written. Reviewed once by a fable subagent against the code
+Status: implemented on branch `tip-orbitals` (2026-11-15), as `PLAN.md` P179 records; this file is the plan as it was before the code, and P179 says where the code departs from it (the vacuum continuation, `match_height`, is not in this plan). Reviewed once by a fable subagent against the code
 (2026-11-15, one python under a 5 GB cap, no SCF and no pytest); its findings are folded in
 below and marked "(review)". The review, its scripts and the later kappa scan are in
 `plans/tip-orbitals-review/`. **No number here comes from an SCF**: they come from random

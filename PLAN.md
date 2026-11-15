@@ -30599,7 +30599,7 @@ branch gained tests in the commits between the two runs.
 `tests/unit/test_parallel.py::test_newton_krylov_under_pools_reproduces_one_pool`, and the
 new slow tests in `tests/unit/test_magnetic_bloch.py` and `tests/unit/test_quantum_metric.py`.
 
-### P179 -- The orbital of the tip in the vertical transport: Chen's derivative rule as Landauer channels, the states continued into the vacuum, and preset tips. ✅ DONE 2026-11-15 (branch `tip-orbitals` from `0bcee8b8`; `tests/unit/test_tip_orbitals.py`, 25 fast tests, run on this workstation under a 5 GB cap with the other transport, STM, QPI, degeneracy, facade, calculator, guide and notebook fast files, 709 passed and 3 deselected at the branch head; `tests/regression/test_tip_orbitals_slow.py`, 16 slow tests, collected and not run, each the probe of this record with its numbers in its docstring; the fast gate not run here, by the user's rule of 2026-11-15 that a full suite goes to Triton; not merged, not pushed)
+### P179 -- The orbital of the tip in the vertical transport: Chen's derivative rule as Landauer channels, the states continued into the vacuum, and preset tips. ✅ DONE 2026-11-15 (branch `tip-orbitals` from `0bcee8b8`; `tests/unit/test_tip_orbitals.py`, 26 fast tests, run on this workstation under a 5 GB cap with the other transport, STM, QPI, degeneracy, facade, calculator, guide and notebook fast files, 709 passed and 3 deselected at the branch head; `tests/regression/test_tip_orbitals_slow.py`, 17 slow tests, collected and not run, each the probe of this record with its numbers in its docstring; the fast gate not run here, by the user's rule of 2026-11-15 that a full suite goes to Triton; not merged, not pushed)
 
 The user asked (2026-11-15) for the non-local Landauer map of P66 to take a tip orbital (s, pz,
 px/py) instead of a point, with an orbital size as an input and preset values for typical tips. The
@@ -30663,8 +30663,8 @@ psi`, and a pure l = 2 operator. `kappa(E)^2 = V_vac - E` from the plateau of th
   0.7 per cent from 1 is the well's kink under a numerical second derivative, 0.19 per cent at four
   times the points.
 - **Timing** (`PERFORMANCE.md`, the last section): the assembly of the s map is 0.19 s on graphene at
-  one core, and a tip orbital costs 1.09x (pz, dz2) to 1.26x (pxy continued) of it, against a band
-  solve of 29.3 s.
+  one core, and a tip orbital costs 1.07x (pz) to 1.27x (pxy continued) of it, against a band
+  solve of 29.5 s.
 
 **The finding: a derivative of the plane-wave tail meets the floor of the basis in the vacuum.** On
 graphene at 40 Ry the ratio `pz/s` over an atom should fall to `1 + |K|^2/kappa^2 = 3.92`, the Dirac
@@ -30672,17 +30672,30 @@ states being the only ones left, and the raw tail reads 4.58, 5.42, 7.47, 12.8, 
 5, 6, 7 and 8 bohr; at 60 Ry 2.83, 4.58, 5.92, 1.00, 0.012, 4.78. The `pxy` ratio hollow/atom holds
 between 3 and 6 bohr (1.80 to 2.04 at both cutoffs) and breaks above (5513 at 8 bohr). The s map decays
 correctly to 5 bohr; it is the derivative, which multiplies the ringing of the truncated basis by
-`G_z`, that fails first. **`match_height` continues every state from a matching plane**: the window is
-folded onto the plane, each in-plane component goes up as `exp(-kappa_nG d)` with `kappa_nG^2 = V_vac -
-e_n + |k + G_par|^2` and the state's own eigenvalue, and the orbitals act through the complex
-wavevector `q_par + i kappa_nG n`, so `-Q.Q = kappa_n^2` and the continued state obeys the vacuum
-equation exactly. Then `pz/s` falls smoothly to 3.9226 (40 Ry) and 3.7874 (60 Ry), each the analytic
-value with its run's `kappa`; `dz2/s` to 116.0 and 107.4, `(3 kappa_K^2/kappa^2 - 1)^2`; the `pxy`
-ratio to 2.0000 at both cutoffs and both matching planes, and at 4 bohr it is **1.9485 at 40 and at 60
-Ry**, where the raw tail gave 1.808 and 1.926. Moving the plane from 3 to 2.5 bohr moves that ratio by
-0.6 per cent. The tip points are sampled at their feet on the plane, along the normal, which differs
-from the same in-plane crystal coordinates when `a3` is tilted. The momentum route continues only the
-bands below the vacuum level, and refuses when one above it carries weight above `_WINDOW_TOL`.
+`G_z`, that fails first. **`match_height` continues every state from a matching plane**: the window
+is folded onto the plane, each in-plane component goes up with its own decay, and the orbitals act
+through the complex wavevector `Q = q_par + i kappa_nG(d) n`, so `-Q.Q = kappa_n^2` at the tip. **The
+first form took the vacuum as flat from the plane**, `exp(-kappa_nG d)` with `kappa_nG^2 = V_vac - e_n +
+|k + G_par|^2`, and it overdamps: the potential 3 bohr above graphene is still below the plateau, so a
+state decays more slowly there, and the continued s map over an atom was 0.885 and 0.778 of the raw
+map at 3.5 and 4 bohr, where the raw map still decays correctly (the s map is good to 5 bohr). **The
+form kept is WKB through the planar average**: `exp(-int_0^d kappa_nG(t) dt)` with `kappa_nG(t)^2 =
+Vbar(t) - e_n + |k + G_par|^2`, `Vbar` the planar average of `SCFResult.potential` from the plane to the
+tip (`continued_components`, trapezoid on steps of at most 0.05 bohr), which reads **1.010 and 0.984**
+of raw at the same heights. The flat form stays where there is no plateau and `tip_kappa` is given.
+What the average leaves out is the lateral change of the potential above the plane: the s map's bond
+over atom at 3.5 bohr is 0.815 continued against 0.873 raw, 2 per cent apart at 4 bohr, so a lateral
+ratio 0.5 to 1 bohr above the plane is off by 2 to 7 per cent. Far from the plane the profile is flat
+and the limits are the analytic ones with the run's `kappa`: `pz/s` 3.9225 at 40 Ry (the flat form gave
+3.9226 there and 3.7874 at 60 Ry, `dz2/s` 116.0 and 107.4, `(3 kappa_K^2/kappa^2 - 1)^2`), the `pxy`
+ratio 2.0000 at 10 bohr. At 4 bohr the `pxy` ratio is **1.9520 at 40 Ry and 1.9521 at 60 Ry**, where the
+raw tail gave 1.808 and 1.926 and the flat form 1.9485 at both, and `pz/s` is 3.41 and 3.29. Moving the
+plane from 3 to 2.5 bohr moves the `pxy` ratio and `pz/s` at 4 bohr by 0.7 per cent. The slow file
+checks the s map continued from 3 bohr against raw at 3.5 and 4 bohr within 0.03 and the flat form
+below 0.92 and 0.85, so it fails if the profile is dropped. The tip points are sampled at their feet on
+the plane, along the normal, which differs from the same in-plane crystal coordinates when `a3` is
+tilted. The momentum route continues, in the same form, only the bands below the vacuum level, and
+refuses when one above it carries weight above `_WINDOW_TOL`.
 
 **The residue is two numbers.** `helmholtz_residue`, `|nabla^2 psi - kappa^2 psi|/|kappa^2 psi|` over
 the states at the tip, is split into `vacuum_condition`, `|V(r) - V_vac| psi` against `kappa^2 psi`
@@ -30716,11 +30729,11 @@ builds a mixed tip from shares. `W.pbe-spn-rrkjus_psl.1.0.0.UPF`, `Pb.pbe-dn-rrk
 
 **The physics**: at `E_F` the Dirac states of graphene are zero at the hollow by C3, so an s, a pz and
 an `s - pz` tip read 1e-16 of an atom there, while their lateral gradient is not zero and a `pxy` tip
-reads 1.57, 1.81 and 2.00 times an atom at 2.4, 4 and 5 bohr (raw), 1.948 at 4 bohr continued from 3
+reads 1.57, 1.81 and 2.00 times an atom at 2.4, 4 and 5 bohr (raw), 1.952 at 4 bohr continued from 3
 bohr (the guide); the `pxy` map correlates with the s map at -0.81 at 4 bohr, the pz map at +0.98. On
 the hydrogen sheet the zone near X holds 28.6 per cent of the Fermi surface and carries 22.2, 24.1 and
-28.4 per cent of the current for an s, a pz and a `pxy` tip: a p tip undoes most of the
-`k_par` suppression.
+28.4 per cent of the current for an s, a pz and a `pxy` tip on the raw tail 3 bohr above it, and 22.3,
+24.2 and 28.6 with the states continued from 2 bohr: a p tip undoes most of the `k_par` suppression.
 
 **Refused by name**: a complex channel on a symmetry-reduced k-set (the completion drops the
 time-reversed operations, and `T_-k(C) = T_k(C^*)` to 5e-14 while `T_-k(C)` differs from `T_k(C)` by
@@ -30737,7 +30750,9 @@ and Bardeen with an explicit tip on a separation plane; spinor tip channels (a P
 p3/2 carry different weights per state); complex channels and `match_height` on a reduced k-set; the
 continuation of the exit plane, which also sits in the vacuum; a tip orbital in the STS spectrum, the
 QPI `landauer` reader, the STM image (the `exit_region = "volume"` limit gives it) and the ultracell
-transport; an automatic `match_height`; and the default, which stays the raw tail with the diagnostics
+transport; the lateral change of the potential above the matching plane, which the planar average leaves out
+(a continuation through the whole potential, a three-dimensional vacuum solve); an automatic
+`match_height`; and the default, which stays the raw tail with the diagnostics
 in `notes["tip"]`, an open choice for the user.
 
 **Slow files for the user** (not run here): `tests/regression/test_tip_orbitals_slow.py` (new),

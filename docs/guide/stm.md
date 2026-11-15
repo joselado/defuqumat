@@ -546,11 +546,11 @@ print(f"kappa {notes['kappa'][0]:.4f} 1/bohr, at the matching plane: vacuum cond
 ```
 
 ```
-s                  atom 6.395e-05   hollow / atom 8.496e-17
-pz                 atom 2.624e-04   hollow / atom 7.033e-17
-pxy                atom 8.519e-05   hollow / atom 1.948e+00
-{'s': 1, 'pz': -1} atom 5.854e-04   hollow / atom 7.384e-17
-CO                 atom 3.545e-04   hollow / atom 1.948e+00
+s                  atom 8.081e-05   hollow / atom 8.917e-17
+pz                 atom 2.759e-04   hollow / atom 6.875e-17
+pxy                atom 1.082e-04   hollow / atom 1.952e+00
+{'s': 1, 'pz': -1} atom 6.554e-04   hollow / atom 7.401e-17
+CO                 atom 4.501e-04   hollow / atom 1.952e+00
 kappa 0.5269 1/bohr, at the matching plane: vacuum condition 1.20, basis residue 0.82
 ```
 
@@ -558,9 +558,9 @@ For an s and a $p_z$ tip the hollow is dark, with $10^{-16}$ of the current abov
 an atom. At the Fermi level only the Dirac states at K carry the current, and
 the threefold symmetry of K makes them zero at the hollow, and so is their
 derivative along $z$. Their derivative along the plane is not zero there, so the
-`pxy` tip sees the hollow 1.95 times brighter than an atom. The contrast is
-inverted between a metal tip and a CO tip, which is what experiments with CO tips
-show. The hybrid `{"s": 1, "pz": -1}` gives 9 times the current of the s tip,
+`pxy` tip sees the hollow 1.95 times brighter than an atom. So the contrast is
+inverted between a metal tip and a CO tip. The hybrid `{"s": 1, "pz": -1}` gives 8
+times the current of the s tip,
 because its lobe points at the sample and the two orbitals add in phase. The
 direction $z$ of the tip always points from the material to the tip, so $s - p_z$
 is the lobe pointing down. The preset `"CO"` is the same pair, with the weight of
@@ -586,9 +586,11 @@ The keywords are:
 `get_momentum_transport` takes the same `tip_orbital`, `match_height`, `tip_kappa`
 and `tip_frame`. Then the tip plane weights each state by its orbital. For example
 a `pxy` tip weights a state by $|\mathbf k_\parallel + \mathbf G_\parallel|^2/\kappa^2$,
-so it does not see the states at $\Gamma$. On the square hydrogen sheet the part of
-the zone near X has 28.6% of the Fermi surface, and it carries 22.2% of the
-current with an s tip, 24.1% with $p_z$ and 28.4% with `pxy`.
+so it does not see the states at $\Gamma$. On the square hydrogen sheet, with the
+tip plane 3 bohr above it, the part of the zone near X has 28.6% of the Fermi
+surface, and it carries 22.2% of the current with an s tip, 24.1% with $p_z$ and
+28.4% with `pxy`. With the states continued from 2 bohr the three are 22.3%, 24.2%
+and 28.6%.
 
 **Why the states are continued into the vacuum.** A derivative makes the tail of a
 plane-wave state less accurate. The basis cannot represent the decay of a state
@@ -600,21 +602,28 @@ K are left. With the raw tail it reads 5.4 at 4 bohr and 49.8 at 8 bohr. With
 `match_height` the code takes each state on a plane close to the material, where
 the basis is accurate, and continues each in-plane component
 $\mathbf G_\parallel$ of it with its own decay
-$e^{-\kappa_{n\mathbf G} d}$, with $\kappa_{n\mathbf G}^2 = V_{\rm vac} - \varepsilon_n
-+ |\mathbf k_\parallel + \mathbf G_\parallel|^2$. Then the derivatives are exact. The
-ratio $p_z/s$ goes to 3.92 smoothly, and the contrast of the figure below does
-not depend on the cutoff: at 4 bohr, the hollow over the atom of the `pxy` map is
-1.9485 at 40 Ry and at 60 Ry, where the raw tail gives 1.81 and 1.93. It also
-works for the s tip, and then the map can be computed far from the material.
+$\exp(-\int_0^d \kappa_{n\mathbf G}(t)\,dt)$, with
+$\kappa_{n\mathbf G}(t)^2 = \bar V(t) - \varepsilon_n + |\mathbf k_\parallel + \mathbf G_\parallel|^2$
+and $\bar V(t)$ the planar average of the potential between the plane and the tip.
+Then the derivatives are analytic. The ratio $p_z/s$ goes to 3.92 smoothly, and the
+contrast of the figure below does not depend on the cutoff: at 4 bohr, the hollow
+over the atom of the `pxy` map is 1.9520 at 40 Ry and 1.9521 at 60 Ry, where the raw
+tail gives 1.81 and 1.93. It also works for the s tip, and then the map can be
+computed far from the material.
 
-The plane is a compromise. Close to the material the basis is good but the
-potential is not yet flat, and the continuation assumes it is flat from the
-plane on. `flow.notes["tip"]` says how far each condition is from holding, as a
-fraction of $\kappa^2$: `vacuum_condition` for the potential and `basis_residue`
-for the basis. With `match_height` both are measured at the plane. Here the plane
-at 3 bohr gives 1.20 and 0.82, so the potential is still far from flat there. The
-contrast moves by 0.6% if the plane is at 2.5 bohr instead, and that is the size
-of this approximation for this map.
+Why the planar average, and not just the vacuum level? Close to the material the
+potential is still below the vacuum level, so a state decays more slowly there.
+With the vacuum level alone, the s map above an atom, continued from 3 bohr, is
+0.885 and 0.778 of the raw plane-wave map at 3.5 and 4 bohr, where the raw map is
+still good. With the planar average it is 1.010 and 0.984. What the average leaves
+out is the lateral change of the potential, and it shows close to the plane: at
+3.5 bohr the ratio of a bond to an atom in the s map is 0.815 continued against
+0.873 raw. At 4 bohr the difference is 2%. `flow.notes["tip"]` says how far
+Chen's condition is from holding, as a fraction of $\kappa^2$:
+`vacuum_condition` for the potential and `basis_residue` for the basis. With
+`match_height` both are measured at the plane. Here the plane at 3 bohr gives 1.20
+and 0.82, so the potential is still far from flat there. The `pxy` contrast and
+$p_z/s$ at 4 bohr move by 0.7% if the plane is at 2.5 bohr instead.
 
 ![Graphene seen by an s tip and by a pxy tip, and the contrast of the hollow against the height of the tip.](img/stm_tip.png#only-light)
 ![Graphene seen by an s tip and by a pxy tip, and the contrast of the hollow against the height of the tip.](img/stm_tip-dark.png#only-dark)
@@ -623,7 +632,7 @@ The figure shows the two maps 4 bohr above graphene, each divided by its
 maximum. The circles are the atoms and the cross is a hollow. With the s tip the
 hollows are the darkest points, and with the `pxy` tip they are the brightest. On
 the right we follow the ratio of the hollow to the atom against the height. With
-the continuation it goes from 1.90 at 3.5 bohr to 2.0000 at 10 bohr. With the raw
+the continuation it goes from 1.91 at 3.5 bohr to 2.0000 at 10 bohr. With the raw
 tail of the plane waves it moves around 1.8 and 2.0 up to 6 bohr, and above that it
 has no meaning (5513 at 8 bohr).
 
@@ -898,9 +907,11 @@ so its size moves by a few per cent with the mesh and its sign does not.
     Without `match_height` the derivative is taken on the raw plane-wave tail,
     and far from the material that tail has an error the derivative makes
     larger: on graphene at 40 Ry the map of a $p_z$ tip is wrong above about 4
-    bohr. With `match_height` the states are continued from a plane, and the
-    error is then the potential between that plane and the tip, which the
-    continuation takes as flat. A complex channel such as `{"px": 1, "py": 1j}`
+    bohr. With `match_height` the states are continued from a plane through the
+    planar average of the potential, and the error is then the lateral change of
+    the potential between that plane and the tip, which the average leaves out:
+    on graphene 2 to 7% in a lateral ratio 0.5 to 1 bohr above the plane. With
+    `tip_kappa` and no vacuum plateau the continuation takes the vacuum as flat. A complex channel such as `{"px": 1, "py": 1j}`
     gives an error on a symmetry-reduced k-mesh, because the completion drops
     the operations with time reversal, which would turn it into its conjugate.
     Real channels work there and are turned with each operation. `match_height`

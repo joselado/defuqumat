@@ -242,7 +242,7 @@ fig.tight_layout()
 
 So far the electron enters from a point, which is an s orbital at the end of the tip. A real tip ends on an atom, and the state of that atom can be a p or a d orbital. Then the tip couples to a derivative of each state at its apex, which is the derivative rule of Chen: a pz tip sees `d psi / dz`, and a CO tip, whose oxygen has its px and py states at the Fermi level, sees `d psi / dx` and `d psi / dy` as two independent channels.
 
-Graphene shows why this matters. At the Fermi level only the Dirac states at K carry the current, and their threefold symmetry makes them zero at the center of each hexagon. Their slope along the sheet is not zero there. So an s tip sees a dark hollow, and a CO tip sees a bright one. `match_height` continues each state into the vacuum from a plane 3 bohr above the sheet, so that the derivative is exact far from it.
+Graphene shows why this matters. At the Fermi level only the Dirac states at K carry the current, and their threefold symmetry makes them zero at the center of each hexagon. Their slope along the sheet is not zero there. So an s tip sees a dark hollow, and a CO tip sees a bright one. `match_height` continues each state into the vacuum from a plane 3 bohr above the sheet, through the average potential, so that the derivative stays accurate far from it.
 
 
 ```python
@@ -257,10 +257,10 @@ for tip in ('s', 'pxy'):
     s   tip: the hollow is 0.000 of an atom
 
 
-    pxy tip: the hollow is 1.948 of an atom
+    pxy tip: the hollow is 1.952 of an atom
 
 
-The contrast is inverted: the hollow is zero for the s tip and about twice an atom for the CO-like tip, which is what images taken with a CO tip show. `tip_orbital` also takes `'pz'`, the d orbitals, a dict of weights for one hybrid state such as `{'s': 1, 'pz': -1}`, whose lobe points at the sample, and the presets `'CO'`, `'W'` and `'Pb'`.
+The contrast is inverted: the hollow is zero for the s tip and about twice an atom for the CO-like tip. `tip_orbital` also takes `'pz'`, the d orbitals, a dict of weights for one hybrid state such as `{'s': 1, 'pz': -1}`, whose lobe points at the sample, and the presets `'CO'`, `'W'` and `'Pb'`.
 
 ## Reading the map
 

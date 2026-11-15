@@ -323,7 +323,9 @@ helix under both gradient corrections, the first taking 119 iterations.
 
 `41` reads **231 s** on 2026-11-15 on this workstation, with four threads on CPUs 0-3 and no
 compiled-code cache, after the section on the orbital of the tip was added (two more band
-solves on the whole 6x6x1 grid); it read 110 s on one core before.
+solves on the whole 6x6x1 grid); it read 110 s on one core before. The same day, after the states
+are continued through the average potential, `tools/export_notebooks.sh` ran it in 203 s, with no
+pinning and the compiled-code cache on.
 
 `63` reads **124 s** on 2026-11-07, its first measurement, on one core of D22 (slot CPU 6,
 `OMP_NUM_THREADS=1`, CPU only, load about 6 to 12 from other jobs, the compiled code partly
