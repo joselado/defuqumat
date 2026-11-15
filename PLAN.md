@@ -30577,8 +30577,12 @@ Triton (job 21592545, `batch-csl`, one node of 8 CPUs, the group's QE 7.5 tree a
 code: the three `test_memory_watchdog.py` tests need `psutil`, and the two `test_check_guide.py`
 tests need `yaml` (`ModuleNotFoundError: No module named 'yaml'` in `tools/check_guide.py:40`),
 neither of which the venv has; no other test failed. `test_result_plots.py` is left out by the
-job script, because the venv has no `matplotlib`. The count is larger than at `84168bd6`
-because the QE tree was present, so the tests that read it were collected and ran.
+job script, because the venv has no `matplotlib`. Those three files ran on this workstation at
+`81115b7d` (the head plus records only), under a 5G cap: 61 passed, the guide check included, so
+every test of the gate has a pass at the head. The count is larger than at `84168bd6` for two
+reasons that were not separated: the QE tree was present, and tests such as
+`tests/regression/test_geometry.py`'s `_cases()` glob its test-suite at collection, and the
+branch gained tests in the commits between the two runs.
 
 **Slow files the changes reach, not run, for the user:** `tests/regression/test_phonons_at_q.py`,
 `test_phonons_at_q_nlcc.py`, `test_electron_phonon.py`, `test_streamed_phonons.py`,
