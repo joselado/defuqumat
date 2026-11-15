@@ -48,9 +48,13 @@ numbers, and the three are held at once.
 ``ndir`` left families, the right family and its image under one velocity; the
 random vectors are taken one at a time by a ``lax.scan``. The moments are summed
 over k inside the walk, so the result is ``ndir^2 N^2`` complex numbers however
-many k-points there are. At ``N = 1000`` and ``ndim = 3000`` in double
-precision that is 240 MB per k-point in flight with three directions (and a
-transient copy of one family when it is assembled), and 144 MB of moments.
+many k-points there are, but each k-point in flight also holds its own block
+of that size, two or three times over (the scan carry, the step's block, the
+chunk's stacked output), so the chunk is capped by :data:`MOMENT_BUDGET`
+(:func:`moment_chunk`). At ``N = 1000`` and ``ndim = 3000`` in double
+precision that is 240 MB of families per k-point in flight with three
+directions (and a transient copy of one family when it is assembled), and
+144 MB of moments per block.
 
 **The broadening of a transition is that of two deltas.** With the Lorentz
 kernel each delta is close to a Lorentzian of half width
@@ -197,6 +201,29 @@ def _family(apply, start, n_moments: int):
 
     _, rest = lax.scan(step, (start, first), None, length=n_moments - 2)
     return jnp.concatenate([start[None], first[None], rest], axis=0)
+
+
+#: The bytes the ``(chunk, ndir, ndir, N, N)`` moment blocks of one k-chunk may
+#: take, counted three times (the scan carry, the step's block and the chunk's
+#: stacked output before its sum), in :func:`moment_chunk`.
+MOMENT_BUDGET = 2 ** 30
+
+
+def moment_chunk(k_batch, nk: int, ndir: int, n_moments: int, itemsize: int):
+    """The k-chunk of :func:`conductivity_moments`: the run's, capped by the moment blocks.
+
+    The run's dial is sized for the SCF's wedge and has no ``N^2`` term, and
+    ``None`` (the whole axis, which a card's memory mode chooses whenever the
+    wedge fits) followed the calculation to the whole grid: every k-point of an
+    8x8x8 mesh in one ``vmap`` is about 60 GB of blocks for silicon at
+    ``N = 636`` (audit 2026-11-15, ``opt-memory`` F1). On a CPU the dial is one
+    k-point and this changes nothing.
+    """
+    block = 3 * ndir * ndir * n_moments * n_moments * int(itemsize)
+    cap = max(1, MOMENT_BUDGET // max(block, 1))
+    chunk = nk if k_batch is None else int(k_batch)
+    chunk = min(chunk, cap)
+    return None if chunk >= nk else chunk
 
 
 @functools.partial(jax.jit, static_argnames=("n_moments", "n_random", "kind", "k_batch"))
@@ -781,7 +808,9 @@ def run_kpm_conductivity(system, pseudos, density, *, fermi_energy: float | None
         mu, norms, trace_moments = conductivity_moments(
             hamiltonian, moving[channel], tangent, centre, half,
             jax.random.fold_in(key, channel), weights,
-            n_moments, n_random, kind=trace, k_batch=batch)
+            n_moments, n_random, kind=trace,
+            k_batch=moment_chunk(batch, int(weights.shape[0]), len(tangent), n_moments,
+                                 jnp.dtype(hamiltonian.dtype).itemsize))
         norms = np.asarray(norms)
         if not np.all(norms <= 1.0 + 1e-6):
             raise SpectralIntervalError(
