@@ -459,7 +459,12 @@ def run_magnetizability(system, pseudos, scf0, *, kmesh, nbnd: int, conv_thr: fl
     All three on the same magnetic box. ``atoms_per_unit`` sets the formula unit the molar
     value is per (two for diamond's primitive cell, Lu's "per C2"); the per-atom value is
     beside it. ``asymmetry`` is ``E(+) - E(-)``, zero by time reversal, which is the
-    control: a gauge or sign defect shows there. ``time_reversal_check=False`` skips the
+    control of a defect that breaks ``H(-A) = H(A)^*``, such as the sign of the field in
+    one of the two runs. A defect even in the flux (a wrong ``1/q``, the sign of
+    ``deband``, a global sign of ``A``) cannot show there. On a box even along an axis the
+    Nyquist slot breaks the relation as well: on two-atom silicon at 12 Ry, ``conv_thr =
+    1e-10``, the default 8 x 8 x 8 box gives 2.1e-5 Ry and 9 x 9 x 9 gives 1.6e-12 (P177,
+    audit 2026-11-15). ``time_reversal_check=False`` skips the
     ``-1`` run, takes ``E(-) = E(+)``, which time reversal makes exact in every regime the
     route admits, and leaves ``asymmetry`` at ``None``; it saves about 40 per cent of the
     call (7 of 18 SCF iterations on the diamond of ``PLAN.md`` P177). Every energy used

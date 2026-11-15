@@ -1714,7 +1714,9 @@ class Calculator:
         1e-6 cm^3/mol per ``atoms_per_unit`` atoms (two by default),
         ``chi_per_atom``, the three energies and ``asymmetry = E(+) - E(-)``.
         The cell is the supercell the field is applied to, so the field step
-        is one flux quantum through it.
+        is one flux quantum through it. The asymmetry sees a defect that breaks
+        ``H(-A) = H(A)^*`` and not one even in the flux; on a box even along an
+        axis it is not zero either (P177).
         """
         from defuqumat.magnetic.conventions import refuse_regime
         from defuqumat.magnetic.fold import run_magnetizability

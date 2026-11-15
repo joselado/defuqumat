@@ -450,3 +450,21 @@ the D22 logs are under `/l/ladovj1/review/mag/fable-basis/`.
   36.5, 36.5, 14.3 mRy at $J$ = 2, 8, 18, worse at $N = 48$. A projected atomic orbital keeps its weight on
   every band of the window, so its span is 0.2 to 0.7 eV off near $E_D$ at zero field, where the Wannier
   $p_z$ set is within 11 meV. Trials close to the bands (the Wannier sets themselves) are the next try.
+
+## 14. Left from the audit of 2026-11-15 (fable's decision on the -1 flux run)
+
+The `-1` flux SCF of `run_magnetizability` stays on by default (`time_reversal_check=True`).
+It is the only place where the fold energy is checked on the caller's own cell. The default
+flips to `False` when two tests exist: one that asserts `|E(+) - E(-)|` on a small cell, and
+one that asserts the fold total energy against an independent number. The first exists since
+2026-11-15 (`tests/unit/test_magnetic_bloch.py::test_the_fold_scf_keeps_time_reversal_on_an_odd_box`,
+slow, 8.9 s); the second does not. When the default flips, the guide's
+`print(f"{chi.asymmetry:.3e}")` breaks on `None` and moves with it.
+
+What the control sees: only a defect that breaks `H(-A) = H(A)^*`. A defect even in the flux
+(a wrong `1/q`, the sign of `deband`, a global sign of `A`) cannot show there. On a box even
+along an axis the Nyquist slot breaks the relation as well, measured on two-atom silicon at
+12 Ry and `conv_thr = 1e-10`: 2.1e-5 Ry on the default 8 x 8 x 8 box, 6.1e-6 on 10 x 10 x 10,
+1.6e-12 on 9 x 9 x 9 (P177). A cheaper form of the control, not costed: one band pass at flux
+`-1` on the converged `+1` potential, comparing `eband`, tests the same relation without the
+SCF.

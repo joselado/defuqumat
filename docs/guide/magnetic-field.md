@@ -287,7 +287,13 @@ minutes on four cores. Note that Lu et al. find that the value depends on the su
 through it.
 
 The run at $-1$ is a control, because time reversal fixes $E(-) = E(+)$ for every
-case this route accepts. If you trust it, `time_reversal_check=False` skips that run,
+case this route accepts. It shows a defect that breaks this symmetry, for example a
+wrong sign of the field in one of the two runs. It does not show a defect that is the
+same at $+1$ and $-1$, for example a wrong factor in the flux. The asymmetry is also
+not exactly zero when the box has an even number of points along an axis. On two-atom
+silicon at 12 Ry and `conv_thr = 1e-10` we measured $2.1\times10^{-5}$ Ry on the
+default $8\times8\times8$ box and $1.6\times10^{-12}$ Ry on a $9\times9\times9$ box.
+In both cases it is far below the second difference. If you trust it, `time_reversal_check=False` skips that run,
 which saves about 40 per cent of the time, and then `chi.asymmetry` is `None`. If one of
 the field runs does not converge, `get_magnetizability` gives an error, because the total
 energy of an unconverged run is not variational.
