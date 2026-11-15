@@ -399,3 +399,27 @@ def test_a_spiral_scan_point_stays_in_single_precision(pseudo_dir, tmp_path):
     assert base.projector_core.complex_dtype == jnp.complex64
     moved = base.at_spiral_q(np.asarray(system.spiral_q) * 0.9)
     assert moved.projector_core.complex_dtype == jnp.complex64
+
+
+def test_a_single_source_keeps_its_count_tolerance_through_a_checkpoint(silicon, tmp_path):
+    """The precision rides on the result, so a reloaded source keeps 1e-4 (audit ``scf-small`` F2).
+
+    It was read off ``history``, which a checkpoint drops, so a single-precision
+    source read back from a file was held to the double tolerance of 1e-6 and a
+    miss in between was blamed on a different ``z_valence``.
+    """
+    import dataclasses
+
+    from defuqumat.scf.checkpoint import load_state, save_state
+    from defuqumat.scf.continuation import _check_grid
+
+    system, pseudos = silicon
+    single = run_scf(system, pseudos, conv_thr=1e-7, band_precision="single")
+    assert single.band_precision == "single"
+    back = load_state(save_state(single, tmp_path / "state.npz"), system=system)
+    assert back.band_precision == "single" and not back.history
+    calculation = Calculation(system, pseudos)
+    off = dataclasses.replace(back, density=np.asarray(back.density) * (1.0 + 5e-6))
+    _check_grid(off, calculation)
+    with pytest.raises(ValueError, match="pseudopotential"):
+        _check_grid(dataclasses.replace(off, band_precision="double"), calculation)

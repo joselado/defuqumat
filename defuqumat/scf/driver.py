@@ -2100,6 +2100,13 @@ class SCFResult:
     #: :attr:`iterations`: both count diagonalisations.
     solver: object | None = None
     history: list = field(default_factory=list)
+    #: The precision the band side ended in (``'single'`` or ``'double'``;
+    #: ``'mixed'`` has switched to double by the end). A continuation reads it
+    #: to choose its electron-count tolerance, so it is state and a checkpoint
+    #: carries it; it used to be read off ``history``, which a checkpoint drops,
+    #: so a reloaded single-precision source was held to the double tolerance
+    #: (audit 2026-11-15, ``scf-small`` F2). ``None`` on a result from before.
+    band_precision: str | None = None
 
     def require_converged(self, quantity: str) -> "SCFResult":
         """Raise unless this ground state converged; return it if it did.
@@ -10669,6 +10676,7 @@ def run_scf(
 
     return SCFResult(
         converged=converged,
+        band_precision=calculation.band_precision.name,
         # Absolute across a resume, which is what the next one re-enters with.
         iterations=completed,
         ethr=float(ethr),
