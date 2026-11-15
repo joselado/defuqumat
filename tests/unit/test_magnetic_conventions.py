@@ -279,3 +279,21 @@ def test_the_precondition_hook_is_the_old_rule_and_is_live():
     np.testing.assert_allclose(base, exact, atol=1e-8)
     np.testing.assert_allclose(identity, exact, atol=1e-8)
     assert steps_identity != steps_base, (steps_identity, steps_base)
+
+
+def test_a_left_handed_cell_is_refused_for_an_orbital_field():
+    """The field is along a1 x a2, which is -a3 on a left-handed cell (audit ``magnetic`` F5, N2).
+
+    The conventions took the orientation of the plaquette from a3, so the
+    check raised after every solve and blamed the Peierls sign. A
+    right-handed hexagonal cell passes; the same cell with a1 and a2 swapped
+    is refused at the door, and the error for p < 1 no longer advises it.
+    """
+    a, c = 4.65, 20.0
+    right = np.array([[a, 0.0, 0.0], [-0.5 * a, 0.5 * np.sqrt(3.0) * a, 0.0], [0.0, 0.0, c]])
+    MagneticCell.build(right, 1, 40)
+    with pytest.raises(ValueError, match="left-handed"):
+        MagneticCell.build(right[[1, 0, 2]], 1, 40)
+    with pytest.raises(ValueError, match="along a1 x a2") as refused:
+        MagneticCell.build(right, -1, 40)
+    assert "a3 reversed" not in str(refused.value)
