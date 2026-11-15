@@ -1601,8 +1601,8 @@ class Calculator:
         )
 
     def get_landau_levels(self, B=None, flux=None, route="peierls", wannier=None,
-                          geometry="torus", width=None, nlevels=40, kappa=((0.0, 0.0),),
-                          dirac=True, zeeman=False, nbnd=None, N1=None, **options):
+                          geometry="torus", width=None, nlevels=None, kappa=((0.0, 0.0),),
+                          dirac=None, zeeman=False, nbnd=None, N1=None, **options):
         """Landau levels in a uniform orbital magnetic field along ``a3``.
 
         ``route="peierls"`` (the default) puts the field on the Wannier
@@ -1627,32 +1627,65 @@ class Calculator:
         With ``trials=`` and ``N=`` (forwarded by name) in place of ``nbnd`` it
         runs on the projected trial basis (P176, step 3).
 
-        Refused by name: ``zeeman=True``, spinors, ``nspin = 2``, ultrasoft
-        and PAW, DFT+U, spirals, meta-GGA and gamma-only storage.
+        ``nlevels`` is 40 on the Peierls route and the ultracell's own default
+        there, and ``dirac`` is ``True`` on the Peierls route when not given.
+        ``energy``, ``qmax``, ``cutoff``, ``degeneracy_tol``, ``vectors`` and
+        ``bonds`` reach :func:`~defuqumat.workflows.landau.run_landau_levels`
+        by name; any other option goes to :meth:`get_wannier`, and with
+        ``wannier=`` given it is refused, since nothing would read it.
+
+        Refused by name: ``zeeman=True`` on both routes, spinors, ``nspin = 2``,
+        ultrasoft and PAW, DFT+U, spirals, meta-GGA and gamma-only storage, and
+        each route's options given to the other.
         """
         from defuqumat.magnetic.conventions import refuse_regime
 
         refuse_regime(self.system, self.pseudos, "Landau levels")
+        # Before the route: the ultracell branch dropped it, and the levels came
+        # back with no Zeeman term and no word (audit 2026-11-15, ``magnetic`` F2).
+        if zeeman:
+            raise NotImplementedError("the Zeeman term is not implemented with the orbital field: "
+                                      "zeeman=True is refused (levels hold one electron per spin)")
         if route == "ultracell":
             from defuqumat.workflows.landau_ultracell import run_magnetic_ultracell
             if B is not None or not flux or flux[1] > 100 or nbnd is None and "N" not in options:
                 raise ValueError("route='ultracell' takes flux=(p, q) with q <= 100 and nbnd, or N")
+            peierls_only = [name for name, value, default in (
+                ("geometry", geometry, "torus"), ("width", width, None),
+                ("kappa", kappa, ((0.0, 0.0),)), ("dirac", dirac, None),
+                ("wannier", wannier, None)) if value != default]
+            if peierls_only:
+                raise TypeError(f"route='ultracell' does not read {', '.join(peierls_only)}: "
+                                "those are the Peierls route's")
             return run_magnetic_ultracell(
                 self.system, self.pseudos, self._ground_state("Landau levels"),
-                flux=flux, nbnd=nbnd, N1=N1, local_only=False, **options)
+                flux=flux, nbnd=nbnd, N1=N1, local_only=False, nlevels=nlevels, **options)
         if route != "peierls":
             raise ValueError(f"route is 'peierls' or 'ultracell', not {route!r}")
         from defuqumat.workflows.landau import run_landau_levels
 
-        wannier = self.get_wannier(**options) if wannier is None else wannier
+        if nbnd is not None or N1 is not None:
+            raise TypeError("nbnd and N1 are the ultracell route's; the Peierls route "
+                            "takes its band set from the Wannier functions")
+        # run_landau_levels's own options, by name, which were never forwarded
+        # (audit 2026-11-15, ``magnetic`` F3)
+        landau = {name: options.pop(name) for name in
+                  ("energy", "qmax", "cutoff", "degeneracy_tol", "vectors", "bonds")
+                  if name in options}
+        if wannier is None:
+            wannier = self.get_wannier(**options)
+        elif options:
+            raise TypeError(f"get_landau_levels does not read {sorted(options)} with wannier= "
+                            "given: they would go to get_wannier, which is not run")
         level = (None if getattr(wannier, "edge", None) is not None
                  else self._ground_state("Landau levels").fermi_energy)
         return run_landau_levels(wannier, B=B, flux=flux, geometry=geometry, width=width,
-                                 nlevels=nlevels, kappa=kappa, dirac=dirac, zeeman=zeeman,
-                                 fermi_energy=level)
+                                 nlevels=40 if nlevels is None else nlevels, kappa=kappa,
+                                 dirac=True if dirac is None else dirac, zeeman=zeeman,
+                                 fermi_energy=level, **landau)
 
     def get_magnetic_bands(self, flux=(1, 1), kmesh=(2, 2), nbnd=None, scf=False,
-                           chern=False, local_only=False, conv_thr=1e-8, **options):
+                           chern=False, local_only=False, conv_thr=None, **options):
         """Magnetic Bloch bands of the crystal at a flux ``p/q`` per cell, on plane waves.
 
         The exact route of Lu et al. (PRL 135, 196401 (2025)): the magnetic
@@ -1665,7 +1698,10 @@ class Calculator:
         field in the field instead (:func:`~defuqumat.magnetic.fold.
         run_magnetic_scf`, ``N2`` a multiple of ``q``), from the zero-field
         density. The memory of one k-point is estimated before the run, and
-        the run is refused above the limit.
+        the run is refused above the limit. ``conv_thr`` (1e-8 if not given)
+        is the SCF's and is refused without ``scf=True``, where the band
+        solve's threshold is ``ethr``; ``chern`` and ``local_only`` are the
+        band route's and are refused with ``scf=True``.
         """
         from defuqumat.magnetic.fold import run_magnetic_scf
         from defuqumat.workflows.magnetic_bands import run_magnetic_bands
@@ -1673,11 +1709,19 @@ class Calculator:
         if nbnd is None:
             raise ValueError("get_magnetic_bands needs nbnd, the bands of the magnetic cell: "
                              "q times the occupied bands of the chemical cell, and a few more")
+        # Each branch dropped the other's named options without a word (audit
+        # 2026-11-15, ``magnetic`` N1).
+        if scf and (chern or local_only):
+            raise TypeError("chern and local_only are the band route's (scf=False); the "
+                            "self-consistent route computes neither")
+        if not scf and conv_thr is not None:
+            raise TypeError("conv_thr is the self-consistent route's (scf=True); the band "
+                            "solve's threshold is ethr")
         state = None if options.get("free") else self._ground_state("magnetic Bloch bands")
         if scf:
             return run_magnetic_scf(self.system, self.pseudos, state, flux=flux, kmesh=kmesh,
-                                    nbnd=nbnd, conv_thr=conv_thr, calculation=self.calculation,
-                                    **options)
+                                    nbnd=nbnd, conv_thr=1e-8 if conv_thr is None else conv_thr,
+                                    calculation=self.calculation, **options)
         return run_magnetic_bands(self.system, self.pseudos, state, flux=flux, kmesh=kmesh,
                                   nbnd=nbnd, chern=chern, local_only=local_only, **options)
 

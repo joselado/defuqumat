@@ -306,8 +306,14 @@ measure the error of Peierls at laboratory fields.
 !!! note "Limits"
     - The field is along $\mathbf a_3$ only. Put the direction you want along the third
       lattice vector.
-    - The Zeeman term is not in: `zeeman=True` gives an error. Each level holds one
-      electron per spin.
+    - The Zeeman term is not in: `zeeman=True` gives an error, on every route. Each
+      level holds one electron per spin.
+    - An option of one route given to the other gives an error, for example
+      `geometry` on the ultracell route or `nbnd` on the Peierls route. With `wannier=`
+      given, an option that `run_landau_levels` does not take gives an error too.
+    - A left-handed cell, with $(\mathbf a_1 \times \mathbf a_2) \cdot \mathbf a_3 < 0$,
+      gives an error. The field is along $\mathbf a_1 \times \mathbf a_2$, so you write
+      the cell right-handed, for example with $\mathbf a_1$ and $\mathbf a_2$ swapped.
     - A spinor run (spin-orbit coupling, noncollinear magnetism), `nspin = 2`,
       ultrasoft and PAW datasets, DFT+U, a spin spiral, a meta-GGA and `K_POINTS gamma`
       give an error, in all three routes.
@@ -318,7 +324,7 @@ measure the error of Peierls at laboratory fields.
       is not measured at laboratory fields (see "How the routes compare").
     - The magnetic ultracell (`route="ultracell"`) gives an error on every case we ran,
       because its basis is not localized for entangled bands. It takes only `flux`,
-      $q \le 100$, and needs `nbnd`.
+      $q \le 100$, and needs `nbnd`, or `trials=` and `N=` for the projected basis.
     - The plane-wave route grows with $q$. The memory of one k-point is estimated
       before the run, and a run above the limit gives an error. Measured on one core
       for graphene at 50 Ry: the SCF at $q = 6$ in 525 to 644 s and 1.9 to 2.2 GB (two
