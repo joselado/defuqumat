@@ -314,7 +314,14 @@ def test_turning_the_axis_needs_nosym_at_every_entry_point():
     wedge, and hexagonal cobalt ``-0.927715`` against ``-0.927716``: agreement
     to 1e-6 meV, so on these two the reduced wedge is a valid sampling. What
     would show it is a magnetic group the torque's axial perturbation is not
-    invariant under, and there is no such cell here. The check is therefore a
+    invariant under. Tetragonal cobalt along z has one (the fourfold axis mixes
+    the transverse components), but its unshifted 3 3 2 grid has kz = 0 and 1/2
+    only, so every k-point is a fixed point of the mirror z -> -z. The audit of
+    2026-11-15 (``magnetism-response`` N2, not measured) argues that each point
+    then gives zero transverse torque, which would make the comparison a null by
+    construction; a grid with a kz layer away from 0 and 1/2 is what could fail. Since that audit the torque refuses any reduced
+    k-set (``tests/unit/test_torque_wedge.py``), so there is no wedge torque left
+    to compare. The check is therefore a
     **consistency** fix -- the same argument the other two entry points already
     enforce, moved to where the rebuild is so a fifth call site cannot miss it.
     """

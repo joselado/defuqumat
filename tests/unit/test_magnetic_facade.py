@@ -147,3 +147,24 @@ def test_the_peierls_options_reach_the_workflow(pz_set):
     facade = calc.get_landau_levels(wannier=pz_set, B=2000.0, nlevels=4, dirac=False, qmax=50)
     direct = run_landau_levels(pz_set, B=2000.0, nlevels=4, qmax=50)
     assert facade.flux == direct.flux and facade.flux[1] <= 50
+
+
+def test_the_band_and_magnetizability_routes_refuse_before_the_scf(monkeypatch):
+    """The regime is refused before the zero-field SCF (audit 2026-11-15, ``docs-holes`` F3).
+
+    ``get_landau_levels`` checked first; the other two ran the SCF and then let the
+    workflow refuse. The ground state is replaced by a guard, so a call that reaches it
+    fails with the guard's message instead of the regime's.
+    """
+    magnetic = _graphene(spin="collinear", smearing=0.1,
+                         atoms=[("C", (0, 0, 0), 0.5), ("C", (1 / 3, 2 / 3, 0), 0.5)])
+
+    def no_scf(*_args, **_kwargs):
+        raise AssertionError("the zero-field SCF ran before the regime was checked")
+
+    monkeypatch.setattr(magnetic, "_ground_state", no_scf)
+    for scf in (False, True):
+        with pytest.raises(NotImplementedError, match="nspin = 2"):
+            magnetic.get_magnetic_bands(flux=(1, 2), nbnd=8, scf=scf)
+    with pytest.raises(NotImplementedError, match="nspin = 2"):
+        magnetic.get_magnetizability(nbnd=8)

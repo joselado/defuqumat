@@ -842,7 +842,7 @@ task of the other code that it refers to.
 | **Quantum metric** of the occupied bands, the localization tensor and the spread $\Omega_I$ | `calc.get_quantum_metric()` | ²¹ | |
 | **Maximally localized Wannier functions**, disentanglement and Wannier-interpolated bands | `calc.get_wannier(num_wann, projections)`, `calc.get_wannier()` for the automatic set, `calc.get_wannier(projections="scdm")` | (✓)²² | (✓)²² |
 | **Wannier functions with the symmetry of the crystal**, the site symmetry of Wannier90, also with a frozen window and the automatic set, by default wherever the input allows it | `calc.get_wannier(...)`, `symmetry=True` to require it, `symmetry=False` to turn it off | (✓)²³ | |
-| **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()` | | |
+| **$\mathbb{Z}_2$ invariants** in 2D and 3D | `calc.get_z2()`, `calc.get_z2_3d()` | | |
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
 | **Magnetoelectric tensor** | `calc.get_magnetoelectric_tensor()` | | ✓ |
 | **Scanning-tunnelling microscopy images** | `calc.get_stm()` | (✓)¹⁵ | (✓)¹⁵ |

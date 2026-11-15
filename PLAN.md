@@ -12409,11 +12409,21 @@ of five.
 **`lambda_max(X_0(omega) F) = 1` is where the magnon is**, and finding it that way rather
 than as a maximum of `-Im chi_00/pi` is both cheaper and more honest. Below the Stoner
 onset `X_0` is Hermitian at `eta = 0` and `lambda_max` rises monotonically, so the crossing
-is a one-dimensional root on a handful of frequencies: no broadening enters it, the
+is a one-dimensional root on a handful of frequencies: the
 frequency grid does not have to resolve a Lorentzian whose width is a numerical choice, and
 it reports **"below zero"** where the state is unstable instead of returning the grid's own
 edge as a magnon energy. Inside the continuum the mode is Landau-damped, there is no root,
 and `SpinSusceptibility.method` says the fallback to a spectral peak happened.
+
+*Corrected 2026-11-15 (audit `magnetism-response` F2).* This section said no broadening
+enters the root. It does: the samples are the user's frequencies, which carry `i eta`, so
+the crossing is a root of the real part of `lambda_max(X_0(omega + i eta) F)` and moves at
+second order in `eta`. Measured on `h-fcc-magnon-field.in` at `q = 0`, 40 frequencies from
+0.001 to 0.04 Ry, Larmor point 0.02 Ry: 0.018375, 0.018247, 0.018215, 0.018207 Ry at
+`eta` = 4e-3, 2e-3, 1e-3, 5e-4, which is `0.018204 + 10.7 eta^2`. At the default 2e-3 the
+shift is 4.3e-5 Ry, against the 1.8e-3 by which the Goldstone truncation (`lambda` = 1.0184
+at the Larmor point) puts the crossing below `2B`. The shift grows toward the Stoner onset.
+The docstrings now say this; the code is unchanged.
 
 This matters practically as well: the `chi_0` einsum is `nw npairs nm^2`, so a hundred
 frequencies at nickel's `nm = 561` is twenty minutes a wavevector where eight is ninety

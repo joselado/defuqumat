@@ -1694,16 +1694,7 @@ class Calculator:
         from defuqumat.magnetic.fold import run_magnetic_scf
         from defuqumat.workflows.magnetic_bands import run_magnetic_bands
 
-        if nbnd is None:
-            raise ValueError("get_magnetic_bands needs nbnd, the bands of the magnetic cell: "
-                             "q times the occupied bands of the chemical cell, and a few more")
-        # each branch dropped the other's options (audit 2026-11-15, ``magnetic`` N1)
-        if scf and (chern or local_only):
-            raise TypeError("chern and local_only are the band route's (scf=False); the "
-                            "self-consistent route computes neither")
-        if not scf and conv_thr is not None:
-            raise TypeError("conv_thr is the self-consistent route's (scf=True); the band "
-                            "solve's threshold is ethr")
+        _magnetic_bands_door(self, nbnd, scf, chern, local_only, conv_thr)
         state = None if options.get("free") else self._ground_state("magnetic Bloch bands")
         if scf:
             return run_magnetic_scf(self.system, self.pseudos, state, flux=flux, kmesh=kmesh,
@@ -1725,10 +1716,13 @@ class Calculator:
         The cell is the supercell the field is applied to, so the field step
         is one flux quantum through it.
         """
+        from defuqumat.magnetic.conventions import refuse_regime
         from defuqumat.magnetic.fold import run_magnetizability
 
         if nbnd is None:
             raise ValueError("get_magnetizability needs nbnd, the bands of the cell (an insulator)")
+        # before the zero-field SCF, which a refused regime would pay for (audit docs-holes F3)
+        refuse_regime(self.system, self.pseudos, "The magnetizability")
         return run_magnetizability(self.system, self.pseudos,
                                    self._ground_state("a magnetizability"), kmesh=kmesh,
                                    nbnd=nbnd, conv_thr=conv_thr, calculation=self.calculation,
@@ -3159,6 +3153,28 @@ for _name, _method in list(vars(Calculator).items()):
     if _name.startswith("get_") and inspect.isfunction(_method) and _name not in POOL_AWARE:
         setattr(Calculator, _name, _refused_under_pools(_name, _method))
 del _name, _method
+
+
+def _magnetic_bands_door(calc, nbnd, scf, chern, local_only, conv_thr):
+    """The checks of :meth:`Calculator.get_magnetic_bands` that need no ground state.
+
+    Made before the zero-field SCF, so a refused regime does not pay for one
+    (audit 2026-11-15, ``docs-holes`` F3); the workflows keep their own check.
+    Each branch used to drop the other's options without a word (``magnetic`` N1).
+    """
+    from defuqumat.magnetic.conventions import refuse_regime
+
+    if nbnd is None:
+        raise ValueError("get_magnetic_bands needs nbnd, the bands of the magnetic cell: "
+                         "q times the occupied bands of the chemical cell, and a few more")
+    if scf and (chern or local_only):
+        raise TypeError("chern and local_only are the band route's (scf=False); the "
+                        "self-consistent route computes neither")
+    if not scf and conv_thr is not None:
+        raise TypeError("conv_thr is the self-consistent route's (scf=True); the band "
+                        "solve's threshold is ethr")
+    refuse_regime(calc.system, calc.pseudos,
+                  "The route P SCF" if scf else "Magnetic Bloch bands (route P)")
 
 
 def _landau_levels(calc, B, flux, route, wannier, geometry, width, nlevels, kappa, dirac,
