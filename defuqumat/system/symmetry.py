@@ -1117,6 +1117,12 @@ def apply_symmetry_maps(rho_g: jnp.ndarray, permutations, phases) -> jnp.ndarray
     :class:`Symmetries` object, whose rotations are static NumPy arrays and so
     cannot cross a ``jit`` boundary.
     """
+    # The phases are built once in complex128 (a NumPy exponential); a
+    # single-precision density was promoted to double by them at every SCF
+    # iteration, which lost the single-precision mode on the dense grid without
+    # a word (audit 2026-11-15, ``traps`` F1). They follow the density's dtype.
+    if jnp.iscomplexobj(rho_g):
+        phases = jnp.asarray(phases).astype(rho_g.dtype)
     if _walks_operations(permutations.shape[0], rho_g):
         return _walked_scalar(rho_g, permutations, phases)
     return jnp.mean(phases * rho_g[permutations], axis=0)

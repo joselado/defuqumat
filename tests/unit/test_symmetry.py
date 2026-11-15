@@ -351,3 +351,16 @@ def test_six_decimal_thirds_ask_for_no_extra_fft_factor():
     assert group.nsym == 24
     assert tuple(group.fft_factors()) == (1, 1, 2)
     assert not group.symmorphic
+
+
+def test_the_symmetry_phases_follow_the_density_dtype():
+    """A complex64 density stays complex64 through the group average (audit ``traps`` F1)."""
+    import jax.numpy as jnp
+
+    from defuqumat.system.symmetry import apply_symmetry_maps
+
+    rho_g = jnp.ones(5, dtype=jnp.complex64)
+    permutations = jnp.asarray(np.array([[0, 1, 2, 3, 4], [1, 0, 2, 4, 3]]))
+    phases = jnp.asarray(np.exp(-2j * np.pi * np.linspace(0, 1, 10)).reshape(2, 5))
+    assert phases.dtype == jnp.complex128
+    assert apply_symmetry_maps(rho_g, permutations, phases).dtype == jnp.complex64
