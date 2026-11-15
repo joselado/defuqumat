@@ -1730,7 +1730,13 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "without a core, but the pair has not been checked. Use a dataset "
             "without PP_NLCC, or nspin = 1"
         )
-    if calculation.use_symmetry:
+    from defuqumat.system.kpoints import is_reduced
+
+    # ``use_symmetry`` alone misses a P1 crystal: its group is the identity, so
+    # use_symmetry is False, while time reversal still halves its grid, and the
+    # partner -k of a kept k contributes conj(drho_{-q}) rather than drho_q
+    # (audit 2026-11-15, ``phonon`` F1). The k-set is what carries the answer.
+    if calculation.use_symmetry or is_reduced(system.kpoints):
         raise NotImplementedError(
             "a phonon at q != 0 needs the whole k-grid: the response has to be "
             "symmetrised over the small group of q -- the operations with "
@@ -1738,6 +1744,17 @@ def require_a_two_sphere_regime(calculation, q_crystal) -> None:
             "written here. Run with nosym = .true. and noinv = .true. on an "
             "unshifted grid, which is the grid that is closed under the point "
             "group (see si-epsilon-unshifted-nosym.in)"
+        )
+    if getattr(calculation, "dispersion_sum", None) is not None:
+        # dynmat0.f90 calls d2ionq_disp at the phonon's xq; the frozen Hessian
+        # here holds the D2 pair sum at q = 0 and only the Ewald sum is moved
+        # to q (audit 2026-11-15, ``phonon`` F2).
+        raise NotImplementedError(
+            "a phonon at q != 0 with a dispersion correction (vdw_corr) is not "
+            "implemented: the D2 pair Hessian would have to be summed at q, with "
+            "e^{iq.R} on every image term, as ph.x's d2ionq_disp does, and the "
+            "frozen Hessian here carries it at q = 0 only. Gamma is right; for "
+            "q != 0 use a supercell phonon at Gamma"
         )
     if system.spiral_q is not None:
         raise NotImplementedError(

@@ -27,7 +27,8 @@ def _calculation(**changes):
     regime the route carries and with a core charge; ``changes`` moves one of
     them out of it."""
     system = SimpleNamespace(nspin=1, noncolin=False, spiral_q=None,
-                             occupations="fixed")
+                             occupations="fixed",
+                             kpoints=SimpleNamespace(reduced=False, weights=np.full(8, 0.25)))
     fields = dict(
         is_ultrasoft=False, rho_core_g=object(), use_symmetry=False,
         functional=SimpleNamespace(is_meta=False, is_gradient=False),
