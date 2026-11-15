@@ -30636,8 +30636,9 @@ psi`, and a pure l = 2 operator. `kappa(E)^2 = V_vac - E` from the plateau of th
   0.9e-6 to 1.2e-6 with slope 2.00 in `h` (the review), on a hexagonal and a sheared cell, through the
   folded and the unfolded sampler (fast, `rtol` 2e-5 for p and 2e-4 for d).
 - **V3, the plane integral of the map is the momentum sum**: synthetic, 1e-11 (fast); on the real code
-  paths, `h-sheet.in` with a 16 x 16 map, **0.0** for a raw pz tip and **6e-16 to 1.1e-15** for the
-  continued s, pz, `s - pz` and `pxy` tips.
+  paths, `h-sheet.in` with a 16 x 16 map, **0.0** for a raw pz tip and **3.7e-16 to 8.9e-16** for the
+  continued s, pz, `s - pz` and `pxy` tips, retaken on master with the WKB form (6e-16 to 1.1e-15
+  with the flat form), so the two call sites of the continuation agree.
 - **V4, the three p channels in the volume limit are `kappa^-2` times the kinetic energy density** of
   `band_kinetic_density` with the delta weights, to 1e-11 (fast).
 - **V5, the frame turns with the states**: `T_px[F](R r) = T_px[F R](r)` on C3-symmetric states, and
