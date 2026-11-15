@@ -19,11 +19,16 @@ neighbouring k-points to one of two things:
     (Soluyanov and Vanderbilt, PRB 83, 235401 (2011); the polar decomposition is
     the standard "closest unitary" of Marzari-Vanderbilt parallel transport.)
 
-Both fail loudly on a singular ``M``. A vanishing determinant means the occupied
+Neither one raises on a singular ``M``, whatever this docstring used to say
+(audit 2026-11-15, ``topology`` F2). A vanishing determinant means the occupied
 manifolds at two neighbouring k-points are orthogonal, which on any usable mesh
-means the mesh is too coarse to follow the band, or the manifold is not gapped.
-Clipping it would return a number rather than an error, and that number would be
-an integer that is simply wrong.
+means the mesh is too coarse to follow the band, or the manifold is not gapped:
+``link_phase`` then returns 0 and a string phase built from it is 0, and
+``unitarize`` returns an arbitrary unitary. The guard in use is the DFT source's
+direct-gap check at each mesh point; a mesh too coarse to follow a narrow
+anticrossing is not detected here. A threshold on the determinant would be the
+wrong test anyway, since a healthy determinant of a large manifold is small
+(``link_phase``); the smallest singular value is the quantity to bound.
 """
 
 from __future__ import annotations
@@ -31,10 +36,6 @@ from __future__ import annotations
 import jax.numpy as jnp
 
 __all__ = ["link_phase", "unitarize", "berry_phase"]
-
-#: Below this, a singular value or a determinant is treated as zero and raises.
-SINGULAR = 1.0e-8
-
 
 def link_phase(matrix: jnp.ndarray) -> jnp.ndarray:
     """``det M / |det M|``, over a trailing ``(n, n)`` block.

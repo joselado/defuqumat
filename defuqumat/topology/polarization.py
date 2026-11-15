@@ -253,7 +253,9 @@ class Polarization:
     #: The ions' phase and the electrons' phase, in units of ``2 pi``.
     ionic_phase: float
     electronic_phase: float
-    #: Their sum, reduced onto ``[-quantum/2, quantum/2)``.
+    #: Their sum, **not** reduced: the branch ``pw.x`` prints, so electronic
+    #: plus ionic can leave ``[-quantum/2, quantum/2)``. A difference between
+    #: two runs is reduced modulo ``quantum`` by the caller.
     total_phase: float
     #: The quantum the total is defined modulo, in the same units.
     quantum: float

@@ -238,12 +238,13 @@ def run_polarization(
 def _refuse_ungapped(system: System) -> None:
     """A Berry phase is a property of a gapped manifold; a metal has none.
 
-    The same refusal every invariant in :mod:`defuqumat.topology` makes, and it
-    is worth making at the workflow rather than letting the gap check inside
-    :class:`~defuqumat.workflows.topology.DFTSource` report it per k-point: a
-    smeared occupation does not say which bands are in the manifold, and a
-    string phase taken over an arbitrary count is a confident number with no
-    meaning.
+    The orbital magnetization makes the same refusal. The Chern number, Z2
+    and the Wilson loop do not: they are invariants of an isolated band set
+    and check only the direct gap above it at each mesh point, inside
+    :class:`~defuqumat.workflows.topology.DFTSource`. It is worth making here
+    rather than leaving it to that check: a smeared occupation does not say
+    which bands are in the manifold, and a string phase taken over an
+    arbitrary count is a confident number with no meaning.
     """
     occupations = str(getattr(system, "occupations", "fixed")).lower()
     if occupations not in ("fixed", "from_input"):
