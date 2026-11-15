@@ -226,6 +226,24 @@ RESIDUAL_THRESHOLD = None
 EMPTY_ETHR_FLOOR = 1.0e-5
 
 
+def tangent_width(ethr):
+    """The width the subspace solve's tangent is regularised at (P148).
+
+    ``subspace._eigh_regularised`` bounds the mixing kernel at ``1/(2 eta)``,
+    and ``eta`` is the solver's own unit, ``empty_ethr = max(5 ethr, 1e-5)``,
+    since the members of a degenerate block are converged separately only to
+    the promise on them. A per-band vector carries that unit as its largest
+    entry only when the row has an empty band (``cegterg.f90:129``); a row with
+    every band occupied, or ``diago_full_acc``, holds the bare ``ethr``, down to
+    1e-13, which turned the bound off. So the floor is applied to the vector too
+    (audit 2026-11-15, ``hamiltonian`` F1). Traced, so it rides ``ethr``'s slot.
+    """
+    ethr = jnp.asarray(ethr)
+    if jnp.ndim(ethr) == 0:
+        return jnp.maximum(5.0 * ethr, EMPTY_ETHR_FLOOR)
+    return jnp.maximum(jnp.max(ethr), EMPTY_ETHR_FLOOR)
+
+
 def empty_band_threshold(ethr):
     """``cegterg.f90:129``'s ``empty_ethr``, for one scalar ``ethr`` in Ry."""
     return max(5.0 * float(ethr), EMPTY_ETHR_FLOOR)
@@ -609,15 +627,7 @@ def davidson_eigensolver(
             "least 2 (QE refuses the same case, cegterg.f90:125)"
         )
     ethr = ETHR if ethr is None else ethr
-    # The width the subspace solve's tangent is regularised at (P148,
-    # ``subspace._eigh_regularised``): the solver's own unit, ``empty_ethr``,
-    # since a degenerate block's members are converged separately only to the
-    # promise on them, and the per-band vector's largest entry is that unit
-    # already (``cegterg.f90:129``). Traced, so it rides ``ethr``'s slot.
-    eta = (
-        jnp.maximum(5.0 * jnp.asarray(ethr), EMPTY_ETHR_FLOOR)
-        if jnp.ndim(ethr) == 0 else jnp.max(jnp.asarray(ethr))
-    )
+    eta = tangent_width(ethr)
     gamma_only = hamiltonian.gamma_only
     ndim = hamiltonian.ndim
     # **The subspace cannot be larger than the space it lives in.** QE stops

@@ -25933,6 +25933,13 @@ the four properties (primal unchanged; eigenvalue tangent unchanged and the eige
 `3 eta^2` at a gap of 1; finite at an exact degeneracy with the block projector's tangent equal to a
 central difference to 1e-6 while JAX's rule is `inf` or above 1e9 there; a pair split by 1e-13 bounded by
 `1/eta`). The Newton default was and stays `jvp = 'finite-difference'`.
+*Corrected 2026-11-15 (audit `hamiltonian` F1).* The per-band vector's largest entry is the
+empty-band unit only when the row has an empty band. A row with every band occupied, or
+`diago_full_acc`, holds the bare `ethr`, so `eta` fell to 1e-13 and the bound to 5e12. No
+differentiated consumer passes a vector (the Newton residual and every response pass a scalar),
+so no derivative was wrong. `solvers/davidson.py:tangent_width` now floors the vector at
+`EMPTY_ETHR_FLOOR` too, with a unit test in `test_subspace_eigh_tangent.py`; the primal is
+unchanged, since `eta` enters only the `custom_jvp`.
 
 **Item 6, measured after the change** (`us_becsum.py` on the P148 worktree, the same cells; the "other
 arm" column is the before-arm run read back from its saved density and eigenvalues):
