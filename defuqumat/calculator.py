@@ -2774,7 +2774,20 @@ class Calculator:
         ``nspin = 2`` under ``occupations = 'fixed'``.
         """
         system = self.system.with_spin(nspin, **options)
-        return self._derived(system, seed=True, magnetization=magnetization)
+        defaults = None
+        if self.defaults.get("nbnd") is not None and options.get("nbnd") is not None:
+            defaults = {**self.defaults, "nbnd": int(options["nbnd"])}
+        elif self.defaults.get("nbnd") is not None:
+            # The calculator's own nbnd wins over ``system.nbnd`` at every entry
+            # point, so it has to be rescaled as ``System.with_spin`` rescales the
+            # system's: a spinor band holds one electron, a collinear band two.
+            # Carried unchanged it gave the spinor run half the bands it needs,
+            # silently for a metal (audit 2026-11-15, ``calculator`` F1).
+            factor = (2 if system.nspin == 4 else 1) / (2 if self.system.nspin == 4 else 1)
+            defaults = {**self.defaults,
+                        "nbnd": int(round(self.defaults["nbnd"] * factor))}
+        return self._derived(system, seed=True, magnetization=magnetization,
+                             defaults=defaults)
 
     def with_moments(self, per_atom, magnetization="seed") -> "Calculator":
         """A calculator with a different moment on each atom, warm-started.
@@ -2822,15 +2835,18 @@ class Calculator:
         return self._derived(self.system.with_turning_moments(turning), seed=True)
 
     def _derived(self, system: System, *, seed: bool = False, scf=None,
-                 magnetization: str = "auto", basis=None) -> "Calculator":
+                 magnetization: str = "auto", basis=None,
+                 defaults: dict | None = None) -> "Calculator":
         """A calculator on ``system``, sharing this one's pseudos and options.
 
         ``basis`` freezes the plane-wave setup at the parent's rather than
         letting the child enumerate its own. Only :meth:`with_positions` passes
-        it, and :meth:`_frozen_basis` is where the reason is.
+        it, and :meth:`_frozen_basis` is where the reason is. ``defaults``
+        replaces this calculator's options, which only :meth:`with_spin` does,
+        to rescale ``nbnd``.
         """
         derived = Calculator(system, self.pseudos, announce=self.announce,
-                             basis=basis, **self.defaults)
+                             basis=basis, **(self.defaults if defaults is None else defaults))
         if scf is not None:
             derived._scf = scf
             # **Deliberately no options**, so that any explicit ``get_scf``

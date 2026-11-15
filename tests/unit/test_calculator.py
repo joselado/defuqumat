@@ -975,3 +975,18 @@ def test_the_adopted_namelist_reaches_the_scf_inside_a_relaxation(pseudo_dir):
     calc = Calculator.from_text(text, pseudo_dir, announce=False)
     relax = calc.get_relax(nstep=1)
     assert relax.steps[0].scf_iterations == 1
+
+
+def test_with_spin_rescales_the_calculators_own_band_count(pseudo_dir):
+    """A spinor band holds one electron, so ``nbnd`` given to the calculator doubles into nspin = 4 (audit ``calculator`` F1).
+
+    The calculator's ``nbnd`` wins over ``system.nbnd`` at every entry point,
+    and it was carried unchanged, so the spinor run had half the bands.
+    """
+    collinear = Calculator.from_text(SILICON, pseudo_dir, announce=False, nbnd=8)
+    spinor = collinear.with_spin(4)
+    assert spinor.system.nspin == 4
+    assert spinor.defaults["nbnd"] == 16
+    assert spinor.with_spin(1).defaults["nbnd"] == 8
+    assert collinear.with_spin(4, nbnd=20).defaults["nbnd"] == 20
+    assert collinear.defaults["nbnd"] == 8
