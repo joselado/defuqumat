@@ -379,9 +379,10 @@ several cards are in
     precision of float32 and $E_\mathrm{cut}$ the value of `ecutwfc`, because
     $10^{-13}$ Ry would stall the eigensolver at its budget. On a GPU, single
     precision makes the float32 matrix products run at full precision, without
-    TF32, for the whole process. A calculation moved to a new geometry or to a
-    band path builds its projectors again in double precision, so it runs fully
-    in double precision and does not stay in single precision.
+    TF32, for the whole process. A calculation moved to a band path or a
+    denser mesh builds its projectors again in double precision, so it runs fully
+    in double precision. A calculation moved to new positions, a new cell or a
+    new spiral wavevector stays in single precision.
 
     The code gives a `RuntimeWarning`, once per run, when the eigensolver uses
     its whole budget of 100 steps and leaves bands not converged. The steps of

@@ -382,3 +382,20 @@ def test_the_anisotropy_legs_are_refused_on_a_single_band_side(silicon, monkeypa
     monkeypatch.setenv("DEFUQUMAT_BAND_PRECISION", "single")
     with pytest.raises(NotImplementedError, match="force-theorem anisotropy or torque"):
         getattr(anisotropy, workflow)(system, pseudos, None)
+
+
+def test_a_spiral_scan_point_stays_in_single_precision(pseudo_dir, tmp_path):
+    """``at_spiral_q`` rebuilt its projector core in double and kept the single labels (audit ``driver-b`` F1).
+
+    Every point of a single-precision spiral scan then ran double arrays under
+    the single floors. Setup only: the moved core's dtype is the band side's.
+    """
+    import jax.numpy as jnp
+
+    from defuqumat.scf.driver import Calculation
+
+    system, pseudos = _regime(pseudo_dir, tmp_path, "spiral")
+    base = Calculation(system, pseudos, band_precision="single")
+    assert base.projector_core.complex_dtype == jnp.complex64
+    moved = base.at_spiral_q(np.asarray(system.spiral_q) * 0.9)
+    assert moved.projector_core.complex_dtype == jnp.complex64

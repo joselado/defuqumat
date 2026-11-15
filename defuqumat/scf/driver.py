@@ -2704,9 +2704,12 @@ class Calculation:
         # its real counterpart. The core's own arrays stay in the cell's
         # precision, because the structure-factor phase ``(k+G).tau`` reaches
         # about 100 rad and in single precision would be wrong in its fifth
-        # digit. A mover that rebuilds the core (``at_positions``,
-        # ``at_kpoints``) rebuilds it in the cell's precision, so a moved
-        # calculation is consistently double rather than half single.
+        # digit. What each mover does with it (audit 2026-11-15, ``driver-b``
+        # N1): ``at_positions`` keeps this core, so it stays in the band
+        # precision; ``at_strain`` and ``at_spiral_q`` rebuild it and cast it
+        # back to the band precision; ``at_kpoints``, a band path or a denser
+        # mesh, rebuilds it in the cell's precision, so a moved k-set runs in
+        # double.
         if self.band_precision.complex != self.projector_core.complex_dtype:
             self.projector_core = dataclasses.replace(
                 self.projector_core, complex_dtype=self.band_precision.complex)
@@ -4902,6 +4905,13 @@ class Calculation:
             moved.basis_kpoints, self.origin_tangent,
             chunked=self.memory_mode == "memory",
         )
+        # A spiral scan stays in the band precision it was asked for, as
+        # ``at_strain`` keeps it: rebuilt in double, every scan point paid
+        # double time and memory under the single-precision floors and label
+        # it carried (audit 2026-11-15, ``driver-b`` F1).
+        if self.band_precision.complex != moved.projector_core.complex_dtype:
+            moved.projector_core = dataclasses.replace(
+                moved.projector_core, complex_dtype=self.band_precision.complex)
         # Kept across a new wavevector: every step of ``run_spiral_scan`` and
         # ``relax_spiral_q`` comes through here, and dropping the dial made each
         # one store the whole-k ``vkb(k +- q/2)`` in ``memory`` mode.

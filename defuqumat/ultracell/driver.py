@@ -954,6 +954,26 @@ def _paw_deband(ddd, becsum_copies, cells: int) -> float:
     return -total / int(cells)
 
 
+def _tau_accuracy(residual, ultracell, cell, keep):
+    """``tauk_ddot`` on the ultracell box: :func:`~defuqumat.scf.potential.tau_accuracy`'s
+    expression on the ``G + Q`` set.
+
+    A **G-independent** weight ``e2 4 pi / (2 pi)^2``, ``G + Q = 0`` included,
+    half the box volume in front, as ``run_scf`` adds it. Without it a
+    potential-only meta-GGA ultracell stopped on the density residual alone,
+    while ``conv_thr`` is said to mean the same in an ultracell run as in any
+    other (audit 2026-11-15, ``ultracell`` F2). ``(up, down)`` is rotated into
+    ``(total, magnetization)`` as ``tau_accuracy`` does.
+    """
+    residual_g = jnp.fft.fftn(residual, axes=(-3, -2, -1)) / ultracell.points
+    residual_g = jnp.where(keep, residual_g, 0.0)
+    if residual_g.shape[0] == 2:
+        residual_g = jnp.stack([residual_g[0] + residual_g[1], residual_g[0] - residual_g[1]])
+    weight = E2 * FPI / (2.0 * jnp.pi) ** 2
+    return float(0.5 * ultracell.volume(cell) * weight
+                 * jnp.sum(jnp.real(jnp.conj(residual_g) * residual_g)))
+
+
 def _accuracy(residual, ultracell, cell, g2_inverse, keep):
     """QE's ``dr2`` on the ultracell box, and its two halves.
 
@@ -2129,6 +2149,8 @@ def run_ultracell(
         accuracy, charge_dr2, magnetic_dr2 = _accuracy(
             new - density, ultracell, cell, g2_inverse, keep
         )
+        if tau_state is not None:
+            accuracy += _tau_accuracy(new_tau - tau_state, ultracell, cell, keep)
         ns_out, hubbard_energy_out, hubbard_deband = None, None, 0.0
         if hubbard_in is not None:
             ns_out = copy_occupations(
