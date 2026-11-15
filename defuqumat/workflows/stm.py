@@ -42,7 +42,6 @@ from defuqumat.basis.builder import build_basis
 from defuqumat.basis.fft import r_to_g
 from defuqumat.basis.sample import sample_coefficients, sample_wavefunctions
 from defuqumat.scf.driver import Calculation
-from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.stm.image import (
     STMImage,
     constant_current_height,
@@ -295,6 +294,7 @@ def run_sts(
     conv_thr: float = 1.0e-6,
     k_batch: int | None | str = "default",
     calculation=None,
+    states=None,
 ) -> STMSpectrum:
     """``dI/dV(r, V)``: a tunnelling spectrum at a point, a line or a plane.
 
@@ -333,6 +333,11 @@ def run_sts(
             used on its own k-set or moved to ``kpoints`` with ``at_kpoints``
             rather than a second one built beside it
             (:func:`~defuqumat.workflows.nscf.threaded_calculation`).
+        states: a :class:`~defuqumat.workflows.transport.WholeGridStates` from
+            :func:`~defuqumat.workflows.transport.whole_grid_states`, so several
+            tips, heights or energy axes cost one band solve. With it, ``grid``,
+            ``shift`` and ``kpoints`` are refused and ``nbnd``, ``conv_thr`` and
+            ``k_batch`` are not read.
 
     Returns an :class:`~defuqumat.stm.spectrum.STMSpectrum`.
     """
@@ -343,47 +348,16 @@ def run_sts(
     _refuse_a_window_under_an_axis(bias, mode)
 
     from defuqumat.workflows.transport import (
-        _geometry, _refuse_an_augmented_plane, _tip_points, whole_grid,
+        _geometry, _refuse_an_augmented_plane, _tip_points, states_or_solve,
     )
 
-    if kpoints is None and grid is not None:
-        kpoints = whole_grid(system, grid, shift)
-    # The caller's own calculation, when handed one, is used on its own k-set or
-    # moved to ``kpoints`` rather than a second one built beside it
-    # (``notes/GPU-MEMORY-NEXT.md`` item 20); ``resolve`` remembers which branch the
-    # k-set asked for, since a moved calculation carries it and ``kpoints``
-    # comes back ``None``.
-    resolve = kpoints is not None
-    calculation, system, kpoints, k_batch = threaded_calculation(
-        calculation, system, kpoints, k_batch)
-    if not resolve:
-        if calculation is None:
-            calculation = Calculation(system, pseudos, k_batch=k_batch)
-        eigenvalues = np.asarray(result.eigenvalues_by_spin)
-        wavefunctions = result.wavefunctions
-        levels = {"fermi_energy": result.fermi_energy,
-                  "homo": result.homo, "lumo": result.lumo}
-    else:
-        calculation, system, eigenvalues, wavefunctions = fixed_density_states(
-            system, pseudos, result.density, kpoints, nbnd, conv_thr, k_batch,
-            ns=getattr(result, "ns", None),
-            tau=getattr(result, "tau", None),
-            becsum=tuple(getattr(result, "becsum", ()) or ()),
-            field=getattr(result, "magnetic_field", None),
-            field_scale=getattr(result, "field_scale", None),
-            calculation=calculation,
-        )
-        eigenvalues = np.asarray(eigenvalues)
-        _, levels = calculation.occupations(eigenvalues)
-    if wavefunctions is None:
-        raise ValueError(
-            "a tunnelling spectrum is built from the wavefunctions and this "
-            "result carries none: run the SCF without discarding them, or pass "
-            "a grid so the bands are re-solved"
-        )
-    # ``psi(r)`` below is a bare sum over the k + G list (``basis/sample.py``),
-    # so a half sphere is put on the whole one first (``scf/whole_sphere.py``).
-    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
+    states = states_or_solve(
+        states, system, pseudos, result, grid=grid, shift=shift, kpoints=kpoints,
+        nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch, calculation=calculation,
+        what="a tunnelling spectrum")
+    calculation, eigenvalues, wavefunctions = (
+        states.calculation, states.eigenvalues, states.wavefunctions)
+    levels, grid = states.levels, states.grid
 
     group = _refuse_a_reduced_k_set(calculation.system)
     axis_energies, fermi = _spectrum_energies(energies, levels)

@@ -846,7 +846,7 @@ task of the other code that it refers to.
 | **Berry-phase polarization** | `calc.get_polarization()` | ✓ | ✓ |
 | **Magnetoelectric tensor** | `calc.get_magnetoelectric_tensor()` | | ✓ |
 | **Scanning-tunnelling microscopy images** | `calc.get_stm()` | (✓)¹⁵ | (✓)¹⁵ |
-| **Tunnelling spectra** $\mathrm{d}I/\mathrm{d}V$ | `calc.get_sts()` | | |
+| **Tunnelling spectra** $\mathrm{d}I/\mathrm{d}V$ | `calc.get_sts()`, with `calc.get_tunnelling_states()` for one band calculation shared by several maps | | |
 | **Vertical tunnelling transport through a 2D material** | `calc.get_vertical_transport()` | (✓)¹⁶ | |
 | **Which k-points the tunnelling current comes from**¹⁷ | `calc.get_momentum_transport()` | | |
 | **Quasiparticle interference**, T-matrix of one impurity | `calc.get_qpi()`, `calc.get_qpi_bands()` | | |

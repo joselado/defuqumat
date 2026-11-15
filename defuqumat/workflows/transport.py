@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import time
 import warnings
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -118,6 +119,7 @@ def run_vertical_transport(
     degeneracy_tol: float | None = None,
     k_batch: int | None | str = "default",
     calculation=None,
+    states=None,
 ) -> VerticalTransport:
     """``T(r; E)``: the vertical transmission from a tip at ``r`` to a substrate.
 
@@ -190,6 +192,10 @@ def run_vertical_transport(
             used on its own k-set or moved to ``kpoints`` with ``at_kpoints``
             rather than a second one built beside it
             (:func:`~defuqumat.workflows.nscf.threaded_calculation`).
+        states: a :class:`WholeGridStates` from :func:`whole_grid_states`, so a
+            scan of heights, exit planes or energy windows costs one band
+            solve. With it, ``grid``, ``shift`` and ``kpoints`` are refused and
+            ``nbnd``, ``conv_thr`` and ``k_batch`` are not read.
 
     Returns a :class:`~defuqumat.transport.green.VerticalTransport`.
     """
@@ -218,48 +224,13 @@ def run_vertical_transport(
         )
     _check_bias_axis(bias, nenergies, broadening)
 
-    if kpoints is None and grid is not None:
-        kpoints = whole_grid(system, grid, shift)
-
-    # The caller's own calculation, when handed one, is used on its own k-set or
-    # moved to ``kpoints`` rather than a second one built beside it
-    # (``notes/GPU-MEMORY-NEXT.md`` item 20); ``resolve`` remembers which branch the
-    # k-set asked for, since a moved calculation carries it and ``kpoints``
-    # comes back ``None``.
-    resolve = kpoints is not None
-    calculation, system, kpoints, k_batch = threaded_calculation(
-        calculation, system, kpoints, k_batch)
-    if not resolve:
-        if calculation is None:
-            calculation = Calculation(system, pseudos, k_batch=k_batch)
-        eigenvalues = np.asarray(result.eigenvalues_by_spin)
-        wavefunctions = result.wavefunctions
-        levels = {"fermi_energy": result.fermi_energy,
-                  "homo": result.homo, "lumo": result.lumo}
-    else:
-        calculation, system, eigenvalues, wavefunctions = fixed_density_states(
-            system, pseudos, result.density, kpoints, nbnd, conv_thr, k_batch,
-            ns=getattr(result, "ns", None),
-            tau=getattr(result, "tau", None),
-            becsum=tuple(getattr(result, "becsum", ()) or ()),
-            field=getattr(result, "magnetic_field", None),
-            field_scale=getattr(result, "field_scale", None),
-            calculation=calculation,
-        )
-        eigenvalues = np.asarray(eigenvalues)
-        _, levels = calculation.occupations(eigenvalues)
-
-    if wavefunctions is None:
-        raise ValueError(
-            "a transmission is built from the wavefunctions and this result "
-            "carries none: run the SCF without discarding them, or pass a grid "
-            "so the bands are re-solved"
-        )
-    # ``psi(r)`` and the exit-plane Gram matrix are bare sums over the k + G
-    # list (``basis/sample.py``, ``transport/substrate.py``), so a half sphere
-    # -- the run's own states under ``K_POINTS gamma`` -- is put on the whole
-    # one first (``scf/whole_sphere.py``). A re-solved k-set is already whole.
-    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
+    states = states_or_solve(
+        states, system, pseudos, result, grid=grid, shift=shift, kpoints=kpoints,
+        nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch, calculation=calculation,
+        what="a transmission")
+    calculation, eigenvalues, wavefunctions = (
+        states.calculation, states.eigenvalues, states.wavefunctions)
+    levels, grid = states.levels, states.grid
 
     used = calculation.system
     group = _vertical_wedge(used, exit_axis, spin, tip_spin)
@@ -279,8 +250,7 @@ def run_vertical_transport(
     # The store is handed over as it is -- a device array or a host one -- and
     # read one k-point at a time; converting it here would copy every k-point
     # to the host at once, beside the device copy the result still holds.
-    degeneracy_tol = _resolved_degeneracy_tol(
-        degeneracy_tol, resolve, result, conv_thr, calculation)
+    degeneracy_tol = _resolved_degeneracy_tol(degeneracy_tol, states)
     assemble = dict(
         exit_axis=exit_axis,
         energies=grid_energies, broadening=float(broadening),
@@ -358,6 +328,7 @@ def run_momentum_transport(
     report=None,
     calculation=None,
     degeneracy_tol: float | None = None,
+    states=None,
 ) -> MomentumTransport:
     """``W(k; E)``: which k-points the tunnelling current comes out of.
 
@@ -451,10 +422,141 @@ def run_momentum_transport(
         raise ValueError(f"exit_axis must be 0, 1 or 2, got {exit_axis}")
     _check_bias_axis(bias, nenergies, broadening)
 
+    say = report if callable(report) else (lambda _line: None)
+    states = states_or_solve(
+        states, system, pseudos, result, grid=grid, shift=shift, kpoints=kpoints,
+        nbnd=nbnd, conv_thr=conv_thr, k_batch=k_batch, calculation=calculation,
+        what="a tunnelling weight", say=say)
+    calculation, eigenvalues, wavefunctions = (
+        states.calculation, states.eigenvalues, states.wavefunctions)
+    levels, grid = states.levels, states.grid
+
+    sweep = np.atleast_1d(np.asarray(height, dtype=float))
+    if sweep.ndim != 1 or sweep.size == 0:
+        raise ValueError(
+            f"height must be a number or a sequence of them, got {height!r}")
+    scalar_height = np.ndim(height) == 0
+
+    used = calculation.system
+    _refuse_a_k_set_this_cannot_sum(used, exit_axis)
+    _refuse_an_augmented_plane(used, pseudos, exit_axis,
+                               (float(exit_height), *map(float, sweep)),
+                               "the two planes")
+    for one in sweep:
+        _warn_if_the_planes_do_not_straddle(used, exit_axis, float(exit_height),
+                                            float(one))
+
+    grid_energies = _energies(energies, levels, bias, nenergies,
+                              float(broadening))
+    wavefunctions = np.asarray(wavefunctions)
+
+    columns, extras = _assemble_momentum(
+        calculation, wavefunctions, eigenvalues,
+        exit_height=float(exit_height), heights=sweep,
+        exit_axis=exit_axis, energies=grid_energies,
+        broadening=float(broadening), spin=spin,
+        polarization=float(polarization), method=method, smearing=smearing,
+        say=say, degeneracy_tol=_resolved_degeneracy_tol(degeneracy_tol, states),
+    )
+
+    if bias is not None:
+        # The finite-bias current: the conductance integrated over the window.
+        columns = {key: np.trapezoid(array, grid_energies, axis=1)[:, None]
+                   for key, array in columns.items()}
+    if columns["weight"].shape[1] == 1:
+        columns = {key: array[:, 0] for key, array in columns.items()}
+    if scalar_height:
+        columns = {key: array[0] for key, array in columns.items()}
+
+    crystal = np.asarray(used.kpoints.crystal(used.cell))
+    return MomentumTransport(
+        weight=columns["weight"],
+        tersoff_hamann=columns["tersoff_hamann"],
+        bare=columns["bare"],
+        incoherent=columns["incoherent"],
+        kpoints=crystal,
+        kcartesian=np.asarray(used.kpoints.cartesian(used.cell)),
+        kweights=np.asarray(used.kpoints.weights, dtype=float),
+        energies=np.atleast_1d(grid_energies if bias is None
+                               else np.array([grid_energies[0]])),
+        broadening=float(broadening),
+        smearing=str(smearing),
+        height=float(sweep[0]) if scalar_height else tuple(map(float, sweep)),
+        exit_height=float(exit_height),
+        exit_axis=int(exit_axis),
+        grid=None if grid is None else tuple(int(n) for n in grid),
+        fermi_energy=levels.get("fermi_energy"),
+        least_eigenvalue=extras["least_eigenvalue"],
+        hermiticity=extras["hermiticity"],
+        notes=extras["notes"],
+    )
+
+
+# --------------------------------------------------------------------------
+# the k-set
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class WholeGridStates:
+    """The states a tunnelling route or a QPI map is built from, solved once.
+
+    On a surface of useful size the band solve is nearly all of the cost of
+    :func:`run_vertical_transport`, :func:`run_momentum_transport`,
+    :func:`~defuqumat.workflows.stm.run_sts` and
+    :func:`~defuqumat.workflows.qpi.run_qpi`, and it does not depend on the tip,
+    the planes, the energies, the broadening or the impurity. So it is a value
+    of its own, passed to each as ``states=`` (audit 2026-11-15, item 31, fable's
+    decision); :class:`~defuqumat.workflows.qpi.QPIBands` is the same type. It
+    records the threshold it was solved to, and a consumer takes it as given:
+    the transport's block tolerance is resolved from :attr:`ethr`.
+    """
+
+    calculation: object
+    #: ``(nspin, nk, nbnd)`` in Ry.
+    eigenvalues: np.ndarray
+    #: indexable as ``[ispin, ik]``, on the whole sphere.
+    wavefunctions: object
+    fermi_energy: float | None
+    homo: float | None = None
+    lumo: float | None = None
+    #: The fixed-density ``conv_thr`` the bands were re-solved to; ``None`` for
+    #: the SCF's own states.
+    conv_thr: float | None = None
+    #: The scalar ``ethr`` every band was held to when re-solved, or the SCF's
+    #: last ``ethr`` for its own states, whose empty bands were held only to the
+    #: empty-band floor.
+    ethr: float | None = None
+    #: The grid the bands were re-solved on, as asked; ``None`` otherwise.
+    grid: tuple | None = None
+
+    @property
+    def resolved(self) -> bool:
+        """Whether the bands were re-solved at fixed density."""
+        return self.conv_thr is not None
+
+    @property
+    def levels(self) -> dict:
+        return {"fermi_energy": self.fermi_energy, "homo": self.homo, "lumo": self.lumo}
+
+
+def whole_grid_states(system, pseudos, result, *, grid=None, shift=None, kpoints=None,
+                      nbnd: int | None = None, conv_thr: float = 1.0e-6,
+                      k_batch="default", calculation=None, what: str = "a tunnelling weight",
+                      say=None) -> WholeGridStates:
+    """The run's own states, or the bands re-solved at fixed density on ``grid`` or ``kpoints``.
+
+    A ``grid`` is built **whole** (:func:`whole_grid`). The ground state's
+    ``ns``, ``tau``, ``becsum`` and field go to the solve. No k-set is refused
+    here, since the vertical map and a spectrum each admit their own wedges and
+    QPI admits none; each consumer checks its own. A half sphere (the run's own
+    states under ``K_POINTS gamma``) is put on the whole one, because ``psi(r)``
+    and the exit-plane Gram matrix are bare sums over the k + G list. ``say``
+    reports the shape of the solve before it starts and its time after.
+    """
+    say = say if callable(say) else (lambda _line: None)
     if kpoints is None and grid is not None:
         kpoints = whole_grid(system, grid, shift)
-
-    say = report if callable(report) else (lambda _line: None)
     # The caller's own calculation, when handed one, is used on its own k-set or
     # moved to ``kpoints`` rather than a second one built beside it
     # (``notes/GPU-MEMORY-NEXT.md`` item 20); ``resolve`` remembers which branch the
@@ -497,84 +599,36 @@ def run_momentum_transport(
         elapsed = time.time() - began
         say(f"  solved in {elapsed:.0f} s "
             f"({elapsed / max(1, solving.nk):.2f} s per k-point)")
-
     if wavefunctions is None:
         raise ValueError(
-            "a tunnelling weight is built from the wavefunctions and this "
-            "result carries none: run the SCF without discarding them, or pass "
-            "a grid so the bands are re-solved"
-        )
-    # ``psi(r)`` and the exit-plane Gram matrix are bare sums over the k + G
-    # list (``basis/sample.py``, ``transport/substrate.py``), so a half sphere
-    # -- the run's own states under ``K_POINTS gamma`` -- is put on the whole
-    # one first (``scf/whole_sphere.py``). A re-solved k-set is already whole.
+            f"{what} is built from the wavefunctions and this result carries "
+            "none: run the SCF without discarding them, or pass a grid so the "
+            "bands are re-solved")
     calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
+    return WholeGridStates(
+        calculation=calculation, eigenvalues=eigenvalues, wavefunctions=wavefunctions,
+        fermi_energy=levels.get("fermi_energy"), homo=levels.get("homo"),
+        lumo=levels.get("lumo"),
+        conv_thr=float(conv_thr) if resolve else None,
+        ethr=(fixed_density_ethr(conv_thr, calculation.nelec) if resolve
+              else getattr(result, "ethr", None)),
+        grid=None if grid is None else tuple(int(n) for n in grid))
 
-    sweep = np.atleast_1d(np.asarray(height, dtype=float))
-    if sweep.ndim != 1 or sweep.size == 0:
+
+def states_or_solve(states, system, pseudos, result, *, grid=None, shift=None,
+                    kpoints=None, **build) -> WholeGridStates:
+    """``states`` as given, refusing a k-set beside them, or :func:`whole_grid_states`."""
+    if states is None:
+        return whole_grid_states(system, pseudos, result, grid=grid, shift=shift,
+                                 kpoints=kpoints, **build)
+    if grid is not None or shift is not None or kpoints is not None:
         raise ValueError(
-            f"height must be a number or a sequence of them, got {height!r}")
-    scalar_height = np.ndim(height) == 0
-
-    used = calculation.system
-    _refuse_a_k_set_this_cannot_sum(used, exit_axis)
-    _refuse_an_augmented_plane(used, pseudos, exit_axis,
-                               (float(exit_height), *map(float, sweep)),
-                               "the two planes")
-    for one in sweep:
-        _warn_if_the_planes_do_not_straddle(used, exit_axis, float(exit_height),
-                                            float(one))
-
-    grid_energies = _energies(energies, levels, bias, nenergies,
-                              float(broadening))
-    wavefunctions = np.asarray(wavefunctions)
-
-    columns, extras = _assemble_momentum(
-        calculation, wavefunctions, eigenvalues,
-        exit_height=float(exit_height), heights=sweep,
-        exit_axis=exit_axis, energies=grid_energies,
-        broadening=float(broadening), spin=spin,
-        polarization=float(polarization), method=method, smearing=smearing,
-        say=say, degeneracy_tol=_resolved_degeneracy_tol(
-            degeneracy_tol, resolve, result, conv_thr, calculation),
-    )
-
-    if bias is not None:
-        # The finite-bias current: the conductance integrated over the window.
-        columns = {key: np.trapezoid(array, grid_energies, axis=1)[:, None]
-                   for key, array in columns.items()}
-    if columns["weight"].shape[1] == 1:
-        columns = {key: array[:, 0] for key, array in columns.items()}
-    if scalar_height:
-        columns = {key: array[0] for key, array in columns.items()}
-
-    crystal = np.asarray(used.kpoints.crystal(used.cell))
-    return MomentumTransport(
-        weight=columns["weight"],
-        tersoff_hamann=columns["tersoff_hamann"],
-        bare=columns["bare"],
-        incoherent=columns["incoherent"],
-        kpoints=crystal,
-        kcartesian=np.asarray(used.kpoints.cartesian(used.cell)),
-        kweights=np.asarray(used.kpoints.weights, dtype=float),
-        energies=np.atleast_1d(grid_energies if bias is None
-                               else np.array([grid_energies[0]])),
-        broadening=float(broadening),
-        smearing=str(smearing),
-        height=float(sweep[0]) if scalar_height else tuple(map(float, sweep)),
-        exit_height=float(exit_height),
-        exit_axis=int(exit_axis),
-        grid=None if grid is None else tuple(int(n) for n in grid),
-        fermi_energy=levels.get("fermi_energy"),
-        least_eigenvalue=extras["least_eigenvalue"],
-        hermiticity=extras["hermiticity"],
-        notes=extras["notes"],
-    )
-
-
-# --------------------------------------------------------------------------
-# the k-set
-# --------------------------------------------------------------------------
+            "states= are already solved on their own k-set: pass grid, shift or "
+            "kpoints to the call that solves them (get_tunnelling_states, "
+            "whole_grid_states), not beside them")
+    if not isinstance(states, WholeGridStates):
+        raise TypeError(f"states= takes a WholeGridStates, got {type(states).__name__}")
+    return states
 
 
 def whole_grid(system, grid, shift=None) -> KPoints:
@@ -614,8 +668,7 @@ def whole_grid(system, grid, shift=None) -> KPoints:
 
 
 
-def _resolved_degeneracy_tol(explicit, resolve: bool, result, conv_thr,
-                             calculation) -> float:
+def _resolved_degeneracy_tol(explicit, states) -> float:
     """The block tolerance for this run's states (``PLAN.md`` P149).
 
     On the re-solved branch every band was held to the fixed-density scalar
@@ -625,12 +678,8 @@ def _resolved_degeneracy_tol(explicit, resolve: bool, result, conv_thr,
     1e-6 was the one real margin item 3 found. ``None`` resolves; a number
     is the caller's, warned about below the promise.
     """
-    if resolve:
-        ethr, empty_floor = fixed_density_ethr(conv_thr, calculation.nelec), False
-    else:
-        ethr, empty_floor = getattr(result, "ethr", None), True
-    return degeneracy_tolerance(explicit, DEGENERACY_TOL, ethr=ethr,
-                                empty_floor=empty_floor,
+    return degeneracy_tolerance(explicit, DEGENERACY_TOL, ethr=states.ethr,
+                                empty_floor=not states.resolved,
                                 site="the transport channel basis")
 
 

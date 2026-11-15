@@ -1855,6 +1855,29 @@ class Calculator:
                                  exclude=SCF_ONLY_OPTIONS)
         )
 
+    def get_tunnelling_states(self, **options):
+        """The whole-grid states of the tunnelling routes and of QPI, solved once.
+
+        Pass the result as ``states=`` to :meth:`get_sts`,
+        :meth:`get_vertical_transport`, :meth:`get_momentum_transport` or
+        :meth:`get_qpi`, so that a scan of tips, heights, exit planes, energy
+        windows or impurities costs one band solve. ``grid``, ``shift``,
+        ``kpoints``, ``nbnd`` and ``conv_thr`` are the band solve's, forwarded as
+        the routes forward them; without a k-set these are the run's own states,
+        and the states record the threshold they were solved to. Not kept on the
+        calculator, since they are ``(nk, nbnd, npwx)`` on the whole grid.
+        :meth:`get_stm` does not take them: its k-set is the wedge of the denser
+        grid. For QPI alone, :meth:`get_qpi_bands` solves to QPI's 1e-8.
+        """
+        from defuqumat.workflows.transport import whole_grid_states
+
+        result = self._ground_state("the states of a tunnelling map")
+        return whole_grid_states(
+            self.system, self.pseudos, result, calculation=self.calculation,
+            **self._call_options(whole_grid_states, result, options,
+                                 exclude=SCF_ONLY_OPTIONS)
+        )
+
     def get_vertical_transport(self, exit_height=None, height=None, **options):
         """Tunnelling *through* a two-dimensional material, tip to substrate.
 

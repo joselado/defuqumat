@@ -219,11 +219,13 @@ def test_the_refusal_helper_still_fires_for_the_consumers_left_with_it():
      "whole_sphere_calculation"),
     ("defuqumat.workflows.magnons", "run_magnon_dispersion",
      "whole_sphere_calculation"),
-    ("defuqumat.workflows.stm", "run_sts", "unfold_gamma_states"),
-    ("defuqumat.workflows.transport", "run_vertical_transport",
-     "unfold_gamma_states"),
-    ("defuqumat.workflows.transport", "run_momentum_transport",
-     "unfold_gamma_states"),
+    # the three tunnelling routes and QPI take their states from one builder
+    # since 2026-11-15 (audit item 31), and it is the builder that unfolds
+    ("defuqumat.workflows.transport", "whole_grid_states", "unfold_gamma_states"),
+    ("defuqumat.workflows.stm", "run_sts", "states_or_solve"),
+    ("defuqumat.workflows.transport", "run_vertical_transport", "states_or_solve"),
+    ("defuqumat.workflows.transport", "run_momentum_transport", "states_or_solve"),
+    ("defuqumat.workflows.qpi", "qpi_bands", "whole_grid_states"),
 ])
 def test_each_named_consumer_unfolds_the_half_sphere(module, function, helper):
     """A set difference, not a read-through: the consumers are named here so a

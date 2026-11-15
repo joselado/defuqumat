@@ -27,13 +27,9 @@ grid with 24 bands and 16x16 tip points, 57 MB, 53 MB and 2.4 MB.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 
 from defuqumat.basis.sample import sample_wavefunctions
-from defuqumat.scf.driver import Calculation
-from defuqumat.scf.whole_sphere import unfold_gamma_states
 from defuqumat.stm.qpi import (
     QPI,
     READERS,
@@ -46,7 +42,7 @@ from defuqumat.stm.qpi import (
 from defuqumat.system.kpoints import is_reduced
 from defuqumat.transport.green import amplitude_weights
 from defuqumat.transport.substrate import exit_overlap
-from defuqumat.workflows.nscf import fixed_density_states, threaded_calculation
+from defuqumat.workflows.transport import WholeGridStates, whole_grid_states
 from defuqumat.workflows.stm import (
     _refuse_what_has_no_fermi_level,
     refuse_an_ultracell_result,
@@ -184,6 +180,8 @@ def run_qpi(
         states = qpi_bands(system, pseudos, result, grid=grid, shift=shift,
                            kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr,
                            k_batch=k_batch, calculation=calculation)
+    # a WholeGridStates from get_tunnelling_states carries no QPI refusal
+    _refuse_a_reduced_set(states.calculation)
     calculation, eigenvalues, wavefunctions = (
         states.calculation, np.asarray(states.eigenvalues), states.wavefunctions)
     levels = {"fermi_energy": states.fermi_energy}
@@ -357,22 +355,21 @@ def _far_cells(translations, divisions):
     b = np.minimum(translations[:, 1], n2 - translations[:, 1])
     return (a == n1 // 2) | (b == n2 // 2)
 
-@dataclass(frozen=True)
-class QPIBands:
-    """The whole-grid states a QPI map is built from, solved once.
+#: The whole-grid states a QPI map is built from, solved once: the same type the
+#: tunnelling routes take (audit 2026-11-15, item 31, fable's decision). On a
+#: surface of useful size the band solve on the whole grid is nearly all of the
+#: cost of :func:`run_qpi` (``PERFORMANCE.md``, "Quasiparticle interference"),
+#: and it does not depend on the impurity, its strength, the energies or the
+#: broadening, so it is a value of its own.
+QPIBands = WholeGridStates
 
-    On a surface of useful size the band solve on the whole grid is nearly all
-    of the cost of :func:`run_qpi` (``PERFORMANCE.md``, "Quasiparticle
-    interference"), and it does not depend on the impurity, its strength, the
-    energies or the broadening, so it is a value of its own.
-    """
 
-    calculation: object
-    #: ``(nspin, nk, nbnd)`` in Ry.
-    eigenvalues: np.ndarray
-    #: indexable as ``[ispin, ik]``, on the whole sphere.
-    wavefunctions: object
-    fermi_energy: float | None
+def _refuse_a_reduced_set(calculation):
+    if is_reduced(calculation.system.kpoints):
+        raise NotImplementedError(
+            "a symmetry-reduced k-set is refused: the k-grid is the impurity's "
+            "supercell and every k-point of it is a state the impurity "
+            "scatters into. Pass grid= for the whole grid, or run with nosym")
 
 
 def qpi_bands(system, pseudos, result, *, grid=None, shift=None, kpoints=None,
@@ -380,44 +377,16 @@ def qpi_bands(system, pseudos, result, *, grid=None, shift=None, kpoints=None,
               k_batch="default", calculation=None) -> QPIBands:
     """The states :func:`run_qpi` needs: the run's own, or re-solved on ``grid``.
 
-    The k-set must be the whole grid (the impurity's supercell), so a ``grid``
-    is built whole by :func:`~defuqumat.workflows.transport.whole_grid`, and a
-    symmetry-reduced set is refused.
+    :func:`~defuqumat.workflows.transport.whole_grid_states` at QPI's own
+    ``conv_thr``, with the reduced-set refusal: the k-set must be the whole grid
+    (the impurity's supercell), so a ``grid`` is built whole by
+    :func:`~defuqumat.workflows.transport.whole_grid`. The ground state's field
+    and ``becsum`` now reach the solve, as they do for the tunnelling routes; a
+    ground state under a field or a constrained moment was re-solved under the
+    input field before (audit 2026-11-15, size not measured).
     """
-    from defuqumat.workflows.transport import whole_grid
-
-    if kpoints is None and grid is not None:
-        kpoints = whole_grid(system, grid, shift)
-    resolve = kpoints is not None
-    calculation, system, kpoints, k_batch = threaded_calculation(
-        calculation, system, kpoints, k_batch)
-    if not resolve:
-        if calculation is None:
-            calculation = Calculation(system, pseudos, k_batch=k_batch)
-        eigenvalues = np.asarray(result.eigenvalues_by_spin)
-        wavefunctions = result.wavefunctions
-        levels = {"fermi_energy": result.fermi_energy}
-    else:
-        calculation, system, eigenvalues, wavefunctions = fixed_density_states(
-            system, pseudos, result.density, kpoints, nbnd, conv_thr, k_batch,
-            ns=getattr(result, "ns", None),
-            tau=getattr(result, "tau", None),
-            calculation=calculation,
-        )
-        eigenvalues = np.asarray(eigenvalues)
-        _, levels = calculation.occupations(eigenvalues)
-    if wavefunctions is None:
-        raise ValueError(
-            "QPI is built from the wavefunctions and this result carries none: "
-            "run the SCF without discarding them, or pass a grid")
-    calculation, wavefunctions = unfold_gamma_states(calculation, wavefunctions)
-    used = calculation.system
-    if is_reduced(used.kpoints):
-        raise NotImplementedError(
-            "a symmetry-reduced k-set is refused: the k-grid is the impurity's "
-            "supercell and every k-point of it is a state the impurity "
-            "scatters into. Pass grid= for the whole grid, or run with nosym")
-
-    return QPIBands(calculation=calculation, eigenvalues=eigenvalues,
-                    wavefunctions=wavefunctions,
-                    fermi_energy=levels.get("fermi_energy"))
+    states = whole_grid_states(system, pseudos, result, grid=grid, shift=shift,
+                               kpoints=kpoints, nbnd=nbnd, conv_thr=conv_thr,
+                               k_batch=k_batch, calculation=calculation, what="QPI")
+    _refuse_a_reduced_set(states.calculation)
+    return states

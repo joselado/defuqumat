@@ -1111,10 +1111,11 @@ def test_the_bias_axis_is_checked_before_the_fixed_density_solve():
     from defuqumat.workflows import transport, ultracell
 
     # Each entry point against the first thing it does that costs anything: the
-    # fixed-density solve where there is one, and the tip sampling where there
-    # is not -- ``run_ultracell_transport`` takes its states already solved.
-    entries = [(transport.run_vertical_transport, "fixed_density_states("),
-               (transport.run_momentum_transport, "fixed_density_states("),
+    # fixed-density solve where there is one (``states_or_solve`` since the
+    # states became a value of their own), and the tip sampling where there is
+    # not -- ``run_ultracell_transport`` takes its states already solved.
+    entries = [(transport.run_vertical_transport, "states_or_solve("),
+               (transport.run_momentum_transport, "states_or_solve("),
                (ultracell.run_ultracell_transport, "_tip_points(")]
     for entry, expensive in entries:
         body = inspect.getsource(entry)
@@ -1382,3 +1383,35 @@ def test_qpi_refuses_at_the_door(options, message):
     result = SimpleNamespace(fermi_energy=None)
     with pytest.raises(ValueError, match=message):
         run_qpi(system, pseudos, result, potential=0.05, height=0.7, **options)
+
+
+def test_the_shared_states_are_taken_as_given_and_refuse_a_k_set_beside_them():
+    """``states=`` on the tunnelling routes and QPI (audit 2026-11-15, item 31).
+
+    One band solve for a scan: the routes take a ``WholeGridStates`` as given, and
+    a ``grid``, ``shift`` or ``kpoints`` beside it is refused, since it would say
+    a k-set the states were not solved on. The equality of the maps with and
+    without it is ``tests/regression/test_transport.py``'s (slow).
+    """
+    import inspect
+
+    from defuqumat.workflows import qpi, transport
+    from defuqumat.workflows.transport import WholeGridStates, states_or_solve
+
+    states = WholeGridStates(calculation=None, eigenvalues=np.zeros((1, 2, 3)),
+                             wavefunctions=None, fermi_energy=0.1, homo=None, lumo=None,
+                             conv_thr=1e-6, ethr=1e-8, grid=(4, 4, 1))
+    assert states_or_solve(states, None, None, None) is states
+    assert states.resolved and states.levels == {"fermi_energy": 0.1, "homo": None,
+                                                 "lumo": None}
+    own = WholeGridStates(calculation=None, eigenvalues=None, wavefunctions=None,
+                          fermi_energy=None, ethr=1e-9)
+    assert not own.resolved
+    for beside in (dict(grid=(4, 4, 1)), dict(shift=(1, 1, 0)), dict(kpoints=object())):
+        with pytest.raises(ValueError, match="already solved on their own k-set"):
+            states_or_solve(states, None, None, None, **beside)
+    with pytest.raises(TypeError, match="WholeGridStates"):
+        states_or_solve(object(), None, None, None)
+    assert qpi.QPIBands is WholeGridStates
+    for entry in (transport.run_vertical_transport, transport.run_momentum_transport):
+        assert "states" in inspect.signature(entry).parameters
