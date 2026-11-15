@@ -76,7 +76,9 @@ def run_conductivity(
             measures and is not a knob to raise until a test passes.
         fermi_energy: in Ry. Defaults to the level the fixed-density run finds
             for its own band set, which is the right one whenever the k-set is
-            the ground state's; pass the SCF's own when it is not.
+            the ground state's; pass the SCF's own when it is not. A run with
+            two Fermi levels (``tot_magnetization``) takes ``(ef_up, ef_dw)``
+            and refuses one number.
         degeneracy_tol: the gap below which an occupied/empty pair is not a
             pair, in Ry. **Not derived from ``conv_thr``, and that was worth
             measuring**: the splitting an eigensolver leaves on a pair that is
@@ -132,6 +134,7 @@ def run_conductivity(
     if calculation is None:
         calculation = Calculation(system, pseudos, k_batch=k_batch)
     require_a_conductivity_regime(calculation)
+    _check_the_fermi_level(calculation, fermi_energy)
 
     # **One band more than the sum uses**, and it is not an accident of
     # rounding. Where the truncation falls is the difference between an
@@ -222,17 +225,35 @@ def _default_nbnd(calculation) -> int:
     return max(4, int(np.ceil(3.0 * calculation.nelec / degeneracy)))
 
 
-def _fermi_level(calculation, eigenvalues) -> float:
+def _check_the_fermi_level(calculation, fermi_energy) -> None:
+    """Refuse a caller's level whose count does not match the run's, as ``run_nesting`` does."""
+    if fermi_energy is None:
+        return
+    given = np.asarray(fermi_energy, dtype=float).ravel()
+    if bool(getattr(calculation, "two_fermi_energies", False)) and given.shape[0] != 2:
+        raise ValueError(
+            "this run constrains tot_magnetization, so each spin channel has its "
+            "own Fermi level: pass fermi_energy=(ef_up, ef_dw) in Ry, not one "
+            "number -- the scalar such a run prints is the mean of the two, and "
+            "neither channel's Fermi surface sits at it")
+
+
+def _fermi_level(calculation, eigenvalues):
     """The level the fixed-density band set implies, whatever the scheme.
 
     ``Calculation.occupations`` returns it beside the weights for a smeared
     run and returns the HOMO for a fixed one; the Drude term wants the first
-    and does not run at all in the second case, so either is fine here.
+    and does not run at all in the second case, so either is fine here. A run
+    with two Fermi levels (``tot_magnetization``) gives ``(ef_up, ef_dw)``:
+    its ``fermi_energy`` is the mean ``pw.x`` prints, and the Drude term of
+    neither channel sits there (audit 2026-11-15, ``optics`` F1).
     """
     eigenvalues = jnp.asarray(eigenvalues)
     if eigenvalues.ndim == 2:
         eigenvalues = eigenvalues[None]
     _, statistic = calculation.occupations(eigenvalues)
+    if isinstance(statistic, dict) and "fermi_energy_up" in statistic:
+        return (float(statistic["fermi_energy_up"]), float(statistic["fermi_energy_down"]))
     for key in ("fermi_energy", "homo"):
         value = statistic.get(key) if isinstance(statistic, dict) else None
         if value is not None:

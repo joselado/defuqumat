@@ -238,7 +238,9 @@ The keywords of `get_optical_conductivity` are:
   It can be the whole grid or its irreducible wedge.
 - **`fermi_energy`**: the Fermi level in Ry. With a denser grid you give the one of
   the SCF, `fermi_energy=scf.fermi_energy`, so the occupations stay those of the
-  ground state.
+  ground state. A run with `tot_magnetization` has one Fermi level per spin
+  channel. Then you give the pair, `fermi_energy=(ef_up, ef_dw)`, and one number
+  gives an error, because `scf.fermi_energy` is only the mean of the two.
 - **`method`**: `"frequency"`, the default, or `"curvature"`. `"frequency"` gives
   the whole spectrum, and its value at $\omega = 0$ is the conductivity at the
   finite broadening $\eta$, which is what a measured spectrum goes to at zero

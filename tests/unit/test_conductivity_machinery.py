@@ -628,3 +628,25 @@ def test_the_tetrahedron_drude_delta_is_averaged_where_it_is_built(occupations):
     assert np.max(np.abs(raw[pair, 0] - raw[pair, 1])) > 1e-2 * np.max(np.abs(raw))
     assert np.sum(wk[:, None] * delta[:, :2]) == pytest.approx(
         np.sum(wk[:, None] * raw), rel=1e-12)
+
+
+def test_a_run_with_two_fermi_levels_gives_the_drude_term_both():
+    """``tot_magnetization``: the Drude term takes ``(ef_up, ef_dw)``, not the printed mean (audit ``optics`` F1).
+
+    A stand-in calculation whose occupations carry the two levels, as
+    ``Calculation.occupations`` does for such a run; the scalar beside them is
+    the mean, which is what the workflow used for both channels before.
+    """
+    from defuqumat.workflows.conductivity import _check_the_fermi_level, _fermi_level
+
+    statistic = {"fermi_energy_up": 0.41, "fermi_energy_down": 0.29, "fermi_energy": 0.35}
+    two = SimpleNamespace(two_fermi_energies=True,
+                          occupations=lambda e: (None, statistic))
+    assert _fermi_level(two, np.zeros((2, 1, 4))) == (0.41, 0.29)
+    with pytest.raises(ValueError, match="own Fermi level"):
+        _check_the_fermi_level(two, 0.35)
+    _check_the_fermi_level(two, (0.41, 0.29))
+    one = SimpleNamespace(two_fermi_energies=False,
+                          occupations=lambda e: (None, {"fermi_energy": 0.35}))
+    assert _fermi_level(one, np.zeros((1, 1, 4))) == 0.35
+    _check_the_fermi_level(one, 0.35)
