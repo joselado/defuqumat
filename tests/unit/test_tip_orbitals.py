@@ -48,8 +48,11 @@ from defuqumat.transport.tip import (
     tip_vectors,
     vacuum_level,
 )
+from defuqumat.transport.tip import LAPLACIAN, continued_wavevectors
 from defuqumat.workflows.transport import (
     _assemble,
+    _continued_groups,
+    _feet,
     _sample_sphere,
     _tip_assembly,
     _tip_sphere,
@@ -599,3 +602,83 @@ def test_the_refusals_are_by_name():
         tip_frame(cell, 2, 1, np.eye(3) * 2)
     with pytest.raises(ValueError, match="right-handed"):
         tip_frame(cell, 2, 1, np.diag([1.0, 1.0, -1.0]))
+
+
+# --------------------------------------------------------------------------
+# the vacuum continuation
+# --------------------------------------------------------------------------
+
+
+def _match(cell, height, plateau):
+    bg = np.asarray(cell.bg)
+    return {"height": height, "axis": 2, "normal": bg[2] / np.linalg.norm(bg[2]),
+            "side": 1, "spacing": cell.volume / surface_area(cell, 2),
+            "plateau": plateau, "distances": []}
+
+
+@pytest.mark.parametrize("cell", [HEXAGONAL, SHEARED], ids=["hexagonal", "sheared"])
+def test_the_continued_state_obeys_the_vacuum_equation_and_meets_the_raw_one(cell):
+    """At the matching plane the continued state is the raw one, and so are its
+    in-plane derivatives; above it ``nabla^2 = kappa_n^2`` exactly.
+
+    On the sheared cell the foot of a tip point is not at its in-plane crystal
+    coordinates, which is what :func:`_feet` is for.
+    """
+    kcrystal = np.array([0.13, -0.21, 0.0])
+    miller = _ball(cell, 2.6, kcrystal)
+    states = _orthonormal(miller.shape[0], 3, seed=9)
+    energies = np.array([-0.31, -0.27, -0.22])
+    plateau, height = 0.05, 0.6
+    frame = tip_frame(cell, 2, 1)
+    tip = TipAssembly(orbital=TipOrbital.resolve("p"), basis=("py", "pz", "px"),
+                      coefficients=np.zeros((1, 3, 3)), frame=frame,
+                      kappa=np.array([0.6]), match=_match(cell, height, plateau))
+    mask = np.ones(miller.shape[0], bool)
+    on_plane = _plane_points(3, height)
+    (index, feet, spheres), = _continued_groups(
+        tip, states, 1, miller, mask, kcrystal, energies, on_plane, cell, None)
+    assert np.allclose(feet, on_plane)
+    vectors = tip_vectors(miller, kcrystal, cell, frame)
+    for name, sphere in zip(tip.basis, spheres):
+        continued = _sample_sphere(sphere, feet, cell.volume)[0]
+        raw = sample_wavefunctions(states * multiplier(name, vectors)[None],
+                                   miller, kcrystal, on_plane, cell.volume)
+        if name == "pz":
+            assert not np.allclose(continued, raw, rtol=1e-3)
+        else:
+            assert np.allclose(continued, raw, rtol=1e-11,
+                               atol=1e-12 * np.abs(raw).max()), name
+    # Helmholtz by construction: -Q.Q = plateau - e_n
+    folded, inplane = fold_onto_plane(states, miller, height, 2,
+                                      k_along=float(kcrystal[2]))
+    lateral = kcrystal.copy()
+    lateral[2] = 0.0
+    wavevectors, kappa = continued_wavevectors(inplane, lateral, cell,
+                                               tip.match["normal"], plateau, energies)
+    laplacian = multiplier(LAPLACIAN, wavevectors @ frame.T)
+    assert np.allclose(laplacian, (plateau - energies)[:, None], rtol=1e-12)
+    # and a tip 2 bohr above has its foot straight below along the normal
+    above = on_plane.copy()
+    above[:, 2] += 2.0 / tip.match["spacing"]
+    feet, distance = _feet(tip.match, above, cell)
+    assert np.allclose(distance, 2.0)
+    shift = (above - feet) @ cell.at
+    assert np.allclose(shift, 2.0 * tip.match["normal"][None], atol=1e-12)
+
+
+def test_a_matching_plane_outside_the_gap_is_refused():
+    cell = SQUARE
+    result = types.SimpleNamespace(potential=np.zeros((1, 4, 4, 26)))
+    plain = _fake_system([[0, 0, 0.5]], cell)
+    args = (result, 2, 0.3, np.array([[0.0, 0.0, 0.7]]), np.array([-0.5]), None,
+            None, None, False)
+    tip, notes = _tip_assembly("pz", plain, *args, match_height=0.6)
+    assert tip.match is not None and notes["match_distance_bohr"] == [pytest.approx(1.3)]
+    for wrong in (0.45, 0.8, 0.2):
+        with pytest.raises(ValueError, match="between the material and the tip"):
+            _tip_assembly("pz", plain, *args, match_height=wrong)
+    with pytest.raises(NotImplementedError, match="symmetry-reduced"):
+        _tip_assembly("pz", plain, *args, match_height=0.6, wedge=True)
+    # the s tip takes the orbital path once it is continued
+    tip, _ = _tip_assembly("s", plain, *args, match_height=0.6)
+    assert tip is not None and tip.orbital.is_point

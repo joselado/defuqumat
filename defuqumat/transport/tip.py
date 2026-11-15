@@ -76,7 +76,7 @@ import numpy as np
 
 __all__ = ["ORBITALS", "TipOrbital", "TipAssembly", "multiplier", "tip_frame",
            "tip_side", "tip_vectors", "rotation_representation", "vacuum_level",
-           "decay_constants_at"]
+           "decay_constants_at", "continued_wavevectors"]
 
 #: The orbitals of Chen's table and their angular momentum, in the order the
 #: real spherical harmonics are listed there.
@@ -104,9 +104,12 @@ def multiplier(name: str, q) -> np.ndarray:
 
     ``q`` is ``(..., 3)``, the components of ``k + G`` in 1/bohr along the tip
     frame's x, y and z (:func:`tip_vectors`). ``d/dx_a`` is ``i q_a``, so the p
-    multipliers are imaginary and the d ones real.
+    multipliers are imaginary and the d ones real. ``q`` may be complex: a state
+    continued into the vacuum (:func:`continued_wavevectors`) carries
+    ``q_par + i kappa_G n``, so that ``d/dn`` is ``-kappa_G``.
     """
-    q = np.asarray(q, dtype=float)
+    q = np.asarray(q)
+    q = q.astype(complex) if np.iscomplexobj(q) else q.astype(float)
     x, y, z = q[..., 0], q[..., 1], q[..., 2]
     if name == "s":
         return np.ones(x.shape, dtype=complex)
@@ -309,6 +312,27 @@ class TipAssembly:
     channel_maps: bool = False
     #: tip points the diagnostics are taken on, at most this many
     diagnostic_points: int = 64
+    #: the scalar local potential for the diagnostics: its Fourier
+    #: coefficients on the FFT grid and the vacuum plateau, or ``None``
+    potential: object = None
+    plateau: float | None = None
+    #: the vacuum continuation, or ``None``: ``{"height": s_m, "axis": a,
+    #: "normal": n, "side": +-1, "spacing": bohr}`` with ``s_m`` the matching
+    #: plane's crystal coordinate and ``n`` the unit normal towards the tip
+    match: object = None
+
+    def potential_at(self, points) -> np.ndarray | None:
+        """``V(r)`` in Ry at crystal points, by its Fourier series (exact)."""
+        if self.potential is None:
+            return None
+        coefficients = np.asarray(self.potential)
+        shape = coefficients.shape
+        frequencies = [np.fft.fftfreq(n, 1.0 / n) for n in shape]
+        points = np.atleast_2d(np.asarray(points, dtype=float))
+        phase = [np.exp(2j * np.pi * np.outer(points[:, a], frequencies[a]))
+                 for a in range(3)]
+        return np.real(np.einsum("ijk,pi,pj,pk->p", coefficients, *phase,
+                                 optimize=True))
 
     @property
     def per_point(self) -> bool:
@@ -321,7 +345,8 @@ class TipAssembly:
     def with_coefficients(self, coefficients, basis=None) -> "TipAssembly":
         return TipAssembly(self.orbital, self.basis if basis is None else tuple(basis),
                            np.asarray(coefficients), self.frame, self.kappa,
-                           self.ethr, self.channel_maps, self.diagnostic_points)
+                           self.ethr, self.channel_maps, self.diagnostic_points,
+                           self.potential, self.plateau, self.match)
 
 
 # --------------------------------------------------------------------------
@@ -398,6 +423,40 @@ def tip_frame(cell, exit_axis: int, side: int, frame=None) -> np.ndarray:
     return np.stack([x, y, z])
 
 
+def continued_wavevectors(inplane, lateral_k, cell, normal, plateau, energies):
+    """``(Q, kappa)``: the folded components continued into the flat vacuum.
+
+    Above a matching plane where the potential is ``plateau``, the in-plane
+    component ``G_par`` of a state at energy ``e_n`` is
+    ``b_n(G_par) exp(i q_par . r - kappa_nG d)`` with ``kappa_nG^2 = plateau - e_n
+    + |q_par|^2``, ``q_par`` the in-plane part of ``k + G_par`` (the projection
+    off ``normal``, which is the in-plane reciprocal vector also when ``a3`` is
+    tilted) and ``d`` the height above the plane. Every derivative of it is a
+    multiplication by ``i Q`` with the complex ``Q = q_par + i kappa_nG n``, and
+    ``-Q.Q = kappa_n^2``, so the continued state obeys ``(nabla^2 - kappa_n^2)
+    psi = 0`` exactly: Chen's condition by construction.
+
+    ``inplane`` is ``(ng, 3)`` Miller indices with the normal column zero,
+    ``lateral_k`` the k-point with it zeroed, ``energies`` ``(nbnd,)`` in Ry.
+    Returns ``Q`` ``(nbnd, ng, 3)`` complex, cartesian, and ``kappa`` ``(nbnd, ng)``.
+    """
+    normal = np.asarray(normal, dtype=float)
+    q = (np.asarray(inplane, dtype=float) + np.asarray(lateral_k, dtype=float)) \
+        @ np.asarray(cell.bg, dtype=float)
+    q_par = q - np.outer(q @ normal, normal)
+    energies = np.asarray(energies, dtype=float).reshape(-1)
+    barrier = float(plateau) - energies
+    if np.any(barrier <= 0.0):
+        raise ValueError(
+            f"a state at {float(energies[np.argmin(barrier)]):.6f} Ry is at or "
+            f"above the vacuum level {float(plateau):.6f} Ry, so it does not "
+            "decay into the vacuum and cannot be continued from a matching "
+            "plane; narrow the energy window or drop match_height")
+    kappa = np.sqrt(barrier[:, None] + np.sum(q_par * q_par, axis=1)[None, :])
+    wavevectors = q_par[None, :, :] + 1.0j * kappa[:, :, None] * normal[None, None, :]
+    return wavevectors, kappa
+
+
 def tip_vectors(miller, kcrystal, cell, frame) -> np.ndarray:
     """``(npw, 3)``: ``k + G`` in 1/bohr, in components along the tip frame."""
     miller = np.asarray(miller, dtype=float)
@@ -452,8 +511,7 @@ def vacuum_level(system, potential, exit_axis: int) -> dict:
     planar average moves within 1 bohr of that middle, which is the check that
     there is a plateau at all.
     """
-    v = np.asarray(potential, dtype=float)
-    scalar = v.mean(axis=0) if int(system.nspin) == 2 else v[0]
+    scalar = scalar_potential(system, potential)
     others = tuple(i for i in range(3) if i != exit_axis)
     profile = scalar.mean(axis=others)
     n = profile.size
@@ -478,6 +536,12 @@ def vacuum_level(system, potential, exit_axis: int) -> dict:
         "profile": profile,
         "gap_bohr": float(gaps[widest] * spacing),
     }
+
+
+def scalar_potential(system, potential) -> np.ndarray:
+    """``(n1, n2, n3)``: the spin-independent local potential, Ry."""
+    v = np.asarray(potential, dtype=float)
+    return v.mean(axis=0) if int(system.nspin) == 2 else v[0]
 
 
 def potential_at(profile, coordinate: float) -> float:
