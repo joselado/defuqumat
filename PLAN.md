@@ -30570,8 +30570,15 @@ written from probes with the same calls and were not run as tests.
 cgroup cap with the watchdog at 12G: **3980 passed**, 83 skipped, 1732 deselected, no failure,
 4732.70 s, beside the other work of the session (so not a timing), peak 6090 MB in
 `test_real_augmentation.py`. That run was in a worktree, where the gitignored `quantum_espresso/`
-is absent, so the tests that need it skipped there; the gate at the head is run in the main
-checkout, and its line follows.
+is absent, so the tests that need it skipped there. At the head, `fd426859`, the gate ran on
+Triton (job 21592545, `batch-csl`, one node of 8 CPUs, the group's QE 7.5 tree as
+`DEFUQUMAT_QE_ROOT`, the kernel cache off): **4583 passed**, 65 skipped, 1908 deselected,
+5 failed, 4643.52 s, peak 5.13 GB by `seff`. The five failures are the Triton venv and not the
+code: the three `test_memory_watchdog.py` tests need `psutil`, and the two `test_check_guide.py`
+tests need `yaml` (`ModuleNotFoundError: No module named 'yaml'` in `tools/check_guide.py:40`),
+neither of which the venv has; no other test failed. `test_result_plots.py` is left out by the
+job script, because the venv has no `matplotlib`. The count is larger than at `84168bd6`
+because the QE tree was present, so the tests that read it were collected and ran.
 
 **Slow files the changes reach, not run, for the user:** `tests/regression/test_phonons_at_q.py`,
 `test_phonons_at_q_nlcc.py`, `test_electron_phonon.py`, `test_streamed_phonons.py`,
