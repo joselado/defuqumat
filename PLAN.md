@@ -223,7 +223,8 @@ because that is what decides whether it is a session or a phase.
   10 T interpolation and `q = 100`; the attribution of route P's 0.2 eV against Peierls at 7900 to
   13000 T (the `p_z` set at 70 Ry, then a set with the mirror-odd vacuum states); the intra-cell
   term at laboratory fields (unmeasurable at `q <= 10` by construction); diamond's `E(+) - E(-)` at
-  `conv_thr = 1e-10` and on an odd box; the orbital magnetization identity on a Chern insulator;
+  `conv_thr = 1e-10` and on an odd box (on two-atom silicon an even box gives 2.1e-5 Ry and an odd one
+  1.6e-12, P177, P178; diamond itself not rerun); the orbital magnetization identity on a Chern insulator;
   the Zeeman term, forces and stress, the current-density functional, a field off `a3`, spinors,
   `nspin = 2`, ultrasoft and PAW, all refused by name.
 - **QPI beyond P157**: spinors and spirals (a 2x2 `T` and a spin trace in the `landauer` reader), ultrasoft and PAW (`<psi|phi>` inside the augmentation sphere), an impurity on atomic orbitals, and a check of the magnetic scatterer (`exchange`) on a collinear magnet.
@@ -30478,3 +30479,96 @@ All on D22 in `/l/ladovj1/w-mag-record`, logs in `/l/ladovj1/review/mag/record/`
   2 min each).
 - For the Davidson `precondition` hook of P175: `tests/regression/test_davidson_zero_root.py`,
   `test_gamma_only.py`, `test_spinorbit.py`, `test_noncollinear_magnetism.py`.
+
+### P178 -- The reading audit of 2026-11-15, fixed on the branch `audit-fixes`. ✅ DONE 2026-11-15 (40 commits from `735ea0b2` to the record commit, branch `audit-fixes` from `b5b88c5c`; each fix with a fast test that fails on the old code where one could be written, run on this workstation under a cgroup cap; the fast gate at `84168bd6` in a worktree, and at the branch head, see the gate line below; the slow files the changes reach were not run, for the user, listed below; not merged, not pushed)
+
+A read-only audit (30 Opus finders, each followed by a Fable skeptic, nothing executed) left 97
+findings in `notes/AUDIT-2026-11-15.md`, ranked at its end ("What to address, in order", 34
+items and 19 unranked). The user said "fix all", one item at a time on this workstation. **The
+per-item record, with every number, is the last section of that note** ("What was fixed on the
+branch `audit-fixes`"); this entry says what kind of defects they were and the numbers that
+moved.
+
+**Silent wrong numbers, measured before and after.** The KPM spin DOS on a symmetry-reduced
+k-set read 2.3 states/Ry against a DOS peak of 19.9 on zincblende Se2, where it must be zero;
+after the fix it is below 1e-8 of the DOS. The tetrahedron fraction on a nearly flat band
+(corners 0 to 3e-5 Ry) read 2.7e-5 where the closed form is 4.5e-3; it now matches to 1e-9 down
+to spans of 1e-7 Ry. `fft_factors` on hcp written to six decimals read `(1000000, 1000000, 2)`
+and reads `(1, 1, 2)`. `default_nbnd` is `setup.f90`'s rule line for line: a smeared spinor with
+nine electrons gets 18 bands (it got 16), and a fixed spinor with 5, 9 or 13 electrons gets 6, 10
+and 14 (it raised at the first filling). The PDOS tetrahedra fold their corners with the group
+the k-set was built with. The phonon at `q != 0` refuses any reduced k-set, which catches a P1
+crystal on its time-reversal wedge (14 of 27 points on 3x3x3), and refuses D2 there, whose
+`d2ionq_disp` is the missing term. The smeared Sternheimer rows past the cutoff are not solved,
+as `cgsolve_all` does not: on `al2-metal.in` at Gamma the optical modes are unchanged to the
+printed digit and the acoustic ones move by about 1e-4 cm^-1. The PAW orbital norm is taken
+over `kkbeta`, as `upf_check_atwfc_norm` does: on `Si.pbe-n-kjpaw_psl.0.1.UPF` it read 0.9999954
+in QE's metric. A kick at `t >= 128` a.u. switched on one step late (`dt = 0.3`, a kick at 129.3,
+`times[431]` one ulp below it). Wannier90's window checks, the two Fermi levels in the Drude term,
+the electrostriction strain response on its own states, `with_spin` rescaling a calculator-level
+`nbnd`, and a collinear residual split read as charge and moment are the rest of this group.
+
+**Crashes and refusals.** The pooled Newton-Krylov warm-up runs the pooled step again, and
+`band_precision='mixed'` and the LDOS warm-up are refused under pools. A left-handed cell is
+refused for an orbital field; vc-relax checks only the group it uses; `grad_m` has no 0/0 at a
+negative charge; a namelist value list is refused (none of the 791 committed and test-suite
+inputs trips it); the real-time checkpoint is written atomically under the name `np.savez`
+uses. Refusals made at the door, before the band solve or the SCF they would otherwise follow:
+QPI's input checks, the orbital-field facades' options, SHG's degenerate filling, the smeared
+orbital magnetization, a spiral projection at any symmetry, the torque on a reduced k-set at any
+orientation, and the regime of `get_magnetic_bands` and `get_magnetizability`.
+
+**Cost.** `get_born_charges` after `get_dielectric_tensor` is a cache hit (a one-slot cache on
+the field response). The KPM conductivity's k-chunk is capped by its own `N^2` moment blocks.
+The Wannier neighbour search keeps only the translations that reach a shell: 251 -> 11 s on a
+12x12x12 mesh, the arrays bit for bit. The tunnelling routes and QPI share one whole-grid band
+solve (`WholeGridStates`, `Calculator.get_tunnelling_states`): on the hydrogen sheet at 4x4x1 each
+map is bit for bit the same and a call with `states=` takes at most 0.1 s against 1.0 to 1.4 s.
+On a card, `at_kpoints` sizes a whole-axis k-chunk again for a longer k-set (tested on a
+stand-in card only). The Hubbard occupation matrix is built before the store is parked, and
+the meta-GGA tau residual is read in the batched host read.
+
+**Fable's decisions (2026-11-15).** The -1 flux run of the magnetizability stays the default;
+it sees only a defect that breaks `H(-A) = H(A)^*`, and the condition for flipping it is in
+`notes/ORBITAL-FIELD-NEXT.md` §14. The KPM conductivity's whole-grid velocity tables are
+measured and recorded, not chunked: 96 MiB a table and an 846 MiB peak step on si16 at 4x4x4
+(`PERFORMANCE.md`; the host-loop design is `notes/GPU-MEMORY-NEXT.md` item 7). The re-sizing of
+the k-chunk goes in `at_kpoints` itself, through the helper `for_bands` uses. One states type
+for the four tunnelling consumers, which records its own threshold.
+
+**Found while fixing.** P177's open experiment, run on two-atom silicon at `conv_thr = 1e-10`:
+route P's `E(+) - E(-)` is 2.1e-5 Ry on the default even 8 x 8 x 8 box, 6.1e-6 on 10 x 10 x 10
+and 1.6e-12 on the odd 9 x 9 x 9 box, so the asymmetry of an even box is its Nyquist slot, not
+the SCF floor (P177 has the numbers). The magnon crossing is read at `omega + i eta` and moves as
+`0.018204 + 10.7 eta^2` Ry on the field-gapped hydrogen cell at `q = 0`, 4.3e-5 Ry at the
+default; the docstrings and P63 said no broadening enters it. The Davidson subspace tangent of a
+per-band row with no empty band was regularised at the bare `ethr` (1e-13) instead of the 1e-5
+unit; no differentiated caller passes such a row.
+
+**Not fixed, by decision or because the term is missing.** `d2ionq_disp` (D2 at `q != 0`);
+orientation-free orbital-field conventions for a left-handed cell; snapping the stored 1e-6
+translation residues to zero; the chunked KPM velocity; route P's per-k host reads (one k-point
+in flight is its sized design, and no timing on a card asks for more); the default box of route
+P (the odd 2-3-5 sizes are far apart). `calculator` N2 no longer reproduces after the
+`with_spin` fix. **Unmeasured:** the size of the old Drude error with two Fermi levels, of the
+old electrostriction error, of the torque residue on a 3x3x3 wedge, and of the QPI field fix.
+
+**Tests that cannot run in the gate.** The cheapest live test of the route P SCF is 8.9 s and of
+the plane-wave quantum metric 6.5 s and 8.5 s, above the gate's five seconds, so both are slow:
+the gate still runs neither assembly. The metric tests and the shared-states equality test were
+written from probes with the same calls and were not run as tests.
+
+**The fast gate.** At `84168bd6`, the first sixteen fix commits, in a worktree under a 14G
+cgroup cap with the watchdog at 12G: **3980 passed**, 83 skipped, 1732 deselected, no failure,
+4732.70 s, beside the other work of the session (so not a timing), peak 6090 MB in
+`test_real_augmentation.py`. At the branch head: see the line after this entry.
+
+**Slow files the changes reach, not run, for the user:** `tests/regression/test_phonons_at_q.py`,
+`test_phonons_at_q_nlcc.py`, `test_electron_phonon.py`, `test_streamed_phonons.py`,
+`test_tetrahedra.py`, `test_pdos.py`, `test_spinor_pdos.py` (slow part), `test_anisotropy.py`,
+`test_orientation_paw.py`, `test_orientation_torque_cost.py`, `test_realtime.py`,
+`test_realtime_regimes.py`, `test_realtime_augmented_update.py`, `test_electrostriction.py`,
+`test_transport.py` (with the new shared-states test), `test_stm.py`, `test_qpi.py`,
+`test_magnetic_bloch_slow.py`, `test_magnons.py` and `test_magnon_regimes.py` (docs only),
+`tests/unit/test_parallel.py::test_newton_krylov_under_pools_reproduces_one_pool`, and the
+new slow tests in `tests/unit/test_magnetic_bloch.py` and `tests/unit/test_quantum_metric.py`.
