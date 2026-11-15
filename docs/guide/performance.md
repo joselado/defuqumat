@@ -297,7 +297,10 @@ several cards are in
     A band path or a grid with fewer k-points than pools runs, but each pool
     then solves all of it. With pools, `scf_solver='newton-krylov'` runs with
     its default Jacobian, `jvp='finite-difference'`. With `jvp='autodiff'` or
-    `jvp='sternheimer'` it gives an error. The forces and the stress give an
+    `jvp='sternheimer'` it gives an error. A warm-up with
+    `warmup_mixing='ldos'` also gives an error with pools, and so does
+    `band_precision='mixed'`, because neither is written for pools yet. The
+    default warm-up, `warmup_mixing='kerker'`, runs. The forces and the stress give an
     error with a `method` other than the default `"autodiff"`. A starting state
     (`starting_from`) from a run with pools also works when the k-points are
     shared out differently in the new run. The states move to the pool that

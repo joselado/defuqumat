@@ -7270,7 +7270,15 @@ def _solve_residual_body(
                        if (RHO_DDOT_FIT if fit_in_rho_ddot is None else fit_in_rho_ddot)
                        and isinstance(warm_mixer, AndersonMixer) else None)
         for _ in range(warmup):
-            fx, wavefunctions, eigenvalues = residual.step_states(x0, wavefunctions)
+            if warm_ldos:
+                fx, wavefunctions, eigenvalues = residual.step_states(x0, wavefunctions)
+            else:
+                # ``step``, which under pools is the pooled collective and
+                # returns its token; ``step_states`` has no pooled form, so rank
+                # 0 ran the whole set alone and handed the solver an array
+                # (audit 2026-11-15, ``driver-c`` F2). Serially the two are the
+                # same pass, ``step`` dropping the eigenvalues.
+                fx, wavefunctions = residual.step(x0, wavefunctions)
             if warm_ldos:
                 # One more density pass a warm-up step, with ``w_k delta(e_F -
                 # e_nk)`` in place of the occupations (``ldos_weights``); zero,
@@ -7838,7 +7846,8 @@ def _k_costs(calculation) -> np.ndarray:
 
 
 def _refuse_under_pools(pools, calculation, *, checkpointing,
-                        residual_solver, rotate_moments, field) -> None:
+                        residual_solver, rotate_moments, field, warmup=0,
+                        warmup_mixing="kerker") -> None:
     """Refuse by name what the k-point pools do not cover yet.
 
     Each of these reads or writes the whole set's wavefunctions, or takes a
@@ -7881,6 +7890,22 @@ def _refuse_under_pools(pools, calculation, *, checkpointing,
         refused.append(f"a residual scf_solver with jvp={residual_solver!r} (it "
                        "differentiates the whole set; jvp='finite-difference', "
                        "the default, runs under pools)")
+    # Two that crashed rather than refused (audit 2026-11-15, ``driver-c`` F1
+    # and F2), refused by name until each is made pool-aware and measured at two
+    # pools. The switch to double casts the store with ``jnp.asarray``, and a
+    # pool's store is a ``PoolStore`` whose ``__array__`` raises; the
+    # Newton-Krylov warm-up calls ``step_states``, which ``PooledScfResidual``
+    # does not override, so rank 0 ran the whole set alone and then handed the
+    # solver an array where the pooled protocol expects a token. The warm-up
+    # now takes ``step``, the pooled collective, except under an LDOS mixer,
+    # which needs the states and eigenvalues of the whole set.
+    if getattr(calculation, "switch_precision", None) is not None:
+        refused.append("band_precision='mixed' (the switch to double does not "
+                       "cast a pool's store; 'single' and 'double' run)")
+    if (residual_solver not in (None, False) and int(warmup or 0) > 0
+            and str(warmup_mixing).lower() in LDOS_DEPENDENT):
+        refused.append(f"a Newton-Krylov warm-up with warmup_mixing={warmup_mixing!r} "
+                       "(its LDOS pass reads the whole set; 'kerker' and 'anderson' run)")
     # ``rotate_moments`` is not refused: the torque is rank 0's before the
     # stepper sees it, and the states it turns and the sums it rebuilds from
     # them are each pool's rows, reduced.
@@ -9056,6 +9081,8 @@ def run_scf(
                 dict(scf_solver_options or {}).get("jvp", "finite-difference")
                 if get_scf_solver(scf_solver) is not None else None),
             rotate_moments=rotate_moments, field=field,
+            warmup=dict(scf_solver_options or {}).get("warmup", 0),
+            warmup_mixing=dict(scf_solver_options or {}).get("warmup_mixing", "kerker"),
         )
         # A pool keeps its own rows in host memory and walks them: the
         # streamed passes are the ones that take ``rows``.
