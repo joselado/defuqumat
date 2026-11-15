@@ -495,6 +495,14 @@ class VerticalTransport:
     #: What the bands could not represent: the plane-restricted trace against
     #: the number of bands, a band-count truncation measure.
     notes: dict = field(default_factory=dict)
+    #: The tip orbital (``PLAN.md`` P179): ``"s"`` for the point tip, otherwise
+    #: its channels as dicts of Chen's weights. The derivative rule's own
+    #: diagnostics are ``notes["tip"]``.
+    tip_orbital: object = "s"
+    #: ``(nE, n_channels, n1, n2)`` -- or without the energy axis -- the map of
+    #: each tip channel on its own, if ``tip_channels=True`` was asked for. The
+    #: channels are incoherent, so they sum to :attr:`values`.
+    tip_channels: np.ndarray | None = None
 
     @property
     def image(self) -> np.ndarray:
