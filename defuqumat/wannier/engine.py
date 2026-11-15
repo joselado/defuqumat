@@ -14,7 +14,9 @@ optional ``sym`` argument. That port was validated against ``wannier90.x`` on Ga
 and silicon; the numbers for this copy are in ``PLAN.md``, P162.
 
 The engine is **unit-agnostic**: lengths are whatever the reciprocal lattice
-was given in (defuqumat passes bohr, so spreads come out in bohr^2) and the
+was given in (``run_wannier`` passes angstrom, Wannier90's own unit, so spreads come
+out in angstrom^2 and ``conv_tol`` and ``kmesh_tol`` are in angstrom units, and the
+workflow converts the spreads and centres to bohr on the way back) and the
 window energies are in the unit of ``eigenvalues`` (defuqumat passes eV, the
 unit Wannier90 users write windows in). It runs on the host in NumPy: it is a
 small dense optimisation over ``num_kpts`` matrices of size ``num_bands``,
@@ -83,6 +85,25 @@ class EngineResult:
     converged: bool
 
 
+def _check_windows(o) -> None:
+    """Wannier90's ``param_read`` checks on the two windows, which the port had lost.
+
+    ``parameters.F90`` refuses a frozen window with a lower end and no upper end
+    ("found dis_froz_min but not dis_froz_max") and either window with its ends
+    swapped; here the first froze nothing and kept quiet, and a swapped frozen
+    window froze nothing too (audit 2026-11-15, ``wannier`` F1 and N1).
+    """
+    if o.dis_froz_min is not None and o.dis_froz_max is None:
+        raise ValueError(
+            "dis_froz has a lower end and no upper end; Wannier90 refuses this "
+            "('found dis_froz_min but not dis_froz_max'): give the upper end, or "
+            "leave the lower end open, dis_froz=(None, max)")
+    for name, low, high in (("dis_win", o.dis_win_min, o.dis_win_max),
+                            ("dis_froz", o.dis_froz_min, o.dis_froz_max)):
+        if low is not None and high is not None and low > high:
+            raise ValueError(f"{name} has its ends swapped: min {low} > max {high} eV")
+
+
 def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh: KmeshResult,
                num_wann: int, options: EngineOptions = EngineOptions(), *,
                kpt_frac: np.ndarray | None = None, real_lattice: np.ndarray | None = None,
@@ -123,6 +144,7 @@ def run_engine(mmn: np.ndarray, amn: np.ndarray, eigenvalues: np.ndarray, kmesh:
             check_band_unitarity(sym.d_matrix_band[:, :, :, ir], int(ik), "num_bands",
                                   sym.refuse_cut)
     if disentangled:
+        _check_windows(o)
         win_min = float(eigenvalues.min()) if o.dis_win_min is None else o.dis_win_min
         win_max = float(eigenvalues.max()) if o.dis_win_max is None else o.dis_win_max
         froz_min = win_min if o.dis_froz_min is None else o.dis_froz_min
