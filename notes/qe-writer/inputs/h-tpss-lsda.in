@@ -1,0 +1,18 @@
+ &control
+    calculation='scf', pseudo_dir='../../../pseudo', outdir='./out'
+ /
+ &system
+    ibrav=1, celldm(1)=8.0, nat=1, ntyp=1, ecutwfc=25.0,
+    nspin=2, occupations='fixed', tot_magnetization=1, nbnd=2,
+    input_dft='TPSS'
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ H  1.008  H.pz-vbc.UPF
+ATOMIC_POSITIONS (bohr)
+ H 0.0 0.0 0.0
+K_POINTS tpiba
+ 1
+ 0.0 0.0 0.0 1.0

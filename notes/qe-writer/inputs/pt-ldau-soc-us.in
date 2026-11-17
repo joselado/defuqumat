@@ -1,0 +1,20 @@
+ &control
+    calculation='scf', pseudo_dir='../../../pseudo', outdir='./out'
+ /
+ &system
+    ibrav=2, celldm(1)=7.42, nat=1, ntyp=1,
+    ecutwfc=25.0, ecutrho=200.0,
+    occupations='smearing', smearing='mv', degauss=0.02,
+    noncolin=.true., lspinorb=.true.
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ Pt  195.08  Pt.rel-pbe-n-rrkjus.UPF
+ATOMIC_POSITIONS {crystal}
+ Pt 0.0 0.0 0.0
+K_POINTS {automatic}
+3 3 3 0 0 0
+HUBBARD {atomic}
+U Pt-5d 3.0
