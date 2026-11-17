@@ -12,7 +12,8 @@ compensation charge ``Q^L_ij``, which the pseudo one-centre term subtracts back)
 Outside the spheres the pseudo density is the all-electron one. This module
 evaluates that density in Elk's representation -- a real-harmonic expansion on
 each muffin tin's logarithmic mesh and values on the interstitial grid -- and
-builds Elk's Kohn-Sham potential from it (:mod:`defuqumat.io.elk_potential`),
+builds Elk's Kohn-Sham potential from it (:mod:`defuqumat.io.elk_potential`,
+without external fields: Elk adds its own ``bfieldc``/``bfcmt`` in ``genbs``),
 so the ``STATE.OUT`` written is one Elk's ``task = 1`` starts from directly.
 The user's suggestion (2026-11-17); measured in ``PLAN.md`` P181.
 
@@ -40,8 +41,9 @@ the shape of its core density at the nucleus are taken from it.
 **Refused, each by name:** a dataset that is not PAW (no all-electron partial
 waves to rebuild from), a one-centre correction reaching past Elk's
 muffin-tin radius (the all-electron density there would not be a smooth
-interstitial function; enlarge ``rmt``), and a template of another cell,
-other atoms or another spin regime. A noncollinear state is written with its
+interstitial function; enlarge ``rmt``), a template of another cell, other
+atoms or another spin regime, and a spin-orbit run (no such cell has been run
+through Elk). A noncollinear state is written with its
 magnetization vector (``ndmag = 3``); the magnetization a fully relativistic
 dataset's small component carries on its own (QE's ``pfunc_rel`` term) is
 left out, and the small component's charge is in every component, as QE's
@@ -243,14 +245,16 @@ def _dirac_core(r, ours, template, r_join, scaled, decades: float = 1.0):
     return (1.0 - w) * scaled + w * ours
 
 
-def all_electron_state(result, calculation, template, core_region="auto"):
+def all_electron_state(result, calculation, template, core_region="auto", onecentre: bool = True):
     """``(state, params)``: ``template`` with our density and Elk's potential of it.
 
     ``template`` is an Elk run directory of the same crystal; ``state`` is an
     :class:`~defuqumat.io.elk.ElkState` ready for
     :func:`~defuqumat.io.elk_write.write_elk_state`. ``core_region`` is
     ``"auto"`` (by the template's functional, :data:`CORE_REGION`), ``None``
-    (the PAW core everywhere) or ``(r_join, scaled)``.
+    (the PAW core everywhere) or ``(r_join, scaled)``. ``onecentre = False``
+    leaves the one-centre term out, the control of P181 (the grid density and
+    the core alone): it is three times further from Elk in Elk's first loop.
     """
     from defuqumat.io.elk import ElkState
     from defuqumat.io.elk_potential import (crystal_symmetrizer, kohn_sham_potential,
@@ -269,6 +273,14 @@ def all_electron_state(result, calculation, template, core_region="auto"):
             "waves to rebuild the density inside the spheres from")
     system = calculation.system
     nspin_mag = int(calculation.nspin_mag)
+    if system.lspinorb:
+        raise NotImplementedError(
+            "a spin-orbit run is not written for Elk: no such cell has been run "
+            "through Elk. A nonmagnetic one is a spin-polarized ndmag = 3 state in "
+            "Elk, which spin-orbit coupling requires there, against this run's one "
+            "density component, and a magnetic one takes Elk's group with the spin "
+            "rotation det(R) R only (crystal_symmetrizer(spinorb=True)); both are "
+            "outstanding in PLAN.md P181.")
     spinpol = nspin_mag in (2, 4)
     ndmag = {1: 0, 2: 1, 4: 3}[nspin_mag]
     if spinpol != (base.magmt is not None) or (spinpol and base.ndmag != ndmag):
@@ -324,7 +336,8 @@ def all_electron_state(result, calculation, template, core_region="auto"):
         if nspin_mag == 2:  # becsum channels are (up, down)
             d = np.stack([d[0] + d[1], d[0] - d[1]])
         n = min(nlm, lmmaxo)
-        f[:, :n] += _onto(r_paw, d[:, :n], r)
+        if onecentre:
+            f[:, :n] += _onto(r_paw, d[:, :n], r)
         core = _onto(r_paw, np.asarray(pseudo.paw.ae_rho_core, dtype=float)[None], r)[0]
         f[0, 0] += core * np.sqrt(FOURPI)
         if core_region is not None:
@@ -362,11 +375,13 @@ def all_electron_state(result, calculation, template, core_region="auto"):
     return state, params
 
 
-def write_elk_state_from(directory, result, calculation, template, core_region="auto") -> Path:
+def write_elk_state_from(directory, result, calculation, template, core_region="auto",
+                         onecentre: bool = True) -> Path:
     """Write ``directory/STATE.OUT`` from a PAW state, on ``template``'s meshes."""
     from defuqumat.io.elk_write import write_elk_state
 
-    state, _ = all_electron_state(result, calculation, template, core_region=core_region)
+    state, _ = all_electron_state(result, calculation, template, core_region=core_region,
+                                  onecentre=onecentre)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     return write_elk_state(directory / "STATE.OUT", state)

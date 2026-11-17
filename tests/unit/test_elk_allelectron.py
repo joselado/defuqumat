@@ -70,25 +70,45 @@ def written(tmp_path_factory):
 
 
 def test_the_density_holds_every_electron(written):
-    """28 electrons: 8 valence and the 20 of the two frozen cores."""
-    state = written
-    r = np.asarray(state.rsp[0])[:state.nrmt[0]]
-    inside = [np.sqrt(4 * np.pi) * np.trapezoid(state.rhomt[0, :len(r), a] * r ** 2, r)
-              for a in range(2)]
-    np.testing.assert_allclose(inside[0], inside[1], rtol=1e-10)
-    assert 12.0 < inside[0] < 12.6  # Elk's converged Si2 holds 12.30 in each sphere
-    # The interstitial charge, on points outside both spheres.
-    avec = np.asarray(state.geometry.avec)
-    ng = np.array(state.ngridg)
-    frac = np.indices(ng).reshape(3, -1, order="F").T / ng
-    out = np.ones(len(frac), bool)
-    for p in np.asarray(state.geometry.positions):
-        d = frac - p
-        d -= np.round(d)
-        out &= np.linalg.norm(d @ avec, axis=1) > r[-1]
-    omega = abs(np.linalg.det(avec))
-    interstitial = state.rhoir.reshape(-1, order="F")[out].sum() * omega / len(frac)
-    assert abs(sum(inside) + interstitial - 28.0) < 0.2  # grid quadrature of the interstitial
+    """28 electrons by Elk's own integrals (``chgmt`` and ``chgir``): 27.9963.
+
+    8 valence electrons and the 20 of the two frozen cores; the 3.7e-3 missing
+    are the core's tail past ``rmt``, which the interstitial does not carry,
+    and the completeness of the partial waves.
+    """
+    charges = written.muffin_tin_charges()
+    np.testing.assert_allclose(charges[0], charges[1], rtol=1e-10)
+    assert abs(charges.sum() + written.interstitial_charge() - 28.0) < 1e-2
+
+
+def test_the_rebuilt_density_is_elk_own_in_the_valence_shell(written):
+    """Against Elk's converged Si2 on its full meshes, ``l = 0``, 0.6 bohr < r < rmt.
+
+    ``converged.npz`` is that run's profile (397 points, ``xctype 2``, the
+    radius of the template's spheres). The rebuilt state is 0.032 away (int
+    |drho| r^2 dr); with the one-centre term left out it is 0.114, as far as
+    Elk's own initial state (0.115), so the check fails without the PAW
+    reconstruction it is about.
+    """
+    from scipy.interpolate import CubicSpline
+
+    reference = np.load(TEMPLATE / "converged.npz")
+    elk = CubicSpline(reference["r"], reference["f00"])
+
+    def distance(state):
+        r = np.asarray(state.rsp[0])[:state.nrmt[0]]
+        sel = (r > 0.6) & (r <= reference["r"][-1])
+        return np.sqrt(4 * np.pi) * np.trapezoid(
+            np.abs(state.rhomt[0, :len(r), 0][sel] - elk(r[sel])) * r[sel] ** 2, r[sel])
+
+    assert distance(written) < 0.06
+    calc = _calculator()
+    import shutil, tempfile
+    from defuqumat.io.elk_allelectron import write_elk_state_from
+    control = Path(tempfile.mkdtemp())
+    write_elk_state_from(control, calc.get_scf(), calc.calculation, TEMPLATE, onecentre=False)
+    shutil.copy(TEMPLATE / "GEOMETRY.OUT", control)
+    assert distance(ElkState.read(control)) > 0.09
 
 
 def test_the_bond_is_in_the_spheres(written):
@@ -133,3 +153,17 @@ def test_another_lattice_is_refused(tmp_path):
     calc = Calculator.from_text(text, pseudo_dir=PSEUDO, announce=False)
     with pytest.raises(ValueError, match="lattice vectors"):
         calc.write_elk_state(tmp_path, TEMPLATE, calc.get_scf(max_iterations=1))
+
+
+def test_a_spin_orbit_run_is_refused():
+    """No spin-orbit cell has been run through Elk; refused before the result is read."""
+    from types import SimpleNamespace
+
+    calc = _calculator()
+    system = SimpleNamespace(**{k: getattr(calc.calculation.system, k) for k in
+                                ("cell", "structure", "noncolin", "nspin")}, lspinorb=True)
+    calculation = SimpleNamespace(system=system, is_paw=True, pseudos=calc.calculation.pseudos,
+                                  nspin_mag=1)
+    from defuqumat.io.elk_allelectron import all_electron_state
+    with pytest.raises(NotImplementedError, match="spin-orbit"):
+        all_electron_state(None, calculation, TEMPLATE)

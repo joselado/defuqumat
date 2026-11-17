@@ -43,10 +43,18 @@ the potentials Elk wrote for its own density (``PLAN.md`` P181).
 and ``xctype`` -- are read from the ``INFO.OUT`` of the template run
 (:func:`read_elk_parameters`).
 
-**What is refused, each by name:** a gradient-corrected or meta-GGA functional
-(``xcgrad != 0``: the muffin-tin gradients ``ggamt_*`` are not transcribed), a
-finite nucleus, a non-spin-polarized functional on a spin-polarized state
-(Elk refuses it too), and external magnetic fields (``bfieldc``, ``bfcmt``).
+**What is transcribed and what is refused.** The LDA (``xctype`` 2, 3) and
+Elk's own PBE family (20, 21, 22, ``xcgrad = 1``) are, unpolarized, collinear
+and (LDA) noncollinear. Refused by name: a libxc functional (``xcgrad = 2``, the
+``ggamt_2a/2b`` route) or a meta-GGA, a noncollinear state under a GGA
+(``dncgga``), a finite nucleus, and a non-spin-polarized functional on a
+spin-polarized state (Elk refuses it too). External magnetic fields are not
+part of what is returned: ``B_s`` is ``B_xc`` here, and Elk adds ``bfieldc``
+and ``bfcmt`` from its own input in ``genbs`` every loop.
+
+**The group** is Elk's (:func:`elk_space_group`, ``findsymcrys``), not QE's,
+with the spin rotation of each operation chosen as Elk chooses it
+(:func:`crystal_symmetrizer`).
 
 Units: Hartree and bohr inside, as Elk; :func:`kohn_sham_potential` returns
 Hartree. :class:`~defuqumat.io.elk.ElkState` holds Rydberg.

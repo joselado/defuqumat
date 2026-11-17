@@ -145,3 +145,16 @@ def test_the_space_group_is_elk_own(name, nsym):
     assert len(rotations) == int(re.search(r"Number of crystal symmetries\s*:\s*(\d+)", info).group(1)) == nsym
     for rot in rotations:
         np.testing.assert_allclose(rot @ rot.T, np.eye(3), atol=1e-10)
+
+
+def test_a_finite_nucleus_and_a_noncollinear_gga_are_refused():
+    import dataclasses
+
+    state, params = _read("h_sc_spin")
+    with pytest.raises(NotImplementedError, match="finite nucleus"):
+        coulomb_potential(state, dataclasses.replace(params, point_nucleus=False))
+    vector = dataclasses.replace(state, ndmag=3,
+                                 magmt=np.repeat(state.magmt, 3, axis=-1),
+                                 magir=np.repeat(state.magir, 3, axis=-1))
+    with pytest.raises(NotImplementedError, match="dncgga"):
+        exchange_correlation_potential(vector, dataclasses.replace(params, xctype=(20, 0, 0)))

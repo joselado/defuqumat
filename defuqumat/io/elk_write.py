@@ -16,9 +16,11 @@ back is Elk's file byte for byte, the uninitialised padding rows past
 ``gencore`` and the first diagonalisation with ``vsmt``/``vsir`` (and
 ``bsmt``/``bsir``): it starts from the **potential**, and the density in the
 file enters only the mixer. With the default potential mixing it does not
-enter at all. A density written here therefore reaches Elk's Hamiltonian
-only through one hand-off loop that keeps it and builds Elk's own potential
-from it: ``task = 1``, ``mixrho = .true.``, ``mixtype = 0``, ``beta0 = 0``,
+enter at all. So a state written for Elk carries Elk's potential of its
+density: :func:`defuqumat.io.elk_allelectron.write_elk_state_from` computes it
+with the transcribed ``potks`` (:mod:`defuqumat.io.elk_potential`). The other
+route, kept for a density written with any potential, is one hand-off loop
+that keeps the density and builds Elk's own potential from it: ``task = 1``, ``mixrho = .true.``, ``mixtype = 0``, ``beta0 = 0``,
 ``maxscl = 1``, ``nwrite = 1``. ``mixlinear`` then sets the mixed density to
 the old one exactly, ``potks`` runs on it, and the in-loop ``writestate``
 leaves the pair on file (:data:`HANDOFF_INPUT`, ``PLAN.md`` P181). ``nwrite``

@@ -304,6 +304,8 @@ def test_the_kinetic_energy_density_is_up_and_down():
      NotImplementedError, "background"),
     (("<U_projection_type>", "<Hubbard_V>x</Hubbard_V><U_projection_type>"),
      NotImplementedError, "Hubbard_V"),
+    (("<U_projection_type>", "<Hubbard_Um>x</Hubbard_Um><U_projection_type>"),
+     NotImplementedError, "orbital-resolved"),
 ])
 def test_an_occupation_matrix_of_another_functional_is_refused(edit, error, words, tmp_path):
     shutil.copytree(SAVE / "ni-ldau-lsda", tmp_path / "save")
@@ -358,3 +360,11 @@ def test_the_writer_gives_back_pw_x_own_files_from_pw_x_own_state(tmp_path):
         ours, theirs = read_rhog(tmp_path / name), read_rhog(SAVE / "si2-tpss-lsda" / name)
         np.testing.assert_array_equal(ours[2], theirs[2])
         np.testing.assert_allclose(ours[3], theirs[3], atol=1e-14)
+
+
+def test_a_spin_spiral_is_not_written(tmp_path):
+    """``pw.x`` has no spiral, so no run of it could read the density."""
+    data = Path(__file__).resolve().parents[1] / "data" / "qe"
+    calc = Calculator.from_file(data / "h-chain-spiral.in", pseudo_dir=PSEUDO)
+    with pytest.raises(NotImplementedError, match="spiral"):
+        write_qe_save(tmp_path, None, calc.calculation)
