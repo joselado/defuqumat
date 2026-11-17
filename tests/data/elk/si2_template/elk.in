@@ -1,0 +1,45 @@
+! The template of tests/unit/test_elk_allelectron.py: Si2 under the
+! Perdew-Zunger LDA with small meshes (150 radial points, lmaxo 4, gmaxvr 8),
+! written after one loop. Only its meshes, parameters and the density near
+! the nuclei are read by the writer.
+tasks
+  0
+
+sppath
+  './'
+
+avec
+  0.0  5.10  5.10
+  5.10  0.0  5.10
+  5.10  5.10  0.0
+
+atoms
+  1
+  'Si.in'
+  2
+  0.00  0.00  0.00    0.0  0.0  0.0
+  0.25  0.25  0.25    0.0  0.0  0.0
+
+xctype
+  2
+
+ngridk
+  2  2  2
+
+lmaxo
+  4
+
+gmaxvr
+  8.0
+
+rgkmax
+  5.0
+
+tshift
+  .false.
+
+maxscl
+  1
+
+nwrite
+  1

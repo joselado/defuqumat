@@ -978,6 +978,31 @@ class Calculator:
         result = self._ground_state("write_qe_save") if result is None else result
         return write_qe_save(directory, result, self.calculation, gamma_only=gamma_only)
 
+    def write_elk_state(self, directory, template, result: SCFResult | None = None):
+        """Write the converged PAW state as an Elk ``STATE.OUT`` Elk can continue.
+
+        ``template`` is an Elk run directory of the same crystal (its
+        ``STATE.OUT``, ``GEOMETRY.OUT`` and ``INFO.OUT``, any state of that run,
+        for its meshes and parameters); ``directory/STATE.OUT`` is written, and
+        Elk then runs ``task = 1`` there:
+
+        .. code-block:: python
+
+            calc.write_elk_state("elk_run/", template="elk_run/")
+
+        The density is the all-electron one PAW holds, rebuilt from the
+        partial waves on Elk's meshes, and the potential beside it is Elk's own
+        ``potks`` of it, transcribed (LDA and Elk's PBE family, unpolarized and
+        collinear). On Si2 Elk starts 17 times closer under LDA (16 loops
+        against 19); under PBE the first loop is set by the relaxation of the
+        core, which no frozen-core start carries, and the gain is gone.
+        PAW only; see :mod:`defuqumat.io.elk_allelectron`.
+        """
+        from defuqumat.io.elk_allelectron import write_elk_state_from
+
+        result = self._ground_state("write_elk_state") if result is None else result
+        return write_elk_state_from(directory, result, self.calculation, template)
+
     def _ground_state(self, quantity: str) -> SCFResult:
         """The cached ground state, running one first if there is none."""
         if self._scf is None:

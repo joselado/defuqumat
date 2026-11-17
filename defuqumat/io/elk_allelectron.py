@@ -27,12 +27,13 @@ the shape of its core density at the nucleus are taken from it.
 * The muffin-tin part of the grid density is its exact expansion,
   ``4 pi sum_G c_G e^{iG tau} i^l j_l(G r) R_lm(G)``, truncated at Elk's ``lmaxo``
   as Elk truncates its own.
-* **Below** ``r_match`` **the core follows Elk's Dirac shape.** A scalar
+* **Near each nucleus the density is Elk's** (:data:`CORE_REGION`). A scalar
   relativistic dataset's core is flat at the nucleus where Elk's Dirac 1s
   density diverges weakly, ``r^(2(gamma - 1))``, 6 to 9 per cent over the
   innermost points for Si; those few points carried Elk's first residual
-  (0.066 Ha against 0.0050 with the shape matched). Below ``r_match`` the
-  template's ``l = 0`` density is used, scaled to ours at ``r_match``.
+  (0.066 Ha under LDA against 0.0052 with Elk's shape below 1e-4 bohr). A GGA
+  needs more: its potential near the nucleus depends on the cusp itself, so
+  below 0.01 bohr the template's density is taken as it is.
 * The interstitial density is the grid density with Elk's FFT box, its
   coefficients outside Elk's box dropped.
 
@@ -101,7 +102,9 @@ def _match_atoms(calculation, geometry):
 
 
 def _element(name: str) -> str:
-    letters = "".join(ch for ch in str(name) if ch.isalpha())
+    """The element symbol of a species name: ``'Si'``, ``'Si1'``, Elk's ``'O.in'``."""
+    name = str(name).strip().strip("'").split(".")[0]
+    letters = "".join(ch for ch in name if ch.isalpha())
     return letters[:2].capitalize() if len(letters) > 1 and letters[1].islower() else letters[:1].upper()
 
 
@@ -202,12 +205,48 @@ def _onecentre(pseudo, paw_species, becsum):
         return np.where(r > 0.0, d / r ** 2, 0.0)
 
 
-def all_electron_state(result, calculation, template, r_match: float = 1.0e-4):
+#: How the ``l = 0`` density near each nucleus is taken, by functional
+#: (measured on Si2, P181): ``(r_join, scaled)``. Below ``r_join / 10`` the
+#: template's density, joined to ours by ``r_join`` with a ``C^2`` step in
+#: ``log r``; ``scaled`` rescales the template to ours at ``r_join`` (Elk's
+#: Dirac *shape* on our density) instead of taking it as it is.
+CORE_REGION = {
+    # LDA: Elk's shape below 1e-4 bohr, first residual 0.0052 Ha against 0.083
+    # from scratch, 16 loops against 19; the template outright below 0.01
+    # bohr gives 0.0172 and 17.
+    "lda": (1.0e-4, True),
+    # A GGA carries the Laplacian of the density, and its potential near the
+    # nucleus (-704 Ha at 1e-4 bohr on Si) depends on the Dirac cusp itself:
+    # our shape matched below 1e-4 gave 17 Ha against 0.74 from scratch, Elk's
+    # own core region below 0.01 bohr gives 0.73 and 15 loops against 14.
+    "gga": (0.1, False),
+}
+
+
+def _dirac_core(r, ours, template, r_join, scaled, decades: float = 1.0):
+    """Elk's ``l = 0`` density at the nucleus, joined smoothly to ours (:data:`CORE_REGION`).
+
+    A join at one point is continuous but not smooth, and a gradient-corrected
+    potential turns the kink into a spike, so the join is a ``C^2`` step
+    (``6t^5 - 15t^4 + 10t^3``) over one decade of ``r``.
+    """
+    m = int(np.searchsorted(r, r_join))
+    if not 0 < m < len(r) or template[m] == 0.0:
+        return ours
+    scaled = template * (ours[m] / template[m] if scaled else 1.0)
+    t = np.clip((np.log(r) - np.log(r_join) + decades) / decades, 0.0, 1.0)
+    w = 6.0 * t ** 5 - 15.0 * t ** 4 + 10.0 * t ** 3
+    return (1.0 - w) * scaled + w * ours
+
+
+def all_electron_state(result, calculation, template, core_region="auto"):
     """``(state, params)``: ``template`` with our density and Elk's potential of it.
 
     ``template`` is an Elk run directory of the same crystal; ``state`` is an
     :class:`~defuqumat.io.elk.ElkState` ready for
-    :func:`~defuqumat.io.elk_write.write_elk_state`.
+    :func:`~defuqumat.io.elk_write.write_elk_state`. ``core_region`` is
+    ``"auto"`` (by the template's functional, :data:`CORE_REGION`), ``None``
+    (the PAW core everywhere) or ``(r_join, scaled)``.
     """
     from defuqumat.io.elk import ElkState
     from defuqumat.io.elk_potential import (crystal_symmetrizer, kohn_sham_potential,
@@ -216,6 +255,8 @@ def all_electron_state(result, calculation, template, r_match: float = 1.0e-4):
     template = Path(template)
     base = ElkState.read(template)
     params = read_elk_parameters(template)
+    if core_region == "auto":
+        core_region = CORE_REGION["gga" if params.xctype[0] >= 20 else "lda"]
     if not calculation.is_paw or any(getattr(p, "paw", None) is None for p in calculation.pseudos):
         raise NotImplementedError(
             "an Elk state is rebuilt from the all-electron partial waves of a PAW "
@@ -283,10 +324,8 @@ def all_electron_state(result, calculation, template, r_match: float = 1.0e-4):
         f[:, :n] += _onto(r_paw, d[:, :n], r)
         core = _onto(r_paw, np.asarray(pseudo.paw.ae_rho_core, dtype=float)[None], r)[0]
         f[0, 0] += core * np.sqrt(FOURPI)
-        if r_match > 0.0:
-            m = int(np.searchsorted(r, r_match))
-            if 0 < m < nr and base.rhomt[0, m, ias] != 0.0:
-                f[0, 0, :m] = base.rhomt[0, :m, ias] * f[0, 0, m] / base.rhomt[0, m, ias]
+        if core_region is not None:
+            f[0, 0] = _dirac_core(r, f[0, 0], np.asarray(base.rhomt[0, :nr, ias]), *core_region)
         f[:, (params.lmaxi + 1) ** 2:, :nri] = 0.0
         rhomt[:, :nr, ias] = f[0]
         if spinpol:
@@ -317,11 +356,11 @@ def all_electron_state(result, calculation, template, r_match: float = 1.0e-4):
     return state, params
 
 
-def write_elk_state_from(directory, result, calculation, template, r_match: float = 1.0e-4) -> Path:
+def write_elk_state_from(directory, result, calculation, template, core_region="auto") -> Path:
     """Write ``directory/STATE.OUT`` from a PAW state, on ``template``'s meshes."""
     from defuqumat.io.elk_write import write_elk_state
 
-    state, _ = all_electron_state(result, calculation, template, r_match=r_match)
+    state, _ = all_electron_state(result, calculation, template, core_region=core_region)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     return write_elk_state(directory / "STATE.OUT", state)

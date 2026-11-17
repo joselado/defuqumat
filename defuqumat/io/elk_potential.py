@@ -281,6 +281,7 @@ class _Setup:
     gclg: np.ndarray
     lnpsd: int
     ngvc_mask: np.ndarray         # (n1, n2, n3) bool: |G| within 2 gkmax
+    avec: np.ndarray = None
 
 
 def _setup(state, params: ElkParameters) -> _Setup:
@@ -324,7 +325,7 @@ def _setup(state, params: ElkParameters) -> _Setup:
         miller=mill[keep], gc=gc[keep], vgc=vgc[keep],
         ylmg=_ylm_4pil(params.lmaxo, vgc[keep]),
         sfacg=np.exp(1j * vgc[keep] @ positions.T),
-        jl=jl, gclg=gclg, lnpsd=lnpsd, ngvc_mask=gmask,
+        jl=jl, gclg=gclg, lnpsd=lnpsd, ngvc_mask=gmask, avec=avec,
     )
 
 
@@ -599,28 +600,89 @@ def _xc_points(params, rho, mag):
     return vxc, mag * t4[:, None]
 
 
+def _gga_points(params, rho_points, mag_points, gradients):
+    """PBE pointwise from densities and the gradient tuples of ``ggamt_1``/``ggair_1``."""
+    kappa, mu, beta = _pbe_parameters(params.xctype[0])
+    channels, total = gradients
+    if mag_points is None:
+        grho, g2rho, g3rho = channels[0]
+        half = 0.5 * rho_points
+        vx, _, vc, _ = _xc_pbe(kappa, mu, beta, half, half, grho, 0.5 * grho, 0.5 * grho,
+                               0.5 * g2rho, 0.5 * g2rho, g3rho, 0.25 * g3rho, 0.25 * g3rho)
+        return vx + vc, None
+    (gup, g2up, g3up), (gdn, g2dn, g3dn) = channels
+    grho, g3rho = total
+    rhoup, rhodn = 0.5 * (rho_points + mag_points), 0.5 * (rho_points - mag_points)
+    vxup, vxdn, vcup, vcdn = _xc_pbe(kappa, mu, beta, rhoup, rhodn, grho, gup, gdn,
+                                     g2up, g2dn, g3rho, g3up, g3dn)
+    a, b = vxup + vcup, vxdn + vcdn
+    return 0.5 * (a + b), 0.5 * (a - b)
+
+
 def exchange_correlation_potential(state, params: ElkParameters, symmetry=None,
                                    setup: _Setup | None = None):
     """``potxc`` + ``trimrfg``: ``(vxcmt, vxcir, bxcmt, bxcir)`` in Hartree.
 
     ``symmetry`` is ``symrfmt``'s group as a callable on the muffin-tin
     functions (:func:`symmetrizer`), or ``None`` for Elk's ``symtype = 0``.
+    The LDA (``xctype`` 2, 3) and Elk's own PBE family (20, 21, 22, through
+    ``ggamt_1``/``ggair_1``) are transcribed, the latter unpolarized and
+    collinear.
     """
     setup = _setup(state, params) if setup is None else setup
-    if any(x != 0 for x in params.xctype[1:]) or params.xctype[0] >= 20 or params.xctype[0] < 0:
+    xctype = params.xctype[0]
+    gga = xctype in (20, 21, 22)
+    if any(x != 0 for x in params.xctype[1:]) or not (gga or xctype in (2, 3)):
         raise NotImplementedError(
-            f"xctype {params.xctype}: a gradient-corrected, meta-GGA or OEP functional "
-            "needs the muffin-tin gradients (ggamt_*), which are not transcribed")
+            f"xctype {params.xctype}: only the LDA (2, 3) and Elk's own PBE family "
+            "(20, 21, 22) are transcribed; a libxc functional (xcgrad = 2, the ggamt_2a/2b "
+            "route) or a meta-GGA is not")
     lmmaxi, lmmaxo = params.lmmaxi, params.lmmaxo
     rbi, rfi = _sht_matrices(params.lmaxi)
     rbo, rfo = _sht_matrices(params.lmaxo)
     spinpol = state.magmt is not None
     ndmag = state.magmt.shape[-1] if spinpol else 0
+    if gga and ndmag == 3:
+        raise NotImplementedError("a noncollinear state under a GGA (dncgga) is not transcribed")
     vxcmt = np.zeros(np.shape(state.rhomt))
     bxcmt = np.zeros(np.shape(state.magmt)) if spinpol else None
     for ias in range(setup.natmtot):
         s = setup.species_of[ias]
         nr, nri = len(setup.r[s]), params.nrmti[s]
+        if gga:
+            rho_lm = np.asarray(state.rhomt[:, :nr, ias], dtype=float).T
+            points = np.zeros_like(rho_lm)
+            points[:nri, :lmmaxi] = rho_lm[:nri, :lmmaxi] @ rbi.T
+            points[nri:] = rho_lm[nri:] @ rbo.T
+            grad = _Gradients(setup.r[s], nri, params.lmaxi, params.lmaxo)
+            if spinpol:
+                m_lm = np.asarray(state.magmt[:, :nr, ias, 0], dtype=float).T
+                mpts = np.zeros_like(m_lm)
+                mpts[:nri, :lmmaxi] = m_lm[:nri, :lmmaxi] @ rbi.T
+                mpts[nri:] = m_lm[nri:] @ rbo.T
+                up, dn = 0.5 * (points + mpts), 0.5 * (points - mpts)
+                to_lm = []
+                for f in (up, dn):
+                    g = np.zeros_like(f)
+                    g[:nri, :lmmaxi] = f[:nri, :lmmaxi] @ rfi.T
+                    g[nri:] = f[nri:] @ rfo.T
+                    to_lm.append(g)
+                gradients = _ggamt_1(grad, (rbi, rbo), (rfi, rfo), nri, lmmaxi, to_lm)
+                v, b = _gga_points(params, points, mpts, gradients)
+            else:
+                gradients = _ggamt_1(grad, (rbi, rbo), (rfi, rfo), nri, lmmaxi, [rho_lm])
+                v, b = _gga_points(params, points, None, gradients)
+            for field, target in ((v, vxcmt), (b, bxcmt)):
+                if field is None:
+                    continue
+                out = np.zeros_like(field)
+                out[:nri, :lmmaxi] = field[:nri, :lmmaxi] @ rfi.T
+                out[nri:] = field[nri:] @ rfo.T
+                if target is vxcmt:
+                    vxcmt[:, :nr, ias] = out.T
+                else:
+                    bxcmt[:, :nr, ias, 0] = out.T
+            continue
         for rows, nlm, rb, rf in ((slice(0, nri), lmmaxi, rbi, rfi),
                                   (slice(nri, nr), lmmaxo, rbo, rfo)):
             rho = rb @ state.rhomt[:nlm, rows, ias]           # (points, radii)
@@ -641,16 +703,24 @@ def exchange_correlation_potential(state, params: ElkParameters, symmetry=None,
         if spinpol:
             bxcmt = symmetry(bxcmt, magnetic=True)
     ng = setup.ngridg
-    rhoir = np.asarray(state.rhoir, dtype=float).reshape(-1)
+    rhoir = np.asarray(state.rhoir, dtype=float).reshape(ng)
     magir = None
     if spinpol:
-        magir = np.asarray(state.magir, dtype=float).reshape(-1, ndmag)
-        magir = magir[:, 0] if ndmag == 1 else magir
-    v, b = _xc_points(params, rhoir, magir)
-    vxcir = _trim(v.reshape(ng), setup)
+        magir = np.asarray(state.magir, dtype=float).reshape(ng + (ndmag,))
+        magir = magir[..., 0] if ndmag == 1 else magir.reshape(-1, 3)
+    if gga:
+        if spinpol:
+            gradients = _ggair_1(setup, [0.5 * (rhoir + magir), 0.5 * (rhoir - magir)])
+            v, b = _gga_points(params, rhoir, magir, gradients)
+        else:
+            v, b = _gga_points(params, rhoir, None, _ggair_1(setup, [rhoir]))
+    else:
+        v, b = _xc_points(params, rhoir.reshape(-1),
+                          None if magir is None else (magir.reshape(-1) if ndmag == 1 else magir))
+    vxcir = _trim(np.reshape(v, ng), setup)
     bxcir = None
     if spinpol:
-        bxcir = (b.reshape(ng + (ndmag,)) if ndmag == 3 else b.reshape(ng + (1,)))
+        bxcir = np.reshape(b, ng + (ndmag,)) if ndmag == 3 else np.reshape(b, ng + (1,))
     return vxcmt, vxcir, bxcmt, bxcir
 
 
@@ -660,6 +730,368 @@ def _trim(field, setup):
     z[~setup.ngvc_mask] = 0.0
     return np.real(np.fft.ifftn(z))
 
+
+
+# ---------------------------------------------------------------- gradients (PBE)
+
+def _spline4(x, f):
+    """``spline(4, x, f, cf)``: ``(3, 4)``, the first derivative, half the second
+    and a sixth of the third at the four points."""
+    x0 = x[0]
+    x1, x2, x3 = x[1] - x0, x[2] - x0, x[3] - x0
+    t4, t5, t6 = x1 - x2, x1 - x3, x2 - x3
+    y0 = f[0]
+    y1, y2, y3 = f[1] - y0, f[2] - y0, f[3] - y0
+    t1 = x1 * x2 * y3
+    t2 = x2 * x3 * y1
+    t3 = x1 * x3
+    t0 = 1.0 / (x2 * t3 * t4 * t5 * t6)
+    t3 = t3 * y2
+    t7 = t0 * (t1 * t4 + t2 * t6 - t3 * t5)
+    t4, t5, t6 = x1 ** 2, x2 ** 2, x3 ** 2
+    y1 = t3 * t6 - t1 * t5
+    y3 = t2 * t5 - t3 * t4
+    y2 = t1 * t4 - t2 * t6
+    t1 = t0 * (x1 * y1 + x2 * y2 + x3 * y3)
+    t2 = -t0 * (y1 + y2 + y3)
+    cf = np.zeros((3, 4))
+    cf[:, 0] = t1, t2, t7
+    cf[:, 1] = t1 + 2.0 * t2 * x1 + 3.0 * t7 * t4, t2 + 3.0 * t7 * x1, t7
+    cf[:, 2] = t1 + 2.0 * t2 * x2 + 3.0 * t7 * t5, t2 + 3.0 * t7 * x2, t7
+    cf[:, 3] = t1 + 2.0 * t2 * x3 + 3.0 * t7 * t6, t2 + 3.0 * t7 * x3, t7
+    return cf
+
+
+def _wspline(r):
+    """``wspline``: ``(n, 4, 3)``, ``cf[k, i] = sum_j wc[i, j, k] f[window_i, j]``."""
+    r = np.asarray(r, dtype=float)
+    n = len(r)
+    wc = np.zeros((n, 4, 3))
+    unit = np.eye(4)
+    for j in range(4):
+        cf = _spline4(r[0:4], unit[j])
+        wc[0, j], wc[1, j] = cf[:, 0], cf[:, 1]
+    for i in range(2, n - 3):  # Fortran i = 3 .. n-3, window x(i-1 .. i+2)
+        for j in range(4):
+            wc[i, j] = _spline4(r[i - 1:i + 3], unit[j])[:, 1]
+    for j in range(4):
+        cf = _spline4(r[n - 4:n], unit[j])
+        wc[n - 3, j], wc[n - 2, j], wc[n - 1, j] = cf[:, 1], cf[:, 2], cf[:, 3]
+    return wc
+
+
+def _windows(f):
+    """The four-point window of each point (``splined``/``splinew``'s)."""
+    n = len(f)
+    idx = np.empty((n, 4), dtype=int)
+    idx[0] = idx[1] = np.arange(4)
+    for i in range(2, n - 2):
+        idx[i] = np.arange(i - 1, i + 3)
+    idx[n - 2] = idx[n - 1] = np.arange(n - 4, n)
+    return f[idx]
+
+
+def _splined(wc, f):
+    """``splined``: the first derivative, ``(n, ...)``."""
+    return np.einsum("ij,ij...->i...", wc[:, :, 0], _windows(f))
+
+
+def _splinew(wc, f):
+    """``splinew``: ``(3, n, ...)`` spline coefficients."""
+    return np.einsum("ijk,ij...->ki...", wc, _windows(f))
+
+
+def _clebgor(j1, j2, j3, m1, m2, m3):
+    """``<j1 m1 j2 m2 | j3 m3>`` by Racah's formula (Elk's ``clebgor``)."""
+    from math import factorial, sqrt
+
+    if (m1 + m2 != m3 or j3 < abs(j1 - j2) or j3 > j1 + j2 or abs(m1) > j1
+            or abs(m2) > j2 or abs(m3) > j3):
+        return 0.0
+    if j1 == j2 == j3 == 0:
+        return 1.0
+    pre = sqrt((2 * j3 + 1) * factorial(j3 + j1 - j2) * factorial(j3 - j1 + j2)
+               * factorial(j1 + j2 - j3) / factorial(j1 + j2 + j3 + 1))
+    pre *= sqrt(factorial(j3 + m3) * factorial(j3 - m3) * factorial(j1 - m1)
+                * factorial(j1 + m1) * factorial(j2 - m2) * factorial(j2 + m2))
+    total = 0.0
+    for k in range(0, j1 + j2 - j3 + 1):
+        a = (j1 + j2 - j3 - k, j1 - m1 - k, j2 + m2 - k, j3 - j2 + m1 + k, j3 - j1 - m2 + k)
+        if min(a) < 0:
+            continue
+        denominator = factorial(k)
+        for x in a:
+            denominator *= factorial(x)
+        total += (-1) ** k / denominator
+    return pre * total
+
+
+class _Gradients:
+    """``gradrfmt`` and ``grad2rfmt`` on one species' mesh, dense ``(nr, lmmax)``."""
+
+    def __init__(self, r, nri, lmaxi, lmaxo):
+        self.r, self.nri = np.asarray(r, dtype=float), nri
+        self.ri = 1.0 / self.r
+        self.wc = _wspline(self.r)
+        self.rtoz = _rtoz_matrix(lmaxo)
+        self.ztor = np.linalg.inv(self.rtoz)
+        self.lmmaxi, self.lmmaxo = (lmaxi + 1) ** 2, (lmaxo + 1) ** 2
+        # gradzfmt's coupling, per region: target (lm1, j) += t3 (d_r f_lm + c f_lm / r)
+        self.terms = []
+        for lmax in (lmaxi, lmaxo):
+            terms = []
+            for l in range(lmax + 1):
+                t1 = -np.sqrt((l + 1) / (2 * l + 1))
+                t2 = np.sqrt(l / (2 * l + 1)) if l > 0 else 0.0
+                for m in range(-l, l + 1):
+                    lm = l * l + l + m
+                    for mu, j in ((-1, 0), (0, 2), (1, 1)):
+                        if l + 1 <= lmax:
+                            lm1 = (l + 1) * (l + 2) + (m - mu)
+                            terms.append((lm, lm1, j, t1 * _clebgor(l + 1, 1, l, m - mu, mu, m),
+                                          -float(l)))
+                        if abs(m - mu) <= l - 1:
+                            lm1 = (l - 1) * l + (m - mu)
+                            terms.append((lm, lm1, j, t2 * _clebgor(l - 1, 1, l, m - mu, mu, m),
+                                          float(l + 1)))
+            self.terms.append(terms)
+
+    def _radial_derivative(self, z):
+        nri, out = self.nri, np.zeros_like(z)
+        out[:, :self.lmmaxi] = _splined(self.wc, z[:, :self.lmmaxi])
+        out[nri:, self.lmmaxi:] = _splined(self.wc[nri:], z[nri:, self.lmmaxi:])
+        return out
+
+    def gradient(self, f):
+        """``gradrfmt``: ``(3, nr, lmmaxo)``, the cartesian gradient of real ``f``."""
+        nri = self.nri
+        z = f @ self.rtoz.T
+        dz = self._radial_derivative(z)
+        g = np.zeros((3,) + z.shape, dtype=complex)
+        for terms, rows in ((self.terms[0], slice(0, nri)), (self.terms[1], slice(nri, None))):
+            ri = self.ri[rows]
+            for lm, lm1, j, t3, c in terms:
+                g[j, rows, lm1] += t3 * (dz[rows, lm] + c * ri * z[rows, lm])
+        g1, g2 = g[0].copy(), g[1].copy()
+        c1 = 0.7071067811865475244
+        g[0] = c1 * (g1 - g2)
+        z1 = c1 * (g1 + g2)
+        g[1] = z1.imag - 1j * z1.real
+        return np.real(np.einsum("xrb,ab->xra", g, self.ztor))
+
+    def laplacian(self, f):
+        """``grad2rfmt``: ``(nr, lmmaxo)``."""
+        nri, out = self.nri, np.zeros_like(f)
+        lof = _l_of(self.lmmaxo).astype(float)
+        li = lof[None, :self.lmmaxi]
+        cf = _splinew(self.wc, f[:, :self.lmmaxi])
+        out[:, :self.lmmaxi] = (2.0 * (self.ri[:, None] * cf[0] + cf[1])
+                                - li * (li + 1) * self.ri[:, None] ** 2 * f[:, :self.lmmaxi])
+        lo = lof[None, self.lmmaxi:]
+        cf = _splinew(self.wc[nri:], f[nri:, self.lmmaxi:])
+        out[nri:, self.lmmaxi:] = (2.0 * (self.ri[nri:, None] * cf[0] + cf[1])
+                                   - lo * (lo + 1) * self.ri[nri:, None] ** 2 * f[nri:, self.lmmaxi:])
+        return out
+
+
+def _x_pbe(kappa, mu, rho, s, u, v):
+    """``x_pbe``: ``(ex, vx)``."""
+    ax = -0.7385587663820224058
+    ul = mu / kappa
+    exu = ax * rho ** (1.0 / 3.0)
+    s2 = s ** 2
+    p0 = 1.0 + ul * s2
+    fxpbe = 1.0 + kappa - kappa / p0
+    fs = 2.0 * kappa * ul / (p0 * p0)
+    fss = -4.0 * ul * s * fs / p0
+    return exu * fxpbe, exu * ((4.0 / 3.0) * fxpbe - (u - (4.0 / 3.0) * s2 * s) * fss - v * fs)
+
+
+def _gcor(a, a1, b1, b2, b3, b4, rtrs):
+    """``c_pbe_gcor``."""
+    q0 = -2.0 * a * (1.0 + a1 * rtrs * rtrs)
+    q1 = 2.0 * a * rtrs * (b1 + rtrs * (b2 + rtrs * (b3 + b4 * rtrs)))
+    q2 = np.log(1.0 + 1.0 / q1)
+    q3 = a * (b1 / rtrs + 2.0 * b2 + rtrs * (3.0 * b3 + 4.0 * b4 * rtrs))
+    return q0 * q2, -2.0 * a * a1 * q2 - q0 * q3 / (q1 * (1.0 + q1))
+
+
+def _c_pbe(beta, rs, z, t, uu, vv, ww):
+    """``c_pbe``: ``(vcup, vcdn)``."""
+    thrd = 1.0 / 3.0
+    gam = 0.5198420997897463295
+    fzz = 8.0 / (9.0 * gam)
+    gamma = 0.0310906908696548950
+    eta = 1.0e-12
+    delt = beta / gamma
+    rtrs = np.sqrt(rs)
+    eu, eurs = _gcor(0.0310907, 0.21370, 7.5957, 3.5876, 1.6382, 0.49294, rtrs)
+    ep, eprs = _gcor(0.01554535, 0.20548, 14.1189, 6.1977, 3.3662, 0.62517, rtrs)
+    alfm, alfrsm = _gcor(0.0168869, 0.11125, 10.357, 3.6231, 0.88026, 0.49671, rtrs)
+    z4 = z ** 4
+    f = ((1.0 + z) ** (4 * thrd) + (1.0 - z) ** (4 * thrd) - 2.0) / gam
+    ec = eu * (1.0 - f * z4) + ep * f * z4 - alfm * f * (1.0 - z4) / fzz
+    ecrs = eurs * (1.0 - f * z4) + eprs * f * z4 - alfrsm * f * (1.0 - z4) / fzz
+    fz = (4 * thrd) * ((1.0 + z) ** thrd - (1.0 - z) ** thrd) / gam
+    ecz = (4.0 * z ** 3 * f * (ep - eu + alfm / fzz)
+           + fz * (z4 * ep - z4 * eu - (1.0 - z4) * alfm / fzz))
+    comm = ec - rs * ecrs / 3.0 - z * ecz
+    vcup = comm + ecz
+    vcdn = comm - ecz
+    g = ((1.0 + z) ** (2 * thrd) + (1.0 - z) ** (2 * thrd)) / 2.0
+    g3 = g ** 3
+    pon = -ec / (g3 * gamma)
+    b = delt / (np.exp(pon) - 1.0)
+    b2 = b * b
+    t2 = t * t
+    t4 = t2 * t2
+    q4 = 1.0 + b * t2
+    q5 = 1.0 + b * t2 + b2 * t4
+    h = g3 * (beta / delt) * np.log(1.0 + delt * q4 * t2 / q5)
+    g4 = g3 * g
+    t6 = t4 * t2
+    rsthrd = rs / 3.0
+    gz = (((1.0 + z) ** 2 + eta) ** (-thrd / 2.0) - ((1.0 - z) ** 2 + eta) ** (-thrd / 2.0)) / 3.0
+    fac = delt / b + 1.0
+    bg = -3.0 * b2 * ec * fac / (beta * g4)
+    bec = b2 * fac / (beta * g3)
+    q8 = q5 * q5 + delt * q4 * q5 * t2
+    q9 = 1.0 + 2.0 * b * t2
+    hb = -beta * g3 * b * t6 * (2.0 + b * t2) / q8
+    hrs = -rsthrd * hb * bec * ecrs
+    fact0 = 2.0 * delt - 6.0 * b
+    fact1 = q5 * q9 + q4 * q9 * q9
+    hbt = 2.0 * beta * g3 * t4 * ((q4 * q5 * fact0 - delt * fact1) / q8) / q8
+    hrst = rsthrd * t2 * hbt * bec * ecrs
+    hz = 3.0 * gz * h / g + hb * (bg * gz + bec * ecz)
+    ht = 2.0 * beta * g3 * q9 / q8
+    hzt = 3.0 * gz * ht / g + hbt * (bg * gz + bec * ecz)
+    fact2 = q4 * q5 + b * t2 * (q4 * q9 + q5)
+    fact3 = 2.0 * b * q5 * q9 + delt * fact2
+    htt = 4.0 * beta * g3 * t * (2.0 * b / q8 - (q9 * fact3 / q8) / q8)
+    comm = h + hrs + hrst + t2 * ht / 6.0 + 7.0 * t2 * t * htt / 6.0
+    pref = hz - gz * t2 * ht / g
+    fact5 = gz * (2.0 * ht + t * htt) / g
+    comm = comm - pref * z - uu * htt - vv * ht - ww * (hzt - fact5)
+    return vcup + comm + pref, vcdn + comm - pref
+
+
+def _xc_pbe(kappa, mu, beta, rhoup, rhodn, grho, gup, gdn, g2up, g2dn, g3rho, g3up, g3dn):
+    """``xc_pbe``: ``(vxup, vxdn, vcup, vcdn)`` in Hartree, pointwise."""
+    rup, rdn = np.asarray(rhoup, dtype=float), np.asarray(rhodn, dtype=float)
+    r = rup + rdn
+    ok = (rup >= 0.0) & (rdn >= 0.0) & (r > 1.0e-12)
+    one = np.ones_like(r)
+    rup_s, rdn_s, r_s = (np.where(ok, x, one) for x in (rup, rdn, r))
+    vx = []
+    for rs_, gs, g2s, g3s in ((rup_s, gup, g2up, g3up), (rdn_s, gdn, g2dn, g3dn)):
+        r2 = 2.0 * rs_
+        kf = (r2 * 3.0 * np.pi ** 2) ** (1.0 / 3.0)
+        s = gs / (2.0 * kf * rs_)
+        u = g3s / (rs_ ** 2 * (2.0 * kf) ** 3)
+        v = g2s / (rs_ * (2.0 * kf) ** 2)
+        vx.append(_x_pbe(kappa, mu, r2, s, u, v)[1])
+    rs = (3.0 / (4.0 * np.pi * r_s)) ** (1.0 / 3.0)
+    z = (rup_s - rdn_s) / r_s
+    g = ((1.0 + z) ** (2.0 / 3.0) + (1.0 - z) ** (2.0 / 3.0)) / 2.0
+    kf = (r_s * 3.0 * np.pi ** 2) ** (1.0 / 3.0)
+    ks = np.sqrt(4.0 * kf / np.pi)
+    ksg = 2.0 * ks * g
+    t = grho / (ksg * r_s)
+    uu = g3rho / (r_s ** 2 * ksg ** 3)
+    vv = (g2up + g2dn) / (r_s * ksg ** 2)
+    ww = (gup ** 2 - gdn ** 2 - z * grho ** 2) / (r_s * r_s * ksg ** 2)
+    vcup, vcdn = _c_pbe(beta, rs, z, t, uu, vv, ww)
+    zero = np.zeros_like(r)
+    return tuple(np.where(ok, x, zero) for x in (vx[0], vx[1], vcup, vcdn))
+
+
+def _pbe_parameters(xctype):
+    """``(kappa, mu, beta)`` of PBE (20), revPBE of Zhang and Yang (21), PBEsol (22)."""
+    kappa, mu, beta = 0.804, 0.2195149727645171, 0.06672455060314922
+    if xctype == 21:
+        kappa = 1.245
+    if xctype == 22:
+        mu, beta = 10.0 / 81.0, 0.046
+    return kappa, mu, beta
+
+
+def _rfft_ops(setup):
+    """Elk's ``rzfftifc`` pair (the fastest axis halved), its G and the ``ngvc`` cut."""
+    ng = np.array(setup.ngridg)
+    bvec = 2.0 * np.pi * np.linalg.inv(np.asarray(setup.avec)).T
+    k = [np.arange(ng[0] // 2 + 1), np.arange(ng[1]), np.arange(ng[2])]
+    m = [np.where(kk > n // 2, kk - n, kk) for kk, n in zip(k, ng)]
+    mill = np.stack(np.meshgrid(*m, indexing="ij"), -1)
+    G = mill @ bvec
+    cut = np.linalg.norm(G, axis=-1) <= 2.0 * setup.params.gkmax + EPSLAT
+
+    def forward(f):
+        return np.fft.rfftn(f, axes=(2, 1, 0)) / np.prod(ng)
+
+    def backward(z):
+        return np.fft.irfftn(z, s=(ng[2], ng[1], ng[0]), axes=(2, 1, 0)) * np.prod(ng)
+
+    return forward, backward, G, cut
+
+
+def _ggair_1(setup, rhos):
+    """``ggair_1``/``ggair_sp_1``: per channel ``(|grad|, lap, g3)``, and the total's.
+
+    The gradients of the density are cut at ``|G| <= 2 gkmax`` (``ngvc``); the
+    gradient of ``|grad rho|`` in ``g3`` is taken with every G, as Elk does.
+    """
+    forward, backward, G, cut = _rfft_ops(setup)
+    channels, vectors = [], []
+    for rho in rhos:
+        z = forward(rho)
+        gv = np.stack([backward(np.where(cut, 1j * G[..., i] * z, 0.0)) for i in range(3)])
+        gn = np.sqrt(np.sum(gv ** 2, axis=0))
+        lap = backward(np.where(cut, -np.sum(G ** 2, axis=-1) * z, 0.0))
+        zg = forward(gn)
+        g3 = sum(gv[i] * backward(1j * G[..., i] * zg) for i in range(3))
+        channels.append((gn, lap, g3))
+        vectors.append(gv)
+    if len(rhos) == 1:
+        return channels, None
+    gv = vectors[0] + vectors[1]
+    gn = np.sqrt(np.sum(gv ** 2, axis=0))
+    zg = forward(gn)
+    return channels, (gn, sum(gv[i] * backward(1j * G[..., i] * zg) for i in range(3)))
+
+
+def _ggamt_1(grad, rb, rf, nri, lmmaxi, rhos_lm):
+    """``ggamt_1``/``ggamt_sp_1`` on one sphere, on the cover points.
+
+    ``rhos_lm`` are channels in harmonics, dense ``(nr, lmmaxo)``; the results
+    are on the cover points, dense, the inner region's past ``lmmaxi`` zero.
+    """
+    def to_points(f):
+        out = np.zeros_like(f)
+        out[:nri, :lmmaxi] = f[:nri, :lmmaxi] @ rb[0].T
+        out[nri:] = f[nri:] @ rb[1].T
+        return out
+
+    def to_lm(f):
+        out = np.zeros_like(f)
+        out[:nri, :lmmaxi] = f[:nri, :lmmaxi] @ rf[0].T
+        out[nri:] = f[nri:] @ rf[1].T
+        return out
+
+    channels, vectors = [], []
+    for f in rhos_lm:
+        gv = np.stack([to_points(x) for x in grad.gradient(f)])
+        gn = np.sqrt(np.sum(gv ** 2, axis=0))
+        lap = to_points(grad.laplacian(f))
+        gg = np.stack([to_points(x) for x in grad.gradient(to_lm(gn))])
+        channels.append((gn, lap, np.sum(gv * gg, axis=0)))
+        vectors.append(gv)
+    if len(rhos_lm) == 1:
+        return channels, None
+    gv = vectors[0] + vectors[1]
+    gn = np.sqrt(np.sum(gv ** 2, axis=0))
+    gg = np.stack([to_points(x) for x in grad.gradient(to_lm(gn))])
+    return channels, (gn, np.sum(gv * gg, axis=0))
 
 # ---------------------------------------------------------------- symmetry
 

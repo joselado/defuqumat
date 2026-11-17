@@ -6,8 +6,7 @@ built from it. ``vclmt``/``vclir`` and ``vxcmt``/``vxcir`` (and ``bxcmt``/
 must give them back to round-off; ``vsmt`` and ``bsmt`` are written after
 Elk's potential mixing and agree only to the run's convergence. The fixtures
 cover one atom unpolarized (``h_sc``, PW92), spin-polarized (``h_sc_spin``,
-PW92 LSDA), and two species with different radial meshes (``sic_zb``, PBE,
-whose Coulomb potential is checked and whose exchange-correlation is refused).
+PW92 LSDA), and two species with different radial meshes (``sic_zb``, Elk's own PBE).
 """
 
 from __future__ import annotations
@@ -101,7 +100,28 @@ def test_b_s_is_on_the_coarse_mesh_and_the_cover_points():
     assert np.abs(state.bsmt[:, :nrc]).max() / 2.0 > 0.05
 
 
-def test_a_gradient_corrected_functional_is_refused():
+def test_the_pbe_potential_is_elk_own():
+    """Elk's own PBE (``xcgrad = 1``), two species, through ``ggamt_1``/``ggair_1``.
+
+    The interstitial to round-off; the muffin tins to 1e-11 in every ``l > 0``
+    channel and 2.6e-10 relative in ``l = 0``, the largest at the nuclear
+    radius, where the derivative of ``|grad rho|`` meets the cusp.
+    """
     state, params = _read("sic_zb")
-    with pytest.raises(NotImplementedError, match="ggamt"):
-        exchange_correlation_potential(state, params, None)
+    symmetry, nsym = crystal_symmetrizer(state, params.lmaxo)
+    assert nsym == 24
+    vxcmt, vxcir, _, _ = exchange_correlation_potential(state, params, symmetry)
+    np.testing.assert_allclose(vxcir, state.vxcir / 2.0, atol=1e-14)
+    for ias in range(2):
+        nr = state.nrmt[ias]
+        ref = state.vxcmt[:, :nr, ias] / 2.0
+        assert np.max(np.abs(vxcmt[0, :nr, ias] - ref[0]) / np.abs(ref[0])) < 1e-9
+        assert np.abs(vxcmt[1:, :nr, ias] - ref[1:]).max() < 1e-10
+
+
+def test_a_libxc_functional_is_refused():
+    import dataclasses
+
+    state, params = _read("sic_zb")
+    with pytest.raises(NotImplementedError, match="libxc"):
+        exchange_correlation_potential(state, dataclasses.replace(params, xctype=(100, 101, 130)))
