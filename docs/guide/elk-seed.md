@@ -1,7 +1,9 @@
-# Starting from an all-electron ground state
+# Reading and writing an all-electron ground state
 
 In this page we compute a ground state that starts from the converged density of
 Elk, an all-electron LAPW code, and we compare the two densities point by point.
+At the end we go the other way, and we write our own PAW ground state as a state
+that Elk continues from.
 We take simple cubic hydrogen at $a = 3.0$ bohr, which has no core electrons, so the all-electron density and the valence density count the same
 single electron.
 
@@ -137,6 +139,97 @@ the lines between the points are only a guide to the eye.
     --8<-- "elk-seed_hydrogen/plot.py"
     ```
 
+## Writing our state for Elk
+
+We now go the other way. Elk starts a calculation with `task = 1` from its file
+`STATE.OUT`, and it starts from the potential in that file, not from the density.
+So a file for Elk needs the all-electron density and the all-electron Kohn-Sham
+potential, and a pseudopotential code has neither. With PAW we can still build
+both. Inside each PAW sphere the all-electron density is
+
+$$n(\mathbf r) = \tilde n(\mathbf r) + \sum_{ij} \rho_{ij}
+\left(\phi_i\phi_j - \tilde\phi_i\tilde\phi_j - \hat Q_{ij}\right) + n_{\rm core}(\mathbf r),$$
+
+where $\tilde n$ is the density on our grid, $\rho_{ij}$ are the PAW occupations,
+$\phi_i$ and $\tilde\phi_i$ are the all-electron and pseudo partial waves of the
+dataset, $\hat Q_{ij}$ is the compensation charge, and $n_{\rm core}$ is the frozen
+all-electron core of the dataset. The code evaluates this density on the meshes of
+Elk, which are a logarithmic radial mesh with real spherical harmonics in each
+muffin tin and a grid outside. Then it computes the potential of Elk from it with
+the same steps as Elk: the Coulomb potential by the method of Weinert, the
+exchange-correlation potential on the angular points of Elk, and the average over
+the symmetry group of the crystal. The meshes and the parameters come from a
+template, which is any `STATE.OUT` of an Elk run of the same crystal, with its
+`INFO.OUT` and `GEOMETRY.OUT`.
+
+We compute it with `calc.write_elk_state()`. Here we take silicon with the PAW
+pseudopotential `Si.pz-n-kjpaw_psl.0.1` and Elk's own lattice vectors, and the
+small Elk template of the repository:
+
+```python
+import numpy as np
+from defuqumat import Calculator
+from defuqumat.io.elk import ElkState
+
+text = """&control
+ calculation='scf'
+/
+&system
+ ibrav=0, nat=2, ntyp=1, ecutwfc=15.0, ecutrho=120.0
+/
+&electrons
+ conv_thr=1d-8
+/
+CELL_PARAMETERS bohr
+ 0.0 5.10 5.10
+ 5.10 0.0 5.10
+ 5.10 5.10 0.0
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-n-kjpaw_psl.0.1.UPF
+ATOMIC_POSITIONS crystal
+ Si 0.00 0.00 0.00
+ Si 0.25 0.25 0.25
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+calc = Calculator.from_text(text, pseudo_dir="tests/data/pseudo")
+calc.write_elk_state("elk_run", template="tests/data/elk/si2_template")
+
+import shutil
+shutil.copy("tests/data/elk/si2_template/GEOMETRY.OUT", "elk_run")
+state = ElkState.read("elk_run")
+r = state.rsp[0][:state.nrmt[0]]
+print(f"electrons in each muffin tin: {state.muffin_tin_charges()[0]:.4f}")
+print(f"l = 3 component at r = 1.8 bohr: {state.rhomt[10, np.searchsorted(r, 1.8), 0]:.4f}")
+```
+
+```
+electrons in each muffin tin: 12.3391
+l = 3 component at r = 1.8 bohr: -0.0550
+```
+
+This example uses an input file and not keywords, because the lattice vectors must
+be exactly the ones of Elk, and the keyword `fcc` gives the vectors of `pw.x`. Each
+muffin tin holds 12.34 electrons. This is the 10 core electrons of silicon and
+the part of the valence charge inside the sphere. The component with $l = 3$ is
+the tetrahedral bond. A superposition of free atoms has no such component, and
+Elk starts from such a superposition when it starts from scratch. Then Elk runs
+with `task = 1` in the folder `elk_run`.
+
+How much does this help Elk? We measured it on the full Si2 run of Elk with the
+Perdew-Zunger LDA. From our state Elk starts with a change of the potential of
+0.0050 Ha in its first loop, against 0.083 Ha from scratch, and it converges in
+16 loops instead of 19, at the same energy. For an O2 molecule as a collinear
+magnet, and as a noncollinear magnet with its moment tilted, Elk needs 14 loops
+instead of 17. The gain is limited by the mixer of Elk, because even from its own
+converged state Elk needs 8 loops at the same threshold. With PBE there is no
+gain. The PBE potential very close to the nucleus depends on the exact shape of
+the Dirac core of Elk, which a scalar relativistic PAW core does not have. So for
+PBE the code takes the density of the template within 0.01 bohr of each nucleus,
+and Elk then needs as many loops as from scratch. On one core, writing the state
+takes about 2.5 s, and computing the potential of Elk takes 0.45 s, where Elk
+itself needs 0.016 s.
+
 !!! note "Limits"
     The Elk state must be for the same cell as the run, because a density cannot
     be moved from one lattice to another. The folder must contain `GEOMETRY.OUT`
@@ -173,6 +266,20 @@ the lines between the points are only a guide to the eye.
     The Elk density can only be a starting density. You cannot use it as a fixed
     density with no SCF on top, because the two converged densities are different
     functions near every nucleus.
+
+    Writing an Elk state needs a PAW pseudopotential for every species, because
+    only PAW has the all-electron partial waves to build the density inside the
+    spheres. Any other pseudopotential gives an error. The PAW correction must end
+    inside the muffin tin of Elk, so a PAW radius larger than the muffin-tin
+    radius gives an error. For example, O2 at its bond length needs muffin tins
+    smaller than the PAW radius of `O.pz-kjpaw`. The template must have the same
+    lattice vectors, not only the same lattice, the same atoms up to one
+    translation, and the same spin setting: unpolarized, collinear for `nspin=2`,
+    or noncollinear for a magnetic noncollinear run. The code computes the
+    potential of Elk for the LDA (`xctype` 2 and 3) and for the PBE family of Elk
+    (`xctype` 20, 21 and 22). A noncollinear state with PBE, a functional of
+    libxc, a meta-GGA, a finite nucleus and an external magnetic field give an
+    error. We have not run a case with spin-orbit coupling through Elk.
 
 The notebook for this page is
 [42, starting from an all-electron ground state](https://github.com/joselado/defuqumat/blob/master/notebooks/42_all_electron_start.ipynb).

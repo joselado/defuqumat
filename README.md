@@ -232,10 +232,14 @@ from the tetrahedron method, as the `occupations` variable says.
   at a k-point that you choose. You also get the principal masses and the
   density-of-states mass. `calc.get_effective_mass(kpoint)`, notebook
   [29](notebooks/29_effective_mass_and_angular_momenta.ipynb).
-- **Starting from an all-electron ground state**. The code reads the converged
-  density of Elk from its run directory and puts it on our grid as the starting
-  density. This shows where the pseudopotential density can be different from
-  the real one. `calc.get_elk_seed(directory)`, notebook
+- **Reading and writing an all-electron ground state**. The code reads the
+  converged density of Elk from its run directory and puts it on our grid as the
+  starting density. This shows where the pseudopotential density can be
+  different from the real one. It also writes its own PAW ground state as an Elk
+  state: the all-electron density, rebuilt from the PAW partial waves on the
+  meshes of Elk, and the potential of Elk computed from it. Elk then continues
+  with `task = 1`. `calc.get_elk_seed(directory)`,
+  `calc.write_elk_state(directory, template)`, notebook
   [42](notebooks/42_all_electron_start.ipynb).
 - **Reading and writing a Quantum ESPRESSO ground state**. The code reads the
   converged density of a `pw.x` run from its save folder and starts the SCF
@@ -798,7 +802,7 @@ task of the other code that it refers to.
 | **Optical conductivity without bands**, Kubo-Greenwood by the kernel polynomial method | `calc.get_kpm_conductivity()` | | |
 | **Band velocities** | `calc.get_band_velocities()` | (✓)² | |
 | **Effective mass tensor** | `calc.get_effective_mass(kpoint)` | | ✓ |
-| **Starting from an all-electron ground state**³ | `calc.get_elk_seed(directory)` | | |
+| **Reading and writing an all-electron ground state**³ (Elk's `STATE.OUT`; written from PAW with Elk's potential) | `calc.get_elk_seed(directory)`, `calc.write_elk_state(directory, template)` | | |
 | **Reading and writing a Quantum ESPRESSO ground state** (density, PAW occupations, Hubbard `ns`, meta-GGA `tau`) | `calc.get_qe_seed(directory)`, `calc.write_qe_save(directory)` | ✓ | |
 | **Pseudopotentials**: norm-conserving, ultrasoft and PAW | `ATOMIC_SPECIES` | ✓ | |
 | **Functionals**: LDA, PBE, revPBE and PBEsol | `input_dft` | ✓ | ✓ |

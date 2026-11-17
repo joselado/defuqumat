@@ -11327,6 +11327,22 @@ The same cost on both sides. Davidson step counts were not compared, so this is 
 
 `pw.x` has no separate clock for `write_scf`, so the writer has no like-for-like pair; it is two orders below anything around it. The first call of a process also compiles the two numba loops (cached on disk afterwards).
 
+## Writing an Elk state from PAW (CPU, 2026-11-17, P181)
+
+Si2, Elk 11.0.2 meshes of the converged Perdew-Zunger run (397 radial points, `lmaxo` 6, 28^3,
+48 operations), one core of this workstation (`taskset -c 0`, `OMP_NUM_THREADS=1`).
+
+| | time |
+|---|---|
+| Elk, `potks` per call (0.32 s of "potential calculation" over 19 loops and the start) | 0.016 s |
+| defuqumat, `kohn_sham_potential` (Coulomb, LDA, `symrfmt`), median of 5 | 0.449 s |
+| defuqumat, building Elk's group once (3^9 candidate matrices, harmonic rotations by quadrature) | 1.78 s |
+| defuqumat, `write_elk_state` as a whole (the density on Elk's meshes, the group, `potks`, the file; cores 4-7) | 2.4 s |
+
+28 times Elk's own `potks`, in NumPy on the host. It runs once per written file, beside an Elk run of
+19 loops at 4.2 s on the same core, so nothing here is worth making faster yet. The pair is the one
+call Elk and this code share; Elk has no counterpart to the density rebuilt from PAW.
+
 ## The quantum metric and the localization tensor (CPU, 2026-11-04)
 
 **No reference to time against**: `pw.x` and Elk compute no quantum metric, and Wannier90's

@@ -87,7 +87,7 @@ nav:
       - Diffraction and nesting: scattering.md
   - Long-range modulations: ultracell.md
   - More:
-      - Starting from an all-electron ground state: elk-seed.md
+      - Reading and writing an all-electron ground state: elk-seed.md
       - Reading and writing a Quantum ESPRESSO ground state: qe-seed.md
       - Performance and many cores: performance.md
       - Accuracy: accuracy.md

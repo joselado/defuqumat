@@ -1,4 +1,4 @@
-# Starting from an all-electron ground state
+# Reading and writing an all-electron ground state
 
 An all-electron code and a pseudopotential code do not converge to the same
 density. Inside the core region they cannot: one carries the nuclear cusp and
@@ -29,6 +29,10 @@ print(f'started from an all-electron density')
 print(f'total energy   {result.total_energy:.12f} Ry')
 print(f'iterations     {result.iterations}')
 ```
+
+    /u/40/ladovj1/data/Documents/programs/claude/defuqumat/defuqumat/calculator.py:857: RuntimeWarning: the density this run is starting from is not invariant under the 48 symmetry operations the run will use: ||rho - sym(rho)|| / ||rho|| is 2.24e-02 for the charge and n/a for the magnetization. The first iteration will average that part away and the run will then converge cleanly to whatever is left, so nothing later in the run says this happened -- SCFResult.site_moments and history[*]['site_moments'] are what show it, per site and per iteration. This seed was handed in (starting_density=, or starting_from= a result), and nothing checked it against this run's symmetry: the group belongs to what the *input file* states, which for a texture handed in by hand is usually a larger group than the texture has. Re-run with nosym = .true., or state the texture in the input (STARTING_MOMENTS, or angle1/angle2 per species) so the filter can see it.
+      self._scf = run_scf(self.system, self.pseudos,
+
 
     started from an all-electron density
     total energy   -1.080181442650 Ry
@@ -144,7 +148,7 @@ print(f'\nthe two answers differ by {abs(result.total_energy - atomic.total_ener
     atomic charges             -1.080181442650            4
     all-electron density       -1.080181442650            4
     
-    the two answers differ by 6.4e-14 Ry
+    the two answers differ by 5.4e-13 Ry
 
 
 Four iterations either way, and the same total energy to fourteen decimal
@@ -171,3 +175,70 @@ field that a charge density alone does not describe.
 
 *The checks behind the numbers quoted here live in
 `tests/unit/test_elk_reader.py` and `tests/regression/test_elk_seed.py`.*
+
+## Going the other way: a PAW state for Elk
+
+Elk starts a run with `task = 1` from the potential in its file `STATE.OUT`, so a
+file for Elk needs the all-electron density and the all-electron potential. With
+PAW both can be built. Inside each sphere the all-electron density is the grid
+density plus the one-centre correction,
+
+$$n = \tilde n + \sum_{ij}\rho_{ij}\left(\phi_i\phi_j - \tilde\phi_i\tilde\phi_j - \hat Q_{ij}\right) + n_{\rm core},$$
+
+with the all-electron and pseudo partial waves $\phi_i$, $\tilde\phi_i$ of the
+dataset and its frozen core. The code puts this density on the meshes of an Elk
+template of the same crystal and computes the potential of Elk from it. Here is
+silicon with a PAW pseudopotential, on Elk's own lattice vectors.
+
+
+```python
+import shutil, tempfile
+
+si2 = '''&control
+ calculation='scf'
+/
+&system
+ ibrav=0, nat=2, ntyp=1, ecutwfc=15.0, ecutrho=120.0
+/
+&electrons
+ conv_thr=1d-8
+/
+CELL_PARAMETERS bohr
+ 0.0 5.10 5.10
+ 5.10 0.0 5.10
+ 5.10 5.10 0.0
+ATOMIC_SPECIES
+ Si 28.086 Si.pz-n-kjpaw_psl.0.1.UPF
+ATOMIC_POSITIONS crystal
+ Si 0.00 0.00 0.00
+ Si 0.25 0.25 0.25
+K_POINTS automatic
+ 2 2 2 0 0 0
+'''
+silicon = Calculator.from_text(si2, pseudo_dir='../tests/data/pseudo')
+folder = tempfile.mkdtemp()
+silicon.write_elk_state(folder, template='../tests/data/elk/si2_template')
+shutil.copy('../tests/data/elk/si2_template/GEOMETRY.OUT', folder)
+written = ElkState.read(folder)
+r = written.rsp[0][:written.nrmt[0]]
+print(f'electrons in each muffin tin: {written.muffin_tin_charges()[0]:.4f}')
+print(f'l = 3 (xyz) component at r = 1.8 bohr: {written.rhomt[10, np.searchsorted(r, 1.8), 0]:.4f}')
+```
+
+    [defuqumat] write_elk_state: no ground state cached, running the SCF first (conv_thr = 1e-08). Call get_scf() to do this explicitly.
+
+
+    electrons in each muffin tin: 12.3391
+    l = 3 (xyz) component at r = 1.8 bohr: -0.0550
+
+
+Each sphere holds the 10 core electrons and the part of the valence charge
+inside it, and the $l = 3$ component is the tetrahedral bond, which a
+superposition of free atoms does not have. Elk then continues with `task = 1`.
+On the full Si2 run of Elk with the LDA it starts with a change of the potential
+of 0.0050 Ha in its first loop, against 0.083 Ha from scratch, and converges in
+16 loops instead of 19. For O2 as a collinear and as a noncollinear magnet it
+needs 14 loops instead of 17. With PBE there is no gain, because the PBE
+potential next to the nucleus depends on the Dirac core of Elk, which a scalar
+relativistic PAW core does not have. The checks are in
+`tests/unit/test_elk_allelectron.py` and `tests/unit/test_elk_potential.py`.
