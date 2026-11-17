@@ -247,6 +247,14 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   wavefunctions, no full `read_file` XML. Refused: another cell, geometry, electron count,
   `ecutrho` or spin regime, a Hubbard term on one side or of another kind, `hub_back`,
   `Hubbard_V`, the orbital-resolved form; writing a spiral or HDF5.
+- **Writing an Elk state from PAW** (P181, `io/elk_allelectron.py`, `io/elk_potential.py`,
+  `io/elk_write.py`, `Calculator.write_elk_state`): Elk's `task = 1` starts from the potential in
+  `STATE.OUT`, so the file carries the PAW all-electron density rebuilt on a template's meshes and
+  **Elk's `potks` of it, transcribed** (the user's choice over a hand-off loop): Weinert's Coulomb,
+  XC on the spherical cover, LDA and Elk's PBE family, `symrfmt`/`symrvfmt` over **Elk's** group
+  (any fractional translation, not QE's), unpolarized, collinear and LDA noncollinear. Near each
+  nucleus the density is the template's (Elk's Dirac core), by functional. Refused: not PAW, a PAW
+  radius past `rmt`, another lattice, spin regime or atoms, spin-orbit, a noncollinear GGA, libxc.
 
 **One calculation on many cores** (P124, `defuqumat/parallel.py`): `DEFUQUMAT_POOLS` runs
 one calculation as that many processes by k-point, `pw.x -nk`, joined through

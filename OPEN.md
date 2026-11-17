@@ -9613,7 +9613,7 @@ reference's length is replaced by the comparison above.
 
 **Found while choosing a fixture for P180, not chased.** Pt fcc (`celldm(1) = 7.42`), U = 3 eV
 on Pt 5d, 25/200 Ry, 3x3x3, MV 0.02, `conv_thr = 1e-10`, defuqumat against `pw.x` 7.5 on the
-same input (scratchpad `dio/inputs/pt-ldau-*.in`, `dio/energy_only.py`):
+same input (`notes/qe-writer/inputs/pt-ldau-*.in`, `notes/qe-writer/energy_only.py`):
 
 | case | defuqumat - `pw.x` (Ry) | Hubbard energy, defuqumat / `pw.x` (Ry) |
 |---|---|---|
