@@ -335,3 +335,26 @@ def test_the_hdf5_form_is_not_written(tmp_path):
     with pytest.raises(NotImplementedError, match="HDF5"):
         write_rhog(tmp_path / "charge-density.hdf5", np.eye(3), np.zeros((1, 3)),
                    np.zeros((1, 1)), False)
+
+
+def test_the_writer_gives_back_pw_x_own_files_from_pw_x_own_state(tmp_path):
+    """Every layout of the writer, with no SCF: ``pw.x``'s state in, its files out.
+
+    The TPSS fixture's density and kinetic energy density are put on this
+    run's grid the way a seed is, handed to :func:`write_qe_save` as a result,
+    and must come back as ``pw.x``'s own coefficients: the ``(n, m_z)`` density
+    through defuqumat's ``(up, down)`` and back, and the ``(up, down)``
+    ``ekin-density`` untouched, in ``pw.x``'s G order.
+    """
+    from types import SimpleNamespace
+
+    text = (SAVE / "si2-tpss-lsda" / "pw.in").read_text().replace("TPSS", "tb09")
+    calc = _calculator("si2-tpss-lsda", text)
+    seed = calc.get_qe_seed(SAVE / "si2-tpss-lsda")
+    result = SimpleNamespace(density=seed["starting_density"], tau=seed["starting_tau"],
+                             converged=True, iterations=1, becsum=(), ns=None)
+    write_qe_save(tmp_path, result, calc.calculation)
+    for name in ("charge-density.dat", "ekin-density.dat"):
+        ours, theirs = read_rhog(tmp_path / name), read_rhog(SAVE / "si2-tpss-lsda" / name)
+        np.testing.assert_array_equal(ours[2], theirs[2])
+        np.testing.assert_allclose(ours[3], theirs[3], atol=1e-14)

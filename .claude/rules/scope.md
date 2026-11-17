@@ -235,12 +235,18 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   and a warning, since `STATE.OUT` holds no occupation matrix (P155, I70); a noncollinear
   state, a spiral, a fixed spin moment, a fixed tensor moment, a spin-polarized DFT+U state,
   an element with a **core** and a *fixed* Elk density are refused by name.
-- **Continuing a `pw.x` ground state** (P160, `io/qe_density.py`, `Calculator.get_qe_seed`):
-  the density of a `pw.x` save directory, and `paw.txt` for PAW, as `get_scf` keywords
-  with `diago_thr_init = 1e-5`. The file's `nspin = 2` density is `(n, m_z)` and is
-  split; `paw.txt` is `(up, down)`. A seed only, by the user's choice: no fixed-density
-  route, no wavefunctions. Refused: another cell, geometry, electron count, `ecutrho`
-  or spin regime, DFT+U, meta-GGA, noncollinear PAW.
+- **Continuing a `pw.x` ground state, and writing one** (P160, P180, `io/qe_density.py`,
+  `io/qe_gvectors.py`, `Calculator.get_qe_seed`, `Calculator.write_qe_save`): the density of a
+  `pw.x` save directory, with `paw.txt`, `occup.txt` and `ekin-density`, as `get_scf` keywords
+  with `diago_thr_init = 1e-5`; and the same files written from a defuqumat state, which `pw.x`
+  restarts from with `startingpot = 'file'`. The file's `nspin = 2` density is `(n, m_z)` and is
+  split; `paw.txt` is `(up, down)` and has `lsda_mod`'s `nspin`, 4 for every spinor run, so its
+  component count is read off its size; `ekin-density` is `(up, down)`. **A written file lists
+  its G-vectors in `ggen`'s order**, because `read_rhog` does not read the Miller indices.
+  A seed only and the restart only, by the user's choices: no fixed-density route, no
+  wavefunctions, no full `read_file` XML. Refused: another cell, geometry, electron count,
+  `ecutrho` or spin regime, a Hubbard term on one side or of another kind, `hub_back`,
+  `Hubbard_V`, the orbital-resolved form; writing a spiral or HDF5.
 
 **One calculation on many cores** (P124, `defuqumat/parallel.py`): `DEFUQUMAT_POOLS` runs
 one calculation as that many processes by k-point, `pw.x -nk`, joined through

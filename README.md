@@ -237,10 +237,14 @@ from the tetrahedron method, as the `occupations` variable says.
   density. This shows where the pseudopotential density can be different from
   the real one. `calc.get_elk_seed(directory)`, notebook
   [42](notebooks/42_all_electron_start.ipynb).
-- **Continuing a Quantum ESPRESSO ground state**. The code reads the converged
-  density of a `pw.x` run from its save folder, with the PAW occupations, and
-  starts the SCF from it. With the same input the SCF stops after one or two
-  iterations at the energy of `pw.x`. `calc.get_qe_seed(directory)`, notebook
+- **Reading and writing a Quantum ESPRESSO ground state**. The code reads the
+  converged density of a `pw.x` run from its save folder and starts the SCF
+  from it. With the density come the PAW occupations, the Hubbard occupation
+  matrix and the kinetic energy density of a meta-GGA, for every spin regime
+  and with spin-orbit coupling. With the same input the SCF stops after one or
+  two iterations at the energy of `pw.x`. The code also writes its own state
+  as a save folder, so `pw.x` can continue it with `startingpot = 'file'`.
+  `calc.get_qe_seed(directory)`, `calc.write_qe_save(directory)`, notebook
   [56](notebooks/56_quantum_espresso_restart.ipynb).
 
 ### Choosing the physics of the run
@@ -795,7 +799,7 @@ task of the other code that it refers to.
 | **Band velocities** | `calc.get_band_velocities()` | (✓)² | |
 | **Effective mass tensor** | `calc.get_effective_mass(kpoint)` | | ✓ |
 | **Starting from an all-electron ground state**³ | `calc.get_elk_seed(directory)` | | |
-| **Continuing a Quantum ESPRESSO ground state** | `calc.get_qe_seed(directory)` | ✓ | |
+| **Reading and writing a Quantum ESPRESSO ground state** (density, PAW occupations, Hubbard `ns`, meta-GGA `tau`) | `calc.get_qe_seed(directory)`, `calc.write_qe_save(directory)` | ✓ | |
 | **Pseudopotentials**: norm-conserving, ultrasoft and PAW | `ATOMIC_SPECIES` | ✓ | |
 | **Functionals**: LDA, PBE, revPBE and PBEsol | `input_dft` | ✓ | ✓ |
 | **Band gaps from the Tran-Blaha potential** | `input_dft = 'tb09'` | (✓)⁴ | ✓ |

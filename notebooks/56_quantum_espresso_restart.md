@@ -1,4 +1,4 @@
-# Continuing a Quantum ESPRESSO ground state
+# Reading and writing a Quantum ESPRESSO ground state
 
 Quantum ESPRESSO and this code solve the same Kohn-Sham equations. If the crystal,
 the pseudopotential, the functional and the cutoffs are the same, the two codes
@@ -9,7 +9,8 @@ Here we take silicon with a PAW pseudopotential and a $4\times4\times4$ k-mesh.
 We ran `pw.x` once on this crystal and kept its save folder. Started from that
 density, our SCF stops after **one iteration**, at **-89.27293945 Ry**, which is
 the total energy of `pw.x` to all printed digits. From atomic charges it takes
-eight iterations.
+eight iterations. At the end we go the other way: we write our own ground state
+as a save folder, and `pw.x` continues it, also in one iteration.
 
 
 ```python
@@ -112,6 +113,41 @@ This is useful when a ground state is expensive, for example a large cell with a
 dense k-mesh. You converge it once with `pw.x`, and here you start every
 calculation that needs it from that density. The loaded state is checked against
 the `pw.x` energy, and the mapping of the PAW occupations against our own
-converged ones, in `tests/unit/test_qe_density.py`. A DFT+U run, a meta-GGA run
-and a noncollinear PAW run give an error, because their save folders hold more
-than the density and these extra files are not read.
+converged ones, in `tests/unit/test_qe_density.py`. The save folder of a DFT+U
+run also holds the occupation matrix, the one of a meta-GGA run the kinetic
+energy density, and they are loaded too, for every spin setting and with
+spin-orbit coupling.
+
+## Writing our state for pw.x
+
+Now we go the other way. We write the ground state converged here, the run from
+atomic charges, as a save folder of `pw.x`. It holds the density and, for PAW, the
+occupations of the projectors, in the files and the layout that `pw.x` writes
+itself. Here we read the folder back to see that it is the same state.
+
+
+```python
+import os, tempfile
+
+folder = os.path.join(tempfile.mkdtemp(), 'pwscf.save')
+calc.write_qe_save(folder, fresh)
+print(sorted(os.listdir(folder)))
+again = calc.get_scf(**calc.get_qe_seed(folder))
+print(f'read back  {again.total_energy:.8f} Ry  in {again.iterations} iteration')
+```
+
+    ['charge-density.dat', 'data-file-schema.xml', 'paw.txt']
+
+
+    read back  -89.27293945 Ry  in 1 iteration
+
+
+The folder is what `pw.x` reads with `startingpot='file'` in the `&electrons`
+namelist, with `outdir` its parent and `prefix='pwscf'`. With the same input
+`pw.x` stops after **one iteration** at -89.27293944 Ry, where from atomic charges
+it needs eight, so it continues our state as fast as its own. The density is
+stored as Fourier coefficients in a fixed order of the $\mathbf G$ vectors, and
+`pw.x` reads them in that order without looking at the vectors, so the code
+writes them in exactly the order `pw.x` makes them. The folder is for this
+restart only: after it, `pw.x` writes its own full save folder, which its other
+tools then read.

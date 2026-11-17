@@ -11317,6 +11317,16 @@ Si2 PAW (`Si.pz-n-kjpaw_psl.0.1`), 20/160 Ry, 4x4x4 (`tests/data/qe/save/si-paw-
 
 The same cost on both sides. Davidson step counts were not compared, so this is a pair of wall times and not a statement about the solver; `pw.x` prints 5.5 steps on average at `ethr = 1e-5`. The 0.33 s of `init_run` has no counterpart in the seeded figure, which excludes building the `Calculation`.
 
+**Writing the save directory (P180, 2026-11-17)**, the same cell, core and protocol, median of 5 after a warm-up that pays the numba compile of the G order:
+
+| | time |
+|---|---|
+| defuqumat, `write_qe_save` (density, `paw.txt`, XML) | 8.7 ms |
+| of which `ggen`'s G order (9257 vectors, numba) | 3.3 ms |
+| `pw.x`, the whole restart from defuqumat's directory, 1 iteration | 0.94 s wall |
+
+`pw.x` has no separate clock for `write_scf`, so the writer has no like-for-like pair; it is two orders below anything around it. The first call of a process also compiles the two numba loops (cached on disk afterwards).
+
 ## The quantum metric and the localization tensor (CPU, 2026-11-04)
 
 **No reference to time against**: `pw.x` and Elk compute no quantum metric, and Wannier90's

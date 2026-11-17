@@ -9607,3 +9607,28 @@ and the helices read 0.2608, 0.2555, 0.2410 and 0.2372 at 180, 120, 90 and 60 de
 cells. The harness (`v117.py`, now resampling) and the four JSON files and log are in
 `notes/incompat/ultraseed-ver/samegrid/`; the guide's Limits sentence that the moments keep the
 reference's length is replaced by the comparison above.
+
+
+# Part XXXI -- DFT+U with spin-orbit coupling on a heavy d shell disagrees with `pw.x`, 2026-11-17
+
+**Found while choosing a fixture for P180, not chased.** Pt fcc (`celldm(1) = 7.42`), U = 3 eV
+on Pt 5d, 25/200 Ry, 3x3x3, MV 0.02, `conv_thr = 1e-10`, defuqumat against `pw.x` 7.5 on the
+same input (scratchpad `dio/inputs/pt-ldau-*.in`, `dio/energy_only.py`):
+
+| case | defuqumat - `pw.x` (Ry) | Hubbard energy, defuqumat / `pw.x` (Ry) |
+|---|---|---|
+| PAW `Pt.rel-pbe-n-kjpaw_psl.0.1`, `lspinorb`, `atomic` | 4.83e-3 | 0.09099 / 0.08617 |
+| same, `ortho-atomic` | 3.68e-3 | 0.12704 / 0.12316 |
+| ultrasoft `Pt.rel-pbe-n-rrkjus`, `atomic` | 5.67e-3 | 0.09514 / 0.08942 |
+| PAW, `lspinorb`, a moment of 0.9 mu_B on `z` | 2.51e-3 | 0.07927 / 0.07756 |
+| scalar `Pt.pbe-n-kjpaw_psl.0.1`, collinear, `atomic` | 2.2e-9 | 0.091982 / 0.091982 |
+
+Spin-orbit PAW without a U agrees to 3e-8 Ry (two-atom Pt, P180). P79's validation of DFT+U with
+spin-orbit coupling is relativistic BN with U on N 2p, 1.2e-7 Ry, where the two `j` radial functions
+are almost equal; a defect that only the `j` splitting shows would not appear there. Ruled out: the
+`j`-average of `atomic_wfc_so_mag` (`hubbard/projectors.py:_spinor_channels` uses `(l+1)/(2l+1)`
+and `l/(2l+1)`, as `pw.x`), and `pw.x`'s choice of routine (`orthoUwfc` calls
+`atomic_wfc_nc_updown`, `updown = .TRUE.`, `starting_spin_angle = .FALSE.`, so `atomic_wfc_so_mag`,
+what defuqumat transcribes). Not yet looked at: the offsets of the Hubbard manifold among the
+folded channels when the dataset has more than one `l` with two `j` (Pt has 5d and 6p), the
+reference occupation, and the noncollinear Hubbard energy at an `ns` whose orbital part is complex.

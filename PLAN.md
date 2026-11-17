@@ -495,6 +495,13 @@ because that is what decides whether it is a session or a phase.
   `q_par = h_par mod n_par` with a null of its own. A modulation **along the stacking axis**
   is refused permanently rather than outstanding, and so is a denser k-set asked for at the
   image rather than at the run.
+- **The `pw.x` save directory beyond P180**: a meta-GGA restart by `pw.x` (this `pw.x` has no
+  libxc), a magnetic spin-orbit PAW cell, the HDF5 form (read, never run), a density across a
+  change of `ecutrho`, and the full `read_file` XML with the wavefunctions (the user chose the
+  restart only).
+- **Writing an Elk state** (P181, open): `STATE.OUT` carries the all-electron Kohn-Sham potential,
+  which Elk's task 1 starts from, so a written state needs the all-electron density (from PAW, the
+  user's suggestion) and Elk's `potks` on it.
 - **Transferring more than a charge density from Elk** (P72). The reader and the seed are
   in for an unpolarized state of an element with no core, validated pointwise against
   Elk's own `RHO3D.OUT` on hydrogen and on SiC, and for a collinear spin-polarized state
@@ -30770,3 +30777,47 @@ over an error for such a tip and over a continuation from a plane the code would
 `test_ultracell_augmented.py`, `test_gamma_consumers.py`, and the slow tests of
 `tests/unit/test_calculator.py`: the assembly's loop was restructured and `exit_overlap` split, with the
 s path bit-identical by V1.
+
+### P180 -- Writing a `pw.x` save directory, and reading its spinor PAW, DFT+U and meta-GGA state, `Calculator.write_qe_save`. ✅ DONE 2026-11-17, the `pw.x` half (branch `density-io` from `0273b0d3`, not merged, not pushed; `tests/unit/test_qe_density.py`, the fast tests run on this workstation; three slow parameters not run, for the user, listed below; the Elk half of the user's request is P181)
+
+**What it is.** The user asked whether defuqumat reads and writes converged densities of `pw.x` and Elk, "full cases (soc, spin pol etc)". P160 read `pw.x`'s density and `paw.txt` and refused DFT+U, meta-GGA and noncollinear PAW; nothing wrote. This phase adds the writer and closes those three refusals. `defuqumat/io/qe_gvectors.py` transcribes `ggen`'s enumeration (`Modules/recvec_subs.f90`) and `hpsort_eps` (`FFTXlib/tests/sort.f90`) literally, numba on the host. `defuqumat/io/qe_density.py:write_qe_save` writes `charge-density.dat` (`write_rhog`'s records), `paw.txt`, `occup.txt` and `ekin-density.dat` in `write_scf`'s layouts, and a partial `data-file-schema.xml`. `Calculator.write_qe_save(directory, result=None, gamma_only=None)` is the facade. The user's choice (2026-11-17), asked as a pick list: the restart only; the XML holds what `read_qe_save` checks, so `pp.x`, `projwfc.x` and an `nscf` run, which go through `read_file`, do not read it (`pp.x` stops with "error reading header of xml data file", measured), and the 1 to 3 iteration `pw.x` restart writes its own full save.
+
+**Why the G order is the whole problem.** `read_rhog` scatters the stored coefficients with `ig_l2g` and reads the Miller indices only when the file's `gamma_only` flag differs from the run's (`charge_k_to_g`); a short file is zero-padded with an `infomsg` only. So a file in any other order is read scrambled without a message. The transcription reproduces the Miller record of `pw.x`'s own file exactly on all ten fixtures (cubic Si2, the O2 box, the `K_POINTS gamma` half sphere, a triclinic Si2 cell, the bct Pt2 cell, the Ni fcc cell), and the reciprocal vectors to the last bit. defuqumat's own `lexsort` (`basis/gvectors.py`) happens to agree on the cubic four too; it is not used, since its 12-decimal rounding is not `hpsort_eps`'s non-transitive `eps8` comparison. `write_rhog` on `pw.x`'s own arrays gives its files byte for byte (all ten).
+
+**Numbers: `pw.x` restarts from defuqumat's save directory** (`pw.x` 7.5 serial, `startingpot = 'file'`, `conv_thr = 1e-10`, one core; scratchpad harness `dio/pwx_reads_ours.py`; "coefficients" is the largest difference from `pw.x`'s own converged file, against its peak):
+
+| cell | regime | coefficients | `pw.x` from scratch | `pw.x` from ours: iterations, first accuracy (Ry) |
+|---|---|---|---|---|
+| Si2 PAW 2x2x2 (`si2-paw`) | PAW, nspin 1 | 6.1e-9 / 0.030 | 7, 0.106 | 3, 1.4e-10 (from its own file: 3, 1.1e-10) |
+| O2 PAW 7 bohr (`o2-paw-lsda`) | PAW, nspin 2, fixed | 1.8e-8 / 0.035 | 11, 0.203 | 1, 1.0e-11 |
+| same, written `(up, down)` on purpose | control | | | 12, 0.429, renormalised by `pw.x` |
+| Si2 triclinic, nosym (`si2-tri`) | NC, smearing | 2.2e-8 / 0.02 | 9, 0.082 | 1, 7.9e-11 |
+| Pt2 bct, `lspinorb`, no moment (`pt2-paw-soc`) | PAW spinor, 4-component `paw.txt` | 1.6e-8 / 0.10 | 11, 0.144 | 1, 2.4e-12 |
+| O2 PAW, m in plane (`o2-paw-noncol`) | PAW noncollinear | 1.9e-6 / 0.03 | 11, 0.205 | 1, 1.6e-11 |
+| Ni fcc, U = 4 eV, nspin 2 (`ni-ldau-lsda`) | US + U, real `occup.txt` | 6.5e-8 / 0.14 | 17, 0.526 | 1, 6.8e-12 |
+| Ni fcc, U, spinor tilted 60/30 deg (`ni-ldau-tilt`) | US + U, complex `ns_nc` | 3.5e-7 / 0.14 | 17, 0.526 | 1, 5.2e-12 |
+| BN, `lspinorb`, U on N 2p (`bn-ldau-noncol.in`) | US spinor + U, SOC | 7.9e-9 / 0.02 | 11, 0.881 | 2, 1.7e-11 |
+| Si2 NC, `K_POINTS gamma` (`si2-nc-gamma`) | half-sphere file | 4.5e-8 | 15 | 11, 2e-8 (from its own file: 9, 2e-8) |
+
+Every restart prints "The initial density is read from file", none is renormalised, and each ends at the energy of `pw.x`'s own run to the printed digit. The gamma cell restarts slowly from `pw.x`'s own file too.
+
+**Numbers: reading, each loaded array against defuqumat's own converged one** (as P160 did for `becsum`):
+
+- Pt2 PAW `lspinorb` (34 projectors): `becsum` 1.3e-6 on a peak of 1.37, off-diagonals to 0.086, both atoms; seeded run 3 iterations from 1.3e-10, -1506.6572252673 against `pw.x`'s -1506.6572253.
+- O2 PAW noncollinear: `becsum` charge 2.7e-6 (peak 5.69), `m_z` 8e-8, `m_x` 1.2e-4 (peak 0.53), `m_y` 2.1e-4 (peak 0.30); density 8.4e-5 on 1.10; seeded run 1 iteration from 2.0e-11 at -80.7209706993 against -80.7209707. The in-plane spread is the moment's direction, a soft mode without spin-orbit coupling.
+- Ni + U collinear: `ns` 9.6e-7 on 0.98, seeded 1 iteration. Ni + U spinor along `z`: 2.2e-6, seeded 2 iterations, **and a null that cannot fail**: with the moment on `z` the spin-flip blocks are empty and the imaginary part is 2.7e-9, so the conjugate reads the same. Tilted (60/30 deg): spin-flip blocks 0.045, imaginary part 0.023; the layout `ns(m1, m2, is, na)` read as `[is, slot, m1, m2]` is 3.9e-6 off, the conjugate 4.5e-2, the swapped spin pair 4.5e-2, the `m`-transpose 3.9e-6 (invisible without spin-orbit coupling: the orbital part is real symmetric). Relativistic BN with U settles the last: orbital part non-symmetric by 4.4e-4; as read 7.2e-7, `m`-transposed 5.2e-4, conjugated 4.9e-4, spin pair swapped 5.2e-4.
+- `ekin-density` (Si2 TPSS at `nspin = 2`, nonmagnetic; this `pw.x` has no libxc, so `tb09` cannot run and TPSS is native): `(up, down)`, the two components 3.379683 and 3.379676 per `omega` while the charge file reads `(8, 0)`; defuqumat's TB09 `tau` of the same cell integrates to 3.438124 per channel, 1.7 per cent away, a different functional, where a factor of two in the units would read 1.69 or 6.76; pointwise the two meta-GGAs differ by 15 per cent of the peak.
+
+**The trap it found (a P160 defect).** `scf_mod.f90` allocates `rho%bec` with `lsda_mod`'s `nspin`, which is 4 for **every** noncollinear run, so a spin-orbit PAW run without a magnetization writes its charge component and three zero blocks. P160 reshaped `paw.txt` with the run's `nspin_mag = 1`: on two-atom Pt the second atom's `becsum` came out as the first zero block, 1.365 off everywhere, with no error (one atom hides it: its rows are the first ones either way). The component count is now read off the file's size, and `test_a_spinor_paw_txt_is_read_for_every_atom` fires on the old code.
+
+**A second trap, in the writer.** The first gamma file was a full sphere: `Calculation.gamma_only` is defuqumat's *storage*, which P68 substitutes away for symmetry, ultrasoft, PAW, DFT+U and spinors, and the substitution erases `K_POINTS gamma` from `system.kpoints` as well. `Calculation.kpoints_gamma` now keeps the input's flag, and the writer writes `pw.x`'s half sphere. `charge_k_to_g`'s merge loop exits (`IF (ig .GE. ngm_g) EXIT`) before it fills the last G-vector, so a full-sphere file read by a gamma run loses one coefficient; on Si2 both forms start at 2e-8, as `pw.x`'s own file does, so the loss was not visible there.
+
+**Timing** (one core, `taskset -c 0`, Si2 PAW 4x4x4, ngm 9257, median of 5 after a warm-up that pays the numba compile): `write_qe_save` 8.7 ms, of which the G order 3.3 ms. `pw.x` has no separate clock for `write_scf`; its whole restart run is 0.94 s wall.
+
+**Refused by name** (each fired by a fast test): a Hubbard term on one side only, another `U_projection_type`, another `lda_plus_u_kind`, a background manifold (`Hubbard_back`), `Hubbard_V`, the orbital-resolved form (`Hubbard_Um`, `Hubbard_m_order.txt`), a meta-GGA without `ekin-density`, writing the HDF5 form; writing refuses a spin spiral. P160's refusals stand.
+
+**Found on the way, not chased: DFT+U with spin-orbit coupling on Pt 5d disagrees with `pw.x`** (`OPEN.md` Part XXXI). Pt fcc, U = 3 eV, 25/200 Ry, 3x3x3: 4.83 mRy (PAW, `atomic`), 3.68 (PAW, `ortho-atomic`), 5.67 (ultrasoft `Pt.rel-pbe-n-rrkjus`), 2.51 (PAW with a moment of 0.9 mu_B); the Hubbard energy 0.0910 against 0.0862 Ry. Without spin-orbit coupling the same cell agrees to 2.2e-9 Ry, and spin-orbit PAW without U agrees to 3e-8 (Pt2 above). P79's validation is relativistic BN on N 2p, where it agrees to 1.2e-7 and where the j splitting of the radial functions is small. The j-average of `atomic_wfc_so_mag` is ruled out: defuqumat's weights are `pw.x`'s, `(l+1)/(2l+1)` and `l/(2l+1)`. The Pt fixture could therefore not test the `ns_nc` convention, which BN did.
+
+**Tests** (`tests/unit/test_qe_density.py`, fast unless marked): the G order and the byte-for-byte records on every fixture; the spinor `paw.txt` guard; the seeded runs of `si2-tri` and `ni-ldau-tilt` (fast) and of `o2-paw-noncol`, `ni-ldau-lsda`, `pt2-paw-soc` (**slow parameters, not run here, for the user**: 31, 34 and 38 s cold, 1.0 to 1.4 GB); the `ns_nc` convention with its conjugate and swapped alternatives asserted off; the written `occup.txt` against `pw.x`'s and read back bit for bit; the written Si2 PAW density and `paw.txt` against `pw.x`'s files; the writer's every layout with no SCF (`pw.x`'s TPSS state in, its two files out to 1e-14); the `(up, down)` `ekin-density`; the refusals. Fixtures added under `tests/data/qe/save/` (1.8 MB, absolute paths in the XML replaced): `si2-tri`, `pt2-paw-soc`, `o2-paw-noncol`, `ni-ldau-lsda`, `ni-ldau-tilt`, `si2-tpss-lsda`. BN's save directory is 3.3 MB and is not committed; its numbers are above.
+
+**Not measured.** A meta-GGA restart by `pw.x` (no libxc here; Triton's conda `pw.x` was not looked at); a magnetic spin-orbit PAW cell (Ni with `lspinorb` and a tilted moment did not converge in 200 `pw.x` iterations at 30/240 Ry, below the dataset's 75/478); the HDF5 form, read but never run; carrying a density across a change of `ecutrho` (still refused).
