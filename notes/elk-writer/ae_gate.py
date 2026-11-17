@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from scipy.special import spherical_jn
 from scipy.interpolate import CubicSpline
-REPO = Path("/u/40/ladovj1/data/Documents/programs/claude/defuqumat"); sys.path.insert(0, str(REPO))
+REPO = Path(__file__).resolve().parents[2]; sys.path.insert(0, str(REPO))
 from defuqumat import Calculator
 from defuqumat.io.elk import ElkState
 from defuqumat.io.elk_density import real_spherical_harmonics as rlm_elk
