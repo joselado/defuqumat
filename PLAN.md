@@ -499,9 +499,9 @@ because that is what decides whether it is a session or a phase.
   libxc), a magnetic spin-orbit PAW cell, the HDF5 form (read, never run), a density across a
   change of `ecutrho`, and the full `read_file` XML with the wavefunctions (the user chose the
   restart only).
-- **Writing an Elk state** (P181, open): `STATE.OUT` carries the all-electron Kohn-Sham potential,
-  which Elk's task 1 starts from, so a written state needs the all-electron density (from PAW, the
-  user's suggestion) and Elk's `potks` on it.
+- **Writing an Elk state beyond P181** (LDA and Elk's PBE family, unpolarized and collinear, are in):
+  a noncollinear state (the four-component `becsum`, `symrvfmt`'s axial rotation, `dncgga`), which is
+  also what spin-orbit coupling is in Elk; datasets other than PAW; libxc functionals (`ggamt_2a/2b`).
 - **Transferring more than a charge density from Elk** (P72). The reader and the seed are
   in for an unpolarized state of an element with no core, validated pointwise against
   Elk's own `RHO3D.OUT` on hydrogen and on SiC, and for a collinear spin-polarized state
@@ -30822,7 +30822,7 @@ Every restart prints "The initial density is read from file", none is renormalis
 
 **Not measured.** A meta-GGA restart by `pw.x` (no libxc here; Triton's conda `pw.x` was not looked at); a magnetic spin-orbit PAW cell (Ni with `lspinorb` and a tilted moment did not converge in 200 `pw.x` iterations at 30/240 Ry, below the dataset's 75/478); the HDF5 form, read but never run; carrying a density across a change of `ecutrho` (still refused).
 
-### P181 -- Writing an Elk state from a PAW ground state: the all-electron density on Elk's meshes, and Elk's own potential through a hand-off loop. 📋 OPEN, measured (branch `density-io`; `defuqumat/io/elk_write.py` and `tests/unit/test_elk_write.py`, fast, run here; the harness in `notes/elk-writer/`; no front door yet, the user's decision pending)
+### P181 -- Writing an Elk state from a PAW ground state: the all-electron density on Elk's meshes and Elk's `potks` transcribed, `Calculator.write_elk_state`. ✅ DONE 2026-11-17 for LDA and Elk's PBE family, unpolarized and collinear (branch `density-io`; `defuqumat/io/elk_write.py`, `elk_potential.py`, `elk_allelectron.py`; `tests/unit/test_elk_write.py`, `test_elk_potential.py`, `test_elk_allelectron.py`, fast, run here; the harness in `notes/elk-writer/`; noncollinear refused, see below)
 
 **Why this is not a format writer.** Elk's `task = 1` (`gndstate.f90:91-106`) reads `STATE.OUT` and goes straight to `gencore` and the first diagonalisation with `vsmt`/`vsir`: it starts from the all-electron Kohn-Sham **potential**, and the density in the file reaches only the mixer (with Elk's default potential mixing, not even that). Every caller of `readstate` was checked: only `gndstate` and `gndstulr` call `potks` afterwards, and only after the first diagonalisation. A pseudopotential run has no all-electron potential, so a written state needs the all-electron density and Elk's `potks` on it. The user's suggestion (2026-11-17): rebuild the all-electron density from PAW. `n_AE = rho_grid + sum_a sum_ij rho_ij (phi_i phi_j - phi~_i phi~_j - Q^L_ij) + n_core^AE`, the grid density already holding the compensation charge that the pseudo one-centre term subtracts.
 
@@ -30851,6 +30851,38 @@ The QE-to-Elk harmonic transform (quadrature, 24 x 48) is orthogonal to 9e-15. T
 | control: grid density + core, no one-centre term | 0.219 | | 19 |
 | Elk's own converged file | 2.4e-9 | 1 | 8 (stalls at 2.4e-9) |
 
-The rebuilt state stays 5 to 17 times below the from-scratch residual at every loop, and saves three loops of eighteen at 1e-9, two once the hand-off is counted, two of thirteen at 1e-7. What limits it is Elk's mixer, not the start: Elk from its own converged file needs eight loops at 1e-9. All runs end at the same energy, -578.069523 Ha.
+The rebuilt state stays 5 to 17 times below the from-scratch residual at every loop, and saves three loops of eighteen at 1e-9, two once the hand-off is counted, two of thirteen at 1e-7. What limits**The user's decision (2026-11-17), asked as a pick list after the numbers above: a front door, with `potks` transcribed** so the file carries Elk's potential and needs no hand-off.
 
-**What is outstanding** (the user's decision is pending on whether to make it a front door): `Calculator.write_elk_state(directory, template)` around the harness, PAW only and refused by name for other datasets; a spin-polarized and a noncollinear state (`magmt`, the hand-off carries `mixrho` for the magnetization too); the measurement on a second cell; and whether the core is better taken from the template outright than matched below a radius.
+**`potks` transcribed** (`io/elk_potential.py`, from Elk 11.0.2, `elkjax` as the cross-check of the reading): `potcoul` (`zpotclmt` with `wsplintp`'s weights rebuilt from `polynm`, the point nucleus, `zpotcoul`'s Weinert pseudocharge with Elk's two quirks kept: radial integrals for `l > lmaxi` from the first outer point on the full mesh's weights, and only the G-vectors inside `gmaxvr` divided by `G^2`), `potxc` on the spherical cover (`sphcover`, `genshtmat`), `symrfmt` over defuqumat's own crystal group (`find_symmetries` on Elk's geometry; `D(R)` of Elk's real harmonics by quadrature), `trimrfg` at `2 gkmax`, `genbs` (`B_s` on the coarse mesh and the cover points), and Elk's PBE family (`xcgrad = 1`: `ggamt_1`/`ggair_1` and their spin forms, `gradzfmt`'s Clebsch-Gordan coupling, `wspline`/`splined`, `grad2rfmt`, the half-grid FFT with the fastest axis halved, `x_pbe`, `c_pbe`). The parameters `STATE.OUT` lacks come from the template's `INFO.OUT`. Against the potentials Elk wrote beside its own densities:
+
+| fixture | quantity | agreement |
+|---|---|---|
+| Si2 PZ (new run), `h_sc`, `h_sc_spin` (PW92) | `vclmt` | 3e-13 relative on `l = 0` (the nucleus, 1e7 at the first point), 2e-15 for `l > 0` |
+| `sic_zb`, two species, padding rows | `vclmt` / `vclir` | 1.1e-12 relative / 4e-14 |
+| Si2 PZ | `vxcmt` without / with `symrfmt` | 2e-4 to 4.4e-3 by `l` / 2e-13 on a scale of 45 |
+| `h_sc_spin` | `bxcmt`, `bxcir` | 1e-15; `bsmt`, `bsir` 4e-8, the run's convergence (written after mixing, as its own `vsmt - vclmt - vxcmt` = 8e-11) |
+| `sic_zb` (PBE) | `vxcir` / `vxcmt` | 6e-16 / 1e-11 for `l > 0`, 2.6e-10 relative on `l = 0` at the nuclear radius |
+| spin-polarized H under PBE (new run) | `vxcmt`, `bxcmt` | 1e-10 for `l > 0`, 4e-9 and 1.4e-8 relative on `l = 0` where the potential reaches 2.4e4 Ha |
+| Si2 PZ, **our** density after Elk's hand-off | `vsmt` / `vsir` | 1.8e-14 relative / 1.4e-14: our `potks` of our density is Elk's |
+
+**End to end, with the potential on file and no hand-off** (Elk 11.0.2 `task = 1`, default Broyden; the template is Elk's own initial state with the run's `INFO.OUT`):
+
+| cell | start | first residual (Ha) | loops |
+|---|---|---|---|
+| Si2, PZ, `epspot 1e-9` | Elk from scratch | 0.0833 | 19 |
+| | PAW all-electron, Elk's shape below 1e-4 bohr | 0.0050 | 16 |
+| Si2, PBE (`Si.pbe-n-kjpaw_psl.0.1`), `epspot 1e-7` | Elk from scratch | 0.739 | 14 (Elk's floor is 2.4e-9) |
+| | Elk's shape below 1e-4 bohr | 17.1 | 18 |
+| | the same, joined over a decade (`C^2`) | 366 | 18 |
+| | Elk's own density below 0.01 bohr, joined by 0.1 | 0.732 | 15 |
+| O2 stretched to 3.4 bohr (8 bohr box, `rmt` 1.675 > PAW 1.55), PW92 LSDA, `epspot 1e-7` | Elk from scratch (a field reduced each loop) | 0.0742 | 17 |
+| | PAW all-electron, no field | 0.0101 | 14 |
+
+Every run ends at Elk's own energy (O2: -149.31451292 against -149.31451284 at `epsengy 1e-6`) and moment (2.0028). **Under PBE the potential near a nucleus depends on the Dirac cusp itself**: Elk's converged `v_xc` is -22.6 Ha at 1e-6 bohr, -152 at 1e-5, -704 at 1e-4 and -50.6 at 1e-3 (the gradient terms on the cusp); ours, with a scalar relativistic core, reads -12.35 at 1e-6 and -682 at 1e-4, and agrees to 1e-3 relative beyond 1e-3 bohr. With Elk's own core region the start is as good as Elk's and no better: what sets the first residual is the core's relaxation in the crystal, which Elk does in its first loop and which no frozen-core start carries. The writer therefore takes the core region from the template by functional (`elk_allelectron.CORE_REGION`): Elk's shape below 1e-4 bohr under LDA, Elk's density below 0.01 bohr under a GGA (Si2 LDA with the latter: 0.0172, 17 loops).
+
+**Timing** (this workstation, cores 4-7): writing Si2 (397 radial points, `lmaxo` 6, 28^3) 2.4 s, of which `potks` 0.1 s for the Coulomb part and the PBE gradients about 0.15 s; Elk's own loop on the same cell is about 0.3 s. The writer is not on any hot path.
+
+**Refused, each by name** (fast tests fire them): a dataset that is not PAW, a one-centre correction reaching past Elk's `rmt`, another lattice (the vectors, not only the lattice), atoms that do not coincide up to one translation, another spin regime, a noncollinear state, a libxc or meta-GGA functional, a finite nucleus, external fields in the potential, and in the records a fixed spin moment, a meta-GGA or a fixed tensor moment state.
+
+**What is outstanding.** A noncollinear state (`ndmag = 3`): the magnetization from the four-component PAW `becsum`, `symrvfmt`'s axial rotation with time reversal, and `dncgga` for a GGA; spin-orbit coupling is noncollinear in Elk. Reading an Elk state with a core, or a noncollinear one (P72's refusals stand: `STATE.OUT` carries no `spinsprl`, and the core cannot be separated from the density without Elk's `gencore`). Other pseudopotentials than PAW (an atomic all-electron correction would be needed). Elk's `ggamt_2a/2b` route for libxc functionals.
+gnetization too); the measurement on a second cell; and whether the core is better taken from the template outright than matched below a radius.
