@@ -125,3 +125,23 @@ def test_a_libxc_functional_is_refused():
     state, params = _read("sic_zb")
     with pytest.raises(NotImplementedError, match="libxc"):
         exchange_correlation_potential(state, dataclasses.replace(params, xctype=(100, 101, 130)))
+
+
+@pytest.mark.parametrize("name, nsym", [("h_sc", 48), ("sic_zb", 24), ("si2_template", 48)])
+def test_the_space_group_is_elk_own(name, nsym):
+    """``findsymcrys``: lattice symmetries with any fractional translation.
+
+    The count is the one Elk prints in each run's ``INFO.OUT``; QE's search
+    keeps a translation only when it is commensurate with the FFT grid, and
+    for O2 off the origin in a box gives 8 where Elk has 16.
+    """
+    import re
+
+    from defuqumat.io.elk_potential import elk_space_group
+
+    state, _ = _read(name)
+    rotations, maps = elk_space_group(state.geometry)
+    info = (ELK / name / "INFO.OUT").read_text()
+    assert len(rotations) == int(re.search(r"Number of crystal symmetries\s*:\s*(\d+)", info).group(1)) == nsym
+    for rot in rotations:
+        np.testing.assert_allclose(rot @ rot.T, np.eye(3), atol=1e-10)

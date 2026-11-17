@@ -62,7 +62,7 @@ import numpy as np
 
 __all__ = ["ElkParameters", "read_elk_parameters", "kohn_sham_potential",
            "coulomb_potential", "exchange_correlation_potential", "radial_weights",
-           "crystal_symmetrizer", "symmetrizer"]
+           "crystal_symmetrizer", "elk_space_group", "symmetrizer"]
 
 FOURPI = 4.0 * np.pi
 Y00 = 0.28209479177387814347
@@ -1095,7 +1095,7 @@ def _ggamt_1(grad, rb, rf, nri, lmmaxi, rhos_lm):
 
 # ---------------------------------------------------------------- symmetry
 
-def symmetrizer(state, rotations_cart, atom_maps, lmax: int):
+def symmetrizer(state, rotations_cart, atom_maps, lmax: int, spin_matrices=None):
     """``symrfmt`` as a callable: the group average of muffin-tin functions.
 
     ``rotations_cart`` are the cartesian rotations ``R`` of the crystal group
@@ -1125,49 +1125,117 @@ def symmetrizer(state, rotations_cart, atom_maps, lmax: int):
             sources[k][a] = b
 
     def apply(field, magnetic=False):
+        """The group average; a magnetic field's components rotate as ``symrvfmt``'s.
+
+        ``spin_matrices[k]`` is the matrix the components are carried with:
+        ``(-1)^t_rev det(R) R`` for an axial vector under defuqumat's magnetic
+        group, whose spin rotation is the spatial one (a subgroup of Elk's
+        spin-space group without spin-orbit coupling, the same group with it).
+        A collinear field (one component) takes the ``zz`` element.
+        """
         out = np.zeros_like(field)
         n = len(rotations_cart)
         for k in range(n):
             d = blocks[k]
             for a in range(natmtot):
                 b = sources[k][a]
-                out[:, :, a] += np.einsum("ab,b...->a...", d, field[:, :, b]) / n
+                rotated = np.einsum("ab,b...->a...", d, field[:, :, b]) / n
+                if magnetic and spin_matrices is not None:
+                    sc = np.asarray(spin_matrices[k], dtype=float)
+                    if rotated.shape[-1] == 3:
+                        rotated = np.einsum("ij,...j->...i", sc, rotated)
+                    else:
+                        rotated = rotated * sc[2, 2]
+                out[:, :, a] += rotated
         return out
 
     return apply
 
 
-def crystal_symmetrizer(state, lmax: int, moments=None):
-    """``symrfmt`` for the crystal group of ``state``'s geometry.
+def elk_space_group(geometry):
+    """``(rotations, atom_maps)``: Elk's crystal group of ``geometry`` (``findsymcrys``).
 
-    The group is defuqumat's own search (:func:`defuqumat.system.symmetry.find_symmetries`,
-    QE's ``sgam_at``) on Elk's cell and atoms, which is the space group Elk finds
-    for the same structure; for a spin-polarized state the operations are kept
-    only where they carry each atom's moment onto an equal one
-    (:func:`defuqumat.system.symmetry.collinear_symmetries` when ``moments`` is
-    given, the per-atom ``m_z``).
+    Every lattice symmetry (integer ``M`` with entries in ``{-1, 0, 1}`` keeping
+    the metric, ``findsymlat``) with **any** fractional translation that maps
+    each atom onto an atom of its species, to ``epslat``. This is not QE's
+    search, which keeps a translation only when it is commensurate with the FFT
+    grid: O2 off the origin in a cubic box has 16 operations in Elk and 8 in
+    ``sgam_at``, and symmetrising with the 8 left 1.3e-3 Ha in ``vxcmt`` (P181).
+    ``rotations`` are cartesian (``v' = R v``); ``atom_maps[k][a]`` is the atom
+    operation ``k`` takes atom ``a`` to.
     """
-    from defuqumat.system.cell import Cell
-    from defuqumat.system.structure import Species, Structure
-    from defuqumat.system.symmetry import atom_mapping, collinear_symmetries, find_symmetries
+    import itertools
 
-    geometry = state.geometry
     avec = np.asarray(geometry.avec, dtype=float)
-    cell = Cell.from_vectors(avec)
-    types = tuple(int(i) for i, n in enumerate(geometry.natoms) for _ in range(n))
-    species = tuple(Species(name=str(name), mass=1.0, pseudo_file="")
-                    for name in geometry.species)
-    structure = Structure(positions=np.asarray(geometry.positions, dtype=float) @ avec,
-                          types=types, species=species)
-    group = find_symmetries(cell, structure)
-    if moments is not None:
-        m = np.zeros((len(types), 3))
-        m[:, 2] = np.asarray(moments, dtype=float)
-        group = collinear_symmetries(cell, structure, group, m)
-    irt = atom_mapping(cell, structure, group)
-    inverse = np.linalg.inv(avec)
-    rotations = [(inverse @ np.asarray(m_, dtype=float) @ avec).T for m_ in group.rotation_array()]
-    return symmetrizer(state, rotations, irt, lmax), group.nsym
+    metric = avec @ avec.T
+    frac = np.asarray(geometry.positions, dtype=float) % 1.0
+    species = np.concatenate([[i] * n for i, n in enumerate(geometry.natoms)]).astype(int)
+    lattice = []
+    for entries in itertools.product((-1, 0, 1), repeat=9):
+        m = np.array(entries, dtype=float).reshape(3, 3)
+        if abs(abs(np.linalg.det(m)) - 1.0) > 1e-8:
+            continue
+        if np.allclose(m.T @ metric @ m, metric, atol=1e-6 * np.abs(metric).max()):
+            lattice.append(m)
+    rotations, maps = [], []
+    first = 0
+    for m in lattice:
+        image = frac @ m.T
+        for b in np.nonzero(species == species[first])[0]:
+            t = frac[b] - image[first]
+            moved = image + t
+            amap = []
+            for a in range(len(frac)):
+                d = frac - moved[a]
+                d -= np.round(d)
+                hit = np.nonzero((np.abs(d).max(axis=1) < EPSLAT) & (species == species[a]))[0]
+                if len(hit) != 1:
+                    break
+                amap.append(int(hit[0]))
+            else:
+                rotations.append(avec.T @ m @ np.linalg.inv(avec.T))
+                maps.append(amap)
+                break
+    return rotations, maps
+
+
+def crystal_symmetrizer(state, lmax: int, moments=None, spinorb: bool = False):
+    """``symrfmt``/``symrvfmt`` over Elk's group for ``state``, as a callable.
+
+    ``moments`` are the per-atom moments (``(nat,)`` collinear, ``(nat, 3)``
+    noncollinear) the magnetic part of the group is chosen from; for each
+    spatial operation the spin rotation is the first that carries every moment
+    onto its image's, as Elk's search takes the first: the identity, then a
+    reversal (a collinear antiferromagnet), then ``det(R) R`` itself, which is
+    the only one Elk allows under spin-orbit coupling (``spinorb``). An
+    operation with none is not in the group. Without spin-orbit coupling Elk's
+    group is a spin-space group, and for moments all parallel to one axis it
+    holds every spatial operation with the identity, so the components of
+    ``B_xc`` average as scalars (tilted O2: round-off against Elk, P181).
+    Returns ``(apply, nsym)``.
+    """
+    rotations, maps = elk_space_group(state.geometry)
+    if moments is None:
+        return symmetrizer(state, rotations, maps, lmax), len(rotations)
+    m = np.asarray(moments, dtype=float)
+    vectors = np.zeros((len(m), 3))
+    if m.ndim == 1:
+        vectors[:, 2] = m
+    else:
+        vectors[:] = m
+    scale = max(np.abs(vectors).max(), 1e-12)
+    kept_r, kept_m, spins = [], [], []
+    for rot, amap in zip(rotations, maps):
+        axial = np.linalg.det(rot) * rot
+        candidates = [axial] if spinorb else [np.eye(3), -np.eye(3), axial]
+        for sc in candidates:
+            mapped = vectors @ sc.T
+            if np.all(np.abs(mapped - vectors[amap]) < 1e-3 * scale):
+                kept_r.append(rot)
+                kept_m.append(amap)
+                spins.append(sc)
+                break
+    return symmetrizer(state, kept_r, kept_m, lmax, spin_matrices=spins), len(kept_r)
 
 
 # ---------------------------------------------------------------- potks

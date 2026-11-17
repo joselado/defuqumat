@@ -617,6 +617,11 @@ def density_on(state, calculation, renormalise: bool = True, report=None):
     # cannot take this seed should say so in the first line rather than after a
     # reconstruction it will throw away.
     nspin_mag = calculation.nspin_mag
+    if getattr(state, "ndmag", 1) == 3:
+        raise NotImplementedError(
+            "this Elk state is noncollinear (ndmag = 3); STATE.OUT records neither "
+            "spinsprl nor vqlss, so a spin spiral cannot be told apart from a "
+            "noncollinear texture, and a seed from it is not implemented.")
     if nspin_mag not in (1, 2):
         raise NotImplementedError(
             f"this calculation has nspin_mag = {nspin_mag}, and an Elk seed is "

@@ -40,8 +40,12 @@ the shape of its core density at the nucleus are taken from it.
 **Refused, each by name:** a dataset that is not PAW (no all-electron partial
 waves to rebuild from), a one-centre correction reaching past Elk's
 muffin-tin radius (the all-electron density there would not be a smooth
-interstitial function; enlarge ``rmt``), a template of another cell, other
-atoms or another spin regime, and a noncollinear state (not yet).
+interstitial function; enlarge ``rmt``), and a template of another cell,
+other atoms or another spin regime. A noncollinear state is written with its
+magnetization vector (``ndmag = 3``); the magnetization a fully relativistic
+dataset's small component carries on its own (QE's ``pfunc_rel`` term) is
+left out, and the small component's charge is in every component, as QE's
+``pfunc`` has it.
 """
 
 from __future__ import annotations
@@ -253,7 +257,7 @@ def all_electron_state(result, calculation, template, core_region="auto"):
                                             read_elk_parameters)
 
     template = Path(template)
-    base = ElkState.read(template)
+    base = ElkState.read(template, allow_noncollinear=True)
     params = read_elk_parameters(template)
     if core_region == "auto":
         core_region = CORE_REGION["gga" if params.xctype[0] >= 20 else "lda"]
@@ -265,23 +269,22 @@ def all_electron_state(result, calculation, template, core_region="auto"):
             "waves to rebuild the density inside the spheres from")
     system = calculation.system
     nspin_mag = int(calculation.nspin_mag)
-    if nspin_mag == 4 or system.noncolin:
-        raise NotImplementedError(
-            "a noncollinear state is not written yet: its magnetization is a "
-            "vector field whose symmetrisation (symrvfmt) rotates it as an axial "
-            "vector, which is not transcribed")
-    spinpol = nspin_mag == 2
-    if spinpol != (base.magmt is not None) or (spinpol and base.ndmag != 1):
+    spinpol = nspin_mag in (2, 4)
+    ndmag = {1: 0, 2: 1, 4: 3}[nspin_mag]
+    if spinpol != (base.magmt is not None) or (spinpol and base.ndmag != ndmag):
+        held = ("unpolarized" if base.magmt is None
+                else f"spin-polarized with ndmag = {base.ndmag}")
         raise ValueError(
             f"this calculation has nspin_mag = {nspin_mag} and the Elk template is "
-            + ("spin-polarized" if base.magmt is not None else "unpolarized")
-            + "; run Elk in the same spin regime for the template")
+            f"{held}; run Elk in the same spin regime for the template (ndmag = 1 "
+            "for nspin = 2, a noncollinear ndmag = 3 for a magnetic spinor run)")
     geometry = base.geometry
     order, shift = _match_atoms(calculation, geometry)
 
     at = np.asarray(system.cell.at, dtype=float)
     rho = np.asarray(result.density, dtype=float)
-    fields = rho if nspin_mag == 1 else np.stack([rho[0] + rho[1], rho[0] - rho[1]])
+    # (n,), (n, m_z) or (n, m_x, m_y, m_z): defuqumat's collinear pair is (up, down).
+    fields = np.stack([rho[0] + rho[1], rho[0] - rho[1]]) if nspin_mag == 2 else rho
     c, mill, G = _grid_coefficients(fields, at)
     c = c * np.exp(-1j * G @ shift)[None, :]  # ours(r - shift): Elk's frame
 
@@ -329,7 +332,8 @@ def all_electron_state(result, calculation, template, core_region="auto"):
         f[:, (params.lmaxi + 1) ** 2:, :nri] = 0.0
         rhomt[:, :nr, ias] = f[0]
         if spinpol:
-            magmt[:, :nr, ias, 0] = f[1]
+            for k in range(ndmag):
+                magmt[:, :nr, ias, k] = f[1 + k]
 
     ng = np.array(base.ngridg)
     box = np.zeros((fields.shape[0],) + tuple(ng), dtype=complex)
@@ -339,11 +343,13 @@ def all_electron_state(result, calculation, template, core_region="auto"):
     state = dataclasses.replace(base, rhomt=rhomt, rhoir=interstitial[0])
     moments = None
     if spinpol:
-        state = dataclasses.replace(state, magmt=magmt, magir=interstitial[1][..., None])
-        moments = [float(np.sqrt(FOURPI) * np.trapezoid(
-            magmt[0, :base.nrmt[s], ias, 0] * np.asarray(base.rsp[s])[:base.nrmt[s]] ** 2,
-            np.asarray(base.rsp[s])[:base.nrmt[s]])) for ias, s in enumerate(species_of)]
-        moments = np.round(np.asarray(moments), 3)
+        state = dataclasses.replace(state, magmt=magmt,
+                                    magir=np.moveaxis(interstitial[1:], 0, -1))
+        moments = np.array([[np.sqrt(FOURPI) * np.trapezoid(
+            magmt[0, :base.nrmt[s], ias, k] * np.asarray(base.rsp[s])[:base.nrmt[s]] ** 2,
+            np.asarray(base.rsp[s])[:base.nrmt[s]]) for k in range(ndmag)]
+            for ias, s in enumerate(species_of)])
+        moments = np.round(moments[:, 0] if ndmag == 1 else moments, 3)
     symmetry, _ = crystal_symmetrizer(state, lmaxo, moments=moments)
     potential = kohn_sham_potential(state, params, symmetry)
     ry = {k: 2.0 * np.asarray(v) for k, v in potential.items()}

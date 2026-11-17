@@ -7,8 +7,8 @@ What is checked here owes nothing to Elk's convergence: the rebuilt density
 holds the electrons, the frozen core and an ``l = 3`` channel a superposition
 of atoms does not have, the potential on file is the transcribed ``potks`` of
 the density on file, and the refusals fire. Elk continuing from such a file is
-measured in ``PLAN.md`` P181 (Si2 LDA: 16 loops against 19; O2 LSDA: 14
-against 17).
+measured in ``PLAN.md`` P181 (Si2 LDA: 16 loops against 19; O2 LSDA and
+noncollinear: 14 against 17).
 """
 
 from __future__ import annotations

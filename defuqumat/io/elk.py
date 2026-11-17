@@ -395,12 +395,12 @@ class ElkState:
     # -- reading --------------------------------------------------------------
 
     @classmethod
-    def read(cls, directory) -> "ElkState":
+    def read(cls, directory, allow_noncollinear: bool = False) -> "ElkState":
         """Read ``STATE.OUT`` and ``GEOMETRY.OUT`` from an Elk run directory."""
-        return read_elk_state(directory)
+        return read_elk_state(directory, allow_noncollinear=allow_noncollinear)
 
 
-def read_elk_state(directory) -> ElkState:
+def read_elk_state(directory, allow_noncollinear: bool = False) -> ElkState:
     """Read an Elk run directory: ``STATE.OUT`` beside ``GEOMETRY.OUT``.
 
     **What this refuses, and why.** Each of these is a whole further piece of
@@ -516,7 +516,11 @@ def read_elk_state(directory) -> ElkState:
         else:
             dlefe = float("nan")
 
-        if spinpol and ndmag != 1:
+        # ``allow_noncollinear`` is the writer's (io/elk_allelectron.py, P181),
+        # which reads a noncollinear *template* for its meshes and builds
+        # nothing from its magnetization; the seed refuses such a state again
+        # in ``density_on``.
+        if spinpol and ndmag != 1 and not (allow_noncollinear and ndmag == 3):
             raise NotImplementedError(
                 f"this STATE.OUT is noncollinear spin-polarized (ndmag = "
                 f"{ndmag}), and only an unpolarized or a collinear (ndmag = 1) "
