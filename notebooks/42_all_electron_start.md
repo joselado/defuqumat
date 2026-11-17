@@ -194,15 +194,9 @@ silicon with a PAW pseudopotential, on Elk's own lattice vectors.
 ```python
 import shutil, tempfile
 
-si2 = '''&control
- calculation='scf'
-/
-&system
- ibrav=0, nat=2, ntyp=1, ecutwfc=15.0, ecutrho=120.0
-/
-&electrons
- conv_thr=1d-8
-/
+si2 = '''&control calculation='scf' /
+&system ibrav=0, nat=2, ntyp=1, ecutwfc=15.0, ecutrho=120.0 /
+&electrons conv_thr=1d-8 /
 CELL_PARAMETERS bohr
  0.0 5.10 5.10
  5.10 0.0 5.10
