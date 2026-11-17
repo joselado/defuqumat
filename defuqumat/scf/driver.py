@@ -2473,6 +2473,11 @@ class Calculation:
         # consumed where it can be and substituted away where it cannot, so
         # that a run which *can* use it is not silently paying twice.
         self.gamma_only = gamma_storage_is_consumable(system, pseudos)
+        #: Whether the input asked for ``K_POINTS gamma``, kept because the
+        #: substitution below erases it from ``system``: a file written for the
+        #: ``pw.x`` run of the same input needs ``pw.x``'s flag, the half
+        #: sphere, whatever this run stores (:func:`defuqumat.io.qe_density.write_qe_save`).
+        self.kpoints_gamma = bool(system.kpoints.gamma_only)
         if not self.gamma_only:
             system = _without_gamma_storage(system)
         self.system = system

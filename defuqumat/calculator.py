@@ -932,20 +932,51 @@ class Calculator:
             seed = calc.get_qe_seed("tmp/pwscf.save")
             result = calc.get_scf(**seed)
 
-        It holds the density, the PAW ``becsum`` when the run is PAW, and
-        ``diago_thr_init = 1e-5``, which is what ``pw.x`` itself starts from a
-        density with. Both codes hold the same pseudo valence density, so for
+        It holds the density, the PAW ``becsum``, the Hubbard ``ns`` and the
+        meta-GGA ``tau`` when the run has them, and ``diago_thr_init = 1e-5``,
+        which is what ``pw.x`` itself starts from a density with. Both codes hold the same pseudo valence density, so for
         the same input this is a continuation, not a guess: the SCF here
         converges in one or two iterations to the ``pw.x`` energy.
 
-        Refused by name: a different cell, geometry, electron count,
-        ``ecutrho`` or spin regime, DFT+U (``occup.txt`` is not read),
-        meta-GGA (``ekin-density`` is not read) and noncollinear PAW.
+        Read for every spin regime, with and without spin-orbit coupling,
+        norm-conserving, ultrasoft and PAW, DFT+U (``occup.txt`` becomes
+        ``starting_ns``) and a meta-GGA (``ekin-density`` becomes
+        ``starting_tau``). Refused by name: a different cell, geometry, electron
+        count, ``ecutrho`` or spin regime, a Hubbard term on one side only or
+        with other projectors or another ``lda_plus_u_kind``, and what
+        defuqumat has no counterpart for (a background Hubbard manifold,
+        ``Hubbard_V``, the orbital-resolved form).
         See :mod:`defuqumat.io.qe_density`.
         """
         from defuqumat.io.qe_density import QESave
 
         return QESave.read(directory).seed_for(self.calculation)
+
+    def write_qe_save(self, directory, result: SCFResult | None = None,
+                      gamma_only: bool | None = None):
+        """Write the converged state as a ``pw.x`` save directory.
+
+        ``directory`` is the ``<outdir>/<prefix>.save`` of the ``pw.x`` run
+        that will continue it with ``startingpot = 'file'``:
+
+        .. code-block:: python
+
+            calc.write_qe_save("tmp/pwscf.save")
+            # pw.x with outdir = 'tmp', prefix = 'pwscf', startingpot = 'file'
+
+        It holds ``charge-density.dat`` in ``pw.x``'s own G order, ``paw.txt``
+        for PAW, ``occup.txt`` for DFT+U and ``ekin-density.dat`` for a
+        meta-GGA, in the layouts ``pw.x`` writes them, so for the same input
+        ``pw.x`` converges in one or two iterations, as it does from its own
+        file. ``result`` is the cached ground state if not given. The XML beside
+        them is only what :meth:`get_qe_seed` reads back: ``pp.x`` and an
+        ``nscf`` run need ``pw.x``'s own save, which the restart then writes.
+        See :func:`defuqumat.io.qe_density.write_qe_save`.
+        """
+        from defuqumat.io.qe_density import write_qe_save
+
+        result = self._ground_state("write_qe_save") if result is None else result
+        return write_qe_save(directory, result, self.calculation, gamma_only=gamma_only)
 
     def _ground_state(self, quantity: str) -> SCFResult:
         """The cached ground state, running one first if there is none."""

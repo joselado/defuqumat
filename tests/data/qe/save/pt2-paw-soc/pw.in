@@ -1,0 +1,19 @@
+ &control
+    calculation='scf', pseudo_dir='../../../pseudo', outdir='./out'
+ /
+ &system
+    ibrav=6, celldm(1)=5.24, celldm(3)=1.41421356, nat=2, ntyp=1,
+    ecutwfc=25.0, ecutrho=200.0,
+    occupations='smearing', smearing='mv', degauss=0.02,
+    noncolin=.true., lspinorb=.true.
+ /
+ &electrons
+    conv_thr = 1.0d-10
+ /
+ATOMIC_SPECIES
+ Pt  195.078  Pt.rel-pbe-n-kjpaw_psl.0.1.UPF
+ATOMIC_POSITIONS crystal
+ Pt 0.0 0.0 0.0
+ Pt 0.5 0.5 0.5
+K_POINTS automatic
+ 3 3 2 0 0 0
