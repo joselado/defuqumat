@@ -330,7 +330,7 @@ class DFTSource:
             _, _, hubbard_terms = calculation.hubbard_terms(jnp.asarray(self.ns))
         from defuqumat.xc.functional import refuse_local_meta
 
-        refuse_local_meta(calculation.functional, "a topological invariant")
+        refuse_local_meta(getattr(calculation, "functional", None), "a topological invariant")
         if calculation.functional.is_meta and self.tau is None:
             # ``fixed_density_states``' refusal, for the same reason: ``tau``
             # is a property of the occupied states over the whole zone, so it

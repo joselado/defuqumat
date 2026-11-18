@@ -216,7 +216,7 @@ def require_a_potential_mode(calculation, potential: str, symmetrise, density_sy
     if potential == "hxc":
         from defuqumat.xc.functional import refuse_local_meta
 
-        refuse_local_meta(calculation.functional,
+        refuse_local_meta(getattr(calculation, "functional", None),
                           "real-time propagation with the potential updated (potential = 'hxc')")
     if potential == "hxc" and calculation.functional.is_meta and (
             calculation.noncolin or calculation.nspin_mag != 1):

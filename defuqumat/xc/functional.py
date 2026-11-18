@@ -73,7 +73,9 @@ from defuqumat.xc.lda import (
 )
 from defuqumat.xc.mgga import (
     LMBJ_PARAMETERS,
+    LMBJ_RHO_THRESHOLD,
     LMBJ_RS_THRESHOLD,
+    META_RHO_THRESHOLD,
     LMBJ_SIGMA,
     lmbj_coefficient_from_average,
     lmbj_integrand,
@@ -405,7 +407,10 @@ class Functional(eqx.Module):
             tau: ``tau_sigma`` in **Hartree**.
             c: the Tran-Blaha coefficient.
         """
-        return tb09_potential(rho, sigma, laplacian, tau, c)
+        # The local mBJ cuts its potential at 1e-9, TB09 and BJ06 at 1e-6
+        # (:data:`defuqumat.xc.mgga.LMBJ_RHO_THRESHOLD` says why).
+        threshold = LMBJ_RHO_THRESHOLD if self.is_local_meta else META_RHO_THRESHOLD
+        return tb09_potential(rho, sigma, laplacian, tau, c, threshold=threshold)
 
     def meta_c(self, rho, grad_rho, gvectors=None, cell=None):
         """``c`` for this functional: the cell average, the fixed value, or a field.

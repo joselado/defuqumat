@@ -184,3 +184,24 @@ def test_a_topological_invariant_is_refused():
                      calculation=calc.calculation, tau=result.tau)
     with pytest.raises(NotImplementedError, match=f"topological invariant.*local mBJ"):
         source.states(np.zeros((1, 3)))
+
+
+def test_the_local_form_cuts_its_potential_at_1e9_and_tb09_at_1e6():
+    """The gate is the local mBJ's own (the user's choice of 2026-11-18).
+
+    Between 1e-9 and 1e-6 the local form's potential is evaluated, so the
+    vacuum carries no step at 1e-6 (on graphane the vacuum state at ``Gamma``
+    then moves 0.067 eV with the vacuum's size, against 1.53 eV at the old
+    gate); TB09 and BJ06 keep 1e-6, where with one cell-averaged ``c`` the lower
+    gate made the same sheet run away.
+    """
+    from defuqumat.xc.functional import resolve_functional
+
+    rho = jnp.asarray([1e-8, 1e-10])
+    sigma, lap, tau = 4.0 * rho ** 2, 4.0 * rho, 0.5 * rho
+    local = resolve_functional(["PZ"], "lmbj")
+    tb09 = resolve_functional(["PZ"], "tb09")
+    v_local = np.asarray(local.meta_exchange_potential(rho, sigma, lap, tau, 1.0))
+    v_tb09 = np.asarray(tb09.meta_exchange_potential(rho, sigma, lap, tau, 1.0))
+    assert v_local[0] != 0.0 and v_local[1] == 0.0
+    assert np.all(v_tb09 == 0.0)

@@ -168,8 +168,12 @@ _DRIVEN = ("magnetic_field",)
 #: the last iteration's ``integral of B[rho_in] x m_out``, a report of the run,
 #: and a contraction of the output density against the input potential, which a
 #: resumed run recomputes at its first iteration.
+#: ``meta_c_field``, the local mBJ's ``c(r)`` (P182), is dropped as a report of
+#: the same kind: it is a function of the density alone, rebuilt by the first
+#: potential of a resumed run, and its cell mean is carried as ``meta_c``.
 _DROPPED = ("stress", "solver", "history", "site_charges", "site_moments",
-             "site_residuals", "constraint_residual", "orientation_torque")
+            "site_residuals", "constraint_residual", "orientation_torque",
+            "meta_c_field")
 
 #: Reconstructed from what the caller supplies on load. ``system`` comes back
 #: directly; ``hubbard_setup`` is ``Calculation.hubbard``, which

@@ -200,7 +200,7 @@ def torque_of_result(calculation, result, density=None, tau=None) -> ExchangeTor
 
     from defuqumat.xc.functional import refuse_local_meta
 
-    refuse_local_meta(calculation.functional, "the exchange-correlation spin torque")
+    refuse_local_meta(getattr(calculation, "functional", None), "the exchange-correlation spin torque")
     if calculation.functional.is_meta:
         if density is None and tau is None:
             tau = getattr(result, "tau", None)

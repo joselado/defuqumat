@@ -94,6 +94,7 @@ __all__ = [
     "TB09_BETA",
     "BR89_MIN_Q",
     "META_RHO_THRESHOLD",
+    "LMBJ_RHO_THRESHOLD",
     "TAU_FLOOR",
 ]
 
@@ -125,13 +126,26 @@ TB09_BETA = 1.023
 BR89_MIN_Q = 5.0e-13
 
 #: Below this density the meta-GGA exchange potential is set to zero rather
-#: than evaluated. It is the GGA gate of :mod:`defuqumat.xc.functional`
-#: (``rho_threshold_gga``), not the LDA one: every ingredient here is a *ratio*
-#: to a power of the density -- ``x``, ``u`` and ``t`` all divide by
-#: ``rho^(4/3)`` or ``rho^(5/3)`` -- so the low-density region is where this
-#: functional is most sensitive to the Fourier noise of a truncated density,
-#: and it is exactly where a GGA already declines to look.
+#: than evaluated, and the Becke-Roussel solve floors the density at it. It is
+#: the GGA gate of :mod:`defuqumat.xc.functional` (``rho_threshold_gga``), not
+#: the LDA one: every ingredient here is a *ratio* to a power of the density --
+#: ``x``, ``u`` and ``t`` all divide by ``rho^(4/3)`` or ``rho^(5/3)`` -- so the
+#: low-density region is where this functional is most sensitive to the Fourier
+#: noise of a truncated density, and it is exactly where a GGA already declines
+#: to look. The local mBJ takes :data:`LMBJ_RHO_THRESHOLD` instead.
 META_RHO_THRESHOLD = 1.0e-6
+
+#: The local mBJ's gate on the potential (P182, the user's choice of
+#: 2026-11-18): 1e-9 where TB09 and BJ06 keep 1e-6. In an exponential tail the
+#: Becke-Johnson term tends to a positive constant, ``(1/pi) sqrt(5/12) kappa``,
+#: so a cut at 1e-6 leaves a step and a well in the vacuum whose width is the
+#: cell's: on graphane the vacuum state at ``Gamma`` moved 1.53 eV between 15 and
+#: 25 bohr of vacuum, and 0.067 eV at 1e-9 (PBE: 0.21), at 74 SCF iterations
+#: against 11 on the larger cell. **Not for TB09**: with one ``c`` the lower gate
+#: lets more of the tail into the cell average, and on the same sheet TB09's
+#: ``c`` went from 1.456 to 1.555 at 20 bohr and ran away at 30 (2.39, no
+#: convergence in 100 iterations). A bulk crystal has no point below either.
+LMBJ_RHO_THRESHOLD = 1.0e-9
 
 #: ``xc_reduced_floor`` in libxc's ``tb09_f``: what ``tau - alpha tau_W`` is
 #: floored at before its square root is taken. ``alpha = 0`` for TB09 and BJ06,
@@ -241,7 +255,8 @@ def _clamp_q(q_reduced):
     )
 
 
-def becke_roussel_potential_hartree(rho, sigma, laplacian, tau, gamma=BR89_GAMMA):
+def becke_roussel_potential_hartree(rho, sigma, laplacian, tau, gamma=BR89_GAMMA,
+                                    threshold=META_RHO_THRESHOLD):
     """``v_x^BR`` for one spin channel, in **Hartree**.
 
     Args:
@@ -276,7 +291,7 @@ def becke_roussel_potential_hartree(rho, sigma, laplacian, tau, gamma=BR89_GAMMA
     solve never sees the density's dynamic range.
     """
     rho = jnp.asarray(rho)
-    safe_rho = jnp.maximum(rho, META_RHO_THRESHOLD)
+    safe_rho = jnp.maximum(rho, threshold)
     rho_43 = safe_rho ** (4.0 / 3.0)
     rho_53 = safe_rho ** (5.0 / 3.0)
 
@@ -292,7 +307,8 @@ def becke_roussel_potential_hartree(rho, sigma, laplacian, tau, gamma=BR89_GAMMA
     return -2.0 * (jnp.pi * safe_rho) ** (1.0 / 3.0) * jnp.exp(x / 3.0) * bracket
 
 
-def tb09_potential(rho, sigma, laplacian, tau, c, gamma=BR89_GAMMA):
+def tb09_potential(rho, sigma, laplacian, tau, c, gamma=BR89_GAMMA,
+                   threshold=META_RHO_THRESHOLD):
     """``v_x^mBJ`` for one spin channel, in **Rydberg**.
 
         v_x^mBJ = c v_x^BR + (3c - 2)/pi sqrt(5/12) sqrt(2 tau_sigma/rho_sigma)
@@ -317,14 +333,14 @@ def tb09_potential(rho, sigma, laplacian, tau, c, gamma=BR89_GAMMA):
     potential, and a NaN at one vacuum point poisons the whole solve.
     """
     rho = jnp.asarray(rho)
-    active = rho > META_RHO_THRESHOLD
+    active = rho > threshold
     safe_rho = jnp.where(active, rho, 1.0)
     safe_sigma = jnp.where(active, sigma, 0.0)
     safe_laplacian = jnp.where(active, laplacian, 0.0)
     safe_tau = jnp.where(active, tau, 1.0)
 
     v_br = becke_roussel_potential_hartree(
-        safe_rho, safe_sigma, safe_laplacian, safe_tau, gamma
+        safe_rho, safe_sigma, safe_laplacian, safe_tau, gamma, threshold
     )
     kinetic_term = jnp.sqrt(2.0 * jnp.maximum(safe_tau, TAU_FLOOR) / safe_rho)
     v_hartree = c * v_br + (3.0 * c - 2.0) * _BJ_HEG * kinetic_term

@@ -1053,7 +1053,7 @@ def make_residual(calculation, nbnd: int, ethr: float, field=None) -> ScfResidua
     """
     from defuqumat.xc.functional import refuse_local_meta
 
-    refuse_local_meta(calculation.functional,
+    refuse_local_meta(getattr(calculation, "functional", None),
                       "a residual SCF solver (scf_solver other than 'mixing')")
     system = calculation.system
     if field is None:
