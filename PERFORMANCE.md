@@ -11343,6 +11343,17 @@ Si2, Elk 11.0.2 meshes of the converged Perdew-Zunger run (397 radial points, `l
 19 loops at 4.2 s on the same core, so nothing here is worth making faster yet. The pair is the one
 call Elk and this code share; Elk has no counterpart to the density rebuilt from PAW.
 
+## The local mBJ against TB09 (CPU, this workstation, 2026-11-18, P182)
+
+No reference code here implements the local mBJ (QE has no TB09 proper; Elk computes one all-electron `c`; VASP has the local form and is not here), so the pair is against this code's own TB09, which the local form reduces to in a bulk crystal. Silicon `si2-tb09.in` (30 Ry, 6x6x6), one core (`taskset -c 0`, `OMP_NUM_THREADS=1`), each run repeated four times in one process and the first dropped, median of three:
+
+| functional | SCF iterations | seconds per iteration |
+|---|---|---|
+| TB09 | 9 | 1.029 |
+| local mBJ (`'tb09'` set, paper's `sigma` and `rs`) | 9 | 1.042 |
+
+The local form costs 1.3 per cent an iteration: one more transform pair of the dense grid per potential build (the Gaussian average, `basis/gradients.py:gaussian_average`), beside the Laplacian's. Its memory is one more dense-grid array, `c(r)`, carried on the potential and on the result. What does cost is the vacuum: on graphane at 30 bohr the local form's 1e-9 gate takes 74 SCF iterations against 11 at the old 1e-6 gate (P182), the low-density region being where the functional is most sensitive to the Fourier noise of a truncated density.
+
 ## The quantum metric and the localization tensor (CPU, 2026-11-04)
 
 **No reference to time against**: `pw.x` and Elk compute no quantum metric, and Wannier90's

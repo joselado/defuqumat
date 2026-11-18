@@ -205,3 +205,20 @@ def test_the_local_form_cuts_its_potential_at_1e9_and_tb09_at_1e6():
     v_tb09 = np.asarray(tb09.meta_exchange_potential(rho, sigma, lap, tau, 1.0))
     assert v_local[0] != 0.0 and v_local[1] == 0.0
     assert np.all(v_tb09 == 0.0)
+
+
+def test_the_band_structure_route_rebuilds_c_of_r_and_lands_on_the_scf():
+    """Bands at the SCF's own k-points are the SCF's eigenvalues.
+
+    The fixed-density route rebuilds the potential from the density and
+    ``tau`` (``workflows/nscf.py``), so under the local form it rebuilds
+    ``c(r)`` too; a route that fell back to one ``c``, or to none, would read
+    off this by the shift between the two. Six of the eight bands: the SCF does
+    not converge its two highest ones tightly, and they differ by 0.022 Ry
+    under TB09 exactly as under the local form, while the six below agree to
+    1.6e-6 Ry in both (measured 2026-11-18).
+    """
+    calc, result = _converged("lmbj")
+    bands = calc.get_bands(kpoints=calc.system.kpoints)
+    shift = np.abs(np.asarray(bands.eigenvalues) - np.asarray(result.eigenvalues))[:, :6].max()
+    assert shift < 5e-6
