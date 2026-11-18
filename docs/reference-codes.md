@@ -37,8 +37,10 @@ neither code has a reason to implement.
 
 **4. Band gaps from the Tran-Blaha potential, QE (✓).** Quantum ESPRESSO reaches
 it only through libxc (`XClib/dft_setting_routines.f90` maps `tb09` to libxc
-208), and then passes a zero Laplacian and never sets the functional's
-coefficient, so what it runs under that name is a different functional.
+208), and then passes a zero Laplacian, never sets the functional's
+coefficient and adds TPSS correlation (libxc 231). So what it runs under that
+name is a different functional: on silicon its gap is 2.53 eV on the 6x6x6
+mesh, against 1.27 eV for Tran and Blaha's.
 
 **5. Orbital, spin and total angular momentum on each atom, QE (✓).** `lorbm`
 gives the cell's orbital magnetization and nothing per atom; Elk has the site

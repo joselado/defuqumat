@@ -282,6 +282,13 @@ invariant form of Liechtenstein, with $J$. `HUBBARD` card, notebook
   because the total energy is not variational. The topological invariants work
   with it. `input_dft = 'tb09'`, notebook
   [24](notebooks/24_tran_blaha_band_gaps.ipynb).
+- **Band gaps with vacuum, from the local Tran-Blaha potential**. In a slab, a
+  2D material or an interface, one coefficient `c` for the whole cell does not
+  describe the material, because the vacuum enters the average. Here `c` is a
+  field: an average over a Gaussian of 2 Å around each point, and 1 in the
+  vacuum (Rauch, Marques and Botti). In a bulk crystal it gives the same
+  answer as `tb09`. In graphane, `c` is 1.27 inside the sheet for every vacuum
+  size we tried, while `tb09` gives 1.46 for the whole cell. `input_dft = 'lmbj'`.
 - **Tensor moments of the correlated shell**. The occupation matrix is written
   in an orthonormal basis of multipoles. In this basis the charge, the spin
   moment and $\mathbf L\cdot\mathbf S$ are single components. You can fix one of
@@ -807,6 +814,7 @@ task of the other code that it refers to.
 | **Pseudopotentials**: norm-conserving, ultrasoft and PAW | `ATOMIC_SPECIES` | ✓ | |
 | **Functionals**: LDA, PBE, revPBE and PBEsol | `input_dft` | ✓ | ✓ |
 | **Band gaps from the Tran-Blaha potential** | `input_dft = 'tb09'` | (✓)⁴ | ✓ |
+| **Band gaps with vacuum**, the local Tran-Blaha potential | `input_dft = 'lmbj'` | | |
 | **DFT+U**, Dudarev's and Liechtenstein's functionals | `HUBBARD` card | ✓ | ✓ |
 | **Tensor moments of the correlated shell** | `TENSOR_MOMENTS` card | | ✓ |
 | **Around-mean-field double counting** | `hubbard_double_counting = 'amf'` | | ✓ |
