@@ -286,8 +286,8 @@ invariant form of Liechtenstein, with $J$. `HUBBARD` card, notebook
   2D material or an interface, one coefficient `c` for the whole cell does not
   describe the material, because the vacuum enters the average. Here `c` is a
   field: an average over a Gaussian of 2 Å around each point, and 1 in the
-  vacuum (Rauch, Marques and Botti). In a bulk crystal it gives the same
-  answer as `tb09`. In graphane, `c` is 1.27 inside the sheet for every vacuum
+  vacuum (Rauch, Marques and Botti). In a bulk crystal it is close to `tb09`:
+  the silicon gap is 1.263 eV against 1.266 eV. In graphane, `c` is 1.27 inside the sheet for every vacuum
   size we tried, while `tb09` gives 1.46 for the whole cell. `input_dft = 'lmbj'`.
 - **Tensor moments of the correlated shell**. The occupation matrix is written
   in an orthonormal basis of multipoles. In this basis the charge, the spin

@@ -3334,6 +3334,25 @@ class Calculation:
                 "convergence measure reads ns off the end of the packed state, "
                 "which tau now occupies"
             )
+        if self.functional.is_local_meta:
+            # Measured at nspin = 1 and on the unpolarized nspin = 2 identity
+            # only (P182). A spinor run reaches c(r) through the local-frame
+            # rotation or the parity form, a spiral and nosource through their
+            # own branches; none of them has a number with c a field.
+            unmeasured = [
+                name for name, present in (
+                    ("a spinor (noncolin) calculation", bool(getattr(system, "noncolin", False))),
+                    ("a spin spiral", getattr(system, "spiral_q", None) is not None),
+                    ("nosource", bool(getattr(system, "nosource", False))),
+                ) if present
+            ]
+            if unmeasured:
+                raise NotImplementedError(
+                    f"the local mBJ (input_dft = 'lmbj') with {unmeasured[0]} is not "
+                    "implemented: it is measured at nspin = 1 and 2 only, and the "
+                    "spinor, spiral and nosource branches have no number with c a "
+                    "field. input_dft = 'tb09' runs there"
+                )
         if self.functional.is_local_meta and any(p.is_paw for p in self.pseudos):
             # The one-centre terms take one Tran-Blaha c (``Potential.meta_c``),
             # and under the local form that slot holds the cell mean, so a PAW

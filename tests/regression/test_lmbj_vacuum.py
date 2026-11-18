@@ -4,21 +4,25 @@ Graphane (CH, chair) on the HGH datasets at 60 Ry, 6x6x1, at cell heights of 20
 and 30 bohr (about 15 and 25 bohr of vacuum). What the local form is for:
 
 * the sheet's ``c`` does not depend on how much vacuum the cell has (measured
-  1.2705 and 1.2701), where TB09's single ``c`` is the vacuum tail's (1.456);
+  1.2705 and 1.2702), where TB09's single ``c`` is the vacuum tail's (1.456);
 * ``c`` goes to 1 in the vacuum (1.004 at 30 bohr; 1.079 at 20, where the
   vacuum is not much wider than the Gaussian's reach);
-* the occupied bands move rigidly with the vacuum (2.8 meV);
-* the vacuum state at ``Gamma`` moves by about PBE's confinement shift (0.11 eV
-  against PBE's 0.21), which needs the meta potential's gate at 1e-9: at the
+* the occupied bands move rigidly with the vacuum (2.4 meV);
+* the vacuum state at ``Gamma`` moves by about PBE's confinement shift (0.08 eV
+  against PBE's 0.21; ``conv_thr = 1e-11``, since at 1e-9 the 30 bohr cell gave
+  0.067 and 0.106 on the two kinds of core of the workstation), which needs the meta potential's gate at 1e-9: at the
   old 1e-6 it moved 1.53 eV, the cut leaving a well in the vacuum.
 
-Slow (six SCFs of a few minutes each, the 30 bohr local run 81 iterations), and
-run only when asked for.
+Slow (six SCFs of a few minutes each, the 30 bohr local run about 75 iterations),
+and run only when asked for. **Not run when it was written** (2026-11-18): the
+numbers above are from the session's harness, `notes/lmbj/slab.py`. Five cells, so
+the compiled code is cleared after each test and two states are kept.
 """
 
 from functools import lru_cache
 from pathlib import Path
 
+import jax
 import numpy as np
 import pytest
 
@@ -43,7 +47,7 @@ def _text(dft: str, height: float) -> str:
  ecutwfc=60.0, nbnd=8{dft_line}
 /
 &electrons
- conv_thr=1.0d-9, mixing_beta=0.4, electron_maxstep=200
+ conv_thr=1.0d-11, mixing_beta=0.4, electron_maxstep=300
 /
 ATOMIC_SPECIES
  C 12.011 C.pbe-hgh.UPF
@@ -58,7 +62,13 @@ K_POINTS automatic
 """
 
 
-@lru_cache(maxsize=None)
+@pytest.fixture(autouse=True)
+def _clear_compiled_code():
+    yield
+    jax.clear_caches()
+
+
+@lru_cache(maxsize=2)
 def _run(dft: str, height: float):
     calc = Calculator.from_text(_text(dft, height), pseudo_dir=PSEUDO, announce=False)
     result = calc.get_scf()
@@ -71,12 +81,12 @@ def _bands(result):
 
 
 def test_the_sheets_c_does_not_depend_on_the_vacuum_and_the_vacuums_is_one():
-    short, tall = _run("lmbj", 20.0), _run("lmbj", 30.0)
-    profile_short = np.asarray(short.meta_c_field).mean(axis=(0, 1))
-    profile_tall = np.asarray(tall.meta_c_field).mean(axis=(0, 1))
+    profile_short = np.asarray(_run("lmbj", 20.0).meta_c_field).mean(axis=(0, 1))
+    profile_tall = np.asarray(_run("lmbj", 30.0).meta_c_field).mean(axis=(0, 1))
     assert abs(profile_short[0] - profile_tall[0]) < 1e-3
     assert abs(profile_tall[len(profile_tall) // 2] - 1.0) < 1e-2
-    # and it is not TB09's single c, which the vacuum tail sets
+    # and it is not TB09's single c, which the vacuum tail sets (one cell more,
+    # taken after the two above are read, so the cache of two holds)
     assert _run("tb09", 30.0).meta_c - profile_tall[0] > 0.1
 
 

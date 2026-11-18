@@ -142,6 +142,18 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   regimes agree — at the price that an iteration count against `pw.x` for an **LSDA** meta
   run is not like-for-like. Energy-carrying meta-GGAs (TPSS, SCAN,
   M06L) are **not** in — their potential has a `dE/dtau` piece acting on the wavefunction.
+- **The local mBJ** (P182, `input_dft = 'lmbj'`): Rauch, Marques and Botti's `c(r)`, a
+  Gaussian average (3.78 bohr, one FFT pair) of `|grad n|/n` blended to the value giving
+  `c = 1` below `n_th` (`rs = 5` bohr). Two rules bind it. **`c` is a field and `meta_c` is
+  its cell mean**: `Potential.meta_c_field` and `SCFResult.meta_c_field` carry it, and
+  anything that needs `c` per point reads the field, never the mean (the PAW one-centre
+  terms take one `c`, so PAW is refused). **The potential's gate is 1e-9 under `lmbj` and
+  1e-6 under `tb09`/`bj06`** (`mgga.LMBJ_RHO_THRESHOLD`, the user's choices of 2026-11-18):
+  the Becke-Johnson term tends to a positive constant in a vacuum tail, so a cut at 1e-6 left
+  a well in the vacuum, while the lower gate makes TB09's one-number average run away on a
+  sheet. Parameter sets `'tb09'` (default; its bulk limit is TB09, an identity to 2.4e-14 Ry)
+  and `'koller'` (the paper's). Refused: PAW, spinors, spirals, `nosource`, `mbj_c`, and every
+  regime lifted for TB09 with one `c` (`xc/functional.py:refuse_local_meta`).
 - **Van der Waals** (P27): Grimme's **D2** only, as a pair sum over the nuclei outside
   `v_of_rho`. The other four are **refused by name**, where QE's `set_vdw_corr` warns and
   silently runs with no correction at all — D3's `C6` has a coordination derivative of its

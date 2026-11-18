@@ -11352,7 +11352,7 @@ No reference code here implements the local mBJ (QE has no TB09 proper; Elk comp
 | TB09 | 9 | 1.029 |
 | local mBJ (`'tb09'` set, paper's `sigma` and `rs`) | 9 | 1.042 |
 
-The local form costs 1.3 per cent an iteration: one more transform pair of the dense grid per potential build (the Gaussian average, `basis/gradients.py:gaussian_average`), beside the Laplacian's. Its memory is one more dense-grid array, `c(r)`, carried on the potential and on the result. What does cost is the vacuum: on graphane at 30 bohr the local form's 1e-9 gate takes 74 SCF iterations against 11 at the old 1e-6 gate (P182), the low-density region being where the functional is most sensitive to the Fourier noise of a truncated density.
+The local form costs 1.3 per cent an iteration: one more transform pair of the dense grid per potential build (the Gaussian average, `basis/gradients.py:gaussian_average`), beside the Laplacian's. Its memory is one more dense-grid array, `c(r)`, carried on the potential and on the result. What does cost is the vacuum: on graphane at 30 bohr the local form's 1e-9 gate takes 66 to 81 SCF iterations against 11 at the old 1e-6 gate (P182), the low-density region being where the functional is most sensitive to the Fourier noise of a truncated density.
 
 ## The quantum metric and the localization tensor (CPU, 2026-11-04)
 

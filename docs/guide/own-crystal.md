@@ -296,6 +296,10 @@ Before we trust the numbers of a new crystal, we check four things.
     kinetic energy density inside the spheres, and you use a PAW or
     norm-conserving one instead. They also give an error with a spin spiral and
     with DFT+U (a `HUBBARD` card).
+    `lmbj`, the local form of `tb09` for cells with vacuum, gives an error with a
+    PAW dataset as well, because the PAW spheres take one `c` and here `c` is a
+    field. So with `lmbj` you use a norm-conserving dataset. It also gives an
+    error for spinors, spin spirals and `nosource`, which are not checked.
     With `tb09` or `bj06` the code warns that the total energy is not the
     energy of any functional, and forces, stress, phonons and the responses give
     an error.

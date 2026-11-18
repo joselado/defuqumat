@@ -191,7 +191,7 @@ def test_the_local_form_cuts_its_potential_at_1e9_and_tb09_at_1e6():
 
     Between 1e-9 and 1e-6 the local form's potential is evaluated, so the
     vacuum carries no step at 1e-6 (on graphane the vacuum state at ``Gamma``
-    then moves 0.067 eV with the vacuum's size, against 1.53 eV at the old
+    then moves 0.08 eV with the vacuum's size, against 1.53 eV at the old
     gate); TB09 and BJ06 keep 1e-6, where with one cell-averaged ``c`` the lower
     gate made the same sheet run away.
     """
@@ -222,3 +222,27 @@ def test_the_band_structure_route_rebuilds_c_of_r_and_lands_on_the_scf():
     bands = calc.get_bands(kpoints=calc.system.kpoints)
     shift = np.abs(np.asarray(bands.eigenvalues) - np.asarray(result.eigenvalues))[:, :6].max()
     assert shift < 5e-6
+
+
+def test_an_unpolarized_two_channel_run_is_the_one_channel_run():
+    """``nspin = 2`` with no moment is ``nspin = 1``: ``c(r)`` is the total's.
+
+    ``test_mbj.py``'s identity for TB09, under the local form: the Gaussian
+    average is of the total density's ratio, so the two regimes must build the
+    same field and the same eigenvalues.
+    """
+    smearing = ", occupations='smearing', smearing='gaussian', degauss=0.02"
+    _, one = _converged("lmbj", smearing)
+    _, two = _converged("lmbj", smearing + ", nspin=2, starting_magnetization(1)=0.0")
+    assert np.abs(np.asarray(two.meta_c_field) - np.asarray(one.meta_c_field)).max() < 1e-10
+    for channel in np.asarray(two.eigenvalues):
+        assert np.abs(channel - np.asarray(one.eigenvalues)).max() < 1e-9
+
+
+@pytest.mark.parametrize("extra, words", [
+    (", noncolin=.true.", "spinor"),
+    (", nosource=.true., noncolin=.true.", "spinor"),
+])
+def test_the_unmeasured_magnetic_regimes_are_refused(extra, words):
+    with pytest.raises(NotImplementedError, match=f"local mBJ.*{words}"):
+        _calculator("lmbj", extra).calculation

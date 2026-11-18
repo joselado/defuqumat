@@ -140,8 +140,8 @@ META_RHO_THRESHOLD = 1.0e-6
 #: Becke-Johnson term tends to a positive constant, ``(1/pi) sqrt(5/12) kappa``,
 #: so a cut at 1e-6 leaves a step and a well in the vacuum whose width is the
 #: cell's: on graphane the vacuum state at ``Gamma`` moved 1.53 eV between 15 and
-#: 25 bohr of vacuum, and 0.067 eV at 1e-9 (PBE: 0.21), at 74 SCF iterations
-#: against 11 on the larger cell. **Not for TB09**: with one ``c`` the lower gate
+#: 25 bohr of vacuum, and 0.08 eV at 1e-9 (PBE: 0.21; ``conv_thr = 1e-11``),
+#: at 66 to 81 SCF iterations against 11 on the larger cell. **Not for TB09**: with one ``c`` the lower gate
 #: lets more of the tail into the cell average, and on the same sheet TB09's
 #: ``c`` went from 1.456 to 1.555 at 20 bohr and ran away at 30 (2.39, no
 #: convergence in 100 iterations). A bulk crystal has no point below either.
