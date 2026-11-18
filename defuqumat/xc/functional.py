@@ -215,10 +215,12 @@ FUNCTIONALS: dict[str, tuple[str, str, str, str]] = {
 #: fixed Tran-Blaha coefficient ``c``, or ``None`` where ``c`` is a cell average
 #: of the density and therefore cannot be a constant.
 #:
-#: ``BJ06`` is listed for a reason beyond completeness: it is what ``pw.x``
-#: actually runs when asked for ``tb09``. QE hands libxc its default parameter
-#: list and libxc's default is ``c = 1``, so QE's Tran-Blaha is Becke-Johnson.
-#: Having both here makes that difference measurable rather than a footnote.
+#: ``BJ06`` is ``c = 1`` with the Laplacian. It is **not** what ``pw.x`` runs
+#: when asked for ``tb09``, which this comment said until 2026-11-18: QE hands
+#: libxc its default parameter list (``c = 1``), a Laplacian of zero at every
+#: point (``xc_wrapper_mgga.f90``), and pairs the exchange with TPSS
+#: correlation (``imetac = 231``), so it is neither TB09 nor BJ06. On P30's
+#: silicon cell its mesh gap is 2.53 eV against TB09's 1.27 and BJ06's 1.15.
 META: dict[str, float | None] = {
     "TB09": None,
     "BJ06": 1.0,

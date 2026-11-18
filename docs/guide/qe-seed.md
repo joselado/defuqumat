@@ -195,7 +195,8 @@ density (`startingpot='file'`).
     cannot be written, because `pw.x` has none. The HDF5 form is never written.
     A meta-GGA restart was checked with a `pw.x` 7.2 built with libxc. It reads
     our `ekin-density.dat` correctly. But `input_dft = 'tb09'` in `pw.x` calls
-    libxc with no Laplacian and with `c = 1`, so it is not our TB09. The two
+    libxc with no Laplacian and with `c = 1`, and it adds TPSS correlation.
+    So it is not our TB09, which uses LDA correlation. The two
     codes then converge to different states, and `pw.x` needs 7 to 13
     iterations from ours.
     The same holds for a noncollinear GGA run. Our default there is

@@ -691,7 +691,8 @@ def _warn_another_functional(calculation) -> None:
     if name in ("TB09", "BJ06"):
         warnings.warn(
             f"this is a {name} state, and pw.x's input_dft = 'tb09' calls libxc "
-            "with a zero Laplacian and c = 1, which is neither this code's TB09 "
+            "with a zero Laplacian and c = 1 and adds TPSS correlation, which is "
+            "neither this code's TB09 "
             "nor its BJ06: pw.x reads ekin-density correctly but converges to "
             "another state, 7 and 13 iterations from this one on Si2 at nspin = "
             "1 and 2.",
