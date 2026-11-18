@@ -659,6 +659,40 @@ def _pack_ns(ns, calculation) -> np.ndarray:
     return np.swapaxes(out, -1, -2)
 
 
+def _warn_another_functional(calculation) -> None:
+    """Warn when the state written is the fixed point of a functional ``pw.x`` does not run.
+
+    The file is read correctly either way; what changes is that ``pw.x``
+    takes it as a nearby start rather than as its own converged state. Measured
+    on Triton with ``pw.x`` 7.2 (P180, 2026-11-18): ``fe-kind1-noncol`` under
+    ``'grad_m'`` restarts in 15 iterations from 1.0e-4 Ry and under
+    ``'kubler'`` in 1 from 6.8e-11; ``si2-tb09`` in 7 and ``si2-tb09-lsda``
+    in 13, because ``pw.x``'s ``tb09`` calls libxc with a zero Laplacian and
+    ``c = 1`` (P30).
+    """
+    import warnings
+
+    if getattr(calculation, "noncollinear_gga", "kubler") == "grad_m":
+        warnings.warn(
+            "this state was converged under noncollinear_gga = 'grad_m', and pw.x "
+            "runs 'kubler', another functional: pw.x reads the file but starts "
+            "from it as from a nearby density (15 iterations against 1 on "
+            "Fe with DFT+U and spin-orbit coupling). Converge under "
+            "noncollinear_gga = 'kubler' for a state pw.x takes as its own.",
+            stacklevel=3,
+        )
+    name = str(getattr(calculation.functional, "meta", "") or "").upper()
+    if name in ("TB09", "BJ06"):
+        warnings.warn(
+            f"this is a {name} state, and pw.x's input_dft = 'tb09' calls libxc "
+            "with a zero Laplacian and c = 1, which is neither this code's TB09 "
+            "nor its BJ06: pw.x reads ekin-density correctly but converges to "
+            "another state, 7 and 13 iterations from this one on Si2 at nspin = "
+            "1 and 2.",
+            stacklevel=3,
+        )
+
+
 def write_qe_save(directory, result, calculation, *, gamma_only: bool | None = None) -> Path:
     """Write a converged defuqumat state as a ``pw.x`` save directory.
 
@@ -689,6 +723,7 @@ def write_qe_save(directory, result, calculation, *, gamma_only: bool | None = N
             "a spin spiral has no pw.x counterpart, so there is no pw.x run that "
             "could read its density"
         )
+    _warn_another_functional(calculation)
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     # The K_POINTS gamma card, which is what pw.x follows; not

@@ -35,7 +35,8 @@ pw.x -in si.in > si.out
 `pw.x` converges in 8 iterations, at a total energy of -89.27293945 Ry, and leaves
 its state in the folder `out/pwscf.save`. The density is in `charge-density.dat`,
 or in `charge-density.hdf5` if `pw.x` was compiled with HDF5. The code reads
-both, but we have only tested the first, because our `pw.x` has no HDF5. The folder
+both. Reading the HDF5 file needs the Python package `h5py`. We tested it on a
+nickel run with spin-orbit coupling, from a `pw.x` 7.5 built with HDF5. The folder
 `tests/data/qe/save/si-paw-444` of the repository is the one this run wrote, so you
 can try the next step without `pw.x`.
 
@@ -192,7 +193,16 @@ density (`startingpot='file'`).
     `projwfc.x` and an `nscf` run of `pw.x` cannot read it. Run the short restart
     first, and `pw.x` then writes its own full folder for them. A spin spiral
     cannot be written, because `pw.x` has none. The HDF5 form is never written.
-    We could not check a meta-GGA restart, because our `pw.x` has no libxc.
+    A meta-GGA restart was checked with a `pw.x` 7.2 built with libxc. It reads
+    our `ekin-density.dat` correctly. But `input_dft = 'tb09'` in `pw.x` calls
+    libxc with no Laplacian and with `c = 1`, so it is not our TB09. The two
+    codes then converge to different states, and `pw.x` needs 7 to 13
+    iterations from ours.
+    The same holds for a noncollinear GGA run. Our default there is
+    `noncollinear_gga = 'grad_m'`, and `pw.x` uses `'kubler'`. So set
+    `noncollinear_gga = 'kubler'` in `&system` for the SCF whose state you write.
+    On iron with DFT+U and spin-orbit coupling, `pw.x` then restarts in one
+    iteration, and in 15 from the `'grad_m'` state.
 
     The density can only start an SCF. There is no route that computes bands or a
     density of states from it with no SCF at all. With the same input this costs one

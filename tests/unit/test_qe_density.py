@@ -368,3 +368,36 @@ def test_a_spin_spiral_is_not_written(tmp_path):
     calc = Calculator.from_file(data / "h-chain-spiral.in", pseudo_dir=PSEUDO)
     with pytest.raises(NotImplementedError, match="spiral"):
         write_qe_save(tmp_path, None, calc.calculation)
+
+
+@pytest.mark.parametrize("gga, meta, words", [
+    ("grad_m", None, "noncollinear_gga = 'grad_m'"),
+    ("kubler", "TB09", "zero Laplacian"),
+    ("kubler", "BJ06", "zero Laplacian"),
+    ("kubler", None, None),
+])
+def test_a_state_of_a_functional_pw_x_does_not_run_is_written_with_a_warning(gga, meta, words):
+    """``pw.x`` reads such a file, but as a start, not as its converged state.
+
+    On Triton with ``pw.x`` 7.2 (P180): Fe with DFT+U and spin-orbit coupling
+    restarts in 15 iterations from a ``'grad_m'`` state and in 1 from a
+    ``'kubler'`` one; ``pw.x``'s ``tb09`` is neither TB09 nor BJ06 (P30). The
+    real calculation is checked too, so the guard reads the attribute a
+    noncollinear GGA run actually resolves rather than one that is never set.
+    """
+    import warnings
+    from types import SimpleNamespace
+    from defuqumat.io.qe_density import _warn_another_functional
+
+    calculation = SimpleNamespace(noncollinear_gga=gga, functional=SimpleNamespace(meta=meta))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        _warn_another_functional(calculation)
+    messages = [str(w.message) for w in caught]
+    if words is None:
+        assert messages == []
+    else:
+        assert len(messages) == 1 and words in messages[0]
+    data = Path(__file__).resolve().parents[1] / "data" / "qe"
+    real = Calculator.from_file(data / "fe-kind1-noncol.in", pseudo_dir=PSEUDO).calculation
+    assert real.noncollinear_gga == "grad_m"
