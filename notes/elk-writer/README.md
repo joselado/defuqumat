@@ -31,3 +31,6 @@ The runs of the end-to-end tables (P181, "End to end, with the potential on file
 The template of each run is Elk's initial state (task 9006) with the converged run's `INFO.OUT`,
 `GEOMETRY.OUT` and `elk.in`. The scripts carry the scratch paths of the session in their command
 lines only; the inputs they need are here.
+- `write_al.py <template> <out>`: Al fcc under PBE with a Gaussian smearing, a metal; the Elk input
+  of the reference and the template is `runs/al-pbe.elk.in` (the template with `maxscl 1` and
+  `nwrite 1` added).
