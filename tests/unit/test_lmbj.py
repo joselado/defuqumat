@@ -190,9 +190,9 @@ def test_the_local_form_cuts_its_potential_at_1e9_and_tb09_at_1e6():
     """The gate is the local mBJ's own (the user's choice of 2026-11-18).
 
     Between 1e-9 and 1e-6 the local form's potential is evaluated, so the
-    vacuum carries no step at 1e-6 (on graphane the vacuum state at ``Gamma``
-    then moves 0.08 eV with the vacuum's size, against 1.53 eV at the old
-    gate); TB09 and BJ06 keep 1e-6, where with one cell-averaged ``c`` the lower
+    vacuum carries no step at 1e-6 (at the old gate graphane's vacuum state at
+    ``Gamma`` moved 1.53 eV with the vacuum's size); in a cell the hold below
+    1e-5 then replaces it there. TB09 and BJ06 keep 1e-6, where with one cell-averaged ``c`` the lower
     gate made the same sheet run away.
     """
     from defuqumat.xc.functional import resolve_functional
@@ -246,3 +246,26 @@ def test_an_unpolarized_two_channel_run_is_the_one_channel_run():
 def test_the_unmeasured_magnetic_regimes_are_refused(extra, words):
     with pytest.raises(NotImplementedError, match=f"local mBJ.*{words}"):
         _calculator("lmbj", extra).calculation
+
+
+def test_the_vacuum_potential_is_held_at_the_clean_tails_value():
+    """Below ``n = 1e-5`` the potential becomes its mean over ``1e-5 < n < 1e-4``.
+
+    The vacuum check (P182): evaluated on the plane-wave density's noise floor
+    the vacuum potential sat 3.3 Ry above PBE's and noisy, where the
+    Becke-Johnson asymptote is 0.33 Ry; held, it is flat at 0.28. Matter is
+    untouched, and a cell with no point in the shell keeps its potential.
+    """
+    from defuqumat.xc.mgga import LMBJ_RHO_HOLD, hold_vacuum_potential
+
+    rho = jnp.asarray([1e-1, 3e-5, 5e-5, 1e-8, -1e-9])
+    v = jnp.asarray([[0.7, 0.30, 0.34, 3.3, 9.0]])
+    held = np.asarray(hold_vacuum_potential(v, rho))[0]
+    tail = 0.5 * (0.30 + 0.34)
+    assert held[0] == pytest.approx(0.7, abs=1e-12)           # matter
+    assert held[3] == pytest.approx(tail, abs=1e-6)          # noise floor
+    assert held[4] == pytest.approx(tail, abs=1e-12)         # negative noise
+    assert 0.30 < held[1] < 0.34                             # the switch
+    bulk = jnp.asarray([1e-1, 2e-2, 6e-4])
+    assert np.array_equal(np.asarray(hold_vacuum_potential(v[:, :3], bulk)), np.asarray(v[:, :3]))
+    assert LMBJ_RHO_HOLD == 1e-5

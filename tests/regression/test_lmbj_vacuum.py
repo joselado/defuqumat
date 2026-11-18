@@ -4,16 +4,16 @@ Graphane (CH, chair) on the HGH datasets at 60 Ry, 6x6x1, at cell heights of 20
 and 30 bohr (about 15 and 25 bohr of vacuum). What the local form is for:
 
 * the sheet's ``c`` does not depend on how much vacuum the cell has (measured
-  1.2705 and 1.2702), where TB09's single ``c`` is the vacuum tail's (1.456);
+  1.2701 and 1.2699), where TB09's single ``c`` is the vacuum tail's (1.456);
 * ``c`` goes to 1 in the vacuum (1.004 at 30 bohr; 1.079 at 20, where the
   vacuum is not much wider than the Gaussian's reach);
-* the occupied bands move rigidly with the vacuum (2.4 meV);
-* the vacuum state at ``Gamma`` moves by about PBE's confinement shift (0.08 eV
-  against PBE's 0.21; ``conv_thr = 1e-11``, since at 1e-9 the 30 bohr cell gave
-  0.067 and 0.106 on the two kinds of core of the workstation), which needs the meta potential's gate at 1e-9: at the
-  old 1e-6 it moved 1.53 eV, the cut leaving a well in the vacuum.
+* the occupied bands move rigidly with the vacuum (2.2 meV);
+* the vacuum state at ``Gamma`` moves by about PBE's confinement shift (0.104 eV
+  against PBE's 0.21), and the vacuum potential is flat (0.0028 Ry along ``z``
+  at 30 bohr), which needs the hold below ``n = 1e-5``: cut at 1e-6 the vacuum
+  had a well (1.53 eV), evaluated down to 1e-9 a 3.3 Ry noise barrier.
 
-Slow (six SCFs of a few minutes each, the 30 bohr local run about 75 iterations),
+Slow (six SCFs of a few minutes each, 14 iterations for the local runs),
 and run only when asked for. **Not run when it was written** (2026-11-18): the
 numbers above are from the session's harness, `notes/lmbj/slab.py`. Five cells, so
 the compiled code is cleared after each test and two states are kept.
@@ -85,6 +85,11 @@ def test_the_sheets_c_does_not_depend_on_the_vacuum_and_the_vacuums_is_one():
     profile_tall = np.asarray(_run("lmbj", 30.0).meta_c_field).mean(axis=(0, 1))
     assert abs(profile_short[0] - profile_tall[0]) < 1e-3
     assert abs(profile_tall[len(profile_tall) // 2] - 1.0) < 1e-2
+    # the vacuum potential is flat: held at the clean tail's value
+    potential = np.asarray(_run("lmbj", 30.0).potential)[0].mean(axis=(0, 1))
+    z = np.arange(potential.size) * 30.0 / potential.size
+    vacuum = (z > 9.0) & (z < 15.0)
+    assert np.ptp(potential[vacuum]) < 1e-2
     # and it is not TB09's single c, which the vacuum tail sets (one cell more,
     # taken after the two above are read, so the cache of two holds)
     assert _run("tb09", 30.0).meta_c - profile_tall[0] > 0.1

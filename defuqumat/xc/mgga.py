@@ -85,6 +85,8 @@ __all__ = [
     "lmbj_integrand",
     "lmbj_coefficient_from_average",
     "lmbj_vacuum_g",
+    "hold_vacuum_potential",
+    "LMBJ_RHO_HOLD",
     "LMBJ_PARAMETERS",
     "LMBJ_SIGMA",
     "LMBJ_RS_THRESHOLD",
@@ -135,16 +137,18 @@ BR89_MIN_Q = 5.0e-13
 #: to look. The local mBJ takes :data:`LMBJ_RHO_THRESHOLD` instead.
 META_RHO_THRESHOLD = 1.0e-6
 
-#: The local mBJ's gate on the potential (P182, the user's choice of
-#: 2026-11-18): 1e-9 where TB09 and BJ06 keep 1e-6. In an exponential tail the
-#: Becke-Johnson term tends to a positive constant, ``(1/pi) sqrt(5/12) kappa``,
-#: so a cut at 1e-6 leaves a step and a well in the vacuum whose width is the
-#: cell's: on graphane the vacuum state at ``Gamma`` moved 1.53 eV between 15 and
-#: 25 bohr of vacuum, and 0.08 eV at 1e-9 (PBE: 0.21; ``conv_thr = 1e-11``),
-#: at 66 to 81 SCF iterations against 11 on the larger cell. **Not for TB09**: with one ``c`` the lower gate
-#: lets more of the tail into the cell average, and on the same sheet TB09's
-#: ``c`` went from 1.456 to 1.555 at 20 bohr and ran away at 30 (2.39, no
-#: convergence in 100 iterations). A bulk crystal has no point below either.
+#: The local mBJ's gate on the potential, 1e-9 where TB09 and BJ06 keep 1e-6
+#: (P182, the user's choice of 2026-11-18). It sits beneath
+#: :func:`hold_vacuum_potential`, which replaces the potential below 1e-5 by the
+#: clean tail's value, so in a cell with vacuum it no longer decides anything.
+#: The history, for whoever is tempted to move it: cut at 1e-6, the vacuum had a
+#: well (the Becke-Johnson term tends to a positive constant in a tail, and the
+#: cut dropped it to zero), and graphane's vacuum state at ``Gamma`` moved 1.53 eV
+#: between 15 and 25 bohr of vacuum; evaluated down to 1e-9, the potential sat on
+#: the density's noise floor, a 3.3 Ry barrier that only looked stable. **Not for
+#: TB09**: with one ``c`` the lower gate lets more of the tail into the cell
+#: average, and on the same sheet TB09's ``c`` went from 1.456 to 1.555 at 20 bohr
+#: and ran away at 30 (2.39, no convergence in 100 iterations).
 LMBJ_RHO_THRESHOLD = 1.0e-9
 
 #: ``xc_reduced_floor`` in libxc's ``tb09_f``: what ``tau - alpha tau_W`` is
@@ -431,6 +435,47 @@ LMBJ_SIGMA = 3.78
 #: the grid lies below it and on diamond (HGH) 1.4e-4, so it acts in the vacuum
 #: and at a surface, not inside these crystals.
 LMBJ_RS_THRESHOLD = 5.0
+
+
+#: Where the local mBJ's potential stops being evaluated and is held at the
+#: vacuum tail's value (P182, the user's choice of 2026-11-18, after the vacuum
+#: check). A plane-wave density is an exponential tail only down to a noise
+#: floor (1.6e-8 to 6.6e-8 in graphane's vacuum), and below it ``tau/n`` and
+#: ``|grad n|/n`` are noise: evaluated there the vacuum potential sat 3.3 Ry
+#: above PBE's, noisy, where the Becke-Johnson asymptote is
+#: ``(1/pi) sqrt(5/12) kappa`` = 0.33 Ry. Held at its mean over the shell
+#: ``LMBJ_RHO_HOLD < n < 10 LMBJ_RHO_HOLD``, where the tail is clean, the vacuum
+#: is flat; the switch is an erf in ``ln n`` about a decade wide.
+LMBJ_RHO_HOLD = 1.0e-5
+LMBJ_HOLD_WIDTH = 0.5 * 2.302585092994046  # ln(10)/2: the switch spans about a decade
+
+
+def hold_vacuum_potential(v, total_rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH):
+    """The meta potential blended into its clean-tail value where the density is low.
+
+    Args:
+        v: ``(nspin, ...)``, the channel potentials.
+        total_rho: the total density on the same grid.
+
+        w(n) = [1 + erf(ln(n / rho_hold) / width)] / 2,   v_out = w v + (1 - w) v_tail,
+
+    ``v_tail`` per channel the mean of ``v`` over ``rho_hold < n < 10 rho_hold``.
+    ``w = 0`` where the density is not positive. A cell with no point in that
+    shell (a bulk crystal) keeps ``v`` as it is; it has no point below
+    ``rho_hold`` either, where ``w`` would act.
+    """
+    v = jnp.asarray(v)
+    total_rho = jnp.asarray(total_rho)
+    positive = total_rho > 0.0
+    log_ratio = jnp.log(jnp.where(positive, total_rho, rho_hold) / rho_hold)
+    weight = jnp.where(positive, 0.5 * (1.0 + jax.scipy.special.erf(log_ratio / width)), 0.0)
+    shell = (total_rho > rho_hold) & (total_rho < 10.0 * rho_hold)
+    count = jnp.sum(shell)
+    axes = tuple(range(1, v.ndim))
+    v_tail = jnp.sum(jnp.where(shell[None], v, 0.0), axis=axes) / jnp.maximum(count, 1)
+    v_tail = v_tail.reshape((-1,) + (1,) * (v.ndim - 1))
+    held = weight[None] * v + (1.0 - weight[None]) * v_tail
+    return jnp.where(count > 0, held, v)
 
 
 def lmbj_vacuum_g(alpha: float, beta: float, exponent: float) -> float:

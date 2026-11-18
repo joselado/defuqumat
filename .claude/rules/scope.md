@@ -147,11 +147,12 @@ in the "Limits" notes of the user guide, `docs/guide/*.md`.
   `c = 1` below `n_th` (`rs = 5` bohr). Two rules bind it. **`c` is a field and `meta_c` is
   its cell mean**: `Potential.meta_c_field` and `SCFResult.meta_c_field` carry it, and
   anything that needs `c` per point reads the field, never the mean (the PAW one-centre
-  terms take one `c`, so PAW is refused). **The potential's gate is 1e-9 under `lmbj` and
-  1e-6 under `tb09`/`bj06`** (`mgga.LMBJ_RHO_THRESHOLD`, the user's choices of 2026-11-18):
-  the Becke-Johnson term tends to a positive constant in a vacuum tail, so a cut at 1e-6 left
-  a well in the vacuum, while the lower gate makes TB09's one-number average run away on a
-  sheet. Parameter sets `'tb09'` (default; its bulk limit is TB09, an identity to 2.4e-14 Ry)
+  terms take one `c`, so PAW is refused). **Below `n` = 1e-5 the potential is held at the
+  clean tail's value** (`mgga.hold_vacuum_potential`, the user's choice of 2026-11-18): a
+  plane-wave density is a tail only down to a noise floor (about 1e-8), and the Becke-Johnson
+  term tends to a positive constant there, so a cut at 1e-6 left a well and an evaluation down
+  to 1e-9 a 3.3 Ry noise barrier; held, the vacuum is flat at the asymptote. `tb09`/`bj06`
+  keep their 1e-6 cut, since a lower one made TB09's one-number average run away on a sheet. Parameter sets `'tb09'` (default; its bulk limit is TB09, an identity to 2.4e-14 Ry)
   and `'koller'` (the paper's). Refused: PAW, spinors, spirals, `nosource`, `mbj_c`, and every
   regime lifted for TB09 with one `c` (`xc/functional.py:refuse_local_meta`).
 - **Van der Waals** (P27): Grimme's **D2** only, as a pair sum over the nuclei outside
