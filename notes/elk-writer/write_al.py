@@ -1,7 +1,9 @@
 """Al fcc under PBE with a Gaussian smearing, a metal: the PAW all-electron state for Elk.
 
-usage: python3 write_al.py <template> <out>   (template: runs/al-pbe.elk.in run
-with maxscl 1 and nwrite 1, so that Elk writes STATE.OUT after one loop)
+usage: python3 write_al.py <template> <out> [pz]   (template: runs/al-pbe.elk.in,
+or runs/al-pz.elk.in with the third argument, run with maxscl 1 and nwrite 1, so
+that Elk writes STATE.OUT after one loop). With `pz` the PBE dataset runs under
+PZ, which defuqumat warns about; Elk needs only the functional.
 """
 import sys, shutil, time
 from pathlib import Path
@@ -9,12 +11,13 @@ REPO = Path(__file__).resolve().parents[2]; sys.path.insert(0, str(REPO))
 from defuqumat import Calculator
 from defuqumat.io.elk_allelectron import write_elk_state_from
 ecut = 30.0
+xc = f", input_dft='{sys.argv[3]}'" if len(sys.argv) > 3 else ""
 text = f"""&control
  calculation='scf'
 /
 &system
  ibrav=0, nat=1, ntyp=1, ecutwfc={ecut}, ecutrho={8*ecut},
- occupations='smearing', smearing='gaussian', degauss=0.01
+ occupations='smearing', smearing='gaussian', degauss=0.01{xc}
 /
 &electrons
  conv_thr=1d-11
