@@ -3,8 +3,8 @@
 │ Elk code version 11.0.2 │
 └─────────────────────────┘
 
-Date (YYYY-MM-DD) : 2026-11-17
-Time (hh:mm:ss)   : 22:24:33
+Date (YYYY-MM-DD) : 2026-11-18
+Time (hh:mm:ss)   : 07:06:54
 
 All units are atomic (Hartree, Bohr, etc.)
 
@@ -161,9 +161,9 @@ Wrote STATE.OUT
 └──────────────────────────────┘
 
 Timings (CPU seconds) :
- initialisation                        :         0.27
+ initialisation                        :         0.26
  Hamiltonian and overlap matrix set up :         0.01
- first-variational eigenvalue equation :         0.05
- charge density calculation            :         0.00
+ first-variational eigenvalue equation :         0.02
+ charge density calculation            :         0.01
  potential calculation                 :         0.01
- total                                 :         0.34
+ total                                 :         0.31

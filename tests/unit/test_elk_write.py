@@ -23,7 +23,7 @@ RUNS = sorted(p.name for p in ELK.iterdir() if (p / "STATE.OUT").exists())
 
 @pytest.mark.parametrize("name", RUNS)
 def test_a_state_read_and_written_is_elk_own_file(name, tmp_path):
-    state = ElkState.read(ELK / name)
+    state = ElkState.read(ELK / name, allow_noncollinear=True)
     path = write_elk_state(tmp_path / "STATE.OUT", state)
     assert path.read_bytes() == (ELK / name / "STATE.OUT").read_bytes()
 
@@ -45,4 +45,16 @@ def test_a_fixed_spin_moment_state_is_refused(tmp_path):
 
     state = dataclasses.replace(ElkState.read(ELK / "h_sc"), fsmtype=1)
     with pytest.raises(NotImplementedError, match="fixed spin moment"):
+        write_elk_state(tmp_path / "STATE.OUT", state)
+
+
+@pytest.mark.parametrize("change, words", [
+    ({"xcgrad": 3}, "meta-GGA"),
+    ({"ftmtype": 1}, "tensor moment"),
+])
+def test_records_this_state_does_not_hold_are_refused(change, words, tmp_path):
+    import dataclasses
+
+    state = dataclasses.replace(ElkState.read(ELK / "h_sc"), **change)
+    with pytest.raises(NotImplementedError, match=words):
         write_elk_state(tmp_path / "STATE.OUT", state)

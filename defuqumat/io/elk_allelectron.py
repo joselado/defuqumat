@@ -341,7 +341,17 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
         core = _onto(r_paw, np.asarray(pseudo.paw.ae_rho_core, dtype=float)[None], r)[0]
         f[0, 0] += core * np.sqrt(FOURPI)
         if core_region is not None:
-            f[0, 0] = _dirac_core(r, f[0, 0], np.asarray(base.rhomt[0, :nr, ias]), *core_region)
+            joined = _dirac_core(r, f[0, 0], np.asarray(base.rhomt[0, :nr, ias]), *core_region)
+            if spinpol:
+                # The magnetization follows the charge's new shape near the
+                # nucleus, so the polarization there stays ours: a spin GGA
+                # takes the gradients of each spin density, and Elk's core
+                # under our magnetization gave O2 under PBE a residual that
+                # hovered at 0.1 Ha for 40 loops (P181).
+                ratio = np.divide(joined, f[0, 0], out=np.ones_like(joined),
+                                  where=np.abs(f[0, 0]) > 1e-300)
+                f[1:, :, :] *= ratio[None, None, :]
+            f[0, 0] = joined
         f[:, (params.lmaxi + 1) ** 2:, :nri] = 0.0
         rhomt[:, :nr, ias] = f[0]
         if spinpol:
@@ -363,6 +373,15 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
             np.asarray(base.rsp[s])[:base.nrmt[s]]) for k in range(ndmag)]
             for ias, s in enumerate(species_of)])
         moments = np.round(moments[:, 0] if ndmag == 1 else moments, 3)
+    if spinpol and params.xctype[0] >= 20:
+        import warnings
+
+        warnings.warn(
+            "a spin-polarized state under a GGA: on O2 under PBE Elk started 31 times "
+            "closer from this state (first residual 0.12 Ha against 4.4 from scratch) "
+            "and still took 49 loops against 32, its residual held near 0.12 Ha for "
+            "several loops; the cause is open (PLAN.md P181). The state is a valid "
+            "start, not a faster one.", stacklevel=3)
     symmetry, _ = crystal_symmetrizer(state, lmaxo, moments=moments)
     potential = kohn_sham_potential(state, params, symmetry)
     ry = {k: 2.0 * np.asarray(v) for k, v in potential.items()}

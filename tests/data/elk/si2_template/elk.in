@@ -1,4 +1,5 @@
-! The template of tests/unit/test_elk_allelectron.py: Si2 under the
+! The template of tests/unit/test_elk_allelectron.py, run with the official
+! Elk 11.0.2 release (elk_reference/, unpatched): Si2 under the
 ! Perdew-Zunger LDA with small meshes (150 radial points, lmaxo 4, gmaxvr 8),
 ! written after one loop. Only its meshes, parameters and the density near
 ! the nuclei are read by the writer.

@@ -1,0 +1,50 @@
+! A template for tests/unit/test_elk_allelectron.py, official Elk 11.0.2: O2
+! stretched to 3.4 bohr in a 7 bohr box (muffin tins 1.675 bohr, past the
+! 1.55 bohr of O.pz-kjpaw), PW92 LSDA, small meshes, written after one loop.
+tasks
+  0
+
+sppath
+  './'
+
+avec
+  7.0  0.0  0.0
+  0.0  7.0  0.0
+  0.0  0.0  7.0
+
+atoms
+  1
+  'O.in'
+  2
+  0.0  0.0  0.0         0.0  0.0  0.0
+  0.0  0.0  0.4857143   0.0  0.0  0.0
+
+spinpol
+  .true.
+
+bfieldc
+  0.0  0.0  -0.01
+
+xctype
+  3
+
+ngridk
+  1  1  1
+
+lmaxo
+  3
+
+gmaxvr
+  7.0
+
+rgkmax
+  5.0
+
+tshift
+  .false.
+
+maxscl
+  1
+
+nwrite
+  1

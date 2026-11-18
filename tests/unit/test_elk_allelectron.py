@@ -167,3 +167,118 @@ def test_a_spin_orbit_run_is_refused():
     from defuqumat.io.elk_allelectron import all_electron_state
     with pytest.raises(NotImplementedError, match="spin-orbit"):
         all_electron_state(None, calculation, TEMPLATE)
+
+
+def test_atoms_that_do_not_coincide_are_refused(tmp_path):
+    """The second Si moved by 0.01 of the cell: no translation maps the two sets."""
+    text = SI2.format(pseudo="Si.pz-n-kjpaw_psl.0.1.UPF", extra="").replace(
+        " Si 0.25 0.25 0.25", " Si 0.26 0.25 0.25")
+    calc = Calculator.from_text(text, pseudo_dir=PSEUDO, announce=False)
+    with pytest.raises(ValueError, match="do not coincide"):
+        calc.write_elk_state(tmp_path, TEMPLATE, calc.get_scf(max_iterations=1))
+
+
+def test_a_paw_correction_past_the_muffin_tin_is_refused(tmp_path, monkeypatch):
+    """The one-centre term must end inside Elk's sphere; here the sphere is shrunk."""
+    import dataclasses
+
+    import defuqumat.io.elk as elk_module
+
+    original = elk_module.ElkState.read
+
+    def small_spheres(directory, allow_noncollinear=False):
+        state = original(directory, allow_noncollinear=allow_noncollinear)
+        nr = 100  # rsp[99] is about 0.3 bohr, inside every partial wave's radius
+        return dataclasses.replace(state, nrmt=(nr,))
+
+    monkeypatch.setattr(elk_module.ElkState, "read", staticmethod(small_spheres))
+    calc = _calculator()
+    with pytest.raises(NotImplementedError, match="larger rmt"):
+        calc.write_elk_state(tmp_path, TEMPLATE, calc.get_scf(max_iterations=1))
+
+
+O2 = """&control
+ calculation='scf'
+/
+&system
+ ibrav=1, celldm(1)=7.0, nat=2, ntyp=1, ecutwfc=20.0, ecutrho=80.0, {spin}
+/
+&electrons
+ mixing_beta=0.3, conv_thr=1d-8
+/
+ATOMIC_SPECIES
+ O 15.99994 O.pz-kjpaw.UPF
+ATOMIC_POSITIONS bohr
+ O 0.0 0.0 0.0
+ O 0.0 0.0 3.4
+K_POINTS tpiba
+ 1
+ 0.0 0.0 0.0 1.0
+"""
+
+
+def _o2_written(template, spin, tmp_path):
+    import shutil
+
+    calc = Calculator.from_text(O2.format(spin=spin), pseudo_dir=PSEUDO, announce=False)
+    result = calc.get_scf()
+    calc.write_elk_state(tmp_path, template, result)
+    shutil.copy(template / "GEOMETRY.OUT", tmp_path)
+    return result, ElkState.read(tmp_path, allow_noncollinear=True)
+
+
+def _site_moments(state):
+    r = np.asarray(state.rsp[0])[:state.nrmt[0]]
+    return np.array([[np.sqrt(4 * np.pi) * np.trapezoid(state.magmt[0, :len(r), a, k] * r ** 2, r)
+                      for k in range(state.ndmag)] for a in range(2)])
+
+
+@pytest.mark.slow
+def test_a_collinear_triplet_is_written_with_its_moment(tmp_path):
+    """O2 stretched to 3.4 bohr, ``nspin = 2``, on an official-Elk template: ``ndmag = 1``.
+
+    The two sites carry equal moments, the potential on file is ``potks`` of the
+    state on file with ``B_xc`` and ``B_s`` beside it, and Elk's group keeps all
+    16 operations with the identity spin rotation. Written 2026-11-18, not run
+    in the session that wrote it (the slow set is the user's to run).
+    """
+    template = TEMPLATE.parent / "o2_template_collinear"
+    result, state = _o2_written(template, "nbnd=9, occupations='fixed', nspin=2, "
+                                "tot_magnetization=2, starting_magnetization(1)=0.5", tmp_path)
+    assert state.ndmag == 1
+    moments = _site_moments(state)[:, 0]
+    np.testing.assert_allclose(moments[0], moments[1], rtol=1e-8)
+    assert 0.3 < abs(moments[0]) < 1.0
+    params = read_elk_parameters(template)
+    symmetry, nsym = crystal_symmetrizer(state, params.lmaxo, moments=np.round(moments, 3))
+    assert nsym == 16
+    potential = kohn_sham_potential(state, params, symmetry)
+    nr, nrc = state.nrmt[0], state.nrcmt[0]
+    np.testing.assert_allclose(potential["bxcmt"][:, :nr], state.bxcmt[:, :nr] / 2.0, atol=1e-12)
+    np.testing.assert_allclose(potential["bsmt"][:, :nrc], state.bsmt[:, :nrc] / 2.0, atol=1e-12)
+
+
+@pytest.mark.slow
+def test_a_noncollinear_moment_is_written_along_its_axis(tmp_path):
+    """The same O2 as a spinor magnet tilted to ``angle1 = 135``: ``ndmag = 3``.
+
+    The site moments point along the run's own axis, ``(sin 135, 0, cos 135)``,
+    and the potential on file is ``potks`` of the state on file under Elk's
+    group with the identity spin rotation (parallel moments, no spin-orbit).
+    Written 2026-11-18, not run in the session that wrote it.
+    """
+    template = TEMPLATE.parent / "o2_template_noncollinear"
+    result, state = _o2_written(template, "nbnd=16, occupations='smearing', smearing='gaussian', "
+                                "degauss=0.005, noncolin=.true., starting_magnetization(1)=0.5, "
+                                "angle1(1)=135.0, angle2(1)=0.0", tmp_path)
+    assert state.ndmag == 3
+    moments = _site_moments(state)
+    axis = moments[0] / np.linalg.norm(moments[0])
+    np.testing.assert_allclose(axis, [np.sin(np.radians(135)), 0.0, np.cos(np.radians(135))],
+                               atol=1e-3)
+    params = read_elk_parameters(template)
+    symmetry, nsym = crystal_symmetrizer(state, params.lmaxo, moments=np.round(moments, 3))
+    assert nsym == 16
+    potential = kohn_sham_potential(state, params, symmetry)
+    nr = state.nrmt[0]
+    np.testing.assert_allclose(potential["bxcmt"][:, :nr], state.bxcmt[:, :nr] / 2.0, atol=1e-12)
