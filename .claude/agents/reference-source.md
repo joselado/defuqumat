@@ -32,7 +32,7 @@ defuqumat repository root. Read-only; never modify anything under it.
 - The input specification is `quantum_espresso/Doc-QE-7.5/Doc-7.5/INPUT_PW.txt`. If the
   question is "can a user ask for this", grep there too.
 
-**Elk** - `/u/40/ladovj1/data/Documents/programs/elkpy/vendor/elk/`.
+**Elk** - the official 11.0.2 release, `/u/40/ladovj1/data/Documents/programs/claude/defuqumat/elk_reference/elk-11.0.2/` (downloaded from elk.sourceforge.io, unpatched; the user's instruction of 2026-11-18 is that the original Elk code, not elkpy, is the reference). Its `src/` is byte-identical to elkpy's `vendor/elk/src/`.
 
 - `src/` is the source. The manual is `docs/elk.pdf` - a PDF, so read it with the Read
   tool's `pages` argument rather than grepping it. Elk exposes most quantities as a

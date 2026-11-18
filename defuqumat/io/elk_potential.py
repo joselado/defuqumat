@@ -5,10 +5,11 @@ as well as the density, because ``gndstate.f90`` diagonalises with the file's
 ``vsmt``/``vsir`` before it ever builds a potential of its own. This module
 builds that potential from a density on Elk's meshes, the way Elk does, so a
 density written by :func:`defuqumat.io.elk_write.write_elk_state` is a state
-Elk starts from directly. Transcribed from Elk 11.0.2 (``vendor/elk/src`` of
-the user's elkpy checkout), with ``elkjax`` (``src/elkjax/poisson.py``,
-``xc.py``) as the cross-check of the reading, and every piece checked against
-the potentials Elk wrote for its own density (``PLAN.md`` P181).
+Elk starts from directly. Transcribed from the official Elk 11.0.2 release
+(``elk_reference/elk-11.0.2/src``, downloaded from elk.sourceforge.io, gitignored
+as ``quantum_espresso/`` is), and every piece checked against the potentials the
+official binary, built unpatched from that tree, wrote for its own density
+(``PLAN.md`` P181).
 
 **The pieces, in ``potks.f90``'s order.**
 
@@ -29,8 +30,8 @@ the potentials Elk wrote for its own density (``PLAN.md`` P181).
   ``lmaxo``; in the interstitial on the grid. Then ``symrfmt`` symmetrises the
   muffin-tin potential over the crystal group, which is not the identity on a
   symmetric density, because ``v_xc[rho]`` is not band-limited when ``rho`` is
-  (elkpy ``docs/jax_port_phase2.md`` section 2d measured 5.3e-3 Ha without it,
-  all in channels the site symmetry forbids).
+  (measured on Si2 against the official Elk: up to 4.4e-3 Ha without it,
+  all in channels the site symmetry forbids, and 2e-13 with it).
 * ``trimrfg``: ``vxcir`` truncated to ``|G| <= 2 gkmax`` (``ngvc``), not to
   ``gmaxvr``.
 * ``vsmt = vclmt + vxcmt``, ``vsir = vclir + vxcir``; for a spin-polarized

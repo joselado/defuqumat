@@ -226,6 +226,12 @@ CORE_REGION = {
     # our shape matched below 1e-4 gave 17 Ha against 0.74 from scratch, Elk's
     # own core region below 0.01 bohr gives 0.73 and 15 loops against 14.
     "gga": (0.1, False),
+    # A spin-polarized GGA, measured on O2 stretched to 3.4 bohr under PBE: the
+    # unpolarized choice above starts 31 times closer (0.12 Ha against 4.41 from
+    # scratch) and then needs 49 loops against Elk's 32, where Elk's shape below
+    # 1e-4 bohr starts at 177 Ha and needs 31 (the PAW core everywhere: 203 Ha,
+    # 35). The first residual does not predict the count here. One cell each.
+    "gga-spin": (1.0e-4, True),
 }
 
 
@@ -264,7 +270,9 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
     base = ElkState.read(template, allow_noncollinear=True)
     params = read_elk_parameters(template)
     if core_region == "auto":
-        core_region = CORE_REGION["gga" if params.xctype[0] >= 20 else "lda"]
+        gga = params.xctype[0] >= 20
+        polarized = int(calculation.nspin_mag) > 1
+        core_region = CORE_REGION["lda" if not gga else ("gga-spin" if polarized else "gga")]
     if not calculation.is_paw or any(getattr(p, "paw", None) is None for p in calculation.pseudos):
         raise NotImplementedError(
             "an Elk state is rebuilt from the all-electron partial waves of a PAW "
@@ -377,11 +385,11 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
         import warnings
 
         warnings.warn(
-            "a spin-polarized state under a GGA: on O2 under PBE Elk started 31 times "
-            "closer from this state (first residual 0.12 Ha against 4.4 from scratch) "
-            "and still took 49 loops against 32, its residual held near 0.12 Ha for "
-            "several loops; the cause is open (PLAN.md P181). The state is a valid "
-            "start, not a faster one.", stacklevel=3)
+            "a spin-polarized state under a GGA: on O2 under PBE Elk took 31 loops "
+            "from this state against 32 from scratch, and 49 with Elk's core region "
+            "taken outright, although that one started 31 times closer; what sets the "
+            "count is open (PLAN.md P181). The state is a valid start, not a faster "
+            "one.", stacklevel=3)
     symmetry, _ = crystal_symmetrizer(state, lmaxo, moments=moments)
     potential = kohn_sham_potential(state, params, symmetry)
     ry = {k: 2.0 * np.asarray(v) for k, v in potential.items()}

@@ -1,8 +1,11 @@
 # The PAW all-electron start for Elk (P181)
 
 The harness behind `PLAN.md` P181. `si2-pz.elk.in` is the Elk input (Elk 11.0.2,
-`xctype = 2`); run it once with `tasks 0` into `conv/` and once with `tasks 9006`
-(elkpy patch 0024, the initial state) into `init/`, both with `Si.in` from Elk's
+`xctype = 2`). **The reference is the official Elk release** built unpatched in
+`elk_reference/` (the user's instruction, 2026-11-18); the first measurements used elkpy's
+build and its task 9006, and were repeated with the official binary and a template written
+after one loop (`maxscl 1`, `nwrite 1`). Run it once with `tasks 0` into `conv/` and once
+with `maxscl 1` and `nwrite 1` into `tmpl/`, both with `Si.in` from Elk's
 species directory and `GEOMETRY.OUT` copied into `init/`.
 
 - `ae_gate.py <dir> <ecutwfc>` rebuilds the all-electron density from defuqumat's

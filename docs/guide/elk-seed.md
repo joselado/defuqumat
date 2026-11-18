@@ -160,7 +160,9 @@ the same steps as Elk: the Coulomb potential by the method of Weinert, the
 exchange-correlation potential on the angular points of Elk, and the average over
 the symmetry group of the crystal. The meshes and the parameters come from a
 template, which is any `STATE.OUT` of an Elk run of the same crystal, with its
-`INFO.OUT` and `GEOMETRY.OUT`.
+`INFO.OUT` and `GEOMETRY.OUT`. The cheapest template is one loop of Elk, with
+`maxscl 1` and `nwrite 1` in `elk.in`. Without `nwrite 1`, a run of one loop does
+not write `STATE.OUT`.
 
 We compute it with `calc.write_elk_state()`. Here we take silicon with the PAW
 pseudopotential `Si.pz-n-kjpaw_psl.0.1` and Elk's own lattice vectors, and the
@@ -226,7 +228,10 @@ converged state Elk needs 8 loops at the same threshold. With PBE there is no
 gain. The PBE potential very close to the nucleus depends on the exact shape of
 the Dirac core of Elk, which a scalar relativistic PAW core does not have. So for
 PBE the code takes the density of the template within 0.01 bohr of each nucleus,
-and Elk then needs as many loops as from scratch. On one core, writing the state
+and Elk then needs as many loops as from scratch. For the O2 molecule as a magnet
+with PBE, Elk needs 31 loops from our state and 32 from scratch, and the code
+gives a warning that the state is not a faster start. We made these comparisons
+with the official release of Elk 11.0.2. On one core, writing the state
 takes about 2.5 s, and computing the potential of Elk takes 0.45 s, where Elk
 itself needs 0.016 s.
 
