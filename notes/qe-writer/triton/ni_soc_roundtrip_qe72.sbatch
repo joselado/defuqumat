@@ -5,6 +5,8 @@
 # This variant runs Triton's own QE 7.2 module, which is built without HDF5 and
 # so writes and reads charge-density.dat (the conda pw.x 7.5 writes .hdf5, and
 # the venv has no h5py); MPI-linked, so it goes through srun with one task.
+# NONCOLLINEAR_GGA=kubler (sbatch --export=ALL,NONCOLLINEAR_GGA=kubler) puts
+# defuqumat on pw.x's noncollinear GGA; the default 'grad_m' is another (P143).
 #SBATCH --job-name=defuqumat-nisoc72
 #SBATCH --partition=batch-csl
 #SBATCH --array=0-1
@@ -34,5 +36,5 @@ case ${SLURM_ARRAY_TASK_ID:-0} in
     1) CUT="45 360" ;;
 esac
 python3 "$REPO/notes/qe-writer/triton/ni_soc_roundtrip.py" $CUT \
-    "$WORK/nisoc72-${SLURM_ARRAY_TASK_ID:-0}" "$WORK/pwx72.sh"
+    "$WORK/nisoc72-${SLURM_ARRAY_TASK_ID:-0}${NONCOLLINEAR_GGA:+-$NONCOLLINEAR_GGA}" "$WORK/pwx72.sh"
 date

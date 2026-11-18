@@ -56,7 +56,15 @@ report = dict(ecutwfc=ecutwfc, ecutrho=ecutrho)
 report["pwx_fresh"], text = pw(work / "fresh_out", "", "fresh")
 from defuqumat import Calculator
 from defuqumat.io.qe_density import QESave
-calc = Calculator.from_text(text, pseudo_dir=PSEUDO, announce=False)
+import os
+# NONCOLLINEAR_GGA=kubler puts defuqumat on pw.x's noncollinear GGA; the
+# default is 'grad_m', another functional (P143).
+ours = text
+if os.environ.get("NONCOLLINEAR_GGA"):
+    ours = text.replace("noncolin=.true.,", f"noncolin=.true., noncollinear_gga='{os.environ['NONCOLLINEAR_GGA']}',")
+    assert ours != text
+report["noncollinear_gga"] = os.environ.get("NONCOLLINEAR_GGA", "default")
+calc = Calculator.from_text(ours, pseudo_dir=PSEUDO, announce=False)
 save = QESave.read(work / "fresh_out" / "pwscf.save")
 report["file"] = dict(rho_components=int(save.nspin_mag), paw_numbers=int(save.becsum.size))
 t = time.perf_counter()
