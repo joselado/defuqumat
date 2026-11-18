@@ -199,10 +199,12 @@ density (`startingpot='file'`).
     codes then converge to different states, and `pw.x` needs 7 to 13
     iterations from ours.
     The same holds for a noncollinear GGA run. Our default there is
-    `noncollinear_gga = 'grad_m'`, and `pw.x` uses `'kubler'`. So set
-    `noncollinear_gga = 'kubler'` in `&system` for the SCF whose state you write.
-    On iron with DFT+U and spin-orbit coupling, `pw.x` then restarts in one
-    iteration, and in 15 from the `'grad_m'` state.
+    `noncollinear_gga = 'grad_m'`, and `pw.x` uses `'kubler'`. The two differ
+    when the direction of the magnetization changes in space. Spin-orbit
+    coupling always does this. So set `noncollinear_gga = 'kubler'` in
+    `&system` for the SCF whose state you write. On iron with DFT+U and
+    spin-orbit coupling, `pw.x` then restarts in one iteration, and in 15
+    from the `'grad_m'` state. On an arsenic atom it is one against three.
 
     The density can only start an SCF. There is no route that computes bands or a
     density of states from it with no SCF at all. With the same input this costs one

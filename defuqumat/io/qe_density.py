@@ -663,22 +663,28 @@ def _warn_another_functional(calculation) -> None:
     """Warn when the state written is the fixed point of a functional ``pw.x`` does not run.
 
     The file is read correctly either way; what changes is that ``pw.x``
-    takes it as a nearby start rather than as its own converged state. Measured
-    on Triton with ``pw.x`` 7.2 (P180, 2026-11-18): ``fe-kind1-noncol`` under
-    ``'grad_m'`` restarts in 15 iterations from 1.0e-4 Ry and under
-    ``'kubler'`` in 1 from 6.8e-11; ``si2-tb09`` in 7 and ``si2-tb09-lsda``
-    in 13, because ``pw.x``'s ``tb09`` calls libxc with a zero Laplacian and
-    ``c = 1`` (P30).
+    takes it as a nearby start rather than as its own converged state (P180,
+    2026-11-18). ``'grad_m'`` and ``pw.x``'s ``'kubler'`` are the collinear GGA
+    for a magnetization of one direction (P143), so they differ where that
+    direction varies, which spin-orbit coupling always makes it do:
+    ``fe-kind1-noncol`` restarts in 15 iterations from 1.0e-4 Ry under
+    ``'grad_m'`` and in 1 from 6.8e-11 under ``'kubler'`` (``pw.x`` 7.2), the
+    As atom with spin-orbit coupling in 3 from 1e-8 and in 1 from 1.3e-11
+    (``pw.x`` 7.5), while O2 without it restarts alike under both. TB09:
+    ``si2-tb09`` in 7 and ``si2-tb09-lsda`` in 13, because ``pw.x``'s ``tb09``
+    calls libxc with a zero Laplacian and ``c = 1`` (P30).
     """
     import warnings
 
     if getattr(calculation, "noncollinear_gga", "kubler") == "grad_m":
         warnings.warn(
             "this state was converged under noncollinear_gga = 'grad_m', and pw.x "
-            "runs 'kubler', another functional: pw.x reads the file but starts "
-            "from it as from a nearby density (15 iterations against 1 on "
-            "Fe with DFT+U and spin-orbit coupling). Converge under "
-            "noncollinear_gga = 'kubler' for a state pw.x takes as its own.",
+            "runs 'kubler'. The two differ where the direction of the "
+            "magnetization varies in space, as spin-orbit coupling makes it do; "
+            "there pw.x reads the file but starts from it as from a nearby "
+            "density (15 iterations against 1 on Fe with DFT+U, 3 against 1 on "
+            "an As atom). Converge under noncollinear_gga = 'kubler' for a "
+            "state pw.x takes as its own.",
             stacklevel=3,
         )
     name = str(getattr(calculation.functional, "meta", "") or "").upper()
