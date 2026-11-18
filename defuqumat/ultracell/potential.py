@@ -186,6 +186,9 @@ def require_an_ultracell_functional(functional, source_free: bool = False,
     has not been checked against a supercell, and a meta-GGA on an ultrasoft or PAW dataset, whose one-centre
     ``tau`` the ultracell's per-copy terms do not carry.
     """
+    from defuqumat.xc.functional import refuse_local_meta
+
+    refuse_local_meta(functional, "the ultracell")
     if functional.is_meta and int(nspin_mag) != 1:
         raise NotImplementedError(
             f"the ultracell refuses the meta-GGA {functional.name} on a "

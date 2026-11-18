@@ -23,7 +23,7 @@ from defuqumat.basis.fft import g_to_r, r_to_g
 from defuqumat.basis.gvectors import GVectors
 from defuqumat.system.cell import Cell
 
-__all__ = ["gradient", "divergence", "laplacian"]
+__all__ = ["gradient", "divergence", "laplacian", "gaussian_average"]
 
 
 def gradient(field_g: jnp.ndarray, gvectors: GVectors, cell: Cell) -> jnp.ndarray:
@@ -75,6 +75,27 @@ def laplacian(field_g: jnp.ndarray, gvectors: GVectors, cell: Cell) -> jnp.ndarr
     _reject_gamma_only(gvectors)
     g2 = jnp.sum(gvectors.cartesian(cell) ** 2, axis=1)  # (ngm,), 1/bohr^2
     return jnp.real(g_to_r(-g2 * field_g, gvectors.fft_index, gvectors.grid))
+
+
+def gaussian_average(field_r: jnp.ndarray, gvectors: GVectors, cell: Cell,
+                     sigma: float) -> jnp.ndarray:
+    """A real field averaged under a normalised Gaussian of width ``sigma``, bohr.
+
+        fbar(r) = (2 pi sigma^2)^(-3/2) int f(r') exp(-|r - r'|^2 / (2 sigma^2)) d3r'
+
+    over all space, the periodic images included, which in G space is the
+    product ``f_G exp(-sigma^2 |G|^2 / 2)``: one transform each way. It is the
+    local mBJ's ``gbar`` (Rauch, Marques and Botti, Eq. 5). The kernel
+    integrates to one, so the ``G = 0`` coefficient, the cell mean, is kept
+    exactly; components outside the dense sphere are dropped by the projection,
+    where the factor is ``exp(-sigma^2 ecutrho / 2)``, below 1e-100 at the
+    paper's 3.78 bohr for any cutoff in use.
+    """
+    _reject_gamma_only(gvectors)
+    g2 = jnp.sum(gvectors.cartesian(cell) ** 2, axis=1)  # (ngm,), 1/bohr^2
+    field_g = r_to_g(field_r, gvectors.fft_index)
+    return jnp.real(g_to_r(field_g * jnp.exp(-0.5 * sigma * sigma * g2),
+                           gvectors.fft_index, gvectors.grid))
 
 
 def _reject_gamma_only(gvectors: GVectors) -> None:

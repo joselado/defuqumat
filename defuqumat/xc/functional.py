@@ -71,7 +71,16 @@ from defuqumat.xc.lda import (
     pz_correlation_spin,
     slater_exchange,
 )
-from defuqumat.xc.mgga import tb09_coefficient, tb09_potential
+from defuqumat.xc.mgga import (
+    LMBJ_PARAMETERS,
+    LMBJ_RS_THRESHOLD,
+    LMBJ_SIGMA,
+    lmbj_coefficient_from_average,
+    lmbj_integrand,
+    lmbj_vacuum_g,
+    tb09_coefficient,
+    tb09_potential,
+)
 
 __all__ = ["Functional", "get_functional", "resolve_functional", "FUNCTIONALS",
            "EXCHANGE", "CORRELATION", "GRADIENT_EXCHANGE", "GRADIENT_CORRELATION",
@@ -224,6 +233,8 @@ FUNCTIONALS: dict[str, tuple[str, str, str, str]] = {
 META: dict[str, float | None] = {
     "TB09": None,
     "BJ06": 1.0,
+    #: The local mBJ: ``c`` is a field (:data:`defuqumat.xc.mgga.LMBJ_PARAMETERS`).
+    "LMBJ": None,
 }
 
 #: The meta names as fillings of the other four slots. Exchange is ``NOX``
@@ -239,6 +250,8 @@ META_FUNCTIONALS: dict[str, tuple[tuple[str, str, str, str], str]] = {
     "MBJ": (("NOX", "PW", "NOGX", "NOGC"), "TB09"),
     "BJ06": (("NOX", "PW", "NOGX", "NOGC"), "BJ06"),
     "BJ": (("NOX", "PW", "NOGX", "NOGC"), "BJ06"),
+    "LMBJ": (("NOX", "PW", "NOGX", "NOGC"), "LMBJ"),
+    "LOCAL_MBJ": (("NOX", "PW", "NOGX", "NOGC"), "LMBJ"),
 }
 
 #: The legacy spellings, resolved to the term they mean, per slot. QE does the
@@ -286,6 +299,14 @@ class Functional(eqx.Module):
     #: because :meth:`meta_c` is the method that *evaluates* the coefficient,
     #: and an ``equinox`` field of the same name shadows it silently.
     imposed_c: float | None = eqx.field(static=True, default=None)
+    #: The local mBJ's settings (``meta = 'LMBJ'`` only): the Gaussian width in
+    #: bohr, the threshold Wigner-Seitz radius in bohr, and the parameter set,
+    #: a key of :data:`defuqumat.xc.mgga.LMBJ_PARAMETERS`. ``None`` is the
+    #: paper's 3.78 and 5 bohr and the ``'tb09'`` set. From an input file as
+    #: ``lmbj_sigma``, ``lmbj_rs`` and ``lmbj_parameters`` in ``&system``.
+    lmbj_sigma: float | None = eqx.field(static=True, default=None)
+    lmbj_rs: float | None = eqx.field(static=True, default=None)
+    lmbj_parameters: str | None = eqx.field(static=True, default=None)
 
     @property
     def is_meta(self) -> bool:
@@ -299,6 +320,46 @@ class Functional(eqx.Module):
         Those are refused by name where they are computed, not here.
         """
         return self.meta is not None
+
+    @property
+    def is_local_meta(self) -> bool:
+        """Whether the Tran-Blaha ``c`` is a field (the local mBJ) rather than one number."""
+        return self.meta == "LMBJ"
+
+    def lmbj_settings(self) -> tuple[float, float, float, float, float, float]:
+        """``(alpha, beta, e, sigma, rho_th, g_vac)`` of the local mBJ, defaults filled."""
+        name = "tb09" if self.lmbj_parameters is None else self.lmbj_parameters
+        alpha, beta, exponent = LMBJ_PARAMETERS[name]
+        sigma = LMBJ_SIGMA if self.lmbj_sigma is None else float(self.lmbj_sigma)
+        rs = LMBJ_RS_THRESHOLD if self.lmbj_rs is None else float(self.lmbj_rs)
+        rho_th = 3.0 / (4.0 * jnp.pi * rs ** 3)
+        return alpha, beta, exponent, sigma, float(rho_th), lmbj_vacuum_g(alpha, beta, exponent)
+
+    def with_lmbj(self, sigma=None, rs=None, parameters=None) -> "Functional":
+        """The same functional with the local mBJ's settings; refused on any other."""
+        if sigma is None and rs is None and parameters is None:
+            return self
+        if not self.is_local_meta:
+            raise ValueError(
+                "lmbj_sigma, lmbj_rs and lmbj_parameters are the local mBJ's "
+                f"settings and the functional is {self.name}; they are read only "
+                "by input_dft = 'lmbj'"
+            )
+        if parameters is not None and str(parameters).lower() not in LMBJ_PARAMETERS:
+            raise ValueError(
+                f"lmbj_parameters = {parameters!r}; expected one of "
+                f"{sorted(LMBJ_PARAMETERS)}"
+            )
+        for label, value in (("lmbj_sigma", sigma), ("lmbj_rs", rs)):
+            if value is not None and not float(value) > 0.0:
+                raise ValueError(f"{label} = {value!r}; it is a length in bohr and must be positive")
+        import dataclasses
+        return dataclasses.replace(
+            self,
+            lmbj_sigma=None if sigma is None else float(sigma),
+            lmbj_rs=None if rs is None else float(rs),
+            lmbj_parameters=None if parameters is None else str(parameters).lower(),
+        )
 
     @property
     def meta_coefficient(self) -> float | None:
@@ -315,6 +376,12 @@ class Functional(eqx.Module):
             raise ValueError(
                 f"mbj_c sets the Tran-Blaha coefficient and {self.name} is not a "
                 "meta-GGA; it is read only by input_dft = 'tb09'"
+            )
+        if self.is_local_meta:
+            raise ValueError(
+                "mbj_c imposes one Tran-Blaha c on the whole cell, and the local "
+                "mBJ (input_dft = 'lmbj') makes c a field; a uniform c is "
+                "input_dft = 'tb09' with mbj_c"
             )
         return Functional(
             name=self.name,
@@ -340,8 +407,22 @@ class Functional(eqx.Module):
         """
         return tb09_potential(rho, sigma, laplacian, tau, c)
 
-    def meta_c(self, rho, grad_rho):
-        """``c`` for this functional: the cell average, or the fixed value."""
+    def meta_c(self, rho, grad_rho, gvectors=None, cell=None):
+        """``c`` for this functional: the cell average, the fixed value, or a field.
+
+        The local mBJ's ``c(r)`` (``meta = 'LMBJ'``) needs the G-vectors and the
+        cell for its Gaussian average, and comes back with ``rho``'s shape;
+        every other case is one number and ignores them.
+        """
+        if self.is_local_meta:
+            if gvectors is None or cell is None:
+                raise ValueError("the local mBJ's c(r) needs the G-vectors and the cell")
+            from defuqumat.basis.gradients import gaussian_average
+
+            alpha, beta, exponent, sigma, rho_th, g_vac = self.lmbj_settings()
+            g = lmbj_integrand(rho, grad_rho, rho_th, g_vac)
+            gbar = gaussian_average(g, gvectors, cell, sigma)
+            return lmbj_coefficient_from_average(gbar, alpha, beta, exponent)
         fixed = self.meta_coefficient
         if fixed is not None:
             return jnp.asarray(fixed)
@@ -990,7 +1071,10 @@ def functional_of(system, pseudos) -> Functional:
     """
     return resolve_functional(
         [pseudo.functional for pseudo in pseudos], system.input_dft
-    ).with_meta_coefficient(getattr(system, "mbj_c", None))
+    ).with_meta_coefficient(getattr(system, "mbj_c", None)).with_lmbj(
+        getattr(system, "lmbj_sigma", None), getattr(system, "lmbj_rs", None),
+        getattr(system, "lmbj_parameters", None),
+    )
 
 
 def resolve_functional(pseudo_dfts, input_dft: str | None = None) -> Functional:
@@ -1127,3 +1211,22 @@ def local_spin_frame(charge: jnp.ndarray, magnetization: jnp.ndarray):
 #: error. ``vanishing_mag`` in ``PW/src/v_of_rho.f90``, and ``eps12`` in
 #: ``paw_onecenter.f90``.
 VANISHING_MAGNETIZATION = 1.0e-20
+
+
+def refuse_local_meta(functional, what: str) -> None:
+    """Refuse ``what`` under the local mBJ, which was lifted for TB09 with one ``c``.
+
+    Every lift of the potential-only meta-GGA (the invariants, the ultracell,
+    the spin torque, real time with the potential updated, the residual
+    solvers, single precision) was measured with ``c`` one number for the
+    cell. The local mBJ reaches each of them through the same ``v_of_rho``, so
+    each would run, and none was measured with ``c`` a field; until it is,
+    each refuses by name rather than inheriting TB09's check (P182).
+    """
+    if getattr(functional, "is_local_meta", False):
+        raise NotImplementedError(
+            f"{what} under the local mBJ (input_dft = 'lmbj') is not implemented: "
+            "it was measured for input_dft = 'tb09', whose c is one number for "
+            "the cell, and not with c a field. The SCF, the band structure and "
+            "the density of states are what the local mBJ is checked for"
+        )

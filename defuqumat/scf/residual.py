@@ -1051,6 +1051,10 @@ def make_residual(calculation, nbnd: int, ethr: float, field=None) -> ScfResidua
     a starting state, ``driver._carried_driven_field``); ``None`` takes the
     calculation's.
     """
+    from defuqumat.xc.functional import refuse_local_meta
+
+    refuse_local_meta(calculation.functional,
+                      "a residual SCF solver (scf_solver other than 'mixing')")
     system = calculation.system
     if field is None:
         field = calculation.magnetic_field

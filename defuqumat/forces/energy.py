@@ -535,6 +535,10 @@ def reject_potential_only(calculation, potential_only_ok: bool = False) -> None:
     """
     reject_single_band_side(calculation)
     if potential_only_ok:
+        from defuqumat.xc.functional import refuse_local_meta
+
+        refuse_local_meta(getattr(calculation, "functional", None),
+                          "the Sternheimer Jacobian of the SCF map")
         # The caller differentiates a map that exists without an energy: the
         # SCF iteration ``F``, whose Jacobian the implicit route of
         # :class:`~defuqumat.scf.residual.SternheimerJacobian` is (I120). The

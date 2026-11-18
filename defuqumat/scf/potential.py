@@ -96,6 +96,12 @@ class Potential(eqx.Module):
     #: of the density: two call sites recomputing it from two densities is how
     #: a reported ``c`` stops describing the run it is reported for.
     meta_c: jnp.ndarray = 0.0
+    #: The local mBJ's ``c(r)`` on the dense grid, ``(n1, n2, n3)``, or ``0``
+    #: for every other functional. ``meta_c`` then holds its cell mean, so the
+    #: one-number readers (the checkpoint, a printed summary) keep a number;
+    #: nothing that needs the field may read ``meta_c`` instead, and the PAW
+    #: one-centre terms, which take one ``c``, are refused under the local form.
+    meta_c_field: jnp.ndarray = 0.0
 
     @property
     def nspin(self) -> int:
@@ -924,7 +930,7 @@ def meta_exchange(
     # is the total, not the majority channel: Tran and Blaha's Eq. (3) has no
     # spin index on it, and giving each channel its own ``c`` would make the two
     # potentials belong to different functionals.
-    c = functional.meta_c(total_r, total_grad)
+    c = functional.meta_c(total_r, total_grad, gvectors, cell)
 
     v = jax.vmap(functional.meta_exchange_potential, in_axes=(0, 0, 0, 0, None))(
         channels_r, sigma, lap, channels_tau / E2, c
@@ -960,7 +966,7 @@ def _noncollinear_meta_exchange_grad_m(rho_r, gvectors, cell, functional,
     lap = jax.vmap(laplacian, in_axes=(0, None, None))(components_g, gvectors, cell)
     grad_n, grad_m = grad[0], grad[1:]
     tau_r = jnp.asarray(tau_r)
-    c = functional.meta_c(charge, grad_n)
+    c = functional.meta_c(charge, grad_n, gvectors, cell)
 
     s_even = jnp.sum(grad_n * grad_n, axis=0) + jnp.sum(grad_m * grad_m, axis=(0, 1))
     vectors = jnp.stack([
@@ -1124,6 +1130,7 @@ def v_of_rho(
 
     v_xc, etxc = exchange_correlation(rho_r, cell, rho_core, functional)
     meta_c = jnp.asarray(0.0)
+    meta_c_field = jnp.asarray(0.0)
 
     if functional.is_meta:
         if tau is None:
@@ -1173,6 +1180,11 @@ def v_of_rho(
             )
         # No ``etxc`` term: there is no exchange *energy* to add.
         v_xc = v_xc + v_meta
+        if functional.is_local_meta:
+            # c(r) went into the potential point by point; the scalar slot keeps
+            # its cell mean for the readers that want one number.
+            meta_c_field = meta_c
+            meta_c = jnp.mean(meta_c_field)
 
     if functional.is_gradient:
         if nspin == 4:
@@ -1202,6 +1214,7 @@ def v_of_rho(
                 ehart=ehart,
                 etxc=etxc + e_gradient,
                 meta_c=meta_c,
+                meta_c_field=meta_c_field,
             )
         density_r = jnp.real(rho_r)
         density_g = rho_g
@@ -1234,4 +1247,5 @@ def v_of_rho(
         ehart=ehart,
         etxc=etxc,
         meta_c=meta_c,
+        meta_c_field=meta_c_field,
     )

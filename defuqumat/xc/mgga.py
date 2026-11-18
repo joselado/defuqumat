@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.special
 
 from defuqumat.units import E2
 
@@ -81,6 +82,12 @@ __all__ = [
     "becke_roussel_potential_hartree",
     "tb09_potential",
     "tb09_coefficient",
+    "lmbj_integrand",
+    "lmbj_coefficient_from_average",
+    "lmbj_vacuum_g",
+    "LMBJ_PARAMETERS",
+    "LMBJ_SIGMA",
+    "LMBJ_RS_THRESHOLD",
     "thomas_fermi_tau",
     "BR89_GAMMA",
     "TB09_ALPHA",
@@ -376,6 +383,98 @@ def tb09_coefficient(rho, grad_rho, threshold=META_RHO_THRESHOLD):
     count = jnp.maximum(jnp.sum(active), 1)
     average = jnp.sum(ratio) / count
     return TB09_ALPHA + TB09_BETA * jnp.sqrt(jnp.maximum(average, 0.0))
+
+
+#: The local mBJ of Rauch, Marques and Botti (J. Chem. Theory Comput. 16, 2654
+#: (2020), arXiv:1911.00368): ``c`` becomes a field, ``c(r) = alpha + beta
+#: gbar(r)^e`` with ``gbar`` a Gaussian average of ``|grad rho|/rho`` (their
+#: Eqs. 5 to 7). Two parameter sets, by the user's choice of 2026-11-18:
+#:
+#: * ``'tb09'`` (the default): Tran and Blaha's own ``alpha``, ``beta`` and
+#:   ``e = 1/2``. In a bulk crystal ``gbar`` is uniform to four digits at the
+#:   paper's ``sigma`` (the Gaussian kills every ``G != 0`` of a cell of a few
+#:   bohr), so the local form *is* this code's TB09 there, and only the vacuum
+#:   and the interfaces see the difference.
+#: * ``'koller'``: the paper's own choice, ``alpha = 0.488``, ``beta = 0.5``
+#:   bohr and ``e = 1`` (Koller, Tran and Blaha, PRB 85, 155109 (2012)), for
+#:   comparing with published local-mBJ numbers. Those were fitted on
+#:   all-electron densities, whose ``gbar`` the core makes larger: on this
+#:   code's norm-conserving silicon it gives ``c`` about 1.01 where VASP's PAW
+#:   run gives 1.11 to 1.13, so bulk gaps come out lower than the paper's.
+LMBJ_PARAMETERS: dict[str, tuple[float, float, float]] = {
+    "tb09": (TB09_ALPHA, TB09_BETA, 0.5),
+    "koller": (0.488, 0.5, 1.0),
+}
+
+#: The paper's smearing length, 3.78 bohr = 2 angstrom, "large enough to keep
+#: the properties of the original MBJ potential in locally homogeneous regions".
+LMBJ_SIGMA = 3.78
+
+#: The paper's threshold Wigner-Seitz radius, ``rho_th = 3 / (4 pi rs^3)``.
+#: 5 bohr is ``rho_th = 1.91e-3`` bohr^-3; on norm-conserving silicon 6e-5 of
+#: the grid lies below it and on diamond (HGH) 1.4e-4, so it acts in the vacuum
+#: and at a surface, not inside these crystals.
+LMBJ_RS_THRESHOLD = 5.0
+
+
+def lmbj_vacuum_g(alpha: float, beta: float, exponent: float) -> float:
+    """The ``g`` at which ``c = 1``: ``((1 - alpha) / beta)^(1/e)``.
+
+    The paper's ``(1 - alpha)/beta`` is this for ``e = 1``. ``c -> 1`` in
+    vacuum is the condition, since it restores the asymptotic ``-1/r`` of
+    Becke-Roussel and switches off the ``(3c - 2)`` term's excess.
+    """
+    return ((1.0 - alpha) / beta) ** (1.0 / exponent)
+
+
+def lmbj_integrand(rho, grad_rho, rho_threshold, g_vacuum):
+    """The paper's Eq. (7): ``g`` blended into ``g_vacuum`` below ``rho_th``.
+
+        g(r) = g_vac [1 - erf(rho/rho_th)] + (|grad rho|/rho) erf(rho/rho_th)
+
+    Args:
+        rho: the total density on the grid.
+        grad_rho: its gradient, ``(3,) + rho.shape``.
+
+    The second term is written ``|grad rho| erf(x)/x / rho_th`` with ``x =
+    rho/rho_th``, which is finite as ``rho -> 0`` (``erf(x)/x -> 2/sqrt(pi)``),
+    so the ratio is never formed where it is not defined. A plane-wave density
+    goes slightly negative in vacuum; there ``g = g_vac`` exactly, the paper's
+    limit, through two-sided ``where``s that keep the tangent finite. ``|grad rho|`` has the same cone guard as
+    :func:`tb09_coefficient`.
+    """
+    rho = jnp.asarray(rho)
+    sigma = jnp.sum(jnp.asarray(grad_rho) ** 2, axis=0)
+    finite = sigma > CONE_SIGMA
+    magnitude = jnp.where(finite, jnp.sqrt(jnp.where(finite, sigma, 1.0)), 0.0)
+    positive = rho > 0.0
+    x = jnp.where(positive, rho, 0.0) / rho_threshold
+    small = x < 1.0e-6
+    safe_x = jnp.where(small, 1.0, x)
+    erf_over_x = jnp.where(small, 2.0 / jnp.sqrt(jnp.pi) * (1.0 - x * x / 3.0),
+                           jax.scipy.special.erf(safe_x) / safe_x)
+    erf_x = x * erf_over_x
+    # Where the density is not positive the ratio has no meaning (it is the
+    # Fourier noise of the vacuum), so only the vacuum value is kept there.
+    return g_vacuum * (1.0 - erf_x) + jnp.where(
+        positive, magnitude * erf_over_x / rho_threshold, 0.0)
+
+
+def lmbj_coefficient_from_average(gbar, alpha, beta, exponent):
+    """``c(r) = alpha + beta gbar(r)^e``, with ``gbar`` already averaged.
+
+    ``gbar`` is a Gaussian average of a non-negative field and is positive, but
+    a truncated Fourier series can dip below zero by round-off where the field
+    is flat; it is floored at zero before the power, as :func:`tb09_coefficient`
+    floors its mean.
+    """
+    gbar = jnp.maximum(jnp.asarray(gbar), 0.0)
+    if exponent == 1.0:
+        return alpha + beta * gbar
+    if exponent == 0.5:
+        positive = gbar > 0.0
+        return alpha + beta * jnp.where(positive, jnp.sqrt(jnp.where(positive, gbar, 1.0)), 0.0)
+    return alpha + beta * gbar ** exponent
 
 
 def thomas_fermi_tau(rho, nspin: int = 1):

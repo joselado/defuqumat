@@ -2085,6 +2085,11 @@ class SCFResult:
     #: property of the material and the published values (Si ~1.1, wide-gap
     #: insulators ~1.3-1.6) are what a new implementation is checked against.
     meta_c: float | None = None
+    #: The local mBJ's ``c(r)`` on the dense grid, ``(n1, n2, n3)``, and ``None``
+    #: for every other functional; ``meta_c`` is then its cell mean. A slab's
+    #: profile is ``meta_c_field.mean(axis=(0, 1))`` along the third axis: the
+    #: material's value inside and 1 in the vacuum.
+    meta_c_field: np.ndarray | None = None
     #: The stress tensor (:class:`~defuqumat.stress.Stress`) when the run was
     #: asked for one, and ``None`` otherwise -- QE's ``tstress``, which is the
     #: same switch: ``stress()`` is called from ``run_pwscf`` after the SCF, not
@@ -3243,6 +3248,9 @@ class Calculation:
             unmeasured.append("DFT+U")
         if self.functional.is_meta:
             unmeasured.append(f"the meta-GGA {self.functional.name}")
+        from defuqumat.xc.functional import refuse_local_meta
+
+        refuse_local_meta(self.functional, f"band_precision = {self.band_precision.name!r}")
         if unmeasured and len(regimes) + len(unmeasured) > 1:
             raise NotImplementedError(
                 f"band_precision = {self.band_precision.name!r} is checked on "
@@ -3325,6 +3333,18 @@ class Calculation:
                 "the combination is unvalidated here, and the residual solver's "
                 "convergence measure reads ns off the end of the packed state, "
                 "which tau now occupies"
+            )
+        if self.functional.is_local_meta and any(p.is_paw for p in self.pseudos):
+            # The one-centre terms take one Tran-Blaha c (``Potential.meta_c``),
+            # and under the local form that slot holds the cell mean, so a PAW
+            # run would put the mean on every sphere without an error. The value
+            # of c(r) at each atom (the field is smooth over a sphere at the
+            # paper's sigma) is the missing piece.
+            raise NotImplementedError(
+                "the local mBJ (input_dft = 'lmbj') with a PAW dataset is not "
+                "implemented: the PAW one-centre terms take one c, and the "
+                "local form's c is a field whose value at each atom they would "
+                "need. Use a norm-conserving dataset"
             )
 
     def _setup_hubbard(self, use_symmetry: bool) -> None:
@@ -5029,6 +5049,7 @@ class Calculation:
             e_sawtooth=potential.e_sawtooth,
             sawtooth_dipole=potential.sawtooth_dipole,
             meta_c=potential.meta_c,
+            meta_c_field=potential.meta_c_field,
         )
 
     def onecenter(self, becsum_, meta_c=None):
@@ -10791,4 +10812,6 @@ def run_scf(
         solver=solver_result,
         tau=tau_state,
         meta_c=None if tau_state is None else float(potential.meta_c),
+        meta_c_field=(np.asarray(potential.meta_c_field)
+                      if calculation.functional.is_local_meta else None),
     )

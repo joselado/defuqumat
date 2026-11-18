@@ -111,13 +111,22 @@ class System(eqx.Module):
     #: means the pseudopotentials decide.
     input_dft: str | None = eqx.field(static=True, default=None)
     #: ``mbj_c``: the Tran-Blaha coefficient, imposed rather than averaged over
-    #: the cell. **Not a ``pw.x`` variable** -- QE has no way to set it, which is
-    #: why its ``input_dft = 'tb09'`` is Becke-Johnson (libxc's default ``c = 1``)
-    #: rather than Tran-Blaha. WIEN2k and VASP both expose the same knob, and it
+    #: the cell. **Not a ``pw.x`` variable** -- QE has no way to set it, and its
+    #: ``input_dft = 'tb09'`` leaves libxc's default ``c = 1``, passes a zero
+    #: Laplacian and adds TPSS correlation, so it is not Tran-Blaha (P30, 2026-11-18
+    #: note). WIEN2k and VASP both expose the same knob, and it
     #: is what lets a pseudopotential run be compared with an all-electron one:
     #: ``c`` is an average of ``|grad rho|/rho``, which a pseudised core makes
     #: too small.
     mbj_c: float | None = eqx.field(static=True, default=None)
+    #: The local mBJ's settings (``input_dft = 'lmbj'``), none of them a ``pw.x``
+    #: variable: the Gaussian width and the threshold Wigner-Seitz radius, both
+    #: in bohr, and the parameter set (``'tb09'`` or ``'koller'``). ``None`` is
+    #: the paper's 3.78 bohr, 5 bohr and this code's default ``'tb09'``
+    #: (:data:`defuqumat.xc.mgga.LMBJ_PARAMETERS`).
+    lmbj_sigma: float | None = eqx.field(static=True, default=None)
+    lmbj_rs: float | None = eqx.field(static=True, default=None)
+    lmbj_parameters: str | None = eqx.field(static=True, default=None)
     smearing: str = eqx.field(static=True, default="gaussian")
     degauss: float = eqx.field(static=True, default=0.0)
     #: Occupations read from an OCCUPATIONS card, for occupations='from_input'.
@@ -1586,6 +1595,18 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         mbj_c=(
             None if pwin.get("system", "mbj_c") is None
             else float(pwin.get("system", "mbj_c"))
+        ),
+        lmbj_sigma=(
+            None if pwin.get("system", "lmbj_sigma") is None
+            else float(pwin.get("system", "lmbj_sigma"))
+        ),
+        lmbj_rs=(
+            None if pwin.get("system", "lmbj_rs") is None
+            else float(pwin.get("system", "lmbj_rs"))
+        ),
+        lmbj_parameters=(
+            None if pwin.get("system", "lmbj_parameters") is None
+            else str(pwin.get("system", "lmbj_parameters")).lower()
         ),
         smearing=str(pwin.get("system", "smearing", "gaussian")).lower(),
         degauss=float(pwin.get("system", "degauss", 0.0)),

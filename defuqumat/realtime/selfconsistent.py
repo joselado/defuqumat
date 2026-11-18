@@ -213,6 +213,11 @@ def require_a_potential_mode(calculation, potential: str, symmetrise, density_sy
             "(e_sawtooth) from the recorded energy, and with dipfield the dipole "
             "correction would move with rho(t) in 'hxc' but not in 'hartree', "
             "neither measured. potential = 'frozen' runs, with the field inside v_scf")
+    if potential == "hxc":
+        from defuqumat.xc.functional import refuse_local_meta
+
+        refuse_local_meta(calculation.functional,
+                          "real-time propagation with the potential updated (potential = 'hxc')")
     if potential == "hxc" and calculation.functional.is_meta and (
             calculation.noncolin or calculation.nspin_mag != 1):
         # ``nspin = 1`` carries tau(t) beside rho(t) (``_Run``, I99) and is

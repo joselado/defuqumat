@@ -688,7 +688,7 @@ def _warn_another_functional(calculation) -> None:
             stacklevel=3,
         )
     name = str(getattr(calculation.functional, "meta", "") or "").upper()
-    if name in ("TB09", "BJ06"):
+    if name in ("TB09", "BJ06", "LMBJ"):
         warnings.warn(
             f"this is a {name} state, and pw.x's input_dft = 'tb09' calls libxc "
             "with a zero Laplacian and c = 1 and adds TPSS correlation, which is "
