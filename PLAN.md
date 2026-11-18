@@ -5490,13 +5490,15 @@ to its wedge, gaps from a band path `L-Γ-X-W-K-Γ` at 30 points a segment:
 | run | `c` | indirect gap | direct gap | SCF iterations |
 |---|---|---|---|---|
 | LDA (PZ) | — | 0.493 eV | 2.567 eV | 6 |
-| BJ06 — *what `pw.x` runs when asked for `tb09`* | 1.000 | 1.018 eV | 3.075 eV | 11 |
+| BJ06 (`c = 1`, with the Laplacian; *not* what `pw.x` runs for `tb09`, see below) | 1.000 | 1.018 eV | 3.075 eV | 11 |
 | **TB09** | **1.0331** | **1.134 eV** | **3.168 eV** | 10 |
 | TB09, `mbj_c = 1.12` | 1.120 | 1.455 eV | 3.429 eV | 21 |
 | TB09, `mbj_c = 1.20` | 1.200 | 1.776 eV | 3.696 eV | 23 |
 | TB09, `mbj_c = 1.30` | 1.300 | 2.215 eV | 4.067 eV | 24 |
 | experiment | | 1.17 eV | 3.40 eV | |
 | published mBJ (WIEN2k, all-electron, `c` = 1.12) | | 1.17 eV | | |
+
+**2026-11-18: what `pw.x`'s `tb09` gives on this cell** (P180's Triton runs, `pw.x` 7.2 with libxc 6.2.2; mesh gaps, the highest occupied and lowest unoccupied level over the 6x6x6 mesh, so above the path's indirect gap): `pw.x` **2.53 eV**; defuqumat TB09 1.27, BJ06 1.15, and BJ06 with the Laplacian set to zero (what `xc_wrapper_mgga.f90:194, 211-212` passes libxc, with `c` left at libxc's default) 3.15. The converged density against `pw.x`'s: 8.1e-4, 8.6e-4 and 3.8e-4 on a peak of 0.030. So the zero Laplacian accounts for part of the distance and not all of it; the rest of the libxc route (its thresholds, the units of `tau` it is handed, its default `c`) was not separated. The QE users' list has the same symptom (2019-11, a `tb09` gap of 2.8 eV against 1.9 to 2.3 eV expected), answered by a patch that sets `c` by hand (`set_cc_for_tb09`, default 1.0), not by a computed average. Harness: the session's `tb09cmp/cmp.py`, not committed.
 
 and diamond, `C.pbe-hgh.UPF`, `ecutwfc = 60`, the same grid and path:
 
