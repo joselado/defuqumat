@@ -1,0 +1,19 @@
+ &control
+    calculation='scf', pseudo_dir='../../../pseudo', outdir='./out'
+ /
+ &system
+    ibrav=1, celldm(1)=10.0, nat=1, ntyp=1, nbnd=12, ecutwfc=25.0, ecutrho=200.0,
+    occupations='smearing', smearing='gaussian', degauss=0.01, nosym=.true.,
+    noncolin=.true., lspinorb=.true., starting_magnetization(1)=0.5,
+    angle1(1)=50.0, angle2(1)=20.0
+ /
+ &electrons
+    mixing_beta=0.3, conv_thr=1.0d-10
+ /
+ATOMIC_SPECIES
+ As  74.92  As.rel-pbe-n-rrkjus_psl.1.0.0.UPF
+ATOMIC_POSITIONS (bohr)
+ As 0.0 0.0 0.0
+K_POINTS tpiba
+ 1
+ 0.0 0.0 0.0 1.0

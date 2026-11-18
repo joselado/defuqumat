@@ -8,7 +8,8 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 import numpy as np
 
-PWX = REPO / "quantum_espresso/qe-7.5-ReleasePack/qe-7.5/bin/pw.x"
+import os as _os
+PWX = _os.environ.get("PW_X", str(REPO / "quantum_espresso/qe-7.5-ReleasePack/qe-7.5/bin/pw.x"))
 PSEUDO = REPO / "tests/data/pseudo"
 
 def set_control(text, outdir, prefix, extra_electrons=""):
@@ -31,7 +32,8 @@ def run_pwx(text, cwd):
     (cwd / "pw.in").write_text(text)
     env = dict(os.environ, OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1")
     t = time.perf_counter()
-    out = subprocess.run(["taskset", "-c", "0", str(PWX), "-in", "pw.in"], cwd=cwd,
+    pin = ["taskset", "-c", "0"] if os.environ.get("TASKSET", "1") == "1" else []
+    out = subprocess.run(pin + [str(PWX), "-in", "pw.in"], cwd=cwd,
                          capture_output=True, text=True, env=env).stdout
     (cwd / "pw.out").write_text(out)
     acc = [float(x) for x in re.findall(r"estimated scf accuracy\s+<\s+([0-9.Ee+-]+)", out)]
@@ -54,7 +56,11 @@ def main():
 
     from defuqumat import Calculator
     from defuqumat.io import qe_density as qd
-    calc = Calculator.from_text(src.read_text(), pseudo_dir=PSEUDO, announce=False)
+    ours_text = src.read_text()
+    for pair in [a.split("=", 1)[1] for a in sys.argv if a.startswith("--ours=")]:
+        old, new = pair.split("->")
+        ours_text = ours_text.replace(old, new)
+    calc = Calculator.from_text(ours_text, pseudo_dir=PSEUDO, announce=False)
     res = calc.get_scf()
     save = work / "ours_out" / "pwscf.save"
     if control:
