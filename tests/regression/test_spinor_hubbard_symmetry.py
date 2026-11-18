@@ -34,6 +34,13 @@ that is what makes the comparison below cheap enough to be a test.
 A moment pointing somewhere *generic* cuts the same group to 2 (measured on the
 silicon cell), so the interesting regime for this phase is the
 collinear-as-spinor one, not a texture.
+
+**What this file cannot see** (P180, OPEN.md Part XXXI): which index of ``ns``
+the spin factor conjugates. Here ``ns`` is diagonal in spin, and ``S x conj(S)``
+and ``conj(S) x S`` keep it alike, so the wrong one passed every test below
+while spin-orbit Pt 5d came out 4.8e-3 Ry from ``pw.x``. The discriminating
+check is ``tests/unit/test_hubbard_spinor.py::
+test_the_spinor_symmetriser_keeps_a_spin_orbit_occupation_matrix``.
 """
 
 from functools import lru_cache
