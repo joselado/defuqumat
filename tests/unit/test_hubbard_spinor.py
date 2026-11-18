@@ -231,3 +231,63 @@ def test_the_collinear_preconditioner_carries_a_term_pw_x_does_not(pseudo_dir):
     # ... and it is a real term rather than round-off, so a reader can tell
     # this assertion from one that would pass on a numerically dead branch.
     assert np.abs(share).max() * RY_TO_EV > 0.1
+
+
+#: Pt fcc with spin-orbit coupling and U = 1e-6 eV on 5d, so the state is the
+#: spin-orbit one on which defuqumat and pw.x agree to 1e-8 Ry.
+_PT_SOC = """&control
+ calculation='scf'
+/
+&system
+ ibrav=2, celldm(1)=7.42, nat=1, ntyp=1, ecutwfc=25.0, ecutrho=200.0,
+ occupations='smearing', smearing='mv', degauss=0.02,
+ noncolin=.true., lspinorb=.true.
+/
+&electrons
+ conv_thr=1.0d-10
+/
+ATOMIC_SPECIES
+ Pt 195.08 Pt.rel-pbe-n-kjpaw_psl.0.1.UPF
+ATOMIC_POSITIONS {crystal}
+ Pt 0.0 0.0 0.0
+K_POINTS {automatic}
+3 3 3 0 0 0
+HUBBARD {atomic}
+U Pt-5d 1.0e-6
+"""
+
+
+def test_the_spinor_symmetriser_keeps_a_spin_orbit_occupation_matrix(pseudo_dir):
+    """The whole grid's ``ns`` of spin-orbit Pt 5d is a fixed point of the average.
+
+    ``tests/data/hubbard/pt-soc-ns-nosym.npy`` is defuqumat's ``ns`` of the cell
+    above under ``nosym`` on the whole 3x3x3 grid, which is ``pw.x``'s matrix:
+    eigenvalues 0.8227 (4), 0.8748 (2), 1.0028 (4), spin-orbit elements 0.063,
+    0.073 and 0.037, as ``pw.x`` prints them. A symmetric matrix must come back
+    unchanged. Until P180 (2026-11-18) the spin factor was ``S x conj(S)``,
+    which is the law of rho where ``ns`` is rho^T; it halved those elements
+    (0.035, 0.040, 0.020) and put the DFT+U energy 4.8e-3 Ry from ``pw.x``.
+    The test asserts that the old law moves the matrix, so it can tell them
+    apart; the regression test on Ni with the moment along z cannot, because
+    an ``ns`` diagonal in spin is kept by both.
+    """
+    from pathlib import Path
+    from defuqumat import Calculator
+    from defuqumat.hubbard.occupations import NsSymmetry, build_ns_symmetry
+
+    calculation = Calculator.from_text(_PT_SOC, pseudo_dir=pseudo_dir).calculation
+    symmetry = build_ns_symmetry(calculation.hubbard, calculation.system.cell,
+                                 calculation.system.structure, calculation.symmetries)
+    assert symmetry is not None and symmetry.spin is not None and symmetry.nsym == 48
+    ns = np.load(Path(__file__).resolve().parents[1] / "data" / "hubbard"
+                 / "pt-soc-ns-nosym.npy")
+    kept = np.asarray(symmetry.apply(jnp.asarray(ns)))
+    assert np.abs(kept - ns).max() < 1e-7
+    # the old law, rho's: S x conj(S) instead of conj(S) x S
+    old_spin = jnp.asarray(np.einsum("sabcd->sbadc", np.asarray(symmetry.spin)
+                                     .reshape(-1, 2, 2, 2, 2)).reshape(-1, 4, 4))
+    old = NsSymmetry(symmetry.operators, symmetry.sources, symmetry.slots,
+                     symmetry.ldims, symmetry.nsym, symmetry.shape,
+                     spin=old_spin, time_reversed=symmetry.time_reversed)
+    moved = np.asarray(old.apply(jnp.asarray(ns)))
+    assert np.abs(moved - ns).max() > 2e-2

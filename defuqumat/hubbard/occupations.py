@@ -153,9 +153,13 @@ class NsSymmetry:
     ``D_s`` on the harmonics and ``S_s`` on the spinor, so a density matrix
     built from those orbitals transforms as
 
-        ns_sym[b] = (1/N) sum_s (D_s x S_s) ns[s^-1(b)] (D_s x S_s)^dagger,
+        ns_sym[b] = (1/N) sum_s conj(D_s x S_s) ns[s^-1(b)] (D_s x S_s)^T,
 
-    which is why the atom index is gathered through the **inverse** permutation
+    ``ns`` carrying the conjugated projection on its first index (it is rho^T;
+    for rho itself the law would be ``U rho U^dagger``, and applying that one to
+    ``ns`` was the defect P180 found; ``D_s`` is real, so only the spin factor
+    sees the difference). That is why the atom index is gathered through the
+    **inverse** permutation
     while the rotation carries ``s`` itself. For a collinear run ``S_s`` is
     absent, the spin axis is a spectator, and what is left is the expression
     ``new_ns.f90`` writes; for a spinor run it is the four-component one
@@ -197,9 +201,9 @@ class NsSymmetry:
             else:
                 gathered = self._time_reverse(gathered)
                 # The leading axis is the spin pair ``(s1, s2)`` packed as
-                # ``2 s1 + s2``, and ``spin[s]`` is ``S_s x conj(S_s)`` on it --
-                # the two indices of a density matrix, one of which is
-                # conjugated.
+                # ``2 s1 + s2``, and ``spin[s]`` is ``conj(S_s) x S_s`` on it --
+                # the two indices of a density matrix, the first of which is
+                # conjugated (see :func:`build_ns_symmetry`).
                 averaged = jnp.einsum(
                     "szw,sikjl,wsnkl->znij",
                     self.spin.astype(gathered.dtype), operator, gathered,
@@ -247,9 +251,15 @@ def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
     **A spinor setup gains the spin factor**, which is
     :func:`~defuqumat.system.symmetry.spin_rotations` -- ``d_spin_ldau``. The spin
     axis of a spinor ``ns`` is the pair ``(s1, s2)`` packed as ``2 s1 + s2``, so
-    the operator on it is ``S x conj(S)``: one index of a density matrix is
+    the operator on it is ``conj(S) x S``: one index of a density matrix is
     conjugated, and an overall sign of ``S`` therefore cancels, which is why the
-    two-valuedness of the spin representation never has to be resolved.
+    two-valuedness of the spin representation never has to be resolved. **Which
+    index is the conjugated one decides the law**: :func:`occupation_matrix`
+    puts ``conj(p)`` on the first, so ``ns`` is rho^T and turns as
+    ``conj(U) ns U^T``, ``new_ns_nc``'s ``CONJG(d_spin_ldau(is1,is3)) ...
+    d_spin_ldau(is2,is4)``. It was ``S x conj(S)`` until P180 (2026-11-18),
+    which is rho's law, and that is only visible when ``ns`` has spin-flip
+    blocks with an orbital structure, which spin-orbit coupling gives it.
 
     **Collinear time reversal is not handled.** ``new_ns`` flips the spin index
     of an operation that is a symmetry only together with time reversal
@@ -301,8 +311,17 @@ def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
     spin = time_reversed = None
     if setup.noncolin:
         matrices = spin_rotations(cell, symmetries)  # (nsym, 2, 2)
+        # conj(S) on the first index and S on the second, as ``new_ns_nc``
+        # writes ``CONJG(d_spin_ldau(is1,is3)) * nr(..,is3,is4,..) *
+        # d_spin_ldau(is2,is4)``: ``nr`` carries the conjugated projection on
+        # its first index, so it is rho^T and turns as ``conj(U) nr U^T``.
+        # ``S x conj(S)`` is rho's own law, and on rho^T it averages with the
+        # conjugate spin representation: on spin-orbit Pt 5d that halved every
+        # spin-orbit element of ``ns`` and moved the DFT+U energy 4.8e-3 Ry
+        # from pw.x (P180, OPEN.md Part XXXI), invisible wherever ``ns`` is
+        # diagonal in spin (the moment along z without spin-orbit coupling).
         spin = jnp.asarray(
-            np.einsum("sac,sbd->sabcd", matrices, matrices.conj())
+            np.einsum("sac,sbd->sabcd", matrices.conj(), matrices)
             .reshape(symmetries.nsym, 4, 4)
         )
         time_reversed = jnp.asarray(

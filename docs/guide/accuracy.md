@@ -74,6 +74,7 @@ energy, the quantity every other one is built on:
 | DFT+U | at most 6.7e-9 Ry |
 | DFT+U+J on antiferromagnetic FeO, $J = 1$ eV | 4.2e-9 Ry |
 | DFT+U on spinors, BN and iron with spin-orbit coupling | 7.7e-9 and 1.4e-9 Ry |
+| DFT+U on platinum 5d with spin-orbit coupling, PAW and ultrasoft, with and without a moment (with `noncollinear_gga = 'kubler'`) | at most 4.8e-9 Ry |
 | a saw-tooth field, CO in a box and the Ni slab with CO | 4.5e-10 (4e-11 with the dipole correction) and 7e-11 Ry |
 | a finite field in a crystal by the Berry phase, eight-atom silicon | 1.2e-8 Ry |
 
