@@ -71,6 +71,11 @@ plausible wrong answer rather than an error. `PLAN.md` has the phase that found 
 - **Index order in a transposed pair reads as a sign.** `f(n, m)` against `e(m, n)`, and
   `G(r, r')` conjugating `psi` in the *exit* variable rather than the source one: both give
   results that are real, non-negative, correctly symmetric and wrong (P54, P66).
+  The same at the level of a group average (P180, OPEN XXXI): a density matrix built
+  `conj(p) p` is rho^T and turns as `conj(U) ns U^T`, and the spinor `ns` symmetrizer used
+  rho's `U ns U^dagger`. Trace, diagonal and Hermiticity survive; the spin-orbit elements
+  came out at 0.55 of `pw.x`'s and the Pt DFT+U energy 4.8e-3 Ry off, while the end-to-end
+  test (moment along z, no spin-orbit coupling, `ns` diagonal in spin) passed under both laws.
 - **An `nspin = 2` screening kernel is not finite where a channel density reaches zero**,
   which a cell with vacuum guarantees. That is the `abs` trap one derivative further out,
   it lives in `defuqumat/xc`, and clipping inside the response does not fix it (P45).
