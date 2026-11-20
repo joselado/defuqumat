@@ -472,15 +472,18 @@ def run_magnetizability(system, pseudos, scf0, *, kmesh, nbnd: int, conv_thr: fl
     variational, and the second difference divides its error by ``dB^2``.
     """
     fluxes = (0, 1, -1) if time_reversal_check else (0, 1)
-    results = {p: run_magnetic_scf(system, pseudos, scf0, flux=(p, 1), kmesh=kmesh, nbnd=nbnd,
-                                   conv_thr=conv_thr, **options) for p in fluxes}
-    unconverged = [p for p, r in results.items() if not r.converged]
-    if unconverged:
-        raise RuntimeError(
-            f"the route P SCF did not converge at flux {unconverged} (flux quanta per "
-            "cell), so its total energy is not variational and chi, a second difference "
-            "divided by dB^2, is not defined from it; raise max_iterations or lower "
-            "mixing_beta")
+    results = {}
+    for p in fluxes:
+        results[p] = run_magnetic_scf(system, pseudos, scf0, flux=(p, 1), kmesh=kmesh,
+                                      nbnd=nbnd, conv_thr=conv_thr, **options)
+        # At once, not after the three: the field runs on the large box are the costly
+        # ones, and chi needs every energy (audit 2026-11-20 #29).
+        if not results[p].converged:
+            raise RuntimeError(
+                f"the route P SCF did not converge at flux {[p]} (flux quanta per "
+                "cell), so its total energy is not variational and chi, a second "
+                "difference divided by dB^2, is not defined from it; raise "
+                "max_iterations or lower mixing_beta")
     mcell = magnetic_cell(system.cell, 1, 1)
     b = float(tesla_from_flux(1, 1, float(mcell.area)))
     energies = {p: float(r.total_energy) for p, r in results.items()}

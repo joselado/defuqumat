@@ -569,3 +569,21 @@ def test_the_fold_scf_keeps_time_reversal_on_an_odd_box():
         energies[p] = r.total_energy
     assert abs(energies[1] - energies[-1]) < 1e-9
     assert energies[1] == pytest.approx(-15.1857113446, abs=1e-8)
+
+
+def test_the_magnetizability_stops_at_the_first_unconverged_flux(monkeypatch):
+    """An unconverged flux-0 SCF raises before the +1 and -1 runs are paid for (audit 2026-11-20 #29)."""
+    from types import SimpleNamespace
+
+    import defuqumat.magnetic.fold as fold
+
+    calls = []
+
+    def stand_in(system, pseudos, scf0, *, flux, **options):
+        calls.append(flux[0])
+        return SimpleNamespace(total_energy=-1.0, converged=flux[0] != 0)
+
+    monkeypatch.setattr(fold, "run_magnetic_scf", stand_in)
+    with pytest.raises(RuntimeError, match=r"did not converge at flux \[0\]"):
+        fold.run_magnetizability(None, None, None, kmesh=(1, 1, 1), nbnd=4)
+    assert calls == [0]
