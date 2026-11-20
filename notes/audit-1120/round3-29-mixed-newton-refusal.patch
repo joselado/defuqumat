@@ -1,0 +1,130 @@
+diff --git a/defuqumat/scf/driver.py b/defuqumat/scf/driver.py
+index 6c498f77..0ec7ce26 100644
+--- a/defuqumat/scf/driver.py
++++ b/defuqumat/scf/driver.py
+@@ -8635,6 +8635,25 @@ def run_scf(
+     # A threshold the band side cannot deliver is refused rather than chased: in
+     # single precision the SCF would stop at the floor and report convergence.
+     switch_to = getattr(calculation, "switch_precision", None)
++    if switch_to is not None and get_scf_solver(scf_solver) is not None:
++        # ``'mixed'`` switches inside the mixing loop, at an iteration after the
++        # first, so a residual solver runs whole on the single-precision map: on
++        # si16-1k.in at conv_thr = 1e-10, 11 Newton steps and 152 evaluations
++        # of F against 4 and 35 in double, with the residual rising once on the
++        # way. The state it hands over still finishes in double, since the loop
++        # does not stop while ``switch_to`` is set; what is refused is the cost,
++        # unmeasured on a card (audit 2026-11-20c #29). pw.x has neither a
++        # residual solver nor a single band side.
++        raise NotImplementedError(
++            f"band_precision='mixed' with a residual SCF solver "
++            f"(scf_solver={scf_solver!r}) is not implemented: the switch to "
++            "double happens inside the mixing loop, after its first iteration, "
++            "so the solver would run entirely on the single-precision bands, "
++            "where it needed 4.3 times the evaluations of F on 16-atom silicon. "
++            "Use band_precision='double' with the residual solver, or "
++            "band_precision='single' at conv_thr >= "
++            f"{Calculation.SINGLE_CONV_THR_FLOOR:.0e} and continue with "
++            "band_precision='double' and starting_from=")
+     if switch_to is None and conv_thr < getattr(calculation, "conv_thr_floor", 0.0):
+         raise ValueError(
+             f"conv_thr = {conv_thr:.1e} is below what band_precision = "
+diff --git a/docs/guide/performance.md b/docs/guide/performance.md
+index abf7332d..3f0d3055 100644
+--- a/docs/guide/performance.md
++++ b/docs/guide/performance.md
+@@ -386,6 +386,15 @@ several cards are in
+     in double precision. A calculation moved to new positions, a new cell or a
+     new spiral wavevector stays in single precision.
+ 
++    `band_precision="mixed"` gives an error with `scf_solver='newton-krylov'`.
++    The change to double precision happens inside the mixing loop, after its
++    first iteration, so the Newton solver would run entirely in single
++    precision. On `si16-1k.in` at `conv_thr` $=10^{-10}$ it then needed 152
++    evaluations of the SCF map, where double precision needs 35. With the
++    Newton solver you use `band_precision="double"`, or `"single"` at a
++    `conv_thr` of at least $10^{-7}$ Ry and then a double-precision run with
++    `starting_from`.
++
+     The code gives a `RuntimeWarning`, once per run, when the eigensolver uses
+     its whole budget of 100 steps and leaves bands not converged. The steps of
+     each iteration are in `scf.history[i]["davidson_iterations"]`.
+diff --git a/tests/unit/test_residual_solver_refusals.py b/tests/unit/test_residual_solver_refusals.py
+index c4d562f3..65a4db77 100644
+--- a/tests/unit/test_residual_solver_refusals.py
++++ b/tests/unit/test_residual_solver_refusals.py
+@@ -9,10 +9,15 @@ solve, and each is refused by name rather than applied at the wrong moment:
+   iteration 1 of a fresh run. The hand-over iteration is iteration 1, so the
+   request was imposed on the *converged* occupation matrix and the run reported
+   convergence with it (audit 2026-11-20c #3).
++* ``band_precision = 'mixed'``, whose switch to double happens inside the loop
++  after its first iteration, so the solver ran whole on the single-precision
++  bands, at 4.3 times the evaluations of ``F`` on 16-atom silicon
++  (audit 2026-11-20c #29). The state still finished in double.
+ 
+ Each refusal is checked to fire before the solve, and the regimes next to it are
+-checked to run: the same request on the mixing loop, and a residual solver on a
+-run that is given its starting state.
++checked to run: the same request on the mixing loop, a residual solver on a
++run that is given its starting state, and a residual solver in single
++precision.
+ """
+ 
+ from pathlib import Path
+@@ -82,3 +87,57 @@ def test_a_residual_solver_given_its_starting_ns_runs(steered_nickel):
+                      scf_solver="newton-krylov", scf_solver_options=dict(_ONE_STEP),
+                      verbose=False)
+     assert result.solver is not None
++
++
++_SILICON = """
++&control
++  calculation = 'scf'
++/
++&system
++  ibrav = 2, celldm(1) = 10.2, nat = 2, ntyp = 1, ecutwfc = 12.0
++/
++&electrons
++/
++ATOMIC_SPECIES
++ Si 28.086 Si.pz-vbc.UPF
++ATOMIC_POSITIONS crystal
++ Si 0.00 0.00 0.00
++ Si 0.25 0.25 0.25
++K_POINTS automatic
++ 2 2 2 0 0 0
++"""
++
++
++@pytest.fixture(scope="module")
++def silicon(pseudo_dir):
++    calculator = Calculator.from_text(_SILICON, pseudo_dir, announce=False)
++    return calculator.system, calculator.pseudos
++
++
++@pytest.mark.parametrize("conv_thr", [1e-10, 1e-5])
++def test_mixed_band_precision_with_a_residual_solver_is_refused(silicon, conv_thr):
++    """At every ``conv_thr``, before any work.
++
++    On ``419b5fb7`` the solve ran on the single-precision bands. On
++    ``si16-1k.in`` at 1e-10 it took 11 Newton steps and 152 evaluations of
++    ``F``, against 4 and 35 in double.
++    """
++    system, pseudos = silicon
++    with pytest.raises(NotImplementedError, match="band_precision='mixed'") as raised:
++        run_scf(system, pseudos, conv_thr=conv_thr, band_precision="mixed",
++                max_iterations=1, scf_solver="newton-krylov",
++                scf_solver_options=dict(_ONE_STEP), verbose=False)
++    assert "band_precision='double'" in str(raised.value)
++
++
++def test_a_residual_solver_in_single_band_precision_runs(silicon):
++    """``'single'`` keeps its own floor on ``conv_thr``, which 1e-7 meets.
++
++    Double, the other cure the message names, is what every other residual
++    solver test runs in.
++    """
++    system, pseudos = silicon
++    result = run_scf(system, pseudos, conv_thr=1e-7, band_precision="single",
++                     max_iterations=1, scf_solver="newton-krylov",
++                     scf_solver_options=dict(_ONE_STEP), verbose=False)
++    assert result.solver is not None

@@ -1,0 +1,48 @@
+diff --git a/defuqumat/scf/driver.py b/defuqumat/scf/driver.py
+index 3291c48b..13c67121 100644
+--- a/defuqumat/scf/driver.py
++++ b/defuqumat/scf/driver.py
+@@ -5127,9 +5127,14 @@ class Calculation:
+             meta_c_field=potential.meta_c_field,
+         )
+ 
+-    def onecenter(self, becsum_, meta_c=None):
++    def onecenter(self, becsum_, meta_c=None, symmetrize: bool = False):
+         """``(epaw, ddd_paw)`` for the current ``becsum``, as a block matrix.
+ 
++        ``symmetrize`` averages ``ddd_paw`` over the group, ``PAW_symmetrize_ddd``
++        after ``PAW_potential`` in ``electrons.f90``. Off by default, because a
++        ``jvp`` through this method (``PAW_dpotential``, a turned ``becsum``)
++        carries a tangent that breaks the group.
++
+         ``(0, None)`` when no species is PAW. ``ddd_paw`` is
+         ``(nspin_mag, nkb, nkb)``: the one-centre potential differs between the
+         components exactly as the grid potential does, and there are as many of
+@@ -5155,6 +5160,8 @@ class Calculation:
+             self.paw, becsum_, meta_c, self._axis_argument(),
+             noncollinear_gga=self.noncollinear_gga,
+         )
++        if symmetrize and self._becsum_symmetry is not None:
++            blocks = self._becsum_symmetry.apply(blocks)
+         return energy, _paw_block_matrices(self.augmentation, blocks, self.nspin_mag)
+ 
+     def _spiral_q_argument(self):
+@@ -8185,7 +8192,7 @@ def _robust_merit(calculation, total, terms, rho_out, becsum_out, ns_out,
+     merit = total - terms["hartree"] - terms["xc"]
+     pieces = [potential.ehart, potential.etxc]
+     if calculation.is_paw:
+-        epaw, ddd_out = calculation.onecenter(becsum_out, None)
++        epaw, ddd_out = calculation.onecenter(becsum_out, None, symmetrize=True)
+         pieces.append(epaw)
+     if calculation.sawtooth is not None:
+         pieces.append(potential.e_sawtooth)
+@@ -9539,7 +9546,8 @@ def run_scf(
+         # before the Hamiltonian is dispatched (audit 2026-11-20 #24).
+         epaw, ddd_paw = calculation.onecenter(
+             becsum_state,
+-            _meta_c(potential, calculation.functional.is_meta and calculation.is_paw))
++            _meta_c(potential, calculation.functional.is_meta and calculation.is_paw),
++            symmetrize=True)
+         hubbard_terms = v_ns = None
+         eth = 0.0
+         if calculation.is_hubbard:

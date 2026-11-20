@@ -1,0 +1,66 @@
+diff --git a/defuqumat/paw/gradient.py b/defuqumat/paw/gradient.py
+index 7cc9fab3..693777e0 100644
+--- a/defuqumat/paw/gradient.py
++++ b/defuqumat/paw/gradient.py
+@@ -232,12 +232,21 @@ def _noncollinear_gradient(rho_lm, rho_rad, core, paw, axis, with_small=False):
+     signed = sign * modulus
+     channels = 0.5 * jnp.stack([charge + signed, charge - signed])  # (2, nx, mesh)
+     channel_lm = jnp.einsum("xl,sxr->slr", weighted[:, :nlm], channels * r2)
++    # **The functional is evaluated on the cut channels**, as QE evaluates it
++    # (AUDIT-2026-11-20b #11): ``compute_rho_spin_lm`` projects the rotated
++    # channels onto ``nlm`` multipoles and ``PAW_gcxc_potential`` re-expands
++    # them (``PAW_lm2rad``) before the gradient and ``rho_full``. The rotation
++    # runs through ``|m|``, which is not band-limited where ``m-hat`` varies
++    # over the sphere or ``m`` has a node, so the uncut values differ from
++    # the cut ones, and the potential assembled below (projected, re-expanded,
++    # rotated back) is the derivative of the energy of the cut ones only.
++    cut = jnp.einsum("xl,slr->sxr", paw.angular.ylm[:, :nlm], channel_lm) / r2
+ 
+     grad = jnp.stack([
+-        _gradient(channel_lm[s], channels[s], paw) for s in range(2)
++        _gradient(channel_lm[s], cut[s], paw) for s in range(2)
+     ])  # (2, 3, nx, mesh)
+     v1, h, energy_density = paw.functional.spin_gradient_terms_and_energy(
+-        channels, grad
++        cut, grad
+     )
+ 
+     h = h * r2
+diff --git a/tests/unit/test_noncollinear_gga_grad_m.py b/tests/unit/test_noncollinear_gga_grad_m.py
+index e7cce8b4..a47885a2 100644
+--- a/tests/unit/test_noncollinear_gga_grad_m.py
++++ b/tests/unit/test_noncollinear_gga_grad_m.py
+@@ -295,6 +295,33 @@ def test_the_paw_sphere_is_the_collinear_sphere_for_a_collinear_moment(oxygen_pa
+     assert np.max(np.abs(ddd4[1:] - np.multiply.outer(e, 0.5 * (ddd2[0] - ddd2[1])))) < 1e-10
+ 
+ 
++def test_the_kubler_sphere_potential_is_the_derivative_of_its_energy(oxygen_paw):
++    """``'kubler'`` on the sphere, with ``m-hat`` varying over it (AUDIT-2026-11-20b #11).
++
++    The rotated channels run through ``|m|``, which is not band-limited where the
++    direction varies or ``m`` has a node. QE evaluates the functional on the
++    channels cut to ``nlm`` multipoles (``compute_rho_spin_lm``, then
++    ``PAW_lm2rad``), and the potential assembled from the projection is the
++    derivative of that energy only. On this ``becsum`` the magnetization rows
++    of ``ddd`` missed ``jax.grad`` of the energy by 1.5e-2 of their largest
++    entry on the uncut channels, and miss it by 3.7e-4 on the cut ones; the
++    whole ``ddd`` by 5.6e-4 and 5.3e-5, where the collinear sphere reads 5.8e-5.
++    """
++    from defuqumat.paw.onecenter import onecenter_species
++
++    paw, _, charge, moment, _ = oxygen_paw
++    transverse = np.stack([moment, 0.5 * np.roll(moment, 1, axis=0) + 0.5 * np.roll(moment, 1, axis=0).T,
++                           0.3 * charge])
++    becsum = jnp.asarray(np.concatenate([charge[None], transverse]))
++    _, ddd = onecenter_species(paw, becsum, axis=None, noncollinear_gga="kubler")
++    grad = np.asarray(jax.grad(
++        lambda b: onecenter_species(paw, b, axis=None, noncollinear_gga="kubler")[0])(becsum))
++    grad = 0.5 * (grad + np.swapaxes(grad, 1, 2))
++    ddd = np.asarray(ddd)
++    assert np.abs(grad[1:] - ddd[1:]).max() < 2.0e-3 * np.abs(ddd[1:]).max()
++    assert np.abs(grad - ddd).max() < 2.0e-4 * np.abs(ddd).max()
++
++
+ def test_the_paw_sphere_potential_is_the_derivative_of_its_energy(oxygen_paw):
+     """``ddd`` against a central difference in ``becsum``, on a noncollinear moment.
+ 

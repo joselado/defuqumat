@@ -1,0 +1,281 @@
+diff --git a/defuqumat/scf/driver.py b/defuqumat/scf/driver.py
+index 0c9a6955..5a2c3dd2 100644
+--- a/defuqumat/scf/driver.py
++++ b/defuqumat/scf/driver.py
+@@ -719,8 +719,59 @@ def _rho_ddot_metric(calculation, layout=None):
+             parts.append(_tau_ddot_vector(dtau, gvectors, cell))
+         return jnp.concatenate(parts)
+ 
++    def turn(vector, rotation, omega, ns_shape=None, ns_dtype=None):
++        """``metric(R drho, rotate_ns(dns), dtau)`` from ``metric(drho, dns, dtau)``, on the host.
++
++        Route C's turn of a residual (``turn_packed(shifted=False)`` in
++        :func:`run_scf`) written in this metric's layout, so that
++        :meth:`~defuqumat.scf.mixing.AndersonMixer.rotate_history` can keep a
++        history that carries fit vectors (AUDIT-2026-11-20b #3). Every weight
++        is diagonal in G and the same for the three magnetization components,
++        so the turn is ``R`` on those components of every coefficient, real and
++        imaginary parts alike, with no shift since a residual is a difference.
++        The density's block is ``[Re, Im] x [n, m_x, m_y, m_z] x ngm`` without a
++        layout (:func:`~defuqumat.scf.potential._as_reals`) and
++        ``[n, m_x, m_y, m_z] x ngms`` under one
++        (:meth:`~defuqumat.scf.mixing.SphereLayout.rho_ddot_vector`). The ``ns``
++        block, ``sqrt(U/2)`` per site times ``ns`` as ``[Re, Im]``, turns as
++        ``rotate_ns``, which acts on the spin indices within a site and so
++        commutes with the per-site weight. ``tau``'s block is left as
++        ``turn_packed`` leaves ``tau``.
++        """
++        if calculation.nspin_mag != 4:
++            raise ValueError(
++                f"a fit vector turns with the moments only at nspin_mag = 4, and "
++                f"this run has nspin_mag = {calculation.nspin_mag}")
++        vector = np.array(vector, copy=True)
++        rotation = np.asarray(rotation, dtype=vector.dtype)
++        if layout is None:
++            ngm = int(gvectors.ngm)
++            head = vector[:8 * ngm].reshape(2, 4, ngm)
++            head[:, 1:] = np.einsum("ij,ajg->aig", rotation, head[:, 1:])
++            offset = 8 * ngm
++        else:
++            ngms = int(layout.stored_shape[1])
++            head = vector[:4 * ngms].reshape(4, ngms)
++            head[1:] = rotation @ head[1:]
++            offset = 4 * ngms
++        if ns_shape is not None:
++            from defuqumat.scf.orientation import rotate_ns
++
++            size = int(np.prod(ns_shape))
++            block = np.empty(ns_shape, dtype=ns_dtype)
++            block.real = vector[offset:offset + size].reshape(ns_shape)
++            block.imag = vector[offset + size:offset + 2 * size].reshape(ns_shape)
++            turned = rotate_ns(block, omega)
++            vector[offset:offset + size] = turned.real.ravel()
++            vector[offset + size:offset + 2 * size] = turned.imag.ravel()
++        return vector
++
+     if layout is None:
+         metric.device = device
++    if not isinstance(layout, SpiralSphereLayout):
++        # A spiral keeps ``m'_+`` on a displaced sphere, and ``rotate_moments``
++        # refuses a spiral; without ``turn`` the mixer drops its history.
++        metric.turn = turn
+     return metric
+ 
+ 
+@@ -10673,17 +10724,23 @@ def run_scf(
+                 # On PAW the shift is measured on the current states and is
+                 # exact for the newest entry only. Dropping the history instead
+                 # was measured and is worse (PAW nickel: ``dr2`` swinging up to
+-                # 5e-3 after each reset, against 2e-4 turning it). That was on
+-                # the flat fit. Under the default ``rho_ddot`` fit (P146) the
+-                # mixer holds fit vectors, and ``rotate_history`` drops the
+-                # whole history at every turn (AUDIT-2026-11-20b #3). A patch
+-                # that turns the fit vectors instead is measured and held: on
+-                # the oblique cobalt it moves the iterations by -11 or +7
+-                # depending on the arithmetic order, and it would move I78,
+-                # I112 and I113.
++                # 5e-3 after each reset, against 2e-4 turning it, on the flat
++                # fit). Under ``rho_ddot``'s fit, the default since P146, the
++                # fit vectors turn with the residuals through the metric's own
++                # ``turn``; until AUDIT-2026-11-20b #3 nothing turned them and
++                # the mixer dropped its history at every turn.
++                turn_fit = getattr(getattr(mixer, "metric", None), "turn", None)
++                fit_turn = None
++                if turn_fit is not None:
++                    def fit_turn(vector, turn=turn, step=step):
++                        return turn_fit(
++                            vector, turn, step,
++                            ns_shape=turned_ns_shape if turns_ns else None,
++                            ns_dtype=ns_dtype if turns_ns else None)
+                 mixer.rotate_history(
+                     turn_packed,
+                     lambda vector: turn_packed(vector, shifted=False),
++                    fit_turn,
+                 )
+                 if isinstance(wavefunctions, PoolStore):
+                     wavefunctions = PoolStore(
+diff --git a/defuqumat/scf/mixing.py b/defuqumat/scf/mixing.py
+index 28943748..a3a413dd 100644
+--- a/defuqumat/scf/mixing.py
++++ b/defuqumat/scf/mixing.py
+@@ -201,12 +201,15 @@ class Mixer:
+         stepped[:size] = head.reshape(-1)
+         return stepped
+ 
+-    def rotate_history(self, transform, residual_transform=None) -> None:
++    def rotate_history(self, transform, residual_transform=None,
++                       fit_transform=None) -> None:
+         """Apply ``transform`` to every stored density and residual, or forget them.
+ 
+         ``residual_transform`` is the map for the residuals when it differs from
+         the densities', which it does for an affine map ``x -> R x + c``: a
+         residual is a difference of two densities and sees ``R`` alone.
++        ``fit_transform`` is the same map on a residual's fit vector, in the
++        metric's own layout (:attr:`metric`), for a mixer that stores them.
+ 
+         The in-loop rotation of ``notes/ORIENTATION-NEXT.md`` Route C turns the input
+         density between iterations, and a history left in the old frame is
+@@ -327,8 +330,9 @@ class AndersonMixer(Mixer):
+         self._fits.clear()
+         self._drop_gram()
+ 
+-    def rotate_history(self, transform, residual_transform=None) -> None:
+-        """Turn the stored densities and residuals with the input density.
++    def rotate_history(self, transform, residual_transform=None,
++                       fit_transform=None) -> None:
++        """Turn the stored densities, residuals and fit vectors with the input density.
+ 
+         ``residual_transform`` maps the residuals when the densities' map is
+         affine rather than linear (Anderson's step is equivariant under a common
+@@ -337,13 +341,25 @@ class AndersonMixer(Mixer):
+         ``transform`` is a spin rotation of every magnetization in a packed
+         vector, one map for the whole history. On the flat fit that rotation is
+         an isometry, ``|R m|`` being ``|m|`` point by point, so the cached Gram
+-        matrix of the residuals is unchanged and stays valid. A metric's fit
+-        vectors are in that metric's own layout, which this does not unpack, so
+-        a history carrying them is dropped instead.
++        matrix of the residuals is unchanged and stays valid.
++
++        **Under a metric the fit vectors turn too**, by ``fit_transform``, the
++        same rotation written in the metric's own layout (the driver's
++        ``_rho_ddot_metric`` supplies it as ``metric.turn``). ``rho_ddot`` is
++        invariant under a common spin rotation: the charge is untouched, the
++        magnetization's weight is one number for its three Cartesian
++        components, and ``ns_ddot`` is a Frobenius norm under ``rotate_ns``'s
++        unitary. So the cached Gram matrix stays valid here as well, and what
++        is turned is only what later dots against new entries read. Without
++        ``fit_transform`` a history carrying fit vectors is dropped, as it was
++        on every turn under the default fit until AUDIT-2026-11-20b #3, where
++        the call site's comment said dropping had been measured worse.
+         """
+         if self._fits:
+-            self.reset()
+-            return
++            if fit_transform is None:
++                self.reset()
++                return
++            self._fits[:] = [np.asarray(fit_transform(f)) for f in self._fits]
+         residual_transform = residual_transform or transform
+         self._densities[:] = [transform(v) for v in self._densities]
+         self._residuals[:] = [residual_transform(v) for v in self._residuals]
+diff --git a/tests/unit/test_rotating_moments.py b/tests/unit/test_rotating_moments.py
+index 58f7f5d8..00ccbf35 100644
+--- a/tests/unit/test_rotating_moments.py
++++ b/tests/unit/test_rotating_moments.py
+@@ -81,6 +81,116 @@ def test_the_mixer_is_equivariant_under_a_common_turn_of_its_history():
+     np.testing.assert_allclose(got, expected, rtol=1e-12, atol=1e-12)
+ 
+ 
++@pytest.fixture(scope="module")
++def metric_pieces():
++    """The dense set and cell of two-atom silicon, and a stand-in calculation with a U.
++
++    ``_rho_ddot_metric`` reads the dense G-vectors, the cell, ``nspin_mag``
++    and, under a Hubbard term, the per-site ``U/2``; nothing else, so no
++    Hamiltonian is built. Two sites with different ``U`` show that the turn of
++    ``ns`` commutes with the per-site weight.
++    """
++    from types import SimpleNamespace
++    from pathlib import Path
++
++    from defuqumat.basis.builder import build_basis
++    from defuqumat.io.pwin import read_pw_input
++    from defuqumat.system import build_system
++
++    case = Path(__file__).resolve().parents[1] / "data" / "qe" / "si2-tb09.in"
++    system = build_system(read_pw_input(case))
++    dense = build_basis(system).dense
++    calculation = SimpleNamespace(
++        basis=SimpleNamespace(dense=dense), system=SimpleNamespace(cell=system.cell),
++        nspin_mag=4, is_hubbard=True,
++        hubbard_coefficients={"u_metric": np.array([0.15, 0.05])})
++    return calculation, dense
++
++
++@pytest.mark.parametrize("in_g", [False, True])
++def test_the_fit_vector_turns_as_the_residual_it_was_made_from(metric_pieces, in_g):
++    """AUDIT-2026-11-20b #3: ``metric.turn(F(r))`` is ``F`` of the turned residual.
++
++    ``F`` is ``rho_ddot``'s fit vector of a residual with a density, a spinor
++    ``ns`` on two sites and a ``tau``; the turn is Route C's on a residual, ``R``
++    on the magnetization, ``rotate_ns`` on ``ns`` and ``tau`` left alone, as
++    ``turn_packed(shifted=False)`` does. Both layouts: the whole dense set in
++    real space, and the smooth sphere of ``mixing_space = 'g'``.
++    """
++    from defuqumat.scf.driver import _rho_ddot_metric
++    from defuqumat.scf.mixing import SphereLayout
++
++    calculation, dense = metric_pieces
++    shape = (4,) + tuple(dense.grid)
++    layout = (SphereLayout(dense, int(dense.ngm), calculation.system.cell, shape)
++              if in_g else None)
++    metric = _rho_ddot_metric(calculation, layout)
++    rng = np.random.default_rng(31)
++    omega = np.array([0.4, 0.2, -0.9])
++    turn = rotation_matrix(omega)
++    drho = rng.normal(size=shape)
++    dns = rng.normal(size=(4, 2, 5, 5)) + 1j * rng.normal(size=(4, 2, 5, 5))
++    dtau = rng.normal(size=shape)
++
++    def density(field):
++        return layout.stored_of(field) if in_g else field
++
++    fit = metric(density(drho), dns, dtau)
++    expected = metric(density(np.asarray(rotate_texture(drho, turn))),
++                      rotate_ns(dns, omega), dtau)
++    got = metric.turn(fit, turn, omega, ns_shape=dns.shape, ns_dtype=dns.dtype)
++    scale = np.abs(expected).max()
++    np.testing.assert_allclose(got, expected, rtol=0, atol=1e-12 * scale)
++    assert np.abs(got - fit).max() > 1e-3 * scale
++    assert float(got @ got) == pytest.approx(float(fit @ fit), rel=1e-12)
++
++
++def test_a_history_with_fit_vectors_turns_instead_of_being_dropped(metric_pieces):
++    """AUDIT-2026-11-20b #3: under ``rho_ddot``'s fit a turn keeps the history.
++
++    ``rotate_history`` dropped every history that carried fit vectors, and
++    since P146 every Anderson run carries them, so Route C reset the mixer at
++    every turn. With the metric's turn handed in, the history keeps its length,
++    the cached Gram matrix is the Gram matrix of the turned fit vectors, and
++    the step is equivariant, ``mix(R a, R b) = R mix(a, b)``, as on the flat
++    fit. Without the turn the history is still dropped.
++    """
++    from defuqumat.scf.driver import _rho_ddot_metric
++
++    calculation, dense = metric_pieces
++    shape = (4,) + tuple(dense.grid)
++    metric = _rho_ddot_metric(calculation)
++    rng = np.random.default_rng(32)
++    omega = np.array([-0.3, 0.6, 0.25])
++    turn = rotation_matrix(omega)
++
++    def rotated(vector):
++        return np.asarray(rotate_texture(vector.reshape(shape), turn)).ravel()
++
++    def fit(rho_in, rho_out):
++        return metric((rho_out - rho_in).reshape(shape), None, None)
++
++    plain = get_mixer("anderson", beta=0.3, history=4)
++    turned = get_mixer("anderson", beta=0.3, history=4)
++    dropped = get_mixer("anderson", beta=0.3, history=4)
++    pairs = [(_field(rng, shape).ravel(), _field(rng, shape).ravel()) for _ in range(4)]
++    for rho_in, rho_out in pairs[:3]:
++        for mixer in (plain, turned, dropped):
++            mixer.mix(rho_in, rho_out, fit=fit(rho_in, rho_out))
++    turned.rotate_history(rotated, None, lambda f: metric.turn(f, turn, omega))
++    dropped.rotate_history(rotated)
++    assert len(turned._residuals) == len(turned._fits) == 3
++    assert len(dropped._residuals) == len(dropped._fits) == 0
++    fresh = np.array([[a @ b for b in turned._fits] for a in turned._fits])
++    np.testing.assert_allclose(turned._gram, fresh, rtol=1e-12)
++
++    rho_in, rho_out = pairs[3]
++    expected = rotated(plain.mix(rho_in, rho_out, fit=fit(rho_in, rho_out)))
++    a, b = rotated(rho_in), rotated(rho_out)
++    got = turned.mix(a, b, fit=fit(a, b))
++    np.testing.assert_allclose(got, expected, rtol=1e-12, atol=1e-12)
++
++
+ def test_the_step_converges_on_a_quadratic_and_respects_its_bounds():
+     """``E = w . K w / 2`` in the accumulated rotation vector, one null direction.
+ 
