@@ -741,6 +741,23 @@ def _operation_mean(term, operations, shape, dtype):
     return total / nsym
 
 
+def _in_field_precision(field_g, phases, *rotations):
+    """``phases`` and ``rotations`` cast to the precision of ``field_g``.
+
+    The phases are built once in complex128 and the rotations are float64
+    NumPy tables, so a complex64 field was promoted to complex128 by either of
+    them. :func:`apply_symmetry_maps` cast the phases for the scalar average
+    only (audit 2026-11-15, ``traps`` F1), and a magnetization or a response
+    density still came back in double (audit 2026-11-20 #40). A field already
+    in double is returned unchanged, bit for bit.
+    """
+    if not jnp.iscomplexobj(field_g):
+        return (phases, *rotations)
+    real = jnp.finfo(field_g.dtype).dtype
+    return (jnp.asarray(phases).astype(field_g.dtype),
+            *(jnp.asarray(r).astype(real) for r in rotations))
+
+
 @jax.jit
 def _walked_scalar(rho_g, permutations, phases):
     return _operation_mean(lambda op: op[1] * rho_g[op[0]],
@@ -820,6 +837,7 @@ def symmetrize_vector_density(
         field_g: ``(3, ngm)`` in cartesian components.
         rotations: ``(nsym, 3, 3)``, signs already folded in if there are any.
     """
+    phases, rotations = _in_field_precision(field_g, phases, rotations)
     if _walks_operations(permutations.shape[0], field_g):
         return _walked_vector(field_g, permutations, phases, rotations)
     gathered = phases[:, None, :] * field_g[:, permutations].transpose(1, 0, 2)
@@ -857,6 +875,8 @@ def symmetrize_spin_vector_density(
         spin_rotations: ``(nsym, 3, 3)``, the same with the axial signs folded
             in -- what :func:`symmetrize_magnetization` is handed.
     """
+    phases, rotations, spin_rotations = _in_field_precision(
+        field_g, phases, rotations, spin_rotations)
     if _walks_operations(permutations.shape[0], field_g, copies=4):
         return _walked_spin_vector(field_g, permutations, phases, rotations,
                                    spin_rotations)
@@ -924,6 +944,7 @@ def symmetrize_atom_displacement_density(
     # :func:`atom_mapping`'s table unchanged and the reason sits by the
     # derivation above.
     inverse = jnp.asarray(np.argsort(np.asarray(mapping), axis=1))
+    phases, rotations = _in_field_precision(field_g, phases, rotations)
     if _walks_operations(permutations.shape[0], field_g):
         return _walked_atom_displacement(field_g, permutations, phases, rotations,
                                          inverse)
@@ -971,6 +992,8 @@ def symmetrize_atom_displacement_spin_density(
         mapping: ``(nsym, nat)`` from :func:`atom_mapping`, ``irt`` itself.
     """
     inverse = jnp.asarray(np.argsort(np.asarray(mapping), axis=1))
+    phases, rotations, spin_rotations = _in_field_precision(
+        field_g, phases, rotations, spin_rotations)
     if _walks_operations(permutations.shape[0], field_g, copies=4):
         return _walked_atom_displacement_spin(field_g, permutations, phases,
                                               rotations, spin_rotations, inverse)
@@ -1019,6 +1042,7 @@ def symmetrize_tensor_density(
             strain is built from two polar vectors, so it carries no sign of its
             own even under an improper operation.
     """
+    phases, rotations = _in_field_precision(field_g, phases, rotations)
     if _walks_operations(permutations.shape[0], field_g, copies=4):
         return _walked_tensor(field_g, permutations, phases, rotations)
     flat = field_g.reshape((9,) + field_g.shape[2:])
@@ -1121,8 +1145,7 @@ def apply_symmetry_maps(rho_g: jnp.ndarray, permutations, phases) -> jnp.ndarray
     # single-precision density was promoted to double by them at every SCF
     # iteration, which lost the single-precision mode on the dense grid without
     # a word (audit 2026-11-15, ``traps`` F1). They follow the density's dtype.
-    if jnp.iscomplexobj(rho_g):
-        phases = jnp.asarray(phases).astype(rho_g.dtype)
+    (phases,) = _in_field_precision(rho_g, phases)
     if _walks_operations(permutations.shape[0], rho_g):
         return _walked_scalar(rho_g, permutations, phases)
     return jnp.mean(phases * rho_g[permutations], axis=0)
