@@ -34,6 +34,7 @@ the delta has to sit on for the sum rule to hold; ``energy=`` overrides it.
 
 from __future__ import annotations
 
+import dataclasses
 import warnings
 
 import numpy as np
@@ -103,11 +104,13 @@ def run_stm(
             are needed, not only its density.
         height: crystal coordinate of the tip plane along ``axis`` -- the
             shortcut for a slab, spanning the whole surface cell. In
-            constant-current mode it is where the scan starts.
+            constant-current mode it is where the scan starts, and the tip is
+            withdrawn along ``+a_axis``, whatever the handedness of the cell.
         axis: which lattice vector ``height`` measures along, 0, 1 or 2.
             It describes the shortcut and nothing else: a scan takes its
             direction from the plane's own normal, so an explicit ``plane``
-            need not be perpendicular to a lattice vector.
+            need not be perpendicular to a lattice vector. Its normal is the
+            cross product of its two edges, in the order given.
         plane: the general form, ``(origin, edge1, edge2)`` in crystal
             coordinates -- Elk's ``vclp2d`` -- or a
             :class:`~defuqumat.stm.plane.PlotPlane` already built. Mutually
@@ -688,7 +691,20 @@ def _plane(cell, height, axis, plane, shape, span=(1.0, 1.0, 1.0)):
     edge1, edge2 = origin.copy(), origin.copy()
     edge1[first] = float(span[first])
     edge2[second] = float(span[second])
-    return plot_plane(cell, origin, edge1, edge2, shape)
+    geometry = plot_plane(cell, origin, edge1, edge2, shape)
+    # **The shortcut's normal points along +a_axis**, the way a tip is
+    # withdrawn from a slab below it. ``plot_plane``'s normal is the cross
+    # product of the edges in this order, which is +a1 and +a3 for axis 0 and 2
+    # in a right-handed cell but -a2 for axis 1, and every axis turns over in
+    # a left-handed cell; a constant-current scan along it walks into the slab
+    # (audit 2026-11-20c #10). Only the normal is turned, so the points and the
+    # layout of the image stay as they were. An explicit ``plane=`` keeps the
+    # normal its corners give.
+    at = np.asarray(cell.at, dtype=float)
+    normal = np.asarray(geometry.normal, dtype=float)
+    if float(normal @ at @ at[axis]) < 0.0:
+        geometry = dataclasses.replace(geometry, normal=-normal)
+    return geometry
 
 
 def _constant_current(sample, geometry, cell, current, heights, nheights):

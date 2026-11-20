@@ -93,7 +93,9 @@ The keywords of `get_stm` are:
 - **`mode`**: `"constant-height"`, or `"constant-current"` with a set-point
   `current` and a scan range `heights` in bohr. In the second mode
   `image.heights_bohr` is the height of the tip at each point, which is the
-  topograph a microscope records.
+  topograph a microscope records. With `height`, the tip starts on that plane
+  and moves along the lattice vector of `axis`, so the slab has to be below
+  the plane.
 - **`spin`**, **`polarization`**: a magnetic tip, with its moment along a
   direction `(nx, ny, nz)`, or `"up"` and `"down"` for a collinear run. The tip
   then sees $\tfrac12[\rho + P\,\hat{\mathbf n}\cdot\mathbf m]$, so the image of a
