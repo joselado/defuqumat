@@ -239,12 +239,14 @@ def tangent_width(ethr):
       1e-5)``, with no factor of 5. Its largest entry is ``empty_ethr`` only
       when the row has an empty band (``cegterg.f90:129``), and then the two
       forms agree. A row with every band occupied, or ``diago_full_acc``, holds
-      the bare ``ethr``, so there ``eta`` is the floor or ``max(ethr)``, five
-      times below the scalar's unit while ``ethr`` is above 2e-6:
-      ``tangent_width(jnp.full(4, 1e-4))`` is 1e-4 and ``tangent_width(1e-4)``
-      is 5e-4. The floor alone was added (audit 2026-11-15, ``hamiltonian``
-      F1), since the bare 1e-13 turned the bound off. No differentiated caller
-      passes a vector (audit 2026-11-20 #30), so this changes no derivative.
+      the bare ``ethr``, so there ``eta = max(ethr, 1e-5)`` against the
+      scalar's ``max(5 ethr, 1e-5)``: five times smaller for ``ethr`` at or
+      above 1e-5, between one and five times for ``ethr`` from 2e-6 to 1e-5,
+      and equal below. ``tangent_width(jnp.full(4, 1e-4))`` is 1e-4 and
+      ``tangent_width(1e-4)`` is 5e-4. The floor alone was added (audit
+      2026-11-15, ``hamiltonian`` F1), since the bare 1e-13 turned the bound
+      off; that record says no differentiated caller passes a vector, so no
+      derivative depends on the difference (audit 2026-11-20 #30).
 
     Traced, so it rides ``ethr``'s slot.
     """
