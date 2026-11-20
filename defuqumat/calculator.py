@@ -3214,7 +3214,11 @@ def _spinor_leg(spinor):
 #: fixed-density solve walks each pool's own k-points and gathers the
 #: eigenvalues (:func:`~defuqumat.workflows.nscf.fixed_density_states`).
 #: Every other ``get_*`` refuses by name under pools rather than reading one
-#: pool's share of the wavefunctions as though it were the whole set.
+#: pool's share of the wavefunctions as though it were the whole set, and so
+#: does every ``write_*``: ``write_qe_save`` and ``write_elk_state`` have no
+#: rank check, so every rank would truncate and rewrite the same files at once
+#: (audit 2026-11-20 #36, #42). A rank-0 write behind ``Pools.barrier`` is the
+#: alternative, and it needs a two-process test to be checked.
 POOL_AWARE = frozenset({"get_scf", "get_forces", "get_stress", "get_relax",
                         "get_bands", "get_nscf", "get_dos"})
 
@@ -3238,7 +3242,8 @@ def _refused_under_pools(name, method):
 
 
 for _name, _method in list(vars(Calculator).items()):
-    if _name.startswith("get_") and inspect.isfunction(_method) and _name not in POOL_AWARE:
+    if (_name.startswith(("get_", "write_")) and inspect.isfunction(_method)
+            and _name not in POOL_AWARE):
         setattr(Calculator, _name, _refused_under_pools(_name, _method))
 del _name, _method
 

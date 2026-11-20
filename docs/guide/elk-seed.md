@@ -284,7 +284,9 @@ itself needs 0.016 s.
     potential of Elk for the LDA (`xctype` 2 and 3) and for the PBE family of Elk
     (`xctype` 20, 21 and 22). A noncollinear state with PBE, a functional of
     libxc, a meta-GGA, a finite nucleus and an external magnetic field give an
-    error. We have not run a case with spin-orbit coupling through Elk.
+    error. We have not run a case with spin-orbit coupling through Elk. With
+    k-point pools (`DEFUQUMAT_POOLS`) `write_elk_state` gives an error, because
+    every pool would write the same `STATE.OUT` at the same time.
 
 The notebook for this page is
 [42, starting from an all-electron ground state](https://github.com/joselado/defuqumat/blob/master/notebooks/42_all_electron_start.ipynb).

@@ -193,6 +193,8 @@ density (`startingpot='file'`).
     `projwfc.x` and an `nscf` run of `pw.x` cannot read it. Run the short restart
     first, and `pw.x` then writes its own full folder for them. A spin spiral
     cannot be written, because `pw.x` has none. The HDF5 form is never written.
+    With k-point pools (`DEFUQUMAT_POOLS`) `write_qe_save` gives an error,
+    because every pool would write the same files at the same time.
     A meta-GGA restart was checked with a `pw.x` 7.2 built with libxc. It reads
     our `ekin-density.dat` correctly. But `input_dft = 'tb09'` in `pw.x` calls
     libxc with no Laplacian and with `c = 1`, and it adds TPSS correlation.

@@ -319,6 +319,43 @@ def test_the_facade_refuses_what_is_not_pool_aware(monkeypatch):
             getattr(Calculator, name)(object())
 
 
+def test_the_writers_refuse_under_pools_and_write_on_one(monkeypatch):
+    """``write_qe_save`` and ``write_elk_state`` refuse under pools (audit 2026-11-20 #36, #42).
+
+    Neither writer has a rank check, so under ``DEFUQUMAT_POOLS`` every rank
+    truncated and rewrote the same files at once. The io writers are stood in
+    by recorders, so the test sees whether they are reached; with one pool they
+    still are, with the arguments passed through.
+    """
+    from types import SimpleNamespace
+
+    import defuqumat.io.elk_allelectron as elk_allelectron
+    import defuqumat.io.qe_density as qe_density
+    import defuqumat.parallel as parallel
+    from defuqumat.calculator import Calculator
+
+    calls = []
+    monkeypatch.setattr(qe_density, "write_qe_save",
+                        lambda *args, **kwargs: calls.append(("qe", args)))
+    monkeypatch.setattr(elk_allelectron, "write_elk_state_from",
+                        lambda *args, **kwargs: calls.append(("elk", args)))
+    stand_in = SimpleNamespace(calculation="calculation")
+    state = object()
+
+    monkeypatch.setattr(parallel, "_CURRENT", Pools(_FakeCommunicator(2, 0)))
+    with pytest.raises(NotImplementedError, match="write_qe_save is not available"):
+        Calculator.write_qe_save(stand_in, "out/pwscf.save", result=state)
+    with pytest.raises(NotImplementedError, match="write_elk_state is not available"):
+        Calculator.write_elk_state(stand_in, "elk/", "elk/", result=state)
+    assert calls == []
+
+    monkeypatch.setattr(parallel, "_CURRENT", Pools(SerialCommunicator()))
+    Calculator.write_qe_save(stand_in, "out/pwscf.save", result=state)
+    Calculator.write_elk_state(stand_in, "elk/", "elk/", result=state)
+    assert calls == [("qe", ("out/pwscf.save", state, "calculation")),
+                     ("elk", ("elk/", state, "calculation", "elk/"))]
+
+
 @pytest.mark.slow
 def test_collectives_over_two_processes():
     results = _run_pools(COMMUNICATOR_SCRIPT, 2)
