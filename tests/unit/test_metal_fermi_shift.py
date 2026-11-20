@@ -107,3 +107,58 @@ def test_the_average_is_the_displacement_symmetriser_on_a_uniform_field():
     # The in-plane components average away and z does not.
     assert np.abs(averaged[:, :2]).max() < 1.0e-12
     assert np.abs(averaged[:, 2]).min() > 1.0e-3
+
+
+def test_the_atom_pairing_is_the_displacement_symmetriser_s_on_a_three_cycle():
+    """Three hydrogens on a generic C3 orbit: every operation but the identity is a 3-cycle.
+
+    On hcp aluminium, on fcc aluminium and on the graphene bilayer every atom
+    permutation is an involution, so ``irt`` and its inverse give the same
+    average and those checks cannot tell them apart (the trap the header of
+    ``al4-metal.in`` records). Here they differ by 1.04 on a random vector, and
+    the average must be the displacement symmetriser's, which is the one checked
+    against ``ph.x`` on a cell with 3-cycles.
+    """
+    from defuqumat.system.symmetry import atom_mapping, symmetrize_vector
+
+    point = np.array([0.30, 0.10])
+    orbit = [point]
+    for _ in range(2):
+        x, y = orbit[-1]
+        orbit.append(np.array([-y, x - y]))  # C3 about z in hexagonal axes
+    rows = "\n".join(f" H {x % 1:.12f} {y % 1:.12f} 0.1" for x, y in orbit)
+    text = f"""
+ &control
+ /
+ &system
+    ibrav = 4, celldm(1) = 6.0, celldm(3) = 1.5, nat = 3, ntyp = 1, ecutwfc = 8.0,
+    occupations = 'smearing', smearing = 'gaussian', degauss = 0.02
+ /
+ &electrons
+ /
+ATOMIC_SPECIES
+ H 1.008 H.pz-vbc.UPF
+ATOMIC_POSITIONS (crystal)
+{rows}
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+    calculation = _calculation(text)
+    mapping = np.asarray(atom_mapping(calculation.system.cell, calculation.system.structure,
+                                      calculation.symmetries))
+    assert calculation.symmetries.nsym == 3
+    # Not an involution: some operation applied twice is not the identity.
+    assert any(not np.array_equal(row[row], np.arange(3)) for row in mapping)
+
+    raw = np.random.default_rng(7).normal(size=(3, 3))
+    averaged = calculation.symmetrize_atom_vector(raw)
+    grid = tuple(calculation.basis.dense.grid)
+    fields = jnp.asarray(raw)[:, :, None, None, None, None] * jnp.ones((1,) + grid)
+    through_fields = np.asarray(
+        calculation.symmetrize_atom_displacement(fields)).mean(axis=(2, 3, 4, 5))
+    np.testing.assert_allclose(averaged, through_fields, atol=1.0e-12)
+    # The other pairing is far off, so the check can fail.
+    inverse = np.asarray(symmetrize_vector(raw, calculation.system.cell,
+                                           calculation.symmetries,
+                                           np.argsort(mapping, axis=1)))
+    assert np.abs(inverse - through_fields).max() > 0.1
