@@ -1730,7 +1730,10 @@ def _meta_c(potential, is_meta: bool = True):
     without reading ``c``: ``v_of_rho`` sets it to exactly ``0.0`` outside its
     meta branch, so the answer is the same, and the read it saves is a blocking
     fetch of a device scalar at the top of every SCF iteration, which waited for
-    the whole potential before the Hamiltonian could be dispatched.
+    the whole potential before the Hamiltonian could be dispatched. The
+    one-centre call sites pass ``is_meta and is_paw``, since only the PAW
+    spheres use ``c`` and every TB09, BJ06 or local mBJ run without PAW paid
+    the same wait for nothing (audit 2026-11-20 #24).
     """
     if not is_meta:
         return None
@@ -9477,8 +9480,12 @@ def run_scf(
                       f"precision at ethr = {ethr:.2e}")
 
         potential = calculation.potential(rho, field_scale, field, tau=tau_state)
+        # Only the PAW spheres take ``c``: without them ``onecenter`` returns
+        # before reading it, and the read would wait for the whole potential
+        # before the Hamiltonian is dispatched (audit 2026-11-20 #24).
         epaw, ddd_paw = calculation.onecenter(
-            becsum_state, _meta_c(potential, calculation.functional.is_meta))
+            becsum_state,
+            _meta_c(potential, calculation.functional.is_meta and calculation.is_paw))
         hubbard_terms = v_ns = None
         eth = 0.0
         if calculation.is_hubbard:
@@ -10003,7 +10010,8 @@ def run_scf(
             # *not* refreshed: ``deband`` below pairs it with the output becsum
             # exactly as ``delta_e`` does, which runs before QE recomputes it.
             epaw, _ = calculation.onecenter(
-                becsum_out, _meta_c(potential, calculation.functional.is_meta))
+                becsum_out,
+                _meta_c(potential, calculation.functional.is_meta and calculation.is_paw))
             ehart, etxc, epaw_value = jax.device_get((
                 potential.ehart, potential.etxc,
                 epaw if calculation.is_paw else None))

@@ -11373,6 +11373,26 @@ No reference code here implements the local mBJ (QE has no TB09 proper; Elk comp
 
 The local form costs 1.3 per cent an iteration: one more transform pair of the dense grid per potential build (the Gaussian average, `basis/gradients.py:gaussian_average`), beside the Laplacian's. Its memory is one more dense-grid array, `c(r)`, carried on the potential and on the result. In a cell with vacuum the hold below `n` = 1e-5 keeps the SCF fast: graphane at 20, 30, 40 bohr in 13 to 14 iterations, where the potential evaluated down to 1e-9 took 18, 66 and 58 (P182).
 
+### No read of `c` for the PAW spheres in a run without PAW (audit 2026-11-20 #24, this workstation, 2026-11-20)
+
+The SCF fetched `Potential.meta_c` to the host for `Calculation.onecenter` once per iteration and once
+more after convergence, and `onecenter` returns before using it when no species is PAW. Every TB09, BJ06
+and local mBJ run without PAW paid that fetch, which waits for the whole potential before the Hamiltonian
+is dispatched. The two call sites now pass `is_meta and is_paw`. Measured on `benchmarks/si8-1k.in` with
+`input_dft = 'lmbj'` (9 SCF iterations, 10 such reads), two arms in one process (`_meta_c` as it was,
+against `_meta_c` answering `None`, which is what the fix does for this run), a fresh `Calculator` for every
+SCF, one warm-up of each arm dropped, the order of the arms alternated, 16 samples each:
+
+| cores | before, median s per SCF | after | after faster in |
+|---|---|---|---|
+| 4 (`taskset -c 0-3`) | 1.1327 | 1.0959 | 14 of 16 pairs (paired median 54 ms) |
+| 1 (`taskset -c 0`, `OMP_NUM_THREADS=1`) | 1.1281 | 1.1233 | 11 of 16 pairs (paired median 3.3 ms) |
+
+So about 6 ms an iteration on four cores and nothing resolved on one, where the core that waits is the
+core that computes. The gain the finding expects is on a card, where dispatch runs ahead of the device;
+there is no card here. The eigenvalues of the two arms are equal to the bit, and a PAW TB09 silicon SCF
+(15 Ry, 2x2x2), which still reads `c`, is bit-identical before and after on cores 0 to 3.
+
 ## The quantum metric and the localization tensor (CPU, 2026-11-04)
 
 **No reference to time against**: `pw.x` and Elk compute no quantum metric, and Wannier90's

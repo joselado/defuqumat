@@ -384,6 +384,30 @@ def test_an_unpolarized_pair_of_channels_is_held_as_one_channel():
     assert np.abs(two - one[0][None]).max() < 1e-12
 
 
+def test_a_run_without_paw_never_reads_c_for_the_spheres(monkeypatch):
+    """Only the PAW spheres take ``c`` (audit 2026-11-20 #24).
+
+    ``onecenter`` returns before reading its ``c`` when no species is PAW, so
+    the SCF must not fetch ``c`` for it: the fetch blocks until the whole
+    potential is built, before the Hamiltonian is dispatched. Measured on
+    si8 under ``lmbj``, ten such reads in a nine-iteration SCF, and 3.3 per
+    cent of the wall time on four cores.
+    """
+    import defuqumat.scf.driver as driver
+
+    asked = []
+    original = driver._meta_c
+
+    def spy(potential, is_meta=True):
+        asked.append(is_meta)
+        return original(potential, is_meta)
+
+    monkeypatch.setattr(driver, "_meta_c", spy)
+    result = _calculator().get_scf()
+    assert result.converged
+    assert asked and not any(asked)
+
+
 def test_the_vacuum_potential_is_held_at_the_clean_tails_value():
     """Below ``n = 1e-5`` the potential becomes its mean over ``1e-5 < n < 1e-4``.
 
