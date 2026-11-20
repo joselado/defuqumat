@@ -758,6 +758,12 @@ SCDM model is fixed only up to this choice of tied points.
       and the fit gives an error if $p$ never drops below 1/2 in the solved bands.
     - SCDM uses the pseudo-wavefunctions on the grid, without the augmentation of an
       ultrasoft or PAW dataset, as `pw2wannier90.x` does. Spinors give an error.
+    - A site given as `c=x,y,z` is cartesian in Å, as in a `.win` file of Wannier90,
+      so the `.win` that `write_w90` writes gives `wannier90.x` the same site. Before
+      the audit of 2026-11-20 the code read it in bohr, so an older call with a
+      nonzero `c=` site now puts the orbital at another point. A first line `ang` or
+      `bohr` in the list gives an error. The same holds for `trials=` of the Landau
+      levels.
     - `zona` is in 1/bohr, as `pw2wannier90.x` reads it. The user guide of Wannier90
       writes it in 1/Å. The default, 1, is the same number in both codes.
     - The Wannier functions themselves on a real-space grid (`wannier_plot`) and the

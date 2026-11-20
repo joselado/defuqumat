@@ -271,7 +271,9 @@ def run_wannier(
             :mod:`defuqumat.wannier.scdm`; never with symmetry), or Wannier90
             projection lines, as a list of strings (``"Si:sp3"``,
             ``"f=0,0,0.5:s"``, ``"C:l=1,mr=1:z=0,0,1"``); the first
-            ``num_wann`` orbitals they define are the trial orbitals.
+            ``num_wann`` orbitals they define are the trial orbitals. A
+            ``c=x,y,z`` site is cartesian in angstrom, as in a ``.win`` file;
+            a first line ``ang`` or ``bohr`` is refused.
         divisions: the uniform Gamma-centred mesh ``(n1, n2, n3)``; defaults to
             the grid the k-points came from.
         num_bands: the bands taken in after ``exclude_bands``, Wannier90's
@@ -444,7 +446,11 @@ def run_wannier(
     else:
         if num_wann is None:
             raise ValueError("num_wann is needed with given projections")
-        parsed = parse_projections(list(projections), symbols, crystal.T, bg)
+        # The reciprocal lattice in 1/A, Wannier90's unit: a ``c=`` site is in
+        # angstrom in a ``.win`` file, and so in the ``.win`` that ``write_w90``
+        # writes (audit 2026-11-20c #5; it was read in bohr before).
+        parsed = parse_projections(list(projections), symbols, crystal.T,
+                                   bg / BOHR_TO_ANGSTROM)
         trial = apply_projection_selection(parsed, num_wann, None)
         num_bands = int(num_wann if num_bands is None else num_bands)
         if num_bands < num_wann:

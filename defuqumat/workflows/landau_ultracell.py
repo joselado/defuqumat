@@ -37,6 +37,7 @@ at every k of the loop, so the basis has ``J = len(trials)`` functions per cell 
 projectability and is not a convergence knob. ``trials`` is a
 :class:`~defuqumat.magnetic.hybrid.StripeTrials` (the free problem), ``"pao"`` (every
 pseudo-atomic orbital of the datasets' ``PP_PSWFC``), or a list of Wannier90 projection lines
+(a ``c=`` site in angstrom, as in a ``.win`` file)
 and :class:`~defuqumat.wannier.pao.PAOProjection` objects in any mix; the spans are nested in
 the order given. A run refuses when a trial's projectability falls below ``1 -
 projectability_tol`` at any k (default 1e-4; fable's probe reads Hermiticity 2.5e-4 at 2.7e-3).
@@ -264,8 +265,12 @@ def _resolve_trials(trials, system, pseudos):
             raise ValueError(f"trials must be 'pao', a StripeTrials or a list of projections, "
                              f"got {trials!r}")
         return pao_projections(pseudos, system.structure, crystal)
+    from defuqumat.units import BOHR_TO_ANGSTROM
+
     out = []
-    bg = np.asarray(system.cell.bg, dtype=float)
+    # In 1/A, Wannier90's unit, so that a ``c=`` site is in angstrom as in a
+    # ``.win`` file (audit 2026-11-20c #5; it was read in bohr before).
+    bg = np.asarray(system.cell.bg, dtype=float) / BOHR_TO_ANGSTROM
     symbols = list(system.structure.symbols)
     for t in trials:
         if isinstance(t, str):

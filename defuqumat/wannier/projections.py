@@ -219,7 +219,14 @@ def parse_projections(lines: list[str], atom_symbols, atoms_frac, recip_lattice,
     (without the ``begin``/``end`` markers) into candidate trial orbitals,
     in definition order -- the raw ``num_proj``-length list
     ``param_get_projections`` builds, *before* ``proj2wann_map`` narrows it
-    down to ``num_wann`` (see :func:`apply_projection_selection`)."""
+    down to ``num_wann`` (see :func:`apply_projection_selection`).
+
+    ``recip_lattice`` is in 1/angstrom with the 2 pi, Wannier90's own
+    ``recip_lattice``: a ``c=`` site is cartesian in angstrom, as
+    ``param_get_projections`` reads it without a ``bohr`` line
+    (``parameters.F90:5219-5223``), and only ``c=`` reads the lattice. A
+    caller holding ``System.cell.bg`` (1/bohr) divides it by
+    ``BOHR_TO_ANGSTROM``. The ``ang``/``bohr`` first line is not ported."""
     stripped = [l.strip() for l in lines if l.strip()]
     if stripped and stripped[0].lower() in ("ang", "bohr"):
         raise NotImplementedError("projections: explicit ang/bohr unit line is not yet ported")
