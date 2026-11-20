@@ -38,8 +38,18 @@ that mix real spherical harmonics of the same ``l``, and the atom index followin
 where the operation sends the atom. The radial index ``n`` is untouched: a
 rotation cannot mix projectors of different shape.
 
-The same average applies to ``ddd_paw`` (QE's ``PAW_symmetrize_ddd``), which is
-a derivative with respect to ``becsum`` and so transforms the same way.
+**``ddd_paw`` is not averaged here**, where QE averages it after every
+``PAW_potential`` (``PAW_symmetrize_ddd``, ``electrons.f90:946`` and ``:1001``,
+``hinit1.f90:122``). It is a derivative with respect to ``becsum`` and would
+transform the same way, through :meth:`BecsumSymmetry.apply`. From an averaged
+``becsum`` it breaks the group only through the angular quadrature, a product
+grid about ``z`` that no operation moving the ``z`` axis leaves invariant. Measured
+on converged states (AUDIT-2026-11-20b #21): 3.2e-7 of 0.22 on AlAs
+(``alas-piezo-tiny-paw-wedge.in``, Td, the As dataset with ``d`` projectors),
+which splits the ``t2`` triplet at Gamma by 5.8e-8 Ry; 2.7e-9 of 0.24 on fcc
+platinum (``pt-paw-scalar.in``); round-off on silicon. ``Calculation.onecenter``
+returns the raw derivative, so the SCF is stationary for the energy that forces
+and stress differentiate; the average is the user's open choice.
 """
 
 from __future__ import annotations
