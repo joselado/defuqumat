@@ -32,9 +32,10 @@ the shape of its core density at the nucleus are taken from it.
   relativistic dataset's core is flat at the nucleus where Elk's Dirac 1s
   density diverges weakly, ``r^(2(gamma - 1))``, 6 to 9 per cent over the
   innermost points for Si; those few points carried Elk's first residual
-  (0.066 Ha under LDA against 0.0052 with Elk's shape below 1e-4 bohr). A GGA
+  (0.066 Ha under LDA against 0.0052 with Elk's shape up to 1e-4 bohr). A GGA
   needs more: its potential near the nucleus depends on the cusp itself, so
-  below 0.01 bohr the template's density is taken as it is.
+  the template's density is taken as it is below 0.1/e = 0.037 bohr and joined
+  to ours by 0.1 bohr.
 * The interstitial density is the grid density with Elk's FFT box, its
   coefficients outside Elk's box dropped.
 
@@ -221,23 +222,26 @@ def _onecentre(pseudo, paw_species, becsum):
 
 
 #: How the ``l = 0`` density near each nucleus is taken, by functional
-#: (measured on Si2, P181): ``(r_join, scaled)``. Below ``r_join / 10`` the
+#: (measured on Si2, P181): ``(r_join, scaled)``. Below ``r_join / e`` the
 #: template's density, joined to ours by ``r_join`` with a ``C^2`` step in
-#: ``log r``; ``scaled`` rescales the template to ours at ``r_join`` (Elk's
-#: Dirac *shape* on our density) instead of taking it as it is.
+#: the natural ``log r``, over a factor ``e`` and not a decade (audit
+#: 2026-11-20 #6; the measured rows below are of this join); ``scaled``
+#: rescales the template to ours at ``r_join`` (Elk's Dirac *shape* on our
+#: density) instead of taking it as it is.
 CORE_REGION = {
-    # LDA: Elk's shape below 1e-4 bohr, first residual 0.0052 Ha against 0.083
-    # from scratch, 16 loops against 19; the template outright below 0.01
-    # bohr gives 0.0172 and 17.
+    # LDA: Elk's shape up to 1e-4 bohr (outright below 3.7e-5), first residual
+    # 0.0052 Ha against 0.083 from scratch, 16 loops against 19; the template
+    # outright below 0.037 bohr, (0.1, False), gives 0.0172 and 17.
     "lda": (1.0e-4, True),
     # A GGA carries the Laplacian of the density, and its potential near the
     # nucleus (-704 Ha at 1e-4 bohr on Si) depends on the Dirac cusp itself:
     # our shape matched below 1e-4 gave 17 Ha against 0.74 from scratch, Elk's
-    # own core region below 0.01 bohr gives 0.73 and 15 loops against 14.
+    # own core region (outright below 0.037 bohr, joined by 0.1) gives 0.73 and
+    # 15 loops against 14.
     "gga": (0.1, False),
     # A spin-polarized GGA, measured on O2 stretched to 3.4 bohr under PBE: the
     # unpolarized choice above starts 31 times closer (0.12 Ha against 4.41 from
-    # scratch) and then needs 49 loops against Elk's 32, where Elk's shape below
+    # scratch) and then needs 49 loops against Elk's 32, where Elk's shape up to
     # 1e-4 bohr starts at 177 Ha and needs 31 (the PAW core everywhere: 203 Ha,
     # 35). The first residual does not predict the count here. One cell each.
     "gga-spin": (1.0e-4, True),
@@ -249,7 +253,12 @@ def _dirac_core(r, ours, template, r_join, scaled, decades: float = 1.0):
 
     A join at one point is continuous but not smooth, and a gradient-corrected
     potential turns the kink into a spike, so the join is a ``C^2`` step
-    (``6t^5 - 15t^4 + 10t^3``) over one decade of ``r``.
+    (``6t^5 - 15t^4 + 10t^3``) in the natural log of ``r``, from ``r_join /
+    e**decades`` to ``r_join``. With the default ``decades = 1`` that is a
+    factor ``e``, not ten: below ``r_join / e`` the result is the template
+    alone (0.0357 bohr is the last such point of Elk's Si mesh at ``r_join =
+    0.1``), and from ``r_join`` on it is ours. The P181 rows were measured with
+    this join, so the name ``decades`` is kept and the log is not changed.
     """
     m = int(np.searchsorted(r, r_join))
     if not 0 < m < len(r) or template[m] == 0.0:

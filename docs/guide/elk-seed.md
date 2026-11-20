@@ -229,10 +229,13 @@ instead of 17. The gain is limited by the mixer of Elk, because even from its ow
 converged state Elk needs 8 loops at the same threshold. With PBE there is no
 gain. The PBE potential very close to the nucleus depends on the exact shape of
 the Dirac core of Elk, which a scalar relativistic PAW core does not have. So for
-PBE the code takes the density of the template within 0.01 bohr of each nucleus,
-and Elk then needs as many loops as from scratch. For the O2 molecule as a magnet
-with PBE, Elk needs 31 loops from our state and 32 from scratch, and the code
-gives a warning that the state is not a faster start. We made these comparisons
+unpolarized PBE the code takes the density of the template within 0.037 bohr of
+each nucleus, and joins it smoothly to our density between 0.037 and 0.1 bohr.
+Elk then needs as many loops as from scratch. For a spin-polarized run, and for
+the LDA, the code keeps our density and takes only the shape of the Elk density
+below 1e-4 bohr. For the O2 molecule as a magnet with PBE, Elk needs 31 loops
+from our state and 32 from scratch, and the code gives a warning that the state
+is not a faster start. We made these comparisons
 with the official release of Elk 11.0.2. On one core, writing the state
 takes about 2.5 s, and computing the potential of Elk takes 0.45 s, where Elk
 itself needs 0.016 s.

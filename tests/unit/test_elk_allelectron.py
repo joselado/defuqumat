@@ -202,6 +202,25 @@ def test_a_label_with_a_tag_is_its_dataset_element(labels):
     np.testing.assert_allclose(shift, 0.0, atol=1e-5)
 
 
+def test_the_core_join_spans_a_factor_e():
+    """``_dirac_core`` takes the template below ``r_join / e`` and ours from ``r_join``.
+
+    The log is natural, so with ``decades = 1`` the step spans a factor e, not
+    ten (AUDIT-2026-11-20 #6). The P181 rows were measured with this join, and
+    its texts now say so; this pins the code to them.
+    """
+    from defuqumat.io.elk_allelectron import _dirac_core
+
+    base = ElkState.read(TEMPLATE)
+    r = np.asarray(base.rsp[0])[:base.nrmt[0]]
+    for r_join in (0.1, 1.0e-4):
+        out = _dirac_core(r, np.ones_like(r), 2.0 * np.ones_like(r), r_join, False)
+        np.testing.assert_array_equal(out[r <= r_join / np.e], 2.0)
+        np.testing.assert_array_equal(out[r >= r_join], 1.0)
+        between = out[(r > r_join / np.e) & (r < r_join)]
+        assert len(between) and np.all((between > 1.0) & (between < 2.0))
+
+
 def test_a_paw_correction_past_the_muffin_tin_is_refused(tmp_path, monkeypatch):
     """The one-centre term must end inside Elk's sphere; here the sphere is shrunk."""
     import dataclasses
