@@ -290,7 +290,8 @@ def expand_to_subgroup(
     """Expand an explicit k-list from the lattice's wedge to the crystal's.
 
     ``irreducible_BZ`` in ``PW/src/irrek.f90``, and it runs for **every** SCF
-    run, an explicit ``K_POINTS`` card included -- QE's comment says why: "input
+    run (every run but ``calculation = 'bands'``, ``setup.f90:621``, which takes
+    its list as written), an explicit ``K_POINTS`` card included -- QE's comment says why: "input
     k-points are assumed to be given in the IBZ of the Bravais lattice, with the
     full point symmetry of the lattice; if some symmetries of the lattice are
     missing in the crystal, irreducible_BZ computes the missing k-points".

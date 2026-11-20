@@ -860,6 +860,10 @@ class System(eqx.Module):
             per_atom = self.starting_moments
         if kpoints.path_length is not None or kpoints.gamma_only:
             return kpoints_for_spin(kpoints, nspin)
+        if kpoints.grid is None and _is_bands(self.calculation):
+            # A ``calculation = 'bands'`` list is taken as written, as
+            # ``_build_kpoints`` takes it (audit 2026-11-20b #7).
+            return kpoints_for_spin(kpoints, nspin)
 
         moments = local_moments(
             self.structure, nspin, magnetization, angle1, angle2,
@@ -1536,6 +1540,7 @@ def build_system(pwin: PwInput, precision: Precision = DEFAULT_PRECISION) -> Sys
         time_reversal=not noinv and not magnetic,
         t_rev=None if nosym else symmetries.t_rev_array(),
         lattice_rotations=None if nosym else np.array(lattice_point_group(np.asarray(cell.at))),
+        calculation=str(pwin.get("control", "calculation", "scf")),
     )
 
     # ``setup.f90``'s ``degspin``, applied in the one place that knows the rule
@@ -2986,6 +2991,11 @@ def _hubbard(pwin: PwInput, structure):
     )
 
 
+def _is_bands(calculation) -> bool:
+    """Whether ``calculation`` is ``'bands'``, QE's ``lbands`` (``input.f90:482``)."""
+    return str(calculation).strip().strip("'\"").lower() == "bands"
+
+
 def _build_kpoints(
     pwin: PwInput,
     cell: Cell,
@@ -2994,6 +3004,7 @@ def _build_kpoints(
     time_reversal: bool = True,
     t_rev=None,
     lattice_rotations=None,
+    calculation: str = "scf",
 ) -> KPoints:
     card = pwin.card("K_POINTS")
     if card is None:
@@ -3025,11 +3036,21 @@ def _build_kpoints(
         # wedge of the *lattice's* point group and completes it wherever the
         # crystal has fewer operations. That is a no-op for most inputs and is
         # exactly what a magnetic noncollinear run needs -- see
-        # :func:`defuqumat.system.kpoints.expand_to_subgroup`.
+        # :func:`defuqumat.system.kpoints.expand_to_subgroup`. **Not for
+        # ``calculation = 'bands'``**: ``setup.f90:621`` calls it only
+        # ``IF (.NOT. lbands)``, and otherwise only divides the weights by
+        # their sum, so a band list is the points as written (audit
+        # 2026-11-20b #7). A band list may carry zero weights, which QE keeps
+        # (``IF (one > 0)``); they weigh nothing in a band structure, so they
+        # become uniform here.
         crystal_points = (
             np.asarray(points, dtype=float) if option == "crystal"
             else np.asarray(cell.k_to_crystal(np.asarray(points, dtype=float)))
         )
+        if _is_bands(calculation):
+            if not np.sum(fourth) > 0.0:
+                fourth = np.ones_like(fourth)
+            return KPoints.from_crystal(crystal_points, fourth, cell, precision=precision)
         if rotations is not None and lattice_rotations is not None and len(rotations):
             crystal_points, fourth = expand_to_subgroup(
                 crystal_points, fourth, lattice_rotations, rotations,
