@@ -178,16 +178,35 @@ class NsSymmetry:
     is not (``tests/unit/test_hubbard_spinor.py``, 8 of 24 operations
     3-cycles); no ``pw.x`` run on such a cell has been compared, so a
     disagreement there is not by itself evidence against this code.
+
+    **A nonmagnetic spinor run also gets the Kramers partner** (``kramers``,
+    audit 2026-11-20 #14, the user's decision). Its k-set was reduced with
+    time reversal, ``k`` and ``-k`` merged, while the operations above are the
+    spatial ones only: in a nonmagnetic group no operation carries ``t_rev``.
+    With inversion in the group that is harmless, since inversion also maps
+    ``k`` to ``-k``. Without it (wurtzite, zincblende, any polar or chiral
+    crystal) the time-reversal-odd part of ``ns`` that the spatial group
+    allows survived, and its value depended on which member of each ``k, -k``
+    pair the reduction kept. So after the spatial average ``ns`` is averaged
+    with its time-reversed image, ``conj(S) ns^T S^T`` with ``S = i sigma_y``
+    and the transpose joint in ``m`` and spin, the law of
+    :meth:`_time_reverse` with the spin factor of time reversal itself. **This
+    is a departure from ``pw.x``**: ``new_ns_nc`` declares ``time_reversal``
+    and ``sigmay2`` (``new_ns.f90:335``, ``:352``) and uses neither, so on such
+    a crystal a wedge run of ``pw.x`` keeps the odd part this code removes. A
+    magnetic run (a magnetization, ``t_rev`` operations), ``noinv``, a fixed
+    tensor moment and a k-set that was not reduced keep the spatial average
+    alone.
     """
 
     __slots__ = (
         "operators", "sources", "slots", "ldims", "nsym", "shape", "spin",
-        "time_reversed",
+        "time_reversed", "kramers",
     )
 
     def __init__(
         self, operators, sources, slots, ldims, nsym, shape, spin=None,
-        time_reversed=None,
+        time_reversed=None, kramers=False,
     ):
         self.operators = operators
         self.sources = sources
@@ -197,11 +216,36 @@ class NsSymmetry:
         self.shape = shape
         self.spin = spin
         self.time_reversed = time_reversed
+        self.kramers = bool(kramers)
 
     def apply(self, ns: jnp.ndarray) -> jnp.ndarray:
         """The symmetrised occupation matrix, same shape as the input."""
-        if self.nsym <= 1:
-            return ns
+        if self.nsym > 1:
+            ns = self._spatial_average(ns)
+        if self.kramers:
+            ns = 0.5 * (ns + self.kramers_image(ns))
+        return ns
+
+    @classmethod
+    def kramers_image(cls, ns: jnp.ndarray) -> jnp.ndarray:
+        """``ns`` of the time-reversed states: ``conj(S) ns^T S^T``, ``S = i sigma_y``.
+
+        Time reversal is ``i sigma_y K``, and ``K`` leaves the real-harmonic
+        orbitals alone, so on rho it is ``S rho^* S^dagger``. On ``ns`` = rho^T
+        that is the joint transpose of :meth:`_time_reverse` followed by
+        ``conj(S) x S`` on the packed pair. ``S = [[0, 1], [-1, 0]]`` is real,
+        so the factor is a signed swap: ``uu <- dd``, ``ud <- -du``,
+        ``du <- -ud``, ``dd <- uu`` of the transposed blocks. The orbital
+        matrix of the charge comes back transposed, and the trace of every
+        component of the spin moment reverses.
+        """
+        transposed = jnp.take(
+            ns, jnp.asarray(cls._SPIN_TRANSPOSE), axis=0).swapaxes(-1, -2)
+        return jnp.stack([transposed[3], -transposed[2], -transposed[1],
+                          transposed[0]])
+
+    def _spatial_average(self, ns: jnp.ndarray) -> jnp.ndarray:
+        """The average over the spatial operations, with their ``t_rev``."""
         out = jnp.zeros_like(ns)
         for operator, sources, slots, ldim in zip(
             self.operators, self.sources, self.slots, self.ldims
@@ -259,8 +303,14 @@ class NsSymmetry:
         return jnp.where(mask, transposed, gathered)
 
 
-def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
-    """Precompute the average. ``None`` when the group is trivial.
+def build_ns_symmetry(setup, cell, structure, symmetries,
+                      kramers: bool = False) -> NsSymmetry | None:
+    """Precompute the average. ``None`` when the group is trivial and ``kramers`` is off.
+
+    ``kramers`` adds the time-reversed image of a nonmagnetic spinor ``ns``
+    (:class:`NsSymmetry`); the caller decides it, since it needs the k-set and
+    the magnetization. With ``symmetries`` ``None`` or trivial it is the only
+    average.
 
     **A spinor setup gains the spin factor**, which is
     :func:`~defuqumat.system.symmetry.spin_rotations` -- ``d_spin_ldau``. The spin
@@ -290,8 +340,14 @@ def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
     from defuqumat.paw.symmetry import harmonic_rotations
     from defuqumat.system.symmetry import atom_mapping, spin_rotations
 
-    if setup is None or symmetries is None or symmetries.nsym <= 1:
+    if setup is None:
         return None
+    kramers = bool(kramers and setup.noncolin)
+    if symmetries is None or symmetries.nsym <= 1:
+        if not kramers:
+            return None
+        return NsSymmetry(operators=(), sources=(), slots=(), ldims=(), nsym=1,
+                          shape=(setup.nslot, setup.ldmx), kramers=True)
 
     lmax = max(setup.species[t].l for t in setup.types)
     rotations = harmonic_rotations(cell, symmetries, lmax)
@@ -351,6 +407,7 @@ def build_ns_symmetry(setup, cell, structure, symmetries) -> NsSymmetry | None:
         shape=(setup.nslot, setup.ldmx),
         spin=spin,
         time_reversed=time_reversed,
+        kramers=kramers,
     )
 
 

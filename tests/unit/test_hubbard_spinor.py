@@ -369,3 +369,130 @@ def test_the_spinor_average_is_a_projector_on_a_three_fold_orbit():
 
     other = forward(ns)
     assert np.abs(forward(other) - other).max() > 0.1
+
+
+_WURTZITE = """&control
+ calculation = 'scf'
+/
+&system
+ ibrav = 4, celldm(1) = 6.14, celldm(3) = 1.602, nat = 4, ntyp = 2,
+ ecutwfc = 20, noncolin = .true., lspinorb = .true.,
+ occupations = 'smearing', degauss = 0.02
+/
+&electrons
+/
+ATOMIC_SPECIES
+ Zn 65.38 Zn.upf
+ O  16.00 O.upf
+ATOMIC_POSITIONS crystal
+ Zn 0.3333333333 0.6666666667 0.0
+ Zn 0.6666666667 0.3333333333 0.5
+ O  0.3333333333 0.6666666667 0.382
+ O  0.6666666667 0.3333333333 0.882
+K_POINTS automatic
+ 2 2 2 0 0 0
+"""
+
+
+def _spinor_ns_of(states, width):
+    """``occupation_matrix`` on fully occupied states given on the flat ``(spin, m)`` basis."""
+    from defuqumat.hubbard.occupations import occupation_matrix
+
+    nbnd = states.shape[0]
+    ns = occupation_matrix(
+        jnp.eye(2 * width, dtype=states.dtype)[None], jnp.asarray(states)[None, None],
+        jnp.ones((1, 1, nbnd)), jnp.arange(2 * width).reshape(1, 2, width),
+        jnp.ones((1, width), dtype=bool))
+    return np.asarray(ns)
+
+
+def test_the_kramers_image_is_time_reversal_of_the_states():
+    """``NsSymmetry.kramers_image`` against ``ns`` built from a state and its Kramers partner.
+
+    ``Theta psi = i sigma_y conj(psi)`` on real-harmonic orbitals. The pair
+    ``{psi, Theta psi}`` is closed under time reversal, so its ``ns`` from
+    :func:`occupation_matrix` must be its own image, and the image of
+    ``psi`` alone must be the ``ns`` of ``Theta psi``, with its spin moment
+    reversed.
+    """
+    from defuqumat.hubbard.occupations import NsSymmetry, spinor_ns_components
+
+    width = 5
+    rng = np.random.default_rng(1)
+    psi = rng.normal(size=(2, width)) + 1j * rng.normal(size=(2, width))
+    partner = np.stack([np.conj(psi[1]), -np.conj(psi[0])])        # i sigma_y psi*
+    pair = _spinor_ns_of(np.stack([psi.ravel(), partner.ravel()]), width)
+    assert np.abs(np.asarray(NsSymmetry.kramers_image(jnp.asarray(pair))) - pair).max() < 1e-14
+
+    single = _spinor_ns_of(psi.ravel()[None], width)
+    image = NsSymmetry.kramers_image(jnp.asarray(single))
+    assert np.abs(np.asarray(image) - _spinor_ns_of(partner.ravel()[None], width)).max() < 1e-14
+    charge, moment = spinor_ns_components(jnp.asarray(single))
+    charge_t, moment_t = spinor_ns_components(image)
+    assert np.abs(np.asarray(moment)).max() > 0.1
+    # the orbital charge matrix comes back transposed, the trace of each moment reversed
+    assert np.abs(np.asarray(charge_t - jnp.swapaxes(charge, -1, -2))).max() < 1e-14
+    assert np.abs(np.trace(np.asarray(moment_t + moment), axis1=-2, axis2=-1)).max() < 1e-14
+
+
+def test_a_nonmagnetic_spinor_ns_loses_its_time_reversal_odd_part_without_inversion():
+    """Wurtzite Zn 3d: the odd part the spatial group allows (audit 2026-11-20 #14).
+
+    The k-set of a nonmagnetic spinor run merges ``k`` and ``-k``. The group of
+    wurtzite has no inversion, so no spatial operation completes that pair,
+    and the spatial average keeps every time-reversal-odd part of ``ns`` the
+    group allows. Built by hand here: the spatial average of a random matrix,
+    minus its Kramers image. The old average keeps it; the new one removes it,
+    and keeps the even part unchanged.
+    """
+    from types import SimpleNamespace
+
+    from defuqumat.hubbard.occupations import NsSymmetry, build_ns_symmetry
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.system.builder import build_system
+
+    system = build_system(parse_pw_input(_WURTZITE))
+    group = system.symmetry_group()
+    assert group.nsym == 12 and not np.any(np.asarray(group.t_rev_array()))
+    width = 5
+    setup = SimpleNamespace(types=[0, 0], atoms=[0, 1], noncolin=True,
+                            species=[SimpleNamespace(l=2)], nslot=2, ldmx=width)
+    spatial = build_ns_symmetry(setup, system.cell, system.structure, group)
+    full = build_ns_symmetry(setup, system.cell, system.structure, group, kramers=True)
+    assert not spatial.kramers and full.kramers
+
+    rng = np.random.default_rng(2)
+    x = rng.normal(size=(2, 2, 2, width, width)) + 1j * rng.normal(size=(2, 2, 2, width, width))
+    x = x + np.conj(np.einsum("stnab->tsnba", x))
+    allowed = spatial.apply(jnp.asarray(x.reshape(4, 2, width, width)))
+    odd = 0.5 * (allowed - NsSymmetry.kramers_image(allowed))
+    even = allowed - odd
+    assert float(jnp.abs(odd).max()) > 0.05
+    assert float(jnp.abs(spatial.apply(odd) - odd).max()) < 1e-13
+    assert float(jnp.abs(full.apply(odd)).max()) < 1e-13
+    assert float(jnp.abs(full.apply(even) - even).max()) < 1e-13
+
+
+def test_the_kramers_average_is_on_for_a_nonmagnetic_spinor_run_only(pseudo_dir):
+    """The driver's choice, and fcc Pt, which has inversion, unchanged by it.
+
+    ``pt-soc-ns-nosym.npy`` is the whole grid's ``ns`` of nonmagnetic spin-orbit
+    Pt, so it is already its own Kramers image to the SCF's accuracy, and the
+    average with and without the partner agree to that accuracy. A moment
+    turns the partner off.
+    """
+    from pathlib import Path
+    from defuqumat import Calculator
+
+    calculation = Calculator.from_text(_PT_SOC, pseudo_dir=pseudo_dir).calculation
+    symmetry = calculation.hubbard_symmetry
+    assert symmetry is not None and symmetry.kramers and symmetry.nsym == 48
+    ns = jnp.asarray(np.load(Path(__file__).resolve().parents[1] / "data" / "hubbard"
+                             / "pt-soc-ns-nosym.npy"))
+    spatial = symmetry._spatial_average(ns)
+    assert float(jnp.abs(symmetry.apply(ns) - spatial).max()) < 1e-9
+
+    magnetic = _PT_SOC.replace("lspinorb=.true.",
+                               "lspinorb=.true., starting_magnetization(1)=0.3")
+    calculation = Calculator.from_text(magnetic, pseudo_dir=pseudo_dir).calculation
+    assert not calculation.hubbard_symmetry.kramers

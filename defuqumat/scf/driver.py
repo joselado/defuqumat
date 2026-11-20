@@ -3436,10 +3436,25 @@ class Calculation:
             jnp.asarray(row), jnp.asarray(column),
             jnp.asarray(block_row), jnp.asarray(block_column), setup.nwfcU,
         )
+        # A nonmagnetic spinor ``ns`` summed on a k-set reduced with time
+        # reversal is averaged with its Kramers partner as well (audit
+        # 2026-11-20 #14, a departure from ``new_ns_nc``; see
+        # :class:`~defuqumat.hubbard.occupations.NsSymmetry`). Not for a
+        # magnetic run, ``noinv``, or a fixed tensor moment, which may ask for
+        # a time-reversal-odd moment on purpose.
+        kramers = bool(
+            setup.noncolin
+            and not self.system.domag
+            and not self.system.noinv
+            and setup.constraints is None
+            and not np.any(np.asarray(self.symmetries.t_rev_array()) != 0)
+            and getattr(self.system.kpoints, "reduced", False)
+        )
         self.hubbard_symmetry = (
             build_ns_symmetry(
-                setup, self.system.cell, self.system.structure, self.symmetries
-            ) if use_symmetry else None
+                setup, self.system.cell, self.system.structure,
+                self.symmetries if use_symmetry else None, kramers=kramers,
+            ) if use_symmetry or kramers else None
         )
         self.wfcU = self._build_hubbard_projectors()
 

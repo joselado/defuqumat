@@ -169,6 +169,16 @@ of the penalty is not part of the reported total energy.
     combined with time reversal, because these exchange the two spin channels. A
     spinor run (`noncolin = .true.`) does not need it.
 
+    A spinor run without magnetization differs from `pw.x` in one place. Its
+    k-points are reduced with time reversal, so $k$ and $-k$ count as one point.
+    We average the occupation matrix with its time-reversed image, and `pw.x`
+    does not. In a crystal with inversion the two give the same matrix (fcc and
+    hcp Pt agree to 5e-15). In a crystal without inversion (wurtzite,
+    zincblende) `pw.x` keeps a part of the matrix that is odd under time
+    reversal, and its value depends on which point of each $k$, $-k$ pair the
+    reduction kept. We remove it. A magnetic run, `noinv = .true.` and a fixed
+    tensor moment keep the average over the space group only.
+
     A fixed tensor moment needs a spinor run, because in a collinear run it
     reduces to the fixed spin moment that `constrained_magnetization` already
     gives.
