@@ -472,6 +472,15 @@ def test_a_nonmagnetic_spinor_ns_loses_its_time_reversal_odd_part_without_invers
     assert float(jnp.abs(full.apply(odd)).max()) < 1e-13
     assert float(jnp.abs(full.apply(even) - even).max()) < 1e-13
 
+    # With no spatial group (a trivial one, or symmetry off) the partner is
+    # the whole average; a collinear setup never gets it.
+    alone = build_ns_symmetry(setup, system.cell, system.structure, None, kramers=True)
+    assert alone.kramers and alone.nsym == 1
+    assert float(jnp.abs(alone.apply(odd)).max()) < 1e-13
+    collinear = SimpleNamespace(**{**vars(setup), "noncolin": False})
+    assert build_ns_symmetry(collinear, system.cell, system.structure, None,
+                             kramers=True) is None
+
 
 def test_the_kramers_average_is_on_for_a_nonmagnetic_spinor_run_only(pseudo_dir):
     """The driver's choice, and fcc Pt, which has inversion, unchanged by it.

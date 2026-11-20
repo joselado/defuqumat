@@ -172,8 +172,9 @@ of the penalty is not part of the reported total energy.
     A spinor run without magnetization differs from `pw.x` in one place. Its
     k-points are reduced with time reversal, so $k$ and $-k$ count as one point.
     We average the occupation matrix with its time-reversed image, and `pw.x`
-    does not. In a crystal with inversion the two give the same matrix (fcc and
-    hcp Pt agree to 5e-15). In a crystal without inversion (wurtzite,
+    does not. In a crystal with inversion this changes nothing: for fcc and hcp
+    Pt the matrix is the same as without the average to 5e-15. In a crystal
+    without inversion (wurtzite,
     zincblende) `pw.x` keeps a part of the matrix that is odd under time
     reversal, and its value depends on which point of each $k$, $-k$ pair the
     reduction kept. We remove it. A magnetic run, `noinv = .true.` and a fixed
