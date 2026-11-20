@@ -334,10 +334,13 @@ def _solved_states(system, pseudos, density, kset, *, nbnd, conv_thr, k_batch,
     # ``or``: a field ``reducebf`` took to zero has ``field_scale = 0.0``.
     # ``tau``: a meta-GGA's ground-state kinetic energy density, the one the
     # states were solved in (I99); ``None`` for every other functional.
-    v_scf = calc.potential(jnp.asarray(density),
-                           1.0 if field_scale is None else float(field_scale),
-                           field, tau=None if tau is None else jnp.asarray(tau)).v_scf
-    _, ddd_paw = calc.onecenter(becsum)
+    potential = calc.potential(jnp.asarray(density),
+                               1.0 if field_scale is None else float(field_scale),
+                               field, tau=None if tau is None else jnp.asarray(tau))
+    v_scf = potential.v_scf
+    # The PAW spheres take this potential's ``c`` under a potential-only
+    # meta-GGA, as the band solve's do (audit 2026-11-20c #6, the sibling).
+    _, ddd_paw = calc.onecenter(becsum, None if tau is None else potential.meta_c)
     return calc, states, weights, v_scf, wavefunctions, eigenvalues, ddd_paw
 
 

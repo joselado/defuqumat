@@ -5,7 +5,9 @@ plane-wave potential, and :meth:`~defuqumat.scf.driver.Calculation.onecenter`
 refuses without it. ``run_conductivity`` and ``run_shg`` rebuilt ``ddd_paw``
 with ``onecenter(becsum)`` after the band solve had passed ``c`` (in
 ``fixed_density_hamiltonians``), so a PAW TB09 ground state raised only after
-the whole fixed-density solve (audit 2026-11-20c #6).
+the whole fixed-density solve (audit 2026-11-20c #6). The Kubo quantum metric
+and the frozen real-time routes (``_solved_states``) had the same call, and the
+last tests below are theirs (#6, the siblings).
 
 No SCF is run. The calculation is a real PAW TB09 one, the density, ``tau`` and
 ``becsum`` are the starting ones, and the band solve and the assembly are
@@ -19,7 +21,7 @@ from defuqumat.io.pwin import parse_pw_input
 from defuqumat.pseudo.upf import read_upf
 from defuqumat.scf.driver import Calculation
 from defuqumat.system.builder import build_system
-from defuqumat.workflows import conductivity, shg
+from defuqumat.workflows import conductivity, geometry, realtime, shg
 
 pytestmark = [
     pytest.mark.unit,
@@ -133,4 +135,69 @@ def test_a_paw_pbe_state_hands_over_the_same_d_as_before(monkeypatch, pbe, modul
     _patch(monkeypatch, module, assembly, seen)
     assert _call(module, pbe) == "reached"
     assert np.array_equal(np.asarray(seen["ddd_paw"]),
+                          np.asarray(calculation.onecenter(becsum)[1]))
+
+
+# --------------------------------------------------------------------------
+# the siblings: the Kubo quantum metric and the frozen real-time states
+# --------------------------------------------------------------------------
+
+
+def _quantum_metric_ddd(monkeypatch, state):
+    """``run_quantum_metric(method='kubo')`` to its assembly; the ``ddd_paw`` handed over."""
+    system, pseudos, calculation, density, tau, becsum = state
+    seen = {}
+
+    def solve(system, pseudos, density, *, nbnd, calculation, **_):
+        # ``nbnd`` here is one past the sum, which measures the gap at the cut
+        nk = int(np.asarray(system.kpoints.weights).shape[0])
+        eigenvalues = np.tile(np.linspace(-0.5, 1.0, nbnd), (nk, 1))
+        return calculation, system, eigenvalues, np.zeros((nk, nbnd, 1))
+
+    def assemble(*args, ddd_paw=None, **_):
+        seen["ddd_paw"] = ddd_paw
+        return "reached"
+
+    monkeypatch.setattr(geometry, "fixed_density_states", solve)
+    monkeypatch.setattr(geometry, "quantum_metric", assemble)
+    assert geometry.run_quantum_metric(
+        system, pseudos, density, method="kubo", nbnd=NBND, becsum=becsum,
+        tau=tau, calculation=calculation) == "reached"
+    return np.asarray(seen["ddd_paw"])
+
+
+def _realtime_ddd(monkeypatch, state):
+    """``_solved_states``, the frozen real-time routes' setup, with the solve replaced."""
+    from defuqumat.workflows import nscf
+
+    system, pseudos, calculation, density, tau, becsum = state
+
+    def solve(system, pseudos, density, *, nbnd, calculation, **_):
+        nk = int(np.asarray(system.kpoints.weights).shape[0])
+        eigenvalues = np.tile(np.linspace(-0.5, 1.0, nbnd), (nk, 1))
+        return calculation, system, eigenvalues, np.zeros((nk, nbnd, 1))
+
+    # imported inside ``_solved_states``, so it is replaced where it lives
+    monkeypatch.setattr(nscf, "fixed_density_states", solve)
+    *_, ddd_paw = realtime._solved_states(
+        system, pseudos, density, system.kpoints, nbnd=NBND, conv_thr=1.0e-8,
+        k_batch="default", calculation=calculation, becsum=becsum, tau=tau)
+    return np.asarray(ddd_paw)
+
+
+@pytest.mark.parametrize("route", [_quantum_metric_ddd, _realtime_ddd],
+                         ids=["quantum-metric", "realtime"])
+def test_a_paw_tb09_sibling_builds_d_with_its_c(monkeypatch, tb09, route):
+    _, _, calculation, *_ = tb09
+    assert calculation.is_paw and calculation.functional.is_meta
+    assert np.array_equal(route(monkeypatch, tb09), _expected(tb09))
+
+
+@pytest.mark.parametrize("route", [_quantum_metric_ddd, _realtime_ddd],
+                         ids=["quantum-metric", "realtime"])
+def test_a_paw_pbe_sibling_builds_the_same_d_as_before(monkeypatch, pbe, route):
+    """Without ``tau`` nothing changes: ``onecenter(becsum)`` exactly."""
+    _, _, calculation, _, tau, becsum = pbe
+    assert calculation.is_paw and not calculation.functional.is_meta and tau is None
+    assert np.array_equal(route(monkeypatch, pbe),
                           np.asarray(calculation.onecenter(becsum)[1]))

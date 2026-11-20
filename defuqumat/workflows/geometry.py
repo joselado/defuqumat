@@ -133,7 +133,9 @@ def run_quantum_metric(
         1.0 if field_scale is None else float(field_scale),
         field, tau=tau,
     )
-    _, ddd_paw = calculation.onecenter(becsum)
+    # The PAW spheres take this potential's ``c`` under a potential-only
+    # meta-GGA, as the band solve's do (audit 2026-11-20c #6, the sibling).
+    _, ddd_paw = calculation.onecenter(becsum, None if tau is None else potential.meta_c)
     degeneracy_tol = degeneracy_tolerance(
         degeneracy_tol, DEGENERACY_TOL,
         ethr=fixed_density_ethr(conv_thr, calculation.nelec),
