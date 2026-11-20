@@ -277,7 +277,7 @@ set from gathered eigenvalues, and **every decision is broadcast from rank 0**, 
 pools with unequal thread counts can differ in the last bit. A pool's store is a
 `PoolStore`, not an `ndarray`, so a whole-set consumer fails instead of misreading it. The
 SCF, forces, stress and relaxations are pool-aware; every other `Calculator.get_*`
-refuses by name, and so does every `Calculator.write_*` (audit 2026-11-20 #36, #42). On a CPU the local term and the density go through the grid a chunk of
+refuses by name. On a CPU the local term and the density go through the grid a chunk of
 `z` planes at a time (`sticks_local`, `sticks_density`, `DEFUQUMAT_PLANE_CHUNK`), which is
 what keeps a core from slowing down when others share its memory.
 
