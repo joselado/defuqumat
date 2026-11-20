@@ -88,6 +88,37 @@ def test_the_node_limit_is_what_the_ratio_tends_to(name):
     assert np.abs(limit).min() > 0.1
 
 
+def test_the_node_limit_meets_the_ratio_under_a_core_correction():
+    """With ``PP_NLCC`` the limit is taken at ``n + n_core``, as ``B_xc`` is (AUDIT-2026-11-20b #15).
+
+    ``exchange_field`` builds ``B_xc`` at the valence plus the core, so ``B_xc/m``
+    tends to ``dB/dm`` at the total density. On the ultrasoft nickel of P63 (LDA,
+    a core charge), at a uniform valence of 0.1 the kernel at ``zeta = 1e-6``,
+    inside the window, is the limit, and at ``zeta = 1e-3``, outside it, the
+    ratio; LDA is local, so the two meet pointwise to ``O(zeta^2)``. Taken at the
+    valence alone the limit misses by up to ``(1 + n_core/n)^(2/3)``.
+    """
+    from defuqumat.io.pwin import parse_pw_input
+    from defuqumat.tddft.spinkernel import transverse_kernel_field
+
+    text = (CASES / "ni-fcc-magnon-us.in").read_text().replace(
+        "ecutwfc = 25.0, ecutrho = 200.0", "ecutwfc = 15.0, ecutrho = 120.0")
+    system = build_system(parse_pw_input(text))
+    pseudos = tuple(read_upf(PSEUDO / s.pseudo_file) for s in system.structure.species)
+    calculation = Calculation(system, pseudos)
+    core = np.real(np.asarray(calculation.rho_core))
+    charge = jnp.full(core.shape, 0.1)
+    # The core is comparable to the valence somewhere, or the check is empty.
+    assert core.max() > 0.1
+
+    def kernel(zeta):
+        density = jnp.stack([0.5 * (1.0 + zeta) * charge, 0.5 * (1.0 - zeta) * charge])
+        return np.asarray(transverse_kernel_field(calculation, density))
+
+    inside, outside = kernel(1.0e-6), kernel(1.0e-3)
+    assert np.abs(inside - outside).max() < 1.0e-5 * np.abs(outside).max()
+
+
 # --- the response sphere ------------------------------------------------------
 
 
