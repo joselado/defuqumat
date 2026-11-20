@@ -7755,6 +7755,25 @@ def _refuse_rotating_moments(calculation, field, coupled: bool) -> None:
             "would turn into motion; and a spiral keeps its transverse pair in "
             "the frame that turns with q"
         )
+    # **A meta-GGA's ``tau`` is not turned** (AUDIT-2026-11-20b #R2-extra). At
+    # ``nspin_mag = 4`` it is carried on the Pauli basis, ``(tau_0, tau_vec)``
+    # (:func:`~defuqumat.scf.density.spinor_kinetic_energy_density`), and the
+    # Route C turn rotates the density, ``becsum``, ``ns`` and the mixer's
+    # history but packs ``tau`` last and leaves it, in the state and in the
+    # history alike. The next potential then projects an unturned ``tau_vec``
+    # on the turned ``m-hat`` (:func:`~defuqumat.scf.potential._noncollinear_meta_exchange`).
+    # Turning it needs ``tau_vec`` rotated as ``m`` is, in ``tau_state`` and
+    # in the packed history, and on PAW its one-centre share checked; none of
+    # it is written.
+    functional = getattr(calculation, "functional", None)
+    if functional is not None and functional.is_meta:
+        raise NotImplementedError(
+            f"rotate_moments with a meta-GGA ({functional.name}): the "
+            "kinetic energy density tau of a spinor run has a vector part, "
+            "which turns with the moments, and the step does not turn it, in "
+            "the input or in the mixer's history; a meta-GGA runs at a fixed "
+            "orientation"
+        )
     # **A Hubbard U is turned with the step** (I112): ``ns`` turns as
     # ``conj(U) N U^T`` in its spin indices (:func:`~defuqumat.scf.orientation.rotate_ns`)
     # and its potential's share of the torque is added beside the grid
@@ -10498,8 +10517,10 @@ def run_scf(
                 # Everything carried into the next iteration turns together:
                 # the input density, ``becsum``, the mixer's history (whose Gram
                 # matrix a common rotation leaves alone) and the states the next
-                # diagonalisation starts from. ``tau`` is a scalar and needs no
-                # turn. The static GGA axis stays where it is: for a collinear
+                # diagonalisation starts from. ``tau`` is not turned: at
+                # ``nspin_mag = 4`` it has a vector part, so a meta-GGA is
+                # refused by :func:`_refuse_rotating_moments` (AUDIT-2026-11-20b
+                # #R2-extra). The static GGA axis stays where it is: for a collinear
                 # texture ``sign(m . u)`` is right for any axis not perpendicular
                 # to the moment (``notes/ORIENTATION-NEXT.md`` Route C).
                 turn = rotation_matrix(step)

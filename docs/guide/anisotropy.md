@@ -199,7 +199,10 @@ on the torque, in Ry per radian.
     only a guess. An unchanged $|M|$ does not show that the lowest solution
     was found. It
     gives an error for a Hubbard $U$ on a PAW dataset and for a fixed tensor
-    moment. A run
+    moment. It also gives an error for a potential-only meta-GGA (`tb09`,
+    `bj06`). In a spinor run the kinetic energy density $\tau$ has a vector
+    part, like the magnetization, and the step turns the magnetization but not
+    $\tau$. A run
     with symmetry needs `calc.with_turning_moments()` first. This keeps only the
     identity and the inversion, because only these stay symmetries when all
     moments turn together, and it builds the k-points again with them. Without

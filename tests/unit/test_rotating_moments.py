@@ -175,10 +175,13 @@ def _cobalt_system(*, nosym: bool, angle: float = 45.0):
 
 
 def _stub(*, nosym=False, turning=False, hubbard=False, paw=False,
-          tensor_moments=False):
+          tensor_moments=False, functional="pbe"):
+    from defuqumat.xc.functional import get_functional
+
     return SimpleNamespace(
         is_hubbard=hubbard, is_paw=paw,
         hubbard=SimpleNamespace(constraints=object() if tensor_moments else None),
+        functional=get_functional(functional),
         system=SimpleNamespace(nosym=nosym, turning_moments=turning))
 
 
@@ -323,6 +326,28 @@ def test_a_paw_run_on_the_turning_group_is_refused_and_nosym_paw_is_not():
     with pytest.raises(NotImplementedError, match="PAW"):
         _refuse_rotating_moments(_stub(turning=True, paw=True), None, True)
     _refuse_rotating_moments(_stub(nosym=True, paw=True), None, True)
+
+
+def test_a_meta_gga_is_refused_and_the_gga_beside_it_is_not():
+    """``tau`` of a spinor run has a vector part, and the turn leaves it (AUDIT-2026-11-20b #R2-extra).
+
+    The Route C turn rotates the density, ``becsum``, ``ns`` and the history, and
+    packs ``tau`` after all of them, unturned. The same stub with PBE passes, on
+    every dataset and group the refusals above admit.
+    """
+    for name in ("tb09", "bj06", "lmbj"):
+        for options in ({"nosym": True}, {"turning": True}, {"nosym": True, "paw": True}):
+            with pytest.raises(NotImplementedError, match="meta-GGA"):
+                _refuse_rotating_moments(_stub(functional=name, **options), None, True)
+    _refuse_rotating_moments(_stub(nosym=True), None, True)
+    _refuse_rotating_moments(_stub(turning=True), None, True)
+    _refuse_rotating_moments(_stub(nosym=True, paw=True), None, True)
+    _refuse_rotating_moments(_stub(nosym=True, hubbard=True), None, True)
+    _refuse_rotating_moments(_stub(nosym=True), _field_stub(), True)
+    # The coupling is checked first, as before, so a meta run without it reads
+    # the same message as any other.
+    with pytest.raises(ValueError, match="spin-orbit"):
+        _refuse_rotating_moments(_stub(functional="tb09", nosym=True), None, False)
 
 
 def test_the_stepper_keeps_the_starting_group_when_the_torque_respects_it():
