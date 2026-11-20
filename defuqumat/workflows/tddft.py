@@ -236,7 +236,17 @@ def run_absorption(
     if kpoints is not None:
         import equinox as eqx
 
-        system = eqx.tree_at(lambda s: s.kpoints, system, kpoints)
+        from defuqumat.system.kpoints import for_spin
+
+        # The ``for_spin`` boundary of a caller-built k-set, as in
+        # ``run_conductivity``, ``run_shg`` and ``run_shift_current``: a
+        # ``KPoints`` constructor applies the unpolarized factor of two, and at
+        # ``nspin = 2`` or for a spinor the fixed occupations then put twice the
+        # electrons in ``chi_0``'s pair weights. The Sternheimer referee reads
+        # the same weights, so ``static_residual`` cannot see it (audit
+        # 2026-11-20c #19). Idempotent on a set that is already normalised.
+        system = eqx.tree_at(
+            lambda s: s.kpoints, system, for_spin(kpoints, system.nspin))
     # The calculation the refusals read is the one the fixed-density run then
     # diagonalises in, rather than the first of three builds on one system,
     # two of them discarded (``OPEN.md`` Part III, H3). ``k_batch`` is what the
