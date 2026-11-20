@@ -297,10 +297,13 @@ class TipAssembly:
     """What :func:`~defuqumat.workflows.transport._assemble` needs of a tip.
 
     ``coefficients`` is ``(nE, n_channels, n_basis)``, shared by every tip
-    point, or ``(nE, npts, n_channels, n_basis)`` with one set per point, which
-    is what a wedge's images need (each image carries the orbital turned by its
-    operation). ``kappa`` is ``(nE,)`` in 1/bohr. ``ethr`` is the threshold the
-    bands were solved to, for the tail-noise estimate, or ``None``.
+    point, or ``(nE, n_images, n_channels, n_basis)`` with one set per image,
+    which is what a wedge's images need (each image carries the orbital turned
+    by its operation). The tip points are then laid out image-major,
+    ``points_per_image`` to an image, so point ``p`` takes the set of image ``p
+    // points_per_image`` (:meth:`at_points`). ``kappa`` is ``(nE,)`` in
+    1/bohr. ``ethr`` is the threshold the bands were solved to, for the
+    tail-noise estimate, or ``None``.
     """
 
     orbital: TipOrbital
@@ -320,6 +323,8 @@ class TipAssembly:
     #: "normal": n, "side": +-1, "spacing": bohr}`` with ``s_m`` the matching
     #: plane's crystal coordinate and ``n`` the unit normal towards the tip
     match: object = None
+    #: with one set of coefficients per image, how many tip points each image has
+    points_per_image: int | None = None
 
     def potential_at(self, points) -> np.ndarray | None:
         """``V(r)`` in Ry at crystal points, by its Fourier series (exact)."""
@@ -338,15 +343,26 @@ class TipAssembly:
     def per_point(self) -> bool:
         return np.ndim(self.coefficients) == 4
 
+    def at_points(self, ie: int, ic: int, points) -> np.ndarray:
+        """``(len(points), n_basis)``: channel ``ic``'s coefficients at energy
+        ``ie`` for the tip points ``points`` (indices), when they vary per
+        image. The images are not repeated per point: ``(nE, n_images, nc,
+        nb)`` is held, not ``(nE, n_images npts, nc, nb)`` (audit 2026-11-20
+        #34)."""
+        images = np.asarray(points) // int(self.points_per_image)
+        return np.asarray(self.coefficients)[ie, images, ic]
+
     @property
     def nchannels(self) -> int:
         return int(np.shape(self.coefficients)[-2])
 
-    def with_coefficients(self, coefficients, basis=None) -> "TipAssembly":
+    def with_coefficients(self, coefficients, basis=None,
+                          points_per_image=None) -> "TipAssembly":
         return TipAssembly(self.orbital, self.basis if basis is None else tuple(basis),
                            np.asarray(coefficients), self.frame, self.kappa,
                            self.ethr, self.channel_maps, self.diagnostic_points,
-                           self.potential, self.plateau, self.match)
+                           self.potential, self.plateau, self.match,
+                           points_per_image)
 
 
 # --------------------------------------------------------------------------

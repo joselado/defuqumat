@@ -11823,3 +11823,22 @@ tip orbital does not change what a map costs. **Memory**: the sampled block
 pixels per block; beside it there is one multiplied window `(n_window, npol npwx)` at a time, and the
 Fourier coefficients of the scalar potential for the diagnostics (one complex FFT grid). The process
 peak of the timing run was 1.02 GB, the SCF included.
+
+### The turned tip on a wedge, one set of coefficients per operation (audit 2026-11-20 #4, #5 and #34, this workstation, 2026-11-20)
+
+`_turned_tips` held the coefficients of a turned tip once per image point, `(nE, n_ops npts, nc, nb)`,
+which repeats the `(nE, n_ops, nc, nb)` array `npts` times. It now holds the latter and reads point `p`
+at operation `p // npts` (`TipAssembly.at_points`). Measured on a synthetic star (`HEXAGONAL` cell of
+`tests/unit/test_tip_orbitals.py`, one general k-point and its six images under C6, 5 bands), a 64x64
+tip plane, 51 energies, the tip `s + 0.7 px` (one channel, the whole s and p shells, `nb = 4`),
+`incoherent=True`, one core (`taskset -c 0-3`, `OMP_NUM_THREADS=1`), median of the last 5 of 6 calls of
+`_completed_on_a_wedge`: the coefficients are **80.2 MB before and 0.020 MB after**, the `tracemalloc`
+peak of `_turned_tips` 160.5 MB and 0.073 MB, and the time 0.756 s and 0.727 s. The maps are
+bit-identical (`np.array_equal` on the coherent, incoherent and channel maps, at 16x16 and 64x64), so
+the gain is memory only. The audit's case, 12 operations and a 64x64 plane at 51 energies, is 160 MB
+of coefficients before.
+
+The fix of #4 and #5 turns the channels of `pxy`, `p`, `CO` and `Pb` per image when `tip_channels=True`
+on a wedge. On the same star with `pxy`, `tip_channels=True`, it costs 1.318 s against 1.074 s before
+(1.23x, same protocol), for the per-point combination of the two channels; without `tip_channels` the
+path is unchanged.

@@ -537,8 +537,11 @@ def test_an_invariant_tip_is_not_turned_and_a_hybrid_is():
     hybrid = _turned_tips(_tip({"s": 1.0, "pz": -0.5}, cell),
                           [np.eye(3), mirror], cell, 4)
     assert hybrid is not None and hybrid.per_point
-    flipped = dict(zip(hybrid.basis, hybrid.coefficients[0, 4, 0]))
-    kept = dict(zip(hybrid.basis, hybrid.coefficients[0, 0, 0]))
+    # one set per operation, not per point (audit 2026-11-20 #34): the points
+    # are operation-major, four to an operation, so point 4 is the mirror's
+    assert hybrid.coefficients.shape[:2] == (1, 2) and hybrid.points_per_image == 4
+    flipped = dict(zip(hybrid.basis, hybrid.at_points(0, 0, [4])[0]))
+    kept = dict(zip(hybrid.basis, hybrid.at_points(0, 0, [3])[0]))
     assert flipped["pz"] == pytest.approx(-kept["pz"])
     assert flipped["s"] == pytest.approx(kept["s"])
 

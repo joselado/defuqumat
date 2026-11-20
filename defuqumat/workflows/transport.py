@@ -555,9 +555,10 @@ def _turned_tips(tip, rotations, cell, npts):
                                     atol=1e-12 * max(1.0, np.abs(density).max()))
     if same:
         return None
-    per_point = np.concatenate(
-        [np.repeat(image[:, None], npts, axis=1) for image in turned], axis=1)
-    return tip.with_coefficients(per_point, basis)
+    # ``(nE, n_ops, nc, nb)``: the image points are operation-major, ``npts``
+    # to an operation, and :meth:`TipAssembly.at_points` reads them that way
+    return tip.with_coefficients(np.stack(turned, axis=1), basis,
+                                 points_per_image=int(npts))
 
 
 def run_momentum_transport(
@@ -1249,8 +1250,9 @@ def _assemble(geometry, wavefunctions, eigenvalues, points, *,
                         weights_e = tip.coefficients[ie]
                         for ic in range(tip.nchannels):
                             if tip.per_point:
-                                combined = np.einsum("pb,bsnp->snp",
-                                                     weights_e[here, ic], sampled)
+                                combined = np.einsum(
+                                    "pb,bsnp->snp", tip.at_points(ie, ic, here),
+                                    sampled)
                             else:
                                 combined = np.einsum("b,bsnp->snp",
                                                      weights_e[ic], sampled)
