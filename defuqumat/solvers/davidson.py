@@ -178,16 +178,22 @@ __all__ = ["davidson_eigensolver", "davidson_eigensolver_all", "DAVID_NDIM",
 #: cache, not in the flop count, and the band loop had already collected it.
 DAVID_NDIM = 4
 
-#: Total budget of Davidson steps, matching QE's.
+#: Total budget of Davidson steps.
 #:
-#: ``cegterg``'s own ``maxter`` is 20, but ``c_bands.f90`` re-enters it up to
-#: five times (``ntry <= 5`` in ``test_exit_cond``), each time seeded with the
-#: current estimate -- so QE's real budget is 100 steps. Re-entering is the same
-#: operation as the subspace collapse this loop already performs when the basis
-#: fills up, so one loop of 100 reproduces it without the outer level. It costs
-#: nothing when the solve converges early, which inside an SCF it always does:
-#: the budget is only reached on a cold start, and on the band-structure runs
-#: where there is no SCF to spread the convergence over.
+#: ``cegterg``'s own ``maxter`` is 20, and ``c_bands.f90`` re-enters it while
+#: ``ntry <= 5`` in ``test_exit_cond``, each time seeded with the current
+#: estimate. ``ntry`` is counted before the test (``c_bands.f90:583-587``), so
+#: that is six calls and 120 steps outside an SCF, not 100. Inside an SCF
+#: ``pw.x`` re-enters only while more than five bands are unconverged, and with
+#: one to five it moves on to the density; this loop does not do that, and runs
+#: every call until each band settles or the budget is spent (audit 2026-11-20b
+#: #9, held for the user). Re-entering is the same operation as the subspace
+#: collapse this loop already performs when the basis fills up, so one loop
+#: reproduces it without the outer level. The budget is 100 for every caller.
+#: It costs nothing when the solve converges early, which inside an SCF it
+#: does on the benchmark cells measured (1 to 4 steps a call on si8-1k, si16-1k and
+#: si8-us-1k): it is reached on a cold start at a tight threshold, on the
+#: band-structure runs, and inside an SCF by a solve that stalls.
 MAX_ITERATIONS = 100
 
 #: Root-improvement threshold used when the caller does not supply one -- a
