@@ -282,7 +282,11 @@ itself needs 0.016 s.
     smaller than the PAW radius of `O.pz-kjpaw`. The template must have the same
     lattice vectors, not only the same lattice, the same atoms up to one
     translation, and the same spin setting: unpolarized, collinear for `nspin=2`,
-    or noncollinear for a magnetic noncollinear run. The code computes the
+    or noncollinear for a magnetic noncollinear run. A template from an Elk run
+    with DFT+U gives an error. Its `STATE.OUT` holds the potential matrix
+    `vmatmt` of the template density, and Elk would use it in its first loop
+    beside our density. A template from the same `elk.in` without `dft+u`
+    works, and Elk run with `dft+u` then starts this matrix at zero. The code computes the
     potential of Elk for the LDA (`xctype` 2 and 3) and for the PBE family of Elk
     (`xctype` 20, 21 and 22). A noncollinear state with PBE, a functional of
     libxc, a meta-GGA, a finite nucleus and an external magnetic field give an

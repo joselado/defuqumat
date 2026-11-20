@@ -252,6 +252,32 @@ def _write_on(tmp_path, template):
     return ElkState.read(out)
 
 
+def test_a_dft_u_template_is_refused(tmp_path):
+    """A template with ``dftu = 1`` would leave its ``vmatmt`` on file (AUDIT-2026-11-20 #1).
+
+    Elk 11.0.2 reads that matrix when the run and the file both have DFT+U
+    (``readstate.f90:251``) and diagonalises with it before rebuilding it, so
+    the first loop would pair our density with the template's U matrix. The
+    template here is the Si2 one with ``dftu = 1`` and a nonzero matrix; the
+    same template without it is the ``written`` fixture.
+    """
+    import dataclasses
+    import shutil
+
+    from defuqumat.io.elk_write import write_elk_state
+
+    template = tmp_path / "template"
+    shutil.copytree(TEMPLATE, template)
+    base = ElkState.read(template)
+    vmat = np.zeros((base.lmmaxdm, 1, base.lmmaxdm, 1, 2), dtype=complex)
+    vmat[1, 0, 1, 0, :] = vmat[2, 0, 2, 0, :] = vmat[3, 0, 3, 0, :] = -0.05
+    write_elk_state(template / "STATE.OUT", dataclasses.replace(base, dftu=1, vmatmt=vmat))
+    assert ElkState.read(template).dftu == 1
+    with pytest.raises(NotImplementedError, match="DFT\\+U state"):
+        _write_on(tmp_path, template)
+    assert not (tmp_path / "out" / "STATE.OUT").exists()
+
+
 def test_a_group_elk_did_not_use_is_refused(tmp_path):
     """INFO.OUT says 24 operations and elk.in says symtype 1: the two disagree."""
     template = _template_with(tmp_path, "", 24)

@@ -42,8 +42,9 @@ the shape of its core density at the nucleus are taken from it.
 waves to rebuild from), a one-centre correction reaching past Elk's
 muffin-tin radius (the all-electron density there would not be a smooth
 interstitial function; enlarge ``rmt``), a template of another cell, other
-atoms or another spin regime, and a spin-orbit run (no such cell has been run
-through Elk). A noncollinear state is written with its
+atoms or another spin regime, a DFT+U template (its ``vmatmt`` would be
+written beside our density and used in Elk's first diagonalisation), and a
+spin-orbit run (no such cell has been run through Elk). A noncollinear state is written with its
 magnetization vector (``ndmag = 3``); the magnetization a fully relativistic
 dataset's small component carries on its own (QE's ``pfunc_rel`` term) is
 left out, and the small component's charge is in every component, as QE's
@@ -278,6 +279,18 @@ def all_electron_state(result, calculation, template, core_region="auto", onecen
     base = ElkState.read(template, allow_noncollinear=True)
     params = read_elk_parameters(template)
     refuse_untranscribed(params, base.magmt is not None)
+    if base.dftu != 0:
+        # readstate.f90:251 reads vmatmt when the run and the file both have
+        # dftu, and gndstate.f90 diagonalises with it (genevfsv) before
+        # genvmatmt rebuilds it: a matrix of the template's density beside ours.
+        raise NotImplementedError(
+            f"the Elk template is a DFT+U state (dftu = {base.dftu}): its potential "
+            "matrix vmatmt would be written beside our density, and Elk reads it "
+            "and uses it in its first diagonalisation. That matrix belongs to the "
+            "template's density, and the DFT+U potential matrix of ours is not "
+            "computed here. Take the template from the same Elk input without "
+            "dft+u; Elk run with dft+u then starts its matrix at zero, since the "
+            "file has none (readstate.f90:251).")
     if core_region == "auto":
         gga = params.xctype[0] >= 20
         polarized = int(calculation.nspin_mag) > 1
