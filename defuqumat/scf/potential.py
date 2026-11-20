@@ -938,10 +938,12 @@ def meta_exchange(
     if functional.is_local_meta:
         # Below n = 1e-5 the local mBJ holds its potential at the clean vacuum
         # tail's value: the plane-wave density's noise floor would otherwise
-        # set the vacuum potential (P182, the vacuum check).
+        # set the vacuum potential (P182, the vacuum check). Each channel on its
+        # own density doubled, the density its exchange is evaluated at (audit
+        # 2026-11-20 #47); at nspin = 1 that is the total, bit for bit.
         from defuqumat.xc.mgga import hold_vacuum_potential
 
-        v = hold_vacuum_potential(v, total_r)
+        v = hold_vacuum_potential(v, 2.0 * channels_r)
     return v, c
 
 

@@ -248,6 +248,142 @@ def test_the_unmeasured_magnetic_regimes_are_refused(extra, words):
         _calculator("lmbj", extra).calculation
 
 
+#: A laterally uniform sheet in a 40 bohr cell. Only the dense grid and the
+#: cell are used: the density, ``tau`` and the potential are laid on them by
+#: hand, so the hold is checked on a tail whose two faces are chosen.
+_SHEET = """&control
+ calculation='scf'
+/
+&system
+ ibrav=6, celldm(1)=4.0, celldm(3)=10.0, nat=1, ntyp=1, ecutwfc=20.0
+/
+&electrons
+/
+ATOMIC_SPECIES
+ H 1.008 H.pbe-hgh.UPF
+ATOMIC_POSITIONS bohr
+ H 0.0 0.0 20.0
+K_POINTS automatic
+ 1 1 1 0 0 0
+"""
+_SHEET_LENGTH = 40.0
+
+
+@lru_cache(maxsize=1)
+def _sheet_grid():
+    calculation = Calculator.from_text(_SHEET, pseudo_dir=PSEUDO, announce=False).calculation
+    cell, dense = calculation.system.cell, calculation.basis.dense
+    n3 = int(dense.grid[2])
+    return cell, dense, np.arange(n3) * _SHEET_LENGTH / n3
+
+
+def _sheet_profile(z, kappa_above, kappa_below, peak=0.1, centre=20.0, a=3.0):
+    """``n(z)`` and ``dn/dz``: ``exp(-2 kappa_above u)`` above, ``exp(-2 kappa_below |u|)`` below.
+
+    ``n0 exp(-(ka + kb) sqrt(u^2 + a^2) - (ka - kb) u)``, summed over the
+    neighbouring images, with ``n0`` putting about ``peak`` at the centre. It is analytic in a strip of half-width ``a``, so its
+    Fourier series is converged on the dense grid to about 1e-13, and the meta
+    potential evaluated on it is a clean tail down to the gate.
+    """
+    n0 = peak * np.exp((kappa_above + kappa_below) * a)
+    n = np.zeros_like(z)
+    dn = np.zeros_like(z)
+    for image in (-1, 0, 1):
+        u = z - centre - image * _SHEET_LENGTH
+        root = np.sqrt(u * u + a * a)
+        f = n0 * np.exp(-(kappa_above + kappa_below) * root - (kappa_above - kappa_below) * u)
+        n += f
+        dn += f * (-(kappa_above + kappa_below) * u / root - (kappa_above - kappa_below))
+    return n, dn
+
+
+def _sheet_tau(n, dn):
+    """``tau`` in Ry: von Weizsaecker plus a third of Thomas-Fermi, any positive ``D``."""
+    return 2.0 * (dn * dn / (8.0 * n) + 0.3 * 0.6 * (3.0 * np.pi ** 2) ** (2.0 / 3.0) * n ** (5.0 / 3.0))
+
+
+def _sheet_potential(channels, monkeypatch=None, functional=None):
+    """``meta_exchange`` on laterally uniform channels; with ``monkeypatch``, the hold off.
+
+    Returns the potential along ``z``, ``(nspin, n3)``.
+    """
+    import jax
+    import defuqumat.xc.mgga as mgga
+    from defuqumat.basis.fft import r_to_g
+    from defuqumat.scf.potential import meta_exchange
+    from defuqumat.xc.functional import resolve_functional
+
+    cell, dense, _ = _sheet_grid()
+    grid = tuple(int(n) for n in dense.grid)
+    rho = jnp.asarray(np.stack([np.broadcast_to(n, grid) for n, _ in channels]))
+    tau = jnp.asarray(np.stack([np.broadcast_to(t, grid) for _, t in channels]))
+    rho_g = jax.vmap(r_to_g, in_axes=(0, None))(rho.astype(jnp.result_type(rho, 1j)),
+                                                dense.fft_index)
+    functional = functional or resolve_functional(["PZ"], "lmbj")
+    if monkeypatch is not None:
+        monkeypatch.setattr(mgga, "hold_vacuum_potential", lambda v, *args, **kwargs: v)
+    try:
+        v, _ = meta_exchange(rho, rho_g, tau, dense, cell, functional)
+    finally:
+        if monkeypatch is not None:
+            monkeypatch.undo()
+    return np.asarray(v)[:, 0, 0, :]
+
+
+def _held_reference(v_raw, rho):
+    """The hold written out on one channel along ``z``: the shell and ``w`` on ``rho``."""
+    from scipy.special import erf
+
+    from defuqumat.xc.mgga import LMBJ_HOLD_WIDTH, LMBJ_RHO_HOLD
+
+    positive = rho > 0.0
+    weight = np.where(positive, 0.5 * (1.0 + erf(
+        np.log(np.where(positive, rho, LMBJ_RHO_HOLD) / LMBJ_RHO_HOLD) / LMBJ_HOLD_WIDTH)), 0.0)
+    shell = (rho > LMBJ_RHO_HOLD) & (rho < 10.0 * LMBJ_RHO_HOLD)
+    tail = v_raw[shell].mean()
+    return weight * v_raw + (1.0 - weight) * tail
+
+
+def test_a_polarized_channel_is_held_on_its_own_density(monkeypatch):
+    """Each channel's shell and weight are on ``2 n_sigma`` (audit 2026-11-20 #47).
+
+    The channel potential is evaluated on the channel density, so where the
+    minority channel is on its own tail the total can still be well inside
+    the sheet. Here the minority carries 1e-4 of the majority: where the total
+    is between 1e-3 and 1e-2 the minority's ``2 n_sigma`` is below 2e-6, its
+    weight below 0.03, and its potential has to be held there. On the total's
+    shell it was left as evaluated.
+    """
+    _, _, z = _sheet_grid()
+    n, dn = _sheet_profile(z, 0.6, 1.0, peak=0.3)
+    ratio = 1e-4
+    channels = [(f * n, _sheet_tau(f * n, f * dn)) for f in (1.0 / (1.0 + ratio), ratio / (1.0 + ratio))]
+    held = _sheet_potential(channels)
+    raw = _sheet_potential(channels, monkeypatch)
+    for s, (rho, _) in enumerate(channels):
+        assert ((2.0 * rho > 1e-5) & (2.0 * rho < 1e-4)).sum() >= 3
+        expected = _held_reference(raw[s], 2.0 * rho)
+        assert np.abs(held[s] - expected).max() < 1e-12
+    inside = (n > 1e-3) & (2.0 * channels[1][0] < 2e-6)
+    assert inside.sum() >= 4
+    assert np.abs(held[1][inside] - raw[1][inside]).min() > 1e-3
+
+
+def test_an_unpolarized_pair_of_channels_is_held_as_one_channel():
+    """``(n/2, n/2)`` is ``n`` at ``nspin = 1``, on a sheet whose vacuum the hold reaches.
+
+    The SCF identity above runs on bulk silicon, where no point is in the
+    shell and the hold never acts, so it cannot see the hold.
+    """
+    _, _, z = _sheet_grid()
+    n, dn = _sheet_profile(z, 0.6, 1.0)
+    tau = _sheet_tau(n, dn)
+    assert ((n > 1e-5) & (n < 1e-4)).sum() >= 8
+    one = _sheet_potential([(n, tau)])
+    two = _sheet_potential([(0.5 * n, 0.5 * tau), (0.5 * n, 0.5 * tau)])
+    assert np.abs(two - one[0][None]).max() < 1e-12
+
+
 def test_the_vacuum_potential_is_held_at_the_clean_tails_value():
     """Below ``n = 1e-5`` the potential becomes its mean over ``1e-5 < n < 1e-4``.
 

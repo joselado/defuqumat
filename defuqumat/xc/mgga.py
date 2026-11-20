@@ -450,31 +450,39 @@ LMBJ_RHO_HOLD = 1.0e-5
 LMBJ_HOLD_WIDTH = 0.5 * 2.302585092994046  # ln(10)/2: the switch spans about a decade
 
 
-def hold_vacuum_potential(v, total_rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH):
+def hold_vacuum_potential(v, rho, rho_hold=LMBJ_RHO_HOLD, width=LMBJ_HOLD_WIDTH):
     """The meta potential blended into its clean-tail value where the density is low.
 
     Args:
         v: ``(nspin, ...)``, the channel potentials.
-        total_rho: the total density on the same grid.
+        rho: ``(nspin, ...)``, each channel's density **doubled**, ``2 n_sigma``,
+            the density each channel's exchange is evaluated at; a field of
+            ``v.shape[1:]`` is taken as the same for every channel.
 
         w(n) = [1 + erf(ln(n / rho_hold) / width)] / 2,   v_out = w v + (1 - w) v_tail,
 
-    ``v_tail`` per channel the mean of ``v`` over ``rho_hold < n < 10 rho_hold``.
-    ``w = 0`` where the density is not positive. A cell with no point in that
-    shell (a bulk crystal) keeps ``v`` as it is; it has no point below
-    ``rho_hold`` either, where ``w`` would act.
+    ``v_tail`` per channel the mean of ``v`` over ``rho_hold < n < 10 rho_hold``,
+    with ``n`` that channel's own ``2 n_sigma`` in the shell and in the weight
+    (audit 2026-11-20 #47): the channel potential is evaluated on the channel
+    density, so its clean tail is where that density is clean. At ``nspin = 1``
+    and on an unpolarized ``nspin = 2`` run ``2 n_sigma`` is the total, and the
+    two regimes hold the same potential. ``w = 0`` where the density is not
+    positive. ``w`` is 0.5 at ``rho_hold``, 0.73 at ``2 rho_hold`` and 0.998
+    at ``10 rho_hold``, so the blend acts below about ``10 rho_hold``, centred
+    on ``rho_hold``, not only below it. A channel with no point in its shell (a
+    bulk crystal whose lowest density is above ``10 rho_hold``) keeps ``v`` as
+    it is.
     """
     v = jnp.asarray(v)
-    total_rho = jnp.asarray(total_rho)
-    positive = total_rho > 0.0
-    log_ratio = jnp.log(jnp.where(positive, total_rho, rho_hold) / rho_hold)
+    rho = jnp.broadcast_to(jnp.asarray(rho), v.shape)
+    positive = rho > 0.0
+    log_ratio = jnp.log(jnp.where(positive, rho, rho_hold) / rho_hold)
     weight = jnp.where(positive, 0.5 * (1.0 + jax.scipy.special.erf(log_ratio / width)), 0.0)
-    shell = (total_rho > rho_hold) & (total_rho < 10.0 * rho_hold)
-    count = jnp.sum(shell)
+    shell = (rho > rho_hold) & (rho < 10.0 * rho_hold)
     axes = tuple(range(1, v.ndim))
-    v_tail = jnp.sum(jnp.where(shell[None], v, 0.0), axis=axes) / jnp.maximum(count, 1)
-    v_tail = v_tail.reshape((-1,) + (1,) * (v.ndim - 1))
-    held = weight[None] * v + (1.0 - weight[None]) * v_tail
+    count = jnp.sum(shell, axis=axes, keepdims=True)
+    v_tail = jnp.sum(jnp.where(shell, v, 0.0), axis=axes, keepdims=True) / jnp.maximum(count, 1)
+    held = weight * v + (1.0 - weight) * v_tail
     return jnp.where(count > 0, held, v)
 
 
