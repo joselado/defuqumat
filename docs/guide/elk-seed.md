@@ -290,7 +290,8 @@ itself needs 0.016 s.
     sublattices are related by half a lattice vector. Then the code takes the
     translation that puts our magnetic moments along the moments of the
     template, so the template must have the same magnetic order, set by
-    `bfcmt` in `elk.in`. If the moments of the template cannot decide, the
+    `bfcmt` in `elk.in`. In Elk the moment of an atom points against its field
+    `bfcmt`. If the moments of the template cannot decide, the
     code takes the smallest translation and gives a warning. A template from an Elk run
     with DFT+U gives an error. Its `STATE.OUT` holds the potential matrix
     `vmatmt` of the template density, and Elk would use it in its first loop

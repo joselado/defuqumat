@@ -144,7 +144,8 @@ def _match_atoms(calculation, geometry, moments=None):
                 "they put our site moments on different Elk atoms, while the "
                 "template's moments do not tell them apart. The one nearest zero "
                 "is taken; give the template the moments of this run (bfcmt in "
-                "elk.in) to fix the map.", stacklevel=3)
+                "elk.in, whose moment points against the field) to fix the map.",
+                stacklevel=3)
     return found[0]
 
 
@@ -251,14 +252,17 @@ def _muffin_tin_expansion(c, G, center, lmax, r, basis=None, bessel=None):
     rg, shells, indicator = _expansion_basis(G, lmax) if basis is None else basis
     jls = _bessel_table(shells, lmax, r) if bessel is None else bessel
     phase = np.exp(1j * G @ center)[None, :] * c
-    # (ncomp, nshell, lmmax): the sum over each shell of c_G e^{iG tau} R_lm(G).
-    amplitude = np.stack([indicator @ (phase[k][:, None] * rg) for k in range(c.shape[0])])
     out = np.zeros((c.shape[0], (lmax + 1) ** 2, len(r)))
     for l in range(lmax + 1):
-        for m in range(-l, l + 1):
-            lm = l * (l + 1) + m
-            out[:, lm] = (FOURPI * (1j ** l) * np.ascontiguousarray(amplitude[:, :, lm])
-                          @ jls[l]).real
+        block = slice(l * l, (l + 1) ** 2)
+        # (ncomp, nshell, 2l + 1): the sum over each shell of c_G e^{iG tau}
+        # R_lm(G), one l at a time so the complex (nG, 2l + 1) product is the
+        # largest temporary, not an (nG, lmmax) one.
+        amplitude = np.stack([indicator @ (phase[k][:, None] * rg[:, block])
+                              for k in range(c.shape[0])])
+        for m in range(2 * l + 1):
+            out[:, l * l + m] = (FOURPI * (1j ** l) * np.ascontiguousarray(amplitude[:, :, m])
+                                 @ jls[l]).real
     return out
 
 

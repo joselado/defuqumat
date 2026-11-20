@@ -11348,11 +11348,15 @@ call Elk and this code share; Elk has no counterpart to the density rebuilt from
 `_muffin_tin_expansion` rebuilt the real harmonics of every `G`, the shell table and `j_l(|G| r)` for
 every atom, and summed each shell with one `np.add.at` per `(l, m, component)`. The harmonics and the
 shells are now built once per call of `all_electron_state`, `j_l` once per species, and the shell sum
-is one sparse product per component. Measured on a synthetic cell (cubic, 20.4 bohr, every `G` of a
+is one sparse product per component and per `l`. Measured on a synthetic cell (cubic, 20.4 bohr, every `G` of a
 48^3 box, `nG` = 110592, about the audit's 16-atom supercell at `ecutrho` 240 Ry), `lmax` 6, two
 components (a collinear magnet), 300 radial points, 4 atoms, one core (`taskset -c 0`,
-`OMP_NUM_THREADS=1`), median of 5 after one warm call, both arms in one process twice: **10.34 s and
-10.44 s before, 3.23 s and 3.23 s after**, 2.59 s against 0.81 s an atom. The arrays are equal to the
+`OMP_NUM_THREADS=1`), median of 5 after one warm call, both arms in one process twice: **10.30 s and
+10.36 s before, 3.29 s and 3.37 s after**, 2.58 s against 0.83 s an atom. The memory goes the other
+way, a little: the `tracemalloc` peak of two atoms is 59.3 MiB before and 87.8 MiB after, since the
+harmonics and the `j_l` tables are now held across the atoms. A first version with one sparse product
+over all `l` at once took 3.23 s and peaked at 149.1 MiB, from its complex `(nG, lmmax)` temporary, so
+the product is taken one `l` at a time. The arrays are equal to the
 bit (`np.array_equal`) on core 0 and on core 4, since the sparse product adds the terms of a shell in
 the order of `G` as `np.add.at` did, and the Si2 `STATE.OUT` is the same file byte for byte. On the Si2
 template itself the gain is small, `all_electron_state` 1.074 s against 1.026 s (median of 5, core 0),
