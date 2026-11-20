@@ -841,8 +841,14 @@ class _WholeDisplacements:
                     becsum_response.append(solver.response_becsum(solution.dpsi))
         return response, becsum_response
 
+    def fermi_levels(self):
+        """``(ldos, dos_ef)``, ``localdos`` once for the whole loop."""
+        if getattr(self, "_levels", None) is None:
+            self._levels = self.solver.local_density_of_states()
+        return self._levels
+
     def fermi_level_shift(self, drho):
-        return self.solver.fermi_level_shift(drho)
+        return self.solver.fermi_level_shift(drho, levels=self.fermi_levels())
 
     def shift_states(self, shifts) -> None:
         """``ef_shift_wfc`` on every mode's ``dpsi``, ``shifts`` in mode order."""
@@ -929,9 +935,8 @@ def screening_loop(
         # the cell, so a metal's Fermi level moves with it and the response
         # density has to be corrected by ``def ldos`` before it screens
         # anything. Applied to the raw per-mode densities and *before* the
-        # symmetrisation, which is where QE applies it too -- ``ldos`` is a
-        # scalar under the group, so symmetrising ``def ldos`` as part of the
-        # displacement-labelled vector field is ``sym_def`` by another route.
+        # symmetrisation, which is where QE applies it too, and with the
+        # shifts averaged over the group first, as ``sym_def`` averages them.
         shifts = None
         if solver.smearing is not None and drhous is not None and not host:
             # **The count includes ``drhous``**, as ``solve_linter`` counts it:
@@ -948,6 +953,24 @@ def screening_loop(
             corrected = [displacements.fermi_level_shift(r) for r in response]
             response = [r for r, _ in corrected]
             shifts = [float(d) for _, d in corrected]
+        if shifts is not None and getattr(calculation, "use_symmetry", False) and not host:
+            # **``sym_def``** (``efermi_shift.f90:94``, AUDIT-2026-11-20b #12).
+            # On a wedge each raw shift is a wedge sum, and the symmetrisation
+            # below averages ``def ldos``, a product of two wedge objects, which
+            # is not the product of their averages; ``ef_shift_wfc`` puts the
+            # raw shift into ``dpsi`` with no average at all. Where every atom
+            # is an inversion centre the raw shift is zero and nothing moves
+            # (fcc aluminium); on hcp aluminium (site group -6m2) it was 1e-2 Ry
+            # per bohr with an average of zero, and the E mode read 150.96
+            # cm^-1 against 146.03 without symmetry. So the shifts are averaged
+            # as the per-atom vector they are, here, and the density takes the
+            # difference times the same ``ldos``.
+            raw = np.asarray(shifts, dtype=float).reshape(rows, 3)
+            averaged = calculation.symmetrize_atom_vector(raw, atoms).reshape(-1)
+            ldos = displacements.fermi_levels()[0]
+            response = [r + float(a - d) * ldos
+                        for r, a, d in zip(response, averaged, raw.reshape(-1))]
+            shifts = [float(a) for a in averaged]
         if shifts is not None and becsum_response:
             # ``ef_shift``'s PAW branch: the level's motion fills the Fermi
             # surface's projector occupations too, ``dbecsum += def becsum1``,

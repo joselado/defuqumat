@@ -298,6 +298,30 @@ def test_the_gamma_phonon_of_a_metal_matches_quantum_espresso():
         assert computed == pytest.approx(reference, abs=AL2_OPTICAL_TOLERANCE)
 
 
+def test_a_metal_off_inversion_centres_matches_nosym():
+    """hcp aluminium: the wedge and the whole grid give one matrix (AUDIT-2026-11-20b #12).
+
+    The Fermi level's shift per displacement is averaged over the group before
+    it enters the density and the states, ``ph.x``'s ``sym_def``. With the raw
+    wedge value the E mode read 150.9627 cm^-1 on the wedge against 146.0344 on
+    the whole grid, the matrices 1.5e-3 Ry/bohr^2 apart of 0.043; averaged,
+    146.0344 on both and 3.6e-7 apart. The B mode, 205.002, is not moved by it.
+    """
+    from defuqumat import Calculator
+
+    text = (CASES / "al2-hcp-metal.in").read_text()
+    matrices, frequencies = [], []
+    for extra in ("", "nosym = .true., noinv = .true.,"):
+        edited = text.replace("ecutwfc = 12.0,", f"ecutwfc = 12.0, {extra}")
+        calculator = Calculator.from_text(edited, PSEUDO, announce=False)
+        assert calculator.calculation.use_symmetry == (not extra)
+        phonons = calculator.get_phonons()
+        matrices.append(np.asarray(phonons.matrix))
+        frequencies.append(np.sort(np.asarray(phonons.frequencies)))
+    assert np.abs(matrices[0] - matrices[1]).max() < 1.0e-5
+    np.testing.assert_allclose(frequencies[0][3:], frequencies[1][3:], atol=1.0e-2)
+
+
 def test_a_metals_acoustic_sum_rule_is_the_basis_residue_and_not_a_weight_error():
     """``sum_b D_(a i)(b j) = 0``, and it is what the refusal was measured on.
 

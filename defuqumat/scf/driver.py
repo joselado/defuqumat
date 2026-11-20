@@ -5679,6 +5679,31 @@ class Calculation:
             tensors, self.system.cell, self.symmetries, mapping,
         ))
 
+    def symmetrize_atom_vector(self, vectors, atoms=None) -> np.ndarray:
+        """``symvector`` on ``(len(atoms), 3)``: one cartesian vector per displaced atom.
+
+        What a metal's Gamma phonon needs it for is ``sym_def``
+        (``LR_Modules/efermi_shift.f90``): the Fermi level's shift per
+        displacement, ``def_{a,i} = d e_F / d u_{a,i}``, is the derivative of a
+        scalar by a displacement and so transforms as a force does. On a wedge
+        the raw shift is a wedge sum and only its average over the group is the
+        whole zone's (AUDIT-2026-11-20b #12). Guarded on :attr:`use_symmetry`,
+        and ``atoms`` as :meth:`symmetrize_atom_pair_tensor` takes it.
+        """
+        from defuqumat.system.symmetry import (
+            atom_mapping, subset_atom_mapping, symmetrize_vector,
+        )
+
+        vectors = np.asarray(vectors, dtype=float)
+        if not self.use_symmetry:
+            return vectors
+        mapping = atom_mapping(self.system.cell, self.system.structure, self.symmetries)
+        if atoms is not None:
+            mapping = subset_atom_mapping(mapping, atoms)
+        return np.asarray(symmetrize_vector(
+            vectors, self.system.cell, self.symmetries, mapping,
+        ))
+
     def symmetrize_cartesian_tensor(self, tensor) -> np.ndarray:
         """``symmatrix3`` and its rank-4 sibling: a tensor of any rank.
 

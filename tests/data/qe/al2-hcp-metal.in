@@ -1,0 +1,32 @@
+! Two aluminium atoms in an hcp cell, norm-conserving LDA, smeared: a metal whose
+! atoms are **not inversion centres**. The site group is -6m2, and its mirror
+! sigma_h takes d(eps_k)/du_z at k to minus itself at (kx, ky, -kz), so on a
+! wedge that keeps one of the pair the Fermi level's shift per displacement,
+! def = d e_F / d u, is a wedge sum of order 1e-2 Ry/bohr whose average over the
+! group is zero. `ph.x` averages it (`sym_def`, `efermi_shift.f90`); the loop here
+! used the raw value until AUDIT-2026-11-20b #12, and the E mode read 150.96
+! cm^-1 on the wedge against 146.03 on the whole grid. Every committed metal
+! before this one had its atoms at inversion centres (fcc aluminium), where the
+! raw shift is zero and the defect could not show.
+!
+! Not a physical structure for aluminium: c/a ideal, a near the fcc
+! nearest-neighbour distance, 12 Ry, a Gamma-centred 4x4x2 grid (8 points on the
+! wedge, 32 without symmetry).
+ &control
+    calculation = 'scf'
+ /
+ &system
+    ibrav = 4, celldm(1) = 5.35, celldm(3) = 1.633,
+    nat = 2, ntyp = 1, ecutwfc = 12.0,
+    occupations = 'smearing', smearing = 'marzari-vanderbilt', degauss = 0.05
+ /
+ &electrons
+    conv_thr = 1.0d-12
+ /
+ATOMIC_SPECIES
+ Al 26.98 Al.pz-vbc.UPF
+ATOMIC_POSITIONS (crystal)
+ Al 0.333333333333 0.666666666667 0.25
+ Al 0.666666666667 0.333333333333 0.75
+K_POINTS automatic
+ 4 4 2 0 0 0
