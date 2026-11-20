@@ -854,7 +854,11 @@ def resolve_plane_chunk(grid, itemsize: int,
     ``n1 n2 (2 fields itemsize + potentials itemsize / 2)`` -- ``fields`` the
     wavefunction's spinor components (``npol``) and ``potentials`` the
     components of the potential multiplying them (``nspin_mag`` for a spinor,
-    1 otherwise) -- at least one plane and at most ``n3``.
+    1 otherwise) -- at least one plane and at most ``n3``, and then spread
+    evenly over ``n3``: as many chunks as that budget needs, each
+    ``ceil(n3 / nchunks)`` planes, so the zero planes of the padded tail are
+    fewer than the number of chunks. An explicit count, from the argument or
+    the environment, is taken as asked.
     ``DEFUQUMAT_PLANE_CHUNK`` takes a plane count, or ``all``/``0``/``off``/``none``
     for the whole box. The chunk is not visible in any result: the transforms
     are the same and only the order they are issued in changes.
@@ -868,7 +872,15 @@ def resolve_plane_chunk(grid, itemsize: int,
             return None
         else:
             plane = n1 * n2 * int(itemsize) * (2 * int(fields) + int(potentials) / 2)
-            return max(1, min(n3, int(PLANE_CHUNK_BYTES // max(1.0, plane))))
+            budget = max(1, min(n3, int(PLANE_CHUNK_BYTES // max(1.0, plane))))
+            # **Balanced over n3**, so the last chunk is not mostly padding:
+            # the padded planes are zero and still go through both ``xy``
+            # transforms (audit 2026-11-20b #8). The same number of chunks the
+            # budget needs, each as even as n3 allows, which is never more
+            # than the budget: 17 on si8-1k's 24 planes gave 34 planes
+            # transformed for 24, and 12 gives 24.
+            nchunks = -(-n3 // budget)
+            return -(-n3 // nchunks)
     if requested is None:
         return None
     if isinstance(requested, str):
