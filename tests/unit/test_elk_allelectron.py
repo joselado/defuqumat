@@ -178,6 +178,30 @@ def test_atoms_that_do_not_coincide_are_refused(tmp_path):
         calc.write_elk_state(tmp_path, TEMPLATE, calc.get_scf(max_iterations=1))
 
 
+@pytest.mark.parametrize("labels", [("O_up", "O_dn"), ("O1", "O2")])
+def test_a_label_with_a_tag_is_its_dataset_element(labels):
+    """Labels ``O_up`` and ``O_dn`` on oxygen match Elk's ``'O.in'`` (AUDIT-2026-11-20 #17).
+
+    The element was read off the label, two letters when the second is lower
+    case, so ``O_up`` was ``'Ou'`` and the template was refused as "do not
+    coincide". No SCF is needed: the atoms are matched before the density is read.
+    """
+    from defuqumat.io.elk import read_elk_geometry
+    from defuqumat.io.elk_allelectron import _match_atoms
+
+    text = O2.format(spin="nspin=2, starting_magnetization(1)=0.5, "
+                     "starting_magnetization(2)=0.5, occupations='smearing', degauss=0.02")
+    text = text.replace(", nat=2, ntyp=1,", ", nat=2, ntyp=2,").replace(
+        " O 15.99994 O.pz-kjpaw.UPF",
+        f" {labels[0]} 15.99994 O.pz-kjpaw.UPF\n {labels[1]} 15.99994 O.pz-kjpaw.UPF").replace(
+        " O 0.0 0.0 0.0\n O 0.0 0.0 3.4", f" {labels[0]} 0.0 0.0 0.0\n {labels[1]} 0.0 0.0 3.4")
+    calc = Calculator.from_text(text, pseudo_dir=PSEUDO, announce=False)
+    geometry = read_elk_geometry(TEMPLATE.parent / "o2_template_collinear" / "GEOMETRY.OUT")
+    order, shift = _match_atoms(calc.calculation, geometry)
+    assert order.tolist() == [0, 1]
+    np.testing.assert_allclose(shift, 0.0, atol=1e-5)
+
+
 def test_a_paw_correction_past_the_muffin_tin_is_refused(tmp_path, monkeypatch):
     """The one-centre term must end inside Elk's sphere; here the sphere is shrunk."""
     import dataclasses

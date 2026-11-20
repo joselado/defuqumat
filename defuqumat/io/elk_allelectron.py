@@ -57,6 +57,8 @@ from pathlib import Path
 
 import numpy as np
 
+from defuqumat.system.elements import element_symbol
+
 __all__ = ["all_electron_state", "write_elk_state_from"]
 
 FOURPI = 4.0 * np.pi
@@ -82,11 +84,15 @@ def _match_atoms(calculation, geometry):
     elk = np.asarray(geometry.positions, dtype=float)
     if len(ours) != len(elk):
         raise ValueError(f"the Elk template has {len(elk)} atoms and this calculation {len(ours)}")
-    names = [system.structure.species[t].name for t in system.structure.types]
-    elk_names = [geometry.species[i] for i, n in enumerate(geometry.natoms) for _ in range(n)]
+    # Our element is the dataset's, not the label's: a label is free text
+    # ('O_up', 'Cup'), and read as a symbol it can name another element.
+    names = [element_symbol(str(calculation.pseudos[t].element))
+             for t in system.structure.types]
+    elk_names = [_element(geometry.species[i])
+                 for i, n in enumerate(geometry.natoms) for _ in range(n)]
     best = None
     for candidate in range(len(ours)):
-        if _element(names[candidate]) != _element(elk_names[0]):
+        if names[candidate] != elk_names[0]:
             continue
         shift = elk[0] - ours[candidate]
         order = []
@@ -94,7 +100,7 @@ def _match_atoms(calculation, geometry):
             d = ours + shift - position
             d -= np.round(d)
             hits = np.nonzero(np.linalg.norm(d @ at, axis=1) < 1e-5)[0]
-            if len(hits) != 1 or _element(names[hits[0]]) != _element(elk_names[k]):
+            if len(hits) != 1 or names[hits[0]] != elk_names[k]:
                 break
             order.append(int(hits[0]))
         else:
@@ -108,10 +114,12 @@ def _match_atoms(calculation, geometry):
 
 
 def _element(name: str) -> str:
-    """The element symbol of a species name: ``'Si'``, ``'Si1'``, Elk's ``'O.in'``."""
-    name = str(name).strip().strip("'").split(".")[0]
-    letters = "".join(ch for ch in name if ch.isalpha())
-    return letters[:2].capitalize() if len(letters) > 1 and letters[1].islower() else letters[:1].upper()
+    """The element symbol of an Elk species file name, ``'O.in'`` or ``'Ni_afm.in'``.
+
+    The stem is read by ``pw.x``'s label rule (:func:`element_symbol`): a tag
+    after a digit, ``-`` or ``_`` is dropped, so ``'O_up'`` is oxygen.
+    """
+    return element_symbol(str(name).strip().strip("'").split(".")[0])
 
 
 def _qe_to_elk(lmax: int) -> np.ndarray:
